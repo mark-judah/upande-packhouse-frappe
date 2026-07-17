@@ -1,0 +1,272 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:BOX-{order_pick_list}-{box_number}",
+ "creation": "2026-02-18 18:55:09.395580",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "label_details_section",
+  "farm",
+  "farm_code",
+  "customer",
+  "length",
+  "box_number",
+  "order_pick_list",
+  "farm_pack_lis",
+  "qr_code",
+  "box_label",
+  "staging_location",
+  "column_break_ylwi",
+  "pack_rate",
+  "date",
+  "customer_purchase_order",
+  "consignee",
+  "truck_details",
+  "freight_agent",
+  "delivery_point",
+  "box_total_count",
+  "staged",
+  "loaded",
+  "loaded_internal_transfer",
+  "delivered",
+  "section_break_hads",
+  "box_item"
+ ],
+ "fields": [
+  {
+   "fieldname": "label_details_section",
+   "fieldtype": "Section Break",
+   "label": "Label Details"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer"
+  },
+  {
+   "fieldname": "length",
+   "fieldtype": "Link",
+   "label": "Length",
+   "options": "Stem Length"
+  },
+  {
+   "fieldname": "box_number",
+   "fieldtype": "Int",
+   "label": "Box Number"
+  },
+  {
+   "fieldname": "order_pick_list",
+   "fieldtype": "Link",
+   "label": "Order Pick List",
+   "options": "Order Pick List"
+  },
+  {
+   "fieldname": "qr_code",
+   "fieldtype": "Attach Image",
+   "label": "QR Code"
+  },
+  {
+   "fetch_from": "farm_pack_list_link.custom_farm",
+   "fieldname": "farm",
+   "fieldtype": "Link",
+   "label": "Farm",
+   "options": "Farm"
+  },
+  {
+   "fetch_from": "farm.kephis_farm_id",
+   "fieldname": "farm_code",
+   "fieldtype": "Data",
+   "label": "Farm Code"
+  },
+  {
+   "fieldname": "box_label",
+   "fieldtype": "Data",
+   "label": "Box Label"
+  },
+  {
+   "fieldname": "column_break_ylwi",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "pack_rate",
+   "fieldtype": "Int",
+   "label": "Pack Rate"
+  },
+  {
+   "fieldname": "date",
+   "fieldtype": "Date",
+   "label": "Date"
+  },
+  {
+   "fieldname": "customer_purchase_order",
+   "fieldtype": "Data",
+   "label": "Customer Purchase Order"
+  },
+  {
+   "fieldname": "consignee",
+   "fieldtype": "Link",
+   "label": "Consignee",
+   "options": "Consignee"
+  },
+  {
+   "fieldname": "truck_details",
+   "fieldtype": "Data",
+   "label": "Truck Details"
+  },
+  {
+   "fetch_from": "farm_pack_list_link.custom_shipping_agent",
+   "fieldname": "freight_agent",
+   "fieldtype": "Link",
+   "label": "Freight Agent",
+   "options": "Shipping Agent"
+  },
+  {
+   "fetch_from": "farm_pack_list_link.custom_delivery_point",
+   "fieldname": "delivery_point",
+   "fieldtype": "Link",
+   "label": "Delivery Point",
+   "options": "Delivery Point"
+  },
+  {
+   "fieldname": "box_total_count",
+   "fieldtype": "Int",
+   "label": "Box Total Count"
+  },
+  {
+   "default": "0",
+   "fieldname": "staged",
+   "fieldtype": "Check",
+   "label": "Staged"
+  },
+  {
+   "default": "0",
+   "fieldname": "loaded",
+   "fieldtype": "Check",
+   "label": "Loaded"
+  },
+  {
+   "default": "0",
+   "fieldname": "loaded_internal_transfer",
+   "fieldtype": "Check",
+   "label": "Loaded Internal Transfer"
+  },
+  {
+   "default": "0",
+   "fieldname": "delivered",
+   "fieldtype": "Check",
+   "label": "Delivered"
+  },
+  {
+   "fieldname": "section_break_hads",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "box_item",
+   "fieldtype": "Table",
+   "label": "Box Item",
+   "options": "Box Label Item"
+  },
+  {
+   "fieldname": "staging_location",
+   "fieldtype": "Data",
+   "label": "Staging Location"
+  },
+  {
+   "fieldname": "farm_pack_lis",
+   "fieldtype": "Link",
+   "label": "Farm Pack List",
+   "options": "Farm Pack List",
+   "read_only": 1,
+   "search_index": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-17 14:21:15.807620",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Box Label",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Assistant Packhouse Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Turacco Packhouse Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Burguret Packhouse Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Pendekeza Packhouse Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Packing Supervisor",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

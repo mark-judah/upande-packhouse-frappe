@@ -1,0 +1,54 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-03-17 16:31:24.831291",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "customer",
+  "delivery_point",
+  "loading_position"
+ ],
+ "fields": [
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Customer",
+   "options": "Customer",
+   "reqd": 1
+  },
+  {
+   "fieldname": "delivery_point",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Drop-off Point",
+   "options": "Delivery Point",
+   "reqd": 1
+  },
+  {
+   "description": "1 = loaded first (back of truck, dropped off last). Highest = loaded last (near door, dropped off first).",
+   "fieldname": "loading_position",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Loading Position",
+   "reqd": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-17 14:36:50.922251",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Loading Plan Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

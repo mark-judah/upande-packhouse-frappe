@@ -1,0 +1,78 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-10-22 08:28:34.152847",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "farm_pack_list",
+  "delivery_point",
+  "box_label",
+  "box_id",
+  "customer",
+  "position",
+  "vehicle"
+ ],
+ "fields": [
+  {
+   "fieldname": "farm_pack_list",
+   "fieldtype": "Link",
+   "label": "Farm Pack List",
+   "options": "Farm Pack List"
+  },
+  {
+   "fieldname": "delivery_point",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Delivery Point",
+   "options": "Delivery Point"
+  },
+  {
+   "fieldname": "box_label",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Box Label",
+   "options": "Box Label"
+  },
+  {
+   "fieldname": "box_id",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Box ID"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Customer",
+   "options": "Customer"
+  },
+  {
+   "fieldname": "position",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Position"
+  },
+  {
+   "fieldname": "vehicle",
+   "fieldtype": "Link",
+   "label": "Vehicle",
+   "options": "Vehicle"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-17 14:39:50.565478",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Loading Sheet Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

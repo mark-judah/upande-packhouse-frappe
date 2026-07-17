@@ -1,0 +1,288 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2025-02-03 09:31:23.896172",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "sales_order_details_section",
+  "farm",
+  "sales_order",
+  "order_pick_list",
+  "remote_truck_details",
+  "s_number",
+  "total_stems",
+  "consignee",
+  "customers_purchase_order",
+  "column_break_zmbt",
+  "customer",
+  "customer_address",
+  "picked_total_stems",
+  "delivery_point",
+  "sale_order_packrate",
+  "currency",
+  "shipping_agent",
+  "sale_order_number_of_boxes",
+  "section_break_cqsx",
+  "pack_list_item",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "sales_order_details_section",
+   "fieldtype": "Section Break",
+   "label": "Sales Order Details"
+  },
+  {
+   "fieldname": "section_break_cqsx",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "pack_list_item",
+   "fieldtype": "Table",
+   "label": "Pack List Item",
+   "options": "Farm Packlist Item"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "options": "FPL-.YYYY.-"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Farm Pack List",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "sales_order",
+   "fieldtype": "Link",
+   "label": "Sales Order",
+   "options": "Sales Order"
+  },
+  {
+   "fieldname": "order_pick_list",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Order Pick List",
+   "options": "Order Pick List",
+   "reqd": 1
+  },
+  {
+   "fieldname": "remote_truck_details",
+   "fieldtype": "Data",
+   "label": "Remote Truck Details"
+  },
+  {
+   "fieldname": "s_number",
+   "fieldtype": "Data",
+   "label": "S_Number"
+  },
+  {
+   "fieldname": "farm",
+   "fieldtype": "Link",
+   "label": "Farm",
+   "options": "Farm"
+  },
+  {
+   "fieldname": "total_stems",
+   "fieldtype": "Int",
+   "label": "Total Stems"
+  },
+  {
+   "fieldname": "consignee",
+   "fieldtype": "Link",
+   "label": "Consignee",
+   "options": "Consignee"
+  },
+  {
+   "fieldname": "customers_purchase_order",
+   "fieldtype": "Data",
+   "label": "Customer's Purchase Order"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer"
+  },
+  {
+   "fieldname": "customer_address",
+   "fieldtype": "Data",
+   "label": "Customer Address"
+  },
+  {
+   "fieldname": "picked_total_stems",
+   "fieldtype": "Data",
+   "label": "Picked Total Stems"
+  },
+  {
+   "fieldname": "delivery_point",
+   "fieldtype": "Link",
+   "label": "Delivery Point",
+   "options": "Delivery Point"
+  },
+  {
+   "fieldname": "sale_order_packrate",
+   "fieldtype": "Data",
+   "label": "Sale Order Packrate"
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency"
+  },
+  {
+   "fieldname": "shipping_agent",
+   "fieldtype": "Link",
+   "label": "Shipping Agent",
+   "options": "Shipping Agent"
+  },
+  {
+   "fieldname": "sale_order_number_of_boxes",
+   "fieldtype": "Data",
+   "label": "Sale Order Number Of Boxes"
+  },
+  {
+   "fieldname": "column_break_zmbt",
+   "fieldtype": "Column Break"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-07-17 14:07:27.124186",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Farm Pack List",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Assistant Packhouse Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Packing Supervisor",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Representative",
+   "select": 1,
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Turacco Packhouse Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "select": 1,
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Tambuzi Trainer",
+   "share": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Burguret Packhouse Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Pendekeza Packhouse Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "track_views": 1
+}

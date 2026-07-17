@@ -1,0 +1,113 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-07-17 14:06:08.860765",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "source_warehouse",
+  "customer",
+  "item_group",
+  "no_of_boxes",
+  "sales_order",
+  "box_id",
+  "column_break_kfem",
+  "item_code",
+  "bunch_uom",
+  "bunch_qty",
+  "stem_length",
+  "stock_qty",
+  "delivery_point"
+ ],
+ "fields": [
+  {
+   "fieldname": "source_warehouse",
+   "fieldtype": "Link",
+   "label": "Source Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "item_group",
+   "fieldtype": "Link",
+   "label": "Item Group",
+   "options": "Item Group"
+  },
+  {
+   "fieldname": "no_of_boxes",
+   "fieldtype": "Int",
+   "label": "No of Boxes"
+  },
+  {
+   "fieldname": "box_id",
+   "fieldtype": "Data",
+   "label": "Box ID"
+  },
+  {
+   "fieldname": "column_break_kfem",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "label": "Item Code",
+   "options": "Item"
+  },
+  {
+   "fieldname": "bunch_uom",
+   "fieldtype": "Link",
+   "label": "Bunch UOM",
+   "options": "UOM"
+  },
+  {
+   "fieldname": "bunch_qty",
+   "fieldtype": "Int",
+   "label": "Bunch Qty"
+  },
+  {
+   "fieldname": "stem_length",
+   "fieldtype": "Link",
+   "label": "Stem Length",
+   "options": "Stem Length"
+  },
+  {
+   "fieldname": "stock_qty",
+   "fieldtype": "Int",
+   "label": "Stock Qty"
+  },
+  {
+   "fetch_from": "sales_order_id.custom_delivery_point",
+   "fieldname": "delivery_point",
+   "fieldtype": "Data",
+   "label": "Delivery Point"
+  },
+  {
+   "fetch_from": "sales_order_id.customer",
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer"
+  },
+  {
+   "fieldname": "sales_order",
+   "fieldtype": "Link",
+   "label": "Sales Order",
+   "options": "Sales Order"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-17 14:10:26.374888",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Farm Packlist Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -1,0 +1,261 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2025-02-04 14:11:24.440875",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_break_4j6i",
+  "sales_order",
+  "customer",
+  "consignee",
+  "farm",
+  "column_break_fdik",
+  "item_group",
+  "date_created",
+  "naming_series",
+  "schedule_number",
+  "consumables_requested",
+  "allocation_details_section",
+  "team",
+  "order_name",
+  "column_break_lnia",
+  "mix_group",
+  "bunch_group",
+  "order_details_section",
+  "table_ytkc",
+  "bouquet_packing_guide_section",
+  "table_nade"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_4j6i",
+   "fieldtype": "Section Break",
+   "label": "Overview"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer"
+  },
+  {
+   "fieldname": "column_break_fdik",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sales_order",
+   "fieldtype": "Link",
+   "label": "Sales Order",
+   "options": "Sales Order"
+  },
+  {
+   "fieldname": "date_created",
+   "fieldtype": "Date",
+   "label": "Date Created"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Naming Series",
+   "options": "OPL-.YYYY.-"
+  },
+  {
+   "fieldname": "order_details_section",
+   "fieldtype": "Section Break",
+   "label": "Order Details"
+  },
+  {
+   "fieldname": "table_ytkc",
+   "fieldtype": "Table",
+   "options": "Pick List Item"
+  },
+  {
+   "fieldname": "bouquet_packing_guide_section",
+   "fieldtype": "Section Break",
+   "label": "Bouquet Packing Guide"
+  },
+  {
+   "fieldname": "table_nade",
+   "fieldtype": "Table",
+   "options": "Bouquet Packing Guide"
+  },
+  {
+   "fieldname": "consignee",
+   "fieldtype": "Link",
+   "label": "Consignee",
+   "options": "Consignee"
+  },
+  {
+   "fieldname": "farm",
+   "fieldtype": "Link",
+   "label": "Farm",
+   "options": "Farm"
+  },
+  {
+   "fieldname": "allocation_details_section",
+   "fieldtype": "Section Break",
+   "label": "Allocation Details"
+  },
+  {
+   "fieldname": "team",
+   "fieldtype": "Link",
+   "label": "Team",
+   "options": "Packing Teams"
+  },
+  {
+   "fieldname": "order_name",
+   "fieldtype": "Data",
+   "label": "Order Name"
+  },
+  {
+   "fieldname": "mix_group",
+   "fieldtype": "Data",
+   "label": "Mix Group"
+  },
+  {
+   "fieldname": "bunch_group",
+   "fieldtype": "Data",
+   "label": "Bunch Group"
+  },
+  {
+   "fieldname": "item_group",
+   "fieldtype": "Link",
+   "label": "Item Group",
+   "options": "Item Group"
+  },
+  {
+   "default": "0",
+   "fieldname": "consumables_requested",
+   "fieldtype": "Check",
+   "label": "Consumables Requested"
+  },
+  {
+   "fieldname": "column_break_lnia",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "schedule_number",
+   "fieldtype": "Data",
+   "label": "Schedule Number"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-07-17 13:32:34.255760",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Order Pick List",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "select": 1,
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "select": 1,
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Master Manager",
+   "select": 1,
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Representative",
+   "select": 1,
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales User",
+   "select": 1,
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Assistant Packhouse Manager",
+   "select": 1,
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Tambuzi Trainer",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Packing Supervisor",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "track_views": 1
+}

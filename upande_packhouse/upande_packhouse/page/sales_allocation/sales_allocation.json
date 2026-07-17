@@ -1,0 +1,31 @@
+{
+ "content": null,
+ "creation": "2025-11-10 14:10:33.140883",
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2025-11-10 14:10:33.140883",
+ "modified_by": "Administrator",
+ "module": "Upande Kaitet",
+ "name": "sales-allocation",
+ "owner": "Administrator",
+ "page_name": "sales-allocation",
+ "roles": [
+  {
+   "role": "Sales Manager"
+  },
+  {
+   "role": "Sales Master Manager"
+  },
+  {
+   "role": "Sales Representative"
+  },
+  {
+   "role": "Sales User"
+  }
+ ],
+ "script": null,
+ "standard": "Yes",
+ "style": null,
+ "system_page": 0
+}

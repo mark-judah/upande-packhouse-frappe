@@ -1,0 +1,209 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:spec_name",
+ "creation": "2026-05-31 00:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "section_break_components",
+  "customer",
+  "ftnft",
+  "spec_type",
+  "valid_from",
+  "expiry_date",
+  "status",
+  "category_code",
+  "spec_name",
+  "consumables_charge",
+  "documentation_charge",
+  "certificate_of_origin",
+  "column_break_cultural",
+  "cut_stage",
+  "defoliation_length",
+  "rubber_band_type",
+  "rubber_band_distance_1",
+  "rubber_band_distance_2",
+  "box_assortment",
+  "section_break_box_build",
+  "box_items",
+  "section_break_consumables",
+  "consumables"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_components",
+   "fieldtype": "Section Break",
+   "label": "Specification Components"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer"
+  },
+  {
+   "fieldname": "ftnft",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "FT/NFT",
+   "options": "\nFT\nNFT",
+   "reqd": 1
+  },
+  {
+   "default": "Permanent",
+   "fieldname": "spec_type",
+   "fieldtype": "Select",
+   "label": "Spec Type",
+   "options": "Permanent\nTemporary",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:doc.spec_type == \"Temporary\"",
+   "fieldname": "valid_from",
+   "fieldtype": "Date",
+   "label": "Valid From",
+   "mandatory_depends_on": "eval:doc.spec_type == \"Temporary\""
+  },
+  {
+   "depends_on": "eval:doc.spec_type == \"Temporary\"",
+   "description": "Spec auto-deactivates after this date.",
+   "fieldname": "expiry_date",
+   "fieldtype": "Date",
+   "label": "Expiry Date",
+   "mandatory_depends_on": "eval:doc.spec_type == \"Temporary\""
+  },
+  {
+   "default": "Active",
+   "description": "Auto-managed for temporary specs based on the validity window.",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Active\nInactive",
+   "read_only": 1
+  },
+  {
+   "description": "Retained as a naming helper (not part of the spec sheet).",
+   "fieldname": "category_code",
+   "fieldtype": "Data",
+   "label": "Category Code"
+  },
+  {
+   "fieldname": "spec_name",
+   "fieldtype": "Data",
+   "label": "Spec Name",
+   "read_only": 1,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "consumables_charge",
+   "fieldtype": "Check",
+   "label": "Consumables Charge"
+  },
+  {
+   "default": "0",
+   "fieldname": "documentation_charge",
+   "fieldtype": "Check",
+   "label": "Documentation Charge"
+  },
+  {
+   "default": "0",
+   "fieldname": "certificate_of_origin",
+   "fieldtype": "Check",
+   "label": "Certificate of Origin"
+  },
+  {
+   "fieldname": "column_break_cultural",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "cut_stage",
+   "fieldtype": "Select",
+   "label": "Cut Stage",
+   "options": "\n1.5-2\n2-2.5\n2.0-3.0\n2.5-3.0"
+  },
+  {
+   "fieldname": "defoliation_length",
+   "fieldtype": "Select",
+   "label": "Defoliation Length",
+   "options": "\n10\n12\n15\n20\n25\nWHOLE"
+  },
+  {
+   "fieldname": "rubber_band_type",
+   "fieldtype": "Select",
+   "label": "Rubber Band",
+   "options": "\nSpiral\nSingle Round\nDouble Round"
+  },
+  {
+   "description": "Distance from base",
+   "fieldname": "rubber_band_distance_1",
+   "fieldtype": "Data",
+   "label": "Distance from Base"
+  },
+  {
+   "depends_on": "eval:doc.rubber_band_type == \"Double Round\"",
+   "description": "Distance of the 2nd rubber band from base",
+   "fieldname": "rubber_band_distance_2",
+   "fieldtype": "Data",
+   "label": "2nd Band Distance"
+  },
+  {
+   "fieldname": "box_assortment",
+   "fieldtype": "Select",
+   "label": "Box Assortment",
+   "options": "\nMono Box\nMixed Box"
+  },
+  {
+   "fieldname": "section_break_box_build",
+   "fieldtype": "Section Break",
+   "label": "Box Build"
+  },
+  {
+   "fieldname": "box_items",
+   "fieldtype": "Table",
+   "label": "Box Items",
+   "options": "Spec Box Item"
+  },
+  {
+   "fieldname": "section_break_consumables",
+   "fieldtype": "Section Break",
+   "label": "Consumables"
+  },
+  {
+   "fieldname": "consumables",
+   "fieldtype": "Table",
+   "label": "Consumables",
+   "options": "Spec Consumable"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-17 15:30:24.939317",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Specifications",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
