@@ -1,0 +1,95 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-01-06 08:57:38.851211",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "customer_pricing_section",
+  "variety",
+  "type",
+  "stem_length",
+  "rate",
+  "currency",
+  "event",
+  "event_rate"
+ ],
+ "fields": [
+  {
+   "fieldname": "customer_pricing_section",
+   "fieldtype": "Section Break",
+   "label": "Customer Pricing"
+  },
+  {
+   "fieldname": "variety",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Variety",
+   "link_filters": "[[\"Item\",\"item_group\",\"in\",[\"Spray Roses\",\"Standard Roses\",\"Roses\"]]]",
+   "options": "Item",
+   "width": "1"
+  },
+  {
+   "fetch_from": "variety.item_group",
+   "fieldname": "type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Type",
+   "options": "Item Group",
+   "width": "1"
+  },
+  {
+   "fieldname": "stem_length",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Stem Length",
+   "options": "Stem Length",
+   "width": "1"
+  },
+  {
+   "fieldname": "rate",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Rate",
+   "width": "1"
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "width": "1"
+  },
+  {
+   "fieldname": "event",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Event",
+   "options": "\nValentine's Day\nMother's Day\nWomen's Day",
+   "width": "1"
+  },
+  {
+   "fieldname": "event_rate",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Event Rate",
+   "width": "1"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-17 16:55:56.471619",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Customer pricing",
+ "owner": "james@upande.com",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
