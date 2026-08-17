@@ -1,0 +1,45 @@
+{
+ "app": "upande_packhouse",
+ "charts": [],
+ "content": "[{\"id\": \"phnav0001\", \"type\": \"custom_block\", \"data\": {\"custom_block_name\": \"Packhouse Navigation\", \"col\": 12}}]",
+ "creation": "2026-08-16 12:35:52.076515",
+ "custom_blocks": [
+  {
+   "custom_block_name": "Packhouse Navigation",
+   "label": "Packhouse Navigation"
+  }
+ ],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "hide_custom": 0,
+ "icon": "shopping-cart",
+ "idx": 0,
+ "indicator_color": "green",
+ "is_hidden": 0,
+ "label": "Packhouse",
+ "link_type": "DocType",
+ "links": [],
+ "modified": "2026-08-16 12:35:52.076515",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Packhouse",
+ "number_cards": [],
+ "owner": "Administrator",
+ "public": 1,
+ "quick_lists": [],
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Sales User"
+  },
+  {
+   "role": "Sales Manager"
+  }
+ ],
+ "sequence_id": 0.0,
+ "shortcuts": [],
+ "title": "Packhouse",
+ "type": "Workspace"
+}

@@ -1,0 +1,88 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "creation": "2026-08-08 11:50:35.604356",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "farm",
+  "variety",
+  "bunch_size",
+  "stem_length",
+  "prev_week_avg",
+  "no_of_labels",
+  "farm_code"
+ ],
+ "fields": [
+  {
+   "fieldname": "farm",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Farm",
+   "options": "Farm"
+  },
+  {
+   "fieldname": "variety",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Variety",
+   "link_filters": "[[\"Item\",\"item_group\",\"not in\",[\"Products\",\"Raw Material\",\"Services\",\"Sub Assemblies\",\"Consumable\",\"Chemicals\",\"Fertilizers\",\"Stock Items\"]]]",
+   "options": "Item"
+  },
+  {
+   "fieldname": "bunch_size",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Bunch Size",
+   "link_filters": "[[\"UOM\",\"uom_name\",\"like\",\"Bunch%\"]]",
+   "options": "UOM"
+  },
+  {
+   "fieldname": "stem_length",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Stem Length",
+   "link_filters": "[[\"Stem Length\",\"docstatus\",\"=\",\"1\"]]",
+   "options": "Stem Length"
+  },
+  {
+   "description": "Average daily stems produced over the last 7 days (per variety + stem length, for this farm)",
+   "fieldname": "prev_week_avg",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Prev 7-Day Avg",
+   "precision": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "no_of_labels",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "No of Labels"
+  },
+  {
+   "fieldname": "farm_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Farm Code"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-08 11:50:35.604356",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Bunch Details Table",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

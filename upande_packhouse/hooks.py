@@ -144,9 +144,24 @@ app_license = "mit"
 # 		"on_trash": "method"
 # 	}
 # }
+doc_events = {
+	"Stock Entry": {"validate": "upande_packhouse.roses_invoice.sync_accounting_dimensions"},
+	"Sales Order": {"validate": "upande_packhouse.roses_invoice.sync_accounting_dimensions"},
+	"Sales Invoice": {"validate": "upande_packhouse.roses_invoice.sync_accounting_dimensions"},
+	"Delivery Note": {
+		"validate": "upande_packhouse.roses_invoice.sync_accounting_dimensions",
+		"on_submit": "upande_packhouse.roses_invoice.delivery_note_on_submit",
+	},
+}
 
 # Scheduled Tasks
 # ---------------
+
+scheduler_events = {
+	"daily": [
+		"upande_packhouse.spec.expire_temporary_specs",
+	],
+}
 
 # scheduler_events = {
 # 	"all": [
@@ -184,6 +199,9 @@ app_license = "mit"
 # override_doctype_dashboards = {
 # 	"Task": "upande_packhouse.task.get_dashboard_data"
 # }
+override_doctype_dashboards = {
+	"Stock Entry": "upande_packhouse.stock_entry_connections.get_dashboard_data"
+}
 
 # exempt linked doctypes from being automatically cancelled
 #

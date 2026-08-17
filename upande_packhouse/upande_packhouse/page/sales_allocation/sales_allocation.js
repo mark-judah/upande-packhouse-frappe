@@ -11,180 +11,218 @@ frappe.pages['sales-allocation'].on_page_load = function (wrapper) {
 
 frappe.pages['sales-allocation'].add_styles = function () {
     if (document.getElementById('sales-allocation-styles')) return;
+
+    // ufd-modern font stack (Poppins + JetBrains Mono) — matches every other
+    // Upande dashboard. Loaded once, applied only inside .ufd-sa so the rest
+    // of the Frappe Desk chrome (sidebar/topbar/other pages) is untouched.
+    if (!document.getElementById('sales-allocation-fonts')) {
+        const fontLink = document.createElement('link');
+        fontLink.id = 'sales-allocation-fonts';
+        fontLink.rel = 'stylesheet';
+        fontLink.href = 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&family=Poppins:wght@400;500;600;700&display=swap';
+        document.head.appendChild(fontLink);
+    }
+
     const styleEl = document.createElement('style');
     styleEl.id = 'sales-allocation-styles';
     styleEl.textContent = `
-        .sales-allocation-container {
-            padding: 15px;
-            background: #f5f7fa;
+        /* ═══ ufd-modern tokens (scoped — never touches the rest of Desk) ═══ */
+        .ufd-sa {
+            --ink:#0a0a0a; --ink-1:#1a1a18; --ink-2:#2a2a26; --ink-3:#3a3a34;
+            --ink-4:#5a5a52; --ink-mute:#8a8780; --ink-faint:#b8b6ae;
+            --bg:#f4f3ef; --surface:#fafaf6; --surface-2:#ffffff;
+            --hairline:rgba(10,10,10,0.07);
+            --shadow-card:0 1px 0 rgba(10,10,10,0.04), 0 8px 32px -16px rgba(10,10,10,0.10);
+            --shadow-hover:0 1px 0 rgba(10,10,10,0.06), 0 24px 48px -24px rgba(10,10,10,0.18);
+            --signal:#228883; --signal-soft:rgba(34,136,131,0.10);
+            --good:#1a8a3a; --good-soft:rgba(26,138,58,0.10);
+            --warn:#9a5a00; --warn-2:#f59e0b; --warn-soft:rgba(245,158,11,0.12);
+            --bad:#c4302b; --bad-2:#7a2218; --bad-soft:rgba(196,48,43,0.10);
+            --grad-ink:linear-gradient(135deg,#0a0a0a 0%,#3a3a34 100%);
+            --sans:'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+            --mono:'JetBrains Mono',ui-monospace,monospace;
+            font-family:var(--sans);
+        }
+        .ufd-sa, .ufd-sa input, .ufd-sa select, .ufd-sa button { font-family:var(--sans); }
+
+        .ufd-sa.sales-allocation-container {
+            padding: 24px;
+            background: var(--bg);
             min-height: calc(100vh - 120px);
         }
-        .allocation-panel {
-            background: white;
-            border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        .ufd-sa .allocation-panel {
+            background: var(--surface-2);
+            border-radius: 20px;
+            padding: 28px 30px;
+            box-shadow: var(--shadow-card);
         }
-        .panel-header {
+        .ufd-sa .panel-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 15px;
-            padding-bottom: 15px;
-            border-bottom: 2px solid #ecf0f1;
+            margin-bottom: 20px;
+            padding-bottom: 18px;
+            border-bottom: 1px solid var(--hairline);
         }
-        .panel-header h3 { color: #2c3e50; font-size: 16px; margin: 0; }
-        .sales-order-card {
-            border: 2px solid #ecf0f1;
-            border-radius: 6px;
-            padding: 15px;
+        .ufd-sa .panel-header h3 { color: var(--ink); font: 600 18px var(--sans); letter-spacing:-.4px; margin: 0; }
+        .ufd-sa .sales-order-card {
+            border: 1px solid var(--hairline);
+            border-radius: 14px;
+            padding: 16px 18px;
             margin-bottom: 10px;
             cursor: pointer;
             transition: all 0.2s;
+            box-shadow: var(--shadow-card);
         }
-        .sales-order-card:hover { border-color: #5e64ff; box-shadow: 0 2px 5px rgba(94,100,255,0.2); }
-        .sales-order-card.selected { border-color: #5e64ff; background: #f0f1ff; }
-        .loading-state, .empty-state { text-align: center; padding: 40px 20px; color: #95a5a6; }
-        .allocation-grid-table {
+        .ufd-sa .sales-order-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
+        .ufd-sa .sales-order-card.selected { box-shadow: inset 0 0 0 2px var(--ink), var(--shadow-hover); }
+        .ufd-sa .loading-state, .ufd-sa .empty-state { text-align: center; padding: 40px 20px; color: var(--ink-mute); }
+        .ufd-sa .allocation-grid-table {
             width: 100%;
             border-collapse: collapse;
             font-size: 13px;
             margin-bottom: 20px;
         }
-        .allocation-grid-table thead { background: #f5f7fa; position: sticky; top: 0; z-index: 10; }
-        .allocation-grid-table th {
-            padding: 10px 8px;
+        .ufd-sa .allocation-grid-table thead { background: var(--surface); position: sticky; top: 0; z-index: 10; }
+        .ufd-sa .allocation-grid-table th {
+            padding: 11px 10px;
             text-align: left;
-            font-weight: 600;
-            border-bottom: 2px solid #d1d8dd;
+            font: 600 11px var(--sans);
+            text-transform: uppercase;
+            letter-spacing: .6px;
+            color: var(--ink-mute);
+            border-bottom: 1px solid var(--hairline);
             white-space: nowrap;
         }
-        .allocation-grid-table td {
-            padding: 10px 8px;
-            border-bottom: 1px solid #ebeff2;
+        .ufd-sa .allocation-grid-table td {
+            padding: 11px 10px;
+            border-bottom: 1px solid var(--hairline);
             vertical-align: middle;
+            color: var(--ink-3);
         }
-        .allocation-grid-table tbody tr:hover { background: #f9fafb; }
-        .allocation-grid-table tbody tr.downgrade-bucket { background: #fffbeb; border-left: 3px solid #d97706; }
-        .allocation-grid-table tbody tr.previously-allocated-bucket { background: #e3f2fd; opacity: 0.85; border-left: 4px solid #2196f3; }
-        .allocation-grid-table tbody tr.preferred-farm-row { border-left: 3px solid #10b981; }
-        .allocation-grid-table tbody tr.awaiting-transfer-row { background: #fef3c7; border-left: 3px solid #f59e0b; }
-        .grid-badge {
+        .ufd-sa .allocation-grid-table tbody tr:hover { background: rgba(10,10,10,0.02); }
+        .ufd-sa .allocation-grid-table tbody tr.downgrade-bucket { background: var(--warn-soft); box-shadow: inset 3px 0 0 var(--warn-2); }
+        .ufd-sa .allocation-grid-table tbody tr.previously-allocated-bucket { background: rgba(10,10,10,0.03); opacity: 0.85; box-shadow: inset 3px 0 0 var(--ink-faint); }
+        .ufd-sa .allocation-grid-table tbody tr.preferred-farm-row { box-shadow: inset 3px 0 0 var(--signal); }
+        .ufd-sa .allocation-grid-table tbody tr.awaiting-transfer-row { background: var(--warn-soft); box-shadow: inset 3px 0 0 var(--warn-2); }
+        .ufd-sa .grid-badge {
             display: inline-block;
-            padding: 3px 7px;
-            border-radius: 10px;
-            font-size: 10px;
-            font-weight: bold;
+            padding: 3px 9px;
+            border-radius: 999px;
+            font: 700 10px var(--sans);
             text-transform: uppercase;
+            letter-spacing: .3px;
             margin: 1px;
         }
-        .badge-exact { background: #c6f6d5; color: #276749; }
-        .badge-downgrade { background: #feebc8; color: #d69e2e; }
-        .badge-preferred { background: #d1fae5; color: #065f46; }
-        .badge-awaiting { background: #fef3c7; color: #92400e; }
-        .badge-allocated { background: #2196f3; color: white; }
-        .badge-confirmed { background: #e4ffc1; color: #4a7c1f; }
-        .so-item-id {
-            background: #e0f2f1;
-            color: #00796b;
-            padding: 2px 6px;
-            border-radius: 4px;
+        .ufd-sa .badge-exact { background: var(--signal-soft); color: var(--signal); }
+        .ufd-sa .badge-downgrade { background: var(--warn-soft); color: var(--warn); }
+        .ufd-sa .badge-preferred { background: var(--signal-soft); color: var(--signal); }
+        .ufd-sa .badge-awaiting { background: var(--warn-soft); color: var(--warn); }
+        .ufd-sa .badge-allocated { background: var(--grad-ink); color: #fafaf6; }
+        .ufd-sa .badge-confirmed { background: var(--good-soft); color: var(--good); }
+        .ufd-sa .so-item-id {
+            background: var(--signal-soft);
+            color: var(--signal);
+            padding: 2px 7px;
+            border-radius: 999px;
             font-size: 10px;
-            font-family: monospace;
+            font-family: var(--mono);
             margin-left: 8px;
         }
 
         /* ─── Location selector ─── */
-        .location-selector {
-            background: #f8f9fa;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 15px;
+        .ufd-sa .location-selector {
+            background: var(--surface);
+            border: 1px solid var(--hairline);
+            border-radius: 16px;
+            padding: 18px;
+            margin-bottom: 18px;
         }
-        .location-selector h4 { margin: 0 0 10px 0; color: #2c3e50; font-size: 14px; font-weight: 600; }
-        .location-buttons { display: flex; gap: 10px; }
-        .location-btn {
+        .ufd-sa .location-selector h4 { margin: 0 0 12px 0; color: var(--ink); font: 600 13px var(--sans); text-transform:uppercase; letter-spacing:1px; }
+        .ufd-sa .location-buttons { display: flex; gap: 10px; }
+        .ufd-sa .location-btn {
             flex: 1;
-            padding: 12px;
-            border: 2px solid #d1d8dd;
-            border-radius: 6px;
-            background: white;
+            padding: 14px;
+            border: 1px solid var(--hairline);
+            border-radius: 14px;
+            background: var(--surface-2);
             cursor: pointer;
             text-align: center;
             font-weight: 600;
+            color: var(--ink-3);
+            box-shadow: var(--shadow-card);
             transition: all 0.2s;
         }
-        .location-btn:hover { border-color: #5e64ff; background: #f0f1ff; }
-        .location-btn.active { border-color: #5e64ff; background: #5e64ff; color: white; }
-        .location-info {
-            margin-top: 10px;
-            padding: 8px 12px;
-            background: #e3f2fd;
-            border-left: 4px solid #2196f3;
-            border-radius: 4px;
+        .ufd-sa .location-btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
+        .ufd-sa .location-btn.active { background: var(--grad-ink); color: #fafaf6; box-shadow: 0 4px 14px rgba(10,10,10,0.20); }
+        .ufd-sa .location-info {
+            margin-top: 12px;
+            padding: 10px 14px;
+            background: var(--signal-soft);
+            border-radius: 12px;
             font-size: 12px;
-            color: #1565c0;
+            color: var(--ink-3);
         }
 
         /* ─── Farm filter in dialog ─── */
-        .farm-filter-bar {
-            background: #f8f9fa;
-            border: 1px solid #e0e0e0;
-            border-radius: 6px;
-            padding: 12px 16px;
-            margin-bottom: 16px;
+        .ufd-sa .farm-filter-bar {
+            background: var(--surface);
+            border: 1px solid var(--hairline);
+            border-radius: 14px;
+            padding: 14px 18px;
+            margin-bottom: 18px;
             display: flex;
             align-items: center;
             gap: 16px;
             flex-wrap: wrap;
         }
-        .farm-filter-bar label.title {
+        .ufd-sa .farm-filter-bar label.title {
             font-weight: 600;
-            color: #2c3e50;
+            color: var(--ink);
             font-size: 13px;
             white-space: nowrap;
         }
-        .farm-checkbox-group { display: flex; gap: 12px; flex-wrap: wrap; }
-        .farm-checkbox-item {
+        .ufd-sa .farm-checkbox-group { display: flex; gap: 10px; flex-wrap: wrap; }
+        .ufd-sa .farm-checkbox-item {
             display: flex;
             align-items: center;
             gap: 6px;
-            padding: 6px 10px;
-            border: 1px solid #d1d8dd;
-            border-radius: 20px;
-            background: white;
+            padding: 7px 12px;
+            border: 1px solid var(--hairline);
+            border-radius: 999px;
+            background: var(--surface-2);
             cursor: pointer;
             font-size: 12px;
+            color: var(--ink-3);
             transition: all 0.15s;
             user-select: none;
         }
-        .farm-checkbox-item:hover { border-color: #5e64ff; background: #f0f1ff; }
-        .farm-checkbox-item.checked { border-color: #5e64ff; background: #5e64ff; color: white; }
-        .farm-checkbox-item.checked .farm-badge { background: rgba(255,255,255,0.25); color: white; }
-        .farm-badge {
+        .ufd-sa .farm-checkbox-item:hover { box-shadow: var(--shadow-card); }
+        .ufd-sa .farm-checkbox-item.checked { background: var(--grad-ink); color: #fafaf6; border-color: transparent; }
+        .ufd-sa .farm-checkbox-item.checked .farm-badge { background: rgba(255,255,255,0.2); color: #fafaf6; }
+        .ufd-sa .farm-badge {
             font-size: 9px;
-            padding: 2px 5px;
-            border-radius: 8px;
-            background: #e0e0e0;
-            color: #555;
+            padding: 2px 6px;
+            border-radius: 999px;
+            background: rgba(10,10,10,0.06);
+            color: var(--ink-mute);
             text-transform: uppercase;
         }
-        .farm-badge.sales { background: #d1fae5; color: #065f46; }
-        .farm-badge.remote { background: #fef3c7; color: #92400e; }
-        .current-so-item {
-            background: #f0f9ff;
-            border: 2px solid #1e88e5;
-            border-radius: 8px;
-            padding: 15px;
+        .ufd-sa .farm-badge.sales { background: var(--signal-soft); color: var(--signal); }
+        .ufd-sa .farm-badge.remote { background: var(--warn-soft); color: var(--warn); }
+        .ufd-sa .current-so-item {
+            background: var(--surface-2);
+            border-radius: 18px;
+            padding: 18px;
             margin-bottom: 16px;
+            box-shadow: var(--shadow-card);
         }
 
         /* ─── Mix filter in dialog ─── */
-        .mix-filter-bar {
-            background: #faf5ff;
-            border: 1px solid #d8b4fe;
-            border-radius: 6px;
+        .ufd-sa .mix-filter-bar {
+            background: var(--surface);
+            border: 1px solid var(--hairline);
+            border-radius: 12px;
             padding: 10px 16px;
             margin-bottom: 16px;
             display: flex;
@@ -192,154 +230,170 @@ frappe.pages['sales-allocation'].add_styles = function () {
             gap: 12px;
             flex-wrap: wrap;
         }
-        .mix-filter-bar label.title {
+        .ufd-sa .mix-filter-bar label.title {
             font-weight: 600;
-            color: #6b21a8;
+            color: var(--ink);
             font-size: 13px;
             white-space: nowrap;
         }
-        .mix-filter-bar select {
-            padding: 6px 10px;
-            border: 1px solid #d8b4fe;
-            border-radius: 4px;
+        .ufd-sa .mix-filter-bar select {
+            padding: 7px 12px;
+            border: 1px solid var(--hairline);
+            border-radius: 999px;
             font-size: 12px;
-            background: white;
-            color: #4c1d95;
+            background: var(--surface-2);
+            color: var(--ink-3);
             min-width: 200px;
         }
-        .mix-filter-bar .mix-count {
+        .ufd-sa .mix-filter-bar .mix-count {
             font-size: 11px;
-            color: #6b21a8;
+            color: var(--ink-mute);
             margin-left: auto;
         }
 
         /* ─── Confirmed stems banner ─── */
-        .confirmed-stems-banner {
-            background: #e4ffc1;
-            border: 1px solid #8bd346;
-            border-radius: 6px;
-            padding: 8px 12px;
+        .ufd-sa .confirmed-stems-banner {
+            background: var(--good-soft);
+            border-radius: 12px;
+            padding: 10px 14px;
             margin-bottom: 10px;
             font-size: 12px;
-            color: #4a7c1f;
+            color: var(--good);
             display: flex;
             align-items: center;
             gap: 8px;
         }
-        .confirmed-stems-banner strong { font-size: 13px; }
-        .confirmed-chip-alloc {
+        .ufd-sa .confirmed-stems-banner strong { font-size: 13px; }
+        .ufd-sa .confirmed-chip-alloc {
             display: inline-block;
-            padding: 2px 8px;
-            border-radius: 10px;
-            background: #d1fae5;
-            color: #065f46;
+            padding: 2px 9px;
+            border-radius: 999px;
+            background: var(--signal-soft);
+            color: var(--signal);
             font-size: 11px;
             font-weight: 600;
             margin: 0 3px;
         }
 
         /* ─── Per-item inline filter bar ─── */
-        .item-batch-filter {
+        .ufd-sa .item-batch-filter {
             display: flex;
             align-items: center;
             gap: 10px;
             flex-wrap: wrap;
-            background: #f8f9fa;
-            border: 1px solid #e0e0e0;
-            border-radius: 5px;
-            padding: 6px 10px;
+            background: var(--surface);
+            border: 1px solid var(--hairline);
+            border-radius: 10px;
+            padding: 7px 12px;
             margin-bottom: 10px;
             font-size: 11px;
         }
-        .item-batch-filter .ibf-label {
+        .ufd-sa .item-batch-filter .ibf-label {
             font-weight: 600;
-            color: #2c3e50;
+            color: var(--ink);
             font-size: 11px;
             white-space: nowrap;
         }
-        .item-batch-filter .ibf-sep {
+        .ufd-sa .item-batch-filter .ibf-sep {
             width: 1px;
             height: 18px;
-            background: #d1d8dd;
+            background: var(--hairline);
             flex-shrink: 0;
         }
-        .item-batch-filter .ibf-group {
+        .ufd-sa .item-batch-filter .ibf-group {
             display: flex;
             align-items: center;
             gap: 4px;
         }
-        .item-batch-filter .ibf-group-label {
+        .ufd-sa .item-batch-filter .ibf-group-label {
             font-size: 10px;
-            color: #6c757d;
+            color: var(--ink-mute);
             font-weight: 600;
             white-space: nowrap;
         }
-        .item-batch-filter select.ibf-select {
-            padding: 2px 6px;
-            border: 1px solid #d1d8dd;
-            border-radius: 4px;
+        .ufd-sa .item-batch-filter select.ibf-select {
+            padding: 2px 7px;
+            border: 1px solid var(--hairline);
+            border-radius: 999px;
             font-size: 11px;
-            background: white;
+            background: var(--surface-2);
+            color: var(--ink-3);
             cursor: pointer;
             max-width: 80px;
         }
-        .item-batch-filter .ibf-range-sep {
+        .ufd-sa .item-batch-filter .ibf-range-sep {
             font-size: 10px;
-            color: #999;
+            color: var(--ink-mute);
         }
-        .item-batch-filter .ibf-clear {
-            padding: 2px 8px;
-            border: 1px solid #d1d8dd;
-            border-radius: 4px;
-            background: white;
+        .ufd-sa .item-batch-filter .ibf-clear {
+            padding: 3px 10px;
+            border: 1px solid var(--hairline);
+            border-radius: 999px;
+            background: var(--surface-2);
             cursor: pointer;
             font-size: 10px;
+            color: var(--ink-4);
             margin-left: auto;
             transition: all 0.15s;
         }
-        .item-batch-filter .ibf-clear:hover { border-color: #e74c3c; color: #e74c3c; }
+        .ufd-sa .item-batch-filter .ibf-clear:hover { background: var(--bad); border-color: var(--bad); color: #fff; }
         /* ─── Substitute variety button ─── */
-        .substitute-btn {
-            padding: 3px 10px;
-            border: 1px solid #e67e22;
-            border-radius: 4px;
-            background: #fff8f0;
-            color: #e67e22;
+        .ufd-sa .substitute-btn {
+            padding: 4px 12px;
+            border: 1px solid var(--hairline);
+            border-radius: 999px;
+            background: var(--surface-2);
+            color: var(--ink-4);
             cursor: pointer;
             font-size: 11px;
             font-weight: 600;
             transition: all 0.15s;
         }
-        .substitute-btn:hover { background: #e67e22; color: white; }
-        .sub-variety-card {
-            border: 1px solid #e0e0e0;
-            border-radius: 6px;
-            padding: 10px 12px;
-            margin-bottom: 6px;
+        .ufd-sa .substitute-btn:hover { background: var(--ink); border-color: var(--ink); color: #fafaf6; }
+        .ufd-sa .sub-variety-card {
+            border: 1px solid var(--hairline);
+            border-radius: 14px;
+            padding: 12px 14px;
+            margin-bottom: 8px;
             cursor: pointer;
             transition: all 0.15s;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
-        .sub-variety-card:hover { border-color: #5e64ff; background: #f0f1ff; }
-        .sub-variety-card.recommended { border-left: 3px solid #10b981; background: #f0fdf4; }
-        .sub-variety-card .sub-name { font-weight: 600; font-size: 13px; color: #2c3e50; }
-        .sub-variety-card .sub-meta { font-size: 11px; color: #6c757d; }
-        .sub-variety-card .sub-badge {
+        .ufd-sa .sub-variety-card:hover { box-shadow: var(--shadow-hover); transform: translateY(-1px); }
+        .ufd-sa .sub-variety-card.recommended { box-shadow: inset 3px 0 0 var(--signal); background: var(--signal-soft); }
+        .ufd-sa .sub-variety-card .sub-name { font-weight: 600; font-size: 13px; color: var(--ink); }
+        .ufd-sa .sub-variety-card .sub-meta { font-size: 11px; color: var(--ink-mute); }
+        .ufd-sa .sub-variety-card .sub-badge {
             font-size: 9px;
-            padding: 2px 6px;
-            border-radius: 8px;
+            padding: 2px 8px;
+            border-radius: 999px;
             font-weight: 600;
             text-transform: uppercase;
         }
+
+        /* ─── Buttons & dialogs, scoped so the rest of Desk is untouched ─── */
+        .ufd-sa .btn { font-family: var(--sans); border-radius: 999px !important; font-weight: 600; }
+        .ufd-sa .btn-primary, .ufd-sa .btn-primary:focus { background: var(--grad-ink) !important; border-color: transparent !important; box-shadow: 0 2px 8px rgba(10,10,10,0.15); }
+        .ufd-sa .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(10,10,10,0.22); }
+        .ufd-sa .btn-default { background: var(--surface-2) !important; border-color: var(--hairline) !important; color: var(--ink-3) !important; }
+        .ufd-sa .btn-default:hover { background: var(--ink) !important; color: #fafaf6 !important; }
+        .ufd-sa .btn-danger, .ufd-sa .btn-danger:focus { background: var(--bad) !important; border-color: transparent !important; }
+        .ufd-sa .btn-danger:hover { background: var(--bad-2) !important; }
+        .modal-dialog.ufd-sa-modal .modal-content { border-radius: 20px; border: 0; box-shadow: var(--shadow-hover); font-family: var(--sans); }
+        .modal-dialog.ufd-sa-modal .modal-header { border-bottom: 1px solid var(--hairline); }
+        .modal-dialog.ufd-sa-modal .modal-title { font: 600 17px var(--sans); color: var(--ink); letter-spacing:-.3px; }
+        .modal-dialog.ufd-sa-modal .modal-footer { border-top: 1px solid var(--hairline); }
+        .modal-dialog.ufd-sa-modal, .modal-dialog.ufd-sa-modal input, .modal-dialog.ufd-sa-modal select, .modal-dialog.ufd-sa-modal textarea { font-family: var(--sans); }
+        .modal-dialog.ufd-sa-modal .control-input, .modal-dialog.ufd-sa-modal textarea.form-control { border-radius: 10px; border-color: var(--hairline); }
     `;
     document.head.appendChild(styleEl);
 };
 
 frappe.pages['sales-allocation'].make = function (page) {
     frappe.pages['sales-allocation'].page = page;
-    let $container = $('<div class="sales-allocation-container"></div>').appendTo(page.main);
+    let $container = $('<div class="sales-allocation-container ufd-sa"></div>').appendTo(page.main);
 
     page.add_inner_button(__('Refresh'), function () {
         frappe.pages['sales-allocation'].load_sales_orders();
@@ -357,29 +411,29 @@ frappe.pages['sales-allocation'].make = function (page) {
                 <div class="location-info" id="locationInfo" style="display:none;"></div>
             </div>
 
-            <div class="filter-section" style="padding:12px;border-bottom:1px solid #e0e0e0;background:#f8f9fa;">
+            <div class="filter-section" style="padding:14px 16px;border-bottom:1px solid var(--hairline);background:var(--surface);border-radius:14px;margin-bottom:16px;">
                 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px;">
                     <div style="display:flex;gap:5px;align-items:center;">
-                        <label style="font-size:11px;color:#6c757d;white-space:nowrap;">Posting Date:</label>
-                        <input type="date" id="orderStartDate" style="flex:1;padding:6px;border:1px solid #d1d8dd;border-radius:4px;font-size:12px;">
-                        <span style="color:#6c757d;">to</span>
-                        <input type="date" id="orderEndDate" style="flex:1;padding:6px;border:1px solid #d1d8dd;border-radius:4px;font-size:12px;">
+                        <label style="font-size:11px;color:var(--ink-mute);white-space:nowrap;">Posting Date:</label>
+                        <input type="date" id="orderStartDate" style="flex:1;padding:7px 10px;border:1px solid var(--hairline);border-radius:8px;font-size:12px;background:var(--surface-2);color:var(--ink-3);">
+                        <span style="color:var(--ink-mute);">to</span>
+                        <input type="date" id="orderEndDate" style="flex:1;padding:7px 10px;border:1px solid var(--hairline);border-radius:8px;font-size:12px;background:var(--surface-2);color:var(--ink-3);">
                     </div>
                     <div style="display:flex;gap:5px;align-items:center;">
-                        <label style="font-size:11px;color:#6c757d;white-space:nowrap;">Delivery:</label>
-                        <input type="date" id="deliveryStartDate" style="flex:1;padding:6px;border:1px solid #d1d8dd;border-radius:4px;font-size:12px;">
-                        <span style="color:#6c757d;">to</span>
-                        <input type="date" id="deliveryEndDate" style="flex:1;padding:6px;border:1px solid #d1d8dd;border-radius:4px;font-size:12px;">
+                        <label style="font-size:11px;color:var(--ink-mute);white-space:nowrap;">Delivery:</label>
+                        <input type="date" id="deliveryStartDate" style="flex:1;padding:7px 10px;border:1px solid var(--hairline);border-radius:8px;font-size:12px;background:var(--surface-2);color:var(--ink-3);">
+                        <span style="color:var(--ink-mute);">to</span>
+                        <input type="date" id="deliveryEndDate" style="flex:1;padding:7px 10px;border:1px solid var(--hairline);border-radius:8px;font-size:12px;background:var(--surface-2);color:var(--ink-3);">
                     </div>
                     <div style="display:flex;gap:5px;">
-                        <input type="text" id="orderSearchInput" placeholder="Search order, customer, order name, variety..." style="flex:1;padding:6px;border:1px solid #d1d8dd;border-radius:4px;font-size:12px;">
-                        <select id="priorityFilter" style="padding:6px;border:1px solid #d1d8dd;border-radius:4px;font-size:12px;">
+                        <input type="text" id="orderSearchInput" placeholder="Search order, customer, order name, variety..." style="flex:1;padding:7px 10px;border:1px solid var(--hairline);border-radius:8px;font-size:12px;background:var(--surface-2);color:var(--ink-3);">
+                        <select id="priorityFilter" style="padding:7px 10px;border:1px solid var(--hairline);border-radius:8px;font-size:12px;background:var(--surface-2);color:var(--ink-3);">
                             <option value="">All Priorities</option>
                             <option value="High">High</option>
                             <option value="Medium">Medium</option>
                             <option value="Low">Low</option>
                         </select>
-                        <select id="boxTypeFilter" style="padding:6px;border:1px solid #d1d8dd;border-radius:4px;font-size:12px;">
+                        <select id="boxTypeFilter" style="padding:7px 10px;border:1px solid var(--hairline);border-radius:8px;font-size:12px;background:var(--surface-2);color:var(--ink-3);">
                             <option value="">All Box Types</option>
                             <option value="mixed">Mixed Only</option>
                             <option value="straight">Straight Only</option>
@@ -387,8 +441,8 @@ frappe.pages['sales-allocation'].make = function (page) {
                     </div>
                 </div>
                 <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <div id="resultsCount" style="font-size:12px;color:#6c757d;"></div>
-                    <button id="clearFilters" style="padding:6px 12px;background:#fff;border:1px solid #d1d8dd;border-radius:4px;cursor:pointer;font-size:12px;">Clear Filters</button>
+                    <div id="resultsCount" style="font-size:12px;color:var(--ink-mute);"></div>
+                    <button id="clearFilters" style="padding:7px 14px;background:var(--surface-2);border:1px solid var(--hairline);border-radius:999px;cursor:pointer;font-size:12px;color:var(--ink-4);font-weight:600;">Clear Filters</button>
                 </div>
             </div>
 
@@ -449,17 +503,17 @@ frappe.pages['sales-allocation'].make = function (page) {
 // ─── LOCATION CONFIG ───
 frappe.pages['sales-allocation'].load_location_config = function () {
     frappe.call({
-        method: 'upande_kaitet.upande_kaitet.page.sales_allocation.sales_allocation.get_location_config',
+        method: 'upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.get_location_config',
         callback: function (r) {
             if (r.message && r.message.locations) {
                 frappe.pages['sales-allocation'].location_config = r.message;
                 frappe.pages['sales-allocation'].render_location_selector();
             } else {
-                $('#locationButtons').html('<div style="color:#e74c3c;padding:10px;">No locations configured</div>');
+                $('#locationButtons').html('<div style="color:var(--bad);padding:10px;">No locations configured</div>');
             }
         },
         error: function () {
-            $('#locationButtons').html('<div style="color:#e74c3c;padding:10px;">Error loading locations</div>');
+            $('#locationButtons').html('<div style="color:var(--bad);padding:10px;">Error loading locations</div>');
         }
     });
 };
@@ -495,7 +549,7 @@ frappe.pages['sales-allocation'].select_location = function (location) {
 
     if (loc_config) {
         const farm_labels = loc_config.farm_details.map(f =>
-            `${f.farm} <span style="font-size:10px;opacity:0.8;">(${f.sales_shelf ? 'Sales' : 'Remote'})</span>`
+            `${f.farm} <span style="font-size:10px;opacity:0.75;">(${f.sales_shelf ? 'Sales' : 'Remote'})</span>`
         ).join(', ');
         $('#locationInfo').show().html(
             `<strong>Selected:</strong> ${location} | <strong>Farms:</strong> ${farm_labels}`
@@ -518,7 +572,7 @@ frappe.pages['sales-allocation'].load_sales_orders = function () {
     $('#salesOrderList').html('<div class="loading-state">Loading...</div>');
 
     frappe.call({
-        method: 'upande_kaitet.upande_kaitet.page.sales_allocation.sales_allocation.get_pending_sales_orders',
+        method: 'upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.get_pending_sales_orders',
         args: {
             start_date: P.filters.order_start || null,
             end_date: P.filters.order_end || null,
@@ -567,26 +621,26 @@ frappe.pages['sales-allocation'].render_orders = function (orders) {
         const priority = order.custom_priority || 'Low';
         const is_selected = selected === order.name ? 'selected' : '';
         const pct = order.allocation_percentage || 0;
-        const bar_color = pct >= 75 ? '#10b981' : pct >= 50 ? '#f59e0b' : '#ef4444';
+        const bar_color = pct >= 75 ? 'var(--good)' : pct >= 50 ? 'var(--warn-2)' : 'var(--bad)';
 
         return `
             <div class="sales-order-card ${is_selected}" data-order="${order.name}">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <div style="font-weight:bold;color:#34495e;">${order.name}</div>
-                    <div style="font-size:10px;padding:3px 8px;border-radius:4px;background:#e0f2f1;color:#00796b;">${priority}</div>
+                    <div style="font-weight:600;color:var(--ink);">${order.name}</div>
+                    <div style="font-size:10px;padding:3px 9px;border-radius:999px;background:var(--signal-soft);color:var(--signal);font-weight:600;">${priority}</div>
                 </div>
-                <div style="margin-top:5px;font-size:12px;color:#7f8c8d;">
+                <div style="margin-top:6px;font-size:12px;color:var(--ink-mute);">
                     <div>Customer: ${order.customer}</div>
                     <div>Order: ${order.custom_order_name || '-'}</div>
                     <div>Varieties: ${order.item_codes || '-'}</div>
                     <div>Delivery: ${frappe.datetime.str_to_user(order.delivery_date)}</div>
                 </div>
-                <div style="margin-top:8px;">
-                    <div style="display:flex;justify-content:space-between;font-size:11px;color:#6c757d;margin-bottom:3px;">
+                <div style="margin-top:10px;">
+                    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ink-mute);margin-bottom:4px;">
                         <span>Allocation</span>
                         <span style="font-weight:600;color:${bar_color};">${pct}%</span>
                     </div>
-                    <div style="width:100%;height:6px;background:#e0e0e0;border-radius:3px;overflow:hidden;">
+                    <div style="width:100%;height:6px;background:rgba(10,10,10,0.06);border-radius:999px;overflow:hidden;">
                         <div style="width:${pct}%;height:100%;background:${bar_color};transition:width 0.3s;"></div>
                     </div>
                 </div>
@@ -625,7 +679,7 @@ frappe.pages['sales-allocation']._fetch_items_and_open_dialog = function () {
     const P = frappe.pages['sales-allocation'];
 
     frappe.call({
-        method: 'upande_kaitet.upande_kaitet.page.sales_allocation.sales_allocation.get_sales_order_items_with_buckets',
+        method: 'upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.get_sales_order_items_with_buckets',
         args: {
             sales_order: P.selected_order,
             location: P.selected_location,
@@ -666,6 +720,11 @@ frappe.pages['sales-allocation'].show_allocation_dialog = function () {
     // Per-line team selections (sales_order_item -> team); reset each time the dialog opens
     P.item_teams = {};
 
+    // Scope the ufd-modern restyle to this dialog only (see add_styles) — never
+    // touches any other Frappe Desk dialog on the page.
+    P._dialog.$wrapper.addClass('ufd-sa');
+    P._dialog.$wrapper.find('.modal-dialog').addClass('ufd-sa-modal');
+
     P._dialog.show();
     P.render_allocation_grid();
 };
@@ -691,7 +750,7 @@ frappe.pages['sales-allocation']._render_farm_filter = function () {
         <div class="farm-filter-bar">
             <label class="title">Source Farms:</label>
             <div class="farm-checkbox-group" id="farmFilterGroup">${checks}</div>
-            <div style="font-size:11px;color:#6c757d;margin-left:auto;">
+            <div style="font-size:11px;color:var(--ink-mute);margin-left:auto;">
                 Changes will reload bucket data and clear session allocations
             </div>
         </div>`;
@@ -711,7 +770,7 @@ frappe.pages['sales-allocation']._bind_farm_filter = function () {
         P.clear_allocations(true);
         P.item_filters = {};
         frappe.call({
-            method: 'upande_kaitet.upande_kaitet.page.sales_allocation.sales_allocation.get_sales_order_items_with_buckets',
+            method: 'upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.get_sales_order_items_with_buckets',
             args: {
                 sales_order: P.selected_order,
                 location: P.selected_location,
@@ -918,6 +977,8 @@ frappe.pages['sales-allocation']._show_substitute_dialog = function (so_item) {
             { fieldtype: 'HTML', fieldname: 'sub_content' }
         ]
     });
+    sub_dialog.$wrapper.addClass('ufd-sa');
+    sub_dialog.$wrapper.find('.modal-dialog').addClass('ufd-sa-modal');
 
     const render_sub_content = function (varieties, show_filter) {
         let filter_html = '';
@@ -928,10 +989,10 @@ frappe.pages['sales-allocation']._show_substitute_dialog = function (so_item) {
             ].filter(Boolean).join(', ');
 
             filter_html = `
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding:8px 12px;background:${show_filter ? '#f0fdf4' : '#f8f9fa'};border:1px solid ${show_filter ? '#86efac' : '#e0e0e0'};border-radius:6px;font-size:12px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding:9px 14px;background:${show_filter ? 'var(--good-soft)' : 'var(--surface)'};border-radius:12px;font-size:12px;">
                     <div>
                         <strong>Recommendation:</strong> ${filter_label}
-                        ${show_filter ? '<span style="color:#16a085;margin-left:8px;">(active)</span>' : '<span style="color:#6c757d;margin-left:8px;">(cleared)</span>'}
+                        ${show_filter ? '<span style="color:var(--good);margin-left:8px;">(active)</span>' : '<span style="color:var(--ink-mute);margin-left:8px;">(cleared)</span>'}
                     </div>
                     <button class="btn btn-xs btn-default" id="toggleSubFilter">
                         ${show_filter ? 'Show All Varieties' : 'Show Recommended Only'}
@@ -940,7 +1001,7 @@ frappe.pages['sales-allocation']._show_substitute_dialog = function (so_item) {
         }
 
         const current_html = `
-            <div style="background:#e3f2fd;border:1px solid #90caf9;border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px;">
+            <div style="background:var(--surface);border-radius:12px;padding:11px 14px;margin-bottom:12px;font-size:12px;color:var(--ink-3);">
                 <strong>Current:</strong> ${item.item_name} (${item.item_code})
                 ${original_color ? ` | Color: ${original_color}` : ''}
                 ${original_headsize ? ` | Headsize: ${original_headsize}` : ''}
@@ -949,15 +1010,15 @@ frappe.pages['sales-allocation']._show_substitute_dialog = function (so_item) {
 
         let list_html = '';
         if (!varieties || !varieties.length) {
-            list_html = '<div style="text-align:center;padding:20px;color:#95a5a6;">No varieties found</div>';
+            list_html = '<div style="text-align:center;padding:20px;color:var(--ink-mute);">No varieties found</div>';
         } else {
             list_html = varieties.map(v => {
                 const is_same = v.item_code === item.item_code;
                 const is_recommended = (original_color && v.color === original_color) || (original_headsize && v.headsize === original_headsize);
                 const rec_class = is_recommended && !is_same ? 'recommended' : '';
                 const badges = [];
-                if (is_same) badges.push('<span class="sub-badge" style="background:#e3f2fd;color:#1565c0;">Current</span>');
-                if (is_recommended && !is_same) badges.push('<span class="sub-badge" style="background:#d1fae5;color:#065f46;">Recommended</span>');
+                if (is_same) badges.push('<span class="sub-badge" style="background:rgba(10,10,10,0.06);color:var(--ink-mute);">Current</span>');
+                if (is_recommended && !is_same) badges.push('<span class="sub-badge" style="background:var(--signal-soft);color:var(--signal);">Recommended</span>');
 
                 return `
                     <div class="sub-variety-card ${rec_class} ${is_same ? '' : 'selectable'}" data-item-code="${v.item_code}" data-item-name="${v.item_name || v.item_code}" ${is_same ? 'style="opacity:0.6;cursor:default;"' : ''}>
@@ -1000,7 +1061,7 @@ frappe.pages['sales-allocation']._show_substitute_dialog = function (so_item) {
 
     const load_varieties = function () {
         sub_dialog.fields_dict.sub_content.$wrapper.html(
-            '<div style="text-align:center;padding:20px;color:#95a5a6;">Loading varieties...</div>'
+            '<div style="text-align:center;padding:20px;color:var(--ink-mute);">Loading varieties...</div>'
         );
 
         const args = {
@@ -1015,7 +1076,7 @@ frappe.pages['sales-allocation']._show_substitute_dialog = function (so_item) {
         }
 
         frappe.call({
-            method: 'upande_kaitet.upande_kaitet.page.sales_allocation.sales_allocation.get_substitute_varieties',
+            method: 'upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.get_substitute_varieties',
             args: args,
             callback: function (r) {
                 render_sub_content(r.message || [], filter_active);
@@ -1034,7 +1095,7 @@ frappe.pages['sales-allocation']._execute_substitute = function (so_item, new_it
     const P = frappe.pages['sales-allocation'];
 
     frappe.call({
-        method: 'upande_kaitet.upande_kaitet.page.sales_allocation.sales_allocation.substitute_variety',
+        method: 'upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.substitute_variety',
         args: {
             sales_order: P.selected_order,
             sales_order_item: so_item,
@@ -1076,7 +1137,7 @@ frappe.pages['sales-allocation'].render_allocation_grid = function () {
     let html = P._render_farm_filter() + P._render_mix_filter();
 
     if (P.selected_mix_group && items.length === 0) {
-        html += `<div style="padding:20px;text-align:center;color:#6b21a8;background:#faf5ff;border:1px dashed #d8b4fe;border-radius:6px;">
+        html += `<div style="padding:20px;text-align:center;color:var(--ink-mute);background:var(--surface);border:1px dashed var(--hairline);border-radius:14px;">
             No items in the selected mix.
         </div>`;
     }
@@ -1092,7 +1153,7 @@ frappe.pages['sales-allocation'].render_allocation_grid = function () {
 
         // Item metadata badges (no emojis)
         const color_badge = item.color
-            ? `<span style="background:#fce4ec;color:#c2185b;padding:4px 10px;border-radius:12px;font-size:12px;margin-left:6px;">${item.color}</span>`
+            ? `<span style="background:var(--signal-soft);color:var(--signal);padding:4px 11px;border-radius:999px;font-size:12px;margin-left:6px;">${item.color}</span>`
             : '';
 
         // Confirmed stems banner with balance context
@@ -1122,45 +1183,45 @@ frappe.pages['sales-allocation'].render_allocation_grid = function () {
         const _teamSelect = `<select class="item-team-select" data-so-item="${item.sales_order_item}"
             onchange="frappe.pages['sales-allocation'].set_item_team('${item.sales_order_item}', this.value)"
             title="Packing team for this line"
-            style="margin-left:10px;font-size:12px;padding:3px 8px;border-radius:8px;border:1px solid ${_curTeam ? '#27ae60' : '#e74c3c'};">
+            style="margin-left:10px;font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid ${_curTeam ? 'var(--good)' : 'var(--bad)'};background:var(--surface-2);color:var(--ink-3);">
             ${['', 'Team A', 'Team B', 'Jamafa', 'Eldama', 'Bravo'].map(t => `<option value="${t}" ${t === _curTeam ? 'selected' : ''}>${t || 'Select team…'}</option>`).join('')}
         </select>`;
 
         html += `
             <div class="current-so-item">
-                <h4 style="margin:0 0 10px 0;color:#2c3e50;">
+                <h4 style="margin:0 0 10px 0;color:var(--ink);font-weight:600;">
                     ${item.item_name || 'Item'} (${item.item_code || '?'})
-                    <span style="background:#3498db;color:white;padding:4px 12px;border-radius:12px;font-size:12px;margin-left:10px;">
+                    <span style="background:var(--grad-ink);color:#fafaf6;padding:4px 12px;border-radius:999px;font-size:12px;margin-left:10px;">
                         ${item.required_length || 'No length'}
                     </span>
                     ${color_badge}
                     ${item.custom_mixed_bunch ? `
-                        <span style="background:#c0392b;color:white;padding:4px 10px;border-radius:12px;font-size:12px;margin-left:6px;">Mixed Bunch</span>
-                        <span style="background:#922b21;color:white;padding:4px 10px;border-radius:12px;font-size:12px;margin-left:4px;" title="Internal group: ${item.custom_bunch_group || '?'}">${item.custom_mix_name ? frappe.utils.escape_html(item.custom_mix_name) : 'Bunch ' + (item.custom_bunch_group || '?')}</span>
+                        <span style="background:var(--signal);color:#fff;padding:4px 11px;border-radius:999px;font-size:12px;margin-left:6px;">Mixed Bunch</span>
+                        <span style="background:var(--ink-2);color:#fff;padding:4px 11px;border-radius:999px;font-size:12px;margin-left:4px;" title="Internal group: ${item.custom_bunch_group || '?'}">${item.custom_mix_name ? frappe.utils.escape_html(item.custom_mix_name) : 'Bunch ' + (item.custom_bunch_group || '?')}</span>
                     ` : item.custom_mixed_box ? `
-                        <span style="background:#8e44ad;color:white;padding:4px 10px;border-radius:12px;font-size:12px;margin-left:6px;">Mixed Box</span>
-                        <span style="background:#6c3483;color:white;padding:4px 10px;border-radius:12px;font-size:12px;margin-left:4px;" title="Internal group: ${item.custom_mix_group || '?'}">${item.custom_mix_name ? frappe.utils.escape_html(item.custom_mix_name) : 'Group ' + (item.custom_mix_group || '?')}</span>
+                        <span style="background:var(--signal);color:#fff;padding:4px 11px;border-radius:999px;font-size:12px;margin-left:6px;">Mixed Box</span>
+                        <span style="background:var(--ink-2);color:#fff;padding:4px 11px;border-radius:999px;font-size:12px;margin-left:4px;" title="Internal group: ${item.custom_mix_group || '?'}">${item.custom_mix_name ? frappe.utils.escape_html(item.custom_mix_name) : 'Group ' + (item.custom_mix_group || '?')}</span>
                     ` : `
-                        <span style="background:#1a7a4a;color:white;padding:4px 10px;border-radius:12px;font-size:12px;margin-left:6px;">Straight Box</span>
+                        <span style="background:transparent;color:var(--ink-3);border:1px solid var(--ink-faint);padding:3px 11px;border-radius:999px;font-size:12px;margin-left:6px;">Straight Box</span>
                     `}
                     <span class="so-item-id">${item.sales_order_item || '?'}</span>
                     <button class="substitute-btn" data-so-item="${item.sales_order_item}">Substitute Variety</button>
                     ${_teamSelect}
-                    ${remaining <= 0 ? '<span style="color:#16a085;margin-left:10px;font-size:12px;">Fully Allocated</span>' : ''}
+                    ${remaining <= 0 ? '<span style="color:var(--signal);margin-left:10px;font-size:12px;font-weight:600;">Fully Allocated</span>' : ''}
                 </h4>
                 ${confirmedBanner}
-                <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:15px;font-size:13px;margin-bottom:8px;">
+                <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:15px;font-size:13px;margin-bottom:8px;color:var(--ink-3);">
                     <div>To Allocate: <strong>${required} ${item.stock_uom || ''}</strong></div>
                     <div>Previously: <strong>${total_allocated}</strong></div>
-                    <div>Session: <strong style="color:#27ae60">${allocated_session}</strong></div>
-                    <div>Remaining: <strong style="color:${remaining > 0 ? '#e67e22' : '#27ae60'}">${remaining}</strong></div>
-                    <div>Available: <strong style="color:${item.total_available_qty >= remaining ? '#27ae60' : '#e74c3c'}">${item.total_available_qty || 0}</strong></div>
+                    <div>Session: <strong style="color:var(--good)">${allocated_session}</strong></div>
+                    <div>Remaining: <strong style="color:${remaining > 0 ? 'var(--warn-2)' : 'var(--good)'}">${remaining}</strong></div>
+                    <div>Available: <strong style="color:${item.total_available_qty >= remaining ? 'var(--good)' : 'var(--bad)'}">${item.total_available_qty || 0}</strong></div>
                 </div>
-                ${preferred_farm ? `<div style="font-size:11px;color:#065f46;margin-bottom:8px;">
+                ${preferred_farm ? `<div style="font-size:11px;color:var(--signal);margin-bottom:8px;">
                     <span class="grid-badge badge-preferred">Preferred farm: ${preferred_farm}</span>
                 </div>` : ''}
                 ${(item.incoming_exact_stems || 0) > 0 ? `
-                <div style="margin-bottom:8px;padding:8px 12px;background:#e8f5e9;border:1px solid #a5d6a7;border-radius:6px;font-size:12px;color:#2e7d32;">
+                <div style="margin-bottom:8px;padding:9px 14px;background:var(--good-soft);border-radius:12px;font-size:12px;color:var(--good);">
                     <strong>${item.incoming_exact_stems} exact-length stems</strong> (${item.required_length || '?'}) received but not yet shelved.
                 </div>` : ''}
             </div>`;
@@ -1168,7 +1229,7 @@ frappe.pages['sales-allocation'].render_allocation_grid = function () {
         // Quick FIFO button
         if (remaining > 0 && batches.some(b => (b.available_qty || 0) > 0)) {
             html += `
-                <div style="background:#f8f9fa;padding:10px 15px;border-radius:6px;border:1px solid #e0e0e0;margin-bottom:12px;">
+                <div style="background:var(--surface);padding:12px 16px;border-radius:14px;margin-bottom:12px;">
                     <button class="btn btn-sm btn-default" onclick="frappe.pages['sales-allocation'].auto_allocate_fifo('${item.sales_order_item}')">
                         Auto-Allocate (${remaining} ${item.stock_uom || ''})
                     </button>
@@ -1189,7 +1250,7 @@ frappe.pages['sales-allocation'].render_allocation_grid = function () {
                     <tbody>`;
 
         if (!batches.length) {
-            html += `<tr><td colspan="9" style="text-align:center;padding:30px;color:#95a5a6;">No compatible buckets found</td></tr>`;
+            html += `<tr><td colspan="9" style="text-align:center;padding:30px;color:var(--ink-mute);">No compatible buckets found</td></tr>`;
         } else {
             batches.forEach(batch => {
                 const is_preferred = batch.shelf_farm === preferred_farm;
@@ -1210,9 +1271,9 @@ frappe.pages['sales-allocation'].render_allocation_grid = function () {
                     ? `<span class="grid-badge badge-downgrade">Downgrade</span>`
                     : `<span class="grid-badge badge-exact">Exact</span>`;
                 if (is_downgrade && batch.downgrade_approval === 'amber_expired')
-                    length_badge += ` <span class="grid-badge" style="background:#e8f5e9;color:#2e7d32;font-size:9px;">Amber OK</span>`;
+                    length_badge += ` <span class="grid-badge" style="background:var(--good-soft);color:var(--good);font-size:9px;">Amber OK</span>`;
                 else if (is_downgrade)
-                    length_badge += ` <span class="grid-badge" style="background:#ffcdd2;color:#c62828;font-size:9px;">Needs Approval</span>`;
+                    length_badge += ` <span class="grid-badge" style="background:var(--bad-soft);color:var(--bad);font-size:9px;">Needs Approval</span>`;
 
                 const farm_badge = is_preferred ? `<span class="grid-badge badge-preferred">Preferred</span>` : '';
                 const await_badge = is_awaiting ? `<span class="grid-badge badge-awaiting">Remote Shelf</span>` : '';
@@ -1235,7 +1296,7 @@ frappe.pages['sales-allocation'].render_allocation_grid = function () {
                         )">Unallocate (${allocated_here + session_alloc})</button>`;
                 }
                 if (is_zero && !allocated_here && !session_alloc) {
-                    actions_html = '<span style="color:#9ca3af;font-size:11px;">No stock</span>';
+                    actions_html = '<span style="color:var(--ink-faint);font-size:11px;">No stock</span>';
                 }
 
                 html += `
@@ -1245,16 +1306,16 @@ frappe.pages['sales-allocation'].render_allocation_grid = function () {
                         <td>${batch.shelf_farm || '-'} ${farm_badge}</td>
                         <td>${batch.shelf_location || '-'} ${await_badge}</td>
                         <td>${batch.stem_length || 'N/A'} ${length_badge}</td>
-                        <td style="color:${(batch.available_qty || 0) > 0 ? '#27ae60' : '#e74c3c'}">${batch.available_qty || 0}</td>
+                        <td style="color:${(batch.available_qty || 0) > 0 ? 'var(--good)' : 'var(--bad)'}">${batch.available_qty || 0}</td>
                         <td>${allocated_here > 0 ? `<strong>${allocated_here}</strong>` : '-'}</td>
-                        <td>${session_alloc > 0 ? `<span style="color:#27ae60">${session_alloc}</span>` : '-'}</td>
+                        <td>${session_alloc > 0 ? `<span style="color:var(--good)">${session_alloc}</span>` : '-'}</td>
                         <td>${actions_html || '-'}</td>
                     </tr>`;
             });
         }
 
         html += `</tbody></table></div>`;
-        if (item_idx < items.length - 1) html += `<hr style="margin:20px 0;border:none;border-top:2px solid #ecf0f1;">`;
+        if (item_idx < items.length - 1) html += `<hr style="margin:20px 0;border:none;border-top:1px solid var(--hairline);">`;
     });
 
     if (P._dialog && P._dialog.fields_dict && P._dialog.fields_dict.allocation_grid) {
@@ -1286,7 +1347,7 @@ frappe.pages['sales-allocation'].allocate_from_bucket = function (so_item, bucke
         const incoming = item.incoming_exact_stems || 0;
         let incoming_html = '';
         if (incoming > 0) {
-            incoming_html = `<div style="background:#e3f2fd;border:1px solid #90caf9;border-radius:4px;padding:8px;margin-top:10px;font-size:12px;color:#1565c0;">
+            incoming_html = `<div style="background:var(--good-soft);border-radius:10px;padding:9px 12px;margin-top:10px;font-size:12px;color:var(--good);">
                 <strong>${incoming} exact-length stems</strong> (${item.required_length || '?'}) received but not yet shelved.
             </div>`;
         }
@@ -1294,11 +1355,11 @@ frappe.pages['sales-allocation'].allocate_from_bucket = function (so_item, bucke
             title: 'Downgrade — Reason Required',
             fields: [
                 { fieldtype: 'HTML', fieldname: 'info', options: `
-                    <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:12px;margin-bottom:12px;">
+                    <div style="background:var(--warn-soft);border-radius:10px;padding:13px;margin-bottom:12px;color:var(--ink-3);">
                         <strong>Bucket:</strong> ${bucket_id} (${stem_length}) — Order requires: ${item.required_length || 'N/A'}<br>
                         <strong>Qty:</strong> ${qty} ${uom} | Age: ${age_days}d (amber at ${amber_time}d)
                     </div>
-                    <div style="background:#ffebee;border:1px solid #ef9a9a;border-radius:4px;padding:8px;margin-bottom:10px;font-size:12px;color:#c62828;">
+                    <div style="background:var(--bad-soft);border-radius:10px;padding:9px 12px;margin-bottom:10px;font-size:12px;color:var(--bad);">
                         Requires approval — bucket is only ${age_days} days old.
                     </div>${incoming_html}` },
                 { fieldtype: 'Small Text', fieldname: 'reason', label: 'Downgrade Reason', reqd: 1 }
@@ -1310,6 +1371,8 @@ frappe.pages['sales-allocation'].allocate_from_bucket = function (so_item, bucke
                 P._do_allocate(so_item, bucket_id, qty, uom, length_status, vals.reason.trim());
             }
         });
+        d.$wrapper.addClass('ufd-sa');
+        d.$wrapper.find('.modal-dialog').addClass('ufd-sa-modal');
         d.show();
         setTimeout(() => d.fields_dict.reason.$input.focus(), 200);
     } else {
@@ -1353,7 +1416,7 @@ frappe.pages['sales-allocation'].unallocate_from_bucket = function (so_item, buc
     frappe.confirm(`Unallocate ${allocated_qty} stems from bucket ${bucket_id}?`, () => {
         P.allocations = P.allocations.filter(a => !(a.sales_order_item === so_item && a.bucket_id === bucket_id));
         frappe.call({
-            method: 'upande_kaitet.upande_kaitet.page.sales_allocation.sales_allocation.unallocate_bucket_from_opl',
+            method: 'upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.unallocate_bucket_from_opl',
             args: { sales_order_item: so_item, bucket_id },
             freeze: true, freeze_message: 'Unallocating...',
             callback: function (r) {
@@ -1403,11 +1466,11 @@ frappe.pages['sales-allocation'].auto_allocate_fifo = function (so_item) {
             title: 'Auto-Allocate — Downgrade Reason Required',
             fields: [
                 { fieldtype: 'HTML', fieldname: 'info', options: `
-                    <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:12px;margin-bottom:12px;">
+                    <div style="background:var(--warn-soft);border-radius:10px;padding:13px;margin-bottom:12px;color:var(--ink-3);">
                         <strong>Downgrade buckets that will be used:</strong>
                         <ul style="margin:8px 0;padding-left:20px;">${summary}</ul>
                     </div>
-                    ${incoming > 0 ? `<div style="background:#e3f2fd;border:1px solid #90caf9;border-radius:4px;padding:8px;margin-bottom:10px;font-size:12px;color:#1565c0;">
+                    ${incoming > 0 ? `<div style="background:var(--good-soft);border-radius:10px;padding:9px 12px;margin-bottom:10px;font-size:12px;color:var(--good);">
                         <strong>${incoming} exact-length stems</strong> received but not yet shelved.
                     </div>` : ''}` },
                 { fieldtype: 'Small Text', fieldname: 'reason', label: 'Downgrade Reason (applies to all downgraded buckets)', reqd: 1 }
@@ -1419,6 +1482,8 @@ frappe.pages['sales-allocation'].auto_allocate_fifo = function (so_item) {
                 P._execute_fifo(so_item, vals.reason.trim());
             }
         });
+        d.$wrapper.addClass('ufd-sa');
+        d.$wrapper.find('.modal-dialog').addClass('ufd-sa-modal');
         d.show();
         setTimeout(() => d.fields_dict.reason.$input.focus(), 200);
     } else {
@@ -1499,7 +1564,7 @@ frappe.pages['sales-allocation'].confirm_allocation = function () {
     }
 
     frappe.call({
-        method: 'upande_kaitet.upande_kaitet.page.sales_allocation.sales_allocation.allocate_stock_with_buckets',
+        method: 'upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets',
         args: { sales_order: P.selected_order, allocations: valid_allocations, location: P.selected_location, teams: JSON.stringify(teams) },
         freeze: true, freeze_message: 'Allocating stock...',
         callback: function (r) {

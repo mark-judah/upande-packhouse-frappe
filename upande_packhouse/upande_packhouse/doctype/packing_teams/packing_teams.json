@@ -1,6 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
+ "autoname": "field:team",
  "creation": "2026-07-17 13:10:21.050769",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -11,13 +12,14 @@
   {
    "fieldname": "team",
    "fieldtype": "Data",
-   "label": "Team"
+   "label": "Team",
+   "unique": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-17 13:10:36.420057",
+ "modified": "2026-08-13 15:12:10.899433",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Packing Teams",

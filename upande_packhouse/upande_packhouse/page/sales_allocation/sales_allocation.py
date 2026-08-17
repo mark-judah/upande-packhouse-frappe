@@ -2,6 +2,18 @@ import frappe
 from frappe import _
 import json
 
+# Buckets locked by an open (non-Rejected) Discard Request must never count as
+# available or be allocated. Injected into the shelf-availability read paths so
+# the allocation page agrees with the SO spec-autofill popup (single rule).
+DISCARD_EXCLUSION = """
+          AND si.bucket_id NOT IN (
+              SELECT drb.bucket_id
+              FROM `tabDiscard Request Bucket` drb
+              INNER JOIN `tabDiscard Request` dr ON dr.name = drb.parent
+              WHERE COALESCE(dr.workflow_state, '') != 'Rejected'
+                AND COALESCE(drb.bucket_id, '') != ''
+          )"""
+
 # ============================================================
 # HELPER: Load Production Settings config once
 # Returns: { discard_age, amber_time, farms_by_location, farm_config }
@@ -46,11 +58,11 @@ def _get_production_config():
     # Single query to get location for all enabled farms
     placeholders = ", ".join(["%s"] * len(enabled_farms))
     farm_rows = frappe.db.sql(f"""
-        SELECT name AS farm, custom_location AS location
+        SELECT name AS farm, location AS location
         FROM `tabFarm`
         WHERE name IN ({placeholders})
-          AND custom_location IS NOT NULL
-          AND custom_location != ''
+          AND location IS NOT NULL
+          AND location != ''
     """, enabled_farms, as_dict=True)
 
     for f in farm_rows:
@@ -389,10 +401,10 @@ def get_sales_order_items_with_buckets(sales_order, location=None, selected_farm
             si.stem_length,
             COALESCE(si.stem_qty, 0) AS total_qty,
             si.warehouse,
-            si.date_added AS harvest_date,
+            COALESCE(si.harvest_date, si.date_added) AS harvest_date,
             s.name AS shelf_location,
             s.farm AS shelf_farm,
-            DATEDIFF(CURDATE(), si.date_added) AS age_days,
+            DATEDIFF(CURDATE(), COALESCE(si.harvest_date, si.date_added)) AS age_days,
             COALESCE(bas.allocated_quantity, 0) AS allocated_qty,
             COALESCE(si.stem_qty, 0) - COALESCE(bas.allocated_quantity, 0) AS available_qty,
             COALESCE(si.cut_stage, '') AS cut_stage,
@@ -404,8 +416,9 @@ def get_sales_order_items_with_buckets(sales_order, location=None, selected_farm
             AND bas.item_code = si.variety
         WHERE s.farm IN ({farm_placeholders})
           AND si.variety IN ({ic_placeholders})
-          AND DATEDIFF(CURDATE(), si.date_added) < %s
+          AND DATEDIFF(CURDATE(), COALESCE(si.harvest_date, si.date_added)) < %s
           AND (bas.in_transit = 0 OR bas.in_transit IS NULL)
+          {DISCARD_EXCLUSION}
     """, active_farms + item_codes + [discard_age], as_dict=True)
 
     buckets = [
@@ -547,7 +560,7 @@ def _parse_cm(length_str):
     if not length_str:
         return 0
     try:
-        return int(str(length_str).replace("cm", "").strip())
+        return int(str(length_str).lower().replace("cm", "").strip())
     except:
         return 0
 
@@ -570,10 +583,11 @@ def _attach_incoming_stems(items, location, active_farms):
 
     ic_placeholders = ", ".join(["%s"] * len(item_codes_for_incoming))
     ln_placeholders = ", ".join(["%s"] * len(lengths_for_incoming))
+    farm_ph = ", ".join(["%s"] * len(active_farms))
 
     unshelved = frappe.db.sql(f"""
         SELECT
-            se.custom_received_bucket_id AS bucket_id,
+            se.custom_bucket_id AS bucket_id,
             sei.item_code,
             se.custom_stem_length AS stem_length,
             sei.qty
@@ -581,17 +595,17 @@ def _attach_incoming_stems(items, location, active_farms):
         INNER JOIN `tabStock Entry Detail` sei ON se.name = sei.parent
         WHERE se.stock_entry_type IN ('Receiving', 'Late Receipt')
           AND se.docstatus = 1
-          AND se.custom_location = %s
+          AND se.custom_farm IN ({farm_ph})
           AND se.posting_date >= DATE_SUB(CURDATE(), INTERVAL 5 DAY)
           AND sei.item_code IN ({ic_placeholders})
           AND se.custom_stem_length IN ({ln_placeholders})
-          AND se.custom_received_bucket_id IS NOT NULL
-          AND se.custom_received_bucket_id != ''
+          AND se.custom_bucket_id IS NOT NULL
+          AND se.custom_bucket_id != ''
           AND NOT EXISTS (
               SELECT 1 FROM `tabShelf Item` si
-              WHERE si.bucket_id = se.custom_received_bucket_id
+              WHERE si.bucket_id = se.custom_bucket_id
           )
-    """, [location] + item_codes_for_incoming + lengths_for_incoming, as_dict=True)
+    """, active_farms + item_codes_for_incoming + lengths_for_incoming, as_dict=True)
 
     incoming_map = {}
     if unshelved:
@@ -726,7 +740,7 @@ def allocate_stock_with_buckets(sales_order, allocations, location=None, teams=N
         t = teams.get(so_item)
         if not t:
             frappe.throw(_("A team is required for every item being allocated."))
-        if t not in ALLOWED_ALLOCATION_TEAMS:
+        if not frappe.db.exists("Packing Teams", t):
             frappe.throw(_("Invalid team: {0}").format(t))
 
     try:
@@ -819,6 +833,7 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
             si.stem_length,
             si.warehouse,
             si.date_added,
+            COALESCE(si.harvest_date, si.date_added) AS harvest_date,
             si.parent AS shelf_location,
             s.farm
         FROM `tabShelf Item` si
@@ -869,10 +884,9 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
     # ── Group allocations by bucket ──
     alloc_by_bucket = {}
     for a in allocations:
-        alloc_by_bucket.setdefault(a["bucket_id"], []).append(a)
+        alloc_by_bucket.setdefault((a["bucket_id"], a["item_code"]), []).append(a)
 
-    for bucket_id, group in alloc_by_bucket.items():
-        item_code = group[0]["item_code"]
+    for (bucket_id, item_code), group in alloc_by_bucket.items():
         shelf = shelf_map[(bucket_id, item_code)]
         is_sales_shelf = farm_config.get(shelf["farm"], {}).get("sales_shelf", 0)
         
@@ -890,7 +904,7 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
             bas.total_quantity = float(shelf["stem_qty"] or 0)
             bas.stem_length = shelf["stem_length"] or ""
             bas.warehouse = shelf["warehouse"] or ""
-            bas.harvest_date = shelf["date_added"]
+            bas.harvest_date = shelf.get("harvest_date") or shelf["date_added"]
             bas.shelf_location = shelf["shelf_location"]
             bas.shelf_farm = shelf["farm"]
             bas.in_transit = 0
@@ -983,7 +997,7 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
         if opl_name == prior_opl_by_soi.get(opl_soi):
             continue
         frappe.db.set_value(
-            "Order Pick List", opl_name, "custom_team", opl_team,
+            "Order Pick List", opl_name, "team", opl_team,
             update_modified=False
         )
 
@@ -1052,7 +1066,7 @@ def _create_pick_list(sales_order, allocations, so_doc, location, confirmed_by_i
                     results.append({"type": "straight", "status": "updated_existing", "name": opl_name})
 
             else:
-                from upande_kaitet.server_scripts.create_straight_box_pick_list import create_straight_box_pick_list_for_allocated_items
+                from upande_packhouse.server_scripts.create_straight_box_pick_list import create_straight_box_pick_list_for_allocated_items
                 names = create_straight_box_pick_list_for_allocated_items(
                     so_doc, allocs, submit=True, location=location
                 ) or []
@@ -1063,7 +1077,7 @@ def _create_pick_list(sales_order, allocations, so_doc, location, confirmed_by_i
                     results.append({"type": "straight", "status": status, "name": opl_name})
 
     if mixed:
-        from upande_kaitet.server_scripts.create_mixed_box_picklist import create_mixed_box_pick_list_for_allocated_items
+        from upande_packhouse.server_scripts.create_mixed_box_picklist import create_mixed_box_pick_list_for_allocated_items
         name = create_mixed_box_pick_list_for_allocated_items(
             sales_order_doc=so_doc,
             allocations=mixed,
@@ -1074,7 +1088,7 @@ def _create_pick_list(sales_order, allocations, so_doc, location, confirmed_by_i
         results.append({"type": "mixed", "status": status, "name": name})
 
     if mixed_bunch:
-        from upande_kaitet.server_scripts.create_mixed_bunch_picklist import create_mixed_bunch_pick_list_for_allocated_items
+        from upande_packhouse.server_scripts.create_mixed_bunch_picklist import create_mixed_bunch_pick_list_for_allocated_items
         name = create_mixed_bunch_pick_list_for_allocated_items(
             sales_order_doc=so_doc,
             allocations=mixed_bunch,
@@ -1116,7 +1130,7 @@ def _append_rows_to_existing_opls(allocations, so_doc, location):
             existing = frappe.db.exists("Pick List Item", {
                 "parent": opl_name,
                 "sales_order_item": so_item_name,
-                "custom_bucket": alloc.get("bucket_id")
+                "bucket": alloc.get("bucket_id")
             })
             if existing:
                 continue
@@ -1135,28 +1149,28 @@ def _append_rows_to_existing_opls(allocations, so_doc, location):
             frappe.db.sql("""
                 INSERT INTO `tabPick List Item` (
                     name, parent, parenttype, parentfield, idx, docstatus,
-                    item_code, item_name, custom_shelf, custom_bucket,
-                    custom_sale_order_item, description, item_group,
-                    warehouse, custom_stem_length, custom_truck,
+                    item_code, item_name, shelf, bucket,
+                    custom_sale_order_item, farm,
+                    source_warehouse, stem_length, transit_truck,
                     qty, stock_qty, picked_qty, stock_reserved_qty,
-                    custom_rate, custom_packrate, uom, conversion_factor,
-                    stock_uom, delivered_qty, actual_qty, company_total_stock,
-                    custom_box_id, use_serial_batch_fields,
-                    sales_order, sales_order_item,
-                    custom_ready_for_packing, custom_issued,
-                    custom_downgrade_reason,
-                    custom_available_stems_of_exact_length,
-                    custom_awaiting_transfer
+                    packrate, uom, conversion_factor,
+                    stock_uom, delivered_qty,
+                    custom_box_id,
+                    sales_order_item,
+                    custom_ready_for_packing, issued,
+                    downgrade_reason,
+                    available_stems_of_exact_length,
+                    awaiting_transfer
                 ) VALUES (
-                    %(name)s, %(parent)s, 'Order Pick List', 'locations', %(idx)s, 1,
+                    %(name)s, %(parent)s, 'Order Pick List', 'table_ytkc', %(idx)s, 1,
                     %(item_code)s, %(item_name)s, %(shelf)s, %(bucket)s,
-                    %(so_item)s, %(item_name)s, %(item_group)s,
+                    %(so_item)s, %(farm)s,
                     %(warehouse)s, %(stem_length)s, %(truck)s,
                     %(qty)s, %(stock_qty)s, 0, 0,
-                    0, %(packrate)s, %(uom)s, %(conv)s,
-                    %(stock_uom)s, 0, 0, 0,
-                    %(box_id)s, 0,
-                    %(sales_order)s, %(so_item)s,
+                    %(packrate)s, %(uom)s, %(conv)s,
+                    %(stock_uom)s, 0,
+                    %(box_id)s,
+                    %(so_item)s,
                     1, 0,
                     %(downgrade_reason)s,
                     %(available_exact_stems)s,
@@ -1165,6 +1179,7 @@ def _append_rows_to_existing_opls(allocations, so_doc, location):
             """, {
                 "name": row_name,
                 "parent": opl_name,
+                "farm": alloc.get("_shelf_farm") or "",
                 "idx": max_idx,
                 "item_code": alloc["item_code"],
                 "item_name": so_item.item_name,
@@ -1293,10 +1308,10 @@ def _try_submit_opl_if_complete(opl_name, confirmed_by_item=None):
         return True
     if opl.docstatus == 2:
         return False
-    if not opl.locations:
+    if not opl.table_ytkc:
         return False
 
-    has_awaiting = any((loc.get("custom_awaiting_transfer") or 0) for loc in opl.locations)
+    has_awaiting = any((loc.get("awaiting_transfer") or 0) for loc in opl.table_ytkc)
 
     opl_mix_group = opl.get("custom_mix_group")
     opl_bunch_group = opl.get("custom_bunch_group")
@@ -1323,7 +1338,7 @@ def _try_submit_opl_if_complete(opl_name, confirmed_by_item=None):
             pluck="name",
         ))
     else:
-        required_so_items = {loc.sales_order_item for loc in opl.locations if loc.sales_order_item}
+        required_so_items = {loc.sales_order_item for loc in opl.table_ytkc if loc.sales_order_item}
 
     all_covered = True
     for so_item in required_so_items:
@@ -1370,7 +1385,7 @@ def _update_existing_pick_list(opl_name, new_allocations, so_doc, submit_if_comp
     alloc_item_codes = [a["item_code"] for a in new_allocations]
     shelf_lookup = _fetch_shelf_for_buckets(alloc_bucket_ids, alloc_item_codes)
 
-    box_id_counter = max([loc.custom_box_id or 0 for loc in opl.locations], default=0) + 1
+    box_id_counter = max([loc.custom_box_id or 0 for loc in opl.table_ytkc], default=0) + 1
     affected_items = set()
     has_awaiting_transfer = any(not a.get("_is_sales_shelf") for a in new_allocations)
 
@@ -1385,15 +1400,15 @@ def _update_existing_pick_list(opl_name, new_allocations, so_doc, submit_if_comp
         conv = so_item.conversion_factor or 1
         qty_uom = alloc["qty"] / conv if conv > 0 else alloc["qty"]
 
-        if any(loc.custom_bucket == alloc.get("bucket_id") and loc.sales_order_item == so_item_name for loc in opl.locations):
+        if any(loc.bucket == alloc.get("bucket_id") and loc.sales_order_item == so_item_name for loc in opl.table_ytkc):
             continue
 
         shelf_str = shelf_lookup.get((alloc.get("bucket_id"), alloc["item_code"]), "")
         is_sales_shelf = alloc.get("_is_sales_shelf", 1)
 
-        opl.append("locations", {
+        opl.append("table_ytkc", {
             "item_code": alloc["item_code"],
-            "custom_bucket": alloc.get("bucket_id"),
+            "bucket": alloc.get("bucket_id"),
             "custom_sale_order_item": so_item_name,
             "item_name": so_item.item_name,
             "stock_uom": so_item.stock_uom,
@@ -1401,23 +1416,22 @@ def _update_existing_pick_list(opl_name, new_allocations, so_doc, submit_if_comp
             "qty": qty_uom,
             "stock_qty": alloc["qty"],
             "conversion_factor": conv,
-            "warehouse": alloc.get("warehouse"),
-            "sales_order": so_doc.name,
+            "source_warehouse": alloc.get("warehouse"),
             "sales_order_item": so_item.name,
-            "custom_stem_length": alloc.get("stem_length") or so_item.custom_length,
-            "custom_truck": so_item.get("custom_truck"),
+            "stem_length": alloc.get("stem_length") or so_item.custom_length,
+            "transit_truck": so_item.get("custom_truck"),
             "custom_box_id": box_id_counter,
-            "custom_shelf": shelf_str,
-            "custom_downgrade_reason": alloc.get("downgrade_reason") or "",
-            "custom_available_stems_of_exact_length": alloc.get("available_exact_stems") or 0,
-            "custom_awaiting_transfer": 0 if is_sales_shelf else 1,
+            "shelf": shelf_str,
+            "farm": alloc.get("_shelf_farm") or "",
+            "downgrade_reason": alloc.get("downgrade_reason") or "",
+            "available_stems_of_exact_length": alloc.get("available_exact_stems") or 0,
+            "awaiting_transfer": 0 if is_sales_shelf else 1,
             "custom_ready_for_packing": 1,
         })
         box_id_counter += 1
 
-    total_stems = sum(loc.stock_qty for loc in opl.locations)
+    total_stems = sum(loc.stock_qty for loc in opl.table_ytkc)
     opl.custom_total_stems = total_stems
-    opl.for_qty = total_stems
     opl.save(ignore_permissions=True)
 
     # Central helper checks cumulative coverage across all OPLs/sessions and
@@ -1490,7 +1504,7 @@ def unallocate_bucket_from_opl(sales_order_item, bucket_id):
         for opl_name in opls:
             rows = frappe.db.sql("""
                 SELECT name FROM `tabPick List Item`
-                WHERE parent = %s AND sales_order_item = %s AND custom_bucket = %s
+                WHERE parent = %s AND sales_order_item = %s AND bucket = %s
             """, [opl_name, sales_order_item, bucket_id], as_dict=True)
 
             if not rows:
@@ -1682,8 +1696,9 @@ def get_substitute_varieties(sales_order, sales_order_item, item_code, location=
             LEFT JOIN `tabBucket Allocation Status` bas
                 ON bas.bucket_id = si.bucket_id AND bas.item_code = si.variety
             WHERE s.farm IN ({farm_placeholders})
-              AND DATEDIFF(CURDATE(), si.date_added) < %s
+              AND DATEDIFF(CURDATE(), COALESCE(si.harvest_date, si.date_added)) < %s
               AND (bas.in_transit = 0 OR bas.in_transit IS NULL)
+              {DISCARD_EXCLUSION}
             GROUP BY si.variety
         ) stock ON stock.item_code = i.name
         WHERE {item_where}

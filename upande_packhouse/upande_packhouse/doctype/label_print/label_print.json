@@ -1,0 +1,235 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "format:{action}-{#####}",
+ "creation": "2026-08-08 13:11:05.341929",
+ "default_view": "List",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "action",
+  "section_break_iqgu",
+  "item_code",
+  "number_of_labels",
+  "section_break_zqiu",
+  "farm",
+  "variety",
+  "bunch_size",
+  "column_break_wrru",
+  "stem_length",
+  "no_of_labels",
+  "farm_code",
+  "section_break_ovln",
+  "farm_name",
+  "number_of_labels_per_variety_per_length",
+  "details",
+  "section_break_uqvl",
+  "grader",
+  "grader_payroll_number",
+  "qty_of_labels",
+  "day_code",
+  "shelf_details_section",
+  "row_id",
+  "from_position",
+  "to_position"
+ ],
+ "fields": [
+  {
+   "fieldname": "action",
+   "fieldtype": "Select",
+   "label": "Action",
+   "options": "\nHarvesting Label\nBunch Label\nGrader Label\nShelf Label\nBunch Label Table"
+  },
+  {
+   "depends_on": "eval: doc.action === \"Harvesting Label\"",
+   "fieldname": "section_break_iqgu",
+   "fieldtype": "Section Break",
+   "label": "Harvest Details"
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Item Code",
+   "options": "Item"
+  },
+  {
+   "fieldname": "number_of_labels",
+   "fieldtype": "Int",
+   "label": "Number of Labels"
+  },
+  {
+   "depends_on": "eval:doc.action ===  'Bunch Label'",
+   "fieldname": "section_break_zqiu",
+   "fieldtype": "Section Break",
+   "label": "Bunch Details"
+  },
+  {
+   "fieldname": "farm",
+   "fieldtype": "Link",
+   "label": "Farm",
+   "mandatory_depends_on": "eval: doc.action == \"Bunch Label\" ",
+   "options": "Farm"
+  },
+  {
+   "fieldname": "variety",
+   "fieldtype": "Link",
+   "label": "Variety",
+   "link_filters": "[[\"Item\",\"item_group\",\"not in\",[\"Products\",\"Raw Material\",\"Services\",\"Sub Assemblies\",\"Consumable\",\"Chemicals\",\"Fertilizers\",\"Stock Items\"]]]",
+   "mandatory_depends_on": "eval: doc.action == \"Bunch Label\" ",
+   "options": "Item"
+  },
+  {
+   "fieldname": "bunch_size",
+   "fieldtype": "Link",
+   "label": "Bunch Size",
+   "link_filters": "[[\"UOM\",\"uom_name\",\"like\",\"Bunch%\"]]",
+   "options": "UOM"
+  },
+  {
+   "fieldname": "column_break_wrru",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "stem_length",
+   "fieldtype": "Link",
+   "label": "Stem Length",
+   "link_filters": "[[\"Stem Length\",\"docstatus\",\"=\",\"1\"]]",
+   "mandatory_depends_on": "eval: doc.action == \"Bunch Label\" ",
+   "options": "Stem Length"
+  },
+  {
+   "fieldname": "no_of_labels",
+   "fieldtype": "Int",
+   "label": "No of Labels"
+  },
+  {
+   "fetch_from": "farm.kephis_farm_id",
+   "fieldname": "farm_code",
+   "fieldtype": "Data",
+   "label": "Farm Code",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.action ===  'Bunch Label Table'",
+   "fieldname": "section_break_ovln",
+   "fieldtype": "Section Break",
+   "label": "Bunch Details Table"
+  },
+  {
+   "fieldname": "farm_name",
+   "fieldtype": "Link",
+   "label": "Farm Name",
+   "options": "Farm"
+  },
+  {
+   "fieldname": "number_of_labels_per_variety_per_length",
+   "fieldtype": "Select",
+   "label": "Number Of Labels Per Variety Per Length",
+   "options": "0\n20\n50\n100\n150\n200\n250\n300"
+  },
+  {
+   "fieldname": "details",
+   "fieldtype": "Table",
+   "label": "Details",
+   "options": "Bunch Details Table"
+  },
+  {
+   "depends_on": "eval: doc.action === 'Grader Label'",
+   "fieldname": "section_break_uqvl",
+   "fieldtype": "Section Break",
+   "label": "Grader Details"
+  },
+  {
+   "fieldname": "grader",
+   "fieldtype": "Link",
+   "label": "Grader",
+   "options": "Employee"
+  },
+  {
+   "depends_on": "eval:doc.action === 'Grader Label'",
+   "fetch_from": "grader.employee_number",
+   "fieldname": "grader_payroll_number",
+   "fieldtype": "Data",
+   "label": "Grader Payroll Number",
+   "read_only": 1
+  },
+  {
+   "fieldname": "qty_of_labels",
+   "fieldtype": "Int",
+   "label": "Qty of Labels"
+  },
+  {
+   "fieldname": "day_code",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Day Code"
+  },
+  {
+   "fieldname": "shelf_details_section",
+   "fieldtype": "Section Break",
+   "label": "Shelf Details"
+  },
+  {
+   "depends_on": "eval: doc.action == \"Shelf Label\"",
+   "description": "Holds single value between A-Z",
+   "fieldname": "row_id",
+   "fieldtype": "Data",
+   "label": "Row ID",
+   "length": 1
+  },
+  {
+   "depends_on": "eval: doc.action == \"Shelf Label\"",
+   "fieldname": "from_position",
+   "fieldtype": "Int",
+   "label": "From Position"
+  },
+  {
+   "depends_on": "eval: doc.action == \"Shelf Label\"",
+   "fieldname": "to_position",
+   "fieldtype": "Int",
+   "label": "To Position"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [
+  {
+   "link_doctype": "Bucket QR Code",
+   "link_fieldname": "label_print_doc"
+  },
+  {
+   "link_doctype": "Bunch QR Code",
+   "link_fieldname": "label_print_doc"
+  },
+  {
+   "link_doctype": "Grader QR Code",
+   "link_fieldname": "label_print_doc"
+  }
+ ],
+ "modified": "2026-08-08 13:13:49.410879",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Label Print",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

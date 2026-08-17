@@ -8,7 +8,6 @@
  "field_order": [
   "bunch_type",
   "colour",
-  "variety",
   "hz_bud_count_range",
   "stems_per_bunch",
   "length",
@@ -29,14 +28,7 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Colour",
-   "options": "Colors"
-  },
-  {
-   "fieldname": "variety",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Variety",
-   "options": "Item"
+   "options": "Color"
   },
   {
    "fieldname": "hz_bud_count_range",

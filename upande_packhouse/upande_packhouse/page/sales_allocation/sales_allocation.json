@@ -4,9 +4,9 @@
  "docstatus": 0,
  "doctype": "Page",
  "idx": 0,
- "modified": "2025-11-10 14:10:33.140883",
+ "modified": "2026-08-13 16:23:18.310957",
  "modified_by": "Administrator",
- "module": "Upande Kaitet",
+ "module": "Upande Packhouse",
  "name": "sales-allocation",
  "owner": "Administrator",
  "page_name": "sales-allocation",
@@ -22,6 +22,9 @@
   },
   {
    "role": "Sales User"
+  },
+  {
+   "role": "System Manager"
   }
  ],
  "script": null,

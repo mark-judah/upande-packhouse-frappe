@@ -1,0 +1,186 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "hash",
+ "creation": "2026-08-12 13:43:53.961790",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "bucket_id",
+  "shelf",
+  "farm",
+  "variety",
+  "stem_length",
+  "stem_qty",
+  "greenhouse",
+  "warehouse",
+  "cut_stage",
+  "harvest_date",
+  "receiving_date",
+  "harvester",
+  "graded_by",
+  "grading_date",
+  "reason",
+  "shelved_on",
+  "shelved_by",
+  "removed_on",
+  "shelf_item"
+ ],
+ "fields": [
+  {
+   "fieldname": "bucket_id",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Bucket ID",
+   "options": "Bucket QR Code",
+   "reqd": 1
+  },
+  {
+   "fieldname": "shelf",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Shelf"
+  },
+  {
+   "fieldname": "farm",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Farm",
+   "options": "Farm"
+  },
+  {
+   "fieldname": "variety",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Variety",
+   "options": "Item"
+  },
+  {
+   "fieldname": "stem_length",
+   "fieldtype": "Data",
+   "label": "Stem Length"
+  },
+  {
+   "fieldname": "stem_qty",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Stem Qty"
+  },
+  {
+   "fieldname": "greenhouse",
+   "fieldtype": "Link",
+   "label": "Greenhouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "label": "Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "cut_stage",
+   "fieldtype": "Data",
+   "label": "Cut Stage"
+  },
+  {
+   "fieldname": "harvest_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Harvest Date"
+  },
+  {
+   "fieldname": "receiving_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Receiving Date"
+  },
+  {
+   "fieldname": "harvester",
+   "fieldtype": "Link",
+   "label": "Harvester",
+   "options": "Employee"
+  },
+  {
+   "fieldname": "graded_by",
+   "fieldtype": "Link",
+   "label": "Graded By",
+   "options": "Employee"
+  },
+  {
+   "fieldname": "grading_date",
+   "fieldtype": "Date",
+   "label": "Grading Date"
+  },
+  {
+   "default": "Shelved",
+   "fieldname": "reason",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Reason",
+   "options": "Shelved\nIssued to Sales Order\nIssued from Coldstore\nTransferred (Trolley/Truck)\nDiscarded\nReplaced\nShelf Cleared\nAged Out"
+  },
+  {
+   "fieldname": "shelved_on",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Shelved On"
+  },
+  {
+   "fieldname": "shelved_by",
+   "fieldtype": "Link",
+   "label": "Shelved By",
+   "options": "User"
+  },
+  {
+   "fieldname": "removed_on",
+   "fieldtype": "Datetime",
+   "label": "Removed On"
+  },
+  {
+   "description": "Source Shelf Item row name \u2014 used to keep the log idempotent.",
+   "fieldname": "shelf_item",
+   "fieldtype": "Data",
+   "label": "Source Shelf Item"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-12 13:50:49.596943",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Shelving Log",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "select": 1,
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Stock User",
+   "select": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

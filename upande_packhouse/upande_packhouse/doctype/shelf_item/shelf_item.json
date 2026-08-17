@@ -1,0 +1,128 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "creation": "2026-08-12 10:17:45.435549",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "variety",
+  "greenhouse",
+  "warehouse",
+  "bucket_id",
+  "stem_qty",
+  "stem_length",
+  "date_added",
+  "cut_stage",
+  "harvest_date",
+  "receiving_date",
+  "farm",
+  "harvester",
+  "graded_by",
+  "grading_date"
+ ],
+ "fields": [
+  {
+   "fieldname": "variety",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Variety",
+   "options": "Item"
+  },
+  {
+   "fieldname": "greenhouse",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Origin Greenhouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "bucket_id",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Bucket Id",
+   "options": "Bucket QR Code"
+  },
+  {
+   "fieldname": "stem_qty",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Stem Qty"
+  },
+  {
+   "fieldname": "stem_length",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Stem Length",
+   "options": "Stem Length"
+  },
+  {
+   "fieldname": "date_added",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Date Added"
+  },
+  {
+   "fieldname": "cut_stage",
+   "fieldtype": "Data",
+   "label": "Cut Stage"
+  },
+  {
+   "fieldname": "harvest_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Harvest Date"
+  },
+  {
+   "fieldname": "receiving_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Receiving Date"
+  },
+  {
+   "fieldname": "farm",
+   "fieldtype": "Link",
+   "label": "Farm",
+   "options": "Farm"
+  },
+  {
+   "fieldname": "harvester",
+   "fieldtype": "Link",
+   "label": "Harvester",
+   "options": "Employee"
+  },
+  {
+   "fieldname": "graded_by",
+   "fieldtype": "Link",
+   "label": "Graded By",
+   "options": "Employee"
+  },
+  {
+   "fieldname": "grading_date",
+   "fieldtype": "Date",
+   "label": "Grading Date"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-12 10:17:45.435549",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Shelf Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

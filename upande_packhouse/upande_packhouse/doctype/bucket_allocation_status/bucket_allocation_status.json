@@ -1,0 +1,144 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "creation": "2026-08-12 10:16:53.792046",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "bucket_id",
+  "item_code",
+  "warehouse",
+  "farm",
+  "stem_length",
+  "in_transit",
+  "column_break_ezal",
+  "shelf_location",
+  "shelf_farm",
+  "harvest_date",
+  "total_quantity",
+  "allocated_quantity",
+  "available_quantity",
+  "receiving_entry",
+  "section_break_jjnc",
+  "bucket_allocations"
+ ],
+ "fields": [
+  {
+   "fieldname": "bucket_id",
+   "fieldtype": "Link",
+   "label": "Bucket Id",
+   "options": "Bucket QR Code"
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "label": "Item Code",
+   "options": "Item"
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "label": "Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "farm",
+   "fieldtype": "Link",
+   "label": "Farm",
+   "options": "Farm"
+  },
+  {
+   "fieldname": "stem_length",
+   "fieldtype": "Link",
+   "label": "Stem Length",
+   "options": "Stem Length"
+  },
+  {
+   "default": "0",
+   "fieldname": "in_transit",
+   "fieldtype": "Check",
+   "label": "In Transit"
+  },
+  {
+   "fieldname": "column_break_ezal",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "shelf_location",
+   "fieldtype": "Link",
+   "label": "Shelf Location",
+   "options": "Shelf"
+  },
+  {
+   "fieldname": "shelf_farm",
+   "fieldtype": "Link",
+   "label": "Shelf Farm",
+   "options": "Farm"
+  },
+  {
+   "fieldname": "harvest_date",
+   "fieldtype": "Date",
+   "label": "Harvest Date"
+  },
+  {
+   "fieldname": "total_quantity",
+   "fieldtype": "Float",
+   "label": "Total Quantity"
+  },
+  {
+   "fieldname": "allocated_quantity",
+   "fieldtype": "Float",
+   "label": "Allocated Quantity"
+  },
+  {
+   "fieldname": "available_quantity",
+   "fieldtype": "Float",
+   "label": "Available Quantity"
+  },
+  {
+   "fieldname": "receiving_entry",
+   "fieldtype": "Link",
+   "label": "Receiving Entry",
+   "options": "Stock Entry"
+  },
+  {
+   "fieldname": "section_break_jjnc",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "bucket_allocations",
+   "fieldtype": "Table",
+   "label": "Bucket Allocations",
+   "options": "Bucket Allocations"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-12 10:16:53.792046",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Bucket Allocation Status",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "select": 1,
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
