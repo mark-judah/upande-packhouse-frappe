@@ -1,7 +1,7 @@
 {
  "app": "upande_packhouse",
  "charts": [],
- "content": "[{\"id\": \"phnav0001\", \"type\": \"custom_block\", \"data\": {\"custom_block_name\": \"Packhouse Navigation\", \"col\": 12}}]",
+ "content": "[{\"id\": \"764a08be16\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Dashboards</b></span>\", \"col\": 12}}, {\"id\": \"26d08f3341\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Packhouse Dashboard\", \"col\": 3}}, {\"id\": \"83a0f2547f\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Scheduler\", \"col\": 3}}, {\"id\": \"1ebb93c232\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Allocation Planning\", \"col\": 3}}, {\"id\": \"9d149d487d\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Production\", \"col\": 3}}, {\"id\": \"1f4fcd127f\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Bucket Journey\", \"col\": 3}}, {\"id\": \"66f1432779\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Bucket Logistics\", \"col\": 3}}, {\"id\": \"bd0d30ef3c\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Cold Room\", \"col\": 3}}, {\"id\": \"514a74eccc\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Discards\", \"col\": 3}}, {\"id\": \"ccf0af49fc\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Downgrades\", \"col\": 3}}, {\"id\": \"2328c96ff0\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Stock Visibility\", \"col\": 3}}, {\"id\": \"d3ebd6e0ec\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Avails\", \"col\": 3}}, {\"id\": \"75e03d8eba\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Stem Movement\", \"col\": 3}}, {\"id\": \"559bcd509c\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Order Summary\", \"col\": 3}}, {\"id\": \"3feedd5df5\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Order Fulfilment\", \"col\": 3}}, {\"id\": \"6913a1320b\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"897881245f\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Records</b></span>\", \"col\": 12}}, {\"id\": \"76624bdc14\", \"type\": \"card\", \"data\": {\"card_name\": \"Daily Operations\", \"col\": 4}}, {\"id\": \"17e1444da3\", \"type\": \"card\", \"data\": {\"card_name\": \"Stock & Shelving\", \"col\": 4}}, {\"id\": \"4828a85b5f\", \"type\": \"card\", \"data\": {\"card_name\": \"Losses & Setup\", \"col\": 4}}]",
  "creation": "2026-08-16 12:35:52.076515",
  "custom_blocks": [
   {
@@ -18,13 +18,202 @@
  "is_hidden": 0,
  "label": "Packhouse",
  "link_type": "DocType",
- "links": [],
- "modified": "2026-08-16 12:35:52.076515",
+ "links": [
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Daily Operations",
+   "link_count": 5,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Sales Order",
+   "link_count": 0,
+   "link_to": "Sales Order",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Order Pick List",
+   "link_count": 0,
+   "link_to": "Order Pick List",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Farm Pack List",
+   "link_count": 0,
+   "link_to": "Farm Pack List",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Loading Sheet",
+   "link_count": 0,
+   "link_to": "Loading Sheet",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Delivery Note",
+   "link_count": 0,
+   "link_to": "Delivery Note",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Stock & Shelving",
+   "link_count": 5,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Shelf",
+   "link_count": 0,
+   "link_to": "Shelf",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Box Label",
+   "link_count": 0,
+   "link_to": "Box Label",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Bucket QR Code",
+   "link_count": 0,
+   "link_to": "Bucket QR Code",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Label Print",
+   "link_count": 0,
+   "link_to": "Label Print",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Stock Entry",
+   "link_count": 0,
+   "link_to": "Stock Entry",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Losses & Setup",
+   "link_count": 6,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Discard Request",
+   "link_count": 0,
+   "link_to": "Discard Request",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Packhouse Schedule",
+   "link_count": 0,
+   "link_to": "Packhouse Schedule",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Item Price",
+   "link_count": 0,
+   "link_to": "Item Price",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Packrate",
+   "link_count": 0,
+   "link_to": "Packrate",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Specifications",
+   "link_count": 0,
+   "link_to": "Specifications",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Consignee",
+   "link_count": 0,
+   "link_to": "Consignee",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-08-19 00:24:23.264968",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Packhouse",
  "number_cards": [],
  "owner": "Administrator",
+ "parent_page": "",
  "public": 1,
  "quick_lists": [],
  "roles": [
@@ -39,7 +228,106 @@
   }
  ],
  "sequence_id": 0.0,
- "shortcuts": [],
+ "shortcuts": [
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Packhouse Dashboard",
+   "type": "URL",
+   "url": "/packhouse-dashboard"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Scheduler",
+   "type": "URL",
+   "url": "/packhouse-scheduler"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Allocation Planning",
+   "type": "URL",
+   "url": "/sales-allocation-planning"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Production",
+   "type": "URL",
+   "url": "/packhouse-production"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Bucket Journey",
+   "type": "URL",
+   "url": "/bucket-tracker"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Bucket Logistics",
+   "type": "URL",
+   "url": "/bucket-logistics"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Cold Room",
+   "type": "URL",
+   "url": "/cold-room"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Discards",
+   "type": "URL",
+   "url": "/packhouse-discards"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Downgrades",
+   "type": "URL",
+   "url": "/packhouse-downgrades"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Stock Visibility",
+   "type": "URL",
+   "url": "/stock-visibility"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Avails",
+   "type": "URL",
+   "url": "/avails"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Stem Movement",
+   "type": "URL",
+   "url": "/stem-movement"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Order Summary",
+   "type": "URL",
+   "url": "/order-summary"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Order Fulfilment",
+   "type": "URL",
+   "url": "/order-fulfilment"
+  }
+ ],
  "title": "Packhouse",
  "type": "Workspace"
 }

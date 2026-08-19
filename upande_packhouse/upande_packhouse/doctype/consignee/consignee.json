@@ -8,7 +8,7 @@
  "field_order": [
   "consignee",
   "country",
-  "customer"
+  "customers"
  ],
  "fields": [
   {
@@ -24,10 +24,10 @@
    "options": "Country"
   },
   {
-   "fieldname": "customer",
-   "fieldtype": "Link",
-   "label": "Customer",
-   "options": "Customer"
+   "fieldname": "customers",
+   "fieldtype": "Table MultiSelect",
+   "label": "Customers",
+   "options": "Consignee Customer"
   }
  ],
  "grid_page_length": 50,

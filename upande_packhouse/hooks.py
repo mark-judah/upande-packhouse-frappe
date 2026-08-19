@@ -146,7 +146,15 @@ app_license = "mit"
 # }
 doc_events = {
 	"Stock Entry": {"validate": "upande_packhouse.roses_invoice.sync_accounting_dimensions"},
-	"Sales Order": {"validate": "upande_packhouse.roses_invoice.sync_accounting_dimensions"},
+	"Sales Order": {
+		"before_validate": "upande_packhouse.sales_order_engine.sales_order_before_validate",
+		"validate": [
+			"upande_packhouse.roses_invoice.sync_accounting_dimensions",
+			"upande_packhouse.sales_order_engine.sales_order_price",
+			"upande_packhouse.sales_order_engine.sales_order_validate",
+		],
+	},
+	"Specifications": {"before_validate": "upande_packhouse.spec.ensure_spec_uoms_and_packrates"},
 	"Sales Invoice": {"validate": "upande_packhouse.roses_invoice.sync_accounting_dimensions"},
 	"Delivery Note": {
 		"validate": "upande_packhouse.roses_invoice.sync_accounting_dimensions",
