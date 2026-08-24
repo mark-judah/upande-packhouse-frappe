@@ -1,0 +1,1199 @@
+{% extends "templates/web.html" %}
+{% block page_content %}
+{% raw %}
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --bg:#fff;--bg-card:#fff;--bg-hover:#fafafa;--bg-muted:#f5f5f5;
+  --border:#ececec;--border-2:#d0d0d0;
+  --text:#000;--text-2:#6b6b6b;--text-3:#9a9a9a;--text-4:#cfcfcf;
+  --accent:#000;
+  --good:#16a34a;--warn:#d97706;--bad:#dc2626;--plan:#d4d4d4;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.04);
+  --f:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --mono:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;
+}
+/* Take dashboard out of Frappe layout entirely — fill viewport */
+html,body{margin:0!important;padding:0!important;overflow:hidden!important;height:100vh!important}
+.navbar,header,.page-breadcrumbs,.page-header,.page-header-wrapper,.web-footer,footer,
+.website-edit-button,.btn-edit-page,.edit-page-btn,.scroll-to-top,.back-to-top,
+.website-banner,.call-to-action,.frappe-chat,#frappe-chat,.telegram-share,.share-buttons,
+.web-page-edit,.published-edit{display:none!important}
+.aph *{box-sizing:border-box;margin:0;padding:0}
+.aph{position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100vh;z-index:2147483000;
+  font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;
+  display:grid;grid-template-columns:240px 1fr;font-feature-settings:'cv11','ss01','ss03'}
+
+.aph svg.ic{width:16px;height:16px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.aph .aph-side svg.ic{width:15px;height:15px;stroke-width:1.6;color:var(--text-3)}
+.aph .aph-side .nav-item.active svg.ic{color:#fff}
+.aph .aph-kpi svg.ic{width:18px;height:18px;color:var(--text-3);stroke-width:1.5}
+
+/* SIDEBAR */
+.aph-side{background:var(--bg-card);border-right:1px solid var(--border);height:100vh;position:sticky;top:0;display:flex;flex-direction:column;overflow:hidden}
+.aph-side .brand{padding:18px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+.aph-side .brand .mark{width:36px;height:36px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px;letter-spacing:-0.02em;border-radius:7px}
+.aph-side .brand .name{font-weight:600;font-size:14px;line-height:1.15;letter-spacing:-0.015em}
+.aph-side .brand .name small{display:block;font-size:11px;color:var(--text-3);font-weight:400;margin-top:2px}
+/* Note: "nav" collides with Bootstrap's .nav (flex-wrap:wrap) loaded by Frappe —
+   force nowrap + column here or items wrap into a phantom second column */
+.aph-side .nav{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:6px 0 16px;margin:0;list-style:none;display:flex;flex-direction:column;flex-wrap:nowrap!important}
+.aph-side .group-lbl{padding:14px 20px 4px;font-size:10px;color:var(--text-3);letter-spacing:.1em;text-transform:uppercase;font-weight:600;display:block}
+.aph-side .group-lbl:first-child{padding-top:10px}
+.aph-side .nav-item{display:flex;align-items:center;gap:11px;padding:8px 12px;cursor:pointer;font-size:13px;color:var(--text-2);font-weight:500;user-select:none;transition:background .12s ease,color .12s ease;margin:1px 8px;border-radius:6px;box-sizing:border-box;text-decoration:none}
+.aph-side .nav-item:hover{background:var(--bg-hover);color:var(--text);text-decoration:none}
+.aph-side .nav-item.active{background:var(--accent);color:#fff;font-weight:500}
+.aph-side .nav-item .badge{margin-left:auto;font-family:var(--mono);font-size:10px;font-weight:600;color:var(--text-2);background:var(--bg-muted);padding:1px 7px;border-radius:9px;line-height:1.4}
+.aph-side .nav-item.active .badge{color:#fff;background:rgba(255,255,255,.18)}
+.aph-side .nav-item.stub{color:var(--text-3)}
+.aph-side .nav-item.stub svg.ic{opacity:.55}
+.aph-side .footer{padding:12px 20px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px;font-size:11px;color:var(--text-2)}
+.aph-side .footer .av{width:24px;height:24px;border-radius:50%;background:var(--bg-muted);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:10px;color:var(--text)}
+.aph-side .footer .who{flex:1;line-height:1.2;overflow:hidden}
+.aph-side .footer .who .nm{font-weight:600;color:var(--text);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph-side .footer .who .em{font-size:10px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph-side .home-link{display:flex;align-items:center;gap:11px;margin:8px 8px 0;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-weight:500;color:var(--text-2);text-decoration:none;transition:background .12s ease,color .12s ease}
+.aph-side .home-link:hover{background:var(--bg-hover);color:var(--text);text-decoration:none}
+.aph-side .home-link svg.ic{width:15px;height:15px;stroke-width:1.6;color:var(--text-3)}
+
+/* MAIN */
+.aph-main{min-width:0;height:100vh;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column}
+.aph-content{flex:1}
+.aph-topbar{background:var(--bg-card);border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:10}
+.aph-topbar h1{font-size:18px;font-weight:600;letter-spacing:-0.02em}
+.aph-topbar .crumb{color:var(--text-3);font-size:11px;font-weight:500;padding-left:14px;border-left:1px solid var(--border);height:18px;line-height:18px;letter-spacing:.02em}
+.aph-topbar .right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.aph-topbar .date-pill{display:inline-flex;align-items:center;border:1px solid var(--border-2);border-radius:7px;background:var(--bg-card);overflow:hidden;height:32px}
+.aph-topbar .date-pill input{border:0;padding:0 10px;font-size:12px;font-family:var(--f);font-feature-settings:'tnum';background:transparent;outline:0;width:118px;font-weight:500}
+.aph-topbar .date-pill .sep{padding:0 4px;color:var(--text-3);font-size:12px}
+.aph-topbar .date-pill .clear{padding:0 10px;color:var(--text-3);font-size:15px;cursor:pointer;border-left:1px solid var(--border);height:100%;display:flex;align-items:center}
+.aph-topbar .presets{display:flex;border:1px solid var(--border-2);border-radius:7px;overflow:hidden;height:32px}
+.aph-topbar .presets .p{padding:0 12px;font-size:11px;font-weight:500;cursor:pointer;color:var(--text-2);background:var(--bg-card);border-right:1px solid var(--border);display:flex;align-items:center}
+.aph-topbar .presets .p:last-child{border-right:0}
+.aph-topbar .presets .p:hover{background:var(--bg-hover);color:var(--text)}
+.aph-topbar .presets .p.active{background:var(--accent);color:#fff}
+.aph-topbar .btn{padding:0 14px;height:32px;border:1px solid var(--border-2);background:var(--bg-card);color:var(--text);border-radius:7px;font-size:12px;font-weight:500;cursor:pointer;font-family:var(--f);display:flex;align-items:center;gap:6px}
+.aph-topbar .btn:hover{background:var(--bg-hover)}
+.aph-topbar .btn svg{width:14px;height:14px}
+
+.aph-content{padding:28px}
+.aph-page-hd{margin-bottom:24px}
+.aph-page-hd .ttl{font-size:24px;font-weight:600;letter-spacing:-0.025em;line-height:1.15}
+.aph-page-hd .sub{font-size:13px;color:var(--text-2);margin-top:4px}
+
+.aph-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:28px}
+.aph-kpi{background:var(--bg-card);border:1px solid var(--border);padding:20px 22px;border-radius:10px;position:relative;min-height:118px;display:flex;flex-direction:column;justify-content:space-between;transition:border-color .12s ease,box-shadow .12s ease}
+.aph-kpi:hover{border-color:var(--border-2);box-shadow:var(--shadow-sm)}
+.aph-kpi .ic-wrap{position:absolute;top:18px;right:20px;width:30px;height:30px;border-radius:7px;background:var(--bg-muted);display:flex;align-items:center;justify-content:center}
+.aph-kpi .lbl{font-size:11px;color:var(--text-2);letter-spacing:.04em;text-transform:uppercase;font-weight:600}
+.aph-kpi .v{font-size:32px;font-weight:600;letter-spacing:-0.035em;font-feature-settings:'tnum';margin-top:10px;line-height:1}
+.aph-kpi .sub{font-size:11px;color:var(--text-3);margin-top:8px;font-weight:500}
+.aph-kpi .sub strong{color:var(--text-2);font-weight:600}
+
+.aph-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;width:100%;box-sizing:border-box}
+/* full-width rows — !important so no theme/global CSS can shrink them */
+.aph-grid.col-1{display:grid!important;grid-template-columns:1fr!important;width:100%!important;max-width:none!important}
+.aph-grid.col-1 > .aph-card{width:100%!important;max-width:none!important;box-sizing:border-box}
+.aph-card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;overflow:hidden;box-sizing:border-box;width:100%;min-width:0}
+.aph-card-hd{padding:16px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+.aph-card-hd .ttl{font-weight:600;font-size:14px;letter-spacing:-0.01em;white-space:nowrap}
+.aph-card-hd .sub{color:var(--text-3);font-size:11px;font-weight:500}
+.aph-card-body{padding:18px 22px}
+.aph-card-body.padless{padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.aph-tbl th{text-align:left;padding:11px 16px;background:var(--bg-card);font-size:11px;color:var(--text-3);letter-spacing:.04em;text-transform:uppercase;font-weight:600;border-bottom:1px solid var(--border);white-space:nowrap}
+.aph-tbl td{padding:11px 16px;border-bottom:1px solid var(--border);font-feature-settings:'tnum';white-space:nowrap}
+.aph-tbl tr:last-child td{border-bottom:0}
+.aph-tbl tr:hover td{background:var(--bg-hover)}
+.aph-tbl td.num,.aph-tbl th.num{text-align:right}
+.aph-tbl td.mono{font-family:var(--mono);font-size:12px;color:var(--text-2)}
+.aph-tbl td.dim{color:var(--text-3)}
+.aph-tbl td.strong{font-weight:600}
+
+.aph-empty{padding:40px;text-align:center;color:var(--text-3);font-size:13px}
+.aph-loading{padding:60px;text-align:center;color:var(--text-3);font-size:12px}
+.aph-err{background:var(--text);color:#fff;padding:12px 16px;border-radius:7px;font-size:12px;margin:14px 28px;font-family:var(--mono)}
+.aph-stub{padding:56px 28px;text-align:center;background:var(--bg-card);border:1px dashed var(--border-2);border-radius:10px}
+.aph-stub .ttl{font-size:16px;font-weight:600;margin-bottom:6px}
+.aph-stub .sub{font-size:13px;color:var(--text-2)}
+
+.aph-bar-row{display:flex;align-items:center;gap:14px;padding:9px 0;border-bottom:1px solid var(--border)}
+.aph-bar-row:last-child{border-bottom:0}
+.aph-bar-row .lbl{width:54px;font-size:13px;font-weight:600}
+.aph-bar-row .bar{flex:1;height:8px;background:var(--bg-muted);border-radius:4px;overflow:hidden}
+.aph-bar-row .bar .fill{height:100%;background:var(--text);border-radius:4px}
+.aph-bar-row .val{width:170px;text-align:right;font-size:12px;color:var(--text-2);font-feature-settings:'tnum'}
+
+.aph-tag{display:inline-flex;align-items:center;padding:2px 9px;border-radius:10px;font-size:11px;background:var(--bg-muted);color:var(--text);font-weight:500;line-height:1.5}
+
+/* Chart wrappers: the scroll container always spans the full card; the inner
+   div's width is set in px by JS = max(available width, minimum), so the chart
+   always fills the page on wide screens and scrolls sideways on narrow ones */
+.aph-chart-scroll{display:block;width:100%!important;max-width:none!important;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:10px 16px;box-sizing:border-box}
+.aph-chart-inner{position:relative;width:100%}
+
+/* Wide table scroll wrapper (proforma / non-export invoice ledgers) */
+.aph-tbl-scroll{display:block;width:100%!important;max-width:none!important;overflow-x:auto;-webkit-overflow-scrolling:touch;box-sizing:border-box}
+
+/* ── Narrow screens / mobile ─────────────────────────────────────────── */
+@media (max-width: 900px){
+  html,body{overflow:auto!important}
+  .aph{display:flex;flex-direction:column;position:fixed}
+  /* sidebar becomes a compact top bar with a horizontally scrolling nav */
+  .aph-side{width:100%;height:auto;position:relative;flex:0 0 auto;border-right:0;border-bottom:1px solid var(--border);overflow:visible}
+  .aph-side .brand{padding:10px 16px;border-bottom:0}
+  .aph-side .home-link{margin:0 8px 8px;width:max-content}
+  .aph-side .nav{flex-direction:row;align-items:center;overflow-x:auto;overflow-y:hidden;padding:0 8px 8px;-webkit-overflow-scrolling:touch}
+  .aph-side .group-lbl{display:none}
+  .aph-side .nav-item{flex:0 0 auto;margin:0 2px;white-space:nowrap;padding:7px 12px}
+  .aph-side .footer{display:none}
+  .aph-main{flex:1 1 auto;height:auto;min-height:0}
+  .aph-topbar{position:static;flex-wrap:wrap;gap:8px;padding:10px 14px}
+  .aph-topbar .crumb{display:none}
+  .aph-topbar .right{margin-left:0;width:100%;flex-wrap:wrap}
+  .aph-content{padding:14px}
+  .aph-err{margin:14px}
+  /* everything single-column */
+  .aph-grid{grid-template-columns:1fr}
+  .aph-kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  .aph-kpi{min-height:100px;padding:16px 18px}
+  .aph-kpi .v{font-size:26px}
+  .aph-page-hd .ttl{font-size:20px}
+}
+</style>
+
+<!-- ════════ Page-specific tweaks (appended; reference tokens above are untouched) ════════ -->
+<style>
+/* ── Topbar controls: My Farm selector + LIVE badge, restyled into aph chrome ── */
+.aph .location-wrap{display:flex;align-items:center;gap:8px;height:32px;padding:0 12px;border:1px solid var(--border-2);border-radius:7px;background:var(--bg-card)}
+.aph .location-wrap.confirmed{border-color:var(--good);background:#e6f9ee}
+.aph .location-wrap svg{width:15px;height:15px;color:var(--text-3);stroke:currentColor;fill:none;stroke-width:1.75}
+.aph .location-label{font-size:12px;font-weight:600;color:var(--text-2);white-space:nowrap}
+.aph .location-wrap select{border:none;background:transparent;font-size:12px;font-weight:600;color:var(--text);font-family:var(--f);cursor:pointer;outline:0}
+.aph .live-badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:var(--text);background:var(--bg-card);
+  border:1px solid var(--border-2);border-radius:7px;padding:0 14px;height:32px;cursor:pointer;font-family:var(--f);transition:background .12s ease}
+.aph .live-badge:hover{background:var(--bg-hover)}
+.aph .live-dot{width:7px;height:7px;background:var(--good);border-radius:50%}
+
+/* ── Filters row (lives inside an aph-card body) ── */
+.aph .filters-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.aph .filter-group{display:flex;flex-direction:column;gap:5px;position:relative}
+.aph .filter-group-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3)}
+.aph .filter-actions{display:flex;gap:6px;align-items:flex-end}
+.aph .form-control{height:32px;padding:0 10px;font-size:12px;font-family:var(--f);font-feature-settings:'tnum';background:var(--bg-card);border:1px solid var(--border-2);border-radius:7px;color:var(--text);outline:0;font-weight:500;width:100%}
+.aph .form-control:focus{border-color:var(--text)}
+.aph .form-control.has-value{border-color:var(--text);background:var(--bg-card)}
+.aph .form-control::placeholder{color:var(--text-3)}
+.aph select.form-control{cursor:pointer}
+.aph .custom-select{position:relative}
+.aph .custom-select input{width:100%}
+.aph .select-dropdown{display:none;position:absolute;top:calc(100% + 2px);left:0;right:0;background:var(--bg-card);border:1px solid var(--border-2);border-radius:7px;max-height:200px;overflow-y:auto;z-index:1000;box-shadow:0 4px 16px rgba(0,0,0,.12)}
+.aph .select-dropdown.show{display:block}
+.aph .select-option{padding:7px 12px;font-size:12px;cursor:pointer;color:var(--text);border-bottom:1px solid var(--border);transition:background .12s ease;font-weight:500}
+.aph .select-option:last-child{border-bottom:none}
+.aph .select-option:hover{background:var(--bg-hover)}
+.aph .select-option.selected{background:var(--bg-muted);color:var(--text);font-weight:600}
+.aph .select-option.no-results{color:var(--text-3);cursor:default}
+.aph .select-option.no-results:hover{background:var(--bg-card)}
+
+/* ── Active filter tags ── */
+.aph .active-filters{display:flex;flex-wrap:wrap;gap:6px}
+.aph .active-filters:empty{display:none}
+.aph .filter-tag{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;font-size:11px;font-weight:600;background:var(--bg-muted);border-radius:10px;color:var(--text)}
+.aph .filter-tag-remove{cursor:pointer;color:var(--text-3);display:inline-flex;transition:color .12s ease}
+.aph .filter-tag-remove:hover{color:var(--bad)}
+
+/* ── Buttons used inside cards / table actions ── */
+.aph .btn-sm{padding:0 12px;height:32px;border:1px solid var(--border-2);background:var(--bg-card);color:var(--text);border-radius:7px;font-size:12px;font-weight:500;cursor:pointer;font-family:var(--f);display:inline-flex;align-items:center;gap:6px}
+.aph .btn-sm:hover{background:var(--bg-hover)}
+.aph .btn-sm svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2}
+.aph .btn-xs{padding:0 9px;height:26px;border:1px solid var(--border-2);background:var(--bg-card);color:var(--text);border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:var(--f);display:inline-flex;align-items:center;justify-content:center;gap:4px}
+.aph .btn-xs svg{width:9px;height:9px;stroke:currentColor;fill:none;stroke-width:3}
+.aph .btn-success-action{background:#e6f9ee;color:#1a8a3a;border-color:#c5e8cd}
+.aph .btn-success-action:hover{background:#d4f0da}
+.aph .btn-danger-action{background:#fde8ec;color:var(--bad);border-color:#f5c6ce}
+.aph .btn-danger-action:hover{background:#fbd5dc}
+.aph .btn:disabled{opacity:.5;cursor:not-allowed}
+
+/* ── Labels / badges produced by render functions ── */
+.aph .label{display:inline-flex;align-items:center;padding:2px 9px;font-size:11px;font-weight:600;border-radius:10px;letter-spacing:.02em}
+.aph .label-success{background:#e6f9ee;color:#1a8a3a}
+.aph .label-warning{background:#fff3e0;color:#9a5a00}
+.aph .label-danger{background:#fde8ec;color:var(--bad)}
+.aph .label-default{background:var(--bg-muted);color:var(--text-2)}
+.aph .label-info{background:#f0ecfe;color:#7c5cfc}
+.aph .label-primary{background:var(--bg-muted);color:var(--text)}
+
+/* ── Allocation data table (restyle of .data-table onto aph-tbl chrome) ── */
+.aph .table-container{width:100%;overflow:auto;max-height:calc(100vh - 360px);-webkit-overflow-scrolling:touch}
+.aph table.data-table{width:100%;border-collapse:collapse;font-size:13px;min-width:1200px}
+.aph .data-table thead{background:var(--bg-card)}
+.aph .data-table th{padding:11px 10px;text-align:left;font-size:11px;font-weight:600;color:var(--text-3);letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;border-bottom:1px solid var(--border);background:var(--bg-card);position:sticky;top:0;z-index:2}
+.aph .data-table td{padding:9px 10px;border-bottom:1px solid var(--border);white-space:nowrap;font-size:13px;color:var(--text);vertical-align:middle;font-feature-settings:'tnum'}
+.aph .data-table tbody tr:hover{background:var(--bg-hover)}
+.aph .data-table tbody tr.no-stock{background:#fffbfb}
+.aph .data-table tbody tr.confirmed{background:#fafffe}
+.aph .data-table tbody tr.gap-row td{padding:2px;border:none;background:transparent}
+.aph .cell-customer{font-weight:600;color:var(--text)}
+.aph .cell-variety{font-weight:600}
+.aph .cell-order{font-weight:600;color:var(--text);font-size:12px}
+.aph .cell-number{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+.aph .cell-balance{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+.aph .cell-pos{color:#1a8a3a}
+.aph .cell-neg{color:var(--bad)}
+.aph .cell-farm-ok{font-size:12px;font-weight:600;color:#1a8a3a}
+.aph .cell-farm-bad{font-size:12px;font-weight:600;color:var(--bad)}
+.aph .cell-pct-high{color:#1a8a3a;font-weight:600}
+.aph .cell-pct-mid{color:var(--warn);font-weight:600}
+.aph .cell-pct-low{color:var(--bad);font-weight:600}
+.aph .cell-confirm-wrap{text-align:center;white-space:nowrap}
+.aph .doc-link{color:var(--text);text-decoration:none;font-weight:600;cursor:pointer;border-bottom:1px solid var(--border-2)}
+.aph .doc-link:hover{border-bottom-color:var(--text)}
+.aph .confirm-input-wrap{display:inline-flex;align-items:center;gap:4px}
+.aph .confirm-input-wrap input[type="number"]{width:70px;height:26px;padding:0 8px;font-size:12px;font-variant-numeric:tabular-nums;background:var(--bg-card);border:1px solid var(--border-2);border-radius:6px;text-align:right;color:var(--text);font-family:var(--f);outline:0}
+.aph .confirm-input-wrap input[type="number"]:focus{border-color:var(--text)}
+.aph .confirmed-chips{display:flex;flex-wrap:wrap;gap:4px;max-width:220px}
+.aph .confirmed-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;font-size:11px;font-weight:600;border-radius:9px;background:#e6f9ee;color:#1a8a3a}
+.aph .confirmed-chip.is-mine{background:var(--bg-muted);color:var(--text)}
+.aph .confirmed-chip-remove{cursor:pointer;display:inline-flex;transition:color .12s ease}
+.aph .confirmed-chip-remove:hover{color:var(--bad)}
+.aph .stems-progress{display:flex;align-items:center;gap:6px;min-width:100px}
+.aph .stems-progress-bar{flex:1;height:5px;background:var(--bg-muted);border-radius:4px;overflow:hidden;min-width:50px}
+.aph .stems-progress-fill{height:100%;border-radius:4px;transition:width .15s ease}
+.aph .stems-progress-fill.full{background:var(--good)}
+.aph .stems-progress-fill.partial{background:var(--warn)}
+.aph .stems-progress-fill.empty{background:var(--border-2)}
+.aph .stems-progress-text{font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--text-2)}
+
+/* ── Empty / loading / error states (render output) ── */
+.aph .empty-state{text-align:center;padding:40px 20px;color:var(--text-3)}
+.aph .empty-state p{font-size:13px;margin-top:10px}
+.aph .loading-state{text-align:center;padding:30px;color:var(--text-3);font-size:12px}
+.aph .error-msg{background:var(--text);color:#fff;padding:12px 16px;border-radius:7px;font-size:12px;font-family:var(--mono)}
+
+/* ── Spinner overlay + toast ── */
+.spinner-overlay{position:fixed;inset:0;background:rgba(255,255,255,.7);display:none;justify-content:center;align-items:center;z-index:2147483100}
+.spinner-overlay.show{display:flex}
+.spinner{width:28px;height:28px;border:2px solid var(--border-2);border-top:2px solid var(--text);border-radius:50%;animation:aph-spin .7s linear infinite}
+@keyframes aph-spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+.toast{position:fixed;top:24px;right:24px;background:var(--bg-card);border:1px solid var(--border-2);color:var(--text);padding:10px 16px;border-radius:8px;font-size:13px;font-family:var(--f);box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:2147483200;transform:translateX(200%);transition:transform .25s ease}
+.toast.show{transform:translateX(0)}
+.toast.success{background:#e6f9ee;border-color:#c5e8cd;color:#1a8a3a}
+.toast.error{background:#fde8ec;border-color:#f5c6ce;color:var(--bad)}
+</style>
+
+<style>
+
+/* neutralize old borders when this sheet is appended over the legacy chrome */
+.aph .aph-kpi,.aph .aph-card,.aph .opl-card,.aph .box-card,.aph .aph-stub{border:0}
+
+:root{
+  /* Shades of black — from the Upande logo */
+  --ink:#0a0a0a;--ink-1:#1a1a18;--ink-2:#2a2a26;--ink-3:#3a3a34;--ink-4:#5a5a52;--ink-mute:#8a8780;--ink-faint:#b8b6ae;
+  /* Surfaces */
+  --bg:#f4f3ef;--surface:#fafaf6;--surface-2:#ffffff;
+  --hairline:rgba(10,10,10,0.06);--hairline-2:rgba(10,10,10,0.10);
+  --shadow-card:0 1px 0 rgba(10,10,10,0.04),0 8px 32px -16px rgba(10,10,10,0.10);
+  --shadow-hover:0 1px 0 rgba(10,10,10,0.06),0 24px 48px -24px rgba(10,10,10,0.18);
+  /* Single data accent — used sparingly */
+  --signal:#228883;--signal-soft:rgba(34,136,131,0.10);
+  --violet:#7c5cfc;--violet-soft:#f0ecfe;
+  --good:#1a8a3a;--good-soft:#e6f9ee;--warn:#9a5a00;--warn-soft:#fff3e0;--bad:#c4302b;--bad-soft:#fde8ec;
+  --grad-ink:linear-gradient(135deg,#0a0a0a 0%,#3a3a34 100%);
+  --sans:'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --display:'Fraunces',Georgia,serif;
+  --mono:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;
+  /* Back-compat aliases so any leftover var() references resolve to the new palette */
+  --bg-card:var(--surface-2);--bg-hover:rgba(10,10,10,0.03);--bg-muted:rgba(10,10,10,0.04);
+  --border:var(--hairline);--border-2:rgba(10,10,10,0.12);
+  --text:var(--ink);--text-2:var(--ink-4);--text-3:var(--ink-mute);--text-4:var(--ink-faint);
+  --accent:var(--ink);--shadow-sm:var(--shadow-card);--f:var(--sans);
+  --plan:#d4d4d4;
+  --sidebar-w:248px;--sidebar-cw:74px;
+}
+/* Take dashboard out of Frappe layout entirely — fill viewport */
+html,body{margin:0!important;padding:0!important;overflow:hidden!important;height:100vh!important}
+.navbar,header,.page-breadcrumbs,.page-header,.page-header-wrapper,.web-footer,footer,
+.website-edit-button,.btn-edit-page,.edit-page-btn,.scroll-to-top,.back-to-top,
+.website-banner,.call-to-action,.frappe-chat,#frappe-chat,.telegram-share,.share-buttons,
+.web-page-edit,.published-edit{display:none!important}
+.aph *{box-sizing:border-box;margin:0;padding:0}
+.aph{position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100vh;z-index:2147483000;
+  font-family:var(--sans);background:var(--bg);color:var(--ink-3);font-size:13px;line-height:1.55;-webkit-font-smoothing:antialiased;
+  display:grid;grid-template-columns:var(--sidebar-w) 1fr;transition:grid-template-columns .22s cubic-bezier(.4,0,.2,1)}
+.aph.collapsed{grid-template-columns:var(--sidebar-cw) 1fr}
+
+.aph svg.ic{width:16px;height:16px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.aph .aph-side svg.ic{width:17px;height:17px;stroke-width:1.75;color:var(--ink-mute)}
+.aph .aph-side .nav-item.active svg.ic{color:#fafaf6}
+
+/* ══ SIDEBAR ══ */
+.aph-side{background:var(--surface-2);border-right:1px solid var(--hairline);height:100vh;position:sticky;top:0;display:flex;flex-direction:column;overflow:hidden}
+.aph-side .brand{padding:20px 18px 16px;display:flex;align-items:center;gap:12px;text-decoration:none}
+.aph-side .brand .logo{height:26px;width:auto;flex:0 0 auto;display:block}
+.aph-side .brand .name{font:600 14px var(--sans);color:var(--ink);line-height:1.15;letter-spacing:-.2px;white-space:nowrap;overflow:hidden}
+.aph-side .brand .name small{display:block;font:500 10px var(--sans);text-transform:uppercase;letter-spacing:1.6px;color:var(--ink-mute);margin-top:2px}
+.aph-side .brand:hover .name{color:var(--ink)}
+/* Note: "nav" collides with Bootstrap's .nav (flex-wrap:wrap) loaded by Frappe — force column/nowrap */
+.aph-side .nav{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:6px 0 16px;margin:0;list-style:none;display:flex;flex-direction:column;flex-wrap:nowrap!important}
+.aph-side .group-lbl{padding:16px 20px 6px;font:600 10px var(--sans);color:var(--ink-mute);letter-spacing:1.8px;text-transform:uppercase;display:block;white-space:nowrap;overflow:hidden}
+.aph-side .group-lbl:first-child{padding-top:8px}
+.aph-side .nav-item{display:flex;align-items:center;gap:12px;padding:10px 12px;cursor:pointer;font:500 13px var(--sans);color:var(--ink-4);user-select:none;transition:background .18s ease,color .18s ease;margin:2px 10px;border-radius:12px;box-sizing:border-box;text-decoration:none;white-space:nowrap;overflow:hidden}
+.aph-side .nav-item:hover{background:rgba(10,10,10,0.04);color:var(--ink);text-decoration:none}
+.aph-side .nav-item.active{background:var(--grad-ink);color:#fafaf6;box-shadow:0 4px 14px rgba(10,10,10,0.20)}
+.aph-side .nav-item .badge{margin-left:auto;font:600 10px var(--mono);color:var(--ink-4);background:rgba(10,10,10,0.05);padding:2px 8px;border-radius:999px;line-height:1.4}
+.aph-side .nav-item.active .badge{color:#fafaf6;background:rgba(255,255,255,.18)}
+.aph-side .nav-item.stub{color:var(--ink-faint)}
+.aph-side .home-link{display:flex;align-items:center;gap:12px;margin:2px 10px 6px;padding:10px 12px;border-radius:12px;font:500 13px var(--sans);color:var(--ink-4);text-decoration:none;background:rgba(10,10,10,0.04);transition:background .18s ease,color .18s ease;white-space:nowrap;overflow:hidden}
+.aph-side .home-link:hover{background:var(--ink);color:#fafaf6;text-decoration:none}
+.aph-side .home-link:hover svg.ic{color:#fafaf6}
+.aph-side .footer{padding:14px 18px;border-top:1px solid var(--hairline);display:flex;align-items:center;gap:11px;font-size:11px;color:var(--ink-4)}
+.aph-side .footer .av{width:30px;height:30px;border-radius:50%;background:var(--grad-ink);color:#fafaf6;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12px;flex:0 0 auto}
+.aph-side .footer .who{flex:1;line-height:1.25;overflow:hidden}
+.aph-side .footer .who .nm{font-weight:600;color:var(--ink);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph-side .footer .who .em{font-size:10px;color:var(--ink-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Collapsed sidebar → icon rail */
+.aph.collapsed .aph-side .brand{padding:20px 0 16px;justify-content:center}
+.aph.collapsed .aph-side .brand .name,
+.aph.collapsed .aph-side .group-lbl,
+.aph.collapsed .aph-side .nav-item span,
+.aph.collapsed .aph-side .nav-item .badge,
+.aph.collapsed .aph-side .home-link span,
+.aph.collapsed .aph-side .footer .who{display:none}
+.aph.collapsed .aph-side .nav-item,
+.aph.collapsed .aph-side .home-link{justify-content:center;margin-left:14px;margin-right:14px;padding:11px 0;gap:0}
+.aph.collapsed .aph-side .footer{justify-content:center;padding:14px 0}
+
+/* ══ MAIN ══ */
+.aph-main{min-width:0;height:100vh;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column}
+.aph-content{flex:1;padding:32px 40px 64px}
+.aph-topbar{background:var(--surface-2);border-bottom:1px solid var(--hairline);padding:14px 40px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:10}
+.aph-topbar h1{font:600 17px var(--sans);color:var(--ink);letter-spacing:-.3px}
+.aph-topbar .crumb{color:var(--ink-mute);font:500 11px var(--sans);text-transform:uppercase;letter-spacing:1.4px;padding-left:16px;border-left:1px solid var(--hairline);height:16px;line-height:16px}
+.aph-topbar .right{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.collapse-btn{width:36px;height:36px;border:0;background:transparent;border-radius:10px;display:grid;place-items:center;cursor:pointer;color:var(--ink-4);flex:0 0 auto;transition:background .18s ease,color .18s ease}
+.collapse-btn:hover{background:rgba(10,10,10,0.05);color:var(--ink)}
+.collapse-btn svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* Pill toggle groups (date presets, rose filter) */
+.aph-topbar .presets{display:inline-flex;background:rgba(10,10,10,0.04);border-radius:999px;padding:4px;gap:2px}
+.aph-topbar .presets .p{padding:7px 14px;font:500 12px var(--sans);color:var(--ink-4);cursor:pointer;border-radius:999px;transition:all .18s ease;user-select:none;white-space:nowrap}
+.aph-topbar .presets .p:hover{color:var(--ink)}
+.aph-topbar .presets .p.active{background:var(--grad-ink);color:#fafaf6;box-shadow:0 2px 8px rgba(10,10,10,0.18)}
+/* Joined date range pill */
+.aph-topbar .date-pill{display:inline-flex;align-items:center;background:var(--surface-2);border-radius:999px;padding:2px 8px;box-shadow:var(--shadow-card);height:38px}
+.aph-topbar .date-pill input{border:0;padding:0 8px;font:500 12px var(--sans);font-feature-settings:'tnum';background:transparent;outline:0;width:112px;color:var(--ink)}
+.aph-topbar .date-pill .sep{padding:0 2px;color:var(--ink-mute);font-size:12px}
+.aph-topbar .date-pill .clear{padding:0 8px;color:var(--ink-mute);font-size:15px;cursor:pointer}
+.aph-topbar .btn{padding:0 16px;height:38px;border:0;background:var(--surface-2);color:var(--ink);border-radius:999px;font:500 12px var(--sans);cursor:pointer;display:inline-flex;align-items:center;gap:7px;box-shadow:var(--shadow-card);transition:transform .18s ease}
+.aph-topbar .btn:hover{transform:translateY(-1px)}
+.aph-topbar .btn svg{width:14px;height:14px}
+
+/* Page head */
+.aph-page-hd{margin-bottom:30px}
+.aph-page-hd .eyebrow{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:2.2px;color:var(--ink-mute);margin-bottom:12px;display:inline-flex;align-items:center;gap:10px}
+.aph-page-hd .eyebrow::before{content:"";width:18px;height:1px;background:var(--ink-3)}
+.aph-page-hd .ttl{font:600 40px/1.05 var(--sans);color:var(--ink);letter-spacing:-1.3px}
+.aph-page-hd .sub{margin-top:10px;font-size:15px;color:var(--ink-4)}
+
+/* ══ KPI cards — large, borderless, gradient hover ══ */
+.aph-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px;margin-bottom:32px}
+.aph-kpi{background:var(--surface-2);border-radius:20px;padding:26px 28px;box-shadow:var(--shadow-card);transition:transform .25s ease,box-shadow .25s ease;position:relative;overflow:hidden;min-height:132px;display:flex;flex-direction:column;justify-content:space-between}
+.aph-kpi:hover{transform:translateY(-3px);box-shadow:var(--shadow-hover)}
+.aph-kpi .ic-wrap{position:absolute;top:22px;right:24px;width:34px;height:34px;border-radius:10px;background:rgba(10,10,10,0.04);display:flex;align-items:center;justify-content:center}
+.aph-kpi .ic-wrap svg.ic{width:17px;height:17px;color:var(--ink-mute);stroke-width:1.6}
+.aph-kpi .lbl{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:1.6px;color:var(--ink-mute);padding-right:44px}
+.aph-kpi .v{font:600 40px/1 var(--sans);color:var(--ink);letter-spacing:-1.3px;font-feature-settings:'tnum';margin-top:14px}
+.aph-kpi .sub{font:500 12px var(--sans);color:var(--ink-mute);margin-top:10px}
+.aph-kpi .sub strong{color:var(--ink-4);font-weight:600}
+
+/* ══ Cards ══ */
+.aph-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px;width:100%;box-sizing:border-box}
+.aph-grid.col-1{display:grid!important;grid-template-columns:1fr!important;width:100%!important;max-width:none!important}
+.aph-grid.col-1 > .aph-card{width:100%!important;max-width:none!important;box-sizing:border-box}
+.aph-card{background:var(--surface-2);border-radius:24px;box-shadow:var(--shadow-card);overflow:hidden;box-sizing:border-box;width:100%;min-width:0}
+.aph-card-hd{padding:24px 30px 0;display:flex;align-items:center;gap:14px}
+.aph-card-hd .ttl{font:600 18px var(--sans);color:var(--ink);letter-spacing:-.4px;white-space:nowrap}
+.aph-card-hd .sub{color:var(--ink-mute);font:500 12px var(--sans)}
+.aph-card-body{padding:22px 30px 28px}
+.aph-card-body.padless{padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+/* ══ Tables ══ */
+table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.aph-tbl th{text-align:left;padding:14px 22px;background:transparent;font:600 10px var(--sans);color:var(--ink-mute);letter-spacing:1.4px;text-transform:uppercase;border-bottom:1px solid var(--hairline);white-space:nowrap}
+.aph-tbl td{padding:14px 22px;border-bottom:1px solid var(--hairline);font-feature-settings:'tnum';white-space:nowrap;color:var(--ink-3)}
+.aph-tbl tr:last-child td{border-bottom:0}
+.aph-tbl tbody tr{transition:background .15s ease}
+.aph-tbl tbody tr:hover td{background:rgba(10,10,10,0.02)}
+.aph-tbl td.num,.aph-tbl th.num{text-align:right}
+.aph-tbl td.mono{font-family:var(--mono);font-size:12px;color:var(--ink-4)}
+.aph-tbl td.dim{color:var(--ink-mute)}
+.aph-tbl td.strong{font-weight:600;color:var(--ink)}
+
+.aph-empty{padding:48px;text-align:center;color:var(--ink-mute);font-size:13px}
+.aph-loading{padding:60px;text-align:center;color:var(--ink-mute);font-size:12px}
+.aph-err{background:var(--ink);color:#fafaf6;padding:14px 18px;border-radius:14px;font-size:12px;margin:16px 40px;font-family:var(--mono)}
+.aph-stub{padding:56px 28px;text-align:center;background:var(--surface-2);border-radius:20px;box-shadow:var(--shadow-card)}
+.aph-stub .ttl{font-size:16px;font-weight:600;margin-bottom:6px;color:var(--ink)}
+.aph-stub .sub{font-size:13px;color:var(--ink-4)}
+
+.aph-bar-row{display:flex;align-items:center;gap:14px;padding:11px 0;border-bottom:1px solid var(--hairline)}
+.aph-bar-row:last-child{border-bottom:0}
+.aph-bar-row .lbl{width:54px;font:600 13px var(--sans);color:var(--ink)}
+.aph-bar-row .bar{flex:1;height:10px;background:rgba(10,10,10,0.05);border-radius:999px;overflow:hidden}
+.aph-bar-row .bar .fill{height:100%;background:var(--grad-ink);border-radius:999px}
+.aph-bar-row .val{width:170px;text-align:right;font-size:12px;color:var(--ink-4);font-feature-settings:'tnum'}
+
+.aph-tag{display:inline-flex;align-items:center;padding:3px 10px;border-radius:999px;font:500 11px var(--sans);background:rgba(10,10,10,0.04);color:var(--ink);line-height:1.5}
+
+.aph-chart-scroll{display:block;width:100%!important;max-width:none!important;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:10px 16px;box-sizing:border-box}
+.aph-chart-inner{position:relative;width:100%}
+.aph-tbl-scroll{display:block;width:100%!important;max-width:none!important;overflow-x:auto;-webkit-overflow-scrolling:touch;box-sizing:border-box}
+
+/* ── Narrow screens / mobile ─────────────────────────────────────────── */
+@media (max-width: 900px){
+  html,body{overflow:auto!important}
+  .aph,.aph.collapsed{display:flex;flex-direction:column;position:fixed;grid-template-columns:none}
+  .aph-side{width:100%;height:auto;position:relative;flex:0 0 auto;border-right:0;border-bottom:1px solid var(--hairline);overflow:visible}
+  .aph-side .brand{padding:12px 16px}
+  .aph-side .home-link{margin:0 10px 8px;width:max-content}
+  .aph-side .nav{flex-direction:row;align-items:center;overflow-x:auto;overflow-y:hidden;padding:0 8px 8px;-webkit-overflow-scrolling:touch}
+  .aph-side .group-lbl{display:none}
+  .aph-side .nav-item{flex:0 0 auto;margin:0 3px;white-space:nowrap;padding:9px 14px}
+  .aph-side .footer{display:none}
+  .collapse-btn{display:none}
+  .aph-main{flex:1 1 auto;height:auto;min-height:0}
+  .aph-topbar{position:static;flex-wrap:wrap;gap:10px;padding:12px 16px}
+  .aph-topbar .crumb{display:none}
+  .aph-topbar .right{margin-left:0;width:100%}
+  .aph-content{padding:18px 16px 40px}
+  .aph-err{margin:16px}
+  .aph-grid{grid-template-columns:1fr}
+  .aph-kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .aph-kpi{min-height:110px;padding:20px 22px}
+  .aph-kpi .v{font-size:30px}
+  .aph-page-hd .ttl{font-size:28px}
+}
+
+/* ════════ Page-specific components (render output) ════════ */
+/* Team dropdown */
+.aph .dropdown{position:relative;display:inline-block}
+.aph .dropdown-menu{display:none;position:absolute;top:calc(100% + 6px);right:0;background:var(--surface-2);border-radius:14px;box-shadow:var(--shadow-hover);min-width:180px;z-index:1000;overflow:hidden;padding:6px}
+.aph .dropdown.open .dropdown-menu{display:block}
+.aph .dropdown-item{padding:9px 12px;font:500 12px var(--sans);color:var(--ink-3);cursor:pointer;border-radius:9px;transition:background .15s ease}
+.aph .dropdown-item:hover{background:rgba(10,10,10,0.04)}
+.aph .dropdown-item.active{background:rgba(10,10,10,0.04);color:var(--ink);font-weight:600}
+.aph .dropdown-item.ms-item{display:flex;align-items:center;gap:10px;font-weight:500}
+.aph .ms-check{width:15px;height:15px;border:1.5px solid var(--border-2);border-radius:5px;flex:0 0 auto;position:relative;background:var(--surface-2)}
+.aph .dropdown-item.ms-item.active .ms-check{background:var(--ink);border-color:var(--ink)}
+.aph .dropdown-item.ms-item.active .ms-check::after{content:'';position:absolute;left:4px;top:1px;width:4px;height:8px;border:solid #fafaf6;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.aph .dropdown-item.ms-sep{padding:0;height:1px;background:var(--hairline);cursor:default;margin:4px 0}
+.aph .date-range-inputs{display:none;align-items:center;gap:6px}
+.aph .date-range-inputs.show{display:flex}
+.aph .form-control{height:38px;padding:0 12px;font:500 12px var(--sans);font-feature-settings:'tnum';background:var(--surface-2);border:0;box-shadow:var(--shadow-card);border-radius:999px;color:var(--ink);outline:0}
+/* LIVE badge */
+.aph .live-badge{display:inline-flex;align-items:center;gap:8px;font:500 12px var(--sans);color:var(--ink);background:var(--surface-2);border:0;border-radius:999px;padding:0 16px;height:38px;cursor:pointer;box-shadow:var(--shadow-card);transition:transform .18s ease}
+.aph .live-badge:hover{transform:translateY(-1px)}
+.aph .live-dot{width:7px;height:7px;background:var(--signal);border-radius:50%;box-shadow:0 0 0 4px var(--signal-soft)}
+
+.aph .aph-kpi .v{font-feature-settings:'tnum'}
+.aph .kpi-date-row{display:flex;align-items:center;gap:6px;margin-top:10px}
+.aph .kpi-date-row label{font-size:10px;font-weight:600;color:var(--ink-mute);white-space:nowrap;text-transform:uppercase;letter-spacing:1px}
+.aph .kpi-date-row input{height:26px;padding:0 8px;font-size:11px;width:120px;border-radius:8px;border:0;background:rgba(10,10,10,0.04);font-family:var(--sans);outline:0;color:var(--ink)}
+
+/* ── Issuing vs Packing dual card ── */
+.aph .kpi-dual-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:28px}
+.aph .kpi-dual-item{text-align:left}
+.aph .kpi-dual-label{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:1.6px;color:var(--ink-mute);margin-bottom:10px}
+.aph .kpi-dual-value{font:600 34px/1 var(--sans);color:var(--ink);letter-spacing:-1px;font-feature-settings:'tnum'}
+.aph .kpi-dual-sub{font:500 12px var(--sans);color:var(--ink-mute);margin-top:8px}
+.aph .kpi-dual-bar{margin-top:14px}
+.aph .gap-indicator{display:inline-flex;align-items:center;gap:4px;font:600 11px var(--sans);padding:4px 12px;border-radius:999px}
+.aph .gap-positive{background:var(--warn-soft);color:var(--warn)}
+.aph .gap-negative{background:var(--good-soft);color:var(--good)}
+.aph .gap-neutral{background:rgba(10,10,10,0.04);color:var(--ink-4)}
+@media(max-width:600px){.aph .kpi-dual-row{grid-template-columns:1fr;gap:18px}}
+
+/* ── Progress bars ── */
+.aph .progress-wrap{margin:10px 0}
+.aph .progress-label{display:flex;justify-content:space-between;font:500 11px var(--sans);color:var(--ink-mute);margin-bottom:5px}
+.aph .progress-label span:last-child{color:var(--ink);font-weight:600;font-feature-settings:'tnum'}
+.aph .progress-track{background:rgba(10,10,10,0.05);border-radius:999px;height:8px;overflow:hidden}
+.aph .progress-fill{height:100%;background:var(--grad-ink);border-radius:999px;transition:width .2s ease}
+.aph .progress-fill.packing{background:linear-gradient(90deg,var(--signal),#73b3a0)}
+.aph .progress-fill.packing.complete{background:linear-gradient(90deg,#1a8a3a,#22c55e)}
+
+/* ── Labels / badges ── */
+.aph .label{display:inline-block;padding:3px 11px;font:600 11px var(--sans);border-radius:999px;letter-spacing:.02em}
+.aph .label-success{background:var(--good-soft);color:var(--good)}
+.aph .label-warning{background:var(--warn-soft);color:var(--warn)}
+.aph .label-danger{background:var(--bad-soft);color:var(--bad)}
+.aph .label-default{background:rgba(10,10,10,0.04);color:var(--ink-4)}
+.aph .label-info{background:var(--signal-soft);color:var(--signal)}
+.aph .label-primary{background:rgba(10,10,10,0.05);color:var(--ink)}
+.aph .team-badge{display:inline-block;padding:3px 10px;font:600 11px var(--sans);border-radius:999px;background:rgba(10,10,10,0.04);color:var(--ink-4)}
+.aph .rose-badge{display:inline-block;margin-left:6px;padding:3px 10px;font:600 11px var(--sans);border-radius:999px}
+.aph .rose-badge.rose-spray{background:var(--violet-soft);color:var(--violet)}
+.aph .rose-badge.rose-std{background:#e6f1ff;color:#1a5fb4}
+.aph .rose-badge.rose-mixed{background:rgba(10,10,10,0.04);color:var(--ink-4)}
+
+/* ── OPL card grid ── */
+.aph .opl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px}
+.aph .opl-card{background:var(--surface-2);border-radius:18px;padding:20px;cursor:pointer;box-shadow:var(--shadow-card);transition:transform .2s ease,box-shadow .2s ease}
+.aph .opl-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-hover)}
+.aph .opl-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
+.aph .opl-order-name{font:600 14px var(--sans);color:var(--ink);letter-spacing:-.2px}
+.aph .opl-meta{display:flex;align-items:center;gap:6px;margin-top:5px;flex-wrap:wrap}
+.aph .opl-id{font:500 12px var(--mono);color:var(--ink-mute)}
+.aph .opl-variety{font:600 13px var(--sans);color:var(--ink);margin:8px 0 2px}
+.aph .opl-customer{font-size:12px;color:var(--ink-4);margin-bottom:12px}
+.aph .opl-details{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.aph .opl-detail{background:rgba(10,10,10,0.03);padding:10px 6px;border-radius:12px;text-align:center}
+.aph .opl-detail-label{font:500 10px var(--sans);text-transform:uppercase;letter-spacing:.6px;color:var(--ink-mute);margin-bottom:3px}
+.aph .opl-detail-value{font:600 14px var(--sans);color:var(--ink);font-feature-settings:'tnum'}
+.aph .shelf-list{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0}
+.aph .shelf-tag{font:600 11px var(--sans);padding:3px 9px;border-radius:999px;background:rgba(10,10,10,0.04);color:var(--ink-4)}
+.aph .variety-list{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0 2px}
+.aph .variety-tag{font:600 11px var(--sans);padding:3px 9px;border-radius:999px;background:rgba(10,10,10,0.04);color:var(--ink-4);white-space:nowrap}
+.aph .variety-more{cursor:pointer}
+.aph .variety-more:hover{background:rgba(10,10,10,0.10)}
+
+/* ── Box card grid ── */
+.aph .box-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+.aph .box-card{background:var(--surface-2);border-radius:18px;padding:20px;cursor:pointer;box-shadow:var(--shadow-card);transition:transform .2s ease,box-shadow .2s ease}
+.aph .box-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-hover)}
+.aph .box-card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.aph .box-number{font:600 15px var(--sans);color:var(--ink)}
+.aph .box-row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--hairline);font-size:13px}
+.aph .box-row:last-child{border-bottom:none}
+.aph .box-row-label{color:var(--ink-mute)}
+.aph .box-row-value{font-weight:600;color:var(--ink)}
+
+.aph .empty-state{text-align:center;padding:48px 20px;color:var(--ink-mute)}
+.aph .empty-state p{font-size:13px;margin-top:12px}
+.aph .loading-state{text-align:center;padding:36px;color:var(--ink-mute);font-size:12px}
+
+/* ── Variety modal ── */
+.vmodal{display:none;position:fixed;inset:0;background:rgba(10,10,10,.42);z-index:2147483100;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(2px)}
+.vmodal.open{display:flex}
+.vmodal-card{background:var(--surface-2);border-radius:22px;width:100%;max-width:380px;max-height:70vh;display:flex;flex-direction:column;box-shadow:var(--shadow-hover);font-family:var(--sans)}
+.vmodal-head{display:flex;justify-content:space-between;align-items:center;padding:20px 22px;border-bottom:1px solid var(--hairline);font:600 15px var(--sans);color:var(--ink)}
+.vmodal-close{background:none;border:none;font-size:24px;line-height:1;cursor:pointer;color:var(--ink-mute)}
+.vmodal-body{padding:8px 22px 18px;overflow-y:auto}
+.vrow{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--hairline);font-size:13px;color:var(--ink-3)}
+.vrow:last-child{border-bottom:none}
+.vstems{font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink)}
+
+
+</style>
+<div class="aph">
+  <aside class="aph-side">
+    <a class="brand" href="app/packhouse-%26-sales" title="Back to Home"><img class="logo" alt="Upande" src="data:image/png;base64,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"/><div class="name">Karen Roses<small>Packhouse</small></div></a>
+    <a class="home-link" href="app/packhouse-%26-sales">
+      <svg class="ic" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg><span>Back to Home</span></a>
+    <div class="nav">
+
+      <div class="group-lbl">Workflow</div>
+      <a class="nav-item" href="packhouse-dashboard">
+        <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg><span>Workflow</span></a>
+      <a class="nav-item" href="packhouse-scheduler">
+        <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span>Scheduler</span></a>
+      <a class="nav-item active" href="sales-allocation-planning">
+        <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg><span>Allocation Planning</span></a>
+      <a class="nav-item" href="packhouse-production">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg><span>Production</span></a>
+      <div class="group-lbl">Tracking</div>
+      <a class="nav-item" href="bucket-tracker">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg><span>Bucket Journey</span></a>
+      <a class="nav-item" href="bucket-logistics">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg><span>Bucket Logistics</span></a>
+      <a class="nav-item" href="cold-room">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M2 12h20"/><path d="M12 2v20"/><path d="m4.93 4.93 14.14 14.14"/><path d="m19.07 4.93-14.14 14.14"/></svg><span>Cold Room</span></a>
+      <a class="nav-item" href="packhouse-discards">
+        <svg class="ic" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg><span>Discards</span></a>
+      <a class="nav-item" href="packhouse-downgrades">
+        <svg class="ic" viewBox="0 0 24 24"><polyline points="19 12 12 19 5 12"/><line x1="12" y1="5" x2="12" y2="19"/></svg><span>Downgrades</span></a>
+      <div class="group-lbl">Stock &amp; Orders</div>
+      <a class="nav-item" href="stock-visibility">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/></svg><span>Stock Visibility</span></a>
+      <a class="nav-item" href="avails">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg><span>Avails</span></a>
+      <a class="nav-item" href="stem-movement">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg><span>Stem Movement</span></a>
+      <a class="nav-item" href="order-summary">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg><span>Order Summary</span></a>
+      <a class="nav-item" href="order-fulfilment">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><span>Order Fulfilment</span></a>
+
+    </div>
+    <div class="footer">
+      <div class="av" id="aph-foot-av">—</div>
+      <div class="who"><div class="nm" id="aph-foot-nm">Loading…</div><div class="em" id="aph-foot-em">kaitet-group</div></div>
+    </div>
+  </aside>
+
+  <div class="aph-main">
+    <div class="aph-topbar"><button class="collapse-btn" id="collapseBtn" title="Toggle sidebar" aria-label="Toggle sidebar"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+      <h1>Sales Allocation Planning</h1>
+      <span class="crumb">Allocation Planning</span>
+      <div class="right">
+        <div class="location-wrap" id="locationWrap">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          <span class="location-label">My Farm:</span>
+          <select id="processingLocation" onchange="updateLocation()">
+            <option value="">Select farm</option>
+          </select>
+        </div>
+        <button class="live-badge" id="refreshBtn">
+          <span class="live-dot"></span>LIVE
+        </button>
+      </div>
+    </div>
+
+    <div class="aph-content">
+
+      <div class="aph-page-hd">
+        <div class="ttl">Sales Allocation Planning</div>
+        <div class="sub">Farm-wise stock visibility &amp; partial order confirmation</div>
+      </div>
+
+      <!-- Filters -->
+      <div class="aph-grid col-1">
+        <div class="aph-card">
+          <div class="aph-card-hd">
+            <div class="ttl">Filters</div>
+          </div>
+          <div class="aph-card-body">
+            <div id="filtersRow" class="filters-row">
+              <div class="filter-group">
+                <label class="filter-group-label">Delivery Date</label>
+                <input type="date" class="form-control" id="deliveryDate">
+              </div>
+              <div class="filter-group">
+                <label class="filter-group-label">Customer</label>
+                <div class="custom-select">
+                  <input type="text" class="form-control" id="customerFilter" placeholder="Search..." autocomplete="off">
+                  <div class="select-dropdown" id="customerDropdown"></div>
+                </div>
+              </div>
+              <div class="filter-group">
+                <label class="filter-group-label">Sales Order</label>
+                <div class="custom-select">
+                  <input type="text" class="form-control" id="orderFilter" placeholder="Search..." autocomplete="off">
+                  <div class="select-dropdown" id="orderDropdown"></div>
+                </div>
+              </div>
+              <div class="filter-group">
+                <label class="filter-group-label">Variety</label>
+                <div class="custom-select">
+                  <input type="text" class="form-control" id="varietyFilter" placeholder="Search..." autocomplete="off">
+                  <div class="select-dropdown" id="varietyDropdown"></div>
+                </div>
+              </div>
+              <div class="filter-group">
+                <label class="filter-group-label">Length</label>
+                <div class="custom-select">
+                  <input type="text" class="form-control" id="lengthFilter" placeholder="Search..." autocomplete="off">
+                  <div class="select-dropdown" id="lengthDropdown"></div>
+                </div>
+              </div>
+              <div class="filter-group">
+                <label class="filter-group-label">Stock Farm</label>
+                <div class="custom-select">
+                  <input type="text" class="form-control" id="farmFilter" placeholder="Search..." autocomplete="off">
+                  <div class="select-dropdown" id="farmDropdown"></div>
+                </div>
+              </div>
+              <div class="filter-group">
+                <label class="filter-group-label">Confirmed By</label>
+                <select class="form-control" id="confirmedByFilter">
+                  <option value="">All</option>
+                </select>
+              </div>
+              <div class="filter-group filter-actions">
+                <button class="btn-sm" id="clearBtn">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  Clear
+                </button>
+              </div>
+            </div>
+            <div class="active-filters" id="activeFilters" style="margin-top:12px"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- KPI Row -->
+      <div class="aph-kpis" id="kpiRow">
+        <div class="aph-kpi">
+          <div class="ic-wrap"><svg class="ic" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+          <div><div class="lbl">Customers</div><div class="v" id="statCustomers">0</div></div>
+        </div>
+        <div class="aph-kpi">
+          <div class="ic-wrap"><svg class="ic" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></div>
+          <div><div class="lbl">Order Lines</div><div class="v" id="statOrderLines">0</div></div>
+        </div>
+        <div class="aph-kpi">
+          <div class="ic-wrap"><svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+          <div><div class="lbl">Stock Entries</div><div class="v" id="statFarmEntries">0</div></div>
+        </div>
+        <div class="aph-kpi">
+          <div class="ic-wrap"><svg class="ic" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div>
+          <div><div class="lbl">Total Boxes</div><div class="v" id="statTotalBoxes">0</div></div>
+        </div>
+        <div class="aph-kpi">
+          <div class="ic-wrap"><svg class="ic" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <div><div class="lbl">Confirmed Stems</div><div class="v" id="statConfirmedStems">0</div></div>
+        </div>
+        <div class="aph-kpi">
+          <div class="ic-wrap"><svg class="ic" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
+          <div><div class="lbl">My Confirmed</div><div class="v" id="statMyConfirmed">0</div></div>
+        </div>
+        <div class="aph-kpi">
+          <div class="ic-wrap"><svg class="ic" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div>
+          <div><div class="lbl">Ordered Stems</div><div class="v" id="statTotalStems">0</div></div>
+        </div>
+        <div class="aph-kpi">
+          <div class="ic-wrap"><svg class="ic" viewBox="0 0 24 24"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg></div>
+          <div><div class="lbl">Available Stock</div><div class="v" id="statStockStems">0</div></div>
+        </div>
+        <div class="aph-kpi">
+          <div class="ic-wrap"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+          <div><div class="lbl">Confirmed %</div><div class="v" id="statAllocated">0%</div></div>
+        </div>
+      </div>
+
+      <!-- Allocation Table -->
+      <div class="aph-grid col-1">
+        <div class="aph-card" id="ordersSection">
+          <div class="aph-card-hd">
+            <div class="ttl">Farm-wise Stock &amp; Partial Confirmation</div>
+          </div>
+          <div class="aph-card-body padless">
+            <div class="table-container">
+              <table class="data-table">
+                <thead><tr>
+                  <th>Customer</th><th>Order Date</th><th>Deliv Date</th>
+                  <th>Order</th><th>Order Name</th><th>Ln</th>
+                  <th>Variety</th><th>Len</th><th>Ordered</th><th>Boxes</th>
+                  <th>Stock Farm</th><th>Stock</th><th>Status</th><th>%</th>
+                  <th>Confirmed</th><th>Action</th><th>Balance</th>
+                </tr></thead>
+                <tbody id="ordersTableBody">
+                  <tr><td colspan="17" class="loading-state">Loading...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="spinner-overlay" id="spinnerOverlay"><div class="spinner"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+    let allOrdersData = [];
+    let currentLocation = '';
+    let availableFarms = new Set();
+    let filterData = { customers:[], orders:[], varieties:[], lengths:[], farms:[] };
+    let selectedFilters = { customer:'', order:'', variety:'', length:'', farm:'', confirmedBy:'' };
+    let filterTimeout = null;
+    let isLoading = false;
+
+    document.addEventListener('DOMContentLoaded', () => {
+        initFilters();
+        setTimeout(loadData, 500);
+        setInterval(() => { if (!isLoading) loadData(); }, 60000);
+    });
+
+    function showSpinner(v) { document.getElementById('spinnerOverlay').classList.toggle('show', v); }
+    function showToast(msg, type='success') {
+        const t = document.getElementById('toast');
+        t.textContent = msg; t.className = 'toast ' + type;
+        t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    function updateLocation() {
+        currentLocation = document.getElementById('processingLocation').value;
+        document.getElementById('locationWrap').classList.toggle('confirmed', !!currentLocation);
+        if (currentLocation) localStorage.setItem('selectedLocation', currentLocation);
+        else localStorage.removeItem('selectedLocation');
+        if (allOrdersData.length) applyFilters();
+    }
+
+    function populateLocationSelector() {
+        const sel = document.getElementById('processingLocation');
+        const cur = sel.value;
+        sel.innerHTML = '<option value="">Select farm</option>';
+        Array.from(availableFarms).sort().forEach(f => {
+            const o = document.createElement('option'); o.value = f; o.textContent = f;
+            if (f === cur) o.selected = true; sel.appendChild(o);
+        });
+    }
+
+    function populateConfirmedByFilter() {
+        const sel = document.getElementById('confirmedByFilter');
+        const cur = sel.value;
+        sel.innerHTML = '<option value="">All</option>';
+        Array.from(availableFarms).sort().forEach(f => { const o = document.createElement('option'); o.value = f; o.textContent = f; sel.appendChild(o); });
+        const u = document.createElement('option'); u.value = 'Unconfirmed'; u.textContent = 'Unconfirmed'; sel.appendChild(u);
+        const p = document.createElement('option'); p.value = 'Partial'; p.textContent = 'Partial'; sel.appendChild(p);
+        if (Array.from(sel.options).map(o=>o.value).includes(cur)) sel.value = cur;
+    }
+
+    function initFilters() {
+        const saved = localStorage.getItem('selectedLocation');
+        if (saved) currentLocation = saved;
+        document.getElementById('deliveryDate').value = new Date().toISOString().split('T')[0];
+        document.getElementById('deliveryDate').addEventListener('change', () => { showSpinner(true); loadData(); });
+        document.getElementById('confirmedByFilter').addEventListener('change', () => { showSpinner(true); applyFiltersDelay(); });
+        document.getElementById('refreshBtn').addEventListener('click', loadData);
+        document.getElementById('clearBtn').addEventListener('click', clearAllFilters);
+        initCustomSelect('customer', 'customerFilter', 'customerDropdown');
+        initCustomSelect('order', 'orderFilter', 'orderDropdown');
+        initCustomSelect('variety', 'varietyFilter', 'varietyDropdown');
+        initCustomSelect('length', 'lengthFilter', 'lengthDropdown');
+        initCustomSelect('farm', 'farmFilter', 'farmDropdown');
+        document.addEventListener('click', e => { if (!e.target.closest('.custom-select')) document.querySelectorAll('.select-dropdown').forEach(d => d.classList.remove('show')); });
+    }
+
+    function initCustomSelect(key, inputId, dropdownId) {
+        const input = document.getElementById(inputId), dropdown = document.getElementById(dropdownId);
+        const dataKey = { customer:'customers', order:'orders', variety:'varieties', length:'lengths', farm:'farms' }[key];
+        input.addEventListener('focus', () => { buildDropdown(dataKey, input, dropdown, key); dropdown.classList.add('show'); });
+        input.addEventListener('input', function() {
+            buildDropdown(dataKey, input, dropdown, key);
+            if (!this.value) { selectedFilters[key]=''; this.classList.remove('has-value'); showSpinner(true); applyFiltersDelay(); }
+        });
+        input.addEventListener('keydown', e => { if (e.key==='Enter') { const f=dropdown.querySelector('.select-option:not(.no-results)'); if(f) pickOption(key,f.dataset.value,input,dropdown); } });
+    }
+
+    function buildDropdown(dataKey, input, dropdown, filterKey) {
+        const term = input.value.toLowerCase();
+        const items = (filterData[dataKey]||[]).filter(i=>i.toLowerCase().includes(term));
+        const currentVal = selectedFilters[filterKey]||'';
+        dropdown.innerHTML = items.length
+            ? items.map(i => `<div class="select-option${currentVal===i?' selected':''}" data-value="${i.replace(/"/g,'&quot;')}">${i}</div>`).join('')
+            : '<div class="select-option no-results">No results</div>';
+        dropdown.querySelectorAll('.select-option:not(.no-results)').forEach(opt => {
+            opt.addEventListener('click', () => { pickOption(filterKey, opt.dataset.value, input, dropdown); dropdown.classList.remove('show'); });
+        });
+    }
+
+    function pickOption(key, value, input, dropdown) {
+        input.value = value; input.classList.add('has-value');
+        selectedFilters[key] = value;
+        showSpinner(true); applyFiltersDelay();
+        dropdown.classList.remove('show');
+    }
+
+    function clearAllFilters() {
+        showSpinner(true);
+        document.getElementById('deliveryDate').value = new Date().toISOString().split('T')[0];
+        ['customerFilter','orderFilter','varietyFilter','lengthFilter','farmFilter','confirmedByFilter'].forEach(id => { const el=document.getElementById(id); if(el)el.value=''; });
+        document.querySelectorAll('.form-control').forEach(el => el.classList.remove('has-value'));
+        selectedFilters = { customer:'', order:'', variety:'', length:'', farm:'', confirmedBy:'' };
+        applyFiltersDelay();
+    }
+
+    function applyFiltersDelay() { if(filterTimeout) clearTimeout(filterTimeout); filterTimeout = setTimeout(applyFilters, 300); }
+
+    function applyFilters() {
+        if (!allOrdersData.length) { ordersEmpty(); showSpinner(false); return; }
+        selectedFilters.confirmedBy = document.getElementById('confirmedByFilter').value;
+        let filtered = allOrdersData;
+        if (selectedFilters.customer) filtered = filtered.filter(r => r.customer === selectedFilters.customer);
+        if (selectedFilters.order) filtered = filtered.filter(r => r.sales_order === selectedFilters.order);
+        if (selectedFilters.variety) filtered = filtered.filter(r => r.item_code === selectedFilters.variety);
+        if (selectedFilters.length) filtered = filtered.filter(r => r.length === selectedFilters.length);
+        if (selectedFilters.farm) filtered = filtered.filter(r => r.farm_name === selectedFilters.farm);
+        if (selectedFilters.confirmedBy) {
+            if (selectedFilters.confirmedBy === 'Unconfirmed') filtered = filtered.filter(r => getConfirmedTotal(r) === 0);
+            else if (selectedFilters.confirmedBy === 'Partial') filtered = filtered.filter(r => { const ct = getConfirmedTotal(r); return ct > 0 && ct < (r.stems_ordered || 0); });
+            else filtered = filtered.filter(r => (r.custom_confirmed_stems_table || []).some(e => e.farm === selectedFilters.confirmedBy));
+        }
+        renderOrdersData(filtered);
+        updateStats(filtered);
+        renderActiveFilters();
+        showSpinner(false);
+    }
+
+    function renderActiveFilters() {
+        const keys = { customer:'Customer', order:'Order', variety:'Variety', length:'Length', farm:'Farm', confirmedBy:'Confirmed' };
+        const x = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+        document.getElementById('activeFilters').innerHTML = Object.entries(selectedFilters).filter(([k,v]) => v).map(([k,v]) => `<span class="filter-tag">${keys[k]}: ${v} <span class="filter-tag-remove" onclick="clearFilter('${k}')">${x}</span></span>`).join('');
+    }
+
+    function clearFilter(key) {
+        showSpinner(true); selectedFilters[key] = '';
+        const input = document.getElementById(key+'Filter');
+        if (input) { input.value=''; input.classList.remove('has-value'); }
+        if (key==='confirmedBy') document.getElementById('confirmedByFilter').value='';
+        applyFiltersDelay();
+    }
+
+    function populateFilterData(data) {
+        if (!data?.length) return;
+        const sets = { customers:new Set(), orders:new Set(), varieties:new Set(), lengths:new Set(), farms:new Set() };
+        data.forEach(r => {
+            if(r.customer) sets.customers.add(r.customer);
+            if(r.sales_order) sets.orders.add(r.sales_order);
+            if(r.item_code) sets.varieties.add(r.item_code);
+            if(r.length) sets.lengths.add(r.length);
+            if(r.farm_name && r.farm_name!=='No Stock Available') sets.farms.add(r.farm_name);
+            if(r.farm_name && r.farm_name!=='Unknown') availableFarms.add(r.farm_name);
+            (r.custom_confirmed_stems_table || []).forEach(e => { if(e.farm) availableFarms.add(e.farm); });
+        });
+        Object.keys(sets).forEach(k => filterData[k] = Array.from(sets[k]).sort());
+        populateLocationSelector();
+        populateConfirmedByFilter();
+        const saved = localStorage.getItem('selectedLocation');
+        if (saved && availableFarms.has(saved)) { document.getElementById('processingLocation').value=saved; updateLocation(); }
+    }
+
+    function getConfirmedEntries(row) { return row.custom_confirmed_stems_table || []; }
+    function getConfirmedTotal(row) { return getConfirmedEntries(row).reduce((s, e) => s + (e.stems || 0), 0); }
+    function getMyConfirmedStems(row) { if (!currentLocation) return 0; const entry = getConfirmedEntries(row).find(e => e.farm === currentLocation); return entry ? (entry.stems || 0) : 0; }
+    function getRemainingStems(row) { return Math.max(0, (row.stems_ordered || 0) - getConfirmedTotal(row)); }
+
+    function loadData() {
+        if (isLoading) return; isLoading = true; showSpinner(true);
+        frappe.call({
+            method: 'upande_packhouse.api.allocation.fetchSalesAllocationPlanningData',
+            args: { delivery_date: document.getElementById('deliveryDate').value, farm: selectedFilters.farm||'' },
+            callback: r => { isLoading = false; showSpinner(false); if (r.message?.success) { allOrdersData = r.message.data; populateFilterData(allOrdersData); applyFilters(); } else ordersEmpty(); },
+            error: err => { isLoading = false; showSpinner(false); ordersError('Failed to load data'); console.error(err); }
+        });
+    }
+
+    function ordersEmpty() { document.getElementById('ordersTableBody').innerHTML='<tr><td colspan="17" class="empty-state"><p>No orders available</p></td></tr>'; }
+    function ordersError(m) { document.getElementById('ordersTableBody').innerHTML=`<tr><td colspan="17"><div class="error-msg">${m}</div></td></tr>`; }
+
+    // Boxes count ONCE per group: mixed bunch shares custom_bunch_group, mixed box
+    // shares custom_mix_group; straight lines are per line.
+    function boxGroupKey(r) {
+        const bg = (r.bunch_group || '').toString().trim();
+        const mg = (r.mix_group || '').toString().trim();
+        if (r.mixed_bunch == 1 && bg !== '') return `${r.sales_order}||bunch||${bg}`;
+        if (r.mixed_box == 1 && mg !== '') return `${r.sales_order}||mix||${mg}`;
+        return `${r.sales_order}||line||${r.line_no}`;
+    }
+
+    function updateStats(filtered) {
+        const customers = new Set(filtered.map(r=>r.customer)).size;
+        const lineKeys = new Set(filtered.map(r=>`${r.sales_order}-${r.line_no}`));
+        let totalConfirmedStems = 0, myConfirmedStems = 0, stems = 0, boxes = 0, stock = 0;
+        const seen = new Set();
+        const boxSeen = new Set();
+        filtered.forEach(r => {
+            const k = `${r.sales_order}-${r.line_no}`;
+            if (!seen.has(k)) { stems += r.stems_ordered || 0; totalConfirmedStems += getConfirmedTotal(r); myConfirmedStems += getMyConfirmedStems(r); seen.add(k); }
+            const bk = boxGroupKey(r);
+            if (!boxSeen.has(bk)) { boxes += r.boxes_ordered || 0; boxSeen.add(bk); }
+            stock += r.stock_total || 0;
+        });
+        document.getElementById('statCustomers').textContent = customers;
+        document.getElementById('statOrderLines').textContent = lineKeys.size;
+        document.getElementById('statFarmEntries').textContent = filtered.length;
+        document.getElementById('statTotalBoxes').textContent = boxes.toLocaleString();
+        document.getElementById('statConfirmedStems').textContent = totalConfirmedStems.toLocaleString();
+        document.getElementById('statMyConfirmed').textContent = myConfirmedStems.toLocaleString();
+        document.getElementById('statTotalStems').textContent = stems.toLocaleString();
+        document.getElementById('statStockStems').textContent = stock.toLocaleString();
+        document.getElementById('statAllocated').textContent = stems > 0 ? Math.round((totalConfirmedStems / stems) * 100) + '%' : '0%';
+    }
+
+    function renderOrdersData(data) {
+        if (!data?.length) { ordersEmpty(); return; }
+        const dismissSvg = '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+        let html = '', curKey = null;
+        data.forEach(row => {
+            const k = `${row.sales_order}-${row.line_no}`;
+            const isNew = curKey !== k;
+            if (isNew) { if (curKey) html += '<tr class="gap-row"><td colspan="17"></td></tr>'; curKey = k; }
+            const balance = (row.stock_total||0) - (row.stems_ordered||0);
+            const status = row.stock_status || 'No Stock';
+            const statusLabel = status==='Sufficient' ? 'label-success' : status==='Partial' ? 'label-warning' : 'label-danger';
+            const pct = row.fulfillment_percentage || 0;
+            const pctCls = pct >= 100 ? 'cell-pct-high' : pct >= 50 ? 'cell-pct-mid' : 'cell-pct-low';
+            const farm = row.farm_name || 'Unknown';
+            const farmCls = (farm !== 'No Stock Available' && farm !== 'Unknown') ? 'cell-farm-ok' : 'cell-farm-bad';
+            const confirmedEntries = getConfirmedEntries(row);
+            const confirmedTotal = getConfirmedTotal(row);
+            const stemsOrdered = row.stems_ordered || 0;
+            const remaining = getRemainingStems(row);
+            const myStems = getMyConfirmedStems(row);
+            const rowCls = farm === 'No Stock Available' ? 'no-stock' : (confirmedTotal >= stemsOrdered && stemsOrdered > 0 ? 'confirmed' : '');
+            let confirmedHtml = '';
+            if (isNew) {
+                let chipsHtml = '';
+                confirmedEntries.forEach(entry => {
+                    const isMine = entry.farm === currentLocation;
+                    chipsHtml += `<span class="confirmed-chip ${isMine ? 'is-mine' : ''}" title="${entry.farm}: ${entry.stems} stems">${entry.farm}: ${(entry.stems||0).toLocaleString()}${isMine ? ` <span class="confirmed-chip-remove" onclick="removeConfirmation('${row.sales_order}',${row.line_no},'${entry.farm}')">${dismissSvg}</span>` : ''}</span>`;
+                });
+                const pctC = stemsOrdered > 0 ? Math.min(100, Math.round((confirmedTotal / stemsOrdered) * 100)) : 0;
+                const fillCls = pctC >= 100 ? 'full' : pctC > 0 ? 'partial' : 'empty';
+                confirmedHtml = `<div class="confirmed-chips">${chipsHtml || '<span style="font-size:11px;color:var(--text-3)">None</span>'}</div><div class="stems-progress"><div class="stems-progress-bar"><div class="stems-progress-fill ${fillCls}" style="width:${pctC}%"></div></div><span class="stems-progress-text">${confirmedTotal.toLocaleString()}/${stemsOrdered.toLocaleString()}</span></div>`;
+            }
+            let actionHtml = '';
+            if (isNew) {
+                if (!currentLocation) actionHtml = '<span style="font-size:11px;color:var(--text-3)">Select farm</span>';
+                else if (remaining > 0 || myStems > 0) {
+                    const defaultVal = myStems > 0 ? myStems : Math.min(remaining, stemsOrdered);
+                    const maxVal = remaining + myStems;
+                    actionHtml = `<div class="confirm-input-wrap"><input type="number" id="stems_${row.sales_order}_${row.line_no}" min="0" max="${maxVal}" step="1" value="${defaultVal}" title="Max ${maxVal.toLocaleString()}"><button class="btn-xs btn-success-action" onclick="confirmPartial('${row.sales_order}',${row.line_no})">${myStems > 0 ? 'Update' : 'Confirm'}</button>`;
+                    if (myStems > 0) actionHtml += `<button class="btn-xs btn-danger-action" onclick="removeConfirmation('${row.sales_order}',${row.line_no},'${currentLocation}')">${dismissSvg}</button>`;
+                    actionHtml += '</div>';
+                } else if (confirmedTotal >= stemsOrdered && stemsOrdered > 0) actionHtml = '<span class="label label-success">Fully Confirmed</span>';
+            }
+            html += `<tr class="${rowCls}">
+                <td class="cell-customer">${isNew ? (row.customer||'') : ''}</td>
+                <td>${isNew ? (row.transaction_date||'') : ''}</td>
+                <td>${isNew ? (row.delivery_date||'') : ''}</td>
+                <td>${isNew ? (row.sales_order ? `<a class="doc-link" onclick="openDoc('Sales Order','${row.sales_order}')">${row.sales_order}</a>` : '--') : ''}</td>
+                <td class="cell-order">${isNew ? (row.order_name||'--') : ''}</td>
+                <td>${isNew ? (row.line_no||'') : ''}</td>
+                <td class="cell-variety">${isNew ? (row.item_code||'') : ''}</td>
+                <td>${isNew ? (row.length||'') : ''}</td>
+                <td class="cell-number">${isNew ? (row.stems_ordered||0).toLocaleString() : ''}</td>
+                <td class="cell-number">${isNew ? (row.boxes_ordered||0).toLocaleString() : ''}</td>
+                <td class="${farmCls}">${farm}</td>
+                <td class="cell-number">${row.stock_total != null ? row.stock_total.toLocaleString() : '--'}</td>
+                <td><span class="label ${statusLabel}">${status}</span></td>
+                <td class="${pctCls}">${pct}%</td>
+                <td>${confirmedHtml}</td>
+                <td class="cell-confirm-wrap">${actionHtml}</td>
+                <td class="cell-balance ${balance>=0?'cell-pos':'cell-neg'}">${balance.toLocaleString()}</td>
+            </tr>`;
+        });
+        document.getElementById('ordersTableBody').innerHTML = html;
+    }
+
+    function confirmPartial(salesOrder, lineNo) {
+        if (!currentLocation) { showToast('Please select your farm first', 'error'); return; }
+        const input = document.getElementById(`stems_${salesOrder}_${lineNo}`);
+        if (!input) { showToast('Input not found', 'error'); return; }
+        const stemsVal = parseInt(input.value, 10);
+        if (isNaN(stemsVal) || stemsVal < 0) { showToast('Enter a valid number of stems', 'error'); return; }
+        const row = allOrdersData.find(r => r.sales_order === salesOrder && r.line_no == lineNo);
+        if (row) { const max = getRemainingStems(row) + getMyConfirmedStems(row); if (stemsVal > max) { showToast(`Maximum ${max.toLocaleString()} stems`, 'error'); return; } }
+        showSpinner(true);
+        frappe.call({
+            method: 'upande_packhouse.api.allocation.confimSalesOrderItem',
+            args: { sales_order: salesOrder, line_no: lineNo, processing_location: currentLocation, action: 'confirm', stems: stemsVal },
+            callback: r => {
+                showSpinner(false);
+                if (r.message?.success) {
+                    showToast(`${stemsVal.toLocaleString()} stems confirmed for ${currentLocation}`);
+                    const serverEntries = r.message.data?.confirmed_entries;
+                    allOrdersData.forEach(row => {
+                        if (row.sales_order === salesOrder && row.line_no == lineNo) {
+                            if (serverEntries) row.custom_confirmed_stems_table = serverEntries;
+                            else {
+                                let entries = row.custom_confirmed_stems_table || [];
+                                const existing = entries.findIndex(e => e.farm === currentLocation);
+                                if (stemsVal === 0) { if (existing >= 0) entries.splice(existing, 1); }
+                                else if (existing >= 0) entries[existing].stems = stemsVal;
+                                else entries.push({ farm: currentLocation, stems: stemsVal });
+                                row.custom_confirmed_stems_table = entries;
+                            }
+                        }
+                    });
+                    populateConfirmedByFilter(); applyFilters();
+                } else showToast(r.message?.error || 'Failed to update', 'error');
+            },
+            error: err => { showSpinner(false); showToast('Error updating', 'error'); console.error(err); }
+        });
+    }
+
+    function removeConfirmation(salesOrder, lineNo, farm) {
+        if (farm !== currentLocation) { showToast('You can only remove your own confirmations', 'error'); return; }
+        showSpinner(true);
+        frappe.call({
+            method: 'upande_packhouse.api.allocation.confimSalesOrderItem',
+            args: { sales_order: salesOrder, line_no: lineNo, processing_location: farm, action: 'unconfirm', stems: 0 },
+            callback: r => {
+                showSpinner(false);
+                if (r.message?.success) {
+                    showToast(`Confirmation removed for ${farm}`);
+                    allOrdersData.forEach(row => { if (row.sales_order === salesOrder && row.line_no == lineNo) row.custom_confirmed_stems_table = (row.custom_confirmed_stems_table || []).filter(e => e.farm !== farm); });
+                    populateConfirmedByFilter(); applyFilters();
+                } else showToast(r.message?.error || 'Failed to remove', 'error');
+            },
+            error: err => { showSpinner(false); showToast('Error removing confirmation', 'error'); console.error(err); }
+        });
+    }
+
+    function openDoc(doctype, name) {
+        if (typeof frappe!=='undefined'&&frappe?.set_route) frappe.set_route('Form', doctype, name);
+        else window.open(`/app/${doctype.toLowerCase().replace(/ /g,'-')}/${name}`, '_blank');
+    }
+
+    /* -- Sidebar footer (user identity) -- */
+    (function fillFooter(){
+        function tryFill(){
+            if (!window.frappe || !frappe.session || !frappe.session.user){ setTimeout(tryFill, 100); return; }
+            var u = frappe.session.user || '';
+            var fullName = (frappe.session.user_fullname || (frappe.boot && frappe.boot.user && frappe.boot.user.full_name)) || u.split('@')[0];
+            document.getElementById('aph-foot-av').textContent = (fullName || u || '?').substring(0,1).toUpperCase();
+            document.getElementById('aph-foot-nm').textContent = fullName;
+            document.getElementById('aph-foot-em').textContent = u;
+        }
+        tryFill();
+    })();
+</script>
+
+<script>
+(function(){
+  var aph=document.querySelector('.aph'), btn=document.getElementById('collapseBtn');
+  if(!aph) return;
+  try{ if(localStorage.getItem('aphSideCollapsed')==='1') aph.classList.add('collapsed'); }catch(e){}
+  if(btn) btn.addEventListener('click',function(){
+    aph.classList.toggle('collapsed');
+    try{ localStorage.setItem('aphSideCollapsed', aph.classList.contains('collapsed')?'1':'0'); }catch(e){}
+  });
+})();
+</script>
+
+
+
+<style id="v16-polish">
+/* v16 polish — slim single-row top bar; filters scroll horizontally instead of
+   spilling off-screen or wrapping into a tall/fat bar. */
+.aph-topbar{padding:9px 20px !important;gap:12px !important;flex-wrap:nowrap !important;min-height:0 !important;align-items:center !important}
+.aph-topbar h1{font-size:16px !important;line-height:1.25;white-space:nowrap}
+.aph-topbar .right{margin-left:auto !important;flex-wrap:nowrap !important;overflow-x:auto;overflow-y:hidden;max-width:100%;padding-bottom:1px;scrollbar-width:thin}
+.aph-topbar .right > *{flex:0 0 auto}
+.aph-topbar .right::-webkit-scrollbar{height:4px}
+.aph-topbar .right::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:4px}
+.aph-main{min-width:0 !important;overflow-x:hidden}
+.aph-main table{max-width:100%}
+@media (max-width:1180px){ .aph-topbar{padding:8px 14px !important} .aph-topbar .crumb{display:none} }
+</style>
+<style>
+.navbar.navbar-light {
+  display: none !important;
+}
+
+.navbar.navbar-primary {
+  display: none !important;
+}
+
+.web-footer {
+  display: none !important;
+}
+</style>
+<link rel="stylesheet" href="/assets/upande_packhouse/css/packhouse-portal.css">
+{% endraw %}
+{% endblock %}

@@ -1,7 +1,7 @@
 {
  "app": "upande_packhouse",
  "charts": [],
- "content": "[{\"id\": \"764a08be16\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Dashboards</b></span>\", \"col\": 12}}, {\"id\": \"26d08f3341\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Packhouse Dashboard\", \"col\": 3}}, {\"id\": \"83a0f2547f\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Scheduler\", \"col\": 3}}, {\"id\": \"1ebb93c232\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Allocation Planning\", \"col\": 3}}, {\"id\": \"9d149d487d\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Production\", \"col\": 3}}, {\"id\": \"1f4fcd127f\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Bucket Journey\", \"col\": 3}}, {\"id\": \"66f1432779\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Bucket Logistics\", \"col\": 3}}, {\"id\": \"bd0d30ef3c\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Cold Room\", \"col\": 3}}, {\"id\": \"514a74eccc\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Discards\", \"col\": 3}}, {\"id\": \"ccf0af49fc\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Downgrades\", \"col\": 3}}, {\"id\": \"2328c96ff0\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Stock Visibility\", \"col\": 3}}, {\"id\": \"d3ebd6e0ec\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Avails\", \"col\": 3}}, {\"id\": \"75e03d8eba\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Stem Movement\", \"col\": 3}}, {\"id\": \"559bcd509c\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Order Summary\", \"col\": 3}}, {\"id\": \"3feedd5df5\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Order Fulfilment\", \"col\": 3}}, {\"id\": \"6913a1320b\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"897881245f\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Records</b></span>\", \"col\": 12}}, {\"id\": \"76624bdc14\", \"type\": \"card\", \"data\": {\"card_name\": \"Daily Operations\", \"col\": 4}}, {\"id\": \"17e1444da3\", \"type\": \"card\", \"data\": {\"card_name\": \"Stock & Shelving\", \"col\": 4}}, {\"id\": \"4828a85b5f\", \"type\": \"card\", \"data\": {\"card_name\": \"Losses & Setup\", \"col\": 4}}]",
+ "content": "[{\"id\": \"phn_block_1\", \"type\": \"custom_block\", \"data\": {\"custom_block_name\": \"Packhouse Navigation\", \"col\": 12}}]",
  "creation": "2026-08-16 12:35:52.076515",
  "custom_blocks": [
   {
@@ -207,7 +207,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-08-19 00:24:23.264968",
+ "modified": "2026-08-24 12:28:48.938967",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Packhouse",

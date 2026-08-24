@@ -1,0 +1,198 @@
+/* Copyright (c) 2026, Upande and contributors
+ * Packhouse portal — shared shell theme.
+ * Ports the "Role Advisor" (Access Dashboard) UFD design language onto the
+ * packhouse www dashboards so every page shares one sidebar + head + card look.
+ * Loaded LAST in each page (link at end of page_content) so it wins on order.
+ * Scoped under .aph so it only touches the packhouse dashboard shell.
+ */
+
+/* ---- palette tokens (align with Role Advisor; pages already define most) ---- */
+.aph{
+  --ink:#0a0a0a;--ink-2:#2a2a26;--ink-3:#3a3a34;--ink-4:#5a5a52;
+  --ink-mute:#8a8780;--ink-faint:#b8b6ae;
+  --bg:#f4f3ef;--surface-2:#ffffff;--hairline:rgba(10,10,10,0.06);
+  --shadow-card:0 1px 0 rgba(10,10,10,0.04),0 8px 32px -16px rgba(10,10,10,0.10);
+  --shadow-hover:0 1px 0 rgba(10,10,10,0.06),0 24px 48px -24px rgba(10,10,10,0.18);
+  --grad-ink:linear-gradient(135deg,#0a0a0a 0%,#3a3a34 100%);
+  --sans:'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  background:var(--bg) !important;
+}
+
+/* ================= SIDEBAR — floating rounded card ================= */
+.aph > .aph-side,
+.aph .aph-side{
+  margin:14px 0 14px 14px !important;
+  height:calc(100vh - 28px) !important;
+  background:var(--surface-2) !important;
+  border-right:0 !important;
+  border-radius:22px !important;
+  box-shadow:var(--shadow-card) !important;
+  overflow:hidden !important;
+}
+
+/* brand block reads as the card's masthead, no hard divider */
+.aph .aph-side .brand,
+.aph .brand{
+  border-bottom:1px solid var(--hairline) !important;
+  padding:18px 18px !important;
+}
+
+/* section labels in the rail (group headers) */
+.aph .group-lbl,
+.aph .nav-group-label,
+.aph .aph-side__label{
+  font:500 10px var(--sans) !important;
+  text-transform:uppercase;letter-spacing:1.8px;
+  color:var(--ink-mute) !important;
+  padding:6px 20px 4px !important;margin:0 !important;
+}
+
+/* nav rows -> pill style; active = ink gradient pill */
+.aph .nav{padding:10px 0 16px !important}
+.aph .nav-item{
+  margin:2px 12px !important;
+  padding:9px 12px !important;
+  border-radius:12px !important;
+  font:500 13px var(--sans) !important;
+  color:var(--ink-4) !important;
+  gap:11px !important;
+  transition:background .18s ease,color .18s ease !important;
+}
+.aph .nav-item svg,.aph .nav-item .ni-ic{width:16px;height:16px;flex-shrink:0}
+.aph .nav-item:hover{background:rgba(10,10,10,0.04) !important;color:var(--ink) !important}
+.aph .nav-item.active,
+.aph .nav-item.on,
+.aph .nav-item[aria-current="page"]{
+  background:var(--grad-ink) !important;
+  color:#fafaf6 !important;
+  box-shadow:0 4px 14px rgba(10,10,10,0.18) !important;
+}
+.aph .nav-item.active svg,.aph .nav-item.on svg{stroke:#fafaf6;color:#fafaf6}
+
+/* the user block pinned at the rail foot */
+.aph .aph-user,.aph .sidebar-user,.aph .aph-side__user{
+  border-top:1px solid var(--hairline) !important;
+}
+
+/* ================= TOPBAR — floating rounded bar (not full-bleed) ===== */
+.aph .aph-topbar{
+  margin:14px 20px 4px !important;
+  padding:12px 20px !important;
+  background:var(--surface-2) !important;
+  border:0 !important;
+  border-bottom:0 !important;
+  border-radius:16px !important;
+  box-shadow:var(--shadow-card) !important;
+  min-height:56px !important;
+  align-items:center !important;
+}
+
+/* pill segmented controls in the topbar (Today/7d/30d etc.) */
+.aph .aph-topbar .seg,.aph .aph-topbar .presets,.aph .aph-topbar .cat-wrap,
+.aph .aph-topbar .pillgroup{
+  background:rgba(10,10,10,0.04) !important;border-radius:999px !important;padding:4px !important;
+}
+.aph .aph-topbar .seg-btn,.aph .aph-topbar .presets .p,.aph .aph-topbar .pill{
+  border-radius:999px !important;
+}
+.aph .aph-topbar .seg-btn.on,.aph .aph-topbar .presets .p.on,
+.aph .aph-topbar .seg-btn.active{
+  background:var(--ink) !important;color:#fafaf6 !important;
+  box-shadow:0 2px 8px rgba(10,10,10,0.15) !important;
+}
+
+/* ================= CONTENT: eyebrow + big title head ================= */
+.aph .aph-content{padding:8px 20px 40px !important}
+.aph .aph-page-hd{margin-bottom:22px !important}
+.aph .aph-page-hd .eyebrow,.aph .aph-eyebrow{
+  font:500 11px var(--sans) !important;text-transform:uppercase;letter-spacing:2.2px;
+  color:var(--ink-mute) !important;display:inline-flex;align-items:center;gap:10px;margin-bottom:8px;
+}
+.aph .aph-page-hd .eyebrow::before,.aph .aph-eyebrow::before{
+  content:"";width:18px;height:1px;background:var(--ink-3);display:inline-block;
+}
+.aph .aph-page-hd h1,.aph .aph-page-hd .ttl,.aph .aph-title{
+  font:600 34px/1.06 var(--sans) !important;color:var(--ink) !important;letter-spacing:-1px !important;margin:0 !important;
+}
+
+/* ================= KPI + CARD polish (Role Advisor radii) ============ */
+.aph .aph-kpi,.aph .kpi{border-radius:20px !important;box-shadow:var(--shadow-card) !important;border:0 !important}
+.aph .aph-card,.aph .section{border-radius:22px !important;box-shadow:var(--shadow-card) !important;border:0 !important}
+
+/* ============================================================
+ * INTENTIONAL CLEANUP — normalize cards / KPIs / empty states
+ * to the Role Advisor rhythm. Kills oversized cards, awkward
+ * internal voids and floating empty states across every page.
+ * ============================================================ */
+
+/* KPI cards: top-aligned, compact, uniform. Grid stretch keeps a
+   row even, so 2-element and 3-element KPIs read the same height
+   without the space-between gap that used to hollow them out. */
+.aph .aph-kpis,.aph .kpi-row{align-items:stretch !important;gap:16px !important}
+.aph .aph-kpi,.aph .kpi{
+  min-height:0 !important;
+  justify-content:flex-start !important;
+  padding:22px 24px !important;
+  gap:0 !important;
+}
+.aph .aph-kpi .lbl,.aph .kpi .lbl{
+  font:500 10.5px var(--sans) !important;text-transform:uppercase;letter-spacing:1.4px;
+  color:var(--ink-mute) !important;margin:0 0 12px !important;
+}
+.aph .aph-kpi .v,.aph .kpi .big,.aph .kpi .val{
+  font:600 34px/1 var(--sans) !important;letter-spacing:-1px !important;
+  color:var(--ink) !important;margin:0 !important;font-variant-numeric:tabular-nums;
+}
+.aph .aph-kpi .sub,.aph .kpi .sub{
+  font:500 12px var(--sans) !important;color:var(--ink-mute) !important;margin:12px 0 0 !important;
+}
+/* KPI corner icon badge -> one calm neutral treatment everywhere */
+.aph .aph-kpi .ic,.aph .aph-kpi .kpi-ic,.aph .kpi .ic,.aph .aph-kpi > svg,
+.aph .aph-kpi .icon,.aph .kpi .icon{
+  background:rgba(10,10,10,0.04) !important;color:var(--ink-mute) !important;border:0 !important;
+}
+
+/* Empty states: compact, centered, never a void. */
+.aph .aph-empty,.aph .empty-state,.aph .sch-empty{
+  min-height:0 !important;height:auto !important;
+  padding:34px 20px !important;text-align:center !important;
+  color:var(--ink-mute) !important;font:500 13px var(--sans) !important;
+}
+/* a card/table whose only content is an empty state shouldn't reserve height */
+.aph .aph-card-body,.aph .table-wrap{min-height:0 !important}
+
+/* Cards: consistent padding + rhythm */
+.aph .aph-card{padding:0 !important}          /* header/body own their padding */
+.aph .aph-card-hd{padding:20px 24px 0 !important;border-bottom:0 !important;margin-bottom:2px}
+.aph .aph-card-hd .ttl,.aph .aph-card-hd h3,.aph .aph-card-hd h2{
+  font:600 16px var(--sans) !important;letter-spacing:-.25px;color:var(--ink) !important;
+}
+.aph .aph-card-body{padding:16px 24px 22px !important}
+
+/* Tables: Role Advisor discipline (tracked uppercase heads, calm rows) */
+.aph table th{
+  font:500 10.5px var(--sans) !important;text-transform:uppercase;letter-spacing:1.2px;
+  color:var(--ink-mute) !important;border-bottom:1px solid var(--hairline) !important;
+  padding:10px 12px !important;white-space:nowrap;text-align:left;
+}
+.aph table td{
+  padding:11px 12px !important;border-bottom:1px solid var(--hairline) !important;
+  color:var(--ink-3) !important;
+}
+.aph table tbody tr:hover{background:rgba(10,10,10,0.025)}
+
+/* Chips / count pills: soft, rounded, quiet */
+.aph .pill-count,.aph .chip,.aph .tag,.aph .badge{
+  border-radius:999px !important;font:500 11px var(--sans) !important;padding:3px 10px !important;
+}
+
+/* Filter inputs / selects -> rounded, hairline (matches RA) */
+.aph .aph-topbar input[type=date],.aph .aph-topbar select,.aph .aph-topbar input[type=text],
+.aph .aph-content input[type=text],.aph .aph-content input[type=search],.aph .aph-content select{
+  border:1px solid var(--hairline) !important;border-radius:999px !important;
+  padding:8px 14px !important;font:500 12.5px var(--sans) !important;background:var(--surface-2) !important;
+}
+
+/* keep the topbar label text from wrapping to two lines */
+.aph .aph-topbar .lbl,.aph .aph-topbar label,.aph .aph-topbar .topbar-lbl,
+.aph .aph-topbar .meta,.aph .aph-topbar .sub{white-space:nowrap !important}

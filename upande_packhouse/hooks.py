@@ -261,6 +261,13 @@ override_doctype_dashboards = {
 # 	"upande_packhouse.auth.validate"
 # ]
 
+# Fixtures
+# --------
+fixtures = [
+    {"dt": "Workspace", "filters": [["name", "=", "Packhouse"]]},
+    {"dt": "Custom HTML Block", "filters": [["name", "=", "Packhouse Navigation"]]},
+]
+
 # Automatically update python controller files with type annotations for this app.
 # export_python_type_annotations = True
 

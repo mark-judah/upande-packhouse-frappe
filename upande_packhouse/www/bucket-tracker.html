@@ -1,0 +1,2284 @@
+{% extends "templates/web.html" %}
+{% block page_content %}
+{% raw %}
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- v20260505-093417 -->
+
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --bg:#fff;--bg-card:#fff;--bg-hover:#fafafa;--bg-muted:#f5f5f5;
+  --border:#ececec;--border-2:#d0d0d0;
+  --text:#000;--text-2:#6b6b6b;--text-3:#9a9a9a;--text-4:#cfcfcf;
+  --accent:#000;
+  --good:#16a34a;--warn:#d97706;--bad:#dc2626;--plan:#d4d4d4;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.04);
+  --f:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --mono:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;
+}
+/* Take dashboard out of Frappe layout entirely — fill viewport */
+html,body{margin:0!important;padding:0!important;overflow:hidden!important;height:100vh!important}
+.navbar,header,.page-breadcrumbs,.page-header,.page-header-wrapper,.web-footer,footer,
+.website-edit-button,.btn-edit-page,.edit-page-btn,.scroll-to-top,.back-to-top,
+.website-banner,.call-to-action,.frappe-chat,#frappe-chat,.telegram-share,.share-buttons,
+.web-page-edit,.published-edit{display:none!important}
+.aph *{box-sizing:border-box;margin:0;padding:0}
+.aph{position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100vh;z-index:2147483000;
+  font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;
+  display:grid;grid-template-columns:240px 1fr;font-feature-settings:'cv11','ss01','ss03'}
+
+.aph svg.ic{width:16px;height:16px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.aph .aph-side svg.ic{width:15px;height:15px;stroke-width:1.6;color:var(--text-3)}
+.aph .aph-side .nav-item.active svg.ic{color:#fff}
+.aph .aph-kpi svg.ic{width:18px;height:18px;color:var(--text-3);stroke-width:1.5}
+
+/* SIDEBAR */
+.aph-side{background:var(--bg-card);border-right:1px solid var(--border);height:100vh;position:sticky;top:0;display:flex;flex-direction:column;overflow:hidden}
+.aph-side .brand{padding:18px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+.aph-side .brand .mark{width:36px;height:36px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px;letter-spacing:-0.02em;border-radius:7px}
+.aph-side .brand .name{font-weight:600;font-size:14px;line-height:1.15;letter-spacing:-0.015em}
+.aph-side .brand .name small{display:block;font-size:11px;color:var(--text-3);font-weight:400;margin-top:2px}
+/* Note: "nav" collides with Bootstrap's .nav (flex-wrap:wrap) loaded by Frappe —
+   force nowrap + column here or items wrap into a phantom second column */
+.aph-side .nav{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:6px 0 16px;margin:0;list-style:none;display:flex;flex-direction:column;flex-wrap:nowrap!important}
+.aph-side .group-lbl{padding:14px 20px 4px;font-size:10px;color:var(--text-3);letter-spacing:.1em;text-transform:uppercase;font-weight:600;display:block}
+.aph-side .group-lbl:first-child{padding-top:10px}
+.aph-side .nav-item{display:flex;align-items:center;gap:11px;padding:8px 12px;cursor:pointer;font-size:13px;color:var(--text-2);font-weight:500;user-select:none;transition:background .12s ease,color .12s ease;margin:1px 8px;border-radius:6px;box-sizing:border-box;text-decoration:none}
+.aph-side .nav-item:hover{background:var(--bg-hover);color:var(--text);text-decoration:none}
+.aph-side .nav-item.active{background:var(--accent);color:#fff;font-weight:500}
+.aph-side .nav-item .badge{margin-left:auto;font-family:var(--mono);font-size:10px;font-weight:600;color:var(--text-2);background:var(--bg-muted);padding:1px 7px;border-radius:9px;line-height:1.4}
+.aph-side .nav-item.active .badge{color:#fff;background:rgba(255,255,255,.18)}
+.aph-side .nav-item.stub{color:var(--text-3)}
+.aph-side .nav-item.stub svg.ic{opacity:.55}
+.aph-side .footer{padding:12px 20px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px;font-size:11px;color:var(--text-2)}
+.aph-side .footer .av{width:24px;height:24px;border-radius:50%;background:var(--bg-muted);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:10px;color:var(--text)}
+.aph-side .footer .who{flex:1;line-height:1.2;overflow:hidden}
+.aph-side .footer .who .nm{font-weight:600;color:var(--text);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph-side .footer .who .em{font-size:10px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph-side .home-link{display:flex;align-items:center;gap:11px;margin:8px 8px 0;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-weight:500;color:var(--text-2);text-decoration:none;transition:background .12s ease,color .12s ease}
+.aph-side .home-link:hover{background:var(--bg-hover);color:var(--text);text-decoration:none}
+.aph-side .home-link svg.ic{width:15px;height:15px;stroke-width:1.6;color:var(--text-3)}
+
+/* MAIN */
+.aph-main{min-width:0;height:100vh;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column}
+.aph-content{flex:1}
+.aph-topbar{background:var(--bg-card);border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:10}
+.aph-topbar h1{font-size:18px;font-weight:600;letter-spacing:-0.02em}
+.aph-topbar .crumb{color:var(--text-3);font-size:11px;font-weight:500;padding-left:14px;border-left:1px solid var(--border);height:18px;line-height:18px;letter-spacing:.02em}
+.aph-topbar .right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.aph-topbar .date-pill{display:inline-flex;align-items:center;border:1px solid var(--border-2);border-radius:7px;background:var(--bg-card);overflow:hidden;height:32px}
+.aph-topbar .date-pill input{border:0;padding:0 10px;font-size:12px;font-family:var(--f);font-feature-settings:'tnum';background:transparent;outline:0;width:118px;font-weight:500}
+.aph-topbar .date-pill .sep{padding:0 4px;color:var(--text-3);font-size:12px}
+.aph-topbar .date-pill .clear{padding:0 10px;color:var(--text-3);font-size:15px;cursor:pointer;border-left:1px solid var(--border);height:100%;display:flex;align-items:center}
+.aph-topbar .presets{display:flex;border:1px solid var(--border-2);border-radius:7px;overflow:hidden;height:32px}
+.aph-topbar .presets .p{padding:0 12px;font-size:11px;font-weight:500;cursor:pointer;color:var(--text-2);background:var(--bg-card);border-right:1px solid var(--border);display:flex;align-items:center}
+.aph-topbar .presets .p:last-child{border-right:0}
+.aph-topbar .presets .p:hover{background:var(--bg-hover);color:var(--text)}
+.aph-topbar .presets .p.active{background:var(--accent);color:#fff}
+.aph-topbar .btn{padding:0 14px;height:32px;border:1px solid var(--border-2);background:var(--bg-card);color:var(--text);border-radius:7px;font-size:12px;font-weight:500;cursor:pointer;font-family:var(--f);display:flex;align-items:center;gap:6px}
+.aph-topbar .btn:hover{background:var(--bg-hover)}
+.aph-topbar .btn svg{width:14px;height:14px}
+
+.aph-content{padding:28px}
+.aph-page-hd{margin-bottom:24px}
+.aph-page-hd .ttl{font-size:24px;font-weight:600;letter-spacing:-0.025em;line-height:1.15}
+.aph-page-hd .sub{font-size:13px;color:var(--text-2);margin-top:4px}
+
+.aph-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:28px}
+.aph-kpi{background:var(--bg-card);border:1px solid var(--border);padding:20px 22px;border-radius:10px;position:relative;min-height:118px;display:flex;flex-direction:column;justify-content:space-between;transition:border-color .12s ease,box-shadow .12s ease}
+.aph-kpi:hover{border-color:var(--border-2);box-shadow:var(--shadow-sm)}
+.aph-kpi .ic-wrap{position:absolute;top:18px;right:20px;width:30px;height:30px;border-radius:7px;background:var(--bg-muted);display:flex;align-items:center;justify-content:center}
+.aph-kpi .lbl{font-size:11px;color:var(--text-2);letter-spacing:.04em;text-transform:uppercase;font-weight:600}
+.aph-kpi .v{font-size:32px;font-weight:600;letter-spacing:-0.035em;font-feature-settings:'tnum';margin-top:10px;line-height:1}
+.aph-kpi .sub{font-size:11px;color:var(--text-3);margin-top:8px;font-weight:500}
+.aph-kpi .sub strong{color:var(--text-2);font-weight:600}
+
+.aph-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;width:100%;box-sizing:border-box}
+/* full-width rows — !important so no theme/global CSS can shrink them */
+.aph-grid.col-1{display:grid!important;grid-template-columns:1fr!important;width:100%!important;max-width:none!important}
+.aph-grid.col-1 > .aph-card{width:100%!important;max-width:none!important;box-sizing:border-box}
+.aph-card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;overflow:hidden;box-sizing:border-box;width:100%;min-width:0}
+.aph-card-hd{padding:16px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+.aph-card-hd .ttl{font-weight:600;font-size:14px;letter-spacing:-0.01em;white-space:nowrap}
+.aph-card-hd .sub{color:var(--text-3);font-size:11px;font-weight:500}
+.aph-card-body{padding:18px 22px}
+.aph-card-body.padless{padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.aph-tbl th{text-align:left;padding:11px 16px;background:var(--bg-card);font-size:11px;color:var(--text-3);letter-spacing:.04em;text-transform:uppercase;font-weight:600;border-bottom:1px solid var(--border);white-space:nowrap}
+.aph-tbl td{padding:11px 16px;border-bottom:1px solid var(--border);font-feature-settings:'tnum';white-space:nowrap}
+.aph-tbl tr:last-child td{border-bottom:0}
+.aph-tbl tr:hover td{background:var(--bg-hover)}
+.aph-tbl td.num,.aph-tbl th.num{text-align:right}
+.aph-tbl td.mono{font-family:var(--mono);font-size:12px;color:var(--text-2)}
+.aph-tbl td.dim{color:var(--text-3)}
+.aph-tbl td.strong{font-weight:600}
+
+.aph-empty{padding:40px;text-align:center;color:var(--text-3);font-size:13px}
+.aph-loading{padding:60px;text-align:center;color:var(--text-3);font-size:12px}
+.aph-err{background:var(--text);color:#fff;padding:12px 16px;border-radius:7px;font-size:12px;margin:14px 28px;font-family:var(--mono)}
+.aph-stub{padding:56px 28px;text-align:center;background:var(--bg-card);border:1px dashed var(--border-2);border-radius:10px}
+.aph-stub .ttl{font-size:16px;font-weight:600;margin-bottom:6px}
+.aph-stub .sub{font-size:13px;color:var(--text-2)}
+
+.aph-bar-row{display:flex;align-items:center;gap:14px;padding:9px 0;border-bottom:1px solid var(--border)}
+.aph-bar-row:last-child{border-bottom:0}
+.aph-bar-row .lbl{width:54px;font-size:13px;font-weight:600}
+.aph-bar-row .bar{flex:1;height:8px;background:var(--bg-muted);border-radius:4px;overflow:hidden}
+.aph-bar-row .bar .fill{height:100%;background:var(--text);border-radius:4px}
+.aph-bar-row .val{width:170px;text-align:right;font-size:12px;color:var(--text-2);font-feature-settings:'tnum'}
+
+.aph-tag{display:inline-flex;align-items:center;padding:2px 9px;border-radius:10px;font-size:11px;background:var(--bg-muted);color:var(--text);font-weight:500;line-height:1.5}
+
+/* Chart wrappers: the scroll container always spans the full card; the inner
+   div's width is set in px by JS = max(available width, minimum), so the chart
+   always fills the page on wide screens and scrolls sideways on narrow ones */
+.aph-chart-scroll{display:block;width:100%!important;max-width:none!important;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:10px 16px;box-sizing:border-box}
+.aph-chart-inner{position:relative;width:100%}
+
+/* Wide table scroll wrapper (proforma / non-export invoice ledgers) */
+.aph-tbl-scroll{display:block;width:100%!important;max-width:none!important;overflow-x:auto;-webkit-overflow-scrolling:touch;box-sizing:border-box}
+
+/* ── Narrow screens / mobile ─────────────────────────────────────────── */
+@media (max-width: 900px){
+  html,body{overflow:auto!important}
+  .aph{display:flex;flex-direction:column;position:fixed}
+  /* sidebar becomes a compact top bar with a horizontally scrolling nav */
+  .aph-side{width:100%;height:auto;position:relative;flex:0 0 auto;border-right:0;border-bottom:1px solid var(--border);overflow:visible}
+  .aph-side .brand{padding:10px 16px;border-bottom:0}
+  .aph-side .home-link{margin:0 8px 8px;width:max-content}
+  .aph-side .nav{flex-direction:row;align-items:center;overflow-x:auto;overflow-y:hidden;padding:0 8px 8px;-webkit-overflow-scrolling:touch}
+  .aph-side .group-lbl{display:none}
+  .aph-side .nav-item{flex:0 0 auto;margin:0 2px;white-space:nowrap;padding:7px 12px}
+  .aph-side .footer{display:none}
+  .aph-main{flex:1 1 auto;height:auto;min-height:0}
+  .aph-topbar{position:static;flex-wrap:wrap;gap:8px;padding:10px 14px}
+  .aph-topbar .crumb{display:none}
+  .aph-topbar .right{margin-left:0;width:100%;flex-wrap:wrap}
+  .aph-content{padding:14px}
+  .aph-err{margin:14px}
+  /* everything single-column */
+  .aph-grid{grid-template-columns:1fr}
+  .aph-kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  .aph-kpi{min-height:100px;padding:16px 18px}
+  .aph-kpi .v{font-size:26px}
+  .aph-page-hd .ttl{font-size:20px}
+}
+</style>
+
+<!-- ════════ Page-specific tweaks (appended; reference tokens above are untouched) ════════ -->
+<style>
+/* The journey render functions emit page-specific markup (well / panel /
+   journey-path / data-card / bunch-chain / modal …). The original token set is
+   preserved here, but remapped onto the aph monochrome palette so the rendered
+   output matches the aph family. These vars are scoped under .aph so they never
+   leak into the reference token block above. */
+.aph{
+    --bg-page: #fff;
+    --bg-surface: #fff;
+    --bg-input: #f5f5f5;
+    --bg-hover: #fafafa;
+    --bg-tab-group: #f5f5f5;
+    --text-primary: #000;
+    --text-secondary: #6b6b6b;
+    --text-muted: #9a9a9a;
+    --text-on-dark: #fff;
+    --border-default: #ececec;
+    --border-light: #f0f0f0;
+    --accent-blue: #7c5cfc;
+    --accent-blue-light: #f0ecfe;
+    --accent-green: #16a34a;
+    --accent-red: #dc2626;
+    --accent-orange: #d97706;
+    --accent-purple: #7c5cfc;
+    --btn-dark: #000;
+    --btn-dark-hover: #333;
+    --tint-blue: #f0ecfe;
+    --tint-purple: #f0ecfe;
+    --tint-green: #e6f9ee;
+    --tint-orange: #fff3e0;
+    --tint-gray: #f5f5f5;
+    --shadow-card: 0 1px 2px rgba(0,0,0,.04);
+}
+
+/* Search group sits in the topbar .right */
+.aph .search-group{display:flex;align-items:center;border:1px solid var(--border-2);border-radius:7px;overflow:hidden;background:var(--bg-card);height:32px}
+.aph .search-group input{height:30px;padding:0 12px;font-size:12px;font-family:var(--f);font-variant-numeric:tabular-nums;background:transparent;border:none;color:var(--text);width:180px;letter-spacing:1px;outline:none}
+.aph .search-group input::placeholder{letter-spacing:0;color:var(--text-3)}
+.aph .search-group .btn{border-radius:0;border:0;border-left:1px solid var(--border);height:100%}
+
+/* Buttons (reused by render output + topbar) */
+.aph .btn{padding:0 14px;height:32px;font-size:12px;font-weight:500;font-family:var(--f);border-radius:7px;cursor:pointer;border:1px solid transparent;display:inline-flex;align-items:center;gap:6px;text-decoration:none;transition:background .12s ease,color .12s ease,border-color .12s ease}
+.aph .btn-primary{background:var(--accent);color:#fff;border:none}
+.aph .btn-primary:hover{background:var(--btn-dark-hover)}
+.aph .btn-secondary{background:var(--bg-card);color:var(--text);border:1px solid var(--border-2)}
+.aph .btn-secondary:hover{background:var(--bg-hover)}
+.aph .btn-sm{padding:0 12px;height:28px;font-size:12px}
+.aph .btn-warning{background:var(--bg-card);color:var(--text);border:1px solid var(--border-2)}
+.aph .btn-warning:hover{background:var(--bg-hover)}
+.aph .btn-danger{background:var(--accent-red);color:#fff;border:none}
+
+/* Mode switcher (Bucket / Bunch) → aph presets style */
+.aph .mode-switch{display:flex;border:1px solid var(--border-2);border-radius:7px;overflow:hidden;height:32px}
+.aph .mode-btn{padding:0 14px;font-size:12px;font-weight:500;background:var(--bg-card);border:none;border-right:1px solid var(--border);cursor:pointer;color:var(--text-2);transition:background .12s ease,color .12s ease;display:flex;align-items:center;gap:6px;font-family:var(--f)}
+.aph .mode-btn:last-child{border-right:0}
+.aph .mode-btn:hover{background:var(--bg-hover);color:var(--text)}
+.aph .mode-btn.active{background:var(--accent);color:#fff}
+
+/* LIVE badge */
+.aph .live-badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:var(--text);background:var(--bg-card);border:1px solid var(--border-2);border-radius:7px;padding:0 14px;height:32px;font-family:var(--f)}
+.aph .live-dot{width:7px;height:7px;background:var(--good);border-radius:50%}
+
+/* Container holds the rendered journey/results */
+.aph .container{padding:0;max-width:none;margin:0}
+
+/* Alert */
+.aph .alert-danger{padding:12px 16px;margin-bottom:16px;border-radius:8px;border:1px solid #f5c6ce;color:var(--accent-red);background:#fde8ec;font-size:13px;display:none}
+.aph .alert-danger.show{display:block}
+
+/* Summary Well */
+.aph .well{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:20px;box-shadow:var(--shadow-card);margin-bottom:16px;display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.aph .id-display{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);background:var(--bg-muted);border:1px solid var(--border-2);padding:6px 12px;border-radius:6px;letter-spacing:2px;text-transform:uppercase}
+.aph .bucket-meta{display:flex;gap:20px;flex-wrap:wrap}
+.aph .bm-item{display:flex;flex-direction:column}
+.aph .bm-label{font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px}
+.aph .bm-value{font-size:13px;font-weight:600;color:var(--text)}
+
+/* Labels */
+.aph .label{display:inline-flex;align-items:center;padding:3px 8px;font-size:11px;font-weight:600;border-radius:10px;letter-spacing:.3px}
+.aph .label-success{background:var(--tint-green);color:#1a8a3a}
+.aph .label-warning{background:var(--tint-orange);color:#9a5a00}
+.aph .label-danger{background:#fde8ec;color:var(--accent-red)}
+.aph .label-default{background:var(--bg-muted);color:var(--text-secondary)}
+.aph .label-info{background:var(--tint-purple);color:var(--accent-purple)}
+.aph .label-primary{background:var(--tint-blue);color:var(--accent-purple)}
+
+/* Filter Bar */
+.aph .filter-bar{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;box-shadow:var(--shadow-card)}
+.aph .filter-bar-label{font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}
+.aph .filter-field-label{font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.aph .filter-group{display:flex;align-items:center;gap:6px}
+.aph .form-control{height:32px;padding:0 12px;font-size:13px;font-family:var(--f);background:var(--bg-muted);border:1px solid transparent;border-radius:6px;color:var(--text);transition:border-color .12s ease,background .12s ease}
+.aph .form-control:focus{outline:none;border-color:var(--text);background:var(--bg-card)}
+.aph select.form-control{cursor:pointer}
+.aph .filter-showing{font-size:12px;color:var(--text-secondary);margin-left:auto;white-space:nowrap}
+
+/* Journey Tabs */
+.aph .nav-tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px;background:var(--bg-muted);border-radius:8px;padding:3px;width:fit-content}
+.aph .nav-tab{padding:8px 16px;font-size:13px;font-weight:500;background:transparent;border:none;border-radius:6px;cursor:pointer;color:var(--text-secondary);transition:background .12s ease,color .12s ease}
+.aph .nav-tab:hover{background:var(--bg-hover)}
+.aph .nav-tab.active{background:var(--accent);color:#fff}
+.aph .nav-tab .tab-sub{font-size:10px;opacity:.7;display:block;font-weight:400;margin-top:2px}
+
+/* Panel */
+.aph .panel{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-card);margin-bottom:16px}
+.aph .panel-heading{padding:16px 22px;border-bottom:1px solid var(--border)}
+.aph .panel-heading-inner{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px}
+.aph .panel-title{font-size:15px;font-weight:700;color:var(--text)}
+.aph .panel-sub{font-size:12px;color:var(--text-secondary);margin-top:4px;line-height:1.5}
+.aph .panel-body{padding:20px 22px}
+
+/* Status Well */
+.aph .status-well{padding:12px 16px;margin-bottom:16px;border-radius:8px;border:1px solid var(--border-2);background:var(--bg-muted);display:flex;align-items:flex-start;gap:10px;font-size:13px}
+.aph .status-well.sw-issued{border-color:#c5e8cd;background:var(--tint-green);color:#1a8a3a}
+.aph .status-well.sw-pending{border-color:#f5deb3;background:var(--tint-orange);color:#9a5a00}
+.aph .status-well.sw-onshelf{border-color:#d5cef0;background:var(--tint-purple);color:var(--accent-purple)}
+.aph .status-well.sw-recv{border-color:#d5cef0;background:var(--tint-purple);color:var(--accent-purple)}
+.aph .status-well.sw-graded{border-color:#d5cef0;background:var(--tint-purple);color:var(--accent-purple)}
+.aph .status-well.sw-hvst{border-color:#c5e8cd;background:var(--tint-green);color:#1a8a3a}
+.aph .status-well.sw-packed{border-color:#c5e8cd;background:var(--tint-green);color:#1a8a3a}
+.aph .status-well.sw-infield{border-color:#f5deb3;background:var(--tint-orange);color:#9a5a00}
+
+/* Section Label */
+.aph .section-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:10px;display:flex;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+
+/* Journey Path */
+.aph .journey-path{display:grid;grid-template-columns:repeat(6,1fr);margin-bottom:16px;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+@media(max-width:700px){.aph .journey-path{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:400px){.aph .journey-path{grid-template-columns:repeat(2,1fr)}}
+.aph .journey-path-7{grid-template-columns:repeat(7,1fr)}
+@media(max-width:700px){.aph .journey-path-7{grid-template-columns:repeat(4,1fr)}}
+.aph .path-stage{padding:12px 10px;border-right:1px solid var(--border)}
+.aph .path-stage:last-child{border-right:none}
+.aph .path-stage.ps-done{background:var(--bg-hover)}
+.aph .path-stage.ps-pending{background:var(--bg-card)}
+.aph .ps-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);font-weight:600;margin-bottom:4px}
+.aph .ps-stat{font-size:12px;font-weight:700}
+.aph .ps-done-t{color:#1a8a3a}
+.aph .ps-pend-t{color:var(--text-muted)}
+.aph .ps-det{font-size:11px;color:var(--text);margin-top:3px;line-height:1.4}
+.aph .ps-date{font-size:10px;color:var(--text-muted);margin-top:3px}
+
+/* Detail Grid */
+.aph .detail-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:16px}
+.aph .dc{background:var(--bg-muted);border-radius:6px;padding:8px 10px}
+.aph .dc .dk{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;font-weight:600}
+.aph .dc .dv{font-size:12px;font-weight:700;color:var(--text);word-break:break-all}
+
+/* Data Cards Grid */
+.aph .cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;margin-bottom:16px}
+.aph .data-card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:16px;box-shadow:var(--shadow-card);cursor:pointer;transition:border-color .12s ease,box-shadow .12s ease}
+.aph .data-card:hover{border-color:var(--border-2);box-shadow:var(--shadow-sm)}
+.aph .dc-void{opacity:.55}
+.aph .dcard-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
+.aph .dcard-title{font-weight:700;font-size:13px;color:var(--text)}
+.aph .dcard-body{font-size:12px;color:var(--text-secondary);margin-bottom:8px;line-height:1.5}
+.aph .dcard-stats{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.aph .ds{background:var(--bg-muted);padding:6px 8px;border-radius:6px;text-align:center}
+.aph .ds-l{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.3px;font-weight:600}
+.aph .ds-v{font-size:12px;font-weight:700;color:var(--text)}
+
+/* Progress Bar */
+.aph .pb-wrap{margin-top:6px}
+.aph .pb-lbl{display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);margin-bottom:4px;font-weight:600}
+.aph .pb-lbl span:last-child{color:var(--text);font-weight:700}
+.aph .pb-track{background:var(--bg-muted);border-radius:4px;height:4px;overflow:hidden}
+.aph .pb-fill{height:100%;background:var(--text);border-radius:4px}
+
+/* Bunch Journey Chain */
+.aph .bunch-chain{display:flex;flex-direction:column;gap:0;margin-bottom:16px}
+.aph .chain-step{display:flex;gap:12px;position:relative}
+.aph .chain-step:not(:last-child)::before{content:'';position:absolute;left:15px;top:36px;width:2px;bottom:-8px;background:var(--border);z-index:0}
+.aph .chain-icon{width:32px;height:32px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;z-index:1;margin-top:4px}
+.aph .ci-harvest{background:var(--tint-green);color:#1a8a3a;border:2px solid #c5e8cd}
+.aph .ci-grading{background:var(--tint-purple);color:var(--accent-purple);border:2px solid #d5cef0}
+.aph .ci-receiving{background:var(--tint-purple);color:var(--accent-purple);border:2px solid #d5cef0}
+.aph .ci-shelf{background:var(--tint-orange);color:#9a5a00;border:2px solid #f5deb3}
+.aph .ci-opl{background:var(--bg-muted);color:var(--text-secondary);border:2px solid var(--border-2)}
+.aph .ci-pack{background:var(--tint-green);color:#1a8a3a;border:2px solid #c5e8cd}
+.aph .ci-issue{background:#000;color:#fff;border:2px solid #333}
+.aph .chain-content{flex:1;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:8px}
+.aph .chain-title{font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px;display:flex;align-items:center;gap:8px}
+.aph .chain-meta{font-size:12px;color:var(--text-secondary);line-height:1.6}
+.aph .chain-meta strong{color:var(--text)}
+
+/* Hint / Loading / Empty */
+.aph .empty-state,.aph .loading-state,.aph .hint-state{text-align:center;padding:40px 20px;color:var(--text-secondary)}
+.aph .hint-state h4{font-size:15px;font-weight:700;color:var(--text);margin-bottom:8px}
+.aph .hint-state p{font-size:13px;line-height:1.7}
+.aph .hint-state small{font-size:12px;color:var(--text-muted);margin-top:10px;display:block}
+.aph .empty-state p,.aph .loading-state p{font-size:13px;margin-top:10px}
+
+/* Autocomplete (lives inside modal) */
+.autocomplete-dropdown{position:absolute;z-index:2147483600;background:#fff;border:1px solid var(--border-2);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.1);max-height:180px;overflow-y:auto;display:none}
+.autocomplete-dropdown.show{display:block}
+.autocomplete-item{padding:8px 12px;font-size:13px;cursor:pointer;color:#000;transition:background .1s ease}
+.autocomplete-item:hover,.autocomplete-item.highlighted{background:#fafafa}
+
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+
+/* ── Correction Modal (outside .aph so it overlays full viewport) ── */
+.modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);z-index:2147483500;justify-content:center;align-items:flex-start;padding:60px 20px 20px;overflow-y:auto;font-family:var(--f)}
+.modal-overlay.show{display:flex}
+.modal-dialog{background:#fff;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.15);width:100%;max-width:560px;animation:modalIn 200ms ease}
+@keyframes modalIn{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:translateY(0)}}
+.modal-header{padding:16px 20px;border-bottom:1px solid #ececec;display:flex;justify-content:space-between;align-items:center}
+.modal-title{font-size:15px;font-weight:700;color:#000}
+.modal-close{background:none;border:none;cursor:pointer;padding:4px;color:#9a9a9a;border-radius:6px;transition:background .12s ease,color .12s ease}
+.modal-close:hover{background:#f5f5f5;color:#000}
+.modal-body{padding:20px}
+.modal-footer{padding:14px 20px;border-top:1px solid #ececec;display:flex;justify-content:flex-end;gap:8px}
+.modal-footer .btn{padding:0 14px;height:32px;font-size:12px;font-weight:500;font-family:var(--f);border-radius:7px;cursor:pointer;border:1px solid transparent;display:inline-flex;align-items:center;gap:6px}
+.modal-footer .btn-primary{background:#000;color:#fff;border:none}
+.modal-footer .btn-primary:hover{background:#333}
+.modal-footer .btn-secondary{background:#fff;color:#000;border:1px solid #d0d0d0}
+.modal-footer .btn-secondary:hover{background:#fafafa}
+.correction-form-group{margin-bottom:16px}
+.correction-form-group label{display:block;font-size:12px;font-weight:600;color:#000;margin-bottom:6px}
+.form-hint{font-size:11px;color:#9a9a9a;margin-top:4px}
+.correction-input{width:100%;height:36px;padding:8px 12px;font-size:13px;font-family:var(--f);background:#f5f5f5;border:1px solid #ececec;border-radius:8px;color:#000;transition:border-color .12s ease,background .12s ease}
+.correction-input:focus{outline:none;border-color:#000;background:#fff}
+.affected-docs{margin-top:16px}
+.affected-docs-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#9a9a9a;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #ececec}
+.affected-doc-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;margin-bottom:4px;font-size:12px;background:#f5f5f5}
+.adr-icon{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.adr-type{font-weight:600;color:#000;min-width:80px}
+.adr-name{color:#6b6b6b;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.adr-current{margin-left:auto;color:#9a9a9a;font-size:11px;white-space:nowrap}
+.correction-log{margin-top:12px;max-height:200px;overflow-y:auto}
+.correction-log-item{display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:12px;border-radius:4px;margin-bottom:3px}
+.correction-log-item.log-ok{background:#e6f9ee;color:#1a8a3a}
+.correction-log-item.log-fail{background:#fde8ec;color:#dc2626}
+.correction-log-item.log-skip{background:#f5f5f5;color:#9a9a9a}
+</style>
+
+<style>
+
+/* neutralize old borders when this sheet is appended over the legacy chrome */
+.aph .aph-kpi,.aph .aph-card,.aph .opl-card,.aph .box-card,.aph .aph-stub{border:0}
+
+:root{
+  /* Shades of black — from the Upande logo */
+  --ink:#0a0a0a;--ink-1:#1a1a18;--ink-2:#2a2a26;--ink-3:#3a3a34;--ink-4:#5a5a52;--ink-mute:#8a8780;--ink-faint:#b8b6ae;
+  /* Surfaces */
+  --bg:#f4f3ef;--surface:#fafaf6;--surface-2:#ffffff;
+  --hairline:rgba(10,10,10,0.06);--hairline-2:rgba(10,10,10,0.10);
+  --shadow-card:0 1px 0 rgba(10,10,10,0.04),0 8px 32px -16px rgba(10,10,10,0.10);
+  --shadow-hover:0 1px 0 rgba(10,10,10,0.06),0 24px 48px -24px rgba(10,10,10,0.18);
+  /* Single data accent — used sparingly */
+  --signal:#228883;--signal-soft:rgba(34,136,131,0.10);
+  --violet:#7c5cfc;--violet-soft:#f0ecfe;
+  --good:#1a8a3a;--good-soft:#e6f9ee;--warn:#9a5a00;--warn-soft:#fff3e0;--bad:#c4302b;--bad-soft:#fde8ec;
+  --grad-ink:linear-gradient(135deg,#0a0a0a 0%,#3a3a34 100%);
+  --sans:'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --display:'Fraunces',Georgia,serif;
+  --mono:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;
+  /* Back-compat aliases so any leftover var() references resolve to the new palette */
+  --bg-card:var(--surface-2);--bg-hover:rgba(10,10,10,0.03);--bg-muted:rgba(10,10,10,0.04);
+  --border:var(--hairline);--border-2:rgba(10,10,10,0.12);
+  --text:var(--ink);--text-2:var(--ink-4);--text-3:var(--ink-mute);--text-4:var(--ink-faint);
+  --accent:var(--ink);--shadow-sm:var(--shadow-card);--f:var(--sans);
+  --plan:#d4d4d4;
+  --sidebar-w:248px;--sidebar-cw:74px;
+}
+/* Take dashboard out of Frappe layout entirely — fill viewport */
+html,body{margin:0!important;padding:0!important;overflow:hidden!important;height:100vh!important}
+.navbar,header,.page-breadcrumbs,.page-header,.page-header-wrapper,.web-footer,footer,
+.website-edit-button,.btn-edit-page,.edit-page-btn,.scroll-to-top,.back-to-top,
+.website-banner,.call-to-action,.frappe-chat,#frappe-chat,.telegram-share,.share-buttons,
+.web-page-edit,.published-edit{display:none!important}
+.aph *{box-sizing:border-box;margin:0;padding:0}
+.aph{position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100vh;z-index:2147483000;
+  font-family:var(--sans);background:var(--bg);color:var(--ink-3);font-size:13px;line-height:1.55;-webkit-font-smoothing:antialiased;
+  display:grid;grid-template-columns:var(--sidebar-w) 1fr;transition:grid-template-columns .22s cubic-bezier(.4,0,.2,1)}
+.aph.collapsed{grid-template-columns:var(--sidebar-cw) 1fr}
+
+.aph svg.ic{width:16px;height:16px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.aph .aph-side svg.ic{width:17px;height:17px;stroke-width:1.75;color:var(--ink-mute)}
+.aph .aph-side .nav-item.active svg.ic{color:#fafaf6}
+
+/* ══ SIDEBAR ══ */
+.aph-side{background:var(--surface-2);border-right:1px solid var(--hairline);height:100vh;position:sticky;top:0;display:flex;flex-direction:column;overflow:hidden}
+.aph-side .brand{padding:20px 18px 16px;display:flex;align-items:center;gap:12px;text-decoration:none}
+.aph-side .brand .logo{height:26px;width:auto;flex:0 0 auto;display:block}
+.aph-side .brand .name{font:600 14px var(--sans);color:var(--ink);line-height:1.15;letter-spacing:-.2px;white-space:nowrap;overflow:hidden}
+.aph-side .brand .name small{display:block;font:500 10px var(--sans);text-transform:uppercase;letter-spacing:1.6px;color:var(--ink-mute);margin-top:2px}
+.aph-side .brand:hover .name{color:var(--ink)}
+/* Note: "nav" collides with Bootstrap's .nav (flex-wrap:wrap) loaded by Frappe — force column/nowrap */
+.aph-side .nav{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:6px 0 16px;margin:0;list-style:none;display:flex;flex-direction:column;flex-wrap:nowrap!important}
+.aph-side .group-lbl{padding:16px 20px 6px;font:600 10px var(--sans);color:var(--ink-mute);letter-spacing:1.8px;text-transform:uppercase;display:block;white-space:nowrap;overflow:hidden}
+.aph-side .group-lbl:first-child{padding-top:8px}
+.aph-side .nav-item{display:flex;align-items:center;gap:12px;padding:10px 12px;cursor:pointer;font:500 13px var(--sans);color:var(--ink-4);user-select:none;transition:background .18s ease,color .18s ease;margin:2px 10px;border-radius:12px;box-sizing:border-box;text-decoration:none;white-space:nowrap;overflow:hidden}
+.aph-side .nav-item:hover{background:rgba(10,10,10,0.04);color:var(--ink);text-decoration:none}
+.aph-side .nav-item.active{background:var(--grad-ink);color:#fafaf6;box-shadow:0 4px 14px rgba(10,10,10,0.20)}
+.aph-side .nav-item .badge{margin-left:auto;font:600 10px var(--mono);color:var(--ink-4);background:rgba(10,10,10,0.05);padding:2px 8px;border-radius:999px;line-height:1.4}
+.aph-side .nav-item.active .badge{color:#fafaf6;background:rgba(255,255,255,.18)}
+.aph-side .nav-item.stub{color:var(--ink-faint)}
+.aph-side .home-link{display:flex;align-items:center;gap:12px;margin:2px 10px 6px;padding:10px 12px;border-radius:12px;font:500 13px var(--sans);color:var(--ink-4);text-decoration:none;background:rgba(10,10,10,0.04);transition:background .18s ease,color .18s ease;white-space:nowrap;overflow:hidden}
+.aph-side .home-link:hover{background:var(--ink);color:#fafaf6;text-decoration:none}
+.aph-side .home-link:hover svg.ic{color:#fafaf6}
+.aph-side .footer{padding:14px 18px;border-top:1px solid var(--hairline);display:flex;align-items:center;gap:11px;font-size:11px;color:var(--ink-4)}
+.aph-side .footer .av{width:30px;height:30px;border-radius:50%;background:var(--grad-ink);color:#fafaf6;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12px;flex:0 0 auto}
+.aph-side .footer .who{flex:1;line-height:1.25;overflow:hidden}
+.aph-side .footer .who .nm{font-weight:600;color:var(--ink);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph-side .footer .who .em{font-size:10px;color:var(--ink-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Collapsed sidebar → icon rail */
+.aph.collapsed .aph-side .brand{padding:20px 0 16px;justify-content:center}
+.aph.collapsed .aph-side .brand .name,
+.aph.collapsed .aph-side .group-lbl,
+.aph.collapsed .aph-side .nav-item span,
+.aph.collapsed .aph-side .nav-item .badge,
+.aph.collapsed .aph-side .home-link span,
+.aph.collapsed .aph-side .footer .who{display:none}
+.aph.collapsed .aph-side .nav-item,
+.aph.collapsed .aph-side .home-link{justify-content:center;margin-left:14px;margin-right:14px;padding:11px 0;gap:0}
+.aph.collapsed .aph-side .footer{justify-content:center;padding:14px 0}
+
+/* ══ MAIN ══ */
+.aph-main{min-width:0;height:100vh;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column}
+.aph-content{flex:1;padding:32px 40px 64px}
+.aph-topbar{background:var(--surface-2);border-bottom:1px solid var(--hairline);padding:14px 40px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:10}
+.aph-topbar h1{font:600 17px var(--sans);color:var(--ink);letter-spacing:-.3px}
+.aph-topbar .crumb{color:var(--ink-mute);font:500 11px var(--sans);text-transform:uppercase;letter-spacing:1.4px;padding-left:16px;border-left:1px solid var(--hairline);height:16px;line-height:16px}
+.aph-topbar .right{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.collapse-btn{width:36px;height:36px;border:0;background:transparent;border-radius:10px;display:grid;place-items:center;cursor:pointer;color:var(--ink-4);flex:0 0 auto;transition:background .18s ease,color .18s ease}
+.collapse-btn:hover{background:rgba(10,10,10,0.05);color:var(--ink)}
+.collapse-btn svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* Pill toggle groups (date presets, rose filter) */
+.aph-topbar .presets{display:inline-flex;background:rgba(10,10,10,0.04);border-radius:999px;padding:4px;gap:2px}
+.aph-topbar .presets .p{padding:7px 14px;font:500 12px var(--sans);color:var(--ink-4);cursor:pointer;border-radius:999px;transition:all .18s ease;user-select:none;white-space:nowrap}
+.aph-topbar .presets .p:hover{color:var(--ink)}
+.aph-topbar .presets .p.active{background:var(--grad-ink);color:#fafaf6;box-shadow:0 2px 8px rgba(10,10,10,0.18)}
+/* Joined date range pill */
+.aph-topbar .date-pill{display:inline-flex;align-items:center;background:var(--surface-2);border-radius:999px;padding:2px 8px;box-shadow:var(--shadow-card);height:38px}
+.aph-topbar .date-pill input{border:0;padding:0 8px;font:500 12px var(--sans);font-feature-settings:'tnum';background:transparent;outline:0;width:112px;color:var(--ink)}
+.aph-topbar .date-pill .sep{padding:0 2px;color:var(--ink-mute);font-size:12px}
+.aph-topbar .date-pill .clear{padding:0 8px;color:var(--ink-mute);font-size:15px;cursor:pointer}
+.aph-topbar .btn{padding:0 16px;height:38px;border:0;background:var(--surface-2);color:var(--ink);border-radius:999px;font:500 12px var(--sans);cursor:pointer;display:inline-flex;align-items:center;gap:7px;box-shadow:var(--shadow-card);transition:transform .18s ease}
+.aph-topbar .btn:hover{transform:translateY(-1px)}
+.aph-topbar .btn svg{width:14px;height:14px}
+
+/* Page head */
+.aph-page-hd{margin-bottom:30px}
+.aph-page-hd .eyebrow{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:2.2px;color:var(--ink-mute);margin-bottom:12px;display:inline-flex;align-items:center;gap:10px}
+.aph-page-hd .eyebrow::before{content:"";width:18px;height:1px;background:var(--ink-3)}
+.aph-page-hd .ttl{font:600 40px/1.05 var(--sans);color:var(--ink);letter-spacing:-1.3px}
+.aph-page-hd .sub{margin-top:10px;font-size:15px;color:var(--ink-4)}
+
+/* ══ KPI cards — large, borderless, gradient hover ══ */
+.aph-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px;margin-bottom:32px}
+.aph-kpi{background:var(--surface-2);border-radius:20px;padding:26px 28px;box-shadow:var(--shadow-card);transition:transform .25s ease,box-shadow .25s ease;position:relative;overflow:hidden;min-height:132px;display:flex;flex-direction:column;justify-content:space-between}
+.aph-kpi:hover{transform:translateY(-3px);box-shadow:var(--shadow-hover)}
+.aph-kpi .ic-wrap{position:absolute;top:22px;right:24px;width:34px;height:34px;border-radius:10px;background:rgba(10,10,10,0.04);display:flex;align-items:center;justify-content:center}
+.aph-kpi .ic-wrap svg.ic{width:17px;height:17px;color:var(--ink-mute);stroke-width:1.6}
+.aph-kpi .lbl{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:1.6px;color:var(--ink-mute);padding-right:44px}
+.aph-kpi .v{font:600 40px/1 var(--sans);color:var(--ink);letter-spacing:-1.3px;font-feature-settings:'tnum';margin-top:14px}
+.aph-kpi .sub{font:500 12px var(--sans);color:var(--ink-mute);margin-top:10px}
+.aph-kpi .sub strong{color:var(--ink-4);font-weight:600}
+
+/* ══ Cards ══ */
+.aph-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px;width:100%;box-sizing:border-box}
+.aph-grid.col-1{display:grid!important;grid-template-columns:1fr!important;width:100%!important;max-width:none!important}
+.aph-grid.col-1 > .aph-card{width:100%!important;max-width:none!important;box-sizing:border-box}
+.aph-card{background:var(--surface-2);border-radius:24px;box-shadow:var(--shadow-card);overflow:hidden;box-sizing:border-box;width:100%;min-width:0}
+.aph-card-hd{padding:24px 30px 0;display:flex;align-items:center;gap:14px}
+.aph-card-hd .ttl{font:600 18px var(--sans);color:var(--ink);letter-spacing:-.4px;white-space:nowrap}
+.aph-card-hd .sub{color:var(--ink-mute);font:500 12px var(--sans)}
+.aph-card-body{padding:22px 30px 28px}
+.aph-card-body.padless{padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+/* ══ Tables ══ */
+table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.aph-tbl th{text-align:left;padding:14px 22px;background:transparent;font:600 10px var(--sans);color:var(--ink-mute);letter-spacing:1.4px;text-transform:uppercase;border-bottom:1px solid var(--hairline);white-space:nowrap}
+.aph-tbl td{padding:14px 22px;border-bottom:1px solid var(--hairline);font-feature-settings:'tnum';white-space:nowrap;color:var(--ink-3)}
+.aph-tbl tr:last-child td{border-bottom:0}
+.aph-tbl tbody tr{transition:background .15s ease}
+.aph-tbl tbody tr:hover td{background:rgba(10,10,10,0.02)}
+.aph-tbl td.num,.aph-tbl th.num{text-align:right}
+.aph-tbl td.mono{font-family:var(--mono);font-size:12px;color:var(--ink-4)}
+.aph-tbl td.dim{color:var(--ink-mute)}
+.aph-tbl td.strong{font-weight:600;color:var(--ink)}
+
+.aph-empty{padding:48px;text-align:center;color:var(--ink-mute);font-size:13px}
+.aph-loading{padding:60px;text-align:center;color:var(--ink-mute);font-size:12px}
+.aph-err{background:var(--ink);color:#fafaf6;padding:14px 18px;border-radius:14px;font-size:12px;margin:16px 40px;font-family:var(--mono)}
+.aph-stub{padding:56px 28px;text-align:center;background:var(--surface-2);border-radius:20px;box-shadow:var(--shadow-card)}
+.aph-stub .ttl{font-size:16px;font-weight:600;margin-bottom:6px;color:var(--ink)}
+.aph-stub .sub{font-size:13px;color:var(--ink-4)}
+
+.aph-bar-row{display:flex;align-items:center;gap:14px;padding:11px 0;border-bottom:1px solid var(--hairline)}
+.aph-bar-row:last-child{border-bottom:0}
+.aph-bar-row .lbl{width:54px;font:600 13px var(--sans);color:var(--ink)}
+.aph-bar-row .bar{flex:1;height:10px;background:rgba(10,10,10,0.05);border-radius:999px;overflow:hidden}
+.aph-bar-row .bar .fill{height:100%;background:var(--grad-ink);border-radius:999px}
+.aph-bar-row .val{width:170px;text-align:right;font-size:12px;color:var(--ink-4);font-feature-settings:'tnum'}
+
+.aph-tag{display:inline-flex;align-items:center;padding:3px 10px;border-radius:999px;font:500 11px var(--sans);background:rgba(10,10,10,0.04);color:var(--ink);line-height:1.5}
+
+.aph-chart-scroll{display:block;width:100%!important;max-width:none!important;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:10px 16px;box-sizing:border-box}
+.aph-chart-inner{position:relative;width:100%}
+.aph-tbl-scroll{display:block;width:100%!important;max-width:none!important;overflow-x:auto;-webkit-overflow-scrolling:touch;box-sizing:border-box}
+
+/* ── Narrow screens / mobile ─────────────────────────────────────────── */
+@media (max-width: 900px){
+  html,body{overflow:auto!important}
+  .aph,.aph.collapsed{display:flex;flex-direction:column;position:fixed;grid-template-columns:none}
+  .aph-side{width:100%;height:auto;position:relative;flex:0 0 auto;border-right:0;border-bottom:1px solid var(--hairline);overflow:visible}
+  .aph-side .brand{padding:12px 16px}
+  .aph-side .home-link{margin:0 10px 8px;width:max-content}
+  .aph-side .nav{flex-direction:row;align-items:center;overflow-x:auto;overflow-y:hidden;padding:0 8px 8px;-webkit-overflow-scrolling:touch}
+  .aph-side .group-lbl{display:none}
+  .aph-side .nav-item{flex:0 0 auto;margin:0 3px;white-space:nowrap;padding:9px 14px}
+  .aph-side .footer{display:none}
+  .collapse-btn{display:none}
+  .aph-main{flex:1 1 auto;height:auto;min-height:0}
+  .aph-topbar{position:static;flex-wrap:wrap;gap:10px;padding:12px 16px}
+  .aph-topbar .crumb{display:none}
+  .aph-topbar .right{margin-left:0;width:100%}
+  .aph-content{padding:18px 16px 40px}
+  .aph-err{margin:16px}
+  .aph-grid{grid-template-columns:1fr}
+  .aph-kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .aph-kpi{min-height:110px;padding:20px 22px}
+  .aph-kpi .v{font-size:30px}
+  .aph-page-hd .ttl{font-size:28px}
+}
+
+/* ════════ Page-specific components (render output) ════════ */
+/* Team dropdown */
+.aph .dropdown{position:relative;display:inline-block}
+.aph .dropdown-menu{display:none;position:absolute;top:calc(100% + 6px);right:0;background:var(--surface-2);border-radius:14px;box-shadow:var(--shadow-hover);min-width:180px;z-index:1000;overflow:hidden;padding:6px}
+.aph .dropdown.open .dropdown-menu{display:block}
+.aph .dropdown-item{padding:9px 12px;font:500 12px var(--sans);color:var(--ink-3);cursor:pointer;border-radius:9px;transition:background .15s ease}
+.aph .dropdown-item:hover{background:rgba(10,10,10,0.04)}
+.aph .dropdown-item.active{background:rgba(10,10,10,0.04);color:var(--ink);font-weight:600}
+.aph .dropdown-item.ms-item{display:flex;align-items:center;gap:10px;font-weight:500}
+.aph .ms-check{width:15px;height:15px;border:1.5px solid var(--border-2);border-radius:5px;flex:0 0 auto;position:relative;background:var(--surface-2)}
+.aph .dropdown-item.ms-item.active .ms-check{background:var(--ink);border-color:var(--ink)}
+.aph .dropdown-item.ms-item.active .ms-check::after{content:'';position:absolute;left:4px;top:1px;width:4px;height:8px;border:solid #fafaf6;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.aph .dropdown-item.ms-sep{padding:0;height:1px;background:var(--hairline);cursor:default;margin:4px 0}
+.aph .date-range-inputs{display:none;align-items:center;gap:6px}
+.aph .date-range-inputs.show{display:flex}
+.aph .form-control{height:38px;padding:0 12px;font:500 12px var(--sans);font-feature-settings:'tnum';background:var(--surface-2);border:0;box-shadow:var(--shadow-card);border-radius:999px;color:var(--ink);outline:0}
+/* LIVE badge */
+.aph .live-badge{display:inline-flex;align-items:center;gap:8px;font:500 12px var(--sans);color:var(--ink);background:var(--surface-2);border:0;border-radius:999px;padding:0 16px;height:38px;cursor:pointer;box-shadow:var(--shadow-card);transition:transform .18s ease}
+.aph .live-badge:hover{transform:translateY(-1px)}
+.aph .live-dot{width:7px;height:7px;background:var(--signal);border-radius:50%;box-shadow:0 0 0 4px var(--signal-soft)}
+
+.aph .aph-kpi .v{font-feature-settings:'tnum'}
+.aph .kpi-date-row{display:flex;align-items:center;gap:6px;margin-top:10px}
+.aph .kpi-date-row label{font-size:10px;font-weight:600;color:var(--ink-mute);white-space:nowrap;text-transform:uppercase;letter-spacing:1px}
+.aph .kpi-date-row input{height:26px;padding:0 8px;font-size:11px;width:120px;border-radius:8px;border:0;background:rgba(10,10,10,0.04);font-family:var(--sans);outline:0;color:var(--ink)}
+
+/* ── Issuing vs Packing dual card ── */
+.aph .kpi-dual-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:28px}
+.aph .kpi-dual-item{text-align:left}
+.aph .kpi-dual-label{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:1.6px;color:var(--ink-mute);margin-bottom:10px}
+.aph .kpi-dual-value{font:600 34px/1 var(--sans);color:var(--ink);letter-spacing:-1px;font-feature-settings:'tnum'}
+.aph .kpi-dual-sub{font:500 12px var(--sans);color:var(--ink-mute);margin-top:8px}
+.aph .kpi-dual-bar{margin-top:14px}
+.aph .gap-indicator{display:inline-flex;align-items:center;gap:4px;font:600 11px var(--sans);padding:4px 12px;border-radius:999px}
+.aph .gap-positive{background:var(--warn-soft);color:var(--warn)}
+.aph .gap-negative{background:var(--good-soft);color:var(--good)}
+.aph .gap-neutral{background:rgba(10,10,10,0.04);color:var(--ink-4)}
+@media(max-width:600px){.aph .kpi-dual-row{grid-template-columns:1fr;gap:18px}}
+
+/* ── Progress bars ── */
+.aph .progress-wrap{margin:10px 0}
+.aph .progress-label{display:flex;justify-content:space-between;font:500 11px var(--sans);color:var(--ink-mute);margin-bottom:5px}
+.aph .progress-label span:last-child{color:var(--ink);font-weight:600;font-feature-settings:'tnum'}
+.aph .progress-track{background:rgba(10,10,10,0.05);border-radius:999px;height:8px;overflow:hidden}
+.aph .progress-fill{height:100%;background:var(--grad-ink);border-radius:999px;transition:width .2s ease}
+.aph .progress-fill.packing{background:linear-gradient(90deg,var(--signal),#73b3a0)}
+.aph .progress-fill.packing.complete{background:linear-gradient(90deg,#1a8a3a,#22c55e)}
+
+/* ── Labels / badges ── */
+.aph .label{display:inline-block;padding:3px 11px;font:600 11px var(--sans);border-radius:999px;letter-spacing:.02em}
+.aph .label-success{background:var(--good-soft);color:var(--good)}
+.aph .label-warning{background:var(--warn-soft);color:var(--warn)}
+.aph .label-danger{background:var(--bad-soft);color:var(--bad)}
+.aph .label-default{background:rgba(10,10,10,0.04);color:var(--ink-4)}
+.aph .label-info{background:var(--signal-soft);color:var(--signal)}
+.aph .label-primary{background:rgba(10,10,10,0.05);color:var(--ink)}
+.aph .team-badge{display:inline-block;padding:3px 10px;font:600 11px var(--sans);border-radius:999px;background:rgba(10,10,10,0.04);color:var(--ink-4)}
+.aph .rose-badge{display:inline-block;margin-left:6px;padding:3px 10px;font:600 11px var(--sans);border-radius:999px}
+.aph .rose-badge.rose-spray{background:var(--violet-soft);color:var(--violet)}
+.aph .rose-badge.rose-std{background:#e6f1ff;color:#1a5fb4}
+.aph .rose-badge.rose-mixed{background:rgba(10,10,10,0.04);color:var(--ink-4)}
+
+/* ── OPL card grid ── */
+.aph .opl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px}
+.aph .opl-card{background:var(--surface-2);border-radius:18px;padding:20px;cursor:pointer;box-shadow:var(--shadow-card);transition:transform .2s ease,box-shadow .2s ease}
+.aph .opl-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-hover)}
+.aph .opl-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
+.aph .opl-order-name{font:600 14px var(--sans);color:var(--ink);letter-spacing:-.2px}
+.aph .opl-meta{display:flex;align-items:center;gap:6px;margin-top:5px;flex-wrap:wrap}
+.aph .opl-id{font:500 12px var(--mono);color:var(--ink-mute)}
+.aph .opl-variety{font:600 13px var(--sans);color:var(--ink);margin:8px 0 2px}
+.aph .opl-customer{font-size:12px;color:var(--ink-4);margin-bottom:12px}
+.aph .opl-details{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.aph .opl-detail{background:rgba(10,10,10,0.03);padding:10px 6px;border-radius:12px;text-align:center}
+.aph .opl-detail-label{font:500 10px var(--sans);text-transform:uppercase;letter-spacing:.6px;color:var(--ink-mute);margin-bottom:3px}
+.aph .opl-detail-value{font:600 14px var(--sans);color:var(--ink);font-feature-settings:'tnum'}
+.aph .shelf-list{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0}
+.aph .shelf-tag{font:600 11px var(--sans);padding:3px 9px;border-radius:999px;background:rgba(10,10,10,0.04);color:var(--ink-4)}
+.aph .variety-list{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0 2px}
+.aph .variety-tag{font:600 11px var(--sans);padding:3px 9px;border-radius:999px;background:rgba(10,10,10,0.04);color:var(--ink-4);white-space:nowrap}
+.aph .variety-more{cursor:pointer}
+.aph .variety-more:hover{background:rgba(10,10,10,0.10)}
+
+/* ── Box card grid ── */
+.aph .box-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+.aph .box-card{background:var(--surface-2);border-radius:18px;padding:20px;cursor:pointer;box-shadow:var(--shadow-card);transition:transform .2s ease,box-shadow .2s ease}
+.aph .box-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-hover)}
+.aph .box-card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.aph .box-number{font:600 15px var(--sans);color:var(--ink)}
+.aph .box-row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--hairline);font-size:13px}
+.aph .box-row:last-child{border-bottom:none}
+.aph .box-row-label{color:var(--ink-mute)}
+.aph .box-row-value{font-weight:600;color:var(--ink)}
+
+.aph .empty-state{text-align:center;padding:48px 20px;color:var(--ink-mute)}
+.aph .empty-state p{font-size:13px;margin-top:12px}
+.aph .loading-state{text-align:center;padding:36px;color:var(--ink-mute);font-size:12px}
+
+/* ── Variety modal ── */
+.vmodal{display:none;position:fixed;inset:0;background:rgba(10,10,10,.42);z-index:2147483100;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(2px)}
+.vmodal.open{display:flex}
+.vmodal-card{background:var(--surface-2);border-radius:22px;width:100%;max-width:380px;max-height:70vh;display:flex;flex-direction:column;box-shadow:var(--shadow-hover);font-family:var(--sans)}
+.vmodal-head{display:flex;justify-content:space-between;align-items:center;padding:20px 22px;border-bottom:1px solid var(--hairline);font:600 15px var(--sans);color:var(--ink)}
+.vmodal-close{background:none;border:none;font-size:24px;line-height:1;cursor:pointer;color:var(--ink-mute)}
+.vmodal-body{padding:8px 22px 18px;overflow-y:auto}
+.vrow{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--hairline);font-size:13px;color:var(--ink-3)}
+.vrow:last-child{border-bottom:none}
+.vstems{font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink)}
+
+
+</style>
+<div class="aph">
+  <aside class="aph-side">
+    <a class="brand" href="app/packhouse-%26-sales" title="Back to Home"><img class="logo" alt="Upande" src="data:image/png;base64,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"/><div class="name">Karen Roses<small>Packhouse</small></div></a>
+    <a class="home-link" href="app/packhouse-%26-sales">
+      <svg class="ic" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg><span>Back to Home</span></a>
+    <div class="nav">
+
+      <div class="group-lbl">Workflow</div>
+      <a class="nav-item" href="packhouse-dashboard">
+        <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg><span>Workflow</span></a>
+      <a class="nav-item" href="packhouse-scheduler">
+        <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span>Scheduler</span></a>
+      <a class="nav-item" href="sales-allocation-planning">
+        <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg><span>Allocation Planning</span></a>
+      <a class="nav-item" href="packhouse-production">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg><span>Production</span></a>
+      <div class="group-lbl">Tracking</div>
+      <a class="nav-item active" href="bucket-tracker">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg><span>Bucket Journey</span></a>
+      <a class="nav-item" href="bucket-logistics">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg><span>Bucket Logistics</span></a>
+      <a class="nav-item" href="cold-room">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M2 12h20"/><path d="M12 2v20"/><path d="m4.93 4.93 14.14 14.14"/><path d="m19.07 4.93-14.14 14.14"/></svg><span>Cold Room</span></a>
+      <a class="nav-item" href="packhouse-discards">
+        <svg class="ic" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg><span>Discards</span></a>
+      <a class="nav-item" href="packhouse-downgrades">
+        <svg class="ic" viewBox="0 0 24 24"><polyline points="19 12 12 19 5 12"/><line x1="12" y1="5" x2="12" y2="19"/></svg><span>Downgrades</span></a>
+      <div class="group-lbl">Stock &amp; Orders</div>
+      <a class="nav-item" href="stock-visibility">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/></svg><span>Stock Visibility</span></a>
+      <a class="nav-item" href="avails">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg><span>Avails</span></a>
+      <a class="nav-item" href="stem-movement">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg><span>Stem Movement</span></a>
+      <a class="nav-item" href="order-summary">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg><span>Order Summary</span></a>
+      <a class="nav-item" href="order-fulfilment">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><span>Order Fulfilment</span></a>
+
+    </div>
+    <div class="footer">
+      <div class="av" id="aph-foot-av">—</div>
+      <div class="who"><div class="nm" id="aph-foot-nm">Loading…</div><div class="em" id="aph-foot-em">kaitet-group</div></div>
+    </div>
+  </aside>
+
+  <div class="aph-main">
+    <div class="aph-topbar"><button class="collapse-btn" id="collapseBtn" title="Toggle sidebar" aria-label="Toggle sidebar"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+      <h1>Traceability</h1>
+      <span class="crumb">Tracking</span>
+      <div class="right">
+        <div class="mode-switch">
+          <button class="mode-btn active" id="modeBucket" onclick="setMode('bucket')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M6 6V4h12v2M8 6v14h8V6"/></svg>
+            Bucket
+          </button>
+          <button class="mode-btn" id="modeBunch" onclick="setMode('bunch')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2"/><path d="M12 7v6M8 9.5C8 9.5 5 11 5 14c0 2.5 3 4 7 4s7-1.5 7-4c0-3-3-4.5-3-4.5"/><path d="M9 13h6"/></svg>
+            Bunch
+          </button>
+        </div>
+        <div class="search-group">
+          <input type="text" id="trackInput" placeholder="Enter Bucket ID" autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="none">
+          <button class="btn btn-primary" id="searchBtn" onclick="track()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            Track
+          </button>
+        </div>
+        <button class="btn btn-warning btn-sm" id="correctBtn" style="display:none" onclick="openCorrectionModal()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          Correct Details
+        </button>
+        <div class="live-badge"><span class="live-dot"></span>LIVE</div>
+      </div>
+    </div>
+
+    <div class="aph-content">
+
+      <style>
+      .aph .status-well.sw-transit{background:#eef6f5;border-color:var(--signal)}
+      .aph .status-well.sw-discard{background:var(--bad-soft);border-color:var(--bad)}
+      .aph .path-stage.pk-transfer.ps-done .ps-lbl,.aph .path-stage.pk-transfer.ps-done .ps-stat{color:var(--warn)}
+      .aph .path-stage.pk-discard.ps-done .ps-lbl,.aph .path-stage.pk-discard.ps-done .ps-stat{color:var(--bad)}
+      .aph .mv-trail{position:relative;margin:4px 0 6px;padding-left:20px;border-left:2px solid var(--hairline)}
+      .aph .mv-item{position:relative;padding:0 0 12px}
+      .aph .mv-dot{position:absolute;left:-27px;top:3px;width:11px;height:11px;border-radius:50%;background:var(--ink-mute);box-shadow:0 0 0 3px var(--surface-2)}
+      .aph .mv-item.mv-onshelf .mv-dot{background:var(--signal)}
+      .aph .mv-item.mv-transfer .mv-dot{background:var(--warn)}
+      .aph .mv-item.mv-issue .mv-dot{background:#7c5cfc}
+      .aph .mv-item.mv-discard .mv-dot{background:var(--bad)}
+      .aph .mv-item.mv-clear .mv-dot{background:var(--ink-faint)}
+      .aph .mv-h{font:600 12px var(--f);color:var(--ink)}
+      .aph .mv-h strong{font-family:var(--mono);font-weight:600}
+      .aph .mv-farm{font:500 11px var(--mono);color:var(--ink-mute)}
+      .aph .mv-tag{font:600 9px var(--mono);text-transform:uppercase;letter-spacing:.05em;padding:1px 7px;border-radius:999px;background:rgba(10,10,10,.05);color:var(--ink-2);margin-left:4px;white-space:nowrap}
+      .aph .mv-item.mv-transfer .mv-tag{background:var(--warn-soft);color:var(--warn)}
+      .aph .mv-item.mv-issue .mv-tag{background:#f0ecfe;color:#7c5cfc}
+      .aph .mv-item.mv-discard .mv-tag{background:var(--bad-soft);color:var(--bad)}
+      .aph .mv-item.mv-onshelf .mv-tag{background:var(--signal-soft);color:var(--signal)}
+      .aph .status-well.sw-replace{background:#eef4fb;border-color:#1a5fb4}
+      .aph .mv-item.mv-replace .mv-dot{background:#1a5fb4}
+      .aph .mv-item.mv-replace .mv-tag{background:#e6f1ff;color:#1a5fb4}
+      .aph .mv-item.mv-reject .mv-dot{background:#ea580c}
+      .aph .mv-item.mv-reject .mv-tag{background:#fff3e6;color:#c2410c}
+      .aph .status-well.sw-quar{background:#fef7e6;border-color:#b45309}
+      .aph .mv-item.mv-quar .mv-dot{background:#b45309}
+      .aph .mv-item.mv-quar .mv-tag{background:#fef3c7;color:#92400e}
+      .aph .mv-item.mv-quar-out .mv-dot{background:#15803d}
+      .aph .mv-item.mv-quar-out .mv-tag{background:#dcfce7;color:#15803d}
+      .aph .mv-m{font:500 11px var(--mono);color:var(--ink-mute);margin-top:2px}
+      .aph .mv-m a{color:var(--signal);text-decoration:none}.aph .mv-m a:hover{text-decoration:underline}
+      </style>
+      <div class="aph-page-hd">
+        <div class="ttl">Traceability</div>
+        <div class="sub">Track a bucket or bunch across its full harvest-to-issue journey</div>
+      </div>
+
+      <div class="container">
+        <div class="alert-danger" id="errorBox"></div>
+
+        <!-- Bucket summary well -->
+        <div id="bucketSummary" style="display:none" class="well">
+            <span class="id-display" id="summaryId"></span>
+            <div class="bucket-meta">
+                <div class="bm-item"><span class="bm-label">Journeys</span><span class="bm-value" id="summaryJourneys">--</span></div>
+                <div class="bm-item"><span class="bm-label">First Use</span><span class="bm-value" id="summaryFirst">--</span></div>
+                <div class="bm-item"><span class="bm-label">Latest Activity</span><span class="bm-value" id="summaryLatest">--</span></div>
+            </div>
+            <span class="label" id="summaryStatus" style="margin-left:auto;">--</span>
+        </div>
+
+        <!-- Bunch summary well -->
+        <div id="bunchSummary" style="display:none" class="well">
+            <span class="id-display" id="bunchSummaryId"></span>
+            <div class="bucket-meta">
+                <div class="bm-item"><span class="bm-label">Variety</span><span class="bm-value" id="bunchSumVariety">--</span></div>
+                <div class="bm-item"><span class="bm-label">Farm</span><span class="bm-value" id="bunchSumFarm">--</span></div>
+                <div class="bm-item"><span class="bm-label">Graded</span><span class="bm-value" id="bunchSumDate">--</span></div>
+                <div class="bm-item"><span class="bm-label">Stem Length</span><span class="bm-value" id="bunchSumLength">--</span></div>
+            </div>
+            <span class="label" id="bunchSummaryStatus" style="margin-left:auto;">--</span>
+        </div>
+
+        <!-- Bucket filter + tabs -->
+        <div id="filterBar" style="display:none" class="filter-bar">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text-muted)"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+            <span class="filter-bar-label">Filter</span>
+            <div class="filter-group">
+                <label class="filter-field-label">From</label>
+                <input type="date" id="filterFrom" class="form-control" style="width:130px" onchange="applyDateFilter()">
+            </div>
+            <div class="filter-group">
+                <label class="filter-field-label">To</label>
+                <input type="date" id="filterTo" class="form-control" style="width:130px" onchange="applyDateFilter()">
+            </div>
+            <div class="filter-group">
+                <label class="filter-field-label">Show</label>
+                <select id="filterLimit" class="form-control" style="width:90px" onchange="applyDateFilter()">
+                    <option value="5">Last 5</option>
+                    <option value="10">Last 10</option>
+                    <option value="20">Last 20</option>
+                    <option value="50">Last 50</option>
+                    <option value="0">All</option>
+                </select>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="resetFilter()">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                Reset
+            </button>
+            <span class="filter-showing" id="filterShowing"></span>
+        </div>
+
+        <div id="journeyTabs" style="display:none" class="nav-tabs"></div>
+        <div id="journeyPanel"></div>
+
+        <!-- Hint panel -->
+        <div class="panel" id="hintSection">
+            <div class="panel-body hint-state">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#98a1a9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:12px"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                <h4>Traceability</h4>
+                <p>Track a <strong>Bucket</strong> from harvest through grading, receiving, shelving, allocation and issue.</p>
+                <p style="margin-top:8px">Track a <strong>Bunch</strong> from greenhouse grading through to the packed box.</p>
+                <p style="margin-top:10px"><strong>Spray roses:</strong> Harvest + Grading &rarr; Receiving &rarr; Shelving &rarr; Allocation &rarr; Issue<br>
+                <strong>Standard roses:</strong> Harvest &rarr; Receiving &rarr; Shelving &rarr; Grading &rarr; Allocation &rarr; Issue<br>
+                <strong>Bunch:</strong> Grading &rarr; Receiving &rarr; Shelf &rarr; OPL &rarr; Issue &rarr; Packing</p>
+                <small id="hintExamples">Bucket examples: 5c8f60 &middot; E0DE9D &middot; 7D1BF6</small>
+            </div>
+        </div>
+        <div class="panel" id="loadingSection" style="display:none">
+            <div class="panel-body loading-state">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#98a1a9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:10px"><circle cx="12" cy="12" r="10"/></svg>
+                <p id="loadingMsg">Tracing journey...</p>
+            </div>
+        </div>
+        <div class="panel" id="emptySection" style="display:none">
+            <div class="panel-body empty-state">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#98a1a9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:10px"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <p><strong>Not Found</strong></p>
+                <p id="emptyMsg">No records found for this ID.</p>
+            </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Correction Modal -->
+<div class="modal-overlay" id="correctionModal">
+    <div class="modal-dialog">
+        <div class="modal-header">
+            <span class="modal-title">Correct Bucket Details</span>
+            <button class="modal-close" onclick="closeCorrectionModal()">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
+        <div class="modal-body">
+            <div style="padding:10px 12px;border-radius:8px;background:#fff3e0;border:1px solid #f5deb3;color:#9a5a00;font-size:12px;margin-bottom:16px;line-height:1.6">
+                <strong>Bulk correction</strong> &mdash; Updates stem length and/or variety across all related documents for this journey (Harvest, Grading, Receiving, Shelf records). Only fill fields you want to correct.
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px">
+                <span style="font-size:11px;font-weight:600;color:#9a9a9a;text-transform:uppercase;letter-spacing:0.5px">Bucket</span>
+                <span class="id-display" id="modalBucketId" style="font-size:13px;padding:4px 10px;font-weight:700;font-variant-numeric:tabular-nums;color:#000;background:#f5f5f5;border:1px solid #d0d0d0;border-radius:6px;letter-spacing:2px;text-transform:uppercase"></span>
+                <span style="font-size:12px;color:#6b6b6b" id="modalJourneyLabel"></span>
+            </div>
+            <div class="correction-form-group">
+                <label for="correctStemLength">Correct Stem Length</label>
+                <input type="text" id="correctStemLength" class="correction-input" placeholder="e.g. 50cm, 60cm">
+                <div class="form-hint">Current: <span id="currentStemLength">--</span></div>
+            </div>
+            <div class="correction-form-group" style="position:relative">
+                <label for="correctVariety">Correct Variety</label>
+                <input type="text" id="correctVariety" class="correction-input" placeholder="Start typing variety name..."
+                       autocomplete="off" oninput="onVarietyInput(this.value)" onkeydown="onVarietyKeydown(event)">
+                <div class="autocomplete-dropdown" id="varietyDropdown"></div>
+                <div class="form-hint">Current: <span id="currentVariety">--</span></div>
+            </div>
+            <div class="affected-docs" id="affectedDocsSection">
+                <div class="affected-docs-title">Documents to be updated</div>
+                <div id="affectedDocsList"></div>
+            </div>
+            <div class="correction-log" id="correctionLog" style="display:none"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeCorrectionModal()" id="modalCancelBtn">Cancel</button>
+            <button class="btn btn-primary" id="modalApplyBtn" onclick="applyCorrectionForCurrentJourney()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                Apply Corrections
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════════════════ */
+let G = {};
+let currentMode = 'bucket';
+let currentJourneyForCorrection = null;
+let varietySearchTimeout = null;
+let varietyHighlightIdx = -1;
+let varietyResults = [];
+
+/* ═══════════════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════════════ */
+function q(id) { return document.getElementById(id); }
+function fmtDate(d) {
+    if (!d) return '';
+    try { return new Date(d).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }); }
+    catch { return d; }
+}
+function fmtDateTime(d) {
+    if (!d) return '';
+    try { return new Date(d).toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }); }
+    catch { return d; }
+}
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function openDoc(doctype, name) {
+    if (typeof frappe !== 'undefined' && frappe.set_route) frappe.set_route('Form', doctype, name);
+    else window.open('/app/' + doctype.toLowerCase().replace(/ /g,'- ') + '/' + encodeURIComponent(name), '_blank');
+}
+function showError(msg) {
+    const el = q('errorBox'); el.textContent = msg; el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 7000);
+}
+function clearError() { q('errorBox').classList.remove('show'); }
+
+function setState(state) {
+    q('hintSection').style.display    = state === 'hint'    ? '' : 'none';
+    q('loadingSection').style.display = state === 'loading' ? '' : 'none';
+    q('emptySection').style.display   = state === 'empty'   ? '' : 'none';
+    if (state !== 'results') {
+        q('bucketSummary').style.display = 'none';
+        q('bunchSummary').style.display  = 'none';
+        q('journeyTabs').style.display   = 'none';
+        q('filterBar').style.display     = 'none';
+        q('journeyPanel').innerHTML      = '';
+        q('correctBtn').style.display    = 'none';
+    }
+    if (state !== 'loading') q('searchBtn').disabled = false;
+}
+
+const PAGE_SIZE = 500;
+async function flP(doctype, filters, fields, _limit, orderBy) {
+    const all = []; let start = 0;
+    while (true) {
+        const args = { doctype, filters, fields, limit_page_length: PAGE_SIZE, limit_start: start, ignore_permissions: 1 };
+        if (orderBy) args.order_by = orderBy;
+        const page = await new Promise(resolve => {
+            frappe.call({ method: 'frappe.client.get_list', args,
+                callback(r) { resolve(r.message || []); },
+                error(e) { console.warn('[flP]', doctype, e); resolve([]); }
+            });
+        });
+        all.push(...page);
+        if (page.length < PAGE_SIZE) break;
+        start += PAGE_SIZE;
+    }
+    return all;
+}
+function fgP(doctype, name) {
+    return new Promise(resolve => {
+        frappe.call({ method: 'frappe.client.get', args: { doctype, name, ignore_permissions: 1 },
+            callback(r) { resolve(r.message || null); },
+            error(e) { console.warn('[fgP]', doctype, name, e); resolve(null); }
+        });
+    });
+}
+function fSetValueSingle(doctype, name, fieldname, value) {
+    return new Promise((resolve, reject) => {
+        frappe.call({
+            method: 'frappe.client.set_value',
+            args: { doctype, name, fieldname, value },
+            callback(r) { resolve(r.message || true); },
+            error(e) { reject(e); }
+        });
+    });
+}
+async function fSetValue(doctype, name, fieldsOrFieldname, value) {
+    if (typeof fieldsOrFieldname === 'object') {
+        for (const [field, val] of Object.entries(fieldsOrFieldname))
+            await fSetValueSingle(doctype, name, field, val);
+        return true;
+    }
+    return fSetValueSingle(doctype, name, fieldsOrFieldname, value);
+}
+
+/* ═══════════════════════════════════════════════════════
+   MODE
+═══════════════════════════════════════════════════════ */
+function setMode(mode) {
+    currentMode = mode;
+    q('modeBucket').classList.toggle('active', mode === 'bucket');
+    q('modeBunch').classList.toggle('active',  mode === 'bunch');
+    q('trackInput').placeholder = mode === 'bucket' ? 'Enter Bucket ID' : 'Enter Bunch ID';
+    q('trackInput').value = '';
+    q('hintExamples').innerHTML = mode === 'bucket'
+        ? 'Bucket examples: 5c8f60 &middot; E0DE9D &middot; 7D1BF6'
+        : 'Enter a Bunch QR Code ID (e.g. BQ-001-ABC)';
+    setState('hint');
+}
+
+q('trackInput').addEventListener('keydown', e => { if (e.key === 'Enter') track(); });
+q('correctionModal').addEventListener('click', function(e) { if (e.target === this) closeCorrectionModal(); });
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && q('correctionModal').classList.contains('show')) closeCorrectionModal();
+});
+
+function track() {
+    if (currentMode === 'bucket') trackBucket();
+    else trackBunch();
+}
+
+/* ═══════════════════════════════════════════════════════
+   BUCKET TRACKING  (original logic, preserved)
+═══════════════════════════════════════════════════════ */
+function seDt(se)   { return (se.posting_date||'') + ' ' + (se.posting_time||'00:00:00'); }
+function seDtMs(se) {
+    try {
+        const s = (se.posting_date||'') + 'T' + (se.posting_time||'00:00:00').split('.')[0];
+        const t = new Date(s).getTime();
+        return isNaN(t) ? 0 : t;
+    } catch { return 0; }
+}
+function parseBatch(batchNo) {
+    if (!batchNo) return { sessionKey:'', batchNo:'', farm:'', variety:'', date:'' };
+    const p = batchNo.split('-');
+    const farm=p[1]||'', variety=p[2]||'', yyyy=p[3]||'', mm=p[4]||'', dd=(p[5]||'').split(' ')[0];
+    const sessionKey = `${p[0]}-${farm}-${variety}-${yyyy}-${mm}-${dd}`.toLowerCase();
+    return { sessionKey, batchNo, farm, variety, date:`${yyyy}-${mm}-${dd}` };
+}
+function sumStems(seList) {
+    let total=0;
+    for (const se of seList) total += G.seQtyMap?.get(se.name)||0;
+    return total||null;
+}
+function stemLengthOf(seList) {
+    for (const se of seList) { if (se.custom_stem_length) return se.custom_stem_length; }
+    return null;
+}
+function fmtStems(n) {
+    if (!n) return null;
+    return (Number.isInteger(n) ? n : Math.round(n*10)/10) + ' stems';
+}
+
+async function trackBucket() {
+    const id = q('trackInput').value.trim();
+    if (!id) { showError('Please enter a Bucket ID.'); return; }
+    clearError();
+    setState('loading');
+    q('loadingMsg').textContent = 'Tracing bucket journeys...';
+    q('searchBtn').disabled = true;
+    q('correctBtn').style.display = 'none';
+
+    try {
+        // bucket_id casing is inconsistent across tables — match all variants
+        const idVariants = [...new Set([id, id.toUpperCase(), id.toLowerCase()])];
+        const [harvestSEs, receiveSEs, shelfLogRows, allocRows, oplParents, discardSEs, rejectSEs, quarantineSEs] = await Promise.all([
+            flP('Stock Entry',
+                [['custom_bucket_id','=',id],['stock_entry_type','=','Harvesting']],
+                ['name','posting_date','posting_time','custom_farm','custom_greenhouse',
+                 'custom_stem_length','custom_harvester','custom_harvester_payroll_number',
+                 'custom_harvest_batch_no','to_warehouse','custom_scanned','docstatus'],
+                2000,'posting_date asc, posting_time asc'),
+            flP('Stock Entry',
+                [['custom_received_bucket_id','=',id],['stock_entry_type','in',['Receiving','Late Receipt']]],
+                ['name','posting_date','posting_time','custom_farm','custom_greenhouse',
+                 'custom_stem_length','custom_harvest_batch_no','custom_received_bucket_id',
+                 'to_warehouse','from_warehouse','stock_entry_type','custom_scanned','docstatus'],
+                2000,'posting_date asc, posting_time asc'),
+            // Shelving Log = the persistent shelf/transfer/issue/discard history (Shelf Item is cleared on issue)
+            flP('Shelving Log',[['bucket_id','in',idVariants]],
+                ['name','shelf','farm','variety','stem_qty','stem_length','greenhouse',
+                 'shelved_on','removed_on','reason','shelved_by'],
+                800,'shelved_on asc'),
+            flP('Bucket Allocation Status',[['bucket_id','=',id]],
+                ['name','bucket_id','item_code','warehouse','farm','stem_length',
+                 'shelf_location','shelf_farm','harvest_date','total_quantity',
+                 'allocated_quantity','available_quantity'],1),
+            flP('Order Pick List',[['Pick List Item','custom_bucket','=',id]],['name'],100),
+            flP('Stock Entry',
+                [['custom_received_bucket_id','in',idVariants],['stock_entry_type','=','Discard'],['docstatus','=',1]],
+                ['name','posting_date','posting_time','custom_farm'],200,'posting_date asc, posting_time asc'),
+            // QC rejects: Field Rejects (grading) + Packhouse Rejects (packhouse QC), keyed by received bucket id
+            flP('Stock Entry',
+                [['custom_received_bucket_id','in',idVariants],['stock_entry_type','in',['Field Rejects','Packhouse Rejects']],['docstatus','=',1]],
+                ['name','posting_date','posting_time','custom_farm','stock_entry_type'],200,'posting_date asc, posting_time asc'),
+            // Quarantine: 'Receiving Quarantined' = into quarantine; 'Quarantine Rejects'/'Remove From
+            // Quarantine' = out; 'Material Transfer' = the accept-release (only counts if quarantined).
+            flP('Stock Entry',
+                [['custom_received_bucket_id','in',idVariants],['stock_entry_type','in',['Receiving Quarantined','Quarantine Rejects','Remove From Quarantine','Material Transfer']],['docstatus','=',1]],
+                ['name','posting_date','posting_time','custom_farm','stock_entry_type'],200,'posting_date asc, posting_time asc'),
+        ]);
+
+        const batchNos = [...new Set(harvestSEs.map(se => se.custom_harvest_batch_no).filter(Boolean))];
+        let gradingSEs = [];
+        if (batchNos.length) {
+            const CHUNK=50, chunks=[];
+            for (let i=0;i<batchNos.length;i+=CHUNK) chunks.push(batchNos.slice(i,i+CHUNK));
+            const results = await Promise.all(chunks.map(chunk =>
+                flP('Stock Entry',
+                    [['custom_harvest_batch_no','in',chunk],['stock_entry_type','=','Grading']],
+                    ['name','posting_date','posting_time','custom_farm','custom_graded_by',
+                     'custom_grader_payroll_number','custom_bunch_id','custom_stem_length',
+                     'custom_harvest_batch_no','custom_opl_scanned','custom_scanned_grading',
+                     'custom_scanned_packing','custom_bunched_by','to_warehouse','from_warehouse','docstatus'],
+                    2000,'posting_date asc, posting_time asc')
+            ));
+            gradingSEs = results.flat().sort((a,b) => seDt(a).localeCompare(seDt(b)));
+        }
+
+        // Shelving Log episodes → shelfData. Keep shelf_name/shelf_farm/date_added
+        // aliases so the existing render works, plus reason/removed_on for the
+        // transfer/issue/discard steps and the per-journey movement trail.
+        let shelfData = (shelfLogRows||[]).map(r => ({
+            ...r,
+            shelf_name: r.shelf, shelf_farm: r.farm, date_added: r.shelved_on
+        }));
+        let discardData = discardSEs || [];
+        let rejectData = rejectSEs || [];
+        let quarantineData = quarantineSEs || [];
+
+        const allocData = allocRows[0]||null;
+        const allocFull = allocData ? await fgP('Bucket Allocation Status', allocData.name) : null;
+
+        let oplData = [];
+        if (oplParents.length) {
+            const docs = await Promise.all(oplParents.map(o => fgP('Order Pick List', o.name)));
+            for (const doc of docs) {
+                if (!doc) continue;
+                (doc.locations||[]).filter(r => (r.custom_bucket||'').toLowerCase()===id.toLowerCase())
+                    .forEach(r => oplData.push({
+                        ...r, parent:doc.name, opl_customer:doc.customer,
+                        opl_order_name:doc.custom_order_name, opl_team:doc.custom_team,
+                        opl_status:doc.custom_status, opl_issuing_pct:doc.custom_issuing_percentage,
+                        opl_date:doc.date_created, opl_sales_order:doc.sales_order,
+                        opl_consignee:doc.custom_consignee,
+                    }));
+            }
+        }
+
+        const sessionRepMap = new Map();
+        for (const se of [...harvestSEs,...gradingSEs]) {
+            const key = se.posting_date||'unknown';
+            if (!sessionRepMap.has(key)) sessionRepMap.set(key, se.name);
+        }
+        const repNamesUniq = [...new Set([...receiveSEs.map(s=>s.name), ...[...sessionRepMap.values()]])];
+        const repQtyMap = new Map();
+        if (repNamesUniq.length) {
+            const BATCH=10;
+            for (let i=0;i<repNamesUniq.length;i+=BATCH) {
+                const docs = await Promise.all(repNamesUniq.slice(i,i+BATCH).map(name => fgP('Stock Entry',name)));
+                for (const doc of docs) {
+                    if (!doc) continue;
+                    const stems = (doc.items||[]).reduce((sum,row)=>sum+parseFloat(row.transfer_qty||row.qty||0),0);
+                    repQtyMap.set(doc.name, stems);
+                }
+            }
+        }
+        const seQtyMap = new Map();
+        for (const se of receiveSEs) seQtyMap.set(se.name, repQtyMap.get(se.name)||0);
+        for (const se of [...harvestSEs,...gradingSEs]) {
+            const repName = sessionRepMap.get(se.posting_date);
+            seQtyMap.set(se.name, repQtyMap.get(repName)||0);
+        }
+
+        const hasData = harvestSEs.length||gradingSEs.length||receiveSEs.length
+                     ||shelfData.length||allocData||oplData.length;
+        if (!hasData) { q('emptyMsg').textContent = 'No records found for this Bucket ID.'; setState('empty'); return; }
+
+        G = { id, harvestSEs, gradingSEs, receiveSEs, shelfData, discardData, rejectData, quarantineData, allocData, allocFull, oplData, seQtyMap };
+        buildJourneys();
+
+    } catch (err) {
+        console.error(err);
+        showError('Error loading data — check console for details.');
+        setState('hint');
+    } finally { q('searchBtn').disabled = false; }
+}
+
+function buildJourneys() {
+    const { id, harvestSEs, gradingSEs, receiveSEs, shelfData, discardData, rejectData, quarantineData, allocData, allocFull, oplData } = G;
+    const jmap = {};
+
+    function getOrCreate(sessionKey, farm, variety) {
+        if (!jmap[sessionKey]) jmap[sessionKey] = {
+            sessionKey, farm, variety,
+            harvestSEs:[], gradingSEs:[], receivingSEs:[],
+            flowerType:null, earliestDate:'', latestDate:''
+        };
+        return jmap[sessionKey];
+    }
+    for (const se of gradingSEs)  { const p=parseBatch(se.custom_harvest_batch_no); const key=p.sessionKey||('grading||'+se.name); const j=getOrCreate(key,p.farm,p.variety); j.gradingSEs.push(se); if(!j.farm)j.farm=p.farm; if(!j.variety)j.variety=p.variety; }
+    for (const se of receiveSEs)  { const p=parseBatch(se.custom_harvest_batch_no); const key=p.sessionKey||('receiving||'+se.name); const j=getOrCreate(key,p.farm,p.variety); j.receivingSEs.push(se); if(!j.farm)j.farm=p.farm; if(!j.variety)j.variety=p.variety; }
+    for (const se of harvestSEs)  { const p=parseBatch(se.custom_harvest_batch_no); const key=p.sessionKey||('harvest||'+se.name); const j=getOrCreate(key,p.farm,p.variety); j.harvestSEs.push(se); if(!j.farm)j.farm=p.farm; if(!j.variety)j.variety=p.variety; }
+    for (const j of Object.values(jmap)) {
+        j.harvestSEs.sort((a,b)=>seDtMs(a)-seDtMs(b));
+        j.gradingSEs.sort((a,b)=>seDtMs(a)-seDtMs(b));
+        j.receivingSEs.sort((a,b)=>seDtMs(a)-seDtMs(b));
+    }
+    for (const j of Object.values(jmap)) {
+        const hasGrading=j.gradingSEs.length>0, hasHarvest=j.harvestSEs.length>0;
+        const gradingBatches=new Set(j.gradingSEs.map(se=>(se.custom_harvest_batch_no||'').toLowerCase()));
+        const harvestMatchesGrading=j.harvestSEs.some(se=>gradingBatches.has((se.custom_harvest_batch_no||'').toLowerCase()));
+        if (hasGrading&&hasHarvest&&harvestMatchesGrading) j.flowerType='spray';
+        else if (hasGrading&&hasHarvest&&!harvestMatchesGrading) j.flowerType='standard';
+        else if (hasGrading&&!hasHarvest) j.flowerType='standard';
+        else j.flowerType='standard';
+    }
+    for (const j of Object.values(jmap)) {
+        const all=[...j.harvestSEs,...j.gradingSEs,...j.receivingSEs].map(se=>se.posting_date||'').filter(Boolean).sort();
+        j.earliestDate=all[0]||''; j.latestDate=all[all.length-1]||'';
+    }
+    const journeys = Object.values(jmap)
+        .sort((a,b)=>a.earliestDate.localeCompare(b.earliestDate)||a.sessionKey.localeCompare(b.sessionKey));
+    journeys.forEach((j,i)=>{ j.number=i+1; j.isLatest=i===journeys.length-1; });
+
+    function matchJourney(eventDateStr, varietyLower, candidates) {
+        if (!candidates.length) return null;
+        if (candidates.length===1) return candidates[0];
+        const evMs = eventDateStr ? new Date(eventDateStr).getTime() : Infinity;
+        let best=null, bestMs=-Infinity;
+        for (const j of candidates) {
+            const jMs=j.earliestDate?new Date(j.earliestDate).getTime():-Infinity;
+            if (jMs<=evMs&&jMs>bestMs){bestMs=jMs;best=j;}
+        }
+        return best||candidates[0];
+    }
+    journeys.forEach(j=>{j.shelfData=[];j.discardData=[];j.rejectData=[];j.quarantineData=[];j.allocData=null;j.allocFull=null;j.oplData=[];});
+    const varietyIndex={};
+    for (const j of journeys){const v=(j.variety||'').toLowerCase();if(!varietyIndex[v])varietyIndex[v]=[];varietyIndex[v].push(j);}
+    // Shelving Log episodes → journey by (date, variety); if the variety isn't
+    // indexed (blank on the log row) fall back to the latest journey started on/before the episode.
+    for (const row of shelfData){
+        const v=(row.variety||'').toLowerCase();
+        let j=matchJourney(row.date_added?.split(' ')[0]||'',v,varietyIndex[v]||[]);
+        if(!j) j=journeyByDate(journeys,row.date_added||'');
+        if(j)j.shelfData.push(row);
+    }
+    journeys.forEach(j=>j.shelfData.sort((a,b)=>String(a.shelved_on||'').localeCompare(String(b.shelved_on||''))));
+    // Discard stock entries → journey by date (discards carry no variety here).
+    for (const se of (discardData||[])){
+        const j=journeyByDate(journeys,(se.posting_date||'')+' '+(se.posting_time||'00:00:00'));
+        if(j)j.discardData.push(se);
+    }
+    // QC reject stock entries → journey by date.
+    for (const se of (rejectData||[])){
+        const j=journeyByDate(journeys,(se.posting_date||'')+' '+(se.posting_time||'00:00:00'));
+        if(j)j.rejectData.push(se);
+    }
+    // Quarantine stock entries → journey by date.
+    for (const se of (quarantineData||[])){
+        const j=journeyByDate(journeys,(se.posting_date||'')+' '+(se.posting_time||'00:00:00'));
+        if(j)j.quarantineData.push(se);
+    }
+
+    // OPL matching: buckets are reused across trips.
+    // Only assign an OPL row to a journey whose harvest started ON OR BEFORE the OPL date.
+    // Among eligible journeys pick the one with the latest start date (closest preceding journey).
+    for (const row of oplData) {
+        const v = (row.item_code||'').toLowerCase();
+        const candidates = (varietyIndex[v]||[]);
+        if (!candidates.length) continue;
+        const oplMs = row.opl_date ? new Date(row.opl_date).getTime() : Infinity;
+        const eligible = candidates.filter(j => {
+            const jMs = j.earliestDate ? new Date(j.earliestDate).getTime() : 0;
+            return jMs <= oplMs;
+        });
+        if (!eligible.length) continue;
+        const best = eligible.reduce((a,b) =>
+            new Date(a.earliestDate).getTime() > new Date(b.earliestDate).getTime() ? a : b
+        );
+        best.oplData.push(row);
+    }
+
+    if (allocData){const v=(allocData.item_code||'').toLowerCase();const j=matchJourney(allocData.harvest_date||'',v,varietyIndex[v]||[]);if(j){j.allocData=allocData;j.allocFull=allocFull;}}
+
+    G.allJourneys = journeys;
+    const allDates=[...harvestSEs,...gradingSEs,...receiveSEs].map(s=>s.posting_date).filter(Boolean).sort();
+    q('bucketSummary').style.display='';
+    q('summaryId').textContent=id.toUpperCase();
+    q('summaryJourneys').textContent=journeys.length;
+    q('summaryFirst').textContent=fmtDate(allDates[0]||'');
+    q('summaryLatest').textContent=fmtDate(allDates[allDates.length-1]||'');
+    const lj=journeys[journeys.length-1];
+    const st=journeyStatus(lj);
+    const statusEl=q('summaryStatus');
+    statusEl.textContent=st.label; statusEl.className='label '+st.labelCls;
+    q('correctBtn').style.display='';
+    q('filterBar').style.display='';
+    renderJourneyTabs(journeys,5);
+    setState('results');
+}
+
+function journeyStartDate(j) {
+    return j.harvestSEs[0]?.posting_date||j.gradingSEs[0]?.posting_date||j.receivingSEs[0]?.posting_date||'';
+}
+// Full start TIMESTAMP (date + time) — used only for ordering journeys against an
+// event's exact moment (journeyByDate below), never for display (journeyStartDate
+// above stays date-only for that). A journey that begins LATER on the SAME calendar
+// day as another journey's terminal event (e.g. a bucket discarded at 11:30 then
+// re-harvested at 15:29, same day — confirmed live on bucket 7D0406: the Tropical
+// Amazon batch discarded 08-07 11:30 was getting attributed to the Aqua journey that
+// started later that same day, making an untouched Aqua batch look discarded) must
+// still sort AFTER that event. Date-only comparison can't tell the two apart. Plain
+// string comparison is enough here — posting_date/posting_time are both zero-padded,
+// so lexicographic order matches chronological order; no Date parsing needed.
+function journeyStartDateTime(j) {
+    const se = j.harvestSEs[0]||j.gradingSEs[0]||j.receivingSEs[0];
+    if (!se || !se.posting_date) return '';
+    return se.posting_date+' '+(se.posting_time||'00:00:00');
+}
+// The journey whose cycle contains a given TIMESTAMP = the latest one started on/before it.
+function journeyByDate(journeys, dateTimeStr) {
+    if (!dateTimeStr || !journeys.length) return journeys[journeys.length-1]||null;
+    let best=null, bestStart='';
+    for (const j of journeys) {
+        const s=journeyStartDateTime(j)||'';
+        if (s && s<=dateTimeStr && s>=bestStart) { best=j; bestStart=s; }
+    }
+    return best || journeys[journeys.length-1] || null;
+}
+function renderJourneyTabs(all, limit) {
+    const shown=limit>0?all.slice(-limit):all;
+    G.shownJourneys=shown;
+    const el=q('filterShowing');
+    if(el)el.textContent=`Showing ${shown.length} of ${all.length} journey${all.length!==1?'s':''}`;
+    q('journeyTabs').style.display=shown.length?'':'none';
+    q('journeyTabs').innerHTML=shown.map(j=>`
+        <div class="nav-tab" id="tab-${j.number}" onclick="selectJourney(${j.number})">
+            Journey ${j.number}
+            <span class="tab-sub">${j.variety||'Unknown'} &middot; ${fmtDate(journeyStartDate(j))}</span>
+        </div>`).join('');
+    if(shown.length){
+        const latest=shown[shown.length-1];
+        q('tab-'+latest.number)?.classList.add('active');
+        renderJourney(latest);
+    } else {
+        q('journeyPanel').innerHTML='<div class="panel"><div class="panel-body empty-state"><p>No journeys match the selected filter.</p></div></div>';
+    }
+}
+function selectJourney(num) {
+    document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+    q('tab-'+num)?.classList.add('active');
+    const j=(G.allJourneys||[]).find(j=>j.number===num);
+    if(j) renderJourney(j);
+}
+function applyDateFilter() {
+    if (!G.allJourneys) return;
+    const from=q('filterFrom')?.value||'', to=q('filterTo')?.value||'';
+    const limit=parseInt(q('filterLimit')?.value)||0;
+    const filtered=G.allJourneys.filter(j=>{
+        const d=journeyStartDate(j); if(!d) return true;
+        if(from&&d<from) return false;
+        if(to&&d>to) return false;
+        return true;
+    });
+    renderJourneyTabs(filtered,(from||to)?0:limit);
+}
+function resetFilter() {
+    if(q('filterFrom'))q('filterFrom').value='';
+    if(q('filterTo'))q('filterTo').value='';
+    if(q('filterLimit'))q('filterLimit').value='5';
+    if(G.allJourneys)renderJourneyTabs(G.allJourneys,5);
+}
+
+function journeyStatus(j) {
+    const sd=j.shelfData||[];
+    const shelved=sd.length>0, onShelfNow=sd.some(r=>!r.removed_on);
+    const transferred=sd.some(r=>(r.reason||'').indexOf('Transferred')>=0);
+    const replaced=sd.some(r=>r.reason==='Replaced');
+    const discarded=(j.discardData?.length>0)||sd.some(r=>r.reason==='Discarded');
+    const onOPL=j.oplData?.length>0;
+    const issued=(onOPL&&j.oplData.some(r=>r.custom_issued==1))||sd.some(r=>r.reason==='Issued to Sales Order');
+    const qTypes=(j.quarantineData||[]).map(se=>se.stock_entry_type);
+    const qin=qTypes.indexOf('Receiving Quarantined')>=0;
+    const qout=qTypes.indexOf('Quarantine Rejects')>=0||qTypes.indexOf('Remove From Quarantine')>=0||(qin&&qTypes.indexOf('Material Transfer')>=0);
+    if (discarded) return {label:'Discarded',labelCls:'label-danger',cls:'sw-discard'};
+    if (issued) return {label:'Issued',labelCls:'label-success',cls:'sw-issued'};
+    if (onOPL) return {label:'Pending Issue',labelCls:'label-warning',cls:'sw-pending'};
+    if (qin && !qout && !onShelfNow) return {label:'Quarantined',labelCls:'label-warning',cls:'sw-quar'};
+    if (replaced&&!onShelfNow) return {label:'Replaced',labelCls:'label-default',cls:'sw-replace'};
+    if (transferred&&!onShelfNow) return {label:'In Transit',labelCls:'label-info',cls:'sw-transit'};
+    if (onShelfNow) return {label:'On Shelf',labelCls:'label-primary',cls:'sw-onshelf'};
+    if (shelved) return {label:'Shelved',labelCls:'label-primary',cls:'sw-onshelf'};
+    if (j.receivingSEs?.length) return {label:'Received',labelCls:'label-info',cls:'sw-recv'};
+    if (j.gradingSEs?.length) return {label:'Graded',labelCls:'label-info',cls:'sw-graded'};
+    return {label:'Harvested',labelCls:'label-success',cls:'sw-hvst'};
+}
+
+const STAGES_SPRAY    = [{key:'Harvest',lbl:'Harvest'},{key:'Grading',lbl:'Grading'},{key:'Receiving',lbl:'Receiving'},{key:'Shelving',lbl:'Shelving'},{key:'Allocation',lbl:'Allocation'},{key:'Issue',lbl:'Issue'}];
+const STAGES_STANDARD = [{key:'Harvest',lbl:'Harvest'},{key:'Receiving',lbl:'Receiving'},{key:'Shelving',lbl:'Shelving'},{key:'Grading',lbl:'Grading'},{key:'Allocation',lbl:'Allocation'},{key:'Issue',lbl:'Issue'}];
+
+function renderJourney(j) {
+    currentJourneyForCorrection = j;
+    const { harvestSEs, gradingSEs, receivingSEs, shelfData, discardData, rejectData, quarantineData, allocData, allocFull, oplData, flowerType } = j;
+    const sd = shelfData||[];
+    const rejected = (rejectData?.length>0);
+    const replaced = sd.some(r=>r.reason==='Replaced');
+    const rejectRow = (rejectData&&rejectData[rejectData.length-1])||null;
+    // Shelving is now sourced from the Shelving Log (persistent). "current shelf"
+    // = an episode still open (removed_on null), else the last episode.
+    const onShelfNow = sd.some(r=>!r.removed_on);
+    const onShelf = onShelfNow;
+    const shelfRow = sd.find(r=>!r.removed_on) || sd[sd.length-1] || null;
+    const shelfId = shelfRow?.shelf_name || allocData?.shelf_location || '';
+    const transferred = sd.some(r=>(r.reason||'').indexOf('Transferred')>=0);
+    const transferRow = [...sd].reverse().find(r=>(r.reason||'').indexOf('Transferred')>=0) || null;
+    const discarded = (discardData?.length>0) || sd.some(r=>r.reason==='Discarded');
+    const discardRow = (discardData&&discardData[discardData.length-1]) || null;
+    const discardSlRow = [...sd].reverse().find(r=>r.reason==='Discarded') || null;
+    const onOPL=oplData?.length>0;
+    const issued = (onOPL&&oplData.some(r=>r.custom_issued==1)) || sd.some(r=>r.reason==='Issued to Sales Order');
+    const issueRow = [...sd].reverse().find(r=>r.reason==='Issued to Sales Order') || null;
+    const hasAllocs=allocFull?.bucket_allocations?.length>0;
+    const st=journeyStatus(j);
+    const wasOnShelf=sd.length>0||issued;
+    const startDate=journeyStartDate(j);
+    const allEvtDates=[...harvestSEs,...gradingSEs,...receivingSEs,...sd,...(oplData||[]),...(discardData||[])]
+        .map(e=>e?.posting_date||(e?.removed_on||e?.shelved_on||e?.date_added||'').split(' ')[0]||e?.creation?.split(' ')[0]||'').filter(Boolean).sort();
+    const endDate=allEvtDates[allEvtDates.length-1]||'';
+    const done={Harvest:harvestSEs.length>0,Grading:gradingSEs.length>0,Receiving:receivingSEs.length>0,Shelving:wasOnShelf,Transfer:transferred,Allocation:hasAllocs,Issue:issued,Discard:discarded};
+
+    function stageMeta(key) {
+        switch(key){
+            case 'Harvest':   return {stems:sumStems(harvestSEs),stemLength:stemLengthOf(harvestSEs)};
+            case 'Grading':   return {stems:sumStems(gradingSEs),stemLength:stemLengthOf(gradingSEs)};
+            case 'Receiving': return {stems:sumStems(receivingSEs),stemLength:stemLengthOf(receivingSEs)};
+            case 'Shelving':  return {stems:shelfRow?.stem_qty?parseFloat(shelfRow.stem_qty):null,stemLength:shelfRow?.stem_length||stemLengthOf(receivingSEs)};
+            case 'Transfer':  return {stems:transferRow?.stem_qty?parseFloat(transferRow.stem_qty):null,stemLength:null};
+            case 'Allocation':return {stems:allocData?.allocated_quantity?parseFloat(allocData.allocated_quantity):null,stemLength:allocData?.stem_length||null};
+            case 'Issue':     {const ir=oplData.find(r=>r.custom_issued==1)||oplData[0];return {stems:ir?.stock_qty?parseFloat(ir.stock_qty):null,stemLength:null};}
+            case 'Discard':   return {stems:null,stemLength:null};
+        }
+        return {stems:null,stemLength:null};
+    }
+    function stageDetail(key) {
+        switch(key){
+            case 'Harvest':   return harvestSEs[0]?(harvestSEs[0].custom_greenhouse||harvestSEs[0].custom_farm||'').split(' - ')[0]:'';
+            case 'Grading':   return gradingSEs[0]?(gradingSEs[0].custom_bunch_id?gradingSEs[0].custom_bunch_id:''):'';
+            case 'Receiving': return receivingSEs[0]?`${receivingSEs[0].stock_entry_type==='Late Receipt'?'Late · ':''}${(receivingSEs[0].to_warehouse||'').split(' - ')[0]}`:'';
+            case 'Shelving':  return shelfId?`${shelfId}${shelfRow?.shelf_farm?' · '+shelfRow.shelf_farm:''}`:(issued?'Removed (issued)':'');
+            case 'Transfer':  return transferRow?`${transferRow.shelf_farm||transferRow.farm||'?'} → Kapkolia`:'';
+            case 'Allocation':return hasAllocs?`${allocData.allocated_quantity} / ${allocData.total_quantity} stems`:'';
+            case 'Issue':     return issued?(oplData.find(r=>r.custom_issued==1)?.parent||oplData[0]?.parent||(issueRow?'from '+issueRow.shelf_name:''))||'':onOPL?'On OPL — not issued':'';
+            case 'Discard':   return (discardRow?.custom_farm||discardSlRow?.shelf_farm||'')||'Discarded';
+        }
+        return '';
+    }
+    function stageDate(key) {
+        switch(key){
+            case 'Harvest':   return harvestSEs[0]?.posting_date||'';
+            case 'Grading':   return gradingSEs[0]?.posting_date||'';
+            case 'Receiving': return receivingSEs[0]?.posting_date||'';
+            case 'Shelving':  return (shelfRow?.shelved_on||shelfRow?.date_added||'').split(' ')[0]||'';
+            case 'Transfer':  return (transferRow?.removed_on||transferRow?.shelved_on||'').split(' ')[0]||'';
+            case 'Allocation':return allocFull?.modified?.split(' ')[0]||'';
+            case 'Issue':     return (issueRow?.removed_on||oplData?.[0]?.creation||'').split(' ')[0]||'';
+            case 'Discard':   return discardRow?.posting_date||(discardSlRow?.removed_on||'').split(' ')[0]||'';
+        }
+        return '';
+    }
+
+    // base stages + fold in the movements that actually happened this cycle
+    let stages=(flowerType==='standard'?STAGES_STANDARD:STAGES_SPRAY).slice();
+    if (transferred) { const si=stages.findIndex(s=>s.key==='Shelving'); stages.splice(si>=0?si+1:stages.length,0,{key:'Transfer',lbl:'Transfer'}); }
+    if (discarded)   { stages=stages.filter(s=>s.key!=='Issue'); stages.push({key:'Discard',lbl:'Discard'}); }
+    const batchNo=gradingSEs[0]?.custom_harvest_batch_no||receivingSEs[0]?.custom_harvest_batch_no||harvestSEs[0]?.custom_harvest_batch_no||'--';
+    let statusMsg=
+        discarded?`Discarded${(discardRow?.custom_farm||discardSlRow?.shelf_farm)?` at <strong>${discardRow?.custom_farm||discardSlRow?.shelf_farm}</strong>`:''}`:
+        issued?`Issued — OPL <strong>${oplData.find(r=>r.custom_issued==1)?.parent||oplData[0]?.parent||''}</strong>`:
+        onOPL&&!issued?`On OPL <strong>${oplData[0]?.parent||''}</strong> — awaiting issue`:
+        onShelf?`Currently on shelf <strong>${shelfId}</strong>${shelfRow?.shelf_farm?' at '+shelfRow.shelf_farm:''}`:
+        replaced?`Replaced — swapped out of its order`:
+        transferred?`In transit — transferred from <strong>${transferRow?.shelf_farm||transferRow?.farm||'?'}</strong>`:
+        done.Receiving?`Received into <strong>${(receivingSEs[0]?.to_warehouse||'').split(' - ')[0]}</strong>`:
+        done.Grading?(flowerType==='spray'?'Graded — awaiting receiving':'Graded — awaiting allocation'):
+        done.Harvest?'Harvested — awaiting next stage':'No stage data';
+
+    let html=`<div class="panel">
+        <div class="panel-heading">
+            <div class="panel-heading-inner">
+                <div>
+                    <div class="panel-title">Journey ${j.number} &nbsp;&middot;&nbsp; ${j.variety||'Unknown Variety'} ${j.isLatest?'<span class="label label-success" style="vertical-align:middle;margin-left:6px">Latest</span>':''}</div>
+                    <div class="panel-sub">${j.farm||''}${j.isLatest?' &middot; Most Recent':''}<br><span style="font-variant-numeric:tabular-nums;font-size:11px;color:var(--text-muted)">${batchNo.length>52?batchNo.slice(0,52)+'...':batchNo}</span></div>
+                </div>
+                <div style="text-align:right;font-size:12px;color:var(--text-secondary);flex-shrink:0">
+                    <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;color:var(--text-muted)">Started</div>
+                    <div style="font-weight:600;color:var(--text-primary)">${fmtDate(startDate)||'--'}</div>
+                    <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-top:6px;font-weight:600;color:var(--text-muted)">Last Event</div>
+                    <div style="font-weight:600;color:var(--text-primary)">${fmtDate(endDate)||'--'}</div>
+                </div>
+            </div>
+        </div>
+        <div class="panel-body">
+            <div class="status-well ${st.cls}"><strong>${st.label}</strong> — <span>${statusMsg}</span></div>
+            <div class="section-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Journey Path</div>
+            <div class="journey-path${stages.length>6?' journey-path-7':''}">
+                ${stages.map(s=>{
+                    const isDone=done[s.key], det=stageDetail(s.key), dt=stageDate(s.key);
+                    const meta=isDone?stageMeta(s.key):{stems:null,stemLength:null};
+                    return `<div class="path-stage ${isDone?'ps-done':'ps-pending'} pk-${s.key.toLowerCase()}">
+                        <div class="ps-lbl">${s.lbl}</div>
+                        <div class="ps-stat ${isDone?'ps-done-t':'ps-pend-t'}">${isDone?'Done':'--'}</div>
+                        ${meta.stems?`<div class="ps-det">${fmtStems(meta.stems)}</div>`:''}
+                        ${meta.stemLength?`<div class="ps-det">${meta.stemLength}</div>`:''}
+                        ${det?`<div class="ps-det" style="opacity:.7">${det}</div>`:''}
+                        ${dt?`<div class="ps-date">${fmtDate(dt)}</div>`:''}
+                    </div>`;
+                }).join('')}
+            </div>`;
+
+    if (harvestSEs.length) { const h=harvestSEs[0]; html+=secLbl('Harvest')+`<div class="detail-grid">${dc('Farm',h.custom_farm)}${dc('Greenhouse',(h.custom_greenhouse||'').split(' - ')[0])}${dc('Stem Length',h.custom_stem_length)}${dc('Harvester',h.custom_harvester_payroll_number||h.custom_harvester)}${dc('Date',h.posting_date)}${dc('To Warehouse',(h.to_warehouse||'').split(' - ')[0])}${dc('Batch No',h.custom_harvest_batch_no,true)}${dc('Stock Entry',h.name)}</div>`; }
+    if (gradingSEs.length) { const g=gradingSEs[0]; html+=secLbl(`Grading (${gradingSEs.length} SE${gradingSEs.length>1?'s':''})`)+`<div class="detail-grid">${dc('Variety',j.variety)}${dc('Graded By',g.custom_graded_by)}${dc('Payroll No',g.custom_grader_payroll_number)}${dc('Stem Length',g.custom_stem_length)}${dc('Bunch ID',g.custom_bunch_id)}${dc('Bunched By',g.custom_bunched_by)}${dc('Packing Scanned',g.custom_scanned_packing?'Yes':'No')}${dc('Date',g.posting_date)}${dc('Stock Entry',g.name)}</div>`; }
+    if (receivingSEs.length){ const r=receivingSEs[0]; const late=r.stock_entry_type==='Late Receipt'?' (Late Receipt)':''; html+=secLbl('Receiving'+late)+`<div class="detail-grid">${dc('Type',r.stock_entry_type)}${dc('From',(r.from_warehouse||'').split(' - ')[0])}${dc('To',(r.to_warehouse||'').split(' - ')[0])}${dc('Stem Length',r.custom_stem_length)}${dc('Farm',r.custom_farm)}${dc('Date',r.posting_date)}${dc('Bucket Field',r.custom_received_bucket_id||'--')}${dc('Stock Entry',r.name)}</div>`; }
+    // Unified per-cycle lifecycle trail: every Shelving Log episode (shelved /
+    // transferred / issued / discarded / replaced / cleared) + QC reject and
+    // discard stock entries — everything that happened to the bucket this cycle.
+    const mv=[];
+    for (const r of sd){
+        const rs=r.reason||'';
+        let tag='On shelf now', cls='mv-onshelf';
+        if(r.removed_on){
+            if(rs.indexOf('Transferred')>=0){tag='Transferred out';cls='mv-transfer';}
+            else if(rs==='Issued to Sales Order'){tag='Issued';cls='mv-issue';}
+            else if(rs==='Discarded'){tag='Discarded';cls='mv-discard';}
+            else if(rs==='Replaced'){tag='Replaced';cls='mv-replace';}
+            else if(rs==='Shelf Cleared'){tag='Cleared from shelf';cls='mv-clear';}
+            else {tag=rs||'Removed';cls='mv-clear';}
+        }
+        const on=(r.shelved_on||'').replace('T',' ').split(' ')[0];
+        const off=(r.removed_on||'').replace('T',' ').split(' ')[0];
+        const parts=[`Shelved ${fmtDate(on)||on}`];
+        if(off) parts.push(`${tag.toLowerCase()} ${fmtDate(off)||off}`);
+        if(r.stem_qty) parts.push(`${r.stem_qty} stems`);
+        if(r.shelved_by) parts.push(String(r.shelved_by).split('@')[0]);
+        mv.push({sort:r.removed_on||r.shelved_on||'',html:`<div class="mv-item ${cls}"><div class="mv-dot"></div><div class="mv-body"><div class="mv-h"><strong>${r.shelf_name||r.shelf||'?'}</strong> <span class="mv-farm">${r.shelf_farm||r.farm||''}</span> <span class="mv-tag">${tag}</span></div><div class="mv-m">${parts.join(' &middot; ')}</div></div></div>`});
+    }
+    for (const se of (rejectData||[])){
+        const d=se.posting_date||'';
+        mv.push({sort:d+' '+(se.posting_time||''),html:`<div class="mv-item mv-reject"><div class="mv-dot"></div><div class="mv-body"><div class="mv-h"><span class="mv-farm">${se.custom_farm||''}</span> <span class="mv-tag">${se.stock_entry_type||'Rejected'}</span></div><div class="mv-m">${fmtDate(d)||d} &middot; <a href="/app/stock-entry/${se.name}" target="_blank">${se.name}</a></div></div></div>`});
+    }
+    for (const se of (discardData||[])){
+        const d=se.posting_date||'';
+        mv.push({sort:d+' '+(se.posting_time||''),html:`<div class="mv-item mv-discard"><div class="mv-dot"></div><div class="mv-body"><div class="mv-h"><span class="mv-farm">${se.custom_farm||''}</span> <span class="mv-tag">Discard entry</span></div><div class="mv-m">${fmtDate(d)||d} &middot; <a href="/app/stock-entry/${se.name}" target="_blank">${se.name}</a></div></div></div>`});
+    }
+    // Quarantine: into ('Receiving Quarantined') and out ('Quarantine Rejects' /
+    // 'Remove From Quarantine' / accept-release 'Material Transfer', gated on a prior quarantine-in).
+    const hasQin=(quarantineData||[]).some(se=>se.stock_entry_type==='Receiving Quarantined');
+    for (const se of (quarantineData||[])){
+        const t=se.stock_entry_type, d=se.posting_date||'';
+        let tag='', cls='';
+        if(t==='Receiving Quarantined'){tag='Quarantined';cls='mv-quar';}
+        else if(t==='Quarantine Rejects'){tag='Rejected from quarantine';cls='mv-reject';}
+        else if(t==='Remove From Quarantine'){tag='Released from quarantine';cls='mv-quar-out';}
+        else if(t==='Material Transfer'){ if(!hasQin) continue; tag='Released from quarantine';cls='mv-quar-out';}
+        else continue;
+        mv.push({sort:d+' '+(se.posting_time||''),html:`<div class="mv-item ${cls}"><div class="mv-dot"></div><div class="mv-body"><div class="mv-h"><span class="mv-farm">${se.custom_farm||''}</span> <span class="mv-tag">${tag}</span></div><div class="mv-m">${fmtDate(d)||d} &middot; <a href="/app/stock-entry/${se.name}" target="_blank">${se.name}</a></div></div></div>`});
+    }
+    if (mv.length){
+        mv.sort((a,b)=>String(b.sort).localeCompare(String(a.sort)));
+        html+=secLbl(`Shelf &amp; lifecycle (${mv.length}) — traced from the Shelving Log`)+`<div class="mv-trail">`+mv.map(m=>m.html).join('')+`</div>`;
+    } else if (issued) {
+        html+=secLbl('Shelving')+`<div class="detail-grid">${dc('Status','Shelf record cleared on issue — no Shelving Log rows')}</div>`;
+    }
+    if (allocData) { html+=secLbl('Allocation')+`<div class="detail-grid">${dc('Variety',allocData.item_code)}${dc('Total Stems',allocData.total_quantity)}${dc('Allocated',allocData.allocated_quantity)}${dc('Available',allocData.available_quantity)}${dc('Shelf',allocData.shelf_location)}${dc('Farm',allocData.shelf_farm)}</div>`; }
+
+    if (hasAllocs) {
+        const total=allocData.total_quantity||0;
+        html+=secLbl(`Sales Orders (${allocFull.bucket_allocations.length})`)+`<div class="cards-grid">${allocFull.bucket_allocations.map(a=>{
+            const pct=total>0?Math.round((a.quantity_allocated/total)*100):0;
+            return `<div class="data-card ${a.cancelled?'dc-void':''}" onclick="openDoc('Sales Order','${a.sales_order}')">
+                <div class="dcard-header"><div class="dcard-title">${a.sales_order}</div><span class="label ${a.cancelled?'label-danger':'label-success'}">${a.cancelled?'Cancelled':'Active'}</span></div>
+                <div class="dcard-body">${a.quantity_allocated} stems allocated</div>
+                <div class="pb-wrap"><div class="pb-lbl"><span>Share of bucket</span><span>${pct}%</span></div><div class="pb-track"><div class="pb-fill" style="width:${pct}%"></div></div></div>
+            </div>`;
+        }).join('')}</div>`;
+    }
+
+    if (onOPL) {
+        const uopls=[...new Map(oplData.map(r=>[r.parent,r])).values()];
+        html+=secLbl(`Order Pick Lists (${uopls.length})`)+`<div class="cards-grid">${uopls.map(row=>{
+            const rowIssued=row.custom_issued==1;
+            const pct=parseFloat(row.opl_issuing_pct)||(rowIssued?100:0);
+            const bCls=rowIssued?'label-success':pct>0?'label-warning':'label-default';
+            const bTxt=rowIssued?'Issued':pct>0?Math.round(pct)+'% Issued':'Pending';
+            return `<div class="data-card" onclick="openDoc('Order Pick List','${row.parent}')">
+                <div class="dcard-header"><div class="dcard-title">${row.opl_order_name||row.parent}</div><span class="label ${bCls}">${bTxt}</span></div>
+                <div class="dcard-body"><strong>${row.opl_customer||'--'}</strong>${row.opl_consignee?' &middot; '+row.opl_consignee:''}<br>SO: ${row.opl_sales_order||row.sales_order||'--'} &middot; Team: ${row.opl_team||'--'}</div>
+                <div class="dcard-stats">
+                    <div class="ds"><div class="ds-l">Shelf</div><div class="ds-v">${row.custom_shelf||'--'}</div></div>
+                    <div class="ds"><div class="ds-l">Stems</div><div class="ds-v">${row.stock_qty||'--'}</div></div>
+                    <div class="ds"><div class="ds-l">Box</div><div class="ds-v">${row.custom_box_id||'--'}</div></div>
+                    <div class="ds"><div class="ds-l">Issued</div><div class="ds-v">${rowIssued?'Yes':'No'}</div></div>
+                </div>
+            </div>`;
+        }).join('')}</div>`;
+    }
+
+    html+='</div></div>';
+    q('journeyPanel').innerHTML=html;
+}
+
+/* ═══════════════════════════════════════════════════════
+   BUNCH TRACKING
+═══════════════════════════════════════════════════════ */
+async function trackBunch() {
+    const bunchId = q('trackInput').value.trim();
+    if (!bunchId) { showError('Please enter a Bunch ID.'); return; }
+    clearError();
+    setState('loading');
+    q('loadingMsg').textContent = 'Tracing bunch journey...';
+    q('searchBtn').disabled = true;
+
+    try {
+        // ── 1. Grading SE for this bunch ──
+        const gradingSEs = await flP('Stock Entry',
+            [['custom_bunch_id','=',bunchId],['stock_entry_type','=','Grading']],
+            ['name','posting_date','posting_time','creation','custom_farm','custom_graded_by',
+             'custom_grader_payroll_number','custom_bunch_id','custom_stem_length',
+             'custom_harvest_batch_no','custom_bunched_by','custom_scanned_grading',
+             'custom_scanned_packing','custom_opl_scanned','to_warehouse','from_warehouse','docstatus'],
+            100,'posting_date asc, posting_time asc');
+
+        // ── 2. Harvest SE linked via batch no (for spray roses: bucket info) ──
+        const batchNos = [...new Set(gradingSEs.map(se=>se.custom_harvest_batch_no).filter(Boolean))];
+        let harvestSEs = [];
+        if (batchNos.length) {
+            harvestSEs = await flP('Stock Entry',
+                [['custom_harvest_batch_no','in',batchNos],['stock_entry_type','=','Harvesting']],
+                ['name','posting_date','custom_bucket_id','custom_farm','custom_greenhouse',
+                 'custom_stem_length','custom_harvest_batch_no','custom_harvester','to_warehouse'],
+                200,'posting_date asc');
+        }
+
+        // ── 3. Receiving SE(s) linked via batch no ──
+        let receivingSEs = [];
+        if (batchNos.length) {
+            receivingSEs = await flP('Stock Entry',
+                [['custom_harvest_batch_no','in',batchNos],['stock_entry_type','in',['Receiving','Late Receipt']]],
+                ['name','posting_date','stock_entry_type','custom_farm','custom_stem_length',
+                 'custom_harvest_batch_no','custom_received_bucket_id','to_warehouse','from_warehouse'],
+                200,'posting_date asc');
+        }
+
+        // ── 4. Shelf records for the bucket(s) referenced in harvest SEs ──
+        const bucketIds = [...new Set(harvestSEs.map(se=>se.custom_bucket_id).filter(Boolean))];
+        let shelfItems = [];
+        for (const bucketId of bucketIds) {
+            const shelves = await flP('Shelf',[['Shelf Item','bucket_id','=',bucketId]],['name','farm'],10);
+            for (const shelf of shelves) {
+                const doc = await fgP('Shelf', shelf.name);
+                if (!doc) continue;
+                (doc.items||[]).filter(i=>(i.bucket_id||'').toLowerCase()===bucketId.toLowerCase())
+                    .forEach(i=>shelfItems.push({...i,shelf_name:doc.name,shelf_farm:doc.farm,bucket_id:bucketId}));
+            }
+        }
+
+        // ── 5. OPL lookup ──
+        // PRIMARY: grading SE stores custom_opl_scanned = the exact OPL name for this bunch.
+        // This is set when the packing scan happens in the field.
+        // FALLBACK: if not set, look up via bucket ID but filter by creation >= grading date.
+        const gradingSE = gradingSEs[0];
+        let oplRows = [];
+        const gradingCreation = gradingSE?.creation || gradingSE?.posting_date || null;
+
+        // Collect OPL names to fetch: prefer custom_opl_scanned, else bucket-based lookup
+        const directOplNames = [...new Set(
+            gradingSEs.map(se => se.custom_opl_scanned).filter(Boolean)
+        )];
+
+        let oplNamesToFetch = [];
+
+        if (directOplNames.length) {
+            // Direct link — most reliable, use only these
+            oplNamesToFetch = directOplNames;
+        } else if (bucketIds.length) {
+            // Fallback: find OPLs via bucket, then filter by creation date
+            const oplParents = await flP('Order Pick List',
+                [['Pick List Item','custom_bucket','in',bucketIds]], ['name','creation'], 50);
+            if (oplParents.length && gradingCreation) {
+                const gradingMs = new Date(gradingCreation).getTime();
+                oplNamesToFetch = oplParents
+                    .filter(o => new Date(o.creation || 0).getTime() >= gradingMs)
+                    .map(o => o.name);
+            } else {
+                oplNamesToFetch = oplParents.map(o => o.name);
+            }
+        }
+
+        if (oplNamesToFetch.length) {
+            const docs = await Promise.all(oplNamesToFetch.map(n => fgP('Order Pick List', n)));
+            for (const doc of docs) {
+                if (!doc) continue;
+                // For direct OPL, include all rows for this bunch's bucket IDs
+                // For fallback, also guard by creation date
+                const docCreationMs = new Date(doc.creation || 0).getTime();
+                const gradingMs = gradingCreation ? new Date(gradingCreation).getTime() : 0;
+                if (!directOplNames.length && docCreationMs < gradingMs) continue;
+
+                (doc.locations || [])
+                    .filter(r => !bucketIds.length || bucketIds.map(b=>b.toLowerCase()).includes((r.custom_bucket||'').toLowerCase()))
+                    .forEach(r => oplRows.push({
+                        ...r, parent: doc.name, opl_customer: doc.customer,
+                        opl_order_name: doc.custom_order_name, opl_team: doc.custom_team,
+                        opl_status: doc.custom_status, opl_date: doc.date_created,
+                        opl_modified: doc.modified, opl_creation: doc.creation,
+                        opl_sales_order: doc.sales_order, opl_consignee: doc.custom_consignee,
+                    }));
+            }
+        }
+
+        // ── 6. Farm Pack List entries for this bunch ──
+        // Strategy: fetch Farm Pack List docs linked to the OPL(s) we already found,
+        // then also try any linked to the grading SE's batch/farm, and filter child rows client-side.
+        // We avoid a child-table doctype filter because the child DocType name may differ per install.
+        let packRows = [];
+        try {
+            // Collect candidate Farm Pack List names via OPL linkage
+            const oplNames = [...new Set(oplRows.map(r=>r.parent).filter(Boolean))];
+            const gradingSE = gradingSEs[0];
+            const packListFilters = [];
+
+            // Try by OPL
+            if (oplNames.length) {
+                const byOpl = await flP('Farm Pack List',
+                    [['custom_order_pick_list','in',oplNames]],
+                    ['name','custom_farm','custom_sales_order','custom_customer','custom_order_pick_list'],50);
+                packListFilters.push(...byOpl);
+            }
+
+            // Also try by farm + sales order (if we can derive it)
+            const soNames = [...new Set(oplRows.map(r=>r.opl_sales_order||r.sales_order).filter(Boolean))];
+            if (soNames.length) {
+                const bySO = await flP('Farm Pack List',
+                    [['custom_sales_order','in',soNames]],
+                    ['name','custom_farm','custom_sales_order','custom_customer','custom_order_pick_list'],50);
+                packListFilters.push(...bySO);
+            }
+
+            // Deduplicate
+            const seen = new Set();
+            const uniquePLs = packListFilters.filter(pl => { if (seen.has(pl.name)) return false; seen.add(pl.name); return true; });
+
+            // Fetch full docs and scan child rows for matching bunch_id
+            for (const pl of uniquePLs) {
+                const doc = await fgP('Farm Pack List', pl.name);
+                if (!doc) continue;
+                const childRows = doc.pack_list_item || doc.items || [];
+                childRows
+                    .filter(r => (r.bunch_id || '') === bunchId || (r.bunch_id || '').toLowerCase() === bunchId.toLowerCase())
+                    .forEach(r => packRows.push({
+                        ...r, pack_list_name: doc.name, pack_farm: doc.custom_farm,
+                        pack_sales_order: doc.custom_sales_order, pack_customer: doc.custom_customer,
+                        pack_opl: doc.custom_order_pick_list,
+                    }));
+            }
+        } catch (packErr) {
+            console.warn('Pack list lookup failed (non-fatal):', packErr);
+        }
+
+        const hasData = gradingSEs.length||harvestSEs.length||receivingSEs.length
+                     ||shelfItems.length||oplRows.length||packRows.length;
+
+        if (!hasData) {
+            q('emptyMsg').textContent = 'No records found for this Bunch ID.';
+            setState('empty'); return;
+        }
+
+        // ── Bunch QR Code doc for extra metadata (optional - may not exist) ──
+        let bunchQR = null;
+        try {
+            const qrList = await flP('Bunch QR Code',[['name','=',bunchId]],['name','farm','item_code','stem_length','bunch_size'],1);
+            if (qrList.length) bunchQR = await fgP('Bunch QR Code', bunchId);
+        } catch (e) { console.warn('Bunch QR Code lookup skipped:', e); }
+
+        G.bunch = { bunchId, gradingSEs, harvestSEs, receivingSEs, shelfItems, oplRows, packRows, bunchQR };
+        renderBunchJourney();
+
+    } catch (err) {
+        console.error('trackBunch error:', err);
+        const msg = err && err.message ? err.message : String(err);
+        showError('Error loading bunch data — ' + (msg.includes('not found') || msg.includes('Not found') ? msg : 'check console for details.'));
+        setState('hint');
+    } finally { q('searchBtn').disabled = false; }
+}
+
+function renderBunchJourney() {
+    const { bunchId, gradingSEs, harvestSEs, receivingSEs, shelfItems, oplRows, packRows, bunchQR } = G.bunch;
+    const se = gradingSEs[0];
+    const harvest = harvestSEs[0];
+    const recv = receivingSEs[0];
+    const shelf = shelfItems[0];
+    const opl = oplRows[0];
+    const pack = packRows[0];
+
+    // Determine status
+    const isPacked = packRows.length > 0;
+    const isOnOPL  = oplRows.length > 0;
+    const isOnShelf= shelfItems.length > 0;
+    const isRecv   = receivingSEs.length > 0;
+    const isGraded = gradingSEs.length > 0;
+    const isHarvested = harvestSEs.length > 0;
+    const isIssued = isOnOPL && oplRows.some(r=>r.custom_issued==1);
+
+    let statusLabel, statusCls, statusLabelCls;
+    // Order: OPL → Issue → Packing  (issue happens on OPL screen, packing on farm after)
+    if (isPacked)                { statusLabel='Packed';   statusCls='sw-packed';  statusLabelCls='label-success'; }
+    else if (isIssued)           { statusLabel='Issued';   statusCls='sw-issued';  statusLabelCls='label-success'; }
+    else if (isOnOPL)            { statusLabel='On OPL';   statusCls='sw-pending'; statusLabelCls='label-warning'; }
+    else if (isOnShelf)          { statusLabel='On Shelf'; statusCls='sw-onshelf'; statusLabelCls='label-primary'; }
+    else if (isRecv)             { statusLabel='Received'; statusCls='sw-recv';    statusLabelCls='label-info'; }
+    else if (isGraded)           { statusLabel='Graded';   statusCls='sw-graded';  statusLabelCls='label-info'; }
+    else                         { statusLabel='In Field'; statusCls='sw-infield'; statusLabelCls='label-warning'; }
+
+    const variety = se?.custom_stem_length ? '' : '';
+    const actualVariety = bunchQR?.item_code || (harvest?.name ? (gradingSEs[0]?.from_warehouse||'') : '') || '--';
+    const farm = se?.custom_farm || harvest?.custom_farm || bunchQR?.farm || '--';
+    const stemLength = se?.custom_stem_length || bunchQR?.stem_length || '--';
+    const gradingDate = se?.posting_date || '--';
+
+    // Summary well
+    q('bunchSummary').style.display = '';
+    q('bunchSummaryId').textContent = bunchId.toUpperCase();
+    q('bunchSumVariety').textContent = bunchQR?.item_code || actualVariety;
+    q('bunchSumFarm').textContent = farm;
+    q('bunchSumDate').textContent = fmtDate(gradingDate);
+    q('bunchSumLength').textContent = stemLength;
+    const bStatusEl = q('bunchSummaryStatus');
+    bStatusEl.textContent = statusLabel; bStatusEl.className = 'label '+statusLabelCls;
+
+    // Bunch stages: Greenhouse → Grading → Receiving → Shelf → OPL → Issue → Packing
+    const bunchStages = [
+        { key:'Greenhouse', lbl:'Greenhouse', done:isHarvested||isGraded },
+        { key:'Grading',    lbl:'Grading',    done:isGraded },
+        { key:'Receiving',  lbl:'Receiving',  done:isRecv },
+        { key:'Shelf',      lbl:'Shelf',      done:isOnShelf },
+        { key:'OPL',        lbl:'Pick List',  done:isOnOPL },
+        { key:'Issue',      lbl:'Issue',      done:isIssued },
+        { key:'Packing',    lbl:'Packing',    done:isPacked },
+    ];
+    function bunchStageDetail(key) {
+        switch(key){
+            case 'Greenhouse': return harvest?(harvest.custom_greenhouse||harvest.custom_farm||'').split(' - ')[0]:(bunchQR?.farm||'');
+            case 'Grading':   return se?`${se.custom_graded_by||''}${se.custom_bunch_id?' · Bunch '+se.custom_bunch_id:''}`:'';
+            case 'Receiving': return recv?(recv.stock_entry_type==='Late Receipt'?'Late · ':'')+(recv.to_warehouse||'').split(' - ')[0]:'';
+            case 'Shelf':     return shelf?shelf.shelf_name:'';
+            case 'OPL':       return opl?opl.parent:'';
+            case 'Packing':   return pack?`Pack List ${pack.pack_list_name}`:'';
+            case 'Issue':     { const ir=oplRows.find(r=>r.custom_issued==1)||opl; return ir?ir.opl_order_name||ir.parent:''; }
+        }
+        return '';
+    }
+    function bunchStageDate(key) {
+        switch(key){
+            case 'Greenhouse': return harvest?.posting_date||'';
+            case 'Grading':    return se?.posting_date||'';
+            case 'Receiving':  return recv?.posting_date||'';
+            case 'Shelf':      return shelf?.date_added?.split(' ')[0]||'';
+            case 'OPL':        return opl?.opl_date?.split(' ')[0]||'';
+            case 'Issue':      { const ir=oplRows.find(r=>r.custom_issued==1); return ir?.opl_modified?.split(' ')[0]||ir?.opl_date?.split(' ')[0]||''; }
+            case 'Packing':    return pack?.creation?.split(' ')[0]||pack?.modified?.split(' ')[0]||''
+        }
+        return '';
+    }
+    function bunchStageStemLength(key) {
+        switch(key){
+            case 'Grading':   return se?.custom_stem_length||bunchQR?.stem_length||'';
+            case 'Receiving': return recv?.custom_stem_length||'';
+            case 'Shelf':     return shelf?.stem_length||'';
+            case 'OPL':       return opl?.custom_stem_length||'';
+        }
+        return '';
+    }
+
+    let statusMsg =
+        isPacked            ? `Packed — box <strong>${pack?.box_id||'--'}</strong> on OPL <strong>${opl?.opl_order_name||opl?.parent||''}</strong>` :
+        isIssued            ? `Issued on OPL <strong>${opl?.opl_order_name||opl?.parent||''}</strong> — awaiting packing` :
+        isOnOPL             ? `On OPL <strong>${opl?.parent||''}</strong> — awaiting issue` :
+        isOnShelf           ? `On shelf <strong>${shelf?.shelf_name||''}</strong>` :
+        isRecv              ? `Received — in <strong>${(recv?.to_warehouse||'').split(' - ')[0]}</strong>` :
+        isGraded            ? 'Graded — awaiting receiving' :
+        'In the field — not yet graded';
+
+    let html = `<div class="panel">
+        <div class="panel-heading">
+            <div class="panel-heading-inner">
+                <div>
+                    <div class="panel-title">Bunch Journey &nbsp;&middot;&nbsp; ${bunchId}</div>
+                    <div class="panel-sub">
+                        ${farm !== '--' ? farm+' &middot; ' : ''}${bunchQR?.item_code||''}
+                        ${stemLength !== '--' ? ' &middot; '+stemLength : ''}
+                        ${se?.custom_bunched_by ? ' &middot; Bunched: '+se.custom_bunched_by : ''}
+                    </div>
+                </div>
+                <div style="text-align:right;font-size:12px;color:var(--text-secondary);flex-shrink:0">
+                    <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;color:var(--text-muted)">Graded</div>
+                    <div style="font-weight:600;color:var(--text-primary)">${fmtDate(gradingDate)}</div>
+                    ${isPacked ? `<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-top:6px;font-weight:600;color:var(--text-muted)">Packed</div>
+                    <div style="font-weight:600;color:var(--text-primary)">${fmtDate(bunchStageDate('Packing'))}</div>` : ''}
+                </div>
+            </div>
+        </div>
+        <div class="panel-body">
+            <div class="status-well ${statusCls}"><strong>${statusLabel}</strong> — <span>${statusMsg}</span></div>
+
+            <div class="section-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Bunch Journey Path</div>
+            <div class="journey-path journey-path-7">
+                ${bunchStages.map(s=>{
+                    const det=bunchStageDetail(s.key), dt=bunchStageDate(s.key), sl=bunchStageStemLength(s.key);
+                    return `<div class="path-stage ${s.done?'ps-done':'ps-pending'}">
+                        <div class="ps-lbl">${s.lbl}</div>
+                        <div class="ps-stat ${s.done?'ps-done-t':'ps-pend-t'}">${s.done?'Done':'--'}</div>
+                        ${sl?`<div class="ps-det">${sl}</div>`:''}
+                        ${det?`<div class="ps-det" style="opacity:.7">${det}</div>`:''}
+                        ${dt?`<div class="ps-date">${fmtDate(dt)}</div>`:''}
+                    </div>`;
+                }).join('')}
+            </div>
+
+            <div class="section-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Detailed Timeline</div>
+
+            <div class="bunch-chain">`;
+
+    /* ── Chain: Greenhouse / Harvest ── */
+    if (isHarvested) {
+        html += chainStep('ci-harvest','H','Greenhouse / Harvest',
+            `<strong>Farm:</strong> ${harvest.custom_farm||'--'} &nbsp;&middot;&nbsp; <strong>Greenhouse:</strong> ${(harvest.custom_greenhouse||'').split(' - ')[0]||'--'}<br>
+             <strong>Bucket ID:</strong> ${harvest.custom_bucket_id||'--'} &nbsp;&middot;&nbsp; <strong>Harvester:</strong> ${harvest.custom_harvester||'--'}<br>
+             <strong>Batch:</strong> ${harvest.custom_harvest_batch_no||'--'}<br>
+             <strong>Date:</strong> ${fmtDate(harvest.posting_date)} &nbsp;&middot;&nbsp; <a href="#" onclick="openDoc('Stock Entry','${harvest.name}');return false" style="color:var(--accent-blue);text-decoration:none">${harvest.name}</a>`,
+             harvest.posting_date);
+    } else if (bunchQR) {
+        html += chainStep('ci-harvest','H','Bunch QR Code (Source)',
+            `<strong>Farm:</strong> ${bunchQR.farm||'--'} &nbsp;&middot;&nbsp; <strong>Variety:</strong> ${bunchQR.item_code||'--'}<br>
+             <strong>Stem Length:</strong> ${bunchQR.stem_length||'--'} &nbsp;&middot;&nbsp; <strong>Bunch Size:</strong> ${bunchQR.bunch_size||'--'}`,
+             null);
+    }
+
+    /* ── Chain: Grading ── */
+    for (const g of gradingSEs) {
+        html += chainStep('ci-grading','G','Grading Stock Entry',
+            `<strong>Graded By:</strong> ${g.custom_graded_by||'--'} (${g.custom_grader_payroll_number||'--'})<br>
+             <strong>Stem Length:</strong> ${g.custom_stem_length||'--'} &nbsp;&middot;&nbsp; <strong>Bunched By:</strong> ${g.custom_bunched_by||'--'}<br>
+             <strong>From:</strong> ${(g.from_warehouse||'--').split(' - ')[0]} &rarr; <strong>To:</strong> ${(g.to_warehouse||'--').split(' - ')[0]}<br>
+             <strong>Packing Scanned:</strong> ${g.custom_scanned_packing?'Yes':'No'} &nbsp;&middot;&nbsp; <strong>Batch:</strong> ${g.custom_harvest_batch_no||'--'}<br>
+             <strong>Date:</strong> ${fmtDate(g.posting_date)} &nbsp;&middot;&nbsp; <a href="#" onclick="openDoc('Stock Entry','${g.name}');return false" style="color:var(--accent-blue);text-decoration:none">${g.name}</a>`,
+             g.posting_date);
+    }
+
+    /* ── Chain: Receiving ── */
+    for (const r of receivingSEs) {
+        const late = r.stock_entry_type==='Late Receipt';
+        html += chainStep('ci-receiving','R',`Receiving${late?' (Late Receipt)':''}`,
+            `<strong>Bucket:</strong> ${r.custom_received_bucket_id||'--'}<br>
+             <strong>From:</strong> ${(r.from_warehouse||'--').split(' - ')[0]} &rarr; <strong>To:</strong> ${(r.to_warehouse||'--').split(' - ')[0]}<br>
+             <strong>Stem Length:</strong> ${r.custom_stem_length||'--'} &nbsp;&middot;&nbsp; <strong>Farm:</strong> ${r.custom_farm||'--'}<br>
+             <strong>Date:</strong> ${fmtDate(r.posting_date)} &nbsp;&middot;&nbsp; <a href="#" onclick="openDoc('Stock Entry','${r.name}');return false" style="color:var(--accent-blue);text-decoration:none">${r.name}</a>`,
+             r.posting_date);
+    }
+
+    /* ── Chain: Shelf ── */
+    for (const s of shelfItems) {
+        html += chainStep('ci-shelf','S','Shelved',
+            `<strong>Shelf:</strong> ${s.shelf_name||'--'} &nbsp;&middot;&nbsp; <strong>Farm:</strong> ${s.shelf_farm||'--'}<br>
+             <strong>Variety:</strong> ${s.variety||'--'} &nbsp;&middot;&nbsp; <strong>Stem Length:</strong> ${s.stem_length||'--'}<br>
+             <strong>Qty:</strong> ${s.stem_qty||'--'} stems &nbsp;&middot;&nbsp; <strong>Bucket:</strong> ${s.bucket_id||'--'}<br>
+             <strong>Date Added:</strong> ${fmtDateTime(s.date_added)||'--'}`,
+             s.date_added?.split(' ')[0]||null);
+    }
+
+    /* ── Chain: OPL rows ── */
+    const uniqueOPLs = [...new Map(oplRows.map(r=>[r.parent,r])).values()];
+    for (const o of uniqueOPLs) {
+        const rowIssued = o.custom_issued==1;
+        html += chainStep('ci-opl','P','Order Pick List',
+            `<strong>OPL:</strong> <a href="#" onclick="openDoc('Order Pick List','${o.parent}');return false" style="color:var(--accent-blue);text-decoration:none">${o.opl_order_name||o.parent}</a><br>
+             <strong>Customer:</strong> ${o.opl_customer||'--'}${o.opl_consignee?' &middot; '+o.opl_consignee:''}<br>
+             <strong>Sales Order:</strong> ${o.opl_sales_order||o.sales_order||'--'} &nbsp;&middot;&nbsp; <strong>Team:</strong> ${o.opl_team||'--'}<br>
+             <strong>Shelf:</strong> ${o.custom_shelf||'--'} &nbsp;&middot;&nbsp; <strong>Box ID:</strong> ${o.custom_box_id||'--'} &nbsp;&middot;&nbsp; <strong>Stems:</strong> ${o.stock_qty||'--'}<br>
+             <strong>Status:</strong> <span class="label ${rowIssued?'label-success':'label-warning'}" style="font-size:10px">${rowIssued?'Issued':'Pending'}</span>`,
+             o.opl_date?.split(' ')[0]||null);
+    }
+
+    /* ── Chain: Issue (OPL marked issued) ── */
+    const issuedRow = oplRows.find(r=>r.custom_issued==1);
+    if (issuedRow) {
+        const issueDate = issuedRow.opl_modified?.split(' ')[0]||issuedRow.opl_date?.split(' ')[0]||null;
+        html += chainStep('ci-issue','I','Issued',
+            `<strong>OPL:</strong> ${issuedRow.opl_order_name||issuedRow.parent}<br>
+             <strong>Customer:</strong> ${issuedRow.opl_customer||'--'}${issuedRow.opl_consignee?' &middot; '+issuedRow.opl_consignee:''}<br>
+             <strong>Sales Order:</strong> ${issuedRow.opl_sales_order||issuedRow.sales_order||'--'}`,
+             issueDate);
+    }
+
+    /* ── Chain: Packing (Farm Pack List — created after issue) ── */
+    const uniquePacks = [...new Map(packRows.map(r=>[r.pack_list_name,r])).values()];
+    for (const p of uniquePacks) {
+        html += chainStep('ci-pack','K','Packed into Box',
+            `<strong>Pack List:</strong> <a href="#" onclick="openDoc('Farm Pack List','${p.pack_list_name}');return false" style="color:var(--accent-blue);text-decoration:none">${p.pack_list_name}</a><br>
+             <strong>Box ID:</strong> ${p.box_id||'--'} &nbsp;&middot;&nbsp; <strong>Farm:</strong> ${p.pack_farm||'--'}<br>
+             <strong>Item:</strong> ${p.item_code||'--'} &nbsp;&middot;&nbsp; <strong>Stem Length:</strong> ${p.stem_length||'--'}<br>
+             <strong>Bunch UOM:</strong> ${p.bunch_uom||'--'} &nbsp;&middot;&nbsp; <strong>Bunch Qty:</strong> ${p.bunch_qty||'--'}<br>
+             <strong>Stems:</strong> ${p.custom_number_of_stems||'--'} &nbsp;&middot;&nbsp; <strong>Sales Order:</strong> ${p.pack_sales_order||'--'}`,
+             p.creation?.split(' ')[0]||null);
+    }
+
+    html += `</div>`; // close bunch-chain
+
+    /* ── Bucket cross-reference ── */
+    const linkedBuckets = [...new Set(harvestSEs.map(se=>se.custom_bucket_id).filter(Boolean))];
+    if (linkedBuckets.length) {
+        html += secLbl('Linked Buckets');
+        html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">`;
+        for (const bid of linkedBuckets) {
+            html += `<button class="btn btn-secondary btn-sm" onclick="trackLinkedBucket('${bid}')">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M6 6V4h12v2M8 6v14h8V6"/></svg>
+                Track Bucket ${bid}
+            </button>`;
+        }
+        html += `</div>`;
+    }
+
+    html += `</div></div>`; // close panel-body + panel
+    q('journeyPanel').innerHTML = html;
+    setState('results');
+}
+
+function chainStep(iconCls, iconLetter, title, metaHtml, dateStr) {
+    return `<div class="chain-step">
+        <div class="chain-icon ${iconCls}">${iconLetter}</div>
+        <div class="chain-content">
+            <div class="chain-title">
+                ${title}
+                ${dateStr ? `<span style="font-size:11px;font-weight:400;color:var(--text-muted);margin-left:auto">${fmtDate(dateStr)}</span>` : ''}
+            </div>
+            <div class="chain-meta">${metaHtml}</div>
+        </div>
+    </div>`;
+}
+
+function trackLinkedBucket(bucketId) {
+    setMode('bucket');
+    q('trackInput').value = bucketId;
+    trackBucket();
+}
+
+/* ═══════════════════════════════════════════════════════
+   CORRECTION MODAL  (bucket mode only)
+═══════════════════════════════════════════════════════ */
+function getActiveJourney() {
+    const activeTab = document.querySelector('.nav-tab.active');
+    if (!activeTab) return G.allJourneys?.[G.allJourneys.length-1]||null;
+    const num = parseInt(activeTab.id.replace('tab-',''));
+    return (G.allJourneys||[]).find(j=>j.number===num)||null;
+}
+
+function openCorrectionModal() {
+    const j = getActiveJourney();
+    if (!j) { showError('No journey selected.'); return; }
+    currentJourneyForCorrection = j;
+    q('correctStemLength').value = '';
+    q('correctVariety').value = '';
+    q('correctionLog').style.display = 'none';
+    q('correctionLog').innerHTML = '';
+    q('modalApplyBtn').disabled = false;
+    q('modalApplyBtn').innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Apply Corrections';
+    q('varietyDropdown').classList.remove('show');
+    const currentSL = stemLengthOf(j.harvestSEs)||stemLengthOf(j.gradingSEs)||stemLengthOf(j.receivingSEs)||j.shelfData?.[0]?.stem_length||j.allocData?.stem_length||'--';
+    const currentVar = j.variety||j.shelfData?.[0]?.variety||j.allocData?.item_code||'--';
+    q('currentStemLength').textContent = currentSL;
+    q('currentVariety').textContent = currentVar;
+    q('modalBucketId').textContent = G.id.toUpperCase();
+    q('modalJourneyLabel').textContent = `Journey ${j.number} · ${j.variety||'Unknown'} · ${fmtDate(journeyStartDate(j))}`;
+    buildAffectedDocsList(j);
+    q('correctionModal').classList.add('show');
+    q('correctStemLength').focus();
+}
+function closeCorrectionModal() {
+    q('correctionModal').classList.remove('show');
+    q('varietyDropdown').classList.remove('show');
+}
+function buildAffectedDocsList(j) {
+    const list = q('affectedDocsList');
+    let html = '';
+    const dotColor = t => ({Harvest:'var(--accent-green)',Grading:'var(--accent-purple)',Receiving:'var(--accent-blue)',Shelf:'var(--accent-orange)',Allocation:'var(--text-muted)'}[t]||'var(--text-muted)');
+    for (const se of j.harvestSEs)   html+=`<div class="affected-doc-row"><span class="adr-icon" style="background:${dotColor('Harvest')}"></span><span class="adr-type">Harvest</span><span class="adr-name">${se.name}</span><span class="adr-current">${se.custom_stem_length||'--'}</span></div>`;
+    for (const se of j.gradingSEs)   html+=`<div class="affected-doc-row"><span class="adr-icon" style="background:${dotColor('Grading')}"></span><span class="adr-type">Grading</span><span class="adr-name">${se.name}</span><span class="adr-current">${se.custom_stem_length||'--'}</span></div>`;
+    for (const se of j.receivingSEs) html+=`<div class="affected-doc-row"><span class="adr-icon" style="background:${dotColor('Receiving')}"></span><span class="adr-type">Receiving</span><span class="adr-name">${se.name}</span><span class="adr-current">${se.custom_stem_length||'--'}</span></div>`;
+    for (const row of (j.shelfData||[])) html+=`<div class="affected-doc-row"><span class="adr-icon" style="background:${dotColor('Shelf')}"></span><span class="adr-type">Shelf Item</span><span class="adr-name">${row.shelf_name}/${row.name}</span><span class="adr-current">${row.stem_length||'--'} · ${row.variety||'--'}</span></div>`;
+    if (j.allocData) html+=`<div class="affected-doc-row"><span class="adr-icon" style="background:${dotColor('Allocation')}"></span><span class="adr-type">Allocation</span><span class="adr-name">${j.allocData.name}</span><span class="adr-current">${j.allocData.stem_length||'--'} · ${j.allocData.item_code||'--'}</span></div>`;
+    if (!html) html='<div style="padding:10px;font-size:12px;color:var(--text-muted);text-align:center">No documents found for this journey.</div>';
+    list.innerHTML = html;
+}
+function onVarietyInput(val) {
+    clearTimeout(varietySearchTimeout);
+    if (!val||val.length<2){q('varietyDropdown').classList.remove('show');return;}
+    varietySearchTimeout=setTimeout(()=>searchVariety(val),250);
+}
+function searchVariety(query) {
+    frappe.call({
+        method:'frappe.client.get_list',
+        args:{doctype:'Item',filters:[['item_name','like','%'+query+'%']],fields:['name','item_name'],limit_page_length:15,order_by:'item_name asc'},
+        callback(r){
+            varietyResults=r.message||''; varietyHighlightIdx=-1;
+            const dd=q('varietyDropdown');
+            if(!varietyResults.length){dd.classList.remove('show');return;}
+            dd.innerHTML=varietyResults.map((item,i)=>`<div class="autocomplete-item" data-idx="${i}" onmousedown="selectVariety(${i})">${escHtml(item.item_name||item.name)}</div>`).join('');
+            dd.classList.add('show');
+            dd.style.width=q('correctVariety').offsetWidth+'px';
+        }
+    });
+}
+function onVarietyKeydown(e) {
+    const dd=q('varietyDropdown');
+    if(!dd.classList.contains('show'))return;
+    if(e.key==='ArrowDown'){e.preventDefault();varietyHighlightIdx=Math.min(varietyHighlightIdx+1,varietyResults.length-1);updateVarietyHighlight();}
+    else if(e.key==='ArrowUp'){e.preventDefault();varietyHighlightIdx=Math.max(varietyHighlightIdx-1,0);updateVarietyHighlight();}
+    else if(e.key==='Enter'){e.preventDefault();if(varietyHighlightIdx>=0)selectVariety(varietyHighlightIdx);else if(varietyResults.length)selectVariety(0);}
+    else if(e.key==='Escape')dd.classList.remove('show');
+}
+function updateVarietyHighlight() {
+    q('varietyDropdown').querySelectorAll('.autocomplete-item').forEach((el,i)=>el.classList.toggle('highlighted',i===varietyHighlightIdx));
+}
+function selectVariety(idx) {
+    const item=varietyResults[idx]; if(!item)return;
+    q('correctVariety').value=item.name; q('varietyDropdown').classList.remove('show');
+}
+
+async function applyCorrectionForCurrentJourney() {
+    const j=currentJourneyForCorrection; if(!j)return;
+    const newStemLength=q('correctStemLength').value.trim();
+    const newVariety=q('correctVariety').value.trim();
+    if(!newStemLength&&!newVariety){showError('Please enter at least one field to correct.');return;}
+    q('modalApplyBtn').disabled=true;
+    q('modalApplyBtn').innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite"><circle cx="12" cy="12" r="10"/></svg> Updating...';
+    const logEl=q('correctionLog'); logEl.style.display='block'; logEl.innerHTML='';
+    let successCount=0,failCount=0;
+    function addLog(msg,type){logEl.innerHTML+=`<div class="correction-log-item log-${type}">${msg}</div>`;logEl.scrollTop=logEl.scrollHeight;}
+
+    for (const se of j.harvestSEs){try{if(newStemLength){await fSetValue('Stock Entry',se.name,'custom_stem_length',newStemLength);addLog(`Harvest ${se.name} — updated`,'ok');successCount++;}else addLog(`Harvest ${se.name} — no fields`,'skip');}catch(e){addLog(`Harvest ${se.name} — failed: ${e.message||e}`,'fail');failCount++;}}
+    for (const se of j.gradingSEs){try{if(newStemLength){await fSetValue('Stock Entry',se.name,'custom_stem_length',newStemLength);addLog(`Grading ${se.name} — updated`,'ok');successCount++;}else addLog(`Grading ${se.name} — no fields`,'skip');}catch(e){addLog(`Grading ${se.name} — failed: ${e.message||e}`,'fail');failCount++;}}
+    for (const se of j.receivingSEs){try{if(newStemLength){await fSetValue('Stock Entry',se.name,'custom_stem_length',newStemLength);addLog(`Receiving ${se.name} — updated`,'ok');successCount++;}else addLog(`Receiving ${se.name} — no fields`,'skip');}catch(e){addLog(`Receiving ${se.name} — failed: ${e.message||e}`,'fail');failCount++;}}
+    for (const row of (j.shelfData||[])){try{const upd={};if(newStemLength)upd.stem_length=newStemLength;if(newVariety)upd.variety=newVariety;if(Object.keys(upd).length){for(const[f,v]of Object.entries(upd))await fSetValueSingle('Shelf Item',row.name,f,v);addLog(`Shelf Item ${row.shelf_name}/${row.name} — updated`,'ok');successCount++;}else addLog(`Shelf Item ${row.name} — no fields`,'skip');}catch(e){addLog(`Shelf ${row.name} — failed: ${e.message||e}`,'fail');failCount++;}}
+    if(j.allocData){try{const upd={};if(newStemLength)upd.stem_length=newStemLength;if(newVariety)upd.item_code=newVariety;if(Object.keys(upd).length){await fSetValue('Bucket Allocation Status',j.allocData.name,upd);addLog(`Allocation ${j.allocData.name} — updated`,'ok');successCount++;}else addLog(`Allocation ${j.allocData.name} — no fields`,'skip');}catch(e){addLog(`Allocation ${j.allocData.name} — failed: ${e.message||e}`,'fail');failCount++;}}
+
+    const summary=failCount===0?`All done — ${successCount} document${successCount!==1?'s':''} updated.`:`Completed with ${failCount} error${failCount!==1?'s':''}. ${successCount} updated.`;
+    addLog(`<strong>${summary}</strong>`,failCount?'fail':'ok');
+    q('modalApplyBtn').innerHTML=failCount===0?'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Done':'Done (with errors)';
+    q('modalCancelBtn').textContent='Close';
+    setTimeout(()=>{closeCorrectionModal();trackBucket();},2000);
+}
+
+/* ═══════════════════════════════════════════════════════
+   SHARED UI HELPERS
+═══════════════════════════════════════════════════════ */
+function secLbl(txt) {
+    return `<div class="section-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>${txt}</div>`;
+}
+function dc(label,value,small){return `<div class="dc"><div class="dk">${label}</div><div class="dv"${small?' style="font-size:10px"':''}>${value||'--'}</div></div>`;}
+
+setState('hint');
+
+/* -- Sidebar footer (user identity) -- */
+(function fillFooter(){
+    function tryFill(){
+        if (!window.frappe || !frappe.session || !frappe.session.user){ setTimeout(tryFill, 100); return; }
+        var u = frappe.session.user || '';
+        var fullName = (frappe.session.user_fullname || (frappe.boot && frappe.boot.user && frappe.boot.user.full_name)) || u.split('@')[0];
+        document.getElementById('aph-foot-av').textContent = (fullName || u || '?').substring(0,1).toUpperCase();
+        document.getElementById('aph-foot-nm').textContent = fullName;
+        document.getElementById('aph-foot-em').textContent = u;
+    }
+    tryFill();
+})();
+</script>
+
+<script>
+(function(){
+  var aph=document.querySelector('.aph'), btn=document.getElementById('collapseBtn');
+  if(!aph) return;
+  try{ if(localStorage.getItem('aphSideCollapsed')==='1') aph.classList.add('collapsed'); }catch(e){}
+  if(btn) btn.addEventListener('click',function(){
+    aph.classList.toggle('collapsed');
+    try{ localStorage.setItem('aphSideCollapsed', aph.classList.contains('collapsed')?'1':'0'); }catch(e){}
+  });
+})();
+</script>
+
+
+<style id="v16-polish">
+/* v16 polish — slim single-row top bar; filters scroll horizontally instead of
+   spilling off-screen or wrapping into a tall/fat bar. */
+.aph-topbar{padding:9px 20px !important;gap:12px !important;flex-wrap:nowrap !important;min-height:0 !important;align-items:center !important}
+.aph-topbar h1{font-size:16px !important;line-height:1.25;white-space:nowrap}
+.aph-topbar .right{margin-left:auto !important;flex-wrap:nowrap !important;overflow-x:auto;overflow-y:hidden;max-width:100%;padding-bottom:1px;scrollbar-width:thin}
+.aph-topbar .right > *{flex:0 0 auto}
+.aph-topbar .right::-webkit-scrollbar{height:4px}
+.aph-topbar .right::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:4px}
+.aph-main{min-width:0 !important;overflow-x:hidden}
+.aph-main table{max-width:100%}
+@media (max-width:1180px){ .aph-topbar{padding:8px 14px !important} .aph-topbar .crumb{display:none} }
+</style>
+<style>
+.navbar.navbar-light { display: none !important; } .web-footer { display: none !important; } nav.navbar.navbar-primary.navbar-expand-lg { display: none !important; }
+</style>
+<link rel="stylesheet" href="/assets/upande_packhouse/css/packhouse-portal.css">
+{% endraw %}
+{% endblock %}

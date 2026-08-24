@@ -1,0 +1,1521 @@
+{% extends "templates/web.html" %}
+{% block page_content %}
+{% raw %}
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cold Room</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --bg:#fff;--bg-card:#fff;--bg-hover:#fafafa;--bg-muted:#f5f5f5;
+  --border:#ececec;--border-2:#d0d0d0;
+  --text:#000;--text-2:#6b6b6b;--text-3:#9a9a9a;--text-4:#cfcfcf;
+  --accent:#000;
+  --good:#16a34a;--warn:#d97706;--bad:#dc2626;--plan:#d4d4d4;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.04);
+  --f:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --mono:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;
+}
+/* Take dashboard out of Frappe layout entirely — fill viewport */
+html,body{margin:0!important;padding:0!important;overflow:hidden!important;height:100vh!important}
+.navbar,header,.page-breadcrumbs,.page-header,.page-header-wrapper,.web-footer,footer,
+.website-edit-button,.btn-edit-page,.edit-page-btn,.scroll-to-top,.back-to-top,
+.website-banner,.call-to-action,.frappe-chat,#frappe-chat,.telegram-share,.share-buttons,
+.web-page-edit,.published-edit{display:none!important}
+.aph *{box-sizing:border-box;margin:0;padding:0}
+.aph{position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100vh;z-index:2147483000;
+  font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;
+  display:grid;grid-template-columns:240px 1fr;font-feature-settings:'cv11','ss01','ss03'}
+
+.aph svg.ic{width:16px;height:16px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.aph .aph-side svg.ic{width:15px;height:15px;stroke-width:1.6;color:var(--text-3)}
+.aph .aph-side .nav-item.active svg.ic{color:#fff}
+.aph .aph-kpi svg.ic{width:18px;height:18px;color:var(--text-3);stroke-width:1.5}
+
+/* SIDEBAR */
+.aph-side{background:var(--bg-card);border-right:1px solid var(--border);height:100vh;position:sticky;top:0;display:flex;flex-direction:column;overflow:hidden}
+.aph-side .brand{padding:18px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+.aph-side .brand .mark{width:36px;height:36px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px;letter-spacing:-0.02em;border-radius:7px}
+.aph-side .brand .name{font-weight:600;font-size:14px;line-height:1.15;letter-spacing:-0.015em}
+.aph-side .brand .name small{display:block;font-size:11px;color:var(--text-3);font-weight:400;margin-top:2px}
+/* Note: "nav" collides with Bootstrap's .nav (flex-wrap:wrap) loaded by Frappe —
+   force nowrap + column here or items wrap into a phantom second column */
+.aph-side .nav{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:6px 0 16px;margin:0;list-style:none;display:flex;flex-direction:column;flex-wrap:nowrap!important}
+.aph-side .group-lbl{padding:14px 20px 4px;font-size:10px;color:var(--text-3);letter-spacing:.1em;text-transform:uppercase;font-weight:600;display:block}
+.aph-side .group-lbl:first-child{padding-top:10px}
+.aph-side .nav-item{display:flex;align-items:center;gap:11px;padding:8px 12px;cursor:pointer;font-size:13px;color:var(--text-2);font-weight:500;user-select:none;transition:background .12s ease,color .12s ease;margin:1px 8px;border-radius:6px;box-sizing:border-box;text-decoration:none}
+.aph-side .nav-item:hover{background:var(--bg-hover);color:var(--text);text-decoration:none}
+.aph-side .nav-item.active{background:var(--accent);color:#fff;font-weight:500}
+.aph-side .nav-item .badge{margin-left:auto;font-family:var(--mono);font-size:10px;font-weight:600;color:var(--text-2);background:var(--bg-muted);padding:1px 7px;border-radius:9px;line-height:1.4}
+.aph-side .nav-item.active .badge{color:#fff;background:rgba(255,255,255,.18)}
+.aph-side .nav-item.stub{color:var(--text-3)}
+.aph-side .nav-item.stub svg.ic{opacity:.55}
+.aph-side .footer{padding:12px 20px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px;font-size:11px;color:var(--text-2)}
+.aph-side .footer .av{width:24px;height:24px;border-radius:50%;background:var(--bg-muted);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:10px;color:var(--text)}
+.aph-side .footer .who{flex:1;line-height:1.2;overflow:hidden}
+.aph-side .footer .who .nm{font-weight:600;color:var(--text);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph-side .footer .who .em{font-size:10px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph-side .home-link{display:flex;align-items:center;gap:11px;margin:8px 8px 0;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-weight:500;color:var(--text-2);text-decoration:none;transition:background .12s ease,color .12s ease}
+.aph-side .home-link:hover{background:var(--bg-hover);color:var(--text);text-decoration:none}
+.aph-side .home-link svg.ic{width:15px;height:15px;stroke-width:1.6;color:var(--text-3)}
+
+/* MAIN */
+.aph-main{min-width:0;height:100vh;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column}
+.aph-content{flex:1}
+.aph-topbar{background:var(--bg-card);border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:10}
+.aph-topbar h1{font-size:18px;font-weight:600;letter-spacing:-0.02em}
+.aph-topbar .crumb{color:var(--text-3);font-size:11px;font-weight:500;padding-left:14px;border-left:1px solid var(--border);height:18px;line-height:18px;letter-spacing:.02em}
+.aph-topbar .right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.aph-topbar .date-pill{display:inline-flex;align-items:center;border:1px solid var(--border-2);border-radius:7px;background:var(--bg-card);overflow:hidden;height:32px}
+.aph-topbar .date-pill input{border:0;padding:0 10px;font-size:12px;font-family:var(--f);font-feature-settings:'tnum';background:transparent;outline:0;width:118px;font-weight:500}
+.aph-topbar .date-pill .sep{padding:0 4px;color:var(--text-3);font-size:12px}
+.aph-topbar .date-pill .clear{padding:0 10px;color:var(--text-3);font-size:15px;cursor:pointer;border-left:1px solid var(--border);height:100%;display:flex;align-items:center}
+.aph-topbar .presets{display:flex;border:1px solid var(--border-2);border-radius:7px;overflow:hidden;height:32px}
+.aph-topbar .presets .p{padding:0 12px;font-size:11px;font-weight:500;cursor:pointer;color:var(--text-2);background:var(--bg-card);border-right:1px solid var(--border);display:flex;align-items:center}
+.aph-topbar .presets .p:last-child{border-right:0}
+.aph-topbar .presets .p:hover{background:var(--bg-hover);color:var(--text)}
+.aph-topbar .presets .p.active{background:var(--accent);color:#fff}
+.aph-topbar .btn{padding:0 14px;height:32px;border:1px solid var(--border-2);background:var(--bg-card);color:var(--text);border-radius:7px;font-size:12px;font-weight:500;cursor:pointer;font-family:var(--f);display:flex;align-items:center;gap:6px}
+.aph-topbar .btn:hover{background:var(--bg-hover)}
+.aph-topbar .btn svg{width:14px;height:14px}
+
+.aph-content{padding:28px}
+.aph-page-hd{margin-bottom:24px}
+.aph-page-hd .ttl{font-size:24px;font-weight:600;letter-spacing:-0.025em;line-height:1.15}
+.aph-page-hd .sub{font-size:13px;color:var(--text-2);margin-top:4px}
+
+.aph-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:28px}
+.aph-kpi{background:var(--bg-card);border:1px solid var(--border);padding:20px 22px;border-radius:10px;position:relative;min-height:118px;display:flex;flex-direction:column;justify-content:space-between;transition:border-color .12s ease,box-shadow .12s ease}
+.aph-kpi:hover{border-color:var(--border-2);box-shadow:var(--shadow-sm)}
+.aph-kpi .ic-wrap{position:absolute;top:18px;right:20px;width:30px;height:30px;border-radius:7px;background:var(--bg-muted);display:flex;align-items:center;justify-content:center}
+.aph-kpi .lbl{font-size:11px;color:var(--text-2);letter-spacing:.04em;text-transform:uppercase;font-weight:600}
+.aph-kpi .v{font-size:32px;font-weight:600;letter-spacing:-0.035em;font-feature-settings:'tnum';margin-top:10px;line-height:1}
+.aph-kpi .sub{font-size:11px;color:var(--text-3);margin-top:8px;font-weight:500}
+.aph-kpi .sub strong{color:var(--text-2);font-weight:600}
+
+.aph-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;width:100%;box-sizing:border-box}
+/* full-width rows — !important so no theme/global CSS can shrink them */
+.aph-grid.col-1{display:grid!important;grid-template-columns:1fr!important;width:100%!important;max-width:none!important}
+.aph-grid.col-1 > .aph-card{width:100%!important;max-width:none!important;box-sizing:border-box}
+.aph-card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;overflow:hidden;box-sizing:border-box;width:100%;min-width:0}
+.aph-card-hd{padding:16px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+.aph-card-hd .ttl{font-weight:600;font-size:14px;letter-spacing:-0.01em;white-space:nowrap}
+.aph-card-hd .sub{color:var(--text-3);font-size:11px;font-weight:500}
+.aph-card-body{padding:18px 22px}
+.aph-card-body.padless{padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.aph-tbl th{text-align:left;padding:11px 16px;background:var(--bg-card);font-size:11px;color:var(--text-3);letter-spacing:.04em;text-transform:uppercase;font-weight:600;border-bottom:1px solid var(--border);white-space:nowrap}
+.aph-tbl td{padding:11px 16px;border-bottom:1px solid var(--border);font-feature-settings:'tnum';white-space:nowrap}
+.aph-tbl tr:last-child td{border-bottom:0}
+.aph-tbl tr:hover td{background:var(--bg-hover)}
+.aph-tbl td.num,.aph-tbl th.num{text-align:right}
+.aph-tbl td.mono{font-family:var(--mono);font-size:12px;color:var(--text-2)}
+.aph-tbl td.dim{color:var(--text-3)}
+.aph-tbl td.strong{font-weight:600}
+
+.aph-empty{padding:40px;text-align:center;color:var(--text-3);font-size:13px}
+.aph-loading{padding:60px;text-align:center;color:var(--text-3);font-size:12px}
+.aph-err{background:var(--text);color:#fff;padding:12px 16px;border-radius:7px;font-size:12px;margin:14px 28px;font-family:var(--mono)}
+.aph-stub{padding:56px 28px;text-align:center;background:var(--bg-card);border:1px dashed var(--border-2);border-radius:10px}
+.aph-stub .ttl{font-size:16px;font-weight:600;margin-bottom:6px}
+.aph-stub .sub{font-size:13px;color:var(--text-2)}
+
+.aph-bar-row{display:flex;align-items:center;gap:14px;padding:9px 0;border-bottom:1px solid var(--border)}
+.aph-bar-row:last-child{border-bottom:0}
+.aph-bar-row .lbl{width:54px;font-size:13px;font-weight:600}
+.aph-bar-row .bar{flex:1;height:8px;background:var(--bg-muted);border-radius:4px;overflow:hidden}
+.aph-bar-row .bar .fill{height:100%;background:var(--text);border-radius:4px}
+.aph-bar-row .val{width:170px;text-align:right;font-size:12px;color:var(--text-2);font-feature-settings:'tnum'}
+
+.aph-tag{display:inline-flex;align-items:center;padding:2px 9px;border-radius:10px;font-size:11px;background:var(--bg-muted);color:var(--text);font-weight:500;line-height:1.5}
+
+/* Chart wrappers: the scroll container always spans the full card; the inner
+   div's width is set in px by JS = max(available width, minimum), so the chart
+   always fills the page on wide screens and scrolls sideways on narrow ones */
+.aph-chart-scroll{display:block;width:100%!important;max-width:none!important;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:10px 16px;box-sizing:border-box}
+.aph-chart-inner{position:relative;width:100%}
+
+/* Wide table scroll wrapper (proforma / non-export invoice ledgers) */
+.aph-tbl-scroll{display:block;width:100%!important;max-width:none!important;overflow-x:auto;-webkit-overflow-scrolling:touch;box-sizing:border-box}
+
+/* ── Narrow screens / mobile ─────────────────────────────────────────── */
+@media (max-width: 900px){
+  html,body{overflow:auto!important}
+  .aph{display:flex;flex-direction:column;position:fixed}
+  /* sidebar becomes a compact top bar with a horizontally scrolling nav */
+  .aph-side{width:100%;height:auto;position:relative;flex:0 0 auto;border-right:0;border-bottom:1px solid var(--border);overflow:visible}
+  .aph-side .brand{padding:10px 16px;border-bottom:0}
+  .aph-side .home-link{margin:0 8px 8px;width:max-content}
+  .aph-side .nav{flex-direction:row;align-items:center;overflow-x:auto;overflow-y:hidden;padding:0 8px 8px;-webkit-overflow-scrolling:touch}
+  .aph-side .group-lbl{display:none}
+  .aph-side .nav-item{flex:0 0 auto;margin:0 2px;white-space:nowrap;padding:7px 12px}
+  .aph-side .footer{display:none}
+  .aph-main{flex:1 1 auto;height:auto;min-height:0}
+  .aph-topbar{position:static;flex-wrap:wrap;gap:8px;padding:10px 14px}
+  .aph-topbar .crumb{display:none}
+  .aph-topbar .right{margin-left:0;width:100%;flex-wrap:wrap}
+  .aph-content{padding:14px}
+  .aph-err{margin:14px}
+  /* everything single-column */
+  .aph-grid{grid-template-columns:1fr}
+  .aph-kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  .aph-kpi{min-height:100px;padding:16px 18px}
+  .aph-kpi .v{font-size:26px}
+  .aph-page-hd .ttl{font-size:20px}
+}
+</style>
+
+<!-- ════════ Page-specific tweaks (appended; reference tokens above are untouched) ════════ -->
+<style>
+/* Topbar: farm selector + view toggle + LIVE badge, restyled into aph chrome */
+.aph .location-wrap{display:flex;align-items:center;gap:8px;padding:0 12px;height:32px;
+  border:1px solid var(--border-2);border-radius:7px;background:var(--bg-card)}
+.aph .location-wrap.confirmed{border-color:var(--good);background:#e6f9ee}
+.aph .location-wrap svg{width:14px;height:14px;color:var(--text-3);stroke:currentColor;fill:none;stroke-width:2}
+.aph .location-label{font-size:11px;font-weight:600;color:var(--text-2);white-space:nowrap;text-transform:uppercase;letter-spacing:.03em}
+.aph .location-wrap select{border:none;background:transparent;font-size:12px;font-weight:600;color:var(--text);font-family:var(--f);cursor:pointer}
+.aph .location-wrap select:focus{outline:none}
+
+/* View toggle (Dashboard / Shelf Contents) reusing presets chrome */
+.aph .view-toggle{display:flex;border:1px solid var(--border-2);border-radius:7px;overflow:hidden;height:32px}
+.aph .view-toggle .tab-btn{padding:0 14px;font-size:12px;font-weight:500;cursor:pointer;color:var(--text-2);background:var(--bg-card);border:none;border-right:1px solid var(--border);font-family:var(--f);display:flex;align-items:center}
+.aph .view-toggle .tab-btn:last-child{border-right:0}
+.aph .view-toggle .tab-btn:hover{background:var(--bg-hover);color:var(--text)}
+.aph .view-toggle .tab-btn.active{background:var(--accent);color:#fff}
+
+/* LIVE badge */
+.aph .live-badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:var(--text);background:var(--bg-card);
+  border:1px solid var(--border-2);border-radius:7px;padding:0 14px;height:32px;cursor:pointer;font-family:var(--f);transition:background .12s ease}
+.aph .live-badge:hover{background:var(--bg-hover)}
+.aph .live-dot{width:7px;height:7px;background:var(--good);border-radius:50%}
+
+/* Spinner & Toast */
+.aph .spinner-overlay{position:fixed;inset:0;background:rgba(255,255,255,0.7);display:none;justify-content:center;align-items:center;z-index:2147483600}
+.aph .spinner-overlay.show{display:flex}
+.aph .spinner{width:28px;height:28px;border:2px solid var(--border);border-top:2px solid var(--text);border-radius:50%;animation:aph-spin 0.7s linear infinite}
+@keyframes aph-spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+.aph .toast{position:fixed;top:80px;right:20px;background:var(--bg-card);border:1px solid var(--border-2);color:var(--text);
+  padding:10px 16px;border-radius:8px;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,0.12);z-index:2147483700;
+  transform:translateX(200%);transition:transform 0.25s ease}
+.aph .toast.show{transform:translateX(0)}
+.aph .toast.success{background:#e6f9ee;border-color:#c5e8cd;color:#1a8a3a}
+.aph .toast.error{background:#fde8ec;border-color:#f5c6ce;color:var(--bad)}
+
+/* KPI status / sub helpers */
+.aph .sensor-status{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600}
+.aph .sensor-ok{color:#1a8a3a}
+.aph .sensor-warn{color:var(--warn)}
+.aph .sensor-alert{color:var(--bad)}
+
+/* Labels / badges */
+.aph .label{display:inline-flex;align-items:center;padding:2px 9px;font-size:11px;font-weight:600;border-radius:10px;letter-spacing:.02em}
+.aph .label-success{background:#e6f9ee;color:#1a8a3a}
+.aph .label-warning{background:#fff3e0;color:#9a5a00}
+.aph .label-danger{background:#fde8ec;color:var(--bad)}
+.aph .label-default{background:var(--bg-muted);color:var(--text-2)}
+.aph .label-info{background:#f0ecfe;color:#7c5cfc}
+
+/* Charts */
+.aph .charts-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;width:100%;box-sizing:border-box}
+@media(max-width:900px){.aph .charts-row{grid-template-columns:1fr}}
+.aph .chart-body{padding:16px;position:relative;height:300px}
+.aph .chart-canvas{width:100%!important;height:100%!important}
+
+/* Pressure cards */
+.aph .pressure-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:20px}
+.aph .pressure-card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:16px}
+.aph .pressure-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:12px;letter-spacing:-0.01em}
+.aph .pressure-bar-wrap{margin-bottom:8px}
+.aph .pressure-bar-label{display:flex;justify-content:space-between;font-size:11px;font-weight:600;color:var(--text-2);margin-bottom:4px}
+.aph .pressure-bar{height:20px;background:var(--bg-muted);border-radius:6px;overflow:hidden;display:flex;position:relative}
+.aph .pressure-segment{height:100%;transition:width 300ms ease;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;min-width:0;overflow:hidden;white-space:nowrap}
+.aph .seg-incoming{background:#fc9c30}
+.aph .seg-onshelf{background:#2490ef}
+.aph .seg-allocated{background:#29cd42}
+.aph .seg-empty{background:var(--border)}
+.aph .pressure-capacity-line{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--bad);z-index:2}
+.aph .pressure-legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;font-size:11px;color:var(--text-2)}
+.aph .legend-item{display:flex;align-items:center;gap:4px}
+.aph .legend-dot{width:8px;height:8px;border-radius:2px}
+
+/* Shelf filters (inside an aph-card) */
+.aph .stock-filters{padding:14px 22px;border-bottom:1px solid var(--border);display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap}
+.aph .filter-group{display:flex;flex-direction:column;gap:4px}
+.aph .filter-group-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3)}
+.aph .form-control{height:32px;padding:0 10px;font-size:12px;font-family:var(--f);font-feature-settings:'tnum';background:var(--bg-card);border:1px solid var(--border-2);border-radius:7px;color:var(--text);outline:0;font-weight:500}
+.aph .form-control:focus{border-color:var(--text)}
+.aph .form-control::placeholder{color:var(--text-3)}
+.aph .form-control.has-value{border-color:var(--text)}
+.aph .custom-select{position:relative}
+.aph .custom-select input{width:100%}
+.aph .select-dropdown{display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg-card);border:1px solid var(--border-2);
+  border-top:none;border-radius:0 0 7px 7px;max-height:180px;overflow-y:auto;z-index:1000;box-shadow:0 4px 16px rgba(0,0,0,0.12)}
+.aph .select-dropdown.show{display:block}
+.aph .select-option{padding:6px 12px;font-size:12px;cursor:pointer;color:var(--text);border-bottom:1px solid var(--border);transition:background .12s ease}
+.aph .select-option:last-child{border-bottom:none}
+.aph .select-option:hover{background:var(--bg-hover)}
+.aph .select-option.selected{background:var(--bg-muted);color:var(--text);font-weight:600}
+
+/* Table cell helpers */
+.aph .cell-variety{font-weight:600;color:var(--text)}
+.aph .cell-farm{font-size:12px;font-weight:600;color:var(--text)}
+
+/* Empty / loading (render output) */
+.aph .empty-state{text-align:center;padding:40px 20px;color:var(--text-3)}
+.aph .empty-state p{font-size:13px;margin-top:10px}
+.aph .loading-state{text-align:center;padding:30px;color:var(--text-3);font-size:12px}
+</style>
+
+<style>
+
+/* neutralize old borders when this sheet is appended over the legacy chrome */
+.aph .aph-kpi,.aph .aph-card,.aph .opl-card,.aph .box-card,.aph .aph-stub{border:0}
+
+:root{
+  /* Shades of black — from the Upande logo */
+  --ink:#0a0a0a;--ink-1:#1a1a18;--ink-2:#2a2a26;--ink-3:#3a3a34;--ink-4:#5a5a52;--ink-mute:#8a8780;--ink-faint:#b8b6ae;
+  /* Surfaces */
+  --bg:#f4f3ef;--surface:#fafaf6;--surface-2:#ffffff;
+  --hairline:rgba(10,10,10,0.06);--hairline-2:rgba(10,10,10,0.10);
+  --shadow-card:0 1px 0 rgba(10,10,10,0.04),0 8px 32px -16px rgba(10,10,10,0.10);
+  --shadow-hover:0 1px 0 rgba(10,10,10,0.06),0 24px 48px -24px rgba(10,10,10,0.18);
+  /* Single data accent — used sparingly */
+  --signal:#228883;--signal-soft:rgba(34,136,131,0.10);
+  --violet:#7c5cfc;--violet-soft:#f0ecfe;
+  --good:#1a8a3a;--good-soft:#e6f9ee;--warn:#9a5a00;--warn-soft:#fff3e0;--bad:#c4302b;--bad-soft:#fde8ec;
+  --grad-ink:linear-gradient(135deg,#0a0a0a 0%,#3a3a34 100%);
+  --sans:'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --display:'Fraunces',Georgia,serif;
+  --mono:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;
+  /* Back-compat aliases so any leftover var() references resolve to the new palette */
+  --bg-card:var(--surface-2);--bg-hover:rgba(10,10,10,0.03);--bg-muted:rgba(10,10,10,0.04);
+  --border:var(--hairline);--border-2:rgba(10,10,10,0.12);
+  --text:var(--ink);--text-2:var(--ink-4);--text-3:var(--ink-mute);--text-4:var(--ink-faint);
+  --accent:var(--ink);--shadow-sm:var(--shadow-card);--f:var(--sans);
+  --plan:#d4d4d4;
+  --sidebar-w:248px;--sidebar-cw:74px;
+}
+/* Take dashboard out of Frappe layout entirely — fill viewport */
+html,body{margin:0!important;padding:0!important;overflow:hidden!important;height:100vh!important}
+.navbar,header,.page-breadcrumbs,.page-header,.page-header-wrapper,.web-footer,footer,
+.website-edit-button,.btn-edit-page,.edit-page-btn,.scroll-to-top,.back-to-top,
+.website-banner,.call-to-action,.frappe-chat,#frappe-chat,.telegram-share,.share-buttons,
+.web-page-edit,.published-edit{display:none!important}
+.aph *{box-sizing:border-box;margin:0;padding:0}
+.aph{position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100vh;z-index:2147483000;
+  font-family:var(--sans);background:var(--bg);color:var(--ink-3);font-size:13px;line-height:1.55;-webkit-font-smoothing:antialiased;
+  display:grid;grid-template-columns:var(--sidebar-w) 1fr;transition:grid-template-columns .22s cubic-bezier(.4,0,.2,1)}
+.aph.collapsed{grid-template-columns:var(--sidebar-cw) 1fr}
+
+.aph svg.ic{width:16px;height:16px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.aph .aph-side svg.ic{width:17px;height:17px;stroke-width:1.75;color:var(--ink-mute)}
+.aph .aph-side .nav-item.active svg.ic{color:#fafaf6}
+
+/* ══ SIDEBAR ══ */
+.aph-side{background:var(--surface-2);border-right:1px solid var(--hairline);height:100vh;position:sticky;top:0;display:flex;flex-direction:column;overflow:hidden}
+.aph-side .brand{padding:20px 18px 16px;display:flex;align-items:center;gap:12px;text-decoration:none}
+.aph-side .brand .logo{height:26px;width:auto;flex:0 0 auto;display:block}
+.aph-side .brand .name{font:600 14px var(--sans);color:var(--ink);line-height:1.15;letter-spacing:-.2px;white-space:nowrap;overflow:hidden}
+.aph-side .brand .name small{display:block;font:500 10px var(--sans);text-transform:uppercase;letter-spacing:1.6px;color:var(--ink-mute);margin-top:2px}
+.aph-side .brand:hover .name{color:var(--ink)}
+/* Note: "nav" collides with Bootstrap's .nav (flex-wrap:wrap) loaded by Frappe — force column/nowrap */
+.aph-side .nav{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:6px 0 16px;margin:0;list-style:none;display:flex;flex-direction:column;flex-wrap:nowrap!important}
+.aph-side .group-lbl{padding:16px 20px 6px;font:600 10px var(--sans);color:var(--ink-mute);letter-spacing:1.8px;text-transform:uppercase;display:block;white-space:nowrap;overflow:hidden}
+.aph-side .group-lbl:first-child{padding-top:8px}
+.aph-side .nav-item{display:flex;align-items:center;gap:12px;padding:10px 12px;cursor:pointer;font:500 13px var(--sans);color:var(--ink-4);user-select:none;transition:background .18s ease,color .18s ease;margin:2px 10px;border-radius:12px;box-sizing:border-box;text-decoration:none;white-space:nowrap;overflow:hidden}
+.aph-side .nav-item:hover{background:rgba(10,10,10,0.04);color:var(--ink);text-decoration:none}
+.aph-side .nav-item.active{background:var(--grad-ink);color:#fafaf6;box-shadow:0 4px 14px rgba(10,10,10,0.20)}
+.aph-side .nav-item .badge{margin-left:auto;font:600 10px var(--mono);color:var(--ink-4);background:rgba(10,10,10,0.05);padding:2px 8px;border-radius:999px;line-height:1.4}
+.aph-side .nav-item.active .badge{color:#fafaf6;background:rgba(255,255,255,.18)}
+.aph-side .nav-item.stub{color:var(--ink-faint)}
+.aph-side .home-link{display:flex;align-items:center;gap:12px;margin:2px 10px 6px;padding:10px 12px;border-radius:12px;font:500 13px var(--sans);color:var(--ink-4);text-decoration:none;background:rgba(10,10,10,0.04);transition:background .18s ease,color .18s ease;white-space:nowrap;overflow:hidden}
+.aph-side .home-link:hover{background:var(--ink);color:#fafaf6;text-decoration:none}
+.aph-side .home-link:hover svg.ic{color:#fafaf6}
+.aph-side .footer{padding:14px 18px;border-top:1px solid var(--hairline);display:flex;align-items:center;gap:11px;font-size:11px;color:var(--ink-4)}
+.aph-side .footer .av{width:30px;height:30px;border-radius:50%;background:var(--grad-ink);color:#fafaf6;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12px;flex:0 0 auto}
+.aph-side .footer .who{flex:1;line-height:1.25;overflow:hidden}
+.aph-side .footer .who .nm{font-weight:600;color:var(--ink);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph-side .footer .who .em{font-size:10px;color:var(--ink-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Collapsed sidebar → icon rail */
+.aph.collapsed .aph-side .brand{padding:20px 0 16px;justify-content:center}
+.aph.collapsed .aph-side .brand .name,
+.aph.collapsed .aph-side .group-lbl,
+.aph.collapsed .aph-side .nav-item span,
+.aph.collapsed .aph-side .nav-item .badge,
+.aph.collapsed .aph-side .home-link span,
+.aph.collapsed .aph-side .footer .who{display:none}
+.aph.collapsed .aph-side .nav-item,
+.aph.collapsed .aph-side .home-link{justify-content:center;margin-left:14px;margin-right:14px;padding:11px 0;gap:0}
+.aph.collapsed .aph-side .footer{justify-content:center;padding:14px 0}
+
+/* ══ MAIN ══ */
+.aph-main{min-width:0;height:100vh;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column}
+.aph-content{flex:1;padding:32px 40px 64px}
+.aph-topbar{background:var(--surface-2);border-bottom:1px solid var(--hairline);padding:14px 40px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:10}
+.aph-topbar h1{font:600 17px var(--sans);color:var(--ink);letter-spacing:-.3px}
+.aph-topbar .crumb{color:var(--ink-mute);font:500 11px var(--sans);text-transform:uppercase;letter-spacing:1.4px;padding-left:16px;border-left:1px solid var(--hairline);height:16px;line-height:16px}
+.aph-topbar .right{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.collapse-btn{width:36px;height:36px;border:0;background:transparent;border-radius:10px;display:grid;place-items:center;cursor:pointer;color:var(--ink-4);flex:0 0 auto;transition:background .18s ease,color .18s ease}
+.collapse-btn:hover{background:rgba(10,10,10,0.05);color:var(--ink)}
+.collapse-btn svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* Pill toggle groups (date presets, rose filter) */
+.aph-topbar .presets{display:inline-flex;background:rgba(10,10,10,0.04);border-radius:999px;padding:4px;gap:2px}
+.aph-topbar .presets .p{padding:7px 14px;font:500 12px var(--sans);color:var(--ink-4);cursor:pointer;border-radius:999px;transition:all .18s ease;user-select:none;white-space:nowrap}
+.aph-topbar .presets .p:hover{color:var(--ink)}
+.aph-topbar .presets .p.active{background:var(--grad-ink);color:#fafaf6;box-shadow:0 2px 8px rgba(10,10,10,0.18)}
+/* Joined date range pill */
+.aph-topbar .date-pill{display:inline-flex;align-items:center;background:var(--surface-2);border-radius:999px;padding:2px 8px;box-shadow:var(--shadow-card);height:38px}
+.aph-topbar .date-pill input{border:0;padding:0 8px;font:500 12px var(--sans);font-feature-settings:'tnum';background:transparent;outline:0;width:112px;color:var(--ink)}
+.aph-topbar .date-pill .sep{padding:0 2px;color:var(--ink-mute);font-size:12px}
+.aph-topbar .date-pill .clear{padding:0 8px;color:var(--ink-mute);font-size:15px;cursor:pointer}
+.aph-topbar .btn{padding:0 16px;height:38px;border:0;background:var(--surface-2);color:var(--ink);border-radius:999px;font:500 12px var(--sans);cursor:pointer;display:inline-flex;align-items:center;gap:7px;box-shadow:var(--shadow-card);transition:transform .18s ease}
+.aph-topbar .btn:hover{transform:translateY(-1px)}
+.aph-topbar .btn svg{width:14px;height:14px}
+
+/* Page head */
+.aph-page-hd{margin-bottom:30px}
+.aph-page-hd .eyebrow{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:2.2px;color:var(--ink-mute);margin-bottom:12px;display:inline-flex;align-items:center;gap:10px}
+.aph-page-hd .eyebrow::before{content:"";width:18px;height:1px;background:var(--ink-3)}
+.aph-page-hd .ttl{font:600 40px/1.05 var(--sans);color:var(--ink);letter-spacing:-1.3px}
+.aph-page-hd .sub{margin-top:10px;font-size:15px;color:var(--ink-4)}
+
+/* ══ KPI cards — large, borderless, gradient hover ══ */
+.aph-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px;margin-bottom:32px}
+.aph-kpi{background:var(--surface-2);border-radius:20px;padding:26px 28px;box-shadow:var(--shadow-card);transition:transform .25s ease,box-shadow .25s ease;position:relative;overflow:hidden;min-height:132px;display:flex;flex-direction:column;justify-content:space-between}
+.aph-kpi:hover{transform:translateY(-3px);box-shadow:var(--shadow-hover)}
+.aph-kpi .ic-wrap{position:absolute;top:22px;right:24px;width:34px;height:34px;border-radius:10px;background:rgba(10,10,10,0.04);display:flex;align-items:center;justify-content:center}
+.aph-kpi .ic-wrap svg.ic{width:17px;height:17px;color:var(--ink-mute);stroke-width:1.6}
+.aph-kpi .lbl{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:1.6px;color:var(--ink-mute);padding-right:44px}
+.aph-kpi .v{font:600 40px/1 var(--sans);color:var(--ink);letter-spacing:-1.3px;font-feature-settings:'tnum';margin-top:14px}
+.aph-kpi .sub{font:500 12px var(--sans);color:var(--ink-mute);margin-top:10px}
+.aph-kpi .sub strong{color:var(--ink-4);font-weight:600}
+
+/* ══ Cards ══ */
+.aph-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px;width:100%;box-sizing:border-box}
+.aph-grid.col-1{display:grid!important;grid-template-columns:1fr!important;width:100%!important;max-width:none!important}
+.aph-grid.col-1 > .aph-card{width:100%!important;max-width:none!important;box-sizing:border-box}
+.aph-card{background:var(--surface-2);border-radius:24px;box-shadow:var(--shadow-card);overflow:hidden;box-sizing:border-box;width:100%;min-width:0}
+.aph-card-hd{padding:24px 30px 0;display:flex;align-items:center;gap:14px}
+.aph-card-hd .ttl{font:600 18px var(--sans);color:var(--ink);letter-spacing:-.4px;white-space:nowrap}
+.aph-card-hd .sub{color:var(--ink-mute);font:500 12px var(--sans)}
+.aph-card-body{padding:22px 30px 28px}
+.aph-card-body.padless{padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+/* ══ Tables ══ */
+table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.aph-tbl th{text-align:left;padding:14px 22px;background:transparent;font:600 10px var(--sans);color:var(--ink-mute);letter-spacing:1.4px;text-transform:uppercase;border-bottom:1px solid var(--hairline);white-space:nowrap}
+.aph-tbl td{padding:14px 22px;border-bottom:1px solid var(--hairline);font-feature-settings:'tnum';white-space:nowrap;color:var(--ink-3)}
+.aph-tbl tr:last-child td{border-bottom:0}
+.aph-tbl tbody tr{transition:background .15s ease}
+.aph-tbl tbody tr:hover td{background:rgba(10,10,10,0.02)}
+.aph-tbl td.num,.aph-tbl th.num{text-align:right}
+.aph-tbl td.mono{font-family:var(--mono);font-size:12px;color:var(--ink-4)}
+.aph-tbl td.dim{color:var(--ink-mute)}
+.aph-tbl td.strong{font-weight:600;color:var(--ink)}
+
+.aph-empty{padding:48px;text-align:center;color:var(--ink-mute);font-size:13px}
+.aph-loading{padding:60px;text-align:center;color:var(--ink-mute);font-size:12px}
+.aph-err{background:var(--ink);color:#fafaf6;padding:14px 18px;border-radius:14px;font-size:12px;margin:16px 40px;font-family:var(--mono)}
+.aph-stub{padding:56px 28px;text-align:center;background:var(--surface-2);border-radius:20px;box-shadow:var(--shadow-card)}
+.aph-stub .ttl{font-size:16px;font-weight:600;margin-bottom:6px;color:var(--ink)}
+.aph-stub .sub{font-size:13px;color:var(--ink-4)}
+
+.aph-bar-row{display:flex;align-items:center;gap:14px;padding:11px 0;border-bottom:1px solid var(--hairline)}
+.aph-bar-row:last-child{border-bottom:0}
+.aph-bar-row .lbl{width:54px;font:600 13px var(--sans);color:var(--ink)}
+.aph-bar-row .bar{flex:1;height:10px;background:rgba(10,10,10,0.05);border-radius:999px;overflow:hidden}
+.aph-bar-row .bar .fill{height:100%;background:var(--grad-ink);border-radius:999px}
+.aph-bar-row .val{width:170px;text-align:right;font-size:12px;color:var(--ink-4);font-feature-settings:'tnum'}
+
+.aph-tag{display:inline-flex;align-items:center;padding:3px 10px;border-radius:999px;font:500 11px var(--sans);background:rgba(10,10,10,0.04);color:var(--ink);line-height:1.5}
+
+.aph-chart-scroll{display:block;width:100%!important;max-width:none!important;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:10px 16px;box-sizing:border-box}
+.aph-chart-inner{position:relative;width:100%}
+.aph-tbl-scroll{display:block;width:100%!important;max-width:none!important;overflow-x:auto;-webkit-overflow-scrolling:touch;box-sizing:border-box}
+
+/* ── Narrow screens / mobile ─────────────────────────────────────────── */
+@media (max-width: 900px){
+  html,body{overflow:auto!important}
+  .aph,.aph.collapsed{display:flex;flex-direction:column;position:fixed;grid-template-columns:none}
+  .aph-side{width:100%;height:auto;position:relative;flex:0 0 auto;border-right:0;border-bottom:1px solid var(--hairline);overflow:visible}
+  .aph-side .brand{padding:12px 16px}
+  .aph-side .home-link{margin:0 10px 8px;width:max-content}
+  .aph-side .nav{flex-direction:row;align-items:center;overflow-x:auto;overflow-y:hidden;padding:0 8px 8px;-webkit-overflow-scrolling:touch}
+  .aph-side .group-lbl{display:none}
+  .aph-side .nav-item{flex:0 0 auto;margin:0 3px;white-space:nowrap;padding:9px 14px}
+  .aph-side .footer{display:none}
+  .collapse-btn{display:none}
+  .aph-main{flex:1 1 auto;height:auto;min-height:0}
+  .aph-topbar{position:static;flex-wrap:wrap;gap:10px;padding:12px 16px}
+  .aph-topbar .crumb{display:none}
+  .aph-topbar .right{margin-left:0;width:100%}
+  .aph-content{padding:18px 16px 40px}
+  .aph-err{margin:16px}
+  .aph-grid{grid-template-columns:1fr}
+  .aph-kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .aph-kpi{min-height:110px;padding:20px 22px}
+  .aph-kpi .v{font-size:30px}
+  .aph-page-hd .ttl{font-size:28px}
+}
+
+/* ════════ Page-specific components (render output) ════════ */
+/* Team dropdown */
+.aph .dropdown{position:relative;display:inline-block}
+.aph .dropdown-menu{display:none;position:absolute;top:calc(100% + 6px);right:0;background:var(--surface-2);border-radius:14px;box-shadow:var(--shadow-hover);min-width:180px;z-index:1000;overflow:hidden;padding:6px}
+.aph .dropdown.open .dropdown-menu{display:block}
+.aph .dropdown-item{padding:9px 12px;font:500 12px var(--sans);color:var(--ink-3);cursor:pointer;border-radius:9px;transition:background .15s ease}
+.aph .dropdown-item:hover{background:rgba(10,10,10,0.04)}
+.aph .dropdown-item.active{background:rgba(10,10,10,0.04);color:var(--ink);font-weight:600}
+.aph .dropdown-item.ms-item{display:flex;align-items:center;gap:10px;font-weight:500}
+.aph .ms-check{width:15px;height:15px;border:1.5px solid var(--border-2);border-radius:5px;flex:0 0 auto;position:relative;background:var(--surface-2)}
+.aph .dropdown-item.ms-item.active .ms-check{background:var(--ink);border-color:var(--ink)}
+.aph .dropdown-item.ms-item.active .ms-check::after{content:'';position:absolute;left:4px;top:1px;width:4px;height:8px;border:solid #fafaf6;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.aph .dropdown-item.ms-sep{padding:0;height:1px;background:var(--hairline);cursor:default;margin:4px 0}
+.aph .date-range-inputs{display:none;align-items:center;gap:6px}
+.aph .date-range-inputs.show{display:flex}
+.aph .form-control{height:38px;padding:0 12px;font:500 12px var(--sans);font-feature-settings:'tnum';background:var(--surface-2);border:0;box-shadow:var(--shadow-card);border-radius:999px;color:var(--ink);outline:0}
+/* LIVE badge */
+.aph .live-badge{display:inline-flex;align-items:center;gap:8px;font:500 12px var(--sans);color:var(--ink);background:var(--surface-2);border:0;border-radius:999px;padding:0 16px;height:38px;cursor:pointer;box-shadow:var(--shadow-card);transition:transform .18s ease}
+.aph .live-badge:hover{transform:translateY(-1px)}
+.aph .live-dot{width:7px;height:7px;background:var(--signal);border-radius:50%;box-shadow:0 0 0 4px var(--signal-soft)}
+
+.aph .aph-kpi .v{font-feature-settings:'tnum'}
+.aph .kpi-date-row{display:flex;align-items:center;gap:6px;margin-top:10px}
+.aph .kpi-date-row label{font-size:10px;font-weight:600;color:var(--ink-mute);white-space:nowrap;text-transform:uppercase;letter-spacing:1px}
+.aph .kpi-date-row input{height:26px;padding:0 8px;font-size:11px;width:120px;border-radius:8px;border:0;background:rgba(10,10,10,0.04);font-family:var(--sans);outline:0;color:var(--ink)}
+
+/* ── Issuing vs Packing dual card ── */
+.aph .kpi-dual-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:28px}
+.aph .kpi-dual-item{text-align:left}
+.aph .kpi-dual-label{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:1.6px;color:var(--ink-mute);margin-bottom:10px}
+.aph .kpi-dual-value{font:600 34px/1 var(--sans);color:var(--ink);letter-spacing:-1px;font-feature-settings:'tnum'}
+.aph .kpi-dual-sub{font:500 12px var(--sans);color:var(--ink-mute);margin-top:8px}
+.aph .kpi-dual-bar{margin-top:14px}
+.aph .gap-indicator{display:inline-flex;align-items:center;gap:4px;font:600 11px var(--sans);padding:4px 12px;border-radius:999px}
+.aph .gap-positive{background:var(--warn-soft);color:var(--warn)}
+.aph .gap-negative{background:var(--good-soft);color:var(--good)}
+.aph .gap-neutral{background:rgba(10,10,10,0.04);color:var(--ink-4)}
+@media(max-width:600px){.aph .kpi-dual-row{grid-template-columns:1fr;gap:18px}}
+
+/* ── Progress bars ── */
+.aph .progress-wrap{margin:10px 0}
+.aph .progress-label{display:flex;justify-content:space-between;font:500 11px var(--sans);color:var(--ink-mute);margin-bottom:5px}
+.aph .progress-label span:last-child{color:var(--ink);font-weight:600;font-feature-settings:'tnum'}
+.aph .progress-track{background:rgba(10,10,10,0.05);border-radius:999px;height:8px;overflow:hidden}
+.aph .progress-fill{height:100%;background:var(--grad-ink);border-radius:999px;transition:width .2s ease}
+.aph .progress-fill.packing{background:linear-gradient(90deg,var(--signal),#73b3a0)}
+.aph .progress-fill.packing.complete{background:linear-gradient(90deg,#1a8a3a,#22c55e)}
+
+/* ── Labels / badges ── */
+.aph .label{display:inline-block;padding:3px 11px;font:600 11px var(--sans);border-radius:999px;letter-spacing:.02em}
+.aph .label-success{background:var(--good-soft);color:var(--good)}
+.aph .label-warning{background:var(--warn-soft);color:var(--warn)}
+.aph .label-danger{background:var(--bad-soft);color:var(--bad)}
+.aph .label-default{background:rgba(10,10,10,0.04);color:var(--ink-4)}
+.aph .label-info{background:var(--signal-soft);color:var(--signal)}
+.aph .label-primary{background:rgba(10,10,10,0.05);color:var(--ink)}
+.aph .team-badge{display:inline-block;padding:3px 10px;font:600 11px var(--sans);border-radius:999px;background:rgba(10,10,10,0.04);color:var(--ink-4)}
+.aph .rose-badge{display:inline-block;margin-left:6px;padding:3px 10px;font:600 11px var(--sans);border-radius:999px}
+.aph .rose-badge.rose-spray{background:var(--violet-soft);color:var(--violet)}
+.aph .rose-badge.rose-std{background:#e6f1ff;color:#1a5fb4}
+.aph .rose-badge.rose-mixed{background:rgba(10,10,10,0.04);color:var(--ink-4)}
+
+/* ── OPL card grid ── */
+.aph .opl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px}
+.aph .opl-card{background:var(--surface-2);border-radius:18px;padding:20px;cursor:pointer;box-shadow:var(--shadow-card);transition:transform .2s ease,box-shadow .2s ease}
+.aph .opl-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-hover)}
+.aph .opl-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
+.aph .opl-order-name{font:600 14px var(--sans);color:var(--ink);letter-spacing:-.2px}
+.aph .opl-meta{display:flex;align-items:center;gap:6px;margin-top:5px;flex-wrap:wrap}
+.aph .opl-id{font:500 12px var(--mono);color:var(--ink-mute)}
+.aph .opl-variety{font:600 13px var(--sans);color:var(--ink);margin:8px 0 2px}
+.aph .opl-customer{font-size:12px;color:var(--ink-4);margin-bottom:12px}
+.aph .opl-details{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.aph .opl-detail{background:rgba(10,10,10,0.03);padding:10px 6px;border-radius:12px;text-align:center}
+.aph .opl-detail-label{font:500 10px var(--sans);text-transform:uppercase;letter-spacing:.6px;color:var(--ink-mute);margin-bottom:3px}
+.aph .opl-detail-value{font:600 14px var(--sans);color:var(--ink);font-feature-settings:'tnum'}
+.aph .shelf-list{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0}
+.aph .shelf-tag{font:600 11px var(--sans);padding:3px 9px;border-radius:999px;background:rgba(10,10,10,0.04);color:var(--ink-4)}
+.aph .variety-list{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0 2px}
+.aph .variety-tag{font:600 11px var(--sans);padding:3px 9px;border-radius:999px;background:rgba(10,10,10,0.04);color:var(--ink-4);white-space:nowrap}
+.aph .variety-more{cursor:pointer}
+.aph .variety-more:hover{background:rgba(10,10,10,0.10)}
+
+/* ── Box card grid ── */
+.aph .box-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+.aph .box-card{background:var(--surface-2);border-radius:18px;padding:20px;cursor:pointer;box-shadow:var(--shadow-card);transition:transform .2s ease,box-shadow .2s ease}
+.aph .box-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-hover)}
+.aph .box-card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.aph .box-number{font:600 15px var(--sans);color:var(--ink)}
+.aph .box-row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--hairline);font-size:13px}
+.aph .box-row:last-child{border-bottom:none}
+.aph .box-row-label{color:var(--ink-mute)}
+.aph .box-row-value{font-weight:600;color:var(--ink)}
+
+.aph .empty-state{text-align:center;padding:48px 20px;color:var(--ink-mute)}
+.aph .empty-state p{font-size:13px;margin-top:12px}
+.aph .loading-state{text-align:center;padding:36px;color:var(--ink-mute);font-size:12px}
+
+/* ── Variety modal ── */
+.vmodal{display:none;position:fixed;inset:0;background:rgba(10,10,10,.42);z-index:2147483100;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(2px)}
+.vmodal.open{display:flex}
+.vmodal-card{background:var(--surface-2);border-radius:22px;width:100%;max-width:380px;max-height:70vh;display:flex;flex-direction:column;box-shadow:var(--shadow-hover);font-family:var(--sans)}
+.vmodal-head{display:flex;justify-content:space-between;align-items:center;padding:20px 22px;border-bottom:1px solid var(--hairline);font:600 15px var(--sans);color:var(--ink)}
+.vmodal-close{background:none;border:none;font-size:24px;line-height:1;cursor:pointer;color:var(--ink-mute)}
+.vmodal-body{padding:8px 22px 18px;overflow-y:auto}
+.vrow{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--hairline);font-size:13px;color:var(--ink-3)}
+.vrow:last-child{border-bottom:none}
+.vstems{font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink)}
+
+
+</style>
+<div class="aph">
+
+  <!-- Overlays kept verbatim (ids preserved) -->
+  <div class="spinner-overlay" id="spinnerOverlay"><div class="spinner"></div></div>
+  <div class="toast" id="toast"></div>
+
+  <aside class="aph-side">
+    <a class="brand" href="app/packhouse-%26-sales" title="Back to Home"><img class="logo" alt="Upande" src="data:image/png;base64,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"/><div class="name">Karen Roses<small>Packhouse</small></div></a>
+    <a class="home-link" href="app/packhouse-%26-sales">
+      <svg class="ic" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg><span>Back to Home</span></a>
+    <div class="nav">
+
+      <div class="group-lbl">Workflow</div>
+      <a class="nav-item" href="packhouse-dashboard">
+        <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg><span>Workflow</span></a>
+      <a class="nav-item" href="packhouse-scheduler">
+        <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span>Scheduler</span></a>
+      <a class="nav-item" href="sales-allocation-planning">
+        <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg><span>Allocation Planning</span></a>
+      <a class="nav-item" href="packhouse-production">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg><span>Production</span></a>
+      <div class="group-lbl">Tracking</div>
+      <a class="nav-item" href="bucket-tracker">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg><span>Bucket Journey</span></a>
+      <a class="nav-item" href="bucket-logistics">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg><span>Bucket Logistics</span></a>
+      <a class="nav-item active" href="cold-room">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M2 12h20"/><path d="M12 2v20"/><path d="m4.93 4.93 14.14 14.14"/><path d="m19.07 4.93-14.14 14.14"/></svg><span>Cold Room</span></a>
+      <a class="nav-item" href="packhouse-discards">
+        <svg class="ic" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg><span>Discards</span></a>
+      <a class="nav-item" href="packhouse-downgrades">
+        <svg class="ic" viewBox="0 0 24 24"><polyline points="19 12 12 19 5 12"/><line x1="12" y1="5" x2="12" y2="19"/></svg><span>Downgrades</span></a>
+      <div class="group-lbl">Stock &amp; Orders</div>
+      <a class="nav-item" href="stock-visibility">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/></svg><span>Stock Visibility</span></a>
+      <a class="nav-item" href="avails">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg><span>Avails</span></a>
+      <a class="nav-item" href="stem-movement">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg><span>Stem Movement</span></a>
+      <a class="nav-item" href="order-summary">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg><span>Order Summary</span></a>
+      <a class="nav-item" href="order-fulfilment">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><span>Order Fulfilment</span></a>
+
+    </div>
+    <div class="footer">
+      <div class="av" id="aph-foot-av">—</div>
+      <div class="who"><div class="nm" id="aph-foot-nm">Loading…</div><div class="em" id="aph-foot-em">kaitet-group</div></div>
+    </div>
+  </aside>
+
+  <div class="aph-main">
+    <div class="aph-topbar"><button class="collapse-btn" id="collapseBtn" title="Toggle sidebar" aria-label="Toggle sidebar"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+      <h1>Cold Room</h1>
+      <span class="crumb">Tracking</span>
+      <div class="right">
+        <div class="view-toggle">
+          <button class="tab-btn active" data-view="dashboard" onclick="switchView('dashboard')">Dashboard</button>
+          <button class="tab-btn" data-view="shelf" onclick="switchView('shelf')">Shelf Contents</button>
+          <button class="tab-btn" data-view="buckets" onclick="switchView('buckets')">Buckets</button>
+        </div>
+        <div class="location-wrap" id="locationWrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          <span class="location-label">Farm:</span>
+          <select id="farmSelector" onchange="updateFarm()">
+            <option value="">All Farms</option>
+          </select>
+        </div>
+        <button class="live-badge" onclick="loadAllData()">
+          <span class="live-dot"></span>LIVE
+        </button>
+      </div>
+    </div>
+
+    <div class="aph-content">
+
+      <div class="aph-page-hd">
+        <div class="ttl">Cold Room</div>
+        <div class="sub">Live cold store inventory, environment &amp; stock pressure</div>
+      </div>
+
+      <!-- KPIs — Order: Shelves, Buckets, Stems, Varieties, Age, Temp, Humidity, Incoming, Allocated, Discards -->
+      <div class="aph-kpis" id="kpiRow">
+        <div class="aph-kpi">
+          <div class="ic-wrap"><svg class="ic" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div>
+          <div class="lbl">Shelves in Use</div>
+          <div class="v" id="kpiShelves">0</div>
+        </div>
+        <div class="aph-kpi">
+          <div class="ic-wrap"><svg class="ic" viewBox="0 0 24 24"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg></div>
+          <div class="lbl">Total Buckets</div>
+          <div class="v" id="kpiBuckets">0</div>
+        </div>
+        <div class="aph-kpi">
+          <div class="ic-wrap"><svg class="ic" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div>
+          <div class="lbl">Total Stems</div>
+          <div class="v" id="kpiStems">0</div>
+        </div>
+        <div class="aph-kpi">
+          <div class="ic-wrap"><svg class="ic" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div>
+          <div class="lbl">Varieties</div>
+          <div class="v" id="kpiVarieties">0</div>
+        </div>
+        <div class="aph-kpi">
+          <div class="ic-wrap"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+          <div class="lbl">Avg Age</div>
+          <div class="v" id="kpiAvgAge">0d</div>
+          <div class="sub" id="kpiOldest"></div>
+        </div>
+        <div class="aph-kpi" id="kpiTempCard">
+          <div class="ic-wrap"><svg class="ic" viewBox="0 0 24 24"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg></div>
+          <div class="lbl">Temperature</div>
+          <div class="v" id="kpiTemp">--</div>
+          <div class="sub" id="kpiTempStatus"></div>
+        </div>
+        <div class="aph-kpi" id="kpiHumCard">
+          <div class="ic-wrap"><svg class="ic" viewBox="0 0 24 24"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg></div>
+          <div class="lbl">Humidity</div>
+          <div class="v" id="kpiHumidity">--</div>
+          <div class="sub" id="kpiHumStatus"></div>
+        </div>
+        <div class="aph-kpi">
+          <div class="ic-wrap"><svg class="ic" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
+          <div class="lbl">Received (Not Shelved)</div>
+          <div class="v" id="kpiIncoming">0</div>
+          <div class="sub" id="kpiIncomingBuckets"></div>
+        </div>
+        <div class="aph-kpi">
+          <div class="ic-wrap"><svg class="ic" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <div class="lbl">Allocated (Not Issued)</div>
+          <div class="v" id="kpiAllocated">0</div>
+          <div class="sub" id="kpiAllocatedBuckets"></div>
+        </div>
+        <div class="aph-kpi">
+          <div class="ic-wrap"><svg class="ic" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></div>
+          <div class="lbl">Discards Today</div>
+          <div class="v" id="kpiDiscards">0</div>
+          <div class="sub" id="kpiDiscardsEntries"></div>
+        </div>
+      </div>
+
+      <!-- DASHBOARD VIEW -->
+      <div id="viewDashboard">
+        <!-- Cold Store Pressure -->
+        <div class="pressure-row" id="pressureRow"></div>
+
+        <!-- Environment Charts -->
+        <div class="charts-row">
+          <div class="aph-card">
+            <div class="aph-card-hd"><span class="ttl chart-title">Cold Room Temperature (24h)</span></div>
+            <div class="aph-card-body chart-body"><canvas id="chartTemp" class="chart-canvas"></canvas></div>
+          </div>
+          <div class="aph-card">
+            <div class="aph-card-hd"><span class="ttl chart-title">Cold Room Humidity (24h)</span></div>
+            <div class="aph-card-body chart-body"><canvas id="chartHumidity" class="chart-canvas"></canvas></div>
+          </div>
+        </div>
+
+        <!-- Analytics Charts -->
+        <div class="charts-row">
+          <div class="aph-card">
+            <div class="aph-card-hd"><span class="ttl chart-title">Stems by Variety (Top 15)</span></div>
+            <div class="aph-card-body chart-body"><canvas id="chartVariety" class="chart-canvas" style="max-height:280px"></canvas></div>
+          </div>
+          <div class="aph-card">
+            <div class="aph-card-hd"><span class="ttl chart-title">Stock Age Distribution</span></div>
+            <div class="aph-card-body chart-body"><canvas id="chartAge" class="chart-canvas"></canvas></div>
+          </div>
+        </div>
+        <div class="charts-row">
+          <div class="aph-card">
+            <div class="aph-card-hd"><span class="ttl chart-title">Stems by Length</span></div>
+            <div class="aph-card-body chart-body"><canvas id="chartLength" class="chart-canvas"></canvas></div>
+          </div>
+          <div class="aph-card">
+            <div class="aph-card-hd"><span class="ttl chart-title">Stems by Farm</span></div>
+            <div class="aph-card-body chart-body"><canvas id="chartFarm" class="chart-canvas"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SHELF CONTENTS VIEW -->
+      <div id="viewShelf" style="display:none">
+        <div class="aph-grid col-1">
+          <div class="aph-card">
+            <div class="aph-card-hd">
+              <span class="ttl">Stock Availability</span>
+              <span class="sub" id="stockAvailSub" style="margin-left:8px;color:var(--text-3);font-size:11px"></span>
+            </div>
+            <div class="stock-filters">
+              <div class="filter-group">
+                <label class="filter-group-label">Farm</label>
+                <div class="custom-select" style="min-width:140px">
+                  <input type="text" class="form-control" id="shelfFarmFilter" placeholder="Filter farm..." autocomplete="off">
+                  <div class="select-dropdown" id="shelfFarmDropdown"></div>
+                </div>
+              </div>
+              <div class="filter-group" style="flex:1">
+                <label class="filter-group-label">Search Varieties</label>
+                <input type="text" class="form-control" id="shelfSearch" placeholder="Search..." style="width:100%">
+              </div>
+            </div>
+            <div class="aph-card-body padless">
+              <table class="aph-tbl">
+                <thead><tr>
+                  <th>Variety</th><th>Length</th><th>Farm</th>
+                  <th class="num">Shelved</th><th class="num">Not Shelved</th><th class="num">Total</th>
+                  <th class="num">Buckets</th><th>Shelf Location</th>
+                </tr></thead>
+                <tbody id="shelfTableBody">
+                  <tr><td colspan="8" class="loading-state">Loading...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="viewBuckets" style="display:none">
+        <style>
+        .aph #viewBuckets .aph-card{margin-bottom:16px}
+        .aph #viewBuckets .bk-filter{height:30px;padding:0 10px;font-size:12px;font-family:var(--f);background:var(--bg-card);border:1px solid var(--border-2);border-radius:7px;color:var(--text);outline:0;font-weight:500}
+        .aph #viewBuckets .bk-count{font-size:12px;font-weight:600;color:var(--text-2);background:var(--bg-muted);padding:2px 9px;border-radius:9px}
+        .aph .farm-sec{border-bottom:1px solid var(--border)}
+        .aph .farm-sec:last-child{border-bottom:0}
+        .aph .farm-sec-hd{padding:8px 16px;font-weight:600;font-size:13px;background:var(--bg-muted);display:flex;justify-content:space-between;align-items:center}
+        .aph .farm-sec-hd span{color:var(--text-3);font-weight:500;font-family:var(--mono);font-size:11px}
+        </style>
+
+        <div class="aph-grid col-1"><div class="aph-card">
+          <div class="aph-card-hd">
+            <div class="ttl">Bucket Age &mdash; on shelf (youngest &rarr; oldest)</div>
+            <div style="display:flex;gap:10px;margin-left:auto;align-items:center">
+              <select id="ageVarietyFilter" class="bk-filter" onchange="renderBuckets()"><option value="">All varieties</option></select>
+              <select id="ageMinFilter" class="bk-filter" onchange="renderBuckets()">
+                <option value="">All ages</option>
+                <option value="0">Today (0d)</option>
+                <option value="1">1+ days</option>
+                <option value="3">3+ days</option>
+                <option value="7">7+ days</option>
+                <option value="14">14+ days</option>
+                <option value="30">30+ days</option>
+              </select>
+              <input type="text" id="ageSearch" class="bk-filter" placeholder="Search bucket / shelf..." oninput="renderBuckets()">
+              <span class="bk-count" id="ageCount">--</span>
+            </div>
+          </div>
+          <div class="aph-card-body padless">
+            <table class="aph-tbl"><thead><tr>
+              <th>Bucket</th><th>Variety</th><th>Length</th><th>Farm</th><th>Shelf</th><th class="num">Stems</th><th class="num">Age</th>
+            </tr></thead><tbody id="ageBody"><tr><td colspan="7" class="loading-state">Loading...</td></tr></tbody></table>
+          </div>
+        </div></div>
+
+        <div class="aph-grid col-1"><div class="aph-card">
+          <div class="aph-card-hd"><div class="ttl">On discard list &mdash; still on shelves</div><span class="bk-count" id="discCount">--</span></div>
+          <div class="aph-card-body padless">
+            <table class="aph-tbl"><thead><tr>
+              <th>Bucket</th><th>Variety</th><th>Length</th><th>Farm</th><th>Shelf</th><th class="num">Stems</th><th class="num">Age</th><th>Request</th>
+            </tr></thead><tbody id="discBody"></tbody></table>
+          </div>
+        </div></div>
+
+        <div class="aph-grid col-1"><div class="aph-card">
+          <div class="aph-card-hd"><div class="ttl">Received &mdash; not shelved (per farm, today)</div><span class="bk-count" id="recvCount">--</span></div>
+          <div class="aph-card-body padless"><div id="recvBody"></div></div>
+        </div></div>
+
+        <div class="aph-grid col-1"><div class="aph-card">
+          <div class="aph-card-hd"><div class="ttl">Requested &mdash; not given out (today)</div><span class="bk-count" id="reqCount">--</span></div>
+          <div class="aph-card-body padless">
+            <table class="aph-tbl"><thead><tr>
+              <th>Bucket</th><th>Variety</th><th>Length</th><th>Farm</th><th class="num">Stems</th><th>Order</th><th>Customer</th>
+            </tr></thead><tbody id="reqBody"></tbody></table>
+          </div>
+        </div></div>
+      </div>
+
+      <!-- end views -->
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+// ─── State ───
+let dashData = null;
+let sensorTemp = null, sensorHum = null;
+let selectedFarm = '';
+let charts = {};
+let currentView = 'dashboard';
+let shelfFarmValue = '';
+let bucketsData = null;
+let bucketsFarm = null;
+
+// ─── Init ───
+document.addEventListener('DOMContentLoaded', () => {
+    initFilters();
+    setTimeout(loadAllData, 400);
+    setInterval(() => loadAllData(), 120000);
+});
+
+function showSpinner(v) { document.getElementById('spinnerOverlay').classList.toggle('show', v); }
+function showToast(msg, type='success') {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.className = 'toast ' + type;
+    t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ─── View Switching ───
+function switchView(view) {
+    currentView = view;
+    document.querySelectorAll('.tab-btn[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+    ['viewDashboard','viewShelf','viewBuckets'].forEach(id => {
+        document.getElementById(id).style.display = 'none';
+    });
+    const map = { dashboard:'viewDashboard', shelf:'viewShelf', buckets:'viewBuckets' };
+    document.getElementById(map[view]).style.display = 'block';
+    if (view === 'buckets') {
+        if (!bucketsData || bucketsFarm !== selectedFarm) loadBuckets();
+        else renderBuckets();
+        return;
+    }
+    if (dashData) renderCurrentView();
+}
+
+function renderCurrentView() {
+    if (!dashData) return;
+    if (currentView === 'dashboard') renderDashboard();
+    else if (currentView === 'shelf') renderShelfTable();
+}
+
+// ─── Buckets tab ───
+function loadBuckets() {
+    document.getElementById('ageBody').innerHTML = '<tr><td colspan="7" class="loading-state">Loading buckets...</td></tr>';
+    frappe.call({
+        method: 'upande_packhouse.api.coldroom.getColdroomBuckets',
+        args: { farm: selectedFarm || '' },
+        callback: r => {
+            const m = r.message || {};
+            if (m.success) { bucketsData = m; bucketsFarm = selectedFarm; renderBuckets(); }
+            else document.getElementById('ageBody').innerHTML = '<tr><td colspan="7" class="loading-state" style="color:var(--bad)">Error: ' + (m.error || 'unknown') + '</td></tr>';
+        },
+        error: e => { console.error(e); document.getElementById('ageBody').innerHTML = '<tr><td colspan="7" class="loading-state" style="color:var(--bad)">Error loading buckets.</td></tr>'; }
+    });
+}
+function bkNum(n) { return Math.round(n || 0).toLocaleString(); }
+function bkAgeCell(d) {
+    if (d === null || d === undefined) return '<td class="num dim">&mdash;</td>';
+    const lbl = d === 0 ? 'Today' : (d + 'd');
+    let col = '';
+    if (d >= 7) col = 'color:var(--bad);font-weight:700';
+    else if (d >= 3) col = 'color:var(--warn);font-weight:700';
+    return '<td class="num" style="' + col + '">' + lbl + '</td>';
+}
+function renderBuckets() {
+    if (!bucketsData) return;
+    // variety dropdown (built once)
+    const sel = document.getElementById('ageVarietyFilter');
+    if (sel && sel.dataset.built !== '1') {
+        const vs = Array.from(new Set((bucketsData.age || []).map(x => x.variety).filter(Boolean))).sort();
+        sel.innerHTML = '<option value="">All varieties</option>' + vs.map(v => '<option value="' + v + '">' + v + '</option>').join('');
+        sel.dataset.built = '1';
+    }
+    // 1. Age (youngest -> oldest, from API)
+    const vf = document.getElementById('ageVarietyFilter').value || '';
+    const term = (document.getElementById('ageSearch').value || '').toLowerCase().trim();
+    const minAgeRaw = document.getElementById('ageMinFilter').value;
+    let ages = bucketsData.age || [];
+    if (vf) ages = ages.filter(x => x.variety === vf);
+    if (minAgeRaw !== '') { const mn = parseInt(minAgeRaw, 10); ages = ages.filter(x => x.age_days != null && x.age_days >= mn); }
+    if (term) ages = ages.filter(x => (x.bucket_id || '').toLowerCase().includes(term) || (x.shelf || '').toLowerCase().includes(term));
+    document.getElementById('ageCount').textContent = ages.length + ' buckets';
+    const MAX = 1500, shown = ages.slice(0, MAX);
+    document.getElementById('ageBody').innerHTML = (shown.map(x =>
+        '<tr><td class="mono">' + x.bucket_id + '</td><td>' + (x.variety || '&mdash;') + '</td><td>' + (x.stem_length || '&mdash;') +
+        '</td><td>' + (x.farm || '&mdash;') + '</td><td class="mono">' + (x.shelf || '&mdash;') + '</td><td class="num">' + bkNum(x.stem_qty) + '</td>' + bkAgeCell(x.age_days) + '</tr>'
+    ).join('') + (ages.length > MAX ? '<tr><td colspan="7" class="aph-empty">Showing first ' + MAX + ' of ' + ages.length + '. Filter by variety to narrow.</td></tr>' : '')) || '<tr><td colspan="7" class="aph-empty">No buckets.</td></tr>';
+    // 2. Discard list still shelved
+    const disc = bucketsData.discard_shelved || [];
+    document.getElementById('discCount').textContent = disc.length + ' buckets';
+    document.getElementById('discBody').innerHTML = disc.length ? disc.map(x =>
+        '<tr><td class="mono">' + x.bucket_id + '</td><td>' + (x.variety || '&mdash;') + '</td><td>' + (x.stem_length || '&mdash;') +
+        '</td><td>' + (x.farm || '&mdash;') + '</td><td class="mono">' + (x.shelf || '&mdash;') + '</td><td class="num">' + bkNum(x.stem_qty) + '</td>' +
+        bkAgeCell(x.age_days == null ? null : Math.round(x.age_days)) + '<td class="mono">' + (x.request || '') + '</td></tr>'
+    ).join('') : '<tr><td colspan="8" class="aph-empty">None on the discard list are still shelved.</td></tr>';
+    // 3. Received not shelved (per farm)
+    const recv = bucketsData.received_not_shelved || [];
+    const byFarm = {};
+    recv.forEach(x => { const k = x.farm || 'Unknown'; (byFarm[k] = byFarm[k] || []).push(x); });
+    document.getElementById('recvCount').textContent = recv.length + ' buckets';
+    let rh = '';
+    Object.keys(byFarm).sort().forEach(fn => {
+        const rows = byFarm[fn], st = rows.reduce((a, b) => a + (b.stems || 0), 0);
+        rh += '<div class="farm-sec"><div class="farm-sec-hd">' + fn + '<span>' + rows.length + ' buckets &middot; ' + bkNum(st) + ' stems</span></div>' +
+            '<table class="aph-tbl"><thead><tr><th>Bucket</th><th>Variety</th><th>Length</th><th class="num">Stems</th></tr></thead><tbody>' +
+            rows.map(x => '<tr><td class="mono">' + x.bucket_id + '</td><td>' + (x.variety || '&mdash;') + '</td><td>' + (x.stem_length || '&mdash;') + '</td><td class="num">' + bkNum(x.stems) + '</td></tr>').join('') +
+            '</tbody></table></div>';
+    });
+    document.getElementById('recvBody').innerHTML = rh || '<div class="aph-empty">Nothing received-but-unshelved today.</div>';
+    // 4. Requested not issued
+    const req = bucketsData.requested_not_issued || [];
+    document.getElementById('reqCount').textContent = req.length + ' buckets';
+    document.getElementById('reqBody').innerHTML = req.length ? req.map(x =>
+        '<tr><td class="mono">' + (x.bucket_id || '&mdash;') + '</td><td>' + (x.variety || '&mdash;') + '</td><td>' + (x.stem_length || '&mdash;') +
+        '</td><td>' + (x.farm || '&mdash;') + '</td><td class="num">' + bkNum(x.stems) + '</td><td class="mono">' + (x.opl || '') + '</td><td>' + (x.customer || '&mdash;') + '</td></tr>'
+    ).join('') : '<tr><td colspan="7" class="aph-empty">Nothing requested-but-unissued today.</td></tr>';
+}
+
+// ─── Farm Selector ───
+function updateFarm() {
+    selectedFarm = document.getElementById('farmSelector').value;
+    const wrap = document.getElementById('locationWrap');
+    wrap.classList.toggle('confirmed', !!selectedFarm);
+    bucketsData = null;
+    loadAllData();
+    if (currentView === 'buckets') loadBuckets();
+}
+
+function populateFarmSelector(farms) {
+    const sel = document.getElementById('farmSelector');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">All Farms</option>';
+    (farms || []).forEach(f => {
+        const o = document.createElement('option');
+        o.value = f.name; o.textContent = f.name;
+        if (f.name === cur) o.selected = true;
+        sel.appendChild(o);
+    });
+}
+
+// ─── Filters ───
+function initFilters() {
+    const sfi = document.getElementById('shelfFarmFilter');
+    const sfd = document.getElementById('shelfFarmDropdown');
+    sfi.addEventListener('focus', () => { buildShelfFarmDropdown(sfi, sfd); sfd.classList.add('show'); });
+    sfi.addEventListener('input', () => { buildShelfFarmDropdown(sfi, sfd); if (!sfi.value) { shelfFarmValue=''; renderShelfTable(); } });
+    document.getElementById('shelfSearch').addEventListener('input', () => renderShelfTable());
+    document.addEventListener('click', e => {
+        if (!e.target.closest('.custom-select')) document.querySelectorAll('.select-dropdown').forEach(d => d.classList.remove('show'));
+    });
+}
+
+function buildShelfFarmDropdown(input, dropdown) {
+    if (!dashData) return;
+    const farms = Object.keys(dashData.aggregations.farm_stems || {}).sort();
+    const term = input.value.toLowerCase();
+    const items = farms.filter(f => f.toLowerCase().includes(term));
+    dropdown.innerHTML = items.map(f =>
+        `<div class="select-option${shelfFarmValue===f?' selected':''}" data-value="${f}">${f}</div>`
+    ).join('') || '<div class="select-option" style="color:var(--text-3)">No farms</div>';
+    dropdown.querySelectorAll('.select-option[data-value]').forEach(opt => {
+        opt.addEventListener('click', () => {
+            shelfFarmValue = opt.dataset.value;
+            input.value = shelfFarmValue; input.classList.add('has-value');
+            dropdown.classList.remove('show');
+            renderShelfTable();
+        });
+    });
+}
+
+// ─── Data Loading ───
+function loadAllData() {
+    showSpinner(true);
+    frappe.call({
+        method: 'upande_packhouse.api.coldroom.fetchColdroomData',
+        args: { farm: selectedFarm || '' },
+        callback: r => {
+            showSpinner(false);
+            if (r.message && r.message.success) {
+                dashData = r.message;
+                populateFarmSelector(dashData.available_farms);
+                updateKPIs();
+                renderCurrentView();
+                loadSensorData();
+            } else {
+                showToast(r.message?.error || 'Failed to load data', 'error');
+            }
+        },
+        error: err => { showSpinner(false); showToast('Failed to load data', 'error'); console.error(err); }
+    });
+}
+
+function loadSensorData() {
+    const caps = dashData?.capacity_data || [];
+    const sensor = selectedFarm
+        ? caps.find(c => c.farm === selectedFarm)
+        : (caps[0] || null);
+    const sensorName = sensor?.sensor_name || 'Kapkolia Cold Room 2';
+    const tempMin = sensor?.temp_min || 2;
+    const tempMax = sensor?.temp_max || 4;
+    const humMin = sensor?.humidity_min || 80;
+    const humMax = sensor?.humidity_max || 95;
+
+    // Update chart titles and KPI labels with sensor name
+    const tempTitle = document.querySelector('#chartTemp')?.closest('.aph-card')?.querySelector('.chart-title');
+    const humTitle = document.querySelector('#chartHumidity')?.closest('.aph-card')?.querySelector('.chart-title');
+    if (tempTitle) tempTitle.textContent = sensorName + ' — Temperature (24h)';
+    if (humTitle) humTitle.textContent = sensorName + ' — Humidity (24h)';
+
+    // Temperature
+    frappe.call({
+        method: 'upande_sensors.api.sensor_charts.get_sensor_chart_data',
+        args: { sensor_name: sensorName, sensor_type: 'Temperature', date_from: '', timespan: 'last_24h', time_interval: 'hourly' },
+        callback: r => {
+            if (r.message) {
+                sensorTemp = r.message;
+                sensorTemp._thresholds = { min: tempMin, max: tempMax };
+                sensorTemp._sensorName = sensorName;
+                renderTempChart();
+                updateTempKPI();
+            }
+        },
+        error: () => {}
+    });
+
+    // Humidity
+    frappe.call({
+        method: 'upande_sensors.api.sensor_charts.get_sensor_chart_data',
+        args: { sensor_name: sensorName, sensor_type: 'Humidity', date_from: '', timespan: 'last_24h', time_interval: 'hourly' },
+        callback: r => {
+            if (r.message) {
+                sensorHum = r.message;
+                sensorHum._thresholds = { min: humMin, max: humMax };
+                sensorHum._sensorName = sensorName;
+                renderHumChart();
+                updateHumKPI();
+            }
+        },
+        error: () => {}
+    });
+}
+
+// ─── KPIs ───
+function updateKPIs() {
+    if (!dashData) return;
+    const a = dashData.aggregations;
+    document.getElementById('kpiBuckets').textContent = (a.total_buckets || 0).toLocaleString();
+    document.getElementById('kpiStems').textContent = (a.total_stems || 0).toLocaleString();
+    document.getElementById('kpiVarieties').textContent = a.total_varieties || 0;
+    document.getElementById('kpiAvgAge').textContent = (a.avg_age_days || 0) + 'd';
+    document.getElementById('kpiOldest').textContent = a.oldest_age_days ? 'Oldest: ' + a.oldest_age_days + 'd' : '';
+    document.getElementById('kpiAllocated').textContent = (a.total_allocated_stems || 0).toLocaleString();
+    const allocBkts = a.total_allocated_buckets || 0;
+    document.getElementById('kpiAllocatedBuckets').textContent = allocBkts ? allocBkts + ' buckets' : '';
+    document.getElementById('kpiShelves').textContent = a.total_shelves || 0;
+    document.getElementById('kpiIncoming').textContent = (a.total_incoming_stems || 0).toLocaleString();
+    const inBkts = a.total_incoming_buckets || 0;
+    document.getElementById('kpiIncomingBuckets').textContent = inBkts ? inBkts + ' buckets' : '';
+    document.getElementById('kpiDiscards').textContent = (a.total_discard_stems || 0).toLocaleString();
+    const discardEntries = a.total_discard_entries || 0;
+    document.getElementById('kpiDiscardsEntries').textContent = discardEntries ? discardEntries + ' buckets' : '';
+}
+
+function updateTempKPI() {
+    if (!sensorTemp) return;
+    const vals = sensorTemp.values || [];
+    const latest = vals[vals.length - 1];
+    const th = sensorTemp._thresholds || { min: 2, max: 4 };
+    const name = sensorTemp._sensorName || '';
+    document.getElementById('kpiTemp').textContent = latest != null ? latest.toFixed(1) + '°C' : '--';
+    const statusEl = document.getElementById('kpiTempStatus');
+    let statusHtml = name ? '<div style="font-size:10px;color:var(--text-3);margin-bottom:2px">' + name + '</div>' : '';
+    if (latest != null) {
+        if (latest >= th.min && latest <= th.max) {
+            statusHtml = statusHtml + '<span class="sensor-status sensor-ok">● Normal</span>';
+        } else if (latest > th.max) {
+            statusHtml = statusHtml + '<span class="sensor-status sensor-alert">● Too High</span>';
+        } else {
+            statusHtml = statusHtml + '<span class="sensor-status sensor-warn">● Too Low</span>';
+        }
+    }
+    statusEl.innerHTML = statusHtml;
+}
+
+function updateHumKPI() {
+    if (!sensorHum) return;
+    const vals = sensorHum.values || [];
+    const latest = vals[vals.length - 1];
+    const th = sensorHum._thresholds || { min: 80, max: 95 };
+    const name = sensorHum._sensorName || '';
+    document.getElementById('kpiHumidity').textContent = latest != null ? latest.toFixed(1) + '%' : '--';
+    const statusEl = document.getElementById('kpiHumStatus');
+    let statusHtml = name ? '<div style="font-size:10px;color:var(--text-3);margin-bottom:2px">' + name + '</div>' : '';
+    if (latest != null) {
+        if (latest >= th.min && latest <= th.max) {
+            statusHtml = statusHtml + '<span class="sensor-status sensor-ok">● Normal</span>';
+        } else {
+            statusHtml = statusHtml + '<span class="sensor-status sensor-warn">● Out of Range</span>';
+        }
+    }
+    statusEl.innerHTML = statusHtml;
+}
+
+// ─── Dashboard Rendering ───
+function renderDashboard() {
+    renderPressureCards();
+    renderVarietyChart();
+    renderAgeChart();
+    renderLengthChart();
+    renderFarmChart();
+}
+
+// ─── Pressure Cards ───
+function renderPressureCards() {
+    if (!dashData) return;
+    const a = dashData.aggregations;
+    const caps = dashData.capacity_data || [];
+    const container = document.getElementById('pressureRow');
+
+    if (!caps.length) {
+        // Single summary card
+        const incoming = Object.values(a.incoming_stems || {}).reduce((s,v) => s+v, 0);
+        const onShelf = a.total_stems || 0;
+        const allocated = a.total_allocated_stems || 0;
+        const total = incoming + onShelf;
+        container.innerHTML = buildPressureCard('All Cold Stores', incoming, onShelf, allocated, 0, total);
+        return;
+    }
+
+    let html = '';
+    caps.forEach(cap => {
+        const farm = cap.farm;
+        const incoming = (a.incoming_stems || {})[farm] || 0;
+        const onShelf = (a.farm_stems || {})[farm] || 0;
+        const allocated = a.total_allocated_stems || 0; // simplified; ideally per-farm
+        const maxStems = cap.max_stems || 0;
+        const total = incoming + onShelf;
+        html += buildPressureCard(farm + ' Cold Store', incoming, onShelf, allocated, maxStems, total);
+    });
+    container.innerHTML = html;
+}
+
+function buildPressureCard(title, incoming, onShelf, allocated, capacity, total) {
+    // The bar shows: Incoming (not shelved) | On Shelf | Allocated (not issued)
+    const unallocatedShelf = Math.max(0, onShelf - allocated);
+    const allocShow = Math.min(allocated, onShelf);
+    const allSegments = incoming + unallocatedShelf + allocShow;
+    const maxVal = capacity > 0 ? Math.max(capacity, allSegments) : (allSegments || 1);
+    const pctIn = maxVal > 0 ? (incoming / maxVal * 100) : 0;
+    const pctUnalloc = maxVal > 0 ? (unallocatedShelf / maxVal * 100) : 0;
+    const pctAlloc = maxVal > 0 ? (allocShow / maxVal * 100) : 0;
+    const pctEmpty = Math.max(0, 100 - pctIn - pctUnalloc - pctAlloc);
+    const capLine = capacity > 0 && maxVal > 0 ? (capacity / maxVal * 100) : 0;
+    const utilPct = capacity > 0 ? Math.round(allSegments / capacity * 100) : 0;
+
+    return `<div class="pressure-card">
+        <div class="pressure-title">${title}${capacity > 0 ? ` <span class="label ${utilPct > 90 ? 'label-danger' : utilPct > 70 ? 'label-warning' : 'label-success'}">${utilPct}% utilized</span>` : ''}</div>
+        <div class="pressure-bar-wrap">
+            <div class="pressure-bar-label">
+                <span>0</span>
+                ${capacity > 0 ? `<span>Capacity: ${capacity.toLocaleString()}</span>` : `<span>Total: ${allSegments.toLocaleString()}</span>`}
+            </div>
+            <div class="pressure-bar">
+                <div class="pressure-segment seg-incoming" style="width:${pctIn}%" title="Received (not shelved): ${incoming.toLocaleString()}">${incoming > 0 ? incoming.toLocaleString() : ''}</div>
+                <div class="pressure-segment seg-onshelf" style="width:${pctUnalloc}%" title="On Shelf : ${unallocatedShelf.toLocaleString()}">${unallocatedShelf > 0 ? unallocatedShelf.toLocaleString() : ''}</div>
+                <div class="pressure-segment seg-allocated" style="width:${pctAlloc}%" title="Allocated (not issued): ${allocShow.toLocaleString()}">${allocShow > 0 ? allocShow.toLocaleString() : ''}</div>
+                <div class="pressure-segment seg-empty" style="width:${pctEmpty}%"></div>
+                ${capLine > 0 ? `<div class="pressure-capacity-line" style="left:${Math.min(capLine, 100)}%"></div>` : ''}
+            </div>
+        </div>
+        <div class="pressure-legend">
+            <div class="legend-item"><div class="legend-dot" style="background:#fc9c30"></div>Received (not shelved): ${incoming.toLocaleString()}</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#2490ef"></div>On shelf: ${unallocatedShelf.toLocaleString()}</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#29cd42"></div>Allocated (not issued): ${allocShow.toLocaleString()}</div>
+        </div>
+    </div>`;
+}
+
+// ─── Charts ───
+function destroyChart(key) { if (charts[key]) { charts[key].destroy(); charts[key] = null; } }
+
+function renderTempChart() {
+    if (!sensorTemp) return;
+    destroyChart('temp');
+    const ctx = document.getElementById('chartTemp').getContext('2d');
+    const th = sensorTemp._thresholds || { min: 2, max: 4 };
+    charts.temp = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: sensorTemp.labels,
+            datasets: [{
+                label: 'Temperature (°C)',
+                data: sensorTemp.values,
+                borderColor: '#2490ef',
+                backgroundColor: 'rgba(36,144,239,0.1)',
+                fill: true, tension: 0.3, pointRadius: 2, borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                annotation: undefined
+            },
+            scales: {
+                y: {
+                    min: Math.min(th.min - 1, sensorTemp.min_value - 0.5),
+                    max: Math.max(th.max + 1, sensorTemp.max_value + 0.5),
+                    grid: { color: '#f0f0f0' },
+                    ticks: { font: { size: 11 } }
+                },
+                x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 0 } }
+            }
+        }
+    });
+}
+
+function renderHumChart() {
+    if (!sensorHum) return;
+    destroyChart('hum');
+    const ctx = document.getElementById('chartHumidity').getContext('2d');
+    charts.hum = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: sensorHum.labels,
+            datasets: [{
+                label: 'Humidity (%)',
+                data: sensorHum.values,
+                borderColor: '#7c5cfc',
+                backgroundColor: 'rgba(124,92,252,0.1)',
+                fill: true, tension: 0.3, pointRadius: 2, borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 11 } } },
+                x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 0 } }
+            }
+        }
+    });
+}
+
+function renderVarietyChart() {
+    if (!dashData) return;
+    destroyChart('variety');
+    const vs = dashData.aggregations.variety_stems || {};
+    const sorted = Object.entries(vs).sort((a,b) => b[1] - a[1]).slice(0, 15);
+    const ctx = document.getElementById('chartVariety').getContext('2d');
+    charts.variety = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: sorted.map(s => s[0]),
+            datasets: [{
+                data: sorted.map(s => s[1]),
+                backgroundColor: '#2490ef', borderRadius: 4, barThickness: 16
+            }]
+        },
+        options: {
+            indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 11 } } },
+                y: { grid: { display: false }, ticks: { font: { size: 11 } } }
+            }
+        }
+    });
+}
+
+function renderAgeChart() {
+    if (!dashData) return;
+    destroyChart('age');
+    const labels = dashData.aggregations.age_dist_labels || [];
+    const values = dashData.aggregations.age_dist_values || [];
+    if (!labels.length) return;
+    // Color gradient: green for fresh, orange for mid, red for old
+    const colors = labels.map((l, i) => {
+        if (i === 0) return '#29cd42';
+        if (i === 1) return '#7cda89';
+        if (i === 2) return '#fc9c30';
+        return '#e63757';
+    });
+    const ctx = document.getElementById('chartAge').getContext('2d');
+    charts.age = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: values,
+                backgroundColor: colors, borderRadius: 4
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 11 } } },
+                x: { grid: { display: false }, ticks: { font: { size: 11 } } }
+            }
+        }
+    });
+}
+
+function renderLengthChart() {
+    if (!dashData) return;
+    destroyChart('length');
+    const ls = dashData.aggregations.length_stems || {};
+    const sorted = Object.entries(ls).sort((a,b) => {
+        const na = parseFloat(a[0]) || 0, nb = parseFloat(b[0]) || 0;
+        return na - nb;
+    });
+    const ctx = document.getElementById('chartLength').getContext('2d');
+    charts.length = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: sorted.map(s => s[0]),
+            datasets: [{
+                data: sorted.map(s => s[1]),
+                backgroundColor: '#7c5cfc', borderRadius: 4
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 11 } } },
+                x: { grid: { display: false }, ticks: { font: { size: 11 } } }
+            }
+        }
+    });
+}
+
+function renderFarmChart() {
+    if (!dashData) return;
+    destroyChart('farm');
+    const fs = dashData.aggregations.farm_stems || {};
+    const sorted = Object.entries(fs).sort((a,b) => b[1] - a[1]);
+    const ctx = document.getElementById('chartFarm').getContext('2d');
+    const colors = ['#2490ef', '#29cd42', '#fc9c30', '#7c5cfc', '#e63757', '#1a8a3a'];
+    charts.farm = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: sorted.map(s => s[0]),
+            datasets: [{ data: sorted.map(s => s[1]), backgroundColor: colors.slice(0, sorted.length) }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'right', labels: { font: { size: 11 }, padding: 12, usePointStyle: true } }
+            }
+        }
+    });
+}
+
+// ─── Shelf Table ───
+function renderShelfTable() {
+    if (!dashData) return;
+    const shelf = dashData.stock_data || [];
+    const notsh = dashData.not_shelved_data || [];
+    const search = (document.getElementById('shelfSearch').value || '').toLowerCase();
+    const kf = r => (r.item_code || '') + '||' + (r.stem_length || '') + '||' + (r.farm_name || '');
+    const map = {};
+    const ensure = r => {
+        const k = kf(r);
+        if (!map[k]) map[k] = { item_code: r.item_code, stem_length: r.stem_length, farm_name: r.farm_name,
+                                shelved: 0, notshelved: 0, buckets: 0, shelf_names: '' };
+        return map[k];
+    };
+    shelf.forEach(r => { const m = ensure(r); m.shelved += r.available_stems || 0; m.buckets += r.bucket_count || 0; if (r.shelf_names) m.shelf_names = r.shelf_names; });
+    notsh.forEach(r => { const m = ensure(r); m.notshelved += r.available_stems || 0; });
+    let rows = Object.values(map);
+    rows.sort((a, b) => (a.item_code || '').localeCompare(b.item_code || '') || (a.stem_length || '').localeCompare(b.stem_length || '') || (a.farm_name || '').localeCompare(b.farm_name || ''));
+    let html = '', tShelved = 0, tNot = 0;
+    rows.forEach(r => {
+        if (search && !(r.item_code || '').toLowerCase().includes(search)) return;
+        if (shelfFarmValue && r.farm_name !== shelfFarmValue) return;
+        tShelved += r.shelved; tNot += r.notshelved;
+        const total = (r.shelved || 0) + (r.notshelved || 0);
+        html += `<tr>
+            <td class="cell-variety">${r.item_code || '--'}</td>
+            <td>${r.stem_length || 'N/A'}</td>
+            <td class="cell-farm">${r.farm_name || '--'}</td>
+            <td class="num">${(r.shelved || 0).toLocaleString()}</td>
+            <td class="num" style="${r.notshelved ? 'color:#d97706;font-weight:600' : 'color:var(--text-3)'}">${(r.notshelved || 0).toLocaleString()}</td>
+            <td class="num" style="font-weight:600">${total.toLocaleString()}</td>
+            <td class="num">${r.buckets || 0}</td>
+            <td class="mono" style="color:#2490ef">${r.shelf_names || '--'}</td>
+        </tr>`;
+    });
+    document.getElementById('shelfTableBody').innerHTML = html || '<tr><td colspan="8" class="empty-state"><p>No stock data</p></td></tr>';
+    const sub = document.getElementById('stockAvailSub');
+    if (sub) sub.textContent = 'Shelved ' + Math.round(tShelved).toLocaleString() + ' · Not shelved (coldroom) ' + Math.round(tNot).toLocaleString() + ' · Total ' + Math.round(tShelved + tNot).toLocaleString() + ' stems';
+}
+
+/* -- Sidebar footer (user identity) -- */
+(function fillFooter(){
+    function tryFill(){
+        if (!window.frappe || !frappe.session || !frappe.session.user){ setTimeout(tryFill, 100); return; }
+        var u = frappe.session.user || '';
+        var fullName = (frappe.session.user_fullname || (frappe.boot && frappe.boot.user && frappe.boot.user.full_name)) || u.split('@')[0];
+        document.getElementById('aph-foot-av').textContent = (fullName || u || '?').substring(0,1).toUpperCase();
+        document.getElementById('aph-foot-nm').textContent = fullName;
+        document.getElementById('aph-foot-em').textContent = u;
+    }
+    tryFill();
+})();
+
+</script>
+
+
+
+<script>
+(function(){
+  var aph=document.querySelector('.aph'), btn=document.getElementById('collapseBtn');
+  if(!aph) return;
+  try{ if(localStorage.getItem('aphSideCollapsed')==='1') aph.classList.add('collapsed'); }catch(e){}
+  if(btn) btn.addEventListener('click',function(){
+    aph.classList.toggle('collapsed');
+    try{ localStorage.setItem('aphSideCollapsed', aph.classList.contains('collapsed')?'1':'0'); }catch(e){}
+  });
+})();
+</script>
+
+
+<style id="v16-polish">
+/* v16 polish — slim single-row top bar; filters scroll horizontally instead of
+   spilling off-screen or wrapping into a tall/fat bar. */
+.aph-topbar{padding:9px 20px !important;gap:12px !important;flex-wrap:nowrap !important;min-height:0 !important;align-items:center !important}
+.aph-topbar h1{font-size:16px !important;line-height:1.25;white-space:nowrap}
+.aph-topbar .right{margin-left:auto !important;flex-wrap:nowrap !important;overflow-x:auto;overflow-y:hidden;max-width:100%;padding-bottom:1px;scrollbar-width:thin}
+.aph-topbar .right > *{flex:0 0 auto}
+.aph-topbar .right::-webkit-scrollbar{height:4px}
+.aph-topbar .right::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:4px}
+.aph-main{min-width:0 !important;overflow-x:hidden}
+.aph-main table{max-width:100%}
+@media (max-width:1180px){ .aph-topbar{padding:8px 14px !important} .aph-topbar .crumb{display:none} }
+</style>
+<style>
+.navbar.navbar-light {
+  display: none !important;
+}
+.web-footer {
+  display: none !important;
+}
+nav.navbar.navbar-primary.navbar-expand-lg {
+  display: none !important;
+}
+</style>
+<link rel="stylesheet" href="/assets/upande_packhouse/css/packhouse-portal.css">
+{% endraw %}
+{% endblock %}
