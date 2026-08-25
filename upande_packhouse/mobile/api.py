@@ -8,6 +8,8 @@
 
 import frappe
 from frappe import _
+import json
+import math
 
 
 @frappe.whitelist()
@@ -294,6 +296,13 @@ def createOrUpdateFarmPackList():
         sale_order_id = data.get("custom_sales_order")
         customer_id = data.get("custom_customer")
         user_farm = data.get("custom_farm")
+        # The app sometimes sends a warehouse (e.g. "Kapkolia Receiving Cold
+        # Store - UFL") where a Farm is expected. Resolve it to the real Farm
+        # via the warehouse's custom_farm so the Farm Pack List link is valid.
+        if user_farm and not frappe.db.exists("Farm", user_farm):
+            _resolved = frappe.db.get_value("Warehouse", user_farm, "custom_farm")
+            if _resolved:
+                user_farm = _resolved
         order_pick_list_id = data.get("custom_order_pick_list")
         items = data.get("items")
 
@@ -402,12 +411,17 @@ def createOrUpdateFarmPackList():
                 return 0
 
         def ordered_stems_of(it):
+            # custom_ordered_quantity is the confirmed/ordered stems when set, but
+            # it is frequently left at 0 (unpopulated). Treat 0/blank as "unset"
+            # and fall back to the line's real ordered stems (qty x conversion),
+            # otherwise the over-pack guard blocks packing the whole order.
             oq = it.get("custom_ordered_quantity")
-            if oq is not None:
-                try:
-                    return float(oq)
-                except (ValueError, TypeError):
-                    return 0
+            try:
+                oq = float(oq) if oq not in (None, "") else 0
+            except (ValueError, TypeError):
+                oq = 0
+            if oq:
+                return oq
             return (it.get("qty") or 0) * (it.get("conversion_factor") or 1)
 
         # Match the SO lines THIS OPL covers — by the exact Sales Order Item its
@@ -964,13 +978,22 @@ def fetchLoadingData():
                             boxes_allocated += -(-total_stems // packrate)
 
                     # PACKED
-                    fpls = frappe.get_all(
-                        "Farm Pack List",
-                        filters={"custom_sales_order": so_name},
-                        fields=["name"]
-                    )
-
+                    # v16: Farm Pack List has no direct custom_sales_order link; it
+                    # links to the Order Pick List (order_pick_list). Reach the FPLs
+                    # for this Sales Order through its OPLs (computed above).
                     boxes_packed = 0
+                    opl_names_for_pack = [o.name for o in opls]
+                    fpls = []
+                    if opl_names_for_pack:
+                        fpls = frappe.get_all(
+                            "Farm Pack List",
+                            filters={
+                                "order_pick_list": ["in", opl_names_for_pack],
+                                "docstatus": ["!=", 2],
+                            },
+                            fields=["name"]
+                        )
+
                     if fpls:
                         fpl_names = [f.name for f in fpls]
 
@@ -2427,10 +2450,24 @@ def get_pick_list_with_farm_pack_list():
 
             overall_percentage = round(packed_total / planned_total * 100, 1) if planned_total > 0 else 100
 
+            # Item group drives packing UX (spray roses = scan bunch QRs,
+            # standard roses = manual entry). OPL.item_group is often unset, so
+            # fall back to the OPL's actual variety (Item.item_group) — the
+            # source of truth — so standards never get the bunch-scan page.
+            _opl_group = opl_doc.get("item_group") or ""
+            if not _opl_group:
+                _fv = frappe.db.get_value(
+                    "Pick List Item",
+                    {"parent": opl_doc.name, "parenttype": "Order Pick List"},
+                    "item_code",
+                )
+                if _fv:
+                    _opl_group = frappe.db.get_value("Item", _fv, "item_group") or ""
+
             packing_guide = {
                 "pick_list": opl_doc.name,
                 "sales_order": sales_order,
-                "item_group": opl_doc.get("item_group") or "",
+                "item_group": _opl_group,
                 "customer": so.customer_name,
                 "delivery_date": so.delivery_date,
                 "farm": opl_doc.get("farm") or so.get("custom_farm") or "",
