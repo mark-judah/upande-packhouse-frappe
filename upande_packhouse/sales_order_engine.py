@@ -198,3 +198,33 @@ def sales_order_validate(doc, method=None):
             "has a unit of measure.".format(", ".join(sorted(set(no_sales_uom)))),
             title="Missing Sales UOM",
         )
+
+    # 5. Mixed-box colour limit — a mixed box may not contain more distinct colours
+    #    than the applicable spec's "Max Colours Per Box". Colours come from the
+    #    variety's Item.custom_color; the spec is the line's custom_line.
+    from collections import defaultdict
+    groups = defaultdict(lambda: {"colours": set(), "limits": set()})
+    for it in doc.items:
+        if not it.item_code or not it.get("custom_mixed_box"):
+            continue
+        key = it.get("custom_mix_group") or "-"
+        colour = frappe.db.get_value("Item", it.item_code, "custom_color")
+        if colour:
+            groups[key]["colours"].add(colour)
+        if it.get("custom_line"):
+            mx = frappe.db.get_value("Specifications", it.get("custom_line"), "max_colours_per_box")
+            if mx:
+                groups[key]["limits"].add(int(mx))
+    over = []
+    for key, g in groups.items():
+        if not g["limits"]:
+            continue
+        limit = min(g["limits"])          # strictest spec on the box
+        if len(g["colours"]) > limit:
+            over.append("mix group {0} has {1} colours (max {2})".format(key, len(g["colours"]), limit))
+    if over:
+        frappe.throw(
+            "A mixed box exceeds the allowed colours per box — {0}. Reduce the colours in the "
+            "box, or raise the spec's <b>Max Colours Per Box</b>.".format("; ".join(over)),
+            title="Too Many Colours in Mixed Box",
+        )

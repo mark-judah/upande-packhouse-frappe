@@ -8,6 +8,22 @@ import frappe
 
 
 @frappe.whitelist()
+def getPackhouseLocations():
+    # Locations a packing farm can map to (Farm.farm_location -> Location tree).
+    # Used to populate the Order Summary location filter independent of the date.
+    rows = frappe.db.sql("""
+        SELECT DISTINCT f.farm_location AS location
+        FROM `tabFarm` f
+        WHERE f.farm_location IS NOT NULL AND f.farm_location != ''
+        ORDER BY f.farm_location
+    """, as_dict=True)
+    frappe.response['message'] = {
+        'success': True,
+        'locations': [r['location'] for r in rows]
+    }
+
+
+@frappe.whitelist()
 def fetchOrderSummaryData():
     # Order Summary Dashboard
     # API: fetchOrderSummaryData
@@ -24,7 +40,9 @@ def fetchOrderSummaryData():
     ]
 
     if location:
-        where_conditions.append("opl.farm = %(location)s")
+        # Location = the packing farm's Location (Karen / Ravine / Naivasha),
+        # via Farm.farm_location. Accept the farm name too for back-compat.
+        where_conditions.append("(opl_farm.farm_location = %(location)s OR opl.farm = %(location)s)")
 
     where_clause = ' AND '.join(where_conditions)
 
@@ -51,6 +69,7 @@ def fetchOrderSummaryData():
            soi.custom_processing_location is not populated, so derive it from the
            OPL's farm via Farm.custom_location. */
         opl.farm         AS processing_location,
+        opl_farm.farm_location           AS location,
         soi.custom_opl                   AS opl_id,
 
         opl.docstatus                    AS opl_docstatus,
@@ -79,7 +98,20 @@ def fetchOrderSummaryData():
         dsp.dispatch_ref                 AS dispatch_ref,
 
         /* ── Confirmed Stems ── */
-        IFNULL(cs.confirmed_stems, 0)    AS confirmed_stems
+        IFNULL(cs.confirmed_stems, 0)    AS confirmed_stems,
+
+        /* ── Takt: minutes from OPL issued -> staged (final-stage cycle time) ── */
+        /* No dedicated timestamps exist for the issued/staged flags, so we use   */
+        /* the row `modified` time when each flag was set: issued = latest issued  */
+        /* Pick List Item; staged = earliest staged Box Label.                     */
+        CASE
+            WHEN iss.issued_at IS NOT NULL AND stg.staged_at IS NOT NULL
+                 AND stg.staged_at >= iss.issued_at
+            THEN TIMESTAMPDIFF(MINUTE, iss.issued_at, stg.staged_at)
+        END                              AS takt_mins,
+
+        /* ── Invoiced: submitted Sales Invoice(s) linked to this Sales Order ── */
+        inv.invoice_ref                  AS invoice_ref
 
     FROM `tabSales Order` so
     INNER JOIN `tabSales Order Item` soi ON soi.parent = so.name
@@ -178,6 +210,29 @@ def fetchOrderSummaryData():
         GROUP BY cs_inner.sales_order_item
     ) cs ON cs.so_item_id = soi.name
 
+    /* ── Takt endpoints per OPL (see takt_mins above) ── */
+    LEFT JOIN (
+        SELECT pli_t.parent AS opl_name, MAX(pli_t.modified) AS issued_at
+        FROM `tabPick List Item` pli_t
+        WHERE pli_t.parenttype = 'Order Pick List' AND pli_t.issued = 1
+        GROUP BY pli_t.parent
+    ) iss ON iss.opl_name = opl.name
+    LEFT JOIN (
+        SELECT bl_t.order_pick_list AS opl_name, MIN(bl_t.modified) AS staged_at
+        FROM `tabBox Label` bl_t
+        WHERE bl_t.staged = 1
+        GROUP BY bl_t.order_pick_list
+    ) stg ON stg.opl_name = opl.name
+
+    /* ── Invoiced: submitted Sales Invoices linked via custom_so ── */
+    LEFT JOIN (
+        SELECT si.custom_so AS so_name,
+               GROUP_CONCAT(DISTINCT si.name ORDER BY si.creation SEPARATOR ', ') AS invoice_ref
+        FROM `tabSales Invoice` si
+        WHERE si.docstatus = 1 AND si.custom_so IS NOT NULL AND si.custom_so != ''
+        GROUP BY si.custom_so
+    ) inv ON inv.so_name = so.name
+
     WHERE {where_clause}
     ORDER BY so.customer, so.name, soi.idx
     """
@@ -216,6 +271,7 @@ def fetchOrderSummaryData():
             r['confirmed_stems']  = confirmed_stems
             r['staged_boxes']     = staged_boxes
             r['loaded_boxes']     = loaded_boxes
+            r['takt_mins']        = int(r['takt_mins']) if r.get('takt_mins') is not None else None
 
             # ── Status determination (most complete first) ──
             if not opl_id:

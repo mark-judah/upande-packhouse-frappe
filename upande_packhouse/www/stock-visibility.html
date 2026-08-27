@@ -646,6 +646,9 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg><span>Order Summary</span></a>
       <a class="nav-item" href="order-fulfilment">
         <svg class="ic" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><span>Order Fulfilment</span></a>
+      <div class="group-lbl">Reference</div>
+      <a class="nav-item" href="variety-tree">
+        <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="19" r="2"/><path d="M12 7v4"/><path d="M6 17v-2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2"/></svg><span>Variety Tree</span></a>
 
     </div>
     <div class="footer">
@@ -660,13 +663,18 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       <span class="crumb" id="dateBadge">Loading...</span>
       <div class="right">
         <input type="text" class="search-input" id="searchInput" placeholder="Search variety...">
-        <label class="topbar-lbl">Delivery Date</label>
+        <label class="topbar-lbl">Delivery</label>
         <input type="date" id="deliveryDate" class="form-control" style="width:135px;">
         <div class="tab-group">
           <button class="tab-btn active" data-filter="all" onclick="setFilter('all')">All</button>
           <button class="tab-btn" data-filter="spray" onclick="setFilter('spray')">Sprays</button>
           <button class="tab-btn" data-filter="standard" onclick="setFilter('standard')">Standard</button>
         </div>
+        <div class="dropdown" id="ddFarm"><button class="btn" onclick="toggleDD('ddFarm')">Farm: <span id="ddFarmLbl">All</span></button><div class="dropdown-menu" id="ddFarmMenu"></div></div>
+        <div class="dropdown" id="ddLen"><button class="btn" onclick="toggleDD('ddLen')">Length: <span id="ddLenLbl">All</span></button><div class="dropdown-menu" id="ddLenMenu"></div></div>
+        <div class="dropdown" id="ddCov"><button class="btn" onclick="toggleDD('ddCov')">Cover: <span id="ddCovLbl">All</span></button><div class="dropdown-menu" id="ddCovMenu"></div></div>
+        <div class="dropdown" id="ddAge"><button class="btn" onclick="toggleDD('ddAge')">Age: <span id="ddAgeLbl">Any</span></button><div class="dropdown-menu" id="ddAgeMenu"></div></div>
+        <button class="tab-btn" id="demandBtn" style="border:1px solid var(--border-2);border-radius:999px;height:38px;padding:0 14px" onclick="toggleDemand()">Has orders</button>
         <button class="live-badge" id="refreshBtn" onclick="loadAll()">
           <span class="live-dot"></span>LIVE
         </button>
@@ -688,7 +696,19 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         </div>
         <div class="aph-kpi">
           <div class="ic-wrap tint-green"><svg viewBox="0 0 24 24" fill="none" stroke="#29cd42" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg></div>
-          <div><div class="lbl">Shelved Stock (Stems)</div><div class="v" id="kpiStock">--</div><div class="sub">on shelves</div></div>
+          <div><div class="lbl">Shelved (Stems)</div><div class="v" id="kpiStock">--</div><div class="sub">physically on shelves</div></div>
+        </div>
+        <div class="aph-kpi">
+          <div class="ic-wrap tint-purple"><svg viewBox="0 0 24 24" fill="none" stroke="#7c5cfc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+          <div><div class="lbl">Allocated</div><div class="v" id="kpiAllocated">--</div><div class="sub">committed to orders</div></div>
+        </div>
+        <div class="aph-kpi">
+          <div class="ic-wrap tint-orange"><svg viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></div>
+          <div><div class="lbl">Discard-flagged</div><div class="v" id="kpiDiscard">--</div><div class="sub">on shelf, pending discard</div></div>
+        </div>
+        <div class="aph-kpi">
+          <div class="ic-wrap tint-green"><svg viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
+          <div><div class="lbl">Available (Sellable)</div><div class="v" id="kpiAvailable">--</div><div class="sub">shelved − allocated − discard</div></div>
         </div>
         <div class="aph-kpi">
           <div class="ic-wrap tint-orange"><svg viewBox="0 0 24 24" fill="none" stroke="#fc9c30" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/></svg></div>
@@ -696,19 +716,15 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         </div>
         <div class="aph-kpi">
           <div class="ic-wrap tint-purple"><svg viewBox="0 0 24 24" fill="none" stroke="#7c5cfc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></div>
-          <div><div class="lbl">Total Ordered (Stems)</div><div class="v" id="kpiOrdered">--</div><div class="sub" id="kpiOrderedSub">for selected delivery</div></div>
+          <div><div class="lbl">Ordered (Stems)</div><div class="v" id="kpiOrdered">--</div><div class="sub" id="kpiOrderedSub">for selected delivery</div></div>
         </div>
         <div class="aph-kpi" id="kpiVarCard">
           <div class="ic-wrap tint-green" id="kpiVarIcon"><svg viewBox="0 0 24 24" fill="none" stroke="#29cd42" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></div>
-          <div><div class="lbl">Overall Variance</div><div class="v" id="kpiVariance">--</div></div>
-        </div>
-        <div class="aph-kpi">
-          <div class="ic-wrap tint-orange"><svg viewBox="0 0 24 24" fill="none" stroke="#fc9c30" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></div>
-          <div><div class="lbl">Shelf Entries</div><div class="v" id="kpiShelves">--</div></div>
+          <div><div class="lbl">Variance</div><div class="v" id="kpiVariance">--</div><div class="sub">available − ordered</div></div>
         </div>
         <div class="aph-kpi">
           <div class="ic-wrap tint-blue"><svg viewBox="0 0 24 24" fill="none" stroke="#2490ef" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
-          <div><div class="lbl">Coverage</div><div class="v" id="kpiCoverage">--</div><div class="sub">stock vs orders</div></div>
+          <div><div class="lbl">Coverage</div><div class="v" id="kpiCoverage">--</div><div class="sub">available vs ordered</div></div>
         </div>
       </div>
 
@@ -717,8 +733,16 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         <div class="aph-card">
           <div class="aph-card-hd">
             <div class="ttl">Variety Stock vs Orders — by Farm &amp; Length</div>
-            <div style="display:flex;align-items:center;gap:14px;margin-left:auto;">
-              <div class="legend">
+            <div style="display:flex;align-items:center;gap:16px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end">
+              <div class="legend" title="The bar under each variety shows how its shelved stock splits">
+                <span style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;font-weight:600">Shelved =</span>
+                <div class="legend-item"><div class="legend-swatch" style="background:#16a34a"></div>Available</div>
+                <div class="legend-item"><div class="legend-swatch" style="background:#2563eb"></div>Allocated</div>
+                <div class="legend-item"><div class="legend-swatch" style="background:#dc2626"></div>Discard</div>
+                <span style="color:var(--text-3);font-size:11px">· click a row for age &amp; balance</span>
+              </div>
+              <div class="legend" style="border-left:1px solid var(--border);padding-left:14px">
+                <span style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;font-weight:600">Variance</span>
                 <div class="legend-item"><div class="legend-swatch" style="background:#e6f9ee;border:1px solid #c5e8cd"></div>Surplus</div>
                 <div class="legend-item"><div class="legend-swatch" style="background:#fff3e0;border:1px solid #f5deb3"></div>Tight</div>
                 <div class="legend-item"><div class="legend-swatch" style="background:#fde8ec;border:1px solid #f5c6ce"></div>Deficit</div>
@@ -768,22 +792,40 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 <script>
     let G = {
         shelfData: [],
+        allocated: [],
+        discard: [],
         notShelved: [],
         orderData: [],
         lengths: [],
         tableData: [],
-        currentFilter: 'all',
+        groupMap: {},          // variety -> item_group (from any source)
+        currentFilter: 'all',  // rose type: all | spray | standard
         searchTerm: '',
+        farmSel: new Set(),    // empty = all farms
+        lenSel: new Set(),     // empty = all lengths
+        covSel: 'all',         // all | deficit | tight | surplus
+        ageMin: 0,             // minimum oldest_days to show (0 = any)
+        demandOnly: false,
         collapsed: new Set(),
         today: new Date().toISOString().split('T')[0]
     };
+
+    // Classify a variety by its item group, tolerant of naming across sites
+    // ("Spray Roses"/"Spr Rose", "Standard Roses"/"Std Rose").
+    function roseType(variety) {
+        const g = (G.groupMap[variety] || '').toLowerCase();
+        if (/spr/.test(g)) return 'spray';
+        if (/std|standard/.test(g)) return 'standard';
+        return 'other';
+    }
 
     document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('deliveryDate').value = G.today;
         updateDateBadge();
         document.getElementById('searchInput').addEventListener('input', function() {
             G.searchTerm = this.value.toLowerCase().trim();
-            renderTable();
+            render();
+            renderNotShelved();
         });
         document.getElementById('deliveryDate').addEventListener('change', () => {
             updateDateBadge();
@@ -817,8 +859,12 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
                 const msg = r.message || {};
                 if (msg.success) {
                     G.shelfData = msg.stock  || [];
+                    G.allocated = msg.allocated || [];
+                    G.discard = msg.discard || [];
                     G.notShelved = msg.not_shelved || [];
                     G.orderData = msg.orders || [];
+                    buildGroupMap();
+                    populateFilters();
                     process();
                     renderNotShelved();
                 } else {
@@ -837,7 +883,12 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     }
 
     function renderNotShelved() {
-        const rows = G.notShelved || [];
+        const rows = (G.notShelved || []).filter(r => {
+            if (G.farmSel.size && !G.farmSel.has((r.farm || 'Unknown').trim())) return false;
+            if (G.lenSel.size && !G.lenSel.has((r.length || '--').trim())) return false;
+            if (G.searchTerm && !(r.variety || '').toLowerCase().includes(G.searchTerm)) return false;
+            return true;
+        });
         const fmt = n => Math.round(n || 0).toLocaleString();
         const totalStems = rows.reduce((a,b)=>a+(b.stems||0),0);
         const totalBuckets = rows.reduce((a,b)=>a+(b.buckets||0),0);
@@ -853,10 +904,26 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         ).join('');
     }
 
+    function buildGroupMap() {
+        G.groupMap = {};
+        const add = (arr) => { for (const r of (arr || [])) { if (r.variety && r.item_group && !G.groupMap[r.variety]) G.groupMap[r.variety] = r.item_group; } };
+        add(G.shelfData); add(G.notShelved); add(G.orderData);
+    }
+
+    // Source-level filters (farm + length) applied to shelf/alloc/discard/coldroom rows.
+    function srcOK(item) {
+        const farm = (item.farm || 'Unknown').trim();
+        const length = (item.length || '--').trim();
+        if (G.farmSel.size && !G.farmSel.has(farm)) return false;
+        if (G.lenSel.size && !G.lenSel.has(length)) return false;
+        return true;
+    }
+
     function process() {
         const build = (data) => {
             const m = {};
             for (const item of (data || [])) {
+                if (!srcOK(item)) continue;
                 const variety = (item.variety || 'Unknown').trim();
                 const farm    = (item.farm    || 'Unknown').trim();
                 const length  = (item.length  || '--').trim();
@@ -868,20 +935,38 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
             return m;
         };
         const stockMap = build(G.shelfData);
+        const allocMap = build(G.allocated);
+        const discMap  = build(G.discard);
         const notMap   = build(G.notShelved);
 
-        const orderMap = {}, itemGroups = {};
+        // oldest age (max days) per variety across its shelf rows
+        const ageMap = {}, bandMap = {};
+        for (const item of (G.shelfData || [])) {
+            if (!srcOK(item)) continue;
+            const v = (item.variety || 'Unknown').trim();
+            const a = parseInt(item.oldest_days);
+            if (!isNaN(a)) ageMap[v] = Math.max(ageMap[v] || 0, a);
+            const b = bandMap[v] || (bandMap[v] = { fresh: 0, aging: 0, old: 0 });
+            b.fresh += parseFloat(item.fresh) || 0;
+            b.aging += parseFloat(item.aging) || 0;
+            b.old   += parseFloat(item.old)   || 0;
+        }
+
+        // orders — scoped by farm / length / customer / delivery point
+        const orderMap = {};
         for (const item of G.orderData) {
+            const farm = (item.farm || 'Unknown').trim();
+            const length = (item.length || '--').trim();
+            if (G.farmSel.size && !G.farmSel.has(farm)) continue;
+            if (G.lenSel.size && !G.lenSel.has(length)) continue;
             const variety = (item.variety || 'Unknown').trim();
-            const length  = (item.length  || '--').trim();
-            const qty     = parseFloat(item.stems) || 0;
+            const qty = parseFloat(item.stems) || 0;
             if (!orderMap[variety]) orderMap[variety] = {};
             orderMap[variety][length] = (orderMap[variety][length] || 0) + qty;
-            if (!itemGroups[variety]) itemGroups[variety] = item.item_group || '';
         }
 
         const lengthSet = new Set();
-        for (const mp of [stockMap, notMap]) for (const v in mp) for (const f in mp[v]) for (const l in mp[v][f]) lengthSet.add(l);
+        for (const mp of [stockMap, allocMap, discMap, notMap]) for (const v in mp) for (const f in mp[v]) for (const l in mp[v][f]) lengthSet.add(l);
         for (const v in orderMap) for (const l in orderMap[v]) lengthSet.add(l);
         G.lengths = Array.from(lengthSet).sort((a, b) => {
             const na = parseInt(a), nb = parseInt(b);
@@ -894,44 +979,61 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         const allVarieties = new Set([...Object.keys(stockMap), ...Object.keys(notMap), ...Object.keys(orderMap)]);
         const rows = [];
         for (const variety of Array.from(allVarieties).sort()) {
-            const ig = itemGroups[variety] || '';
-            const sFarm = stockMap[variety] || {}, nFarm = notMap[variety] || {}, ordByLen = orderMap[variety] || {};
+            const sFarm = stockMap[variety] || {}, aFarm = allocMap[variety] || {}, dFarm = discMap[variety] || {},
+                  nFarm = notMap[variety] || {}, ordByLen = orderMap[variety] || {};
             const farmSet = new Set([...Object.keys(sFarm), ...Object.keys(nFarm)]);
-            let totalStock = 0, totalNot = 0, totalOrdered = 0;
-            const stockByLen = {}, notByLen = {}, orderedByLen = {};
+            let tSh = 0, tAl = 0, tDs = 0, tAv = 0, tNt = 0, tOrd = 0;
+            const shByLen = {}, avByLen = {}, orByLen = {};
             const farmRows = Array.from(farmSet).sort().map(farm => {
-                const sLen = sFarm[farm] || {}, nLen = nFarm[farm] || {};
-                let fStock = 0, fNot = 0; const fByLen = {}, fNotByLen = {};
+                const sLen = sFarm[farm] || {}, aLen = aFarm[farm] || {}, dLen = dFarm[farm] || {}, nLen = nFarm[farm] || {};
+                let fSh = 0, fAl = 0, fDs = 0, fAv = 0, fNt = 0; const fShL = {}, fAvL = {}, fNtL = {};
                 for (const l of G.lengths) {
-                    const s = sLen[l] || 0, n = nLen[l] || 0;
-                    fByLen[l] = s; fNotByLen[l] = n; fStock += s; fNot += n;
-                    stockByLen[l] = (stockByLen[l] || 0) + s; notByLen[l] = (notByLen[l] || 0) + n;
+                    const s = sLen[l] || 0, a = aLen[l] || 0, d = dLen[l] || 0, n = nLen[l] || 0;
+                    const av = Math.max(0, s - a - d);
+                    fShL[l] = s; fAvL[l] = av; fNtL[l] = n;
+                    fSh += s; fAl += a; fDs += d; fAv += av; fNt += n;
+                    shByLen[l] = (shByLen[l] || 0) + s; avByLen[l] = (avByLen[l] || 0) + av;
                 }
-                totalStock += fStock; totalNot += fNot;
-                return { farm, byLen: fByLen, notByLen: fNotByLen, total: fStock, notTotal: fNot };
+                tSh += fSh; tAl += fAl; tDs += fDs; tAv += fAv; tNt += fNt;
+                return { farm, shByLen: fShL, avByLen: fAvL, notByLen: fNtL, shelved: fSh, alloc: fAl, disc: fDs, avail: fAv, notTotal: fNt };
             });
-            for (const l of G.lengths) { orderedByLen[l] = ordByLen[l] || 0; totalOrdered += orderedByLen[l]; }
-            rows.push({ variety, ig, farms: farmRows, stockByLen, notByLen, orderedByLen,
-                        totalStock, totalNot, totalOrdered, variance: totalStock - totalOrdered });
+            for (const l of G.lengths) { orByLen[l] = ordByLen[l] || 0; tOrd += orByLen[l]; }
+            rows.push({ variety, group: G.groupMap[variety] || '', type: roseType(variety), oldest: ageMap[variety] || 0,
+                        bands: bandMap[variety] || { fresh: 0, aging: 0, old: 0 },
+                        farms: farmRows, shByLen, avByLen, orByLen,
+                        shelved: tSh, alloc: tAl, disc: tDs, avail: tAv, not: tNt, ordered: tOrd, variance: tAv - tOrd });
         }
 
         G.tableData = rows;
-        renderKPIs(rows);
-        renderTable();
+        // Default every variety to collapsed on the first load; user toggles persist after.
+        if (!G._collapseInit) { G.collapsed = new Set(rows.map(r => r.variety)); G._collapseInit = true; }
+        render();
     }
 
-    function renderKPIs(rows) {
-        let totalStock = 0, totalOrdered = 0, totalShelves = G.shelfData.length;
-        for (const r of rows) { totalStock += r.totalStock; totalOrdered += r.totalOrdered; }
-        const variance = totalStock - totalOrdered;
-        const coverage = totalOrdered > 0 ? Math.round((totalStock / totalOrdered) * 100) : 0;
+    function applyFilters() { populateFilters(); process(); renderNotShelved(); }
+    function render() { renderKPIs(); renderTable(); }
+    function visibleRows() {
+        return G.tableData.filter(r => passesFilter(r) && !(G.searchTerm && !r.variety.toLowerCase().includes(G.searchTerm)));
+    }
 
-        document.getElementById('kpiVarieties').textContent = rows.length;
-        document.getElementById('kpiStock').textContent     = totalStock.toLocaleString();
-        document.getElementById('kpiOrdered').textContent   = totalOrdered.toLocaleString();
-        document.getElementById('kpiVariance').textContent  = (variance >= 0 ? '+' : '') + variance.toLocaleString();
-        document.getElementById('kpiShelves').textContent   = totalShelves.toLocaleString();
-        document.getElementById('kpiCoverage').textContent  = coverage + '%';
+    function setTxt(id, val) { const e = document.getElementById(id); if (e) e.textContent = val; }
+
+    function renderKPIs() {
+        const rows = visibleRows();
+        const f = n => Math.round(n).toLocaleString();
+        let sh = 0, al = 0, ds = 0, av = 0, od = 0;
+        for (const r of rows) { sh += r.shelved; al += r.alloc; ds += r.disc; av += r.avail; od += r.ordered; }
+        const variance = av - od;
+        const coverage = od > 0 ? Math.round((av / od) * 100) : 0;
+
+        setTxt('kpiVarieties', rows.length);
+        setTxt('kpiStock', f(sh));
+        setTxt('kpiAllocated', f(al));
+        setTxt('kpiDiscard', f(ds));
+        setTxt('kpiAvailable', f(av));
+        setTxt('kpiOrdered', f(od));
+        setTxt('kpiVariance', (variance >= 0 ? '+' : '') + f(variance));
+        setTxt('kpiCoverage', coverage + '%');
 
         const varIcon = document.getElementById('kpiVarIcon');
         const varValue = document.getElementById('kpiVariance');
@@ -953,13 +1055,95 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         G.currentFilter = f;
         document.querySelectorAll('.tab-btn[data-filter]').forEach(b =>
             b.classList.toggle('active', b.dataset.filter === f));
-        renderTable();
+        render();
+    }
+
+    function toggleDemand() {
+        G.demandOnly = !G.demandOnly;
+        document.getElementById('demandBtn').classList.toggle('active', G.demandOnly);
+        render();
+    }
+
+    function coverState(row) {
+        if (row.ordered <= 0) return 'surplus';           // stock, no demand
+        const cov = row.avail / row.ordered;
+        if (cov < 1)   return 'deficit';
+        if (cov < 1.1) return 'tight';
+        return 'surplus';
     }
 
     function passesFilter(row) {
-        if (G.currentFilter === 'spray')    return (row.ig || '') === 'Spray Roses';
-        if (G.currentFilter === 'standard') return (row.ig || '') === 'Standard Roses';
+        if (G.currentFilter === 'spray'    && row.type !== 'spray')    return false;
+        if (G.currentFilter === 'standard' && row.type !== 'standard') return false;
+        if (G.demandOnly && row.ordered <= 0) return false;
+        if (G.ageMin > 0 && row.oldest < G.ageMin) return false;
+        if (G.covSel !== 'all' && coverState(row) !== G.covSel) return false;
         return true;
+    }
+
+    /* ── Filter dropdown machinery ── */
+    function escAttr(s) { return String(s).replace(/"/g, '&quot;'); }
+    function closeDDs() { document.querySelectorAll('.aph .dropdown.open').forEach(x => x.classList.remove('open')); }
+    function toggleDD(id) {
+        const d = document.getElementById(id);
+        const willOpen = !d.classList.contains('open');
+        closeDDs();
+        if (!willOpen) return;
+        d.classList.add('open');
+        // The topbar row clips overflow, so the menu is positioned as a fixed
+        // overlay anchored under its button instead of absolutely inside the bar.
+        const btn = d.querySelector('.btn'), menu = d.querySelector('.dropdown-menu');
+        if (btn && menu) {
+            const r = btn.getBoundingClientRect();
+            menu.style.position = 'fixed';
+            menu.style.top = (r.bottom + 6) + 'px';
+            menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 210)) + 'px';
+            menu.style.right = 'auto';
+            menu.style.maxHeight = '60vh';
+            menu.style.overflowY = 'auto';
+        }
+    }
+    document.addEventListener('click', (e) => { if (!e.target.closest('.dropdown')) closeDDs(); });
+    window.addEventListener('resize', closeDDs);
+    document.addEventListener('scroll', closeDDs, true);
+
+    function uniqVals(arr, key) {
+        return Array.from(new Set((arr || []).map(r => (r[key] || '').toString().trim()).filter(Boolean))).sort();
+    }
+    function msMenu(menuId, values, sel, lblId, onChange) {
+        const menu = document.getElementById(menuId); if (!menu) return;
+        const item = (active, label, attr) => `<div class="dropdown-item ms-item ${active ? 'active' : ''}" ${attr}><span class="ms-check"></span>${label}</div>`;
+        let html = item(sel.size === 0, 'All', 'data-all="1"') + `<div class="dropdown-item ms-sep"></div>`;
+        html += values.map(v => item(sel.has(v), v, `data-v="${escAttr(v)}"`)).join('');
+        menu.innerHTML = html;
+        menu.querySelectorAll('.ms-item').forEach(el => el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (el.hasAttribute('data-all')) sel.clear();
+            else { const v = el.getAttribute('data-v'); if (sel.has(v)) sel.delete(v); else sel.add(v); }
+            onChange();
+        }));
+        const lbl = document.getElementById(lblId); if (lbl) lbl.textContent = sel.size ? String(sel.size) : 'All';
+    }
+    function singleMenu(menuId, options, current, lblId, onChange) {
+        const menu = document.getElementById(menuId); if (!menu) return;
+        menu.innerHTML = options.map(([v, label]) => `<div class="dropdown-item ${v === current ? 'active' : ''}" data-v="${escAttr(v)}">${label}</div>`).join('');
+        menu.querySelectorAll('.dropdown-item').forEach(el => el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            document.getElementById(menuId.replace('Menu', '')).classList.remove('open');
+            onChange(el.getAttribute('data-v'));
+        }));
+        const cur = options.find(o => o[0] === current);
+        const lbl = document.getElementById(lblId);
+        const isDefault = !current || current === 'all' || current === '0';
+        if (lbl) lbl.textContent = isDefault ? (menuId === 'ddAgeMenu' ? 'Any' : 'All') : (cur ? cur[1] : 'All');
+    }
+    function populateFilters() {
+        const farms = uniqVals(G.shelfData.concat(G.notShelved), 'farm');
+        const lengths = uniqVals(G.shelfData.concat(G.notShelved).concat(G.orderData), 'length');
+        msMenu('ddFarmMenu', farms, G.farmSel, 'ddFarmLbl', applyFilters);
+        msMenu('ddLenMenu', lengths, G.lenSel, 'ddLenLbl', applyFilters);
+        singleMenu('ddCovMenu', [['all', 'All'], ['deficit', 'Deficit'], ['tight', 'Tight'], ['surplus', 'Surplus']], G.covSel, 'ddCovLbl', v => { G.covSel = v; render(); });
+        singleMenu('ddAgeMenu', [['0', 'Any age'], ['3', '≥ 3 days'], ['5', '≥ 5 days'], ['7', '≥ 7 days']], String(G.ageMin), 'ddAgeLbl', v => { G.ageMin = parseInt(v) || 0; render(); });
     }
 
     function varClass(v) {
@@ -981,43 +1165,103 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         if (n === 0 || n == null) return '<span style="color:var(--text-3)">--</span>';
         return '<span style="color:#c05000;font-weight:600">' + n.toLocaleString() + '</span>';
     }
+    function fmtDisc(n) {
+        if (n === 0 || n == null) return '<span style="color:var(--text-3)">--</span>';
+        return '<span style="color:#c4302b;font-weight:600">' + n.toLocaleString() + '</span>';
+    }
+    function ageBadge(days) {
+        if (!days || days < 3) return '';
+        const hot = days >= 7;
+        return `<span style="margin-left:6px;font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;background:${hot ? '#fde8ec' : '#fff3e0'};color:${hot ? '#c4302b' : '#9a5a00'}" title="Oldest stems: ${days} days on shelf">${days}d</span>`;
+    }
+    const BRD = 'style="border-right:2px solid var(--border-2)"';
+    const fmtRaw = n => Math.round(n || 0).toLocaleString();
+    // Semantic palette — a distinct hue per state so the bars are self-explanatory:
+    // Available = green (sellable), Allocated = blue (spoken for), Discard = red.
+    // Age is a fresh→old traffic light: green → amber → red.
+    const CLR = { avail: '#16a34a', alloc: '#2563eb', disc: '#dc2626', fresh: '#16a34a', aging: '#f59e0b', old: '#dc2626' };
+
+    // Thin always-visible composition bar (available / allocated / discard) under a variety name.
+    function compBar(r) {
+        const total = r.shelved || 0;
+        if (!total) return '';
+        const seg = (v, c) => v > 0 ? `<div style="width:${(v / total * 100)}%;background:${c};box-shadow:inset -1px 0 0 #fff"></div>` : '';
+        return `<div title="Available ${fmtRaw(r.avail)} · Allocated ${fmtRaw(r.alloc)} · Discard ${fmtRaw(r.disc)}"
+             style="display:flex;height:6px;border-radius:3px;overflow:hidden;margin-top:5px;background:rgba(10,10,10,0.06)">
+            ${seg(r.avail, CLR.avail)}${seg(r.alloc, CLR.alloc)}${seg(r.disc, CLR.disc)}</div>`;
+    }
+    function stackBar(segs, h) {
+        const total = segs.reduce((a, s) => a + s.v, 0);
+        if (!total) return `<div style="height:${h}px;border-radius:${h / 2}px;background:rgba(10,10,10,0.06)"></div>`;
+        return `<div style="display:flex;height:${h}px;border-radius:${h / 2}px;overflow:hidden;background:rgba(10,10,10,0.06)">` +
+            segs.map(s => s.v > 0 ? `<div style="width:${s.v / total * 100}%;background:${s.color};box-shadow:inset -1px 0 0 #fff" title="${s.label}: ${fmtRaw(s.v)}"></div>` : '').join('') + `</div>`;
+    }
+    // Swatch + number + label — the swatch ties each figure to its bar segment.
+    function chipSw(n, c, label) {
+        return `<span style="display:inline-flex;align-items:center;gap:6px;white-space:nowrap"><span style="width:11px;height:11px;border-radius:3px;background:${c};flex:0 0 auto"></span><b style="color:var(--text)">${fmtRaw(n)}</b><span style="color:var(--text-3)">${label}</span></span>`;
+    }
+    // Full-width drill-down for one variety: composition + age breakdown + balance.
+    function detailPanel(row, cols) {
+        const b = row.bands || { fresh: 0, aging: 0, old: 0 };
+        const balCol = row.avail >= row.ordered ? CLR.avail : CLR.disc;
+        return `<tr class="detail-row"><td colspan="${cols}" style="background:rgba(10,10,10,0.02);padding:16px 18px 16px 30px">
+            <div style="display:flex;gap:44px;flex-wrap:wrap;align-items:flex-start">
+              <div style="min-width:300px;flex:1;max-width:440px">
+                <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.09em;margin-bottom:8px;font-weight:600">Where the ${fmtRaw(row.shelved)} shelved stems are</div>
+                ${stackBar([{ v: row.avail, color: CLR.avail, label: 'Available' }, { v: row.alloc, color: CLR.alloc, label: 'Allocated' }, { v: row.disc, color: CLR.disc, label: 'Discard' }], 14)}
+                <div style="display:flex;gap:18px;margin-top:10px;font-size:12px;flex-wrap:wrap">
+                  ${chipSw(row.avail, CLR.avail, 'available')}${chipSw(row.alloc, CLR.alloc, 'allocated')}${chipSw(row.disc, CLR.disc, 'in discard request')}</div>
+              </div>
+              <div style="min-width:300px;flex:1;max-width:440px">
+                <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.09em;margin-bottom:8px;font-weight:600">How fresh the ${fmtRaw(row.shelved)} shelved stems are</div>
+                ${stackBar([{ v: b.fresh, color: CLR.fresh, label: 'Fresh ≤2d' }, { v: b.aging, color: CLR.aging, label: 'Aging 3–6d' }, { v: b.old, color: CLR.old, label: 'Old ≥7d' }], 14)}
+                <div style="display:flex;gap:18px;margin-top:10px;font-size:12px;flex-wrap:wrap">
+                  ${chipSw(b.fresh, CLR.fresh, 'fresh ≤2d')}${chipSw(b.aging, CLR.aging, 'aging 3–6d')}${chipSw(b.old, CLR.old, 'old ≥7d')}</div>
+              </div>
+              <div style="min-width:140px">
+                <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.09em;margin-bottom:8px;font-weight:600">Balance</div>
+                <div style="font-size:26px;font-weight:700;letter-spacing:-.02em;color:${balCol}">${fmtRaw(row.avail)}</div>
+                <div style="font-size:11px;color:var(--text-3);margin-top:3px">available vs ${fmtRaw(row.ordered)} ordered</div>
+              </div>
+            </div></td></tr>`;
+    }
 
     function renderTable() {
         const lengths = G.lengths;
         const L = lengths.length;
+        const COLS = 5 + 4 + L * 3;
 
         let groupRow = `<tr class="group-row">
             <th colspan="2" class="frz frz-g1" style="text-align:left">Variety / Farm</th>
-            <th colspan="4" class="gh-total frz frz-g2">Total</th>`;
+            <th colspan="3" class="gh-total frz frz-g2">Availability</th>
+            <th colspan="4" class="gh-total">Breakdown</th>`;
         let subRow = `<tr class="sub-row">
             <th class="frz frz-c1" style="text-align:left">Variety</th>
             <th class="frz frz-c2" style="text-align:left;color:var(--text-3);font-weight:500">Farm</th>
-            <th class="sh-stock frz frz-t1 td-total">Shelved</th>
-            <th class="sh-not frz frz-t2 td-total">Not Shelved</th>
-            <th class="sh-ordered frz frz-t3 td-total">Ordered</th>
-            <th class="sh-var frz frz-t4 td-total">Variance</th>`;
+            <th class="sh-stock frz frz-t1 td-total">Available</th>
+            <th class="sh-ordered frz frz-t2 td-total">Ordered</th>
+            <th class="sh-var frz frz-t3 td-total" ${BRD}>Var</th>
+            <th class="sh-stock sh-border">Shelved</th>
+            <th class="sh-ordered">Alloc</th>
+            <th class="sh-not">Discard</th>
+            <th class="sh-not">Coldroom</th>`;
 
         for (let i = 0; i < L; i++) {
-            groupRow += `<th colspan="4" class="gh-length">${lengths[i]}</th>`;
-            subRow   += `<th class="sh-stock sh-border">Shelved</th>
-                         <th class="sh-not">Not Shlv</th>
-                         <th class="sh-ordered">Ordered</th>
+            groupRow += `<th colspan="3" class="gh-length">${lengths[i]}</th>`;
+            subRow   += `<th class="sh-stock sh-border">Avail</th>
+                         <th class="sh-ordered">Ord</th>
                          <th class="sh-var">Var</th>`;
         }
         groupRow += `</tr>`;
         subRow   += `</tr>`;
         document.getElementById('tableHead').innerHTML = groupRow + subRow;
 
-        const visible = G.tableData.filter(r => {
-            if (!passesFilter(r)) return false;
-            if (G.searchTerm && !r.variety.toLowerCase().includes(G.searchTerm)) return false;
-            return true;
-        });
+        const visible = visibleRows();
         document.getElementById('rowCount').textContent = visible.length + ' varieties';
 
         if (!visible.length) {
             document.getElementById('tableBody').innerHTML =
-                `<tr><td colspan="${2 + L*4 + 4}" class="empty-state"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#9a9a9a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><p>No varieties found</p></td></tr>`;
+                `<tr><td colspan="${COLS}" class="empty-state"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#9a9a9a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><p>No varieties match the current filters</p></td></tr>`;
             return;
         }
 
@@ -1032,42 +1276,46 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
             const vClass = varClass(row.variance);
 
             html += `<tr class="variety-row" onclick="toggleCollapse('${escQ(row.variety)}')">
-                <td class="td-variety frz frz-c1"><span class="variety-toggle">${toggleSvg}</span>${row.variety}</td>
+                <td class="td-variety frz frz-c1"><div style="display:flex;align-items:center;gap:2px"><span class="variety-toggle">${toggleSvg}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${row.variety}</span>${ageBadge(row.oldest)}</div>${compBar(row)}</td>
                 <td class="td-farm frz frz-c2" style="color:var(--text-3);font-size:11px">${row.farms.length} farm${row.farms.length!==1?'s':''}</td>
-                <td class="num td-total frz frz-t1">${fmtNum(row.totalStock)}</td>
-                <td class="num td-total frz frz-t2">${fmtNot(row.totalNot)}</td>
-                <td class="num td-total frz frz-t3">${fmtNum(row.totalOrdered)}</td>
-                <td class="num td-total frz frz-t4 ${vClass}">${fmtVar(row.variance)}</td>`;
+                <td class="num td-total frz frz-t1">${fmtNum(row.avail)}</td>
+                <td class="num td-total frz frz-t2">${fmtNum(row.ordered)}</td>
+                <td class="num td-total frz frz-t3 ${vClass}" ${BRD}>${fmtVar(row.variance)}</td>
+                <td class="num sh-border">${fmtNum(row.shelved)}</td>
+                <td class="num">${fmtNum(row.alloc)}</td>
+                <td class="num">${fmtDisc(row.disc)}</td>
+                <td class="num">${fmtNot(row.not)}</td>`;
 
             for (let i = 0; i < L; i++) {
                 const l = lengths[i];
-                const s = row.stockByLen[l] || 0;
-                const n = row.notByLen[l]   || 0;
-                const o = row.orderedByLen[l] || 0;
-                const v = s - o;
-                const vc = (s || o) ? varClass(v) : 'var-zero';
-                html += `<td class="num td-lg-start">${fmtNum(s)}</td>
-                         <td class="num">${fmtNot(n)}</td>
+                const av = row.avByLen[l] || 0;
+                const o  = row.orByLen[l] || 0;
+                const v  = av - o;
+                const vc = (av || o) ? varClass(v) : '';
+                html += `<td class="num td-lg-start">${fmtNum(av)}</td>
                          <td class="num">${fmtNum(o)}</td>
-                         <td class="num ${(s||o)?vc:''}">${(s||o)?fmtVar(v):'<span style="color:var(--text-3)">--</span>'}</td>`;
+                         <td class="num ${vc}">${(av||o)?fmtVar(v):'<span style="color:var(--text-3)">--</span>'}</td>`;
             }
             html += `</tr>`;
+
+            if (!isCollapsed && row.shelved > 0) html += detailPanel(row, COLS);
 
             if (!isCollapsed && row.farms.length > 0) {
                 for (const fr of row.farms) {
                     html += `<tr class="farm-row">
                         <td class="td-variety frz frz-c1" style="padding-left:8px;font-weight:400;font-size:12px;color:var(--text-3)"></td>
                         <td class="td-farm frz frz-c2">${fr.farm}</td>
-                        <td class="num td-total frz frz-t1">${fmtNum(fr.total)}</td>
-                        <td class="num td-total frz frz-t2">${fmtNot(fr.notTotal)}</td>
-                        <td class="num td-total frz frz-t3">--</td>
-                        <td class="num td-total frz frz-t4">--</td>`;
+                        <td class="num td-total frz frz-t1">${fmtNum(fr.avail)}</td>
+                        <td class="num td-total frz frz-t2">--</td>
+                        <td class="num td-total frz frz-t3" ${BRD}>--</td>
+                        <td class="num sh-border">${fmtNum(fr.shelved)}</td>
+                        <td class="num">${fmtNum(fr.alloc)}</td>
+                        <td class="num">${fmtDisc(fr.disc)}</td>
+                        <td class="num">${fmtNot(fr.notTotal)}</td>`;
                     for (let i = 0; i < L; i++) {
                         const l = lengths[i];
-                        const s = fr.byLen[l] || 0;
-                        const n = fr.notByLen[l] || 0;
-                        html += `<td class="num td-lg-start">${fmtNum(s)}</td>
-                                 <td class="num">${fmtNot(n)}</td>
+                        const av = fr.avByLen[l] || 0;
+                        html += `<td class="num td-lg-start">${fmtNum(av)}</td>
                                  <td class="num">--</td>
                                  <td class="num">--</td>`;
                     }

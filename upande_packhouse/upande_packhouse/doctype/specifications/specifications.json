@@ -26,6 +26,7 @@
   "rubber_band_distance_1",
   "rubber_band_distance_2",
   "box_assortment",
+  "max_colours_per_box",
   "section_break_box_build",
   "box_items",
   "section_break_consumables",
@@ -155,6 +156,14 @@
    "fieldtype": "Select",
    "label": "Box Assortment",
    "options": "\nMono Box\nMixed Box"
+  },
+  {
+   "fieldname": "max_colours_per_box",
+   "fieldtype": "Int",
+   "label": "Max Colours Per Box",
+   "depends_on": "eval:doc.box_assortment==\"Mixed Box\"",
+   "mandatory_depends_on": "eval:doc.box_assortment==\"Mixed Box\"",
+   "description": "Maximum number of distinct colours allowed in a mixed box (validated on the Sales Order)."
   },
   {
    "fieldname": "section_break_box_build",
