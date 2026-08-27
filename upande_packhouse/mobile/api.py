@@ -3028,3 +3028,218 @@ def setSchedulerOrder():
 
     except Exception as e:
         frappe.response["message"] = {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def shelveBucket():
+    """Shelve a received bucket onto a Shelf (adapted from the v15 shelving server
+    script to the v16 schema). A bucket may now carry SEVERAL varieties (multi-item
+    receiving), so one Shelf Item is created per received variety. Shelf capacity is
+    enforced by counting DISTINCT buckets on the shelf (max 2), not rows.
+
+    Schema notes vs v15: receiving/harvest entries key on `bucket_id`
+    (not custom_received_bucket_id); stem length falls back to the receiving entry's
+    `custom_stem_length`; Shelf Item has no `custom_stem_length`; Bucket Reuse
+    Anomaly does not exist here (guarded)."""
+
+    data = frappe.request.get_json() or {}
+    result = {}
+
+    # ── VALIDATION ───────────────────────────────────────────────────────────
+    result["passed"] = True
+    result["stale_transfer_shelves"] = []
+    shelf_id = data.get("shelf_id")
+    bucket_id = data.get("bucket_id")
+    farm = data.get("farm")
+
+    def _fail(reason, message):
+        result["passed"] = False
+        frappe.response["data"] = {"status": "failed", "reason": reason, "message": message,
+                                   "payload": {"shelf_id": shelf_id, "bucket_id": bucket_id}}
+
+    if not shelf_id:
+        _fail("shelf_id_not_null", "Shelf ID is missing."); return
+    if not bucket_id:
+        _fail("bucket_id_not_null", "Bucket ID is missing."); return
+    if not farm:
+        _fail("farm_not_null", "Farm is missing."); return
+
+    # load / create the shelf
+    if frappe.db.exists("Shelf", shelf_id):
+        shelf_doc = frappe.get_doc("Shelf", shelf_id)
+    else:
+        shelf_doc = frappe.new_doc("Shelf")
+        shelf_doc.name = shelf_id
+        shelf_doc.shelf_id = shelf_id
+        shelf_doc.insert(ignore_permissions=True)
+    result["shelf_doc"] = shelf_doc
+
+    # duplicate on THIS shelf
+    for item in (shelf_doc.items or []):
+        if (item.bucket_id or "").lower() == bucket_id.lower():
+            _fail("duplicate_entry", "The bucket has already been shelved."); return
+
+    # duplicate on ANOTHER shelf (transfer buckets self-heal, otherwise block)
+    other_shelves = frappe.get_all("Shelf Item",
+        filters={"bucket_id": bucket_id, "parent": ["!=", shelf_id]}, fields=["name", "parent"])
+    if other_shelves:
+        transfer_rows = frappe.db.sql("""
+            SELECT pli.name FROM `tabPick List Item` pli
+            JOIN `tabOrder Pick List` opl ON opl.name = pli.parent AND opl.docstatus = 0
+            WHERE pli.parenttype = 'Order Pick List' AND pli.bucket = %s
+              AND (pli.awaiting_transfer = 1 OR pli.in_transit = 1
+                   OR pli.loaded_in_trolley = 1) LIMIT 1""", bucket_id, as_dict=True)
+        if transfer_rows:
+            result["stale_transfer_shelves"] = other_shelves
+        else:
+            _fail("duplicate_entry", "The bucket has already been shelved on shelf {0}.".format(other_shelves[0].parent)); return
+
+    # capacity — count DISTINCT buckets on the shelf, not rows (a bucket spans
+    # several Shelf Item rows when it carries several varieties).
+    existing_buckets = {(it.bucket_id or "").lower() for it in (shelf_doc.items or [])}
+    existing_buckets.discard(bucket_id.lower())
+    if len(existing_buckets) >= 2:
+        _fail("two_buckets_per_shelf", "The shelf is full."); return
+
+    # ── FETCH LATEST RECEIVING ───────────────────────────────────────────────
+    entries = frappe.get_all("Stock Entry",
+        filters={"stock_entry_type": ["in", ["Receiving", "Late Receipt"]],
+                 "custom_bucket_id": bucket_id, "docstatus": 1},
+        fields=["name"], order_by="creation desc", limit=1)
+    if not entries:
+        frappe.response["data"] = {"status": "failed", "reason": "not_received",
+            "message": "This bucket has no Receiving or Late Receipt entry.",
+            "payload": {"bucket_id": bucket_id}}
+        return
+    receiving_doc = frappe.get_doc("Stock Entry", entries[0].name)
+
+    # ── FRESHNESS GATES (harvest->receiving <=1 day; receiving not stale) ─────
+    today_date = frappe.utils.getdate(frappe.utils.today())
+    recv_date = frappe.utils.getdate(receiving_doc.posting_date)
+    harvest_entry = frappe.get_all("Stock Entry",
+        filters={"stock_entry_type": "Harvesting", "custom_bucket_id": bucket_id,
+                 "posting_date": recv_date, "docstatus": 1},
+        fields=["name", "posting_date"], order_by="creation desc", limit=1) or \
+        frappe.get_all("Stock Entry",
+        filters={"stock_entry_type": "Harvesting", "custom_bucket_id": bucket_id,
+                 "posting_date": frappe.utils.add_days(recv_date, -1), "docstatus": 1},
+        fields=["name", "posting_date"], order_by="creation desc", limit=1)
+    if not harvest_entry:
+        frappe.response["data"] = {"status": "failed", "reason": "no_matching_harvest",
+            "message": "No harvesting entry found for bucket {0} within 1 day of receiving date ({1}).".format(bucket_id, recv_date),
+            "payload": {"bucket_id": bucket_id, "received_on": str(recv_date)}}
+        return
+    harvest_date = frappe.utils.getdate(harvest_entry[0].posting_date)
+    gap = (recv_date - harvest_date).days
+    if gap > 1:
+        frappe.response["data"] = {"status": "failed", "reason": "harvest_receiving_gap_too_large",
+            "message": "Bucket harvested on {0} but received on {1} ({2} days apart). Maximum allowed gap is 1 day.".format(harvest_date, recv_date, gap),
+            "payload": {"bucket_id": bucket_id, "harvested_on": str(harvest_date), "received_on": str(recv_date), "gap_days": gap}}
+        return
+    origin_farm = receiving_doc.get("custom_farm") or farm
+    max_allowed_days = 50 if origin_farm and origin_farm.lower() == "kapkolia" else 40
+    days_since = (today_date - recv_date).days
+    if days_since > max_allowed_days:
+        frappe.response["data"] = {"status": "failed", "reason": "stale_receiving_date",
+            "message": "Cannot shelf bucket — received on {0} ({1} days ago). Maximum allowed for {2} is {3} day(s).".format(recv_date, days_since, origin_farm, max_allowed_days),
+            "payload": {"bucket_id": bucket_id, "origin_farm": origin_farm, "received_on": str(recv_date), "days_since_receiving": days_since, "max_allowed_days": max_allowed_days}}
+        return
+
+    # ── TRANSIT / OPL updates for transfer buckets (local buckets untouched) ──
+    _shelve_update_transit_status(bucket_id, shelf_id, result)
+
+    # ── SHELVE: one Shelf Item per received variety ──────────────────────────
+    stem_length = receiving_doc.get("custom_stem_length")
+    variety = receiving_doc.items[0].item_code if receiving_doc.items else None
+    origin_greenhouse = receiving_doc.items[0].s_warehouse if receiving_doc.items else None
+    shelf_doc.farm = farm
+    total_qty = 0
+    for ri in receiving_doc.items:
+        new_item = shelf_doc.append("items", {})
+        new_item.bucket_id = bucket_id
+        new_item.variety = ri.item_code
+        new_item.date_added = frappe.utils.now_datetime()
+        new_item.stem_length = stem_length
+        new_item.stem_qty = ri.qty
+        new_item.greenhouse = ri.s_warehouse
+        new_item.warehouse = ri.t_warehouse
+        new_item.farm = farm
+        new_item.harvest_date = harvest_date
+        new_item.receiving_date = recv_date
+        total_qty += (ri.qty or 0)
+    shelf_doc.save(ignore_permissions=True)
+
+    # skipped-transfer self-heal (remove stale remote Shelf Items; anomaly guarded)
+    for shi in (result.get("stale_transfer_shelves") or []):
+        try:
+            frappe.delete_doc("Shelf Item", shi.get("name"), force=1, ignore_permissions=True)
+            frappe.db.set_value("Shelf", shi.get("parent"), "modified", frappe.utils.now())
+        except Exception:
+            pass
+
+    # clear BAS transit flags so the balance becomes allocatable
+    _shelve_update_bas(bucket_id, variety, farm, shelf_id, result)
+    _shelve_check_submit_opl(bucket_id, result)
+
+    frappe.db.commit()
+    frappe.response["data"] = {"status": "success",
+        "message": "Bucket {0} shelved successfully with {1} stems.".format(bucket_id, total_qty),
+        "payload": {"shelf_id": shelf_id, "bucket_id": bucket_id, "stems": total_qty,
+                    "stem_length": stem_length, "transit_updated": result.get("transit_updated", False),
+                    "bas_updated": result.get("bas_updated", False),
+                    "opl_submitted": result.get("opl_submitted", [])}}
+
+
+def _shelve_update_transit_status(bucket_id, shelf_id, result):
+    result["transit_updated"] = False
+    rows = frappe.get_all("Pick List Item", filters={"bucket": bucket_id}, fields=["name", "parent"])
+    updated = []
+    for r in rows:
+        opl = frappe.get_doc("Order Pick List", r.parent)
+        if opl.docstatus != 0:
+            continue
+        changed = False
+        for row in opl.locations:
+            if row.name == r.name:
+                if (row.in_transit or 0) == 1 or (row.awaiting_transfer or 0) == 1 or (row.loaded_in_trolley or 0) == 1:
+                    row.in_transit = 0; row.awaiting_transfer = 0
+                    row.loaded_in_trolley = 0; row.shelved = 1; row.shelf = shelf_id
+                    changed = True
+                break
+        if changed:
+            opl.save(ignore_permissions=True); updated.append(r.parent)
+    if updated:
+        result["transit_updated"] = True; result["transit_opl"] = updated[0]
+
+
+def _shelve_update_bas(bucket_id, variety, farm, shelf_id, result):
+    result["bas_updated"] = False
+    try:
+        bas_name = frappe.db.get_value("Bucket Allocation Status", {"bucket_id": bucket_id, "item_code": variety}, "name")
+        if bas_name:
+            bas = frappe.get_doc("Bucket Allocation Status", bas_name)
+            if bas.in_transit == 1:
+                bas.in_transit = 0; bas.shelf_farm = farm; bas.shelf_location = shelf_id
+                bas.available_quantity = (bas.total_quantity or 0) - (bas.allocated_quantity or 0)
+                bas.save(ignore_permissions=True)
+                result["bas_updated"] = True; result["bas_available_qty"] = bas.available_quantity
+    except Exception:
+        frappe.log_error("BAS Transit Update Failed", frappe.get_traceback())
+
+
+def _shelve_check_submit_opl(bucket_id, result):
+    result["opl_submitted"] = []
+    try:
+        for row in frappe.db.sql("SELECT DISTINCT parent FROM `tabPick List Item` WHERE bucket = %s", bucket_id, as_dict=True):
+            opl = frappe.get_doc("Order Pick List", row.parent)
+            if opl.docstatus == 1:
+                continue
+            all_ready = True
+            for loc in opl.locations:
+                is_transfer = (loc.in_transit == 1 or loc.awaiting_transfer == 1 or (loc.loaded_in_trolley or 0) == 1)
+                if is_transfer and (loc.shelved or 0) != 1:
+                    all_ready = False; break
+            if all_ready:
+                opl.flags.ignore_permissions = True; opl.submit(); result["opl_submitted"].append(row.parent)
+    except Exception:
+        frappe.log_error("OPL Auto-Submit Check Failed", frappe.get_traceback())

@@ -1009,21 +1009,45 @@ def getPackhouseFlowBoard():
         morning = today + " 06:00:00"
         STAGES = ['harvested', 'received', 'shelved', 'issued', 'packed', 'staged', 'loaded', 'dispatched']
 
+        # ── Filters (Location = greenhouse origin, Farm, Variety) ──
+        # farm/variety are carried on every gate + buffer, so they filter the whole
+        # board. Greenhouse (location) is only recorded upstream (on the harvest /
+        # receiving Stock Entry), so it constrains the upstream gates + the SE-based
+        # buffers + the cohort; downstream gates (issued..dispatched), which don't
+        # carry a greenhouse, are left unconstrained by it.
+        flt_farm = (frappe.form_dict.get('farm') or '').strip()
+        flt_var = (frappe.form_dict.get('variety') or '').strip()
+        flt_loc = (frappe.form_dict.get('location') or '').strip()
+        flt = {'flt_farm': flt_farm, 'flt_var': flt_var, 'flt_loc': flt_loc}
+
+        def _frag(farm_col=None, var_col=None, loc_col=None):
+            # Guard-style clauses: each is a no-op when its param is empty, so the
+            # same fragment string works filtered and unfiltered with no branching.
+            s = ""
+            if farm_col:
+                s += " AND (%(flt_farm)s = '' OR " + farm_col + " LIKE CONCAT(%(flt_farm)s, '%%'))"
+            if var_col:
+                s += " AND (%(flt_var)s = '' OR " + var_col + " = %(flt_var)s)"
+            if loc_col:
+                s += " AND (%(flt_loc)s = '' OR " + loc_col + " = %(flt_loc)s)"
+            return s
+
         def _flows(f, t):
             p = {"f": f, "t": t, "endt": t + " 23:59:59"}
+            p.update(flt)
             tt = {s: 0 for s in STAGES}
 
             def q(sql, key):
                 r = frappe.db.sql(sql, p, as_dict=True)
                 tt[key] = int((r[0].s or 0) if r and r[0].s is not None else 0)
-            q("SELECT COALESCE(SUM(sed.qty),0) s FROM `tabStock Entry` se JOIN `tabStock Entry Detail` sed ON sed.parent=se.name WHERE se.docstatus=1 AND se.stock_entry_type='Harvesting' AND se.posting_date BETWEEN %(f)s AND %(t)s", 'harvested')
-            q("SELECT COALESCE(SUM(sed.qty),0) s FROM `tabStock Entry` se JOIN `tabStock Entry Detail` sed ON sed.parent=se.name WHERE se.docstatus=1 AND se.stock_entry_type IN ('Receiving','Late Receipt') AND se.posting_date BETWEEN %(f)s AND %(t)s", 'received')
-            q("SELECT COALESCE(SUM(CASE WHEN EXISTS(SELECT 1 FROM `tabShelving Log` sl WHERE sl.bucket_id=se.custom_bucket_id AND sl.shelved_on>=se.posting_date AND sl.shelved_on<=%(endt)s) THEN sed.qty ELSE 0 END),0) s FROM `tabStock Entry` se JOIN `tabStock Entry Detail` sed ON sed.parent=se.name WHERE se.docstatus=1 AND se.stock_entry_type IN ('Receiving','Late Receipt') AND se.posting_date BETWEEN %(f)s AND %(t)s", 'shelved')
-            q("SELECT COALESCE(SUM(pli.stock_qty),0) s FROM `tabPick List Item` pli JOIN `tabOrder Pick List` opl ON opl.name=pli.parent AND pli.parenttype='Order Pick List' WHERE pli.issued=1 AND opl.date_created BETWEEN %(f)s AND %(t)s", 'issued')
-            q("SELECT COALESCE(SUM(pli.stock_qty),0) s FROM `tabFarm Pack List` fpl JOIN `tabFarm Packlist Item` pli ON pli.parent=fpl.name AND pli.parenttype='Farm Pack List' AND pli.parentfield='pack_list_item' WHERE fpl.docstatus!=2 AND DATE(fpl.creation) BETWEEN %(f)s AND %(t)s", 'packed')
-            q("SELECT COALESCE(SUM(bi.qty),0) s FROM `tabBox Label` bl JOIN `tabBox Label Item` bi ON bi.parent=bl.name JOIN `tabSales Order` so ON so.name=bl.customer_purchase_order WHERE bl.staged=1 AND so.docstatus=1 AND DATE(bl.date) BETWEEN %(f)s AND %(t)s AND so.status NOT IN ('Cancelled','Closed')", 'staged')
-            q("SELECT COALESCE(SUM(pli.stock_qty),0) s FROM `tabPick List Item` pli JOIN `tabOrder Pick List` opl ON opl.name=pli.parent AND pli.parenttype='Order Pick List' WHERE pli.loaded_in_trolley=1 AND opl.date_created BETWEEN %(f)s AND %(t)s", 'loaded')
-            q("SELECT COALESCE(SUM(dni.stock_qty),0) s FROM `tabDelivery Note` dn JOIN `tabDelivery Note Item` dni ON dni.parent=dn.name WHERE dn.docstatus=1 AND dn.posting_date BETWEEN %(f)s AND %(t)s", 'dispatched')
+            q("SELECT COALESCE(SUM(sed.qty),0) s FROM `tabStock Entry` se JOIN `tabStock Entry Detail` sed ON sed.parent=se.name WHERE se.docstatus=1 AND se.stock_entry_type='Harvesting' AND se.posting_date BETWEEN %(f)s AND %(t)s" + _frag('se.custom_farm', 'sed.item_code', 'se.custom_greenhouse'), 'harvested')
+            q("SELECT COALESCE(SUM(sed.qty),0) s FROM `tabStock Entry` se JOIN `tabStock Entry Detail` sed ON sed.parent=se.name WHERE se.docstatus=1 AND se.stock_entry_type IN ('Receiving','Late Receipt') AND se.posting_date BETWEEN %(f)s AND %(t)s" + _frag('se.custom_farm', 'sed.item_code', 'se.custom_greenhouse'), 'received')
+            q("SELECT COALESCE(SUM(CASE WHEN EXISTS(SELECT 1 FROM `tabShelving Log` sl WHERE sl.bucket_id=se.custom_bucket_id AND sl.shelved_on>=se.posting_date AND sl.shelved_on<=%(endt)s) THEN sed.qty ELSE 0 END),0) s FROM `tabStock Entry` se JOIN `tabStock Entry Detail` sed ON sed.parent=se.name WHERE se.docstatus=1 AND se.stock_entry_type IN ('Receiving','Late Receipt') AND se.posting_date BETWEEN %(f)s AND %(t)s" + _frag('se.custom_farm', 'sed.item_code', 'se.custom_greenhouse'), 'shelved')
+            q("SELECT COALESCE(SUM(pli.stock_qty),0) s FROM `tabPick List Item` pli JOIN `tabOrder Pick List` opl ON opl.name=pli.parent AND pli.parenttype='Order Pick List' WHERE pli.issued=1 AND opl.date_created BETWEEN %(f)s AND %(t)s" + _frag('opl.farm', 'pli.item_code', None), 'issued')
+            q("SELECT COALESCE(SUM(pli.stock_qty),0) s FROM `tabFarm Pack List` fpl JOIN `tabFarm Packlist Item` pli ON pli.parent=fpl.name AND pli.parenttype='Farm Pack List' AND pli.parentfield='pack_list_item' WHERE fpl.docstatus!=2 AND DATE(fpl.creation) BETWEEN %(f)s AND %(t)s" + _frag('pli.source_warehouse', 'pli.item_code', None), 'packed')
+            q("SELECT COALESCE(SUM(bi.qty),0) s FROM `tabBox Label` bl JOIN `tabBox Label Item` bi ON bi.parent=bl.name JOIN `tabSales Order` so ON so.name=bl.customer_purchase_order WHERE bl.staged=1 AND so.docstatus=1 AND DATE(bl.date) BETWEEN %(f)s AND %(t)s AND so.status NOT IN ('Cancelled','Closed')" + _frag('bl.farm', 'bi.variety', None), 'staged')
+            q("SELECT COALESCE(SUM(pli.stock_qty),0) s FROM `tabPick List Item` pli JOIN `tabOrder Pick List` opl ON opl.name=pli.parent AND pli.parenttype='Order Pick List' WHERE pli.loaded_in_trolley=1 AND opl.date_created BETWEEN %(f)s AND %(t)s" + _frag('opl.farm', 'pli.item_code', None), 'loaded')
+            q("SELECT COALESCE(SUM(dni.stock_qty),0) s FROM `tabDelivery Note` dn JOIN `tabDelivery Note Item` dni ON dni.parent=dn.name WHERE dn.docstatus=1 AND dn.posting_date BETWEEN %(f)s AND %(t)s" + _frag('dni.farm', 'dni.item_code', None), 'dispatched')
             return tt
 
         from datetime import timedelta
@@ -1045,29 +1069,29 @@ def getPackhouseFlowBoard():
 
         # ── live buffer levels + oldest age ──
         def one(sql, params=None):
-            r = frappe.db.sql(sql, params or {}, as_dict=True)
+            r = frappe.db.sql(sql, {**flt, **(params or {})}, as_dict=True)
             return r[0] if r else frappe._dict({"lvl": 0, "oldest": None})
 
         in_transit = one("""SELECT COALESCE(SUM(sed.qty),0) lvl, MIN(se.creation) oldest
             FROM `tabStock Entry` se JOIN `tabStock Entry Detail` sed ON sed.parent=se.name
             WHERE se.docstatus=1 AND se.stock_entry_type='Harvesting'
               AND se.posting_date>=DATE_SUB(CURDATE(),INTERVAL 2 DAY) AND se.custom_bucket_id IS NOT NULL AND se.custom_bucket_id!=''
-              AND NOT EXISTS(SELECT 1 FROM `tabStock Entry` rc WHERE rc.docstatus=1 AND rc.stock_entry_type IN ('Receiving','Late Receipt') AND rc.custom_bucket_id=se.custom_bucket_id AND rc.posting_date>=se.posting_date)""")
+              AND NOT EXISTS(SELECT 1 FROM `tabStock Entry` rc WHERE rc.docstatus=1 AND rc.stock_entry_type IN ('Receiving','Late Receipt') AND rc.custom_bucket_id=se.custom_bucket_id AND rc.posting_date>=se.posting_date)""" + _frag('se.custom_farm', 'sed.item_code', 'se.custom_greenhouse'))
         unshelved = one("""SELECT COALESCE(SUM(sed.qty),0) lvl, MIN(se.creation) oldest
             FROM `tabStock Entry` se JOIN `tabStock Entry Detail` sed ON sed.parent=se.name
             WHERE se.docstatus=1 AND se.stock_entry_type IN ('Receiving','Late Receipt')
               AND se.posting_date>=DATE_SUB(CURDATE(),INTERVAL 3 DAY) AND se.custom_bucket_id IS NOT NULL AND se.custom_bucket_id!=''
               AND NOT EXISTS(SELECT 1 FROM `tabShelf Item` si WHERE si.bucket_id=se.custom_bucket_id AND si.stem_qty>0)
               AND NOT EXISTS(SELECT 1 FROM `tabStock Entry` d WHERE d.docstatus=1 AND d.stock_entry_type='Discard' AND d.custom_bucket_id=se.custom_bucket_id AND d.posting_date>=se.posting_date)
-              AND NOT EXISTS(SELECT 1 FROM `tabPick List Item` pli WHERE pli.bucket=se.custom_bucket_id AND pli.issued=1)""")
+              AND NOT EXISTS(SELECT 1 FROM `tabPick List Item` pli WHERE pli.bucket=se.custom_bucket_id AND pli.issued=1)""" + _frag('se.custom_farm', 'sed.item_code', 'se.custom_greenhouse'))
         on_shelf = one("""SELECT COALESCE(SUM(si.stem_qty),0) lvl, MIN(COALESCE(si.receiving_date,si.date_added)) oldest
-            FROM `tabShelf` s JOIN `tabShelf Item` si ON s.name=si.parent WHERE si.stem_qty>0 AND si.variety IS NOT NULL AND TRIM(si.variety)!=''""")
+            FROM `tabShelf` s JOIN `tabShelf Item` si ON s.name=si.parent WHERE si.stem_qty>0 AND si.variety IS NOT NULL AND TRIM(si.variety)!=''""" + _frag('s.farm', 'si.variety', None))
         pack_hall = one("""SELECT COALESCE(SUM(pli.stock_qty),0) lvl, MIN(opl.creation) oldest
             FROM `tabPick List Item` pli JOIN `tabOrder Pick List` opl ON opl.name=pli.parent AND pli.parenttype='Order Pick List'
-            WHERE pli.issued=1 AND (pli.custom_box_label IS NULL OR pli.custom_box_label='') AND opl.date_created>=DATE_SUB(CURDATE(),INTERVAL 7 DAY)""")
+            WHERE pli.issued=1 AND (pli.custom_box_label IS NULL OR pli.custom_box_label='') AND opl.date_created>=DATE_SUB(CURDATE(),INTERVAL 7 DAY)""" + _frag('opl.farm', 'pli.item_code', None))
 
         def box_buf(cond):
-            return one("SELECT COALESCE(SUM(bi.qty),0) lvl, MIN(bl.creation) oldest FROM `tabBox Label` bl JOIN `tabBox Label Item` bi ON bi.parent=bl.name WHERE " + cond + " AND bl.date>=DATE_SUB(CURDATE(),INTERVAL 7 DAY)")
+            return one("SELECT COALESCE(SUM(bi.qty),0) lvl, MIN(bl.creation) oldest FROM `tabBox Label` bl JOIN `tabBox Label Item` bi ON bi.parent=bl.name WHERE " + cond + " AND bl.date>=DATE_SUB(CURDATE(),INTERVAL 7 DAY)" + _frag('bl.farm', 'bi.variety', None))
         awaiting = box_buf("IFNULL(bl.staged,0)=0 AND IFNULL(bl.delivered,0)=0")
         staged_b = box_buf("IFNULL(bl.staged,0)=1 AND IFNULL(bl.loaded,0)=0 AND IFNULL(bl.delivered,0)=0")
         on_truck = box_buf("IFNULL(bl.loaded,0)=1 AND IFNULL(bl.delivered,0)=0")
@@ -1100,7 +1124,7 @@ def getPackhouseFlowBoard():
                 WHEN TIMESTAMPDIFF(HOUR, COALESCE(si.receiving_date, si.date_added), NOW()) < 48 THEN 1
                 WHEN TIMESTAMPDIFF(HOUR, COALESCE(si.receiving_date, si.date_added), NOW()) < 72 THEN 2 ELSE 3 END band,
               COALESCE(SUM(si.stem_qty),0) q
-            FROM `tabShelf` s JOIN `tabShelf Item` si ON s.name=si.parent WHERE si.stem_qty>0 GROUP BY band""", as_dict=True)
+            FROM `tabShelf` s JOIN `tabShelf Item` si ON s.name=si.parent WHERE si.stem_qty>0""" + _frag('s.farm', 'si.variety', None) + " GROUP BY band", flt, as_dict=True)
         bmap = {int(b.band): int(b.q or 0) for b in bands_raw}
         age_bands = [
             {"label": "< 24 h", "qty": bmap.get(0, 0), "tone": "ok"},
@@ -1159,9 +1183,16 @@ def getPackhouseFlowBoard():
 
         held = sum(max(0, b["live"]) for b in buffers)
 
+        # Opening/in/out come from the Shelving Log; "now" is the live Shelf Item
+        # count. They can drift when stock leaves the shelf (or a count is edited)
+        # without a matching log row — so carry the ledger-reconciled total and the
+        # unreconciled variance explicitly, and let the waterfall show it as its own
+        # step instead of an unexplained jump into "on hand".
+        sh_reconciled = sh_opening + sh_shelved_in - sh_issued_out - sh_discard_out
         shelf = {
             "opening": sh_opening, "shelved_in": sh_shelved_in, "issued_out": sh_issued_out,
             "discarded_out": sh_discard_out, "now": sh_now,
+            "reconciled": sh_reconciled, "variance": sh_now - sh_reconciled,
             "opening_oldest_h": _age(sh_open_oldest), "now_oldest_h": _age(on_shelf.oldest),
             "buckets_in": slq("SELECT COUNT(DISTINCT bucket_id) s FROM `tabShelving Log` WHERE DATE(shelved_on)=%(d)s", {"d": today}),
             "age_bands": age_bands, "threshold_h": 48, "step": step, "discard_reasons": discard_reasons,
@@ -1183,8 +1214,8 @@ def getPackhouseFlowBoard():
             FROM (SELECT se.custom_bucket_id bucket, SUM(sed.qty) stems, MIN(se.posting_date) hdate
               FROM `tabStock Entry` se JOIN `tabStock Entry Detail` sed ON sed.parent=se.name
               WHERE se.docstatus=1 AND se.stock_entry_type='Harvesting' AND se.posting_date=%(d)s
-                AND se.custom_bucket_id IS NOT NULL AND se.custom_bucket_id<>'' GROUP BY se.custom_bucket_id) h
-        """, {"d": today}, as_dict=True)[0]
+                AND se.custom_bucket_id IS NOT NULL AND se.custom_bucket_id<>'' """ + _frag('se.custom_farm', 'sed.item_code', 'se.custom_greenhouse') + """ GROUP BY se.custom_bucket_id) h
+        """, {**flt, "d": today}, as_dict=True)[0]
         reached = {"harvested": int(crow.harvested or 0), "received": int(crow.received or 0), "shelved": int(crow.shelved or 0),
                    "issued": int(crow.issued or 0), "packed": int(crow.packed or 0), "staged": 0, "loaded": 0, "dispatched": 0}
         held_c = {}
@@ -1192,10 +1223,30 @@ def getPackhouseFlowBoard():
             held_c[a] = max(0, reached[b] - reached[a])
         cohort = {"cut": reached["harvested"], "reached": reached, "held": held_c}
 
+        # ── filter option lists (last 60 days of movement) for the topbar dropdowns ──
+        def _distinct(col, sql):
+            return [r.get('v') for r in frappe.db.sql(sql, as_dict=True) if r.get('v')]
+        farm_opts = _distinct('farm', """SELECT DISTINCT custom_farm v FROM `tabStock Entry`
+            WHERE stock_entry_type IN ('Harvesting','Receiving','Late Receipt')
+              AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 60 DAY)
+              AND custom_farm IS NOT NULL AND TRIM(custom_farm) <> '' ORDER BY custom_farm""")
+        var_opts = _distinct('variety', """SELECT DISTINCT sed.item_code v
+            FROM `tabStock Entry` se JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
+            WHERE se.stock_entry_type IN ('Harvesting','Receiving','Late Receipt')
+              AND se.posting_date >= DATE_SUB(CURDATE(), INTERVAL 60 DAY)
+              AND sed.item_code IS NOT NULL AND TRIM(sed.item_code) <> '' ORDER BY sed.item_code""")
+        loc_opts = _distinct('location', """SELECT DISTINCT custom_greenhouse v FROM `tabStock Entry`
+            WHERE stock_entry_type IN ('Harvesting','Receiving','Late Receipt')
+              AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 60 DAY)
+              AND custom_greenhouse IS NOT NULL AND TRIM(custom_greenhouse) <> '' ORDER BY custom_greenhouse""")
+
         board = {
             "as_of": frappe.utils.now_datetime().strftime("%a %d %b %Y, %H:%M"),
             "window": "06:00 → now",
             "totals": totals, "buffers": buffers, "shelf": shelf, "days": days, "cohort": cohort,
+            "options": {"farms": farm_opts, "varieties": var_opts, "locations": loc_opts},
+            "filters": {"farm": flt_farm, "variety": flt_var, "location": flt_loc},
+            "filtered": bool(flt_farm or flt_var or flt_loc),
         }
         frappe.response['message'] = {"success": True, "board": board}
     except Exception as e:

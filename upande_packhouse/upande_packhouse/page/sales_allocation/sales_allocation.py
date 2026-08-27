@@ -208,16 +208,31 @@ def get_pending_sales_orders(start_date=None, end_date=None, delivery_start=None
                 so.name AS so_name,
                 COUNT(soi.name) AS total_items,
                 COUNT(CASE WHEN opl.docstatus = 1 THEN 1 END) AS submitted_items,
+                SUM(soi.stock_qty) AS ordered_stems,
+                -- How far the order is allocated, by STEMS (allocated / ordered).
+                -- Stem-based (not submitted-OPL-count) so remote-farm allocations,
+                -- which sit in-transit before their OPL is submitted, still register.
                 ROUND(
-                    (COUNT(CASE WHEN opl.docstatus = 1 THEN 1 END) * 100.0) / COUNT(soi.name),
+                    LEAST(100, COALESCE(MAX(alloc.allocated), 0) * 100.0
+                        / NULLIF(SUM(soi.stock_qty), 0)),
                     1
                 ) AS allocation_percentage,
                 GROUP_CONCAT(soi.item_code ORDER BY soi.idx SEPARATOR ', ') AS item_codes,
+                GROUP_CONCAT(DISTINCT NULLIF(TRIM(soi.custom_length), '') ORDER BY soi.custom_length SEPARATOR ', ') AS lengths,
+                GROUP_CONCAT(DISTINCT NULLIF(TRIM(it.item_group), '') SEPARATOR ', ') AS item_groups,
                 MAX(CASE WHEN soi.custom_mixed_box = 1 THEN 1 ELSE 0 END) AS has_mixed,
                 MAX(CASE WHEN (soi.custom_mixed_box = 0 OR soi.custom_mixed_box IS NULL) THEN 1 ELSE 0 END) AS has_straight
             FROM `tabSales Order` so
             INNER JOIN `tabSales Order Item` soi ON so.name = soi.parent
             LEFT JOIN `tabOrder Pick List` opl ON soi.custom_opl = opl.name
+            LEFT JOIN `tabItem` it ON it.name = soi.item_code
+            LEFT JOIN (
+                SELECT soi2.parent AS so_name, SUM(ba.quantity_allocated) AS allocated
+                FROM `tabBucket Allocations` ba
+                INNER JOIN `tabSales Order Item` soi2 ON soi2.name = ba.sales_order_item
+                WHERE ba.cancelled = 0
+                GROUP BY soi2.parent
+            ) alloc ON alloc.so_name = so.name
             WHERE {where_clause}
             GROUP BY so.name
         )
@@ -226,7 +241,7 @@ def get_pending_sales_orders(start_date=None, end_date=None, delivery_start=None
             so.custom_order_name, so.grand_total AS total, so.currency,
             so.status, so.custom_priority,
             ss.total_items, ss.submitted_items, ss.allocation_percentage, ss.item_codes,
-            ss.has_mixed, ss.has_straight
+            ss.lengths, ss.item_groups, ss.has_mixed, ss.has_straight
         FROM `tabSales Order` so
         INNER JOIN so_stats ss ON so.name = ss.so_name
         ORDER BY so.delivery_date ASC, so.transaction_date DESC
@@ -237,6 +252,33 @@ def get_pending_sales_orders(start_date=None, end_date=None, delivery_start=None
     except Exception as e:
         frappe.log_error("Pending SOs Error", frappe.get_traceback())
         frappe.throw(_("Error loading sales orders: {0}").format(str(e)))
+
+
+@frappe.whitelist()
+def get_order_filter_options():
+    """Complete option lists for the order-list Length and Item-group filters.
+
+    Fetched from the masters (Stem Length, and the item groups ever ordered) rather
+    than from whatever orders are on screen — so every value is selectable even when
+    no currently-loaded order uses it.
+    """
+    # All stem lengths from the master, sorted by their numeric (cm) value.
+    lengths = [r["name"] for r in frappe.db.sql("""
+        SELECT name FROM `tabStem Length`
+        ORDER BY CAST(REGEXP_REPLACE(name, '[^0-9]', '') AS UNSIGNED), name
+    """, as_dict=True)]
+
+    # Item groups of every item that has ever been ordered (keeps the list complete
+    # but relevant — no Consumable / Chemical-Mix noise from unrelated groups).
+    item_groups = [r["item_group"] for r in frappe.db.sql("""
+        SELECT DISTINCT it.item_group
+        FROM `tabItem` it
+        INNER JOIN `tabSales Order Item` soi ON soi.item_code = it.name
+        WHERE it.item_group IS NOT NULL AND TRIM(it.item_group) <> ''
+        ORDER BY it.item_group
+    """, as_dict=True)]
+
+    return {"lengths": lengths, "item_groups": item_groups}
 
 
 # ============================================================

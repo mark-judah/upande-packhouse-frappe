@@ -152,10 +152,14 @@ frappe.pages['sales-allocation'].add_styles = function () {
         }
         .ufd-sa .rail-head h3 { margin: 0; font: 600 14px var(--sans); color: var(--ink); letter-spacing: -.2px; }
         .ufd-sa .rail-head #resultsCount { font-size: 11px; color: var(--ink-mute); white-space: nowrap; }
-        .ufd-sa .rail-filters { display: grid; grid-template-columns: 1fr; gap: 6px; margin-bottom: 10px; }
-        .ufd-sa .rail-filters .rf-row { display: flex; gap: 6px; }
-        .ufd-sa .rail-filters .rf-row select { flex: 1; min-width: 0; }
-        .ufd-sa .rail-filters .sa-inp { padding: 6px 10px; }
+        /* minmax(0,1fr) + min-width:0 lets the selects shrink to the rail width
+           instead of overflowing to their content width and being clipped. */
+        .ufd-sa .rail-filters { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin-bottom: 10px; }
+        .ufd-sa .rail-filters > * { min-width: 0; }
+        .ufd-sa .rail-filters .rf-row { display: flex; gap: 6px; min-width: 0; }
+        .ufd-sa .rail-filters .rf-row > * { flex: 1 1 0; min-width: 0; }
+        .ufd-sa .rail-filters .rf-row .rf-clear { flex: 0 0 auto; }
+        .ufd-sa .rail-filters .sa-inp { padding: 6px 10px; width: 100%; box-sizing: border-box; }
         .ufd-sa .rf-clear {
             width: 30px; flex: 0 0 30px;
             border: 1px solid var(--hairline); border-radius: 8px;
@@ -266,6 +270,7 @@ frappe.pages['sales-allocation'].add_styles = function () {
         .ufd-sa .pill-ink { background: var(--grad-ink); color: #fafaf6; }
         .ufd-sa .pill-signal { background: var(--signal-soft); color: var(--signal); }
         .ufd-sa .pill-line { border: 1px solid var(--hairline); color: var(--ink-4); }
+        .ufd-sa .pill-name { background: var(--ink); color: #fafaf6; }
         .ufd-sa .pill-mono { background: var(--surface); color: var(--ink-mute); font-family: var(--mono); font-weight: 500; }
         .ufd-sa .pill-good { background: var(--good-soft); color: var(--good); }
 
@@ -486,6 +491,18 @@ frappe.pages['sales-allocation'].make = function (page) {
                             <option value="mixed">Mixed only</option>
                             <option value="straight">Straight only</option>
                         </select>
+                    </div>
+                    <div class="rf-row">
+                        <select id="lengthFilter" class="sa-inp"><option value="">All lengths</option></select>
+                        <select id="itemGroupFilter" class="sa-inp"><option value="">All item groups</option></select>
+                    </div>
+                    <div class="rf-row">
+                        <select id="allocFilter" class="sa-inp">
+                            <option value="">All allocation</option>
+                            <option value="unallocated">Unallocated</option>
+                            <option value="partial">Partly allocated</option>
+                            <option value="fully">Fully allocated</option>
+                        </select>
                         <button class="rf-clear" id="clearFilters" title="Clear filters">&times;</button>
                     </div>
                 </div>
@@ -522,15 +539,20 @@ frappe.pages['sales-allocation'].make = function (page) {
     // Each entry: { cut_stage_min: '', cut_stage_max: '' }
     P.item_filters = {};
     P.item_teams = {};
+    P.order_team = '';
     const tomorrow = frappe.datetime.add_days(frappe.datetime.get_today(), 1);
-    P.filters = { search: '', priority: '', box_type: '', order_start: '', order_end: '', delivery_start: tomorrow, delivery_end: tomorrow };
+    P.filters = { search: '', priority: '', box_type: '', length: '', item_group: '', alloc: '', order_start: '', order_end: '', delivery_start: tomorrow, delivery_end: tomorrow };
     $('#deliveryStartDate').val(tomorrow);
     $('#deliveryEndDate').val(tomorrow);
     P.render_allocation_grid();
     P.load_location_config();
+    P._populate_filter_options();
     $('#orderSearchInput').on('input', function () { P.filters.search = $(this).val(); P.apply_filters(); });
     $('#priorityFilter').on('change', function () { P.filters.priority = $(this).val(); P.apply_filters(); });
     $('#boxTypeFilter').on('change', function () { P.filters.box_type = $(this).val(); P.apply_filters(); });
+    $('#lengthFilter').on('change', function () { P.filters.length = $(this).val(); P.apply_filters(); });
+    $('#itemGroupFilter').on('change', function () { P.filters.item_group = $(this).val(); P.apply_filters(); });
+    $('#allocFilter').on('change', function () { P.filters.alloc = $(this).val(); P.apply_filters(); });
     $('#orderStartDate, #orderEndDate').on('change', function () {
         P.filters.order_start = $('#orderStartDate').val();
         P.filters.order_end = $('#orderEndDate').val();
@@ -559,10 +581,10 @@ frappe.pages['sales-allocation'].make = function (page) {
         }
     });
     $('#clearFilters').on('click', function () {
-        $('#orderSearchInput, #priorityFilter, #boxTypeFilter, #orderStartDate, #orderEndDate, #deliveryStartDate, #deliveryEndDate').val('');
+        $('#orderSearchInput, #priorityFilter, #boxTypeFilter, #lengthFilter, #itemGroupFilter, #allocFilter, #orderStartDate, #orderEndDate, #deliveryStartDate, #deliveryEndDate').val('');
         $('#postingWrap').hide();
         $('#togglePosting').text('Add posting date');
-        P.filters = { search: '', priority: '', box_type: '', order_start: '', order_end: '', delivery_start: '', delivery_end: '' };
+        P.filters = { search: '', priority: '', box_type: '', length: '', item_group: '', alloc: '', order_start: '', order_end: '', delivery_start: '', delivery_end: '' };
         if (P.selected_location) P.load_sales_orders();
     });
 };
@@ -649,6 +671,28 @@ frappe.pages['sales-allocation'].load_sales_orders = function () {
         }
     });
 };
+// Fill the Length and Item-group dropdowns from the masters (all stem lengths, all
+// ordered item groups) — so every value is selectable even when no loaded order uses
+// it. Fetched once on page load; any current selection is kept if still valid.
+frappe.pages['sales-allocation']._populate_filter_options = function () {
+    const P = frappe.pages['sales-allocation'];
+    const fill = (sel, values, keep, allLabel) => {
+        const $s = $(sel);
+        if (!$s.length) return;
+        const cur = keep && values.indexOf(keep) !== -1 ? keep : '';
+        $s.html(`<option value="">${allLabel}</option>` +
+            (values || []).map(v => `<option value="${frappe.utils.escape_html(v)}">${frappe.utils.escape_html(v)}</option>`).join(''));
+        $s.val(cur);
+    };
+    frappe.call({
+        method: 'upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.get_order_filter_options',
+        callback: function (r) {
+            const o = (r && r.message) || {};
+            fill('#lengthFilter', o.lengths || [], P.filters.length, 'All lengths');
+            fill('#itemGroupFilter', o.item_groups || [], P.filters.item_group, 'All item groups');
+        }
+    });
+};
 frappe.pages['sales-allocation'].apply_filters = function () {
     const P = frappe.pages['sales-allocation'];
     let orders = P.current_sales_orders;
@@ -664,6 +708,17 @@ frappe.pages['sales-allocation'].apply_filters = function () {
     if (P.filters.priority) orders = orders.filter(o => (o.custom_priority || 'Low') === P.filters.priority);
     if (P.filters.box_type === 'mixed') orders = orders.filter(o => (o.has_mixed || 0) === 1);
     else if (P.filters.box_type === 'straight') orders = orders.filter(o => (o.has_straight || 0) === 1);
+    if (P.filters.length) orders = orders.filter(o => (o.lengths || '').split(', ').indexOf(P.filters.length) !== -1);
+    if (P.filters.item_group) orders = orders.filter(o => (o.item_groups || '').split(', ').indexOf(P.filters.item_group) !== -1);
+    if (P.filters.alloc) {
+        orders = orders.filter(o => {
+            const pct = P._order_list_pct(o);
+            if (P.filters.alloc === 'unallocated') return pct <= 0;
+            if (P.filters.alloc === 'partial') return pct > 0 && pct < 100;
+            if (P.filters.alloc === 'fully') return pct >= 100;
+            return true;
+        });
+    }
     const total = (P.current_sales_orders || []).length;
     $('#resultsCount').text(orders.length === total ? `${total} orders` : `${orders.length} of ${total}`);
     P.render_orders(orders);
@@ -676,7 +731,7 @@ frappe.pages['sales-allocation'].render_orders = function (orders) {
         const priority = order.custom_priority || 'Low';
         const pri_class = 'pri-' + priority.toLowerCase();
         const is_selected = selected === order.name ? 'selected' : '';
-        const pct = order.allocation_percentage || 0;
+        const pct = frappe.pages['sales-allocation']._order_list_pct(order);
         const bar_color = pct >= 75 ? 'var(--good)' : pct >= 50 ? 'var(--warn-2)' : 'var(--bad)';
         const sub = [order.customer, order.custom_order_name].filter(Boolean).join(' · ');
         return `
@@ -733,6 +788,7 @@ frappe.pages['sales-allocation'].close_detail = function () {
         P.order_items = [];
         P.selected_item = null;
         P.item_teams = {};
+    P.order_team = '';
         P.apply_filters();
         P.render_allocation_grid();
     };
@@ -790,6 +846,7 @@ frappe.pages['sales-allocation'].show_allocation_panel = function () {
     const P = frappe.pages['sales-allocation'];
     // Per-line team selections (sales_order_item -> team); reset on each load
     P.item_teams = {};
+    P.order_team = '';
     P.selected_item = P._preserve_item || null;
     P._preserve_item = null;
     P.render_allocation_grid();
@@ -1156,12 +1213,10 @@ frappe.pages['sales-allocation']._execute_substitute = function (so_item, new_it
 frappe.pages['sales-allocation']._render_detail_head = function (items) {
     const P = frappe.pages['sales-allocation'];
     const so = (P.current_sales_orders || []).find(o => o.name === P.selected_order) || {};
-    let required = 0, done = 0;
-    (items || []).forEach(it => {
-        required += it.pending_stock_qty || 0;
-        done += (it.total_allocated_qty || 0) + P._session_qty(it.sales_order_item);
-    });
-    const pct = required > 0 ? Math.min(100, Math.round((done / required) * 100)) : 0;
+    // Bar reflects the WHOLE order (all lines), not just the mix-group subset shown,
+    // so it agrees with the order's card in the list and climbs as you allocate.
+    const prog = P._order_progress(P.order_items);
+    const required = prog.required, done = prog.done, pct = prog.pct;
     const bar_color = pct >= 75 ? 'var(--good)' : pct >= 50 ? 'var(--warn-2)' : 'var(--bad)';
     const meta = [
         so.customer,
@@ -1177,6 +1232,15 @@ frappe.pages['sales-allocation']._render_detail_head = function (items) {
             </div>
             <div style="font-size:11px;color:var(--ink-mute);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${meta}</div>
         </div>
+        ${P._order_mixed ? `
+        <div style="flex:0 0 auto;">
+            <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.8px;color:var(--ink-faint);margin-bottom:5px;">Packing team</div>
+            <select class="item-team-select ${(P.order_team || '') ? 'is-set' : 'is-unset'}"
+                onchange="frappe.pages['sales-allocation'].set_order_team(this.value)"
+                title="Packing team for this mixed order (applies to every line)">
+                ${['', 'Team A', 'Team B', 'Jamafa', 'Eldama', 'Bravo'].map(t => `<option value="${t}" ${t === (P.order_team || '') ? 'selected' : ''}>${t || 'Select team…'}</option>`).join('')}
+            </select>
+        </div>` : ''}
         <div style="width:132px;flex-shrink:0;">
             <div style="display:flex;justify-content:space-between;font-size:9.5px;text-transform:uppercase;letter-spacing:.8px;color:var(--ink-faint);margin-bottom:5px;">
                 <span>Allocated</span><span style="font-weight:600;color:${bar_color};">${pct}%</span>
@@ -1210,7 +1274,7 @@ frappe.pages['sales-allocation']._render_lines_rail = function (items) {
         }
         const needs_team = P._session_qty(item.sales_order_item) > 0
             && !(P.item_teams || {})[item.sales_order_item];
-        const team_flag = needs_team
+        const team_flag = (needs_team && !P._order_mixed)
             ? `<span class="lc-tag" style="background:var(--bad-soft);color:var(--bad);margin-left:4px;">No team</span>`
             : '';
         return `
@@ -1268,10 +1332,10 @@ frappe.pages['sales-allocation']._render_item_block = function (item) {
     if (item.color) pills.push(`<span class="pill pill-signal">${item.color}</span>`);
     if (item.custom_mixed_bunch) {
         pills.push(`<span class="pill pill-signal">Mixed bunch</span>`);
-        pills.push(`<span class="pill pill-line" title="Internal group: ${item.custom_bunch_group || '?'}">${item.custom_mix_name ? frappe.utils.escape_html(item.custom_mix_name) : 'Bunch ' + (item.custom_bunch_group || '?')}</span>`);
+        pills.push(`<span class="pill pill-name" title="Internal group: ${item.custom_bunch_group || '?'}">${item.custom_mix_name ? frappe.utils.escape_html(item.custom_mix_name) : 'Bunch ' + (item.custom_bunch_group || '?')}</span>`);
     } else if (item.custom_mixed_box) {
         pills.push(`<span class="pill pill-signal">Mixed box</span>`);
-        pills.push(`<span class="pill pill-line" title="Internal group: ${item.custom_mix_group || '?'}">${item.custom_mix_name ? frappe.utils.escape_html(item.custom_mix_name) : 'Group ' + (item.custom_mix_group || '?')}</span>`);
+        pills.push(`<span class="pill pill-name" title="Internal group: ${item.custom_mix_group || '?'}">${item.custom_mix_name ? frappe.utils.escape_html(item.custom_mix_name) : 'Group ' + (item.custom_mix_group || '?')}</span>`);
     } else {
         pills.push(`<span class="pill pill-line">Straight box</span>`);
     }
@@ -1285,11 +1349,11 @@ frappe.pages['sales-allocation']._render_item_block = function (item) {
     const actions = `
         ${can_fifo ? `<button class="sa-mini-btn primary" onclick="frappe.pages['sales-allocation'].auto_allocate_fifo('${item.sales_order_item}')">Auto-allocate ${remaining}</button>` : ''}
         <button class="substitute-btn" data-so-item="${item.sales_order_item}">Substitute</button>
-        <select class="item-team-select ${_curTeam ? 'is-set' : 'is-unset'}" data-so-item="${item.sales_order_item}"
+        ${P._order_mixed ? '' : `<select class="item-team-select ${_curTeam ? 'is-set' : 'is-unset'}" data-so-item="${item.sales_order_item}"
             onchange="frappe.pages['sales-allocation'].set_item_team('${item.sales_order_item}', this.value)"
             title="Packing team for this line">
             ${teams.map(t => `<option value="${t}" ${t === _curTeam ? 'selected' : ''}>${t || 'Select team…'}</option>`).join('')}
-        </select>`;
+        </select>`}`;
     // ── Confirmed stems band
     const confirmed = item.confirmed_stems || 0;
     let confirmedBanner = '';
@@ -1415,6 +1479,9 @@ frappe.pages['sales-allocation'].render_allocation_grid = function () {
         return;
     }
     const all_items = P.order_items || [];
+    // A mixed-box / mixed-bunch order is packed by ONE team, so its team is chosen
+    // once at the top (see _render_detail_head) rather than per line.
+    P._order_mixed = all_items.some(it => it.custom_mixed_box || it.custom_mixed_bunch);
     // Apply mix-group filter (empty string = no filter, show everything)
     const items = P.selected_mix_group
         ? all_items.filter(it => String(it.custom_mix_group || '') === String(P.selected_mix_group))
@@ -1442,6 +1509,23 @@ frappe.pages['sales-allocation'].render_allocation_grid = function () {
     P._bind_lines_rail();
     P._bind_per_item_filters();
     if (item) P._apply_item_batch_visibility(item.sales_order_item);
+    // Keep this order's card in the left list in sync with live allocation.
+    P._sync_order_card();
+};
+// Push the live progress of the selected order onto its list card (bar + %),
+// and remember it on the order object so re-renders/filters stay consistent.
+frappe.pages['sales-allocation']._sync_order_card = function () {
+    const P = frappe.pages['sales-allocation'];
+    if (!P.selected_order) return;
+    const pct = P._order_progress(P.order_items).pct;
+    const ord = (P.current_sales_orders || []).find(o => o.name === P.selected_order);
+    if (ord) ord._live_pct = pct;
+    const color = pct >= 75 ? 'var(--good)' : pct >= 50 ? 'var(--warn-2)' : 'var(--bad)';
+    const $card = $(`.sales-order-card[data-order="${P.selected_order}"]`);
+    if ($card.length) {
+        $card.find('.soc-foot span').last().css('color', color).text(pct + '%');
+        $card.find('.soc-bar > div').css({ width: pct + '%', background: color });
+    }
 };
 // ─── ALLOCATE FROM BUCKET ───
 frappe.pages['sales-allocation'].allocate_from_bucket = function (so_item, bucket_id, max_from_bucket, uom, remaining, length_status, stem_length) {
@@ -1683,6 +1767,7 @@ frappe.pages['sales-allocation'].confirm_allocation = function () {
                 P.order_items = [];
                 P.selected_item = null;
                 P.item_teams = {};
+    P.order_team = '';
                 P.render_allocation_grid();
                 P.load_sales_orders();
             } else {
@@ -1692,6 +1777,18 @@ frappe.pages['sales-allocation'].confirm_allocation = function () {
     });
 };
 // ─── HELPERS ───
+// Mixed order: one team for the whole box/bunch. Set it once at the top and
+// mirror it onto every line so the save payload and progress flags are unchanged.
+frappe.pages['sales-allocation'].set_order_team = function (team) {
+    const P = frappe.pages['sales-allocation'];
+    P.order_team = team || '';
+    P.item_teams = P.item_teams || {};
+    (P.order_items || []).forEach(it => {
+        if (team) P.item_teams[it.sales_order_item] = team;
+        else delete P.item_teams[it.sales_order_item];
+    });
+    P.render_allocation_grid();
+};
 frappe.pages['sales-allocation'].set_item_team = function (so_item, team) {
     const P = frappe.pages['sales-allocation'];
     P.item_teams = P.item_teams || {};
@@ -1726,6 +1823,30 @@ frappe.pages['sales-allocation']._session_qty = function (so_item) {
     return (frappe.pages['sales-allocation'].allocations || [])
         .filter(a => a.sales_order_item === so_item)
         .reduce((s, a) => s + (parseFloat(a.qty) || 0), 0);
+};
+// Whole-order allocation progress, by stems: previously-allocated (persisted) +
+// this-session allocations, over what the order still needs. Drives the order
+// header bar and the live list-card bar, so both climb as you allocate — for
+// every order, remote farms included (this counts session + persisted stems, and
+// never depends on whether a remote OPL has been submitted yet).
+frappe.pages['sales-allocation']._order_progress = function (items) {
+    const P = frappe.pages['sales-allocation'];
+    const list = items || P.order_items || [];
+    let required = 0, done = 0;
+    list.forEach(it => {
+        required += it.pending_stock_qty || 0;
+        done += (it.total_allocated_qty || 0) + P._session_qty(it.sales_order_item);
+    });
+    const pct = required > 0 ? Math.min(100, Math.round((done / required) * 100)) : 0;
+    return { required: required, done: done, pct: pct };
+};
+// Live percentage for an order in the list: the live session value once the order
+// has been opened/allocated, else the stem-based figure from the backend.
+frappe.pages['sales-allocation']._order_list_pct = function (order) {
+    if (!order) return 0;
+    if (order.name === frappe.pages['sales-allocation'].selected_order)
+        return frappe.pages['sales-allocation']._order_progress().pct;
+    return (order._live_pct != null) ? order._live_pct : (order.allocation_percentage || 0);
 };
 frappe.pages['sales-allocation']._session_total = function () {
     return (frappe.pages['sales-allocation'].allocations || [])

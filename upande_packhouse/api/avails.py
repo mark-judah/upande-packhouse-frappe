@@ -22,7 +22,8 @@ def getAvailsData():
                 si.variety       AS variety,
                 si.stem_length   AS length,
                 s.farm           AS farm,
-                SUM(si.stem_qty) AS stems
+                SUM(si.stem_qty) AS stems,
+                TIMESTAMPDIFF(DAY, MIN(si.date_added), NOW()) AS oldest_days
             FROM `tabShelf` s
             INNER JOIN `tabShelf Item` si ON s.name = si.parent
             WHERE si.stem_qty > 0

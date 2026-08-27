@@ -196,3 +196,56 @@
 /* keep the topbar label text from wrapping to two lines */
 .aph .aph-topbar .lbl,.aph .aph-topbar label,.aph .aph-topbar .topbar-lbl,
 .aph .aph-topbar .meta,.aph .aph-topbar .sub{white-space:nowrap !important}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   UNIFORM SIDEBAR (injected via templates/includes/packhouse_sidebar.html).
+   Loaded last, so these authoritative rules override any per-page sidebar CSS
+   and give every page the same scrollable, well-spaced rail. Uses base tokens
+   (--bg-card/--text/--border/--f) that every page defines.
+   ══════════════════════════════════════════════════════════════════════════ */
+.aph .aph-side{background:var(--bg-card)!important;border:0!important;border-radius:22px!important;
+  box-shadow:0 1px 3px rgba(10,10,10,.06),0 10px 30px rgba(10,10,10,.06)!important;
+  margin:14px 0 14px 14px!important;height:calc(100vh - 28px)!important;
+  position:sticky;top:14px;display:flex!important;flex-direction:column!important;overflow:hidden!important}
+.aph .aph-side .brand{padding:20px 18px 16px!important;display:flex;align-items:center;gap:12px;
+  text-decoration:none;flex:0 0 auto;border-bottom:1px solid var(--border)}
+.aph .aph-side .brand .logo{height:34px;width:auto;flex:0 0 auto;display:block}
+.aph .aph-side .brand .name{font:600 14px var(--f)!important;color:var(--text)!important;line-height:1.15;letter-spacing:-.01em;white-space:nowrap;overflow:hidden}
+.aph .aph-side .brand .name small{display:block;font:500 10px var(--f);text-transform:uppercase;letter-spacing:1.5px;color:var(--text-3);margin-top:3px}
+.aph .aph-side .home-link{display:flex;align-items:center;gap:12px;margin:14px 12px 6px!important;padding:10px 14px!important;
+  border:1px solid var(--border)!important;border-radius:9px!important;background:transparent!important;
+  font:500 13px var(--f);color:var(--text-2)!important;text-decoration:none;transition:background .15s ease,color .15s ease;flex:0 0 auto;white-space:nowrap}
+.aph .aph-side .home-link:hover{background:var(--bg-hover)!important;color:var(--text)!important}
+.aph .aph-side .home-link svg.ic{width:15px;height:15px;color:var(--text-3)}
+/* scrollable nav with generous, uniform spacing */
+.aph .aph-side .nav{flex:1 1 auto!important;min-height:0!important;overflow-y:auto!important;overflow-x:hidden!important;
+  padding:8px 0 28px!important;margin:0!important;display:flex!important;flex-direction:column!important;flex-wrap:nowrap!important;
+  align-items:stretch!important;justify-content:flex-start!important;
+  scrollbar-width:thin;scrollbar-color:var(--border-2) transparent}
+.aph .aph-side .nav::-webkit-scrollbar{width:8px}
+.aph .aph-side .nav::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:4px;border:2px solid var(--bg-card)}
+.aph .aph-side .nav::-webkit-scrollbar-thumb:hover{background:var(--text-3)}
+.aph .aph-side .nav::-webkit-scrollbar-track{background:transparent}
+/* group label: clear breathing room above each section, tight to its own items */
+.aph .aph-side .group-lbl{display:block!important;align-self:stretch!important;width:auto!important;text-align:left!important;
+  padding:26px 20px 11px!important;margin:0!important;font:600 10px var(--f)!important;color:var(--text-3)!important;
+  line-height:1.4!important;letter-spacing:1.5px!important;text-transform:uppercase;white-space:nowrap}
+.aph .aph-side .group-lbl:first-child{padding-top:14px!important}
+/* nav item: full-width, left-aligned, taller target, comfortable vertical rhythm */
+.aph .aph-side .nav-item{display:flex!important;align-items:center!important;justify-content:flex-start!important;
+  align-self:stretch!important;width:auto!important;box-sizing:border-box!important;text-align:left!important;
+  gap:13px!important;padding:10px 14px!important;margin:3px 10px!important;border-radius:11px!important;
+  font:500 13px var(--f)!important;color:var(--text-2)!important;
+  cursor:pointer;user-select:none;text-decoration:none;transition:background .15s ease,color .15s ease;white-space:nowrap;overflow:hidden}
+.aph .aph-side .nav-item:hover{background:var(--bg-hover)!important;color:var(--text)!important;text-decoration:none}
+.aph .aph-side .nav-item.active{background:var(--accent)!important;color:#fff!important;box-shadow:0 2px 6px rgba(10,10,10,.16)!important}
+.aph .aph-side .nav-item svg.ic{width:16px;height:16px;flex:0 0 auto;color:var(--text-3);stroke-width:1.7}
+.aph .aph-side .nav-item:hover svg.ic{color:var(--text)}
+.aph .aph-side .nav-item.active svg.ic{color:#fff!important}
+.aph .aph-side .nav-item .badge{margin-left:auto;font:600 10px var(--mono);color:var(--text-2);background:var(--bg-muted);padding:2px 8px;border-radius:999px}
+.aph .aph-side .nav-item.active .badge{color:#fff;background:rgba(255,255,255,.2)}
+.aph .aph-side .footer{padding:14px 16px!important;border-top:1px solid var(--border)!important;display:flex;align-items:center;gap:12px;flex:0 0 auto}
+.aph .aph-side .footer .av{width:30px;height:30px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12px;flex:0 0 auto}
+.aph .aph-side .footer .who{flex:1;line-height:1.25;overflow:hidden}
+.aph .aph-side .footer .who .nm{font-weight:600;color:var(--text);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph .aph-side .footer .who .em{font-size:10px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

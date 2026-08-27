@@ -24,6 +24,31 @@ def getPackhouseLocations():
 
 
 @frappe.whitelist()
+def getOrderSummaryFilterOptions():
+    # Complete option lists for the Order Summary Farm and Item-group filters.
+    # Pulled from the masters (every Farm, every item group ever ordered) — not
+    # from the rows on screen — so every value is selectable even when no order on
+    # the chosen delivery date uses it.
+    farms = [r['name'] for r in frappe.db.sql("""
+        SELECT name FROM `tabFarm`
+        ORDER BY name
+    """, as_dict=True)]
+
+    item_groups = [r['item_group'] for r in frappe.db.sql("""
+        SELECT DISTINCT item_group
+        FROM `tabSales Order Item`
+        WHERE item_group IS NOT NULL AND TRIM(item_group) <> ''
+        ORDER BY item_group
+    """, as_dict=True)]
+
+    frappe.response['message'] = {
+        'success': True,
+        'farms': farms,
+        'item_groups': item_groups,
+    }
+
+
+@frappe.whitelist()
 def fetchOrderSummaryData():
     # Order Summary Dashboard
     # API: fetchOrderSummaryData
