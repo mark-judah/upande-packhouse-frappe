@@ -1,0 +1,77 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "field:id",
+ "creation": "2026-08-08 13:09:08.589082",
+ "default_view": "List",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "qr_code_image",
+  "id",
+  "status",
+  "last_stock_entry",
+  "label_print_doc"
+ ],
+ "fields": [
+  {
+   "fieldname": "qr_code_image",
+   "fieldtype": "Attach",
+   "label": "QR Code Image"
+  },
+  {
+   "fieldname": "id",
+   "fieldtype": "Data",
+   "label": "Id ",
+   "length": 1000,
+   "unique": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Available\nIn Use"
+  },
+  {
+   "fieldname": "last_stock_entry",
+   "fieldtype": "Link",
+   "label": "Last Stock Entry",
+   "options": "Stock Entry"
+  },
+  {
+   "fieldname": "label_print_doc",
+   "fieldtype": "Link",
+   "label": "Label Print Doc",
+   "options": "Label Print"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-28 10:51:55.456802",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Bucket QR Code",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "select": 1,
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

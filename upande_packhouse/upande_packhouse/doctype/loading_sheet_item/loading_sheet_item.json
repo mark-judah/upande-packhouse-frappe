@@ -12,7 +12,8 @@
   "box_id",
   "customer",
   "position",
-  "vehicle"
+  "vehicle",
+  "box_label_link"
  ],
  "fields": [
   {
@@ -59,13 +60,18 @@
    "fieldtype": "Link",
    "label": "Vehicle",
    "options": "Vehicle"
+  },
+  {
+   "fieldname": "box_label_link",
+   "fieldtype": "Data",
+   "label": "Box Label Link"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-07-17 14:39:50.565478",
+ "modified": "2026-08-28 06:09:13.018751",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Loading Sheet Item",

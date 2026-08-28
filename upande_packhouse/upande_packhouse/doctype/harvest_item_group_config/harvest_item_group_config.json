@@ -1,0 +1,46 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "creation": "2026-08-10 14:53:59.895118",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "item_group",
+  "max_stems_per_bucket"
+ ],
+ "fields": [
+  {
+   "columns": 6,
+   "fieldname": "item_group",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Item Group",
+   "options": "Item Group",
+   "reqd": 1
+  },
+  {
+   "columns": 4,
+   "fieldname": "max_stems_per_bucket",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Max Stems Per Bucket"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-28 10:52:13.852839",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Harvest Item Group Config",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

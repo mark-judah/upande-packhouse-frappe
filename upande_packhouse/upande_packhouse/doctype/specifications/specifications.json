@@ -2,7 +2,7 @@
  "actions": [],
  "allow_rename": 1,
  "autoname": "field:spec_name",
- "creation": "2026-05-31 00:00:00",
+ "creation": "2026-08-27 17:28:22.179400",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
@@ -29,6 +29,8 @@
   "max_colours_per_box",
   "section_break_box_build",
   "box_items",
+  "approved_varieties_sec",
+  "approved_varieties",
   "section_break_consumables",
   "consumables"
  ],
@@ -158,12 +160,12 @@
    "options": "\nMono Box\nMixed Box"
   },
   {
+   "depends_on": "eval:doc.box_assortment==\"Mixed Box\"",
+   "description": "Maximum number of distinct colours allowed in a mixed box (validated on the Sales Order).",
    "fieldname": "max_colours_per_box",
    "fieldtype": "Int",
    "label": "Max Colours Per Box",
-   "depends_on": "eval:doc.box_assortment==\"Mixed Box\"",
-   "mandatory_depends_on": "eval:doc.box_assortment==\"Mixed Box\"",
-   "description": "Maximum number of distinct colours allowed in a mixed box (validated on the Sales Order)."
+   "mandatory_depends_on": "eval:doc.box_assortment==\"Mixed Box\""
   },
   {
    "fieldname": "section_break_box_build",
@@ -186,12 +188,24 @@
    "fieldtype": "Table",
    "label": "Consumables",
    "options": "Spec Consumable"
+  },
+  {
+   "fieldname": "approved_varieties_sec",
+   "fieldtype": "Section Break",
+   "label": "Approved Varieties"
+  },
+  {
+   "description": "Customer-allowed varieties per colour. The SO popup offers these against live shelf availability; a colour with no rows falls back to the box item's variety.",
+   "fieldname": "approved_varieties",
+   "fieldtype": "Table",
+   "label": "Approved Varieties (per colour)",
+   "options": "Spec Approved Variety"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-17 15:30:24.939317",
+ "modified": "2026-08-28 06:11:59.210325",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Specifications",

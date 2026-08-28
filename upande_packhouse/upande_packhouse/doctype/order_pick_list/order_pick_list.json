@@ -11,11 +11,15 @@
   "customer",
   "consignee",
   "farm",
+  "custom_business_unit",
   "column_break_fdik",
   "item_group",
   "date_created",
   "naming_series",
   "schedule_number",
+  "custom_total_stems",
+  "custom_allocated_pick_list",
+  "custom_qr_code",
   "consumables_requested",
   "allocation_details_section",
   "team",
@@ -26,7 +30,8 @@
   "order_details_section",
   "table_ytkc",
   "bouquet_packing_guide_section",
-  "table_nade"
+  "table_nade",
+  "amended_from"
  ],
  "fields": [
   {
@@ -140,13 +145,44 @@
    "fieldname": "schedule_number",
    "fieldtype": "Data",
    "label": "Schedule Number"
+  },
+  {
+   "fieldname": "custom_business_unit",
+   "fieldtype": "Link",
+   "label": "Business Unit",
+   "options": "Business Unit"
+  },
+  {
+   "fieldname": "custom_total_stems",
+   "fieldtype": "Data",
+   "label": "Total Stems"
+  },
+  {
+   "fieldname": "custom_allocated_pick_list",
+   "fieldtype": "Data",
+   "label": "Allocated Pick List"
+  },
+  {
+   "fieldname": "custom_qr_code",
+   "fieldtype": "Attach",
+   "label": "QR Code"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Order Pick List",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-07-17 13:32:34.255760",
+ "modified": "2026-08-28 06:11:58.305679",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Order Pick List",

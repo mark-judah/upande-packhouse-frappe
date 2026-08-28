@@ -27,25 +27,45 @@ def getVarietyTree():
             WHERE se.stock_entry_type = 'Harvesting' AND se.docstatus = 1 AND se.posting_date >= %(s)s
             GROUP BY sed.item_code""", {"s": start}, as_dict=True)}
 
+        # ── Item Group tree in TWO queries, not 1 + N ──
+        # Lines directly under the root, then every category under those lines in a
+        # single IN query (was one query per line).
         lines = frappe.get_all("Item Group", filters={"parent_item_group": root},
                                fields=["name"], order_by="name")
+        line_names = [ln.name for ln in lines if ln.name != "Cut Flowers - Legacy"]
+
+        cats_by_line = {}
+        if line_names:
+            for c in frappe.get_all("Item Group", filters={"parent_item_group": ["in", line_names]},
+                                    fields=["name", "parent_item_group"], order_by="name"):
+                cats_by_line.setdefault(c.parent_item_group, []).append(c.name)
+
+        # The category groups we pull items from: each line's sub-categories, or the
+        # line itself when it holds items directly. Track which line each belongs to.
+        group_line = {}
+        category_groups = []
+        for ln in line_names:
+            for cg in (cats_by_line.get(ln) or [ln]):
+                category_groups.append(cg)
+                group_line[cg] = ln
+
+        # ── ALL items for ALL those groups in ONE query (was one query per category) ──
+        items_by_group = {}
+        if category_groups:
+            for it in frappe.get_all(
+                    "Item", filters={"item_group": ["in", category_groups]},
+                    fields=["name", "item_name", "image", "custom_color", "stock_uom", "disabled", "item_group"],
+                    order_by="item_name"):
+                items_by_group.setdefault(it.item_group, []).append(it)
+
         out = []
-        for ln in lines:
-            if ln.name == "Cut Flowers - Legacy":      # skip the disabled legacy bucket
-                continue
-            cats = frappe.get_all("Item Group", filters={"parent_item_group": ln.name},
-                                  fields=["name"], order_by="name")
-            cat_list = cats or [{"name": ln.name}]     # a line that holds items directly
+        for ln in line_names:
             ocats = []
-            for cat in cat_list:
-                cname = cat["name"]
-                items = frappe.get_all(
-                    "Item", filters={"item_group": cname},
-                    fields=["name", "item_name", "image", "custom_color", "stock_uom", "disabled"],
-                    order_by="item_name")
+            for cname in (cats_by_line.get(ln) or [ln]):
+                items = items_by_group.get(cname)
                 if not items:
                     continue
-                disp = cname[len(ln.name) + 3:] if cname.startswith(ln.name + " - ") else cname
+                disp = cname[len(ln) + 3:] if cname.startswith(ln + " - ") else cname
                 ocats.append({
                     "name": disp, "group": cname,
                     "items": [{
@@ -61,7 +81,7 @@ def getVarietyTree():
                     } for it in items],
                 })
             if ocats:
-                out.append({"name": ln.name, "cats": ocats})
+                out.append({"name": ln, "cats": ocats})
 
         frappe.response["message"] = {"success": True, "root": root, "lines": out}
     except Exception as e:

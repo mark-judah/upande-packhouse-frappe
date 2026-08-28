@@ -12,6 +12,7 @@
   "column_break_tlmt",
   "stem_length",
   "sales_order_item",
+  "custom_sale_order_item",
   "source_warehouse",
   "allocation_details_section",
   "bucket",
@@ -29,10 +30,15 @@
   "transit_truck",
   "shelved",
   "issued",
+  "custom_ready_for_packing",
   "quantity_section",
   "packrate",
   "qty",
   "stock_qty",
+  "custom_box_id",
+  "custom_box_label",
+  "custom_consignee",
+  "custom_flower_food",
   "picked_qty",
   "stock_reserved_qty",
   "column_break_11",
@@ -267,11 +273,44 @@
    "fieldtype": "Link",
    "label": "Team",
    "options": "Packing Teams"
+  },
+  {
+   "fieldname": "custom_sale_order_item",
+   "fieldtype": "Data",
+   "label": "Sale Order Item"
+  },
+  {
+   "default": "0",
+   "fieldname": "custom_ready_for_packing",
+   "fieldtype": "Check",
+   "label": "Ready for Packing"
+  },
+  {
+   "fieldname": "custom_box_id",
+   "fieldtype": "Int",
+   "label": "Box ID"
+  },
+  {
+   "fieldname": "custom_box_label",
+   "fieldtype": "Data",
+   "label": "Box Label"
+  },
+  {
+   "fieldname": "custom_consignee",
+   "fieldtype": "Link",
+   "label": "Consignee",
+   "options": "Consignee"
+  },
+  {
+   "fieldname": "custom_flower_food",
+   "fieldtype": "Link",
+   "label": "Flower Food",
+   "options": "Item"
   }
  ],
  "istable": 1,
  "links": [],
- "modified": "2026-07-17 13:27:33.661085",
+ "modified": "2026-08-28 06:11:58.875767",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Pick List Item",
