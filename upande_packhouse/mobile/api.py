@@ -12,6 +12,39 @@ import json
 import math
 
 
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+def mobileLogin(usr=None, pwd=None):
+    """Mobile-friendly login that returns the session id in the JSON body.
+
+    The stock `/api/method/login` only delivers `sid` via the Set-Cookie header.
+    Mobile HTTP stacks (iOS NSURLSession in particular) absorb Set-Cookie into the
+    native cookie store and never expose it to JavaScript, so an app that manages
+    its own Cookie header can't read `sid` back — the symptom is
+    "login succeeded but no session cookie returned". Authenticating here and
+    returning `sid` in the body is deterministic across iOS/Android/web.
+    """
+    from frappe.auth import LoginManager
+
+    usr = usr or frappe.form_dict.get("usr")
+    pwd = pwd or frappe.form_dict.get("pwd")
+    if not usr or not pwd:
+        frappe.throw(_("Both usr and pwd are required."), frappe.AuthenticationError)
+
+    login_manager = frappe.local.login_manager = LoginManager()
+    login_manager.authenticate(user=usr, pwd=pwd)   # raises AuthenticationError on bad creds
+    login_manager.post_login()                       # creates the session (sets sid + cookie)
+
+    user = frappe.session.user
+    user_type = frappe.db.get_value("User", user, "user_type")
+    return {
+        "success": True,
+        "sid": frappe.session.sid,
+        "user_id": user,
+        "full_name": frappe.db.get_value("User", user, "full_name") or user,
+        "system_user": "yes" if user_type == "System User" else "no",
+    }
+
+
 @frappe.whitelist()
 def createBunchHandover():
     try:
@@ -2844,7 +2877,7 @@ def issueBucketToSaleOrderItem():
                             transfer.stock_entry_type = 'Issue From The Cold Store'
                             transfer.company = frappe.db.get_value('Warehouse', src_wh, 'company')
                             transfer.custom_business_unit = 'Roses'
-                            transfer.custom_farm = frappe.db.get_value('Stock Entry', stock_entry_name, 'custom_farm')
+                            transfer.farm = frappe.db.get_value('Stock Entry', stock_entry_name, 'farm')
                             transfer.custom_bucket_id = bucket_id
                             transfer.custom_issued_to = sale_order_item
                             transfer.custom_receiving_entry = stock_entry_name
@@ -3038,7 +3071,7 @@ def shelveBucket():
     enforced by counting DISTINCT buckets on the shelf (max 2), not rows.
 
     Schema notes vs v15: receiving/harvest entries key on `bucket_id`
-    (not custom_received_bucket_id); stem length falls back to the receiving entry's
+    (not custom_bucket_id); stem length falls back to the receiving entry's
     `custom_stem_length`; Shelf Item has no `custom_stem_length`; Bucket Reuse
     Anomaly does not exist here (guarded)."""
 
@@ -3136,7 +3169,7 @@ def shelveBucket():
             "message": "Bucket harvested on {0} but received on {1} ({2} days apart). Maximum allowed gap is 1 day.".format(harvest_date, recv_date, gap),
             "payload": {"bucket_id": bucket_id, "harvested_on": str(harvest_date), "received_on": str(recv_date), "gap_days": gap}}
         return
-    origin_farm = receiving_doc.get("custom_farm") or farm
+    origin_farm = receiving_doc.get("farm") or farm
     max_allowed_days = 50 if origin_farm and origin_farm.lower() == "kapkolia" else 40
     days_since = (today_date - recv_date).days
     if days_since > max_allowed_days:
@@ -3243,3 +3276,298 @@ def _shelve_check_submit_opl(bucket_id, result):
                 opl.flags.ignore_permissions = True; opl.submit(); result["opl_submitted"].append(row.parent)
     except Exception:
         frappe.log_error("OPL Auto-Submit Check Failed", frappe.get_traceback())
+
+
+# ============================================================
+# BUCKET DISPATCH — empty buckets sent from the packhouse/coldroom to a farm
+# ahead of harvest, scanned onto a truck, then scanned again as "received" at
+# the farm on arrival. The desktop reconciliation dashboard compares, per farm
+# per day: how many were dispatched, how many were actually used in that
+# farm's Harvesting Stock Entries, and how many were confirmed received at the
+# farm — the gaps are the operational signal (buckets lost/short in transit,
+# or sent but not used).
+# ============================================================
+@frappe.whitelist()
+def getInternalLogisticsTrucks():
+    # Vehicles used for internal farm/packhouse logistics — same fleet the
+    # existing Bucket Requests "Load to truck" picker uses (Vehicle whose
+    # "Dispatch Truck?" flag is UNCHECKED; that flag marks the CUSTOMER
+    # delivery fleet, so unchecked == internal logistics).
+    try:
+        rows = frappe.get_all(
+            "Vehicle",
+            filters={"custom_dispatch_truck": 0},
+            fields=["name", "license_plate"],
+            order_by="name asc",
+            limit_page_length=0,
+        )
+        frappe.response["message"] = {
+            "status": "success",
+            "trucks": [{"name": r.name, "license_plate": r.license_plate or ""} for r in rows],
+        }
+    except Exception as e:
+        frappe.log_error("getInternalLogisticsTrucks failed", frappe.get_traceback())
+        frappe.response["message"] = {"status": "error", "message": str(e), "trucks": []}
+
+
+@frappe.whitelist(methods=["POST"])
+def createBucketDispatch():
+    # Scan a batch of empty buckets onto a truck bound for a farm. One call at
+    # the end of the scan (mirrors createHarvestStockEntry/submitBatchQuality)
+    # rather than one round-trip per scan.
+    try:
+        payload = frappe.request.get_json() or frappe.form_dict
+        target_farm = payload.get("target_farm")
+        vehicle = payload.get("vehicle")
+        bucket_ids = payload.get("bucket_ids") or []
+        remarks = payload.get("remarks") or ""
+
+        if isinstance(bucket_ids, str):
+            bucket_ids = json.loads(bucket_ids) if bucket_ids else []
+
+        if not target_farm:
+            frappe.response["status"] = "error"
+            frappe.response["http_status_code"] = 400
+            frappe.response["message"] = {"status": "error", "message": _("Target farm is required")}
+            return
+        if not vehicle:
+            frappe.response["status"] = "error"
+            frappe.response["http_status_code"] = 400
+            frappe.response["message"] = {"status": "error", "message": _("Vehicle is required")}
+            return
+        if not bucket_ids:
+            frappe.response["status"] = "error"
+            frappe.response["http_status_code"] = 400
+            frappe.response["message"] = {"status": "error", "message": _("Scan at least one bucket")}
+            return
+        if not frappe.db.exists("Farm", target_farm):
+            frappe.response["status"] = "error"
+            frappe.response["http_status_code"] = 400
+            frappe.response["message"] = {"status": "error", "message": _("Unknown farm: {0}").format(target_farm)}
+            return
+        if not frappe.db.exists("Vehicle", vehicle):
+            frappe.response["status"] = "error"
+            frappe.response["http_status_code"] = 400
+            frappe.response["message"] = {"status": "error", "message": _("Unknown vehicle: {0}").format(vehicle)}
+            return
+
+        # Soft check only — some fleets may not have the flag maintained, so this
+        # warns via the response rather than blocking the dispatch outright.
+        is_internal = frappe.db.get_value("Vehicle", vehicle, "custom_dispatch_truck")
+        warning = ""
+        if is_internal:
+            warning = _("{0} is flagged as a customer-delivery truck, not internal logistics.").format(vehicle)
+
+        now = frappe.utils.now()
+        seen = set()
+        rows = []
+        for b in bucket_ids:
+            bid = str(b).strip()
+            if not bid or bid in seen:
+                continue
+            seen.add(bid)
+            rows.append({"bucket_id": bid, "scanned_time": now})
+
+        doc = frappe.get_doc({
+            "doctype": "Bucket Dispatch",
+            "target_farm": target_farm,
+            "vehicle": vehicle,
+            "dispatched_by": frappe.session.user,
+            "dispatch_datetime": now,
+            "remarks": remarks,
+            "buckets": rows,
+        })
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        frappe.response["message"] = {
+            "status": "success",
+            "message": _("{0} buckets dispatched to {1}").format(len(rows), target_farm),
+            "name": doc.name,
+            "total_dispatched": doc.total_dispatched,
+            "warning": warning,
+        }
+    except Exception as e:
+        frappe.db.rollback()
+        frappe.log_error("createBucketDispatch failed", frappe.get_traceback())
+        frappe.response["status"] = "error"
+        frappe.response["http_status_code"] = 500
+        frappe.response["message"] = {"status": "error", "message": str(e)}
+
+
+@frappe.whitelist()
+def getPendingBucketDispatchesForFarm():
+    # For the farm-side receiving screen: dispatches targeting this farm that
+    # aren't fully received yet, each with its still-outstanding buckets.
+    try:
+        farm = frappe.form_dict.get("farm")
+        if not farm:
+            frappe.response["message"] = {"status": "error", "message": _("Farm is required"), "dispatches": []}
+            return
+
+        names = frappe.get_all(
+            "Bucket Dispatch",
+            filters={"target_farm": farm, "status": ["!=", "Fully Received"]},
+            fields=["name"],
+            order_by="dispatch_datetime desc",
+            limit_page_length=0,
+        )
+
+        dispatches = []
+        for row in names:
+            doc = frappe.get_doc("Bucket Dispatch", row.name)
+            dispatches.append({
+                "name": doc.name,
+                "target_farm": doc.target_farm,
+                "vehicle": doc.vehicle,
+                "dispatch_datetime": str(doc.dispatch_datetime or ""),
+                "status": doc.status,
+                "total_dispatched": doc.total_dispatched,
+                "total_received": doc.total_received,
+                "buckets": [
+                    {"bucket_id": b.bucket_id, "received": int(b.received or 0)}
+                    for b in doc.buckets
+                ],
+            })
+
+        frappe.response["message"] = {"status": "success", "dispatches": dispatches}
+    except Exception as e:
+        frappe.log_error("getPendingBucketDispatchesForFarm failed", frappe.get_traceback())
+        frappe.response["message"] = {"status": "error", "message": str(e), "dispatches": []}
+
+
+@frappe.whitelist(methods=["POST"])
+def receiveBucketDispatch():
+    # A farm operator scans buckets in as they come off the truck. bucket_ids
+    # not resolvable to any pending dispatch for this farm are reported back
+    # as "unmatched" rather than silently ignored — that mismatch is exactly
+    # the kind of thing the reconciliation dashboard needs surfaced early.
+    try:
+        payload = frappe.request.get_json() or frappe.form_dict
+        farm = payload.get("farm")
+        bucket_ids = payload.get("bucket_ids") or []
+        dispatch_name = payload.get("dispatch_name")
+
+        if isinstance(bucket_ids, str):
+            bucket_ids = json.loads(bucket_ids) if bucket_ids else []
+
+        if not farm:
+            frappe.response["status"] = "error"
+            frappe.response["http_status_code"] = 400
+            frappe.response["message"] = {"status": "error", "message": _("Farm is required")}
+            return
+        if not bucket_ids:
+            frappe.response["status"] = "error"
+            frappe.response["http_status_code"] = 400
+            frappe.response["message"] = {"status": "error", "message": _("Scan at least one bucket")}
+            return
+
+        filters = {"target_farm": farm, "status": ["!=", "Fully Received"]}
+        if dispatch_name:
+            filters = {"name": dispatch_name}
+
+        open_names = frappe.get_all("Bucket Dispatch", filters=filters, fields=["name"], order_by="dispatch_datetime asc")
+
+        remaining = set(str(b).strip() for b in bucket_ids if str(b).strip())
+        received_now = []
+        now = frappe.utils.now()
+
+        for row in open_names:
+            if not remaining:
+                break
+            doc = frappe.get_doc("Bucket Dispatch", row.name)
+            changed = False
+            for b in doc.buckets:
+                if b.bucket_id in remaining and not b.received:
+                    b.received = 1
+                    b.received_time = now
+                    b.received_by = frappe.session.user
+                    remaining.discard(b.bucket_id)
+                    received_now.append({"bucket_id": b.bucket_id, "dispatch": doc.name})
+                    changed = True
+            if changed:
+                doc.save(ignore_permissions=True)
+
+        frappe.db.commit()
+
+        frappe.response["message"] = {
+            "status": "success",
+            "message": _("{0} bucket(s) received").format(len(received_now)),
+            "received": received_now,
+            "unmatched": sorted(remaining),
+        }
+    except Exception as e:
+        frappe.db.rollback()
+        frappe.log_error("receiveBucketDispatch failed", frappe.get_traceback())
+        frappe.response["status"] = "error"
+        frappe.response["http_status_code"] = 500
+        frappe.response["message"] = {"status": "error", "message": str(e)}
+
+
+@frappe.whitelist()
+def getBucketReconciliation():
+    # Dashboard feed: per farm, for one day — dispatched (empty buckets sent
+    # out), harvested (distinct buckets used on that farm's submitted
+    # Harvesting Stock Entries), received (buckets scanned back in at the
+    # farm). All three are independent counts; the gaps between them are the
+    # point of the report, not an error condition.
+    try:
+        date = frappe.form_dict.get("date") or frappe.utils.today()
+        farm = frappe.form_dict.get("farm")
+
+        farms = [farm] if farm else [f.name for f in frappe.get_all("Farm", fields=["name"])]
+        if not farms:
+            frappe.response["message"] = {"status": "success", "date": str(date), "farms": []}
+            return
+
+        farm_ph = ", ".join(["%s"] * len(farms))
+
+        dispatched_rows = frappe.db.sql(f"""
+            SELECT bd.target_farm AS farm, COUNT(bdi.name) AS cnt
+            FROM `tabBucket Dispatch` bd
+            INNER JOIN `tabBucket Dispatch Item` bdi ON bdi.parent = bd.name
+            WHERE bd.target_farm IN ({farm_ph}) AND DATE(bd.dispatch_datetime) = %s
+            GROUP BY bd.target_farm
+        """, farms + [date], as_dict=True)
+        dispatched_map = {r.farm: r.cnt for r in dispatched_rows}
+
+        received_rows = frappe.db.sql(f"""
+            SELECT bd.target_farm AS farm, COUNT(bdi.name) AS cnt
+            FROM `tabBucket Dispatch` bd
+            INNER JOIN `tabBucket Dispatch Item` bdi ON bdi.parent = bd.name
+            WHERE bd.target_farm IN ({farm_ph}) AND bdi.received = 1
+              AND DATE(bdi.received_time) = %s
+            GROUP BY bd.target_farm
+        """, farms + [date], as_dict=True)
+        received_map = {r.farm: r.cnt for r in received_rows}
+
+        harvested_rows = frappe.db.sql(f"""
+            SELECT farm, COUNT(DISTINCT custom_bucket_id) AS cnt
+            FROM `tabStock Entry`
+            WHERE stock_entry_type = 'Harvesting' AND docstatus = 1
+              AND farm IN ({farm_ph}) AND posting_date = %s
+              AND COALESCE(custom_bucket_id, '') != ''
+            GROUP BY farm
+        """, farms + [date], as_dict=True)
+        harvested_map = {r.farm: r.cnt for r in harvested_rows}
+
+        out = []
+        for f in sorted(farms):
+            dispatched = dispatched_map.get(f, 0)
+            harvested = harvested_map.get(f, 0)
+            received = received_map.get(f, 0)
+            if not (dispatched or harvested or received):
+                continue
+            out.append({
+                "farm": f,
+                "dispatched": dispatched,
+                "harvested": harvested,
+                "received": received,
+                "balance_dispatched_vs_received": dispatched - received,
+                "balance_dispatched_vs_harvested": dispatched - harvested,
+            })
+
+        frappe.response["message"] = {"status": "success", "date": str(date), "farms": out}
+    except Exception as e:
+        frappe.log_error("getBucketReconciliation failed", frappe.get_traceback())
+        frappe.response["message"] = {"status": "error", "message": str(e), "farms": []}

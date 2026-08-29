@@ -22,7 +22,7 @@ def fetchColdroomData():
 
         se_farm_where = ""
         if farm_filter:
-            se_farm_where = "AND se.custom_farm = %(farm_filter)s"
+            se_farm_where = "AND se.farm = %(farm_filter)s"
 
         opl_farm_where = ""
         if farm_filter:
@@ -56,12 +56,12 @@ def fetchColdroomData():
             SELECT
                 sed.item_code AS item_code,
                 se.custom_stem_length AS stem_length,
-                se.custom_farm AS farm_name,
+                se.farm AS farm_name,
                 SUM(sed.qty) AS available_stems,
                 COUNT(DISTINCT se.custom_bucket_id) AS bucket_count
             FROM `tabStock Entry` se
             INNER JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
-            INNER JOIN `tabFarm` f ON se.custom_farm = f.name
+            INNER JOIN `tabFarm` f ON se.farm = f.name
             WHERE se.docstatus = 1
                 AND se.stock_entry_type = 'Harvesting'
                 AND se.posting_date >= DATE_SUB(CURDATE(), INTERVAL 3 DAY)
@@ -82,8 +82,8 @@ def fetchColdroomData():
                     SELECT 1 FROM `tabPick List Item` pli
                     WHERE pli.bucket = se.custom_bucket_id AND pli.issued = 1
                 )
-            GROUP BY sed.item_code, se.custom_stem_length, se.custom_farm
-            ORDER BY sed.item_code, se.custom_stem_length, se.custom_farm
+            GROUP BY sed.item_code, se.custom_stem_length, se.farm
+            ORDER BY sed.item_code, se.custom_stem_length, se.farm
         """, query_params, as_dict=True)
 
         total_not_shelved_stems = 0
@@ -183,7 +183,7 @@ def fetchColdroomData():
         received_today = frappe.db.sql("""
             SELECT
                 se.custom_bucket_id AS bucket_id,
-                se.custom_farm AS farm_name,
+                se.farm AS farm_name,
                 SUM(sed.qty) AS stems
             FROM `tabStock Entry` se
             INNER JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
@@ -194,7 +194,7 @@ def fetchColdroomData():
                 AND se.custom_bucket_id IS NOT NULL
                 AND se.custom_bucket_id != ''
                 """ + se_farm_where + """
-            GROUP BY se.custom_bucket_id, se.custom_farm
+            GROUP BY se.custom_bucket_id, se.farm
         """, query_params, as_dict=True)
 
         incoming_stems_map = {}
@@ -364,7 +364,7 @@ def getColdroomBuckets():
     farm = frappe.form_dict.get('farm', '')
     try:
         fw_shelf = " AND s.farm = %(farm)s" if farm else ""
-        fw_se = " AND se.custom_farm = %(farm)s" if farm else ""
+        fw_se = " AND se.farm = %(farm)s" if farm else ""
         fw_opl = " AND opl.farm = %(farm)s" if farm else ""
         fw_dr = " AND dr.farm = %(farm)s" if farm else ""
         p = {'farm': farm} if farm else {}
@@ -433,7 +433,7 @@ def getColdroomBuckets():
 
         # Received today, not on any shelf (per farm)
         recv = frappe.db.sql("""
-            SELECT se.custom_bucket_id AS bucket_id, se.custom_farm AS farm,
+            SELECT se.custom_bucket_id AS bucket_id, se.farm AS farm,
                    sed.item_code AS variety, se.custom_stem_length AS stem_length,
                    SUM(sed.qty) AS stems
             FROM `tabStock Entry` se
@@ -441,7 +441,7 @@ def getColdroomBuckets():
             WHERE se.docstatus = 1 AND se.stock_entry_type = 'Receiving' AND se.posting_date = CURDATE()
               AND se.company = 'Karen Roses'
               AND se.custom_bucket_id IS NOT NULL AND se.custom_bucket_id != ''""" + fw_se + """
-            GROUP BY se.custom_bucket_id, se.custom_farm, sed.item_code, se.custom_stem_length
+            GROUP BY se.custom_bucket_id, se.farm, sed.item_code, se.custom_stem_length
         """, p, as_dict=True)
         recv_out = []
         for r in recv:

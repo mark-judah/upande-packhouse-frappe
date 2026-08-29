@@ -101,7 +101,7 @@ def getStockVisibilityData():
                 sed.item_code AS variety,
                 i.item_group,
                 se.custom_stem_length AS length,
-                se.custom_farm AS farm,
+                se.farm AS farm,
                 SUM(sed.qty) AS stems,
                 COUNT(DISTINCT se.custom_bucket_id) AS buckets
             FROM `tabStock Entry` se
@@ -118,8 +118,8 @@ def getStockVisibilityData():
                         AND d.custom_bucket_id = se.custom_bucket_id AND d.posting_date >= se.posting_date)
                 AND NOT EXISTS (SELECT 1 FROM `tabPick List Item` pli
                     WHERE pli.bucket = se.custom_bucket_id AND pli.issued = 1)
-            GROUP BY sed.item_code, i.item_group, se.custom_stem_length, se.custom_farm
-            ORDER BY sed.item_code, se.custom_stem_length, se.custom_farm
+            GROUP BY sed.item_code, i.item_group, se.custom_stem_length, se.farm
+            ORDER BY sed.item_code, se.custom_stem_length, se.farm
         """, as_dict=True)
 
         # ── Orders for the delivery date. customer / delivery_point / farm carried

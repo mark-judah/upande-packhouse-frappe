@@ -357,7 +357,8 @@ def get_sales_order_items_with_buckets(sales_order, location=None, selected_farm
             soi.custom_mix_group,
             soi.custom_mix_name,
             soi.custom_mixed_bunch,
-            soi.custom_bunch_group
+            soi.custom_bunch_group,
+            soi.custom_line AS specification
         FROM `tabSales Order Item` soi
         WHERE soi.parent = %s
         ORDER BY soi.idx
@@ -365,6 +366,18 @@ def get_sales_order_items_with_buckets(sales_order, location=None, selected_farm
 
     if not items:
         return []
+
+    # A line populated from a Specification (custom_line) is locked to that
+    # spec's cut stage — buckets are matched against it automatically instead
+    # of the user picking a range by hand.
+    spec_names = list({i["specification"] for i in items if i.get("specification")})
+    spec_cut_stage_map = {}
+    if spec_names:
+        sp_placeholders = ", ".join(["%s"] * len(spec_names))
+        spec_rows = frappe.db.sql(f"""
+            SELECT name, cut_stage FROM `tabSpecifications` WHERE name IN ({sp_placeholders})
+        """, spec_names, as_dict=True)
+        spec_cut_stage_map = {r["name"]: r["cut_stage"] for r in spec_rows if r["cut_stage"]}
 
     all_confirmed = _get_all_confirmed_stems(sales_order)
 
@@ -520,6 +533,7 @@ def get_sales_order_items_with_buckets(sales_order, location=None, selected_farm
         meta = metadata_map.get(item["item_code"], {})
         item["headsize"] = meta.get("headsize", "")
         item["color"] = meta.get("color", "")
+        item["spec_cut_stage"] = spec_cut_stage_map.get(item.get("specification"))
 
         item_buckets = buckets_by_item.get(item["item_code"], [])
         req_cm = _parse_cm(item["required_length"])
@@ -528,6 +542,11 @@ def get_sales_order_items_with_buckets(sales_order, location=None, selected_farm
         downgrade = []
 
         for b in item_buckets:
+            # Spec-driven lines only ever see buckets at the spec's own cut
+            # stage — no manual range filter needed or offered for these.
+            if item["spec_cut_stage"] and str(b.get("cut_stage", "")).strip() != item["spec_cut_stage"].strip():
+                continue
+
             b_cm = _parse_cm(b["stem_length"])
             is_sales_shelf = farm_config.get(b["shelf_farm"], {}).get("sales_shelf", 0)
 
@@ -597,6 +616,204 @@ def get_sales_order_items_with_buckets(sales_order, location=None, selected_farm
 
     return items
 
+
+# ============================================================
+# BUCKET VISIBILITY DIAGNOSTICS
+# "No compatible buckets found" is a dead end for the user — buckets can be
+# physically on a coldstore shelf and still be invisible to allocation for any
+# of: pending discard, in transit, too old (discard age or the farm's own
+# max-allocation-age), too short to downgrade, a cut-stage filter, or sitting on
+# a farm the current location isn't showing. This endpoint runs the SAME
+# eligibility rules as get_sales_order_items_with_buckets but keeps every
+# bucket instead of silently dropping the ineligible ones, tagging each with
+# why it's (or isn't) showing.
+# ============================================================
+@frappe.whitelist()
+def get_bucket_visibility_diagnostics(sales_order_item, location=None, selected_farms=None,
+                                       filter_cut_stage=None):
+    if not sales_order_item:
+        frappe.throw(_("Sales Order Item is required"))
+
+    if isinstance(selected_farms, str):
+        selected_farms = json.loads(selected_farms) if selected_farms else []
+    selected_farms = selected_farms or []
+
+    cut_stage_list = []
+    if filter_cut_stage:
+        if isinstance(filter_cut_stage, str):
+            cut_stage_list = [s.strip() for s in filter_cut_stage.split(',') if s.strip()]
+        elif isinstance(filter_cut_stage, list):
+            cut_stage_list = filter_cut_stage
+
+    soi = frappe.db.get_value(
+        "Sales Order Item", sales_order_item,
+        ["item_code", "custom_length", "custom_line"], as_dict=True
+    )
+    if not soi:
+        frappe.throw(_("Sales Order Item not found: {0}").format(sales_order_item))
+
+    item_code = soi.item_code
+    required_length = soi.custom_length
+    req_cm = _parse_cm(required_length)
+
+    # A spec-driven line is locked to that spec's own cut stage — it overrides
+    # any manually-passed filter, matching get_sales_order_items_with_buckets.
+    spec_cut_stage = None
+    if soi.custom_line:
+        spec_cut_stage = frappe.db.get_value("Specifications", soi.custom_line, "cut_stage")
+        if spec_cut_stage:
+            cut_stage_list = [spec_cut_stage]
+
+    config = _get_production_config()
+    discard_age = config["discard_age"]
+    amber_time = config["amber_time"]
+    farm_config = config["farm_config"]
+    farms_by_location = config["farms_by_location"]
+
+    # Every farm belonging to this location (sales-shelf AND remote) — the full
+    # universe a bucket could plausibly be on and still be "for this order".
+    location_farms = farms_by_location.get(location, []) if location else []
+    if selected_farms:
+        active_farms = [f for f in selected_farms if f in location_farms]
+    else:
+        active_farms = [f for f in location_farms if farm_config.get(f, {}).get("sales_shelf")]
+    if not active_farms:
+        active_farms = location_farms
+
+    if not location_farms:
+        # No location context to scope the scan to — fall back to whatever farms
+        # have ever held this variety, so the diagnostic still says something.
+        location_farms = [r["farm"] for r in frappe.db.sql(
+            "SELECT DISTINCT s.farm AS farm FROM `tabShelf` s "
+            "INNER JOIN `tabShelf Item` si ON si.parent = s.name WHERE si.variety = %s",
+            [item_code], as_dict=True
+        )]
+
+    if not location_farms:
+        return {
+            "success": True, "item_code": item_code, "required_length": required_length,
+            "spec_cut_stage": spec_cut_stage, "total_buckets": 0, "reasons": [],
+        }
+
+    farm_ph = ", ".join(["%s"] * len(location_farms))
+
+    rows = frappe.db.sql(f"""
+        SELECT
+            si.bucket_id,
+            si.stem_length,
+            COALESCE(si.stem_qty, 0) AS stems,
+            s.farm AS shelf_farm,
+            s.name AS shelf_location,
+            DATEDIFF(CURDATE(), COALESCE(si.harvest_date, si.date_added)) AS age_days,
+            COALESCE(si.cut_stage, '') AS cut_stage,
+            COALESCE(bas.allocated_quantity, 0) AS allocated_qty,
+            COALESCE(bas.in_transit, 0) AS in_transit,
+            (
+                SELECT dr.name FROM `tabDiscard Request Bucket` drb
+                INNER JOIN `tabDiscard Request` dr ON dr.name = drb.parent
+                WHERE drb.bucket_id = si.bucket_id
+                  AND COALESCE(dr.workflow_state, '') != 'Rejected'
+                ORDER BY dr.creation DESC LIMIT 1
+            ) AS discard_request
+        FROM `tabShelf Item` si
+        INNER JOIN `tabShelf` s ON s.name = si.parent
+        LEFT JOIN `tabBucket Allocation Status` bas
+            ON bas.bucket_id = si.bucket_id AND bas.item_code = si.variety
+        WHERE si.variety = %s
+          AND s.farm IN ({farm_ph})
+          AND COALESCE(si.stem_qty, 0) > 0
+    """, [item_code] + location_farms, as_dict=True)
+
+    # Priority order: the most actionable / most likely cause wins when a bucket
+    # has more than one issue, so the summary doesn't double-count buckets.
+    REASON_META = [
+        ("pending_discard", "Pending discard request"),
+        ("in_transit", "In transit (not yet on the sales shelf)"),
+        ("remote_farm", "On a farm not currently selected"),
+        ("past_discard_age", "Past the discard-age threshold"),
+        ("past_max_age", "Past this farm's allocation-age limit"),
+        ("too_short", "Shorter than the order needs"),
+        ("wrong_cut_stage", "Doesn't match the active cut-stage filter"),
+        ("fully_allocated", "Already fully allocated (shown, greyed out)"),
+        ("eligible", "Available to allocate"),
+    ]
+    buckets_by_reason = {code: [] for code, _l in REASON_META}
+
+    for b in rows:
+        b_cm = _parse_cm(b["stem_length"])
+        is_sales_shelf = farm_config.get(b["shelf_farm"], {}).get("sales_shelf", 0)
+        farm_max_age = farm_config.get(b["shelf_farm"], {}).get("max_allocation_age", 5)
+        available_qty = (b["stems"] or 0) - (b["allocated_qty"] or 0)
+        age_days = b["age_days"] or 0
+
+        reason = None
+        detail = None
+        if b["discard_request"]:
+            reason = "pending_discard"
+            detail = _("On discard request {0} — not available until it's resolved").format(b["discard_request"])
+        elif b["in_transit"]:
+            reason = "in_transit"
+            detail = _("Still in transit to the {0} sales shelf").format(b["shelf_farm"] or "")
+        elif not is_sales_shelf and b["shelf_farm"] not in active_farms:
+            reason = "remote_farm"
+            detail = _("On {0}, which isn't one of the farms currently selected").format(b["shelf_farm"] or "?")
+        elif age_days >= discard_age:
+            reason = "past_discard_age"
+            detail = _("{0} days old — past the {1}-day discard-age limit").format(age_days, discard_age)
+        elif age_days > farm_max_age:
+            reason = "past_max_age"
+            detail = _("{0} days old — past {1}'s {2}-day allocation-age limit").format(age_days, b["shelf_farm"] or "this farm", farm_max_age)
+        elif b_cm <= 0 or b_cm < req_cm:
+            reason = "too_short"
+            detail = _("{0} stem — the order needs {1}").format(b["stem_length"] or "?", required_length or "?")
+        elif cut_stage_list and str(b["cut_stage"] or "").strip() not in cut_stage_list:
+            reason = "wrong_cut_stage"
+            if spec_cut_stage:
+                detail = _("Cut stage {0} — the order spec requires {1}").format(b["cut_stage"] or "-", spec_cut_stage)
+            else:
+                detail = _("Cut stage {0} isn't in the active cut-stage filter").format(b["cut_stage"] or "-")
+        elif available_qty <= 0:
+            reason = "fully_allocated"
+            detail = _("All {0} stems on this bucket are already allocated").format(b["stems"] or 0)
+        else:
+            reason = "eligible"
+            detail = _("Available to allocate")
+
+        buckets_by_reason[reason].append({
+            "bucket_id": b["bucket_id"],
+            "stem_length": b["stem_length"],
+            "stems": b["stems"],
+            "available_qty": max(0, available_qty),
+            "farm": b["shelf_farm"],
+            "shelf": b["shelf_location"],
+            "age_days": b["age_days"],
+            "cut_stage": b["cut_stage"],
+            "discard_request": b["discard_request"],
+            "detail": detail,
+        })
+
+    reasons = []
+    for code, label in REASON_META:
+        bucket_list = buckets_by_reason[code]
+        if not bucket_list:
+            continue
+        reasons.append({
+            "code": code, "label": label,
+            "count": len(bucket_list),
+            "stems": sum(x["stems"] or 0 for x in bucket_list),
+            "buckets": bucket_list,
+        })
+
+    return {
+        "success": True,
+        "item_code": item_code,
+        "required_length": required_length,
+        "spec_cut_stage": spec_cut_stage,
+        "total_buckets": len(rows),
+        "reasons": reasons,
+    }
+
+
 def _parse_cm(length_str):
     """Parse stem length string like '60cm' -> 60. Returns 0 on failure."""
     if not length_str:
@@ -637,7 +854,7 @@ def _attach_incoming_stems(items, location, active_farms):
         INNER JOIN `tabStock Entry Detail` sei ON se.name = sei.parent
         WHERE se.stock_entry_type IN ('Receiving', 'Late Receipt')
           AND se.docstatus = 1
-          AND se.custom_farm IN ({farm_ph})
+          AND se.farm IN ({farm_ph})
           AND se.posting_date >= DATE_SUB(CURDATE(), INTERVAL 5 DAY)
           AND sei.item_code IN ({ic_placeholders})
           AND se.custom_stem_length IN ({ln_placeholders})

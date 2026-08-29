@@ -1,0 +1,149 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:BD-{#####}",
+ "creation": "2026-08-29 09:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "target_farm",
+  "vehicle",
+  "col_break_1",
+  "dispatched_by",
+  "dispatch_datetime",
+  "col_break_2",
+  "status",
+  "section_totals",
+  "total_dispatched",
+  "col_break_3",
+  "total_received",
+  "section_buckets",
+  "buckets",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "fieldname": "target_farm",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Target Farm",
+   "options": "Farm",
+   "reqd": 1
+  },
+  {
+   "description": "Restricted to internal-logistics trucks (Vehicle.custom_dispatch_truck unchecked) — the same fleet used for farm/packhouse bucket transfers elsewhere in this app.",
+   "fieldname": "vehicle",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Vehicle",
+   "options": "Vehicle",
+   "reqd": 1
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "dispatched_by",
+   "fieldtype": "Link",
+   "label": "Dispatched By",
+   "options": "User"
+  },
+  {
+   "fieldname": "dispatch_datetime",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Dispatch Time"
+  },
+  {
+   "fieldname": "col_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Dispatched",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Dispatched\nPartially Received\nFully Received",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_totals",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "fieldname": "total_dispatched",
+   "fieldtype": "Int",
+   "label": "Total Dispatched",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_received",
+   "fieldtype": "Int",
+   "label": "Total Received",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_buckets",
+   "fieldtype": "Section Break",
+   "label": "Buckets"
+  },
+  {
+   "fieldname": "buckets",
+   "fieldtype": "Table",
+   "label": "Buckets",
+   "options": "Bucket Dispatch Item"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-29 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Bucket Dispatch",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "All",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

@@ -25,16 +25,32 @@ ITEM_FIELDS = [
 
 
 def sync_accounting_dimensions(doc, method=None):
-	"""Copy the packhouse custom_farm / custom_business_unit onto the native
-	Farm / Business Unit accounting-dimension fields so they post to GL and
-	reports, while the packhouse scripts keep using the custom_* fields.
+	"""Keep the native Farm / Business Unit accounting-dimension fields and the
+	legacy packhouse custom_farm / custom_business_unit fields in lockstep.
+
+	`farm` / `business_unit` (the accounting dimensions) are now the source of
+	truth — harvesting and grading set them directly. This hook mirrors each
+	pair in whichever direction has a value, so:
+	  * new records that set only `farm` still populate `custom_farm`, keeping
+	    the many dashboards that still read custom_farm working during the
+	    migration, and
+	  * older records / integrations that set only `custom_farm` still populate
+	    the accounting dimension for GL + reports.
+	The accounting-dimension value wins if both are set.
 	"""
-	bu = doc.get("custom_business_unit")
-	if bu and doc.meta.get_field("business_unit"):
-		doc.business_unit = bu
-	farm = doc.get("custom_farm")
-	if farm and doc.meta.get_field("farm"):
-		doc.farm = farm
+	def mirror(dim_field, legacy_field):
+		if not (doc.meta.get_field(dim_field) and doc.meta.get_field(legacy_field)):
+			return
+		dim_val = doc.get(dim_field)
+		legacy_val = doc.get(legacy_field)
+		if dim_val:
+			if legacy_val != dim_val:
+				doc.set(legacy_field, dim_val)
+		elif legacy_val:
+			doc.set(dim_field, legacy_val)
+
+	mirror("farm", "custom_farm")
+	mirror("business_unit", "custom_business_unit")
 
 
 def delivery_note_on_submit(doc, method=None):

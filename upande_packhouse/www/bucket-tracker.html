@@ -1095,9 +1095,9 @@ async function trackBucket() {
                  'custom_harvest_batch_no','to_warehouse','custom_scanned','docstatus'],
                 2000,'posting_date asc, posting_time asc'),
             flP('Stock Entry',
-                [['custom_received_bucket_id','=',id],['stock_entry_type','in',['Receiving','Late Receipt']]],
+                [['custom_bucket_id','=',id],['stock_entry_type','in',['Receiving','Late Receipt']]],
                 ['name','posting_date','posting_time','custom_farm','custom_greenhouse',
-                 'custom_stem_length','custom_harvest_batch_no','custom_received_bucket_id',
+                 'custom_stem_length','custom_harvest_batch_no','custom_bucket_id',
                  'to_warehouse','from_warehouse','stock_entry_type','custom_scanned','docstatus'],
                 2000,'posting_date asc, posting_time asc'),
             // Shelving Log = the persistent shelf/transfer/issue/discard history (Shelf Item is cleared on issue)
@@ -1111,16 +1111,16 @@ async function trackBucket() {
                  'allocated_quantity','available_quantity'],1),
             flP('Order Pick List',[['Pick List Item','custom_bucket','=',id]],['name'],100),
             flP('Stock Entry',
-                [['custom_received_bucket_id','in',idVariants],['stock_entry_type','=','Discard'],['docstatus','=',1]],
+                [['custom_bucket_id','in',idVariants],['stock_entry_type','=','Discard'],['docstatus','=',1]],
                 ['name','posting_date','posting_time','custom_farm'],200,'posting_date asc, posting_time asc'),
             // QC rejects: Field Rejects (grading) + Packhouse Rejects (packhouse QC), keyed by received bucket id
             flP('Stock Entry',
-                [['custom_received_bucket_id','in',idVariants],['stock_entry_type','in',['Field Rejects','Packhouse Rejects']],['docstatus','=',1]],
+                [['custom_bucket_id','in',idVariants],['stock_entry_type','in',['Field Rejects','Packhouse Rejects']],['docstatus','=',1]],
                 ['name','posting_date','posting_time','custom_farm','stock_entry_type'],200,'posting_date asc, posting_time asc'),
             // Quarantine: 'Receiving Quarantined' = into quarantine; 'Quarantine Rejects'/'Remove From
             // Quarantine' = out; 'Material Transfer' = the accept-release (only counts if quarantined).
             flP('Stock Entry',
-                [['custom_received_bucket_id','in',idVariants],['stock_entry_type','in',['Receiving Quarantined','Quarantine Rejects','Remove From Quarantine','Material Transfer']],['docstatus','=',1]],
+                [['custom_bucket_id','in',idVariants],['stock_entry_type','in',['Receiving Quarantined','Quarantine Rejects','Remove From Quarantine','Material Transfer']],['docstatus','=',1]],
                 ['name','posting_date','posting_time','custom_farm','stock_entry_type'],200,'posting_date asc, posting_time asc'),
         ]);
 
@@ -1544,7 +1544,7 @@ function renderJourney(j) {
 
     if (harvestSEs.length) { const h=harvestSEs[0]; html+=secLbl('Harvest')+`<div class="detail-grid">${dc('Farm',h.custom_farm)}${dc('Greenhouse',(h.custom_greenhouse||'').split(' - ')[0])}${dc('Stem Length',h.custom_stem_length)}${dc('Harvester',h.custom_harvester_payroll_number||h.custom_harvester)}${dc('Date',h.posting_date)}${dc('To Warehouse',(h.to_warehouse||'').split(' - ')[0])}${dc('Batch No',h.custom_harvest_batch_no,true)}${dc('Stock Entry',h.name)}</div>`; }
     if (gradingSEs.length) { const g=gradingSEs[0]; html+=secLbl(`Grading (${gradingSEs.length} SE${gradingSEs.length>1?'s':''})`)+`<div class="detail-grid">${dc('Variety',j.variety)}${dc('Graded By',g.custom_graded_by)}${dc('Payroll No',g.custom_grader_payroll_number)}${dc('Stem Length',g.custom_stem_length)}${dc('Bunch ID',g.custom_bunch_id)}${dc('Bunched By',g.custom_bunched_by)}${dc('Packing Scanned',g.custom_scanned_packing?'Yes':'No')}${dc('Date',g.posting_date)}${dc('Stock Entry',g.name)}</div>`; }
-    if (receivingSEs.length){ const r=receivingSEs[0]; const late=r.stock_entry_type==='Late Receipt'?' (Late Receipt)':''; html+=secLbl('Receiving'+late)+`<div class="detail-grid">${dc('Type',r.stock_entry_type)}${dc('From',(r.from_warehouse||'').split(' - ')[0])}${dc('To',(r.to_warehouse||'').split(' - ')[0])}${dc('Stem Length',r.custom_stem_length)}${dc('Farm',r.custom_farm)}${dc('Date',r.posting_date)}${dc('Bucket Field',r.custom_received_bucket_id||'--')}${dc('Stock Entry',r.name)}</div>`; }
+    if (receivingSEs.length){ const r=receivingSEs[0]; const late=r.stock_entry_type==='Late Receipt'?' (Late Receipt)':''; html+=secLbl('Receiving'+late)+`<div class="detail-grid">${dc('Type',r.stock_entry_type)}${dc('From',(r.from_warehouse||'').split(' - ')[0])}${dc('To',(r.to_warehouse||'').split(' - ')[0])}${dc('Stem Length',r.custom_stem_length)}${dc('Farm',r.custom_farm)}${dc('Date',r.posting_date)}${dc('Bucket Field',r.custom_bucket_id||'--')}${dc('Stock Entry',r.name)}</div>`; }
     // Unified per-cycle lifecycle trail: every Shelving Log episode (shelved /
     // transferred / issued / discarded / replaced / cleared) + QC reject and
     // discard stock entries — everything that happened to the bucket this cycle.
@@ -1671,7 +1671,7 @@ async function trackBunch() {
             receivingSEs = await flP('Stock Entry',
                 [['custom_harvest_batch_no','in',batchNos],['stock_entry_type','in',['Receiving','Late Receipt']]],
                 ['name','posting_date','stock_entry_type','custom_farm','custom_stem_length',
-                 'custom_harvest_batch_no','custom_received_bucket_id','to_warehouse','from_warehouse'],
+                 'custom_harvest_batch_no','custom_bucket_id','to_warehouse','from_warehouse'],
                 200,'posting_date asc');
         }
 
@@ -1984,7 +1984,7 @@ function renderBunchJourney() {
     for (const r of receivingSEs) {
         const late = r.stock_entry_type==='Late Receipt';
         html += chainStep('ci-receiving','R',`Receiving${late?' (Late Receipt)':''}`,
-            `<strong>Bucket:</strong> ${r.custom_received_bucket_id||'--'}<br>
+            `<strong>Bucket:</strong> ${r.custom_bucket_id||'--'}<br>
              <strong>From:</strong> ${(r.from_warehouse||'--').split(' - ')[0]} &rarr; <strong>To:</strong> ${(r.to_warehouse||'--').split(' - ')[0]}<br>
              <strong>Stem Length:</strong> ${r.custom_stem_length||'--'} &nbsp;&middot;&nbsp; <strong>Farm:</strong> ${r.custom_farm||'--'}<br>
              <strong>Date:</strong> ${fmtDate(r.posting_date)} &nbsp;&middot;&nbsp; <a href="#" onclick="openDoc('Stock Entry','${r.name}');return false" style="color:var(--accent-blue);text-decoration:none">${r.name}</a>`,

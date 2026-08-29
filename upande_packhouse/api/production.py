@@ -12,7 +12,7 @@ def get_packhouse_production_by_variety():
     # Packhouse dashboard — Production by Variety (per stem length, all farms)
     # Harvest production lives in Stock Entry (stock_entry_type='Harvesting', docstatus=1):
     #   stems = sed.qty, variety = sed.item_code/item_name, stem length = se.custom_stem_length,
-    #   farm = se.custom_farm, date = se.posting_date.
+    #   farm = se.farm, date = se.posting_date.
     from_date = frappe.form_dict.get('from_date') or frappe.utils.today()
     to_date = frappe.form_dict.get('to_date') or frappe.utils.today()
     rose_type = (frappe.form_dict.get('rose_type') or 'all').lower()
@@ -31,7 +31,7 @@ def get_packhouse_production_by_variety():
     location = frappe.form_dict.get('location') or ''
     loc_cond = ''
     if location:
-        loc_cond = " AND se.custom_farm IN (SELECT name FROM `tabFarm` WHERE custom_location = %(location)s)"
+        loc_cond = " AND se.farm IN (SELECT name FROM `tabFarm` WHERE custom_location = %(location)s)"
         params['location'] = location
 
     rows = frappe.db.sql("""
@@ -39,7 +39,7 @@ def get_packhouse_production_by_variety():
             sed.item_code AS item_code,
             i.item_name AS item_name,
             COALESCE(NULLIF(se.custom_stem_length, ''), 'No Length') AS stem_length,
-            COALESCE(NULLIF(se.custom_farm, ''), 'Unknown') AS farm,
+            COALESCE(NULLIF(se.farm, ''), 'Unknown') AS farm,
             COALESCE(SUM(sed.qty), 0) AS stems
         FROM `tabStock Entry` se
         JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
@@ -49,7 +49,7 @@ def get_packhouse_production_by_variety():
           AND se.posting_date BETWEEN %(from_date)s AND %(to_date)s
     """ + ig_cond + loc_cond + """
         GROUP BY sed.item_code, COALESCE(NULLIF(se.custom_stem_length, ''), 'No Length'),
-                 COALESCE(NULLIF(se.custom_farm, ''), 'Unknown')
+                 COALESCE(NULLIF(se.farm, ''), 'Unknown')
     """, params, as_dict=True)
 
     vmap = {}
