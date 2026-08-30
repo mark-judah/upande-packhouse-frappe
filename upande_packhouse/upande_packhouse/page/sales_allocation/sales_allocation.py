@@ -55,14 +55,20 @@ def _get_production_config():
                 "max_allocation_age": int(row.max_allocation_age or 5)
             }
 
-    # Single query to get location for all enabled farms
+    # Single query to get location for all enabled farms.
+    # NOTE: this reads `farm_location` (Link -> Location, "Farm Location" on the
+    # Farm doctype) — NOT `location`, which is a Geolocation field labeled
+    # "Farm Boundary" for the farm's map polygon. Reading `location` here used
+    # to accidentally "work" wherever it was misused to hold a plain hub name
+    # instead of real boundary data; the moment a farm has genuine boundary
+    # GeoJSON in that field, it leaked straight into the location picker.
     placeholders = ", ".join(["%s"] * len(enabled_farms))
     farm_rows = frappe.db.sql(f"""
-        SELECT name AS farm, location AS location
+        SELECT name AS farm, farm_location AS location
         FROM `tabFarm`
         WHERE name IN ({placeholders})
-          AND location IS NOT NULL
-          AND location != ''
+          AND farm_location IS NOT NULL
+          AND farm_location != ''
     """, enabled_farms, as_dict=True)
 
     for f in farm_rows:

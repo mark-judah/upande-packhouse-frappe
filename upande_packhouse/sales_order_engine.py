@@ -65,19 +65,36 @@ def _price_list_fx(price_list, doc_currency):
     """Exchange factor from the price list's currency to the order currency
     (1.0 when they match). Item Prices live in the price list's currency (the
     May lists are USD/EUR/GBP); when the order is booked in another currency the
-    per-stem rate must be converted. This is the v15 "Rate based on Length"
-    exchange behaviour, made currency-correct: it uses the actual price-list ->
-    order rate, fetched live via ERPNext (Currency Exchange record, else the
-    configured exchange-rate service) when no stored rate exists."""
+    per-stem rate must be converted.
+
+    Looks up a stored Currency Exchange record ONLY — deliberately does NOT fall
+    back to ERPNext's get_exchange_rate() live-fetch path. That function's HTTP
+    call (erpnext.setup.utils.get_exchange_rate -> requests.get(...)) is made
+    with no timeout, so on a network path that can't reach the exchange-rate
+    service (a sandboxed/firewalled server, the service being down) it blocks
+    the save request indefinitely — the browser just sits frozen with no error,
+    since nothing has actually failed yet. A missing rate here falls back to 1.0
+    and logs instead, so the save always completes; add a Currency Exchange
+    record for the pair to get the real conversion."""
     pl_currency = frappe.db.get_value("Price List", price_list, "currency")
     if not pl_currency or not doc_currency or pl_currency == doc_currency:
         return 1.0
-    try:
-        from erpnext.setup.utils import get_exchange_rate
 
-        return float(get_exchange_rate(pl_currency, doc_currency)) or 1.0
-    except Exception:
-        return 1.0
+    rate = frappe.db.get_value(
+        "Currency Exchange",
+        {"from_currency": pl_currency, "to_currency": doc_currency},
+        "exchange_rate",
+        order_by="date desc",
+    )
+    if rate:
+        return float(rate)
+
+    frappe.log_error(
+        "No Currency Exchange record for {0} -> {1}; priced at 1.0. "
+        "Add one (Setup > Currency Exchange) for the correct rate.".format(pl_currency, doc_currency),
+        "sales_order_engine._price_list_fx",
+    )
+    return 1.0
 
 
 def sales_order_before_validate(doc, method=None):
