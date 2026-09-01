@@ -27,11 +27,18 @@ GREENHOUSE_COST_CENTRE_TYPES = {
 
 def apply_greenhouse_cost_center(doc, method=None):
 	"""Post greenhouse-related Stock Entries to the cost centre configured on the
-	greenhouse Warehouse (Warehouse.custom_cost_center).
+	greenhouse Warehouse (Warehouse.custom_cost_center), and carry the order's
+	Business Unit accounting dimension down onto every item row too — GL entries
+	are generated per Stock Entry Detail row, so a dimension only set on the
+	parent doc doesn't reach the ledger; it has to be on each row.
 
 	The greenhouse is on `custom_greenhouse`. If that greenhouse has no cost centre
 	set, the entry is blocked with a clear instruction rather than silently posting
 	to the wrong (or a default) cost centre.
+
+	Runs after sync_accounting_dimensions (see hooks.py ordering), so
+	doc.business_unit is already mirrored from custom_business_unit by the time
+	this executes.
 	"""
 	if doc.get("stock_entry_type") not in GREENHOUSE_COST_CENTRE_TYPES:
 		return
@@ -48,5 +55,8 @@ def apply_greenhouse_cost_center(doc, method=None):
 		)
 
 	doc.cost_center = cost_center
+	business_unit = doc.get("business_unit")
 	for row in doc.get("items") or []:
 		row.cost_center = cost_center
+		if business_unit:
+			row.business_unit = business_unit
