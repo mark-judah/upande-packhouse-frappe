@@ -246,38 +246,46 @@ class V15Client:
 		self.source_url = source_url.rstrip("/")
 		self.token = token
 
-	def _get(self, resource, params):
+	def _post(self, doctype, payload):
+		"""POST to the method-call endpoint (frappe.client.get_list), not the
+		/api/resource/<Doctype> GET endpoint — GET puts every filter value
+		into the URL's query string, and pull_children's "parent in [...]"
+		filter can list thousands of names in one call (batch_size scales
+		this directly), which blows past the server's URL-length limit
+		(414 Request-URI Too Large) long before it blows past anything else.
+		POST has no such ceiling — every filter value goes in the body."""
 		import requests
 
-		url = self.source_url + "/api/resource/" + resource
-		headers = {"Authorization": "token " + self.token}
-		resp = requests.get(url, headers=headers, params=params, timeout=120)
+		url = self.source_url + "/api/method/frappe.client.get_list"
+		headers = {"Authorization": "token " + self.token, "Content-Type": "application/json"}
+		payload = dict(payload, doctype=doctype)
+		resp = requests.post(url, headers=headers, json=payload, timeout=120)
 		resp.raise_for_status()
-		return resp.json()["data"]
+		return resp.json()["message"]
 
 	def pull_parents(self, stock_entry_type, cursor, batch_size):
-		params = {
-			"filters": json.dumps([
+		payload = {
+			"filters": [
 				["stock_entry_type", "=", stock_entry_type],
 				["company", "=", SOURCE_COMPANY],
 				["creation", ">=", cursor],
-			]),
-			"fields": json.dumps(PARENT_FIELDS),
+			],
+			"fields": PARENT_FIELDS,
 			"order_by": "creation asc, name asc",
 			"limit_page_length": batch_size,
 		}
-		return self._get("Stock Entry", params)
+		return self._post("Stock Entry", payload)
 
 	def pull_children(self, parent_names):
 		if not parent_names:
 			return {}
-		params = {
+		payload = {
 			"parent": "Stock Entry",
-			"filters": json.dumps([["parent", "in", parent_names]]),
-			"fields": json.dumps(CHILD_FIELDS),
+			"filters": [["parent", "in", parent_names]],
+			"fields": CHILD_FIELDS,
 			"limit_page_length": 0,
 		}
-		rows = self._get("Stock Entry Detail", params)
+		rows = self._post("Stock Entry Detail", payload)
 		by_parent = {}
 		for r in rows:
 			by_parent.setdefault(r["parent"], []).append(r)
