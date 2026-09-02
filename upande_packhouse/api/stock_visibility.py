@@ -131,7 +131,7 @@ def getStockVisibilityData():
                 soi.custom_length AS length,
                 so.customer,
                 so.custom_delivery_point AS delivery_point,
-                so.custom_farm AS farm,
+                so.farm AS farm,
                 SUM(soi.qty * soi.conversion_factor) AS stems
             FROM `tabSales Order Item` soi
             INNER JOIN `tabSales Order` so ON so.name = soi.parent
@@ -140,7 +140,7 @@ def getStockVisibilityData():
                 AND so.status NOT IN ('Cancelled', 'Closed', 'Completed')
                 AND soi.item_code IS NOT NULL
             GROUP BY soi.item_code, soi.item_group, soi.custom_length,
-                     so.customer, so.custom_delivery_point, so.custom_farm
+                     so.customer, so.custom_delivery_point, so.farm
             ORDER BY soi.item_code, soi.custom_length
         """, {'delivery_date': delivery_date}, as_dict=True)
 

@@ -36,9 +36,9 @@ def apply_greenhouse_cost_center(doc, method=None):
 	set, the entry is blocked with a clear instruction rather than silently posting
 	to the wrong (or a default) cost centre.
 
-	Runs after sync_accounting_dimensions (see hooks.py ordering), so
-	doc.business_unit is already mirrored from custom_business_unit by the time
-	this executes.
+	Stock Entry has no legacy custom_farm / custom_business_unit fields —
+	business_unit is set directly by the harvesting/grading/receiving flows
+	and by this migration script.
 	"""
 	if doc.get("stock_entry_type") not in GREENHOUSE_COST_CENTRE_TYPES:
 		return

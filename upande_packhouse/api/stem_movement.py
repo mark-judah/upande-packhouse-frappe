@@ -917,7 +917,7 @@ def getStemMovementData():
 
         # ══ Phase 3 — FORECAST: demand due by upcoming delivery date vs the stock we
         #    currently hold in the pipeline to meet it. ══
-        fw, fp = _buf_where('so.custom_farm', 'soi.item_code', 'soi.custom_length')
+        fw, fp = _buf_where('so.farm', 'soi.item_code', 'soi.custom_length')
         if group_param:
             fw = fw + " AND soi.item_group = %(grp)s"
             fp['grp'] = group_param

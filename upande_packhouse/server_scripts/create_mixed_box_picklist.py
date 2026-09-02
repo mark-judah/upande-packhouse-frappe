@@ -93,7 +93,7 @@ def create_mixed_box_pick_list_for_allocated_items(sales_order_doc, allocations,
     # Derive shelf farm from location via Production Settings
     shelf_farm = _get_shelf_farm_for_location(location)
     if not shelf_farm:
-        shelf_farm = sales_order_doc.custom_farm or "Karen"
+        shelf_farm = sales_order_doc.farm or "Karen"
 
     # Get confirmed stems for this location
     confirmed_stems = _get_confirmed_stems_for_location(sales_order_doc.name, location)
@@ -262,7 +262,7 @@ def create_mixed_box_pick_list_for_allocated_items(sales_order_doc, allocations,
             order_pick_list.order_name = sales_order_doc.custom_order_name
             order_pick_list.date_created = nowdate()
             order_pick_list.farm = shelf_farm
-            order_pick_list.custom_business_unit = sales_order_doc.custom_business_unit
+            order_pick_list.custom_business_unit = sales_order_doc.business_unit
             order_pick_list.mix_group = mix_group
             order_pick_list.custom_allocated_pick_list = 1
 

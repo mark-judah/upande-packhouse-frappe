@@ -100,7 +100,7 @@ def _price_list_fx(price_list, doc_currency):
 def sales_order_before_validate(doc, method=None):
     """Quantity tally + point the order at the customer's price list, before
     ERPNext's qty>0 check and its own (length-blind) pricing run."""
-    if (doc.get("custom_business_unit") or "") != "Roses":
+    if (doc.get("business_unit") or "") != "Roses":
         return
     pl = _resolve_price_list(doc)
     if pl and doc.get("selling_price_list") != pl:
@@ -117,7 +117,7 @@ def sales_order_before_validate(doc, method=None):
 def sales_order_price(doc, method=None):
     """Length-aware pricing — runs on validate, AFTER ERPNext's (length-blind) standard
     pricing, so our per-length rate wins. Item Price is per stem → express per line UOM."""
-    if (doc.get("custom_business_unit") or "") != "Roses":
+    if (doc.get("business_unit") or "") != "Roses":
         return
     price_list = _resolve_price_list(doc)
     if not price_list:
@@ -145,7 +145,7 @@ def sales_order_price(doc, method=None):
 def sales_order_validate(doc, method=None):
     """Data-integrity gates for Roses orders — enforced on every SAVE (not just
     submit), so an invalid draft can't be saved. Runs after sales_order_price."""
-    if (doc.get("custom_business_unit") or "") != "Roses":
+    if (doc.get("business_unit") or "") != "Roses":
         return
 
     # 1. must have a price list configured (line-level or the customer's default)

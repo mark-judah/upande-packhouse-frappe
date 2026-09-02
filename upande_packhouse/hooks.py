@@ -146,21 +146,25 @@ app_license = "mit"
 # }
 doc_events = {
 	"Stock Entry": {"validate": [
-		"upande_packhouse.roses_invoice.sync_accounting_dimensions",
+		# No legacy custom_farm / custom_business_unit mirror here — Stock
+		# Entry uses only the real accounting-dimension fields (farm,
+		# business_unit), no legacy fields left to keep in sync.
 		"upande_packhouse.stock_entry_cost_center.apply_greenhouse_cost_center",
 	]},
 	"Sales Order": {
 		"before_validate": "upande_packhouse.sales_order_engine.sales_order_before_validate",
 		"validate": [
-			"upande_packhouse.roses_invoice.sync_accounting_dimensions",
+			# ecommerce_integration (Floriday/Biflorica) still owns custom_farm /
+			# custom_business_unit here — bridge into the real farm /
+			# business_unit dimension fields this app actually reads. See
+			# sync_sales_order_accounting_dimensions's own docstring.
+			"upande_packhouse.roses_invoice.sync_sales_order_accounting_dimensions",
 			"upande_packhouse.sales_order_engine.sales_order_price",
 			"upande_packhouse.sales_order_engine.sales_order_validate",
 		],
 	},
 	"Specifications": {"before_validate": "upande_packhouse.spec.ensure_spec_uoms_and_packrates"},
-	"Sales Invoice": {"validate": "upande_packhouse.roses_invoice.sync_accounting_dimensions"},
 	"Delivery Note": {
-		"validate": "upande_packhouse.roses_invoice.sync_accounting_dimensions",
 		"on_submit": "upande_packhouse.roses_invoice.delivery_note_on_submit",
 	},
 }

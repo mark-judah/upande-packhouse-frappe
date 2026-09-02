@@ -130,6 +130,11 @@ CUT_STAGE_MAP = {
 }
 CUT_STAGE_VALUES_NEEDED = ["Budwood", "1.5-2.0", "2.0-2.5", "2.5-3", "3.5-4.0"]
 
+# Pulls the numeric cm value out of either a raw v15 string ("72cm") or a
+# v16 Stem Length record's "length" field ("73CM") — used to match one to
+# the nearest of the other, see LookupCache.resolve_stem_length.
+STEM_LENGTH_VALUE_RE = re.compile(r"(\d+(?:\.\d+)?)")
+
 # Matches "Torongo GH 12 - KR", "Torongo GH17 - KR" (real v15 data has both
 # spaced and unspaced forms), case-insensitive on "GH". Source side only —
 # v15 data is always "- KR" suffixed regardless of target.
@@ -330,6 +335,7 @@ class LookupCache:
 		self._employee_exists = set(frappe.get_all("Employee", pluck="name"))
 		self._bucket_exists = set(frappe.get_all("Bucket QR Code", pluck="name"))
 		self._new_buckets = set()  # created-this-run, not yet flushed to DB
+		self._stem_length_cache = None  # lazy — see _stem_length_candidates
 
 		if profile["cost_center_style"] == "production":
 			self._cc_index = _build_production_cc_index(self.company, set(self.farm_map.values()))
@@ -581,6 +587,39 @@ class LookupCache:
 			return employee_id
 		return None
 
+	def resolve_stem_length(self, v15_value):
+		"""v15 carries stem length as free text ("72cm", "37cm", ...); v16's
+		Stem Length doctype is a per-company pricing record (length + price),
+		not a plain value list, so there's no guarantee of an exact match —
+		resolve to the closest real record for this company by numeric cm
+		value. Never invents a new Stem Length record (that's a pricing
+		decision, not a migration one) — returns None if this company has
+		none at all yet."""
+		if not v15_value:
+			return None
+		m = STEM_LENGTH_VALUE_RE.search(str(v15_value))
+		if not m:
+			return None
+		target = float(m.group(1))
+		candidates = self._stem_length_candidates()
+		if not candidates:
+			return None
+		return min(candidates, key=lambda c: abs(c[1] - target))[0]
+
+	def _stem_length_candidates(self):
+		if self._stem_length_cache is None:
+			rows = frappe.get_all(
+				"Stem Length", filters={"company": self.company, "docstatus": ["!=", 2]},
+				fields=["name", "length"],
+			)
+			out = []
+			for r in rows:
+				lm = STEM_LENGTH_VALUE_RE.search(r.length or "")
+				if lm:
+					out.append((r.name, float(lm.group(1))))
+			self._stem_length_cache = out
+		return self._stem_length_cache
+
 	def ensure_buckets(self, bucket_ids):
 		"""Batch get-or-create for Bucket QR Code — one existence check + one
 		bulk_insert per batch, not per record."""
@@ -684,13 +723,12 @@ def _map_record(parent, items, cache, balances, fiscal_year_cache):
 	doc.docstatus = 1
 	doc.is_opening = parent.get("is_opening") or "No"
 	doc.farm = farm
-	doc.custom_business_unit = "Roses"
 	doc.business_unit = "Roses"
 	doc.custom_greenhouse = gh_warehouse
 	doc.cost_center = cc
 	doc.custom_bucket_id = parent.get("custom_bucket_id") or None
 	doc.custom_cut_stage = cache.resolve_cut_stage(parent.get("custom_cut_stage"))
-	doc.custom_stem_length = (parent.get("custom_stem_length") or "").upper() or None
+	doc.custom_stem_length = cache.resolve_stem_length(parent.get("custom_stem_length"))
 	doc.custom_harvester = cache.resolve_employee(parent.get("custom_harvester"))
 	doc.custom_graded_by = cache.resolve_employee(parent.get("custom_graded_by"))
 	doc.custom_receiving_batch_id = parent.get("custom_receiving_batch_id") or None

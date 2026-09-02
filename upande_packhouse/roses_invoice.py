@@ -14,7 +14,7 @@ except ImportError:  # older ERPNext layout
 	from erpnext.stock.doctype.delivery_note.delivery_note import make_sales_invoice
 
 HEADER_FIELDS = [
-	"custom_so", "custom_farm", "custom_business_unit", "custom_flo_id", "custom_flo_id_2",
+	"custom_so", "farm", "business_unit", "custom_flo_id", "custom_flo_id_2",
 	"custom_freight", "custom_transport_mode", "custom_brn_ref", "custom_consignee",
 	"custom_delivery_point", "custom_dispatch_form", "custom_truck_details", "custom_total_boxes",
 ]
@@ -24,19 +24,17 @@ ITEM_FIELDS = [
 ]
 
 
-def sync_accounting_dimensions(doc, method=None):
-	"""Keep the native Farm / Business Unit accounting-dimension fields and the
-	legacy packhouse custom_farm / custom_business_unit fields in lockstep.
-
-	`farm` / `business_unit` (the accounting dimensions) are now the source of
-	truth — harvesting and grading set them directly. This hook mirrors each
-	pair in whichever direction has a value, so:
-	  * new records that set only `farm` still populate `custom_farm`, keeping
-	    the many dashboards that still read custom_farm working during the
-	    migration, and
-	  * older records / integrations that set only `custom_farm` still populate
-	    the accounting dimension for GL + reports.
-	The accounting-dimension value wins if both are set.
+def sync_sales_order_accounting_dimensions(doc, method=None):
+	"""Sales Order only. ecommerce_integration (Floriday/Biflorica) owns
+	custom_farm / custom_business_unit on Sales Order for its own marketplace
+	sync — it force-recreates them every migrate via its own after_migrate
+	hook, and floriday_sales_order.py writes farm/business-unit data into
+	THOSE fields, not the real accounting dimensions. Bridge that write into
+	the real farm / business_unit dimension fields so the rest of this app
+	(which reads only the dimension fields now, not the legacy ones) sees
+	Floriday-origin orders correctly. Sales Invoice and Delivery Note have no
+	legacy fields left at all (removed outright, no other app depends on
+	them there), so this hook is not needed for those.
 	"""
 	def mirror(dim_field, legacy_field):
 		if not (doc.meta.get_field(dim_field) and doc.meta.get_field(legacy_field)):
@@ -55,7 +53,7 @@ def sync_accounting_dimensions(doc, method=None):
 
 def delivery_note_on_submit(doc, method=None):
 	# Only Roses-business-unit deliveries generate a packhouse Sales Invoice.
-	if (doc.get("custom_business_unit") or "") != "Roses":
+	if (doc.get("business_unit") or "") != "Roses":
 		return
 
 	# Idempotent: skip if a Sales Invoice already references this Delivery Note.

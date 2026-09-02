@@ -239,7 +239,7 @@ def createOrUpdateDispatch():
                     if si.item_code not in so_items:
                         so_items[si.item_code] = si
 
-                farm = so.get("custom_farm") or (boxes[0].farm if boxes else None)
+                farm = so.get("farm") or (boxes[0].farm if boxes else None)
                 farm_code = frappe.db.get_value("Farm", farm, "kephis_farm_id") if farm else ""
 
                 existing = frappe.get_all("Delivery Note", filters={"custom_so": so_name, "docstatus": 0}, pluck="name")
@@ -256,9 +256,9 @@ def createOrUpdateDispatch():
                 dn.posting_date = frappe.utils.nowdate()
                 dn.currency = so.currency
                 dn.selling_price_list = so.selling_price_list
-                dn.custom_business_unit = "Roses"
+                dn.business_unit = "Roses"
                 dn.custom_so = so_name
-                dn.custom_farm = farm
+                dn.farm = farm
                 dn.custom_freight = so.get("custom_shipping_agent")
                 dn.custom_transport_mode = so.get("custom_mode_of_transport")
                 dn.custom_brn_ref = so.get("custom_s_number")
@@ -964,7 +964,7 @@ def fetchLoadingData():
                     so_filters["custom_delivery_point"] = delivery_point
 
                 if farm:
-                    so_filters["custom_farm"] = farm
+                    so_filters["farm"] = farm
 
                 sales_orders = frappe.get_all(
                     "Sales Order",
@@ -2503,7 +2503,7 @@ def get_pick_list_with_farm_pack_list():
                 "item_group": _opl_group,
                 "customer": so.customer_name,
                 "delivery_date": so.delivery_date,
-                "farm": opl_doc.get("farm") or so.get("custom_farm") or "",
+                "farm": opl_doc.get("farm") or so.get("farm") or "",
                 "is_mixed": is_mixed,
                 "box_type": box_type,
                 "planned_boxes": planned_boxes,
@@ -2876,7 +2876,7 @@ def issueBucketToSaleOrderItem():
                             transfer = frappe.new_doc('Stock Entry')
                             transfer.stock_entry_type = 'Issue From The Cold Store'
                             transfer.company = frappe.db.get_value('Warehouse', src_wh, 'company')
-                            transfer.custom_business_unit = 'Roses'
+                            transfer.business_unit = 'Roses'
                             transfer.farm = frappe.db.get_value('Stock Entry', stock_entry_name, 'farm')
                             transfer.custom_bucket_id = bucket_id
                             transfer.custom_issued_to = sale_order_item
