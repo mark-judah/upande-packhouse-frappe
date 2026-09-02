@@ -135,6 +135,25 @@ CUT_STAGE_VALUES_NEEDED = ["Budwood", "1.5-2.0", "2.0-2.5", "2.5-3", "3.5-4.0"]
 # v15 data is always "- KR" suffixed regardless of target.
 GH_WAREHOUSE_RE = re.compile(r"^(.+?)\s+GH\s*0*(\d+)\s*-\s*" + SOURCE_ABBR + r"$", re.IGNORECASE)
 
+# Three further real greenhouse-warehouse families (23,359 records combined)
+# that don't fit GH_WAREHOUSE_RE's plain numbered pattern at all, each with
+# its own cost-centre reuse rule (see resolve_greenhouse):
+#  - IPM sub-greenhouses ("Chepsito GH IPM 01 - KR" etc, 6 warehouses) share
+#    ONE cost centre across every farm/number ("IPM - KR" already exists),
+#    not a per-number one.
+#  - GH Tunnel ("Kapkolia  GH Tunnel - KR" — note the real double space, not
+#    a typo to "fix", 1 warehouse but the single largest special case at
+#    9,638 records) has its own dedicated per-farm cost centre, no number.
+#  - Wetland GH Block ("Kapkolia Wetland  GH Block 01 - KR" — also a real
+#    double space, 4 warehouses) has NO dedicated cost centre in the real
+#    data, so falls back to the farm's own plain cost centre.
+# Spellings below are copied verbatim from confirmed real v15/production
+# names — v15 has exactly one spelling for each of these three (unlike the
+# numbered pattern, which has both spaced/unspaced variants).
+GH_IPM_RE = re.compile(r"^(.+?)\s+GH\s+IPM\s*0*(\d+)\s*-\s*" + SOURCE_ABBR + r"$", re.IGNORECASE)
+GH_TUNNEL_RE = re.compile(r"^(.+?)\s+GH\s+Tunnel\s*-\s*" + SOURCE_ABBR + r"$", re.IGNORECASE)
+GH_WETLAND_BLOCK_RE = re.compile(r"^(.+?)\s+Wetland\s+GH\s+Block\s*0*(\d+)\s*-\s*" + SOURCE_ABBR + r"$", re.IGNORECASE)
+
 # Cost-centre naming convention already live on the production target — 212
 # real records like "GH-19 Kapkolia - KR", "GH-01 Torongo - KR" (farm as a
 # free-standing word, "GH" + number somewhere in the name; not always in the
@@ -321,6 +340,36 @@ class LookupCache:
 			self._cc_index = {}
 			self._cc_parent = profile["cost_center_parent"]
 
+		self._default_inventory_account = self._resolve_default_inventory_account()
+
+	def _resolve_default_inventory_account(self):
+		"""Any newly-created plain Warehouse must carry a resolvable inventory
+		Account — some ERPNext builds run Warehouse.validate_inventory_account()
+		on save, which throws if neither the warehouse, its parent chain, nor
+		the Company (Company.default_inventory_account) resolve one. Real data
+		shows this company runs item-wise inventory accounting (every existing
+		greenhouse Warehouse has account=None, resolved per-Item-Group instead),
+		so we deliberately don't touch Company.default_inventory_account or try
+		to satisfy the parent-chain inheritance — we just stamp a real, valid
+		Stock account directly on the new Warehouse doc to clear the check.
+		Preference order: Company's own default (if ever set) -> an Item
+		Group's configured default_inventory_account for this company (the
+		real per-item-group setup already in place) -> any Stock-type Account
+		for this company -> None (creation will then throw, correctly, rather
+		than silently posting to the wrong account)."""
+		company_default = frappe.db.get_value("Company", self.company, "default_inventory_account")
+		if company_default:
+			return company_default
+		item_group_default = frappe.db.get_value(
+			"Item Default", {"parent": ["is", "set"], "company": self.company, "default_inventory_account": ["is", "set"]},
+			"default_inventory_account",
+		)
+		if item_group_default:
+			return item_group_default
+		return frappe.db.get_value(
+			"Account", {"company": self.company, "account_type": "Stock", "is_group": 0}, "name"
+		)
+
 	def _cc_name_for(self, v16_farm, gh_num):
 		"""(cost_center_name, needs_create) in this profile's own convention."""
 		if self.cost_center_style == "production":
@@ -342,41 +391,106 @@ class LookupCache:
 	def resolve_greenhouse(self, v15_warehouse):
 		"""Returns (warehouse_name, cost_center_name, v16_farm_name) — the farm
 		name is derived here, from the warehouse itself, rather than trusted
-		from the Stock Entry header field (see _map_record for why)."""
-		m = GH_WAREHOUSE_RE.match(v15_warehouse or "")
-		if not m:
-			return None, None, None
-		farm_display, gh_num = m.group(1).strip(), int(m.group(2))
-		# Use the mapped v16 farm display name (e.g. local: "Karen" -> "KAREN";
-		# production: "Karen" -> "Karen", same company, no casing change) so a
-		# newly-created warehouse/cost-centre lands under the same casing as
-		# the farm's existing ones, instead of creating a case-duplicate.
-		v16_farm = self.farm_map.get(farm_display, farm_display)
-		key = (farm_display, gh_num)
+		from the Stock Entry header field (see _map_record for why).
+
+		Tries the plain numbered pattern first, then the three special
+		families (IPM / Tunnel / Wetland Block) — see the module-level
+		GH_*_RE comments for what real data backs each one."""
+		v15_warehouse = v15_warehouse or ""
+
+		m = GH_WAREHOUSE_RE.match(v15_warehouse)
+		if m:
+			farm_display, gh_num = m.group(1).strip(), int(m.group(2))
+			v16_farm = self.farm_map.get(farm_display, farm_display)
+			# Always reconstruct the canonical name rather than trust v15's
+			# raw string verbatim — real v15 data has inconsistent spacing
+			# for the same greenhouse ("Torongo GH 17 - KR" vs "Torongo
+			# GH17 - KR" both exist for the identical greenhouse), and
+			# production's real warehouses all follow this exact canonical
+			# "GH {NN}" zero-padded form regardless. Trusting the raw
+			# string caused false "doesn't exist" existence checks and
+			# doomed create-then-collide attempts.
+			cc_name, needs_create_cc = self._cc_name_for(v16_farm, gh_num)
+			return self._get_or_create_greenhouse(
+				key=(farm_display, gh_num), v16_farm=v16_farm,
+				warehouse_field_name="{0} GH {1:02d}".format(v16_farm, gh_num),
+				cc_name=cc_name, needs_create_cc=needs_create_cc,
+				cc_index_key=(v16_farm, gh_num),
+			)
+
+		m = GH_TUNNEL_RE.match(v15_warehouse)
+		if m:
+			farm_display = m.group(1).strip()
+			v16_farm = self.farm_map.get(farm_display, farm_display)
+			cc_name = "{0} GH Tunnel - {1}".format(v16_farm, self.abbr)
+			return self._get_or_create_greenhouse(
+				key=("__tunnel__", farm_display), v16_farm=v16_farm,
+				# Real spelling has TWO spaces before "GH" — not a typo to
+				# clean up, this is the actual live warehouse name.
+				warehouse_field_name="{0}  GH Tunnel".format(v16_farm),
+				cc_name=cc_name, needs_create_cc=not frappe.db.exists("Cost Center", cc_name),
+			)
+
+		m = GH_IPM_RE.match(v15_warehouse)
+		if m:
+			farm_display, gh_num = m.group(1).strip(), int(m.group(2))
+			v16_farm = self.farm_map.get(farm_display, farm_display)
+			# One cost centre shared across every farm/number — "IPM - KR"
+			# already exists in real data as a single, non-farm-specific
+			# record, not a per-number series like the plain GH pattern.
+			cc_name = "IPM - {0}".format(self.abbr)
+			return self._get_or_create_greenhouse(
+				key=("__ipm__", farm_display, gh_num), v16_farm=v16_farm,
+				warehouse_field_name="{0} GH IPM {1:02d}".format(v16_farm, gh_num),
+				cc_name=cc_name, needs_create_cc=not frappe.db.exists("Cost Center", cc_name),
+			)
+
+		m = GH_WETLAND_BLOCK_RE.match(v15_warehouse)
+		if m:
+			farm_display, gh_num = m.group(1).strip(), int(m.group(2))
+			v16_farm = self.farm_map.get(farm_display, farm_display)
+			# No dedicated cost centre exists for this family in real data —
+			# fall back to the farm's own plain cost centre, and never
+			# create one here (a missing farm-level cost centre is a
+			# deeper gap than this migration should paper over).
+			cc_name = "{0} - {1}".format(v16_farm, self.abbr)
+			return self._get_or_create_greenhouse(
+				key=("__wetland_block__", farm_display, gh_num), v16_farm=v16_farm,
+				# Real spelling has TWO spaces before "GH".
+				warehouse_field_name="{0} Wetland  GH Block {1:02d}".format(v16_farm, gh_num),
+				cc_name=cc_name if frappe.db.exists("Cost Center", cc_name) else None,
+				needs_create_cc=False,
+			)
+
+		return None, None, None
+
+	def _get_or_create_greenhouse(self, key, v16_farm, warehouse_field_name, cc_name, needs_create_cc, cc_index_key=None):
+		"""Shared get-or-create body for every greenhouse-warehouse family
+		resolve_greenhouse dispatches to. warehouse_field_name is the
+		Warehouse.warehouse_name value (pre-autoname, i.e. without the
+		"- {abbr}" suffix); the actual Warehouse.name is that plus the
+		suffix, via Frappe's own Warehouse.autoname()."""
 		if key in self._warehouse_cc:
 			wh, cc = self._warehouse_cc[key]
 			return wh, cc, v16_farm
 
-		# production: same company as source — the warehouse name is UNCHANGED,
-		# not translated, and should already exist.
-		warehouse_name = v15_warehouse if self.cost_center_style == "production" else \
-			"{0} GH {1:02d} - {2}".format(v16_farm, gh_num, self.abbr)
-		cc_name, needs_create_cc = self._cc_name_for(v16_farm, gh_num)
+		warehouse_name = "{0} - {1}".format(warehouse_field_name, self.abbr)
 
 		if not frappe.db.exists("Warehouse", warehouse_name):
 			parent_wh = frappe.db.get_value(
-				"Warehouse", {"warehouse_name": v16_farm, "is_group": 1}
+				"Warehouse", {"warehouse_name": v16_farm, "is_group": 1, "company": self.company}
 			) or frappe.db.get_value("Warehouse", {"company": self.company, "is_group": 1, "name": ["like", "%" + self.abbr]})
 			frappe.get_doc({
 				"doctype": "Warehouse",
-				"warehouse_name": "{0} GH {1:02d}".format(v16_farm, gh_num),
+				"warehouse_name": warehouse_field_name,
 				"company": self.company,
 				"is_group": 0,
 				"parent_warehouse": parent_wh,
 				"custom_farm": v16_farm if frappe.db.exists("Farm", v16_farm) else None,
+				"account": self._default_inventory_account,
 			}).insert(ignore_permissions=True)
 
-		if needs_create_cc and not frappe.db.exists("Cost Center", cc_name):
+		if needs_create_cc and cc_name and not frappe.db.exists("Cost Center", cc_name):
 			frappe.get_doc({
 				"doctype": "Cost Center",
 				"cost_center_name": cc_name[: -len(" - " + self.abbr)] if cc_name.endswith(" - " + self.abbr) else cc_name,
@@ -384,9 +498,10 @@ class LookupCache:
 				"parent_cost_center": self._cc_parent,
 				"is_group": 0,
 			}).insert(ignore_permissions=True)
-			self._cc_index[(v16_farm, gh_num)] = cc_name
+			if cc_index_key:
+				self._cc_index[cc_index_key] = cc_name
 
-		if frappe.db.get_value("Warehouse", warehouse_name, "custom_cost_center") != cc_name:
+		if cc_name and frappe.db.get_value("Warehouse", warehouse_name, "custom_cost_center") != cc_name:
 			frappe.db.set_value("Warehouse", warehouse_name, "custom_cost_center", cc_name)
 
 		self._warehouse_cc[key] = (warehouse_name, cc_name)
@@ -439,7 +554,7 @@ class LookupCache:
 			return self._warehouse_cc[key][0]
 		name = "{0} Receiving Cold Store - {1}".format(v16_farm, self.abbr)
 		if not frappe.db.exists("Warehouse", name):
-			parent_wh = frappe.db.get_value("Warehouse", {"warehouse_name": v16_farm, "is_group": 1}) \
+			parent_wh = frappe.db.get_value("Warehouse", {"warehouse_name": v16_farm, "is_group": 1, "company": self.company}) \
 				or frappe.db.get_value("Warehouse", {"company": self.company, "is_group": 1, "name": ["like", "%" + self.abbr]})
 			frappe.get_doc({
 				"doctype": "Warehouse",
@@ -448,6 +563,7 @@ class LookupCache:
 				"is_group": 0,
 				"parent_warehouse": parent_wh,
 				"custom_farm": v16_farm if frappe.db.exists("Farm", v16_farm) else None,
+				"account": self._default_inventory_account,
 			}).insert(ignore_permissions=True)
 		self._warehouse_cc[key] = (name, None)
 		return name
@@ -725,7 +841,8 @@ def _write_batch(docs, sle_rows):
 # ------------------------------------------------------------------
 
 @frappe.whitelist()
-def run_import(source_url, token, stock_entry_type=None, batch_size=2000, time_budget_seconds=1200, target_profile="local"):
+def run_import(source_url, token, stock_entry_type=None, batch_size=2000, time_budget_seconds=1200,
+		target_profile="local", max_batches=None):
 	"""The real engine. Runs unrestricted (no System Console sandbox) once picked
 	up by a background worker. Processes batches until either everything is
 	caught up or `time_budget_seconds` is spent, then re-enqueues itself to
@@ -736,7 +853,13 @@ def run_import(source_url, token, stock_entry_type=None, batch_size=2000, time_b
 	target_profile: "local" (fresh Upande Farms Limited / UFL dev bench, the
 	default) or "production" (in-place v16 upgrade of the real Karen Roses / KR
 	tenant — same company as the source, existing warehouses/cost centres get
-	reused by name/pattern rather than recreated). See TARGET_PROFILES."""
+	reused by name/pattern rather than recreated). See TARGET_PROFILES.
+
+	max_batches: safety cap for validation runs — process at most this many
+	batches THEN STOP (no self-requeue), leaving the cursor exactly where it
+	is so a full run can resume later. None (default) = unlimited, the normal
+	production-backfill behaviour. Always pass this explicitly for a first
+	test against a target you haven't run before."""
 	import time
 
 	if target_profile not in TARGET_PROFILES:
@@ -746,6 +869,7 @@ def run_import(source_url, token, stock_entry_type=None, batch_size=2000, time_b
 
 	batch_size = int(batch_size)
 	time_budget_seconds = int(time_budget_seconds)
+	max_batches = int(max_batches) if max_batches not in (None, "", "None") else None
 	types = [stock_entry_type] if stock_entry_type else STOCK_ENTRY_TYPES
 
 	client = V15Client(source_url, token)
@@ -754,11 +878,18 @@ def run_import(source_url, token, stock_entry_type=None, batch_size=2000, time_b
 	fiscal_year_cache = {}
 	progress = _load_progress()
 	started = time.monotonic()
+	batches_done = 0
 
 	for t in types:
 		if progress[t]["done"]:
 			continue
 		while True:
+			if max_batches is not None and batches_done >= max_batches:
+				# Validation-run cap reached — stop cleanly, no requeue. Cursor
+				# is untouched from the last successful batch, so a later call
+				# (with or without a cap) resumes exactly here.
+				return progress
+
 			if time.monotonic() - started > time_budget_seconds:
 				_requeue(source_url, token, stock_entry_type, batch_size, time_budget_seconds, target_profile)
 				return progress
@@ -770,7 +901,8 @@ def run_import(source_url, token, stock_entry_type=None, batch_size=2000, time_b
 				progress[t]["errors"] += 1
 				progress[t]["last_error"] = "pull failed: {0}".format(e)
 				_save_progress(progress)
-				_requeue(source_url, token, stock_entry_type, batch_size, time_budget_seconds, target_profile, delay=60)
+				if max_batches is None:
+					_requeue(source_url, token, stock_entry_type, batch_size, time_budget_seconds, target_profile, delay=60)
 				return progress
 
 			if not parents:
@@ -784,7 +916,8 @@ def run_import(source_url, token, stock_entry_type=None, batch_size=2000, time_b
 				progress[t]["errors"] += 1
 				progress[t]["last_error"] = "child pull failed: {0}".format(e)
 				_save_progress(progress)
-				_requeue(source_url, token, stock_entry_type, batch_size, time_budget_seconds, target_profile, delay=60)
+				if max_batches is None:
+					_requeue(source_url, token, stock_entry_type, batch_size, time_budget_seconds, target_profile, delay=60)
 				return progress
 
 			cache.ensure_buckets([p.get("custom_bucket_id") for p in parents])
@@ -808,7 +941,8 @@ def run_import(source_url, token, stock_entry_type=None, batch_size=2000, time_b
 				progress[t]["errors"] += 1
 				progress[t]["last_error"] = "write failed: {0}".format(e)
 				_save_progress(progress)
-				_requeue(source_url, token, stock_entry_type, batch_size, time_budget_seconds, target_profile, delay=60)
+				if max_batches is None:
+					_requeue(source_url, token, stock_entry_type, batch_size, time_budget_seconds, target_profile, delay=60)
 				return progress
 
 			progress[t]["imported"] += inserted
@@ -816,6 +950,7 @@ def run_import(source_url, token, stock_entry_type=None, batch_size=2000, time_b
 			progress[t]["errors"] += batch_errors
 			progress[t]["cursor"] = parents[-1]["creation"]
 			_save_progress(progress)
+			batches_done += 1
 
 			frappe.publish_progress(
 				percent=None,
@@ -851,10 +986,13 @@ def _requeue(source_url, token, stock_entry_type, batch_size, time_budget_second
 
 
 @frappe.whitelist()
-def queue_import(source_url, token, stock_entry_type=None, batch_size=2000, time_budget_seconds=1200, target_profile="local"):
+def queue_import(source_url, token, stock_entry_type=None, batch_size=2000, time_budget_seconds=1200,
+		target_profile="local", max_batches=None):
 	"""Entry point safe to paste into System Console. Kicks off the background
 	job chain and returns immediately — check progress with get_progress().
-	target_profile: "local" or "production" — see TARGET_PROFILES / run_import."""
+	target_profile: "local" or "production" — see TARGET_PROFILES / run_import.
+	max_batches: pass this for any first/validation run against a target —
+	see run_import's docstring. Leave unset only for the real full backfill."""
 	if target_profile not in TARGET_PROFILES:
 		raise frappe.ValidationError("Unknown target_profile {0!r} — must be one of {1}".format(
 			target_profile, list(TARGET_PROFILES)))
@@ -868,5 +1006,6 @@ def queue_import(source_url, token, stock_entry_type=None, batch_size=2000, time
 		batch_size=batch_size,
 		time_budget_seconds=time_budget_seconds,
 		target_profile=target_profile,
+		max_batches=max_batches,
 	)
 	return "Queued. Call upande_packhouse.migrations.v15_import.get_progress() to check status."
