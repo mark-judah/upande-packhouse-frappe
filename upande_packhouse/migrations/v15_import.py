@@ -276,6 +276,22 @@ class V15Client:
 		}
 		return self._post("Stock Entry", payload)
 
+	def pull_stem_lengths(self, v15_names):
+		"""Batch-fetch just name + the raw custom_stem_length text for a
+		specific list of v15 Stock Entry names — used by the stem-length
+		backfill, which needs the TRUE original value (only ever resolved
+		down to one of the 3 coarse pricing-tier buckets at migration time,
+		never stored as raw text on v16)."""
+		if not v15_names:
+			return {}
+		payload = {
+			"filters": [["name", "in", v15_names]],
+			"fields": ["name", "custom_stem_length"],
+			"limit_page_length": 0,
+		}
+		rows = self._post("Stock Entry", payload)
+		return {r["name"]: r.get("custom_stem_length") for r in rows}
+
 	def pull_children(self, parent_names):
 		if not parent_names:
 			return {}
@@ -1055,3 +1071,256 @@ def queue_import(source_url, token, stock_entry_type=None, batch_size=2000, time
 		max_batches=max_batches,
 	)
 	return "Queued. Call upande_packhouse.migrations.v15_import.get_progress() to check status."
+
+
+# ------------------------------------------------------------------
+# Stem Length backfill — separate from the main import above.
+#
+# The "Stem Length" doctype was rebuilt on v16 with naming_series
+# autonaming ("LEN-2026-00001") and a 4-option Select ("43CM"/"53CM"/
+# "63CM"/"73CM"), instead of v15's real shape: autoname directly from the
+# `length` field itself (e.g. a Stem Length document is literally named
+# "57cm"), free-text, covering the full real range (37/42/52/57/62/72/
+# 82/92cm). doctype/stem_length/stem_length.json has been fixed to match
+# v15 again — this module backfills the DATA: every Harvesting/Grading/
+# Receiving Stock Entry whose custom_stem_length got coarse-matched down
+# to one of the 3 old buckets during the main migration (because only
+# those 3 existed on v16 at the time) gets re-pointed at the correct,
+# precise Stem Length record now that the full set exists.
+#
+# Only migrated records (remarks = "Migrated from v15 <name>") can be
+# fixed this way — the true original value isn't stored anywhere on v16,
+# so it has to be re-fetched from the v15 source record itself. Stock
+# Entries created directly on v16 since go-live, if any also got stuck
+# with a coarse bucket, have no recoverable precise value; they're left
+# alone (still a valid Link, just imprecise) — that's a distinct, real
+# gap this backfill does not and cannot close.
+# ------------------------------------------------------------------
+
+V15_STEM_LENGTH_VALUES = ["37cm", "42cm", "52cm", "57cm", "62cm", "72cm", "82cm", "92cm"]
+
+
+@frappe.whitelist()
+def ensure_v15_stem_lengths(target_profile="production"):
+	"""Get-or-create the real, full set of Stem Length values (matching v15
+	exactly) for this profile's company. Small and synchronous — safe to
+	call directly from System Console, same as ensure_cut_stages(). Must
+	run AFTER the doctype fix (stem_length.json: autoname field:length,
+	length as Data) has been deployed and migrated — while the old Select
+	fieldtype is still live, creating a value outside its 4 options will
+	fail validation."""
+	if target_profile not in TARGET_PROFILES:
+		raise frappe.ValidationError("Unknown target_profile {0!r} — must be one of {1}".format(
+			target_profile, list(TARGET_PROFILES)))
+	company = TARGET_PROFILES[target_profile]["company"]
+	created = []
+	for val in V15_STEM_LENGTH_VALUES:
+		if not frappe.db.exists("Stem Length", val):
+			frappe.get_doc({
+				"doctype": "Stem Length", "length": val, "company": company, "docstatus": 1,
+			}).insert(ignore_permissions=True)
+			created.append(val)
+	frappe.db.commit()
+	return {"created": created, "already_existed": [v for v in V15_STEM_LENGTH_VALUES if v not in created]}
+
+
+def _stem_backfill_progress_path():
+	return frappe.get_site_path("private", "files", "v16_stem_length_backfill_progress.json")
+
+
+def _load_stem_backfill_progress():
+	import os
+
+	path = _stem_backfill_progress_path()
+	default = {"cursor": "", "updated": 0, "skipped": 0, "errors": 0, "done": False, "last_error": None}
+	if not os.path.exists(path):
+		return dict(default)
+	with open(path) as f:
+		data = json.load(f)
+	for k, v in default.items():
+		data.setdefault(k, v)
+	return data
+
+
+def _save_stem_backfill_progress(progress):
+	import os
+
+	path = _stem_backfill_progress_path()
+	tmp = path + ".tmp"
+	with open(tmp, "w") as f:
+		json.dump(progress, f, indent=1, default=str)
+	os.replace(tmp, path)
+
+
+@frappe.whitelist()
+def get_stem_backfill_progress():
+	return _load_stem_backfill_progress()
+
+
+@frappe.whitelist()
+def reset_stem_backfill_progress():
+	progress = {"cursor": "", "updated": 0, "skipped": 0, "errors": 0, "done": False, "last_error": None}
+	_save_stem_backfill_progress(progress)
+	return progress
+
+
+def _stem_length_candidates(company):
+	rows = frappe.get_all("Stem Length", filters={"company": company, "docstatus": ["!=", 2]},
+		fields=["name", "length"])
+	out = []
+	for r in rows:
+		m = STEM_LENGTH_VALUE_RE.search(r.length or "")
+		if m:
+			out.append((r.name, float(m.group(1))))
+	return out
+
+
+def _resolve_stem_length(raw_value, candidates):
+	if not raw_value or not candidates:
+		return None
+	m = STEM_LENGTH_VALUE_RE.search(str(raw_value))
+	if not m:
+		return None
+	target = float(m.group(1))
+	return min(candidates, key=lambda c: abs(c[1] - target))[0]
+
+
+@frappe.whitelist()
+def run_stem_length_backfill(source_url, token, target_profile="production", batch_size=2000,
+		time_budget_seconds=1200, max_batches=None):
+	"""The real engine — same self-requeuing pattern as run_import. Only
+	touches Stock Entries with remarks starting "Migrated from v15 " (this
+	migration's own marker) whose custom_stem_length currently points at
+	an "old-style" record (name != length — i.e. still auto-series-named,
+	the pre-fix shape; every record ensure_v15_stem_lengths() creates is
+	name-equals-length, so this signal stays correct going forward without
+	hardcoding the 3 known bad names)."""
+	import time
+
+	if target_profile not in TARGET_PROFILES:
+		raise frappe.ValidationError("Unknown target_profile {0!r} — must be one of {1}".format(
+			target_profile, list(TARGET_PROFILES)))
+	company = TARGET_PROFILES[target_profile]["company"]
+	batch_size = int(batch_size)
+	time_budget_seconds = int(time_budget_seconds)
+	max_batches = int(max_batches) if max_batches not in (None, "", "None") else None
+
+	old_style = frappe.db.sql(
+		"SELECT name FROM `tabStem Length` WHERE company=%s AND name != length", company, as_dict=True)
+	old_names = [r["name"] for r in old_style]
+
+	candidates = _stem_length_candidates(company)
+	client = V15Client(source_url, token)
+	progress = _load_stem_backfill_progress()
+	started = time.monotonic()
+	batches_done = 0
+
+	if progress["done"] or not old_names:
+		if not old_names:
+			progress["done"] = True
+			_save_stem_backfill_progress(progress)
+		return progress
+
+	remarks_re = re.compile(r"^Migrated from v15 (.+)$")
+
+	while True:
+		if max_batches is not None and batches_done >= max_batches:
+			return progress
+		if time.monotonic() - started > time_budget_seconds:
+			_requeue_stem_backfill(source_url, token, target_profile, batch_size, time_budget_seconds)
+			return progress
+
+		rows = frappe.db.sql(
+			"""SELECT name, remarks FROM `tabStock Entry`
+			   WHERE company=%s AND name > %s AND custom_stem_length IN %s
+			   ORDER BY name ASC LIMIT %s""",
+			(company, progress["cursor"], old_names, batch_size), as_dict=True,
+		)
+		if not rows:
+			progress["done"] = True
+			_save_stem_backfill_progress(progress)
+			return progress
+
+		v15_name_by_v16 = {}
+		for r in rows:
+			m = remarks_re.match(r.remarks or "")
+			if m:
+				v15_name_by_v16[r.name] = m.group(1)
+
+		try:
+			v15_values = client.pull_stem_lengths(list(set(v15_name_by_v16.values())))
+		except Exception as e:
+			progress["errors"] += 1
+			progress["last_error"] = "pull failed: {0}".format(e)
+			_save_stem_backfill_progress(progress)
+			if max_batches is None:
+				_requeue_stem_backfill(source_url, token, target_profile, batch_size, time_budget_seconds, delay=60)
+			return progress
+
+		updated_this_batch = 0
+		for r in rows:
+			v15_name = v15_name_by_v16.get(r.name)
+			if not v15_name:
+				progress["skipped"] += 1
+				continue
+			raw = v15_values.get(v15_name)
+			resolved = _resolve_stem_length(raw, candidates)
+			if not resolved:
+				progress["skipped"] += 1
+				continue
+			frappe.db.set_value("Stock Entry", r.name, "custom_stem_length", resolved, update_modified=False)
+			updated_this_batch += 1
+
+		frappe.db.commit()
+		progress["updated"] += updated_this_batch
+		progress["cursor"] = rows[-1]["name"]
+		_save_stem_backfill_progress(progress)
+		batches_done += 1
+
+		frappe.publish_progress(
+			percent=None, title="Stem length backfill",
+			description="{0} updated, {1} skipped, {2} errors so far".format(
+				progress["updated"], progress["skipped"], progress["errors"]),
+		)
+
+		if len(rows) < batch_size:
+			progress["done"] = True
+			_save_stem_backfill_progress(progress)
+			return progress
+
+
+def _requeue_stem_backfill(source_url, token, target_profile, batch_size, time_budget_seconds, delay=5):
+	frappe.enqueue(
+		"upande_packhouse.migrations.v15_import.run_stem_length_backfill",
+		queue="long",
+		timeout=time_budget_seconds + 300,
+		enqueue_after_commit=True,
+		source_url=source_url,
+		token=token,
+		target_profile=target_profile,
+		batch_size=batch_size,
+		time_budget_seconds=time_budget_seconds,
+	)
+
+
+@frappe.whitelist()
+def queue_stem_length_backfill(source_url, token, target_profile="production", batch_size=2000,
+		time_budget_seconds=1200, max_batches=None):
+	"""Entry point safe to paste into System Console. Run
+	ensure_v15_stem_lengths(target_profile) first (once, synchronously),
+	then this. Check progress with get_stem_backfill_progress()."""
+	if target_profile not in TARGET_PROFILES:
+		raise frappe.ValidationError("Unknown target_profile {0!r} — must be one of {1}".format(
+			target_profile, list(TARGET_PROFILES)))
+	frappe.enqueue(
+		"upande_packhouse.migrations.v15_import.run_stem_length_backfill",
+		queue="long",
+		timeout=int(time_budget_seconds) + 300,
+		source_url=source_url,
+		token=token,
+		target_profile=target_profile,
+		batch_size=batch_size,
+		time_budget_seconds=time_budget_seconds,
+		max_batches=max_batches,
+	)
+	return "Queued. Call upande_packhouse.migrations.v15_import.get_stem_backfill_progress() to check status."
