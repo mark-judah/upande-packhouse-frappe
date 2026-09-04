@@ -1,0 +1,61 @@
+/* Copyright (c) 2026, Upande and contributors
+ * Sales Order picker dialogs (Consignee / Shipping Agent / Mixed Box) —
+ * shares the packhouse-dashboard ("Role Advisor") design tokens so a Desk
+ * dialog reads like the rest of the packhouse portal instead of a raw
+ * frappe.ui.Dialog. See public/css/packhouse-portal.css for the source
+ * palette (scoped .aph there for www pages; this file re-declares the same
+ * token values scoped to .sod so it works inside Desk modals).
+ */
+.sod{
+  --ink:#0a0a0a;--ink-mute:#8a8780;--ink-faint:#b8b6ae;
+  --bg:#f4f3ef;--surface:#ffffff;--hairline:rgba(10,10,10,0.08);
+  --accent:#0a0a0a;--sans:'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  font-family:var(--sans);
+}
+
+/* ---- search box ---- */
+.sod-search{
+  position:relative;margin:0 0 12px;
+}
+.sod-search input{
+  width:100%;height:36px;padding:0 14px 0 36px;
+  border:1px solid var(--hairline);border-radius:999px;
+  background:var(--bg);font-size:13px;color:var(--ink);
+  outline:none;transition:border-color .15s ease,background .15s ease;
+}
+.sod-search input:focus{border-color:var(--ink-faint);background:var(--surface)}
+.sod-search::before{
+  content:"";position:absolute;left:13px;top:50%;width:14px;height:14px;
+  margin-top:-7px;border:1.5px solid var(--ink-mute);border-radius:50%;
+  box-sizing:border-box;pointer-events:none;
+}
+.sod-search::after{
+  content:"";position:absolute;left:22px;top:50%;width:6px;height:1.5px;
+  margin-top:5px;background:var(--ink-mute);transform:rotate(45deg);
+  transform-origin:left center;pointer-events:none;
+}
+
+/* ---- option list ---- */
+.sod-list{max-height:320px;overflow-y:auto;border:1px solid var(--hairline);border-radius:14px;background:var(--surface)}
+.sod-opt{
+  padding:11px 14px;cursor:pointer;border-bottom:1px solid var(--hairline);
+  font-size:13px;color:var(--ink);transition:background .12s ease;
+}
+.sod-opt:last-child{border-bottom:0}
+.sod-opt:hover,.sod-opt.sod-active{background:var(--bg)}
+.sod-opt .sod-opt-title{font-weight:600;color:var(--ink)}
+.sod-opt .sod-opt-sub{font-size:11px;color:var(--ink-mute);margin-top:2px}
+.sod-empty{padding:24px 14px;text-align:center;font-size:12.5px;color:var(--ink-mute)}
+.sod-hint{font-size:11px;color:var(--ink-mute);margin:-6px 0 10px;text-transform:uppercase;letter-spacing:.06em;font-weight:500}
+
+/* ---- mixed-box wizard nav strip (design-matched replacement for the old blue banner) ---- */
+.sod-nav{
+  display:flex;align-items:center;justify-content:space-between;
+  background:var(--bg);border:1px solid var(--hairline);border-radius:14px;
+  padding:10px 16px;margin:12px 0 4px;font-family:var(--sans);
+}
+.sod-nav-group{font-size:.88em;color:var(--ink-mute);font-weight:500;letter-spacing:.01em}
+.sod-nav-group b{font-size:1.15em;font-weight:700;color:var(--ink);margin:0 3px}
+.sod-nav-tally{background:var(--ink);color:#fafaf6;border-radius:20px;padding:4px 14px;font-size:.82em;font-weight:600;letter-spacing:.02em}
+.sod-nav-clear{font-size:.8em;color:#b3453b;text-decoration:none;font-weight:500;border:1px solid #f0d3d0;border-radius:999px;padding:3px 12px;transition:background .12s ease}
+.sod-nav-clear:hover{background:#fbf0ef}

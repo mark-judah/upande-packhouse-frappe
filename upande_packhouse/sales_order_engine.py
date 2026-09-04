@@ -97,9 +97,25 @@ def _price_list_fx(price_list, doc_currency):
     return 1.0
 
 
+def _set_order_summary(doc):
+    """Total Boxes / Total Stems shown below the items table — the authoritative,
+    save-time tally (the client script mirrors this live for immediate feedback,
+    but this is what actually lands on submit regardless of what the browser did)."""
+    total_boxes, total_stems = 0, 0
+    for it in doc.items:
+        if not it.item_code:
+            continue
+        boxes = int(it.get("custom_number_of_boxes") or 0)
+        total_boxes += boxes
+        total_stems += _line_packrate(it) * boxes
+    doc.custom_total_boxes = total_boxes
+    doc.custom_total_stems = total_stems
+
+
 def sales_order_before_validate(doc, method=None):
     """Quantity tally + point the order at the customer's price list, before
     ERPNext's qty>0 check and its own (length-blind) pricing run."""
+    _set_order_summary(doc)
     if (doc.get("business_unit") or "") != "Roses":
         return
     pl = _resolve_price_list(doc)

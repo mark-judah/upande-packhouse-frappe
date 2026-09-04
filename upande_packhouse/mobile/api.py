@@ -264,8 +264,9 @@ def createOrUpdateDispatch():
                 dn.custom_brn_ref = so.get("custom_s_number")
                 dn.custom_consignee = so.get("custom_consignee")
                 dn.custom_delivery_point = so.get("custom_delivery_point")
-                dn.custom_flo_id = so.get("custom_customer_flo_id") or so.get("custom_company_flo_id")
-                dn.custom_flo_id_2 = so.get("custom_company_flo_id")
+                # custom_customer_flo_id / custom_company_flo_id removed from Sales Order
+                # (unused, never populated) — custom_flo_id / custom_flo_id_2 on the
+                # Delivery Note are left for whoever fills them downstream.
                 dn.custom_total_boxes = total_boxes
                 dn.po_no = so.get("po_no")
 

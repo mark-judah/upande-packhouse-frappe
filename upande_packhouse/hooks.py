@@ -43,7 +43,25 @@ app_license = "mit"
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-# doctype_js = {"doctype" : "public/js/doctype.js"}
+doctype_js = {
+	# Sales Order client-side automation — the manual-entry business_unit/farm
+	# -> accounting-dimension sync, box math (packrate x boxes -> qty/UOM), the
+	# Total Boxes/Total Stems order summary, the mixed-box wizard, spec
+	# autofill, the Consignee/Shipping Agent/Delivery Point pickers, and Roses
+	# warehouse routing. Kept as separate files by concern rather than one
+	# bundle; all load together for every Sales Order form. Was previously a
+	# set of DB-only Client Script records (not in git) — ported here so it
+	# ships with the app instead of living only on one site's database.
+	"Sales Order": [
+		"public/js/sales_order/accounting_dimension_sync.js",
+		"public/js/sales_order/box_math.js",
+		"public/js/sales_order/mixed_box_wizard.js",
+		"public/js/sales_order/spec_autofill.js",
+		"public/js/sales_order/pickers.js",
+		"public/js/sales_order/warehouse_routing.js",
+		"public/js/sales_order/misc_autopopulate.js",
+	],
+}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}

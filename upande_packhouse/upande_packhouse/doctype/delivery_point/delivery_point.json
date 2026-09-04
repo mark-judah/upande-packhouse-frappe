@@ -8,19 +8,35 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "description"
+  "description",
+  "business_unit",
+  "shipping_agents"
  ],
  "fields": [
   {
    "fieldname": "description",
    "fieldtype": "Data",
    "label": "Description"
+  },
+  {
+   "fieldname": "business_unit",
+   "fieldtype": "Link",
+   "label": "Business Unit",
+   "options": "Business Unit",
+   "description": "The Sales Order's Delivery Point picker is filtered to this Business Unit (Roses orders only offer Roses delivery points)."
+  },
+  {
+   "fieldname": "shipping_agents",
+   "fieldtype": "Table",
+   "label": "Shipping Agents",
+   "options": "Delivery Point Shipping Agent",
+   "description": "Shipping Agents that serve this Delivery Point. The Sales Order's Shipping Agent picker offers only these; if left empty, every Shipping Agent is offered."
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-28 10:54:29.843231",
+ "modified": "2026-09-04 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Delivery Point",
