@@ -3,7 +3,7 @@
  "allow_bulk_edit": 1,
  "allow_rename": 1,
  "autoname": "field:id",
- "creation": "2026-08-08 13:09:08.589082",
+ "creation": "2026-09-09 15:34:36.501898",
  "default_view": "List",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -41,13 +41,13 @@
    "options": "Stock Entry"
   },
   {
+   "description": "The Harvesting entry that started this bucket's CURRENT journey -- i.e. the scan that flipped it Available -> In Use. ",
    "fieldname": "current_journey_start",
    "fieldtype": "Link",
    "label": "Current Journey Start",
    "options": "Stock Entry",
    "read_only": 1,
-   "search_index": 1,
-   "description": "The Harvesting entry that started this bucket's CURRENT journey -- i.e. the scan that flipped it Available -> In Use. Set once per journey (every Standard Roses harvest; only the first Spray Roses scan of a session). Receiving and Bucket Status use this to scope aggregation to the current journey only -- an earlier, abandoned journey's leftover unclaimed harvest entries must never be swept in: those stems were never received and the bucket has since moved on, so they're simply gone. Left blank means no journey marker was recorded yet (buckets mid-journey from before this field existed) -- callers fall back to their old unclaimed-aggregation behavior for those."
+   "search_index": 1
   },
   {
    "fieldname": "label_print_doc",
@@ -59,8 +59,8 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-28 10:51:55.456802",
- "modified_by": "Administrator",
+ "modified": "2026-09-09 19:20:39.758892",
+ "modified_by": "judah@upande.com",
  "module": "Upande Packhouse",
  "name": "Bucket QR Code",
  "naming_rule": "By fieldname",
