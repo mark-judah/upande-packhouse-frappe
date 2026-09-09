@@ -12,6 +12,7 @@
   "id",
   "status",
   "last_stock_entry",
+  "current_journey_start",
   "label_print_doc"
  ],
  "fields": [
@@ -38,6 +39,15 @@
    "fieldtype": "Link",
    "label": "Last Stock Entry",
    "options": "Stock Entry"
+  },
+  {
+   "fieldname": "current_journey_start",
+   "fieldtype": "Link",
+   "label": "Current Journey Start",
+   "options": "Stock Entry",
+   "read_only": 1,
+   "search_index": 1,
+   "description": "The Harvesting entry that started this bucket's CURRENT journey -- i.e. the scan that flipped it Available -> In Use. Set once per journey (every Standard Roses harvest; only the first Spray Roses scan of a session). Receiving and Bucket Status use this to scope aggregation to the current journey only -- an earlier, abandoned journey's leftover unclaimed harvest entries must never be swept in: those stems were never received and the bucket has since moved on, so they're simply gone. Left blank means no journey marker was recorded yet (buckets mid-journey from before this field existed) -- callers fall back to their old unclaimed-aggregation behavior for those."
   },
   {
    "fieldname": "label_print_doc",
