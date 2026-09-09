@@ -298,8 +298,34 @@ def run_label_generation_job(docname):
         # 1. Filter and Calculate
         valid_rows = [row for row in parent_doc.details if int(row.no_of_labels) > 0]
         total_count = sum(int(row.no_of_labels) for row in valid_rows)
-        
+
         if total_count == 0:
+            # This used to return silently -- no log, no notification -- which
+            # is indistinguishable from a hang/crash to the user. Every other
+            # exit path below notifies one way or another; this one must too.
+            frappe.log_error(
+                f"No labels requested for {docname} -- every row's No of Labels was 0",
+                "Label Generation: Nothing To Do",
+            )
+            notification_doc = frappe.new_doc("Notification Log")
+            notification_doc.for_user = job_owner
+            notification_doc.subject = f"No labels generated for {docname}"
+            notification_doc.email_content = (
+                f"The label batch for {docname} finished with nothing to do -- every "
+                "row's \"No of Labels\" was 0. Set a quantity on at least one row "
+                "(or use the bulk quantity field) and save again to generate labels."
+            )
+            notification_doc.document_type = "Label Print"
+            notification_doc.document_name = docname
+            notification_doc.insert(ignore_permissions=True)
+            frappe.publish_realtime(
+                "msgprint",
+                {
+                    "message": f"No labels were generated for {docname} -- every row's quantity was 0.",
+                    "indicator": "orange",
+                },
+                user=job_owner,
+            )
             return
 
         # 2. Update Sequence

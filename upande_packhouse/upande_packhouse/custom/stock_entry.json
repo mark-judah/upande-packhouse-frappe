@@ -419,26 +419,6 @@
  "doctype": "Stock Entry",
  "links": [
   {
-   "creation": "2026-08-14 15:28:39.552451",
-   "custom": 1,
-   "docstatus": 0,
-   "group": "Production",
-   "hidden": 0,
-   "idx": 0,
-   "is_child_table": 0,
-   "link_doctype": "Stock Entry",
-   "link_fieldname": "custom_receiving_entry",
-   "modified": "2026-08-14 15:28:39.552451",
-   "modified_by": "Administrator",
-   "name": "otb8cl776l",
-   "owner": "Administrator",
-   "parent": "Stock Entry",
-   "parent_doctype": null,
-   "parentfield": "links",
-   "parenttype": "Customize Form",
-   "table_fieldname": null
-  },
-  {
    "creation": "2026-08-14 15:28:39.576354",
    "custom": 1,
    "docstatus": 0,

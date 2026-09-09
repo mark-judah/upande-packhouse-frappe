@@ -56,6 +56,7 @@ doctype_js = {
 		"public/js/sales_order/accounting_dimension_sync.js",
 		"public/js/sales_order/box_math.js",
 		"public/js/sales_order/mixed_box_wizard.js",
+		"public/js/sales_order/mixed_box_uom_fix.js",
 		"public/js/sales_order/spec_autofill.js",
 		"public/js/sales_order/pickers.js",
 		"public/js/sales_order/warehouse_routing.js",
@@ -232,9 +233,9 @@ scheduler_events = {
 # override_doctype_dashboards = {
 # 	"Task": "upande_packhouse.task.get_dashboard_data"
 # }
-override_doctype_dashboards = {
-	"Stock Entry": "upande_packhouse.stock_entry_connections.get_dashboard_data"
-}
+# Stock Entry's Connections override moved to upande_agriculture -- that app
+# owns the Harvesting/Grading side of the relationship this surfaces
+# (see upande_agriculture.stock_entry_connections).
 
 # exempt linked doctypes from being automatically cancelled
 #
