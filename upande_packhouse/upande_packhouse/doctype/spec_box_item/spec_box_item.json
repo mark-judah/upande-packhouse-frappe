@@ -1,13 +1,12 @@
 {
  "actions": [],
  "allow_rename": 1,
- "creation": "2026-05-31 00:00:00",
+ "creation": "2026-09-10 12:31:47.320479",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
   "bunch_type",
-  "colour",
   "hz_bud_count_range",
   "stems_per_bunch",
   "length",
@@ -24,53 +23,60 @@
    "options": "\nMono Bunch\nMixed Bunch"
   },
   {
-   "fieldname": "colour",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Colour",
-   "options": "Color"
-  },
-  {
    "fieldname": "hz_bud_count_range",
    "fieldtype": "Data",
+   "in_list_view": 1,
    "label": "HZ/Bud Count Range"
   },
   {
+   "description": "Drives the Sales Order line's UOM (\"Bunch (N)\") and, with Bunches/Box, the auto-computed Pack Rate.",
    "fieldname": "stems_per_bunch",
    "fieldtype": "Int",
    "in_list_view": 1,
-   "label": "Stems/Bunch"
+   "label": "Stems/Bunch",
+   "reqd": 1
   },
   {
+   "description": "Copied directly onto the Sales Order line's packing instructions -- must be set.",
    "fieldname": "length",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Length",
-   "options": "Stem Length"
+   "options": "Stem Length",
+   "reqd": 1
   },
   {
+   "description": "Copied directly onto the Sales Order line's packing instructions -- must be set.",
    "fieldname": "box_type",
    "fieldtype": "Link",
+   "in_list_view": 1,
    "label": "Box Type",
-   "options": "Box Type"
+   "options": "Box Type",
+   "reqd": 1
   },
   {
+   "description": "With Stems/Bunch, computes the Pack Rate below.",
    "fieldname": "bunches_per_box",
    "fieldtype": "Int",
-   "label": "Bunches/Box"
+   "in_list_view": 1,
+   "label": "Bunches/Box",
+   "reqd": 1
   },
   {
+   "description": "Auto-computed on save (Bunches/Box × Stems/Bunch) -- never entered by hand. Also provisions the matching Packrate master used by the Sales Order.",
    "fieldname": "pack_rate",
    "fieldtype": "Int",
+   "in_list_view": 1,
    "label": "Pack Rate",
-   "read_only": 1
+   "read_only": 1,
+   "reqd": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-07-17 15:30:57.013040",
+ "modified": "2026-09-10 12:35:41.150238",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Spec Box Item",

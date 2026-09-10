@@ -3,7 +3,7 @@
  "allow_bulk_edit": 1,
  "allow_rename": 1,
  "autoname": "format:{action}-{#####}",
- "creation": "2026-08-08 13:11:05.341929",
+ "creation": "2026-09-10 21:05:01.433307",
  "default_view": "List",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -24,6 +24,12 @@
   "farm_name",
   "number_of_labels_per_variety_per_length",
   "details",
+  "labels_generated",
+  "generation_in_progress",
+  "progress_percent",
+  "progress_title",
+  "progress_description",
+  "progress_html",
   "section_break_uqvl",
   "grader",
   "grader_payroll_number",
@@ -136,6 +142,49 @@
    "options": "Bunch Details Table"
   },
   {
+   "default": "0",
+   "description": "A batch is single-use. If the PDF didn't show up, use \"Generate Attachment\" instead of saving again.",
+   "fieldname": "labels_generated",
+   "fieldtype": "Check",
+   "label": "Labels Generated",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "generation_in_progress",
+   "fieldtype": "Check",
+   "label": "Generation In Progress",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "progress_percent",
+   "fieldtype": "Float",
+   "hidden": 1,
+   "label": "Progress Percent",
+   "read_only": 1
+  },
+  {
+   "fieldname": "progress_title",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Progress Title",
+   "read_only": 1
+  },
+  {
+   "fieldname": "progress_description",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Progress Description",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval: doc.action === 'Bunch Label Table' && !doc.__islocal && doc.labels_generated",
+   "fieldname": "progress_html",
+   "fieldtype": "HTML",
+   "label": "Progress"
+  },
+  {
    "depends_on": "eval: doc.action === 'Grader Label'",
    "fieldname": "section_break_uqvl",
    "fieldtype": "Section Break",
@@ -208,8 +257,8 @@
    "link_fieldname": "label_print_doc"
   }
  ],
- "modified": "2026-08-08 13:13:49.410879",
- "modified_by": "Administrator",
+ "modified": "2026-09-10 21:17:57.346165",
+ "modified_by": "judah@upande.com",
  "module": "Upande Packhouse",
  "name": "Label Print",
  "naming_rule": "Expression (old style)",

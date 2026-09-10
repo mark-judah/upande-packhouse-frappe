@@ -118,7 +118,7 @@
    "name": "Item-custom_color",
    "no_copy": 0,
    "non_negative": 0,
-   "options": "Color",
+   "options": "Colors",
    "owner": "Administrator",
    "permlevel": 0,
    "placeholder": null,

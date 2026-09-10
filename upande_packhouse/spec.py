@@ -42,11 +42,16 @@ def _ensure_packrate(stems_per_box):
 
 
 def ensure_spec_uoms_and_packrates(doc, method=None):
-	"""On every Specifications save, provision the bunch UOMs and packrates its box
-	items imply, so downstream Sales Orders never hit a missing-UOM / missing-Packrate
-	link error. Returns the (uoms, packrates) it touched (handy for bulk backfill)."""
+	"""On every Specifications save (before_validate, so Pack Rate is already
+	correct by the time its own `reqd` check runs): recompute each box item's
+	Pack Rate from Bunches/Box x Stems/Bunch (never hand-entered -- the field is
+	read-only), then provision the bunch UOMs and packrates that value implies,
+	so downstream Sales Orders never hit a missing-UOM / missing-Packrate link
+	error. Returns the (uoms, packrates) it touched (handy for bulk backfill)."""
 	uoms, packrates = [], []
 	for bi in (doc.box_items or []):
+		bi.pack_rate = int(bi.bunches_per_box or 0) * int(bi.stems_per_bunch or 0)
+
 		u = _ensure_bunch_uom(bi.stems_per_bunch)
 		if u:
 			uoms.append(u)

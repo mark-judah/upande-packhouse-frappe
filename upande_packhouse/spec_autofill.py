@@ -16,11 +16,59 @@ re-entrancy guards.
 import json
 
 import frappe
+from frappe import _
 
 from upande_packhouse.availability import variety_availability
 
 
 # ----------------------------- helpers -----------------------------
+
+def _spec_issues(doc):
+	"""Fields the autofill actually depends on (see build_spec_rows /
+	_detail_payload / get_spec_fill_data below) -- same set the doctype's own
+	`reqd` flags enforce on save, re-checked here at READ time too. A spec
+	saved before those flags existed (or edited around them via the API) can
+	still be missing one of these; without this check the autofill would
+	silently hand the Sales Order blank/zero packing data instead of refusing
+	to run. Returns a list of human-readable problem strings, empty if clean.
+	"""
+	issues = []
+	if not doc.box_assortment:
+		issues.append("Box Assortment is not set.")
+	if not doc.cut_stage:
+		issues.append("Cut Stage is not set.")
+	if not doc.defoliation_length:
+		issues.append("Defoliation Length is not set.")
+	if not doc.approved_varieties:
+		issues.append("No Approved Varieties are configured.")
+
+	if not doc.box_items:
+		issues.append("No Box Items are configured.")
+	else:
+		for i, bi in enumerate(doc.box_items):
+			row = i + 1
+			if not bi.stems_per_bunch:
+				issues.append(f"Box Item row {row}: Stems/Bunch is not set.")
+			if not bi.bunches_per_box:
+				issues.append(f"Box Item row {row}: Bunches/Box is not set.")
+			if not bi.length:
+				issues.append(f"Box Item row {row}: Length is not set.")
+			if not bi.box_type:
+				issues.append(f"Box Item row {row}: Box Type is not set.")
+			if not bi.pack_rate:
+				issues.append(f"Box Item row {row}: Pack Rate could not be computed.")
+	return issues
+
+
+def _require_clean_spec(doc):
+	issues = _spec_issues(doc)
+	if issues:
+		frappe.throw(
+			_("Specification {0} is incomplete and cannot be used for autofill until it's fixed:"
+			  "<br>{1}").format(frappe.bold(doc.name), "<br>".join(issues)),
+			title=_("Incomplete Specification"),
+		)
+
 
 def _as_list(v):
 	if not v:
@@ -42,15 +90,15 @@ def _approved_by_colour(doc):
 	return m
 
 
-def _approved_for(bi, approved_by_colour):
-	"""Approved varieties for a Box Build line: the customer-allowed set for this
-	line's colour. A colourless line offers the whole approved palette."""
-	if bi.get("colour"):
-		return list(approved_by_colour.get(bi.colour, []))
+def _all_approved_varieties(approved_by_colour):
+	"""Every approved variety across every colour, deduped, order preserved.
+	Box Build lines carry no colour of their own (that lives solely in
+	Specifications.approved_varieties -- see _approved_by_colour above), so
+	every line offers this same full palette; the operator picks the actual
+	colour/variety per line at Sales Order time."""
 	out = []
 	for vs in approved_by_colour.values():
 		out.extend(vs)
-	# de-dup preserving order
 	seen = set()
 	return [v for v in out if not (v in seen or seen.add(v))]
 
@@ -130,22 +178,20 @@ def _detail_payload(doc):
 def get_spec_fill_data(spec):
 	"""Return the spec's colour lines with approved varieties + live availability."""
 	doc = frappe.get_doc("Specifications", spec)
+	_require_clean_spec(doc)
 	items = doc.box_items or []
 	approved_by_colour = _approved_by_colour(doc)
+	approved_varieties = _all_approved_varieties(approved_by_colour)
 
-	all_varieties, all_lengths = [], []
-	for bi in items:
-		all_varieties.extend(_approved_for(bi, approved_by_colour))
-		if bi.length:
-			all_lengths.append(bi.length)
+	all_lengths = [bi.length for bi in items if bi.length]
 
-	avail = variety_availability(list(set(all_varieties)), list(set(all_lengths))) if all_varieties else {}
-	names = _item_names(all_varieties)
+	avail = variety_availability(approved_varieties, list(set(all_lengths))) if approved_varieties else {}
+	names = _item_names(approved_varieties)
 
 	lines = []
 	for i, bi in enumerate(items):
 		approved = []
-		for v in _approved_for(bi, approved_by_colour):
+		for v in approved_varieties:
 			by_farm = avail.get(v, {})
 			approved.append({
 				"variety": v,
@@ -155,7 +201,10 @@ def get_spec_fill_data(spec):
 			})
 		lines.append({
 			"idx": i,
-			"colour": bi.colour or "",
+			# Spec Box Item no longer carries colour (approved_varieties is the
+			# sole source -- see _approved_by_colour/_approved_for above); the
+			# client already falls back to "Line N" when this is blank.
+			"colour": "",
 			"bunch_type": bi.bunch_type or "",
 			"is_mixed_bunch": bi.bunch_type == "Mixed Bunch",
 			"length": bi.length or "",
@@ -185,6 +234,7 @@ def build_spec_rows(spec, selections, next_mix_group=1, next_bunch_group=1, sour
 	next_mix_group / next_bunch_group: current max+1 on the form (client supplies).
 	"""
 	doc = frappe.get_doc("Specifications", spec)
+	_require_clean_spec(doc)
 	selections = _as_list(selections)
 	items = doc.box_items or []
 	is_mixed_box = doc.box_assortment == "Mixed Box"

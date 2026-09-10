@@ -17,7 +17,7 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Colour",
-   "options": "Color"
+   "options": "Colors"
   },
   {
    "columns": 4,

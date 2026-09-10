@@ -6,6 +6,7 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "consumable_type",
   "item",
   "application_level",
   "description",
@@ -15,11 +16,19 @@
  ],
  "fields": [
   {
+   "fieldname": "consumable_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Consumable Type",
+   "options": "\nSleeve\nLabel\nTag\nFlower Food\nRubber Band\nSFK Liner\nNewsprint\nStaple Pins\nAfritape",
+   "columns": 2
+  },
+  {
+   "description": "Optional -- some v15 spec rows named only a consumable_type (e.g. \"Sleeve\") with no specific item ever assigned.",
    "fieldname": "item",
    "fieldtype": "Link",
    "options": "Item",
    "in_list_view": 1,
-   "reqd": 1,
    "label": "Consumable",
    "columns": 3
   },
