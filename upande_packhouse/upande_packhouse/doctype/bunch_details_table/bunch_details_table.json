@@ -49,7 +49,7 @@
    "options": "Stem Length"
   },
   {
-   "description": "Average daily stems produced over the last 7 days (per variety + stem length, for this farm)",
+   "description": null,
    "fieldname": "prev_week_avg",
    "fieldtype": "Int",
    "in_list_view": 1,

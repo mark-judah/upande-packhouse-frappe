@@ -67,6 +67,18 @@
   {
    "child": 1,
    "collapsible": 1,
+   "icon": "layout-grid",
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "Sales Allocation",
+   "link_to": "sales-allocation",
+   "link_type": "Page",
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "child": 1,
+   "collapsible": 1,
    "icon": "factory",
    "indent": 0,
    "keep_closed": 0,
@@ -301,21 +313,9 @@
    "link_type": "DocType",
    "show_arrow": 0,
    "type": "Link"
-  },
-  {
-   "child": 1,
-   "collapsible": 1,
-   "icon": "calendar-days",
-   "indent": 0,
-   "keep_closed": 0,
-   "label": "Packhouse Schedule",
-   "link_to": "Packhouse Schedule",
-   "link_type": "DocType",
-   "show_arrow": 0,
-   "type": "Link"
   }
  ],
- "modified": "2026-08-24 12:28:49.201521",
+ "modified": "2026-09-12 00:12:03.114407",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Packhouse",

@@ -32,7 +32,7 @@
    "reqd": 1
   },
   {
-   "description": "Restricted to internal-logistics trucks (Vehicle.custom_dispatch_truck unchecked) — the same fleet used for farm/packhouse bucket transfers elsewhere in this app.",
+   "description": null,
    "fieldname": "vehicle",
    "fieldtype": "Link",
    "in_list_view": 1,

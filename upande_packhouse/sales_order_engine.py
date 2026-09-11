@@ -261,3 +261,36 @@ def sales_order_validate(doc, method=None):
             "box, or raise the spec's <b>Max Colours Per Box</b>.".format("; ".join(over)),
             title="Too Many Colours in Mixed Box",
         )
+
+    # 6. Every colour sharing one mix_group (or bunch_group, for Mixed Bunch) must
+    #    book the SAME Number of Boxes. Packing later numbers boxes 1..N once per
+    #    group and expects every colour's box N to be the same physical box --
+    #    if one colour says 5 boxes and another says 4, "box 5" only exists for
+    #    one of them and the packing guide can't be built consistently. This used
+    #    to go unchecked entirely; three different places downstream (allocation,
+    #    packing-guide building) each just guessed at "the" box count for a group
+    #    by taking whichever colour's value they happened to see first.
+    box_groups = defaultdict(set)
+    for it in doc.items:
+        if not it.item_code:
+            continue
+        if it.get("custom_mixed_bunch"):
+            key = ("bunch", it.get("custom_bunch_group") or it.get("custom_line") or it.name)
+        elif it.get("custom_mixed_box"):
+            key = ("mix", it.get("custom_mix_group") or it.name)
+        else:
+            continue
+        box_groups[key].add(int(it.get("custom_number_of_boxes") or 0))
+    mismatched = [
+        "{0} group {1}".format("Mixed Bunch" if kind == "bunch" else "Mixed Box", group)
+        for (kind, group), counts in box_groups.items()
+        if len(counts) > 1
+    ]
+    if mismatched:
+        frappe.throw(
+            "Every colour in the same group must book the same Number of Boxes — {0} has "
+            "colours that disagree. Fix Number of Boxes on each line before saving.".format(
+                "; ".join(mismatched)
+            ),
+            title="Inconsistent Box Count",
+        )

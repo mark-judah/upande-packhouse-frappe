@@ -8,23 +8,34 @@
  "engine": "InnoDB",
  "field_order": [
   "source_warehouse",
+  "ungraded_sold_warehouse",
   "delivery_warehouse"
  ],
  "fields": [
   {
-   "columns": 5,
+   "columns": 4,
    "fieldname": "source_warehouse",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Source Warehouse",
+   "label": "Source Warehouse (Receiving Cold Store)",
    "options": "Warehouse"
   },
   {
-   "columns": 5,
+   "columns": 4,
+   "description": null,
+   "fieldname": "ungraded_sold_warehouse",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Ungraded Sold Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "columns": 4,
+   "description": null,
    "fieldname": "delivery_warehouse",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Delivery Warehouse",
+   "label": "Graded Sold Warehouse",
    "options": "Warehouse"
   }
  ],

@@ -16,7 +16,7 @@
  ],
  "fields": [
   {
-   "description": "One loading plan per delivery date",
+   "description": null,
    "fieldname": "delivery_date",
    "fieldtype": "Date",
    "in_list_view": 1,
@@ -41,7 +41,7 @@
    "label": "Loading Plan"
   },
   {
-   "description": "Position 1 = loaded first (back of truck, dropped off last). Highest = loaded last (near door, dropped off first).",
+   "description": null,
    "fieldname": "loading_plan_items",
    "fieldtype": "Table",
    "label": "Loading Plan Items",

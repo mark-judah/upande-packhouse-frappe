@@ -1,9 +1,17 @@
 """Delivery Note -> Sales Invoice for the Roses packhouse flow.
 
-Replaces the old Dispatch-Form-builds-invoice path. A Delivery Note carries all
-the packhouse/dispatch data on its "Roses Packhouse" tab (copied on at creation),
-and on submit we generate the Sales Invoice with ERPNext's native mapper, then
-fill the same-named custom fields from the DN so nothing is lost.
+Replaces the old Dispatch-Form-builds-invoice path. A Delivery Note now
+consolidates every Sales Order for one customer's whole delivery day into a
+single document (see mobile/api.py's createOrUpdateDispatch), so the
+per-order packhouse/dispatch data (which order, its consignee/delivery
+point/freight/transport mode/BRN/truck) lives on each Delivery Note ITEM row
+now, not the header -- a header field can't represent "which order" once a
+document can span several. On submit we generate the Sales Invoice with
+ERPNext's native mapper (which already carries the native
+sales_order/so_detail linkage per row on its own), then fill the same-named
+ITEM custom fields from each matching DN item so nothing is lost; only the
+genuinely document-wide fields (farm, business_unit, the manually-filled FLO
+IDs) still copy at header level.
 """
 
 import frappe
@@ -13,14 +21,12 @@ try:
 except ImportError:  # older ERPNext layout
 	from erpnext.stock.doctype.delivery_note.delivery_note import make_sales_invoice
 
-HEADER_FIELDS = [
-	"custom_so", "farm", "business_unit", "custom_flo_id", "custom_flo_id_2",
-	"custom_freight", "custom_transport_mode", "custom_brn_ref", "custom_consignee",
-	"custom_delivery_point", "custom_dispatch_form", "custom_truck_details", "custom_total_boxes",
-]
+HEADER_FIELDS = ["farm", "business_unit", "custom_flo_id", "custom_flo_id_2"]
 ITEM_FIELDS = [
 	"custom_length", "custom_total_boxes", "custom_total_stems", "custom_stems_per_box",
 	"custom_farm_codes", "custom_source_farm", "custom_hsc", "custom_crop_type",
+	"custom_consignee", "custom_delivery_point", "custom_freight", "custom_transport_mode",
+	"custom_brn_ref", "custom_truck_details",
 ]
 
 
