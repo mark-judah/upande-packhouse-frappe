@@ -7,6 +7,8 @@
 
 import frappe
 
+from upande_packhouse.item_groups import resolve_rose_item_groups
+
 
 @frappe.whitelist()
 def getDashboardData():
@@ -141,13 +143,20 @@ def getDashboardData():
                 while ig_i < len(ig_rows):
                     item_group_map[ig_rows[ig_i].name] = ig_rows[ig_i].item_group
                     ig_i = ig_i + 1
+            # Resolve each leaf Item Group up to "Spray Roses" / "Standard
+            # Roses" via the tree -- real varieties now live under
+            # sub-groups ("Spray Roses - Regular", …), so a flat "==
+            # 'Spray Roses'" check silently bucketed almost everything as
+            # standard once the tree was reorganised. See item_groups.py.
+            rose_category = resolve_rose_item_groups(item_group_map.values())
             i = 0
             while i < len(locations):
                 loc = locations[i]
                 p = loc.parent
                 row_stems = int(loc.stock_qty or 0)
 
-                if (item_group_map.get(loc.item_code, "") or "") == "Spray Roses":
+                raw_group = item_group_map.get(loc.item_code, "") or ""
+                if rose_category.get(raw_group, raw_group) == "Spray Roses":
                     spray_stems_by_opl[p] = spray_stems_by_opl.get(p, 0) + row_stems
                 else:
                     std_stems_by_opl[p] = std_stems_by_opl.get(p, 0) + row_stems

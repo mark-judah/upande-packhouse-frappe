@@ -4,3 +4,6 @@
 
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
+upande_packhouse.patches.remove_sales_order_item_dup_fields
+upande_packhouse.patches.remove_delivery_note_roses_packhouse_tab
+upande_packhouse.patches.remove_order_pick_list_consignee

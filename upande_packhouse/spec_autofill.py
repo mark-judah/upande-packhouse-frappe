@@ -176,7 +176,17 @@ def _detail_payload(doc):
 
 @frappe.whitelist()
 def get_spec_fill_data(spec):
-	"""Return the spec's colour lines with approved varieties + live availability."""
+	"""Return the spec's approved COLOURS, each scoped to only the varieties
+	approved under it (live shelf availability) -- one popup row per colour,
+	not per box item. This is the actual point of the popup: the customer's
+	spec says "5 varieties are approved for White, 10 for Red, ..."; for each
+	colour the operator is choosing ONE variety, based on which one they have
+	the best stock of right now. A box item describes the physical pack
+	(bunch type, length, box type...) and is a SEPARATE axis from colour --
+	most specs have exactly one, so it's applied to every colour row by
+	default, but all of them are returned as `box_options` so the client can
+	offer a choice on the rarer spec that defines more than one.
+	"""
 	doc = frappe.get_doc("Specifications", spec)
 	_require_clean_spec(doc)
 	items = doc.box_items or []
@@ -188,10 +198,20 @@ def get_spec_fill_data(spec):
 	avail = variety_availability(approved_varieties, list(set(all_lengths))) if approved_varieties else {}
 	names = _item_names(approved_varieties)
 
+	box_options = [{
+		"idx": i,
+		"bunch_type": bi.bunch_type or "",
+		"is_mixed_bunch": bi.bunch_type == "Mixed Bunch",
+		"length": bi.length or "",
+		"stems_per_bunch": bi.stems_per_bunch or 0,
+		"pack_rate": bi.pack_rate or 0,
+		"box_type": bi.box_type or "",
+	} for i, bi in enumerate(items)]
+
 	lines = []
-	for i, bi in enumerate(items):
+	for i, (colour, varieties) in enumerate(approved_by_colour.items()):
 		approved = []
-		for v in approved_varieties:
+		for v in varieties:
 			by_farm = avail.get(v, {})
 			approved.append({
 				"variety": v,
@@ -201,16 +221,7 @@ def get_spec_fill_data(spec):
 			})
 		lines.append({
 			"idx": i,
-			# Spec Box Item no longer carries colour (approved_varieties is the
-			# sole source -- see _approved_by_colour/_approved_for above); the
-			# client already falls back to "Line N" when this is blank.
-			"colour": "",
-			"bunch_type": bi.bunch_type or "",
-			"is_mixed_bunch": bi.bunch_type == "Mixed Bunch",
-			"length": bi.length or "",
-			"stems_per_bunch": bi.stems_per_bunch or 0,
-			"pack_rate": bi.pack_rate or 0,
-			"box_type": bi.box_type or "",
+			"colour": colour or _("Colour {0}").format(i + 1),
 			"approved": approved,
 		})
 
@@ -222,6 +233,7 @@ def get_spec_fill_data(spec):
 		"is_mixed_box": doc.box_assortment == "Mixed Box",
 		"ftnft": doc.ftnft or "",
 		"lines": lines,
+		"box_options": box_options,
 		"sources": sources,
 	}
 
@@ -230,7 +242,11 @@ def get_spec_fill_data(spec):
 def build_spec_rows(spec, selections, next_mix_group=1, next_bunch_group=1, source_warehouse=None):
 	"""Shape the chosen varieties into Sales Order Item rows.
 
-	selections: [{line_idx, variety, boxes, stems}]  (stems optional; defaults to pack_rate)
+	selections: [{line_idx, box_idx, variety, boxes, stems}] -- line_idx is
+	which COLOUR was chosen from (informational only, the variety itself is
+	what matters from here on), box_idx is which of the spec's box_items
+	describes the physical pack for this selection (stems optional; defaults
+	to that box item's own pack_rate).
 	next_mix_group / next_bunch_group: current max+1 on the form (client supplies).
 	"""
 	doc = frappe.get_doc("Specifications", spec)
@@ -242,13 +258,11 @@ def build_spec_rows(spec, selections, next_mix_group=1, next_bunch_group=1, sour
 	next_bunch_group = int(next_bunch_group or 1)
 
 	detail = _detail_payload(doc)
-	_, mapping = _roses_map_sources()
-	delivery = mapping.get(source_warehouse) if source_warehouse else None
 	names = _item_names([s.get("variety") for s in selections])
 
 	rows = []
 	for s in selections:
-		idx = int(s.get("line_idx"))
+		idx = int(s.get("box_idx") or 0)
 		if idx < 0 or idx >= len(items):
 			continue
 		bi = items[idx]
@@ -259,7 +273,24 @@ def build_spec_rows(spec, selections, next_mix_group=1, next_bunch_group=1, sour
 		boxes = int(s.get("boxes") or 1)
 		stems_per_box = int(s.get("stems") or bi.pack_rate or 0)
 		mixed_bunch = 1 if bi.bunch_type == "Mixed Bunch" else 0
-		mixed_box = 1 if is_mixed_box else 0
+		# A spec's box_assortment ("Mixed Box" vs Straight/Mono) is a coarser
+		# categorisation than its box item's own bunch_type -- a spec can be
+		# box_assortment="Mixed Box" while the chosen box item is itself a
+		# Mixed Bunch (confirmed real data: SYSU-02490-20 52CM). Without this
+		# bunch_type-takes-precedence guard, such a row got BOTH
+		# custom_mixed_box=1 (stamping it into next_mix_group) AND
+		# custom_mixed_bunch=1 (stamping it into next_bunch_group) -- if a
+		# caller happens to pass the same counter value for both groups (as
+		# the client naturally can, since each is its own independent
+		# per-kind counter), the row silently joins a Mixed Box group it has
+		# nothing to do with. opl_submit_blockers's mix_group completeness
+		# query then waits on this unrelated bunch-group item forever,
+		# leaving a fully-allocated Mixed Box OPL stuck in draft. bunch_type
+		# is the more specific, physical signal (mirrors packing_guide.py's
+		# own _box_kind, which already checks custom_mixed_bunch first), so
+		# it wins here too -- a real Mixed Bunch line is never also tagged
+		# into a mix_group.
+		mixed_box = 1 if (is_mixed_box and not mixed_bunch) else 0
 		uom = _uom_for(bi.stems_per_bunch)
 		total = stems_per_box * boxes
 		factor = _uom_factor(uom)
@@ -290,9 +321,18 @@ def build_spec_rows(spec, selections, next_mix_group=1, next_bunch_group=1, sour
 				row["custom_packrate"] = pr
 
 		if source_warehouse:
-			row["custom_source_warehouse"] = source_warehouse
-			if delivery:
-				row["warehouse"] = delivery
+			# `warehouse` carries the raw Receiving Cold Store for the farm
+			# this line is sourced from -- NOT a mapped/resolved warehouse.
+			# It used to be swapped for Roses-MAP's delivery (Graded Sold)
+			# warehouse right here, which skipped the two real stock moves
+			# stems must physically make on their way to a customer
+			# (coldstore -> Ungraded Sold on issue, Ungraded Sold -> Graded
+			# Sold on Farm Pack List submit -- see roses_warehouse_map.py).
+			# Order Pick List / Pick List Item carries this same coldstore
+			# value forward, and issueBucketToSaleOrderItem /
+			# farm_pack_list.py / createOrUpdateDispatch each resolve the
+			# next warehouse in the chain from it via Roses-MAP as needed.
+			row["warehouse"] = source_warehouse
 
 		row.update(detail)
 		rows.append(row)

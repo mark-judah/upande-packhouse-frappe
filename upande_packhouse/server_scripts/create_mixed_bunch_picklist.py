@@ -24,37 +24,7 @@ from upande_packhouse.server_scripts.create_mixed_box_picklist import (
     _get_confirmed_stems_for_location,
     _lookup_shelf,
 )
-
-
-def _spec_bunch_rows(spec_name):
-    """Mixed-bunch composition rows from a Specification:
-    [{colour, variety, stems_per_bunch, length}, ...]."""
-    if not spec_name:
-        return []
-    try:
-        spec = frappe.get_doc("Specifications", spec_name)
-    except Exception:
-        return []
-    rows = []
-    for bi in (spec.box_items or []):
-        if bi.get("bunch_type") == "Mixed Bunch" and bi.get("variety"):
-            rows.append({
-                "colour": bi.get("colour"),
-                "variety": bi.get("variety"),
-                "stems_per_bunch": int(bi.get("stems_per_bunch") or 0),
-                "length": bi.get("length"),
-            })
-    return rows
-
-
-def _populate_bouquet_guide(order_pick_list, spec_name):
-    """(Re)fill the OPL bouquet packing guide from the spec's mixed-bunch rows."""
-    rows = _spec_bunch_rows(spec_name)
-    if not rows:
-        return
-    order_pick_list.set("table_nade", [])
-    for r in rows:
-        order_pick_list.append("table_nade", r)
+from upande_packhouse.packing_guide import sync_packing_guide
 
 
 def create_mixed_bunch_pick_list_for_allocated_items(sales_order_doc, allocations, submit=True, location=None):
@@ -138,9 +108,6 @@ def create_mixed_bunch_pick_list_for_allocated_items(sales_order_doc, allocation
             for alloc_entry in item['alloc'].get('allocations_list', [])
         )
 
-        # The bouquet recipe comes from the spec (custom_line) shared by the group's lines.
-        spec_name = box_items[0]['so_item'].get('custom_line')
-
         existing_opl = frappe.get_all(
             "Order Pick List",
             filters={
@@ -161,27 +128,42 @@ def create_mixed_bunch_pick_list_for_allocated_items(sales_order_doc, allocation
                 order_pick_list_names.append(opl_name)
                 continue
 
-            # Remove rows for items in current batch, keep others
-            current_batch_so_items = {item['sales_order_item_name'] for item in box_items}
-            filtered_locations = [
-                loc for loc in order_pick_list.table_ytkc
-                if loc.sales_order_item not in current_batch_so_items
-            ]
-            order_pick_list.table_ytkc = []
-            for loc in filtered_locations:
-                order_pick_list.append("table_ytkc", loc)
-
+            # Append new rows -- CONTINUING each item's existing box numbering,
+            # never wiping prior rows for this batch's items (same fix, same
+            # reasoning, as create_mixed_box_picklist.py's existing-OPL branch:
+            # this used to delete every existing row for the batch's SO items
+            # and regenerate box-splitting from ONLY the new batch's stems,
+            # losing whatever an earlier allocation call had already placed).
             for item in box_items:
+                so_item_name = item['sales_order_item_name']
+                existing_rows = [
+                    loc for loc in order_pick_list.table_ytkc
+                    if loc.sales_order_item == so_item_name
+                ]
+                already_stems = sum(loc.stock_qty or 0 for loc in existing_rows)
+                existing_box_ids = {loc.custom_box_id for loc in existing_rows if loc.custom_box_id}
+                start_box_num = (max(existing_box_ids) + 1) if existing_box_ids else 1
+
                 box_locs = _generate_bunch_locations(
                     item['alloc'], item['so_item'],
-                    sales_order_doc.name, item['sales_order_item_name'],
+                    sales_order_doc.name, so_item_name,
                     shelf_farm=shelf_farm,
-                    confirmed_qty=confirmed_stems.get(item['sales_order_item_name'], 0)
+                    confirmed_qty=confirmed_stems.get(so_item_name, 0),
+                    already_stems=already_stems,
+                    start_box_num=start_box_num,
                 )
                 for loc in box_locs:
                     order_pick_list.append("table_ytkc", loc)
 
-            _populate_bouquet_guide(order_pick_list, spec_name)
+            # Every colour sharing this bunch_group -- not just this batch's
+            # -- so the guide reflects the whole group and box numbers line
+            # up across colours no matter which colour got allocated now.
+            group_items = [
+                it for it in sales_order_doc.items
+                if (it.get("custom_bunch_group") or it.get("custom_line")) == bunch_group
+                and it.get("custom_mixed_bunch")
+            ]
+            sync_packing_guide(order_pick_list, group_items)
 
             total_stems = sum(loc.stock_qty for loc in order_pick_list.table_ytkc)
             order_pick_list.custom_total_stems = total_stems
@@ -237,7 +219,12 @@ def create_mixed_bunch_pick_list_for_allocated_items(sales_order_doc, allocation
                 for loc in box_locs:
                     order_pick_list.append("table_ytkc", loc)
 
-            _populate_bouquet_guide(order_pick_list, spec_name)
+            group_items = [
+                it for it in sales_order_doc.items
+                if (it.get("custom_bunch_group") or it.get("custom_line")) == bunch_group
+                and it.get("custom_mixed_bunch")
+            ]
+            sync_packing_guide(order_pick_list, group_items)
 
             order_pick_list.flags.ignore_permissions = True
             order_pick_list.save()
@@ -272,9 +259,14 @@ def create_mixed_bunch_pick_list_for_allocated_items(sales_order_doc, allocation
     return order_pick_list_names[0] if order_pick_list_names else None
 
 
-def _generate_bunch_locations(alloc, so_item, sales_order_name, sales_order_item_name, shelf_farm=None, confirmed_qty=0):
+def _generate_bunch_locations(alloc, so_item, sales_order_name, sales_order_item_name, shelf_farm=None,
+                               confirmed_qty=0, already_stems=0, start_box_num=1):
     """Split a single mixed-bunch allocation into box-level OPL rows.
-    Uses custom_packrate_mixed_box as stems-per-box (like mixed boxes)."""
+    Uses custom_packrate_mixed_box as stems-per-box (like mixed boxes).
+
+    already_stems / start_box_num: see create_mixed_box_picklist._generate_box_locations --
+    same continuation behaviour for a second allocation call on an item that
+    already has boxes filled on this OPL."""
     item_code = alloc['item_code']
     allocations_list = alloc.get('allocations_list', [])
 
@@ -298,7 +290,8 @@ def _generate_bunch_locations(alloc, so_item, sales_order_name, sales_order_item
     sales_uom = so_item.uom
     stock_uom = so_item.stock_uom
 
-    total_stems_needed = stems_per_box * num_boxes
+    remaining_boxes = num_boxes - (start_box_num - 1)
+    total_stems_needed = stems_per_box * remaining_boxes
     total_allocated = sum(a['qty'] for a in allocations_list)
 
     if confirmed_qty > 0 and confirmed_qty < total_stems_needed:
@@ -309,7 +302,7 @@ def _generate_bunch_locations(alloc, so_item, sales_order_name, sales_order_item
             title="Bunch Location - Allocation Check",
             message=f"Item: {item_code}, Allocated: {total_allocated}, "
                     f"Needed: {total_stems_needed}, Confirmed: {confirmed_qty}, "
-                    f"Full order: {stems_per_box * num_boxes}"
+                    f"Already placed: {already_stems}, Full order: {stems_per_box * num_boxes}"
         )
         if confirmed_qty > 0:
             total_stems_needed = total_allocated
@@ -324,14 +317,14 @@ def _generate_bunch_locations(alloc, so_item, sales_order_name, sales_order_item
     if use_box_splitting:
         return _generate_bunch_locations_with_splitting(
             alloc, so_item, sales_order_name, sales_order_item_name,
-            allocations_list, stems_per_box, num_boxes, conversion_factor,
-            sales_uom, stock_uom, shelf_farm, item_code
+            allocations_list, stems_per_box, remaining_boxes, conversion_factor,
+            sales_uom, stock_uom, shelf_farm, item_code, start_box_num=start_box_num
         )
     else:
         return _generate_bunch_flat_locations(
             alloc, so_item, sales_order_name, sales_order_item_name,
             allocations_list, conversion_factor, sales_uom, stock_uom,
-            shelf_farm, item_code
+            shelf_farm, item_code, start_box_num=start_box_num
         )
 
 
@@ -370,10 +363,10 @@ def _bunch_row(so_item, item_code, sales_order_name, sales_order_item_name, allo
 
 def _generate_bunch_flat_locations(alloc, so_item, sales_order_name, sales_order_item_name,
                                    allocations_list, conversion_factor, sales_uom, stock_uom,
-                                   shelf_farm, item_code):
+                                   shelf_farm, item_code, start_box_num=1):
     """One OPL row per bucket — no box splitting. For partial allocations."""
     locations = []
-    box_counter = 1
+    box_counter = start_box_num
     for alloc_entry in allocations_list:
         bucket_id = alloc_entry['bucket_id']
         stems = alloc_entry['qty']
@@ -393,14 +386,15 @@ def _generate_bunch_flat_locations(alloc, so_item, sales_order_name, sales_order
 
 def _generate_bunch_locations_with_splitting(alloc, so_item, sales_order_name, sales_order_item_name,
                                              allocations_list, stems_per_box, num_boxes, conversion_factor,
-                                             sales_uom, stock_uom, shelf_farm, item_code):
-    """Box-splitting logic for full allocations — fills boxes across buckets."""
+                                             sales_uom, stock_uom, shelf_farm, item_code, start_box_num=1):
+    """Box-splitting logic for full allocations — fills boxes across buckets.
+    `num_boxes` is how many MORE boxes to fill starting at start_box_num."""
     locations = []
     bucket_index = 0
     current_bucket_remaining = 0
     current_bucket = None
 
-    for box_num in range(1, num_boxes + 1):
+    for box_num in range(start_box_num, start_box_num + num_boxes):
         stems_needed = stems_per_box
         contributions = []
 
@@ -440,5 +434,19 @@ def _generate_bunch_locations_with_splitting(alloc, so_item, sales_order_name, s
                 contrib.get('downgrade_reason', ''), contrib.get('available_exact_stems', 0),
                 awaiting_transfer, shelf_str, actual_farm, conversion_factor, sales_uom, stock_uom, box_num
             ))
+
+    # See the identical check in create_mixed_box_picklist.py's box splitter:
+    # anything left unconsumed here means more was allocated than num_boxes x
+    # stems_per_box can hold -- used to be silently dropped instead of flagged.
+    leftover = current_bucket_remaining + sum(
+        b['qty'] for b in allocations_list[bucket_index:]
+    )
+    if leftover > 0:
+        frappe.throw(
+            f"Over-allocated for {item_code}: {leftover} stem(s) more than the {num_boxes} "
+            f"remaining box(es) x {stems_per_box} stems/box can hold. Reduce the allocation, "
+            "or raise Number of Boxes on the Sales Order.",
+            title="Overpacked",
+        )
 
     return locations

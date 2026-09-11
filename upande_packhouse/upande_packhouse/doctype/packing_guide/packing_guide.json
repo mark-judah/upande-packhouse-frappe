@@ -1,0 +1,141 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-07-01 08:16:50.646890",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "box_number",
+  "box_kind",
+  "sales_order_item",
+  "column_break_pg1",
+  "colour",
+  "variety",
+  "item_name",
+  "column_break_pg2",
+  "stems_per_bunch",
+  "bunches",
+  "stems",
+  "length",
+  "column_break_pg3",
+  "pack_rate",
+  "box_type"
+ ],
+ "fields": [
+  {
+   "description": null,
+   "fieldname": "box_number",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Box #",
+   "reqd": 1
+  },
+  {
+   "fieldname": "box_kind",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Box Kind",
+   "options": "Straight Box\nMixed Box\nMixed Bunch",
+   "reqd": 1
+  },
+  {
+   "description": null,
+   "fieldname": "sales_order_item",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Sales Order Item"
+  },
+  {
+   "fieldname": "column_break_pg1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "colour",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Colour",
+   "options": "Colors"
+  },
+  {
+   "fieldname": "variety",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Variety",
+   "options": "Item",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "variety.item_name",
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "label": "Variety Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_pg2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "stems_per_bunch",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Stems / Bunch",
+   "reqd": 1
+  },
+  {
+   "description": null,
+   "fieldname": "bunches",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Bunches",
+   "reqd": 1
+  },
+  {
+   "description": null,
+   "fieldname": "stems",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Stems",
+   "read_only": 1
+  },
+  {
+   "fieldname": "length",
+   "fieldtype": "Link",
+   "label": "Length",
+   "options": "Stem Length"
+  },
+  {
+   "fieldname": "column_break_pg3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": null,
+   "fieldname": "pack_rate",
+   "fieldtype": "Int",
+   "label": "Pack Rate",
+   "reqd": 1
+  },
+  {
+   "fieldname": "box_type",
+   "fieldtype": "Link",
+   "label": "Box Type",
+   "options": "Box Type"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Packing Guide",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

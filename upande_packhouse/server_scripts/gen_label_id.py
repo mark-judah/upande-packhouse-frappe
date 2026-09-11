@@ -329,9 +329,20 @@ def regenerate_batch_table_attachment(docname):
         frappe.throw(_("This is only for the Bunch Label Table action."))
 
     if not frappe.db.exists("Bunch QR Code", {"label_print_doc": docname}):
+        # Nothing exists to protect, so this is the safe place to clear a
+        # stuck single-use lock too -- e.g. a run that died (worker
+        # restart, OOM) between being triggered and creating its first
+        # bunch, or a validation failure from an older app version that
+        # didn't yet reset the lock itself on that exit path. Without this,
+        # a doc that never got past validation is stuck forever: it can't
+        # be saved again ("Already Generated") and there's nothing here to
+        # attach either -- a dead end with no way out except a manual DB fix.
+        _release_single_use_lock(docname)
         frappe.throw(_(
-            "No bunches exist yet for {0} -- there's nothing to attach. "
-            "Re-run the full generation instead (save the document again)."
+            "No bunches exist yet for {0} -- there's nothing to attach. This document's "
+            "single-use lock has been cleared, since there was nothing to protect -- fix "
+            "whatever stopped generation (e.g. a missing Farm Code) and save the document "
+            "again to retry."
         ).format(docname))
 
     # Bunches confirmed to exist -- this document is "already generated"
@@ -376,6 +387,26 @@ def _download_links_text(file_urls):
     if len(file_urls) == 1:
         return f"<a href='{file_urls[0]}' target='_blank'>Download PDF</a>"
     return " &middot; ".join(f"<a href='{url}' target='_blank'>Part {i}</a>" for i, url in enumerate(file_urls, start=1))
+
+
+def _release_single_use_lock(docname):
+    """Clears labels_generated/generation_in_progress -- ONLY safe to call
+    when it's certain zero Bunch QR Code rows exist for this document yet
+    (callers below all check that first). The single-use lock is meant to
+    survive forever once bunches actually exist (that's the whole point --
+    see generate_batch_table_labels' docstring); but a run that never
+    created any -- caught validation (empty batch, missing Farm Code) or a
+    worker that died before step 5 -- has nothing to protect, and leaving
+    labels_generated stuck at 1 in that case is a dead end: the document can
+    never be saved again ("Already Generated") and "Generate Attachment" has
+    nothing to attach either. Called from every safe-to-retry exit path so
+    the document self-heals instead of needing a manual DB fix."""
+    frappe.db.set_value(
+        "Label Print", docname,
+        {"labels_generated": 0, "generation_in_progress": 0},
+        update_modified=False,
+    )
+    frappe.db.commit()
 
 
 def _set_progress(docname, percent, title, description):
@@ -435,6 +466,9 @@ def salvage_batch_table_attachment_job(docname):
                 docname, 0, _("Regenerating Attachment"),
                 _("Found {0:,} existing bunches...").format(len(bunches)),
             )
+        # farm_code is whatever was stored on the bunch at creation time --
+        # no falling back to the farm's own name if it's blank (a bunch
+        # created before Farm Code validation existed could still have one).
         label_data_for_pdf = [
             {
                 "bunch_id": b.id,
@@ -442,7 +476,7 @@ def salvage_batch_table_attachment_job(docname):
                 "bunch_size": b.bunch_size,
                 "stem_length": b.stem_length,
                 "farm": b.farm,
-                "farm_code": b.farm_code or b.farm,
+                "farm_code": b.farm_code,
             }
             for b in bunches
         ]
@@ -528,6 +562,7 @@ def run_label_generation_job(docname):
             # This used to return silently -- no log, no notification -- which
             # is indistinguishable from a hang/crash to the user. Every other
             # exit path below notifies one way or another; this one must too.
+            _release_single_use_lock(docname)
             frappe.log_error(
                 f"No labels requested for {docname} -- every row's No of Labels was 0",
                 "Label Generation: Nothing To Do",
@@ -554,21 +589,74 @@ def run_label_generation_job(docname):
             _set_progress(docname, 0, _("Generating Labels"), _("Nothing to do -- every row's quantity was 0."))
             return
 
+        # 1b. Every farm involved must have its Farm Code set -- no falling
+        # back to the farm's own name if it isn't (that used to happen
+        # silently: Farm.farm_code was fetched under the wrong fieldname
+        # entirely, "kephis_farm_id", which doesn't exist on Farm at all, so
+        # the lookup always failed and every label silently printed the farm
+        # NAME as if it were the code). Checked here, before the sequence
+        # counter is touched or a single bunch is created, so a missing code
+        # costs nothing to fix and re-run.
+        row_farms = sorted({(row.farm or parent_doc.farm_name) for row in valid_rows if (row.farm or parent_doc.farm_name)})
+        missing_farm_codes = [f for f in row_farms if not frappe.get_value("Farm", f, "farm_code")]
+
+        if missing_farm_codes:
+            _release_single_use_lock(docname)
+            message = _(
+                "Cannot generate labels: the following farm(s) have no Farm Code set on "
+                "their Farm record yet -- {0}. Set Farm Code on {1} and save this document "
+                "again."
+            ).format(", ".join(frappe.bold(f) for f in missing_farm_codes),
+                      _("it") if len(missing_farm_codes) == 1 else _("them"))
+            frappe.log_error(
+                f"Missing Farm Code for {missing_farm_codes} -- {docname}",
+                "Label Generation: Farm Code Missing",
+            )
+            notification_doc = frappe.new_doc("Notification Log")
+            notification_doc.for_user = job_owner
+            notification_doc.subject = f"Labels not generated for {docname}: Farm Code missing"
+            notification_doc.email_content = (
+                f"Labels for {docname} were not generated -- {', '.join(missing_farm_codes)} "
+                "have no Farm Code set. Set it on the Farm record and save this document again."
+            )
+            notification_doc.document_type = "Label Print"
+            notification_doc.document_name = docname
+            notification_doc.insert(ignore_permissions=True)
+            frappe.publish_realtime(
+                "msgprint",
+                {"message": message, "indicator": "red"},
+                user=job_owner,
+            )
+            _set_progress(docname, 0, _("Generating Labels"), _("Failed -- Farm Code missing, see notification."))
+            return
+
         # 2. Update Sequence
         seq_doc = frappe.get_single("QR Sequence")
         start_num = (seq_doc.bunch_counter or 0) + 1
         seq_doc.bunch_counter = (seq_doc.bunch_counter or 0) + total_count
         seq_doc.save(ignore_permissions=True)
         
-        # 3. Fetch farm code ONCE from parent document's farm_name
-        farm_code = parent_doc.farm_name
-        if parent_doc.farm_name:
-            try:
-                farm_code = frappe.get_value("Farm", parent_doc.farm_name, "kephis_farm_id") or parent_doc.farm_name
-            except Exception as e:
-                frappe.log_error(f"Could not fetch farm code for {parent_doc.farm_name}: {str(e)}", "Farm Code Fetch")
-                farm_code = parent_doc.farm_name
-        
+        # 3. Farm code per-farm, cached -- each `details` row carries its OWN
+        # `farm` (Bunch Details Table has a real `farm` field, populated by
+        # the "Bunch Label Table Autofill" client script at table-build time).
+        # This used to read parent_doc.farm_name ONCE and stamp every single
+        # bunch with that one value regardless of what row.farm actually said
+        # -- harmless while a document only ever holds rows for one farm, but
+        # a real bug the moment that stops being true (e.g. the document's
+        # farm_name field gets changed after rows already exist, or a future
+        # multi-farm table): every bunch silently gets mislabeled with
+        # whatever farm the PARENT field happens to hold, not its own row's
+        # farm. Falls back to parent_doc.farm_name only when a row has none.
+        # Already validated present for every row_farm above (1b) -- no
+        # fallback to the farm name here; a genuinely missing code was
+        # already caught and reported before any work started.
+        farm_code_cache = {}
+
+        def _farm_code_for(farm_name):
+            if farm_name not in farm_code_cache:
+                farm_code_cache[farm_name] = frappe.get_value("Farm", farm_name, "farm_code")
+            return farm_code_cache[farm_name]
+
         qr_docs = []
         label_data_for_pdf = []
         current_idx = start_num
@@ -576,18 +664,20 @@ def run_label_generation_job(docname):
         # 4. Process Rows - collect data for both DB and PDF
         for row in valid_rows:
             qty = int(row.no_of_labels)
-            
+            row_farm = row.farm or parent_doc.farm_name
+            row_farm_code = _farm_code_for(row_farm)
+
             for i in range(qty):
                 bunch_id = f"BUNCH-{current_idx}"
-                
+
                 # Prepare label data for PDF
                 label_info = {
                     "bunch_id": bunch_id,
                     "variety": row.variety,
                     "bunch_size": row.bunch_size,
                     "stem_length": row.stem_length,
-                    "farm": parent_doc.farm_name,
-                    "farm_code": farm_code
+                    "farm": row_farm,
+                    "farm_code": row_farm_code
                 }
                 label_data_for_pdf.append(label_info)
 
@@ -599,8 +689,8 @@ def run_label_generation_job(docname):
                     "label_print_doc": docname,
                     "bunch_size": row.bunch_size,
                     "stem_length": row.stem_length,
-                    "farm": parent_doc.farm_name,
-                    "farm_code": farm_code,
+                    "farm": row_farm,
+                    "farm_code": row_farm_code,
                     "owner": job_owner,
                     "creation": now(),
                     "modified": now()
@@ -1036,24 +1126,33 @@ def get_batch_labels_pdf(docname):
         if not labels:
             frappe.throw(f"No labels found for document {docname}")
         
-        # Prepare label data
+        # Prepare label data. farm_code is whatever was stored on the bunch at
+        # creation time -- no re-fetch, and no falling back to the farm's own
+        # name if it's blank (that used to happen here too, under the wrong
+        # Farm fieldname "kephis_farm_id", which doesn't exist -- every label
+        # silently printed the farm name as if it were the code). A blank
+        # farm_code here means a farm's Farm Code genuinely isn't set; the
+        # user needs to know that, not see a fake code that's really the farm
+        # name.
+        missing_farm_codes = sorted({
+            label.get("farm") for label in labels
+            if label.get("farm") and not label.get("farm_code")
+        })
+        if missing_farm_codes:
+            frappe.throw(_(
+                "Cannot build the PDF: the following farm(s) have no Farm Code set on "
+                "their Farm record yet -- {0}. Set Farm Code and regenerate."
+            ).format(", ".join(frappe.bold(f) for f in missing_farm_codes)))
+
         label_data_list = []
         for label in labels:
-            # Fetch farm code from Farm doctype
-            farm_code = label.get("farm")
-            if label.get("farm"):
-                try:
-                    farm_code = frappe.get_value("Farm", label.get("farm"), "kephis_farm_id") or label.get("farm")
-                except Exception:
-                    farm_code = label.get("farm_code", label.get("farm"))
-            
             label_data_list.append({
                 "bunch_id": label.get("id"),
                 "variety": label.get("item_code"),
                 "bunch_size": label.get("bunch_size"),
                 "stem_length": label.get("stem_length"),
                 "farm": label.get("farm"),
-                "farm_code": farm_code
+                "farm_code": label.get("farm_code")
             })
         
         # Generate PDF (PyMuPDF - in-memory, no files)

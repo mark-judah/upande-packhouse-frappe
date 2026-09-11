@@ -29,7 +29,7 @@
    "label": "HZ/Bud Count Range"
   },
   {
-   "description": "Drives the Sales Order line's UOM (\"Bunch (N)\") and, with Bunches/Box, the auto-computed Pack Rate.",
+   "description": null,
    "fieldname": "stems_per_bunch",
    "fieldtype": "Int",
    "in_list_view": 1,
@@ -37,7 +37,7 @@
    "reqd": 1
   },
   {
-   "description": "Copied directly onto the Sales Order line's packing instructions -- must be set.",
+   "description": null,
    "fieldname": "length",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -46,7 +46,7 @@
    "reqd": 1
   },
   {
-   "description": "Copied directly onto the Sales Order line's packing instructions -- must be set.",
+   "description": null,
    "fieldname": "box_type",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -55,7 +55,7 @@
    "reqd": 1
   },
   {
-   "description": "With Stems/Bunch, computes the Pack Rate below.",
+   "description": null,
    "fieldname": "bunches_per_box",
    "fieldtype": "Int",
    "in_list_view": 1,
@@ -63,7 +63,7 @@
    "reqd": 1
   },
   {
-   "description": "Auto-computed on save (Bunches/Box × Stems/Bunch) -- never entered by hand. Also provisions the matching Packrate master used by the Sales Order.",
+   "description": null,
    "fieldname": "pack_rate",
    "fieldtype": "Int",
    "in_list_view": 1,

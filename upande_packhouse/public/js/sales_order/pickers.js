@@ -1,13 +1,16 @@
 // Sales Order — Consignee / Shipping Agent / Delivery Point pickers.
 //
-// Consignee is filtered by the order's Customer (Consignee.customers multiselect
-// -> resolved server-side by consignee_api.consignees_for_customer, since a
-// client-side get_list can't read a child table's parent).
+// Consignee is filtered by the order's Customer (Consignee.customers Table
+// MultiSelect -- native v16 field, just needed real data -- resolved server-side
+// by consignee_api.consignees_for_customer, since a client-side get_list can't
+// filter "consignees whose child table contains this customer").
 // Shipping Agent is filtered by the order's Delivery Point (Delivery Point's own
 // shipping_agents child table); falls back to every Shipping Agent when that
 // Delivery Point has no curated list yet, so the picker is never a dead end.
-// Delivery Point itself is filtered to the Roses Business Unit — Roses orders
-// should only ever be offered Roses delivery points.
+// Delivery Point itself is filtered to the Roses Business Unit, PLUS (matching
+// v15's own schema/behaviour) hidden from a customer it's explicitly reserved
+// for someone else -- most Delivery Points are generic freight forwarders with
+// no customer set at all and are never affected by this.
 //
 // Both popups replace v15's plain non-searchable bordered-<div> dialogs with a
 // searchable list styled to the packhouse-dashboard design tokens (so-dialogs.css).
@@ -46,7 +49,10 @@ frappe.ui.form.on('Sales Order', {
 });
 
 function set_delivery_point_query(frm) {
-    frm.set_query('custom_delivery_point', () => ({ filters: { business_unit: 'Roses' } }));
+    frm.set_query('custom_delivery_point', () => ({
+        query: 'upande_packhouse.consignee_api.delivery_points_for_customer',
+        filters: { customer: frm.doc.customer }
+    }));
 }
 
 // Intercept the plain click on a Link field's input and open our own picker

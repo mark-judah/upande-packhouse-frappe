@@ -1,0 +1,22 @@
+[
+ {
+  "add_to_transit": 0,
+  "docstatus": 0,
+  "doctype": "Stock Entry Type",
+  "is_standard": 0,
+  "modified": "2026-09-11 16:24:26.474557",
+  "name": "Move To Graded Sold",
+  "purpose": "Material Transfer",
+  "require_biometric": 0
+ },
+ {
+  "add_to_transit": 0,
+  "docstatus": 0,
+  "doctype": "Stock Entry Type",
+  "is_standard": 0,
+  "modified": "2026-09-12 01:09:43.780969",
+  "name": "Farm Transfer",
+  "purpose": "Material Transfer",
+  "require_biometric": 0
+ }
+]

@@ -68,14 +68,14 @@
    "label": "QR Code"
   },
   {
-   "fetch_from": "farm_pack_list_link.custom_farm",
+   "fetch_from": "farm_pack_lis.farm",
    "fieldname": "farm",
    "fieldtype": "Link",
    "label": "Farm",
    "options": "Farm"
   },
   {
-   "fetch_from": "farm.kephis_farm_id",
+   "fetch_from": "farm.farm_code",
    "fieldname": "farm_code",
    "fieldtype": "Data",
    "label": "Farm Code"
@@ -116,14 +116,14 @@
    "label": "Truck Details"
   },
   {
-   "fetch_from": "farm_pack_list_link.custom_shipping_agent",
+   "fetch_from": "farm_pack_lis.shipping_agent",
    "fieldname": "freight_agent",
    "fieldtype": "Link",
    "label": "Freight Agent",
    "options": "Shipping Agent"
   },
   {
-   "fetch_from": "farm_pack_list_link.custom_delivery_point",
+   "fetch_from": "farm_pack_lis.delivery_point",
    "fieldname": "delivery_point",
    "fieldtype": "Link",
    "label": "Delivery Point",

@@ -124,13 +124,18 @@ def getBucketLogistics():
 def getBucketLogisticsDetail():
     # Per-bucket detail for one Order Pick List — raw Pick List Item flags as
     # checkboxes. Only buckets being transferred (awaiting_transfer=1 OR shelved=1).
-    # Source farm = first word of custom_source_warehouse (else warehouse).
+    # Source farm = first word of source_warehouse (else warehouse). Pick List
+    # Item's native field is `source_warehouse`, no "custom_" prefix -- this
+    # used to reference a "custom_source_warehouse" that doesn't exist on this
+    # doctype at all (a real "Unknown column" bug, just never hit because
+    # every call so far happened to pass a farm filter that took a different
+    # path, or hit an empty result set first).
     fd = frappe.form_dict
     opl = fd.get('opl')
     if not opl:
         frappe.response['buckets'] = []
     else:
-        FARM_EXPR = "SUBSTRING_INDEX(COALESCE(NULLIF(pli.custom_source_warehouse,''), pli.warehouse), ' ', 1)"
+        FARM_EXPR = "SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1)"
         params = {'opl': opl}
         extra = ""
         if fd.get('farm'):

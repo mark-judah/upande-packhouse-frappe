@@ -9,7 +9,6 @@
   "section_break_4j6i",
   "sales_order",
   "customer",
-  "consignee",
   "farm",
   "custom_business_unit",
   "column_break_fdik",
@@ -80,18 +79,12 @@
   {
    "fieldname": "bouquet_packing_guide_section",
    "fieldtype": "Section Break",
-   "label": "Bouquet Packing Guide"
+   "label": "Packing Guide"
   },
   {
    "fieldname": "table_nade",
    "fieldtype": "Table",
-   "options": "Bouquet Packing Guide"
-  },
-  {
-   "fieldname": "consignee",
-   "fieldtype": "Link",
-   "label": "Consignee",
-   "options": "Consignee"
+   "options": "Packing Guide"
   },
   {
    "fieldname": "farm",
@@ -182,7 +175,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-08-28 06:11:58.305679",
+ "modified": "2026-09-11 12:57:23.956483",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Order Pick List",

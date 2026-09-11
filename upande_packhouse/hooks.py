@@ -61,6 +61,7 @@ doctype_js = {
 		"public/js/sales_order/pickers.js",
 		"public/js/sales_order/warehouse_routing.js",
 		"public/js/sales_order/misc_autopopulate.js",
+		"public/js/sales_order/quick_links.js",
 	],
 }
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
@@ -151,6 +152,12 @@ doctype_js = {
 # override_doctype_class = {
 # 	"ToDo": "custom_app.overrides.CustomToDo"
 # }
+override_doctype_class = {
+	# custom_length (stem length) legitimately differentiates two Item Price
+	# rows for the same item/price list/UOM/dates -- core's own duplicate
+	# check has no idea it exists. See overrides/item_price.py.
+	"Item Price": "upande_packhouse.overrides.item_price.CustomItemPrice",
+}
 
 # Document Events
 # ---------------
@@ -169,6 +176,11 @@ doc_events = {
 		# Entry uses only the real accounting-dimension fields (farm,
 		# business_unit), no legacy fields left to keep in sync.
 		"upande_packhouse.stock_entry_cost_center.apply_greenhouse_cost_center",
+		# Post-harvest stage (issuing from the cold store) has no greenhouse
+		# to derive a cost centre from -- uses the source warehouse's own
+		# custom_cost_center instead, same field the greenhouse flow above
+		# already relies on. See stock_entry_cost_center.py.
+		"upande_packhouse.stock_entry_cost_center.apply_post_harvest_cost_center",
 	]},
 	"Sales Order": {
 		"before_validate": "upande_packhouse.sales_order_engine.sales_order_before_validate",
@@ -292,6 +304,12 @@ scheduler_events = {
 fixtures = [
     {"dt": "Workspace", "filters": [["name", "=", "Packhouse"]]},
     {"dt": "Custom HTML Block", "filters": [["name", "=", "Packhouse Navigation"]]},
+    # Master data for the post-harvest warehouse chain (roses_warehouse_map.py /
+    # farm_pack_list.py / stock_entry_cost_center.py) -- these were previously
+    # created directly on the DB with no fixture at all, which would silently
+    # break "Move To Graded Sold"/"Farm Transfer" Stock Entries on a fresh
+    # deploy (stock_entry_type just wouldn't exist).
+    {"dt": "Stock Entry Type", "filters": [["name", "in", ["Move To Graded Sold", "Farm Transfer"]]]},
 ]
 
 # Automatically update python controller files with type annotations for this app.

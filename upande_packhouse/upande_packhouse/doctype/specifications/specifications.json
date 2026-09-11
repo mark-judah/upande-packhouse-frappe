@@ -71,7 +71,7 @@
   },
   {
    "depends_on": "eval:doc.spec_type == \"Temporary\"",
-   "description": "Spec auto-deactivates after this date.",
+   "description": null,
    "fieldname": "expiry_date",
    "fieldtype": "Date",
    "label": "Expiry Date",
@@ -79,7 +79,7 @@
   },
   {
    "default": "Active",
-   "description": "Auto-managed for temporary specs based on the validity window.",
+   "description": null,
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
@@ -87,7 +87,7 @@
    "read_only": 1
   },
   {
-   "description": "Retained as a naming helper (not part of the spec sheet).",
+   "description": null,
    "fieldname": "category_code",
    "fieldtype": "Data",
    "label": "Category Code"
@@ -123,7 +123,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Copied directly onto every Sales Order line the autofill creates from this spec -- must be set.",
+   "description": null,
    "fieldname": "cut_stage",
    "fieldtype": "Link",
    "label": "Cut Stage",
@@ -131,7 +131,7 @@
    "reqd": 1
   },
   {
-   "description": "Copied directly onto every Sales Order line the autofill creates from this spec -- must be set.",
+   "description": null,
    "fieldname": "defoliation_length",
    "fieldtype": "Select",
    "label": "Defoliation Length",
@@ -145,20 +145,20 @@
    "options": "\nSpiral\nSingle Round\nDouble Round"
   },
   {
-   "description": "Distance from base",
+   "description": null,
    "fieldname": "rubber_band_distance_1",
    "fieldtype": "Data",
    "label": "Distance from Base"
   },
   {
    "depends_on": "eval:doc.rubber_band_type == \"Double Round\"",
-   "description": "Distance of the 2nd rubber band from base",
+   "description": null,
    "fieldname": "rubber_band_distance_2",
    "fieldtype": "Data",
    "label": "2nd Band Distance"
   },
   {
-   "description": "Drives the Sales Order autofill's mixed-box routing (custom_mixed_box / mix groups) -- must be set.",
+   "description": null,
    "fieldname": "box_assortment",
    "fieldtype": "Select",
    "label": "Box Assortment",
@@ -167,7 +167,7 @@
   },
   {
    "depends_on": "eval:doc.box_assortment==\"Mixed Box\"",
-   "description": "Maximum number of distinct colours allowed in a mixed box (validated on the Sales Order).",
+   "description": null,
    "fieldname": "max_colours_per_box",
    "fieldtype": "Int",
    "label": "Max Colours Per Box",
@@ -179,7 +179,7 @@
    "label": "Box Build"
   },
   {
-   "description": "At least one box build line is required -- the Sales Order autofill has nothing to offer without it.",
+   "description": null,
    "fieldname": "box_items",
    "fieldtype": "Table",
    "label": "Box Items",
@@ -203,7 +203,7 @@
    "label": "Approved Varieties"
   },
   {
-   "description": "Customer-allowed (colour, variety) combinations -- the sole source for both; Spec Box Item no longer carries either. The SO popup offers these against live shelf availability. At least one row is required.",
+   "description": null,
    "fieldname": "approved_varieties",
    "fieldtype": "Table",
    "label": "Approved Varieties (per colour)",
