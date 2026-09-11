@@ -1856,7 +1856,23 @@ def unallocate_bucket_from_opl(sales_order_item, bucket_id):
         """, sales_order)[0][0] or 0
 
         if any_allocated == 0:
-            frappe.db.set_value("Sales Order", sales_order, "custom_stock_allocated", 0, update_modified=False)
+            # `Sales Order.custom_stock_allocated` is a Custom Field owned by
+            # upande_harvest / upande_kaitet, so the column is simply absent on a
+            # site that runs the packhouse app alone — writing it blind raised
+            # (1054, "Unknown column 'custom_stock_allocated' in 'SET'") and threw
+            # the whole unallocation away. It is a display flag: never let it
+            # block the unlink.
+            try:
+                if frappe.db.has_column("Sales Order", "custom_stock_allocated"):
+                    frappe.db.set_value(
+                        "Sales Order", sales_order, "custom_stock_allocated", 0,
+                        update_modified=False
+                    )
+            except Exception:
+                frappe.log_error(
+                    "Could not clear Sales Order.custom_stock_allocated",
+                    frappe.get_traceback()
+                )
 
         frappe.db.commit()
 
