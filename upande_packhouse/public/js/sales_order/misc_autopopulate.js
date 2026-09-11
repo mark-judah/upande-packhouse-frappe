@@ -9,9 +9,17 @@ frappe.ui.form.on('Sales Order', {
 
         let so_number = frm.doc.name.split('-').pop();
         let current_order_name = frm.doc.custom_order_name;
-        let has_number_suffix = /\d+$/.test(current_order_name);
+        // Must require the DASH too, not just trailing digits -- otherwise a
+        // purely numeric order name (e.g. "4389") reads as "already has our
+        // appended suffix" and gets its entire value replaced by so_number
+        // instead of having it appended (so "4389" -> "000857" instead of
+        // "4389-000857"). The dash is what actually marks a suffix as one
+        // WE appended (on an earlier submit of this same order, e.g. after
+        // an amendment changed the SO's own number) versus the order name
+        // just happening to end in digits.
+        let has_number_suffix = /-\d+$/.test(current_order_name);
         let new_order_name = has_number_suffix
-            ? current_order_name.replace(/\d+$/, so_number)
+            ? current_order_name.replace(/-\d+$/, '-' + so_number)
             : current_order_name + '-' + so_number;
 
         if (frm.doc.custom_order_name === new_order_name) return;
