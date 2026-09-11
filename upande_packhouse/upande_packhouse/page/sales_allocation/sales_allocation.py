@@ -3,6 +3,8 @@ from frappe import _
 from frappe.utils import cint
 import json
 
+from upande_packhouse import stock_movement
+
 # Buckets locked by an open (non-Rejected) Discard Request must never count as
 # available or be allocated. Injected into the shelf-availability read paths so
 # the allocation page agrees with the SO spec-autofill popup (single rule).
@@ -1289,8 +1291,31 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
         shelf = shelf_map.get((a["bucket_id"], a["item_code"]), {})
         a["_shelf_farm"] = shelf.get("farm", "")
         a["_is_sales_shelf"] = farm_config.get(shelf.get("farm", ""), {}).get("sales_shelf", 0)
+        # The shelf row is the server-side truth for where the stems are and how
+        # long they are; the client sends both, so overwrite rather than default.
+        a["warehouse"] = shelf.get("warehouse") or a.get("warehouse")
+        a["stem_length"] = shelf.get("stem_length") or a.get("stem_length")
 
     pick_results = _create_pick_list(sales_order, allocations, so_doc, location, confirmed_by_item)
+
+    # ── Move the stems. Allocation is a sale, so the ledger has to follow the
+    #    SO Warehouse Mapping all the way into a *Sold warehouse. Anything that
+    #    cannot be backed by stock throws, and the caller rolls the whole
+    #    allocation back — a pick list we cannot supply is worse than none. ──
+    opl_by_soi = {
+        a["sales_order_item"]: frappe.db.get_value(
+            "Sales Order Item", a["sales_order_item"], "custom_opl"
+        )
+        for a in allocations
+    }
+    for a in allocations:
+        a["_opl"] = opl_by_soi.get(a["sales_order_item"])
+
+    stock_moves = stock_movement.move_allocation_to_sold(
+        allocations,
+        business_unit=stock_movement.business_unit_of(so_doc),
+        sales_order=sales_order,
+    )
 
     # ── Stamp the per-line team onto each OPL this allocation created/updated.
     #    The team is taken from the Sales Order Item the OPL covers (straight boxes are
@@ -1321,7 +1346,8 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
     return {
         "success": True,
         "message": "Allocation completed successfully",
-        "pick_list_results": pick_results
+        "pick_list_results": pick_results,
+        "stock_moves": stock_moves
     }
 
 
@@ -1839,6 +1865,12 @@ def unallocate_bucket_from_opl(sales_order_item, bucket_id):
         sales_order = so_item.parent
         item_code = so_item.item_code
 
+        # ── Put the stems back on the shelf ledger-wise: cancel the transfers
+        #    that moved them into the Sold warehouse for this line. ──
+        reversed_entries = stock_movement.reverse_allocation_movement(
+            sales_order_item, bucket_id=bucket_id, item_code=item_code
+        )
+
         bas_name = frappe.db.get_value("Bucket Allocation Status", {
             "bucket_id": bucket_id,
             "item_code": item_code
@@ -1931,7 +1963,23 @@ def unallocate_bucket_from_opl(sales_order_item, bucket_id):
         """, sales_order)[0][0] or 0
 
         if any_allocated == 0:
-            frappe.db.set_value("Sales Order", sales_order, "custom_stock_allocated", 0, update_modified=False)
+            # `Sales Order.custom_stock_allocated` is a Custom Field owned by
+            # upande_harvest / upande_kaitet, so the column is simply absent on a
+            # site that runs the packhouse app alone — writing it blind raised
+            # (1054, "Unknown column 'custom_stock_allocated' in 'SET'") and threw
+            # the whole unallocation away. It is a display flag: never let it
+            # block the unlink.
+            try:
+                if frappe.db.has_column("Sales Order", "custom_stock_allocated"):
+                    frappe.db.set_value(
+                        "Sales Order", sales_order, "custom_stock_allocated", 0,
+                        update_modified=False
+                    )
+            except Exception:
+                frappe.log_error(
+                    "Could not clear Sales Order.custom_stock_allocated",
+                    frappe.get_traceback()
+                )
 
         frappe.db.commit()
 
@@ -1942,7 +1990,8 @@ def unallocate_bucket_from_opl(sales_order_item, bucket_id):
             "opls_deleted": opls_deleted,
             "bas_updated": bas_updated,
             "remaining_allocated": remaining_allocated,
-            "so_flags_reset": fully_unallocated
+            "so_flags_reset": fully_unallocated,
+            "stock_entries_cancelled": reversed_entries
         }
 
     except Exception as e:
