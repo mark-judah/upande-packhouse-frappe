@@ -44,9 +44,16 @@ function straight_calc(frm, cdt, cdn) {
     if (row.custom_mixed_box || row.custom_mixed_bunch) return;  // mixed box/bunch rows are owned by the wizard/spec-autofill + server
     if (!row.custom_packrate || !row.custom_number_of_boxes || !row.uom) return;
     const stems = flt(row.custom_packrate) * flt(row.custom_number_of_boxes);   // Packrate name = stems/box
-    const qty = stems / so_uom_factor(row.uom);
+    const factor = so_uom_factor(row.uom) || 1;
+    const qty = stems / factor;
     frappe.model.set_value(cdt, cdn, 'stock_qty', stems);
     frappe.model.set_value(cdt, cdn, 'qty', qty);
+    // conversion_factor is a core mandatory field on Sales Order Item — the grid's
+    // own client-side mandatory check blocks Save before the request ever reaches
+    // the server, so sales_order_engine.sales_order_before_validate (which would
+    // otherwise recompute this authoritatively) never gets the chance to run.
+    // Set it here too so straight (non-mixed) rows can actually be saved.
+    frappe.model.set_value(cdt, cdn, 'conversion_factor', factor);
     frappe.show_alert({
         message: __('{0} {1} = {2} stems', [qty.toFixed(2), row.uom, stems]),
         indicator: 'green'

@@ -19,10 +19,18 @@ two hops. The last hop — the one that lands in a *Sold* warehouse — is the s
 and is stamped with the Sales Order Item it was sold against; earlier hops are
 the truck arriving at the packhouse.
 
+**One Stock Entry per variety per stem length.** Moving three buckets of
+Snowflake 62cm for one order is one entry with three lines, not three entries.
+The bucket lives on the line (`Stock Entry Detail.custom_bucket_id`); on a site
+where that field has not been created yet the module falls back to one entry
+per bucket, so nothing breaks before the patch runs.
+
 Quantities are tracked **per bucket**, never off the shared `Bin`: a cold store
-holds thousands of buckets, so "is this leg already paid for?" can only be
-answered from this bucket's own Stock Entry history (`custom_bucket_id`).
+holds thousands of buckets, so "has this bucket already moved?" can only be
+answered from the bucket's own Stock Entry history.
 """
+
+from collections import OrderedDict
 
 import frappe
 from frappe.utils import flt, nowdate, nowtime
@@ -117,30 +125,74 @@ def terminal_warehouse(source, business_unit, graded=True):
 # ============================================================
 # LEDGER HELPERS — always per bucket
 # ============================================================
+def line_has_bucket():
+    """Is `Stock Entry Detail.custom_bucket_id` available on this site?
+
+    Grouping several buckets into one entry is only safe once it is: without
+    it, a grouped entry cannot say which bucket moved which stems.
+    """
+    return frappe.db.has_column("Stock Entry Detail", "custom_bucket_id")
+
+
+def _bucket_expr():
+    """Line bucket where present, else the parent's — old entries stamp only the
+    parent, grouped entries stamp only the line."""
+    if line_has_bucket():
+        return "COALESCE(sed.custom_bucket_id, se.custom_bucket_id)"
+    return "se.custom_bucket_id"
+
+
 def bucket_balance(bucket_id, item_code, warehouse):
     """How many of THIS bucket's stems the ledger still has in `warehouse`.
 
     Bin is useless here: a receiving cold store holds thousands of buckets, so
     a non-zero Bin says nothing about whether this bucket has already moved on.
-    Every entry in the flow carries `custom_bucket_id`, so the bucket's own
-    in/out balance is exact.
     """
     if not (bucket_id and item_code and warehouse):
         return 0.0
     return flt(
         frappe.db.sql(
-            """
+            f"""
             SELECT COALESCE(
                        SUM(CASE WHEN sed.t_warehouse = %(wh)s THEN sed.qty ELSE 0 END)
                      - SUM(CASE WHEN sed.s_warehouse = %(wh)s THEN sed.qty ELSE 0 END),
                    0)
             FROM `tabStock Entry` se
             JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
-            WHERE se.custom_bucket_id = %(bucket)s
+            WHERE {_bucket_expr()} = %(bucket)s
               AND sed.item_code = %(item)s
               AND se.docstatus = 1
             """,
             {"wh": warehouse, "bucket": bucket_id, "item": item_code},
+        )[0][0]
+    )
+
+
+def sold_qty(bucket_id, item_code, so_item, target):
+    """Stems of this bucket **net** sold to this SO line and sitting in `target`.
+
+    Net, because an unallocation posts a reversing transfer rather than
+    cancelling a grouped entry that other buckets still depend on. Drives
+    top-ups too: allocating 50 more from a bucket that already moved 200 for
+    the same line moves exactly the extra 50.
+    """
+    if not (bucket_id and so_item and target):
+        return 0.0
+    return flt(
+        frappe.db.sql(
+            f"""
+            SELECT COALESCE(
+                       SUM(CASE WHEN sed.t_warehouse = %(wh)s THEN sed.qty ELSE 0 END)
+                     - SUM(CASE WHEN sed.s_warehouse = %(wh)s THEN sed.qty ELSE 0 END),
+                   0)
+            FROM `tabStock Entry` se
+            JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
+            WHERE se.custom_issued_to = %(so_item)s
+              AND {_bucket_expr()} = %(bucket)s
+              AND sed.item_code = %(item)s
+              AND se.docstatus = 1
+            """,
+            {"wh": target, "bucket": bucket_id, "item": item_code, "so_item": so_item},
         )[0][0]
     )
 
@@ -174,31 +226,6 @@ def receiving_warehouse(bucket_id, item_code):
     return row[0].t_warehouse if row else None
 
 
-def sold_qty(bucket_id, item_code, so_item, target):
-    """Stems of this bucket already sold to this SO line and sitting in `target`.
-
-    Drives top-ups: allocating 50 more from a bucket that already moved 200 for
-    the same line must move exactly the extra 50, not nothing and not 250.
-    """
-    if not so_item:
-        return 0.0
-    return flt(
-        frappe.db.sql(
-            """
-            SELECT COALESCE(SUM(sed.qty), 0)
-            FROM `tabStock Entry` se
-            JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
-            WHERE se.custom_issued_to = %s
-              AND se.custom_bucket_id = %s
-              AND sed.item_code = %s
-              AND sed.t_warehouse = %s
-              AND se.docstatus = 1
-            """,
-            (so_item, bucket_id, item_code, target),
-        )[0][0]
-    )
-
-
 def _require_entry_types():
     """Fail with a readable message instead of a mandatory-Link validation error."""
     for entry_type in (TYPE_TO_SOLD, TYPE_HOP):
@@ -218,38 +245,41 @@ def post_transfer(
     source,
     target,
     item_code,
-    qty,
-    bucket_id=None,
+    lines,
     farm=None,
     business_unit=None,
     stem_length=None,
     so_item=None,
     opl=None,
-    receiving_entry=None,
     remarks=None,
-    allow_partial=False,
 ):
-    """Build and submit one Material Transfer. Returns the Stock Entry name."""
-    qty = flt(qty)
-    if qty <= 0 or not source or not target or source == target:
+    """Submit ONE Material Transfer for one variety at one stem length.
+
+    `lines` is [{"bucket_id": ..., "qty": ...}, ...] — one row per contributing
+    bucket. The parent carries the bucket only when the entry is single-bucket,
+    so existing per-bucket reports keep working.
+    """
+    lines = [dict(line) for line in lines if flt(line.get("qty")) > 0]
+    if not lines or not source or not target or source == target:
         return None
 
     _require_entry_types()
 
+    total = sum(flt(line["qty"]) for line in lines)
     available = on_hand(item_code, source)
-    if available < qty:
-        if not allow_partial or available <= 0:
-            frappe.throw(
-                f"{item_code}: {qty} needed in {source}, {available} on hand"
-                + (f" (bucket {bucket_id})" if bucket_id else "")
-            )
-        qty = available  # move what exists; the caller reports the shortfall
+    if available < total - QTY_TOLERANCE:
+        buckets = ", ".join(str(line.get("bucket_id")) for line in lines)
+        frappe.throw(
+            f"{item_code} {stem_length or ''}: {total} needed in {source}, "
+            f"{available} on hand (buckets {buckets})"
+        )
 
     company = frappe.db.get_value("Warehouse", source, "company")
     purpose = (
         frappe.db.get_value("Stock Entry Type", entry_type, "purpose")
         or "Material Transfer"
     )
+    buckets = {line.get("bucket_id") for line in lines}
 
     se = frappe.new_doc("Stock Entry")
     se.update(
@@ -262,111 +292,154 @@ def post_transfer(
             "set_posting_time": 1,
             "from_warehouse": source,
             "to_warehouse": target,
-            "custom_bucket_id": bucket_id,
+            "custom_bucket_id": lines[0]["bucket_id"] if len(buckets) == 1 else None,
             "farm": farm,
             "business_unit": business_unit,
             "custom_stem_length": stem_length,
             "custom_issued_to": so_item,
             "custom_opl_scanned": opl,
-            "custom_receiving_entry": receiving_entry,
             "remarks": remarks,
         }
     )
-    se.append(
-        "items",
-        {
-            "item_code": item_code,
-            "qty": qty,
-            "s_warehouse": source,
-            "t_warehouse": target,
-            "farm": farm,
-            "business_unit": business_unit,
-            "custom_stem_length": stem_length,
-            "allow_zero_valuation_rate": 1,  # harvest stock is valued at 0
-        },
-    )
+    for line in lines:
+        se.append(
+            "items",
+            {
+                "item_code": item_code,
+                "qty": flt(line["qty"]),
+                "s_warehouse": source,
+                "t_warehouse": target,
+                "farm": line.get("farm") or farm,
+                "business_unit": business_unit,
+                "custom_stem_length": stem_length,
+                "custom_bucket_id": line.get("bucket_id"),
+                "allow_zero_valuation_rate": 1,  # harvest stock is valued at 0
+            },
+        )
     se.insert(ignore_permissions=True)
     se.submit()
     return se.name
 
 
 # ============================================================
-# ROUTE WALKER
+# PLAN / POST
 # ============================================================
-def move_along_route(
-    *,
-    bucket_id,
-    item_code,
-    qty,
-    source,
-    business_unit,
-    farm=None,
-    stem_length=None,
-    so_item=None,
-    opl=None,
-    graded=True,
-    stop_before_terminal=False,
-    remarks=None,
-):
-    """Walk the mapping from `source`, posting one Stock Entry per hop.
+def plan_moves(rows, business_unit, stop_before_terminal=False):
+    """Work out every leg each row needs, without posting anything.
 
-    Re-entrant by construction, because every decision is made from this
-    bucket's own ledger balance:
-
-    * a leg whose source holds none of this bucket's stems is skipped — that is
-      how a bucket whose arrival was posted at shelving time pays only for the
-      terminal hop, and how an unallocate/re-allocate cycle does not re-post
-      the farm → packhouse leg a second time;
-    * the terminal hop moves only the stems this SO line has not been sold yet,
-      so a top-up allocation moves exactly the increment.
+    A row is {bucket_id, item_code, qty, source, stem_length, farm, so_item,
+    opl, graded, remarks}. Returns (plans, skipped); `plans` are posted in hop
+    order by `post_plans`.
     """
-    qty = flt(qty)
-    if qty <= 0:
-        return []
+    plans, skipped = [], []
 
-    results = []
-    for hop in resolve_route(source, business_unit, graded=graded):
-        if stop_before_terminal and hop["terminal"]:
-            break
+    for row in rows:
+        qty = flt(row.get("qty"))
+        bucket_id = row.get("bucket_id")
+        item_code = row.get("item_code")
+        if qty <= 0 or not bucket_id or not item_code:
+            continue
 
-        if hop["terminal"]:
-            already = sold_qty(bucket_id, item_code, so_item, hop["to"])
-            move = qty - already
-            if move <= QTY_TOLERANCE:
-                results.append(
-                    {**hop, "entry": None, "qty": 0, "skipped": "already sold"}
-                )
-                continue
-        else:
-            here = bucket_balance(bucket_id, item_code, hop["from"])
-            if here <= QTY_TOLERANCE:
-                results.append(
-                    {**hop, "entry": None, "qty": 0, "skipped": "bucket already moved"}
-                )
-                continue
-            move = min(qty, here)
+        for depth, hop in enumerate(
+            resolve_route(row["source"], business_unit, graded=row.get("graded", True))
+        ):
+            if stop_before_terminal and hop["terminal"]:
+                break
 
-        results.append(
+            if hop["terminal"]:
+                already = sold_qty(bucket_id, item_code, row.get("so_item"), hop["to"])
+                move = qty - already
+                if move <= QTY_TOLERANCE:
+                    skipped.append({**hop, "bucket_id": bucket_id, "reason": "already sold"})
+                    continue
+            else:
+                here = bucket_balance(bucket_id, item_code, hop["from"])
+                if here <= QTY_TOLERANCE:
+                    skipped.append(
+                        {**hop, "bucket_id": bucket_id, "reason": "bucket already moved"}
+                    )
+                    continue
+                move = min(qty, here)
+
+            plans.append(
+                {
+                    **hop,
+                    "depth": depth,
+                    "bucket_id": bucket_id,
+                    "item_code": item_code,
+                    "qty": move,
+                    "stem_length": row.get("stem_length"),
+                    "farm": row.get("farm"),
+                    "so_item": row.get("so_item") if hop["terminal"] else None,
+                    "opl": row.get("opl"),
+                    "remarks": row.get("remarks"),
+                }
+            )
+
+    return plans, skipped
+
+
+def post_plans(plans, business_unit):
+    """Post the planned legs, one Stock Entry per variety per stem length.
+
+    Legs are grouped on (hop, variety, stem length, SO item) and posted
+    shallowest-hop-first, so the consolidation leg lands before the sale leg
+    that depends on it.
+    """
+    group_buckets = line_has_bucket()
+    groups = OrderedDict()
+
+    for plan in plans:
+        key = (
+            plan["depth"],
+            plan["from"],
+            plan["to"],
+            plan["type"],
+            plan["item_code"],
+            plan["stem_length"],
+            plan["so_item"],
+            plan["opl"],
+            plan["remarks"],
+            # Without a bucket field on the line, keep entries per bucket so
+            # traceability survives.
+            None if group_buckets else plan["bucket_id"],
+        )
+        groups.setdefault(key, []).append(plan)
+
+    posted = []
+    for key in sorted(groups, key=lambda k: k[0]):
+        members = groups[key]
+        head = members[0]
+        entry = post_transfer(
+            entry_type=head["type"],
+            source=head["from"],
+            target=head["to"],
+            item_code=head["item_code"],
+            lines=[
+                {"bucket_id": m["bucket_id"], "qty": m["qty"], "farm": m["farm"]}
+                for m in members
+            ],
+            farm=head["farm"],
+            business_unit=business_unit,
+            stem_length=head["stem_length"],
+            so_item=head["so_item"],
+            opl=head["opl"],
+            remarks=head["remarks"],
+        )
+        posted.append(
             {
-                **hop,
-                "qty": move,
-                "entry": post_transfer(
-                    entry_type=hop["type"],
-                    source=hop["from"],
-                    target=hop["to"],
-                    item_code=item_code,
-                    qty=move,
-                    bucket_id=bucket_id,
-                    farm=farm,
-                    business_unit=business_unit,
-                    stem_length=stem_length,
-                    so_item=so_item if hop["terminal"] else None,
-                    opl=opl,
-                    remarks=remarks,
-                ),
+                "entry": entry,
+                "from": head["from"],
+                "to": head["to"],
+                "type": head["type"],
+                "item_code": head["item_code"],
+                "stem_length": head["stem_length"],
+                "so_item": head["so_item"],
+                "qty": sum(m["qty"] for m in members),
+                "buckets": [m["bucket_id"] for m in members],
             }
         )
-    return results
+    return posted
 
 
 # ============================================================
@@ -386,22 +459,25 @@ def post_arrival(bucket_id, item_code, qty, source_warehouse, business_unit, far
             "Not permitted to move stock between warehouses", frappe.PermissionError
         )
 
-    hops = move_along_route(
-        bucket_id=bucket_id,
-        item_code=item_code,
-        qty=flt(qty),
-        source=source_warehouse,
-        business_unit=business_unit,
-        farm=farm,
-        stem_length=stem_length,
-        stop_before_terminal=True,
-        remarks=f"Arrived {farm} packhouse" if farm else "Arrived packhouse",
-    )
-    landed = [h for h in hops if h.get("entry")]
+    route = resolve_route(source_warehouse, business_unit)
+    row = {
+        "bucket_id": bucket_id,
+        "item_code": item_code,
+        "qty": flt(qty),
+        "source": source_warehouse,
+        "stem_length": stem_length,
+        "farm": farm,
+        "remarks": f"Arrived {farm} packhouse" if farm else "Arrived packhouse",
+    }
+    plans, skipped = plan_moves([row], business_unit, stop_before_terminal=True)
+    posted = post_plans(plans, business_unit)
+
+    landing = [hop for hop in route if not hop["terminal"]]
     return {
-        "warehouse": hops[-1]["to"] if hops else source_warehouse,
-        "hops": hops,
-        "moved": bool(landed),
+        "warehouse": landing[-1]["to"] if landing else source_warehouse,
+        "posted": posted,
+        "skipped": skipped,
+        "moved": bool(posted),
     }
 
 
@@ -409,19 +485,18 @@ def post_arrival(bucket_id, item_code, qty, source_warehouse, business_unit, far
 # EVENT 2 — ALLOCATION (TERMINAL HOP: THE SALE)
 # ============================================================
 def move_allocation_to_sold(allocations, business_unit, sales_order=None, opl=None):
-    """Post every hop needed to land allocated stems in a *Sold warehouse.
+    """Land allocated stems in a *Sold warehouse, grouped per variety per length.
 
     `allocations` rows carry: bucket_id, item_code, qty, sales_order_item and
     (set by the allocation page) `_shelf_farm`. Raises on the first failure —
     the caller allocates inside a transaction, so a sale we cannot back with
     stock must roll the whole allocation back.
     """
-    moved = []
+    rows = []
     for a in allocations:
         bucket_id = a.get("bucket_id")
         item_code = a.get("item_code")
         qty = flt(a.get("qty"))
-        so_item = a.get("sales_order_item")
         if not (bucket_id and item_code and qty > 0):
             continue
 
@@ -432,45 +507,81 @@ def move_allocation_to_sold(allocations, business_unit, sales_order=None, opl=No
                 "its stems were never booked into a cold store."
             )
 
-        moved += move_along_route(
-            bucket_id=bucket_id,
-            item_code=item_code,
-            qty=qty,
-            source=source,
-            business_unit=business_unit,
-            farm=a.get("_shelf_farm") or a.get("shelf_farm"),
-            stem_length=a.get("stem_length"),
-            so_item=so_item,
-            opl=a.get("_opl") or opl,
-            graded=bool(a.get("graded", True)),
-            remarks=f"Allocated to {sales_order}" if sales_order else "Allocated",
+        rows.append(
+            {
+                "bucket_id": bucket_id,
+                "item_code": item_code,
+                "qty": qty,
+                "source": source,
+                "stem_length": a.get("stem_length"),
+                "farm": a.get("_shelf_farm") or a.get("shelf_farm"),
+                "so_item": a.get("sales_order_item"),
+                "opl": a.get("_opl") or opl,
+                "graded": bool(a.get("graded", True)),
+                "remarks": f"Allocated to {sales_order}" if sales_order else "Allocated",
+            }
         )
-    return moved
+
+    plans, skipped = plan_moves(rows, business_unit)
+    posted = post_plans(plans, business_unit)
+    return {"posted": posted, "skipped": skipped}
 
 
-def reverse_allocation_movement(sales_order_item, bucket_id=None, item_code=None):
-    """Cancel the sale transfers behind an allocation being undone.
+def reverse_allocation_movement(sales_order_item, bucket_id=None, item_code=None,
+                                business_unit=None):
+    """Send unallocated stems back out of the Sold warehouse.
 
-    Only the terminal hop is reversed: the stems physically are at the
-    packhouse, so the arrival hop stays posted and the bucket simply becomes
-    sellable again from the packhouse cold store.
+    A grouped entry carries several buckets, so cancelling it would reverse
+    other buckets' sales too. Instead post a reversing transfer for exactly the
+    stems this line still holds; `sold_qty()` is net, so the pair cancels out.
     """
-    filters = {
-        "custom_issued_to": sales_order_item,
-        "stock_entry_type": TYPE_TO_SOLD,
-        "docstatus": 1,
-    }
-    if bucket_id:
-        filters["custom_bucket_id"] = bucket_id
+    filters = {"custom_issued_to": sales_order_item, "stock_entry_type": TYPE_TO_SOLD,
+               "docstatus": 1}
+    entries = frappe.get_all(
+        "Stock Entry", filters=filters,
+        fields=["name", "from_warehouse", "to_warehouse", "business_unit",
+                "custom_stem_length", "farm"],
+    )
+    if not entries:
+        return []
 
-    cancelled = []
-    for name in frappe.get_all("Stock Entry", filters=filters, pluck="name"):
-        se = frappe.get_doc("Stock Entry", name)
-        if item_code and not any(i.item_code == item_code for i in se.items):
-            continue
-        se.cancel()
-        cancelled.append(name)
-    return cancelled
+    reversed_moves = []
+    for entry in entries:
+        doc = frappe.get_doc("Stock Entry", entry.name)
+        for line in doc.items:
+            line_bucket = line.get("custom_bucket_id") or doc.get("custom_bucket_id")
+            if bucket_id and line_bucket != bucket_id:
+                continue
+            if item_code and line.item_code != item_code:
+                continue
+
+            outstanding = sold_qty(
+                line_bucket, line.item_code, sales_order_item, entry.to_warehouse
+            )
+            if outstanding <= QTY_TOLERANCE:
+                continue  # already sent back
+
+            reversed_moves.append(
+                {
+                    "entry": post_transfer(
+                        entry_type=TYPE_HOP,
+                        source=entry.to_warehouse,
+                        target=entry.from_warehouse,
+                        item_code=line.item_code,
+                        lines=[{"bucket_id": line_bucket, "qty": outstanding}],
+                        farm=entry.farm,
+                        business_unit=entry.business_unit or business_unit,
+                        stem_length=entry.custom_stem_length,
+                        so_item=sales_order_item,
+                        remarks=f"Unallocated from {sales_order_item}",
+                    ),
+                    "bucket": line_bucket,
+                    "item_code": line.item_code,
+                    "qty": outstanding,
+                    "reverses": entry.name,
+                }
+            )
+    return reversed_moves
 
 
 # ============================================================
@@ -597,7 +708,7 @@ def backfill_shelf_arrivals(business_unit="Roses", dry_run=True, limit=None):
                 "Shelf Item", r.name, "warehouse", result["warehouse"],
                 update_modified=False,
             )
-            posted.append({**plan, "hops": result["hops"]})
+            posted.append({**plan, "entries": result["posted"]})
             frappe.db.commit()
         except Exception as e:
             frappe.db.rollback()
