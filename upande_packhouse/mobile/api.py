@@ -13,6 +13,7 @@ import math
 
 from upande_packhouse.item_groups import resolve_rose_item_groups
 from upande_packhouse import roses_warehouse_map
+from upande_packhouse import stock_movement
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
@@ -196,6 +197,26 @@ def createLoadingEntry():
 
                         # Mark Box Label as loaded
                         frappe.db.set_value("Box Label", box_label_name, "loaded", 1)
+
+                        # EVENT 5 of the SO Warehouse Mapping chain: Dispatch
+                        # Cold Store -> Delivery Truck. Same box-level,
+                        # aggregate-by-variety approach as staging.
+                        from upande_packhouse import stock_movement
+                        from upande_packhouse.sales_order_engine import _uom_factor
+                        stems_by_variety = {}
+                        for row in box_doc.box_item:
+                            factor = _uom_factor(row.uom) or 1
+                            stems_by_variety[row.variety] = stems_by_variety.get(row.variety, 0) + (row.qty or 0) * factor
+                        for variety, stems in stems_by_variety.items():
+                            result = stock_movement.post_load_to_truck(
+                                box_label=box_doc.name, item_code=variety, qty=stems,
+                                business_unit="Roses", farm=box_doc.farm,
+                            )
+                            if not result.get("moved") and result.get("reason"):
+                                frappe.log_error(
+                                    title="Load -> Truck: nothing moved",
+                                    message=f"box={box_doc.name} variety={variety} farm={box_doc.farm} -- {result.get('reason')}",
+                                )
 
                         frappe.db.commit()
 
@@ -926,6 +947,31 @@ def createStagingEntry():
                     if location:
                         box.staging_location = location
                     box.save(ignore_permissions=True)
+
+                    # EVENT 4 of the SO Warehouse Mapping chain: Packhouse ->
+                    # Dispatch Cold Store. Box-level (custom_box_label), not
+                    # bucket-level -- by this point several buckets' stems
+                    # have already been combined into this one box. box_item
+                    # qty is in the box's own bunch-group UOM ("Bunch (15)"),
+                    # so convert to raw stems the same way spec_autofill's
+                    # rows already do, and aggregate by variety in case a
+                    # mixed box has more than one row for the same one.
+                    from upande_packhouse import stock_movement
+                    from upande_packhouse.sales_order_engine import _uom_factor
+                    stems_by_variety = {}
+                    for row in box.box_item:
+                        factor = _uom_factor(row.uom) or 1
+                        stems_by_variety[row.variety] = stems_by_variety.get(row.variety, 0) + (row.qty or 0) * factor
+                    for variety, stems in stems_by_variety.items():
+                        result = stock_movement.post_stage_to_dispatch(
+                            box_label=box.name, item_code=variety, qty=stems,
+                            business_unit="Roses", farm=box.farm,
+                        )
+                        if not result.get("moved") and result.get("reason"):
+                            frappe.log_error(
+                                title="Stage -> Dispatch: nothing moved",
+                                message=f"box={box.name} variety={variety} farm={box.farm} -- {result.get('reason')}",
+                            )
                     frappe.db.commit()
 
                     frappe.response.update({
@@ -3040,10 +3086,25 @@ def issueBucketToSaleOrderItem():
                 # -------------------------------
                 # Already issued check
                 # -------------------------------
-                if current_issued_to == sale_order_item:
+                # Only a DIFFERENT sale order item than the one already on
+                # record is a real conflict worth blocking. Re-issuing to the
+                # SAME item is not just "a retried request" -- since
+                # move_allocation_to_sold started stamping custom_issued_to
+                # at ALLOCATION time (before any physical issue scan ever
+                # happens), current_issued_to == sale_order_item is now the
+                # NORMAL state for a bucket's very FIRST real issue scan too.
+                # Short-circuiting here used to skip the entire physical-issue
+                # bookkeeping below (Pick List Item marked issued, Shelf Item
+                # removed, the packhouse hop) for every single bucket -- it
+                # never ran. Every step below is independently idempotent
+                # (re-setting issued=1, re-deleting an already-gone Shelf
+                # Item, and post_single_hop's own ledger-balance check all
+                # no-op harmlessly), so it's safe to always run them here,
+                # both on a genuinely fresh issue and on a repeat.
+                if current_issued_to and current_issued_to != sale_order_item:
                     frappe.response.message = (
                         f"Stock Entry {stock_entry_name} is already issued "
-                        f"to sale order item {sale_order_item}"
+                        f"to a DIFFERENT sale order item ({current_issued_to})"
                     )
                     frappe.response.http_status_code = 409
                     frappe.response.data = {
@@ -3134,26 +3195,18 @@ def issueBucketToSaleOrderItem():
                         frappe.db.set_value('Shelf', item.parent, 'modified', frappe.utils.now())
 
                     # -------------------------------
-                    # ISSUE FROM THE COLD STORE (Material Transfer)
+                    # ISSUE -> PACKHOUSE (Graded Sold -> Packhouse)
                     # -------------------------------
-                    # Move the bucket's stems out of the coldstore into the
-                    # farm's Ungraded Sold warehouse, mapped via Roses-MAP.
-                    # src_wh is read from the Pick List Item's OWN
-                    # source_warehouse (carried from the Sales Order Item's
-                    # `warehouse` at OPL-creation time -- see
-                    # create_mixed_box_picklist.py / create_straight_box_pick_list.py),
-                    # NOT re-derived from the bucket's raw Stock Entry
-                    # history: that used to pick up whatever Stock Entry
-                    # happened to be "latest" for this bucket_id (sometimes
-                    # a Harvesting entry whose t_warehouse is a GREENHOUSE,
-                    # not a coldstore at all), and Roses-MAP's own
-                    # "fall back to the first mapping row" then silently
-                    # sent a Chepsito bucket to KAREN's Graded Sold warehouse
-                    # (real example: MAT-STE-2026-100006946) purely because
-                    # Karen happened to be the first row. Both bugs are gone
-                    # now: the source is deterministic, and an unmapped
-                    # source skips the transfer (logged) rather than
-                    # guessing at any farm's warehouse.
+                    # Allocation (move_allocation_to_sold) already carried this
+                    # bucket's stems all the way to the farm's Graded Sold
+                    # warehouse -- there's nothing left in the coldstore for
+                    # this scan to move OUT of. This scan is EVENT 3 of the
+                    # SO Warehouse Mapping chain: the packer physically takes
+                    # the bucket to the packhouse, so Graded Sold -> Packhouse
+                    # is what actually needs posting now (replaces the old
+                    # "Issue From The Cold Store" -> Ungraded Sold transfer,
+                    # which assumed stock was still sitting in the coldstore
+                    # at issue time -- it no longer is).
                     issue_transfer = None
                     se_detail = frappe.db.get_all(
                         'Stock Entry Detail',
@@ -3161,37 +3214,22 @@ def issueBucketToSaleOrderItem():
                         fields=['item_code', 'qty', 'uom'],
                         limit=1
                     )
-                    if se_detail:
+                    farm = (
+                        next((p.farm for p in pick_list_items if p.farm), None)
+                        or frappe.db.get_value('Stock Entry', stock_entry_name, 'farm')
+                    )
+                    if se_detail and farm:
                         det = se_detail[0]
-                        src_wh = next((p.source_warehouse for p in pick_list_items if p.source_warehouse), None)
-                        target_wh = roses_warehouse_map.ungraded_sold_warehouse(src_wh)
-                        if src_wh and not target_wh:
+                        result = stock_movement.post_issue_to_packhouse(
+                            bucket_id=bucket_id, item_code=det.item_code, qty=det.qty,
+                            business_unit='Roses', farm=farm, so_item=sale_order_item,
+                        )
+                        issue_transfer = result.get('entry')
+                        if not result.get('moved') and result.get('reason'):
                             frappe.log_error(
-                                title="Issue From The Cold Store: no Roses-MAP row",
-                                message=f"bucket={bucket_id} src_wh={src_wh} -- add a Roses-MAP row for this coldstore.",
+                                title="Issue -> Packhouse: nothing moved",
+                                message=f"bucket={bucket_id} farm={farm} -- {result.get('reason')}",
                             )
-                        if src_wh and target_wh and det.item_code and det.qty:
-                            transfer = frappe.new_doc('Stock Entry')
-                            transfer.stock_entry_type = 'Issue From The Cold Store'
-                            transfer.company = frappe.db.get_value('Warehouse', src_wh, 'company')
-                            transfer.business_unit = 'Roses'
-                            transfer.farm = frappe.db.get_value('Stock Entry', stock_entry_name, 'farm')
-                            transfer.custom_bucket_id = bucket_id
-                            transfer.custom_issued_to = sale_order_item
-                            transfer.custom_receiving_entry = stock_entry_name
-                            transfer.append('items', {
-                                'item_code': det.item_code,
-                                'qty': det.qty,
-                                'uom': det.uom,
-                                'conversion_factor': 1,
-                                's_warehouse': src_wh,
-                                't_warehouse': target_wh,
-                                'allow_zero_valuation_rate': 1,
-                                'basic_rate': 0,
-                            })
-                            transfer.insert(ignore_permissions=True)
-                            transfer.submit()
-                            issue_transfer = transfer.name
 
                     # -------------------------------
                     # Commit all changes
