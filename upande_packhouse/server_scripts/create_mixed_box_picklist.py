@@ -2,6 +2,7 @@ from collections import defaultdict
 import frappe
 from frappe.utils import nowdate
 from frappe import _
+from upande_packhouse.packing_guide import sync_packing_guide
 
 
 def _get_shelf_farm_for_location(location):
@@ -200,29 +201,51 @@ def create_mixed_box_pick_list_for_allocated_items(sales_order_doc, allocations,
                 order_pick_list_names.append(opl_name)
                 continue
 
-            # Remove rows for items in current batch, keep others
-            current_batch_so_items = {item['sales_order_item_name'] for item in box_items}
-            filtered_locations = [
-                loc for loc in order_pick_list.table_ytkc
-                if loc.sales_order_item not in current_batch_so_items
-            ]
-            order_pick_list.table_ytkc = []
-            for loc in filtered_locations:
-                order_pick_list.append("table_ytkc", loc)
-
-            # Append new rows
+            # Append new rows -- CONTINUING each item's existing box numbering,
+            # never wiping prior rows for this batch's items. This used to
+            # remove every existing Pick List Item row for the SO items in
+            # this batch and regenerate box-splitting using ONLY this batch's
+            # allocations_list -- so a second allocation call for an item
+            # already on this OPL lost the first call's bucket/box rows
+            # entirely, and custom_total_stems under-reported what was
+            # really allocated. Now each item's already-placed stems/boxes
+            # (from rows already on the OPL) are carried forward so the
+            # splitter picks up filling box (K+1) onward instead of
+            # restarting box 1 with only the new batch's stems to work with.
             for item in box_items:
+                so_item_name = item['sales_order_item_name']
+                existing_rows = [
+                    loc for loc in order_pick_list.table_ytkc
+                    if loc.sales_order_item == so_item_name
+                ]
+                already_stems = sum(loc.stock_qty or 0 for loc in existing_rows)
+                existing_box_ids = {loc.custom_box_id for loc in existing_rows if loc.custom_box_id}
+                start_box_num = (max(existing_box_ids) + 1) if existing_box_ids else 1
+
                 box_locs = _generate_box_locations(
                     item['alloc'], item['so_item'],
-                    sales_order_doc.name, item['sales_order_item_name'],
+                    sales_order_doc.name, so_item_name,
                     shelf_farm=shelf_farm,
-                    confirmed_qty=confirmed_stems.get(item['sales_order_item_name'], 0)
+                    confirmed_qty=confirmed_stems.get(so_item_name, 0),
+                    already_stems=already_stems,
+                    start_box_num=start_box_num,
                 )
                 for loc in box_locs:
                     order_pick_list.append("table_ytkc", loc)
 
             total_stems = sum(loc.stock_qty for loc in order_pick_list.table_ytkc)
             order_pick_list.custom_total_stems = total_stems
+
+            # Every colour sharing this mix_group -- not just this batch's --
+            # so the guide always reflects the WHOLE group, box numbers lining
+            # up across colours, regardless of which colour's stock happened
+            # to get allocated in this particular call.
+            group_items = [
+                it for it in sales_order_doc.items
+                if it.get("custom_mix_group") == mix_group and it.get("custom_mixed_box")
+            ]
+            sync_packing_guide(order_pick_list, group_items)
+
             order_pick_list.flags.ignore_permissions = True
             order_pick_list.save()
 
@@ -278,6 +301,12 @@ def create_mixed_box_pick_list_for_allocated_items(sales_order_doc, allocations,
                 )
                 for loc in box_locs:
                     order_pick_list.append("table_ytkc", loc)
+
+            group_items = [
+                it for it in sales_order_doc.items
+                if it.get("custom_mix_group") == mix_group and it.get("custom_mixed_box")
+            ]
+            sync_packing_guide(order_pick_list, group_items)
 
             order_pick_list.flags.ignore_permissions = True
             order_pick_list.save()
@@ -338,13 +367,21 @@ def _check_mix_group_complete(order_pick_list, all_items_in_mix, confirmed_stems
     return True
 
 
-def _generate_box_locations(alloc, so_item, sales_order_name, sales_order_item_name, shelf_farm=None, confirmed_qty=0):
+def _generate_box_locations(alloc, so_item, sales_order_name, sales_order_item_name, shelf_farm=None,
+                             confirmed_qty=0, already_stems=0, start_box_num=1):
     """
     Split a single allocation into box-level OPL rows based on packrate.
     Handles multi-bucket allocations and sets awaiting_transfer per row.
 
     When confirmed_qty > 0, uses it as the target instead of packrate * num_boxes.
     This supports partial confirmation where a location only handles a portion of the order.
+
+    already_stems / start_box_num let this be called AGAIN for an item that
+    already has some boxes filled on this OPL from an earlier allocation call
+    (a second bucket, a top-up): already_stems is subtracted from the total
+    still needed, and box numbering picks up at start_box_num instead of
+    restarting at 1 -- so a second call fills the REMAINING boxes rather
+    than replacing the first call's boxes with a shorter, incomplete set.
     """
     item_code = alloc['item_code']
     allocations_list = alloc.get('allocations_list', [])
@@ -373,7 +410,10 @@ def _generate_box_locations(alloc, so_item, sales_order_name, sales_order_item_n
     sales_uom = so_item.uom
     stock_uom = so_item.stock_uom
 
-    total_stems_needed = stems_per_box * num_boxes
+    # Remaining need, net of whatever earlier allocation calls already placed
+    # into boxes 1..(start_box_num - 1) on this OPL.
+    remaining_boxes = num_boxes - (start_box_num - 1)
+    total_stems_needed = stems_per_box * remaining_boxes
     total_allocated = sum(a['qty'] for a in allocations_list)
 
     # If confirmed_qty is set, use it as the target instead of full order
@@ -389,7 +429,7 @@ def _generate_box_locations(alloc, so_item, sales_order_name, sales_order_item_n
             title="Box Location - Allocation Check",
             message=f"Item: {item_code}, Allocated: {total_allocated}, "
                     f"Needed: {total_stems_needed}, Confirmed: {confirmed_qty}, "
-                    f"Full order: {stems_per_box * num_boxes}"
+                    f"Already placed: {already_stems}, Full order: {stems_per_box * num_boxes}"
         )
         # For partial confirmations, allow the allocation if it matches what was allocated
         # (the validation already happened in allocate_stock_with_buckets)
@@ -409,8 +449,8 @@ def _generate_box_locations(alloc, so_item, sales_order_name, sales_order_item_n
         # Original box-splitting logic for full allocations
         return _generate_box_locations_with_splitting(
             alloc, so_item, sales_order_name, sales_order_item_name,
-            allocations_list, stems_per_box, num_boxes, conversion_factor,
-            sales_uom, stock_uom, shelf_farm, item_code
+            allocations_list, stems_per_box, remaining_boxes, conversion_factor,
+            sales_uom, stock_uom, shelf_farm, item_code, start_box_num=start_box_num
         )
     else:
         # Flat rows — one row per bucket contribution, no box splitting
@@ -418,16 +458,16 @@ def _generate_box_locations(alloc, so_item, sales_order_name, sales_order_item_n
         return _generate_flat_locations(
             alloc, so_item, sales_order_name, sales_order_item_name,
             allocations_list, conversion_factor, sales_uom, stock_uom,
-            shelf_farm, item_code
+            shelf_farm, item_code, start_box_num=start_box_num
         )
 
 
 def _generate_flat_locations(alloc, so_item, sales_order_name, sales_order_item_name,
                               allocations_list, conversion_factor, sales_uom, stock_uom,
-                              shelf_farm, item_code):
+                              shelf_farm, item_code, start_box_num=1):
     """Generate one OPL row per bucket — no box splitting. For partial allocations."""
     locations = []
-    box_counter = 1
+    box_counter = start_box_num
 
     for alloc_entry in allocations_list:
         bucket_id = alloc_entry['bucket_id']
@@ -477,14 +517,16 @@ def _generate_flat_locations(alloc, so_item, sales_order_name, sales_order_item_
 
 def _generate_box_locations_with_splitting(alloc, so_item, sales_order_name, sales_order_item_name,
                                             allocations_list, stems_per_box, num_boxes, conversion_factor,
-                                            sales_uom, stock_uom, shelf_farm, item_code):
-    """Original box-splitting logic for full allocations."""
+                                            sales_uom, stock_uom, shelf_farm, item_code, start_box_num=1):
+    """Original box-splitting logic for full allocations. `num_boxes` here is
+    how many MORE boxes to fill starting at start_box_num (the caller has
+    already subtracted whatever earlier calls filled)."""
     locations = []
     bucket_index = 0
     current_bucket_remaining = 0
     current_bucket = None
 
-    for box_num in range(1, num_boxes + 1):
+    for box_num in range(start_box_num, start_box_num + num_boxes):
         stems_needed = stems_per_box
         contributions = []
 
@@ -552,6 +594,23 @@ def _generate_box_locations_with_splitting(alloc, so_item, sales_order_name, sal
             }
 
             locations.append(loc)
+
+    # Anything still sitting in the current bucket, or in buckets never even
+    # reached, means MORE was allocated than num_boxes x stems_per_box can
+    # hold. This used to be silently dropped -- allocated, visible in Bucket
+    # Allocation Status, but never written to any Pick List Item row at all.
+    leftover = current_bucket_remaining + sum(
+        b['qty'] for b in allocations_list[bucket_index:]
+    )
+    if leftover > 0:
+        frappe.throw(
+            _("Over-allocated for {0}: {1} stem(s) more than the {2} remaining box(es) x {3} "
+              "stems/box can hold. Reduce the allocation, or raise Number of Boxes on the "
+              "Sales Order.").format(
+                item_code, leftover, num_boxes, stems_per_box
+            ),
+            title=_("Overpacked"),
+        )
 
     return locations
 

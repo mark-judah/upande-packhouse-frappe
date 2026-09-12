@@ -3,6 +3,8 @@ import frappe
 from frappe.utils import nowdate
 from frappe import _
 from upande_packhouse.server_scripts.opl_qr_code_gen import generate_qr_code
+from upande_packhouse.packing_guide import sync_packing_guide
+from upande_packhouse.server_scripts.create_mixed_box_picklist import _generate_box_locations
 
 
 def _get_shelf_farm_for_location(location):
@@ -151,104 +153,46 @@ def create_straight_box_pick_list_for_allocated_items(sales_order_doc, allocatio
             order_pick_list.custom_total_stems = total_allocated_stems
             order_pick_list.custom_allocated_pick_list = 1
 
-            box_id_counter = 1
+            # Real box-splitting by packrate capacity, not one row per bucket.
+            # This used to just stamp box_id = 1, 2, 3... per bucket regardless
+            # of how many stems that bucket held -- so custom_box_id never
+            # represented an actual capacity-bound box for a straight line,
+            # only a bucket sequence number. _generate_box_locations (shared
+            # with mixed box -- it already reads custom_packrate for a
+            # non-mixed item) is the same, single splitting engine used
+            # everywhere else now: it fills box 1 to custom_packrate stems
+            # before starting box 2, throws instead of silently dropping any
+            # stems beyond what custom_number_of_boxes x custom_packrate can
+            # hold, and its row shelf-lookup has the same farm-then-fallback
+            # behaviour this loop used to do by hand.
+            combined_allocations_list = [{
+                'bucket_id': alloc['bucket_id'],
+                'qty': alloc['qty'],
+                'warehouse': alloc.get('warehouse') or alloc.get('s_warehouse') or '',
+                'stem_length': alloc.get('stem_length'),
+                'downgrade_reason': alloc.get('downgrade_reason', ''),
+                'available_exact_stems': alloc.get('available_exact_stems', 0),
+                '_shelf_farm': alloc.get('_shelf_farm') or shelf_farm,
+                '_is_sales_shelf': alloc.get('_is_sales_shelf', 1),
+            } for alloc in allocs]
 
-            for alloc in allocs:
-                item_code = alloc['item_code']
-                bucket_id = alloc['bucket_id']
-                allocated_stems = alloc['qty']
-                conversion_factor = so_item.conversion_factor or 1
-                qty_in_sales_uom = allocated_stems / conversion_factor
+            combined_alloc = {
+                'item_code': so_item.item_code,
+                'allocations_list': combined_allocations_list,
+                'stem_length': allocs[0].get('stem_length') if allocs else None,
+            }
 
-                # warehouse key: support both 'warehouse' (new) and 's_warehouse' (legacy)
-                warehouse_val = alloc.get('warehouse') or alloc.get('s_warehouse') or ''
+            box_locs = _generate_box_locations(
+                combined_alloc, so_item, sales_order_doc.name, sales_order_item_name,
+                shelf_farm=shelf_farm,
+                confirmed_qty=confirmed_stems.get(sales_order_item_name, 0),
+            )
+            for loc in box_locs:
+                order_pick_list.append("table_ytkc", loc)
 
-                # Determine which farm this bucket is actually on
-                alloc_shelf_farm = alloc.get('_shelf_farm') or shelf_farm
-                is_sales_shelf = alloc.get('_is_sales_shelf', 1)
-                awaiting_transfer = 0 if is_sales_shelf else 1
-
-                # Shelf lookup — use the bucket's actual farm first, fall back to sales shelf farm
-                matching_shelves = frappe.db.sql("""
-                    SELECT s.name AS shelf
-                    FROM `tabShelf Item` si
-                    INNER JOIN `tabShelf` s ON s.name = si.parent
-                    WHERE s.farm = %s
-                      AND si.variety = %s
-                      AND si.bucket_id = %s
-                    LIMIT 3
-                """, [alloc_shelf_farm, item_code, bucket_id], as_dict=True)
-
-                if not matching_shelves and alloc_shelf_farm != shelf_farm:
-                    matching_shelves = frappe.db.sql("""
-                        SELECT s.name AS shelf
-                        FROM `tabShelf Item` si
-                        INNER JOIN `tabShelf` s ON s.name = si.parent
-                        WHERE s.farm = %s
-                          AND si.variety = %s
-                          AND si.bucket_id = %s
-                        LIMIT 3
-                    """, [shelf_farm, item_code, bucket_id], as_dict=True)
-
-                if not matching_shelves:
-                    matching_shelves = frappe.db.sql("""
-                        SELECT s.name AS shelf
-                        FROM `tabShelf Item` si
-                        INNER JOIN `tabShelf` s ON s.name = si.parent
-                        WHERE si.bucket_id = %s
-                        LIMIT 3
-                    """, [bucket_id], as_dict=True)
-
-                if not matching_shelves:
-                    all_buckets = frappe.db.sql("""
-                        SELECT si.bucket_id, si.variety, s.farm, s.name AS shelf
-                        FROM `tabShelf Item` si
-                        INNER JOIN `tabShelf` s ON s.name = si.parent
-                        WHERE si.bucket_id = %s
-                    """, bucket_id, as_dict=True)
-
-                    frappe.log_error(
-                        title="Straight OPL - Bucket Not Found",
-                        message=f"Bucket: {bucket_id}, Item: {item_code}, Farm: {alloc_shelf_farm}\n"
-                                f"All locations: {frappe.as_json(all_buckets)}"
-                    )
-                    frappe.throw(
-                        f"Bucket '{bucket_id}' for item '{item_code}' not found on any shelf. "
-                        "Please refresh and try again."
-                    )
-
-                shelf_str = ", ".join(s["shelf"] for s in matching_shelves)
-
-                loc = order_pick_list.append("table_ytkc", {
-                    "item_code": item_code,
-                    "bucket": bucket_id,
-                    "custom_sale_order_item": sales_order_item_name,
-                    "item_name": so_item.item_name,
-                    "stock_uom": so_item.stock_uom,
-                    "uom": so_item.uom,
-                    "qty": qty_in_sales_uom,
-                    "stem_length": alloc.get('stem_length') or so_item.custom_length,
-                    "stock_qty": allocated_stems,
-                    "conversion_factor": conversion_factor,
-                    "source_warehouse": warehouse_val,
-                    "sales_order_item": sales_order_item_name,
-                    "farm": alloc_shelf_farm,
-                    "custom_consignee": so_item.get("custom_consignee"),
-                    "custom_box_label": so_item.get("custom_box_label"),
-                    "transit_truck": so_item.get("custom_truck"),
-                    "custom_box_id": box_id_counter,
-                    "packrate": so_item.get("custom_packrate"),
-                    "custom_flower_food": so_item.get("custom_flower_food"),
-                    # custom_ready_for_packing is set to 1 only after the OPL is
-                    # actually submitted by the central helper (see below).
-                    "custom_ready_for_packing": 0,
-                    "shelf": shelf_str,
-                    "downgrade_reason": alloc.get("downgrade_reason") or "",
-                    "available_stems_of_exact_length": alloc.get("available_exact_stems") or 0,
-                    "awaiting_transfer": awaiting_transfer,
-                })
-
-                box_id_counter += 1
+            # One Sales Order Item = one OPL here, so it's its own group --
+            # every box (1..custom_number_of_boxes) is this one variety.
+            sync_packing_guide(order_pick_list, [so_item])
 
             order_pick_list.flags.ignore_permissions = True
 

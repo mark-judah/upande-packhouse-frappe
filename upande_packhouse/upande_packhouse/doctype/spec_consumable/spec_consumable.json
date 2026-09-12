@@ -24,7 +24,7 @@
    "columns": 2
   },
   {
-   "description": "Optional -- some v15 spec rows named only a consumable_type (e.g. \"Sleeve\") with no specific item ever assigned.",
+   "description": null,
    "fieldname": "item",
    "fieldtype": "Link",
    "options": "Item",

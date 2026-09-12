@@ -11,6 +11,9 @@ from frappe import _
 import json
 import math
 
+from upande_packhouse.item_groups import resolve_rose_item_groups
+from upande_packhouse import roses_warehouse_map
+
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 def mobileLogin(usr=None, pwd=None):
@@ -112,8 +115,14 @@ def createLoadingEntry():
                 if box_doc.loaded == 1:
                     frappe.response["message"] = {"status": "error", "message": "Box already loaded: " + box_label_name}
                 else:
-                    # Get or create Loading Sheet for today
-                    ls_date = delivery_date or frappe.utils.today()
+                    # Get or create Loading Sheet. Default to TOMORROW, not
+                    # today -- boxes are packed today for tomorrow's
+                    # delivery, and this must agree with fetchLoadingData /
+                    # fetchDispatchLoadedOrders, which both already default
+                    # to tomorrow; a caller that omits delivery_date used to
+                    # land on a different day's sheet than the loading/
+                    # dispatch screens were looking at.
+                    ls_date = delivery_date or frappe.utils.add_days(frappe.utils.nowdate(), 1)
                     ls_name = "LS-" + str(ls_date)
 
                     if frappe.db.exists("Loading Sheet", ls_name):
@@ -134,14 +143,32 @@ def createLoadingEntry():
                     if already_added:
                         frappe.response["message"] = {"status": "error", "message": "Box already on loading sheet"}
                     else:
-                        # Get loading position from Loading Plan
+                        # Get loading position from Loading Plan. Loading
+                        # Plan's real autoname is
+                        # "LP-{delivery_date}-{location}-{vehicle}" (see
+                        # loading_plan.json), not "LP-{date}" -- guessing the
+                        # name here never matched a real plan, so position
+                        # silently stayed 0 for every box. fetchLoadingData
+                        # already resolves the right plan by FILTERING on
+                        # delivery_date (+vehicle when given); do the same
+                        # here instead of guessing the name.
                         position = 0
                         customer = box_doc.customer or ""
                         dp = box_doc.delivery_point or ""
-                        plan_name = "LP-" + str(ls_date)
-
-                        if frappe.db.exists("Loading Plan", plan_name):
-                            plan_doc = frappe.get_doc("Loading Plan", plan_name)
+                        plan_filters = {"delivery_date": ls_date}
+                        if vehicle:
+                            plan_filters["vehicle"] = vehicle
+                        plan_names = frappe.get_all(
+                            "Loading Plan", filters=plan_filters, pluck="name", limit_page_length=1
+                        )
+                        if not plan_names and vehicle:
+                            # No plan for this exact vehicle -- fall back to
+                            # any plan for the day, same as fetchLoadingData.
+                            plan_names = frappe.get_all(
+                                "Loading Plan", filters={"delivery_date": ls_date}, pluck="name", limit_page_length=1
+                            )
+                        if plan_names:
+                            plan_doc = frappe.get_doc("Loading Plan", plan_names[0])
                             for pi in plan_doc.loading_plan_items:
                                 if pi.customer == customer and pi.delivery_point == dp:
                                     position = pi.loading_position or 0
@@ -203,79 +230,150 @@ def createOrUpdateDispatch():
         else:
             ls = frappe.get_doc("Loading Sheet", ls_name)
 
-            # Group loaded boxes by the Sales Order they belong to.
-            by_so = {}
+            # Group loaded boxes by CUSTOMER, not by Sales Order: one
+            # Delivery Note consolidates every order for one customer's
+            # whole delivery day (a customer's boxes routinely come from
+            # more than one order on the same day). Which order each row
+            # came from now lives on the Delivery Note ITEM (native
+            # against_sales_order/so_detail, plus the per-order
+            # consignee/delivery-point/freight/etc. custom fields) -- see
+            # roses_invoice.py's docstring for why the header can no longer
+            # carry that.
+            by_customer = {}
+            so_cache = {}
             for it in ls.items:
                 box_name = it.get("box_label") or it.get("box_label_link")
                 if not box_name or not frappe.db.exists("Box Label", box_name):
                     continue
                 box = frappe.get_doc("Box Label", box_name)
                 so_name = box.customer_purchase_order
-                if so_name:
-                    by_so.setdefault(so_name, []).append(box)
+                if not so_name or not frappe.db.exists("Sales Order", so_name):
+                    continue
+                if so_name not in so_cache:
+                    so_cache[so_name] = frappe.get_doc("Sales Order", so_name)
+                so = so_cache[so_name]
+                by_customer.setdefault(so.customer, []).append((box, so))
 
             results = []
-            for so_name, boxes in by_so.items():
-                if not frappe.db.exists("Sales Order", so_name):
-                    continue
-                so = frappe.get_doc("Sales Order", so_name)
-
-                # Aggregate box contents by variety (stems = bunches * bunch size from uom).
+            for customer, box_so_pairs in by_customer.items():
+                # Aggregate box contents by (Sales Order, variety) -- rows
+                # from different orders are never merged even for the same
+                # variety, since each row now carries its own order linkage.
                 var = {}
                 total_boxes = 0
-                for box in boxes:
+                orders_seen = set()
+                for box, so in box_so_pairs:
                     total_boxes = total_boxes + 1
+                    orders_seen.add(so.name)
                     for bi in box.box_item:
                         v = bi.variety
                         size_digits = "".join([c for c in str(bi.uom or "") if c.isdigit()])
                         bunch_size = int(size_digits) if size_digits else 1
                         stems = (bi.qty or 0) * bunch_size
-                        d = var.setdefault(v, {"stems": 0, "boxes": 0, "length": bi.length, "source_farm": bi.source_farm})
+                        key = (so.name, v)
+                        d = var.setdefault(key, {
+                            "stems": 0, "boxes": 0, "length": bi.length, "source_farm": bi.source_farm,
+                        })
                         d["stems"] = d["stems"] + stems
                         d["boxes"] = d["boxes"] + 1
 
-                so_items = {}
-                for si in so.items:
-                    if si.item_code not in so_items:
-                        so_items[si.item_code] = si
+                # Header-level values: every order consolidated here is
+                # expected to share company/currency/price list (they're all
+                # the same customer) -- take the first order's, and log
+                # (rather than silently pick) if any genuinely disagree.
+                first_so = box_so_pairs[0][1]
+                mismatched = sorted({
+                    so.name for _, so in box_so_pairs
+                    if (so.company, so.currency) != (first_so.company, first_so.currency)
+                })
+                if mismatched:
+                    frappe.log_error(
+                        title="createOrUpdateDispatch: mixed company/currency for one customer/day",
+                        message="customer={0} delivery_date={1} orders={2} mismatched={3}".format(
+                            customer, delivery_date, sorted(orders_seen), mismatched
+                        ),
+                    )
 
-                farm = so.get("farm") or (boxes[0].farm if boxes else None)
-                farm_code = frappe.db.get_value("Farm", farm, "kephis_farm_id") if farm else ""
-
-                existing = frappe.get_all("Delivery Note", filters={"custom_so": so_name, "docstatus": 0}, pluck="name")
+                # One draft Delivery Note per (customer, delivery date) --
+                # NOT per Sales Order any more. Scoped by custom_delivery_date
+                # (the Loading Sheet's planned delivery day), NOT
+                # posting_date: posting_date is when stock actually left
+                # (today, when this dispatch is built/submitted) -- setting
+                # it to the future delivery_date instead used to make
+                # set_missing_values()/the stock ledger silently reset it
+                # back to today anyway (a stock transaction can't post to
+                # the future), so the (customer, posting_date) lookup below
+                # never matched the doc it had just written, and every
+                # re-run created a fresh Delivery Note instead of updating
+                # the existing draft.
+                existing = frappe.get_all(
+                    "Delivery Note",
+                    filters={"customer": customer, "custom_delivery_date": delivery_date, "docstatus": 0},
+                    pluck="name",
+                )
                 if existing:
                     dn = frappe.get_doc("Delivery Note", existing[0])
-                    dn.items = []
+                    dn.set("items", [])
                     action = "updated"
                 else:
                     dn = frappe.new_doc("Delivery Note")
                     action = "created"
 
-                dn.customer = so.customer
-                dn.company = so.company
-                dn.posting_date = frappe.utils.nowdate()
-                dn.currency = so.currency
-                dn.selling_price_list = so.selling_price_list
+                dn.customer = customer
+                dn.company = first_so.company
+                dn.posting_date = frappe.utils.today()
+                dn.custom_delivery_date = delivery_date
+                dn.currency = first_so.currency
+                dn.selling_price_list = first_so.selling_price_list
                 dn.business_unit = "Roses"
-                dn.custom_so = so_name
-                dn.farm = farm
-                dn.custom_freight = so.get("custom_shipping_agent")
-                dn.custom_transport_mode = so.get("custom_mode_of_transport")
-                dn.custom_brn_ref = so.get("custom_s_number")
-                dn.custom_consignee = so.get("custom_consignee")
-                dn.custom_delivery_point = so.get("custom_delivery_point")
-                # custom_customer_flo_id / custom_company_flo_id removed from Sales Order
-                # (unused, never populated) — custom_flo_id / custom_flo_id_2 on the
-                # Delivery Note are left for whoever fills them downstream.
-                dn.custom_total_boxes = total_boxes
-                dn.po_no = so.get("po_no")
+                dn.farm = first_so.get("farm")
+                dn.po_no = first_so.get("po_no")
 
-                for v in var:
-                    d = var[v]
-                    soi = so_items.get(v)
+                for (so_name, v), d in var.items():
+                    so = so_cache[so_name]
+                    soi = next((i for i in so.items if i.item_code == v), None)
                     rate = soi.rate if soi else 0
-                    warehouse = (soi.warehouse if soi else None) or "Nanyuki Receiving Cold Store - UFL"
+                    # soi.warehouse is the farm's Receiving Cold Store (the
+                    # Sales Order's own source, not a delivery target -- see
+                    # spec_autofill.build_spec_rows / roses_warehouse_map.py).
+                    # The Delivery Note deducts real stock, which only ever
+                    # lands in the farm's GRADED SOLD warehouse (moved there
+                    # when the Farm Pack List submitted -- farm_pack_list.py),
+                    # so resolve that via Roses-MAP rather than using the
+                    # coldstore warehouse directly (which would always fail
+                    # to submit with a negative-stock error, since no real
+                    # stock is ever left sitting in the coldstore once
+                    # issued/packed).
+                    graded_sold = roses_warehouse_map.graded_sold_warehouse(soi.warehouse) if soi else None
+                    warehouse = graded_sold or (soi.warehouse if soi else None) or "Nanyuki Receiving Cold Store - UFL"
+                    # Item rows built by hand here never go through the Desk
+                    # form's own item-picker JS (the only place that
+                    # normally resolves these), and Delivery Note's
+                    # controller validate() doesn't re-derive them either --
+                    # confirmed empirically: dn.set_missing_values() left
+                    # both blank, which then makes make_gl_entries() throw
+                    # "Expense Account not set". Resolve the same
+                    # real cascade ERPNext's own get_default_expense_account
+                    # uses (Item -> Item Group -> Company), and take
+                    # cost_center from the destination warehouse's own
+                    # custom_cost_center -- the same "cost centre lives on
+                    # the warehouse" rule stock_entry_cost_center.py already
+                    # applies everywhere else in this pipeline.
                     ig = frappe.db.get_value("Item", v, "item_group") or ""
+                    expense_account = (
+                        frappe.db.get_value(
+                            "Item Default",
+                            {"parent": v, "parenttype": "Item", "company": so.company},
+                            "default_cogs_account",
+                        )
+                        or frappe.db.get_value(
+                            "Item Default",
+                            {"parent": ig, "parenttype": "Item Group", "company": so.company},
+                            "default_cogs_account",
+                        )
+                        or frappe.get_cached_value("Company", so.company, "default_expense_account")
+                    )
+                    cost_center = frappe.db.get_value("Warehouse", warehouse, "custom_cost_center")
                     if ig == "Gypsophila":
                         hsc = "060319"
                         crop = "Gypsophilla"
@@ -284,14 +382,37 @@ def createOrUpdateDispatch():
                         crop = "Std Rose"
                     stems = d["stems"]
                     boxes_ct = d["boxes"]
+                    farm_code = frappe.db.get_value("Farm", so.get("farm"), "farm_code") if so.get("farm") else ""
+                    # uom/conversion_factor must match the referenced Sales
+                    # Order Item's OWN values exactly -- now that so_detail
+                    # is a real link (see below), ERPNext's own
+                    # validate_with_previous_doc enforces item_code/uom/
+                    # conversion_factor equality against it and throws
+                    # "Incorrect value in row N: UOM must be equal to
+                    # '<so uom>'" otherwise. The order was placed in bunches
+                    # (e.g. "Bunch (15)"), not stems, so qty here is bunches
+                    # too; stock_qty (real stems moved) is still qty *
+                    # conversion_factor, computed by the framework as usual.
+                    from upande_packhouse.sales_order_engine import _uom_factor
+                    uom = (soi.uom if soi else None) or "Stems"
+                    conversion_factor = (soi.conversion_factor if soi else None) or _uom_factor(uom) or 1
                     dn.append("items", {
                         "item_code": v,
-                        "qty": stems,
-                        "uom": "Stems",
-                        "stock_uom": "Stems",
-                        "conversion_factor": 1,
+                        "qty": stems / conversion_factor if conversion_factor else stems,
+                        "uom": uom,
+                        "conversion_factor": conversion_factor,
                         "rate": rate,
                         "warehouse": warehouse,
+                        "expense_account": expense_account,
+                        "cost_center": cost_center,
+                        # Native Sales Order linkage (ERPNext's own
+                        # against_sales_order/so_detail) -- previously only
+                        # a custom header field, which native "% delivered"
+                        # tracking on the Sales Order never recognised at
+                        # all since this DN was never built via the
+                        # standard make_delivery_note(so_name) mapper.
+                        "against_sales_order": so_name,
+                        "so_detail": soi.name if soi else None,
                         "custom_length": d["length"],
                         "custom_total_boxes": boxes_ct,
                         "custom_total_stems": stems,
@@ -300,12 +421,51 @@ def createOrUpdateDispatch():
                         "custom_farm_codes": farm_code,
                         "custom_hsc": hsc,
                         "custom_crop_type": crop,
+                        # Per-order dispatch data -- used to live on the DN
+                        # header (custom_so/consignee/delivery_point/freight/
+                        # transport_mode/brn_ref/truck_details), meaningless
+                        # there once one DN can span several orders. See
+                        # custom/delivery_note_item.json.
+                        "custom_consignee": so.get("custom_consignee"),
+                        "custom_delivery_point": so.get("custom_delivery_point"),
+                        "custom_freight": so.get("custom_shipping_agent"),
+                        "custom_transport_mode": so.get("custom_mode_of_transport"),
+                        "custom_brn_ref": so.get("custom_s_number"),
+                        "custom_truck_details": so.get("custom_truck_details"),
                     })
 
                 dn.flags.ignore_permissions = True
                 dn.flags.ignore_mandatory = True
-                dn.insert(ignore_permissions=True)
-                results.append({"delivery_note": dn.name, "action": action, "sales_order": so_name, "boxes": total_boxes})
+                # Item rows were built here by hand (item_code/qty/rate/
+                # warehouse/custom_* only) -- none of the standard selling
+                # defaults (expense_account, income_account, cost_center)
+                # ever got attached, since those normally only get set by
+                # the Desk form's own item-picker JS. Without them the
+                # Delivery Note still inserts fine as a draft but its
+                # on_submit -> make_gl_entries always throws "Expense
+                # Account not set", so submitting one built this way was
+                # never actually possible. set_missing_values() is
+                # SellingController's own standard defaulting pass (Item ->
+                # Item Group -> Company cascade) -- the same one the Desk
+                # form relies on -- so this fills the same real per-row
+                # accounts a manually-entered Delivery Note would get.
+                dn.set_missing_values()
+                if action == "updated":
+                    # NOT insert(): Document.insert() forces __islocal=True
+                    # and regenerates the name from the naming series
+                    # regardless of whether this doc already has a real one
+                    # -- calling it on an already-existing, get_doc()-loaded
+                    # draft silently created a SECOND Delivery Note instead
+                    # of updating the first one (confirmed against
+                    # frappe/model/document.py's insert()). save() is the
+                    # correct call for an already-existing document.
+                    dn.save(ignore_permissions=True)
+                else:
+                    dn.insert(ignore_permissions=True)
+                results.append({
+                    "delivery_note": dn.name, "action": action, "customer": customer,
+                    "sales_orders": sorted(orders_seen), "boxes": total_boxes,
+                })
 
             frappe.db.commit()
             frappe.response["data"] = {
@@ -478,7 +638,17 @@ def createOrUpdateFarmPackList():
             elif soi.item_code not in opl_item_codes:
                 continue
             ordered_by_item[soi.item_code] = ordered_by_item.get(soi.item_code, 0) + ordered_stems_of(soi)
-            pr = guard_int(soi.get("custom_packrate"))
+            # Mixed box/bunch lines keep their stems-per-box in
+            # custom_packrate_mixed_box, not custom_packrate (see
+            # sales_order_engine._line_packrate) -- this used to only ever
+            # read custom_packrate, so packrate_by_item was never populated
+            # for a mixed line and the box-capacity guard below silently
+            # no-op'd for every mixed order (straight boxes were protected,
+            # mixed ones could be packed with unlimited stems into one box).
+            if soi.get("custom_mixed_box") or soi.get("custom_mixed_bunch"):
+                pr = guard_int(soi.get("custom_packrate_mixed_box"))
+            else:
+                pr = guard_int(soi.get("custom_packrate"))
             if pr and soi.item_code not in packrate_by_item:
                 packrate_by_item[soi.item_code] = pr
 
@@ -607,17 +777,32 @@ def createOrUpdateFarmPackList():
 
             frappe.db.commit()
 
+            # Auto-submit + generate Box Labels once every Packing Guide row
+            # this Farm Pack List owns is fully packed -- see
+            # farm_pack_list.py's docstring. Failure here must never mask a
+            # pack that otherwise succeeded, so it's best-effort and logged.
+            fpl_submitted, fpl_box_labels = False, None
+            try:
+                from upande_packhouse.farm_pack_list import sync_and_maybe_submit_fpl
+                fpl_submitted, fpl_box_labels = sync_and_maybe_submit_fpl(doc.name)
+            except Exception:
+                frappe.log_error(title="FPL auto-submit failed", message=frappe.get_traceback())
+
             response_message = f"Farm Pack List updated with {len(processed_items)} bunch(es) across boxes"
             if already_packed_bunches:
                 packed_list = ", ".join([b["bunch_id"] for b in already_packed_bunches])
                 response_message += f". Skipped already packed: {packed_list}"
+            if fpl_submitted:
+                response_message += ". Fully packed -- Farm Pack List submitted and Box Labels generated."
 
             frappe.response['data'] = {
                 "status": "updated",
                 "message": response_message,
                 "docname": doc.name,
                 "already_packed": already_packed_bunches,
-                "newly_packed": len(processed_items)
+                "newly_packed": len(processed_items),
+                "fpl_submitted": fpl_submitted,
+                "box_labels": fpl_box_labels,
             }
 
         else:
@@ -667,17 +852,32 @@ def createOrUpdateFarmPackList():
 
             frappe.db.commit()
 
+            # Auto-submit + generate Box Labels once every Packing Guide row
+            # this Farm Pack List owns is fully packed -- see
+            # farm_pack_list.py's docstring. Failure here must never mask a
+            # pack that otherwise succeeded, so it's best-effort and logged.
+            fpl_submitted, fpl_box_labels = False, None
+            try:
+                from upande_packhouse.farm_pack_list import sync_and_maybe_submit_fpl
+                fpl_submitted, fpl_box_labels = sync_and_maybe_submit_fpl(doc.name)
+            except Exception:
+                frappe.log_error(title="FPL auto-submit failed", message=frappe.get_traceback())
+
             response_message = f"Farm Pack List created with {len(aggregated_items)} grouped box entries"
             if already_packed_bunches:
                 packed_list = ", ".join([b["bunch_id"] for b in already_packed_bunches])
                 response_message += f". Skipped already packed: {packed_list}"
+            if fpl_submitted:
+                response_message += ". Fully packed -- Farm Pack List submitted and Box Labels generated."
 
             frappe.response['data'] = {
                 "status": "created",
                 "message": response_message,
                 "docname": doc.name,
                 "already_packed": already_packed_bunches,
-                "newly_packed": len(aggregated_items)
+                "newly_packed": len(aggregated_items),
+                "fpl_submitted": fpl_submitted,
+                "box_labels": fpl_box_labels,
             }
 
     except Exception as e:
@@ -995,19 +1195,35 @@ def fetchLoadingData():
 
                     boxes_allocated = 0
                     for opl in opls:
-                        total_stems = int(opl.custom_total_stems or 0)
+                        # Prefer the OPL's own Packing Guide (table_nade) --
+                        # one row per real (box, variety), so its distinct
+                        # box_number count IS the real box count, not a
+                        # guess. The old fallback re-derived box count as
+                        # ceil(total_stems / packrate) reading a generic
+                        # `packrate` field Pick List Item never actually
+                        # populates (this app's real fields are
+                        # custom_packrate / custom_packrate_mixed_box) --
+                        # always missing, so this always silently used a
+                        # hardcoded packrate of 200 regardless of the box's
+                        # real capacity. Kept only for an older OPL created
+                        # before the Packing Guide existed.
+                        guide_rows = frappe.get_all(
+                            "Packing Guide", filters={"parent": opl.name}, pluck="box_number"
+                        )
+                        if guide_rows:
+                            boxes_allocated += len(set(guide_rows))
+                            continue
 
+                        total_stems = int(opl.custom_total_stems or 0)
                         packrate_data = frappe.get_all(
                             "Pick List Item",
                             filters={"parent": opl.name},
                             fields=["packrate"],
                             limit_page_length=1
                         )
-
                         packrate = 200
                         if packrate_data and packrate_data[0].packrate:
                             packrate = int(packrate_data[0].packrate or 200)
-
                         if packrate > 0 and total_stems > 0:
                             boxes_allocated += -(-total_stems // packrate)
 
@@ -1041,10 +1257,16 @@ def fetchLoadingData():
                         if packed_box_data:
                             boxes_packed = int(packed_box_data[0].box_count or 0)
 
-                    # STAGED
+                    # STAGED (currently staged, not yet loaded -- a WIP count
+                    # for "how many boxes are sitting in the coldstore ready
+                    # to load"). This used to filter only on loaded=0, never
+                    # checking Box Label's own `staged` flag at all -- so an
+                    # allocated-and-packed box that had NEVER been scanned at
+                    # staging still counted as "staged" so long as it wasn't
+                    # loaded yet, conflating "packed" with "staged".
                     boxes_staged = frappe.db.count(
                         "Box Label",
-                        filters={"customer_purchase_order": so_name, "loaded": 0}
+                        filters={"customer_purchase_order": so_name, "staged": 1, "loaded": 0}
                     ) or 0
 
                     # LOADED
@@ -1981,13 +2203,16 @@ def getTransferScheduleData():
         pli_rows = frappe.get_all(
             "Pick List Item",
             filters={"parent": ["in", list(trip_opls)], "parenttype": "Order Pick List", "custom_bucket": ["!=", ""]},
-            fields=["parent", "custom_bucket", "warehouse", "custom_source_warehouse",
+            fields=["parent", "custom_bucket", "warehouse", "source_warehouse",
                     "custom_awaiting_transfer", "custom_loaded_in_trolley", "custom_in_transit", "custom_shelved"],
             limit_page_length=0,
         )
         seen_stage_bkt = {}
         for row in pli_rows:
-            wh = row.get('custom_source_warehouse') or row.get('warehouse') or ''
+            # Pick List Item's native field is `source_warehouse`, no "custom_"
+            # prefix -- this used to query "custom_source_warehouse", which
+            # doesn't exist on this doctype (an "Unknown column" bug).
+            wh = row.get('source_warehouse') or row.get('warehouse') or ''
             farm = wh.split(' ')[0] if wh else ''
             opl = row.get('parent')
             bkt = row.get('custom_bucket') or ''
@@ -2225,8 +2450,13 @@ def get_pick_list_with_farm_pack_list():
         if variety_codes:
             for it in frappe.get_all('Item', filters={'name': ['in', variety_codes]}, fields=['name', 'item_group']):
                 item_groups[it.get('name')] = it.get('item_group')
+        # Resolve each variety's leaf Item Group up to "Spray Roses" /
+        # "Standard Roses" via the tree, not a flat string match — see
+        # resolve_rose_item_groups's docstring.
+        rose_category = resolve_rose_item_groups(item_groups.values())
         for location in order_pick_list['table_ytkc']:
-            location['item_group'] = item_groups.get(location.get('item_code'), '')
+            raw_group = item_groups.get(location.get('item_code'), '')
+            location['item_group'] = rose_category.get(raw_group, raw_group)
             location['warehouse'] = location.get('source_warehouse')
             location['custom_stem_length'] = location.get('stem_length')
         order_pick_list['locations'] = order_pick_list['table_ytkc']
@@ -2263,14 +2493,26 @@ def get_pick_list_with_farm_pack_list():
             # Current mix group from this OPL
             current_mix_group = opl_doc.get("mix_group")
 
+            # Real stems/bunch per variety (from the order line's own UOM,
+            # e.g. "Bunch (10)") -- used only as a last resort below, when a
+            # Farm Packlist Item row has no stock_qty of its own. This used
+            # to be a hardcoded "* 10" regardless of the order's actual bunch
+            # size, silently miscounting packed stems for any variety packed
+            # in bunches of a different size.
+            from upande_packhouse.sales_order_engine import _uom_factor
+            stems_per_bunch_by_item = {
+                it.item_code: _uom_factor(it.uom) for it in so.items if it.item_code
+            }
+
             # Packed stems — only from current submitted FPL
             packed_stems_by_item = {}
             packed_total = 0
 
             for fpl in farm_pack_list_with_items:
                 for row in fpl.get('pack_list_item', []):
-                    stems = row.get('stock_qty') or (row.get('bunch_qty', 0) * 10)
                     item_code = row.get('item_code')
+                    spb = stems_per_bunch_by_item.get(item_code) or 10
+                    stems = row.get('stock_qty') or (row.get('bunch_qty', 0) * spb)
                     if item_code and stems:
                         packed_stems_by_item[item_code] = packed_stems_by_item.get(item_code, 0) + stems
                         packed_total += stems
@@ -2284,7 +2526,44 @@ def get_pick_list_with_farm_pack_list():
                     return 0
 
             # =========================================================
-            # DETERMINE PACKING MODE FOR THIS SPECIFIC OPL
+            # PREFERRED PATH: read the plan straight from this OPL's own
+            # Packing Guide (table_nade) -- one row per (box, variety),
+            # written once by allocation (see packing_guide.sync_packing_guide)
+            # from the Sales Order's own packrate/box-count fields. This
+            # replaces the three box-count formulas below (mixed bunch /
+            # straight / mixed box), which each re-derived planned_boxes and
+            # packrate_per_box from so.items independently and could disagree
+            # with each other and with what allocation actually built --
+            # box count used round() instead of ceiling (fractional "12.3
+            # boxes"), and straight boxes summed planned_boxes_from_order
+            # while the mixed branches took only the first line's value.
+            # Falls back to the old per-assortment derivation only for an
+            # OPL that predates this table (created before this feature
+            # existed, so table_nade is empty).
+            guide_rows = opl_doc.get('table_nade') or []
+
+            if guide_rows:
+                is_mixed = any(r.get('box_kind') == 'Mixed Box' for r in guide_rows)
+                is_mixed_bunch = any(r.get('box_kind') == 'Mixed Bunch' for r in guide_rows)
+                box_type = guide_rows[0].get('box_type') or (
+                    'Mixed' if is_mixed else 'Mixed Bunch' if is_mixed_bunch else 'Standard'
+                )
+                planned_boxes = len({r.get('box_number') for r in guide_rows if r.get('box_number')})
+                packrate_per_box = safe_int(guide_rows[0].get('pack_rate'))
+
+                planned_stems_by_item = {}
+                planned_total = 0
+                for r in guide_rows:
+                    variety = r.get('variety')
+                    stems = safe_int(r.get('stems'))
+                    if not variety:
+                        continue
+                    planned_stems_by_item[variety] = planned_stems_by_item.get(variety, 0) + stems
+                    planned_total += stems
+
+            # =========================================================
+            # DETERMINE PACKING MODE FOR THIS SPECIFIC OPL (fallback path,
+            # for an OPL with no Packing Guide rows yet)
             #
             # Instead of checking the entire SO globally, we determine
             # the mode based on what items THIS OPL actually covers.
@@ -2311,37 +2590,43 @@ def get_pick_list_with_farm_pack_list():
                 if soi:
                     opl_so_item_names.add(soi)
 
+            if guide_rows:
+                pass  # already computed above -- skip every branch below
+
             # Determine if THIS OPL is handling mixed-box items
-            is_mixed = False
-            if current_mix_group:
-                # Check if any SO items in this mix group are actually mixed
-                mix_group_items = [
-                    item for item in so.items
-                    if str(item.get("custom_mix_group") or "") == str(current_mix_group)
-                       and item.custom_mixed_box == 1
-                ]
-                if mix_group_items:
-                    is_mixed = True
+            elif current_mix_group and [
+                item for item in so.items
+                if str(item.get("custom_mix_group") or "") == str(current_mix_group)
+                   and item.custom_mixed_box == 1
+            ]:
+                is_mixed = True
+            else:
+                is_mixed = False
 
             # ── Detect MIXED BUNCH for this OPL: colour lines of one bouquet that
             #    are NOT flagged custom_mixed_box; signalled by the linked
             #    Specification having box_items with bunch_type == "Mixed Bunch". ──
-            is_mixed_bunch = False
-            if not is_mixed:
-                for bunch_item in so.items:
-                    if opl_so_item_names and bunch_item.name not in opl_so_item_names:
-                        continue
-                    bunch_cl = bunch_item.get("custom_line")
-                    if bunch_cl and frappe.db.exists("Spec Box Item", {"parent": bunch_cl, "bunch_type": "Mixed Bunch"}):
-                        is_mixed_bunch = True
-                        break
+            if guide_rows:
+                pass
+            else:
+                is_mixed_bunch = False
+                if not is_mixed:
+                    for bunch_item in so.items:
+                        if opl_so_item_names and bunch_item.name not in opl_so_item_names:
+                            continue
+                        bunch_cl = bunch_item.get("custom_line")
+                        if bunch_cl and frappe.db.exists("Spec Box Item", {"parent": bunch_cl, "bunch_type": "Mixed Bunch"}):
+                            is_mixed_bunch = True
+                            break
 
             # =========================================================
             # MIXED BUNCH: one bouquet from several colour lines sharing ONE box
             # set — boxes come from a single line (not summed), packrate = sum of
             # custom_packrate_mixed_box (stems per box). Mirrors the mixed-box math.
             # =========================================================
-            if is_mixed_bunch:
+            if guide_rows:
+                pass
+            elif is_mixed_bunch:
                 if opl_so_item_names:
                     relevant_items = [item for item in so.items if item.name in opl_so_item_names]
                 else:
@@ -2497,6 +2782,11 @@ def get_pick_list_with_farm_pack_list():
                 )
                 if _fv:
                     _opl_group = frappe.db.get_value("Item", _fv, "item_group") or ""
+            # Whichever leaf group we ended up with, resolve it up to "Spray
+            # Roses" / "Standard Roses" via the tree — same reasoning as the
+            # table_ytkc loop above.
+            if _opl_group:
+                _opl_group = resolve_rose_item_groups([_opl_group]).get(_opl_group, _opl_group)
 
             packing_guide = {
                 "pick_list": opl_doc.name,
@@ -2787,7 +3077,7 @@ def issueBucketToSaleOrderItem():
                     pick_list_items = frappe.db.get_all(
                         'Pick List Item',
                         filters=pli_filters,
-                        fields=['name', 'parent']
+                        fields=['name', 'parent', 'source_warehouse']
                     )
 
                     updated_opls = set()
@@ -2846,33 +3136,40 @@ def issueBucketToSaleOrderItem():
                     # -------------------------------
                     # ISSUE FROM THE COLD STORE (Material Transfer)
                     # -------------------------------
-                    # Move the bucket's stems out of their current warehouse into the
-                    # delivery warehouse mapped in the Roses SO Warehouse Mapping.
-                    # Nothing hardcoded: the target comes from Roses-MAP (source ->
-                    # delivery); the source is where the stock currently sits (the
-                    # bucket's receiving entry).
+                    # Move the bucket's stems out of the coldstore into the
+                    # farm's Ungraded Sold warehouse, mapped via Roses-MAP.
+                    # src_wh is read from the Pick List Item's OWN
+                    # source_warehouse (carried from the Sales Order Item's
+                    # `warehouse` at OPL-creation time -- see
+                    # create_mixed_box_picklist.py / create_straight_box_pick_list.py),
+                    # NOT re-derived from the bucket's raw Stock Entry
+                    # history: that used to pick up whatever Stock Entry
+                    # happened to be "latest" for this bucket_id (sometimes
+                    # a Harvesting entry whose t_warehouse is a GREENHOUSE,
+                    # not a coldstore at all), and Roses-MAP's own
+                    # "fall back to the first mapping row" then silently
+                    # sent a Chepsito bucket to KAREN's Graded Sold warehouse
+                    # (real example: MAT-STE-2026-100006946) purely because
+                    # Karen happened to be the first row. Both bugs are gone
+                    # now: the source is deterministic, and an unmapped
+                    # source skips the transfer (logged) rather than
+                    # guessing at any farm's warehouse.
                     issue_transfer = None
                     se_detail = frappe.db.get_all(
                         'Stock Entry Detail',
                         filters={'parent': stock_entry_name},
-                        fields=['item_code', 'qty', 'uom', 't_warehouse', 's_warehouse'],
+                        fields=['item_code', 'qty', 'uom'],
                         limit=1
                     )
                     if se_detail:
                         det = se_detail[0]
-                        src_wh = det.t_warehouse or det.s_warehouse
-                        target_wh = None
-                        map_rows = frappe.db.get_all(
-                            'SO Warehouse Mapping Item',
-                            filters={'parent': 'Roses-MAP'},
-                            fields=['source_warehouse', 'delivery_warehouse']
-                        )
-                        for r in map_rows:
-                            if r.source_warehouse == src_wh:
-                                target_wh = r.delivery_warehouse
-                                break
-                        if not target_wh and map_rows:
-                            target_wh = map_rows[0].delivery_warehouse
+                        src_wh = next((p.source_warehouse for p in pick_list_items if p.source_warehouse), None)
+                        target_wh = roses_warehouse_map.ungraded_sold_warehouse(src_wh)
+                        if src_wh and not target_wh:
+                            frappe.log_error(
+                                title="Issue From The Cold Store: no Roses-MAP row",
+                                message=f"bucket={bucket_id} src_wh={src_wh} -- add a Roses-MAP row for this coldstore.",
+                            )
                         if src_wh and target_wh and det.item_code and det.qty:
                             transfer = frappe.new_doc('Stock Entry')
                             transfer.stock_entry_type = 'Issue From The Cold Store'
@@ -3262,19 +3559,30 @@ def _shelve_update_bas(bucket_id, variety, farm, shelf_id, result):
 
 
 def _shelve_check_submit_opl(bucket_id, result):
+    # Delegates entirely to the single central readiness check
+    # (sales_allocation._try_submit_opl_if_complete / opl_submit_blockers)
+    # instead of a separate, weaker "are the transfer rows shelved" loop.
+    # That loop used to start `all_ready = True` and only ever flip it to
+    # False for rows already flagged as a transfer -- an OPL with NO transfer
+    # rows at all (or one whose transfer rows just got shelved) would submit
+    # the instant this ran, regardless of whether its required stems were
+    # actually fully allocated yet, or whether a mixed-box/bunch OPL's sibling
+    # colour-lines were still unallocated. See order_pick_list.py's
+    # before_submit for the doctype-level backstop this is now also covered
+    # by even if this call site were ever bypassed.
+    from upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation import _try_submit_opl_if_complete
+
     result["opl_submitted"] = []
     try:
         for row in frappe.db.sql("SELECT DISTINCT parent FROM `tabPick List Item` WHERE bucket = %s", bucket_id, as_dict=True):
-            opl = frappe.get_doc("Order Pick List", row.parent)
-            if opl.docstatus == 1:
+            # Skip (don't re-report) an OPL that was already submitted before
+            # this bucket-shelve event -- _try_submit_opl_if_complete is
+            # idempotent and would still return True for it, but only a
+            # freshly-submitted-just-now OPL belongs in this response.
+            if frappe.db.get_value("Order Pick List", row.parent, "docstatus") == 1:
                 continue
-            all_ready = True
-            for loc in opl.locations:
-                is_transfer = (loc.in_transit == 1 or loc.awaiting_transfer == 1 or (loc.loaded_in_trolley or 0) == 1)
-                if is_transfer and (loc.shelved or 0) != 1:
-                    all_ready = False; break
-            if all_ready:
-                opl.flags.ignore_permissions = True; opl.submit(); result["opl_submitted"].append(row.parent)
+            if _try_submit_opl_if_complete(row.parent):
+                result["opl_submitted"].append(row.parent)
     except Exception:
         frappe.log_error("OPL Auto-Submit Check Failed", frappe.get_traceback())
 

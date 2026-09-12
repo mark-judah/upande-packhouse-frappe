@@ -17,6 +17,75 @@ frappe.pages['sales-allocation'].on_page_load = function (wrapper) {
     frappe.pages['sales-allocation'].make(page);
 };
 
+// Fires on every visit (first load AND every return trip), unlike on_page_load
+// which only fires once — so a "Sales Allocation" shortcut clicked from a
+// second Sales Order while this page instance is already alive still lands
+// here. Consumes frappe.route_options (set by the Sales Order shortcut) to
+// pre-select the location + widen the date window so THAT order shows up,
+// then auto-selects it once the order list loads.
+frappe.pages['sales-allocation'].on_page_show = function () {
+    const P = frappe.pages['sales-allocation'];
+    if (!frappe.route_options || !frappe.route_options.sales_order) return;
+    const deeplink = {
+        sales_order: frappe.route_options.sales_order,
+        farm: frappe.route_options.farm || null,
+        transaction_date: frappe.route_options.transaction_date || null
+    };
+    frappe.route_options = null;
+    P._run_deeplink(deeplink);
+};
+frappe.pages['sales-allocation']._run_deeplink = function (deeplink) {
+    const P = frappe.pages['sales-allocation'];
+    const proceed = () => {
+        // Prefer the location that actually owns this order's farm; fall back
+        // to whatever's already selected, else the first configured location.
+        let loc_name = null;
+        if (deeplink.farm && P.location_config) {
+            const loc = P.location_config.locations.find(l => (l.farms || []).includes(deeplink.farm));
+            if (loc) loc_name = loc.name;
+        }
+        if (!loc_name) {
+            loc_name = P.selected_location ||
+                (P.location_config && P.location_config.locations[0] && P.location_config.locations[0].name);
+        }
+        if (!loc_name) {
+            frappe.msgprint(__('No shelf locations configured — cannot open this order here.'));
+            return;
+        }
+        // Widen the date window so the order isn't silently excluded by the
+        // default "delivery = tomorrow" / "posting = last 7 days" filters.
+        P.filters.order_start = deeplink.transaction_date || '';
+        P.filters.order_end = deeplink.transaction_date || '';
+        P.filters.delivery_start = '';
+        P.filters.delivery_end = '';
+        $('#orderStartDate').val(P.filters.order_start);
+        $('#orderEndDate').val(P.filters.order_end);
+        $('#deliveryStartDate').val('');
+        $('#deliveryEndDate').val('');
+        if (P.filters.order_start) {
+            $('#postingWrap').css('display', 'flex');
+            $('#togglePosting').text('Remove posting date');
+        }
+        P._pending_select_order = deeplink.sales_order;
+        if (P.selected_location === loc_name) {
+            P.load_sales_orders();
+        } else {
+            P.select_location(loc_name); // itself calls load_sales_orders()
+        }
+    };
+    if (P.location_config) {
+        proceed();
+    } else {
+        // First-ever page visit — location_config is still loading async.
+        let tries = 0;
+        const wait = setInterval(() => {
+            tries += 1;
+            if (P.location_config) { clearInterval(wait); proceed(); }
+            else if (tries > 50) { clearInterval(wait); }
+        }, 150);
+    }
+};
+
 frappe.pages['sales-allocation'].add_styles = function () {
     if (document.getElementById('sales-allocation-styles')) return;
     // ufd-modern font stack (Poppins + JetBrains Mono) — matches every other
@@ -66,6 +135,18 @@ frappe.pages['sales-allocation'].add_styles = function () {
             min-height: 0;
             display: grid;
             grid-template-columns: 320px minmax(0,1fr);
+            /* Without an explicit row track, a single-row grid sizes to its
+               content's natural height (auto) instead of stretching to fill
+               .sa-shell's own (flex:1) height -- so a long bucket table or
+               order list just grows .sa-detail/.sa-rail past the viewport,
+               pushing the action bar (and the rail's own bottom) off-screen
+               with no scrollbar, fixable only by zooming the whole page
+               out. minmax(0,1fr) gives the row a definite height instead, so
+               it stretches to fill .sa-shell exactly and the descendants'
+               own min-height:0 + overflow-y:auto regions (.sa-work,
+               .sa-lines, .sales-order-list) scroll internally -- the header,
+               toolbar, and action bar stay pinned in view at any zoom. */
+            grid-template-rows: minmax(0, 1fr);
             gap: 12px;
         }
 
@@ -205,7 +286,16 @@ frappe.pages['sales-allocation'].add_styles = function () {
             box-shadow: var(--shadow-card);
             min-height: 0;
             display: grid;
-            grid-template-rows: auto auto minmax(0,1fr) auto;
+            /* Row order matches the DOM order below: head, action bar,
+               toolbar, then the scrollable body. The action bar used to be
+               the last (auto) row, at the bottom of the pane -- on a long
+               bucket table or order list that pane can run taller than the
+               viewport, and this row being last meant it was the first
+               thing pushed out of view, visible again only by zooming the
+               whole page out. Pinning it right under the header instead
+               (still its own fixed-height row, just moved up) means it's
+               never dependent on how much the scrollable body grows. */
+            grid-template-rows: auto auto auto minmax(0,1fr);
             overflow: hidden;
         }
         .ufd-sa .sa-detail-head {
@@ -232,7 +322,7 @@ frappe.pages['sales-allocation'].add_styles = function () {
         .ufd-sa .sa-actionbar {
             display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
             padding: 11px 20px;
-            border-top: 1px solid var(--hairline);
+            border-bottom: 1px solid var(--hairline);
             background: var(--surface);
         }
         .ufd-sa .sa-actionbar .ab-actions { margin-left: auto; display: flex; gap: 8px; }
@@ -557,12 +647,12 @@ frappe.pages['sales-allocation'].make = function (page) {
             </aside>
             <section class="sa-detail" id="salesAllocationDetail">
                 <header class="sa-detail-head" id="detailHead"></header>
+                <div class="sa-actionbar" id="actionBar"></div>
                 <div class="sa-detail-toolbar" id="detailToolbar" style="display:none;"></div>
                 <div class="sa-detail-body">
                     <nav class="sa-lines" id="linesRail"></nav>
                     <div class="sa-work" id="allocationWorkspace"></div>
                 </div>
-                <footer class="sa-actionbar" id="actionBar"></footer>
             </section>
         </div>
     `);
@@ -575,6 +665,9 @@ frappe.pages['sales-allocation'].make = function (page) {
     P.selected_location = null;
     P.location_config = null;
     P.selected_farms = [];
+    // When checked, hides the cut-stage mismatch filter entirely so buckets
+    // that don't match the order line's spec cut stage become selectable.
+    P.bypass_cut_stage = false;
     // Which order line is showing its bucket table in the right pane
     P.selected_item = null;
     P._preserve_item = null;
@@ -712,6 +805,18 @@ frappe.pages['sales-allocation'].load_sales_orders = function () {
                 P.current_sales_orders = [];
                 $('#resultsCount').text('0 orders');
                 $('#salesOrderList').html('<div class="empty-state"><p>No pending orders for these dates.</p></div>');
+            }
+            if (P._pending_select_order) {
+                const target = P._pending_select_order;
+                P._pending_select_order = null;
+                if ((P.current_sales_orders || []).some(o => o.name === target)) {
+                    P.select_order(target, { force: 1 });
+                } else {
+                    frappe.show_alert({
+                        message: __('Could not find {0} in the allocation list for this window.', [target]),
+                        indicator: 'orange'
+                    }, 6);
+                }
             }
         }
     });
@@ -860,7 +965,8 @@ frappe.pages['sales-allocation']._fetch_items_and_open_dialog = function () {
         args: {
             sales_order: P.selected_order,
             location: P.selected_location,
-            selected_farms: JSON.stringify(P.selected_farms)
+            selected_farms: JSON.stringify(P.selected_farms),
+            bypass_cut_stage: P.bypass_cut_stage ? 1 : 0
         },
         callback: function (r) {
             if (r.message && r.message.length) {
@@ -939,7 +1045,47 @@ frappe.pages['sales-allocation']._bind_farm_filter = function () {
             args: {
                 sales_order: P.selected_order,
                 location: P.selected_location,
-                selected_farms: JSON.stringify(P.selected_farms)
+                selected_farms: JSON.stringify(P.selected_farms),
+                bypass_cut_stage: P.bypass_cut_stage ? 1 : 0
+            },
+            freeze: false,
+            callback: function (r) {
+                if (r.message) {
+                    P.order_items = r.message.map(item => ({
+                        ...item,
+                        batches: (item.batches || []).map(b => ({ ...b, original_available_qty: b.available_qty || 0 }))
+                    }));
+                }
+                P.render_allocation_grid();
+            }
+        });
+    });
+};
+// ─── CUT STAGE BYPASS ───
+frappe.pages['sales-allocation']._render_cutstage_bypass = function () {
+    const P = frappe.pages['sales-allocation'];
+    const checked = P.bypass_cut_stage ? 'checked' : '';
+    return `
+        <div class="farm-filter-bar">
+            <label class="title" title="Buckets hidden for not matching the order's cut stage become available again">
+                <input type="checkbox" id="bypassCutStageCheckbox" ${checked}> Bypass Cut Stage
+            </label>
+        </div>`;
+};
+frappe.pages['sales-allocation']._bind_cutstage_bypass = function () {
+    const P = frappe.pages['sales-allocation'];
+    P._scope().find('#bypassCutStageCheckbox').on('change', function () {
+        P.bypass_cut_stage = $(this).is(':checked');
+        P.clear_allocations(true);
+        P.item_filters = {};
+        P._bucket_diag_cache = {};
+        frappe.call({
+            method: 'upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.get_sales_order_items_with_buckets',
+            args: {
+                sales_order: P.selected_order,
+                location: P.selected_location,
+                selected_farms: JSON.stringify(P.selected_farms),
+                bypass_cut_stage: P.bypass_cut_stage ? 1 : 0
             },
             freeze: false,
             callback: function (r) {
@@ -1104,7 +1250,7 @@ frappe.pages['sales-allocation']._load_bucket_diagnostics = function (item, forc
     const so_item = item.sales_order_item;
     const $panel = P._scope().find(`#bucket-diag-${so_item}`);
     if (!$panel.length) return;
-    const cache_key = [so_item, P.selected_location, (P.selected_farms || []).slice().sort().join(',')].join('|');
+    const cache_key = [so_item, P.selected_location, (P.selected_farms || []).slice().sort().join(','), P.bypass_cut_stage ? 1 : 0].join('|');
     const cached = P._bucket_diag_cache[cache_key];
     if (cached) {
         P._render_bucket_diag_strip(item, cached);
@@ -1117,7 +1263,8 @@ frappe.pages['sales-allocation']._load_bucket_diagnostics = function (item, forc
         args: {
             sales_order_item: so_item,
             location: P.selected_location,
-            selected_farms: JSON.stringify(P.selected_farms || [])
+            selected_farms: JSON.stringify(P.selected_farms || []),
+            bypass_cut_stage: P.bypass_cut_stage ? 1 : 0
         },
         callback: function (r) {
             if (!r.message || !r.message.success) {
@@ -1431,7 +1578,21 @@ frappe.pages['sales-allocation']._render_detail_head = function (items) {
                 <div style="width:${pct}%;height:100%;background:${bar_color};"></div>
             </div>
         </div>
+        <button class="sa-mini-btn" onclick="frappe.pages['sales-allocation'].open_sales_order()">Sales Order</button>
+        <button class="sa-mini-btn" onclick="frappe.pages['sales-allocation'].open_order_pick_list()">Order Pick List</button>
         <button class="sa-mini-btn" onclick="frappe.pages['sales-allocation'].close_detail()">Close</button>`;
+};
+frappe.pages['sales-allocation'].open_sales_order = function () {
+    const P = frappe.pages['sales-allocation'];
+    if (!P.selected_order) return;
+    frappe.set_route('Form', 'Sales Order', P.selected_order);
+};
+frappe.pages['sales-allocation'].open_order_pick_list = function () {
+    const P = frappe.pages['sales-allocation'];
+    if (!P.selected_order) return;
+    // An order can have several OPLs (one per mix/bunch group), so the list
+    // view filtered to this order is the right target, not a single doc.
+    frappe.set_route('list', 'Order Pick List', { sales_order: P.selected_order });
 };
 // ─── RENDER: ORDER LINES RAIL ───
 frappe.pages['sales-allocation']._render_lines_rail = function (items) {
@@ -1678,7 +1839,7 @@ frappe.pages['sales-allocation'].render_allocation_grid = function () {
     }
     const item = items.find(i => i.sales_order_item === P.selected_item);
     $('#detailHead').html(P._render_detail_head(items));
-    const toolbar = P._render_farm_filter() + P._render_mix_filter();
+    const toolbar = P._render_farm_filter() + P._render_cutstage_bypass() + P._render_mix_filter();
     if (toolbar.trim()) $('#detailToolbar').html(toolbar).css('display', 'flex');
     else $('#detailToolbar').empty().hide();
     $('#linesRail').html(P._render_lines_rail(items));
@@ -1691,6 +1852,7 @@ frappe.pages['sales-allocation'].render_allocation_grid = function () {
     }
     $('#actionBar').html(P._render_action_bar());
     P._bind_farm_filter();
+    P._bind_cutstage_bypass();
     P._bind_mix_filter();
     P._bind_lines_rail();
     P._bind_per_item_filters();

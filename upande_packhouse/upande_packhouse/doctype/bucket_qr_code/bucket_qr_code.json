@@ -41,7 +41,7 @@
    "options": "Stock Entry"
   },
   {
-   "description": "The Harvesting entry that started this bucket's CURRENT journey -- i.e. the scan that flipped it Available -> In Use. ",
+   "description": null,
    "fieldname": "current_journey_start",
    "fieldtype": "Link",
    "label": "Current Journey Start",

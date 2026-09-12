@@ -1,10 +1,16 @@
-"""Greenhouse cost-centre stamping for production Stock Entries.
+"""Warehouse-driven cost-centre stamping for production Stock Entries.
 
 Harvesting, grading, receiving, quarantine and the reject flows are all Stock
 Entries that originate at / move through a greenhouse. Each greenhouse is a
 Warehouse carrying a `custom_cost_center`, and every such entry must post to that
-greenhouse's cost centre. Validated on the Stock Entry `validate` event so it
-applies to every path — mobile APIs, the desk form, and server scripts.
+greenhouse's cost centre. Post-harvest flows (issuing from the cold store to a
+sales order) have no greenhouse, but the cold store they issue FROM is a
+Warehouse too and carries the exact same `custom_cost_center` field -- reused
+directly rather than a separate hardcoded cost centre, so setting one up for a
+new cold store is the same one-step admin task ("set custom_cost_center on the
+warehouse") as it already is for a greenhouse. Both are validated on the Stock
+Entry `validate` event so they apply to every path — mobile APIs, the desk
+form, and server scripts.
 """
 
 import frappe
@@ -22,6 +28,25 @@ GREENHOUSE_COST_CENTRE_TYPES = {
 	"Quarantine Rejects",
 	"Packhouse Rejects",
 	"Field Rejects",
+}
+
+# Stock Entry types for the post-harvest stage -- no greenhouse involved (the
+# bucket has already left the farm), so the cost centre comes from the item
+# row's own source warehouse (Warehouse.custom_cost_center) instead of
+# Stock Entry.custom_greenhouse. Add more post-harvest stock entry types here
+# as needed.
+POST_HARVEST_COST_CENTRE_TYPES = {
+	"Issue From The Cold Store",
+	# Farm Pack List submit -> Ungraded Sold -> Graded Sold (see
+	# farm_pack_list.py). Same post-harvest situation: no greenhouse, cost
+	# centre comes from the item row's own source warehouse (this time the
+	# farm's Ungraded Sold warehouse rather than its coldstore).
+	"Move To Graded Sold",
+	# Shelving a bucket at a different farm than it was received at (see
+	# roses_warehouse_map.transfer_to_farm_warehouse) -- same situation
+	# again: no greenhouse, cost centre comes from the coldstore it's
+	# being moved OUT of.
+	"Farm Transfer",
 }
 
 
@@ -60,3 +85,40 @@ def apply_greenhouse_cost_center(doc, method=None):
 		row.cost_center = cost_center
 		if business_unit:
 			row.business_unit = business_unit
+
+
+def apply_post_harvest_cost_center(doc, method=None):
+	"""Post-harvest Stock Entries (issuing a bucket from the cold store to a
+	sales order, currently the only such flow) have no greenhouse to derive a
+	cost centre from -- mobile/api.py's issueBucketToSaleOrderItem builds this
+	Stock Entry with a bare item row and no cost_center at all, which ERPNext's
+	own accounting-dimension check then blocks on submit/insert with "Cost
+	Center is mandatory for Item <x>".
+
+	Same fix as apply_greenhouse_cost_center, just keyed by warehouse instead
+	of Stock Entry.custom_greenhouse: the item row's own s_warehouse (the cold
+	store the bucket is being issued FROM) is itself a Warehouse and already
+	carries custom_cost_center. If it isn't set, block with the identical
+	"contact your IT administrator" message the greenhouse flow uses, naming
+	the warehouse instead of a greenhouse -- same one-step fix, same message.
+	"""
+	if doc.get("stock_entry_type") not in POST_HARVEST_COST_CENTRE_TYPES:
+		return
+
+	business_unit = doc.get("business_unit")
+	for row in doc.get("items") or []:
+		s_warehouse = row.get("s_warehouse")
+		if not s_warehouse:
+			continue
+
+		cost_center = frappe.db.get_value("Warehouse", s_warehouse, "custom_cost_center")
+		if not cost_center:
+			frappe.throw(
+				frappe._("Please contact your IT administrator to add the cost center for warehouse {0}").format(s_warehouse)
+			)
+
+		row.cost_center = cost_center
+		if business_unit:
+			row.business_unit = business_unit
+		if not doc.get("cost_center"):
+			doc.cost_center = cost_center

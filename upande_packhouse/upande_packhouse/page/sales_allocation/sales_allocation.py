@@ -1,5 +1,6 @@
 import frappe
 from frappe import _
+from frappe.utils import cint
 import json
 
 from upande_packhouse import stock_movement
@@ -263,6 +264,45 @@ def get_pending_sales_orders(start_date=None, end_date=None, delivery_start=None
 
 
 @frappe.whitelist()
+def get_order_allocation_status(sales_order):
+    """How far ONE order is allocated, by stems -- same allocated/ordered ratio
+    get_pending_sales_orders computes for the whole list, scoped to a single
+    order so the Sales Order form's Actions button can label itself without
+    pulling the entire pending-orders list. Used to pick "Allocate" /
+    "Continue Allocating" / "View Allocation"."""
+    if not sales_order:
+        frappe.throw(_("Sales Order is required"))
+
+    row = frappe.db.sql("""
+        SELECT
+            SUM(soi.stock_qty) AS ordered_stems,
+            COALESCE(MAX(alloc.allocated), 0) AS allocated_stems
+        FROM `tabSales Order Item` soi
+        LEFT JOIN (
+            SELECT soi2.parent AS so_name, SUM(ba.quantity_allocated) AS allocated
+            FROM `tabBucket Allocations` ba
+            INNER JOIN `tabSales Order Item` soi2 ON soi2.name = ba.sales_order_item
+            WHERE ba.cancelled = 0
+            GROUP BY soi2.parent
+        ) alloc ON alloc.so_name = soi.parent
+        WHERE soi.parent = %s
+    """, sales_order, as_dict=True)
+
+    ordered = float((row[0].ordered_stems if row else 0) or 0)
+    allocated = float((row[0].allocated_stems if row else 0) or 0)
+    pct = round(min(100, allocated * 100.0 / ordered), 1) if ordered > 0 else 0
+
+    if pct <= 0:
+        status = "none"
+    elif pct >= 100:
+        status = "full"
+    else:
+        status = "partial"
+
+    return {"ordered_stems": ordered, "allocated_stems": allocated, "percentage": pct, "status": status}
+
+
+@frappe.whitelist()
 def get_order_filter_options():
     """Complete option lists for the order-list Length and Item-group filters.
 
@@ -296,9 +336,11 @@ def get_order_filter_options():
 @frappe.whitelist()
 def get_sales_order_items_with_buckets(sales_order, location=None, selected_farms=None,
                                        filter_headsize=None, filter_color=None,
-                                       filter_cut_stage=None):
+                                       filter_cut_stage=None, bypass_cut_stage=None):
     if not sales_order:
         frappe.throw(_("Sales Order is required"))
+
+    bypass_cut_stage = cint(bypass_cut_stage)
 
     if isinstance(selected_farms, str):
         selected_farms = json.loads(selected_farms)
@@ -366,7 +408,8 @@ def get_sales_order_items_with_buckets(sales_order, location=None, selected_farm
             soi.custom_mix_name,
             soi.custom_mixed_bunch,
             soi.custom_bunch_group,
-            soi.custom_line AS specification
+            soi.custom_line AS specification,
+            soi.custom_cut_stage
         FROM `tabSales Order Item` soi
         WHERE soi.parent = %s
         ORDER BY soi.idx
@@ -375,17 +418,17 @@ def get_sales_order_items_with_buckets(sales_order, location=None, selected_farm
     if not items:
         return []
 
-    # A line populated from a Specification (custom_line) is locked to that
-    # spec's cut stage — buckets are matched against it automatically instead
-    # of the user picking a range by hand.
-    spec_names = list({i["specification"] for i in items if i.get("specification")})
-    spec_cut_stage_map = {}
-    if spec_names:
-        sp_placeholders = ", ".join(["%s"] * len(spec_names))
-        spec_rows = frappe.db.sql(f"""
-            SELECT name, cut_stage FROM `tabSpecifications` WHERE name IN ({sp_placeholders})
-        """, spec_names, as_dict=True)
-        spec_cut_stage_map = {r["name"]: r["cut_stage"] for r in spec_rows if r["cut_stage"]}
+    # Cut-stage matching is driven entirely by what THIS Sales Order Item
+    # itself carries in custom_cut_stage -- not a fresh re-lookup of the
+    # spec's own cut_stage, and not a rose-type rule (e.g. "sprays never
+    # have one"). custom_cut_stage is populated from the spec at fill time
+    # (see spec_autofill._detail_payload) but is the order's own value from
+    # then on -- re-deriving it from the spec here could disagree if the
+    # spec changed since, or silently apply a filter to a line whose own
+    # cut_stage was never set (a mismatch this used to force on Spray Roses
+    # lines in particular, since some spray specs do carry a spec cut_stage,
+    # but the packhouse's own spray grading step has no cut_stage concept to
+    # match it against). No filter at all when custom_cut_stage is blank.
 
     all_confirmed = _get_all_confirmed_stems(sales_order)
 
@@ -541,7 +584,7 @@ def get_sales_order_items_with_buckets(sales_order, location=None, selected_farm
         meta = metadata_map.get(item["item_code"], {})
         item["headsize"] = meta.get("headsize", "")
         item["color"] = meta.get("color", "")
-        item["spec_cut_stage"] = spec_cut_stage_map.get(item.get("specification"))
+        item["spec_cut_stage"] = item.get("custom_cut_stage") or None
 
         item_buckets = buckets_by_item.get(item["item_code"], [])
         req_cm = _parse_cm(item["required_length"])
@@ -552,7 +595,11 @@ def get_sales_order_items_with_buckets(sales_order, location=None, selected_farm
         for b in item_buckets:
             # Spec-driven lines only ever see buckets at the spec's own cut
             # stage — no manual range filter needed or offered for these.
-            if item["spec_cut_stage"] and str(b.get("cut_stage", "")).strip() != item["spec_cut_stage"].strip():
+            # Bypassed entirely when the allocator has explicitly checked
+            # "bypass cut stage" on the page, so mismatched buckets become
+            # selectable instead of being silently hidden.
+            if (not bypass_cut_stage and item["spec_cut_stage"]
+                    and str(b.get("cut_stage", "")).strip() != item["spec_cut_stage"].strip()):
                 continue
 
             b_cm = _parse_cm(b["stem_length"])
@@ -638,9 +685,11 @@ def get_sales_order_items_with_buckets(sales_order, location=None, selected_farm
 # ============================================================
 @frappe.whitelist()
 def get_bucket_visibility_diagnostics(sales_order_item, location=None, selected_farms=None,
-                                       filter_cut_stage=None):
+                                       filter_cut_stage=None, bypass_cut_stage=None):
     if not sales_order_item:
         frappe.throw(_("Sales Order Item is required"))
+
+    bypass_cut_stage = cint(bypass_cut_stage)
 
     if isinstance(selected_farms, str):
         selected_farms = json.loads(selected_farms) if selected_farms else []
@@ -655,7 +704,7 @@ def get_bucket_visibility_diagnostics(sales_order_item, location=None, selected_
 
     soi = frappe.db.get_value(
         "Sales Order Item", sales_order_item,
-        ["item_code", "custom_length", "custom_line"], as_dict=True
+        ["item_code", "custom_length", "custom_line", "custom_cut_stage"], as_dict=True
     )
     if not soi:
         frappe.throw(_("Sales Order Item not found: {0}").format(sales_order_item))
@@ -664,13 +713,16 @@ def get_bucket_visibility_diagnostics(sales_order_item, location=None, selected_
     required_length = soi.custom_length
     req_cm = _parse_cm(required_length)
 
-    # A spec-driven line is locked to that spec's own cut stage — it overrides
-    # any manually-passed filter, matching get_sales_order_items_with_buckets.
-    spec_cut_stage = None
-    if soi.custom_line:
-        spec_cut_stage = frappe.db.get_value("Specifications", soi.custom_line, "cut_stage")
-        if spec_cut_stage:
-            cut_stage_list = [spec_cut_stage]
+    # Driven by what THIS line itself carries in custom_cut_stage -- not a
+    # fresh spec re-lookup, and not a rose-type rule -- matching
+    # get_sales_order_items_with_buckets. No filter at all when it's blank
+    # (e.g. most Spray Roses lines, which have no cut-stage concept on the
+    # packhouse side even when the spec happens to carry one).
+    spec_cut_stage = soi.custom_cut_stage or None
+    if spec_cut_stage and not bypass_cut_stage:
+        cut_stage_list = [spec_cut_stage]
+    if bypass_cut_stage:
+        cut_stage_list = []
 
     config = _get_production_config()
     discard_age = config["discard_age"]
@@ -1578,34 +1630,62 @@ def _so_item_is_fully_allocated(so_item_name, confirmed_qty=None):
     return allocated >= required - 0.001
 
 
-def _try_submit_opl_if_complete(opl_name, confirmed_by_item=None):
-    """Promote a draft OPL to submitted iff every required SO item is cumulatively
-    fully allocated AND no row is awaiting transfer. Idempotent — safe to call
-    repeatedly.
+def opl_submit_blockers(opl):
+    """The ONE readiness check for "may this Order Pick List submit?" — every
+    programmatic submit path (allocation-time, shelving-time, and the
+    doctype's own before_submit backstop) calls this and this alone, so there
+    is exactly one place that can ever be wrong instead of several
+    independently-drifting copies.
 
-    For mixed-box OPLs the "required" set is every SOI in the mix group on the
-    parent SO — not just the SOIs already on the OPL — so the OPL stays in draft
-    until the whole mix group is allocated.
+    Takes an already-loaded Order Pick List DOCUMENT (not a name — this runs
+    inside before_submit too, where the doc is in-memory and not yet
+    re-fetchable in its final state). Returns a list of human-readable
+    blocker strings; empty list = ready to submit.
+
+    Deliberately ALWAYS uses the GLOBAL (all-farm) confirmed-stems total via
+    _get_all_confirmed_stems, never a location-scoped one. Confirming stems
+    is explicitly designed to be split across several farms/locations
+    (confimSalesOrderItem lets each farm confirm part of one order line), so
+    a location-scoped confirmed value can be smaller than the true total the
+    order actually needs — passing that in as "required" let an OPL look
+    fully allocated (allocated == that farm's own confirmed slice) while the
+    order's real total was still short. Every caller used to compute and
+    pass its own (location-scoped) confirmed_by_item into the submit
+    decision; this function no longer accepts one, precisely to remove that
+    whole class of mistake at the source.
+
+    For mixed-box/mixed-bunch OPLs the "required" set is every SOI in the
+    mix/bunch group on the parent SO — not just the SOIs already on this
+    OPL — so the OPL stays in draft until the WHOLE group is allocated.
     For straight-box OPLs the required set is the SOIs currently on the OPL.
-
-    Returns: True if submitted (or already submitted), False if left as draft.
     """
-    if not opl_name:
-        return False
+    blockers = []
 
-    opl = frappe.get_doc("Order Pick List", opl_name)
-
-    if opl.docstatus == 1:
-        return True
-    if opl.docstatus == 2:
-        return False
     if not opl.table_ytkc:
-        return False
+        blockers.append("has no pick-list rows yet")
+        return blockers
 
-    has_awaiting = any((loc.get("awaiting_transfer") or 0) for loc in opl.table_ytkc)
+    awaiting = [loc for loc in opl.table_ytkc if (loc.get("awaiting_transfer") or 0)
+                or (loc.get("in_transit") or 0) or ((loc.get("loaded_in_trolley") or 0) and not loc.get("shelved"))]
+    if awaiting:
+        blockers.append(
+            "{0} bucket(s) are still in transit / not yet shelved at the sales farm ({1})".format(
+                len(awaiting), ", ".join(sorted({loc.get("bucket") for loc in awaiting if loc.get("bucket")}))
+            )
+        )
 
-    opl_mix_group = opl.get("custom_mix_group")
-    opl_bunch_group = opl.get("custom_bunch_group")
+    global_confirmed = _get_all_confirmed_stems(opl.sales_order)
+
+    # NOTE: Order Pick List's own fields are "mix_group"/"bunch_group" (no
+    # "custom_" prefix) -- that prefix only exists on the Sales Order Item
+    # side (custom_mix_group/custom_bunch_group). Reading the wrong
+    # (custom_-prefixed) name here always returned None, silently defeating
+    # the whole-mix/bunch-group completeness check below for every mixed-box
+    # and mixed-bunch OPL ever created -- confirmed against a real OPL
+    # (mix_group="1" stored correctly by create_mixed_box_picklist.py, but
+    # unreadable through this same wrong name) while testing this fix.
+    opl_mix_group = opl.get("mix_group")
+    opl_bunch_group = opl.get("bunch_group")
     if opl_mix_group:
         required_so_items = set(frappe.get_all(
             "Sales Order Item",
@@ -1631,19 +1711,46 @@ def _try_submit_opl_if_complete(opl_name, confirmed_by_item=None):
     else:
         required_so_items = {loc.sales_order_item for loc in opl.table_ytkc if loc.sales_order_item}
 
-    all_covered = True
+    short = []
     for so_item in required_so_items:
-        confirmed = (confirmed_by_item or {}).get(so_item)
-        if not _so_item_is_fully_allocated(so_item, confirmed_qty=confirmed):
-            all_covered = False
-            break
+        confirmed = global_confirmed.get(so_item)
+        allocated = _cumulative_allocated_stems(so_item)
+        required = _required_stems_for_so_item(so_item, confirmed_qty=confirmed)
+        if allocated < required - 0.001:
+            short.append("{0} ({1:g}/{2:g} stems)".format(so_item, allocated, required))
+    if short:
+        blockers.append("{0} line(s) not yet fully allocated: {1}".format(len(short), "; ".join(short)))
 
-    if all_covered and not has_awaiting:
-        opl.flags.ignore_permissions = True
-        opl.submit()
+    return blockers
+
+
+def _try_submit_opl_if_complete(opl_name, confirmed_by_item=None):
+    """Promote a draft OPL to submitted iff opl_submit_blockers finds nothing
+    blocking. Idempotent — safe to call repeatedly.
+
+    `confirmed_by_item` is accepted for backward compatibility with existing
+    call sites but is IGNORED — see opl_submit_blockers's docstring for why
+    the submit decision always recomputes confirmed stems globally instead
+    of trusting a caller-supplied (possibly location-scoped) map.
+
+    Returns: True if submitted (or already submitted), False if left as draft.
+    """
+    if not opl_name:
+        return False
+
+    opl = frappe.get_doc("Order Pick List", opl_name)
+
+    if opl.docstatus == 1:
         return True
+    if opl.docstatus == 2:
+        return False
 
-    return False
+    if opl_submit_blockers(opl):
+        return False
+
+    opl.flags.ignore_permissions = True
+    opl.submit()
+    return True
 
 
 def _check_fully_allocated(so_item_name, added_qty, confirmed_qty=None):

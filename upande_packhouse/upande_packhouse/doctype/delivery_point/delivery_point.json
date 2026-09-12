@@ -10,6 +10,7 @@
  "field_order": [
   "description",
   "business_unit",
+  "customer",
   "shipping_agents"
  ],
  "fields": [
@@ -23,14 +24,21 @@
    "fieldtype": "Link",
    "label": "Business Unit",
    "options": "Business Unit",
-   "description": "The Sales Order's Delivery Point picker is filtered to this Business Unit (Roses orders only offer Roses delivery points)."
+   "description": null
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer",
+   "description": null
   },
   {
    "fieldname": "shipping_agents",
    "fieldtype": "Table",
    "label": "Shipping Agents",
    "options": "Delivery Point Shipping Agent",
-   "description": "Shipping Agents that serve this Delivery Point. The Sales Order's Shipping Agent picker offers only these; if left empty, every Shipping Agent is offered."
+   "description": null
   }
  ],
  "grid_page_length": 50,

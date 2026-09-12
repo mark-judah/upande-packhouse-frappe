@@ -30,7 +30,7 @@
    "reqd": 1
   },
   {
-   "description": "1 = loaded first (back of truck, dropped off last). Highest = loaded last (near door, dropped off first).",
+   "description": null,
    "fieldname": "loading_position",
    "fieldtype": "Int",
    "in_list_view": 1,

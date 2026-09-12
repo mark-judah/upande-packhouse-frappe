@@ -130,7 +130,7 @@
   },
   {
    "default": "0",
-   "description": "From Remote Coldstore",
+   "description": null,
    "fieldname": "awaiting_transfer",
    "fieldtype": "Check",
    "label": "Awaiting Transfer"
@@ -138,7 +138,7 @@
   {
    "allow_on_submit": 1,
    "default": "0",
-   "description": "Batch",
+   "description": null,
    "fieldname": "loaded_in_trolley",
    "fieldtype": "Check",
    "label": "Loaded In Trolley"
@@ -152,7 +152,7 @@
   {
    "allow_on_submit": 1,
    "default": "0",
-   "description": "Batch loaded on the truck",
+   "description": null,
    "fieldname": "in_transit",
    "fieldtype": "Check",
    "label": "In Transit",
@@ -171,7 +171,7 @@
   {
    "allow_on_submit": 1,
    "default": "0",
-   "description": "At Sales Farm",
+   "description": null,
    "fieldname": "shelved",
    "fieldtype": "Check",
    "label": "Shelved",
@@ -180,7 +180,7 @@
   {
    "allow_on_submit": 1,
    "default": "0",
-   "description": "From Sales Shelf",
+   "description": null,
    "fieldname": "issued",
    "fieldtype": "Check",
    "label": "Issued",

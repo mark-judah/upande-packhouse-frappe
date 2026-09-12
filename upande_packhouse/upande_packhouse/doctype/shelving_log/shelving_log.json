@@ -142,7 +142,7 @@
    "label": "Removed On"
   },
   {
-   "description": "Source Shelf Item row name \u2014 used to keep the log idempotent.",
+   "description": null,
    "fieldname": "shelf_item",
    "fieldtype": "Data",
    "label": "Source Shelf Item"
