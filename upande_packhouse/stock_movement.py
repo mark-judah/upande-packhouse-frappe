@@ -186,7 +186,7 @@ def terminal_warehouse(source, business_unit, graded=True):
 
 
 # ============================================================
-# LEDGER HELPERS — always per bucket
+# LEDGER HELPERS — per bucket before packing, per box after
 # ============================================================
 def line_has_bucket():
     """Is `Stock Entry Detail.custom_bucket_id` available on this site?
@@ -211,8 +211,16 @@ def bucket_balance(bucket_id, item_code, warehouse):
     Bin is useless here: a receiving cold store holds thousands of buckets, so
     a non-zero Bin says nothing about whether this bucket has already moved on.
     """
-    if not (bucket_id and item_code and warehouse):
+    if not (item_code and warehouse and (bucket_id or box_label)):
         return 0.0
+    conditions = ["sed.item_code = %(item)s", "se.docstatus = 1"]
+    params = {"wh": warehouse, "item": item_code}
+    if bucket_id:
+        conditions.append("se.custom_bucket_id = %(bucket)s")
+        params["bucket"] = bucket_id
+    if box_label:
+        conditions.append("se.custom_box_label = %(box)s")
+        params["box"] = box_label
     return flt(
         frappe.db.sql(
             f"""
@@ -226,7 +234,7 @@ def bucket_balance(bucket_id, item_code, warehouse):
               AND sed.item_code = %(item)s
               AND se.docstatus = 1
             """,
-            {"wh": warehouse, "bucket": bucket_id, "item": item_code},
+            params,
         )[0][0]
     )
 
@@ -384,6 +392,20 @@ def post_transfer(
     )
     buckets = {line.get("bucket_id") for line in lines}
 
+    # Post-harvest stock entries have no greenhouse to derive a cost centre
+    # from (see stock_entry_cost_center.py) -- the SOURCE warehouse carries
+    # its own custom_cost_center instead. Set it directly here rather than
+    # adding TYPE_HOP ("Material Transfer") to that module's doctype-wide
+    # hook: "Material Transfer" is ERPNext's own generic type, reused all
+    # over the system for unrelated transfers, so forcing every such entry
+    # everywhere to require a warehouse-level cost centre would be a much
+    # bigger, unrelated blast radius than this one route walker.
+    cost_center = frappe.db.get_value("Warehouse", source, "custom_cost_center")
+    if not cost_center:
+        frappe.throw(
+            f"Please contact your IT administrator to add the cost center for warehouse {source}"
+        )
+
     se = frappe.new_doc("Stock Entry")
     se.update(
         {
@@ -402,6 +424,7 @@ def post_transfer(
             "custom_issued_to": so_item,
             "custom_opl_scanned": opl,
             "remarks": remarks,
+            "cost_center": cost_center,
         }
     )
     for line in lines:
@@ -774,6 +797,119 @@ def reverse_allocation_movement(sales_order_item, bucket_id=None, item_code=None
                 }
             )
     return reversed_moves
+
+
+# ============================================================
+# EVENTS 3-5 — ISSUE, STAGE, LOAD (downstream of the sale)
+# ============================================================
+# Graded Sold isn't the end of the chain: `SO Warehouse Mapping` also carries
+# `packhouse`, `dispatch_cold_store` and `delivery_truck` per farm, but until
+# now nothing ever read them -- Issue/Stage/Load only ever flipped metadata
+# flags (Shelf Item removed, Box Label.staged/loaded) with no ledger move
+# behind any of it. Unlike the arrival/terminal hops above, each of these is
+# a single, already-known leg driven by one real scan event, not a route to
+# walk -- so they share one small primitive (post_single_hop) instead of
+# move_along_route's multi-hop logic.
+#
+# Issue is still per BUCKET (custom_bucket_id) -- packing hasn't happened
+# yet. Stage and Load are per BOX (custom_box_label): by then several
+# buckets' stems have been combined into one box and a bucket_id no longer
+# identifies anything on its own.
+def mapping_row_for_farm(farm, business_unit):
+    """Full Roses-MAP row for a FARM directly (matches farm_pack_list.py's
+    own established convention for "packing is already past individual
+    bucket provenance") -- used here because by Issue/Stage/Load time we
+    already know which farm's chain a bucket/box belongs to, and only the
+    downstream fields (packhouse, dispatch_cold_store, delivery_truck) are
+    needed, not a route walked from a specific source warehouse.
+    """
+    if not farm:
+        return None
+    name = frappe.db.get_value(MAPPING_DT, {"business_unit": business_unit})
+    if not name:
+        return None
+    for row in frappe.get_doc(MAPPING_DT, name).items:
+        if row.source_warehouse and frappe.db.get_value("Warehouse", row.source_warehouse, "custom_farm") == farm:
+            return row
+    return None
+
+
+def post_single_hop(*, item_code, qty, source, target, business_unit, bucket_id=None,
+                     box_label=None, farm=None, stem_length=None, so_item=None, remarks=None):
+    """One deliberate, already-known leg -- not a route walk. Idempotent the
+    same way every other hop in this module is: skipped (returns None) once
+    this bucket's/box's own ledger balance at `source` is already zero, so a
+    re-scan or a retried request never double-moves stock.
+    """
+    qty = flt(qty)
+    if qty <= 0 or not source or not target or source == target:
+        return None
+    have = _ledger_balance(item_code, source, bucket_id=bucket_id, box_label=box_label)
+    if have <= QTY_TOLERANCE:
+        return None
+    return post_transfer(
+        entry_type=TYPE_HOP,
+        source=source,
+        target=target,
+        item_code=item_code,
+        qty=min(qty, have),
+        bucket_id=bucket_id,
+        box_label=box_label,
+        farm=farm,
+        business_unit=business_unit,
+        stem_length=stem_length,
+        so_item=so_item,
+        remarks=remarks,
+    )
+
+
+@frappe.whitelist()
+def post_issue_to_packhouse(bucket_id, item_code, qty, business_unit, farm, stem_length=None, so_item=None):
+    """EVENT 3 — a packer scans the bucket off the shelf to start packing it.
+    Graded Sold -> Packhouse. Still per-bucket."""
+    row = mapping_row_for_farm(farm, business_unit)
+    if not row or not row.packhouse:
+        return {"moved": False, "reason": f"no packhouse mapped for farm {farm}"}
+    source = row.delivery_warehouse
+    entry = post_single_hop(
+        item_code=item_code, qty=qty, source=source, target=row.packhouse,
+        business_unit=business_unit, bucket_id=bucket_id, farm=farm,
+        stem_length=stem_length, so_item=so_item,
+        remarks=f"Issued to {so_item}" if so_item else "Issued",
+    )
+    return {"moved": bool(entry), "entry": entry, "warehouse": row.packhouse if entry else source}
+
+
+@frappe.whitelist()
+def post_stage_to_dispatch(box_label, item_code, qty, business_unit, farm, remarks=None):
+    """EVENT 4 — a Box Label is scanned staged in the dispatch coldroom.
+    Packhouse -> Dispatch Cold Store. Per-box from here on."""
+    row = mapping_row_for_farm(farm, business_unit)
+    if not row or not row.dispatch_cold_store:
+        return {"moved": False, "reason": f"no dispatch cold store mapped for farm {farm}"}
+    source = row.packhouse
+    entry = post_single_hop(
+        item_code=item_code, qty=qty, source=source, target=row.dispatch_cold_store,
+        business_unit=business_unit, box_label=box_label, farm=farm,
+        remarks=remarks or f"Staged {box_label}",
+    )
+    return {"moved": bool(entry), "entry": entry, "warehouse": row.dispatch_cold_store if entry else source}
+
+
+@frappe.whitelist()
+def post_load_to_truck(box_label, item_code, qty, business_unit, farm, remarks=None):
+    """EVENT 5 — a Box Label is scanned loaded onto the delivery truck.
+    Dispatch Cold Store -> Delivery Truck."""
+    row = mapping_row_for_farm(farm, business_unit)
+    if not row or not row.delivery_truck:
+        return {"moved": False, "reason": f"no delivery truck mapped for farm {farm}"}
+    source = row.dispatch_cold_store
+    entry = post_single_hop(
+        item_code=item_code, qty=qty, source=source, target=row.delivery_truck,
+        business_unit=business_unit, box_label=box_label, farm=farm,
+        remarks=remarks or f"Loaded {box_label}",
+    )
+    return {"moved": bool(entry), "entry": entry, "warehouse": row.delivery_truck if entry else source}
 
 
 # ============================================================

@@ -311,6 +311,14 @@ def build_spec_rows(spec, selections, next_mix_group=1, next_bunch_group=1, sour
 			"custom_ordered_quantity": total,
 			"stock_qty": total,
 			"qty": (total / factor) if factor else total,
+			# Sales Order Item.conversion_factor is a core mandatory field --
+			# leaving it unset here means the grid's own client-side mandatory
+			# check blocks Save before the request ever reaches the server, so
+			# sales_order_engine.sales_order_before_validate (which recomputes
+			# this from the same regex) never gets the chance to run. See the
+			# identical fix in box_math.js's straight_calc for the manually
+			# typed-item-code path.
+			"conversion_factor": factor or 1,
 		}
 
 		if mixed_box or mixed_bunch:

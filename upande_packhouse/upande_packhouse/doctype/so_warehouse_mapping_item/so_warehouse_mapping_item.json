@@ -8,8 +8,11 @@
  "engine": "InnoDB",
  "field_order": [
   "source_warehouse",
-  "ungraded_sold_warehouse",
-  "delivery_warehouse"
+  "transfer_to",
+  "delivery_warehouse",
+  "packhouse",
+  "dispatch_cold_store",
+  "delivery_truck"
  ],
  "fields": [
   {
@@ -22,20 +25,38 @@
   },
   {
    "columns": 4,
-   "description": null,
-   "fieldname": "ungraded_sold_warehouse",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Ungraded Sold Warehouse",
-   "options": "Warehouse"
-  },
-  {
-   "columns": 4,
-   "description": null,
    "fieldname": "delivery_warehouse",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Graded Sold Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "packhouse",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Packhouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "dispatch_cold_store",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Dispatch Cold Store",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "delivery_truck",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Delivery Truck",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "transfer_to",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Transfer To",
    "options": "Warehouse"
   }
  ],
@@ -43,8 +64,8 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-08-28 10:54:29.456021",
- "modified_by": "Administrator",
+ "modified": "2026-09-12 03:38:31.053730",
+ "modified_by": "wilfred@upande.com",
  "module": "Upande Packhouse",
  "name": "SO Warehouse Mapping Item",
  "owner": "Administrator",
