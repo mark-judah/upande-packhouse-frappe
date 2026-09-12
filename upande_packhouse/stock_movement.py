@@ -8,16 +8,24 @@ the farm receiving cold stores forever.
 This module is the single place where flowers actually move. Routing is driven
 by the `SO Warehouse Mapping` doctype, keyed on business unit, e.g. Roses:
 
-    Simotwo  Receiving ─┐
-    Torongo  Receiving ─┼─→ Kapkolia Receiving ─→ Kapkolia Graded Sold
-    Chepsito Receiving ─┤                         (ungraded: Kapkolia Ungraded Sold)
-    Kaptumbo Receiving ─┘
-    Karen    Receiving ──────────────────────────→ Karen Graded Sold
+    source_warehouse -> transfer_to -> delivery_warehouse -> packhouse
+                        -> dispatch_cold_store -> delivery_truck
+       (Arrival)           (Sold)                 (Packing)
+                        (Dispatch)              (Loading)
 
-The mapping is a graph, not a flat lookup, so a bucket on an outlying farm takes
-two hops. The last hop — the one that lands in a *Sold* warehouse — is the sale
-and is stamped with the Sales Order Item it was sold against; earlier hops are
-the truck arriving at the packhouse.
+Each mapping row spells out the whole pipeline for one source warehouse; a blank
+column simply has no leg for that stage. For Roses that reads:
+
+    Simotwo/Torongo/Chepsito/Kaptumbo Receiving --Arrival--> Kapkolia Receiving
+    Kapkolia Receiving --Sold--> Kapkolia Graded Sold (ungraded: Kapkolia Ungraded Sold)
+                       --Packing--> Kapkolia Packhouse Store
+                       --Dispatch--> Kapkolia Dispatch Coldroom
+                       --Loading--> Delivery Truck
+    Karen Receiving --Sold--> Karen Graded Sold -> Karen Packhouse Store -> ...
+
+The **Sold** leg is the sale: it is stamped with the Sales Order Item, allocation
+stops there, and every later leg belongs to that same order. The Arrival leg is
+order-agnostic — the truck brings the whole bucket before anyone has bought it.
 
 **One Stock Entry per variety per stem length.** Moving three buckets of
 Snowflake 62cm for one order is one entry with three lines, not three entries.
@@ -37,9 +45,14 @@ from frappe.utils import flt, nowdate, nowtime
 
 MAPPING_DT = "SO Warehouse Mapping"
 
-# Stock Entry Types (both are Material Transfer purpose)
-TYPE_TO_SOLD = "Move To Graded Sold"  # terminal hop, into a *Sold warehouse
-TYPE_HOP = "Material Transfer"  # consolidation hop, cold store -> cold store
+# Every leg is a plain warehouse-to-warehouse Material Transfer. What a leg
+# MEANS is carried by its stage, its warehouses and (from the sale onwards) the
+# Sales Order Item on `custom_issued_to` — not by a bespoke Stock Entry Type.
+TYPE_HOP = "Material Transfer"
+
+#: Legacy: the sale leg used to be posted under its own type. Still recognised
+#: when reading history back, never used for new entries.
+TYPE_TO_SOLD = "Move To Graded Sold"
 
 RECEIVING_TYPES = ("Receiving", "Late Receipt")
 
@@ -50,11 +63,28 @@ QTY_TOLERANCE = 0.001
 # ============================================================
 # MAPPING
 # ============================================================
-def load_mapping(business_unit):
-    """{source_warehouse: {"to": delivery, "ungraded": ungraded_sold}}.
+#: The pipeline a bucket walks, in order. Each entry is
+#: (SO Warehouse Mapping Item fieldname, stage name, Stock Entry Type).
+#: A row that leaves a column blank simply has no leg for that stage.
+STAGES = (
+    ("transfer_to", "Arrival", TYPE_HOP),
+    ("delivery_warehouse", "Sold", TYPE_HOP),
+    ("packhouse", "Packing", TYPE_HOP),
+    ("dispatch_cold_store", "Dispatch", TYPE_HOP),
+    ("delivery_truck", "Loading", TYPE_HOP),
+)
 
-    Duplicate rows for the same source are tolerated: the first delivery wins,
-    and an ungraded target is picked up from whichever row carries one.
+STAGE_NAMES = tuple(stage for _f, stage, _t in STAGES)
+ARRIVAL_STAGE = "Arrival"
+SALE_STAGE = "Sold"  # allocation stops here — this leg is the sale
+LAST_STAGE = STAGE_NAMES[-1]
+
+
+def load_mapping(business_unit):
+    """{source_warehouse: <SO Warehouse Mapping Item row as a dict>}.
+
+    Duplicate rows for the same source are tolerated: the first row wins, and
+    any column it leaves blank is filled from a later row for the same source.
     """
     if not business_unit:
         frappe.throw("Business Unit is required to resolve warehouse routing")
@@ -63,63 +93,96 @@ def load_mapping(business_unit):
     if not name:
         frappe.throw(f"No {MAPPING_DT} configured for business unit {business_unit}")
 
+    columns = [field for field, _stage, _type in STAGES] + ["ungraded_sold_warehouse"]
     table = {}
     for row in frappe.get_doc(MAPPING_DT, name).items:
-        if not row.source_warehouse or not row.delivery_warehouse:
+        if not row.source_warehouse:
             continue
-        entry = table.setdefault(
-            row.source_warehouse,
-            {"to": row.delivery_warehouse, "ungraded": None},
-        )
-        # `ungraded_sold_warehouse` is a site-level custom field on
-        # SO Warehouse Mapping Item — absent on a stock install, hence .get().
-        if row.get("ungraded_sold_warehouse"):
-            entry["ungraded"] = row.get("ungraded_sold_warehouse")
+        entry = table.setdefault(row.source_warehouse, {})
+        for column in columns:
+            # Several of these are newer fields; `.get()` keeps the module
+            # working against a mapping that predates them.
+            if not entry.get(column) and row.get(column):
+                entry[column] = row.get(column)
     return table
 
 
-def resolve_route(source, business_unit, graded=True):
-    """Every hop from `source` to its terminal warehouse, in order.
+def resolve_route(source, business_unit, graded=True, upto=SALE_STAGE):
+    """The legs from `source` up to and including stage `upto`.
 
-    Returns [{"from", "to", "type", "terminal"}, ...]. Empty when `source` is
-    already terminal (it is not a source in the mapping).
+    Returns [{"from", "to", "stage", "type", "terminal"}, ...] — empty when the
+    mapping has no row for `source`. `terminal` marks the sale leg, the one
+    stamped with the Sales Order Item.
     """
+    if upto not in STAGE_NAMES:
+        frappe.throw(f"Unknown stage '{upto}' — expected one of {', '.join(STAGE_NAMES)}")
+
     table = load_mapping(business_unit)
-    route, seen, current = [], {source}, source
+    row = table.get(source)
+    if not row:
+        return []
 
-    while current in table and len(route) < MAX_HOPS:
-        row = table[current]
-        target = row["to"]
-        terminal = target not in table  # nothing routes onward from there
-
-        if terminal and not graded and row["ungraded"]:
-            target = row["ungraded"]
-
-        if target in seen:
-            frappe.throw(f"Warehouse mapping loops at {target} ({business_unit})")
-
-        seen.add(target)
-        route.append(
-            {
-                "from": current,
-                "to": target,
-                "type": TYPE_TO_SOLD if terminal else TYPE_HOP,
-                "terminal": terminal,
-            }
+    # Legacy shape: before `transfer_to` existed, an outlying farm's row pointed
+    # its delivery_warehouse at the packhouse cold store, which was itself a
+    # source row. Follow that chain so old mappings keep working.
+    hops, seen = [], {source}
+    while not row.get("transfer_to") and row.get("delivery_warehouse") in table:
+        nxt = row["delivery_warehouse"]
+        if nxt in seen or len(hops) >= MAX_HOPS:
+            frappe.throw(f"Warehouse mapping loops at {nxt} ({business_unit})")
+        seen.add(nxt)
+        hops.append(
+            {"from": source, "to": nxt, "stage": ARRIVAL_STAGE, "type": TYPE_HOP,
+             "terminal": False}
         )
-        if terminal:
-            return route
-        current = target
+        source, row = nxt, table[nxt]
 
-    if current in table:
-        frappe.throw(f"Warehouse mapping is deeper than {MAX_HOPS} hops from {source}")
-    return route
+    if hops and upto == ARRIVAL_STAGE:
+        return hops
+
+    current = source
+    for field, stage, entry_type in STAGES:
+        if hops and stage == ARRIVAL_STAGE:
+            continue  # already walked above by the legacy chain
+        target = row.get(field)
+        if stage == SALE_STAGE and not graded and row.get("ungraded_sold_warehouse"):
+            target = row["ungraded_sold_warehouse"]
+        if target and target != current:
+            hops.append(
+                {
+                    "from": current,
+                    "to": target,
+                    "stage": stage,
+                    "type": entry_type,
+                    "terminal": stage == SALE_STAGE,
+                }
+            )
+            current = target
+        if stage == upto:
+            break
+
+    return hops
+
+
+def sale_targets(business_unit):
+    """Every warehouse the sale leg can land in for this business unit."""
+    targets = set()
+    for row in load_mapping(business_unit).values():
+        for column in ("delivery_warehouse", "ungraded_sold_warehouse"):
+            if row.get(column):
+                targets.add(row[column])
+    return targets
+
+
+def stage_warehouse(source, business_unit, stage=SALE_STAGE, graded=True):
+    """Where `source` is supposed to have landed by the end of `stage`."""
+    route = resolve_route(source, business_unit, graded=graded, upto=stage)
+    return route[-1]["to"] if route else source
 
 
 def terminal_warehouse(source, business_unit, graded=True):
-    """Where this source is ultimately supposed to land. `source` if nowhere."""
-    route = resolve_route(source, business_unit, graded=graded)
-    return route[-1]["to"] if route else source
+    """Where the sale leg puts the stems — the Sold warehouse."""
+    return stage_warehouse(source, business_unit, stage=SALE_STAGE, graded=graded)
 
 
 # ============================================================
@@ -169,12 +232,19 @@ def bucket_balance(bucket_id, item_code, warehouse):
 
 
 def sold_qty(bucket_id, item_code, so_item, target):
-    """Stems of this bucket **net** sold to this SO line and sitting in `target`.
+    """This order's **net** balance of this bucket's stems in `target`.
 
-    Net, because an unallocation posts a reversing transfer rather than
-    cancelling a grouped entry that other buckets still depend on. Drives
-    top-ups too: allocating 50 more from a bucket that already moved 200 for
-    the same line moves exactly the extra 50.
+    In minus out, restricted to entries stamped with `so_item`, so it answers
+    "how many of this bucket's stems does this order have sitting here right
+    now?" at any warehouse in the pipeline. Three things rely on that:
+
+      * the sale leg moves `qty - sold_qty(at the Sold warehouse)`, so a top-up
+        allocation moves only the increment;
+      * Packing / Dispatch / Loading move at most `sold_qty(at their source)`,
+        so one order can never carry off another order's stems from a shared
+        warehouse, and re-running a stage moves nothing;
+      * unallocation posts a reversing transfer (it cannot cancel a grouped
+        entry other buckets depend on) and the pair nets to zero here.
     """
     if not (bucket_id and so_item and target):
         return 0.0
@@ -195,6 +265,50 @@ def sold_qty(bucket_id, item_code, so_item, target):
             {"wh": target, "bucket": bucket_id, "item": item_code, "so_item": so_item},
         )[0][0]
     )
+
+
+def sold_in_qty(bucket_id, item_code, so_item, target):
+    """Stems this line has EVER been sold into `target`, ignoring later outflow.
+
+    `sold_qty` is net, which is what planning and unallocation need; but once
+    packing moves stems out of the Sold warehouse the net drops to zero, and an
+    OPL that has been packed must not read as un-allocated.
+    """
+    if not (bucket_id and so_item and target):
+        return 0.0
+    return flt(
+        frappe.db.sql(
+            f"""
+            SELECT COALESCE(SUM(sed.qty), 0)
+            FROM `tabStock Entry` se
+            JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
+            WHERE se.custom_issued_to = %(so_item)s
+              AND {_bucket_expr()} = %(bucket)s
+              AND sed.item_code = %(item)s
+              AND sed.t_warehouse = %(wh)s
+              AND se.docstatus = 1
+            """,
+            {"wh": target, "bucket": bucket_id, "item": item_code, "so_item": so_item},
+        )[0][0]
+    )
+
+
+def default_cost_center(company):
+    """A cost center for the stock lines.
+
+    Sites with perpetual inventory reject a Stock Entry whose lines have none,
+    and `Company.cost_center` is not always filled in. Where upande_packhouse
+    is installed its own `apply_greenhouse_cost_center` hook overrides this on
+    validate; this is only the floor.
+    """
+    cost_center = frappe.db.get_value("Company", company, "cost_center")
+    if cost_center:
+        return cost_center
+    abbr = frappe.db.get_value("Company", company, "abbr")
+    for candidate in (f"Main - {abbr}", f"{company} - {abbr}"):
+        if frappe.db.exists("Cost Center", candidate):
+            return candidate
+    return frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
 
 
 def on_hand(item_code, warehouse):
@@ -226,16 +340,6 @@ def receiving_warehouse(bucket_id, item_code):
     return row[0].t_warehouse if row else None
 
 
-def _require_entry_types():
-    """Fail with a readable message instead of a mandatory-Link validation error."""
-    for entry_type in (TYPE_TO_SOLD, TYPE_HOP):
-        if not frappe.db.exists("Stock Entry Type", entry_type):
-            frappe.throw(
-                f"Stock Entry Type '{entry_type}' is missing — packhouse stock "
-                "movement cannot post without it."
-            )
-
-
 # ============================================================
 # THE ONE PRIMITIVE EVERY CALLER USES
 # ============================================================
@@ -263,8 +367,6 @@ def post_transfer(
     if not lines or not source or not target or source == target:
         return None
 
-    _require_entry_types()
-
     total = sum(flt(line["qty"]) for line in lines)
     available = on_hand(item_code, source)
     if available < total - QTY_TOLERANCE:
@@ -275,6 +377,7 @@ def post_transfer(
         )
 
     company = frappe.db.get_value("Warehouse", source, "company")
+    cost_center = default_cost_center(company)
     purpose = (
         frappe.db.get_value("Stock Entry Type", entry_type, "purpose")
         or "Material Transfer"
@@ -313,6 +416,7 @@ def post_transfer(
                 "business_unit": business_unit,
                 "custom_stem_length": stem_length,
                 "custom_bucket_id": line.get("bucket_id"),
+                "cost_center": cost_center,
                 "allow_zero_valuation_rate": 1,  # harvest stock is valued at 0
             },
         )
@@ -324,12 +428,13 @@ def post_transfer(
 # ============================================================
 # PLAN / POST
 # ============================================================
-def plan_moves(rows, business_unit, stop_before_terminal=False):
+def plan_moves(rows, business_unit, upto=SALE_STAGE, only_stage=None):
     """Work out every leg each row needs, without posting anything.
 
     A row is {bucket_id, item_code, qty, source, stem_length, farm, so_item,
-    opl, graded, remarks}. Returns (plans, skipped); `plans` are posted in hop
-    order by `post_plans`.
+    opl, graded, remarks}. `upto` is the last pipeline stage to walk;
+    `only_stage` narrows it to that single leg. Returns (plans, skipped);
+    `plans` are posted in hop order by `post_plans`.
     """
     plans, skipped = [], []
 
@@ -341,22 +446,42 @@ def plan_moves(rows, business_unit, stop_before_terminal=False):
             continue
 
         for depth, hop in enumerate(
-            resolve_route(row["source"], business_unit, graded=row.get("graded", True))
+            resolve_route(
+                row["source"], business_unit, graded=row.get("graded", True), upto=upto
+            )
         ):
-            if stop_before_terminal and hop["terminal"]:
-                break
+            if only_stage and hop["stage"] != only_stage:
+                continue
+
+            so_item = row.get("so_item")
 
             if hop["terminal"]:
-                already = sold_qty(bucket_id, item_code, row.get("so_item"), hop["to"])
-                move = qty - already
+                # The sale: move what this line has not been sold yet.
+                move = qty - sold_qty(bucket_id, item_code, so_item, hop["to"])
                 if move <= QTY_TOLERANCE:
                     skipped.append({**hop, "bucket_id": bucket_id, "reason": "already sold"})
                     continue
-            else:
+            elif hop["stage"] == ARRIVAL_STAGE:
+                # Pre-sale: the truck moves the bucket, not an order's share of
+                # it, so the bucket's own balance is the right cap.
                 here = bucket_balance(bucket_id, item_code, hop["from"])
                 if here <= QTY_TOLERANCE:
                     skipped.append(
                         {**hop, "bucket_id": bucket_id, "reason": "bucket already moved"}
+                    )
+                    continue
+                move = min(qty, here)
+            else:
+                # Packing / Dispatch / Loading: only this ORDER's stems may move
+                # on. A Sold warehouse can hold the same bucket for two orders,
+                # and the bucket-wide balance would let one order pack the
+                # other's stems. It is also what makes these stages idempotent:
+                # once moved, this order's balance at the source is zero.
+                here = sold_qty(bucket_id, item_code, so_item, hop["from"])
+                if here <= QTY_TOLERANCE:
+                    skipped.append(
+                        {**hop, "bucket_id": bucket_id,
+                         "reason": f"nothing of this order at {hop['from']}"}
                     )
                     continue
                 move = min(qty, here)
@@ -365,12 +490,16 @@ def plan_moves(rows, business_unit, stop_before_terminal=False):
                 {
                     **hop,
                     "depth": depth,
+                    "stage": hop["stage"],
                     "bucket_id": bucket_id,
                     "item_code": item_code,
                     "qty": move,
                     "stem_length": row.get("stem_length"),
                     "farm": row.get("farm"),
-                    "so_item": row.get("so_item") if hop["terminal"] else None,
+                    # Every leg from the sale onwards belongs to one order; the
+                    # pre-sale Arrival leg is order-agnostic (the truck brings the
+                    # whole bucket, nobody has bought it yet).
+                    "so_item": None if hop["stage"] == ARRIVAL_STAGE else row.get("so_item"),
                     "opl": row.get("opl"),
                     "remarks": row.get("remarks"),
                 }
@@ -459,7 +588,7 @@ def post_arrival(bucket_id, item_code, qty, source_warehouse, business_unit, far
             "Not permitted to move stock between warehouses", frappe.PermissionError
         )
 
-    route = resolve_route(source_warehouse, business_unit)
+    route = resolve_route(source_warehouse, business_unit, upto=ARRIVAL_STAGE)
     row = {
         "bucket_id": bucket_id,
         "item_code": item_code,
@@ -469,12 +598,11 @@ def post_arrival(bucket_id, item_code, qty, source_warehouse, business_unit, far
         "farm": farm,
         "remarks": f"Arrived {farm} packhouse" if farm else "Arrived packhouse",
     }
-    plans, skipped = plan_moves([row], business_unit, stop_before_terminal=True)
+    plans, skipped = plan_moves([row], business_unit, upto=ARRIVAL_STAGE)
     posted = post_plans(plans, business_unit)
 
-    landing = [hop for hop in route if not hop["terminal"]]
     return {
-        "warehouse": landing[-1]["to"] if landing else source_warehouse,
+        "warehouse": route[-1]["to"] if route else source_warehouse,
         "posted": posted,
         "skipped": skipped,
         "moved": bool(posted),
@@ -527,6 +655,58 @@ def move_allocation_to_sold(allocations, business_unit, sales_order=None, opl=No
     return {"posted": posted, "skipped": skipped}
 
 
+# ============================================================
+# EVENTS 3..5 — PACKING, DISPATCH, LOADING
+# ============================================================
+@frappe.whitelist()
+def advance_opl(opl_name, stage):
+    """Move an OPL's stems one stage further down the pipeline.
+
+    Stage is "Packing" (Sold -> packhouse), "Dispatch" (packhouse -> dispatch
+    cold store) or "Loading" (dispatch -> delivery truck); the targets come from
+    the order's `SO Warehouse Mapping` row, so each business unit routes itself.
+
+    A leg only moves stems the previous stage actually delivered — the planner
+    reads each bucket's own balance in the source warehouse — so packing an OPL
+    whose allocation never posted moves nothing instead of inventing stock.
+    """
+    if stage not in STAGE_NAMES or stage in (ARRIVAL_STAGE, SALE_STAGE):
+        frappe.throw(
+            f"'{stage}' is not a post-sale stage — expected one of "
+            + ", ".join(s for s in STAGE_NAMES if s not in (ARRIVAL_STAGE, SALE_STAGE))
+        )
+    if not frappe.has_permission("Stock Entry", "submit"):
+        frappe.throw(
+            "Not permitted to move stock between warehouses", frappe.PermissionError
+        )
+
+    opl = frappe.get_doc("Order Pick List", opl_name)
+    business_unit = opl_business_unit(opl)
+
+    rows = []
+    for row in opl_rows(opl):
+        bucket = _row_bucket(row)
+        source = _row_warehouse(row) or receiving_warehouse(bucket, row.item_code)
+        if not (bucket and source):
+            continue
+        rows.append(
+            {
+                "bucket_id": bucket,
+                "item_code": row.item_code,
+                "qty": flt(row.stock_qty),
+                "source": source,
+                "stem_length": row.get("stem_length") or row.get("custom_stem_length"),
+                "farm": row.get("farm") or opl.get("farm"),
+                "so_item": _row_so_item(row),
+                "opl": opl_name,
+                "remarks": f"{stage} — {opl_name}",
+            }
+        )
+
+    plans, skipped = plan_moves(rows, business_unit, upto=stage, only_stage=stage)
+    return {"stage": stage, "posted": post_plans(plans, business_unit), "skipped": skipped}
+
+
 def reverse_allocation_movement(sales_order_item, bucket_id=None, item_code=None,
                                 business_unit=None):
     """Send unallocated stems back out of the Sold warehouse.
@@ -535,13 +715,25 @@ def reverse_allocation_movement(sales_order_item, bucket_id=None, item_code=None
     other buckets' sales too. Instead post a reversing transfer for exactly the
     stems this line still holds; `sold_qty()` is net, so the pair cancels out.
     """
-    filters = {"custom_issued_to": sales_order_item, "stock_entry_type": TYPE_TO_SOLD,
-               "docstatus": 1}
-    entries = frappe.get_all(
-        "Stock Entry", filters=filters,
-        fields=["name", "from_warehouse", "to_warehouse", "business_unit",
-                "custom_stem_length", "farm"],
-    )
+    if not business_unit:
+        parent = frappe.db.get_value("Sales Order Item", sales_order_item, "parent")
+        business_unit = frappe.db.get_value("Sales Order", parent, "business_unit") if parent else None
+
+    # Every leg is a Material Transfer and every leg from the sale onwards
+    # carries the SO Item, so the sale leg is identified by where it LANDED —
+    # a Sold warehouse — not by the entry type. TYPE_TO_SOLD is still honoured
+    # for entries posted before that changed.
+    targets = sale_targets(business_unit) if business_unit else set()
+    entries = [
+        e
+        for e in frappe.get_all(
+            "Stock Entry",
+            filters={"custom_issued_to": sales_order_item, "docstatus": 1},
+            fields=["name", "stock_entry_type", "from_warehouse", "to_warehouse",
+                    "business_unit", "custom_stem_length", "farm"],
+        )
+        if e.to_warehouse in targets or e.stock_entry_type == TYPE_TO_SOLD
+    ]
     if not entries:
         return []
 
@@ -614,10 +806,24 @@ def business_unit_of(doc):
     return doc.get("business_unit") or doc.get("custom_business_unit")
 
 
+def opl_business_unit(opl):
+    """An Order Pick List does not always carry the business unit — some sites
+    have neither field on the doctype — so fall back to its Sales Order."""
+    business_unit = business_unit_of(opl)
+    if business_unit or not opl.get("sales_order"):
+        return business_unit
+    for field in ("business_unit", "custom_business_unit"):
+        if frappe.db.has_column("Sales Order", field):
+            business_unit = frappe.db.get_value("Sales Order", opl.sales_order, field)
+            if business_unit:
+                return business_unit
+    return None
+
+
 def allocation_complete(opl_name):
     """An OPL is packable only once every row's stems sit in a Sold warehouse."""
     opl = frappe.get_doc("Order Pick List", opl_name)
-    business_unit = business_unit_of(opl)
+    business_unit = opl_business_unit(opl)
     pending = []
 
     for row in opl_rows(opl):
@@ -631,7 +837,7 @@ def allocation_complete(opl_name):
             continue
 
         target = terminal_warehouse(source, business_unit)
-        landed = sold_qty(bucket, row.item_code, _row_so_item(row), target)
+        landed = sold_in_qty(bucket, row.item_code, _row_so_item(row), target)
         if landed < flt(row.stock_qty) - QTY_TOLERANCE:
             pending.append(
                 {
@@ -683,9 +889,7 @@ def backfill_shelf_arrivals(business_unit="Roses", dry_run=True, limit=None):
             "from": r.warehouse,
         }
         try:
-            route = [
-                h for h in resolve_route(r.warehouse, business_unit) if not h["terminal"]
-            ]
+            route = resolve_route(r.warehouse, business_unit, upto=ARRIVAL_STAGE)
             if not route:
                 continue  # already at a packhouse cold store
             plan["to"] = route[-1]["to"]
