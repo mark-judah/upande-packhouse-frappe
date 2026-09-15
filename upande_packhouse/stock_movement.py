@@ -205,22 +205,42 @@ def _bucket_expr():
     return "se.custom_bucket_id"
 
 
-def bucket_balance(bucket_id, item_code, warehouse):
-    """How many of THIS bucket's stems the ledger still has in `warehouse`.
+def entry_has_box():
+    """Is `Stock Entry.custom_box_label` available on this site?
 
-    Bin is useless here: a receiving cold store holds thousands of buckets, so
-    a non-zero Bin says nothing about whether this bucket has already moved on.
+    Packing merges several buckets into one box, so from Stage onwards the box
+    is the only handle on the stems. The field is not created by this app —
+    where a site has not had it added, the box legs simply cannot answer "has
+    this box already moved?" and fall back to the warehouse-wide Bin.
     """
-    if not (item_code and warehouse and (bucket_id or box_label)):
+    return frappe.db.has_column("Stock Entry", "custom_box_label")
+
+
+def _ledger_balance(item_code, warehouse, bucket_id=None):
+    """How many stems of `item_code` this BUCKET still has in `warehouse`.
+
+    Bin is useless for the question: a receiving cold store holds thousands of
+    buckets, so a non-zero Bin says nothing about whether this particular
+    bucket has already moved on.
+
+    Deliberately bucket-only. There is no box equivalent: a box's stems sit in
+    a warehouse under the BUCKETS they were packed from, so a box balance reads
+    zero whether or not the box has been staged — `box_leg_posted()` is what
+    answers that question. Without a bucket, fall back to the warehouse-wide
+    balance rather than returning 0.0, which would silently skip a real leg.
+    """
+    if not (item_code and warehouse):
         return 0.0
-    conditions = ["sed.item_code = %(item)s", "se.docstatus = 1"]
-    params = {"wh": warehouse, "item": item_code}
-    if bucket_id:
-        conditions.append("se.custom_bucket_id = %(bucket)s")
-        params["bucket"] = bucket_id
-    if box_label:
-        conditions.append("se.custom_box_label = %(box)s")
-        params["box"] = box_label
+    if not bucket_id:
+        return on_hand(item_code, warehouse)
+
+    conditions = [
+        f"{_bucket_expr()} = %(bucket)s",
+        "sed.item_code = %(item)s",
+        "se.docstatus = 1",
+    ]
+    params = {"wh": warehouse, "item": item_code, "bucket": bucket_id}
+
     return flt(
         frappe.db.sql(
             f"""
@@ -230,13 +250,18 @@ def bucket_balance(bucket_id, item_code, warehouse):
                    0)
             FROM `tabStock Entry` se
             JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
-            WHERE {_bucket_expr()} = %(bucket)s
-              AND sed.item_code = %(item)s
-              AND se.docstatus = 1
+            WHERE {' AND '.join(conditions)}
             """,
             params,
         )[0][0]
     )
+
+
+def bucket_balance(bucket_id, item_code, warehouse):
+    """How many of THIS bucket's stems the ledger still has in `warehouse`."""
+    if not bucket_id:
+        return 0.0
+    return _ledger_balance(item_code, warehouse, bucket_id=bucket_id)
 
 
 def sold_qty(bucket_id, item_code, so_item, target):
@@ -363,6 +388,7 @@ def post_transfer(
     stem_length=None,
     so_item=None,
     opl=None,
+    box_label=None,
     remarks=None,
 ):
     """Submit ONE Material Transfer for one variety at one stem length.
@@ -385,7 +411,6 @@ def post_transfer(
         )
 
     company = frappe.db.get_value("Warehouse", source, "company")
-    cost_center = default_cost_center(company)
     purpose = (
         frappe.db.get_value("Stock Entry Type", entry_type, "purpose")
         or "Material Transfer"
@@ -400,7 +425,17 @@ def post_transfer(
     # over the system for unrelated transfers, so forcing every such entry
     # everywhere to require a warehouse-level cost centre would be a much
     # bigger, unrelated blast radius than this one route walker.
-    cost_center = frappe.db.get_value("Warehouse", source, "custom_cost_center")
+    #
+    # Post-harvest warehouses (receiving cold stores, *Sold, packhouse stores,
+    # dispatch coldrooms, the truck) mostly have no custom_cost_center — only
+    # the greenhouses do — so falling back to the company default is the
+    # difference between the pipeline running and every leg from Receiving
+    # onwards throwing. Only a company with no cost centre at all is a real
+    # configuration error worth stopping for.
+    cost_center = (
+        frappe.db.get_value("Warehouse", source, "custom_cost_center")
+        or default_cost_center(company)
+    )
     if not cost_center:
         frappe.throw(
             f"Please contact your IT administrator to add the cost center for warehouse {source}"
@@ -427,6 +462,10 @@ def post_transfer(
             "cost_center": cost_center,
         }
     )
+    # From Stage onwards the box, not the bucket, is what identifies the stems.
+    # Stamped only where the site has the field.
+    if box_label and entry_has_box():
+        se.custom_box_label = box_label
     for line in lines:
         se.append(
             "items",
@@ -834,26 +873,79 @@ def mapping_row_for_farm(farm, business_unit):
     return None
 
 
+def box_leg_posted(box_label, item_code, source, target):
+    """Has this exact leg already been posted for this box?
+
+    A box cannot be asked for its ledger balance the way a bucket can. Packing
+    pools several buckets' stems into one box, and nothing stamps the box until
+    a box leg posts — so a box's balance in the packhouse store is zero both
+    before it has been staged and after, and using it as the guard means the
+    leg can never move anything at all. What makes a re-scan safe is instead
+    whether this source -> target leg has already been posted for this box.
+    """
+    if not (box_label and entry_has_box()):
+        # No box column on this site: a re-scan cannot be told apart from a
+        # first scan, so the caller falls back to the warehouse balance.
+        return False
+    return bool(
+        frappe.db.sql(
+            """
+            SELECT 1
+            FROM `tabStock Entry` se
+            JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
+            WHERE se.custom_box_label = %(box)s
+              AND sed.item_code = %(item)s
+              AND sed.s_warehouse = %(src)s
+              AND sed.t_warehouse = %(tgt)s
+              AND se.docstatus = 1
+            LIMIT 1
+            """,
+            {"box": box_label, "item": item_code, "src": source, "tgt": target},
+        )
+    )
+
+
 def post_single_hop(*, item_code, qty, source, target, business_unit, bucket_id=None,
                      box_label=None, farm=None, stem_length=None, so_item=None, remarks=None):
-    """One deliberate, already-known leg -- not a route walk. Idempotent the
-    same way every other hop in this module is: skipped (returns None) once
-    this bucket's/box's own ledger balance at `source` is already zero, so a
-    re-scan or a retried request never double-moves stock.
+    """One deliberate, already-known leg -- not a route walk.
+
+    Returns {"entry", "qty", "reason"}: `entry` is None when nothing moved and
+    `reason` says why, so the caller can log a stalled scan instead of silently
+    reporting success.
+
+    Idempotent, but keyed differently per stage. Issue is still per BUCKET, so
+    the bucket's own balance at `source` answers "has it already moved?". Stage
+    and Load are per BOX, and a box has no balance of its own until a box leg
+    posts (see `box_leg_posted`) — there the guard is whether this leg has
+    already run for this box, and the cap is the warehouse balance, because the
+    box's stems genuinely are pooled in `source` under their buckets.
     """
     qty = flt(qty)
     if qty <= 0 or not source or not target or source == target:
-        return None
-    have = _ledger_balance(item_code, source, bucket_id=bucket_id, box_label=box_label)
+        return {"entry": None, "qty": 0, "reason": f"nothing to move {source} -> {target}"}
+
+    if box_label:
+        if box_leg_posted(box_label, item_code, source, target):
+            return {"entry": None, "qty": 0,
+                    "reason": f"box {box_label} already moved {source} -> {target}"}
+        have = on_hand(item_code, source)
+    else:
+        have = _ledger_balance(item_code, source, bucket_id=bucket_id)
+
     if have <= QTY_TOLERANCE:
-        return None
-    return post_transfer(
+        return {"entry": None, "qty": 0,
+                "reason": f"{item_code}: nothing of {bucket_id or box_label} left in {source}"}
+
+    moved = min(qty, have)
+    entry = post_transfer(
         entry_type=TYPE_HOP,
         source=source,
         target=target,
         item_code=item_code,
-        qty=min(qty, have),
-        bucket_id=bucket_id,
+        # post_transfer posts one entry per variety per length, so quantities
+        # always arrive as per-bucket lines — a single hop is simply the
+        # one-line case.
+        lines=[{"bucket_id": bucket_id, "qty": moved}],
         box_label=box_label,
         farm=farm,
         business_unit=business_unit,
@@ -861,6 +953,26 @@ def post_single_hop(*, item_code, qty, source, target, business_unit, bucket_id=
         so_item=so_item,
         remarks=remarks,
     )
+    return {"entry": entry, "qty": moved, "reason": None}
+
+
+def _hop_reply(hop, source, target):
+    """What the three scan endpoints return to the mobile app.
+
+    `warehouse` is where the stems now are — the target when the leg moved,
+    the source when it did not — and `reason` is filled on every no-op so a
+    stalled scan is logged instead of reported as a silent success.
+    """
+    moved = bool(hop.get("entry"))
+    return {
+        "moved": moved,
+        "entry": hop.get("entry"),
+        "qty": hop.get("qty"),
+        "from": source,
+        "to": target,
+        "warehouse": target if moved else source,
+        "reason": hop.get("reason"),
+    }
 
 
 @frappe.whitelist()
@@ -871,13 +983,13 @@ def post_issue_to_packhouse(bucket_id, item_code, qty, business_unit, farm, stem
     if not row or not row.packhouse:
         return {"moved": False, "reason": f"no packhouse mapped for farm {farm}"}
     source = row.delivery_warehouse
-    entry = post_single_hop(
+    hop = post_single_hop(
         item_code=item_code, qty=qty, source=source, target=row.packhouse,
         business_unit=business_unit, bucket_id=bucket_id, farm=farm,
         stem_length=stem_length, so_item=so_item,
         remarks=f"Issued to {so_item}" if so_item else "Issued",
     )
-    return {"moved": bool(entry), "entry": entry, "warehouse": row.packhouse if entry else source}
+    return _hop_reply(hop, source, row.packhouse)
 
 
 @frappe.whitelist()
@@ -888,12 +1000,12 @@ def post_stage_to_dispatch(box_label, item_code, qty, business_unit, farm, remar
     if not row or not row.dispatch_cold_store:
         return {"moved": False, "reason": f"no dispatch cold store mapped for farm {farm}"}
     source = row.packhouse
-    entry = post_single_hop(
+    hop = post_single_hop(
         item_code=item_code, qty=qty, source=source, target=row.dispatch_cold_store,
         business_unit=business_unit, box_label=box_label, farm=farm,
         remarks=remarks or f"Staged {box_label}",
     )
-    return {"moved": bool(entry), "entry": entry, "warehouse": row.dispatch_cold_store if entry else source}
+    return _hop_reply(hop, source, row.dispatch_cold_store)
 
 
 @frappe.whitelist()
@@ -904,12 +1016,12 @@ def post_load_to_truck(box_label, item_code, qty, business_unit, farm, remarks=N
     if not row or not row.delivery_truck:
         return {"moved": False, "reason": f"no delivery truck mapped for farm {farm}"}
     source = row.dispatch_cold_store
-    entry = post_single_hop(
+    hop = post_single_hop(
         item_code=item_code, qty=qty, source=source, target=row.delivery_truck,
         business_unit=business_unit, box_label=box_label, farm=farm,
         remarks=remarks or f"Loaded {box_label}",
     )
-    return {"moved": bool(entry), "entry": entry, "warehouse": row.delivery_truck if entry else source}
+    return _hop_reply(hop, source, row.delivery_truck)
 
 
 # ============================================================
