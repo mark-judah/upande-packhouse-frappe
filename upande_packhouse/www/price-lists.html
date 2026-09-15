@@ -88,6 +88,7 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
       <h1>Price Lists</h1>
       <span class="crumb">Reference · Variety &times; Length</span>
       <div class="right">
+        <div id="pltSaveMount"></div>
         <select id="plSelect"><option>Loading…</option></select>
       </div>
     </div>
@@ -116,6 +117,14 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 <script>
 (function(){
   var currentPriceList = null;
+  // Guards against a stale response landing after a newer one: if the user
+  // switches price lists (or a request is just slow), an in-flight request
+  // for the PREVIOUS list can resolve after the new one already rendered —
+  // without this, that late response silently overwrites the correct table
+  // with the old list's data ("I switched but I'm still seeing the other
+  // list's rate"). Each loadTree() call gets its own sequence number; a
+  // callback only renders if it's still the most recent one requested.
+  var loadSeq = 0;
 
   function loadPriceLists(){
     var sel = document.getElementById('plSelect');
@@ -143,19 +152,25 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
   function loadTree(){
     var el = document.getElementById('tree');
     el.innerHTML = '<div class="aph-loading">Loading price tree…</div>';
+    var seq = ++loadSeq;
+    var requestedFor = currentPriceList;
     frappe.call({
       method: 'upande_packhouse.api.price_list_management.getPriceTree',
-      args: { price_list: currentPriceList },
+      args: { price_list: requestedFor },
       callback: function(r){
+        if(seq !== loadSeq) return; // a newer load has since started — this response is stale, drop it
         var m = r.message || {};
         if(!m.success){
           el.innerHTML = '<div class="aph-err">' + (m.error || 'Could not load price tree') + '</div>';
           return;
         }
         el.setAttribute('data-currency', m.currency || '');
-        window.PriceListTree.render(el, m, setPrice);
+        window.PriceListTree.render(el, m, setPrice, document.getElementById('pltSaveMount'));
       },
-      error: function(e){ console.error(e); el.innerHTML = '<div class="aph-err">Error loading price tree — see console.</div>'; }
+      error: function(e){
+        if(seq !== loadSeq) return;
+        console.error(e); el.innerHTML = '<div class="aph-err">Error loading price tree — see console.</div>';
+      }
     });
   }
 

@@ -54,6 +54,7 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph-main{min-width:0;height:100vh;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column}
 .aph-content{flex:1;padding:28px}
 .aph-topbar{background:var(--bg-card);border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:10}
+.aph-topbar .right{margin-left:auto;display:flex;align-items:center;gap:8px}
 .aph-topbar h1{font-size:18px;font-weight:600;letter-spacing:-0.02em}
 .aph-topbar .crumb{color:var(--text-3);font-size:11px;font-weight:500;padding-left:14px;border-left:1px solid var(--border);height:18px;line-height:18px;letter-spacing:.02em}
 .aph-card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;overflow:hidden;box-sizing:border-box;margin-bottom:20px}
@@ -105,6 +106,9 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
       </button>
       <h1>New Customer Price List</h1>
       <span class="crumb">Reference · Create &amp; fill in</span>
+      <div class="right">
+        <div id="pltSaveMount"></div>
+      </div>
     </div>
 
     <div class="aph-content">
@@ -163,6 +167,7 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 (function(){
   var selectedCustomer = null;
   var createdPriceList = null;
+  var loadSeq = 0; // guards against a stale getPriceTree response landing after a newer request
 
   function updatePreview(){
     var prefix = document.getElementById('prefixInput').value.trim();
@@ -279,19 +284,21 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
   function loadTree(){
     var el = document.getElementById('tree');
     el.innerHTML = '<div class="aph-loading">Loading price grid…</div>';
+    var seq = ++loadSeq;
     frappe.call({
       method: 'upande_packhouse.api.price_list_management.getPriceTree',
       args: { price_list: createdPriceList },
       callback: function(r){
+        if(seq !== loadSeq) return;
         var m = r.message || {};
         if(!m.success){
           el.innerHTML = '<div class="aph-err">' + (m.error || 'Could not load price grid') + '</div>';
           return;
         }
         el.setAttribute('data-currency', m.currency || '');
-        window.PriceListTree.render(el, m, setPrice);
+        window.PriceListTree.render(el, m, setPrice, document.getElementById('pltSaveMount'));
       },
-      error: function(){ el.innerHTML = '<div class="aph-err">Error loading price grid — see console.</div>'; }
+      error: function(){ if(seq !== loadSeq) return; el.innerHTML = '<div class="aph-err">Error loading price grid — see console.</div>'; }
     });
   }
 
