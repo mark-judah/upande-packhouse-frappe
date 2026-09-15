@@ -115,6 +115,15 @@ def createLoadingEntry():
                 # Validations
                 if box_doc.loaded == 1:
                     frappe.response["message"] = {"status": "error", "message": "Box already loaded: " + box_label_name}
+                elif box_doc.staged != 1:
+                    # Enforce the pipeline order: Pack -> Stage -> Load -> Dispatch.
+                    # A box that skipped staging must not be loadable straight from
+                    # packing, or it can reach dispatch having never actually been
+                    # staged in the coldstore.
+                    frappe.response["message"] = {
+                        "status": "error",
+                        "message": "Box must be staged before it can be loaded: " + box_label_name
+                    }
                 else:
                     # Get or create Loading Sheet. Default to TOMORROW, not
                     # today -- boxes are packed today for tomorrow's
@@ -262,11 +271,20 @@ def createOrUpdateDispatch():
             # carry that.
             by_customer = {}
             so_cache = {}
+            skipped_unstaged = []
             for it in ls.items:
                 box_name = it.get("box_label") or it.get("box_label_link")
                 if not box_name or not frappe.db.exists("Box Label", box_name):
                     continue
                 box = frappe.get_doc("Box Label", box_name)
+                # Defence in depth: createLoadingEntry already refuses to load
+                # an unstaged box, so every box on the sheet should already be
+                # staged=1 -- but a box loaded before that check existed, or
+                # edited directly, must still not be allowed to reach dispatch
+                # having skipped a real pipeline stage.
+                if not box.staged or not box.loaded:
+                    skipped_unstaged.append(box_name)
+                    continue
                 so_name = box.customer_purchase_order
                 if not so_name or not frappe.db.exists("Sales Order", so_name):
                     continue
@@ -502,10 +520,31 @@ def createOrUpdateDispatch():
                 })
 
             frappe.db.commit()
+
+            # Reflect what actually happened -- this used to always say
+            # "Built N delivery note(s)" regardless of whether each one was a
+            # fresh insert or an update to an existing draft, so pressing the
+            # button a second time (the normal case: boxes keep loading
+            # through the day) looked identical to the very first press.
+            created_count = sum(1 for r in results if r["action"] == "created")
+            updated_count = sum(1 for r in results if r["action"] == "updated")
+            parts = []
+            if created_count:
+                parts.append(f"created {created_count}")
+            if updated_count:
+                parts.append(f"updated {updated_count}")
+            summary = " and ".join(parts) if parts else "processed 0"
+            message = f"{summary[0].upper()}{summary[1:]} delivery note(s) for {delivery_date}"
+            if skipped_unstaged:
+                message += ". Skipped {0} box(es) not staged: {1}".format(
+                    len(skipped_unstaged), ", ".join(skipped_unstaged)
+                )
+
             frappe.response["data"] = {
                 "status": "success",
-                "message": "Built " + str(len(results)) + " delivery note(s) for " + str(delivery_date),
+                "message": message,
                 "delivery_notes": results,
+                "skipped_unstaged": skipped_unstaged,
             }
     except Exception as e:
         frappe.db.rollback()
@@ -920,6 +959,71 @@ def createOrUpdateFarmPackList():
 
 
 @frappe.whitelist()
+def getUnderPackReasons():
+    """List the Under Pack Reason master, for the packing app's reason picker."""
+    reasons = frappe.get_all(
+        "Under Pack Reason",
+        fields=["name", "reason", "description"],
+        order_by="reason asc",
+    )
+    frappe.response["data"] = reasons
+
+
+@frappe.whitelist()
+def setPackListBoxUnderPackReason():
+    """Save an Under Pack Reason against a box on the Farm Pack List for one
+    OPL. Stored on every Farm Packlist Item row already packed for that
+    box_id -- there is nothing to attach it to until at least one bunch/qty
+    has been packed into the box.
+    """
+    try:
+        data = frappe.request.get_json()
+        order_pick_list_id = data.get("order_pick_list") or data.get("custom_order_pick_list")
+        box_id = str(data.get("box_id") or "1")
+        reason = (data.get("reason") or data.get("under_pack_reason") or "").strip()
+
+        if not order_pick_list_id:
+            frappe.throw(_("Order Pick List is required"))
+        if not reason:
+            frappe.throw(_("Reason is required"))
+        if not frappe.db.exists("Under Pack Reason", reason):
+            frappe.throw(_("Unknown Under Pack Reason: {0}").format(reason))
+
+        fpl_name = frappe.db.get_value(
+            "Farm Pack List", {"order_pick_list": order_pick_list_id}
+        )
+        if not fpl_name:
+            frappe.throw(_("Pack at least one item into this box before adding a reason."))
+
+        row_names = frappe.get_all(
+            "Farm Packlist Item",
+            filters={
+                "parent": fpl_name,
+                "parenttype": "Farm Pack List",
+                "parentfield": "pack_list_item",
+                "box_id": box_id,
+            },
+            pluck="name",
+        )
+        if not row_names:
+            frappe.throw(_("Pack at least one item into this box before adding a reason."))
+
+        for row_name in row_names:
+            frappe.db.set_value("Farm Packlist Item", row_name, "under_pack_reason", reason)
+        frappe.db.commit()
+
+        frappe.response["data"] = {
+            "status": "success",
+            "message": f"Reason saved for box {box_id}",
+            "docname": fpl_name,
+            "rows_updated": len(row_names),
+        }
+    except Exception as e:
+        frappe.log_error(message=str(e), title="Farm Pack List Under Pack Reason Error")
+        frappe.throw(_("Error saving reason: ") + str(e))
+
+
+@frappe.whitelist()
 def createStagingEntry():
     payload = frappe.request.get_json()
     frappe.log_error("Staging Payload", payload)
@@ -1120,7 +1224,7 @@ def fetchLoadingData():
         loaded_boxes = []
         loading_sheet_status = ""
         ls_loaded_by_stop = {}
-        ls_loaded_by_so = {}
+        ls_loaded_by_opl = {}
 
         if frappe.db.exists("Loading Sheet", ls_name):
             ls_doc = frappe.get_doc("Loading Sheet", ls_name)
@@ -1144,9 +1248,9 @@ def fetchLoadingData():
 
                 bl_name = ls_item.box_label_link or ls_item.box_label or ""
                 if bl_name and frappe.db.exists("Box Label", bl_name):
-                    so_name = frappe.db.get_value("Box Label", bl_name, "customer_purchase_order") or ""
-                    if so_name:
-                        ls_loaded_by_so[so_name] = ls_loaded_by_so.get(so_name, 0) + 1
+                    opl_name = frappe.db.get_value("Box Label", bl_name, "order_pick_list") or ""
+                    if opl_name:
+                        ls_loaded_by_opl[opl_name] = ls_loaded_by_opl.get(opl_name, 0) + 1
 
         # 3. LOADING PLAN
         loading_plan = None
@@ -1197,23 +1301,163 @@ def fetchLoadingData():
                 loading_plan = frappe.get_doc("Loading Plan", plan_name)
 
         # 4. PROCESS PLAN ITEMS
+        #
+        # A Loading Plan can have SEVERAL rows for the same (customer,
+        # delivery_point) -- e.g. one row per box type, or a delivery split
+        # across loading positions (confirmed on real data: FLAMINGO UK /
+        # AIRFLO has two identical "Flower Pack Pro" rows at positions 1
+        # and 2). A Sales Order can ALSO have several OPLs (confirmed:
+        # SAL-ORD-2026-00099 has two -- one packed into real boxes, one
+        # not packed yet). Counting box stats per SALES ORDER used to blend
+        # every OPL of that order into one shared figure, so a row for the
+        # OPL you were actually scanning showed a denominator inflated by a
+        # sibling OPL that had nothing to do with it (e.g. 3/6 instead of
+        # 3/3). Box Label carries order_pick_list, so stats are computed per
+        # OPL instead (get_opl_stats, cached once per OPL for the whole
+        # plan). Each stop's rows are matched 1:1 to that stop's OPLs, in
+        # order (loading position <-> OPL creation order) -- there is no
+        # field linking a Loading Plan Item to a specific OPL today, so this
+        # positional pairing is the best available signal. Any OPLs beyond
+        # the number of rows at a stop are bundled onto its last row rather
+        # than silently dropped.
+        opl_stats_cache = {}
+
+        def get_opl_stats(so, opl):
+            opl_name = opl.name
+            if opl_name in opl_stats_cache:
+                return opl_stats_cache[opl_name]
+
+            so_name = so.name
+
+            # ALLOCATED -- this one OPL's own box count. Prefer the OPL's
+            # own Packing Guide (table_nade) -- one row per real (box,
+            # variety), so its distinct box_number count IS the real box
+            # count, not a guess. The old fallback re-derived box count as
+            # ceil(total_stems / packrate) reading a generic `packrate`
+            # field Pick List Item never actually populates (this app's
+            # real fields are custom_packrate / custom_packrate_mixed_box)
+            # -- always missing, so this always silently used a hardcoded
+            # packrate of 200 regardless of the box's real capacity. Kept
+            # only for an older OPL created before the Packing Guide existed.
+            guide_rows = frappe.get_all(
+                "Packing Guide", filters={"parent": opl_name}, pluck="box_number"
+            )
+            if guide_rows:
+                boxes_allocated = len(set(guide_rows))
+            else:
+                total_stems = int(opl.custom_total_stems or 0)
+                packrate_data = frappe.get_all(
+                    "Pick List Item",
+                    filters={"parent": opl_name},
+                    fields=["packrate"],
+                    limit_page_length=1
+                )
+                packrate = 200
+                if packrate_data and packrate_data[0].packrate:
+                    packrate = int(packrate_data[0].packrate or 200)
+                boxes_allocated = (
+                    -(-total_stems // packrate) if packrate > 0 and total_stems > 0 else 0
+                )
+
+            # PACKED -- Farm Pack List(s) for THIS OPL only (v16: Farm Pack
+            # List links to the Order Pick List, not the Sales Order).
+            boxes_packed = 0
+            fpls = frappe.get_all(
+                "Farm Pack List",
+                filters={"order_pick_list": opl_name, "docstatus": ["!=", 2]},
+                fields=["name"]
+            )
+            if fpls:
+                fpl_names = [f.name for f in fpls]
+                packed_box_data = frappe.db.sql("""
+                    SELECT COUNT(DISTINCT box_id) as box_count
+                    FROM `tabFarm Packlist Item`
+                    WHERE parent IN %(fpl_names)s
+                    AND bunch_qty > 0
+                """, {"fpl_names": fpl_names}, as_dict=True)
+                if packed_box_data:
+                    boxes_packed = int(packed_box_data[0].box_count or 0)
+
+            # STAGED (currently staged, not yet loaded -- a WIP count for
+            # "how many boxes are sitting in the coldstore ready to load"),
+            # scoped to this OPL's own Box Labels.
+            boxes_staged = frappe.db.count(
+                "Box Label",
+                filters={"order_pick_list": opl_name, "staged": 1, "loaded": 0}
+            ) or 0
+
+            # LOADED
+            bl_loaded = frappe.db.count(
+                "Box Label",
+                filters={"order_pick_list": opl_name, "loaded": 1}
+            ) or 0
+
+            ls_loaded = ls_loaded_by_opl.get(opl_name, 0)
+            boxes_loaded = max(bl_loaded, ls_loaded)
+
+            # VARIETY / MIX NAME -- a straight OPL's Pick List Item rows all
+            # share one real flower variety as item_code (e.g. "Athena"). A
+            # mixed box/bunch OPL's rows all share one item_code TOO, but it
+            # names the bouquet/mix product itself (e.g. "Fireworks"), not a
+            # single flower -- same field, different meaning, driven by the
+            # underlying Sales Order Item's custom_mixed_box/custom_mixed_bunch
+            # (confirmed on real data: OPL-2026-00002's Pick List Item rows are
+            # all item_code "Fireworks" with custom_mixed_box=1 on their SOI).
+            variety_or_mix = ""
+            is_mixed = False
+            pli_row = frappe.get_all(
+                "Pick List Item",
+                filters={"parent": opl_name, "parenttype": "Order Pick List"},
+                fields=["item_code", "sales_order_item", "custom_sale_order_item"],
+                limit_page_length=1
+            )
+            if pli_row:
+                variety_or_mix = pli_row[0].item_code or ""
+                soi_name = pli_row[0].sales_order_item or pli_row[0].custom_sale_order_item
+                if soi_name:
+                    soi_flags = frappe.db.get_value(
+                        "Sales Order Item", soi_name,
+                        ["custom_mixed_box", "custom_mixed_bunch"], as_dict=True
+                    )
+                    if soi_flags:
+                        is_mixed = bool(soi_flags.custom_mixed_box or soi_flags.custom_mixed_bunch)
+
+            stats = {
+                "sales_order": so_name,
+                "order_pick_list": opl_name,
+                "order_name": so.custom_order_name or so_name,
+                "truck_details": so.custom_truck_details or "",
+                "consignee": so.custom_consignee or "",
+                "shipping_agent": so.custom_shipping_agent or "",
+                "total_qty": float(so.total_qty or 0),
+                "variety": variety_or_mix,
+                "is_mixed": is_mixed,
+                "boxes_allocated": boxes_allocated,
+                "boxes_packed": boxes_packed,
+                "boxes_staged": boxes_staged,
+                "boxes_loaded": boxes_loaded
+            }
+            opl_stats_cache[opl_name] = stats
+            return stats
+
         if loading_plan:
             sorted_items = sorted(
                 loading_plan.loading_plan_items,
                 key=lambda x: x.loading_position or 0
             )
 
+            # Group rows by (customer, delivery_point) -- several rows can
+            # share one real stop -- keeping each stop's rows in position
+            # order (plain dict: insertion-ordered since Python 3.7).
+            stops = {}
             for item in sorted_items:
                 customer = item.customer or ""
                 delivery_point = item.delivery_point or ""
-                position = item.loading_position or 0
-
-                item_box_type = item.box_type or ""
-                item_number_of_boxes = item.number_of_boxes or 0
-
                 if not customer:
                     continue
+                stops.setdefault((customer, delivery_point), []).append(item)
 
+            for (customer, delivery_point), stop_rows in stops.items():
                 so_filters = {
                     "delivery_date": tomorrow,
                     "docstatus": 1,
@@ -1233,154 +1477,71 @@ def fetchLoadingData():
                         "name", "custom_order_name", "customer_name",
                         "custom_truck_details", "custom_consignee",
                         "custom_shipping_agent", "total_qty"
-                    ]
+                    ],
+                    order_by="creation asc"
                 )
 
-                orders = []
-                item_boxes_allocated = 0
-                item_boxes_packed = 0
-                item_boxes_staged = 0
-                item_boxes_loaded = 0
-
+                # Flatten this stop's Sales Order(s) into an ordered queue of
+                # (so, opl) pairs -- one entry per real OPL, in creation order.
+                opl_queue = []
                 for so in sales_orders:
-                    so_name = so.name
-
-                    # ALLOCATED
                     opls = frappe.get_all(
                         "Order Pick List",
-                        filters={"sales_order": so_name, "docstatus": 1},
-                        fields=["name", "custom_total_stems"]
+                        filters={"sales_order": so.name, "docstatus": 1},
+                        fields=["name", "custom_total_stems"],
+                        order_by="creation asc"
                     )
-
-                    boxes_allocated = 0
                     for opl in opls:
-                        # Prefer the OPL's own Packing Guide (table_nade) --
-                        # one row per real (box, variety), so its distinct
-                        # box_number count IS the real box count, not a
-                        # guess. The old fallback re-derived box count as
-                        # ceil(total_stems / packrate) reading a generic
-                        # `packrate` field Pick List Item never actually
-                        # populates (this app's real fields are
-                        # custom_packrate / custom_packrate_mixed_box) --
-                        # always missing, so this always silently used a
-                        # hardcoded packrate of 200 regardless of the box's
-                        # real capacity. Kept only for an older OPL created
-                        # before the Packing Guide existed.
-                        guide_rows = frappe.get_all(
-                            "Packing Guide", filters={"parent": opl.name}, pluck="box_number"
-                        )
-                        if guide_rows:
-                            boxes_allocated += len(set(guide_rows))
-                            continue
-
-                        total_stems = int(opl.custom_total_stems or 0)
-                        packrate_data = frappe.get_all(
-                            "Pick List Item",
-                            filters={"parent": opl.name},
-                            fields=["packrate"],
-                            limit_page_length=1
-                        )
-                        packrate = 200
-                        if packrate_data and packrate_data[0].packrate:
-                            packrate = int(packrate_data[0].packrate or 200)
-                        if packrate > 0 and total_stems > 0:
-                            boxes_allocated += -(-total_stems // packrate)
-
-                    # PACKED
-                    # v16: Farm Pack List has no direct custom_sales_order link; it
-                    # links to the Order Pick List (order_pick_list). Reach the FPLs
-                    # for this Sales Order through its OPLs (computed above).
-                    boxes_packed = 0
-                    opl_names_for_pack = [o.name for o in opls]
-                    fpls = []
-                    if opl_names_for_pack:
-                        fpls = frappe.get_all(
-                            "Farm Pack List",
-                            filters={
-                                "order_pick_list": ["in", opl_names_for_pack],
-                                "docstatus": ["!=", 2],
-                            },
-                            fields=["name"]
-                        )
-
-                    if fpls:
-                        fpl_names = [f.name for f in fpls]
-
-                        packed_box_data = frappe.db.sql("""
-                            SELECT COUNT(DISTINCT box_id) as box_count
-                            FROM `tabFarm Packlist Item`
-                            WHERE parent IN %(fpl_names)s
-                            AND bunch_qty > 0
-                        """, {"fpl_names": fpl_names}, as_dict=True)
-
-                        if packed_box_data:
-                            boxes_packed = int(packed_box_data[0].box_count or 0)
-
-                    # STAGED (currently staged, not yet loaded -- a WIP count
-                    # for "how many boxes are sitting in the coldstore ready
-                    # to load"). This used to filter only on loaded=0, never
-                    # checking Box Label's own `staged` flag at all -- so an
-                    # allocated-and-packed box that had NEVER been scanned at
-                    # staging still counted as "staged" so long as it wasn't
-                    # loaded yet, conflating "packed" with "staged".
-                    boxes_staged = frappe.db.count(
-                        "Box Label",
-                        filters={"customer_purchase_order": so_name, "staged": 1, "loaded": 0}
-                    ) or 0
-
-                    # LOADED
-                    bl_loaded = frappe.db.count(
-                        "Box Label",
-                        filters={"customer_purchase_order": so_name, "loaded": 1}
-                    ) or 0
-
-                    ls_loaded = ls_loaded_by_so.get(so_name, 0)
-                    boxes_loaded = max(bl_loaded, ls_loaded)
-
-                    orders.append({
-                        "sales_order": so_name,
-                        "order_name": so.custom_order_name or so_name,
-                        "truck_details": so.custom_truck_details or "",
-                        "consignee": so.custom_consignee or "",
-                        "shipping_agent": so.custom_shipping_agent or "",
-                        "total_qty": float(so.total_qty or 0),
-                        "boxes_allocated": boxes_allocated,
-                        "boxes_packed": boxes_packed,
-                        "boxes_staged": boxes_staged,
-                        "boxes_loaded": boxes_loaded
-                    })
-
-                    item_boxes_allocated += boxes_allocated
-                    item_boxes_packed += boxes_packed
-                    item_boxes_staged += boxes_staged
-                    item_boxes_loaded += boxes_loaded
+                        opl_queue.append((so, opl))
 
                 stop_key = customer + "|" + delivery_point
                 ls_stop_loaded = ls_loaded_by_stop.get(stop_key, 0)
 
-                if item_boxes_loaded == 0 and ls_stop_loaded > 0:
-                    item_boxes_loaded = ls_stop_loaded
+                for row_idx, item in enumerate(stop_rows):
+                    position = item.loading_position or 0
+                    item_box_type = item.box_type or ""
+                    item_number_of_boxes = item.number_of_boxes or 0
 
-                plan_items.append({
-                    "loading_position": position,
-                    "customer": customer,
-                    "delivery_point": delivery_point,
-                    "box_type": item_box_type,
-                    "number_of_boxes": item_number_of_boxes,
-                    "orders": orders,
-                    "boxes_allocated": item_boxes_allocated,
-                    "boxes_packed": item_boxes_packed,
-                    "boxes_staged": item_boxes_staged,
-                    "boxes_loaded": item_boxes_loaded
-                })
+                    is_last_row = row_idx == len(stop_rows) - 1
+                    assigned = opl_queue[row_idx:] if is_last_row else opl_queue[row_idx:row_idx + 1]
 
-        # 5. TOTALS
+                    orders = [get_opl_stats(so, opl) for so, opl in assigned]
+
+                    item_boxes_allocated = sum(o["boxes_allocated"] for o in orders)
+                    item_boxes_packed = sum(o["boxes_packed"] for o in orders)
+                    item_boxes_staged = sum(o["boxes_staged"] for o in orders)
+                    item_boxes_loaded = sum(o["boxes_loaded"] for o in orders)
+
+                    # Degraded-data fallback only: no OPL could be matched to
+                    # this row at all (e.g. a customer/SO name mismatch), but
+                    # the Loading Sheet still has loaded boxes for this stop.
+                    if not orders and ls_stop_loaded > 0:
+                        item_boxes_loaded = ls_stop_loaded
+
+                    plan_items.append({
+                        "loading_position": position,
+                        "customer": customer,
+                        "delivery_point": delivery_point,
+                        "box_type": item_box_type,
+                        "number_of_boxes": item_number_of_boxes,
+                        "orders": orders,
+                        "boxes_allocated": item_boxes_allocated,
+                        "boxes_packed": item_boxes_packed,
+                        "boxes_staged": item_boxes_staged,
+                        "boxes_loaded": item_boxes_loaded
+                    })
+
+        # 5. TOTALS -- summed over each UNIQUE OPL once (opl_stats_cache),
+        # never over plan_items/rows, which can repeat the same OPL. Stops
+        # likewise dedupes by (customer, delivery_point) -- several rows can
+        # share one real stop (see note above).
+        unique_stops = {(p["customer"], p["delivery_point"]) for p in plan_items}
         totals = {
-            "total_boxes_allocated": sum(p["boxes_allocated"] for p in plan_items),
-            "total_boxes_packed": sum(p["boxes_packed"] for p in plan_items),
-            "total_boxes_staged": sum(p["boxes_staged"] for p in plan_items),
-            "total_boxes_loaded": sum(p["boxes_loaded"] for p in plan_items),
-            "total_stops": len(plan_items)
+            "total_boxes_allocated": sum(o["boxes_allocated"] for o in opl_stats_cache.values()),
+            "total_boxes_packed": sum(o["boxes_packed"] for o in opl_stats_cache.values()),
+            "total_boxes_staged": sum(o["boxes_staged"] for o in opl_stats_cache.values()),
+            "total_boxes_loaded": sum(o["boxes_loaded"] for o in opl_stats_cache.values()),
+            "total_stops": len(unique_stops)
         }
 
         response_data = {
@@ -1446,7 +1607,7 @@ def fetchPicklists():
             result = frappe.db.sql("""
                 SELECT opl.name AS opl_name, opl.order_name AS order_name,
                        opl.item_group AS item_group, opl.custom_total_stems AS planned_stems,
-                       opl.team AS team
+                       opl.team AS team, opl.customer AS customer
                 FROM `tabOrder Pick List` opl
                 INNER JOIN `tabSales Order` so ON so.name = opl.sales_order
                 WHERE opl.docstatus = 1 AND so.delivery_date = %s AND opl.farm = %s
@@ -1456,7 +1617,7 @@ def fetchPicklists():
             result = frappe.db.sql("""
                 SELECT opl.name AS opl_name, opl.order_name AS order_name,
                        opl.item_group AS item_group, opl.custom_total_stems AS planned_stems,
-                       opl.team AS team
+                       opl.team AS team, opl.customer AS customer
                 FROM `tabOrder Pick List` opl
                 INNER JOIN `tabSales Order` so ON so.name = opl.sales_order
                 WHERE opl.docstatus = 1 AND so.delivery_date = %s
@@ -1507,6 +1668,23 @@ def fetchPicklists():
                     if opl_ref:
                         packed_by_opl[opl_ref] = packed_by_opl.get(opl_ref, 0) + stems
 
+        # Varieties + stem lengths per OPL, for the picklist picker label
+        # (customer · variety · stem length), same as the issuing screen.
+        varieties_by_opl = {}
+        lengths_by_opl = {}
+        if opl_names:
+            variety_rows = frappe.get_all(
+                "Pick List Item",
+                filters={"parent": ["in", opl_names], "parenttype": "Order Pick List"},
+                fields=["parent", "item_code", "stem_length"],
+                distinct=True,
+            )
+            for vr in variety_rows:
+                if vr.item_code:
+                    varieties_by_opl.setdefault(vr.parent, set()).add(vr.item_code)
+                if vr.stem_length:
+                    lengths_by_opl.setdefault(vr.parent, set()).add(vr.stem_length)
+
         opl_list = []
         for r in result:
             try:
@@ -1516,7 +1694,16 @@ def fetchPicklists():
             packed = packed_by_opl.get(r[0], 0)
             if planned > 0 and packed >= planned:
                 continue
-            opl_list.append(dict(opl_name=r[0], order_name=r[1], item_group=r[2], team=r[4]))
+            opl_list.append(dict(
+                opl_name=r[0],
+                order_name=r[1],
+                item_group=r[2],
+                team=r[4],
+                customer=r[5],
+                varieties=sorted(varieties_by_opl.get(r[0], set())),
+                stem_lengths=sorted(lengths_by_opl.get(r[0], set())),
+                qty=r[3],
+            ))
 
         frappe.response['message'] = {
             'success': True,
@@ -1670,7 +1857,9 @@ def getPostHarvestStaff():
 def getReadySaleOrderItems():
     try:
         # Optional ?date=YYYY-MM-DD (defaults to today). Lists submitted Order Pick Lists
-        # created that day that still have at least one UNISSUED bucket, aggregated per order.
+        # created that day that still have at least one UNISSUED bucket — one entry PER OPL
+        # (an OPL is the unit of issuing; a Sales Order can have several OPLs, e.g. split by
+        # team, and they must not be merged together in this list).
         requested_date = frappe.form_dict.get('date')
         day = requested_date if requested_date else frappe.utils.today()
 
@@ -1679,11 +1868,13 @@ def getReadySaleOrderItems():
         ready_orders = frappe.get_all(
             "Order Pick List",
             filters={"docstatus": 1, "sales_order": ["in", so_names]},
-            fields=["name", "order_name", "item_group", "team"],
+            fields=["name", "order_name", "customer", "item_group", "team", "custom_total_stems"],
         ) if so_names else []
 
         opl_names = [o.name for o in ready_orders]
         opls_with_unissued = set()
+        varieties_by_opl = {}
+        lengths_by_opl = {}
         if opl_names:
             unissued_rows = frappe.get_all(
                 "Pick List Item",
@@ -1694,27 +1885,36 @@ def getReadySaleOrderItems():
             for r in unissued_rows:
                 opls_with_unissued.add(r.parent)
 
-        order_groups = {}
-        order_teams = {}
+            variety_rows = frappe.get_all(
+                "Pick List Item",
+                filters={"parent": ["in", opl_names], "parenttype": "Order Pick List"},
+                fields=["parent", "item_code", "stem_length"],
+                distinct=True,
+            )
+            for r in variety_rows:
+                if r.item_code:
+                    varieties_by_opl.setdefault(r.parent, set()).add(r.item_code)
+                if r.stem_length:
+                    lengths_by_opl.setdefault(r.parent, set()).add(r.stem_length)
+
+        orders = []
         for opl in ready_orders:
             if opl.name not in opls_with_unissued:
                 continue
-            order_name = opl.get("order_name")
-            if not order_name:
-                continue
-            groups = order_groups.setdefault(order_name, set())
-            if opl.get("item_group"):
-                groups.add(opl.get("item_group"))
-            teams = order_teams.setdefault(order_name, set())
-            if opl.get("team"):
-                teams.add(opl.get("team"))
+            orders.append({
+                "opl_name": opl.name,
+                "name": opl.get("order_name") or opl.name,
+                "customer": opl.get("customer"),
+                "custom_item_group": [opl.get("item_group")] if opl.get("item_group") else [],
+                "custom_team": [opl.get("team")] if opl.get("team") else [],
+                "varieties": sorted(varieties_by_opl.get(opl.name, set())),
+                "stem_lengths": sorted(lengths_by_opl.get(opl.name, set())),
+                "qty": opl.get("custom_total_stems"),
+            })
+        orders.sort(key=lambda o: (o["name"], o["opl_name"]))
 
-        orders = [
-            {"name": name, "custom_item_group": sorted(groups), "custom_team": sorted(order_teams.get(name, set()))}
-            for name, groups in sorted(order_groups.items())
-        ]
         frappe.response["orders"] = orders
-        frappe.response["message"] = "Found " + str(len(orders)) + " orders ready for packing"
+        frappe.response["message"] = "Found " + str(len(orders)) + " pick lists ready for packing"
     except Exception as error:
         frappe.log_error("Fetch Ready Orders Error: " + str(error))
         frappe.throw("Error fetching ready orders: " + str(error))
@@ -1723,30 +1923,38 @@ def getReadySaleOrderItems():
 @frappe.whitelist()
 def getReadySaleOrderItemsData():
     try:
+        opl_name = frappe.form_dict.get('opl_name')
         order_name = frappe.form_dict.get('custom_order_name')
 
-        if not order_name:
-            frappe.throw("Order name is required. Please provide 'custom_order_name' parameter.")
+        if not opl_name and not order_name:
+            frappe.throw("opl_name is required. Please provide the 'opl_name' parameter.")
 
-        order_name = ' '.join(order_name.split())
-
-        # Search Order Pick Lists directly by custom_order_name
-        all_opls = frappe.get_all(
-            "Order Pick List",
-            fields=["name", "order_name", "sales_order"],
-            filters={"docstatus": 1}
-        )
-
-        matching_opls = []
-        for opl in all_opls:
-            if opl.order_name:
-                normalized = ' '.join(opl.order_name.split())
-                if normalized == order_name:
-                    matching_opls.append(opl.name)
+        if opl_name:
+            # Scope strictly to this ONE Order Pick List — a Sales Order can have
+            # several OPLs sharing the same order_name, and they must stay separate
+            # so issuing one never pulls in another OPL's buckets.
+            matching_opls = [opl_name] if frappe.db.exists(
+                "Order Pick List", {"name": opl_name, "docstatus": 1}
+            ) else []
+        else:
+            # Legacy fallback: match by the free-text order_name field. Kept only for
+            # callers that predate opl_name; it can span multiple OPLs of one order.
+            order_name = ' '.join(order_name.split())
+            all_opls = frappe.get_all(
+                "Order Pick List",
+                fields=["name", "order_name", "sales_order"],
+                filters={"docstatus": 1}
+            )
+            matching_opls = []
+            for opl in all_opls:
+                if opl.order_name:
+                    normalized = ' '.join(opl.order_name.split())
+                    if normalized == order_name:
+                        matching_opls.append(opl.name)
 
         if not matching_opls:
             frappe.response["packing_list"] = []
-            frappe.response["message"] = f"No submitted Order Pick List found with order name: {order_name}"
+            frappe.response["message"] = f"No submitted Order Pick List found for: {opl_name or order_name}"
         else:
             # Team each OPL is assigned to (shown to the issuer so they hand the
             # buckets to the right team).
@@ -2608,7 +2816,21 @@ def get_pick_list_with_farm_pack_list():
                     'Mixed' if is_mixed else 'Mixed Bunch' if is_mixed_bunch else 'Standard'
                 )
                 planned_boxes = len({r.get('box_number') for r in guide_rows if r.get('box_number')})
-                packrate_per_box = safe_int(guide_rows[0].get('pack_rate'))
+                # A straight box has exactly one Packing Guide row per
+                # box_number, so its own pack_rate IS the box's capacity. A
+                # mixed box/bunch combines SEVERAL varieties into the SAME
+                # box_number, each row carrying only that variety's own slot
+                # (e.g. 20 stems of Aqua, 20 of Athena, ... 6 varieties in
+                # one 120-stem mixed-bunch box) -- taking just the first row
+                # (previously: 20) instead of summing every row sharing that
+                # box_number (120) under-reported the box's real capacity by
+                # a factor of however many varieties it combines, which is
+                # exactly the "120 stems planned vs 1 box x 20 = 20" report.
+                first_box_number = guide_rows[0].get('box_number')
+                packrate_per_box = sum(
+                    safe_int(r.get('pack_rate')) for r in guide_rows
+                    if r.get('box_number') == first_box_number
+                )
 
                 planned_stems_by_item = {}
                 planned_total = 0
@@ -2868,43 +3090,68 @@ def get_pick_list_with_farm_pack_list():
             # =========================================================
             # MIXED BUNCH enrichment (additive — never affects the above).
             # A mixed bunch = one bouquet built from several colour/variety
-            # components, defined on the linked Specification's box_items rows
-            # where bunch_type == "Mixed Bunch". Detected from the SPEC (not from
-            # custom_mixed_bunch) so it works regardless of allocation-side fields.
+            # components. Detected from the linked Specification's box_items
+            # rows where bunch_type == "Mixed Bunch" (not from
+            # custom_mixed_bunch, so it works regardless of allocation-side
+            # fields) -- but Spec Box Item has NO colour/variety field at all
+            # (see spec_box_item.json: bunch_type, hz_bud_count_range,
+            # stems_per_bunch, length, box_type, bunches_per_box, pack_rate
+            # only). Reading r.get("colour")/r.get("variety") here always
+            # returned None, so bunch_guide came out empty and is_mixed_bunch
+            # went False for every real mixed bunch order -- the packing
+            # screen then fell through to its single-variety "Manual entry"
+            # view showing only pickListItems[0] (e.g. "the only variety
+            # available to pack is Aqua"), instead of the bouquet-recipe UI.
+            # The actual per-variety recipe (item_code, length, bunch size)
+            # already lives on the Sales Order's OWN lines for this OPL --
+            # the same source Pick List Item/Packing Guide already use --
+            # so build the recipe from there; the Specification is used only
+            # to detect "is this a mixed bunch" and, if present, its image.
             # Adds: is_mixed_bunch, bouquet_guide (pick N stems of each colour),
             # spec, spec_image (File attached to the Specification).
             # =========================================================
             try:
+                relevant_items = [
+                    item for item in so.items
+                    if not opl_so_item_names or item.name in opl_so_item_names
+                ]
+
                 spec_names = []
-                for item in so.items:
-                    if opl_so_item_names and item.name not in opl_so_item_names:
-                        continue
+                for item in relevant_items:
                     cl = item.get("custom_line")
                     if cl and cl not in spec_names:
                         spec_names.append(cl)
 
+                is_mixed_bunch_spec = any(
+                    frappe.db.exists("Spec Box Item", {"parent": sp_name, "bunch_type": "Mixed Bunch"})
+                    for sp_name in spec_names
+                )
+
                 bunch_guide = []
                 bunch_spec = None
-                for sp_name in spec_names:
-                    try:
-                        spec_doc = frappe.get_doc("Specifications", sp_name)
-                    except Exception:
-                        continue
-                    rows = [
-                        r for r in (spec_doc.get("box_items") or [])
-                        if r.get("bunch_type") == "Mixed Bunch" and r.get("variety")
-                    ]
-                    if rows:
-                        bunch_spec = sp_name
-                        for r in rows:
-                            bunch_guide.append({
-                                "colour": r.get("colour"),
-                                "variety": r.get("variety"),
-                                "variety_name": frappe.db.get_value("Item", r.get("variety"), "item_name") or r.get("variety"),
-                                "stems_per_bunch": safe_int(r.get("stems_per_bunch")),
-                                "length": r.get("length"),
-                            })
-                        break
+                if is_mixed_bunch_spec:
+                    recipe_items = [item for item in relevant_items if item.get("custom_mixed_bunch") == 1] \
+                        or relevant_items
+                    item_codes = list({item.item_code for item in recipe_items if item.item_code})
+                    colours = {}
+                    if item_codes:
+                        for it in frappe.get_all(
+                            "Item", filters={"name": ["in", item_codes]},
+                            fields=["name", "custom_color", "item_name"]
+                        ):
+                            colours[it.name] = it
+                    for item in recipe_items:
+                        if not item.item_code:
+                            continue
+                        meta = colours.get(item.item_code)
+                        bunch_guide.append({
+                            "colour": (meta and meta.get("custom_color")) or "",
+                            "variety": item.item_code,
+                            "variety_name": (meta and meta.get("item_name")) or item.item_name or item.item_code,
+                            "stems_per_bunch": _uom_factor(item.uom) or 0,
+                            "length": item.get("custom_length"),
+                        })
+                    bunch_spec = spec_names[0] if spec_names else None
 
                 spec_image = None
                 if bunch_spec:

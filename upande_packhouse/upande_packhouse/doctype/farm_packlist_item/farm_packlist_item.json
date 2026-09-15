@@ -9,8 +9,6 @@
  "field_order": [
   "source_warehouse",
   "customer",
-  "item_group",
-  "no_of_boxes",
   "sales_order",
   "box_id",
   "column_break_kfem",
@@ -19,7 +17,8 @@
   "bunch_qty",
   "stem_length",
   "stock_qty",
-  "delivery_point"
+  "delivery_point",
+  "under_pack_reason"
  ],
  "fields": [
   {
@@ -27,17 +26,6 @@
    "fieldtype": "Link",
    "label": "Source Warehouse",
    "options": "Warehouse"
-  },
-  {
-   "fieldname": "item_group",
-   "fieldtype": "Link",
-   "label": "Item Group",
-   "options": "Item Group"
-  },
-  {
-   "fieldname": "no_of_boxes",
-   "fieldtype": "Int",
-   "label": "No of Boxes"
   },
   {
    "fieldname": "box_id",
@@ -77,13 +65,13 @@
    "label": "Stock Qty"
   },
   {
-   "fetch_from": "sales_order_id.custom_delivery_point",
+   "fetch_from": "sales_order.custom_delivery_point",
    "fieldname": "delivery_point",
    "fieldtype": "Data",
    "label": "Delivery Point"
   },
   {
-   "fetch_from": "sales_order_id.customer",
+   "fetch_from": "sales_order.customer",
    "fieldname": "customer",
    "fieldtype": "Link",
    "label": "Customer",
@@ -94,6 +82,14 @@
    "fieldtype": "Link",
    "label": "Sales Order",
    "options": "Sales Order"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "under_pack_reason",
+   "fieldtype": "Link",
+   "label": "Under Pack Reason",
+   "options": "Under Pack Reason",
+   "description": "Why this box was under-packed relative to its packrate."
   }
  ],
  "grid_page_length": 50,
