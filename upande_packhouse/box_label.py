@@ -17,6 +17,7 @@ delivery note it feeds never disagree.
 """
 
 import frappe
+from upande_packhouse.server_scripts.box_label_barcode_gen import generate_box_barcode
 
 
 def sync_box_labels_for_fpl(fpl_doc, opl_doc, so_doc):
@@ -52,6 +53,11 @@ def sync_box_labels_for_fpl(fpl_doc, opl_doc, so_doc):
             box = frappe.new_doc("Box Label")
             box.order_pick_list = opl_doc.name
             box.box_number = box_no
+
+        # The barcode only encodes the box's own (deterministic) name, so it
+        # never changes across re-packs -- generate it once, not on every sync.
+        if not box.barcode:
+            box.barcode = generate_box_barcode(name)
 
         total_stems = sum(int(r.stock_qty or 0) for r in rows)
 

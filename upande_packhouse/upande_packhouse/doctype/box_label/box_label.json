@@ -14,7 +14,7 @@
   "box_number",
   "order_pick_list",
   "farm_pack_lis",
-  "qr_code",
+  "barcode",
   "box_label",
   "staging_location",
   "column_break_ylwi",
@@ -64,9 +64,10 @@
    "options": "Order Pick List"
   },
   {
-   "fieldname": "qr_code",
+   "fieldname": "barcode",
    "fieldtype": "Attach Image",
-   "label": "QR Code"
+   "label": "Barcode",
+   "description": "Code 128 barcode encoding this Box Label's own ID (the value staging/loading/dispatch scan)."
   },
   {
    "fetch_from": "farm_pack_lis.farm",
@@ -77,6 +78,7 @@
   },
   {
    "fetch_from": "farm.farm_code",
+   "fetch_if_empty": 1,
    "fieldname": "farm_code",
    "fieldtype": "Data",
    "label": "Farm Code"
@@ -194,7 +196,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-17 14:21:15.807620",
+ "modified": "2026-09-15 23:46:54.392178",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Box Label",
