@@ -7,18 +7,12 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "variety",
   "colour",
-  "variety"
+  "headsize_cm",
+  "budcount"
  ],
  "fields": [
-  {
-   "columns": 4,
-   "fieldname": "colour",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Colour",
-   "options": "Colors"
-  },
   {
    "columns": 4,
    "fieldname": "variety",
@@ -27,6 +21,33 @@
    "label": "Variety",
    "options": "Item",
    "reqd": 1
+  },
+  {
+   "columns": 3,
+   "fieldname": "colour",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Colour",
+   "options": "Colors",
+   "fetch_from": "variety.custom_color"
+  },
+  {
+   "columns": 2,
+   "fieldname": "headsize_cm",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Headsize (cm)",
+   "fetch_from": "variety.custom_headsize_cm",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "budcount",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Budcount",
+   "fetch_from": "variety.custom_budcount",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

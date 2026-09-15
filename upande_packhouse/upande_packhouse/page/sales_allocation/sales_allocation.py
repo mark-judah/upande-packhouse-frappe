@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import cint
+from frappe.utils import cint, now_datetime
 import json
 
 from upande_packhouse import stock_movement
@@ -20,8 +20,10 @@ DISCARD_EXCLUSION = """
 # ============================================================
 # HELPER: Load Production Settings config once
 # Returns: { discard_age, amber_time, farms_by_location, farm_config }
-# farm_config: { farm_name: { sales_shelf, max_allocation_age } }
+# farm_config: { farm_name: { sales_shelf, max_allocation_age, cooling_hours } }
 # farms_by_location: { location_name: [farm_name, ...] }
+# cooling_hours: minimum hours since a bucket was shelved (Shelf Item.date_added)
+# before it counts as available -- 0 (the default) means no cooling gate.
 # ============================================================
 def _get_production_config():
     ps = frappe.get_cached_doc("Production Settings")
@@ -55,7 +57,8 @@ def _get_production_config():
         if row.enabled:
             farm_config[row.farm] = {
                 "sales_shelf": int(row.sales_shelf or 0),
-                "max_allocation_age": int(row.max_allocation_age or 5)
+                "max_allocation_age": int(row.max_allocation_age or 5),
+                "cooling_hours": float(row.cooling_hours or 0)
             }
 
     # Single query to get location for all enabled farms.
@@ -511,6 +514,7 @@ def get_sales_order_items_with_buckets(sales_order, location=None, selected_farm
             s.name AS shelf_location,
             s.farm AS shelf_farm,
             DATEDIFF(CURDATE(), COALESCE(si.harvest_date, si.date_added)) AS age_days,
+            TIMESTAMPDIFF(HOUR, si.date_added, %s) AS hours_since_shelved,
             COALESCE(bas.allocated_quantity, 0) AS allocated_qty,
             COALESCE(si.stem_qty, 0) - COALESCE(bas.allocated_quantity, 0) AS available_qty,
             COALESCE(si.cut_stage, '') AS cut_stage,
@@ -525,11 +529,23 @@ def get_sales_order_items_with_buckets(sales_order, location=None, selected_farm
           AND DATEDIFF(CURDATE(), COALESCE(si.harvest_date, si.date_added)) < %s
           AND (bas.in_transit = 0 OR bas.in_transit IS NULL)
           {DISCARD_EXCLUSION}
-    """, active_farms + item_codes + [discard_age], as_dict=True)
+    """, [now_datetime()] + active_farms + item_codes + [discard_age], as_dict=True)
 
     buckets = [
         b for b in buckets
         if b["age_days"] <= farm_max_age.get(b["shelf_farm"], 5)
+    ]
+
+    # ── Exclude buckets still cooling: fewer hours on the shelf than this
+    # farm's configured cooling_hours (Shelf Locations, Production Settings).
+    # Measured from Shelf Item.date_added (when it was scanned onto the
+    # shelf) specifically -- NOT harvest_date/age_days, which the ceiling
+    # check above already uses for a different purpose (how long it's been
+    # since harvest, not how long it's been in the cold store). 0 hours
+    # (the default) means this farm has no cooling requirement configured.
+    buckets = [
+        b for b in buckets
+        if (b["hours_since_shelved"] or 0) >= farm_config.get(b["shelf_farm"], {}).get("cooling_hours", 0)
     ]
 
     # ── Apply cut_stage filter to buckets ──
@@ -622,6 +638,7 @@ def get_sales_order_items_with_buckets(sales_order, location=None, selected_farm
                 "available_qty": b["available_qty"],
                 "allocated_to_this_item": allocated_here,
                 "age_days": b["age_days"],
+                "hours_since_shelved": b["hours_since_shelved"],
                 "shelf_location": b["shelf_location"],
                 "shelf_farm": b["shelf_farm"],
                 "harvest_date": b["harvest_date"],
@@ -765,6 +782,7 @@ def get_bucket_visibility_diagnostics(sales_order_item, location=None, selected_
             s.farm AS shelf_farm,
             s.name AS shelf_location,
             DATEDIFF(CURDATE(), COALESCE(si.harvest_date, si.date_added)) AS age_days,
+            TIMESTAMPDIFF(HOUR, si.date_added, %s) AS hours_since_shelved,
             COALESCE(si.cut_stage, '') AS cut_stage,
             COALESCE(bas.allocated_quantity, 0) AS allocated_qty,
             COALESCE(bas.in_transit, 0) AS in_transit,
@@ -782,7 +800,7 @@ def get_bucket_visibility_diagnostics(sales_order_item, location=None, selected_
         WHERE si.variety = %s
           AND s.farm IN ({farm_ph})
           AND COALESCE(si.stem_qty, 0) > 0
-    """, [item_code] + location_farms, as_dict=True)
+    """, [now_datetime(), item_code] + location_farms, as_dict=True)
 
     # Priority order: the most actionable / most likely cause wins when a bucket
     # has more than one issue, so the summary doesn't double-count buckets.
@@ -790,6 +808,7 @@ def get_bucket_visibility_diagnostics(sales_order_item, location=None, selected_
         ("pending_discard", "Pending discard request"),
         ("in_transit", "In transit (not yet on the sales shelf)"),
         ("remote_farm", "On a farm not currently selected"),
+        ("cooling", "Still cooling since shelving"),
         ("past_discard_age", "Past the discard-age threshold"),
         ("past_max_age", "Past this farm's allocation-age limit"),
         ("too_short", "Shorter than the order needs"),
@@ -817,6 +836,16 @@ def get_bucket_visibility_diagnostics(sales_order_item, location=None, selected_
         elif not is_sales_shelf and b["shelf_farm"] not in active_farms:
             reason = "remote_farm"
             detail = _("On {0}, which isn't one of the farms currently selected").format(b["shelf_farm"] or "?")
+        elif (
+            farm_config.get(b["shelf_farm"], {}).get("cooling_hours", 0)
+            and (b["hours_since_shelved"] or 0) < farm_config.get(b["shelf_farm"], {}).get("cooling_hours", 0)
+        ):
+            reason = "cooling"
+            cooling_hours = farm_config.get(b["shelf_farm"], {}).get("cooling_hours", 0)
+            hours_left = cooling_hours - (b["hours_since_shelved"] or 0)
+            detail = _("Shelved {0}h ago — {1} requires {2}h cooling, {3}h left").format(
+                b["hours_since_shelved"] or 0, b["shelf_farm"] or "this farm", cooling_hours, hours_left
+            )
         elif age_days >= discard_age:
             reason = "past_discard_age"
             detail = _("{0} days old — past the {1}-day discard-age limit").format(age_days, discard_age)
@@ -847,6 +876,7 @@ def get_bucket_visibility_diagnostics(sales_order_item, location=None, selected_
             "farm": b["shelf_farm"],
             "shelf": b["shelf_location"],
             "age_days": b["age_days"],
+            "hours_since_shelved": b["hours_since_shelved"],
             "cut_stage": b["cut_stage"],
             "discard_request": b["discard_request"],
             "detail": detail,

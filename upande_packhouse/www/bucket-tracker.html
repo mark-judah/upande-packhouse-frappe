@@ -1054,13 +1054,6 @@ function seDtMs(se) {
         return isNaN(t) ? 0 : t;
     } catch { return 0; }
 }
-function parseBatch(batchNo) {
-    if (!batchNo) return { sessionKey:'', batchNo:'', farm:'', variety:'', date:'' };
-    const p = batchNo.split('-');
-    const farm=p[1]||'', variety=p[2]||'', yyyy=p[3]||'', mm=p[4]||'', dd=(p[5]||'').split(' ')[0];
-    const sessionKey = `${p[0]}-${farm}-${variety}-${yyyy}-${mm}-${dd}`.toLowerCase();
-    return { sessionKey, batchNo, farm, variety, date:`${yyyy}-${mm}-${dd}` };
-}
 function sumStems(seList) {
     let total=0;
     for (const se of seList) total += G.seQtyMap?.get(se.name)||0;
@@ -1087,68 +1080,93 @@ async function trackBucket() {
     try {
         // bucket_id casing is inconsistent across tables — match all variants
         const idVariants = [...new Set([id, id.toUpperCase(), id.toLowerCase()])];
-        const [harvestSEs, receiveSEs, shelfLogRows, allocRows, oplParents, discardSEs, rejectSEs, quarantineSEs] = await Promise.all([
+        const [harvestSEs, receiveSEs, shelfLogRows, shelfItemRows, allocRows, oplParents, discardRows, rejectSEs, quarantineSEs] = await Promise.all([
+            // custom_grading_entry / custom_receiving_entry are the direct traceability
+            // links written by the current harvest→grade→receive flow — they replace the
+            // old custom_harvest_batch_no string-parsing scheme entirely (field is gone).
             flP('Stock Entry',
                 [['custom_bucket_id','=',id],['stock_entry_type','=','Harvesting']],
-                ['name','posting_date','posting_time','custom_farm','custom_greenhouse',
-                 'custom_stem_length','custom_harvester','custom_harvester_payroll_number',
-                 'custom_harvest_batch_no','to_warehouse','custom_scanned','docstatus'],
+                ['name','posting_date','posting_time','farm','custom_greenhouse',
+                 'custom_stem_length','custom_harvester','custom_grading_entry',
+                 'custom_receiving_entry','to_warehouse','docstatus'],
                 2000,'posting_date asc, posting_time asc'),
             flP('Stock Entry',
-                [['custom_bucket_id','=',id],['stock_entry_type','in',['Receiving','Late Receipt']]],
-                ['name','posting_date','posting_time','custom_farm','custom_greenhouse',
-                 'custom_stem_length','custom_harvest_batch_no','custom_bucket_id',
-                 'to_warehouse','from_warehouse','stock_entry_type','custom_scanned','docstatus'],
+                [['custom_bucket_id','=',id],['stock_entry_type','=','Receiving']],
+                ['name','posting_date','posting_time','farm','custom_greenhouse',
+                 'custom_stem_length','custom_bucket_id',
+                 'to_warehouse','from_warehouse','stock_entry_type','docstatus'],
                 2000,'posting_date asc, posting_time asc'),
-            // Shelving Log = the persistent shelf/transfer/issue/discard history (Shelf Item is cleared on issue)
+            // Shelving Log now only ever records the REMOVAL side (issue to sales order) —
+            // shelved_on is never populated by the current flow. Kept for the issue/removal trail.
             flP('Shelving Log',[['bucket_id','in',idVariants]],
                 ['name','shelf','farm','variety','stem_qty','stem_length','greenhouse',
                  'shelved_on','removed_on','reason','shelved_by'],
-                800,'shelved_on asc'),
+                800,'removed_on asc'),
+            // Shelf Item is the real, populated "currently on shelf" record (date_added is
+            // always set; the row is deleted/cleared once the bucket is issued).
+            flP('Shelf Item',[['bucket_id','in',idVariants]],
+                ['name','parent','farm','variety','stem_qty','stem_length','greenhouse','date_added'],
+                200,'date_added asc'),
             flP('Bucket Allocation Status',[['bucket_id','=',id]],
                 ['name','bucket_id','item_code','warehouse','farm','stem_length',
                  'shelf_location','shelf_farm','harvest_date','total_quantity',
                  'allocated_quantity','available_quantity'],1),
-            flP('Order Pick List',[['Pick List Item','custom_bucket','=',id]],['name'],100),
+            flP('Order Pick List',[['Pick List Item','bucket','=',id]],['name'],100),
+            // Discard Request Bucket is the real discard mechanism (Stock Entry never had a
+            // 'Discard' type) — rows are denormalized with their own farm/variety/harvest_date.
+            flP('Discard Request Bucket',
+                [['bucket_id','in',idVariants],['discarded','=',1]],
+                ['name','parent','farm','greenhouse','variety','stem_qty','stem_length','harvest_date','creation'],
+                200,'creation asc'),
+            // QC rejects: Packhouse Rejects (packhouse QC) + Airport rejects, keyed by received bucket id.
+            // ('Field Rejects' was never a real Stock Entry Type — dropped.)
             flP('Stock Entry',
-                [['custom_bucket_id','in',idVariants],['stock_entry_type','=','Discard'],['docstatus','=',1]],
-                ['name','posting_date','posting_time','custom_farm'],200,'posting_date asc, posting_time asc'),
-            // QC rejects: Field Rejects (grading) + Packhouse Rejects (packhouse QC), keyed by received bucket id
+                [['custom_bucket_id','in',idVariants],['stock_entry_type','in',['Packhouse Rejects','Airport rejects']],['docstatus','=',1]],
+                ['name','posting_date','posting_time','farm','stock_entry_type'],200,'posting_date asc, posting_time asc'),
+            // Quarantine: 'Receiving Quarantined' = into quarantine; 'Quarantine Rejects'/'Quarantine
+            // Accept' = out; 'Material Transfer' = the accept-release (only counts if quarantined).
             flP('Stock Entry',
-                [['custom_bucket_id','in',idVariants],['stock_entry_type','in',['Field Rejects','Packhouse Rejects']],['docstatus','=',1]],
-                ['name','posting_date','posting_time','custom_farm','stock_entry_type'],200,'posting_date asc, posting_time asc'),
-            // Quarantine: 'Receiving Quarantined' = into quarantine; 'Quarantine Rejects'/'Remove From
-            // Quarantine' = out; 'Material Transfer' = the accept-release (only counts if quarantined).
-            flP('Stock Entry',
-                [['custom_bucket_id','in',idVariants],['stock_entry_type','in',['Receiving Quarantined','Quarantine Rejects','Remove From Quarantine','Material Transfer']],['docstatus','=',1]],
-                ['name','posting_date','posting_time','custom_farm','stock_entry_type'],200,'posting_date asc, posting_time asc'),
+                [['custom_bucket_id','in',idVariants],['stock_entry_type','in',['Receiving Quarantined','Quarantine Rejects','Quarantine Accept','Material Transfer']],['docstatus','=',1]],
+                ['name','posting_date','posting_time','farm','stock_entry_type'],200,'posting_date asc, posting_time asc'),
         ]);
 
-        const batchNos = [...new Set(harvestSEs.map(se => se.custom_harvest_batch_no).filter(Boolean))];
+        // Grading SEs are fetched by following each harvest SE's own custom_grading_entry
+        // link directly — no more batch-string matching.
+        const gradingNames = [...new Set(harvestSEs.map(se => se.custom_grading_entry).filter(Boolean))];
         let gradingSEs = [];
-        if (batchNos.length) {
+        if (gradingNames.length) {
             const CHUNK=50, chunks=[];
-            for (let i=0;i<batchNos.length;i+=CHUNK) chunks.push(batchNos.slice(i,i+CHUNK));
+            for (let i=0;i<gradingNames.length;i+=CHUNK) chunks.push(gradingNames.slice(i,i+CHUNK));
             const results = await Promise.all(chunks.map(chunk =>
                 flP('Stock Entry',
-                    [['custom_harvest_batch_no','in',chunk],['stock_entry_type','=','Grading']],
-                    ['name','posting_date','posting_time','custom_farm','custom_graded_by',
-                     'custom_grader_payroll_number','custom_bunch_id','custom_stem_length',
-                     'custom_harvest_batch_no','custom_opl_scanned','custom_scanned_grading',
+                    [['name','in',chunk]],
+                    ['name','posting_date','posting_time','farm','custom_graded_by',
+                     'custom_bunch_id','custom_stem_length','custom_harvest_entry',
+                     'custom_opl_scanned','custom_scanned_grading',
                      'custom_scanned_packing','custom_bunched_by','to_warehouse','from_warehouse','docstatus'],
                     2000,'posting_date asc, posting_time asc')
             ));
             gradingSEs = results.flat().sort((a,b) => seDt(a).localeCompare(seDt(b)));
         }
+        // Item/variety lives on the child `items` table, not the parent SE — pull it in bulk
+        // for every harvest/grading/receiving SE we found.
+        const allSeNames = [...new Set([...harvestSEs.map(s=>s.name), ...gradingSEs.map(s=>s.name), ...receiveSEs.map(s=>s.name)])];
+        const seItemMap = new Map();
+        if (allSeNames.length) {
+            const detailRows = await flP('Stock Entry Detail',[['parent','in',allSeNames]],['parent','item_code'],2000);
+            for (const r of detailRows) if (!seItemMap.has(r.parent)) seItemMap.set(r.parent, r.item_code||'');
+        }
 
-        // Shelving Log episodes → shelfData. Keep shelf_name/shelf_farm/date_added
-        // aliases so the existing render works, plus reason/removed_on for the
-        // transfer/issue/discard steps and the per-journey movement trail.
-        let shelfData = (shelfLogRows||[]).map(r => ({
-            ...r,
-            shelf_name: r.shelf, shelf_farm: r.farm, date_added: r.shelved_on
-        }));
-        let discardData = discardSEs || [];
+        // shelfData combines two real sources: Shelf Item (the currently-on-shelf record —
+        // date_added is always populated) for the shelved-in side, and Shelving Log (which
+        // now only ever records the removal/issue side — shelved_on is never set) for the
+        // removed-on/reason trail. Keep the same shelf_name/shelf_farm/date_added aliases
+        // the existing render expects.
+        let shelfData = [
+            ...(shelfItemRows||[]).map(r => ({ ...r, shelf_name: r.parent, shelf_farm: r.farm, reason: null, removed_on: null, shelved_on: r.date_added, _src:'shelf_item' })),
+            ...(shelfLogRows||[]).map(r => ({ ...r, shelf_name: r.shelf, shelf_farm: r.farm, date_added: r.shelved_on, _src:'shelving_log' })),
+        ];
+        let discardData = discardRows || [];
         let rejectData = rejectSEs || [];
         let quarantineData = quarantineSEs || [];
 
@@ -1160,7 +1178,7 @@ async function trackBucket() {
             const docs = await Promise.all(oplParents.map(o => fgP('Order Pick List', o.name)));
             for (const doc of docs) {
                 if (!doc) continue;
-                (doc.locations||[]).filter(r => (r.custom_bucket||'').toLowerCase()===id.toLowerCase())
+                (doc.locations||[]).filter(r => (r.bucket||'').toLowerCase()===id.toLowerCase())
                     .forEach(r => oplData.push({
                         ...r, parent:doc.name, opl_customer:doc.customer,
                         opl_order_name:doc.custom_order_name, opl_team:doc.custom_team,
@@ -1200,7 +1218,7 @@ async function trackBucket() {
                      ||shelfData.length||allocData||oplData.length;
         if (!hasData) { q('emptyMsg').textContent = 'No records found for this Bucket ID.'; setState('empty'); return; }
 
-        G = { id, harvestSEs, gradingSEs, receiveSEs, shelfData, discardData, rejectData, quarantineData, allocData, allocFull, oplData, seQtyMap };
+        G = { id, harvestSEs, gradingSEs, receiveSEs, shelfData, discardData, rejectData, quarantineData, allocData, allocFull, oplData, seQtyMap, seItemMap };
         buildJourneys();
 
     } catch (err) {
@@ -1211,7 +1229,7 @@ async function trackBucket() {
 }
 
 function buildJourneys() {
-    const { id, harvestSEs, gradingSEs, receiveSEs, shelfData, discardData, rejectData, quarantineData, allocData, allocFull, oplData } = G;
+    const { id, harvestSEs, gradingSEs, receiveSEs, shelfData, discardData, rejectData, quarantineData, allocData, allocFull, oplData, seItemMap } = G;
     const jmap = {};
 
     function getOrCreate(sessionKey, farm, variety) {
@@ -1222,22 +1240,36 @@ function buildJourneys() {
         };
         return jmap[sessionKey];
     }
-    for (const se of gradingSEs)  { const p=parseBatch(se.custom_harvest_batch_no); const key=p.sessionKey||('grading||'+se.name); const j=getOrCreate(key,p.farm,p.variety); j.gradingSEs.push(se); if(!j.farm)j.farm=p.farm; if(!j.variety)j.variety=p.variety; }
-    for (const se of receiveSEs)  { const p=parseBatch(se.custom_harvest_batch_no); const key=p.sessionKey||('receiving||'+se.name); const j=getOrCreate(key,p.farm,p.variety); j.receivingSEs.push(se); if(!j.farm)j.farm=p.farm; if(!j.variety)j.variety=p.variety; }
-    for (const se of harvestSEs)  { const p=parseBatch(se.custom_harvest_batch_no); const key=p.sessionKey||('harvest||'+se.name); const j=getOrCreate(key,p.farm,p.variety); j.harvestSEs.push(se); if(!j.farm)j.farm=p.farm; if(!j.variety)j.variety=p.variety; }
+    // Sessions are now built by following the direct traceability links each Harvest SE
+    // carries (custom_grading_entry / custom_receiving_entry) — one harvest event = one
+    // session, unambiguous, no batch-string parsing/heuristics needed any more.
+    const gradingByName = {}; for (const se of gradingSEs) gradingByName[se.name] = se;
+    const receiveByName = {}; for (const se of receiveSEs) receiveByName[se.name] = se;
+    const usedGrading = new Set(), usedReceiving = new Set();
+    for (const se of harvestSEs) {
+        const farm = se.farm || (se.custom_greenhouse||'').split(' - ')[0];
+        const variety = seItemMap?.get(se.name) || '';
+        const key = 'h||'+se.name;
+        const j = getOrCreate(key, farm, variety);
+        j.harvestSEs.push(se);
+        const g = se.custom_grading_entry && gradingByName[se.custom_grading_entry];
+        if (g) { j.gradingSEs.push(g); usedGrading.add(g.name); if (!j.variety) j.variety = seItemMap?.get(g.name)||''; }
+        const r = se.custom_receiving_entry && receiveByName[se.custom_receiving_entry];
+        if (r) { j.receivingSEs.push(r); usedReceiving.add(r.name); }
+    }
+    // Any grading/receiving SE not reached via a harvest link (older data, or the link
+    // wasn't written back) still needs its own session so it isn't silently dropped.
+    for (const se of gradingSEs) { if (usedGrading.has(se.name)) continue; const key='g||'+se.name; const j=getOrCreate(key,se.farm||'',seItemMap?.get(se.name)||''); j.gradingSEs.push(se); }
+    for (const se of receiveSEs) { if (usedReceiving.has(se.name)) continue; const key='r||'+se.name; const j=getOrCreate(key,se.farm||'',seItemMap?.get(se.name)||''); j.receivingSEs.push(se); }
     for (const j of Object.values(jmap)) {
         j.harvestSEs.sort((a,b)=>seDtMs(a)-seDtMs(b));
         j.gradingSEs.sort((a,b)=>seDtMs(a)-seDtMs(b));
         j.receivingSEs.sort((a,b)=>seDtMs(a)-seDtMs(b));
     }
+    // Spray roses are bunched/graded before receiving; standard roses go straight
+    // Harvest → Receiving. A harvest event that has a grading link went through grading.
     for (const j of Object.values(jmap)) {
-        const hasGrading=j.gradingSEs.length>0, hasHarvest=j.harvestSEs.length>0;
-        const gradingBatches=new Set(j.gradingSEs.map(se=>(se.custom_harvest_batch_no||'').toLowerCase()));
-        const harvestMatchesGrading=j.harvestSEs.some(se=>gradingBatches.has((se.custom_harvest_batch_no||'').toLowerCase()));
-        if (hasGrading&&hasHarvest&&harvestMatchesGrading) j.flowerType='spray';
-        else if (hasGrading&&hasHarvest&&!harvestMatchesGrading) j.flowerType='standard';
-        else if (hasGrading&&!hasHarvest) j.flowerType='standard';
-        else j.flowerType='standard';
+        j.flowerType = j.gradingSEs.length>0 ? 'spray' : 'standard';
     }
     for (const j of Object.values(jmap)) {
         const all=[...j.harvestSEs,...j.gradingSEs,...j.receivingSEs].map(se=>se.posting_date||'').filter(Boolean).sort();
@@ -1406,7 +1438,7 @@ function journeyStatus(j) {
     const issued=(onOPL&&j.oplData.some(r=>r.custom_issued==1))||sd.some(r=>r.reason==='Issued to Sales Order');
     const qTypes=(j.quarantineData||[]).map(se=>se.stock_entry_type);
     const qin=qTypes.indexOf('Receiving Quarantined')>=0;
-    const qout=qTypes.indexOf('Quarantine Rejects')>=0||qTypes.indexOf('Remove From Quarantine')>=0||(qin&&qTypes.indexOf('Material Transfer')>=0);
+    const qout=qTypes.indexOf('Quarantine Rejects')>=0||qTypes.indexOf('Quarantine Accept')>=0||(qin&&qTypes.indexOf('Material Transfer')>=0);
     if (discarded) return {label:'Discarded',labelCls:'label-danger',cls:'sw-discard'};
     if (issued) return {label:'Issued',labelCls:'label-success',cls:'sw-issued'};
     if (onOPL) return {label:'Pending Issue',labelCls:'label-warning',cls:'sw-pending'};
@@ -1468,14 +1500,14 @@ function renderJourney(j) {
     }
     function stageDetail(key) {
         switch(key){
-            case 'Harvest':   return harvestSEs[0]?(harvestSEs[0].custom_greenhouse||harvestSEs[0].custom_farm||'').split(' - ')[0]:'';
+            case 'Harvest':   return harvestSEs[0]?(harvestSEs[0].custom_greenhouse||harvestSEs[0].farm||'').split(' - ')[0]:'';
             case 'Grading':   return gradingSEs[0]?(gradingSEs[0].custom_bunch_id?gradingSEs[0].custom_bunch_id:''):'';
-            case 'Receiving': return receivingSEs[0]?`${receivingSEs[0].stock_entry_type==='Late Receipt'?'Late · ':''}${(receivingSEs[0].to_warehouse||'').split(' - ')[0]}`:'';
+            case 'Receiving': return receivingSEs[0]?(receivingSEs[0].to_warehouse||'').split(' - ')[0]:'';
             case 'Shelving':  return shelfId?`${shelfId}${shelfRow?.shelf_farm?' · '+shelfRow.shelf_farm:''}`:(issued?'Removed (issued)':'');
             case 'Transfer':  return transferRow?`${transferRow.shelf_farm||transferRow.farm||'?'} → Kapkolia`:'';
             case 'Allocation':return hasAllocs?`${allocData.allocated_quantity} / ${allocData.total_quantity} stems`:'';
             case 'Issue':     return issued?(oplData.find(r=>r.custom_issued==1)?.parent||oplData[0]?.parent||(issueRow?'from '+issueRow.shelf_name:''))||'':onOPL?'On OPL — not issued':'';
-            case 'Discard':   return (discardRow?.custom_farm||discardSlRow?.shelf_farm||'')||'Discarded';
+            case 'Discard':   return (discardRow?.farm||discardSlRow?.shelf_farm||'')||'Discarded';
         }
         return '';
     }
@@ -1488,7 +1520,7 @@ function renderJourney(j) {
             case 'Transfer':  return (transferRow?.removed_on||transferRow?.shelved_on||'').split(' ')[0]||'';
             case 'Allocation':return allocFull?.modified?.split(' ')[0]||'';
             case 'Issue':     return (issueRow?.removed_on||oplData?.[0]?.creation||'').split(' ')[0]||'';
-            case 'Discard':   return discardRow?.posting_date||(discardSlRow?.removed_on||'').split(' ')[0]||'';
+            case 'Discard':   return (discardRow?.creation||'').split(' ')[0]||(discardSlRow?.removed_on||'').split(' ')[0]||'';
         }
         return '';
     }
@@ -1497,9 +1529,9 @@ function renderJourney(j) {
     let stages=(flowerType==='standard'?STAGES_STANDARD:STAGES_SPRAY).slice();
     if (transferred) { const si=stages.findIndex(s=>s.key==='Shelving'); stages.splice(si>=0?si+1:stages.length,0,{key:'Transfer',lbl:'Transfer'}); }
     if (discarded)   { stages=stages.filter(s=>s.key!=='Issue'); stages.push({key:'Discard',lbl:'Discard'}); }
-    const batchNo=gradingSEs[0]?.custom_harvest_batch_no||receivingSEs[0]?.custom_harvest_batch_no||harvestSEs[0]?.custom_harvest_batch_no||'--';
+    const batchNo=harvestSEs[0]?.name||gradingSEs[0]?.name||receivingSEs[0]?.name||'--';
     let statusMsg=
-        discarded?`Discarded${(discardRow?.custom_farm||discardSlRow?.shelf_farm)?` at <strong>${discardRow?.custom_farm||discardSlRow?.shelf_farm}</strong>`:''}`:
+        discarded?`Discarded${(discardRow?.farm||discardSlRow?.shelf_farm)?` at <strong>${discardRow?.farm||discardSlRow?.shelf_farm}</strong>`:''}`:
         issued?`Issued — OPL <strong>${oplData.find(r=>r.custom_issued==1)?.parent||oplData[0]?.parent||''}</strong>`:
         onOPL&&!issued?`On OPL <strong>${oplData[0]?.parent||''}</strong> — awaiting issue`:
         onShelf?`Currently on shelf <strong>${shelfId}</strong>${shelfRow?.shelf_farm?' at '+shelfRow.shelf_farm:''}`:
@@ -1542,9 +1574,9 @@ function renderJourney(j) {
                 }).join('')}
             </div>`;
 
-    if (harvestSEs.length) { const h=harvestSEs[0]; html+=secLbl('Harvest')+`<div class="detail-grid">${dc('Farm',h.custom_farm)}${dc('Greenhouse',(h.custom_greenhouse||'').split(' - ')[0])}${dc('Stem Length',h.custom_stem_length)}${dc('Harvester',h.custom_harvester_payroll_number||h.custom_harvester)}${dc('Date',h.posting_date)}${dc('To Warehouse',(h.to_warehouse||'').split(' - ')[0])}${dc('Batch No',h.custom_harvest_batch_no,true)}${dc('Stock Entry',h.name)}</div>`; }
-    if (gradingSEs.length) { const g=gradingSEs[0]; html+=secLbl(`Grading (${gradingSEs.length} SE${gradingSEs.length>1?'s':''})`)+`<div class="detail-grid">${dc('Variety',j.variety)}${dc('Graded By',g.custom_graded_by)}${dc('Payroll No',g.custom_grader_payroll_number)}${dc('Stem Length',g.custom_stem_length)}${dc('Bunch ID',g.custom_bunch_id)}${dc('Bunched By',g.custom_bunched_by)}${dc('Packing Scanned',g.custom_scanned_packing?'Yes':'No')}${dc('Date',g.posting_date)}${dc('Stock Entry',g.name)}</div>`; }
-    if (receivingSEs.length){ const r=receivingSEs[0]; const late=r.stock_entry_type==='Late Receipt'?' (Late Receipt)':''; html+=secLbl('Receiving'+late)+`<div class="detail-grid">${dc('Type',r.stock_entry_type)}${dc('From',(r.from_warehouse||'').split(' - ')[0])}${dc('To',(r.to_warehouse||'').split(' - ')[0])}${dc('Stem Length',r.custom_stem_length)}${dc('Farm',r.custom_farm)}${dc('Date',r.posting_date)}${dc('Bucket Field',r.custom_bucket_id||'--')}${dc('Stock Entry',r.name)}</div>`; }
+    if (harvestSEs.length) { const h=harvestSEs[0]; html+=secLbl('Harvest')+`<div class="detail-grid">${dc('Farm',h.farm)}${dc('Greenhouse',(h.custom_greenhouse||'').split(' - ')[0])}${dc('Stem Length',h.custom_stem_length)}${dc('Harvester',h.custom_harvester)}${dc('Date',h.posting_date)}${dc('To Warehouse',(h.to_warehouse||'').split(' - ')[0])}${dc('Grading Entry',h.custom_grading_entry,true)}${dc('Stock Entry',h.name)}</div>`; }
+    if (gradingSEs.length) { const g=gradingSEs[0]; html+=secLbl(`Grading (${gradingSEs.length} SE${gradingSEs.length>1?'s':''})`)+`<div class="detail-grid">${dc('Variety',j.variety)}${dc('Graded By',g.custom_graded_by)}${dc('Stem Length',g.custom_stem_length)}${dc('Bunch ID',g.custom_bunch_id)}${dc('Bunched By',g.custom_bunched_by)}${dc('Packing Scanned',g.custom_scanned_packing?'Yes':'No')}${dc('Date',g.posting_date)}${dc('Stock Entry',g.name)}</div>`; }
+    if (receivingSEs.length){ const r=receivingSEs[0]; html+=secLbl('Receiving')+`<div class="detail-grid">${dc('Type',r.stock_entry_type)}${dc('From',(r.from_warehouse||'').split(' - ')[0])}${dc('To',(r.to_warehouse||'').split(' - ')[0])}${dc('Stem Length',r.custom_stem_length)}${dc('Farm',r.farm)}${dc('Date',r.posting_date)}${dc('Bucket Field',r.custom_bucket_id||'--')}${dc('Stock Entry',r.name)}</div>`; }
     // Unified per-cycle lifecycle trail: every Shelving Log episode (shelved /
     // transferred / issued / discarded / replaced / cleared) + QC reject and
     // discard stock entries — everything that happened to the bucket this cycle.
@@ -1570,24 +1602,24 @@ function renderJourney(j) {
     }
     for (const se of (rejectData||[])){
         const d=se.posting_date||'';
-        mv.push({sort:d+' '+(se.posting_time||''),html:`<div class="mv-item mv-reject"><div class="mv-dot"></div><div class="mv-body"><div class="mv-h"><span class="mv-farm">${se.custom_farm||''}</span> <span class="mv-tag">${se.stock_entry_type||'Rejected'}</span></div><div class="mv-m">${fmtDate(d)||d} &middot; <a href="/app/stock-entry/${se.name}" target="_blank">${se.name}</a></div></div></div>`});
+        mv.push({sort:d+' '+(se.posting_time||''),html:`<div class="mv-item mv-reject"><div class="mv-dot"></div><div class="mv-body"><div class="mv-h"><span class="mv-farm">${se.farm||''}</span> <span class="mv-tag">${se.stock_entry_type||'Rejected'}</span></div><div class="mv-m">${fmtDate(d)||d} &middot; <a href="/app/stock-entry/${se.name}" target="_blank">${se.name}</a></div></div></div>`});
     }
-    for (const se of (discardData||[])){
-        const d=se.posting_date||'';
-        mv.push({sort:d+' '+(se.posting_time||''),html:`<div class="mv-item mv-discard"><div class="mv-dot"></div><div class="mv-body"><div class="mv-h"><span class="mv-farm">${se.custom_farm||''}</span> <span class="mv-tag">Discard entry</span></div><div class="mv-m">${fmtDate(d)||d} &middot; <a href="/app/stock-entry/${se.name}" target="_blank">${se.name}</a></div></div></div>`});
+    for (const dr of (discardData||[])){
+        const d=(dr.creation||'').split(' ')[0];
+        mv.push({sort:dr.creation||'',html:`<div class="mv-item mv-discard"><div class="mv-dot"></div><div class="mv-body"><div class="mv-h"><span class="mv-farm">${dr.farm||''}</span> <span class="mv-tag">Discard entry</span></div><div class="mv-m">${fmtDate(d)||d} &middot; <a href="/app/discard-request/${dr.parent}" target="_blank">${dr.parent}</a></div></div></div>`});
     }
     // Quarantine: into ('Receiving Quarantined') and out ('Quarantine Rejects' /
-    // 'Remove From Quarantine' / accept-release 'Material Transfer', gated on a prior quarantine-in).
+    // 'Quarantine Accept' / accept-release 'Material Transfer', gated on a prior quarantine-in).
     const hasQin=(quarantineData||[]).some(se=>se.stock_entry_type==='Receiving Quarantined');
     for (const se of (quarantineData||[])){
         const t=se.stock_entry_type, d=se.posting_date||'';
         let tag='', cls='';
         if(t==='Receiving Quarantined'){tag='Quarantined';cls='mv-quar';}
         else if(t==='Quarantine Rejects'){tag='Rejected from quarantine';cls='mv-reject';}
-        else if(t==='Remove From Quarantine'){tag='Released from quarantine';cls='mv-quar-out';}
+        else if(t==='Quarantine Accept'){tag='Released from quarantine';cls='mv-quar-out';}
         else if(t==='Material Transfer'){ if(!hasQin) continue; tag='Released from quarantine';cls='mv-quar-out';}
         else continue;
-        mv.push({sort:d+' '+(se.posting_time||''),html:`<div class="mv-item ${cls}"><div class="mv-dot"></div><div class="mv-body"><div class="mv-h"><span class="mv-farm">${se.custom_farm||''}</span> <span class="mv-tag">${tag}</span></div><div class="mv-m">${fmtDate(d)||d} &middot; <a href="/app/stock-entry/${se.name}" target="_blank">${se.name}</a></div></div></div>`});
+        mv.push({sort:d+' '+(se.posting_time||''),html:`<div class="mv-item ${cls}"><div class="mv-dot"></div><div class="mv-body"><div class="mv-h"><span class="mv-farm">${se.farm||''}</span> <span class="mv-tag">${tag}</span></div><div class="mv-m">${fmtDate(d)||d} &middot; <a href="/app/stock-entry/${se.name}" target="_blank">${se.name}</a></div></div></div>`});
     }
     if (mv.length){
         mv.sort((a,b)=>String(b.sort).localeCompare(String(a.sort)));
@@ -1648,30 +1680,32 @@ async function trackBunch() {
         // ── 1. Grading SE for this bunch ──
         const gradingSEs = await flP('Stock Entry',
             [['custom_bunch_id','=',bunchId],['stock_entry_type','=','Grading']],
-            ['name','posting_date','posting_time','creation','custom_farm','custom_graded_by',
-             'custom_grader_payroll_number','custom_bunch_id','custom_stem_length',
-             'custom_harvest_batch_no','custom_bunched_by','custom_scanned_grading',
+            ['name','posting_date','posting_time','creation','farm','custom_graded_by',
+             'custom_bunch_id','custom_stem_length',
+             'custom_harvest_entry','custom_bunched_by','custom_scanned_grading',
              'custom_scanned_packing','custom_opl_scanned','to_warehouse','from_warehouse','docstatus'],
             100,'posting_date asc, posting_time asc');
 
-        // ── 2. Harvest SE linked via batch no (for spray roses: bucket info) ──
-        const batchNos = [...new Set(gradingSEs.map(se=>se.custom_harvest_batch_no).filter(Boolean))];
+        // ── 2. Harvest SE linked directly via custom_harvest_entry (the traceability
+        // link each Grading SE carries back to its source Harvest SE) ──
+        const harvestNames = [...new Set(gradingSEs.map(se=>se.custom_harvest_entry).filter(Boolean))];
         let harvestSEs = [];
-        if (batchNos.length) {
+        if (harvestNames.length) {
             harvestSEs = await flP('Stock Entry',
-                [['custom_harvest_batch_no','in',batchNos],['stock_entry_type','=','Harvesting']],
-                ['name','posting_date','custom_bucket_id','custom_farm','custom_greenhouse',
-                 'custom_stem_length','custom_harvest_batch_no','custom_harvester','to_warehouse'],
+                [['name','in',harvestNames],['stock_entry_type','=','Harvesting']],
+                ['name','posting_date','custom_bucket_id','farm','custom_greenhouse',
+                 'custom_stem_length','custom_receiving_entry','custom_harvester','to_warehouse'],
                 200,'posting_date asc');
         }
 
-        // ── 3. Receiving SE(s) linked via batch no ──
+        // ── 3. Receiving SE(s) linked directly via each Harvest SE's custom_receiving_entry ──
+        const receivingNames = [...new Set(harvestSEs.map(se=>se.custom_receiving_entry).filter(Boolean))];
         let receivingSEs = [];
-        if (batchNos.length) {
+        if (receivingNames.length) {
             receivingSEs = await flP('Stock Entry',
-                [['custom_harvest_batch_no','in',batchNos],['stock_entry_type','in',['Receiving','Late Receipt']]],
-                ['name','posting_date','stock_entry_type','custom_farm','custom_stem_length',
-                 'custom_harvest_batch_no','custom_bucket_id','to_warehouse','from_warehouse'],
+                [['name','in',receivingNames],['stock_entry_type','=','Receiving']],
+                ['name','posting_date','stock_entry_type','farm','custom_stem_length',
+                 'custom_bucket_id','to_warehouse','from_warehouse'],
                 200,'posting_date asc');
         }
 
@@ -1709,7 +1743,7 @@ async function trackBunch() {
         } else if (bucketIds.length) {
             // Fallback: find OPLs via bucket, then filter by creation date
             const oplParents = await flP('Order Pick List',
-                [['Pick List Item','custom_bucket','in',bucketIds]], ['name','creation'], 50);
+                [['Pick List Item','bucket','in',bucketIds]], ['name','creation'], 50);
             if (oplParents.length && gradingCreation) {
                 const gradingMs = new Date(gradingCreation).getTime();
                 oplNamesToFetch = oplParents
@@ -1731,7 +1765,7 @@ async function trackBunch() {
                 if (!directOplNames.length && docCreationMs < gradingMs) continue;
 
                 (doc.locations || [])
-                    .filter(r => !bucketIds.length || bucketIds.map(b=>b.toLowerCase()).includes((r.custom_bucket||'').toLowerCase()))
+                    .filter(r => !bucketIds.length || bucketIds.map(b=>b.toLowerCase()).includes((r.bucket||'').toLowerCase()))
                     .forEach(r => oplRows.push({
                         ...r, parent: doc.name, opl_customer: doc.customer,
                         opl_order_name: doc.custom_order_name, opl_team: doc.custom_team,
@@ -1756,8 +1790,8 @@ async function trackBunch() {
             // Try by OPL
             if (oplNames.length) {
                 const byOpl = await flP('Farm Pack List',
-                    [['custom_order_pick_list','in',oplNames]],
-                    ['name','custom_farm','custom_sales_order','custom_customer','custom_order_pick_list'],50);
+                    [['order_pick_list','in',oplNames]],
+                    ['name','farm','sales_order','customer','order_pick_list'],50);
                 packListFilters.push(...byOpl);
             }
 
@@ -1765,8 +1799,8 @@ async function trackBunch() {
             const soNames = [...new Set(oplRows.map(r=>r.opl_sales_order||r.sales_order).filter(Boolean))];
             if (soNames.length) {
                 const bySO = await flP('Farm Pack List',
-                    [['custom_sales_order','in',soNames]],
-                    ['name','custom_farm','custom_sales_order','custom_customer','custom_order_pick_list'],50);
+                    [['sales_order','in',soNames]],
+                    ['name','farm','sales_order','customer','order_pick_list'],50);
                 packListFilters.push(...bySO);
             }
 
@@ -1782,9 +1816,9 @@ async function trackBunch() {
                 childRows
                     .filter(r => (r.bunch_id || '') === bunchId || (r.bunch_id || '').toLowerCase() === bunchId.toLowerCase())
                     .forEach(r => packRows.push({
-                        ...r, pack_list_name: doc.name, pack_farm: doc.custom_farm,
-                        pack_sales_order: doc.custom_sales_order, pack_customer: doc.custom_customer,
-                        pack_opl: doc.custom_order_pick_list,
+                        ...r, pack_list_name: doc.name, pack_farm: doc.farm,
+                        pack_sales_order: doc.sales_order, pack_customer: doc.customer,
+                        pack_opl: doc.order_pick_list,
                     }));
             }
         } catch (packErr) {
@@ -1847,7 +1881,7 @@ function renderBunchJourney() {
 
     const variety = se?.custom_stem_length ? '' : '';
     const actualVariety = bunchQR?.item_code || (harvest?.name ? (gradingSEs[0]?.from_warehouse||'') : '') || '--';
-    const farm = se?.custom_farm || harvest?.custom_farm || bunchQR?.farm || '--';
+    const farm = se?.farm || harvest?.farm || bunchQR?.farm || '--';
     const stemLength = se?.custom_stem_length || bunchQR?.stem_length || '--';
     const gradingDate = se?.posting_date || '--';
 
@@ -1873,9 +1907,9 @@ function renderBunchJourney() {
     ];
     function bunchStageDetail(key) {
         switch(key){
-            case 'Greenhouse': return harvest?(harvest.custom_greenhouse||harvest.custom_farm||'').split(' - ')[0]:(bunchQR?.farm||'');
+            case 'Greenhouse': return harvest?(harvest.custom_greenhouse||harvest.farm||'').split(' - ')[0]:(bunchQR?.farm||'');
             case 'Grading':   return se?`${se.custom_graded_by||''}${se.custom_bunch_id?' · Bunch '+se.custom_bunch_id:''}`:'';
-            case 'Receiving': return recv?(recv.stock_entry_type==='Late Receipt'?'Late · ':'')+(recv.to_warehouse||'').split(' - ')[0]:'';
+            case 'Receiving': return recv?(recv.to_warehouse||'').split(' - ')[0]:'';
             case 'Shelf':     return shelf?shelf.shelf_name:'';
             case 'OPL':       return opl?opl.parent:'';
             case 'Packing':   return pack?`Pack List ${pack.pack_list_name}`:'';
@@ -1957,9 +1991,8 @@ function renderBunchJourney() {
     /* ── Chain: Greenhouse / Harvest ── */
     if (isHarvested) {
         html += chainStep('ci-harvest','H','Greenhouse / Harvest',
-            `<strong>Farm:</strong> ${harvest.custom_farm||'--'} &nbsp;&middot;&nbsp; <strong>Greenhouse:</strong> ${(harvest.custom_greenhouse||'').split(' - ')[0]||'--'}<br>
+            `<strong>Farm:</strong> ${harvest.farm||'--'} &nbsp;&middot;&nbsp; <strong>Greenhouse:</strong> ${(harvest.custom_greenhouse||'').split(' - ')[0]||'--'}<br>
              <strong>Bucket ID:</strong> ${harvest.custom_bucket_id||'--'} &nbsp;&middot;&nbsp; <strong>Harvester:</strong> ${harvest.custom_harvester||'--'}<br>
-             <strong>Batch:</strong> ${harvest.custom_harvest_batch_no||'--'}<br>
              <strong>Date:</strong> ${fmtDate(harvest.posting_date)} &nbsp;&middot;&nbsp; <a href="#" onclick="openDoc('Stock Entry','${harvest.name}');return false" style="color:var(--accent-blue);text-decoration:none">${harvest.name}</a>`,
              harvest.posting_date);
     } else if (bunchQR) {
@@ -1972,21 +2005,20 @@ function renderBunchJourney() {
     /* ── Chain: Grading ── */
     for (const g of gradingSEs) {
         html += chainStep('ci-grading','G','Grading Stock Entry',
-            `<strong>Graded By:</strong> ${g.custom_graded_by||'--'} (${g.custom_grader_payroll_number||'--'})<br>
+            `<strong>Graded By:</strong> ${g.custom_graded_by||'--'}<br>
              <strong>Stem Length:</strong> ${g.custom_stem_length||'--'} &nbsp;&middot;&nbsp; <strong>Bunched By:</strong> ${g.custom_bunched_by||'--'}<br>
              <strong>From:</strong> ${(g.from_warehouse||'--').split(' - ')[0]} &rarr; <strong>To:</strong> ${(g.to_warehouse||'--').split(' - ')[0]}<br>
-             <strong>Packing Scanned:</strong> ${g.custom_scanned_packing?'Yes':'No'} &nbsp;&middot;&nbsp; <strong>Batch:</strong> ${g.custom_harvest_batch_no||'--'}<br>
+             <strong>Packing Scanned:</strong> ${g.custom_scanned_packing?'Yes':'No'}<br>
              <strong>Date:</strong> ${fmtDate(g.posting_date)} &nbsp;&middot;&nbsp; <a href="#" onclick="openDoc('Stock Entry','${g.name}');return false" style="color:var(--accent-blue);text-decoration:none">${g.name}</a>`,
              g.posting_date);
     }
 
     /* ── Chain: Receiving ── */
     for (const r of receivingSEs) {
-        const late = r.stock_entry_type==='Late Receipt';
-        html += chainStep('ci-receiving','R',`Receiving${late?' (Late Receipt)':''}`,
+        html += chainStep('ci-receiving','R','Receiving',
             `<strong>Bucket:</strong> ${r.custom_bucket_id||'--'}<br>
              <strong>From:</strong> ${(r.from_warehouse||'--').split(' - ')[0]} &rarr; <strong>To:</strong> ${(r.to_warehouse||'--').split(' - ')[0]}<br>
-             <strong>Stem Length:</strong> ${r.custom_stem_length||'--'} &nbsp;&middot;&nbsp; <strong>Farm:</strong> ${r.custom_farm||'--'}<br>
+             <strong>Stem Length:</strong> ${r.custom_stem_length||'--'} &nbsp;&middot;&nbsp; <strong>Farm:</strong> ${r.farm||'--'}<br>
              <strong>Date:</strong> ${fmtDate(r.posting_date)} &nbsp;&middot;&nbsp; <a href="#" onclick="openDoc('Stock Entry','${r.name}');return false" style="color:var(--accent-blue);text-decoration:none">${r.name}</a>`,
              r.posting_date);
     }
@@ -2173,7 +2205,12 @@ async function applyCorrectionForCurrentJourney() {
     for (const se of j.harvestSEs){try{if(newStemLength){await fSetValue('Stock Entry',se.name,'custom_stem_length',newStemLength);addLog(`Harvest ${se.name} — updated`,'ok');successCount++;}else addLog(`Harvest ${se.name} — no fields`,'skip');}catch(e){addLog(`Harvest ${se.name} — failed: ${e.message||e}`,'fail');failCount++;}}
     for (const se of j.gradingSEs){try{if(newStemLength){await fSetValue('Stock Entry',se.name,'custom_stem_length',newStemLength);addLog(`Grading ${se.name} — updated`,'ok');successCount++;}else addLog(`Grading ${se.name} — no fields`,'skip');}catch(e){addLog(`Grading ${se.name} — failed: ${e.message||e}`,'fail');failCount++;}}
     for (const se of j.receivingSEs){try{if(newStemLength){await fSetValue('Stock Entry',se.name,'custom_stem_length',newStemLength);addLog(`Receiving ${se.name} — updated`,'ok');successCount++;}else addLog(`Receiving ${se.name} — no fields`,'skip');}catch(e){addLog(`Receiving ${se.name} — failed: ${e.message||e}`,'fail');failCount++;}}
-    for (const row of (j.shelfData||[])){try{const upd={};if(newStemLength)upd.stem_length=newStemLength;if(newVariety)upd.variety=newVariety;if(Object.keys(upd).length){for(const[f,v]of Object.entries(upd))await fSetValueSingle('Shelf Item',row.name,f,v);addLog(`Shelf Item ${row.shelf_name}/${row.name} — updated`,'ok');successCount++;}else addLog(`Shelf Item ${row.name} — no fields`,'skip');}catch(e){addLog(`Shelf ${row.name} — failed: ${e.message||e}`,'fail');failCount++;}}
+    // Only rows actually sourced from Shelf Item are live, writable records — Shelving Log
+    // rows are historical (already-removed) episodes and have no matching Shelf Item to update.
+    for (const row of (j.shelfData||[])){
+        if (row._src!=='shelf_item') { addLog(`Shelving Log ${row.name} — historical record, skipped`,'skip'); continue; }
+        try{const upd={};if(newStemLength)upd.stem_length=newStemLength;if(newVariety)upd.variety=newVariety;if(Object.keys(upd).length){for(const[f,v]of Object.entries(upd))await fSetValueSingle('Shelf Item',row.name,f,v);addLog(`Shelf Item ${row.shelf_name}/${row.name} — updated`,'ok');successCount++;}else addLog(`Shelf Item ${row.name} — no fields`,'skip');}catch(e){addLog(`Shelf ${row.name} — failed: ${e.message||e}`,'fail');failCount++;}
+    }
     if(j.allocData){try{const upd={};if(newStemLength)upd.stem_length=newStemLength;if(newVariety)upd.item_code=newVariety;if(Object.keys(upd).length){await fSetValue('Bucket Allocation Status',j.allocData.name,upd);addLog(`Allocation ${j.allocData.name} — updated`,'ok');successCount++;}else addLog(`Allocation ${j.allocData.name} — no fields`,'skip');}catch(e){addLog(`Allocation ${j.allocData.name} — failed: ${e.message||e}`,'fail');failCount++;}}
 
     const summary=failCount===0?`All done — ${successCount} document${successCount!==1?'s':''} updated.`:`Completed with ${failCount} error${failCount!==1?'s':''}. ${successCount} updated.`;

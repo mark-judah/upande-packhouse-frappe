@@ -483,6 +483,19 @@ def createOrUpdateDispatch():
                     dn.save(ignore_permissions=True)
                 else:
                     dn.insert(ignore_permissions=True)
+
+                # Stamp the Delivery Note back onto every Box Label that fed
+                # into it -- the only link recorded before this was the
+                # reverse of customer_purchase_order (a Data field storing
+                # the Sales Order name, not the Delivery Note), so there was
+                # previously no way to go from a physical box to the
+                # Delivery Note it shipped on at all. db_set: this is a
+                # system-managed, read_only field (box_label.json), not
+                # something a full box.save() cycle should be re-validating.
+                for box, _so in box_so_pairs:
+                    if box.delivery_note != dn.name:
+                        box.db_set("delivery_note", dn.name, update_modified=False)
+
                 results.append({
                     "delivery_note": dn.name, "action": action, "customer": customer,
                     "sales_orders": sorted(orders_seen), "boxes": total_boxes,

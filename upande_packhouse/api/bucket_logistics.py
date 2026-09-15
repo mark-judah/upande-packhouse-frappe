@@ -142,23 +142,23 @@ def getBucketLogisticsDetail():
             extra = " AND " + FARM_EXPR + " = %(farm)s"; params['farm'] = fd.get('farm')
         frappe.response['buckets'] = frappe.db.sql("""
             SELECT
-                pli.custom_bucket            AS bucket,
+                pli.bucket                   AS bucket,
                 pli.item_code                AS variety,
-                pli.custom_stem_length       AS length,
-                pli.custom_shelf             AS shelf,
-                pli.custom_transit_truck     AS truck,
+                pli.stem_length               AS length,
+                pli.shelf                    AS shelf,
+                pli.transit_truck            AS truck,
                 """ + FARM_EXPR + """        AS farm,
                 pli.custom_box_id            AS box_id,
-                pli.custom_awaiting_transfer AS awaiting,
-                pli.custom_loaded_in_trolley AS trolley,
-                pli.custom_in_transit        AS transit,
-                pli.custom_shelved           AS shelved,
+                pli.awaiting_transfer        AS awaiting,
+                pli.loaded_in_trolley        AS trolley,
+                pli.in_transit               AS transit,
+                pli.shelved                  AS shelved,
                 pli.custom_ready_for_packing AS ready,
-                pli.custom_issued            AS issued
+                pli.issued                   AS issued
             FROM `tabPick List Item` pli
             JOIN `tabOrder Pick List` o ON o.name = pli.parent
             WHERE pli.parenttype = 'Order Pick List' AND o.name = %(opl)s
-              AND (pli.custom_awaiting_transfer = 1 OR pli.custom_shelved = 1)""" + extra + """
+              AND (pli.awaiting_transfer = 1 OR pli.shelved = 1)""" + extra + """
             ORDER BY pli.idx
             LIMIT 2000
         """, params, as_dict=True)

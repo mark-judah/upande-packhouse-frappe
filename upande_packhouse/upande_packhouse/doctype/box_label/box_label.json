@@ -26,6 +26,7 @@
   "freight_agent",
   "delivery_point",
   "box_total_count",
+  "delivery_note",
   "staged",
   "loaded",
   "loaded_internal_transfer",
@@ -133,6 +134,14 @@
    "fieldname": "box_total_count",
    "fieldtype": "Int",
    "label": "Box Total Count"
+  },
+  {
+   "fieldname": "delivery_note",
+   "fieldtype": "Link",
+   "label": "Delivery Note",
+   "options": "Delivery Note",
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "default": "0",

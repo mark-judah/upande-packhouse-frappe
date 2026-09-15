@@ -1,0 +1,83 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:FD-{from_farm}-{to_farm}",
+ "creation": "2026-09-14 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "from_farm",
+  "to_farm",
+  "column_break_1",
+  "distance_km",
+  "is_road_leg"
+ ],
+ "fields": [
+  {
+   "fieldname": "from_farm",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "From Farm",
+   "options": "Farm",
+   "reqd": 1
+  },
+  {
+   "fieldname": "to_farm",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "To Farm",
+   "options": "Farm",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "distance_km",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Distance (km)",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "description": "Check only for a genuine, driveable road segment between these two farms (no intermediate stop). The physical network is a tree rooted at the packhouse — routing/road-path lookups only ever traverse is_road_leg records. Plain pairwise records (unchecked) are used only to score total trip distance, never to build an actual route.",
+   "fieldname": "is_road_leg",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Road Leg"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-14 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Farm Distance",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "All"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

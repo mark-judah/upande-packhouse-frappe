@@ -690,6 +690,8 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         <input type="date" id="blDate" class="bl2-in" style="width:140px">
         <span class="bl2-lbl">Farm</span>
         <select id="blFarm" class="bl2-in" style="width:150px"><option value="">All farms</option></select>
+        <span class="bl2-lbl">Team</span>
+        <select id="blTeam" class="bl2-in" style="width:130px"><option value="">All teams</option></select>
         <input type="text" id="blSearch" class="bl2-in" placeholder="Search order / customer…" style="width:190px">
         <button class="bl2-btn" id="blRefresh">Refresh</button>
       </div>
@@ -697,9 +699,10 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     <div class="aph-content">
       <div class="aph-kpis" id="blKpis"></div>
       <div class="bl2-note"><b>Initiated</b> is when the transfer was started — the moment the order pick list was created. <b>Transit time</b> measures from that moment until the order <b>arrives</b> at the sales farm, where arrival is the instant the <b>first bucket of the order is shelved</b> at that farm. Until the first bucket is shelved it shows <span class="bl2-pill" style="background:var(--transit)">in transit</span>.</div>
+      <div class="aph-kpis" id="blTrucks" style="margin-top:14px"></div>
       <table class="bl2-ord">
-        <thead><tr><th>Order</th><th>Delivery</th><th>Initiated</th><th>Transit time</th><th>Farm (source)</th><th>Buckets — status</th><th></th></tr></thead>
-        <tbody id="blRows"><tr><td colspan="7"><div class="bl2-loading">Loading…</div></td></tr></tbody>
+        <thead><tr><th>Order</th><th>Delivery</th><th>Initiated</th><th>Transit time</th><th>Farm (source)</th><th>Truck</th><th>Buckets — status</th><th></th></tr></thead>
+        <tbody id="blRows"><tr><td colspan="8"><div class="bl2-loading">Loading…</div></td></tr></tbody>
       </table>
     </div>
   </div>
@@ -761,18 +764,38 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     ].join('');
   }
 
+  // "Trucks on the road" — grouped from the same orders payload (o.truck = MAX(pli.transit_truck)
+  // per order, already returned by getBucketLogistics; just never surfaced in the UI before).
+  function renderTrucks(orders){
+    var el=$('blTrucks');if(!el)return;
+    var byTruck={};
+    orders.forEach(function(o){
+      if(!o.truck)return;
+      var t=byTruck[o.truck]||(byTruck[o.truck]={orders:0,buckets:0,awaiting:0,transit:0});
+      t.orders+=1;t.buckets+=o.total||0;t.awaiting+=o.awaiting||0;t.transit+=o.transit||0;
+    });
+    var trucks=Object.keys(byTruck).sort();
+    if(!trucks.length){el.innerHTML='';return;}
+    el.innerHTML=trucks.map(function(t){
+      var s=byTruck[t];
+      return kpiCard('Truck &middot; '+esc(t),s.buckets.toLocaleString()+' <span style="font-size:14px;color:var(--text-3)">buckets</span>','across '+s.orders+' order'+(s.orders===1?'':'s')+' &middot; '+s.awaiting+' awaiting &middot; '+s.transit+' in transit');
+    }).join('');
+  }
+
   function render(){
     var orders=visibleOrders();
     renderKpis(orders);
+    renderTrucks(orders);
     if($('blCount'))$('blCount').textContent=orders.length+' order'+(orders.length===1?'':'s')+' being transferred';
-    if(!orders.length){$('blRows').innerHTML='<tr><td colspan="7"><div class="bl2-loading">No orders being transferred for this delivery date.</div></td></tr>';return;}
+    if(!orders.length){$('blRows').innerHTML='<tr><td colspan="8"><div class="bl2-loading">No orders being transferred for this delivery date.</div></td></tr>';return;}
     $('blRows').innerHTML=orders.map(function(o,i){
       var sub=[o.customer,o.sales_order,o.opl].filter(Boolean).map(esc).join(' · ');
       return '<tr class="orow"><td><b>'+esc(o.order_name||o.opl)+'</b><div class="bl2-sub">'+sub+'</div></td>'
         +'<td>'+esc(o.delivery_date||'—')+'</td><td>'+fmtDT(o.initiated)+'</td><td>'+transitTime(o)+'</td><td>'+esc(o.farm||'—')+'</td>'
+        +'<td>'+(o.truck?'<span class="bl2-pill" style="background:var(--transit)">'+esc(o.truck)+'</span>':'<span class="bl2-sub">—</span>')+'</td>'
         +'<td>'+pills(o)+'</td>'
         +'<td style="text-align:right"><button class="bl2-more" data-i="'+i+'" data-opl="'+esc(o.opl)+'">Show more</button></td></tr>'
-        +'<tr id="det-'+i+'" style="display:none"><td colspan="7" style="padding:0"><div class="bl2-det" id="detb-'+i+'"></div></td></tr>';
+        +'<tr id="det-'+i+'" style="display:none"><td colspan="8" style="padding:0"><div class="bl2-det" id="detb-'+i+'"></div></td></tr>';
     }).join('');
   }
 
@@ -791,13 +814,13 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   }
 
   function load(){
-    $('blRows').innerHTML='<tr><td colspan="7"><div class="bl2-loading">Loading…</div></td></tr>';
-    api('upande_packhouse.api.bucket_logistics.getBucketLogistics',{delivery_date:$('blDate').value||tomorrow(),farm:$('blFarm').value}).then(function(d){
+    $('blRows').innerHTML='<tr><td colspan="8"><div class="bl2-loading">Loading…</div></td></tr>';
+    api('upande_packhouse.api.bucket_logistics.getBucketLogistics',{delivery_date:$('blDate').value||tomorrow(),farm:$('blFarm').value,team:$('blTeam')?$('blTeam').value:''}).then(function(d){
       STATE=d||{orders:[]};
       var sel=$('blFarm');if(sel&&sel.options.length<=1){(d.farms||[]).forEach(function(f){var o=document.createElement('option');o.value=f;o.textContent=f;sel.appendChild(o);});}
       render();
       if(PV&&!AUTODONE){var vo=visibleOrders();if(vo.length===1){AUTODONE=true;var b=document.querySelector('.bl2-more[data-i="0"]');if(b)b.click();}}
-    }).catch(function(e){$('blRows').innerHTML='<tr><td colspan="7"><div class="bl2-loading" style="color:var(--issued)">Failed to load: '+esc(e.message)+'</div></td></tr>';});
+    }).catch(function(e){$('blRows').innerHTML='<tr><td colspan="8"><div class="bl2-loading" style="color:var(--issued)">Failed to load: '+esc(e.message)+'</div></td></tr>';});
   }
 
   function boot(){
@@ -805,7 +828,12 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     $('blRefresh').addEventListener('click',load);
     $('blDate').addEventListener('change',load);
     $('blFarm').addEventListener('change',load);
+    if($('blTeam'))$('blTeam').addEventListener('change',load);
     $('blSearch').addEventListener('input',function(){SEARCH=this.value;render();});
+    // Populate the team dropdown from real Packing Teams (real data, not hardcoded).
+    api('frappe.client.get_list',{doctype:'Packing Teams',fields:'["name"]',limit_page_length:0,order_by:'name asc'}).then(function(r){
+      var sel=$('blTeam');if(!sel)return;(r&&r.message||[]).forEach(function(row){var o=document.createElement('option');o.value=row.name;o.textContent=row.name;sel.appendChild(o);});
+    }).catch(function(){});
     document.addEventListener('click',function(e){
       var m=e.target.closest('.bl2-more[data-opl]');if(!m)return;
       var i=m.getAttribute('data-i'),det=$('det-'+i),body=$('detb-'+i);

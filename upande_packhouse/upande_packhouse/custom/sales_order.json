@@ -1581,6 +1581,26 @@
    "parentfield": "links",
    "parenttype": "Customize Form",
    "table_fieldname": null
+  },
+  {
+   "creation": "2026-09-12 16:30:00.000000",
+   "custom": 1,
+   "docstatus": 0,
+   "group": "Packhouse",
+   "hidden": 0,
+   "idx": 3,
+   "is_child_table": 0,
+   "link_doctype": "Box Label",
+   "link_fieldname": "customer_purchase_order",
+   "modified": "2026-09-12 16:30:00.000000",
+   "modified_by": "Administrator",
+   "name": "k2mfw91xzp",
+   "owner": "Administrator",
+   "parent": "Sales Order",
+   "parent_doctype": null,
+   "parentfield": "links",
+   "parenttype": "Customize Form",
+   "table_fieldname": null
   }
  ],
  "property_setters": [
@@ -1904,7 +1924,7 @@
    "property": "links_order",
    "property_type": "Small Text",
    "row_name": null,
-   "value": "[\"otiad5s09a\", \"otij9v9or3\", \"otin9jg22h\", \"otj25a1pkk\"]"
+   "value": "[\"otiad5s09a\", \"otij9v9or3\", \"otj25a1pkk\", \"k2mfw91xzp\"]"
   },
   {
    "_assign": null,

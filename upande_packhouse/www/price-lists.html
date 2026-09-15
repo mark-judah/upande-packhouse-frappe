@@ -1,0 +1,195 @@
+{% extends "templates/web.html" %}
+{% block page_content %}
+{% raw %}
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --bg:#fff;--bg-card:#fff;--bg-hover:#fafafa;--bg-muted:#f5f5f5;
+  --border:#ececec;--border-2:#d0d0d0;
+  --text:#000;--text-2:#6b6b6b;--text-3:#9a9a9a;--text-4:#cfcfcf;
+  --accent:#000;
+  --good:#16a34a;--warn:#d97706;--bad:#dc2626;--plan:#d4d4d4;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.04);
+  --f:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --mono:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;
+}
+html,body{margin:0!important;padding:0!important;overflow:hidden!important;height:100vh!important}
+.navbar,header,.page-breadcrumbs,.page-header,.page-header-wrapper,.web-footer,footer,
+.website-edit-button,.btn-edit-page,.edit-page-btn,.scroll-to-top,.back-to-top,
+.website-banner,.call-to-action,.frappe-chat,#frappe-chat,.telegram-share,.share-buttons,
+.web-page-edit,.published-edit{display:none!important}
+.aph *{box-sizing:border-box;margin:0;padding:0}
+.aph{position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100vh;z-index:2147483000;
+  font-family:var(--f);background:var(--bg);color:var(--text);font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;
+  display:grid;grid-template-columns:240px 1fr;font-feature-settings:'cv11','ss01','ss03'}
+.aph svg.ic{width:16px;height:16px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.aph .aph-side svg.ic{width:15px;height:15px;stroke-width:1.6;color:var(--text-3)}
+.aph .aph-side .nav-item.active svg.ic{color:#fff}
+
+.aph-side{background:var(--bg-card);border-right:1px solid var(--border);height:100vh;position:sticky;top:0;display:flex;flex-direction:column;overflow:hidden}
+.aph-side .brand{padding:18px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+.aph-side .brand .name{font-weight:600;font-size:14px;line-height:1.15;letter-spacing:-0.015em}
+.aph-side .brand .name small{display:block;font-size:11px;color:var(--text-3);font-weight:400;margin-top:2px}
+.aph-side .nav{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:6px 0 16px;margin:0;list-style:none;display:flex;flex-direction:column;flex-wrap:nowrap!important}
+.aph-side .group-lbl{padding:14px 20px 4px;font-size:10px;color:var(--text-3);letter-spacing:.1em;text-transform:uppercase;font-weight:600;display:block}
+.aph-side .group-lbl:first-child{padding-top:10px}
+.aph-side .nav-item{display:flex;align-items:center;gap:11px;padding:8px 12px;cursor:pointer;font-size:13px;color:var(--text-2);font-weight:500;user-select:none;transition:background .12s ease,color .12s ease;margin:1px 8px;border-radius:6px;box-sizing:border-box;text-decoration:none}
+.aph-side .nav-item:hover{background:var(--bg-hover);color:var(--text);text-decoration:none}
+.aph-side .nav-item.active{background:var(--accent);color:#fff;font-weight:500}
+.aph-side .footer{padding:12px 20px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px;font-size:11px;color:var(--text-2)}
+.aph-side .footer .av{width:24px;height:24px;border-radius:50%;background:var(--bg-muted);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:10px;color:var(--text)}
+.aph-side .footer .who{flex:1;line-height:1.2;overflow:hidden}
+.aph-side .footer .who .nm{font-weight:600;color:var(--text);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph-side .footer .who .em{font-size:10px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph-side .home-link{display:flex;align-items:center;gap:11px;margin:8px 8px 0;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-weight:500;color:var(--text-2);text-decoration:none;transition:background .12s ease,color .12s ease}
+.aph-side .home-link:hover{background:var(--bg-hover);color:var(--text);text-decoration:none}
+.aph-side .home-link svg.ic{width:15px;height:15px;stroke-width:1.6;color:var(--text-3)}
+
+.aph-main{min-width:0;height:100vh;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column}
+.aph-content{flex:1;padding:28px}
+.aph-topbar{background:var(--bg-card);border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:10}
+.aph-topbar h1{font-size:18px;font-weight:600;letter-spacing:-0.02em}
+.aph-topbar .crumb{color:var(--text-3);font-size:11px;font-weight:500;padding-left:14px;border-left:1px solid var(--border);height:18px;line-height:18px;letter-spacing:.02em}
+.aph-topbar .right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.aph-topbar select{height:32px;border:1px solid var(--border-2);border-radius:7px;background:var(--bg-card);color:var(--text);font-family:var(--f);font-size:12px;font-weight:500;padding:0 10px}
+.aph-card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;overflow:hidden;box-sizing:border-box}
+.aph-card-body{padding:6px 22px 22px}
+.aph-loading{padding:60px;text-align:center;color:var(--text-3);font-size:12px}
+.aph-err{background:var(--text);color:#fff;padding:12px 16px;border-radius:7px;font-size:12px;margin:14px 0;font-family:var(--mono)}
+
+@media (max-width: 900px){
+  html,body{overflow:auto!important}
+  .aph{display:flex;flex-direction:column;position:fixed}
+  .aph-side{width:100%;height:auto;position:relative;flex:0 0 auto;border-right:0;border-bottom:1px solid var(--border);overflow:visible}
+  .aph-side .nav{flex-direction:row;align-items:center;overflow-x:auto;overflow-y:hidden;padding:0 8px 8px}
+  .aph-side .group-lbl{display:none}
+  .aph-side .nav-item{flex:0 0 auto;margin:0 2px;white-space:nowrap;padding:7px 12px}
+  .aph-side .footer{display:none}
+  .aph-main{flex:1 1 auto;height:auto;min-height:0}
+  .aph-topbar{position:static;flex-wrap:wrap;gap:8px;padding:10px 14px}
+  .aph-content{padding:14px}
+}
+</style>
+
+<div class="aph">
+  {% endraw %}{% set active_page = "price-lists" %}{% include "upande_packhouse/templates/includes/packhouse_sidebar.html" %}{% raw %}
+
+  <div class="aph-main">
+    <div class="aph-topbar">
+      <button class="collapse-btn" id="collapseBtn" title="Toggle sidebar" aria-label="Toggle sidebar">
+        <svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <h1>Price Lists</h1>
+      <span class="crumb">Reference · Variety &times; Length</span>
+      <div class="right">
+        <select id="plSelect"><option>Loading…</option></select>
+      </div>
+    </div>
+
+    <div class="aph-content">
+      <div class="aph-card">
+        <div class="aph-card-body">
+          <div id="tree" class="plt-tree"><div class="aph-loading">Loading…</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Collapsible sidebar (persisted across visits) ──
+  (function(){
+    var aph = document.querySelector('.aph'), btn = document.getElementById('collapseBtn');
+    if (btn) btn.addEventListener('click', function(){
+      aph.classList.toggle('collapsed');
+      try { localStorage.setItem('aphSideCollapsed', aph.classList.contains('collapsed') ? '1' : '0'); } catch(e){}
+    });
+  })();
+</script>
+
+<script>
+(function(){
+  var currentPriceList = null;
+
+  function loadPriceLists(){
+    var sel = document.getElementById('plSelect');
+    frappe.call({
+      method: 'upande_packhouse.api.price_list_management.getPriceLists',
+      callback: function(r){
+        var m = r.message || {};
+        if(!m.success && !m.price_lists){ sel.innerHTML = '<option>Error loading price lists</option>'; return; }
+        var lists = m.price_lists || [];
+        sel.innerHTML = lists.map(function(p){
+          return '<option value="' + p.name + '">' + p.name + ' (' + (p.currency || '') + ')</option>';
+        }).join('');
+        if(lists.length){
+          currentPriceList = lists[0].name;
+          sel.value = currentPriceList;
+          loadTree();
+        } else {
+          document.getElementById('tree').innerHTML = '<div class="aph-loading">No selling price lists found.</div>';
+        }
+      },
+      error: function(){ sel.innerHTML = '<option>Error loading price lists</option>'; }
+    });
+  }
+
+  function loadTree(){
+    var el = document.getElementById('tree');
+    el.innerHTML = '<div class="aph-loading">Loading price tree…</div>';
+    frappe.call({
+      method: 'upande_packhouse.api.price_list_management.getPriceTree',
+      args: { price_list: currentPriceList },
+      callback: function(r){
+        var m = r.message || {};
+        if(!m.success){
+          el.innerHTML = '<div class="aph-err">' + (m.error || 'Could not load price tree') + '</div>';
+          return;
+        }
+        el.setAttribute('data-currency', m.currency || '');
+        window.PriceListTree.render(el, m, setPrice);
+      },
+      error: function(e){ console.error(e); el.innerHTML = '<div class="aph-err">Error loading price tree — see console.</div>'; }
+    });
+  }
+
+  function setPrice(itemCode, length, rawValue){
+    return new Promise(function(resolve){
+      frappe.call({
+        method: 'upande_packhouse.api.price_list_management.setItemPrice',
+        args: { item_code: itemCode, price_list: currentPriceList, length: length, rate: rawValue },
+        callback: function(r){ resolve(r.message || { success: false }); },
+        error: function(){ resolve({ success: false, error: 'Request failed' }); }
+      });
+    });
+  }
+
+  document.getElementById('plSelect').addEventListener('change', function(e){
+    currentPriceList = e.target.value;
+    loadTree();
+  });
+
+  function boot(){
+    if(!window.frappe || !frappe.call){ return setTimeout(boot, 150); }
+    loadPriceLists();
+  }
+  boot();
+})();
+</script>
+
+<style>
+.navbar.navbar-light{display:none!important}
+.navbar.navbar-primary{display:none!important}
+.web-footer{display:none!important}
+</style>
+<link rel="stylesheet" href="/assets/upande_packhouse/css/packhouse-portal.css">
+<link rel="stylesheet" href="/assets/upande_packhouse/css/price_list_tree.css">
+<script src="/assets/upande_packhouse/js/price_list_tree.js"></script>
+{% endraw %}
+{% endblock %}

@@ -1,0 +1,1188 @@
+{% extends "templates/web.html" %}
+{% block page_content %}
+{% raw %}
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  /* Shades of black — from the Upande logo */
+  --ink:#0a0a0a;--ink-1:#1a1a18;--ink-2:#2a2a26;--ink-3:#3a3a34;--ink-4:#5a5a52;--ink-mute:#8a8780;--ink-faint:#b8b6ae;
+  --bg:#f4f3ef;--surface:#fafaf6;--surface-2:#ffffff;
+  --hairline:rgba(10,10,10,0.06);--hairline-2:rgba(10,10,10,0.10);
+  --shadow-card:0 1px 0 rgba(10,10,10,0.04),0 8px 32px -16px rgba(10,10,10,0.10);
+  --shadow-hover:0 1px 0 rgba(10,10,10,0.06),0 24px 48px -24px rgba(10,10,10,0.18);
+  --signal:#228883;--signal-soft:rgba(34,136,131,0.10);
+  --violet:#7c5cfc;--violet-soft:#f0ecfe;
+  --good:#1a8a3a;--good-soft:#e6f9ee;--warn:#9a5a00;--warn-soft:#fff3e0;--bad:#c4302b;--bad-soft:#fde8ec;
+  --grad-ink:linear-gradient(135deg,#0a0a0a 0%,#3a3a34 100%);
+  --sans:'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --display:'Fraunces',Georgia,serif;
+  --mono:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;
+  --bg-card:var(--surface-2);--bg-hover:rgba(10,10,10,0.03);--bg-muted:rgba(10,10,10,0.04);
+  --border:var(--hairline);--border-2:rgba(10,10,10,0.12);
+  --text:var(--ink);--text-2:var(--ink-4);--text-3:var(--ink-mute);--text-4:var(--ink-faint);
+  --accent:var(--ink);--shadow-sm:var(--shadow-card);--f:var(--sans);
+  --plan:#d4d4d4;
+  --sidebar-w:248px;--sidebar-cw:74px;
+}
+html,body{margin:0!important;padding:0!important;overflow:hidden!important;height:100vh!important}
+.navbar,header,.page-breadcrumbs,.page-header,.page-header-wrapper,.web-footer,footer,
+.website-edit-button,.btn-edit-page,.edit-page-btn,.scroll-to-top,.back-to-top,
+.website-banner,.call-to-action,.frappe-chat,#frappe-chat,.telegram-share,.share-buttons,
+.web-page-edit,.published-edit{display:none!important}
+.aph *{box-sizing:border-box;margin:0;padding:0}
+.aph{position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100vh;z-index:2147483000;
+  font-family:var(--sans);background:var(--bg);color:var(--ink-3);font-size:13px;line-height:1.55;-webkit-font-smoothing:antialiased;
+  display:grid;grid-template-columns:var(--sidebar-w) 1fr;transition:grid-template-columns .22s cubic-bezier(.4,0,.2,1)}
+.aph.collapsed{grid-template-columns:var(--sidebar-cw) 1fr}
+.aph svg.ic{width:16px;height:16px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.aph .aph-side svg.ic{width:17px;height:17px;stroke-width:1.75;color:var(--ink-mute)}
+.aph .aph-side .nav-item.active svg.ic{color:#fafaf6}
+.aph-side{background:var(--surface-2);border-right:1px solid var(--hairline);height:100vh;position:sticky;top:0;display:flex;flex-direction:column;overflow:hidden}
+.aph-side .brand{padding:20px 18px 16px;display:flex;align-items:center;gap:12px;text-decoration:none}
+.aph-side .brand .logo{height:26px;width:auto;flex:0 0 auto;display:block}
+.aph-side .brand .name{font:600 14px var(--sans);color:var(--ink);line-height:1.15;letter-spacing:-.2px;white-space:nowrap;overflow:hidden}
+.aph-side .brand .name small{display:block;font:500 10px var(--sans);text-transform:uppercase;letter-spacing:1.6px;color:var(--ink-mute);margin-top:2px}
+.aph-side .brand:hover .name{color:var(--ink)}
+.aph-side .nav{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:6px 0 16px;margin:0;list-style:none;display:flex;flex-direction:column;flex-wrap:nowrap!important}
+.aph-side .group-lbl{padding:16px 20px 6px;font:600 10px var(--sans);color:var(--ink-mute);letter-spacing:1.8px;text-transform:uppercase;display:block;white-space:nowrap;overflow:hidden}
+.aph-side .group-lbl:first-child{padding-top:8px}
+.aph-side .nav-item{display:flex;align-items:center;gap:12px;padding:10px 12px;cursor:pointer;font:500 13px var(--sans);color:var(--ink-4);user-select:none;transition:background .18s ease,color .18s ease;margin:2px 10px;border-radius:12px;box-sizing:border-box;text-decoration:none;white-space:nowrap;overflow:hidden}
+.aph-side .nav-item:hover{background:rgba(10,10,10,0.04);color:var(--ink);text-decoration:none}
+.aph-side .nav-item.active{background:var(--grad-ink);color:#fafaf6;box-shadow:0 4px 14px rgba(10,10,10,0.20)}
+.aph-side .nav-item .badge{margin-left:auto;font:600 10px var(--mono);color:var(--ink-4);background:rgba(10,10,10,0.05);padding:2px 8px;border-radius:999px;line-height:1.4}
+.aph-side .nav-item.active .badge{color:#fafaf6;background:rgba(255,255,255,.18)}
+.aph-side .nav-item.stub{color:var(--ink-faint)}
+.aph-side .home-link{display:flex;align-items:center;gap:12px;margin:2px 10px 6px;padding:10px 12px;border-radius:12px;font:500 13px var(--sans);color:var(--ink-4);text-decoration:none;background:rgba(10,10,10,0.04);transition:background .18s ease,color .18s ease;white-space:nowrap;overflow:hidden}
+.aph-side .home-link:hover{background:var(--ink);color:#fafaf6;text-decoration:none}
+.aph-side .home-link:hover svg.ic{color:#fafaf6}
+.aph-side .footer{padding:14px 18px;border-top:1px solid var(--hairline);display:flex;align-items:center;gap:11px;font-size:11px;color:var(--ink-4)}
+.aph-side .footer .av{width:30px;height:30px;border-radius:50%;background:var(--grad-ink);color:#fafaf6;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12px;flex:0 0 auto}
+.aph-side .footer .who{flex:1;line-height:1.25;overflow:hidden}
+.aph-side .footer .who .nm{font-weight:600;color:var(--ink);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph-side .footer .who .em{font-size:10px;color:var(--ink-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph.collapsed .aph-side .brand{padding:20px 0 16px;justify-content:center}
+.aph.collapsed .aph-side .brand .name,
+.aph.collapsed .aph-side .group-lbl,
+.aph.collapsed .aph-side .nav-item span,
+.aph.collapsed .aph-side .nav-item .badge,
+.aph.collapsed .aph-side .home-link span,
+.aph.collapsed .aph-side .footer .who{display:none}
+.aph.collapsed .aph-side .nav-item,
+.aph.collapsed .aph-side .home-link{justify-content:center;margin-left:14px;margin-right:14px;padding:11px 0;gap:0}
+.aph.collapsed .aph-side .footer{justify-content:center;padding:14px 0}
+.aph-main{min-width:0;height:100vh;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column}
+.aph-content{flex:1;padding:32px 40px 64px}
+.aph-topbar{background:var(--surface-2);border-bottom:1px solid var(--hairline);padding:14px 40px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:10}
+.aph-topbar h1{font:600 17px var(--sans);color:var(--ink);letter-spacing:-.3px}
+.aph-topbar .right{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.collapse-btn{width:36px;height:36px;border:0;background:transparent;border-radius:10px;display:grid;place-items:center;cursor:pointer;color:var(--ink-4);flex:0 0 auto;transition:background .18s ease,color .18s ease}
+.collapse-btn:hover{background:rgba(10,10,10,0.05);color:var(--ink)}
+.collapse-btn svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.aph-page-hd{margin-bottom:30px}
+.aph-page-hd .eyebrow{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:2.2px;color:var(--ink-mute);margin-bottom:12px;display:inline-flex;align-items:center;gap:10px}
+.aph-page-hd .eyebrow::before{content:"";width:18px;height:1px;background:var(--ink-3)}
+.aph-page-hd .ttl{font:600 40px/1.05 var(--sans);color:var(--ink);letter-spacing:-1.3px}
+.aph-page-hd .sub{margin-top:10px;font-size:15px;color:var(--ink-4)}
+.aph-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px;margin-bottom:32px}
+.aph-kpi{background:var(--surface-2);border-radius:20px;padding:26px 28px;box-shadow:var(--shadow-card);transition:transform .25s ease,box-shadow .25s ease;position:relative;overflow:hidden;min-height:132px;display:flex;flex-direction:column;justify-content:space-between}
+.aph-kpi:hover{transform:translateY(-3px);box-shadow:var(--shadow-hover)}
+.aph-kpi .lbl{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:1.6px;color:var(--ink-mute)}
+.aph-kpi .v{font:600 40px/1 var(--sans);color:var(--ink);letter-spacing:-1.3px;font-feature-settings:'tnum';margin-top:14px}
+.aph-kpi .sub{font:500 12px var(--sans);color:var(--ink-mute);margin-top:10px}
+.aph-empty{padding:48px;text-align:center;color:var(--ink-mute);font-size:13px}
+.aph-loading{padding:60px;text-align:center;color:var(--ink-mute);font-size:12px}
+.aph-err{background:var(--ink);color:#fafaf6;padding:14px 18px;border-radius:14px;font-size:12px;margin:16px 40px;font-family:var(--mono)}
+@media (max-width: 900px){
+  html,body{overflow:auto!important}
+  .aph,.aph.collapsed{display:flex;flex-direction:column;position:fixed;grid-template-columns:none}
+  .aph-side{width:100%;height:auto;position:relative;flex:0 0 auto;border-right:0;border-bottom:1px solid var(--hairline);overflow:visible}
+  .aph-side .brand{padding:12px 16px}
+  .aph-side .home-link{margin:0 10px 8px;width:max-content}
+  .aph-side .nav{flex-direction:row;align-items:center;overflow-x:auto;overflow-y:hidden;padding:0 8px 8px;-webkit-overflow-scrolling:touch}
+  .aph-side .group-lbl{display:none}
+  .aph-side .nav-item{flex:0 0 auto;margin:0 3px;white-space:nowrap;padding:9px 14px}
+  .aph-side .footer{display:none}
+  .collapse-btn{display:none}
+  .aph-main{flex:1 1 auto;height:auto;min-height:0}
+  .aph-topbar{position:static;flex-wrap:wrap;gap:10px;padding:12px 16px}
+  .aph-content{padding:18px 16px 40px}
+  .aph-page-hd .ttl{font-size:28px}
+}
+/* view switch (topbar) */
+.aph .view-switch{display:inline-flex;background:rgba(10,10,10,.05);border-radius:999px;padding:3px;gap:2px;flex:none}
+.aph .view-switch a,.aph .view-switch span{font:600 12px var(--f);padding:6px 13px;border-radius:999px;text-decoration:none;color:var(--ink-mute);white-space:nowrap;transition:background .15s,color .15s;line-height:1.2}
+.aph .view-switch .on{background:var(--grad-ink);color:#fafaf6}
+.aph .view-switch a:hover{color:var(--ink);background:rgba(10,10,10,.06)}
+
+/* ===== Transfer Scheduling planner ===== */
+.aph .ts-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--surface-2);border-radius:16px;box-shadow:var(--shadow-card);padding:10px 12px;margin-bottom:18px}
+.aph .ts-tabs{display:inline-flex;background:rgba(10,10,10,.05);border-radius:999px;padding:3px;gap:2px}
+.aph .ts-tab{font:600 12px var(--f);padding:8px 16px;border:0;background:transparent;color:var(--ink-mute);border-radius:999px;cursor:pointer;transition:all .15s}
+.aph .ts-tab:hover{color:var(--ink)}
+.aph .ts-tab.on{background:var(--grad-ink);color:#fafaf6}
+.aph .ts-bar .sp{flex:1}
+.aph .ts-fld{font:500 10px var(--f);text-transform:uppercase;letter-spacing:.07em;color:var(--ink-mute);display:flex;align-items:center;gap:7px}
+.aph .ts-fld input{font:500 12px var(--f);padding:8px 9px;border:0;background:rgba(10,10,10,.05);border-radius:9px;color:var(--ink);outline:0;font-feature-settings:'tnum'}
+.aph .live-dot{width:7px;height:7px;border-radius:50%;background:var(--signal);box-shadow:0 0 0 4px var(--signal-soft);display:inline-block}
+.aph #ts-fresh{font:500 11px var(--mono);color:var(--ink-mute)}
+.aph .ts-loading{padding:50px;text-align:center;color:var(--ink-mute);font:500 12px var(--mono)}
+.aph .ts-empty{padding:30px;text-align:center;color:var(--ink-mute);font-size:12px;font-style:italic}
+.aph .ts-hint{color:var(--ink-mute);font-size:11px;font-style:italic}
+.aph .otag{font:600 9px var(--mono);text-transform:uppercase;letter-spacing:.04em;padding:2px 7px;border-radius:999px;border:1px solid var(--hairline);color:var(--ink-mute)}
+.aph .otag.mix{border-color:var(--warn);color:var(--warn)}
+.aph .otag.partial-flag{display:block;width:100%;background:#fff4e5;border:1px solid var(--warn);color:#8a5200;text-transform:none;letter-spacing:0;font:600 11px var(--f);padding:6px 10px;border-radius:8px;margin-bottom:4px}
+.aph .otag.partial-flag b{font-weight:700;color:var(--warn)}
+/* Priority list — Scheduled orders divided by team, ranked, with a farm map */
+.aph .pl-team{margin-bottom:22px}
+.aph .pl-team-hd{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding:0 2px 9px;border-bottom:1px solid var(--hairline);margin-bottom:10px}
+.aph .pl-team-nm{font:600 15px var(--f);color:var(--ink);letter-spacing:-.2px}
+.aph .pl-team-sub{font:500 10px var(--mono);color:var(--ink-mute);text-transform:uppercase;letter-spacing:.05em}
+.aph .pl-list{display:flex;flex-direction:column;gap:8px}
+.aph .pl-row{display:flex;align-items:center;gap:14px;background:var(--surface-2);border:1px solid var(--hairline);border-radius:14px;padding:12px 16px;box-shadow:var(--shadow-card);transition:border-color .15s,background .15s}
+.aph .pl-row:hover{border-color:var(--ink-4)}
+.aph .pl-row.planned{opacity:.5;background:var(--bg)}
+.aph .pl-planned{flex-shrink:0;width:18px;text-align:center;color:var(--signal);font-weight:700}
+.aph .pl-planned.partial{color:var(--warn)}
+.aph .pl-planned.none{visibility:hidden}
+.aph .pl-fchip.partial{background:#fff4e5;border-color:var(--warn);color:#8a5200}
+.aph .pl-fchip.partial b{color:#8a5200}
+.aph .pl-rank{flex-shrink:0;width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;font:600 15px var(--mono);color:#fafaf6;background:var(--grad-ink);letter-spacing:-.5px}
+.aph .pl-rank.done{background:var(--signal)}
+.aph .pl-main{flex:1;min-width:0}
+.aph .pl-name{font:600 14px var(--f);color:var(--ink);letter-spacing:-.2px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.aph .pl-cust{font:500 10px var(--mono);color:var(--ink-mute);text-transform:none;letter-spacing:0}
+.aph .pl-map{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.aph .pl-fchip{font:500 11px var(--f);padding:5px 10px;border-radius:10px;background:var(--bg);border:1px solid var(--hairline);color:var(--ink-2);display:flex;flex-direction:column;gap:2px;min-width:0}
+.aph .pl-fchip b{font:600 11px var(--f);color:var(--ink)}
+.aph .pl-fchip .fc-top{display:flex;align-items:baseline;gap:6px;white-space:nowrap}
+.aph .pl-fchip .fc-vs{font:500 10px var(--mono);color:var(--ink-mute);white-space:normal;line-height:1.4}
+.aph .pl-fchip.on{background:var(--signal-soft);border-color:var(--signal);color:var(--signal)}
+.aph .pl-fchip.on b{color:var(--signal)}
+.aph .pl-fchip.on .fc-vs{color:var(--signal)}
+.aph .pl-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}
+.aph .pl-side{flex-shrink:0;width:96px;text-align:right}
+.aph .pl-cov{font-family:var(--mono);white-space:nowrap}
+.aph .pl-cov b{font:600 16px var(--mono);color:var(--ink)}.aph .pl-cov span{font-size:10px;color:var(--ink-mute)}
+.aph .pl-bar{height:6px;background:rgba(10,10,10,.06);border-radius:999px;overflow:hidden;margin-top:6px}
+.aph .pl-bar i{display:block;height:100%;background:var(--signal)}
+.aph .pl-left{margin-top:5px;font:700 10px var(--mono);color:var(--ink-2);white-space:nowrap}
+@media(max-width:720px){.aph .pl-side{width:70px}.aph .pl-row{gap:10px;padding:10px 12px}}
+/* Build (plan trucks) */
+.aph .tbtn{font:600 12px var(--f);padding:9px 15px;border:0;border-radius:999px;cursor:pointer;background:rgba(10,10,10,.05);color:var(--ink)}
+.aph .tbtn:hover:not(:disabled){background:rgba(10,10,10,.09)}
+.aph .tbtn.key{background:var(--grad-ink);color:#fafaf6}
+.aph .tbtn.danger{color:var(--bad)}
+.aph .tbtn:disabled{opacity:.4;cursor:not-allowed}
+.aph .cap-bar{height:10px;background:rgba(10,10,10,.06);border-radius:999px;overflow:hidden}
+.aph .cap-bar i{display:block;height:100%;background:var(--signal);transition:width .15s}
+.aph .cap-bar.warn i{background:var(--warn)}.aph .cap-bar.over i{background:var(--bad)}
+.aph .torow{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--hairline);font-size:12px}
+.aph .torow .nm{font:600 12px var(--f);color:var(--ink)}
+.aph .torow .fm{font:600 10px var(--mono);color:var(--ink-2);background:rgba(10,10,10,.05);padding:1px 7px;border-radius:999px}
+.aph .torow .b{margin-left:auto;font:600 11px var(--mono);color:var(--ink)}
+.aph .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fafaf6;font:600 12px var(--f);padding:11px 18px;border-radius:999px;box-shadow:var(--shadow-hover);z-index:99;opacity:0;transition:opacity .2s}
+.aph .toast.show{opacity:1}
+.aph .route-box{margin:4px 0 12px;padding:10px 12px;background:var(--signal-soft);border:1px solid var(--hairline);border-radius:12px}
+.aph .route-row{display:flex;align-items:center;gap:10px;font:500 11px var(--mono)}
+.aph .route-row .rl{flex-shrink:0;font:700 9px var(--mono);text-transform:uppercase;letter-spacing:.05em;color:var(--signal)}
+.aph .route-row .rp{flex:1;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph .route-row .rk{flex-shrink:0;font-weight:700;color:var(--ink)}
+.aph .route-row .tbtn{padding:4px 10px;font-size:11px}
+/* Plan-summary bar (Scheduled orders) */
+.aph .plan-summary{display:flex;align-items:center;gap:14px;background:var(--surface-2);border:1px solid var(--hairline);border-radius:12px;padding:12px 16px;margin-bottom:16px;position:sticky;top:8px;z-index:5;flex-wrap:wrap}
+.aph .plan-summary .ps-cap{font:600 11px var(--mono);color:var(--ink-2);background:var(--bg);border:1px solid var(--hairline);border-radius:999px;padding:3px 10px}
+.aph .plan-summary .ps-hint{font:500 12px var(--f);color:var(--ink-mute)}
+.aph .plan-summary .ps-fill{flex:1}
+.aph .plan-farms{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.aph .pchip{font:600 11px var(--mono);background:var(--signal-soft);color:var(--signal);padding:2px 9px;border-radius:999px}
+.aph .plan-refuse{background:var(--bad-soft);border:1px solid var(--bad);border-radius:12px;padding:16px 18px;font:600 14px var(--f);color:var(--bad)}
+.aph .fr-intro{font:500 13px var(--f);color:var(--ink-2);background:var(--surface-2);border:1px solid var(--hairline);border-radius:12px;padding:12px 16px;margin-bottom:16px}
+.aph .fr-card{background:var(--surface-2);border:1px solid var(--hairline);border-radius:16px;box-shadow:var(--shadow-card);padding:16px 18px;margin-bottom:14px}
+.aph .fr-hd{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.aph .fr-hd h3{font:700 17px var(--f);color:var(--ink)}
+.aph .fr-tot{font:600 12px var(--mono);color:var(--ink-2)}
+.aph .fr-target{display:inline-block;margin-top:6px;font:700 10px var(--f);text-transform:uppercase;letter-spacing:.03em;padding:3px 9px;border-radius:999px}
+.aph .fr-target.topup{color:#7c5cfc;background:#f0ecfe}
+.aph .fr-target.new{color:var(--ink-2);background:rgba(10,10,10,.06)}
+.aph .fr-stops{margin-top:10px;display:flex;flex-direction:column;gap:8px}
+.aph .fr-stop{border:1px solid var(--hairline);border-radius:10px;overflow:hidden}
+.aph .fr-stop-hd{display:flex;align-items:center;gap:9px;padding:7px 11px;background:var(--surface-2);border-bottom:1px solid var(--hairline)}
+.aph .fr-stop-hd .fr-stopn{flex-shrink:0;width:20px;height:20px;border-radius:6px;background:var(--grad-ink);color:#fafaf6;font:700 11px var(--mono);display:flex;align-items:center;justify-content:center}
+.aph .fr-stop-hd .fr-stopf{font:600 13px var(--f);color:var(--ink)}
+.aph .fr-stop-hd .fr-stopb{margin-left:auto;font:700 11px var(--mono);color:var(--ink-2)}
+.aph .fr-stop .fr-ord{display:flex;align-items:center;gap:10px;padding:7px 11px}
+.aph .fr-stop .fr-ord+.fr-ord{border-top:1px solid var(--hairline)}
+.aph .fr-stop .fr-onm .nm{font:600 12px var(--f);color:var(--ink)}
+.aph .fr-stop .fr-onm .fr-vs{font:600 11px var(--mono);color:var(--ink-2);margin-top:2px}
+.aph .fr-stop .fr-bk{margin-left:auto;font:700 11px var(--mono);color:var(--ink)}
+.aph .plan-save{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.aph .plan-save .plan-note{font:500 11px var(--f);color:var(--ink-mute)}
+/* Trips */
+.aph .trip-card{background:var(--surface-2);border:1px solid var(--hairline);border-radius:16px;box-shadow:var(--shadow-card);padding:14px 18px;margin-bottom:14px}
+.aph .trip-hd{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.aph .trip-hd h3{font:600 15px var(--f);color:var(--ink)}
+.aph .trip-hd .veh{font:600 11px var(--mono);color:var(--ink-2);background:rgba(10,10,10,.05);padding:3px 9px;border-radius:999px}
+.aph .trip-orders{margin-top:10px;display:flex;flex-direction:column;gap:5px}
+.aph .ts-pills{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+.aph .ts-pill{display:inline-flex;align-items:center;font:600 10px var(--mono);color:#fff;padding:3px 9px;border-radius:999px;white-space:nowrap}
+.aph .ts-pill.zero{background:rgba(10,10,10,.06)!important;color:var(--ink-mute);font-weight:500}
+.aph .route-sum{display:flex;flex-wrap:wrap;gap:6px 18px;background:var(--surface-2);border:1px solid var(--hairline);border-radius:12px;padding:11px 16px;margin-bottom:14px;font:500 12px var(--f);color:var(--ink-2)}
+.aph .route-sum b{color:var(--ink);font-weight:700}
+.aph .route-sum .best{color:var(--signal)}
+/* team sub-tabs on Scheduled orders */
+.aph .ord-teams{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.aph .ord-teambtn{padding:6px 13px;border:1px solid var(--hairline);background:var(--bg);border-radius:999px;font:600 12px var(--f);color:var(--ink-2);cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+.aph .ord-teambtn:hover{border-color:var(--ink-4)}
+.aph .ord-teambtn.on{background:var(--grad-ink);color:#fafaf6;border-color:transparent}
+.aph .ord-teambtn .tc{font:700 10px var(--mono);background:rgba(10,10,10,.06);border-radius:8px;padding:0 6px;color:var(--ink-mute)}
+.aph .ord-teambtn.on .tc{background:rgba(255,255,255,.2);color:#fff}
+/* truck picker (Distribute modal) */
+.aph .veh-avail{background:var(--surface-2);border:1px solid var(--hairline);border-radius:12px;padding:12px 14px;margin-bottom:14px}
+.aph .veh-avail .va-lbl{display:flex;align-items:baseline;gap:10px;font:700 14px var(--f);color:var(--ink);margin-bottom:9px}
+.aph .veh-avail .va-lbl .va-date{font:600 11px var(--mono);color:var(--ink-mute);text-transform:none;letter-spacing:0}
+.aph .veh-avail .va-sub{text-transform:none;letter-spacing:0;font:500 10px var(--mono);color:var(--ink-4);margin-left:6px}
+.aph .veh-avail .va-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.aph .va-card{display:block;border:1px solid var(--hairline);border-radius:12px;padding:10px 12px;background:var(--bg)}
+.aph .va-card.off{opacity:.55;background:var(--bad-soft);border-color:var(--bad)}
+.aph .va-card .va-top{display:flex;align-items:center;gap:8px;cursor:pointer}
+.aph .va-card .va-top input{accent-color:var(--ink);cursor:pointer}
+.aph .va-card .va-nm{font:600 13px var(--f);color:var(--ink)}
+.aph .va-card .va-cap{margin-left:auto;font:600 10px var(--mono);color:var(--ink-mute)}
+.aph .va-row{display:flex;align-items:baseline;gap:8px;margin-top:5px}
+.aph .va-row .va-k{flex-shrink:0;width:34px;font:700 9px var(--mono);text-transform:uppercase;letter-spacing:.05em;color:var(--ink-4)}
+.aph .tk-loc{font:600 12px var(--f)}
+.aph .tk-loc.load{color:var(--warn)}
+.aph .tk-loc.transit{color:#1d4ed8}
+.aph .tk-loc.arrived{color:var(--signal)}
+.aph .tk-loc.idle{color:var(--ink-4)}
+.aph .va-row .tk-trips{font:600 11px var(--mono);color:var(--ink-2)}
+.aph .va-row .tk-trips.none{color:var(--ink-4);font-weight:500}
+.aph .va-row .tk-route{font:600 11px var(--mono);color:var(--ink-2)}
+.aph .va-row .tk-route.none{color:var(--ink-4);font-weight:500;font-style:italic}
+.aph .va-busy{margin-top:2px;font:500 10px var(--mono);color:var(--ink-mute)}
+.aph .rt-editbtn{margin-left:auto;padding:2px 9px;font-size:10px}
+.aph .rt-editor{margin-top:8px;padding-top:8px;border-top:1px dashed var(--hairline);display:flex;flex-wrap:wrap;gap:6px 12px}
+.aph .rt-preview{flex:1 0 100%;display:flex;flex-direction:column;gap:4px;margin-top:6px}
+.aph .rt-preview .rt-auto{font:600 11px var(--f);color:var(--signal)}
+.aph .rt-preview .rt-km{font:500 10px var(--mono);color:var(--ink-mute)}
+.aph .rt-fchk{display:inline-flex;align-items:center;gap:5px;font:500 11px var(--f);color:var(--ink-2);cursor:pointer}
+.aph .rt-fchk input{accent-color:var(--ink);cursor:pointer}
+.aph .rt-editor-foot{flex:1 0 100%;display:flex;align-items:center;justify-content:flex-end;gap:7px;margin-top:4px}
+.aph .rt-editor-foot .rt-hint{flex:1;font:500 10px var(--f);color:var(--warn)}
+.aph .rt-editor-foot .tbtn.key:disabled{opacity:.4;cursor:not-allowed}
+.aph .rt-editor-foot .tbtn{padding:4px 10px;font-size:11px}
+/* Team × schedule status grid */
+.aph .sg-section{margin-bottom:18px}
+.aph .sg-section .tab-hd{font:700 13px var(--f);color:var(--ink);margin-bottom:8px}
+.aph .sg-wrap{overflow-x:auto;border:1px solid var(--hairline);border-radius:10px}
+.aph .sg-table{border-collapse:collapse;width:100%;min-width:560px}
+.aph .sg-table thead th{position:sticky;top:0;background:var(--surface-2);font:700 11px var(--f);color:var(--ink);text-align:left;padding:8px 10px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+.aph .sg-schcol{font:700 11px var(--mono);color:var(--ink-mute);text-align:center;width:34px;white-space:nowrap;background:var(--surface-2)}
+.aph .sg-table td.sg-schcol{border-right:1px solid var(--hairline)}
+.aph .sg-cell{padding:5px;border-top:1px solid var(--hairline);vertical-align:top;min-width:120px}
+.aph .sg-cell.sg-empty{text-align:center;color:var(--ink-4);font-size:11px}
+.aph .sg-box{border-radius:8px;padding:5px 8px;font-size:10px;display:flex;flex-direction:column;gap:2px;position:relative}
+.aph .sg-box .sg-nm{font:700 10px var(--f);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px}
+.aph .sg-box .sg-st{font:600 9px var(--mono);color:var(--ink-2)}
+.aph .sg-box.sg-done{background:var(--signal-soft);box-shadow:inset 0 0 0 1px var(--signal)}
+.aph .sg-box.sg-partial{background:#fff4e5;box-shadow:inset 0 0 0 1px #f0b357}
+.aph .sg-box.sg-pending{background:var(--bg);box-shadow:inset 0 0 0 1px var(--hairline)}
+.aph .sg-box.sg-blocked{background:var(--bad-soft);box-shadow:inset 0 0 0 1px var(--bad)}
+.aph .sg-box.sg-inround{box-shadow:inset 0 0 0 2px #7c5cfc}
+.aph .sg-box.sg-left{box-shadow:inset 0 0 0 2px var(--bad)}
+.aph .sg-warn{position:absolute;top:3px;right:5px;font-size:10px}
+.aph .sg-box .tt-badge{align-self:flex-start;margin-top:1px}
+.aph .sg-legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;font:500 11px var(--f);color:var(--ink-mute)}
+.aph .sg-lg{padding-left:16px;position:relative}
+.aph .sg-lg::before{content:'';position:absolute;left:0;top:2px;width:11px;height:11px;border-radius:3px}
+.aph .sg-lg.sg-done::before{background:var(--signal-soft);box-shadow:inset 0 0 0 1px var(--signal)}
+.aph .sg-lg.sg-partial::before{background:#fff4e5;box-shadow:inset 0 0 0 1px #f0b357}
+.aph .sg-lg.sg-pending::before{background:var(--bg);box-shadow:inset 0 0 0 1px var(--hairline)}
+.aph .sg-lg.sg-blocked::before{background:var(--bad-soft);box-shadow:inset 0 0 0 1px var(--bad)}
+.aph .sg-lg.sg-leftlg::before{background:transparent;box-shadow:inset 0 0 0 2px var(--bad)}
+.aph .tt-badge{font:700 9px var(--f);text-transform:uppercase;letter-spacing:.03em;padding:2px 7px;border-radius:999px;white-space:nowrap}
+.aph .tt-badge.topup{color:#7c5cfc;background:#f0ecfe}
+.aph .tt-badge.new{color:var(--ink-2);background:rgba(10,10,10,.06)}
+.aph .tt-badge.trip{color:var(--ink-2);background:rgba(10,10,10,.08)}
+/* distribution review modal */
+.aph .dm-overlay{position:fixed;inset:0;background:rgba(10,10,10,.45);display:flex;align-items:center;justify-content:center;z-index:9999;padding:24px}
+.aph .dm-card{background:var(--bg);border:1px solid var(--hairline);border-radius:18px;box-shadow:0 30px 90px rgba(0,0,0,.35);width:880px;max-width:97vw;height:88vh;max-height:920px;display:flex;flex-direction:column;overflow:hidden}
+.aph .dm-hd{display:flex;align-items:center;gap:10px;padding:18px 24px 10px}
+.aph .dm-hd h3{font:600 19px var(--f);color:var(--ink)}
+.aph .dm-hd .sch-x{margin-left:auto;border:0;background:none;font-size:26px;line-height:1;color:var(--ink-mute);cursor:pointer}
+.aph .dm-body{flex:1;min-height:0;overflow-y:auto;padding-bottom:10px}
+.aph .dm-body .veh-avail{margin:14px 24px 0}
+.aph .dm-body .veh-avail .va-grid{grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+.aph .dm-bar{margin:16px 24px 0;height:14px;background:rgba(10,10,10,.06);border-radius:999px;overflow:hidden}
+.aph .dm-bar i{display:block;height:100%;background:var(--grad-ink)}
+.aph .dm-cap{padding:7px 24px 0;font:600 12px var(--mono);color:var(--ink-2)}.aph .dm-cap b{color:var(--ink);font-weight:700}
+.aph .dm-rows{margin:12px 24px 0;overflow-y:auto;border:1px solid var(--hairline);border-radius:10px}
+.aph .dm-short{margin:14px 24px 0;background:#fff4e5;border:1px solid #f0b357;border-radius:10px;padding:13px 15px}
+.aph .dm-short.over{border-color:var(--bad);background:var(--bad-soft)}
+.aph .dm-short .dm-short-msg{font:500 12px var(--f);color:#8a5200;line-height:1.5;margin-bottom:6px}
+.aph .dm-short .dm-short-msg:last-of-type{margin-bottom:11px}
+.aph .dm-short .dm-short-msg b{font-weight:700}
+.aph .dm-short-list{display:flex;flex-direction:column;gap:7px}
+.aph .dm-short-row{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #e0a94a;border-radius:9px;padding:7px 11px}
+.aph .dm-short-row.bad{border-color:var(--bad);background:var(--bad-soft)}
+.aph .dm-short-row .dm-team{min-width:80px;font:600 12px var(--f);color:var(--ink)}
+.aph .dm-short-row .dm-sch{flex-shrink:0;font:700 11px var(--mono);color:#fafaf6;background:var(--grad-ink);border-radius:6px;padding:1px 7px}
+.aph .dm-short-row .dm-nm{flex:1;min-width:0;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}
+.aph .dm-short-inp{width:52px;padding:4px 6px;border:1px solid var(--ink-4);border-radius:7px;font:700 12px var(--mono);text-align:right;color:var(--ink);background:var(--bg);outline:0}
+.aph .dm-short-inp:focus{border-color:var(--ink)}
+.aph .dm-of{font:600 10px var(--mono);color:var(--ink-mute);white-space:nowrap}
+.aph .dm-qbtn{flex-shrink:0;padding:4px 9px;font-size:10px;border-color:#e0a94a;color:#8a5200}
+.aph .dm-qbtn:disabled{opacity:.4;cursor:default}
+.aph .dm-short-warn{margin-top:9px;font:600 11px var(--f);color:var(--bad)}
+.aph .dm-unreach{margin:14px 24px 0;background:rgba(10,10,10,.04);border:1px solid var(--hairline);border-radius:10px;padding:11px 13px}
+.aph .dm-unreach-hd{font:500 11px var(--f);color:var(--ink-mute)}
+.aph .dm-unreach-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.aph .dm-unreach-chip{font:600 10px var(--mono);background:var(--bg);border:1px solid var(--hairline);color:var(--ink-2);padding:2px 8px;border-radius:999px}
+.aph .dm-foot{display:flex;justify-content:flex-end;gap:9px;padding:16px 24px;margin-top:0;border-top:1px solid var(--hairline)}
+.aph .dm-foot .tbtn.key:disabled{opacity:.45;cursor:not-allowed}
+</style>
+
+<div class="aph">
+  {% endraw %}{% set active_page = "transfer-control" %}{% include "upande_packhouse/templates/includes/packhouse_sidebar.html" %}{% raw %}
+  <div class="aph-main">
+    <div class="aph-topbar">
+      <button class="collapse-btn" id="collapseBtn" title="Toggle sidebar" aria-label="Toggle sidebar"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+      <h1>Transfer Scheduling</h1>
+      <nav class="view-switch" aria-label="View"><a href="bucket-logistics">Bucket Logistics</a><span class="on">Transfer Scheduling</span></nav>
+      <div class="right"></div>
+    </div>
+    <div class="aph-content">
+      <div class="aph-page-hd">
+        <div class="eyebrow">Packhouse &middot; Logistics</div>
+        <div class="ttl">Transfer Scheduling</div>
+        <div class="sub" id="ts-sub">Loading&hellip;</div>
+      </div>
+      <div class="ts-bar">
+        <div class="ts-tabs">
+          <button class="ts-tab on" data-act="tab" data-tab="orders">Scheduled orders</button>
+          <button class="ts-tab" data-act="tab" data-tab="build">Plan trucks</button>
+          <button class="ts-tab" data-act="tab" data-tab="triplist">Trips</button>
+        </div>
+        <span class="sp"></span>
+        <span class="ts-fld">Deliver <input type="date" id="ts-from"><span style="color:var(--ink-mute)">&rarr;</span><input type="date" id="ts-to"></span>
+        <span class="ts-fld"><span class="live-dot"></span><span id="ts-fresh">live</span></span>
+      </div>
+      <div id="panel-orders" class="ts-panel"><div class="ts-loading">Loading orders&hellip;</div></div>
+      <div id="panel-build" class="ts-panel" style="display:none"></div>
+      <div id="panel-triplist" class="ts-panel" style="display:none"></div>
+      <div class="toast" id="ts-toast"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var aph=document.querySelector('.aph'), btn=document.getElementById('collapseBtn');
+  if(!aph) return;
+  try{ if(localStorage.getItem('aphSideCollapsed')==='1') aph.classList.add('collapsed'); }catch(e){}
+  if(btn) btn.addEventListener('click',function(){
+    aph.classList.toggle('collapsed');
+    try{ localStorage.setItem('aphSideCollapsed', aph.classList.contains('collapsed')?'1':'0'); }catch(e){}
+  });
+})();
+</script>
+<script>
+/* Transfer Scheduling planner — orders → distribute → plan trucks → trips.
+   Ported from the kaitet-group v15 LIVE reference (transfer-control.html), field
+   names translated to the real v16 API contract in api/transfer_control.py. Reads
+   getTransferScheduleData; writes Bucket Request Trip via saveBucketTrip /
+   deleteBucketTrip, and Bucket Logistics Route via saveBucketLogisticsRoute.
+   Only the LIVE, reachable functional surface of the v15 page is ported — the
+   manual "add a portion"/"edit trip" machinery in the source was already dead code
+   there (no render path ever invoked it once ⚡ Distribute became the only way to
+   schedule), so it's dropped here rather than carried forward unused. */
+(function(){
+var S={ from:addDaysISO(todayISO(),1), to:addDaysISO(todayISO(),1), tab:'orders', sel:{}, selQty:{}, broken:{}, ordTeam:'all' };
+function tripVehMap(){ var m={}; DATA.trips.forEach(function(t){ m[t.name]=t.vehicle||''; }); return m; }
+var DATA={orders:[],vehicles:[],trips:[],distances:[],truck_status:[],routes:[]};
+
+/* ---- farm road distances + collection-route optimisation (Farm Distance doctype) ---- */
+function pack(){ return DATA.packhouse||'Kapkolia'; }
+function distKm(a,b){ if(a===b) return 0; for(var i=0;i<DATA.distances.length;i++){ var d=DATA.distances[i]; if((d.a===a&&d.b===b)||(d.a===b&&d.b===a)) return d.km; } return null; }
+function routeKm(order){ var seq=[pack()].concat(order).concat([pack()]),tot=0; for(var i=0;i<seq.length-1;i++){ var dk=distKm(seq[i],seq[i+1]); if(dk==null) return null; tot+=dk; } return tot; }
+function bestRoute(farms){ var u=[]; (farms||[]).forEach(function(f){ if(f&&u.indexOf(f)<0)u.push(f); });
+  if(u.length<=1) return {order:u.slice(),km:routeKm(u)};
+  if(u.length>7) return {order:u.slice(),km:routeKm(u)};   // safety cap on permutations
+  var best=null,used=[],cur=[];
+  (function rec(){ if(cur.length===u.length){ var km=routeKm(cur); if(km!=null&&(best==null||km<best.km)) best={order:cur.slice(),km:km}; return; }
+    for(var i=0;i<u.length;i++){ if(used[i])continue; used[i]=1;cur.push(u[i]);rec();cur.pop();used[i]=0; } })();
+  return best||{order:u.slice(),km:routeKm(u)};
+}
+/* ---- REAL road-leg graph (is_road_leg=1 only) — physical roads, not derived
+   any-to-any distances. The network is a TREE rooted at the packhouse: e.g.
+   Kapkolia–Simotwo–Kaptumbo is one branch, so a truck driving to Kaptumbo has NO
+   choice but to pass through Simotwo — "Simotwo is on the way to Kaptumbo". A
+   pairwise "Kapkolia-Kaptumbo" distance record is a convenience figure for totals;
+   it is NOT a road and must never be used to build a truck's actual path. ---- */
+function roadAdjacency(){
+  var adj={};
+  DATA.distances.forEach(function(d){
+    if(!d.leg) return;
+    (adj[d.a]=adj[d.a]||[]).push({to:d.b,name:d.name});
+    (adj[d.b]=adj[d.b]||[]).push({to:d.a,name:d.name});
+  });
+  return adj;
+}
+/* Shortest path from `from` to `to` via DIRECT road legs only (BFS — the network is
+   a tree, so there's exactly one path). Returns the ordered leg names AND every
+   farm passed through along the way (excluding `from`, including `to`). */
+function roadPath(from,to){
+  if(from===to) return {legs:[],farms:[]};
+  var adj=roadAdjacency(), queue=[[from,[],[]]], seen={}; seen[from]=1;
+  while(queue.length){
+    var cur=queue.shift(), node=cur[0], legPath=cur[1], farmPath=cur[2];
+    var neighbors=adj[node]||[];
+    for(var i=0;i<neighbors.length;i++){
+      var nb=neighbors[i]; if(seen[nb.to]) continue;
+      var nLegs=legPath.concat([nb.name]), nFarms=farmPath.concat([nb.to]);
+      if(nb.to===to) return {legs:nLegs,farms:nFarms.filter(function(f){return f!==pack();})};
+      seen[nb.to]=1; queue.push([nb.to,nLegs,nFarms]);
+    }
+  }
+  return {legs:[],farms:[]};   // no direct-leg path exists between these two points
+}
+/* The farms a truck ACTUALLY drives past to serve the given selection — ticking
+   only Kaptumbo still recognises Simotwo is on the way: walk the real road from
+   the packhouse to each ticked farm and fold in every farm passed through. */
+function expandViaRoadLegs(farms){
+  var out={}; farms.forEach(function(f){ out[f]=1; roadPath(pack(),f).farms.forEach(function(x){ out[x]=1; }); });
+  return Object.keys(out);
+}
+/* Farm Distance leg names for the round trip Kapkolia→…→Kapkolia over `farms`, in
+   visiting order — what a Bucket Logistics Route's legs are saved as. Each hop
+   between consecutive stops is decomposed into its REAL constituent road legs
+   (roadPath), never a single derived pairwise record. */
+function legNamesForRoute(farms){
+  var seq=[pack()].concat(farms).concat([pack()]),legs=[];
+  for(var i=0;i<seq.length-1;i++){ legs=legs.concat(roadPath(seq[i],seq[i+1]).legs); }
+  return legs;
+}
+/* Save today's route for a truck from a set of chosen farms — auto-expanded to
+   include any "on the way" farms, then visiting-order optimised. */
+function saveRoute(vehicle){
+  var sel=(S.routeEditSel&&S.routeEditSel[vehicle])||{};
+  var ticked=Object.keys(sel).filter(function(f){return sel[f];});
+  var farms=expandViaRoadLegs(ticked);
+  var best=bestRoute(farms);
+  var legs=legNamesForRoute(best.order.length?best.order:farms);
+  call('saveBucketLogisticsRoute',{vehicle:vehicle,date:todayISO(),legs:legs.join('|~|')}).then(function(r){
+    var m=r.message||{};
+    if(m.status==='success'){ toast((farms.length?'Route saved for ':'Route cleared for ')+vehicle);
+      S.routeEdit=null; loadData().then(function(){ if(S.dist){ var nd=computeDistribution(); nd.shortQty=S.dist.shortQty||{}; S.dist=nd; renderDistModal(); } }); }
+    else toast(m.message||'Failed to save route');
+  }).catch(function(err){ toast('Failed: '+((err&&err.message)||'')); });
+}
+/* recommended collection route + distance (round trip from the packhouse). */
+function routeHtml(farms){
+  var u=[]; (farms||[]).forEach(function(f){ if(f&&u.indexOf(f)<0)u.push(f); });
+  if(!u.length) return '';
+  var best=bestRoute(u);
+  if(best.km==null) return '';   // distances missing for these farms
+  var chain=pack()+' &rarr; '+best.order.join(' &rarr; ')+' &rarr; '+pack();
+  return '<div class="route-box"><div class="route-row"><span class="rl">Route</span><span class="rp">'+esc(chain)+'</span><span class="rk">'+best.km.toFixed(2)+' km</span></div></div>';
+}
+
+/* Writes go through frappe.call — needed for CSRF on POST. */
+function call(method,args){
+  return new Promise(function(resolve,reject){
+    frappe.call({ method:'upande_packhouse.api.transfer_control.'+method, args:args||{},
+      callback:function(r){ resolve(r||{}); },
+      error:function(e){ reject(e||{message:'request failed'}); } });
+  });
+}
+/* Reads go through a plain fetch — no dependency on the frappe JS bundle being
+   loaded yet (matches bucket-logistics.html). */
+function apiGet(m,args){
+  args=args||{};
+  var qs=Object.keys(args).filter(function(k){return args[k]!=null&&args[k]!=='';})
+    .map(function(k){return encodeURIComponent(k)+'='+encodeURIComponent(args[k]);}).join('&');
+  return fetch('/api/method/upande_packhouse.api.transfer_control.'+m+(qs?('?'+qs):''),{credentials:'same-origin',headers:{'Accept':'application/json'}})
+    .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).then(function(j){ return j.message||{}; });
+}
+/* orders -> delimited string for saveBucketTrip: rows joined by \x1e, fields by \x1f. */
+var FS=String.fromCharCode(31), RS=String.fromCharCode(30);
+function encodeOrders(orders){
+  return (orders||[]).map(function(r){
+    var full=(r.full!=null?r.full:(r.full_farm_buckets!=null?r.full_farm_buckets:r.buckets));
+    var opl=(r.order_pick_list!=null&&r.order_pick_list!=='')?r.order_pick_list:(r.opl||'');
+    return [opl,r.order_name,r.customer,r.farm,r.varieties,r.buckets,r.stems,full].join(FS);
+  }).join(RS);
+}
+
+function isoOf(x){ return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); }
+function todayISO(){ return isoOf(new Date()); }
+function addDaysISO(iso,d){ var x=new Date(iso+'T00:00:00'); x.setDate(x.getDate()+d); return isoOf(x); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+function n(v){ return Number(v||0).toLocaleString('en-US'); }
+function $(id){ return document.getElementById(id); }
+function pkey(opl,farm){ return opl+'||'+farm; }
+function toast(msg){ var t=$('ts-toast'); if(!t)return; t.textContent=msg; t.classList.add('show'); setTimeout(function(){t.classList.remove('show');},2200); }
+function vehCap(name){ for(var i=0;i<DATA.vehicles.length;i++){ if(DATA.vehicles[i].name===name) return DATA.vehicles[i].capacity_buckets; } return 0; }
+function orderByOpl(opl){ for(var i=0;i<DATA.orders.length;i++){ if(DATA.orders[i].opl===opl) return DATA.orders[i]; } return null; }
+
+/* portions on SAVED trips -> pkey -> tripName. PRESENCE only. */
+function savedPortions(){
+  var m={};
+  DATA.trips.forEach(function(t){ (t.orders||[]).forEach(function(r){ m[pkey(r.order_pick_list,r.farm)]=t.name; }); });
+  return m;
+}
+/* QUANTITY covered per (opl,farm) across ALL saved trips. */
+function coverMap(){ var m={}; DATA.trips.forEach(function(t){ (t.orders||[]).forEach(function(r){ var k=r.order_pick_list+'||'+r.farm; m[k]=(m[k]||0)+(r.buckets||0); }); }); return m; }
+/* An order's still-OPEN farm portions (quantity-aware). */
+function openFarms(o){
+  var cov=coverMap(), out=[];
+  (o.farms||[]).forEach(function(f){
+    var covered=cov[pkey(o.opl,f.farm)]||0;
+    var open=Math.max(0,f.buckets-covered);
+    if(open<=0) return;
+    var vs;
+    if(covered>0 && (f.varieties||[]).length===1) vs=[{variety:f.varieties[0].variety,buckets:open}];
+    else if(covered>0) vs=[{variety:'(partial mix)',buckets:open}];
+    else vs=f.varieties;
+    out.push({farm:f.farm,buckets:open,stems:(f.buckets?Math.round(f.stems/f.buckets*open):0),varieties:vs,covered:covered,total:f.buckets,partial:covered>0});
+  });
+  return out;
+}
+function openTotal(o){ var t=0; openFarms(o).forEach(function(f){ t+=f.buckets; }); return t; }
+
+/* ---------------- data ---------------- */
+function loadData(){
+  return apiGet('getTransferScheduleData',{from_date:S.from,to_date:S.to}).then(function(d){
+    DATA={ orders:d.orders||[], vehicles:d.vehicles||[], trips:d.trips||[], distances:d.distances||[], truck_status:d.truck_status||[], routes:d.routes||[], packhouse:d.packhouse };
+    var f=$('ts-fresh'); if(f) f.textContent='live · '+new Date().toLocaleTimeString();
+    render();
+  }).catch(function(e){
+    var po=$('panel-orders'); if(po) po.innerHTML='<div class="ts-loading" style="color:var(--bad)">Couldn\'t load: '+esc((e&&e.message)||'error')+' — <a href="" onclick="location.reload();return false" style="color:var(--ink);text-decoration:underline">reload</a></div>';
+  });
+}
+
+/* ---------------- render ---------------- */
+function render(){
+  var open=DATA.orders.length;
+  var sub=$('ts-sub');
+  if(sub) sub.textContent=(DATA.packhouse||'Kapkolia')+' packhouse · deliver '+S.from+(S.to!==S.from?' → '+S.to:'')+' · '+open+' pick list'+(open===1?'':'s')+' to move · '+DATA.trips.length+' trip'+(DATA.trips.length===1?'':'s');
+  document.querySelectorAll('.ts-tab').forEach(function(b){ b.classList.toggle('on', b.dataset.tab===S.tab); });
+  $('panel-orders').style.display=S.tab==='orders'?'':'none';
+  $('panel-build').style.display=S.tab==='build'?'':'none';
+  $('panel-triplist').style.display=(S.tab!=='orders'&&S.tab!=='build')?'':'none';
+  if(S.tab==='orders') renderOrders();
+  else if(S.tab==='build') renderBuild();
+  else renderTripList();
+}
+
+/* ---- route-aware truck allocation ----------------------------------------------
+   A truck plying a route TODAY (Bucket Logistics Route) may only carry buckets
+   from the farms on that route. A truck with NO route today is left UNRESTRICTED
+   so the feature degrades gracefully before routes are set up. */
+function truckFarmSets(){ var m={}; (DATA.routes||[]).forEach(function(r){ m[r.vehicle]=r.farms||[]; }); return m; }
+function routeByVeh(){ var m={}; (DATA.routes||[]).forEach(function(r){ m[r.vehicle]=r; }); return m; }
+/* A truck is only usable once its route is set today — no route = not selectable. */
+function hasRoute(vehicle){ var s=truckFarmSets()[vehicle]; return !!(s&&s.length); }
+function allFarmsKnown(){
+  var s={}; DATA.distances.forEach(function(d){ if(d.a&&d.a!==pack())s[d.a]=1; if(d.b&&d.b!==pack())s[d.b]=1; });
+  return Object.keys(s).sort();
+}
+function buildTruckState(){
+  var sets=truckFarmSets();
+  return fleetSorted().map(function(v){
+    return {vehicle:v.name,cap:v.capacity_buckets,rem:v.capacity_buckets,farmSet:sets[v.name],topup:null};
+  });
+}
+function cloneState(state){ return state.map(function(t){ return {vehicle:t.vehicle,cap:t.cap,rem:t.rem,farmSet:t.farmSet,topup:t.topup}; }); }
+function eligibleTrucks(state,farm){
+  return state.filter(function(t){ return (t.farmSet==null||t.farmSet.indexOf(farm)>=0)&&t.rem>0; })
+    .sort(function(a,b){ return b.rem-a.rem; });
+}
+/* Place up to `amount` buckets of `farm` into truckState (MUTATES rem). */
+function allocateFarmAmount(state,farm,amount){
+  var rows=[],left=amount,elig=eligibleTrucks(state,farm);
+  for(var i=0;i<elig.length&&left>0;i++){
+    var t=elig[i],take=Math.min(t.rem,left); if(take<=0)continue;
+    t.rem-=take; left-=take; rows.push({vehicle:t.vehicle,buckets:take});
+  }
+  return {placed:amount-left,rows:rows};
+}
+/* Try to place an order's OPEN farm portions (up to `cap` total buckets). */
+function allocateOrder(state,farms,cap){
+  var rows=[],left=cap,placed=0;
+  farms.forEach(function(f){
+    if(left<=0) return;
+    var want=Math.min(f.buckets,left);
+    var r=allocateFarmAmount(state,f.farm,want);
+    r.rows.forEach(function(x){ rows.push({farm:f.farm,vehicle:x.vehicle,buckets:x.buckets}); });
+    placed+=r.placed; left-=r.placed;
+  });
+  return {placed:placed,rows:rows};
+}
+
+function computeDistribution(){
+  var byTeam={};
+  DATA.orders.forEach(function(o){
+    var farms=openFarms(o), open=0; farms.forEach(function(f){ open+=f.buckets; });
+    if(open<=0 || !o.schedule) return;
+    (byTeam[o.team]=byTeam[o.team]||[]).push({opl:o.opl,schedule:o.schedule,open:open,farms:farms,order_name:o.order_name,team:o.team});
+  });
+  var teams=Object.keys(byTeam).sort();
+  teams.forEach(function(t){ byTeam[t].sort(function(a,b){return a.schedule-b.schedule;}); });
+  var state=buildTruckState();
+  var capacity=state.reduce(function(a,t){return a+t.cap;},0);
+
+  var fleetFarms={}; state.forEach(function(t){ if(t.farmSet) t.farmSet.forEach(function(f){ fleetFarms[f]=1; }); });
+  var anyUnrestricted=state.some(function(t){ return !t.farmSet; });
+  var reachable={}, unreachable=[];
+  teams.forEach(function(t){
+    reachable[t]=[];
+    byTeam[t].forEach(function(it){
+      var ok=anyUnrestricted || it.farms.some(function(f){ return fleetFarms[f.farm]; });
+      if(ok) reachable[t].push(it); else unreachable.push(it);
+    });
+  });
+
+  var idx={}; teams.forEach(function(t){idx[t]=0;});
+  var maxRounds=0; teams.forEach(function(t){ if(reachable[t].length>maxRounds) maxRounds=reachable[t].length; });
+  var picked=[], candidates=[], round=-1;
+  for(var r=0;r<maxRounds;r++){
+    var roundItems=[];
+    teams.forEach(function(t){ if(idx[t]===r && reachable[t][r]) roundItems.push(reachable[t][r]); });
+    if(!roundItems.length) continue;
+    roundItems.sort(function(a,b){ return a.open-b.open; });   // smallest first = fit the most teams
+    var roundCandidates=[];
+    roundItems.forEach(function(it){
+      var scratch=cloneState(state);
+      var alloc=allocateOrder(scratch,it.farms,it.open);
+      if(alloc.placed>=it.open){ state=scratch; it.alloc=alloc.rows; picked.push(it); idx[it.team]++; }
+      else { it.maxTake=alloc.placed; it.allocPreview=alloc.rows; roundCandidates.push(it); }
+    });
+    if(roundCandidates.length){ candidates=roundCandidates; round=r; break; }   // gate: stop for EVERYONE
+  }
+  var remaining=state.reduce(function(a,t){return a+t.rem;},0);
+  var targets={}; state.forEach(function(t){ targets[t.vehicle]=null; });
+  return {picked:picked, remaining:remaining, candidates:candidates, unreachable:unreachable, capacity:capacity, teamsWith:teams.length, round:round, finalState:state, targets:targets};
+}
+function distributeAction(){
+  if(S.distLoading) return; S.distLoading=true;
+  var btn=$('bDist'); if(btn){ btn.disabled=true; btn.textContent='Loading…'; }
+  loadData().then(function(){
+    S.distLoading=false;
+    if(btn){ btn.disabled=false; btn.textContent='⚡ Distribute across teams'; }
+    if(!fleetSorted().length){ toast('No available trucks — check a truck in the popup'); }
+    var dist=computeDistribution();
+    dist.shortQty={};
+    S.dist=dist; renderDistModal();
+  });
+}
+function closeDistModal(){ S.dist=null; var m=$('dist-modal'); if(m) m.remove(); }
+function distShortUsed(d){ var u=0; d.candidates.forEach(function(c){ u+=d.shortQty[c.opl]||0; }); return u; }
+function applyDistribution(){
+  var dist=S.dist; if(!dist) return;
+  S.sel={}; S.selQty={};
+  dist.picked.forEach(function(p){ S.sel[p.opl]=1; });
+  dist.candidates.forEach(function(c){
+    var q=dist.shortQty[c.opl]||0;
+    if(q>0){ S.sel[c.opl]=1; S.selQty[c.opl]=Math.min(c.open,q); }
+  });
+  closeDistModal(); S.tab='build'; render();
+}
+/* truck picker used inside the Distribute modal: checkbox + LIVE status + route editor. */
+function truckPickHtml(checkAct){
+  var tsMap={}; (DATA.truck_status||[]).forEach(function(s){ tsMap[s.truck]=s; });
+  var tripsByVeh={}; DATA.trips.forEach(function(t){ (tripsByVeh[t.vehicle]=tripsByVeh[t.vehicle]||[]).push(t); });
+  var routeByV=routeByVeh();
+  var routedTrucks=DATA.vehicles.filter(function(v){return hasRoute(v.name);});
+  var availN=routedTrucks.filter(function(v){return !S.broken[v.name];}).length;
+  return '<div class="veh-avail"><div class="va-lbl">Trucks &amp; routes<span class="va-date">'+esc(todayISO())+'</span><span class="va-sub">'+availN+' of '+DATA.vehicles.length+' available</span></div><div class="va-grid">'+
+    (DATA.vehicles.length?DATA.vehicles.map(function(v){
+      var routed=hasRoute(v.name);
+      var avail=routed&&!S.broken[v.name], s=tsMap[v.name];
+      var loc='○ Not run yet today', cls='idle';
+      if(s){
+        if(s.location==='loading'){ loc='Loading at '+esc(s.farm||'farm')+' · '+s.loading_pct+'% done'; cls='load'; }
+        else if(s.location==='in_transit'){ loc='In transit → '+esc(pack())+(s.in_transit?' · '+s.in_transit+' bkt on board':''); cls='transit'; }
+        else if(s.location==='arrived'){ loc='Arrived at '+esc(pack())+(s.shelved?' · '+s.shelved+' bkt shelved':''); cls='arrived'; }
+      }
+      var trips=tripsByVeh[v.name]||[];
+      var committed=0; trips.forEach(function(t){ committed+=t.total_buckets||0; });
+      var busyPct=v.capacity_buckets?Math.min(100,Math.round(committed/v.capacity_buckets*100)):0;
+      var tripList=trips.length?trips.map(function(t){ return esc(t.name)+' ('+(t.total_buckets||0)+' bkt'+(t.status==='Draft'?', draft':'')+')'; }).join(', '):'no trips planned yet';
+      var rt=routeByV[v.name];
+      var routeLine=routed
+        ? '<span class="tk-route">'+esc(rt.farms.join(' · '))+' · '+rt.total_km.toFixed(2)+' km</span>'
+        : '<span class="tk-route none">no route set — not usable until routed</span>';
+      var editing=S.routeEdit===v.name;
+      var routeEditor='';
+      if(editing){
+        var sel=(S.routeEditSel&&S.routeEditSel[v.name])||{};
+        var ticked=Object.keys(sel).filter(function(f){return sel[f];});
+        var nsel=ticked.length;
+        var expanded=nsel?expandViaRoadLegs(ticked):[];
+        var autoAdded=expanded.filter(function(f){return ticked.indexOf(f)<0;});
+        var previewBest=nsel?bestRoute(expanded):null;
+        var preview=nsel?('<div class="rt-preview">'+
+            (autoAdded.length?'<span class="rt-auto">+ '+autoAdded.map(esc).join(', ')+' — on the way, included automatically</span>':'')+
+            (previewBest&&previewBest.km!=null?'<span class="rt-km">'+esc(pack())+' → '+previewBest.order.map(esc).join(' → ')+' → '+esc(pack())+' · '+previewBest.km.toFixed(2)+' km</span>':'')+
+          '</div>'):'';
+        routeEditor='<div class="rt-editor">'+allFarmsKnown().map(function(f){
+          return '<label class="rt-fchk"><input type="checkbox" data-act="route-farm" data-veh="'+esc(v.name)+'" data-farm="'+esc(f)+'"'+(sel[f]?' checked':'')+'>'+esc(f)+'</label>';
+        }).join('')+preview+'<div class="rt-editor-foot"><span class="rt-hint" style="display:'+(nsel?'none':'')+'">Tick at least one farm</span><button class="tbtn" data-act="route-cancel">Cancel</button><button class="tbtn key" data-act="route-save" data-veh="'+esc(v.name)+'"'+(nsel?'':' disabled title="Tick at least one farm first"')+'>Save route</button></div></div>';
+      }
+      return '<div class="va-card'+(avail?'':' off')+'"><label class="va-top"><input type="checkbox" class="va-chk" data-act="'+checkAct+'" data-veh="'+esc(v.name)+'"'+(avail?' checked':'')+(routed?'':' disabled title="Set a route for this truck first"')+'><span class="va-nm">'+esc(v.name)+'</span><span class="va-cap">'+v.capacity_buckets+' bkt cap</span></label>'+
+        '<div class="va-row"><span class="va-k">Now</span><span class="tk-loc '+cls+'">'+loc+'</span></div>'+
+        '<div class="va-row"><span class="va-k">Busy</span><span class="tk-trips'+(trips.length?'':' none')+'">'+tripList+'</span></div>'+
+        (trips.length?'<div class="cap-bar" style="margin:4px 0 2px;height:5px"><i style="width:'+busyPct+'%"></i></div><div class="va-busy">'+committed+' / '+v.capacity_buckets+' bkt already committed</div>':'')+
+        '<div class="va-row"><span class="va-k">Route</span>'+routeLine+
+        '<button class="tbtn ghost rt-editbtn" data-act="route-edit" data-veh="'+esc(v.name)+'">'+(routed?'Edit':'Set')+'</button></div>'+
+        routeEditor+
+        '</div>';
+    }).join(''):'<span class="ts-hint">No internal-logistics trucks with a capacity set.</span>')+
+    '</div></div>';
+}
+/* Validate the user's chosen short quantities TOGETHER against the actually-committed truck state. */
+function shortAllocationCheck(d){
+  var state=cloneState(d.finalState), per={}, ok=true;
+  d.candidates.forEach(function(c){
+    var q=d.shortQty[c.opl]||0;
+    if(q<=0){ per[c.opl]=true; return; }
+    var alloc=allocateOrder(state,c.farms,q);
+    per[c.opl]=alloc.placed>=q;
+    if(!per[c.opl]) ok=false;
+  });
+  return {ok:ok, per:per};
+}
+function renderDistModal(){
+  var d=S.dist; if(!d){ closeDistModal(); return; }
+  var shortUsed=distShortUsed(d);
+  var totalUsed=(d.capacity-d.remaining)+shortUsed, free=d.capacity-totalUsed;
+  var pct=d.capacity?Math.round(totalUsed/d.capacity*100):0;
+  var check=shortAllocationCheck(d);
+  var rows=scheduleGridHtml(buildScheduleGrid(d));
+  var unreachHtml='';
+  if(d.unreachable && d.unreachable.length){
+    var byFarm={};
+    d.unreachable.forEach(function(u){ u.farms.forEach(function(f){ (byFarm[f.farm]=byFarm[f.farm]||[]).push(u); }); });
+    unreachHtml='<div class="dm-unreach"><div class="dm-unreach-hd">'+d.unreachable.length+' order'+(d.unreachable.length===1?'':'s')+' can’t move today — no selected truck’s route covers their farm</div><div class="dm-unreach-list">'+
+      Object.keys(byFarm).sort().map(function(f){ return '<span class="dm-unreach-chip">'+esc(f)+' · '+byFarm[f].length+'</span>'; }).join('')+
+      '</div></div>';
+  }
+  var shortOpts='';
+  if(d.candidates.length){
+    var msgs=d.candidates.map(function(c){ var over=Math.max(0,c.open-c.maxTake);
+      var reason=(c.maxTake<=0 && !eligibleTrucks(d.finalState,c.farms[0]&&c.farms[0].farm).length)
+        ? 'no truck is routed to its farm today' : 'the routed trucks don’t have that much room left';
+      return '<div class="dm-short-msg">Schedule <b>#'+c.schedule+'</b> for <b>'+esc(c.team)+'</b> is in excess by <b>'+over+'</b> bucket'+(over===1?'':'s')+' — '+esc(reason)+'. Transfer it partially now, or skip and take it on the next trip?</div>';
+    }).join('');
+    shortOpts='<div class="dm-short'+(check.ok?'':' over')+'">'+msgs+'<div class="dm-short-list">'+
+      d.candidates.map(function(c){ var q=d.shortQty[c.opl]||0; var take=c.maxTake;
+        return '<div class="dm-short-row'+(check.per[c.opl]===false?' bad':'')+'"><span class="dm-team">'+esc(c.team)+'</span><span class="dm-sch">#'+c.schedule+'</span><span class="dm-nm">'+esc(c.order_name)+'</span>'+
+          '<button class="tbtn ghost dm-qbtn" data-act="dist-shortset" data-opl="'+esc(c.opl)+'" data-val="0"'+(q===0?' disabled':'')+'>Skip</button>'+
+          '<input type="number" class="dm-short-inp" data-act="dist-shortqty" data-opl="'+esc(c.opl)+'" min="0" max="'+c.open+'" value="'+q+'">'+
+          '<span class="dm-of">/ '+c.open+' bkt (up to '+take+' reachable)</span>'+
+          '<button class="tbtn ghost dm-qbtn" data-act="dist-shortset" data-opl="'+esc(c.opl)+'" data-val="'+take+'"'+(q===take?' disabled':'')+'>Transfer '+take+'</button></div>';
+      }).join('')+
+      '</div>'+(!check.ok?'<div class="dm-short-warn">⚠ These amounts compete for the same truck space and don’t all fit together. Reduce one of them.</div>':'')+'</div>';
+  }
+  var html='<div class="dm-card"><div class="dm-hd"><h3>Distribution plan</h3><button class="sch-x" data-act="dist-cancel" title="Close">×</button></div>'+
+    '<div class="dm-body">'+
+      truckPickHtml('dist-truck')+
+      '<div class="dm-bar"><i style="width:'+pct+'%"></i></div><div class="dm-cap"><b>'+totalUsed+'</b> / '+d.capacity+' buckets used · '+free+' capacity still available · '+d.teamsWith+' team'+(d.teamsWith===1?'':'s')+' · '+(d.picked.length+d.candidates.filter(function(c){return (d.shortQty[c.opl]||0)>0;}).length)+' orders</div>'+
+      '<div class="dm-rows">'+(rows||'<div class="ts-empty" style="padding:14px">Nothing fits the selected trucks — check a truck above.</div>')+'</div>'+
+      shortOpts+
+      unreachHtml+
+    '</div>'+
+    '<div class="dm-foot"><button class="tbtn" data-act="dist-cancel">Cancel</button><button class="tbtn key" data-act="dist-confirm"'+(!check.ok?' disabled title="Fix the over-allocated amount above"':'')+'>Confirm &amp; plan trucks →</button></div></div>';
+  var m=$('dist-modal');
+  if(!m){ m=document.createElement('div'); m.id='dist-modal'; m.className='dm-overlay'; (document.querySelector('.aph')||document.body).appendChild(m);
+    m.addEventListener('click',function(e){ if(e.target===m) closeDistModal(); }); }
+  m.innerHTML=html;
+}
+
+/* Scheduling itself is now done ONLY by ⚡ Distribute — this tab is read-only/informational. */
+function renderOrders(){
+  var onTrip=savedPortions();
+  var tripVeh=tripVehMap();
+  if(!DATA.orders.length){ $('panel-orders').innerHTML='<div class="ts-empty">No scheduled orders need transferring in this delivery window. Schedule orders in the packhouse-scheduler first.</div>'; return; }
+  var anyOpen=DATA.orders.some(function(o){ return openTotal(o)>0; });
+  if(!anyOpen){ $('panel-orders').innerHTML='<div class="ts-empty">Every scheduled order is already fully on a trip — nothing left to plan. Check the <b>Trips</b> tab.</div>'; return; }
+  var fleet=fleetSorted(), fleetCap=0; fleet.forEach(function(v){ fleetCap+=v.capacity_buckets; });
+  var bar='<div class="plan-summary"><span class="ps-cap">'+n(fleetCap)+' bkt · '+fleet.length+' truck'+(fleet.length===1?'':'s')+' available</span>'+
+    '<span class="ps-hint">full capacity of each routed truck, per load — a truck can run more than one load today</span>'+
+    '<span class="ps-fill"></span>'+
+    '<button class="tbtn key" id="bDist" data-act="distribute" title="Fill the available trucks with one schedule per team, top priority first">⚡ Distribute across teams</button></div>';
+  var open=DATA.orders.filter(function(o){ return openTotal(o)>0; });
+  var groups=[], gmap={};
+  open.forEach(function(o){
+    var tm=o.team||'Unscheduled';
+    if(!gmap[tm]){ gmap[tm]={team:tm,orders:[]}; groups.push(gmap[tm]); }
+    gmap[tm].orders.push(o);
+  });
+  var cur=S.ordTeam||'all';
+  if(cur!=='all' && !gmap[cur]){ cur='all'; S.ordTeam='all'; }
+  var totN=0; groups.forEach(function(g){ totN+=g.orders.length; });
+  var teamTabs='<div class="ord-teams"><button class="ord-teambtn'+(cur==='all'?' on':'')+'" data-act="ord-team" data-team="all">All teams <span class="tc">'+totN+'</span></button>'+
+    groups.map(function(g){ return '<button class="ord-teambtn'+(cur===g.team?' on':'')+'" data-act="ord-team" data-team="'+esc(g.team)+'">'+esc(g.team)+' <span class="tc">'+g.orders.length+'</span></button>'; }).join('')+'</div>';
+  var shown=(cur==='all')?groups:groups.filter(function(g){ return g.team===cur; });
+  var html=shown.map(function(g){
+    var tb=0,sb=0;
+    g.orders.forEach(function(o){ tb+=o.total_buckets; sb+=o.total_buckets-openTotal(o); });
+    var rows=g.orders.map(function(o){ return orderRow(o,onTrip,tripVeh); }).join('');
+    return '<div class="pl-team"><div class="pl-team-hd"><span class="pl-team-nm">'+esc(g.team)+'</span>'+
+      '<span class="pl-team-sub">Schedule · '+g.orders.length+' order'+(g.orders.length===1?'':'s')+' · '+n(sb)+' / '+n(tb)+' buckets on a truck</span></div>'+
+      '<div class="pl-list">'+rows+'</div></div>';
+  }).join('');
+  $('panel-orders').innerHTML=bar+teamTabs+html;
+}
+function orderRow(o,onTrip,tripVeh){
+  tripVeh=tripVeh||{};
+  var sched=o.total_buckets-openTotal(o);
+  var pct=o.total_buckets?Math.round(sched/o.total_buckets*100):0;
+  var planned=sched>=o.total_buckets && o.total_buckets>0;
+  var cov=coverMap();
+  var map=o.farms.map(function(f){
+    var covered=cov[pkey(o.opl,f.farm)]||0;
+    var done=covered>=f.buckets, partial=covered>0&&!done;
+    var tn=onTrip[pkey(o.opl,f.farm)]; var vh=tn?(tripVeh[tn]||''):'';
+    var vs=f.varieties.map(function(v){ return v.variety+' '+v.buckets; }).join(' · ');
+    var mark=done?' ✓':(partial?' ◐ '+covered+'/'+f.buckets:'');
+    return '<span class="pl-fchip'+(done?' on':(partial?' partial':''))+'"'+(tn?' title="on '+esc(tn)+(vh?' / '+esc(vh):'')+'"':'')+'>'+
+      '<span class="fc-top"><b>'+esc(f.farm)+'</b><span>'+f.buckets+' bkt'+mark+'</span></span>'+
+      (vs?'<span class="fc-vs">'+esc(vs)+'</span>':'')+'</span>';
+  }).join('');
+  var tripsOn=[], seenT={}; o.farms.forEach(function(f){ var tn=onTrip[pkey(o.opl,f.farm)]; if(tn&&!seenT[tn]){ seenT[tn]=1; tripsOn.push(tn); } });
+  var tags=[];
+  if(sched>0 && !planned){
+    var left=o.total_buckets-sched;
+    var onWhich=tripsOn.map(function(tn){ return (tripVeh[tn]||'')+(tripVeh[tn]?' · ':'')+tn; }).join(', ');
+    tags.push('<span class="otag partial-flag" title="Already on '+esc(onWhich)+'">◐ PARTIAL — '+n(sched)+' bkt on '+esc(onWhich)+' · <b>'+n(left)+' bkt balance left</b></span>');
+  }
+  if(o.mixed && o.mixed!=='Straight box') tags.push('<span class="otag mix">'+esc(o.mixed)+'</span>');
+  if(o.delivery_date) tags.push('<span class="otag">due '+esc(o.delivery_date)+'</span>');
+  var rank=o.schedule?('#'+o.schedule):'—';
+  var mark2=planned?'<span class="pl-planned" title="Already planned onto a truck">✓</span>'
+    :(sched>0?'<span class="pl-planned partial" title="Partially planned — the rest is still open">◐</span>'
+      :'<span class="pl-planned none" aria-hidden="true"></span>');
+  return '<div class="pl-row'+(planned?' planned':'')+'">'+
+    '<span class="pl-rank'+(planned?' done':'')+'" title="Schedule priority">'+rank+'</span>'+
+    mark2+
+    '<div class="pl-main"><div class="pl-name">'+esc(o.order_name)+'<span class="pl-cust">'+esc(o.customer)+(o.truck?' · '+esc(o.truck):'')+'</span></div>'+
+    '<div class="pl-map">'+map+'</div>'+
+    (tags.length?'<div class="pl-tags">'+tags.join('')+'</div>':'')+'</div>'+
+    '<div class="pl-side">'+orderSide(o,sched,planned,pct)+'</div></div>';
+}
+function orderSide(o,sched,planned,pct){
+  var left=o.total_buckets-sched;
+  var cov='<div class="pl-cov"><b>'+n(sched)+'</b><span> / '+n(o.total_buckets)+'</span></div>';
+  if(planned || left<=0) return cov+'<div class="pl-bar"><i style="width:'+pct+'%"></i></div>';
+  var leftChip='<div class="pl-left">'+n(left)+' bkt left</div>';
+  return cov+leftChip+'<div class="pl-bar"><i style="width:'+pct+'%"></i></div>';
+}
+
+/* Usable fleet for distribution = not manually broken-down AND has a route set today. */
+function fleetSorted(){ var a=DATA.vehicles.filter(function(v){ return !S.broken[v.name] && hasRoute(v.name); }); a.sort(function(x,y){return y.capacity_buckets-x.capacity_buckets;}); return a; }
+/* Route-aware truck packing core. */
+function packPorts(ports,state,fleet){
+  var total=0; ports.forEach(function(p){ total+=p.buckets; });
+  var sets=truckFarmSets();
+  function anyoneServes(farm){ return fleet.some(function(v){ var s=sets[v.name]; return !s||!s.length||s.indexOf(farm)>=0; }); }
+  var sorted=ports.slice().sort(function(a,b){ if(a.farm!==b.farm) return a.farm<b.farm?-1:1; return (a.schedule||0)-(b.schedule||0); });
+  var byVeh={}, unplaced=0, blockedFarms={};
+  sorted.forEach(function(p){
+    var per=p.buckets?p.stems/p.buckets:0;
+    var r=allocateFarmAmount(state,p.farm,p.buckets);
+    r.rows.forEach(function(x){
+      if(!byVeh[x.vehicle]){
+        var vt=null; for(var i=0;i<state.length;i++){ if(state[i].vehicle===x.vehicle){vt=state[i];break;} }
+        byVeh[x.vehicle]={vehicle:x.vehicle,cap:vt?vt.cap:0,topup:vt?vt.topup:null,rows:[]};
+      }
+      byVeh[x.vehicle].rows.push({opl:p.opl,order_name:p.order_name,customer:p.customer,farm:p.farm,varieties:p.varieties,buckets:x.buckets,stems:Math.round(per*x.buckets),full:p.full});
+    });
+    var short=p.buckets-r.placed;
+    if(short>0){ unplaced+=short; if(!anyoneServes(p.farm)) blockedFarms[p.farm]=1; }
+  });
+  var loads=Object.keys(byVeh).map(function(k){ var L=byVeh[k]; var newUsed=L.rows.reduce(function(a,r){return a+r.buckets;},0);
+    return {vehicle:L.vehicle,cap:L.cap,rem:L.cap-newUsed,rows:L.rows,tripTarget:null,alreadyOnTrip:0,newBuckets:newUsed};
+  });
+  return {loads:loads,total:total,trucks:loads.length,unplaced:unplaced,blockedFarms:blockedFarms};
+}
+/* The ports that flow from the user's Distribute-confirmed selection (S.sel/S.selQty). */
+function selectedPortions(sel,selQty){
+  sel=sel||S.sel; selQty=selQty||S.selQty;
+  var out=[];
+  DATA.orders.forEach(function(o){
+    if(!sel[o.opl]) return;
+    var open=openFarms(o);
+    var openTot=0; open.forEach(function(f){ openTot+=f.buckets; });
+    var cap=(selQty[o.opl]!=null)?Math.max(0,Math.min(openTot,selQty[o.opl])):openTot;
+    var left=cap;
+    open.forEach(function(f){
+      if(left<=0) return;
+      var take=Math.min(f.buckets,left); left-=take;
+      var per=f.buckets?f.stems/f.buckets:0;
+      out.push({opl:o.opl,order_name:o.order_name,customer:o.customer,schedule:o.schedule,team:o.team,farm:f.farm,
+        varieties:f.varieties.map(function(v){return v.variety;}).join(', '),buckets:take,stems:Math.round(per*take),full:f.buckets});
+    });
+  });
+  return out;
+}
+function suggestPlan(){
+  var ports=selectedPortions();
+  if(!ports.length) return {empty:true};
+  var fleet=fleetSorted();
+  if(!fleet.length) return {nofleet:true};
+  var state=buildTruckState();
+  var fleetCap=state.reduce(function(a,t){return a+t.rem;},0);
+  var total=0; ports.forEach(function(p){ total+=p.buckets; });
+  if(total>fleetCap) return {over:true,total:total,fleetCap:fleetCap};
+  var packed=packPorts(ports,state,fleet);
+  if(packed.unplaced>0){
+    var farms=Object.keys(packed.blockedFarms);
+    var msg=farms.length
+      ? 'No truck routed to '+farms.join(', ')+' today — '+packed.unplaced+' bucket'+(packed.unplaced===1?'':'s')+" can't move. Route a truck there in the Distribute popup, or deselect that portion."
+      : packed.unplaced+' bucket'+(packed.unplaced===1?'':'s')+" couldn't fit any eligible truck's remaining capacity. Free up space or add a truck.";
+    return {over:true,total:total,fleetCap:fleetCap,unplaced:packed.unplaced,routeMsg:msg};
+  }
+  return {loads:packed.loads,total:total,trucks:packed.trucks};
+}
+function distSelPreview(d){
+  var sel={}, selQty={};
+  d.picked.forEach(function(p){ sel[p.opl]=1; });
+  d.candidates.forEach(function(c){ var q=d.shortQty[c.opl]||0; if(q>0){ sel[c.opl]=1; selQty[c.opl]=Math.min(c.open,q); } });
+  return selectedPortions(sel,selQty);
+}
+
+/* TEAM × SCHEDULE status grid. */
+function buildScheduleGrid(dist){
+  var state=buildTruckState();
+  var fleetFarms={}; state.forEach(function(t){ if(t.farmSet) t.farmSet.forEach(function(f){ fleetFarms[f]=1; }); });
+  var anyUnrestricted=state.some(function(t){ return !t.farmSet; });
+  function reachable(o){ return anyUnrestricted || openFarms(o).some(function(f){ return fleetFarms[f.farm]; }); }
+  var projQty={};
+  if(dist){
+    dist.picked.forEach(function(p){ projQty[p.opl]=p.open; });
+    dist.candidates.forEach(function(c){ var q=(dist.shortQty&&dist.shortQty[c.opl])||0; if(q>0) projQty[c.opl]=q; });
+  }
+  var allocByOpl={};
+  if(dist){
+    var packed=packPorts(distSelPreview(dist),buildTruckState(),fleetSorted());
+    packed.loads.forEach(function(L){ L.rows.forEach(function(r){ (allocByOpl[r.opl]=allocByOpl[r.opl]||[]).push({vehicle:L.vehicle,buckets:r.buckets,tripTarget:L.tripTarget}); }); });
+  }
+  var sp=savedPortions();
+  function tripsForOrder(o){
+    var names={};
+    (o.farms||[]).forEach(function(f){ var tn=sp[pkey(o.opl,f.farm)]; if(tn) names[tn]=1; });
+    return Object.keys(names).map(function(nm){ var t=DATA.trips.filter(function(x){return x.name===nm;})[0]; return {name:nm,vehicle:t?t.vehicle:''}; });
+  }
+  var teamsSeen={}, schedsSeen={}, grid={};
+  DATA.orders.forEach(function(o){
+    if(!o.schedule) return;
+    teamsSeen[o.team]=1; schedsSeen[o.schedule]=1;
+    var open=openTotal(o), total=o.total_buckets, moving=projQty[o.opl]||0, afterOpen=Math.max(0,open-moving);
+    var status;
+    if(afterOpen<=0) status=moving?'willmove-done':'done';
+    else if(afterOpen<total) status=moving?'willmove-partial':'partial';
+    else status=reachable(o)?'pending':'blocked';
+    var trips=tripsForOrder(o);
+    var cell={o:o,status:status,open:open,afterOpen:afterOpen,total:total,reachable:reachable(o),alloc:allocByOpl[o.opl]||[],trips:trips};
+    (grid[o.team]=grid[o.team]||{})[o.schedule]=(grid[o.team][o.schedule]||[]).concat([cell]);
+  });
+  var teams=Object.keys(teamsSeen).sort();
+  var scheds=Object.keys(schedsSeen).map(Number).sort(function(a,b){return a-b;});
+  teams.forEach(function(tm){
+    var row=grid[tm]||{}, sawDone=false;
+    for(var i=scheds.length-1;i>=0;i--){
+      var cells=row[scheds[i]]; if(!cells) continue;
+      var anyDone=cells.some(function(c){ return c.status==='done'||c.status==='willmove-done'; });
+      if(anyDone) sawDone=true;
+      else if(sawDone) cells.forEach(function(c){ if(c.reachable) c.leftBehind=true; });
+    }
+  });
+  return {teams:teams,scheds:scheds,grid:grid};
+}
+function scheduleGridHtml(g){
+  if(!g.teams.length||!g.scheds.length) return '<div class="ts-empty">Nothing scheduled for transfer.</div>';
+  var head='<th class="sg-schcol">#</th>'+g.teams.map(function(t){ return '<th>'+esc(t)+'</th>'; }).join('');
+  var body=g.scheds.map(function(s){
+    var cells=g.teams.map(function(tm){
+      var arr=(g.grid[tm]&&g.grid[tm][s])||[];
+      if(!arr.length) return '<td class="sg-cell sg-empty">·</td>';
+      var inner=arr.map(function(c){
+        var base=c.status.replace('willmove-','');
+        var cls='sg-box sg-'+base+(c.status.indexOf('willmove')===0?' sg-inround':'')+(c.leftBehind?' sg-left':'');
+        var label=base==='done'?'✓ done':base==='partial'?'◐ '+c.afterOpen+'/'+c.total+' left':base==='blocked'?'✕ no route':c.afterOpen+' bkt';
+        var truckTag=c.alloc.length?c.alloc.map(function(a){ return '<span class="tt-badge new">'+esc(a.vehicle)+' · '+a.buckets+'</span>'; }).join(''):'';
+        var tripTag=c.trips.length?c.trips.map(function(t){ return '<span class="tt-badge trip" title="'+esc(t.name)+'">'+esc(t.vehicle||t.name)+'</span>'; }).join(''):'';
+        return '<div class="'+cls+'" title="'+esc(c.o.order_name)+' · '+esc(c.o.customer)+(c.leftBehind?' — left behind: a lower-priority schedule for this team already moved':'')+'">'+
+          '<span class="sg-nm">'+esc(c.o.order_name)+'</span><span class="sg-st">'+label+'</span>'+truckTag+tripTag+(c.leftBehind?'<span class="sg-warn">⚠</span>':'')+'</div>';
+      }).join('');
+      return '<td class="sg-cell">'+inner+'</td>';
+    }).join('');
+    return '<tr><td class="sg-schcol">#'+s+'</td>'+cells+'</tr>';
+  }).join('');
+  return '<div class="sg-wrap"><table class="sg-table"><thead><tr>'+head+'</tr></thead><tbody>'+body+'</tbody></table></div>'+
+    '<div class="sg-legend"><span class="sg-lg sg-done">done</span><span class="sg-lg sg-partial">partial</span><span class="sg-lg sg-pending">pending</span><span class="sg-lg sg-blocked">no route today</span><span class="sg-lg sg-leftlg">⚠ left behind</span></div>';
+}
+
+function renderBuild(){   // "Plan trucks" tab
+  var sel=selectedPortions();
+  if(!sel.length){ $('panel-build').innerHTML='<div class="ts-empty">Pick the orders to transfer together on the <b>Scheduled orders</b> tab (via ⚡ Distribute), then come back here for a truck plan.</div>'; return; }
+  var plan=suggestPlan();
+  var norders={}; sel.forEach(function(p){ norders[p.opl]=1; });
+  var byFarm={}; sel.forEach(function(p){ byFarm[p.farm]=(byFarm[p.farm]||0)+p.buckets; });
+  var farmChips=Object.keys(byFarm).sort().map(function(f){ return '<span class="pchip">'+esc(f)+' · '+byFarm[f]+'</span>'; }).join('');
+  var head='<div class="fr-intro"><b>'+Object.keys(norders).length+' orders · '+n(plan.total||0)+' buckets</b> selected, across '+Object.keys(byFarm).length+' farm'+(Object.keys(byFarm).length===1?'':'s')+'.<div class="plan-farms">'+farmChips+'</div></div>';
+  if(plan.nofleet){ $('panel-build').innerHTML=head+'<div class="plan-refuse">No trucks selected. Open <b>⚡ Distribute across teams</b> on the Scheduled orders tab to pick trucks.</div>'; return; }
+  if(plan.over){ $('panel-build').innerHTML=head+'<div class="plan-refuse">✋ '+(plan.routeMsg||(n(plan.total)+' buckets exceed the selected trucks’ capacity ('+n(plan.fleetCap)+'). Reduce buckets on some orders, deselect orders, or add a truck in the Distribute popup.'))+'</div>'; return; }
+  var cards=plan.loads.map(function(load,i){
+    var used=load.cap-load.rem;
+    var loadFarms=[]; load.rows.forEach(function(r){ if(r.farm&&loadFarms.indexOf(r.farm)<0)loadFarms.push(r.farm); });
+    var best=bestRoute(loadFarms);
+    var order=(best.km!=null&&best.order.length)?best.order:loadFarms;
+    var g={}; load.rows.forEach(function(r){ if(!g[r.farm])g[r.farm]={}; var k=r.order_name||r.opl;
+      if(!g[r.farm][k]) g[r.farm][k]={order_name:r.order_name,customer:r.customer,buckets:0,vs:{}};
+      g[r.farm][k].buckets+=r.buckets; (r.varieties||'').split(',').forEach(function(v){ v=v.trim(); if(v)g[r.farm][k].vs[v]=1; }); });
+    var stops=order.map(function(fm,si){ var ords=g[fm]; if(!ords) return '';
+      var fb=0; Object.keys(ords).forEach(function(k){ fb+=ords[k].buckets; });
+      var orows=Object.keys(ords).map(function(k){ var o=ords[k]; var vs=Object.keys(o.vs).join(', ');
+        return '<div class="fr-ord"><div class="fr-onm"><div class="nm">'+esc(o.order_name)+' · '+esc(o.customer)+'</div>'+(vs?'<div class="fr-vs">'+esc(vs)+'</div>':'')+'</div><span class="fr-bk">'+o.buckets+' bkt</span></div>'; }).join('');
+      return '<div class="fr-stop"><div class="fr-stop-hd"><span class="fr-stopn">'+(si+1)+'</span><span class="fr-stopf">'+esc(fm)+'</span><span class="fr-stopb">'+fb+' bkt</span></div>'+orows+'</div>';
+    }).join('');
+    return '<div class="fr-card"><div class="fr-hd"><h3>Truck '+(i+1)+' · '+esc(load.vehicle)+'</h3><span class="fr-tot"><b>'+used+'</b> / '+load.cap+' buckets</span></div>'+
+      '<span class="fr-target new">+ new trip</span>'+
+      '<div class="cap-bar" style="margin-top:8px"><i style="width:'+Math.min(100,load.cap?Math.round(used/load.cap*100):0)+'%"></i></div>'+
+      routeHtml(loadFarms)+
+      '<div class="fr-stops">'+stops+'</div></div>';
+  }).join('');
+  var saveBar='<div class="plan-save"><button class="tbtn key" data-act="plan-save">Apply — '+plan.trucks+' truck'+(plan.trucks===1?'':'s')+'</button>'+
+    '<button class="tbtn" data-act="plan-cancel">Cancel</button>'+
+    '<span class="plan-note">'+plan.trucks+' new trip'+(plan.trucks===1?'':'s')+' will be created; anything else on the Trips tab is untouched.</span></div>';
+  $('panel-build').innerHTML=head+saveBar+cards;
+}
+
+/* Create the dispatch: one Bucket Request Trip per truck the plan suggests. */
+function saveDispatch(){
+  var plan=suggestPlan();
+  if(!plan || plan.empty || plan.over || plan.nofleet || !plan.loads) return;
+  Promise.all(plan.loads.map(function(load){
+    var args={ vehicle:load.vehicle, trip_date:todayISO(), status:'Draft', farm:'', collection_order:'', orders:encodeOrders(load.rows) };
+    return call('saveBucketTrip',args).then(function(r){ return {load:load, r:r}; }).catch(function(err){ return {load:load, err:err}; });
+  })).then(function(results){
+    var ok=[], failed=[];
+    results.forEach(function(x){
+      var m=(x.r&&x.r.message)||{};
+      if(!x.err && m.status==='success') ok.push(x.load.vehicle);
+      else failed.push(x.load.vehicle+': '+(x.err?((x.err&&x.err.message)||'request failed'):(m.message||'save failed')));
+    });
+    if(failed.length){ toast((ok.length?ok.length+' truck'+(ok.length===1?'':'s')+' saved, but ':'')+failed.length+' failed — '+failed.join('; ')); }
+    else { toast('Dispatch saved — '+plan.trucks+' truck'+(plan.trucks===1?'':'s')); S.sel={}; S.selQty={}; S.tab='triplist'; }
+    loadData();
+  });
+}
+
+/* Bucket-status breakdown for a trip's truck — from truck_status (the OPLs'
+   transit_truck flags, truck-wide, not bucket-exact per-trip). */
+function statusPillsHtml(vehicle){
+  var s=null; (DATA.truck_status||[]).forEach(function(x){ if(x.truck===vehicle) s=x; });
+  if(!s||!s.total) return '<div class="ts-pills"><span class="ts-pill zero">no transfer activity yet</span></div>';
+  var flags=[['awaiting','Awaiting','var(--warn)'],['loaded','Loading','#7c5cfc'],['in_transit','In transit','#1d4ed8'],['shelved','Arrived','var(--signal)']];
+  var pills=flags.map(function(f){ var v=s[f[0]]||0; if(!v) return '';
+    return '<span class="ts-pill" style="background:'+f[2]+'">'+f[1]+' '+v+' / '+s.total+'</span>'; }).join('');
+  return '<div class="ts-pills">'+(pills||'<span class="ts-pill zero">no buckets</span>')+'</div>';
+}
+function tripCardHtml(t){
+  var rows=(t.orders||[]).map(function(r){
+    return '<div class="torow"><span class="nm">'+esc(r.order_name||r.order_pick_list)+'</span>'+
+      (r.farm?'<span class="fm">'+esc(r.farm)+'</span>':'')+
+      (r.varieties?'<span style="font:500 10px var(--mono);color:var(--ink-mute)">'+esc(r.varieties)+'</span>':'')+
+      '<span class="b">'+(r.buckets||0)+' bkt</span></div>';
+  }).join('');
+  var cap=t.capacity_buckets||0, used=t.total_buckets||0, pct=cap?Math.min(100,Math.round(used/cap*100)):0;
+  function tripFarms2(orders){ var seen={}, out=[]; (orders||[]).forEach(function(r){ if(r.farm && !seen[r.farm]){ seen[r.farm]=1; out.push(r.farm); } }); return out; }
+  return '<div class="trip-card"><div class="trip-hd"><h3>'+esc(t.name)+'</h3>'+
+    (t.vehicle?'<span class="veh">'+esc(t.vehicle)+'</span>':'')+
+    (t.trip_date?'<span style="font:500 11px var(--mono);color:var(--ink-mute)">'+esc(t.trip_date)+'</span>':'')+
+    '</div>'+
+    '<div class="cap-bar" style="margin-top:10px"><i style="width:'+pct+'%"></i></div>'+
+    '<div style="font:500 10px var(--mono);color:var(--ink-mute);margin-top:4px">'+used+' / '+(cap||'—')+' buckets · '+n(t.total_stems||0)+' stems</div>'+
+    statusPillsHtml(t.vehicle)+
+    routeHtml(tripFarms2(t.orders))+
+    '<div class="trip-orders">'+rows+'</div></div>';
+}
+function renderTripList(){   // "Trips" tab — VIEW ONLY: schedule grid + every trip as a read-only card.
+  var g=buildScheduleGrid();
+  var gridHtml='<div class="sg-section"><div class="tab-hd">Schedule status — all teams</div>'+scheduleGridHtml(g)+'</div>';
+  function tripFarms2(orders){ var seen={}, out=[]; (orders||[]).forEach(function(r){ if(r.farm && !seen[r.farm]){ seen[r.farm]=1; out.push(r.farm); } }); return out; }
+  var totBest=0,anyRoute=false;
+  DATA.trips.forEach(function(t){ var f=tripFarms2(t.orders); if(!f.length) return;
+    var b=bestRoute(f); if(b.km==null) return; anyRoute=true; totBest+=b.km; });
+  var routeSum=(DATA.trips.length&&anyRoute)?'<div class="route-sum"><span>'+DATA.trips.length+' trip'+(DATA.trips.length===1?'':'s')+' · recommended total <b class="best">'+totBest.toFixed(2)+' km</b> of driving</span></div>':'';
+  var below=DATA.trips.length
+    ? DATA.trips.map(tripCardHtml).join('')
+    : '<div class="ts-empty">No bucket request trips yet. Use <b>⚡ Distribute across teams</b> on the Scheduled orders tab.</div>';
+  $('panel-triplist').innerHTML=gridHtml+routeSum+below;
+}
+
+document.addEventListener('click',function(ev){
+  var el=ev.target.closest('[data-act]'); if(!el) return; var a=el.dataset.act;
+  if(a==='tab'){ S.tab=el.dataset.tab; render(); }
+  else if(a==='ord-team'){ S.ordTeam=el.dataset.team; renderOrders(); }
+  else if(a==='distribute'){ distributeAction(); }
+  else if(a==='dist-truck'){ if(el.checked) delete S.broken[el.dataset.veh]; else S.broken[el.dataset.veh]=1; if(S.dist){ var nd=computeDistribution(); nd.shortQty={}; S.dist=nd; renderDistModal(); } }
+  else if(a==='route-edit'){
+    var vname=el.dataset.veh;
+    if(S.routeEdit===vname){ S.routeEdit=null; }
+    else{ S.routeEdit=vname; S.routeEditSel=S.routeEditSel||{};
+      var rt=routeByVeh()[vname]; var seed={}; if(rt){ rt.farms.forEach(function(f){seed[f]=1;}); }
+      S.routeEditSel[vname]=seed; }
+    if(S.dist) renderDistModal();
+  }
+  else if(a==='route-farm'){ S.routeEditSel=S.routeEditSel||{}; var vn=el.dataset.veh; S.routeEditSel[vn]=S.routeEditSel[vn]||{};
+    if(el.checked) S.routeEditSel[vn][el.dataset.farm]=1; else delete S.routeEditSel[vn][el.dataset.farm];
+    if(S.dist) setTimeout(renderDistModal,0);
+  }
+  else if(a==='route-cancel'){ S.routeEdit=null; if(S.dist) renderDistModal(); }
+  else if(a==='route-save'){ if(!el.disabled) saveRoute(el.dataset.veh); }
+  else if(a==='dist-shortset'){ if(S.dist){ S.dist.shortQty[el.dataset.opl]=parseInt(el.dataset.val,10)||0; renderDistModal(); } }
+  else if(a==='dist-confirm'){ if(!el.disabled) applyDistribution(); }
+  else if(a==='dist-cancel'){ closeDistModal(); }
+  else if(a==='plan-save'){ saveDispatch(); }
+  else if(a==='plan-cancel'){ S.sel={}; S.selQty={}; S.tab='orders'; render(); }
+});
+document.addEventListener('change',function(ev){
+  var el=ev.target; if(!el.dataset||!el.dataset.act) return; var a=el.dataset.act;
+  if(a==='dist-shortqty'){ if(S.dist){ var qv=parseInt(el.value,10), qmx=parseInt(el.getAttribute('max'),10)||0; if(!isFinite(qv)||qv<0)qv=0; if(qv>qmx)qv=qmx; S.dist.shortQty[el.dataset.opl]=qv;
+    setTimeout(renderDistModal,0); } }
+});
+var _ff=$('ts-from'), _ft=$('ts-to');
+if(_ff){ _ff.addEventListener('change',function(e){ S.from=e.target.value||todayISO(); if(S.to<S.from) S.to=S.from; if(_ft)_ft.value=S.to; loadData(); }); _ff.value=S.from; }
+if(_ft){ _ft.addEventListener('change',function(e){ S.to=e.target.value||S.from; if(S.to<S.from){ S.from=S.to; if(_ff)_ff.value=S.from; } loadData(); }); _ft.value=S.to; }
+
+function boot(){ loadData(); }
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
+
+/* -- Sidebar footer (user identity) -- */
+(function fillFooter(){
+  function tryFill(){
+    if (!window.frappe || !frappe.session || !frappe.session.user){ setTimeout(tryFill, 100); return; }
+    var u = frappe.session.user || '';
+    var fullName = (frappe.session.user_fullname || (frappe.boot && frappe.boot.user && frappe.boot.user.full_name)) || u.split('@')[0];
+    var av=$('aph-foot-av'), nmEl=$('aph-foot-nm'), emEl=$('aph-foot-em');
+    if (av) av.textContent = (fullName||u||'?').substring(0,1).toUpperCase();
+    if (nmEl) nmEl.textContent = fullName;
+    if (emEl) emEl.textContent = u;
+  }
+  tryFill();
+})();
+})();
+</script>
+<link rel="stylesheet" href="/assets/upande_packhouse/css/packhouse-portal.css">
+{% endraw %}
+{% endblock %}

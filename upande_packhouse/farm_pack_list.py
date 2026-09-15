@@ -161,10 +161,54 @@ def _move_to_graded_sold(fpl_doc):
 	return transfer.name
 
 
+def farm_pack_list_on_submit(doc, method=None):
+	"""Runs on EVERY Farm Pack List submit -- via sync_and_maybe_submit_fpl's
+	own auto-submit-when-complete path below, but just as much via a plain
+	Desk "Submit" click, or anything else that flips this doc to docstatus 1.
+	Deliberately has NO packing-completeness check of its own: whether an
+	FPL was allowed to auto-submit is sync_and_maybe_submit_fpl's decision
+	(via fpl_pack_blockers) to make BEFORE calling .submit() -- once a
+	document is actually submitted, by any path, it should always get its
+	Graded Sold stock move and Box Label(s) generated from whatever was
+	actually packed, complete or not (see box_label.py's own docstring:
+	a label always reflects reality, not the plan).
+
+	Before this hook existed, both of those steps were called explicitly,
+	only from inside sync_and_maybe_submit_fpl, right after its own
+	fpl.submit() call -- so any FPL submitted any other way (e.g. directly
+	from the Desk form) got neither, silently, with no error to notice
+	(confirmed in production: FPL-2026-00001, submitted via Desk while only
+	60 of its 200 required stems were packed -- no Box Label, no Graded
+	Sold transfer, fixed by hand once; this hook closes the gap for good).
+
+	Stashes its results on doc.flags so sync_and_maybe_submit_fpl (which
+	calls .submit() on this SAME doc instance) can still return them to its
+	own callers without this hook and that function running the two steps
+	twice between them.
+	"""
+	opl = frappe.get_doc("Order Pick List", doc.order_pick_list) if doc.order_pick_list else None
+	so = frappe.get_doc("Sales Order", doc.sales_order) if doc.sales_order else None
+
+	doc.flags.graded_sold_transfer = _move_to_graded_sold(doc)
+
+	if opl and so:
+		doc.flags.box_labels_result = sync_box_labels_for_fpl(doc, opl, so)
+	else:
+		doc.flags.box_labels_result = None
+		frappe.log_error(
+			title="FPL submit: missing order_pick_list/sales_order",
+			message="FPL={0} order_pick_list={1} sales_order={2} -- can't generate Box Labels without both.".format(
+				doc.name, doc.order_pick_list, doc.sales_order
+			),
+		)
+
+
 def sync_and_maybe_submit_fpl(fpl_name):
 	"""Called after every pack scan lands on a Farm Pack List: refreshes its
-	header fields, then submits it (and generates Box Labels) once its Order
-	Pick List's whole Packing Guide is satisfied. Idempotent throughout.
+	header fields, then submits it once its Order Pick List's whole Packing
+	Guide is satisfied -- submitting triggers farm_pack_list_on_submit
+	(doc_events, hooks.py), which does the actual Graded Sold move + Box
+	Label generation. Idempotent throughout.
 
 	Returns (submitted: bool, box_labels: dict | None).
 	"""
@@ -183,9 +227,6 @@ def sync_and_maybe_submit_fpl(fpl_name):
 		return False, None
 
 	fpl.flags.ignore_permissions = True
-	fpl.submit()
+	fpl.submit()  # farm_pack_list_on_submit runs here -- see hooks.py doc_events
 
-	_move_to_graded_sold(fpl)
-
-	labels = sync_box_labels_for_fpl(fpl, opl, so)
-	return True, labels
+	return True, fpl.flags.get("box_labels_result")

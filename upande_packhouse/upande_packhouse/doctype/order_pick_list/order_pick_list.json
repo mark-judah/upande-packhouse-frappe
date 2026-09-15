@@ -174,7 +174,18 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
- "links": [],
+ "links": [
+  {
+   "group": "Packhouse",
+   "link_doctype": "Farm Pack List",
+   "link_fieldname": "order_pick_list"
+  },
+  {
+   "group": "Packhouse",
+   "link_doctype": "Box Label",
+   "link_fieldname": "order_pick_list"
+  }
+ ],
  "modified": "2026-09-11 12:57:23.956483",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",

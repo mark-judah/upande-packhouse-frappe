@@ -96,8 +96,8 @@
    "fieldname": "spec_name",
    "fieldtype": "Data",
    "label": "Spec Name",
-   "read_only": 1,
    "reqd": 1,
+   "set_only_once": 1,
    "unique": 1
   },
   {

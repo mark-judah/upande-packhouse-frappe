@@ -1,0 +1,829 @@
+{% extends "templates/web.html" %}
+{% block page_content %}
+{% raw %}
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+/* ══════════════════════════════════════════════════════════════════
+   Design system copied from /home/jk/Projects/Designs/ufd-modern-1-mona.html
+   ("Mona" -- the same tokens/components the original packhouse pages use)
+   — unchanged, so analytics matches the rest of the suite. Bridge aliases
+   at the bottom of :root feed the shared UNIFORM SIDEBAR rules in
+   packhouse-portal.css (--bg-card/--text/--border/--f etc), exactly the
+   way packhouse-dashboard.html and the other original pages already do.
+   ══════════════════════════════════════════════════════════════════ */
+:root{
+  --ink:#0a0a0a;--ink-1:#1a1a18;--ink-2:#2a2a26;--ink-3:#3a3a34;--ink-4:#5a5a52;
+  --ink-mute:#8a8780;--ink-faint:#b8b6ae;
+  --bg:#f4f3ef;--surface:#fafaf6;--surface-2:#ffffff;
+  --hairline:rgba(10,10,10,0.06);
+  --shadow-card:0 1px 0 rgba(10,10,10,0.04), 0 8px 32px -16px rgba(10,10,10,0.10);
+  --shadow-hover:0 1px 0 rgba(10,10,10,0.06), 0 24px 48px -24px rgba(10,10,10,0.18);
+  --signal:#228883;
+  --good:#1a8a3a;--warn:#9a5a00;--bad:#c4302b;
+  --grad-ink:linear-gradient(135deg,#0a0a0a 0%,#3a3a34 100%);
+  --grad-chart:linear-gradient(180deg,rgba(10,10,10,0.18) 0%,rgba(10,10,10,0) 100%);
+  --grad-chart-2:linear-gradient(180deg,rgba(34,136,131,0.25) 0%,rgba(34,136,131,0) 100%);
+  --sans:'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --display:'Fraunces',Georgia,serif;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+  --sidebar-w:248px;--sidebar-cw:74px;
+  /* bridge -> shared sidebar CSS (packhouse-portal.css) */
+  --bg-card:var(--surface-2);--bg-hover:rgba(10,10,10,0.03);--bg-muted:rgba(10,10,10,0.04);
+  --border:var(--hairline);--border-2:rgba(10,10,10,0.12);
+  --text:var(--ink);--text-2:var(--ink-4);--text-3:var(--ink-mute);--text-4:var(--ink-faint);
+  --accent:var(--ink);--f:var(--sans);
+}
+*{box-sizing:border-box}
+html,body{margin:0!important;padding:0!important;overflow:hidden!important;height:100vh!important}
+.navbar,header,.page-breadcrumbs,.page-header,.page-header-wrapper,.web-footer,footer,
+.website-edit-button,.btn-edit-page,.edit-page-btn,.scroll-to-top,.back-to-top,
+.website-banner,.call-to-action,.frappe-chat,#frappe-chat,.telegram-share,.share-buttons,
+.web-page-edit,.published-edit{display:none!important}
+body{font-family:var(--sans);font-size:14px;color:var(--ink-3);background:var(--bg);line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+
+.aph *{box-sizing:border-box}
+.aph{position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100vh;z-index:2147483000;
+  display:grid;grid-template-columns:var(--sidebar-w) 1fr;
+  transition:grid-template-columns .22s cubic-bezier(.4,0,.2,1)}
+.aph.collapsed{grid-template-columns:var(--sidebar-cw) 1fr}
+.aph svg.ic{width:16px;height:16px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.aph .aph-side svg.ic{width:17px;height:17px;stroke-width:1.75;color:var(--ink-mute)}
+.aph .aph-side .nav-item.active svg.ic{color:#fafaf6}
+.aph-main{min-width:0;height:100vh;overflow-y:auto;overflow-x:hidden}
+
+/* ─────────────── Mona components (byte-for-byte from the reference) ─────────────── */
+.page{max-width:1520px;margin:0 auto;padding:32px 40px 80px}
+.pagehead{display:grid;grid-template-columns:1fr auto;align-items:end;gap:32px;margin-bottom:28px}
+.pagehead__eyebrow{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:2.2px;color:var(--ink-mute);margin-bottom:10px;display:inline-flex;align-items:center;gap:10px}
+.pagehead__eyebrow::before{content:"";width:18px;height:1px;background:var(--ink-3)}
+.pagehead__title{font:600 40px/1.05 var(--sans);color:var(--ink);letter-spacing:-1.3px;margin:0}
+.pagehead__sub{margin-top:8px;font-size:15px;color:var(--ink-4)}
+.pagehead__tools{display:flex;gap:10px;align-items:center}
+
+.pillgroup{display:inline-flex;background:rgba(10,10,10,0.04);border-radius:999px;padding:4px;gap:2px}
+.pillgroup button{border:0;background:transparent;font:500 12px var(--sans);color:var(--ink-4);padding:8px 16px;cursor:pointer;border-radius:999px;transition:all .2s}
+.pillgroup button.on{background:var(--ink);color:#fafaf6;box-shadow:0 2px 8px rgba(10,10,10,0.15)}
+.datepill{display:inline-flex;align-items:center;gap:8px;background:var(--surface-2);border-radius:999px;padding:10px 16px;font:500 12px var(--sans);color:var(--ink);box-shadow:var(--shadow-card)}
+.iconbtn{width:40px;height:40px;border:0;background:var(--surface-2);border-radius:50%;display:grid;place-items:center;cursor:pointer;color:var(--ink-4);box-shadow:var(--shadow-card);transition:all .2s}
+.iconbtn:hover{color:var(--ink);transform:translateY(-1px)}
+
+#anTabs.tabs,.tabs{display:inline-flex!important;flex-direction:row!important;flex-wrap:nowrap!important;gap:4px;margin-bottom:28px;background:rgba(10,10,10,0.04);padding:5px;border-radius:999px;max-width:100%;overflow-x:auto}
+#anTabs.tabs .tab,.tab{background:transparent;border:0;font:500 13px var(--sans);color:var(--ink-4);padding:10px 18px;border-radius:999px;cursor:pointer;display:inline-flex!important;align-items:center;gap:8px;white-space:nowrap;transition:all .2s;flex:0 0 auto}
+.tab svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2}
+.tab:hover{color:var(--ink)}
+.tab.on{background:var(--grad-ink);color:#fafaf6;box-shadow:0 4px 14px rgba(10,10,10,0.20)}
+
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px;margin-bottom:24px}
+.kpi{background:var(--surface-2);border-radius:20px;padding:24px 26px;box-shadow:var(--shadow-card);transition:all .25s;position:relative;overflow:hidden}
+.kpi:hover{transform:translateY(-3px);box-shadow:var(--shadow-hover)}
+.kpi__label{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:1.8px;color:var(--ink-mute);margin-bottom:12px}
+.kpi__value{font:600 38px/1 var(--sans);color:var(--ink);letter-spacing:-1.2px;font-feature-settings:"tnum"}
+.kpi__value.good{color:var(--good)}.kpi__value.warn{color:var(--warn)}.kpi__value.bad{color:var(--bad)}
+.kpi__unit{font:400 13px var(--sans);color:var(--ink-mute);margin-top:6px}
+.kpi__trend{margin-top:14px;display:inline-flex;align-items:center;gap:6px;font:500 12px var(--sans)}
+.kpi__trend.up{color:var(--good)}.kpi__trend.down{color:var(--bad)}.kpi__trend.flat{color:var(--ink-mute)}
+.kpi__trend small{color:var(--ink-mute);font-weight:400}
+
+.card{background:var(--surface-2);border-radius:24px;padding:24px 28px;box-shadow:var(--shadow-card);margin-bottom:18px}
+.card--padded{padding:28px 32px}
+.card__head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:20px;gap:24px;flex-wrap:wrap}
+.card__head h3{margin:0;font:600 17px var(--sans);color:var(--ink);letter-spacing:-.4px}
+.card__head .meta{font:500 12px var(--sans);color:var(--ink-mute)}
+
+.row-2{display:grid;grid-template-columns:2fr 1fr;gap:18px;margin-bottom:18px}
+.row-2-eq{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px}
+.row-3-eq{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;margin-bottom:18px}
+
+.legend{display:flex;gap:18px;font-size:12px;color:var(--ink-mute);flex-wrap:wrap}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:18px;height:3px;border-radius:2px}
+
+.chart{width:100%;height:260px}
+.chart.short{height:190px}
+
+.list{display:flex;flex-direction:column}
+.list__row{display:grid;grid-template-columns:36px 1fr auto;gap:14px;padding:14px 8px;border-bottom:1px solid var(--hairline);align-items:center;border-radius:10px}
+.list__row:hover{background:rgba(10,10,10,0.02)}
+.list__row:last-child{border-bottom:0}
+.list__rank{font:500 13px var(--sans);color:var(--ink-mute);width:26px;height:26px;display:grid;place-items:center;border-radius:50%;background:rgba(10,10,10,0.04)}
+.list__rank.lead{background:var(--grad-ink);color:#fafaf6}
+.list__name{font:600 14px var(--sans);color:var(--ink)}
+.list__meta{font-size:12px;color:var(--ink-mute);margin-top:2px}
+.list__qty{font:600 16px var(--sans);color:var(--ink);font-variant-numeric:tabular-nums;text-align:right}
+
+.tilegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}
+.tile{background:var(--surface-2);border-radius:20px;padding:22px 24px;box-shadow:var(--shadow-card);transition:all .2s}
+.tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-hover)}
+.tile__head{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.tile__name{font:600 15px var(--sans);color:var(--ink);letter-spacing:-.2px}
+.tile__chip{display:inline-block;padding:3px 10px;font:500 11px var(--sans);background:rgba(34,136,131,0.10);color:var(--signal);border-radius:99px}
+.tile__chip.neg{background:rgba(196,48,43,0.10);color:var(--bad)}
+.tile__stats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.tile__stats div small{font:500 10px var(--sans);text-transform:uppercase;letter-spacing:1px;color:var(--ink-mute);display:block;margin-bottom:2px}
+.tile__stats div b{font:600 18px var(--sans);color:var(--ink);font-variant-numeric:tabular-nums}
+
+.hb{display:grid;grid-template-columns:150px 1fr 130px;gap:16px;align-items:center;padding:10px 0;border-bottom:1px solid var(--hairline)}
+.hb:last-child{border-bottom:0}
+.hb__name{font:600 13px var(--sans);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hb__lane{position:relative;height:18px;background:rgba(10,10,10,0.05);border-radius:999px}
+.hb__act{position:absolute;left:0;top:0;height:18px;border-radius:999px;background:var(--grad-ink);transition:width .3s ease}
+.hb__act.high{background:linear-gradient(90deg,#1a8a3a,#22c55e)}
+.hb__act.mid{background:linear-gradient(90deg,#9a5a00,#f59e0b)}
+.hb__act.low{background:linear-gradient(90deg,#7a2218,#c4302b)}
+.hb__pct{font:600 13px var(--sans);text-align:right;color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* Text search input -- Mona's own pill/pillgroup + datepill language, applied
+   to a free-text field (not in the original mockup, which only used pills
+   and a static date label, never a text box). */
+.search-input{display:block;width:100%;max-width:320px;height:38px;border:1px solid var(--hairline);
+  border-radius:999px;padding:0 18px;font:500 12.5px var(--sans);color:var(--ink);background:var(--surface-2);
+  box-shadow:var(--shadow-card);margin-bottom:14px;transition:box-shadow .2s ease}
+.search-input::placeholder{color:var(--ink-mute)}
+.search-input:focus{outline:none;box-shadow:0 0 0 3px rgba(10,10,10,0.06),var(--shadow-card)}
+
+/* Data table -- not in the reference mockup, styled to match its tokens */
+.dtable-wrap{max-height:340px;overflow-y:auto}
+.dtable{width:100%;border-collapse:collapse;font-size:13px}
+.dtable th{text-align:left;font:600 10.5px var(--sans);text-transform:uppercase;letter-spacing:1px;color:var(--ink-mute);padding:10px 12px;border-bottom:1px solid var(--hairline);position:sticky;top:0;background:var(--surface-2)}
+.dtable td{padding:11px 12px;border-bottom:1px solid var(--hairline);color:var(--ink-3)}
+.dtable tr:last-child td{border-bottom:0}
+.dtable tr:hover td{background:rgba(10,10,10,0.02)}
+.dtable .num{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--mono)}
+.badge{display:inline-block;padding:3px 10px;border-radius:999px;font:600 11px var(--sans);white-space:nowrap}
+.badge.good{background:rgba(26,138,58,0.10);color:var(--good)}
+.badge.warn{background:rgba(154,90,0,0.10);color:var(--warn)}
+.badge.bad{background:rgba(196,48,43,0.10);color:var(--bad)}
+.empty-note{padding:36px 20px;text-align:center;color:var(--ink-mute);font-size:13px}
+.loading-note{padding:36px 20px;text-align:center;color:var(--ink-mute);font-size:13px}
+
+/* Greenhouse Risk Chain cards -- one greenhouse per card, room for the full
+   customer list and the real orders traced back to it, not squeezed into a
+   single dense table row. */
+.gh-card{background:var(--surface-2);border-radius:22px;padding:24px 28px;box-shadow:var(--shadow-card);margin-bottom:16px}
+.gh-card__head{display:flex;align-items:center;gap:14px;margin-bottom:18px;flex-wrap:wrap}
+.gh-card__name{font:600 19px var(--sans);color:var(--ink);letter-spacing:-.3px}
+.gh-mini-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px}
+.gh-mini-kpi{background:rgba(10,10,10,0.03);border-radius:14px;padding:14px 16px}
+.gh-mini-kpi .lbl{font:500 10px var(--sans);text-transform:uppercase;letter-spacing:1px;color:var(--ink-mute);margin-bottom:6px}
+.gh-mini-kpi .v{font:600 22px var(--sans);color:var(--ink);font-variant-numeric:tabular-nums}
+.gh-split{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.gh-split h4{font:600 11px var(--sans);text-transform:uppercase;letter-spacing:1px;color:var(--ink-mute);margin:0 0 10px}
+
+@media (max-width:1000px){.row-2,.row-2-eq,.row-3-eq,.gh-split{grid-template-columns:1fr}.pagehead__title{font-size:30px}.gh-mini-kpis{grid-template-columns:1fr 1fr}}
+@media (max-width: 900px){
+  html,body{overflow:auto!important}
+  .aph,.aph.collapsed{display:flex;flex-direction:column;position:fixed;grid-template-columns:none}
+  .aph-main{height:auto}
+  .page{padding:16px}
+  .pagehead{grid-template-columns:1fr}
+}
+</style>
+
+<div class="aph">
+  {% endraw %}{% set active_page = "analytics" %}{% include "upande_packhouse/templates/includes/packhouse_sidebar.html" %}{% raw %}
+
+  <div class="aph-main">
+    <div class="page">
+
+      <div class="pagehead">
+        <div>
+          <div class="pagehead__eyebrow">Insights</div>
+          <h1 class="pagehead__title">Analytics</h1>
+          <p class="pagehead__sub" id="pageSub">Packhouse performance, quality and risk, in one place</p>
+        </div>
+        <div class="pagehead__tools">
+          <div class="pillgroup" id="anRange">
+            <button data-days="7">7d</button><button data-days="30" class="on">30d</button>
+            <button data-days="90">90d</button><button data-days="365">12mo</button>
+          </div>
+          <button class="iconbtn" id="collapseBtn" title="Toggle sidebar">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="tabs" id="anTabs">
+        <button class="tab on" data-tab="risk">Orders at Risk</button>
+        <button class="tab" data-tab="quality">Field-to-Vase Quality</button>
+        <button class="tab" data-tab="consumables">Consumables &amp; Stock</button>
+        <button class="tab" data-tab="sales">Sales &amp; Customers</button>
+        <button class="tab" data-tab="fulfillment">Fulfillment</button>
+        <button class="tab" data-tab="downgrades">Downgrades</button>
+      </div>
+
+      <!-- ═══ ORDERS AT RISK ═══ -->
+      <div class="ipanel" id="panel-risk">
+        <div class="kpi-grid" id="riskKpis"><div class="loading-note">Loading…</div></div>
+        <div class="card card--padded">
+          <div class="card__head"><h3>At-Risk Lines</h3><div class="meta">Highest risk, soonest due, first</div>
+            <div class="pillgroup" id="riskHorizon"><button data-h="7">7d</button><button data-h="14">14d</button><button data-h="30" class="on">30d</button><button data-h="60">60d</button></div>
+          </div>
+          <input class="search-input" id="riskSearch" placeholder="Search order, customer or variety…">
+          <div class="dtable-wrap"><table class="dtable"><thead><tr>
+            <th>Order</th><th>Customer</th><th>Variety</th><th>Length</th><th>Due</th>
+            <th class="num">Needed</th><th class="num">On Shelf</th><th class="num">Shortfall</th><th class="num">Value at Risk</th><th class="num">Risk</th>
+          </tr></thead><tbody id="riskBody"></tbody></table></div>
+        </div>
+
+        <div class="card card--padded">
+          <div class="card__head"><h3>Unreceived Buckets by Farm</h3><div class="meta">Harvested but not yet received — space or transit, not real shortage</div></div>
+          <div class="kpi-grid" id="unreceivedKpis" style="margin-bottom:14px"></div>
+          <div id="unreceivedBars"></div>
+        </div>
+      </div>
+
+      <!-- ═══ FIELD-TO-VASE QUALITY ═══ -->
+      <div class="ipanel" id="panel-quality">
+        <!-- The actual field-to-vase join: scouting pressure, intake quarantine and
+             packhouse rejects, all keyed to the SAME greenhouse (Quality Reporting.ghouse
+             matches Scouting Entry.greenhouse once the farm suffix is reconciled), sorted
+             by real stems rejected -- the number that costs money. Each greenhouse gets
+             its own card with room for the full customer breakdown and the real sales
+             orders traced back to it via the actual harvest->allocation chain. -->
+        <div class="card__head" style="margin-bottom:8px"><h3 style="font-size:20px">Greenhouse Risk Chain</h3><div class="meta" id="chainMeta">Field → intake → packhouse, per greenhouse, worst first</div></div>
+        <div id="chainCards"><div class="loading-note">Loading… (scouting data is large — first load can take up to 20s, then it's cached for 10 minutes)</div></div>
+      </div>
+
+      <!-- ═══ CONSUMABLES & STOCK ═══ -->
+      <div class="ipanel" id="panel-consumables">
+        <div class="kpi-grid" id="consKpis"><div class="loading-note">Loading…</div></div>
+        <div class="row-2">
+          <div class="card card--padded">
+            <div class="card__head"><h3>Consumption Trend</h3><div class="legend"><span><i style="background:var(--bad)"></i>Issued</span><span><i style="background:var(--good)"></i>Received</span></div></div>
+            <svg class="chart" id="chartConsTrend" viewBox="0 0 600 260" preserveAspectRatio="none"></svg>
+          </div>
+          <div class="card card--padded">
+            <div class="card__head"><h3>By Category</h3></div>
+            <div class="tilegrid" id="consGroupTiles"></div>
+          </div>
+        </div>
+        <div class="card card--padded">
+          <div class="card__head"><h3>Top Items by Value</h3><div class="meta">Days left = qty on hand ÷ actual usage rate in this range</div></div>
+          <input class="search-input" id="consSearch" placeholder="Search item…">
+          <div class="dtable-wrap"><table class="dtable"><thead><tr><th>Item</th><th>Category</th><th class="num">Qty</th><th class="num">Value</th><th class="num">Daily Usage</th><th class="num">Days Left</th></tr></thead>
+          <tbody id="consBody"></tbody></table></div>
+        </div>
+        <div class="row-2-eq">
+          <div class="card card--padded">
+            <div class="card__head"><h3>Demand vs Stock</h3><div class="meta">Open orders' spec consumable needs vs what's on hand</div></div>
+            <div class="dtable-wrap"><table class="dtable"><thead><tr><th>Item</th><th class="num">Needed</th><th class="num">On Hand</th><th class="num">Shortfall</th></tr></thead>
+            <tbody id="demandBody"></tbody></table></div>
+          </div>
+          <div class="card card--padded">
+            <div class="card__head"><h3>Material Requests</h3><div class="meta">Procurement already in motion</div></div>
+            <div class="dtable-wrap"><table class="dtable"><thead><tr><th>MR</th><th>Item</th><th class="num">Qty</th><th>Status</th><th class="num">Received</th></tr></thead>
+            <tbody id="mrBody"></tbody></table></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ SALES & CUSTOMERS ═══ -->
+      <div class="ipanel" id="panel-sales">
+        <div class="kpi-grid" id="salesKpis"><div class="loading-note">Loading…</div></div>
+        <div class="row-2">
+          <div class="card card--padded">
+            <div class="card__head"><h3>Customer Concentration</h3><div class="meta">Share of orders</div></div>
+            <div id="concentrationBars"></div>
+          </div>
+          <div class="card card--padded">
+            <div class="card__head"><h3>Top by Volume</h3><div class="meta">Stems</div></div>
+            <div class="list" id="volumeList"></div>
+          </div>
+        </div>
+        <div class="row-2-eq">
+          <div class="card card--padded">
+            <div class="card__head"><h3>Shipping Destinations</h3><div class="meta">By consignee country</div></div>
+            <div class="list" id="countryList"></div>
+          </div>
+          <div class="card card--padded">
+            <div class="card__head"><h3>Freight Agent Volume</h3></div>
+            <div class="list" id="freightList"></div>
+          </div>
+        </div>
+
+        <div class="card__head" style="margin-bottom:8px"><h3 style="font-size:20px">Ordering Cadence</h3><div class="meta" id="cadenceMeta">Last 120 days, regardless of the range above</div></div>
+        <div class="row-2-eq">
+          <div class="card card--padded">
+            <div class="card__head"><h3>Most Frequent</h3></div>
+            <div class="list" id="mostFrequentList"></div>
+          </div>
+          <div class="card card--padded">
+            <div class="card__head"><h3>Quiet This Week</h3><div class="meta">Regular customers, no order in 7–14 days</div></div>
+            <div class="list" id="quietList"></div>
+          </div>
+        </div>
+        <div class="row-2-eq">
+          <div class="card card--padded">
+            <div class="card__head"><h3>Anomalies</h3><div class="meta">Ordered regularly, then abruptly stopped</div></div>
+            <div class="list" id="anomalyList"></div>
+          </div>
+          <div class="card card--padded">
+            <div class="card__head"><h3>Dormant</h3><div class="meta">No order in 60+ days</div></div>
+            <div class="list" id="dormantList"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ FULFILLMENT ═══ -->
+      <div class="ipanel" id="panel-fulfillment">
+        <div class="kpi-grid" id="convKpis"><div class="loading-note">Loading…</div></div>
+        <div class="row-2">
+          <div class="card card--padded">
+            <div class="card__head"><h3>Boxes Packed per Day</h3></div>
+            <svg class="chart" id="chartBoxesPerDay" viewBox="0 0 600 260" preserveAspectRatio="none"></svg>
+          </div>
+          <div class="card card--padded">
+            <div class="card__head"><h3>Orders vs Dispatched vs Invoiced</h3></div>
+            <div class="list" id="dispatchList"></div>
+          </div>
+        </div>
+        <div class="card card--padded">
+          <div class="card__head"><h3>Orders Needing Attention</h3><div class="meta">Lowest conversion first</div></div>
+          <input class="search-input" id="worstSearch" placeholder="Search order or customer…">
+          <div class="dtable-wrap"><table class="dtable"><thead><tr><th>Order</th><th>Customer</th><th class="num">Ordered</th><th class="num">Packed</th><th class="num">Value Outstanding</th><th class="num">Conv.</th></tr></thead>
+          <tbody id="worstOrdersBody"></tbody></table></div>
+        </div>
+
+        <div class="card card--padded">
+          <div class="card__head"><h3>Age to Allocation</h3><div class="meta">How long a bucket sits on the shelf before it's picked into an order</div></div>
+          <div class="kpi-grid" id="ageKpis" style="margin-bottom:18px"></div>
+          <div class="row-3-eq">
+            <div><div class="card__head" style="margin-bottom:8px"><h3 style="font-size:13px">Distribution</h3></div><div id="ageDistBars"></div></div>
+            <div><div class="card__head" style="margin-bottom:8px"><h3 style="font-size:13px">Trend</h3></div><svg class="chart short" id="chartAgeTrend" viewBox="0 0 300 190" preserveAspectRatio="none"></svg></div>
+            <div><div class="card__head" style="margin-bottom:8px"><h3 style="font-size:13px">Slowest Varieties</h3></div><div id="ageVarietyBars"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ DOWNGRADES ═══ -->
+      <div class="ipanel" id="panel-downgrades">
+        <div class="kpi-grid" id="dgKpis"><div class="loading-note">Loading…</div></div>
+        <div class="card card--padded">
+          <div class="card__head"><h3>Trend</h3></div>
+          <svg class="chart" id="chartDgTrend" viewBox="0 0 600 260" preserveAspectRatio="none"></svg>
+        </div>
+        <div class="row-2-eq">
+          <div class="card card--padded">
+            <div class="card__head"><h3>Most Affected Lengths</h3></div>
+            <div id="dgLengthBars"></div>
+          </div>
+          <div class="card card--padded">
+            <div class="card__head"><h3>Most Affected Varieties</h3></div>
+            <div id="dgVarietyBars"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<style>
+.ipanel{display:none}
+.ipanel.active{display:block}
+</style>
+
+<script>
+(function(){
+  function esc(s){ return (s==null?'':String(s)).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+  function num(n){ n = Number(n)||0; return Math.round(n).toLocaleString(); }
+  function money(n){ n = Number(n)||0; return n.toLocaleString(undefined,{maximumFractionDigits:0}); }
+
+  function kpi(label, value, unit, cls, trendHtml){
+    return '<div class="kpi"><div class="kpi__label">'+esc(label)+'</div>'
+      + '<div class="kpi__value'+(cls?(' '+cls):'')+'">'+value+'</div>'
+      + (unit ? '<div class="kpi__unit">'+esc(unit)+'</div>' : '')
+      + (trendHtml || '') + '</div>';
+  }
+  function badge(pct, goodIsLow){
+    var cls;
+    if (goodIsLow) cls = pct <= 5 ? 'good' : (pct <= 15 ? 'warn' : 'bad');
+    else cls = pct >= 80 ? 'good' : (pct >= 40 ? 'warn' : 'bad');
+    return '<span class="badge '+cls+'">'+pct+'%</span>';
+  }
+  // Horizontal "estimate vs actual" bar (Mona .hb component) used here as a
+  // single-value severity bar: name | filled lane | value.
+  function hbRow(name, pct, sub, sevGoodIsLow){
+    var cls = sevGoodIsLow ? (pct<=5?'high':(pct<=15?'mid':'low')) : (pct>=80?'high':(pct>=40?'mid':'low'));
+    var width = Math.max(2, Math.min(100, pct));
+    return '<div class="hb"><div class="hb__name">'+esc(name)+'</div>'
+      + '<div class="hb__lane"><div class="hb__act '+cls+'" style="width:'+width+'%"></div></div>'
+      + '<div class="hb__pct">'+esc(sub||(pct+'%'))+'</div></div>';
+  }
+  function listRow(rank, name, meta, qty, lead){
+    return '<div class="list__row"><div class="list__rank'+(lead?' lead':'')+'">'+rank+'</div>'
+      + '<div><div class="list__name">'+esc(name)+'</div>'+(meta?'<div class="list__meta">'+esc(meta)+'</div>':'')+'</div>'
+      + '<div class="list__qty">'+esc(qty)+'</div></div>';
+  }
+  function emptyNote(msg){ return '<div class="empty-note">'+esc(msg||'No data in this range.')+'</div>'; }
+  function setupSearch(inputId, containerSelector){
+    var input = document.getElementById(inputId);
+    if (!input) return;
+    input.addEventListener('input', function(){
+      var q = input.value.toLowerCase();
+      document.querySelectorAll(containerSelector + ' tbody tr').forEach(function(row){
+        row.style.display = row.textContent.toLowerCase().indexOf(q) === -1 ? 'none' : '';
+      });
+    });
+  }
+
+  // Hand-drawn SVG line chart matching the Mona reference's .chart pattern
+  // (smooth path + gradient fill), driven by real data instead of a mockup.
+  function drawLineChart(svgId, series, opts){
+    opts = opts || {};
+    var svg = document.getElementById(svgId);
+    if (!svg) return;
+    var W = 600, H = opts.h || 260, padB = 26, padT = 10;
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    if (!series.length || !series[0].points.length){
+      svg.innerHTML = '<text x="'+(W/2)+'" y="'+(H/2)+'" text-anchor="middle" fill="#8a8780" font-size="13" font-family="Poppins,sans-serif">'
+        + esc(opts.emptyMsg || 'No data in this range.') + '</text>';
+      return;
+    }
+    var allVals = series.reduce(function(a,s){ return a.concat(s.points.map(function(p){return p.v;})); }, []);
+    var max = Math.max.apply(null, allVals.concat([1]));
+    var labels = series[0].points.map(function(p){return p.label;});
+    var n = labels.length;
+    var stepX = n > 1 ? W / (n - 1) : 0;
+    function y(v){ return H - padB - (v / max) * (H - padB - padT); }
+    var defs = '<defs>';
+    var paths = '';
+    series.forEach(function(s, si){
+      var gid = 'g' + svgId + si;
+      defs += '<linearGradient id="'+gid+'" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="'+s.color+'" stop-opacity=".22"/><stop offset="100%" stop-color="'+s.color+'" stop-opacity="0"/></linearGradient>';
+      var pts = s.points.map(function(p,i){ return (i*stepX)+','+y(p.v); });
+      var line = 'M' + pts.join(' L');
+      var area = line + ' L' + ((n-1)*stepX) + ',' + (H-padB) + ' L0,' + (H-padB) + ' Z';
+      paths += '<path d="'+area+'" fill="url(#'+gid+')"/><path d="'+line+'" fill="none" stroke="'+s.color+'" stroke-width="2.5" stroke-linecap="round"/>';
+    });
+    defs += '</defs>';
+    var gridLines = '<g stroke="rgba(10,10,10,0.05)" stroke-width="1">';
+    for (var i=1;i<4;i++){ var gy = padT + (H-padB-padT)*i/4; gridLines += '<line x1="0" y1="'+gy+'" x2="'+W+'" y2="'+gy+'"/>'; }
+    gridLines += '</g>';
+    var showEvery = Math.max(1, Math.ceil(n/7));
+    var labelsSvg = labels.map(function(l,i){
+      if (i % showEvery !== 0 && i !== n-1) return '';
+      return '<text x="'+(i*stepX)+'" y="'+(H-6)+'" text-anchor="middle" fill="#9a9a92" font-size="10">'+esc(l)+'</text>';
+    }).join('');
+    svg.innerHTML = defs + gridLines + paths + labelsSvg;
+  }
+
+  function api(method, args){
+    return new Promise(function(resolve){
+      frappe.call({ method: method, args: args || {}, callback: function(r){ resolve((r && r.message) || {}); },
+        error: function(){ resolve({ success:false }); } });
+    });
+  }
+
+  var currentDays = 30;
+  function dateRange(days){
+    var to = new Date();
+    var from = new Date(); from.setDate(from.getDate() - days);
+    function iso(d){ return d.toISOString().slice(0,10); }
+    return { from_date: iso(from), to_date: iso(to) };
+  }
+
+  // ───────────────────────── FIELD-TO-VASE QUALITY ─────────────────────────
+  function loadQuality(range){
+    api('upande_packhouse.api.analytics.getQualityChain', range).then(function(d){
+      if (!d.success) return;
+      document.getElementById('chainMeta').textContent = 'Field → intake → packhouse, per greenhouse, worst first — ' + d.from_date + ' → ' + d.to_date;
+
+      var chain = d.greenhouse_chain || [];
+      if (!chain.length){
+        document.getElementById('chainCards').innerHTML = emptyNote('No packhouse QC records with a greenhouse in this range.');
+        return;
+      }
+      document.getElementById('chainCards').innerHTML = chain.map(function(r){
+        var customersHtml = (r.customers||[]).length ? r.customers.map(function(c, i){
+          return listRow(i+1, c.customer, null, num(c.rejected)+' / '+num(c.checked)+' rejected', i===0 && c.rejected>0);
+        }).join('') : emptyNote('No customer breakdown for this greenhouse.');
+
+        var ordersHtml = (r.orders||[]).length ? '<div class="dtable-wrap" style="max-height:260px"><table class="dtable"><thead><tr><th>Sales Order</th><th>Length</th><th class="num">Stems Allocated</th></tr></thead><tbody>'
+          + r.orders.map(function(o){ return '<tr><td>'+esc(o.sales_order)+'</td><td>'+esc(o.length||'—')+'</td><td class="num">'+num(o.qty)+'</td></tr>'; }).join('')
+          + '</tbody></table></div>' : emptyNote('No allocated orders traced to this greenhouse in this range.');
+
+        return '<div class="gh-card">'
+          + '<div class="gh-card__head"><div class="gh-card__name">'+esc(r.greenhouse)+'</div>'+badge(r.ph_reject_pct, true)+'</div>'
+          + '<div class="gh-mini-kpis">'
+            + '<div class="gh-mini-kpi"><div class="lbl">Scouting Pressure</div><div class="v">'+num(r.scouting_pressure)+'</div></div>'
+            + '<div class="gh-mini-kpi"><div class="lbl">Intake Quarantine</div><div class="v">'+(r.intake_checked ? r.intake_quarantine_pct+'%' : '—')+'</div></div>'
+            + '<div class="gh-mini-kpi"><div class="lbl">Packhouse Rejects</div><div class="v">'+num(r.ph_rejected)+' <span style="font-size:13px;color:var(--ink-mute)">/ '+num(r.ph_checked)+'</span></div></div>'
+          + '</div>'
+          + '<div class="gh-split">'
+            + '<div><h4>Customers Affected</h4><div class="list">'+customersHtml+'</div></div>'
+            + '<div><h4>Sales Orders Allocated From Here</h4>'+ordersHtml+'</div>'
+          + '</div>'
+        + '</div>';
+      }).join('');
+    });
+  }
+
+  // ───────────────────────── CONSUMABLES ─────────────────────────
+  function loadConsumables(range){
+    api('upande_packhouse.api.analytics.getConsumablesStock', range).then(function(d){
+      if (!d.success) return;
+      document.getElementById('consKpis').innerHTML =
+        kpi('Total Stock Value (KES)', money(d.total_value)) +
+        (d.by_group||[]).map(function(g){ return kpi(g.item_group, money(g.value), g.item_count+' items'); }).join('');
+
+      var trend = d.trend || [];
+      drawLineChart('chartConsTrend', [
+        { color: '#c4302b', points: trend.map(function(t){return {label:t.date.slice(5), v:t.issued};}) },
+        { color: '#1a8a3a', points: trend.map(function(t){return {label:t.date.slice(5), v:t.received};}) }
+      ], { emptyMsg: 'No stock movement in this range.' });
+
+      var groups = d.by_group || [];
+      document.getElementById('consGroupTiles').innerHTML = groups.length ? groups.map(function(g){
+        return '<div class="tile"><div class="tile__head"><div class="tile__name">'+esc(g.item_group)+'</div><span class="tile__chip">'+g.item_count+' items</span></div>'
+          + '<div class="tile__stats"><div><small>Value (KES)</small><b>'+money(g.value)+'</b></div><div><small>Qty on Hand</small><b>'+num(g.qty)+'</b></div></div></div>';
+      }).join('') : emptyNote('No consumable stock found.');
+
+      var items = d.top_items || [];
+      document.getElementById('consBody').innerHTML = items.length ? items.map(function(r){
+        var daysTxt = r.days_remaining==null ? '—' : (r.days_remaining+'d');
+        var daysCls = r.days_remaining==null ? '' : (r.days_remaining<14?'bad':(r.days_remaining<30?'warn':'good'));
+        return '<tr><td>'+esc(r.item_name||r.item_code)+'</td><td>'+esc(r.item_group)+'</td>'
+          + '<td class="num">'+num(r.qty)+'</td><td class="num">'+money(r.value)+'</td>'
+          + '<td class="num">'+num(r.daily_usage)+'</td>'
+          + '<td class="num">'+(daysCls?'<span class="badge '+daysCls+'">'+daysTxt+'</span>':daysTxt)+'</td></tr>';
+      }).join('') : '<tr><td colspan="6">'+emptyNote()+'</td></tr>';
+
+      var demand = d.demand_vs_stock || [];
+      document.getElementById('demandBody').innerHTML = demand.length ? demand.map(function(r){
+        var cls = r.shortfall > 0 ? 'bad' : 'good';
+        return '<tr><td>'+esc(r.item_name||r.item_code)+'</td><td class="num">'+num(r.needed_for_open_orders)+'</td>'
+          + '<td class="num">'+num(r.on_hand)+'</td><td class="num"><span class="badge '+cls+'">'+num(r.shortfall)+'</span></td></tr>';
+      }).join('') : '<tr><td colspan="4">'+emptyNote('No open orders with a matching customer specification found.')+'</td></tr>';
+
+      var mrs = d.material_requests || [];
+      document.getElementById('mrBody').innerHTML = mrs.length ? mrs.map(function(r){
+        var cls = r.per_received >= 100 ? 'good' : (r.per_received > 0 ? 'warn' : 'bad');
+        return '<tr><td>'+esc(r.name)+'</td><td>'+esc(r.item_name||r.item_code)+'</td><td class="num">'+num(r.qty)+'</td>'
+          + '<td>'+esc(r.status)+'</td><td class="num"><span class="badge '+cls+'">'+r.per_received+'%</span></td></tr>';
+      }).join('') : '<tr><td colspan="5">'+emptyNote('No pending material requests for these item groups.')+'</td></tr>';
+    });
+  }
+
+  // ───────────────────────── SALES & CUSTOMERS ─────────────────────────
+  function loadSales(range){
+    api('upande_packhouse.api.analytics.getSalesOverview', range).then(function(d){
+      if (!d.success) return;
+      document.getElementById('salesKpis').innerHTML =
+        kpi('Total Orders', num(d.total_orders)) +
+        kpi('Active Customers', num(d.active_customers)) +
+        kpi('Top Customer Share', d.top_customer_share_pct + '%', 'of all orders', d.top_customer_share_pct > 40 ? 'warn' : null);
+
+      var cc = d.customer_concentration || [];
+      document.getElementById('concentrationBars').innerHTML = cc.length ? cc.map(function(c){
+        return hbRow(c.customer, c.share_pct, c.orders + ' orders (' + c.share_pct + '%)', false);
+      }).join('') : emptyNote('No orders in this range.');
+
+      var vol = d.top_by_volume || [];
+      document.getElementById('volumeList').innerHTML = vol.length ? vol.map(function(v,i){
+        return listRow(i+1, v.customer, null, num(v.stems)+' stems', i===0);
+      }).join('') : emptyNote('No orders in this range.');
+
+      var geo = d.by_country || [];
+      document.getElementById('countryList').innerHTML = geo.length ? geo.map(function(g,i){
+        return listRow(i+1, g.country, null, num(g.boxes)+' boxes', i===0);
+      }).join('') : emptyNote('No shipped boxes with consignee/country data in this range.');
+
+      var agents = d.by_freight_agent || [];
+      document.getElementById('freightList').innerHTML = agents.length ? agents.map(function(a,i){
+        return listRow(i+1, a.agent, null, num(a.boxes)+' boxes', i===0);
+      }).join('') : emptyNote('No freight-agent data in this range.');
+    });
+    loadCadence();
+  }
+
+  function loadCadence(){
+    api('upande_packhouse.api.analytics.getCustomerCadence', {}).then(function(d){
+      if (!d.success) return;
+      document.getElementById('cadenceMeta').textContent = 'Last ' + d.lookback_days + ' days, regardless of the range above';
+
+      var freq = d.most_frequent || [];
+      document.getElementById('mostFrequentList').innerHTML = freq.length ? freq.map(function(c,i){
+        return listRow(i+1, c.customer, c.total_orders+' orders', c.orders_per_week+'/wk', i===0);
+      }).join('') : emptyNote('Not enough order history yet.');
+
+      var quiet = d.quiet_this_week || [];
+      document.getElementById('quietList').innerHTML = quiet.length ? quiet.map(function(c,i){
+        return listRow(i+1, c.customer, 'usually every '+c.avg_gap_days+'d', c.days_since+'d ago', i===0);
+      }).join('') : emptyNote('No regular customers went quiet this week.');
+
+      var anomalies = d.anomalies || [];
+      document.getElementById('anomalyList').innerHTML = anomalies.length ? anomalies.map(function(c,i){
+        return listRow(i+1, c.customer, 'was ordering every '+c.avg_gap_days+'d', c.days_since_last+'d silence', i===0);
+      }).join('') : emptyNote('No regular-cadence customers have gone abruptly quiet.');
+
+      var dormant = d.dormant || [];
+      document.getElementById('dormantList').innerHTML = dormant.length ? dormant.map(function(c,i){
+        return listRow(i+1, c.customer, 'last order '+c.last_order_date, c.days_since+'d ago', i===0);
+      }).join('') : emptyNote('No customers dormant 60+ days.');
+    });
+  }
+
+  // ───────────────────────── FULFILLMENT ─────────────────────────
+  function loadFulfillment(range){
+    api('upande_packhouse.api.analytics.getConversionData', range).then(function(d){
+      if (!d.success) return;
+      var t = d.totals || {};
+      document.getElementById('convKpis').innerHTML =
+        kpi('Ordered Stems', num(t.ordered)) +
+        kpi('Allocated Stems', num(t.allocated)) +
+        kpi('Packed Stems', num(t.packed)) +
+        kpi('Overall Conversion', d.overall_conversion_pct + '%', null, d.overall_conversion_pct >= 60 ? 'good' : 'bad');
+
+      var boxes = d.boxes_per_day || [];
+      drawLineChart('chartBoxesPerDay', [{ color:'#0a0a0a', points: boxes.map(function(b){return {label:b.date.slice(5), v:b.boxes};}) }],
+        { emptyMsg: 'No boxes packed in this range.' });
+
+      var dvi = d.orders_vs_dispatched_invoiced || {};
+      document.getElementById('dispatchList').innerHTML =
+        listRow(1, 'Orders', null, num(dvi.orders), true) +
+        listRow(2, 'Dispatched (Delivery Notes)', null, num(dvi.dispatched), false) +
+        listRow(3, 'Invoiced (Sales Invoices)', null, num(dvi.invoiced), false);
+
+      var rows = d.worst_orders || [];
+      document.getElementById('worstOrdersBody').innerHTML = rows.length ? rows.map(function(r){
+        return '<tr><td>'+esc(r.sales_order)+'</td><td>'+esc(r.customer)+'</td>'
+          + '<td class="num">'+num(r.ordered)+'</td><td class="num">'+num(r.packed)+'</td>'
+          + '<td class="num">'+esc(r.currency||'')+' '+money(r.value_outstanding)+'</td>'
+          + '<td class="num">'+badge(r.conversion_pct, false)+'</td></tr>';
+      }).join('') : '<tr><td colspan="6">'+emptyNote('No orders in this range.')+'</td></tr>';
+    });
+    loadAgeToAllocation(range);
+  }
+
+  function loadAgeToAllocation(range){
+    api('upande_packhouse.api.analytics.getAgeToAllocation', range).then(function(d){
+      if (!d.success) return;
+      var s = d.summary || {};
+      document.getElementById('ageKpis').innerHTML =
+        kpi('Buckets Picked', num(s.count)) +
+        kpi('Avg Age at Allocation', s.avg_days + 'd', null, s.avg_days > 7 ? 'bad' : (s.avg_days > 3 ? 'warn' : 'good')) +
+        kpi('Median', s.median_days + 'd') +
+        kpi('90th Percentile', s.p90_days + 'd', 'worst 10% wait this long+', s.p90_days > 14 ? 'bad' : null);
+
+      var dist = d.distribution || [];
+      var maxD = Math.max.apply(null, dist.map(function(b){return b.count;}).concat([1]));
+      document.getElementById('ageDistBars').innerHTML = dist.some(function(b){return b.count>0;}) ? dist.map(function(b){
+        return hbRow(b.band, Math.round(b.count/maxD*100), num(b.count), false);
+      }).join('') : emptyNote('No allocations in this range.');
+
+      var trend = d.trend || [];
+      drawLineChart('chartAgeTrend', [{ color:'#0a0a0a', points: trend.map(function(t){return {label:t.date.slice(5), v:t.avg_age};}) }],
+        { h:190, emptyMsg:'No allocations in this range.' });
+
+      var sv = d.slowest_varieties || [];
+      var maxV = Math.max.apply(null, sv.map(function(v){return v.avg_age;}).concat([1]));
+      document.getElementById('ageVarietyBars').innerHTML = sv.length ? sv.map(function(v){
+        return hbRow(v.variety, Math.round(v.avg_age/maxV*100), v.avg_age+'d ('+v.count+')', v.avg_age>7?false:true);
+      }).join('') : emptyNote('Not enough data yet.');
+    });
+  }
+
+  // ───────────────────────── DOWNGRADES ─────────────────────────
+  function loadDowngrades(range){
+    api('upande_packhouse.api.analytics.getDowngradeAnalysis', range).then(function(d){
+      if (!d.success) return;
+      var u = d.unreceived_at_downgrade || {};
+      document.getElementById('dgKpis').innerHTML =
+        kpi('Downgraded Stems', num(d.total_downgraded_stems)) +
+        kpi('Total Picked Stems', num(d.total_picked_stems)) +
+        kpi('Downgrade Rate', d.downgrade_rate_pct + '%', null, d.downgrade_rate_pct > 10 ? 'bad' : null) +
+        kpi('Available but Unreceived', num(u.total_available_stems), u.events_with_available_stock+' downgrade events', u.total_available_stems > 0 ? 'warn' : 'good');
+
+      var trend = d.trend || [];
+      drawLineChart('chartDgTrend', [{ color:'#c4302b', points: trend.map(function(t){return {label:t.date.slice(5), v:t.stems};}) }],
+        { emptyMsg: 'No downgrades in this range.' });
+
+      var lengths = d.by_length || [];
+      var maxL = Math.max.apply(null, lengths.map(function(l){return l.stems;}).concat([1]));
+      document.getElementById('dgLengthBars').innerHTML = lengths.length ? lengths.map(function(l){
+        return hbRow(l.length, Math.round(l.stems/maxL*100), num(l.stems), false);
+      }).join('') : emptyNote('No downgrades in this range.');
+
+      var varieties = d.by_variety || [];
+      var maxV = Math.max.apply(null, varieties.map(function(v){return v.stems;}).concat([1]));
+      document.getElementById('dgVarietyBars').innerHTML = varieties.length ? varieties.map(function(v){
+        return hbRow(v.variety, Math.round(v.stems/maxV*100), num(v.stems), false);
+      }).join('') : emptyNote('No downgrades in this range.');
+    });
+  }
+
+  // ───────────────────────── ORDERS AT RISK ─────────────────────────
+  var riskHorizonDays = 30;
+  function loadRisk(){
+    api('upande_packhouse.api.analytics.getOrdersAtRisk', { horizon_days: riskHorizonDays }).then(function(d){
+      if (!d.success) return;
+      var s = d.summary || {};
+      var valueByCur = s.value_at_risk_by_currency || {};
+      var valueStr = Object.keys(valueByCur).map(function(c){ return c+' '+money(valueByCur[c]); }).join(' + ') || '—';
+      document.getElementById('riskKpis').innerHTML =
+        kpi('Orders at Risk', num(s.orders_at_risk), null, s.orders_at_risk > 0 ? 'bad' : 'good') +
+        kpi('Lines at Risk', num(s.lines_at_risk)) +
+        kpi('Total Shortfall (Stems)', num(s.total_shortfall_stems), null, s.total_shortfall_stems > 0 ? 'bad' : 'good') +
+        kpi('Value at Risk', valueStr, null, s.total_shortfall_stems > 0 ? 'bad' : 'good');
+
+      var rows = d.at_risk || [];
+      var today = new Date().toISOString().slice(0,10);
+      document.getElementById('riskBody').innerHTML = rows.length ? rows.map(function(r){
+        return '<tr><td>'+esc(r.sales_order)+'</td><td>'+esc(r.customer)+'</td><td>'+esc(r.variety)+'</td><td>'+esc(r.length)+'</td>'
+          + '<td>'+(r.delivery_date < today ? '<span class="badge bad">'+esc(r.delivery_date)+'</span>' : esc(r.delivery_date))+'</td>'
+          + '<td class="num">'+num(r.remaining_need)+'</td><td class="num">'+num(r.available_now)+'</td>'
+          + '<td class="num">'+num(r.shortfall)+'</td>'
+          + '<td class="num">'+esc(r.currency||'')+' '+money(r.value_at_risk)+'</td>'
+          + '<td class="num">'+badge(r.risk_pct, false)+'</td></tr>';
+      }).join('') : '<tr><td colspan="10">'+emptyNote('No open orders at risk in this horizon — everything needed is covered by what\'s on the shelf.')+'</td></tr>';
+    });
+
+    api('upande_packhouse.api.analytics.getUnreceivedBuckets', {}).then(function(d){
+      if (!d.success) return;
+      document.getElementById('unreceivedKpis').innerHTML =
+        kpi('Buckets Unreceived Right Now', num(d.total_unreceived), null, d.total_unreceived > 0 ? 'warn' : 'good');
+
+      var farms = d.by_farm || [];
+      var maxB = Math.max.apply(null, farms.map(function(f){return f.buckets;}).concat([1]));
+      document.getElementById('unreceivedBars').innerHTML = farms.length ? farms.map(function(f){
+        return hbRow(f.farm, Math.round(f.buckets/maxB*100), f.buckets+' buckets, avg '+f.avg_wait_hours+'h wait', false);
+      }).join('') : emptyNote('Nothing currently sitting unreceived — everything harvested has been received.');
+    });
+  }
+
+  var LOADERS = { risk: loadRisk, quality: loadQuality, consumables: loadConsumables, sales: loadSales, fulfillment: loadFulfillment, downgrades: loadDowngrades };
+
+  function loadTab(tab){
+    var range = dateRange(currentDays);
+    LOADERS[tab](range);
+  }
+
+  function activateTab(tab, pushHash){
+    document.querySelectorAll('#anTabs .tab').forEach(function(t){ t.classList.toggle('on', t.dataset.tab === tab); });
+    document.querySelectorAll('.ipanel').forEach(function(p){ p.classList.toggle('active', p.id === 'panel-' + tab); });
+    if (pushHash !== false) location.hash = 'tab=' + tab;
+    loadTab(tab);
+  }
+
+  document.getElementById('anTabs').addEventListener('click', function(e){
+    var t = e.target.closest('.tab');
+    if (!t) return;
+    activateTab(t.dataset.tab);
+  });
+
+  document.getElementById('anRange').addEventListener('click', function(e){
+    var b = e.target.closest('button');
+    if (!b) return;
+    document.querySelectorAll('#anRange button').forEach(function(x){ x.classList.remove('on'); });
+    b.classList.add('on');
+    currentDays = parseInt(b.dataset.days, 10) || 30;
+    var active = document.querySelector('#anTabs .tab.on');
+    loadTab(active ? active.dataset.tab : 'risk');
+  });
+
+  document.getElementById('riskHorizon').addEventListener('click', function(e){
+    var b = e.target.closest('button');
+    if (!b) return;
+    document.querySelectorAll('#riskHorizon button').forEach(function(x){ x.classList.remove('on'); });
+    b.classList.add('on');
+    riskHorizonDays = parseInt(b.dataset.h, 10) || 30;
+    loadRisk();
+  });
+
+  setupSearch('consSearch', '#panel-consumables .dtable-wrap');
+  setupSearch('worstSearch', '#panel-fulfillment .dtable-wrap');
+  setupSearch('riskSearch', '#panel-risk .dtable-wrap');
+
+  // ── Collapsible sidebar (persisted across visits) ──
+  (function(){
+    var aph = document.querySelector('.aph'), btn = document.getElementById('collapseBtn');
+    if (btn) btn.addEventListener('click', function(){
+      aph.classList.toggle('collapsed');
+      try { localStorage.setItem('aphSideCollapsed', aph.classList.contains('collapsed') ? '1' : '0'); } catch(e){}
+    });
+  })();
+
+  function initialTab(){
+    var m = /tab=([a-z]+)/.exec(location.hash);
+    var tab = (m && LOADERS[m[1]]) ? m[1] : 'risk';
+    activateTab(tab, false);
+  }
+
+  function boot(){
+    if (!window.frappe || !frappe.call) { return setTimeout(boot, 150); }
+    initialTab();
+  }
+  boot();
+})();
+</script>
+<link rel="stylesheet" href="/assets/upande_packhouse/css/packhouse-portal.css">
+{% endraw %}
+{% endblock %}

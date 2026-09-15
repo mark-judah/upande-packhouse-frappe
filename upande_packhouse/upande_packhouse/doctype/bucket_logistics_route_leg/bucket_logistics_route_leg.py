@@ -4,5 +4,5 @@
 from frappe.model.document import Document
 
 
-class ShelfLocations(Document):
+class BucketLogisticsRouteLeg(Document):
 	pass

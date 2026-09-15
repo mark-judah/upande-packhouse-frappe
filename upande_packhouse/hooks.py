@@ -198,6 +198,13 @@ doc_events = {
 	"Delivery Note": {
 		"on_submit": "upande_packhouse.roses_invoice.delivery_note_on_submit",
 	},
+	"Farm Pack List": {
+		# Runs on EVERY submit -- the mobile pack-scan auto-submit path in
+		# sync_and_maybe_submit_fpl, or a plain Desk Submit -- generating the
+		# Graded Sold stock move + Box Label(s) from whatever was actually
+		# packed, complete or not. See farm_pack_list.py's own docstring.
+		"on_submit": "upande_packhouse.farm_pack_list.farm_pack_list_on_submit",
+	},
 }
 
 # Scheduled Tasks
