@@ -1,0 +1,66 @@
+[
+ {
+  "description": "Not enough graded stems available on the shelf to fill the box to packrate.",
+  "docstatus": 0,
+  "doctype": "Under Pack Reason",
+  "modified": "2026-09-16 00:02:18.469071",
+  "name": "Insufficient stock on shelf",
+  "reason": "Insufficient stock on shelf"
+ },
+ {
+  "description": "The bucket being packed ran out before the box reached its packrate.",
+  "docstatus": 0,
+  "doctype": "Under Pack Reason",
+  "modified": "2026-09-16 00:02:18.515302",
+  "name": "Bucket exhausted mid-box",
+  "reason": "Bucket exhausted mid-box"
+ },
+ {
+  "description": "Stems were rejected/discarded for quality during packing, reducing the box below packrate.",
+  "docstatus": 0,
+  "doctype": "Under Pack Reason",
+  "modified": "2026-09-16 00:02:18.521749",
+  "name": "Quality rejection",
+  "reason": "Quality rejection"
+ },
+ {
+  "description": "Only a shorter/longer length than ordered was available, so the box was packed short.",
+  "docstatus": 0,
+  "doctype": "Under Pack Reason",
+  "modified": "2026-09-16 00:02:18.531374",
+  "name": "Wrong stem length available",
+  "reason": "Wrong stem length available"
+ },
+ {
+  "description": "The sales order line was reduced or changed after stock was allocated for this box.",
+  "docstatus": 0,
+  "doctype": "Under Pack Reason",
+  "modified": "2026-09-16 00:02:18.537141",
+  "name": "Order quantity reduced after allocation",
+  "reason": "Order quantity reduced after allocation"
+ },
+ {
+  "description": "Packing was cut off for dispatch before the box could be completed.",
+  "docstatus": 0,
+  "doctype": "Under Pack Reason",
+  "modified": "2026-09-16 00:02:18.543134",
+  "name": "End of day / cutoff",
+  "reason": "End of day / cutoff"
+ },
+ {
+  "description": "Remaining stems for this box are in transit from another farm and not yet available.",
+  "docstatus": 0,
+  "doctype": "Under Pack Reason",
+  "modified": "2026-09-16 00:02:18.548336",
+  "name": "Awaiting transfer from another farm",
+  "reason": "Awaiting transfer from another farm"
+ },
+ {
+  "description": "One or more varieties in the bouquet recipe were short, capping the whole bunch/box.",
+  "docstatus": 0,
+  "doctype": "Under Pack Reason",
+  "modified": "2026-09-16 00:02:18.553384",
+  "name": "Mixed bunch recipe shortfall",
+  "reason": "Mixed bunch recipe shortfall"
+ }
+]
