@@ -12,12 +12,12 @@
 // next real deploy instead of living only on production's database. If you
 // deploy this file, disable/delete the live Client Script of the same name
 // to avoid running the fix twice.
-frappe.ui.form.on('Sales Order', {
+frappe.ui.form.on("Sales Order", {
 	validate(frm) {
-		(frm.doc.items || []).forEach(row => {
-			if (row.custom_mixed_box && row.uom !== 'Stems') {
-				frappe.model.set_value(row.doctype, row.name, 'uom', 'Stems');
+		(frm.doc.items || []).forEach((row) => {
+			if (row.custom_mixed_box && row.uom !== "Stems") {
+				frappe.model.set_value(row.doctype, row.name, "uom", "Stems");
 			}
 		});
-	}
+	},
 });

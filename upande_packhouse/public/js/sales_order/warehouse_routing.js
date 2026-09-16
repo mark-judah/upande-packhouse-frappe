@@ -20,30 +20,38 @@
 // link_filters is non-empty the merge corrupts the array indices into operator
 // slots -> "Operator must be one of ..." 417. NULL it, then supply a clean
 // array-form query via set_query.
-frappe.ui.form.on('Sales Order', {
-    onload(frm)  { frm.events.set_source_warehouse_query(frm); },
-    refresh(frm) { frm.events.set_source_warehouse_query(frm); },
-    async set_source_warehouse_query(frm) {
-        try {
-            var grid = frm.fields_dict.items && frm.fields_dict.items.grid;
-            var gf = grid && grid.get_docfield && grid.get_docfield('warehouse');
-            if (gf) { gf.link_filters = null; }   // neutralise the corrupting merge
-        } catch (e) { /* non-fatal */ }
+frappe.ui.form.on("Sales Order", {
+	onload(frm) {
+		frm.events.set_source_warehouse_query(frm);
+	},
+	refresh(frm) {
+		frm.events.set_source_warehouse_query(frm);
+	},
+	async set_source_warehouse_query(frm) {
+		try {
+			var grid = frm.fields_dict.items && frm.fields_dict.items.grid;
+			var gf = grid && grid.get_docfield && grid.get_docfield("warehouse");
+			if (gf) {
+				gf.link_filters = null;
+			} // neutralise the corrupting merge
+		} catch (e) {
+			/* non-fatal */
+		}
 
-        let source_warehouses = [];
-        try {
-            let map_doc = await frappe.db.get_doc('SO Warehouse Mapping', 'Roses-MAP');
-            source_warehouses = (map_doc.items || [])
-                .map(item => item.source_warehouse)
-                .filter(Boolean);
-        } catch (e) { /* Roses-MAP not present yet -- fall through to an empty list */ }
+		let source_warehouses = [];
+		try {
+			let map_doc = await frappe.db.get_doc("SO Warehouse Mapping", "Roses-MAP");
+			source_warehouses = (map_doc.items || [])
+				.map((item) => item.source_warehouse)
+				.filter(Boolean);
+		} catch (e) {
+			/* Roses-MAP not present yet -- fall through to an empty list */
+		}
 
-        frm.set_query('warehouse', 'items', function () {
-            return {
-                filters: [
-                    ['Warehouse', 'name', 'in', source_warehouses],
-                ]
-            };
-        });
-    }
+		frm.set_query("warehouse", "items", function () {
+			return {
+				filters: [["Warehouse", "name", "in", source_warehouses]],
+			};
+		});
+	},
 });

@@ -22,7 +22,7 @@ def _as_list(v):
 			v = json.loads(v)
 		except Exception:
 			v = [x.strip() for x in v.split(",") if x.strip()]
-	return list(v) if isinstance(v, (list, tuple)) else [v]
+	return list(v) if isinstance(v, list | tuple) else [v]
 
 
 def reserved_bucket_ids():
@@ -40,7 +40,7 @@ def reserved_bucket_ids():
 
 
 @frappe.whitelist()
-def variety_availability(varieties, lengths=None):
+def variety_availability(varieties: str | None, lengths: str | None = None):
 	"""Return { variety: { farm: available_stems } } for the given varieties
 	(optionally constrained to stem lengths), net of allocations and discards.
 	"""

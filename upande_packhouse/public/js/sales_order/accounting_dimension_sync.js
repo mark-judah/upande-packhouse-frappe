@@ -7,15 +7,18 @@
 // direction live on the CLIENT the moment the rep fills the visible field, so
 // business-unit-gated automation (box_math.js, warehouse_routing.js) reacts
 // immediately instead of only after a save round-trip.
-frappe.ui.form.on('Sales Order', {
-    custom_business_unit(frm) {
-        if (frm.doc.custom_business_unit && frm.doc.business_unit !== frm.doc.custom_business_unit) {
-            frm.set_value('business_unit', frm.doc.custom_business_unit);
-        }
-    },
-    custom_farm(frm) {
-        if (frm.doc.custom_farm && frm.doc.farm !== frm.doc.custom_farm) {
-            frm.set_value('farm', frm.doc.custom_farm);
-        }
-    }
+frappe.ui.form.on("Sales Order", {
+	custom_business_unit(frm) {
+		if (
+			frm.doc.custom_business_unit &&
+			frm.doc.business_unit !== frm.doc.custom_business_unit
+		) {
+			frm.set_value("business_unit", frm.doc.custom_business_unit);
+		}
+	},
+	custom_farm(frm) {
+		if (frm.doc.custom_farm && frm.doc.farm !== frm.doc.custom_farm) {
+			frm.set_value("farm", frm.doc.custom_farm);
+		}
+	},
 });

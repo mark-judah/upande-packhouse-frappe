@@ -16,19 +16,20 @@ import frappe
 
 @frappe.whitelist()
 def getStockVisibilityData():
-    # Stock Visibility Data
-    # API: getStockVisibilityData
-    try:
-        delivery_date = frappe.form_dict.get('delivery_date') or frappe.utils.today()
+	# Stock Visibility Data
+	# API: getStockVisibilityData
+	try:
+		delivery_date = frappe.form_dict.get("delivery_date") or frappe.utils.today()
 
-        # ── Shelved stock (physically on a shelf). item_group resolved from the
-        # Item master so the page can classify EVERY variety (not just ordered
-        # ones), and oldest_days gives freshness (age of the oldest stems in the
-        # group) so aging stock can be surfaced before it becomes a discard. ──
-        # Age bands (fresh 0-2d / aging 3-6d / old 7d+) computed per shelf row and
-        # summed, so the grid can show the age composition of a stock figure, not
-        # just its oldest day.
-        stock_rows = frappe.db.sql("""
+		# ── Shelved stock (physically on a shelf). item_group resolved from the
+		# Item master so the page can classify EVERY variety (not just ordered
+		# ones), and oldest_days gives freshness (age of the oldest stems in the
+		# group) so aging stock can be surfaced before it becomes a discard. ──
+		# Age bands (fresh 0-2d / aging 3-6d / old 7d+) computed per shelf row and
+		# summed, so the grid can show the age composition of a stock figure, not
+		# just its oldest day.
+		stock_rows = frappe.db.sql(
+			"""
             SELECT
                 si.variety,
                 i.item_group,
@@ -51,12 +52,15 @@ def getStockVisibilityData():
                 AND TRIM(si.variety) != ''
             GROUP BY si.variety, i.item_group, si.stem_length, s.farm
             ORDER BY si.variety, si.stem_length, s.farm
-        """, as_dict=True)
+        """,
+			as_dict=True,
+		)
 
-        # ── Allocated: stems committed to orders on buckets that are STILL on a
-        # shelf (Bucket Allocation Status keyed by bucket). Netted out of the
-        # shelved figure to get true availability. ──
-        allocated_rows = frappe.db.sql("""
+		# ── Allocated: stems committed to orders on buckets that are STILL on a
+		# shelf (Bucket Allocation Status keyed by bucket). Netted out of the
+		# shelved figure to get true availability. ──
+		allocated_rows = frappe.db.sql(
+			"""
             SELECT
                 bas.item_code AS variety,
                 bas.stem_length AS length,
@@ -68,13 +72,16 @@ def getStockVisibilityData():
                     WHERE si.bucket_id = bas.bucket_id AND si.stem_qty > 0)
             GROUP BY bas.item_code, bas.stem_length, bas.shelf_farm
             ORDER BY bas.item_code, bas.stem_length, bas.shelf_farm
-        """, as_dict=True)
+        """,
+			as_dict=True,
+		)
 
-        # ── Discard-requested: stems on a shelf that are also in a pending
-        # Discard Request (submittable, not cancelled; the bucket row is still
-        # shelved and not yet discarded). This is the "on the shelf but also in a
-        # discard request" overlap. ──
-        discard_rows = frappe.db.sql("""
+		# ── Discard-requested: stems on a shelf that are also in a pending
+		# Discard Request (submittable, not cancelled; the bucket row is still
+		# shelved and not yet discarded). This is the "on the shelf but also in a
+		# discard request" overlap. ──
+		discard_rows = frappe.db.sql(
+			"""
             SELECT
                 drb.variety AS variety,
                 drb.stem_length AS length,
@@ -89,14 +96,17 @@ def getStockVisibilityData():
                     WHERE si.bucket_id = drb.bucket_id AND si.stem_qty > 0)
             GROUP BY drb.variety, drb.stem_length, drb.farm
             ORDER BY drb.variety, drb.stem_length, drb.farm
-        """, as_dict=True)
+        """,
+			as_dict=True,
+		)
 
-        # ── Coldroom: received (Receiving/Late Receipt) in the recent window whose
-        # bucket is NOT on a shelf, NOT discarded, NOT issued => awaiting shelving.
-        # Window kept short (bucket ids aren't indexed). Company is NOT hardcoded —
-        # the shelf side isn't either, and hardcoding it blanked the coldroom on any
-        # site whose farms belong to a different company. ──
-        not_shelved_rows = frappe.db.sql("""
+		# ── Coldroom: received (Receiving/Late Receipt) in the recent window whose
+		# bucket is NOT on a shelf, NOT discarded, NOT issued => awaiting shelving.
+		# Window kept short (bucket ids aren't indexed). Company is NOT hardcoded —
+		# the shelf side isn't either, and hardcoding it blanked the coldroom on any
+		# site whose farms belong to a different company. ──
+		not_shelved_rows = frappe.db.sql(
+			"""
             SELECT
                 sed.item_code AS variety,
                 i.item_group,
@@ -120,11 +130,14 @@ def getStockVisibilityData():
                     WHERE pli.bucket = se.custom_bucket_id AND pli.issued = 1)
             GROUP BY sed.item_code, i.item_group, se.custom_stem_length, se.farm
             ORDER BY sed.item_code, se.custom_stem_length, se.farm
-        """, as_dict=True)
+        """,
+			as_dict=True,
+		)
 
-        # ── Orders for the delivery date. customer / delivery_point / farm carried
-        # so the page can scope demand to a buyer, a drop-off, or a farm. ──
-        order_rows = frappe.db.sql("""
+		# ── Orders for the delivery date. customer / delivery_point / farm carried
+		# so the page can scope demand to a buyer, a drop-off, or a farm. ──
+		order_rows = frappe.db.sql(
+			"""
             SELECT
                 soi.item_code AS variety,
                 soi.item_group,
@@ -142,25 +155,28 @@ def getStockVisibilityData():
             GROUP BY soi.item_code, soi.item_group, soi.custom_length,
                      so.customer, so.custom_delivery_point, so.farm
             ORDER BY soi.item_code, soi.custom_length
-        """, {'delivery_date': delivery_date}, as_dict=True)
+        """,
+			{"delivery_date": delivery_date},
+			as_dict=True,
+		)
 
-        frappe.response['message'] = {
-            'success': True,
-            'delivery_date': delivery_date,
-            'stock': stock_rows,
-            'allocated': allocated_rows,
-            'discard': discard_rows,
-            'not_shelved': not_shelved_rows,
-            'orders': order_rows
-        }
-    except Exception as e:
-        frappe.log_error('getStockVisibilityData error: ' + str(e))
-        frappe.response['message'] = {
-            'success': False,
-            'error': str(e),
-            'stock': [],
-            'allocated': [],
-            'discard': [],
-            'not_shelved': [],
-            'orders': []
-        }
+		frappe.response["message"] = {
+			"success": True,
+			"delivery_date": delivery_date,
+			"stock": stock_rows,
+			"allocated": allocated_rows,
+			"discard": discard_rows,
+			"not_shelved": not_shelved_rows,
+			"orders": order_rows,
+		}
+	except Exception as e:
+		frappe.log_error("getStockVisibilityData error: " + str(e))
+		frappe.response["message"] = {
+			"success": False,
+			"error": str(e),
+			"stock": [],
+			"allocated": [],
+			"discard": [],
+			"not_shelved": [],
+			"orders": [],
+		}

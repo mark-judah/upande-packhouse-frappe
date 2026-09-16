@@ -37,9 +37,10 @@
   },
   {
    "fieldname": "consolidated_pack_list_id",
-   "fieldtype": "Link",
+   "fieldtype": "Data",
    "label": "Consolidated Pack List ID",
-   "options": "Consolidated Pack List"
+   "options": null,
+   "description": "Was a Link to Consolidated Pack List (upande_kaitet). Kept as Data: nothing in this app reads it, and that doctype is not present on packhouse sites."
   },
   {
    "fetch_from": "sales_order_id.customer",

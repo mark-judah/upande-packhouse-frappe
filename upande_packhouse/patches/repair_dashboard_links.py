@@ -34,57 +34,56 @@ LINK_OWNERS = ("Sales Order",)
 
 
 def execute():
-    try:
-        sync_customizations(APP)
-    except Exception:
-        # A bad customization file must not leave the form broken — log it and
-        # still prune, so the doctype comes back usable either way.
-        frappe.log_error(
-            f"sync_customizations({APP}) failed during repair_dashboard_links",
-            frappe.get_traceback(),
-        )
+	try:
+		sync_customizations(APP)
+	except Exception:
+		# A bad customization file must not leave the form broken — log it and
+		# still prune, so the doctype comes back usable either way.
+		frappe.log_error(
+			f"sync_customizations({APP}) failed during repair_dashboard_links",
+			frappe.get_traceback(),
+		)
 
-    for doctype in LINK_OWNERS:
-        prune_unresolvable_links(doctype)
+	for doctype in LINK_OWNERS:
+		prune_unresolvable_links(doctype)
 
 
 def prune_unresolvable_links(doctype):
-    """Delete DocType Link rows whose target field no longer exists.
+	"""Delete DocType Link rows whose target field no longer exists.
 
-    Rows are removed with a direct delete rather than by saving the DocType:
-    saving re-runs the very validation that is failing, and a standard DocType
-    is not editable outside developer mode.
-    """
-    rows = frappe.get_all(
-        "DocType Link",
-        filters={"parent": doctype, "parentfield": "links"},
-        fields=["name", "idx", "link_doctype", "link_fieldname", "group"],
-        order_by="idx",
-        parent_doctype="DocType",  # DocType Link is a child table
-    )
+	Rows are removed with a direct delete rather than by saving the DocType:
+	saving re-runs the very validation that is failing, and a standard DocType
+	is not editable outside developer mode.
+	"""
+	rows = frappe.get_all(
+		"DocType Link",
+		filters={"parent": doctype, "parentfield": "links"},
+		fields=["name", "idx", "link_doctype", "link_fieldname", "group"],
+		order_by="idx",
+		parent_doctype="DocType",  # DocType Link is a child table
+	)
 
-    dropped = []
-    for row in rows:
-        if not row.link_doctype or not row.link_fieldname:
-            continue
-        if not frappe.db.exists("DocType", row.link_doctype):
-            dropped.append((row, "doctype missing"))
-            continue
-        if not frappe.get_meta(row.link_doctype).has_field(row.link_fieldname):
-            dropped.append((row, "fieldname missing"))
+	dropped = []
+	for row in rows:
+		if not row.link_doctype or not row.link_fieldname:
+			continue
+		if not frappe.db.exists("DocType", row.link_doctype):
+			dropped.append((row, "doctype missing"))
+			continue
+		if not frappe.get_meta(row.link_doctype).has_field(row.link_fieldname):
+			dropped.append((row, "fieldname missing"))
 
-    for row, reason in dropped:
-        frappe.db.delete("DocType Link", {"name": row.name})
-        print(
-            f"{doctype}: dropped dashboard link row #{row.idx} "
-            f"{row.link_doctype}.{row.link_fieldname} ({reason})"
-        )
+	for row, reason in dropped:
+		frappe.db.delete("DocType Link", {"name": row.name})
+		print(
+			f"{doctype}: dropped dashboard link row #{row.idx} "
+			f"{row.link_doctype}.{row.link_fieldname} ({reason})"
+		)
 
-    if dropped:
-        frappe.clear_cache(doctype=doctype)
+	if dropped:
+		frappe.clear_cache(doctype=doctype)
 
-    return [
-        {"link_doctype": r.link_doctype, "link_fieldname": r.link_fieldname,
-         "reason": reason}
-        for r, reason in dropped
-    ]
+	return [
+		{"link_doctype": r.link_doctype, "link_fieldname": r.link_fieldname, "reason": reason}
+		for r, reason in dropped
+	]

@@ -120,6 +120,7 @@ def _farm_from_warehouse_prefix(v15_warehouse_name, farm_map):
 			return v16_farm
 	return None
 
+
 # v15 Cut Stage value -> v16 Cut Stage record name. Only "2.5-3.0" needed an
 # actual rename; the rest already match 1:1 (Budwood and 3.5-4.0 were created
 # fresh in v16 to close the gap — see the design conversation). Same map for
@@ -157,7 +158,9 @@ GH_WAREHOUSE_RE = re.compile(r"^(.+?)\s+GH\s*0*(\d+)\s*-\s*" + SOURCE_ABBR + r"$
 # numbered pattern, which has both spaced/unspaced variants).
 GH_IPM_RE = re.compile(r"^(.+?)\s+GH\s+IPM\s*0*(\d+)\s*-\s*" + SOURCE_ABBR + r"$", re.IGNORECASE)
 GH_TUNNEL_RE = re.compile(r"^(.+?)\s+GH\s+Tunnel\s*-\s*" + SOURCE_ABBR + r"$", re.IGNORECASE)
-GH_WETLAND_BLOCK_RE = re.compile(r"^(.+?)\s+Wetland\s+GH\s+Block\s*0*(\d+)\s*-\s*" + SOURCE_ABBR + r"$", re.IGNORECASE)
+GH_WETLAND_BLOCK_RE = re.compile(
+	r"^(.+?)\s+Wetland\s+GH\s+Block\s*0*(\d+)\s*-\s*" + SOURCE_ABBR + r"$", re.IGNORECASE
+)
 
 # Cost-centre naming convention already live on the production target — 212
 # real records like "GH-19 Kapkolia - KR", "GH-01 Torongo - KR" (farm as a
@@ -172,6 +175,7 @@ _CC_GH_NUMBER_RE = re.compile(r"GH-?\s*0*(\d+)", re.IGNORECASE)
 # Progress persistence
 # ------------------------------------------------------------------
 
+
 def _progress_path():
 	return frappe.get_site_path("private", "files", "v15_stock_entry_import_progress.json")
 
@@ -181,20 +185,42 @@ def _load_progress():
 
 	path = _progress_path()
 	if not os.path.exists(path):
-		return {t: {"cursor": "1900-01-01 00:00:00.000000", "imported": 0, "skipped": 0,
-					"errors": 0, "done": False, "last_error": None} for t in STOCK_ENTRY_TYPES}
-	with open(path) as f:
+		return {
+			t: {
+				"cursor": "1900-01-01 00:00:00.000000",
+				"imported": 0,
+				"skipped": 0,
+				"errors": 0,
+				"done": False,
+				"last_error": None,
+			}
+			for t in STOCK_ENTRY_TYPES
+		}
+	# Path is built by frappe.get_site_path() from a fixed filename -- no
+	# caller input reaches it.
+	with open(path) as f:  # nosemgrep: frappe-security-file-traversal
 		data = json.load(f)
 	for t in STOCK_ENTRY_TYPES:
-		data.setdefault(t, {"cursor": "1900-01-01 00:00:00.000000", "imported": 0, "skipped": 0,
-							 "errors": 0, "done": False, "last_error": None})
+		data.setdefault(
+			t,
+			{
+				"cursor": "1900-01-01 00:00:00.000000",
+				"imported": 0,
+				"skipped": 0,
+				"errors": 0,
+				"done": False,
+				"last_error": None,
+			},
+		)
 	return data
 
 
 def _save_progress(progress):
 	path = _progress_path()
 	tmp = path + ".tmp"
-	with open(tmp, "w") as f:
+	# Path is built by frappe.get_site_path() from a fixed filename -- no
+	# caller input reaches it.
+	with open(tmp, "w") as f:  # nosemgrep: frappe-security-file-traversal
 		json.dump(progress, f, indent=1, default=str)
 	import os
 
@@ -208,13 +234,19 @@ def get_progress():
 
 
 @frappe.whitelist()
-def reset_progress(stock_entry_type=None):
+def reset_progress(stock_entry_type: str | None = None):
 	"""Danger: wipes the resume cursor. Does NOT delete already-imported records."""
 	progress = _load_progress()
 	types = [stock_entry_type] if stock_entry_type else STOCK_ENTRY_TYPES
 	for t in types:
-		progress[t] = {"cursor": "1900-01-01 00:00:00.000000", "imported": 0, "skipped": 0,
-						"errors": 0, "done": False, "last_error": None}
+		progress[t] = {
+			"cursor": "1900-01-01 00:00:00.000000",
+			"imported": 0,
+			"skipped": 0,
+			"errors": 0,
+			"done": False,
+			"last_error": None,
+		}
 	_save_progress(progress)
 	return progress
 
@@ -227,17 +259,42 @@ def reset_progress(stock_entry_type=None):
 # ------------------------------------------------------------------
 
 PARENT_FIELDS = [
-	"name", "creation", "posting_date", "posting_time", "docstatus",
-	"stock_entry_type", "purpose", "company",
-	"custom_farm", "custom_location", "custom_greenhouse", "custom_business_unit",
-	"custom_bucket_id", "custom_cut_stage", "custom_stem_length",
-	"custom_harvester", "custom_graded_by", "custom_receiving_batch_id",
-	"custom_scanned", "is_opening", "remarks",
+	"name",
+	"creation",
+	"posting_date",
+	"posting_time",
+	"docstatus",
+	"stock_entry_type",
+	"purpose",
+	"company",
+	"custom_farm",
+	"custom_location",
+	"custom_greenhouse",
+	"custom_business_unit",
+	"custom_bucket_id",
+	"custom_cut_stage",
+	"custom_stem_length",
+	"custom_harvester",
+	"custom_graded_by",
+	"custom_receiving_batch_id",
+	"custom_scanned",
+	"is_opening",
+	"remarks",
 ]
 
 CHILD_FIELDS = [
-	"name", "parent", "idx", "item_code", "item_name", "qty", "uom", "stock_uom",
-	"conversion_factor", "s_warehouse", "t_warehouse", "basic_rate",
+	"name",
+	"parent",
+	"idx",
+	"item_code",
+	"item_name",
+	"qty",
+	"uom",
+	"stock_uom",
+	"conversion_factor",
+	"s_warehouse",
+	"t_warehouse",
+	"basic_rate",
 ]
 
 
@@ -316,6 +373,7 @@ class V15Client:
 # bucket resolution never re-queries per record.
 # ------------------------------------------------------------------
 
+
 def _build_production_cc_index(company, v16_farms):
 	"""Index existing Cost Centres by (farm, greenhouse number) so the
 	production target REUSES the 212 already there instead of creating
@@ -364,7 +422,8 @@ class LookupCache:
 		if profile["cost_center_style"] == "production":
 			self._cc_index = _build_production_cc_index(self.company, set(self.farm_map.values()))
 			self._cc_parent = frappe.db.get_value(
-				"Cost Center", {"company": self.company, "is_group": 1, "parent_cost_center": ["is", "not set"]}
+				"Cost Center",
+				{"company": self.company, "is_group": 1, "parent_cost_center": ["is", "not set"]},
 			)
 		else:
 			self._cc_index = {}
@@ -391,7 +450,8 @@ class LookupCache:
 		if company_default:
 			return company_default
 		item_group_default = frappe.db.get_value(
-			"Item Default", {"parent": ["is", "set"], "company": self.company, "default_inventory_account": ["is", "set"]},
+			"Item Default",
+			{"parent": ["is", "set"], "company": self.company, "default_inventory_account": ["is", "set"]},
 			"default_inventory_account",
 		)
 		if item_group_default:
@@ -442,9 +502,11 @@ class LookupCache:
 			# doomed create-then-collide attempts.
 			cc_name, needs_create_cc = self._cc_name_for(v16_farm, gh_num)
 			return self._get_or_create_greenhouse(
-				key=(farm_display, gh_num), v16_farm=v16_farm,
+				key=(farm_display, gh_num),
+				v16_farm=v16_farm,
 				warehouse_field_name="{0} GH {1:02d}".format(v16_farm, gh_num),
-				cc_name=cc_name, needs_create_cc=needs_create_cc,
+				cc_name=cc_name,
+				needs_create_cc=needs_create_cc,
 				cc_index_key=(v16_farm, gh_num),
 			)
 
@@ -454,11 +516,13 @@ class LookupCache:
 			v16_farm = self.farm_map.get(farm_display, farm_display)
 			cc_name = "{0} GH Tunnel - {1}".format(v16_farm, self.abbr)
 			return self._get_or_create_greenhouse(
-				key=("__tunnel__", farm_display), v16_farm=v16_farm,
+				key=("__tunnel__", farm_display),
+				v16_farm=v16_farm,
 				# Real spelling has TWO spaces before "GH" — not a typo to
 				# clean up, this is the actual live warehouse name.
 				warehouse_field_name="{0}  GH Tunnel".format(v16_farm),
-				cc_name=cc_name, needs_create_cc=not frappe.db.exists("Cost Center", cc_name),
+				cc_name=cc_name,
+				needs_create_cc=not frappe.db.exists("Cost Center", cc_name),
 			)
 
 		m = GH_IPM_RE.match(v15_warehouse)
@@ -470,9 +534,11 @@ class LookupCache:
 			# record, not a per-number series like the plain GH pattern.
 			cc_name = "IPM - {0}".format(self.abbr)
 			return self._get_or_create_greenhouse(
-				key=("__ipm__", farm_display, gh_num), v16_farm=v16_farm,
+				key=("__ipm__", farm_display, gh_num),
+				v16_farm=v16_farm,
 				warehouse_field_name="{0} GH IPM {1:02d}".format(v16_farm, gh_num),
-				cc_name=cc_name, needs_create_cc=not frappe.db.exists("Cost Center", cc_name),
+				cc_name=cc_name,
+				needs_create_cc=not frappe.db.exists("Cost Center", cc_name),
 			)
 
 		m = GH_WETLAND_BLOCK_RE.match(v15_warehouse)
@@ -485,7 +551,8 @@ class LookupCache:
 			# deeper gap than this migration should paper over).
 			cc_name = "{0} - {1}".format(v16_farm, self.abbr)
 			return self._get_or_create_greenhouse(
-				key=("__wetland_block__", farm_display, gh_num), v16_farm=v16_farm,
+				key=("__wetland_block__", farm_display, gh_num),
+				v16_farm=v16_farm,
 				# Real spelling has TWO spaces before "GH".
 				warehouse_field_name="{0} Wetland  GH Block {1:02d}".format(v16_farm, gh_num),
 				cc_name=cc_name if frappe.db.exists("Cost Center", cc_name) else None,
@@ -494,7 +561,9 @@ class LookupCache:
 
 		return None, None, None
 
-	def _get_or_create_greenhouse(self, key, v16_farm, warehouse_field_name, cc_name, needs_create_cc, cc_index_key=None):
+	def _get_or_create_greenhouse(
+		self, key, v16_farm, warehouse_field_name, cc_name, needs_create_cc, cc_index_key=None
+	):
 		"""Shared get-or-create body for every greenhouse-warehouse family
 		resolve_greenhouse dispatches to. warehouse_field_name is the
 		Warehouse.warehouse_name value (pre-autoname, i.e. without the
@@ -509,25 +578,33 @@ class LookupCache:
 		if not frappe.db.exists("Warehouse", warehouse_name):
 			parent_wh = frappe.db.get_value(
 				"Warehouse", {"warehouse_name": v16_farm, "is_group": 1, "company": self.company}
-			) or frappe.db.get_value("Warehouse", {"company": self.company, "is_group": 1, "name": ["like", "%" + self.abbr]})
-			frappe.get_doc({
-				"doctype": "Warehouse",
-				"warehouse_name": warehouse_field_name,
-				"company": self.company,
-				"is_group": 0,
-				"parent_warehouse": parent_wh,
-				"custom_farm": v16_farm if frappe.db.exists("Farm", v16_farm) else None,
-				"account": self._default_inventory_account,
-			}).insert(ignore_permissions=True)
+			) or frappe.db.get_value(
+				"Warehouse", {"company": self.company, "is_group": 1, "name": ["like", "%" + self.abbr]}
+			)
+			frappe.get_doc(
+				{
+					"doctype": "Warehouse",
+					"warehouse_name": warehouse_field_name,
+					"company": self.company,
+					"is_group": 0,
+					"parent_warehouse": parent_wh,
+					"custom_farm": v16_farm if frappe.db.exists("Farm", v16_farm) else None,
+					"account": self._default_inventory_account,
+				}
+			).insert(ignore_permissions=True)
 
 		if needs_create_cc and cc_name and not frappe.db.exists("Cost Center", cc_name):
-			frappe.get_doc({
-				"doctype": "Cost Center",
-				"cost_center_name": cc_name[: -len(" - " + self.abbr)] if cc_name.endswith(" - " + self.abbr) else cc_name,
-				"company": self.company,
-				"parent_cost_center": self._cc_parent,
-				"is_group": 0,
-			}).insert(ignore_permissions=True)
+			frappe.get_doc(
+				{
+					"doctype": "Cost Center",
+					"cost_center_name": cc_name[: -len(" - " + self.abbr)]
+					if cc_name.endswith(" - " + self.abbr)
+					else cc_name,
+					"company": self.company,
+					"parent_cost_center": self._cc_parent,
+					"is_group": 0,
+				}
+			).insert(ignore_permissions=True)
 			if cc_index_key:
 				self._cc_index[cc_index_key] = cc_name
 
@@ -584,17 +661,22 @@ class LookupCache:
 			return self._warehouse_cc[key][0]
 		name = "{0} Receiving Cold Store - {1}".format(v16_farm, self.abbr)
 		if not frappe.db.exists("Warehouse", name):
-			parent_wh = frappe.db.get_value("Warehouse", {"warehouse_name": v16_farm, "is_group": 1, "company": self.company}) \
-				or frappe.db.get_value("Warehouse", {"company": self.company, "is_group": 1, "name": ["like", "%" + self.abbr]})
-			frappe.get_doc({
-				"doctype": "Warehouse",
-				"warehouse_name": "{0} Receiving Cold Store".format(v16_farm),
-				"company": self.company,
-				"is_group": 0,
-				"parent_warehouse": parent_wh,
-				"custom_farm": v16_farm if frappe.db.exists("Farm", v16_farm) else None,
-				"account": self._default_inventory_account,
-			}).insert(ignore_permissions=True)
+			parent_wh = frappe.db.get_value(
+				"Warehouse", {"warehouse_name": v16_farm, "is_group": 1, "company": self.company}
+			) or frappe.db.get_value(
+				"Warehouse", {"company": self.company, "is_group": 1, "name": ["like", "%" + self.abbr]}
+			)
+			frappe.get_doc(
+				{
+					"doctype": "Warehouse",
+					"warehouse_name": "{0} Receiving Cold Store".format(v16_farm),
+					"company": self.company,
+					"is_group": 0,
+					"parent_warehouse": parent_wh,
+					"custom_farm": v16_farm if frappe.db.exists("Farm", v16_farm) else None,
+					"account": self._default_inventory_account,
+				}
+			).insert(ignore_permissions=True)
 		self._warehouse_cc[key] = (name, None)
 		return name
 
@@ -633,7 +715,8 @@ class LookupCache:
 	def _stem_length_candidates(self):
 		if self._stem_length_cache is None:
 			rows = frappe.get_all(
-				"Stem Length", filters={"company": self.company, "docstatus": ["!=", 2]},
+				"Stem Length",
+				filters={"company": self.company, "docstatus": ["!=", 2]},
 				fields=["name", "length"],
 			)
 			out = []
@@ -674,7 +757,10 @@ def ensure_cut_stages():
 		if not frappe.db.exists("Cut Stage", val):
 			frappe.get_doc({"doctype": "Cut Stage", "cutstage": val}).insert(ignore_permissions=True)
 			created.append(val)
-	frappe.db.commit()
+	# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+	# is reachable over GET, and frappe rolls back writes made during a GET
+	# request -- without this the caller gets a success response and no change.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	return {"created": created, "already_present": [v for v in CUT_STAGE_VALUES_NEEDED if v not in created]}
 
 
@@ -684,6 +770,7 @@ def ensure_cut_stages():
 # correct without needing ERPNext's full repost machinery — see the module
 # docstring for why that machinery was deliberately not used here.
 # ------------------------------------------------------------------
+
 
 class RunningBalance:
 	def __init__(self):
@@ -709,9 +796,10 @@ class RunningBalance:
 # (doc_or_None, sle_rows, skip_reason_or_None).
 # ------------------------------------------------------------------
 
+
 def _v16_name(v15_name):
 	if v15_name.startswith("SE-"):
-		return "MAT-STE-" + v15_name[len("SE-"):]
+		return "MAT-STE-" + v15_name[len("SE-") :]
 	return v15_name
 
 
@@ -778,10 +866,16 @@ def _map_record(parent, items, cache, balances, fiscal_year_cache):
 		# Resolve whichever side is a greenhouse FIRST so its farm can back-fill
 		# the other, ambiguous side — and the doc header itself, if it was
 		# never set from custom_greenhouse/custom_farm above.
-		_, _, s_gh_farm = cache.resolve_greenhouse(it.get("s_warehouse")) if it.get("s_warehouse") else (None, None, None)
-		_, _, t_gh_farm = cache.resolve_greenhouse(it.get("t_warehouse")) if it.get("t_warehouse") else (None, None, None)
+		_, _, s_gh_farm = (
+			cache.resolve_greenhouse(it.get("s_warehouse")) if it.get("s_warehouse") else (None, None, None)
+		)
+		_, _, t_gh_farm = (
+			cache.resolve_greenhouse(it.get("t_warehouse")) if it.get("t_warehouse") else (None, None, None)
+		)
 		effective_farm = (
-			farm or s_gh_farm or t_gh_farm
+			farm
+			or s_gh_farm
+			or t_gh_farm
 			or _farm_from_warehouse_prefix(it.get("s_warehouse"), cache.farm_map)
 			or _farm_from_warehouse_prefix(it.get("t_warehouse"), cache.farm_map)
 		)
@@ -789,8 +883,16 @@ def _map_record(parent, items, cache, balances, fiscal_year_cache):
 			farm = effective_farm
 			doc.farm = farm
 
-		s_wh, _ = cache.resolve_warehouse(it.get("s_warehouse"), record_farm=effective_farm) if it.get("s_warehouse") else (None, None)
-		t_wh, item_cc = cache.resolve_warehouse(it.get("t_warehouse"), record_farm=effective_farm) if it.get("t_warehouse") else (None, None)
+		s_wh, _unused = (
+			cache.resolve_warehouse(it.get("s_warehouse"), record_farm=effective_farm)
+			if it.get("s_warehouse")
+			else (None, None)
+		)
+		t_wh, item_cc = (
+			cache.resolve_warehouse(it.get("t_warehouse"), record_farm=effective_farm)
+			if it.get("t_warehouse")
+			else (None, None)
+		)
 		if it.get("s_warehouse") and not s_wh:
 			return None, [], "unrecognised source warehouse: {0}".format(it.get("s_warehouse"))
 		if it.get("t_warehouse") and not t_wh:
@@ -826,15 +928,25 @@ def _map_record(parent, items, cache, balances, fiscal_year_cache):
 		posting_dt = "{0} {1}".format(parent["posting_date"], parent["posting_time"])
 		if s_wh:
 			bal = balances.apply(it["item_code"], s_wh, -qty)
-			sle_rows.append(_build_sle_row(it["item_code"], s_wh, -qty, bal, posting_dt, parent, v16_name, fiscal_year, cache.company))
+			sle_rows.append(
+				_build_sle_row(
+					it["item_code"], s_wh, -qty, bal, posting_dt, parent, v16_name, fiscal_year, cache.company
+				)
+			)
 		if t_wh:
 			bal = balances.apply(it["item_code"], t_wh, qty)
-			sle_rows.append(_build_sle_row(it["item_code"], t_wh, qty, bal, posting_dt, parent, v16_name, fiscal_year, cache.company))
+			sle_rows.append(
+				_build_sle_row(
+					it["item_code"], t_wh, qty, bal, posting_dt, parent, v16_name, fiscal_year, cache.company
+				)
+			)
 
 	return doc, sle_rows, None
 
 
-def _build_sle_row(item_code, warehouse, actual_qty, qty_after, posting_dt, parent, voucher_no, fiscal_year, company):
+def _build_sle_row(
+	item_code, warehouse, actual_qty, qty_after, posting_dt, parent, voucher_no, fiscal_year, company
+):
 	return {
 		"doctype": "Stock Ledger Entry",
 		"name": frappe.generate_hash(length=10),
@@ -863,14 +975,19 @@ def _build_sle_row(item_code, warehouse, actual_qty, qty_after, posting_dt, pare
 # Batch write — the actual "no N+1" bulk insert.
 # ------------------------------------------------------------------
 
+
 def _write_batch(docs, sle_rows):
 	if not docs:
 		return 0, 0
 	names = [d.name for d in docs]
-	existing = set(frappe.db.sql(
-		"SELECT name FROM `tabStock Entry` WHERE name IN ({0})".format(", ".join(["%s"] * len(names))),
-		names, pluck=True,
-	))
+	existing = set(
+		# nosemgrep: frappe-sql-format-injection -- the f-string carries no request-derived value
+		frappe.db.sql(
+			"SELECT name FROM `tabStock Entry` WHERE name IN ({0})".format(", ".join(["%s"] * len(names))),
+			names,
+			pluck=True,
+		)
+	)
 	new_docs = [d for d in docs if d.name not in existing]
 	skipped = len(docs) - len(new_docs)
 	if not new_docs:
@@ -902,9 +1019,17 @@ def _write_batch(docs, sle_rows):
 # Main resumable loop.
 # ------------------------------------------------------------------
 
+
 @frappe.whitelist()
-def run_import(source_url, token, stock_entry_type=None, batch_size=2000, time_budget_seconds=1200,
-		target_profile="local", max_batches=None):
+def run_import(
+	source_url: str | None,
+	token: str | None,
+	stock_entry_type: str | None = None,
+	batch_size: str | int | float | None = 2000,
+	time_budget_seconds: str | int | float | None = 1200,
+	target_profile: str | None = "local",
+	max_batches: str | int | float | None = None,
+):
 	"""The real engine. Runs unrestricted (no System Console sandbox) once picked
 	up by a background worker. Processes batches until either everything is
 	caught up or `time_budget_seconds` is spent, then re-enqueues itself to
@@ -925,8 +1050,9 @@ def run_import(source_url, token, stock_entry_type=None, batch_size=2000, time_b
 	import time
 
 	if target_profile not in TARGET_PROFILES:
-		raise frappe.ValidationError("Unknown target_profile {0!r} — must be one of {1}".format(
-			target_profile, list(TARGET_PROFILES)))
+		raise frappe.ValidationError(
+			"Unknown target_profile {0!r} — must be one of {1}".format(target_profile, list(TARGET_PROFILES))
+		)
 	profile = TARGET_PROFILES[target_profile]
 
 	batch_size = int(batch_size)
@@ -964,7 +1090,15 @@ def run_import(source_url, token, stock_entry_type=None, batch_size=2000, time_b
 				progress[t]["last_error"] = "pull failed: {0}".format(e)
 				_save_progress(progress)
 				if max_batches is None:
-					_requeue(source_url, token, stock_entry_type, batch_size, time_budget_seconds, target_profile, delay=60)
+					_requeue(
+						source_url,
+						token,
+						stock_entry_type,
+						batch_size,
+						time_budget_seconds,
+						target_profile,
+						delay=60,
+					)
 				return progress
 
 			if not parents:
@@ -979,7 +1113,15 @@ def run_import(source_url, token, stock_entry_type=None, batch_size=2000, time_b
 				progress[t]["last_error"] = "child pull failed: {0}".format(e)
 				_save_progress(progress)
 				if max_batches is None:
-					_requeue(source_url, token, stock_entry_type, batch_size, time_budget_seconds, target_profile, delay=60)
+					_requeue(
+						source_url,
+						token,
+						stock_entry_type,
+						batch_size,
+						time_budget_seconds,
+						target_profile,
+						delay=60,
+					)
 				return progress
 
 			cache.ensure_buckets([p.get("custom_bucket_id") for p in parents])
@@ -987,7 +1129,9 @@ def run_import(source_url, token, stock_entry_type=None, batch_size=2000, time_b
 			docs, sle_rows = [], []
 			batch_errors = 0
 			for p in parents:
-				doc, sles, reason = _map_record(p, children_by_parent.get(p["name"], []), cache, balances, fiscal_year_cache)
+				doc, sles, reason = _map_record(
+					p, children_by_parent.get(p["name"], []), cache, balances, fiscal_year_cache
+				)
 				if reason:
 					batch_errors += 1
 					progress[t]["last_error"] = "{0}: {1}".format(p["name"], reason)
@@ -1004,7 +1148,15 @@ def run_import(source_url, token, stock_entry_type=None, batch_size=2000, time_b
 				progress[t]["last_error"] = "write failed: {0}".format(e)
 				_save_progress(progress)
 				if max_batches is None:
-					_requeue(source_url, token, stock_entry_type, batch_size, time_budget_seconds, target_profile, delay=60)
+					_requeue(
+						source_url,
+						token,
+						stock_entry_type,
+						batch_size,
+						time_budget_seconds,
+						target_profile,
+						delay=60,
+					)
 				return progress
 
 			progress[t]["imported"] += inserted
@@ -1048,16 +1200,24 @@ def _requeue(source_url, token, stock_entry_type, batch_size, time_budget_second
 
 
 @frappe.whitelist()
-def queue_import(source_url, token, stock_entry_type=None, batch_size=2000, time_budget_seconds=1200,
-		target_profile="local", max_batches=None):
+def queue_import(
+	source_url: str | None,
+	token: str | None,
+	stock_entry_type: str | None = None,
+	batch_size: str | None = 2000,
+	time_budget_seconds: str | int | float | None = 1200,
+	target_profile: str | None = "local",
+	max_batches: str | None = None,
+):
 	"""Entry point safe to paste into System Console. Kicks off the background
 	job chain and returns immediately — check progress with get_progress().
 	target_profile: "local" or "production" — see TARGET_PROFILES / run_import.
 	max_batches: pass this for any first/validation run against a target —
 	see run_import's docstring. Leave unset only for the real full backfill."""
 	if target_profile not in TARGET_PROFILES:
-		raise frappe.ValidationError("Unknown target_profile {0!r} — must be one of {1}".format(
-			target_profile, list(TARGET_PROFILES)))
+		raise frappe.ValidationError(
+			"Unknown target_profile {0!r} — must be one of {1}".format(target_profile, list(TARGET_PROFILES))
+		)
 	frappe.enqueue(
 		"upande_packhouse.migrations.v15_import.run_import",
 		queue="long",
@@ -1101,7 +1261,7 @@ V15_STEM_LENGTH_VALUES = ["37cm", "42cm", "52cm", "57cm", "62cm", "72cm", "82cm"
 
 
 @frappe.whitelist()
-def ensure_v15_stem_lengths(target_profile="production"):
+def ensure_v15_stem_lengths(target_profile: str | None = "production"):
 	"""Get-or-create the real, full set of Stem Length values (matching v15
 	exactly) for this profile's company. Small and synchronous — safe to
 	call directly from System Console, same as ensure_cut_stages(). Must
@@ -1110,17 +1270,26 @@ def ensure_v15_stem_lengths(target_profile="production"):
 	fieldtype is still live, creating a value outside its 4 options will
 	fail validation."""
 	if target_profile not in TARGET_PROFILES:
-		raise frappe.ValidationError("Unknown target_profile {0!r} — must be one of {1}".format(
-			target_profile, list(TARGET_PROFILES)))
+		raise frappe.ValidationError(
+			"Unknown target_profile {0!r} — must be one of {1}".format(target_profile, list(TARGET_PROFILES))
+		)
 	company = TARGET_PROFILES[target_profile]["company"]
 	created = []
 	for val in V15_STEM_LENGTH_VALUES:
 		if not frappe.db.exists("Stem Length", val):
-			frappe.get_doc({
-				"doctype": "Stem Length", "length": val, "company": company, "docstatus": 1,
-			}).insert(ignore_permissions=True)
+			frappe.get_doc(
+				{
+					"doctype": "Stem Length",
+					"length": val,
+					"company": company,
+					"docstatus": 1,
+				}
+			).insert(ignore_permissions=True)
 			created.append(val)
-	frappe.db.commit()
+	# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+	# is reachable over GET, and frappe rolls back writes made during a GET
+	# request -- without this the caller gets a success response and no change.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	return {"created": created, "already_existed": [v for v in V15_STEM_LENGTH_VALUES if v not in created]}
 
 
@@ -1135,7 +1304,9 @@ def _load_stem_backfill_progress():
 	default = {"cursor": "", "updated": 0, "skipped": 0, "errors": 0, "done": False, "last_error": None}
 	if not os.path.exists(path):
 		return dict(default)
-	with open(path) as f:
+	# Path is built by frappe.get_site_path() from a fixed filename -- no
+	# caller input reaches it.
+	with open(path) as f:  # nosemgrep: frappe-security-file-traversal
 		data = json.load(f)
 	for k, v in default.items():
 		data.setdefault(k, v)
@@ -1147,7 +1318,9 @@ def _save_stem_backfill_progress(progress):
 
 	path = _stem_backfill_progress_path()
 	tmp = path + ".tmp"
-	with open(tmp, "w") as f:
+	# Path is built by frappe.get_site_path() from a fixed filename -- no
+	# caller input reaches it.
+	with open(tmp, "w") as f:  # nosemgrep: frappe-security-file-traversal
 		json.dump(progress, f, indent=1, default=str)
 	os.replace(tmp, path)
 
@@ -1165,8 +1338,9 @@ def reset_stem_backfill_progress():
 
 
 def _stem_length_candidates(company):
-	rows = frappe.get_all("Stem Length", filters={"company": company, "docstatus": ["!=", 2]},
-		fields=["name", "length"])
+	rows = frappe.get_all(
+		"Stem Length", filters={"company": company, "docstatus": ["!=", 2]}, fields=["name", "length"]
+	)
 	out = []
 	for r in rows:
 		m = STEM_LENGTH_VALUE_RE.search(r.length or "")
@@ -1186,8 +1360,14 @@ def _resolve_stem_length(raw_value, candidates):
 
 
 @frappe.whitelist()
-def run_stem_length_backfill(source_url, token, target_profile="production", batch_size=2000,
-		time_budget_seconds=1200, max_batches=None):
+def run_stem_length_backfill(
+	source_url: str | None,
+	token: str | None,
+	target_profile: str | None = "production",
+	batch_size: str | int | float | None = 2000,
+	time_budget_seconds: str | int | float | None = 1200,
+	max_batches: str | int | float | None = None,
+):
 	"""The real engine — same self-requeuing pattern as run_import. Only
 	touches Stock Entries with remarks starting "Migrated from v15 " (this
 	migration's own marker) whose custom_stem_length currently points at
@@ -1198,15 +1378,17 @@ def run_stem_length_backfill(source_url, token, target_profile="production", bat
 	import time
 
 	if target_profile not in TARGET_PROFILES:
-		raise frappe.ValidationError("Unknown target_profile {0!r} — must be one of {1}".format(
-			target_profile, list(TARGET_PROFILES)))
+		raise frappe.ValidationError(
+			"Unknown target_profile {0!r} — must be one of {1}".format(target_profile, list(TARGET_PROFILES))
+		)
 	company = TARGET_PROFILES[target_profile]["company"]
 	batch_size = int(batch_size)
 	time_budget_seconds = int(time_budget_seconds)
 	max_batches = int(max_batches) if max_batches not in (None, "", "None") else None
 
 	old_style = frappe.db.sql(
-		"SELECT name FROM `tabStem Length` WHERE company=%s AND name != length", company, as_dict=True)
+		"SELECT name FROM `tabStem Length` WHERE company=%s AND name != length", company, as_dict=True
+	)
 	old_names = [r["name"] for r in old_style]
 
 	candidates = _stem_length_candidates(company)
@@ -1234,7 +1416,8 @@ def run_stem_length_backfill(source_url, token, target_profile="production", bat
 			"""SELECT name, remarks FROM `tabStock Entry`
 			   WHERE company=%s AND name > %s AND custom_stem_length IN %s
 			   ORDER BY name ASC LIMIT %s""",
-			(company, progress["cursor"], old_names, batch_size), as_dict=True,
+			(company, progress["cursor"], old_names, batch_size),
+			as_dict=True,
 		)
 		if not rows:
 			progress["done"] = True
@@ -1254,7 +1437,9 @@ def run_stem_length_backfill(source_url, token, target_profile="production", bat
 			progress["last_error"] = "pull failed: {0}".format(e)
 			_save_stem_backfill_progress(progress)
 			if max_batches is None:
-				_requeue_stem_backfill(source_url, token, target_profile, batch_size, time_budget_seconds, delay=60)
+				_requeue_stem_backfill(
+					source_url, token, target_profile, batch_size, time_budget_seconds, delay=60
+				)
 			return progress
 
 		updated_this_batch = 0
@@ -1271,16 +1456,21 @@ def run_stem_length_backfill(source_url, token, target_profile="production", bat
 			frappe.db.set_value("Stock Entry", r.name, "custom_stem_length", resolved, update_modified=False)
 			updated_this_batch += 1
 
-		frappe.db.commit()
+		# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+		# is reachable over GET, and frappe rolls back writes made during a GET
+		# request -- without this the caller gets a success response and no change.
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		progress["updated"] += updated_this_batch
 		progress["cursor"] = rows[-1]["name"]
 		_save_stem_backfill_progress(progress)
 		batches_done += 1
 
 		frappe.publish_progress(
-			percent=None, title="Stem length backfill",
+			percent=None,
+			title="Stem length backfill",
 			description="{0} updated, {1} skipped, {2} errors so far".format(
-				progress["updated"], progress["skipped"], progress["errors"]),
+				progress["updated"], progress["skipped"], progress["errors"]
+			),
 		)
 
 		if len(rows) < batch_size:
@@ -1304,14 +1494,21 @@ def _requeue_stem_backfill(source_url, token, target_profile, batch_size, time_b
 
 
 @frappe.whitelist()
-def queue_stem_length_backfill(source_url, token, target_profile="production", batch_size=2000,
-		time_budget_seconds=1200, max_batches=None):
+def queue_stem_length_backfill(
+	source_url: str | None,
+	token: str | None,
+	target_profile: str | None = "production",
+	batch_size: str | None = 2000,
+	time_budget_seconds: str | int | float | None = 1200,
+	max_batches: str | None = None,
+):
 	"""Entry point safe to paste into System Console. Run
 	ensure_v15_stem_lengths(target_profile) first (once, synchronously),
 	then this. Check progress with get_stem_backfill_progress()."""
 	if target_profile not in TARGET_PROFILES:
-		raise frappe.ValidationError("Unknown target_profile {0!r} — must be one of {1}".format(
-			target_profile, list(TARGET_PROFILES)))
+		raise frappe.ValidationError(
+			"Unknown target_profile {0!r} — must be one of {1}".format(target_profile, list(TARGET_PROFILES))
+		)
 	frappe.enqueue(
 		"upande_packhouse.migrations.v15_import.run_stem_length_backfill",
 		queue="long",

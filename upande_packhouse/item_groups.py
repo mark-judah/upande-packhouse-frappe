@@ -18,42 +18,42 @@ import frappe
 
 
 def resolve_rose_item_groups(leaf_group_names):
-    """Item Group -> "Spray Roses" | "Standard Roses" | itself, resolved via
-    the Item Group nested set (lft/rgt) rather than a flat string match.
+	"""Item Group -> "Spray Roses" | "Standard Roses" | itself, resolved via
+	the Item Group nested set (lft/rgt) rather than a flat string match.
 
-    Falls back to the leaf group name itself when it isn't under either
-    root, so an unrelated Item Group still passes through unchanged rather
-    than being coerced into one of the two.
-    """
-    leaf_group_names = {g for g in leaf_group_names if g}
-    if not leaf_group_names:
-        return {}
+	Falls back to the leaf group name itself when it isn't under either
+	root, so an unrelated Item Group still passes through unchanged rather
+	than being coerced into one of the two.
+	"""
+	leaf_group_names = {g for g in leaf_group_names if g}
+	if not leaf_group_names:
+		return {}
 
-    roots = frappe.get_all(
-        "Item Group",
-        filters={"name": ["in", ["Spray Roses", "Standard Roses"]]},
-        fields=["name", "lft", "rgt"],
-    )
-    if not roots:
-        return {g: g for g in leaf_group_names}
+	roots = frappe.get_all(
+		"Item Group",
+		filters={"name": ["in", ["Spray Roses", "Standard Roses"]]},
+		fields=["name", "lft", "rgt"],
+	)
+	if not roots:
+		return {g: g for g in leaf_group_names}
 
-    leaves = frappe.get_all(
-        "Item Group",
-        filters={"name": ["in", list(leaf_group_names)]},
-        fields=["name", "lft", "rgt"],
-    )
+	leaves = frappe.get_all(
+		"Item Group",
+		filters={"name": ["in", list(leaf_group_names)]},
+		fields=["name", "lft", "rgt"],
+	)
 
-    resolved = {}
-    for leaf in leaves:
-        category = leaf.name
-        for root in roots:
-            if root.lft <= leaf.lft and leaf.rgt <= root.rgt:
-                category = root.name
-                break
-        resolved[leaf.name] = category
+	resolved = {}
+	for leaf in leaves:
+		category = leaf.name
+		for root in roots:
+			if root.lft <= leaf.lft and leaf.rgt <= root.rgt:
+				category = root.name
+				break
+		resolved[leaf.name] = category
 
-    # A requested name that isn't an Item Group at all (shouldn't happen)
-    # falls back to itself rather than being dropped.
-    for g in leaf_group_names:
-        resolved.setdefault(g, g)
-    return resolved
+	# A requested name that isn't an Item Group at all (shouldn't happen)
+	# falls back to itself rather than being dropped.
+	for g in leaf_group_names:
+		resolved.setdefault(g, g)
+	return resolved

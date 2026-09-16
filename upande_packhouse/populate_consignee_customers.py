@@ -18,32 +18,42 @@ import frappe
 
 
 def run():
-    pairs = frappe.db.sql("""
+	pairs = frappe.db.sql(
+		"""
         SELECT DISTINCT customer, custom_consignee
         FROM `tabSales Order`
         WHERE customer IS NOT NULL AND customer != ''
           AND custom_consignee IS NOT NULL AND custom_consignee != ''
-    """, as_dict=True)
+    """,
+		as_dict=True,
+	)
 
-    updated, added_rows, missing_consignee, already_present = 0, 0, set(), 0
+	updated, added_rows, missing_consignee, already_present = 0, 0, set(), 0
 
-    for p in pairs:
-        consignee, customer = p.custom_consignee, p.customer
-        if not frappe.db.exists("Consignee", consignee):
-            missing_consignee.add(consignee)
-            continue
-        if frappe.db.exists("Consignee Customer", {"parent": consignee, "customer": customer}):
-            already_present += 1
-            continue
-        doc = frappe.get_doc("Consignee", consignee)
-        doc.append("customers", {"customer": customer})
-        doc.save(ignore_permissions=True)
-        updated += 1
-        added_rows += 1
+	for p in pairs:
+		consignee, customer = p.custom_consignee, p.customer
+		if not frappe.db.exists("Consignee", consignee):
+			missing_consignee.add(consignee)
+			continue
+		if frappe.db.exists("Consignee Customer", {"parent": consignee, "customer": customer}):
+			already_present += 1
+			continue
+		doc = frappe.get_doc("Consignee", consignee)
+		doc.append("customers", {"customer": customer})
+		doc.save(ignore_permissions=True)
+		updated += 1
+		added_rows += 1
 
-    frappe.db.commit()
-    print(f"pairs seen={len(pairs)} consignees_updated={updated} rows_added={added_rows} "
-          f"already_present={already_present} missing_consignee_doc={len(missing_consignee)}")
-    if missing_consignee:
-        print("Sales Order custom_consignee values with no matching Consignee record:", sorted(missing_consignee))
-    return {"updated": updated, "added_rows": added_rows, "missing_consignee": sorted(missing_consignee)}
+	# Committed explicitly: run via `bench execute`, which has no request wrapper
+	# to commit for it.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
+	print(
+		f"pairs seen={len(pairs)} consignees_updated={updated} rows_added={added_rows} "
+		f"already_present={already_present} missing_consignee_doc={len(missing_consignee)}"
+	)
+	if missing_consignee:
+		print(
+			"Sales Order custom_consignee values with no matching Consignee record:",
+			sorted(missing_consignee),
+		)
+	return {"updated": updated, "added_rows": added_rows, "missing_consignee": sorted(missing_consignee)}

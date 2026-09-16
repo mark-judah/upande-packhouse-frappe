@@ -15,6 +15,7 @@ IDs) still copy at header level.
 """
 
 import frappe
+from frappe import _
 
 try:
 	from erpnext.stock.doctype.delivery_note.mapper import make_sales_invoice
@@ -23,10 +24,20 @@ except ImportError:  # older ERPNext layout
 
 HEADER_FIELDS = ["farm", "business_unit", "custom_flo_id", "custom_flo_id_2"]
 ITEM_FIELDS = [
-	"custom_length", "custom_total_boxes", "custom_total_stems", "custom_stems_per_box",
-	"custom_farm_codes", "custom_source_farm", "custom_hsc", "custom_crop_type",
-	"custom_consignee", "custom_delivery_point", "custom_freight", "custom_transport_mode",
-	"custom_brn_ref", "custom_truck_details",
+	"custom_length",
+	"custom_total_boxes",
+	"custom_total_stems",
+	"custom_stems_per_box",
+	"custom_farm_codes",
+	"custom_source_farm",
+	"custom_hsc",
+	"custom_crop_type",
+	"custom_consignee",
+	"custom_delivery_point",
+	"custom_freight",
+	"custom_transport_mode",
+	"custom_brn_ref",
+	"custom_truck_details",
 ]
 
 
@@ -42,6 +53,7 @@ def sync_sales_order_accounting_dimensions(doc, method=None):
 	legacy fields left at all (removed outright, no other app depends on
 	them there), so this hook is not needed for those.
 	"""
+
 	def mirror(dim_field, legacy_field):
 		if not (doc.meta.get_field(dim_field) and doc.meta.get_field(legacy_field)):
 			return
@@ -92,4 +104,4 @@ def delivery_note_on_submit(doc, method=None):
 
 	si.flags.ignore_permissions = True
 	si.insert(ignore_permissions=True)  # leave as Draft, matching the old dispatch flow
-	frappe.msgprint("Sales Invoice " + si.name + " created from Delivery Note " + doc.name)
+	frappe.msgprint(_("Sales Invoice {0} created from Delivery Note {1}").format(si.name, doc.name))

@@ -25,24 +25,30 @@ def execute():
 	filled, shipment-level) and are kept -- just without the tab wrapper.
 	"""
 	fieldnames = (
-		"custom_roses_packhouse", "custom_so", "custom_consignee", "custom_delivery_point",
-		"custom_dispatch_form", "custom_freight", "custom_transport_mode", "custom_truck_details",
-		"custom_total_boxes", "custom_brn_ref",
+		"custom_roses_packhouse",
+		"custom_so",
+		"custom_consignee",
+		"custom_delivery_point",
+		"custom_dispatch_form",
+		"custom_freight",
+		"custom_transport_mode",
+		"custom_truck_details",
+		"custom_total_boxes",
+		"custom_brn_ref",
 	)
 	for fieldname in fieldnames:
 		cf_name = frappe.db.get_value("Custom Field", {"dt": "Delivery Note", "fieldname": fieldname})
 		if cf_name:
 			frappe.delete_doc("Custom Field", cf_name, ignore_permissions=True, force=True)
 
-		column_exists = frappe.db.sql(
-			"SHOW COLUMNS FROM `tabDelivery Note` LIKE %s", fieldname
-		)
+		column_exists = frappe.db.sql("SHOW COLUMNS FROM `tabDelivery Note` LIKE %s", fieldname)
 		if column_exists:
 			# ALTER TABLE implicitly commits in MySQL; Frappe's own DDL guard
 			# refuses to run one while anything from the delete_doc() above
 			# is still uncommitted, rather than let that implicit commit
 			# hide the transaction boundary. Commit explicitly first.
 			frappe.db.commit()
+			# nosemgrep: frappe-sql-format-injection -- column name in DDL from a hard-coded tuple in this file; DDL cannot bind a parameter
 			frappe.db.sql(f"ALTER TABLE `tabDelivery Note` DROP COLUMN `{fieldname}`")
 
 	frappe.clear_cache(doctype="Delivery Note")

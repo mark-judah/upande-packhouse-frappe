@@ -9,69 +9,82 @@ import frappe
 
 @frappe.whitelist()
 def getPackhouseLocations():
-    # Locations a packing farm can map to (Farm.farm_location -> Location tree).
-    # Used to populate the Order Summary location filter independent of the date.
-    rows = frappe.db.sql("""
+	# Locations a packing farm can map to (Farm.farm_location -> Location tree).
+	# Used to populate the Order Summary location filter independent of the date.
+	rows = frappe.db.sql(
+		"""
         SELECT DISTINCT f.farm_location AS location
         FROM `tabFarm` f
         WHERE f.farm_location IS NOT NULL AND f.farm_location != ''
         ORDER BY f.farm_location
-    """, as_dict=True)
-    frappe.response['message'] = {
-        'success': True,
-        'locations': [r['location'] for r in rows]
-    }
+    """,
+		as_dict=True,
+	)
+	frappe.response["message"] = {"success": True, "locations": [r["location"] for r in rows]}
 
 
 @frappe.whitelist()
 def getOrderSummaryFilterOptions():
-    # Complete option lists for the Order Summary Farm and Item-group filters.
-    # Pulled from the masters (every Farm, every item group ever ordered) — not
-    # from the rows on screen — so every value is selectable even when no order on
-    # the chosen delivery date uses it.
-    farms = [r['name'] for r in frappe.db.sql("""
+	# Complete option lists for the Order Summary Farm and Item-group filters.
+	# Pulled from the masters (every Farm, every item group ever ordered) — not
+	# from the rows on screen — so every value is selectable even when no order on
+	# the chosen delivery date uses it.
+	farms = [
+		r["name"]
+		for r in frappe.db.sql(
+			"""
         SELECT name FROM `tabFarm`
         ORDER BY name
-    """, as_dict=True)]
+    """,
+			as_dict=True,
+		)
+	]
 
-    item_groups = [r['item_group'] for r in frappe.db.sql("""
+	item_groups = [
+		r["item_group"]
+		for r in frappe.db.sql(
+			"""
         SELECT DISTINCT item_group
         FROM `tabSales Order Item`
         WHERE item_group IS NOT NULL AND TRIM(item_group) <> ''
         ORDER BY item_group
-    """, as_dict=True)]
+    """,
+			as_dict=True,
+		)
+	]
 
-    frappe.response['message'] = {
-        'success': True,
-        'farms': farms,
-        'item_groups': item_groups,
-    }
+	frappe.response["message"] = {
+		"success": True,
+		"farms": farms,
+		"item_groups": item_groups,
+	}
 
 
 @frappe.whitelist()
 def fetchOrderSummaryData():
-    # Order Summary Dashboard
-    # API: fetchOrderSummaryData
+	# Order Summary Dashboard
+	# API: fetchOrderSummaryData
 
-    delivery_date       = frappe.form_dict.get('delivery_date') or frappe.utils.today()
-    # Location = the packing farm's location (Karen vs Ravine), derived from the OPL's
-    # farm. Accept either param name for backward compatibility with the old client.
-    location            = frappe.form_dict.get('location') or frappe.form_dict.get('processing_location', '')
+	delivery_date = frappe.form_dict.get("delivery_date") or frappe.utils.today()
+	# Location = the packing farm's location (Karen vs Ravine), derived from the OPL's
+	# farm. Accept either param name for backward compatibility with the old client.
+	location = frappe.form_dict.get("location") or frappe.form_dict.get("processing_location", "")
 
-    where_conditions = [
-        "so.docstatus = 1",
-        "so.status NOT IN ('Cancelled', 'Closed')",
-        "so.delivery_date = %(delivery_date)s"
-    ]
+	where_conditions = [
+		"so.docstatus = 1",
+		"so.status NOT IN ('Cancelled', 'Closed')",
+		"so.delivery_date = %(delivery_date)s",
+	]
 
-    if location:
-        # Location = the packing farm's Location (Karen / Ravine / Naivasha),
-        # via Farm.farm_location. Accept the farm name too for back-compat.
-        where_conditions.append("(opl_farm.farm_location = %(location)s OR opl.farm = %(location)s)")
+	if location:
+		# Location = the packing farm's Location (Karen / Ravine / Naivasha),
+		# via Farm.farm_location. Accept the farm name too for back-compat.
+		where_conditions.append("(opl_farm.farm_location = %(location)s OR opl.farm = %(location)s)")
 
-    where_clause = ' AND '.join(where_conditions)
+	where_clause = " AND ".join(where_conditions)
 
-    query = f"""
+	# nosemgrep: frappe-sql-format-injection -- the f-string carries no request-derived value
+	query = f"""
     SELECT
         so.customer,
         so.name                          AS sales_order,
@@ -262,81 +275,71 @@ def fetchOrderSummaryData():
     ORDER BY so.customer, so.name, soi.idx
     """
 
-    try:
-        results = frappe.db.sql(query, {
-            'delivery_date': delivery_date,
-            'location':      location
-        }, as_dict=True)
+	try:
+		results = frappe.db.sql(query, {"delivery_date": delivery_date, "location": location}, as_dict=True)
 
-        for r in results:
-            opl_id          = r.get('opl_id')
-            opl_docstatus   = r.get('opl_docstatus')
-            allocated       = int(r.get('allocated_stems') or 0)
-            issued_stems    = float(r.get('issued_stems') or 0)
-            total_count     = int(r.get('total_count') or 0)
-            issued_count    = int(r.get('issued_count') or 0)
-            packed_stems    = float(r.get('packed_stems') or 0)
-            boxes_packed    = int(r.get('boxes_packed') or 0)
-            stems_ordered   = float(r.get('stems_ordered') or 0)
-            box_count       = int(r.get('box_labels_count') or 0)
-            boxes_ordered   = int(r.get('boxes_ordered') or 0)
-            dispatched      = float(r.get('dispatched_stems') or 0)
-            confirmed_stems = int(r.get('confirmed_stems') or 0)
-            staged_boxes    = int(r.get('staged_boxes') or 0)
-            loaded_boxes    = int(r.get('loaded_boxes') or 0)
+		for r in results:
+			opl_id = r.get("opl_id")
+			opl_docstatus = r.get("opl_docstatus")
+			allocated = int(r.get("allocated_stems") or 0)
+			issued_stems = float(r.get("issued_stems") or 0)
+			total_count = int(r.get("total_count") or 0)
+			issued_count = int(r.get("issued_count") or 0)
+			packed_stems = float(r.get("packed_stems") or 0)
+			boxes_packed = int(r.get("boxes_packed") or 0)
+			stems_ordered = float(r.get("stems_ordered") or 0)
+			box_count = int(r.get("box_labels_count") or 0)
+			boxes_ordered = int(r.get("boxes_ordered") or 0)
+			dispatched = float(r.get("dispatched_stems") or 0)
+			confirmed_stems = int(r.get("confirmed_stems") or 0)
+			staged_boxes = int(r.get("staged_boxes") or 0)
+			loaded_boxes = int(r.get("loaded_boxes") or 0)
 
-            r['allocated_stems']  = allocated
-            r['issued_stems']     = issued_stems
-            r['packed_stems']     = packed_stems
-            r['boxes_packed']     = boxes_packed
-            r['dispatched_stems'] = dispatched
-            r['stems_ordered']    = stems_ordered
-            r['box_labels_count'] = box_count
-            r['boxes_ordered']    = boxes_ordered
-            r['confirmed_stems']  = confirmed_stems
-            r['staged_boxes']     = staged_boxes
-            r['loaded_boxes']     = loaded_boxes
-            r['takt_mins']        = int(r['takt_mins']) if r.get('takt_mins') is not None else None
+			r["allocated_stems"] = allocated
+			r["issued_stems"] = issued_stems
+			r["packed_stems"] = packed_stems
+			r["boxes_packed"] = boxes_packed
+			r["dispatched_stems"] = dispatched
+			r["stems_ordered"] = stems_ordered
+			r["box_labels_count"] = box_count
+			r["boxes_ordered"] = boxes_ordered
+			r["confirmed_stems"] = confirmed_stems
+			r["staged_boxes"] = staged_boxes
+			r["loaded_boxes"] = loaded_boxes
+			r["takt_mins"] = int(r["takt_mins"]) if r.get("takt_mins") is not None else None
 
-            # ── Status determination (most complete first) ──
-            if not opl_id:
-                status = 'Not Allocated'
-            elif dispatched > 0:
-                status = 'Dispatched'
-            elif loaded_boxes > 0 and loaded_boxes >= box_count and box_count > 0:
-                status = 'Loaded'
-            elif loaded_boxes > 0:
-                status = 'Partially Loaded'
-            elif staged_boxes > 0 and staged_boxes >= box_count and box_count > 0:
-                status = 'Staged'
-            elif staged_boxes > 0:
-                status = 'Partially Staged'
-            elif box_count > 0:
-                status = 'Box Labels Generated'
-            elif packed_stems > 0 and packed_stems >= stems_ordered:
-                status = 'Packed'
-            elif packed_stems > 0:
-                status = 'Partially Packed'
-            elif total_count > 0 and issued_count >= total_count:
-                status = 'Issued'
-            elif issued_count > 0:
-                status = 'Partially Issued'
-            elif opl_docstatus == 1:
-                status = 'Allocated'
-            else:
-                status = 'Partially Allocated'
+			# ── Status determination (most complete first) ──
+			if not opl_id:
+				status = "Not Allocated"
+			elif dispatched > 0:
+				status = "Dispatched"
+			elif loaded_boxes > 0 and loaded_boxes >= box_count and box_count > 0:
+				status = "Loaded"
+			elif loaded_boxes > 0:
+				status = "Partially Loaded"
+			elif staged_boxes > 0 and staged_boxes >= box_count and box_count > 0:
+				status = "Staged"
+			elif staged_boxes > 0:
+				status = "Partially Staged"
+			elif box_count > 0:
+				status = "Box Labels Generated"
+			elif packed_stems > 0 and packed_stems >= stems_ordered:
+				status = "Packed"
+			elif packed_stems > 0:
+				status = "Partially Packed"
+			elif total_count > 0 and issued_count >= total_count:
+				status = "Issued"
+			elif issued_count > 0:
+				status = "Partially Issued"
+			elif opl_docstatus == 1:
+				status = "Allocated"
+			else:
+				status = "Partially Allocated"
 
-            r['status'] = status
+			r["status"] = status
 
-        frappe.response['message'] = {
-            'success': True,
-            'data': results
-        }
+		frappe.response["message"] = {"success": True, "data": results}
 
-    except Exception as e:
-        frappe.log_error('fetchOrderSummaryData error: ' + str(e))
-        frappe.response['message'] = {
-            'success': False,
-            'error': str(e),
-            'data': []
-        }
+	except Exception as e:
+		frappe.log_error("fetchOrderSummaryData error: " + str(e))
+		frappe.response["message"] = {"success": False, "error": str(e), "data": []}

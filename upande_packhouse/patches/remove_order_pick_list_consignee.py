@@ -12,9 +12,7 @@ def execute():
 	code (Box Label carries its own, separate consignee field used for
 	dispatch/loading -- unrelated), so it's just dead weight on the OPL form.
 	"""
-	column_exists = frappe.db.sql(
-		"SHOW COLUMNS FROM `tabOrder Pick List` LIKE %s", "consignee"
-	)
+	column_exists = frappe.db.sql("SHOW COLUMNS FROM `tabOrder Pick List` LIKE %s", "consignee")
 	if column_exists:
 		# ALTER TABLE implicitly commits in MySQL; Frappe's own DDL guard
 		# refuses to run one while anything upstream is still uncommitted.

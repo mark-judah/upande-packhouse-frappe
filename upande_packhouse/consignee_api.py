@@ -21,7 +21,7 @@ import frappe
 
 
 @frappe.whitelist()
-def consignees_for_customer(customer=None):
+def consignees_for_customer(customer: str | None = None):
 	"""Consignees whose own `customers` curated list (Table MultiSelect) includes
 	this Customer.
 
@@ -43,7 +43,14 @@ def consignees_for_customer(customer=None):
 
 
 @frappe.whitelist()
-def delivery_points_for_customer(doctype=None, txt=None, searchfield=None, start=0, page_len=20, filters=None):
+def delivery_points_for_customer(
+	doctype: str | None = None,
+	txt: str | None = None,
+	searchfield: str | None = None,
+	start: str | None = 0,
+	page_len: str | None = 20,
+	filters: str | None = None,
+):
 	"""frappe.set_query "query" callback for Sales Order's custom_delivery_point.
 
 	Returns Delivery Points that are either customer-agnostic (customer not set --
@@ -69,11 +76,12 @@ def delivery_points_for_customer(doctype=None, txt=None, searchfield=None, start
 		conditions.append("(customer IS NULL OR customer = '')")
 	conditions.append("name LIKE %(txt)s")
 
+	# nosemgrep: frappe-sql-format-injection -- the f-string carries no request-derived value
 	return frappe.db.sql(
 		f"""
 		SELECT name, description
 		FROM `tabDelivery Point`
-		WHERE {' AND '.join(conditions)}
+		WHERE {" AND ".join(conditions)}
 		ORDER BY name
 		LIMIT %(page_len)s OFFSET %(start)s
 		""",

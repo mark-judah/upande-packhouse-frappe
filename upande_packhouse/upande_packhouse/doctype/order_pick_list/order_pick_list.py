@@ -19,7 +19,9 @@ class OrderPickList(Document):
 		# belongs to an incomplete mixed-box/bunch group can never actually
 		# reach docstatus=1 -- via automation OR the Desk UI -- no matter who
 		# clicks Submit or which code path got there.
-		from upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation import opl_submit_blockers
+		from upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation import (
+			opl_submit_blockers,
+		)
 
 		if self.flags.get("ignore_opl_submit_checks"):
 			return
