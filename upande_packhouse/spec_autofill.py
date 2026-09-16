@@ -79,7 +79,7 @@ def _as_list(v):
 			v = json.loads(v)
 		except Exception:
 			v = [x.strip() for x in v.split(",") if x.strip()]
-	return list(v) if isinstance(v, (list, tuple)) else [v]
+	return list(v) if isinstance(v, list | tuple) else [v]
 
 
 def _approved_by_colour(doc):

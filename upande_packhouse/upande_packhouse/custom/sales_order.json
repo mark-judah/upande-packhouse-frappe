@@ -247,7 +247,7 @@
    "is_virtual": 0,
    "label": "Delivery Point",
    "length": 0,
-   "link_filters": "",
+   "link_filters": null,
    "mandatory_depends_on": null,
    "mask": 0,
    "modified": "2026-08-17 17:01:20.136457",

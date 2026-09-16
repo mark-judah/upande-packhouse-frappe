@@ -61,7 +61,7 @@ ignore = [
     "UP037", # quoted annotations
     "UP040", # Use type aliases instead of type annotations
     # ── Pre-existing backlog, not a blessing ─────────────────────────────────
-    # All 91 hits predate the CI workflows added in this branch (ruff has never
+    # All 88 hits predate the CI workflows added in this branch (ruff has never
     # gated this repo before) and cluster in the bodies ported verbatim from DB
     # Server Scripts, where `rows = rows + [r]` and bare `except:` were the house
     # style. Muted so the linter can enforce everything else from today; clear
@@ -74,7 +74,6 @@ ignore = [
     "RUF003", # ambiguous unicode in a comment
     "RUF005", # list concatenation instead of unpacking
     "RUF015", # next(iter(x)) instead of x[0]
-    "RUF046", # unnecessary int() cast
 ]
 typing-modules = ["frappe.types.DF"]
 
