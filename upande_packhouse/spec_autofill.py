@@ -65,7 +65,7 @@ def _require_clean_spec(doc):
 	if issues:
 		frappe.throw(
 			_(
-				"Specification {0} is incomplete and cannot be used for autofill until it's fixed:" "<br>{1}"
+				"Specification {0} is incomplete and cannot be used for autofill until it's fixed:<br>{1}"
 			).format(frappe.bold(doc.name), "<br>".join(issues)),
 			title=_("Incomplete Specification"),
 		)

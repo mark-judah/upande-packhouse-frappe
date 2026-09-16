@@ -2214,7 +2214,7 @@ def unallocate_bucket_from_opl(sales_order_item, bucket_id):
 	except Exception as e:
 		frappe.db.rollback()
 		frappe.log_error("Unallocation Failed", frappe.get_traceback())
-		return {"success": False, "message": f"Unallocation failed and was rolled back: {str(e)}"}
+		return {"success": False, "message": f"Unallocation failed and was rolled back: {e!s}"}
 
 
 def _force_delete_opl(opl_name):
@@ -2482,4 +2482,4 @@ def substitute_variety(sales_order, sales_order_item, new_item_code):
 	except Exception as e:
 		frappe.db.rollback()
 		frappe.log_error("Variety Substitution Failed", frappe.get_traceback())
-		return {"success": False, "message": f"Substitution failed: {str(e)}"}
+		return {"success": False, "message": f"Substitution failed: {e!s}"}

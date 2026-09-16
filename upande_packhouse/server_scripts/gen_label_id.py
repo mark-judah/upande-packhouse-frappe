@@ -381,7 +381,7 @@ def _download_links_html(file_urls):
 	label = "Download PDF Labels" if len(file_urls) == 1 else None
 	return "<br>".join(
 		f'<a href="{url}" target="_blank" style="background-color: #2490ef; color: white; '
-		f'padding: 8px 16px; text-decoration: none; border-radius: 4px; display: inline-block; '
+		f"padding: 8px 16px; text-decoration: none; border-radius: 4px; display: inline-block; "
 		f'margin-top: 4px;">{label or f"Download Part {i}"}</a>'
 		for i, url in enumerate(file_urls, start=1)
 	)
@@ -852,7 +852,7 @@ def generate_qr_code_on_demand(qr_data_dict):
 			else:
 				qr_data_string = qr_data_dict
 		except Exception as e:
-			frappe.log_error(f"QR parsing error: {str(e)}", "QR Generation")
+			frappe.log_error(f"QR parsing error: {e!s}", "QR Generation")
 			qr_data_string = qr_data_dict
 	else:
 		qr_data_string = json.dumps(qr_data_dict, separators=(",", ":"), ensure_ascii=False)
@@ -1040,16 +1040,16 @@ def generate_batch_labels_pdf_pymupdf(label_data_list, parent_doc_name):
 
 	except ImportError as ie:
 		frappe.log_error(
-			f"PyMuPDF not installed. Install with: bench pip install PyMuPDF\nError: {str(ie)}",
+			f"PyMuPDF not installed. Install with: bench pip install PyMuPDF\nError: {ie!s}",
 			"PyMuPDF Missing",
 		)
 		frappe.throw("PyMuPDF is required but not installed. Please contact administrator.")
 
 	except Exception as e:
 		frappe.log_error(
-			f"PyMuPDF PDF generation error: {str(e)}\n{frappe.get_traceback()}", "PyMuPDF PDF Error"
+			f"PyMuPDF PDF generation error: {e!s}\n{frappe.get_traceback()}", "PyMuPDF PDF Error"
 		)
-		frappe.throw(f"PDF generation failed: {str(e)}")
+		frappe.throw(f"PDF generation failed: {e!s}")
 
 
 # ============================================================
@@ -1166,7 +1166,7 @@ def attach_batch_labels_pdf(label_data_list, docname, doctype, filename=None, on
 
 	except Exception as e:
 		frappe.log_error(
-			f"Error saving PDF attachment: {str(e)}\n{frappe.get_traceback()}", "PDF Attachment Error"
+			f"Error saving PDF attachment: {e!s}\n{frappe.get_traceback()}", "PDF Attachment Error"
 		)
 		return file_urls  # whatever parts succeeded before the failure
 
@@ -1238,5 +1238,5 @@ def get_batch_labels_pdf(docname):
 			frappe.throw("Failed to generate PDF")
 
 	except Exception as e:
-		frappe.log_error(f"Error generating batch PDF: {str(e)}", "Batch PDF Error")
-		frappe.throw(f"Failed to generate PDF: {str(e)}")
+		frappe.log_error(f"Error generating batch PDF: {e!s}", "Batch PDF Error")
+		frappe.throw(f"Failed to generate PDF: {e!s}")

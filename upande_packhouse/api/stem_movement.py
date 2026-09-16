@@ -871,10 +871,10 @@ def getStemMovementData():
 			rec["received_not_shelved"] = max(0, (rec.get("received", 0) or 0) - (rec.get("shelved", 0) or 0))
 			rec["varieties"] = sorted(
 				rec["varieties"].values(),
-				key=lambda v: (v.get("harvested", 0) + v.get("dispatched", 0)),
+				key=lambda v: v.get("harvested", 0) + v.get("dispatched", 0),
 				reverse=True,
 			)
-		farms = sorted(farms, key=lambda x: (x["harvested"] or x["dispatched"] or x["shelved"]), reverse=True)
+		farms = sorted(farms, key=lambda x: x["harvested"] or x["dispatched"] or x["shelved"], reverse=True)
 
 		totals = {}
 		for s in STAGES:

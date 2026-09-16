@@ -412,8 +412,8 @@ def confimSalesOrderItem():
 
 		except Exception as e:
 			frappe.db.rollback()
-			frappe.log_error(f"Processing Location Update Error: {str(e)}")
-			frappe.throw(f"Failed to update processing location: {str(e)}")
+			frappe.log_error(f"Processing Location Update Error: {e!s}")
+			frappe.throw(f"Failed to update processing location: {e!s}")
 
 	def get_current_bookings():
 		"""Get current booking status for all items in the order, including confirmed stems"""
@@ -447,8 +447,8 @@ def confimSalesOrderItem():
 			return items
 
 		except Exception as e:
-			frappe.log_error(f"Get Bookings Error: {str(e)}")
-			frappe.throw(f"Failed to retrieve current bookings: {str(e)}")
+			frappe.log_error(f"Get Bookings Error: {e!s}")
+			frappe.throw(f"Failed to retrieve current bookings: {e!s}")
 
 	# Main execution
 	try:

@@ -2271,9 +2271,9 @@ def getReadySaleOrderItemsData():
 				frappe.response["message"] = f"Found {len(packing_list)} buckets from submitted pick lists"
 
 	except Exception as error:
-		frappe.log_error(f"Packing List Error: {str(error)}")
+		frappe.log_error(f"Packing List Error: {error!s}")
 		frappe.response["packing_list"] = []
-		frappe.response["message"] = f"Error generating packing list: {str(error)}"
+		frappe.response["message"] = f"Error generating packing list: {error!s}"
 
 
 @frappe.whitelist()
@@ -3882,8 +3882,7 @@ def issueBucketToSaleOrderItem():
 					frappe.db.commit()
 
 					frappe.response.message = (
-						f"Bucket {bucket_id} successfully issued to {sale_order_item}, "
-						f"and removed from shelf"
+						f"Bucket {bucket_id} successfully issued to {sale_order_item}, and removed from shelf"
 					)
 					frappe.response.http_status_code = 200
 					frappe.response.data = {
@@ -3903,7 +3902,7 @@ def issueBucketToSaleOrderItem():
 	except Exception as e:
 		frappe.db.rollback()
 		frappe.log_error("Coldstore Issue Error", e)
-		frappe.response.message = f"Error issuing bucket: {str(e)}"
+		frappe.response.message = f"Error issuing bucket: {e!s}"
 		frappe.response.http_status_code = 500
 		frappe.response.data = {"error": str(e)}
 

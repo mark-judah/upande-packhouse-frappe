@@ -75,7 +75,7 @@ def delivery_points_for_customer(
 		f"""
 		SELECT name, description
 		FROM `tabDelivery Point`
-		WHERE {' AND '.join(conditions)}
+		WHERE {" AND ".join(conditions)}
 		ORDER BY name
 		LIMIT %(page_len)s OFFSET %(start)s
 		""",

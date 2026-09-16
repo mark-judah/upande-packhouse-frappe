@@ -396,7 +396,7 @@ def fetchColdroomData():
 			},
 		}
 
-	except Exception as e:
+	except Exception:
 		frappe.log_error(frappe.get_traceback())
 		frappe.response["message"] = {"success": False, "error": "Server error - check Error Log"}
 
