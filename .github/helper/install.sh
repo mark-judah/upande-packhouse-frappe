@@ -50,6 +50,13 @@ sed -i 's/redis_socketio:/# redis_socketio:/g' Procfile
 
 bench get-app "https://github.com/${frappeuser}/payments" --branch "$paymentsbranch"
 bench get-app "https://github.com/${frappeuser}/erpnext" --branch "$erpnextbranch" --resolve-deps
+
+# upande_packhouse's required_apps (see hooks.py). Frappe validates Link options
+# while syncing this app's doctypes and customizations, so without these the
+# install aborts on the first field pointing at Farm / Business Unit / Cut Stage.
+bench get-app "${UPANDE_CORE_REPO:-https://github.com/upandeltd/Upande-Core.git}" --branch "${UPANDE_CORE_BRANCH:-main}"
+bench get-app "${UPANDE_AGRICULTURE_REPO:-https://github.com/Jimmypaps001/upande-agriculture}" --branch "${UPANDE_AGRICULTURE_BRANCH:-develop}"
+
 bench get-app upande_packhouse "${GITHUB_WORKSPACE}"
 bench setup requirements --dev
 
@@ -57,4 +64,6 @@ bench start &>> ~/frappe-bench/bench_start.log &
 CI=Yes bench build --app frappe &
 bench --site test_site reinstall --yes
 
+bench --verbose --site test_site install-app upande_core
+bench --verbose --site test_site install-app upande_agriculture
 bench --verbose --site test_site install-app upande_packhouse

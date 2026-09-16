@@ -8,7 +8,13 @@ app_license = "mit"
 # Apps
 # ------------------
 
-# required_apps = []
+# Hard dependencies. Every Link below resolves to a doctype these apps own, and
+# frappe validates Link options when it syncs this app's doctypes/customizations
+# — so a site without them cannot install upande_packhouse at all:
+#   upande_core        -> Farm (24 fields), Business Unit (5)
+#   upande_agriculture -> Cut Stage (Sales Order Item.custom_cut_stage,
+#                         Specifications.cut_stage)
+required_apps = ["upande_core", "upande_agriculture"]
 
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [
