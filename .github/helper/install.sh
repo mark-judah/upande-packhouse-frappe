@@ -51,9 +51,11 @@ sed -i 's/redis_socketio:/# redis_socketio:/g' Procfile
 bench get-app "https://github.com/${frappeuser}/payments" --branch "$paymentsbranch"
 bench get-app "https://github.com/${frappeuser}/erpnext" --branch "$erpnextbranch" --resolve-deps
 
-# upande_packhouse's required_apps (see hooks.py). Frappe validates Link options
-# while syncing this app's doctypes and customizations, so without these the
-# install aborts on the first field pointing at Farm / Business Unit / Cut Stage.
+# upande_core carries the masters this app Links to (Farm, Business Unit, Cut
+# Stage) — frappe validates Link options while syncing doctypes and
+# customizations, so the install aborts without them. upande_agriculture is not
+# a dependency of this app; it is installed afterwards because IT depends on
+# THIS app (its Stock Entry.custom_bucket_id Links at Bucket QR Code).
 bench get-app "${UPANDE_CORE_REPO:-https://github.com/upandeltd/Upande-Core.git}" --branch "${UPANDE_CORE_BRANCH:-main}"
 bench get-app "${UPANDE_AGRICULTURE_REPO:-https://github.com/Jimmypaps001/upande-agriculture}" --branch "${UPANDE_AGRICULTURE_BRANCH:-develop}"
 
@@ -64,6 +66,8 @@ bench start &>> ~/frappe-bench/bench_start.log &
 CI=Yes bench build --app frappe &
 bench --site test_site reinstall --yes
 
+# Order matters: core (masters) -> packhouse -> agriculture, because
+# agriculture Links at packhouse's Bucket QR Code.
 bench --verbose --site test_site install-app upande_core
-bench --verbose --site test_site install-app upande_agriculture
 bench --verbose --site test_site install-app upande_packhouse
+bench --verbose --site test_site install-app upande_agriculture

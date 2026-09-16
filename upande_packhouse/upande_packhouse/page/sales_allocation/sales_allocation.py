@@ -203,7 +203,12 @@ def _get_all_confirmed_stems(sales_order):
 # PENDING SALES ORDERS
 # ============================================================
 @frappe.whitelist()
-def get_pending_sales_orders(start_date=None, end_date=None, delivery_start=None, delivery_end=None):
+def get_pending_sales_orders(
+	start_date: str | None = None,
+	end_date: str | None = None,
+	delivery_start: str | None = None,
+	delivery_end: str | None = None,
+):
 	date_conditions = ["so.docstatus = 1", "so.status NOT IN ('Completed', 'Closed', 'Cancelled')"]
 
 	if start_date and end_date:
@@ -277,7 +282,7 @@ def get_pending_sales_orders(start_date=None, end_date=None, delivery_start=None
 
 
 @frappe.whitelist()
-def get_order_allocation_status(sales_order):
+def get_order_allocation_status(sales_order: str | None):
 	"""How far ONE order is allocated, by stems -- same allocated/ordered ratio
 	get_pending_sales_orders computes for the whole list, scoped to a single
 	order so the Sales Order form's Actions button can label itself without
@@ -364,13 +369,13 @@ def get_order_filter_options():
 # ============================================================
 @frappe.whitelist()
 def get_sales_order_items_with_buckets(
-	sales_order,
-	location=None,
-	selected_farms=None,
-	filter_headsize=None,
-	filter_color=None,
-	filter_cut_stage=None,
-	bypass_cut_stage=None,
+	sales_order: str | None,
+	location: str | None = None,
+	selected_farms: str | list | dict | None = None,
+	filter_headsize: str | list | dict | None = None,
+	filter_color: str | list | dict | None = None,
+	filter_cut_stage: str | list | dict | None = None,
+	bypass_cut_stage: str | int | float | None = None,
 ):
 	if not sales_order:
 		frappe.throw(_("Sales Order is required"))
@@ -755,7 +760,11 @@ def get_sales_order_items_with_buckets(
 # ============================================================
 @frappe.whitelist()
 def get_bucket_visibility_diagnostics(
-	sales_order_item, location=None, selected_farms=None, filter_cut_stage=None, bypass_cut_stage=None
+	sales_order_item: str | None,
+	location: str | None = None,
+	selected_farms: str | list | dict | None = None,
+	filter_cut_stage: str | list | dict | None = None,
+	bypass_cut_stage: str | int | float | None = None,
 ):
 	if not sales_order_item:
 		frappe.throw(_("Sales Order Item is required"))
@@ -1076,7 +1085,9 @@ def _attach_incoming_stems(items, location, active_farms):
 # NEW: Get available headsize and color options for current SO
 # ============================================================
 @frappe.whitelist()
-def get_available_filters(sales_order, location=None, selected_farms=None):
+def get_available_filters(
+	sales_order: str | None, location: str | None = None, selected_farms: str | list | dict | None = None
+):
 	"""
 	Returns available headsize and color values for items in the sales order
 	that have confirmed stems at the selected location.
@@ -1160,7 +1171,12 @@ ALLOWED_ALLOCATION_TEAMS = {"Team A", "Team B", "Jamafa", "Eldama", "Bravo"}
 
 
 @frappe.whitelist()
-def allocate_stock_with_buckets(sales_order, allocations, location=None, teams=None):
+def allocate_stock_with_buckets(
+	sales_order: str | None,
+	allocations: str | list | dict | None,
+	location: str | None = None,
+	teams: str | list | dict | None = None,
+):
 	if isinstance(allocations, str):
 		allocations = json.loads(allocations)
 
@@ -2046,7 +2062,7 @@ def _update_existing_pick_list(
 # UPDATED: Clear in_transit when unallocating
 # ============================================================
 @frappe.whitelist()
-def unallocate_bucket_from_opl(sales_order_item, bucket_id):
+def unallocate_bucket_from_opl(sales_order_item: str | None, bucket_id: str | None):
 	frappe.db.begin()
 
 	try:
@@ -2251,7 +2267,7 @@ def _reindex_opl_rows(opl_name):
 # HELPER: get farms for a location (used by frontend if needed)
 # ============================================================
 @frappe.whitelist()
-def get_farms_for_location(location):
+def get_farms_for_location(location: str | None):
 	config = _get_production_config()
 	farm_config = config["farm_config"]
 	farms = config["farms_by_location"].get(location, [])
@@ -2270,7 +2286,12 @@ def get_farms_for_location(location):
 # ============================================================
 @frappe.whitelist()
 def get_substitute_varieties(
-	sales_order, sales_order_item, item_code, location=None, color=None, headsize=None
+	sales_order: str | None,
+	sales_order_item: str | None,
+	item_code: str | None,
+	location: str | None = None,
+	color: str | None = None,
+	headsize: str | None = None,
 ):
 	"""
 	Returns available varieties that can substitute the current item.
@@ -2367,7 +2388,7 @@ def get_substitute_varieties(
 
 
 @frappe.whitelist()
-def substitute_variety(sales_order, sales_order_item, new_item_code):
+def substitute_variety(sales_order: str | None, sales_order_item: str | None, new_item_code: str | None):
 	"""
 	Substitutes the variety on a Sales Order Item.
 	Updates item_code and item_name on the SO item row.

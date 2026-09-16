@@ -126,7 +126,7 @@ def _bunch_packing_target(grading_entry, opl_name=None):
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
-def mobileLogin(usr=None, pwd=None):
+def mobileLogin(usr: str | None = None, pwd: str | None = None):
 	"""Mobile-friendly login that returns the session id in the JSON body.
 
 	The stock `/api/method/login` only delivers `sid` via the Set-Cookie header.

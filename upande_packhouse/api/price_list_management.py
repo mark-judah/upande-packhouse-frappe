@@ -30,7 +30,7 @@ def getPriceLists():
 
 
 @frappe.whitelist()
-def getPriceTree(price_list):
+def getPriceTree(price_list: str | None):
 	"""Same Line -> Category -> Item shape as variety_tree.getVarietyTree,
 	but each item carries a `lengths` dict (one of the 6 lengths -> rate or
 	None) for the given price_list instead of demand/production stats.
@@ -142,7 +142,9 @@ def getPriceTree(price_list):
 
 
 @frappe.whitelist()
-def setItemPrice(item_code, price_list, length, rate=None):
+def setItemPrice(
+	item_code: str | None, price_list: str | None, length: str | None, rate: str | int | float | None = None
+):
 	"""Upsert (or clear, if rate is blank) the Item Price for
 	(item_code, price_list, length, selling=1). Same shape upload_may_pricelist
 	used -- find-or-create via frappe.get_doc()/insert(), never raw SQL,
@@ -202,7 +204,7 @@ def _err(msg):
 
 
 @frappe.whitelist()
-def createCustomerPriceList(customer, prefix, currency):
+def createCustomerPriceList(customer: str | None, prefix: str | None, currency: str | None):
 	"""Create a new selling Price List named "<prefix> <Customer Name>" and
 	set it as that Customer's default_price_list (the only real,
 	functionally-meaningful way to "link" a Price List to a Customer --

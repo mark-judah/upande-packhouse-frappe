@@ -181,7 +181,7 @@ def _detail_payload(doc):
 
 
 @frappe.whitelist()
-def get_spec_fill_data(spec):
+def get_spec_fill_data(spec: str | None):
 	"""Return the spec's approved COLOURS, each scoped to only the varieties
 	approved under it (live shelf availability) -- one popup row per colour,
 	not per box item. This is the actual point of the popup: the customer's
@@ -252,7 +252,13 @@ def get_spec_fill_data(spec):
 
 
 @frappe.whitelist()
-def build_spec_rows(spec, selections, next_mix_group=1, next_bunch_group=1, source_warehouse=None):
+def build_spec_rows(
+	spec: str | None,
+	selections: str | None,
+	next_mix_group: str | None = 1,
+	next_bunch_group: str | None = 1,
+	source_warehouse: str | None = None,
+):
 	"""Shape the chosen varieties into Sales Order Item rows.
 
 	selections: [{line_idx, box_idx, variety, boxes, stems}] -- line_idx is

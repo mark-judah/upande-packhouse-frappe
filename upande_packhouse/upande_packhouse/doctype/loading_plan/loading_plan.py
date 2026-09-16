@@ -18,7 +18,7 @@ class LoadingPlan(Document):
 # `Farm Packlist Item`, whose stems field is `stock_qty`, not
 # `custom_number_of_stems`). Both fixed here; logic otherwise unchanged.
 @frappe.whitelist()
-def fetch_loading_plan_orders(delivery_date=None, location=None):
+def fetch_loading_plan_orders(delivery_date: str | None = None, location: str | None = None):
 	"""One row per Sales Order line for a delivery date/location, with
 	packed stems/boxes matched per (Order Pick List, item_code, stem
 	length) -- an OPL usually spans several order lines, so a whole-OPL

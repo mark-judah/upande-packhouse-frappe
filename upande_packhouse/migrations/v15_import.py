@@ -230,7 +230,7 @@ def get_progress():
 
 
 @frappe.whitelist()
-def reset_progress(stock_entry_type=None):
+def reset_progress(stock_entry_type: str | None = None):
 	"""Danger: wipes the resume cursor. Does NOT delete already-imported records."""
 	progress = _load_progress()
 	types = [stock_entry_type] if stock_entry_type else STOCK_ENTRY_TYPES
@@ -1014,13 +1014,13 @@ def _write_batch(docs, sle_rows):
 
 @frappe.whitelist()
 def run_import(
-	source_url,
-	token,
-	stock_entry_type=None,
-	batch_size=2000,
-	time_budget_seconds=1200,
-	target_profile="local",
-	max_batches=None,
+	source_url: str | None,
+	token: str | None,
+	stock_entry_type: str | None = None,
+	batch_size: str | int | float | None = 2000,
+	time_budget_seconds: str | int | float | None = 1200,
+	target_profile: str | None = "local",
+	max_batches: str | int | float | None = None,
 ):
 	"""The real engine. Runs unrestricted (no System Console sandbox) once picked
 	up by a background worker. Processes batches until either everything is
@@ -1193,13 +1193,13 @@ def _requeue(source_url, token, stock_entry_type, batch_size, time_budget_second
 
 @frappe.whitelist()
 def queue_import(
-	source_url,
-	token,
-	stock_entry_type=None,
-	batch_size=2000,
-	time_budget_seconds=1200,
-	target_profile="local",
-	max_batches=None,
+	source_url: str | None,
+	token: str | None,
+	stock_entry_type: str | None = None,
+	batch_size: str | None = 2000,
+	time_budget_seconds: str | int | float | None = 1200,
+	target_profile: str | None = "local",
+	max_batches: str | None = None,
 ):
 	"""Entry point safe to paste into System Console. Kicks off the background
 	job chain and returns immediately — check progress with get_progress().
@@ -1253,7 +1253,7 @@ V15_STEM_LENGTH_VALUES = ["37cm", "42cm", "52cm", "57cm", "62cm", "72cm", "82cm"
 
 
 @frappe.whitelist()
-def ensure_v15_stem_lengths(target_profile="production"):
+def ensure_v15_stem_lengths(target_profile: str | None = "production"):
 	"""Get-or-create the real, full set of Stem Length values (matching v15
 	exactly) for this profile's company. Small and synchronous — safe to
 	call directly from System Console, same as ensure_cut_stages(). Must
@@ -1346,12 +1346,12 @@ def _resolve_stem_length(raw_value, candidates):
 
 @frappe.whitelist()
 def run_stem_length_backfill(
-	source_url,
-	token,
-	target_profile="production",
-	batch_size=2000,
-	time_budget_seconds=1200,
-	max_batches=None,
+	source_url: str | None,
+	token: str | None,
+	target_profile: str | None = "production",
+	batch_size: str | int | float | None = 2000,
+	time_budget_seconds: str | int | float | None = 1200,
+	max_batches: str | int | float | None = None,
 ):
 	"""The real engine — same self-requeuing pattern as run_import. Only
 	touches Stock Entries with remarks starting "Migrated from v15 " (this
@@ -1477,12 +1477,12 @@ def _requeue_stem_backfill(source_url, token, target_profile, batch_size, time_b
 
 @frappe.whitelist()
 def queue_stem_length_backfill(
-	source_url,
-	token,
-	target_profile="production",
-	batch_size=2000,
-	time_budget_seconds=1200,
-	max_batches=None,
+	source_url: str | None,
+	token: str | None,
+	target_profile: str | None = "production",
+	batch_size: str | None = 2000,
+	time_budget_seconds: str | int | float | None = 1200,
+	max_batches: str | None = None,
 ):
 	"""Entry point safe to paste into System Console. Run
 	ensure_v15_stem_lengths(target_profile) first (once, synchronously),

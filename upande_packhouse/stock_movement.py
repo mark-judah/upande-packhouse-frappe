@@ -617,7 +617,15 @@ def post_plans(plans, business_unit):
 # EVENT 1 — BUCKET ARRIVES AT THE PACKHOUSE (SHELVING)
 # ============================================================
 @frappe.whitelist()
-def post_arrival(bucket_id, item_code, qty, source_warehouse, business_unit, farm=None, stem_length=None):
+def post_arrival(
+	bucket_id: str | None,
+	item_code: str | None,
+	qty: str | int | float | None,
+	source_warehouse: str | None,
+	business_unit: str | None,
+	farm: str | None = None,
+	stem_length: str | None = None,
+):
 	"""Move a freshly shelved bucket onto its packhouse cold store.
 
 	Called from the `Shelving Entry` server script once per received item row.
@@ -698,7 +706,7 @@ def move_allocation_to_sold(allocations, business_unit, sales_order=None, opl=No
 # EVENTS 3..5 — PACKING, DISPATCH, LOADING
 # ============================================================
 @frappe.whitelist()
-def advance_opl(opl_name, stage):
+def advance_opl(opl_name: str | None, stage: str | None):
 	"""Move an OPL's stems one stage further down the pipeline.
 
 	Stage is "Packing" (Sold -> packhouse), "Dispatch" (packhouse -> dispatch
@@ -972,7 +980,15 @@ def _hop_reply(hop, source, target):
 
 
 @frappe.whitelist()
-def post_issue_to_packhouse(bucket_id, item_code, qty, business_unit, farm, stem_length=None, so_item=None):
+def post_issue_to_packhouse(
+	bucket_id: str | None,
+	item_code: str | None,
+	qty: str | None,
+	business_unit: str | None,
+	farm: str | None,
+	stem_length: str | None = None,
+	so_item: str | None = None,
+):
 	"""EVENT 3 — a packer scans the bucket off the shelf to start packing it.
 	Graded Sold -> Packhouse. Still per-bucket."""
 	row = mapping_row_for_farm(farm, business_unit)
@@ -995,7 +1011,14 @@ def post_issue_to_packhouse(bucket_id, item_code, qty, business_unit, farm, stem
 
 
 @frappe.whitelist()
-def post_stage_to_dispatch(box_label, item_code, qty, business_unit, farm, remarks=None):
+def post_stage_to_dispatch(
+	box_label: str | None,
+	item_code: str | None,
+	qty: str | None,
+	business_unit: str | None,
+	farm: str | None,
+	remarks: str | None = None,
+):
 	"""EVENT 4 — a Box Label is scanned staged in the dispatch coldroom.
 	Packhouse -> Dispatch Cold Store. Per-box from here on."""
 	row = mapping_row_for_farm(farm, business_unit)
@@ -1016,7 +1039,14 @@ def post_stage_to_dispatch(box_label, item_code, qty, business_unit, farm, remar
 
 
 @frappe.whitelist()
-def post_load_to_truck(box_label, item_code, qty, business_unit, farm, remarks=None):
+def post_load_to_truck(
+	box_label: str | None,
+	item_code: str | None,
+	qty: str | None,
+	business_unit: str | None,
+	farm: str | None,
+	remarks: str | None = None,
+):
 	"""EVENT 5 — a Box Label is scanned loaded onto the delivery truck.
 	Dispatch Cold Store -> Delivery Truck."""
 	row = mapping_row_for_farm(farm, business_unit)

@@ -127,7 +127,7 @@ def getColors():
 
 
 @frappe.whitelist()
-def setVarietyColor(item, color=None):
+def setVarietyColor(item: str | None, color: str | None = None):
 	# Assign (or clear) an Item's custom_color. `color` must be an existing Color.
 	try:
 		if not frappe.db.exists("Item", item):

@@ -14,19 +14,19 @@ from frappe.utils.pdf import get_pdf
 
 @frappe.whitelist()
 def generate_id(
-	label_doc_name,
-	action,
-	variety=None,
-	farm=None,
-	stem_length=None,
-	bunch_size=None,
-	grader=None,
-	day_code=None,
-	farm_code=None,
-	no_of_labels=0,
-	row_id=None,
-	from_position=0,
-	to_position=0,
+	label_doc_name: str | None,
+	action: str | None,
+	variety: str | None = None,
+	farm: str | None = None,
+	stem_length: str | None = None,
+	bunch_size: str | None = None,
+	grader: str | None = None,
+	day_code: str | None = None,
+	farm_code: str | None = None,
+	no_of_labels: str | int | float | None = 0,
+	row_id: str | None = None,
+	from_position: str | int | float | None = 0,
+	to_position: str | int | float | None = 0,
 ):
 	# Generate Bucket id
 	# Encode the bucket id and variety in the qr code
@@ -273,7 +273,7 @@ def generate_id(
 # ENTRY POINT - Called from UI
 # ============================================================
 @frappe.whitelist()
-def generate_batch_table_labels(docname):
+def generate_batch_table_labels(docname: str | None):
 	"""Triggers the long-running background process for the child table.
 
 	A Bunch Label Table batch is single-use: resaving the same document
@@ -314,7 +314,7 @@ def generate_batch_table_labels(docname):
 # SALVAGE - "Generate Attachment" button
 # ============================================================
 @frappe.whitelist()
-def regenerate_batch_table_attachment(docname):
+def regenerate_batch_table_attachment(docname: str | None):
 	"""The Bunch QR Code DB insert (step 5 of run_label_generation_job) and
 	the PDF-attach step (step 6) are two separate operations -- a worker
 	that dies (e.g. OOM-killed on a large batch) between them leaves real,
@@ -1175,7 +1175,7 @@ def attach_batch_labels_pdf(label_data_list, docname, doctype, filename=None, on
 # UTILITY FUNCTION - Get PDF on demand
 # ============================================================
 @frappe.whitelist()
-def get_batch_labels_pdf(docname):
+def get_batch_labels_pdf(docname: str | None):
 	"""
 	Generate PDF on-demand for existing batch labels
 	Can be called from UI after labels are generated
