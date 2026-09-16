@@ -153,7 +153,9 @@ def run():
 	so4.submit()
 	created["order4_complex"] = so4.name
 
-	frappe.db.commit()
+	# Committed explicitly: run via `bench execute`, which has no request wrapper
+	# to commit for it.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	for k, v in created.items():
 		print(k, "->", v)
 		so = frappe.get_doc("Sales Order", v)

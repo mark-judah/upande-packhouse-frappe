@@ -78,5 +78,7 @@ def expire_temporary_specs():
 	for name in names:
 		frappe.db.set_value("Specifications", name, "status", "Inactive", update_modified=False)
 	if names:
-		frappe.db.commit()
+		# Committed explicitly: runs outside a request (background job / scheduled
+		# task), so nothing else will commit for it.
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	return names

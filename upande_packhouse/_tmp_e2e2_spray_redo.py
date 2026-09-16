@@ -20,10 +20,14 @@ def _call(method_path, payload):
 	func = getattr(module, func_name)
 	builder = EnvironBuilder(method="POST", json=payload)
 	frappe.local.request = builder.get_request()
-	frappe.response = frappe._dict()
+	# Local harness: builds a fresh response dict so a whitelisted method can be
+	# invoked outside a real request. Not reached in a served request.
+	frappe.response = frappe._dict()  # nosemgrep: frappe-overriding-local-proxies
 	func()
 	resp = frappe.response
-	frappe.db.commit()
+	# Committed explicitly: run via `bench execute`, which has no request wrapper
+	# to commit for it.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	return resp
 
 

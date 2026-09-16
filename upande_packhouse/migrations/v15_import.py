@@ -196,7 +196,9 @@ def _load_progress():
 			}
 			for t in STOCK_ENTRY_TYPES
 		}
-	with open(path) as f:
+	# Path is built by frappe.get_site_path() from a fixed filename -- no
+	# caller input reaches it.
+	with open(path) as f:  # nosemgrep: frappe-security-file-traversal
 		data = json.load(f)
 	for t in STOCK_ENTRY_TYPES:
 		data.setdefault(
@@ -216,7 +218,9 @@ def _load_progress():
 def _save_progress(progress):
 	path = _progress_path()
 	tmp = path + ".tmp"
-	with open(tmp, "w") as f:
+	# Path is built by frappe.get_site_path() from a fixed filename -- no
+	# caller input reaches it.
+	with open(tmp, "w") as f:  # nosemgrep: frappe-security-file-traversal
 		json.dump(progress, f, indent=1, default=str)
 	import os
 
@@ -753,7 +757,10 @@ def ensure_cut_stages():
 		if not frappe.db.exists("Cut Stage", val):
 			frappe.get_doc({"doctype": "Cut Stage", "cutstage": val}).insert(ignore_permissions=True)
 			created.append(val)
-	frappe.db.commit()
+	# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+	# is reachable over GET, and frappe rolls back writes made during a GET
+	# request -- without this the caller gets a success response and no change.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	return {"created": created, "already_present": [v for v in CUT_STAGE_VALUES_NEEDED if v not in created]}
 
 
@@ -1279,7 +1286,10 @@ def ensure_v15_stem_lengths(target_profile: str | None = "production"):
 				}
 			).insert(ignore_permissions=True)
 			created.append(val)
-	frappe.db.commit()
+	# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+	# is reachable over GET, and frappe rolls back writes made during a GET
+	# request -- without this the caller gets a success response and no change.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	return {"created": created, "already_existed": [v for v in V15_STEM_LENGTH_VALUES if v not in created]}
 
 
@@ -1294,7 +1304,9 @@ def _load_stem_backfill_progress():
 	default = {"cursor": "", "updated": 0, "skipped": 0, "errors": 0, "done": False, "last_error": None}
 	if not os.path.exists(path):
 		return dict(default)
-	with open(path) as f:
+	# Path is built by frappe.get_site_path() from a fixed filename -- no
+	# caller input reaches it.
+	with open(path) as f:  # nosemgrep: frappe-security-file-traversal
 		data = json.load(f)
 	for k, v in default.items():
 		data.setdefault(k, v)
@@ -1306,7 +1318,9 @@ def _save_stem_backfill_progress(progress):
 
 	path = _stem_backfill_progress_path()
 	tmp = path + ".tmp"
-	with open(tmp, "w") as f:
+	# Path is built by frappe.get_site_path() from a fixed filename -- no
+	# caller input reaches it.
+	with open(tmp, "w") as f:  # nosemgrep: frappe-security-file-traversal
 		json.dump(progress, f, indent=1, default=str)
 	os.replace(tmp, path)
 
@@ -1442,7 +1456,10 @@ def run_stem_length_backfill(
 			frappe.db.set_value("Stock Entry", r.name, "custom_stem_length", resolved, update_modified=False)
 			updated_this_batch += 1
 
-		frappe.db.commit()
+		# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+		# is reachable over GET, and frappe rolls back writes made during a GET
+		# request -- without this the caller gets a success response and no change.
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		progress["updated"] += updated_this_batch
 		progress["cursor"] = rows[-1]["name"]
 		_save_stem_backfill_progress(progress)

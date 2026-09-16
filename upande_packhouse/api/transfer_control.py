@@ -543,7 +543,10 @@ def saveBucketTrip():
 	for r in rows:
 		doc.append("orders", r)
 	doc.save(ignore_permissions=True)
-	frappe.db.commit()
+	# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+	# is reachable over GET, and frappe rolls back writes made during a GET
+	# request -- without this the caller gets a success response and no change.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 	frappe.response["message"] = {
 		"status": "success",
@@ -562,7 +565,10 @@ def deleteBucketTrip():
 		frappe.response["message"] = {"status": "error", "message": "Trip not found."}
 		return
 	frappe.delete_doc("Bucket Request Trip", name, ignore_permissions=True, force=1)
-	frappe.db.commit()
+	# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+	# is reachable over GET, and frappe rolls back writes made during a GET
+	# request -- without this the caller gets a success response and no change.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	frappe.response["message"] = {"status": "success"}
 
 
@@ -611,7 +617,10 @@ def saveBucketLogisticsRoute():
 		total_km += float(d.distance_km or 0)
 	doc.total_km = total_km
 	doc.save(ignore_permissions=True)
-	frappe.db.commit()
+	# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+	# is reachable over GET, and frappe rolls back writes made during a GET
+	# request -- without this the caller gets a success response and no change.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 	frappe.response["message"] = {
 		"status": "success",
@@ -638,7 +647,10 @@ def dispatchBucketTrip():
 	frappe.db.set_value(
 		"Bucket Request Trip", name, {"status": "Dispatched", "dispatched_at": frappe.utils.now()}
 	)
-	frappe.db.commit()
+	# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+	# is reachable over GET, and frappe rolls back writes made during a GET
+	# request -- without this the caller gets a success response and no change.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	frappe.response["message"] = {"status": "success", "name": name, "trip_status": "Dispatched"}
 
 
@@ -659,5 +671,8 @@ def receiveBucketTrip():
 	frappe.db.set_value(
 		"Bucket Request Trip", name, {"status": "Received", "received_at": frappe.utils.now()}
 	)
-	frappe.db.commit()
+	# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+	# is reachable over GET, and frappe rolls back writes made during a GET
+	# request -- without this the caller gets a success response and no change.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	frappe.response["message"] = {"status": "success", "name": name, "trip_status": "Received"}

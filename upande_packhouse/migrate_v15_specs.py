@@ -138,7 +138,8 @@ def _consumable_row(c):
 
 
 def run():
-	data = json.loads(open(SOURCE_FILE).read())
+	# Path is a module constant, not caller input.
+	data = json.loads(open(SOURCE_FILE).read())  # nosemgrep: frappe-security-file-traversal
 	created, updated, errors = [], [], []
 
 	for name, src in data.items():
@@ -201,7 +202,9 @@ def run():
 			errors.append((name, str(e)[:300]))
 			frappe.db.rollback()
 
-	frappe.db.commit()
+	# Committed explicitly: run via `bench execute`, which has no request wrapper
+	# to commit for it.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	print(f"created={len(created)} updated={len(updated)} errors={len(errors)}")
 	if errors:
 		print("ERRORS:")

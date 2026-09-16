@@ -42,7 +42,10 @@ def generate_id(
 			counter = sequence_doc.grader_counter or 0
 			sequence_doc.grader_counter = counter + increment_by
 		sequence_doc.save()
-		frappe.db.commit()
+		# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+		# is reachable over GET, and frappe rolls back writes made during a GET
+		# request -- without this the caller gets a success response and no change.
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		return counter
 
 	unique_id = int(time.time())
@@ -101,7 +104,10 @@ def generate_id(
 				}
 			)
 			qr_doc.insert(ignore_permissions=True)
-			frappe.db.commit()
+			# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+			# is reachable over GET, and frappe rolls back writes made during a GET
+			# request -- without this the caller gets a success response and no change.
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 	if action == "Bunch Label":
 		base_number = get_next_sequence(action, increment_by=no_of_labels_int)
@@ -161,7 +167,10 @@ def generate_id(
 				}
 			)
 			qr_doc.insert(ignore_permissions=True)
-			frappe.db.commit()
+			# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+			# is reachable over GET, and frappe rolls back writes made during a GET
+			# request -- without this the caller gets a success response and no change.
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 	if action == "Grader Label":
 		for i in range(1, no_of_labels_int + 1):
@@ -210,7 +219,10 @@ def generate_id(
 				}
 			)
 			qr_doc.insert(ignore_permissions=True)
-			frappe.db.commit()
+			# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+			# is reachable over GET, and frappe rolls back writes made during a GET
+			# request -- without this the caller gets a success response and no change.
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 	if action == "Shelf Label":
 		# Check the from and to positions and find the number of labels needed
@@ -263,7 +275,10 @@ def generate_id(
 						}
 					)
 					qr_doc.insert(ignore_permissions=True)
-					frappe.db.commit()
+					# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+					# is reachable over GET, and frappe rolls back writes made during a GET
+					# request -- without this the caller gets a success response and no change.
+					frappe.db.commit()  # nosemgrep: frappe-manual-commit
 				else:
 					frappe.msgprint(f"Shelf {shelf_id} already exists, skipped.")
 	frappe.response["message"] = "Label created Successfully"
@@ -298,7 +313,10 @@ def generate_batch_table_labels(docname: str | None):
 
 	frappe.db.set_value("Label Print", docname, "labels_generated", 1, update_modified=False)
 	frappe.db.set_value("Label Print", docname, "generation_in_progress", 1, update_modified=False)
-	frappe.db.commit()
+	# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+	# is reachable over GET, and frappe rolls back writes made during a GET
+	# request -- without this the caller gets a success response and no change.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	_set_progress(docname, 0, _("Generating Labels"), _("Starting..."))
 
 	frappe.enqueue(
@@ -362,7 +380,10 @@ def regenerate_batch_table_attachment(docname: str | None):
 	# itself never refuses to proceed (the whole point is the user can
 	# insist and force a fresh regenerate even over a stuck-looking job).
 	frappe.db.set_value("Label Print", docname, "generation_in_progress", 1, update_modified=False)
-	frappe.db.commit()
+	# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+	# is reachable over GET, and frappe rolls back writes made during a GET
+	# request -- without this the caller gets a success response and no change.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	_set_progress(docname, 0, _("Regenerating Attachment"), _("Starting..."))
 
 	frappe.enqueue(
@@ -415,7 +436,9 @@ def _release_single_use_lock(docname):
 		{"labels_generated": 0, "generation_in_progress": 0},
 		update_modified=False,
 	)
-	frappe.db.commit()
+	# Committed on its own so this survives even if the surrounding job later
+	# fails -- persisting it independently is the entire point of the write.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 
 def _set_progress(docname, percent, title, description):
@@ -438,7 +461,9 @@ def _set_progress(docname, percent, title, description):
 		},
 		update_modified=False,
 	)
-	frappe.db.commit()
+	# Committed on its own so this survives even if the surrounding job later
+	# fails -- persisting it independently is the entire point of the write.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	frappe.publish_realtime(
 		"label_print_progress",
 		{"docname": docname, "percent": percent, "title": title, "description": description},
@@ -561,7 +586,9 @@ def salvage_batch_table_attachment_job(docname):
 
 	finally:
 		frappe.db.set_value("Label Print", docname, "generation_in_progress", 0, update_modified=False)
-		frappe.db.commit()
+		# Committed explicitly: runs outside a request (background job / scheduled
+		# task), so nothing else will commit for it.
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 
 # ============================================================
@@ -837,7 +864,9 @@ def run_label_generation_job(docname):
 		# above -- this document is no longer mid-generation, so "Generate
 		# Attachment" can stop warning about a job still being in flight.
 		frappe.db.set_value("Label Print", docname, "generation_in_progress", 0, update_modified=False)
-		frappe.db.commit()
+		# Committed explicitly: runs outside a request (background job / scheduled
+		# task), so nothing else will commit for it.
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 
 # ============================================================
@@ -978,7 +1007,9 @@ def build_batch_labels_pdf_file(label_data_list, output_path, chunk_size=_LABELS
 				for label_data in batch:
 					_add_label_page(chunk_doc, label_data)
 				with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-					chunk_path = tmp.name
+					# Nothing is written through `tmp` -- the handle only reserves a unique
+					# path; the real content is written to it afterwards. No flush to do.
+					chunk_path = tmp.name  # nosemgrep: tempfile-without-flush
 				chunk_doc.save(chunk_path)
 				chunk_paths.append(chunk_path)
 			finally:
@@ -991,7 +1022,9 @@ def build_batch_labels_pdf_file(label_data_list, output_path, chunk_size=_LABELS
 		try:
 			for chunk_path in chunk_paths:
 				writer.append(chunk_path)
-			with open(output_path, "wb") as f:
+			# Path comes from tempfile.NamedTemporaryFile or an internal caller,
+			# never from request data.
+			with open(output_path, "wb") as f:  # nosemgrep: frappe-security-file-traversal
 				writer.write(f)
 		finally:
 			writer.close()
@@ -1023,10 +1056,14 @@ def generate_batch_labels_pdf_pymupdf(label_data_list, parent_doc_name):
 
 	try:
 		with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-			tmp_path = tmp.name
+			# Nothing is written through `tmp` -- the handle only reserves a unique
+			# path; the real content is written to it afterwards. No flush to do.
+			tmp_path = tmp.name  # nosemgrep: tempfile-without-flush
 		try:
 			build_batch_labels_pdf_file(label_data_list, tmp_path)
-			with open(tmp_path, "rb") as f:
+			# Path comes from tempfile.NamedTemporaryFile or an internal caller,
+			# never from request data.
+			with open(tmp_path, "rb") as f:  # nosemgrep: frappe-security-file-traversal
 				pdf_bytes = f.read()
 		finally:
 			try:
@@ -1136,13 +1173,17 @@ def attach_batch_labels_pdf(label_data_list, docname, doctype, filename=None, on
 			tmp_path = None
 			try:
 				with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-					tmp_path = tmp.name
+					# Nothing is written through `tmp` -- the handle only reserves a unique
+					# path; the real content is written to it afterwards. No flush to do.
+					tmp_path = tmp.name  # nosemgrep: tempfile-without-flush
 				build_batch_labels_pdf_file(
 					group, tmp_path, on_progress=_offset_progress if on_progress else None
 				)
 				labels_done_before += len(group)
 
-				with open(tmp_path, "rb") as f:
+				# Path comes from tempfile.NamedTemporaryFile or an internal caller,
+				# never from request data.
+				with open(tmp_path, "rb") as f:  # nosemgrep: frappe-security-file-traversal
 					file_doc = frappe.get_doc(
 						{
 							"doctype": "File",

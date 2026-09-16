@@ -11,11 +11,12 @@ app_license = "mit"
 # Hard dependencies. Every Link below resolves to a doctype these apps own, and
 # frappe validates Link options when it syncs this app's doctypes/customizations
 # — so a site without them cannot install upande_packhouse at all:
-#   upande_core -> Farm (24 fields), Business Unit (5), Cut Stage (2)
-# Cut Stage sits in core rather than upande_agriculture on purpose: agriculture
-# Links Stock Entry.custom_bucket_id at Bucket QR Code, which THIS app owns, so
-# agriculture has to install after packhouse — and packhouse cannot then depend
-# on it. Core installs before both.
+#   upande_core -> Farm (24 fields), Business Unit (5)
+# Cut Stage (2 fields) is deliberately NOT listed: upande_agriculture owns it,
+# but agriculture Links Stock Entry.custom_bucket_id at Bucket QR Code, which
+# THIS app owns — so agriculture must install after packhouse and cannot be a
+# required_app. The before_install hook plants the doctype instead; see
+# install.ensure_cut_stage_doctype.
 required_apps = ["upande_core"]
 
 # Each item in the list will be shown as an app in the apps page
@@ -110,7 +111,14 @@ doctype_js = {
 # Installation
 # ------------
 
-# before_install = "upande_packhouse.install.before_install"
+# Runs BEFORE doctypes/customizations sync -- it plants the `Cut Stage` master
+# that Sales Order Item.custom_cut_stage and Specifications.cut_stage Link at.
+# upande_agriculture owns that doctype but installs after this app (it Links at
+# our Bucket QR Code), so without this the sync dies on
+# WrongOptionsDoctypeLinkError. See install.ensure_cut_stage_doctype.
+before_install = "upande_packhouse.install.before_install"
+before_migrate = "upande_packhouse.install.before_migrate"
+
 after_install = "upande_packhouse.install.after_install"
 
 # Re-applied on every deploy; see install.py. Both hooks run after doctypes,
@@ -165,7 +173,9 @@ after_migrate = "upande_packhouse.install.after_migrate"
 # override_doctype_class = {
 # 	"ToDo": "custom_app.overrides.CustomToDo"
 # }
-override_doctype_class = {
+# Deliberate: the override is scoped to Item Price duplicate validation and
+# is documented below. No other app in this bench overrides Item Price.
+override_doctype_class = {  # nosemgrep: override-doctype-class
 	# custom_length (stem length) legitimately differentiates two Item Price
 	# rows for the same item/price list/UOM/dates -- core's own duplicate
 	# check has no idea it exists. See overrides/item_price.py.

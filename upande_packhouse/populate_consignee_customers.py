@@ -44,7 +44,9 @@ def run():
 		updated += 1
 		added_rows += 1
 
-	frappe.db.commit()
+	# Committed explicitly: run via `bench execute`, which has no request wrapper
+	# to commit for it.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	print(
 		f"pairs seen={len(pairs)} consignees_updated={updated} rows_added={added_rows} "
 		f"already_present={already_present} missing_consignee_doc={len(missing_consignee)}"

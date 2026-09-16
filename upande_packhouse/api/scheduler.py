@@ -302,5 +302,8 @@ def saveDaySchedule():
 		doc.save(ignore_permissions=True)
 		saved[team] = len(rows)
 		k = k + 1
-	frappe.db.commit()
+	# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+	# is reachable over GET, and frappe rolls back writes made during a GET
+	# request -- without this the caller gets a success response and no change.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	frappe.response["message"] = {"status": "success", "saved": saved}

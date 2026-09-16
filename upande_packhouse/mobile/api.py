@@ -1319,7 +1319,10 @@ def createStagingEntry():
 								title="Stage -> Dispatch: nothing moved",
 								message=f"box={box.name} variety={variety} farm={box.farm} -- {result.get('reason')}",
 							)
-					frappe.db.commit()
+					# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+					# is reachable over GET, and frappe rolls back writes made during a GET
+					# request -- without this the caller gets a success response and no change.
+					frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 					frappe.response.update(
 						{
@@ -1363,7 +1366,10 @@ def dispatchBucketTrip():
 					"dispatched_at": frappe.utils.now(),
 				},
 			)
-			frappe.db.commit()
+			# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+			# is reachable over GET, and frappe rolls back writes made during a GET
+			# request -- without this the caller gets a success response and no change.
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit
 			frappe.response["message"] = {"status": "success", "name": name, "trip_status": "Dispatched"}
 
 
@@ -3939,7 +3945,10 @@ def receiveBucketTrip():
 					"received_at": frappe.utils.now(),
 				},
 			)
-			frappe.db.commit()
+			# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+			# is reachable over GET, and frappe rolls back writes made during a GET
+			# request -- without this the caller gets a success response and no change.
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit
 			frappe.response["message"] = {"status": "success", "name": name, "trip_status": "Received"}
 
 
@@ -4278,7 +4287,10 @@ def shelveBucket():
 	_shelve_update_bas(bucket_id, variety, farm, shelf_id, result)
 	_shelve_check_submit_opl(bucket_id, result)
 
-	frappe.db.commit()
+	# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+	# is reachable over GET, and frappe rolls back writes made during a GET
+	# request -- without this the caller gets a success response and no change.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	frappe.response["data"] = {
 		"status": "success",
 		"message": "Bucket {0} shelved successfully with {1} stems.".format(bucket_id, total_qty),

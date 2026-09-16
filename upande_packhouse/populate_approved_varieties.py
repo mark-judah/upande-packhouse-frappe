@@ -35,6 +35,8 @@ def run():
 		updated += 1
 		added_rows += len(pairs)
 
-	frappe.db.commit()
+	# Committed explicitly: run via `bench execute`, which has no request wrapper
+	# to commit for it.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	print(f"updated={updated} added_rows={added_rows} specs_with_no_colour_variety_pairs={skipped_no_pairs}")
 	return {"updated": updated, "added_rows": added_rows, "skipped_no_pairs": skipped_no_pairs}
