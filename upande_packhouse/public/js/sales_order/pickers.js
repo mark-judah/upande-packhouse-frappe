@@ -36,6 +36,12 @@ frappe.ui.form.on("Sales Order", {
 			() => open_shipping_agent_picker(frm)
 		);
 
+		// No guard: the endpoint is happy without a customer -- it just falls back
+		// to the customer-agnostic delivery points, which is most of them.
+		bind_picker_intercept(frm, "custom_delivery_point", null, () =>
+			open_delivery_point_picker(frm)
+		);
+
 		bind_picker_intercept(
 			frm,
 			"custom_consignee",
@@ -159,6 +165,58 @@ async function open_consignee_picker(frm) {
 			3
 		);
 	});
+}
+
+/* ============================ delivery point ============================ */
+
+async function open_delivery_point_picker(frm) {
+	let points = [];
+	try {
+		const r = await frappe.call({
+			// Same server-side rule the Link dropdown uses, so the modal and the
+			// dropdown can never disagree about what this customer may pick.
+			// page_len is explicit: the dropdown's default of 20 would silently
+			// truncate a picker whose whole point is to show the full list.
+			method: "upande_packhouse.consignee_api.delivery_points_for_customer",
+			args: {
+				doctype: "Delivery Point",
+				txt: "",
+				searchfield: "name",
+				start: 0,
+				page_len: 500,
+				filters: { customer: frm.doc.customer },
+			},
+		});
+		points = r.message || [];
+	} catch (e) {
+		frappe.msgprint(__("Error loading delivery points: {0}", [e.message || e]));
+		return;
+	}
+
+	// The endpoint returns [name, description] rows. Most Delivery Points carry a
+	// description identical to their name, so only show it when it adds something.
+	const options = points
+		.filter((row) => row && row[0])
+		.map((row) => ({
+			value: row[0],
+			title: row[0],
+			sub: row[1] && row[1] !== row[0] ? row[1] : "",
+		}));
+
+	open_search_picker(
+		__("Select Delivery Point"),
+		options,
+		(selected) => {
+			frm.set_value("custom_delivery_point", selected);
+			frappe.show_alert(
+				{ message: __("Delivery point set to {0}", [selected]), indicator: "green" },
+				3
+			);
+		},
+		frm.doc.customer
+			? null
+			: __("No customer selected yet — showing delivery points open to any customer")
+	);
 }
 
 /* ============================ shipping agent ============================ */
