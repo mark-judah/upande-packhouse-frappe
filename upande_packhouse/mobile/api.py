@@ -3841,28 +3841,31 @@ def issueBucketToSaleOrderItem():
 					# -------------------------------
 					# UPDATE ONLY THE TARGET OPL'S CHILD ROW (Pick List Item)
 					# -------------------------------
-					# Scope to the OPL being issued. A bucket can be allocated to
-					# MORE THAN ONE OPL; filtering by bucket alone would mark it
-					# issued in every OPL ("issued itself"). Fall back to bucket-only
-					# for older callers that don't send opl_name.
-					pli_filters = {"bucket": bucket_id}
-					if opl_name:
-						pli_filters["parent"] = opl_name
-					pick_list_items = frappe.db.get_all(
-						"Pick List Item",
-						filters=pli_filters,
-						fields=[
-							"name",
-							"parent",
-							"source_warehouse",
-							"item_code",
-							"stock_qty",
-							"issued",
-							# used below to route the Graded Sold -> Packhouse hop; without
-							# it `p.farm` was always None and the lookup silently fell back
-							# to the Stock Entry's farm.
-							"farm",
-						],
+					# Scope to THIS LINE, not just this bucket. A bucket can be
+					# allocated to more than one OPL and to more than one line within
+					# one OPL (pick rows are unique per
+					# (parent, sales_order_item, bucket)), and issuing is now a
+					# per-line draw: the rows selected here are the ones marked issued,
+					# the ones whose stems come off the shelf, and the ones whose
+					# Bucket Allocation Status is settled. Selecting by bucket alone
+					# subtracted a sibling line's stems too and then settled only the
+					# scanned line, driving available_quantity negative and leaving the
+					# sibling's stems gone but unscannable. `opl_name` narrows further
+					# when the caller sends it; rows carry the line on either
+					# custom_sale_order_item or sales_order_item.
+					pick_list_items = frappe.db.sql(
+						"""
+						SELECT name, parent, source_warehouse, item_code, stock_qty, issued, farm
+						FROM `tabPick List Item`
+						WHERE bucket = %(bucket)s
+						  AND parenttype = 'Order Pick List'
+						  AND %(soi)s IN (
+								COALESCE(custom_sale_order_item, ''), COALESCE(sales_order_item, '')
+							)
+						  AND (%(opl)s IS NULL OR parent = %(opl)s)
+						""",
+						{"bucket": bucket_id, "soi": sale_order_item, "opl": opl_name or None},
+						as_dict=True,
 					)
 
 					updated_opls = set()

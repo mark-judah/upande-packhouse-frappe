@@ -2154,6 +2154,33 @@ def unallocate_bucket_from_opl(sales_order_item: str | None, bucket_id: str | No
 		sales_order = so_item.parent
 		item_code = so_item.item_code
 
+		# ── An issued line cannot be unallocated ────────────────────────────
+		# Issuing physically takes the stems out of the bucket: the shelf row is
+		# decremented and the stems are already on their way to the packhouse.
+		# Cancelling the allocation now would reverse the ledger and drop the row
+		# while nothing puts those stems back on the shelf, leaving them real in
+		# the ERP but invisible to this page forever. Undo the issue first.
+		issued_row = frappe.db.sql(
+			"""
+			SELECT ba.name
+			FROM `tabBucket Allocations` ba
+			INNER JOIN `tabBucket Allocation Status` bas ON bas.name = ba.parent
+			WHERE bas.bucket_id = %(bucket)s
+			  AND ba.sales_order_item = %(soi)s
+			  AND ba.cancelled = 0
+			  AND ba.issued = 1
+			LIMIT 1
+			""",
+			{"bucket": bucket_id, "soi": sales_order_item},
+		)
+		if issued_row:
+			frappe.throw(
+				_(
+					"Bucket {0} has already been issued for this line — its stems have left "
+					"the shelf, so the allocation can no longer be cancelled here."
+				).format(bucket_id)
+			)
+
 		# ── Put the stems back on the shelf ledger-wise: cancel the transfers
 		#    that moved them into the Sold warehouse for this line. ──
 		reversed_entries = stock_movement.reverse_allocation_movement(
