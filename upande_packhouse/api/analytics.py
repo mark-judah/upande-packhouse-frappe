@@ -236,6 +236,7 @@ def _compute_quality_chain(from_date, to_date):
 		# user input) so from_date/to_date can stay named params -- frappe.db.sql
 		# can't mix positional %s and named %(x)s placeholders in one call.
 		ph_gh_literal = ", ".join(frappe.db.escape(g) for g in gh_kr_list)
+		# nosemgrep: frappe-sql-format-injection -- interpolated names go through frappe.db.escape()
 		order_rows = frappe.db.sql(
 			f"""
             SELECT se.custom_greenhouse AS gh_kr, ba.sales_order AS sales_order,
@@ -305,6 +306,7 @@ def getConsumablesStock():
 	# with named %(from_date)s in one frappe.db.sql call).
 	ph_literal = ", ".join(f"'{g}'" for g in CONSUMABLE_ITEM_GROUPS)
 
+	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	by_group = frappe.db.sql(
 		f"""
         SELECT i.item_group AS item_group, SUM(b.stock_value) AS value, SUM(b.actual_qty) AS qty,
@@ -318,6 +320,7 @@ def getConsumablesStock():
 		as_dict=True,
 	)
 
+	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	top_items = frappe.db.sql(
 		f"""
         SELECT b.item_code AS item_code, i.item_name AS item_name, i.item_group AS item_group,
@@ -337,6 +340,7 @@ def getConsumablesStock():
 	# "days remaining" -- there are no Item Reorder rows in this system, so
 	# this is derived from real consumption instead of a configured minimum.
 	days = max(1, (getdate(to_date) - getdate(from_date)).days)
+	# nosemgrep: frappe-sql-format-injection -- interpolates a module-level constant, never request data
 	usage = frappe.db.sql(
 		f"""
         SELECT sle.item_code AS item_code, SUM(CASE WHEN sle.actual_qty < 0 THEN -sle.actual_qty ELSE 0 END) AS consumed
@@ -359,6 +363,7 @@ def getConsumablesStock():
 
 	# Consumption trend: total qty issued vs received per day, across all
 	# consumable groups combined -- the volume signal over time.
+	# nosemgrep: frappe-sql-format-injection -- interpolates a module-level constant, never request data
 	trend = frappe.db.sql(
 		f"""
         SELECT sle.posting_date AS date,
@@ -380,6 +385,7 @@ def getConsumablesStock():
 	# ── Pending Material Requests for these consumable groups -- procurement
 	# already in motion, so a low days-remaining item that already has an MR
 	# on the way reads differently from one with nothing coming. ──
+	# nosemgrep: frappe-sql-format-injection -- interpolates a module-level constant, never request data
 	mr_rows = frappe.db.sql(
 		f"""
         SELECT mr.name AS name, mr.status AS status, mr.transaction_date AS date,
@@ -419,6 +425,7 @@ def getConsumablesStock():
 	if customers_needed:
 		cust_literal = ", ".join(frappe.db.escape(c) for c in customers_needed)
 		latest_spec_by_customer = {}
+		# nosemgrep: frappe-sql-format-injection -- interpolated names go through frappe.db.escape()
 		for r in frappe.db.sql(
 			f"""
             SELECT name, customer, creation
@@ -436,6 +443,7 @@ def getConsumablesStock():
 		if spec_names:
 			spec_literal = ", ".join(frappe.db.escape(s) for s in spec_names)
 			consumables_by_spec = {}
+			# nosemgrep: frappe-sql-format-injection -- interpolated names go through frappe.db.escape()
 			for r in frappe.db.sql(
 				f"""
                 SELECT sc.parent AS spec, sc.item AS item_code, i.item_name AS item_name, sc.qty_per_box AS qty_per_box
@@ -460,6 +468,7 @@ def getConsumablesStock():
 	if demand_by_item:
 		item_codes = list(demand_by_item.keys())
 		item_literal = ", ".join(frappe.db.escape(i) for i in item_codes)
+		# nosemgrep: frappe-sql-format-injection -- interpolated names go through frappe.db.escape()
 		stock_rows = frappe.db.sql(
 			f"""
             SELECT item_code, SUM(actual_qty) AS qty FROM `tabBin`
@@ -766,6 +775,7 @@ def getConversionData():
 	so_names = [o.sales_order for o in orders]
 	ph = ", ".join(["%s"] * len(so_names))
 
+	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	allocated_rows = frappe.db.sql(
 		f"""
         SELECT ba.sales_order AS sales_order, SUM(ba.quantity_allocated) AS allocated_stems
@@ -778,6 +788,7 @@ def getConversionData():
 	)
 	allocated_by_so = {r.sales_order: flt(r.allocated_stems) for r in allocated_rows}
 
+	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	packed_rows = frappe.db.sql(
 		f"""
         SELECT opl.sales_order AS sales_order, SUM(bli.qty) AS packed_stems
@@ -1070,6 +1081,7 @@ def getOrdersAtRisk():
 	ph = ", ".join(["%s"] * len(so_item_names))
 	alloc_by_item = {
 		r.sales_order_item: flt(r.qty)
+		# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 		for r in frappe.db.sql(
 			f"""
         SELECT sales_order_item, SUM(quantity_allocated) AS qty

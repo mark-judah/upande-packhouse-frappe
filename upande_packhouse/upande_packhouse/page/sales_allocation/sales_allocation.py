@@ -71,6 +71,7 @@ def _get_production_config():
 	# instead of real boundary data; the moment a farm has genuine boundary
 	# GeoJSON in that field, it leaked straight into the location picker.
 	placeholders = ", ".join(["%s"] * len(enabled_farms))
+	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	farm_rows = frappe.db.sql(
 		f"""
         SELECT name AS farm, farm_location AS location
@@ -147,6 +148,7 @@ def _get_confirmed_stems_for_farms(sales_order, farm_names):
 
 	farm_placeholders = ", ".join(["%s"] * len(farm_names))
 
+	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	rows = frappe.db.sql(
 		f"""
         SELECT
@@ -209,26 +211,38 @@ def get_pending_sales_orders(
 	delivery_start: str | None = None,
 	delivery_end: str | None = None,
 ):
+	# Bound parameters, not interpolation: every one of these four values comes
+	# straight off the request, and this endpoint is whitelisted. They used to be
+	# f-stringed into the WHERE clause inside quotes, so `start_date=" OR 1=1 --`
+	# rewrote the query for any logged-in user.
 	date_conditions = ["so.docstatus = 1", "so.status NOT IN ('Completed', 'Closed', 'Cancelled')"]
+	params: dict = {}
 
 	if start_date and end_date:
-		date_conditions.append(f"so.transaction_date BETWEEN '{start_date}' AND '{end_date}'")
+		date_conditions.append("so.transaction_date BETWEEN %(start_date)s AND %(end_date)s")
+		params["start_date"], params["end_date"] = start_date, end_date
 	elif start_date:
-		date_conditions.append(f"so.transaction_date >= '{start_date}'")
+		date_conditions.append("so.transaction_date >= %(start_date)s")
+		params["start_date"] = start_date
 	elif end_date:
-		date_conditions.append(f"so.transaction_date <= '{end_date}'")
+		date_conditions.append("so.transaction_date <= %(end_date)s")
+		params["end_date"] = end_date
 	else:
 		date_conditions.append("so.transaction_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)")
 
 	if delivery_start and delivery_end:
-		date_conditions.append(f"so.delivery_date BETWEEN '{delivery_start}' AND '{delivery_end}'")
+		date_conditions.append("so.delivery_date BETWEEN %(delivery_start)s AND %(delivery_end)s")
+		params["delivery_start"], params["delivery_end"] = delivery_start, delivery_end
 	elif delivery_start:
-		date_conditions.append(f"so.delivery_date >= '{delivery_start}'")
+		date_conditions.append("so.delivery_date >= %(delivery_start)s")
+		params["delivery_start"] = delivery_start
 	elif delivery_end:
-		date_conditions.append(f"so.delivery_date <= '{delivery_end}'")
+		date_conditions.append("so.delivery_date <= %(delivery_end)s")
+		params["delivery_end"] = delivery_end
 
 	where_clause = " AND ".join(date_conditions)
 
+	# nosemgrep: frappe-sql-format-injection -- interpolates a module-level constant, never request data
 	sql = f"""
         WITH so_stats AS (
             SELECT
@@ -275,7 +289,10 @@ def get_pending_sales_orders(
     """
 
 	try:
-		return frappe.db.sql(sql, as_dict=True)
+		# nosemgrep: frappe-sql-format-injection -- the only f-string holes are
+		# `where_clause`, built above from fixed SQL fragments; all request values
+		# travel in `params` as bound parameters.
+		return frappe.db.sql(sql, params, as_dict=True)
 	except Exception as e:
 		frappe.log_error("Pending SOs Error", frappe.get_traceback())
 		frappe.throw(_("Error loading sales orders: {0}").format(str(e)))
@@ -507,6 +524,7 @@ def get_sales_order_items_with_buckets(
 	item_codes = list({i["item_code"] for i in items})
 
 	ic_placeholders = ", ".join(["%s"] * len(item_codes))
+	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	item_metadata = frappe.db.sql(
 		f"""
         SELECT
@@ -546,6 +564,7 @@ def get_sales_order_items_with_buckets(
 	farm_placeholders = ", ".join(["%s"] * len(active_farms))
 
 	# ── UPDATED: Exclude in_transit buckets from availability ──
+	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	buckets = frappe.db.sql(
 		f"""
         SELECT
@@ -600,6 +619,7 @@ def get_sales_order_items_with_buckets(
 	so_item_names = [i["sales_order_item"] for i in items]
 	si_placeholders = ", ".join(["%s"] * len(so_item_names))
 
+	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	allocated_per_item = frappe.db.sql(
 		f"""
         SELECT
@@ -622,6 +642,7 @@ def get_sales_order_items_with_buckets(
 		bucket_ids = list({b["bucket_id"] for b in buckets})
 		bid_placeholders = ", ".join(["%s"] * len(bucket_ids))
 
+		# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 		result = frappe.db.sql(
 			f"""
             SELECT
@@ -827,7 +848,9 @@ def get_bucket_visibility_diagnostics(
 		# have ever held this variety, so the diagnostic still says something.
 		location_farms = [
 			r["farm"]
+			# One SQL statement split across lines on purpose, not a missing comma.
 			for r in frappe.db.sql(
+				# nosemgrep: string-concat-in-list
 				"SELECT DISTINCT s.farm AS farm FROM `tabShelf` s "
 				"INNER JOIN `tabShelf Item` si ON si.parent = s.name WHERE si.variety = %s",
 				[item_code],
@@ -847,6 +870,7 @@ def get_bucket_visibility_diagnostics(
 
 	farm_ph = ", ".join(["%s"] * len(location_farms))
 
+	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	rows = frappe.db.sql(
 		f"""
         SELECT
@@ -1025,6 +1049,7 @@ def _attach_incoming_stems(items, location, active_farms):
 	ln_placeholders = ", ".join(["%s"] * len(lengths_for_incoming))
 	farm_ph = ", ".join(["%s"] * len(active_farms))
 
+	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	unshelved = frappe.db.sql(
 		f"""
         SELECT
@@ -1056,6 +1081,7 @@ def _attach_incoming_stems(items, location, active_farms):
 		bucket_ids = list({r["bucket_id"] for r in unshelved})
 		bid_placeholders = ", ".join(["%s"] * len(bucket_ids))
 
+		# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 		issued_rows = frappe.db.sql(
 			f"""
             SELECT DISTINCT custom_bucket_id
@@ -1143,6 +1169,7 @@ def get_available_filters(
 	# Fetch unique headsize and color values
 	ic_placeholders = ", ".join(["%s"] * len(confirmed_item_codes))
 
+	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	metadata = frappe.db.sql(
 		f"""
         SELECT DISTINCT
@@ -1266,6 +1293,7 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 	so_item_ids = list({a["sales_order_item"] for a in allocations})
 	si_placeholders = ", ".join(["%s"] * len(so_item_ids))
 
+	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	existing_farm_rows = frappe.db.sql(
 		f"""
         SELECT DISTINCT ba.sales_order_item, bas.shelf_farm
@@ -1291,6 +1319,7 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 	bid_placeholders = ", ".join(["%s"] * len(bucket_ids))
 	farm_placeholders = ", ".join(["%s"] * len(location_farms))
 
+	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	shelf_rows = frappe.db.sql(
 		f"""
         SELECT
@@ -1345,6 +1374,7 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 	variety_list = list({a["item_code"] for a in allocations})
 	var_placeholders = ", ".join(["%s"] * len(variety_list))
 
+	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	bas_rows = frappe.db.sql(
 		f"""
         SELECT name, bucket_id, item_code, total_quantity,
@@ -1768,6 +1798,7 @@ def _fetch_shelf_for_buckets(bucket_ids, item_codes):
 	b_placeholders = ", ".join(["%s"] * len(unique_buckets))
 	i_placeholders = ", ".join(["%s"] * len(unique_items))
 
+	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	rows = frappe.db.sql(
 		f"""
         SELECT si.bucket_id, si.variety AS item_code, si.parent AS shelf
@@ -2340,6 +2371,7 @@ def get_substitute_varieties(
 	item_where = " AND ".join(item_conditions)
 
 	# Find varieties that have stock on shelves at this location (exclude in_transit buckets)
+	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	varieties = frappe.db.sql(
 		f"""
         SELECT

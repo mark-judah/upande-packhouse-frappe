@@ -76,6 +76,7 @@ def delivery_points_for_customer(
 		conditions.append("(customer IS NULL OR customer = '')")
 	conditions.append("name LIKE %(txt)s")
 
+	# nosemgrep: frappe-sql-format-injection -- the f-string carries no request-derived value
 	return frappe.db.sql(
 		f"""
 		SELECT name, description

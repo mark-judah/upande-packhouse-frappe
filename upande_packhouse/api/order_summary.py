@@ -83,6 +83,7 @@ def fetchOrderSummaryData():
 
 	where_clause = " AND ".join(where_conditions)
 
+	# nosemgrep: frappe-sql-format-injection -- the f-string carries no request-derived value
 	query = f"""
     SELECT
         so.customer,

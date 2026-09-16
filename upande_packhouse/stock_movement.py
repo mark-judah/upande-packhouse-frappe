@@ -240,6 +240,7 @@ def _ledger_balance(item_code, warehouse, bucket_id=None):
 	params = {"wh": warehouse, "item": item_code, "bucket": bucket_id}
 
 	return flt(
+		# nosemgrep: frappe-sql-format-injection -- the f-string carries no request-derived value
 		frappe.db.sql(
 			f"""
             SELECT COALESCE(
@@ -280,6 +281,7 @@ def sold_qty(bucket_id, item_code, so_item, target):
 	if not (bucket_id and so_item and target):
 		return 0.0
 	return flt(
+		# nosemgrep: frappe-sql-format-injection -- the f-string carries no request-derived value
 		frappe.db.sql(
 			f"""
             SELECT COALESCE(
@@ -308,6 +310,7 @@ def sold_in_qty(bucket_id, item_code, so_item, target):
 	if not (bucket_id and so_item and target):
 		return 0.0
 	return flt(
+		# nosemgrep: frappe-sql-format-injection -- the f-string carries no request-derived value
 		frappe.db.sql(
 			f"""
             SELECT COALESCE(SUM(sed.qty), 0)

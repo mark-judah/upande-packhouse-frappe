@@ -125,6 +125,11 @@ def _bunch_packing_target(grading_entry, opl_name=None):
 	return best[0], detail
 
 
+# This IS the login endpoint, so it has to be reachable before a session exists.
+# It only calls frappe.auth.LoginManager, which applies the same rate limiting and
+# credential checks as /api/method/login, and returns nothing but the sid that
+# login would have set as a cookie.
+# nosemgrep: guest-whitelisted-method
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 def mobileLogin(usr: str | None = None, pwd: str | None = None):
 	"""Mobile-friendly login that returns the session id in the JSON body.
@@ -2346,6 +2351,7 @@ def getSchedulerData():
 			for i in range(0, len(opl_names), CHUNK):
 				chunk = opl_names[i : i + CHUNK]
 				placeholders = ", ".join(["%s"] * len(chunk))
+				# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 				items = frappe.db.sql(
 					f"""
                     SELECT
@@ -2391,6 +2397,7 @@ def getSchedulerData():
 			for i in range(0, len(soi_names), 50):
 				chunk = soi_names[i : i + 50]
 				placeholders = ", ".join(["%s"] * len(chunk))
+				# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 				srows = frappe.db.sql(
 					f"""
                     SELECT name, item_code, custom_line, custom_length,
@@ -4632,6 +4639,7 @@ def getBucketReconciliation():
 
 		farm_ph = ", ".join(["%s"] * len(farms))
 
+		# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 		dispatched_rows = frappe.db.sql(
 			f"""
             SELECT bd.target_farm AS farm, COUNT(bdi.name) AS cnt
@@ -4645,6 +4653,7 @@ def getBucketReconciliation():
 		)
 		dispatched_map = {r.farm: r.cnt for r in dispatched_rows}
 
+		# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 		received_rows = frappe.db.sql(
 			f"""
             SELECT bd.target_farm AS farm, COUNT(bdi.name) AS cnt
@@ -4659,6 +4668,7 @@ def getBucketReconciliation():
 		)
 		received_map = {r.farm: r.cnt for r in received_rows}
 
+		# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 		harvested_rows = frappe.db.sql(
 			f"""
             SELECT farm, COUNT(DISTINCT custom_bucket_id) AS cnt

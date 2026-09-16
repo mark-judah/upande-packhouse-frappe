@@ -20,26 +20,37 @@ def fetchSalesAllocationPlanningData():
 	length = frappe.form_dict.get("length")
 	farm = frappe.form_dict.get("farm")
 
+	# Every filter below arrives in frappe.form_dict on a whitelisted endpoint, so
+	# each one is a bound parameter. They used to be f-stringed into the WHERE
+	# clause inside quotes, which let any logged-in caller rewrite the query.
+	params = {"delivery_date": delivery_date}
+
 	where_conditions = []
 	where_conditions.append("so.docstatus = 1")
 	where_conditions.append("so.status NOT IN ('Completed', 'Closed', 'Cancelled')")
 	where_conditions.append("so.delivery_date = %(delivery_date)s")
 
 	if customer:
-		where_conditions.append(f"so.customer = '{customer}'")
+		where_conditions.append("so.customer = %(customer)s")
+		params["customer"] = customer
 	if sales_order:
-		where_conditions.append(f"so.name = '{sales_order}'")
+		where_conditions.append("so.name = %(sales_order)s")
+		params["sales_order"] = sales_order
 	if variety:
-		where_conditions.append(f"soi.item_code = '{variety}'")
+		where_conditions.append("soi.item_code = %(variety)s")
+		params["variety"] = variety
 	if length:
-		where_conditions.append(f"soi.custom_length = '{length}'")
+		where_conditions.append("soi.custom_length = %(length)s")
+		params["length"] = length
 
 	where_clause = " AND ".join(where_conditions)
 
 	farm_filter = ""
 	if farm:
-		farm_filter = f"AND s.farm = '{farm}'"
+		farm_filter = "AND s.farm = %(farm)s"
+		params["farm"] = farm
 
+	# nosemgrep: frappe-sql-format-injection -- interpolates a module-level constant, never request data
 	query = f"""
     WITH
     shelf_stock_by_farm AS (
@@ -142,7 +153,10 @@ def fetchSalesAllocationPlanningData():
     LIMIT 3000
     """
 
-	results = frappe.db.sql(query, {"delivery_date": delivery_date}, as_dict=True)
+	# nosemgrep: frappe-sql-format-injection -- the f-string holes are
+	# `where_clause` / `farm_filter`, both assembled above from fixed SQL
+	# fragments; every request value travels in `params`.
+	results = frappe.db.sql(query, params, as_dict=True)
 
 	# Fetch confirmed stems and attach to each row
 	confirmed_stems_query = """

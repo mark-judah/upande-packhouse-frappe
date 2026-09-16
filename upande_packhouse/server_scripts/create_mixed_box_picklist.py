@@ -23,6 +23,7 @@ def _get_shelf_farm_for_location(location):
 		return None
 
 	placeholders = ", ".join(["%s"] * len(enabled_sales_farms))
+	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	result = frappe.db.sql(
 		f"""
         SELECT name FROM `tabFarm`
@@ -53,6 +54,7 @@ def _get_confirmed_stems_for_location(sales_order, location):
 		return {}
 
 	placeholders = ", ".join(["%s"] * len(enabled_farms))
+	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	farm_rows = frappe.db.sql(
 		f"""
         SELECT name FROM `tabFarm`
@@ -68,6 +70,7 @@ def _get_confirmed_stems_for_location(sales_order, location):
 		return {}
 
 	farm_placeholders = ", ".join(["%s"] * len(location_farms))
+	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	rows = frappe.db.sql(
 		f"""
         SELECT cs.sales_order_item, SUM(cs.stems) AS total_stems

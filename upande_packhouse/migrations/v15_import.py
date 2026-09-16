@@ -974,6 +974,7 @@ def _write_batch(docs, sle_rows):
 		return 0, 0
 	names = [d.name for d in docs]
 	existing = set(
+		# nosemgrep: frappe-sql-format-injection -- the f-string carries no request-derived value
 		frappe.db.sql(
 			"SELECT name FROM `tabStock Entry` WHERE name IN ({0})".format(", ".join(["%s"] * len(names))),
 			names,

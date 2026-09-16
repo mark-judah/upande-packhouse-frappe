@@ -379,7 +379,9 @@ def _download_links_html(file_urls):
 	numbered PDF parts (see _labels_per_output_file) to stay under the
 	site's max upload size."""
 	label = "Download PDF Labels" if len(file_urls) == 1 else None
+	# One long anchor tag split across lines on purpose, not a missing comma.
 	return "<br>".join(
+		# nosemgrep: string-concat-in-list
 		f'<a href="{url}" target="_blank" style="background-color: #2490ef; color: white; '
 		f"padding: 8px 16px; text-decoration: none; border-radius: 4px; display: inline-block; "
 		f'margin-top: 4px;">{label or f"Download Part {i}"}</a>'

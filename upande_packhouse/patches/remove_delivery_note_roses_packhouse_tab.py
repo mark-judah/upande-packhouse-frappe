@@ -48,6 +48,7 @@ def execute():
 			# is still uncommitted, rather than let that implicit commit
 			# hide the transaction boundary. Commit explicitly first.
 			frappe.db.commit()
+			# nosemgrep: frappe-sql-format-injection -- column name in DDL from a hard-coded tuple in this file; DDL cannot bind a parameter
 			frappe.db.sql(f"ALTER TABLE `tabDelivery Note` DROP COLUMN `{fieldname}`")
 
 	frappe.clear_cache(doctype="Delivery Note")
