@@ -876,7 +876,7 @@ def _map_record(parent, items, cache, balances, fiscal_year_cache):
 			farm = effective_farm
 			doc.farm = farm
 
-		s_wh, _ = (
+		s_wh, _unused = (
 			cache.resolve_warehouse(it.get("s_warehouse"), record_farm=effective_farm)
 			if it.get("s_warehouse")
 			else (None, None)

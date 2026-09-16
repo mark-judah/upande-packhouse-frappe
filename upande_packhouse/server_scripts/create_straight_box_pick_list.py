@@ -106,10 +106,10 @@ def create_straight_box_pick_list_for_allocated_items(
 	"""
 
 	if not allocations:
-		frappe.throw("No allocations provided to create Pick List")
+		frappe.throw(_("No allocations provided to create Pick List"))
 
 	if sales_order_doc.docstatus != 1:
-		frappe.throw("An Order Pick List can only be created for submitted Sales Orders.")
+		frappe.throw(_("An Order Pick List can only be created for submitted Sales Orders."))
 
 	# Derive shelf farm from location via Production Settings
 	shelf_farm = _get_shelf_farm_for_location(location)
@@ -128,7 +128,7 @@ def create_straight_box_pick_list_for_allocated_items(
 	for alloc in allocations:
 		so_item_name = alloc.get("sales_order_item")
 		if not so_item_name:
-			frappe.throw("Missing sales_order_item in allocation")
+			frappe.throw(_("Missing sales_order_item in allocation"))
 		allocations_by_so_item[so_item_name].append(alloc)
 
 	order_pick_list_names = []

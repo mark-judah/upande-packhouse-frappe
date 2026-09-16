@@ -41,6 +41,7 @@ answered from the bucket's own Stock Entry history.
 from collections import OrderedDict
 
 import frappe
+from frappe import _
 from frappe.utils import flt, nowdate, nowtime
 
 MAPPING_DT = "SO Warehouse Mapping"
@@ -87,7 +88,7 @@ def load_mapping(business_unit):
 	any column it leaves blank is filled from a later row for the same source.
 	"""
 	if not business_unit:
-		frappe.throw("Business Unit is required to resolve warehouse routing")
+		frappe.throw(_("Business Unit is required to resolve warehouse routing"))
 
 	name = frappe.db.get_value(MAPPING_DT, {"business_unit": business_unit})
 	if not name:
@@ -624,7 +625,7 @@ def post_arrival(bucket_id, item_code, qty, source_warehouse, business_unit, far
 	`Shelf Item` row — so `Shelf.farm` and `Shelf Item.warehouse` stop drifting.
 	"""
 	if not frappe.has_permission("Stock Entry", "submit"):
-		frappe.throw("Not permitted to move stock between warehouses", frappe.PermissionError)
+		frappe.throw(_("Not permitted to move stock between warehouses"), frappe.PermissionError)
 
 	route = resolve_route(source_warehouse, business_unit, upto=ARRIVAL_STAGE)
 	row = {
@@ -714,7 +715,7 @@ def advance_opl(opl_name, stage):
 			+ ", ".join(s for s in STAGE_NAMES if s not in (ARRIVAL_STAGE, SALE_STAGE))
 		)
 	if not frappe.has_permission("Stock Entry", "submit"):
-		frappe.throw("Not permitted to move stock between warehouses", frappe.PermissionError)
+		frappe.throw(_("Not permitted to move stock between warehouses"), frappe.PermissionError)
 
 	opl = frappe.get_doc("Order Pick List", opl_name)
 	business_unit = opl_business_unit(opl)

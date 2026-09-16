@@ -18,7 +18,11 @@ jobs:
     if: github.event_name == 'pull_request'
 
     steps:
+      # Full history: the semgrep baseline below resolves a merge-base, which a
+      # depth-1 checkout cannot do.
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v6
         with:
           python-version: '3.14'
@@ -29,9 +33,15 @@ jobs:
         run: git clone --depth 1 https://github.com/frappe/semgrep-rules.git frappe-semgrep-rules
 
       - name: Run Semgrep rules
+        # Baselined against the merge base. `semgrep ci` otherwise reports EVERY
+        # finding in a changed file, so any PR that reformats broadly drags the
+        # whole pre-existing backlog in as blocking (195 of 279 on the PR that
+        # introduced these workflows). With a baseline it blocks only on what the
+        # branch actually adds. Clearing the backlog is tracked separately.
         run: |
           pip install semgrep
-          semgrep ci --config ./frappe-semgrep-rules/rules --config r/python.lang.correctness
+          semgrep ci --config ./frappe-semgrep-rules/rules --config r/python.lang.correctness \
+            --baseline-commit "$(git merge-base origin/${{ github.base_ref }} HEAD)"
 
   deps-vulnerable-check:
     name: 'Vulnerable Dependency Check'

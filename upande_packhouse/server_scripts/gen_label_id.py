@@ -1043,7 +1043,7 @@ def generate_batch_labels_pdf_pymupdf(label_data_list, parent_doc_name):
 			f"PyMuPDF not installed. Install with: bench pip install PyMuPDF\nError: {ie!s}",
 			"PyMuPDF Missing",
 		)
-		frappe.throw("PyMuPDF is required but not installed. Please contact administrator.")
+		frappe.throw(_("PyMuPDF is required but not installed. Please contact administrator."))
 
 	except Exception as e:
 		frappe.log_error(
@@ -1235,7 +1235,7 @@ def get_batch_labels_pdf(docname):
 				"count": len(label_data_list),
 			}
 		else:
-			frappe.throw("Failed to generate PDF")
+			frappe.throw(_("Failed to generate PDF"))
 
 	except Exception as e:
 		frappe.log_error(f"Error generating batch PDF: {e!s}", "Batch PDF Error")

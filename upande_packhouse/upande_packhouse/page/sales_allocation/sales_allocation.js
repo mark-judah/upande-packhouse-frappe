@@ -1010,7 +1010,7 @@ frappe.pages["sales-allocation"].select_order = function (order_name, opts) {
 	const P = frappe.pages["sales-allocation"];
 	opts = opts || {};
 	if (!P.selected_location) {
-		frappe.msgprint("Please select a location first");
+		frappe.msgprint(__("Please select a location first"));
 		return;
 	}
 	const switching = P.selected_order && P.selected_order !== order_name;
@@ -1089,13 +1089,13 @@ frappe.pages["sales-allocation"]._fetch_items_and_open_dialog = function () {
 				P.order_items = [];
 				P.selected_item = null;
 				P.render_allocation_grid();
-				frappe.msgprint("No items with confirmed stems for this location.");
+				frappe.msgprint(__("No items with confirmed stems for this location."));
 			}
 		},
 		error: function () {
 			P.order_items = [];
 			P.render_allocation_grid();
-			frappe.msgprint("Failed to load items for allocation.");
+			frappe.msgprint(__("Failed to load items for allocation."));
 		},
 	});
 };
@@ -1146,7 +1146,7 @@ frappe.pages["sales-allocation"]._bind_farm_filter = function () {
 			const idx = P.selected_farms.indexOf(farm);
 			if (idx > -1) {
 				if (P.selected_farms.length === 1) {
-					frappe.msgprint("At least one farm must be selected.");
+					frappe.msgprint(__("At least one farm must be selected."));
 					return;
 				}
 				P.selected_farms.splice(idx, 1);
@@ -2216,7 +2216,7 @@ frappe.pages["sales-allocation"].allocate_from_bucket = function (
 	const P = frappe.pages["sales-allocation"];
 	const qty = Math.min(max_from_bucket, remaining);
 	if (qty <= 0) {
-		frappe.msgprint("Nothing to allocate.");
+		frappe.msgprint(__("Nothing to allocate."));
 		return;
 	}
 	const item = P.order_items.find((i) => i.sales_order_item === so_item);
@@ -2266,7 +2266,7 @@ frappe.pages["sales-allocation"].allocate_from_bucket = function (
 			primary_action_label: "Confirm",
 			primary_action: function (vals) {
 				if (!vals.reason || !vals.reason.trim()) {
-					frappe.msgprint("Reason required.");
+					frappe.msgprint(__("Reason required."));
 					return;
 				}
 				d.hide();
@@ -2367,12 +2367,12 @@ frappe.pages["sales-allocation"].auto_allocate_fifo = function (so_item) {
 	const required = item.pending_stock_qty || 0;
 	let remaining = required - grand_allocated;
 	if (remaining <= 0) {
-		frappe.msgprint("Item already fully allocated.");
+		frappe.msgprint(__("Item already fully allocated."));
 		return;
 	}
 	const available_batches = (item.batches || []).filter((b) => (b.available_qty || 0) > 0);
 	if (!available_batches.length) {
-		frappe.msgprint("No compatible buckets available.");
+		frappe.msgprint(__("No compatible buckets available."));
 		return;
 	}
 	let to_check = remaining;
@@ -2425,7 +2425,7 @@ frappe.pages["sales-allocation"].auto_allocate_fifo = function (so_item) {
 			primary_action_label: "Confirm auto-allocate",
 			primary_action: function (vals) {
 				if (!vals.reason || !vals.reason.trim()) {
-					frappe.msgprint("Reason required.");
+					frappe.msgprint(__("Reason required."));
 					return;
 				}
 				d.hide();
@@ -2499,17 +2499,17 @@ frappe.pages["sales-allocation"].confirm_allocation = function () {
 	const P = frappe.pages["sales-allocation"];
 	const allocations = P.allocations || [];
 	if (!allocations.length) {
-		frappe.msgprint("No allocations to confirm.");
+		frappe.msgprint(__("No allocations to confirm."));
 		return;
 	}
 	if (!P.selected_location) {
-		frappe.msgprint("Location not selected.");
+		frappe.msgprint(__("Location not selected."));
 		return;
 	}
 	const valid_so_items = new Set((P.order_items || []).map((i) => i.sales_order_item));
 	const valid_allocations = allocations.filter((a) => valid_so_items.has(a.sales_order_item));
 	if (!valid_allocations.length) {
-		frappe.msgprint("No valid allocations.");
+		frappe.msgprint(__("No valid allocations."));
 		return;
 	}
 	// Team is per line (per Sales Order Item). Every item being allocated needs one.
@@ -2619,7 +2619,7 @@ frappe.pages["sales-allocation"]._review_downgrades = function (allocations, pro
 				if (!val) bad = true;
 			});
 			if (bad) {
-				frappe.msgprint("Every downgraded bucket needs a reason.");
+				frappe.msgprint(__("Every downgraded bucket needs a reason."));
 				return;
 			}
 			$inputs.each(function () {

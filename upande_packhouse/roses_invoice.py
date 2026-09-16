@@ -15,6 +15,7 @@ IDs) still copy at header level.
 """
 
 import frappe
+from frappe import _
 
 try:
 	from erpnext.stock.doctype.delivery_note.mapper import make_sales_invoice
@@ -103,4 +104,4 @@ def delivery_note_on_submit(doc, method=None):
 
 	si.flags.ignore_permissions = True
 	si.insert(ignore_permissions=True)  # leave as Draft, matching the old dispatch flow
-	frappe.msgprint("Sales Invoice " + si.name + " created from Delivery Note " + doc.name)
+	frappe.msgprint(_("Sales Invoice {0} created from Delivery Note {1}").format(si.name, doc.name))

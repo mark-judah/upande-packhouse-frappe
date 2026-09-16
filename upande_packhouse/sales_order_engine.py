@@ -15,6 +15,7 @@ Roses line has no packrate — which is exactly what makes packing show "No pack
 import re
 
 import frappe
+from frappe import _
 
 
 def _uom_factor(uom):
@@ -171,9 +172,11 @@ def sales_order_validate(doc, method=None):
 	# 1. must have a price list configured (line-level or the customer's default)
 	if not _customer_default_pl(doc):
 		frappe.throw(
-			"Customer <b>{0}</b> has no Default Price List configured. Set one on the Customer "
-			"(or on this order) before saving a Roses order.".format(doc.customer),
-			title="Missing Price List",
+			_(
+				"Customer <b>{0}</b> has no Default Price List configured. Set one on the Customer "
+				"(or on this order) before saving a Roses order."
+			).format(doc.customer),
+			title=_("Missing Price List"),
 		)
 
 	# 2a. box type, stem length and number of boxes are required on Roses lines
@@ -194,7 +197,8 @@ def sales_order_validate(doc, method=None):
 			incomplete.append("line {0} ({1})".format(i, ", ".join(gaps)))
 	if incomplete:
 		frappe.throw(
-			"Complete these lines before saving: {0}.".format("; ".join(incomplete)), title="Missing Details"
+			_("Complete these lines before saving: {0}.").format("; ".join(incomplete)),
+			title=_("Missing Details"),
 		)
 
 	# 2. every line must carry a packrate, else packing can't enforce box capacity
@@ -204,8 +208,10 @@ def sales_order_validate(doc, method=None):
 			missing.append(str(i))
 	if missing:
 		frappe.throw(
-			"No packrate set on line(s) {0}. Set a Packrate (and number of boxes) so the "
-			"box math and packing capacity are defined.".format(", ".join(missing))
+			_(
+				"No packrate set on line(s) {0}. Set a Packrate (and number of boxes) so the "
+				"box math and packing capacity are defined."
+			).format(", ".join(missing))
 		)
 
 	# 3. every line must be priced. sales_order_price zeroes the rate when there
@@ -217,9 +223,11 @@ def sales_order_validate(doc, method=None):
 			unpriced.append("{0} {1}".format(it.item_code, it.get("custom_length") or "").strip())
 	if unpriced:
 		frappe.throw(
-			"No price found for: <b>{0}</b>. Add an Item Price for that variety and stem "
-			"length in the order's price list before saving.".format(", ".join(unpriced)),
-			title="Missing Price",
+			_(
+				"No price found for: <b>{0}</b>. Add an Item Price for that variety and stem "
+				"length in the order's price list before saving."
+			).format(", ".join(unpriced)),
+			title=_("Missing Price"),
 		)
 
 	# 4. Every line needs a UOM the packing app can read. A line filled from a
@@ -234,9 +242,11 @@ def sales_order_validate(doc, method=None):
 			no_sales_uom.append(it.item_code)
 	if no_sales_uom:
 		frappe.throw(
-			"No Sales UOM set on: <b>{0}</b>. Set a Sales UOM on the item so the order line "
-			"has a unit of measure.".format(", ".join(sorted(set(no_sales_uom)))),
-			title="Missing Sales UOM",
+			_(
+				"No Sales UOM set on: <b>{0}</b>. Set a Sales UOM on the item so the order line "
+				"has a unit of measure."
+			).format(", ".join(sorted(set(no_sales_uom)))),
+			title=_("Missing Sales UOM"),
 		)
 
 	# 5. Mixed-box colour limit — a mixed box may not contain more distinct colours
@@ -265,9 +275,11 @@ def sales_order_validate(doc, method=None):
 			over.append("mix group {0} has {1} colours (max {2})".format(key, len(g["colours"]), limit))
 	if over:
 		frappe.throw(
-			"A mixed box exceeds the allowed colours per box — {0}. Reduce the colours in the "
-			"box, or raise the spec's <b>Max Colours Per Box</b>.".format("; ".join(over)),
-			title="Too Many Colours in Mixed Box",
+			_(
+				"A mixed box exceeds the allowed colours per box — {0}. Reduce the colours in the "
+				"box, or raise the spec's <b>Max Colours Per Box</b>."
+			).format("; ".join(over)),
+			title=_("Too Many Colours in Mixed Box"),
 		)
 
 	# 6. Every colour sharing one mix_group (or bunch_group, for Mixed Bunch) must
@@ -296,9 +308,9 @@ def sales_order_validate(doc, method=None):
 	]
 	if mismatched:
 		frappe.throw(
-			"Every colour in the same group must book the same Number of Boxes — {0} has "
-			"colours that disagree. Fix Number of Boxes on each line before saving.".format(
-				"; ".join(mismatched)
-			),
-			title="Inconsistent Box Count",
+			_(
+				"Every colour in the same group must book the same Number of Boxes — {0} has "
+				"colours that disagree. Fix Number of Boxes on each line before saving."
+			).format("; ".join(mismatched)),
+			title=_("Inconsistent Box Count"),
 		)

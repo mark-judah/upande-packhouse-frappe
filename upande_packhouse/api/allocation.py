@@ -5,6 +5,7 @@
 # Bodies keep frappe.form_dict / frappe.response as the live scripts used.
 
 import frappe
+from frappe import _
 
 
 @frappe.whitelist()
@@ -276,13 +277,13 @@ def confimSalesOrderItem():
 	def validate_inputs():
 		"""Validate input parameters"""
 		if not sales_order:
-			frappe.throw("Sales Order is required")
+			frappe.throw(_("Sales Order is required"))
 
 		if not line_no:
-			frappe.throw("Line number is required")
+			frappe.throw(_("Line number is required"))
 
 		if action == "confirm" and not processing_location:
-			frappe.throw("Processing location is required for confirmation")
+			frappe.throw(_("Processing location is required for confirmation"))
 
 		if not frappe.db.exists("Sales Order", sales_order):
 			frappe.throw(f"Sales Order {sales_order} does not exist")
@@ -467,7 +468,7 @@ def confimSalesOrderItem():
 			current_bookings = get_current_bookings()
 			frappe.response["message"] = {"success": True, "data": current_bookings}
 		else:
-			frappe.throw("Invalid action. Use 'confirm', 'unconfirm', or 'get_confirmations'")
+			frappe.throw(_("Invalid action. Use 'confirm', 'unconfirm', or 'get_confirmations'"))
 
 	except Exception as e:
 		frappe.response["message"] = {"success": False, "error": str(e)}

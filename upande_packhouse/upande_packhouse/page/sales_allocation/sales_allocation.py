@@ -2057,7 +2057,7 @@ def unallocate_bucket_from_opl(sales_order_item, bucket_id):
 			as_dict=True,
 		)
 		if not so_item:
-			frappe.throw("Invalid sales order item")
+			frappe.throw(_("Invalid sales order item"))
 
 		sales_order = so_item.parent
 		item_code = so_item.item_code

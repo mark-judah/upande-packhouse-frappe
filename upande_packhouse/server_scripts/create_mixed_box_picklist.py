@@ -97,10 +97,10 @@ def create_mixed_box_pick_list_for_allocated_items(sales_order_doc, allocations,
 	"""
 
 	if not allocations:
-		frappe.throw("No allocations provided to create Pick List")
+		frappe.throw(_("No allocations provided to create Pick List"))
 
 	if sales_order_doc.docstatus != 1:
-		frappe.throw("An Order Pick List can only be created for submitted Sales Orders.")
+		frappe.throw(_("An Order Pick List can only be created for submitted Sales Orders."))
 
 	# Derive shelf farm from location via Production Settings
 	shelf_farm = _get_shelf_farm_for_location(location)

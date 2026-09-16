@@ -466,7 +466,7 @@ def createOrUpdateDispatch():
 				mismatched = sorted(
 					{
 						so.name
-						for _, so in box_so_pairs
+						for _box, so in box_so_pairs
 						if (so.company, so.currency) != (first_so.company, first_so.currency)
 					}
 				)
@@ -777,7 +777,9 @@ def createOrUpdateFarmPackList():
 
 				if not grading_stock_entry:
 					frappe.throw(
-						"This bunch has not been graded in the system. Perform the grading scan on it to enable packing"
+						_(
+							"This bunch has not been graded in the system. Perform the grading scan on it to enable packing"
+						)
 					)
 
 				if grading_stock_entry[0].get("custom_scanned_packing") == 1:
@@ -1182,7 +1184,7 @@ def createOrUpdateFarmPackList():
 
 	except Exception as e:
 		frappe.log_error(message=str(e), title="Farm Pack List Packing Error")
-		frappe.throw(_("Error processing packing: ") + str(e))
+		frappe.throw(_("Error processing packing:") + " " + str(e))
 
 
 @frappe.whitelist()
@@ -1245,7 +1247,7 @@ def setPackListBoxUnderPackReason():
 		}
 	except Exception as e:
 		frappe.log_error(message=str(e), title="Farm Pack List Under Pack Reason Error")
-		frappe.throw(_("Error saving reason: ") + str(e))
+		frappe.throw(_("Error saving reason:") + " " + str(e))
 
 
 @frappe.whitelist()
@@ -1956,7 +1958,7 @@ def fetchStockEntryByBunch():
 		)
 
 		if not bunch_id:
-			frappe.throw("Bunch ID is required")
+			frappe.throw(_("Bunch ID is required"))
 
 		# Fetch Stock Entry with the given bunch_id
 		stock_entries = frappe.get_all(
@@ -1987,7 +1989,9 @@ def fetchStockEntryByBunch():
 		if not stock_entries:
 			if action == "packing":
 				frappe.throw(
-					"This bunch has not been graded in the system. Perform the grading scan on it to enable packing"
+					_(
+						"This bunch has not been graded in the system. Perform the grading scan on it to enable packing"
+					)
 				)
 			elif action == "grading":
 				# For grading action, return empty object
@@ -1998,7 +2002,7 @@ def fetchStockEntryByBunch():
 			# For packing action: check if already packed
 			if action == "packing":
 				if stock_entry.custom_scanned_packing:
-					frappe.throw("This bunch has already been packed")
+					frappe.throw(_("This bunch has already been packed"))
 
 			# Get item details from Stock Entry Detail child table
 			items = frappe.get_all(
@@ -2157,7 +2161,7 @@ def getReadySaleOrderItems():
 		frappe.response["message"] = "Found " + str(len(orders)) + " pick lists ready for packing"
 	except Exception as error:
 		frappe.log_error("Fetch Ready Orders Error: " + str(error))
-		frappe.throw("Error fetching ready orders: " + str(error))
+		frappe.throw(_("Error fetching ready orders:") + " " + str(error))
 
 
 @frappe.whitelist()
@@ -2167,7 +2171,7 @@ def getReadySaleOrderItemsData():
 		order_name = frappe.form_dict.get("custom_order_name")
 
 		if not opl_name and not order_name:
-			frappe.throw("opl_name is required. Please provide the 'opl_name' parameter.")
+			frappe.throw(_("opl_name is required. Please provide the 'opl_name' parameter."))
 
 		if opl_name:
 			# Scope strictly to this ONE Order Pick List — a Sales Order can have
@@ -3946,7 +3950,7 @@ def reportAppVersion():
 	user = frappe.session.user
 
 	if user == "Guest":
-		frappe.throw("Authentication required.")
+		frappe.throw(_("Authentication required."))
 
 	data = frappe.form_dict or {}
 	app_version = data.get("app_version")
@@ -3954,7 +3958,7 @@ def reportAppVersion():
 	device_model = data.get("device_model")
 
 	if not app_version:
-		frappe.throw("app_version is required.")
+		frappe.throw(_("app_version is required."))
 
 	today_str = str(frappe.utils.today())
 	now_str = str(frappe.utils.now())

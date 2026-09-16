@@ -1,6 +1,7 @@
 from collections import defaultdict
 
 import frappe
+from frappe import _
 from frappe.utils import nowdate
 
 from upande_packhouse.packing_guide import sync_packing_guide
@@ -34,10 +35,10 @@ def create_mixed_bunch_pick_list_for_allocated_items(
 	"""Create OPL(s) for allocated MIXED BUNCH items (grouped by custom_bunch_group)."""
 
 	if not allocations:
-		frappe.throw("No allocations provided to create Pick List")
+		frappe.throw(_("No allocations provided to create Pick List"))
 
 	if sales_order_doc.docstatus != 1:
-		frappe.throw("An Order Pick List can only be created for submitted Sales Orders.")
+		frappe.throw(_("An Order Pick List can only be created for submitted Sales Orders."))
 
 	shelf_farm = _get_shelf_farm_for_location(location)
 	if not shelf_farm:
@@ -554,10 +555,12 @@ def _generate_bunch_locations_with_splitting(
 	leftover = current_bucket_remaining + sum(b["qty"] for b in allocations_list[bucket_index:])
 	if leftover > 0:
 		frappe.throw(
-			f"Over-allocated for {item_code}: {leftover} stem(s) more than the {num_boxes} "
-			f"remaining box(es) x {stems_per_box} stems/box can hold. Reduce the allocation, "
-			"or raise Number of Boxes on the Sales Order.",
-			title="Overpacked",
+			_(
+				"Over-allocated for {0}: {1} stem(s) more than the {2} remaining box(es) x {3} "
+				"stems/box can hold. Reduce the allocation, or raise Number of Boxes on the "
+				"Sales Order."
+			).format(item_code, leftover, num_boxes, stems_per_box),
+			title=_("Overpacked"),
 		)
 
 	return locations
