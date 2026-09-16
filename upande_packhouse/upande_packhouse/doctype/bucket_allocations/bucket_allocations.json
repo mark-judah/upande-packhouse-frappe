@@ -10,7 +10,8 @@
   "sales_order",
   "sales_order_item",
   "quantity_allocated",
-  "cancelled"
+  "cancelled",
+  "issued"
  ],
  "fields": [
   {
@@ -38,13 +39,22 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Cancelled"
+  },
+  {
+   "fieldname": "issued",
+   "fieldtype": "Check",
+   "label": "Issued",
+   "default": "0",
+   "read_only": 1,
+   "in_list_view": 1,
+   "description": "Set when the picker physically draws these stems. An issued row no longer counts towards allocated_quantity \u2014 the stems have left the bucket, so subtracting them again would double-count against the shelf row, which is decremented at the same moment."
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-08-12 10:16:23.125157",
+ "modified": "2026-09-16 16:10:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Bucket Allocations",

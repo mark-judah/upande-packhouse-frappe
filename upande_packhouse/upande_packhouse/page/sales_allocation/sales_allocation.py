@@ -2,7 +2,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import cint, now_datetime
+from frappe.utils import cint, flt, now_datetime
 
 from upande_packhouse import stock_movement
 
@@ -60,7 +60,12 @@ def _get_production_config():
 			farm_config[row.farm] = {
 				"sales_shelf": int(row.sales_shelf or 0),
 				"max_allocation_age": int(row.max_allocation_age or 5),
-				"cooling_hours": float(row.cooling_hours or 0),
+				# .get(): `Shelf Locations` is an orphan doctype -- no app in the
+				# bench ships it (the directory is empty), so its columns vary by
+				# site and `cooling_hours` is simply absent on some. Attribute
+				# access raised AttributeError and took the whole allocation page
+				# down with it.
+				"cooling_hours": float(row.get("cooling_hours") or 0),
 			}
 
 	# Single query to get location for all enabled farms.
@@ -444,6 +449,12 @@ def get_sales_order_items_with_buckets(
 
 	farm_max_age = {f: farm_config.get(f, {}).get("max_allocation_age", 5) for f in active_farms}
 
+	# Where an in-transit bucket is heading: this location's sales-shelf farm,
+	# the same value _allocate_stock_with_buckets_impl decides `needs_transfer`
+	# against. NOT `preferred_farm`, which is merely wherever the most
+	# exact-length stock happens to sit and can name the bucket's own origin.
+	transit_destination = next((f for f in location_farms if farm_config.get(f, {}).get("sales_shelf")), "")
+
 	confirmed_by_item, confirmed_detail = _get_confirmed_stems_for_farms(sales_order, location_farms)
 
 	items = frappe.db.sql(
@@ -563,7 +574,15 @@ def get_sales_order_items_with_buckets(
 	ic_placeholders = ", ".join(["%s"] * len(item_codes))
 	farm_placeholders = ", ".join(["%s"] * len(active_farms))
 
-	# ── UPDATED: Exclude in_transit buckets from availability ──
+	# ── In-transit buckets STAY allocatable ──────────────────────────────────
+	# A bucket on its way to the sales shelf still physically holds its stems,
+	# and they will all be at the destination when it lands, so a second order
+	# may legitimately claim from it. It is surfaced with in_transit = 1 so the
+	# page can badge it rather than hide it. Availability here is the shelf
+	# row's own count minus what is already allocated -- it never reads
+	# BucketAllocationStatus.available_quantity -- so nothing else needs to move.
+	# Submission is still gated: opl_submit_blockers holds the OPL until the
+	# bucket actually arrives.
 	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	buckets = frappe.db.sql(
 		f"""
@@ -590,7 +609,6 @@ def get_sales_order_items_with_buckets(
         WHERE s.farm IN ({farm_placeholders})
           AND si.variety IN ({ic_placeholders})
           AND DATEDIFF(CURDATE(), COALESCE(si.harvest_date, si.date_added)) < %s
-          AND (bas.in_transit = 0 OR bas.in_transit IS NULL)
           {DISCARD_EXCLUSION}
     """,
 		[now_datetime()] + active_farms + item_codes + [discard_age],
@@ -723,6 +741,10 @@ def get_sales_order_items_with_buckets(
 				"length_status": status,
 				"is_sales_shelf": is_sales_shelf,
 				"awaiting_transfer": 0 if is_sales_shelf else 1,
+				# Already allocated to someone and physically on its way to the
+				# sales shelf -- allocatable, but shown as in transit.
+				"in_transit": cint(b.get("in_transit")),
+				"transit_to": transit_destination if cint(b.get("in_transit")) else "",
 				"downgrade_approval": (
 					"amber_expired" if (b["age_days"] or 0) >= amber_time else "requires_approval"
 				)
@@ -907,7 +929,6 @@ def get_bucket_visibility_diagnostics(
 	# has more than one issue, so the summary doesn't double-count buckets.
 	REASON_META = [
 		("pending_discard", "Pending discard request"),
-		("in_transit", "In transit (not yet on the sales shelf)"),
 		("remote_farm", "On a farm not currently selected"),
 		("cooling", "Still cooling since shelving"),
 		("past_discard_age", "Past the discard-age threshold"),
@@ -933,9 +954,6 @@ def get_bucket_visibility_diagnostics(
 			detail = _("On discard request {0} — not available until it's resolved").format(
 				b["discard_request"]
 			)
-		elif b["in_transit"]:
-			reason = "in_transit"
-			detail = _("Still in transit to the {0} sales shelf").format(b["shelf_farm"] or "")
 		elif not is_sales_shelf and b["shelf_farm"] not in active_farms:
 			reason = "remote_farm"
 			detail = _("On {0}, which isn't one of the farms currently selected").format(
@@ -1187,6 +1205,31 @@ def get_available_filters(
 	colors = sorted(list({str(row["color"]).strip() for row in metadata if row["color"]}))
 
 	return {"headsizes": headsizes, "colors": colors}
+
+
+def recompute_bas_quantities(bas, shelf_qty=None):
+	"""Re-derive a Bucket Allocation Status' quantities from its own rows.
+
+	`allocated_quantity` counts only OUTSTANDING allocations -- not cancelled,
+	not yet issued. An issued row's stems have physically left the bucket, and
+	the issue decrements `Shelf Item.stem_qty` at the same moment, so counting
+	it here too would subtract it twice: every availability read is
+	`stem_qty - allocated_quantity` (see the bucket query above, availability.py
+	and get_substitute_varieties), and a 100-stem bucket with 20 issued would
+	report 60 free instead of 80.
+
+	`shelf_qty` re-syncs `total_quantity`, which is otherwise a snapshot taken
+	when the row was created. Pass the live `Shelf Item.stem_qty` whenever the
+	bucket's physical contents change, or `available_quantity` -- which the
+	over-allocation guard reads -- drifts above what is actually on the shelf.
+	"""
+	if shelf_qty is not None:
+		bas.total_quantity = flt(shelf_qty)
+
+	outstanding = [r for r in bas.bucket_allocations if not r.cancelled and not r.issued]
+	bas.allocated_quantity = sum(flt(r.quantity_allocated) for r in outstanding)
+	bas.available_quantity = flt(bas.total_quantity) - bas.allocated_quantity
+	return outstanding
 
 
 # ============================================================
@@ -1444,14 +1487,16 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 				},
 			)
 
-		non_cancelled = [r for r in bas.bucket_allocations if not r.cancelled]
-		bas.allocated_quantity = sum(r.quantity_allocated for r in non_cancelled)
-		bas.available_quantity = bas.total_quantity - bas.allocated_quantity
+		recompute_bas_quantities(bas, shelf_qty=shelf["stem_qty"])
 
 		# ── MARK IN TRANSIT if needs transfer ──
+		# Flag only. The balance is deliberately NOT zeroed: the bucket carries
+		# its full contents to the sales shelf, so whatever this order did not
+		# take is still real stock another line can claim while it travels.
+		# Zeroing it here also made the over-allocation check above reject every
+		# later allocation from the same bucket with "0 available".
 		if needs_transfer:
 			bas.in_transit = 1
-			bas.available_quantity = 0  # Lock entire bucket
 			frappe.log_error(
 				title="Bucket Marked In Transit",
 				message=f"Bucket: {bucket_id}, Farm: {shelf['farm']}, "
@@ -2109,6 +2154,33 @@ def unallocate_bucket_from_opl(sales_order_item: str | None, bucket_id: str | No
 		sales_order = so_item.parent
 		item_code = so_item.item_code
 
+		# ── An issued line cannot be unallocated ────────────────────────────
+		# Issuing physically takes the stems out of the bucket: the shelf row is
+		# decremented and the stems are already on their way to the packhouse.
+		# Cancelling the allocation now would reverse the ledger and drop the row
+		# while nothing puts those stems back on the shelf, leaving them real in
+		# the ERP but invisible to this page forever. Undo the issue first.
+		issued_row = frappe.db.sql(
+			"""
+			SELECT ba.name
+			FROM `tabBucket Allocations` ba
+			INNER JOIN `tabBucket Allocation Status` bas ON bas.name = ba.parent
+			WHERE bas.bucket_id = %(bucket)s
+			  AND ba.sales_order_item = %(soi)s
+			  AND ba.cancelled = 0
+			  AND ba.issued = 1
+			LIMIT 1
+			""",
+			{"bucket": bucket_id, "soi": sales_order_item},
+		)
+		if issued_row:
+			frappe.throw(
+				_(
+					"Bucket {0} has already been issued for this line — its stems have left "
+					"the shelf, so the allocation can no longer be cancelled here."
+				).format(bucket_id)
+			)
+
 		# ── Put the stems back on the shelf ledger-wise: cancel the transfers
 		#    that moved them into the Sold warehouse for this line. ──
 		reversed_entries = stock_movement.reverse_allocation_movement(
@@ -2130,9 +2202,7 @@ def unallocate_bucket_from_opl(sales_order_item: str | None, bucket_id: str | No
 					cancelled_any = True
 
 			if cancelled_any:
-				non_cancelled = [r for r in bas.bucket_allocations if not r.cancelled]
-				bas.allocated_quantity = sum(r.quantity_allocated for r in non_cancelled)
-				bas.available_quantity = bas.total_quantity - bas.allocated_quantity
+				non_cancelled = recompute_bas_quantities(bas)
 
 				# ── CLEAR IN_TRANSIT if no more allocations ──
 				if not non_cancelled:
@@ -2370,7 +2440,9 @@ def get_substitute_varieties(
 
 	item_where = " AND ".join(item_conditions)
 
-	# Find varieties that have stock on shelves at this location (exclude in_transit buckets)
+	# Find varieties that have stock on shelves at this location. In-transit
+	# buckets count: they are allocatable (see get_sales_order_items_with_buckets),
+	# so leaving them out here would understate a substitute's availability.
 	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	varieties = frappe.db.sql(
 		f"""
@@ -2391,7 +2463,6 @@ def get_substitute_varieties(
                 ON bas.bucket_id = si.bucket_id AND bas.item_code = si.variety
             WHERE s.farm IN ({farm_placeholders})
               AND DATEDIFF(CURDATE(), COALESCE(si.harvest_date, si.date_added)) < %s
-              AND (bas.in_transit = 0 OR bas.in_transit IS NULL)
               {DISCARD_EXCLUSION}
             GROUP BY si.variety
         ) stock ON stock.item_code = i.name
