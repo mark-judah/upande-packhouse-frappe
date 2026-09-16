@@ -11,6 +11,7 @@ import math
 
 import frappe
 from frappe import _
+from frappe.utils import flt
 
 from upande_packhouse import roses_warehouse_map, stock_movement
 from upande_packhouse.item_groups import resolve_rose_item_groups
@@ -119,6 +120,21 @@ def _bunch_packing_target(grading_entry, opl_name=None):
 	if not best:
 		detail["upgrade_only"] = bool(detail["candidates"])
 		return None, detail
+
+	# A bucket is routinely split across orders at different lengths -- 20 of its
+	# 100 stems downgraded to 60cm while the other 80 go out at 70cm. Without an
+	# OPL to scope by, "shallowest downgrade wins" would hand the 70cm answer to
+	# a bunch being packed into the 60cm line. When the qualifying rows disagree
+	# and the caller did not say which pick list it is packing, resolve nothing:
+	# the scan then shows the label's own length, and the pack write -- which
+	# always knows its OPL -- still lands the right one.
+	if not opl_name:
+		qualifying = {
+			_length_cm(c["target"]) for c in detail["candidates"] if 0 < _length_cm(c["target"]) <= graded_cm
+		}
+		if len(qualifying) > 1:
+			detail["ambiguous"] = sorted(qualifying)  # cm, numeric
+			return None, detail
 
 	detail["matched_opl"] = best[2]
 	detail["is_downgrade"] = best[1] < graded_cm
@@ -3732,15 +3748,35 @@ def issueBucketToSaleOrderItem():
 			frappe.response.http_status_code = 400
 		else:
 			# -------------------------------
-			# Get latest Stock Entry for bucket
+			# Get the Stock Entry this scan is acting on
 			# -------------------------------
+			# Prefer the entry posted for THIS sale order item. A bucket is
+			# routinely allocated to several lines -- 20 stems to one, 30 to
+			# another -- and each allocation posts its own entry stamped with its
+			# own `custom_issued_to`. Taking "latest wins" made the second
+			# allocation's stamp hide the first line's entry, so that line's
+			# issue scan was rejected as already issued elsewhere and its stems
+			# could never be drawn. Fall back to the latest entry when this line
+			# has none of its own.
 			stock_entries = frappe.db.get_list(
 				"Stock Entry",
-				filters={"custom_bucket_id": bucket_id, "docstatus": 1},
+				filters={
+					"custom_bucket_id": bucket_id,
+					"docstatus": 1,
+					"custom_issued_to": sale_order_item,
+				},
 				fields=["name", "creation", "custom_issued_to"],
 				order_by="creation desc",
 				limit=1,
 			)
+			if not stock_entries:
+				stock_entries = frappe.db.get_list(
+					"Stock Entry",
+					filters={"custom_bucket_id": bucket_id, "docstatus": 1},
+					fields=["name", "creation", "custom_issued_to"],
+					order_by="creation desc",
+					limit=1,
+				)
 
 			if not stock_entries:
 				frappe.response.message = f"No stock entry found with bucket ID: {bucket_id}"
@@ -3768,7 +3804,22 @@ def issueBucketToSaleOrderItem():
 				# Item, and post_single_hop's own ledger-balance check all
 				# no-op harmlessly), so it's safe to always run them here,
 				# both on a genuinely fresh issue and on a repeat.
-				if current_issued_to and current_issued_to != sale_order_item:
+				# A different stamp is only a real conflict when this line has no
+				# claim on the bucket of its own. With a pick row for it, the
+				# bucket is legitimately shared and this is a partial issue --
+				# each line draws its own stems until the bucket is empty.
+				allocated_to_this_item = frappe.db.sql(
+					"""
+					SELECT 1 FROM `tabPick List Item`
+					WHERE bucket = %(bucket)s
+					  AND parenttype = 'Order Pick List'
+					  AND %(soi)s IN (COALESCE(custom_sale_order_item, ''), COALESCE(sales_order_item, ''))
+					LIMIT 1
+					""",
+					{"bucket": bucket_id, "soi": sale_order_item},
+				)
+
+				if current_issued_to and current_issued_to != sale_order_item and not allocated_to_this_item:
 					frappe.response.message = (
 						f"Stock Entry {stock_entry_name} is already issued "
 						f"to a DIFFERENT sale order item ({current_issued_to})"
@@ -3798,7 +3849,20 @@ def issueBucketToSaleOrderItem():
 					if opl_name:
 						pli_filters["parent"] = opl_name
 					pick_list_items = frappe.db.get_all(
-						"Pick List Item", filters=pli_filters, fields=["name", "parent", "source_warehouse"]
+						"Pick List Item",
+						filters=pli_filters,
+						fields=[
+							"name",
+							"parent",
+							"source_warehouse",
+							"item_code",
+							"stock_qty",
+							"issued",
+							# used below to route the Graded Sold -> Packhouse hop; without
+							# it `p.farm` was always None and the lookup silently fell back
+							# to the Stock Entry's farm.
+							"farm",
+						],
 					)
 
 					updated_opls = set()
@@ -3815,12 +3879,53 @@ def issueBucketToSaleOrderItem():
 					# -------------------------------
 					# REMOVE BUCKET FROM SHELF
 					# -------------------------------
+					# A bucket is a container the picker takes stems OUT of -- it does
+					# not leave the shelf just because one order drew on it. Deduct
+					# what this issue actually took, per variety, and only release the
+					# row once the bucket is empty. Deleting it outright stranded the
+					# balance: allocation only moves the picked stems to Graded Sold,
+					# so the rest stayed in the coldstore ledger while vanishing from
+					# the shelf the allocation page reads, leaving it unallocatable.
+					# (upande_harvest._refresh_bucket_shelf does the same decrement-or-
+					# release for the grading side.)
+					# Only rows THIS scan flips from unissued count towards the
+					# decrement. The whole block re-runs on a repeated scan by design
+					# (see the note above) and every other step no-ops on a repeat --
+					# subtracting again would quietly destroy real shelf stock.
+					issued_by_variety = {}
+					for pli in pick_list_items:
+						if pli.get("item_code") and not pli.get("issued"):
+							issued_by_variety[pli["item_code"]] = issued_by_variety.get(
+								pli["item_code"], 0
+							) + flt(pli.get("stock_qty"))
+
 					shelf_items = frappe.db.get_all(
-						"Shelf Item", filters={"bucket_id": bucket_id}, fields=["name", "parent"]
+						"Shelf Item",
+						filters={"bucket_id": bucket_id},
+						fields=["name", "parent", "variety", "stem_qty"],
 					)
 
 					removed_from_shelf = []
+					kept_on_shelf = []
 					for item in shelf_items:
+						taken = issued_by_variety.get(item.get("variety"), 0)
+						remaining = flt(item.get("stem_qty")) - taken
+						# Keyed on `pick_list_items`, NOT on `issued_by_variety`: on a
+						# repeated scan every row is already issued=1 so nothing is newly
+						# taken, and keying on the latter would delete the balance the
+						# first scan just preserved. No pick rows AT ALL means an older
+						# caller with nothing to measure against -- only then fall back
+						# to the original release-the-whole-bucket behaviour. A variety
+						# this issue never touched also keeps its row; one bucket can
+						# hold several and only the drawn one should shrink.
+						if pick_list_items and (not taken or remaining > 0):
+							frappe.db.set_value("Shelf Item", item.name, "stem_qty", remaining)
+							frappe.db.set_value("Shelf", item.parent, "modified", frappe.utils.now())
+							kept_on_shelf.append(
+								{"shelf": item.parent, "variety": item.get("variety"), "remaining": remaining}
+							)
+							continue
+
 						# Durable removal log: flip this bucket's Shelving Log from
 						# 'Shelved' to 'Issued to Sales Order' (with removed_on) so the
 						# removal survives the Shelf Item hard-delete below.
@@ -3852,6 +3957,49 @@ def issueBucketToSaleOrderItem():
 						removed_from_shelf.append(item.parent)
 						# Touch parent shelf to refresh UI/modified time
 						frappe.db.set_value("Shelf", item.parent, "modified", frappe.utils.now())
+
+					# -------------------------------
+					# SETTLE THE ALLOCATION
+					# -------------------------------
+					# These stems have left the bucket, so their allocation rows stop
+					# counting as outstanding and the status' total is re-synced to what
+					# is physically left on the shelf. Without both, availability --
+					# computed everywhere as `stem_qty - allocated_quantity` -- would
+					# subtract the issued stems a second time.
+					from upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation import (
+						recompute_bas_quantities,
+					)
+
+					for variety, taken in issued_by_variety.items():
+						if not taken:
+							continue
+						bas_name = frappe.db.get_value(
+							"Bucket Allocation Status",
+							{"bucket_id": bucket_id, "item_code": variety},
+							"name",
+						)
+						if not bas_name:
+							continue
+						try:
+							bas = frappe.get_doc("Bucket Allocation Status", bas_name)
+							for row in bas.bucket_allocations:
+								if row.sales_order_item == sale_order_item and not row.cancelled:
+									row.issued = 1
+									row.db_update()
+							shelf_left = frappe.db.get_value(
+								"Shelf Item", {"bucket_id": bucket_id, "variety": variety}, "stem_qty"
+							)
+							recompute_bas_quantities(
+								bas, shelf_qty=shelf_left if shelf_left is not None else 0
+							)
+							bas.flags.ignore_validate = True
+							bas.flags.ignore_mandatory = True
+							bas.save(ignore_permissions=True)
+						except Exception:
+							frappe.log_error(
+								title="Issue: settling Bucket Allocation Status failed",
+								message=f"bucket={bucket_id} variety={variety}\n{frappe.get_traceback()}",
+							)
 
 					# -------------------------------
 					# ISSUE -> PACKHOUSE (Graded Sold -> Packhouse)
@@ -3910,7 +4058,12 @@ def issueBucketToSaleOrderItem():
 						"updated_child_rows": len(pick_list_items),
 						"affected_opls": list(updated_opls),
 						"removed_from_shelf_count": len(removed_from_shelf),
-						"shelves_affected": list(set(removed_from_shelf)),
+						"shelves_affected": list(
+							set(removed_from_shelf) | {k["shelf"] for k in kept_on_shelf}
+						),
+						# Buckets the picker drew from but did not empty -- they stay
+						# on the shelf with the reduced count.
+						"kept_on_shelf": kept_on_shelf,
 						"updated_at": frappe.utils.now(),
 						"issue_transfer": issue_transfer,
 						"status": "issued_and_child_updated",

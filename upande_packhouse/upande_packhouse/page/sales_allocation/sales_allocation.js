@@ -421,6 +421,7 @@ frappe.pages["sales-allocation"].add_styles = function () {
         }
         .ufd-sa .badge-exact { background: var(--signal-soft); color: var(--signal); }
         .ufd-sa .badge-downgrade { background: var(--warn-soft); color: var(--warn); }
+        .ufd-sa .badge-transit { background: var(--signal-soft); color: var(--signal); }
         .ufd-sa .badge-preferred { background: var(--signal-soft); color: var(--signal); }
         .ufd-sa .badge-awaiting { background: var(--warn-soft); color: var(--warn); }
         .ufd-sa .badge-need { background: var(--bad-soft); color: var(--bad); }
@@ -2067,6 +2068,17 @@ frappe.pages["sales-allocation"]._render_item_block = function (item) {
 			const await_badge = is_awaiting
 				? `<span class="grid-badge badge-awaiting">Remote shelf</span>`
 				: "";
+			// Already allocated by someone else and physically moving to the sales
+			// shelf. Still allocatable -- the whole bucket is travelling, so what
+			// this order leaves behind arrives with it -- but say so on the row.
+			const transit_badge =
+				batch.in_transit === 1
+					? `<span class="grid-badge badge-transit">In transit${
+							batch.transit_to
+								? " &rarr; " + frappe.utils.escape_html(batch.transit_to)
+								: ""
+					  }</span>`
+					: "";
 			let actions_html = "";
 			if (
 				remaining > 0 &&
@@ -2100,7 +2112,7 @@ frappe.pages["sales-allocation"]._render_item_block = function (item) {
                     <td>${batch.age_days != null ? batch.age_days : "?"}d</td>
                     <td><strong>${batch.bucket_id || "-"}</strong></td>
                     <td>${batch.shelf_farm || "-"} ${farm_badge}</td>
-                    <td>${batch.shelf_location || "-"} ${await_badge}</td>
+                    <td>${batch.shelf_location || "-"} ${await_badge} ${transit_badge}</td>
                     <td>${batch.stem_length || "N/A"} ${length_badge}</td>
                     <td style="color:${
 						(batch.available_qty || 0) > 0 ? "var(--good)" : "var(--bad)"

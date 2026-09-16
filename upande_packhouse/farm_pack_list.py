@@ -122,12 +122,20 @@ def _move_to_graded_sold(fpl_doc):
 	map_row = roses_warehouse_map.mapping_row_for_farm(fpl_doc.farm)
 	ungraded = map_row.ungraded_sold_warehouse if map_row else None
 	graded = map_row.delivery_warehouse if map_row else None
-	if not (ungraded and graded):
+
+	if not graded:
 		frappe.log_error(
-			title="FPL submit: no Roses-MAP row for Ungraded/Graded Sold",
+			title="FPL submit: no Roses-MAP row for Graded Sold",
 			message=f"FPL={fpl_doc.name} farm={fpl_doc.farm} -- "
 			f"add/complete a Roses-MAP row for this farm's coldstore.",
 		)
+		return None
+
+	# An Ungraded Sold warehouse is optional, exactly as stock_movement treats
+	# it: with the column blank, allocation already landed the stems straight in
+	# Graded Sold, so there is no second hop left to post and this is a no-op
+	# rather than a misconfiguration. Only a missing Graded Sold is an error.
+	if not ungraded:
 		return None
 
 	by_variety = {}
