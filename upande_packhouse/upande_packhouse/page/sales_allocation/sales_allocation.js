@@ -1866,6 +1866,7 @@ frappe.pages["sales-allocation"]._bind_lines_rail = function () {
 		});
 };
 // ─── RENDER: ACTION BAR ───
+<<<<<<< Updated upstream
 frappe.pages["sales-allocation"]._render_action_bar = function () {
 	const P = frappe.pages["sales-allocation"];
 	if (!P.selected_order) {
@@ -1880,6 +1881,25 @@ frappe.pages["sales-allocation"]._render_action_bar = function () {
 				total > 0 ? "var(--good)" : "var(--ink-mute)"
 			};margin:0 3px;">${total.toLocaleString()}</strong>
             stems · <strong>${lines}</strong> line(s)
+=======
+frappe.pages['sales-allocation']._render_action_bar = function () {
+    const P = frappe.pages['sales-allocation'];
+    if (!P.selected_order) {
+        return `<div style="font-size:12px;color:var(--ink-mute);">Nothing to confirm yet.</div>`;
+    }
+    const total = P._session_total();
+    const lines = new Set((P.allocations || []).map(a => a.sales_order_item)).size;
+    const dg = (P.allocations || []).filter(a => a.length_status === 'downgrade');
+    const dg_stems = dg.reduce((s, a) => s + (parseFloat(a.qty) || 0), 0);
+    const dg_note = dg.length
+        ? ` · <span style="color:var(--warn);">${dg.length} downgraded bucket(s), ${dg_stems.toLocaleString()} stems</span>`
+        : '';
+    return `
+        <div style="font-size:12px;color:var(--ink-3);">
+            Session
+            <strong style="color:${total > 0 ? 'var(--good)' : 'var(--ink-mute)'};margin:0 3px;">${total.toLocaleString()}</strong>
+            stems · <strong>${lines}</strong> line(s)${dg_note}
+>>>>>>> Stashed changes
         </div>
         <div class="ab-actions">
             <button class="sa-mini-btn" onclick="frappe.pages['sales-allocation'].clear_all_and_render()">Clear all</button>
@@ -2488,6 +2508,7 @@ frappe.pages["sales-allocation"]._execute_fifo = function (so_item, downgrade_re
 	}
 };
 // ─── CONFIRM ALLOCATION ───
+<<<<<<< Updated upstream
 frappe.pages["sales-allocation"].confirm_allocation = function () {
 	const P = frappe.pages["sales-allocation"];
 	const allocations = P.allocations || [];
@@ -2570,6 +2591,147 @@ frappe.pages["sales-allocation"].confirm_allocation = function () {
 			}
 		},
 	});
+=======
+frappe.pages['sales-allocation'].confirm_allocation = function () {
+    const P = frappe.pages['sales-allocation'];
+    const allocations = P.allocations || [];
+    if (!allocations.length) { frappe.msgprint('No allocations to confirm.'); return; }
+    if (!P.selected_location) { frappe.msgprint('Location not selected.'); return; }
+    const valid_so_items = new Set((P.order_items || []).map(i => i.sales_order_item));
+    const valid_allocations = allocations.filter(a => valid_so_items.has(a.sales_order_item));
+    if (!valid_allocations.length) { frappe.msgprint('No valid allocations.'); return; }
+    // Team is per line (per Sales Order Item). Every item being allocated needs one.
+    const teams = P.item_teams || {};
+    const missing = [...new Set(valid_allocations.map(a => a.sales_order_item))]
+        .filter(soi => !teams[soi]);
+    if (missing.length) {
+        const names = missing.map(soi => {
+            const it = (P.order_items || []).find(i => i.sales_order_item === soi);
+            return it ? (it.item_name || it.item_code || soi) : soi;
+        });
+        // Jump to the first offending line so its team dropdown is on screen.
+        P.selected_item = missing[0];
+        P.render_allocation_grid();
+        frappe.msgprint('Select a packing team for: ' + names.join(', '));
+        return;
+    }
+    // Every downgrade in this session gets reviewed before anything is written.
+    // Amber-expired buckets never open the per-bucket reason dialog (the reason is
+    // auto-stamped), so without this the allocator confirms downgrades they were
+    // never shown and cannot correct.
+    P._review_downgrades(valid_allocations, function () {
+        P._send_allocation(valid_allocations, teams);
+    });
+};
+
+// ─── REVIEW: DOWNGRADES BEFORE CONFIRM ───
+// Lists every downgraded bucket in the session with an editable reason. Calls
+// proceed() only once each one has a reason. No downgrades -> straight through.
+frappe.pages['sales-allocation']._review_downgrades = function (allocations, proceed) {
+    const P = frappe.pages['sales-allocation'];
+    const downgrades = allocations.filter(a => a.length_status === 'downgrade');
+    if (!downgrades.length) { proceed(); return; }
+
+    const rows = downgrades.map((a, i) => {
+        const item = (P.order_items || []).find(it => it.sales_order_item === a.sales_order_item) || {};
+        const batch = ((item.batches || []).find(b => b.bucket_id === a.bucket_id)) || {};
+        const auto = batch.downgrade_approval === 'amber_expired';
+        return `<tr>
+            <td>
+                <strong>${frappe.utils.escape_html(a.bucket_id || '')}</strong>
+                <div class="dgr-sub">${frappe.utils.escape_html(a.item_code || '')}${batch.shelf_farm ? ' · ' + frappe.utils.escape_html(batch.shelf_farm) : ''}${batch.age_days != null ? ' · ' + batch.age_days + 'd' : ''}</div>
+            </td>
+            <td class="dgr-len">${frappe.utils.escape_html(a.stem_length || '?')} &rarr; <strong>${frappe.utils.escape_html(item.required_length || '?')}</strong></td>
+            <td class="dgr-qty">${(a.qty || 0).toLocaleString()}</td>
+            <td>
+                <input class="dgr-reason" data-idx="${i}" value="${frappe.utils.escape_html(a.downgrade_reason || '')}" placeholder="Reason required">
+                ${auto ? '<div class="dgr-sub">auto — amber time expired</div>' : ''}
+            </td>
+        </tr>`;
+    }).join('');
+
+    const total = downgrades.reduce((s, a) => s + (parseFloat(a.qty) || 0), 0);
+    const d = new frappe.ui.Dialog({
+        title: 'Review downgrades',
+        size: 'large',
+        fields: [{
+            fieldtype: 'HTML', fieldname: 'summary', options: `
+                <style>
+                    .dgr-wrap table { width:100%; border-collapse:collapse; font-size:12px; }
+                    .dgr-wrap th { text-align:left; font-weight:600; color:var(--ink-mute); padding:4px 8px; border-bottom:1px solid var(--border-color); }
+                    .dgr-wrap td { padding:7px 8px; border-bottom:1px solid var(--border-color); vertical-align:top; }
+                    .dgr-sub { font-size:11px; color:var(--ink-mute); margin-top:2px; }
+                    .dgr-len, .dgr-qty { white-space:nowrap; }
+                    .dgr-reason { width:100%; border:1px solid var(--border-color); border-radius:6px; padding:4px 7px; font-size:12px; }
+                    .dgr-reason.is-bad { border-color:var(--red-400); }
+                </style>
+                <div class="dgr-wrap">
+                    <div style="background:var(--warn-soft);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--ink-3);">
+                        <strong>${downgrades.length}</strong> bucket(s) · <strong>${total.toLocaleString()}</strong> stems will be cut down to a shorter length.
+                    </div>
+                    <table>
+                        <thead><tr><th>Bucket</th><th>Length</th><th>Stems</th><th>Downgrade reason</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>`
+        }],
+        primary_action_label: 'Confirm allocation',
+        primary_action: function () {
+            const $inputs = d.$wrapper.find('.dgr-reason');
+            let bad = false;
+            $inputs.each(function () {
+                const val = ($(this).val() || '').trim();
+                $(this).toggleClass('is-bad', !val);
+                if (!val) bad = true;
+            });
+            if (bad) { frappe.msgprint('Every downgraded bucket needs a reason.'); return; }
+            $inputs.each(function () {
+                downgrades[parseInt($(this).data('idx'), 10)].downgrade_reason = ($(this).val() || '').trim();
+            });
+            d.hide();
+            proceed();
+        }
+    });
+    d.$wrapper.addClass('ufd-sa');
+    d.$wrapper.find('.modal-dialog').addClass('ufd-sa-modal');
+    d.show();
+};
+
+frappe.pages['sales-allocation']._send_allocation = function (valid_allocations, teams) {
+    const P = frappe.pages['sales-allocation'];
+    frappe.call({
+        method: 'upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets',
+        args: { sales_order: P.selected_order, allocations: valid_allocations, location: P.selected_location, teams: JSON.stringify(teams) },
+        freeze: true, freeze_message: 'Allocating stock…',
+        callback: function (r) {
+            if (r.message && r.message.success) {
+                const results = r.message.pick_list_results || [];
+                const messages = results.map(res => {
+                    const link = `<a href="/app/order-pick-list/${res.name || '?'}" target="_blank"><strong>${res.name || '?'}</strong></a>`;
+                    if (res.status === 'submitted') return `Pick list ${link} created and submitted`;
+                    if (res.status === 'draft') return `Pick list ${link} created as draft`;
+                    if (res.status === 'updated_existing') return `Pick list ${link} updated`;
+                    return '';
+                }).filter(Boolean);
+                frappe.msgprint({
+                    title: 'Allocation complete',
+                    message: messages.length ? messages.join('<br>') : 'Allocation completed successfully.',
+                    indicator: 'green'
+                });
+                P.allocations = [];
+                P.selected_order = null;
+                P.order_items = [];
+                P.selected_item = null;
+                P.item_teams = {};
+    P.order_team = '';
+                P.render_allocation_grid();
+                P.load_sales_orders();
+            } else {
+                frappe.msgprint({ title: 'Allocation failed', message: r.message?.message || 'Allocation failed.', indicator: 'red' });
+            }
+        }
+    });
+>>>>>>> Stashed changes
 };
 // ─── HELPERS ───
 // Mixed order: one team for the whole box/bunch. Set it once at the top and
