@@ -10,14 +10,15 @@ import frappe
 
 @frappe.whitelist()
 def getOrderFulfilment():
-    # Order Fulfilment — one row per Sales Order LINE (Sales Order Item): stems
-    # ordered vs confirmed vs PACKED (from Farm Pack List), with the customer's
-    # account manager. Client groups: account manager -> sales order -> line.
-    # Fulfilment = packed / ordered. Scope: delivery_date (default today).
-    fd = frappe.form_dict
-    delivery_date = fd.get('delivery_date') or frappe.utils.today()
+	# Order Fulfilment — one row per Sales Order LINE (Sales Order Item): stems
+	# ordered vs confirmed vs PACKED (from Farm Pack List), with the customer's
+	# account manager. Client groups: account manager -> sales order -> line.
+	# Fulfilment = packed / ordered. Scope: delivery_date (default today).
+	fd = frappe.form_dict
+	delivery_date = fd.get("delivery_date") or frappe.utils.today()
 
-    rows = frappe.db.sql("""
+	rows = frappe.db.sql(
+		"""
         SELECT
             so.name               AS sales_order,
             so.customer           AS customer,
@@ -58,12 +59,15 @@ def getOrderFulfilment():
           AND so.delivery_date = %(d)s
           AND so.status NOT IN ('Cancelled', 'Closed')
         ORDER BY manager_name, so.customer, so.name, soi.idx
-    """, {'d': delivery_date}, as_dict=True)
+    """,
+		{"d": delivery_date},
+		as_dict=True,
+	)
 
-    for r in rows:
-        for k in ['ordered', 'confirmed', 'packed', 'transferred']:
-            r[k] = int(r.get(k) or 0)
-        if not (r.get('manager_name') or '').strip():
-            r['manager_name'] = 'Unassigned'
+	for r in rows:
+		for k in ["ordered", "confirmed", "packed", "transferred"]:
+			r[k] = int(r.get(k) or 0)
+		if not (r.get("manager_name") or "").strip():
+			r["manager_name"] = "Unassigned"
 
-    frappe.response['message'] = {'delivery_date': str(delivery_date), 'lines': rows}
+	frappe.response["message"] = {"delivery_date": str(delivery_date), "lines": rows}

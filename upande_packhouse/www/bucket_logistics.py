@@ -14,6 +14,6 @@ no_cache = 1
 
 
 def get_context(context):
-    context.csrf_token = get_csrf_token()
-    context.no_cache = 1
-    return context
+	context.csrf_token = get_csrf_token()
+	context.no_cache = 1
+	return context

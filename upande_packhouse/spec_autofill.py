@@ -20,8 +20,8 @@ from frappe import _
 
 from upande_packhouse.availability import variety_availability
 
-
 # ----------------------------- helpers -----------------------------
+
 
 def _spec_issues(doc):
 	"""Fields the autofill actually depends on (see build_spec_rows /
@@ -64,8 +64,9 @@ def _require_clean_spec(doc):
 	issues = _spec_issues(doc)
 	if issues:
 		frappe.throw(
-			_("Specification {0} is incomplete and cannot be used for autofill until it's fixed:"
-			  "<br>{1}").format(frappe.bold(doc.name), "<br>".join(issues)),
+			_(
+				"Specification {0} is incomplete and cannot be used for autofill until it's fixed:" "<br>{1}"
+			).format(frappe.bold(doc.name), "<br>".join(issues)),
 			title=_("Incomplete Specification"),
 		)
 
@@ -84,7 +85,7 @@ def _as_list(v):
 def _approved_by_colour(doc):
 	"""colour -> [approved variety, ...] from the spec's Approved Varieties table."""
 	m = {}
-	for r in (doc.approved_varieties or []):
+	for r in doc.approved_varieties or []:
 		if r.colour and r.variety:
 			m.setdefault(r.colour, []).append(r.variety)
 	return m
@@ -112,6 +113,7 @@ def _uom_factor(uom):
 	if not uom:
 		return 1
 	import re
+
 	m = re.search(r"\((\d+)\)", uom)
 	return int(m.group(1)) if m else 1
 
@@ -148,8 +150,11 @@ def _detail_payload(doc):
 	cons = [c for c in (doc.consumables or []) if c.get("item")]
 	names = {}
 	if cons:
-		for r in frappe.get_all("Item", filters={"name": ["in", [c.item for c in cons]]},
-								fields=["name", "item_name", "item_group"]):
+		for r in frappe.get_all(
+			"Item",
+			filters={"name": ["in", [c.item for c in cons]]},
+			fields=["name", "item_name", "item_group"],
+		):
 			names[r.name] = ((r.item_name or "") + " " + (r.item_group or "")).lower()
 
 	def _text(c):
@@ -173,6 +178,7 @@ def _detail_payload(doc):
 
 
 # ----------------------------- API -----------------------------
+
 
 @frappe.whitelist()
 def get_spec_fill_data(spec):
@@ -198,34 +204,41 @@ def get_spec_fill_data(spec):
 	avail = variety_availability(approved_varieties, list(set(all_lengths))) if approved_varieties else {}
 	names = _item_names(approved_varieties)
 
-	box_options = [{
-		"idx": i,
-		"bunch_type": bi.bunch_type or "",
-		"is_mixed_bunch": bi.bunch_type == "Mixed Bunch",
-		"length": bi.length or "",
-		"stems_per_bunch": bi.stems_per_bunch or 0,
-		"pack_rate": bi.pack_rate or 0,
-		"box_type": bi.box_type or "",
-	} for i, bi in enumerate(items)]
+	box_options = [
+		{
+			"idx": i,
+			"bunch_type": bi.bunch_type or "",
+			"is_mixed_bunch": bi.bunch_type == "Mixed Bunch",
+			"length": bi.length or "",
+			"stems_per_bunch": bi.stems_per_bunch or 0,
+			"pack_rate": bi.pack_rate or 0,
+			"box_type": bi.box_type or "",
+		}
+		for i, bi in enumerate(items)
+	]
 
 	lines = []
 	for i, (colour, varieties) in enumerate(approved_by_colour.items()):
 		approved = []
 		for v in varieties:
 			by_farm = avail.get(v, {})
-			approved.append({
-				"variety": v,
-				"item_name": names.get(v, v),
-				"available": sum(by_farm.values()),
-				"by_farm": by_farm,
-			})
-		lines.append({
-			"idx": i,
-			"colour": colour or _("Colour {0}").format(i + 1),
-			"approved": approved,
-		})
+			approved.append(
+				{
+					"variety": v,
+					"item_name": names.get(v, v),
+					"available": sum(by_farm.values()),
+					"by_farm": by_farm,
+				}
+			)
+		lines.append(
+			{
+				"idx": i,
+				"colour": colour or _("Colour {0}").format(i + 1),
+				"approved": approved,
+			}
+		)
 
-	sources, _ = _roses_map_sources()
+	sources = _roses_map_sources()[0]
 	return {
 		"spec": doc.name,
 		"spec_name": doc.spec_name or doc.name,

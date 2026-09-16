@@ -43,7 +43,9 @@ def consignees_for_customer(customer=None):
 
 
 @frappe.whitelist()
-def delivery_points_for_customer(doctype=None, txt=None, searchfield=None, start=0, page_len=20, filters=None):
+def delivery_points_for_customer(
+	doctype=None, txt=None, searchfield=None, start=0, page_len=20, filters=None
+):
 	"""frappe.set_query "query" callback for Sales Order's custom_delivery_point.
 
 	Returns Delivery Points that are either customer-agnostic (customer not set --

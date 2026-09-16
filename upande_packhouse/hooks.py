@@ -171,17 +171,19 @@ override_doctype_class = {
 # 	}
 # }
 doc_events = {
-	"Stock Entry": {"validate": [
-		# No legacy custom_farm / custom_business_unit mirror here — Stock
-		# Entry uses only the real accounting-dimension fields (farm,
-		# business_unit), no legacy fields left to keep in sync.
-		"upande_packhouse.stock_entry_cost_center.apply_greenhouse_cost_center",
-		# Post-harvest stage (issuing from the cold store) has no greenhouse
-		# to derive a cost centre from -- uses the source warehouse's own
-		# custom_cost_center instead, same field the greenhouse flow above
-		# already relies on. See stock_entry_cost_center.py.
-		"upande_packhouse.stock_entry_cost_center.apply_post_harvest_cost_center",
-	]},
+	"Stock Entry": {
+		"validate": [
+			# No legacy custom_farm / custom_business_unit mirror here — Stock
+			# Entry uses only the real accounting-dimension fields (farm,
+			# business_unit), no legacy fields left to keep in sync.
+			"upande_packhouse.stock_entry_cost_center.apply_greenhouse_cost_center",
+			# Post-harvest stage (issuing from the cold store) has no greenhouse
+			# to derive a cost centre from -- uses the source warehouse's own
+			# custom_cost_center instead, same field the greenhouse flow above
+			# already relies on. See stock_entry_cost_center.py.
+			"upande_packhouse.stock_entry_cost_center.apply_post_harvest_cost_center",
+		]
+	},
 	"Sales Order": {
 		"before_validate": "upande_packhouse.sales_order_engine.sales_order_before_validate",
 		"validate": [
@@ -309,17 +311,17 @@ scheduler_events = {
 # Fixtures
 # --------
 fixtures = [
-    {"dt": "Workspace", "filters": [["name", "=", "Packhouse"]]},
-    {"dt": "Custom HTML Block", "filters": [["name", "=", "Packhouse Navigation"]]},
-    # Master data for the post-harvest warehouse chain (roses_warehouse_map.py /
-    # farm_pack_list.py / stock_entry_cost_center.py) -- these were previously
-    # created directly on the DB with no fixture at all, which would silently
-    # break "Move To Graded Sold"/"Farm Transfer" Stock Entries on a fresh
-    # deploy (stock_entry_type just wouldn't exist).
-    {"dt": "Stock Entry Type", "filters": [["name", "in", ["Move To Graded Sold", "Farm Transfer"]]]},
-    # Common underpack reasons, selected on a Farm Packlist Item's
-    # under_pack_reason field -- exported so a fresh deploy has them too.
-    {"dt": "Under Pack Reason"},
+	{"dt": "Workspace", "filters": [["name", "=", "Packhouse"]]},
+	{"dt": "Custom HTML Block", "filters": [["name", "=", "Packhouse Navigation"]]},
+	# Master data for the post-harvest warehouse chain (roses_warehouse_map.py /
+	# farm_pack_list.py / stock_entry_cost_center.py) -- these were previously
+	# created directly on the DB with no fixture at all, which would silently
+	# break "Move To Graded Sold"/"Farm Transfer" Stock Entries on a fresh
+	# deploy (stock_entry_type just wouldn't exist).
+	{"dt": "Stock Entry Type", "filters": [["name", "in", ["Move To Graded Sold", "Farm Transfer"]]]},
+	# Common underpack reasons, selected on a Farm Packlist Item's
+	# under_pack_reason field -- exported so a fresh deploy has them too.
+	{"dt": "Under Pack Reason"},
 ]
 
 # Automatically update python controller files with type annotations for this app.
@@ -333,4 +335,3 @@ fixtures = [
 # ------------
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
-

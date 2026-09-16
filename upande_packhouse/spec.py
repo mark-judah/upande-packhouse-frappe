@@ -18,11 +18,13 @@ def _ensure_bunch_uom(stems_per_bunch):
 		return None
 	name = "Bunch ({0})".format(n)
 	if not frappe.db.exists("UOM", name):
-		frappe.get_doc({
-			"doctype": "UOM",
-			"uom_name": name,
-			"must_be_whole_number": 0,
-		}).insert(ignore_permissions=True)
+		frappe.get_doc(
+			{
+				"doctype": "UOM",
+				"uom_name": name,
+				"must_be_whole_number": 0,
+			}
+		).insert(ignore_permissions=True)
 	return name
 
 
@@ -49,7 +51,7 @@ def ensure_spec_uoms_and_packrates(doc, method=None):
 	so downstream Sales Orders never hit a missing-UOM / missing-Packrate link
 	error. Returns the (uoms, packrates) it touched (handy for bulk backfill)."""
 	uoms, packrates = [], []
-	for bi in (doc.box_items or []):
+	for bi in doc.box_items or []:
 		bi.pack_rate = int(bi.bunches_per_box or 0) * int(bi.stems_per_bunch or 0)
 
 		u = _ensure_bunch_uom(bi.stems_per_bunch)

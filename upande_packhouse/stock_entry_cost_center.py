@@ -76,7 +76,9 @@ def apply_greenhouse_cost_center(doc, method=None):
 	cost_center = frappe.db.get_value("Warehouse", greenhouse, "custom_cost_center")
 	if not cost_center:
 		frappe.throw(
-			frappe._("Please contact your IT administrator to add the cost center for greenhouse {0}").format(greenhouse)
+			frappe._("Please contact your IT administrator to add the cost center for greenhouse {0}").format(
+				greenhouse
+			)
 		)
 
 	doc.cost_center = cost_center
@@ -114,7 +116,9 @@ def apply_post_harvest_cost_center(doc, method=None):
 		cost_center = frappe.db.get_value("Warehouse", s_warehouse, "custom_cost_center")
 		if not cost_center:
 			frappe.throw(
-				frappe._("Please contact your IT administrator to add the cost center for warehouse {0}").format(s_warehouse)
+				frappe._(
+					"Please contact your IT administrator to add the cost center for warehouse {0}"
+				).format(s_warehouse)
 			)
 
 		row.cost_center = cost_center

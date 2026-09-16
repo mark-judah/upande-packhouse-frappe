@@ -100,9 +100,7 @@ def fpl_pack_blockers(fpl_doc, opl_doc):
 		have = packed.get(key, 0)
 		need = row.stems or 0
 		if have < need - 0.001:
-			short.append(
-				"Box {0} {1}: {2:g}/{3:g} stems".format(row.box_number, row.variety, have, need)
-			)
+			short.append("Box {0} {1}: {2:g}/{3:g} stems".format(row.box_number, row.variety, have, need))
 	return short
 
 
@@ -128,7 +126,7 @@ def _move_to_graded_sold(fpl_doc):
 		frappe.log_error(
 			title="FPL submit: no Roses-MAP row for Ungraded/Graded Sold",
 			message=f"FPL={fpl_doc.name} farm={fpl_doc.farm} -- "
-					f"add/complete a Roses-MAP row for this farm's coldstore.",
+			f"add/complete a Roses-MAP row for this farm's coldstore.",
 		)
 		return None
 
@@ -146,16 +144,19 @@ def _move_to_graded_sold(fpl_doc):
 	transfer.farm = fpl_doc.farm
 	transfer.remarks = f"Farm Pack List {fpl_doc.name} fully packed -- {fpl_doc.order_pick_list}"
 	for item_code, qty in by_variety.items():
-		transfer.append("items", {
-			"item_code": item_code,
-			"qty": qty,
-			"uom": "Stems",
-			"conversion_factor": 1,
-			"s_warehouse": ungraded,
-			"t_warehouse": graded,
-			"allow_zero_valuation_rate": 1,
-			"basic_rate": 0,
-		})
+		transfer.append(
+			"items",
+			{
+				"item_code": item_code,
+				"qty": qty,
+				"uom": "Stems",
+				"conversion_factor": 1,
+				"s_warehouse": ungraded,
+				"t_warehouse": graded,
+				"allow_zero_valuation_rate": 1,
+				"basic_rate": 0,
+			},
+		)
 	transfer.insert(ignore_permissions=True)
 	transfer.submit()
 	return transfer.name

@@ -75,17 +75,19 @@ def fetch_loading_plan_orders(delivery_date=None, location=None):
 			opl = item.custom_opl or ""
 			if opl:
 				opl_set.add(opl)
-			line_entries.append({
-				"customer": customer,
-				"delivery_point": delivery_point,
-				"sales_order": so.name,
-				"order_name": so.custom_order_name or so.name,
-				"box_type": item.custom_box_type or "",
-				"number_of_boxes": item.custom_number_of_boxes or item.custom_box_quantity or 0,
-				"opl": opl,
-				"item_code": item.item_code or "",
-				"len_key": lenkey(item.custom_length),
-			})
+			line_entries.append(
+				{
+					"customer": customer,
+					"delivery_point": delivery_point,
+					"sales_order": so.name,
+					"order_name": so.custom_order_name or so.name,
+					"box_type": item.custom_box_type or "",
+					"number_of_boxes": item.custom_number_of_boxes or item.custom_box_quantity or 0,
+					"opl": opl,
+					"item_code": item.item_code or "",
+					"len_key": lenkey(item.custom_length),
+				}
+			)
 
 	# ---- Packed stems/boxes matched per (OPL, item_code, length) ----
 	packed_by_key = {}
@@ -122,17 +124,19 @@ def fetch_loading_plan_orders(delivery_date=None, location=None):
 	position = 1
 	for e in line_entries:
 		packed = packed_by_key.get((e["opl"], e["item_code"], e["len_key"]), {})
-		items.append({
-			"customer": e["customer"],
-			"delivery_point": e["delivery_point"],
-			"loading_position": position,
-			"sales_order": e["sales_order"],
-			"order_name": e["order_name"],
-			"box_type": e["box_type"],
-			"number_of_boxes": e["number_of_boxes"],
-			"packed_stems": packed.get("packed_stems", 0),
-			"packed_boxes": packed.get("packed_boxes", 0),
-		})
+		items.append(
+			{
+				"customer": e["customer"],
+				"delivery_point": e["delivery_point"],
+				"loading_position": position,
+				"sales_order": e["sales_order"],
+				"order_name": e["order_name"],
+				"box_type": e["box_type"],
+				"number_of_boxes": e["number_of_boxes"],
+				"packed_stems": packed.get("packed_stems", 0),
+				"packed_boxes": packed.get("packed_boxes", 0),
+			}
+		)
 		position = position + 1
 
 	return {

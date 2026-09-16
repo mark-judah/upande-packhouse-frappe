@@ -131,7 +131,9 @@ def getTransferControlData():
 			pli_rows = frappe.db.sql(
 				"""
 				SELECT pli.parent AS opl, pli.idx AS box, pli.bucket AS bucket, pli.item_code AS variety,
-				       pli.stock_qty AS stems, """ + FARM_EXPR + """ AS farm_src, pli.shelf AS shelf,
+				       pli.stock_qty AS stems, """
+				+ FARM_EXPR
+				+ """ AS farm_src, pli.shelf AS shelf,
 				       pli.transit_truck AS transit_truck, pli.awaiting_transfer AS awaiting_transfer,
 				       pli.loaded_in_trolley AS loaded_in_trolley, pli.in_transit AS in_transit,
 				       pli.shelved AS shelved
@@ -211,8 +213,9 @@ def getTransferScheduleData():
 	try:
 		sched = _schedule_map()
 
-		opl_rows = frappe.db.sql(
-			"""
+		opl_rows = (
+			frappe.db.sql(
+				"""
 			SELECT DISTINCT opl.name AS opl, opl.order_name AS order_name, opl.sales_order AS so,
 			       so.customer AS customer, so.delivery_date AS delivery_date
 			FROM `tabOrder Pick List` opl
@@ -220,9 +223,12 @@ def getTransferScheduleData():
 			WHERE opl.docstatus < 2 AND so.delivery_date BETWEEN %(f)s AND %(t)s
 			  AND opl.name IN %(scheduled)s
 			""",
-			{"f": from_date, "t": to_date, "scheduled": tuple(sched.keys()) or ("",)},
-			as_dict=True,
-		) if sched else []
+				{"f": from_date, "t": to_date, "scheduled": tuple(sched.keys()) or ("",)},
+				as_dict=True,
+			)
+			if sched
+			else []
+		)
 		opl_names = [r["opl"] for r in opl_rows]
 
 		pli_rows = []
@@ -230,7 +236,9 @@ def getTransferScheduleData():
 			pli_rows = frappe.db.sql(
 				"""
 				SELECT pli.parent AS opl, pli.bucket AS bucket, pli.item_code AS variety,
-				       pli.stock_qty AS stems, """ + FARM_EXPR + """ AS farm
+				       pli.stock_qty AS stems, """
+				+ FARM_EXPR
+				+ """ AS farm
 				FROM `tabPick List Item` pli
 				WHERE pli.parenttype = 'Order Pick List' AND pli.parent IN %(opls)s
 				  AND COALESCE(pli.shelved, 0) = 0
@@ -271,7 +279,10 @@ def getTransferScheduleData():
 						"farm": farm,
 						"buckets": fb,
 						"stems": fs,
-						"varieties": [{"variety": k, "buckets": v["buckets"], "stems": v["stems"]} for k, v in vmap.items()],
+						"varieties": [
+							{"variety": k, "buckets": v["buckets"], "stems": v["stems"]}
+							for k, v in vmap.items()
+						],
 					}
 				)
 			if not farms_out:
@@ -355,7 +366,9 @@ def getTransferScheduleData():
 		truck_status = []
 		ts_rows = frappe.db.sql(
 			"""
-			SELECT pli.transit_truck AS truck, """ + FARM_EXPR + """ AS farm,
+			SELECT pli.transit_truck AS truck, """
+			+ FARM_EXPR
+			+ """ AS farm,
 			       pli.awaiting_transfer AS aw, pli.loaded_in_trolley AS ld,
 			       pli.in_transit AS tr, pli.shelved AS sh, pli.modified AS modified
 			FROM `tabPick List Item` pli
@@ -368,7 +381,17 @@ def getTransferScheduleData():
 		by_truck = {}
 		for r in ts_rows:
 			st = by_truck.setdefault(
-				r["truck"], {"truck": r["truck"], "total": 0, "awaiting": 0, "loaded": 0, "in_transit": 0, "shelved": 0, "last": "", "farm": r.get("farm") or ""}
+				r["truck"],
+				{
+					"truck": r["truck"],
+					"total": 0,
+					"awaiting": 0,
+					"loaded": 0,
+					"in_transit": 0,
+					"shelved": 0,
+					"last": "",
+					"farm": r.get("farm") or "",
+				},
 			)
 			st["total"] += 1
 			if int(r.get("tr") or 0):
@@ -383,21 +406,49 @@ def getTransferScheduleData():
 			if mod > st["last"]:
 				st["last"] = mod
 		for st in by_truck.values():
-			st["loading_pct"] = round((st["loaded"] + st["in_transit"] + st["shelved"]) / st["total"] * 100) if st["total"] else 0
+			st["loading_pct"] = (
+				round((st["loaded"] + st["in_transit"] + st["shelved"]) / st["total"] * 100)
+				if st["total"]
+				else 0
+			)
 			truck_status.append(st)
 
 		# Distance graph
-		dist_rows = frappe.get_all("Farm Distance", fields=["name", "from_farm", "to_farm", "distance_km", "is_road_leg"])
-		distances = [{"name": d.name, "a": d.from_farm, "b": d.to_farm, "km": d.distance_km, "leg": int(d.is_road_leg or 0)} for d in dist_rows]
+		dist_rows = frappe.get_all(
+			"Farm Distance", fields=["name", "from_farm", "to_farm", "distance_km", "is_road_leg"]
+		)
+		distances = [
+			{
+				"name": d.name,
+				"a": d.from_farm,
+				"b": d.to_farm,
+				"km": d.distance_km,
+				"leg": int(d.is_road_leg or 0),
+			}
+			for d in dist_rows
+		]
 
 		# Today's routes
 		route_docs = frappe.get_all("Bucket Logistics Route", filters={"route_date": today}, pluck="name")
 		routes_out = []
 		for rn in route_docs:
 			doc = frappe.get_doc("Bucket Logistics Route", rn)
-			legs = [{"leg": l.leg, "from_farm": l.from_farm, "to_farm": l.to_farm, "distance_km": l.distance_km} for l in doc.legs]
-			farms_covered = sorted({l.from_farm for l in doc.legs} | {l.to_farm for l in doc.legs} - {PACKHOUSE})
-			routes_out.append({"name": doc.name, "vehicle": doc.vehicle, "total_km": doc.total_km, "legs": legs, "farms": farms_covered})
+			legs = [
+				{"leg": l.leg, "from_farm": l.from_farm, "to_farm": l.to_farm, "distance_km": l.distance_km}
+				for l in doc.legs
+			]
+			farms_covered = sorted(
+				{l.from_farm for l in doc.legs} | {l.to_farm for l in doc.legs} - {PACKHOUSE}
+			)
+			routes_out.append(
+				{
+					"name": doc.name,
+					"vehicle": doc.vehicle,
+					"total_km": doc.total_km,
+					"legs": legs,
+					"farms": farms_covered,
+				}
+			)
 
 		frappe.response["message"] = {
 			"success": True,
@@ -460,7 +511,9 @@ def saveBucketTrip():
 	total_buckets = sum(r["buckets"] for r in rows)
 	total_stems = sum(r["stems"] for r in rows)
 
-	v = frappe.db.get_value("Vehicle", vehicle, ["custom_trolley_capacity", "custom_buckets_per_trolley"], as_dict=True)
+	v = frappe.db.get_value(
+		"Vehicle", vehicle, ["custom_trolley_capacity", "custom_buckets_per_trolley"], as_dict=True
+	)
 	cap = int((v.custom_trolley_capacity or 0) * (v.custom_buckets_per_trolley or 0)) if v else 0
 	if cap > 0 and total_buckets > cap:
 		frappe.response["message"] = {
@@ -551,13 +604,21 @@ def saveBucketLogisticsRoute():
 		d = by_name.get(ln)
 		if not d:
 			continue
-		doc.append("legs", {"leg": d.name, "from_farm": d.from_farm, "to_farm": d.to_farm, "distance_km": d.distance_km})
+		doc.append(
+			"legs",
+			{"leg": d.name, "from_farm": d.from_farm, "to_farm": d.to_farm, "distance_km": d.distance_km},
+		)
 		total_km += float(d.distance_km or 0)
 	doc.total_km = total_km
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()
 
-	frappe.response["message"] = {"status": "success", "name": doc.name, "legs": len(doc.legs), "total_km": total_km}
+	frappe.response["message"] = {
+		"status": "success",
+		"name": doc.name,
+		"legs": len(doc.legs),
+		"total_km": total_km,
+	}
 
 
 @frappe.whitelist()
@@ -569,9 +630,14 @@ def dispatchBucketTrip():
 		return
 	current = frappe.db.get_value("Bucket Request Trip", name, "status")
 	if current not in ("Draft", "Scheduled"):
-		frappe.response["message"] = {"status": "error", "message": "Trip is already {0} — cannot dispatch.".format(current)}
+		frappe.response["message"] = {
+			"status": "error",
+			"message": "Trip is already {0} — cannot dispatch.".format(current),
+		}
 		return
-	frappe.db.set_value("Bucket Request Trip", name, {"status": "Dispatched", "dispatched_at": frappe.utils.now()})
+	frappe.db.set_value(
+		"Bucket Request Trip", name, {"status": "Dispatched", "dispatched_at": frappe.utils.now()}
+	)
 	frappe.db.commit()
 	frappe.response["message"] = {"status": "success", "name": name, "trip_status": "Dispatched"}
 
@@ -585,8 +651,13 @@ def receiveBucketTrip():
 		return
 	current = frappe.db.get_value("Bucket Request Trip", name, "status")
 	if current != "Dispatched":
-		frappe.response["message"] = {"status": "error", "message": "Trip is {0} — must be Dispatched before it can be received.".format(current)}
+		frappe.response["message"] = {
+			"status": "error",
+			"message": "Trip is {0} — must be Dispatched before it can be received.".format(current),
+		}
 		return
-	frappe.db.set_value("Bucket Request Trip", name, {"status": "Received", "received_at": frappe.utils.now()})
+	frappe.db.set_value(
+		"Bucket Request Trip", name, {"status": "Received", "received_at": frappe.utils.now()}
+	)
 	frappe.db.commit()
 	frappe.response["message"] = {"status": "success", "name": name, "trip_status": "Received"}
