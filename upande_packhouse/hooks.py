@@ -103,7 +103,12 @@ doctype_js = {
 # ------------
 
 # before_install = "upande_packhouse.install.before_install"
-# after_install = "upande_packhouse.install.after_install"
+after_install = "upande_packhouse.install.after_install"
+
+# Re-applied on every deploy; see install.py. Both hooks run after doctypes,
+# customizations and fixtures are in place, which is the earliest point the
+# app's own custom fields are guaranteed to exist.
+after_migrate = "upande_packhouse.install.after_migrate"
 
 # Uninstallation
 # ------------
