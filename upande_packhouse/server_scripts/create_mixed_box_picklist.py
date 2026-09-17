@@ -738,19 +738,19 @@ def _lookup_shelf(actual_farm, item_code, bucket_id, fallback_farm):
 			"Please refresh and try again."
 		)
 
-    # `shelf` is a single Link field, but a bucket can have more than one Shelf
-    # Item row for the same variety on the SAME shelf (e.g. the shelving-side
-    # stem-length bug that used to stamp every row with one bucket-wide length
-    # -- fixed, but old/duplicate rows can still exist). Joining every row's
-    # shelf name unique-ified still gives one real shelf in the normal case;
-    # joining them RAW (the old behaviour) turned 2 rows on the same shelf
-    # into "K73B, K73B", which then fails Link validation outright.
-    distinct_shelves = list(dict.fromkeys(s["shelf"] for s in matching_shelves))
-    if len(distinct_shelves) > 1:
-        frappe.log_error(
-            title="Bucket spans multiple shelves",
-            message=f"bucket_id={bucket_id} item_code={item_code}: Shelf Item rows point to "
-                    f"more than one shelf ({', '.join(distinct_shelves)}). Using the first; "
-                    f"the underlying Shelf Item rows should be reviewed.",
-        )
-    return distinct_shelves[0]
+	# `shelf` is a single Link field, but a bucket can have more than one Shelf
+	# Item row for the same variety on the SAME shelf (e.g. the shelving-side
+	# stem-length bug that used to stamp every row with one bucket-wide length
+	# -- fixed, but old/duplicate rows can still exist). Joining every row's
+	# shelf name unique-ified still gives one real shelf in the normal case;
+	# joining them RAW (the old behaviour) turned 2 rows on the same shelf
+	# into "K73B, K73B", which then fails Link validation outright.
+	distinct_shelves = list(dict.fromkeys(s["shelf"] for s in matching_shelves))
+	if len(distinct_shelves) > 1:
+		frappe.log_error(
+			title="Bucket spans multiple shelves",
+			message=f"bucket_id={bucket_id} item_code={item_code}: Shelf Item rows point to "
+					f"more than one shelf ({', '.join(distinct_shelves)}). Using the first; "
+					f"the underlying Shelf Item rows should be reviewed.",
+		)
+	return distinct_shelves[0]
