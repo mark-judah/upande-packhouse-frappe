@@ -2039,36 +2039,55 @@ frappe.pages["sales-allocation"]._render_item_block = function (item) {
                 <th>Available</th><th>Allocated here</th><th>Session</th><th>Actions</th>
             </tr></thead>
             <tbody>`;
-    if (!batches.length) {
-        html += `<tr><td colspan="9" style="text-align:center;padding:24px 30px 10px;color:var(--ink-mute);">No compatible buckets found on the sales shelf right now.</td></tr>`;
-    } else {
-        batches.forEach(batch => {
-            const is_preferred = batch.shelf_farm === preferred_farm;
-            const is_awaiting = batch.awaiting_transfer === 1;
-            const is_zero = (batch.available_qty || 0) <= 0;
-            const is_downgrade = batch.length_status === 'downgrade';
-            let row_class = '';
-            if (is_awaiting) row_class = 'awaiting-transfer-row';
-            else if (is_downgrade) row_class = 'downgrade-bucket';
-            else if (is_preferred) row_class = 'preferred-farm-row';
-            if (is_zero && !batch.allocated_to_this_item) row_class += ' previously-allocated-bucket';
-            const session_alloc = P._session_bucket_qty(item.sales_order_item, batch.bucket_id);
-            const allocated_here = batch.allocated_to_this_item || 0;
-            let length_badge = is_downgrade
-                ? `<span class="grid-badge badge-downgrade">Downgrade</span>`
-                : `<span class="grid-badge badge-exact">Exact</span>`;
-            if (is_downgrade && batch.downgrade_approval === 'amber_expired')
-                length_badge += ` <span class="grid-badge badge-ok">Amber OK</span>`;
-            else if (is_downgrade)
-                length_badge += ` <span class="grid-badge badge-need">Needs approval</span>`;
-            const farm_badge = is_preferred ? `<span class="grid-badge badge-preferred">Preferred</span>` : '';
-            const await_badge = is_awaiting ? `<span class="grid-badge badge-awaiting">Remote shelf</span>` : '';
-            let actions_html = '';
-            const esc_stem = (batch.stem_length || '').replace(/'/g, "\\'");
-            if (remaining > 0 && (batch.available_qty || 0) > 0 && !allocated_here && !session_alloc) {
-                const esc_bucket = (batch.bucket_id || '').replace(/'/g, "\\'");
-                const esc_length = (batch.length_status || 'exact').replace(/'/g, "\\'");
-                actions_html += `
+	if (!batches.length) {
+		html += `<tr><td colspan="9" style="text-align:center;padding:24px 30px 10px;color:var(--ink-mute);">No compatible buckets found on the sales shelf right now.</td></tr>`;
+	} else {
+		batches.forEach((batch) => {
+			const is_preferred = batch.shelf_farm === preferred_farm;
+			const is_awaiting = batch.awaiting_transfer === 1;
+			const is_zero = (batch.available_qty || 0) <= 0;
+			const is_downgrade = batch.length_status === "downgrade";
+			let row_class = "";
+			if (is_awaiting) row_class = "awaiting-transfer-row";
+			else if (is_downgrade) row_class = "downgrade-bucket";
+			else if (is_preferred) row_class = "preferred-farm-row";
+			if (is_zero && !batch.allocated_to_this_item)
+				row_class += " previously-allocated-bucket";
+			const session_alloc = P._session_bucket_qty(item.sales_order_item, batch.bucket_id);
+			const allocated_here = batch.allocated_to_this_item || 0;
+			let length_badge = is_downgrade
+				? `<span class="grid-badge badge-downgrade">Downgrade</span>`
+				: `<span class="grid-badge badge-exact">Exact</span>`;
+			if (is_downgrade && batch.downgrade_approval === "amber_expired")
+				length_badge += ` <span class="grid-badge badge-ok">Amber OK</span>`;
+			else if (is_downgrade)
+				length_badge += ` <span class="grid-badge badge-need">Needs approval</span>`;
+			const farm_badge = is_preferred
+				? `<span class="grid-badge badge-preferred">Preferred</span>`
+				: "";
+			const await_badge = is_awaiting
+				? `<span class="grid-badge badge-awaiting">Remote shelf</span>`
+				: "";
+			// Already allocated to another line and on its way to the sales shelf
+			// (server sets in_transit/transit_to -- see sales_allocation.py) --
+			// still allocatable here, just flagged so the picker knows to expect
+			// a short delay rather than finding it on the shelf right now.
+			const transit_badge = batch.in_transit
+				? `<span class="grid-badge badge-awaiting">In transit${
+						batch.transit_to ? ` → ${batch.transit_to}` : ""
+				  }</span>`
+				: "";
+			let actions_html = "";
+			const esc_stem = (batch.stem_length || "").replace(/'/g, "\\'");
+			if (
+				remaining > 0 &&
+				(batch.available_qty || 0) > 0 &&
+				!allocated_here &&
+				!session_alloc
+			) {
+				const esc_bucket = (batch.bucket_id || "").replace(/'/g, "\\'");
+				const esc_length = (batch.length_status || "exact").replace(/'/g, "\\'");
+				actions_html += `
                     <button class="btn btn-xs btn-primary" onclick="frappe.pages['sales-allocation'].allocate_from_bucket(
                         '${item.sales_order_item}','${esc_bucket}',${batch.available_qty},
                         '${uom}',${remaining},'${esc_length}','${esc_stem}'
@@ -2077,7 +2096,9 @@ frappe.pages["sales-allocation"]._render_item_block = function (item) {
 			if (allocated_here > 0 || session_alloc > 0) {
 				actions_html += `
                     <button class="btn btn-xs btn-danger" onclick="frappe.pages['sales-allocation'].unallocate_from_bucket(
-                        '${item.sales_order_item}','${batch.bucket_id}',${allocated_here + session_alloc},'${esc_stem}'
+                        '${item.sales_order_item}','${batch.bucket_id}',${
+					allocated_here + session_alloc
+				},'${esc_stem}'
                     )">Unallocate (${allocated_here + session_alloc})</button>`;
 			}
 			if (is_zero && !allocated_here && !session_alloc) {
@@ -2270,55 +2291,95 @@ frappe.pages["sales-allocation"].allocate_from_bucket = function (
 		P._do_allocate(so_item, bucket_id, qty, uom, length_status, "");
 	}
 };
-frappe.pages['sales-allocation']._do_allocate = function (so_item, bucket_id, qty, uom, length_status, downgrade_reason) {
-    const P = frappe.pages['sales-allocation'];
-    const item = P.order_items.find(i => i.sales_order_item === so_item);
-    if (!item) return;
-    const batch = (item.batches || []).find(b => b.bucket_id === bucket_id);
-    const batch_stem_length = batch ? (batch.stem_length || '') : '';
-    // Match on stem_length too -- the same bucket can carry this variety at
-    // more than one length (Spray Roses graded straight into one bucket), so
-    // bucket_id alone isn't enough to identify which batch this click is for.
-    const existing = P.allocations.find(a => a.sales_order_item === so_item && a.bucket_id === bucket_id && a.stem_length === batch_stem_length);
-    if (existing) {
-        existing.qty += qty;
-        if (downgrade_reason) existing.downgrade_reason = downgrade_reason;
-    } else {
-        P.allocations.push({
-            item_code: item.item_code || '',
-            bucket_id, qty,
-            sales_order_item: so_item,
-            stem_length: batch ? batch.stem_length : '',
-            warehouse: batch ? batch.warehouse : '',
-            uom: item.uom || '', stock_uom: item.stock_uom || '',
-            conversion_factor: item.conversion_factor || 1,
-            length_status: length_status || 'exact',
-            downgrade_reason: downgrade_reason || '',
-            available_exact_stems: length_status === 'downgrade' ? (item.incoming_exact_stems || 0) : 0
-        });
-    }
-    if (batch) batch.available_qty = Math.max(0, (batch.available_qty || 0) - qty);
-    P.render_allocation_grid();
+frappe.pages["sales-allocation"]._do_allocate = function (
+	so_item,
+	bucket_id,
+	qty,
+	uom,
+	length_status,
+	downgrade_reason
+) {
+	const P = frappe.pages["sales-allocation"];
+	const item = P.order_items.find((i) => i.sales_order_item === so_item);
+	if (!item) return;
+	const batch = (item.batches || []).find((b) => b.bucket_id === bucket_id);
+	const batch_stem_length = batch ? batch.stem_length || "" : "";
+	// Match on stem_length too -- the same bucket can carry this variety at
+	// more than one length (Spray Roses graded straight into one bucket), so
+	// bucket_id alone isn't enough to identify which batch this click is for.
+	const existing = P.allocations.find(
+		(a) =>
+			a.sales_order_item === so_item &&
+			a.bucket_id === bucket_id &&
+			a.stem_length === batch_stem_length
+	);
+	if (existing) {
+		existing.qty += qty;
+		if (downgrade_reason) existing.downgrade_reason = downgrade_reason;
+	} else {
+		P.allocations.push({
+			item_code: item.item_code || "",
+			bucket_id,
+			qty,
+			sales_order_item: so_item,
+			stem_length: batch ? batch.stem_length : "",
+			warehouse: batch ? batch.warehouse : "",
+			uom: item.uom || "",
+			stock_uom: item.stock_uom || "",
+			conversion_factor: item.conversion_factor || 1,
+			length_status: length_status || "exact",
+			downgrade_reason: downgrade_reason || "",
+			available_exact_stems:
+				length_status === "downgrade" ? item.incoming_exact_stems || 0 : 0,
+		});
+	}
+	if (batch) batch.available_qty = Math.max(0, (batch.available_qty || 0) - qty);
+	P.render_allocation_grid();
 };
 // ─── UNALLOCATE ───
-frappe.pages['sales-allocation'].unallocate_from_bucket = function (so_item, bucket_id, allocated_qty, stem_length) {
-    const P = frappe.pages['sales-allocation'];
-    frappe.confirm(`Unallocate ${allocated_qty} stems from bucket ${bucket_id}?`, () => {
-        // Only clear this length's pending allocation -- the same bucket can
-        // hold this variety at another length with its own separate row.
-        P.allocations = P.allocations.filter(a => !(a.sales_order_item === so_item && a.bucket_id === bucket_id && a.stem_length === (stem_length || '')));
-        frappe.call({
-            method: 'upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.unallocate_bucket_from_opl',
-            args: { sales_order_item: so_item, bucket_id, stem_length },
-            freeze: true, freeze_message: 'Unallocating…',
-            callback: function (r) {
-                if (r.message && r.message.success) frappe.show_alert({ message: r.message.message, indicator: 'green' });
-                else frappe.msgprint({ title: 'Note', message: r.message?.message || 'Partial success.', indicator: 'orange' });
-                P.select_order(P.selected_order, { keep: 1, force: 1 });
-            },
-            error: function () { frappe.msgprint({ title: 'Failed', message: 'Unallocation failed. Please refresh.', indicator: 'red' }); }
-        });
-    });
+frappe.pages["sales-allocation"].unallocate_from_bucket = function (
+	so_item,
+	bucket_id,
+	allocated_qty,
+	stem_length
+) {
+	const P = frappe.pages["sales-allocation"];
+	frappe.confirm(`Unallocate ${allocated_qty} stems from bucket ${bucket_id}?`, () => {
+		// Only clear this length's pending allocation -- the same bucket can
+		// hold this variety at another length with its own separate row.
+		P.allocations = P.allocations.filter(
+			(a) =>
+				!(
+					a.sales_order_item === so_item &&
+					a.bucket_id === bucket_id &&
+					a.stem_length === (stem_length || "")
+				)
+		);
+		frappe.call({
+			method: "upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.unallocate_bucket_from_opl",
+			args: { sales_order_item: so_item, bucket_id, stem_length },
+			freeze: true,
+			freeze_message: "Unallocating…",
+			callback: function (r) {
+				if (r.message && r.message.success)
+					frappe.show_alert({ message: r.message.message, indicator: "green" });
+				else
+					frappe.msgprint({
+						title: "Note",
+						message: r.message?.message || "Partial success.",
+						indicator: "orange",
+					});
+				P.select_order(P.selected_order, { keep: 1, force: 1 });
+			},
+			error: function () {
+				frappe.msgprint({
+					title: "Failed",
+					message: "Unallocation failed. Please refresh.",
+					indicator: "red",
+				});
+			},
+		});
+	});
 };
 // ─── AUTO-ALLOCATE FIFO ───
 frappe.pages["sales-allocation"].auto_allocate_fifo = function (so_item) {
@@ -2403,52 +2464,68 @@ frappe.pages["sales-allocation"].auto_allocate_fifo = function (so_item) {
 		P._execute_fifo(so_item, "");
 	}
 };
-frappe.pages['sales-allocation']._execute_fifo = function (so_item, downgrade_reason) {
-    const P = frappe.pages['sales-allocation'];
-    const item = P.order_items.find(i => i.sales_order_item === so_item);
-    if (!item) return;
-    const allocated_session = P._session_qty(so_item);
-    const grand_allocated = (item.total_allocated_qty || 0) + allocated_session;
-    const required = item.pending_stock_qty || 0;
-    let remaining = required - grand_allocated;
-    let count = 0;
-    for (const batch of (item.batches || [])) {
-        if (remaining <= 0) break;
-        const available = batch.available_qty || 0;
-        if (available <= 0) continue;
-        const qty = Math.min(available, remaining);
-        const is_downgrade = batch.length_status === 'downgrade';
-        const reason = is_downgrade
-            ? (batch.downgrade_approval === 'amber_expired' ? 'Amber time expired' : downgrade_reason)
-            : '';
-        // A bucket can hold this same variety at more than one stem length
-        // (Spray Roses graded straight in the field), so an order line's FIFO
-        // fill can draw from the same bucket at two different lengths -- e.g.
-        // an exact-match batch and a downgrade-eligible longer one. Matching
-        // on bucket_id alone would merge those into one allocation row with a
-        // single stem_length, silently losing which portion was which length.
-        const existing = P.allocations.find(a => a.sales_order_item === so_item && a.bucket_id === batch.bucket_id && a.stem_length === (batch.stem_length || ''));
-        if (existing) { existing.qty += qty; if (reason) existing.downgrade_reason = reason; }
-        else {
-            P.allocations.push({
-                item_code: item.item_code, bucket_id: batch.bucket_id, qty,
-                sales_order_item: so_item,
-                stem_length: batch.stem_length || '', warehouse: batch.warehouse || '',
-                uom: item.uom || '', stock_uom: item.stock_uom || '',
-                conversion_factor: item.conversion_factor || 1,
-                length_status: batch.length_status || 'exact',
-                downgrade_reason: reason,
-                available_exact_stems: is_downgrade ? (item.incoming_exact_stems || 0) : 0
-            });
-        }
-        batch.available_qty = Math.max(0, available - qty);
-        remaining -= qty;
-        count += qty;
-    }
-    if (count > 0) {
-        frappe.show_alert({ message: `Auto-allocated ${count} ${item.stock_uom || ''}.`, indicator: 'green' });
-        P.render_allocation_grid();
-    }
+frappe.pages["sales-allocation"]._execute_fifo = function (so_item, downgrade_reason) {
+	const P = frappe.pages["sales-allocation"];
+	const item = P.order_items.find((i) => i.sales_order_item === so_item);
+	if (!item) return;
+	const allocated_session = P._session_qty(so_item);
+	const grand_allocated = (item.total_allocated_qty || 0) + allocated_session;
+	const required = item.pending_stock_qty || 0;
+	let remaining = required - grand_allocated;
+	let count = 0;
+	for (const batch of item.batches || []) {
+		if (remaining <= 0) break;
+		const available = batch.available_qty || 0;
+		if (available <= 0) continue;
+		const qty = Math.min(available, remaining);
+		const is_downgrade = batch.length_status === "downgrade";
+		const reason = is_downgrade
+			? batch.downgrade_approval === "amber_expired"
+				? "Amber time expired"
+				: downgrade_reason
+			: "";
+		// A bucket can hold this same variety at more than one stem length
+		// (Spray Roses graded straight in the field), so an order line's FIFO
+		// fill can draw from the same bucket at two different lengths -- e.g.
+		// an exact-match batch and a downgrade-eligible longer one. Matching
+		// on bucket_id alone would merge those into one allocation row with a
+		// single stem_length, silently losing which portion was which length.
+		const existing = P.allocations.find(
+			(a) =>
+				a.sales_order_item === so_item &&
+				a.bucket_id === batch.bucket_id &&
+				a.stem_length === (batch.stem_length || "")
+		);
+		if (existing) {
+			existing.qty += qty;
+			if (reason) existing.downgrade_reason = reason;
+		} else {
+			P.allocations.push({
+				item_code: item.item_code,
+				bucket_id: batch.bucket_id,
+				qty,
+				sales_order_item: so_item,
+				stem_length: batch.stem_length || "",
+				warehouse: batch.warehouse || "",
+				uom: item.uom || "",
+				stock_uom: item.stock_uom || "",
+				conversion_factor: item.conversion_factor || 1,
+				length_status: batch.length_status || "exact",
+				downgrade_reason: reason,
+				available_exact_stems: is_downgrade ? item.incoming_exact_stems || 0 : 0,
+			});
+		}
+		batch.available_qty = Math.max(0, available - qty);
+		remaining -= qty;
+		count += qty;
+	}
+	if (count > 0) {
+		frappe.show_alert({
+			message: `Auto-allocated ${count} ${item.stock_uom || ""}.`,
+			indicator: "green",
+		});
+		P.render_allocation_grid();
+	}
 };
 // ─── CONFIRM ALLOCATION ───
 frappe.pages["sales-allocation"].confirm_allocation = function () {
