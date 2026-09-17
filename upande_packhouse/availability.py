@@ -40,7 +40,7 @@ def reserved_bucket_ids():
 
 
 @frappe.whitelist()
-def variety_availability(varieties: str | None, lengths: str | None = None):
+def variety_availability(varieties: str | list | None, lengths: str | list | None = None):
 	"""Return { variety: { farm: available_stems } } for the given varieties
 	(optionally constrained to stem lengths), net of allocations and discards.
 	"""

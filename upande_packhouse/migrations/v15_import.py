@@ -1204,10 +1204,10 @@ def queue_import(
 	source_url: str | None,
 	token: str | None,
 	stock_entry_type: str | None = None,
-	batch_size: str | None = 2000,
+	batch_size: str | int | float | None = 2000,
 	time_budget_seconds: str | int | float | None = 1200,
 	target_profile: str | None = "local",
-	max_batches: str | None = None,
+	max_batches: str | int | float | None = None,
 ):
 	"""Entry point safe to paste into System Console. Kicks off the background
 	job chain and returns immediately — check progress with get_progress().
@@ -1498,9 +1498,9 @@ def queue_stem_length_backfill(
 	source_url: str | None,
 	token: str | None,
 	target_profile: str | None = "production",
-	batch_size: str | None = 2000,
+	batch_size: str | int | float | None = 2000,
 	time_budget_seconds: str | int | float | None = 1200,
-	max_batches: str | None = None,
+	max_batches: str | int | float | None = None,
 ):
 	"""Entry point safe to paste into System Console. Run
 	ensure_v15_stem_lengths(target_profile) first (once, synchronously),
