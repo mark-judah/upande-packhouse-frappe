@@ -17,7 +17,10 @@ filter, not a "must have a mapping" one -- a Delivery Point with no customer set
 never hidden from anyone.
 """
 
+import json
+
 import frappe
+from frappe.utils import cint
 
 
 @frappe.whitelist()
@@ -42,14 +45,55 @@ def consignees_for_customer(customer: str | None = None):
 	return names
 
 
+def _filter_value(filters, key):
+	"""Read one key out of `filters`, whichever shape it arrived in.
+
+	This endpoint is reached three ways and each hands `filters` over
+	differently:
+	  * frappe's own link-search (`set_query`) calls it server-side with a real
+	    dict;
+	  * `frappe.call` from JS form-encodes the POST body, so an object argument
+	    arrives as a JSON **string** -- this is what the Delivery Point picker
+	    sends, and treating it as a dict raised
+	    "'str' object has no attribute 'get'";
+	  * some frappe paths pass the list-of-conditions form,
+	    [[doctype, fieldname, operator, value], ...].
+	Anything unrecognised yields None rather than raising -- a filter we cannot
+	read should widen the result set, never break the picker.
+	"""
+	if isinstance(filters, str):
+		try:
+			filters = json.loads(filters)
+		except (ValueError, TypeError):
+			return None
+
+	if isinstance(filters, dict):
+		return filters.get(key)
+
+	if isinstance(filters, list | tuple):
+		for cond in filters:
+			# [fieldname, operator, value] or [doctype, fieldname, operator, value]
+			if isinstance(cond, list | tuple) and len(cond) >= 3 and cond[-3] == key:
+				return cond[-1]
+
+	return None
+
+
 @frappe.whitelist()
 def delivery_points_for_customer(
 	doctype: str | None = None,
 	txt: str | None = None,
 	searchfield: str | None = None,
-	start: str | None = 0,
-	page_len: str | None = 20,
-	filters: str | None = None,
+	# Link-query contract, NOT a plain HTTP signature: frappe's search_widget
+	# calls this with `filters` as the dict set_query passed
+	# ({"customer": frm.doc.customer}) and start/page_len as ints. Annotating
+	# `filters: str | None` made pydantic reject every lookup with
+	# "should be of type 'str | None' but got 'dict'". The body does
+	# `(filters or {}).get("customer")`, so dict is the shape it wants; list and
+	# str are allowed because frappe hands those over in other call paths.
+	start: int | str | None = 0,
+	page_len: int | str | None = 20,
+	filters: dict | list | str | None = None,
 ):
 	"""frappe.set_query "query" callback for Sales Order's custom_delivery_point.
 
@@ -64,7 +108,7 @@ def delivery_points_for_customer(
 	called with the standard link-search args, plus whatever `filters` the client
 	passed via set_query's own filters dict (here: {"customer": frm.doc.customer}).
 	"""
-	customer = (filters or {}).get("customer")
+	customer = _filter_value(filters, "customer")
 	txt = txt or ""
 
 	conditions = ["business_unit = %(business_unit)s"]
@@ -85,5 +129,8 @@ def delivery_points_for_customer(
 		ORDER BY name
 		LIMIT %(page_len)s OFFSET %(start)s
 		""",
-		{**values, "page_len": page_len or 20, "start": start or 0},
+		# cint: LIMIT/OFFSET cannot take a quoted value, and these arrive as
+		# strings whenever the search comes in over HTTP -- "LIMIT '20'" is a
+		# MariaDB syntax error.
+		{**values, "page_len": cint(page_len) or 20, "start": cint(start)},
 	)

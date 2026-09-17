@@ -1085,9 +1085,21 @@ def _attach_incoming_stems(items, location, active_farms):
           AND se.custom_stem_length IN ({ln_placeholders})
           AND se.custom_bucket_id IS NOT NULL
           AND se.custom_bucket_id != ''
+          -- Unshelved means the bucket has NEITHER a live shelf row NOR any
+          -- record of having been shelved. Both halves earn their place: the
+          -- Shelf Item alone would re-count a bucket that was shelved and then
+          -- issued (issuing removes/empties that row), while the Shelving Log
+          -- alone would miss a bucket sitting on a shelf whose log write failed
+          -- -- that write is best-effort. The log test is the same one
+          -- api/stem_movement.py uses for its received-vs-shelved figures.
           AND NOT EXISTS (
               SELECT 1 FROM `tabShelf Item` si
               WHERE si.bucket_id = se.custom_bucket_id
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM `tabShelving Log` sl
+              WHERE sl.bucket_id = se.custom_bucket_id
+                AND sl.shelved_on >= se.posting_date
           )
     """,
 		active_farms + item_codes_for_incoming + lengths_for_incoming,
@@ -1099,18 +1111,28 @@ def _attach_incoming_stems(items, location, active_farms):
 		bucket_ids = list({r["bucket_id"] for r in unshelved})
 		bid_placeholders = ", ".join(["%s"] * len(bucket_ids))
 
+		# Incoming stock is only worth advertising if nobody has claimed it yet.
+		# This used to look for `custom_issued_to` on a HARVESTING entry, but
+		# allocation stamps that field on the sale transfer it posts
+		# (stock_movement.move_allocation_to_sold), not on the harvest -- so the
+		# check almost never matched and already-allocated buckets kept being
+		# counted as available incoming stems. Ask the allocation records
+		# directly instead, and take the stamp from any entry type.
 		# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 		issued_rows = frappe.db.sql(
 			f"""
-            SELECT DISTINCT custom_bucket_id
-            FROM `tabStock Entry`
-            WHERE stock_entry_type = 'Harvesting'
-              AND docstatus = 1
-              AND custom_bucket_id IN ({bid_placeholders})
-              AND custom_issued_to IS NOT NULL
-              AND custom_issued_to != ''
+            SELECT DISTINCT se.custom_bucket_id
+            FROM `tabStock Entry` se
+            WHERE se.docstatus = 1
+              AND se.custom_bucket_id IN ({bid_placeholders})
+              AND COALESCE(se.custom_issued_to, '') != ''
+            UNION
+            SELECT DISTINCT bas.bucket_id
+            FROM `tabBucket Allocation Status` bas
+            WHERE bas.bucket_id IN ({bid_placeholders})
+              AND COALESCE(bas.allocated_quantity, 0) > 0
         """,
-			bucket_ids,
+			bucket_ids + bucket_ids,
 		)
 
 		issued_set = {r[0] for r in issued_rows}
@@ -2462,7 +2484,7 @@ def get_substitute_varieties(
 	item_code: str | None,
 	location: str | None = None,
 	color: str | None = None,
-	headsize: str | None = None,
+	headsize: str | int | float | None = None,
 ):
 	"""
 	Returns available varieties that can substitute the current item.
