@@ -986,7 +986,7 @@ def _hop_reply(hop, source, target):
 def post_issue_to_packhouse(
 	bucket_id: str | None,
 	item_code: str | None,
-	qty: str | None,
+	qty: str | int | float | None,
 	business_unit: str | None,
 	farm: str | None,
 	stem_length: str | None = None,
@@ -1017,7 +1017,7 @@ def post_issue_to_packhouse(
 def post_stage_to_dispatch(
 	box_label: str | None,
 	item_code: str | None,
-	qty: str | None,
+	qty: str | int | float | None,
 	business_unit: str | None,
 	farm: str | None,
 	remarks: str | None = None,
@@ -1045,7 +1045,7 @@ def post_stage_to_dispatch(
 def post_load_to_truck(
 	box_label: str | None,
 	item_code: str | None,
-	qty: str | None,
+	qty: str | int | float | None,
 	business_unit: str | None,
 	farm: str | None,
 	remarks: str | None = None,
