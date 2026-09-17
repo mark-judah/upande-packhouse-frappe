@@ -1429,7 +1429,9 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 		if map_key not in shelf_map:
 			shelf_map[map_key] = dict(r)
 		else:
-			shelf_map[map_key]["stem_qty"] = (shelf_map[map_key].get("stem_qty") or 0) + (r.get("stem_qty") or 0)
+			shelf_map[map_key]["stem_qty"] = (shelf_map[map_key].get("stem_qty") or 0) + (
+				r.get("stem_qty") or 0
+			)
 			frappe.log_error(
 				title="Duplicate Shelf Item rows for one bucket",
 				message=(
@@ -1444,7 +1446,8 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 	for a in allocations:
 		key = (a.get("bucket_id"), a.get("item_code"), a.get("stem_length") or "")
 		if key not in shelf_map:
-			any_shelf = frappe.db.sql("""
+			any_shelf = frappe.db.sql(
+				"""
                 SELECT si.bucket_id, si.variety, s.farm
                 FROM `tabShelf Item` si
                 INNER JOIN `tabShelf` s ON s.name = si.parent
@@ -1471,7 +1474,9 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 	variety_list = list({a["item_code"] for a in allocations})
 	var_placeholders = ", ".join(["%s"] * len(variety_list))
 
-	bas_rows = frappe.db.sql(f"""
+	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
+	bas_rows = frappe.db.sql(
+		f"""
         SELECT name, bucket_id, item_code, stem_length, total_quantity,
                allocated_quantity, available_quantity, in_transit
         FROM `tabBucket Allocation Status`
@@ -1492,16 +1497,14 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 	# ── Group allocations by (bucket, item, length) ──
 	alloc_by_bucket = {}
 	for a in allocations:
-		alloc_by_bucket.setdefault(
-			(a["bucket_id"], a["item_code"], a.get("stem_length") or ""), []
-		).append(a)
+		alloc_by_bucket.setdefault((a["bucket_id"], a["item_code"], a.get("stem_length") or ""), []).append(a)
 
 	for (bucket_id, item_code, stem_length), group in alloc_by_bucket.items():
 		shelf = shelf_map[(bucket_id, item_code, stem_length)]
 		is_sales_shelf = farm_config.get(shelf["farm"], {}).get("sales_shelf", 0)
 
 		# ── TRANSIT CHECK: Is this bucket on a remote farm? ──
-		needs_transfer = (sales_shelf_farm and shelf["farm"] != sales_shelf_farm)
+		needs_transfer = sales_shelf_farm and shelf["farm"] != sales_shelf_farm
 
 		bas_key = (bucket_id, item_code, stem_length)
 
@@ -2197,17 +2200,18 @@ def _update_existing_pick_list(
 # UPDATED: Clear in_transit when unallocating
 # ============================================================
 @frappe.whitelist()
-def unallocate_bucket_from_opl(sales_order_item, bucket_id, stem_length=None):
+def unallocate_bucket_from_opl(sales_order_item: str, bucket_id: str, stem_length: str | None = None):
 	frappe.db.begin()
 
 	try:
 		so_item = frappe.db.get_value(
-			"Sales Order Item", sales_order_item,
+			"Sales Order Item",
+			sales_order_item,
 			["parent", "item_code", "qty", "conversion_factor", "custom_length"],
-			as_dict=True
+			as_dict=True,
 		)
 		if not so_item:
-			frappe.throw("Invalid sales order item")
+			frappe.throw(_("Invalid sales order item"))
 
 		sales_order = so_item.parent
 		item_code = so_item.item_code
@@ -2259,29 +2263,37 @@ def unallocate_bucket_from_opl(sales_order_item, bucket_id, stem_length=None):
 		# the SO item's own length, for older callers that don't pass one.
 		bas_name = None
 		if stem_length is not None:
-			bas_name = frappe.db.get_value("Bucket Allocation Status", {
-				"bucket_id": bucket_id,
-				"item_code": item_code,
-				"stem_length": stem_length or ""
-			}, "name")
+			bas_name = frappe.db.get_value(
+				"Bucket Allocation Status",
+				{"bucket_id": bucket_id, "item_code": item_code, "stem_length": stem_length or ""},
+				"name",
+			)
 
 		if not bas_name:
-			bas_candidates = frappe.get_all("Bucket Allocation Status",
-				filters={"bucket_id": bucket_id, "item_code": item_code}, pluck="name")
+			bas_candidates = frappe.get_all(
+				"Bucket Allocation Status",
+				filters={"bucket_id": bucket_id, "item_code": item_code},
+				pluck="name",
+			)
 			for candidate in bas_candidates:
-				if frappe.db.exists("Bucket Allocations", {
-					"parent": candidate, "sales_order_item": sales_order_item, "cancelled": 0
-				}):
+				if frappe.db.exists(
+					"Bucket Allocations",
+					{"parent": candidate, "sales_order_item": sales_order_item, "cancelled": 0},
+				):
 					bas_name = candidate
 					break
 			if not bas_name and len(bas_candidates) == 1:
 				bas_name = bas_candidates[0]
 			elif not bas_name and bas_candidates:
-				bas_name = frappe.db.get_value("Bucket Allocation Status", {
-					"bucket_id": bucket_id,
-					"item_code": item_code,
-					"stem_length": so_item.custom_length or ""
-				}, "name")
+				bas_name = frappe.db.get_value(
+					"Bucket Allocation Status",
+					{
+						"bucket_id": bucket_id,
+						"item_code": item_code,
+						"stem_length": so_item.custom_length or "",
+					},
+					"name",
+				)
 
 		bas_updated = False
 		if bas_name:

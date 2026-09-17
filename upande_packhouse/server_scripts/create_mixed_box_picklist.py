@@ -750,7 +750,7 @@ def _lookup_shelf(actual_farm, item_code, bucket_id, fallback_farm):
 		frappe.log_error(
 			title="Bucket spans multiple shelves",
 			message=f"bucket_id={bucket_id} item_code={item_code}: Shelf Item rows point to "
-					f"more than one shelf ({', '.join(distinct_shelves)}). Using the first; "
-					f"the underlying Shelf Item rows should be reviewed.",
+			f"more than one shelf ({', '.join(distinct_shelves)}). Using the first; "
+			f"the underlying Shelf Item rows should be reviewed.",
 		)
 	return distinct_shelves[0]
