@@ -1406,10 +1406,45 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 		as_dict=True,
 	)
 
-	shelf_map = {(r["bucket_id"], r["item_code"]): r for r in shelf_rows}
+	# A bucket legitimately carries more than one Shelf Item row for the same
+	# (bucket_id, item_code): Spray Roses are graded straight in the field, so
+	# ONE bucket can collect several varieties AND several stem lengths before
+	# it's ever received -- e.g. Fireworks at both 62cm and 52cm in the same
+	# bucket, each length becoming its own Shelf Item row. Those two rows are
+	# two DIFFERENT allocatable pools (feeding two different Sales Order lines)
+	# and must never be merged into one total.
+	#
+	# The only rows that SHOULD merge are true duplicates: the same bucket +
+	# variety + LENGTH split across more than one row (confirmed live: bucket
+	# V7U1X9 had two rows, 60 + 40 stems, same variety/length/shelf -- the
+	# allocation planning screen lists both and so shows the bucket as "100
+	# available", but a dict keyed only on (bucket_id, item_code) used to just
+	# keep whichever row SQL returned last (40), silently dropping the other's
+	# stems, or -- worse -- would silently sum two genuinely different lengths
+	# together if keyed that way). Keying on (bucket_id, item_code, stem_length)
+	# sums same-length duplicates while keeping different lengths separate.
+	shelf_map = {}
+	for r in shelf_rows:
+		map_key = (r["bucket_id"], r["item_code"], r["stem_length"] or "")
+		if map_key not in shelf_map:
+			shelf_map[map_key] = dict(r)
+		else:
+			shelf_map[map_key]["stem_qty"] = (shelf_map[map_key].get("stem_qty") or 0) + (
+				r.get("stem_qty") or 0
+			)
+			frappe.log_error(
+				title="Duplicate Shelf Item rows for one bucket",
+				message=(
+					f"bucket_id={r['bucket_id']} item_code={r['item_code']} "
+					f"stem_length={r['stem_length']}: more than one Shelf Item row exists for "
+					f"this bucket+variety+length on the same farm. Their stem_qty was summed "
+					f"for allocation, but the underlying rows should be reviewed/merged -- "
+					f"shelf_location={r.get('shelf_location')}."
+				),
+			)
 
 	for a in allocations:
-		key = (a.get("bucket_id"), a.get("item_code"))
+		key = (a.get("bucket_id"), a.get("item_code"), a.get("stem_length") or "")
 		if key not in shelf_map:
 			any_shelf = frappe.db.sql(
 				"""
@@ -1442,7 +1477,7 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	bas_rows = frappe.db.sql(
 		f"""
-        SELECT name, bucket_id, item_code, total_quantity,
+        SELECT name, bucket_id, item_code, stem_length, total_quantity,
                allocated_quantity, available_quantity, in_transit
         FROM `tabBucket Allocation Status`
         WHERE bucket_id IN ({bid_placeholders})
@@ -1452,21 +1487,26 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 		as_dict=True,
 	)
 
-	bas_map = {(r["bucket_id"], r["item_code"]): r for r in bas_rows}
+	# Keyed with stem_length too -- see the shelf_map comment above. A bucket
+	# holding Fireworks at both 62cm and 52cm needs two independent Bucket
+	# Allocation Status records (one per length); without the length in the
+	# key, the second length's allocation would read/write the FIRST length's
+	# BAS record, corrupting both lengths' available quantity.
+	bas_map = {(r["bucket_id"], r["item_code"], r["stem_length"] or ""): r for r in bas_rows}
 
-	# ── Group allocations by bucket ──
+	# ── Group allocations by (bucket, item, length) ──
 	alloc_by_bucket = {}
 	for a in allocations:
-		alloc_by_bucket.setdefault((a["bucket_id"], a["item_code"]), []).append(a)
+		alloc_by_bucket.setdefault((a["bucket_id"], a["item_code"], a.get("stem_length") or ""), []).append(a)
 
-	for (bucket_id, item_code), group in alloc_by_bucket.items():
-		shelf = shelf_map[(bucket_id, item_code)]
+	for (bucket_id, item_code, stem_length), group in alloc_by_bucket.items():
+		shelf = shelf_map[(bucket_id, item_code, stem_length)]
 		is_sales_shelf = farm_config.get(shelf["farm"], {}).get("sales_shelf", 0)
 
 		# ── TRANSIT CHECK: Is this bucket on a remote farm? ──
 		needs_transfer = sales_shelf_farm and shelf["farm"] != sales_shelf_farm
 
-		bas_key = (bucket_id, item_code)
+		bas_key = (bucket_id, item_code, stem_length)
 
 		if bas_key in bas_map:
 			bas = frappe.get_doc("Bucket Allocation Status", bas_map[bas_key]["name"], for_update=True)
@@ -1550,7 +1590,7 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 
 	# ── Create/update pick lists ──
 	for a in allocations:
-		shelf = shelf_map.get((a["bucket_id"], a["item_code"]), {})
+		shelf = shelf_map.get((a["bucket_id"], a["item_code"], a.get("stem_length") or ""), {})
 		a["_shelf_farm"] = shelf.get("farm", "")
 		a["_is_sales_shelf"] = farm_config.get(shelf.get("farm", ""), {}).get("sales_shelf", 0)
 		# The shelf row is the server-side truth for where the stems are and how
@@ -2160,14 +2200,14 @@ def _update_existing_pick_list(
 # UPDATED: Clear in_transit when unallocating
 # ============================================================
 @frappe.whitelist()
-def unallocate_bucket_from_opl(sales_order_item: str | None, bucket_id: str | None):
+def unallocate_bucket_from_opl(sales_order_item: str, bucket_id: str, stem_length: str | None = None):
 	frappe.db.begin()
 
 	try:
 		so_item = frappe.db.get_value(
 			"Sales Order Item",
 			sales_order_item,
-			["parent", "item_code", "qty", "conversion_factor"],
+			["parent", "item_code", "qty", "conversion_factor", "custom_length"],
 			as_dict=True,
 		)
 		if not so_item:
@@ -2209,9 +2249,51 @@ def unallocate_bucket_from_opl(sales_order_item: str | None, bucket_id: str | No
 			sales_order_item, bucket_id=bucket_id, item_code=item_code
 		)
 
-		bas_name = frappe.db.get_value(
-			"Bucket Allocation Status", {"bucket_id": bucket_id, "item_code": item_code}, "name"
-		)
+		# A bucket can hold this SAME variety at more than one stem length (see
+		# the shelf_map comment in _allocate_stock_with_buckets_impl), so there
+		# can be more than one Bucket Allocation Status row for (bucket_id,
+		# item_code) -- one per length. Without a length to disambiguate,
+		# get_value would grab an arbitrary one of them, unallocating the
+		# wrong length's BAS row (or silently touching nothing while leaving
+		# the real one untouched).
+		#
+		# Prefer the caller-supplied stem_length (the UI now sends the exact
+		# batch's length the Unallocate button was clicked on). Fall back to
+		# whichever BAS actually references this SO item's allocation, then to
+		# the SO item's own length, for older callers that don't pass one.
+		bas_name = None
+		if stem_length is not None:
+			bas_name = frappe.db.get_value(
+				"Bucket Allocation Status",
+				{"bucket_id": bucket_id, "item_code": item_code, "stem_length": stem_length or ""},
+				"name",
+			)
+
+		if not bas_name:
+			bas_candidates = frappe.get_all(
+				"Bucket Allocation Status",
+				filters={"bucket_id": bucket_id, "item_code": item_code},
+				pluck="name",
+			)
+			for candidate in bas_candidates:
+				if frappe.db.exists(
+					"Bucket Allocations",
+					{"parent": candidate, "sales_order_item": sales_order_item, "cancelled": 0},
+				):
+					bas_name = candidate
+					break
+			if not bas_name and len(bas_candidates) == 1:
+				bas_name = bas_candidates[0]
+			elif not bas_name and bas_candidates:
+				bas_name = frappe.db.get_value(
+					"Bucket Allocation Status",
+					{
+						"bucket_id": bucket_id,
+						"item_code": item_code,
+						"stem_length": so_item.custom_length or "",
+					},
+					"name",
+				)
 
 		bas_updated = False
 		if bas_name:
