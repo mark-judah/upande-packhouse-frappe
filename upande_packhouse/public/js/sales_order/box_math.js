@@ -89,14 +89,29 @@ function row_stems_per_box(row) {
 // before the user saves. Skips the set_value calls when nothing actually
 // changed so merely opening/refreshing an already-correct order never marks
 // the form dirty on its own.
+// Stems add up per row regardless of grouping, but Boxes don't: every row
+// sharing one custom_bunch_group (a Mixed Bunch's colours) or custom_mix_group
+// (several bunches sharing one Mixed Box) describes the SAME physical box
+// count, just annotated once per colour -- summing all of them overcounts by
+// the group size. Mirrors sales_order_engine.py's _set_order_summary, which
+// is what actually lands in the database; this is just the live preview.
 function recompute_order_summary(frm) {
 	let boxes = 0,
 		stems = 0;
+	const seen_groups = new Set();
 	(frm.doc.items || []).forEach((it) => {
 		if (!it.item_code) return;
 		const b = cint(it.custom_number_of_boxes);
-		boxes += b;
 		stems += row_stems_per_box(it) * b;
+
+		let group_key = null;
+		if (it.custom_bunch_group) group_key = "bunch::" + it.custom_bunch_group;
+		else if (it.custom_mix_group) group_key = "mix::" + it.custom_mix_group;
+		if (group_key) {
+			if (seen_groups.has(group_key)) return;
+			seen_groups.add(group_key);
+		}
+		boxes += b;
 	});
 	if (cint(frm.doc.custom_total_boxes) !== boxes) frm.set_value("custom_total_boxes", boxes);
 	if (cint(frm.doc.custom_total_stems) !== stems) frm.set_value("custom_total_stems", stems);
