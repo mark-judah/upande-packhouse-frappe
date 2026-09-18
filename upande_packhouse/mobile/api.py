@@ -937,6 +937,14 @@ def createOrUpdateFarmPackList():
 				opl_item_codes.add(loc.item_code)
 
 		guard_so = frappe.get_doc("Sales Order", sale_order_id)
+		# Keyed by (item_code, stem_length) everywhere below, not item_code
+		# alone. A single variety can be ordered at more than one length in
+		# the same order (Spray Roses graded at multiple lengths in one
+		# bucket is the normal case, not an edge case) -- keying by
+		# item_code only made the ordered-quantity cap the SUM of every
+		# length's target and let one length's box packing silently eat
+		# into another length's allowance without ever tripping the guard,
+		# since the combined total could still look "not yet over".
 		ordered_by_item = {}
 		packrate_by_item = {}
 		for soi in guard_so.items:
@@ -945,7 +953,8 @@ def createOrUpdateFarmPackList():
 					continue
 			elif soi.item_code not in opl_item_codes:
 				continue
-			ordered_by_item[soi.item_code] = ordered_by_item.get(soi.item_code, 0) + ordered_stems_of(soi)
+			guard_key = (soi.item_code, soi.get("custom_length") or "")
+			ordered_by_item[guard_key] = ordered_by_item.get(guard_key, 0) + ordered_stems_of(soi)
 			# Mixed box/bunch lines keep their stems-per-box in
 			# custom_packrate_mixed_box, not custom_packrate (see
 			# sales_order_engine._line_packrate) -- this used to only ever
@@ -957,8 +966,8 @@ def createOrUpdateFarmPackList():
 				pr = guard_int(soi.get("custom_packrate_mixed_box"))
 			else:
 				pr = guard_int(soi.get("custom_packrate"))
-			if pr and soi.item_code not in packrate_by_item:
-				packrate_by_item[soi.item_code] = pr
+			if pr and guard_key not in packrate_by_item:
+				packrate_by_item[guard_key] = pr
 
 		# Stems already packed on the pack list we will append to.
 		existing_total_by_item = {}
@@ -974,46 +983,49 @@ def createOrUpdateFarmPackList():
 			gdoc = frappe.get_doc("Farm Pack List", guard_existing[0].name)
 			for r in gdoc.pack_list_item:
 				st = r.stock_qty or 0
-				existing_total_by_item[r.item_code] = existing_total_by_item.get(r.item_code, 0) + st
+				guard_key = (r.item_code, r.stem_length or "")
+				existing_total_by_item[guard_key] = existing_total_by_item.get(guard_key, 0) + st
 				bx = str(r.box_id or "1")
-				existing_by_item_box[(r.item_code, bx)] = existing_by_item_box.get((r.item_code, bx), 0) + st
+				existing_by_item_box[(guard_key, bx)] = existing_by_item_box.get((guard_key, bx), 0) + st
 
 		# Stems arriving in this request.
 		incoming_total_by_item = {}
 		incoming_by_item_box = {}
 		for it in processed_items:
 			st = it.get("stock_qty") or 0
-			ic = it.get("item_code")
+			guard_key = (it.get("item_code"), it.get("stem_length") or "")
 			bx = str(it.get("box_id") or "1")
-			incoming_total_by_item[ic] = incoming_total_by_item.get(ic, 0) + st
-			incoming_by_item_box[(ic, bx)] = incoming_by_item_box.get((ic, bx), 0) + st
+			incoming_total_by_item[guard_key] = incoming_total_by_item.get(guard_key, 0) + st
+			incoming_by_item_box[(guard_key, bx)] = incoming_by_item_box.get((guard_key, bx), 0) + st
 
-		# (a) Ordered-quantity cap per variety.
-		for ic, inc in incoming_total_by_item.items():
-			ordered = ordered_by_item.get(ic)
+		# (a) Ordered-quantity cap per variety+length.
+		for guard_key, inc in incoming_total_by_item.items():
+			ic, length = guard_key
+			ordered = ordered_by_item.get(guard_key)
 			if ordered is None:
 				continue
-			already = existing_total_by_item.get(ic, 0)
+			already = existing_total_by_item.get(guard_key, 0)
 			if already + inc > ordered:
 				allowed = max(0, int(ordered - already))
 				frappe.throw(
 					_(
-						f"Over-pack blocked for {ic}: {int(ordered)} stems ordered, "
+						f"Over-pack blocked for {ic} ({length}): {int(ordered)} stems ordered, "
 						f"{int(already)} already packed - only {allowed} more allowed."
 					)
 				)
 
-		# (b) Box-capacity cap per variety per box (where a packrate is set).
-		for (ic, bx), inc in incoming_by_item_box.items():
-			cap = packrate_by_item.get(ic)
+		# (b) Box-capacity cap per variety+length per box (where a packrate is set).
+		for (guard_key, bx), inc in incoming_by_item_box.items():
+			ic, length = guard_key
+			cap = packrate_by_item.get(guard_key)
 			if not cap:
 				continue
-			already = existing_by_item_box.get((ic, bx), 0)
+			already = existing_by_item_box.get((guard_key, bx), 0)
 			if already + inc > cap:
 				allowed = max(0, int(cap - already))
 				frappe.throw(
 					_(
-						f"Over-pack blocked: box {bx} for {ic} holds {int(cap)} stems "
+						f"Over-pack blocked: box {bx} for {ic} ({length}) holds {int(cap)} stems "
 						f"({int(already)} already in it, only {allowed} more allowed). Use another box."
 					)
 				)

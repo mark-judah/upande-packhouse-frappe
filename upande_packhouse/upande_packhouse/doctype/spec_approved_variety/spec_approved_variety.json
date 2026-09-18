@@ -7,12 +7,21 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "bunch_id",
   "variety",
   "colour",
   "headsize_cm",
   "budcount"
  ],
  "fields": [
+  {
+   "columns": 2,
+   "description": "Which Box Item row's bunch this variety fills. Several Approved Variety rows sharing one bunch_id combine, stem-by-stem, into a single Mixed Bunch. Leave blank for a simple spec -- nothing downstream requires it.",
+   "fieldname": "bunch_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Bunch ID"
+  },
   {
    "columns": 4,
    "fieldname": "variety",

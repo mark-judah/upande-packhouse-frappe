@@ -71,6 +71,10 @@ function nfmt(n) {
 }
 
 function open_spec_dialog(frm, trigger_cdn, data) {
+	if (data.bunch_aware) {
+		open_bunch_spec_dialog(frm, trigger_cdn, data);
+		return;
+	}
 	const lines = data.lines || [];
 	const boxOptions = data.box_options || [];
 	if (!lines.length) {
@@ -110,7 +114,14 @@ function open_spec_dialog(frm, trigger_cdn, data) {
 				return;
 			}
 			d.hide();
-			append_rows(frm, trigger_cdn, data.spec, selections, null);
+			append_rows(
+				frm,
+				trigger_cdn,
+				data.spec,
+				selections,
+				null,
+				mix_group_for_spec(frm, data.spec)
+			);
 		},
 	});
 
@@ -348,6 +359,177 @@ function open_spec_dialog(frm, trigger_cdn, data) {
 	syncTable();
 }
 
+// One card per bunch_id (recipe) instead of one checkbox per variety, with
+// a single Boxes input the way sync_packing_guide already requires every
+// colour in the group to share. Inside a card, one slot per Box Item row:
+// a Mixed Bunch's slots each have exactly one mandatory variety; a Mono
+// Bunch's slot lists every variety approved for that colour, annotated
+// with LIVE shelf availability -- the operator still picks whichever one
+// has stock, same as the original flat picker, just scoped to the correct
+// box shape instead of the spec's whole box_item palette. Used only when
+// the spec has bunch_id filled in on every Approved Variety row (see
+// get_spec_fill_data / _bunches_from_spec on the server); otherwise
+// open_spec_dialog falls through to the flat colour picker, unchanged.
+function open_bunch_spec_dialog(frm, trigger_cdn, data) {
+	const bunches = data.bunches || [];
+	if (!bunches.length) {
+		frappe.msgprint(__("Specification {0} has no bunches defined.", [data.spec]));
+		return;
+	}
+	const kind = data.is_mixed_box ? "Mixed Box" : "Straight Box";
+
+	const fields = [{ fieldtype: "HTML", fieldname: "grid" }];
+	const d = new frappe.ui.Dialog({
+		title: __("Fill Order from {0}", [data.spec_name || data.spec]),
+		size: "extra-large",
+		fields: fields,
+		primary_action_label: __("Add to Order"),
+		primary_action() {
+			const selections = [];
+			d.$wrapper.find(".spb-card").each(function () {
+				const $c = $(this);
+				const boxes = cint($c.find(".spb-boxes").val());
+				if (boxes <= 0) return;
+				const picks = {};
+				$c.find(".spb-slot").each(function () {
+					const $slot = $(this);
+					const colour = $slot.attr("data-colour");
+					const variety =
+						$slot.find(".spb-pick:checked").val() || $slot.attr("data-only-variety");
+					if (variety) picks[colour] = variety;
+				});
+				selections.push({ bunch_id: $c.attr("data-bunch-id"), boxes, picks });
+			});
+			if (!selections.length) {
+				frappe.msgprint(__("Enter a box count for at least one bunch."));
+				return;
+			}
+			d.hide();
+			// Fresh, collision-free starting point -- a bunch-aware spec can
+			// describe several distinct boxes (see mix_group_for_spec's
+			// comment), so this never reuses an existing group; the server
+			// allocates one group per bunch_id from here.
+			append_rows(
+				frm,
+				trigger_cdn,
+				data.spec,
+				selections,
+				null,
+				next_group(frm, "custom_mix_group")
+			);
+		},
+	});
+
+	const farmsFor = (c) =>
+		Object.keys(c.by_farm || {})
+			.sort((x, y) => c.by_farm[y] - c.by_farm[x])
+			.map((f) => `${f}: ${nfmt(c.by_farm[f])}`)
+			.join(" · ");
+
+	const candBadge = (c) =>
+		`<span class="spb-cand-avail${(c.available || 0) > 0 ? "" : " spb-cand-empty"}">${
+			farmsFor(c) ? esc(farmsFor(c)) + " · " : ""
+		}${nfmt(c.available)} ${__("stems")}</span>`;
+
+	const slotHtml = (b, slot, si) => {
+		const candidates = slot.candidates || [];
+		const best = candidates.reduce(
+			(a, c) => ((c.available || 0) > (a.available || 0) ? c : a),
+			candidates[0] || {}
+		);
+		const meta = [
+			slot.length,
+			slot.box_type,
+			slot.bunches_per_box ? `${slot.bunches_per_box}/box` : "",
+		]
+			.filter(Boolean)
+			.join(" · ");
+		const radioName = `spb-pick-${esc(b.bunch_id)}-${si}`;
+		const candidatesHtml =
+			candidates.length <= 1
+				? `<div class="spb-cand spb-cand-solo">
+                    <span class="spb-cand-name">${esc(
+						(candidates[0] || {}).item_name || (candidates[0] || {}).variety || ""
+					)}</span>
+                    ${candBadge(candidates[0] || {})}
+                  </div>`
+				: candidates
+						.map(
+							(c) => `
+                <label class="spb-cand">
+                  <input type="radio" class="spb-pick" name="${radioName}" value="${esc(
+								c.variety
+							)}" ${c === best ? "checked" : ""}>
+                  <span class="spb-cand-name">${esc(c.item_name || c.variety)}</span>
+                  ${candBadge(c)}
+                </label>`
+						)
+						.join("");
+		return `
+            <div class="spb-slot" data-colour="${esc(slot.colour)}"${
+			candidates.length <= 1
+				? ` data-only-variety="${esc((candidates[0] || {}).variety || "")}"`
+				: ""
+		}>
+                <div class="spb-slot-head">
+                    <span class="spb-slot-colour">${esc(slot.colour || __("(no colour)"))}</span>
+                    <span class="spb-slot-meta">${esc(meta)} · ${slot.stems_per_bunch}/bunch</span>
+                </div>
+                <div class="spb-cands">${candidatesHtml}</div>
+            </div>`;
+	};
+
+	const cardHtml = (b) => {
+		const badge = b.is_mixed
+			? `<span class="spa-chip spa-chip-mix">Mixed Bunch</span>`
+			: `<span class="spa-chip">Mono Bunch</span>`;
+		const perBoxStems = (b.slots || []).reduce((sum, s) => sum + (s.pack_rate || 0), 0);
+		return `
+        <div class="spb-card" data-bunch-id="${esc(b.bunch_id)}">
+            <div class="spb-head">
+                <span class="spb-id">${esc(b.bunch_id)}</span>
+                ${badge}
+                <label class="spb-boxes-label">${__("Boxes")}
+                    <input type="number" min="0" class="spb-boxes form-control input-sm" value="0">
+                </label>
+            </div>
+            ${(b.slots || []).map((slot, si) => slotHtml(b, slot, si)).join("")}
+            <div class="spb-foot">${nfmt(perBoxStems)} ${__("stems / box")}</div>
+        </div>`;
+	};
+
+	const html = `
+    <style>
+      .spb-card{border:1px solid var(--border-color,#e2e4e9);border-radius:6px;margin-bottom:10px;overflow:hidden}
+      .spb-head{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--subtle-fg,#f8f8f6);flex-wrap:wrap}
+      .spb-id{font-weight:600;font-size:13px}
+      .spb-boxes-label{display:flex;align-items:center;gap:6px;font-size:11px;color:#8a8780;margin:0 0 0 auto}
+      .spb-boxes{width:70px;height:26px;font-size:12px}
+      .spb-slot{padding:6px 10px;border-top:1px solid var(--border-color,#f0f1f3)}
+      .spb-slot-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:12px;margin-bottom:4px}
+      .spb-slot-colour{font-weight:600}
+      .spb-slot-meta{font-size:11px;color:#8a8780}
+      .spb-cands{display:flex;flex-direction:column;gap:2px}
+      .spb-cand{display:flex;align-items:baseline;gap:6px;font-size:12.5px;padding:2px 0;cursor:pointer}
+      .spb-cand-solo{cursor:default}
+      .spb-cand input{margin:0;flex:none}
+      .spb-cand-name{font-weight:600}
+      .spb-cand-avail{font-size:11px;color:#16a34a;margin-left:auto}
+      .spb-cand-empty{color:#b45309}
+      .spb-foot{padding:4px 10px 8px;font-size:11px;color:#8a8780;text-align:right;border-top:1px solid var(--border-color,#f0f1f3)}
+    </style>
+    <div class="spa">
+      <div class="spa-badge" style="float:left;font-size:11px;color:#8a8780;text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px;">${esc(
+			kind
+		)}</div>
+      <div style="clear:both"></div>
+      ${bunches.map(cardHtml).join("")}
+    </div>`;
+
+	d.fields_dict.grid.$wrapper.html(html);
+	d.show();
+}
+
 function next_group(frm, field) {
 	let max = 0;
 	(frm.doc.items || []).forEach((r) => {
@@ -356,14 +538,33 @@ function next_group(frm, field) {
 	return max + 1;
 }
 
-function append_rows(frm, trigger_cdn, spec, selections, source_warehouse) {
+// custom_mix_group has to stay the SAME integer every time the FLAT (legacy,
+// non-bunch-aware) picker fills a Mixed Box line for this spec on this order
+// -- not a fresh one per popup click -- or the same physical box splits
+// across several unrelated groups. This only holds for the legacy path,
+// where one spec == one box: a bunch-aware spec can describe SEVERAL
+// distinct boxes under one spec (confirmed real data: XPOL TOSCA_02720_10's
+// bunch "1" and bunch "2" are two separate Mixed Box recipes), so reusing
+// whatever mix_group this spec already has on the form would risk merging
+// an unrelated bunch into it -- see append_rows's bunch-aware call site,
+// which always starts from a fresh, collision-free counter instead and lets
+// build_spec_rows allocate one group per bunch_id server-side.
+function mix_group_for_spec(frm, spec) {
+	const existing = (frm.doc.items || []).find(
+		(r) => r.custom_line === spec && r.custom_mixed_box && r.custom_mix_group
+	);
+	if (existing) return cint(existing.custom_mix_group);
+	return next_group(frm, "custom_mix_group");
+}
+
+function append_rows(frm, trigger_cdn, spec, selections, source_warehouse, mix_group_hint) {
 	frappe
 		.call({
 			method: "upande_packhouse.spec_autofill.build_spec_rows",
 			args: {
 				spec: spec,
 				selections: JSON.stringify(selections),
-				next_mix_group: next_group(frm, "custom_mix_group"),
+				next_mix_group: mix_group_hint,
 				next_bunch_group: next_group(frm, "custom_bunch_group"),
 				source_warehouse: source_warehouse,
 			},
