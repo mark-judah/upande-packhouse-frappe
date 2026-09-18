@@ -101,14 +101,33 @@ def _price_list_fx(price_list, doc_currency):
 def _set_order_summary(doc):
 	"""Total Boxes / Total Stems shown below the items table — the authoritative,
 	save-time tally (the client script mirrors this live for immediate feedback,
-	but this is what actually lands on submit regardless of what the browser did)."""
+	but this is what actually lands on submit regardless of what the browser did).
+
+	Stems are additive per line regardless of grouping (each colour's own stems
+	genuinely add up), but Boxes are NOT: every row sharing one custom_bunch_group
+	(a Mixed Bunch's colours) or custom_mix_group (several bunches sharing one
+	Mixed Box) describes the SAME physical box count, just annotated once per
+	colour -- summing all of them overcounts by the group size. Count each
+	group's custom_number_of_boxes exactly once, same dedup approach api/
+	dashboard.py's "Expected boxes per OPL" already uses for this same reason."""
 	total_boxes, total_stems = 0, 0
+	seen_groups = set()
 	for it in doc.items:
 		if not it.item_code:
 			continue
 		boxes = int(it.get("custom_number_of_boxes") or 0)
-		total_boxes += boxes
 		total_stems += _line_packrate(it) * boxes
+
+		group_key = None
+		if it.get("custom_bunch_group"):
+			group_key = ("bunch", it.custom_bunch_group)
+		elif it.get("custom_mix_group"):
+			group_key = ("mix", it.custom_mix_group)
+		if group_key:
+			if group_key in seen_groups:
+				continue
+			seen_groups.add(group_key)
+		total_boxes += boxes
 	doc.custom_total_boxes = total_boxes
 	doc.custom_total_stems = total_stems
 

@@ -6,6 +6,7 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "bunch_id",
   "bunch_type",
   "hz_bud_count_range",
   "stems_per_bunch",
@@ -15,6 +16,14 @@
   "pack_rate"
  ],
  "fields": [
+  {
+   "columns": 2,
+   "description": "Groups this row with the Approved Variety row(s) it's filled by, and with any other Box Item row that combines into the same physical bunch (several colours mixed stem-by-stem, or several components of one bouquet). Leave blank for a simple spec -- nothing downstream requires it.",
+   "fieldname": "bunch_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Bunch ID"
+  },
   {
    "fieldname": "bunch_type",
    "fieldtype": "Select",
