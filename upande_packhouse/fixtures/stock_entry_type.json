@@ -18,5 +18,15 @@
   "name": "Farm Transfer",
   "purpose": "Material Transfer",
   "require_biometric": 0
+ },
+ {
+  "add_to_transit": 0,
+  "docstatus": 0,
+  "doctype": "Stock Entry Type",
+  "is_standard": 0,
+  "modified": "2026-09-19 00:00:00.000000",
+  "name": "Offline Issuing",
+  "purpose": "Material Issue",
+  "require_biometric": 0
  }
 ]
