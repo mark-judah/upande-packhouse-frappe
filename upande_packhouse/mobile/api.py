@@ -4235,6 +4235,34 @@ def setSchedulerOrder():
 		frappe.response["message"] = {"success": False, "error": str(e)}
 
 
+def _write_shelved_log(shelf_item_row, shelf_id, farm):
+	"""Write a Shelving Log "Shelved" row for one just-created Shelf Item row.
+	Called once per Shelf Item row a bucket produces (a bucket can carry
+	several varieties/lengths). shelf_item_row must already have its `name`
+	populated (i.e. called after the parent Shelf has been saved)."""
+	frappe.get_doc({
+		"doctype": "Shelving Log",
+		"bucket_id": shelf_item_row.bucket_id,
+		"shelf": shelf_id,
+		"farm": farm,
+		"variety": shelf_item_row.variety,
+		"stem_length": shelf_item_row.stem_length,
+		"stem_qty": shelf_item_row.stem_qty,
+		"greenhouse": shelf_item_row.greenhouse,
+		"warehouse": shelf_item_row.warehouse,
+		"cut_stage": shelf_item_row.get("cut_stage"),
+		"harvest_date": shelf_item_row.harvest_date,
+		"receiving_date": shelf_item_row.receiving_date,
+		"harvester": shelf_item_row.get("harvester"),
+		"graded_by": shelf_item_row.get("graded_by"),
+		"grading_date": shelf_item_row.get("grading_date"),
+		"reason": "Shelved",
+		"shelved_on": frappe.utils.now(),
+		"shelved_by": frappe.session.user,
+		"shelf_item": shelf_item_row.name,
+	}).insert(ignore_permissions=True)
+
+
 @frappe.whitelist()
 def shelveBucket():
 	"""Shelve a received bucket onto a Shelf (adapted from the v15 shelving server
@@ -4428,6 +4456,7 @@ def shelveBucket():
 	origin_greenhouse = receiving_doc.items[0].s_warehouse if receiving_doc.items else None
 	shelf_doc.farm = farm
 	total_qty = 0
+	new_items = []
 	for ri in receiving_doc.items:
 		new_item = shelf_doc.append("items", {})
 		new_item.bucket_id = bucket_id
@@ -4441,7 +4470,12 @@ def shelveBucket():
 		new_item.harvest_date = harvest_date
 		new_item.receiving_date = recv_date
 		total_qty += ri.qty or 0
+		new_items.append(new_item)
 	shelf_doc.save(ignore_permissions=True)
+
+	# Shelving Log: one "Shelved" row per Shelf Item row just created.
+	for new_item in new_items:
+		_write_shelved_log(new_item, shelf_id, farm)
 
 	# skipped-transfer self-heal (remove stale remote Shelf Items; anomaly guarded)
 	for shi in result.get("stale_transfer_shelves") or []:
