@@ -148,6 +148,18 @@ def sales_order_before_validate(doc, method=None):
 		if stems:
 			it.stock_qty = stems
 			it.qty = stems / factor
+			# custom_ordered_quantity is spec_autofill.py's own row-creation value
+			# (packrate x boxes at the time the row was added) and never touched
+			# again after that -- editing custom_number_of_boxes or a packrate
+			# field directly on the grid updates stock_qty/qty above but silently
+			# leaves this one stale. sales_allocation.py's _required_stems_for_so_item
+			# (its own docstring: "single source of truth" for what allocation
+			# targets) PREFERS this field over qty x conversion_factor, so a stale
+			# value here quietly under-targets allocation while the picklist
+			# generator (which recomputes packrate x boxes fresh) expects the
+			# correct total -- exactly the "allocated X, needed Y" mismatch this
+			# fixes. Keep it equal to stock_qty on every save, same as qty is.
+			it.custom_ordered_quantity = stems
 
 
 def sales_order_price(doc, method=None):

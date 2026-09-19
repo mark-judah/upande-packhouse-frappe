@@ -63,6 +63,12 @@ function straight_calc(frm, cdt, cdn) {
 	const qty = stems / factor;
 	frappe.model.set_value(cdt, cdn, "stock_qty", stems);
 	frappe.model.set_value(cdt, cdn, "qty", qty);
+	// custom_ordered_quantity is set once by spec_autofill.py at row creation and
+	// never touched again -- editing boxes/packrate here must keep it in sync too,
+	// since sales_allocation.py's _required_stems_for_so_item prefers this field
+	// over qty x conversion_factor for the allocation target. Mirrors the same
+	// fix in sales_order_engine.py's sales_order_before_validate.
+	frappe.model.set_value(cdt, cdn, "custom_ordered_quantity", stems);
 	// conversion_factor is a core mandatory field on Sales Order Item — the grid's
 	// own client-side mandatory check blocks Save before the request ever reaches
 	// the server, so sales_order_engine.sales_order_before_validate (which would

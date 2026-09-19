@@ -315,13 +315,39 @@ function open_multi_mix_wizard(frm, edit_mode) {
 							item_name: item.item_name || "",
 						};
 					});
-					// A directly-added line takes its UOM from the item's Sales UOM.
+					// A directly-added line takes its UOM from the item's Sales UOM. It
+					// has to actually be "Bunch (N)" -- packing_guide.py derives the
+					// physical bunch size straight from this string (extract_uom_factor
+					// here mirrors _uom_factor there), and anything without a "(N)"
+					// silently falls back to a bunch size of 1, producing a nonsense
+					// Packing Guide (N "bunches" of 1 stem instead of real bunches) that
+					// the mobile packing app then rejects real scanned bunches against.
+					// Catching it here, at row-creation time, is the actual fix -- a
+					// previous attempt patched around a bad Sales UOM by forcing every
+					// wizard row's UOM to "Stems" instead, which "fixed" the symptom for
+					// one bad value but broke the exact same box math for every item,
+					// including ones with a perfectly good "Bunch (10)" Sales UOM.
 					let no_uom = item_list.filter((code) => !(uom_map[code] && uom_map[code].uom));
+					let bad_uom = item_list.filter(
+						(code) =>
+							uom_map[code] &&
+							uom_map[code].uom &&
+							!/\(\d+\)/.test(uom_map[code].uom)
+					);
 					if (no_uom.length) {
 						frappe.msgprint(
 							__(
 								"No Sales UOM on: {0}. Set a Sales UOM on these items before adding them to a mixed box.",
 								[no_uom.join(", ")]
+							)
+						);
+						return;
+					}
+					if (bad_uom.length) {
+						frappe.msgprint(
+							__(
+								'Sales UOM on {0} isn\'t a bunch size (e.g. "Bunch (10)") -- it\'s currently "{1}". Fix the Sales UOM on these items before adding them to a mixed box, or packing will reject the real bunches later.',
+								[bad_uom.join(", "), bad_uom.map((c) => uom_map[c].uom).join(", ")]
 							)
 						);
 						return;
