@@ -341,7 +341,7 @@ fixtures = [
 	# created directly on the DB with no fixture at all, which would silently
 	# break "Move To Graded Sold"/"Farm Transfer" Stock Entries on a fresh
 	# deploy (stock_entry_type just wouldn't exist).
-	{"dt": "Stock Entry Type", "filters": [["name", "in", ["Move To Graded Sold", "Farm Transfer"]]]},
+	{"dt": "Stock Entry Type", "filters": [["name", "in", ["Move To Graded Sold", "Farm Transfer", "Offline Issuing"]]]},
 	# Common underpack reasons, selected on a Farm Packlist Item's
 	# under_pack_reason field -- exported so a fresh deploy has them too.
 	{"dt": "Under Pack Reason"},
