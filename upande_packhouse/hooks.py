@@ -336,12 +336,34 @@ scheduler_events = {
 fixtures = [
 	{"dt": "Workspace", "filters": [["name", "=", "Packhouse"]]},
 	{"dt": "Custom HTML Block", "filters": [["name", "=", "Packhouse Navigation"]]},
-	# Master data for the post-harvest warehouse chain (roses_warehouse_map.py /
-	# farm_pack_list.py / stock_entry_cost_center.py) -- these were previously
-	# created directly on the DB with no fixture at all, which would silently
-	# break "Move To Graded Sold"/"Farm Transfer" Stock Entries on a fresh
-	# deploy (stock_entry_type just wouldn't exist).
-	{"dt": "Stock Entry Type", "filters": [["name", "in", ["Move To Graded Sold", "Farm Transfer", "Offline Issuing"]]]},
+	# Master data for the post-harvest warehouse chain (stock_movement.py /
+	# stock_entry_cost_center.py) -- these were previously created directly on
+	# the DB with no fixture at all, which would silently break these Stock
+	# Entries on a fresh deploy (stock_entry_type just wouldn't exist).
+	# "Remote Transfers"/"Move To Graded Sold"/"Issuing From Cold
+	# Store"/"Packing"/"Dispatch" are stock_movement.py's five current
+	# pipeline legs (see its STAGES/TYPE_* constants) -- "Move To Graded Sold"
+	# is this set's own original name, revived as the live Sold-leg type, not
+	# just historical. "Farm Transfer" is the one older, fully-retired name
+	# still kept because historical Stock Entries link to it.
+	{
+		"dt": "Stock Entry Type",
+		"filters": [
+			[
+				"name",
+				"in",
+				[
+					"Remote Transfers",
+					"Move To Graded Sold",
+					"Issuing From Cold Store",
+					"Packing",
+					"Dispatch",
+					"Farm Transfer",
+					"Offline Issuing",
+				],
+			]
+		],
+	},
 	# Common underpack reasons, selected on a Farm Packlist Item's
 	# under_pack_reason field -- exported so a fresh deploy has them too.
 	{"dt": "Under Pack Reason"},

@@ -13,8 +13,58 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
-from upande_packhouse import roses_warehouse_map, stock_movement
+from upande_packhouse import stock_movement
 from upande_packhouse.item_groups import resolve_rose_item_groups
+from upande_packhouse.packing_guide import _group_key as _packing_guide_group_key
+
+
+def real_box_count_for_opl(opl_name):
+	"""Real physical box count for one OPL, from its Packing Guide (table_nade).
+
+	box_number is only unique WITHIN one packing_guide.sync_packing_guide()
+	group (each straight line is its own group; a mixed box/bunch group's
+	colours share one sequence only when they carry the same
+	custom_mix_group/custom_bunch_group -- see packing_guide._group_key), so a
+	bare count of distinct box_number across the WHOLE OPL silently collapses
+	separate groups' overlapping ranges into each other. Group by the same key
+	the write side used (namespaced by mixed_bunch/mixed_box so an unrelated
+	mix group and bunch group that happen to share a counter value, e.g. both
+	"1", never collide -- confirmed on real data, OPL-2026-00022), then count
+	distinct box_number PER group, and sum.
+	"""
+	guide_rows = frappe.get_all(
+		"Packing Guide", filters={"parent": opl_name}, fields=["sales_order_item", "box_number"]
+	)
+	if not guide_rows:
+		return 0
+	soi_names = list({r.sales_order_item for r in guide_rows if r.sales_order_item})
+	soi_flags = frappe.get_all(
+		"Sales Order Item",
+		filters={"name": ["in", soi_names]},
+		fields=[
+			"name",
+			"custom_mixed_bunch",
+			"custom_mixed_box",
+			"custom_bunch_group",
+			"custom_mix_group",
+			"custom_line",
+		],
+	)
+	soi_by_name = {d.name: d for d in soi_flags}
+	boxes_by_group = {}
+	for row in guide_rows:
+		soi = soi_by_name.get(row.sales_order_item)
+		if soi:
+			group = (
+				bool(soi.get("custom_mixed_bunch")),
+				bool(soi.get("custom_mixed_box")),
+				_packing_guide_group_key(soi),
+			)
+		else:
+			group = row.sales_order_item
+		boxes_by_group.setdefault(group, set()).add(row.box_number)
+	return sum(len(nums) for nums in boxes_by_group.values())
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # DOWNGRADE-AWARE PACKING
@@ -407,12 +457,21 @@ def createOrUpdateDispatch():
 	try:
 		data = frappe.request.get_json() or {}
 		delivery_date = data.get("delivery_date") or frappe.utils.add_days(frappe.utils.nowdate(), 1)
+		seal_number = (data.get("seal_number") or "").strip()
 		ls_name = "LS-" + str(delivery_date)
 
 		if not frappe.db.exists("Loading Sheet", ls_name):
 			frappe.response["data"] = {
 				"status": "error",
 				"message": "No loading sheet for " + str(delivery_date),
+			}
+		elif frappe.db.get_value("Loading Sheet", ls_name, "status") == "Departed":
+			# Dispatch is a one-time confirmation, not a repeatable save -- once
+			# the truck has departed for this date, this endpoint refuses to
+			# touch its Delivery Notes again rather than silently re-running.
+			frappe.response["data"] = {
+				"status": "error",
+				"message": "Dispatch for " + str(delivery_date) + " has already been confirmed and the truck marked departed.",
 			}
 		else:
 			ls = frappe.get_doc("Loading Sheet", ls_name)
@@ -541,20 +600,22 @@ def createOrUpdateDispatch():
 					# soi.warehouse is the farm's Receiving Cold Store (the
 					# Sales Order's own source, not a delivery target -- see
 					# spec_autofill.build_spec_rows / roses_warehouse_map.py).
-					# The Delivery Note deducts real stock, which only ever
-					# lands in the farm's GRADED SOLD warehouse (moved there
-					# when the Farm Pack List submitted -- farm_pack_list.py),
-					# so resolve that via Roses-MAP rather than using the
-					# coldstore warehouse directly (which would always fail
-					# to submit with a negative-stock error, since no real
-					# stock is ever left sitting in the coldstore once
-					# issued/packed).
-					graded_sold = roses_warehouse_map.graded_sold_warehouse(soi.warehouse) if soi else None
-					warehouse = (
-						graded_sold
-						or (soi.warehouse if soi else None)
-						or "Nanyuki Receiving Cold Store - UFL"
-					)
+					# By the time a Delivery Note is built, real stock has
+					# already walked the full SO Warehouse Mapping chain past
+					# Graded Sold -- Sold (allocation) -> Packing (issuing) ->
+					# Dispatch (staging) -> Loading (a box scanned onto the
+					# truck) -- so the Delivery Note must deduct from the
+					# LAST stage, Delivery Truck, resolved via the same
+					# mapping-driven routing stock_movement.py's other events
+					# use (stage_warehouse falls back to `source` itself when
+					# a farm has no mapped route at all, same as every other
+					# caller of this function -- no hardcoded warehouse name
+					# stands in for a missing mapping).
+					warehouse = None
+					if soi and soi.warehouse:
+						warehouse = stock_movement.stage_warehouse(
+							soi.warehouse, "Roses", stage=stock_movement.LAST_STAGE
+						)
 					# Item rows built by hand here never go through the Desk
 					# form's own item-picker JS (the only place that
 					# normally resolves these), and Delivery Note's
@@ -700,6 +761,14 @@ def createOrUpdateDispatch():
 					}
 				)
 
+			# Confirming dispatch is a one-time action, not a resave: record the
+			# truck's seal number and mark the sheet Departed so a repeat call
+			# for this date is refused above (see the Departed check at the top)
+			# rather than silently rebuilding these Delivery Notes again.
+			ls.seal_number = seal_number
+			ls.status = "Departed"
+			ls.save(ignore_permissions=True)
+
 			frappe.db.commit()
 
 			# Reflect what actually happened -- this used to always say
@@ -726,6 +795,8 @@ def createOrUpdateDispatch():
 				"message": message,
 				"delivery_notes": results,
 				"skipped_unstaged": skipped_unstaged,
+				"seal_number": seal_number,
+				"dispatched": True,
 			}
 	except Exception as e:
 		frappe.db.rollback()
@@ -1405,9 +1476,11 @@ def dispatchBucketTrip():
 def fetchDispatchLoadedOrders():
 	# Fetch Dispatch Loaded Orders
 	# API: fetchDispatchLoadedOrders
-	# Loading defines dispatch: return the orders that have been LOADED (from the
-	# day's Loading Sheet LS-<delivery_date>), grouped by Sales Order and shown by
-	# order name. This is the read-only dispatch list.
+	# The dispatch "clipboard": every Sales Order planned for this delivery
+	# date, boxes REQUIRED (from its OPL's Packing Guide, real_box_count_for_opl)
+	# next to boxes LOADED so far (from the day's Loading Sheet LS-<delivery_date>)
+	# -- a planned order with nothing loaded yet still shows, at 0 loaded, so a
+	# gap is visible before dispatch is confirmed, not just what's already done.
 	# Param: delivery_date (optional; defaults to tomorrow, matching loading).
 	try:
 		delivery_date = frappe.form_dict.get("delivery_date") or frappe.utils.add_days(
@@ -1418,6 +1491,40 @@ def fetchDispatchLoadedOrders():
 		orders_by_so = {}
 		total_boxes = 0
 
+		# 1. PLANNED -- every Sales Order due this delivery date, with its real
+		# required box count (same source loading's own planning screen uses).
+		planned_sos = frappe.get_all(
+			"Sales Order",
+			filters={"delivery_date": delivery_date, "docstatus": 1},
+			fields=[
+				"name",
+				"customer",
+				"custom_order_name",
+				"custom_delivery_point",
+				"farm",
+				"custom_consignee",
+			],
+		)
+		for so in planned_sos:
+			opls = frappe.get_all(
+				"Order Pick List", filters={"sales_order": so.name, "docstatus": 1}, pluck="name"
+			)
+			boxes_required = sum(real_box_count_for_opl(opl_name) for opl_name in opls)
+			orders_by_so[so.name] = {
+				"sales_order": so.name,
+				"order_name": so.custom_order_name or so.name,
+				"customer": so.customer or "",
+				"delivery_point": so.custom_delivery_point or "",
+				"farm": so.farm or "",
+				"consignee": so.custom_consignee or "",
+				"boxes_required": boxes_required,
+				"boxes_loaded": 0,
+			}
+
+		# 2. LOADED -- actual boxes on the day's Loading Sheet, matched onto the
+		# planned order above by Sales Order; a loaded box whose order wasn't in
+		# the planned set (a customer/date mismatch) still gets its own row so
+		# nothing loaded is silently dropped from the clipboard.
 		if frappe.db.exists("Loading Sheet", ls_name):
 			ls_doc = frappe.get_doc("Loading Sheet", ls_name)
 			for it in ls_doc.items:
@@ -1452,6 +1559,7 @@ def fetchDispatchLoadedOrders():
 						"delivery_point": (bl.delivery_point or "") if bl else "",
 						"farm": (bl.farm or "") if bl else "",
 						"consignee": (bl.consignee or "") if bl else "",
+						"boxes_required": 0,
 						"boxes_loaded": 0,
 					}
 				orders_by_so[key]["boxes_loaded"] = orders_by_so[key]["boxes_loaded"] + 1
@@ -1459,12 +1567,24 @@ def fetchDispatchLoadedOrders():
 
 		orders = sorted(orders_by_so.values(), key=lambda o: (o["delivery_point"], o["order_name"]))
 
+		ls_status = ""
+		seal_number = ""
+		if frappe.db.exists("Loading Sheet", ls_name):
+			ls_row = frappe.db.get_value(
+				"Loading Sheet", ls_name, ["status", "seal_number"], as_dict=True
+			)
+			ls_status = ls_row.status or ""
+			seal_number = ls_row.seal_number or ""
+
 		frappe.response["message"] = {
 			"status": "success",
 			"message": "Loaded orders fetched",
 			"data": {
 				"delivery_date": str(delivery_date),
 				"loading_sheet": ls_name if frappe.db.exists("Loading Sheet", ls_name) else None,
+				"loading_sheet_status": ls_status,
+				"dispatched": ls_status == "Departed",
+				"seal_number": seal_number,
 				"total_boxes": total_boxes,
 				"total_orders": len(orders),
 				"orders": orders,
@@ -1602,18 +1722,50 @@ def fetchLoadingData():
 			so_name = so.name
 
 			# ALLOCATED -- this one OPL's own box count. Prefer the OPL's
-			# own Packing Guide (table_nade) -- one row per real (box,
-			# variety), so its distinct box_number count IS the real box
-			# count, not a guess. The old fallback re-derived box count as
-			# ceil(total_stems / packrate) reading a generic `packrate`
-			# field Pick List Item never actually populates (this app's
-			# real fields are custom_packrate / custom_packrate_mixed_box)
-			# -- always missing, so this always silently used a hardcoded
-			# packrate of 200 regardless of the box's real capacity. Kept
-			# only for an older OPL created before the Packing Guide existed.
-			guide_rows = frappe.get_all("Packing Guide", filters={"parent": opl_name}, pluck="box_number")
+			# own Packing Guide (table_nade). box_number is only unique
+			# WITHIN one packing_guide.sync_packing_guide() group -- each
+			# straight line is its own group, and a mixed box/bunch group's
+			# colours share one sequence only when they carry the same
+			# custom_mix_group/custom_bunch_group (see packing_guide._group_key)
+			# -- so a bare `set(box_number)` across the WHOLE OPL silently
+			# collapses SEPARATE groups' overlapping ranges into each other.
+			# Confirmed on real data: OPL-2026-00019 has 4 independent Mixed
+			# Box lines (no shared mix_group), each numbered 1..2 -- 8 real
+			# boxes read back as 2. Group by the same key the write side
+			# used, then count distinct box_number PER group, and sum.
+			guide_rows = frappe.get_all(
+				"Packing Guide", filters={"parent": opl_name}, fields=["sales_order_item", "box_number"]
+			)
 			if guide_rows:
-				boxes_allocated = len(set(guide_rows))
+				soi_names = list({r.sales_order_item for r in guide_rows if r.sales_order_item})
+				soi_flags = frappe.get_all(
+					"Sales Order Item",
+					filters={"name": ["in", soi_names]},
+					fields=[
+						"name",
+						"custom_mixed_bunch",
+						"custom_mixed_box",
+						"custom_bunch_group",
+						"custom_mix_group",
+						"custom_line",
+					],
+				)
+				soi_by_name = {d.name: d for d in soi_flags}
+				boxes_by_group = {}
+				for row in guide_rows:
+					soi = soi_by_name.get(row.sales_order_item)
+					if soi:
+						# Namespaced by kind: confirmed on real data (OPL-2026-00022)
+						# that custom_mix_group and custom_bunch_group are independent
+						# per-order counters that can both land on the same value
+						# (e.g. both "1") -- without the kind in the key, a mix group
+						# and an unrelated bunch group collide into one, under-counting
+						# again exactly like the bug above.
+						group = (bool(soi.get("custom_mixed_bunch")), bool(soi.get("custom_mixed_box")), _packing_guide_group_key(soi))
+					else:
+						group = row.sales_order_item
+					boxes_by_group.setdefault(group, set()).add(row.box_number)
+				boxes_allocated = sum(len(nums) for nums in boxes_by_group.values())
 			else:
 				total_stems = int(opl.custom_total_stems or 0)
 				packrate_data = frappe.get_all(

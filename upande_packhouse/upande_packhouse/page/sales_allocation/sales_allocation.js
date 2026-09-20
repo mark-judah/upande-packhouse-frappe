@@ -2561,112 +2561,13 @@ frappe.pages["sales-allocation"].confirm_allocation = function () {
 		frappe.msgprint("Select a packing team for: " + names.join(", "));
 		return;
 	}
-	// Every downgrade in this session gets reviewed before anything is written.
-	// Amber-expired buckets never open the per-bucket reason dialog (the reason is
-	// auto-stamped), so without this the allocator confirms downgrades they were
-	// never shown and cannot correct.
-	P._review_downgrades(valid_allocations, function () {
-		P._send_allocation(valid_allocations, teams);
-	});
-};
-
-// ─── REVIEW: DOWNGRADES BEFORE CONFIRM ───
-// Lists every downgraded bucket in the session with an editable reason. Calls
-// proceed() only once each one has a reason. No downgrades -> straight through.
-frappe.pages["sales-allocation"]._review_downgrades = function (allocations, proceed) {
-	const P = frappe.pages["sales-allocation"];
-	const downgrades = allocations.filter((a) => a.length_status === "downgrade");
-	if (!downgrades.length) {
-		proceed();
-		return;
-	}
-
-	const rows = downgrades
-		.map((a, i) => {
-			const item =
-				(P.order_items || []).find((it) => it.sales_order_item === a.sales_order_item) ||
-				{};
-			const batch = (item.batches || []).find((b) => b.bucket_id === a.bucket_id) || {};
-			const auto = batch.downgrade_approval === "amber_expired";
-			return `<tr>
-            <td>
-                <strong>${frappe.utils.escape_html(a.bucket_id || "")}</strong>
-                <div class="dgr-sub">${frappe.utils.escape_html(a.item_code || "")}${
-				batch.shelf_farm ? " · " + frappe.utils.escape_html(batch.shelf_farm) : ""
-			}${batch.age_days != null ? " · " + batch.age_days + "d" : ""}</div>
-            </td>
-            <td class="dgr-len">${frappe.utils.escape_html(
-				a.stem_length || "?"
-			)} &rarr; <strong>${frappe.utils.escape_html(
-				item.required_length || "?"
-			)}</strong></td>
-            <td class="dgr-qty">${(a.qty || 0).toLocaleString()}</td>
-            <td>
-                <input class="dgr-reason" data-idx="${i}" value="${frappe.utils.escape_html(
-				a.downgrade_reason || ""
-			)}" placeholder="Reason required">
-                ${auto ? '<div class="dgr-sub">auto — amber time expired</div>' : ""}
-            </td>
-        </tr>`;
-		})
-		.join("");
-
-	const total = downgrades.reduce((s, a) => s + (parseFloat(a.qty) || 0), 0);
-	const d = new frappe.ui.Dialog({
-		title: "Review downgrades",
-		size: "large",
-		fields: [
-			{
-				fieldtype: "HTML",
-				fieldname: "summary",
-				options: `
-                <style>
-                    .dgr-wrap table { width:100%; border-collapse:collapse; font-size:12px; }
-                    .dgr-wrap th { text-align:left; font-weight:600; color:var(--ink-mute); padding:4px 8px; border-bottom:1px solid var(--border-color); }
-                    .dgr-wrap td { padding:7px 8px; border-bottom:1px solid var(--border-color); vertical-align:top; }
-                    .dgr-sub { font-size:11px; color:var(--ink-mute); margin-top:2px; }
-                    .dgr-len, .dgr-qty { white-space:nowrap; }
-                    .dgr-reason { width:100%; border:1px solid var(--border-color); border-radius:6px; padding:4px 7px; font-size:12px; }
-                    .dgr-reason.is-bad { border-color:var(--red-400); }
-                </style>
-                <div class="dgr-wrap">
-                    <div style="background:var(--warn-soft);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--ink-3);">
-                        <strong>${
-							downgrades.length
-						}</strong> bucket(s) · <strong>${total.toLocaleString()}</strong> stems will be cut down to a shorter length.
-                    </div>
-                    <table>
-                        <thead><tr><th>Bucket</th><th>Length</th><th>Stems</th><th>Downgrade reason</th></tr></thead>
-                        <tbody>${rows}</tbody>
-                    </table>
-                </div>`,
-			},
-		],
-		primary_action_label: "Confirm allocation",
-		primary_action: function () {
-			const $inputs = d.$wrapper.find(".dgr-reason");
-			let bad = false;
-			$inputs.each(function () {
-				const val = ($(this).val() || "").trim();
-				$(this).toggleClass("is-bad", !val);
-				if (!val) bad = true;
-			});
-			if (bad) {
-				frappe.msgprint(__("Every downgraded bucket needs a reason."));
-				return;
-			}
-			$inputs.each(function () {
-				downgrades[parseInt($(this).data("idx"), 10)].downgrade_reason = (
-					$(this).val() || ""
-				).trim();
-			});
-			d.hide();
-			proceed();
-		},
-	});
-	d.$wrapper.addClass("ufd-sa");
-	d.$wrapper.find(".modal-dialog").addClass("ufd-sa-modal");
-	d.show();
+	// Every downgrade already has a reason by this point -- either typed into
+	// the per-bucket dialog when it was picked, into the bulk auto-allocate
+	// dialog, or auto-stamped "Amber time expired" for an amber-expired batch
+	// (see _execute_fifo) -- so re-showing them all in a second "Review
+	// downgrades" dialog here was purely duplicating a prompt the allocator
+	// had already answered. Removed; go straight to sending the allocation.
+	P._send_allocation(valid_allocations, teams);
 };
 
 frappe.pages["sales-allocation"]._send_allocation = function (valid_allocations, teams) {

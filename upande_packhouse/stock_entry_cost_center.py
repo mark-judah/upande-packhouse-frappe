@@ -33,20 +33,25 @@ GREENHOUSE_COST_CENTRE_TYPES = {
 # Stock Entry types for the post-harvest stage -- no greenhouse involved (the
 # bucket has already left the farm), so the cost centre comes from the item
 # row's own source warehouse (Warehouse.custom_cost_center) instead of
-# Stock Entry.custom_greenhouse. Add more post-harvest stock entry types here
-# as needed.
+# Stock Entry.custom_greenhouse. These are stock_movement.py's five named
+# pipeline legs (see its own STAGES/TYPE_* constants) -- every one of them is
+# a plain warehouse-to-warehouse Material Transfer with no greenhouse on it,
+# so all five belong here.
+#
+# "Remote Transfers" replaces this set's older "Farm Transfer"; "Move To
+# Graded Sold" and "Issuing From Cold Store" are this set's own original
+# names, revived as the LIVE types for the Sold and Packing legs (not just
+# recognised on old history anymore -- see stock_movement.py's TYPE_TO_SOLD/
+# TYPE_ISSUING). "Packing" and "Dispatch" (the Dispatch and Loading legs) are
+# newly covered here too -- they previously posted under the shared generic
+# "Material Transfer" type, which was never in this set, so those two legs
+# had NO cost-centre enforcement at all before this.
 POST_HARVEST_COST_CENTRE_TYPES = {
-	"Issue From The Cold Store",
-	# Farm Pack List submit -> Ungraded Sold -> Graded Sold (see
-	# farm_pack_list.py). Same post-harvest situation: no greenhouse, cost
-	# centre comes from the item row's own source warehouse (this time the
-	# farm's Ungraded Sold warehouse rather than its coldstore).
+	"Remote Transfers",
 	"Move To Graded Sold",
-	# Shelving a bucket at a different farm than it was received at (see
-	# roses_warehouse_map.transfer_to_farm_warehouse) -- same situation
-	# again: no greenhouse, cost centre comes from the coldstore it's
-	# being moved OUT of.
-	"Farm Transfer",
+	"Issuing From Cold Store",
+	"Packing",
+	"Dispatch",
 }
 
 
