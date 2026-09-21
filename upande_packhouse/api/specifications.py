@@ -17,6 +17,23 @@
 
 import frappe
 
+
+def _json_payload():
+	"""The client sends complex payloads as a single `data` field, JSON-
+	stringified before frappe.call() form-encodes the request (frappe.call
+	is jQuery.ajax under the hood: a plain object body always goes out as
+	application/x-www-form-urlencoded, never a raw JSON body) -- so
+	frappe.request.get_json() is the wrong read here: it 415s because the
+	actual Content-Type is never application/json. form_dict.data is the
+	real carrier."""
+	raw = frappe.form_dict.get("data")
+	if raw is None:
+		return {}
+	if isinstance(raw, str):
+		return frappe.parse_json(raw) or {}
+	return raw
+
+
 # Approved varieties are, by definition, cut flowers -- "Cut Flowers" is the
 # real parent Item Group in this system's tree (see Item Group tree in the
 # Desk). Scoping the picker to it (and everything nested under it) is a
@@ -360,7 +377,7 @@ def getSpecification():
 @frappe.whitelist()
 def saveSpecification():
 	try:
-		data = frappe.request.get_json() or {}
+		data = _json_payload()
 		name = data.get("name")
 
 		if name and frappe.db.exists("Specifications", name):
