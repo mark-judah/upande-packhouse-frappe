@@ -691,6 +691,10 @@ frappe.pages["sales-allocation"].make = function (page) {
 	P.item_filters = {};
 	P.item_teams = {};
 	P.order_team = "";
+	// Real Packing Teams (not a hardcoded list) -- populated by
+	// _populate_filter_options, which already bundles this in with the
+	// length/item-group option lists. See get_order_filter_options.
+	P.available_teams = P.available_teams || [""];
 	const tomorrow = frappe.datetime.add_days(frappe.datetime.get_today(), 1);
 	P.filters = {
 		search: "",
@@ -921,6 +925,12 @@ frappe.pages["sales-allocation"]._populate_filter_options = function () {
 			const o = (r && r.message) || {};
 			fill("#lengthFilter", o.lengths || [], P.filters.length, "All lengths");
 			fill("#itemGroupFilter", o.item_groups || [], P.filters.item_group, "All item groups");
+			// Real Packing Teams, bundled into this same response (see
+			// get_order_filter_options) rather than a separate async fetch --
+			// this call already gates real interaction with the page, so by
+			// the time an operator can select an order, this has landed.
+			P.available_teams = [""].concat(o.teams || []);
+			P.render_allocation_grid();
 		},
 	});
 };
@@ -1776,7 +1786,7 @@ frappe.pages["sales-allocation"]._render_detail_head = function (items) {
             <select class="item-team-select ${P.order_team || "" ? "is-set" : "is-unset"}"
                 onchange="frappe.pages['sales-allocation'].set_order_team(this.value)"
                 title="Packing team for this mixed order (applies to every line)">
-                ${["", "Team A", "Team B", "Jamafa", "Eldama", "Bravo"]
+                ${(P.available_teams || [""])
 					.map(
 						(t) =>
 							`<option value="${t}" ${
@@ -1941,7 +1951,7 @@ frappe.pages["sales-allocation"]._render_item_block = function (item) {
 	// ── Actions: auto-allocate, substitute, team
 	const can_fifo = remaining > 0 && batches.some((b) => (b.available_qty || 0) > 0);
 	const _curTeam = (P.item_teams && P.item_teams[item.sales_order_item]) || "";
-	const teams = ["", "Team A", "Team B", "Jamafa", "Eldama", "Bravo"];
+	const teams = P.available_teams || [""];
 	const actions = `
         ${
 			can_fifo

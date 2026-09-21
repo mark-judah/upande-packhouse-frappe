@@ -87,15 +87,28 @@ def _packed_stems_by_box_variety(fpl_doc):
 
 
 def fpl_pack_blockers(fpl_doc, opl_doc):
-	"""Human-readable list of what's still short; empty = fully packed."""
+	"""Human-readable list of what's still short; empty = fully packed.
+
+	A box carrying an Under Pack Reason was closed on purpose, short of its
+	packrate (see mobile/api.py's setPackListBoxUnderPackReason /
+	createPackingBypass callers) -- it must not keep blocking the WHOLE Farm
+	Pack List, and therefore every OTHER box's Box Label, from ever
+	submitting. sync_box_labels_for_fpl already labels each box with its
+	real packed stems, not the guide's target, so once excluded here the
+	under-packed box gets a correct, honest label too.
+	"""
 	guide_rows = opl_doc.get("table_nade") or []
 	if not guide_rows:
 		return ["Order Pick List has no Packing Guide rows"]
 
 	packed = _packed_stems_by_box_variety(fpl_doc)
+	under_packed_boxes = {int(r.box_id or 0) or 1 for r in fpl_doc.pack_list_item if r.under_pack_reason}
 	short = []
 	for row in guide_rows:
-		key = (int(row.box_number or 0), row.variety)
+		box_no = int(row.box_number or 0)
+		if box_no in under_packed_boxes:
+			continue
+		key = (box_no, row.variety)
 		have = packed.get(key, 0)
 		need = row.stems or 0
 		if have < need - 0.001:

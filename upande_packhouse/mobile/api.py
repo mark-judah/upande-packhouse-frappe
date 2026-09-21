@@ -66,6 +66,43 @@ def real_box_count_for_opl(opl_name):
 	return sum(len(nums) for nums in boxes_by_group.values())
 
 
+def missing_staged_boxes_for_date(delivery_date):
+	"""Box Labels staged for this delivery date's own Sales Orders that never
+	made it onto the Loading Sheet (staged=1, loaded=0) -- these are boxes a
+	picker pulled into the dispatch coldstore that the truck is about to
+	leave without. Dispatch has no business confirming while any exist:
+	before this, createOrUpdateDispatch only ever looked at what WAS on the
+	Loading Sheet, never at what was staged but silently left behind.
+	"""
+	so_names = frappe.get_all(
+		"Sales Order", filters={"delivery_date": delivery_date, "docstatus": 1}, pluck="name"
+	)
+	if not so_names:
+		return []
+	opl_names = frappe.get_all(
+		"Order Pick List", filters={"sales_order": ["in", so_names], "docstatus": 1}, pluck="name"
+	)
+	if not opl_names:
+		return []
+	rows = frappe.get_all(
+		"Box Label",
+		filters={"order_pick_list": ["in", opl_names], "staged": 1, "loaded": 0},
+		fields=["name", "box_number", "order_pick_list", "customer", "delivery_point", "staging_location"],
+		order_by="delivery_point asc, customer asc, box_number asc",
+	)
+	return [
+		{
+			"box_label": r.name,
+			"box_number": r.box_number,
+			"order_pick_list": r.order_pick_list,
+			"customer": r.customer or "",
+			"delivery_point": r.delivery_point or "",
+			"staging_location": r.staging_location or "",
+		}
+		for r in rows
+	]
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # DOWNGRADE-AWARE PACKING
 #
@@ -394,6 +431,12 @@ def createLoadingEntry():
 								"box_label_link": box_label_name,
 								"position": position,
 								"loaded": 1,
+								# The operator's cold-chain temperature reading at the
+								# moment THIS box was loaded -- was read from the
+								# request and then discarded, never written anywhere
+								# (confirmed: no field on Loading Sheet or Loading
+								# Sheet Item held it before now).
+								"temperature": temperature,
 							},
 						)
 
@@ -459,9 +502,10 @@ def createOrUpdateDispatch():
 		delivery_date = data.get("delivery_date") or frappe.utils.add_days(frappe.utils.nowdate(), 1)
 		seal_number = (data.get("seal_number") or "").strip()
 		ls_name = "LS-" + str(delivery_date)
+		missing_boxes = missing_staged_boxes_for_date(delivery_date)
 
 		if not frappe.db.exists("Loading Sheet", ls_name):
-			frappe.response["data"] = {
+			frappe.response["message"] = {
 				"status": "error",
 				"message": "No loading sheet for " + str(delivery_date),
 			}
@@ -469,9 +513,21 @@ def createOrUpdateDispatch():
 			# Dispatch is a one-time confirmation, not a repeatable save -- once
 			# the truck has departed for this date, this endpoint refuses to
 			# touch its Delivery Notes again rather than silently re-running.
-			frappe.response["data"] = {
+			frappe.response["message"] = {
 				"status": "error",
 				"message": "Dispatch for " + str(delivery_date) + " has already been confirmed and the truck marked departed.",
+			}
+		elif missing_boxes:
+			# A picker pulled these into the dispatch coldstore (staged=1) but
+			# they never got scanned onto the truck -- confirming dispatch now
+			# would leave them behind with no record of why. Block outright
+			# rather than warn-and-allow, and hand back exactly which boxes
+			# (with their staging location) so the operator can go get them.
+			frappe.response["message"] = {
+				"status": "error",
+				"message": str(len(missing_boxes)) + " staged box(es) for " + str(delivery_date)
+				+ " have not been loaded yet. Load them before confirming dispatch.",
+				"missing_boxes": missing_boxes,
 			}
 		else:
 			ls = frappe.get_doc("Loading Sheet", ls_name)
@@ -790,7 +846,7 @@ def createOrUpdateDispatch():
 					len(skipped_unstaged), ", ".join(skipped_unstaged)
 				)
 
-			frappe.response["data"] = {
+			frappe.response["message"] = {
 				"status": "success",
 				"message": message,
 				"delivery_notes": results,
@@ -801,7 +857,7 @@ def createOrUpdateDispatch():
 	except Exception as e:
 		frappe.db.rollback()
 		frappe.log_error("createOrUpdateDispatch (DN) error", str(e))
-		frappe.response["data"] = {"status": "error", "message": str(e)}
+		frappe.response["message"] = {"status": "error", "message": str(e)}
 
 
 @frappe.whitelist()
@@ -1343,15 +1399,141 @@ def setPackListBoxUnderPackReason():
 			frappe.db.set_value("Farm Packlist Item", row_name, "under_pack_reason", reason)
 		frappe.db.commit()
 
+		# Closing this box may be the LAST thing this Farm Pack List was
+		# waiting on -- nothing else re-checks completion once packing on an
+		# under-packed box has stopped for good, so without this it could sit
+		# in draft forever with no Box Label ever generated for ANY of its
+		# boxes (confirmed live: FPL-2026-00013 stuck exactly this way).
+		from upande_packhouse.farm_pack_list import sync_and_maybe_submit_fpl
+
+		fpl_submitted, fpl_box_labels = sync_and_maybe_submit_fpl(fpl_name)
+
 		frappe.response["data"] = {
 			"status": "success",
 			"message": f"Reason saved for box {box_id}",
 			"docname": fpl_name,
 			"rows_updated": len(row_names),
+			"fpl_submitted": fpl_submitted,
+			"box_labels": fpl_box_labels,
 		}
 	except Exception as e:
 		frappe.log_error(message=str(e), title="Farm Pack List Under Pack Reason Error")
 		frappe.throw(_("Error saving reason:") + " " + str(e))
+
+
+@frappe.whitelist()
+def getPackingBypassReasons():
+	"""List the Packing Bypass Reason master, for the packing app's bypass picker."""
+	reasons = frappe.get_all(
+		"Packing Bypass Reason",
+		fields=["name", "reason", "description"],
+		order_by="reason asc",
+	)
+	frappe.response["data"] = reasons
+
+
+def _opl_traceability(order_pick_list_id):
+	"""Distinct greenhouse, harvester, and supervisor NAMES (lists) off the
+	OPL's own buckets' Harvesting/Grading entries -- a bypassed bunch's own QR
+	can't be read (that is the whole reason it's being bypassed), so this
+	reports who/where fed this OPL overall rather than the one bunch, the
+	same traceability query api/stem_movement.py uses per bucket.
+
+	Greenhouse/harvester come from Harvesting entries only (the field the
+	bunch was actually cut in). Supervisor is broader -- whoever was LOGGED
+	IN and submitted either the Harvesting or the Grading entry, which is a
+	different person from the harvester/grader picked on that entry (those
+	are Employee dropdown picks, not the app's own session user).
+	"""
+	if not frappe.get_meta("Pick List Item").get_field("bucket"):
+		return [], [], []
+	bucket_ids = frappe.get_all(
+		"Pick List Item",
+		filters={"parent": order_pick_list_id, "parenttype": "Order Pick List", "bucket": ["is", "set"]},
+		pluck="bucket",
+	)
+	bucket_ids = sorted({b for b in bucket_ids if b})
+	if not bucket_ids:
+		return [], [], []
+
+	harvest_rows = frappe.get_all(
+		"Stock Entry",
+		filters={"custom_bucket_id": ["in", bucket_ids], "stock_entry_type": "Harvesting", "docstatus": 1},
+		fields=["custom_greenhouse", "custom_harvester", "owner"],
+	)
+	greenhouses = sorted({r.custom_greenhouse for r in harvest_rows if r.custom_greenhouse})
+	harvesters = sorted({r.custom_harvester for r in harvest_rows if r.custom_harvester})
+
+	grading_rows = frappe.get_all(
+		"Stock Entry",
+		filters={"custom_bucket_id": ["in", bucket_ids], "stock_entry_type": "Grading", "docstatus": 1},
+		fields=["owner"],
+	)
+	supervisors = sorted({r.owner for r in harvest_rows if r.owner} | {r.owner for r in grading_rows if r.owner})
+	return greenhouses, harvesters, supervisors
+
+
+@frappe.whitelist()
+def createPackingBypass():
+	"""Log a packing bypass: the operator can't scan a bunch (damaged/missing
+	QR code, or it was never graded) but still needs to record how many
+	bunches had the issue so packing can move on. This ONLY writes the audit
+	log -- it does not touch the Farm Pack List/box tally itself, which the
+	app still updates the normal way (createOrUpdateFarmPackList), exactly
+	as a manually-entered pack would.
+	"""
+	try:
+		data = frappe.request.get_json() or {}
+		order_pick_list_id = data.get("order_pick_list")
+		box_id = str(data.get("box_id") or "1")
+		reason = (data.get("reason") or "").strip()
+		bunches = data.get("bunches")
+
+		if not order_pick_list_id:
+			frappe.throw(_("Order Pick List is required"))
+		if not reason:
+			frappe.throw(_("Reason is required"))
+		if not frappe.db.exists("Packing Bypass Reason", reason):
+			frappe.throw(_("Unknown Packing Bypass Reason: {0}").format(reason))
+		try:
+			bunches_val = int(bunches)
+		except Exception:
+			bunches_val = 0
+		if bunches_val <= 0:
+			frappe.throw(_("Enter a bunches count greater than zero."))
+
+		greenhouses, harvesters, supervisors = _opl_traceability(order_pick_list_id)
+		# Derived server-side, not trusted from the client -- the app only
+		# knows the pick-list line's WAREHOUSE (a Receiving Cold Store), not
+		# a real Farm doctype name, so a client-supplied value would fail
+		# this Link field's validation.
+		sales_order = frappe.db.get_value("Order Pick List", order_pick_list_id, "sales_order")
+		farm = frappe.db.get_value("Sales Order", sales_order, "farm") if sales_order else None
+
+		doc = frappe.new_doc("Packing Bypass Log")
+		doc.order_pick_list = order_pick_list_id
+		doc.box_id = box_id
+		doc.reason = reason
+		doc.bunches = bunches_val
+		doc.farm = farm
+		doc.packed_by = frappe.session.user
+		for gh in greenhouses:
+			doc.append("greenhouses", {"greenhouse": gh})
+		for hv in harvesters:
+			doc.append("harvesters", {"harvester": hv})
+		for sv in supervisors:
+			doc.append("supervisors", {"supervisor": sv})
+		doc.insert(ignore_permissions=True)
+		frappe.db.commit()
+
+		frappe.response["data"] = {
+			"status": "success",
+			"message": f"Bypass logged for box {box_id} ({bunches_val} bunch(es)).",
+			"docname": doc.name,
+		}
+	except Exception as e:
+		frappe.log_error(message=str(e), title="Packing Bypass Log Error")
+		frappe.throw(_("Error logging packing bypass:") + " " + str(e))
 
 
 @frappe.whitelist()
@@ -1576,6 +1758,11 @@ def fetchDispatchLoadedOrders():
 			ls_status = ls_row.status or ""
 			seal_number = ls_row.seal_number or ""
 
+		# Surfaced here too (not just as a rejection from createOrUpdateDispatch)
+		# so the clipboard shows the gap before the operator even tries to
+		# confirm dispatch.
+		missing_boxes = missing_staged_boxes_for_date(delivery_date)
+
 		frappe.response["message"] = {
 			"status": "success",
 			"message": "Loaded orders fetched",
@@ -1588,6 +1775,7 @@ def fetchDispatchLoadedOrders():
 				"total_boxes": total_boxes,
 				"total_orders": len(orders),
 				"orders": orders,
+				"missing_boxes": missing_boxes,
 			},
 		}
 	except Exception as e:
@@ -1641,6 +1829,7 @@ def fetchLoadingData():
 						"delivery_point": bl_dp,
 						"position": ls_item.position or 0,
 						"farm_pack_list": ls_item.farm_pack_list or "",
+						"temperature": ls_item.temperature or 0,
 					}
 				)
 
@@ -1801,11 +1990,22 @@ def fetchLoadingData():
 
 			# STAGED (currently staged, not yet loaded -- a WIP count for
 			# "how many boxes are sitting in the coldstore ready to load"),
-			# scoped to this OPL's own Box Labels.
-			boxes_staged = (
-				frappe.db.count("Box Label", filters={"order_pick_list": opl_name, "staged": 1, "loaded": 0})
-				or 0
+			# scoped to this OPL's own Box Labels. staged_boxes carries the
+			# individual boxes too (number + where in the coldstore it was
+			# scanned staged, from createStagingEntry's location QR) so the
+			# loading screen can tell the operator WHERE to physically find
+			# each one, not just how many are left.
+			staged_box_rows = frappe.get_all(
+				"Box Label",
+				filters={"order_pick_list": opl_name, "staged": 1, "loaded": 0},
+				fields=["box_number", "staging_location"],
+				order_by="box_number asc",
 			)
+			boxes_staged = len(staged_box_rows)
+			staged_boxes = [
+				{"box_number": r.box_number, "staging_location": r.staging_location or ""}
+				for r in staged_box_rows
+			]
 
 			# LOADED
 			bl_loaded = frappe.db.count("Box Label", filters={"order_pick_list": opl_name, "loaded": 1}) or 0
@@ -1853,6 +2053,7 @@ def fetchLoadingData():
 				"boxes_packed": boxes_packed,
 				"boxes_staged": boxes_staged,
 				"boxes_loaded": boxes_loaded,
+				"staged_boxes": staged_boxes,
 			}
 			opl_stats_cache[opl_name] = stats
 			return stats
@@ -1910,6 +2111,18 @@ def fetchLoadingData():
 
 				stop_key = customer + "|" + delivery_point
 				ls_stop_loaded = ls_loaded_by_stop.get(stop_key, 0)
+				# A stop's Loading Plan can have MORE box-position rows than
+				# there are real OPLs to pair them with -- packing hasn't
+				# necessarily produced one for every planned box yet (confirmed
+				# on real data: Freight Wings/FRESH EXCHANGE FZE(USD) had 27
+				# rows worth 29 planned boxes but only 2 real OPLs so far,
+				# covering 4 packed/loaded boxes). `stop_has_any_orders` tells
+				# the two fallbacks below whether this is that ordinary
+				# "still catching up" case (some real OPLs exist) or the fully
+				# degraded case (a customer/SO name mismatch left NONE of the
+				# stop's rows matched at all).
+				stop_has_any_orders = len(opl_queue) > 0
+				stop_loaded_fallback_used = False
 
 				for row_idx, item in enumerate(stop_rows):
 					position = item.loading_position or 0
@@ -1921,16 +2134,33 @@ def fetchLoadingData():
 
 					orders = [get_opl_stats(so, opl) for so, opl in assigned]
 
-					item_boxes_allocated = sum(o["boxes_allocated"] for o in orders)
 					item_boxes_packed = sum(o["boxes_packed"] for o in orders)
 					item_boxes_staged = sum(o["boxes_staged"] for o in orders)
 					item_boxes_loaded = sum(o["boxes_loaded"] for o in orders)
 
-					# Degraded-data fallback only: no OPL could be matched to
-					# this row at all (e.g. a customer/SO name mismatch), but
-					# the Loading Sheet still has loaded boxes for this stop.
-					if not orders and ls_stop_loaded > 0:
-						item_boxes_loaded = ls_stop_loaded
+					if orders:
+						item_boxes_allocated = sum(o["boxes_allocated"] for o in orders)
+					else:
+						# No OPL exists yet for this loading-plan position --
+						# packing hasn't caught up to it. The plan's OWN
+						# number_of_boxes is still real, known demand (it's
+						# what the truck was planned to carry here), so surface
+						# THAT instead of a misleading 0 -- a bare 0 read as
+						# "nothing required", which made a stop with only a
+						# few of its many boxes actually loaded show as fully
+						# "DONE" (0 required in the denominator satisfies
+						# "loaded >= required" immediately).
+						item_boxes_allocated = item_number_of_boxes
+						# The Loading Sheet's real loaded count for this stop
+						# only gets attributed here in the FULLY degraded case
+						# (no OPL matched ANY of the stop's rows), and only
+						# ONCE (the first such row) -- broadcasting it onto
+						# EVERY unmatched row re-added the same already-loaded
+						# boxes on top of each other, ballooning "loaded" far
+						# past "required" and triggering the same false "DONE".
+						if not stop_has_any_orders and ls_stop_loaded > 0 and not stop_loaded_fallback_used:
+							item_boxes_loaded = ls_stop_loaded
+							stop_loaded_fallback_used = True
 
 					plan_items.append(
 						{
@@ -1947,13 +2177,20 @@ def fetchLoadingData():
 						}
 					)
 
-		# 5. TOTALS -- summed over each UNIQUE OPL once (opl_stats_cache),
-		# never over plan_items/rows, which can repeat the same OPL. Stops
-		# likewise dedupes by (customer, delivery_point) -- several rows can
-		# share one real stop (see note above).
+		# 5. TOTALS -- packed/staged/loaded are summed over each UNIQUE OPL
+		# once (opl_stats_cache), never over plan_items/rows, which can
+		# repeat the same OPL. Allocated is summed over plan_items instead:
+		# every real OPL still appears in exactly one plan_item's row (either
+		# alone or bundled onto its stop's last row), so this is equal to
+		# summing opl_stats_cache PLUS each row's own number_of_boxes
+		# fallback for a position with no OPL yet -- without that, this
+		# truck-wide total silently excluded every not-yet-packed box,
+		# disagreeing with the per-stop totals above which DO count them.
+		# Stops likewise dedupes by (customer, delivery_point) -- several
+		# rows can share one real stop (see note above).
 		unique_stops = {(p["customer"], p["delivery_point"]) for p in plan_items}
 		totals = {
-			"total_boxes_allocated": sum(o["boxes_allocated"] for o in opl_stats_cache.values()),
+			"total_boxes_allocated": sum(p["boxes_allocated"] for p in plan_items),
 			"total_boxes_packed": sum(o["boxes_packed"] for o in opl_stats_cache.values()),
 			"total_boxes_staged": sum(o["boxes_staged"] for o in opl_stats_cache.values()),
 			"total_boxes_loaded": sum(o["boxes_loaded"] for o in opl_stats_cache.values()),
@@ -2713,6 +2950,24 @@ def getSchedulerMeta():
 
 	except Exception as e:
 		frappe.response["message"] = {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def getPackingTeams():
+	"""Canonical team list for the mobile app's team filters (Scheduler,
+	Packing, Issuing, Dashboard). Order Pick List.team / Pick List Item.team
+	are already declared as Link -> Packing Teams in their doctype JSON, but
+	every mobile screen was deriving its filter's OPTIONS from whatever team
+	strings happened to appear on already-loaded orders -- so a team with no
+	orders today (or not yet) never showed up as a choice at all, and there
+	was no single source of truth. This reads Packing Teams directly instead.
+	"""
+	try:
+		teams = frappe.get_all("Packing Teams", fields=["name"], order_by="name asc", pluck="name")
+		frappe.response["message"] = {"success": True, "teams": teams}
+	except Exception as e:
+		frappe.log_error("getPackingTeams error: " + str(e))
+		frappe.response["message"] = {"success": False, "error": str(e), "teams": []}
 
 
 @frappe.whitelist()
@@ -5071,3 +5326,243 @@ def getBucketReconciliation():
 	except Exception as e:
 		frappe.log_error("getBucketReconciliation failed", frappe.get_traceback())
 		frappe.response["message"] = {"status": "error", "message": str(e), "farms": []}
+
+
+@frappe.whitelist()
+def getPackhouseDashboardData():
+	"""Packhouse home-tab dashboard: boxes REQUIRED vs boxes PACKED for one
+	delivery date (defaults to tomorrow -- the same day packing.tsx defaults
+	to, since packing always works a day ahead of dispatch), the same
+	"expected vs actual" reconciliation shape upande-production's own
+	dashboard uses for harvested-vs-received. Reuses real_box_count_for_opl
+	(the fixed, group-aware box count) for "required", and the same
+	COUNT(DISTINCT box_id) Farm Packlist Item query get_opl_stats uses (see
+	fetchLoadingData) for "packed".
+
+	Team and packer performance ride on fields nothing else in the app reads:
+	Order Pick List.team is a plain free-text field (Team A / Team B, not a
+	Link) already set at pick time, and Farm Packlist Item has no explicit
+	packer column at all -- but every row still carries the framework's own
+	"owner" (who actually saved it), which live data confirms is the real
+	packer's session user for every row (each FPL's rows were all created by
+	the one account that scanned them). Both are aggregated here rather than
+	added as new fields, since the data already exists.
+	"""
+	try:
+		delivery_date = frappe.form_dict.get("date") or frappe.utils.add_days(frappe.utils.today(), 1)
+		today = frappe.utils.today()
+
+		sales_orders = frappe.get_all(
+			"Sales Order",
+			filters={"delivery_date": delivery_date, "docstatus": 1},
+			fields=["name", "customer", "custom_order_name", "custom_delivery_point", "farm"],
+		)
+
+		orders_out = []
+		total_required = 0
+		total_packed = 0
+		total_stems_packed = 0
+		total_stems_expected = 0
+		variety_stems = {}
+		farms_seen = set()
+		teams = {}
+		packers = {}
+
+		def _team_bucket(label):
+			return teams.setdefault(
+				label,
+				{
+					"boxes_required": 0,
+					"boxes_packed": 0,
+					"stems_expected": 0,
+					"stems_packed": 0,
+					"orders_total": 0,
+					"orders_done": 0,
+				},
+			)
+
+		for so in sales_orders:
+			opl_rows = frappe.get_all(
+				"Order Pick List",
+				filters={"sales_order": so.name, "docstatus": 1},
+				fields=["name", "team", "custom_total_stems"],
+			)
+
+			# Each OPL carries its OWN team, so team stats are accumulated per
+			# OPL below -- crediting a whole Sales Order's totals to every
+			# team touching any of its OPLs would double-count boxes/stems
+			# whenever a single order is split across two teams.
+			required = 0
+			stems_expected = 0
+			packed_boxes = 0
+			stems_packed = 0
+			team_labels = set()
+
+			for o in opl_rows:
+				opl_required = real_box_count_for_opl(o.name)
+				try:
+					opl_stems_expected = int(float(o.custom_total_stems or 0))
+				except (TypeError, ValueError):
+					opl_stems_expected = 0
+
+				opl_packed_boxes = 0
+				opl_stems_packed = 0
+				fpl_names = frappe.get_all(
+					"Farm Pack List", filters={"order_pick_list": o.name}, pluck="name"
+				)
+				if fpl_names:
+					box_row = frappe.db.sql(
+						"""
+						SELECT COUNT(DISTINCT box_id) AS n
+						FROM `tabFarm Packlist Item`
+						WHERE parent IN %(fpls)s AND bunch_qty > 0
+						""",
+						{"fpls": fpl_names},
+						as_dict=True,
+					)
+					opl_packed_boxes = int(box_row[0].n or 0) if box_row else 0
+
+					item_rows = frappe.get_all(
+						"Farm Packlist Item",
+						filters={"parent": ["in", fpl_names]},
+						fields=["item_code", "stock_qty", "owner"],
+					)
+					for r in item_rows:
+						qty = r.stock_qty or 0
+						opl_stems_packed += qty
+						if r.item_code:
+							variety_stems[r.item_code] = variety_stems.get(r.item_code, 0) + qty
+						if r.owner and qty:
+							p = packers.setdefault(r.owner, {"stems": 0, "bunches": 0})
+							p["stems"] += qty
+							p["bunches"] += 1
+
+				required += opl_required
+				stems_expected += opl_stems_expected
+				packed_boxes += opl_packed_boxes
+				stems_packed += opl_stems_packed
+
+				label = (o.team or "").strip() or "Unassigned"
+				team_labels.add(label)
+				bucket = _team_bucket(label)
+				bucket["boxes_required"] += opl_required
+				bucket["boxes_packed"] += opl_packed_boxes
+				bucket["stems_expected"] += opl_stems_expected
+				bucket["stems_packed"] += opl_stems_packed
+
+			total_required += required
+			total_packed += packed_boxes
+			total_stems_packed += stems_packed
+			total_stems_expected += stems_expected
+			if so.farm:
+				farms_seen.add(so.farm)
+
+			order_done = required > 0 and packed_boxes >= required
+
+			# orders_total/orders_done are a distinct, order-level metric --
+			# an order counts toward every team whose OPL it included, unlike
+			# the per-OPL box/stem sums above which always foot to the total.
+			for label in sorted(team_labels):
+				bucket = _team_bucket(label)
+				bucket["orders_total"] += 1
+				if order_done:
+					bucket["orders_done"] += 1
+
+			orders_out.append(
+				{
+					"sales_order": so.name,
+					"order_name": so.custom_order_name or so.name,
+					"customer": so.customer or "",
+					"delivery_point": so.custom_delivery_point or "",
+					"farm": so.farm or "",
+					"team": ", ".join(sorted(team_labels)),
+					"boxes_required": required,
+					"boxes_packed": packed_boxes,
+				}
+			)
+
+		orders_out.sort(key=lambda o: (o["delivery_point"], o["order_name"]))
+		orders_done = sum(
+			1 for o in orders_out if o["boxes_required"] > 0 and o["boxes_packed"] >= o["boxes_required"]
+		)
+
+		# Packing issues logged TODAY -- the reject-tile analogue on the
+		# production dashboard. Bypass logs are their own doctype (one per
+		# report); under-pack reasons are stamped onto Farm Packlist Item
+		# rows, so count distinct (OPL, box) pairs closed today instead of
+		# raw rows (one box can carry several item rows).
+		bypass_count = frappe.db.count("Packing Bypass Log", filters={"creation": [">=", today]})
+		underpack_row = frappe.db.sql(
+			"""
+			SELECT COUNT(DISTINCT fpl.order_pick_list, fpi.box_id) AS n
+			FROM `tabFarm Packlist Item` fpi
+			JOIN `tabFarm Pack List` fpl ON fpl.name = fpi.parent
+			WHERE fpi.under_pack_reason IS NOT NULL AND fpi.under_pack_reason != ''
+			  AND fpl.creation >= %(today)s
+			""",
+			{"today": today},
+			as_dict=True,
+		)
+		underpack_count = int(underpack_row[0].n or 0) if underpack_row else 0
+		# Share of REQUIRED boxes that ended up under-packed, not a share of
+		# orders -- matches the box-level granularity underpack_count itself
+		# already counts at.
+		underpack_percentage = round((underpack_count / total_required) * 100, 1) if total_required else 0.0
+
+		top_varieties = sorted(variety_stems.items(), key=lambda kv: kv[1], reverse=True)[:8]
+
+		# Resolve packer identities via User.full_name (falls back to the
+		# raw account name for service/API users with none set).
+		packer_names = {}
+		if packers:
+			user_rows = frappe.get_all(
+				"User", filters={"name": ["in", list(packers.keys())]}, fields=["name", "full_name"]
+			)
+			for u in user_rows:
+				packer_names[u.name] = u.full_name or u.name
+
+		packer_list = [
+			{"user": user, "name": packer_names.get(user, user), "stems": v["stems"], "bunches": v["bunches"]}
+			for user, v in packers.items()
+		]
+		packer_list.sort(key=lambda p: p["stems"], reverse=True)
+		top_packers = packer_list[:5]
+		bottom_packers = sorted(packer_list, key=lambda p: p["stems"])[:5] if len(packer_list) > 5 else []
+
+		team_list = [
+			{
+				"team": label,
+				"boxes_required": t["boxes_required"],
+				"boxes_packed": t["boxes_packed"],
+				"stems_expected": t["stems_expected"],
+				"stems_packed": t["stems_packed"],
+				"orders_total": t["orders_total"],
+				"orders_done": t["orders_done"],
+			}
+			for label, t in teams.items()
+		]
+		team_list.sort(key=lambda t: t["stems_packed"], reverse=True)
+
+		frappe.response["message"] = {
+			"delivery_date": str(delivery_date),
+			"kpi": {
+				"boxes_required": total_required,
+				"boxes_packed": total_packed,
+				"stems_expected": total_stems_expected,
+				"stems_packed": total_stems_packed,
+				"orders_total": len(orders_out),
+				"orders_done": orders_done,
+				"bypass_issues": bypass_count,
+				"underpack_issues": underpack_count,
+				"underpack_percentage": underpack_percentage,
+				"farms": len(farms_seen),
+			},
+			"orders": orders_out,
+			"top_varieties": [{"item_code": k, "stems": v} for k, v in top_varieties],
+			"teams": team_list,
+			"top_packers": top_packers,
+			"bottom_packers": bottom_packers,
+		}
+	except Exception as e:
+		frappe.log_error("getPackhouseDashboardData error: " + str(e))
+		frappe.response["message"] = {"error": str(e)}

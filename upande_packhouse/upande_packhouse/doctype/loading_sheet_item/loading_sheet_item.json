@@ -13,7 +13,8 @@
   "customer",
   "position",
   "vehicle",
-  "box_label_link"
+  "box_label_link",
+  "temperature"
  ],
  "fields": [
   {
@@ -65,6 +66,13 @@
    "fieldname": "box_label_link",
    "fieldtype": "Data",
    "label": "Box Label Link"
+  },
+  {
+   "fieldname": "temperature",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Temperature (°C)",
+   "precision": "1"
   }
  ],
  "grid_page_length": 50,

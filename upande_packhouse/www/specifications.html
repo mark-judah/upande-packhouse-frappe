@@ -1,0 +1,852 @@
+{% extends "templates/web.html" %}
+{% block page_content %}
+{% raw %}
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0a0a0a;--ink-1:#1a1a18;--ink-2:#2a2a26;--ink-3:#3a3a34;--ink-4:#5a5a52;--ink-mute:#8a8780;--ink-faint:#b8b6ae;
+  --bg:#f4f3ef;--surface:#fafaf6;--surface-2:#ffffff;
+  --hairline:rgba(10,10,10,0.06);--hairline-2:rgba(10,10,10,0.10);
+  --shadow-card:0 1px 0 rgba(10,10,10,0.04),0 8px 32px -16px rgba(10,10,10,0.10);
+  --shadow-hover:0 1px 0 rgba(10,10,10,0.06),0 24px 48px -24px rgba(10,10,10,0.18);
+  --signal:#228883;--signal-soft:rgba(34,136,131,0.10);
+  --violet:#7c5cfc;--violet-soft:#f0ecfe;
+  --good:#1a8a3a;--good-soft:#e6f9ee;--warn:#9a5a00;--warn-soft:#fff3e0;--bad:#c4302b;--bad-soft:#fde8ec;
+  --grad-ink:linear-gradient(135deg,#0a0a0a 0%,#3a3a34 100%);
+  --sans:'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --display:'Fraunces',Georgia,serif;
+  --mono:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;
+  --sidebar-w:248px;--sidebar-cw:74px;
+}
+html,body{margin:0!important;padding:0!important;overflow:hidden!important;height:100vh!important}
+.navbar,header,.page-breadcrumbs,.page-header,.page-header-wrapper,.web-footer,footer,
+.website-edit-button,.btn-edit-page,.edit-page-btn,.scroll-to-top,.back-to-top,
+.website-banner,.call-to-action,.frappe-chat,#frappe-chat,.telegram-share,.share-buttons,
+.web-page-edit,.published-edit{display:none!important}
+.aph *{box-sizing:border-box;margin:0;padding:0}
+.aph{position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100vh;z-index:2147483000;
+  font-family:var(--sans);background:var(--bg);color:var(--ink-3);font-size:13px;line-height:1.55;-webkit-font-smoothing:antialiased;
+  display:grid;grid-template-columns:var(--sidebar-w) 1fr;transition:grid-template-columns .22s cubic-bezier(.4,0,.2,1)}
+.aph.collapsed{grid-template-columns:var(--sidebar-cw) 1fr}
+.aph svg.ic{width:16px;height:16px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+
+/* ══ MAIN (topbar/content/cards/table -- same classes as the rest of the suite) ══ */
+.aph-main{min-width:0;height:100vh;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column}
+.aph-content{flex:1;padding:32px 40px 64px}
+.aph-topbar{background:var(--surface-2);border-bottom:1px solid var(--hairline);padding:14px 40px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:10}
+.aph-topbar h1{font:600 17px var(--sans);color:var(--ink);letter-spacing:-.3px}
+.aph-topbar .crumb{color:var(--ink-mute);font:500 11px var(--sans);text-transform:uppercase;letter-spacing:1.4px;padding-left:16px;border-left:1px solid var(--hairline);height:16px;line-height:16px}
+.aph-topbar .right{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.collapse-btn{width:36px;height:36px;border:0;background:transparent;border-radius:10px;display:grid;place-items:center;cursor:pointer;color:var(--ink-4);flex:0 0 auto}
+.collapse-btn:hover{background:rgba(10,10,10,0.05);color:var(--ink)}
+.aph .form-control{height:38px;padding:0 14px;font:500 12.5px var(--sans);background:var(--surface-2);border:0;box-shadow:var(--shadow-card);border-radius:999px;color:var(--ink);outline:0}
+.aph .btn{padding:0 16px;height:38px;border:0;background:var(--surface-2);color:var(--ink);border-radius:999px;font:600 12.5px var(--sans);cursor:pointer;display:inline-flex;align-items:center;gap:7px;box-shadow:var(--shadow-card);transition:transform .18s ease}
+.aph .btn:hover{transform:translateY(-1px)}
+.aph .btn-primary{background:var(--grad-ink);color:#fafaf6;box-shadow:0 4px 14px rgba(10,10,10,0.2)}
+.aph .btn-danger{background:var(--bad-soft);color:var(--bad)}
+.aph .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+
+.aph-page-hd{margin-bottom:26px}
+.aph-page-hd .eyebrow{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:2.2px;color:var(--ink-mute);margin-bottom:12px;display:inline-flex;align-items:center;gap:10px}
+.aph-page-hd .eyebrow::before{content:"";width:18px;height:1px;background:var(--ink-3)}
+.aph-page-hd .ttl{font:600 36px/1.05 var(--sans);color:var(--ink);letter-spacing:-1.2px}
+.aph-page-hd .sub{margin-top:10px;font-size:14px;color:var(--ink-4)}
+
+.aph-card{background:var(--surface-2);border-radius:24px;box-shadow:var(--shadow-card);overflow:hidden;box-sizing:border-box;width:100%;min-width:0;margin-bottom:18px}
+.aph-card-hd{padding:24px 30px 0;display:flex;align-items:center;gap:14px}
+.aph-card-hd .ttl{font:600 17px var(--sans);color:var(--ink);letter-spacing:-.3px}
+.aph-card-hd .sub{color:var(--ink-mute);font:500 12px var(--sans)}
+.aph-card-body{padding:22px 30px 28px}
+.aph-card-body.padless{padding:0}
+
+table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.aph-tbl th{text-align:left;padding:14px 22px;font:600 10px var(--sans);color:var(--ink-mute);letter-spacing:1.4px;text-transform:uppercase;border-bottom:1px solid var(--hairline);white-space:nowrap}
+.aph-tbl td{padding:14px 22px;border-bottom:1px solid var(--hairline);color:var(--ink-3)}
+.aph-tbl tr:last-child td{border-bottom:0}
+.aph-tbl tbody tr{transition:background .15s ease;cursor:pointer}
+.aph-tbl tbody tr:hover td{background:rgba(10,10,10,0.02)}
+.aph-tbl td.num,.aph-tbl th.num{text-align:right;font-feature-settings:'tnum'}
+.aph-empty{padding:48px;text-align:center;color:var(--ink-mute);font-size:13px}
+.aph-loading{padding:60px;text-align:center;color:var(--ink-mute);font-size:12px}
+.aph-err{background:var(--ink);color:#fafaf6;padding:14px 18px;border-radius:14px;font-size:12px;margin-bottom:16px;font-family:var(--mono)}
+.aph .label{display:inline-block;padding:3px 11px;font:600 11px var(--sans);border-radius:999px;letter-spacing:.02em}
+.aph .label-success{background:var(--good-soft);color:var(--good)}
+.aph .label-default{background:rgba(10,10,10,0.04);color:var(--ink-4)}
+.aph .label-info{background:var(--signal-soft);color:var(--signal)}
+
+/* ══ Sidebar (identical to the rest of the suite) ══ */
+.aph-side{background:var(--surface-2);border-right:1px solid var(--hairline);height:100vh;position:sticky;top:0;display:flex;flex-direction:column;overflow:hidden}
+.aph-side .brand{padding:20px 18px 16px;display:flex;align-items:center;gap:12px;text-decoration:none}
+.aph-side .brand .logo{height:26px;width:auto;flex:0 0 auto;display:block}
+.aph-side .brand .name{font:600 14px var(--sans);color:var(--ink);line-height:1.15;letter-spacing:-.2px;white-space:nowrap;overflow:hidden}
+.aph-side .brand .name small{display:block;font:500 10px var(--sans);text-transform:uppercase;letter-spacing:1.6px;color:var(--ink-mute);margin-top:2px}
+.aph-side .nav{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:6px 0 16px;margin:0;list-style:none;display:flex;flex-direction:column;flex-wrap:nowrap!important}
+.aph-side .group-lbl{padding:16px 20px 6px;font:600 10px var(--sans);color:var(--ink-mute);letter-spacing:1.8px;text-transform:uppercase;display:block;white-space:nowrap;overflow:hidden}
+.aph-side .group-lbl:first-child{padding-top:8px}
+.aph-side .nav-item{display:flex;align-items:center;gap:12px;padding:10px 12px;cursor:pointer;font:500 13px var(--sans);color:var(--ink-4);user-select:none;transition:background .18s ease,color .18s ease;margin:2px 10px;border-radius:12px;box-sizing:border-box;text-decoration:none;white-space:nowrap;overflow:hidden}
+.aph-side .nav-item:hover{background:rgba(10,10,10,0.04);color:var(--ink);text-decoration:none}
+.aph-side .nav-item.active{background:var(--grad-ink);color:#fafaf6;box-shadow:0 4px 14px rgba(10,10,10,0.20)}
+.aph-side .home-link{display:flex;align-items:center;gap:12px;margin:2px 10px 6px;padding:10px 12px;border-radius:12px;font:500 13px var(--sans);color:var(--ink-4);text-decoration:none;background:rgba(10,10,10,0.04);white-space:nowrap;overflow:hidden}
+.aph-side .home-link:hover{background:var(--ink);color:#fafaf6;text-decoration:none}
+.aph-side .footer{padding:14px 18px;border-top:1px solid var(--hairline);display:flex;align-items:center;gap:11px;font-size:11px;color:var(--ink-4)}
+.aph-side .footer .av{width:30px;height:30px;border-radius:50%;background:var(--grad-ink);color:#fafaf6;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12px;flex:0 0 auto}
+.aph-side .footer .who{flex:1;line-height:1.25;overflow:hidden}
+.aph-side .footer .who .nm{font-weight:600;color:var(--ink);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph-side .footer .who .em{font-size:10px;color:var(--ink-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph.collapsed .aph-side .brand{padding:20px 0 16px;justify-content:center}
+.aph.collapsed .aph-side .brand .name,.aph.collapsed .aph-side .group-lbl,.aph.collapsed .aph-side .nav-item span,
+.aph.collapsed .aph-side .home-link span,.aph.collapsed .aph-side .footer .who{display:none}
+.aph.collapsed .aph-side .nav-item,.aph.collapsed .aph-side .home-link{justify-content:center;margin-left:14px;margin-right:14px;padding:11px 0;gap:0}
+.aph.collapsed .aph-side .footer{justify-content:center;padding:14px 0}
+
+/* ══ Specifications page -- content specific ══ */
+.spec-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap}
+.spec-toolbar .search{flex:1;min-width:200px}
+.spec-toolbar .search input{width:100%}
+
+.customer-group{margin-bottom:14px}
+.customer-group-hd{display:flex;align-items:center;gap:10px;padding:18px 24px;cursor:pointer;user-select:none}
+.customer-group-hd:hover{background:rgba(10,10,10,0.02)}
+.customer-group-hd .chevron{transition:transform .18s ease;color:var(--ink-mute);flex:0 0 auto}
+.customer-group-hd .chevron.open{transform:rotate(90deg)}
+.customer-group-hd .cg-name{font:600 14px var(--sans);color:var(--ink);letter-spacing:-.2px}
+.customer-group-hd .cg-count{margin-left:auto;font:600 11px var(--sans);color:var(--ink-mute);background:var(--bg);padding:3px 10px;border-radius:999px}
+
+.spec-field-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:16px 18px}
+.spec-field label{display:block;font:600 10px var(--sans);letter-spacing:.6px;text-transform:uppercase;color:var(--ink-mute);margin-bottom:7px}
+.spec-field label .req{color:var(--bad);font-weight:600;text-transform:none;letter-spacing:0;margin-left:4px}
+.spec-field select,.spec-field input{width:100%;border:1px solid var(--hairline-2);background:var(--bg);color:var(--ink);border-radius:10px;padding:9px 11px;font:500 13px var(--sans)}
+.spec-field select:focus,.spec-field input:focus{outline:2px solid var(--signal);outline-offset:1px}
+.spec-field.check{display:flex;align-items:center;gap:8px;margin-top:auto}
+.spec-field.check label{margin:0;text-transform:none;font:500 12.5px var(--sans);color:var(--ink-3);letter-spacing:0}
+.spec-field .typeahead-wrap{position:relative}
+.spec-field .typeahead-results{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--surface-2);border-radius:12px;box-shadow:var(--shadow-hover);max-height:220px;overflow-y:auto;z-index:50;display:none}
+.spec-field .typeahead-results.show{display:block}
+.spec-field .typeahead-results .opt{padding:9px 12px;font:500 12.5px var(--sans);cursor:pointer;color:var(--ink-3)}
+.spec-field .typeahead-results .opt:hover{background:rgba(10,10,10,0.04)}
+
+/* Bunch ledger, reusing .aph-tbl's structure with a merged bunch column */
+.ledger-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table.bunch-ledger{width:100%;min-width:820px;border-collapse:collapse}
+.bunch-ledger th{text-align:left;padding:12px 16px;font:600 10px var(--sans);color:var(--ink-mute);letter-spacing:1.2px;text-transform:uppercase;border-bottom:1px solid var(--hairline);white-space:nowrap}
+.bunch-ledger th.num{text-align:right}
+.bunch-ledger td{padding:10px 16px;border-bottom:1px solid var(--hairline);vertical-align:middle}
+.bunch-ledger tbody tr:first-child td{border-top:0}
+/* Hard rule + tint change at every bunch boundary -- rows within one bunch
+   read as one thing, and it's obvious where the next bunch begins. */
+.bunch-ledger tr.bunch-start td{border-top:3px solid var(--ink)}
+/* Every bunch, not just every other one, gets a tint -- two alternating
+   design-system accents (signal / violet) so a run of same-type bunches
+   (all Mono, or a long Mixed bunch's many single-component rows) still
+   reads as distinct blocks instead of one undifferentiated slab. */
+.bunch-ledger tr.bunch-even td{background:var(--signal-soft)}
+.bunch-ledger tr.bunch-even td.bunch-cell{background:rgba(34,136,131,0.16);border-left:4px solid var(--signal)}
+.bunch-ledger tr.bunch-odd td{background:var(--violet-soft)}
+.bunch-ledger tr.bunch-odd td.bunch-cell{background:rgba(124,92,252,0.16);border-left:4px solid var(--violet)}
+
+td.bunch-cell{background:var(--bg);vertical-align:top;padding:14px 16px;width:300px}
+.bunch-cell .top-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.bunch-cell .num{font:600 14px var(--display);color:var(--ink)}
+.bunch-id-input{flex:1;min-width:0;border:1px dashed var(--hairline-2);background:var(--surface-2);color:var(--ink);border-radius:8px;padding:6px 9px;font:600 14px var(--display)}
+.bunch-id-input:focus{outline:2px solid var(--signal);outline-offset:1px}
+.bunch-id-input::placeholder{color:var(--ink-faint);font:500 11px var(--sans)}
+.bunch-id-input.is-blank{border-color:var(--warn);background:var(--warn-soft)}
+.bunch-cell .type-pill{font:600 9.5px var(--sans);letter-spacing:.4px;padding:3px 9px;border-radius:999px}
+.bunch-cell .type-pill.mono{background:var(--warn-soft);color:var(--warn)}
+.bunch-cell .type-pill.mixed{background:var(--violet-soft);color:var(--violet)}
+.bunch-cell .type-toggle{display:flex;gap:4px;margin-bottom:11px}
+.bunch-cell .type-toggle button{border:1px solid var(--hairline-2);background:var(--surface-2);color:var(--ink-mute);font:600 9px var(--sans);padding:5px 7px;border-radius:7px;cursor:pointer}
+.bunch-cell .type-toggle button.on{background:var(--ink);color:#fafaf6;border-color:var(--ink)}
+.bunch-cell .structure{display:grid;grid-template-columns:1fr 1fr;gap:7px 9px;padding-top:10px;border-top:1px dashed var(--hairline-2)}
+.bunch-cell .structure .f label{display:block;font:600 8px var(--sans);letter-spacing:.4px;text-transform:uppercase;color:var(--ink-faint);margin-bottom:3px}
+.bunch-cell .structure .f select,.bunch-cell .structure .f input{width:100%;border:1px solid var(--hairline-2);background:var(--surface-2);color:var(--ink);border-radius:7px;padding:5px 6px;font:600 11px var(--sans)}
+.bunch-cell .cutstage{margin-top:8px;font-size:10.5px;color:var(--ink-mute)}
+.bunch-cell .subtotal{display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;padding-top:9px;border-top:1px dashed var(--hairline-2)}
+.bunch-cell .subtotal .k{font:600 9px var(--sans);letter-spacing:.4px;text-transform:uppercase;color:var(--ink-mute)}
+.bunch-cell .subtotal .v{font:700 15px var(--mono);color:var(--ink-3)}
+.bunch-cell .bunch-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;padding-top:9px;border-top:1px dashed var(--hairline-2)}
+.bunch-cell .row-link{font:600 11px var(--sans);color:var(--signal);cursor:pointer;background:none;border:0;padding:0}
+.bunch-cell .rm-bunch{font:600 11px var(--sans);color:var(--bad);cursor:pointer;background:none;border:0;padding:0}
+
+.swatch{width:11px;height:11px;border-radius:50%;flex:0 0 auto;border:1px solid var(--hairline-2);display:inline-block}
+.variety-cell{position:relative}
+.variety-cell-label{font:600 9px var(--sans);letter-spacing:.5px;text-transform:uppercase;color:var(--warn);margin-bottom:6px}
+.variety-cell-label.mixed{color:var(--violet)}
+.variety-cell-label .hint{font-weight:500;text-transform:none;letter-spacing:0;color:var(--ink-faint)}
+.variety-link-value{display:flex;align-items:center;gap:7px;background:var(--surface-2);border:1px solid var(--hairline-2);border-radius:8px;padding:7px 10px}
+.variety-link-value .vv-name{font:600 12.5px var(--sans);color:var(--ink);flex:1}
+.variety-link-value .rm{border:0;background:none;color:var(--signal);font:600 10px var(--sans);cursor:pointer;white-space:nowrap;padding:0}
+.variety-picker-wrap{position:relative}
+.variety-chips{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-bottom:6px}
+.vchip{display:flex;align-items:center;gap:5px;background:var(--bg);border:1px solid var(--hairline-2);border-radius:999px;padding:3px 9px;font:600 11px var(--sans)}
+.vchip .rm{border:0;background:none;color:var(--ink-faint);cursor:pointer;font-size:10px}
+.variety-search{border:1px solid var(--hairline-2);background:var(--surface-2);border-radius:8px;padding:6px 9px;font:500 12px var(--sans);width:100%;max-width:220px}
+.variety-search-results{position:absolute;top:100%;left:0;background:var(--surface-2);border-radius:10px;box-shadow:var(--shadow-hover);max-height:240px;overflow-y:auto;z-index:500;min-width:240px;display:none}
+.variety-search-results.show{display:block}
+.variety-search-results .opt{display:flex;align-items:center;gap:7px;padding:8px 10px;font:500 12px var(--sans);cursor:pointer}
+.variety-search-results .opt:hover{background:rgba(10,10,10,0.04)}
+
+.num-input{width:100%;border:1px solid var(--hairline-2);background:var(--surface-2);border-radius:8px;padding:6px 8px;font:600 12.5px var(--mono);color:var(--ink);text-align:right}
+.total-cell{font:700 13.5px var(--mono);color:var(--signal);text-align:right}
+.rowmenu{border:0;background:none;color:var(--ink-faint);cursor:pointer;font-size:13px}
+.rowmenu:hover{color:var(--bad)}
+.add-bunch-bar{padding:14px 16px;background:var(--bg);text-align:center}
+.add-bunch-bar button{border:1px dashed var(--hairline-2);background:transparent;color:var(--ink-mute);border-radius:10px;padding:9px 18px;font:600 12px var(--sans);cursor:pointer}
+.add-bunch-bar button:hover{border-color:var(--signal);color:var(--signal)}
+tr.grand-total td{background:var(--bg);border-top:2px solid var(--ink);padding:14px 16px}
+tr.grand-total .glabel{font:700 11px var(--sans);letter-spacing:.6px;text-transform:uppercase;color:var(--ink)}
+tr.grand-total .total-cell{font-size:18px;color:var(--ink)}
+
+.consumable-block{padding:12px 0;border-bottom:1px solid var(--hairline);display:flex;flex-direction:column;gap:8px}
+.consumable-block:last-of-type{border-bottom:none}
+.consumable-line{display:grid;gap:10px;align-items:start}
+.consumable-line.top{grid-template-columns:1fr 1.6fr 1fr 26px}
+.consumable-line.bottom{grid-template-columns:1.6fr 110px 110px}
+.consumable-line select,.consumable-line input{border:1px solid var(--hairline-2);background:var(--surface-2);color:var(--ink);border-radius:8px;padding:7px 8px;font:500 12px var(--sans);width:100%}
+.consumable-item-wrap{position:relative}
+.consumable-item-wrap .item-hint{font-size:10px;color:var(--ink-mute);margin-top:3px;padding-left:2px}
+.add-consumable-btn{border:1px dashed var(--hairline-2);background:transparent;color:var(--ink-mute);border-radius:10px;padding:9px;font:600 12px var(--sans);cursor:pointer;width:100%;margin-top:8px}
+.add-consumable-btn:hover{border-color:var(--signal);color:var(--signal)}
+
+.editor-actions{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:4px}
+.back-link{display:inline-flex;align-items:center;gap:6px;font:600 12.5px var(--sans);color:var(--ink-mute);cursor:pointer;background:none;border:0;margin-bottom:16px}
+.back-link:hover{color:var(--ink)}
+.legend{display:flex;gap:16px;margin-top:12px;font-size:11px;color:var(--ink-mute);flex-wrap:wrap}
+.legend span{display:flex;align-items:center;gap:5px}
+.legend .sw{width:8px;height:8px;border-radius:2px}
+
+@media (max-width: 900px){
+  html,body{overflow:auto!important}
+  .aph,.aph.collapsed{display:flex;flex-direction:column;position:fixed;grid-template-columns:none}
+  .aph-side{width:100%;height:auto;position:relative;flex:0 0 auto;border-right:0;border-bottom:1px solid var(--hairline);overflow:visible}
+  .aph-side .nav{flex-direction:row;align-items:center;overflow-x:auto;overflow-y:hidden;padding:0 8px 8px}
+  .aph-side .group-lbl{display:none}
+  .aph-side .nav-item{flex:0 0 auto;margin:0 3px;white-space:nowrap;padding:9px 14px}
+  .aph-side .footer{display:none}
+  .collapse-btn{display:none}
+  .aph-main{flex:1 1 auto;height:auto;min-height:0}
+  .aph-topbar{position:static;flex-wrap:wrap;gap:10px;padding:12px 16px}
+  .aph-topbar .crumb{display:none}
+  .aph-topbar .right{margin-left:0;width:100%}
+  .aph-content{padding:18px 16px 40px}
+  .aph-page-hd .ttl{font-size:26px}
+}
+</style>
+
+<div class="aph">
+  {% endraw %}{% set active_page = "specifications" %}{% include "upande_packhouse/templates/includes/packhouse_sidebar.html" %}{% raw %}
+
+  <div class="aph-main">
+    <div class="aph-topbar">
+      <button class="collapse-btn" id="collapseBtn" title="Toggle sidebar" aria-label="Toggle sidebar">
+        <svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <h1>Specifications</h1>
+      <span class="crumb">Reference</span>
+      <div class="right" id="topbarRight"></div>
+    </div>
+
+    <div class="aph-content">
+      <div class="aph-page-hd">
+        <div class="eyebrow">Karen Roses · Packhouse</div>
+        <div class="ttl" id="pageTitle">Specifications</div>
+        <div class="sub" id="pageSub">Customer box-build specs — bunches, approved varieties and consumables, in one place.</div>
+      </div>
+
+      <div id="errBanner"></div>
+      <div id="viewRoot"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = 'upande_packhouse.api.specifications.';
+let VIEW = 'list';           // 'list' | 'editor'
+let SPECS = [];
+let LIST_QUERY = '';
+let LIST_CUSTOMER = '';
+let LIST_STATUS = '';
+let LIST_SPEC_TYPE = '';
+let ALL_CUSTOMERS = [];      // every customer that has at least one spec -- for the filter dropdown
+let COLLAPSED_CUSTOMERS = new Set();
+let CURRENT = null;          // spec object shaped like the API's getSpecification/saveSpecification payload
+let OPTIONS = { stem_lengths: [], box_types: [], cut_stages: [] };
+let SAVING = false;
+
+const DEFOLIATION_OPTIONS = ['10','12','15','20','25','WHOLE']; // real Select field options (schema, not master data)
+const RUBBER_BAND_OPTIONS = ['Spiral','Single Round','Double Round'];
+const APP_LEVEL_OPTIONS = ['Bunch','Box'];
+const CONSUMABLE_TYPES = ['Sleeve','Label','Tag','Flower Food','Rubber Band','SFK Liner','Newsprint','Staple Pins','Afritape'];
+
+function apiCall(method, args, cb){
+    frappe.call({ method: API + method, args: args || {}, callback: r => cb(r.message || {}), error: () => cb({success:false, error:'Request failed'}) });
+}
+function apiGet(method, params, cb){
+    frappe.call({ method: API + method, type: 'GET', args: params || {}, callback: r => cb(r.message || {}), error: () => cb({success:false, error:'Request failed'}) });
+}
+
+// ---------- search dropdowns (variety / consumable item / customer) ----------
+// Every one of these dropdowns lives inside a `<td>` that can be much taller
+// than the input itself (rowspan'd bunch cells, wrapped chip rows) and often
+// inside a horizontally-scrolling table. Positioning them with CSS
+// (position:absolute relative to the cell) put them far from the input and
+// let the scroll container clip them. Fixed positioning computed from the
+// input's own bounding box escapes both problems entirely.
+let OPEN_DROPDOWN = null; // { input, dropdownEl }
+
+function positionDropdown(input, dropdownEl){
+    const rect = input.getBoundingClientRect();
+    dropdownEl.style.left = Math.max(4, rect.left) + 'px';
+    dropdownEl.style.top = (rect.bottom + 4) + 'px';
+    dropdownEl.style.width = Math.max(rect.width, 240) + 'px';
+}
+function openDropdown(input, dropdownEl){
+    dropdownEl.style.position = 'fixed';
+    positionDropdown(input, dropdownEl);
+    dropdownEl.classList.add('show');
+    OPEN_DROPDOWN = { input, dropdownEl };
+}
+function closeDropdown(dropdownEl){
+    dropdownEl.classList.remove('show');
+    if(OPEN_DROPDOWN && OPEN_DROPDOWN.dropdownEl === dropdownEl) OPEN_DROPDOWN = null;
+}
+// `true` = capture phase, so this fires for scrolling inside ANY nested
+// container (.ledger-scroll, .aph-main, ...) -- scroll events don't bubble.
+window.addEventListener('scroll', () => { if(OPEN_DROPDOWN) positionDropdown(OPEN_DROPDOWN.input, OPEN_DROPDOWN.dropdownEl); }, true);
+window.addEventListener('resize', () => { if(OPEN_DROPDOWN) positionDropdown(OPEN_DROPDOWN.input, OPEN_DROPDOWN.dropdownEl); });
+// Options use onmousedown+preventDefault (not onclick) specifically so a
+// click never blurs the input first -- that race was why picks silently
+// did nothing. Closing on outside click (rather than input blur) is the
+// other half of the same fix.
+document.addEventListener('mousedown', (e) => {
+    if(OPEN_DROPDOWN && !OPEN_DROPDOWN.dropdownEl.contains(e.target) && e.target !== OPEN_DROPDOWN.input){
+        closeDropdown(OPEN_DROPDOWN.dropdownEl);
+    }
+});
+
+function showErr(msg){
+    document.getElementById('errBanner').innerHTML = msg ? `<div class="aph-err">${escHtml(msg)}</div>` : '';
+}
+function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function nOr0(v){ const n = Number(v); return Number.isFinite(n) ? n : 0; }
+
+// ---------- boot ----------
+function boot(){
+    apiGet('getSpecificationOptions', {}, r => {
+        if(r.success){ OPTIONS = { stem_lengths: r.stem_lengths||[], box_types: r.box_types||[], cut_stages: r.cut_stages||[] }; }
+        apiGet('listSpecificationCustomers', {}, r2 => {
+            if(r2.success) ALL_CUSTOMERS = r2.customers || [];
+            loadList();
+        });
+    });
+}
+
+// ---------- list view ----------
+function loadList(){
+    VIEW = 'list';
+    apiGet('listSpecifications', { query: LIST_QUERY, customer: LIST_CUSTOMER, status: LIST_STATUS, spec_type: LIST_SPEC_TYPE }, r => {
+        if(!r.success){ showErr(r.error || 'Could not load specifications.'); SPECS = []; }
+        else { showErr(''); SPECS = r.specifications || []; }
+        render();
+    });
+}
+
+function renderTopbar(){
+    const el = document.getElementById('topbarRight');
+    if(VIEW==='list'){
+        el.innerHTML = `
+          <input class="form-control" style="width:180px" id="listSearch" placeholder="Search specs…" value="${escHtml(LIST_QUERY)}">
+          <select class="form-control" id="filterCustomer" style="width:170px">
+            <option value="">All customers</option>
+            ${ALL_CUSTOMERS.map(c => `<option value="${escHtml(c)}" ${c===LIST_CUSTOMER?'selected':''}>${escHtml(c)}</option>`).join('')}
+          </select>
+          <select class="form-control" id="filterStatus" style="width:120px">
+            <option value="">Any status</option>
+            <option value="Active" ${LIST_STATUS==='Active'?'selected':''}>Active</option>
+            <option value="Inactive" ${LIST_STATUS==='Inactive'?'selected':''}>Inactive</option>
+          </select>
+          <select class="form-control" id="filterSpecType" style="width:140px">
+            <option value="">Any spec type</option>
+            <option value="Permanent" ${LIST_SPEC_TYPE==='Permanent'?'selected':''}>Permanent</option>
+            <option value="Temporary" ${LIST_SPEC_TYPE==='Temporary'?'selected':''}>Temporary</option>
+          </select>
+          <button class="btn btn-primary" onclick="openEditor(null)">+ New spec</button>`;
+        document.getElementById('listSearch').addEventListener('input', function(){ LIST_QUERY = this.value; loadList(); });
+        document.getElementById('filterCustomer').addEventListener('change', function(){ LIST_CUSTOMER = this.value; loadList(); });
+        document.getElementById('filterStatus').addEventListener('change', function(){ LIST_STATUS = this.value; loadList(); });
+        document.getElementById('filterSpecType').addEventListener('change', function(){ LIST_SPEC_TYPE = this.value; loadList(); });
+    } else {
+        el.innerHTML = `<button class="btn" onclick="loadList()">← All specs</button>`;
+    }
+}
+
+function renderList(){
+    document.getElementById('pageTitle').textContent = 'Specifications';
+    document.getElementById('pageSub').textContent = 'Customer box-build specs — bunches, approved varieties and consumables, in one place.';
+    const root = document.getElementById('viewRoot');
+    if(!SPECS.length){
+        root.innerHTML = `<div class="aph-card"><div class="aph-empty">No specifications match these filters.</div></div>`;
+        return;
+    }
+    const groups = {};
+    const custOrder = [];
+    SPECS.forEach(s => {
+        const key = s.customer || 'No customer';
+        if(!groups[key]){ groups[key] = []; custOrder.push(key); }
+        groups[key].push(s);
+    });
+    custOrder.sort((a,b) => a.localeCompare(b));
+    root.innerHTML = custOrder.map(cust => renderCustomerGroup(cust, groups[cust])).join('');
+}
+
+function renderCustomerGroup(customer, specs){
+    const collapsed = COLLAPSED_CUSTOMERS.has(customer);
+    return `<div class="aph-card customer-group">
+      <div class="customer-group-hd" onclick="toggleCustomerGroup('${customer.replace(/'/g,"\\'")}')">
+        <svg class="ic chevron ${collapsed?'':'open'}" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+        <span class="cg-name">${escHtml(customer)}</span>
+        <span class="cg-count">${specs.length} spec${specs.length===1?'':'s'}</span>
+      </div>
+      ${collapsed ? '' : `<div class="aph-card-body padless"><div class="ledger-scroll"><table class="aph-tbl">
+        <thead><tr><th>Spec Name</th><th>Assortment</th><th>Type</th><th>Status</th><th>Updated</th></tr></thead>
+        <tbody>
+          ${specs.map(s => `
+            <tr onclick="openEditor('${s.name.replace(/'/g,"\\'")}')">
+              <td><strong style="color:var(--ink)">${escHtml(s.spec_name)}</strong></td>
+              <td>${escHtml(s.box_assortment || '—')}</td>
+              <td>${escHtml(s.spec_type || '—')}</td>
+              <td><span class="label ${s.status==='Active'?'label-success':'label-default'}">${escHtml(s.status||'—')}</span></td>
+              <td>${escHtml((s.modified||'').slice(0,16))}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table></div></div>`}
+    </div>`;
+}
+
+function toggleCustomerGroup(customer){
+    if(COLLAPSED_CUSTOMERS.has(customer)) COLLAPSED_CUSTOMERS.delete(customer);
+    else COLLAPSED_CUSTOMERS.add(customer);
+    renderList();
+}
+
+// ---------- editor: load ----------
+function openEditor(name){
+    if(!name){
+        CURRENT = {
+            name: null, spec_name: '', customer: '', ftnft: 'FT', spec_type: 'Permanent', status: 'Active',
+            box_assortment: 'Mono Box', cut_stage: '', defoliation_length: '', rubber_band_type: '',
+            rubber_band_distance_1: '', rubber_band_distance_2: '', max_colours_per_box: '',
+            consumables_charge: 0, documentation_charge: 0, certificate_of_origin: 0,
+            bunches: [], consumables: [],
+        };
+        VIEW = 'editor'; showErr(''); render();
+        return;
+    }
+    apiGet('getSpecification', { name: name }, r => {
+        if(!r.success){ showErr(r.error || 'Could not load that specification.'); return; }
+        CURRENT = r.specification;
+        VIEW = 'editor'; showErr(''); render();
+    });
+}
+
+// ---------- editor: render ----------
+function bunchSubtotal(b){ return (b.rows||[]).reduce((sum,r) => sum + nOr0(b.bunches_per_box)*nOr0(r.stems_per_bunch), 0); }
+function specGrandTotal(s){ return (s.bunches||[]).reduce((sum,b) => sum + bunchSubtotal(b), 0); }
+
+function renderEditor(){
+    const s = CURRENT;
+    document.getElementById('pageTitle').textContent = s.name ? s.spec_name : 'New Specification';
+    document.getElementById('pageSub').textContent = s.name ? s.name : 'Not saved yet';
+    const root = document.getElementById('viewRoot');
+    root.innerHTML = `
+      <div class="aph-card"><div class="aph-card-hd"><div class="ttl">Spec details</div></div>
+        <div class="aph-card-body">
+          <div class="spec-field-grid">
+            <div class="spec-field"><label>Spec Name</label><input id="f_spec_name" value="${escHtml(s.spec_name)}"></div>
+            <div class="spec-field"><label>Category Code</label><input id="f_category_code" value="${escHtml(s.category_code||'')}"></div>
+            <div class="spec-field typeahead-wrap"><label>Customer</label>
+              <input id="f_customer" class="typeahead-input" value="${escHtml(s.customer||'')}" placeholder="Search customer…" autocomplete="off">
+              <div class="typeahead-results" id="customerResults"></div>
+            </div>
+            <div class="spec-field"><label>FT / NFT</label><select id="f_ftnft">${selOpts(['FT','NFT'], s.ftnft)}</select></div>
+            <div class="spec-field"><label>Spec Type</label><select id="f_spec_type">${selOpts(['Permanent','Temporary'], s.spec_type)}</select></div>
+            <div class="spec-field"><label>Status</label><select id="f_status">${selOpts(['Active','Inactive'], s.status)}</select></div>
+            ${s.spec_type === 'Temporary' ? `
+            <div class="spec-field"><label>Valid From <span class="req">required</span></label><input id="f_valid_from" type="date" value="${escHtml(s.valid_from||'')}"></div>
+            <div class="spec-field"><label>Expiry Date <span class="req">required</span></label><input id="f_expiry_date" type="date" value="${escHtml(s.expiry_date||'')}"></div>
+            ` : ''}
+            <div class="spec-field"><label>Box Assortment</label><select id="f_box_assortment">${selOpts(['Mono Box','Mixed Box'], s.box_assortment)}</select></div>
+            <div class="spec-field"><label>Cut Stage</label><select id="f_cut_stage">${selOpts(OPTIONS.cut_stages, s.cut_stage)}</select></div>
+            <div class="spec-field"><label>Defoliation Length</label><select id="f_defoliation_length">${selOpts(DEFOLIATION_OPTIONS, s.defoliation_length)}</select></div>
+            ${s.box_assortment === 'Mixed Box' ? `
+            <div class="spec-field"><label>Min Colours / Box <span class="req">required</span></label><input id="f_min_colours_per_box" value="${escHtml(s.min_colours_per_box||'')}"></div>
+            <div class="spec-field"><label>Max Colours / Box <span class="req">required</span></label><input id="f_max_colours_per_box" value="${escHtml(s.max_colours_per_box||'')}"></div>
+            ` : ''}
+            <div class="spec-field"><label>Rubber Band Type</label><select id="f_rubber_band_type">${selOpts(RUBBER_BAND_OPTIONS, s.rubber_band_type)}</select></div>
+            <div class="spec-field"><label>Distance from Base</label><input id="f_rubber_band_distance_1" value="${escHtml(s.rubber_band_distance_1||'')}"></div>
+            <div class="spec-field"><label>2nd Band Distance</label><input id="f_rubber_band_distance_2" value="${escHtml(s.rubber_band_distance_2||'')}"></div>
+            <div class="spec-field check"><input type="checkbox" id="f_consumables_charge" ${s.consumables_charge?'checked':''}><label for="f_consumables_charge">Consumables Charge</label></div>
+            <div class="spec-field check"><input type="checkbox" id="f_documentation_charge" ${s.documentation_charge?'checked':''}><label for="f_documentation_charge">Documentation Charge</label></div>
+            <div class="spec-field check"><input type="checkbox" id="f_certificate_of_origin" ${s.certificate_of_origin?'checked':''}><label for="f_certificate_of_origin">Certificate of Origin</label></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="aph-card"><div class="aph-card-hd"><div class="ttl">Bunches</div><div class="sub">Every bunch's structure and which varieties fill it</div></div>
+        <div class="aph-card-body padless"><div class="ledger-scroll">${renderLedger(s)}</div></div>
+      </div>
+      <div class="legend">
+        <span><span class="sw" style="background:var(--warn)"></span>Mono bunch — one colour per row, several candidate varieties</span>
+        <span><span class="sw" style="background:var(--violet)"></span>Mixed bunch — every row a required, fixed component</span>
+        <span style="color:var(--signal)">Total = Stems/Bunch × Bunches/Box (that bunch's own value, shared by every row in it)</span>
+      </div>
+
+      <div class="aph-card"><div class="aph-card-hd"><div class="ttl">Consumables</div></div>
+        <div class="aph-card-body">${renderConsumables(s)}</div>
+      </div>
+
+      <div class="editor-actions">
+        <div>${s.name ? `<button class="btn btn-danger" onclick="deleteSpec()">Delete specification</button>` : ''}</div>
+        <div style="display:flex;gap:10px">
+          <button class="btn" onclick="loadList()">Cancel</button>
+          <button class="btn btn-primary" id="saveBtn" onclick="saveSpec()">${s.name ? 'Save changes' : 'Create specification'}</button>
+        </div>
+      </div>
+    `;
+    wireHeaderInputs();
+    wireCustomerTypeahead();
+}
+
+function selOpts(list, current){
+    return (list||[]).map(o => `<option value="${escHtml(o)}" ${o===current?'selected':''}>${escHtml(o)}</option>`).join('');
+}
+
+function wireHeaderInputs(){
+    const map = {
+        f_spec_name:'spec_name', f_category_code:'category_code', f_customer:'customer', f_ftnft:'ftnft', f_spec_type:'spec_type', f_status:'status',
+        f_box_assortment:'box_assortment', f_cut_stage:'cut_stage', f_defoliation_length:'defoliation_length',
+        f_min_colours_per_box:'min_colours_per_box', f_max_colours_per_box:'max_colours_per_box', f_rubber_band_type:'rubber_band_type',
+        f_rubber_band_distance_1:'rubber_band_distance_1', f_rubber_band_distance_2:'rubber_band_distance_2',
+        f_valid_from:'valid_from', f_expiry_date:'expiry_date',
+    };
+    // spec_type/box_assortment gate other fields' visibility (Temporary ->
+    // Valid From/Expiry Date, Mixed Box -> Min/Max Colours), so picking a
+    // new value there needs a full re-render, not just a state update.
+    const RERENDER_ON_CHANGE = new Set(['f_spec_type', 'f_box_assortment']);
+    Object.keys(map).forEach(id => {
+        const el = document.getElementById(id);
+        if(!el) return;
+        el.addEventListener('input', () => { CURRENT[map[id]] = el.value; });
+        el.addEventListener('change', () => {
+            CURRENT[map[id]] = el.value;
+            if(RERENDER_ON_CHANGE.has(id)) render();
+        });
+    });
+    ['consumables_charge','documentation_charge','certificate_of_origin'].forEach(f => {
+        const el = document.getElementById('f_'+f);
+        if(el) el.addEventListener('change', () => { CURRENT[f] = el.checked ? 1 : 0; });
+    });
+}
+
+function wireCustomerTypeahead(){
+    const input = document.getElementById('f_customer');
+    const results = document.getElementById('customerResults');
+    let t = null;
+    const run = () => {
+        openDropdown(input, results);
+        clearTimeout(t);
+        const q = input.value;
+        t = setTimeout(() => {
+            apiGet('searchCustomers', { query: q }, r => {
+                const list = (r.customers||[]);
+                results.innerHTML = list.length
+                    ? list.map(c => `<div class="opt" onmousedown="event.preventDefault(); pickCustomer('${c.name.replace(/'/g,"\\'")}')">${escHtml(c.customer_name||c.name)}</div>`).join('')
+                    : `<div class="opt" style="color:var(--ink-faint);cursor:default">No matching customers</div>`;
+                positionDropdown(input, results);
+            });
+        }, q ? 200 : 0);
+    };
+    input.addEventListener('focus', run);
+    input.addEventListener('input', run);
+}
+function pickCustomer(name){
+    CURRENT.customer = name;
+    document.getElementById('f_customer').value = name;
+    closeDropdown(document.getElementById('customerResults'));
+}
+
+// ---------- bunch ledger ----------
+function renderLedger(s){
+    const bunches = s.bunches || [];
+    let thead = `<thead><tr>
+        <th style="width:300px">Bunch</th>
+        <th>Approved varieties</th>
+        <th class="num" style="width:100px">Stems/Bch</th>
+        <th class="num" style="width:100px">Total</th>
+        <th style="width:26px"></th>
+      </tr></thead>`;
+
+    let body = '<tbody>';
+    if(bunches.length===0){
+        body += `<tr><td colspan="5" class="aph-empty" style="padding:28px">No bunches yet.</td></tr>`;
+    }
+    bunches.forEach((b, bi) => {
+        const isMixed = b.type === 'Mixed';
+        const subtotal = bunchSubtotal(b);
+        const rows = b.rows && b.rows.length ? b.rows : [{varieties:[], colour:'', stems_per_bunch:0}];
+        const parityClass = ' ' + (bi % 2 === 1 ? 'bunch-odd' : 'bunch-even');
+        rows.forEach((r, ri) => {
+            const trClass = (ri===0 && bi>0 ? 'bunch-start' : '') + parityClass;
+            body += `<tr${trClass ? ` class="${trClass.trim()}"` : ''}>`;
+            if(ri===0){
+                body += `<td class="bunch-cell" rowspan="${rows.length}">
+                  <div class="top-row">
+                    <input class="bunch-id-input ${b.id?'':'is-blank'}" value="${escHtml(b.id||'')}" placeholder="Bunch ID — e.g. 1" title="This is the real bunch_id field. Blank means it's blank in the doctype too — type a value to name/group this bunch." onchange="updateBunchField(${bi},'id',this.value)">
+                    <span class="type-pill ${isMixed?'mixed':'mono'}">${b.type.toUpperCase()}</span>
+                  </div>
+                  <div class="type-toggle">
+                    <button class="${!isMixed?'on':''}" onclick="setBunchType(${bi},'Mono')">MONO</button>
+                    <button class="${isMixed?'on':''}" onclick="setBunchType(${bi},'Mixed')">MIXED</button>
+                  </div>
+                  <div class="structure">
+                    <div class="f"><label>Length</label><select onchange="updateBunchField(${bi},'length',this.value)">${selOpts(OPTIONS.stem_lengths, b.length)}</select></div>
+                    <div class="f"><label>Bunches/Box</label><input class="tabular" value="${escHtml(b.bunches_per_box||'')}" onchange="updateBunchField(${bi},'bunches_per_box',this.value)"></div>
+                    <div class="f" style="grid-column:span 2"><label>Box Type</label><select onchange="updateBunchField(${bi},'box_type',this.value)">${selOpts(OPTIONS.box_types, b.box_type)}</select></div>
+                  </div>
+                  <div class="cutstage">Cut Stage: <b>${escHtml(s.cut_stage||'—')}</b> <span style="color:var(--ink-faint)">(from spec header)</span></div>
+                  <div class="subtotal"><span class="k">Bunch subtotal</span><span class="v">${subtotal}</span></div>
+                  <div class="bunch-actions">
+                    <button class="row-link" onclick="addRow(${bi})">+ ${isMixed?'component':'colour row'}</button>
+                    <button class="rm-bunch" onclick="removeBunch(${bi})">Remove bunch</button>
+                  </div>
+                </td>`;
+            }
+            body += renderVarietyCell(b, bi, r, ri);
+            body += `<td><input class="num-input" value="${escHtml(r.stems_per_bunch||'')}" onchange="updateRow(${bi},${ri},'stems_per_bunch',this.value)"></td>`;
+            body += `<td class="total-cell">${nOr0(b.bunches_per_box)*nOr0(r.stems_per_bunch)}</td>`;
+            body += `<td>${rows.length>1 ? `<button class="rowmenu" onclick="removeRow(${bi},${ri})">✕</button>` : ''}</td>`;
+            body += '</tr>';
+        });
+    });
+    body += `<tr><td colspan="5" class="add-bunch-bar"><button onclick="addBunch()">+ Add bunch</button></td></tr>`;
+    body += `<tr class="grand-total"><td colspan="3" class="glabel">Spec total — every bunch, every box</td><td class="total-cell">${specGrandTotal(s)}</td><td></td></tr>`;
+    body += '</tbody>';
+    return `<table class="bunch-ledger">${thead}${body}</table>`;
+}
+
+// A Mono row is a "colour slot": any number of candidate varieties, any one
+// of which may end up in the box (chosen later, at Sales Order time, from
+// live stock). A Mixed row is a required, fixed component: exactly one
+// variety, no substitutes. These are different enough real-world things
+// that they get visibly different widgets, not the same chip-adder with a
+// quirk for Mixed.
+function renderVarietyCell(b, bi, r, ri){
+    const isMixed = b.type === 'Mixed';
+    const key = bi + '-' + ri;
+    if(isMixed){
+        const picked = (r.varieties||[])[0];
+        return `<td class="variety-cell">
+            <div class="variety-cell-label mixed">Required variety <span class="hint">— exactly one, no substitutes</span></div>
+            ${picked ? `
+              <div class="variety-link-value">
+                ${swatchFor(r.colour)}<span class="vv-name">${escHtml(picked)}</span>
+                <button class="rm" onclick="removeVariety(${bi},${ri},0)">✕ change</button>
+              </div>
+            ` : `
+              <div class="variety-picker-wrap">
+                <input class="variety-search" placeholder="+ pick the required variety…" autocomplete="off"
+                  onfocus="onVarietySearch(this, ${bi}, ${ri})" oninput="onVarietySearch(this, ${bi}, ${ri})">
+                <div class="variety-search-results" id="vresults-${key}"></div>
+              </div>
+            `}
+          </td>`;
+    }
+    return `<td class="variety-cell">
+        <div class="variety-cell-label mono">Approved varieties <span class="hint">— any of these may be used</span></div>
+        <div class="variety-chips" id="chips-${key}">
+          ${(r.varieties||[]).map((v,vi) => `<span class="vchip">${swatchFor(r.colour)}${escHtml(v)}<button class="rm" onclick="removeVariety(${bi},${ri},${vi})">✕</button></span>`).join('')}
+        </div>
+        <div class="variety-picker-wrap">
+          <input class="variety-search" placeholder="+ add an approved variety…" autocomplete="off"
+            onfocus="onVarietySearch(this, ${bi}, ${ri})" oninput="onVarietySearch(this, ${bi}, ${ri})">
+          <div class="variety-search-results" id="vresults-${key}"></div>
+        </div>
+      </td>`;
+}
+
+function swatchFor(colour){
+    if(!colour) return '';
+    return `<span class="swatch" style="background:${colourToHex(colour)}"></span>`;
+}
+// Rough, purely visual mapping (real colour of record is Item.custom_color,
+// fetched and stored server-side -- this is only a swatch hint).
+function colourToHex(name){
+    const c = (name||'').toLowerCase();
+    const map = {red:'#c23b3b',pink:'#e07bb0',white:'#f4f4f0',peach:'#f2a06b',lavender:'#a98bd6',cream:'#f3e9d2',
+      yellow:'#e0c23e',orange:'#e0803e',cerise:'#c23b6e',lilac:'#b79ae0',green:'#4c8c5a',blue:'#4c78b8',fuchsia:'#c23b8a'};
+    for(const k in map){ if(c.includes(k)) return map[k]; }
+    return '#9a9a9a';
+}
+
+function findBunch(bi){ return CURRENT.bunches[bi]; }
+
+function updateBunchField(bi, field, val){
+    findBunch(bi)[field] = field==='bunches_per_box' ? val : val;
+    render();
+}
+function setBunchType(bi, type){
+    const b = findBunch(bi);
+    if(b.type===type) return;
+    b.type = type;
+    if(type==='Mixed'){ b.rows.forEach(r => { if((r.varieties||[]).length>1) r.varieties = [r.varieties[0]]; }); }
+    render();
+}
+function addBunch(){
+    CURRENT.bunches.push({ type:'Mono', length: OPTIONS.stem_lengths[0]||'', box_type: OPTIONS.box_types[0]||'', bunches_per_box:'', rows:[{varieties:[],colour:'',stems_per_bunch:''}] });
+    render();
+}
+function removeBunch(bi){ CURRENT.bunches.splice(bi,1); render(); }
+function addRow(bi){ findBunch(bi).rows.push({varieties:[],colour:'',stems_per_bunch:''}); render(); }
+function removeRow(bi,ri){ findBunch(bi).rows.splice(ri,1); render(); }
+function updateRow(bi,ri,field,val){ findBunch(bi).rows[ri][field] = val; render(); }
+function removeVariety(bi,ri,vi){ findBunch(bi).rows[ri].varieties.splice(vi,1); render(); }
+
+let varietySearchTimers = {};
+function onVarietySearch(input, bi, ri){
+    const key = bi+'-'+ri;
+    const el = document.getElementById('vresults-'+key);
+    if(!el) return;
+    openDropdown(input, el);
+    clearTimeout(varietySearchTimers[key]);
+    const q = input.value;
+    // Empty query (e.g. just focused the field) still searches -- "%%"
+    // matches everything, so focusing shows the first page of varieties
+    // immediately instead of an empty box waiting for a keystroke.
+    varietySearchTimers[key] = setTimeout(() => {
+        apiGet('searchVarieties', { query: q }, r => {
+            const list = r.varieties || [];
+            el.innerHTML = list.length
+                ? list.map(v => `<div class="opt" onmousedown="event.preventDefault(); pickVariety(${bi},${ri},'${v.name.replace(/'/g,"\\'")}','${(v.custom_color||'').replace(/'/g,"\\'")}')">${swatchFor(v.custom_color)}${escHtml(v.name)}</div>`).join('')
+                : `<div class="opt" style="color:var(--ink-faint);cursor:default">No matching varieties</div>`;
+            positionDropdown(input, el);
+        });
+    }, q ? 200 : 0);
+}
+function pickVariety(bi, ri, variety, colour){
+    const b = findBunch(bi);
+    const row = b.rows[ri];
+    if(b.type === 'Mixed'){
+        // Required, fixed, single component -- picking one REPLACES it.
+        row.varieties = [variety];
+    } else {
+        row.varieties = row.varieties || [];
+        if(!row.varieties.includes(variety)) row.varieties.push(variety);
+    }
+    if(!row.colour) row.colour = colour;
+    const el = document.getElementById('vresults-'+bi+'-'+ri);
+    if(el) closeDropdown(el);
+    render();
+}
+
+// ---------- consumables ----------
+function renderConsumables(s){
+    const rows = s.consumables || [];
+    let html = rows.map((c,ci) => `
+      <div class="consumable-block">
+        <div class="consumable-line top">
+          <select onchange="updateConsumable(${ci},'consumable_type',this.value)">${selOpts(CONSUMABLE_TYPES, c.consumable_type)}</select>
+          <div class="consumable-item-wrap">
+            <input class="variety-search" placeholder="+ link an item…" value="${escHtml(c.item||'')}" autocomplete="off"
+              onfocus="onConsumableItemSearch(this, ${ci})" oninput="onConsumableItemSearch(this, ${ci})">
+            <div class="variety-search-results" id="cresults-${ci}"></div>
+            ${c.item_name ? `<div class="item-hint">${escHtml(c.item_name)}</div>` : ''}
+          </div>
+          <select onchange="updateConsumable(${ci},'application_level',this.value)">${selOpts(APP_LEVEL_OPTIONS, c.application_level)}</select>
+          <button class="rowmenu" onclick="removeConsumable(${ci})">✕</button>
+        </div>
+        <div class="consumable-line bottom">
+          <input placeholder="Description" value="${escHtml(c.description||'')}" onchange="updateConsumable(${ci},'description',this.value)">
+          <input class="tabular" placeholder="Qty" value="${escHtml(c.application_level==='Box' ? (c.qty_per_box||'') : (c.qty_per_bunch||''))}" onchange="updateConsumableQty(${ci},this.value)">
+          <input class="tabular" placeholder="Price" value="${escHtml(c.price_inclusive||'')}" onchange="updateConsumable(${ci},'price_inclusive',this.value)">
+        </div>
+      </div>`).join('');
+    html += `<button class="add-consumable-btn" onclick="addConsumable()">+ Add consumable</button>`;
+    return html;
+}
+function addConsumable(){ CURRENT.consumables.push({consumable_type:'Sleeve', item:'', item_name:'', application_level:'Bunch', description:'', qty_per_bunch:1, qty_per_box:0, price_inclusive:0}); render(); }
+function removeConsumable(ci){ CURRENT.consumables.splice(ci,1); render(); }
+function updateConsumable(ci, field, val){ CURRENT.consumables[ci][field] = val; render(); }
+function updateConsumableQty(ci, val){
+    const c = CURRENT.consumables[ci];
+    if(c.application_level==='Box') c.qty_per_box = val; else c.qty_per_bunch = val;
+}
+
+let consumableSearchTimers = {};
+function onConsumableItemSearch(input, ci){
+    const el = document.getElementById('cresults-'+ci);
+    if(!el) return;
+    openDropdown(input, el);
+    clearTimeout(consumableSearchTimers[ci]);
+    const q = input.value;
+    // Typing without picking a result clears the previously linked item --
+    // a Link field can't be left holding a value the user didn't select.
+    CURRENT.consumables[ci].item = q;
+    CURRENT.consumables[ci].item_name = '';
+    consumableSearchTimers[ci] = setTimeout(() => {
+        apiGet('searchItems', { query: q }, r => {
+            const list = r.items || [];
+            el.innerHTML = list.length
+                ? list.map(it => `<div class="opt" onmousedown="event.preventDefault(); pickConsumableItem(${ci},'${it.name.replace(/'/g,"\\'")}','${(it.item_name||'').replace(/'/g,"\\'")}')">${escHtml(it.name)}${it.item_name && it.item_name!==it.name ? ' — '+escHtml(it.item_name) : ''}</div>`).join('')
+                : `<div class="opt" style="color:var(--ink-faint);cursor:default">No matching items</div>`;
+            positionDropdown(input, el);
+        });
+    }, q ? 200 : 0);
+}
+function pickConsumableItem(ci, item, itemName){
+    CURRENT.consumables[ci].item = item;
+    CURRENT.consumables[ci].item_name = itemName;
+    const el = document.getElementById('cresults-'+ci);
+    if(el) closeDropdown(el);
+    render();
+}
+
+// ---------- save / delete ----------
+function saveSpec(){
+    if(SAVING) return;
+    SAVING = true;
+    const btn = document.getElementById('saveBtn');
+    if(btn){ btn.disabled = true; btn.textContent = 'Saving…'; }
+    apiCall('saveSpecification', { data: JSON.stringify(Object.assign({}, CURRENT, { name: CURRENT.name })) }, r => {
+        SAVING = false;
+        if(!r.success){ showErr(r.error || 'Could not save this specification.'); if(btn){ btn.disabled=false; btn.textContent = CURRENT.name ? 'Save changes' : 'Create specification'; } return; }
+        openEditor(r.name);
+    });
+}
+function deleteSpec(){
+    if(!CURRENT.name) return;
+    if(!confirm('Delete "' + CURRENT.spec_name + '"? This cannot be undone.')) return;
+    apiCall('deleteSpecification', { name: CURRENT.name }, r => {
+        if(!r.success){ showErr(r.error || 'Could not delete this specification.'); return; }
+        loadList();
+    });
+}
+
+// ---------- render dispatcher ----------
+function render(){
+    renderTopbar();
+    if(VIEW==='list') renderList(); else renderEditor();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const aph = document.querySelector('.aph'), btn = document.getElementById('collapseBtn');
+    try { if (localStorage.getItem('aphSideCollapsed') === '1') aph.classList.add('collapsed'); } catch(e){}
+    if (btn) btn.addEventListener('click', () => {
+        aph.classList.toggle('collapsed');
+        try { localStorage.setItem('aphSideCollapsed', aph.classList.contains('collapsed') ? '1' : '0'); } catch(e){}
+    });
+    boot();
+});
+</script>
+{% endraw %}
+{% endblock %}

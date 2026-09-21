@@ -1,0 +1,26 @@
+[
+ {
+  "description": "Bunches in the box were never graded, so their length/quality can't be verified.",
+  "docstatus": 0,
+  "doctype": "Packing Bypass Reason",
+  "modified": "2026-09-20 00:00:00.000000",
+  "name": "Ungraded Bunches",
+  "reason": "Ungraded Bunches"
+ },
+ {
+  "description": "The bunch QR code is physically damaged and cannot be scanned.",
+  "docstatus": 0,
+  "doctype": "Packing Bypass Reason",
+  "modified": "2026-09-20 00:00:00.000000",
+  "name": "Damaged Bunch QR Code",
+  "reason": "Damaged Bunch QR Code"
+ },
+ {
+  "description": "The bunch has no QR code attached at all.",
+  "docstatus": 0,
+  "doctype": "Packing Bypass Reason",
+  "modified": "2026-09-20 00:00:00.000000",
+  "name": "Missing Bunch QR Code",
+  "reason": "Missing Bunch QR Code"
+ }
+]
