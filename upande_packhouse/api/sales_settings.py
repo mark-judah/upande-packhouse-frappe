@@ -99,10 +99,16 @@ def createPriceList():
 		price_list_name = (data.get("price_list_name") or "").strip()
 		currency = data.get("currency")
 		if not price_list_name or not currency:
-			frappe.response["message"] = {"success": False, "error": "Price List name and currency are required"}
+			frappe.response["message"] = {
+				"success": False,
+				"error": "Price List name and currency are required",
+			}
 			return
 		if frappe.db.exists("Price List", price_list_name):
-			frappe.response["message"] = {"success": False, "error": "Price List \"%s\" already exists" % price_list_name}
+			frappe.response["message"] = {
+				"success": False,
+				"error": 'Price List "%s" already exists' % price_list_name,
+			}
 			return
 		doc = frappe.new_doc("Price List")
 		doc.price_list_name = price_list_name

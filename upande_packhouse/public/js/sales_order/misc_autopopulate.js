@@ -60,17 +60,96 @@ frappe.ui.form.on("Sales Order", {
 		frm.set_value("custom_week", so_week_number(new Date(frm.doc.delivery_date)));
 	},
 
-	// New rows should carry the order's truck details too. "items_add" fires on
-	// the PARENT doctype (named "<table fieldname>_add"), not on a registration
-	// for the child doctype itself — the earlier version of this script
-	// registered it under 'Sales Order Item', where it silently never fired.
-	items_add(frm, cdt, cdn) {
-		if (!frm.doc.custom_truck_details) return;
-		let row = frappe.get_doc(cdt, cdn);
-		row.custom_truck = frm.doc.custom_truck_details;
-		frm.refresh_field("items");
+	refresh(frm) {
+		// Belt and braces. items_add covers the grid's own Add Row, but rows
+		// also arrive by routes that fire no grid event at all — spec_autofill's
+		// Add to Order and the mixed-box wizard both go straight onto add_child
+		// — and a sweep on refresh catches every one of them without this file
+		// having to know they exist.
+		sync_truck_rows(frm);
 	},
 });
+
+// ...and the other direction: a truck typed onto a LINE backfills the order's
+// own Remote Truck Details. The grid is where the operator already is, so the
+// truck lands there as often as in the header — and a blank header is what
+// then leaves every LATER row with nothing to inherit.
+frappe.ui.form.on("Sales Order Item", {
+	custom_truck(frm) {
+		sync_truck_rows(frm);
+	},
+
+	// New rows should carry the order's truck too. "<table fieldname>_add" is
+	// named after the PARENT's table field but is triggered with the CHILD
+	// doctype -- grid.add_new_row() calls
+	// script_manager.trigger("items_add", d.doctype, d.name) with d being the
+	// new Sales Order ITEM, and script_manager only looks up handlers
+	// registered under the doctype it was passed. Registered on "Sales Order"
+	// (where the name makes it look like it belongs) it silently never fires,
+	// which is exactly how a hand-added row came up with the warehouse ERPNext
+	// fills here -- its own items_add sits on "Sales Order Item" -- and no
+	// truck. Same for items_remove (see grid_row.remove).
+	items_add(frm) {
+		sync_truck_rows(frm);
+	},
+});
+
+// The order's truck: the header field when it has one, else whatever the lines
+// already carry. The fallback is what keeps a truck alive across an added row
+// on an order where it was only ever typed into the grid.
+function order_truck(frm) {
+	const header = (frm.doc.custom_truck_details || "").trim();
+	if (header) return header;
+	const row = (frm.doc.items || []).find((r) => (r.custom_truck || "").trim());
+	return row ? row.custom_truck.trim() : "";
+}
+
+// Settle the truck across header and lines, filling BLANKS ONLY in both
+// directions. Deliberately a sweep rather than a per-event copy: whichever
+// event happens to fire (or not) for a given way of adding a row, the next one
+// puts it right, so a new line can't end up as the only one without a truck.
+// Mirrors roses_warehouse_map.sync_truck, which does the same on validate for
+// the routes that never run form JS at all.
+//
+// Blanks only, and the header is assigned WITHOUT frm.set_value on purpose:
+// set_value would fire the custom_truck_details handler below, which overwrites
+// every line — so backfilling the header off line 1 would wipe a different
+// truck deliberately set on line 2 (a split load). The handler stays an
+// overwrite because typing into that field IS the "retruck the whole order"
+// action; this sweep just isn't that.
+function sync_truck_rows(frm) {
+	if (frm.doc.docstatus !== 0 || frm.__truck_sweep) return;
+	const truck = order_truck(frm);
+	if (!truck) return;
+
+	frm.__truck_sweep = true;
+	try {
+		if (!(frm.doc.custom_truck_details || "").trim()) {
+			frm.doc.custom_truck_details = truck;
+			frm.refresh_field("custom_truck_details");
+		}
+		let filled = 0;
+		(frm.doc.items || []).forEach((row) => {
+			if (!(row.custom_truck || "").trim()) {
+				// Assigned straight onto the row rather than through
+				// frappe.model.set_value: set_value resolves the row via
+				// locals[doctype][name] and does nothing at all, silently, if
+				// that lookup misses -- which is exactly the case for a row the
+				// grid has only just created. Writing the row we already hold
+				// cannot miss. frm.dirty() below is what set_value would have
+				// given us, so the value still reaches the database.
+				row.custom_truck = truck;
+				filled++;
+			}
+		});
+		if (filled) {
+			frm.dirty();
+			frm.refresh_field("items");
+		}
+	} finally {
+		frm.__truck_sweep = false;
+	}
+}
 
 // ISO-8601 week number.
 function so_week_number(date) {

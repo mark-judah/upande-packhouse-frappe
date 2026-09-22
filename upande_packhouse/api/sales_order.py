@@ -39,9 +39,7 @@ def getSalesOrderOptions():
 		warehouses = frappe.get_all(
 			"Warehouse", filters={"is_group": 0, "disabled": 0}, pluck="name", order_by="name asc"
 		)
-		currencies = frappe.get_all(
-			"Currency", filters={"enabled": 1}, pluck="name", order_by="name asc"
-		)
+		currencies = frappe.get_all("Currency", filters={"enabled": 1}, pluck="name", order_by="name asc")
 		frappe.response["message"] = {
 			"success": True,
 			"stem_lengths": stem_lengths,
@@ -88,9 +86,7 @@ def searchConsignees():
 		query = frappe.form_dict.get("query") or ""
 		customer = frappe.form_dict.get("customer") or ""
 		if customer:
-			names = frappe.get_all(
-				"Consignee Customer", filters={"customer": customer}, pluck="parent"
-			)
+			names = frappe.get_all("Consignee Customer", filters={"customer": customer}, pluck="parent")
 			if names:
 				rows = frappe.get_all(
 					"Consignee",
@@ -281,9 +277,17 @@ def listSalesOrders():
 			"Sales Order",
 			filters=filters,
 			fields=[
-				"name", "customer", "transaction_date", "delivery_date",
-				"currency", "status", "docstatus", "grand_total",
-				"custom_total_boxes", "custom_total_stems", "modified",
+				"name",
+				"customer",
+				"transaction_date",
+				"delivery_date",
+				"currency",
+				"status",
+				"docstatus",
+				"grand_total",
+				"custom_total_boxes",
+				"custom_total_stems",
+				"modified",
 			],
 			order_by="modified desc",
 			limit_page_length=200,
@@ -403,16 +407,26 @@ def saveSalesOrder():
 		if name and frappe.db.exists("Sales Order", name):
 			doc = frappe.get_doc("Sales Order", name)
 			if doc.docstatus != 0:
-				frappe.response["message"] = {"success": False, "error": "Only a draft order can be edited here."}
+				frappe.response["message"] = {
+					"success": False,
+					"error": "Only a draft order can be edited here.",
+				}
 				return
 		else:
 			doc = frappe.new_doc("Sales Order")
 			doc.business_unit = "Roses"
 
 		header_fields = [
-			"customer", "transaction_date", "delivery_date", "currency", "selling_price_list",
-			"custom_consignee", "custom_delivery_point", "custom_shipping_agent",
-			"custom_s_number", "custom_truck_details",
+			"customer",
+			"transaction_date",
+			"delivery_date",
+			"currency",
+			"selling_price_list",
+			"custom_consignee",
+			"custom_delivery_point",
+			"custom_shipping_agent",
+			"custom_s_number",
+			"custom_truck_details",
 		]
 		for f in header_fields:
 			if f in data:
@@ -466,7 +480,10 @@ def deleteSalesOrder():
 			frappe.response["message"] = {"success": False, "error": "Sales Order not found"}
 			return
 		if frappe.db.get_value("Sales Order", name, "docstatus") != 0:
-			frappe.response["message"] = {"success": False, "error": "Only a draft order can be deleted here."}
+			frappe.response["message"] = {
+				"success": False,
+				"error": "Only a draft order can be deleted here.",
+			}
 			return
 		frappe.delete_doc("Sales Order", name, ignore_permissions=False)
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit

@@ -47,9 +47,7 @@ def _cut_flower_item_groups():
 	Standard Roses, Alstroemeria, ... ), via the standard nested-set
 	lft/rgt range -- the same technique Frappe's own tree Link queries use
 	for "include children" filtering."""
-	root = frappe.db.get_value(
-		"Item Group", CUT_FLOWERS_ITEM_GROUP, ["lft", "rgt"], as_dict=True
-	)
+	root = frappe.db.get_value("Item Group", CUT_FLOWERS_ITEM_GROUP, ["lft", "rgt"], as_dict=True)
 	if not root:
 		return [CUT_FLOWERS_ITEM_GROUP]
 	return frappe.get_all(
@@ -305,8 +303,7 @@ def _group_into_bunches(doc):
 			if not rows and bi_rows:
 				# Box Item row(s) exist with no matching Approved Variety yet.
 				rows = [
-					{"varieties": [], "colour": "", "stems_per_bunch": bi.stems_per_bunch}
-					for bi in bi_rows
+					{"varieties": [], "colour": "", "stems_per_bunch": bi.stems_per_bunch} for bi in bi_rows
 				]
 
 		bunches.append(

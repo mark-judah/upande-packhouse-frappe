@@ -91,6 +91,43 @@ def _approved_by_colour(doc):
 	return m
 
 
+def _box_idxs_by_variety(doc):
+	"""Which Box Build rows belong to each Approved Variety, by POSITION.
+
+	A flat spec's Approved Variety rows carry no bunch_id, so nothing links a
+	variety to a pack shape explicitly -- but the two tables are written in
+	step, and a spec that sells the same varieties at more than one length
+	simply repeats the whole variety block once per length. Confirmed against
+	this data:
+
+	    EFLOWERS B-11ROSE SPRAY MIX 62/72CM   5 varieties, 10 box items
+	                                          (the 5 at 62cm, then the same 5 at 72cm)
+	    EFLOWERS B-ZUKOV FEMKE, DINARA MIX    2 varieties,  4 box items (62,62,72,72)
+	    B-ATHENA 42/52/72CM                   1 variety,    3 box items
+	    FATIM CHARLOTE CLASSIC/GARDEN MIX     7 of each, 1:1 -- and one of the
+	                                          seven is 62cm where the rest are 52cm
+
+	so box item j belongs to variety (j mod n). That last spec is why this
+	matters even when there is only one box item per variety: the length is a
+	property of the PAIR, not of the spec, and applying one length across a
+	whole colour silently ships the wrong stem length.
+
+	Only derived when len(box_items) is a whole multiple of len(varieties). On
+	anything else the pairing would be guesswork, so an empty map is returned
+	and the caller falls back to offering every box item for every variety.
+	"""
+	items = doc.box_items or []
+	varieties = [r.variety for r in (doc.approved_varieties or []) if r.variety]
+	n = len(varieties)
+	if not items or not n or len(items) % n:
+		return {}
+
+	out = {}
+	for j in range(len(items)):
+		out.setdefault(varieties[j % n], []).append(j)
+	return out
+
+
 def _all_approved_varieties(approved_by_colour):
 	"""Every approved variety across every colour, deduped, order preserved.
 	Box Build lines carry no colour of their own (that lives solely in
@@ -332,6 +369,12 @@ def get_spec_fill_data(spec: str | None):
 		for i, bi in enumerate(items)
 	]
 
+	# Which box items (and so which stem lengths) each variety is actually
+	# specified at -- see _box_idxs_by_variety. Empty when the spec's two
+	# tables don't line up, and the client then falls back to its per-colour
+	# box selector.
+	box_idxs = _box_idxs_by_variety(doc)
+
 	lines = []
 	for i, (colour, varieties) in enumerate(approved_by_colour.items()):
 		approved = []
@@ -343,6 +386,7 @@ def get_spec_fill_data(spec: str | None):
 					"item_name": names.get(v, v),
 					"available": sum(by_farm.values()),
 					"by_farm": by_farm,
+					"box_idxs": box_idxs.get(v, []),
 				}
 			)
 		lines.append(
@@ -639,10 +683,10 @@ def build_spec_rows(
 			# `warehouse` carries the raw Receiving Cold Store for the farm
 			# this line is sourced from -- NOT a mapped/resolved warehouse.
 			# It used to be swapped for Roses-MAP's delivery (Graded Sold)
-			# warehouse right here, which skipped the two real stock moves
-			# stems must physically make on their way to a customer
-			# (coldstore -> Ungraded Sold on issue, Ungraded Sold -> Graded
-			# Sold on Farm Pack List submit -- see roses_warehouse_map.py).
+			# warehouse right here, which skipped the real stock moves stems
+			# must physically make on their way to a customer (the Sold leg
+			# when a bucket is issued, then Packing / Dispatch / Loading --
+			# see stock_movement.STAGES).
 			# Order Pick List / Pick List Item carries this same coldstore
 			# value forward, and issueBucketToSaleOrderItem /
 			# farm_pack_list.py / createOrUpdateDispatch each resolve the
