@@ -41,8 +41,8 @@ frappe.ui.form.on("Sales Order Item", {
 				frappe.msgprint(
 					__(
 						"Item {0} has no Sales UOM. Set a Sales UOM on the item so the order line has a unit of measure.",
-						[row.item_code],
-					),
+						[row.item_code]
+					)
 				);
 			}
 		});
@@ -80,7 +80,7 @@ function straight_calc(frm, cdt, cdn) {
 			message: __("{0} {1} = {2} stems", [qty.toFixed(2), row.uom, stems]),
 			indicator: "green",
 		},
-		3,
+		3
 	);
 }
 

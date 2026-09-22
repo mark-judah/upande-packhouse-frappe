@@ -515,7 +515,9 @@ def createOrUpdateDispatch():
 			# touch its Delivery Notes again rather than silently re-running.
 			frappe.response["message"] = {
 				"status": "error",
-				"message": "Dispatch for " + str(delivery_date) + " has already been confirmed and the truck marked departed.",
+				"message": "Dispatch for "
+				+ str(delivery_date)
+				+ " has already been confirmed and the truck marked departed.",
 			}
 		elif missing_boxes:
 			# A picker pulled these into the dispatch coldstore (staged=1) but
@@ -525,7 +527,9 @@ def createOrUpdateDispatch():
 			# (with their staging location) so the operator can go get them.
 			frappe.response["message"] = {
 				"status": "error",
-				"message": str(len(missing_boxes)) + " staged box(es) for " + str(delivery_date)
+				"message": str(len(missing_boxes))
+				+ " staged box(es) for "
+				+ str(delivery_date)
 				+ " have not been loaded yet. Load them before confirming dispatch.",
 				"missing_boxes": missing_boxes,
 			}
@@ -1469,7 +1473,9 @@ def _opl_traceability(order_pick_list_id):
 		filters={"custom_bucket_id": ["in", bucket_ids], "stock_entry_type": "Grading", "docstatus": 1},
 		fields=["owner"],
 	)
-	supervisors = sorted({r.owner for r in harvest_rows if r.owner} | {r.owner for r in grading_rows if r.owner})
+	supervisors = sorted(
+		{r.owner for r in harvest_rows if r.owner} | {r.owner for r in grading_rows if r.owner}
+	)
 	return greenhouses, harvesters, supervisors
 
 
@@ -1752,9 +1758,7 @@ def fetchDispatchLoadedOrders():
 		ls_status = ""
 		seal_number = ""
 		if frappe.db.exists("Loading Sheet", ls_name):
-			ls_row = frappe.db.get_value(
-				"Loading Sheet", ls_name, ["status", "seal_number"], as_dict=True
-			)
+			ls_row = frappe.db.get_value("Loading Sheet", ls_name, ["status", "seal_number"], as_dict=True)
 			ls_status = ls_row.status or ""
 			seal_number = ls_row.seal_number or ""
 
@@ -1950,7 +1954,11 @@ def fetchLoadingData():
 						# (e.g. both "1") -- without the kind in the key, a mix group
 						# and an unrelated bunch group collide into one, under-counting
 						# again exactly like the bug above.
-						group = (bool(soi.get("custom_mixed_bunch")), bool(soi.get("custom_mixed_box")), _packing_guide_group_key(soi))
+						group = (
+							bool(soi.get("custom_mixed_bunch")),
+							bool(soi.get("custom_mixed_box")),
+							_packing_guide_group_key(soi),
+						)
 					else:
 						group = row.sales_order_item
 					boxes_by_group.setdefault(group, set()).add(row.box_number)
@@ -4647,27 +4655,29 @@ def _write_shelved_log(shelf_item_row, shelf_id, farm):
 	Called once per Shelf Item row a bucket produces (a bucket can carry
 	several varieties/lengths). shelf_item_row must already have its `name`
 	populated (i.e. called after the parent Shelf has been saved)."""
-	frappe.get_doc({
-		"doctype": "Shelving Log",
-		"bucket_id": shelf_item_row.bucket_id,
-		"shelf": shelf_id,
-		"farm": farm,
-		"variety": shelf_item_row.variety,
-		"stem_length": shelf_item_row.stem_length,
-		"stem_qty": shelf_item_row.stem_qty,
-		"greenhouse": shelf_item_row.greenhouse,
-		"warehouse": shelf_item_row.warehouse,
-		"cut_stage": shelf_item_row.get("cut_stage"),
-		"harvest_date": shelf_item_row.harvest_date,
-		"receiving_date": shelf_item_row.receiving_date,
-		"harvester": shelf_item_row.get("harvester"),
-		"graded_by": shelf_item_row.get("graded_by"),
-		"grading_date": shelf_item_row.get("grading_date"),
-		"reason": "Shelved",
-		"shelved_on": frappe.utils.now(),
-		"shelved_by": frappe.session.user,
-		"shelf_item": shelf_item_row.name,
-	}).insert(ignore_permissions=True)
+	frappe.get_doc(
+		{
+			"doctype": "Shelving Log",
+			"bucket_id": shelf_item_row.bucket_id,
+			"shelf": shelf_id,
+			"farm": farm,
+			"variety": shelf_item_row.variety,
+			"stem_length": shelf_item_row.stem_length,
+			"stem_qty": shelf_item_row.stem_qty,
+			"greenhouse": shelf_item_row.greenhouse,
+			"warehouse": shelf_item_row.warehouse,
+			"cut_stage": shelf_item_row.get("cut_stage"),
+			"harvest_date": shelf_item_row.harvest_date,
+			"receiving_date": shelf_item_row.receiving_date,
+			"harvester": shelf_item_row.get("harvester"),
+			"graded_by": shelf_item_row.get("graded_by"),
+			"grading_date": shelf_item_row.get("grading_date"),
+			"reason": "Shelved",
+			"shelved_on": frappe.utils.now(),
+			"shelved_by": frappe.session.user,
+			"shelf_item": shelf_item_row.name,
+		}
+	).insert(ignore_permissions=True)
 
 
 @frappe.whitelist()

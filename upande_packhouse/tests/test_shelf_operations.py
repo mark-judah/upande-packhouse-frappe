@@ -6,18 +6,20 @@ class IntegrationTestShelfOperationsPackhouse(IntegrationTestCase):
 	def setUp(self):
 		self.farm = "Test Shelf Ops Farm"
 		if not frappe.db.exists("Farm", self.farm):
-			frappe.get_doc({
-				"doctype": "Farm",
-				"farm_name": self.farm,
-				"company": "Karen Roses",
-				"abbreviation": "TSOF",
-				"farm_type": [{"farm_type": "Has Greenhouses"}],
-			}).insert(ignore_permissions=True)
+			frappe.get_doc(
+				{
+					"doctype": "Farm",
+					"farm_name": self.farm,
+					"company": "Karen Roses",
+					"abbreviation": "TSOF",
+					"farm_type": [{"farm_type": "Has Greenhouses"}],
+				}
+			).insert(ignore_permissions=True)
 		self.bucket_id = "TEST-BUCKET-002"
 		if not frappe.db.exists("Bucket QR Code", self.bucket_id):
-			frappe.get_doc(
-				{"doctype": "Bucket QR Code", "id": self.bucket_id, "item_code": "Reflex"}
-			).insert(ignore_permissions=True)
+			frappe.get_doc({"doctype": "Bucket QR Code", "id": self.bucket_id, "item_code": "Reflex"}).insert(
+				ignore_permissions=True
+			)
 		frappe.db.commit()
 
 	def tearDown(self):
@@ -29,9 +31,9 @@ class IntegrationTestShelfOperationsPackhouse(IntegrationTestCase):
 	def test_shelve_bucket_writes_shelved_log_row(self):
 		shelf_id = "TEST-SHELF-B"
 		if not frappe.db.exists("Shelf", shelf_id):
-			frappe.get_doc(
-				{"doctype": "Shelf", "shelf_id": shelf_id, "farm": self.farm}
-			).insert(ignore_permissions=True)
+			frappe.get_doc({"doctype": "Shelf", "shelf_id": shelf_id, "farm": self.farm}).insert(
+				ignore_permissions=True
+			)
 
 		shelf_doc = frappe.get_doc("Shelf", shelf_id)
 		new_item = shelf_doc.append("items", {})
@@ -71,35 +73,52 @@ class IntegrationTestShelfOperationsPackhouse(IntegrationTestCase):
 			)
 
 		today = frappe.utils.today()
-		harvest = frappe.get_doc({
-			"doctype": "Stock Entry",
-			"stock_entry_type": "Harvesting",
-			"purpose": "Material Receipt",
-			"company": "Karen Roses",
-			"posting_date": today,
-			"custom_bucket_id": self.bucket_id,
-			"items": [{
-				"item_code": "Reflex", "qty": 20, "t_warehouse": "Karen GH 04 - KR", "uom": "Stems",
-				"allow_zero_valuation_rate": 1, "cost_center": "Karen Roses - KR",
-			}],
-		})
+		harvest = frappe.get_doc(
+			{
+				"doctype": "Stock Entry",
+				"stock_entry_type": "Harvesting",
+				"purpose": "Material Receipt",
+				"company": "Karen Roses",
+				"posting_date": today,
+				"custom_bucket_id": self.bucket_id,
+				"items": [
+					{
+						"item_code": "Reflex",
+						"qty": 20,
+						"t_warehouse": "Karen GH 04 - KR",
+						"uom": "Stems",
+						"allow_zero_valuation_rate": 1,
+						"cost_center": "Karen Roses - KR",
+					}
+				],
+			}
+		)
 		harvest.insert(ignore_permissions=True)
 		harvest.submit()
 
-		receiving = frappe.get_doc({
-			"doctype": "Stock Entry",
-			"stock_entry_type": "Receiving",
-			"purpose": "Material Transfer",
-			"company": "Karen Roses",
-			"posting_date": today,
-			"set_posting_time": 1,
-			"custom_bucket_id": self.bucket_id,
-			"items": [{
-				"item_code": "Reflex", "qty": 20, "uom": "Stems",
-				"s_warehouse": "Karen GH 04 - KR", "t_warehouse": "Karen Receiving Cold Store - KR",
-				"custom_stem_length": "52cm", "allow_zero_valuation_rate": 1, "cost_center": "Karen Roses - KR",
-			}],
-		})
+		receiving = frappe.get_doc(
+			{
+				"doctype": "Stock Entry",
+				"stock_entry_type": "Receiving",
+				"purpose": "Material Transfer",
+				"company": "Karen Roses",
+				"posting_date": today,
+				"set_posting_time": 1,
+				"custom_bucket_id": self.bucket_id,
+				"items": [
+					{
+						"item_code": "Reflex",
+						"qty": 20,
+						"uom": "Stems",
+						"s_warehouse": "Karen GH 04 - KR",
+						"t_warehouse": "Karen Receiving Cold Store - KR",
+						"custom_stem_length": "52cm",
+						"allow_zero_valuation_rate": 1,
+						"cost_center": "Karen Roses - KR",
+					}
+				],
+			}
+		)
 		receiving.insert(ignore_permissions=True)
 		receiving.submit()
 		frappe.db.commit()

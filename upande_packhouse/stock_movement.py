@@ -157,7 +157,15 @@ def resolve_route(source, business_unit, upto=SALE_STAGE):
 		if nxt in seen or len(hops) >= MAX_HOPS:
 			frappe.throw(f"Warehouse mapping loops at {nxt} ({business_unit})")
 		seen.add(nxt)
-		hops.append({"from": source, "to": nxt, "stage": ARRIVAL_STAGE, "type": TYPE_REMOTE_TRANSFER, "terminal": False})
+		hops.append(
+			{
+				"from": source,
+				"to": nxt,
+				"stage": ARRIVAL_STAGE,
+				"type": TYPE_REMOTE_TRANSFER,
+				"terminal": False,
+			}
+		)
 		source, row = nxt, table[nxt]
 
 	if hops and upto == ARRIVAL_STAGE:
