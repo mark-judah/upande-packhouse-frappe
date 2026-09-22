@@ -41,8 +41,8 @@ frappe.ui.form.on("Sales Order Item", {
 				frappe.msgprint(
 					__(
 						"Item {0} has no Sales UOM. Set a Sales UOM on the item so the order line has a unit of measure.",
-						[row.item_code]
-					)
+						[row.item_code],
+					),
 				);
 			}
 		});
@@ -74,7 +74,7 @@ function straight_calc(frm, cdt, cdn) {
 			message: __("{0} {1} = {2} stems", [qty.toFixed(2), row.uom, stems]),
 			indicator: "green",
 		},
-		3
+		3,
 	);
 }
 
@@ -125,8 +125,14 @@ frappe.ui.form.on("Sales Order", {
 	business_unit(frm) {
 		so_toggle_derived_readonly(frm);
 	},
-	// Row add/remove fire on the PARENT doctype, named "<table fieldname>_add"/"_remove" —
-	// not on the child doctype's own registration above.
+});
+
+// Row add/remove are named after the PARENT's table field but are triggered
+// with the CHILD row's doctype (grid.add_new_row / grid_row.remove pass
+// d.doctype), and script_manager only runs handlers registered under the
+// doctype it was passed -- so these belong on "Sales Order Item", not on
+// "Sales Order" where the event name makes them look at home.
+frappe.ui.form.on("Sales Order Item", {
 	items_add(frm) {
 		recompute_order_summary(frm);
 	},

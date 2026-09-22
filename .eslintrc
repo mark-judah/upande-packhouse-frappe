@@ -27,6 +27,7 @@
 	"globals": {
 		"frappe": true,
 		"recompute_order_summary": true,
+		"apply_roses_routing": true,
 		"Vue": true,
 		"SetVueGlobals": true,
 		"__": true,

@@ -215,6 +215,11 @@ doc_events = {
 			# business_unit dimension fields this app actually reads. See
 			# sync_sales_order_accounting_dimensions's own docstring.
 			"upande_packhouse.roses_invoice.sync_sales_order_accounting_dimensions",
+			# Fill each line's source warehouse (Roses-MAP, the warehouse the
+			# Sold leg issues FROM) and truck. Must run AFTER the sync above,
+			# which is what puts `farm` / `business_unit` on a Floriday-origin
+			# order this keys off. See sales_order_apply_routing's docstring.
+			"upande_packhouse.roses_warehouse_map.sales_order_apply_routing",
 			"upande_packhouse.sales_order_engine.sales_order_price",
 			"upande_packhouse.sales_order_engine.sales_order_validate",
 		],
