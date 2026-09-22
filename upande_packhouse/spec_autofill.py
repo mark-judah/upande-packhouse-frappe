@@ -683,10 +683,10 @@ def build_spec_rows(
 			# `warehouse` carries the raw Receiving Cold Store for the farm
 			# this line is sourced from -- NOT a mapped/resolved warehouse.
 			# It used to be swapped for Roses-MAP's delivery (Graded Sold)
-			# warehouse right here, which skipped the two real stock moves
-			# stems must physically make on their way to a customer
-			# (coldstore -> Ungraded Sold on issue, Ungraded Sold -> Graded
-			# Sold on Farm Pack List submit -- see roses_warehouse_map.py).
+			# warehouse right here, which skipped the real stock moves stems
+			# must physically make on their way to a customer (the Sold leg
+			# when a bucket is issued, then Packing / Dispatch / Loading --
+			# see stock_movement.STAGES).
 			# Order Pick List / Pick List Item carries this same coldstore
 			# value forward, and issueBucketToSaleOrderItem /
 			# farm_pack_list.py / createOrUpdateDispatch each resolve the

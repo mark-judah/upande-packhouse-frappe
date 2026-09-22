@@ -295,6 +295,83 @@ def getDashboardData():
 					pass
 				i = i + 1
 
+		# ================================================================
+		# Packing issues per OPL (bypass reports + under-packed boxes) --
+		# the mobile app's own dashboard already surfaces these; this page
+		# had no equivalent visibility at all before, so an operator could
+		# not tell from here which orders had a reported problem, let alone
+		# which box, which reason, or who reported it. issues_by_opl holds
+		# the actual rows (an OPL can have several), not just a count, so
+		# the frontend can list them out.
+		# ================================================================
+		issues_by_opl = {}
+
+		def _add_issue(oid, issue):
+			if oid not in issues_by_opl:
+				issues_by_opl[oid] = []
+			issues_by_opl[oid] = issues_by_opl[oid] + [issue]
+
+		if len(opl_names) > 0:
+			bypass_rows = frappe.get_all(
+				"Packing Bypass Log",
+				filters={"order_pick_list": ["in", opl_names]},
+				fields=["order_pick_list", "box_id", "reason", "bunches", "packed_by", "creation"],
+				order_by="creation desc",
+			)
+			i = 0
+			while i < len(bypass_rows):
+				r = bypass_rows[i]
+				_add_issue(
+					r.order_pick_list,
+					{
+						"type": "Bypass",
+						"box_id": r.box_id,
+						"reason": r.reason,
+						"quantity": r.bunches,
+						"unit": "bunches",
+						"packed_by": r.packed_by,
+						"creation": str(r.creation),
+					},
+				)
+				i = i + 1
+
+		if len(opl_names) > 0 and len(fpls) > 0:
+			fpl_names_list = []
+			i = 0
+			while i < len(fpls):
+				fpl_names_list = fpl_names_list + [fpls[i].name]
+				i = i + 1
+			underpack_rows = frappe.db.sql(
+				"""
+				SELECT fpl.order_pick_list AS opl, fpi.box_id AS box_id,
+				       fpi.under_pack_reason AS reason, fpi.stock_qty AS stock_qty,
+				       fpi.item_code AS item_code, fpl.owner AS packed_by, fpl.creation AS creation
+				FROM `tabFarm Packlist Item` fpi
+				JOIN `tabFarm Pack List` fpl ON fpl.name = fpi.parent
+				WHERE fpi.parent IN %(fpls)s
+				  AND fpi.under_pack_reason IS NOT NULL AND fpi.under_pack_reason != ''
+				ORDER BY fpl.creation DESC
+				""",
+				{"fpls": fpl_names_list},
+				as_dict=True,
+			)
+			i = 0
+			while i < len(underpack_rows):
+				r = underpack_rows[i]
+				_add_issue(
+					r.opl,
+					{
+						"type": "Under-pack",
+						"box_id": r.box_id,
+						"reason": r.reason,
+						"quantity": int(r.stock_qty or 0),
+						"unit": "stems (" + (r.item_code or "") + ")",
+						"packed_by": r.packed_by,
+						"creation": str(r.creation),
+					},
+				)
+				i = i + 1
+
 		box_labels = []
 		boxes_printed_count = 0
 
@@ -402,11 +479,15 @@ def getDashboardData():
 			if len(ss) > 0:
 				shelves = ", ".join(sorted(ss))
 
+			packing_issues = issues_by_opl.get(oid, [])
+
 			row = {
 				"opl_id": oid,
 				"order_name": opl.order_name or oid,
 				"customer": opl.customer,
 				"team": opl.team or "Unassigned",
+				"packing_issues": packing_issues,
+				"has_packing_issue": len(packing_issues) > 0,
 				"total_bunches": bunches,
 				"total_stems": planned,
 				"shelf_locations": shelves,
@@ -509,6 +590,23 @@ def getDashboardData():
 
 	except:
 		frappe.response["message"] = {"success": False, "error": "Internal server error"}
+
+
+@frappe.whitelist()
+def getTeams():
+	"""Canonical team list for this dashboard's team filter -- the Workflow
+	page's team dropdown used to be a hardcoded HTML list (Team A, Team B,
+	Jamafa, Eldama, Bravo) copy-pasted from whatever teams existed when the
+	page was built. "Bravo" no longer exists as a Packing Teams record and a
+	newly added team never appeared, since the list was never actually
+	fetched from anywhere. getDashboardData's own team_filter already
+	queries Order Pick List.team correctly -- only the OPTIONS were static.
+	"""
+	try:
+		teams = frappe.get_all("Packing Teams", fields=["name"], order_by="name asc", pluck="name")
+		frappe.response["message"] = {"success": True, "teams": teams}
+	except Exception as e:
+		frappe.response["message"] = {"success": False, "error": str(e), "teams": []}
 
 
 @frappe.whitelist()

@@ -382,7 +382,15 @@ def get_order_filter_options():
 		)
 	]
 
-	return {"lengths": lengths, "item_groups": item_groups}
+	# Real Packing Teams, bundled into this SAME call rather than fetched
+	# independently -- this page already waits on this call before an
+	# operator can do anything useful, so putting teams here (instead of a
+	# separate frappe.call racing against the operator's first click) makes
+	# it structurally impossible for a team <select> to render before the
+	# real list has arrived.
+	teams = frappe.get_all("Packing Teams", pluck="name", order_by="name asc")
+
+	return {"lengths": lengths, "item_groups": item_groups, "teams": teams}
 
 
 # ============================================================
@@ -1623,13 +1631,19 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 	#    only set custom_team when not already set, so a later allocation to an existing
 	#    OPL never overwrites the team chosen on the first allocation. ──
 	teams = teams or {}
+	# The client's dropdown now sources this list from the Packing Teams
+	# doctype (it used to be a hardcoded ["Team A","Team B","Jamafa","Eldama",
+	# "Bravo"] that included a team, "Bravo", which was never a real Packing
+	# Teams record) -- validate here too, so a stale cached browser tab still
+	# running the old JS can never stamp a fake team onto a real OPL again.
+	real_teams = set(frappe.get_all("Packing Teams", pluck="name"))
 	for r in pick_results:
 		opl_name = r.get("name")
 		if not opl_name:
 			continue
 		opl_soi = frappe.db.get_value("Pick List Item", {"parent": opl_name}, "sales_order_item")
 		opl_team = teams.get(opl_soi)
-		if not opl_team:
+		if not opl_team or opl_team not in real_teams:
 			continue
 		# First-allocation-wins: if this line already had THIS OPL before the current
 		# allocation, keep its team. Otherwise it is a freshly-created OPL, so write the

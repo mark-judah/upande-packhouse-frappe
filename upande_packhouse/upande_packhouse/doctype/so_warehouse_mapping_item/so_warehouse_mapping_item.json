@@ -8,7 +8,6 @@
  "engine": "InnoDB",
  "field_order": [
   "source_warehouse",
-  "ungraded_sold_warehouse",
   "transfer_to",
   "delivery_warehouse",
   "packhouse",
@@ -22,15 +21,6 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Source Warehouse (Receiving Cold Store)",
-   "options": "Warehouse"
-  },
-  {
-   "columns": 4,
-   "description": "Optional intermediate hop: stock lands here when a bucket is issued from the coldstore and moves on to the Graded Sold warehouse when the Farm Pack List is submitted. Leave blank to skip the hop.",
-   "fieldname": "ungraded_sold_warehouse",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Ungraded Sold Warehouse",
    "options": "Warehouse"
   },
   {

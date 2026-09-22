@@ -6,22 +6,27 @@ allocation, picking and issuing wrote to `Shelf Item` / `Pick List Item` /
 the farm receiving cold stores forever.
 
 This module is the single place where flowers actually move. Routing is driven
-by the `SO Warehouse Mapping` doctype, keyed on business unit, e.g. Roses:
+by the `SO Warehouse Mapping` doctype, keyed on business unit, e.g. Roses. Each
+leg posts as its own named Stock Entry Type (all sharing
+`purpose = "Material Transfer"`), named for the operator's own vocabulary
+rather than this module's internal stage labels:
 
     source_warehouse -> transfer_to -> delivery_warehouse -> packhouse
                         -> dispatch_cold_store -> delivery_truck
-       (Arrival)           (Sold)                 (Packing)
+  stage: (Arrival)         (Sold)                (Packing)
                         (Dispatch)              (Loading)
+   type: Remote Transfers   Move To Graded Sold  Issuing From Cold Store
+                          Packing               Dispatch
 
 Each mapping row spells out the whole pipeline for one source warehouse; a blank
 column simply has no leg for that stage. For Roses that reads:
 
-    Simotwo/Torongo/Chepsito/Kaptumbo Receiving --Arrival--> Kapkolia Receiving
-    Kapkolia Receiving --Sold--> Kapkolia Graded Sold (ungraded: Kapkolia Ungraded Sold)
-                       --Packing--> Kapkolia Packhouse Store
-                       --Dispatch--> Kapkolia Dispatch Coldroom
-                       --Loading--> Delivery Truck
-    Karen Receiving --Sold--> Karen Graded Sold -> Karen Packhouse Store -> ...
+    Simotwo/Torongo/Chepsito/Kaptumbo Receiving --Remote Transfers--> Kapkolia Receiving
+    Kapkolia Receiving --Move To Graded Sold--> Kapkolia Graded Sold
+                       --Issuing From Cold Store--> Kapkolia Packhouse Store
+                       --Packing--> Kapkolia Dispatch Coldroom
+                       --Dispatch--> Delivery Truck
+    Karen Receiving --Move To Graded Sold--> Karen Graded Sold -> Karen Packhouse Store -> ...
 
 The **Sold** leg is the sale: it is stamped with the Sales Order Item, allocation
 stops there, and every later leg belongs to that same order. The Arrival leg is
@@ -46,14 +51,34 @@ from frappe.utils import flt, nowdate, nowtime
 
 MAPPING_DT = "SO Warehouse Mapping"
 
-# Every leg is a plain warehouse-to-warehouse Material Transfer. What a leg
-# MEANS is carried by its stage, its warehouses and (from the sale onwards) the
-# Sales Order Item on `custom_issued_to` — not by a bespoke Stock Entry Type.
-TYPE_HOP = "Material Transfer"
-
-#: Legacy: the sale leg used to be posted under its own type. Still recognised
-#: when reading history back, never used for new entries.
+# Every leg posts with `purpose = "Material Transfer"` (set on each Stock Entry
+# Type master below), but each STAGE gets its own named Stock Entry Type so a
+# report/list view can tell legs apart without reading warehouses or remarks.
+# What a leg physically means is still carried by its stage + warehouses and
+# (from the sale onwards) the Sales Order Item on `custom_issued_to` -- the
+# type name is a label for humans, not something code branches on.
+#
+# NOTE: the internal stage name (2nd tuple element, used everywhere else in
+# this module as SALE_STAGE / ARRIVAL_STAGE / LAST_STAGE / stage= kwargs) and
+# the Stock Entry Type name (3rd element) are deliberately NOT the same string
+# past the first two rows -- the type names follow the operator's own
+# vocabulary for each leg, not this module's stage labels:
+#   stage "Sold"     (source        -> Graded Sold)      -> type "Move To Graded Sold"
+#   stage "Packing"  (Graded Sold   -> Packhouse)         -> type "Issuing From Cold Store"
+#   stage "Dispatch" (Packhouse     -> Dispatch Cold Rm)  -> type "Packing"
+#   stage "Loading"  (Dispatch Cold Rm -> Delivery Truck) -> type "Dispatch"
+TYPE_REMOTE_TRANSFER = "Remote Transfers"
+#: The Sold leg's type. This REVIVES the original name (it briefly lived as
+#: "Graded Sold" during the rename, then reverted) -- it is the live type for
+#: every new Sold-leg entry, not just a legacy one recognised on old history.
 TYPE_TO_SOLD = "Move To Graded Sold"
+TYPE_ISSUING = "Issuing From Cold Store"
+TYPE_PACKING = "Packing"
+TYPE_DISPATCH = "Dispatch"
+
+#: Legacy: the shared generic type these five named ones replaced. Still
+#: recognised when reading history back, never used for new entries.
+TYPE_HOP = "Material Transfer"
 
 RECEIVING_TYPES = ("Receiving", "Late Receipt")
 
@@ -68,11 +93,11 @@ QTY_TOLERANCE = 0.001
 #: (SO Warehouse Mapping Item fieldname, stage name, Stock Entry Type).
 #: A row that leaves a column blank simply has no leg for that stage.
 STAGES = (
-	("transfer_to", "Arrival", TYPE_HOP),
-	("delivery_warehouse", "Sold", TYPE_HOP),
-	("packhouse", "Packing", TYPE_HOP),
-	("dispatch_cold_store", "Dispatch", TYPE_HOP),
-	("delivery_truck", "Loading", TYPE_HOP),
+	("transfer_to", "Arrival", TYPE_REMOTE_TRANSFER),
+	("delivery_warehouse", "Sold", TYPE_TO_SOLD),
+	("packhouse", "Packing", TYPE_ISSUING),
+	("dispatch_cold_store", "Dispatch", TYPE_PACKING),
+	("delivery_truck", "Loading", TYPE_DISPATCH),
 )
 
 STAGE_NAMES = tuple(stage for _f, stage, _t in STAGES)
@@ -94,7 +119,7 @@ def load_mapping(business_unit):
 	if not name:
 		frappe.throw(f"No {MAPPING_DT} configured for business unit {business_unit}")
 
-	columns = [field for field, _stage, _type in STAGES] + ["ungraded_sold_warehouse"]
+	columns = [field for field, _stage, _type in STAGES]
 	table = {}
 	for row in frappe.get_doc(MAPPING_DT, name).items:
 		if not row.source_warehouse:
@@ -108,7 +133,7 @@ def load_mapping(business_unit):
 	return table
 
 
-def resolve_route(source, business_unit, graded=True, upto=SALE_STAGE):
+def resolve_route(source, business_unit, upto=SALE_STAGE):
 	"""The legs from `source` up to and including stage `upto`.
 
 	Returns [{"from", "to", "stage", "type", "terminal"}, ...] — empty when the
@@ -132,7 +157,7 @@ def resolve_route(source, business_unit, graded=True, upto=SALE_STAGE):
 		if nxt in seen or len(hops) >= MAX_HOPS:
 			frappe.throw(f"Warehouse mapping loops at {nxt} ({business_unit})")
 		seen.add(nxt)
-		hops.append({"from": source, "to": nxt, "stage": ARRIVAL_STAGE, "type": TYPE_HOP, "terminal": False})
+		hops.append({"from": source, "to": nxt, "stage": ARRIVAL_STAGE, "type": TYPE_REMOTE_TRANSFER, "terminal": False})
 		source, row = nxt, table[nxt]
 
 	if hops and upto == ARRIVAL_STAGE:
@@ -143,8 +168,6 @@ def resolve_route(source, business_unit, graded=True, upto=SALE_STAGE):
 		if hops and stage == ARRIVAL_STAGE:
 			continue  # already walked above by the legacy chain
 		target = row.get(field)
-		if stage == SALE_STAGE and not graded and row.get("ungraded_sold_warehouse"):
-			target = row["ungraded_sold_warehouse"]
 		if target and target != current:
 			hops.append(
 				{
@@ -166,21 +189,20 @@ def sale_targets(business_unit):
 	"""Every warehouse the sale leg can land in for this business unit."""
 	targets = set()
 	for row in load_mapping(business_unit).values():
-		for column in ("delivery_warehouse", "ungraded_sold_warehouse"):
-			if row.get(column):
-				targets.add(row[column])
+		if row.get("delivery_warehouse"):
+			targets.add(row["delivery_warehouse"])
 	return targets
 
 
-def stage_warehouse(source, business_unit, stage=SALE_STAGE, graded=True):
+def stage_warehouse(source, business_unit, stage=SALE_STAGE):
 	"""Where `source` is supposed to have landed by the end of `stage`."""
-	route = resolve_route(source, business_unit, graded=graded, upto=stage)
+	route = resolve_route(source, business_unit, upto=stage)
 	return route[-1]["to"] if route else source
 
 
-def terminal_warehouse(source, business_unit, graded=True):
+def terminal_warehouse(source, business_unit):
 	"""Where the sale leg puts the stems — the Sold warehouse."""
-	return stage_warehouse(source, business_unit, stage=SALE_STAGE, graded=graded)
+	return stage_warehouse(source, business_unit, stage=SALE_STAGE)
 
 
 # ============================================================
@@ -485,7 +507,7 @@ def plan_moves(rows, business_unit, upto=SALE_STAGE, only_stage=None):
 	"""Work out every leg each row needs, without posting anything.
 
 	A row is {bucket_id, item_code, qty, source, stem_length, farm, so_item,
-	opl, graded, remarks}. `upto` is the last pipeline stage to walk;
+	opl, remarks}. `upto` is the last pipeline stage to walk;
 	`only_stage` narrows it to that single leg. Returns (plans, skipped);
 	`plans` are posted in hop order by `post_plans`.
 	"""
@@ -498,9 +520,7 @@ def plan_moves(rows, business_unit, upto=SALE_STAGE, only_stage=None):
 		if qty <= 0 or not bucket_id or not item_code:
 			continue
 
-		for depth, hop in enumerate(
-			resolve_route(row["source"], business_unit, graded=row.get("graded", True), upto=upto)
-		):
+		for depth, hop in enumerate(resolve_route(row["source"], business_unit, upto=upto)):
 			if only_stage and hop["stage"] != only_stage:
 				continue
 
@@ -695,7 +715,6 @@ def move_allocation_to_sold(allocations, business_unit, sales_order=None, opl=No
 				"farm": a.get("_shelf_farm") or a.get("shelf_farm"),
 				"so_item": a.get("sales_order_item"),
 				"opl": a.get("_opl") or opl,
-				"graded": bool(a.get("graded", True)),
 				"remarks": f"Allocated to {sales_order}" if sales_order else "Allocated",
 			}
 		)
@@ -766,10 +785,11 @@ def reverse_allocation_movement(sales_order_item, bucket_id=None, item_code=None
 		parent = frappe.db.get_value("Sales Order Item", sales_order_item, "parent")
 		business_unit = frappe.db.get_value("Sales Order", parent, "business_unit") if parent else None
 
-	# Every leg is a Material Transfer and every leg from the sale onwards
-	# carries the SO Item, so the sale leg is identified by where it LANDED —
-	# a Sold warehouse — not by the entry type. TYPE_TO_SOLD is still honoured
-	# for entries posted before that changed.
+	# Every leg from the sale onwards carries the SO Item, so the sale leg is
+	# identified by where it LANDED -- a Sold warehouse -- not solely by the
+	# entry type; matching on `stock_entry_type == TYPE_TO_SOLD` too catches
+	# entries whose `to_warehouse` isn't (or is no longer) one of the current
+	# mapping's own Sold targets, e.g. after a farm's Roses-MAP row changes.
 	targets = sale_targets(business_unit) if business_unit else set()
 	entries = [
 		e
@@ -807,6 +827,10 @@ def reverse_allocation_movement(sales_order_item, bucket_id=None, item_code=None
 
 			reversed_moves.append(
 				{
+					# Deliberately the generic type, not TYPE_TO_SOLD: this
+					# is a correction/un-allocation, not the forward "Sold" leg
+					# it undoes -- keeping the two visually distinct in a
+					# report matters more here than symmetry.
 					"entry": post_transfer(
 						entry_type=TYPE_HOP,
 						source=entry.to_warehouse,
@@ -905,6 +929,7 @@ def post_single_hop(
 	source,
 	target,
 	business_unit,
+	entry_type=TYPE_HOP,
 	bucket_id=None,
 	box_label=None,
 	farm=None,
@@ -945,7 +970,7 @@ def post_single_hop(
 
 	moved = min(qty, have)
 	entry = post_transfer(
-		entry_type=TYPE_HOP,
+		entry_type=entry_type,
 		source=source,
 		target=target,
 		item_code=item_code,
@@ -1004,6 +1029,7 @@ def post_issue_to_packhouse(
 		source=source,
 		target=row.packhouse,
 		business_unit=business_unit,
+		entry_type=TYPE_ISSUING,
 		bucket_id=bucket_id,
 		farm=farm,
 		stem_length=stem_length,
@@ -1034,6 +1060,7 @@ def post_stage_to_dispatch(
 		source=source,
 		target=row.dispatch_cold_store,
 		business_unit=business_unit,
+		entry_type=TYPE_PACKING,
 		box_label=box_label,
 		farm=farm,
 		remarks=remarks or f"Staged {box_label}",
@@ -1062,6 +1089,7 @@ def post_load_to_truck(
 		source=source,
 		target=row.delivery_truck,
 		business_unit=business_unit,
+		entry_type=TYPE_DISPATCH,
 		box_label=box_label,
 		farm=farm,
 		remarks=remarks or f"Loaded {box_label}",

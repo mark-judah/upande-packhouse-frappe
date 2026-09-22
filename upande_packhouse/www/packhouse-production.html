@@ -615,8 +615,10 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       <div class="right">
         <div class="presets" id="locPreset">
           <span class="p active" data-loc="">All</span>
-          <span class="p" data-loc="Ravine">Ravine</span>
-          <span class="p" data-loc="Karen">Karen</span>
+          <!-- Real Farm.farm_location values, fetched by loadLocationOptions()
+               -- this used to hardcode "Ravine"/"Karen", which excluded any
+               other farm location and (via a mismatched column name in the
+               backend filter, since fixed) never actually worked at all. -->
         </div>
         <div class="presets" id="rosePreset">
           <span class="p active" data-rose="all">All</span>
@@ -707,14 +709,17 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
             });
         });
 
-        // ── Location filter (Ravine = all remote farms, Karen = Karen farm) ──
-        document.querySelectorAll('#locPreset .p').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('#locPreset .p').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                locFilter = btn.dataset.loc;
-                load();
-            });
+        // ── Location filter -- event delegation, since the real location
+        //    pills are fetched asynchronously (loadLocationOptions below)
+        //    rather than being a fixed set of nodes at load time ──
+        const locPreset = document.getElementById('locPreset');
+        locPreset.addEventListener('click', e => {
+            const btn = e.target.closest('.p');
+            if (!btn) return;
+            locPreset.querySelectorAll('.p').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            locFilter = btn.dataset.loc;
+            load();
         });
 
         applyPreset('today');
@@ -722,11 +727,34 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         document.getElementById('refreshBtn').addEventListener('click', load);
         setTimeout(load, 800);
         setInterval(load, 30000);
+        // Called last -- guarded against frappe.call not being ready yet
+        // (see loadLocationOptions itself), but kept after the listeners
+        // and initial load/refresh wiring above regardless, so a slow or
+        // failed fetch here can never block the rest of this handler.
+        loadLocationOptions();
     });
 
     function getDateArgs() {
         if (customFrom && customTo) return { period: 'custom', from_date: customFrom, to_date: customTo };
         return { period: 'today' };
+    }
+
+    function loadLocationOptions() {
+        if (!window.frappe || !frappe.call) { return setTimeout(loadLocationOptions, 150); }
+        frappe.call({
+            method: 'upande_packhouse.api.production.getProductionLocations',
+            callback: r => {
+                const list = (r.message && r.message.success) ? (r.message.locations || []) : [];
+                const preset = document.getElementById('locPreset');
+                list.forEach(loc => {
+                    const span = document.createElement('span');
+                    span.className = 'p';
+                    span.dataset.loc = loc;
+                    span.textContent = loc;
+                    preset.appendChild(span);
+                });
+            },
+        });
     }
 
     function load() { pvLoad(); }
@@ -803,7 +831,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
    spilling off-screen or wrapping into a tall/fat bar. */
 .aph-topbar{padding:9px 20px !important;gap:12px !important;flex-wrap:nowrap !important;min-height:0 !important;align-items:center !important}
 .aph-topbar h1{font-size:16px !important;line-height:1.25;white-space:nowrap}
-.aph-topbar .right{margin-left:auto !important;flex-wrap:nowrap !important;overflow-x:auto;overflow-y:hidden;max-width:100%;padding-bottom:1px;scrollbar-width:thin}
+.aph-topbar .right{margin-left:auto !important;flex-wrap:nowrap !important;justify-content:flex-start !important;overflow-x:auto;overflow-y:hidden;max-width:100%;padding-bottom:1px;scrollbar-width:thin}
 .aph-topbar .right > *{flex:0 0 auto}
 .aph-topbar .right::-webkit-scrollbar{height:4px}
 .aph-topbar .right::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:4px}

@@ -607,16 +607,12 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
             <span id="selectedTeam">All Teams</span>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
-          <div class="dropdown-menu" id="teamMenu">
-            <div class="dropdown-item ms-item active" data-team="all"><span class="ms-check"></span>All Teams</div>
-            <div class="dropdown-item ms-sep"></div>
-            <div class="dropdown-item ms-item" data-team="Team A"><span class="ms-check"></span>Team A</div>
-            <div class="dropdown-item ms-item" data-team="Team B"><span class="ms-check"></span>Team B</div>
-            <div class="dropdown-item ms-item" data-team="Team C"><span class="ms-check"></span>Team C</div>
-            <div class="dropdown-item ms-item" data-team="Jamafa"><span class="ms-check"></span>Jamafa</div>
-            <div class="dropdown-item ms-item" data-team="Eldama"><span class="ms-check"></span>Eldama</div>
-            <div class="dropdown-item ms-item" data-team="Bravo"><span class="ms-check"></span>Bravo</div>
-          </div>
+          <!-- Populated from the Packing Teams doctype via loadTeamOptions()
+               (buildMulti, same as the owner/reason menus below) -- this
+               used to be a hardcoded list (Team A/B/C, Jamafa, Eldama,
+               Bravo) with two teams ("Team C", "Bravo") that never existed
+               as real Packing Teams records. -->
+          <div class="dropdown-menu" id="teamMenu"></div>
         </div>
         <div class="dropdown" id="ownerDropdown">
           <button class="btn" id="ownerBtn">
@@ -744,27 +740,27 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         const f = document.getElementById('dateFrom'), t = document.getElementById('dateTo');
         if (f) f.value = customFrom; if (t) t.value = customTo;
     }
-    function updateTeamLabel(){
-        const lbl = document.getElementById('selectedTeam');
-        if (!teams.length) lbl.textContent = 'All Teams';
-        else if (teams.length === 1) lbl.textContent = teams[0];
-        else lbl.textContent = teams.length + ' teams';
+    // Fetches the real team list from the Packing Teams doctype and builds
+    // the team menu the same way buildMulti already builds owner/reason
+    // below -- this used to be a hardcoded, already-stale HTML list.
+    function loadTeamOptions() {
+        // frappe.call may not be ready this early on a website page -- see
+        // the same guard on packhouse-dashboard.html, added after that
+        // page's unguarded call broke its team button entirely.
+        if (!window.frappe || !frappe.call) { return setTimeout(loadTeamOptions, 150); }
+        frappe.call({
+            method: 'upande_packhouse.api.dashboard.getTeams',
+            callback: r => {
+                const list = (r.message && r.message.success) ? (r.message.teams || []) : [];
+                buildMulti('teamMenu', list, teams, 'selectedTeam', 'All Teams');
+            },
+        });
     }
 
     document.addEventListener('DOMContentLoaded', () => {
         const td = document.getElementById('teamDropdown');
         document.getElementById('teamBtn').addEventListener('click', e => { e.stopPropagation(); td.classList.toggle('open'); });
-        const teamItems = td.querySelectorAll('.ms-item');
-        teamItems.forEach(item => {
-            item.addEventListener('click', function(e) {
-                e.stopPropagation();
-                const t = this.dataset.team;
-                if (t === 'all') { teams = []; }
-                else { const i = teams.indexOf(t); if (i >= 0) teams.splice(i, 1); else teams.push(t); }
-                teamItems.forEach(x => { const xt = x.dataset.team; x.classList.toggle('active', xt === 'all' ? teams.length === 0 : teams.indexOf(xt) >= 0); });
-                updateTeamLabel(); load();
-            });
-        });
+        loadTeamOptions();
         document.addEventListener('click', e => { if (!e.target.closest('#teamDropdown')) td.classList.remove('open'); });
 
         ['ownerDropdown','reasonDropdown'].forEach(id => {
@@ -928,7 +924,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
    spilling off-screen or wrapping into a tall/fat bar. */
 .aph-topbar{padding:9px 20px !important;gap:12px !important;flex-wrap:nowrap !important;min-height:0 !important;align-items:center !important}
 .aph-topbar h1{font-size:16px !important;line-height:1.25;white-space:nowrap}
-.aph-topbar .right{margin-left:auto !important;flex-wrap:nowrap !important;overflow-x:auto;overflow-y:hidden;max-width:100%;padding-bottom:1px;scrollbar-width:thin}
+.aph-topbar .right{margin-left:auto !important;flex-wrap:nowrap !important;justify-content:flex-start !important;overflow-x:auto;overflow-y:hidden;max-width:100%;padding-bottom:1px;scrollbar-width:thin}
 .aph-topbar .right > *{flex:0 0 auto}
 .aph-topbar .right::-webkit-scrollbar{height:4px}
 .aph-topbar .right::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:4px}
