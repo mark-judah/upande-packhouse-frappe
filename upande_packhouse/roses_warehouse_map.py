@@ -70,7 +70,7 @@ def pre_graded_warehouse_for_farm(farm, business_unit=BUSINESS_UNIT):
 
 
 @frappe.whitelist()
-def routing_defaults(farm=None, source_warehouse=None):
+def routing_defaults(farm: str | None = None, source_warehouse: str | None = None):
 	"""What the Sales Order form should prefill, for one farm (or coldstore).
 	Client counterpart of sales_order_apply_routing -- warehouse_routing.js
 	calls this so the operator sees the warehouse the moment the farm is set,
