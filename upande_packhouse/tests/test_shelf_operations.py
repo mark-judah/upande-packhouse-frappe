@@ -42,16 +42,26 @@ class IntegrationTestShelfOperationsPackhouse(IntegrationTestCase):
 				{
 					"doctype": "Farm",
 					"farm_name": self.farm,
+<<<<<<< HEAD
 					"company": COMPANY,
+=======
+					"company": "Karen Roses",
+>>>>>>> aa41f282c078e67446b77acadfe2d4b17670444d
 					"abbreviation": "TSOF",
 					"farm_type": [{"farm_type": "Has Greenhouses"}],
 				}
 			).insert(ignore_permissions=True)
 		self.bucket_id = "TEST-BUCKET-002"
 		if not frappe.db.exists("Bucket QR Code", self.bucket_id):
+<<<<<<< HEAD
 			frappe.get_doc(
 				{"doctype": "Bucket QR Code", "id": self.bucket_id, "item_code": VARIETY_ITEM}
 			).insert(ignore_permissions=True)
+=======
+			frappe.get_doc({"doctype": "Bucket QR Code", "id": self.bucket_id, "item_code": "Reflex"}).insert(
+				ignore_permissions=True
+			)
+>>>>>>> aa41f282c078e67446b77acadfe2d4b17670444d
 		frappe.db.commit()
 
 	def tearDown(self):
@@ -110,17 +120,30 @@ class IntegrationTestShelfOperationsPackhouse(IntegrationTestCase):
 				"doctype": "Stock Entry",
 				"stock_entry_type": "Harvesting",
 				"purpose": "Material Receipt",
+<<<<<<< HEAD
 				"company": COMPANY,
+=======
+				"company": "Karen Roses",
+>>>>>>> aa41f282c078e67446b77acadfe2d4b17670444d
 				"posting_date": today,
 				"custom_bucket_id": self.bucket_id,
 				"items": [
 					{
+<<<<<<< HEAD
 						"item_code": VARIETY_ITEM,
 						"qty": 20,
 						"t_warehouse": GREENHOUSE_WAREHOUSE,
 						"uom": "Stems",
 						"allow_zero_valuation_rate": 1,
 						"cost_center": COST_CENTER,
+=======
+						"item_code": "Reflex",
+						"qty": 20,
+						"t_warehouse": "Karen GH 04 - KR",
+						"uom": "Stems",
+						"allow_zero_valuation_rate": 1,
+						"cost_center": "Karen Roses - KR",
+>>>>>>> aa41f282c078e67446b77acadfe2d4b17670444d
 					}
 				],
 			}
@@ -133,12 +156,17 @@ class IntegrationTestShelfOperationsPackhouse(IntegrationTestCase):
 				"doctype": "Stock Entry",
 				"stock_entry_type": "Receiving",
 				"purpose": "Material Transfer",
+<<<<<<< HEAD
 				"company": COMPANY,
+=======
+				"company": "Karen Roses",
+>>>>>>> aa41f282c078e67446b77acadfe2d4b17670444d
 				"posting_date": today,
 				"set_posting_time": 1,
 				"custom_bucket_id": self.bucket_id,
 				"items": [
 					{
+<<<<<<< HEAD
 						"item_code": VARIETY_ITEM,
 						"qty": 20,
 						"uom": "Stems",
@@ -147,6 +175,16 @@ class IntegrationTestShelfOperationsPackhouse(IntegrationTestCase):
 						"custom_stem_length": "52cm",
 						"allow_zero_valuation_rate": 1,
 						"cost_center": COST_CENTER,
+=======
+						"item_code": "Reflex",
+						"qty": 20,
+						"uom": "Stems",
+						"s_warehouse": "Karen GH 04 - KR",
+						"t_warehouse": "Karen Receiving Cold Store - KR",
+						"custom_stem_length": "52cm",
+						"allow_zero_valuation_rate": 1,
+						"cost_center": "Karen Roses - KR",
+>>>>>>> aa41f282c078e67446b77acadfe2d4b17670444d
 					}
 				],
 			}
