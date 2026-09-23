@@ -55,7 +55,6 @@ def pre_graded_warehouse(source_warehouse, business_unit=BUSINESS_UNIT):
 		# Unmapped business unit: resolve_route throws, which is right for a
 		# stock move (the leg cannot be posted) but never worth a failed save
 		# here -- fall back to the coldstore itself.
-<<<<<<< HEAD
 		#
 		# resolve_route also throws on a CYCLIC map ("Warehouse mapping loops
 		# at ..."), and that is not a benign missing-mapping: it silently routes
@@ -70,8 +69,6 @@ def pre_graded_warehouse(source_warehouse, business_unit=BUSINESS_UNIT):
 				f"Falling back to the source warehouse itself.\n\n{frappe.get_traceback()}"
 			),
 		)
-=======
->>>>>>> bfe29a600040a99b206f766a42af764466d8b28d
 		return source_warehouse
 	for hop in route:
 		if hop["stage"] == stock_movement.SALE_STAGE:

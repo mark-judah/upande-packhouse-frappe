@@ -42,14 +42,8 @@ def getSalesOrderOptions():
 			pluck="name",
 			order_by="name asc",
 		)
-<<<<<<< HEAD
-		currencies = frappe.get_all(
-			"Currency", filters={"enabled": 1}, pluck="name", order_by="name asc"
-		)
-		default_warehouse = frappe.db.get_single_value("Sales Settings", "default_warehouse")
-=======
 		currencies = frappe.get_all("Currency", filters={"enabled": 1}, pluck="name", order_by="name asc")
->>>>>>> bfe29a600040a99b206f766a42af764466d8b28d
+		default_warehouse = frappe.db.get_single_value("Sales Settings", "default_warehouse")
 		frappe.response["message"] = {
 			"success": True,
 			"stem_lengths": stem_lengths,
@@ -476,11 +470,6 @@ def saveSalesOrder():
 			doc.company = "Karen Roses"  # every real Roses Sales Order uses this company
 
 		header_fields = [
-<<<<<<< HEAD
-			"customer", "transaction_date", "delivery_date", "currency", "selling_price_list",
-			"custom_consignee", "custom_delivery_point", "custom_shipping_agent",
-			"custom_s_number", "custom_truck_details", "custom_order_name", "set_warehouse",
-=======
 			"customer",
 			"transaction_date",
 			"delivery_date",
@@ -491,7 +480,8 @@ def saveSalesOrder():
 			"custom_shipping_agent",
 			"custom_s_number",
 			"custom_truck_details",
->>>>>>> bfe29a600040a99b206f766a42af764466d8b28d
+			"custom_order_name",
+			"set_warehouse",
 		]
 		for f in header_fields:
 			if f in data:

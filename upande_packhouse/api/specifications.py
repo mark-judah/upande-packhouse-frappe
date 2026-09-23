@@ -309,33 +309,6 @@ def _group_into_bunches(doc):
 				{"varieties": [], "colour": "", "stems_per_bunch": bi.stems_per_bunch}
 				for bi in bi_rows
 			]
-<<<<<<< HEAD
-=======
-		else:
-			by_colour = {}
-			colour_order = []
-			for av in av_rows:
-				c = av.colour or ""
-				if c not in by_colour:
-					by_colour[c] = []
-					colour_order.append(c)
-				by_colour[c].append(av.variety)
-			rows = []
-			for i, c in enumerate(colour_order):
-				bi_row = bi_rows[i] if i < len(bi_rows) else (bi_rows[0] if bi_rows else None)
-				rows.append(
-					{
-						"varieties": [v for v in by_colour[c] if v],
-						"colour": c,
-						"stems_per_bunch": bi_row.stems_per_bunch if bi_row else None,
-					}
-				)
-			if not rows and bi_rows:
-				# Box Item row(s) exist with no matching Approved Variety yet.
-				rows = [
-					{"varieties": [], "colour": "", "stems_per_bunch": bi.stems_per_bunch} for bi in bi_rows
-				]
->>>>>>> bfe29a600040a99b206f766a42af764466d8b28d
 
 		bunches.append(
 			{
