@@ -40,7 +40,7 @@ frappe.ui.form.on("Sales Order", {
 							message: __("Order name updated to {0}", [new_order_name]),
 							indicator: "green",
 						},
-						5,
+						5
 					);
 				}
 			},
