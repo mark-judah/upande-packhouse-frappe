@@ -137,6 +137,20 @@ function is_roses(frm) {
    runs this file) still lands correctly. This is the live-feedback half:
    the operator sees the warehouse the moment the farm is set. */
 
+/* Wipe the previous farm's routing off the header and every line. Only ever
+   called on an overwrite (a farm change) that found no mapping for the new
+   farm -- see apply_roses_routing. */
+function clear_roses_routing(frm) {
+	if (frm.doc.set_warehouse) {
+		frm.set_value("set_warehouse", "");
+	}
+	(frm.doc.items || []).forEach((row) => {
+		if (row.warehouse) {
+			frappe.model.set_value(row.doctype, row.name, "warehouse", "");
+		}
+	});
+}
+
 async function apply_roses_routing(frm, opts) {
 	const overwrite = !!(opts && opts.overwrite);
 	if (frm.doc.docstatus !== 0) return; // submitted/cancelled items are frozen
@@ -144,7 +158,28 @@ async function apply_roses_routing(frm, opts) {
 
 	const warehouse = await roses_pre_graded_warehouse(frm);
 	const truck = frm.doc.custom_truck_details;
-	if (!warehouse && !truck) return;
+	if (!warehouse && !truck) {
+		// An overwrite means the FARM changed, and every existing line is now
+		// routed through the previous farm's packhouse. If the new farm has no
+		// Roses-MAP row we have nothing to re-point them to -- but leaving them
+		// is the one outcome that is certainly wrong, because the order would
+		// then ship sourced from a farm it is no longer for, silently. Clear
+		// them instead and say why: a blank warehouse stops the save, which is
+		// the behaviour a missing mapping should have.
+		if (overwrite && !warehouse) {
+			clear_roses_routing(frm);
+			frappe.show_alert(
+				{
+					message: __(
+						"No warehouse mapping for this farm -- source warehouse cleared on every line. Add the farm to Roses-MAP, or set the warehouse by hand."
+					),
+					indicator: "orange",
+				},
+				10
+			);
+		}
+		return;
+	}
 
 	if (warehouse && frm.doc.set_warehouse !== warehouse) {
 		if (overwrite) {

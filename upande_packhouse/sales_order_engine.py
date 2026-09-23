@@ -132,13 +132,21 @@ def _set_order_summary(doc):
 		boxes = int(it.get("custom_number_of_boxes") or 0)
 		total_stems += _line_packrate(it) * boxes
 
+		# What counts as ONE box, in order of how specifically it says so.
+		# The server-assigned groups come first because they are the actual
+		# box identity build_spec_rows stamped; `custom_line` is only the
+		# spec's NAME, and one spec legitimately yields several boxes -- a
+		# variety approved at 62 and 72 is two lines, one box each, and the
+		# same spec filled twice is two boxes again. Keying on custom_line
+		# alone collapsed all of those into one and undercounted Total Boxes,
+		# which downstream packing capacity then plans against.
 		group_key = None
-		if it.get("custom_line"):
-			group_key = ("spec", it.custom_line)
-		elif it.get("custom_bunch_group"):
+		if it.get("custom_bunch_group"):
 			group_key = ("bunch", it.custom_bunch_group)
 		elif it.get("custom_mix_group"):
 			group_key = ("mix", it.custom_mix_group)
+		elif it.get("custom_line"):
+			group_key = ("spec", it.custom_line, it.get("custom_length") or "")
 		if group_key:
 			if group_key in seen_groups:
 				continue

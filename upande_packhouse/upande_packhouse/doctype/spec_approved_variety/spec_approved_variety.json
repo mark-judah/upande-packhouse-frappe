@@ -34,7 +34,7 @@
   },
   {
    "columns": 1,
-   "default": "1",
+   "default": "0",
    "description": "Exactly one variety per (Bunch ID, Colour) slot must be Primary -- it's the default pick. Any other varieties sharing that same Bunch ID and Colour are approved substitutes, used when the primary isn't in stock; they never add extra stems of their own.",
    "fieldname": "is_primary",
    "fieldtype": "Check",

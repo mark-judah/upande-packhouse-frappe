@@ -664,6 +664,13 @@ def build_spec_rows(
 		variety = s.get("variety")
 		if not variety:
 			continue
+		# A selection sent with boxes=0 is one the operator excluded. It is
+		# deliberately left out of `boxes_values` above (so it cannot be the
+		# spec's shared count), and it must be left out of the rows too --
+		# otherwise it silently comes back at whatever the OTHER rows asked
+		# for, ordering a variety nobody selected.
+		if int(s.get("boxes") or 0) <= 0:
+			continue
 
 		boxes = shared_boxes
 		stems_per_box = int(s.get("stems") or bi.pack_rate or 0)

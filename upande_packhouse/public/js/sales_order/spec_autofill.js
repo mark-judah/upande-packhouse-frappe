@@ -227,6 +227,12 @@ const SPA_STYLES = `
       .spa-stems,.spa-boxes{height:28px;width:80px}
       .spa-empty-fill{color:#8a8780;text-align:center;padding:14px 0;font-size:12px}
       .spa-foot{margin-top:12px;padding-top:10px;border-top:1px solid var(--border-color,#e2e4e9);font-size:13px;text-align:right;color:#3a3a34}
+      /* The bunch picker's foot carries the spec's single Boxes control as
+         well as the totals, so it lays out as a row; the flat picker's foot
+         has only text and is unaffected by these. */
+      .spa-foot-row{display:flex;align-items:center;gap:12px;justify-content:flex-end;flex-wrap:wrap}
+      .spa-foot-row .spb-boxes-label{margin:0}
+      .spa-foot-tot{white-space:nowrap}
       .spa-badge{float:left;font-size:11px;color:#8a8780;text-transform:uppercase;letter-spacing:.04em}
       .spb-card{border:1px solid var(--border-color,#e2e4e9);border-radius:6px;margin-bottom:10px;overflow:hidden}
       .spb-head{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--subtle-fg,#f8f8f6);flex-wrap:wrap}
@@ -548,11 +554,18 @@ function flat_section(data, uid) {
 			});
 			$root.on("change", ".spa-vcb", syncTable);
 			$root.on("change", ".spa-box", syncTable);
-			$root.on(
-				"input change",
-				".spa-fill-tbody .spa-stems,.spa-fill-tbody .spa-boxes",
-				recompute
-			);
+			$root.on("input change", ".spa-fill-tbody .spa-stems", recompute);
+			// Boxes is ONE number for the spec, not one per fill row: a spec
+			// describes a single box, so build_spec_rows throws "A spec is one
+			// box -- every colour must use the same Boxes count" the moment two
+			// rows disagree. Typing in any row therefore sets them all, which
+			// makes that rule visible instead of letting the operator build a
+			// payload the server will only reject on submit.
+			$root.on("input change", ".spa-fill-tbody .spa-boxes", function () {
+				const v = $(this).val();
+				$root.find(".spa-fill-tbody .spa-boxes").not(this).val(v);
+				recompute();
+			});
 			syncTable();
 		},
 		totals() {
@@ -572,12 +585,18 @@ function flat_section(data, uid) {
 			if (!$root) return selections;
 			$root.find(".spa-fill-row").each(function () {
 				const $r = $(this);
+				const boxes = cint($r.find(".spa-boxes").val());
+				// A zeroed row is one the operator has excluded. Sending it
+				// would make the server apply the spec's shared box count to
+				// it anyway (build_spec_rows ignores zeros when picking that
+				// count), quietly ordering something nobody asked for.
+				if (boxes <= 0) return;
 				selections.push({
 					line_idx: parseInt($r.attr("data-line-idx"), 10),
 					box_idx: parseInt($r.attr("data-box-idx"), 10) || 0,
 					variety: $r.attr("data-variety"),
 					stems: cint($r.find(".spa-stems").val()),
-					boxes: cint($r.find(".spa-boxes").val()),
+					boxes,
 				});
 			});
 			return selections;
@@ -675,34 +694,45 @@ function bunch_section(data, uid) {
             <div class="spb-head">
                 <span class="spb-id">${esc(b.bunch_id)}</span>
                 ${badge}
-                <label class="spb-boxes-label">${__("Boxes")}
-                    <input type="number" min="0" class="spb-boxes form-control input-sm" value="0">
-                </label>
             </div>
             ${(b.slots || []).map((slot, si) => slotHtml(b, slot, si)).join("")}
             <div class="spb-foot">${nfmt(perBoxStems)} ${__("stems / box")}</div>
         </div>`;
 	};
 
+	// ONE Boxes control for the whole spec, not one per bunch card. A spec
+	// describes a single box: its bunches are what go INTO that box, so they
+	// cannot be ordered in different quantities. The server enforces exactly
+	// that -- build_spec_rows throws "A spec is one box -- every bunch must
+	// use the same Boxes count", and again if any bunch is missing from the
+	// fill -- and spec_fill_dialog.js (the dashboard's picker) has always
+	// worked this way. A per-card input could only ever produce a payload the
+	// server rejects, so there is nothing for it to mean.
 	const html = `
     <div class="spa" data-uid="${esc(uid)}">
       ${bunches.map(cardHtml).join("")}
-      <div class="spa-foot"><span class="spa-badge">${esc(spec_kind(data))}</span>
-        Total: <b class="spa-tot-boxes">0</b> boxes &middot; <b class="spa-tot-stems">0</b> stems</div>
+      <div class="spa-foot spa-foot-row">
+        <span class="spa-badge">${esc(spec_kind(data))}</span>
+        <label class="spb-boxes-label">${__("Boxes")}
+            <input type="number" min="0" class="spb-boxes form-control input-sm" value="0">
+        </label>
+        <span class="spa-foot-tot">Total: <b class="spa-tot-boxes">0</b> boxes &middot; <b class="spa-tot-stems">0</b> stems</span>
+      </div>
     </div>`;
 
 	let $root = null;
 	let on_change = () => {};
 
+	function shared_boxes() {
+		return $root ? cint($root.find(".spb-boxes").val()) : 0;
+	}
+
 	function totals() {
-		let boxes = 0,
-			stems = 0;
-		if (!$root) return { boxes, stems };
+		const boxes = shared_boxes();
+		let stems = 0;
+		if (!$root || boxes <= 0) return { boxes: boxes > 0 ? boxes : 0, stems };
 		$root.find(".spb-card").each(function () {
-			const $c = $(this);
-			const b = cint($c.find(".spb-boxes").val());
-			boxes += b;
-			stems += b * cint($c.attr("data-per-box"));
+			stems += boxes * cint($(this).attr("data-per-box"));
 		});
 		return { boxes, stems };
 	}
@@ -716,7 +746,7 @@ function bunch_section(data, uid) {
 
 	return {
 		html,
-		empty_message: __("Enter a box count for at least one bunch."),
+		empty_message: __("Enter a box count for this specification."),
 		bind($scope, onchange) {
 			$root = $scope;
 			on_change = onchange || (() => {});
@@ -727,10 +757,15 @@ function bunch_section(data, uid) {
 		collect() {
 			const selections = [];
 			if (!$root) return selections;
+			const boxes = shared_boxes();
+			// Nothing ordered: say so with an empty payload rather than a
+			// partial one. build_spec_rows treats boxes <= 0 as "no rows".
+			if (boxes <= 0) return selections;
+			// EVERY bunch, always. They are the contents of one box, so a fill
+			// that omits one is not a smaller order -- it is an incomplete box,
+			// which is why the server rejects it outright.
 			$root.find(".spb-card").each(function () {
 				const $c = $(this);
-				const boxes = cint($c.find(".spb-boxes").val());
-				if (boxes <= 0) return;
 				const picks = {};
 				$c.find(".spb-slot").each(function () {
 					const $slot = $(this);

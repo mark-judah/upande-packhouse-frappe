@@ -1134,7 +1134,9 @@ function pickSpecForFill(spec){
         }
         SPEC_MODAL_DATA = data;
         document.getElementById('specModalSub').textContent = data.spec_name + (data.is_mixed_box ? ' — Mixed Box' : '');
-        document.getElementById('specModalBody').innerHTML = renderFlatPicker(data);
+        const flatBody = document.getElementById('specModalBody');
+        flatBody.innerHTML = renderFlatPicker(data);
+        bindFlatPickerBoxes(flatBody);
         document.getElementById('specConfirmBtn').style.display = 'inline-flex';
     }, error: (r) => {
         const msg = extractServerError(r) || 'Could not load that specification.';
@@ -1159,6 +1161,19 @@ function renderFlatPicker(data){
             <input type="number" placeholder="Stems" data-role="stems">
           </div>`).join('')}
       </div>`).join('');
+}
+// Boxes is ONE number for the whole spec, not one per variety row. A spec
+// describes a single box, and build_spec_rows throws "A spec is one box --
+// every colour must use the same Boxes count" the moment two ticked rows
+// disagree. Typing in any row therefore sets them all, so the operator can
+// never build a payload the server will only reject on submit. Desk's
+// spec_autofill.js does the same for its own flat picker.
+function bindFlatPickerBoxes(root){
+    root.addEventListener('input', (e) => {
+        if(!e.target.matches('[data-role="boxes"]')) return;
+        const v = e.target.value;
+        root.querySelectorAll('[data-role="boxes"]').forEach(inp => { if(inp !== e.target) inp.value = v; });
+    });
 }
 // Only reached for the legacy flat picker now (see pickSpecForFill) --
 // bunch-aware specs submit through spec_fill_dialog.js's own onSubmit.
