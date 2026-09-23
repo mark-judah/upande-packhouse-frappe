@@ -51,7 +51,8 @@ def listCurrencies():
 		)
 		frappe.response["message"] = {"success": True, "currencies": rows}
 	except Exception as e:
-		frappe.log_error("listCurrencies error: " + str(e))
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
+		frappe.log_error(title="listCurrencies error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e), "currencies": []}
 
 
@@ -68,8 +69,9 @@ def setCurrencyEnabled():
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		frappe.response["message"] = {"success": True}
 	except Exception as e:
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
 		frappe.db.rollback()
-		frappe.log_error("setCurrencyEnabled error: " + str(e))
+		frappe.log_error(title="setCurrencyEnabled error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e)}
 
 
@@ -86,8 +88,48 @@ def searchPriceLists():
 		)
 		frappe.response["message"] = {"success": True, "price_lists": rows}
 	except Exception as e:
-		frappe.log_error("searchPriceLists error: " + str(e))
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
+		frappe.log_error(title="searchPriceLists error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e), "price_lists": []}
+
+
+@frappe.whitelist()
+def listPriceLists():
+	"""Every Selling Price List, enabled or not -- unlike searchPriceLists
+	(which only returns enabled=1 ones, for the Link-field pickers in Desk
+	and the dashboard), this is Sales Settings' own management view: the
+	one place an enabled/disabled toggle actually gets exposed at all."""
+	try:
+		rows = frappe.get_all(
+			"Price List",
+			filters={"selling": 1},
+			fields=["name", "currency", "enabled"],
+			order_by="enabled desc, name asc",
+		)
+		frappe.response["message"] = {"success": True, "price_lists": rows}
+	except Exception as e:
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
+		frappe.log_error(title="listPriceLists error", message=str(e))
+		frappe.response["message"] = {"success": False, "error": str(e), "price_lists": []}
+
+
+@frappe.whitelist()
+def setPriceListEnabled():
+	try:
+		data = _json_payload()
+		price_list = data.get("price_list")
+		enabled = 1 if data.get("enabled") else 0
+		if not price_list or not frappe.db.exists("Price List", price_list):
+			frappe.response["message"] = {"success": False, "error": "Price List not found"}
+			return
+		frappe.db.set_value("Price List", price_list, "enabled", enabled)
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+		frappe.response["message"] = {"success": True}
+	except Exception as e:
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
+		frappe.db.rollback()
+		frappe.log_error(title="setPriceListEnabled error", message=str(e))
+		frappe.response["message"] = {"success": False, "error": str(e)}
 
 
 @frappe.whitelist()
@@ -119,8 +161,9 @@ def createPriceList():
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		frappe.response["message"] = {"success": True, "name": doc.name}
 	except Exception as e:
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
 		frappe.db.rollback()
-		frappe.log_error("createPriceList error: " + str(e))
+		frappe.log_error(title="createPriceList error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e)}
 
 
@@ -134,7 +177,8 @@ def listCustomerPriceListDefaults():
 		)
 		frappe.response["message"] = {"success": True, "defaults": rows}
 	except Exception as e:
-		frappe.log_error("listCustomerPriceListDefaults error: " + str(e))
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
+		frappe.log_error(title="listCustomerPriceListDefaults error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e), "defaults": []}
 
 
@@ -158,8 +202,9 @@ def saveCustomerPriceListDefault():
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		frappe.response["message"] = {"success": True, "name": doc.name}
 	except Exception as e:
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
 		frappe.db.rollback()
-		frappe.log_error("saveCustomerPriceListDefault error: " + str(e))
+		frappe.log_error(title="saveCustomerPriceListDefault error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e)}
 
 
@@ -174,6 +219,51 @@ def deleteCustomerPriceListDefault():
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		frappe.response["message"] = {"success": True}
 	except Exception as e:
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
 		frappe.db.rollback()
-		frappe.log_error("deleteCustomerPriceListDefault error: " + str(e))
+		frappe.log_error(title="deleteCustomerPriceListDefault error", message=str(e))
+		frappe.response["message"] = {"success": False, "error": str(e)}
+
+
+# ----------------------------- default warehouse -----------------------------
+
+
+@frappe.whitelist()
+def getSalesSettings():
+	try:
+		default_warehouse = frappe.db.get_single_value("Sales Settings", "default_warehouse")
+		warehouses = frappe.get_all(
+			"Warehouse",
+			filters={"is_group": 0, "disabled": 0, "company": "Karen Roses"},
+			pluck="name",
+			order_by="name asc",
+		)
+		frappe.response["message"] = {
+			"success": True,
+			"default_warehouse": default_warehouse,
+			"warehouses": warehouses,
+		}
+	except Exception as e:
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
+		frappe.log_error(title="getSalesSettings error", message=str(e))
+		frappe.response["message"] = {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def setDefaultWarehouse():
+	try:
+		data = _json_payload()
+		warehouse = data.get("default_warehouse") or None
+		if warehouse and not frappe.db.exists("Warehouse", warehouse):
+			frappe.response["message"] = {"success": False, "error": "Warehouse not found"}
+			return
+		doc = frappe.get_single("Sales Settings")
+		doc.default_warehouse = warehouse
+		doc.save()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+		frappe.response["message"] = {"success": True}
+	except Exception as e:
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
+		frappe.db.rollback()
+		frappe.log_error(title="setDefaultWarehouse error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e)}

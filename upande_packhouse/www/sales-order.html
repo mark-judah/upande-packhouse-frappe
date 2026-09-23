@@ -1,0 +1,1837 @@
+{% extends "templates/web.html" %}
+{% block page_content %}
+{% raw %}
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<!-- Shared "Fill Order from Spec" popup -- the exact same file Desk loads
+     via hooks.py's doctype_js, so this dashboard and the Sales Order form
+     can't drift into two different spec-fill experiences again. -->
+<script src="/assets/upande_packhouse/js/sales_order/spec_fill_dialog.js"></script>
+<style>
+:root{
+  --ink:#0a0a0a;--ink-1:#1a1a18;--ink-2:#2a2a26;--ink-3:#3a3a34;--ink-4:#5a5a52;--ink-mute:#8a8780;--ink-faint:#b8b6ae;
+  --bg:#f4f3ef;--surface:#fafaf6;--surface-2:#ffffff;
+  --hairline:rgba(10,10,10,0.06);--hairline-2:rgba(10,10,10,0.10);
+  --shadow-card:0 1px 0 rgba(10,10,10,0.04),0 8px 32px -16px rgba(10,10,10,0.10);
+  --shadow-hover:0 1px 0 rgba(10,10,10,0.06),0 24px 48px -24px rgba(10,10,10,0.18);
+  --signal:#228883;--signal-soft:rgba(34,136,131,0.10);
+  --violet:#7c5cfc;--violet-soft:#f0ecfe;
+  --good:#1a8a3a;--good-soft:#e6f9ee;--warn:#9a5a00;--warn-soft:#fff3e0;--bad:#c4302b;--bad-soft:#fde8ec;
+  --grad-ink:linear-gradient(135deg,#0a0a0a 0%,#3a3a34 100%);
+  --sans:'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --display:'Fraunces',Georgia,serif;
+  --mono:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;
+  --sidebar-w:248px;--sidebar-cw:74px;
+}
+html,body{margin:0!important;padding:0!important;overflow:hidden!important;height:100vh!important}
+.navbar,header,.page-breadcrumbs,.page-header,.page-header-wrapper,.web-footer,footer,
+.website-edit-button,.btn-edit-page,.edit-page-btn,.scroll-to-top,.back-to-top,
+.website-banner,.call-to-action,.frappe-chat,#frappe-chat,.telegram-share,.share-buttons,
+.web-page-edit,.published-edit{display:none!important}
+.aph *{box-sizing:border-box;margin:0;padding:0}
+.aph{position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100vh;z-index:2147483000;
+  font-family:var(--sans);background:var(--bg);color:var(--ink-3);font-size:13px;line-height:1.55;-webkit-font-smoothing:antialiased;
+  display:grid;grid-template-columns:var(--sidebar-w) 1fr;transition:grid-template-columns .22s cubic-bezier(.4,0,.2,1)}
+.aph.collapsed{grid-template-columns:var(--sidebar-cw) 1fr}
+.aph svg.ic{width:16px;height:16px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+
+.aph-main{min-width:0;height:100vh;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column}
+.aph-content{flex:1;padding:32px 40px 64px}
+.aph-topbar{background:var(--surface-2);border-bottom:1px solid var(--hairline);padding:14px 40px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:10}
+.aph-topbar h1{font:600 17px var(--sans);color:var(--ink);letter-spacing:-.3px}
+.aph-topbar .crumb{color:var(--ink-mute);font:500 11px var(--sans);text-transform:uppercase;letter-spacing:1.4px;padding-left:16px;border-left:1px solid var(--hairline);height:16px;line-height:16px}
+.aph-topbar .right{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.collapse-btn{width:36px;height:36px;border:0;background:transparent;border-radius:10px;display:grid;place-items:center;cursor:pointer;color:var(--ink-4);flex:0 0 auto}
+.collapse-btn:hover{background:rgba(10,10,10,0.05);color:var(--ink)}
+.aph .form-control{height:38px;padding:0 14px;font:500 12.5px var(--sans);background:var(--surface-2);border:0;box-shadow:var(--shadow-card);border-radius:999px;color:var(--ink);outline:0}
+.aph .btn{padding:0 16px;height:38px;border:0;background:var(--surface-2);color:var(--ink);border-radius:999px;font:600 12.5px var(--sans);cursor:pointer;display:inline-flex;align-items:center;gap:7px;box-shadow:var(--shadow-card);transition:transform .18s ease}
+.aph .btn:hover{transform:translateY(-1px)}
+.aph .btn-primary{background:var(--grad-ink);color:#fafaf6;box-shadow:0 4px 14px rgba(10,10,10,0.2)}
+.aph .btn-danger{background:var(--bad-soft);color:var(--bad)}
+.aph .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+
+.aph-page-hd{margin-bottom:26px}
+.aph-page-hd .eyebrow{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:2.2px;color:var(--ink-mute);margin-bottom:12px;display:inline-flex;align-items:center;gap:10px}
+.aph-page-hd .eyebrow::before{content:"";width:18px;height:1px;background:var(--ink-3)}
+.aph-page-hd .ttl{font:600 36px/1.05 var(--sans);color:var(--ink);letter-spacing:-1.2px}
+.aph-page-hd .sub{margin-top:10px;font-size:14px;color:var(--ink-4)}
+
+.aph-card{background:var(--surface-2);border-radius:24px;box-shadow:var(--shadow-card);overflow:hidden;box-sizing:border-box;width:100%;min-width:0;margin-bottom:18px}
+.aph-card-hd{padding:24px 30px 0;display:flex;align-items:center;gap:14px}
+.aph-card-hd .ttl{font:600 17px var(--sans);color:var(--ink);letter-spacing:-.3px}
+.aph-card-hd .sub{color:var(--ink-mute);font:500 12px var(--sans)}
+.aph-card-body{padding:22px 30px 28px}
+.aph-card-body.padless{padding:0}
+
+table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.aph-tbl th{text-align:left;padding:14px 22px;font:600 10px var(--sans);color:var(--ink-mute);letter-spacing:1.4px;text-transform:uppercase;border-bottom:1px solid var(--hairline);white-space:nowrap}
+.aph-tbl td{padding:14px 22px;border-bottom:1px solid var(--hairline);color:var(--ink-3)}
+.aph-tbl tr:last-child td{border-bottom:0}
+.aph-tbl tbody tr{transition:background .15s ease;cursor:pointer}
+.aph-tbl tbody tr:hover td{background:rgba(10,10,10,0.02)}
+.aph-tbl td.num,.aph-tbl th.num{text-align:right;font-feature-settings:'tnum'}
+.aph-empty{padding:48px;text-align:center;color:var(--ink-mute);font-size:13px}
+.aph-err{background:var(--ink);color:#fafaf6;padding:14px 18px;border-radius:14px;font-size:12px;margin-bottom:16px;font-family:var(--mono)}
+
+/* Named aph-toast*, deliberately NOT .toast -- Frappe ships Bootstrap, whose
+   own .toast component sets opacity:0 at rest (only shown via a .show class
+   this page never adds); reusing that name means an entrance animation would
+   play once then snap straight back to invisible. Same fix as specifications.html. */
+#aphToastHost{position:fixed;top:18px;right:18px;z-index:2147483001;display:flex;flex-direction:column;gap:8px;max-width:380px}
+.aph-toast{opacity:1;background:var(--surface-2);color:var(--ink);border-radius:12px;box-shadow:var(--shadow-hover);padding:12px 14px;font:500 12.5px var(--sans);display:flex;align-items:flex-start;gap:9px;border-left:4px solid var(--signal);animation:aph-toast-in .18s ease}
+.aph-toast.error{border-left-color:var(--bad)}
+.aph-toast .msg{flex:1;line-height:1.4;white-space:pre-line}
+.aph-toast .close{border:0;background:none;color:var(--ink-mute);cursor:pointer;font-size:13px;line-height:1;padding:2px}
+.aph-toast .close:hover{color:var(--ink)}
+@keyframes aph-toast-in{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:translateX(0)}}
+.aph .label{display:inline-block;padding:3px 11px;font:600 11px var(--sans);border-radius:999px;letter-spacing:.02em}
+.aph .label-success{background:var(--good-soft);color:var(--good)}
+.aph .label-default{background:rgba(10,10,10,0.04);color:var(--ink-4)}
+.aph .label-info{background:var(--signal-soft);color:var(--signal)}
+.aph .label-warn{background:var(--warn-soft);color:var(--warn)}
+
+.aph-side{background:var(--surface-2);border-right:1px solid var(--hairline);height:100vh;position:sticky;top:0;display:flex;flex-direction:column;overflow:hidden}
+.aph-side .brand{padding:20px 18px 16px;display:flex;align-items:center;gap:12px;text-decoration:none}
+.aph-side .brand .logo{height:26px;width:auto;flex:0 0 auto;display:block}
+.aph-side .brand .name{font:600 14px var(--sans);color:var(--ink);line-height:1.15;letter-spacing:-.2px;white-space:nowrap;overflow:hidden}
+.aph-side .brand .name small{display:block;font:500 10px var(--sans);text-transform:uppercase;letter-spacing:1.6px;color:var(--ink-mute);margin-top:2px}
+.aph-side .nav{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:6px 0 16px;margin:0;list-style:none;display:flex;flex-direction:column;flex-wrap:nowrap!important}
+.aph-side .group-lbl{padding:16px 20px 6px;font:600 10px var(--sans);color:var(--ink-mute);letter-spacing:1.8px;text-transform:uppercase;display:block;white-space:nowrap;overflow:hidden}
+.aph-side .group-lbl:first-child{padding-top:8px}
+.aph-side .nav-item{display:flex;align-items:center;gap:12px;padding:10px 12px;cursor:pointer;font:500 13px var(--sans);color:var(--ink-4);user-select:none;transition:background .18s ease,color .18s ease;margin:2px 10px;border-radius:12px;box-sizing:border-box;text-decoration:none;white-space:nowrap;overflow:hidden}
+.aph-side .nav-item:hover{background:rgba(10,10,10,0.04);color:var(--ink);text-decoration:none}
+.aph-side .nav-item.active{background:var(--grad-ink);color:#fafaf6;box-shadow:0 4px 14px rgba(10,10,10,0.20)}
+.aph-side .home-link{display:flex;align-items:center;gap:12px;margin:2px 10px 6px;padding:10px 12px;border-radius:12px;font:500 13px var(--sans);color:var(--ink-4);text-decoration:none;background:rgba(10,10,10,0.04);white-space:nowrap;overflow:hidden}
+.aph-side .home-link:hover{background:var(--ink);color:#fafaf6;text-decoration:none}
+.aph-side .footer{padding:14px 18px;border-top:1px solid var(--hairline);display:flex;align-items:center;gap:11px;font-size:11px;color:var(--ink-4)}
+.aph-side .footer .av{width:30px;height:30px;border-radius:50%;background:var(--grad-ink);color:#fafaf6;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12px;flex:0 0 auto}
+.aph-side .footer .who{flex:1;line-height:1.25;overflow:hidden}
+.aph-side .footer .who .nm{font-weight:600;color:var(--ink);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph-side .footer .who .em{font-size:10px;color:var(--ink-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph.collapsed .aph-side .brand{padding:20px 0 16px;justify-content:center}
+.aph.collapsed .aph-side .brand .name,.aph.collapsed .aph-side .group-lbl,.aph.collapsed .aph-side .nav-item span,
+.aph.collapsed .aph-side .home-link span,.aph.collapsed .aph-side .footer .who{display:none}
+.aph.collapsed .aph-side .nav-item,.aph.collapsed .aph-side .home-link{justify-content:center;margin-left:14px;margin-right:14px;padding:11px 0;gap:0}
+.aph.collapsed .aph-side .footer{justify-content:center;padding:14px 0}
+
+/* ══ Sales Order page -- content specific ══ */
+.spec-field-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:16px 18px}
+.spec-field label{display:block;font:600 10px var(--sans);letter-spacing:.6px;text-transform:uppercase;color:var(--ink-mute);margin-bottom:7px}
+.spec-field label .req{color:var(--bad);font-weight:600;text-transform:none;letter-spacing:0;margin-left:4px}
+.spec-field select,.spec-field input{width:100%;border:1px solid var(--hairline-2);background:var(--bg);color:var(--ink);border-radius:10px;padding:9px 11px;font:500 13px var(--sans)}
+.spec-field .typeahead-wrap{position:relative}
+.pick-results{position:fixed;background:var(--surface-2);border-radius:10px;box-shadow:var(--shadow-hover);max-height:240px;overflow-y:auto;z-index:900;min-width:220px;display:none}
+.pick-results.show{display:block}
+.pick-results .opt{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;font:500 12px var(--sans);cursor:pointer}
+.pick-results .opt:hover{background:rgba(10,10,10,0.04)}
+
+.totals-bar{display:flex;gap:0;margin-bottom:18px;border-radius:20px;overflow:hidden;box-shadow:var(--shadow-card)}
+.totals-bar .t{flex:1;background:var(--surface-2);padding:18px 22px;border-right:1px solid var(--hairline)}
+.totals-bar .t:last-child{border-right:0}
+.totals-bar .t .k{font:600 9.5px var(--sans);letter-spacing:.6px;text-transform:uppercase;color:var(--ink-mute);margin-bottom:6px}
+.totals-bar .t .v{font:700 22px var(--mono);color:var(--ink)}
+.totals-bar .t.money .v{color:var(--signal)}
+
+.so-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap}
+.card-hd-actions{margin-left:auto;display:flex;gap:8px}
+
+/* card ledger, ported from the Specifications page's bunch ledger */
+.ledger-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table.so-ledger{width:100%;min-width:900px;border-collapse:collapse}
+.so-ledger th{text-align:left;padding:12px 16px;font:600 10px var(--sans);color:var(--ink-mute);letter-spacing:1.2px;text-transform:uppercase;border-bottom:1px solid var(--hairline);white-space:nowrap}
+.so-ledger th.num{text-align:right}
+.so-ledger td{padding:10px 16px;border-bottom:1px solid var(--hairline);vertical-align:middle}
+.so-ledger tr.card-start td{border-top:3px solid var(--ink)}
+.so-ledger tr.card-even td{background:var(--signal-soft)}
+.so-ledger tr.card-even td.card-cell{background:rgba(34,136,131,0.16);border-left:4px solid var(--signal)}
+.so-ledger tr.card-odd td{background:var(--violet-soft)}
+.so-ledger tr.card-odd td.card-cell{background:rgba(124,92,252,0.16);border-left:4px solid var(--violet)}
+.so-ledger tr.spec-row td{background:var(--bg);font-style:italic}
+
+td.card-cell{background:var(--bg);vertical-align:top;padding:14px 16px;width:280px}
+.card-cell .top-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.card-cell .type-pill{font:600 9.5px var(--sans);letter-spacing:.4px;padding:3px 9px;border-radius:999px}
+.card-cell .type-pill.straight{background:rgba(10,10,10,0.06);color:var(--ink-4)}
+.card-cell .type-pill.mono{background:var(--warn-soft);color:var(--warn)}
+.card-cell .type-pill.mixed{background:var(--violet-soft);color:var(--violet)}
+.card-cell .type-toggle{display:flex;gap:4px;margin-bottom:11px}
+.card-cell .type-toggle button{border:1px solid var(--hairline-2);background:var(--surface-2);color:var(--ink-mute);font:600 9px var(--sans);padding:5px 7px;border-radius:7px;cursor:pointer}
+.card-cell .type-toggle button.on{background:var(--ink);color:#fafaf6;border-color:var(--ink)}
+.card-cell .structure{display:grid;grid-template-columns:1fr 1fr;gap:7px 9px;padding-top:10px;border-top:1px dashed var(--hairline-2)}
+.card-cell .structure .f label{display:block;font:600 8px var(--sans);letter-spacing:.4px;text-transform:uppercase;color:var(--ink-faint);margin-bottom:3px}
+.card-cell .structure .f select,.card-cell .structure .f input{width:100%;border:1px solid var(--hairline-2);background:var(--surface-2);color:var(--ink);border-radius:7px;padding:5px 6px;font:600 11px var(--sans)}
+.card-cell .subtotal{display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;padding-top:9px;border-top:1px dashed var(--hairline-2)}
+.card-cell .subtotal .k{font:600 9px var(--sans);letter-spacing:.4px;text-transform:uppercase;color:var(--ink-mute)}
+.card-cell .subtotal .v{font:700 15px var(--mono);color:var(--ink-3)}
+.card-cell .card-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;padding-top:9px;border-top:1px dashed var(--hairline-2)}
+.card-cell .row-link{font:600 11px var(--sans);color:var(--signal);cursor:pointer;background:none;border:0;padding:0}
+.card-cell .rm-card{font:600 11px var(--sans);color:var(--bad);cursor:pointer;background:none;border:0;padding:0}
+
+.swatch{width:11px;height:11px;border-radius:50%;flex:0 0 auto;border:1px solid var(--hairline-2);display:inline-block}
+.variety-cell{position:relative}
+.variety-picker-wrap{position:relative}
+.variety-link-value{display:flex;align-items:center;gap:7px;background:var(--surface-2);border:1px solid var(--hairline-2);border-radius:8px;padding:7px 10px}
+.variety-link-value .vv-name{font:600 12.5px var(--sans);color:var(--ink);flex:1}
+.variety-link-value .rm{border:0;background:none;color:var(--signal);font:600 10px var(--sans);cursor:pointer;white-space:nowrap;padding:0}
+.no-uom-flag{font:600 10px var(--sans);color:var(--bad);cursor:pointer;margin-top:4px;display:inline-block}
+.variety-search{border:1px solid var(--hairline-2);background:var(--surface-2);border-radius:8px;padding:6px 9px;font:500 12px var(--sans);width:100%;max-width:220px}
+
+.num-input{width:100%;border:1px solid var(--hairline-2);background:var(--surface-2);border-radius:8px;padding:6px 8px;font:600 12.5px var(--mono);color:var(--ink);text-align:right}
+.total-cell{font:700 13.5px var(--mono);color:var(--signal);text-align:right}
+.rowmenu{border:0;background:none;color:var(--ink-faint);cursor:pointer;font-size:13px}
+.rowmenu:hover{color:var(--bad)}
+.add-card-bar{padding:14px 16px;background:var(--bg);text-align:center;display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+.add-card-bar button{border:1px dashed var(--hairline-2);background:transparent;color:var(--ink-mute);border-radius:10px;padding:9px 18px;font:600 12px var(--sans);cursor:pointer}
+.add-card-bar button:hover{border-color:var(--signal);color:var(--signal)}
+tr.grand-total td{background:var(--bg);border-top:2px solid var(--ink);padding:14px 16px}
+tr.grand-total .glabel{font:700 11px var(--sans);letter-spacing:.6px;text-transform:uppercase;color:var(--ink)}
+
+.editor-actions{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:4px}
+
+/* spec-add + quick-add modals */
+.modal-backdrop{position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:1000;display:none;align-items:center;justify-content:center;padding:20px}
+.modal-backdrop.show{display:flex}
+.modal-card{background:var(--surface-2);border-radius:20px;box-shadow:var(--shadow-hover);width:640px;max-width:96vw;max-height:88vh;overflow-y:auto;padding:26px}
+.modal-card.narrow{width:400px}
+.modal-card .ttl{font:600 17px var(--sans);color:var(--ink);margin-bottom:4px}
+.modal-card .sub{font:500 12px var(--sans);color:var(--ink-mute);margin-bottom:18px}
+.modal-card .f{margin-bottom:14px}
+.modal-card .f label{display:block;font:600 9px var(--sans);letter-spacing:.5px;text-transform:uppercase;color:var(--ink-mute);margin-bottom:6px}
+.modal-card .f input,.modal-card .f select{width:100%;border:1px solid var(--hairline-2);background:var(--bg);color:var(--ink);border-radius:10px;padding:9px 11px;font:500 13px var(--sans)}
+.modal-card .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.flat-line{border:1px solid var(--hairline-2);border-radius:14px;padding:14px;margin-bottom:10px;background:var(--bg)}
+.flat-line .hd{font:600 12px var(--sans);color:var(--ink);margin-bottom:8px}
+.flat-variety-row{display:grid;grid-template-columns:22px 1fr 70px 70px;gap:8px;align-items:center;padding:5px 0}
+.flat-variety-row input[type=checkbox]{width:16px;height:16px}
+.flat-variety-row input[type=number]{border:1px solid var(--hairline-2);border-radius:7px;padding:5px 6px;font:600 11px var(--mono);text-align:right}
+.spec-search-results{max-height:280px;overflow-y:auto;margin-top:10px}
+.spec-search-results .opt{padding:10px 14px;border-radius:10px;cursor:pointer;font:500 13px var(--sans);border:1px solid var(--hairline-2);margin-bottom:6px}
+.spec-search-results .opt:hover{background:var(--bg)}
+
+/* ══ Import wizard ══ */
+.import-dropzone{border:2px dashed var(--hairline-2);border-radius:16px;padding:26px;text-align:center;margin-top:18px}
+.mapping-editor-row{display:grid;grid-template-columns:1.3fr 1fr 1.6fr 1fr 26px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--hairline)}
+.mapping-editor-row:last-of-type{border-bottom:none}
+.mapping-editor-row select,.mapping-editor-row input{width:100%;border:1px solid var(--hairline-2);background:var(--surface-2);color:var(--ink);border-radius:8px;padding:7px 8px;font:500 12px var(--sans)}
+.add-mapping-row-btn{border:1px dashed var(--hairline-2);background:transparent;color:var(--ink-mute);border-radius:10px;padding:9px;font:600 12px var(--sans);cursor:pointer;width:100%;margin-top:8px}
+.add-mapping-row-btn:hover{border-color:var(--signal);color:var(--signal)}
+.queue-card{border:1px solid var(--hairline-2);border-radius:16px;padding:16px 18px;margin-bottom:12px;background:var(--surface-2)}
+.queue-card .hd{display:flex;align-items:center;gap:10px}
+.queue-card .hd .ttl{font:600 13px var(--sans);color:var(--ink);flex:1}
+.queue-card .meta{font-size:11px;color:var(--ink-mute);margin-top:4px}
+.queue-card .warn-line{font-size:11px;color:var(--warn);margin-top:6px}
+.queue-card .err-line{font-size:11px;color:var(--bad);margin-top:6px}
+.queue-status{font:600 10px var(--sans);letter-spacing:.4px;text-transform:uppercase;padding:3px 10px;border-radius:999px}
+.queue-status.pending{background:rgba(10,10,10,0.05);color:var(--ink-mute)}
+.queue-status.creating{background:var(--signal-soft);color:var(--signal)}
+.queue-status.created{background:var(--good-soft);color:var(--good)}
+.queue-status.failed{background:var(--bad-soft);color:var(--bad)}
+
+@media (max-width: 900px){
+  html,body{overflow:auto!important}
+  .aph,.aph.collapsed{display:flex;flex-direction:column;position:fixed;grid-template-columns:none}
+  .aph-side{width:100%;height:auto;position:relative;flex:0 0 auto;border-right:0;border-bottom:1px solid var(--hairline);overflow:visible}
+  .aph-side .nav{flex-direction:row;align-items:center;overflow-x:auto;overflow-y:hidden;padding:0 8px 8px}
+  .aph-side .group-lbl{display:none}
+  .aph-side .nav-item{flex:0 0 auto;margin:0 3px;white-space:nowrap;padding:9px 14px}
+  .aph-side .footer{display:none}
+  .collapse-btn{display:none}
+  .aph-main{flex:1 1 auto;height:auto;min-height:0}
+  .aph-topbar{position:static;flex-wrap:wrap;gap:10px;padding:12px 16px}
+  .aph-topbar .crumb{display:none}
+  .aph-topbar .right{margin-left:0;width:100%}
+  .aph-content{padding:18px 16px 40px}
+  .aph-page-hd .ttl{font-size:26px}
+  .totals-bar{flex-wrap:wrap}
+  .totals-bar .t{flex:1 1 45%}
+}
+</style>
+
+<div id="aphToastHost"></div>
+<div class="aph">
+  {% endraw %}{% set active_page = "sales-order" %}{% include "upande_packhouse/templates/includes/packhouse_sidebar.html" %}{% raw %}
+
+  <div class="aph-main">
+    <div class="aph-topbar">
+      <button class="collapse-btn" id="collapseBtn" title="Toggle sidebar" aria-label="Toggle sidebar">
+        <svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <h1>Sales Order</h1>
+      <span class="crumb">Roses</span>
+      <div class="right" id="topbarRight"></div>
+    </div>
+
+    <div class="aph-content">
+      <div class="aph-page-hd">
+        <div class="eyebrow">Karen Roses · Packhouse</div>
+        <div class="ttl" id="pageTitle">Sales Order</div>
+        <div class="sub" id="pageSub">Create and edit Roses orders — priced, validated and packed exactly like the Desk form.</div>
+      </div>
+
+      <div id="errBanner"></div>
+      <div id="viewRoot"></div>
+    </div>
+  </div>
+
+  <!-- Modals live INSIDE .aph -- .aph is position:fixed, full-viewport, with
+       an astronomically high z-index (2147483000) so it always sits above
+       normal page chrome. A modal placed as a SIBLING of .aph (outside its
+       DOM subtree) only gets whatever z-index it declares itself (here,
+       1000) -- nowhere near enough to out-rank .aph, so it opens, populates
+       correctly, and is completely invisible, rendered behind the shell.
+       This was the actual bug: the quick-add popups (and Frappe's own
+       msgprint dialog, for the same reason) were firing correctly the whole
+       time -- just hidden behind .aph. Nesting them here puts them in the
+       same stacking context as the rest of the page, where their own
+       z-index is all that's needed. -->
+  <!-- Add-from-Spec modal -->
+  <div class="modal-backdrop" id="specModalBackdrop">
+    <div class="modal-card" id="specModalCard">
+      <div class="ttl">Add from Specification</div>
+      <div class="sub" id="specModalSub">Search a spec to fill this box/bunch automatically</div>
+      <div id="specModalBody"></div>
+      <div class="actions">
+        <button class="btn" onclick="closeSpecModal()">Cancel</button>
+        <button class="btn btn-primary" id="specConfirmBtn" style="display:none" onclick="confirmSpecAdd()">Add to order</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quick-add: Sales UOM -->
+  <div class="modal-backdrop" id="qaUomBackdrop">
+    <div class="modal-card narrow">
+      <div class="ttl">Set Sales UOM</div>
+      <div class="sub" id="qaUomSub">This item has no default Sales UOM yet</div>
+      <div class="f"><label>UOM</label><input id="qaUomValue" placeholder="e.g. Bunch (10)"></div>
+      <div class="actions">
+        <button class="btn" onclick="closeModal('qaUomBackdrop')">Cancel</button>
+        <button class="btn btn-primary" onclick="submitQuickUom()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quick-add: Item Price -->
+  <div class="modal-backdrop" id="qaPriceBackdrop">
+    <div class="modal-card narrow">
+      <div class="ttl">Add Item Price</div>
+      <div class="sub" id="qaPriceSub">No price found for this variety + length</div>
+      <div class="f"><label>Rate (per stem)</label><input id="qaPriceValue" type="number" step="0.01"></div>
+      <div class="actions">
+        <button class="btn" onclick="closeModal('qaPriceBackdrop')">Cancel</button>
+        <button class="btn btn-primary" onclick="submitQuickPrice()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quick-add: Price List -->
+  <div class="modal-backdrop" id="qaPlBackdrop">
+    <div class="modal-card narrow">
+      <div class="ttl">New Price List</div>
+      <div class="sub">No price list matched — create one now</div>
+      <div class="f"><label>Name</label><input id="qaPlName" placeholder="e.g. May EUR"></div>
+      <div class="f"><label>Currency</label><select id="qaPlCurrency"></select></div>
+      <div class="actions">
+        <button class="btn" onclick="closeModal('qaPlBackdrop')">Cancel</button>
+        <button class="btn btn-primary" onclick="submitQuickPl()">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Copy order to clipboard -->
+  <div class="modal-backdrop" id="copyOrderBackdrop">
+    <div class="modal-card">
+      <div class="ttl">Copy order</div>
+      <div class="sub">Everything below is this order's current state as text — copied to your clipboard automatically where the browser allows it. Keep it somewhere safe (a note, a chat to yourself) and paste it back via "Paste order…" on the orders list to restore this exact draft, lines and all, even after a lost connection or a closed tab.</div>
+      <div class="f"><textarea id="copyOrderText" readonly rows="8" style="width:100%;font-family:var(--mono);font-size:11px;resize:vertical"></textarea></div>
+      <div class="actions">
+        <button class="btn" onclick="closeModal('copyOrderBackdrop')">Close</button>
+        <button class="btn btn-primary" onclick="copyOrderTextareaAgain()">Copy again</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Restore order from clipboard -->
+  <div class="modal-backdrop" id="restoreOrderBackdrop">
+    <div class="modal-card">
+      <div class="ttl">Paste order</div>
+      <div class="sub">Paste the text from a previous "Copy order" below to restore that exact draft.</div>
+      <div class="f"><textarea id="restoreOrderText" rows="8" placeholder="Paste here…" style="width:100%;font-family:var(--mono);font-size:11px;resize:vertical"></textarea></div>
+      <div class="actions">
+        <button class="btn" onclick="closeModal('restoreOrderBackdrop')">Cancel</button>
+        <button class="btn btn-primary" onclick="submitRestoreOrder()">Restore</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Platform editor -->
+  <div class="modal-backdrop" id="platformBackdrop">
+    <div class="modal-card">
+      <div class="ttl">Order Import Platform</div>
+      <div class="sub">The column layout most customers on this platform use</div>
+      <div class="f"><label>Platform Name</label><input id="pf_platform_name" placeholder="e.g. XPOL Cloud"></div>
+      <div class="spec-field-grid" style="margin-bottom:14px">
+        <div class="f"><label>Header Row</label><input id="pf_header_row" value="1"></div>
+        <div class="f"><label>Multi-Order Split Column</label><input id="pf_multi_order_column" placeholder="e.g. Order No (blank = 1 file = 1 order)"></div>
+      </div>
+      <div class="sub" style="margin-bottom:6px">Default Column Mapping</div>
+      <div id="pfMappingRows"></div>
+      <button class="add-mapping-row-btn" onclick="addMappingRow('pfMappingRows')">+ Add column mapping</button>
+      <div class="actions">
+        <button class="btn" onclick="closeModal('platformBackdrop')">Cancel</button>
+        <button class="btn btn-primary" onclick="submitPlatform()">Save platform</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Customer mapping editor -->
+  <div class="modal-backdrop" id="custMapBackdrop">
+    <div class="modal-card">
+      <div class="ttl">Mapping for this customer</div>
+      <div class="sub" id="custMapSub">Defaults and overrides specific to this customer + platform</div>
+      <div class="spec-field-grid" style="margin-bottom:14px">
+        <div class="f"><label>Default Currency</label><select id="cm_default_currency"></select></div>
+        <div class="f"><label>Default Price List</label><input id="cm_default_price_list" placeholder="Price List name"></div>
+        <div class="f"><label>Default Warehouse</label><select id="cm_default_warehouse"></select></div>
+        <div class="f"><label>Default Consignee</label><input id="cm_default_consignee" placeholder="Consignee name"></div>
+        <div class="f"><label>Default Delivery Point</label><input id="cm_default_delivery_point" placeholder="Delivery Point name"></div>
+        <div class="f"><label>Default Shipping Agent</label><input id="cm_default_shipping_agent" placeholder="Shipping Agent name"></div>
+      </div>
+      <div class="sub" style="margin-bottom:6px">Item Code Mapping (this customer's own codes → our Item)</div>
+      <div id="cmItemRows"></div>
+      <button class="add-mapping-row-btn" onclick="addItemMappingRow()">+ Add item mapping</button>
+      <div class="sub" style="margin:14px 0 6px">Column Mapping Overrides (only what differs from the platform default)</div>
+      <div id="cmMappingRows"></div>
+      <button class="add-mapping-row-btn" onclick="addMappingRow('cmMappingRows')">+ Add column mapping</button>
+      <div class="actions">
+        <button class="btn" onclick="closeModal('custMapBackdrop')">Cancel</button>
+        <button class="btn btn-primary" onclick="submitCustomerMapping()">Save mapping</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = 'upande_packhouse.api.sales_order.';
+let VIEW = 'list';
+let ORDERS = [];
+let LIST_QUERY = '';
+let CURRENT = null;         // header fields, plain object
+let MANUAL_CARDS = [];      // [{id, mixed_box, mixed_bunch, length, box_type, boxes, bunches_per_box, warehouse, rows:[{variety,item_name,stems_per_bunch,no_sales_uom}]}]
+let SPEC_ROWS = [];         // flat rows already shaped by spec_autofill.build_spec_rows, tagged _batch_id/_spec/_label
+let OPTIONS = { stem_lengths: [], box_types: [], warehouses: [], currencies: [], default_warehouse: '' };
+let SAVING = false;
+let CARD_SEQ = 1;
+let RATE_CACHE = {};        // "item|length" -> rate (preview only)
+
+// ---------- import state ----------
+const IMPORT_API = 'upande_packhouse.api.order_import.';
+let CATALOG = { sales_order_fields: [], sales_order_item_fields: [] };
+let IMPORT_PLATFORMS = [];
+let IMPORT_CUSTOMER = null;
+let IMPORT_PLATFORM = null;
+let IMPORT_QUEUE = [];      // [{header:{}, rows:[{}], unresolved_items:[], default_warehouse, status, order_name, error}]
+let IMPORT_RETURNING_INDEX = null; // set when "fix in editor" was opened from a failed queue item
+
+function apiCall(method, args, cb){
+    frappe.call({ method: API + method, args: args || {}, silent: true, callback: r => cb(r.message || {}), error: () => cb({success:false, error:'Request failed'}) });
+}
+function apiGet(method, params, cb){
+    frappe.call({ method: API + method, type: 'GET', args: params || {}, silent: true, callback: r => cb(r.message || {}), error: () => cb({success:false, error:'Request failed'}) });
+}
+function apiOther(fullMethod, params, cb, isPost, isJson){
+    const opts = { method: fullMethod, args: params || {}, callback: r => cb(r.message || {}), error: () => cb({success:false, error:'Request failed'}) };
+    if(!isPost) opts.type = 'GET';
+    frappe.call(opts);
+}
+// Every validation failure in this file already calls showErr(msg) -- making
+// IT toast is what makes "every place there's a validation has a popup" true
+// everywhere at once, instead of hunting down and pairing toast() at each of
+// the ~20 individual call sites by hand (and missing the next one added later).
+function showErr(msg){
+    document.getElementById('errBanner').innerHTML = msg ? `<div class="aph-err">${escHtml(msg)}</div>` : '';
+    if(msg) toast(msg, 'error');
+}
+// type: 'success' | 'error'. Errors stay up longer with a manual close --
+// a validation error is exactly the thing a user must not miss, so it
+// doesn't get the same quick auto-dismiss as a plain "saved" toast.
+function toast(msg, type){
+    const host = document.getElementById('aphToastHost');
+    if(!host || !msg) return;
+    const el = document.createElement('div');
+    el.className = 'aph-toast' + (type==='error' ? ' error' : '');
+    el.innerHTML = `<span class="msg"></span><button class="close" aria-label="Dismiss">✕</button>`;
+    el.querySelector('.msg').textContent = msg;
+    el.querySelector('.close').onclick = () => el.remove();
+    host.appendChild(el);
+    setTimeout(() => el.remove(), type==='error' ? 12000 : 4000);
+}
+// A raw frappe.call() (not this page's apiCall wrapper) surfaces a real
+// frappe.throw() as an HTTP error, not a {success:false} JSON body -- so its
+// message lives in _server_messages (417s) or exc (500s), not in the
+// callback's own return value. Every place that calls frappe.call directly
+// (the spec-fill picker, its "build rows" step) needs this to show the REAL
+// validation message instead of a generic "could not load/build" string.
+function extractServerError(r){
+    if(!r) return null;
+    try{
+        if(r._server_messages){
+            const msgs = JSON.parse(r._server_messages).map(m => {
+                try{ const p = JSON.parse(m); return (p && p.message) || m; }catch(e){ return m; }
+            }).filter(Boolean);
+            if(msgs.length) return msgs.join(' ').replace(/<[^>]*>/g, '');
+        }
+        if(r.exc){
+            const excList = JSON.parse(r.exc);
+            if(excList.length){
+                const lastLine = String(excList[0]).trim().split('\n').filter(Boolean).pop();
+                if(lastLine) return lastLine.replace(/^\S*Error:\s*/, '');
+            }
+        }
+        if(typeof r === 'string') return r;
+        if(r.message && typeof r.message === 'string') return r.message.replace(/<[^>]*>/g, '');
+    }catch(e){}
+    return null;
+}
+function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function nOr0(v){ const n = Number(v); return Number.isFinite(n) ? n : 0; }
+
+// ---------- shared dropdown mechanics ----------
+let OPEN_DROPDOWN = null;
+function positionDropdown(input, el){
+    const r = input.getBoundingClientRect();
+    el.style.left = Math.max(4, r.left) + 'px';
+    el.style.top = (r.bottom + 4) + 'px';
+    el.style.width = Math.max(r.width, 220) + 'px';
+}
+function openDropdown(input, el){
+    el.style.position = 'fixed';
+    positionDropdown(input, el);
+    el.classList.add('show');
+    OPEN_DROPDOWN = { input, el };
+}
+function closeDropdown(el){
+    el.classList.remove('show');
+    if(OPEN_DROPDOWN && OPEN_DROPDOWN.el === el) OPEN_DROPDOWN = null;
+}
+window.addEventListener('scroll', () => { if(OPEN_DROPDOWN) positionDropdown(OPEN_DROPDOWN.input, OPEN_DROPDOWN.el); }, true);
+window.addEventListener('resize', () => { if(OPEN_DROPDOWN) positionDropdown(OPEN_DROPDOWN.input, OPEN_DROPDOWN.el); });
+document.addEventListener('mousedown', (e) => {
+    if(OPEN_DROPDOWN && !OPEN_DROPDOWN.el.contains(e.target) && e.target !== OPEN_DROPDOWN.input){
+        closeDropdown(OPEN_DROPDOWN.el);
+    }
+});
+function closeModal(id){ document.getElementById(id).classList.remove('show'); }
+
+// ---------- boot ----------
+function boot(){
+    apiGet('getSalesOrderOptions', {}, r => {
+        if(r.success){ OPTIONS = { stem_lengths:r.stem_lengths||[], box_types:r.box_types||[], warehouses:r.warehouses||[], currencies:r.currencies||[], default_warehouse:r.default_warehouse||'' }; }
+        loadList();
+    });
+}
+
+// ---------- list ----------
+function loadList(){
+    VIEW = 'list';
+    IMPORT_RETURNING_INDEX = null; // leaving the editor any other way than a successful "fix in editor" save abandons that link back to the queue
+    apiGet('listSalesOrders', { query: LIST_QUERY }, r => {
+        if(!r.success){ showErr(r.error||'Could not load orders.'); ORDERS = []; }
+        else { showErr(''); ORDERS = r.orders || []; }
+        render();
+    });
+}
+// Rebuilding #topbarRight's innerHTML on every render() destroys and
+// recreates #listSearch mid-keystroke -- same bug already fixed in
+// specifications.html. Only rebuild once per VIEW; a data-only refresh
+// within the same view has nothing here that needs updating.
+let TOPBAR_BUILT_FOR = null;
+function renderTopbar(force){
+    const el = document.getElementById('topbarRight');
+    if(!force && TOPBAR_BUILT_FOR === VIEW) return;
+    TOPBAR_BUILT_FOR = VIEW;
+    if(VIEW==='list'){
+        el.innerHTML = `
+          <input class="form-control" style="width:220px" id="listSearch" placeholder="Search orders…" value="${escHtml(LIST_QUERY)}">
+          <button class="btn" onclick="openImportWizard()">Import orders…</button>
+          <button class="btn" onclick="openRestoreModal()">Paste order…</button>
+          <button class="btn btn-primary" onclick="openEditor(null)">+ New order</button>`;
+        let searchDebounce = null;
+        document.getElementById('listSearch').addEventListener('input', function(){
+            LIST_QUERY = this.value;
+            clearTimeout(searchDebounce);
+            searchDebounce = setTimeout(loadList, 250);
+        });
+    } else {
+        el.innerHTML = `<button class="btn" onclick="loadList()">← All orders</button>`;
+    }
+}
+function renderList(){
+    document.getElementById('pageTitle').textContent = 'Sales Order';
+    document.getElementById('pageSub').textContent = 'Create and edit Roses orders — priced, validated and packed exactly like the Desk form.';
+    const root = document.getElementById('viewRoot');
+    if(!ORDERS.length){
+        root.innerHTML = `<div class="aph-card"><div class="aph-empty">No sales orders yet — click "+ New order" to build one.</div></div>`;
+        return;
+    }
+    root.innerHTML = `<div class="aph-card"><div class="aph-card-body padless"><div class="ledger-scroll"><table class="aph-tbl">
+      <thead><tr><th>Order</th><th>Customer</th><th>Delivery</th><th class="num">Boxes</th><th class="num">Stems</th><th class="num">Total</th><th>Status</th></tr></thead>
+      <tbody>
+        ${ORDERS.map(o => `
+          <tr onclick="openEditor('${o.name.replace(/'/g,"\\'")}')">
+            <td><strong style="color:var(--ink)">${escHtml(o.name)}</strong></td>
+            <td>${escHtml(o.customer||'—')}</td>
+            <td>${escHtml(o.delivery_date||'—')}</td>
+            <td class="num mono">${o.custom_total_boxes||0}</td>
+            <td class="num mono">${o.custom_total_stems||0}</td>
+            <td class="num mono">${(o.grand_total||0).toFixed(2)} ${escHtml(o.currency||'')}</td>
+            <td><span class="label ${o.docstatus===1?'label-success':(o.docstatus===2?'label-default':'label-warn')}">${o.docstatus===1?'Submitted':(o.docstatus===2?'Cancelled':'Draft')}</span></td>
+          </tr>`).join('')}
+      </tbody>
+    </table></div></div></div>`;
+}
+
+// ---------- editor: open ----------
+function openEditor(name){
+    SPEC_ROWS = []; MANUAL_CARDS = []; CARD_SEQ = 1;
+    IMPORT_RETURNING_INDEX = null; // this is a normal, non-import editor session (fixQueueItemInEditor sets CURRENT/MANUAL_CARDS directly and never calls openEditor)
+    if(!name){
+        CURRENT = {
+            name: null, docstatus: 0, customer: '', transaction_date: new Date().toISOString().slice(0,10),
+            delivery_date: '', currency: '', selling_price_list: '',
+            custom_consignee: '', custom_delivery_point: '', custom_shipping_agent: '',
+            custom_s_number: '', custom_truck_details: '', custom_order_name: '', set_warehouse: OPTIONS.default_warehouse || '',
+        };
+        VIEW = 'editor'; showErr(''); render();
+        return;
+    }
+    apiGet('getSalesOrder', { name }, r => {
+        if(!r.success){ showErr(r.error || 'Could not load that order.'); return; }
+        const o = r.order;
+        CURRENT = {
+            name: o.name, docstatus: o.docstatus, customer: o.customer,
+            transaction_date: o.transaction_date, delivery_date: o.delivery_date,
+            currency: o.currency, selling_price_list: o.selling_price_list,
+            custom_consignee: o.custom_consignee, custom_delivery_point: o.custom_delivery_point,
+            custom_shipping_agent: o.custom_shipping_agent, custom_s_number: o.custom_s_number,
+            custom_truck_details: o.custom_truck_details, set_warehouse: o.set_warehouse || OPTIONS.default_warehouse || '',
+        };
+        // Existing rows all render read-only, in ledger card form, tagged by their real grouping.
+        SPEC_ROWS = (o.items||[]).map(it => Object.assign({}, it, { _saved: true }));
+        VIEW = 'editor'; showErr(''); render();
+    });
+}
+
+// ---------- totals ----------
+function cardStems(card){ return (card.rows||[]).reduce((s,r)=> s + nOr0(card.boxes)*nOr0(card.bunches_per_box)*nOr0(r.stems_per_bunch), 0); }
+function cardBunches(card){ return nOr0(card.boxes) * nOr0(card.bunches_per_box) * Math.max((card.rows||[]).length ? 1 : 0, (card.mixed_box||card.mixed_bunch)?1:1); }
+function computeTotals(){
+    let boxes = 0, bunches = 0, stems = 0, amount = 0;
+    const seenGroups = new Set();
+    MANUAL_CARDS.forEach(c => {
+        const b = nOr0(c.boxes);
+        let counted = true;
+        if(c.mixed_box || c.mixed_bunch){
+            const key = (c.mixed_bunch?'bunch:':'mix:') + c.id;
+            if(seenGroups.has(key)) counted = false; else seenGroups.add(key);
+        }
+        if(counted) boxes += b;
+        (c.rows||[]).forEach(r => {
+            const st = b * nOr0(c.bunches_per_box) * nOr0(r.stems_per_bunch);
+            stems += st;
+            bunches += b * nOr0(c.bunches_per_box);
+            const rate = RATE_CACHE[(r.variety||'')+'|'+(c.length||'')] || 0;
+            amount += (nOr0(c.bunches_per_box) * b) * rate;
+        });
+    });
+    SPEC_ROWS.forEach(r => {
+        const key = r.custom_bunch_group ? ('bunch:'+r.custom_bunch_group) : (r.custom_mix_group ? ('mix:'+r.custom_mix_group) : null);
+        let counted = true;
+        if(key){ if(seenGroups.has(key)) counted = false; else seenGroups.add(key); }
+        if(counted) boxes += nOr0(r.custom_number_of_boxes);
+        stems += nOr0(r.stock_qty) || (nOr0(r.custom_packrate_mixed_box || 0) * nOr0(r.custom_number_of_boxes));
+        bunches += nOr0(r.qty);
+        const rate = r.rate != null ? nOr0(r.rate) : (RATE_CACHE[(r.item_code||'')+'|'+(r.custom_length||'')] || 0);
+        amount += nOr0(r.qty) * rate;
+    });
+    return { boxes, bunches, stems, amount };
+}
+function renderTotalsBar(){
+    const t = computeTotals();
+    return `<div class="totals-bar">
+      <div class="t"><div class="k">Boxes</div><div class="v">${t.boxes}</div></div>
+      <div class="t"><div class="k">Bunches</div><div class="v">${Math.round(t.bunches)}</div></div>
+      <div class="t"><div class="k">Stems</div><div class="v">${Math.round(t.stems)}</div></div>
+      <div class="t money"><div class="k">Est. Subtotal ${escHtml(CURRENT.currency||'')}</div><div class="v">${t.amount.toFixed(2)}</div></div>
+    </div>`;
+}
+
+// ---------- editor render ----------
+function renderEditor(){
+    const s = CURRENT;
+    document.getElementById('pageTitle').textContent = s.name || 'New Sales Order';
+    document.getElementById('pageSub').textContent = s.name ? (s.docstatus===1?'Submitted':'Draft') : 'Not saved yet';
+    const root = document.getElementById('viewRoot');
+    const readOnly = s.docstatus !== 0;
+    root.innerHTML = `
+      <div class="aph-card"><div class="aph-card-hd"><div class="ttl">Order details</div></div>
+        <div class="aph-card-body">
+          <div class="spec-field-grid">
+            <div class="spec-field typeahead-wrap"><label>Customer <span class="req">required</span></label>
+              <input id="f_customer" value="${escHtml(s.customer||'')}" placeholder="Search customer…" autocomplete="off" ${readOnly?'disabled':''}>
+              <div class="pick-results" id="customerResults"></div>
+            </div>
+            <div class="spec-field"><label>Currency <span class="req">required</span></label>
+              <select id="f_currency" ${readOnly?'disabled':''}>${selOpts(OPTIONS.currencies, s.currency)}</select>
+            </div>
+            <div class="spec-field"><label>Price List <span class="req">required</span></label>
+              <input id="f_selling_price_list" value="${escHtml(s.selling_price_list||'')}" placeholder="Auto-resolved from customer…" ${readOnly?'disabled':''}>
+            </div>
+            <div class="spec-field"><label>Order Date</label><input id="f_transaction_date" type="date" value="${escHtml(s.transaction_date||'')}" ${readOnly?'disabled':''}></div>
+            <div class="spec-field"><label>Delivery Date <span class="req">required</span></label><input id="f_delivery_date" type="date" value="${escHtml(s.delivery_date||'')}" ${readOnly?'disabled':''}></div>
+            <div class="spec-field typeahead-wrap"><label>Consignee <span class="req">required</span></label>
+              <input id="f_consignee" value="${escHtml(s.custom_consignee||'')}" placeholder="Search consignee…" autocomplete="off" ${readOnly?'disabled':''}>
+              <div class="pick-results" id="consigneeResults"></div>
+            </div>
+            <div class="spec-field typeahead-wrap"><label>Delivery Point <span class="req">required</span></label>
+              <input id="f_delivery_point" value="${escHtml(s.custom_delivery_point||'')}" placeholder="Search delivery point…" autocomplete="off" ${readOnly?'disabled':''}>
+              <div class="pick-results" id="deliveryPointResults"></div>
+            </div>
+            <div class="spec-field typeahead-wrap"><label>Shipping Agent <span class="req">required</span></label>
+              <input id="f_shipping_agent" value="${escHtml(s.custom_shipping_agent||'')}" placeholder="Search shipping agent…" autocomplete="off" ${readOnly?'disabled':''}>
+              <div class="pick-results" id="shippingAgentResults"></div>
+            </div>
+            <div class="spec-field"><label>Order Name <span class="req">required</span></label><input id="f_order_name" value="${escHtml(s.custom_order_name||'')}" placeholder="Customer PO / reference" ${readOnly?'disabled':''}></div>
+            <div class="spec-field"><label>S Number <span class="req">required</span></label><input id="f_s_number" value="${escHtml(s.custom_s_number||'')}" ${readOnly?'disabled':''}></div>
+            <div class="spec-field"><label>Truck Details <span class="req">required</span></label><input id="f_truck_details" value="${escHtml(s.custom_truck_details||'')}" ${readOnly?'disabled':''}></div>
+            <div class="spec-field"><label>Set Warehouse</label>
+              <select id="f_set_warehouse" ${readOnly?'disabled':''}>${selOpts(OPTIONS.warehouses, s.set_warehouse)}</select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      ${renderTotalsBar()}
+
+      <div class="aph-card">
+        <div class="aph-card-hd">
+          <div class="ttl">Line Items</div><div class="sub">Straight, Mixed Box and Mixed Bunch lines, same as the Specifications ledger</div>
+          ${readOnly ? '' : `<div class="card-hd-actions"><button class="btn" onclick="openSpecModal()">+ Add from Spec</button></div>`}
+        </div>
+        <div class="aph-card-body padless"><div class="ledger-scroll">${renderLedger(readOnly)}</div></div>
+      </div>
+
+      <div class="editor-actions">
+        <div style="display:flex;gap:10px">
+          ${(s.name && s.docstatus===0) ? `<button class="btn btn-danger" onclick="deleteOrder()">Delete draft</button>` : ''}
+          ${s.name ? `<button class="btn" onclick="duplicateOrder()" title="Start a new draft with the same lines">Duplicate</button>` : ''}
+          <button class="btn" onclick="copyOrderToClipboard()" title="Copy this order's current state so it can be restored later, e.g. if you lose connection before saving">Copy order</button>
+        </div>
+        <div style="display:flex;gap:10px">
+          <button class="btn" onclick="loadList()">${readOnly?'Back':'Cancel'}</button>
+          ${readOnly ? '' : `<button class="btn btn-primary" id="saveBtn" onclick="saveOrder()">${s.name ? 'Save changes' : 'Create order'}</button>`}
+          ${(s.name && s.docstatus===0) ? `<button class="btn btn-primary" onclick="submitOrder()">Submit</button>` : ''}
+        </div>
+      </div>
+    `;
+    if(!readOnly){
+        wireHeaderInputs();
+        wireTypeahead('f_customer','customerResults', (q,cb)=>apiOther('upande_packhouse.api.specifications.searchCustomers',{query:q},r=>cb((r.customers||[]).map(c=>({value:c.name,label:c.customer_name||c.name})))), v=>{ CURRENT.customer=v; onCustomerOrCurrencyChange(); });
+        wireTypeahead('f_consignee','consigneeResults', (q,cb)=>apiGet('searchConsignees',{query:q, customer:CURRENT.customer||''},r=>cb((r.consignees||[]).map(c=>({value:c.name,label:c.consignee})))), v=>{ CURRENT.custom_consignee=v; });
+        wireTypeahead('f_delivery_point','deliveryPointResults', (q,cb)=>apiGet('searchDeliveryPoints',{query:q, customer:CURRENT.customer||''},r=>cb((r.delivery_points||[]).map(c=>({value:c.name,label:c.name+(c.description?' — '+c.description:'')})))), v=>{ CURRENT.custom_delivery_point=v; });
+        wireTypeahead('f_shipping_agent','shippingAgentResults', (q,cb)=>apiGet('searchShippingAgents',{query:q},r=>cb((r.shipping_agents||[]).map(c=>({value:c.name,label:c.name+(c.description?' — '+c.description:'')})))), v=>{ CURRENT.custom_shipping_agent=v; });
+    }
+}
+function selOpts(list, current){
+    return '<option value="">—</option>' + (list||[]).map(o => `<option value="${escHtml(o)}" ${o===current?'selected':''}>${escHtml(o)}</option>`).join('');
+}
+function wireHeaderInputs(){
+    const map = { f_transaction_date:'transaction_date', f_delivery_date:'delivery_date', f_order_name:'custom_order_name', f_s_number:'custom_s_number', f_truck_details:'custom_truck_details', f_selling_price_list:'selling_price_list' };
+    Object.keys(map).forEach(id => {
+        const el = document.getElementById(id);
+        if(!el) return;
+        el.addEventListener('change', () => { CURRENT[map[id]] = el.value; });
+    });
+    document.getElementById('f_currency').addEventListener('change', function(){ CURRENT.currency = this.value; onCustomerOrCurrencyChange(); });
+    document.getElementById('f_set_warehouse').addEventListener('change', function(){ CURRENT.set_warehouse = this.value; });
+}
+// Fires the moment the customer is picked -- currency doesn't have to be
+// set first (the server resolves it too when there's an unambiguous
+// default), so this backfills BOTH fields from just the customer, matching
+// what "fetch the customer's price list and autofill" actually means.
+// When nothing resolves at all (no default anywhere for this customer,
+// in whatever currency is now known), offer the quick-add popup instead of
+// silently leaving Price List blank -- every place a save can fail for a
+// missing master record should offer to create it on the spot.
+function onCustomerOrCurrencyChange(){
+    if(!CURRENT.customer) return;
+    apiGet('resolvePriceList', { customer: CURRENT.customer, currency: CURRENT.currency || '' }, r => {
+        if(!r.success) return;
+        if(r.currency && !CURRENT.currency){
+            CURRENT.currency = r.currency;
+            const curEl = document.getElementById('f_currency');
+            if(curEl) curEl.value = r.currency;
+        }
+        if(r.price_list){
+            CURRENT.selling_price_list = r.price_list;
+            const el = document.getElementById('f_selling_price_list');
+            if(el) el.value = r.price_list;
+        } else if(CURRENT.currency && !CURRENT.selling_price_list){
+            openQuickPl();
+        }
+    });
+}
+function wireTypeahead(inputId, resultsId, searchFn, onPick){
+    const input = document.getElementById(inputId);
+    const results = document.getElementById(resultsId);
+    if(!input) return;
+    let t = null;
+    function run(){
+        openDropdown(input, results);
+        clearTimeout(t);
+        const q = input.value;
+        t = setTimeout(() => {
+            searchFn(q, list => {
+                results.innerHTML = list.length
+                    ? list.map(o => `<div class="opt" onmousedown="event.preventDefault(); document.getElementById('${inputId}').value='${o.value.replace(/'/g,"\\'")}'; window.__pick_${inputId}('${o.value.replace(/'/g,"\\'")}')">${escHtml(o.label)}</div>`).join('')
+                    : `<div class="opt" style="color:var(--ink-faint);cursor:default">No matches</div>`;
+                positionDropdown(input, results);
+            });
+        }, q ? 200 : 0);
+    }
+    window['__pick_'+inputId] = (v) => { onPick(v); closeDropdown(results); };
+    input.addEventListener('focus', run);
+    input.addEventListener('input', run);
+}
+
+// ---------- ledger rendering (manual cards + spec rows) ----------
+function renderLedger(readOnly){
+    let thead = `<thead><tr>
+        <th style="width:280px">Box / Bunch</th>
+        <th>Variety</th>
+        <th class="num" style="width:90px">Stems/Bch</th>
+        <th class="num" style="width:90px">Boxes</th>
+        <th class="num" style="width:100px">Stems</th>
+        <th style="width:26px"></th>
+      </tr></thead>`;
+    let body = '<tbody>';
+    if(!MANUAL_CARDS.length && !SPEC_ROWS.length){
+        body += `<tr><td colspan="6" class="aph-empty" style="padding:28px">No lines yet — add a manual line or pull one from a spec.</td></tr>`;
+    }
+    MANUAL_CARDS.forEach((c, ci) => {
+        const isMixed = !!c.mixed_bunch, isMixedBox = !!c.mixed_box;
+        const typeLabel = isMixed ? 'MIXED BUNCH' : (isMixedBox ? 'MIXED BOX' : 'STRAIGHT');
+        const typeClass = isMixed ? 'mixed' : (isMixedBox ? 'mono' : 'straight');
+        const rows = c.rows && c.rows.length ? c.rows : [{variety:'',item_name:'',stems_per_bunch:''}];
+        const parity = ci % 2 === 1 ? 'card-odd' : 'card-even';
+        rows.forEach((r, ri) => {
+            const trClass = (ri===0 && ci>0 ? 'card-start ' : '') + parity;
+            body += `<tr class="${trClass}">`;
+            if(ri===0){
+                body += `<td class="card-cell" rowspan="${rows.length}">
+                  <div class="top-row"><span class="type-pill ${typeClass}">${typeLabel}</span></div>
+                  ${readOnly ? '' : `<div class="type-toggle">
+                    <button class="${!isMixed && !isMixedBox?'on':''}" onclick="setCardType(${ci},'straight')">STRAIGHT</button>
+                    <button class="${isMixedBox?'on':''}" onclick="setCardType(${ci},'mixed_box')">MIXED BOX</button>
+                    <button class="${isMixed?'on':''}" onclick="setCardType(${ci},'mixed_bunch')">MIXED BUNCH</button>
+                  </div>`}
+                  <div class="structure">
+                    <div class="f"><label>Length</label><select ${readOnly?'disabled':''} onchange="updateCardField(${ci},'length',this.value)">${selOpts(OPTIONS.stem_lengths, c.length)}</select></div>
+                    <div class="f"><label>Box Type</label><select ${readOnly?'disabled':''} onchange="updateCardField(${ci},'box_type',this.value)">${selOpts(OPTIONS.box_types, c.box_type)}</select></div>
+                    <div class="f"><label>Boxes</label><input ${readOnly?'disabled':''} class="tabular" value="${escHtml(c.boxes||'')}" onchange="updateCardField(${ci},'boxes',this.value)"></div>
+                    <div class="f"><label>Bunches/Box</label><input ${readOnly?'disabled':''} class="tabular" value="${escHtml(c.bunches_per_box||'')}" onchange="updateCardField(${ci},'bunches_per_box',this.value)"></div>
+                  </div>
+                  <div class="subtotal"><span class="k">Stems</span><span class="v">${cardStems(c)}</span></div>
+                  ${readOnly ? '' : `<div class="card-actions">
+                    <button class="row-link" onclick="addCardRow(${ci})">+ ${isMixed?'component':(isMixedBox?'variety':'row')}</button>
+                    <button class="rm-card" onclick="removeCard(${ci})">Remove</button>
+                  </div>`}
+                </td>`;
+            }
+            body += renderVarietyCell(c, ci, r, ri, readOnly);
+            body += `<td><input class="num-input" ${readOnly?'disabled':''} value="${escHtml(r.stems_per_bunch||'')}" onchange="updateCardRow(${ci},${ri},'stems_per_bunch',this.value)"></td>`;
+            body += `<td class="num mono">${c.boxes||0}</td>`;
+            body += `<td class="total-cell">${nOr0(c.boxes)*nOr0(c.bunches_per_box)*nOr0(r.stems_per_bunch)}</td>`;
+            body += `<td>${(!readOnly && rows.length>1) ? `<button class="rowmenu" onclick="removeCardRow(${ci},${ri})">✕</button>` : ''}</td>`;
+            body += '</tr>';
+        });
+    });
+    // spec-derived rows: read-only summary, grouped by batch
+    const batches = {};
+    const order = [];
+    SPEC_ROWS.forEach(r => {
+        const key = r._batch_id || r.custom_bunch_group || r.custom_mix_group || r.name || Math.random();
+        if(!batches[key]){ batches[key] = []; order.push(key); }
+        batches[key].push(r);
+    });
+    order.forEach((key, bi) => {
+        const rows = batches[key];
+        const first = rows[0];
+        rows.forEach((r, ri) => {
+            body += `<tr class="spec-row">`;
+            if(ri===0){
+                body += `<td class="card-cell" rowspan="${rows.length}" style="background:var(--bg)">
+                  <div class="top-row"><span class="type-pill straight">FROM SPEC</span></div>
+                  <div style="font:600 12px var(--sans);color:var(--ink)">${escHtml(first.custom_line || first._spec || '—')}</div>
+                  <div style="font-size:10px;color:var(--ink-mute);margin-top:4px">${r.custom_mixed_bunch?'Mixed Bunch':(r.custom_mixed_box?'Mixed Box':'Straight')}</div>
+                  ${readOnly ? '' : `<button class="rm-card" style="margin-top:10px" onclick="removeSpecBatch('${String(key).replace(/'/g,"\\'")}')">Remove</button>`}
+                </td>`;
+            }
+            body += `<td class="variety-cell">${escHtml(r.item_name||r.item_code||'')}${r.custom_length?(' <span style="color:var(--ink-mute)">'+escHtml(r.custom_length)+'</span>'):''}</td>`;
+            body += `<td class="num mono">${r.uom||''}</td>`;
+            body += `<td class="num mono">${r.custom_number_of_boxes||0}</td>`;
+            body += `<td class="total-cell">${Math.round(nOr0(r.stock_qty))}</td>`;
+            body += `<td></td>`;
+            body += '</tr>';
+        });
+    });
+    if(!readOnly){
+        body += `<tr><td colspan="6" class="add-card-bar">
+            <button onclick="addManualCard('straight')">+ Add straight line</button>
+            <button onclick="addManualCard('mixed_box')">+ Add mixed box</button>
+            <button onclick="addManualCard('mixed_bunch')">+ Add mixed bunch</button>
+          </td></tr>`;
+    }
+    body += '</tbody>';
+    return `<table class="so-ledger">${thead}${body}</table>`;
+}
+
+function renderVarietyCell(c, ci, r, ri, readOnly){
+    const key = 'card-'+ci+'-'+ri;
+    if(readOnly){
+        return `<td class="variety-cell">${escHtml(r.item_name||r.variety||'')}${r.no_sales_uom?'<div class="no-uom-flag">No Sales UOM</div>':''}</td>`;
+    }
+    if(r.variety){
+        return `<td class="variety-cell">
+            <div class="variety-link-value">
+              <span class="vv-name">${escHtml(r.item_name||r.variety)}</span>
+              <button class="rm" onclick="clearCardRowVariety(${ci},${ri})">✕ change</button>
+            </div>
+            ${r.no_sales_uom ? `<span class="no-uom-flag" onclick="openQuickUom('${r.variety.replace(/'/g,"\\'")}', ${ci}, ${ri})">⚠ No Sales UOM — click to set</span>` : ''}
+          </td>`;
+    }
+    return `<td class="variety-cell">
+        <div class="variety-picker-wrap">
+          <input class="variety-search" placeholder="+ pick variety…" autocomplete="off" id="${key}"
+            onfocus="onCardVarietySearch(this, ${ci}, ${ri})" oninput="onCardVarietySearch(this, ${ci}, ${ri})">
+          <div class="pick-results" id="vresults-${key}"></div>
+        </div>
+      </td>`;
+}
+let cardVarietyTimers = {};
+function onCardVarietySearch(input, ci, ri){
+    const key = 'card-'+ci+'-'+ri;
+    const el = document.getElementById('vresults-'+key);
+    if(!el) return;
+    openDropdown(input, el);
+    clearTimeout(cardVarietyTimers[key]);
+    const q = input.value;
+    cardVarietyTimers[key] = setTimeout(() => {
+        apiGet('searchOrderVarieties', { query: q }, r => {
+            const list = r.varieties || [];
+            el.innerHTML = list.length
+                ? list.map(v => `<div class="opt" onmousedown="event.preventDefault(); pickCardVariety(${ci},${ri},'${v.name.replace(/'/g,"\\'")}',${v.sales_uom?'true':'false'})">${escHtml(v.name)}${v.sales_uom?'':' <span style="color:var(--bad)">(no Sales UOM)</span>'}</div>`).join('')
+                : `<div class="opt" style="color:var(--ink-faint);cursor:default">No matching varieties</div>`;
+            positionDropdown(input, el);
+        });
+    }, q ? 200 : 0);
+}
+function pickCardVariety(ci, ri, variety, hasUom){
+    const row = MANUAL_CARDS[ci].rows[ri];
+    row.variety = variety; row.item_name = variety; row.no_sales_uom = !hasUom;
+    closeDropdown(document.getElementById('vresults-card-'+ci+'-'+ri));
+    render();
+    fetchPreviewRate(variety, MANUAL_CARDS[ci].length);
+}
+function clearCardRowVariety(ci, ri){ const row = MANUAL_CARDS[ci].rows[ri]; row.variety=''; row.item_name=''; row.no_sales_uom=false; render(); }
+
+function fetchPreviewRate(item_code, length){
+    if(!item_code || !length || !CURRENT.selling_price_list) return;
+    const key = item_code+'|'+length;
+    if(RATE_CACHE[key] != null) return;
+    apiGet('previewRate', { item_code, price_list: CURRENT.selling_price_list, length }, r => {
+        RATE_CACHE[key] = r.success ? r.rate : 0;
+        render();
+    });
+}
+
+// ---------- manual card CRUD ----------
+function addManualCard(kind){
+    MANUAL_CARDS.push({
+        id: 'card' + (CARD_SEQ++), mixed_box: kind==='mixed_box', mixed_bunch: kind==='mixed_bunch',
+        length: OPTIONS.stem_lengths[0]||'', box_type: OPTIONS.box_types[0]||'', boxes:'', bunches_per_box:'',
+        rows: [{variety:'', item_name:'', stems_per_bunch:''}],
+    });
+    render();
+}
+function removeCard(ci){ MANUAL_CARDS.splice(ci,1); render(); }
+function setCardType(ci, kind){
+    const c = MANUAL_CARDS[ci];
+    c.mixed_box = kind==='mixed_box'; c.mixed_bunch = kind==='mixed_bunch';
+    if(!c.mixed_box && !c.mixed_bunch && c.rows.length>1) c.rows = [c.rows[0]];
+    render();
+}
+function updateCardField(ci, field, val){ MANUAL_CARDS[ci][field] = val; render(); }
+function addCardRow(ci){ MANUAL_CARDS[ci].rows.push({variety:'',item_name:'',stems_per_bunch:''}); render(); }
+function removeCardRow(ci, ri){ MANUAL_CARDS[ci].rows.splice(ri,1); render(); }
+function updateCardRow(ci, ri, field, val){ MANUAL_CARDS[ci].rows[ri][field] = val; render(); }
+
+// ---------- quick-add: sales uom ----------
+// A single save can fail on several unpriced/un-UOM'd items at once (e.g.
+// "No price found for: Giselle 62cm, Snowstorm 72cm") -- real multi-variety
+// orders hit this routinely, not as an edge case. QUICK_FIX_QUEUE holds one
+// entry per flagged item; each quick-add, on success, opens the next one
+// automatically instead of only ever fixing the first and leaving the rest
+// to fail silently again on retry.
+let QUICK_FIX_QUEUE = [];
+let QUICK_FIX_ACTIVE = false; // true only while draining a queue seeded from a real failed save
+function runNextQuickFix(){
+    if(!QUICK_FIX_QUEUE.length){
+        if(QUICK_FIX_ACTIVE){ QUICK_FIX_ACTIVE = false; saveOrder(); }
+        return;
+    }
+    const next = QUICK_FIX_QUEUE[0];
+    const remaining = QUICK_FIX_QUEUE.length;
+    if(next.type === 'uom') openQuickUom(next.item_code, null, null, remaining);
+    else openQuickPrice(next.item_code, next.length, remaining);
+}
+
+let QA_UOM_TARGET = null;
+function openQuickUom(item_code, ci, ri, queueLen){
+    QA_UOM_TARGET = { item_code, ci, ri };
+    const progress = queueLen > 1 ? ` (1 of ${queueLen})` : '';
+    document.getElementById('qaUomSub').textContent = item_code + ' has no default Sales UOM yet' + progress;
+    document.getElementById('qaUomValue').value = '';
+    document.getElementById('qaUomBackdrop').classList.add('show');
+}
+function submitQuickUom(){
+    const uom = document.getElementById('qaUomValue').value.trim();
+    if(!uom || !QA_UOM_TARGET) return;
+    apiCall('setItemSalesUom', { data: JSON.stringify({ item_code: QA_UOM_TARGET.item_code, uom }) }, r => {
+        if(!r.success){ showErr(r.error||'Could not set Sales UOM.'); return; }
+        if(QA_UOM_TARGET.ci != null) MANUAL_CARDS[QA_UOM_TARGET.ci].rows[QA_UOM_TARGET.ri].no_sales_uom = false;
+        closeModal('qaUomBackdrop');
+        showErr('');
+        render();
+        if(QUICK_FIX_QUEUE.length && QUICK_FIX_QUEUE[0].type === 'uom' && QUICK_FIX_QUEUE[0].item_code === QA_UOM_TARGET.item_code){
+            QUICK_FIX_QUEUE.shift();
+        }
+        runNextQuickFix();
+    });
+}
+
+// ---------- quick-add: item price ----------
+let QA_PRICE_TARGET = null;
+function openQuickPrice(item_code, length, queueLen){
+    QA_PRICE_TARGET = { item_code, length };
+    const progress = queueLen > 1 ? ` (1 of ${queueLen})` : '';
+    document.getElementById('qaPriceSub').textContent = 'No price found for ' + item_code + ' @ ' + length + progress;
+    document.getElementById('qaPriceValue').value = '';
+    document.getElementById('qaPriceBackdrop').classList.add('show');
+}
+function submitQuickPrice(){
+    const rate = parseFloat(document.getElementById('qaPriceValue').value);
+    if(!rate || !QA_PRICE_TARGET || !CURRENT.selling_price_list) return;
+    apiCall('createItemPrice', { data: JSON.stringify({ item_code: QA_PRICE_TARGET.item_code, price_list: CURRENT.selling_price_list, length: QA_PRICE_TARGET.length, rate }) }, r => {
+        if(!r.success){ showErr(r.error||'Could not add price.'); return; }
+        delete RATE_CACHE[QA_PRICE_TARGET.item_code+'|'+QA_PRICE_TARGET.length];
+        closeModal('qaPriceBackdrop');
+        showErr('');
+        fetchPreviewRate(QA_PRICE_TARGET.item_code, QA_PRICE_TARGET.length);
+        if(QUICK_FIX_QUEUE.length && QUICK_FIX_QUEUE[0].type === 'price'
+            && QUICK_FIX_QUEUE[0].item_code === QA_PRICE_TARGET.item_code && QUICK_FIX_QUEUE[0].length === QA_PRICE_TARGET.length){
+            QUICK_FIX_QUEUE.shift();
+        }
+        runNextQuickFix();
+    });
+}
+
+// ---------- quick-add: price list ----------
+function openQuickPl(){
+    document.getElementById('qaPlName').value = '';
+    document.getElementById('qaPlCurrency').innerHTML = OPTIONS.currencies.map(c=>`<option value="${escHtml(c)}" ${c===CURRENT.currency?'selected':''}>${escHtml(c)}</option>`).join('');
+    document.getElementById('qaPlBackdrop').classList.add('show');
+}
+function submitQuickPl(){
+    const price_list_name = document.getElementById('qaPlName').value.trim();
+    const currency = document.getElementById('qaPlCurrency').value;
+    if(!price_list_name) return;
+    frappe.call({ method: 'upande_packhouse.api.sales_settings.createPriceList', args: { data: JSON.stringify({ price_list_name, currency }) }, silent: true, callback: r => {
+        const m = r.message || {};
+        if(!m.success){ showErr(m.error||'Could not create price list.'); return; }
+        CURRENT.selling_price_list = m.name;
+        const el = document.getElementById('f_selling_price_list');
+        if(el) el.value = m.name;
+        closeModal('qaPlBackdrop');
+        showErr('');
+    }});
+}
+
+// ---------- add from spec ----------
+let SPEC_MODAL_DATA = null;
+let SPEC_SELECTED = null;
+function openSpecModal(){
+    document.getElementById('specModalSub').textContent = 'Search a spec to fill this box/bunch automatically';
+    document.getElementById('specConfirmBtn').style.display = 'none';
+    SPEC_SELECTED = null;
+    const body = document.getElementById('specModalBody');
+    body.innerHTML = `<input class="form-control" style="width:100%" id="specSearchInput" placeholder="Search specifications…" autocomplete="off">
+      <div class="spec-search-results" id="specSearchResults"></div>`;
+    document.getElementById('specModalBackdrop').classList.add('show');
+    const input = document.getElementById('specSearchInput');
+    let t = null;
+    input.addEventListener('input', () => {
+        clearTimeout(t);
+        t = setTimeout(() => {
+            apiOther('upande_packhouse.api.specifications.listSpecifications', { query: input.value }, r => {
+                const list = (r.specifications||[]).slice(0,30);
+                document.getElementById('specSearchResults').innerHTML = list.map(s =>
+                    `<div class="opt" onclick="pickSpecForFill('${s.name.replace(/'/g,"\\'")}')">${escHtml(s.spec_name)}<div style="font-size:10px;color:var(--ink-mute)">${escHtml(s.customer||'')} · ${escHtml(s.box_assortment||'')}</div></div>`
+                ).join('');
+            });
+        }, 200);
+    });
+    input.focus();
+}
+function closeSpecModal(){ document.getElementById('specModalBackdrop').classList.remove('show'); }
+// Bunch-aware specs (bunch_id set on every Approved Variety row -- the
+// normal case for anything saved via the Specifications dashboard) use the
+// SAME popup Desk uses (public/js/sales_order/spec_fill_dialog.js, loaded
+// below via a plain <script src> -- frappe.ui.Dialog exists in the website
+// bundle too), instead of a second, drifting reimplementation. Only the
+// older flat/legacy picker (specs saved before bunch_id existed) still uses
+// this page's own #specModalBackdrop/#specModalBody.
+function pickSpecForFill(spec){
+    frappe.call({ method: 'upande_packhouse.spec_autofill.get_spec_fill_data', args: { spec }, silent: true, callback: r => {
+        const data = r.message;
+        if(!data){ const m = 'Could not load that specification.'; showErr(m); return; }
+        if(data.bunch_aware){
+            closeSpecModal();
+            window.upande_open_spec_fill_overlay(data, {
+                onSubmit(selections){
+                    return new Promise(resolve => {
+                        frappe.call({
+                            method: 'upande_packhouse.spec_autofill.build_spec_rows',
+                            args: { spec: data.spec, selections: JSON.stringify(selections), next_mix_group: nextMixGroupFromSpecRows(), next_bunch_group: 1, source_warehouse: CURRENT.set_warehouse || '' },
+                            callback: r2 => {
+                                const rows = (r2.message && r2.message.rows) || [];
+                                const batchId = 'batch' + Date.now();
+                                rows.forEach(row => { row._batch_id = batchId; row._spec = data.spec_name; });
+                                SPEC_ROWS = SPEC_ROWS.concat(rows);
+                                render();
+                                resolve();
+                            },
+                            error: er => {
+                                const msg = extractServerError(er) || 'Could not build rows from this specification.';
+                                showErr(msg);
+                                offerQuickFixFor(msg);
+                                resolve(false); // keep the popup open so the user can adjust and retry
+                            },
+                        });
+                    });
+                },
+            });
+            return;
+        }
+        SPEC_MODAL_DATA = data;
+        document.getElementById('specModalSub').textContent = data.spec_name + (data.is_mixed_box ? ' — Mixed Box' : '');
+        document.getElementById('specModalBody').innerHTML = renderFlatPicker(data);
+        document.getElementById('specConfirmBtn').style.display = 'inline-flex';
+    }, error: (r) => {
+        const msg = extractServerError(r) || 'Could not load that specification.';
+        showErr(msg);
+        offerQuickFixFor(msg);
+    }});
+}
+function nextMixGroupFromSpecRows(){
+    let nextMix = 1;
+    SPEC_ROWS.forEach(r => { if(/^\d+$/.test(String(r.custom_mix_group||''))) nextMix = Math.max(nextMix, parseInt(r.custom_mix_group,10)+1); });
+    return nextMix;
+}
+function renderFlatPicker(data){
+    return (data.lines||[]).map((line) => `
+      <div class="flat-line" data-line="${line.idx}">
+        <div class="hd">${escHtml(line.colour)}</div>
+        ${(line.approved||[]).map((a,ai) => `
+          <div class="flat-variety-row" data-variety="${escHtml(a.variety)}">
+            <input type="checkbox">
+            <span>${escHtml(a.item_name)} <span style="color:var(--good);font:600 10px var(--mono)">${a.available}</span></span>
+            <input type="number" placeholder="Boxes" data-role="boxes">
+            <input type="number" placeholder="Stems" data-role="stems">
+          </div>`).join('')}
+      </div>`).join('');
+}
+// Only reached for the legacy flat picker now (see pickSpecForFill) --
+// bunch-aware specs submit through spec_fill_dialog.js's own onSubmit.
+function confirmSpecAdd(){
+    const data = SPEC_MODAL_DATA;
+    if(!data) return;
+    const selections = [];
+    document.querySelectorAll('#specModalBody .flat-line').forEach(lineEl => {
+        const idx = parseInt(lineEl.getAttribute('data-line'), 10);
+        lineEl.querySelectorAll('.flat-variety-row').forEach(row => {
+            const cb = row.querySelector('input[type=checkbox]');
+            if(!cb.checked) return;
+            const variety = row.getAttribute('data-variety');
+            const boxes = parseInt(row.querySelector('[data-role="boxes"]').value || '0', 10);
+            const stems = parseInt(row.querySelector('[data-role="stems"]').value || '0', 10);
+            if(!boxes) return;
+            selections.push({ line_idx: idx, box_idx: 0, variety, boxes, stems });
+        });
+    });
+    if(!selections.length){ const m = 'Pick at least one variety with a box count before adding.'; showErr(m); return; }
+
+    const nextMix = nextMixGroupFromSpecRows();
+    const batchId = 'batch' + Date.now();
+    frappe.call({
+        method: 'upande_packhouse.spec_autofill.build_spec_rows',
+        args: { spec: data.spec, selections: JSON.stringify(selections), next_mix_group: nextMix, next_bunch_group: 1, source_warehouse: CURRENT.set_warehouse || '' },
+        silent: true,
+        callback: r => {
+            const rows = (r.message && r.message.rows) || [];
+            rows.forEach(row => { row._batch_id = batchId; row._spec = data.spec_name; });
+            SPEC_ROWS = SPEC_ROWS.concat(rows);
+            closeSpecModal();
+            render();
+        },
+        error: (r) => {
+            const msg = extractServerError(r) || 'Could not build rows from this specification.';
+            showErr(msg);
+            offerQuickFixFor(msg);
+        },
+    });
+}
+function removeSpecBatch(key){
+    SPEC_ROWS = SPEC_ROWS.filter(r => (r._batch_id || r.custom_bunch_group || r.custom_mix_group || r.name) != key);
+    render();
+}
+
+// ---------- save / submit / delete ----------
+function saveOrder(){
+    if(SAVING) return;
+    SAVING = true;
+    const btn = document.getElementById('saveBtn');
+    if(btn){ btn.disabled = true; btn.textContent = 'Saving…'; }
+    const manual_rows = [];
+    MANUAL_CARDS.forEach(c => {
+        (c.rows||[]).forEach(r => {
+            if(!r.variety) return;
+            manual_rows.push({
+                item_code: r.variety, stems_per_bunch: r.stems_per_bunch, bunches_per_box: c.bunches_per_box,
+                boxes: c.boxes, length: c.length, box_type: c.box_type,
+                mixed_box: c.mixed_box, mixed_bunch: c.mixed_bunch,
+                mix_group: c.id, bunch_group: c.id, warehouse: CURRENT.set_warehouse,
+            });
+        });
+    });
+    const spec_rows = SPEC_ROWS.filter(r => !r._saved).map(r => {
+        const clean = Object.assign({}, r);
+        delete clean._batch_id; delete clean._spec; delete clean.no_sales_uom;
+        return clean;
+    });
+    const payload = Object.assign({}, CURRENT, { manual_rows, spec_rows });
+    apiCall('saveSalesOrder', { data: JSON.stringify(payload) }, r => {
+        SAVING = false;
+        if(!r.success){
+            const msg = r.error || 'Could not save this order.';
+            showErr(msg);
+            if(btn){ btn.disabled=false; btn.textContent = CURRENT.name ? 'Save changes' : 'Create order'; }
+            offerQuickFixFor(msg);
+            return;
+        }
+        toast('Order saved.', 'success');
+        if(IMPORT_RETURNING_INDEX != null){
+            // This save was a "fix in editor" for a failed import-queue item --
+            // mark it created and drop back into the queue instead of opening
+            // the normal single-order editor.
+            const i = IMPORT_RETURNING_INDEX;
+            IMPORT_RETURNING_INDEX = null;
+            IMPORT_QUEUE[i].status = 'created';
+            IMPORT_QUEUE[i].order_name = r.name;
+            IMPORT_QUEUE[i].error = null;
+            VIEW = 'import';
+            IMPORT_SUBVIEW = 'queue';
+            render();
+            runImportQueue();
+            return;
+        }
+        openEditor(r.name);
+    });
+}
+function offerQuickFixFor(error){
+    // frappe.throw()'s caught str(e) strips the <b>...</b> markup the
+    // server source embeds (the raw error text here is always plain,
+    // never HTML) -- match on the surrounding plain-text phrasing instead.
+    // Both gates list EVERY offending item comma-separated (a real order
+    // with several unpriced/un-UOM'd varieties is normal, not an edge
+    // case), so every one of them gets queued -- not just the first.
+    if(!error) return;
+    if(error.indexOf('No Sales UOM set on') !== -1){
+        const m = error.match(/No Sales UOM set on:\s*([^.]+)\./);
+        // str(e) on a frappe.throw()'d exception has been observed both with
+        // and without the <b>...</b> the server source embeds -- strip any
+        // HTML defensively rather than depend on which one shows up.
+        const items = m ? m[1].replace(/<[^>]*>/g, '').split(',').map(s => s.trim()).filter(Boolean) : [];
+        if(items.length){
+            QUICK_FIX_QUEUE = items.map(item => ({ type: 'uom', item_code: item }));
+            QUICK_FIX_ACTIVE = true;
+            runNextQuickFix();
+        }
+        return;
+    }
+    if(error.indexOf('No price found for') !== -1){
+        const m = error.match(/No price found for:\s*([^.]+)\./);
+        const entries = m ? m[1].replace(/<[^>]*>/g, '').split(',').map(s => s.trim()).filter(Boolean) : [];
+        if(entries.length){
+            QUICK_FIX_QUEUE = entries.map(entry => {
+                const parts = entry.split(' ');
+                const length = parts.pop();
+                const item_code = parts.join(' ');
+                return { type: 'price', item_code, length };
+            });
+            QUICK_FIX_ACTIVE = true;
+            runNextQuickFix();
+        }
+        return;
+    }
+    if(error.indexOf('no Default Price List') !== -1 || error.indexOf('Missing Price List') !== -1){
+        openQuickPl();
+    }
+}
+function submitOrder(){
+    if(!CURRENT.name) return;
+    if(!confirm('Submit this order? It can no longer be edited here afterwards.')) return;
+    apiCall('submitSalesOrder', { name: CURRENT.name }, r => {
+        if(!r.success){ const m = r.error || 'Could not submit.'; showErr(m); offerQuickFixFor(m); return; }
+        toast('Order submitted.', 'success');
+        openEditor(CURRENT.name);
+    });
+}
+function deleteOrder(){
+    if(!CURRENT.name) return;
+    if(!confirm('Delete draft "' + CURRENT.name + '"? This cannot be undone.')) return;
+    apiCall('deleteSalesOrder', { name: CURRENT.name }, r => {
+        if(!r.success){ const m = r.error || 'Could not delete.'; showErr(m); return; }
+        toast('Draft deleted.', 'success');
+        loadList();
+    });
+}
+
+// ---------- duplicate / copy-to-clipboard / restore ----------
+// A saved order's lines only ever live in SPEC_ROWS (tagged _saved -- see
+// openEditor); MANUAL_CARDS is purely the not-yet-saved editing scratchpad
+// and is always empty for anything already persisted. Duplicating means:
+// carry every line over as a fresh, unsaved row (strip _saved/name/idx so
+// saveOrder() resubmits all of them as new Sales Order Item rows) into a
+// brand new draft with no name/docstatus of its own.
+function duplicateOrder(){
+    if(!CURRENT || !CURRENT.name) return;
+    const clonedRows = SPEC_ROWS.map(r => {
+        const clean = Object.assign({}, r);
+        delete clean._saved; delete clean.name; delete clean.idx;
+        return clean;
+    });
+    CURRENT = Object.assign({}, CURRENT, { name: null, docstatus: 0, transaction_date: new Date().toISOString().slice(0,10) });
+    SPEC_ROWS = clonedRows;
+    MANUAL_CARDS = []; CARD_SEQ = 1;
+    IMPORT_RETURNING_INDEX = null;
+    VIEW = 'editor'; showErr('');
+    toast('Duplicated as a new draft — review and save.', 'success');
+    render();
+}
+
+const ORDER_CLIPBOARD_TAG = 'UPANDE-SALES-ORDER-DRAFT-V1';
+function snapshotOrderText(){
+    return ORDER_CLIPBOARD_TAG + '\n' + JSON.stringify({ current: CURRENT, manual_cards: MANUAL_CARDS, spec_rows: SPEC_ROWS, card_seq: CARD_SEQ });
+}
+function copyOrderToClipboard(){
+    const text = snapshotOrderText();
+    document.getElementById('copyOrderText').value = text;
+    document.getElementById('copyOrderBackdrop').classList.add('show');
+    tryCopyText(text);
+}
+function copyOrderTextareaAgain(){ tryCopyText(document.getElementById('copyOrderText').value); }
+// navigator.clipboard.writeText needs a secure context (https, or literally
+// "localhost") -- this dashboard runs over plain http on a custom hostname,
+// where most browsers silently refuse it. Falling back to the textarea's
+// own select()+execCommand keeps "Copy order" working there regardless; the
+// textarea stays on screen either way so a manual Ctrl+C always works too.
+function tryCopyText(text){
+    const ta = document.getElementById('copyOrderText');
+    if(navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext){
+        navigator.clipboard.writeText(text).then(
+            () => toast('Order copied to clipboard.', 'success'),
+            () => { ta.select(); try{ document.execCommand('copy'); toast('Order copied.', 'success'); }catch(e){ toast('Select the text above and copy it manually.', 'error'); } }
+        );
+    } else {
+        ta.focus(); ta.select();
+        try{ document.execCommand('copy'); toast('Order copied.', 'success'); }
+        catch(e){ toast('Select the text above and copy it manually (Ctrl/Cmd+C).', 'error'); }
+    }
+}
+function openRestoreModal(){
+    document.getElementById('restoreOrderText').value = '';
+    document.getElementById('restoreOrderBackdrop').classList.add('show');
+}
+function submitRestoreOrder(){
+    const text = document.getElementById('restoreOrderText').value.trim();
+    if(!text){ toast('Paste a copied order first.', 'error'); return; }
+    if(text.indexOf(ORDER_CLIPBOARD_TAG) !== 0){ toast('That doesn\'t look like a copied order.', 'error'); return; }
+    let snapshot;
+    try{ snapshot = JSON.parse(text.slice(ORDER_CLIPBOARD_TAG.length + 1)); }
+    catch(e){ toast('Could not read that pasted text as an order.', 'error'); return; }
+    CURRENT = snapshot.current;
+    MANUAL_CARDS = snapshot.manual_cards || [];
+    SPEC_ROWS = snapshot.spec_rows || [];
+    CARD_SEQ = snapshot.card_seq || 1;
+    IMPORT_RETURNING_INDEX = null;
+    closeModal('restoreOrderBackdrop');
+    VIEW = 'editor'; showErr('');
+    toast('Order restored from clipboard — review and save.', 'success');
+    render();
+}
+
+// ================= IMPORT WIZARD =================
+let IMPORT_SUBVIEW = 'setup'; // 'setup' | 'queue'
+let IMPORT_FILE_HEADER = null;
+let IMPORT_FILE_ROWS = null;
+
+function openImportWizard(){
+    VIEW = 'import';
+    if(IMPORT_QUEUE.length){
+        // An import is already in progress (e.g. the user stepped away to fix
+        // one failed order) -- resume the existing queue, don't discard it.
+        IMPORT_SUBVIEW = 'queue';
+        render();
+        return;
+    }
+    IMPORT_SUBVIEW = 'setup';
+    IMPORT_QUEUE = [];
+    IMPORT_FILE_HEADER = null;
+    IMPORT_FILE_ROWS = null;
+    apiOther(IMPORT_API+'getFieldCatalog', {}, r => {
+        if(r.success) CATALOG = { sales_order_fields: r.sales_order_fields||[], sales_order_item_fields: r.sales_order_item_fields||[] };
+    });
+    apiOther(IMPORT_API+'listPlatforms', {}, r => {
+        IMPORT_PLATFORMS = r.platforms || [];
+        render();
+    });
+}
+function renderImportWizard(){
+    document.getElementById('pageTitle').textContent = 'Import Orders';
+    document.getElementById('pageSub').textContent = 'Upload a customer order file and map it onto real Sales Orders';
+    const root = document.getElementById('viewRoot');
+    if(IMPORT_SUBVIEW === 'queue'){ renderImportQueueView(root); return; }
+
+    root.innerHTML = `
+      <div class="aph-card">
+        <div class="aph-card-hd"><div class="ttl">1. Customer &amp; Platform</div></div>
+        <div class="aph-card-body">
+          <div class="spec-field-grid">
+            <div class="spec-field typeahead-wrap"><label>Customer</label>
+              <input id="imp_customer" placeholder="Search customer…" autocomplete="off" value="${escHtml(IMPORT_CUSTOMER?IMPORT_CUSTOMER.label:'')}">
+              <div class="pick-results" id="impCustomerResults"></div>
+            </div>
+            <div class="spec-field"><label>Platform</label>
+              <select id="imp_platform">
+                <option value="">— pick a platform —</option>
+                ${IMPORT_PLATFORMS.map(p => `<option value="${escHtml(p.name)}" ${IMPORT_PLATFORM===p.name?'selected':''}>${escHtml(p.platform_name)}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:14px">
+            <button class="btn" onclick="openPlatformEditor()">+ New platform</button>
+            <button class="btn" onclick="openCustomerMappingEditor()">Set up mapping for this customer</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="aph-card">
+        <div class="aph-card-hd"><div class="ttl">2. File</div><div class="sub">CSV or Excel — one file may contain several orders</div></div>
+        <div class="aph-card-body">
+          <div class="import-dropzone">
+            <input type="file" id="importFileInput" accept=".csv,.xlsx,.xls" style="display:none" onchange="onImportFileChosen(this.files[0])">
+            <button class="btn btn-primary" onclick="document.getElementById('importFileInput').click()">Choose file…</button>
+            <span id="importFileName" style="margin-left:10px;color:var(--ink-mute)">${IMPORT_FILE_HEADER ? IMPORT_FILE_HEADER.length+' columns, '+(IMPORT_FILE_ROWS||[]).length+' rows loaded' : 'No file chosen'}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="editor-actions">
+        <div></div>
+        <div><button class="btn btn-primary" id="buildPreviewBtn" ${(!IMPORT_FILE_HEADER)?'disabled':''} onclick="buildImportPreview()">Build preview</button></div>
+      </div>
+    `;
+    wireImportCustomerTypeahead();
+    document.getElementById('imp_platform').addEventListener('change', function(){ IMPORT_PLATFORM = this.value || null; });
+}
+function wireImportCustomerTypeahead(){
+    const input = document.getElementById('imp_customer');
+    const results = document.getElementById('impCustomerResults');
+    let t = null;
+    function run(){
+        openDropdown(input, results);
+        clearTimeout(t);
+        const q = input.value;
+        IMPORT_CUSTOMER = null;
+        t = setTimeout(() => {
+            apiOther('upande_packhouse.api.specifications.searchCustomers', { query: q }, r => {
+                const list = r.customers || [];
+                results.innerHTML = list.length
+                    ? list.map(c => `<div class="opt" onmousedown="event.preventDefault(); pickImportCustomer('${c.name.replace(/'/g,"\\'")}','${(c.customer_name||c.name).replace(/'/g,"\\'")}')">${escHtml(c.customer_name||c.name)}</div>`).join('')
+                    : `<div class="opt" style="color:var(--ink-faint);cursor:default">No matches</div>`;
+                positionDropdown(input, results);
+            });
+        }, q ? 200 : 0);
+    }
+    input.addEventListener('focus', run);
+    input.addEventListener('input', run);
+}
+function pickImportCustomer(name, label){
+    IMPORT_CUSTOMER = { name, label };
+    document.getElementById('imp_customer').value = label;
+    closeDropdown(document.getElementById('impCustomerResults'));
+}
+
+// ---------- file parsing ----------
+function onImportFileChosen(file){
+    if(!file) return;
+    document.getElementById('importFileName').textContent = 'Reading ' + file.name + '…';
+    const isExcel = /\.(xlsx|xls)$/i.test(file.name);
+    if(isExcel){
+        loadSheetJs(() => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+                const sheet = wb.Sheets[wb.SheetNames[0]];
+                const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+                applyParsedGrid(grid, file.name);
+            };
+            reader.readAsArrayBuffer(file);
+        });
+    } else {
+        const reader = new FileReader();
+        reader.onload = (e) => applyParsedGrid(parseCSV(String(e.target.result)), file.name);
+        reader.readAsText(file);
+    }
+}
+let SHEETJS_LOADING = false;
+function loadSheetJs(cb){
+    if(window.XLSX){ cb(); return; }
+    if(SHEETJS_LOADING){ setTimeout(() => loadSheetJs(cb), 200); return; }
+    SHEETJS_LOADING = true;
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = () => { SHEETJS_LOADING = false; cb(); };
+    document.head.appendChild(s);
+}
+function parseCSV(text){
+    // Minimal RFC4180-ish parser: handles quoted fields, escaped "" and commas/newlines inside quotes.
+    const rows = [];
+    let row = [], field = '', inQuotes = false;
+    for(let i=0; i<text.length; i++){
+        const c = text[i], next = text[i+1];
+        if(inQuotes){
+            if(c === '"' && next === '"'){ field += '"'; i++; }
+            else if(c === '"'){ inQuotes = false; }
+            else { field += c; }
+        } else {
+            if(c === '"'){ inQuotes = true; }
+            else if(c === ','){ row.push(field); field = ''; }
+            else if(c === '\r'){ /* skip */ }
+            else if(c === '\n'){ row.push(field); rows.push(row); row = []; field = ''; }
+            else { field += c; }
+        }
+    }
+    if(field.length || row.length){ row.push(field); rows.push(row); }
+    return rows.filter(r => r.length > 1 || (r[0]||'').trim() !== '');
+}
+function applyParsedGrid(grid, filename){
+    if(!grid || !grid.length){ showErr('Could not read any rows from ' + filename); return; }
+    IMPORT_FILE_HEADER = (grid[0]||[]).map(h => String(h||'').trim());
+    IMPORT_FILE_ROWS = grid.slice(1);
+    document.getElementById('importFileName').textContent = filename + ' — ' + IMPORT_FILE_HEADER.length + ' columns, ' + IMPORT_FILE_ROWS.length + ' rows';
+    document.getElementById('buildPreviewBtn').disabled = false;
+}
+
+function buildImportPreview(){
+    if(!IMPORT_CUSTOMER){ showErr('Pick a customer first.'); return; }
+    if(!IMPORT_PLATFORM){ showErr('Pick a platform first.'); return; }
+    if(!IMPORT_FILE_HEADER){ showErr('Choose a file first.'); return; }
+    showErr('');
+    const btn = document.getElementById('buildPreviewBtn');
+    if(btn){ btn.disabled = true; btn.textContent = 'Building preview…'; }
+    frappe.call({
+        method: IMPORT_API+'buildPreview',
+        args: { data: JSON.stringify({ customer: IMPORT_CUSTOMER.name, platform: IMPORT_PLATFORM, header: IMPORT_FILE_HEADER, rows: IMPORT_FILE_ROWS }) },
+        callback: r => {
+            const m = r.message || {};
+            if(btn){ btn.disabled = false; btn.textContent = 'Build preview'; }
+            if(!m.success){ showErr(m.error || 'Could not build a preview from this file.'); return; }
+            IMPORT_QUEUE = (m.orders||[]).map(o => Object.assign({}, o, { status: 'pending', order_name: null, error: null }));
+            IMPORT_SUBVIEW = 'queue';
+            render();
+        },
+        error: () => { if(btn){ btn.disabled = false; btn.textContent = 'Build preview'; } showErr('Could not build a preview from this file.'); },
+    });
+}
+
+// ---------- import queue ----------
+function renderImportQueueView(root){
+    const created = IMPORT_QUEUE.filter(q => q.status==='created').length;
+    root.innerHTML = `
+      <div class="totals-bar">
+        <div class="t"><div class="k">Orders detected</div><div class="v">${IMPORT_QUEUE.length}</div></div>
+        <div class="t"><div class="k">Created</div><div class="v">${created}</div></div>
+        <div class="t"><div class="k">Remaining</div><div class="v">${IMPORT_QUEUE.length-created}</div></div>
+      </div>
+      <div class="editor-actions" style="margin-bottom:14px">
+        <button class="btn" onclick="IMPORT_SUBVIEW='setup'; render();">← Back to file pick</button>
+        <button class="btn btn-primary" onclick="runImportQueue()">Start / continue import</button>
+      </div>
+      ${IMPORT_QUEUE.map((q, i) => renderQueueCard(q, i)).join('')}
+    `;
+}
+function renderQueueCard(q, i){
+    const label = q.header.custom_order_name || q.header.customer || ('Order '+(i+1));
+    return `<div class="queue-card">
+      <div class="hd">
+        <div class="ttl">${escHtml(label)}${q.order_name ? ' → <a href="#" onclick="event.preventDefault(); openEditor(\''+q.order_name.replace(/'/g,"\\'")+'\')">'+escHtml(q.order_name)+'</a>' : ''}</div>
+        <span class="queue-status ${q.status}">${q.status}</span>
+      </div>
+      <div class="meta">${(q.rows||[]).length} line(s) · delivery ${escHtml(q.header.delivery_date||'—')} · price list ${escHtml(q.header.selling_price_list||'—')}</div>
+      ${(q.unresolved_items||[]).length ? `<div class="warn-line">⚠ Unrecognised item code(s): ${escHtml(q.unresolved_items.join(', '))} — fix in editor before this can save.</div>` : ''}
+      ${q.error ? `<div class="err-line">${escHtml(q.error)}</div>` : ''}
+      ${q.status==='failed' ? `<button class="btn" style="margin-top:8px" onclick="fixQueueItemInEditor(${i})">Fix in editor</button>` : ''}
+    </div>`;
+}
+function mappedRowToManual(r, defaultWarehouse){
+    return {
+        item_code: r.item_code, stems_per_bunch: r._stems_per_bunch, bunches_per_box: r._bunches_per_box,
+        boxes: r.custom_number_of_boxes, length: r.custom_length, box_type: r.custom_box_type,
+        mixed_box: !!(r.custom_mixed_box && r.custom_mixed_box !== '0'), mixed_bunch: !!(r.custom_mixed_bunch && r.custom_mixed_bunch !== '0'),
+        mix_group: r.custom_mix_group || 'import', bunch_group: r.custom_bunch_group || 'import',
+        warehouse: r.warehouse || defaultWarehouse,
+    };
+}
+function runImportQueue(){
+    const next = IMPORT_QUEUE.findIndex(q => q.status === 'pending');
+    if(next === -1) return;
+    processQueueItem(next);
+}
+function processQueueItem(i){
+    const q = IMPORT_QUEUE[i];
+    if((q.unresolved_items||[]).length){
+        q.status = 'failed';
+        q.error = 'Unrecognised item code(s) need fixing before this order can be created.';
+        render();
+        return;
+    }
+    q.status = 'creating';
+    render();
+    const manual_rows = (q.rows||[]).map(r => mappedRowToManual(r, q.default_warehouse));
+    const payload = Object.assign({}, q.header, { manual_rows, spec_rows: [] });
+    apiCall('saveSalesOrder', { data: JSON.stringify(payload) }, r => {
+        if(!r.success){
+            q.status = 'failed';
+            q.error = r.error || 'Could not create this order.';
+            render();
+            return;
+        }
+        q.status = 'created';
+        q.order_name = r.name;
+        render();
+        runImportQueue(); // continue with the next pending one
+    });
+}
+function fixQueueItemInEditor(i){
+    const q = IMPORT_QUEUE[i];
+    SPEC_ROWS = []; CARD_SEQ = 1;
+    CURRENT = Object.assign({
+        name: null, docstatus: 0, transaction_date: new Date().toISOString().slice(0,10),
+        delivery_date: '', currency: '', selling_price_list: '',
+        custom_consignee: '', custom_delivery_point: '', custom_shipping_agent: '',
+        custom_s_number: '', custom_truck_details: '', custom_order_name: '',
+        set_warehouse: q.default_warehouse || OPTIONS.default_warehouse || '',
+    }, q.header);
+    MANUAL_CARDS = [{
+        id: 'card' + (CARD_SEQ++), mixed_box: false, mixed_bunch: false,
+        length: (q.rows[0]||{}).custom_length || OPTIONS.stem_lengths[0] || '',
+        box_type: (q.rows[0]||{}).custom_box_type || OPTIONS.box_types[0] || '',
+        boxes: (q.rows[0]||{}).custom_number_of_boxes || '',
+        bunches_per_box: (q.rows[0]||{})._bunches_per_box || '',
+        rows: (q.rows||[]).map(r => ({
+            variety: r.item_code, item_name: r.item_code,
+            stems_per_bunch: r._stems_per_bunch, no_sales_uom: false,
+        })),
+    }];
+    IMPORT_RETURNING_INDEX = i;
+    VIEW = 'editor';
+    showErr('');
+    render();
+}
+// ---------- platform editor ----------
+function mappingRowHtml(sourceColumn, targetDoctype, targetField, defaultValue){
+    const soOpts = (CATALOG.sales_order_fields||[]).map(f => `<option value="${escHtml(f.fieldname)}" ${f.fieldname===targetField&&targetDoctype==='Sales Order'?'selected':''}>${escHtml(f.label)} (${escHtml(f.fieldname)})</option>`).join('');
+    const soiOpts = (CATALOG.sales_order_item_fields||[]).map(f => `<option value="${escHtml(f.fieldname)}" ${f.fieldname===targetField&&targetDoctype==='Sales Order Item'?'selected':''}>${escHtml(f.label)} (${escHtml(f.fieldname)})</option>`).join('');
+    return `<div class="mapping-editor-row">
+      <input class="src-col" placeholder="Column name in file" value="${escHtml(sourceColumn||'')}">
+      <select class="tgt-dt" onchange="onMappingRowDoctypeChange(this)">
+        <option value="Sales Order" ${targetDoctype==='Sales Order'?'selected':''}>Sales Order</option>
+        <option value="Sales Order Item" ${targetDoctype==='Sales Order Item'?'selected':''}>Sales Order Item</option>
+      </select>
+      <select class="tgt-field">${targetDoctype==='Sales Order Item' ? soiOpts : soOpts}</select>
+      <input class="dflt-val" placeholder="Default (optional)" value="${escHtml(defaultValue||'')}">
+      <button class="rowmenu" onclick="this.closest('.mapping-editor-row').remove()">✕</button>
+    </div>`;
+}
+function onMappingRowDoctypeChange(sel){
+    const row = sel.closest('.mapping-editor-row');
+    const fieldSel = row.querySelector('.tgt-field');
+    const isItem = sel.value === 'Sales Order Item';
+    const fields = isItem ? CATALOG.sales_order_item_fields : CATALOG.sales_order_fields;
+    fieldSel.innerHTML = (fields||[]).map(f => `<option value="${escHtml(f.fieldname)}">${escHtml(f.label)} (${escHtml(f.fieldname)})</option>`).join('');
+}
+function addMappingRow(containerId, sourceColumn, targetDoctype, targetField, defaultValue){
+    document.getElementById(containerId).insertAdjacentHTML('beforeend', mappingRowHtml(sourceColumn, targetDoctype||'Sales Order Item', targetField, defaultValue));
+}
+function readMappingRows(containerId){
+    const out = [];
+    document.querySelectorAll('#'+containerId+' .mapping-editor-row').forEach(row => {
+        const source_column = row.querySelector('.src-col').value.trim();
+        const target_doctype = row.querySelector('.tgt-dt').value;
+        const target_fieldname = row.querySelector('.tgt-field').value;
+        const default_value = row.querySelector('.dflt-val').value;
+        if(source_column && target_fieldname) out.push({ source_column, target_doctype, target_fieldname, default_value });
+    });
+    return out;
+}
+function openPlatformEditor(name){
+    document.getElementById('pf_platform_name').value = '';
+    document.getElementById('pf_header_row').value = '1';
+    document.getElementById('pf_multi_order_column').value = '';
+    document.getElementById('pfMappingRows').innerHTML = '';
+    document.getElementById('platformBackdrop').dataset.editing = '';
+    if(name){
+        apiOther(IMPORT_API+'getPlatform', { name }, r => {
+            if(!r.success) return;
+            const p = r.platform;
+            document.getElementById('platformBackdrop').dataset.editing = p.name;
+            document.getElementById('pf_platform_name').value = p.platform_name;
+            document.getElementById('pf_header_row').value = p.header_row || 1;
+            document.getElementById('pf_multi_order_column').value = p.multi_order_column || '';
+            (p.default_field_mappings||[]).forEach(m => addMappingRow('pfMappingRows', m.source_column, m.target_doctype, m.target_fieldname, m.default_value));
+        });
+    }
+    document.getElementById('platformBackdrop').classList.add('show');
+}
+function submitPlatform(){
+    const editing = document.getElementById('platformBackdrop').dataset.editing;
+    const payload = {
+        name: editing || undefined,
+        platform_name: document.getElementById('pf_platform_name').value.trim(),
+        header_row: parseInt(document.getElementById('pf_header_row').value || '1', 10),
+        multi_order_column: document.getElementById('pf_multi_order_column').value.trim(),
+        default_field_mappings: readMappingRows('pfMappingRows'),
+    };
+    if(!payload.platform_name){ showErr('Platform name is required.'); return; }
+    frappe.call({ method: IMPORT_API+'savePlatform', args: { data: JSON.stringify(payload) }, callback: r => {
+        const m = r.message || {};
+        if(!m.success){ showErr(m.error || 'Could not save platform.'); return; }
+        closeModal('platformBackdrop');
+        showErr('');
+        apiOther(IMPORT_API+'listPlatforms', {}, r2 => { IMPORT_PLATFORMS = r2.platforms || []; IMPORT_PLATFORM = m.name; render(); });
+    }});
+}
+
+// ---------- customer mapping editor ----------
+function itemMappingRowHtml(sourceItemCode, item){
+    return `<div class="mapping-editor-row" style="grid-template-columns:1.5fr 1.5fr 26px">
+      <input class="src-item" placeholder="Customer's item code / name" value="${escHtml(sourceItemCode||'')}">
+      <input class="tgt-item" placeholder="Our Item (variety)" value="${escHtml(item||'')}">
+      <button class="rowmenu" onclick="this.closest('.mapping-editor-row').remove()">✕</button>
+    </div>`;
+}
+function addItemMappingRow(sourceItemCode, item){
+    document.getElementById('cmItemRows').insertAdjacentHTML('beforeend', itemMappingRowHtml(sourceItemCode, item));
+}
+function openCustomerMappingEditor(){
+    if(!IMPORT_CUSTOMER){ showErr('Pick a customer first.'); return; }
+    if(!IMPORT_PLATFORM){ showErr('Pick a platform first.'); return; }
+    document.getElementById('custMapSub').textContent = IMPORT_CUSTOMER.label + ' · ' + (IMPORT_PLATFORMS.find(p=>p.name===IMPORT_PLATFORM)||{}).platform_name;
+    document.getElementById('cm_default_currency').innerHTML = OPTIONS.currencies.map(c=>`<option value="${escHtml(c)}">${escHtml(c)}</option>`).join('');
+    document.getElementById('cm_default_warehouse').innerHTML = selOpts(OPTIONS.warehouses, '');
+    document.getElementById('cm_default_price_list').value = '';
+    document.getElementById('cm_default_consignee').value = '';
+    document.getElementById('cm_default_delivery_point').value = '';
+    document.getElementById('cm_default_shipping_agent').value = '';
+    document.getElementById('cmItemRows').innerHTML = '';
+    document.getElementById('cmMappingRows').innerHTML = '';
+    document.getElementById('custMapBackdrop').dataset.editing = '';
+    apiOther(IMPORT_API+'listCustomerMappings', { customer: IMPORT_CUSTOMER.name }, r => {
+        const existing = (r.mappings||[]).find(m => m.platform === IMPORT_PLATFORM);
+        if(!existing){ document.getElementById('custMapBackdrop').classList.add('show'); return; }
+        apiOther(IMPORT_API+'getCustomerMapping', { name: existing.name }, r2 => {
+            if(!r2.success){ document.getElementById('custMapBackdrop').classList.add('show'); return; }
+            const cm = r2.mapping;
+            document.getElementById('custMapBackdrop').dataset.editing = cm.name;
+            if(cm.default_currency) document.getElementById('cm_default_currency').value = cm.default_currency;
+            if(cm.default_warehouse) document.getElementById('cm_default_warehouse').value = cm.default_warehouse;
+            document.getElementById('cm_default_price_list').value = cm.default_price_list || '';
+            document.getElementById('cm_default_consignee').value = cm.default_consignee || '';
+            document.getElementById('cm_default_delivery_point').value = cm.default_delivery_point || '';
+            document.getElementById('cm_default_shipping_agent').value = cm.default_shipping_agent || '';
+            (cm.item_code_mapping||[]).forEach(m => addItemMappingRow(m.source_item_code, m.item));
+            (cm.field_mapping_overrides||[]).forEach(m => addMappingRow('cmMappingRows', m.source_column, m.target_doctype, m.target_fieldname, m.default_value));
+            document.getElementById('custMapBackdrop').classList.add('show');
+        });
+    });
+}
+function submitCustomerMapping(){
+    const editing = document.getElementById('custMapBackdrop').dataset.editing;
+    const item_code_mapping = [];
+    document.querySelectorAll('#cmItemRows .mapping-editor-row').forEach(row => {
+        const source_item_code = row.querySelector('.src-item').value.trim();
+        const item = row.querySelector('.tgt-item').value.trim();
+        if(source_item_code && item) item_code_mapping.push({ source_item_code, item });
+    });
+    const payload = {
+        name: editing || undefined,
+        customer: IMPORT_CUSTOMER.name,
+        platform: IMPORT_PLATFORM,
+        default_currency: document.getElementById('cm_default_currency').value,
+        default_price_list: document.getElementById('cm_default_price_list').value.trim(),
+        default_warehouse: document.getElementById('cm_default_warehouse').value,
+        default_consignee: document.getElementById('cm_default_consignee').value.trim(),
+        default_delivery_point: document.getElementById('cm_default_delivery_point').value.trim(),
+        default_shipping_agent: document.getElementById('cm_default_shipping_agent').value.trim(),
+        item_code_mapping,
+        field_mapping_overrides: readMappingRows('cmMappingRows'),
+    };
+    frappe.call({ method: IMPORT_API+'saveCustomerMapping', args: { data: JSON.stringify(payload) }, callback: r => {
+        const m = r.message || {};
+        if(!m.success){ showErr(m.error || 'Could not save this mapping.'); return; }
+        closeModal('custMapBackdrop');
+        showErr('');
+    }});
+}
+
+// ---------- render dispatcher ----------
+function render(){
+    renderTopbar();
+    if(VIEW==='list') renderList();
+    else if(VIEW==='import') renderImportWizard();
+    else renderEditor();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const aph = document.querySelector('.aph'), btn = document.getElementById('collapseBtn');
+    try { if (localStorage.getItem('aphSideCollapsed') === '1') aph.classList.add('collapsed'); } catch(e){}
+    if (btn) btn.addEventListener('click', () => {
+        aph.classList.toggle('collapsed');
+        try { localStorage.setItem('aphSideCollapsed', aph.classList.contains('collapsed') ? '1' : '0'); } catch(e){}
+    });
+    boot();
+});
+</script>
+{% endraw %}
+{% endblock %}

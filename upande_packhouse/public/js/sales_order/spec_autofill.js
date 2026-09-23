@@ -194,115 +194,68 @@ function nfmt(n) {
 	return format_number(n || 0, null, 0);
 }
 
-// ----------------------------- shared styles -----------------------------
+function open_spec_dialog(frm, trigger_cdn, data) {
+	if (data.bunch_aware) {
+		open_bunch_spec_dialog(frm, trigger_cdn, data);
+		return;
+	}
+	const lines = data.lines || [];
+	const boxOptions = data.box_options || [];
+	if (!lines.length) {
+		frappe.msgprint(__("Specification {0} has no approved colours.", [data.spec]));
+		return;
+	}
+	if (!boxOptions.length) {
+		frappe.msgprint(__("Specification {0} has no box items.", [data.spec]));
+		return;
+	}
 
-const SPA_STYLES = `
-    <style>
-      .spa-acc{border:1px solid var(--border-color,#e2e4e9);border-radius:6px;margin-bottom:6px;overflow:hidden}
-      .spa-acc-head{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;user-select:none;background:var(--fg-color,#fff)}
-      .spa-acc-head:hover{background:var(--subtle-fg,#f8f8f6)}
-      .spa-acc-caret{display:inline-flex;transition:transform .15s;color:#8a8780}
-      .spa-acc-open .spa-acc-caret{transform:rotate(90deg)}
-      .spa-colour{font-weight:600;font-size:13px}
-      .spa-acc-count{font-size:11px;color:#8a8780}
-      .spa-acc-warn{font-size:11px;color:#b45309}
-      .spa-meta{font-size:11px;color:#8a8780;margin-left:auto}
-      .spa-acc-head .spa-box{margin-left:auto;height:26px;font-size:12px}
-      .spa-chip{display:inline-block;font-size:10px;padding:1px 6px;border-radius:9px;background:#f4f3ef;color:#5a5a52}
-      .spa-chip-mix{background:rgba(10,10,10,.08);color:#0a0a0a}
-      .spa-acc-body{display:none;padding:2px 10px 10px;border-top:1px solid var(--border-color,#f0f1f3)}
-      .spa-acc-open .spa-acc-body{display:block}
-      .spa-checklist{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:2px 12px;margin-top:8px}
-      .spa-vcheck{display:flex;align-items:baseline;gap:6px;padding:4px 2px;cursor:pointer;font-size:12px}
-      .spa-vcheck input{margin:0;flex:none}
-      .spa-vcheck-name{font-weight:600}
-      .spa-vcheck-avail{font-size:11px;color:#16a34a;margin-left:auto}
-      .spa-vcheck-empty .spa-vcheck-avail{color:#b45309}
-      .spa-fill-wrap{margin-top:14px}
-      .spa-fill-title{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#8a8780;margin-bottom:6px}
-      .spa-fill-tbl{width:100%;border-collapse:collapse;font-size:13px}
-      .spa-fill-tbl th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#8a8780;text-align:left;padding:6px 8px;border-bottom:1px solid var(--border-color,#e2e4e9)}
-      .spa-fill-tbl td{padding:6px 8px;border-bottom:1px solid var(--border-color,#f0f1f3);vertical-align:middle}
-      .spa-c{text-align:center}
-      .spa-stems,.spa-boxes{height:28px;width:80px}
-      .spa-empty-fill{color:#8a8780;text-align:center;padding:14px 0;font-size:12px}
-      .spa-foot{margin-top:12px;padding-top:10px;border-top:1px solid var(--border-color,#e2e4e9);font-size:13px;text-align:right;color:#3a3a34}
-      .spa-badge{float:left;font-size:11px;color:#8a8780;text-transform:uppercase;letter-spacing:.04em}
-      .spb-card{border:1px solid var(--border-color,#e2e4e9);border-radius:6px;margin-bottom:10px;overflow:hidden}
-      .spb-head{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--subtle-fg,#f8f8f6);flex-wrap:wrap}
-      .spb-id{font-weight:600;font-size:13px}
-      .spb-boxes-label{display:flex;align-items:center;gap:6px;font-size:11px;color:#8a8780;margin:0 0 0 auto}
-      .spb-boxes{width:70px;height:26px;font-size:12px}
-      .spb-slot{padding:6px 10px;border-top:1px solid var(--border-color,#f0f1f3)}
-      .spb-slot-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:12px;margin-bottom:4px}
-      .spb-slot-colour{font-weight:600}
-      .spb-slot-meta{font-size:11px;color:#8a8780}
-      .spb-cands{display:flex;flex-direction:column;gap:2px}
-      .spb-cand{display:flex;align-items:baseline;gap:6px;font-size:12.5px;padding:2px 0;cursor:pointer}
-      .spb-cand-solo{cursor:default}
-      .spb-cand input{margin:0;flex:none}
-      .spb-cand-name{font-weight:600}
-      .spb-cand-avail{font-size:11px;color:#16a34a;margin-left:auto}
-      .spb-cand-empty{color:#b45309}
-      .spb-foot{padding:4px 10px 8px;font-size:11px;color:#8a8780;text-align:right;border-top:1px solid var(--border-color,#f0f1f3)}
-      .spx-spec{border:1px solid var(--border-color,#e2e4e9);border-left:4px solid var(--spx-accent,var(--border-color,#e2e4e9));border-radius:6px;margin-bottom:14px;overflow:hidden}
-      .spx-head{display:flex;align-items:center;gap:8px;padding:9px 10px;cursor:pointer;user-select:none;background:var(--spx-tint,var(--subtle-fg,#f8f8f6))}
-      .spx-head:hover{background:var(--spx-tint-strong,var(--fg-hover-color,#f1f1ee))}
-      .spx-swatch{width:9px;height:9px;border-radius:50%;background:var(--spx-accent,#8a8780);flex:none}
-      .spx-body{border-top:1px solid var(--spx-tint-strong,var(--border-color,#f0f1f3))}
-      .spx-caret{display:inline-flex;transition:transform .15s;color:#8a8780}
-      .spx-open .spx-caret{transform:rotate(90deg)}
-      .spx-title{font-weight:600;font-size:13px}
-      .spx-sub{font-size:10px;padding:1px 6px;border-radius:9px;background:#f4f3ef;color:#5a5a52;text-transform:uppercase;letter-spacing:.04em}
-      .spx-tot{margin-left:auto;font-size:11px;color:#16a34a}
-      .spx-body{display:none;padding:10px}
-      .spx-open .spx-body{display:block}
-      .spx-grand{margin-top:6px;padding-top:10px;border-top:1px solid var(--border-color,#e2e4e9);font-size:14px;text-align:right}
-      .spx-error{border:1px solid #f0d8a8;background:#fdf6e7;color:#8a5a00;border-radius:6px;padding:8px 10px;margin:0 10px 10px;font-size:12px}
-      .spx-failed{--spx-accent:#d97706}
-      .spx-failed .spx-head{cursor:default;background:#fdf6e7}
-      .spx-empty{color:#8a8780;text-align:center;padding:20px 0;font-size:12px}
-      .spx-hint{font-size:11px;color:#8a8780;margin:-6px 0 4px}
-    </style>`;
+	// box-type badge helps the salesperson see what they're building
+	const kind = data.is_mixed_box ? "Mixed Box" : "Straight Box";
+	const singleBox = boxOptions.length === 1;
 
-// One colour per spec in the picker window, so where one spec's block ends and
-// the next begins is readable at a glance -- a 4px bar down the left edge of
-// the whole card (head AND body, so it reads as one run), a matching tint
-// behind the header and a dot beside the name.
-//
-// Hues only: the accent is built from the hue at fixed saturation/lightness,
-// and the tints are the SAME colour at low alpha rather than a baked-in pale
-// shade, so one set of values works on the light and dark desk themes alike.
-// 52% lightness stays visible on both. Eight well-separated hues, cycled --
-// and colour is never the only cue, the spec's own name is right there, so a
-// repeat after eight (or colour-blindness) costs nothing.
-const SPX_HUES = [211, 27, 152, 291, 340, 190, 47, 258];
+	const fields = [{ fieldtype: "HTML", fieldname: "grid" }];
 
-function spx_accent_style(i) {
-	const h = SPX_HUES[i % SPX_HUES.length];
-	return [
-		`--spx-accent:hsl(${h} 64% 52%)`,
-		`--spx-tint:hsl(${h} 64% 52% / 0.10)`,
-		`--spx-tint-strong:hsl(${h} 64% 52% / 0.18)`,
-	].join(";");
-}
-
-// ----------------------------- picker sections -----------------------------
-
-// A SECTION is one spec's picker body, mountable on its own (single-spec
-// dialog) or stacked with others (multi-spec dialog). Everything it does is
-// scoped to the DOM node it's bound to -- no dialog-wide selectors -- so N
-// sections on one window never read each other's checkboxes.
-//
-// Contract: { html, bind($root, onchange), collect(), totals(), empty_message }
-// or { error } when the spec can't be filled at all.
-function build_spec_section(data, uid) {
-	return data.bunch_aware ? bunch_section(data, uid) : flat_section(data, uid);
-}
-
-function spec_kind(data) {
-	return data.is_mixed_box ? "Mixed Box" : "Straight Box";
-}
+	const d = new frappe.ui.Dialog({
+		title: __("Fill Order from {0}", [data.spec_name || data.spec]),
+		size: "extra-large",
+		fields: fields,
+		primary_action_label: __("Add to Order"),
+		primary_action() {
+			// A spec is one box -- one shared Boxes count for every colour
+			// ticked, not a per-row quantity (each row can still point at its
+			// own box_idx/Stems-per-box; that's real per-colour pack data).
+			const boxes = cint(d.$wrapper.find(".spa-order-boxes").val());
+			if (boxes <= 0) {
+				frappe.msgprint(__("Enter how many boxes to add."));
+				return;
+			}
+			const selections = [];
+			d.$wrapper.find(".spa-fill-row").each(function () {
+				const $r = $(this);
+				selections.push({
+					line_idx: parseInt($r.attr("data-line-idx"), 10),
+					box_idx: parseInt($r.attr("data-box-idx"), 10) || 0,
+					variety: $r.attr("data-variety"),
+					stems: cint($r.find(".spa-stems").val()),
+					boxes,
+				});
+			});
+			if (!selections.length) {
+				frappe.msgprint(__("Tick at least one variety."));
+				return;
+			}
+			d.hide();
+			append_rows(
+				frm,
+				trigger_cdn,
+				data.spec,
+				selections,
+				null,
+				mix_group_for_spec(frm, data.spec)
+			);
+		},
+	});
 
 // ---- two-step layout, built to stay usable at 15+ colours:
 // 1. One collapsible section per approved COLOUR (closed by default --
@@ -408,18 +361,60 @@ function flat_section(data, uid) {
 		.join("");
 
 	const html = `
-    <div class="spa" data-uid="${esc(uid)}">
+    <style>
+      .spa-acc{border:1px solid var(--border-color,#e2e4e9);border-radius:6px;margin-bottom:6px;overflow:hidden}
+      .spa-acc-head{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;user-select:none;background:var(--fg-color,#fff)}
+      .spa-acc-head:hover{background:var(--subtle-fg,#f8f8f6)}
+      .spa-acc-caret{display:inline-flex;transition:transform .15s;color:#8a8780}
+      .spa-acc-open .spa-acc-caret{transform:rotate(90deg)}
+      .spa-colour{font-weight:600;font-size:13px}
+      .spa-acc-count{font-size:11px;color:#8a8780}
+      .spa-acc-warn{font-size:11px;color:#b45309}
+      .spa-meta{font-size:11px;color:#8a8780;margin-left:auto}
+      .spa-acc-head .spa-box{margin-left:auto;height:26px;font-size:12px}
+      .spa-chip{display:inline-block;font-size:10px;padding:1px 6px;border-radius:9px;background:#f4f3ef;color:#5a5a52}
+      .spa-chip-mix{background:rgba(10,10,10,.08);color:#0a0a0a}
+      .spa-acc-body{display:none;padding:2px 10px 10px;border-top:1px solid var(--border-color,#f0f1f3)}
+      .spa-acc-open .spa-acc-body{display:block}
+      .spa-checklist{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:2px 12px;margin-top:8px}
+      .spa-vcheck{display:flex;align-items:baseline;gap:6px;padding:4px 2px;cursor:pointer;font-size:12px}
+      .spa-vcheck input{margin:0;flex:none}
+      .spa-vcheck-name{font-weight:600}
+      .spa-vcheck-avail{font-size:11px;color:#16a34a;margin-left:auto}
+      .spa-vcheck-empty .spa-vcheck-avail{color:#b45309}
+      .spa-fill-wrap{margin-top:14px}
+      .spa-fill-title{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#8a8780;margin-bottom:6px}
+      .spa-fill-tbl{width:100%;border-collapse:collapse;font-size:13px}
+      .spa-fill-tbl th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#8a8780;text-align:left;padding:6px 8px;border-bottom:1px solid var(--border-color,#e2e4e9)}
+      .spa-fill-tbl td{padding:6px 8px;border-bottom:1px solid var(--border-color,#f0f1f3);vertical-align:middle}
+      .spa-c{text-align:center}
+      .spa-stems{height:28px;width:80px}
+      .spa-empty-fill{color:#8a8780;text-align:center;padding:14px 0;font-size:12px}
+      .spa-order-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 12px;margin-top:10px;border:1px solid var(--border-color,#e2e4e9);border-radius:6px;background:var(--subtle-fg,#f8f8f6)}
+      .spa-order-note{font-size:12px;color:#8a8780}
+      .spa-order-boxes-label{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;margin-left:auto}
+      .spa-order-boxes{width:80px;height:30px;font-size:13px}
+      .spa-foot{margin-top:12px;padding-top:10px;border-top:1px solid var(--border-color,#e2e4e9);font-size:13px;text-align:right;color:#3a3a34}
+      .spa-badge{float:left;font-size:11px;color:#8a8780;text-transform:uppercase;letter-spacing:.04em}
+    </style>
+    <div class="spa">
       <div class="spa-sections">${sectionsHtml}</div>
+      <div class="spa-order-head">
+        <span class="spa-order-note">${__(
+			"This spec is one box -- the Boxes count applies to every colour ticked above"
+		)}</span>
+        <label class="spa-order-boxes-label">${__("Boxes")}
+          <input type="number" min="0" class="spa-order-boxes form-control" value="1">
+        </label>
+      </div>
       <div class="spa-fill-wrap">
         <div class="spa-fill-title">${__("Fill in quantities for what you ticked above")}</div>
         <table class="spa-fill-tbl">
           <thead><tr>
-            <th>${__("Colour")}</th><th>${__("Variety")}</th><th>${__("Pack")}</th>
-            <th>${__("Stems/Box")}</th><th>${__("Boxes")}</th><th style="text-align:right">${__(
-		"Stems"
-	)}</th>
+            <th>${__("Colour")}</th><th>${__("Variety")}</th>
+            <th>${__("Stems/Box")}</th><th style="text-align:right">${__("Stems")}</th>
           </tr></thead>
-          <tbody class="spa-fill-tbody"><tr><td colspan="6" class="spa-empty-fill">${__(
+          <tbody class="spa-fill-tbody"><tr><td colspan="4" class="spa-empty-fill">${__(
 				"Tick varieties above to add them here"
 			)}</td></tr></tbody>
         </table>
@@ -457,10 +452,7 @@ function flat_section(data, uid) {
 		const existing = {};
 		$tbody.find(".spa-fill-row").each(function () {
 			const $r = $(this);
-			existing[$r.attr("data-key")] = {
-				stems: $r.find(".spa-stems").val(),
-				boxes: $r.find(".spa-boxes").val(),
-			};
+			existing[$r.attr("data-key")] = { stems: $r.find(".spa-stems").val() };
 		});
 
 		const rows = [];
@@ -498,10 +490,7 @@ function flat_section(data, uid) {
                   <td>${esc($cb.data("item-name") || variety)}</td>
                   <td><span class="spa-meta spa-pack">${esc(packLabel(b))}</span></td>
                   <td><input type="number" class="spa-stems form-control input-sm" min="0" value="${
-						prev ? prev.stems : rate
-					}"></td>
-                  <td><input type="number" class="spa-boxes form-control input-sm" min="0" value="${
-						prev ? prev.boxes : 1
+						prev ? prev.stems : packrate
 					}"></td>
                   <td class="spa-c spa-row-stems" style="text-align:right">0</td>
                 </tr>`);
@@ -512,77 +501,42 @@ function flat_section(data, uid) {
 		$tbody.html(
 			rows.length
 				? rows.join("")
-				: `<tr><td colspan="6" class="spa-empty-fill">${__(
+				: `<tr><td colspan="4" class="spa-empty-fill">${__(
 						"Tick varieties above to add them here"
 				  )}</td></tr>`
 		);
 		recompute();
 	}
 
+	// A spec is one box: the single .spa-order-boxes field is the only
+	// source of "how many", applied to every ticked row -- not summed
+	// per-row the way a per-row Boxes input used to be (that's what made
+	// three ticked colours read as "3 boxes" instead of one).
 	function recompute() {
-		let tb = 0,
-			ts = 0;
-		$root.find(".spa-fill-row").each(function () {
+		const boxes = cint($w.find(".spa-order-boxes").val());
+		let ts = 0;
+		$w.find(".spa-fill-row").each(function () {
 			const $r = $(this);
 			const stems = cint($r.find(".spa-stems").val());
-			const boxes = cint($r.find(".spa-boxes").val());
 			const total = stems * boxes;
 			$r.find(".spa-row-stems").text(nfmt(total));
-			tb += boxes;
 			ts += total;
 		});
-		$root.find(".spa-tot-boxes").text(nfmt(tb));
-		$root.find(".spa-tot-stems").text(nfmt(ts));
-		on_change();
+		$w.find(".spa-tot-boxes").text(nfmt(boxes));
+		$w.find(".spa-tot-stems").text(nfmt(ts));
 	}
 
-	return {
-		html,
-		empty_message: __("Tick at least one variety."),
-		bind($scope, onchange) {
-			$root = $scope;
-			on_change = onchange || (() => {});
-			$root.on("click", ".spa-acc-head", function (e) {
-				if ($(e.target).is("select,option")) return; // don't collapse when picking a pack size
-				$(this).closest(".spa-acc").toggleClass("spa-acc-open");
-			});
-			$root.on("change", ".spa-vcb", syncTable);
-			$root.on("change", ".spa-box", syncTable);
-			$root.on(
-				"input change",
-				".spa-fill-tbody .spa-stems,.spa-fill-tbody .spa-boxes",
-				recompute
-			);
-			syncTable();
-		},
-		totals() {
-			let boxes = 0,
-				stems = 0;
-			if (!$root) return { boxes, stems };
-			$root.find(".spa-fill-row").each(function () {
-				const $r = $(this);
-				const b = cint($r.find(".spa-boxes").val());
-				boxes += b;
-				stems += b * cint($r.find(".spa-stems").val());
-			});
-			return { boxes, stems };
-		},
-		collect() {
-			const selections = [];
-			if (!$root) return selections;
-			$root.find(".spa-fill-row").each(function () {
-				const $r = $(this);
-				selections.push({
-					line_idx: parseInt($r.attr("data-line-idx"), 10),
-					box_idx: parseInt($r.attr("data-box-idx"), 10) || 0,
-					variety: $r.attr("data-variety"),
-					stems: cint($r.find(".spa-stems").val()),
-					boxes: cint($r.find(".spa-boxes").val()),
-				});
-			});
-			return selections;
-		},
-	};
+	$w.on("click", ".spa-acc-head", function (e) {
+		if ($(e.target).is("select,option")) return; // don't collapse when picking a pack size
+		$(this).closest(".spa-acc").toggleClass("spa-acc-open");
+	});
+	$w.on("change", ".spa-vcb", syncTable);
+	$w.on("change", ".spa-box", syncTable);
+	$w.on("input change", ".spa-fill-tbody .spa-stems", recompute);
+	$w.on("input change", ".spa-order-boxes", recompute);
+
+	d.show();
+	syncTable();
 }
 
 // One card per bunch_id (recipe) instead of one checkbox per variety, with
@@ -595,397 +549,26 @@ function flat_section(data, uid) {
 // box shape instead of the spec's whole box_item palette. Used only when
 // the spec has bunch_id filled in on every Approved Variety row (see
 // get_spec_fill_data / _bunches_from_spec on the server); otherwise
-// build_spec_section falls through to the flat colour picker, unchanged.
-function bunch_section(data, uid) {
-	const bunches = data.bunches || [];
-	if (!bunches.length) {
-		return { error: __("Specification {0} has no bunches defined.", [data.spec]) };
+// open_spec_dialog falls through to the flat colour picker, unchanged.
+// Presentation lives in spec_fill_dialog.js (window.upande_open_spec_fill_dialog),
+// shared verbatim with the Sales Order dashboard -- this function is now just
+// the Desk-side wiring: hand it the server's fill data, and on submit, hand
+// its selections straight to build_spec_rows via append_rows, exactly as
+// before.
+function open_bunch_spec_dialog(frm, trigger_cdn, data) {
+	if (!(data.bunches || []).length) {
+		frappe.msgprint(__("Specification {0} has no bunches defined.", [data.spec]));
+		return;
 	}
-
-	const farmsFor = (c) =>
-		Object.keys(c.by_farm || {})
-			.sort((x, y) => c.by_farm[y] - c.by_farm[x])
-			.map((f) => `${f}: ${nfmt(c.by_farm[f])}`)
-			.join(" · ");
-
-	const candBadge = (c) =>
-		`<span class="spb-cand-avail${(c.available || 0) > 0 ? "" : " spb-cand-empty"}">${
-			farmsFor(c) ? esc(farmsFor(c)) + " · " : ""
-		}${nfmt(c.available)} ${__("stems")}</span>`;
-
-	const slotHtml = (b, slot, si) => {
-		const candidates = slot.candidates || [];
-		const best = candidates.reduce(
-			(a, c) => ((c.available || 0) > (a.available || 0) ? c : a),
-			candidates[0] || {}
-		);
-		const meta = [
-			slot.length,
-			slot.box_type,
-			slot.bunches_per_box ? `${slot.bunches_per_box}/box` : "",
-		]
-			.filter(Boolean)
-			.join(" · ");
-		// The radio group name has to be unique across the WHOLE window, not
-		// just this card -- several specs share one dialog now, and two specs
-		// with the same bunch_id would otherwise form one radio group and
-		// silently un-pick each other's slots.
-		const radioName = `spb-pick-${esc(uid)}-${esc(b.bunch_id)}-${si}`;
-		const candidatesHtml =
-			candidates.length <= 1
-				? `<div class="spb-cand spb-cand-solo">
-                    <span class="spb-cand-name">${esc(
-						(candidates[0] || {}).item_name || (candidates[0] || {}).variety || ""
-					)}</span>
-                    ${candBadge(candidates[0] || {})}
-                  </div>`
-				: candidates
-						.map(
-							(c) => `
-                <label class="spb-cand">
-                  <input type="radio" class="spb-pick" name="${radioName}" value="${esc(
-								c.variety
-							)}" ${c === best ? "checked" : ""}>
-                  <span class="spb-cand-name">${esc(c.item_name || c.variety)}</span>
-                  ${candBadge(c)}
-                </label>`
-						)
-						.join("");
-		return `
-            <div class="spb-slot" data-colour="${esc(slot.colour)}"${
-			candidates.length <= 1
-				? ` data-only-variety="${esc((candidates[0] || {}).variety || "")}"`
-				: ""
-		}>
-                <div class="spb-slot-head">
-                    <span class="spb-slot-colour">${esc(slot.colour || __("(no colour)"))}</span>
-                    <span class="spb-slot-meta">${esc(meta)} · ${slot.stems_per_bunch}/bunch</span>
-                </div>
-                <div class="spb-cands">${candidatesHtml}</div>
-            </div>`;
-	};
-
-	const cardHtml = (b) => {
-		const badge = b.is_mixed
-			? `<span class="spa-chip spa-chip-mix">Mixed Bunch</span>`
-			: `<span class="spa-chip">Mono Bunch</span>`;
-		const perBoxStems = (b.slots || []).reduce((sum, s) => sum + (s.pack_rate || 0), 0);
-		return `
-        <div class="spb-card" data-bunch-id="${esc(b.bunch_id)}" data-per-box="${perBoxStems}">
-            <div class="spb-head">
-                <span class="spb-id">${esc(b.bunch_id)}</span>
-                ${badge}
-                <label class="spb-boxes-label">${__("Boxes")}
-                    <input type="number" min="0" class="spb-boxes form-control input-sm" value="0">
-                </label>
-            </div>
-            ${(b.slots || []).map((slot, si) => slotHtml(b, slot, si)).join("")}
-            <div class="spb-foot">${nfmt(perBoxStems)} ${__("stems / box")}</div>
-        </div>`;
-	};
-
-	const html = `
-    <div class="spa" data-uid="${esc(uid)}">
-      ${bunches.map(cardHtml).join("")}
-      <div class="spa-foot"><span class="spa-badge">${esc(spec_kind(data))}</span>
-        Total: <b class="spa-tot-boxes">0</b> boxes &middot; <b class="spa-tot-stems">0</b> stems</div>
-    </div>`;
-
-	let $root = null;
-	let on_change = () => {};
-
-	function totals() {
-		let boxes = 0,
-			stems = 0;
-		if (!$root) return { boxes, stems };
-		$root.find(".spb-card").each(function () {
-			const $c = $(this);
-			const b = cint($c.find(".spb-boxes").val());
-			boxes += b;
-			stems += b * cint($c.attr("data-per-box"));
-		});
-		return { boxes, stems };
-	}
-
-	function recompute() {
-		const t = totals();
-		$root.find(".spa-tot-boxes").text(nfmt(t.boxes));
-		$root.find(".spa-tot-stems").text(nfmt(t.stems));
-		on_change();
-	}
-
-	return {
-		html,
-		empty_message: __("Enter a box count for at least one bunch."),
-		bind($scope, onchange) {
-			$root = $scope;
-			on_change = onchange || (() => {});
-			$root.on("input change", ".spb-boxes", recompute);
-			recompute();
+	window.upande_open_spec_fill_dialog(data, {
+		onSubmit(selections) {
+			// Fresh, collision-free starting point -- the server allocates
+			// ONE mix_group for this whole call (every Mono Bunch component
+			// of this one box shares it), not one per bunch_id.
+			append_rows(frm, trigger_cdn, data.spec, selections, null, next_group(frm, "custom_mix_group"));
 		},
-		totals,
-		collect() {
-			const selections = [];
-			if (!$root) return selections;
-			$root.find(".spb-card").each(function () {
-				const $c = $(this);
-				const boxes = cint($c.find(".spb-boxes").val());
-				if (boxes <= 0) return;
-				const picks = {};
-				$c.find(".spb-slot").each(function () {
-					const $slot = $(this);
-					const colour = $slot.attr("data-colour");
-					const variety =
-						$slot.find(".spb-pick:checked").val() || $slot.attr("data-only-variety");
-					if (variety) picks[colour] = variety;
-				});
-				selections.push({ bunch_id: $c.attr("data-bunch-id"), boxes, picks });
-			});
-			return selections;
-		},
-	};
+	});
 }
-
-// ----------------------------- picker dialog -----------------------------
-
-// THE window. Which specs, and what to fill on them, are one question asked
-// once: the multiselect at the top, and under it a variety picker per spec.
-// Pick one and its picker is fetched and appended; pick another and it stacks
-// below; remove one and its section is DETACHED, not destroyed -- pick it
-// again and everything already typed into it is still there. A spec already
-// pilled is dropped from the dropdown (spec_link_options), so the list only
-// ever offers what is left to add.
-//
-// This was briefly two windows -- choose, then fill -- which meant the same
-// list of specs was presented twice, the second time with every spec already
-// chosen still in it. One window, asked once.
-//
-// One "Add to Order" appends every picked spec's lines to THIS order in one
-// go, with mix/bunch groups kept distinct per spec (see append_spec_batch).
-function open_spec_picker(frm, trigger_cdn, initial_specs) {
-	// spec name -> entry, for every spec EVER ticked in this dialog (so
-	// unticking is never destructive). An entry that failed to load carries
-	// `error` and no section.
-	const loaded = new Map();
-	const pending = new Set(); // in-flight fetches, so a fast re-tick can't double-load
-	let seq = 0;
-	const opened_with = [...new Set((initial_specs || []).filter(Boolean))];
-
-	// Declared before the Dialog, not `const d = new ...`: the multiselect's
-	// get_data runs DURING construction (make_input -> setup_awesomplete ->
-	// get_awesomplete_settings -> get_data), so a const would still be in its
-	// temporal dead zone and reading it there throws
-	// "Cannot access 'd' before initialization" -- taking the whole window
-	// down before it can be shown. Declared this way it is merely undefined
-	// for that one early call, which the readers below allow for.
-	let d;
-	d = new frappe.ui.Dialog({
-		title: __("Add from Specifications"),
-		size: "extra-large",
-		fields: [
-			{
-				fieldtype: "MultiSelectPills",
-				fieldname: "specs",
-				label: __("Specifications"),
-				get_data(txt) {
-					return spec_link_options(frm, txt, d ? d.get_value("specs") : []);
-				},
-				onchange() {
-					sync_sections();
-				},
-			},
-			{ fieldtype: "HTML", fieldname: "hint" },
-			{ fieldtype: "HTML", fieldname: "grid" },
-		],
-		primary_action_label: __("Add to Order"),
-		primary_action() {
-			const batch = [];
-			active().forEach((e) => {
-				if (!e.section) return;
-				const selections = e.section.collect();
-				if (selections.length) batch.push({ data: e.data, selections });
-			});
-			if (!batch.length) {
-				frappe.msgprint(
-					selected().length
-						? __(
-								"Nothing picked yet — tick at least one variety and give it a box count."
-						  )
-						: __("Select at least one Specification.")
-				);
-				return;
-			}
-			d.hide();
-			append_spec_batch(frm, trigger_cdn, batch);
-		},
-	});
-
-	// Without a Customer the link query can't narrow to their specs (same
-	// filters the items-row Specification link uses), so say so up front
-	// rather than letting the list look wrong.
-	d.fields_dict.hint.$wrapper.html(
-		`<div class="spx-hint">${
-			frm.doc.customer
-				? __(
-						"Pick every specification this order needs — each one gets its own variety picker below."
-				  )
-				: __(
-						"No Customer is set yet, so every Active specification is offered. Set the Customer first to narrow this to their specs."
-				  )
-		}</div>`
-	);
-
-	const $w = d.fields_dict.grid.$wrapper;
-	$w.html(
-		SPA_STYLES +
-			`<div class="spx">
-        <div class="spx-list"></div>
-        <div class="spx-empty">${__(
-			"Pick a specification above and its varieties appear here."
-		)}</div>
-        <div class="spx-grand">${__("Order total")}: <b class="spx-tot-boxes">0</b> ${__(
-				"boxes"
-			)} &middot; <b class="spx-tot-stems">0</b> ${__("stems")}</div>
-      </div>`
-	);
-	const $list = $w.find(".spx-list");
-
-	// Only the spec header collapses -- a click inside the body belongs to that
-	// spec's own picker (colour accordions, checkboxes, number inputs), and
-	// .spx-head is never an ancestor of .spx-body, so the two never cross.
-	$list.on("click", ".spx-head", function () {
-		$(this).closest(".spx-spec").toggleClass("spx-open");
-	});
-
-	function selected() {
-		// Same spec twice would just fight over its own mix group, so dedupe.
-		if (!d) return [];
-		return [...new Set((d.get_value("specs") || []).filter(Boolean))];
-	}
-
-	function active() {
-		return selected()
-			.map((s) => loaded.get(s))
-			.filter(Boolean);
-	}
-
-	function sync_sections() {
-		const specs = selected();
-		const want = new Set(specs);
-		// Detach (not remove) whatever got unticked -- keeps its inputs alive.
-		loaded.forEach((e, spec) => {
-			if (!want.has(spec)) e.$node.detach();
-		});
-
-		const missing = specs.filter((s) => !loaded.has(s) && !pending.has(s));
-		if (missing.length) {
-			missing.forEach((s) => pending.add(s));
-			frappe.dom.freeze(__("Loading specification..."));
-			Promise.all(missing.map(fetch_spec)).then(() => {
-				missing.forEach((s) => pending.delete(s));
-				frappe.dom.unfreeze();
-				render();
-			});
-		}
-		render();
-	}
-
-	// An incomplete spec throws server-side (see _require_clean_spec). That
-	// modal is the answer for that one spec; the rest still load, and the dud
-	// stays in the list as a banner so it's obvious which one failed.
-	function fetch_spec(spec) {
-		return frappe
-			.call({
-				method: "upande_packhouse.spec_autofill.get_spec_fill_data",
-				args: { spec },
-			})
-			.then((r) => add_entry(spec, r && r.message))
-			.catch(() => add_entry(spec, null));
-	}
-
-	function add_entry(spec, data) {
-		const uid = "s" + seq++;
-		const section = data ? build_spec_section(data, uid) : null;
-		const error = data
-			? section.error || null
-			: __("Specification {0} can't be filled — see the message above.", [spec]);
-		const title = esc((data && (data.spec_name || data.spec)) || spec);
-		// seq is only ever bumped here, once per spec, so a spec keeps its colour
-		// for the life of the window even when it is removed and picked again.
-		const accent = spx_accent_style(seq - 1);
-		const html = error
-			? `<div class="spx-spec spx-failed" data-uid="${uid}">
-           <div class="spx-head"><span class="spx-swatch"></span><span class="spx-title">${title}</span></div>
-           <div class="spx-error">${error}</div>
-         </div>`
-			: `<div class="spx-spec spx-open" data-uid="${uid}" style="${accent}">
-           <div class="spx-head">
-             <span class="spx-caret">▸</span>
-             <span class="spx-swatch"></span>
-             <span class="spx-title">${title}</span>
-             <span class="spx-sub">${esc(spec_kind(data))}</span>
-             <span class="spx-tot"></span>
-           </div>
-           <div class="spx-body">${section.html}</div>
-         </div>`;
-
-		const $node = $(html).appendTo($list);
-		const entry = { spec, data, uid, $node, section: error ? null : section, error };
-		loaded.set(spec, entry);
-		if (entry.section) entry.section.bind($node.find(".spx-body"), refresh_totals);
-		return entry;
-	}
-
-	function render() {
-		const specs = selected();
-		// Re-append in pick order; appendTo MOVES an existing node, never clones,
-		// so a re-ticked section keeps its handlers and its typed-in values.
-		specs.forEach((s) => {
-			const e = loaded.get(s);
-			if (e) $list.append(e.$node);
-		});
-		$w.find(".spx-empty").toggle(!specs.length);
-		refresh_totals();
-	}
-
-	function refresh_totals() {
-		let boxes = 0,
-			stems = 0;
-		active().forEach((e) => {
-			if (!e.section) return;
-			const t = e.section.totals();
-			boxes += t.boxes;
-			stems += t.stems;
-			e.$node
-				.find(".spx-tot")
-				.text(
-					t.boxes || t.stems
-						? `${nfmt(t.boxes)} ${__("boxes")} · ${nfmt(t.stems)} ${__("stems")}`
-						: ""
-				);
-		});
-		$w.find(".spx-tot-boxes").text(nfmt(boxes));
-		$w.find(".spx-tot-stems").text(nfmt(stems));
-	}
-
-	// The fallback custom_line trigger must not open a SECOND window if
-	// something sets a row's spec while this one is up.
-	frm.__spa_picker_open = true;
-	d.$wrapper.on("hidden.bs.modal", () => {
-		frm.__spa_picker_open = false;
-	});
-
-	d.show();
-
-	if (opened_with.length) {
-		d.set_value("specs", opened_with); // fires onchange -> sync_sections
-	} else {
-		render();
-	}
-	return d;
-}
-
-// ----------------------------- appending -----------------------------
 
 function next_group(frm, field, extra_rows) {
 	let max = 0;

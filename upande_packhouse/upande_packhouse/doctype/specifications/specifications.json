@@ -20,6 +20,7 @@
   "documentation_charge",
   "certificate_of_origin",
   "column_break_cultural",
+  "box_type",
   "cut_stage",
   "defoliation_length",
   "rubber_band_type",
@@ -164,6 +165,14 @@
    "fieldtype": "Select",
    "label": "Box Assortment",
    "options": "\nMono Box\nMixed Box",
+   "reqd": 1
+  },
+  {
+   "description": "The physical box every bunch on this spec ships in -- one spec is one box, so this lives here, not on each Box Item row.",
+   "fieldname": "box_type",
+   "fieldtype": "Link",
+   "label": "Box Type",
+   "options": "Box Type",
    "reqd": 1
   },
   {

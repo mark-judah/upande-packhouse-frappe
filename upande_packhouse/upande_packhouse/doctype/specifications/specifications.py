@@ -10,6 +10,7 @@ class Specifications(Document):
 	def validate(self):
 		self.validate_colour_range()
 		self.validate_temporary_dates()
+		self.validate_approved_varieties()
 
 	def validate_colour_range(self):
 		"""Min/Max Colours Per Box only apply to Mixed Box. Their
@@ -38,3 +39,23 @@ class Specifications(Document):
 			frappe.throw(_("Valid From and Expiry Date are required for a Temporary spec"))
 		if self.valid_from > self.expiry_date:
 			frappe.throw(_("Valid From cannot be after Expiry Date"))
+
+	def validate_approved_varieties(self):
+		"""A Colour is a (bunch_id, colour) group of Approved Variety rows --
+		several varieties substituting for each other in the same slot, never
+		delivered together. Exactly one of them has to be the primary/default
+		pick, or nothing (a Sales Order autofill, a picker) knows which variety
+		to reach for first when several are equally 'approved'."""
+		groups = {}
+		for av in self.approved_varieties or []:
+			groups.setdefault((av.bunch_id or "", av.colour or ""), []).append(av)
+
+		for (bunch_id, colour), rows in groups.items():
+			primaries = [r for r in rows if r.is_primary]
+			label = _("Bunch {0}, colour {1}").format(bunch_id or "—", colour or "—")
+			if len(primaries) == 0:
+				frappe.throw(_("{0}: one variety must be marked Primary").format(label))
+			if len(primaries) > 1:
+				frappe.throw(
+					_("{0}: only one variety can be marked Primary — the rest are substitutes").format(label)
+				)

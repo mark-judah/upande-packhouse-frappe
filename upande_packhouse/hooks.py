@@ -65,7 +65,24 @@ doctype_js = {
 		"public/js/sales_order/accounting_dimension_sync.js",
 		"public/js/sales_order/box_math.js",
 		"public/js/sales_order/mixed_box_wizard.js",
-		"public/js/sales_order/mixed_box_uom_fix.js",
+		# mixed_box_uom_fix.js removed 2026-09-22: a superseded 2026-09-04
+		# workaround ("force every mixed-box row's uom to Stems") that
+		# mixed_box_wizard.js's own 2026-09-19 fix (commit e56c93b) made
+		# obsolete -- the wizard now validates each item's real Sales UOM
+		# up front instead of overriding it downstream. This file kept
+		# running anyway (its DB-only Client Script twin was disabled, but
+		# nobody removed this git-tracked copy), silently reverting the
+		# wizard's correct "Bunch (N)" UOM back to "Stems" on every save --
+		# confirmed live via Playwright against kaitet.local: the wizard
+		# produced the right UOM, this file then flipped it back, and
+		# sales_order_engine.py's "Wrong Bunch Size" gate (added the same
+		# day) correctly rejected the corrupted save. Root cause of the
+		# recurring "Size (Bunch (N)) invalid for <variety>" packing error.
+		# Loaded before spec_autofill.js: defines window.upande_open_spec_fill_dialog,
+		# the shared "Fill Order from Spec" dialog also used, unmodified, by the
+		# Sales Order dashboard (www/sales-order.html, via a plain <script src>) --
+		# one implementation, so Desk and the dashboard can't drift apart again.
+		"public/js/sales_order/spec_fill_dialog.js",
 		"public/js/sales_order/spec_autofill.js",
 		"public/js/sales_order/pickers.js",
 		"public/js/sales_order/warehouse_routing.js",

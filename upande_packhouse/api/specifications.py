@@ -89,7 +89,8 @@ def getSpecificationOptions():
 			"cut_stages": cut_stages,
 		}
 	except Exception as e:
-		frappe.log_error("getSpecificationOptions error: " + str(e))
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
+		frappe.log_error(title="getSpecificationOptions error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e)}
 
 
@@ -106,7 +107,8 @@ def searchCustomers():
 		)
 		frappe.response["message"] = {"success": True, "customers": rows}
 	except Exception as e:
-		frappe.log_error("searchCustomers error: " + str(e))
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
+		frappe.log_error(title="searchCustomers error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e), "customers": []}
 
 
@@ -129,7 +131,8 @@ def searchVarieties():
 		)
 		frappe.response["message"] = {"success": True, "varieties": rows}
 	except Exception as e:
-		frappe.log_error("searchVarieties error: " + str(e))
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
+		frappe.log_error(title="searchVarieties error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e), "varieties": []}
 
 
@@ -148,7 +151,8 @@ def searchItems():
 		)
 		frappe.response["message"] = {"success": True, "items": rows}
 	except Exception as e:
-		frappe.log_error("searchItems error: " + str(e))
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
+		frappe.log_error(title="searchItems error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e), "items": []}
 
 
@@ -167,7 +171,8 @@ def listSpecificationCustomers():
 		)
 		frappe.response["message"] = {"success": True, "customers": [r.customer for r in rows]}
 	except Exception as e:
-		frappe.log_error("listSpecificationCustomers error: " + str(e))
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
+		frappe.log_error(title="listSpecificationCustomers error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e), "customers": []}
 
 
@@ -204,17 +209,20 @@ def listSpecifications():
 		)
 		frappe.response["message"] = {"success": True, "specifications": rows}
 	except Exception as e:
-		frappe.log_error("listSpecifications error: " + str(e))
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
+		frappe.log_error(title="listSpecifications error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e), "specifications": []}
 
 
 def _group_into_bunches(doc):
-	"""Box Item / Approved Variety rows -> [{id, type, length, box_type,
+	"""Box Item / Approved Variety rows -> [{id, type, length,
 	bunches_per_box, rows:[{varieties, colour, stems_per_bunch}]}], grouped
-	by bunch_id, in first-seen order. A spec saved before bunch_id existed
+	by bunch_id, in first-seen order. box_type isn't part of this shape --
+	a spec is one box, so it's a header field (doc.box_type), the same for
+	every bunch. A spec saved before bunch_id existed
 	(or edited around it) has every row with bunch_id="" -- give each of
 	those its OWN single-row bunch instead of collapsing them all into one
-	(they don't necessarily share a length/box_type/bunches_per_box, so
+	(they don't necessarily share a length/bunches_per_box, so
 	merging them would be guessing). Blank-bunch_id Box Items and blank-
 	bunch_id Approved Varieties are paired up positionally -- the Nth blank
 	row in one table with the Nth blank row in the other -- the same 1:1
@@ -266,52 +274,47 @@ def _group_into_bunches(doc):
 	for key in order:
 		bi_rows = bi_by_bunch.get(key, [])
 		av_rows = av_by_bunch.get(key, [])
-		bunch_type = (bi_rows[0].bunch_type if bi_rows else None) or "Mono Bunch"
 		length = bi_rows[0].length if bi_rows else None
-		box_type = bi_rows[0].box_type if bi_rows else None
 		bunches_per_box = bi_rows[0].bunches_per_box if bi_rows else None
 
-		if bunch_type == "Mixed Bunch":
-			# Every Approved Variety row is its own required, single-variety row.
-			rows = [
+		# Group by colour regardless of bunch_type: substitution (several
+		# varieties for one colour, one marked primary) is a real thing for
+		# both a Mono bunch's single colour and a Mixed bunch's several --
+		# it was never a Mixed-only restriction, that was a bug. Each colour
+		# becomes one "row"; is_primary decides which variety leads it (the
+		# rest, in whatever order they were saved, are its substitutes).
+		by_colour = {}
+		colour_order = []
+		for av in av_rows:
+			c = av.colour or ""
+			if c not in by_colour:
+				by_colour[c] = []
+				colour_order.append(c)
+			by_colour[c].append(av)
+
+		rows = []
+		for i, c in enumerate(colour_order):
+			avs = sorted(by_colour[c], key=lambda a: 0 if a.is_primary else 1)
+			bi_row = bi_rows[i] if i < len(bi_rows) else (bi_rows[0] if bi_rows else None)
+			rows.append(
 				{
-					"varieties": [av.variety] if av.variety else [],
-					"colour": av.colour or "",
-					"stems_per_bunch": (bi_rows[i].stems_per_bunch if i < len(bi_rows) else None),
+					"varieties": [a.variety for a in avs if a.variety],
+					"colour": c,
+					"stems_per_bunch": bi_row.stems_per_bunch if bi_row else None,
 				}
-				for i, av in enumerate(av_rows)
+			)
+		if not rows and bi_rows:
+			# Box Item row(s) exist with no matching Approved Variety yet.
+			rows = [
+				{"varieties": [], "colour": "", "stems_per_bunch": bi.stems_per_bunch}
+				for bi in bi_rows
 			]
-		else:
-			by_colour = {}
-			colour_order = []
-			for av in av_rows:
-				c = av.colour or ""
-				if c not in by_colour:
-					by_colour[c] = []
-					colour_order.append(c)
-				by_colour[c].append(av.variety)
-			rows = []
-			for i, c in enumerate(colour_order):
-				bi_row = bi_rows[i] if i < len(bi_rows) else (bi_rows[0] if bi_rows else None)
-				rows.append(
-					{
-						"varieties": [v for v in by_colour[c] if v],
-						"colour": c,
-						"stems_per_bunch": bi_row.stems_per_bunch if bi_row else None,
-					}
-				)
-			if not rows and bi_rows:
-				# Box Item row(s) exist with no matching Approved Variety yet.
-				rows = [
-					{"varieties": [], "colour": "", "stems_per_bunch": bi.stems_per_bunch} for bi in bi_rows
-				]
 
 		bunches.append(
 			{
 				"id": "" if key.startswith("__blank__") else key,
-				"type": "Mixed" if bunch_type == "Mixed Bunch" else "Mono",
+				"type": "Mixed" if len(colour_order) > 1 else "Mono",
 				"length": length,
-				"box_type": box_type,
 				"bunches_per_box": bunches_per_box,
 				"rows": rows,
 			}
@@ -340,6 +343,7 @@ def getSpecification():
 				"expiry_date": str(doc.expiry_date or ""),
 				"category_code": doc.category_code,
 				"box_assortment": doc.box_assortment,
+				"box_type": doc.box_type,
 				"cut_stage": doc.cut_stage,
 				"defoliation_length": doc.defoliation_length,
 				"rubber_band_type": doc.rubber_band_type,
@@ -367,7 +371,8 @@ def getSpecification():
 			},
 		}
 	except Exception as e:
-		frappe.log_error("getSpecification error: " + str(e))
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
+		frappe.log_error(title="getSpecification error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e)}
 
 
@@ -392,6 +397,7 @@ def saveSpecification():
 			"expiry_date",
 			"category_code",
 			"box_assortment",
+			"box_type",
 			"cut_stage",
 			"defoliation_length",
 			"rubber_band_type",
@@ -424,8 +430,11 @@ def saveSpecification():
 			# Literal, user-typed bunch id -- blank stays blank, never
 			# renumbered positionally.
 			bunch_id = (b.get("id") or "").strip()
-			bunch_type = "Mixed Bunch" if b.get("type") == "Mixed" else "Mono Bunch"
 			rows = b.get("rows") or []
+			# bunch_type is informational only now (Desk list views, reports) --
+			# it's derived from how many colour rows the bunch actually has,
+			# never a separate client choice that could disagree with them.
+			bunch_type = "Mixed Bunch" if len(rows) > 1 else "Mono Bunch"
 
 			for r in rows:
 				doc.append(
@@ -435,17 +444,21 @@ def saveSpecification():
 						"bunch_type": bunch_type,
 						"stems_per_bunch": r.get("stems_per_bunch") or 0,
 						"length": b.get("length"),
-						"box_type": b.get("box_type"),
 						"bunches_per_box": b.get("bunches_per_box") or 0,
 					},
 				)
-				for variety in r.get("varieties") or []:
+				# Within a colour row, the first variety is the primary pick;
+				# any after it are approved substitutes for that same colour
+				# (see Spec Approved Variety.is_primary) -- never additional
+				# stems of their own.
+				for vi, variety in enumerate(r.get("varieties") or []):
 					info = item_info.get(variety)
 					doc.append(
 						"approved_varieties",
 						{
 							"bunch_id": bunch_id,
 							"variety": variety,
+							"is_primary": 1 if vi == 0 else 0,
 							"colour": (info.custom_color if info else None) or r.get("colour") or "",
 							"headsize_cm": info.custom_headsize_cm if info else None,
 							"budcount": info.custom_budcount if info else None,
@@ -478,8 +491,9 @@ def saveSpecification():
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		frappe.response["message"] = {"success": True, "name": doc.name}
 	except Exception as e:
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
 		frappe.db.rollback()
-		frappe.log_error("saveSpecification error: " + str(e))
+		frappe.log_error(title="saveSpecification error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e)}
 
 
@@ -494,6 +508,7 @@ def deleteSpecification():
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		frappe.response["message"] = {"success": True}
 	except Exception as e:
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
 		frappe.db.rollback()
-		frappe.log_error("deleteSpecification error: " + str(e))
+		frappe.log_error(title="deleteSpecification error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e)}

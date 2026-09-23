@@ -223,12 +223,21 @@ def getDashboardData():
 					"custom_mix_group",
 					"custom_mixed_bunch",
 					"custom_bunch_group",
+					"custom_line",
 				],
 			)
 
 			# Boxes are counted ONCE per group: a mixed bunch shares boxes across the
 			# whole custom_bunch_group, a mixed box across the whole custom_mix_group.
 			# Straight lines each contribute their own custom_number_of_boxes.
+			#
+			# custom_line (the spec) is checked FIRST: a spec is one box, and one
+			# spec can define BOTH a Mixed Bunch (custom_bunch_group) and Mono
+			# Bunches feeding the same Mixed Box (custom_mix_group) at once --
+			# confirmed real data: XPOL TOSCA_02721_10. Deduping bunch_group and
+			# mix_group as two separate dimensions reads that as 2 boxes instead
+			# of 1. Only a line with no spec at all falls back to bunch_group/
+			# mix_group.
 			seen_groups = set()
 
 			i = 0
@@ -237,12 +246,15 @@ def getDashboardData():
 				oid = item.custom_opl
 				boxes = item.custom_number_of_boxes or 0
 
+				line = str(item.custom_line or "").strip()
 				bunch_group = str(item.custom_bunch_group or "").strip()
 				mix_group = str(item.custom_mix_group or "").strip()
 				is_bunch = item.custom_mixed_bunch == 1 and bunch_group != ""
 				is_mixed = item.custom_mixed_box == 1 and mix_group != ""
 
-				if is_bunch:
+				if line != "":
+					group_key = str(oid) + "||spec||" + line
+				elif is_bunch:
 					group_key = str(oid) + "||bunch||" + bunch_group
 				elif is_mixed:
 					group_key = str(oid) + "||mix||" + mix_group
@@ -656,17 +668,25 @@ def getBoxesToDeliver():
 					"custom_mix_group",
 					"custom_mixed_bunch",
 					"custom_bunch_group",
+					"custom_line",
 				],
 				limit_page_length=0,
 			)
 			# Boxes counted ONCE per group (mixed bunch -> custom_bunch_group,
 			# mixed box -> custom_mix_group, else per straight line). Stems per line.
+			# custom_line (the spec) wins first -- a spec is one box even when it
+			# mixes both bunch types in one fill (see _set_order_summary's own
+			# docstring in sales_order_engine.py for the real XPOL TOSCA example
+			# this fixes).
 			seen = set()
 			for it in items:
 				stems = stems + (it.get("stock_qty") or 0)
+				line = str(it.get("custom_line") or "").strip()
 				bg = str(it.get("custom_bunch_group") or "").strip()
 				mg = str(it.get("custom_mix_group") or "").strip()
-				if it.get("custom_mixed_bunch") == 1 and bg != "":
+				if line != "":
+					key = str(it.parent) + "||spec||" + line
+				elif it.get("custom_mixed_bunch") == 1 and bg != "":
 					key = str(it.parent) + "||bunch||" + bg
 				elif it.get("custom_mixed_box") == 1 and mg != "":
 					key = str(it.parent) + "||mix||" + mg

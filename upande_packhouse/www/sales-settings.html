@@ -101,6 +101,9 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .aph.collapsed .aph-side .footer{justify-content:center;padding:14px 0}
 
 /* ══ Sales Settings page -- content specific ══ */
+.spec-field-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px 18px}
+.spec-field label{display:block;font:600 10px var(--sans);letter-spacing:.6px;text-transform:uppercase;color:var(--ink-mute);margin-bottom:7px}
+.spec-field select,.spec-field input{width:100%;border:1px solid var(--hairline-2);background:var(--bg);color:var(--ink);border-radius:10px;padding:9px 11px;font:500 13px var(--sans)}
 .currency-grid{display:flex;flex-wrap:wrap;gap:10px}
 .currency-chip{display:flex;align-items:center;gap:8px;padding:9px 15px;border-radius:999px;border:1px solid var(--hairline-2);background:var(--bg);cursor:pointer;user-select:none;transition:all .15s ease}
 .currency-chip.on{background:var(--grad-ink);border-color:transparent}
@@ -174,9 +177,27 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       <div id="errBanner"></div>
 
       <div class="aph-card">
+        <div class="aph-card-hd"><div class="ttl">Default Warehouse</div><div class="sub">Auto-fills a new Sales Order's Set Warehouse (and each line's own Warehouse, where blank) — leave unset to require picking one on every order</div></div>
+        <div class="aph-card-body">
+          <div class="spec-field-grid">
+            <div class="spec-field"><label>Default Warehouse</label>
+              <select id="defaultWarehouseSelect"></select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="aph-card">
         <div class="aph-card-hd"><div class="ttl">Currencies</div><div class="sub">Click to enable/disable — every real Currency record, never a hardcoded list</div></div>
         <div class="aph-card-body">
           <div class="currency-grid" id="currencyGrid"></div>
+        </div>
+      </div>
+
+      <div class="aph-card">
+        <div class="aph-card-hd"><div class="ttl">Price Lists</div><div class="sub">Click to enable/disable — only enabled Price Lists are selectable when building a Sales Order, in Desk and the dashboard alike</div></div>
+        <div class="aph-card-body">
+          <div class="currency-grid" id="priceListGrid"></div>
         </div>
       </div>
 
@@ -200,17 +221,22 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       </div>
     </div>
   </div>
-</div>
 
-<div class="qa-modal-backdrop" id="qaBackdrop">
-  <div class="qa-modal">
-    <div class="ttl">New Price List</div>
-    <div class="sub" id="qaSub">No price list matched — create one now</div>
-    <div class="f"><label>Name</label><input id="qaPlName" placeholder="e.g. May EUR"></div>
-    <div class="f"><label>Currency</label><select id="qaPlCurrency"></select></div>
-    <div class="actions">
-      <button class="btn" onclick="closeQuickAdd()">Cancel</button>
-      <button class="btn btn-primary" onclick="submitQuickAddPriceList()">Create</button>
+  <!-- Nested inside .aph, not a sibling: .aph is position:fixed with an
+       astronomically high z-index (2147483000), so a modal placed outside
+       its DOM subtree only gets its own (much lower) z-index and renders
+       invisibly behind the whole page -- it opens and populates correctly,
+       there's just nothing to see. See sales-order.html for the full story. -->
+  <div class="qa-modal-backdrop" id="qaBackdrop">
+    <div class="qa-modal">
+      <div class="ttl">New Price List</div>
+      <div class="sub" id="qaSub">No price list matched — create one now</div>
+      <div class="f"><label>Name</label><input id="qaPlName" placeholder="e.g. May EUR"></div>
+      <div class="f"><label>Currency</label><select id="qaPlCurrency"></select></div>
+      <div class="actions">
+        <button class="btn" onclick="closeQuickAdd()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitQuickAddPriceList()">Create</button>
+      </div>
     </div>
   </div>
 </div>
@@ -218,19 +244,20 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 <script>
 const API = 'upande_packhouse.api.sales_settings.';
 let CURRENCIES = [];
+let PRICE_LISTS = [];
 let MAPPINGS = [];
 let NEW_CUSTOMER = null;
 let NEW_PRICE_LIST = null;
 let QA_TARGET_CURRENCY = null;
 
 function apiCall(method, args, cb){
-    frappe.call({ method: API + method, args: args || {}, callback: r => cb(r.message || {}), error: () => cb({success:false, error:'Request failed'}) });
+    frappe.call({ method: API + method, args: args || {}, silent: true, callback: r => cb(r.message || {}), error: () => cb({success:false, error:'Request failed'}) });
 }
 function apiGet(method, params, cb){
-    frappe.call({ method: API + method, type: 'GET', args: params || {}, callback: r => cb(r.message || {}), error: () => cb({success:false, error:'Request failed'}) });
+    frappe.call({ method: API + method, type: 'GET', args: params || {}, silent: true, callback: r => cb(r.message || {}), error: () => cb({success:false, error:'Request failed'}) });
 }
 function apiGetOther(fullMethod, params, cb){
-    frappe.call({ method: fullMethod, type: 'GET', args: params || {}, callback: r => cb(r.message || {}), error: () => cb({success:false, error:'Request failed'}) });
+    frappe.call({ method: fullMethod, type: 'GET', args: params || {}, silent: true, callback: r => cb(r.message || {}), error: () => cb({success:false, error:'Request failed'}) });
 }
 function showErr(msg){ document.getElementById('errBanner').innerHTML = msg ? `<div class="aph-err">${escHtml(msg)}</div>` : ''; }
 function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -264,7 +291,23 @@ document.addEventListener('mousedown', (e) => {
 // ---------- boot ----------
 function boot(){
     loadCurrencies();
+    loadPriceLists();
     loadMappings();
+    loadDefaultWarehouse();
+}
+function loadDefaultWarehouse(){
+    apiGet('getSalesSettings', {}, r => {
+        if(!r.success){ showErr(r.error||'Could not load default warehouse.'); return; }
+        const sel = document.getElementById('defaultWarehouseSelect');
+        sel.innerHTML = '<option value="">— none (require a pick on every order) —</option>' +
+            (r.warehouses||[]).map(w => `<option value="${escHtml(w)}" ${w===r.default_warehouse?'selected':''}>${escHtml(w)}</option>`).join('');
+        sel.onchange = function(){
+            apiCall('setDefaultWarehouse', { data: JSON.stringify({ default_warehouse: this.value }) }, r2 => {
+                if(!r2.success) showErr(r2.error || 'Could not save default warehouse.');
+                else showErr('');
+            });
+        };
+    });
 }
 function loadCurrencies(){
     apiGet('listCurrencies', {}, r => {
@@ -272,6 +315,13 @@ function loadCurrencies(){
         CURRENCIES = r.currencies || [];
         renderCurrencies();
         renderCurrencySelects();
+    });
+}
+function loadPriceLists(){
+    apiGet('listPriceLists', {}, r => {
+        if(!r.success){ showErr(r.error||'Could not load price lists.'); return; }
+        PRICE_LISTS = r.price_lists || [];
+        renderPriceLists();
     });
 }
 function loadMappings(){
@@ -318,7 +368,53 @@ function renderCurrencySelects(){
     const opts = enabled.map(c => `<option value="${escHtml(c.name)}">${escHtml(c.name)}</option>`).join('');
     document.getElementById('newCurrency').innerHTML = opts;
     document.getElementById('qaPlCurrency').innerHTML = opts;
+    const plCur = document.getElementById('priceListAddCurrency');
+    if(plCur) plCur.innerHTML = opts;
 }
+
+// ---------- price lists ----------
+function renderPriceLists(){
+    const el = document.getElementById('priceListGrid');
+    const enabled = PRICE_LISTS.filter(p => p.enabled);
+    el.innerHTML = enabled.map(p => `
+      <div class="currency-chip on" onclick="togglePriceList('${escJs(p.name)}', false)">
+        <span class="code">${escHtml(p.name)}</span><span class="sym">${escHtml(p.currency||'')}</span>
+      </div>`).join('') + `
+      <div class="currency-add">
+        <input class="form-control" id="priceListAddInput" placeholder="+ enable or create a price list…" autocomplete="off"
+          onfocus="onPriceListAddSearch(this)" oninput="onPriceListAddSearch(this)">
+        <div class="pick-results" id="priceListAddResults"></div>
+      </div>`;
+}
+function onPriceListAddSearch(input){
+    const el = document.getElementById('priceListAddResults');
+    openDropdown(input, el);
+    const q = input.value.trim();
+    const qUpper = q.toUpperCase();
+    const list = PRICE_LISTS.filter(p => !p.enabled && p.name.toUpperCase().includes(qUpper)).slice(0, 25);
+    const exists = PRICE_LISTS.some(p => p.name.toUpperCase() === qUpper);
+    let html = list.map(p => `<div class="opt" onmousedown="event.preventDefault(); togglePriceList('${escJs(p.name)}', true); this.closest('.pick-results').classList.remove('show')"><span>${escHtml(p.name)}</span><span style="color:var(--ink-mute)">${escHtml(p.currency||'')}</span></div>`).join('');
+    if(q && !exists){
+        html += `<div class="opt" style="color:var(--ink-3)" onmousedown="event.preventDefault(); openCreatePriceList('${escJs(q)}'); this.closest('.pick-results').classList.remove('show')">+ Create "${escHtml(q)}" as a new price list…</div>`;
+    }
+    el.innerHTML = html || `<div class="opt" style="color:var(--ink-faint);cursor:default">No disabled price list matches</div>`;
+    positionDropdown(input, el);
+}
+function togglePriceList(price_list, enabled){
+    apiCall('setPriceListEnabled', { data: JSON.stringify({ price_list, enabled }) }, r => {
+        if(!r.success){ showErr(r.error || 'Could not update price list.'); return; }
+        showErr('');
+        document.getElementById('priceListAddInput').value = '';
+        loadPriceLists();
+    });
+}
+function openCreatePriceList(name){
+    QA_TARGET_CURRENCY = document.getElementById('newCurrency').value;
+    document.getElementById('qaPlName').value = name;
+    document.getElementById('qaPlCurrency').value = QA_TARGET_CURRENCY;
+    document.getElementById('qaBackdrop').classList.add('show');
+}
+function escJs(s){ return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 
 // ---------- mapping table ----------
 function renderMappings(){
@@ -442,7 +538,8 @@ function submitQuickAddPriceList(){
     apiCall('createPriceList', { data: JSON.stringify({ price_list_name, currency }) }, r => {
         if(!r.success){ showErr(r.error || 'Could not create price list.'); return; }
         closeQuickAdd();
-        pickNewPriceList(r.name);
+        if(document.getElementById('newPriceList')) pickNewPriceList(r.name);
+        loadPriceLists();
         showErr('');
     });
 }

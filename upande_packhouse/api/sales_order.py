@@ -37,18 +37,26 @@ def getSalesOrderOptions():
 		stem_lengths = frappe.get_all("Stem Length", pluck="name", order_by="name asc")
 		box_types = frappe.get_all("Box Type", pluck="name", order_by="name asc")
 		warehouses = frappe.get_all(
-			"Warehouse", filters={"is_group": 0, "disabled": 0}, pluck="name", order_by="name asc"
+			"Warehouse",
+			filters={"is_group": 0, "disabled": 0, "company": "Karen Roses"},
+			pluck="name",
+			order_by="name asc",
 		)
-		currencies = frappe.get_all("Currency", filters={"enabled": 1}, pluck="name", order_by="name asc")
+		currencies = frappe.get_all(
+			"Currency", filters={"enabled": 1}, pluck="name", order_by="name asc"
+		)
+		default_warehouse = frappe.db.get_single_value("Sales Settings", "default_warehouse")
 		frappe.response["message"] = {
 			"success": True,
 			"stem_lengths": stem_lengths,
 			"box_types": box_types,
 			"warehouses": warehouses,
 			"currencies": currencies,
+			"default_warehouse": default_warehouse,
 		}
 	except Exception as e:
-		frappe.log_error("getSalesOrderOptions error: " + str(e))
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind -- see module docstring note
+		frappe.log_error(title="getSalesOrderOptions error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e)}
 
 
@@ -73,7 +81,8 @@ def searchOrderVarieties():
 		)
 		frappe.response["message"] = {"success": True, "varieties": rows}
 	except Exception as e:
-		frappe.log_error("searchOrderVarieties error: " + str(e))
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind -- see module docstring note
+		frappe.log_error(title="searchOrderVarieties error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e), "varieties": []}
 
 
@@ -106,7 +115,8 @@ def searchConsignees():
 		)
 		frappe.response["message"] = {"success": True, "consignees": rows}
 	except Exception as e:
-		frappe.log_error("searchConsignees error: " + str(e))
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind -- see module docstring note
+		frappe.log_error(title="searchConsignees error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e), "consignees": []}
 
 
@@ -135,7 +145,8 @@ def searchDeliveryPoints():
 			)
 		frappe.response["message"] = {"success": True, "delivery_points": rows}
 	except Exception as e:
-		frappe.log_error("searchDeliveryPoints error: " + str(e))
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind -- see module docstring note
+		frappe.log_error(title="searchDeliveryPoints error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e), "delivery_points": []}
 
 
@@ -152,18 +163,27 @@ def searchShippingAgents():
 		)
 		frappe.response["message"] = {"success": True, "shipping_agents": rows}
 	except Exception as e:
-		frappe.log_error("searchShippingAgents error: " + str(e))
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind -- see module docstring note
+		frappe.log_error(title="searchShippingAgents error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e), "shipping_agents": []}
 
 
 @frappe.whitelist()
 def resolvePriceList():
-	"""Customer + currency -> price list, for pre-filling the header the
-	moment both are picked. Customer Price List Default (this app's own
-	mapping, see api/sales_settings.py) wins when it has an entry for this
-	exact pair; Customer.default_price_list (no currency axis) is the
-	fallback -- same fallback sales_order_engine._resolve_price_list uses,
-	so this only ever pre-fills a value the real engine would also accept."""
+	"""Customer (+ currency, if already picked) -> price list, for pre-filling
+	the header the moment the customer alone is picked. Customer Price List
+	Default (this app's own mapping, see api/sales_settings.py) wins when it
+	has an entry for this exact pair; Customer.default_price_list (no
+	currency axis) is the fallback -- same fallback
+	sales_order_engine._resolve_price_list uses, so this only ever pre-fills
+	a value the real engine would also accept.
+
+	Also returns the resolved price list's own currency: the caller doesn't
+	require currency to be picked first anymore (only the frontend used to
+	insist on that, the backend never needed it), so when a customer has
+	exactly one enabled currency mapping, or falls back to
+	Customer.default_price_list, currency comes along for free and the
+	dashboard can backfill both fields from just the customer."""
 	try:
 		customer = frappe.form_dict.get("customer")
 		currency = frappe.form_dict.get("currency")
@@ -174,12 +194,28 @@ def resolvePriceList():
 				{"customer": customer, "currency": currency, "disabled": 0},
 				"price_list",
 			)
+		if not price_list and customer and not currency:
+			# Currency not picked yet -- if this customer has exactly ONE
+			# enabled default mapping (in any currency), that's unambiguous;
+			# more than one is a real choice only the user can make, so it's
+			# left alone rather than guessed.
+			defaults = frappe.get_all(
+				"Customer Price List Default",
+				filters={"customer": customer, "disabled": 0},
+				fields=["price_list", "currency"],
+			)
+			if len(defaults) == 1:
+				price_list = defaults[0].price_list
+				currency = defaults[0].currency
 		if not price_list and customer:
 			price_list = frappe.db.get_value("Customer", customer, "default_price_list")
-		frappe.response["message"] = {"success": True, "price_list": price_list}
+		if price_list and not currency:
+			currency = frappe.db.get_value("Price List", price_list, "currency")
+		frappe.response["message"] = {"success": True, "price_list": price_list, "currency": currency}
 	except Exception as e:
-		frappe.log_error("resolvePriceList error: " + str(e))
-		frappe.response["message"] = {"success": False, "error": str(e), "price_list": None}
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind -- see module docstring note
+		frappe.log_error(title="resolvePriceList error", message=str(e))
+		frappe.response["message"] = {"success": False, "error": str(e), "price_list": None, "currency": None}
 
 
 @frappe.whitelist()
@@ -202,7 +238,8 @@ def previewRate():
 		)
 		frappe.response["message"] = {"success": True, "rate": float(rate or 0)}
 	except Exception as e:
-		frappe.log_error("previewRate error: " + str(e))
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind -- see module docstring note
+		frappe.log_error(title="previewRate error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e), "rate": 0}
 
 
@@ -223,8 +260,9 @@ def setItemSalesUom():
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		frappe.response["message"] = {"success": True}
 	except Exception as e:
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind -- see module docstring note
 		frappe.db.rollback()
-		frappe.log_error("setItemSalesUom error: " + str(e))
+		frappe.log_error(title="setItemSalesUom error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e)}
 
 
@@ -258,8 +296,9 @@ def createItemPrice():
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		frappe.response["message"] = {"success": True, "name": doc.name}
 	except Exception as e:
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind -- see module docstring note
 		frappe.db.rollback()
-		frappe.log_error("createItemPrice error: " + str(e))
+		frappe.log_error(title="createItemPrice error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e)}
 
 
@@ -294,7 +333,8 @@ def listSalesOrders():
 		)
 		frappe.response["message"] = {"success": True, "orders": rows}
 	except Exception as e:
-		frappe.log_error("listSalesOrders error: " + str(e))
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind -- see module docstring note
+		frappe.log_error(title="listSalesOrders error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e), "orders": []}
 
 
@@ -348,6 +388,8 @@ def getSalesOrder():
 				"custom_shipping_agent": doc.get("custom_shipping_agent"),
 				"custom_s_number": doc.get("custom_s_number"),
 				"custom_truck_details": doc.get("custom_truck_details"),
+				"custom_order_name": doc.get("custom_order_name"),
+				"set_warehouse": doc.get("set_warehouse"),
 				"custom_total_boxes": doc.get("custom_total_boxes"),
 				"custom_total_stems": doc.get("custom_total_stems"),
 				"grand_total": doc.grand_total,
@@ -355,7 +397,8 @@ def getSalesOrder():
 			},
 		}
 	except Exception as e:
-		frappe.log_error("getSalesOrder error: " + str(e))
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind -- see module docstring note
+		frappe.log_error(title="getSalesOrder error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e)}
 
 
@@ -377,9 +420,20 @@ def _shape_manual_row(r, default_warehouse):
 	mixed_box = 1 if r.get("mixed_box") else 0
 	mixed_bunch = 1 if r.get("mixed_bunch") else 0
 
+	# Explicit, not left for set_missing_values() to fill in: a blank new
+	# Sales Order Item row created via the Desk (frm.add_child) inherits the
+	# user's own last-entered value for any Link field, including stock_uom
+	# -- server-side set_missing_values only fills a field that's still
+	# None, so a non-empty stale default (commonly "Nos") silently survives.
+	# This dashboard doesn't go through frm.add_child, but setting it for
+	# real here keeps every row's stock_uom honest regardless.
+	item_code = r.get("item_code")
+	stock_uom = frappe.db.get_value("Item", item_code, "stock_uom") if item_code else None
+
 	row = {
-		"item_code": r.get("item_code"),
+		"item_code": item_code,
 		"uom": uom,
+		"stock_uom": stock_uom,
 		"custom_length": r.get("length"),
 		"custom_box_type": r.get("box_type"),
 		"custom_number_of_boxes": boxes,
@@ -415,29 +469,36 @@ def saveSalesOrder():
 		else:
 			doc = frappe.new_doc("Sales Order")
 			doc.business_unit = "Roses"
+			doc.company = "Karen Roses"  # every real Roses Sales Order uses this company
 
 		header_fields = [
-			"customer",
-			"transaction_date",
-			"delivery_date",
-			"currency",
-			"selling_price_list",
-			"custom_consignee",
-			"custom_delivery_point",
-			"custom_shipping_agent",
-			"custom_s_number",
-			"custom_truck_details",
+			"customer", "transaction_date", "delivery_date", "currency", "selling_price_list",
+			"custom_consignee", "custom_delivery_point", "custom_shipping_agent",
+			"custom_s_number", "custom_truck_details", "custom_order_name", "set_warehouse",
 		]
 		for f in header_fields:
 			if f in data:
 				doc.set(f, data.get(f))
 
-		default_warehouse = data.get("default_warehouse")
+		# Sales Settings' Default Warehouse (api/sales_settings.py) auto-fills
+		# Set Warehouse whenever it's not already set on this order -- and,
+		# same as the Desk form's own "Set Source Warehouse" convenience,
+		# cascades from there to any item row that doesn't carry its own
+		# warehouse. Only applied when the setting is actually configured
+		# ("if its not null"); otherwise this is a no-op and rows keep
+		# whatever warehouse they already had (or none).
+		if not doc.set_warehouse:
+			settings_default = frappe.db.get_single_value("Sales Settings", "default_warehouse")
+			if settings_default:
+				doc.set_warehouse = settings_default
+		default_warehouse = doc.set_warehouse
 
 		doc.set("items", [])
 		for r in data.get("spec_rows") or []:
 			# Already fully shaped by upande_packhouse.spec_autofill.build_spec_rows
-			# on the client -- appended as-is.
+			# on the client -- appended as-is, except the warehouse fallback below.
+			if not r.get("warehouse") and default_warehouse:
+				r["warehouse"] = default_warehouse
 			doc.append("items", r)
 		for r in data.get("manual_rows") or []:
 			doc.append("items", _shape_manual_row(r, default_warehouse))
@@ -450,8 +511,9 @@ def saveSalesOrder():
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		frappe.response["message"] = {"success": True, "name": doc.name}
 	except Exception as e:
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind -- see module docstring note
 		frappe.db.rollback()
-		frappe.log_error("saveSalesOrder error: " + str(e))
+		frappe.log_error(title="saveSalesOrder error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e)}
 
 
@@ -467,8 +529,9 @@ def submitSalesOrder():
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		frappe.response["message"] = {"success": True}
 	except Exception as e:
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind -- see module docstring note
 		frappe.db.rollback()
-		frappe.log_error("submitSalesOrder error: " + str(e))
+		frappe.log_error(title="submitSalesOrder error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e)}
 
 
@@ -489,6 +552,7 @@ def deleteSalesOrder():
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		frappe.response["message"] = {"success": True}
 	except Exception as e:
+		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind -- see module docstring note
 		frappe.db.rollback()
-		frappe.log_error("deleteSalesOrder error: " + str(e))
+		frappe.log_error(title="deleteSalesOrder error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e)}
