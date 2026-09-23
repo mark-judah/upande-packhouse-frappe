@@ -608,6 +608,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         <select class="form-control" id="locationFilter"><option value="">All locations</option></select>
         <select class="form-control" id="farmFilter"><option value="">All farms</option></select>
         <select class="form-control" id="itemGroupFilter"><option value="">All item groups</option></select>
+        <select class="form-control" id="teamFilter"><option value="">All teams</option></select>
         <button class="live-badge" id="liveBadge"><span class="live-dot"></span>Live</button>
       </div>
     </div>
@@ -764,7 +765,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
    before it); a raw value exceeding its predecessor gets a red outline. */
 let D=[];
 let TODAY=(new Date()).toISOString().slice(0,10);
-let BK='all', Q='', LOC='', FARM='', IGROUP='', _loading=false;
+let BK='all', Q='', LOC='', FARM='', IGROUP='', TEAM='', _loading=false;
 const openC=new Set([0]), openO=new Set();
 
 const KEYS=['confirmed','allocated','issued','packed','staged','loaded','dispatched'];
@@ -883,8 +884,10 @@ function farmOf(r){return r.processing_location||'';}
 function farmMatch(r){return !FARM||farmOf(r)===FARM;}
 function igroupOf(r){return r.item_group||'';}
 function igroupMatch(r){return !IGROUP||igroupOf(r)===IGROUP;}
+function teamOf(r){return r.team||'';}
+function teamMatch(r){return !TEAM||teamOf(r)===TEAM;}
 /* everything except the bucket tabs + search — shared by the pills and the list */
-function preMatch(r){return locMatch(r)&&farmMatch(r)&&igroupMatch(r);}
+function preMatch(r){return locMatch(r)&&farmMatch(r)&&igroupMatch(r)&&teamMatch(r);}
 function visible(){
   const q=Q.toLowerCase().trim();
   return D.filter(r=>preMatch(r)&&(BK==='all'||bucketOf(r)===BK)
@@ -986,6 +989,22 @@ function loadFilterOptions(){
   frappe.call({method:'upande_packhouse.api.order_summary.getOrderSummaryFilterOptions',
     callback(r){const m=r.message||{};if(m.success){FARM_MASTER=m.farms||[];IGROUP_MASTER=m.item_groups||[];fillFarms();fillIgroups();}}});
 }
+
+/* Team options come from the Packing Teams doctype (every order line
+   already carries its team -- see teamOf() above and or[0].team in the
+   order header render -- but there was previously no way to filter by it). */
+let TEAM_MASTER=[];
+function fillTeams(){
+  const sel=document.getElementById('teamFilter');if(!sel)return;
+  const cur=sel.value;
+  sel.innerHTML='<option value="">All teams</option>'+TEAM_MASTER.map(t=>'<option value="'+E(t)+'">'+E(t)+'</option>').join('');
+  if(TEAM_MASTER.includes(cur))sel.value=cur;else{sel.value='';TEAM='';}
+}
+function loadTeams(){
+  if(!window.frappe||!frappe.call){return setTimeout(loadTeams,150);}
+  frappe.call({method:'upande_packhouse.api.dashboard.getTeams',
+    callback(r){const m=r.message||{};if(m.success){TEAM_MASTER=m.teams||[];fillTeams();}}});
+}
 function loadData(){
   if(_loading)return;_loading=true;
   const body=document.getElementById('body');
@@ -1007,9 +1026,11 @@ document.addEventListener('DOMContentLoaded',function(){
   const lf=document.getElementById('locationFilter');if(lf)lf.addEventListener('change',function(){LOC=this.value;build();});
   const ff=document.getElementById('farmFilter');if(ff)ff.addEventListener('change',function(){FARM=this.value;build();});
   const igf=document.getElementById('itemGroupFilter');if(igf)igf.addEventListener('change',function(){IGROUP=this.value;build();});
+  const tf=document.getElementById('teamFilter');if(tf)tf.addEventListener('change',function(){TEAM=this.value;build();});
   const lb=document.getElementById('liveBadge');if(lb)lb.addEventListener('click',loadData);
   loadLocations();
   loadFilterOptions();
+  loadTeams();
   setTimeout(loadData,300);
   setInterval(function(){if(!_loading)loadData();},60000);
 });

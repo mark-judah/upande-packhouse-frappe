@@ -25,7 +25,6 @@ List forever, with no signal anywhere that packing for an order was done.
 
 import frappe
 
-from upande_packhouse import roses_warehouse_map
 from upande_packhouse.box_label import sync_box_labels_for_fpl
 
 # Fields NOT populated here, deliberately, rather than guessed:
@@ -88,86 +87,33 @@ def _packed_stems_by_box_variety(fpl_doc):
 
 
 def fpl_pack_blockers(fpl_doc, opl_doc):
-	"""Human-readable list of what's still short; empty = fully packed."""
+	"""Human-readable list of what's still short; empty = fully packed.
+
+	A box carrying an Under Pack Reason was closed on purpose, short of its
+	packrate (see mobile/api.py's setPackListBoxUnderPackReason /
+	createPackingBypass callers) -- it must not keep blocking the WHOLE Farm
+	Pack List, and therefore every OTHER box's Box Label, from ever
+	submitting. sync_box_labels_for_fpl already labels each box with its
+	real packed stems, not the guide's target, so once excluded here the
+	under-packed box gets a correct, honest label too.
+	"""
 	guide_rows = opl_doc.get("table_nade") or []
 	if not guide_rows:
 		return ["Order Pick List has no Packing Guide rows"]
 
 	packed = _packed_stems_by_box_variety(fpl_doc)
+	under_packed_boxes = {int(r.box_id or 0) or 1 for r in fpl_doc.pack_list_item if r.under_pack_reason}
 	short = []
 	for row in guide_rows:
-		key = (int(row.box_number or 0), row.variety)
+		box_no = int(row.box_number or 0)
+		if box_no in under_packed_boxes:
+			continue
+		key = (box_no, row.variety)
 		have = packed.get(key, 0)
 		need = row.stems or 0
 		if have < need - 0.001:
 			short.append("Box {0} {1}: {2:g}/{3:g} stems".format(row.box_number, row.variety, have, need))
 	return short
-
-
-def _move_to_graded_sold(fpl_doc):
-	"""The second (and final) real stock move in the chain: once a Farm Pack
-	List is fully packed and submits, its stems move from the farm's
-	Ungraded Sold warehouse into its Graded Sold warehouse -- resolved via
-	Roses-MAP, keyed by the OPL's own `farm` field (not a specific bucket's
-	source_warehouse: by packing time every bucket for this OPL has already
-	been issued -- individually, per bucket, in issueBucketToSaleOrderItem
-	-- so what's left to move is one farm-wide aggregate per variety, not
-	anything bucket-specific). Graded Sold is what the Delivery Note later
-	deducts from, so this is what actually makes a Delivery Note
-	submittable at all.
-
-	One Stock Entry, one row per distinct variety packed on this FPL. Real
-	quantities (aggregated pack_list_item.stock_qty), not planned ones.
-	"""
-	map_row = roses_warehouse_map.mapping_row_for_farm(fpl_doc.farm)
-	ungraded = map_row.ungraded_sold_warehouse if map_row else None
-	graded = map_row.delivery_warehouse if map_row else None
-
-	if not graded:
-		frappe.log_error(
-			title="FPL submit: no Roses-MAP row for Graded Sold",
-			message=f"FPL={fpl_doc.name} farm={fpl_doc.farm} -- "
-			f"add/complete a Roses-MAP row for this farm's coldstore.",
-		)
-		return None
-
-	# An Ungraded Sold warehouse is optional, exactly as stock_movement treats
-	# it: with the column blank, allocation already landed the stems straight in
-	# Graded Sold, so there is no second hop left to post and this is a no-op
-	# rather than a misconfiguration. Only a missing Graded Sold is an error.
-	if not ungraded:
-		return None
-
-	by_variety = {}
-	for row in fpl_doc.pack_list_item:
-		by_variety[row.item_code] = by_variety.get(row.item_code, 0) + (row.stock_qty or 0)
-	by_variety = {k: v for k, v in by_variety.items() if k and v}
-	if not by_variety:
-		return None
-
-	transfer = frappe.new_doc("Stock Entry")
-	transfer.stock_entry_type = "Move To Graded Sold"
-	transfer.company = frappe.db.get_value("Warehouse", ungraded, "company")
-	transfer.business_unit = "Roses"
-	transfer.farm = fpl_doc.farm
-	transfer.remarks = f"Farm Pack List {fpl_doc.name} fully packed -- {fpl_doc.order_pick_list}"
-	for item_code, qty in by_variety.items():
-		transfer.append(
-			"items",
-			{
-				"item_code": item_code,
-				"qty": qty,
-				"uom": "Stems",
-				"conversion_factor": 1,
-				"s_warehouse": ungraded,
-				"t_warehouse": graded,
-				"allow_zero_valuation_rate": 1,
-				"basic_rate": 0,
-			},
-		)
-	transfer.insert(ignore_permissions=True)
-	transfer.submit()
-	return transfer.name
 
 
 def farm_pack_list_on_submit(doc, method=None):
@@ -178,27 +124,38 @@ def farm_pack_list_on_submit(doc, method=None):
 	FPL was allowed to auto-submit is sync_and_maybe_submit_fpl's decision
 	(via fpl_pack_blockers) to make BEFORE calling .submit() -- once a
 	document is actually submitted, by any path, it should always get its
-	Graded Sold stock move and Box Label(s) generated from whatever was
-	actually packed, complete or not (see box_label.py's own docstring:
-	a label always reflects reality, not the plan).
+	Box Label(s) generated from whatever was actually packed, complete or
+	not (see box_label.py's own docstring: a label always reflects reality,
+	not the plan).
 
-	Before this hook existed, both of those steps were called explicitly,
+	No stock move happens here. The sale already landed every stem in the
+	farm's Graded Sold warehouse at ALLOCATION time
+	(stock_movement.move_allocation_to_sold); issuing already moved it on to
+	the Packhouse (stock_movement.post_issue_to_packhouse). An FPL submit is
+	a paperwork event -- box labels exist now -- not a stock event. The
+	physical Packhouse -> Dispatch Cold Store hop happens later, when a box
+	label is actually scanned staged (stock_movement.post_stage_to_dispatch).
+	A previous version of this function re-moved stock from a since-removed
+	"Ungraded Sold" warehouse into Graded Sold here, redundantly and with the
+	wrong source (nothing ever deposited stock there) -- confirmed live: it
+	silently posted only its outgoing leg, leaving a permanent hole in that
+	warehouse's ledger and no matching credit anywhere.
+
+	Before this hook existed, Box Label generation was called explicitly,
 	only from inside sync_and_maybe_submit_fpl, right after its own
 	fpl.submit() call -- so any FPL submitted any other way (e.g. directly
-	from the Desk form) got neither, silently, with no error to notice
+	from the Desk form) got no Box Label, silently, with no error to notice
 	(confirmed in production: FPL-2026-00001, submitted via Desk while only
-	60 of its 200 required stems were packed -- no Box Label, no Graded
-	Sold transfer, fixed by hand once; this hook closes the gap for good).
+	60 of its 200 required stems were packed -- no Box Label, fixed by hand
+	once; this hook closes the gap for good).
 
-	Stashes its results on doc.flags so sync_and_maybe_submit_fpl (which
-	calls .submit() on this SAME doc instance) can still return them to its
-	own callers without this hook and that function running the two steps
-	twice between them.
+	Stashes its result on doc.flags so sync_and_maybe_submit_fpl (which
+	calls .submit() on this SAME doc instance) can still return it to its
+	own callers without this hook and that function running the step twice
+	between them.
 	"""
 	opl = frappe.get_doc("Order Pick List", doc.order_pick_list) if doc.order_pick_list else None
 	so = frappe.get_doc("Sales Order", doc.sales_order) if doc.sales_order else None
-
-	doc.flags.graded_sold_transfer = _move_to_graded_sold(doc)
 
 	if opl and so:
 		doc.flags.box_labels_result = sync_box_labels_for_fpl(doc, opl, so)
@@ -216,8 +173,8 @@ def sync_and_maybe_submit_fpl(fpl_name):
 	"""Called after every pack scan lands on a Farm Pack List: refreshes its
 	header fields, then submits it once its Order Pick List's whole Packing
 	Guide is satisfied -- submitting triggers farm_pack_list_on_submit
-	(doc_events, hooks.py), which does the actual Graded Sold move + Box
-	Label generation. Idempotent throughout.
+	(doc_events, hooks.py), which generates the Box Label(s). Idempotent
+	throughout.
 
 	Returns (submitted: bool, box_labels: dict | None).
 	"""

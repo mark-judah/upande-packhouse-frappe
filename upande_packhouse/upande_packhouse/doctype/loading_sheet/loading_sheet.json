@@ -9,6 +9,7 @@
   "date",
   "status",
   "total_boxes",
+  "seal_number",
   "section_break_esay",
   "items"
  ],
@@ -30,6 +31,12 @@
    "fieldtype": "Int",
    "label": "Total Boxes",
    "read_only": 1
+  },
+  {
+   "fieldname": "seal_number",
+   "fieldtype": "Data",
+   "label": "Seal Number",
+   "description": "The truck's physical seal number, recorded once at dispatch confirmation."
   },
   {
    "fieldname": "section_break_esay",

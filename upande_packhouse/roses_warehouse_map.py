@@ -1,121 +1,76 @@
-"""Roses SO Warehouse Mapping (Roses-MAP) resolution -- the single place
-that turns a Sales Order Item's own `warehouse` (the farm's Receiving Cold
-Store -- see spec_autofill.build_spec_rows) into the two further warehouses
-stock actually moves through on its way to a customer:
+"""Sales Order routing off the SO Warehouse Mapping (Roses-MAP): the warehouse
+a Roses line is sold FROM, plus the order's truck.
 
-    Receiving Cold Store (source_warehouse)
-      --[bucket issued from the coldstore, issueBucketToSaleOrderItem]-->
-    Ungraded Sold (ungraded_sold_warehouse)
-      --[Farm Pack List submits fully packed, farm_pack_list.py]-->
-    Graded Sold (delivery_warehouse)
-      --[Delivery Note deducts stock on submit]
+The mapping itself is owned by stock_movement.py -- its STAGES spell out the
+whole pipeline a bucket walks:
 
-Nothing here is hardcoded to a farm name or a "<Farm> X - KR" naming
-pattern; every lookup goes through Roses-MAP's own rows, keyed by the real
-Receiving Cold Store warehouse a Sales Order Item already carries.
+    source_warehouse --Arrival--> transfer_to --Sold--> delivery_warehouse
+      --Packing--> packhouse --Dispatch--> dispatch_cold_store
+      --Loading--> delivery_truck
+
+and stock_movement.resolve_route walks it (including the legacy shape where an
+outlying farm's row has no `transfer_to` and chains through another source
+row). This module reads that same route rather than re-deriving the chain, so
+the two can't drift: everything here is the `from` side of the **Sold** leg --
+the consolidated packhouse cold store an outlying farm's stems have already
+been trucked into, which is what a Sales Order Item's own `warehouse` has to
+point at for issuing and the Delivery Note to resolve.
+
+Nothing is hardcoded to a farm name or a "<Farm> X - KR" naming pattern; a farm
+is resolved through Warehouse.custom_farm on the mapping's own source rows.
 """
 
 import frappe
 
-MAPPING_DOC = "Roses-MAP"
+from upande_packhouse import stock_movement
 
-#: Every column these helpers read off a mapping row. `transfer_to` is the
-#: Arrival hop an outlying farm's coldstore takes into the packhouse coldstore
-#: before anything is sold from it -- see stock_movement.STAGES for the full
-#: pipeline this is the front half of.
-ROW_FIELDS = [
-	"source_warehouse",
-	"transfer_to",
-	"ungraded_sold_warehouse",
-	"delivery_warehouse",
-]
+BUSINESS_UNIT = "Roses"
 
 
-def mapping_row_for_farm(farm):
-	"""Roses-MAP row for a FARM directly (via Warehouse.custom_farm on each
-	row's source_warehouse), not a specific warehouse name. Used once
-	packing has happened: an Order Pick List / Farm Pack List already
-	aggregates every bucket by then (individual bucket provenance no longer
-	matters -- see farm_pack_list.py's _move_to_graded_sold), so resolving
-	by the OPL's own `farm` field is both simpler and correct even for a
-	location spanning more than one farm's coldstore.
+def source_warehouse_for_farm(farm, business_unit=BUSINESS_UNIT):
+	"""The mapping's own source warehouse (Receiving Cold Store) for a FARM.
+
+	A Sales Order names a farm and never a warehouse, so the farm is matched
+	against Warehouse.custom_farm on each mapped source row -- which is exactly
+	what stock_movement.mapping_row_for_farm already does, unmapped sites
+	included (it answers None rather than throwing, and a missing mapping must
+	never fail a Sales Order save: everything here only PREFILLS a form).
 	"""
-	if not farm:
-		return None
-	rows = frappe.get_all(
-		"SO Warehouse Mapping Item",
-		filters={"parent": MAPPING_DOC},
-		fields=ROW_FIELDS,
-	)
-	for r in rows:
-		if frappe.db.get_value("Warehouse", r.source_warehouse, "custom_farm") == farm:
-			return r
-	return None
+	row = stock_movement.mapping_row_for_farm(farm, business_unit) if farm else None
+	return row.source_warehouse if row else None
 
 
-def get_mapping_row(source_warehouse):
-	"""Roses-MAP row for this coldstore, or None if unmapped."""
+def pre_graded_warehouse(source_warehouse, business_unit=BUSINESS_UNIT):
+	"""The warehouse stock sits in immediately BEFORE the Sold leg moves it on
+	-- i.e. that leg's `from` side, which is what the Sales Order line sells
+	from: `transfer_to` on a row that has one (the outlying farm's stems are
+	trucked into the packhouse cold store before anything is sold from them),
+	else the source cold store itself.
+	"""
 	if not source_warehouse:
 		return None
-	rows = frappe.get_all(
-		"SO Warehouse Mapping Item",
-		filters={"parent": MAPPING_DOC, "source_warehouse": source_warehouse},
-		fields=ROW_FIELDS,
-		limit_page_length=1,
-	)
-	return rows[0] if rows else None
+	try:
+		route = stock_movement.resolve_route(source_warehouse, business_unit, upto=stock_movement.SALE_STAGE)
+	except Exception:
+		# Unmapped business unit: resolve_route throws, which is right for a
+		# stock move (the leg cannot be posted) but never worth a failed save
+		# here -- fall back to the coldstore itself.
+		return source_warehouse
+	for hop in route:
+		if hop["stage"] == stock_movement.SALE_STAGE:
+			return hop["from"]
+	# No Sold leg mapped -- the stems never leave the cold store they arrived in.
+	return source_warehouse
 
 
-def ungraded_sold_warehouse(source_warehouse):
-	row = get_mapping_row(source_warehouse)
-	return row.ungraded_sold_warehouse if row else None
-
-
-def graded_sold_warehouse(source_warehouse):
-	row = get_mapping_row(source_warehouse)
-	return row.delivery_warehouse if row else None
-
-
-def pre_graded_warehouse_from_row(row):
-	"""The warehouse stock sits in immediately BEFORE the Sold leg moves it
-	into Graded Sold -- i.e. the `from` side of that leg, for one mapping row.
-
-	Reading stock_movement.STAGES, the pipeline is
-
-	    source_warehouse --Arrival--> transfer_to --Sold--> delivery_warehouse
-
-	so the warehouse right before Graded Sold is the consolidated packhouse
-	coldstore an outlying farm's stems have already been trucked into, not the
-	outlying farm's own receiving store. `ungraded_sold_warehouse` is exactly
-	that warehouse (it is what the Sold leg issues FROM when the stems aren't
-	graded yet -- see resolve_route's SALE_STAGE branch and
-	farm_pack_list._move_to_graded_sold, which moves ungraded -> graded), so it
-	wins; `transfer_to` is the same warehouse on a row that predates the
-	ungraded column, and a row with neither never leaves its own source.
-
-	Whatever comes back is itself a mapped SOURCE warehouse on this data
-	(Kapkolia/Karen Receiving are both Roses-MAP rows in their own right), which
-	is what keeps `graded_sold_warehouse(soi.warehouse)` resolving for the
-	Delivery Note -- see mobile/api.py's own note on that.
-	"""
-	if not row:
-		return None
-	return row.get("ungraded_sold_warehouse") or row.get("transfer_to") or row.get("source_warehouse")
-
-
-def pre_graded_warehouse(source_warehouse):
-	"""pre_graded_warehouse_from_row keyed by a specific coldstore."""
-	return pre_graded_warehouse_from_row(get_mapping_row(source_warehouse))
-
-
-def pre_graded_warehouse_for_farm(farm):
-	"""pre_graded_warehouse_from_row keyed by a FARM -- what a Sales Order has
-	to go on, since an order names a farm and never a warehouse."""
-	return pre_graded_warehouse_from_row(mapping_row_for_farm(farm))
+def pre_graded_warehouse_for_farm(farm, business_unit=BUSINESS_UNIT):
+	"""pre_graded_warehouse keyed by a FARM -- what a Sales Order has to go on."""
+	source = source_warehouse_for_farm(farm, business_unit)
+	return pre_graded_warehouse(source, business_unit) if source else None
 
 
 @frappe.whitelist()
-def routing_defaults(farm=None, source_warehouse=None):
+def routing_defaults(farm: str | None = None, source_warehouse: str | None = None):
 	"""What the Sales Order form should prefill, for one farm (or coldstore).
 	Client counterpart of sales_order_apply_routing -- warehouse_routing.js
 	calls this so the operator sees the warehouse the moment the farm is set,
@@ -126,17 +81,17 @@ def routing_defaults(farm=None, source_warehouse=None):
 
 def sales_order_apply_routing(doc, method=None):
 	"""Roses Sales Order: fill each line's `warehouse` (and the header's own
-	`set_warehouse`) from Roses-MAP, and settle the truck via sync_truck.
+	`set_warehouse`) from the mapping, and settle the truck via sync_truck.
 
 	Both were already meant to be on every line -- ERPNext's own set_warehouse
-	cascade and misc_autopopulate.js's custom_truck_details handler fill them
-	when a row is added through the grid -- but neither fires for a row built
-	in code: spec_autofill's Add to Order Object.assigns straight onto
-	add_child (deliberately, so the spec's own values aren't re-fired over),
-	the mixed-box wizard does the same, and an order created over the API
-	never runs form JS at all. Those lines then reach allocation with a blank
-	warehouse, which is what makes `graded_sold_warehouse(soi.warehouse)`
-	return nothing and a Delivery Note refuse to submit.
+	cascade and misc_autopopulate.js's items_add handler fill them when a row is
+	added through the grid -- but neither fires for a row built in code:
+	spec_autofill's Add to Order Object.assigns straight onto add_child
+	(deliberately, so the spec's own values aren't re-fired over), the mixed-box
+	wizard does the same, and an order created over the API never runs form JS
+	at all. Those lines then reach allocation with a blank warehouse, which is
+	what leaves issuing with nothing to route from and a Delivery Note unable to
+	resolve where to deduct.
 
 	Doing it here, on validate, makes it true for EVERY route into the doctype
 	rather than for the one that happens to go through the grid. Only blanks
@@ -151,7 +106,7 @@ def sales_order_apply_routing(doc, method=None):
 	# settled first, for every business unit.
 	sync_truck(doc)
 
-	if (doc.get("business_unit") or doc.get("custom_business_unit") or "") != "Roses":
+	if (doc.get("business_unit") or doc.get("custom_business_unit") or "") != BUSINESS_UNIT:
 		return
 
 	farm = doc.get("farm") or doc.get("custom_farm")
@@ -161,11 +116,11 @@ def sales_order_apply_routing(doc, method=None):
 
 	# The header's own Source Warehouse, for the next row the operator adds
 	# through the grid (ERPNext cascades set_warehouse to children itself).
-	if warehouse and not doc.get("set_warehouse"):
+	if not doc.get("set_warehouse"):
 		doc.set_warehouse = warehouse
 
 	for it in doc.items:
-		if warehouse and not it.get("warehouse"):
+		if not it.get("warehouse"):
 			it.warehouse = warehouse
 
 

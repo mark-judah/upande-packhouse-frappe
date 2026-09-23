@@ -105,7 +105,9 @@ def fetchOrderSummaryData():
         soi.stock_qty                    AS stems_ordered,
         /* Processing location = the packing farm's location (Karen vs Ravine).
            soi.custom_processing_location is not populated, so derive it from the
-           OPL's farm via Farm.custom_location. */
+           OPL's farm via Farm.farm_location (NOT custom_location -- that field
+           doesn't exist on this doctype; a stale version of this same comment
+           elsewhere led api/production.py to reference it directly and crash). */
         opl.farm         AS processing_location,
         opl_farm.farm_location           AS location,
         soi.custom_opl                   AS opl_id,

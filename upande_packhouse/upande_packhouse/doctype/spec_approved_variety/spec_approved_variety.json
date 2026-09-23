@@ -9,6 +9,7 @@
  "field_order": [
   "bunch_id",
   "variety",
+  "is_primary",
   "colour",
   "headsize_cm",
   "budcount"
@@ -16,20 +17,29 @@
  "fields": [
   {
    "columns": 2,
-   "description": "Which Box Item row's bunch this variety fills. Several Approved Variety rows sharing one bunch_id combine, stem-by-stem, into a single Mixed Bunch. Leave blank for a simple spec -- nothing downstream requires it.",
+   "description": "Which Box Item row's bunch this variety fills. Approved Variety rows sharing one bunch_id AND one colour are substitutes for each other inside one Colour slot; rows with the same bunch_id but a different colour are separate, additive colours that combine, stem-by-stem, into a single Mixed Bunch. Leave blank for a simple spec -- nothing downstream requires it.",
    "fieldname": "bunch_id",
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Bunch ID"
   },
   {
-   "columns": 4,
+   "columns": 3,
    "fieldname": "variety",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Variety",
    "options": "Item",
    "reqd": 1
+  },
+  {
+   "columns": 1,
+   "default": "1",
+   "description": "Exactly one variety per (Bunch ID, Colour) slot must be Primary -- it's the default pick. Any other varieties sharing that same Bunch ID and Colour are approved substitutes, used when the primary isn't in stock; they never add extra stems of their own.",
+   "fieldname": "is_primary",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Primary"
   },
   {
    "columns": 3,

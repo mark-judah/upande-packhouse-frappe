@@ -20,12 +20,14 @@
   "documentation_charge",
   "certificate_of_origin",
   "column_break_cultural",
+  "box_type",
   "cut_stage",
   "defoliation_length",
   "rubber_band_type",
   "rubber_band_distance_1",
   "rubber_band_distance_2",
   "box_assortment",
+  "min_colours_per_box",
   "max_colours_per_box",
   "section_break_box_build",
   "box_items",
@@ -166,6 +168,22 @@
    "reqd": 1
   },
   {
+   "description": "The physical box every bunch on this spec ships in -- one spec is one box, so this lives here, not on each Box Item row.",
+   "fieldname": "box_type",
+   "fieldtype": "Link",
+   "label": "Box Type",
+   "options": "Box Type",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:doc.box_assortment==\"Mixed Box\"",
+   "description": null,
+   "fieldname": "min_colours_per_box",
+   "fieldtype": "Int",
+   "label": "Min Colours Per Box",
+   "mandatory_depends_on": "eval:doc.box_assortment==\"Mixed Box\""
+  },
+  {
    "depends_on": "eval:doc.box_assortment==\"Mixed Box\"",
    "description": null,
    "fieldname": "max_colours_per_box",
@@ -214,7 +232,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-28 06:11:59.210325",
+ "modified": "2026-09-21 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Specifications",

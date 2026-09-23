@@ -63,6 +63,12 @@ function straight_calc(frm, cdt, cdn) {
 	const qty = stems / factor;
 	frappe.model.set_value(cdt, cdn, "stock_qty", stems);
 	frappe.model.set_value(cdt, cdn, "qty", qty);
+	// custom_ordered_quantity is set once by spec_autofill.py at row creation and
+	// never touched again -- editing boxes/packrate here must keep it in sync too,
+	// since sales_allocation.py's _required_stems_for_so_item prefers this field
+	// over qty x conversion_factor for the allocation target. Mirrors the same
+	// fix in sales_order_engine.py's sales_order_before_validate.
+	frappe.model.set_value(cdt, cdn, "custom_ordered_quantity", stems);
 	// conversion_factor is a core mandatory field on Sales Order Item — the grid's
 	// own client-side mandatory check blocks Save before the request ever reaches
 	// the server, so sales_order_engine.sales_order_before_validate (which would
@@ -95,6 +101,14 @@ function row_stems_per_box(row) {
 // count, just annotated once per colour -- summing all of them overcounts by
 // the group size. Mirrors sales_order_engine.py's _set_order_summary, which
 // is what actually lands in the database; this is just the live preview.
+//
+// A spec is one box, and a spec can define BOTH bunch types at once
+// (confirmed real data: XPOL TOSCA_02721_10 -- bunch_id 1 is a Mixed Bunch,
+// bunch_ids 2-4 are Mono Bunches feeding the same Mixed Box), so custom_line
+// is checked FIRST: every row filled from the same spec counts once toward
+// its box total, no matter which of the two group tags it carries. Only a
+// row with no spec (manually typed, or mixed_box_wizard.js's spec-less
+// Mixed Box) falls back to bunch_group/mix_group.
 function recompute_order_summary(frm) {
 	let boxes = 0,
 		stems = 0;
@@ -105,7 +119,8 @@ function recompute_order_summary(frm) {
 		stems += row_stems_per_box(it) * b;
 
 		let group_key = null;
-		if (it.custom_bunch_group) group_key = "bunch::" + it.custom_bunch_group;
+		if (it.custom_line) group_key = "spec::" + it.custom_line;
+		else if (it.custom_bunch_group) group_key = "bunch::" + it.custom_bunch_group;
 		else if (it.custom_mix_group) group_key = "mix::" + it.custom_mix_group;
 		if (group_key) {
 			if (seen_groups.has(group_key)) return;

@@ -26,12 +26,15 @@ def get_packhouse_production_by_variety():
 		ig_cond = " AND i.item_group = %(ig)s"
 		params["ig"] = "Spray Roses"
 
-	# Location filter: Karen = the Karen farm, Ravine = the remote farms. Resolved from
-	# Farm.custom_location so it stays correct as farms are added/re-assigned.
+	# Location filter: Karen = the Karen farm, other locations = the remote
+	# farms. Resolved from Farm.farm_location (NOT custom_location -- that
+	# field doesn't exist on this doctype; confirmed live, this filter threw
+	# "Unknown column 'custom_location'" for every non-"All" location preset
+	# on the page) so it stays correct as farms are added/re-assigned.
 	location = frappe.form_dict.get("location") or ""
 	loc_cond = ""
 	if location:
-		loc_cond = " AND se.farm IN (SELECT name FROM `tabFarm` WHERE custom_location = %(location)s)"
+		loc_cond = " AND se.farm IN (SELECT name FROM `tabFarm` WHERE farm_location = %(location)s)"
 		params["location"] = location
 
 	rows = frappe.db.sql(
@@ -103,3 +106,24 @@ def get_packhouse_production_by_variety():
 		"variety_count": len(varieties),
 		"varieties": varieties,
 	}
+
+
+@frappe.whitelist()
+def getProductionLocations():
+	"""Real Farm.farm_location values for the location preset pills -- these
+	used to be hardcoded as "Ravine"/"Karen" (and, per the location filter's
+	own now-fixed bug above, never actually worked), which silently excludes
+	any farm location that isn't one of those two literal strings.
+	"""
+	try:
+		locations = frappe.db.sql(
+			"""
+			SELECT DISTINCT farm_location FROM `tabFarm`
+			WHERE farm_location IS NOT NULL AND farm_location != ''
+			ORDER BY farm_location
+			""",
+			as_dict=True,
+		)
+		frappe.response["message"] = {"success": True, "locations": [r.farm_location for r in locations]}
+	except Exception as e:
+		frappe.response["message"] = {"success": False, "error": str(e), "locations": []}

@@ -223,12 +223,21 @@ def getDashboardData():
 					"custom_mix_group",
 					"custom_mixed_bunch",
 					"custom_bunch_group",
+					"custom_line",
 				],
 			)
 
 			# Boxes are counted ONCE per group: a mixed bunch shares boxes across the
 			# whole custom_bunch_group, a mixed box across the whole custom_mix_group.
 			# Straight lines each contribute their own custom_number_of_boxes.
+			#
+			# custom_line (the spec) is checked FIRST: a spec is one box, and one
+			# spec can define BOTH a Mixed Bunch (custom_bunch_group) and Mono
+			# Bunches feeding the same Mixed Box (custom_mix_group) at once --
+			# confirmed real data: XPOL TOSCA_02721_10. Deduping bunch_group and
+			# mix_group as two separate dimensions reads that as 2 boxes instead
+			# of 1. Only a line with no spec at all falls back to bunch_group/
+			# mix_group.
 			seen_groups = set()
 
 			i = 0
@@ -237,12 +246,15 @@ def getDashboardData():
 				oid = item.custom_opl
 				boxes = item.custom_number_of_boxes or 0
 
+				line = str(item.custom_line or "").strip()
 				bunch_group = str(item.custom_bunch_group or "").strip()
 				mix_group = str(item.custom_mix_group or "").strip()
 				is_bunch = item.custom_mixed_bunch == 1 and bunch_group != ""
 				is_mixed = item.custom_mixed_box == 1 and mix_group != ""
 
-				if is_bunch:
+				if line != "":
+					group_key = str(oid) + "||spec||" + line
+				elif is_bunch:
 					group_key = str(oid) + "||bunch||" + bunch_group
 				elif is_mixed:
 					group_key = str(oid) + "||mix||" + mix_group
@@ -293,6 +305,83 @@ def getDashboardData():
 					packed_boxes_by_opl[oid] = current_boxes + len(boxes)
 				except:
 					pass
+				i = i + 1
+
+		# ================================================================
+		# Packing issues per OPL (bypass reports + under-packed boxes) --
+		# the mobile app's own dashboard already surfaces these; this page
+		# had no equivalent visibility at all before, so an operator could
+		# not tell from here which orders had a reported problem, let alone
+		# which box, which reason, or who reported it. issues_by_opl holds
+		# the actual rows (an OPL can have several), not just a count, so
+		# the frontend can list them out.
+		# ================================================================
+		issues_by_opl = {}
+
+		def _add_issue(oid, issue):
+			if oid not in issues_by_opl:
+				issues_by_opl[oid] = []
+			issues_by_opl[oid] = issues_by_opl[oid] + [issue]
+
+		if len(opl_names) > 0:
+			bypass_rows = frappe.get_all(
+				"Packing Bypass Log",
+				filters={"order_pick_list": ["in", opl_names]},
+				fields=["order_pick_list", "box_id", "reason", "bunches", "packed_by", "creation"],
+				order_by="creation desc",
+			)
+			i = 0
+			while i < len(bypass_rows):
+				r = bypass_rows[i]
+				_add_issue(
+					r.order_pick_list,
+					{
+						"type": "Bypass",
+						"box_id": r.box_id,
+						"reason": r.reason,
+						"quantity": r.bunches,
+						"unit": "bunches",
+						"packed_by": r.packed_by,
+						"creation": str(r.creation),
+					},
+				)
+				i = i + 1
+
+		if len(opl_names) > 0 and len(fpls) > 0:
+			fpl_names_list = []
+			i = 0
+			while i < len(fpls):
+				fpl_names_list = fpl_names_list + [fpls[i].name]
+				i = i + 1
+			underpack_rows = frappe.db.sql(
+				"""
+				SELECT fpl.order_pick_list AS opl, fpi.box_id AS box_id,
+				       fpi.under_pack_reason AS reason, fpi.stock_qty AS stock_qty,
+				       fpi.item_code AS item_code, fpl.owner AS packed_by, fpl.creation AS creation
+				FROM `tabFarm Packlist Item` fpi
+				JOIN `tabFarm Pack List` fpl ON fpl.name = fpi.parent
+				WHERE fpi.parent IN %(fpls)s
+				  AND fpi.under_pack_reason IS NOT NULL AND fpi.under_pack_reason != ''
+				ORDER BY fpl.creation DESC
+				""",
+				{"fpls": fpl_names_list},
+				as_dict=True,
+			)
+			i = 0
+			while i < len(underpack_rows):
+				r = underpack_rows[i]
+				_add_issue(
+					r.opl,
+					{
+						"type": "Under-pack",
+						"box_id": r.box_id,
+						"reason": r.reason,
+						"quantity": int(r.stock_qty or 0),
+						"unit": "stems (" + (r.item_code or "") + ")",
+						"packed_by": r.packed_by,
+						"creation": str(r.creation),
+					},
+				)
 				i = i + 1
 
 		box_labels = []
@@ -402,11 +491,15 @@ def getDashboardData():
 			if len(ss) > 0:
 				shelves = ", ".join(sorted(ss))
 
+			packing_issues = issues_by_opl.get(oid, [])
+
 			row = {
 				"opl_id": oid,
 				"order_name": opl.order_name or oid,
 				"customer": opl.customer,
 				"team": opl.team or "Unassigned",
+				"packing_issues": packing_issues,
+				"has_packing_issue": len(packing_issues) > 0,
 				"total_bunches": bunches,
 				"total_stems": planned,
 				"shelf_locations": shelves,
@@ -512,6 +605,23 @@ def getDashboardData():
 
 
 @frappe.whitelist()
+def getTeams():
+	"""Canonical team list for this dashboard's team filter -- the Workflow
+	page's team dropdown used to be a hardcoded HTML list (Team A, Team B,
+	Jamafa, Eldama, Bravo) copy-pasted from whatever teams existed when the
+	page was built. "Bravo" no longer exists as a Packing Teams record and a
+	newly added team never appeared, since the list was never actually
+	fetched from anywhere. getDashboardData's own team_filter already
+	queries Order Pick List.team correctly -- only the OPTIONS were static.
+	"""
+	try:
+		teams = frappe.get_all("Packing Teams", fields=["name"], order_by="name asc", pluck="name")
+		frappe.response["message"] = {"success": True, "teams": teams}
+	except Exception as e:
+		frappe.response["message"] = {"success": False, "error": str(e), "teams": []}
+
+
+@frappe.whitelist()
 def getBoxesToDeliver():
 	try:
 		frm = frappe.form_dict.get("from_date") or frappe.utils.today()
@@ -558,17 +668,25 @@ def getBoxesToDeliver():
 					"custom_mix_group",
 					"custom_mixed_bunch",
 					"custom_bunch_group",
+					"custom_line",
 				],
 				limit_page_length=0,
 			)
 			# Boxes counted ONCE per group (mixed bunch -> custom_bunch_group,
 			# mixed box -> custom_mix_group, else per straight line). Stems per line.
+			# custom_line (the spec) wins first -- a spec is one box even when it
+			# mixes both bunch types in one fill (see _set_order_summary's own
+			# docstring in sales_order_engine.py for the real XPOL TOSCA example
+			# this fixes).
 			seen = set()
 			for it in items:
 				stems = stems + (it.get("stock_qty") or 0)
+				line = str(it.get("custom_line") or "").strip()
 				bg = str(it.get("custom_bunch_group") or "").strip()
 				mg = str(it.get("custom_mix_group") or "").strip()
-				if it.get("custom_mixed_bunch") == 1 and bg != "":
+				if line != "":
+					key = str(it.parent) + "||spec||" + line
+				elif it.get("custom_mixed_bunch") == 1 and bg != "":
 					key = str(it.parent) + "||bunch||" + bg
 				elif it.get("custom_mixed_box") == 1 and mg != "":
 					key = str(it.parent) + "||mix||" + mg

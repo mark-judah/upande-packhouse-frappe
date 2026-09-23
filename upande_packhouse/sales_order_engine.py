@@ -109,7 +109,21 @@ def _set_order_summary(doc):
 	Mixed Box) describes the SAME physical box count, just annotated once per
 	colour -- summing all of them overcounts by the group size. Count each
 	group's custom_number_of_boxes exactly once, same dedup approach api/
-	dashboard.py's "Expected boxes per OPL" already uses for this same reason."""
+	dashboard.py's "Expected boxes per OPL" already uses for this same reason.
+
+	A spec is a template for ONE box, and a single spec can define BOTH kinds
+	of bunch at once -- confirmed real data: XPOL TOSCA_02721_10 has bunch_id
+	1 as a Mixed Bunch (Ever Red + Snow Storm, custom_bunch_group) and bunch_ids
+	2-4 as Mono Bunches feeding the same Mixed Box (custom_mix_group). Deduping
+	bunch_group and mix_group as two separate dimensions -- which is what this
+	function used to do -- means that ONE spec reads as 2 boxes (1 from each
+	dimension) instead of 1. custom_line (the spec) is checked first for
+	exactly this reason: every row filled from the same spec counts toward
+	its box total once, full stop, regardless of which internal tag each of
+	its own bunch_ids happens to carry. Only a row with no spec at all (a
+	manually typed line, or mixed_box_wizard.js's spec-less Mixed Box) falls
+	back to the bunch_group/mix_group dedup, since there's no spec identity
+	to key on there."""
 	total_boxes, total_stems = 0, 0
 	seen_groups = set()
 	for it in doc.items:
@@ -119,7 +133,9 @@ def _set_order_summary(doc):
 		total_stems += _line_packrate(it) * boxes
 
 		group_key = None
-		if it.get("custom_bunch_group"):
+		if it.get("custom_line"):
+			group_key = ("spec", it.custom_line)
+		elif it.get("custom_bunch_group"):
 			group_key = ("bunch", it.custom_bunch_group)
 		elif it.get("custom_mix_group"):
 			group_key = ("mix", it.custom_mix_group)
@@ -148,6 +164,18 @@ def sales_order_before_validate(doc, method=None):
 		if stems:
 			it.stock_qty = stems
 			it.qty = stems / factor
+			# custom_ordered_quantity is spec_autofill.py's own row-creation value
+			# (packrate x boxes at the time the row was added) and never touched
+			# again after that -- editing custom_number_of_boxes or a packrate
+			# field directly on the grid updates stock_qty/qty above but silently
+			# leaves this one stale. sales_allocation.py's _required_stems_for_so_item
+			# (its own docstring: "single source of truth" for what allocation
+			# targets) PREFERS this field over qty x conversion_factor, so a stale
+			# value here quietly under-targets allocation while the picklist
+			# generator (which recomputes packrate x boxes fresh) expects the
+			# correct total -- exactly the "allocated X, needed Y" mismatch this
+			# fixes. Keep it equal to stock_qty on every save, same as qty is.
+			it.custom_ordered_quantity = stems
 
 
 def sales_order_price(doc, method=None):
@@ -266,6 +294,38 @@ def sales_order_validate(doc, method=None):
 				"has a unit of measure."
 			).format(", ".join(sorted(set(no_sales_uom)))),
 			title=_("Missing Sales UOM"),
+		)
+
+	# 4b. A directly-added line's own UOM must match the item's real Sales
+	#     UOM. Roses varieties are graded at one fixed physical bunch size
+	#     (Item.sales_uom) -- there's no mechanism for a farm to grade a
+	#     special one-off bunch size for a single order, so a line that
+	#     free-types a different "Bunch (N)" (e.g. via the web ledger's
+	#     mixed-box card, which derives it from a hand-typed stems-per-bunch
+	#     with no cross-check -- see api/sales_order.py's _shape_manual_row)
+	#     will never be matched by any real graded bunch during packing. The
+	#     mobile app then rejects every scan for that line with "Size
+	#     (Bunch (N)) invalid for <variety>" -- confirmed root cause of a
+	#     real packing incident (SAL-ORD-2026-00306, Giselle, mix_group 3).
+	#     A spec-derived line (custom_line set) is exempt: its UOM comes
+	#     from the spec's own Box Item, a deliberate choice already
+	#     validated when the spec was built, which can legitimately differ
+	#     from the item's default Sales UOM.
+	wrong_uom = []
+	for it in doc.items:
+		if not it.item_code or it.get("custom_line") or not it.get("uom"):
+			continue
+		item_sales_uom = frappe.db.get_value("Item", it.item_code, "sales_uom")
+		if item_sales_uom and it.uom != item_sales_uom:
+			wrong_uom.append("{0} (line has {1}, item's Sales UOM is {2})".format(it.item_code, it.uom, item_sales_uom))
+	if wrong_uom:
+		frappe.throw(
+			_(
+				"These lines don't match the item's real Sales UOM, so packing will never find a "
+				"matching graded bunch: <b>{0}</b>. Fix the line's bunch size (or the item's Sales "
+				"UOM, if that's actually the wrong one) before saving."
+			).format("; ".join(wrong_uom)),
+			title=_("Wrong Bunch Size"),
 		)
 
 	# 5. Mixed-box colour limit — a mixed box may not contain more distinct colours

@@ -1,0 +1,548 @@
+{% extends "templates/web.html" %}
+{% block page_content %}
+{% raw %}
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0a0a0a;--ink-1:#1a1a18;--ink-2:#2a2a26;--ink-3:#3a3a34;--ink-4:#5a5a52;--ink-mute:#8a8780;--ink-faint:#b8b6ae;
+  --bg:#f4f3ef;--surface:#fafaf6;--surface-2:#ffffff;
+  --hairline:rgba(10,10,10,0.06);--hairline-2:rgba(10,10,10,0.10);
+  --shadow-card:0 1px 0 rgba(10,10,10,0.04),0 8px 32px -16px rgba(10,10,10,0.10);
+  --shadow-hover:0 1px 0 rgba(10,10,10,0.06),0 24px 48px -24px rgba(10,10,10,0.18);
+  --signal:#228883;--signal-soft:rgba(34,136,131,0.10);
+  --violet:#7c5cfc;--violet-soft:#f0ecfe;
+  --good:#1a8a3a;--good-soft:#e6f9ee;--warn:#9a5a00;--warn-soft:#fff3e0;--bad:#c4302b;--bad-soft:#fde8ec;
+  --grad-ink:linear-gradient(135deg,#0a0a0a 0%,#3a3a34 100%);
+  --sans:'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --display:'Fraunces',Georgia,serif;
+  --mono:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;
+  --sidebar-w:248px;--sidebar-cw:74px;
+}
+html,body{margin:0!important;padding:0!important;overflow:hidden!important;height:100vh!important}
+.navbar,header,.page-breadcrumbs,.page-header,.page-header-wrapper,.web-footer,footer,
+.website-edit-button,.btn-edit-page,.edit-page-btn,.scroll-to-top,.back-to-top,
+.website-banner,.call-to-action,.frappe-chat,#frappe-chat,.telegram-share,.share-buttons,
+.web-page-edit,.published-edit{display:none!important}
+.aph *{box-sizing:border-box;margin:0;padding:0}
+.aph{position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100vh;z-index:2147483000;
+  font-family:var(--sans);background:var(--bg);color:var(--ink-3);font-size:13px;line-height:1.55;-webkit-font-smoothing:antialiased;
+  display:grid;grid-template-columns:var(--sidebar-w) 1fr;transition:grid-template-columns .22s cubic-bezier(.4,0,.2,1)}
+.aph.collapsed{grid-template-columns:var(--sidebar-cw) 1fr}
+.aph svg.ic{width:16px;height:16px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+
+/* ══ MAIN (topbar/content/cards/table -- same classes as the rest of the suite) ══ */
+.aph-main{min-width:0;height:100vh;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column}
+.aph-content{flex:1;padding:32px 40px 64px}
+.aph-topbar{background:var(--surface-2);border-bottom:1px solid var(--hairline);padding:14px 40px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:10}
+.aph-topbar h1{font:600 17px var(--sans);color:var(--ink);letter-spacing:-.3px}
+.aph-topbar .crumb{color:var(--ink-mute);font:500 11px var(--sans);text-transform:uppercase;letter-spacing:1.4px;padding-left:16px;border-left:1px solid var(--hairline);height:16px;line-height:16px}
+.aph-topbar .right{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.collapse-btn{width:36px;height:36px;border:0;background:transparent;border-radius:10px;display:grid;place-items:center;cursor:pointer;color:var(--ink-4);flex:0 0 auto}
+.collapse-btn:hover{background:rgba(10,10,10,0.05);color:var(--ink)}
+.aph .form-control{height:38px;padding:0 14px;font:500 12.5px var(--sans);background:var(--surface-2);border:0;box-shadow:var(--shadow-card);border-radius:999px;color:var(--ink);outline:0}
+.aph .btn{padding:0 16px;height:38px;border:0;background:var(--surface-2);color:var(--ink);border-radius:999px;font:600 12.5px var(--sans);cursor:pointer;display:inline-flex;align-items:center;gap:7px;box-shadow:var(--shadow-card);transition:transform .18s ease}
+.aph .btn:hover{transform:translateY(-1px)}
+.aph .btn-primary{background:var(--grad-ink);color:#fafaf6;box-shadow:0 4px 14px rgba(10,10,10,0.2)}
+.aph .btn-danger{background:var(--bad-soft);color:var(--bad)}
+.aph .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+
+.aph-page-hd{margin-bottom:26px}
+.aph-page-hd .eyebrow{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:2.2px;color:var(--ink-mute);margin-bottom:12px;display:inline-flex;align-items:center;gap:10px}
+.aph-page-hd .eyebrow::before{content:"";width:18px;height:1px;background:var(--ink-3)}
+.aph-page-hd .ttl{font:600 36px/1.05 var(--sans);color:var(--ink);letter-spacing:-1.2px}
+.aph-page-hd .sub{margin-top:10px;font-size:14px;color:var(--ink-4)}
+
+.aph-card{background:var(--surface-2);border-radius:24px;box-shadow:var(--shadow-card);overflow:hidden;box-sizing:border-box;width:100%;min-width:0;margin-bottom:18px}
+.aph-card-hd{padding:24px 30px 0;display:flex;align-items:center;gap:14px}
+.aph-card-hd .ttl{font:600 17px var(--sans);color:var(--ink);letter-spacing:-.3px}
+.aph-card-hd .sub{color:var(--ink-mute);font:500 12px var(--sans)}
+.aph-card-body{padding:22px 30px 28px}
+.aph-card-body.padless{padding:0}
+
+table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.aph-tbl th{text-align:left;padding:14px 22px;font:600 10px var(--sans);color:var(--ink-mute);letter-spacing:1.4px;text-transform:uppercase;border-bottom:1px solid var(--hairline);white-space:nowrap}
+.aph-tbl td{padding:14px 22px;border-bottom:1px solid var(--hairline);color:var(--ink-3)}
+.aph-tbl tr:last-child td{border-bottom:0}
+.aph-tbl tbody tr{transition:background .15s ease}
+.aph-tbl tbody tr:hover td{background:rgba(10,10,10,0.02)}
+.aph-tbl td.num,.aph-tbl th.num{text-align:right;font-feature-settings:'tnum'}
+.aph-empty{padding:48px;text-align:center;color:var(--ink-mute);font-size:13px}
+.aph-loading{padding:60px;text-align:center;color:var(--ink-mute);font-size:12px}
+.aph-err{background:var(--ink);color:#fafaf6;padding:14px 18px;border-radius:14px;font-size:12px;margin-bottom:16px;font-family:var(--mono)}
+.aph .label{display:inline-block;padding:3px 11px;font:600 11px var(--sans);border-radius:999px;letter-spacing:.02em}
+.aph .label-success{background:var(--good-soft);color:var(--good)}
+.aph .label-default{background:rgba(10,10,10,0.04);color:var(--ink-4)}
+.aph .label-info{background:var(--signal-soft);color:var(--signal)}
+
+/* ══ Sidebar (identical to the rest of the suite) ══ */
+.aph-side{background:var(--surface-2);border-right:1px solid var(--hairline);height:100vh;position:sticky;top:0;display:flex;flex-direction:column;overflow:hidden}
+.aph-side .brand{padding:20px 18px 16px;display:flex;align-items:center;gap:12px;text-decoration:none}
+.aph-side .brand .logo{height:26px;width:auto;flex:0 0 auto;display:block}
+.aph-side .brand .name{font:600 14px var(--sans);color:var(--ink);line-height:1.15;letter-spacing:-.2px;white-space:nowrap;overflow:hidden}
+.aph-side .brand .name small{display:block;font:500 10px var(--sans);text-transform:uppercase;letter-spacing:1.6px;color:var(--ink-mute);margin-top:2px}
+.aph-side .nav{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:6px 0 16px;margin:0;list-style:none;display:flex;flex-direction:column;flex-wrap:nowrap!important}
+.aph-side .group-lbl{padding:16px 20px 6px;font:600 10px var(--sans);color:var(--ink-mute);letter-spacing:1.8px;text-transform:uppercase;display:block;white-space:nowrap;overflow:hidden}
+.aph-side .group-lbl:first-child{padding-top:8px}
+.aph-side .nav-item{display:flex;align-items:center;gap:12px;padding:10px 12px;cursor:pointer;font:500 13px var(--sans);color:var(--ink-4);user-select:none;transition:background .18s ease,color .18s ease;margin:2px 10px;border-radius:12px;box-sizing:border-box;text-decoration:none;white-space:nowrap;overflow:hidden}
+.aph-side .nav-item:hover{background:rgba(10,10,10,0.04);color:var(--ink);text-decoration:none}
+.aph-side .nav-item.active{background:var(--grad-ink);color:#fafaf6;box-shadow:0 4px 14px rgba(10,10,10,0.20)}
+.aph-side .home-link{display:flex;align-items:center;gap:12px;margin:2px 10px 6px;padding:10px 12px;border-radius:12px;font:500 13px var(--sans);color:var(--ink-4);text-decoration:none;background:rgba(10,10,10,0.04);white-space:nowrap;overflow:hidden}
+.aph-side .home-link:hover{background:var(--ink);color:#fafaf6;text-decoration:none}
+.aph-side .footer{padding:14px 18px;border-top:1px solid var(--hairline);display:flex;align-items:center;gap:11px;font-size:11px;color:var(--ink-4)}
+.aph-side .footer .av{width:30px;height:30px;border-radius:50%;background:var(--grad-ink);color:#fafaf6;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12px;flex:0 0 auto}
+.aph-side .footer .who{flex:1;line-height:1.25;overflow:hidden}
+.aph-side .footer .who .nm{font-weight:600;color:var(--ink);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph-side .footer .who .em{font-size:10px;color:var(--ink-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph.collapsed .aph-side .brand{padding:20px 0 16px;justify-content:center}
+.aph.collapsed .aph-side .brand .name,.aph.collapsed .aph-side .group-lbl,.aph.collapsed .aph-side .nav-item span,
+.aph.collapsed .aph-side .home-link span,.aph.collapsed .aph-side .footer .who{display:none}
+.aph.collapsed .aph-side .nav-item,.aph.collapsed .aph-side .home-link{justify-content:center;margin-left:14px;margin-right:14px;padding:11px 0;gap:0}
+.aph.collapsed .aph-side .footer{justify-content:center;padding:14px 0}
+
+/* ══ Sales Settings page -- content specific ══ */
+.spec-field-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px 18px}
+.spec-field label{display:block;font:600 10px var(--sans);letter-spacing:.6px;text-transform:uppercase;color:var(--ink-mute);margin-bottom:7px}
+.spec-field select,.spec-field input{width:100%;border:1px solid var(--hairline-2);background:var(--bg);color:var(--ink);border-radius:10px;padding:9px 11px;font:500 13px var(--sans)}
+.currency-grid{display:flex;flex-wrap:wrap;gap:10px}
+.currency-chip{display:flex;align-items:center;gap:8px;padding:9px 15px;border-radius:999px;border:1px solid var(--hairline-2);background:var(--bg);cursor:pointer;user-select:none;transition:all .15s ease}
+.currency-chip.on{background:var(--grad-ink);border-color:transparent}
+.currency-chip .code{font:700 12.5px var(--mono);color:var(--ink-3)}
+.currency-chip.on .code{color:#fafaf6}
+.currency-chip .sym{font:500 11px var(--sans);color:var(--ink-mute)}
+.currency-chip.on .sym{color:rgba(250,250,246,0.7)}
+.currency-add{position:relative;display:inline-block;min-width:220px}
+.currency-add input{width:100%}
+
+.mapping-row-form{display:grid;grid-template-columns:1.4fr 1fr 1.4fr auto;gap:10px;align-items:end;padding:18px 30px;background:var(--bg);border-bottom:1px solid var(--hairline)}
+.mapping-row-form .f label{display:block;font:600 9px var(--sans);letter-spacing:.5px;text-transform:uppercase;color:var(--ink-mute);margin-bottom:6px}
+.mapping-row-form .f{position:relative}
+.mapping-row-form select,.mapping-row-form input{width:100%;border:1px solid var(--hairline-2);background:var(--surface-2);color:var(--ink);border-radius:10px;padding:9px 11px;font:500 13px var(--sans)}
+.pick-results{position:fixed;background:var(--surface-2);border-radius:10px;box-shadow:var(--shadow-hover);max-height:240px;overflow-y:auto;z-index:500;min-width:220px;display:none}
+.pick-results.show{display:block}
+.pick-results .opt{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;font:500 12px var(--sans);cursor:pointer}
+.pick-results .opt:hover{background:rgba(10,10,10,0.04)}
+.pick-results .opt.create-new{color:var(--signal);font-weight:600}
+.rowmenu{border:0;background:none;color:var(--ink-faint);cursor:pointer;font-size:13px}
+.rowmenu:hover{color:var(--bad)}
+
+.qa-modal-backdrop{position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:900;display:none;align-items:center;justify-content:center}
+.qa-modal-backdrop.show{display:flex}
+.qa-modal{background:var(--surface-2);border-radius:20px;box-shadow:var(--shadow-hover);width:380px;max-width:92vw;padding:26px}
+.qa-modal .ttl{font:600 16px var(--sans);color:var(--ink);margin-bottom:4px}
+.qa-modal .sub{font:500 12px var(--sans);color:var(--ink-mute);margin-bottom:18px}
+.qa-modal .f{margin-bottom:14px}
+.qa-modal .f label{display:block;font:600 9px var(--sans);letter-spacing:.5px;text-transform:uppercase;color:var(--ink-mute);margin-bottom:6px}
+.qa-modal .f input,.qa-modal .f select{width:100%;border:1px solid var(--hairline-2);background:var(--bg);color:var(--ink);border-radius:10px;padding:9px 11px;font:500 13px var(--sans)}
+.qa-modal .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+
+@media (max-width: 900px){
+  html,body{overflow:auto!important}
+  .aph,.aph.collapsed{display:flex;flex-direction:column;position:fixed;grid-template-columns:none}
+  .aph-side{width:100%;height:auto;position:relative;flex:0 0 auto;border-right:0;border-bottom:1px solid var(--hairline);overflow:visible}
+  .aph-side .nav{flex-direction:row;align-items:center;overflow-x:auto;overflow-y:hidden;padding:0 8px 8px}
+  .aph-side .group-lbl{display:none}
+  .aph-side .nav-item{flex:0 0 auto;margin:0 3px;white-space:nowrap;padding:9px 14px}
+  .aph-side .footer{display:none}
+  .collapse-btn{display:none}
+  .aph-main{flex:1 1 auto;height:auto;min-height:0}
+  .aph-topbar{position:static;flex-wrap:wrap;gap:10px;padding:12px 16px}
+  .aph-topbar .crumb{display:none}
+  .aph-topbar .right{margin-left:0;width:100%}
+  .aph-content{padding:18px 16px 40px}
+  .aph-page-hd .ttl{font-size:26px}
+  .mapping-row-form{grid-template-columns:1fr;padding:16px}
+}
+</style>
+
+<div class="aph">
+  {% endraw %}{% set active_page = "sales-settings" %}{% include "upande_packhouse/templates/includes/packhouse_sidebar.html" %}{% raw %}
+
+  <div class="aph-main">
+    <div class="aph-topbar">
+      <button class="collapse-btn" id="collapseBtn" title="Toggle sidebar" aria-label="Toggle sidebar">
+        <svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <h1>Sales Settings</h1>
+      <span class="crumb">Sales Order</span>
+    </div>
+
+    <div class="aph-content">
+      <div class="aph-page-hd">
+        <div class="eyebrow">Karen Roses · Packhouse</div>
+        <div class="ttl">Sales Settings</div>
+        <div class="sub">Currencies this business quotes in, and which price list each customer defaults to per currency.</div>
+      </div>
+
+      <div id="errBanner"></div>
+
+      <div class="aph-card">
+        <div class="aph-card-hd"><div class="ttl">Default Warehouse</div><div class="sub">Auto-fills a new Sales Order's Set Warehouse (and each line's own Warehouse, where blank) — leave unset to require picking one on every order</div></div>
+        <div class="aph-card-body">
+          <div class="spec-field-grid">
+            <div class="spec-field"><label>Default Warehouse</label>
+              <select id="defaultWarehouseSelect"></select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="aph-card">
+        <div class="aph-card-hd"><div class="ttl">Currencies</div><div class="sub">Click to enable/disable — every real Currency record, never a hardcoded list</div></div>
+        <div class="aph-card-body">
+          <div class="currency-grid" id="currencyGrid"></div>
+        </div>
+      </div>
+
+      <div class="aph-card">
+        <div class="aph-card-hd"><div class="ttl">Price Lists</div><div class="sub">Click to enable/disable — only enabled Price Lists are selectable when building a Sales Order, in Desk and the dashboard alike</div></div>
+        <div class="aph-card-body">
+          <div class="currency-grid" id="priceListGrid"></div>
+        </div>
+      </div>
+
+      <div class="aph-card">
+        <div class="aph-card-hd"><div class="ttl">Default Price List per Customer &amp; Currency</div><div class="sub">Used to pre-fill a Sales Order's price list the moment a customer + currency is picked</div></div>
+        <div class="mapping-row-form">
+          <div class="f"><label>Customer</label>
+            <input id="newCustomer" placeholder="Search customer…" autocomplete="off">
+            <div class="pick-results" id="newCustomerResults"></div>
+          </div>
+          <div class="f"><label>Currency</label><select id="newCurrency"></select></div>
+          <div class="f"><label>Price List</label>
+            <input id="newPriceList" placeholder="Search price list…" autocomplete="off">
+            <div class="pick-results" id="newPriceListResults"></div>
+          </div>
+          <button class="btn btn-primary" onclick="addMapping()">+ Add</button>
+        </div>
+        <div class="aph-card-body padless">
+          <div id="mappingTableWrap"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Nested inside .aph, not a sibling: .aph is position:fixed with an
+       astronomically high z-index (2147483000), so a modal placed outside
+       its DOM subtree only gets its own (much lower) z-index and renders
+       invisibly behind the whole page -- it opens and populates correctly,
+       there's just nothing to see. See sales-order.html for the full story. -->
+  <div class="qa-modal-backdrop" id="qaBackdrop">
+    <div class="qa-modal">
+      <div class="ttl">New Price List</div>
+      <div class="sub" id="qaSub">No price list matched — create one now</div>
+      <div class="f"><label>Name</label><input id="qaPlName" placeholder="e.g. May EUR"></div>
+      <div class="f"><label>Currency</label><select id="qaPlCurrency"></select></div>
+      <div class="actions">
+        <button class="btn" onclick="closeQuickAdd()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitQuickAddPriceList()">Create</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = 'upande_packhouse.api.sales_settings.';
+let CURRENCIES = [];
+let PRICE_LISTS = [];
+let MAPPINGS = [];
+let NEW_CUSTOMER = null;
+let NEW_PRICE_LIST = null;
+let QA_TARGET_CURRENCY = null;
+
+function apiCall(method, args, cb){
+    frappe.call({ method: API + method, args: args || {}, silent: true, callback: r => cb(r.message || {}), error: () => cb({success:false, error:'Request failed'}) });
+}
+function apiGet(method, params, cb){
+    frappe.call({ method: API + method, type: 'GET', args: params || {}, silent: true, callback: r => cb(r.message || {}), error: () => cb({success:false, error:'Request failed'}) });
+}
+function apiGetOther(fullMethod, params, cb){
+    frappe.call({ method: fullMethod, type: 'GET', args: params || {}, silent: true, callback: r => cb(r.message || {}), error: () => cb({success:false, error:'Request failed'}) });
+}
+function showErr(msg){ document.getElementById('errBanner').innerHTML = msg ? `<div class="aph-err">${escHtml(msg)}</div>` : ''; }
+function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ---------- shared dropdown mechanics (same fix as the Specifications page) ----------
+let OPEN_DROPDOWN = null;
+function positionDropdown(input, el){
+    const r = input.getBoundingClientRect();
+    el.style.left = Math.max(4, r.left) + 'px';
+    el.style.top = (r.bottom + 4) + 'px';
+    el.style.width = Math.max(r.width, 220) + 'px';
+}
+function openDropdown(input, el){
+    el.style.position = 'fixed';
+    positionDropdown(input, el);
+    el.classList.add('show');
+    OPEN_DROPDOWN = { input, el };
+}
+function closeDropdown(el){
+    el.classList.remove('show');
+    if(OPEN_DROPDOWN && OPEN_DROPDOWN.el === el) OPEN_DROPDOWN = null;
+}
+window.addEventListener('scroll', () => { if(OPEN_DROPDOWN) positionDropdown(OPEN_DROPDOWN.input, OPEN_DROPDOWN.el); }, true);
+window.addEventListener('resize', () => { if(OPEN_DROPDOWN) positionDropdown(OPEN_DROPDOWN.input, OPEN_DROPDOWN.el); });
+document.addEventListener('mousedown', (e) => {
+    if(OPEN_DROPDOWN && !OPEN_DROPDOWN.el.contains(e.target) && e.target !== OPEN_DROPDOWN.input){
+        closeDropdown(OPEN_DROPDOWN.el);
+    }
+});
+
+// ---------- boot ----------
+function boot(){
+    loadCurrencies();
+    loadPriceLists();
+    loadMappings();
+    loadDefaultWarehouse();
+}
+function loadDefaultWarehouse(){
+    apiGet('getSalesSettings', {}, r => {
+        if(!r.success){ showErr(r.error||'Could not load default warehouse.'); return; }
+        const sel = document.getElementById('defaultWarehouseSelect');
+        sel.innerHTML = '<option value="">— none (require a pick on every order) —</option>' +
+            (r.warehouses||[]).map(w => `<option value="${escHtml(w)}" ${w===r.default_warehouse?'selected':''}>${escHtml(w)}</option>`).join('');
+        sel.onchange = function(){
+            apiCall('setDefaultWarehouse', { data: JSON.stringify({ default_warehouse: this.value }) }, r2 => {
+                if(!r2.success) showErr(r2.error || 'Could not save default warehouse.');
+                else showErr('');
+            });
+        };
+    });
+}
+function loadCurrencies(){
+    apiGet('listCurrencies', {}, r => {
+        if(!r.success){ showErr(r.error||'Could not load currencies.'); return; }
+        CURRENCIES = r.currencies || [];
+        renderCurrencies();
+        renderCurrencySelects();
+    });
+}
+function loadPriceLists(){
+    apiGet('listPriceLists', {}, r => {
+        if(!r.success){ showErr(r.error||'Could not load price lists.'); return; }
+        PRICE_LISTS = r.price_lists || [];
+        renderPriceLists();
+    });
+}
+function loadMappings(){
+    apiGet('listCustomerPriceListDefaults', {}, r => {
+        if(!r.success){ showErr(r.error||'Could not load price list defaults.'); return; }
+        MAPPINGS = r.defaults || [];
+        renderMappings();
+    });
+}
+
+// ---------- currencies ----------
+function renderCurrencies(){
+    const el = document.getElementById('currencyGrid');
+    const enabled = CURRENCIES.filter(c => c.enabled);
+    el.innerHTML = enabled.map(c => `
+      <div class="currency-chip on" onclick="toggleCurrency('${c.name}', false)">
+        <span class="code">${escHtml(c.name)}</span><span class="sym">${escHtml(c.symbol||'')}</span>
+      </div>`).join('') + `
+      <div class="currency-add">
+        <input class="form-control" id="currencyAddInput" placeholder="+ enable another currency…" autocomplete="off"
+          onfocus="onCurrencySearch(this)" oninput="onCurrencySearch(this)">
+        <div class="pick-results" id="currencyAddResults"></div>
+      </div>`;
+}
+function onCurrencySearch(input){
+    const el = document.getElementById('currencyAddResults');
+    openDropdown(input, el);
+    const q = input.value.trim().toUpperCase();
+    const list = CURRENCIES.filter(c => !c.enabled && c.name.toUpperCase().includes(q)).slice(0, 25);
+    el.innerHTML = list.length
+        ? list.map(c => `<div class="opt" onmousedown="event.preventDefault(); toggleCurrency('${c.name}', true); this.closest('.pick-results').classList.remove('show')"><span>${escHtml(c.name)}</span><span style="color:var(--ink-mute)">${escHtml(c.symbol||'')}</span></div>`).join('')
+        : `<div class="opt" style="color:var(--ink-faint);cursor:default">No disabled currency matches</div>`;
+    positionDropdown(input, el);
+}
+function toggleCurrency(currency, enabled){
+    apiCall('setCurrencyEnabled', { data: JSON.stringify({ currency, enabled }) }, r => {
+        if(!r.success){ showErr(r.error || 'Could not update currency.'); return; }
+        showErr('');
+        loadCurrencies();
+    });
+}
+function renderCurrencySelects(){
+    const enabled = CURRENCIES.filter(c => c.enabled);
+    const opts = enabled.map(c => `<option value="${escHtml(c.name)}">${escHtml(c.name)}</option>`).join('');
+    document.getElementById('newCurrency').innerHTML = opts;
+    document.getElementById('qaPlCurrency').innerHTML = opts;
+    const plCur = document.getElementById('priceListAddCurrency');
+    if(plCur) plCur.innerHTML = opts;
+}
+
+// ---------- price lists ----------
+function renderPriceLists(){
+    const el = document.getElementById('priceListGrid');
+    const enabled = PRICE_LISTS.filter(p => p.enabled);
+    el.innerHTML = enabled.map(p => `
+      <div class="currency-chip on" onclick="togglePriceList('${escJs(p.name)}', false)">
+        <span class="code">${escHtml(p.name)}</span><span class="sym">${escHtml(p.currency||'')}</span>
+      </div>`).join('') + `
+      <div class="currency-add">
+        <input class="form-control" id="priceListAddInput" placeholder="+ enable or create a price list…" autocomplete="off"
+          onfocus="onPriceListAddSearch(this)" oninput="onPriceListAddSearch(this)">
+        <div class="pick-results" id="priceListAddResults"></div>
+      </div>`;
+}
+function onPriceListAddSearch(input){
+    const el = document.getElementById('priceListAddResults');
+    openDropdown(input, el);
+    const q = input.value.trim();
+    const qUpper = q.toUpperCase();
+    const list = PRICE_LISTS.filter(p => !p.enabled && p.name.toUpperCase().includes(qUpper)).slice(0, 25);
+    const exists = PRICE_LISTS.some(p => p.name.toUpperCase() === qUpper);
+    let html = list.map(p => `<div class="opt" onmousedown="event.preventDefault(); togglePriceList('${escJs(p.name)}', true); this.closest('.pick-results').classList.remove('show')"><span>${escHtml(p.name)}</span><span style="color:var(--ink-mute)">${escHtml(p.currency||'')}</span></div>`).join('');
+    if(q && !exists){
+        html += `<div class="opt" style="color:var(--ink-3)" onmousedown="event.preventDefault(); openCreatePriceList('${escJs(q)}'); this.closest('.pick-results').classList.remove('show')">+ Create "${escHtml(q)}" as a new price list…</div>`;
+    }
+    el.innerHTML = html || `<div class="opt" style="color:var(--ink-faint);cursor:default">No disabled price list matches</div>`;
+    positionDropdown(input, el);
+}
+function togglePriceList(price_list, enabled){
+    apiCall('setPriceListEnabled', { data: JSON.stringify({ price_list, enabled }) }, r => {
+        if(!r.success){ showErr(r.error || 'Could not update price list.'); return; }
+        showErr('');
+        document.getElementById('priceListAddInput').value = '';
+        loadPriceLists();
+    });
+}
+function openCreatePriceList(name){
+    QA_TARGET_CURRENCY = document.getElementById('newCurrency').value;
+    document.getElementById('qaPlName').value = name;
+    document.getElementById('qaPlCurrency').value = QA_TARGET_CURRENCY;
+    document.getElementById('qaBackdrop').classList.add('show');
+}
+function escJs(s){ return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+
+// ---------- mapping table ----------
+function renderMappings(){
+    const el = document.getElementById('mappingTableWrap');
+    if(!MAPPINGS.length){
+        el.innerHTML = `<div class="aph-empty">No customer defaults set yet — add one above.</div>`;
+        return;
+    }
+    el.innerHTML = `<table class="aph-tbl">
+      <thead><tr><th>Customer</th><th>Currency</th><th>Price List</th><th>Status</th><th style="width:26px"></th></tr></thead>
+      <tbody>
+        ${MAPPINGS.map(m => `
+          <tr>
+            <td><strong style="color:var(--ink)">${escHtml(m.customer)}</strong></td>
+            <td class="mono">${escHtml(m.currency)}</td>
+            <td>${escHtml(m.price_list)}</td>
+            <td><span class="label ${m.disabled ? 'label-default' : 'label-success'}">${m.disabled ? 'Disabled' : 'Active'}</span></td>
+            <td><button class="rowmenu" onclick="deleteMapping('${m.name}')">✕</button></td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+function deleteMapping(name){
+    if(!confirm('Remove this default?')) return;
+    apiCall('deleteCustomerPriceListDefault', { name }, r => {
+        if(!r.success){ showErr(r.error || 'Could not delete.'); return; }
+        loadMappings();
+    });
+}
+
+// ---------- add-mapping row: customer picker ----------
+document.addEventListener('DOMContentLoaded', () => {
+    const custInput = document.getElementById('newCustomer');
+    const custResults = document.getElementById('newCustomerResults');
+    let custTimer = null;
+    function runCustSearch(){
+        openDropdown(custInput, custResults);
+        clearTimeout(custTimer);
+        const q = custInput.value;
+        NEW_CUSTOMER = null;
+        custTimer = setTimeout(() => {
+            apiGetOther('upande_packhouse.api.specifications.searchCustomers', { query: q }, r => {
+                const list = r.customers || [];
+                custResults.innerHTML = list.length
+                    ? list.map(c => `<div class="opt" onmousedown="event.preventDefault(); pickNewCustomer('${c.name.replace(/'/g,"\\'")}')">${escHtml(c.customer_name||c.name)}</div>`).join('')
+                    : `<div class="opt" style="color:var(--ink-faint);cursor:default">No matching customers</div>`;
+                positionDropdown(custInput, custResults);
+            });
+        }, q ? 200 : 0);
+    }
+    custInput.addEventListener('focus', runCustSearch);
+    custInput.addEventListener('input', runCustSearch);
+
+    const plInput = document.getElementById('newPriceList');
+    const plResults = document.getElementById('newPriceListResults');
+    let plTimer = null;
+    function runPlSearch(){
+        openDropdown(plInput, plResults);
+        clearTimeout(plTimer);
+        const q = plInput.value;
+        NEW_PRICE_LIST = null;
+        plTimer = setTimeout(() => {
+            apiGet('searchPriceLists', { query: q }, r => {
+                const list = r.price_lists || [];
+                let html = list.map(p => `<div class="opt" onmousedown="event.preventDefault(); pickNewPriceList('${p.name.replace(/'/g,"\\'")}')">${escHtml(p.name)}<span style="color:var(--ink-mute)">${escHtml(p.currency)}</span></div>`).join('');
+                html += `<div class="opt create-new" onmousedown="event.preventDefault(); openQuickAddFromRow()">+ Create new price list…</div>`;
+                plResults.innerHTML = html;
+                positionDropdown(plInput, plResults);
+            });
+        }, q ? 200 : 0);
+    }
+    plInput.addEventListener('focus', runPlSearch);
+    plInput.addEventListener('input', runPlSearch);
+
+    const aph = document.querySelector('.aph'), btn = document.getElementById('collapseBtn');
+    try { if (localStorage.getItem('aphSideCollapsed') === '1') aph.classList.add('collapsed'); } catch(e){}
+    if (btn) btn.addEventListener('click', () => {
+        aph.classList.toggle('collapsed');
+        try { localStorage.setItem('aphSideCollapsed', aph.classList.contains('collapsed') ? '1' : '0'); } catch(e){}
+    });
+
+    boot();
+});
+
+function pickNewCustomer(name){
+    NEW_CUSTOMER = name;
+    document.getElementById('newCustomer').value = name;
+    closeDropdown(document.getElementById('newCustomerResults'));
+}
+function pickNewPriceList(name){
+    NEW_PRICE_LIST = name;
+    document.getElementById('newPriceList').value = name;
+    closeDropdown(document.getElementById('newPriceListResults'));
+}
+function addMapping(){
+    const currency = document.getElementById('newCurrency').value;
+    if(!NEW_CUSTOMER){ showErr('Pick a customer from the search results first.'); return; }
+    if(!NEW_PRICE_LIST){ showErr('Pick (or create) a price list first.'); return; }
+    showErr('');
+    apiCall('saveCustomerPriceListDefault', { data: JSON.stringify({ customer: NEW_CUSTOMER, currency, price_list: NEW_PRICE_LIST }) }, r => {
+        if(!r.success){ showErr(r.error || 'Could not save this default.'); return; }
+        NEW_CUSTOMER = null; NEW_PRICE_LIST = null;
+        document.getElementById('newCustomer').value = '';
+        document.getElementById('newPriceList').value = '';
+        loadMappings();
+    });
+}
+
+// ---------- quick-add: new Price List ----------
+function openQuickAddFromRow(){
+    QA_TARGET_CURRENCY = document.getElementById('newCurrency').value;
+    document.getElementById('qaPlName').value = '';
+    document.getElementById('qaPlCurrency').value = QA_TARGET_CURRENCY;
+    document.getElementById('qaBackdrop').classList.add('show');
+}
+function closeQuickAdd(){ document.getElementById('qaBackdrop').classList.remove('show'); }
+function submitQuickAddPriceList(){
+    const price_list_name = document.getElementById('qaPlName').value.trim();
+    const currency = document.getElementById('qaPlCurrency').value;
+    if(!price_list_name){ return; }
+    apiCall('createPriceList', { data: JSON.stringify({ price_list_name, currency }) }, r => {
+        if(!r.success){ showErr(r.error || 'Could not create price list.'); return; }
+        closeQuickAdd();
+        if(document.getElementById('newPriceList')) pickNewPriceList(r.name);
+        loadPriceLists();
+        showErr('');
+    });
+}
+</script>
+{% endraw %}
+{% endblock %}

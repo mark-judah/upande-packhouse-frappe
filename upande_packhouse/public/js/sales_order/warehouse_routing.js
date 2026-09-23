@@ -4,13 +4,12 @@
 // filter, so adding a new farm's coldstore to Roses-MAP is the only step
 // needed to make it choosable here too.
 //
-// `warehouse` is left exactly as picked (the farm's Receiving Cold Store).
-// It used to be swapped for Roses-MAP's mapped delivery (Graded Sold)
-// warehouse right on selection -- that skipped the two real stock moves
-// stems must physically make on their way to a customer (coldstore ->
-// Ungraded Sold when a bucket is issued, Ungraded Sold -> Graded Sold when
-// the Farm Pack List submits -- see roses_warehouse_map.py). Those moves
-// now happen at their own real, physical trigger points instead of being
+// `warehouse` is left exactly as picked (the coldstore the stems are sold
+// from). It used to be swapped for Roses-MAP's mapped delivery (Graded Sold)
+// warehouse right on selection -- that skipped the real stock moves stems must
+// physically make on their way to a customer (the Sold leg when a bucket is
+// issued, then Packing/Dispatch/Loading -- see stock_movement.STAGES). Those
+// moves now happen at their own real, physical trigger points instead of being
 // pretended-done the moment a Sales Order line is edited, so this file no
 // longer touches `warehouse` after the operator picks it.
 //
@@ -111,11 +110,11 @@ function is_roses(frm) {
 
    The warehouse a Roses line is sold FROM is not a free choice: Roses-MAP
    already spells out, per farm, the warehouse the stems sit in immediately
-   before the Sold leg moves them into Graded Sold (the packhouse coldstore an
-   outlying farm's stems have already been trucked into -- see
-   roses_warehouse_map.pre_graded_warehouse_from_row, which this calls rather
-   than re-deriving the chain here). So it is prefilled instead of typed, and
-   the link query above still lets the operator override it.
+   before the Sold leg moves them on (the packhouse coldstore an outlying
+   farm's stems have already been trucked into -- see
+   roses_warehouse_map.pre_graded_warehouse, which reads stock_movement's own
+   route rather than re-deriving the chain). So it is prefilled instead of
+   typed, and the link query above still lets the operator override it.
 
    The header's own Set Source Warehouse (`set_warehouse`) is filled from the
    same answer. It is not decoration: ERPNext seeds a grid-added row's
