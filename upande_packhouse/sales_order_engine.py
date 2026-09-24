@@ -115,15 +115,19 @@ def _set_order_summary(doc):
 	of bunch at once -- confirmed real data: XPOL TOSCA_02721_10 has bunch_id
 	1 as a Mixed Bunch (Ever Red + Snow Storm, custom_bunch_group) and bunch_ids
 	2-4 as Mono Bunches feeding the same Mixed Box (custom_mix_group). Deduping
-	bunch_group and mix_group as two separate dimensions -- which is what this
-	function used to do -- means that ONE spec reads as 2 boxes (1 from each
-	dimension) instead of 1. custom_line (the spec) is checked first for
-	exactly this reason: every row filled from the same spec counts toward
-	its box total once, full stop, regardless of which internal tag each of
-	its own bunch_ids happens to carry. Only a row with no spec at all (a
-	manually typed line, or mixed_box_wizard.js's spec-less Mixed Box) falls
-	back to the bunch_group/mix_group dedup, since there's no spec identity
-	to key on there."""
+	bunch_group and mix_group as two separate dimensions reads that as 2 boxes
+	(1 from each dimension) instead of 1 -- this function briefly regressed to
+	that (checking the server-assigned groups first, "because they're the more
+	specific box identity") and custom_total_boxes read 4 instead of 2 for
+	exactly this spec. custom_line (+ custom_length, in case the SAME spec is
+	genuinely filled at two different lengths -- a variety approved at both
+	62 and 72 is two physically different boxes) is checked FIRST for exactly
+	this reason: every row filled from the same spec fill, at the same length,
+	counts toward its box total once, full stop, regardless of which internal
+	tag each of its own bunch_ids happens to carry. Only a row with no spec at
+	all (a manually typed line, or mixed_box_wizard.js's spec-less Mixed Box)
+	falls back to the bunch_group/mix_group dedup, since there's no spec
+	identity to key on there."""
 	total_boxes, total_stems = 0, 0
 	seen_groups = set()
 	for it in doc.items:
@@ -132,21 +136,13 @@ def _set_order_summary(doc):
 		boxes = int(it.get("custom_number_of_boxes") or 0)
 		total_stems += _line_packrate(it) * boxes
 
-		# What counts as ONE box, in order of how specifically it says so.
-		# The server-assigned groups come first because they are the actual
-		# box identity build_spec_rows stamped; `custom_line` is only the
-		# spec's NAME, and one spec legitimately yields several boxes -- a
-		# variety approved at 62 and 72 is two lines, one box each, and the
-		# same spec filled twice is two boxes again. Keying on custom_line
-		# alone collapsed all of those into one and undercounted Total Boxes,
-		# which downstream packing capacity then plans against.
 		group_key = None
-		if it.get("custom_bunch_group"):
+		if it.get("custom_line"):
+			group_key = ("spec", it.custom_line, it.get("custom_length") or "")
+		elif it.get("custom_bunch_group"):
 			group_key = ("bunch", it.custom_bunch_group)
 		elif it.get("custom_mix_group"):
 			group_key = ("mix", it.custom_mix_group)
-		elif it.get("custom_line"):
-			group_key = ("spec", it.custom_line, it.get("custom_length") or "")
 		if group_key:
 			if group_key in seen_groups:
 				continue

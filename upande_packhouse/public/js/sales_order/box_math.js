@@ -105,10 +105,18 @@ function row_stems_per_box(row) {
 // A spec is one box, and a spec can define BOTH bunch types at once
 // (confirmed real data: XPOL TOSCA_02721_10 -- bunch_id 1 is a Mixed Bunch,
 // bunch_ids 2-4 are Mono Bunches feeding the same Mixed Box), so custom_line
-// is checked FIRST: every row filled from the same spec counts once toward
-// its box total, no matter which of the two group tags it carries. Only a
-// row with no spec (manually typed, or mixed_box_wizard.js's spec-less
-// Mixed Box) falls back to bunch_group/mix_group.
+// (+ custom_length, in case the SAME spec is genuinely filled at two
+// different lengths -- a variety approved at both 62 and 72 is two
+// physically different boxes) is checked FIRST: every row filled from the
+// same spec fill, at the same length, counts once toward its box total, no
+// matter which of the two internal group tags it carries. Checking the
+// server-assigned groups first (as "the more specific box identity") reads
+// a spec with both bunch types as 2 boxes instead of 1 -- confirmed live,
+// custom_total_boxes showed 4 instead of 2 for this exact spec. Only a row
+// with no spec (manually typed, or mixed_box_wizard.js's spec-less Mixed
+// Box) falls back to bunch_group/mix_group. Must match
+// sales_order_engine._set_order_summary's own order of precedence exactly,
+// or the live preview and the saved figure disagree.
 function recompute_order_summary(frm) {
 	let boxes = 0,
 		stems = 0;
@@ -118,16 +126,10 @@ function recompute_order_summary(frm) {
 		const b = cint(it.custom_number_of_boxes);
 		stems += row_stems_per_box(it) * b;
 
-		// Same box identity, same order of precedence, as the server's
-		// sales_order_engine._set_order_summary -- the two must agree or the
-		// preview and the saved figure disagree. Server-assigned groups first;
-		// custom_line is only the spec's name, and one spec can be several
-		// boxes (a variety approved at 62 and 72, or the same spec filled
-		// twice), so it is keyed with the length.
 		let group_key = null;
-		if (it.custom_bunch_group) group_key = "bunch::" + it.custom_bunch_group;
+		if (it.custom_line) group_key = "spec::" + it.custom_line + "::" + (it.custom_length || "");
+		else if (it.custom_bunch_group) group_key = "bunch::" + it.custom_bunch_group;
 		else if (it.custom_mix_group) group_key = "mix::" + it.custom_mix_group;
-		else if (it.custom_line) group_key = "spec::" + it.custom_line + "::" + (it.custom_length || "");
 		if (group_key) {
 			if (seen_groups.has(group_key)) return;
 			seen_groups.add(group_key);
