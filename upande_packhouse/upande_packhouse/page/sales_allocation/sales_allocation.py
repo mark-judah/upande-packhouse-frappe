@@ -606,14 +606,29 @@ def get_sales_order_items_with_buckets(
             DATEDIFF(CURDATE(), COALESCE(si.harvest_date, si.date_added)) AS age_days,
             TIMESTAMPDIFF(HOUR, si.date_added, %s) AS hours_since_shelved,
             COALESCE(bas.allocated_quantity, 0) AS allocated_qty,
-            COALESCE(si.stem_qty, 0) - COALESCE(bas.allocated_quantity, 0) AS available_qty,
+            GREATEST(0, COALESCE(si.stem_qty, 0) - COALESCE(bas.allocated_quantity, 0)) AS available_qty,
             COALESCE(si.cut_stage, '') AS cut_stage,
             COALESCE(bas.in_transit, 0) AS in_transit
-        FROM `tabShelf Item` si
+        FROM (
+            -- One row per (bucket, variety, length, shelf). Shelving can write the
+            -- same bucket's stems as several rows (one per receiving row), and a
+            -- per-row LEFT JOIN to Bucket Allocation Status would subtract the
+            -- whole allocation from EACH row -- which is how the page showed
+            -- -40 / -30 for a 70-stem bucket fully allocated.
+            SELECT bucket_id, variety, stem_length, parent,
+                   SUM(COALESCE(stem_qty, 0)) AS stem_qty,
+                   MIN(date_added) AS date_added,
+                   MIN(harvest_date) AS harvest_date,
+                   MIN(warehouse) AS warehouse,
+                   MIN(cut_stage) AS cut_stage
+            FROM `tabShelf Item`
+            GROUP BY bucket_id, variety, stem_length, parent
+        ) si
         INNER JOIN `tabShelf` s ON s.name = si.parent
         LEFT JOIN `tabBucket Allocation Status` bas
             ON bas.bucket_id = si.bucket_id
             AND bas.item_code = si.variety
+            AND COALESCE(bas.stem_length, '') = COALESCE(si.stem_length, '')
         WHERE s.farm IN ({farm_placeholders})
           AND si.variety IN ({ic_placeholders})
           AND DATEDIFF(CURDATE(), COALESCE(si.harvest_date, si.date_added)) < %s
@@ -921,10 +936,25 @@ def get_bucket_visibility_diagnostics(
                   AND COALESCE(dr.workflow_state, '') != 'Rejected'
                 ORDER BY dr.creation DESC LIMIT 1
             ) AS discard_request
-        FROM `tabShelf Item` si
+        FROM (
+            -- One row per (bucket, variety, length, shelf). Shelving can write the
+            -- same bucket's stems as several rows (one per receiving row), and a
+            -- per-row LEFT JOIN to Bucket Allocation Status would subtract the
+            -- whole allocation from EACH row -- which is how the page showed
+            -- -40 / -30 for a 70-stem bucket fully allocated.
+            SELECT bucket_id, variety, stem_length, parent,
+                   SUM(COALESCE(stem_qty, 0)) AS stem_qty,
+                   MIN(date_added) AS date_added,
+                   MIN(harvest_date) AS harvest_date,
+                   MIN(warehouse) AS warehouse,
+                   MIN(cut_stage) AS cut_stage
+            FROM `tabShelf Item`
+            GROUP BY bucket_id, variety, stem_length, parent
+        ) si
         INNER JOIN `tabShelf` s ON s.name = si.parent
         LEFT JOIN `tabBucket Allocation Status` bas
             ON bas.bucket_id = si.bucket_id AND bas.item_code = si.variety
+            AND COALESCE(bas.stem_length, '') = COALESCE(si.stem_length, '')
         WHERE si.variety = %s
           AND s.farm IN ({farm_ph})
           AND COALESCE(si.stem_qty, 0) > 0
@@ -952,7 +982,7 @@ def get_bucket_visibility_diagnostics(
 		b_cm = _parse_cm(b["stem_length"])
 		is_sales_shelf = farm_config.get(b["shelf_farm"], {}).get("sales_shelf", 0)
 		farm_max_age = farm_config.get(b["shelf_farm"], {}).get("max_allocation_age", 5)
-		available_qty = (b["stems"] or 0) - (b["allocated_qty"] or 0)
+		available_qty = max(0, (b["stems"] or 0) - (b["allocated_qty"] or 0))
 		age_days = b["age_days"] or 0
 
 		reason = None
@@ -1258,7 +1288,10 @@ def recompute_bas_quantities(bas, shelf_qty=None):
 
 	outstanding = [r for r in bas.bucket_allocations if not r.cancelled and not r.issued]
 	bas.allocated_quantity = sum(flt(r.quantity_allocated) for r in outstanding)
-	bas.available_quantity = flt(bas.total_quantity) - bas.allocated_quantity
+	# Floored at 0: a bucket whose stems left the shelf by another route (a reused
+	# bucket re-harvested or re-graded clears its old Shelf Items) still has its
+	# un-issued rows outstanding, and total - allocated then goes negative.
+	bas.available_quantity = max(0, flt(bas.total_quantity) - bas.allocated_quantity)
 	return outstanding
 
 
@@ -1533,6 +1566,9 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 			bas.allocated_quantity = 0
 			bas.available_quantity = bas.total_quantity
 
+		# Re-sync against the live shelf before checking: the stored figure is only
+		# as fresh as the last write, and the shelf may have changed since.
+		recompute_bas_quantities(bas, shelf_qty=shelf["stem_qty"])
 		current_available = float(bas.available_quantity or 0)
 		requested = sum(float(a.get("qty", 0)) for a in group)
 
@@ -2574,11 +2610,26 @@ def get_substitute_varieties(
         LEFT JOIN (
             SELECT
                 si.variety AS item_code,
-                SUM(COALESCE(si.stem_qty, 0) - COALESCE(bas.allocated_quantity, 0)) AS available_qty
-            FROM `tabShelf Item` si
+                SUM(GREATEST(0, COALESCE(si.stem_qty, 0) - COALESCE(bas.allocated_quantity, 0))) AS available_qty
+            FROM (
+                -- One row per (bucket, variety, length, shelf). Shelving can write the
+                -- same bucket's stems as several rows (one per receiving row), and a
+                -- per-row LEFT JOIN to Bucket Allocation Status would subtract the
+                -- whole allocation from EACH row -- which is how the page showed
+                -- -40 / -30 for a 70-stem bucket fully allocated.
+                SELECT bucket_id, variety, stem_length, parent,
+                       SUM(COALESCE(stem_qty, 0)) AS stem_qty,
+                       MIN(date_added) AS date_added,
+                       MIN(harvest_date) AS harvest_date,
+                       MIN(warehouse) AS warehouse,
+                       MIN(cut_stage) AS cut_stage
+                FROM `tabShelf Item`
+                GROUP BY bucket_id, variety, stem_length, parent
+            ) si
             INNER JOIN `tabShelf` s ON s.name = si.parent
             LEFT JOIN `tabBucket Allocation Status` bas
                 ON bas.bucket_id = si.bucket_id AND bas.item_code = si.variety
+                AND COALESCE(bas.stem_length, '') = COALESCE(si.stem_length, '')
             WHERE s.farm IN ({farm_placeholders})
               AND DATEDIFF(CURDATE(), COALESCE(si.harvest_date, si.date_added)) < %s
               {DISCARD_EXCLUSION}

@@ -4282,7 +4282,8 @@ def issueBucketToSaleOrderItem():
 					# custom_sale_order_item or sales_order_item.
 					pick_list_items = frappe.db.sql(
 						"""
-						SELECT name, parent, source_warehouse, item_code, stock_qty, issued, farm
+						SELECT name, parent, source_warehouse, item_code, stock_qty, issued, farm,
+						       COALESCE(stem_length, '') AS stem_length
 						FROM `tabPick List Item`
 						WHERE bucket = %(bucket)s
 						  AND parenttype = 'Order Pick List'
@@ -4322,23 +4323,50 @@ def issueBucketToSaleOrderItem():
 					# decrement. The whole block re-runs on a repeated scan by design
 					# (see the note above) and every other step no-ops on a repeat --
 					# subtracting again would quietly destroy real shelf stock.
+					# Keyed per (variety, length): one bucket can hold the same variety
+					# at two lengths, and only the drawn length may shrink.
 					issued_by_variety = {}
 					for pli in pick_list_items:
 						if pli.get("item_code") and not pli.get("issued"):
-							issued_by_variety[pli["item_code"]] = issued_by_variety.get(
-								pli["item_code"], 0
-							) + flt(pli.get("stock_qty"))
+							key = (pli["item_code"], pli.get("stem_length") or "")
+							issued_by_variety[key] = issued_by_variety.get(key, 0) + flt(pli.get("stock_qty"))
 
 					shelf_items = frappe.db.get_all(
 						"Shelf Item",
 						filters={"bucket_id": bucket_id},
-						fields=["name", "parent", "variety", "stem_qty"],
+						fields=["name", "parent", "variety", "stem_qty", "stem_length"],
+						order_by="idx asc",
 					)
+
+					# Draw each key's stems across its rows in turn. Taking the full
+					# issued qty off EVERY matching row emptied a bucket split over
+					# duplicate rows (60 + 40, 80 issued -> both deleted) and left the
+					# sibling line's allocation outstanding against nothing.
+					left_to_take = dict(issued_by_variety)
+					taken_by_row = {}
+					for item in shelf_items:
+						variety = item.get("variety")
+						key = (variety, item.get("stem_length") or "")
+						if key not in left_to_take:
+							# One side carries no length: match on variety alone.
+							key = next(
+								(
+									k
+									for k in left_to_take
+									if k[0] == variety and (not k[1] or not item.get("stem_length"))
+								),
+								key,
+							)
+						if left_to_take.get(key, 0) <= 0:
+							continue
+						row_take = min(flt(item.get("stem_qty")), left_to_take[key])
+						left_to_take[key] -= row_take
+						taken_by_row[item.name] = row_take
 
 					removed_from_shelf = []
 					kept_on_shelf = []
 					for item in shelf_items:
-						taken = issued_by_variety.get(item.get("variety"), 0)
+						taken = taken_by_row.get(item.name, 0)
 						remaining = flt(item.get("stem_qty")) - taken
 						# Keyed on `pick_list_items`, NOT on `issued_by_variety`: on a
 						# repeated scan every row is already issued=1 so nothing is newly
@@ -4400,14 +4428,13 @@ def issueBucketToSaleOrderItem():
 						recompute_bas_quantities,
 					)
 
-					for variety, taken in issued_by_variety.items():
+					for (variety, length), taken in issued_by_variety.items():
 						if not taken:
 							continue
-						bas_name = frappe.db.get_value(
-							"Bucket Allocation Status",
-							{"bucket_id": bucket_id, "item_code": variety},
-							"name",
-						)
+						bas_filters = {"bucket_id": bucket_id, "item_code": variety}
+						if length:
+							bas_filters["stem_length"] = length
+						bas_name = frappe.db.get_value("Bucket Allocation Status", bas_filters, "name")
 						if not bas_name:
 							continue
 						try:
@@ -4416,12 +4443,16 @@ def issueBucketToSaleOrderItem():
 								if row.sales_order_item == sale_order_item and not row.cancelled:
 									row.issued = 1
 									row.db_update()
-							shelf_left = frappe.db.get_value(
-								"Shelf Item", {"bucket_id": bucket_id, "variety": variety}, "stem_qty"
+							# Sum every row still on the shelf for this length -- a
+							# single get_value read one arbitrary row.
+							shelf_filters = {"bucket_id": bucket_id, "variety": variety}
+							if bas.stem_length:
+								shelf_filters["stem_length"] = bas.stem_length
+							shelf_left = sum(
+								flt(q)
+								for q in frappe.get_all("Shelf Item", filters=shelf_filters, pluck="stem_qty")
 							)
-							recompute_bas_quantities(
-								bas, shelf_qty=shelf_left if shelf_left is not None else 0
-							)
+							recompute_bas_quantities(bas, shelf_qty=shelf_left)
 							bas.flags.ignore_validate = True
 							bas.flags.ignore_mandatory = True
 							bas.save(ignore_permissions=True)
@@ -4501,10 +4532,25 @@ def issueBucketToSaleOrderItem():
 
 	except Exception as e:
 		frappe.db.rollback()
-		frappe.log_error("Coldstore Issue Error", e)
-		frappe.response.message = f"Error issuing bucket: {e!s}"
+		# Log the TRACEBACK, not the exception object. frappe.log_error treats a
+		# truthy `message` as the text to store, so passing `e` stored str(e) --
+		# and an exception raised with no message (a bare `raise SomeError`, an
+		# AssertionError, a StopIteration) left an Error Log whose error field
+		# was completely empty, with the real stack lost. Confirmed real data:
+		# Coldstore Issue Error for bucket 398ba7 / OPL-2026-00172, error "".
+		frappe.log_error(
+			title="Coldstore Issue Error",
+			message=(
+				f"bucket={bucket_id if 'bucket_id' in locals() else '?'} "
+				f"soi={sale_order_item if 'sale_order_item' in locals() else '?'} "
+				f"opl={opl_name if 'opl_name' in locals() else '?'}\n"
+				f"{type(e).__name__}: {e!s}\n\n{frappe.get_traceback(with_context=True)}"
+			),
+		)
+		detail = str(e) or type(e).__name__
+		frappe.response.message = f"Error issuing bucket: {detail}"
 		frappe.response.http_status_code = 500
-		frappe.response.data = {"error": str(e)}
+		frappe.response.data = {"error": detail, "error_type": type(e).__name__}
 
 
 @frappe.whitelist()
@@ -4874,19 +4920,30 @@ def shelveBucket():
 	shelf_doc.farm = farm
 	total_qty = 0
 	new_items = []
+	# A Receiving entry can carry several rows for the SAME variety (one per
+	# Harvesting scan of the bucket). Shelving must still produce ONE Shelf
+	# Item per variety: every availability read joins Bucket Allocation Status
+	# per row, so two rows for one variety would each have the whole allocation
+	# subtracted and the allocation page would show negative stock.
+	merged = {}
 	for ri in receiving_doc.items:
+		key = ri.item_code
+		if key not in merged:
+			merged[key] = {"item_code": ri.item_code, "qty": 0, "s_warehouse": ri.s_warehouse, "t_warehouse": ri.t_warehouse}
+		merged[key]["qty"] += ri.qty or 0
+	for ri in merged.values():
 		new_item = shelf_doc.append("items", {})
 		new_item.bucket_id = bucket_id
-		new_item.variety = ri.item_code
+		new_item.variety = ri["item_code"]
 		new_item.date_added = frappe.utils.now_datetime()
 		new_item.stem_length = stem_length
-		new_item.stem_qty = ri.qty
-		new_item.greenhouse = ri.s_warehouse
-		new_item.warehouse = ri.t_warehouse
+		new_item.stem_qty = ri["qty"]
+		new_item.greenhouse = ri["s_warehouse"]
+		new_item.warehouse = ri["t_warehouse"]
 		new_item.farm = farm
 		new_item.harvest_date = harvest_date
 		new_item.receiving_date = recv_date
-		total_qty += ri.qty or 0
+		total_qty += ri["qty"] or 0
 		new_items.append(new_item)
 	shelf_doc.save(ignore_permissions=True)
 

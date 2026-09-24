@@ -141,40 +141,57 @@ def _all_approved_varieties(approved_by_colour):
 	return [v for v in out if not (v in seen or seen.add(v))]
 
 
-def _bunches_from_spec(doc):
-	"""When every Approved Variety row carries a bunch_id, pair each bunch's
-	Approved Variety row(s) with the Box Item row(s) sharing that same
-	bunch_id -- matched positionally, but only WITHIN one bunch's own rows
-	(the shared id already narrows this to just that recipe, not a guess
-	across the whole spec the way box_options used to be offered).
+def _slot_item(slot, av):
+	"""The Box Item row that describes `av`'s pack inside `slot`. Per-variety
+	when the spec paired one Box Item row to every Approved Variety row (see
+	_bunch_shape), otherwise the slot's one shared Box Item."""
+	return (slot.get("items_by_variety") or {}).get(av.variety) or slot["box_item"]
 
-	A bunch_id's rows are grouped into "slots" -- one per Box Item row,
-	which is one per distinct COLOUR -- regardless of Mono vs Mixed Bunch.
-	A colour can carry several candidate varieties: substitutes for each
-	other, never delivered together, one marked is_primary (see Spec
-	Approved Variety.is_primary). `candidates` is sorted primary-first, so
-	a caller that ignores substitutes entirely (falls back to
-	`candidates[0]`) still gets the right default variety. This used to be
-	Mono-Bunch-only -- Mixed Bunch forced exactly one variety per colour,
-	no substitutes -- but that was an arbitrary restriction: a Mixed
-	Bunch's colours combine stem-by-stem with EACH OTHER, and that's
-	independent of whether any one colour also has approved substitutes.
-	Distinct-colour count must match Box Item row count, in row order, for
-	both bunch types alike.
 
-	Returns (bunch_aware, bunches). bunch_aware is False -- and bunches []
-	-- the moment any Approved Variety row lacks a bunch_id, so a spec that
-	hasn't been touched since bunch_id was added behaves exactly as before;
-	this is deliberately all-or-nothing rather than mixing the old flat
-	picker with the new recipe view on one spec.
+def _bunch_shape(doc):
+	"""Pair each bunch_id's Approved Variety rows with its Box Item rows.
 
-	Throws if a bunch_id's slot counts don't match 1:1 against its Box Item
-	rows -- that's a genuinely broken recipe, not something to guess
-	through silently.
+	Returns (bunch_aware, bunches, issues). bunch_aware is False -- and the
+	other two empty -- the moment any Approved Variety row lacks a bunch_id,
+	so a spec that hasn't been touched since bunch_id was added keeps the
+	flat picker; deliberately all-or-nothing rather than mixing the two
+	views on one spec. `issues` is a list of human-readable problems; the
+	callers decide whether to throw (autofill) or just warn (spec save).
+
+	A bunch_id's Approved Variety rows are grouped into "slots", one per
+	distinct COLOUR, regardless of Mono vs Mixed Bunch. A colour can carry
+	several candidate varieties: substitutes for each other, never
+	delivered together, one marked is_primary (see Spec Approved
+	Variety.is_primary). `candidates` is sorted primary-first, so a caller
+	that ignores substitutes entirely (falls back to `candidates[0]`) still
+	gets the right default variety.
+
+	Two Box Item shapes are accepted for a bunch_id, matched positionally
+	but only WITHIN that bunch's own rows:
+
+	  one Box Item row per COLOUR    -- every candidate in a slot shares the
+	                                    slot's single pack shape (the
+	                                    original model).
+	  one Box Item row per VARIETY   -- Approved Variety row j pairs with Box
+	                                    Item row j, so each substitute has
+	                                    its OWN stems/bunch, bunches/box and
+	                                    pack_rate. Confirmed real data:
+	                                    ROSE WHITE MONO 40 JS -- one White
+	                                    slot, Athena at 94 bunches/box (846)
+	                                    and Snowstorm at 80 (720). Only the
+	                                    picked candidate's shape ships, so a
+	                                    box still has exactly one stems total.
+
+	When the counts coincide (every colour has exactly one candidate) the
+	two shapes are the same thing, and the per-colour pairing is used.
+	Anything else is a genuinely broken recipe and is reported in `issues`
+	rather than guessed through. Each slot exposes `box_item` (the primary
+	candidate's pack, the slot's default) and `items_by_variety` -- always
+	read a candidate's pack through _slot_item, never `box_item` directly.
 	"""
 	avs = doc.approved_varieties or []
 	if not avs or not all(av.bunch_id for av in avs):
-		return False, []
+		return False, [], []
 
 	varieties_by_bunch = {}
 	for av in avs:
@@ -212,40 +229,73 @@ def _bunches_from_spec(doc):
 				by_colour[c] = []
 				colour_order.append(c)
 			by_colour[c].append(av)
-		if len(by_colour) != len(bi_rows):
+
+		per_colour = len(bi_rows) == len(by_colour)
+		per_variety = not per_colour and len(bi_rows) == len(av_rows)
+		if not per_colour and not per_variety:
 			issues.append(
-				"Bunch '{0}': {1} distinct colour(s) among its Approved Varieties but {2} "
-				"Box Item row(s) carry this bunch_id -- they must match 1:1.".format(
-					bunch_id, len(by_colour), len(bi_rows)
+				"Bunch '{0}': {1} Approved Variety row(s) in {2} distinct colour(s), but {3} "
+				"Box Item row(s) carry this bunch_id -- there must be one Box Item per colour "
+				"(substitutes share a pack) or one per variety (each substitute has its own pack).".format(
+					bunch_id, len(av_rows), len(by_colour), len(bi_rows)
 				)
 			)
 			continue
-		slots = [
-			{
-				"colour": colour,
-				"box_item": bi,
-				"candidates": sorted(by_colour[colour], key=lambda a: 0 if a.is_primary else 1),
-			}
-			for bi, colour in zip(bi_rows, colour_order, strict=True)
-		]
+
+		item_for_av = {}
+		if per_variety:
+			for av, bi in zip(av_rows, bi_rows, strict=True):
+				item_for_av[av.name or id(av)] = bi
+
+		slots = []
+		for i, colour in enumerate(colour_order):
+			candidates = sorted(by_colour[colour], key=lambda a: 0 if a.is_primary else 1)
+			if per_variety:
+				items_by_variety = {av.variety: item_for_av[av.name or id(av)] for av in candidates}
+				default_item = items_by_variety[candidates[0].variety]
+			else:
+				items_by_variety = {}
+				default_item = bi_rows[i]
+			slots.append(
+				{
+					"colour": colour,
+					"box_item": default_item,
+					"items_by_variety": items_by_variety,
+					"candidates": candidates,
+				}
+			)
 
 		bunches.append({"bunch_id": bunch_id, "is_mixed": is_mixed, "slots": slots})
-
-	if issues:
-		frappe.throw(
-			_(
-				"This spec's bunch_id grouping doesn't line up and can't be used for autofill "
-				"until it's fixed:<br>{0}"
-			).format("<br>".join(issues)),
-			title=_("Bunch ID Mismatch"),
-		)
 
 	# Preserve the spec's own row order rather than dict-iteration order.
 	order = {}
 	for av in avs:
 		order.setdefault(av.bunch_id, len(order))
 	bunches.sort(key=lambda b: order.get(b["bunch_id"], 0))
-	return True, bunches
+	return True, bunches, issues
+
+
+def bunch_shape_issues(doc):
+	"""Problems with `doc`'s bunch_id grouping, as _bunch_shape sees them --
+	empty for a flat (non bunch-aware) spec or a clean one. Used by the
+	Specifications doctype to warn the person EDITING the spec, so a shape
+	the autofill will refuse is seen there and not first at Sales Order time."""
+	return _bunch_shape(doc)[2]
+
+
+def _bunches_from_spec(doc):
+	"""_bunch_shape for the autofill: throws on any grouping issue -- that's
+	a genuinely broken recipe, not something to guess through silently."""
+	bunch_aware, bunches, issues = _bunch_shape(doc)
+	if issues:
+		frappe.throw(
+			_(
+				"Specification {0}'s bunch_id grouping doesn't line up and can't be used for autofill "
+				"until it's fixed:<br>{1}"
+			).format(frappe.bold(doc.name), "<br>".join(issues)),
+			title=_("Bunch ID Mismatch"),
+		)
+	return bunch_aware, bunches
 
 
 def _uom_for(stems_per_bunch):
@@ -424,12 +474,24 @@ def _spec_fill_data_by_bunch(doc, bunches):
 	slot carries every variety approved under that slot's colour, annotated
 	with LIVE shelf availability, so the operator still picks whichever one
 	has stock -- same as the original flat picker, just correctly scoped to
-	this slot's own box shape instead of the spec's whole box_item palette."""
+	this slot's own box shape instead of the spec's whole box_item palette.
+
+	A slot's stems_per_bunch/bunches_per_box/pack_rate/length are the
+	DEFAULT (primary candidate's) pack; every candidate also carries its own
+	copy, which differs only on a spec that gave each substitute its own
+	Box Item row (see _bunch_shape). The dialog totals from the picked
+	candidate's pack, and build_spec_rows ships that same pack."""
 	all_varieties = sorted(
 		{av.variety for b in bunches for slot in b["slots"] for av in slot["candidates"] if av.variety}
 	)
 	all_lengths = sorted(
-		{slot["box_item"].length for b in bunches for slot in b["slots"] if slot["box_item"].length}
+		{
+			_slot_item(slot, av).length
+			for b in bunches
+			for slot in b["slots"]
+			for av in slot["candidates"]
+			if _slot_item(slot, av).length
+		}
 	)
 	avail = variety_availability(all_varieties, all_lengths) if all_varieties else {}
 	names = _item_lookup(all_varieties)
@@ -442,12 +504,17 @@ def _spec_fill_data_by_bunch(doc, bunches):
 			candidates = []
 			for av in slot["candidates"]:
 				by_farm = avail.get(av.variety, {})
+				cbi = _slot_item(slot, av)
 				candidates.append(
 					{
 						"variety": av.variety,
 						"item_name": names.get(av.variety, {}).get("item_name", av.variety),
 						"available": sum(by_farm.values()),
 						"by_farm": by_farm,
+						"stems_per_bunch": cbi.stems_per_bunch or 0,
+						"bunches_per_box": cbi.bunches_per_box or 0,
+						"pack_rate": cbi.pack_rate or 0,
+						"length": cbi.length or "",
 					}
 				)
 			slots.append(
@@ -505,11 +572,12 @@ def _build_spec_rows_by_bunch(doc, bunches, selections, next_mix_group, detail, 
 
 	After building the rows, their total stems must equal the spec's own
 	per-box stems total x boxes -- doubling Boxes must double stems, no
-	silent drift. A mismatch means a slot's chosen candidate disagrees
-	with its own Box Item's pack_rate, which should be structurally
-	impossible but is cheap to catch here before it reaches a Sales Order
-	(see AGENTS.md's UOM/stems history for why that's worth being paranoid
-	about).
+	silent drift. The per-box total is summed over every slot of every
+	bunch from the pack the operator picked there (a substitute can carry
+	its own Box Item row, see _bunch_shape), so a slot that produced no
+	row -- or a row built off the wrong Box Item -- is caught here before
+	it reaches a Sales Order (see AGENTS.md's UOM/stems history for why
+	that's worth being paranoid about).
 	"""
 	by_bunch_id = {b["bunch_id"]: b for b in bunches}
 	is_mixed_box = doc.box_assortment == "Mixed Box"
@@ -526,13 +594,26 @@ def _build_spec_rows_by_bunch(doc, bunches, selections, next_mix_group, detail, 
 	if missing:
 		frappe.throw(
 			_(
-				"Every bunch on this spec is part of the one box it describes -- "
-				"missing from this fill: {0}"
+				"Every bunch on this spec is part of the one box it describes -- missing from this fill: {0}"
 			).format(", ".join(sorted(missing)))
 		)
 
 	mix_group = int(next_mix_group or 1)
-	spec_stems_per_box = sum((slot["box_item"].pack_rate or 0) for b in bunches for slot in b["slots"])
+	picks_by_bunch = {s.get("bunch_id"): (s.get("picks") or {}) for s in selections}
+
+	def _chosen(slot, picks):
+		candidates = {av.variety: av for av in slot["candidates"]}
+		chosen = candidates.get(picks.get(slot["colour"]))
+		if not chosen and slot["candidates"]:
+			chosen = slot["candidates"][0]
+		return chosen
+
+	spec_stems_per_box = 0
+	for b in bunches:
+		for slot in b["slots"]:
+			av = _chosen(slot, picks_by_bunch.get(b["bunch_id"], {}))
+			bi = _slot_item(slot, av) if av else slot["box_item"]
+			spec_stems_per_box += bi.pack_rate or 0
 
 	rows = []
 	for s in selections:
@@ -543,12 +624,9 @@ def _build_spec_rows_by_bunch(doc, bunches, selections, next_mix_group, detail, 
 		picks = s.get("picks") or {}
 		slot_choices = []
 		for slot in bunch["slots"]:
-			candidates = {av.variety: av for av in slot["candidates"]}
-			chosen = candidates.get(picks.get(slot["colour"]))
-			if not chosen and slot["candidates"]:
-				chosen = slot["candidates"][0]
+			chosen = _chosen(slot, picks)
 			if chosen:
-				slot_choices.append((slot["box_item"], chosen))
+				slot_choices.append((_slot_item(slot, chosen), chosen))
 		if not slot_choices:
 			continue
 

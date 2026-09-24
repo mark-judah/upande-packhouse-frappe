@@ -132,21 +132,21 @@ def _set_order_summary(doc):
 		boxes = int(it.get("custom_number_of_boxes") or 0)
 		total_stems += _line_packrate(it) * boxes
 
-		# What counts as ONE box, in order of how specifically it says so.
-		# The server-assigned groups come first because they are the actual
-		# box identity build_spec_rows stamped; `custom_line` is only the
-		# spec's NAME, and one spec legitimately yields several boxes -- a
-		# variety approved at 62 and 72 is two lines, one box each, and the
-		# same spec filled twice is two boxes again. Keying on custom_line
-		# alone collapsed all of those into one and undercounted Total Boxes,
-		# which downstream packing capacity then plans against.
+		# custom_line stays FIRST -- see the docstring: one spec can stamp BOTH
+		# custom_bunch_group (its Mixed Bunch rows) and custom_mix_group (its
+		# Mono rows), so checking those first splits ONE box into two keys and
+		# doubles the count. What custom_line alone got wrong is only that a
+		# spec is not always a single box: the same spec filled at two stem
+		# lengths is two boxes, one per length (build_spec_rows stamps
+		# custom_length on every row). Keying the spec BY LENGTH fixes that
+		# without disturbing the bunch/mix grouping.
 		group_key = None
-		if it.get("custom_bunch_group"):
+		if it.get("custom_line"):
+			group_key = ("spec", it.custom_line, it.get("custom_length") or "")
+		elif it.get("custom_bunch_group"):
 			group_key = ("bunch", it.custom_bunch_group)
 		elif it.get("custom_mix_group"):
 			group_key = ("mix", it.custom_mix_group)
-		elif it.get("custom_line"):
-			group_key = ("spec", it.custom_line, it.get("custom_length") or "")
 		if group_key:
 			if group_key in seen_groups:
 				continue
@@ -325,7 +325,9 @@ def sales_order_validate(doc, method=None):
 			continue
 		item_sales_uom = frappe.db.get_value("Item", it.item_code, "sales_uom")
 		if item_sales_uom and it.uom != item_sales_uom:
-			wrong_uom.append("{0} (line has {1}, item's Sales UOM is {2})".format(it.item_code, it.uom, item_sales_uom))
+			wrong_uom.append(
+				"{0} (line has {1}, item's Sales UOM is {2})".format(it.item_code, it.uom, item_sales_uom)
+			)
 	if wrong_uom:
 		frappe.throw(
 			_(

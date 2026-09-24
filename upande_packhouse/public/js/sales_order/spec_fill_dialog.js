@@ -11,12 +11,14 @@
    with one deliberate interaction change from that reference: a colour
    there could have several varieties ticked on independently, each its own
    additive line. Here a colour is one Approved-Variety SLOT (see
-   Specifications' colour/is_primary model) -- every candidate in it shares
-   ONE stems_per_bunch/pack_rate, so at most one is ever actually delivered;
-   the others are substitutes, not additional ingredients. So selection is
-   single-pick per colour (defaulting to the primary candidate), not a
-   free multi-select -- picking two candidates in the same colour would
-   otherwise produce two lines with the same rate for no real reason.
+   Specifications' colour/is_primary model) -- at most one candidate is
+   ever actually delivered; the others are substitutes, not additional
+   ingredients. So selection is single-pick per colour (defaulting to the
+   primary candidate), not a free multi-select. A candidate usually shares
+   the slot's pack (stems_per_bunch/pack_rate), but a spec may give each
+   substitute its OWN Box Item row (spec_autofill._bunch_shape), so every
+   candidate carries its own pack and all stems totals here are computed
+   from the PICKED candidate's pack, never the slot default.
 
    window.upande_open_spec_fill_dialog(fillData, opts)
      fillData = the exact object spec_autofill.get_spec_fill_data returns.
@@ -82,6 +84,8 @@ const USFD_CSS = `
 .usfd-v__badge{font:600 9.5px var(--sans);text-transform:uppercase;letter-spacing:.6px;color:var(--signal);margin-top:1px}
 .usfd-v.is-on .usfd-v__badge.sub{color:var(--ink-mute)}
 .usfd-v__qty{font:600 19px/1.2 var(--sans);color:var(--ink);letter-spacing:-.4px;font-variant-numeric:tabular-nums;margin-top:3px}
+.usfd-v__pack{display:block;font:500 11px var(--sans);color:var(--ink-mute);letter-spacing:.2px;font-variant-numeric:tabular-nums}
+.usfd-v__pack b{color:var(--ink-3);font-weight:600}
 .usfd-v__qty small{font:400 11px var(--sans);color:var(--ink-mute);letter-spacing:0}
 .usfd-v.is-out .usfd-v__qty{color:var(--ink-faint)}
 .usfd-v__wh{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
@@ -118,12 +122,27 @@ const USFD_CSS = `
 `;
 
 const USFD_SWATCH = {
-	lilac: "#b9a3d9", lavender: "#b9a3d9", purple: "#7d5aa6", pink: "#ec9fbc", "hot pink": "#e0508a", cerise: "#d23a78",
-	white: "#f3f1ea", cream: "#f3e6c4", red: "#c4302b", yellow: "#f2cf5b", orange: "#f0934a", peach: "#f5c1a0",
-	salmon: "#f2a08a", green: "#a3c98f", blue: "#4c78b8", fuchsia: "#c23b8a",
+	lilac: "#b9a3d9",
+	lavender: "#b9a3d9",
+	purple: "#7d5aa6",
+	pink: "#ec9fbc",
+	"hot pink": "#e0508a",
+	cerise: "#d23a78",
+	white: "#f3f1ea",
+	cream: "#f3e6c4",
+	red: "#c4302b",
+	yellow: "#f2cf5b",
+	orange: "#f0934a",
+	peach: "#f5c1a0",
+	salmon: "#f2a08a",
+	green: "#a3c98f",
+	blue: "#4c78b8",
+	fuchsia: "#c23b8a",
 };
 function usfdSwatch(name) {
-	const k = String(name || "").toLowerCase().trim();
+	const k = String(name || "")
+		.toLowerCase()
+		.trim();
 	if (USFD_SWATCH[k]) return USFD_SWATCH[k];
 	const hit = Object.keys(USFD_SWATCH).find((x) => k.startsWith(x));
 	return hit ? USFD_SWATCH[hit] : "#b8b6ae";
@@ -132,11 +151,16 @@ function usfdSwatch(name) {
 function usfdMount(root, fillData, opts) {
 	opts = opts || {};
 	const esc = (s) =>
-		String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+		String(s == null ? "" : s).replace(
+			/[&<>"']/g,
+			(c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+		);
 	const fmt = (n) => (Number(n) || 0).toLocaleString("en-US");
 	const plural = (n, a, b) => (n === 1 ? a : b);
-	const ICON_X = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-	const ICON_TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+	const ICON_X =
+		'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+	const ICON_TICK =
+		'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 
 	const bunches = (fillData.bunches || []).map((b) => ({
 		bunch_id: b.bunch_id,
@@ -154,7 +178,22 @@ function usfdMount(root, fillData, opts) {
 			picked: (slot.candidates || [])[0] ? slot.candidates[0].variety : null,
 		})),
 	}));
-	const specStemsPerBox = bunches.reduce((sum, b) => sum + b.slots.reduce((s2, s) => s2 + (s.pack_rate || 0), 0), 0);
+	// A candidate's own pack, falling back to the slot's default for a
+	// payload from a server that predates per-candidate packs.
+	const packOf = (slot, cand) => ({
+		stems_per_bunch: (cand && cand.stems_per_bunch) || slot.stems_per_bunch || 0,
+		bunches_per_box: (cand && cand.bunches_per_box) || slot.bunches_per_box || 0,
+		pack_rate: (cand && cand.pack_rate) || slot.pack_rate || 0,
+		length: (cand && cand.length) || slot.length || "",
+	});
+	const pickedCand = (slot) => (slot.candidates || []).find((c) => c.variety === slot.picked);
+	const slotPack = (slot) => packOf(slot, pickedCand(slot));
+	// True when this slot's substitutes don't all pack the same way -- only
+	// then is the pack worth printing on each tile.
+	const packsDiffer = (slot) =>
+		new Set((slot.candidates || []).map((c) => packOf(slot, c).pack_rate)).size > 1;
+	const stemsPerBox = () =>
+		bunches.reduce((sum, b) => sum + b.slots.reduce((s2, s) => s2 + slotPack(s).pack_rate, 0), 0);
 
 	const st = { boxes: Math.max(1, +fillData.boxes || 1) };
 
@@ -163,7 +202,9 @@ function usfdMount(root, fillData, opts) {
       <div>
         <div class="usfd-eyebrow">Fill order from spec</div>
         <h2 class="usfd-title">${esc(fillData.spec_name || fillData.spec || "")}</h2>
-        <div class="usfd-sub">${esc(fillData.spec || "")}${fillData.is_mixed_box ? " · Mixed Box" : ""}</div>
+        <div class="usfd-sub">${esc(fillData.spec || "")}${
+		fillData.is_mixed_box ? " · Mixed Box" : ""
+	}</div>
       </div>
       <button type="button" class="usfd-x" data-act="close" aria-label="Close">${ICON_X}</button>
     </div>
@@ -174,7 +215,9 @@ function usfdMount(root, fillData, opts) {
           <div><small>Boxes</small><span>This spec is one box — every bunch below combines into it</span></div>
           <div class="usfd-step">
             <button type="button" data-act="box-" aria-label="Fewer boxes">−</button>
-            <input type="number" min="1" step="1" data-role="boxes" value="${st.boxes}" aria-label="Boxes">
+            <input type="number" min="1" step="1" data-role="boxes" value="${
+				st.boxes
+			}" aria-label="Boxes">
             <button type="button" data-act="box+" aria-label="More boxes">+</button>
           </div>
         </div>
@@ -190,43 +233,58 @@ function usfdMount(root, fillData, opts) {
 		const out = [];
 		bunches.forEach((b) => {
 			b.slots.forEach((slot) => {
-				const cand = (slot.candidates || []).find((c) => c.variety === slot.picked);
-				if (cand) out.push({ bunch: b, slot, cand });
+				const cand = pickedCand(slot);
+				if (cand) out.push({ bunch: b, slot, cand, pack: packOf(slot, cand) });
 			});
 		});
 		return out;
 	}
 
 	function renderStats() {
-		const lines = pickedLines();
 		const colN = bunches.reduce((n, b) => n + b.slots.length, 0);
+		const perBox = stemsPerBox();
 		$("stats").innerHTML = [
 			["Bunches", `${bunches.length}`],
 			["Colours", `${colN}`],
-			["Stems / box", fmt(specStemsPerBox)],
-			["Total stems", fmt(specStemsPerBox * st.boxes)],
+			["Stems / box", fmt(perBox)],
+			["Total stems", fmt(perBox * st.boxes)],
 		]
 			.map(([k, v]) => `<div class="usfd-stat"><small>${k}</small><b>${v}</b></div>`)
 			.join("");
 	}
 
-	function tile(bi, si, cand, ci, isPicked) {
-		const wh = (cand.by_farm ? Object.keys(cand.by_farm) : []).sort((x, y) => cand.by_farm[y] - cand.by_farm[x]);
+	function tile(bi, si, cand, ci, isPicked, slot) {
+		const pack = packOf(slot, cand);
+		const packHtml = packsDiffer(slot)
+			? `<span class="usfd-v__pack">${pack.bunches_per_box} × ${pack.stems_per_bunch} · <b>${fmt(
+					pack.pack_rate
+			  )}</b> stems/box${pack.length !== slotPack(slot).length ? ` · ${esc(pack.length)}` : ""}</span>`
+			: "";
+		const wh = (cand.by_farm ? Object.keys(cand.by_farm) : []).sort(
+			(x, y) => cand.by_farm[y] - cand.by_farm[x]
+		);
 		const whHtml = wh.length
 			? wh.map((f) => `<span>${esc(f)}<b>${fmt(cand.by_farm[f])}</b></span>`).join("")
 			: '<span class="usfd-v__none">Out of stock</span>';
-		return `<button type="button" class="usfd-v${isPicked ? " is-on" : ""}${(cand.available || 0) ? "" : " is-out"}"
-        data-act="pick" data-bi="${bi}" data-si="${si}" data-variety="${esc(cand.variety)}" aria-pressed="${isPicked}">
+		return `<button type="button" class="usfd-v${isPicked ? " is-on" : ""}${
+			cand.available || 0 ? "" : " is-out"
+		}"
+        data-act="pick" data-bi="${bi}" data-si="${si}" data-variety="${esc(
+			cand.variety
+		)}" aria-pressed="${isPicked}">
       <span class="usfd-tick">${ICON_TICK}</span>
       <span class="usfd-v__name">${esc(cand.item_name || cand.variety)}</span>
-      <span class="usfd-v__badge${ci === 0 ? "" : " sub"}">${ci === 0 ? "Primary" : "Substitute"}</span>
+      <span class="usfd-v__badge${ci === 0 ? "" : " sub"}">${
+			ci === 0 ? "Primary" : "Substitute"
+		}</span>
       <span class="usfd-v__qty">${fmt(cand.available)}<small> stems</small></span>
+      ${packHtml}
       <span class="usfd-v__wh">${whHtml}</span>
     </button>`;
 	}
 
 	function bunchHtml(b, bi) {
-		const stems = b.slots.reduce((s, sl) => s + (sl.pack_rate || 0), 0);
+		const stems = b.slots.reduce((s, sl) => s + slotPack(sl).pack_rate, 0);
 		const badge = b.is_mixed
 			? `<span class="usfd-chip is-ink">Mixed Bunch · ${b.slots.length} colours</span>`
 			: `<span class="usfd-chip">Mono Bunch</span>`;
@@ -243,11 +301,15 @@ function usfdMount(root, fillData, opts) {
           <div class="usfd-col-hd">
             <span class="usfd-sw" style="background:${usfdSwatch(slot.colour)}"></span>
             <span class="usfd-col-name">${esc(slot.colour || "(no colour)")}</span>
-            <span class="usfd-chip">${esc(slot.length)} · ${slot.stems_per_bunch}/bunch</span>
+            <span class="usfd-chip">${esc(slotPack(slot).length)} · ${
+					slotPack(slot).stems_per_bunch
+				}/bunch · ${slotPack(slot).bunches_per_box}/box</span>
           </div>
           <div class="usfd-vgrid">${
 				(slot.candidates || []).length
-					? slot.candidates.map((c, ci) => tile(bi, si, c, ci, c.variety === slot.picked)).join("")
+					? slot.candidates
+							.map((c, ci) => tile(bi, si, c, ci, c.variety === slot.picked, slot))
+							.join("")
 					: '<div class="usfd-empty" style="grid-column:1/-1">No approved variety for this colour</div>'
 			}</div>
         </div>`
@@ -264,14 +326,20 @@ function usfdMount(root, fillData, opts) {
 
 	function renderFoot() {
 		const lines = pickedLines();
-		const over = lines.filter((l) => (l.slot.pack_rate || 0) * st.boxes > (l.cand.available || 0));
+		const over = lines.filter((l) => l.pack.pack_rate * st.boxes > (l.cand.available || 0));
 		const ok = lines.length > 0 && lines.every((l) => l.cand);
-		$("foot").innerHTML = `<div class="usfd-foot__sum"><b>${fmt(specStemsPerBox * st.boxes)}</b> stems · ${lines.length} ${plural(
-			lines.length,
-			"line",
-			"lines"
-		)} · ${st.boxes} ${plural(st.boxes, "box", "boxes")}${
-			over.length ? `<span class="usfd-warn">${over.length} ${plural(over.length, "line exceeds", "lines exceed")} shelf stock</span>` : ""
+		$("foot").innerHTML = `<div class="usfd-foot__sum"><b>${fmt(
+			stemsPerBox() * st.boxes
+		)}</b> stems · ${lines.length} ${plural(lines.length, "line", "lines")} · ${
+			st.boxes
+		} ${plural(st.boxes, "box", "boxes")}${
+			over.length
+				? `<span class="usfd-warn">${over.length} ${plural(
+						over.length,
+						"line exceeds",
+						"lines exceed"
+				  )} shelf stock</span>`
+				: ""
 		}</div>
       <div class="usfd-foot__act"><button type="button" class="usfd-btn ghost" data-act="close">Cancel</button><button type="button" class="usfd-btn" data-act="submit"${
 			ok ? "" : " disabled"

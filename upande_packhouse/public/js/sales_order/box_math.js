@@ -118,16 +118,18 @@ function recompute_order_summary(frm) {
 		const b = cint(it.custom_number_of_boxes);
 		stems += row_stems_per_box(it) * b;
 
-		// Same box identity, same order of precedence, as the server's
+		// Same box identity, same order, as the server's
 		// sales_order_engine._set_order_summary -- the two must agree or the
-		// preview and the saved figure disagree. Server-assigned groups first;
-		// custom_line is only the spec's name, and one spec can be several
-		// boxes (a variety approved at 62 and 72, or the same spec filled
-		// twice), so it is keyed with the length.
+		// preview and the saved figure disagree. custom_line stays FIRST: one
+		// spec stamps custom_bunch_group on its Mixed Bunch rows AND
+		// custom_mix_group on its Mono rows, so checking those first splits
+		// one physical box into two keys and doubles the count. It is keyed BY
+		// LENGTH because the same spec filled at 62 and 72 really is two boxes.
 		let group_key = null;
-		if (it.custom_bunch_group) group_key = "bunch::" + it.custom_bunch_group;
+		if (it.custom_line)
+			group_key = "spec::" + it.custom_line + "::" + (it.custom_length || "");
+		else if (it.custom_bunch_group) group_key = "bunch::" + it.custom_bunch_group;
 		else if (it.custom_mix_group) group_key = "mix::" + it.custom_mix_group;
-		else if (it.custom_line) group_key = "spec::" + it.custom_line + "::" + (it.custom_length || "");
 		if (group_key) {
 			if (seen_groups.has(group_key)) return;
 			seen_groups.add(group_key);

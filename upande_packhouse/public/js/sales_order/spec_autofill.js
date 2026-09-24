@@ -458,6 +458,18 @@ function flat_section(data, uid) {
 		return $sel.length ? parseInt($sel.val(), 10) : 0;
 	}
 
+	// The spec's ONE box count, read off whichever fill row is showing it --
+	// every row carries the same value (see the sync handler in bind). A row
+	// added after the operator has already typed a count must start at that
+	// count, not at 1: nothing fires an input event for a row that is merely
+	// rendered, so a stale 1 would survive all the way to build_spec_rows and
+	// be rejected as "every colour must use the same Boxes count".
+	function flat_shared_boxes() {
+		const $any = $root && $root.find(".spa-fill-tbody .spa-boxes").first();
+		const v = $any && $any.length ? cint($any.val()) : 0;
+		return v > 0 ? v : 1;
+	}
+
 	function syncTable() {
 		const $tbody = $root.find(".spa-fill-tbody");
 		const existing = {};
@@ -507,7 +519,7 @@ function flat_section(data, uid) {
 						prev ? prev.stems : rate
 					}"></td>
                   <td><input type="number" class="spa-boxes form-control input-sm" min="0" value="${
-						prev ? prev.boxes : 1
+						prev ? prev.boxes : flat_shared_boxes()
 					}"></td>
                   <td class="spa-c spa-row-stems" style="text-align:right">0</td>
                 </tr>`);
@@ -526,20 +538,29 @@ function flat_section(data, uid) {
 	}
 
 	function recompute() {
-		let tb = 0,
-			ts = 0;
+		// Boxes is ONE number for the spec, so the footer shows it once -- not
+		// the sum across fill rows. Summing made the total read N x the truth
+		// (3 varieties at 5 boxes announced "15 boxes" while the order got 5).
+		// Stems still add up per row, because each row's stems really are its
+		// own contribution to that one box.
+		const boxes = flat_shared_boxes_or_zero();
+		let ts = 0;
 		$root.find(".spa-fill-row").each(function () {
 			const $r = $(this);
-			const stems = cint($r.find(".spa-stems").val());
-			const boxes = cint($r.find(".spa-boxes").val());
-			const total = stems * boxes;
+			const total = cint($r.find(".spa-stems").val()) * boxes;
 			$r.find(".spa-row-stems").text(nfmt(total));
-			tb += boxes;
 			ts += total;
 		});
-		$root.find(".spa-tot-boxes").text(nfmt(tb));
+		$root.find(".spa-tot-boxes").text(nfmt(boxes));
 		$root.find(".spa-tot-stems").text(nfmt(ts));
 		on_change();
+	}
+
+	// Same shared read as flat_shared_boxes, but truthful about zero -- the
+	// seeding helper substitutes 1 so a new row is usable, the totals must not.
+	function flat_shared_boxes_or_zero() {
+		const $any = $root && $root.find(".spa-fill-tbody .spa-boxes").first();
+		return $any && $any.length ? cint($any.val()) : 0;
 	}
 
 	return {
@@ -572,25 +593,26 @@ function flat_section(data, uid) {
 			let boxes = 0,
 				stems = 0;
 			if (!$root) return { boxes, stems };
+			// One shared count for the spec, same as recompute and the server.
+			boxes = flat_shared_boxes_or_zero();
 			$root.find(".spa-fill-row").each(function () {
-				const $r = $(this);
-				const b = cint($r.find(".spa-boxes").val());
-				boxes += b;
-				stems += b * cint($r.find(".spa-stems").val());
+				stems += boxes * cint($(this).find(".spa-stems").val());
 			});
 			return { boxes, stems };
 		},
 		collect() {
 			const selections = [];
 			if (!$root) return selections;
+			// Every ticked row, at the spec's one box count. A row is excluded
+			// by UNTICKING its variety (which removes it from the fill table),
+			// never by zeroing its Boxes -- the sync handler copies any typed
+			// value into every row, so a zero here means "nothing ordered from
+			// this spec", not "skip this one line".
+			const shared = flat_shared_boxes_or_zero();
+			if (shared <= 0) return selections;
 			$root.find(".spa-fill-row").each(function () {
 				const $r = $(this);
-				const boxes = cint($r.find(".spa-boxes").val());
-				// A zeroed row is one the operator has excluded. Sending it
-				// would make the server apply the spec's shared box count to
-				// it anyway (build_spec_rows ignores zeros when picking that
-				// count), quietly ordering something nobody asked for.
-				if (boxes <= 0) return;
+				const boxes = shared;
 				selections.push({
 					line_idx: parseInt($r.attr("data-line-idx"), 10),
 					box_idx: parseInt($r.attr("data-box-idx"), 10) || 0,

@@ -73,9 +73,9 @@ def execute():
 	# IFNULL, not a ["in", ["", None]] filter: SQL's IN never matches NULL, so
 	# that form silently reports 0 on exactly the specs this patch could not
 	# fill -- the ones it most needs to name.
-	still_blank = frappe.db.sql(
-		"SELECT COUNT(*) FROM `tabSpecifications` WHERE IFNULL(box_type, '') = ''"
-	)[0][0]
+	still_blank = frappe.db.sql("SELECT COUNT(*) FROM `tabSpecifications` WHERE IFNULL(box_type, '') = ''")[
+		0
+	][0]
 	if still_blank:
 		print(
 			f"  {still_blank} Specification(s) still have no Box Type -- their box rows carried "

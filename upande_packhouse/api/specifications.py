@@ -292,23 +292,51 @@ def _group_into_bunches(doc):
 				colour_order.append(c)
 			by_colour[c].append(av)
 
+		# Same two accepted shapes as spec_autofill._bunch_shape: one Box
+		# Item per colour (substitutes share it), or one per Approved Variety
+		# row (each substitute has its own pack -- row j pairs with box item
+		# j). A colour row's stems_per_bunch is its PRIMARY variety's pack;
+		# `packs` lists every variety's own, so a substitute packed
+		# differently (ROSE WHITE MONO 40 JS: Athena 94/box, Snowstorm
+		# 80/box) is shown rather than silently collapsed onto the first row.
+		per_variety = len(bi_rows) == len(av_rows) and len(bi_rows) != len(colour_order)
+		item_for_av = {}
+		if per_variety:
+			for av, bi in zip(av_rows, bi_rows, strict=True):
+				item_for_av[av.name or id(av)] = bi
+
 		rows = []
 		for i, c in enumerate(colour_order):
 			avs = sorted(by_colour[c], key=lambda a: 0 if a.is_primary else 1)
-			bi_row = bi_rows[i] if i < len(bi_rows) else (bi_rows[0] if bi_rows else None)
+			if per_variety:
+				bi_row = item_for_av[avs[0].name or id(avs[0])]
+			else:
+				bi_row = bi_rows[i] if i < len(bi_rows) else (bi_rows[0] if bi_rows else None)
+			packs = []
+			for a in avs:
+				if not a.variety:
+					continue
+				abi = item_for_av.get(a.name or id(a)) if per_variety else bi_row
+				packs.append(
+					{
+						"variety": a.variety,
+						"stems_per_bunch": abi.stems_per_bunch if abi else None,
+						"bunches_per_box": abi.bunches_per_box if abi else None,
+						"pack_rate": abi.pack_rate if abi else None,
+						"length": abi.length if abi else None,
+					}
+				)
 			rows.append(
 				{
 					"varieties": [a.variety for a in avs if a.variety],
 					"colour": c,
 					"stems_per_bunch": bi_row.stems_per_bunch if bi_row else None,
+					"packs": packs,
 				}
 			)
 		if not rows and bi_rows:
 			# Box Item row(s) exist with no matching Approved Variety yet.
-			rows = [
-				{"varieties": [], "colour": "", "stems_per_bunch": bi.stems_per_bunch}
-				for bi in bi_rows
-			]
+			rows = [{"varieties": [], "colour": "", "stems_per_bunch": bi.stems_per_bunch} for bi in bi_rows]
 
 		bunches.append(
 			{

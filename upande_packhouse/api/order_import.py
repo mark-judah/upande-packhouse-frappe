@@ -28,19 +28,44 @@ VIRTUAL_ITEM_FIELDS = [
 ]
 
 IGNORED_FIELDTYPES = {
-	"Section Break", "Column Break", "Tab Break", "HTML", "Button",
-	"Table", "Table MultiSelect", "Fold", "Heading", "Image",
+	"Section Break",
+	"Column Break",
+	"Tab Break",
+	"HTML",
+	"Button",
+	"Table",
+	"Table MultiSelect",
+	"Fold",
+	"Heading",
+	"Image",
 }
 IGNORED_FIELDNAMES = {
-	"name", "owner", "creation", "modified", "modified_by", "docstatus",
-	"idx", "parent", "parentfield", "parenttype", "naming_series",
+	"name",
+	"owner",
+	"creation",
+	"modified",
+	"modified_by",
+	"docstatus",
+	"idx",
+	"parent",
+	"parentfield",
+	"parenttype",
+	"naming_series",
 }
 # Recomputed by sales_order_engine on save -- mappable (nothing stops it,
 # per "map to any field"), but flagged in the catalog so the UI can warn
 # that it's usually not necessary.
 ENGINE_COMPUTED_FIELDS = {
-	"qty", "stock_qty", "conversion_factor", "rate", "price_list_rate", "amount",
-	"custom_ordered_quantity", "custom_packrate", "custom_packrate_mixed_box", "uom",
+	"qty",
+	"stock_qty",
+	"conversion_factor",
+	"rate",
+	"price_list_rate",
+	"amount",
+	"custom_ordered_quantity",
+	"custom_packrate",
+	"custom_packrate_mixed_box",
+	"uom",
 }
 
 
@@ -159,12 +184,15 @@ def savePlatform():
 				doc.set(f, data.get(f))
 		doc.set("default_field_mappings", [])
 		for m in data.get("default_field_mappings") or []:
-			doc.append("default_field_mappings", {
-				"source_column": m.get("source_column"),
-				"target_doctype": m.get("target_doctype"),
-				"target_fieldname": m.get("target_fieldname"),
-				"default_value": m.get("default_value"),
-			})
+			doc.append(
+				"default_field_mappings",
+				{
+					"source_column": m.get("source_column"),
+					"target_doctype": m.get("target_doctype"),
+					"target_fieldname": m.get("target_fieldname"),
+					"default_value": m.get("default_value"),
+				},
+			)
 		if doc.is_new():
 			doc.insert()
 		else:
@@ -248,8 +276,7 @@ def getCustomerMapping():
 					for m in doc.field_mapping_overrides
 				],
 				"item_code_mapping": [
-					{"source_item_code": m.source_item_code, "item": m.item}
-					for m in doc.item_code_mapping
+					{"source_item_code": m.source_item_code, "item": m.item} for m in doc.item_code_mapping
 				],
 			},
 		}
@@ -269,26 +296,37 @@ def saveCustomerMapping():
 		else:
 			doc = frappe.new_doc("Customer Order Mapping")
 		for f in (
-			"customer", "platform", "default_currency", "default_price_list",
-			"default_warehouse", "default_consignee", "default_delivery_point",
+			"customer",
+			"platform",
+			"default_currency",
+			"default_price_list",
+			"default_warehouse",
+			"default_consignee",
+			"default_delivery_point",
 			"default_shipping_agent",
 		):
 			if f in data:
 				doc.set(f, data.get(f))
 		doc.set("field_mapping_overrides", [])
 		for m in data.get("field_mapping_overrides") or []:
-			doc.append("field_mapping_overrides", {
-				"source_column": m.get("source_column"),
-				"target_doctype": m.get("target_doctype"),
-				"target_fieldname": m.get("target_fieldname"),
-				"default_value": m.get("default_value"),
-			})
+			doc.append(
+				"field_mapping_overrides",
+				{
+					"source_column": m.get("source_column"),
+					"target_doctype": m.get("target_doctype"),
+					"target_fieldname": m.get("target_fieldname"),
+					"default_value": m.get("default_value"),
+				},
+			)
 		doc.set("item_code_mapping", [])
 		for m in data.get("item_code_mapping") or []:
-			doc.append("item_code_mapping", {
-				"source_item_code": m.get("source_item_code"),
-				"item": m.get("item"),
-			})
+			doc.append(
+				"item_code_mapping",
+				{
+					"source_item_code": m.get("source_item_code"),
+					"item": m.get("item"),
+				},
+			)
 		if doc.is_new():
 			doc.insert()
 		else:
@@ -332,9 +370,7 @@ def _resolve_mapping(customer, platform):
 			"default_value": m.default_value,
 		}
 
-	cust_name = frappe.db.get_value(
-		"Customer Order Mapping", {"customer": customer, "platform": platform}
-	)
+	cust_name = frappe.db.get_value("Customer Order Mapping", {"customer": customer, "platform": platform})
 	cust_doc = frappe.get_doc("Customer Order Mapping", cust_name) if cust_name else None
 	if cust_doc:
 		for m in cust_doc.field_mapping_overrides:
@@ -350,8 +386,12 @@ def _resolve_mapping(customer, platform):
 		for im in cust_doc.item_code_mapping:
 			item_code_map[im.source_item_code] = im.item
 		for f in (
-			"default_currency", "default_price_list", "default_warehouse",
-			"default_consignee", "default_delivery_point", "default_shipping_agent",
+			"default_currency",
+			"default_price_list",
+			"default_warehouse",
+			"default_consignee",
+			"default_delivery_point",
+			"default_shipping_agent",
 		):
 			v = cust_doc.get(f)
 			if v:
@@ -445,12 +485,14 @@ def buildPreview():
 					header_vals[target_field] = v
 			header_vals["customer"] = customer
 
-			previews.append({
-				"header": header_vals,
-				"rows": item_rows,
-				"unresolved_items": sorted(set(unresolved_items)),
-				"default_warehouse": defaults.get("default_warehouse"),
-			})
+			previews.append(
+				{
+					"header": header_vals,
+					"rows": item_rows,
+					"unresolved_items": sorted(set(unresolved_items)),
+					"default_warehouse": defaults.get("default_warehouse"),
+				}
+			)
 
 		frappe.response["message"] = {
 			"success": True,
