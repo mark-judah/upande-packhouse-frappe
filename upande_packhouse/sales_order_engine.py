@@ -115,15 +115,19 @@ def _set_order_summary(doc):
 	of bunch at once -- confirmed real data: XPOL TOSCA_02721_10 has bunch_id
 	1 as a Mixed Bunch (Ever Red + Snow Storm, custom_bunch_group) and bunch_ids
 	2-4 as Mono Bunches feeding the same Mixed Box (custom_mix_group). Deduping
-	bunch_group and mix_group as two separate dimensions -- which is what this
-	function used to do -- means that ONE spec reads as 2 boxes (1 from each
-	dimension) instead of 1. custom_line (the spec) is checked first for
-	exactly this reason: every row filled from the same spec counts toward
-	its box total once, full stop, regardless of which internal tag each of
-	its own bunch_ids happens to carry. Only a row with no spec at all (a
-	manually typed line, or mixed_box_wizard.js's spec-less Mixed Box) falls
-	back to the bunch_group/mix_group dedup, since there's no spec identity
-	to key on there."""
+	bunch_group and mix_group as two separate dimensions reads that as 2 boxes
+	(1 from each dimension) instead of 1 -- this function briefly regressed to
+	that (checking the server-assigned groups first, "because they're the more
+	specific box identity") and custom_total_boxes read 4 instead of 2 for
+	exactly this spec. custom_line (+ custom_length, in case the SAME spec is
+	genuinely filled at two different lengths -- a variety approved at both
+	62 and 72 is two physically different boxes) is checked FIRST for exactly
+	this reason: every row filled from the same spec fill, at the same length,
+	counts toward its box total once, full stop, regardless of which internal
+	tag each of its own bunch_ids happens to carry. Only a row with no spec at
+	all (a manually typed line, or mixed_box_wizard.js's spec-less Mixed Box)
+	falls back to the bunch_group/mix_group dedup, since there's no spec
+	identity to key on there."""
 	total_boxes, total_stems = 0, 0
 	seen_groups = set()
 	for it in doc.items:
@@ -132,14 +136,6 @@ def _set_order_summary(doc):
 		boxes = int(it.get("custom_number_of_boxes") or 0)
 		total_stems += _line_packrate(it) * boxes
 
-		# custom_line stays FIRST -- see the docstring: one spec can stamp BOTH
-		# custom_bunch_group (its Mixed Bunch rows) and custom_mix_group (its
-		# Mono rows), so checking those first splits ONE box into two keys and
-		# doubles the count. What custom_line alone got wrong is only that a
-		# spec is not always a single box: the same spec filled at two stem
-		# lengths is two boxes, one per length (build_spec_rows stamps
-		# custom_length on every row). Keying the spec BY LENGTH fixes that
-		# without disturbing the bunch/mix grouping.
 		group_key = None
 		if it.get("custom_line"):
 			group_key = ("spec", it.custom_line, it.get("custom_length") or "")
