@@ -6,6 +6,7 @@
 # version-controlled whitelisted methods. Bodies keep frappe.form_dict /
 # frappe.response exactly as the live scripts used them.
 
+import base64
 import json
 import math
 
@@ -5638,3 +5639,67 @@ def getPackhouseDashboardData():
 	except Exception as e:
 		frappe.log_error("getPackhouseDashboardData error: " + str(e))
 		frappe.response["message"] = {"error": str(e)}
+
+
+@frappe.whitelist()
+def generateBoxLabelsPdf():
+	"""Consolidates every Box Label on one Order Pick List into a single PDF,
+	via the real "Box Label" Print Format (Jinja + wkhtmltopdf) -- not a
+	custom-drawn layout, so it always matches whatever that print format
+	currently renders on the desk. One box label = one page, in box_number
+	order; frappe.get_print's own `output` param appends each box's pages
+	into the same PdfWriter instead of building N separate PDFs.
+
+	page_width_mm / page_height_mm are optional -- wkhtmltopdf options
+	overriding the print format's own default (A4). Omit either to fall
+	back to that default.
+	"""
+	from pypdf import PdfWriter
+
+	from frappe.utils.pdf import get_file_data_from_writer
+
+	data = frappe.request.get_json() or {}
+	opl_name = data.get("order_pick_list") or data.get("opl")
+	page_width = data.get("page_width_mm")
+	page_height = data.get("page_height_mm")
+
+	if not opl_name:
+		frappe.throw(_("Order Pick List is required"))
+	if not frappe.db.exists("Order Pick List", opl_name):
+		frappe.throw(_("Order Pick List {0} not found").format(opl_name))
+
+	box_names = frappe.get_all(
+		"Box Label",
+		filters={"order_pick_list": opl_name},
+		pluck="name",
+		order_by="box_number asc",
+	)
+	if not box_names:
+		frappe.throw(_("No box labels found for {0}. Pack at least one box first.").format(opl_name))
+
+	pdf_options = {}
+	if page_width:
+		pdf_options["page-width"] = f"{flt(page_width)}mm"
+	if page_height:
+		pdf_options["page-height"] = f"{flt(page_height)}mm"
+
+	writer = PdfWriter()
+	try:
+		for box_name in box_names:
+			frappe.get_print(
+				"Box Label",
+				box_name,
+				"Box Label",
+				as_pdf=True,
+				output=writer,
+				pdf_options=pdf_options,
+			)
+		pdf_bytes = get_file_data_from_writer(writer)
+	finally:
+		writer.close()
+
+	frappe.response["message"] = {
+		"pdf_base64": base64.b64encode(pdf_bytes).decode(),
+		"filename": f"{opl_name}-box-labels.pdf",
+		"count": len(box_names),
+	}
