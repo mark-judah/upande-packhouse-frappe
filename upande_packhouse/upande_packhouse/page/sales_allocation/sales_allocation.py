@@ -688,6 +688,8 @@ def get_sales_order_items_with_buckets(
 			f"""
             SELECT
                 bas.bucket_id,
+                bas.item_code,
+                COALESCE(bas.stem_length, '') AS stem_length,
                 ba.sales_order_item,
                 SUM(ba.quantity_allocated) AS allocated_to_this_item
             FROM `tabBucket Allocations` ba
@@ -695,16 +697,17 @@ def get_sales_order_items_with_buckets(
             WHERE ba.sales_order_item IN ({si_placeholders})
               AND bas.bucket_id IN ({bid_placeholders})
               AND ba.cancelled = 0
-            GROUP BY bas.bucket_id, ba.sales_order_item
+            GROUP BY bas.bucket_id, bas.item_code, COALESCE(bas.stem_length, ''), ba.sales_order_item
         """,
 			so_item_names + bucket_ids,
 			as_dict=True,
 		)
 
 		for row in result:
-			per_bucket_per_item[(row["bucket_id"], row["sales_order_item"])] = (
-				row["allocated_to_this_item"] or 0
-			)
+			# Keyed like BAS itself -- (bucket, variety, length) -- so a bucket
+			# carrying several varieties/lengths reports each row's own share.
+			key = (row["bucket_id"], row["item_code"], row["stem_length"], row["sales_order_item"])
+			per_bucket_per_item[key] = row["allocated_to_this_item"] or 0
 
 	buckets_by_item = {}
 	for b in buckets:
@@ -745,7 +748,14 @@ def get_sales_order_items_with_buckets(
 			else:
 				continue
 
-			allocated_here = per_bucket_per_item.get((b["bucket_id"], item["sales_order_item"]), 0)
+			allocated_here = per_bucket_per_item.get(
+				(b["bucket_id"], b["item_code"], b["stem_length"] or "", item["sales_order_item"]), 0
+			)
+
+			# Fully allocated elsewhere: nothing to allocate and nothing to
+			# unallocate from this line, so keep it off the list.
+			if (b["available_qty"] or 0) <= 0 and not allocated_here:
+				continue
 
 			entry = {
 				"bucket_id": b["bucket_id"],
@@ -973,7 +983,7 @@ def get_bucket_visibility_diagnostics(
 		("past_max_age", "Past this farm's allocation-age limit"),
 		("too_short", "Shorter than the order needs"),
 		("wrong_cut_stage", "Doesn't match the active cut-stage filter"),
-		("fully_allocated", "Already fully allocated (shown, greyed out)"),
+		("fully_allocated", "Already fully allocated"),
 		("eligible", "Available to allocate"),
 	]
 	buckets_by_reason = {code: [] for code, _l in REASON_META}

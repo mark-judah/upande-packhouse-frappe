@@ -4929,7 +4929,12 @@ def shelveBucket():
 	for ri in receiving_doc.items:
 		key = ri.item_code
 		if key not in merged:
-			merged[key] = {"item_code": ri.item_code, "qty": 0, "s_warehouse": ri.s_warehouse, "t_warehouse": ri.t_warehouse}
+			merged[key] = {
+				"item_code": ri.item_code,
+				"qty": 0,
+				"s_warehouse": ri.s_warehouse,
+				"t_warehouse": ri.t_warehouse,
+			}
 		merged[key]["qty"] += ri.qty or 0
 	for ri in merged.values():
 		new_item = shelf_doc.append("items", {})
