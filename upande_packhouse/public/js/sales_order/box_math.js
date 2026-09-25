@@ -127,7 +127,8 @@ function recompute_order_summary(frm) {
 		stems += row_stems_per_box(it) * b;
 
 		let group_key = null;
-		if (it.custom_line) group_key = "spec::" + it.custom_line + "::" + (it.custom_length || "");
+		if (it.custom_line)
+			group_key = "spec::" + it.custom_line + "::" + (it.custom_length || "");
 		else if (it.custom_bunch_group) group_key = "bunch::" + it.custom_bunch_group;
 		else if (it.custom_mix_group) group_key = "mix::" + it.custom_mix_group;
 		if (group_key) {

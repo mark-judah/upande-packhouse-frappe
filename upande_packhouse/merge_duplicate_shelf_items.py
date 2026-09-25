@@ -42,7 +42,9 @@ def run(dry_run=True):
 		total = sum(i.stem_qty for i in items)
 		stems += total
 		merged += 1
-		print(f"{shelf} {bucket} {variety} {length}: {[i.stem_qty for i in items]} -> {total} (keep {keep.name})")
+		print(
+			f"{shelf} {bucket} {variety} {length}: {[i.stem_qty for i in items]} -> {total} (keep {keep.name})"
+		)
 		if dry_run:
 			continue
 		frappe.db.set_value("Shelf Item", keep.name, "stem_qty", total, update_modified=False)

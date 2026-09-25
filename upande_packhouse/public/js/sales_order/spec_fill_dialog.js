@@ -193,7 +193,10 @@ function usfdMount(root, fillData, opts) {
 	const packsDiffer = (slot) =>
 		new Set((slot.candidates || []).map((c) => packOf(slot, c).pack_rate)).size > 1;
 	const stemsPerBox = () =>
-		bunches.reduce((sum, b) => sum + b.slots.reduce((s2, s) => s2 + slotPack(s).pack_rate, 0), 0);
+		bunches.reduce(
+			(sum, b) => sum + b.slots.reduce((s2, s) => s2 + slotPack(s).pack_rate, 0),
+			0
+		);
 
 	const st = { boxes: Math.max(1, +fillData.boxes || 1) };
 
@@ -256,9 +259,11 @@ function usfdMount(root, fillData, opts) {
 	function tile(bi, si, cand, ci, isPicked, slot) {
 		const pack = packOf(slot, cand);
 		const packHtml = packsDiffer(slot)
-			? `<span class="usfd-v__pack">${pack.bunches_per_box} × ${pack.stems_per_bunch} · <b>${fmt(
-					pack.pack_rate
-			  )}</b> stems/box${pack.length !== slotPack(slot).length ? ` · ${esc(pack.length)}` : ""}</span>`
+			? `<span class="usfd-v__pack">${pack.bunches_per_box} × ${
+					pack.stems_per_bunch
+			  } · <b>${fmt(pack.pack_rate)}</b> stems/box${
+					pack.length !== slotPack(slot).length ? ` · ${esc(pack.length)}` : ""
+			  }</span>`
 			: "";
 		const wh = (cand.by_farm ? Object.keys(cand.by_farm) : []).sort(
 			(x, y) => cand.by_farm[y] - cand.by_farm[x]
