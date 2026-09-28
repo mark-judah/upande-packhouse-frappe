@@ -1,0 +1,40 @@
+{#- Remote Transfers — the section's top tabs, shared by every page in it, in the
+    order the process runs: route the trucks, sequence each team's orders, plan
+    and dispatch the trips, track the buckets to the sales farm, trace them.
+    Set `rt_active` before including: routes | scheduler | transfer | logistics | journey.
+    Truck Routes, Transfer Scheduling and Bucket Logistics are views of
+    transfer-control, which switches between them in place (window.rtSwitch);
+    everywhere else the tabs are plain links. -#}
+<style>
+.aph .rt-tabs{display:inline-flex;background:rgba(10,10,10,.05);border-radius:999px;padding:3px;gap:2px;flex:none}
+.aph .rt-tabs a{font:600 12px var(--sans,'Poppins',system-ui,sans-serif);padding:6px 13px;border-radius:999px;text-decoration:none;color:#5a5a52;white-space:nowrap;line-height:1.2;transition:background .15s,color .15s;display:inline-flex;align-items:center;gap:6px}
+.aph .rt-tabs a:hover{color:#0a0a0a;background:rgba(10,10,10,.06)}
+.aph .rt-tabs a.on{background:linear-gradient(135deg,#0a0a0a,#3a3a34);color:#fafaf6}
+</style>
+<nav class="rt-tabs" aria-label="Remote Transfers">
+  <a href="/transfer-control?tab=routes" data-rt="routes" title="Set today's farms for each transfer truck"{% if rt_active == 'routes' %} class="on" aria-current="page"{% endif %}>Truck Routes</a>
+  <a href="/packhouse-scheduler" data-rt="scheduler" title="Sequence each team's orders"{% if rt_active == 'scheduler' %} class="on" aria-current="page"{% endif %}>Scheduler</a>
+  <a href="/transfer-control" data-rt="transfer" title="Distribute across teams, plan trucks, dispatch trips"{% if rt_active == 'transfer' %} class="on" aria-current="page"{% endif %}>Transfer Scheduling</a>
+  <a href="/transfer-control?tab=logistics" data-rt="logistics" title="Track buckets to the sales farm"{% if rt_active == 'logistics' %} class="on" aria-current="page"{% endif %}>Bucket Logistics</a>
+  <a href="/bucket-tracker" data-rt="journey" title="Trace a bucket end to end"{% if rt_active == 'journey' %} class="on" aria-current="page"{% endif %}>Bucket Journey</a>
+</nav>
+<script>
+  (function(){
+    var nav = document.currentScript.previousElementSibling;
+    // Highlight a tab (transfer-control calls this whenever its view changes).
+    window.rtSetTab = function(key){
+      nav.querySelectorAll('a[data-rt]').forEach(function(a){
+        var on = a.getAttribute('data-rt') === key;
+        a.classList.toggle('on', on);
+        if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+      });
+    };
+    // On transfer-control its three views switch without a reload.
+    nav.addEventListener('click', function(e){
+      var a = e.target.closest('a[data-rt="routes"], a[data-rt="transfer"], a[data-rt="logistics"]');
+      if (!a || !window.rtSwitch || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+      e.preventDefault();
+      window.rtSwitch(a.getAttribute('data-rt'));
+    });
+  })();
+</script>

@@ -232,6 +232,26 @@ def _bunch_shape(doc):
 
 		per_colour = len(bi_rows) == len(by_colour)
 		per_variety = not per_colour and len(bi_rows) == len(av_rows)
+		if not per_colour and not per_variety and len(bi_rows) > len(av_rows):
+			# More packs than varieties: some colour rows never got a variety.
+			# (Substitutes can't explain it -- they add varieties, not packs.)
+			missing = len(bi_rows) - len(by_colour)
+			issues.append(
+				"Bunch '{0}' has {1} colour row(s) but only {2} with a variety picked ({3}). "
+				"Open the spec and pick a variety for the other {4} colour row(s) -- any "
+				"substitutes go on the same row as the colour they replace -- or remove "
+				"those rows.".format(
+					bunch_id,
+					len(bi_rows),
+					len(by_colour),
+					", ".join(
+						"{0}: {1}".format(c or "no colour", " / ".join(a.variety for a in by_colour[c]))
+						for c in colour_order
+					),
+					missing,
+				)
+			)
+			continue
 		if not per_colour and not per_variety:
 			issues.append(
 				"Bunch '{0}': {1} Approved Variety row(s) in {2} distinct colour(s), but {3} "

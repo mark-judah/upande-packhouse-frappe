@@ -716,8 +716,8 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 
   <div class="aph-main">
     <div class="aph-topbar"><button class="collapse-btn" id="collapseBtn" title="Toggle sidebar" aria-label="Toggle sidebar"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
-      <h1>Traceability</h1>
-      <span class="crumb">Tracking</span>
+      <h1>Remote Transfers</h1>
+      {% endraw %}{% set rt_active = "journey" %}{% include "upande_packhouse/templates/includes/remote_transfers_tabs.html" %}{% raw %}
       <div class="right">
         <div class="mode-switch">
           <button class="mode-btn active" id="modeBucket" onclick="setMode('bucket')">
@@ -922,6 +922,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 </div>
 
 <script>
+{% endraw %}const TRANSFER_HUB = {{ (transfer_hub or '') | tojson }};{% raw %}
 /* ═══════════════════════════════════════════════════════
    STATE
 ═══════════════════════════════════════════════════════ */
@@ -1504,7 +1505,7 @@ function renderJourney(j) {
             case 'Grading':   return gradingSEs[0]?(gradingSEs[0].custom_bunch_id?gradingSEs[0].custom_bunch_id:''):'';
             case 'Receiving': return receivingSEs[0]?(receivingSEs[0].to_warehouse||'').split(' - ')[0]:'';
             case 'Shelving':  return shelfId?`${shelfId}${shelfRow?.shelf_farm?' · '+shelfRow.shelf_farm:''}`:(issued?'Removed (issued)':'');
-            case 'Transfer':  return transferRow?`${transferRow.shelf_farm||transferRow.farm||'?'} → Kapkolia`:'';
+            case 'Transfer':  return transferRow?`${transferRow.shelf_farm||transferRow.farm||'?'}${TRANSFER_HUB?' → '+TRANSFER_HUB:''}`:'';
             case 'Allocation':return hasAllocs?`${allocData.allocated_quantity} / ${allocData.total_quantity} stems`:'';
             case 'Issue':     return issued?(oplData.find(r=>r.custom_issued==1)?.parent||oplData[0]?.parent||(issueRow?'from '+issueRow.shelf_name:''))||'':onOPL?'On OPL — not issued':'';
             case 'Discard':   return (discardRow?.farm||discardSlRow?.shelf_farm||'')||'Discarded';

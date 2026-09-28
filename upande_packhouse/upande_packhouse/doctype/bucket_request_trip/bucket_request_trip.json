@@ -12,6 +12,7 @@
   "column_break_1",
   "collection_order",
   "farm",
+  "auto_planned",
   "section_totals",
   "total_buckets",
   "column_break_2",
@@ -70,6 +71,16 @@
    "fieldtype": "Data",
    "hidden": 1,
    "label": "Farm"
+  },
+  {
+   "default": "0",
+   "description": "Created by automatic remote transfer scheduling. Cleared as soon as someone saves it by hand.",
+   "fieldname": "auto_planned",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Auto Planned",
+   "read_only": 1
   },
   {
    "fieldname": "section_totals",
@@ -145,7 +156,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 0,
  "links": [],
- "modified": "2026-09-14 00:00:00.000000",
+ "modified": "2026-09-28 11:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Bucket Request Trip",
