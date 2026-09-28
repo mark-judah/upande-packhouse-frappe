@@ -5654,9 +5654,8 @@ def generateBoxLabelsPdf():
 	overriding the print format's own default (A4). Omit either to fall
 	back to that default.
 	"""
-	from pypdf import PdfWriter
-
 	from frappe.utils.pdf import get_file_data_from_writer
+	from pypdf import PdfWriter
 
 	data = frappe.request.get_json() or {}
 	opl_name = data.get("order_pick_list") or data.get("opl")
