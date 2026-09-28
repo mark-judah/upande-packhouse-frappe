@@ -7,7 +7,11 @@ frappe.ui.form.on("Order Pick List", {
 		// so it can be walked through the mobile app without the label printers.
 		// System Manager only — it can create Grading stock entries.
 		if (!frm.is_new() && frappe.user.has_role("System Manager")) {
-			frm.add_custom_button(__("Generate Test QR Codes"), () => open_test_label_dialog(frm), __("Testing"));
+			frm.add_custom_button(
+				__("Generate Test QR Codes"),
+				() => open_test_label_dialog(frm),
+				__("Testing")
+			);
 		}
 
 		if (!frm.doc.sales_order) return;
@@ -76,12 +80,10 @@ function open_test_label_dialog(frm) {
 					const s = r.message.summary;
 					frappe.show_alert(
 						{
-							message: __("{0} bucket, {1} shelf, {2} bunch labels ({3} newly graded)", [
-								s.buckets,
-								s.shelves,
-								s.bunches,
-								s.grading_created,
-							]),
+							message: __(
+								"{0} bucket, {1} shelf, {2} bunch labels ({3} newly graded)",
+								[s.buckets, s.shelves, s.bunches, s.grading_created]
+							),
 							indicator: "green",
 						},
 						7
@@ -90,7 +92,9 @@ function open_test_label_dialog(frm) {
 						frappe.msgprint({
 							title: __("Some labels need attention"),
 							indicator: "orange",
-							message: r.message.warnings.map((w) => frappe.utils.escape_html(w)).join("<br>"),
+							message: r.message.warnings
+								.map((w) => frappe.utils.escape_html(w))
+								.join("<br>"),
 						});
 					}
 					print_test_labels(r.message);
@@ -139,7 +143,9 @@ function print_test_labels(data) {
 			@media print{header button{display:none} body{margin:6mm}}
 		</style></head><body>
 		<header><h1>${esc(data.order_name || data.opl)} — test labels</h1>
-			<span class="meta">${esc(data.opl)} · ${esc(data.sales_order || "")} · ${esc(data.customer || "")} · sales farm ${esc(data.sales_farm || "")}</span>
+			<span class="meta">${esc(data.opl)} · ${esc(data.sales_order || "")} · ${esc(
+		data.customer || ""
+	)} · sales farm ${esc(data.sales_farm || "")}</span>
 			<button onclick="window.print()">Print</button></header>
 		${sections || "<p>No labels generated.</p>"}
 		</body></html>`;
