@@ -263,6 +263,10 @@ def saveDaySchedule():
 
 	by_team = {}
 	team_order = []
+	# An OPL with no team can't go on any team's schedule. It used to be dropped
+	# silently, and because transfer planning only sees scheduled orders, its
+	# remote buckets never got a truck. Report it so the scheduler can say so.
+	no_team = []
 	i = 0
 	while i < len(opls):
 		info = info_map.get(opls[i])
@@ -273,7 +277,31 @@ def saveDaySchedule():
 					by_team[team] = []
 					team_order.append(team)
 				by_team[team].append(opls[i])
+			else:
+				no_team.append(
+					{
+						"opl": opls[i],
+						"order_name": info.get("order_name") or "",
+						"customer": info.get("customer") or "",
+					}
+				)
 		i = i + 1
+
+	# The ordered list IS the whole day's schedule, so a team that no longer has any
+	# order in it must be emptied too. Only rebuilding the teams present used to
+	# leave stale rows behind: an order moved from Team A to Team B (or unscheduled
+	# entirely) stayed on PSCH-<date>-Team A and showed up under two teams.
+	cleared = []
+	for stale in frappe.get_all(
+		"Packhouse Schedule",
+		filters={"schedule_date": sdate, "team": ["not in", team_order or [""]]},
+		pluck="name",
+	):
+		doc = frappe.get_doc("Packhouse Schedule", stale)
+		if doc.orders:
+			doc.set("orders", [])
+			doc.save(ignore_permissions=True)
+			cleared.append(doc.team)
 
 	saved = {}
 	k = 0
@@ -306,4 +334,4 @@ def saveDaySchedule():
 	# is reachable over GET, and frappe rolls back writes made during a GET
 	# request -- without this the caller gets a success response and no change.
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
-	frappe.response["message"] = {"status": "success", "saved": saved}
+	frappe.response["message"] = {"status": "success", "saved": saved, "no_team": no_team, "cleared": cleared}

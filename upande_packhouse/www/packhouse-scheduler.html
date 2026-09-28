@@ -723,12 +723,12 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   {% endraw %}{% set active_page = "packhouse-scheduler" %}{% include "upande_packhouse/templates/includes/packhouse_sidebar.html" %}{% raw %}
   <div class="aph-main">
     <div class="aph-topbar"><button class="collapse-btn" id="collapseBtn" title="Toggle sidebar" aria-label="Toggle sidebar"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
-      <h1>Scheduler</h1><span class="crumb">Workflow &middot; sequence processing</span>
+      <h1>Remote Transfers</h1>{% endraw %}{% set rt_active = "scheduler" %}{% include "upande_packhouse/templates/includes/remote_transfers_tabs.html" %}{% raw %}
       <div class="right">
         <input type="date" id="fDate" class="sch-sel" style="width:140px">
         <select id="fTeam" class="sch-sel"><option value="">All teams</option></select>
         <button class="btn" id="btnRefresh">&#8635; Refresh</button>
-        <a class="btn" href="bucket-logistics" style="text-decoration:none">Transfers &rarr;</a>
+        <a class="btn" href="transfer-control" style="text-decoration:none">Transfers &rarr;</a>
       </div>
     </div>
     <div class="aph-content">
@@ -964,10 +964,19 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     return saveSchedule().then(function(r){
       var ok=r&&r.status==='success';
       var cnt=0; if(r&&r.saved){ var ks=Object.keys(r.saved); ks.forEach(function(t){ cnt=cnt+r.saved[t]; }); }
+      var noTeam=(r&&r.no_team)||[];
       if(window.frappe&&frappe.show_alert){
         if(ok&&cnt>0) frappe.show_alert({message:'✓ Schedule saved — '+cnt+' order'+(cnt===1?'':'s')+' sequenced',indicator:'green'},4);
-        else if(ok) frappe.show_alert({message:'Nothing saved — a scheduled order needs a team',indicator:'orange'},6);
-        else frappe.show_alert({message:'Save failed — please try again',indicator:'red'},6);
+        else if(ok&&!noTeam.length) frappe.show_alert({message:'Schedule cleared',indicator:'blue'},4);
+        else if(!ok) frappe.show_alert({message:'Save failed — please try again',indicator:'red'},6);
+      }
+      // Orders without a team are NOT on any team's schedule, so transfer planning
+      // never sees them and their remote buckets never get a truck. Say so loudly.
+      if(ok&&noTeam.length&&window.frappe&&frappe.msgprint){
+        frappe.msgprint({title:'Not scheduled — no team',indicator:'orange',
+          message:noTeam.length+' order'+(noTeam.length===1?' has':'s have')+' no team, so '+(noTeam.length===1?'it was':'they were')+' left off the schedule and won’t be picked up by Transfer Scheduling:<ul>'+
+            noTeam.map(function(x){ return '<li><b>'+frappe.utils.escape_html(x.order_name||x.opl)+'</b> '+frappe.utils.escape_html(x.customer||'')+' ('+frappe.utils.escape_html(x.opl)+')</li>'; }).join('')+
+            '</ul>Set the team on the Order Pick List, then schedule it again.'});
       }
       return reloadScheduled().then(function(){ render(); return r; });
     });

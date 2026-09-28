@@ -15,5 +15,10 @@ no_cache = 1
 
 def get_context(context):
 	context.csrf_token = get_csrf_token()
+	# The Bucket Journey's "Transfer" stage names where remote buckets are trucked to.
+	# Unset (and ambiguous) just leaves it blank instead of failing the whole page.
+	from upande_packhouse.api.transfer_control import transfer_hub
+
+	context.transfer_hub = transfer_hub(required=False) or ""
 	context.no_cache = 1
 	return context

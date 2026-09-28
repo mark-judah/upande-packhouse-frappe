@@ -119,6 +119,18 @@ def apply_post_harvest_cost_center(doc, method=None):
 			continue
 
 		cost_center = frappe.db.get_value("Warehouse", s_warehouse, "custom_cost_center")
+		if not cost_center and row.get("cost_center"):
+			# The caller already chose one on purpose: stock_movement.post_transfer
+			# falls back to the company default because most post-harvest
+			# warehouses carry no custom_cost_center. Throwing here anyway made
+			# every Remote Transfers / Move To Graded Sold leg from such a
+			# warehouse fail at allocation. Only a row with NO cost centre at all
+			# (e.g. a bare issueBucketToSaleOrderItem row) is still blocked below.
+			if business_unit:
+				row.business_unit = business_unit
+			if not doc.get("cost_center"):
+				doc.cost_center = row.cost_center
+			continue
 		if not cost_center:
 			frappe.throw(
 				frappe._(
