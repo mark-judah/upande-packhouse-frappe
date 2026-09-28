@@ -371,6 +371,11 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .trip-st{font:600 9px var(--mono);text-transform:uppercase;letter-spacing:.05em;padding:3px 8px;border-radius:999px;background:rgba(10,10,10,.05);color:var(--ink-2)}
 .aph .trip-st.Dispatched{background:#e3ecfd;color:#1d4ed8}
 .aph .trip-st.Received{background:var(--good-soft);color:var(--good)}
+.aph .trip-st.auto{background:#efe7fd;color:#6d28d9}
+.aph .ts-auto{display:none;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 14px;padding:9px 14px;border-radius:10px;background:#f5f0fe;color:#4c1d95;font:500 12px var(--f)}
+.aph .ts-auto.on{display:flex}
+.aph .ts-auto b{font-weight:700}
+.aph .ts-auto .tbtn{margin-left:auto;padding:5px 11px;font-size:11px}
 .aph .trip-st.stale{background:var(--bad-soft);color:var(--bad)}
 .aph .trip-card.stale{box-shadow:inset 0 0 0 1px var(--bad)}
 .aph .trip-hd .trip-del{margin-left:auto;padding:5px 11px;font-size:11px}
@@ -547,6 +552,7 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
         <span class="ts-fld" id="ts-range">Deliver <input type="date" id="ts-from"><span style="color:var(--ink-mute)">&rarr;</span><input type="date" id="ts-to"></span>
         <span class="ts-fld"><span class="live-dot"></span><span id="ts-fresh">live</span></span>
       </div>
+      <div class="ts-auto" id="ts-auto"></div>
       <div id="panel-orders" class="ts-panel"><div class="sk-card" style="height:46px"></div><div class="sk-card"><span class="sk" style="width:30%;height:14px"></span><div style="height:10px"></div><span class="sk" style="width:90%;height:12px"></span><div style="height:8px"></div><span class="sk" style="width:62%;height:12px"></span></div><div class="sk-card"><span class="sk" style="width:26%;height:14px"></span><div style="height:10px"></div><span class="sk" style="width:84%;height:12px"></span><div style="height:8px"></div><span class="sk" style="width:58%;height:12px"></span></div></div>
       <div id="panel-build" class="ts-panel" style="display:none"></div>
       <div id="panel-triplist" class="ts-panel" style="display:none"></div>
@@ -725,7 +731,7 @@ function routeHtml(farms){
 /* Writes go through frappe.call — needed for CSRF on POST. */
 function call(method,args){
   return new Promise(function(resolve,reject){
-    frappe.call({ method:'upande_packhouse.api.transfer_control.'+method, args:args||{},
+    frappe.call({ method:method.indexOf('.')>=0?method:'upande_packhouse.api.transfer_control.'+method, args:args||{},
       callback:function(r){ resolve(r||{}); },
       error:function(e){ reject(e||{message:'request failed'}); } });
   });
@@ -802,7 +808,7 @@ function loadData(){
   return apiGet('getTransferScheduleData',{from_date:S.from,to_date:S.to}).then(function(d){
     if(d.success===false) throw new Error(d.error||'server error');
     S.loaded=true; S.skel=false;
-    DATA={ farm_list:d.farm_list||[], orders:d.orders||[], unscheduled:d.unscheduled||[], vehicles:d.vehicles||[], trips:d.trips||[], distances:d.distances||[], truck_status:d.truck_status||[], routes:d.routes||[], packhouse:d.packhouse };
+    DATA={ farm_list:d.farm_list||[], orders:d.orders||[], unscheduled:d.unscheduled||[], vehicles:d.vehicles||[], trips:d.trips||[], distances:d.distances||[], truck_status:d.truck_status||[], routes:d.routes||[], packhouse:d.packhouse, auto_planning:d.auto_planning||{} };
     var f=$('ts-fresh'); if(f) f.textContent='live · '+new Date().toLocaleTimeString();
     render();
   }).catch(function(e){
@@ -1074,6 +1080,7 @@ function render(){
   var sub=$('ts-sub');
   if(sub) sub.textContent=(DATA.packhouse?DATA.packhouse+' packhouse · ':'')+'deliver '+S.from+(S.to!==S.from?' → '+S.to:'')+' · '+open+' pick list'+(open===1?'':'s')+' to move · '+DATA.trips.length+' trip'+(DATA.trips.length===1?'':'s');
   document.querySelectorAll('.ts-tab').forEach(function(b){ b.classList.toggle('on', b.dataset.tab===S.tab); });
+  renderAutoBanner();
   // Keep the tab in the URL (refresh/bookmark reopen it) and in the sidebar's
   // Remote Transfers group (Transfer Scheduling vs Bucket Logistics).
   try{ var u=new URL(location.href); if(u.searchParams.get('tab')!==S.tab){ u.searchParams.set('tab',S.tab); history.replaceState(null,'',u.toString()); } }catch(e){}
@@ -1098,6 +1105,39 @@ function render(){
   else if(S.tab==='triplist') renderTripList();
   else if(S.tab==='routes') renderRoutes();
   else if(window.BL_LOAD) window.BL_LOAD();   // re-read so dispatches made on Trips show at once
+}
+
+/* Automatic scheduling (Production Settings > Enable Automatic Remote Transfers
+   Scheduling): a line saying it's on and what its last run did, plus Re-plan now.
+   Its trips carry an "auto" tag; it replaces only those, and only while Draft. */
+function renderAutoBanner(){
+  var el=$('ts-auto'); if(!el) return;
+  var ap=DATA.auto_planning||{}, on=!!ap.enabled && S.tab!=='logistics' && S.tab!=='routes';
+  el.classList.toggle('on',on); if(!on){ el.innerHTML=''; return; }
+  var lr=ap.last_run, what='waiting for its first run';
+  if(lr){
+    var at=esc(String(lr.at||'').slice(11,16));
+    if(lr.status==='error') what='last run '+at+' failed — '+esc(lr.message||'');
+    else if(lr.status==='busy') what='running…';
+    else {
+      var trips=(lr.trips||[]).length;
+      what='last run '+at+' · '+(lr.unchanged?'plan unchanged':trips+' trip'+(trips===1?'':'s')+' planned')+
+        (lr.buckets?' · '+n(lr.buckets)+' buckets':'')+
+        ((lr.unreachable||[]).length?' · '+lr.unreachable.length+' order'+(lr.unreachable.length===1?'':'s')+' no truck can reach':'')+
+        ((lr.failed||[]).length?' · '+lr.failed.length+' truck'+(lr.failed.length===1?'':'s')+' failed: '+esc(lr.failed.map(function(f){return f.vehicle+' ('+f.message+')';}).join('; ')):'');
+    }
+  }
+  el.innerHTML='<b>Automatic scheduling is on</b><span>every '+(ap.frequency||10)+' min · '+what+'. Dispatch stays manual.</span>'+
+    '<button class="tbtn ghost" data-act="auto-replan">Re-plan now</button>';
+}
+function autoReplan(btn){
+  if(S.replanning) return; S.replanning=true;
+  btn.disabled=true; btn.textContent='Planning…';
+  call('upande_packhouse.api.auto_transfer.runNow',{}).then(function(r){
+    var m=r.message||{};
+    toast(m.status==='success'?(m.unchanged?'Plan unchanged':(m.trips||[]).length+' trip'+((m.trips||[]).length===1?'':'s')+' planned'):(m.message||'Re-plan failed'));
+  }).catch(function(err){ toast('Failed: '+((err&&err.message)||'')); })
+    .then(function(){ S.replanning=false; loadData(); });
 }
 
 /* ---- route-aware truck allocation ----------------------------------------------
@@ -1722,7 +1762,7 @@ function tripCardHtml(t){
   return '<div class="trip-card'+(t.stale?' stale':'')+'"><div class="trip-hd"><h3>'+esc(t.name)+'</h3>'+
     (t.vehicle?'<span class="veh">'+esc(t.vehicle)+'</span>':'')+
     (t.trip_date?'<span style="font:500 11px var(--mono);color:var(--ink-mute)">'+esc(t.trip_date)+'</span>':'')+
-    stBadge+when+
+    stBadge+(t.auto_planned?'<span class="trip-st auto" title="Planned by automatic scheduling — re-planned automatically until dispatched">auto</span>':'')+when+
     ((t.status==='Draft'||t.status==='Scheduled')?'<button class="tbtn key trip-act" data-act="trip-dispatch" data-trip="'+esc(t.name)+'" title="Truck is leaving: flags its buckets In Transit">Dispatch</button>':'')+
     (t.status==='Dispatched'?'<button class="tbtn key trip-act" data-act="trip-receive" data-trip="'+esc(t.name)+'" title="Truck is back: closes the trip (buckets count as arrived once shelved)">Receive</button>':'')+
     ((t.status==='Draft'||t.status==='Scheduled')?'<button class="tbtn ghost trip-del" data-act="trip-del" data-trip="'+esc(t.name)+'">Delete</button>':'')+
@@ -1795,6 +1835,7 @@ document.addEventListener('click',function(ev){
   else if(a==='rn-del'){ removeRoad(el.dataset.name); }
   else if(a==='trip-dispatch'){ tripAction('dispatchBucketTrip',el.dataset.trip,'Dispatch'); }
   else if(a==='trip-receive'){ tripAction('receiveBucketTrip',el.dataset.trip,'Receive'); }
+  else if(a==='auto-replan'){ autoReplan(el); }
 });
 document.addEventListener('change',function(ev){
   var el=ev.target; if(!el.dataset||!el.dataset.act) return; var a=el.dataset.act;

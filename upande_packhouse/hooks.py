@@ -261,6 +261,14 @@ scheduler_events = {
 	"daily": [
 		"upande_packhouse.spec.expire_temporary_specs",
 	],
+	"cron": {
+		# No-op unless Production Settings > Enable Automatic Remote Transfers Scheduling.
+		# Fires every 5 minutes; auto_transfer.run() re-plans at the frequency set on
+		# Production Settings > Remote Transfers (5-60 minutes).
+		"*/5 * * * *": [
+			"upande_packhouse.api.auto_transfer.run",
+		],
+	},
 }
 
 # scheduler_events = {

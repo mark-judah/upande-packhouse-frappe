@@ -334,9 +334,16 @@ def _group_into_bunches(doc):
 					"packs": packs,
 				}
 			)
-		if not rows and bi_rows:
-			# Box Item row(s) exist with no matching Approved Variety yet.
-			rows = [{"varieties": [], "colour": "", "stems_per_bunch": bi.stems_per_bunch} for bi in bi_rows]
+		if not per_variety and len(bi_rows) > len(rows):
+			# More Box Items (colour rows) than colours with a variety picked --
+			# e.g. a 5+5+4 Mixed Bunch where only one colour ever got its
+			# variety. Show the rest as empty colour rows so they can be
+			# filled in (or removed) here; dropping them hid the very rows the
+			# autofill complains about, leaving no way to fix the spec.
+			rows += [
+				{"varieties": [], "colour": "", "stems_per_bunch": bi.stems_per_bunch, "packs": []}
+				for bi in bi_rows[len(rows) :]
+			]
 
 		bunches.append(
 			{
@@ -443,6 +450,21 @@ def saveSpecification():
 
 		bunches = data.get("bunches") or []
 		consumables = data.get("consumables") or []
+
+		# A colour row is a Box Item: saving one with no variety writes a pack
+		# with nothing to fill it, and the spec then can't autofill a Sales
+		# Order ("N Box Item rows but M Approved Varieties").
+		empty = [
+			"Bunch {0}, colour {1}".format((b.get("id") or "").strip() or bi + 1, ri + 1)
+			for bi, b in enumerate(bunches)
+			for ri, r in enumerate(b.get("rows") or [])
+			if not [v for v in (r.get("varieties") or []) if v]
+		]
+		if empty:
+			frappe.throw(
+				"Pick a variety for {0} — or remove the row.".format(", ".join(empty)),
+				title="Colour row has no variety",
+			)
 
 		# Every Item referenced anywhere on the spec, in one query, to fill
 		# colour/headsize/budcount and item_name the same way the Desk
