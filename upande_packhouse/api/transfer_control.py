@@ -38,6 +38,7 @@
 # no longer claims anything because its buckets are flagged in_transit instead.
 
 import frappe
+from frappe import _
 
 FARM_EXPR = "SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1)"
 # Pick-list creation pre-fills transit_truck with the ORDER's delivery truck label
@@ -78,8 +79,10 @@ def transfer_hub(required=True):
 	if not required:
 		return None
 	frappe.throw(
-		"Set <b>Remote Transfer Hub Farm</b> in Production Settings — the sales farm "
-		"remote buckets are trucked to."
+		_(
+			"Set <b>Remote Transfer Hub Farm</b> in Production Settings — the sales farm "
+			"remote buckets are trucked to."
+		)
 	)
 
 
@@ -296,16 +299,21 @@ def _truck_status(today):
 			},
 		)
 		st["total"] += 1
-		phase = ""
-		if int(r.get("sh") or 0):
-			phase = "shelved"
-		elif int(r.get("tr") or 0):
-			phase = "in_transit"
-		elif int(r.get("ld") or 0):
-			phase = "loaded"
-		elif int(r.get("aw") or 0):
-			phase = "awaiting"
-		if phase:
+		# Most-advanced phase first; None when the bucket carries no flag at all.
+		phase = next(
+			(
+				name
+				for flag, name in (
+					("sh", "shelved"),
+					("tr", "in_transit"),
+					("ld", "loaded"),
+					("aw", "awaiting"),
+				)
+				if int(r.get(flag) or 0)
+			),
+			None,
+		)
+		if phase is not None:
 			st[phase] += 1
 		mod = str(r.get("modified") or "")
 		if mod > st["last"]:

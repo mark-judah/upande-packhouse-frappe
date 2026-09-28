@@ -222,6 +222,10 @@ def _grade_bunch(bunch_id, bucket, item_code, stem_length, bunch_uom, per_bunch,
 	se.submit()
 
 
+# A production feature (the Order Pick List "test labels" button, System Manager
+# only), not a test-only endpoint: @whitelist_for_tests would disable it outside
+# test runs, which is what the semgrep rule below keys on the word "test" for.
+# nosemgrep: frappe-semgrep-rules.rules.frappe-test-whitelist-missing-protection
 @frappe.whitelist(methods=["POST"])
 def generate_opl_test_labels(
 	opl: str,

@@ -16,6 +16,7 @@
 # is deliberate, not a bug.
 
 import frappe
+from frappe import _
 
 
 def _json_payload():
@@ -462,8 +463,8 @@ def saveSpecification():
 		]
 		if empty:
 			frappe.throw(
-				"Pick a variety for {0} — or remove the row.".format(", ".join(empty)),
-				title="Colour row has no variety",
+				_("Pick a variety for {0} — or remove the row.").format(", ".join(empty)),
+				title=_("Colour row has no variety"),
 			)
 
 		# Every Item referenced anywhere on the spec, in one query, to fill
