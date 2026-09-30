@@ -3015,7 +3015,7 @@ def getTransferScheduleData():
                so.custom_truck_details AS truck, 0 AS mixed,
                o.schedule_number AS schedule, o.team AS team,
                pli.bucket AS bucket, pli.item_code AS variety, pli.stock_qty AS stems,
-               SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse, ''), pli.warehouse), ' ', 1) AS farm,
+               COALESCE(NULLIF(pli.farm, ''), SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse, ''), pli.warehouse), ' ', 1)) AS farm,
                pli.awaiting_transfer AS aw, pli.loaded_in_trolley AS ld, pli.in_transit AS tr
         FROM `tabPick List Item` pli
         JOIN `tabOrder Pick List` o ON o.name = pli.parent
@@ -3235,6 +3235,7 @@ def getTransferScheduleData():
 				"bucket",
 				"warehouse",
 				"source_warehouse",
+				"farm",
 				"awaiting_transfer",
 				"loaded_in_trolley",
 				"in_transit",
@@ -3248,7 +3249,7 @@ def getTransferScheduleData():
 			# prefix -- this used to query "custom_source_warehouse", which
 			# doesn't exist on this doctype (an "Unknown column" bug).
 			wh = row.get("source_warehouse") or row.get("warehouse") or ""
-			farm = wh.split(" ")[0] if wh else ""
+			farm = row.get("farm") or (wh.split(" ")[0] if wh else "")
 			opl = row.get("parent")
 			bkt = row.get("bucket") or ""
 			dk = str(opl) + "|" + str(bkt).lower()
@@ -3294,7 +3295,7 @@ def getTransferScheduleData():
         SELECT pli.transit_truck AS truck,
                pli.awaiting_transfer AS aw, pli.loaded_in_trolley AS ld,
                pli.in_transit AS tr, pli.shelved AS sh,
-               SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''),pli.warehouse),' ',1) AS farm,
+               COALESCE(NULLIF(pli.farm, ''), SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''),pli.warehouse),' ',1)) AS farm,
                pli.modified AS modified
         FROM `tabPick List Item` pli
         JOIN `tabOrder Pick List` o ON o.name = pli.parent

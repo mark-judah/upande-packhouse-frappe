@@ -63,8 +63,10 @@ def _label(kind, label_id, payload, lines):
 
 
 def _farm_of(row):
+	if row.get("farm"):
+		return row.get("farm")
 	wh = (row.get("source_warehouse") or row.get("warehouse") or "").strip()
-	return wh.split(" ")[0] if wh else (row.get("farm") or "")
+	return wh.split(" ")[0] if wh else ""
 
 
 def _shelf_prefix(farm):
