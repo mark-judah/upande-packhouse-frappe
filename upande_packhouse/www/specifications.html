@@ -155,9 +155,6 @@ td.bunch-cell{background:var(--bg);vertical-align:top;padding:14px 16px;width:30
 .bunch-cell .type-pill{font:600 9.5px var(--sans);letter-spacing:.4px;padding:3px 9px;border-radius:999px}
 .bunch-cell .type-pill.mono{background:var(--warn-soft);color:var(--warn)}
 .bunch-cell .type-pill.mixed{background:var(--violet-soft);color:var(--violet)}
-.bunch-cell .type-toggle{display:flex;gap:4px;margin-bottom:11px}
-.bunch-cell .type-toggle button{border:1px solid var(--hairline-2);background:var(--surface-2);color:var(--ink-mute);font:600 9px var(--sans);padding:5px 7px;border-radius:7px;cursor:pointer}
-.bunch-cell .type-toggle button.on{background:var(--ink);color:#fafaf6;border-color:var(--ink)}
 .bunch-cell .structure{display:grid;grid-template-columns:1fr 1fr;gap:7px 9px;padding-top:10px;border-top:1px dashed var(--hairline-2)}
 .bunch-cell .structure .f label{display:block;font:600 8px var(--sans);letter-spacing:.4px;text-transform:uppercase;color:var(--ink-faint);margin-bottom:3px}
 .bunch-cell .structure .f select,.bunch-cell .structure .f input{width:100%;border:1px solid var(--hairline-2);background:var(--surface-2);color:var(--ink);border-radius:7px;padding:5px 6px;font:600 11px var(--sans)}
@@ -171,16 +168,21 @@ td.bunch-cell{background:var(--bg);vertical-align:top;padding:14px 16px;width:30
 
 .swatch{width:11px;height:11px;border-radius:50%;flex:0 0 auto;border:1px solid var(--hairline-2);display:inline-block}
 .variety-cell{position:relative}
-.variety-cell-label{font:600 9px var(--sans);letter-spacing:.5px;text-transform:uppercase;color:var(--warn);margin-bottom:6px}
-.variety-cell-label.mixed{color:var(--violet)}
+.variety-cell-label{font:600 9px var(--sans);letter-spacing:.5px;text-transform:uppercase;color:var(--ink-mute);margin-bottom:6px}
 .variety-cell-label .hint{font-weight:500;text-transform:none;letter-spacing:0;color:var(--ink-faint)}
 .variety-link-value{display:flex;align-items:center;gap:7px;background:var(--surface-2);border:1px solid var(--hairline-2);border-radius:8px;padding:7px 10px}
 .variety-link-value .vv-name{font:600 12.5px var(--sans);color:var(--ink);flex:1}
 .variety-link-value .rm{border:0;background:none;color:var(--signal);font:600 10px var(--sans);cursor:pointer;white-space:nowrap;padding:0}
 .variety-picker-wrap{position:relative}
-.variety-chips{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-bottom:6px}
-.vchip{display:flex;align-items:center;gap:5px;background:var(--bg);border:1px solid var(--hairline-2);border-radius:999px;padding:3px 9px;font:600 11px var(--sans)}
-.vchip .rm{border:0;background:none;color:var(--ink-faint);cursor:pointer;font-size:10px}
+.variety-chips{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-bottom:6px}
+.chip-or{font:500 10px var(--sans);font-style:italic;color:var(--ink-faint);padding:0 1px}
+.vchip{display:flex;align-items:center;gap:5px;border-radius:999px;padding:3px 6px 3px 9px;font:600 11px var(--sans)}
+.vchip.primary{background:var(--ink);color:#fafaf6;border:1px solid var(--ink)}
+.vchip.substitute{background:var(--surface-2);color:var(--violet);border:1.5px dashed var(--violet)}
+.vchip .rm{border:0;background:none;cursor:pointer;font-size:10px;color:inherit;opacity:.75}
+.vchip .rm:hover{opacity:1}
+.vchip .pin{border:0;background:none;cursor:pointer;font-size:10px;color:inherit;opacity:.8;line-height:1}
+.vchip .pin:hover{opacity:1}
 .variety-search{border:1px solid var(--hairline-2);background:var(--surface-2);border-radius:8px;padding:6px 9px;font:500 12px var(--sans);width:100%;max-width:220px}
 .variety-search-results{position:absolute;top:100%;left:0;background:var(--surface-2);border-radius:10px;box-shadow:var(--shadow-hover);max-height:240px;overflow-y:auto;z-index:500;min-width:240px;display:none}
 .variety-search-results.show{display:block}
@@ -216,6 +218,22 @@ tr.grand-total .total-cell{font-size:18px;color:var(--ink)}
 .legend span{display:flex;align-items:center;gap:5px}
 .legend .sw{width:8px;height:8px;border-radius:2px}
 
+/* Toasts: feedback that finds the user wherever they've scrolled to, so
+   nobody has to scroll back to the top of a long spec to learn a save
+   worked -- or, more importantly, that it didn't. */
+/* Named aph-toast*, deliberately NOT .toast -- Frappe ships Bootstrap, whose
+   own .toast component sets opacity:0 at rest (only shown via a .show class
+   this page never adds). Reusing that class name meant our entrance
+   animation played for .18s and then snapped straight back to Bootstrap's
+   opacity:0 the instant it finished -- "appears then vanishes immediately". */
+#aphToastHost{position:fixed;top:18px;right:18px;z-index:2147483001;display:flex;flex-direction:column;gap:8px;max-width:380px}
+.aph-toast{opacity:1;background:var(--surface-2);color:var(--ink);border-radius:12px;box-shadow:var(--shadow-hover);padding:12px 14px;font:500 12.5px var(--sans);display:flex;align-items:flex-start;gap:9px;border-left:4px solid var(--signal);animation:aph-toast-in .18s ease}
+.aph-toast.error{border-left-color:var(--bad)}
+.aph-toast .msg{flex:1;line-height:1.4;white-space:pre-line}
+.aph-toast .close{border:0;background:none;color:var(--ink-mute);cursor:pointer;font-size:13px;line-height:1;padding:2px}
+.aph-toast .close:hover{color:var(--ink)}
+@keyframes aph-toast-in{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:translateX(0)}}
+
 @media (max-width: 900px){
   html,body{overflow:auto!important}
   .aph,.aph.collapsed{display:flex;flex-direction:column;position:fixed;grid-template-columns:none}
@@ -234,6 +252,7 @@ tr.grand-total .total-cell{font-size:18px;color:var(--ink)}
 }
 </style>
 
+<div id="aphToastHost"></div>
 <div class="aph">
   {% endraw %}{% set active_page = "specifications" %}{% include "upande_packhouse/templates/includes/packhouse_sidebar.html" %}{% raw %}
 
@@ -328,6 +347,19 @@ document.addEventListener('mousedown', (e) => {
 function showErr(msg){
     document.getElementById('errBanner').innerHTML = msg ? `<div class="aph-err">${escHtml(msg)}</div>` : '';
 }
+// type: 'success' | 'error'. Errors stay up longer and keep a manual close
+// button -- a validation error is exactly the thing a user must not miss,
+// so it doesn't get the same quick auto-dismiss as a plain "saved" toast.
+function toast(msg, type){
+    const host = document.getElementById('aphToastHost');
+    const el = document.createElement('div');
+    el.className = 'aph-toast' + (type==='error' ? ' error' : '');
+    el.innerHTML = `<span class="msg">${escHtml(msg)}</span><button class="close" aria-label="Dismiss">✕</button>`;
+    el.querySelector('.close').onclick = () => el.remove();
+    host.appendChild(el);
+    if(type !== 'error'){ setTimeout(() => el.remove(), 4000); }
+    else { setTimeout(() => el.remove(), 12000); }
+}
 function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function nOr0(v){ const n = Number(v); return Number.isFinite(n) ? n : 0; }
 
@@ -352,8 +384,18 @@ function loadList(){
     });
 }
 
-function renderTopbar(){
+// Rebuilding #topbarRight's innerHTML on every render() destroys and
+// recreates #listSearch -- so typing a letter fires loadList() -> render()
+// -> a brand new <input> with no focus, one keystroke at a time. The topbar's
+// own state (search text, filter selections) only needs building once per
+// VIEW (list vs editor have entirely different controls); a data-only
+// refresh within the same view has nothing here to update -- the DOM
+// already reflects whatever the user just typed/picked, live.
+let TOPBAR_BUILT_FOR = null;
+function renderTopbar(force){
     const el = document.getElementById('topbarRight');
+    if(!force && TOPBAR_BUILT_FOR === VIEW) return;
+    TOPBAR_BUILT_FOR = VIEW;
     if(VIEW==='list'){
         el.innerHTML = `
           <input class="form-control" style="width:180px" id="listSearch" placeholder="Search specs…" value="${escHtml(LIST_QUERY)}">
@@ -372,7 +414,12 @@ function renderTopbar(){
             <option value="Temporary" ${LIST_SPEC_TYPE==='Temporary'?'selected':''}>Temporary</option>
           </select>
           <button class="btn btn-primary" onclick="openEditor(null)">+ New spec</button>`;
-        document.getElementById('listSearch').addEventListener('input', function(){ LIST_QUERY = this.value; loadList(); });
+        let searchDebounce = null;
+        document.getElementById('listSearch').addEventListener('input', function(){
+            LIST_QUERY = this.value;
+            clearTimeout(searchDebounce);
+            searchDebounce = setTimeout(loadList, 250);
+        });
         document.getElementById('filterCustomer').addEventListener('change', function(){ LIST_CUSTOMER = this.value; loadList(); });
         document.getElementById('filterStatus').addEventListener('change', function(){ LIST_STATUS = this.value; loadList(); });
         document.getElementById('filterSpecType').addEventListener('change', function(){ LIST_SPEC_TYPE = this.value; loadList(); });
@@ -435,7 +482,7 @@ function openEditor(name){
     if(!name){
         CURRENT = {
             name: null, spec_name: '', customer: '', ftnft: 'FT', spec_type: 'Permanent', status: 'Active',
-            box_assortment: 'Mono Box', cut_stage: '', defoliation_length: '', rubber_band_type: '',
+            box_assortment: 'Mono Box', box_type: '', cut_stage: '', defoliation_length: '', rubber_band_type: '',
             rubber_band_distance_1: '', rubber_band_distance_2: '', max_colours_per_box: '',
             consumables_charge: 0, documentation_charge: 0, certificate_of_origin: 0,
             bunches: [], consumables: [],
@@ -477,6 +524,7 @@ function renderEditor(){
             <div class="spec-field"><label>Expiry Date <span class="req">required</span></label><input id="f_expiry_date" type="date" value="${escHtml(s.expiry_date||'')}"></div>
             ` : ''}
             <div class="spec-field"><label>Box Assortment</label><select id="f_box_assortment">${selOpts(['Mono Box','Mixed Box'], s.box_assortment)}</select></div>
+            <div class="spec-field"><label>Box Type <span class="req">required</span></label><select id="f_box_type">${selOpts(OPTIONS.box_types, s.box_type)}</select></div>
             <div class="spec-field"><label>Cut Stage</label><select id="f_cut_stage">${selOpts(OPTIONS.cut_stages, s.cut_stage)}</select></div>
             <div class="spec-field"><label>Defoliation Length</label><select id="f_defoliation_length">${selOpts(DEFOLIATION_OPTIONS, s.defoliation_length)}</select></div>
             ${s.box_assortment === 'Mixed Box' ? `
@@ -497,9 +545,10 @@ function renderEditor(){
         <div class="aph-card-body padless"><div class="ledger-scroll">${renderLedger(s)}</div></div>
       </div>
       <div class="legend">
-        <span><span class="sw" style="background:var(--warn)"></span>Mono bunch — one colour per row, several candidate varieties</span>
-        <span><span class="sw" style="background:var(--violet)"></span>Mixed bunch — every row a required, fixed component</span>
-        <span style="color:var(--signal)">Total = Stems/Bunch × Bunches/Box (that bunch's own value, shared by every row in it)</span>
+        <span><span class="sw" style="background:var(--warn)"></span>Mono bunch — one colour row</span>
+        <span><span class="sw" style="background:var(--violet)"></span>Mixed bunch — two or more colour rows combine, stem-by-stem, into one bunch</span>
+        <span>Within a colour row, chips are alternatives: <b style="color:var(--ink)">solid = primary</b>, <b style="color:var(--violet)">dashed = approved substitute</b> — never both delivered at once</span>
+        <span style="color:var(--signal)">Total = Stems/Bunch × Bunches/Box (that row's own value)</span>
       </div>
 
       <div class="aph-card"><div class="aph-card-hd"><div class="ttl">Consumables</div></div>
@@ -525,7 +574,7 @@ function selOpts(list, current){
 function wireHeaderInputs(){
     const map = {
         f_spec_name:'spec_name', f_category_code:'category_code', f_customer:'customer', f_ftnft:'ftnft', f_spec_type:'spec_type', f_status:'status',
-        f_box_assortment:'box_assortment', f_cut_stage:'cut_stage', f_defoliation_length:'defoliation_length',
+        f_box_assortment:'box_assortment', f_box_type:'box_type', f_cut_stage:'cut_stage', f_defoliation_length:'defoliation_length',
         f_min_colours_per_box:'min_colours_per_box', f_max_colours_per_box:'max_colours_per_box', f_rubber_band_type:'rubber_band_type',
         f_rubber_band_distance_1:'rubber_band_distance_1', f_rubber_band_distance_2:'rubber_band_distance_2',
         f_valid_from:'valid_from', f_expiry_date:'expiry_date',
@@ -592,9 +641,9 @@ function renderLedger(s){
         body += `<tr><td colspan="5" class="aph-empty" style="padding:28px">No bunches yet.</td></tr>`;
     }
     bunches.forEach((b, bi) => {
-        const isMixed = b.type === 'Mixed';
         const subtotal = bunchSubtotal(b);
         const rows = b.rows && b.rows.length ? b.rows : [{varieties:[], colour:'', stems_per_bunch:0}];
+        const isMixed = rows.length > 1;
         const parityClass = ' ' + (bi % 2 === 1 ? 'bunch-odd' : 'bunch-even');
         rows.forEach((r, ri) => {
             const trClass = (ri===0 && bi>0 ? 'bunch-start' : '') + parityClass;
@@ -603,26 +652,21 @@ function renderLedger(s){
                 body += `<td class="bunch-cell" rowspan="${rows.length}">
                   <div class="top-row">
                     <input class="bunch-id-input ${b.id?'':'is-blank'}" value="${escHtml(b.id||'')}" placeholder="Bunch ID — e.g. 1" title="This is the real bunch_id field. Blank means it's blank in the doctype too — type a value to name/group this bunch." onchange="updateBunchField(${bi},'id',this.value)">
-                    <span class="type-pill ${isMixed?'mixed':'mono'}">${b.type.toUpperCase()}</span>
-                  </div>
-                  <div class="type-toggle">
-                    <button class="${!isMixed?'on':''}" onclick="setBunchType(${bi},'Mono')">MONO</button>
-                    <button class="${isMixed?'on':''}" onclick="setBunchType(${bi},'Mixed')">MIXED</button>
+                    <span class="type-pill ${isMixed?'mixed':'mono'}" title="Derived from how many colour rows this bunch has — not manually set">${isMixed ? 'MIXED · '+rows.length+' COLOURS' : 'MONO'}</span>
                   </div>
                   <div class="structure">
                     <div class="f"><label>Length</label><select onchange="updateBunchField(${bi},'length',this.value)">${selOpts(OPTIONS.stem_lengths, b.length)}</select></div>
                     <div class="f"><label>Bunches/Box</label><input class="tabular" value="${escHtml(b.bunches_per_box||'')}" onchange="updateBunchField(${bi},'bunches_per_box',this.value)"></div>
-                    <div class="f" style="grid-column:span 2"><label>Box Type</label><select onchange="updateBunchField(${bi},'box_type',this.value)">${selOpts(OPTIONS.box_types, b.box_type)}</select></div>
                   </div>
-                  <div class="cutstage">Cut Stage: <b>${escHtml(s.cut_stage||'—')}</b> <span style="color:var(--ink-faint)">(from spec header)</span></div>
+                  <div class="cutstage">Cut Stage: <b>${escHtml(s.cut_stage||'—')}</b> · Box Type: <b>${escHtml(s.box_type||'—')}</b> <span style="color:var(--ink-faint)">(from spec header)</span></div>
                   <div class="subtotal"><span class="k">Bunch subtotal</span><span class="v">${subtotal}</span></div>
                   <div class="bunch-actions">
-                    <button class="row-link" onclick="addRow(${bi})">+ ${isMixed?'component':'colour row'}</button>
+                    <button class="row-link" onclick="addRow(${bi})">+ Add colour</button>
                     <button class="rm-bunch" onclick="removeBunch(${bi})">Remove bunch</button>
                   </div>
                 </td>`;
             }
-            body += renderVarietyCell(b, bi, r, ri);
+            body += renderVarietyCell(bi, r, ri);
             body += `<td><input class="num-input" value="${escHtml(r.stems_per_bunch||'')}" onchange="updateRow(${bi},${ri},'stems_per_bunch',this.value)"></td>`;
             body += `<td class="total-cell">${nOr0(b.bunches_per_box)*nOr0(r.stems_per_bunch)}</td>`;
             body += `<td>${rows.length>1 ? `<button class="rowmenu" onclick="removeRow(${bi},${ri})">✕</button>` : ''}</td>`;
@@ -635,40 +679,31 @@ function renderLedger(s){
     return `<table class="bunch-ledger">${thead}${body}</table>`;
 }
 
-// A Mono row is a "colour slot": any number of candidate varieties, any one
-// of which may end up in the box (chosen later, at Sales Order time, from
-// live stock). A Mixed row is a required, fixed component: exactly one
-// variety, no substitutes. These are different enough real-world things
-// that they get visibly different widgets, not the same chip-adder with a
-// quirk for Mixed.
-function renderVarietyCell(b, bi, r, ri){
-    const isMixed = b.type === 'Mixed';
+// A row is one Colour: the stems it contributes to the bunch are additive
+// with every other row (that's what makes a bunch "Mixed"). The varieties
+// inside a row are the opposite -- alternatives for the SAME colour, never
+// both delivered at once. The first variety is the primary pick; any others
+// are approved substitutes, swapped in when the primary is short. This is
+// true for a Mono bunch's single colour row just as much as for a Mixed
+// bunch's several -- substitution isn't a Mixed-only concept.
+function renderVarietyCell(bi, r, ri){
     const key = bi + '-' + ri;
-    if(isMixed){
-        const picked = (r.varieties||[])[0];
-        return `<td class="variety-cell">
-            <div class="variety-cell-label mixed">Required variety <span class="hint">— exactly one, no substitutes</span></div>
-            ${picked ? `
-              <div class="variety-link-value">
-                ${swatchFor(r.colour)}<span class="vv-name">${escHtml(picked)}</span>
-                <button class="rm" onclick="removeVariety(${bi},${ri},0)">✕ change</button>
-              </div>
-            ` : `
-              <div class="variety-picker-wrap">
-                <input class="variety-search" placeholder="+ pick the required variety…" autocomplete="off"
-                  onfocus="onVarietySearch(this, ${bi}, ${ri})" oninput="onVarietySearch(this, ${bi}, ${ri})">
-                <div class="variety-search-results" id="vresults-${key}"></div>
-              </div>
-            `}
-          </td>`;
-    }
+    const varieties = r.varieties || [];
+    let chips = '';
+    varieties.forEach((v, vi) => {
+        const isPrimary = vi === 0;
+        if(vi > 0) chips += `<span class="chip-or">or</span>`;
+        chips += `<span class="vchip ${isPrimary?'primary':'substitute'}" title="${isPrimary?'Primary variety for this colour':'Approved substitute — used when the primary is unavailable'}">
+            ${swatchFor(r.colour)}${escHtml(v)}
+            ${!isPrimary ? `<button class="pin" title="Make primary" onclick="makePrimary(${bi},${ri},${vi})">✦</button>` : ''}
+            <button class="rm" title="Remove" onclick="removeVariety(${bi},${ri},${vi})">✕</button>
+          </span>`;
+    });
     return `<td class="variety-cell">
-        <div class="variety-cell-label mono">Approved varieties <span class="hint">— any of these may be used</span></div>
-        <div class="variety-chips" id="chips-${key}">
-          ${(r.varieties||[]).map((v,vi) => `<span class="vchip">${swatchFor(r.colour)}${escHtml(v)}<button class="rm" onclick="removeVariety(${bi},${ri},${vi})">✕</button></span>`).join('')}
-        </div>
+        <div class="variety-cell-label">Colour ${ri+1} <span class="hint">— solid chip is primary, dashed chips are approved substitutes</span></div>
+        <div class="variety-chips" id="chips-${key}">${chips}</div>
         <div class="variety-picker-wrap">
-          <input class="variety-search" placeholder="+ add an approved variety…" autocomplete="off"
+          <input class="variety-search" placeholder="${varieties.length ? '+ add a substitute…' : '+ pick the primary variety…'}" autocomplete="off"
             onfocus="onVarietySearch(this, ${bi}, ${ri})" oninput="onVarietySearch(this, ${bi}, ${ri})">
           <div class="variety-search-results" id="vresults-${key}"></div>
         </div>
@@ -695,15 +730,8 @@ function updateBunchField(bi, field, val){
     findBunch(bi)[field] = field==='bunches_per_box' ? val : val;
     render();
 }
-function setBunchType(bi, type){
-    const b = findBunch(bi);
-    if(b.type===type) return;
-    b.type = type;
-    if(type==='Mixed'){ b.rows.forEach(r => { if((r.varieties||[]).length>1) r.varieties = [r.varieties[0]]; }); }
-    render();
-}
 function addBunch(){
-    CURRENT.bunches.push({ type:'Mono', length: OPTIONS.stem_lengths[0]||'', box_type: OPTIONS.box_types[0]||'', bunches_per_box:'', rows:[{varieties:[],colour:'',stems_per_bunch:''}] });
+    CURRENT.bunches.push({ length: OPTIONS.stem_lengths[0]||'', bunches_per_box:'', rows:[{varieties:[],colour:'',stems_per_bunch:''}] });
     render();
 }
 function removeBunch(bi){ CURRENT.bunches.splice(bi,1); render(); }
@@ -711,6 +739,15 @@ function addRow(bi){ findBunch(bi).rows.push({varieties:[],colour:'',stems_per_b
 function removeRow(bi,ri){ findBunch(bi).rows.splice(ri,1); render(); }
 function updateRow(bi,ri,field,val){ findBunch(bi).rows[ri][field] = val; render(); }
 function removeVariety(bi,ri,vi){ findBunch(bi).rows[ri].varieties.splice(vi,1); render(); }
+// Promotes an approved substitute to primary (swaps it to the front of the
+// row's varieties array -- array order IS primary/substitute order, both
+// here and in the API payload).
+function makePrimary(bi,ri,vi){
+    const row = findBunch(bi).rows[ri];
+    const [v] = row.varieties.splice(vi,1);
+    row.varieties.unshift(v);
+    render();
+}
 
 let varietySearchTimers = {};
 function onVarietySearch(input, bi, ri){
@@ -734,15 +771,11 @@ function onVarietySearch(input, bi, ri){
     }, q ? 200 : 0);
 }
 function pickVariety(bi, ri, variety, colour){
-    const b = findBunch(bi);
-    const row = b.rows[ri];
-    if(b.type === 'Mixed'){
-        // Required, fixed, single component -- picking one REPLACES it.
-        row.varieties = [variety];
-    } else {
-        row.varieties = row.varieties || [];
-        if(!row.varieties.includes(variety)) row.varieties.push(variety);
-    }
+    const row = findBunch(bi).rows[ri];
+    row.varieties = row.varieties || [];
+    // First pick for an empty row becomes primary; anything after is an
+    // approved substitute for that same colour, appended to the end.
+    if(!row.varieties.includes(variety)) row.varieties.push(variety);
     if(!row.colour) row.colour = colour;
     const el = document.getElementById('vresults-'+bi+'-'+ri);
     if(el) closeDropdown(el);
@@ -812,14 +845,69 @@ function pickConsumableItem(ci, item, itemName){
 }
 
 // ---------- save / delete ----------
+// Mirrors the doctype's own mandatory/validate rules, client-side, so a
+// spec that can't possibly save (no bunch added yet, a colour with no
+// variety picked, a Mixed Box missing its colour range...) says exactly
+// what's missing before a round trip, instead of coming back with Frappe's
+// own generic "approved_varieties: Mandatory" after the fact.
+function validateBeforeSave(s){
+    const problems = [];
+    if(!s.spec_name || !s.spec_name.trim()) problems.push('Spec Name is required.');
+    if(!s.ftnft) problems.push('FT/NFT is required.');
+    if(!s.box_assortment) problems.push('Box Assortment is required.');
+    if(!s.box_type) problems.push('Box Type is required.');
+    if(!s.cut_stage) problems.push('Cut Stage is required.');
+    if(!s.defoliation_length) problems.push('Defoliation Length is required.');
+    if(s.spec_type === 'Temporary'){
+        if(!s.valid_from) problems.push('Valid From is required for a Temporary spec.');
+        if(!s.expiry_date) problems.push('Expiry Date is required for a Temporary spec.');
+        if(s.valid_from && s.expiry_date && s.valid_from > s.expiry_date) problems.push('Valid From cannot be after Expiry Date.');
+    }
+    if(s.box_assortment === 'Mixed Box'){
+        if(!s.min_colours_per_box) problems.push('Min Colours Per Box is required for a Mixed Box.');
+        if(!s.max_colours_per_box) problems.push('Max Colours Per Box is required for a Mixed Box.');
+        if(s.min_colours_per_box && s.max_colours_per_box && Number(s.min_colours_per_box) > Number(s.max_colours_per_box)){
+            problems.push('Min Colours Per Box cannot be greater than Max Colours Per Box.');
+        }
+    }
+    const bunches = s.bunches || [];
+    if(!bunches.length) problems.push('Add at least one bunch.');
+    bunches.forEach((b, bi) => {
+        const label = 'Bunch ' + (bi+1) + (b.id ? ' ("' + b.id + '")' : '');
+        if(!b.length) problems.push(label + ': Length is required.');
+        if(!nOr0(b.bunches_per_box)) problems.push(label + ': Bunches/Box is required.');
+        const rows = b.rows || [];
+        if(!rows.length || rows.every(r => !(r.varieties||[]).length)){
+            problems.push(label + ': add at least one approved variety.');
+        }
+        rows.forEach((r, ri) => {
+            if((r.varieties||[]).length && !nOr0(r.stems_per_bunch)){
+                problems.push(label + ', colour ' + (ri+1) + ': Stems/Bunch is required.');
+            }
+        });
+    });
+    return problems;
+}
 function saveSpec(){
     if(SAVING) return;
+    const problems = validateBeforeSave(CURRENT);
+    if(problems.length){
+        toast(problems.join('\n'), 'error');
+        return;
+    }
     SAVING = true;
     const btn = document.getElementById('saveBtn');
     if(btn){ btn.disabled = true; btn.textContent = 'Saving…'; }
     apiCall('saveSpecification', { data: JSON.stringify(Object.assign({}, CURRENT, { name: CURRENT.name })) }, r => {
         SAVING = false;
-        if(!r.success){ showErr(r.error || 'Could not save this specification.'); if(btn){ btn.disabled=false; btn.textContent = CURRENT.name ? 'Save changes' : 'Create specification'; } return; }
+        if(!r.success){
+            const msg = r.error || 'Could not save this specification.';
+            showErr(msg);
+            toast(msg, 'error');
+            if(btn){ btn.disabled=false; btn.textContent = CURRENT.name ? 'Save changes' : 'Create specification'; }
+            return;
+        }
+        toast('Specification saved.', 'success');
         openEditor(r.name);
     });
 }
@@ -827,7 +915,13 @@ function deleteSpec(){
     if(!CURRENT.name) return;
     if(!confirm('Delete "' + CURRENT.spec_name + '"? This cannot be undone.')) return;
     apiCall('deleteSpecification', { name: CURRENT.name }, r => {
-        if(!r.success){ showErr(r.error || 'Could not delete this specification.'); return; }
+        if(!r.success){
+            const msg = r.error || 'Could not delete this specification.';
+            showErr(msg);
+            toast(msg, 'error');
+            return;
+        }
+        toast('Specification deleted.', 'success');
         loadList();
     });
 }

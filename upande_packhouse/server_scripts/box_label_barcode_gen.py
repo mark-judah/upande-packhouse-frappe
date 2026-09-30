@@ -1,39 +1,47 @@
 import io
+import json
 
-import barcode
 import frappe
-from barcode.writer import ImageWriter
+import qrcode
 
-# "Medium" size preset: module_width/module_height control the bar
-# dimensions (mm), quiet_zone the margin either side. write_text=True prints
-# the human-readable value under the bars (Code 128 requirement per spec).
-MEDIUM_WRITER_OPTIONS = {
-	"format": "PNG",
-	"module_width": 0.3,
-	"module_height": 18.0,
-	"quiet_zone": 4.0,
-	"font_size": 10,
-	"text_distance": 3.0,
-	"write_text": True,
-	"dpi": 300,
+# Same QR settings as generate_qr_code_on_demand (mobile/api.py) -- every
+# other scannable id in this system (bucket, bunch, shelf) uses this exact
+# preset, so a Box Label's code looks and scans the same way.
+QR_OPTIONS = {
+	"version": 1,
+	"error_correction": qrcode.constants.ERROR_CORRECT_L,
+	"box_size": 10,
+	"border": 2,
 }
 
 
 def generate_box_barcode(box_name):
-	"""Code 128 barcode PNG (medium size, human-readable text) encoding a
-	Box Label's own ID -- the exact value staging/loading/dispatch already
-	scan against (frappe.get_doc("Box Label", box_label_id) in mobile/api.py).
+	"""QR code PNG encoding a Box Label's own id -- the exact value
+	staging/loading/dispatch already scan against
+	(frappe.get_doc("Box Label", box_label_id) in mobile/api.py).
+
+	Was a Code 128 barcode; switched to QR so it matches every other
+	scannable code in this system (bucket/bunch/shelf all use
+	generate_qr_code_on_demand's same preset) and so the mobile scanner's
+	existing `{box_label:"…"}` extraction (karen-staging-store.ts /
+	karen-loading-store.ts already accept this OR a bare string) just works
+	with no client change. Field name stays `barcode` -- renaming it would
+	touch every print format / report that reads it for no real benefit.
 
 	Attaches via frappe.get_doc({"doctype": "File", "content": ...}) rather
 	than hand-writing to disk and guessing the resulting file_url: File's own
 	insert() is what decides the real on-disk path, so this is the only way
 	to get a file_url that is guaranteed to resolve.
 	"""
-	code128 = barcode.get_barcode_class("code128")
-	barcode_obj = code128(box_name, writer=ImageWriter())
+	payload = json.dumps({"box_label": box_name}, separators=(",", ":"))
+
+	qr = qrcode.QRCode(**QR_OPTIONS)
+	qr.add_data(payload)
+	qr.make(fit=True)
+	qr_img = qr.make_image(fill_color="black", back_color="white")
 
 	buf = io.BytesIO()
-	barcode_obj.write(buf, options=MEDIUM_WRITER_OPTIONS)
+	qr_img.save(buf, format="PNG")
 	buf.seek(0)
 
 	# Re-generating (e.g. a re-pack before staging) replaces the old image

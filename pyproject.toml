@@ -10,6 +10,7 @@ dynamic = ["version"]
 dependencies = [
     # "frappe~=15.0.0" # Installed and managed by bench.
     "python-barcode>=0.15", # Box Label barcode (Code 128) generation.
+    "qrcode>=7.4", # Bunch/OPL label QR codes (gen_label_id, opl_qr_code_gen, api/test_labels); Pillow comes with Frappe.
 ]
 
 [build-system]

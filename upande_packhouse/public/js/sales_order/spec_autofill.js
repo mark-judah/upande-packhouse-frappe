@@ -227,6 +227,12 @@ const SPA_STYLES = `
       .spa-stems,.spa-boxes{height:28px;width:80px}
       .spa-empty-fill{color:#8a8780;text-align:center;padding:14px 0;font-size:12px}
       .spa-foot{margin-top:12px;padding-top:10px;border-top:1px solid var(--border-color,#e2e4e9);font-size:13px;text-align:right;color:#3a3a34}
+      /* The bunch picker's foot carries the spec's single Boxes control as
+         well as the totals, so it lays out as a row; the flat picker's foot
+         has only text and is unaffected by these. */
+      .spa-foot-row{display:flex;align-items:center;gap:12px;justify-content:flex-end;flex-wrap:wrap}
+      .spa-foot-row .spb-boxes-label{margin:0}
+      .spa-foot-tot{white-space:nowrap}
       .spa-badge{float:left;font-size:11px;color:#8a8780;text-transform:uppercase;letter-spacing:.04em}
       .spb-card{border:1px solid var(--border-color,#e2e4e9);border-radius:6px;margin-bottom:10px;overflow:hidden}
       .spb-head{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--subtle-fg,#f8f8f6);flex-wrap:wrap}
@@ -452,6 +458,18 @@ function flat_section(data, uid) {
 		return $sel.length ? parseInt($sel.val(), 10) : 0;
 	}
 
+	// The spec's ONE box count, read off whichever fill row is showing it --
+	// every row carries the same value (see the sync handler in bind). A row
+	// added after the operator has already typed a count must start at that
+	// count, not at 1: nothing fires an input event for a row that is merely
+	// rendered, so a stale 1 would survive all the way to build_spec_rows and
+	// be rejected as "every colour must use the same Boxes count".
+	function flat_shared_boxes() {
+		const $any = $root && $root.find(".spa-fill-tbody .spa-boxes").first();
+		const v = $any && $any.length ? cint($any.val()) : 0;
+		return v > 0 ? v : 1;
+	}
+
 	function syncTable() {
 		const $tbody = $root.find(".spa-fill-tbody");
 		const existing = {};
@@ -501,7 +519,7 @@ function flat_section(data, uid) {
 						prev ? prev.stems : rate
 					}"></td>
                   <td><input type="number" class="spa-boxes form-control input-sm" min="0" value="${
-						prev ? prev.boxes : 1
+						prev ? prev.boxes : flat_shared_boxes()
 					}"></td>
                   <td class="spa-c spa-row-stems" style="text-align:right">0</td>
                 </tr>`);
@@ -520,20 +538,29 @@ function flat_section(data, uid) {
 	}
 
 	function recompute() {
-		let tb = 0,
-			ts = 0;
+		// Boxes is ONE number for the spec, so the footer shows it once -- not
+		// the sum across fill rows. Summing made the total read N x the truth
+		// (3 varieties at 5 boxes announced "15 boxes" while the order got 5).
+		// Stems still add up per row, because each row's stems really are its
+		// own contribution to that one box.
+		const boxes = flat_shared_boxes_or_zero();
+		let ts = 0;
 		$root.find(".spa-fill-row").each(function () {
 			const $r = $(this);
-			const stems = cint($r.find(".spa-stems").val());
-			const boxes = cint($r.find(".spa-boxes").val());
-			const total = stems * boxes;
+			const total = cint($r.find(".spa-stems").val()) * boxes;
 			$r.find(".spa-row-stems").text(nfmt(total));
-			tb += boxes;
 			ts += total;
 		});
-		$root.find(".spa-tot-boxes").text(nfmt(tb));
+		$root.find(".spa-tot-boxes").text(nfmt(boxes));
 		$root.find(".spa-tot-stems").text(nfmt(ts));
 		on_change();
+	}
+
+	// Same shared read as flat_shared_boxes, but truthful about zero -- the
+	// seeding helper substitutes 1 so a new row is usable, the totals must not.
+	function flat_shared_boxes_or_zero() {
+		const $any = $root && $root.find(".spa-fill-tbody .spa-boxes").first();
+		return $any && $any.length ? cint($any.val()) : 0;
 	}
 
 	return {
@@ -548,36 +575,50 @@ function flat_section(data, uid) {
 			});
 			$root.on("change", ".spa-vcb", syncTable);
 			$root.on("change", ".spa-box", syncTable);
-			$root.on(
-				"input change",
-				".spa-fill-tbody .spa-stems,.spa-fill-tbody .spa-boxes",
-				recompute
-			);
+			$root.on("input change", ".spa-fill-tbody .spa-stems", recompute);
+			// Boxes is ONE number for the spec, not one per fill row: a spec
+			// describes a single box, so build_spec_rows throws "A spec is one
+			// box -- every colour must use the same Boxes count" the moment two
+			// rows disagree. Typing in any row therefore sets them all, which
+			// makes that rule visible instead of letting the operator build a
+			// payload the server will only reject on submit.
+			$root.on("input change", ".spa-fill-tbody .spa-boxes", function () {
+				const v = $(this).val();
+				$root.find(".spa-fill-tbody .spa-boxes").not(this).val(v);
+				recompute();
+			});
 			syncTable();
 		},
 		totals() {
 			let boxes = 0,
 				stems = 0;
 			if (!$root) return { boxes, stems };
+			// One shared count for the spec, same as recompute and the server.
+			boxes = flat_shared_boxes_or_zero();
 			$root.find(".spa-fill-row").each(function () {
-				const $r = $(this);
-				const b = cint($r.find(".spa-boxes").val());
-				boxes += b;
-				stems += b * cint($r.find(".spa-stems").val());
+				stems += boxes * cint($(this).find(".spa-stems").val());
 			});
 			return { boxes, stems };
 		},
 		collect() {
 			const selections = [];
 			if (!$root) return selections;
+			// Every ticked row, at the spec's one box count. A row is excluded
+			// by UNTICKING its variety (which removes it from the fill table),
+			// never by zeroing its Boxes -- the sync handler copies any typed
+			// value into every row, so a zero here means "nothing ordered from
+			// this spec", not "skip this one line".
+			const shared = flat_shared_boxes_or_zero();
+			if (shared <= 0) return selections;
 			$root.find(".spa-fill-row").each(function () {
 				const $r = $(this);
+				const boxes = shared;
 				selections.push({
 					line_idx: parseInt($r.attr("data-line-idx"), 10),
 					box_idx: parseInt($r.attr("data-box-idx"), 10) || 0,
 					variety: $r.attr("data-variety"),
 					stems: cint($r.find(".spa-stems").val()),
-					boxes: cint($r.find(".spa-boxes").val()),
+					boxes,
 				});
 			});
 			return selections;
@@ -675,34 +716,45 @@ function bunch_section(data, uid) {
             <div class="spb-head">
                 <span class="spb-id">${esc(b.bunch_id)}</span>
                 ${badge}
-                <label class="spb-boxes-label">${__("Boxes")}
-                    <input type="number" min="0" class="spb-boxes form-control input-sm" value="0">
-                </label>
             </div>
             ${(b.slots || []).map((slot, si) => slotHtml(b, slot, si)).join("")}
             <div class="spb-foot">${nfmt(perBoxStems)} ${__("stems / box")}</div>
         </div>`;
 	};
 
+	// ONE Boxes control for the whole spec, not one per bunch card. A spec
+	// describes a single box: its bunches are what go INTO that box, so they
+	// cannot be ordered in different quantities. The server enforces exactly
+	// that -- build_spec_rows throws "A spec is one box -- every bunch must
+	// use the same Boxes count", and again if any bunch is missing from the
+	// fill -- and spec_fill_dialog.js (the dashboard's picker) has always
+	// worked this way. A per-card input could only ever produce a payload the
+	// server rejects, so there is nothing for it to mean.
 	const html = `
     <div class="spa" data-uid="${esc(uid)}">
       ${bunches.map(cardHtml).join("")}
-      <div class="spa-foot"><span class="spa-badge">${esc(spec_kind(data))}</span>
-        Total: <b class="spa-tot-boxes">0</b> boxes &middot; <b class="spa-tot-stems">0</b> stems</div>
+      <div class="spa-foot spa-foot-row">
+        <span class="spa-badge">${esc(spec_kind(data))}</span>
+        <label class="spb-boxes-label">${__("Boxes")}
+            <input type="number" min="0" class="spb-boxes form-control input-sm" value="0">
+        </label>
+        <span class="spa-foot-tot">Total: <b class="spa-tot-boxes">0</b> boxes &middot; <b class="spa-tot-stems">0</b> stems</span>
+      </div>
     </div>`;
 
 	let $root = null;
 	let on_change = () => {};
 
+	function shared_boxes() {
+		return $root ? cint($root.find(".spb-boxes").val()) : 0;
+	}
+
 	function totals() {
-		let boxes = 0,
-			stems = 0;
-		if (!$root) return { boxes, stems };
+		const boxes = shared_boxes();
+		let stems = 0;
+		if (!$root || boxes <= 0) return { boxes: boxes > 0 ? boxes : 0, stems };
 		$root.find(".spb-card").each(function () {
-			const $c = $(this);
-			const b = cint($c.find(".spb-boxes").val());
-			boxes += b;
-			stems += b * cint($c.attr("data-per-box"));
+			stems += boxes * cint($(this).attr("data-per-box"));
 		});
 		return { boxes, stems };
 	}
@@ -716,7 +768,7 @@ function bunch_section(data, uid) {
 
 	return {
 		html,
-		empty_message: __("Enter a box count for at least one bunch."),
+		empty_message: __("Enter a box count for this specification."),
 		bind($scope, onchange) {
 			$root = $scope;
 			on_change = onchange || (() => {});
@@ -727,10 +779,15 @@ function bunch_section(data, uid) {
 		collect() {
 			const selections = [];
 			if (!$root) return selections;
+			const boxes = shared_boxes();
+			// Nothing ordered: say so with an empty payload rather than a
+			// partial one. build_spec_rows treats boxes <= 0 as "no rows".
+			if (boxes <= 0) return selections;
+			// EVERY bunch, always. They are the contents of one box, so a fill
+			// that omits one is not a smaller order -- it is an incomplete box,
+			// which is why the server rejects it outright.
 			$root.find(".spb-card").each(function () {
 				const $c = $(this);
-				const boxes = cint($c.find(".spb-boxes").val());
-				if (boxes <= 0) return;
 				const picks = {};
 				$c.find(".spb-slot").each(function () {
 					const $slot = $(this);

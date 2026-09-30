@@ -60,8 +60,16 @@ def variety_availability(varieties: str | list | None, lengths: str | list | Non
 		SELECT si.variety AS variety, si.farm AS farm, si.bucket_id AS bucket_id,
 		       COALESCE(si.stem_qty, 0) AS stem_qty,
 		       COALESCE(bas.allocated_quantity, 0) AS allocated
-		FROM `tabShelf Item` si
-		LEFT JOIN `tabBucket Allocation Status` bas ON bas.bucket_id = si.bucket_id
+		FROM (
+			-- one row per (bucket, variety, length): duplicate Shelf Item rows for the
+			-- same bucket would otherwise each have the full allocation subtracted
+			SELECT bucket_id, variety, stem_length, farm, SUM(COALESCE(stem_qty, 0)) AS stem_qty
+			FROM `tabShelf Item`
+			GROUP BY bucket_id, variety, stem_length, farm
+		) si
+		LEFT JOIN `tabBucket Allocation Status` bas
+			ON bas.bucket_id = si.bucket_id AND bas.item_code = si.variety
+			AND COALESCE(bas.stem_length, '') = COALESCE(si.stem_length, '')
 		WHERE """
 		+ " AND ".join(conds),
 		params,

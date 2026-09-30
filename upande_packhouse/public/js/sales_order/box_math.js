@@ -101,6 +101,22 @@ function row_stems_per_box(row) {
 // count, just annotated once per colour -- summing all of them overcounts by
 // the group size. Mirrors sales_order_engine.py's _set_order_summary, which
 // is what actually lands in the database; this is just the live preview.
+//
+// A spec is one box, and a spec can define BOTH bunch types at once
+// (confirmed real data: XPOL TOSCA_02721_10 -- bunch_id 1 is a Mixed Bunch,
+// bunch_ids 2-4 are Mono Bunches feeding the same Mixed Box), so custom_line
+// (+ custom_length, in case the SAME spec is genuinely filled at two
+// different lengths -- a variety approved at both 62 and 72 is two
+// physically different boxes) is checked FIRST: every row filled from the
+// same spec fill, at the same length, counts once toward its box total, no
+// matter which of the two internal group tags it carries. Checking the
+// server-assigned groups first (as "the more specific box identity") reads
+// a spec with both bunch types as 2 boxes instead of 1 -- confirmed live,
+// custom_total_boxes showed 4 instead of 2 for this exact spec. Only a row
+// with no spec (manually typed, or mixed_box_wizard.js's spec-less Mixed
+// Box) falls back to bunch_group/mix_group. Must match
+// sales_order_engine._set_order_summary's own order of precedence exactly,
+// or the live preview and the saved figure disagree.
 function recompute_order_summary(frm) {
 	let boxes = 0,
 		stems = 0;
@@ -111,7 +127,9 @@ function recompute_order_summary(frm) {
 		stems += row_stems_per_box(it) * b;
 
 		let group_key = null;
-		if (it.custom_bunch_group) group_key = "bunch::" + it.custom_bunch_group;
+		if (it.custom_line)
+			group_key = "spec::" + it.custom_line + "::" + (it.custom_length || "");
+		else if (it.custom_bunch_group) group_key = "bunch::" + it.custom_bunch_group;
 		else if (it.custom_mix_group) group_key = "mix::" + it.custom_mix_group;
 		if (group_key) {
 			if (seen_groups.has(group_key)) return;

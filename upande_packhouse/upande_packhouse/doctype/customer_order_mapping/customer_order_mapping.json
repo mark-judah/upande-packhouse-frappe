@@ -1,0 +1,158 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-09-22 09:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "customer",
+  "platform",
+  "section_break_defaults",
+  "default_currency",
+  "default_price_list",
+  "default_warehouse",
+  "column_break_defaults",
+  "default_consignee",
+  "default_delivery_point",
+  "default_shipping_agent",
+  "section_break_fields",
+  "field_mapping_overrides",
+  "section_break_items",
+  "item_code_mapping"
+ ],
+ "fields": [
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Customer",
+   "options": "Customer",
+   "reqd": 1
+  },
+  {
+   "fieldname": "platform",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Platform",
+   "options": "Order Import Platform",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_defaults",
+   "fieldtype": "Section Break",
+   "label": "Defaults For Fields The File Never Carries"
+  },
+  {
+   "fieldname": "default_currency",
+   "fieldtype": "Link",
+   "label": "Default Currency",
+   "options": "Currency"
+  },
+  {
+   "fieldname": "default_price_list",
+   "fieldtype": "Link",
+   "label": "Default Price List",
+   "options": "Price List"
+  },
+  {
+   "fieldname": "default_warehouse",
+   "fieldtype": "Link",
+   "label": "Default Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "column_break_defaults",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "default_consignee",
+   "fieldtype": "Link",
+   "label": "Default Consignee",
+   "options": "Consignee"
+  },
+  {
+   "fieldname": "default_delivery_point",
+   "fieldtype": "Link",
+   "label": "Default Delivery Point",
+   "options": "Delivery Point"
+  },
+  {
+   "fieldname": "default_shipping_agent",
+   "fieldtype": "Link",
+   "label": "Default Shipping Agent",
+   "options": "Shipping Agent"
+  },
+  {
+   "fieldname": "section_break_fields",
+   "fieldtype": "Section Break",
+   "label": "Column Mapping Overrides"
+  },
+  {
+   "description": "Only what differs from (or adds to) the platform's own default mapping.",
+   "fieldname": "field_mapping_overrides",
+   "fieldtype": "Table",
+   "label": "Field Mapping Overrides",
+   "options": "Order Import Field Mapping"
+  },
+  {
+   "fieldname": "section_break_items",
+   "fieldtype": "Section Break",
+   "label": "Item Code Mapping"
+  },
+  {
+   "description": "This customer's own item codes/names, mapped to our Item (variety).",
+   "fieldname": "item_code_mapping",
+   "fieldtype": "Table",
+   "label": "Item Code Mapping",
+   "options": "Order Import Item Mapping"
+  }
+ ],
+ "links": [],
+ "modified": "2026-09-22 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Customer Order Mapping",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "select": 1,
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "select": 1,
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales User",
+   "select": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

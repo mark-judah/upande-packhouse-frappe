@@ -55,6 +55,20 @@ def pre_graded_warehouse(source_warehouse, business_unit=BUSINESS_UNIT):
 		# Unmapped business unit: resolve_route throws, which is right for a
 		# stock move (the leg cannot be posted) but never worth a failed save
 		# here -- fall back to the coldstore itself.
+		#
+		# resolve_route also throws on a CYCLIC map ("Warehouse mapping loops
+		# at ..."), and that is not a benign missing-mapping: it silently routes
+		# every Roses line to the receiving cold store instead of the packhouse,
+		# with nothing anywhere to say so. Still not worth failing a Sales Order
+		# save over -- but it must leave a trace, or a broken Roses-MAP is
+		# invisible until someone reconciles stock.
+		frappe.log_error(
+			title="roses_warehouse_map: could not resolve route",
+			message=(
+				f"source_warehouse={source_warehouse} business_unit={business_unit}\n"
+				f"Falling back to the source warehouse itself.\n\n{frappe.get_traceback()}"
+			),
+		)
 		return source_warehouse
 	for hop in route:
 		if hop["stage"] == stock_movement.SALE_STAGE:

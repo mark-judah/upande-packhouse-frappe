@@ -177,6 +177,17 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .tbtn{font:600 12px var(--f);padding:9px 15px;border:0;border-radius:999px;cursor:pointer;background:rgba(10,10,10,.05);color:var(--ink)}
 .aph .tbtn:hover:not(:disabled){background:rgba(10,10,10,.09)}
 .aph .tbtn.key{background:var(--grad-ink);color:#fafaf6}
+/* Hover: the generic .tbtn:hover (light grey) out-ranks .tbtn.key, which turned the dark
+   primary buttons light grey under white text on hover — the label vanished. Keep them
+   dark (a touch brighter, slight lift); ghost/plain buttons keep the light hover. */
+.aph .tbtn{transition:background .15s ease,box-shadow .15s ease,filter .15s ease,transform .15s ease}
+.aph .tbtn.key:hover:not(:disabled){background:var(--grad-ink);color:#fafaf6;filter:brightness(1.35);box-shadow:0 6px 16px -6px rgba(10,10,10,.45);transform:translateY(-1px)}
+.aph .tbtn.key:active:not(:disabled){transform:none;filter:brightness(1.15)}
+.aph .tbtn.danger:hover:not(:disabled){background:var(--bad-soft);color:var(--bad)}
+.aph a.tbtn,.aph a.tbtn:hover{text-decoration:none;display:inline-flex;align-items:center}
+.aph a.tbtn:not(.key):hover{color:var(--ink)}
+/* Manage trucks: no hover highlight — looks the same with or without the pointer. */
+.aph a.tbtn.rl-manage,.aph a.tbtn.rl-manage:hover,.aph a.tbtn.rl-manage:focus{background:rgba(10,10,10,.05)!important;color:var(--ink)!important;text-decoration:none!important;box-shadow:none!important;filter:none!important;transform:none!important}
 .aph .tbtn.danger{color:var(--bad)}
 .aph .tbtn:disabled{opacity:.4;cursor:not-allowed}
 .aph .cap-bar{height:10px;background:rgba(10,10,10,.06);border-radius:999px;overflow:hidden}
@@ -345,10 +356,33 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .dm-unreach-hd{font:500 11px var(--f);color:var(--ink-mute)}
 .aph .dm-unreach-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .aph .dm-unreach-chip{font:600 10px var(--mono);background:var(--bg);border:1px solid var(--hairline);color:var(--ink-2);padding:2px 8px;border-radius:999px}
+/* Held-back teams, unscheduled orders, stale trips, trip status */
+.aph .dm-held{margin:14px 24px 0;background:var(--warn-soft);border:1px solid var(--warn);border-radius:10px;padding:11px 13px;font:500 12px var(--f);color:#8a5200}
+.aph .dm-held b{color:var(--warn)}
+.aph .dm-held ul{margin:6px 0 0 18px}
+.aph .ts-alert{background:var(--warn-soft);border:1px solid var(--warn);border-radius:12px;padding:12px 16px;margin-bottom:14px;font:500 12px var(--f);color:#8a5200}
+.aph .ts-alert.bad{background:var(--bad-soft);border-color:var(--bad);color:var(--bad)}
+.aph .ts-alert-hd{font:600 13px var(--f);margin-bottom:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.aph .ts-alert-hd a{margin-left:auto;font:600 11px var(--f);color:inherit;text-decoration:underline}
+.aph .ts-alert-list{display:flex;flex-direction:column;gap:4px}
+.aph .ts-alert-row{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.aph .ts-alert-row .nm{font-weight:600;color:var(--ink)}
+.aph .ts-alert-row .why{font:600 9px var(--mono);text-transform:uppercase;letter-spacing:.04em;padding:1px 7px;border-radius:999px;border:1px solid currentColor}
+.aph .ts-alert-row .meta{font:500 10px var(--mono);color:var(--ink-mute)}
+.aph .trip-st{font:600 9px var(--mono);text-transform:uppercase;letter-spacing:.05em;padding:3px 8px;border-radius:999px;background:rgba(10,10,10,.05);color:var(--ink-2)}
+.aph .trip-st.Dispatched{background:#e3ecfd;color:#1d4ed8}
+.aph .trip-st.Received{background:var(--good-soft);color:var(--good)}
+.aph .trip-st.auto{background:#efe7fd;color:#6d28d9}
+.aph .ts-auto{display:none;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 14px;padding:9px 14px;border-radius:10px;background:#f5f0fe;color:#4c1d95;font:500 12px var(--f)}
+.aph .ts-auto.on{display:flex}
+.aph .ts-auto b{font-weight:700}
+.aph .ts-auto .tbtn{margin-left:auto;padding:5px 11px;font-size:11px}
+.aph .trip-st.stale{background:var(--bad-soft);color:var(--bad)}
+.aph .trip-card.stale{box-shadow:inset 0 0 0 1px var(--bad)}
+.aph .trip-hd .trip-del{margin-left:auto;padding:5px 11px;font-size:11px}
+.aph .pl-fchip .fc-road{font:600 9px var(--mono);color:#1d4ed8}
 .aph .dm-foot{display:flex;justify-content:flex-end;gap:9px;padding:16px 24px;margin-top:0;border-top:1px solid var(--hairline)}
 .aph .dm-foot .tbtn.key:disabled{opacity:.45;cursor:not-allowed}
-<<<<<<< Updated upstream
-=======
 
 /* Truck Routes — road network */
 .aph .rn-card{background:var(--surface-2);border:1px solid var(--hairline);border-radius:12px;padding:14px 16px;margin-top:16px}
@@ -492,7 +526,6 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .bl-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}
 .aph .bl-bar .crumb{font-size:12px;color:var(--text-2);margin-right:auto}
 .aph .trip-act{padding:5px 11px;font-size:11px}
->>>>>>> Stashed changes
 </style>
 
 <div class="aph">
@@ -500,14 +533,14 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
   <div class="aph-main">
     <div class="aph-topbar">
       <button class="collapse-btn" id="collapseBtn" title="Toggle sidebar" aria-label="Toggle sidebar"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
-      <h1>Transfer Scheduling</h1>
-      <nav class="view-switch" aria-label="View"><a href="bucket-logistics">Bucket Logistics</a><span class="on">Transfer Scheduling</span></nav>
-      <div class="right"></div>
+      <h1>Remote Transfers</h1>
+      {% endraw %}{% set rt_q = (frappe.form_dict.get('tab') if frappe.form_dict else '') or '' %}{% set rt_active = rt_q if rt_q in ('logistics', 'routes') else 'transfer' %}{% include "upande_packhouse/templates/includes/remote_transfers_tabs.html" %}{% raw %}
+            <div class="right"></div>
     </div>
     <div class="aph-content">
       <div class="aph-page-hd">
         <div class="eyebrow">Packhouse &middot; Logistics</div>
-        <div class="ttl">Transfer Scheduling</div>
+        <div class="ttl">Remote Transfers</div>
         <div class="sub" id="ts-sub">Loading&hellip;</div>
       </div>
       <div class="ts-bar">
@@ -517,17 +550,12 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
           <button class="ts-tab" data-act="tab" data-tab="triplist">Trips</button>
         </div>
         <span class="sp"></span>
-<<<<<<< Updated upstream
-        <span class="ts-fld">Deliver <input type="date" id="ts-from"><span style="color:var(--ink-mute)">&rarr;</span><input type="date" id="ts-to"></span>
-=======
->>>>>>> Stashed changes
         <span class="ts-fld"><span class="live-dot"></span><span id="ts-fresh">live</span></span>
       </div>
-      <div id="panel-orders" class="ts-panel"><div class="ts-loading">Loading orders&hellip;</div></div>
+      <div class="ts-auto" id="ts-auto"></div>
+      <div id="panel-orders" class="ts-panel"><div class="sk-card" style="height:46px"></div><div class="sk-card"><span class="sk" style="width:30%;height:14px"></span><div style="height:10px"></div><span class="sk" style="width:90%;height:12px"></span><div style="height:8px"></div><span class="sk" style="width:62%;height:12px"></span></div><div class="sk-card"><span class="sk" style="width:26%;height:14px"></span><div style="height:10px"></div><span class="sk" style="width:84%;height:12px"></span><div style="height:8px"></div><span class="sk" style="width:58%;height:12px"></span></div></div>
       <div id="panel-build" class="ts-panel" style="display:none"></div>
       <div id="panel-triplist" class="ts-panel" style="display:none"></div>
-<<<<<<< Updated upstream
-=======
       <div id="panel-routes" class="ts-panel" style="display:none"></div>
       <div id="panel-logistics" class="ts-panel" style="display:none">
         <div class="bl-bar"><span class="crumb" id="blCount">—</span>
@@ -544,7 +572,6 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
         <tbody id="blRows"><tr class="sk-row"><td colspan="9"><span class="sk" style="width:100%;height:12px"></span></td></tr></tbody>
       </table>
       </div>
->>>>>>> Stashed changes
       <div class="toast" id="ts-toast"></div>
     </div>
   </div>
@@ -562,8 +589,6 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 })();
 </script>
 <script>
-<<<<<<< Updated upstream
-=======
 /* Remote Transfers page helpers: skeleton placeholders. The Frappe date control
    (rtMountDate) lives in templates/includes/remote_transfers_tabs.html; it swaps a native <input type="date"> for Frappe's Date control
    (controls.bundle.js, loaded on demand — website pages only ship frappe-web).
@@ -581,7 +606,6 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 })();
 </script>
 <script>
->>>>>>> Stashed changes
 /* Transfer Scheduling planner — orders → distribute → plan trucks → trips.
    Ported from the kaitet-group v15 LIVE reference (transfer-control.html), field
    names translated to the real v16 API contract in api/transfer_control.py. Reads
@@ -592,16 +616,12 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
    there (no render path ever invoked it once ⚡ Distribute became the only way to
    schedule), so it's dropped here rather than carried forward unused. */
 (function(){
-<<<<<<< Updated upstream
-var S={ from:addDaysISO(todayISO(),1), to:addDaysISO(todayISO(),1), tab:'orders', sel:{}, selQty:{}, broken:{}, ordTeam:'all' };
-=======
 var S={ from:window.rtDate.get(), to:window.rtDate.get(), tab:(function(){ try{ var t=new URLSearchParams(location.search).get('tab'); return ['orders','build','triplist','logistics','routes'].indexOf(t)>=0?t:'orders'; }catch(e){ return 'orders'; } })(), sel:{}, selQty:{}, broken:{}, ordTeam:'all' };
->>>>>>> Stashed changes
 function tripVehMap(){ var m={}; DATA.trips.forEach(function(t){ m[t.name]=t.vehicle||''; }); return m; }
-var DATA={orders:[],vehicles:[],trips:[],distances:[],truck_status:[],routes:[]};
+var DATA={orders:[],unscheduled:[],vehicles:[],trips:[],distances:[],truck_status:[],routes:[]};
 
 /* ---- farm road distances + collection-route optimisation (Farm Distance doctype) ---- */
-function pack(){ return DATA.packhouse||'Kapkolia'; }
+function pack(){ return DATA.packhouse||''; }
 function distKm(a,b){ if(a===b) return 0; for(var i=0;i<DATA.distances.length;i++){ var d=DATA.distances[i]; if((d.a===a&&d.b===b)||(d.a===b&&d.b===a)) return d.km; } return null; }
 /* Km between two stops: the shortest drive over real road legs, else a direct-distance record. */
 function pairKm(a,b){ if(a===b) return 0; var rp=roadPath(a,b); if(rp.legs.length) return rp.km; return distKm(a,b); }
@@ -693,7 +713,7 @@ function routeHtml(farms){
 /* Writes go through frappe.call — needed for CSRF on POST. */
 function call(method,args){
   return new Promise(function(resolve,reject){
-    frappe.call({ method:'upande_packhouse.api.transfer_control.'+method, args:args||{},
+    frappe.call({ method:method.indexOf('.')>=0?method:'upande_packhouse.api.transfer_control.'+method, args:args||{},
       callback:function(r){ resolve(r||{}); },
       error:function(e){ reject(e||{message:'request failed'}); } });
   });
@@ -728,14 +748,20 @@ function toast(msg){ var t=$('ts-toast'); if(!t)return; t.textContent=msg; t.cla
 function vehCap(name){ for(var i=0;i<DATA.vehicles.length;i++){ if(DATA.vehicles[i].name===name) return DATA.vehicles[i].capacity_buckets; } return 0; }
 function orderByOpl(opl){ for(var i=0;i<DATA.orders.length;i++){ if(DATA.orders[i].opl===opl) return DATA.orders[i]; } return null; }
 
-/* portions on SAVED trips -> pkey -> tripName. PRESENCE only. */
+/* A trip that still CLAIMS open buckets: planned today, truck not gone yet. A
+   dispatched trip's buckets are flagged in transit server-side (they're already out
+   of each farm's open count), and a stale draft from an earlier day never left, so
+   neither may cover anything — mirrors _trip_claims in transfer_control.py. */
+function claimsBuckets(t){ return (t.status==='Draft'||t.status==='Scheduled') && !t.stale; }
+function activeTrips(){ return DATA.trips.filter(claimsBuckets); }
+/* portions on planned trips -> pkey -> tripName. PRESENCE only. */
 function savedPortions(){
   var m={};
-  DATA.trips.forEach(function(t){ (t.orders||[]).forEach(function(r){ m[pkey(r.order_pick_list,r.farm)]=t.name; }); });
+  activeTrips().forEach(function(t){ (t.orders||[]).forEach(function(r){ m[pkey(r.order_pick_list,r.farm)]=t.name; }); });
   return m;
 }
-/* QUANTITY covered per (opl,farm) across ALL saved trips. */
-function coverMap(){ var m={}; DATA.trips.forEach(function(t){ (t.orders||[]).forEach(function(r){ var k=r.order_pick_list+'||'+r.farm; m[k]=(m[k]||0)+(r.buckets||0); }); }); return m; }
+/* QUANTITY covered per (opl,farm) across today's planned trips. */
+function coverMap(){ var m={}; activeTrips().forEach(function(t){ (t.orders||[]).forEach(function(r){ var k=r.order_pick_list+'||'+r.farm; m[k]=(m[k]||0)+(r.buckets||0); }); }); return m; }
 /* An order's still-OPEN farm portions (quantity-aware). */
 function openFarms(o){
   var cov=coverMap(), out=[];
@@ -755,8 +781,16 @@ function openTotal(o){ var t=0; openFarms(o).forEach(function(f){ t+=f.buckets; 
 
 /* ---------------- data ---------------- */
 function loadData(){
+  // Skeleton on first load and after a date change — not after every action.
+  if(!S.loaded||S.skel){
+    var sk=window.rtSkeleton, pnl={orders:'panel-orders',build:'panel-build',triplist:'panel-triplist',routes:'panel-routes'}[S.tab];
+    if(pnl&&$(pnl)) $(pnl).innerHTML=(S.tab==='triplist'?sk.kpis(3):'')+sk.cards(3);
+    var fr=$('ts-fresh'); if(fr) fr.textContent='loading…';
+  }
   return apiGet('getTransferScheduleData',{from_date:S.from,to_date:S.to}).then(function(d){
-    DATA={ orders:d.orders||[], vehicles:d.vehicles||[], trips:d.trips||[], distances:d.distances||[], truck_status:d.truck_status||[], routes:d.routes||[], packhouse:d.packhouse };
+    if(d.success===false) throw new Error(d.error||'server error');
+    S.loaded=true; S.skel=false;
+    DATA={ farm_list:d.farm_list||[], orders:d.orders||[], unscheduled:d.unscheduled||[], vehicles:d.vehicles||[], trips:d.trips||[], distances:d.distances||[], truck_status:d.truck_status||[], routes:d.routes||[], packhouse:d.packhouse, auto_planning:d.auto_planning||{} };
     var f=$('ts-fresh'); if(f) f.textContent='live · '+new Date().toLocaleTimeString();
     render();
   }).catch(function(e){
@@ -765,8 +799,6 @@ function loadData(){
 }
 
 /* ---------------- render ---------------- */
-<<<<<<< Updated upstream
-=======
 /* Top Remote Transfers tabs: Transfer Scheduling <-> Bucket Logistics switch in place. */
 window.rtSwitch=function(key){ S.tab = (key==='logistics'||key==='routes') ? key : (S.lastPlanTab||'orders'); render(); };
 /* Truck Routes: every truck's route for a date (list), a page to create / edit a
@@ -1132,28 +1164,73 @@ function removeRoad(name){
   }).catch(function(err){ toast('Failed: '+((err&&err.message)||'')); });
   });
 }
->>>>>>> Stashed changes
 function render(){
   var open=DATA.orders.length;
   var sub=$('ts-sub');
-  if(sub) sub.textContent=(DATA.packhouse||'Kapkolia')+' packhouse · deliver '+S.from+(S.to!==S.from?' → '+S.to:'')+' · '+open+' pick list'+(open===1?'':'s')+' to move · '+DATA.trips.length+' trip'+(DATA.trips.length===1?'':'s');
+  if(sub) sub.textContent=(DATA.packhouse?DATA.packhouse+' packhouse · ':'')+'deliver '+S.from+(S.to!==S.from?' → '+S.to:'')+' · '+open+' pick list'+(open===1?'':'s')+' to move · '+DATA.trips.length+' trip'+(DATA.trips.length===1?'':'s');
   document.querySelectorAll('.ts-tab').forEach(function(b){ b.classList.toggle('on', b.dataset.tab===S.tab); });
+  renderAutoBanner();
+  // Keep the tab in the URL (refresh/bookmark reopen it) and in the sidebar's
+  // Remote Transfers group (Transfer Scheduling vs Bucket Logistics).
+  try{ var u=new URL(location.href); if(u.searchParams.get('tab')!==S.tab){ u.searchParams.set('tab',S.tab); history.replaceState(null,'',u.toString()); } }catch(e){}
+  if(window.rtSetTab) window.rtSetTab(S.tab==='logistics'||S.tab==='routes'?S.tab:'transfer');
   $('panel-orders').style.display=S.tab==='orders'?'':'none';
   $('panel-build').style.display=S.tab==='build'?'':'none';
-  $('panel-triplist').style.display=(S.tab!=='orders'&&S.tab!=='build')?'':'none';
+  $('panel-triplist').style.display=S.tab==='triplist'?'':'none';
+  $('panel-logistics').style.display=S.tab==='logistics'?'':'none';
+  $('panel-routes').style.display=S.tab==='routes'?'':'none';
+  var ownView=(S.tab==='logistics'||S.tab==='routes');
+  // The Logistics tab has its own single delivery-date filter; the range is the planner's.
+  // Truck Routes and Bucket Logistics are their own top tabs; the delivery range and
+  // the planner's sub-tabs belong to Transfer Scheduling.
+  if($('ts-range')) $('ts-range').style.display=ownView?'none':'';
+  var tsTabs=document.querySelector('.ts-tabs'); if(tsTabs) tsTabs.style.display=ownView?'none':'';
+  // With its tabs and range hidden the bar would be a full-width card holding only
+  // the "live" chip — hide the whole bar on Truck Routes / Bucket Logistics.
+  var tsBar=document.querySelector('.ts-bar'); if(tsBar) tsBar.style.display=ownView?'none':'';
+  if(!ownView) S.lastPlanTab=S.tab;
   if(S.tab==='orders') renderOrders();
   else if(S.tab==='build') renderBuild();
-  else renderTripList();
+  else if(S.tab==='triplist') renderTripList();
+  else if(S.tab==='routes') renderRoutes();
+  else if(window.BL_LOAD) window.BL_LOAD();   // re-read so dispatches made on Trips show at once
+}
+
+/* Automatic scheduling (Production Settings > Enable Automatic Remote Transfers
+   Scheduling): a line saying it's on and what its last run did, plus Re-plan now.
+   Its trips carry an "auto" tag; it replaces only those, and only while Draft. */
+function renderAutoBanner(){
+  var el=$('ts-auto'); if(!el) return;
+  var ap=DATA.auto_planning||{}, on=!!ap.enabled && S.tab!=='logistics' && S.tab!=='routes';
+  el.classList.toggle('on',on); if(!on){ el.innerHTML=''; return; }
+  var lr=ap.last_run, what='waiting for its first run';
+  if(lr){
+    var at=esc(String(lr.at||'').slice(11,16));
+    if(lr.status==='error') what='last run '+at+' failed — '+esc(lr.message||'');
+    else if(lr.status==='busy') what='running…';
+    else {
+      var trips=(lr.trips||[]).length;
+      what='last run '+at+' · '+(lr.unchanged?'plan unchanged':trips+' trip'+(trips===1?'':'s')+' planned')+
+        (lr.buckets?' · '+n(lr.buckets)+' buckets':'')+
+        ((lr.unreachable||[]).length?' · '+lr.unreachable.length+' order'+(lr.unreachable.length===1?'':'s')+' no truck can reach':'')+
+        ((lr.failed||[]).length?' · '+lr.failed.length+' truck'+(lr.failed.length===1?'':'s')+' failed: '+esc(lr.failed.map(function(f){return f.vehicle+' ('+f.message+')';}).join('; ')):'');
+    }
+  }
+  el.innerHTML='<b>Automatic scheduling is on</b><span>every '+(ap.frequency||10)+' min · '+what+'. Dispatch stays manual.</span>'+
+    '<button class="tbtn ghost" data-act="auto-replan">Re-plan now</button>';
+}
+function autoReplan(btn){
+  if(S.replanning) return; S.replanning=true;
+  btn.disabled=true; btn.textContent='Planning…';
+  call('upande_packhouse.api.auto_transfer.runNow',{}).then(function(r){
+    var m=r.message||{};
+    toast(m.status==='success'?(m.unchanged?'Plan unchanged':(m.trips||[]).length+' trip'+((m.trips||[]).length===1?'':'s')+' planned'):(m.message||'Re-plan failed'));
+  }).catch(function(err){ toast('Failed: '+((err&&err.message)||'')); })
+    .then(function(){ S.replanning=false; loadData(); });
 }
 
 /* ---- route-aware truck allocation ----------------------------------------------
    A truck plying a route TODAY (Bucket Logistics Route) may only carry buckets
-<<<<<<< Updated upstream
-   from the farms on that route. A truck with NO route today is left UNRESTRICTED
-   so the feature degrades gracefully before routes are set up. */
-function truckFarmSets(){ var m={}; (DATA.routes||[]).forEach(function(r){ m[r.vehicle]=r.farms||[]; }); return m; }
-function routeByVeh(){ var m={}; (DATA.routes||[]).forEach(function(r){ m[r.vehicle]=r; }); return m; }
-=======
    from the farms on that route. A truck with NO route today is NOT usable at all
    (fleetSorted filters it out) — set its route in the Distribute popup first. */
 /* A truck can run several routes a day; it serves every farm on any of them. */
@@ -1165,7 +1242,6 @@ function routeByVeh(){ var m={}; (DATA.routes||[]).forEach(function(r){ var c=m[
 function timeRange(r){ var f=r.from_datetime||'', t=r.to_datetime||''; if(!f||!t) return 'all day';
   return f.slice(11,16)+'–'+(t.slice(0,10)!==f.slice(0,10)?t.slice(0,10)+' ':'')+t.slice(11,16); }
 function timesOverlap(a1,a2,b1,b2){ return !!(a1&&a2&&b1&&b2)&&a1<b2&&b1<a2; }
->>>>>>> Stashed changes
 /* A truck is only usable once its route is set today — no route = not selectable. */
 function hasRoute(vehicle){ var s=truckFarmSets()[vehicle]; return !!(s&&s.length); }
 function allFarmsKnown(){
@@ -1183,9 +1259,18 @@ function eligibleTrucks(state,farm){
   return state.filter(function(t){ return (t.farmSet==null||t.farmSet.indexOf(farm)>=0)&&t.rem>0; })
     .sort(function(a,b){ return b.rem-a.rem; });
 }
-/* Place up to `amount` buckets of `farm` into truckState (MUTATES rem). */
+/* Place up to `amount` buckets of `farm` into truckState (MUTATES rem).
+   Best fit first: if one truck can take the whole portion, the one with the LEAST
+   room that still fits takes it — splitting an order's farm portion across trucks
+   means the order is only ready when the slowest truck is shelved. Only when no
+   single truck fits is it split, biggest remaining truck first. */
 function allocateFarmAmount(state,farm,amount){
   var rows=[],left=amount,elig=eligibleTrucks(state,farm);
+  var fits=elig.filter(function(t){ return t.rem>=amount; });
+  if(fits.length && amount>0){
+    var best=fits[fits.length-1];   // elig is sorted by rem desc → last fit is the tightest
+    best.rem-=amount; return {placed:amount,rows:[{vehicle:best.vehicle,buckets:amount}]};
+  }
   for(var i=0;i<elig.length&&left>0;i++){
     var t=elig[i],take=Math.min(t.rem,left); if(take<=0)continue;
     t.rem-=take; left-=take; rows.push({vehicle:t.vehicle,buckets:take});
@@ -1219,12 +1304,18 @@ function computeDistribution(){
 
   var fleetFarms={}; state.forEach(function(t){ if(t.farmSet) t.farmSet.forEach(function(f){ fleetFarms[f]=1; }); });
   var anyUnrestricted=state.some(function(t){ return !t.farmSet; });
-  var reachable={}, unreachable=[];
+  /* A team's schedule is a queue: it packs #1 before #2. If its next order can't be
+     reached (no truck routed to that farm today) the team STOPS there — its later
+     orders are held back, not promoted. Skipping the blocked order used to send the
+     team #2's buckets while #1 sat at the farm. */
+  var reachable={}, unreachable=[], held=[];
   teams.forEach(function(t){
     reachable[t]=[];
+    var blockedAt=null;
     byTeam[t].forEach(function(it){
+      if(blockedAt){ held.push({team:t,opl:it.opl,order_name:it.order_name,schedule:it.schedule,behind:blockedAt}); return; }
       var ok=anyUnrestricted || it.farms.some(function(f){ return fleetFarms[f.farm]; });
-      if(ok) reachable[t].push(it); else unreachable.push(it);
+      if(ok) reachable[t].push(it); else { unreachable.push(it); blockedAt=it; }
     });
   });
 
@@ -1247,7 +1338,7 @@ function computeDistribution(){
   }
   var remaining=state.reduce(function(a,t){return a+t.rem;},0);
   var targets={}; state.forEach(function(t){ targets[t.vehicle]=null; });
-  return {picked:picked, remaining:remaining, candidates:candidates, unreachable:unreachable, capacity:capacity, teamsWith:teams.length, round:round, finalState:state, targets:targets};
+  return {picked:picked, remaining:remaining, candidates:candidates, unreachable:unreachable, held:held, capacity:capacity, teamsWith:teams.length, round:round, finalState:state, targets:targets};
 }
 function distributeAction(){
   if(S.distLoading) return; S.distLoading=true;
@@ -1263,9 +1354,14 @@ function distributeAction(){
 }
 function closeDistModal(){ S.dist=null; var m=$('dist-modal'); if(m) m.remove(); }
 function distShortUsed(d){ var u=0; d.candidates.forEach(function(c){ u+=d.shortQty[c.opl]||0; }); return u; }
+/* The order the distribution committed orders in (round by round, smallest first,
+   then the partial candidates). Truck packing replays THIS order so the plan saved
+   is the plan that was checked — packing by farm name instead could come out
+   different and refuse a selection the popup said fits. */
+function distRank(d){ var r={},i=0; d.picked.forEach(function(p){ r[p.opl]=i++; }); d.candidates.forEach(function(c){ if(r[c.opl]==null) r[c.opl]=i++; }); return r; }
 function applyDistribution(){
   var dist=S.dist; if(!dist) return;
-  S.sel={}; S.selQty={};
+  S.sel={}; S.selQty={}; S.rank=distRank(dist);
   dist.picked.forEach(function(p){ S.sel[p.opl]=1; });
   dist.candidates.forEach(function(c){
     var q=dist.shortQty[c.opl]||0;
@@ -1276,24 +1372,20 @@ function applyDistribution(){
 /* truck picker used inside the Distribute modal: checkbox + LIVE status + route editor. */
 function truckPickHtml(checkAct){
   var tsMap={}; (DATA.truck_status||[]).forEach(function(s){ tsMap[s.truck]=s; });
-  var tripsByVeh={}; DATA.trips.forEach(function(t){ (tripsByVeh[t.vehicle]=tripsByVeh[t.vehicle]||[]).push(t); });
+  var tripsByVeh={}; activeTrips().forEach(function(t){ (tripsByVeh[t.vehicle]=tripsByVeh[t.vehicle]||[]).push(t); });
   var routeByV=routeByVeh();
   var availN=fleetSorted().length;
   return '<div class="veh-avail"><div class="va-lbl">Trucks &amp; routes<span class="va-date">'+esc(DATA.today||todayISO())+'</span><span class="va-sub">'+availN+' of '+DATA.vehicles.length+' available</span></div><div class="va-grid">'+
     (DATA.vehicles.length?DATA.vehicles.map(function(v){
-<<<<<<< Updated upstream
-      var routed=hasRoute(v.name);
-      var avail=routed&&!S.broken[v.name], s=tsMap[v.name];
-=======
       var routed=hasRoute(v.name), hasCap=v.capacity_buckets>0;
       var avail=routed&&hasCap&&!S.broken[v.name]&&!v.on_road, s=tsMap[v.name];
->>>>>>> Stashed changes
       var loc='○ Not run yet today', cls='idle';
       if(s){
         if(s.location==='loading'){ loc='Loading at '+esc(s.farm||'farm')+' · '+s.loading_pct+'% done'; cls='load'; }
         else if(s.location==='in_transit'){ loc='In transit → '+esc(pack())+(s.in_transit?' · '+s.in_transit+' bkt on board':''); cls='transit'; }
         else if(s.location==='arrived'){ loc='Arrived at '+esc(pack())+(s.shelved?' · '+s.shelved+' bkt shelved':''); cls='arrived'; }
       }
+      if(v.on_road){ loc='On the road · '+esc(v.on_road)+(v.dispatched_at?' · left '+esc(String(v.dispatched_at).slice(11,16)):'')+' · available when back at '+esc(v.route_end||pack()); cls='transit'; }
       var trips=tripsByVeh[v.name]||[];
       var committed=0; trips.forEach(function(t){ committed+=t.total_buckets||0; });
       var busyPct=v.capacity_buckets?Math.min(100,Math.round(committed/v.capacity_buckets*100)):0;
@@ -1319,12 +1411,8 @@ function truckPickHtml(checkAct){
           return '<label class="rt-fchk"><input type="checkbox" data-act="route-farm" data-veh="'+esc(v.name)+'" data-farm="'+esc(f)+'"'+(sel[f]?' checked':'')+'>'+esc(f)+'</label>';
         }).join('')+preview+'<div class="rt-editor-foot"><span class="rt-hint" style="display:'+(nsel?'none':'')+'">Tick at least one farm</span><button class="tbtn" data-act="route-cancel">Cancel</button><button class="tbtn key" data-act="route-save" data-veh="'+esc(v.name)+'"'+(nsel?'':' disabled title="Tick at least one farm first"')+'>Save route</button></div></div>';
       }
-<<<<<<< Updated upstream
-      return '<div class="va-card'+(avail?'':' off')+'"><label class="va-top"><input type="checkbox" class="va-chk" data-act="'+checkAct+'" data-veh="'+esc(v.name)+'"'+(avail?' checked':'')+(routed?'':' disabled title="Set a route for this truck first"')+'><span class="va-nm">'+esc(v.name)+'</span><span class="va-cap">'+v.capacity_buckets+' bkt cap</span></label>'+
-=======
       return '<div class="va-card'+(avail?'':' off')+'"><label class="va-top"><input type="checkbox" class="va-chk" data-act="'+checkAct+'" data-veh="'+esc(v.name)+'"'+(avail?' checked':'')+(v.on_road?' disabled title="On the road — available once it is back and its trip is received"':(!hasCap?' disabled title="Set its capacity first"':(routed?'':' disabled title="Set a route for this truck first"')))+'><span class="va-nm">'+esc(v.name)+'</span>'+
           (hasCap?'<span class="va-cap">'+v.capacity_buckets+' bkt cap</span>':'<span class="va-cap none">no capacity</span><button class="tbtn ghost rt-editbtn" data-act="tk-open" data-veh="'+esc(v.name)+'">Set capacity</button>')+'</label>'+
->>>>>>> Stashed changes
         '<div class="va-row"><span class="va-k">Now</span><span class="tk-loc '+cls+'">'+loc+'</span></div>'+
         '<div class="va-row"><span class="va-k">Busy</span><span class="tk-trips'+(trips.length?'':' none')+'">'+tripList+'</span></div>'+
         (trips.length?'<div class="cap-bar" style="margin:4px 0 2px;height:5px"><i style="width:'+busyPct+'%"></i></div><div class="va-busy">'+committed+' / '+v.capacity_buckets+' bkt already committed</div>':'')+
@@ -1362,6 +1450,16 @@ function renderDistModal(){
       Object.keys(byFarm).sort().map(function(f){ return '<span class="dm-unreach-chip">'+esc(f)+' · '+byFarm[f].length+'</span>'; }).join('')+
       '</div></div>';
   }
+  var heldHtml='';
+  if(d.held && d.held.length){
+    var byTeam={};
+    d.held.forEach(function(h){ (byTeam[h.team]=byTeam[h.team]||{behind:h.behind,items:[]}).items.push(h); });
+    heldHtml='<div class="dm-held"><b>Held back to keep each team in schedule order:</b><ul>'+
+      Object.keys(byTeam).sort().map(function(t){ var g=byTeam[t];
+        return '<li><b>'+esc(t)+'</b> is waiting on #'+g.behind.schedule+' '+esc(g.behind.order_name)+' ('+esc(g.behind.farms.map(function(f){return f.farm;}).join(', '))+' — no truck routed there). '+
+          g.items.length+' later order'+(g.items.length===1?'':'s')+' ('+g.items.map(function(h){return '#'+h.schedule;}).join(', ')+') won’t move ahead of it. Route a truck to that farm to release them.</li>'; }).join('')+
+      '</ul></div>';
+  }
   var shortOpts='';
   if(d.candidates.length){
     var sets=truckFarmSets();
@@ -1390,6 +1488,7 @@ function renderDistModal(){
       '<div class="dm-bar"><i style="width:'+pct+'%"></i></div><div class="dm-cap"><b>'+totalUsed+'</b> / '+d.capacity+' buckets used · '+free+' capacity still available · '+d.teamsWith+' team'+(d.teamsWith===1?'':'s')+' · '+(d.picked.length+d.candidates.filter(function(c){return (d.shortQty[c.opl]||0)>0;}).length)+' orders</div>'+
       '<div class="dm-rows">'+(rows||'<div class="ts-empty" style="padding:14px">Nothing fits the selected trucks — check a truck above.</div>')+'</div>'+
       shortOpts+
+      heldHtml+
       unreachHtml+
     '</div>'+
     '<div class="dm-foot"><button class="tbtn" data-act="dist-cancel">Cancel</button><button class="tbtn key" data-act="dist-confirm"'+(!check.ok?' disabled title="Fix the over-allocated amount above"':'')+'>Confirm &amp; plan trucks →</button></div></div>';
@@ -1399,13 +1498,34 @@ function renderDistModal(){
   m.innerHTML=html;
 }
 
+/* Orders that need buckets moved but are on NO team's schedule — transfer planning
+   can't see them, so without this panel they'd never get a truck and nobody would know. */
+function unscheduledHtml(){
+  var u=DATA.unscheduled||[]; if(!u.length) return '';
+  var why={no_team:'no team',not_scheduled:'not scheduled'};
+  var noTeam=u.filter(function(x){return x.reason==='no_team';}).length;
+  return '<div class="ts-alert'+(noTeam?' bad':'')+'"><div class="ts-alert-hd">⚠ '+u.length+' order'+(u.length===1?' needs':'s need')+' buckets moved but '+(u.length===1?'isn’t':'aren’t')+' on a team schedule — '+(u.length===1?'it':'they')+' can’t be planned onto a truck'+
+    '<a href="packhouse-scheduler">Open scheduler →</a></div><div class="ts-alert-list">'+
+    u.map(function(x){ return '<div class="ts-alert-row"><span class="nm">'+esc(x.order_name)+'</span><span class="why">'+esc(why[x.reason]||x.reason)+'</span>'+
+      '<span class="meta">'+esc(x.customer||'')+' · '+n(x.buckets)+' bkt at '+esc((x.farms||[]).join(', '))+(x.team?' · team '+esc(x.team):'')+' · due '+esc(x.delivery_date)+'</span></div>'; }).join('')+
+    '</div>'+(noTeam?'<div style="margin-top:6px">Set the team on the Order Pick List, then schedule it.</div>':'')+'</div>';
+}
+/* Draft/Scheduled trips from an earlier day: the truck never left. They no longer
+   hold any buckets (those are open again) — delete them so the trip list is honest. */
+function staleTripsHtml(){
+  var st=DATA.trips.filter(function(t){ return t.stale; }); if(!st.length) return '';
+  return '<div class="ts-alert"><div class="ts-alert-hd">'+st.length+' planned trip'+(st.length===1?'':'s')+' from an earlier day never dispatched — '+(st.length===1?'its':'their')+' buckets are open again</div><div class="ts-alert-list">'+
+    st.map(function(t){ return '<div class="ts-alert-row"><span class="nm">'+esc(t.name)+'</span><span class="meta">'+esc(t.vehicle||'')+' · '+esc(t.trip_date)+' · '+(t.total_buckets||0)+' bkt · '+esc(t.status)+'</span>'+
+      '<button class="tbtn ghost trip-del" data-act="trip-del" data-trip="'+esc(t.name)+'">Delete</button></div>'; }).join('')+'</div></div>';
+}
 /* Scheduling itself is now done ONLY by ⚡ Distribute — this tab is read-only/informational. */
 function renderOrders(){
   var onTrip=savedPortions();
   var tripVeh=tripVehMap();
-  if(!DATA.orders.length){ $('panel-orders').innerHTML='<div class="ts-empty">No scheduled orders need transferring in this delivery window. Schedule orders in the packhouse-scheduler first.</div>'; return; }
+  var alerts=unscheduledHtml()+staleTripsHtml();
+  if(!DATA.orders.length){ $('panel-orders').innerHTML=alerts+'<div class="ts-empty">No scheduled orders need transferring in this delivery window. Schedule orders in the packhouse-scheduler first.</div>'; return; }
   var anyOpen=DATA.orders.some(function(o){ return openTotal(o)>0; });
-  if(!anyOpen){ $('panel-orders').innerHTML='<div class="ts-empty">Every scheduled order is already fully on a trip — nothing left to plan. Check the <b>Trips</b> tab.</div>'; return; }
+  if(!anyOpen){ $('panel-orders').innerHTML=alerts+'<div class="ts-empty">Every scheduled order is already fully on a trip — nothing left to plan. Check the <b>Trips</b> tab.</div>'; return; }
   var fleet=fleetSorted(), fleetCap=0; fleet.forEach(function(v){ fleetCap+=v.capacity_buckets; });
   var bar='<div class="plan-summary"><span class="ps-cap">'+n(fleetCap)+' bkt · '+fleet.length+' truck'+(fleet.length===1?'':'s')+' available</span>'+
     '<span class="ps-fill"></span>'+
@@ -1431,7 +1551,7 @@ function renderOrders(){
       '<span class="pl-team-sub">Schedule · '+g.orders.length+' order'+(g.orders.length===1?'':'s')+' · '+n(sb)+' / '+n(tb)+' buckets on a truck</span></div>'+
       '<div class="pl-list">'+rows+'</div></div>';
   }).join('');
-  $('panel-orders').innerHTML=bar+teamTabs+html;
+  $('panel-orders').innerHTML=alerts+bar+teamTabs+html;
 }
 function orderRow(o,onTrip,tripVeh){
   tripVeh=tripVeh||{};
@@ -1440,6 +1560,9 @@ function orderRow(o,onTrip,tripVeh){
   var planned=sched>=o.total_buckets && o.total_buckets>0;
   var cov=coverMap();
   var map=o.farms.map(function(f){
+    // Buckets already dispatched on a truck (flagged in transit) are no longer open.
+    var road=f.on_road?'<span class="fc-road">🚚 '+f.on_road+' on the road</span>':'';
+    if(!f.buckets) return '<span class="pl-fchip on"><span class="fc-top"><b>'+esc(f.farm)+'</b></span>'+road+'</span>';
     var covered=cov[pkey(o.opl,f.farm)]||0;
     var done=covered>=f.buckets, partial=covered>0&&!done;
     var tn=onTrip[pkey(o.opl,f.farm)]; var vh=tn?(tripVeh[tn]||''):'';
@@ -1447,7 +1570,7 @@ function orderRow(o,onTrip,tripVeh){
     var mark=done?' ✓':(partial?' ◐ '+covered+'/'+f.buckets:'');
     return '<span class="pl-fchip'+(done?' on':(partial?' partial':''))+'"'+(tn?' title="on '+esc(tn)+(vh?' / '+esc(vh):'')+'"':'')+'>'+
       '<span class="fc-top"><b>'+esc(f.farm)+'</b><span>'+f.buckets+' bkt'+mark+'</span></span>'+
-      (vs?'<span class="fc-vs">'+esc(vs)+'</span>':'')+'</span>';
+      (vs?'<span class="fc-vs">'+esc(vs)+'</span>':'')+road+'</span>';
   }).join('');
   var tripsOn=[], seenT={}; o.farms.forEach(function(f){ var tn=onTrip[pkey(o.opl,f.farm)]; if(tn&&!seenT[tn]){ seenT[tn]=1; tripsOn.push(tn); } });
   var tags=[];
@@ -1479,18 +1602,17 @@ function orderSide(o,sched,planned,pct){
 }
 
 /* Usable fleet for distribution = not manually broken-down AND has a route set today. */
-<<<<<<< Updated upstream
-function fleetSorted(){ var a=DATA.vehicles.filter(function(v){ return !S.broken[v.name] && hasRoute(v.name); }); a.sort(function(x,y){return y.capacity_buckets-x.capacity_buckets;}); return a; }
-=======
 /* A truck out on a trip (dispatched, not received) isn't available until it's back at its route's end. */
 function fleetSorted(){ var a=DATA.vehicles.filter(function(v){ return !S.broken[v.name] && hasRoute(v.name) && !v.on_road && v.capacity_buckets>0; }); a.sort(function(x,y){return y.capacity_buckets-x.capacity_buckets;}); return a; }
->>>>>>> Stashed changes
 /* Route-aware truck packing core. */
-function packPorts(ports,state,fleet){
+function packPorts(ports,state,fleet,rank){
+  rank=rank||S.rank||{};
   var total=0; ports.forEach(function(p){ total+=p.buckets; });
   var sets=truckFarmSets();
   function anyoneServes(farm){ return fleet.some(function(v){ var s=sets[v.name]; return !s||!s.length||s.indexOf(farm)>=0; }); }
-  var sorted=ports.slice().sort(function(a,b){ if(a.farm!==b.farm) return a.farm<b.farm?-1:1; return (a.schedule||0)-(b.schedule||0); });
+  function rk(p){ return rank[p.opl]!=null?rank[p.opl]:1e6+(p.schedule||0); }
+  // Stable sort: within one order the farms keep openFarms() order, same as allocateOrder.
+  var sorted=ports.slice().sort(function(a,b){ return rk(a)-rk(b); });
   var byVeh={}, unplaced=0, blockedFarms={};
   sorted.forEach(function(p){
     var per=p.buckets?p.stems/p.buckets:0;
@@ -1569,7 +1691,7 @@ function buildScheduleGrid(dist){
   }
   var allocByOpl={};
   if(dist){
-    var packed=packPorts(distSelPreview(dist),buildTruckState(),fleetSorted());
+    var packed=packPorts(distSelPreview(dist),buildTruckState(),fleetSorted(),distRank(dist));
     packed.loads.forEach(function(L){ L.rows.forEach(function(r){ (allocByOpl[r.opl]=allocByOpl[r.opl]||[]).push({vehicle:L.vehicle,buckets:r.buckets,tripTarget:L.tripTarget}); }); });
   }
   var sp=savedPortions();
@@ -1672,8 +1794,13 @@ function renderBuild(){   // "Plan trucks" tab
 
 /* Create the dispatch: one Bucket Request Trip per truck the plan suggests. */
 function saveDispatch(){
+  // One save at a time: a second click used to create a second set of trips for the
+  // same buckets. (The server now also refuses to claim buckets twice.)
+  if(S.saving) return;
   var plan=suggestPlan();
   if(!plan || plan.empty || plan.over || plan.nofleet || !plan.loads) return;
+  S.saving=true;
+  document.querySelectorAll('[data-act="plan-save"]').forEach(function(b){ b.disabled=true; b.textContent='Saving…'; });
   Promise.all(plan.loads.map(function(load){
     var args={ vehicle:load.vehicle, trip_date:todayISO(), status:'Draft', farm:'', collection_order:'', orders:encodeOrders(load.rows) };
     return call('saveBucketTrip',args).then(function(r){ return {load:load, r:r}; }).catch(function(err){ return {load:load, err:err}; });
@@ -1684,13 +1811,12 @@ function saveDispatch(){
       if(!x.err && m.status==='success') ok.push(x.load.vehicle);
       else failed.push(x.load.vehicle+': '+(x.err?((x.err&&x.err.message)||'request failed'):(m.message||'save failed')));
     });
+    S.saving=false;
     if(failed.length){ toast((ok.length?ok.length+' truck'+(ok.length===1?'':'s')+' saved, but ':'')+failed.length+' failed — '+failed.join('; ')); }
-    else { toast('Dispatch saved — '+plan.trucks+' truck'+(plan.trucks===1?'':'s')); S.sel={}; S.selQty={}; S.tab='triplist'; }
+    else { toast('Dispatch saved — '+plan.trucks+' truck'+(plan.trucks===1?'':'s')); S.sel={}; S.selQty={}; S.rank={}; S.tab='triplist'; }
     loadData();
   });
 }
-<<<<<<< Updated upstream
-=======
 /* Dispatch (truck leaves -> its buckets are flagged In Transit) or Receive (truck back). */
 function tripAction(method,name,label){
   if(!name || S.tripBusy) return;
@@ -1720,7 +1846,6 @@ function deleteTrip(name){
   }).catch(function(err){ toast('Failed: '+((err&&err.message)||'')); });
   });
 }
->>>>>>> Stashed changes
 
 /* Bucket-status breakdown for a trip's truck — from truck_status (the OPLs'
    transit_truck flags, truck-wide, not bucket-exact per-trip). */
@@ -1741,9 +1866,16 @@ function tripCardHtml(t){
   }).join('');
   var cap=t.capacity_buckets||0, used=t.total_buckets||0, pct=cap?Math.min(100,Math.round(used/cap*100)):0;
   function tripFarms2(orders){ var seen={}, out=[]; (orders||[]).forEach(function(r){ if(r.farm && !seen[r.farm]){ seen[r.farm]=1; out.push(r.farm); } }); return out; }
-  return '<div class="trip-card"><div class="trip-hd"><h3>'+esc(t.name)+'</h3>'+
+  var stBadge=t.stale?'<span class="trip-st stale" title="Planned for an earlier day and never dispatched — its buckets are open again">stale · '+esc(t.status)+'</span>'
+    :'<span class="trip-st '+esc(t.status||'')+'">'+esc(t.status||'—')+'</span>';
+  var when=t.dispatched_at?'<span style="font:500 10px var(--mono);color:var(--ink-mute)">left '+esc(String(t.dispatched_at).slice(11,16))+(t.received_at?' · back '+esc(String(t.received_at).slice(11,16)):'')+'</span>':'';
+  return '<div class="trip-card'+(t.stale?' stale':'')+'"><div class="trip-hd"><h3>'+esc(t.name)+'</h3>'+
     (t.vehicle?'<span class="veh">'+esc(t.vehicle)+'</span>':'')+
     (t.trip_date?'<span style="font:500 11px var(--mono);color:var(--ink-mute)">'+esc(t.trip_date)+'</span>':'')+
+    stBadge+(t.auto_planned?'<span class="trip-st auto" title="Planned by automatic scheduling — re-planned automatically until dispatched">auto</span>':'')+when+
+    ((t.status==='Draft'||t.status==='Scheduled')?'<button class="tbtn key trip-act" data-act="trip-dispatch" data-trip="'+esc(t.name)+'" title="Truck is leaving: flags its buckets In Transit">Dispatch</button>':'')+
+    (t.status==='Dispatched'?'<button class="tbtn key trip-act" data-act="trip-receive" data-trip="'+esc(t.name)+'" title="Truck is back: closes the trip (buckets count as arrived once shelved)">Receive</button>':'')+
+    ((t.status==='Draft'||t.status==='Scheduled')?'<button class="tbtn ghost trip-del" data-act="trip-del" data-trip="'+esc(t.name)+'">Delete</button>':'')+
     '</div>'+
     '<div class="cap-bar" style="margin-top:10px"><i style="width:'+pct+'%"></i></div>'+
     '<div style="font:500 10px var(--mono);color:var(--ink-mute);margin-top:4px">'+used+' / '+(cap||'—')+' buckets · '+n(t.total_stems||0)+' stems</div>'+
@@ -1762,7 +1894,7 @@ function renderTripList(){   // "Trips" tab — VIEW ONLY: schedule grid + every
   var below=DATA.trips.length
     ? DATA.trips.map(tripCardHtml).join('')
     : '<div class="ts-empty">No bucket request trips yet. Use <b>⚡ Distribute across teams</b> on the Scheduled orders tab.</div>';
-  $('panel-triplist').innerHTML=gridHtml+routeSum+below;
+  $('panel-triplist').innerHTML=staleTripsHtml()+gridHtml+routeSum+below;
 }
 
 document.addEventListener('click',function(ev){
@@ -1770,7 +1902,7 @@ document.addEventListener('click',function(ev){
   if(a==='tab'){ S.tab=el.dataset.tab; render(); }
   else if(a==='ord-team'){ S.ordTeam=el.dataset.team; renderOrders(); }
   else if(a==='distribute'){ distributeAction(); }
-  else if(a==='dist-truck'){ if(el.checked) delete S.broken[el.dataset.veh]; else S.broken[el.dataset.veh]=1; if(S.dist){ var nd=computeDistribution(); nd.shortQty={}; S.dist=nd; renderDistModal(); } }
+  else if(a==='dist-truck'){ if(el.checked) delete S.broken[el.dataset.veh]; else S.broken[el.dataset.veh]=1; if(S.dist){ var nd=computeDistribution(); nd.shortQty={}; S.dist=nd; renderDistModal(); } if(S.tab==='routes') renderRoutes(); }
   else if(a==='route-edit'){
     var vname=el.dataset.veh;
     if(S.routeEdit===vname){ S.routeEdit=null; }
@@ -1778,20 +1910,19 @@ document.addEventListener('click',function(ev){
       var rt=routeByVeh()[vname]; var seed={}; if(rt){ rt.farms.forEach(function(f){seed[f]=1;}); }
       S.routeEditSel[vname]=seed; }
     if(S.dist) renderDistModal();
+    if(S.tab==='routes') renderRoutes();
   }
   else if(a==='route-farm'){ S.routeEditSel=S.routeEditSel||{}; var vn=el.dataset.veh; S.routeEditSel[vn]=S.routeEditSel[vn]||{};
     if(el.checked) S.routeEditSel[vn][el.dataset.farm]=1; else delete S.routeEditSel[vn][el.dataset.farm];
     if(S.dist) setTimeout(renderDistModal,0);
+    if(S.tab==='routes') setTimeout(renderRoutes,0);
   }
-  else if(a==='route-cancel'){ S.routeEdit=null; if(S.dist) renderDistModal(); }
+  else if(a==='route-cancel'){ S.routeEdit=null; if(S.dist) renderDistModal(); if(S.tab==='routes') renderRoutes(); }
   else if(a==='route-save'){ if(!el.disabled) saveRoute(el.dataset.veh); }
   else if(a==='dist-shortset'){ if(S.dist){ S.dist.shortQty[el.dataset.opl]=parseInt(el.dataset.val,10)||0; renderDistModal(); } }
   else if(a==='dist-confirm'){ if(!el.disabled) applyDistribution(); }
   else if(a==='dist-cancel'){ closeDistModal(); }
   else if(a==='plan-save'){ saveDispatch(); }
-<<<<<<< Updated upstream
-  else if(a==='plan-cancel'){ S.sel={}; S.selQty={}; S.tab='orders'; render(); }
-=======
   else if(a==='plan-cancel'){ S.sel={}; S.selQty={}; S.rank={}; S.tab='orders'; render(); }
   else if(a==='trip-del'){ deleteTrip(el.dataset.trip); }
   else if(a==='rn-dd-toggle'){ if(S.rn){ S.rn.dd = S.rn.dd===el.dataset.k ? null : el.dataset.k; renderRoadModal();
@@ -1826,18 +1957,14 @@ document.addEventListener('click',function(ev){
   else if(a==='trip-dispatch'){ tripAction('dispatchBucketTrip',el.dataset.trip,'Dispatch'); }
   else if(a==='trip-receive'){ tripAction('receiveBucketTrip',el.dataset.trip,'Receive'); }
   else if(a==='auto-replan'){ autoReplan(el); }
->>>>>>> Stashed changes
 });
 document.addEventListener('change',function(ev){
   var el=ev.target; if(!el.dataset||!el.dataset.act) return; var a=el.dataset.act;
+  if(a==='rn-field'&&S.rn){ var k=el.dataset.k; if(k==='km') return;  // km is kept live by the 'input' listener, no re-render
+    S.rn[k]= k==='road' ? el.value==='1' : el.value; S.rn.err=''; setTimeout(renderRoadModal,0); return; }
   if(a==='dist-shortqty'){ if(S.dist){ var qv=parseInt(el.value,10), qmx=parseInt(el.getAttribute('max'),10)||0; if(!isFinite(qv)||qv<0)qv=0; if(qv>qmx)qv=qmx; S.dist.shortQty[el.dataset.opl]=qv;
     setTimeout(renderDistModal,0); } }
 });
-<<<<<<< Updated upstream
-var _ff=$('ts-from'), _ft=$('ts-to');
-if(_ff){ _ff.addEventListener('change',function(e){ S.from=e.target.value||todayISO(); if(S.to<S.from) S.to=S.from; if(_ft)_ft.value=S.to; loadData(); }); _ff.value=S.from; }
-if(_ft){ _ft.addEventListener('change',function(e){ S.to=e.target.value||S.from; if(S.to<S.from){ S.from=S.to; if(_ff)_ff.value=S.from; } loadData(); }); _ft.value=S.to; }
-=======
 document.addEventListener('keydown',function(e){ if(e.key==='Escape'&&S.rb&&S.rb.dd&&!S.rn){ S.rb.dd=null; updateRouteBuilder(); } });
 document.addEventListener('keydown',function(e){ if(e.key==='Escape'&&S.rn){ if(S.rn.dd){ S.rn.dd=null; renderRoadModal(); } else closeRoadModal(); } });
 // Road modal distance: track keystrokes without re-rendering (a re-render on blur would
@@ -1865,7 +1992,6 @@ window.rtDate.on(function(v){
   loadData();
   if(S.tab==='logistics'&&window.BL_LOAD) window.BL_LOAD();
 });
->>>>>>> Stashed changes
 
 function boot(){ loadData(); }
 if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
@@ -1885,8 +2011,6 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
 })();
 })();
 </script>
-<<<<<<< Updated upstream
-=======
 <script>
 /* Logistics tab — moved verbatim from bucket-logistics.html (own ids: bl*). */
 (function(){
@@ -2061,7 +2185,6 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
 })();
 
 </script>
->>>>>>> Stashed changes
 <link rel="stylesheet" href="/assets/upande_packhouse/css/packhouse-portal.css">
 {% endraw %}
 {% endblock %}

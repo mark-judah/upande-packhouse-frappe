@@ -1635,30 +1635,13 @@ def createStagingEntry():
 
 @frappe.whitelist()
 def dispatchBucketTrip():
-	name = frappe.form_dict.get("name")
-	if not name or not frappe.db.exists("Bucket Request Trip", name):
-		frappe.response["message"] = {"status": "error", "message": "Trip not found."}
-	else:
-		current = frappe.db.get_value("Bucket Request Trip", name, "status")
-		if current not in ("Draft", "Scheduled"):
-			frappe.response["message"] = {
-				"status": "error",
-				"message": "Trip is " + str(current) + "; only Draft/Scheduled trips can be dispatched.",
-			}
-		else:
-			frappe.db.set_value(
-				"Bucket Request Trip",
-				name,
-				{
-					"status": "Dispatched",
-					"dispatched_at": frappe.utils.now(),
-				},
-			)
-			# Committed explicitly: this endpoint is whitelisted without `methods`, so it
-			# is reachable over GET, and frappe rolls back writes made during a GET
-			# request -- without this the caller gets a success response and no change.
-			frappe.db.commit()  # nosemgrep: frappe-manual-commit
-			frappe.response["message"] = {"status": "success", "name": name, "trip_status": "Dispatched"}
+	# Shared with the Transfer Scheduling page: besides flipping the trip to
+	# Dispatched it flags the buckets the trip carries as in transit on their Pick
+	# List Items (the app used to change only the trip status, so no bucket ever
+	# showed as in transit anywhere). Same form_dict in, same response shape out.
+	from upande_packhouse.api import transfer_control
+
+	transfer_control.dispatchBucketTrip()
 
 
 @frappe.whitelist()
@@ -2989,8 +2972,10 @@ def getTransferScheduleData():
 	#              farms; they must arrive together).
 	#   vehicles — vehicles with a capacity set (trolleys x buckets/trolley = buckets).
 	#   trips    — existing Bucket Request Trip records + their order rows.
-	# Kapkolia is the packhouse; buckets already shelved there are done and excluded.
-	PACK = "Kapkolia"
+	# Buckets already at the transfer hub (Production Settings) are done and excluded.
+	from upande_packhouse.api.transfer_control import transfer_hub
+
+	PACK = transfer_hub()
 	fd = frappe.form_dict
 	from_date = fd.get("from_date") or frappe.utils.add_days(frappe.utils.today(), 1)
 	to_date = fd.get("to_date") or frappe.utils.add_days(frappe.utils.today(), 1)
@@ -3020,11 +3005,14 @@ def getTransferScheduleData():
 		if op and op not in sched_map:
 			sched_map[op] = {"seq": int(s.get("seq") or 0), "team": s.get("team") or ""}
 
+	# Order Pick List has no custom_truck_details / custom_is_mixed_box_pick_list in
+	# v16 (both raised "Unknown column"): the truck lives on the Sales Order, and
+	# "mixed" is 0 here just as in getSchedulerFeed.
 	rows = frappe.db.sql(
 		"""
         SELECT pli.parent AS opl, o.order_name AS order_name, so.customer AS customer,
                o.sales_order AS so, so.delivery_date AS delivery_date,
-               o.custom_truck_details AS truck, o.custom_is_mixed_box_pick_list AS mixed,
+               so.custom_truck_details AS truck, 0 AS mixed,
                o.schedule_number AS schedule, o.team AS team,
                pli.bucket AS bucket, pli.item_code AS variety, pli.stock_qty AS stems,
                SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse, ''), pli.warehouse), ' ', 1) AS farm,
@@ -3237,17 +3225,20 @@ def getTransferScheduleData():
 			filters={
 				"parent": ["in", list(trip_opls)],
 				"parenttype": "Order Pick List",
-				"custom_bucket": ["!=", ""],
+				"bucket": ["!=", ""],
 			},
+			# v16 fieldnames are bare (no "custom_" prefix) — the prefixed names don't
+			# exist on Pick List Item and raised "Unknown column" as soon as any of
+			# today's trips carried an order.
 			fields=[
 				"parent",
-				"custom_bucket",
+				"bucket",
 				"warehouse",
 				"source_warehouse",
-				"custom_awaiting_transfer",
-				"custom_loaded_in_trolley",
-				"custom_in_transit",
-				"custom_shelved",
+				"awaiting_transfer",
+				"loaded_in_trolley",
+				"in_transit",
+				"shelved",
 			],
 			limit_page_length=0,
 		)
@@ -3259,7 +3250,7 @@ def getTransferScheduleData():
 			wh = row.get("source_warehouse") or row.get("warehouse") or ""
 			farm = wh.split(" ")[0] if wh else ""
 			opl = row.get("parent")
-			bkt = row.get("custom_bucket") or ""
+			bkt = row.get("bucket") or ""
 			dk = str(opl) + "|" + str(bkt).lower()
 			if bkt and dk in seen_stage_bkt:
 				continue
@@ -3269,13 +3260,13 @@ def getTransferScheduleData():
 			if key not in bucket_stage:
 				bucket_stage[key] = {"awaiting": 0, "loaded": 0, "in_transit": 0, "shelved": 0}
 			stage = bucket_stage[key]
-			if int(row.get("custom_shelved") or 0):
+			if int(row.get("shelved") or 0):
 				stage["shelved"] = stage["shelved"] + 1
-			elif int(row.get("custom_in_transit") or 0):
+			elif int(row.get("in_transit") or 0):
 				stage["in_transit"] = stage["in_transit"] + 1
-			elif int(row.get("custom_loaded_in_trolley") or 0):
+			elif int(row.get("loaded_in_trolley") or 0):
 				stage["loaded"] = stage["loaded"] + 1
-			elif int(row.get("custom_awaiting_transfer") or 0):
+			elif int(row.get("awaiting_transfer") or 0):
 				stage["awaiting"] = stage["awaiting"] + 1
 
 	for triprow in trips:
@@ -3310,6 +3301,10 @@ def getTransferScheduleData():
         WHERE pli.parenttype = 'Order Pick List' AND o.docstatus < 2
           AND pli.transit_truck IS NOT NULL AND pli.transit_truck != ''
           AND DATE(pli.modified) = %(td)s
+          -- only internal transfer trucks: pick-list creation pre-fills this field
+          -- with the order's delivery-truck label (e.g. "SIM Truck")
+          AND EXISTS (SELECT 1 FROM `tabVehicle` v WHERE v.name = pli.transit_truck
+                      AND IFNULL(v.custom_dispatch_truck, 0) = 0)
     """,
 		{"td": today_str},
 		as_dict=True,
@@ -4286,7 +4281,8 @@ def issueBucketToSaleOrderItem():
 					# custom_sale_order_item or sales_order_item.
 					pick_list_items = frappe.db.sql(
 						"""
-						SELECT name, parent, source_warehouse, item_code, stock_qty, issued, farm
+						SELECT name, parent, source_warehouse, item_code, stock_qty, issued, farm,
+						       COALESCE(stem_length, '') AS stem_length
 						FROM `tabPick List Item`
 						WHERE bucket = %(bucket)s
 						  AND parenttype = 'Order Pick List'
@@ -4326,23 +4322,50 @@ def issueBucketToSaleOrderItem():
 					# decrement. The whole block re-runs on a repeated scan by design
 					# (see the note above) and every other step no-ops on a repeat --
 					# subtracting again would quietly destroy real shelf stock.
+					# Keyed per (variety, length): one bucket can hold the same variety
+					# at two lengths, and only the drawn length may shrink.
 					issued_by_variety = {}
 					for pli in pick_list_items:
 						if pli.get("item_code") and not pli.get("issued"):
-							issued_by_variety[pli["item_code"]] = issued_by_variety.get(
-								pli["item_code"], 0
-							) + flt(pli.get("stock_qty"))
+							key = (pli["item_code"], pli.get("stem_length") or "")
+							issued_by_variety[key] = issued_by_variety.get(key, 0) + flt(pli.get("stock_qty"))
 
 					shelf_items = frappe.db.get_all(
 						"Shelf Item",
 						filters={"bucket_id": bucket_id},
-						fields=["name", "parent", "variety", "stem_qty"],
+						fields=["name", "parent", "variety", "stem_qty", "stem_length"],
+						order_by="idx asc",
 					)
+
+					# Draw each key's stems across its rows in turn. Taking the full
+					# issued qty off EVERY matching row emptied a bucket split over
+					# duplicate rows (60 + 40, 80 issued -> both deleted) and left the
+					# sibling line's allocation outstanding against nothing.
+					left_to_take = dict(issued_by_variety)
+					taken_by_row = {}
+					for item in shelf_items:
+						variety = item.get("variety")
+						key = (variety, item.get("stem_length") or "")
+						if key not in left_to_take:
+							# One side carries no length: match on variety alone.
+							key = next(
+								(
+									k
+									for k in left_to_take
+									if k[0] == variety and (not k[1] or not item.get("stem_length"))
+								),
+								key,
+							)
+						if left_to_take.get(key, 0) <= 0:
+							continue
+						row_take = min(flt(item.get("stem_qty")), left_to_take[key])
+						left_to_take[key] -= row_take
+						taken_by_row[item.name] = row_take
 
 					removed_from_shelf = []
 					kept_on_shelf = []
 					for item in shelf_items:
-						taken = issued_by_variety.get(item.get("variety"), 0)
+						taken = taken_by_row.get(item.name, 0)
 						remaining = flt(item.get("stem_qty")) - taken
 						# Keyed on `pick_list_items`, NOT on `issued_by_variety`: on a
 						# repeated scan every row is already issued=1 so nothing is newly
@@ -4404,14 +4427,13 @@ def issueBucketToSaleOrderItem():
 						recompute_bas_quantities,
 					)
 
-					for variety, taken in issued_by_variety.items():
+					for (variety, length), taken in issued_by_variety.items():
 						if not taken:
 							continue
-						bas_name = frappe.db.get_value(
-							"Bucket Allocation Status",
-							{"bucket_id": bucket_id, "item_code": variety},
-							"name",
-						)
+						bas_filters = {"bucket_id": bucket_id, "item_code": variety}
+						if length:
+							bas_filters["stem_length"] = length
+						bas_name = frappe.db.get_value("Bucket Allocation Status", bas_filters, "name")
 						if not bas_name:
 							continue
 						try:
@@ -4420,12 +4442,16 @@ def issueBucketToSaleOrderItem():
 								if row.sales_order_item == sale_order_item and not row.cancelled:
 									row.issued = 1
 									row.db_update()
-							shelf_left = frappe.db.get_value(
-								"Shelf Item", {"bucket_id": bucket_id, "variety": variety}, "stem_qty"
+							# Sum every row still on the shelf for this length -- a
+							# single get_value read one arbitrary row.
+							shelf_filters = {"bucket_id": bucket_id, "variety": variety}
+							if bas.stem_length:
+								shelf_filters["stem_length"] = bas.stem_length
+							shelf_left = sum(
+								flt(q)
+								for q in frappe.get_all("Shelf Item", filters=shelf_filters, pluck="stem_qty")
 							)
-							recompute_bas_quantities(
-								bas, shelf_qty=shelf_left if shelf_left is not None else 0
-							)
+							recompute_bas_quantities(bas, shelf_qty=shelf_left)
 							bas.flags.ignore_validate = True
 							bas.flags.ignore_mandatory = True
 							bas.save(ignore_permissions=True)
@@ -4505,38 +4531,33 @@ def issueBucketToSaleOrderItem():
 
 	except Exception as e:
 		frappe.db.rollback()
-		frappe.log_error("Coldstore Issue Error", e)
-		frappe.response.message = f"Error issuing bucket: {e!s}"
+		# Log the TRACEBACK, not the exception object. frappe.log_error treats a
+		# truthy `message` as the text to store, so passing `e` stored str(e) --
+		# and an exception raised with no message (a bare `raise SomeError`, an
+		# AssertionError, a StopIteration) left an Error Log whose error field
+		# was completely empty, with the real stack lost. Confirmed real data:
+		# Coldstore Issue Error for bucket 398ba7 / OPL-2026-00172, error "".
+		frappe.log_error(
+			title="Coldstore Issue Error",
+			message=(
+				f"bucket={bucket_id if 'bucket_id' in locals() else '?'} "
+				f"soi={sale_order_item if 'sale_order_item' in locals() else '?'} "
+				f"opl={opl_name if 'opl_name' in locals() else '?'}\n"
+				f"{type(e).__name__}: {e!s}\n\n{frappe.get_traceback(with_context=True)}"
+			),
+		)
+		detail = str(e) or type(e).__name__
+		frappe.response.message = f"Error issuing bucket: {detail}"
 		frappe.response.http_status_code = 500
-		frappe.response.data = {"error": str(e)}
+		frappe.response.data = {"error": detail, "error_type": type(e).__name__}
 
 
 @frappe.whitelist()
 def receiveBucketTrip():
-	name = frappe.form_dict.get("name")
-	if not name or not frappe.db.exists("Bucket Request Trip", name):
-		frappe.response["message"] = {"status": "error", "message": "Trip not found."}
-	else:
-		current = frappe.db.get_value("Bucket Request Trip", name, "status")
-		if current != "Dispatched":
-			frappe.response["message"] = {
-				"status": "error",
-				"message": "Trip is " + str(current) + "; only Dispatched trips can be received.",
-			}
-		else:
-			frappe.db.set_value(
-				"Bucket Request Trip",
-				name,
-				{
-					"status": "Received",
-					"received_at": frappe.utils.now(),
-				},
-			)
-			# Committed explicitly: this endpoint is whitelisted without `methods`, so it
-			# is reachable over GET, and frappe rolls back writes made during a GET
-			# request -- without this the caller gets a success response and no change.
-			frappe.db.commit()  # nosemgrep: frappe-manual-commit
-			frappe.response["message"] = {"status": "success", "name": name, "trip_status": "Received"}
+	# Shared with the Transfer Scheduling page (see dispatchBucketTrip above).
+	from upande_packhouse.api import transfer_control
+
+	transfer_control.receiveBucketTrip()
 
 
 @frappe.whitelist()
@@ -4869,7 +4890,7 @@ def shelveBucket():
 		return
 
 	# ── TRANSIT / OPL updates for transfer buckets (local buckets untouched) ──
-	_shelve_update_transit_status(bucket_id, shelf_id, result)
+	_shelve_update_transit_status(bucket_id, shelf_id, farm, result)
 
 	# ── SHELVE: one Shelf Item per received variety ──────────────────────────
 	stem_length = receiving_doc.get("custom_stem_length")
@@ -4878,19 +4899,35 @@ def shelveBucket():
 	shelf_doc.farm = farm
 	total_qty = 0
 	new_items = []
+	# A Receiving entry can carry several rows for the SAME variety (one per
+	# Harvesting scan of the bucket). Shelving must still produce ONE Shelf
+	# Item per variety: every availability read joins Bucket Allocation Status
+	# per row, so two rows for one variety would each have the whole allocation
+	# subtracted and the allocation page would show negative stock.
+	merged = {}
 	for ri in receiving_doc.items:
+		key = ri.item_code
+		if key not in merged:
+			merged[key] = {
+				"item_code": ri.item_code,
+				"qty": 0,
+				"s_warehouse": ri.s_warehouse,
+				"t_warehouse": ri.t_warehouse,
+			}
+		merged[key]["qty"] += ri.qty or 0
+	for ri in merged.values():
 		new_item = shelf_doc.append("items", {})
 		new_item.bucket_id = bucket_id
-		new_item.variety = ri.item_code
+		new_item.variety = ri["item_code"]
 		new_item.date_added = frappe.utils.now_datetime()
 		new_item.stem_length = stem_length
-		new_item.stem_qty = ri.qty
-		new_item.greenhouse = ri.s_warehouse
-		new_item.warehouse = ri.t_warehouse
+		new_item.stem_qty = ri["qty"]
+		new_item.greenhouse = ri["s_warehouse"]
+		new_item.warehouse = ri["t_warehouse"]
 		new_item.farm = farm
 		new_item.harvest_date = harvest_date
 		new_item.receiving_date = recv_date
-		total_qty += ri.qty or 0
+		total_qty += ri["qty"] or 0
 		new_items.append(new_item)
 	shelf_doc.save(ignore_permissions=True)
 
@@ -4910,6 +4947,16 @@ def shelveBucket():
 	_shelve_update_bas(bucket_id, variety, farm, shelf_id, result)
 	_shelve_check_submit_opl(bucket_id, result)
 
+	# The truck that brought this bucket is back at its final destination once nothing
+	# it carried is still in transit: receive its trip so it can be routed/planned again.
+	result["trips_received"] = []
+	try:
+		from upande_packhouse.api.transfer_control import auto_receive_trucks_for_bucket
+
+		result["trips_received"] = auto_receive_trucks_for_bucket(bucket_id)
+	except Exception:
+		frappe.log_error("Auto-receive trip on shelving failed", frappe.get_traceback())
+
 	# Committed explicitly: this endpoint is whitelisted without `methods`, so it
 	# is reachable over GET, and frappe rolls back writes made during a GET
 	# request -- without this the caller gets a success response and no change.
@@ -4925,39 +4972,100 @@ def shelveBucket():
 			"transit_updated": result.get("transit_updated", False),
 			"bas_updated": result.get("bas_updated", False),
 			"opl_submitted": result.get("opl_submitted", []),
+			"trips_received": result.get("trips_received", []),
+			# Transfer bucket shelved away from its sales farm: still awaiting its truck.
+			"transfer_pending": result.get("transfer_pending", []),
 		},
 	}
 
 
-def _shelve_update_transit_status(bucket_id, shelf_id, result):
+def _shelve_update_transit_status(bucket_id, shelf_id, farm, result):
+	"""Mark a transfer bucket ARRIVED: shelving it at its order's sales farm (the
+	OPL's farm, else the transfer hub) clears awaiting/loaded/in-transit and sets
+	shelved. Shelved anywhere else (e.g. re-shelved at the remote farm) it is still
+	waiting for its truck, so its flags are left alone.
+
+	Dispatch flags "the first N open buckets" of an (order, farm), not the buckets
+	actually loaded. If this bucket arrives unflagged while another bucket of the
+	same order and farm is still flagged on a truck, that truck carried THIS one: it
+	takes over the truck and the other goes back to waiting. Otherwise the truck
+	would show a bucket in transit forever and its trip would never auto-receive."""
+	from upande_packhouse.api.transfer_control import transfer_hub
+
 	result["transit_updated"] = False
-	rows = frappe.get_all("Pick List Item", filters={"bucket": bucket_id}, fields=["name", "parent"])
-	updated = []
-	for r in rows:
-		opl = frappe.get_doc("Order Pick List", r.parent)
+	opl_names = frappe.get_all(
+		"Pick List Item",
+		filters={"bucket": bucket_id, "parenttype": "Order Pick List"},
+		pluck="parent",
+		distinct=True,
+	)
+	updated, skipped = [], []
+	for opl_name in opl_names:
+		opl = frappe.get_doc("Order Pick List", opl_name)
 		if opl.docstatus != 0:
 			continue
-		changed = False
-		for row in opl.locations:
-			if row.name == r.name:
-				if (
-					(row.in_transit or 0) == 1
-					or (row.awaiting_transfer or 0) == 1
-					or (row.loaded_in_trolley or 0) == 1
-				):
-					row.in_transit = 0
-					row.awaiting_transfer = 0
-					row.loaded_in_trolley = 0
-					row.shelved = 1
-					row.shelf = shelf_id
-					changed = True
-				break
-		if changed:
-			opl.save(ignore_permissions=True)
-			updated.append(r.parent)
+		# opl_rows, not opl.locations: the table fieldname is `table_ytkc`, so
+		# `locations` never matched and a transferred bucket shelved at the sales
+		# farm was never marked shelved on its pick row (the OPL couldn't submit).
+		rows = stock_movement.opl_rows(opl)
+		mine = [
+			row
+			for row in rows
+			if (row.bucket or "").lower() == bucket_id.lower()
+			and (row.in_transit or row.awaiting_transfer or row.loaded_in_trolley)
+		]
+		if not mine:
+			continue
+		# No sales farm resolvable (OPL farm blank, hub unset and ambiguous): arrive
+		# wherever it is shelved, as before, rather than block shelving.
+		sales_farm = opl.get("farm") or transfer_hub(required=False)
+		if sales_farm and (farm or "").lower() != sales_farm.lower():
+			skipped.append({"opl": opl.name, "sales_farm": sales_farm})
+			continue
+		if not any(row.in_transit for row in mine):
+			_take_over_truck(rows, mine)
+		for row in mine:
+			row.in_transit = 0
+			row.awaiting_transfer = 0
+			row.loaded_in_trolley = 0
+			row.shelved = 1
+			row.shelf = shelf_id
+		opl.save(ignore_permissions=True)
+		updated.append(opl.name)
 	if updated:
 		result["transit_updated"] = True
 		result["transit_opl"] = updated[0]
+	if skipped:
+		# Not an error — the bucket is shelved, just not arrived yet.
+		result["transfer_pending"] = skipped
+
+
+def _take_over_truck(rows, mine):
+	"""`mine` (the arriving bucket's rows) was never flagged in transit. Find another
+	bucket of the same order and origin farm still flagged on the road and swap their
+	truck flags: the arriving bucket gets the transfer truck, the other bucket goes
+	back to awaiting with whatever transit_truck value this one had."""
+	farm_of = lambda r: (r.source_warehouse or r.warehouse or "").split(" ")[0]  # noqa: E731
+	origin = farm_of(mine[0])
+	own = {r.name for r in mine}
+	stand_in = next(
+		(
+			r
+			for r in rows
+			if r.name not in own and r.in_transit and not r.shelved and r.bucket and farm_of(r) == origin
+		),
+		None,
+	)
+	if not stand_in:
+		return
+	truck, previous = stand_in.transit_truck, mine[0].transit_truck
+	# A bucket spans several rows (one per variety) — move all of the stand-in's.
+	for r in rows:
+		if (r.bucket or "").lower() == stand_in.bucket.lower():
+			r.in_transit = 0
+			r.transit_truck = previous
+	for r in mine:
+		r.transit_truck = truck
 
 
 def _shelve_update_bas(bucket_id, variety, farm, shelf_id, result):

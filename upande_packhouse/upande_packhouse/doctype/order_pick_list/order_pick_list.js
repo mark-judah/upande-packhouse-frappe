@@ -3,6 +3,17 @@
 
 frappe.ui.form.on("Order Pick List", {
 	refresh(frm) {
+		// Testing aid: print every QR this OPL needs (buckets, shelves, bunches)
+		// so it can be walked through the mobile app without the label printers.
+		// System Manager only — it can create Grading stock entries.
+		if (!frm.is_new() && frappe.user.has_role("System Manager")) {
+			frm.add_custom_button(
+				__("Generate Test QR Codes"),
+				() => open_test_label_dialog(frm),
+				__("Testing")
+			);
+		}
+
 		if (!frm.doc.sales_order) return;
 
 		frm.add_custom_button(
@@ -29,8 +40,6 @@ frappe.ui.form.on("Order Pick List", {
 		);
 	},
 });
-<<<<<<< Updated upstream
-=======
 
 function open_test_label_dialog(frm) {
 	const d = new frappe.ui.Dialog({
@@ -150,4 +159,3 @@ function print_test_labels(data) {
 	w.document.write(html);
 	w.document.close();
 }
->>>>>>> Stashed changes

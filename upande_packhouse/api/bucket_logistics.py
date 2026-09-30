@@ -7,11 +7,15 @@
 
 import frappe
 
+from upande_packhouse.api.transfer_control import TRANSFER_TRUCK_OK, TRIP_LOOKBACK_DAYS, _schedule_map
+
 
 @frappe.whitelist()
 def getBucketLogistics():
 	# Bucket Logistics — orders with buckets being transferred, for a delivery date.
-	# A bucket is "being transferred" iff custom_awaiting_transfer=1 OR custom_shelved=1.
+	# A bucket is "being transferred" iff it was ever flagged for transfer (awaiting,
+	# loaded, in transit) or has been shelved. Dispatch keeps awaiting_transfer=1 while
+	# it sets in_transit, but in_transit/loaded are included so nothing drops out.
 	# Source farm = first word of the source warehouse (custom_source_warehouse, else
 	# warehouse) — warehouses are named "<Farm> Receiving Cold Store - KR".
 	# Default delivery_date = TOMORROW.
@@ -20,16 +24,18 @@ def getBucketLogistics():
 
 	# source-farm expression (reused in SELECT + WHERE)
 	FARM_EXPR = "SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1)"
-	TRANSFER = "(pli.awaiting_transfer = 1 OR pli.shelved = 1)"
+	TRANSFER = (
+		"(pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1 OR pli.in_transit = 1 OR pli.shelved = 1)"
+	)
 
 	params = {"d": delivery_date}
 	conds = ["opl.docstatus < 2", "pli.parenttype = 'Order Pick List'", "so.delivery_date = %(d)s", TRANSFER]
 	if fd.get("farm"):
 		conds.append(FARM_EXPR + " = %(farm)s")
 		params["farm"] = fd.get("farm")
-	if fd.get("team"):
-		conds.append("opl.team = %(team)s")
-		params["team"] = fd.get("team")
+	# Team is filtered after the query: the effective team is the one on the order's
+	# Packhouse Schedule (what the transfer planner uses), falling back to OPL.team.
+	team_filter = fd.get("team") or ""
 	where = " AND ".join(conds)
 
 	rows = frappe.db.sql(
@@ -41,10 +47,13 @@ def getBucketLogistics():
             so.customer               AS customer,
             so.delivery_date          AS delivery_date,
             opl.creation              AS initiated,
+            opl.team                  AS opl_team,
             GROUP_CONCAT(DISTINCT """
 		+ FARM_EXPR
 		+ """ ORDER BY 1 SEPARATOR ', ') AS farm,
-            MAX(pli.transit_truck) AS truck,
+            MAX(CASE WHEN """
+		+ TRANSFER_TRUCK_OK
+		+ """ THEN pli.transit_truck END) AS truck,
             COUNT(*)                  AS total,
             SUM(pli.awaiting_transfer = 1) AS awaiting,
             SUM(pli.loaded_in_trolley = 1) AS trolley,
@@ -65,11 +74,56 @@ def getBucketLogistics():
 		as_dict=True,
 	)
 
+	sched = _schedule_map()
 	for r in rows:
 		for k in ["total", "awaiting", "trolley", "transit", "shelved", "ready", "issued"]:
 			r[k] = int(r.get(k) or 0)
 		# Transfer initiation time = OPL creation datetime (full timestamp).
 		r["initiated"] = str(r.get("initiated")) if r.get("initiated") else ""
+		sc = sched.get(r["opl"]) or {}
+		r["team"] = sc.get("team") or r.get("opl_team") or ""
+		r["schedule"] = sc.get("schedule")
+		# Why an order with buckets still out at a remote farm isn't moving: it has to
+		# be on a team's schedule before Transfer Scheduling will put it on a truck.
+		r["scheduled"] = 1 if sc else 0
+		r["no_team"] = 0 if r["team"] else 1
+	if team_filter:
+		rows = [r for r in rows if r["team"] == team_filter]
+
+	# Trips carrying each order: today's plus any not yet received (still on the road
+	# or a stale draft). One order can ride several trucks.
+	trips = {}
+	if rows:
+		for t in frappe.db.sql(
+			"""
+            SELECT o.order_pick_list AS opl, t.name AS trip, t.vehicle AS vehicle, t.status AS status,
+                   t.trip_date AS trip_date, SUM(o.buckets) AS buckets
+            FROM `tabBucket Request Trip Order` o
+            JOIN `tabBucket Request Trip` t ON t.name = o.parent
+            WHERE o.order_pick_list IN %(opls)s
+              AND (t.trip_date = %(today)s
+                   OR (t.trip_date >= %(since)s AND t.status != 'Received'))
+            GROUP BY o.order_pick_list, t.name
+            ORDER BY t.trip_date DESC, t.name
+        """,
+			{
+				"opls": tuple(r["opl"] for r in rows),
+				"today": frappe.utils.today(),
+				"since": frappe.utils.add_days(frappe.utils.today(), -TRIP_LOOKBACK_DAYS),
+			},
+			as_dict=True,
+		):
+			trips.setdefault(t.opl, []).append(
+				{
+					"trip": t.trip,
+					"vehicle": t.vehicle,
+					"status": t.status,
+					"trip_date": str(t.trip_date),
+					"buckets": int(t.buckets or 0),
+				}
+			)
+	for r in rows:
+		r["trips"] = trips.get(r["opl"], [])
 
 	# Arrival time per OPL = when the FIRST bucket of the order was shelved at the
 	# sales (destination) farm. Source of truth = the CONTINUOUS `Shelving Log`
@@ -145,7 +199,7 @@ def getBucketLogistics():
 @frappe.whitelist()
 def getBucketLogisticsDetail():
 	# Per-bucket detail for one Order Pick List — raw Pick List Item flags as
-	# checkboxes. Only buckets being transferred (awaiting_transfer=1 OR shelved=1).
+	# checkboxes. Only buckets being transferred (any transfer flag, or shelved).
 	# Source farm = first word of source_warehouse (else warehouse). Pick List
 	# Item's native field is `source_warehouse`, no "custom_" prefix -- this
 	# used to reference a "custom_source_warehouse" that doesn't exist on this
@@ -170,7 +224,9 @@ def getBucketLogisticsDetail():
                 pli.item_code                AS variety,
                 pli.stem_length               AS length,
                 pli.shelf                    AS shelf,
-                pli.transit_truck            AS truck,
+                CASE WHEN """
+			+ TRANSFER_TRUCK_OK
+			+ """ THEN pli.transit_truck END AS truck,
                 """
 			+ FARM_EXPR
 			+ """        AS farm,
@@ -184,7 +240,8 @@ def getBucketLogisticsDetail():
             FROM `tabPick List Item` pli
             JOIN `tabOrder Pick List` o ON o.name = pli.parent
             WHERE pli.parenttype = 'Order Pick List' AND o.name = %(opl)s
-              AND (pli.awaiting_transfer = 1 OR pli.shelved = 1)"""
+              AND (pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1
+                   OR pli.in_transit = 1 OR pli.shelved = 1)"""
 			+ extra
 			+ """
             ORDER BY pli.idx

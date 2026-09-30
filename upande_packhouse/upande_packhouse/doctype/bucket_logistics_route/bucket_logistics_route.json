@@ -12,6 +12,7 @@
   "vehicle",
   "route_date",
   "total_km",
+  "auto_planned",
   "legs"
  ],
  "fields": [
@@ -58,9 +59,6 @@
    "read_only": 1
   },
   {
-<<<<<<< Updated upstream
-   "description": "The farms this vehicle may serve today, in visiting order — an empty list means the vehicle has no route today and is treated as unrestricted, but also not selectable for planning until routed.",
-=======
    "default": "0",
    "description": "Created by automatic remote transfer scheduling. Cleared as soon as someone saves it by hand.",
    "fieldname": "auto_planned",
@@ -72,7 +70,6 @@
   },
   {
    "description": "The farms this vehicle may serve today, in visiting order \u2014 an empty list means the vehicle has no route today and is treated as unrestricted, but also not selectable for planning until routed.",
->>>>>>> Stashed changes
    "fieldname": "legs",
    "fieldtype": "Table",
    "label": "Legs",
@@ -81,11 +78,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
-<<<<<<< Updated upstream
- "modified": "2026-09-14 00:00:00.000000",
-=======
  "modified": "2026-09-29 21:00:00.000000",
->>>>>>> Stashed changes
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Bucket Logistics Route",

@@ -1,0 +1,120 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:platform_name",
+ "creation": "2026-09-22 09:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "platform_name",
+  "file_type",
+  "column_break_1",
+  "header_row",
+  "multi_order_column",
+  "section_break_1",
+  "notes",
+  "section_break_2",
+  "default_field_mappings"
+ ],
+ "fields": [
+  {
+   "fieldname": "platform_name",
+   "fieldtype": "Data",
+   "label": "Platform Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "CSV",
+   "fieldname": "file_type",
+   "fieldtype": "Select",
+   "label": "File Type",
+   "options": "CSV\nExcel"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "description": "Which row of the file holds the column headers.",
+   "fieldname": "header_row",
+   "fieldtype": "Int",
+   "label": "Header Row"
+  },
+  {
+   "description": "Column that separates one physical order from another when a single file contains several orders (e.g. \"Order No\", \"PO Number\"). Leave blank if one file is always one order.",
+   "fieldname": "multi_order_column",
+   "fieldtype": "Data",
+   "label": "Multi-Order Split Column"
+  },
+  {
+   "fieldname": "section_break_1",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "section_break_2",
+   "fieldtype": "Section Break",
+   "label": "Default Column Mapping"
+  },
+  {
+   "description": "The column layout most customers on this platform use. A Customer Order Mapping can override or add to this per customer.",
+   "fieldname": "default_field_mappings",
+   "fieldtype": "Table",
+   "label": "Default Field Mappings",
+   "options": "Order Import Field Mapping"
+  }
+ ],
+ "links": [],
+ "modified": "2026-09-22 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Order Import Platform",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "select": 1,
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "select": 1,
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales User",
+   "select": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}
