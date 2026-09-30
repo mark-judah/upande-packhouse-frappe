@@ -16,7 +16,7 @@ class BoxLabel(Document):
 
 
 @frappe.whitelist()
-def qr_codes(names=None, name=None):
+def qr_codes(names: str | list | None = None, name: str | None = None):
 	"""QR codes for each Box Label, drawn in memory (nothing is attached):
 
 	* `box_qr` -- the label's own id as `{"box_label":"<id>"}`, the payload

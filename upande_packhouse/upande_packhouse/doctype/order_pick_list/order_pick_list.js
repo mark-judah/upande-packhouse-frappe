@@ -82,7 +82,14 @@ function open_test_label_dialog(frm) {
 						{
 							message: __(
 								"{0} bucket, {1} shelf, {2} trolley, {3} spare, {4} bunch labels ({5} newly graded)",
-								[s.buckets, s.shelves, s.trolleys, s.spares, s.bunches, s.grading_created]
+								[
+									s.buckets,
+									s.shelves,
+									s.trolleys,
+									s.spares,
+									s.bunches,
+									s.grading_created,
+								]
 							),
 							indicator: "green",
 						},

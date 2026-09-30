@@ -2520,20 +2520,33 @@ def _requested_bucket_rows(pick_list_item):
 		"Pick List Item",
 		filters={"parent": anchor.parent, "parenttype": "Order Pick List", "bucket": anchor.bucket},
 		fields=[
-			"name", "item_code", "stem_length", "stock_qty", "sales_order_item",
-			"source_warehouse", "warehouse", "shelf", "farm",
-			"loaded_in_trolley", "in_transit", "shelved", "issued", "awaiting_transfer",
+			"name",
+			"item_code",
+			"stem_length",
+			"stock_qty",
+			"sales_order_item",
+			"source_warehouse",
+			"warehouse",
+			"shelf",
+			"farm",
+			"loaded_in_trolley",
+			"in_transit",
+			"shelved",
+			"issued",
+			"awaiting_transfer",
 		],
 	)
 	for r in rows:
 		if (r.item_code, r.stem_length or "") != (anchor.item_code, anchor.stem_length or ""):
 			frappe.throw(
-				_("Bucket {0} carries more than one variety/length on {1}; replace it from the allocation page.").format(
-					anchor.bucket, anchor.parent
-				)
+				_(
+					"Bucket {0} carries more than one variety/length on {1}; replace it from the allocation page."
+				).format(anchor.bucket, anchor.parent)
 			)
 		if cint(r.loaded_in_trolley) or cint(r.in_transit) or cint(r.shelved) or cint(r.issued):
-			frappe.throw(_("Bucket {0} has already left the cold room and cannot be replaced.").format(anchor.bucket))
+			frappe.throw(
+				_("Bucket {0} has already left the cold room and cannot be replaced.").format(anchor.bucket)
+			)
 
 	farm = anchor.farm or (frappe.db.get_value("Shelf", anchor.shelf, "farm") if anchor.shelf else None)
 	if not farm:
@@ -2564,7 +2577,9 @@ def _replacement_candidates(anchor, farm, needed, limit=1):
 	min_cm = _length_cm(anchor.stem_length)
 	taken = set(
 		frappe.get_all(
-			"Pick List Item", filters={"parent": anchor.parent, "parenttype": "Order Pick List"}, pluck="bucket"
+			"Pick List Item",
+			filters={"parent": anchor.parent, "parenttype": "Order Pick List"},
+			pluck="bucket",
 		)
 	)
 
@@ -2683,7 +2698,7 @@ def replace_requested_bucket(pick_list_item: str, new_bucket_id: str | None = No
 	import time
 
 	previous = frappe.db.sql("SELECT @@SESSION.innodb_lock_wait_timeout")[0][0]
-	frappe.db.sql(f"SET SESSION innodb_lock_wait_timeout = {int(REPLACE_LOCK_WAIT_S)}")
+	frappe.db.sql("SET SESSION innodb_lock_wait_timeout = %s", (int(REPLACE_LOCK_WAIT_S),))
 	try:
 		for attempt in range(REPLACE_ATTEMPTS):
 			res = _replace_requested_bucket(pick_list_item, new_bucket_id)
@@ -2699,7 +2714,7 @@ def replace_requested_bucket(pick_list_item: str, new_bucket_id: str | None = No
 			),
 		}
 	finally:
-		frappe.db.sql(f"SET SESSION innodb_lock_wait_timeout = {int(previous)}")
+		frappe.db.sql("SET SESSION innodb_lock_wait_timeout = %s", (int(previous),))
 
 
 def _replace_requested_bucket(pick_list_item: str, new_bucket_id: str | None = None):
@@ -2727,9 +2742,7 @@ def _replace_requested_bucket(pick_list_item: str, new_bucket_id: str | None = N
 		if new_bucket_id:
 			candidates = [c for c in candidates if c.bucket_id == new_bucket_id]
 		if not candidates:
-			frappe.throw(
-				_no_replacement_message(anchor, farm, needed)
-			)
+			frappe.throw(_no_replacement_message(anchor, farm, needed))
 		new = candidates[0]
 
 		qty_by_so_item = {}
@@ -2768,7 +2781,11 @@ def _replace_requested_bucket(pick_list_item: str, new_bucket_id: str | None = N
 		# ── Stock: the old bucket never left its farm, so undo its Arrival leg too ──
 		business_unit = stock_movement.business_unit_of(so_doc)
 		old_source = rows[0].source_warehouse or rows[0].warehouse
-		arrival = stock_movement.stage_warehouse(old_source, business_unit, stage=stock_movement.ARRIVAL_STAGE) if old_source else None
+		arrival = (
+			stock_movement.stage_warehouse(old_source, business_unit, stage=stock_movement.ARRIVAL_STAGE)
+			if old_source
+			else None
+		)
 		returned_qty = sum(flt(m.get("qty")) for m in reversed_moves)
 		if arrival and arrival != old_source and returned_qty > 0:
 			back = min(returned_qty, stock_movement.bucket_balance(old_bucket, anchor.item_code, arrival))
@@ -2785,13 +2802,21 @@ def _replace_requested_bucket(pick_list_item: str, new_bucket_id: str | None = N
 					opl=opl_name,
 					remarks=f"Bucket {old_bucket} missing at {farm} — replaced with {new.bucket_id}",
 				)
-				reversed_moves.append({"entry": entry, "bucket": old_bucket, "qty": back, "reverses": "Arrival"})
+				reversed_moves.append(
+					{"entry": entry, "bucket": old_bucket, "qty": back, "reverses": "Arrival"}
+				)
 
 		# ── Shelf: the missing bucket's row goes once nothing else is allocated from it ──
-		if not old_bas_name or not flt(frappe.db.get_value("Bucket Allocation Status", old_bas_name, "allocated_quantity")):
+		if not old_bas_name or not flt(
+			frappe.db.get_value("Bucket Allocation Status", old_bas_name, "allocated_quantity")
+		):
 			for si in frappe.get_all(
 				"Shelf Item",
-				filters={"bucket_id": old_bucket, "variety": anchor.item_code, "stem_length": anchor.stem_length or ""},
+				filters={
+					"bucket_id": old_bucket,
+					"variety": anchor.item_code,
+					"stem_length": anchor.stem_length or "",
+				},
 				fields=["name", "parent"],
 			):
 				_clear_shelf_item(si.name, si.parent, "Shelf Cleared")
@@ -2826,7 +2851,12 @@ def _replace_requested_bucket(pick_list_item: str, new_bucket_id: str | None = N
 		for so_item, qty in qty_by_so_item.items():
 			new_bas.append(
 				"bucket_allocations",
-				{"sales_order": sales_order, "sales_order_item": so_item, "quantity_allocated": qty, "cancelled": 0},
+				{
+					"sales_order": sales_order,
+					"sales_order_item": so_item,
+					"quantity_allocated": qty,
+					"cancelled": 0,
+				},
 			)
 		recompute_bas_quantities(new_bas, shelf_qty=new.stem_qty)
 		if was_in_transit:
