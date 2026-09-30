@@ -1,3 +1,13 @@
+<style>
+  /* Steady layout across the packhouse pages: the main pane always reserves its
+     scrollbar, and moving between pages cross-fades the content while the sidebar
+     stays put. */
+  .aph-main{scrollbar-gutter:stable}
+  @view-transition{navigation:auto}
+  .aph-side{view-transition-name:aph-side}
+  ::view-transition-old(aph-side),::view-transition-new(aph-side){animation:none}
+  ::view-transition-old(root),::view-transition-new(root){animation-duration:.15s}
+</style>
 <script>
   // Restore the collapsed/expanded sidebar state BEFORE the sidebar markup
   // below is painted, so there is no flash of the wrong state on navigation
@@ -48,6 +58,12 @@
         <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg><span>Order Summary</span></a>
       <a class="nav-item{% if active_page=='order-fulfilment' %} active{% endif %}" href="order-fulfilment">
         <svg class="ic" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><span>Order Fulfilment</span></a>
+      {% if "ecommerce_integration" in frappe.get_hooks("app_name") %}
+      <a class="nav-item{% if active_page=='biflorica-orders' %} active{% endif %}" href="biflorica-orders">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg><span>Biflorica Orders</span></a>
+      <a class="nav-item{% if active_page=='floriday-orders' %} active{% endif %}" href="floriday-orders">
+        <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 9a3 3 0 1 1 3-3c0 1.4-1.3 3-3 3"/><path d="M15 12a3 3 0 1 1 3 3c-1.4 0-3-1.3-3-3"/><path d="M12 15a3 3 0 1 1-3 3c0-1.4 1.3-3 3-3"/><path d="M9 12a3 3 0 1 1-3-3c1.4 0 3 1.3 3 3"/></svg><span>Floriday Orders</span></a>
+      {% endif %}
       <a class="nav-item{% if active_page=='sales-order' %} active{% endif %}" href="sales-order">
         <svg class="ic" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6"/><path d="M9 16h4"/></svg><span>Sales Order</span></a>
       <a class="nav-item{% if active_page=='sales-settings' %} active{% endif %}" href="sales-settings">
@@ -68,3 +84,15 @@
       <div class="who"><div class="nm" id="aph-foot-nm">Loading…</div><div class="em" id="aph-foot-em">kaitet-group</div></div>
     </div>
   </aside>
+<script>
+  // Keep the sidebar's scroll position from page to page, so it doesn't jump back
+  // to the top on every navigation.
+  (function(){
+    var nav = document.currentScript.previousElementSibling.querySelector('.nav');
+    if (!nav) return;
+    try { var y = sessionStorage.getItem('aphSideScroll'); if (y) nav.scrollTop = +y; } catch (e) {}
+    window.addEventListener('pagehide', function(){
+      try { sessionStorage.setItem('aphSideScroll', String(nav.scrollTop)); } catch (e) {}
+    });
+  })();
+</script>

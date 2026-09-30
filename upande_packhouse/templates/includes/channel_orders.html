@@ -1,0 +1,1275 @@
+{#
+  Shared body of the Biflorica Orders / Floriday Orders portal pages.
+
+  The including page sets:
+    channel_key  -- "biflorica" | "floriday"
+    active_page  -- the sidebar entry to highlight
+
+  Every action goes through the endpoints the ecommerce_integration desk forms
+  (Biflorica Setting / Floriday Settings) already call, so a fetch or a stock
+  change made here is the same operation as the button on the form, governed by
+  the same settings. The page only adds one read endpoint,
+  ecommerce_integration...utils.channel_portal.get_channel_overview.
+#}
+{% set ecommerce_ready = "ecommerce_integration" in frappe.get_hooks("app_name") %}
+{% raw %}
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0a0a0a;--ink-1:#1a1a18;--ink-2:#2a2a26;--ink-3:#3a3a34;--ink-4:#5a5a52;--ink-mute:#8a8780;--ink-faint:#b8b6ae;
+  --bg:#f4f3ef;--surface:#fafaf6;--surface-2:#ffffff;
+  --hairline:rgba(10,10,10,0.06);--hairline-2:rgba(10,10,10,0.10);
+  --shadow-card:0 1px 0 rgba(10,10,10,0.04),0 8px 32px -16px rgba(10,10,10,0.10);
+  --shadow-hover:0 1px 0 rgba(10,10,10,0.06),0 24px 48px -24px rgba(10,10,10,0.18);
+  --signal:#228883;--signal-soft:rgba(34,136,131,0.10);
+  --good:#1a8a3a;--good-soft:#e6f9ee;--warn:#9a5a00;--warn-soft:#fff3e0;--bad:#c4302b;--bad-soft:#fde8ec;
+  --grad-ink:linear-gradient(135deg,#0a0a0a 0%,#3a3a34 100%);
+  --sans:'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --display:'Fraunces',Georgia,serif;
+  --mono:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;
+  --sidebar-w:248px;--sidebar-cw:74px;
+}
+html,body{margin:0!important;padding:0!important;overflow:hidden!important;height:100vh!important}
+.navbar,header,.page-breadcrumbs,.page-header,.page-header-wrapper,.web-footer,footer,
+.website-edit-button,.btn-edit-page,.edit-page-btn,.scroll-to-top,.back-to-top,
+.website-banner,.call-to-action,.frappe-chat,#frappe-chat,.telegram-share,.share-buttons,
+.web-page-edit,.published-edit{display:none!important}
+.aph *{box-sizing:border-box;margin:0;padding:0}
+.aph{position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100vh;z-index:2147483000;
+  font-family:var(--sans);background:var(--bg);color:var(--ink-3);font-size:13px;line-height:1.55;-webkit-font-smoothing:antialiased;
+  display:grid;grid-template-columns:var(--sidebar-w) 1fr;transition:grid-template-columns .22s cubic-bezier(.4,0,.2,1)}
+.aph.collapsed{grid-template-columns:var(--sidebar-cw) 1fr}
+.aph svg.ic{width:16px;height:16px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+
+/* ══ MAIN (same classes as the rest of the suite) ══ */
+.aph-main{min-width:0;height:100vh;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column}
+.aph-content{flex:1;padding:32px 40px 64px}
+.aph-topbar{background:var(--surface-2);border-bottom:1px solid var(--hairline);padding:14px 40px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:10}
+.aph-topbar h1{font:600 17px var(--sans);color:var(--ink);letter-spacing:-.3px}
+.aph-topbar .crumb{color:var(--ink-mute);font:500 11px var(--sans);text-transform:uppercase;letter-spacing:1.4px;padding-left:16px;border-left:1px solid var(--hairline);height:16px;line-height:16px}
+.aph-topbar .right{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.collapse-btn{width:36px;height:36px;border:0;background:transparent;border-radius:10px;display:grid;place-items:center;cursor:pointer;color:var(--ink-4);flex:0 0 auto}
+.collapse-btn svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round}
+.collapse-btn:hover{background:rgba(10,10,10,0.05);color:var(--ink)}
+.aph .form-control{height:38px;padding:0 14px;font:500 12.5px var(--sans);background:var(--surface-2);border:0;box-shadow:var(--shadow-card);border-radius:999px;color:var(--ink);outline:0}
+.aph .btn{padding:0 16px;height:38px;border:0;background:var(--surface-2);color:var(--ink);border-radius:999px;font:600 12.5px var(--sans);cursor:pointer;display:inline-flex;align-items:center;gap:7px;box-shadow:var(--shadow-card);transition:transform .18s ease;text-decoration:none;white-space:nowrap}
+.aph .btn:hover{transform:translateY(-1px);text-decoration:none;color:var(--ink)}
+.aph .btn-primary,.aph .btn-primary:hover{background:var(--grad-ink);color:#fafaf6;box-shadow:0 4px 14px rgba(10,10,10,0.2)}
+.aph .btn-sm{height:30px;padding:0 12px;font-size:11.5px}
+.aph .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.aph .btn.busy{opacity:.6;cursor:progress}
+
+.aph-page-hd{margin-bottom:26px}
+.aph-page-hd .eyebrow{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:2.2px;color:var(--ink-mute);margin-bottom:12px;display:inline-flex;align-items:center;gap:10px}
+.aph-page-hd .eyebrow::before{content:"";width:18px;height:1px;background:var(--ink-3)}
+.aph-page-hd .ttl{font:600 36px/1.05 var(--sans);color:var(--ink);letter-spacing:-1.2px}
+.aph-page-hd .sub{margin-top:10px;font-size:14px;color:var(--ink-4)}
+
+.aph-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px;margin-bottom:18px}
+.aph-kpi{background:var(--surface-2);border-radius:20px;box-shadow:var(--shadow-card);padding:20px 24px}
+.aph-kpi .lbl{font:600 10px var(--sans);letter-spacing:1.4px;text-transform:uppercase;color:var(--ink-mute)}
+.aph-kpi .v{font:600 28px/1.2 var(--sans);color:var(--ink);letter-spacing:-.8px;margin-top:6px;font-feature-settings:'tnum'}
+.aph-kpi .hint{font-size:11px;color:var(--ink-mute);margin-top:2px}
+
+.aph-grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:18px}
+.aph-card{background:var(--surface-2);border-radius:24px;box-shadow:var(--shadow-card);overflow:hidden;width:100%;min-width:0;margin-bottom:18px}
+.aph-card-hd{padding:24px 30px 0;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.aph-card-hd .ttl{font:600 17px var(--sans);color:var(--ink);letter-spacing:-.3px}
+.aph-card-hd .sub{color:var(--ink-mute);font:500 12px var(--sans)}
+.aph-card-hd .tools{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.aph-card-body{padding:22px 30px 28px}
+.aph-card-body.padless{padding:14px 0 0}
+
+table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.aph-tbl th{text-align:left;padding:12px 18px;font:600 10px var(--sans);color:var(--ink-mute);letter-spacing:1.4px;text-transform:uppercase;border-bottom:1px solid var(--hairline);white-space:nowrap;position:sticky;top:0;background:var(--surface-2);z-index:1}
+.aph-tbl td{padding:11px 18px;border-bottom:1px solid var(--hairline);color:var(--ink-3);vertical-align:middle}
+.aph-tbl tr:last-child td{border-bottom:0}
+.aph-tbl tbody tr:hover td{background:rgba(10,10,10,0.02)}
+.aph-tbl td.num,.aph-tbl th.num{text-align:right;font-feature-settings:'tnum';white-space:nowrap}
+.aph-tbl a{color:var(--ink);font-weight:600;text-decoration:none}
+.aph-tbl a:hover{text-decoration:underline}
+.tbl-scroll{max-height:520px;overflow:auto}
+.aph-empty{padding:40px;text-align:center;color:var(--ink-mute);font-size:13px}
+.aph-err{background:var(--ink);color:#fafaf6;padding:14px 18px;border-radius:14px;font-size:12px;margin-bottom:16px;font-family:var(--mono)}
+.aph-note{background:var(--warn-soft);color:var(--warn);padding:12px 16px;border-radius:14px;font-size:12px;margin-bottom:16px}
+.aph .label{display:inline-block;padding:3px 11px;font:600 11px var(--sans);border-radius:999px;letter-spacing:.02em;white-space:nowrap}
+.aph .label-success{background:var(--good-soft);color:var(--good)}
+.aph .label-warn{background:var(--warn-soft);color:var(--warn)}
+.aph .label-bad{background:var(--bad-soft);color:var(--bad)}
+.aph .label-default{background:rgba(10,10,10,0.04);color:var(--ink-4)}
+.aph .label-info{background:var(--signal-soft);color:var(--signal)}
+.mono{font-family:var(--mono);font-size:12px}
+.muted{color:var(--ink-mute)}
+
+.presets{display:inline-flex;background:var(--surface-2);box-shadow:var(--shadow-card);border-radius:999px;padding:3px}
+.presets .p{padding:6px 12px;border-radius:999px;font:600 11.5px var(--sans);color:var(--ink-4);cursor:pointer;user-select:none}
+.presets .p.active{background:var(--grad-ink);color:#fafaf6}
+
+.facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px 18px;margin-bottom:18px}
+.facts .f .k{font:600 9.5px var(--sans);letter-spacing:.6px;text-transform:uppercase;color:var(--ink-mute)}
+.facts .f .val{font:500 13px var(--sans);color:var(--ink);margin-top:2px;word-break:break-word}
+.actions-row{display:flex;flex-wrap:wrap;gap:10px}
+.poll-controls{display:flex;flex-wrap:wrap;gap:14px 28px;margin-bottom:18px;padding:14px 16px;background:var(--bg);border-radius:16px}
+.poll-controls .ctl label{display:block;font:600 9.5px var(--sans);letter-spacing:.6px;text-transform:uppercase;color:var(--ink-mute);margin-bottom:7px}
+.poll-controls .ctl-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.poll-controls .hours-input{width:84px;text-align:right}
+.poll-controls select.form-control{min-width:220px;padding-right:10px}
+.sched-tbl td{padding-top:9px;padding-bottom:9px}
+.orders-tbl th,.orders-tbl td{padding-left:12px;padding-right:12px}
+.sched-freq{height:30px;border:1px solid var(--hairline-2);background:var(--bg);border-radius:8px;padding:0 8px;font:500 12px var(--sans);color:var(--ink);max-width:150px}
+.switch{position:relative;display:inline-block;width:34px;height:20px;cursor:pointer;vertical-align:middle}
+.switch input{opacity:0;width:0;height:0;position:absolute}
+.switch span{position:absolute;inset:0;background:var(--ink-faint);border-radius:999px;transition:background .15s ease}
+.switch span::before{content:"";position:absolute;width:14px;height:14px;left:3px;top:3px;background:#fff;border-radius:50%;transition:transform .15s ease}
+.switch input:checked + span{background:var(--good)}
+.switch input:checked + span::before{transform:translateX(14px)}
+.switch input:disabled + span{opacity:.5;cursor:not-allowed}
+
+.stock-tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:0 30px 14px}
+.stock-tools .grow{flex:1 1 auto}
+.stock-tools input.form-control{min-width:220px}
+.stepper{display:inline-flex;align-items:center;border:1px solid var(--hairline-2);background:var(--bg);border-radius:10px;overflow:hidden;height:30px;user-select:none}
+.stepper button{width:30px;height:100%;border:0;background:transparent;color:var(--ink);font:600 15px var(--sans);cursor:pointer;touch-action:manipulation}
+.stepper button:hover:not(:disabled){background:rgba(10,10,10,0.06)}
+.stepper button:disabled{color:var(--ink-faint);cursor:not-allowed}
+.stepper .st-v{min-width:64px;text-align:center;font:600 12.5px var(--sans);color:var(--ink);font-feature-settings:'tnum';padding:0 4px}
+.aph-tbl input[type=checkbox]{width:15px;height:15px;cursor:pointer}
+.aph-tbl tr.is-enabled td:first-child{box-shadow:inset 3px 0 0 var(--good)}
+.linkbtn{border:0;background:none;color:var(--signal);font:600 11.5px var(--sans);cursor:pointer;padding:0 0 0 6px}
+
+/* Frappe's own alert (frappe.show_alert) — lifted above .aph, which is a
+   fixed layer at z-index 2147483000 and would otherwise cover it. */
+#alert-container{z-index:2147483600!important}
+
+.qa-modal-backdrop{position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:900;display:none;align-items:center;justify-content:center}
+.qa-modal-backdrop.show{display:flex}
+.qa-modal{background:var(--surface-2);border-radius:20px;box-shadow:var(--shadow-hover);width:400px;max-width:92vw;padding:26px}
+.qa-modal.wide{width:560px}
+.qa-modal .split-opt{display:flex;gap:10px;align-items:flex-start;cursor:pointer;font:500 13px var(--sans);color:var(--ink);margin-bottom:14px}
+.qa-modal .split-opt input{width:16px;height:16px;margin-top:2px;flex:0 0 auto}
+.qa-modal .split-opt small{display:block;font-size:11px;color:var(--ink-mute);margin-top:2px}
+.submit-list{max-height:320px;overflow-y:auto;border:1px solid var(--hairline);border-radius:14px}
+.submit-list table{width:100%;border-collapse:collapse;font-size:12.5px}
+.submit-list td{padding:9px 12px;border-bottom:1px solid var(--hairline)}
+.submit-list tr:last-child td{border-bottom:0}
+.qa-modal .ttl{font:600 16px var(--sans);color:var(--ink);margin-bottom:4px}
+.qa-modal .sub{font:500 12px var(--sans);color:var(--ink-mute);margin-bottom:18px}
+.qa-modal .f{margin-bottom:14px}
+.qa-modal .f label{display:block;font:600 9px var(--sans);letter-spacing:.5px;text-transform:uppercase;color:var(--ink-mute);margin-bottom:6px}
+.qa-modal .f input,.qa-modal .f select{width:100%;border:1px solid var(--hairline-2);background:var(--bg);color:var(--ink);border-radius:10px;padding:9px 11px;font:500 13px var(--sans)}
+.qa-modal .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+
+/* ══ Sidebar (identical to the rest of the suite) ══ */
+.aph-side{background:var(--surface-2);border-right:1px solid var(--hairline);height:100vh;position:sticky;top:0;display:flex;flex-direction:column;overflow:hidden}
+.aph-side .brand{padding:20px 18px 16px;display:flex;align-items:center;gap:12px;text-decoration:none}
+.aph-side .brand .logo{height:26px;width:auto;flex:0 0 auto;display:block}
+.aph-side .brand .name{font:600 14px var(--sans);color:var(--ink);line-height:1.15;letter-spacing:-.2px;white-space:nowrap;overflow:hidden}
+.aph-side .brand .name small{display:block;font:500 10px var(--sans);text-transform:uppercase;letter-spacing:1.6px;color:var(--ink-mute);margin-top:2px}
+.aph-side .nav{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:6px 0 16px;margin:0;list-style:none;display:flex;flex-direction:column;flex-wrap:nowrap!important}
+.aph-side .group-lbl{padding:16px 20px 6px;font:600 10px var(--sans);color:var(--ink-mute);letter-spacing:1.8px;text-transform:uppercase;display:block;white-space:nowrap;overflow:hidden}
+.aph-side .group-lbl:first-child{padding-top:8px}
+.aph-side .nav-item{display:flex;align-items:center;gap:12px;padding:10px 12px;cursor:pointer;font:500 13px var(--sans);color:var(--ink-4);user-select:none;transition:background .18s ease,color .18s ease;margin:2px 10px;border-radius:12px;box-sizing:border-box;text-decoration:none;white-space:nowrap;overflow:hidden}
+.aph-side .nav-item:hover{background:rgba(10,10,10,0.04);color:var(--ink);text-decoration:none}
+.aph-side .nav-item.active{background:var(--grad-ink);color:#fafaf6;box-shadow:0 4px 14px rgba(10,10,10,0.20)}
+.aph-side .home-link{display:flex;align-items:center;gap:12px;margin:2px 10px 6px;padding:10px 12px;border-radius:12px;font:500 13px var(--sans);color:var(--ink-4);text-decoration:none;background:rgba(10,10,10,0.04);white-space:nowrap;overflow:hidden}
+.aph-side .home-link:hover{background:var(--ink);color:#fafaf6;text-decoration:none}
+.aph-side .footer{padding:14px 18px;border-top:1px solid var(--hairline);display:flex;align-items:center;gap:11px;font-size:11px;color:var(--ink-4)}
+.aph-side .footer .av{width:30px;height:30px;border-radius:50%;background:var(--grad-ink);color:#fafaf6;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12px;flex:0 0 auto}
+.aph-side .footer .who{flex:1;line-height:1.25;overflow:hidden}
+.aph-side .footer .who .nm{font-weight:600;color:var(--ink);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph-side .footer .who .em{font-size:10px;color:var(--ink-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph.collapsed .aph-side .brand{padding:20px 0 16px;justify-content:center}
+.aph.collapsed .aph-side .brand .name,.aph.collapsed .aph-side .group-lbl,.aph.collapsed .aph-side .nav-item span,
+.aph.collapsed .aph-side .home-link span,.aph.collapsed .aph-side .footer .who{display:none}
+.aph.collapsed .aph-side .nav-item,.aph.collapsed .aph-side .home-link{justify-content:center;margin-left:14px;margin-right:14px;padding:11px 0;gap:0}
+.aph.collapsed .aph-side .footer{justify-content:center;padding:14px 0}
+
+@media (max-width: 1200px){
+  .aph-grid{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width: 900px){
+  html,body{overflow:auto!important}
+  .aph,.aph.collapsed{display:flex;flex-direction:column;position:fixed;grid-template-columns:none}
+  .aph-side{width:100%;height:auto;position:relative;flex:0 0 auto;border-right:0;border-bottom:1px solid var(--hairline);overflow:visible}
+  .aph-side .nav{flex-direction:row;align-items:center;overflow-x:auto;overflow-y:hidden;padding:0 8px 8px}
+  .aph-side .group-lbl{display:none}
+  .aph-side .nav-item{flex:0 0 auto;margin:0 3px;white-space:nowrap;padding:9px 14px}
+  .aph-side .footer{display:none}
+  .collapse-btn{display:none}
+  .aph-main{flex:1 1 auto;height:auto;min-height:0}
+  .aph-topbar{position:static;flex-wrap:wrap;gap:10px;padding:12px 16px}
+  .aph-topbar .crumb{display:none}
+  .aph-topbar .right{margin-left:0;width:100%}
+  .aph-content{padding:18px 16px 40px}
+  .aph-page-hd .ttl{font-size:26px}
+  .aph-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .aph-card-hd,.aph-card-body{padding-left:16px;padding-right:16px}
+  .stock-tools{padding:0 16px 14px}
+  .tbl-scroll{overflow-x:auto}
+}
+</style>
+
+<div class="aph">
+  {% endraw %}{% include "upande_packhouse/templates/includes/packhouse_sidebar.html" %}{% raw %}
+
+  <div class="aph-main">
+    <div class="aph-topbar">
+      <button class="collapse-btn" id="collapseBtn" title="Toggle sidebar" aria-label="Toggle sidebar">
+        <svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <h1 id="topTitle">Orders</h1>
+      <span class="crumb">Sales Channels</span>
+      <div class="right">
+        <div class="presets" id="rangePresets">
+          <span class="p" data-days="7">7d</span>
+          <span class="p active" data-days="14">14d</span>
+          <span class="p" data-days="30">30d</span>
+          <span class="p" data-days="90">90d</span>
+        </div>
+        <button class="btn" id="reloadBtn" title="Reload this page's data">Refresh</button>
+        <a class="btn" id="settingsLink" href="#" target="_blank" rel="noopener">Settings</a>
+      </div>
+    </div>
+
+    <div class="aph-content">
+      <div class="aph-page-hd">
+        <div class="eyebrow">Karen Roses · Packhouse</div>
+        <div class="ttl" id="pageTitle">Orders</div>
+        <div class="sub" id="pageSub"></div>
+      </div>
+
+      <div id="errBanner"></div>
+      <div id="noteBanner"></div>
+
+      <div class="aph-kpis">
+        <div class="aph-kpi"><div class="lbl">Orders in window</div><div class="v" id="kpiOrders">—</div><div class="hint" id="kpiOrdersHint">&nbsp;</div></div>
+        <div class="aph-kpi"><div class="lbl">Drafts to submit</div><div class="v" id="kpiDrafts">—</div><div class="hint" id="kpiDraftsHint">&nbsp;</div></div>
+        <div class="aph-kpi"><div class="lbl">Order value</div><div class="v" id="kpiValue">—</div><div class="hint" id="kpiValueHint">&nbsp;</div></div>
+        <div class="aph-kpi"><div class="lbl">Stems offered</div><div class="v" id="kpiOffered">—</div><div class="hint" id="kpiOfferedHint">&nbsp;</div></div>
+      </div>
+
+      <div class="aph-grid">
+        <div class="aph-card">
+          <div class="aph-card-hd"><div class="ttl">Get Orders</div><div class="sub" id="pollSub"></div></div>
+          <div class="aph-card-body">
+            <div class="facts" id="settingsFacts"></div>
+            <div class="poll-controls">
+              <div class="ctl">
+                <label>Get orders from the last</label>
+                <div class="ctl-row">
+                  <div class="presets" id="lookbackPresets">
+                    <span class="p" data-hours="1">1h</span>
+                    <span class="p" data-hours="6">6h</span>
+                    <span class="p active" data-hours="24">24h</span>
+                    <span class="p" data-hours="48">48h</span>
+                    <span class="p" data-hours="168">7d</span>
+                  </div>
+                  <input class="form-control hours-input" id="lookbackHours" type="number" min="1" max="720" step="1" value="24" title="Hours to look back (1–720)">
+                  <span class="muted">hours</span>
+                </div>
+              </div>
+              <div class="ctl">
+                <label>Scheduled jobs look back</label>
+                <div class="ctl-row">
+                  <input class="form-control hours-input" id="schedLookback" type="number" min="1" max="720" step="1" title="Hours the scheduled import looks back (1–720)">
+                  <span class="muted">hours</span>
+                  <button class="btn btn-sm" id="schedLookbackSave">Save</button>
+                </div>
+                <div class="muted" id="schedLookbackHint" style="font-size:11px;margin-top:5px"></div>
+              </div>
+              <div class="ctl">
+                <label>Price List</label>
+                <div class="ctl-row">
+                  <select class="form-control" id="priceListSelect"></select>
+                </div>
+              </div>
+            </div>
+            <div class="actions-row" id="pollActions"></div>
+          </div>
+        </div>
+        <div class="aph-card">
+          <div class="aph-card-hd"><div class="ttl">Schedules</div><div class="sub" id="scheduleSub"></div></div>
+          <div class="aph-card-body padless"><div id="scheduleWrap"></div></div>
+        </div>
+      </div>
+
+      <div class="aph-card">
+        <div class="aph-card-hd">
+          <div class="ttl">Orders</div><div class="sub" id="ordersSub"></div>
+          <div class="tools">
+            <button class="btn btn-sm btn-primary" id="submitSelectedBtn" style="display:none">Submit &amp; approve selected</button>
+            <div class="presets" id="orderFilter">
+              <span class="p active" data-f="all">All</span>
+              <span class="p" data-f="draft">Drafts</span>
+              <span class="p" data-f="submitted">Submitted</span>
+            </div>
+          </div>
+        </div>
+        <div class="aph-card-body padless"><div class="tbl-scroll" id="ordersWrap"><div class="aph-empty">Loading…</div></div></div>
+      </div>
+
+      <div class="aph-card" id="liveOffersCard" style="display:none">
+        <div class="aph-card-hd">
+          <div class="ttl">Live Offers</div><div class="sub" id="liveOffersSub"></div>
+          <div class="tools"><button class="btn btn-sm btn-primary" id="liveOffersBtn">Refresh from Biflorica</button></div>
+        </div>
+        <div class="aph-card-body padless"><div class="tbl-scroll" id="liveOffersWrap"></div></div>
+      </div>
+
+      <div class="aph-card">
+        <div class="aph-card-hd">
+          <div class="ttl">Stock Offered</div><div class="sub" id="stockSub"></div>
+          <div class="tools" id="stockPushTools"></div>
+        </div>
+        <div class="aph-card-body padless">
+          <div id="stockNote" style="padding:0 30px"></div>
+          <div class="stock-tools" id="stockTools" style="display:none">
+            <input class="form-control" id="stockSearch" placeholder="Search variety or stem length…" autocomplete="off">
+            <label class="muted" style="display:inline-flex;gap:6px;align-items:center;cursor:pointer;font-size:12px">
+              <input type="checkbox" id="stockEnabledOnly"> Enabled only
+            </label>
+            <span class="muted grow" id="stockCounter" style="font-size:12px"></span>
+            <button class="btn btn-sm" id="disableBtn">Disable selected</button>
+            <button class="btn btn-sm btn-primary" id="enableBtn">Enable selected</button>
+          </div>
+          <div class="tbl-scroll" id="stockWrap"><div class="aph-empty">Loading…</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modals sit inside .aph: it is position:fixed with a huge z-index, so a
+       modal outside its subtree renders behind the page (see sales-order.html). -->
+  <div class="qa-modal-backdrop" id="offerModal">
+    <div class="qa-modal">
+      <div class="ttl">Post Offers to Biflorica</div>
+      <div class="sub">Posts every enabled stock row below at its price-list rate. Box types are Biflorica's codes plus this site's Box Types.</div>
+      <div class="f"><label>Box Type</label>
+        <select id="offerBoxType"></select>
+      </div>
+      <div class="f"><label>Packrate (stems per box)</label><input id="offerPackrate" type="number" min="1" step="1"></div>
+      <div class="f"><label>Minimum (boxes)</label><input id="offerMinimum" type="number" min="1" step="1" value="1"></div>
+      <label class="split-opt"><input type="checkbox" id="offerSplit"> <span>One offer per stem length<small>Post each stem length as its own offer instead of one box of every length.</small></span></label>
+      <div class="actions">
+        <button class="btn" data-close="offerModal">Cancel</button>
+        <button class="btn btn-primary" id="offerSubmit">Post Offers</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="qa-modal-backdrop" id="submitModal">
+    <div class="qa-modal wide">
+      <div class="ttl" id="submitTitle">Submit orders</div>
+      <div class="sub" id="submitSub"></div>
+      <div class="submit-list" id="submitList"></div>
+      <div class="actions">
+        <button class="btn" data-close="submitModal">Cancel</button>
+        <button class="btn btn-primary" id="submitConfirm">Submit &amp; approve</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="qa-modal-backdrop" id="priceModal">
+    <div class="qa-modal">
+      <div class="ttl" id="priceTitle">Set price</div>
+      <div class="sub" id="priceSub"></div>
+      <div class="f"><label>Price per stem</label><input id="priceRate" type="number" min="0" step="0.01"></div>
+      <div class="actions">
+        <button class="btn" data-close="priceModal">Cancel</button>
+        <button class="btn btn-primary" id="priceSubmit">Save Price</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endraw %}
+<script>
+  window.CHANNEL_KEY = {{ (channel_key or "") | tojson }};
+  window.ECOMMERCE_READY = {{ "true" if ecommerce_ready else "false" }};
+</script>
+{% raw %}
+<script>
+(function(){
+  const EI = 'ecommerce_integration.ecommerce_integration.';
+  const PORTAL = EI + 'utils.channel_portal.';
+  const PICKER = EI + 'utils.stock_picker.';
+  const BIF = EI + 'doctype.biflorica_setting.biflorica_setting.';
+  const FLO_SET = EI + 'doctype.floriday_settings.floriday_settings.';
+  const FLO_BATCH = EI + 'doctype.floriday_settings.floriday_batch.';
+
+  // Per-channel wiring. Every method here is the one the desk form's button calls.
+  const CHANNELS = {
+    biflorica: {
+      label: 'Biflorica',
+      settingsDoctype: 'Biflorica Setting',
+      settingsRoute: '/app/biflorica-setting',
+      sub: 'Get Biflorica deals and predeals as Sales Orders, and choose the stock offered on Biflorica.',
+      polls: [
+        { id: 'deals', label: 'Get Deals', format: fmtBifloricaDeals },
+        { id: 'predeals', label: 'Get Predeals', format: fmtBifloricaDeals },
+      ],
+      push: { label: 'Post Offers', run: openOfferModal },
+      warehouseRefresh: { label: 'Refresh Stock', method: BIF + 'refresh_stock' },
+      liveOffers: { method: BIF + 'get_offers' },
+    },
+    floriday: {
+      label: 'Floriday',
+      settingsDoctype: 'Floriday Settings',
+      settingsRoute: '/app/floriday-settings',
+      sub: 'Get Floriday sales orders as Sales Orders, and choose the stock offered on Floriday.',
+      polls: [
+        { id: 'orders', label: 'Get Orders', format: fmtFloridayOrders },
+      ],
+      push: { label: 'Create Batches', run: createFloridayBatches },
+      warehouseRefresh: null,
+      liveOffers: null,
+    },
+  };
+
+  const CH = CHANNELS[window.CHANNEL_KEY];
+  let DAYS = 14;
+  let LOOKBACK_HOURS = 24;
+  let ORDER_FILTER = 'all';
+  let OVERVIEW = null;
+  let STOCK_ROWS = [];   // combined picker rows
+  let PRICE_META = { price_list: '', currency: '' };
+
+  const $ = (id) => document.getElementById(id);
+  function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function num(v, dp){ const n = Number(v) || 0; return n.toLocaleString(undefined, { minimumFractionDigits: dp || 0, maximumFractionDigits: dp || 0 }); }
+  function money(v, cur){ return (cur ? cur + ' ' : '') + num(v, 2); }
+  function fmtDate(s){ if(!s) return '—'; const d = String(s).slice(0, 10).split('-'); return d.length === 3 ? `${d[2]}/${d[1]}/${d[0]}` : esc(s); }
+  function fmtDateTime(s){ if(!s) return '—'; const t = String(s).slice(11, 16); return fmtDate(s) + (t ? ' ' + t : ''); }
+  function slug(dt){ return String(dt).toLowerCase().replace(/ /g, '-'); }
+  function canonLen(s){ const m = String(s || '').match(/\d+/); return m ? parseInt(m[0], 10) + 'cm' : ''; }
+  function rowKey(code, len){ return code + ' ' + canonLen(len); }
+
+  function showErr(msg){ $('errBanner').innerHTML = msg ? `<div class="aph-err">${esc(msg)}</div>` : ''; }
+  // Results of every action on the page, as Frappe/ERPNext show them: the desk
+  // alert (frappe.show_alert). Errors stay up longer.
+  function toast(msg, color){
+    frappe.show_alert({ message: esc(msg), indicator: color || 'blue' }, color === 'red' ? 12 : 7);
+    // Frappe creates the container inside the page wrapper on first use; move it
+    // to <body> so the z-index above can lift it clear of the .aph layer.
+    const c = document.getElementById('alert-container');
+    if(c && c.parentElement !== document.body) document.body.appendChild(c);
+  }
+  function report(msg, color){ toast(msg, color); }
+
+  // The server's own message for a failed call, else a generic one.
+  function serverError(xhr){
+    try {
+      const body = xhr && (xhr.responseJSON || JSON.parse(xhr.responseText || '{}'));
+      if(body && body._server_messages){
+        const msgs = JSON.parse(body._server_messages).map(m => { try { return JSON.parse(m).message; } catch(e){ return m; } });
+        const text = msgs.join(' ').replace(/<[^>]+>/g, '').trim();
+        if(text) return text;
+      }
+      if(body && body.exception) return String(body.exception).split(':').slice(1).join(':').trim() || body.exception;
+    } catch(e){}
+    return 'Request failed';
+  }
+  function call(method, args, type){
+    return new Promise((resolve, reject) => {
+      frappe.call({
+        method, args: args || {}, type: type || 'POST', silent: true,
+        callback: r => resolve(r.message),
+        error: xhr => reject(new Error(serverError(xhr))),
+      });
+    });
+  }
+  function busy(btn, on, text){
+    if(!btn) return;
+    if(on){ btn.dataset.label = btn.textContent; btn.textContent = text || 'Working…'; btn.disabled = true; btn.classList.add('busy'); }
+    else { btn.textContent = btn.dataset.label || btn.textContent; btn.disabled = false; btn.classList.remove('busy'); }
+  }
+
+  // ---------- result formatting (same wording as the desk forms) ----------
+  function fmtBifloricaDeals(res){
+    res = res || {};
+    const s = res.summary || {};
+    const out = [];
+    if(!res.success && !s.failed){ out.push([res.message || 'Request failed', 'red']); return out; }
+    const created = s.created || [], existing = s.existing || [], failed = s.failed || [], incomplete = s.incomplete || [];
+    if(created.length) out.push(['Created: ' + created.map(c => c.sales_order).join(', '), 'green']);
+    if(existing.length) out.push(['Already exists: ' + existing.map(e => `${e.box_label} → ${e.sales_order}`).join(', '), 'orange']);
+    if(incomplete.length) out.push(['Set a Consignee before submitting: ' + incomplete.map(c => c.sales_order).join(', '), 'orange']);
+    if(failed.length){
+      if(s.shared_reason) out.push([`All ${failed.length} failed: ${s.shared_reason}`, 'red']);
+      else {
+        const by = {};
+        failed.forEach(f => { const r = f.reason || 'rejected'; (by[r] = by[r] || []).push(f.box_label || f.deal_id); });
+        out.push(['Failed: ' + Object.keys(by).map(r => `${by[r].join(', ')} (${r})`).join('; '), 'red']);
+      }
+    }
+    if(!out.length) out.push([res.message || 'No new orders', 'blue']);
+    return out;
+  }
+  function fmtFloridayOrders(m){
+    m = m || {};
+    if(m.status === 'error') return [['Sync failed: ' + (m.message || 'unknown error'), 'red']];
+    const s = m.summary || {};
+    const processed = s.processed || 0, errors = s.errors || 0, duplicates = s.duplicates || 0;
+    const dateFiltered = s.date_filtered || 0, skipped = s.skipped || 0, total = s.total_from_api || 0;
+    if(processed === 0 && errors === 0){
+      const why = [];
+      if(duplicates) why.push(`${duplicates} already imported`);
+      if(dateFiltered) why.push(`${dateFiltered} outside the time window`);
+      if(skipped){
+        const st = Object.keys(s.skipped_statuses || {});
+        why.push(st.length ? `${skipped} skipped (status ${st.join(', ')})` : `${skipped} skipped`);
+      }
+      return [[why.length ? `No new sales orders — of ${total} fetched: ${why.join(', ')}` : 'No sales orders returned by Floriday', 'blue']];
+    }
+    const parts = [];
+    if(processed) parts.push(`Created ${processed} sales order(s)`);
+    if(duplicates) parts.push(`${duplicates} already imported`);
+    if(errors) parts.push(`${errors} error(s)`);
+    const out = [[parts.join(', '), errors ? 'orange' : 'green']];
+    (m.results || []).filter(r => r.status === 'error').slice(0, 5).forEach(r => {
+      out.push([`Order ${String(r.floriday_order_id || '').slice(-8)}: ${r.error}`, 'red']);
+    });
+    return out;
+  }
+
+  // ---------- overview ----------
+  function loadOverview(){
+    return call(PORTAL + 'get_channel_overview', { channel: window.CHANNEL_KEY, days: DAYS }, 'GET')
+      .then(ov => {
+        OVERVIEW = ov || {};
+        showErr('');
+        renderSettings();
+        renderSchedules();
+        renderOrders();
+        renderPriceLists();
+        renderSchedLookback();
+        renderLiveOffers();
+        return loadStock();
+      })
+      .catch(e => showErr(e.message));
+  }
+
+  function renderSettings(){
+    const s = OVERVIEW.settings || {};
+    const notes = [];
+    if((s.missing_credentials || []).length){
+      notes.push(`${CH.settingsDoctype} is missing: ${s.missing_credentials.join(', ')}. Getting orders will fail until they are filled in.`);
+    }
+    $('noteBanner').innerHTML = notes.map(n => `<div class="aph-note">${esc(n)}</div>`).join('');
+
+    const facts = [
+      ['Creates', s.order_doctype || 'Sales Order'],
+      ['Customer', s.customer || '— per order'],
+      ['Warehouse', s.warehouse || '—'],
+      ['Stock source', s.use_shelf_stock ? 'Shelves' : 'Warehouse'],
+    ];
+    $('settingsFacts').innerHTML = facts.map(([k, v]) => `<div class="f"><div class="k">${esc(k)}</div><div class="val">${esc(v)}</div></div>`).join('');
+    $('pollSub').textContent = `Uses ${CH.settingsDoctype}`;
+  }
+
+  // The scheduled import's look-back. For Biflorica the job looks back at least
+  // one run interval, so a shorter setting cannot narrow it; the hint says what
+  // the job will really use.
+  function renderSchedLookback(){
+    const s = OVERVIEW.settings || {};
+    const inp = $('schedLookback');
+    inp.value = s.period_hours || (window.CHANNEL_KEY === 'floriday' ? 24 : '');
+    inp.placeholder = window.CHANNEL_KEY === 'floriday' ? '24' : 'all';
+    const ro = !OVERVIEW.can_edit_settings;
+    inp.disabled = ro;
+    $('schedLookbackSave').disabled = ro;
+    const eff = s.scheduled_lookback_hours;
+    let hint = eff ? `Each scheduled run gets orders from the last ${eff} h.` : 'Each scheduled run gets every order.';
+    if(window.CHANNEL_KEY === 'biflorica'){
+      const deals = (s.schedules || []).find(r => r.key === 'deals') || {};
+      if(eff && eff !== s.period_hours && deals.frequency) hint += ` It runs ${String(deals.frequency).toLowerCase()}, so it never looks back less than one run.`;
+    }
+    $('schedLookbackHint').textContent = ro ? `${hint} Read only — needs write access to ${CH.settingsDoctype}.` : hint;
+  }
+
+  function saveSchedLookback(btn){
+    const hours = Math.floor(Number($('schedLookback').value) || 0);
+    if(hours < 1 || hours > 720){ toast('Enter between 1 and 720 hours.', 'orange'); return; }
+    busy(btn, true, 'Saving…');
+    call(PORTAL + 'set_channel_period', { channel: window.CHANNEL_KEY, hours })
+      .then(res => {
+        const eff = res && res.scheduled_lookback_hours;
+        report(`Scheduled ${CH.label} imports now look back ${hours} h${eff && eff !== hours ? ` (${eff} h, one full run)` : ''}.`, 'green');
+        return loadOverview();
+      })
+      .catch(e => report(e.message, 'red'))
+      .finally(() => busy(btn, false));
+  }
+
+  function renderPriceLists(){
+    const s = OVERVIEW.settings || {};
+    const sel = $('priceListSelect');
+    const lists = OVERVIEW.price_lists || [];
+    const current = s.price_list || '';
+    const known = lists.some(p => p.name === current);
+    sel.innerHTML = '<option value="">— customer default —</option>' +
+      (current && !known ? `<option value="${esc(current)}">${esc(current)} (disabled)</option>` : '') +
+      lists.map(p => `<option value="${esc(p.name)}">${esc(p.name)}${p.currency ? ' · ' + esc(p.currency) : ''}</option>`).join('');
+    sel.value = current;
+    sel.dataset.current = current;
+    sel.disabled = !OVERVIEW.can_edit_settings;
+    sel.title = OVERVIEW.can_edit_settings ? `Saved on ${CH.settingsDoctype}` : `You need write access to ${CH.settingsDoctype} to change this`;
+  }
+
+  function changePriceList(){
+    const sel = $('priceListSelect');
+    const price_list = sel.value;
+    const previous = sel.dataset.current || '';
+    if(price_list === previous) return;
+    sel.disabled = true;
+    call(PORTAL + 'set_channel_price_list', { channel: window.CHANNEL_KEY, price_list })
+      .then(() => {
+        report(`${CH.label} now prices on ${price_list || 'the customer default price list'}.`, 'green');
+        return loadOverview();
+      })
+      .catch(e => { sel.value = previous; report(e.message, 'red'); })
+      .finally(() => { sel.disabled = !OVERVIEW.can_edit_settings; });
+  }
+
+  function renderLiveOffers(){
+    if(!CH.liveOffers) return;
+    // Only offers still running: ended ones are left out of the table and counts.
+    const rows = (OVERVIEW.live_offers || []).filter(r => !r.expired);
+    $('liveOffersCard').style.display = '';
+    $('liveOffersSub').textContent = rows.length ? `${rows.length} running` : 'Fetch to see what is running on Biflorica';
+    if(!rows.length){
+      $('liveOffersWrap').innerHTML = '<div class="aph-empty">No live offers running — use Refresh from Biflorica.</div>';
+      return;
+    }
+    $('liveOffersWrap').innerHTML = `<table class="aph-tbl">
+      <thead><tr><th>Offer</th><th>Variety</th><th>Colour</th><th>Size</th><th class="num">Boxes</th><th>Packing</th>
+        <th class="num">Price / Stem</th><th class="num">Box Price</th><th>Box</th><th>Runs</th></tr></thead>
+      <tbody>${rows.map(r => `<tr>
+        <td class="mono">${esc(r.offer_id)}</td>
+        <td><strong style="color:var(--ink)">${esc(r.variety)}</strong>${r.type ? `<div class="muted" style="font-size:11px">${esc(r.type)}</div>` : ''}</td>
+        <td>${esc(r.color || '—')}</td>
+        <td>${esc(r.sizes_stems || r.size || '—')}</td>
+        <td class="num">${num(r.quantity)}</td>
+        <td>${esc(r.packing || '—')}</td>
+        <td class="num" title="${esc(r.price_per_stem_list || '')}">${r.price_per_stem ? num(r.price_per_stem, 2) : esc(r.price_per_stem_list || '—')}</td>
+        <td class="num">${r.price ? num(r.price, 2) : '—'}</td>
+        <td>${esc(r.box_type || '—')}</td>
+        <td class="mono">${fmtDate(r.date_start)} → ${fmtDate(r.date_end)}</td>
+      </tr>`).join('')}</tbody></table>`;
+  }
+
+  function refreshLiveOffers(btn){
+    busy(btn, true, 'Fetching…');
+    call(CH.liveOffers.method)
+      .then(res => {
+        if(res && res.success === false){ report(res.message || 'Could not fetch live offers', 'red'); return; }
+        // Counted from what the table shows, so ended offers never appear in
+        // the message (Biflorica's own message mentions the ones it skipped).
+        return loadOverview().then(() => {
+          const running = (OVERVIEW.live_offers || []).filter(r => !r.expired).length;
+          report(running ? `${running} live offer(s) running on Biflorica.` : 'No live offers running on Biflorica.', running ? 'green' : 'blue');
+        });
+      })
+      .catch(e => report(e.message, 'red'))
+      .finally(() => busy(btn, false));
+  }
+
+  // Each job can be switched on/off and given another frequency. Changes save
+  // straight to the channel settings, which re-sync the Scheduled Job Type.
+  function renderSchedules(){
+    const rows = (OVERVIEW.settings || {}).schedules || [];
+    if(!rows.length){ $('scheduleWrap').innerHTML = '<div class="aph-empty">No schedules configured.</div>'; return; }
+    const ro = !OVERVIEW.can_edit_settings;
+    $('scheduleSub').textContent = ro ? `Read only — you need write access to ${CH.settingsDoctype}` : `Saved on ${CH.settingsDoctype}`;
+    $('scheduleWrap').innerHTML = `<table class="aph-tbl sched-tbl">
+      <thead><tr><th>Job</th><th>On</th><th>Every</th><th>Last run</th><th>Next run</th></tr></thead>
+      <tbody>${rows.map(r => {
+        const freq = r.shared_with
+          ? `<span class="muted" title="Runs with the ${esc(r.shared_with)} job">${esc(r.frequency || '—')} · with ${esc(r.shared_with)}</span>`
+          : `<select class="sched-freq" data-key="${esc(r.key)}" ${ro ? 'disabled' : ''}>
+               ${(r.frequency_options || []).map(o => `<option ${o === r.frequency ? 'selected' : ''}>${esc(o)}</option>`).join('')}
+             </select>
+             ${r.frequency === 'Cron' ? `<div class="muted mono" style="font-size:11px;margin-top:3px">${esc(r.cron_format || 'no cron set')}</div>` : ''}`;
+        return `<tr>
+          <td><strong style="color:var(--ink)">${esc(r.label)}</strong></td>
+          <td><label class="switch" title="${r.enabled ? 'On — click to stop' : 'Off — click to start'}">
+            <input type="checkbox" class="sched-on" data-key="${esc(r.key)}" ${r.enabled ? 'checked' : ''} ${ro ? 'disabled' : ''}><span></span></label></td>
+          <td>${freq}</td>
+          <td class="mono">${fmtDateTime(r.last_run)}</td>
+          <td class="mono">${r.enabled ? fmtDateTime(r.next_run) : '—'}</td>
+        </tr>`;
+      }).join('')}</tbody></table>`;
+
+    document.querySelectorAll('#scheduleWrap .sched-on').forEach(el => el.onchange = () => {
+      saveSchedule(el.dataset.key, { enabled: el.checked ? 1 : 0 }, el);
+    });
+    document.querySelectorAll('#scheduleWrap .sched-freq').forEach(el => el.onchange = () => {
+      const row = rows.find(r => r.key === el.dataset.key);
+      const args = { frequency: el.value };
+      if(el.value === 'Cron'){
+        const cron = prompt('Cron expression (minute hour day month weekday), e.g. 0 */2 * * *', (row && row.cron_format) || '');
+        if(!cron){ el.value = row ? row.frequency : ''; return; }
+        args.cron_format = cron.trim();
+      }
+      saveSchedule(el.dataset.key, args, el);
+    });
+  }
+
+  function saveSchedule(key, args, el){
+    const row = ((OVERVIEW.settings || {}).schedules || []).find(r => r.key === key) || {};
+    el.disabled = true;
+    call(PORTAL + 'set_channel_schedule', Object.assign({ channel: window.CHANNEL_KEY, key }, args))
+      .then(res => {
+        OVERVIEW.settings.schedules = (res && res.schedules) || OVERVIEW.settings.schedules;
+        const now = OVERVIEW.settings.schedules.find(r => r.key === key) || {};
+        const what = 'enabled' in args
+          ? (now.enabled ? 'switched on' : 'switched off')
+          : `set to ${now.frequency}${now.frequency === 'Cron' ? ' (' + now.cron_format + ')' : ''}`;
+        report(`${row.label || key} ${what}.`, 'green');
+        renderSchedules();
+        renderSettings();
+        return loadOverview();
+      })
+      .catch(e => { report(e.message, 'red'); renderSchedules(); });
+  }
+
+  function statusLabel(r){
+    if(r.docstatus === 0) return '<span class="label label-warn">Draft</span>';
+    if(r.docstatus === 2) return '<span class="label label-bad">Cancelled</span>';
+    return `<span class="label label-success">${esc(r.status || 'Submitted')}</span>`;
+  }
+
+  function renderOrders(){
+    const all = OVERVIEW.orders || [];
+    const live = all.filter(r => r.docstatus !== 2);
+    const drafts = live.filter(r => r.docstatus === 0);
+    const byCur = {};
+    live.forEach(r => { byCur[r.currency || ''] = (byCur[r.currency || ''] || 0) + (r.grand_total || 0); });
+    const curs = Object.keys(byCur);
+
+    $('kpiOrders').textContent = num(live.length);
+    $('kpiOrdersHint').textContent = `last ${DAYS} days`;
+    $('kpiDrafts').textContent = num(drafts.length);
+    $('kpiDraftsHint').textContent = drafts.length ? 'submit to confirm on ' + CH.label : 'nothing waiting';
+    $('kpiValue').textContent = curs.length ? money(byCur[curs[0]], curs[0]) : '—';
+    $('kpiValueHint').textContent = curs.length > 1 ? curs.slice(1).map(c => money(byCur[c], c)).join(' · ') : (live.length ? 'grand total' : ' ');
+
+    let rows = all;
+    if(ORDER_FILTER === 'draft') rows = all.filter(r => r.docstatus === 0);
+    if(ORDER_FILTER === 'submitted') rows = all.filter(r => r.docstatus === 1);
+    $('ordersSub').textContent = `${rows.length} shown · imported from ${CH.label}`;
+
+    if(!rows.length){
+      $('submitSelectedBtn').style.display = 'none';
+      $('ordersWrap').innerHTML = `<div class="aph-empty">No ${CH.label} orders in the last ${DAYS} days${ORDER_FILTER === 'all' ? '' : ' for this filter'}.</div>`;
+      return;
+    }
+    const stemsCol = rows.some(r => r.custom_ordered_stems);
+    const submittable = rows.filter(canSubmit);
+    $('ordersWrap').innerHTML = `<table class="aph-tbl orders-tbl">
+      <thead><tr><th style="width:36px">${submittable.length ? '<input type="checkbox" id="orderAll" title="Select every draft shown">' : ''}</th><th>Order</th><th>Type</th><th>${CH.label} Ref</th><th>Customer</th><th>Date</th><th>Delivery</th>
+        <th class="num">${stemsCol ? 'Stems' : 'Qty'}</th><th class="num">Total</th><th>Status</th></tr></thead>
+      <tbody>${rows.map(r => `<tr>
+        <td>${canSubmit(r) ? `<input type="checkbox" class="orderchk" data-name="${esc(r.name)}">` : ''}</td>
+        <td style="white-space:nowrap"><a href="/app/${slug(r.doctype)}/${encodeURIComponent(r.name)}" target="_blank" rel="noopener">${esc(r.name)}</a>${r.doctype !== 'Sales Order' ? ` <span class="muted">(${esc(r.doctype)})</span>` : ''}</td>
+        <td><span class="label ${r.kind === 'Predeal' ? 'label-info' : 'label-default'}">${esc(r.kind)}</span></td>
+        <td class="mono" title="${esc(r.po_no)}">${esc(r.channel_ref)}</td>
+        <td>${esc(r.customer_name || r.customer)}${r.custom_consignee ? `<div class="muted" style="font-size:11px">${esc(r.custom_consignee)}</div>` : ''}</td>
+        <td class="mono">${fmtDate(r.transaction_date)}</td>
+        <td class="mono">${fmtDate(r.delivery_date)}</td>
+        <td class="num">${num(stemsCol ? r.custom_ordered_stems : r.total_qty)}</td>
+        <td class="num">${money(r.grand_total, r.currency)}</td>
+        <td style="white-space:nowrap">${statusLabel(r)}${canSubmit(r) ? ` <button class="btn btn-sm order-submit" data-name="${esc(r.name)}" style="margin-left:6px">Submit</button>` : ''}</td>
+      </tr>`).join('')}</tbody></table>`;
+
+    const sel = () => [...document.querySelectorAll('#ordersWrap .orderchk:checked')].map(c => c.dataset.name);
+    const syncBtn = () => {
+      const n = sel().length;
+      const btn = $('submitSelectedBtn');
+      btn.style.display = submittable.length ? '' : 'none';
+      btn.disabled = !n;
+      btn.textContent = n ? `Submit & approve ${n} selected` : 'Submit & approve selected';
+    };
+    document.querySelectorAll('#ordersWrap .orderchk').forEach(c => c.onchange = syncBtn);
+    const allChk = $('orderAll');
+    if(allChk) allChk.onchange = () => { document.querySelectorAll('#ordersWrap .orderchk').forEach(c => { c.checked = allChk.checked; }); syncBtn(); };
+    document.querySelectorAll('#ordersWrap .order-submit').forEach(b => b.onclick = () => submitOrders([b.dataset.name]));
+    $('submitSelectedBtn').onclick = () => submitOrders(sel());
+    syncBtn();
+  }
+
+  // Draft Sales Orders only: a Quotation is converted, not submitted, and a
+  // submitted or cancelled order has nothing left to approve.
+  function canSubmit(r){ return r.doctype === 'Sales Order' && r.docstatus === 0; }
+
+  // What "approve" means per channel, for the confirm prompt.
+  function approveMeaning(){
+    return window.CHANNEL_KEY === 'floriday'
+      ? 'Each order is submitted and then fulfilled on Floriday.'
+      : 'Each order is submitted and approved on Biflorica (predeals approved, deals confirmed). An order Biflorica refuses stays a draft.';
+  }
+
+  // Confirmation modal: lists exactly what will be submitted, and says what
+  // approval means on this channel, before anything is sent.
+  let SUBMIT_NAMES = [];
+  function submitOrders(names){
+    if(!names.length){ toast('Tick at least one draft order.', 'orange'); return; }
+    SUBMIT_NAMES = names;
+    const byName = new Map((OVERVIEW.orders || []).map(r => [r.name, r]));
+    const rows = names.map(n => byName.get(n) || { name: n });
+    $('submitTitle').textContent = `Submit ${names.length} order${names.length === 1 ? '' : 's'}`;
+    $('submitSub').textContent = approveMeaning();
+    $('submitList').innerHTML = `<table><tbody>${rows.map(r => `<tr>
+      <td><strong style="color:var(--ink)">${esc(r.name)}</strong>${r.kind ? ` <span class="label ${r.kind === 'Predeal' ? 'label-info' : 'label-default'}">${esc(r.kind)}</span>` : ''}</td>
+      <td>${esc(r.customer_name || r.customer || '')}${r.custom_consignee ? '' : (window.CHANNEL_KEY === 'biflorica' ? '<div style="color:var(--warn);font-size:11px">No consignee set</div>' : '')}</td>
+      <td class="mono" style="text-align:right;white-space:nowrap">${r.grand_total != null ? money(r.grand_total, r.currency) : ''}</td>
+    </tr>`).join('')}</tbody></table>`;
+    $('submitConfirm').textContent = window.CHANNEL_KEY === 'floriday' ? 'Submit & fulfil' : 'Submit & approve';
+    openModal('submitModal');
+  }
+
+  $('submitConfirm').onclick = () => {
+    const names = SUBMIT_NAMES.slice();
+    if(!names.length) return;
+    const btn = $('submitConfirm');
+    busy(btn, true, 'Submitting…');
+    call(PORTAL + 'submit_channel_orders', { channel: window.CHANNEL_KEY, names: JSON.stringify(names) })
+      .then(res => {
+        closeModal('submitModal');
+        res = res || {};
+        const ok = res.submitted || [], bad = res.failed || [];
+        if(ok.length){
+          const how = [...new Set(ok.map(o => o.approved).filter(Boolean))];
+          report(`Submitted ${ok.map(o => o.sales_order).join(', ')}${how.length ? ' — ' + how.join(', ') : ''}.`, 'green');
+        }
+        bad.forEach(f => report(`${f.sales_order} not submitted: ${f.reason}`, 'red'));
+        return loadOverview();
+      })
+      .catch(e => report(e.message, 'red'))
+      .finally(() => busy(btn, false));
+  };
+
+  // ---------- stock ----------
+  function renderPushTools(){
+    const s = (OVERVIEW && OVERVIEW.settings) || {};
+    const tools = [];
+    if(!s.use_shelf_stock && CH.warehouseRefresh) tools.push(`<button class="btn btn-sm" id="whRefreshBtn">${esc(CH.warehouseRefresh.label)}</button>`);
+    tools.push(`<button class="btn btn-sm btn-primary" id="pushBtn">${esc(CH.push.label)}</button>`);
+    $('stockPushTools').innerHTML = tools.join('');
+    $('pushBtn').onclick = (e) => CH.push.run(e.currentTarget);
+    const wh = $('whRefreshBtn');
+    if(wh) wh.onclick = () => {
+      busy(wh, true, 'Refreshing…');
+      call(CH.warehouseRefresh.method).then(res => {
+        report((res && res.message) || 'Stock refreshed', res && res.success === false ? 'red' : 'green');
+        return loadOverview();
+      }).catch(e => report(e.message, 'red')).finally(() => busy(wh, false));
+    };
+  }
+
+  function loadStock(){
+    renderPushTools();
+    const s = OVERVIEW.settings || {};
+    if(!s.use_shelf_stock) return renderWarehouseStock();
+
+    $('stockNote').innerHTML = `<div class="aph-note" style="background:var(--signal-soft);color:var(--signal)">Enabled stock is shared by every sales channel — enabling a row here also offers it on the other channels. ${esc(CH.push.label)} sends the enabled rows to ${esc(CH.label)}.${CHANNEL_MULTIPLE[window.CHANNEL_KEY] ? ` Quantities go in steps of ${CHANNEL_MULTIPLE[window.CHANNEL_KEY]} stems, one ${esc(CH.label)} batch.` : ''}</div>`;
+    $('stockSub').textContent = `From shelves · priced on ${s.price_list || 'the customer default price list'}`;
+    return Promise.all([
+      call(PICKER + 'get_shelf_rows', {}, 'GET').catch(() => []),
+      call(PICKER + 'get_enabled_stock_rows', {}, 'GET').catch(() => []),
+    ]).then(([rows, enabled]) => {
+      STOCK_ROWS = combineStock(rows || [], enabled || []);
+      $('kpiOffered').textContent = num(STOCK_ROWS.filter(r => r.enabled).reduce((a, r) => a + r.published_qty, 0));
+      $('kpiOfferedHint').textContent = `${STOCK_ROWS.filter(r => r.enabled).length} length(s) enabled`;
+      $('stockTools').style.display = '';
+      renderStockTable();
+      return loadPrices();
+    });
+  }
+
+  // Same combine rules as the desk picker (public/js/shelf_move.js): one row per
+  // (item, stem length) summed across shelves, published rows folded in so an
+  // enabled length with no shelf stock stays editable, qty capped at stock and
+  // snapped to whole bunches.
+  function combineStock(rows, enabled){
+    const map = new Map();
+    rows.forEach(r => {
+      const k = rowKey(r.item_code, r.stem_length);
+      let a = map.get(k);
+      if(!a){
+        a = { key: k, item_code: r.item_code, item_name: r.item_name || r.item_code, stem_length: r.stem_length || '',
+              total: 0, enabled: false, published_qty: 0, bunch: Math.max(1, Math.floor(Number(r.bunch_size) || 1)) };
+        map.set(k, a);
+      }
+      a.total += Math.floor(Number(r.shelf_qty) || 0);
+    });
+    enabled.forEach(e => {
+      const k = rowKey(e.item_code, e.stem_length);
+      let a = map.get(k);
+      if(!a){
+        a = { key: k, item_code: e.item_code, item_name: e.item_name || e.item_code, stem_length: e.stem_length || '',
+              total: 0, enabled: false, published_qty: 0, bunch: Math.max(1, Math.floor(Number(e.bunch_size) || 1)) };
+        map.set(k, a);
+      }
+      a.enabled = true;
+      a.published_qty = Math.floor(Number(e.stock_qty) || 0);
+    });
+    const snap = (v, step) => Math.floor(Math.floor(Number(v) || 0) / step) * step;
+    const out = Array.from(map.values());
+    out.forEach(a => {
+      // `bunch` is the qty step from here on: whole bunches, and on Floriday
+      // whole multiples of its batch size too.
+      a.bunch = qtyStep(a.bunch);
+      const cap = snap(a.total, a.bunch);
+      a.max = a.enabled ? Math.max(cap, snap(a.published_qty, a.bunch)) : cap;
+      a.qty = Math.min(snap(a.enabled ? a.published_qty : a.total, a.bunch), a.max);
+      a.rate = null;
+    });
+    out.sort((x, y) => Number(y.enabled) - Number(x.enabled) || y.total - x.total ||
+      String(x.item_name).localeCompare(String(y.item_name)) || String(x.stem_length).localeCompare(String(y.stem_length)));
+    return out;
+  }
+
+  // Floriday only takes batches of 200 stems, and the server floors to that too
+  // (stock_picker.CHANNEL_QTY_MULTIPLE). The step is the smallest qty that is
+  // both whole bunches and whole batches.
+  const CHANNEL_MULTIPLE = { floriday: 200 };
+  function qtyStep(bunch){
+    const m = CHANNEL_MULTIPLE[window.CHANNEL_KEY] || 1;
+    const gcd = (a, b) => b ? gcd(b, a % b) : a;
+    return bunch * m / gcd(bunch, m);
+  }
+
+  function stockVisible(r){
+    const q = ($('stockSearch').value || '').trim().toLowerCase();
+    if($('stockEnabledOnly').checked && !r.enabled) return false;
+    if(!q) return true;
+    return [r.item_name, r.item_code, r.stem_length].some(v => String(v || '').toLowerCase().includes(q));
+  }
+
+  function renderStockTable(){
+    const rows = STOCK_ROWS.filter(stockVisible);
+    $('stockCounter').textContent = `${rows.length} of ${STOCK_ROWS.length} rows`;
+    if(!STOCK_ROWS.length){ $('stockWrap').innerHTML = '<div class="aph-empty">No stock currently on any shelf.</div>'; return; }
+    if(!rows.length){ $('stockWrap').innerHTML = '<div class="aph-empty">No rows match the filter.</div>'; return; }
+    $('stockWrap').innerHTML = `<table class="aph-tbl">
+      <thead><tr><th style="width:36px"><input type="checkbox" id="stockAll"></th><th>Variety</th><th>Stem Length</th>
+        <th class="num">Shelf Qty</th><th class="num">Price / Stem</th><th class="num">Qty to Offer</th><th>Status</th></tr></thead>
+      <tbody>${rows.map(r => `<tr data-key="${esc(r.key)}" class="${r.enabled ? 'is-enabled' : ''}">
+        <td><input type="checkbox" class="rowchk"></td>
+        <td><strong style="color:var(--ink)">${esc(r.item_name)}</strong></td>
+        <td>${esc(r.stem_length || '—')}</td>
+        <td class="num">${num(r.total)}</td>
+        <td class="num price-cell">${priceCell(r)}</td>
+        <td class="num">${stepperCell(r)}</td>
+        <td>${r.enabled ? `<span class="label label-success">Enabled · ${num(r.published_qty)}</span>` : '<span class="label label-default">Not offered</span>'}</td>
+      </tr>`).join('')}</tbody></table>`;
+
+    $('stockAll').onchange = (e) => document.querySelectorAll('#stockWrap .rowchk').forEach(c => { c.checked = e.target.checked; });
+    document.querySelectorAll('#stockWrap .stepper button').forEach(wireStepButton);
+    document.querySelectorAll('#stockWrap .set-price').forEach(b => b.onclick = () => openPriceModal(b.closest('tr').dataset.key));
+  }
+
+  function findRow(key){ return STOCK_ROWS.find(r => r.key === key); }
+
+  // Qty is stepped, never typed: one step is a whole bunch (a whole 200-stem
+  // batch on Floriday), and the value stays within 0..max, so an unsellable or
+  // over-stock qty cannot be entered at all.
+  function stepperCell(r){
+    const title = r.max ? `Steps of ${r.bunch}; max ${num(r.max)}` : `Less than ${r.bunch} stems available`;
+    return `<div class="stepper" title="${esc(title)}">
+      <button type="button" data-dir="-1" aria-label="Decrease" ${r.qty <= 0 ? 'disabled' : ''}>−</button>
+      <span class="st-v">${num(r.qty)}</span>
+      <button type="button" data-dir="1" aria-label="Increase" ${r.qty >= r.max ? 'disabled' : ''}>+</button>
+    </div>`;
+  }
+
+  function stepQty(btn){
+    const tr = btn.closest('tr');
+    const r = findRow(tr.dataset.key);
+    if(!r) return false;
+    const next = Math.min(r.max, Math.max(0, r.qty + Number(btn.dataset.dir) * r.bunch));
+    if(next === r.qty) return false;
+    r.qty = next;
+    const st = btn.closest('.stepper');
+    st.querySelector('.st-v').textContent = num(r.qty);
+    st.querySelector('[data-dir="-1"]').disabled = r.qty <= 0;
+    st.querySelector('[data-dir="1"]').disabled = r.qty >= r.max;
+    tr.querySelector('.rowchk').checked = true;
+    return true;
+  }
+
+  // Click steps once; holding the button keeps stepping, faster after a moment.
+  function wireStepButton(btn){
+    let timer = null;
+    const stop = () => { clearTimeout(timer); timer = null; };
+    btn.addEventListener('pointerdown', (e) => {
+      if(btn.disabled || e.button !== 0) return;
+      e.preventDefault();
+      stepQty(btn);
+      let delay = 400;
+      const repeat = () => {
+        if(!stepQty(btn)) return stop();
+        delay = Math.max(60, delay * 0.8);
+        timer = setTimeout(repeat, delay);
+      };
+      timer = setTimeout(repeat, delay);
+    });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => btn.addEventListener(ev, stop));
+    // Keyboard: Enter/Space on the focused button steps once.
+    btn.addEventListener('keydown', (e) => { if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); stepQty(btn); } });
+  }
+
+  function priceCell(r){
+    if(r.rate === null) return '<span class="muted">…</span>';
+    if(r.rate) return `${money(r.rate, PRICE_META.currency)}<button class="linkbtn set-price">Edit</button>`;
+    return `<span style="color:var(--bad)" title="No rate on ${esc(PRICE_META.price_list || 'the price list')} — this row cannot be offered">No price</span><button class="linkbtn set-price">Set</button>`;
+  }
+
+  function loadPrices(){
+    if(!STOCK_ROWS.length) return Promise.resolve();
+    return call(PICKER + 'get_stock_prices', {
+      items: JSON.stringify(STOCK_ROWS.map(r => ({ item_code: r.item_code, stem_length: r.stem_length }))),
+      settings_doctype: CH.settingsDoctype,
+    }).then(res => {
+      res = res || {};
+      PRICE_META = { price_list: res.price_list || '', currency: res.currency || '' };
+      const rates = res.rates || {};
+      STOCK_ROWS.forEach(r => { r.rate = Number(rates[r.item_code + '::' + r.stem_length]) || 0; });
+      renderStockTable();
+    }).catch(() => {
+      STOCK_ROWS.forEach(r => { r.rate = 0; });
+      renderStockTable();
+    });
+  }
+
+  function setSelected(enable, btn){
+    const items = [];
+    document.querySelectorAll('#stockWrap tr[data-key]').forEach(tr => {
+      if(!tr.querySelector('.rowchk').checked) return;
+      const r = findRow(tr.dataset.key);
+      if(!r) return;
+      const qty = Math.floor(Math.min(r.qty, r.max) / r.bunch) * r.bunch;
+      if(enable && qty <= 0) return;
+      items.push({ item_code: r.item_code, stem_length: String(r.stem_length || ''), qty });
+    });
+    if(!items.length){
+      toast(enable ? 'Tick at least one row with a qty above zero.' : 'Tick at least one row to disable.', 'orange');
+      return;
+    }
+    busy(btn, true, enable ? 'Enabling…' : 'Disabling…');
+    call(PICKER + 'set_enabled_stock', { items: JSON.stringify(items), enabled: enable ? 1 : 0, channel: CH.label })
+      .then(res => {
+        res = res || {};
+        if(res.unavailable){ report('Nothing was published: ' + res.unavailable, 'red'); return; }
+        let msg = enable ? `${res.updated || 0} length(s) enabled for the channels.` : `${res.updated || 0} length(s) disabled.`;
+        if(enable && res.capped) msg += ` ${res.capped} capped to available stock.`;
+        if(enable && res.below_multiple) msg += ` ${res.below_multiple} skipped: under ${res.multiple} stems.`;
+        report(msg, enable && (res.capped || res.below_multiple) ? 'orange' : 'green');
+        return loadStock();
+      })
+      .catch(e => report(e.message, 'red'))
+      .finally(() => busy(btn, false));
+  }
+
+  function renderWarehouseStock(){
+    const s = OVERVIEW.settings || {};
+    const rows = OVERVIEW.warehouse_stock || [];
+    $('stockTools').style.display = 'none';
+    $('stockSub').textContent = `From ${s.warehouse || 'the configured warehouse'}`;
+    $('stockNote').innerHTML = `<div class="aph-note">Use Shelf Stock is off in ${esc(CH.settingsDoctype)}, so ${esc(CH.label)} is offered the warehouse stock below. Turn it on in the settings to choose stock per shelf from this page.</div>`;
+    $('kpiOffered').textContent = num(rows.reduce((a, r) => a + (r.qty || 0), 0));
+    $('kpiOfferedHint').textContent = `${rows.length} row(s) in ${s.warehouse || 'warehouse'}`;
+    if(!rows.length){
+      $('stockWrap').innerHTML = `<div class="aph-empty">No stock listed${CH.warehouseRefresh ? ' — use ' + esc(CH.warehouseRefresh.label) + ' to load it' : ''}.</div>`;
+      return Promise.resolve();
+    }
+    const priceCol = rows.some(r => r.price_per_stem);
+    $('stockWrap').innerHTML = `<table class="aph-tbl">
+      <thead><tr><th>Variety</th><th>Stem Length</th><th>Warehouse</th><th class="num">Qty</th>${priceCol ? '<th class="num">Price / Stem</th>' : ''}</tr></thead>
+      <tbody>${rows.map(r => `<tr>
+        <td><strong style="color:var(--ink)">${esc(r.item_name || r.item_code)}</strong></td>
+        <td>${esc(r.stem_length || '—')}</td>
+        <td>${esc(r.warehouse || '')}</td>
+        <td class="num">${num(r.qty)}</td>
+        ${priceCol ? `<td class="num">${r.price_per_stem ? num(r.price_per_stem, 2) : '—'}</td>` : ''}
+      </tr>`).join('')}</tbody></table>`;
+    return Promise.resolve();
+  }
+
+  // ---------- modals ----------
+  function openModal(id){ $(id).classList.add('show'); }
+  function closeModal(id){ $(id).classList.remove('show'); }
+  document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => closeModal(b.dataset.close));
+
+  let PRICE_KEY = null;
+  function openPriceModal(key){
+    const r = findRow(key);
+    if(!r) return;
+    PRICE_KEY = key;
+    $('priceTitle').textContent = `Price ${r.item_name}${r.stem_length ? ' ' + r.stem_length : ''}`;
+    $('priceSub').textContent = PRICE_META.price_list ? `Written to ${PRICE_META.price_list} for this stem length.` : "Written to the channel's price list.";
+    $('priceRate').value = r.rate || '';
+    openModal('priceModal');
+    $('priceRate').focus();
+  }
+  $('priceSubmit').onclick = () => {
+    const r = findRow(PRICE_KEY);
+    const rate = Number($('priceRate').value);
+    if(!r || !(rate > 0)){ toast('Enter a price greater than zero.', 'orange'); return; }
+    const btn = $('priceSubmit');
+    busy(btn, true, 'Saving…');
+    call(PICKER + 'set_stock_price', { item_code: r.item_code, stem_length: r.stem_length, rate, settings_doctype: CH.settingsDoctype })
+      .then(res => {
+        closeModal('priceModal');
+        r.rate = Number(res && res.rate) || rate;
+        report(`Price ${(res && res.action) || 'saved'} for ${r.item_name} ${r.stem_length}`, 'green');
+        renderStockTable();
+      })
+      .catch(e => report(e.message, 'red'))
+      .finally(() => busy(btn, false));
+  };
+
+  function openOfferModal(){
+    const sel = $('offerBoxType');
+    const current = sel.value;
+    const types = (OVERVIEW && OVERVIEW.box_types) || [];
+    sel.innerHTML = types.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+    if(types.includes(current)) sel.value = current;
+    openModal('offerModal');
+    $('offerPackrate').focus();
+  }
+  $('offerSubmit').onclick = () => {
+    const packrate = Math.floor(Number($('offerPackrate').value) || 0);
+    const minimum = Math.floor(Number($('offerMinimum').value) || 0);
+    if(packrate <= 0 || minimum <= 0){ toast('Packrate and Minimum are required.', 'orange'); return; }
+    const btn = $('offerSubmit');
+    busy(btn, true, 'Posting…');
+    call(BIF + 'post_offers', { box_type: $('offerBoxType').value, packrate, minimum, split_lengths: $('offerSplit').checked ? 1 : 0 })
+      .then(res => {
+        closeModal('offerModal');
+        res = res || {};
+        const s = res.summary || {};
+        const ok = s.success_varieties || [], failed = s.failed_varieties || [], skipped = s.skipped_reasons || [];
+        if(res.success === false && !ok.length && !failed.length) report(res.message || 'Post Offers failed', 'red');
+        if(ok.length) report('Posted: ' + ok.join(', '), 'green');
+        if(failed.length && !s.settings_hint) report('Failed: ' + failed.map(f => `${f.variety} (${f.reason || 'rejected'})`).join(', '), 'red');
+        if(s.settings_hint && res.message) report(res.message, 'red');
+        skipped.forEach(g => report(`Not offered — ${g.reason}: ${(g.items || []).join(', ')}`, 'orange'));
+        if(res.success !== false && !ok.length && !failed.length && !skipped.length) report(res.message || 'No offers processed', 'orange');
+        return loadOverview();
+      })
+      .catch(e => report(e.message, 'red'))
+      .finally(() => busy(btn, false));
+  };
+
+  // Same two steps as the desk's Create Batch: the enabled rows with a Floriday
+  // mapping (floored to 200 stems), then one batch per row.
+  function createFloridayBatches(btn){
+    busy(btn, true, 'Creating…');
+    call(FLO_SET + 'get_floriday_batch_rows', {}, 'GET')
+      .then(rows => {
+        rows = rows || [];
+        if(!rows.length){
+          report('No enabled item has ≥200 stems with a Floriday mapping. Enable stock below first.', 'orange');
+          return;
+        }
+        return call(FLO_BATCH + 'create_batches_on_floriday', { selected_rows: JSON.stringify(rows) }).then(m => {
+          if(Array.isArray(m)){
+            const ok = m.filter(r => r.status === 'success').length;
+            const bad = m.filter(r => r.status === 'failed' || r.status === 'error').length;
+            const unmapped = m.filter(r => r.status === 'no_mapping').length;
+            const parts = [];
+            if(ok) parts.push(`Created ${ok} batch(es)`);
+            if(bad) parts.push(`${bad} failed`);
+            if(unmapped) parts.push(`${unmapped} unmapped`);
+            report(parts.join(', ') || 'No batches to create', bad ? 'orange' : (ok ? 'green' : 'blue'));
+          } else {
+            report((m && m.message) || 'Done', 'blue');
+          }
+        });
+      })
+      .catch(e => report(e.message, 'red'))
+      .finally(() => busy(btn, false));
+  }
+
+  // ---------- boot ----------
+  function renderPollButtons(){
+    $('pollActions').innerHTML = CH.polls.map(p => `<button class="btn btn-primary" data-poll="${p.id}">${esc(p.label)}</button>`).join('');
+    document.querySelectorAll('[data-poll]').forEach(btn => {
+      const p = CH.polls.find(x => x.id === btn.dataset.poll);
+      btn.onclick = () => {
+        busy(btn, true, 'Getting…');
+        const hours = LOOKBACK_HOURS;
+        call(PORTAL + 'poll_orders', { channel: window.CHANNEL_KEY, kind: p.id, hours })
+          .then(res => {
+            p.format(res).forEach(([m, c]) => report(`${p.label} · last ${hours} h — ${m}`, c));
+            return loadOverview();
+          })
+          .catch(e => report(e.message, 'red'))
+          .finally(() => busy(btn, false));
+      };
+    });
+  }
+
+  function wirePresets(id, attr, onPick){
+    document.querySelectorAll(`#${id} .p`).forEach(el => el.onclick = () => {
+      document.querySelectorAll(`#${id} .p`).forEach(x => x.classList.toggle('active', x === el));
+      onPick(el.dataset[attr]);
+    });
+  }
+
+  function boot(){
+    const aph = document.querySelector('.aph'), btn = $('collapseBtn');
+    if(btn) btn.addEventListener('click', () => {
+      aph.classList.toggle('collapsed');
+      try { localStorage.setItem('aphSideCollapsed', aph.classList.contains('collapsed') ? '1' : '0'); } catch(e){}
+    });
+    (function fillFooter(){
+      if(!window.frappe || !frappe.session || !frappe.session.user){ setTimeout(fillFooter, 150); return; }
+      const u = frappe.session.user || '';
+      const nm = frappe.session.user_fullname || (frappe.boot && frappe.boot.user && frappe.boot.user.full_name) || u.split('@')[0];
+      if($('aph-foot-av')) $('aph-foot-av').textContent = (nm || u || '?').substring(0, 1).toUpperCase();
+      if($('aph-foot-nm')) $('aph-foot-nm').textContent = nm;
+      if($('aph-foot-em')) $('aph-foot-em').textContent = u;
+    })();
+
+    if(!CH){ showErr('Unknown sales channel for this page.'); return; }
+    document.title = `${CH.label} Orders`;
+    $('topTitle').textContent = `${CH.label} Orders`;
+    $('pageTitle').textContent = `${CH.label} Orders`;
+    $('pageSub').textContent = CH.sub;
+    $('settingsLink').href = CH.settingsRoute;
+    $('settingsLink').textContent = CH.settingsDoctype;
+
+    if(!window.ECOMMERCE_READY){
+      showErr('The Ecommerce Integration app is not installed on this site, so there are no orders to get.');
+      return;
+    }
+
+    renderPollButtons();
+    wirePresets('rangePresets', 'days', v => { DAYS = Number(v) || 14; loadOverview(); });
+    wirePresets('orderFilter', 'f', v => { ORDER_FILTER = v; renderOrders(); });
+    wirePresets('lookbackPresets', 'hours', v => { LOOKBACK_HOURS = Number(v) || 24; $('lookbackHours').value = LOOKBACK_HOURS; });
+    $('lookbackHours').addEventListener('change', (e) => {
+      const v = Math.min(720, Math.max(1, Math.floor(Number(e.target.value) || 24)));
+      e.target.value = v;
+      LOOKBACK_HOURS = v;
+      document.querySelectorAll('#lookbackPresets .p').forEach(x => x.classList.toggle('active', Number(x.dataset.hours) === v));
+    });
+    $('priceListSelect').addEventListener('change', changePriceList);
+    $('schedLookbackSave').onclick = (e) => saveSchedLookback(e.currentTarget);
+    $('liveOffersBtn').onclick = (e) => refreshLiveOffers(e.currentTarget);
+    $('reloadBtn').onclick = (e) => { const b = e.currentTarget; busy(b, true, 'Loading…'); loadOverview().finally(() => busy(b, false)); };
+    $('stockSearch').addEventListener('input', renderStockTable);
+    $('stockEnabledOnly').addEventListener('change', renderStockTable);
+    $('enableBtn').onclick = (e) => setSelected(true, e.currentTarget);
+    $('disableBtn').onclick = (e) => setSelected(false, e.currentTarget);
+    loadOverview();
+  }
+
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+})();
+</script>
+{% endraw %}

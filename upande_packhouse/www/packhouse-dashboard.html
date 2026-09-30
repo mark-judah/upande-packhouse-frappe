@@ -150,6 +150,13 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 
 .aph-empty{padding:48px;text-align:center;color:var(--ink-mute);font-size:13px}
 .aph-loading{padding:60px;text-align:center;color:var(--ink-mute);font-size:12px}
+/* Skeleton loading */
+@keyframes skShimmer{0%{background-position:-400px 0}100%{background-position:400px 0}}
+.aph .sk,.aph .sk-val{background:linear-gradient(90deg,rgba(10,10,10,.06) 0,rgba(10,10,10,.11) 40px,rgba(10,10,10,.06) 80px);background-size:800px 100%;animation:skShimmer 1.3s linear infinite;border-radius:8px}
+.aph .sk{display:block}
+.aph .sk-val{color:transparent!important;display:inline-block;min-width:72px;user-select:none}
+.aph .progress-fill.sk-val{min-width:0;width:100%!important}
+.aph .opl-card.sk-card{cursor:default;pointer-events:none}
 .aph-err{background:var(--ink);color:#fafaf6;padding:14px 18px;border-radius:14px;font-size:12px;margin:16px 40px;font-family:var(--mono)}
 .aph-stub{padding:56px 28px;text-align:center;background:var(--surface-2);border-radius:20px;box-shadow:var(--shadow-card)}
 .aph-stub .ttl{font-size:16px;font-weight:600;margin-bottom:6px;color:var(--ink)}
@@ -519,7 +526,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 
         document.getElementById('refreshBtn').addEventListener('click', load);
         setTimeout(load, 800);
-        setInterval(load, 30000);
+        setInterval(() => load(true), 30000);
     });
 
 
@@ -528,23 +535,40 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         return { period: 'today' };
     }
 
-    let firstLoad = true;
-    function load() {
-        // Only show the "Loading…" placeholder on the very first load. Background
-        // refreshes (every 30s) update in place — render()/renderEmpty() preserve
-        // the scroll position — so the page never collapses to a spinner and
-        // jumps back to the top while someone is reading it.
-        if (firstLoad) { const el = document.getElementById('issueGrid'); if (el) el.innerHTML = '<div class="loading-state">Loading...</div>'; }
+    const SK_IDS = ['statTotalOPLs','statReady','statTotalBoxes','ebTotalStems','issueCount',
+        'kpiAvgIssuing','kpiIssuingDetail','kpiIssuingBar','kpiAvgPacking','kpiPackingDetail','kpiPackingBar',
+        'kpiFulfillment','kpiFulfillmentDetail','kpiFulfillmentBar'];
+    function skOn(ids) { ids.forEach(id => { const e = document.getElementById(id); if (e) e.classList.add('sk-val'); }); }
+    function skOff(ids) { ids.forEach(id => { const e = document.getElementById(id); if (e) e.classList.remove('sk-val'); }); }
+    function skCards(n) {
+        const card = '<div class="opl-card sk-card">'
+            + '<span class="sk" style="height:16px;width:55%;margin-bottom:10px"></span>'
+            + '<span class="sk" style="height:11px;width:80%;margin-bottom:18px"></span>'
+            + '<span class="sk" style="height:8px;width:100%;margin-bottom:8px"></span>'
+            + '<span class="sk" style="height:8px;width:70%;margin-bottom:18px"></span>'
+            + '<span class="sk" style="height:22px;width:40%"></span></div>';
+        return card.repeat(n);
+    }
+    function load(background) {
+        // Skeletons on the first load and on filter changes. Background refreshes
+        // (every 30s) update in place — render()/renderEmpty() preserve the scroll
+        // position — so the page never collapses and jumps back to the top while
+        // someone is reading it.
+        if (!background) {
+            skOn(SK_IDS);
+            const el = document.getElementById('issueGrid'); if (el) el.innerHTML = skCards(6);
+        }
         frappe.call({
             method: 'upande_packhouse.api.dashboard.getDashboardData',
             args: { team_filter: teams.length ? teams.join(',') : 'all', rose_type: roseType, ...getDateArgs() },
-            callback: r => { if (r.message?.success) render(r.message); else renderEmpty(); firstLoad = false; },
-            error: () => { renderEmpty(); firstLoad = false; }
+            callback: r => { if (r.message?.success) render(r.message); else renderEmpty(); },
+            error: () => renderEmpty()
         });
         ebLoadData();
     }
 
     function renderEmpty() {
+        skOff(SK_IDS.filter(id => id !== 'ebTotalStems'));
         const main = document.querySelector('.aph-main'); const st = main ? main.scrollTop : 0;
         const html = '<div class="empty-state"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#9a9a9a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 12h6M9 15h4"/></svg><p>No records found</p></div>';
         const el = document.getElementById('issueGrid'); if (el) el.innerHTML = html;
@@ -554,6 +578,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     }
 
     function render(data) {
+        skOff(SK_IDS.filter(id => id !== 'ebTotalStems'));
         const main = document.querySelector('.aph-main'); const st = main ? main.scrollTop : 0;
         VARIETY_MAP = {};
         (data.opls || []).concat(data.ready_to_issue || []).forEach(o => { if (o.opl_id) VARIETY_MAP[o.opl_id] = o.varieties || []; });
@@ -728,6 +753,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     }
 
     function ebSet(o, b, s) {
+        skOff(['ebTotalStems']);
         const eo = document.getElementById('ebTotalOrders'); if (eo) eo.textContent = o;
         const eb = document.getElementById('ebTotalExpected'); if (eb) eb.textContent = b;
         const es = document.getElementById('ebTotalStems'); if (es) es.textContent = s.toLocaleString();

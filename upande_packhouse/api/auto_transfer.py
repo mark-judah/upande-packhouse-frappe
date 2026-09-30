@@ -181,7 +181,13 @@ def _fleet(data, today):
 			pluck="vehicle",
 		)
 	)
-	routes = {r["vehicle"]: r for r in data["routes"]}
+	# A truck may run several routes a day; it serves every farm on its hand-made ones.
+	routes = {}
+	for r in data["routes"]:
+		cur = routes.setdefault(r["vehicle"], {"auto_planned": 1, "farms": []})
+		if not r.get("auto_planned"):
+			cur["auto_planned"] = 0
+			cur["farms"] = cur["farms"] + [f for f in r.get("farms") or [] if f not in cur["farms"]]
 	trucks = []
 	for v in data["vehicles"]:
 		cap = int(v.get("capacity_buckets") or 0)

@@ -3412,7 +3412,8 @@ def getTransferScheduleData():
 	route_rows = frappe.get_all(
 		"Bucket Logistics Route",
 		filters={"route_date": today_str},
-		fields=["name", "vehicle", "total_km"],
+		fields=["name", "vehicle", "total_km", "from_datetime", "to_datetime"],
+		order_by="vehicle asc, from_datetime asc",
 		limit_page_length=0,
 	)
 	routes = []
@@ -3434,6 +3435,8 @@ def getTransferScheduleData():
 			{
 				"name": rr["name"],
 				"vehicle": rr.get("vehicle") or "",
+				"from_datetime": str(rr.get("from_datetime") or ""),
+				"to_datetime": str(rr.get("to_datetime") or ""),
 				"total_km": float(rr.get("total_km") or 0),
 				"legs": legs,
 				"farms": list(farms.keys()),

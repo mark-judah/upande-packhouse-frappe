@@ -2,19 +2,26 @@
 # For license information, please see license.txt
 #
 # Test labels for one Order Pick List — every QR a tester needs to walk the OPL
-# through the mobile app without the label printers:
+# through the mobile app without the label printers. Remote transfers come first,
+# one section per stage, each in scan order:
 #
-#   Buckets             one per bucket on the OPL
-#   Shelves             the shelves the buckets sit on now, plus free shelves at
-#                       the SALES farm for the buckets still to be transferred
-#                       (two buckets per shelf — shelveBucket's limit)
-#   Bunches             one per bunch on each row. A bunch only passes the packing
-#                       scan (fetchStockEntryByBunch) if a Grading Stock Entry ties
-#                       its bunch id to the bucket, so those can be created too.
+#   1 · Farm cold store  Bucket Requests app: a trolley per remote farm, then that
+#                        farm's buckets still waiting, each followed by the spare
+#                        bucket Replace would swap in (if one is shelved)
+#   2 · Packhouse arrival Shelving app: a free shelf at the SALES farm, then the
+#                        buckets to put on it (two per shelf — shelveBucket's limit)
+#   Buckets / Current shelves  buckets not being transferred, and where every
+#                        bucket sits now
+#   Bunches              one per bunch on each row. A bunch only passes the packing
+#                        scan (fetchStockEntryByBunch) if a Grading Stock Entry ties
+#                        its bunch id to the bucket, so those can be created too.
+#
+# Loading to the truck needs no QR: the app picks the truck from a list.
 #
 # Payloads are the SAME JSON the production label printer encodes
 # (server_scripts/gen_label_id.py): {"<bucket>": "bucket"}, {"shelf": "<id>"},
-# {"bunch_id": "<id>"} — so the app parses them exactly like real labels.
+# {"bunch_id": "<id>"}, {"<trolley>": "trolley"} — so the app parses them
+# exactly like real labels.
 #
 # Re-running is safe: existing graded bunches of a bucket are reused before any
 # new one is created, and destination shelves are only picked while empty.
@@ -69,6 +76,25 @@ def _shelf_prefix(farm):
 		as_dict=True,
 	)
 	return row[0].p if row else (farm or "SHF")[:3].upper()
+
+
+def _trolley_id(farm):
+	"""Trolley ids are free text on the app side; one stable test trolley per farm."""
+	return f"{_shelf_prefix(farm)}-TROLLEY-TST"
+
+
+def _replacement_spare(pick_list_item):
+	"""What Replace in the Bucket Requests app would swap in for this row, or None."""
+	from upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation import (
+		find_requested_bucket_replacement,
+	)
+
+	try:
+		res = find_requested_bucket_replacement(pick_list_item)
+	except frappe.ValidationError:
+		frappe.clear_last_message()  # "already left the cold room" etc. — not a label error
+		return None
+	return res if res.get("found") else None
 
 
 def _ensure(doctype, name, values):
@@ -248,7 +274,15 @@ def generate_opl_test_labels(
 
 	sales_farm = doc.get("farm") or transfer_hub()
 	sections, warnings = [], []
-	summary = {"buckets": 0, "shelves": 0, "bunches": 0, "grading_created": 0, "bunches_reused": 0}
+	summary = {
+		"buckets": 0,
+		"shelves": 0,
+		"trolleys": 0,
+		"spares": 0,
+		"bunches": 0,
+		"grading_created": 0,
+		"bunches_reused": 0,
+	}
 
 	# one entry per physical bucket (a bucket spans several rows)
 	by_bucket = {}
@@ -257,11 +291,13 @@ def generate_opl_test_labels(
 			r.bucket.upper(),
 			{
 				"bucket": r.bucket,
+				"pli": r.name,
 				"farm": _farm_of(r),
 				"shelf": r.get("shelf"),
 				"items": {},
 				"stems": 0.0,
 				"transfer": 0,
+				"loaded": 0,
 				"shelved": 0,
 			},
 		)
@@ -270,28 +306,112 @@ def generate_opl_test_labels(
 		b["stems"] += flt(r.stock_qty)
 		if (cint(r.get("awaiting_transfer")) or cint(r.get("in_transit"))) and not cint(r.get("shelved")):
 			b["transfer"] = 1
+		if cint(r.get("loaded_in_trolley")) or cint(r.get("in_transit")):
+			b["loaded"] = 1
 		if cint(r.get("shelved")):
 			b["shelved"] = 1
 
-	if cint(buckets):
+	def bucket_label(b):
+		_ensure("Bucket QR Code", b["bucket"], {"id": b["bucket"], "status": "In Use"})
+		varieties = ", ".join(f"{i} {length}".strip() for (i, length) in b["items"])
+		return _label(
+			"bucket",
+			b["bucket"],
+			{b["bucket"]: "bucket"},
+			[
+				varieties,
+				f"{int(b['stems'])} stems · {b['farm'] or '—'}",
+				f"shelf {b['shelf'] or '—'}" + (" · to transfer" if b["transfer"] else ""),
+			],
+		)
+
+	transfer = [b for b in by_bucket.values() if b["transfer"]]
+	shelf_labels = 0
+
+	# ── Stage 1: farm cold store (Bucket Requests) — trolley, then buckets + spares ──
+	waiting = [b for b in transfer if not b["loaded"]]
+	if cint(buckets) and waiting:
 		labels = []
-		for b in by_bucket.values():
-			_ensure("Bucket QR Code", b["bucket"], {"id": b["bucket"], "status": "In Use"})
-			varieties = ", ".join(f"{i} {length}".strip() for (i, length) in b["items"])
+		by_farm = {}
+		for b in waiting:
+			by_farm.setdefault(b["farm"], []).append(b)
+		for farm, bl in sorted(by_farm.items()):
+			trolley = _trolley_id(farm)
 			labels.append(
 				_label(
-					"bucket",
-					b["bucket"],
-					{b["bucket"]: "bucket"},
-					[
-						varieties,
-						f"{int(b['stems'])} stems · {b['farm'] or '—'}",
-						f"shelf {b['shelf'] or '—'}" + (" · to transfer" if b["transfer"] else ""),
-					],
+					"trolley",
+					trolley,
+					{trolley: "trolley"},
+					[f"{farm} · scan first", f"{len(bl)} bucket(s) to load"],
 				)
 			)
-		summary["buckets"] = len(labels)
-		sections.append({"key": "buckets", "title": _("Buckets"), "labels": labels})
+			summary["trolleys"] += 1
+			for b in bl:
+				labels.append(bucket_label(b))
+				spare = _replacement_spare(b["pli"])
+				if not spare:
+					continue
+				nb = spare["new_bucket"]
+				_ensure("Bucket QR Code", nb, {"id": nb, "status": "Available"})
+				labels.append(
+					_label(
+						"spare",
+						nb,
+						{nb: "bucket"},
+						[
+							f"{spare.get('variety') or ''} {spare.get('stem_length') or ''}".strip(),
+							f"{int(flt(spare.get('available_qty')))} stems · shelf {spare.get('shelf') or '—'}",
+							f"Replace spare for {b['bucket']}",
+						],
+					)
+				)
+				summary["spares"] += 1
+		sections.append(
+			{
+				"key": "stage_farm",
+				"title": _("1 · Farm cold store — Bucket Requests"),
+				"hint": _(
+					"Scan the trolley, then each bucket. A spare is what Replace swaps in — scan it "
+					"instead after replacing. Then Load to truck (picked in the app, no QR)."
+				),
+				"labels": labels,
+			}
+		)
+
+	# ── Stage 2: packhouse arrival (Shelving) — shelf, then the buckets for it ──
+	if cint(shelves) and transfer:
+		labels = []
+		dest = {}
+		for bucket, shelf_id in _assign_dest_shelves(sales_farm, [b["bucket"] for b in transfer]).items():
+			dest.setdefault(shelf_id, []).append(bucket)
+		for shelf_id, bl in sorted(dest.items()):
+			labels.append(
+				_label(
+					"shelf",
+					shelf_id,
+					{"shelf": shelf_id},
+					[f"{sales_farm} · shelve on arrival", ", ".join(bl)],
+				)
+			)
+			shelf_labels += 1
+			if cint(buckets):
+				labels += [bucket_label(by_bucket[x.upper()]) for x in bl]
+		sections.append(
+			{
+				"key": "stage_arrival",
+				"title": _("2 · Packhouse arrival — Shelving"),
+				"hint": _("Once the truck arrives at {0}: scan the shelf, then the buckets under it.").format(
+					sales_farm
+				),
+				"labels": labels,
+			}
+		)
+
+	if cint(buckets):
+		summary["buckets"] = len(by_bucket)
+		local = [bucket_label(b) for b in by_bucket.values() if not b["transfer"]]
+		if local:
+			sections.append({"key": "buckets", "title": _("Buckets"), "labels": local})
 
 	if cint(shelves):
 		labels = []
@@ -304,31 +424,8 @@ def generate_opl_test_labels(
 			labels.append(
 				_label("shelf", shelf_id, {"shelf": shelf_id}, [f"{farm} · current shelf", ", ".join(bl)])
 			)
-		to_move = [b["bucket"] for b in by_bucket.values() if b["transfer"]]
-		if to_move:
-			dest = {}
-			for bucket, shelf_id in _assign_dest_shelves(sales_farm, to_move).items():
-				dest.setdefault(shelf_id, []).append(bucket)
-			for shelf_id, bl in sorted(dest.items()):
-				labels.append(
-					_label(
-						"shelf",
-						shelf_id,
-						{"shelf": shelf_id},
-						[f"{sales_farm} · shelve on arrival", ", ".join(bl)],
-					)
-				)
-		summary["shelves"] = len(labels)
-		sections.append(
-			{
-				"key": "shelves",
-				"title": _("Shelves"),
-				"hint": _("Current shelves, then empty shelves at {0} for buckets arriving by truck.").format(
-					sales_farm
-				),
-				"labels": labels,
-			}
-		)
+		summary["shelves"] = shelf_labels + len(labels)
+		sections.append({"key": "shelves", "title": _("Current shelves"), "labels": labels})
 
 	if cint(bunches):
 		labels = []
@@ -401,7 +498,7 @@ def generate_opl_test_labels(
 						)
 					)
 		summary["bunches"] = len(labels)
-		sections.append({"key": "bunches", "title": _("Bunches"), "labels": labels})
+		sections.append({"key": "bunches", "title": _("3 · Packing — Bunches"), "labels": labels})
 
 	return {
 		"opl": doc.name,

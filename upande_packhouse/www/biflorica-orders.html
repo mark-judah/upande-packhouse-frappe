@@ -1,0 +1,6 @@
+{% extends "templates/web.html" %}
+{% block title %}Biflorica Orders{% endblock %}
+{% block page_content %}
+{% set channel_key = "biflorica" %}{% set active_page = "biflorica-orders" %}
+{% include "upande_packhouse/templates/includes/channel_orders.html" %}
+{% endblock %}

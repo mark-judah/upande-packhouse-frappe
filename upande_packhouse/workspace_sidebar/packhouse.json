@@ -209,6 +209,30 @@
    "url": "/order-fulfilment"
   },
   {
+   "child": 1,
+   "collapsible": 1,
+   "icon": "shopping-bag",
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "Biflorica Orders",
+   "link_type": "URL",
+   "show_arrow": 0,
+   "type": "Link",
+   "url": "/biflorica-orders"
+  },
+  {
+   "child": 1,
+   "collapsible": 1,
+   "icon": "flower",
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "Floriday Orders",
+   "link_type": "URL",
+   "show_arrow": 0,
+   "type": "Link",
+   "url": "/floriday-orders"
+  },
+  {
    "child": 0,
    "collapsible": 1,
    "indent": 0,
@@ -337,7 +361,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-09-20 19:53:42.100493",
+ "modified": "2026-09-29 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Packhouse",

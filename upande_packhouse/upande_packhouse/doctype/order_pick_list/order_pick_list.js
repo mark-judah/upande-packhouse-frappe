@@ -81,8 +81,15 @@ function open_test_label_dialog(frm) {
 					frappe.show_alert(
 						{
 							message: __(
-								"{0} bucket, {1} shelf, {2} bunch labels ({3} newly graded)",
-								[s.buckets, s.shelves, s.bunches, s.grading_created]
+								"{0} bucket, {1} shelf, {2} trolley, {3} spare, {4} bunch labels ({5} newly graded)",
+								[
+									s.buckets,
+									s.shelves,
+									s.trolleys,
+									s.spares,
+									s.bunches,
+									s.grading_created,
+								]
 							),
 							indicator: "green",
 						},
@@ -140,6 +147,7 @@ function print_test_labels(data) {
 			.lbl .id{font:700 12px ui-monospace,Menlo,monospace;margin-top:2px;word-break:break-all}
 			.lbl .ln{font-size:10px;color:#444;line-height:1.3}
 			.lbl.shelf{border-color:#1d4ed8} .lbl.bunch{border-color:#15803d}
+			.lbl.trolley{border-color:#7c3aed;border-style:solid} .lbl.spare{border-color:#b45309}
 			@media print{header button{display:none} body{margin:6mm}}
 		</style></head><body>
 		<header><h1>${esc(data.order_name || data.opl)} — test labels</h1>

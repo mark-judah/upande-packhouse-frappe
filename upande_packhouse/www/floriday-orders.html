@@ -1,0 +1,6 @@
+{% extends "templates/web.html" %}
+{% block title %}Floriday Orders{% endblock %}
+{% block page_content %}
+{% set channel_key = "floriday" %}{% set active_page = "floriday-orders" %}
+{% include "upande_packhouse/templates/includes/channel_orders.html" %}
+{% endblock %}
