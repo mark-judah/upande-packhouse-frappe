@@ -725,7 +725,6 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     <div class="aph-topbar"><button class="collapse-btn" id="collapseBtn" title="Toggle sidebar" aria-label="Toggle sidebar"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
       <h1>Scheduler</h1><span class="crumb">Workflow &middot; sequence processing</span>
       <div class="right">
-        <input type="date" id="fDate" class="sch-sel" style="width:140px">
         <select id="fTeam" class="sch-sel"><option value="">All teams</option></select>
         <button class="btn" id="btnRefresh">&#8635; Refresh</button>
         <a class="btn" href="bucket-logistics" style="text-decoration:none">Transfers &rarr;</a>
@@ -1114,7 +1113,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     sel.innerHTML='<option value="">All teams</option>'+Object.keys(teams).sort().map(function(k){return '<option'+(k===cur?' selected':'')+'>'+esc(k)+'</option>';}).join('');
   }
   function load(){
-    var dd=el('fDate').value||defaultISO();STATE.date=dd;
+    var dd=window.rtDate.get();STATE.date=dd;
     // The date filter is the DELIVERY date; the Packhouse Schedule doc is keyed by the
     // PROCESSING day = delivery - 1 (you process today for tomorrow's delivery).
     STATE.schedDate=addDaysISO(dd,-1);
@@ -1146,9 +1145,8 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     });
   }
 
-  el('fDate').value=defaultISO();
   el('btnRefresh').onclick=load;
-  el('fDate').onchange=load;
+  window.rtDate.on(load);
   function filterChanged(){G.readyPage=1;render();}
   el('fTeam').onchange=filterChanged;
   G.mtab='unsched'; G.var='all';

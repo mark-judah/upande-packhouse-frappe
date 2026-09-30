@@ -6,19 +6,32 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "route_date",
+  "from_datetime",
+  "to_datetime",
+  "column_break_time",
   "vehicle",
+  "route_date",
   "total_km",
   "legs"
  ],
  "fields": [
   {
-   "fieldname": "route_date",
-   "fieldtype": "Date",
+   "fieldname": "from_datetime",
+   "fieldtype": "Datetime",
    "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Route Date",
+   "label": "From",
    "reqd": 1
+  },
+  {
+   "fieldname": "to_datetime",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "To",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_time",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "vehicle",
@@ -30,6 +43,14 @@
    "reqd": 1
   },
   {
+   "fieldname": "route_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Route Date",
+   "read_only": 1
+  },
+  {
    "fieldname": "total_km",
    "fieldtype": "Float",
    "in_list_view": 1,
@@ -37,7 +58,21 @@
    "read_only": 1
   },
   {
+<<<<<<< Updated upstream
    "description": "The farms this vehicle may serve today, in visiting order — an empty list means the vehicle has no route today and is treated as unrestricted, but also not selectable for planning until routed.",
+=======
+   "default": "0",
+   "description": "Created by automatic remote transfer scheduling. Cleared as soon as someone saves it by hand.",
+   "fieldname": "auto_planned",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Auto Planned",
+   "read_only": 1
+  },
+  {
+   "description": "The farms this vehicle may serve today, in visiting order \u2014 an empty list means the vehicle has no route today and is treated as unrestricted, but also not selectable for planning until routed.",
+>>>>>>> Stashed changes
    "fieldname": "legs",
    "fieldtype": "Table",
    "label": "Legs",
@@ -46,7 +81,11 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
+<<<<<<< Updated upstream
  "modified": "2026-09-14 00:00:00.000000",
+=======
+ "modified": "2026-09-29 21:00:00.000000",
+>>>>>>> Stashed changes
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Bucket Logistics Route",
@@ -66,7 +105,7 @@
    "write": 1
   }
  ],
- "sort_field": "modified",
+ "sort_field": "from_datetime",
  "sort_order": "DESC",
  "states": []
 }

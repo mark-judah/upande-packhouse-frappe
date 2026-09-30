@@ -1,0 +1,120 @@
+{#- Remote Transfers — the section's top tabs, shared by every page in it, in the
+    order the process runs: route the trucks, sequence each team's orders, plan
+    and dispatch the trips, track the buckets to the sales farm, trace them.
+    Set `rt_active` before including: routes | scheduler | transfer | logistics | journey.
+    Truck Routes, Transfer Scheduling and Bucket Logistics are views of
+    transfer-control, which switches between them in place (window.rtSwitch);
+    everywhere else the tabs are plain links.
+    The Delivery date next to the tabs is the whole section's date (window.rtDate):
+    every page and tab reads it, it follows you between pages (sessionStorage and
+    ?date=) and a change fires a 'rt-date' event on document. -#}
+<style>
+.aph .rt-tabs{display:inline-flex;background:rgba(10,10,10,.05);border-radius:999px;padding:3px;gap:2px;flex:none}
+.aph .rt-tabs a{font:600 12px var(--sans,'Poppins',system-ui,sans-serif);padding:6px 13px;border-radius:999px;text-decoration:none;color:#5a5a52;white-space:nowrap;line-height:1.2;transition:background .15s,color .15s;display:inline-flex;align-items:center;gap:6px}
+.aph .rt-tabs a:hover{color:#0a0a0a;background:rgba(10,10,10,.06)}
+.aph .rt-tabs a.on{background:linear-gradient(135deg,#0a0a0a,#3a3a34);color:#fafaf6}
+/* Section-wide delivery date */
+.aph .rt-date[hidden]{display:none}
+.aph .rt-date{display:inline-flex;align-items:center;gap:8px;margin-left:12px;font:600 10px var(--sans,'Poppins',system-ui,sans-serif);text-transform:uppercase;letter-spacing:.06em;color:#8a8a80;white-space:nowrap;flex:none}
+.aph .rt-date > input{font:500 12px var(--sans,'Poppins',system-ui,sans-serif);height:30px;padding:4px 10px;border:1px solid rgba(10,10,10,.10);border-radius:8px;background:#fff;color:#0a0a0a}
+/* Frappe date control in place of <input type="date"> */
+.aph .fdp-host{display:inline-block;vertical-align:middle}
+.aph .fdp-host .frappe-control,.aph .fdp-host .form-group{margin:0!important}
+/* Frappe's base control appends a developer tooltip holding the fieldname
+   (<span class="tooltip-content">rl-date_fdp</span>); desk CSS hides it, website pages
+   don't load that CSS, so it rendered as text next to the date. */
+.aph .fdp-host .tooltip-content{display:none!important}
+.aph .fdp-host input.form-control{height:30px;min-height:30px;padding:4px 10px;font:500 12px var(--f);width:128px;border:1px solid var(--hairline-2);border-radius:8px;background:var(--surface-2);color:var(--ink);box-shadow:none}
+.datepickers-container{z-index:2147483600!important}  /* .aph is a fixed full-screen layer at 2147483000 */
+</style>
+<nav class="rt-tabs" aria-label="Remote Transfers">
+  <a href="/transfer-control?tab=routes" data-rt="routes" title="Set today's farms for each transfer truck"{% if rt_active == 'routes' %} class="on" aria-current="page"{% endif %}>Truck Routes</a>
+  <a href="/packhouse-scheduler" data-rt="scheduler" title="Sequence each team's orders"{% if rt_active == 'scheduler' %} class="on" aria-current="page"{% endif %}>Scheduler</a>
+  <a href="/transfer-control" data-rt="transfer" title="Distribute across teams, plan trucks, dispatch trips"{% if rt_active == 'transfer' %} class="on" aria-current="page"{% endif %}>Transfer Scheduling</a>
+  <a href="/transfer-control?tab=logistics" data-rt="logistics" title="Track buckets to the sales farm"{% if rt_active == 'logistics' %} class="on" aria-current="page"{% endif %}>Bucket Logistics</a>
+  <a href="/bucket-tracker" data-rt="journey" title="Trace a bucket end to end"{% if rt_active == 'journey' %} class="on" aria-current="page"{% endif %}>Bucket Journey</a>
+</nav>
+<label class="rt-date"{% if rt_active == 'journey' %} hidden{% endif %}>Delivery date <input type="date" id="rt-date"></label>
+<script>
+  // Frappe's Date / Datetime control in place of a native <input type="date"> (or
+  // datetime-local). The original input stays in the DOM, hidden, as the value
+  // holder, so '.value' reads and 'change' listeners keep working; if the bundle
+  // can't load, the native input simply stays visible.
+  (function(){
+  window.rtMountDate=function(input){
+    if(!input||input._fdp||!window.frappe||!frappe.require) return;
+    var dt=input.type==='datetime-local';
+    frappe.require('controls.bundle.js',function(){
+      try{
+        if(input._fdp||!frappe.ui||!frappe.ui.form||!frappe.ui.form.make_control) return;
+        var host=document.createElement('span'); host.className='fdp-host';
+        input.parentNode.insertBefore(host,input);
+        var ctrl=frappe.ui.form.make_control({
+          parent:window.jQuery(host),
+          df:{fieldtype:dt?'Datetime':'Date',fieldname:(input.id||'date')+'_fdp',placeholder:input.getAttribute('placeholder')||'',
+            change:function(){ var v=ctrl.get_value()||''; if(dt&&v) v=v.replace(' ','T').slice(0,16);
+              if(v!==input.value){ input.value=v; input.dispatchEvent(new Event('change',{bubbles:true})); } }},
+          render_input:true, only_input:true
+        });
+        host.querySelectorAll('.tooltip-content').forEach(function(t){ t.remove(); });  // fieldname tooltip, see CSS
+        input.style.display='none';
+        input._fdp=ctrl;
+        ctrl.set_value(dt&&input.value?input.value.replace('T',' ')+':00':(input.value||''));
+      }catch(e){ /* keep the native date input */ }
+    });
+  };
+  /* Set a mounted (or native) date / datetime input's value without firing change. */
+  window.rtSetDate=function(input,v){
+    if(!input) return; input.value=v||'';
+    if(input._fdp){ var dt=input.type==='datetime-local';
+      input._fdp.set_value(dt&&v?v.replace('T',' ')+':00':(v||'')); }
+  };
+  window.rtSyncDate=function(input){ if(input&&input._fdp&&input._fdp.get_value()!==input.value) input._fdp.set_value(input.value||''); };
+  })();
+
+  // The section-wide delivery date.
+  (function(){
+    var KEY = 'rtDeliveryDate', input = document.getElementById('rt-date');
+    function iso(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+    var t = new Date(); t.setDate(t.getDate()+1);
+    var v = iso(t);
+    try { v = new URLSearchParams(location.search).get('date') || sessionStorage.getItem(KEY) || v; } catch (e) {}
+    function persist(){
+      try { sessionStorage.setItem(KEY, v); } catch (e) {}
+      try { var u = new URL(location.href); if (u.searchParams.get('date') !== v) { u.searchParams.set('date', v); history.replaceState(null, '', u.toString()); } } catch (e) {}
+    }
+    window.rtDate = {
+      get: function(){ return v; },
+      set: function(nv){
+        if (!nv || nv === v) return;
+        v = nv; persist(); window.rtSetDate(input, v);
+        document.dispatchEvent(new CustomEvent('rt-date', {detail: v}));
+      },
+      on: function(fn){ document.addEventListener('rt-date', function(e){ fn(e.detail); }); }
+    };
+    input.value = v; persist();
+    input.addEventListener('change', function(){ window.rtDate.set(input.value); });
+    function mount(){ window.rtMountDate(input); }
+    if (document.readyState === 'complete') mount(); else window.addEventListener('load', mount);
+  })();
+</script>
+<script>
+  (function(){
+    var nav = document.querySelector('.aph .rt-tabs');
+    // Highlight a tab (transfer-control calls this whenever its view changes).
+    window.rtSetTab = function(key){
+      nav.querySelectorAll('a[data-rt]').forEach(function(a){
+        var on = a.getAttribute('data-rt') === key;
+        a.classList.toggle('on', on);
+        if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+      });
+    };
+    // On transfer-control its three views switch without a reload.
+    nav.addEventListener('click', function(e){
+      var a = e.target.closest('a[data-rt="routes"], a[data-rt="transfer"], a[data-rt="logistics"]');
+      if (!a || !window.rtSwitch || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+      e.preventDefault();
+      window.rtSwitch(a.getAttribute('data-rt'));
+    });
+  })();
+</script>

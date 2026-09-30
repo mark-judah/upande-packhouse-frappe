@@ -28,6 +28,76 @@ import frappe
 
 PACKHOUSE = "Kapkolia"
 FARM_EXPR = "SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1)"
+<<<<<<< Updated upstream
+=======
+# Pick-list creation pre-fills transit_truck with the ORDER's delivery truck label
+# (Sales Order custom_truck, e.g. "SIM Truck", "RAMBO" — not even Vehicle records),
+# the same field the transfer truck is written to on load/dispatch. A value only
+# names a transfer truck when it is an internal Vehicle (not a customer dispatch
+# truck); everything shown as "the truck" goes through this test.
+TRANSFER_TRUCK_OK = (
+	"EXISTS (SELECT 1 FROM `tabVehicle` v WHERE v.name = pli.transit_truck"
+	" AND IFNULL(v.custom_dispatch_truck, 0) = 0)"
+)
+
+#: Trip statuses that still claim open buckets (planned, truck not yet gone).
+ACTIVE_TRIP_STATUSES = ("Draft", "Scheduled")
+#: How far back to look for trips that were never received (still on the road).
+TRIP_LOOKBACK_DAYS = 7
+
+
+def transfer_hub(required=True):
+	"""The sales farm remote buckets are trucked to: Production Settings > Remote
+	Transfer Hub Farm. Every truck route starts and ends here, and a transfer bucket
+	only counts as arrived once it is shelved here.
+
+	Unset, it falls back to the one enabled sales-shelf farm — but only when there is
+	exactly one; with several (e.g. Kapkolia and Karen) there is no safe guess, so it
+	throws (or returns None when not `required`)."""
+	# .get() on the cached doc, not get_single_value: that throws on a site where
+	# the custom field hasn't been migrated in yet.
+	ps = frappe.get_cached_doc("Production Settings")
+	hub = ps.get("custom_transfer_hub_farm")
+	if hub:
+		return hub
+	sales_farms = [
+		row.farm for row in (ps.shelf_locations or []) if row.enabled and row.sales_shelf and row.farm
+	]
+	if len(sales_farms) == 1:
+		return sales_farms[0]
+	if not required:
+		return None
+	frappe.throw(
+		_(
+			"Set <b>Remote Transfer Hub Farm</b> in Production Settings — the sales farm "
+			"remote buckets are trucked to."
+		)
+	)
+
+
+def _dt(value):
+	"""A Datetime value as "YYYY-MM-DD HH:MM", or "" when blank."""
+	return frappe.utils.get_datetime(value).strftime("%Y-%m-%d %H:%M") if value else ""
+
+
+def _day_window(date):
+	"""The whole-day window a route gets when no From/To is given."""
+	return "{0} 00:00:00".format(date), "{0} 23:59:59".format(date)
+
+
+def _hub_company_farms(hub):
+	"""Farms of the hub farm's company — the ones a transfer truck can be routed through."""
+	company = frappe.db.get_value("Farm", hub, "company") if hub else None
+	filters = {"company": company} if company else {}
+	return frappe.get_all("Farm", filters=filters, pluck="name", order_by="name")
+
+
+def _auto_planning_status():
+	# Lazy import: auto_transfer builds on this module.
+	from upande_packhouse.api.auto_transfer import status
+
+	return status()
+>>>>>>> Stashed changes
 
 
 def _bucket_state(row):
@@ -99,6 +169,295 @@ def _schedule_map(lookback_days=14):
 	return out
 
 
+<<<<<<< Updated upstream
+=======
+def _transfer_buckets(opl_names):
+	"""Every transfer bucket (ever flagged awaiting/loaded/in-transit, or shelved) of
+	these OPLs, ONE entry per (opl, bucket): a bucket carrying several varieties has
+	several Pick List Item rows, and counting rows double-counted it. Stems are
+	summed across the rows; `names` are the row names (for flag updates)."""
+	if not opl_names:
+		return []
+	rows = frappe.db.sql(
+		"""
+		SELECT pli.name AS name, pli.parent AS opl, pli.idx AS idx, pli.bucket AS bucket,
+		       pli.item_code AS variety, pli.stock_qty AS stems, """
+		+ FARM_EXPR
+		+ """ AS farm,
+		       pli.awaiting_transfer AS awaiting, pli.loaded_in_trolley AS loaded,
+		       pli.in_transit AS in_transit, pli.shelved AS shelved, pli.transit_truck AS truck
+		FROM `tabPick List Item` pli
+		WHERE pli.parenttype = 'Order Pick List' AND pli.parent IN %(opls)s
+		  AND (pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1
+		       OR pli.in_transit = 1 OR pli.shelved = 1)
+		ORDER BY pli.parent, pli.idx
+		""",
+		{"opls": tuple(opl_names)},
+		as_dict=True,
+	)
+	out, index = [], {}
+	for r in rows:
+		bucket = (r.get("bucket") or "").upper()
+		key = (r["opl"], bucket or r["name"])
+		entry = index.get(key)
+		if entry is None:
+			entry = {
+				"opl": r["opl"],
+				"bucket": r.get("bucket"),
+				"variety": r.get("variety"),
+				"farm": r.get("farm") or "",
+				"stems": 0.0,
+				"names": [],
+				"awaiting": 0,
+				"loaded": 0,
+				"in_transit": 0,
+				"shelved": 0,
+				"truck": None,
+			}
+			index[key] = entry
+			out.append(entry)
+		entry["stems"] += float(r.get("stems") or 0)
+		entry["names"].append(r["name"])
+		for flag in ("awaiting", "loaded", "in_transit", "shelved"):
+			if int(r.get(flag) or 0):
+				entry[flag] = 1
+		entry["truck"] = entry["truck"] or r.get("truck")
+	for e in out:
+		e["open"] = 1 if (e["awaiting"] or e["loaded"]) and not e["in_transit"] and not e["shelved"] else 0
+		e["on_road"] = 1 if e["in_transit"] and not e["shelved"] else 0
+	return out
+
+
+def _open_counts(opl_names):
+	"""(opl, farm) -> number of OPEN buckets (awaiting, not on a truck, not shelved)."""
+	counts = {}
+	for b in _transfer_buckets(opl_names):
+		if b["open"]:
+			key = (b["opl"], b["farm"])
+			counts[key] = counts.get(key, 0) + 1
+	return counts
+
+
+def _trip_claims(opl_names, exclude_trip=None):
+	"""(opl, farm) -> buckets claimed by TODAY's still-planned trips. Stale drafts
+	from earlier days don't count — their truck never went, so the buckets are
+	open again (and the dashboard flags the stale trip for cleanup)."""
+	if not opl_names:
+		return {}
+	rows = frappe.db.sql(
+		"""
+		SELECT o.order_pick_list AS opl, o.farm AS farm, SUM(o.buckets) AS buckets
+		FROM `tabBucket Request Trip Order` o
+		JOIN `tabBucket Request Trip` t ON t.name = o.parent
+		WHERE t.status IN %(active)s AND t.trip_date = %(today)s
+		  AND o.order_pick_list IN %(opls)s AND t.name != %(exclude)s
+		GROUP BY o.order_pick_list, o.farm
+		""",
+		{
+			"active": ACTIVE_TRIP_STATUSES,
+			"today": frappe.utils.today(),
+			"opls": tuple(opl_names),
+			"exclude": exclude_trip or "",
+		},
+		as_dict=True,
+	)
+	return {(r.opl, r.farm or ""): int(r.buckets or 0) for r in rows}
+
+
+def _truck_status(today):
+	# Truck status — today's transit_truck activity only (an unbounded window pulls
+	# in stale historical loads since the flag is set once and never cleared).
+	# Per bucket the most-advanced phase counts; the latest-modified bucket places
+	# the truck (same rule as the mobile getTransferScheduleData).
+	ts_rows = frappe.db.sql(
+		"""
+		SELECT pli.transit_truck AS truck, """
+		+ FARM_EXPR
+		+ """ AS farm,
+		       pli.awaiting_transfer AS aw, pli.loaded_in_trolley AS ld,
+		       pli.in_transit AS tr, pli.shelved AS sh, pli.modified AS modified
+		FROM `tabPick List Item` pli
+		WHERE pli.parenttype = 'Order Pick List' AND pli.transit_truck IS NOT NULL
+		  AND pli.transit_truck != '' AND DATE(pli.modified) = %(today)s
+		  AND """
+		+ TRANSFER_TRUCK_OK
+		+ """
+		""",
+		{"today": today},
+		as_dict=True,
+	)
+	by_truck = {}
+	for r in ts_rows:
+		st = by_truck.setdefault(
+			r["truck"],
+			{
+				"truck": r["truck"],
+				"total": 0,
+				"awaiting": 0,
+				"loaded": 0,
+				"in_transit": 0,
+				"shelved": 0,
+				"last": "",
+				"last_phase": "",
+				"farm": r.get("farm") or "",
+			},
+		)
+		st["total"] += 1
+		# Most-advanced phase first; None when the bucket carries no flag at all.
+		phase = next(
+			(
+				name
+				for flag, name in (
+					("sh", "shelved"),
+					("tr", "in_transit"),
+					("ld", "loaded"),
+					("aw", "awaiting"),
+				)
+				if int(r.get(flag) or 0)
+			),
+			None,
+		)
+		if phase is not None:
+			st[phase] += 1
+		mod = str(r.get("modified") or "")
+		if mod > st["last"]:
+			st["last"] = mod
+			st["last_phase"] = phase
+			st["farm"] = r.get("farm") or ""
+	out = []
+	for st in by_truck.values():
+		st["loading_pct"] = (
+			round((st["loaded"] + st["in_transit"] + st["shelved"]) / st["total"] * 100) if st["total"] else 0
+		)
+		lp = st.pop("last_phase")
+		st["location"] = {
+			"shelved": "arrived",
+			"in_transit": "in_transit",
+			"loaded": "loading",
+			"awaiting": "loading",
+		}.get(lp, "unknown")
+		out.append(st)
+	return out
+
+
+def _trip_dict(doc, today):
+	return {
+		"name": doc.name,
+		"vehicle": doc.vehicle,
+		"trip_date": str(doc.trip_date),
+		"status": doc.status,
+		# A Draft/Scheduled trip from an earlier day never left: it claims nothing
+		# any more and should be deleted or re-planned.
+		"stale": 1 if (str(doc.trip_date) < str(today) and doc.status in ACTIVE_TRIP_STATUSES) else 0,
+		"notes": doc.notes,
+		"collection_order": doc.collection_order,
+		"farm": doc.farm,
+		"total_buckets": doc.total_buckets,
+		"total_stems": doc.total_stems,
+		"capacity_buckets": doc.capacity_buckets,
+		"auto_planned": int(doc.get("auto_planned") or 0),
+		"dispatched_at": str(doc.dispatched_at) if doc.dispatched_at else None,
+		"received_at": str(doc.received_at) if doc.received_at else None,
+		"orders": [
+			{
+				"order_pick_list": o.order_pick_list,
+				"order_name": o.order_name,
+				"customer": o.customer,
+				"farm": o.farm,
+				"varieties": o.varieties,
+				"buckets": o.buckets,
+				"stems": o.stems,
+				"full_farm_buckets": o.full_farm_buckets,
+				"is_partial": o.is_partial,
+			}
+			for o in doc.orders
+		],
+	}
+
+
+def _route_farms(legs):
+	# Parenthesised on purpose: `a | b - {hub}` binds as `a | (b - ...)` and
+	# kept the hub (every route's first from_farm) in the list.
+	return sorted(({l.from_farm for l in legs} | {l.to_farm for l in legs}) - {transfer_hub(), None, ""})
+
+
+def _vehicle_on_road(vehicle, exclude_trip=None):
+	"""The trip this truck is out on right now (Dispatched, not yet Received), else None.
+
+	A truck on the road can't be routed, planned or dispatched again until it is back
+	at its route's final destination — which is when its trip is received (by the
+	Receive button, or automatically once the last bucket it carried is shelved)."""
+	if not vehicle:
+		return None
+	filters = {"vehicle": vehicle, "status": "Dispatched"}
+	if exclude_trip:
+		filters["name"] = ["!=", exclude_trip]
+	return frappe.db.get_value("Bucket Request Trip", filters, "name", order_by="dispatched_at desc")
+
+
+def _route_end(vehicle, date):
+	"""Final destination of a truck's last route that day (last leg's to_farm), else the hub."""
+	last_route = frappe.get_all(
+		"Bucket Logistics Route",
+		filters={"route_date": date, "vehicle": vehicle},
+		pluck="name",
+		order_by="from_datetime desc",
+		limit=1,
+	)
+	name = last_route[0] if last_route else None
+	if name:
+		last = frappe.get_all(
+			"Bucket Logistics Route Leg",
+			filters={"parent": name, "parenttype": "Bucket Logistics Route"},
+			fields=["to_farm"],
+			order_by="idx desc",
+			limit=1,
+		)
+		if last and last[0].to_farm:
+			return last[0].to_farm
+	return transfer_hub()
+
+
+def _on_road_message(vehicle, trip, what):
+	return "{0} is on the road (trip {1}) — it can be {2} once it is back at {3} and the trip is received.".format(
+		vehicle, trip, what, _route_end(vehicle, frappe.utils.today())
+	)
+
+
+def _receive_trip(name):
+	frappe.db.set_value(
+		"Bucket Request Trip", name, {"status": "Received", "received_at": frappe.utils.now()}
+	)
+
+
+def auto_receive_trucks_for_bucket(bucket_id):
+	"""Called after a bucket is shelved at the sales farm. Any transfer truck that carried
+	it and now has nothing left in transit is back at its final destination: receive its
+	trip so the truck becomes available to route and plan again. Returns the trips received."""
+	trucks = frappe.db.sql_list(
+		"""SELECT DISTINCT pli.transit_truck FROM `tabPick List Item` pli
+		WHERE pli.parenttype = 'Order Pick List' AND pli.bucket = %s AND """
+		+ TRANSFER_TRUCK_OK,
+		bucket_id,
+	)
+	received = []
+	for truck in trucks:
+		trip = _vehicle_on_road(truck)
+		if not trip:
+			continue
+		left = frappe.db.sql(
+			"""SELECT COUNT(*) FROM `tabPick List Item`
+			WHERE parenttype = 'Order Pick List' AND in_transit = 1 AND IFNULL(shelved, 0) = 0
+			  AND transit_truck = %s""",
+			truck,
+		)[0][0]
+		if not left:
+			_receive_trip(trip)
+			received.append(trip)
+	return received
+
+
+>>>>>>> Stashed changes
 @frappe.whitelist()
 def getTransferControlData():
 	# Read-only per-bucket transfer state for a delivery-date window.
@@ -466,7 +825,217 @@ def getTransferScheduleData():
 		frappe.response["message"] = {"success": False, "error": str(e)}
 
 
+<<<<<<< Updated upstream
 @frappe.whitelist()
+=======
+def _transfer_schedule_payload(from_date, to_date):
+	"""The Transfer Scheduling feed — shared by the page and automatic scheduling."""
+	today = frappe.utils.today()
+	hub = transfer_hub()
+	sched = _schedule_map()
+
+	opl_rows = frappe.db.sql(
+		"""
+		SELECT DISTINCT opl.name AS opl, opl.order_name AS order_name, opl.sales_order AS so,
+		       so.customer AS customer, so.delivery_date AS delivery_date, opl.team AS opl_team
+		FROM `tabOrder Pick List` opl
+		JOIN `tabSales Order` so ON so.name = opl.sales_order
+		JOIN `tabPick List Item` pli ON pli.parent = opl.name AND pli.parenttype = 'Order Pick List'
+		WHERE opl.docstatus < 2 AND so.delivery_date BETWEEN %(f)s AND %(t)s
+		  AND (pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1 OR pli.in_transit = 1)
+		  AND COALESCE(pli.shelved, 0) = 0
+		""",
+		{"f": from_date, "t": to_date},
+		as_dict=True,
+	)
+	opl_names = [r["opl"] for r in opl_rows]
+	mixed = _mixed_map(opl_names)
+
+	# opl -> farm -> {open: variety -> {buckets, stems}, on_road}
+	# Driven by the transfer FLAGS, not "farm != Kapkolia": a bucket at its own
+	# sales farm (e.g. Karen for a Karen order) was never flagged and must not be
+	# planned onto a truck.
+	agg = {}
+	for b in _transfer_buckets(opl_names):
+		if not (b["open"] or b["on_road"]) or not b["farm"]:
+			continue
+		fmap = agg.setdefault(b["opl"], {})
+		frow = fmap.setdefault(b["farm"], {"varieties": {}, "on_road": 0})
+		if b["on_road"]:
+			frow["on_road"] += 1
+			continue
+		vrow = frow["varieties"].setdefault(b["variety"] or "", {"buckets": 0, "stems": 0})
+		vrow["buckets"] += 1
+		vrow["stems"] += b["stems"]
+
+	orders, unscheduled = [], []
+	for r in opl_rows:
+		fmap = agg.get(r["opl"]) or {}
+		farms_out = []
+		total_b, total_s, total_road = 0, 0.0, 0
+		for farm, frow in sorted(fmap.items()):
+			vmap = frow["varieties"]
+			fb = sum(v["buckets"] for v in vmap.values())
+			fs = sum(v["stems"] for v in vmap.values())
+			total_b += fb
+			total_s += fs
+			total_road += frow["on_road"]
+			farms_out.append(
+				{
+					"farm": farm,
+					"buckets": fb,
+					"stems": fs,
+					"on_road": frow["on_road"],
+					"varieties": [
+						{"variety": k, "buckets": v["buckets"], "stems": v["stems"]} for k, v in vmap.items()
+					],
+				}
+			)
+		if not farms_out:
+			continue
+		sc = sched.get(r["opl"])
+		if not sc:
+			if total_b:
+				unscheduled.append(
+					{
+						"opl": r["opl"],
+						"order_name": r.get("order_name") or r["opl"],
+						"customer": r.get("customer"),
+						"delivery_date": str(r.get("delivery_date") or ""),
+						"team": r.get("opl_team") or "",
+						"reason": "not_scheduled" if r.get("opl_team") else "no_team",
+						"buckets": total_b,
+						"farms": sorted(f["farm"] for f in farms_out if f["buckets"]),
+					}
+				)
+			continue
+		orders.append(
+			{
+				"opl": r["opl"],
+				"order_name": r.get("order_name") or r["opl"],
+				"customer": r.get("customer"),
+				"so": r.get("so"),
+				"delivery_date": str(r.get("delivery_date") or ""),
+				"truck": None,
+				"mixed": _mixed_label(mixed.get(r["opl"])),
+				"schedule": sc.get("schedule"),
+				"team": sc.get("team"),
+				"total_buckets": total_b,
+				"total_stems": total_s,
+				"on_road_buckets": total_road,
+				"farms": farms_out,
+			}
+		)
+
+	# Fleet
+	vehicles = frappe.get_all(
+		"Vehicle",
+		filters={"custom_is_internal_logistics_truck": 1},
+		fields=["name", "custom_trolley_capacity", "custom_buckets_per_trolley"],
+	)
+	veh_out = []
+	for v in vehicles:
+		trolleys = int(v.get("custom_trolley_capacity") or 0)
+		per = int(v.get("custom_buckets_per_trolley") or 0)
+		on_road = _vehicle_on_road(v.name)
+		veh_out.append(
+			{
+				"name": v.name,
+				"trolleys": trolleys,
+				"buckets_per_trolley": per,
+				"capacity_buckets": trolleys * per,
+				# Out on a trip -> not available until it's back at route_end
+				"on_road": on_road,
+				"dispatched_at": str(
+					frappe.db.get_value("Bucket Request Trip", on_road, "dispatched_at") or ""
+				)
+				if on_road
+				else "",
+				"route_end": _route_end(v.name, today),
+			}
+		)
+
+	# Trips: all of today's, plus earlier ones that were never received (a
+	# dispatched truck still on the road, or a stale draft that never left).
+	# Only loading today's trips hid both of those.
+	trip_names = set(frappe.get_all("Bucket Request Trip", filters={"trip_date": today}, pluck="name"))
+	trip_names |= set(
+		frappe.get_all(
+			"Bucket Request Trip",
+			filters={
+				"trip_date": ["between", [frappe.utils.add_days(today, -TRIP_LOOKBACK_DAYS), today]],
+				"status": ["!=", "Received"],
+			},
+			pluck="name",
+		)
+	)
+	trips_out = [_trip_dict(frappe.get_doc("Bucket Request Trip", tn), today) for tn in trip_names]
+	trips_out.sort(key=lambda t: (t["trip_date"], t["name"]), reverse=True)
+
+	# Distance graph (via_farms is upande_quality's Custom Field — read it where present)
+	dist_fields = ["name", "from_farm", "to_farm", "distance_km", "is_road_leg"]
+	if frappe.db.has_column("Farm Distance", "via_farms"):
+		dist_fields.append("via_farms")
+	dist_rows = frappe.get_all("Farm Distance", fields=dist_fields, order_by="from_farm, to_farm")
+	distances = [
+		{
+			"name": d.name,
+			"a": d.from_farm,
+			"b": d.to_farm,
+			"km": d.distance_km,
+			"leg": int(d.is_road_leg or 0),
+			"via": d.get("via_farms") or "",
+		}
+		for d in dist_rows
+	]
+
+	# Today's routes
+	route_docs = frappe.get_all(
+		"Bucket Logistics Route",
+		filters={"route_date": today},
+		pluck="name",
+		order_by="vehicle asc, from_datetime asc",
+	)
+	routes_out = []
+	for rn in route_docs:
+		doc = frappe.get_doc("Bucket Logistics Route", rn)
+		legs = [
+			{"leg": l.leg, "from_farm": l.from_farm, "to_farm": l.to_farm, "distance_km": l.distance_km}
+			for l in doc.legs
+		]
+		routes_out.append(
+			{
+				"name": doc.name,
+				"vehicle": doc.vehicle,
+				"from_datetime": _dt(doc.from_datetime),
+				"to_datetime": _dt(doc.to_datetime),
+				"total_km": doc.total_km,
+				"auto_planned": int(doc.get("auto_planned") or 0),
+				"legs": legs,
+				"farms": _route_farms(doc.legs),
+			}
+		)
+
+	return {
+		"success": True,
+		"orders": orders,
+		"unscheduled": unscheduled,
+		"vehicles": veh_out,
+		"trips": trips_out,
+		"truck_status": _truck_status(today),
+		"distances": distances,
+		"farm_list": _hub_company_farms(hub),
+		"routes": routes_out,
+		"packhouse": hub,
+		"auto_planning": _auto_planning_status(),
+		"today": str(today),
+		"window": {"from": str(from_date), "to": str(to_date)},
+		"generated_at": str(frappe.utils.now()),
+	}
+
+
+@frappe.whitelist(methods=["POST"])
+>>>>>>> Stashed changes
 def saveBucketTrip():
 	# Upsert a Bucket Request Trip. orders = rows joined by \x1e, fields within a row
 	# by \x1f: [order_pick_list, order_name, customer, farm, varieties, buckets, stems,
@@ -576,12 +1145,76 @@ def deleteBucketTrip():
 def saveBucketLogisticsRoute():
 	# Upsert a Bucket Logistics Route for (date, vehicle). legs = "|~|"-joined Farm
 	# Distance record names, in travel order. Empty legs = clear the route (the
+<<<<<<< Updated upstream
 	# vehicle goes back to unrestricted for the day — a deliberate degrade, not an error).
 	fd = frappe.form_dict
 	date = fd.get("date") or frappe.utils.today()
 	vehicle = fd.get("vehicle")
 	legs_raw = fd.get("legs") or ""
 
+=======
+	# vehicle goes back to unusable for distribution until routed again).
+	#
+	# The legs must form one continuous round trip from the packhouse back to the
+	# packhouse. Farm Distance records are undirected (FD-A-B serves A→B and B→A),
+	# so each leg is stored in the direction it is actually driven.
+	#
+	# A truck can run several routes a day, each in its own From/To window: `name`
+	# edits that route, `new=1` adds another one. With neither, the truck's only route
+	# that day is replaced (or created). The route's date is the day of From.
+	fd = frappe.form_dict
+	from_datetime = fd.get("from_datetime")
+	frappe.response["message"] = _save_route(
+		date=str(frappe.utils.getdate(from_datetime))
+		if from_datetime
+		else (fd.get("date") or frappe.utils.today()),
+		vehicle=fd.get("vehicle"),
+		leg_names=(fd.get("legs") or "").split("|~|"),
+		name=fd.get("name"),
+		new=frappe.utils.cint(fd.get("new")),
+		from_datetime=from_datetime,
+		to_datetime=fd.get("to_datetime"),
+	)
+
+
+def _route_to_update(date, vehicle, name=None, new=0, auto_planned=0):
+	"""The Bucket Logistics Route a save writes into, or None for a new one.
+	Returns (doc_or_None, error_message)."""
+	if name:
+		if not frappe.db.exists("Bucket Logistics Route", name):
+			return None, "Route {0} no longer exists. Refresh the page and try again.".format(name)
+		doc = frappe.get_doc("Bucket Logistics Route", name)
+		if doc.vehicle != vehicle:
+			return None, "Route {0} belongs to {1}.".format(name, doc.vehicle)
+		return doc, None
+	if new:
+		return None, None
+	filters = {"route_date": date, "vehicle": vehicle}
+	if auto_planned:
+		filters["auto_planned"] = 1
+	existing = frappe.get_all("Bucket Logistics Route", filters=filters, pluck="name")
+	if len(existing) == 1:
+		return frappe.get_doc("Bucket Logistics Route", existing[0]), None
+	if len(existing) > 1:
+		return None, "{0} has {1} routes on {2} — edit the one you mean under Truck Routes.".format(
+			vehicle, len(existing), date
+		)
+	return None, None
+
+
+def _save_route(
+	date,
+	vehicle,
+	leg_names,
+	auto_planned=0,
+	name=None,
+	new=0,
+	from_datetime=None,
+	to_datetime=None,
+):
+	"""Validate and save a truck's Bucket Logistics Route; returns the response message.
+	A route saved by hand (auto_planned=0) is never re-routed by automatic scheduling."""
+>>>>>>> Stashed changes
 	if not vehicle:
 		frappe.response["message"] = {"status": "error", "message": "A vehicle is required."}
 		return
@@ -596,13 +1229,56 @@ def saveBucketLogisticsRoute():
 		)
 	by_name = {d.name: d for d in leg_docs}
 
+<<<<<<< Updated upstream
 	name = "BLR-" + str(date) + "-" + vehicle
 	if frappe.db.exists("Bucket Logistics Route", name):
 		doc = frappe.get_doc("Bucket Logistics Route", name)
 	else:
+=======
+	unknown = [ln for ln in leg_names if ln not in by_name]
+	if unknown:
+		return {
+			"status": "error",
+			"message": "Unknown road leg(s): {0}. Refresh the page and try again.".format(", ".join(unknown)),
+		}
+
+	hub = transfer_hub()
+	path, here = [], hub
+	for ln in leg_names:
+		d = by_name[ln]
+		if d.from_farm == here:
+			start, end = d.from_farm, d.to_farm
+		elif d.to_farm == here:
+			start, end = d.to_farm, d.from_farm
+		else:
+			return {
+				"status": "error",
+				"message": "Route is broken at {0}: leg {1} ({2}–{3}) doesn't start there.".format(
+					here, ln, d.from_farm, d.to_farm
+				),
+			}
+		path.append({"leg": d.name, "from_farm": start, "to_farm": end, "distance_km": d.distance_km})
+		here = end
+	if path and here != hub:
+		return {
+			"status": "error",
+			"message": "Route ends at {0} — it must return to {1}.".format(here, hub),
+		}
+
+	doc, err = _route_to_update(date, vehicle, name=name, new=new, auto_planned=auto_planned)
+	if err:
+		return {"status": "error", "message": err}
+	if doc is None:
+>>>>>>> Stashed changes
 		doc = frappe.new_doc("Bucket Logistics Route")
 		doc.route_date = date
 		doc.vehicle = vehicle
+	if from_datetime or to_datetime:
+		if not (from_datetime and to_datetime):
+			return {"status": "error", "message": "Set both From and To."}
+		doc.from_datetime, doc.to_datetime = from_datetime, to_datetime
+	elif not (doc.from_datetime and doc.to_datetime):
+		doc.from_datetime, doc.to_datetime = _day_window(date)
 
 	doc.set("legs", [])
 	total_km = 0.0
@@ -616,10 +1292,19 @@ def saveBucketLogisticsRoute():
 		)
 		total_km += float(d.distance_km or 0)
 	doc.total_km = total_km
+<<<<<<< Updated upstream
 	doc.save(ignore_permissions=True)
 	# Committed explicitly: this endpoint is whitelisted without `methods`, so it
 	# is reachable over GET, and frappe rolls back writes made during a GET
 	# request -- without this the caller gets a success response and no change.
+=======
+	doc.auto_planned = 1 if auto_planned else 0
+	try:
+		doc.save(ignore_permissions=True)
+	except frappe.ValidationError as e:
+		frappe.clear_last_message()
+		return {"status": "error", "reason": "overlap", "message": str(e)}
+>>>>>>> Stashed changes
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 	frappe.response["message"] = {
@@ -631,6 +1316,279 @@ def saveBucketLogisticsRoute():
 
 
 @frappe.whitelist()
+<<<<<<< Updated upstream
+=======
+def getBucketLogisticsRoutes():
+	# Every truck's Bucket Logistics Route for one date (default today), legs in
+	# driving order — for the Truck Routes list / route builder.
+	date = frappe.form_dict.get("date") or frappe.utils.today()
+	out = []
+	for name in frappe.get_all(
+		"Bucket Logistics Route",
+		filters={"route_date": date},
+		pluck="name",
+		order_by="vehicle asc, from_datetime asc",
+	):
+		doc = frappe.get_doc("Bucket Logistics Route", name)
+		legs = [
+			{"leg": l.leg, "from_farm": l.from_farm, "to_farm": l.to_farm, "distance_km": l.distance_km}
+			for l in doc.legs
+		]
+		stops = [legs[0]["from_farm"]] + [l["to_farm"] for l in legs] if legs else []
+		out.append(
+			{
+				"name": doc.name,
+				"vehicle": doc.vehicle,
+				"route_date": str(doc.route_date),
+				"from_datetime": _dt(doc.from_datetime),
+				"to_datetime": _dt(doc.to_datetime),
+				"total_km": doc.total_km,
+				"auto_planned": int(doc.get("auto_planned") or 0),
+				"legs": legs,
+				"stops": stops,
+				"farms": _route_farms(doc.legs),
+				"modified": str(doc.modified),
+			}
+		)
+	frappe.response["message"] = {"status": "success", "date": str(date), "routes": out}
+
+
+@frappe.whitelist(methods=["POST"])
+def saveTransferTruck():
+	# Add a transfer truck from the Remote Transfers page: a Vehicle with "Is Internal
+	# Logistics Truck" ticked. An existing registration is ticked and its capacity updated.
+	fd = frappe.form_dict
+	plate = (fd.get("license_plate") or "").strip().upper()
+	if not plate:
+		frappe.response["message"] = {"status": "error", "message": "Registration is required."}
+		return
+	trolleys = frappe.utils.cint(fd.get("trolley_capacity"))
+	per = frappe.utils.cint(fd.get("buckets_per_trolley"))
+	if trolleys <= 0 or per <= 0:
+		frappe.response["message"] = {
+			"status": "error",
+			"message": "Trolleys and buckets per trolley must be more than 0.",
+		}
+		return
+	exists = frappe.db.exists("Vehicle", plate)
+	if not frappe.has_permission("Vehicle", "write" if exists else "create"):
+		frappe.response["message"] = {"status": "error", "message": "You can't add vehicles."}
+		return
+	if exists:
+		doc = frappe.get_doc("Vehicle", plate)
+	else:
+		doc = frappe.new_doc("Vehicle")
+		doc.license_plate = plate
+		doc.make = (fd.get("make") or "").strip() or "Unknown"
+		doc.model = (fd.get("model") or "").strip() or "Unknown"
+		doc.fuel_type = fd.get("fuel_type") or "Diesel"
+		doc.uom = "Litre" if frappe.db.exists("UOM", "Litre") else "Nos"
+		doc.last_odometer = 0
+	doc.custom_is_internal_logistics_truck = 1
+	doc.custom_trolley_capacity = trolleys
+	doc.custom_buckets_per_trolley = per
+	try:
+		doc.save()
+	except frappe.ValidationError as e:
+		frappe.clear_last_message()
+		frappe.response["message"] = {"status": "error", "message": str(e)}
+		return
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
+	frappe.response["message"] = {
+		"status": "success",
+		"name": doc.name,
+		"updated": 1 if exists else 0,
+		"capacity_buckets": trolleys * per,
+	}
+
+
+@frappe.whitelist()
+def getPreviousRoutes():
+	# Routes saved on the days before `before` (default today), newest first, for
+	# reusing on a new day. A route repeated unchanged (same truck, stops and times of
+	# day) is listed once, at its latest date.
+	fd = frappe.form_dict
+	before = fd.get("before") or frappe.utils.today()
+	days = min(frappe.utils.cint(fd.get("days")) or 30, 90)
+	out, seen = [], set()
+	for name in frappe.get_all(
+		"Bucket Logistics Route",
+		filters={
+			"route_date": [
+				"between",
+				[frappe.utils.add_days(before, -days), frappe.utils.add_days(before, -1)],
+			],
+		},
+		pluck="name",
+		order_by="route_date desc, vehicle asc, from_datetime asc",
+	):
+		doc = frappe.get_doc("Bucket Logistics Route", name)
+		if not doc.legs:
+			continue
+		legs = [
+			{"leg": l.leg, "from_farm": l.from_farm, "to_farm": l.to_farm, "distance_km": l.distance_km}
+			for l in doc.legs
+		]
+		stops = [legs[0]["from_farm"]] + [l["to_farm"] for l in legs]
+		key = (doc.vehicle, _dt(doc.from_datetime)[11:], _dt(doc.to_datetime)[11:], tuple(stops))
+		if key in seen:
+			continue
+		seen.add(key)
+		out.append(
+			{
+				"name": doc.name,
+				"vehicle": doc.vehicle,
+				"route_date": str(doc.route_date),
+				"from_datetime": _dt(doc.from_datetime),
+				"to_datetime": _dt(doc.to_datetime),
+				"total_km": doc.total_km,
+				"legs": legs,
+				"stops": stops,
+				"farms": _route_farms(doc.legs),
+			}
+		)
+	frappe.response["message"] = {"status": "success", "before": str(before), "routes": out}
+
+
+@frappe.whitelist()
+def getLastRoutedDate():
+	# The latest day before `before` (default today) that has truck routes — the
+	# default source when copying routes onto a new day.
+	before = frappe.form_dict.get("before") or frappe.utils.today()
+	last = frappe.get_all(
+		"Bucket Logistics Route",
+		filters={"route_date": ["<", before]},
+		pluck="route_date",
+		order_by="route_date desc",
+		limit=1,
+	)
+	frappe.response["message"] = {"status": "success", "date": str(last[0]) if last else ""}
+
+
+@frappe.whitelist(methods=["POST"])
+def deleteBucketLogisticsRoute():
+	# Remove a truck's route for a day. The truck is then not used by ⚡ Distribute
+	# for that day until it is routed again; trips already planned are untouched.
+	name = frappe.form_dict.get("name")
+	if not name or not frappe.db.exists("Bucket Logistics Route", name):
+		frappe.response["message"] = {"status": "error", "message": "Route not found."}
+		return
+	frappe.delete_doc("Bucket Logistics Route", name, ignore_permissions=True)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
+	frappe.response["message"] = {"status": "success", "name": name}
+
+
+def _farm_distance_between(a, b):
+	"""The Farm Distance record for the pair in either direction (roads are two-way)."""
+	return frappe.db.get_value("Farm Distance", {"from_farm": a, "to_farm": b}) or frappe.db.get_value(
+		"Farm Distance", {"from_farm": b, "to_farm": a}
+	)
+
+
+@frappe.whitelist(methods=["POST"])
+def saveFarmDistance():
+	# Add a road to the network the truck routes are built from — or update the km /
+	# road-leg flag of an existing pair (either direction). is_road_leg=1 is a real
+	# road a truck drives; 0 is a direct-distance figure used for totals only.
+	fd = frappe.form_dict
+	a = (fd.get("from_farm") or "").strip()
+	b = (fd.get("to_farm") or "").strip()
+	km = frappe.utils.flt(fd.get("distance_km"))
+	road = 1 if frappe.utils.cint(fd.get("is_road_leg")) else 0
+
+	if not a or not b:
+		frappe.response["message"] = {"status": "error", "message": "Pick both farms."}
+		return
+	if a == b:
+		frappe.response["message"] = {"status": "error", "message": "A road needs two different farms."}
+		return
+	missing = [f for f in (a, b) if not frappe.db.exists("Farm", f)]
+	if missing:
+		frappe.response["message"] = {"status": "error", "message": "Unknown farm: " + ", ".join(missing)}
+		return
+	if km <= 0:
+		frappe.response["message"] = {"status": "error", "message": "Distance must be more than 0 km."}
+		return
+
+	name = _farm_distance_between(a, b)
+	doc = frappe.get_doc("Farm Distance", name) if name else frappe.new_doc("Farm Distance")
+	if not name:
+		doc.from_farm, doc.to_farm = a, b
+	doc.distance_km = km
+	doc.is_road_leg = road
+	doc.save(ignore_permissions=True)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
+	frappe.response["message"] = {
+		"status": "success",
+		"name": doc.name,
+		"updated": bool(name),
+		"via_farms": doc.get("via_farms") or "",
+	}
+
+
+@frappe.whitelist(methods=["POST"])
+def deleteFarmDistance():
+	# Remove a road. Refused while a saved truck route still drives it — deleting it
+	# would silently break that route's legs.
+	name = frappe.form_dict.get("name")
+	if not name or not frappe.db.exists("Farm Distance", name):
+		frappe.response["message"] = {"status": "error", "message": "Road not found."}
+		return
+	used = frappe.get_all(
+		"Bucket Logistics Route Leg", filters={"leg": name}, pluck="parent", distinct=True, limit=5
+	)
+	if used:
+		frappe.response["message"] = {
+			"status": "error",
+			"message": "{0} is used by route(s) {1} — change those routes first.".format(
+				name, ", ".join(used)
+			),
+		}
+		return
+	frappe.delete_doc("Farm Distance", name, ignore_permissions=True)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
+	frappe.response["message"] = {"status": "success", "name": name}
+
+
+def _mark_trip_in_transit(doc):
+	"""Flag the buckets a dispatched trip carries: in_transit=1, transit_truck=vehicle.
+
+	A trip row says "N buckets of order X from farm F", not which buckets, so the
+	first N open buckets of that (order, farm) in pick-list order are taken.
+	awaiting_transfer is deliberately left at 1 — see the module header.
+	Returns how many buckets were flagged, and any shortfall per row."""
+	opls = list({o.order_pick_list for o in doc.orders if o.order_pick_list})
+	pool = {}
+	for b in _transfer_buckets(opls):
+		if b["open"]:
+			pool.setdefault((b["opl"], b["farm"]), []).append(b)
+	marked, short = 0, []
+	for o in doc.orders:
+		bucket_list = pool.get((o.order_pick_list, o.farm or "")) or []
+		take, rest = bucket_list[: int(o.buckets or 0)], bucket_list[int(o.buckets or 0) :]
+		pool[(o.order_pick_list, o.farm or "")] = rest
+		for b in take:
+			for row_name in b["names"]:
+				frappe.db.set_value(
+					"Pick List Item",
+					row_name,
+					{"in_transit": 1, "loaded_in_trolley": 0, "transit_truck": doc.vehicle},
+				)
+			marked += 1
+		if len(take) < int(o.buckets or 0):
+			short.append(
+				{
+					"opl": o.order_pick_list,
+					"farm": o.farm,
+					"planned": int(o.buckets or 0),
+					"flagged": len(take),
+				}
+			)
+	return marked, short
+
+
+@frappe.whitelist(methods=["POST"])
+>>>>>>> Stashed changes
 def dispatchBucketTrip():
 	fd = frappe.form_dict
 	name = fd.get("name")
