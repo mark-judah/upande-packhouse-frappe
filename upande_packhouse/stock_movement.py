@@ -233,6 +233,60 @@ def _bucket_expr():
 	return "se.custom_bucket_id"
 
 
+def _bucket_lines(param="bucket"):
+	"""FROM clause over the Stock Entry lines of bucket %(param)s, as `se` / `sed`.
+
+	Matching on the COALESCE alone cannot use an index, so on a site with
+	millions of Stock Entry Detail rows every balance check scanned the whole
+	item's ledger (~17s each). The entries that mention the bucket are found
+	first through the parent and line bucket indexes, as a derived table —
+	written as `se.name IN (... UNION ...)` MariaDB runs it as a dependent
+	subquery over the same rows. The COALESCE then keeps the exact line/parent
+	precedence."""
+	if not line_has_bucket():
+		return f"""FROM `tabStock Entry` se
+            JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
+            WHERE se.custom_bucket_id = %({param})s"""
+	return f"""FROM (
+                SELECT parent AS name FROM `tabStock Entry Detail` WHERE custom_bucket_id = %({param})s
+                UNION
+                SELECT name FROM `tabStock Entry` WHERE custom_bucket_id = %({param})s
+            ) m
+            JOIN `tabStock Entry` se ON se.name = m.name
+            JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
+            WHERE {_bucket_expr()} = %({param})s"""
+
+
+def ensure_line_bucket_index():
+	"""Index `Stock Entry Detail.custom_bucket_id`, which `_bucket_lines` relies on.
+
+	The field belongs to another app's fixtures, so its search_index is set
+	with a Property Setter: without it frappe drops the index again on the
+	next schema sync of Stock Entry Detail."""
+	if not line_has_bucket():
+		return
+	from frappe.custom.doctype.property_setter.property_setter import make_property_setter
+
+	if not frappe.db.get_value(
+		"Property Setter",
+		{"doc_type": "Stock Entry Detail", "field_name": "custom_bucket_id", "property": "search_index"},
+	):
+		make_property_setter(
+			"Stock Entry Detail",
+			"custom_bucket_id",
+			"search_index",
+			"1",
+			"Check",
+			for_doctype=False,
+			validate_fields_for_doctype=False,
+		)
+	if not frappe.db.get_column_index("tabStock Entry Detail", "custom_bucket_id", unique=False):
+		frappe.db.commit()
+		frappe.db.sql_ddl(
+			"ALTER TABLE `tabStock Entry Detail` ADD INDEX IF NOT EXISTS `custom_bucket_id_index` (`custom_bucket_id`)"
+		)
+
+
 def entry_has_box():
 	"""Is `Stock Entry.custom_box_label` available on this site?
 
@@ -263,7 +317,6 @@ def _ledger_balance(item_code, warehouse, bucket_id=None):
 		return on_hand(item_code, warehouse)
 
 	conditions = [
-		f"{_bucket_expr()} = %(bucket)s",
 		"sed.item_code = %(item)s",
 		"se.docstatus = 1",
 	]
@@ -277,9 +330,8 @@ def _ledger_balance(item_code, warehouse, bucket_id=None):
                        SUM(CASE WHEN sed.t_warehouse = %(wh)s THEN sed.qty ELSE 0 END)
                      - SUM(CASE WHEN sed.s_warehouse = %(wh)s THEN sed.qty ELSE 0 END),
                    0)
-            FROM `tabStock Entry` se
-            JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
-            WHERE {" AND ".join(conditions)}
+            {_bucket_lines()}
+              AND {" AND ".join(conditions)}
             """,
 			params,
 		)[0][0]
@@ -318,10 +370,8 @@ def sold_qty(bucket_id, item_code, so_item, target):
                        SUM(CASE WHEN sed.t_warehouse = %(wh)s THEN sed.qty ELSE 0 END)
                      - SUM(CASE WHEN sed.s_warehouse = %(wh)s THEN sed.qty ELSE 0 END),
                    0)
-            FROM `tabStock Entry` se
-            JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
-            WHERE se.custom_issued_to = %(so_item)s
-              AND {_bucket_expr()} = %(bucket)s
+            {_bucket_lines()}
+              AND se.custom_issued_to = %(so_item)s
               AND sed.item_code = %(item)s
               AND se.docstatus = 1
             """,
@@ -344,10 +394,8 @@ def sold_in_qty(bucket_id, item_code, so_item, target):
 		frappe.db.sql(
 			f"""
             SELECT COALESCE(SUM(sed.qty), 0)
-            FROM `tabStock Entry` se
-            JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
-            WHERE se.custom_issued_to = %(so_item)s
-              AND {_bucket_expr()} = %(bucket)s
+            {_bucket_lines()}
+              AND se.custom_issued_to = %(so_item)s
               AND sed.item_code = %(item)s
               AND sed.t_warehouse = %(wh)s
               AND se.docstatus = 1

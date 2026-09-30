@@ -2548,7 +2548,8 @@ def _requested_bucket_rows(pick_list_item):
 				_("Bucket {0} has already left the cold room and cannot be replaced.").format(anchor.bucket)
 			)
 
-	farm = anchor.farm or (frappe.db.get_value("Shelf", anchor.shelf, "farm") if anchor.shelf else None)
+	# The missing bucket's shelf decides the farm: the replacement must sit in the same cold room.
+	farm = (frappe.db.get_value("Shelf", anchor.shelf, "farm") if anchor.shelf else None) or anchor.farm
 	if not farm:
 		frappe.throw(_("Cannot tell which farm bucket {0} was allocated from.").format(anchor.bucket))
 	return anchor, rows, farm
@@ -2647,6 +2648,103 @@ def _no_replacement_message(anchor, farm, needed):
 	)
 
 
+def _bucket_ledger(bucket_ids, item_code):
+	"""Net stems of `item_code` per (bucket, warehouse), and per (bucket, SO item,
+	warehouse) for the order-stamped legs, from the buckets' own Stock Entries.
+
+	The entries that mention the buckets are joined as a derived table: written
+	as `se.name IN (... UNION ...)` the lookup runs as a dependent subquery over
+	the item's whole ledger (~20s a read on kaitet)."""
+	buckets = tuple(bucket_ids)
+	if stock_movement.line_has_bucket():
+		bucket = "COALESCE(sed.custom_bucket_id, se.custom_bucket_id)"
+		mentions = """SELECT parent AS name FROM `tabStock Entry Detail` WHERE custom_bucket_id IN %(buckets)s
+			UNION SELECT name FROM `tabStock Entry` WHERE custom_bucket_id IN %(buckets)s"""
+	else:
+		bucket = "se.custom_bucket_id"
+		mentions = "SELECT name FROM `tabStock Entry` WHERE custom_bucket_id IN %(buckets)s"
+	# nosemgrep: frappe-sql-format-injection -- the holes are fixed SQL fragments; every value is bound
+	lines = frappe.db.sql(
+		f"""
+		SELECT {bucket} AS bucket, se.custom_issued_to AS so_item,
+		       sed.s_warehouse, sed.t_warehouse, sed.qty
+		FROM ({mentions}) m
+		JOIN `tabStock Entry` se ON se.name = m.name
+		JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
+		WHERE se.docstatus = 1 AND sed.item_code = %(item)s
+		""",
+		{"buckets": buckets, "item": item_code},
+		as_dict=True,
+	)
+	held, sold = {}, {}
+	for line in lines:
+		if line.bucket not in buckets:
+			continue
+		for warehouse, sign in ((line.t_warehouse, 1), (line.s_warehouse, -1)):
+			if not warehouse:
+				continue
+			held[(line.bucket, warehouse)] = held.get((line.bucket, warehouse), 0) + sign * flt(line.qty)
+			if line.so_item:
+				key = (line.bucket, line.so_item, warehouse)
+				sold[key] = sold.get(key, 0) + sign * flt(line.qty)
+	return held, sold
+
+
+def _post_bucket_swap(
+	*, source, target, item_code, lines, farm, business_unit, stem_length, so_item, opl, remarks
+):
+	"""One Sold-leg Stock Entry that trades buckets for an order: each line
+	carries its own warehouses, so the replacement moves in and the missing
+	bucket moves out in the same entry."""
+	company = frappe.db.get_value("Warehouse", source, "company")
+	cost_center = frappe.db.get_value(
+		"Warehouse", source, "custom_cost_center"
+	) or stock_movement.default_cost_center(company)
+	if not cost_center:
+		frappe.throw(f"Please contact your IT administrator to add the cost center for warehouse {source}")
+
+	se = frappe.new_doc("Stock Entry")
+	se.update(
+		{
+			"stock_entry_type": stock_movement.TYPE_TO_SOLD,
+			"purpose": frappe.db.get_value("Stock Entry Type", stock_movement.TYPE_TO_SOLD, "purpose")
+			or "Material Transfer",
+			"company": company,
+			"posting_date": frappe.utils.nowdate(),
+			"posting_time": frappe.utils.nowtime(),
+			"set_posting_time": 1,
+			"from_warehouse": source,
+			"to_warehouse": target,
+			"farm": farm,
+			"business_unit": business_unit,
+			"custom_stem_length": stem_length,
+			"custom_issued_to": so_item,
+			"custom_opl_scanned": opl,
+			"remarks": remarks,
+			"cost_center": cost_center,
+		}
+	)
+	for line in lines:
+		se.append(
+			"items",
+			{
+				"item_code": item_code,
+				"qty": flt(line["qty"]),
+				"s_warehouse": line["from"],
+				"t_warehouse": line["to"],
+				"farm": farm,
+				"business_unit": business_unit,
+				"custom_stem_length": line["stem_length"],
+				"custom_bucket_id": line["bucket_id"],
+				"cost_center": cost_center,
+				"allow_zero_valuation_rate": 1,
+			},
+		)
+	se.insert(ignore_permissions=True)
+	se.submit()
+	return se.name
+
+
 def _clear_shelf_item(shelf_item, shelf, reason):
 	"""Take one bucket row off its shelf, closing its Shelving Log like the issue flow does."""
 	log = frappe.db.get_value("Shelving Log", {"shelf_item": shelf_item, "reason": "Shelved"}, "name")
@@ -2729,8 +2827,11 @@ def _replace_requested_bucket(pick_list_item: str, new_bucket_id: str | None = N
 	  its shelf, warehouse and stem length.
 	- Shelf: the new bucket leaves its shelf; the missing bucket's row is
 	  cleared too once nothing else is allocated from it.
-	- Stock: the old bucket's Sold and Arrival legs are reversed back to its
-	  farm, and the new bucket is moved along the same route into Sold.
+	- Stock: one Sold-leg entry per SO item trades the buckets in place. The
+	  replacement goes from wherever its stems sit on the route into the Sold
+	  warehouse, and the missing bucket's stems for this order go from Sold back
+	  to its shelf warehouse -- the positions its earlier legs reached are reused
+	  instead of walking the route back and forward leg by leg.
 	"""
 	try:
 		anchor, rows, farm = _requested_bucket_rows(pick_list_item)
@@ -2750,13 +2851,31 @@ def _replace_requested_bucket(pick_list_item: str, new_bucket_id: str | None = N
 			qty_by_so_item[r.sales_order_item] = qty_by_so_item.get(r.sales_order_item, 0) + flt(r.stock_qty)
 		sales_order = frappe.db.get_value("Order Pick List", opl_name, "sales_order")
 		so_doc = frappe.get_doc("Sales Order", sales_order)
+		business_unit = stock_movement.business_unit_of(so_doc)
 
-		# ── Stock: send the old bucket's stems back out of the Sold warehouse ──
-		reversed_moves = []
-		for so_item in qty_by_so_item:
-			reversed_moves += stock_movement.reverse_allocation_movement(
-				so_item, bucket_id=old_bucket, item_code=anchor.item_code
+		# ── Stock: where each bucket's stems sit now ──
+		held, sold = _bucket_ledger([old_bucket, new.bucket_id], anchor.item_code)
+		route = stock_movement.resolve_route(new.warehouse, business_unit) if new.warehouse else []
+		sold_warehouse = next((hop["to"] for hop in route if hop["terminal"]), None)
+		if not sold_warehouse:
+			frappe.throw(_("No Sold warehouse is mapped for {0}.").format(new.warehouse or new.shelf))
+		# Furthest position first: an earlier allocation may already have carried it past its shelf.
+		positions = [new.warehouse] + [hop["to"] for hop in route if not hop["terminal"]]
+		new_source = next(
+			(
+				wh
+				for wh in reversed(positions)
+				if held.get((new.bucket_id, wh), 0) + stock_movement.QTY_TOLERANCE >= needed
+			),
+			None,
+		)
+		if not new_source:
+			frappe.throw(
+				_("Bucket {0} has no {1} stems in stock at {2}.").format(
+					new.bucket_id, int(needed), ", ".join(positions)
+				)
 			)
+		old_home = rows[0].source_warehouse or rows[0].warehouse or new_source
 
 		# ── BAS: release the old bucket ──
 		old_bas_name = frappe.db.get_value(
@@ -2777,34 +2896,6 @@ def _replace_requested_bucket(pick_list_item: str, new_bucket_id: str | None = N
 			old_bas.flags.ignore_validate = True
 			old_bas.flags.ignore_mandatory = True
 			old_bas.save(ignore_permissions=True)
-
-		# ── Stock: the old bucket never left its farm, so undo its Arrival leg too ──
-		business_unit = stock_movement.business_unit_of(so_doc)
-		old_source = rows[0].source_warehouse or rows[0].warehouse
-		arrival = (
-			stock_movement.stage_warehouse(old_source, business_unit, stage=stock_movement.ARRIVAL_STAGE)
-			if old_source
-			else None
-		)
-		returned_qty = sum(flt(m.get("qty")) for m in reversed_moves)
-		if arrival and arrival != old_source and returned_qty > 0:
-			back = min(returned_qty, stock_movement.bucket_balance(old_bucket, anchor.item_code, arrival))
-			if back > stock_movement.QTY_TOLERANCE:
-				entry = stock_movement.post_transfer(
-					entry_type=stock_movement.TYPE_HOP,
-					source=arrival,
-					target=old_source,
-					item_code=anchor.item_code,
-					lines=[{"bucket_id": old_bucket, "qty": back}],
-					farm=farm,
-					business_unit=business_unit,
-					stem_length=anchor.stem_length,
-					opl=opl_name,
-					remarks=f"Bucket {old_bucket} missing at {farm} — replaced with {new.bucket_id}",
-				)
-				reversed_moves.append(
-					{"entry": entry, "bucket": old_bucket, "qty": back, "reverses": "Arrival"}
-				)
 
 		# ── Shelf: the missing bucket's row goes once nothing else is allocated from it ──
 		if not old_bas_name or not flt(
@@ -2884,24 +2975,47 @@ def _replace_requested_bucket(pick_list_item: str, new_bucket_id: str | None = N
 		# ── Shelf: the replacement leaves its shelf now it is claimed for this order ──
 		_clear_shelf_item(new.shelf_item, new.shelf, "Replaced")
 
-		# ── Stock: move the new bucket along the same route into Sold ──
-		stock_moves = stock_movement.move_allocation_to_sold(
-			[
+		# ── Stock: trade the buckets in the Sold warehouse, one entry per SO item ──
+		stock_moves = []
+		for so_item, qty in qty_by_so_item.items():
+			lines = [
 				{
 					"bucket_id": new.bucket_id,
-					"item_code": anchor.item_code,
 					"qty": qty,
-					"warehouse": new.warehouse,
+					"from": new_source,
+					"to": sold_warehouse,
 					"stem_length": new.stem_length,
-					"_shelf_farm": farm,
-					"sales_order_item": so_item,
-					"_opl": opl_name,
 				}
-				for so_item, qty in qty_by_so_item.items()
-			],
-			business_unit=business_unit,
-			sales_order=sales_order,
-		)
+			]
+			for (bucket, line_so_item, warehouse), outstanding in sold.items():
+				if (
+					bucket == old_bucket
+					and line_so_item == so_item
+					and warehouse != old_home
+					and outstanding > stock_movement.QTY_TOLERANCE
+				):
+					lines.append(
+						{
+							"bucket_id": old_bucket,
+							"qty": outstanding,
+							"from": warehouse,
+							"to": old_home,
+							"stem_length": anchor.stem_length,
+						}
+					)
+			entry = _post_bucket_swap(
+				source=new_source,
+				target=sold_warehouse,
+				item_code=anchor.item_code,
+				lines=lines,
+				farm=farm,
+				business_unit=business_unit,
+				stem_length=new.stem_length,
+				so_item=so_item,
+				opl=opl_name,
+				remarks=f"Bucket {old_bucket} missing at {farm} — replaced with {new.bucket_id}",
+			)
+			stock_moves.append({"entry": entry, "so_item": so_item, "lines": lines})
 
 		frappe.get_doc("Order Pick List", opl_name).add_comment(
 			"Info",
@@ -2920,7 +3034,6 @@ def _replace_requested_bucket(pick_list_item: str, new_bucket_id: str | None = N
 			"stem_length": new.stem_length,
 			"warehouse": new.warehouse,
 			"pick_list_items": [r.name for r in rows],
-			"reversed": reversed_moves,
 			"stock_moves": stock_moves,
 		}
 	except (frappe.QueryDeadlockError, frappe.QueryTimeoutError) as e:
