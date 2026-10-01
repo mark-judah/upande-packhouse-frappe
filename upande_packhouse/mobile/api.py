@@ -2273,49 +2273,14 @@ def fetchPicklists():
 				as_list=True,
 			)
 
-		# Exclude fully-packed OPLs, using the SAME packed/planned definition as
-		# get_pick_list_with_farm_pack_list (the app's packing guide):
-		#   planned = Order Pick List.custom_total_stems  (== guide planned_total)
-		#   packed  = sum of stock_qty (or bunch_qty*10) over the rows
-		#             of the latest Farm Pack List for the OPL, counting only rows
-		#             that have an item_code.
-		# An OPL is hidden ONLY when planned > 0 AND packed >= planned, so partially
-		# packed or unpacked orders are never hidden.
+		# NOTE: this used to hide an OPL once it was "fully packed" (packed >=
+		# planned stems from the latest Farm Pack List), so a submitted/finished
+		# order would vanish from this list entirely with no way to find it
+		# again from the picking screen. Submitted OPLs are kept visible here
+		# now — `opl.docstatus = 1` above already means only real, confirmed
+		# pick lists show up; being fully packed is no longer a reason to hide
+		# one.
 		opl_names = [r[0] for r in result]
-		packed_by_opl = {}
-
-		if opl_names:
-			fpls = frappe.db.get_all(
-				"Farm Pack List",
-				filters={"order_pick_list": ["in", opl_names]},
-				fields=["name", "order_pick_list"],
-				order_by="creation desc",
-			)
-			# Latest Farm Pack List per OPL (first seen, since ordered creation desc).
-			latest_fpl = {}
-			fpl_to_opl = {}
-			for fp in fpls:
-				opl_ref = fp.get("order_pick_list")
-				if opl_ref and opl_ref not in latest_fpl:
-					latest_fpl[opl_ref] = fp.get("name")
-					fpl_to_opl[fp.get("name")] = opl_ref
-
-			fpl_names = list(latest_fpl.values())
-			if fpl_names:
-				items = frappe.db.get_all(
-					"Farm Packlist Item",
-					filters={"parent": ["in", fpl_names], "parentfield": "pack_list_item"},
-					fields=["parent", "item_code", "stock_qty", "bunch_qty"],
-				)
-				for it in items:
-					if not it.get("item_code"):
-						continue
-					stems = it.get("stock_qty") or ((it.get("bunch_qty") or 0) * 10)
-					if not stems:
-						continue
-					opl_ref = fpl_to_opl.get(it.get("parent"))
-					if opl_ref:
-						packed_by_opl[opl_ref] = packed_by_opl.get(opl_ref, 0) + stems
 
 		# Varieties + stem lengths per OPL, for the picklist picker label
 		# (customer · variety · stem length), same as the issuing screen.
@@ -2336,13 +2301,6 @@ def fetchPicklists():
 
 		opl_list = []
 		for r in result:
-			try:
-				planned = float(r[3] or 0)
-			except Exception:
-				planned = 0
-			packed = packed_by_opl.get(r[0], 0)
-			if planned > 0 and packed >= planned:
-				continue
 			opl_list.append(
 				dict(
 					opl_name=r[0],

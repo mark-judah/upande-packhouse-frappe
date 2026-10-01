@@ -11,6 +11,7 @@
   "column_break_1",
   "header_row",
   "multi_order_column",
+  "customer_differentiator_column",
   "section_break_1",
   "notes",
   "section_break_2",
@@ -47,6 +48,12 @@
    "fieldname": "multi_order_column",
    "fieldtype": "Data",
    "label": "Multi-Order Split Column"
+  },
+  {
+   "description": "Set only when this platform is shared by more than one Customer (e.g. a buyer code column where different values are actually different customers). Which real Customer each value means is held per Customer Order Mapping row (its Differentiator Value). Leave blank when this platform belongs to one customer.",
+   "fieldname": "customer_differentiator_column",
+   "fieldtype": "Data",
+   "label": "Customer Differentiator Column"
   },
   {
    "fieldname": "section_break_1",
