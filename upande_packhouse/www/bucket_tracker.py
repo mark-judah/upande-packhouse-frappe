@@ -10,10 +10,13 @@
 import frappe
 from frappe.sessions import get_csrf_token
 
+from upande_packhouse.remote_transfer_routes import redirect_old_route
+
 no_cache = 1
 
 
 def get_context(context):
+	redirect_old_route("journey")
 	context.csrf_token = get_csrf_token()
 	# The Bucket Journey's "Transfer" stage names where remote buckets are trucked to.
 	# Unset (and ambiguous) just leaves it blank instead of failing the whole page.

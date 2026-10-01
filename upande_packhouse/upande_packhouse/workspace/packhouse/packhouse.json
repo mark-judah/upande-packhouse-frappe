@@ -261,7 +261,7 @@
    "doc_view": "",
    "label": "Scheduler",
    "type": "URL",
-   "url": "/packhouse-scheduler"
+   "url": "/remote-transfers/scheduler"
   },
   {
    "color": "Grey",
@@ -282,14 +282,14 @@
    "doc_view": "",
    "label": "Bucket Journey",
    "type": "URL",
-   "url": "/bucket-tracker"
+   "url": "/remote-transfers/bucket-journey"
   },
   {
    "color": "Grey",
    "doc_view": "",
    "label": "Bucket Logistics",
    "type": "URL",
-   "url": "/bucket-logistics"
+   "url": "/remote-transfers/bucket-logistics"
   },
   {
    "color": "Grey",

@@ -305,7 +305,11 @@ function open_multi_mix_wizard(frm, edit_mode) {
 					doctype: "Item",
 					filters: [["name", "in", item_list]],
 					fields: ["name", "sales_uom", "item_name"],
-					limit: item_list.length,
+					// frappe.client.get_list has no `limit` arg -- it is silently dropped and
+					// the default limit_page_length of 20 applies, so with >20 varieties the
+					// alphabetically-last ones came back missing and were reported as "No
+					// Sales UOM" even though they had one.
+					limit_page_length: item_list.length,
 				},
 				callback(r) {
 					let uom_map = {};

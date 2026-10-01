@@ -25,7 +25,7 @@ def sync_box_labels_for_fpl(fpl_doc, opl_doc, so_doc):
 	"""Create (or refresh, pre-staging) one Box Label per box_number packed
 	on this Farm Pack List. Idempotent: an existing label for a box is
 	updated in place rather than duplicated, but only while it's still
-	untouched by the physical flow (not yet staged/loaded/delivered) --
+	untouched by the physical flow (not yet precooling/staged/loaded/delivered) --
 	once a box has left packing, its label is left alone even if the FPL
 	is amended.
 	"""
@@ -44,7 +44,7 @@ def sync_box_labels_for_fpl(fpl_doc, opl_doc, so_doc):
 		existing = frappe.db.exists("Box Label", name)
 		if existing:
 			box = frappe.get_doc("Box Label", name)
-			if box.staged or box.loaded or box.delivered:
+			if box.precooling or box.staged or box.loaded or box.delivered:
 				# Already moving through the physical flow -- a re-pack/
 				# amendment must not silently rewrite a label that may
 				# already be printed and stuck on a real box.

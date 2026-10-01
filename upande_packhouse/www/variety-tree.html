@@ -940,16 +940,7 @@ load();
 </script>
 
 <script>
-(function(){
-  function fill(){
-    if(!window.frappe || !frappe.session){ return setTimeout(fill,120); }
-    var u=(frappe.session&&frappe.session.user)||'';
-    var full=(frappe.boot&&frappe.boot.user&&frappe.boot.user.full_name)||u||'User';
-    var nm=document.getElementById('aph-foot-nm'), av=document.getElementById('aph-foot-av'), em=document.getElementById('aph-foot-em');
-    if(nm)nm.textContent=full; if(av)av.textContent=(full.trim()[0]||'U').toUpperCase(); if(em)em.textContent=u;
-  }
-  fill();
-})();
+
 </script>
 
 <script>

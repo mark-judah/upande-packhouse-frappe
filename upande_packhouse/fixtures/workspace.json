@@ -374,7 +374,7 @@
     "restrict_to_domain": null,
     "stats_filter": null,
     "type": "URL",
-    "url": "/packhouse-scheduler"
+    "url": "/remote-transfers/scheduler"
    },
    {
     "color": "Grey",
@@ -416,7 +416,7 @@
     "restrict_to_domain": null,
     "stats_filter": null,
     "type": "URL",
-    "url": "/bucket-tracker"
+    "url": "/remote-transfers/bucket-journey"
    },
    {
     "color": "Grey",
@@ -430,7 +430,7 @@
     "restrict_to_domain": null,
     "stats_filter": null,
     "type": "URL",
-    "url": "/bucket-logistics"
+    "url": "/remote-transfers/bucket-logistics"
    },
    {
     "color": "Grey",

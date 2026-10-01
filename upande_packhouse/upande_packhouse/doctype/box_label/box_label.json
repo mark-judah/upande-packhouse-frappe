@@ -27,6 +27,10 @@
   "delivery_point",
   "box_total_count",
   "delivery_note",
+  "precooling",
+  "precooling_in_at",
+  "precooled",
+  "precooled_at",
   "staged",
   "loaded",
   "loaded_internal_transfer",
@@ -191,12 +195,36 @@
    "options": "Farm Pack List",
    "read_only": 1,
    "search_index": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "precooling",
+   "fieldtype": "Check",
+   "label": "In Precooling"
+  },
+  {
+   "fieldname": "precooling_in_at",
+   "fieldtype": "Datetime",
+   "label": "Precooling In At",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "precooled",
+   "fieldtype": "Check",
+   "label": "Precooled"
+  },
+  {
+   "fieldname": "precooled_at",
+   "fieldtype": "Datetime",
+   "label": "Precooled At",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-15 23:46:54.392178",
+ "modified": "2026-10-01 20:01:01.848489",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Box Label",

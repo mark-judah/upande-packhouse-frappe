@@ -1,0 +1,268 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:BRPL-{YYYY}-{#####}",
+ "naming_rule": "Expression",
+ "creation": "2026-10-02 00:03:38.911221",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "old_bucket",
+  "new_bucket",
+  "status",
+  "column_break_1",
+  "reason",
+  "notes",
+  "section_order",
+  "order_pick_list",
+  "order_name",
+  "sales_order",
+  "column_break_2",
+  "farm",
+  "item_code",
+  "stem_length",
+  "stems",
+  "section_where",
+  "expected_shelf",
+  "new_shelf",
+  "column_break_3",
+  "trip",
+  "vehicle",
+  "section_who",
+  "reported_by",
+  "reported_at",
+  "stock_entries",
+  "column_break_4",
+  "resolved_by",
+  "resolved_at",
+  "resolution"
+ ],
+ "fields": [
+  {
+   "fieldname": "old_bucket",
+   "fieldtype": "Data",
+   "label": "Replaced Bucket",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "new_bucket",
+   "fieldtype": "Data",
+   "label": "Replacement Bucket",
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Old Bucket Status",
+   "options": "Open\nFound\nDiscarded\nWritten Off",
+   "default": "Open",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "description": "Open until the replaced bucket turns up again (shelved), is discarded or written off."
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break",
+   "label": ""
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Select",
+   "label": "Reason",
+   "options": "Missing\nDamaged\nWrong variety\nOther",
+   "default": "Missing",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "section_order",
+   "fieldtype": "Section Break",
+   "label": "Order"
+  },
+  {
+   "fieldname": "order_pick_list",
+   "fieldtype": "Link",
+   "label": "Order Pick List",
+   "options": "Order Pick List",
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "order_name",
+   "fieldtype": "Data",
+   "label": "Order Name"
+  },
+  {
+   "fieldname": "sales_order",
+   "fieldtype": "Link",
+   "label": "Sales Order",
+   "options": "Sales Order"
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break",
+   "label": ""
+  },
+  {
+   "fieldname": "farm",
+   "fieldtype": "Link",
+   "label": "Farm",
+   "options": "Farm",
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "label": "Variety",
+   "options": "Item"
+  },
+  {
+   "fieldname": "stem_length",
+   "fieldtype": "Data",
+   "label": "Stem Length"
+  },
+  {
+   "fieldname": "stems",
+   "fieldtype": "Float",
+   "label": "Stems"
+  },
+  {
+   "fieldname": "section_where",
+   "fieldtype": "Section Break",
+   "label": "Where"
+  },
+  {
+   "fieldname": "expected_shelf",
+   "fieldtype": "Data",
+   "label": "Shelf It Should Have Been On"
+  },
+  {
+   "fieldname": "new_shelf",
+   "fieldtype": "Data",
+   "label": "Replacement Taken From Shelf"
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break",
+   "label": ""
+  },
+  {
+   "fieldname": "trip",
+   "fieldtype": "Link",
+   "label": "Trip",
+   "options": "Bucket Request Trip"
+  },
+  {
+   "fieldname": "vehicle",
+   "fieldtype": "Link",
+   "label": "Truck",
+   "options": "Vehicle"
+  },
+  {
+   "fieldname": "section_who",
+   "fieldtype": "Section Break",
+   "label": "Reported"
+  },
+  {
+   "fieldname": "reported_by",
+   "fieldtype": "Link",
+   "label": "Reported By",
+   "options": "User"
+  },
+  {
+   "fieldname": "reported_at",
+   "fieldtype": "Datetime",
+   "label": "Reported At"
+  },
+  {
+   "fieldname": "stock_entries",
+   "fieldtype": "Small Text",
+   "label": "Stock Entries",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break",
+   "label": ""
+  },
+  {
+   "fieldname": "resolved_by",
+   "fieldtype": "Link",
+   "label": "Resolved By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "resolved_at",
+   "fieldtype": "Datetime",
+   "label": "Resolved At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "resolution",
+   "fieldtype": "Small Text",
+   "label": "Resolution",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-02 00:03:38.911221",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Bucket Replacement",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "share": 1
+  },
+  {
+   "role": "Stock Manager",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "share": 1
+  },
+  {
+   "role": "Stock User",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "share": 0
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "old_bucket",
+ "track_changes": 1,
+ "show_title_field_in_link": 0
+}

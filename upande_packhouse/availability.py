@@ -2,7 +2,8 @@
 
 Truly-available stems = shelf stock (`Shelf Item.stem_qty`)
   minus what is already allocated (`Bucket Allocation Status.allocated_quantity`)
-  minus buckets reserved by an open Discard Request (workflow_state != 'Rejected').
+  minus buckets reserved by an open Discard Request (workflow_state != 'Rejected')
+  whose row is not yet discarded.
 
 Used by both the Sales Order spec-autofill popup and the allocation page, so the
 number a salesperson sees when picking varieties matches what can actually be
@@ -26,13 +27,18 @@ def _as_list(v):
 
 
 def reserved_bucket_ids():
-	"""bucket_ids locked by an open (non-Rejected) Discard Request."""
+	"""bucket_ids locked by an open (non-Rejected) Discard Request.
+
+	A row already marked `discarded` no longer holds the bucket: the old stems
+	are gone, and a reused bucket's fresh harvest must not inherit the hold
+	(upande_agriculture's reuse cleanup flags the old rows discarded)."""
 	rows = frappe.db.sql(
 		"""
 		SELECT DISTINCT drb.bucket_id
 		FROM `tabDiscard Request Bucket` drb
 		INNER JOIN `tabDiscard Request` dr ON dr.name = drb.parent
 		WHERE COALESCE(dr.workflow_state, '') != 'Rejected'
+		  AND COALESCE(drb.discarded, 0) = 0
 		  AND COALESCE(drb.bucket_id, '') != ''
 		"""
 	)

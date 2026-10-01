@@ -35,7 +35,8 @@
    "in_standard_filter": 1,
    "label": "Bucket ID",
    "options": "Bucket QR Code",
-   "reqd": 1
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "fieldname": "shelf",
@@ -150,7 +151,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-19 00:00:00.000000",
+ "modified": "2026-10-01 21:21:56.414771",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Shelving Log",

@@ -1,0 +1,80 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-10-01 20:09:45.026352",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "bucket",
+  "order_pick_list",
+  "farm",
+  "column_break_1",
+  "shelved",
+  "shelved_at",
+  "off_truck"
+ ],
+ "fields": [
+  {
+   "fieldname": "bucket",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Bucket",
+   "reqd": 1
+  },
+  {
+   "fieldname": "order_pick_list",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Order Pick List",
+   "options": "Order Pick List"
+  },
+  {
+   "fieldname": "farm",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Farm"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "shelved",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Shelved",
+   "read_only": 1
+  },
+  {
+   "fieldname": "shelved_at",
+   "fieldtype": "Datetime",
+   "label": "Shelved At",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "off_truck",
+   "fieldtype": "Check",
+   "label": "Off Truck",
+   "read_only": 1,
+   "description": "No longer on the truck without being shelved (unloaded, or its truck flag moved to another bucket)."
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-01 20:09:45.026352",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Bucket Request Trip Bucket",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

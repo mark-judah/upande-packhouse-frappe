@@ -102,6 +102,17 @@ doctype_js = {
 # Home Pages
 # ----------
 
+# Remote Transfers tabs live under /remote-transfers/<tab>, each served by its own www
+# page; the old addresses redirect there (remote_transfer_routes.py keeps the same map).
+website_route_rules = [
+	{"from_route": "/remote-transfers", "to_route": "transfer-control"},
+	{"from_route": "/remote-transfers/truck-routes", "to_route": "transfer-control"},
+	{"from_route": "/remote-transfers/transfer-scheduling", "to_route": "transfer-control"},
+	{"from_route": "/remote-transfers/bucket-logistics", "to_route": "transfer-control"},
+	{"from_route": "/remote-transfers/scheduler", "to_route": "packhouse-scheduler"},
+	{"from_route": "/remote-transfers/bucket-journey", "to_route": "bucket-tracker"},
+]
+
 # application home page (will override Website Settings)
 # home_page = "login"
 

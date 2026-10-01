@@ -835,7 +835,13 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(() => loadAllData(), 120000);
 });
 
-function showSpinner(v) { document.getElementById('spinnerOverlay').classList.toggle('show', v); }
+// The overlay covers the main pane only (it starts where .aph-main starts), so the
+// sidebar never fades while a page loads.
+function showSpinner(v) {
+    const o = document.getElementById('spinnerOverlay'), m = document.querySelector('.aph-main');
+    if (v && m) o.style.left = Math.max(0, m.getBoundingClientRect().left) + 'px';
+    o.classList.toggle('show', v);
+}
 function showToast(msg, type='success') {
     const t = document.getElementById('toast');
     t.textContent = msg; t.className = 'toast ' + type;
@@ -1419,18 +1425,7 @@ function renderShelfTable() {
     if (sub) sub.textContent = 'Shelved ' + Math.round(tShelved).toLocaleString() + ' · Not shelved (coldroom) ' + Math.round(tNot).toLocaleString() + ' · Total ' + Math.round(tShelved + tNot).toLocaleString() + ' stems';
 }
 
-/* -- Sidebar footer (user identity) -- */
-(function fillFooter(){
-    function tryFill(){
-        if (!window.frappe || !frappe.session || !frappe.session.user){ setTimeout(tryFill, 100); return; }
-        var u = frappe.session.user || '';
-        var fullName = (frappe.session.user_fullname || (frappe.boot && frappe.boot.user && frappe.boot.user.full_name)) || u.split('@')[0];
-        document.getElementById('aph-foot-av').textContent = (fullName || u || '?').substring(0,1).toUpperCase();
-        document.getElementById('aph-foot-nm').textContent = fullName;
-        document.getElementById('aph-foot-em').textContent = u;
-    }
-    tryFill();
-})();
+
 
 </script>
 

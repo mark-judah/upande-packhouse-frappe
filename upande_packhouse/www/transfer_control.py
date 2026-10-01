@@ -10,10 +10,14 @@
 import frappe
 from frappe.sessions import get_csrf_token
 
+from upande_packhouse.remote_transfer_routes import redirect_old_route, tab_for_path
+
 no_cache = 1
 
 
 def get_context(context):
+	redirect_old_route("transfer", tab_from_query=True)
+	context.rt_tab = tab_for_path(frappe.request.path)
 	context.csrf_token = get_csrf_token()
 	context.no_cache = 1
 	return context
