@@ -96,6 +96,64 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph-kpi .v{font-size:32px;font-weight:600;letter-spacing:-0.035em;font-feature-settings:'tnum';margin-top:10px;line-height:1}
 .aph-kpi .sub{font-size:11px;color:var(--text-3);margin-top:8px;font-weight:500}
 .aph-kpi .sub strong{color:var(--text-2);font-weight:600}
+/* Buckets & shelves overview + right-hand drawer */
+.aph .bs-kpis{grid-template-columns:repeat(7,minmax(0,1fr));margin-bottom:14px}
+.aph .bs-kpis .aph-kpi{min-height:104px}
+.aph .bs-kpis .aph-kpi.click{cursor:pointer}
+.aph .bs-kpis .aph-kpi.click:hover{border-color:var(--text)}
+.aph .bs-kpis .v.good{color:var(--good)}.aph .bs-kpis .v.bad{color:var(--bad)}.aph .bs-kpis .v.warn{color:var(--warn)}
+.aph .bs-sk{background:linear-gradient(90deg,var(--bg-muted),#fff,var(--bg-muted));background-size:200% 100%;animation:bsShine 1.2s infinite}
+@keyframes bsShine{to{background-position:-200% 0}}
+.aph .bs-farms{display:grid;grid-template-columns:repeat(var(--bs-n,6),minmax(0,1fr));gap:10px;margin-bottom:28px}
+@media (max-width:1100px){.aph .bs-kpis,.aph .bs-farms{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:640px){.aph .bs-kpis,.aph .bs-farms{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.aph .bs-farm{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;cursor:pointer}
+.aph .bs-farm:hover{border-color:var(--text)}
+.aph .bs-farm-hd{display:flex;justify-content:space-between;align-items:baseline;font-weight:600;font-size:13px}
+.aph .bs-farm-hd span{font:500 11px var(--mono);color:var(--text-3)}
+.aph .bs-farm-bar{height:5px;border-radius:3px;background:var(--bg-muted);margin:10px 0 8px;overflow:hidden}
+.aph .bs-farm-bar i{display:block;height:100%;background:var(--text)}
+.aph .bs-farm-nums{display:flex;gap:6px;flex-wrap:wrap}
+.aph .bs-num{font:600 11px var(--f);padding:3px 8px;border-radius:999px;background:var(--bg-muted);color:var(--text-2);border:1px solid transparent}
+.aph .bs-num:hover{border-color:var(--text);color:var(--text)}
+.aph .bs-num.free{background:#e6f9ee;color:var(--good)}
+.aph .bs-overlay{position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:2147483400;opacity:0;pointer-events:none;transition:opacity .2s}
+.aph .bs-overlay.on{opacity:1;pointer-events:auto}
+.aph .bs-drawer{position:fixed;top:0;right:0;bottom:0;width:min(520px,100vw);background:#fff;z-index:2147483450;box-shadow:-8px 0 30px rgba(0,0,0,.12);transform:translateX(100%);transition:transform .25s ease;display:flex;flex-direction:column;font-family:var(--f)}
+.aph .bs-drawer.on{transform:none}
+.aph .bs-dh{display:flex;justify-content:space-between;align-items:flex-start;padding:18px 20px 12px;border-bottom:1px solid var(--border)}
+.aph .bs-dt{font-size:16px;font-weight:700}
+.aph .bs-ds{font-size:12px;color:var(--text-3);margin-top:3px}
+.aph .bs-x{background:none;border:none;font-size:24px;line-height:1;cursor:pointer;color:var(--text-3);padding:0 4px}
+.aph .bs-x:hover{color:var(--text)}
+.aph .bs-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 20px;border-bottom:1px solid var(--border)}
+.aph .bs-chips{display:flex;gap:4px;background:var(--bg-muted);border-radius:999px;padding:3px}
+.aph .bs-chip{font:600 11px var(--f);border:none;background:none;padding:5px 11px;border-radius:999px;cursor:pointer;color:var(--text-2)}
+.aph .bs-chip.on{background:var(--text);color:#fff}
+.aph .bs-search{flex:1;min-width:140px;height:30px;border:1px solid var(--border);border-radius:8px;padding:4px 10px;font:500 12px var(--f)}
+.aph .bs-body{flex:1;overflow-y:auto;padding:14px 20px 24px}
+.aph .bs-shelf{border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden}
+.aph .bs-shelf-hd{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:var(--bg-muted);font:600 12px var(--f)}
+.aph .bs-shelf-hd .tag{font:600 10px var(--mono);color:var(--text-3)}
+.aph .bs-shelf-hd .tag.free{color:var(--good)}
+.aph .bs-bkt{padding:10px 12px;border-top:1px solid var(--border)}
+.aph .bs-bkt-hd{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.aph .bs-bkt-id{font:600 12px var(--mono);color:var(--text);background:none;border:none;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.aph .bs-bkt-hd .st{font:600 11px var(--f);color:var(--text-2)}
+.aph .bs-row{display:grid;grid-template-columns:1.4fr .7fr .6fr;gap:6px;font-size:12px;margin-top:6px}
+.aph .bs-row .muted,.aph .bs-meta{color:var(--text-3)}
+.aph .bs-meta{font-size:11px;margin-top:5px}
+.aph .bs-empty{padding:30px 0;text-align:center;color:var(--text-3);font-size:12px}
+.aph .bs-where{font:600 10px var(--mono);padding:2px 7px;border-radius:999px;background:var(--bg-muted);color:var(--text-2);text-transform:uppercase}
+.aph .bs-repl{border:1px solid var(--warn);background:#fff8ec;border-radius:10px;padding:10px 14px;margin:0 0 12px;font-size:12px}
+.aph .bs-repl.done{border-color:var(--border);background:var(--bg-muted)}
+.aph .bs-repl b{font-weight:700}
+.aph .bs-repl .m{color:var(--text-3);font-size:11px;margin-top:3px}
+.aph .bs-acts{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.aph .bs-act{font:600 11px var(--f);border:1px solid var(--border);background:#fff;border-radius:999px;padding:4px 10px;cursor:pointer}
+.aph .bs-act:hover{border-color:var(--text)}
+.aph .bs-where.missing{background:#fde8e8;color:var(--bad)}
+.aph .bs-where.truck{background:#fff3e0;color:var(--warn)}.aph .bs-where.harvesting{background:#f0ecfe;color:#7c5cfc}
 
 .aph-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;width:100%;box-sizing:border-box}
 /* full-width rows — !important so no theme/global CSS can shrink them */
@@ -361,6 +419,8 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .aph .hint-state h4{font-size:15px;font-weight:700;color:var(--text);margin-bottom:8px}
 .aph .hint-state p{font-size:13px;line-height:1.7}
 .aph .hint-state small{font-size:12px;color:var(--text-muted);margin-top:10px;display:block}
+.aph .trace-search{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:10px;padding:20px}
+.aph #hintBody{padding-top:8px}
 .aph .empty-state p,.aph .loading-state p{font-size:13px;margin-top:10px}
 
 /* Autocomplete (lives inside modal) */
@@ -719,23 +779,6 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       <h1>Remote Transfers</h1>
       {% endraw %}{% set rt_active = "journey" %}{% include "upande_packhouse/templates/includes/remote_transfers_tabs.html" %}{% raw %}
       <div class="right">
-        <div class="mode-switch">
-          <button class="mode-btn active" id="modeBucket" onclick="setMode('bucket')">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M6 6V4h12v2M8 6v14h8V6"/></svg>
-            Bucket
-          </button>
-          <button class="mode-btn" id="modeBunch" onclick="setMode('bunch')">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2"/><path d="M12 7v6M8 9.5C8 9.5 5 11 5 14c0 2.5 3 4 7 4s7-1.5 7-4c0-3-3-4.5-3-4.5"/><path d="M9 13h6"/></svg>
-            Bunch
-          </button>
-        </div>
-        <div class="search-group">
-          <input type="text" id="trackInput" placeholder="Enter Bucket ID" autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="none">
-          <button class="btn btn-primary" id="searchBtn" onclick="track()">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            Track
-          </button>
-        </div>
         <button class="btn btn-warning btn-sm" id="correctBtn" style="display:none" onclick="openCorrectionModal()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
           Correct Details
@@ -785,10 +828,63 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         <div class="sub">Track a bucket or bunch across its full harvest-to-issue journey</div>
       </div>
 
+      <!-- Buckets & shelves (api/bucket_journey.getBucketShelfOverview); tiles open the drawer -->
+      <div class="aph-kpis bs-kpis" id="bsKpis">
+        <div class="aph-kpi bs-sk"></div><div class="aph-kpi bs-sk"></div><div class="aph-kpi bs-sk"></div>
+        <div class="aph-kpi bs-sk"></div><div class="aph-kpi bs-sk"></div><div class="aph-kpi bs-sk"></div><div class="aph-kpi bs-sk"></div>
+      </div>
+      <div class="bs-farms" id="bsFarms"></div>
+
+      <div class="bs-overlay" id="bsOverlay" onclick="bsClose()"></div>
+      <aside class="bs-drawer" id="bsDrawer" aria-hidden="true">
+        <div class="bs-dh">
+          <div><div class="bs-dt" id="bsTitle">Shelves</div><div class="bs-ds" id="bsSub"></div></div>
+          <button class="bs-x" onclick="bsClose()" aria-label="Close">&times;</button>
+        </div>
+        <div class="bs-tools">
+          <div class="bs-chips" id="bsChips"></div>
+          <input type="text" id="bsSearch" class="bs-search" placeholder="Shelf, bucket or variety" oninput="bsRender()">
+        </div>
+        <div class="bs-body" id="bsBody"></div>
+      </aside>
+
       <div class="container">
         <div class="alert-danger" id="errorBox"></div>
+        <!-- Hint panel -->
+        <div class="panel" id="hintSection">
+            <div class="trace-search">
+                <div class="mode-switch">
+                  <button class="mode-btn active" id="modeBucket" onclick="setMode('bucket')">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M6 6V4h12v2M8 6v14h8V6"/></svg>
+                    Bucket
+                  </button>
+                  <button class="mode-btn" id="modeBunch" onclick="setMode('bunch')">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2"/><path d="M12 7v6M8 9.5C8 9.5 5 11 5 14c0 2.5 3 4 7 4s7-1.5 7-4c0-3-3-4.5-3-4.5"/><path d="M9 13h6"/></svg>
+                    Bunch
+                  </button>
+                </div>
+                <div class="search-group">
+                  <input type="text" id="trackInput" placeholder="Enter Bucket ID" autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="none">
+                  <button class="btn btn-primary" id="searchBtn" onclick="track()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    Track
+                  </button>
+                </div>
+            </div>
+            <div class="panel-body hint-state" id="hintBody">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#98a1a9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:12px"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                <h4>Traceability</h4>
+                <p>Track a <strong>Bucket</strong> from harvest through grading, receiving, shelving, allocation and issue.</p>
+                <p style="margin-top:8px">Track a <strong>Bunch</strong> from greenhouse grading through to the packed box.</p>
+                <p style="margin-top:10px"><strong>Spray roses:</strong> Harvest + Grading &rarr; Receiving &rarr; Shelving &rarr; Allocation &rarr; Issue<br>
+                <strong>Standard roses:</strong> Harvest &rarr; Receiving &rarr; Shelving &rarr; Grading &rarr; Allocation &rarr; Issue<br>
+                <strong>Bunch:</strong> Grading &rarr; Receiving &rarr; Shelf &rarr; OPL &rarr; Issue &rarr; Packing</p>
+                <small id="hintExamples">Bucket examples: 5c8f60 &middot; E0DE9D &middot; 7D1BF6</small>
+            </div>
+        </div>
 
         <!-- Bucket summary well -->
+        <div id="bsReplNote"></div>
         <div id="bucketSummary" style="display:none" class="well">
             <span class="id-display" id="summaryId"></span>
             <div class="bucket-meta">
@@ -843,19 +939,6 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         <div id="journeyTabs" style="display:none" class="nav-tabs"></div>
         <div id="journeyPanel"></div>
 
-        <!-- Hint panel -->
-        <div class="panel" id="hintSection">
-            <div class="panel-body hint-state">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#98a1a9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:12px"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-                <h4>Traceability</h4>
-                <p>Track a <strong>Bucket</strong> from harvest through grading, receiving, shelving, allocation and issue.</p>
-                <p style="margin-top:8px">Track a <strong>Bunch</strong> from greenhouse grading through to the packed box.</p>
-                <p style="margin-top:10px"><strong>Spray roses:</strong> Harvest + Grading &rarr; Receiving &rarr; Shelving &rarr; Allocation &rarr; Issue<br>
-                <strong>Standard roses:</strong> Harvest &rarr; Receiving &rarr; Shelving &rarr; Grading &rarr; Allocation &rarr; Issue<br>
-                <strong>Bunch:</strong> Grading &rarr; Receiving &rarr; Shelf &rarr; OPL &rarr; Issue &rarr; Packing</p>
-                <small id="hintExamples">Bucket examples: 5c8f60 &middot; E0DE9D &middot; 7D1BF6</small>
-            </div>
-        </div>
         <div class="panel" id="loadingSection" style="display:none">
             <div class="panel-body loading-state">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#98a1a9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:10px"><circle cx="12" cy="12" r="10"/></svg>
@@ -959,7 +1042,7 @@ function showError(msg) {
 function clearError() { q('errorBox').classList.remove('show'); }
 
 function setState(state) {
-    q('hintSection').style.display    = state === 'hint'    ? '' : 'none';
+    q('hintBody').style.display       = state === 'hint'    ? '' : 'none';
     q('loadingSection').style.display = state === 'loading' ? '' : 'none';
     q('emptySection').style.display   = state === 'empty'   ? '' : 'none';
     if (state !== 'results') {
@@ -1074,6 +1157,7 @@ async function trackBucket() {
     if (!id) { showError('Please enter a Bucket ID.'); return; }
     clearError();
     setState('loading');
+    bsReplNote(null, []);
     q('loadingMsg').textContent = 'Tracing bucket journeys...';
     q('searchBtn').disabled = true;
     q('correctBtn').style.display = 'none';
@@ -1081,145 +1165,47 @@ async function trackBucket() {
     try {
         // bucket_id casing is inconsistent across tables — match all variants
         const idVariants = [...new Set([id, id.toUpperCase(), id.toLowerCase()])];
-        const [harvestSEs, receiveSEs, shelfLogRows, shelfItemRows, allocRows, oplParents, discardRows, rejectSEs, quarantineSEs] = await Promise.all([
-            // custom_grading_entry / custom_receiving_entry are the direct traceability
-            // links written by the current harvest→grade→receive flow — they replace the
-            // old custom_harvest_batch_no string-parsing scheme entirely (field is gone).
-            flP('Stock Entry',
-                [['custom_bucket_id','=',id],['stock_entry_type','=','Harvesting']],
-                ['name','posting_date','posting_time','farm','custom_greenhouse',
-                 'custom_stem_length','custom_harvester','custom_grading_entry',
-                 'custom_receiving_entry','to_warehouse','docstatus'],
-                2000,'posting_date asc, posting_time asc'),
-            flP('Stock Entry',
-                [['custom_bucket_id','=',id],['stock_entry_type','=','Receiving']],
-                ['name','posting_date','posting_time','farm','custom_greenhouse',
-                 'custom_stem_length','custom_bucket_id',
-                 'to_warehouse','from_warehouse','stock_entry_type','docstatus'],
-                2000,'posting_date asc, posting_time asc'),
-            // Shelving Log now only ever records the REMOVAL side (issue to sales order) —
-            // shelved_on is never populated by the current flow. Kept for the issue/removal trail.
-            flP('Shelving Log',[['bucket_id','in',idVariants]],
-                ['name','shelf','farm','variety','stem_qty','stem_length','greenhouse',
-                 'shelved_on','removed_on','reason','shelved_by'],
-                800,'removed_on asc'),
-            // Shelf Item is the real, populated "currently on shelf" record (date_added is
-            // always set; the row is deleted/cleared once the bucket is issued).
-            flP('Shelf Item',[['bucket_id','in',idVariants]],
-                ['name','parent','farm','variety','stem_qty','stem_length','greenhouse','date_added'],
-                200,'date_added asc'),
-            flP('Bucket Allocation Status',[['bucket_id','=',id]],
-                ['name','bucket_id','item_code','warehouse','farm','stem_length',
-                 'shelf_location','shelf_farm','harvest_date','total_quantity',
-                 'allocated_quantity','available_quantity'],1),
-            flP('Order Pick List',[['Pick List Item','bucket','=',id]],['name'],100),
-            // Discard Request Bucket is the real discard mechanism (Stock Entry never had a
-            // 'Discard' type) — rows are denormalized with their own farm/variety/harvest_date.
-            flP('Discard Request Bucket',
-                [['bucket_id','in',idVariants],['discarded','=',1]],
-                ['name','parent','farm','greenhouse','variety','stem_qty','stem_length','harvest_date','creation'],
-                200,'creation asc'),
-            // QC rejects: Packhouse Rejects (packhouse QC) + Airport rejects, keyed by received bucket id.
-            // ('Field Rejects' was never a real Stock Entry Type — dropped.)
-            flP('Stock Entry',
-                [['custom_bucket_id','in',idVariants],['stock_entry_type','in',['Packhouse Rejects','Airport rejects']],['docstatus','=',1]],
-                ['name','posting_date','posting_time','farm','stock_entry_type'],200,'posting_date asc, posting_time asc'),
-            // Quarantine: 'Receiving Quarantined' = into quarantine; 'Quarantine Rejects'/'Quarantine
-            // Accept' = out; 'Material Transfer' = the accept-release (only counts if quarantined).
-            flP('Stock Entry',
-                [['custom_bucket_id','in',idVariants],['stock_entry_type','in',['Receiving Quarantined','Quarantine Rejects','Quarantine Accept','Material Transfer']],['docstatus','=',1]],
-                ['name','posting_date','posting_time','farm','stock_entry_type'],200,'posting_date asc, posting_time asc'),
-        ]);
-
-        // Grading SEs are fetched by following each harvest SE's own custom_grading_entry
-        // link directly — no more batch-string matching.
-        const gradingNames = [...new Set(harvestSEs.map(se => se.custom_grading_entry).filter(Boolean))];
-        let gradingSEs = [];
-        if (gradingNames.length) {
-            const CHUNK=50, chunks=[];
-            for (let i=0;i<gradingNames.length;i+=CHUNK) chunks.push(gradingNames.slice(i,i+CHUNK));
-            const results = await Promise.all(chunks.map(chunk =>
-                flP('Stock Entry',
-                    [['name','in',chunk]],
-                    ['name','posting_date','posting_time','farm','custom_graded_by',
-                     'custom_bunch_id','custom_stem_length','custom_harvest_entry',
-                     'custom_opl_scanned','custom_scanned_grading',
-                     'custom_scanned_packing','custom_bunched_by','to_warehouse','from_warehouse','docstatus'],
-                    2000,'posting_date asc, posting_time asc')
-            ));
-            gradingSEs = results.flat().sort((a,b) => seDt(a).localeCompare(seDt(b)));
-        }
-        // Item/variety lives on the child `items` table, not the parent SE — pull it in bulk
-        // for every harvest/grading/receiving SE we found.
-        const allSeNames = [...new Set([...harvestSEs.map(s=>s.name), ...gradingSEs.map(s=>s.name), ...receiveSEs.map(s=>s.name)])];
-        const seItemMap = new Map();
-        if (allSeNames.length) {
-            const detailRows = await flP('Stock Entry Detail',[['parent','in',allSeNames]],['parent','item_code'],2000);
-            for (const r of detailRows) if (!seItemMap.has(r.parent)) seItemMap.set(r.parent, r.item_code||'');
-        }
-
-        // shelfData combines two real sources: Shelf Item (the currently-on-shelf record —
-        // date_added is always populated) for the shelved-in side, and Shelving Log (which
-        // now only ever records the removal/issue side — shelved_on is never set) for the
-        // removed-on/reason trail. Keep the same shelf_name/shelf_farm/date_added aliases
-        // the existing render expects.
+        // One server call (api/bucket_journey.getBucketJourney), like the mobile app's
+        // getTraceability: every table read once by bucket, stems/variety aggregated there.
+        const J = await new Promise((resolve, reject) => {
+            frappe.call({ method: 'upande_packhouse.api.bucket_journey.getBucketJourney', args: { bucket_id: id },
+                callback(r) { resolve(r.message || {}); },
+                error(e) { reject(e); }
+            });
+        });
+        const harvestSEs = J.harvest || [], receiveSEs = J.receiving || [], gradingSEs = J.grading || [];
+        const seItemMap = new Map(Object.entries(J.se_item || {}));
+        // shelfData: Shelf Item (on the shelf now) + Shelving Log (removal/issue trail),
+        // with the shelf_name/shelf_farm/date_added aliases the render expects.
         let shelfData = [
-            ...(shelfItemRows||[]).map(r => ({ ...r, shelf_name: r.parent, shelf_farm: r.farm, reason: null, removed_on: null, shelved_on: r.date_added, _src:'shelf_item' })),
-            ...(shelfLogRows||[]).map(r => ({ ...r, shelf_name: r.shelf, shelf_farm: r.farm, date_added: r.shelved_on, _src:'shelving_log' })),
+            ...(J.shelf_items||[]).map(r => ({ ...r, shelf_name: r.parent, shelf_farm: r.farm, reason: null, removed_on: null, shelved_on: r.date_added, _src:'shelf_item' })),
+            ...(J.shelf_log||[]).map(r => ({ ...r, shelf_name: r.shelf, shelf_farm: r.farm, date_added: r.shelved_on, _src:'shelving_log' })),
         ];
-        let discardData = discardRows || [];
-        let rejectData = rejectSEs || [];
-        let quarantineData = quarantineSEs || [];
+        let discardData = J.discards || [];
+        let rejectData = J.rejects || [];
+        let quarantineData = J.quarantine || [];
+        const allocFull = J.alloc || null;
+        const allocData = allocFull;
+        const oplData = J.opl_rows || [];
 
-        const allocData = allocRows[0]||null;
-        const allocFull = allocData ? await fgP('Bucket Allocation Status', allocData.name) : null;
-
-        let oplData = [];
-        if (oplParents.length) {
-            const docs = await Promise.all(oplParents.map(o => fgP('Order Pick List', o.name)));
-            for (const doc of docs) {
-                if (!doc) continue;
-                (doc.locations||[]).filter(r => (r.bucket||'').toLowerCase()===id.toLowerCase())
-                    .forEach(r => oplData.push({
-                        ...r, parent:doc.name, opl_customer:doc.customer,
-                        opl_order_name:doc.custom_order_name, opl_team:doc.custom_team,
-                        opl_status:doc.custom_status, opl_issuing_pct:doc.custom_issuing_percentage,
-                        opl_date:doc.date_created, opl_sales_order:doc.sales_order,
-                        opl_consignee:doc.custom_consignee,
-                    }));
-            }
-        }
-
+        // Stems: a Receiving entry counts its own; Harvest/Grading entries show the first
+        // entry of their day (the same rule the page always used).
+        const qtyOf = name => (J.se_qty || {})[name] || 0;
         const sessionRepMap = new Map();
         for (const se of [...harvestSEs,...gradingSEs]) {
             const key = se.posting_date||'unknown';
             if (!sessionRepMap.has(key)) sessionRepMap.set(key, se.name);
         }
-        const repNamesUniq = [...new Set([...receiveSEs.map(s=>s.name), ...[...sessionRepMap.values()]])];
-        const repQtyMap = new Map();
-        if (repNamesUniq.length) {
-            const BATCH=10;
-            for (let i=0;i<repNamesUniq.length;i+=BATCH) {
-                const docs = await Promise.all(repNamesUniq.slice(i,i+BATCH).map(name => fgP('Stock Entry',name)));
-                for (const doc of docs) {
-                    if (!doc) continue;
-                    const stems = (doc.items||[]).reduce((sum,row)=>sum+parseFloat(row.transfer_qty||row.qty||0),0);
-                    repQtyMap.set(doc.name, stems);
-                }
-            }
-        }
         const seQtyMap = new Map();
-        for (const se of receiveSEs) seQtyMap.set(se.name, repQtyMap.get(se.name)||0);
-        for (const se of [...harvestSEs,...gradingSEs]) {
-            const repName = sessionRepMap.get(se.posting_date);
-            seQtyMap.set(se.name, repQtyMap.get(repName)||0);
-        }
+        for (const se of receiveSEs) seQtyMap.set(se.name, qtyOf(se.name));
+        for (const se of [...harvestSEs,...gradingSEs]) seQtyMap.set(se.name, qtyOf(sessionRepMap.get(se.posting_date)));
 
         const hasData = harvestSEs.length||gradingSEs.length||receiveSEs.length
                      ||shelfData.length||allocData||oplData.length;
         if (!hasData) { q('emptyMsg').textContent = 'No records found for this Bucket ID.'; setState('empty'); return; }
 
         G = { id, harvestSEs, gradingSEs, receiveSEs, shelfData, discardData, rejectData, quarantineData, allocData, allocFull, oplData, seQtyMap, seItemMap };
+        bsReplNote(id, J.replacements || []);
         buildJourneys();
 
     } catch (err) {
@@ -1410,6 +1396,11 @@ function selectJourney(num) {
     const j=(G.allJourneys||[]).find(j=>j.number===num);
     if(j) renderJourney(j);
 }
+/* Journey date filters use Frappe's date control (rtMountDate, remote_transfers_tabs.html). */
+(function mountJourneyDates(){
+    function mount(){ if(window.rtMountDate){ window.rtMountDate(q('filterFrom')); window.rtMountDate(q('filterTo')); } }
+    if (document.readyState === 'complete') mount(); else window.addEventListener('load', mount);
+})();
 function applyDateFilter() {
     if (!G.allJourneys) return;
     const from=q('filterFrom')?.value||'', to=q('filterTo')?.value||'';
@@ -1423,8 +1414,9 @@ function applyDateFilter() {
     renderJourneyTabs(filtered,(from||to)?0:limit);
 }
 function resetFilter() {
-    if(q('filterFrom'))q('filterFrom').value='';
-    if(q('filterTo'))q('filterTo').value='';
+    // rtSetDate clears the Frappe date control too, not just the hidden input.
+    if(window.rtSetDate){ window.rtSetDate(q('filterFrom'),''); window.rtSetDate(q('filterTo'),''); }
+    else { if(q('filterFrom'))q('filterFrom').value=''; if(q('filterTo'))q('filterTo').value=''; }
     if(q('filterLimit'))q('filterLimit').value='5';
     if(G.allJourneys)renderJourneyTabs(G.allJourneys,5);
 }
@@ -1673,7 +1665,7 @@ async function trackBunch() {
     const bunchId = q('trackInput').value.trim();
     if (!bunchId) { showError('Please enter a Bunch ID.'); return; }
     clearError();
-    setState('loading');
+    bsReplNote(null, []); setState('loading');
     q('loadingMsg').textContent = 'Tracing bunch journey...';
     q('searchBtn').disabled = true;
 
@@ -2229,20 +2221,158 @@ function secLbl(txt) {
 }
 function dc(label,value,small){return `<div class="dc"><div class="dk">${label}</div><div class="dv"${small?' style="font-size:10px"':''}>${value||'--'}</div></div>`;}
 
+/* ═══════════════════════════════════════════════════════
+   BUCKETS & SHELVES OVERVIEW + DRAWER
+═══════════════════════════════════════════════════════ */
+const BS = { overview: null, mode: 'shelves', farm: null, view: 'all', kind: 'all', rows: [] };
+const bsN = v => Number(v || 0).toLocaleString();
+function bsCall(method, args) {
+    return new Promise((resolve, reject) => frappe.call({ method: 'upande_packhouse.api.bucket_journey.' + method, args: args || {},
+        callback: r => resolve(r.message), error: reject }));
+}
+function bsAgo(d) {
+    if (!d) return '';
+    const days = Math.floor((Date.now() - new Date(String(d).replace(' ', 'T')).getTime()) / 864e5);
+    return days <= 0 ? 'today' : days === 1 ? '1 day' : days + ' days';
+}
+async function bsLoadOverview() {
+    try { BS.overview = await bsCall('getBucketShelfOverview'); } catch (e) { q('bsKpis').innerHTML = ''; return; }
+    const b = BS.overview.buckets, s = BS.overview.shelves;
+    const tile = (lbl, v, sub, act, cls) => `<div class="aph-kpi${act ? ' click' : ''}"${act ? ` onclick="${act}"` : ''}>
+        <div class="lbl">${lbl}</div><div class="v${cls ? ' ' + cls : ''}">${bsN(v)}</div><div class="sub">${sub || ''}</div></div>`;
+    q('bsKpis').innerHTML =
+        tile('Buckets', b.total, '') +
+        tile('Empty buckets', b.empty, 'available to use', '', 'good') +
+        tile('Buckets in use', b.in_use, `${bsN(b.on_shelf)} on shelves · ${bsN(b.on_truck)} on trucks · ${bsN(b.harvesting)} harvesting`, "bsOpenBuckets('all')", 'warn') +
+        tile('Shelves', s.total, `${BS.overview.farms.filter(f => f.farm).length} farms`, "bsOpenShelves(null,'all')") +
+        tile('Free shelves', s.free, '', "bsOpenShelves(null,'free')", 'good') +
+        tile('Shelves with buckets', s.with_buckets, '', "bsOpenShelves(null,'occupied')") +
+        tile('Missing buckets', BS.overview.missing || 0, 'replaced, not found', "bsOpenMissing()", (BS.overview.missing ? 'bad' : ''));
+    // One column per farm, so the cards always span the full width.
+    q('bsFarms').style.setProperty('--bs-n', Math.max(1, BS.overview.farms.length));
+    q('bsFarms').innerHTML = BS.overview.farms.map(f => {
+        const key = JSON.stringify(f.farm).replace(/"/g, '&quot;'), pct = f.shelves ? Math.round(f.with_buckets / f.shelves * 100) : 0;
+        return `<div class="bs-farm" onclick="bsOpenShelves(${key},'all')">
+            <div class="bs-farm-hd">${escHtml(f.farm || 'No farm')}<span>${bsN(f.shelves)} shelves</span></div>
+            <div class="bs-farm-bar"><i style="width:${pct}%"></i></div>
+            <div class="bs-farm-nums">
+              <button class="bs-num" onclick="event.stopPropagation();bsOpenShelves(${key},'occupied')">${bsN(f.with_buckets)} with buckets</button>
+              <button class="bs-num free" onclick="event.stopPropagation();bsOpenShelves(${key},'free')">${bsN(f.free)} free</button>
+              <span class="bs-num">${bsN(f.buckets)} buckets</span>
+            </div></div>`;
+    }).join('');
+}
+function bsOpen() { q('bsOverlay').classList.add('on'); q('bsDrawer').classList.add('on'); q('bsDrawer').setAttribute('aria-hidden', 'false'); }
+function bsClose() { q('bsOverlay').classList.remove('on'); q('bsDrawer').classList.remove('on'); q('bsDrawer').setAttribute('aria-hidden', 'true'); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && q('bsDrawer').classList.contains('on')) bsClose(); });
+function bsLoading() { q('bsBody').innerHTML = '<div class="bs-empty">Loading…</div>'; }
+async function bsOpenShelves(farm, view) {
+    BS.mode = 'shelves'; BS.farm = farm; BS.view = view || 'all'; q('bsSearch').value = '';
+    q('bsTitle').textContent = farm === null ? 'All shelves' : (farm || 'No farm');
+    bsOpen(); bsLoading(); bsChips();
+    try { BS.rows = await bsCall('getFarmShelves', farm === null ? { view: 'all' } : { farm, view: 'all' }) || []; }
+    catch (e) { BS.rows = []; q('bsBody').innerHTML = '<div class="bs-empty">Could not load shelves.</div>'; return; }
+    bsRender();
+}
+async function bsOpenBuckets(kind) {
+    BS.mode = 'buckets'; BS.kind = kind || 'all'; q('bsSearch').value = '';
+    q('bsTitle').textContent = 'Buckets in use';
+    bsOpen(); bsLoading(); bsChips();
+    try { BS.rows = await bsCall('getBucketsInUse', { kind: 'all' }) || []; }
+    catch (e) { BS.rows = []; q('bsBody').innerHTML = '<div class="bs-empty">Could not load buckets.</div>'; return; }
+    bsRender();
+}
+function bsChips() {
+    const opts = BS.mode === 'shelves'
+        ? [['all', 'All'], ['occupied', 'With buckets'], ['free', 'Free']]
+        : [['all', 'All'], ['shelf', 'On shelves'], ['truck', 'On trucks'], ['harvesting', 'Harvesting']];
+    const cur = BS.mode === 'shelves' ? BS.view : BS.kind;
+    q('bsChips').style.display = '';
+    q('bsChips').innerHTML = opts.map(([k, l]) => `<button class="bs-chip${k === cur ? ' on' : ''}" onclick="bsSetChip('${k}')">${l}</button>`).join('');
+}
+function bsSetChip(k) { if (BS.mode === 'shelves') BS.view = k; else BS.kind = k; bsChips(); bsRender(); }
+function bsTrack(id) { bsClose(); setMode('bucket'); q('trackInput').value = id; track(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+function bsRender() {
+    const term = (q('bsSearch').value || '').trim().toLowerCase();
+    const has = s => !term || String(s || '').toLowerCase().includes(term);
+    if (BS.mode === 'missing') return bsRenderMissing(has);
+    if (BS.mode === 'shelves') {
+        const list = BS.rows.filter(s => (BS.view === 'all' || (BS.view === 'free' ? !s.buckets.length : s.buckets.length))
+            && (has(s.shelf) || s.buckets.some(b => has(b.bucket) || b.contents.some(c => has(c.variety)))));
+        const nb = list.reduce((n, s) => n + s.buckets.length, 0);
+        q('bsSub').textContent = `${bsN(list.length)} shelves · ${bsN(nb)} buckets`;
+        q('bsBody').innerHTML = list.length ? list.map(s => `<div class="bs-shelf">
+            <div class="bs-shelf-hd"><span>${escHtml(s.shelf)}${BS.farm === null && s.farm ? ' · ' + escHtml(s.farm) : ''}</span>
+              <span class="tag${s.buckets.length ? '' : ' free'}">${s.buckets.length ? s.buckets.length + ' bucket' + (s.buckets.length === 1 ? '' : 's') : 'free'}</span></div>
+            ${s.buckets.map(b => `<div class="bs-bkt">
+              <div class="bs-bkt-hd"><button class="bs-bkt-id" onclick="bsTrack('${escHtml(b.bucket).replace(/'/g, '&#39;')}')">${escHtml(b.bucket)}</button>
+                <span class="st">${bsN(b.stems)} stems</span></div>
+              ${b.contents.map(c => `<div class="bs-row"><span>${escHtml(c.variety || '—')}</span><span class="muted">${escHtml(c.stem_length || '—')}</span><span>${bsN(c.stem_qty)}</span></div>`).join('')}
+              <div class="bs-meta">${[b.contents[0].greenhouse, b.contents[0].harvest_date ? 'harvested ' + b.contents[0].harvest_date : '', b.date_added ? 'on shelf ' + bsAgo(b.date_added) : '', b.contents[0].cut_stage].filter(Boolean).map(escHtml).join(' · ')}</div>
+            </div>`).join('')}</div>`).join('') : '<div class="bs-empty">No shelves.</div>';
+        return;
+    }
+    const list = BS.rows.filter(r => (BS.kind === 'all' || r.where === BS.kind)
+        && (has(r.bucket) || has(r.variety) || has(r.shelf) || has(r.truck) || has(r.farm)));
+    q('bsSub').textContent = `${bsN(list.length)} buckets`;
+    const place = r => r.where === 'shelf' ? `${escHtml(r.shelf || '')}${r.farm ? ' · ' + escHtml(r.farm) : ''}`
+        : r.where === 'truck' ? `${escHtml(r.truck || '')}${r.opl ? ' · ' + escHtml(r.opl) : ''}` : escHtml([r.farm, r.greenhouse].filter(Boolean).join(' · '));
+    q('bsBody').innerHTML = list.length ? list.map(r => `<div class="bs-shelf"><div class="bs-bkt" style="border-top:none">
+        <div class="bs-bkt-hd"><button class="bs-bkt-id" onclick="bsTrack('${escHtml(r.bucket || '').replace(/'/g, '&#39;')}')">${escHtml(r.bucket || '')}</button>
+          <span class="bs-where ${r.where}">${r.where === 'shelf' ? 'on shelf' : r.where === 'truck' ? 'on truck' : 'harvesting'}</span></div>
+        <div class="bs-row"><span>${escHtml(r.variety || '—')}</span><span class="muted">${escHtml(r.stem_length || '')}</span><span>${bsN(r.stems)} stems</span></div>
+        <div class="bs-meta">${place(r)}${r.since ? ' · ' + bsAgo(r.since) : ''}</div></div></div>`).join('') : '<div class="bs-empty">No buckets.</div>';
+}
+/* Replaced buckets (Bucket Replacement): the banner on a tracked bucket, and the
+   "Missing buckets" drawer where an open one is closed as Found / Discarded / Written Off. */
+function bsReplLine(r, id) {
+    const when = r.reported_at ? String(r.reported_at).slice(0, 16) : '';
+    const who = (r.reported_by || '').split('@')[0];
+    const asOld = (r.old_bucket || '').toUpperCase() === String(id || r.old_bucket).toUpperCase();
+    const head = asOld
+        ? `<b>${escHtml(r.reason || 'Missing')}</b> — replaced with <b>${escHtml(r.new_bucket || '?')}</b> on ${escHtml(r.order_name || r.order_pick_list || '')}`
+        : `Took the place of <b>${escHtml(r.old_bucket)}</b> (${escHtml(r.reason || 'Missing')}) on ${escHtml(r.order_name || r.order_pick_list || '')}`;
+    const meta = [r.farm, r.expected_shelf ? 'shelf ' + r.expected_shelf : '', r.item_code && (r.item_code + ' ' + (r.stem_length || '')), r.stems ? Math.round(r.stems) + ' stems' : '',
+        r.vehicle ? 'truck ' + r.vehicle : '', when ? when + (who ? ' by ' + who : '') : '', r.status !== 'Open' ? r.status + (r.resolution ? ' · ' + r.resolution : '') : 'still missing'].filter(Boolean);
+    return head + `<div class="m">${meta.map(escHtml).join(' · ')}</div>`;
+}
+function bsReplNote(id, reps) {
+    const el = q('bsReplNote'); if (!el) return;
+    el.innerHTML = (reps || []).map(r => `<div class="bs-repl${r.status === 'Open' ? '' : ' done'}">${bsReplLine(r, id)}</div>`).join('');
+}
+async function bsOpenMissing() {
+    BS.mode = 'missing'; q('bsSearch').value = '';
+    q('bsTitle').textContent = 'Missing buckets';
+    bsOpen(); bsLoading(); q('bsChips').innerHTML = ''; q('bsChips').style.display = 'none';
+    try { BS.rows = await bsCall('getMissingBuckets') || []; }
+    catch (e) { BS.rows = []; q('bsBody').innerHTML = '<div class="bs-empty">Could not load missing buckets.</div>'; return; }
+    bsRender();
+}
+async function bsResolve(name, status) {
+    try {
+        await new Promise((resolve, reject) => frappe.call({ method: 'upande_packhouse.api.bucket_replacement.resolveBucketReplacement',
+            args: { name, status }, callback: r => resolve(r.message), error: reject }));
+    } catch (e) { return; }
+    BS.rows = BS.rows.filter(r => r.name !== name);
+    bsRender(); bsLoadOverview();
+}
+function bsRenderMissing(has) {
+    const list = BS.rows.filter(r => has(r.old_bucket) || has(r.new_bucket) || has(r.order_name) || has(r.farm) || has(r.item_code));
+    q('bsSub').textContent = `${bsN(list.length)} bucket${list.length === 1 ? '' : 's'}`;
+    q('bsBody').innerHTML = list.length ? list.map(r => `<div class="bs-shelf"><div class="bs-bkt" style="border-top:none">
+        <div class="bs-bkt-hd"><button class="bs-bkt-id" onclick="bsTrack('${escHtml(r.old_bucket || '').replace(/'/g, '&#39;')}')">${escHtml(r.old_bucket || '')}</button>
+          <span class="bs-where missing">${escHtml(r.reason || 'Missing')}</span></div>
+        <div class="bs-meta" style="font-size:12px;color:var(--text-2)">${bsReplLine({ ...r, status: 'Open' }, r.old_bucket)}</div>
+        <div class="bs-acts">${['Found', 'Discarded', 'Written Off'].map(st => `<button class="bs-act" onclick="bsResolve('${escHtml(r.name)}','${st}')">${st}</button>`).join('')}</div>
+      </div></div>`).join('') : '<div class="bs-empty">No missing buckets.</div>';
+}
+
+// frappe.call only exists once frappe-web.bundle (end of body) has loaded.
+if (document.readyState === 'complete') bsLoadOverview(); else window.addEventListener('load', bsLoadOverview);
+
 setState('hint');
 
-/* -- Sidebar footer (user identity) -- */
-(function fillFooter(){
-    function tryFill(){
-        if (!window.frappe || !frappe.session || !frappe.session.user){ setTimeout(tryFill, 100); return; }
-        var u = frappe.session.user || '';
-        var fullName = (frappe.session.user_fullname || (frappe.boot && frappe.boot.user && frappe.boot.user.full_name)) || u.split('@')[0];
-        document.getElementById('aph-foot-av').textContent = (fullName || u || '?').substring(0,1).toUpperCase();
-        document.getElementById('aph-foot-nm').textContent = fullName;
-        document.getElementById('aph-foot-em').textContent = u;
-    }
-    tryFill();
-})();
+
 </script>
 
 <script>

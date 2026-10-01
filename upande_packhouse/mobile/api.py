@@ -343,7 +343,7 @@ def createLoadingEntry():
 						"message": "Box already loaded: " + box_label_name,
 					}
 				elif box_doc.staged != 1:
-					# Enforce the pipeline order: Pack -> Stage -> Load -> Dispatch.
+					# Enforce the pipeline order: Pack -> Precool -> Stage -> Load -> Dispatch.
 					# A box that skipped staging must not be loadable straight from
 					# packing, or it can reach dispatch having never actually been
 					# staged in the coldstore.
@@ -1543,6 +1543,132 @@ def createPackingBypass():
 		frappe.throw(_("Error logging packing bypass:") + " " + str(e))
 
 
+def _post_box_leg(box, leg, title):
+	"""Run one per-box stock leg (stock_movement.post_stage_to_dispatch) for
+	every variety in the box. box_item qty is in
+	the box's own bunch-group UOM ("Bunch (15)"), so convert to raw stems the
+	same way spec_autofill's rows already do, and aggregate by variety in case
+	a mixed box has more than one row for the same one."""
+	from upande_packhouse.sales_order_engine import _uom_factor
+
+	stems_by_variety = {}
+	for row in box.box_item:
+		factor = _uom_factor(row.uom) or 1
+		stems_by_variety[row.variety] = stems_by_variety.get(row.variety, 0) + (row.qty or 0) * factor
+	for variety, stems in stems_by_variety.items():
+		result = leg(
+			box_label=box.name,
+			item_code=variety,
+			qty=stems,
+			business_unit="Roses",
+			farm=box.farm,
+		)
+		if not result.get("moved") and result.get("reason"):
+			frappe.log_error(
+				title=title,
+				message=f"box={box.name} variety={variety} farm={box.farm} -- {result.get('reason')}",
+			)
+
+
+def _scan_payload():
+	payload = frappe.request.get_json(silent=True) or {}
+	if not payload:
+		payload = dict(frappe.form_dict)
+	return payload
+
+
+def _box_or_error(box_label_id):
+	if not box_label_id:
+		frappe.response.update({"status": "error", "message": "'box_label' is required"})
+		return None
+	if not frappe.db.exists("Box Label", box_label_id):
+		frappe.response.update({"status": "error", "message": "Box Label %s does not exist" % box_label_id})
+		return None
+	return frappe.get_doc("Box Label", box_label_id)
+
+
+@frappe.whitelist()
+def createPrecoolingEntry():
+	"""Pack -> Precooling -> Stage -> Load. `action` "in" puts a packed box
+	into the precooling room. Staging (location scan, then box scan) is what
+	takes it out: createStagingEntry marks it precooled and staged together.
+	"out" is kept for older app builds that still send it. Flags only -- the stems stay in the packhouse store on the
+	ledger until staging moves them. Same top-level
+	{status: success|duplicate|error, message} shape as createStagingEntry."""
+	payload = _scan_payload()
+	action = (payload.get("action") or "in").strip().lower()
+	box = _box_or_error(payload.get("box_label"))
+	if not box:
+		return
+
+	if action not in ("in", "out"):
+		frappe.response.update({"status": "error", "message": "Unknown precooling action '%s'" % action})
+	elif box.loaded or box.delivered:
+		frappe.response.update({"status": "error", "message": "Box %s has already been loaded" % box.name})
+	elif box.staged:
+		frappe.response.update({"status": "error", "message": "Box %s has already been staged" % box.name})
+	elif action == "in":
+		if box.precooling:
+			frappe.response.update(
+				{"status": "duplicate", "message": "Box %s is already in precooling" % box.name}
+			)
+		else:
+			box.precooling = 1
+			box.precooling_in_at = frappe.utils.now_datetime()
+			box.save(ignore_permissions=True)
+			# Whitelisted without `methods`, so reachable over GET; frappe rolls
+			# back GET writes unless they are committed here.
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit
+			frappe.response.update({"status": "success", "message": "Box %s in precooling" % box.name})
+	elif box.precooled:
+		frappe.response.update({"status": "duplicate", "message": "Box %s is already precooled" % box.name})
+	elif not box.precooling:
+		frappe.response.update(
+			{"status": "error", "message": "Box %s has not been put into precooling" % box.name}
+		)
+	else:
+		box.precooled = 1
+		box.precooled_at = frappe.utils.now_datetime()
+		box.save(ignore_permissions=True)
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+		frappe.response.update({"status": "success", "message": "Box %s precooled" % box.name})
+
+
+@frappe.whitelist()
+def fetchPrecoolingSummary(delivery_date: str | None = None):
+	"""Box counts for one delivery date (default tomorrow, like the loading
+	screens), per Sales Order and in total: packed = every Box Label;
+	awaiting = packed, not yet in precooling; in_precooling = in the room now;
+	precooled = out of precooling, not yet staged; staged = staged or later."""
+	delivery_date = delivery_date or frappe.utils.add_days(frappe.utils.nowdate(), 1)
+	rows = frappe.db.sql(
+		"""
+		SELECT
+			so.name AS sales_order,
+			so.customer,
+			so.custom_delivery_point AS delivery_point,
+			COUNT(bl.name) AS packed,
+			SUM(IFNULL(bl.precooling, 0) = 0 AND IFNULL(bl.staged, 0) = 0
+				AND IFNULL(bl.loaded, 0) = 0) AS awaiting,
+			SUM(bl.precooling = 1 AND IFNULL(bl.precooled, 0) = 0
+				AND IFNULL(bl.staged, 0) = 0) AS in_precooling,
+			SUM(bl.precooled = 1 AND IFNULL(bl.staged, 0) = 0) AS precooled,
+			SUM(IFNULL(bl.staged, 0) = 1 OR IFNULL(bl.loaded, 0) = 1) AS staged
+		FROM `tabBox Label` bl
+		JOIN `tabSales Order` so ON so.name = bl.customer_purchase_order
+		WHERE so.delivery_date = %(d)s AND so.docstatus = 1
+		GROUP BY so.name, so.customer, so.custom_delivery_point
+		ORDER BY so.customer, so.name
+		""",
+		{"d": delivery_date},
+		as_dict=True,
+	)
+	keys = ("packed", "awaiting", "in_precooling", "precooled", "staged")
+	orders = [{**r, **{k: int(r[k] or 0) for k in keys}} for r in rows]
+	totals = {k: sum(o[k] for o in orders) for k in keys}
+	return {"delivery_date": delivery_date, "totals": totals, "orders": orders}
+
+
 @frappe.whitelist()
 def createStagingEntry():
 	payload = frappe.request.get_json()
@@ -1550,76 +1676,55 @@ def createStagingEntry():
 	if not payload:
 		frappe.response.update({"status": "error", "message": "No JSON payload received"})
 	else:
-		box_label_id = payload.get("box_label")
 		location = payload.get("location")
+		box = _box_or_error(payload.get("box_label"))
 
-		if not box_label_id:
-			frappe.response.update({"status": "error", "message": "'box_label' is required"})
-		else:
-			box = None
-			try:
-				box = frappe.get_doc("Box Label", box_label_id)
-			except frappe.DoesNotExistError:
+		if box:
+			if box.staged == 1:
 				frappe.response.update(
-					{"status": "error", "message": "Box Label %s does not exist" % box_label_id}
+					{"status": "duplicate", "message": "Box %s has already been staged" % box.name}
 				)
+			elif not box.precooling:
+				# Enforce the pipeline order: Pack -> Precool -> Stage -> Load.
+				frappe.response.update(
+					{
+						"status": "error",
+						"message": "Box %s must go into precooling before it can be staged" % box.name,
+					}
+				)
+			else:
+				# Scanning the staging location then the box is the moment the
+				# box leaves the precooling room: it is precooled and staged in
+				# one step, so there is no separate "precooled" scan.
+				if not box.precooled:
+					box.precooled = 1
+					box.precooled_at = frappe.utils.now_datetime()
+				box.staged = 1
+				# Record WHERE the box was staged in the dispatch coldstore
+				# (QR that maps to a physical place). Optional for older callers.
+				if location:
+					box.staging_location = location
+				box.save(ignore_permissions=True)
 
-			if box:
-				if box.staged == 1:
-					frappe.response.update(
-						{"status": "duplicate", "message": "Box %s has already been staged" % box_label_id}
-					)
-				else:
-					box.staged = 1
-					# Record WHERE the box was staged in the dispatch coldstore
-					# (QR that maps to a physical place). Optional for older callers.
-					if location:
-						box.staging_location = location
-					box.save(ignore_permissions=True)
+				# Precooling (or Packhouse) -> Dispatch Cold Store. Box-level
+				# (custom_box_label), not bucket-level -- by this point several
+				# buckets' stems have already been combined into this one box.
+				from upande_packhouse import stock_movement
 
-					# EVENT 4 of the SO Warehouse Mapping chain: Packhouse ->
-					# Dispatch Cold Store. Box-level (custom_box_label), not
-					# bucket-level -- by this point several buckets' stems
-					# have already been combined into this one box. box_item
-					# qty is in the box's own bunch-group UOM ("Bunch (15)"),
-					# so convert to raw stems the same way spec_autofill's
-					# rows already do, and aggregate by variety in case a
-					# mixed box has more than one row for the same one.
-					from upande_packhouse import stock_movement
-					from upande_packhouse.sales_order_engine import _uom_factor
+				_post_box_leg(box, stock_movement.post_stage_to_dispatch, "Stage -> Dispatch: nothing moved")
+				# Committed explicitly: this endpoint is whitelisted without `methods`, so it
+				# is reachable over GET, and frappe rolls back writes made during a GET
+				# request -- without this the caller gets a success response and no change.
+				frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
-					stems_by_variety = {}
-					for row in box.box_item:
-						factor = _uom_factor(row.uom) or 1
-						stems_by_variety[row.variety] = (
-							stems_by_variety.get(row.variety, 0) + (row.qty or 0) * factor
-						)
-					for variety, stems in stems_by_variety.items():
-						result = stock_movement.post_stage_to_dispatch(
-							box_label=box.name,
-							item_code=variety,
-							qty=stems,
-							business_unit="Roses",
-							farm=box.farm,
-						)
-						if not result.get("moved") and result.get("reason"):
-							frappe.log_error(
-								title="Stage -> Dispatch: nothing moved",
-								message=f"box={box.name} variety={variety} farm={box.farm} -- {result.get('reason')}",
-							)
-					# Committed explicitly: this endpoint is whitelisted without `methods`, so it
-					# is reachable over GET, and frappe rolls back writes made during a GET
-					# request -- without this the caller gets a success response and no change.
-					frappe.db.commit()  # nosemgrep: frappe-manual-commit
-
-					frappe.response.update(
-						{
-							"status": "success",
-							"location": location,
-							"message": "Box %s staged successfully%s"
-							% (box_label_id, (" at %s" % location) if location else ""),
-						}
-					)
+				frappe.response.update(
+					{
+						"status": "success",
+						"location": location,
+						"message": "Box %s staged successfully%s"
+						% (box.name, (" at %s" % location) if location else ""),
+					}
+				)
 
 	# Catch-all for any unhandled exception
 	if "status" not in frappe.response or frappe.response["status"] not in ["success", "error", "duplicate"]:
@@ -4949,6 +5054,14 @@ def shelveBucket():
 
 	# The truck that brought this bucket is back at its final destination once nothing
 	# it carried is still in transit: receive its trip so it can be routed/planned again.
+	# A bucket that was replaced as missing has turned up: close its replacement record.
+	try:
+		from upande_packhouse.api.bucket_replacement import mark_found
+
+		result["replacements_found"] = mark_found(bucket_id, shelf_id, farm)
+	except Exception:
+		frappe.log_error("Mark replaced bucket found failed", frappe.get_traceback())
+
 	result["trips_received"] = []
 	try:
 		from upande_packhouse.api.transfer_control import auto_receive_trucks_for_bucket

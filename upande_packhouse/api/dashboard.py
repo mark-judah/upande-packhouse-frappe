@@ -281,31 +281,22 @@ def getDashboardData():
 				filters=[["order_pick_list", "in", opl_names], ["docstatus", "!=", 2]],
 				fields=["name", "order_pick_list"],
 			)
-			i = 0
-			while i < len(fpls):
-				f = fpls[i]
-				oid = f.order_pick_list
-				try:
-					doc = frappe.get_doc("Farm Pack List", f.name)
-					stems = 0
-					boxes = set()
-					items = doc.pack_list_item or []
-					j = 0
-					while j < len(items):
-						row = items[j]
-						stems = stems + (row.stock_qty or 0)
-						if row.box_id:
-							boxes = boxes | {str(row.box_id).strip()}
-						j = j + 1
-
-					current_stems = packed_stems_by_opl.get(oid, 0)
-					packed_stems_by_opl[oid] = current_stems + stems
-
-					current_boxes = packed_boxes_by_opl.get(oid, 0)
-					packed_boxes_by_opl[oid] = current_boxes + len(boxes)
-				except:
-					pass
-				i = i + 1
+			# One read of every pack list's rows (was a full get_doc per pack list).
+			fpl_opl = {f.name: f.order_pick_list for f in fpls}
+			fpl_stems, fpl_boxes = {}, {}
+			if fpl_opl:
+				for row in frappe.get_all(
+					"Farm Packlist Item",
+					filters={"parent": ["in", list(fpl_opl)], "parenttype": "Farm Pack List"},
+					fields=["parent", "stock_qty", "box_id"],
+					limit_page_length=0,
+				):
+					fpl_stems[row.parent] = fpl_stems.get(row.parent, 0) + (row.stock_qty or 0)
+					if row.box_id:
+						fpl_boxes.setdefault(row.parent, set()).add(str(row.box_id).strip())
+			for name, oid in fpl_opl.items():
+				packed_stems_by_opl[oid] = packed_stems_by_opl.get(oid, 0) + fpl_stems.get(name, 0)
+				packed_boxes_by_opl[oid] = packed_boxes_by_opl.get(oid, 0) + len(fpl_boxes.get(name, ()))
 
 		# ================================================================
 		# Packing issues per OPL (bypass reports + under-packed boxes) --
@@ -599,6 +590,17 @@ def getDashboardData():
 			"total_planned_stems": total_all_planned_stems,
 			"total_packed_stems": total_all_packed_stems,
 		}
+		# The page's "Boxes to deliver" figures ride along, so it needs one request.
+		bfrom = frappe.form_dict.get("boxes_from")
+		if bfrom:
+			try:
+				frappe.response["message"]["boxes_to_deliver"] = _boxes_to_deliver(
+					bfrom,
+					frappe.form_dict.get("boxes_to") or bfrom,
+					[] if team_filter in (None, "", "all") else _split_teams(team_filter),
+				)
+			except Exception:
+				frappe.log_error("Packhouse dashboard: boxes to deliver failed", frappe.get_traceback())
 
 	except:
 		frappe.response["message"] = {"success": False, "error": "Internal server error"}
@@ -621,81 +623,86 @@ def getTeams():
 		frappe.response["message"] = {"success": False, "error": str(e), "teams": []}
 
 
+def _boxes_to_deliver(frm, to, teams):
+	"""Orders, boxes and stems shipping in [frm, to] (optionally for some teams)."""
+	# Sales Orders shipping in the window (exclude drafts + cancelled/closed/completed).
+	so_rows = frappe.get_all(
+		"Sales Order",
+		filters={
+			"delivery_date": ["between", [frm, to]],
+			"docstatus": 1,
+			"status": ["not in", ["Cancelled", "Closed", "Completed"]],
+		},
+		fields=["name"],
+		limit_page_length=0,
+	)
+	so_names = [s.name for s in so_rows]
+
+	# Team filter: Sales Orders carry no team; map via their OPLs.
+	if teams and so_names:
+		opl_rows = frappe.get_all(
+			"Order Pick List",
+			filters={"team": ["in", teams], "sales_order": ["in", so_names]},
+			fields=["sales_order"],
+			limit_page_length=0,
+		)
+		team_so = set(x.sales_order for x in opl_rows if x.sales_order)
+		so_names = [n for n in so_names if n in team_so]
+
+	boxes = 0
+	stems = 0
+	if so_names:
+		items = frappe.get_all(
+			"Sales Order Item",
+			filters={"parent": ["in", so_names], "parenttype": "Sales Order"},
+			fields=[
+				"parent",
+				"idx",
+				"stock_qty",
+				"custom_number_of_boxes",
+				"custom_mixed_box",
+				"custom_mix_group",
+				"custom_mixed_bunch",
+				"custom_bunch_group",
+				"custom_line",
+			],
+			limit_page_length=0,
+		)
+		# Boxes counted ONCE per group (mixed bunch -> custom_bunch_group,
+		# mixed box -> custom_mix_group, else per straight line). Stems per line.
+		# custom_line (the spec) wins first -- a spec is one box even when it
+		# mixes both bunch types in one fill (see _set_order_summary's own
+		# docstring in sales_order_engine.py for the real XPOL TOSCA example
+		# this fixes).
+		seen = set()
+		for it in items:
+			stems = stems + (it.get("stock_qty") or 0)
+			line = str(it.get("custom_line") or "").strip()
+			bg = str(it.get("custom_bunch_group") or "").strip()
+			mg = str(it.get("custom_mix_group") or "").strip()
+			if line != "":
+				key = str(it.parent) + "||spec||" + line
+			elif it.get("custom_mixed_bunch") == 1 and bg != "":
+				key = str(it.parent) + "||bunch||" + bg
+			elif it.get("custom_mixed_box") == 1 and mg != "":
+				key = str(it.parent) + "||mix||" + mg
+			else:
+				key = str(it.parent) + "||line||" + str(it.idx)
+			if key not in seen:
+				seen = seen | {key}
+				boxes = boxes + (it.get("custom_number_of_boxes") or 0)
+	return {"orders": len(so_names), "boxes": boxes, "stems": stems}
+
+
+def _split_teams(raw):
+	return [t.strip() for t in str(raw or "").split(",") if t.strip()]
+
+
 @frappe.whitelist()
 def getBoxesToDeliver():
 	try:
 		frm = frappe.form_dict.get("from_date") or frappe.utils.today()
 		to = frappe.form_dict.get("to_date") or frm
-		teams_raw = frappe.form_dict.get("teams") or ""
-		teams = [t.strip() for t in teams_raw.split(",") if t.strip()]
-
-		# Sales Orders shipping in the window (exclude drafts + cancelled/closed/completed).
-		so_rows = frappe.get_all(
-			"Sales Order",
-			filters={
-				"delivery_date": ["between", [frm, to]],
-				"docstatus": 1,
-				"status": ["not in", ["Cancelled", "Closed", "Completed"]],
-			},
-			fields=["name"],
-			limit_page_length=0,
-		)
-		so_names = [s.name for s in so_rows]
-
-		# Team filter: Sales Orders carry no team; map via their OPLs.
-		if teams and so_names:
-			opl_rows = frappe.get_all(
-				"Order Pick List",
-				filters={"team": ["in", teams], "sales_order": ["in", so_names]},
-				fields=["sales_order"],
-				limit_page_length=0,
-			)
-			team_so = set(x.sales_order for x in opl_rows if x.sales_order)
-			so_names = [n for n in so_names if n in team_so]
-
-		boxes = 0
-		stems = 0
-		if so_names:
-			items = frappe.get_all(
-				"Sales Order Item",
-				filters={"parent": ["in", so_names], "parenttype": "Sales Order"},
-				fields=[
-					"parent",
-					"idx",
-					"stock_qty",
-					"custom_number_of_boxes",
-					"custom_mixed_box",
-					"custom_mix_group",
-					"custom_mixed_bunch",
-					"custom_bunch_group",
-					"custom_line",
-				],
-				limit_page_length=0,
-			)
-			# Boxes counted ONCE per group (mixed bunch -> custom_bunch_group,
-			# mixed box -> custom_mix_group, else per straight line). Stems per line.
-			# custom_line (the spec) wins first -- a spec is one box even when it
-			# mixes both bunch types in one fill (see _set_order_summary's own
-			# docstring in sales_order_engine.py for the real XPOL TOSCA example
-			# this fixes).
-			seen = set()
-			for it in items:
-				stems = stems + (it.get("stock_qty") or 0)
-				line = str(it.get("custom_line") or "").strip()
-				bg = str(it.get("custom_bunch_group") or "").strip()
-				mg = str(it.get("custom_mix_group") or "").strip()
-				if line != "":
-					key = str(it.parent) + "||spec||" + line
-				elif it.get("custom_mixed_bunch") == 1 and bg != "":
-					key = str(it.parent) + "||bunch||" + bg
-				elif it.get("custom_mixed_box") == 1 and mg != "":
-					key = str(it.parent) + "||mix||" + mg
-				else:
-					key = str(it.parent) + "||line||" + str(it.idx)
-				if key not in seen:
-					seen = seen | {key}
-					boxes = boxes + (it.get("custom_number_of_boxes") or 0)
-
-		frappe.response["message"] = {"orders": len(so_names), "boxes": boxes, "stems": stems}
+		frappe.response["message"] = _boxes_to_deliver(frm, to, _split_teams(frappe.form_dict.get("teams")))
 	except Exception as e:
 		frappe.response["message"] = {"error": str(e), "orders": 0, "boxes": 0, "stems": 0}

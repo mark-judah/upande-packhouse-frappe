@@ -50,7 +50,7 @@
    "link_type": "URL",
    "show_arrow": 0,
    "type": "Link",
-   "url": "/packhouse-scheduler"
+   "url": "/remote-transfers/scheduler"
   },
   {
    "child": 1,
@@ -98,7 +98,7 @@
    "link_type": "URL",
    "show_arrow": 0,
    "type": "Link",
-   "url": "/bucket-tracker"
+   "url": "/remote-transfers/bucket-journey"
   },
   {
    "child": 1,
@@ -110,7 +110,7 @@
    "link_type": "URL",
    "show_arrow": 0,
    "type": "Link",
-   "url": "/bucket-logistics"
+   "url": "/remote-transfers/bucket-logistics"
   },
   {
    "child": 1,

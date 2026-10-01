@@ -28,7 +28,8 @@
    "fieldname": "bucket_id",
    "fieldtype": "Link",
    "label": "Bucket Id",
-   "options": "Bucket QR Code"
+   "options": "Bucket QR Code",
+   "search_index": 1
   },
   {
    "fieldname": "item_code",
@@ -116,7 +117,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-12 10:16:53.792046",
+ "modified": "2026-10-01 21:21:56.414771",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Bucket Allocation Status",

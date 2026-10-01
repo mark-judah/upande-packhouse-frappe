@@ -28,6 +28,9 @@ def getBucketLogistics():
 		"(pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1 OR pli.in_transit = 1 OR pli.shelved = 1)"
 	)
 
+	# A bucket's identity on the pick list (case-insensitive; a row without a bucket counts alone).
+	BKT = "COALESCE(NULLIF(UPPER(pli.bucket), ''), pli.name)"
+
 	params = {"d": delivery_date}
 	conds = ["opl.docstatus < 2", "pli.parenttype = 'Order Pick List'", "so.delivery_date = %(d)s", TRANSFER]
 	if fd.get("farm"):
@@ -54,13 +57,29 @@ def getBucketLogistics():
             MAX(CASE WHEN """
 		+ TRANSFER_TRUCK_OK
 		+ """ THEN pli.transit_truck END) AS truck,
-            COUNT(*)                  AS total,
-            SUM(pli.awaiting_transfer = 1) AS awaiting,
-            SUM(pli.loaded_in_trolley = 1) AS trolley,
-            SUM(pli.in_transit = 1)        AS transit,
-            SUM(pli.shelved = 1)           AS shelved,
-            SUM(pli.custom_ready_for_packing = 1) AS ready,
-            SUM(pli.issued = 1)            AS issued
+            -- Counted per BUCKET: a pick list keeps one row per box, so a bucket
+            -- packed into two boxes has two rows (and was counted twice).
+            COUNT(DISTINCT """
+		+ BKT
+		+ """)                  AS total,
+            COUNT(DISTINCT CASE WHEN pli.awaiting_transfer = 1 THEN """
+		+ BKT
+		+ """ END) AS awaiting,
+            COUNT(DISTINCT CASE WHEN pli.loaded_in_trolley = 1 THEN """
+		+ BKT
+		+ """ END) AS trolley,
+            COUNT(DISTINCT CASE WHEN pli.in_transit = 1 THEN """
+		+ BKT
+		+ """ END) AS transit,
+            COUNT(DISTINCT CASE WHEN pli.shelved = 1 THEN """
+		+ BKT
+		+ """ END) AS shelved,
+            COUNT(DISTINCT CASE WHEN pli.custom_ready_for_packing = 1 THEN """
+		+ BKT
+		+ """ END) AS ready,
+            COUNT(DISTINCT CASE WHEN pli.issued = 1 THEN """
+		+ BKT
+		+ """ END) AS issued
         FROM `tabPick List Item` pli
         JOIN `tabOrder Pick List` opl ON opl.name = pli.parent
         LEFT JOIN `tabSales Order` so ON so.name = opl.sales_order
@@ -97,7 +116,8 @@ def getBucketLogistics():
 		for t in frappe.db.sql(
 			"""
             SELECT o.order_pick_list AS opl, t.name AS trip, t.vehicle AS vehicle, t.status AS status,
-                   t.trip_date AS trip_date, SUM(o.buckets) AS buckets
+                   t.trip_date AS trip_date, SUM(o.buckets) AS buckets,
+                   SUM(o.loaded_buckets) AS loaded_buckets
             FROM `tabBucket Request Trip Order` o
             JOIN `tabBucket Request Trip` t ON t.name = o.parent
             WHERE o.order_pick_list IN %(opls)s
@@ -120,6 +140,7 @@ def getBucketLogistics():
 					"status": t.status,
 					"trip_date": str(t.trip_date),
 					"buckets": int(t.buckets or 0),
+					"loaded_buckets": int(t.loaded_buckets or 0),
 				}
 			)
 	for r in rows:
@@ -230,13 +251,24 @@ def getBucketLogisticsDetail():
                 """
 			+ FARM_EXPR
 			+ """        AS farm,
-                pli.custom_box_id            AS box_id,
-                pli.awaiting_transfer        AS awaiting,
-                pli.loaded_in_trolley        AS trolley,
-                pli.in_transit               AS transit,
-                pli.shelved                  AS shelved,
-                pli.custom_ready_for_packing AS ready,
-                pli.issued                   AS issued
+                GROUP_CONCAT(DISTINCT pli.custom_box_id ORDER BY pli.custom_box_id SEPARATOR ', ') AS box_id,
+                COUNT(*)                     AS boxes,
+                SUM(pli.stock_qty)           AS stems,
+                -- Each stage ticks once the bucket has PASSED it: shelving clears the
+                -- earlier flags (awaiting / trolley / in transit) on the row, but the
+                -- bucket did go through them, so a later stage implies the earlier ones.
+                MAX(GREATEST(IFNULL(pli.awaiting_transfer, 0), IFNULL(pli.loaded_in_trolley, 0),
+                    IFNULL(pli.in_transit, 0), IFNULL(pli.shelved, 0),
+                    IFNULL(pli.custom_ready_for_packing, 0), IFNULL(pli.issued, 0))) AS awaiting,
+                MAX(GREATEST(IFNULL(pli.loaded_in_trolley, 0), IF(IFNULL(pli.trolley_id, '') != '', 1, 0),
+                    IFNULL(pli.in_transit, 0), IFNULL(pli.shelved, 0),
+                    IFNULL(pli.custom_ready_for_packing, 0), IFNULL(pli.issued, 0))) AS trolley,
+                MAX(GREATEST(IFNULL(pli.in_transit, 0), IFNULL(pli.shelved, 0),
+                    IFNULL(pli.custom_ready_for_packing, 0), IFNULL(pli.issued, 0))) AS transit,
+                MAX(GREATEST(IFNULL(pli.shelved, 0), IFNULL(pli.custom_ready_for_packing, 0),
+                    IFNULL(pli.issued, 0))) AS shelved,
+                MAX(GREATEST(IFNULL(pli.custom_ready_for_packing, 0), IFNULL(pli.issued, 0))) AS ready,
+                MAX(IFNULL(pli.issued, 0))   AS issued
             FROM `tabPick List Item` pli
             JOIN `tabOrder Pick List` o ON o.name = pli.parent
             WHERE pli.parenttype = 'Order Pick List' AND o.name = %(opl)s
@@ -244,7 +276,10 @@ def getBucketLogisticsDetail():
                    OR pli.in_transit = 1 OR pli.shelved = 1)"""
 			+ extra
 			+ """
-            ORDER BY pli.idx
+            -- One row per bucket (the pick list keeps a row per box); a bucket holding
+            -- more than one variety or stem length gets a row for each of them.
+            GROUP BY COALESCE(NULLIF(UPPER(pli.bucket), ''), pli.name), pli.item_code, pli.stem_length
+            ORDER BY MIN(pli.idx)
             LIMIT 2000
         """,
 			params,

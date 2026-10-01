@@ -197,6 +197,9 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .torow .nm{font:600 12px var(--f);color:var(--ink)}
 .aph .torow .fm{font:600 10px var(--mono);color:var(--ink-2);background:rgba(10,10,10,.05);padding:1px 7px;border-radius:999px}
 .aph .torow .b{margin-left:auto;font:600 11px var(--mono);color:var(--ink)}
+.aph .torow .tag{font:600 10px var(--mono);padding:1px 7px;border-radius:999px;color:var(--warn);background:var(--warn-soft)}
+.aph .torow .tag.left{color:var(--bad);background:var(--bad-soft)}
+.aph .trip-st.unsched{color:var(--warn);background:var(--warn-soft)}
 .aph .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fafaf6;font:600 12px var(--f);padding:11px 18px;border-radius:999px;box-shadow:var(--shadow-hover);z-index:99;opacity:0;transition:opacity .2s}
 .aph .toast.show{opacity:1}
 .aph .route-box{margin:4px 0 12px;padding:10px 12px;background:var(--signal-soft);border:1px solid var(--hairline);border-radius:12px}
@@ -210,30 +213,6 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .plan-summary .ps-cap{font:600 11px var(--mono);color:var(--ink-2);background:var(--bg);border:1px solid var(--hairline);border-radius:999px;padding:3px 10px}
 .aph .plan-summary .ps-hint{font:500 12px var(--f);color:var(--ink-mute)}
 .aph .plan-summary .ps-fill{flex:1}
-.aph .plan-farms{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-.aph .pchip{font:600 11px var(--mono);background:var(--signal-soft);color:var(--signal);padding:2px 9px;border-radius:999px}
-.aph .plan-refuse{background:var(--bad-soft);border:1px solid var(--bad);border-radius:12px;padding:16px 18px;font:600 14px var(--f);color:var(--bad)}
-.aph .fr-intro{font:500 13px var(--f);color:var(--ink-2);background:var(--surface-2);border:1px solid var(--hairline);border-radius:12px;padding:12px 16px;margin-bottom:16px}
-.aph .fr-card{background:var(--surface-2);border:1px solid var(--hairline);border-radius:16px;box-shadow:var(--shadow-card);padding:16px 18px;margin-bottom:14px}
-.aph .fr-hd{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.aph .fr-hd h3{font:700 17px var(--f);color:var(--ink)}
-.aph .fr-tot{font:600 12px var(--mono);color:var(--ink-2)}
-.aph .fr-target{display:inline-block;margin-top:6px;font:700 10px var(--f);text-transform:uppercase;letter-spacing:.03em;padding:3px 9px;border-radius:999px}
-.aph .fr-target.topup{color:#7c5cfc;background:#f0ecfe}
-.aph .fr-target.new{color:var(--ink-2);background:rgba(10,10,10,.06)}
-.aph .fr-stops{margin-top:10px;display:flex;flex-direction:column;gap:8px}
-.aph .fr-stop{border:1px solid var(--hairline);border-radius:10px;overflow:hidden}
-.aph .fr-stop-hd{display:flex;align-items:center;gap:9px;padding:7px 11px;background:var(--surface-2);border-bottom:1px solid var(--hairline)}
-.aph .fr-stop-hd .fr-stopn{flex-shrink:0;width:20px;height:20px;border-radius:6px;background:var(--grad-ink);color:#fafaf6;font:700 11px var(--mono);display:flex;align-items:center;justify-content:center}
-.aph .fr-stop-hd .fr-stopf{font:600 13px var(--f);color:var(--ink)}
-.aph .fr-stop-hd .fr-stopb{margin-left:auto;font:700 11px var(--mono);color:var(--ink-2)}
-.aph .fr-stop .fr-ord{display:flex;align-items:center;gap:10px;padding:7px 11px}
-.aph .fr-stop .fr-ord+.fr-ord{border-top:1px solid var(--hairline)}
-.aph .fr-stop .fr-onm .nm{font:600 12px var(--f);color:var(--ink)}
-.aph .fr-stop .fr-onm .fr-vs{font:600 11px var(--mono);color:var(--ink-2);margin-top:2px}
-.aph .fr-stop .fr-bk{margin-left:auto;font:700 11px var(--mono);color:var(--ink)}
-.aph .plan-save{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
-.aph .plan-save .plan-note{font:500 11px var(--f);color:var(--ink-mute)}
 /* Trips */
 .aph .trip-card{background:var(--surface-2);border:1px solid var(--hairline);border-radius:16px;box-shadow:var(--shadow-card);padding:14px 18px;margin-bottom:14px}
 .aph .trip-hd{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
@@ -371,6 +350,12 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .ts-alert-row .meta{font:500 10px var(--mono);color:var(--ink-mute)}
 .aph .trip-st{font:600 9px var(--mono);text-transform:uppercase;letter-spacing:.05em;padding:3px 8px;border-radius:999px;background:rgba(10,10,10,.05);color:var(--ink-2)}
 .aph .trip-st.Dispatched{background:#e3ecfd;color:#1d4ed8}
+.aph .trip-st.loading{background:var(--warn-soft);color:var(--warn)}
+.aph .tstops{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px;font:600 11px var(--f)}
+.aph .tstop{padding:3px 9px;border-radius:999px;background:var(--surface-2);color:var(--ink-mute);border:1px solid var(--hairline)}
+.aph .tstop.done{color:var(--good);background:var(--good-soft);border-color:transparent}
+.aph .tstop.next{color:var(--ink);border-color:var(--ink)}
+.aph .tarrow{color:var(--ink-mute)}
 .aph .trip-st.Received{background:var(--good-soft);color:var(--good)}
 .aph .trip-st.auto{background:#efe7fd;color:#6d28d9}
 .aph .ts-auto{display:none;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 14px;padding:9px 14px;border-radius:10px;background:#f5f0fe;color:#4c1d95;font:500 12px var(--f)}
@@ -453,7 +438,6 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .rl-km{font:600 12px var(--mono);color:var(--ink-2)}
 .aph .rl-meta{font:500 11px var(--f);color:var(--ink-mute)}
 .aph .rl-empty{padding:22px;text-align:center;color:var(--ink-mute);font:500 12px var(--f);background:var(--surface-2);border:1px dashed var(--hairline-2);border-radius:12px}
-.aph .rl-unrouted{font:500 11px var(--f);color:#8a5200;margin:4px 2px 0}
 .aph .rb-crumb{display:flex;align-items:center;gap:12px;margin-bottom:14px}
 .aph .rb-crumb b{font:600 16px var(--f);color:var(--ink)}
 .aph .rb-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:14px}
@@ -481,7 +465,7 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 
 /* Tab switches fade the incoming panel instead of snapping. */
 @keyframes rtPanelIn{from{opacity:0}to{opacity:1}}
-.aph #panel-orders,.aph #panel-build,.aph #panel-triplist,.aph #panel-logistics,.aph #panel-routes{animation:rtPanelIn .16s ease-out}
+.aph #panel-orders,.aph #panel-triplist,.aph #panel-logistics,.aph #panel-routes{animation:rtPanelIn .16s ease-out}
 /* Skeleton loading */
 @keyframes skShimmer{0%{background-position:-400px 0}100%{background-position:400px 0}}
 .aph .sk{display:block;border-radius:8px;background:linear-gradient(90deg,rgba(10,10,10,.06) 0,rgba(10,10,10,.11) 40px,rgba(10,10,10,.06) 80px);background-size:800px 100%;animation:skShimmer 1.3s linear infinite}
@@ -491,6 +475,13 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .sk-row td{padding:13px 14px!important}
 
 /* Logistics tab (moved from bucket-logistics.html) */
+/* KPI and truck tiles stay on ONE row: one column per tile (--n, set when rendered);
+   a narrow screen scrolls the row sideways instead of wrapping it. */
+.aph #blKpis,.aph #blTrucks{grid-template-columns:repeat(var(--n,7),minmax(132px,1fr));gap:10px!important;overflow-x:auto;margin-bottom:0;padding-bottom:2px}
+.aph #blKpis .aph-kpi,.aph #blTrucks .aph-kpi{padding:16px!important;min-height:112px!important;border-radius:14px!important}
+.aph #blKpis .aph-kpi .lbl,.aph #blTrucks .aph-kpi .lbl{padding-right:0!important;letter-spacing:1px!important;font-size:10px!important}
+.aph #blKpis .aph-kpi .v,.aph #blTrucks .aph-kpi .v{font-size:26px!important;margin-top:10px!important;letter-spacing:-.8px!important;white-space:nowrap}
+.aph #blKpis .aph-kpi .sub,.aph #blTrucks .aph-kpi .sub{font-size:11px!important;margin-top:8px!important}
 .aph-kpi .lbl{font-size:11px;color:var(--text-2);letter-spacing:.04em;text-transform:uppercase;font-weight:600}
 .aph-kpi .v{font-size:32px;font-weight:600;letter-spacing:-0.035em;font-feature-settings:'tnum';margin-top:10px;line-height:1}
 .aph-kpi .sub{font-size:11px;color:var(--text-3);margin-top:8px;font-weight:500}
@@ -534,7 +525,7 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
     <div class="aph-topbar">
       <button class="collapse-btn" id="collapseBtn" title="Toggle sidebar" aria-label="Toggle sidebar"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
       <h1>Remote Transfers</h1>
-      {% endraw %}{% set rt_q = (frappe.form_dict.get('tab') if frappe.form_dict else '') or '' %}{% set rt_active = rt_q if rt_q in ('logistics', 'routes') else 'transfer' %}{% include "upande_packhouse/templates/includes/remote_transfers_tabs.html" %}{% raw %}
+      {% endraw %}{% set rt_active = rt_tab or 'transfer' %}{% include "upande_packhouse/templates/includes/remote_transfers_tabs.html" %}{% raw %}
             <div class="right"></div>
     </div>
     <div class="aph-content">
@@ -546,7 +537,6 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
       <div class="ts-bar">
         <div class="ts-tabs">
           <button class="ts-tab on" data-act="tab" data-tab="orders">Scheduled orders</button>
-          <button class="ts-tab" data-act="tab" data-tab="build">Plan trucks</button>
           <button class="ts-tab" data-act="tab" data-tab="triplist">Trips</button>
         </div>
         <span class="sp"></span>
@@ -554,7 +544,6 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
       </div>
       <div class="ts-auto" id="ts-auto"></div>
       <div id="panel-orders" class="ts-panel"><div class="sk-card" style="height:46px"></div><div class="sk-card"><span class="sk" style="width:30%;height:14px"></span><div style="height:10px"></div><span class="sk" style="width:90%;height:12px"></span><div style="height:8px"></div><span class="sk" style="width:62%;height:12px"></span></div><div class="sk-card"><span class="sk" style="width:26%;height:14px"></span><div style="height:10px"></div><span class="sk" style="width:84%;height:12px"></span><div style="height:8px"></div><span class="sk" style="width:58%;height:12px"></span></div></div>
-      <div id="panel-build" class="ts-panel" style="display:none"></div>
       <div id="panel-triplist" class="ts-panel" style="display:none"></div>
       <div id="panel-routes" class="ts-panel" style="display:none"></div>
       <div id="panel-logistics" class="ts-panel" style="display:none">
@@ -616,7 +605,11 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
    there (no render path ever invoked it once ⚡ Distribute became the only way to
    schedule), so it's dropped here rather than carried forward unused. */
 (function(){
-var S={ from:window.rtDate.get(), to:window.rtDate.get(), tab:(function(){ try{ var t=new URLSearchParams(location.search).get('tab'); return ['orders','build','triplist','logistics','routes'].indexOf(t)>=0?t:'orders'; }catch(e){ return 'orders'; } })(), sel:{}, selQty:{}, broken:{}, ordTeam:'all' };
+var S={ from:window.rtDate.get(), to:window.rtDate.get(), tab:(function(){ try{
+  var p=location.pathname.replace(/\/+$/,'');
+  if(/\/truck-routes$/.test(p)) return 'routes';
+  if(/\/bucket-logistics$/.test(p)) return 'logistics';
+  var t=new URLSearchParams(location.search).get('tab'); return t==='triplist'?'triplist':'orders'; }catch(e){ return 'orders'; } })(), sel:{}, selQty:{}, broken:{}, ordTeam:'all' };
 function tripVehMap(){ var m={}; DATA.trips.forEach(function(t){ m[t.name]=t.vehicle||''; }); return m; }
 var DATA={orders:[],unscheduled:[],vehicles:[],trips:[],distances:[],truck_status:[],routes:[]};
 
@@ -783,7 +776,7 @@ function openTotal(o){ var t=0; openFarms(o).forEach(function(f){ t+=f.buckets; 
 function loadData(){
   // Skeleton on first load and after a date change — not after every action.
   if(!S.loaded||S.skel){
-    var sk=window.rtSkeleton, pnl={orders:'panel-orders',build:'panel-build',triplist:'panel-triplist',routes:'panel-routes'}[S.tab];
+    var sk=window.rtSkeleton, pnl={orders:'panel-orders',triplist:'panel-triplist',routes:'panel-routes'}[S.tab];
     if(pnl&&$(pnl)) $(pnl).innerHTML=(S.tab==='triplist'?sk.kpis(3):'')+sk.cards(3);
     var fr=$('ts-fresh'); if(fr) fr.textContent='loading…';
   }
@@ -827,16 +820,14 @@ function loadRoutes(){
 function chainHtml(stops){ return (stops||[]).map(function(f){ return f===pack()?'<span class="hub">'+esc(f)+'</span>':'<b>'+esc(f)+'</b>'; }).join(' → '); }
 function drawRouteList(){
   var box=$('rl-list'); if(!box) return;
-  var rs=S.rv.routes||[], routedVeh={}; rs.forEach(function(r){ routedVeh[r.vehicle]=1; });
-  var unrouted=DATA.vehicles.filter(function(v){ return !routedVeh[v.name]; }).map(function(v){ return v.name; });
+  var rs=S.rv.routes||[];
   var html=rs.length?rs.map(function(r){
     return '<div class="rl-card"><span class="rl-veh">'+esc(r.vehicle)+'</span><span class="rl-meta">'+esc(timeRange(r))+'</span><span class="rl-chain">'+chainHtml(r.stops)+'</span>'+
       '<span class="rl-km">'+Number(r.total_km||0).toFixed(1)+' km</span><span class="rl-meta">'+r.legs.length+' leg'+(r.legs.length===1?'':'s')+'</span>'+
       truckStateHtml(r.vehicle, r.route_date)+
       '<button class="tbtn ghost trip-del" data-act="rv-edit" data-name="'+esc(r.name)+'">Edit</button>'+
       '<button class="tbtn ghost trip-del" data-act="rv-del" data-name="'+esc(r.name)+'">Delete</button></div>';
-  }).join(''):'<div class="rl-empty">No truck routes for '+esc(S.rv.date)+'. Use <b>+ New route</b> to plan one.</div>';
-  if(unrouted.length) html+='<div class="rl-unrouted">Not routed on '+esc(S.rv.date)+': '+unrouted.map(esc).join(', ')+(S.rv.date===todayISO()?' — ⚡ Distribute won’t use '+(unrouted.length===1?'it':'them')+' today.':'')+'</div>';
+  }).join(''):'<div class="rl-empty">No truck routes for '+esc(S.rv.date)+'</div>';
   box.innerHTML=html;
 }
 /* Today only: is the route's truck out (dispatched trip not yet received) or available? */
@@ -1172,10 +1163,13 @@ function render(){
   renderAutoBanner();
   // Keep the tab in the URL (refresh/bookmark reopen it) and in the sidebar's
   // Remote Transfers group (Transfer Scheduling vs Bucket Logistics).
-  try{ var u=new URL(location.href); if(u.searchParams.get('tab')!==S.tab){ u.searchParams.set('tab',S.tab); history.replaceState(null,'',u.toString()); } }catch(e){}
+  /* Each view has its own /remote-transfers/<tab> address; the planning sub-tabs ride on ?tab=. */
+  try{ var u=new URL(location.href);
+    u.pathname=S.tab==='routes'?'/remote-transfers/truck-routes':(S.tab==='logistics'?'/remote-transfers/bucket-logistics':'/remote-transfers/transfer-scheduling');
+    if(S.tab==='triplist') u.searchParams.set('tab',S.tab); else u.searchParams.delete('tab');
+    if(u.toString()!==location.href) history.replaceState(null,'',u.toString()); }catch(e){}
   if(window.rtSetTab) window.rtSetTab(S.tab==='logistics'||S.tab==='routes'?S.tab:'transfer');
   $('panel-orders').style.display=S.tab==='orders'?'':'none';
-  $('panel-build').style.display=S.tab==='build'?'':'none';
   $('panel-triplist').style.display=S.tab==='triplist'?'':'none';
   $('panel-logistics').style.display=S.tab==='logistics'?'':'none';
   $('panel-routes').style.display=S.tab==='routes'?'':'none';
@@ -1190,7 +1184,6 @@ function render(){
   var tsBar=document.querySelector('.ts-bar'); if(tsBar) tsBar.style.display=ownView?'none':'';
   if(!ownView) S.lastPlanTab=S.tab;
   if(S.tab==='orders') renderOrders();
-  else if(S.tab==='build') renderBuild();
   else if(S.tab==='triplist') renderTripList();
   else if(S.tab==='routes') renderRoutes();
   else if(window.BL_LOAD) window.BL_LOAD();   // re-read so dispatches made on Trips show at once
@@ -1216,7 +1209,7 @@ function renderAutoBanner(){
         ((lr.failed||[]).length?' · '+lr.failed.length+' truck'+(lr.failed.length===1?'':'s')+' failed: '+esc(lr.failed.map(function(f){return f.vehicle+' ('+f.message+')';}).join('; ')):'');
     }
   }
-  el.innerHTML='<b>Automatic scheduling is on</b><span>every '+(ap.frequency||10)+' min · '+what+'. Dispatch stays manual.</span>'+
+  el.innerHTML='<b>Automatic scheduling is on</b><span>every '+(ap.frequency||10)+' min · '+what+'. Dispatch happens in the app.</span>'+
     '<button class="tbtn ghost" data-act="auto-replan">Re-plan now</button>';
 }
 function autoReplan(btn){
@@ -1367,7 +1360,15 @@ function applyDistribution(){
     var q=dist.shortQty[c.opl]||0;
     if(q>0){ S.sel[c.opl]=1; S.selQty[c.opl]=Math.min(c.open,q); }
   });
-  closeDistModal(); S.tab='build'; render();
+  // Confirm saves the trips straight away (there is no separate "Plan trucks" step):
+  // one Draft trip per truck, then the Trips tab shows them.
+  var plan=suggestPlan();
+  var why=!fleetSorted().length?'No truck available — set a capacity and a route on a truck above.'
+    :!plan||plan.empty?'Nothing selected to move.'
+    :plan.nofleet?'No trucks selected — tick a truck above.'
+    :plan.over?(plan.routeMsg||(n(plan.total)+' buckets exceed the selected trucks’ capacity ('+n(plan.fleetCap)+').')):'';
+  if(why){ toast(why); return; }
+  saveDispatch(true);
 }
 /* truck picker used inside the Distribute modal: checkbox + LIVE status + route editor. */
 function truckPickHtml(checkAct){
@@ -1385,11 +1386,20 @@ function truckPickHtml(checkAct){
         else if(s.location==='in_transit'){ loc='In transit → '+esc(pack())+(s.in_transit?' · '+s.in_transit+' bkt on board':''); cls='transit'; }
         else if(s.location==='arrived'){ loc='Arrived at '+esc(pack())+(s.shelved?' · '+s.shelved+' bkt shelved':''); cls='arrived'; }
       }
+      var loadingTrip=(DATA.trips||[]).filter(function(t){ return t.vehicle===v.name&&t.loading; })[0];
+      if(loadingTrip&&!v.on_road){
+        var dp=loadingTrip.departed_stops||[];
+        loc=dp.length&&loadingTrip.heading_to
+          ? 'Left '+esc(dp[dp.length-1])+' · heading to '+esc(loadingTrip.heading_to)+' · '+(loadingTrip.loaded_buckets||0)+' bkt on board'
+          : 'Loaded · '+(loadingTrip.loaded_buckets||0)+' bkt on board · not dispatched yet';
+        cls='load';
+      }
       if(v.on_road){ loc='On the road · '+esc(v.on_road)+(v.dispatched_at?' · left '+esc(String(v.dispatched_at).slice(11,16)):'')+' · available when back at '+esc(v.route_end||pack()); cls='transit'; }
       var trips=tripsByVeh[v.name]||[];
       var committed=0; trips.forEach(function(t){ committed+=t.total_buckets||0; });
       var busyPct=v.capacity_buckets?Math.min(100,Math.round(committed/v.capacity_buckets*100)):0;
-      var tripList=trips.length?trips.map(function(t){ return esc(t.name)+' ('+(t.total_buckets||0)+' bkt'+(t.status==='Draft'?', draft':'')+')'; }).join(', '):'no trips planned yet';
+      var dayTrips=(DATA.trips||[]).filter(function(t){ return t.vehicle===v.name&&(t.trip_date===(DATA.today||todayISO())||t.status==='Dispatched'); });
+      var tripList=dayTrips.length?dayTrips.map(function(t){ return esc(t.name)+' ('+tripUsed(t)+' bkt, '+esc(t.status==='Received'?'ended':(t.loading?'loading':String(t.status||'').toLowerCase()))+(t.unscheduled?', unscheduled':'')+')'; }).join(', '):'no trips today';
       var rt=routeByV[v.name];
       var routeLine=routed
         ? '<span class="tk-route">'+esc(rt.farms.join(' · '))+' · '+rt.total_km.toFixed(2)+' km</span>'
@@ -1414,7 +1424,7 @@ function truckPickHtml(checkAct){
       return '<div class="va-card'+(avail?'':' off')+'"><label class="va-top"><input type="checkbox" class="va-chk" data-act="'+checkAct+'" data-veh="'+esc(v.name)+'"'+(avail?' checked':'')+(v.on_road?' disabled title="On the road — available once it is back and its trip is received"':(!hasCap?' disabled title="Set its capacity first"':(routed?'':' disabled title="Set a route for this truck first"')))+'><span class="va-nm">'+esc(v.name)+'</span>'+
           (hasCap?'<span class="va-cap">'+v.capacity_buckets+' bkt cap</span>':'<span class="va-cap none">no capacity</span><button class="tbtn ghost rt-editbtn" data-act="tk-open" data-veh="'+esc(v.name)+'">Set capacity</button>')+'</label>'+
         '<div class="va-row"><span class="va-k">Now</span><span class="tk-loc '+cls+'">'+loc+'</span></div>'+
-        '<div class="va-row"><span class="va-k">Busy</span><span class="tk-trips'+(trips.length?'':' none')+'">'+tripList+'</span></div>'+
+        '<div class="va-row"><span class="va-k">Trips</span><span class="tk-trips'+(dayTrips.length?'':' none')+'">'+tripList+'</span></div>'+
         (trips.length?'<div class="cap-bar" style="margin:4px 0 2px;height:5px"><i style="width:'+busyPct+'%"></i></div><div class="va-busy">'+committed+' / '+v.capacity_buckets+' bkt already committed</div>':'')+
         '<div class="va-row"><span class="va-k">Route</span>'+routeLine+
         '<button class="tbtn ghost rt-editbtn" data-act="route-edit" data-veh="'+esc(v.name)+'">'+(routed?'Edit':'Set')+'</button></div>'+
@@ -1491,7 +1501,7 @@ function renderDistModal(){
       heldHtml+
       unreachHtml+
     '</div>'+
-    '<div class="dm-foot"><button class="tbtn" data-act="dist-cancel">Cancel</button><button class="tbtn key" data-act="dist-confirm"'+(!check.ok?' disabled title="Fix the over-allocated amount above"':'')+'>Confirm &amp; plan trucks →</button></div></div>';
+    '<div class="dm-foot"><button class="tbtn" data-act="dist-cancel">Cancel</button><button class="tbtn key" data-act="dist-confirm"'+(!check.ok?' disabled title="Fix the over-allocated amount above"':'')+'>Confirm &amp; create trips</button></div></div>';
   var m=$('dist-modal');
   if(!m){ m=document.createElement('div'); m.id='dist-modal'; m.className='dm-overlay'; (document.querySelector('.aph')||document.body).appendChild(m);
     m.addEventListener('click',function(e){ if(e.target===m) closeDistModal(); }); }
@@ -1505,9 +1515,9 @@ function unscheduledHtml(){
   var why={no_team:'no team',not_scheduled:'not scheduled'};
   var noTeam=u.filter(function(x){return x.reason==='no_team';}).length;
   return '<div class="ts-alert'+(noTeam?' bad':'')+'"><div class="ts-alert-hd">⚠ '+u.length+' order'+(u.length===1?' needs':'s need')+' buckets moved but '+(u.length===1?'isn’t':'aren’t')+' on a team schedule — '+(u.length===1?'it':'they')+' can’t be planned onto a truck'+
-    '<a href="packhouse-scheduler">Open scheduler →</a></div><div class="ts-alert-list">'+
+    '<a href="/remote-transfers/scheduler">Open scheduler →</a></div><div class="ts-alert-list">'+
     u.map(function(x){ return '<div class="ts-alert-row"><span class="nm">'+esc(x.order_name)+'</span><span class="why">'+esc(why[x.reason]||x.reason)+'</span>'+
-      '<span class="meta">'+esc(x.customer||'')+' · '+n(x.buckets)+' bkt at '+esc((x.farms||[]).join(', '))+(x.team?' · team '+esc(x.team):'')+' · due '+esc(x.delivery_date)+'</span></div>'; }).join('')+
+      '<span class="meta">'+esc(x.customer||'')+' · '+(x.buckets?n(x.buckets)+' bkt waiting':'')+(x.buckets&&x.on_road?', ':'')+(x.on_road?n(x.on_road)+' bkt on a truck':'')+' at '+esc((x.farms||[]).join(', '))+(x.team?' · team '+esc(x.team):'')+' · due '+esc(x.delivery_date)+'</span></div>'; }).join('')+
     '</div>'+(noTeam?'<div style="margin-top:6px">Set the team on the Order Pick List, then schedule it.</div>':'')+'</div>';
 }
 /* Draft/Scheduled trips from an earlier day: the truck never left. They no longer
@@ -1750,57 +1760,15 @@ function scheduleGridHtml(g){
     '<div class="sg-legend"><span class="sg-lg sg-done">done</span><span class="sg-lg sg-partial">partial</span><span class="sg-lg sg-pending">pending</span><span class="sg-lg sg-blocked">no route today</span><span class="sg-lg sg-leftlg">⚠ left behind</span></div>';
 }
 
-function renderBuild(){   // "Plan trucks" tab
-  var sel=selectedPortions();
-  if(!sel.length){
-    var anyOpen=DATA.orders.some(function(o){ return o.schedule&&openTotal(o)>0; });
-    $('panel-build').innerHTML='<div class="ts-empty">'+(anyOpen
-      ?'<button class="tbtn key" data-act="distribute">⚡ Distribute across teams</button>'
-      :'No scheduled orders with buckets left to move.')+'</div>';
-    return;
-  }
-  var plan=suggestPlan();
-  var norders={}; sel.forEach(function(p){ norders[p.opl]=1; });
-  var byFarm={}; sel.forEach(function(p){ byFarm[p.farm]=(byFarm[p.farm]||0)+p.buckets; });
-  var farmChips=Object.keys(byFarm).sort().map(function(f){ return '<span class="pchip">'+esc(f)+' · '+byFarm[f]+'</span>'; }).join('');
-  var head='<div class="fr-intro"><b>'+Object.keys(norders).length+' orders · '+n(plan.total||0)+' buckets</b> selected, across '+Object.keys(byFarm).length+' farm'+(Object.keys(byFarm).length===1?'':'s')+'.<div class="plan-farms">'+farmChips+'</div></div>';
-  if(plan.nofleet){ $('panel-build').innerHTML=head+'<div class="plan-refuse">No trucks selected. Open <b>⚡ Distribute across teams</b> on the Scheduled orders tab to pick trucks.</div>'; return; }
-  if(plan.over){ $('panel-build').innerHTML=head+'<div class="plan-refuse">✋ '+(plan.routeMsg||(n(plan.total)+' buckets exceed the selected trucks’ capacity ('+n(plan.fleetCap)+'). Reduce buckets on some orders, deselect orders, or add a truck in the Distribute popup.'))+'</div>'; return; }
-  var cards=plan.loads.map(function(load,i){
-    var used=load.cap-load.rem;
-    var loadFarms=[]; load.rows.forEach(function(r){ if(r.farm&&loadFarms.indexOf(r.farm)<0)loadFarms.push(r.farm); });
-    var best=bestRoute(loadFarms);
-    var order=(best.km!=null&&best.order.length)?best.order:loadFarms;
-    var g={}; load.rows.forEach(function(r){ if(!g[r.farm])g[r.farm]={}; var k=r.order_name||r.opl;
-      if(!g[r.farm][k]) g[r.farm][k]={order_name:r.order_name,customer:r.customer,buckets:0,vs:{}};
-      g[r.farm][k].buckets+=r.buckets; (r.varieties||'').split(',').forEach(function(v){ v=v.trim(); if(v)g[r.farm][k].vs[v]=1; }); });
-    var stops=order.map(function(fm,si){ var ords=g[fm]; if(!ords) return '';
-      var fb=0; Object.keys(ords).forEach(function(k){ fb+=ords[k].buckets; });
-      var orows=Object.keys(ords).map(function(k){ var o=ords[k]; var vs=Object.keys(o.vs).join(', ');
-        return '<div class="fr-ord"><div class="fr-onm"><div class="nm">'+esc(o.order_name)+' · '+esc(o.customer)+'</div>'+(vs?'<div class="fr-vs">'+esc(vs)+'</div>':'')+'</div><span class="fr-bk">'+o.buckets+' bkt</span></div>'; }).join('');
-      return '<div class="fr-stop"><div class="fr-stop-hd"><span class="fr-stopn">'+(si+1)+'</span><span class="fr-stopf">'+esc(fm)+'</span><span class="fr-stopb">'+fb+' bkt</span></div>'+orows+'</div>';
-    }).join('');
-    return '<div class="fr-card"><div class="fr-hd"><h3>Truck '+(i+1)+' · '+esc(load.vehicle)+'</h3><span class="fr-tot"><b>'+used+'</b> / '+load.cap+' buckets</span></div>'+
-      '<span class="fr-target new">+ new trip</span>'+
-      '<div class="cap-bar" style="margin-top:8px"><i style="width:'+Math.min(100,load.cap?Math.round(used/load.cap*100):0)+'%"></i></div>'+
-      routeHtml(loadFarms)+
-      '<div class="fr-stops">'+stops+'</div></div>';
-  }).join('');
-  var saveBar='<div class="plan-save"><button class="tbtn key" data-act="plan-save">Apply — '+plan.trucks+' truck'+(plan.trucks===1?'':'s')+'</button>'+
-    '<button class="tbtn" data-act="plan-cancel">Cancel</button>'+
-    '<span class="plan-note">'+plan.trucks+' new trip'+(plan.trucks===1?'':'s')+' will be created; anything else on the Trips tab is untouched.</span></div>';
-  $('panel-build').innerHTML=head+saveBar+cards;
-}
-
 /* Create the dispatch: one Bucket Request Trip per truck the plan suggests. */
-function saveDispatch(){
+function saveDispatch(fromModal){
   // One save at a time: a second click used to create a second set of trips for the
   // same buckets. (The server now also refuses to claim buckets twice.)
   if(S.saving) return;
   var plan=suggestPlan();
   if(!plan || plan.empty || plan.over || plan.nofleet || !plan.loads) return;
   S.saving=true;
-  document.querySelectorAll('[data-act="plan-save"]').forEach(function(b){ b.disabled=true; b.textContent='Saving…'; });
+  document.querySelectorAll('[data-act="dist-confirm"]').forEach(function(b){ b.disabled=true; b.textContent='Saving…'; });
   Promise.all(plan.loads.map(function(load){
     var args={ vehicle:load.vehicle, trip_date:todayISO(), status:'Draft', farm:'', collection_order:'', orders:encodeOrders(load.rows) };
     return call('saveBucketTrip',args).then(function(r){ return {load:load, r:r}; }).catch(function(err){ return {load:load, err:err}; });
@@ -1813,11 +1781,12 @@ function saveDispatch(){
     });
     S.saving=false;
     if(failed.length){ toast((ok.length?ok.length+' truck'+(ok.length===1?'':'s')+' saved, but ':'')+failed.length+' failed — '+failed.join('; ')); }
-    else { toast('Dispatch saved — '+plan.trucks+' truck'+(plan.trucks===1?'':'s')); S.sel={}; S.selQty={}; S.rank={}; S.tab='triplist'; }
-    loadData();
+    else { toast(plan.trucks+' trip'+(plan.trucks===1?'':'s')+' planned'); S.sel={}; S.selQty={}; S.rank={}; S.tab='triplist'; if(fromModal) closeDistModal(); }
+    if(failed.length && fromModal) document.querySelectorAll('[data-act="dist-confirm"]').forEach(function(b){ b.disabled=false; b.textContent='Confirm & create trips'; });
+    loadData().then(function(){ render(); });
   });
 }
-/* Dispatch (truck leaves -> its buckets are flagged In Transit) or Receive (truck back). */
+/* End a dispatched trip (truck back). Dispatch itself happens in the mobile app. */
 function tripAction(method,name,label){
   if(!name || S.tripBusy) return;
   confirmModal(label+' trip',label+' trip '+name+'?',label).then(function(ok){ if(!ok || S.tripBusy) return;
@@ -1825,12 +1794,7 @@ function tripAction(method,name,label){
   call(method,{name:name}).then(function(r){
     var m=r.message||{};
     if(m.status!=='success'){ toast(m.message||(label+' failed')); return; }
-    if(method==='dispatchBucketTrip'){
-      var short=(m.short||[]).map(function(s){ return s.farm+' '+s.flagged+'/'+s.planned; }).join(', ');
-      toast('Dispatched '+name+' — '+(m.buckets_in_transit||0)+' bucket(s) in transit'+(short?' · short: '+short:''));
-    } else {
-      toast('Received '+name+(m.unshelved_on_truck?' — '+m.unshelved_on_truck+' bucket(s) still to shelve':''));
-    }
+    toast('Ended '+name+(m.unshelved_on_truck?' — '+m.unshelved_on_truck+' bucket(s) still to shelve':''));
   }).catch(function(err){ toast('Failed: '+((err&&err.message)||'')); })
     .then(function(){ S.tripBusy=false; loadData(); });
   });
@@ -1857,28 +1821,51 @@ function statusPillsHtml(vehicle){
     return '<span class="ts-pill" style="background:'+f[2]+'">'+f[1]+' '+v+' / '+s.total+'</span>'; }).join('');
   return '<div class="ts-pills">'+(pills||'<span class="ts-pill zero">no buckets</span>')+'</div>';
 }
+/* Gone = the truck left (dispatched or back): from then on what was LOADED is the
+   truth, and the plan is kept beside it — planned buckets not loaded were left behind. */
+function tripGone(t){ return t.status==='Dispatched'||t.status==='Received'; }
+/* Buckets are counted as loaded once any went on the truck, before dispatch too. */
+function tripLoaded(t){ return tripGone(t)||!!t.loading; }
+function tripUsed(t){ return tripLoaded(t)?(t.loaded_buckets||0):(t.total_buckets||0); }
 function tripCardHtml(t){
+  var gone=tripGone(t), shown=tripLoaded(t);
   var rows=(t.orders||[]).map(function(r){
+    var planned=r.buckets||0, loaded=r.loaded_buckets||0, left=gone?Math.max(0,planned-loaded):0;
+    var qty=!shown?planned+' bkt':(r.unscheduled?loaded+' bkt':loaded+' / '+planned+' bkt');
     return '<div class="torow"><span class="nm">'+esc(r.order_name||r.order_pick_list)+'</span>'+
       (r.farm?'<span class="fm">'+esc(r.farm)+'</span>':'')+
       (r.varieties?'<span style="font:500 10px var(--mono);color:var(--ink-mute)">'+esc(r.varieties)+'</span>':'')+
-      '<span class="b">'+(r.buckets||0)+' bkt</span></div>';
+      (r.unscheduled?'<span class="tag">not scheduled</span>':'')+
+      (left?'<span class="tag left">'+left+' left behind</span>':'')+
+      '<span class="b">'+qty+'</span></div>';
   }).join('');
-  var cap=t.capacity_buckets||0, used=t.total_buckets||0, pct=cap?Math.min(100,Math.round(used/cap*100)):0;
+  var cap=t.capacity_buckets||0, used=tripUsed(t), pct=cap?Math.min(100,Math.round(used/cap*100)):0;
   function tripFarms2(orders){ var seen={}, out=[]; (orders||[]).forEach(function(r){ if(r.farm && !seen[r.farm]){ seen[r.farm]=1; out.push(r.farm); } }); return out; }
   var stBadge=t.stale?'<span class="trip-st stale" title="Planned for an earlier day and never dispatched — its buckets are open again">stale · '+esc(t.status)+'</span>'
-    :'<span class="trip-st '+esc(t.status||'')+'">'+esc(t.status||'—')+'</span>';
-  var when=t.dispatched_at?'<span style="font:500 10px var(--mono);color:var(--ink-mute)">left '+esc(String(t.dispatched_at).slice(11,16))+(t.received_at?' · back '+esc(String(t.received_at).slice(11,16)):'')+'</span>':'';
+    :(t.loading?'<span class="trip-st loading" title="Buckets are on the truck — dispatched from the app when loading is done">loading</span>'
+    :'<span class="trip-st '+esc(t.status||'')+'">'+esc(t.status==='Received'?'ended':(t.status||'—'))+'</span>');
+  var when=t.dispatched_at?'<span style="font:500 10px var(--mono);color:var(--ink-mute)">left '+esc(String(t.dispatched_at).slice(11,16))+'</span>':'';
+  /* Collection progress: stops already loaded and left, the stop the truck is heading to, then the packhouse. */
+  var dep=t.departed_stops||[], stopsLine='';
+  if((t.stops||[]).length>1||dep.length){
+    var parts=(t.stops||[]).map(function(f){
+      if(dep.indexOf(f)>=0) return '<span class="tstop done">✓ '+esc(f)+'</span>';
+      if(f===t.heading_to) return '<span class="tstop next">'+esc(f)+' · next</span>';
+      return '<span class="tstop">'+esc(f)+'</span>';
+    });
+    parts.push('<span class="tstop'+(t.status==='Dispatched'?' next':'')+'">'+esc(pack())+(t.status==='Dispatched'?' · heading there':'')+'</span>');
+    stopsLine='<div class="tstops">'+parts.join('<span class="tarrow">→</span>')+'</div>';
+  }
   return '<div class="trip-card'+(t.stale?' stale':'')+'"><div class="trip-hd"><h3>'+esc(t.name)+'</h3>'+
     (t.vehicle?'<span class="veh">'+esc(t.vehicle)+'</span>':'')+
     (t.trip_date?'<span style="font:500 11px var(--mono);color:var(--ink-mute)">'+esc(t.trip_date)+'</span>':'')+
-    stBadge+(t.auto_planned?'<span class="trip-st auto" title="Planned by automatic scheduling — re-planned automatically until dispatched">auto</span>':'')+when+
-    ((t.status==='Draft'||t.status==='Scheduled')?'<button class="tbtn key trip-act" data-act="trip-dispatch" data-trip="'+esc(t.name)+'" title="Truck is leaving: flags its buckets In Transit">Dispatch</button>':'')+
-    (t.status==='Dispatched'?'<button class="tbtn key trip-act" data-act="trip-receive" data-trip="'+esc(t.name)+'" title="Truck is back: closes the trip (buckets count as arrived once shelved)">Receive</button>':'')+
-    ((t.status==='Draft'||t.status==='Scheduled')?'<button class="tbtn ghost trip-del" data-act="trip-del" data-trip="'+esc(t.name)+'">Delete</button>':'')+
+    stBadge+(t.unscheduled?'<span class="trip-st unsched">unscheduled</span>':'')+(t.auto_planned?'<span class="trip-st auto" title="Planned by automatic scheduling — re-planned automatically until dispatched">auto</span>':'')+when+
+    (t.status==='Dispatched'?'<button class="tbtn key trip-act" data-act="trip-receive" data-trip="'+esc(t.name)+'" title="Ends the trip now; it ends by itself once every bucket on it is shelved">End trip</button>':'')+
+    ((t.status==='Draft'||t.status==='Scheduled')&&!t.loading?'<button class="tbtn ghost trip-del" data-act="trip-del" data-trip="'+esc(t.name)+'">Delete</button>':'')+
     '</div>'+
     '<div class="cap-bar" style="margin-top:10px"><i style="width:'+pct+'%"></i></div>'+
-    '<div style="font:500 10px var(--mono);color:var(--ink-mute);margin-top:4px">'+used+' / '+(cap||'—')+' buckets · '+n(t.total_stems||0)+' stems</div>'+
+    '<div style="font:500 10px var(--mono);color:var(--ink-mute);margin-top:4px">'+used+' / '+(cap||'—')+' buckets'+(shown?' loaded':'')+(shown&&!t.unscheduled?' · '+(t.total_buckets||0)+' planned':'')+(shown?'':' · '+n(t.total_stems||0)+' stems')+(t.tracked_buckets?' · '+(t.shelved_buckets||0)+' / '+t.tracked_buckets+' shelved'+(t.off_truck_buckets?' · '+t.off_truck_buckets+' off the truck':''):'')+(t.received_at?' · ended '+esc(String(t.received_at).slice(11,16)):'')+'</div>'+
+    stopsLine+
     statusPillsHtml(t.vehicle)+
     routeHtml(tripFarms2(t.orders))+
     '<div class="trip-orders">'+rows+'</div></div>';
@@ -1922,8 +1909,6 @@ document.addEventListener('click',function(ev){
   else if(a==='dist-shortset'){ if(S.dist){ S.dist.shortQty[el.dataset.opl]=parseInt(el.dataset.val,10)||0; renderDistModal(); } }
   else if(a==='dist-confirm'){ if(!el.disabled) applyDistribution(); }
   else if(a==='dist-cancel'){ closeDistModal(); }
-  else if(a==='plan-save'){ saveDispatch(); }
-  else if(a==='plan-cancel'){ S.sel={}; S.selQty={}; S.rank={}; S.tab='orders'; render(); }
   else if(a==='trip-del'){ deleteTrip(el.dataset.trip); }
   else if(a==='rn-dd-toggle'){ if(S.rn){ S.rn.dd = S.rn.dd===el.dataset.k ? null : el.dataset.k; renderRoadModal();
       var q=document.querySelector('.rn-dd-q'); if(q) q.focus(); } }
@@ -1954,8 +1939,7 @@ document.addEventListener('click',function(ev){
   else if(a==='rn-cancel'){ closeRoadModal(); }
   else if(a==='rn-save'){ saveRoadModal(); }
   else if(a==='rn-del'){ removeRoad(el.dataset.name); }
-  else if(a==='trip-dispatch'){ tripAction('dispatchBucketTrip',el.dataset.trip,'Dispatch'); }
-  else if(a==='trip-receive'){ tripAction('receiveBucketTrip',el.dataset.trip,'Receive'); }
+  else if(a==='trip-receive'){ tripAction('receiveBucketTrip',el.dataset.trip,'End'); }
   else if(a==='auto-replan'){ autoReplan(el); }
 });
 document.addEventListener('change',function(ev){
@@ -1996,19 +1980,7 @@ window.rtDate.on(function(v){
 function boot(){ loadData(); }
 if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
 
-/* -- Sidebar footer (user identity) -- */
-(function fillFooter(){
-  function tryFill(){
-    if (!window.frappe || !frappe.session || !frappe.session.user){ setTimeout(tryFill, 100); return; }
-    var u = frappe.session.user || '';
-    var fullName = (frappe.session.user_fullname || (frappe.boot && frappe.boot.user && frappe.boot.user.full_name)) || u.split('@')[0];
-    var av=$('aph-foot-av'), nmEl=$('aph-foot-nm'), emEl=$('aph-foot-em');
-    if (av) av.textContent = (fullName||u||'?').substring(0,1).toUpperCase();
-    if (nmEl) nmEl.textContent = fullName;
-    if (emEl) emEl.textContent = u;
-  }
-  tryFill();
-})();
+
 })();
 </script>
 <script>
@@ -2091,6 +2063,7 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
       kpiCard('Avg transit time',fmtDur(avg),(med!=null?'median '+fmtDur(med)+' · ':'')+durs.length+' arrived'),
       kpiCard('Issued to packhouse',s.issued.toLocaleString(),s.buckets?Math.round(s.issued/s.buckets*100)+'% of buckets':'—')
     ].join('');
+    el.style.setProperty('--n',el.children.length||7);
   }
 
   // "Trucks on the road" — grouped from the same orders payload (o.truck = MAX(pli.transit_truck)
@@ -2109,6 +2082,7 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
       var s=byTruck[t];
       return kpiCard('Truck &middot; '+esc(t),s.buckets.toLocaleString()+' <span style="font-size:14px;color:var(--text-3)">buckets</span>','across '+s.orders+' order'+(s.orders===1?'':'s')+' &middot; '+s.awaiting+' awaiting &middot; '+s.transit+' in transit');
     }).join('');
+    el.style.setProperty('--n',Math.max(trucks.length,7));  // same width as the KPI tiles
   }
 
   function render(){
@@ -2135,9 +2109,10 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
       var b=(d&&d.buckets)||[];
       if(!b.length){el.innerHTML='<div class="bl2-loading">No transferring buckets.</div>';return;}
       var chk=function(v){return '<input type="checkbox" disabled '+(Number(v)?'checked':'')+'>';};
-      var head='<tr><th>#</th><th>Bucket</th><th>Variety</th><th>Len</th><th>Farm</th><th>Shelf</th><th>Truck</th>'
+      /* One row per bucket (a bucket packed into several boxes has a pick row per box). */
+      var head='<tr><th>#</th><th>Bucket</th><th>Variety</th><th>Len</th><th>Boxes</th><th>Stems</th><th>Farm</th><th>Shelf</th><th>Truck</th>'
         +FLAGS.map(function(f){return '<th class="c">'+f[1]+'</th>';}).join('')+'</tr>';
-      var body=b.map(function(x,j){var hl=PV&&String(x.variety||'').toLowerCase()===PV.toLowerCase();return '<tr'+(hl?' style="background:#fff7ed"':'')+'><td>'+(x.box_id||j+1)+'</td><td><b>'+esc(x.bucket||'—')+'</b></td><td'+(hl?' style="font-weight:700"':'')+'>'+esc(x.variety)+'</td><td>'+esc(x.length||'—')+'</td><td>'+esc(x.farm||'—')+'</td><td>'+esc(x.shelf||'—')+'</td><td>'+esc(x.truck||'—')+'</td>'
+      var body=b.map(function(x,j){var hl=PV&&String(x.variety||'').toLowerCase()===PV.toLowerCase();return '<tr'+(hl?' style="background:#fff7ed"':'')+'><td>'+(j+1)+'</td><td><b>'+esc(x.bucket||'—')+'</b></td><td'+(hl?' style="font-weight:700"':'')+'>'+esc(x.variety)+'</td><td>'+esc(x.length||'—')+'</td><td>'+esc(x.box_id||String(x.boxes||1))+'</td><td>'+(Number(x.stems)||0).toLocaleString('en-US')+'</td><td>'+esc(x.farm||'—')+'</td><td>'+esc(x.shelf||'—')+'</td><td>'+esc(x.truck||'—')+'</td>'
         +FLAGS.map(function(f){return '<td class="c">'+chk(x[f[0]])+'</td>';}).join('')+'</tr>';}).join('');
       el.innerHTML='<table class="bl2-buck"><thead>'+head+'</thead><tbody>'+body+'</tbody></table>';
     }).catch(function(e){el.innerHTML='<div class="bl2-loading" style="color:var(--issued)">Failed: '+esc(e.message)+'</div>';});

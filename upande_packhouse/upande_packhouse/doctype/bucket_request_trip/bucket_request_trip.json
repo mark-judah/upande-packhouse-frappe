@@ -18,14 +18,21 @@
   "column_break_2",
   "total_stems",
   "capacity_buckets",
+  "loaded_buckets",
+  "unscheduled",
   "section_status",
   "dispatched_at",
   "column_break_3",
   "received_at",
+  "departed_stops",
+  "heading_to",
+  "last_departed_at",
   "section_notes",
   "notes",
   "section_orders",
-  "orders"
+  "orders",
+  "section_buckets",
+  "trip_buckets"
  ],
  "fields": [
   {
@@ -111,6 +118,20 @@
    "read_only": 1
   },
   {
+   "fieldname": "loaded_buckets",
+   "fieldtype": "Int",
+   "label": "Loaded Buckets",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "unscheduled",
+   "fieldtype": "Check",
+   "label": "Unscheduled",
+   "read_only": 1,
+   "description": "Created from a truck load with no planned trip."
+  },
+  {
    "fieldname": "section_status",
    "fieldtype": "Section Break",
    "label": "Dispatch / Receive"
@@ -129,6 +150,25 @@
    "fieldname": "received_at",
    "fieldtype": "Datetime",
    "label": "Received At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "departed_stops",
+   "fieldtype": "Small Text",
+   "label": "Departed Stops",
+   "read_only": 1,
+   "description": "Farms the truck has finished loading at and left, in route order."
+  },
+  {
+   "fieldname": "heading_to",
+   "fieldtype": "Data",
+   "label": "Heading To",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_departed_at",
+   "fieldtype": "Datetime",
+   "label": "Last Departed At",
    "read_only": 1
   },
   {
@@ -151,12 +191,23 @@
    "fieldtype": "Table",
    "label": "Orders",
    "options": "Bucket Request Trip Order"
+  },
+  {
+   "fieldname": "section_buckets",
+   "fieldtype": "Section Break",
+   "label": "Buckets"
+  },
+  {
+   "fieldname": "trip_buckets",
+   "fieldtype": "Table",
+   "label": "Buckets",
+   "options": "Bucket Request Trip Bucket"
   }
  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 0,
  "links": [],
- "modified": "2026-09-28 11:00:00.000000",
+ "modified": "2026-10-01 23:45:58.685529",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Bucket Request Trip",

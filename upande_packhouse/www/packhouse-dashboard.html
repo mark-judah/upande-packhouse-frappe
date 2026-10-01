@@ -466,24 +466,39 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     // delegation, or manual HTML escaping the old custom multi-select div
     // needed -- the browser handles opening, closing, and selection itself,
     // and .textContent below is safe by construction (no HTML parsing).
+    // frappe/frappe.call may not be ready yet this early on a website page
+    // (unlike Desk, where it's guaranteed loaded up front): run fn once it is.
+    function whenFrappe(fn) {
+        if (window.frappe && frappe.call) return fn();
+        setTimeout(() => whenFrappe(fn), 50);
+    }
+    // The team list is remembered between visits (it rarely changes) so the
+    // dropdown fills at once; the server copy then refreshes it in the background.
+    const TEAMS_KEY = 'phDashTeams';
+    function fillTeams(list) {
+        const sel = document.getElementById('teamSelect');
+        if (!sel) return;
+        const keep = sel.value;
+        while (sel.options.length > 1) sel.remove(1);
+        list.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t;
+            opt.textContent = t;
+            sel.appendChild(opt);
+        });
+        if (keep && list.includes(keep)) sel.value = keep;
+    }
     function loadTeamOptions() {
-        // frappe/frappe.call may not be ready yet this early on a website
-        // page (unlike Desk, where it's guaranteed loaded up front).
-        if (!window.frappe || !frappe.call) { return setTimeout(loadTeamOptions, 150); }
-        frappe.call({
+        try { const cached = JSON.parse(localStorage.getItem(TEAMS_KEY) || 'null'); if (Array.isArray(cached)) fillTeams(cached); } catch (e) {}
+        whenFrappe(() => frappe.call({
             method: 'upande_packhouse.api.dashboard.getTeams',
             callback: r => {
-                const list = (r.message && r.message.success) ? (r.message.teams || []) : [];
-                const sel = document.getElementById('teamSelect');
-                if (!sel) return;
-                list.forEach(t => {
-                    const opt = document.createElement('option');
-                    opt.value = t;
-                    opt.textContent = t;
-                    sel.appendChild(opt);
-                });
+                if (!(r.message && r.message.success)) return;
+                const list = r.message.teams || [];
+                fillTeams(list);
+                try { localStorage.setItem(TEAMS_KEY, JSON.stringify(list)); } catch (e) {}
             },
-        });
+        }));
     }
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -525,7 +540,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         applyPreset('today');
 
         document.getElementById('refreshBtn').addEventListener('click', load);
-        setTimeout(load, 800);
+        whenFrappe(() => load());
         setInterval(() => load(true), 30000);
     });
 
@@ -558,13 +573,19 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
             skOn(SK_IDS);
             const el = document.getElementById('issueGrid'); if (el) el.innerHTML = skCards(6);
         }
-        frappe.call({
+        // One request: the "Boxes to deliver" figures come back with the dashboard data.
+        const args = { team_filter: teams.length ? teams.join(',') : 'all', rose_type: roseType, ...getDateArgs() };
+        if (customFrom && customTo) { args.boxes_from = customFrom; args.boxes_to = customTo; }
+        whenFrappe(() => frappe.call({
             method: 'upande_packhouse.api.dashboard.getDashboardData',
-            args: { team_filter: teams.length ? teams.join(',') : 'all', rose_type: roseType, ...getDateArgs() },
-            callback: r => { if (r.message?.success) render(r.message); else renderEmpty(); },
-            error: () => renderEmpty()
-        });
-        ebLoadData();
+            args,
+            callback: r => {
+                if (r.message?.success) render(r.message); else renderEmpty();
+                const m = (r.message && r.message.boxes_to_deliver) || {};
+                ebSet(m.orders || 0, m.boxes || 0, m.stems || 0);
+            },
+            error: () => { renderEmpty(); ebSet(0, 0, 0); }
+        }));
     }
 
     function renderEmpty() {
@@ -737,21 +758,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         else window.open(`/app/order-pick-list/${id}`, '_blank');
     }
 
-    /* -- Boxes to Deliver -- */
-    // Single server call: dedupes mixed boxes (per mix group) & mixed bunches
-    // (per bunch group), and avoids the child-doctype get_list 403 by running
-    // server-side with frappe.get_all.
-    function ebLoadData() {
-        const from = customFrom, to = customTo;
-        if (!from || !to) { ebSet(0, 0, 0); return; }
-        frappe.call({
-            method: 'upande_packhouse.api.dashboard.getBoxesToDeliver',
-            args: { from_date: from, to_date: to, teams: (teams && teams.length) ? teams.join(',') : '' },
-            callback: r => { const m = r.message || {}; ebSet(m.orders || 0, m.boxes || 0, m.stems || 0); },
-            error: () => ebSet(0, 0, 0)
-        });
-    }
-
+    /* -- Boxes to Deliver (returned with getDashboardData) -- */
     function ebSet(o, b, s) {
         skOff(['ebTotalStems']);
         const eo = document.getElementById('ebTotalOrders'); if (eo) eo.textContent = o;
@@ -770,18 +777,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     }
     function closeVarietyModal() { document.getElementById('varietyModal').classList.remove('open'); }
 
-    /* -- Sidebar footer (user identity) -- */
-    (function fillFooter(){
-        function tryFill(){
-            if (!window.frappe || !frappe.session || !frappe.session.user){ setTimeout(tryFill, 100); return; }
-            var u = frappe.session.user || '';
-            var fullName = (frappe.session.user_fullname || (frappe.boot && frappe.boot.user && frappe.boot.user.full_name)) || u.split('@')[0];
-            document.getElementById('aph-foot-av').textContent = (fullName || u || '?').substring(0,1).toUpperCase();
-            document.getElementById('aph-foot-nm').textContent = fullName;
-            document.getElementById('aph-foot-em').textContent = u;
-        }
-        tryFill();
-    })();
+
 </script>
 
 <div class="vmodal" id="varietyModal" onclick="if(event.target===this)closeVarietyModal()">

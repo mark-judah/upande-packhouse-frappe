@@ -1288,18 +1288,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 
     function escQ(s) { return s.replace(/'/g, "\\'"); }
 
-    /* -- Sidebar footer (user identity) -- */
-    (function fillFooter(){
-        function tryFill(){
-            if (!window.frappe || !frappe.session || !frappe.session.user){ setTimeout(tryFill, 100); return; }
-            var u = frappe.session.user || '';
-            var fullName = (frappe.session.user_fullname || (frappe.boot && frappe.boot.user && frappe.boot.user.full_name)) || u.split('@')[0];
-            document.getElementById('aph-foot-av').textContent = (fullName || u || '?').substring(0,1).toUpperCase();
-            document.getElementById('aph-foot-nm').textContent = fullName;
-            document.getElementById('aph-foot-em').textContent = u;
-        }
-        tryFill();
-    })();
+
 </script>
 
 <script>

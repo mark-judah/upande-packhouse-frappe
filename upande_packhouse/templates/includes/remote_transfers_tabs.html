@@ -2,6 +2,7 @@
     order the process runs: route the trucks, sequence each team's orders, plan
     and dispatch the trips, track the buckets to the sales farm, trace them.
     Set `rt_active` before including: routes | scheduler | transfer | logistics | journey.
+    Every tab has its own /remote-transfers/<tab> address (remote_transfer_routes.py).
     Truck Routes, Transfer Scheduling and Bucket Logistics are views of
     transfer-control, which switches between them in place (window.rtSwitch);
     everywhere else the tabs are plain links.
@@ -28,11 +29,11 @@
 .datepickers-container{z-index:2147483600!important}  /* .aph is a fixed full-screen layer at 2147483000 */
 </style>
 <nav class="rt-tabs" aria-label="Remote Transfers">
-  <a href="/transfer-control?tab=routes" data-rt="routes" title="Set today's farms for each transfer truck"{% if rt_active == 'routes' %} class="on" aria-current="page"{% endif %}>Truck Routes</a>
-  <a href="/packhouse-scheduler" data-rt="scheduler" title="Sequence each team's orders"{% if rt_active == 'scheduler' %} class="on" aria-current="page"{% endif %}>Scheduler</a>
-  <a href="/transfer-control" data-rt="transfer" title="Distribute across teams, plan trucks, dispatch trips"{% if rt_active == 'transfer' %} class="on" aria-current="page"{% endif %}>Transfer Scheduling</a>
-  <a href="/transfer-control?tab=logistics" data-rt="logistics" title="Track buckets to the sales farm"{% if rt_active == 'logistics' %} class="on" aria-current="page"{% endif %}>Bucket Logistics</a>
-  <a href="/bucket-tracker" data-rt="journey" title="Trace a bucket end to end"{% if rt_active == 'journey' %} class="on" aria-current="page"{% endif %}>Bucket Journey</a>
+  <a href="/remote-transfers/truck-routes" data-rt="routes" title="Set today's farms for each transfer truck"{% if rt_active == 'routes' %} class="on" aria-current="page"{% endif %}>Truck Routes</a>
+  <a href="/remote-transfers/scheduler" data-rt="scheduler" title="Sequence each team's orders"{% if rt_active == 'scheduler' %} class="on" aria-current="page"{% endif %}>Scheduler</a>
+  <a href="/remote-transfers/transfer-scheduling" data-rt="transfer" title="Distribute across teams, plan trucks, dispatch trips"{% if rt_active == 'transfer' %} class="on" aria-current="page"{% endif %}>Transfer Scheduling</a>
+  <a href="/remote-transfers/bucket-logistics" data-rt="logistics" title="Track buckets to the sales farm"{% if rt_active == 'logistics' %} class="on" aria-current="page"{% endif %}>Bucket Logistics</a>
+  <a href="/remote-transfers/bucket-journey" data-rt="journey" title="Trace a bucket end to end"{% if rt_active == 'journey' %} class="on" aria-current="page"{% endif %}>Bucket Journey</a>
 </nav>
 <label class="rt-date"{% if rt_active == 'journey' %} hidden{% endif %}>Delivery date <input type="date" id="rt-date"></label>
 <script>

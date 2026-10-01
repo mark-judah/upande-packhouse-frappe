@@ -15,7 +15,10 @@
   "buckets",
   "stems",
   "full_farm_buckets",
-  "is_partial"
+  "is_partial",
+  "loaded_buckets",
+  "loaded_stems",
+  "unscheduled"
  ],
  "fields": [
   {
@@ -78,13 +81,35 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Is Partial"
+  },
+  {
+   "fieldname": "loaded_buckets",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Loaded Buckets",
+   "read_only": 1,
+   "description": "Buckets actually loaded onto the truck for this order and farm."
+  },
+  {
+   "fieldname": "loaded_stems",
+   "fieldtype": "Int",
+   "label": "Loaded Stems",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "unscheduled",
+   "fieldtype": "Check",
+   "label": "Unscheduled",
+   "read_only": 1,
+   "description": "Loaded onto the truck without being on the trip's plan."
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-09-14 00:00:00.000000",
+ "modified": "2026-10-01 19:59:57.183357",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Bucket Request Trip Order",

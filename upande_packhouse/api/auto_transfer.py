@@ -502,11 +502,17 @@ def _signature(loads):
 
 
 def _own_drafts(today):
-	return frappe.get_all(
-		"Bucket Request Trip",
-		filters={"status": "Draft", "auto_planned": 1, "trip_date": ["<=", today]},
-		fields=["name", "vehicle", "trip_date"],
-	)
+	# A draft whose truck is already being loaded is no longer the scheduler's to replace.
+	return [
+		t
+		for t in frappe.get_all(
+			"Bucket Request Trip",
+			filters={"status": "Draft", "auto_planned": 1, "trip_date": ["<=", today]},
+			fields=["name", "vehicle", "trip_date", "loaded_buckets"],
+		)
+		if not int(t.loaded_buckets or 0)
+		and not frappe.db.exists("Bucket Request Trip Bucket", {"parent": t.name})
+	]
 
 
 def _current_signature(today):

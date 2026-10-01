@@ -7,14 +7,17 @@ from frappe.utils import cint, flt, now_datetime
 from upande_packhouse import stock_movement
 
 # Buckets locked by an open (non-Rejected) Discard Request must never count as
-# available or be allocated. Injected into the shelf-availability read paths so
-# the allocation page agrees with the SO spec-autofill popup (single rule).
+# available or be allocated -- unless that row is already discarded, so a reused
+# bucket's fresh harvest does not inherit its previous life's hold. Injected into
+# the shelf-availability read paths so the allocation page agrees with the SO
+# spec-autofill popup (single rule, see availability.reserved_bucket_ids).
 DISCARD_EXCLUSION = """
           AND si.bucket_id NOT IN (
               SELECT drb.bucket_id
               FROM `tabDiscard Request Bucket` drb
               INNER JOIN `tabDiscard Request` dr ON dr.name = drb.parent
               WHERE COALESCE(dr.workflow_state, '') != 'Rejected'
+                AND COALESCE(drb.discarded, 0) = 0
                 AND COALESCE(drb.bucket_id, '') != ''
           )"""
 
@@ -944,6 +947,7 @@ def get_bucket_visibility_diagnostics(
                 INNER JOIN `tabDiscard Request` dr ON dr.name = drb.parent
                 WHERE drb.bucket_id = si.bucket_id
                   AND COALESCE(dr.workflow_state, '') != 'Rejected'
+                  AND COALESCE(drb.discarded, 0) = 0
                 ORDER BY dr.creation DESC LIMIT 1
             ) AS discard_request
         FROM (
@@ -2757,27 +2761,37 @@ def _clear_shelf_item(shelf_item, shelf, reason):
 
 
 @frappe.whitelist()
-def find_requested_bucket_replacement(pick_list_item: str):
-	"""The bucket `replace_requested_bucket` would swap in, without changing anything."""
+def find_requested_bucket_replacement(pick_list_item: str, limit: int = 20):
+	"""The buckets `replace_requested_bucket` could swap in, without changing
+	anything: best match first (same length, then nearest longer; oldest
+	harvest first). The top-level fields describe the best match, as before;
+	`candidates` lists up to `limit` so the operator can pick a different one --
+	replace_requested_bucket accepts any of them as `new_bucket_id`."""
 	anchor, rows, farm = _requested_bucket_rows(pick_list_item)
 	needed = sum(flt(r.stock_qty) for r in rows)
-	found = _replacement_candidates(anchor, farm, needed)
+	found = _replacement_candidates(anchor, farm, needed, limit=max(1, min(int(limit or 20), 100)))
 	if not found:
 		return {
 			"found": False,
 			"message": _no_replacement_message(anchor, farm, needed),
 		}
-	c = found[0]
+
+	def describe(c):
+		return {
+			"new_bucket": c.bucket_id,
+			"shelf": c.shelf,
+			"variety": c.variety,
+			"stem_length": c.stem_length,
+			"available_qty": c.available_qty,
+			"harvest_date": str(c.harvest_date)[:10] if c.harvest_date else None,
+		}
+
 	return {
 		"found": True,
 		"old_bucket": anchor.bucket,
-		"new_bucket": c.bucket_id,
-		"shelf": c.shelf,
-		"variety": c.variety,
-		"stem_length": c.stem_length,
-		"available_qty": c.available_qty,
 		"needed_qty": needed,
-		"harvest_date": str(c.harvest_date)[:10] if c.harvest_date else None,
+		**describe(found[0]),
+		"candidates": [describe(c) for c in found],
 	}
 
 
@@ -2790,16 +2804,23 @@ REPLACE_ATTEMPTS = 3
 
 
 @frappe.whitelist(methods=["POST"])
-def replace_requested_bucket(pick_list_item: str, new_bucket_id: str | None = None):
+def replace_requested_bucket(
+	pick_list_item: str,
+	new_bucket_id: str | None = None,
+	reason: str | None = None,
+	notes: str | None = None,
+):
 	"""Swap a missing requested bucket for a matching one from the same farm,
-	retrying when the swap loses a lock race (see REPLACE_LOCK_WAIT_S)."""
+	retrying when the swap loses a lock race (see REPLACE_LOCK_WAIT_S). `reason`
+	(Missing / Damaged / Wrong variety / Other) and `notes` go on the Bucket
+	Replacement record."""
 	import time
 
 	previous = frappe.db.sql("SELECT @@SESSION.innodb_lock_wait_timeout")[0][0]
 	frappe.db.sql("SET SESSION innodb_lock_wait_timeout = %s", (int(REPLACE_LOCK_WAIT_S),))
 	try:
 		for attempt in range(REPLACE_ATTEMPTS):
-			res = _replace_requested_bucket(pick_list_item, new_bucket_id)
+			res = _replace_requested_bucket(pick_list_item, new_bucket_id, reason=reason, notes=notes)
 			if not res.pop("_lock_conflict", False):
 				return res
 			if attempt + 1 < REPLACE_ATTEMPTS:
@@ -2815,7 +2836,9 @@ def replace_requested_bucket(pick_list_item: str, new_bucket_id: str | None = No
 		frappe.db.sql("SET SESSION innodb_lock_wait_timeout = %s", (int(previous),))
 
 
-def _replace_requested_bucket(pick_list_item: str, new_bucket_id: str | None = None):
+def _replace_requested_bucket(
+	pick_list_item: str, new_bucket_id: str | None = None, reason: str | None = None, notes: str | None = None
+):
 	"""Swap a missing requested bucket for a matching one from the same farm.
 
 	The replacement is an unallocated bucket of the same variety at the
@@ -2911,6 +2934,9 @@ def _replace_requested_bucket(pick_list_item: str, new_bucket_id: str | None = N
 				fields=["name", "parent"],
 			):
 				_clear_shelf_item(si.name, si.parent, "Shelf Cleared")
+			if old_bas_name:
+				# Off its shelf: don't keep pointing the missing bucket at it.
+				frappe.db.set_value("Bucket Allocation Status", old_bas_name, "shelf_location", "")
 
 		# ── BAS: claim the new bucket (at its own stem length) ──
 		new_bas_name = frappe.db.get_value(
@@ -3023,6 +3049,22 @@ def _replace_requested_bucket(pick_list_item: str, new_bucket_id: str | None = N
 				old_bucket, anchor.stem_length or "", new.bucket_id, new.stem_length or "", int(needed)
 			),
 		)
+		# The record of what happened: which bucket, why, who, where it should have been.
+		from upande_packhouse.api import bucket_replacement
+
+		replacement = bucket_replacement.record(
+			old_bucket=old_bucket,
+			new_bucket=new.bucket_id,
+			anchor=anchor,
+			rows=rows,
+			farm=farm,
+			opl_name=opl_name,
+			new_shelf=new.shelf,
+			stems=needed,
+			stock_entries=[m.get("entry") for m in stock_moves],
+			reason=reason,
+			notes=notes,
+		)
 		frappe.db.commit()
 		return {
 			"success": True,
@@ -3030,6 +3072,7 @@ def _replace_requested_bucket(pick_list_item: str, new_bucket_id: str | None = N
 			"opl": opl_name,
 			"old_bucket": old_bucket,
 			"new_bucket": new.bucket_id,
+			"replacement": replacement,
 			"shelf": new.shelf,
 			"stem_length": new.stem_length,
 			"warehouse": new.warehouse,
