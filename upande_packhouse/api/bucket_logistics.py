@@ -23,7 +23,7 @@ def getBucketLogistics():
 	delivery_date = fd.get("delivery_date") or frappe.utils.add_days(frappe.utils.today(), 1)
 
 	# source-farm expression (reused in SELECT + WHERE)
-	FARM_EXPR = "SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1)"
+	FARM_EXPR = "COALESCE(NULLIF(pli.farm, ''), SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1))"
 	TRANSFER = (
 		"(pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1 OR pli.in_transit = 1 OR pli.shelved = 1)"
 	)
@@ -232,7 +232,7 @@ def getBucketLogisticsDetail():
 	if not opl:
 		frappe.response["buckets"] = []
 	else:
-		FARM_EXPR = "SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1)"
+		FARM_EXPR = "COALESCE(NULLIF(pli.farm, ''), SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1))"
 		params = {"opl": opl}
 		extra = ""
 		if fd.get("farm"):

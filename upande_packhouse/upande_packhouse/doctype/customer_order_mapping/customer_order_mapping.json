@@ -8,6 +8,7 @@
  "field_order": [
   "customer",
   "platform",
+  "differentiator_value",
   "section_break_defaults",
   "default_currency",
   "default_price_list",
@@ -37,6 +38,13 @@
    "label": "Platform",
    "options": "Order Import Platform",
    "reqd": 1
+  },
+  {
+   "description": "Only set when this platform's Customer Differentiator Column is set - the raw value in that column (e.g. a buyer code like \"JZF\") that means this Customer.",
+   "fieldname": "differentiator_value",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Differentiator Value"
   },
   {
    "fieldname": "section_break_defaults",

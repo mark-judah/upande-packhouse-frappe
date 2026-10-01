@@ -93,6 +93,7 @@ def getSchedulerFeed():
 					"parent",
 					"bucket",
 					"source_warehouse",
+					"farm",
 					"item_code",
 					"issued",
 					"awaiting_transfer",
@@ -112,9 +113,11 @@ def getSchedulerFeed():
 				b = r.get("bucket")
 				if b:
 					st["buckets"][b] = 1
+				# The pick row's own farm (where the bucket's shelf is); the warehouse
+				# name is only a fallback — remote farms may receive into the hub's store.
+				farm = (r.get("farm") or "").strip()
 				wh = (r.get("source_warehouse") or "").strip()
-				farm = ""
-				if wh:
+				if not farm and wh:
 					farm = wh.split(" ")[0]
 				if farm:
 					st["farms"][farm] = 1

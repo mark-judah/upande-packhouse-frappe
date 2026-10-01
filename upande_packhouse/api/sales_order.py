@@ -387,6 +387,7 @@ def getSalesOrder():
 				"custom_s_number": doc.get("custom_s_number"),
 				"custom_truck_details": doc.get("custom_truck_details"),
 				"custom_order_name": doc.get("custom_order_name"),
+				"po_no": doc.get("po_no"),
 				"set_warehouse": doc.get("set_warehouse"),
 				"custom_total_boxes": doc.get("custom_total_boxes"),
 				"custom_total_stems": doc.get("custom_total_stems"),
@@ -469,23 +470,23 @@ def saveSalesOrder():
 			doc.business_unit = "Roses"
 			doc.company = "Karen Roses"  # every real Roses Sales Order uses this company
 
-		header_fields = [
-			"customer",
-			"transaction_date",
-			"delivery_date",
-			"currency",
-			"selling_price_list",
-			"custom_consignee",
-			"custom_delivery_point",
-			"custom_shipping_agent",
-			"custom_s_number",
-			"custom_truck_details",
-			"custom_order_name",
-			"set_warehouse",
-		]
-		for f in header_fields:
-			if f in data:
-				doc.set(f, data.get(f))
+		# Any real Sales Order field present in the payload gets copied onto
+		# the doc - not a fixed whitelist. The import wizard's own mapping
+		# step already lets a file column target ANY field getFieldCatalog
+		# returns (e.g. po_no, "Customer's Purchase Order") - a hardcoded
+		# list here silently dropped anything outside its own dozen names,
+		# even though the mapping step had already promised "map to any
+		# field". meta.has_field() naturally excludes structural keys that
+		# aren't real DocFields (name, docstatus, owner...), so manual_rows/
+		# spec_rows need no special-casing either, but are named explicitly
+		# for clarity since they're never meant to land here regardless.
+		reserved_keys = {"name", "manual_rows", "spec_rows"}
+		so_meta = frappe.get_meta("Sales Order")
+		for f, v in data.items():
+			if f in reserved_keys:
+				continue
+			if so_meta.has_field(f):
+				doc.set(f, v)
 
 		# Sales Settings' Default Warehouse (api/sales_settings.py) auto-fills
 		# Set Warehouse whenever it's not already set on this order -- and,

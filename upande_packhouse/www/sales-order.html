@@ -119,11 +119,24 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .spec-field label{display:block;font:600 10px var(--sans);letter-spacing:.6px;text-transform:uppercase;color:var(--ink-mute);margin-bottom:7px}
 .spec-field label .req{color:var(--bad);font-weight:600;text-transform:none;letter-spacing:0;margin-left:4px}
 .spec-field select,.spec-field input{width:100%;border:1px solid var(--hairline-2);background:var(--bg);color:var(--ink);border-radius:10px;padding:9px 11px;font:500 13px var(--sans)}
-.spec-field .typeahead-wrap{position:relative}
+/* Every native <select> in the app (this one, the ledger's card-cell fields,
+   and the quick-add modal's) gets the same pill look as a text input instead
+   of the browser's own stock dropdown chrome - one shared chevron/appearance
+   override layered on top of each context's own border/background/radius. */
+.spec-field select,.card-cell .structure .f select,.modal-card .f select{
+  appearance:none;-webkit-appearance:none;-moz-appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%238a8780' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 7.5l5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 10px center;background-size:12px;padding-right:28px;cursor:pointer;
+}
+.spec-field select:focus,.card-cell .structure .f select:focus,.modal-card .f select:focus{outline:none;border-color:var(--ink-mute)}
+.spec-field select:disabled,.card-cell .structure .f select:disabled,.modal-card .f select:disabled{cursor:default;opacity:.6}
+.typeahead-wrap{position:relative}
 .pick-results{position:fixed;background:var(--surface-2);border-radius:10px;box-shadow:var(--shadow-hover);max-height:240px;overflow-y:auto;z-index:900;min-width:220px;display:none}
 .pick-results.show{display:block}
 .pick-results .opt{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;font:500 12px var(--sans);cursor:pointer}
 .pick-results .opt:hover{background:rgba(10,10,10,0.04)}
+.pick-results .opt .hint{color:var(--ink-faint);font-size:10.5px}
+.pick-results .opt-group{padding:7px 10px 3px;font:600 10px var(--sans);letter-spacing:.3px;text-transform:uppercase;color:var(--ink-faint)}
 
 .totals-bar{display:flex;gap:0;margin-bottom:18px;border-radius:20px;overflow:hidden;box-shadow:var(--shadow-card)}
 .totals-bar .t{flex:1;background:var(--surface-2);padding:18px 22px;border-right:1px solid var(--hairline)}
@@ -174,6 +187,7 @@ td.card-cell{background:var(--bg);vertical-align:top;padding:14px 16px;width:280
 .variety-link-value .vv-name{font:600 12.5px var(--sans);color:var(--ink);flex:1}
 .variety-link-value .rm{border:0;background:none;color:var(--signal);font:600 10px var(--sans);cursor:pointer;white-space:nowrap;padding:0}
 .no-uom-flag{font:600 10px var(--sans);color:var(--bad);cursor:pointer;margin-top:4px;display:inline-block}
+.source-row-tag{font:600 9px var(--sans);letter-spacing:.3px;text-transform:uppercase;color:var(--ink-faint);margin-bottom:4px}
 .variety-search{border:1px solid var(--hairline-2);background:var(--surface-2);border-radius:8px;padding:6px 9px;font:500 12px var(--sans);width:100%;max-width:220px}
 
 .num-input{width:100%;border:1px solid var(--hairline-2);background:var(--surface-2);border-radius:8px;padding:6px 8px;font:600 12.5px var(--mono);color:var(--ink);text-align:right}
@@ -189,10 +203,22 @@ tr.grand-total .glabel{font:700 11px var(--sans);letter-spacing:.6px;text-transf
 .editor-actions{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:4px}
 
 /* spec-add + quick-add modals */
-.modal-backdrop{position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:1000;display:none;align-items:center;justify-content:center;padding:20px}
-.modal-backdrop.show{display:flex}
-.modal-card{background:var(--surface-2);border-radius:20px;box-shadow:var(--shadow-hover);width:640px;max-width:96vw;max-height:88vh;overflow-y:auto;padding:26px}
+.modal-backdrop{position:fixed !important;inset:0;background:rgba(10,10,10,0.45) !important;opacity:1 !important;z-index:1000;display:none;align-items:center;justify-content:center;padding:20px}
+.modal-backdrop.show{display:flex !important}
+.modal-card{background-color:#ffffff !important;background-color:var(--surface-2) !important;opacity:1 !important;border-radius:20px;box-shadow:var(--shadow-hover);width:640px;max-width:96vw;max-height:88vh;overflow-y:auto;padding:26px}
+/* #orderReviewCard hosts nested .aph-card blocks (Order details, Line
+   Items) reused verbatim from the full-page editor - those need the same
+   forced-opaque treatment here, since this is the specific popup reported
+   twice now as "transparent, background interferes", and no other cause
+   was found through static review (CSS cascade order, dark-mode variables,
+   a stray duplicate --surface-2 definition were all checked and ruled out).
+   This guarantees an opaque, readable popup regardless of a still-unproven
+   cause rather than leave it broken while that keeps being investigated. */
+#orderReviewBackdrop,#orderReviewCard,#orderReviewCard .aph-card{opacity:1 !important}
+#orderReviewCard{background-color:#ffffff !important}
+#orderReviewCard .aph-card{background-color:#ffffff !important}
 .modal-card.narrow{width:400px}
+.modal-card.wide{width:960px}
 .modal-card .ttl{font:600 17px var(--sans);color:var(--ink);margin-bottom:4px}
 .modal-card .sub{font:500 12px var(--sans);color:var(--ink-mute);margin-bottom:18px}
 .modal-card .f{margin-bottom:14px}
@@ -215,6 +241,20 @@ tr.grand-total .glabel{font:700 11px var(--sans);letter-spacing:.6px;text-transf
 .mapping-editor-row select,.mapping-editor-row input{width:100%;border:1px solid var(--hairline-2);background:var(--surface-2);color:var(--ink);border-radius:8px;padding:7px 8px;font:500 12px var(--sans)}
 .add-mapping-row-btn{border:1px dashed var(--hairline-2);background:transparent;color:var(--ink-mute);border-radius:10px;padding:9px;font:600 12px var(--sans);cursor:pointer;width:100%;margin-top:8px}
 .add-mapping-row-btn:hover{border-color:var(--signal);color:var(--signal)}
+.import-steps{display:flex;gap:18px;margin-bottom:18px;font:600 11px var(--sans);letter-spacing:.3px;text-transform:uppercase;color:var(--ink-faint)}
+.import-steps span.on{color:var(--signal)}
+.who-toggle{display:flex;gap:10px}
+.who-toggle .btn.on{background:var(--signal);color:#fff}
+.cust-map-row .col-name{font:600 12px var(--mono);color:var(--ink)}
+.import-map-table{display:flex;flex-direction:column}
+.import-map-row{display:grid;grid-template-columns:1.1fr 1fr 1.7fr 1fr 70px;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--hairline)}
+.import-map-row:last-of-type{border-bottom:none}
+.import-map-row select,.import-map-row input{width:100%;border:1px solid var(--hairline-2);background:var(--surface-2);color:var(--ink);border-radius:8px;padding:7px 8px;font:500 12px var(--sans)}
+.import-map-hd{font:600 10px var(--sans);letter-spacing:.3px;text-transform:uppercase;color:var(--ink-mute);border-bottom:1px solid var(--hairline-2);padding-bottom:8px}
+.import-map-row .col-name{font:600 12px var(--sans);color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.import-map-row .col-sample{font:500 11.5px var(--mono);color:var(--ink-mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.import-map-row .split-pick{display:flex;align-items:center;gap:5px;font:500 11px var(--sans);color:var(--ink-mute);cursor:pointer}
+.warn-line{font-size:11px;color:var(--warn)}
 .queue-card{border:1px solid var(--hairline-2);border-radius:16px;padding:16px 18px;margin-bottom:12px;background:var(--surface-2)}
 .queue-card .hd{display:flex;align-items:center;gap:10px}
 .queue-card .hd .ttl{font:600 13px var(--sans);color:var(--ink);flex:1}
@@ -226,6 +266,17 @@ tr.grand-total .glabel{font:700 11px var(--sans);letter-spacing:.6px;text-transf
 .queue-status.creating{background:var(--signal-soft);color:var(--signal)}
 .queue-status.created{background:var(--good-soft);color:var(--good)}
 .queue-status.failed{background:var(--bad-soft);color:var(--bad)}
+.queue-status.needs_review{background:var(--warn-soft,rgba(200,140,0,0.12));color:var(--warn)}
+.spec-conflict-block{margin-top:6px;padding:10px 12px;border:1px solid var(--warn);border-radius:10px;background:rgba(200,140,0,0.06)}
+.spec-conflict-block .warn-line{margin-top:0;margin-bottom:4px}
+.spec-conflict-block .warn-line:last-of-type{margin-bottom:0}
+.resolve-missing-block{margin-top:8px;display:flex;flex-direction:column;gap:8px}
+.rmv-item{padding:10px 12px;border:1px solid var(--hairline-2);border-radius:10px;background:var(--surface)}
+.rmv-label{font:600 12px var(--sans);color:var(--ink);margin-bottom:6px}
+.rmv-label .hint{font-weight:500;color:var(--ink-mute)}
+.rmv-row{display:flex;gap:8px;align-items:center}
+.rmv-create-form{display:none;flex-direction:column;gap:6px;margin-top:8px}
+.rmv-create-form input{padding:7px 9px;border:1px solid var(--hairline-2);border-radius:8px;font:500 12px var(--sans)}
 
 @media (max-width: 900px){
   html,body{overflow:auto!important}
@@ -284,6 +335,21 @@ tr.grand-total .glabel{font:700 11px var(--sans);letter-spacing:.6px;text-transf
        time -- just hidden behind .aph. Nesting them here puts them in the
        same stacking context as the rest of the page, where their own
        z-index is all that's needed. -->
+  <!-- Import wizard: "Review & fix this order" popup -- the exact editor
+       body (header fields, ledger, + Add from Spec) rendered here instead of
+       navigating away from the wizard, so fixing one failed order never
+       loses your place in the batch. Placed before the other modals so any
+       of THEM (the spec modal, a quick-add popup) still opens on top of
+       this one when triggered from inside it - equal z-index stacks by DOM
+       order, and this is the one that needs to sit underneath. -->
+  <div class="modal-backdrop" id="orderReviewBackdrop">
+    <div class="modal-card wide" id="orderReviewCard">
+      <div class="ttl">Review &amp; fix this order</div>
+      <div class="sub" id="orderReviewSub"></div>
+      <div id="orderReviewErr"></div>
+      <div id="orderReviewBody"></div>
+    </div>
+  </div>
   <!-- Add-from-Spec modal -->
   <div class="modal-backdrop" id="specModalBackdrop">
     <div class="modal-card" id="specModalCard">
@@ -363,51 +429,11 @@ tr.grand-total .glabel{font:700 11px var(--sans);letter-spacing:.6px;text-transf
     </div>
   </div>
 
-  <!-- Platform editor -->
-  <div class="modal-backdrop" id="platformBackdrop">
-    <div class="modal-card">
-      <div class="ttl">Order Import Platform</div>
-      <div class="sub">The column layout most customers on this platform use</div>
-      <div class="f"><label>Platform Name</label><input id="pf_platform_name" placeholder="e.g. XPOL Cloud"></div>
-      <div class="spec-field-grid" style="margin-bottom:14px">
-        <div class="f"><label>Header Row</label><input id="pf_header_row" value="1"></div>
-        <div class="f"><label>Multi-Order Split Column</label><input id="pf_multi_order_column" placeholder="e.g. Order No (blank = 1 file = 1 order)"></div>
-      </div>
-      <div class="sub" style="margin-bottom:6px">Default Column Mapping</div>
-      <div id="pfMappingRows"></div>
-      <button class="add-mapping-row-btn" onclick="addMappingRow('pfMappingRows')">+ Add column mapping</button>
-      <div class="actions">
-        <button class="btn" onclick="closeModal('platformBackdrop')">Cancel</button>
-        <button class="btn btn-primary" onclick="submitPlatform()">Save platform</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Customer mapping editor -->
-  <div class="modal-backdrop" id="custMapBackdrop">
-    <div class="modal-card">
-      <div class="ttl">Mapping for this customer</div>
-      <div class="sub" id="custMapSub">Defaults and overrides specific to this customer + platform</div>
-      <div class="spec-field-grid" style="margin-bottom:14px">
-        <div class="f"><label>Default Currency</label><select id="cm_default_currency"></select></div>
-        <div class="f"><label>Default Price List</label><input id="cm_default_price_list" placeholder="Price List name"></div>
-        <div class="f"><label>Default Warehouse</label><select id="cm_default_warehouse"></select></div>
-        <div class="f"><label>Default Consignee</label><input id="cm_default_consignee" placeholder="Consignee name"></div>
-        <div class="f"><label>Default Delivery Point</label><input id="cm_default_delivery_point" placeholder="Delivery Point name"></div>
-        <div class="f"><label>Default Shipping Agent</label><input id="cm_default_shipping_agent" placeholder="Shipping Agent name"></div>
-      </div>
-      <div class="sub" style="margin-bottom:6px">Item Code Mapping (this customer's own codes → our Item)</div>
-      <div id="cmItemRows"></div>
-      <button class="add-mapping-row-btn" onclick="addItemMappingRow()">+ Add item mapping</button>
-      <div class="sub" style="margin:14px 0 6px">Column Mapping Overrides (only what differs from the platform default)</div>
-      <div id="cmMappingRows"></div>
-      <button class="add-mapping-row-btn" onclick="addMappingRow('cmMappingRows')">+ Add column mapping</button>
-      <div class="actions">
-        <button class="btn" onclick="closeModal('custMapBackdrop')">Cancel</button>
-        <button class="btn btn-primary" onclick="submitCustomerMapping()">Save mapping</button>
-      </div>
-    </div>
-  </div>
+  <!-- Order import's customer/file/mapping setup used to live in two modals here
+       ("+ New platform", "Set up mapping for this customer") - removed. That setup
+       is now inline in the Import Orders wizard itself (steps 1-3, see VIEW==='import'),
+       fetched from the uploaded file instead of hand-typed column names, and saved
+       automatically per customer - see saveCustomerImportSetup. -->
 </div>
 
 <script>
@@ -426,9 +452,18 @@ let RATE_CACHE = {};        // "item|length" -> rate (preview only)
 // ---------- import state ----------
 const IMPORT_API = 'upande_packhouse.api.order_import.';
 let CATALOG = { sales_order_fields: [], sales_order_item_fields: [] };
-let IMPORT_PLATFORMS = [];
-let IMPORT_CUSTOMER = null;
-let IMPORT_PLATFORM = null;
+let IMPORT_MODE = 'single'; // 'single' (one customer owns the whole file) | 'shared' (several customers in one file)
+let IMPORT_CUSTOMER = null; // single mode
+let IMPORT_EXISTING = null; // getCustomerImportSetup's result for IMPORT_CUSTOMER, or null if never set up before
+let IMPORT_SHARED_PLATFORMS = []; // shared mode: listSharedPlatforms' result, for the "which source is this" picker
+let IMPORT_SHARED_PLATFORM_NAME = null; // shared mode: an existing platform picked, or null for "+ New source"
+let IMPORT_NEW_SOURCE_NAME = ''; // shared mode: user-typed name when not reusing an existing platform
+let IMPORT_DIFFERENTIATOR_COLUMN = null; // shared mode: which real file column tells customers apart
+let IMPORT_CUSTOMER_MAP = []; // shared mode: [{differentiator_value, customer:{name,label}|null, defaults, item_code_mapping}] - one per distinct value found in the file
+let IMPORT_MAPPING_ROWS = []; // [{source_column, target_doctype, target_fieldname, default_value}] - one per real file column
+let IMPORT_SPLIT_COLUMN = null; // which file column separates one order from the next
+let IMPORT_DEFAULTS = {}; // single mode only - shared mode keeps defaults per customer, on IMPORT_CUSTOMER_MAP
+let IMPORT_ITEM_CODE_MAPPING = []; // single mode only - see above
 let IMPORT_QUEUE = [];      // [{header:{}, rows:[{}], unresolved_items:[], default_warehouse, status, order_name, error}]
 let IMPORT_RETURNING_INDEX = null; // set when "fix in editor" was opened from a failed queue item
 
@@ -448,7 +483,13 @@ function apiOther(fullMethod, params, cb, isPost, isJson){
 // everywhere at once, instead of hunting down and pairing toast() at each of
 // the ~20 individual call sites by hand (and missing the next one added later).
 function showErr(msg){
-    document.getElementById('errBanner').innerHTML = msg ? `<div class="aph-err">${escHtml(msg)}</div>` : '';
+    const html = msg ? `<div class="aph-err">${escHtml(msg)}</div>` : '';
+    document.getElementById('errBanner').innerHTML = html;
+    // #errBanner sits behind the Review & Fix popup (a fixed, full-viewport
+    // modal) - mirrored here so a save error raised while that popup is open
+    // is actually visible instead of silently landing on a hidden element.
+    const modalErr = document.getElementById('orderReviewErr');
+    if(modalErr) modalErr.innerHTML = html;
     if(msg) toast(msg, 'error');
 }
 // type: 'success' | 'error'. Errors stay up longer with a manual close --
@@ -593,7 +634,7 @@ function renderList(){
 // ---------- editor: open ----------
 function openEditor(name){
     SPEC_ROWS = []; MANUAL_CARDS = []; CARD_SEQ = 1;
-    IMPORT_RETURNING_INDEX = null; // this is a normal, non-import editor session (fixQueueItemInEditor sets CURRENT/MANUAL_CARDS directly and never calls openEditor)
+    IMPORT_RETURNING_INDEX = null; // this is a normal, non-import editor session (openOrderReviewModal sets CURRENT/MANUAL_CARDS directly and never calls openEditor)
     if(!name){
         CURRENT = {
             name: null, docstatus: 0, customer: '', transaction_date: new Date().toISOString().slice(0,10),
@@ -670,9 +711,19 @@ function renderEditor(){
     const s = CURRENT;
     document.getElementById('pageTitle').textContent = s.name || 'New Sales Order';
     document.getElementById('pageSub').textContent = s.name ? (s.docstatus===1?'Submitted':'Draft') : 'Not saved yet';
-    const root = document.getElementById('viewRoot');
     const readOnly = s.docstatus !== 0;
-    root.innerHTML = `
+    document.getElementById('viewRoot').innerHTML = editorBodyHtml(s, readOnly);
+    if(!readOnly) wireEditorBodyInputs();
+}
+// The real order-editing UI (header fields, ledger, spec autofill, save) -
+// used both for the normal full-page editor and for the import wizard's
+// Review & Fix popup, which renders this same markup into a modal instead
+// of navigating away from the wizard. IMPORT_RETURNING_INDEX (set only by
+// openOrderReviewModal) is what tells Cancel to close that popup instead of
+// leaving for the orders list.
+function editorBodyHtml(s, readOnly){
+    const cancelAction = IMPORT_RETURNING_INDEX != null ? 'closeOrderReviewModal()' : 'loadList()';
+    return `
       <div class="aph-card"><div class="aph-card-hd"><div class="ttl">Order details</div></div>
         <div class="aph-card-body">
           <div class="spec-field-grid">
@@ -701,6 +752,7 @@ function renderEditor(){
               <div class="pick-results" id="shippingAgentResults"></div>
             </div>
             <div class="spec-field"><label>Order Name <span class="req">required</span></label><input id="f_order_name" value="${escHtml(s.custom_order_name||'')}" placeholder="Customer PO / reference" ${readOnly?'disabled':''}></div>
+            <div class="spec-field"><label>Customer's Purchase Order</label><input id="f_po_no" value="${escHtml(s.po_no||'')}" ${readOnly?'disabled':''}></div>
             <div class="spec-field"><label>S Number <span class="req">required</span></label><input id="f_s_number" value="${escHtml(s.custom_s_number||'')}" ${readOnly?'disabled':''}></div>
             <div class="spec-field"><label>Truck Details <span class="req">required</span></label><input id="f_truck_details" value="${escHtml(s.custom_truck_details||'')}" ${readOnly?'disabled':''}></div>
             <div class="spec-field"><label>Set Warehouse</label>
@@ -727,25 +779,25 @@ function renderEditor(){
           <button class="btn" onclick="copyOrderToClipboard()" title="Copy this order's current state so it can be restored later, e.g. if you lose connection before saving">Copy order</button>
         </div>
         <div style="display:flex;gap:10px">
-          <button class="btn" onclick="loadList()">${readOnly?'Back':'Cancel'}</button>
+          <button class="btn" onclick="${cancelAction}">${readOnly?'Back':'Cancel'}</button>
           ${readOnly ? '' : `<button class="btn btn-primary" id="saveBtn" onclick="saveOrder()">${s.name ? 'Save changes' : 'Create order'}</button>`}
           ${(s.name && s.docstatus===0) ? `<button class="btn btn-primary" onclick="submitOrder()">Submit</button>` : ''}
         </div>
       </div>
     `;
-    if(!readOnly){
-        wireHeaderInputs();
-        wireTypeahead('f_customer','customerResults', (q,cb)=>apiOther('upande_packhouse.api.specifications.searchCustomers',{query:q},r=>cb((r.customers||[]).map(c=>({value:c.name,label:c.customer_name||c.name})))), v=>{ CURRENT.customer=v; onCustomerOrCurrencyChange(); });
-        wireTypeahead('f_consignee','consigneeResults', (q,cb)=>apiGet('searchConsignees',{query:q, customer:CURRENT.customer||''},r=>cb((r.consignees||[]).map(c=>({value:c.name,label:c.consignee})))), v=>{ CURRENT.custom_consignee=v; });
-        wireTypeahead('f_delivery_point','deliveryPointResults', (q,cb)=>apiGet('searchDeliveryPoints',{query:q, customer:CURRENT.customer||''},r=>cb((r.delivery_points||[]).map(c=>({value:c.name,label:c.name+(c.description?' — '+c.description:'')})))), v=>{ CURRENT.custom_delivery_point=v; });
-        wireTypeahead('f_shipping_agent','shippingAgentResults', (q,cb)=>apiGet('searchShippingAgents',{query:q},r=>cb((r.shipping_agents||[]).map(c=>({value:c.name,label:c.name+(c.description?' — '+c.description:'')})))), v=>{ CURRENT.custom_shipping_agent=v; });
-    }
+}
+function wireEditorBodyInputs(){
+    wireHeaderInputs();
+    wireTypeahead('f_customer','customerResults', (q,cb)=>apiOther('upande_packhouse.api.specifications.searchCustomers',{query:q},r=>cb((r.customers||[]).map(c=>({value:c.name,label:c.customer_name||c.name})))), v=>{ CURRENT.customer=v; onCustomerOrCurrencyChange(); });
+    wireTypeahead('f_consignee','consigneeResults', (q,cb)=>apiGet('searchConsignees',{query:q, customer:CURRENT.customer||''},r=>cb((r.consignees||[]).map(c=>({value:c.name,label:c.consignee})))), v=>{ CURRENT.custom_consignee=v; });
+    wireTypeahead('f_delivery_point','deliveryPointResults', (q,cb)=>apiGet('searchDeliveryPoints',{query:q, customer:CURRENT.customer||''},r=>cb((r.delivery_points||[]).map(c=>({value:c.name,label:c.name+(c.description?' — '+c.description:'')})))), v=>{ CURRENT.custom_delivery_point=v; });
+    wireTypeahead('f_shipping_agent','shippingAgentResults', (q,cb)=>apiGet('searchShippingAgents',{query:q},r=>cb((r.shipping_agents||[]).map(c=>({value:c.name,label:c.name+(c.description?' — '+c.description:'')})))), v=>{ CURRENT.custom_shipping_agent=v; });
 }
 function selOpts(list, current){
     return '<option value="">—</option>' + (list||[]).map(o => `<option value="${escHtml(o)}" ${o===current?'selected':''}>${escHtml(o)}</option>`).join('');
 }
 function wireHeaderInputs(){
-    const map = { f_transaction_date:'transaction_date', f_delivery_date:'delivery_date', f_order_name:'custom_order_name', f_s_number:'custom_s_number', f_truck_details:'custom_truck_details', f_selling_price_list:'selling_price_list' };
+    const map = { f_transaction_date:'transaction_date', f_delivery_date:'delivery_date', f_order_name:'custom_order_name', f_po_no:'po_no', f_s_number:'custom_s_number', f_truck_details:'custom_truck_details', f_selling_price_list:'selling_price_list' };
     Object.keys(map).forEach(id => {
         const el = document.getElementById(id);
         if(!el) return;
@@ -897,19 +949,37 @@ function renderLedger(readOnly){
 
 function renderVarietyCell(c, ci, r, ri, readOnly){
     const key = 'card-'+ci+'-'+ri;
+    // Only set on rows that came from the import wizard's Review & Fix popup
+    // (see openOrderReviewModal) - ties this line back to the exact row in
+    // the source file, since that's the whole point of showing it here.
+    const rowTag = r.source_row ? `<div class="source-row-tag">Row ${r.source_row} in file</div>` : '';
+    // Same three-way spec status buildPreview/autofillFromSpecMatch set on
+    // this row - "no spec for this variety" and "found the spec but it's
+    // missing data" need to read as two different problems, not one vague
+    // "something's off" flag.
+    let specTag = '';
+    if(r.spec_status === 'no_match'){
+        specTag = `<span class="no-uom-flag">⚠ No Specification found for this variety/customer — pack data must be entered by hand</span>`;
+    } else if(r.spec_status === 'incomplete'){
+        const missingLabels = (r.spec_missing_fields||[]).map(f => SPEC_CONFLICT_FIELD_LABELS[f]||f).join(', ') || 'pack data';
+        specTag = `<span class="no-uom-flag">⚠ Specification "${escHtml(r.spec_name||'')}" is missing ${escHtml(missingLabels)}</span>`;
+    }
     if(readOnly){
-        return `<td class="variety-cell">${escHtml(r.item_name||r.variety||'')}${r.no_sales_uom?'<div class="no-uom-flag">No Sales UOM</div>':''}</td>`;
+        return `<td class="variety-cell">${rowTag}${escHtml(r.item_name||r.variety||'')}${r.no_sales_uom?'<div class="no-uom-flag">No Sales UOM</div>':''}</td>`;
     }
     if(r.variety){
         return `<td class="variety-cell">
+            ${rowTag}
             <div class="variety-link-value">
               <span class="vv-name">${escHtml(r.item_name||r.variety)}</span>
               <button class="rm" onclick="clearCardRowVariety(${ci},${ri})">✕ change</button>
             </div>
             ${r.no_sales_uom ? `<span class="no-uom-flag" onclick="openQuickUom('${r.variety.replace(/'/g,"\\'")}', ${ci}, ${ri})">⚠ No Sales UOM — click to set</span>` : ''}
+            ${specTag}
           </td>`;
     }
     return `<td class="variety-cell">
+        ${rowTag}
         <div class="variety-picker-wrap">
           <input class="variety-search" placeholder="+ pick variety…" autocomplete="off" id="${key}"
             onfocus="onCardVarietySearch(this, ${ci}, ${ri})" oninput="onCardVarietySearch(this, ${ci}, ${ri})">
@@ -941,8 +1011,52 @@ function pickCardVariety(ci, ri, variety, hasUom){
     closeDropdown(document.getElementById('vresults-card-'+ci+'-'+ri));
     render();
     fetchPreviewRate(variety, MANUAL_CARDS[ci].length);
+    autofillFromSpecMatch(ci, ri, variety);
 }
-function clearCardRowVariety(ci, ri){ const row = MANUAL_CARDS[ci].rows[ri]; row.variety=''; row.item_name=''; row.no_sales_uom=false; render(); }
+// Picking a variety should carry exactly what picking it from "+ Add from
+// Spec" would - pack rate (via stems-per-bunch/bunches-per-box) and length.
+// Only fills fields that are still blank: a value already on the card/row
+// (typed by hand, or carried over from the import file) is never overwritten.
+function autofillFromSpecMatch(ci, ri, variety){
+    if(!CURRENT.customer || !variety) return;
+    frappe.call({
+        method: IMPORT_API+'getSpecMatchForVariety',
+        args: { data: JSON.stringify({ customer: CURRENT.customer, item_code: variety }) },
+        callback: r => {
+            const m = r.message || {};
+            const match = m.success ? m.match : null;
+            const card = MANUAL_CARDS[ci], row = card.rows[ri];
+            if(!row || row.variety !== variety) return; // superseded by a later pick
+            // Mirrors buildPreview's _apply_spec_match status split - "no spec
+            // for this variety" vs "found it, but it's missing data" read as
+            // two different problems, shown via renderVarietyCell's specTag.
+            if(!match){
+                row.spec_status = 'no_match'; row.spec_name = null; row.spec_missing_fields = null;
+                render();
+                return;
+            }
+            let changed = false;
+            if(!row.stems_per_bunch && match.stems_per_bunch){ row.stems_per_bunch = match.stems_per_bunch; changed = true; }
+            if(!card.length && match.length){ card.length = match.length; changed = true; }
+            if(!card.bunches_per_box && match.bunches_per_box){ card.bunches_per_box = match.bunches_per_box; changed = true; }
+            const missing = [];
+            if(!match.stems_per_bunch) missing.push('_stems_per_bunch');
+            if(!match.length) missing.push('custom_length');
+            if(!match.bunches_per_box) missing.push('_bunches_per_box');
+            row.spec_status = missing.length ? 'incomplete' : 'matched';
+            row.spec_name = match.spec_name;
+            row.spec_missing_fields = missing;
+            render();
+            if(changed) fetchPreviewRate(variety, card.length);
+        },
+    });
+}
+function clearCardRowVariety(ci, ri){
+    const row = MANUAL_CARDS[ci].rows[ri];
+    row.variety=''; row.item_name=''; row.no_sales_uom=false;
+    row.spec_status=null; row.spec_name=null; row.spec_missing_fields=null;
+    render();
+}
 
 function fetchPreviewRate(item_code, length){
     if(!item_code || !length || !CURRENT.selling_price_list) return;
@@ -1255,14 +1369,15 @@ function saveOrder(){
         }
         toast('Order saved.', 'success');
         if(IMPORT_RETURNING_INDEX != null){
-            // This save was a "fix in editor" for a failed import-queue item --
-            // mark it created and drop back into the queue instead of opening
-            // the normal single-order editor.
+            // This save was the Review & Fix popup for a failed import-queue
+            // item - mark it created, close the popup and drop back into the
+            // queue instead of opening the normal single-order editor.
             const i = IMPORT_RETURNING_INDEX;
             IMPORT_RETURNING_INDEX = null;
             IMPORT_QUEUE[i].status = 'created';
             IMPORT_QUEUE[i].order_name = r.name;
             IMPORT_QUEUE[i].error = null;
+            document.getElementById('orderReviewBackdrop').classList.remove('show');
             VIEW = 'import';
             IMPORT_SUBVIEW = 'queue';
             render();
@@ -1406,7 +1521,7 @@ function submitRestoreOrder(){
 }
 
 // ================= IMPORT WIZARD =================
-let IMPORT_SUBVIEW = 'setup'; // 'setup' | 'queue'
+let IMPORT_SUBVIEW = 'file'; // 'file' | 'who' | 'mapping' | 'queue'
 let IMPORT_FILE_HEADER = null;
 let IMPORT_FILE_ROWS = null;
 
@@ -1419,49 +1534,50 @@ function openImportWizard(){
         render();
         return;
     }
-    IMPORT_SUBVIEW = 'setup';
+    IMPORT_SUBVIEW = 'file';
     IMPORT_QUEUE = [];
     IMPORT_FILE_HEADER = null;
     IMPORT_FILE_ROWS = null;
+    IMPORT_MODE = 'single';
+    IMPORT_CUSTOMER = null;
+    IMPORT_EXISTING = null;
+    IMPORT_SHARED_PLATFORMS = [];
+    IMPORT_SHARED_PLATFORM_NAME = null;
+    IMPORT_NEW_SOURCE_NAME = '';
+    IMPORT_DIFFERENTIATOR_COLUMN = null;
+    IMPORT_CUSTOMER_MAP = [];
+    IMPORT_MAPPING_ROWS = [];
+    IMPORT_SPLIT_COLUMN = null;
+    IMPORT_DEFAULTS = {};
+    IMPORT_ITEM_CODE_MAPPING = [];
     apiOther(IMPORT_API+'getFieldCatalog', {}, r => {
         if(r.success) CATALOG = { sales_order_fields: r.sales_order_fields||[], sales_order_item_fields: r.sales_order_item_fields||[] };
     });
-    apiOther(IMPORT_API+'listPlatforms', {}, r => {
-        IMPORT_PLATFORMS = r.platforms || [];
-        render();
-    });
+    render();
+}
+function importStepHeader(stepNum){
+    const steps = ['File', 'Who', 'Mapping'];
+    return `<div class="import-steps">${steps.map((s,i)=>`<span class="${stepNum>=i+1?'on':''}">${i+1}. ${s}</span>`).join('')}</div>`;
 }
 function renderImportWizard(){
     document.getElementById('pageTitle').textContent = 'Import Orders';
     document.getElementById('pageSub').textContent = 'Upload a customer order file and map it onto real Sales Orders';
     const root = document.getElementById('viewRoot');
     if(IMPORT_SUBVIEW === 'queue'){ renderImportQueueView(root); return; }
+    if(IMPORT_SUBVIEW === 'who'){ renderImportStepWho(root); return; }
+    if(IMPORT_SUBVIEW === 'mapping'){ renderImportStepMapping(root); return; }
+    renderImportStepFile(root);
+}
 
+// ---------- step 1: file ----------
+// The file has to come first now - step 2 needs its real columns, both to offer as
+// the "which column tells customers apart" picker and to read the real buyer codes
+// out of, so there's nothing to auto-detect from before a file is loaded.
+function renderImportStepFile(root){
     root.innerHTML = `
+      ${importStepHeader(1)}
       <div class="aph-card">
-        <div class="aph-card-hd"><div class="ttl">1. Customer &amp; Platform</div></div>
-        <div class="aph-card-body">
-          <div class="spec-field-grid">
-            <div class="spec-field typeahead-wrap"><label>Customer</label>
-              <input id="imp_customer" placeholder="Search customer…" autocomplete="off" value="${escHtml(IMPORT_CUSTOMER?IMPORT_CUSTOMER.label:'')}">
-              <div class="pick-results" id="impCustomerResults"></div>
-            </div>
-            <div class="spec-field"><label>Platform</label>
-              <select id="imp_platform">
-                <option value="">— pick a platform —</option>
-                ${IMPORT_PLATFORMS.map(p => `<option value="${escHtml(p.name)}" ${IMPORT_PLATFORM===p.name?'selected':''}>${escHtml(p.platform_name)}</option>`).join('')}
-              </select>
-            </div>
-          </div>
-          <div style="display:flex;gap:10px;margin-top:14px">
-            <button class="btn" onclick="openPlatformEditor()">+ New platform</button>
-            <button class="btn" onclick="openCustomerMappingEditor()">Set up mapping for this customer</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="aph-card">
-        <div class="aph-card-hd"><div class="ttl">2. File</div><div class="sub">CSV or Excel — one file may contain several orders</div></div>
+        <div class="aph-card-hd"><div class="ttl">Upload the order file</div><div class="sub">CSV or Excel — one file may contain several orders. The first row must be the real column headers.</div></div>
         <div class="aph-card-body">
           <div class="import-dropzone">
             <input type="file" id="importFileInput" accept=".csv,.xlsx,.xls" style="display:none" onchange="onImportFileChosen(this.files[0])">
@@ -1470,17 +1586,58 @@ function renderImportWizard(){
           </div>
         </div>
       </div>
-
       <div class="editor-actions">
         <div></div>
-        <div><button class="btn btn-primary" id="buildPreviewBtn" ${(!IMPORT_FILE_HEADER)?'disabled':''} onclick="buildImportPreview()">Build preview</button></div>
+        <button class="btn btn-primary" id="impFileNextBtn" ${(!IMPORT_FILE_HEADER)?'disabled':''} onclick="goToImportWhoStep()">Next: who is this for →</button>
       </div>
     `;
-    wireImportCustomerTypeahead();
-    document.getElementById('imp_platform').addEventListener('change', function(){ IMPORT_PLATFORM = this.value || null; });
+}
+function goToImportWhoStep(){
+    if(!IMPORT_FILE_HEADER){ showErr('Choose a file first.'); return; }
+    showErr('');
+    apiOther(IMPORT_API+'listSharedPlatforms', {}, r => {
+        IMPORT_SHARED_PLATFORMS = r.platforms || [];
+        IMPORT_SUBVIEW = 'who';
+        render();
+    });
+}
+
+// ---------- step 2: who this file is for ----------
+function setImportMode(mode){
+    IMPORT_MODE = mode;
+    render();
+}
+function renderImportStepWho(root){
+    root.innerHTML = `
+      ${importStepHeader(2)}
+      <div class="aph-card">
+        <div class="aph-card-hd"><div class="ttl">Who is this file for?</div><div class="sub">Most files belong to one customer — pick "multiple" only when this file genuinely mixes several customers' orders together, told apart by one of its own columns</div></div>
+        <div class="aph-card-body">
+          <div class="who-toggle">
+            <button type="button" class="btn ${IMPORT_MODE==='single'?'on':''}" onclick="setImportMode('single')">One customer</button>
+            <button type="button" class="btn ${IMPORT_MODE==='shared'?'on':''}" onclick="setImportMode('shared')">Multiple customers in this file</button>
+          </div>
+          ${IMPORT_MODE==='shared' ? renderSharedWhoBody() : renderSingleWhoBody()}
+        </div>
+      </div>
+      <div class="editor-actions">
+        <button class="btn" onclick="IMPORT_SUBVIEW='file'; render();">← Back</button>
+        <button class="btn btn-primary" id="impWhoNextBtn" disabled onclick="goToImportMappingStep()">Next: map columns →</button>
+      </div>
+    `;
+    if(IMPORT_MODE==='shared') wireCustomerMapTypeahead();
+    else wireImportCustomerTypeahead();
+    updateImportWhoNextBtn();
+}
+function renderSingleWhoBody(){
+    return `<div class="spec-field typeahead-wrap" style="margin-top:14px"><label>Customer</label>
+      <input id="imp_customer" placeholder="Search customer…" autocomplete="off" value="${escHtml(IMPORT_CUSTOMER?IMPORT_CUSTOMER.label:'')}">
+      <div class="pick-results" id="impCustomerResults"></div>
+    </div>`;
 }
 function wireImportCustomerTypeahead(){
     const input = document.getElementById('imp_customer');
+    if(!input) return;
     const results = document.getElementById('impCustomerResults');
     let t = null;
     function run(){
@@ -1488,6 +1645,7 @@ function wireImportCustomerTypeahead(){
         clearTimeout(t);
         const q = input.value;
         IMPORT_CUSTOMER = null;
+        updateImportWhoNextBtn();
         t = setTimeout(() => {
             apiOther('upande_packhouse.api.specifications.searchCustomers', { query: q }, r => {
                 const list = r.customers || [];
@@ -1505,6 +1663,136 @@ function pickImportCustomer(name, label){
     IMPORT_CUSTOMER = { name, label };
     document.getElementById('imp_customer').value = label;
     closeDropdown(document.getElementById('impCustomerResults'));
+    updateImportWhoNextBtn();
+}
+
+// ---------- step 2, shared mode: which source + which column + value->customer table ----------
+function renderSharedWhoBody(){
+    return `<div style="margin-top:14px">
+      <div class="spec-field"><label>Which source is this?</label>
+        <select id="imp_shared_platform" onchange="onSharedPlatformPicked(this.value)">
+          <option value="">+ New source</option>
+          ${IMPORT_SHARED_PLATFORMS.map(p=>`<option value="${escHtml(p.name)}" ${IMPORT_SHARED_PLATFORM_NAME===p.name?'selected':''}>${escHtml(p.platform_name)}</option>`).join('')}
+        </select>
+      </div>
+      ${!IMPORT_SHARED_PLATFORM_NAME ? `<div class="spec-field"><label>Name this source</label>
+        <input id="imp_new_source_name" placeholder="e.g. DFG, XPOL Cloud" value="${escHtml(IMPORT_NEW_SOURCE_NAME||'')}" oninput="IMPORT_NEW_SOURCE_NAME=this.value; updateImportWhoNextBtn();"></div>` : ''}
+      <div class="spec-field"><label>Which column tells customers apart?</label>
+        <select id="imp_differentiator_col" onchange="onDifferentiatorColumnPicked(this.value)">
+          <option value="">— pick a column —</option>
+          ${IMPORT_FILE_HEADER.map(c=>`<option value="${escHtml(c)}" ${IMPORT_DIFFERENTIATOR_COLUMN===c?'selected':''}>${escHtml(c)}</option>`).join('')}
+        </select>
+      </div>
+      ${IMPORT_DIFFERENTIATOR_COLUMN ? `<div class="sub" style="margin:14px 0 6px">Map each value found in the file to a real customer</div>
+        <div id="impCustomerMapRows">${IMPORT_CUSTOMER_MAP.map((r,i)=>renderCustomerMapRow(r,i)).join('')}</div>` : ''}
+    </div>`;
+}
+function onSharedPlatformPicked(value){
+    if(!value){
+        IMPORT_SHARED_PLATFORM_NAME = null;
+        IMPORT_DIFFERENTIATOR_COLUMN = null;
+        IMPORT_CUSTOMER_MAP = [];
+        IMPORT_EXISTING = null;
+        render();
+        return;
+    }
+    IMPORT_SHARED_PLATFORM_NAME = value;
+    apiOther(IMPORT_API+'getSharedPlatformSetup', { platform: value }, r => {
+        if(!r.success){ showErr(r.error || 'Could not load that source.'); return; }
+        IMPORT_EXISTING = r; // field_mappings/multi_order_column - buildMappingRowsFromFile reads these in step 3
+        IMPORT_DIFFERENTIATOR_COLUMN = r.customer_differentiator_column || null;
+        const bySavedValue = {};
+        (r.customers||[]).forEach(c => { bySavedValue[c.differentiator_value] = c; });
+        rebuildCustomerMapFromFile(bySavedValue);
+        render();
+    });
+}
+function onDifferentiatorColumnPicked(col){
+    IMPORT_DIFFERENTIATOR_COLUMN = col || null;
+    rebuildCustomerMapFromFile();
+    render();
+}
+function rebuildCustomerMapFromFile(bySavedValue){
+    bySavedValue = bySavedValue || {};
+    if(!IMPORT_DIFFERENTIATOR_COLUMN){ IMPORT_CUSTOMER_MAP = []; return; }
+    const colIndex = IMPORT_FILE_HEADER.indexOf(IMPORT_DIFFERENTIATOR_COLUMN);
+    const seen = new Set();
+    const values = [];
+    (IMPORT_FILE_ROWS||[]).forEach(row => {
+        const raw = row[colIndex];
+        const v = (raw === undefined || raw === null) ? '' : String(raw).trim();
+        if(v && !seen.has(v)){ seen.add(v); values.push(v); }
+    });
+    IMPORT_CUSTOMER_MAP = values.map(v => {
+        const saved = bySavedValue[v];
+        return {
+            differentiator_value: v,
+            customer: saved ? { name: saved.customer, label: saved.customer } : null,
+            defaults: saved ? (saved.defaults||{}) : {},
+            item_code_mapping: saved ? (saved.item_code_mapping||[]) : [],
+        };
+    });
+}
+function renderCustomerMapRow(r, i){
+    return `<div class="mapping-editor-row cust-map-row" data-i="${i}" style="grid-template-columns:1fr 2fr">
+      <div class="col-name">${escHtml(r.differentiator_value)}</div>
+      <div class="typeahead-wrap">
+        <input class="cust-pick-input" placeholder="Search customer…" value="${escHtml(r.customer?r.customer.label:'')}">
+        <div class="pick-results cust-pick-results"></div>
+      </div>
+    </div>`;
+}
+function wireCustomerMapTypeahead(){
+    const root = document.getElementById('impCustomerMapRows');
+    if(!root) return;
+    let t = null;
+    root.addEventListener('input', (e) => {
+        if(!e.target.classList.contains('cust-pick-input')) return;
+        const row = e.target.closest('[data-i]');
+        const i = parseInt(row.dataset.i, 10);
+        const results = row.querySelector('.cust-pick-results');
+        openDropdown(e.target, results);
+        clearTimeout(t);
+        const q = e.target.value;
+        IMPORT_CUSTOMER_MAP[i].customer = null;
+        updateImportWhoNextBtn();
+        t = setTimeout(() => {
+            apiOther('upande_packhouse.api.specifications.searchCustomers', { query: q }, r => {
+                const list = r.customers || [];
+                results.innerHTML = list.length
+                    ? list.map(c => `<div class="opt" onmousedown="event.preventDefault(); pickCustomerMapRow(${i}, '${c.name.replace(/'/g,"\\'")}','${(c.customer_name||c.name).replace(/'/g,"\\'")}')">${escHtml(c.customer_name||c.name)}</div>`).join('')
+                    : `<div class="opt" style="color:var(--ink-faint);cursor:default">No matches</div>`;
+                positionDropdown(e.target, results);
+            });
+        }, q ? 200 : 0);
+    });
+    root.addEventListener('focusin', (e) => {
+        if(!e.target.classList.contains('cust-pick-input')) return;
+        const row = e.target.closest('[data-i]');
+        openDropdown(e.target, row.querySelector('.cust-pick-results'));
+    });
+}
+function pickCustomerMapRow(i, name, label){
+    IMPORT_CUSTOMER_MAP[i].customer = { name, label };
+    const row = document.querySelector('#impCustomerMapRows [data-i="'+i+'"]');
+    if(row){
+        row.querySelector('.cust-pick-input').value = label;
+        closeDropdown(row.querySelector('.cust-pick-results'));
+    }
+    updateImportWhoNextBtn();
+}
+function updateImportWhoNextBtn(){
+    const btn = document.getElementById('impWhoNextBtn');
+    if(!btn) return;
+    let ok;
+    if(IMPORT_MODE === 'shared'){
+        ok = (IMPORT_SHARED_PLATFORM_NAME || IMPORT_NEW_SOURCE_NAME.trim())
+            && IMPORT_DIFFERENTIATOR_COLUMN
+            && IMPORT_CUSTOMER_MAP.some(r => r.customer);
+    } else {
+        ok = !!IMPORT_CUSTOMER;
+    }
+    btn.disabled = !ok;
 }
 
 // ---------- file parsing ----------
@@ -1565,28 +1853,302 @@ function applyParsedGrid(grid, filename){
     IMPORT_FILE_HEADER = (grid[0]||[]).map(h => String(h||'').trim());
     IMPORT_FILE_ROWS = grid.slice(1);
     document.getElementById('importFileName').textContent = filename + ' — ' + IMPORT_FILE_HEADER.length + ' columns, ' + IMPORT_FILE_ROWS.length + ' rows';
-    document.getElementById('buildPreviewBtn').disabled = false;
+    const btn = document.getElementById('impFileNextBtn');
+    if(btn) btn.disabled = false;
 }
 
-function buildImportPreview(){
-    if(!IMPORT_CUSTOMER){ showErr('Pick a customer first.'); return; }
-    if(!IMPORT_PLATFORM){ showErr('Pick a platform first.'); return; }
+// ---------- step 3: mapping (fetched from the file, not typed by hand) ----------
+function buildMappingRowsFromFile(){
+    const existingByCol = {};
+    ((IMPORT_EXISTING && IMPORT_EXISTING.field_mappings) || []).forEach(m => { existingByCol[m.source_column] = m; });
+    IMPORT_MAPPING_ROWS = IMPORT_FILE_HEADER.map(col => {
+        const ex = existingByCol[col];
+        return {
+            source_column: col,
+            target_doctype: ex ? ex.target_doctype : '',
+            target_fieldname: ex ? ex.target_fieldname : '',
+            default_value: ex ? (ex.default_value || '') : '',
+        };
+    });
+    IMPORT_SPLIT_COLUMN = (IMPORT_EXISTING && IMPORT_EXISTING.multi_order_column) || null;
+    if(IMPORT_MODE !== 'shared'){
+        // Shared mode keeps defaults/item codes per customer, already sitting on each
+        // IMPORT_CUSTOMER_MAP row from rebuildCustomerMapFromFile - nothing to copy here.
+        IMPORT_DEFAULTS = Object.assign({}, (IMPORT_EXISTING && IMPORT_EXISTING.defaults) || {});
+        IMPORT_ITEM_CODE_MAPPING = ((IMPORT_EXISTING && IMPORT_EXISTING.item_code_mapping) || []).slice();
+    }
+}
+function goToImportMappingStep(){
     if(!IMPORT_FILE_HEADER){ showErr('Choose a file first.'); return; }
+    if(IMPORT_MODE === 'shared'){
+        if(!IMPORT_CUSTOMER_MAP.some(r => r.customer)){ showErr('Map at least one customer first.'); return; }
+        showErr('');
+        buildMappingRowsFromFile();
+        IMPORT_SUBVIEW = 'mapping';
+        render();
+        return;
+    }
+    if(!IMPORT_CUSTOMER){ showErr('Pick a customer first.'); return; }
     showErr('');
-    const btn = document.getElementById('buildPreviewBtn');
-    if(btn){ btn.disabled = true; btn.textContent = 'Building preview…'; }
+    apiOther(IMPORT_API+'getCustomerImportSetup', { customer: IMPORT_CUSTOMER.name }, r => {
+        IMPORT_EXISTING = (r.success && r.exists) ? r : null;
+        buildMappingRowsFromFile();
+        IMPORT_SUBVIEW = 'mapping';
+        render();
+    });
+}
+function importSampleValue(colIndex){
+    for(const row of (IMPORT_FILE_ROWS||[])){
+        const v = row[colIndex];
+        if(v !== undefined && v !== null && String(v).trim() !== '') return String(v);
+    }
+    return '';
+}
+// A plain <select> here used to mean scrolling through every Sales Order + Sales
+// Order Item field to find one - this is the same searchable-typeahead pattern the
+// customer pickers already use (openDropdown/positionDropdown/closeDropdown), just
+// filtering CATALOG's two field lists instead of a server search.
+function importTargetLabel(dt, field){
+    if(!field) return '';
+    const list = dt === 'Sales Order Item' ? CATALOG.sales_order_item_fields : CATALOG.sales_order_fields;
+    const found = (list||[]).find(f => f.fieldname === field);
+    return found ? found.label : field;
+}
+function renderImportMappingRow(m, i){
+    const sample = importSampleValue(i);
+    return `<div class="mapping-editor-row import-map-row" data-i="${i}">
+      <div class="col-name" title="${escHtml(m.source_column)}">${escHtml(m.source_column)}</div>
+      <div class="col-sample" title="${escHtml(sample)}">${escHtml(sample || '—')}</div>
+      <div class="typeahead-wrap">
+        <input class="tgt-input" placeholder="— Don't import —" autocomplete="off" value="${escHtml(importTargetLabel(m.target_doctype, m.target_fieldname))}">
+        <div class="pick-results tgt-pick-results"></div>
+      </div>
+      <input class="dflt" placeholder="Default" value="${escHtml(m.default_value||'')}" onchange="IMPORT_MAPPING_ROWS[${i}].default_value=this.value">
+      <label class="split-pick"><input type="radio" name="imp_split" ${IMPORT_SPLIT_COLUMN===m.source_column?'checked':''} onchange="onImportSplitPicked('${m.source_column.replace(/'/g,"\\'")}')"> split</label>
+    </div>`;
+}
+function importTargetResultsHtml(query, rowIndex){
+    const q = (query||'').trim().toLowerCase();
+    const match = (f) => !q || f.label.toLowerCase().includes(q) || f.fieldname.toLowerCase().includes(q);
+    const so = (CATALOG.sales_order_fields||[]).filter(match);
+    const soi = (CATALOG.sales_order_item_fields||[]).filter(match);
+    const opt = (dt, f) => `<div class="opt" onmousedown="event.preventDefault(); pickImportTarget(${rowIndex}, '${dt}', '${escHtml(f.fieldname)}')">${escHtml(f.label)}${f.computed?' <span class="hint">(auto)</span>':''}</div>`;
+    const parts = [];
+    if(!q) parts.push(`<div class="opt" onmousedown="event.preventDefault(); pickImportTarget(${rowIndex}, '', '')">— Don't import —</div>`);
+    if(so.length) parts.push(`<div class="opt-group">Order (once per order)</div>` + so.map(f=>opt('Sales Order', f)).join(''));
+    if(soi.length) parts.push(`<div class="opt-group">Line item (once per row)</div>` + soi.map(f=>opt('Sales Order Item', f)).join(''));
+    return parts.length ? parts.join('') : `<div class="opt" style="color:var(--ink-faint);cursor:default">No matches</div>`;
+}
+function wireImportTargetSearch(){
+    const root = document.querySelector('.import-map-table');
+    if(!root) return;
+    root.addEventListener('input', (e) => {
+        if(!e.target.classList.contains('tgt-input')) return;
+        const row = e.target.closest('[data-i]');
+        const i = parseInt(row.dataset.i, 10);
+        const results = row.querySelector('.tgt-pick-results');
+        openDropdown(e.target, results);
+        results.innerHTML = importTargetResultsHtml(e.target.value, i);
+    });
+    root.addEventListener('focusin', (e) => {
+        if(!e.target.classList.contains('tgt-input')) return;
+        const row = e.target.closest('[data-i]');
+        const i = parseInt(row.dataset.i, 10);
+        const results = row.querySelector('.tgt-pick-results');
+        openDropdown(e.target, results);
+        results.innerHTML = importTargetResultsHtml(e.target.value, i);
+    });
+}
+function pickImportTarget(i, dt, field){
+    IMPORT_MAPPING_ROWS[i].target_doctype = dt;
+    IMPORT_MAPPING_ROWS[i].target_fieldname = field;
+    const row = document.querySelector('.import-map-table [data-i="'+i+'"]');
+    if(row){
+        row.querySelector('.tgt-input').value = importTargetLabel(dt, field);
+        closeDropdown(row.querySelector('.tgt-pick-results'));
+    }
+}
+function onImportSplitPicked(col){
+    IMPORT_SPLIT_COLUMN = col;
+    const warn = document.getElementById('impNoSplitWarn');
+    if(warn) warn.remove();
+}
+function renderImportStepMapping(root){
+    const sharedMappedRows = IMPORT_MODE==='shared' ? IMPORT_CUSTOMER_MAP.filter(r=>r.customer) : [];
+    root.innerHTML = `
+      ${importStepHeader(3)}
+      <div class="aph-card">
+        <div class="aph-card-hd"><div class="ttl">Map each column</div><div class="sub">Pulled straight from your file — pick where each one goes, or leave it as "Don't import".${IMPORT_MODE==='shared' ? ' This mapping is shared by every customer on this source.' : ''} Pick exactly one column that separates one order from the next.</div></div>
+        <div class="aph-card-body">
+          <div class="import-map-table">
+            <div class="mapping-editor-row import-map-row import-map-hd">
+              <div>Column in file</div><div>Sample</div><div>Maps to</div><div>Default</div><div>Split</div>
+            </div>
+            ${IMPORT_MAPPING_ROWS.map((m,i)=>renderImportMappingRow(m,i)).join('')}
+          </div>
+          ${(!IMPORT_SPLIT_COLUMN) ? `<div class="warn-line" id="impNoSplitWarn" style="margin-top:10px">⚠ No split column picked yet — the whole file will be treated as one order.</div>` : ''}
+        </div>
+      </div>
+
+      ${IMPORT_MODE==='shared' ? sharedMappedRows.map((r,gi)=>renderCustomerDefaultsCard(r,gi)).join('') : renderSingleDefaultsCard()}
+
+      <div class="editor-actions">
+        <button class="btn" onclick="IMPORT_SUBVIEW='who'; render();">← Back</button>
+        <div><button class="btn btn-primary" id="impMappingSaveBtn" onclick="saveMappingAndBuildPreview()">Save &amp; build preview</button></div>
+      </div>
+    `;
+    wireImportTargetSearch();
+    if(IMPORT_MODE==='shared'){
+        sharedMappedRows.forEach((r,gi) => {
+            document.getElementById('imp_cm_currency_'+gi).innerHTML = `<option value="">—</option>` +
+                OPTIONS.currencies.map(c=>`<option value="${escHtml(c)}" ${r.defaults.default_currency===c?'selected':''}>${escHtml(c)}</option>`).join('');
+            document.getElementById('imp_cm_warehouse_'+gi).innerHTML = selOpts(OPTIONS.warehouses, r.defaults.default_warehouse||'');
+        });
+    } else {
+        document.getElementById('imp_default_currency').innerHTML = `<option value="">—</option>` +
+            OPTIONS.currencies.map(c=>`<option value="${escHtml(c)}" ${IMPORT_DEFAULTS.default_currency===c?'selected':''}>${escHtml(c)}</option>`).join('');
+        document.getElementById('imp_default_warehouse').innerHTML = selOpts(OPTIONS.warehouses, IMPORT_DEFAULTS.default_warehouse||'');
+    }
+}
+function renderSingleDefaultsCard(){
+    return `<div class="aph-card">
+        <div class="aph-card-hd"><div class="ttl">Order-level defaults (optional)</div><div class="sub">Used only when the file doesn't carry a value for these at all</div></div>
+        <div class="aph-card-body">
+          <div class="spec-field-grid">
+            <div class="spec-field"><label>Default Currency</label><select id="imp_default_currency"></select></div>
+            <div class="spec-field"><label>Default Price List</label><input id="imp_default_price_list" value="${escHtml(IMPORT_DEFAULTS.default_price_list||'')}" placeholder="Price List name"></div>
+            <div class="spec-field"><label>Default Warehouse</label><select id="imp_default_warehouse"></select></div>
+            <div class="spec-field"><label>Default Consignee</label><input id="imp_default_consignee" value="${escHtml(IMPORT_DEFAULTS.default_consignee||'')}" placeholder="Consignee name"></div>
+            <div class="spec-field"><label>Default Delivery Point</label><input id="imp_default_delivery_point" value="${escHtml(IMPORT_DEFAULTS.default_delivery_point||'')}" placeholder="Delivery Point name"></div>
+            <div class="spec-field"><label>Default Shipping Agent</label><input id="imp_default_shipping_agent" value="${escHtml(IMPORT_DEFAULTS.default_shipping_agent||'')}" placeholder="Shipping Agent name"></div>
+          </div>
+        </div>
+      </div>
+      <div class="aph-card">
+        <div class="aph-card-hd"><div class="ttl">This customer's item codes → our Items (optional)</div><div class="sub">Fixes "unrecognised item code" warnings on the preview</div></div>
+        <div class="aph-card-body">
+          <div id="cmItemRows">${IMPORT_ITEM_CODE_MAPPING.map(m=>itemMappingRowHtml(m.source_item_code, m.item)).join('')}</div>
+          <button class="add-mapping-row-btn" type="button" onclick="addItemMappingRow()">+ Add item mapping</button>
+        </div>
+      </div>`;
+}
+function renderCustomerDefaultsCard(r, gi){
+    return `<div class="aph-card">
+        <div class="aph-card-hd"><div class="ttl">${escHtml(r.customer.label)} — defaults &amp; item codes (optional)</div><div class="sub">"${escHtml(r.differentiator_value)}" in the file</div></div>
+        <div class="aph-card-body">
+          <div class="spec-field-grid">
+            <div class="spec-field"><label>Default Currency</label><select id="imp_cm_currency_${gi}"></select></div>
+            <div class="spec-field"><label>Default Price List</label><input id="imp_cm_price_list_${gi}" value="${escHtml(r.defaults.default_price_list||'')}" placeholder="Price List name"></div>
+            <div class="spec-field"><label>Default Warehouse</label><select id="imp_cm_warehouse_${gi}"></select></div>
+            <div class="spec-field"><label>Default Consignee</label><input id="imp_cm_consignee_${gi}" value="${escHtml(r.defaults.default_consignee||'')}" placeholder="Consignee name"></div>
+            <div class="spec-field"><label>Default Delivery Point</label><input id="imp_cm_delivery_point_${gi}" value="${escHtml(r.defaults.default_delivery_point||'')}" placeholder="Delivery Point name"></div>
+            <div class="spec-field"><label>Default Shipping Agent</label><input id="imp_cm_shipping_agent_${gi}" value="${escHtml(r.defaults.default_shipping_agent||'')}" placeholder="Shipping Agent name"></div>
+          </div>
+          <div class="sub" style="margin:14px 0 6px">Item codes → our Items</div>
+          <div id="imp_cm_items_${gi}">${(r.item_code_mapping||[]).map(m=>itemMappingRowHtml(m.source_item_code, m.item)).join('')}</div>
+          <button class="add-mapping-row-btn" type="button" onclick="addItemMappingRowTo('imp_cm_items_${gi}')">+ Add item mapping</button>
+        </div>
+      </div>`;
+}
+function readItemCodeRows(containerId){
+    const out = [];
+    document.querySelectorAll('#'+containerId+' .mapping-editor-row').forEach(row => {
+        const source_item_code = row.querySelector('.src-item').value.trim();
+        const item = row.querySelector('.tgt-item').value.trim();
+        if(source_item_code && item) out.push({ source_item_code, item });
+    });
+    return out;
+}
+function saveMappingAndBuildPreview(){
+    if(!IMPORT_SPLIT_COLUMN && !confirm('No split column picked - the whole file will be imported as a single order. Continue?')) return;
+    const field_mappings = IMPORT_MAPPING_ROWS.filter(m => m.target_fieldname).map(m => ({
+        source_column: m.source_column, target_doctype: m.target_doctype, target_fieldname: m.target_fieldname, default_value: m.default_value,
+    }));
+    showErr('');
+    const btn = document.getElementById('impMappingSaveBtn');
+    const resetBtn = () => { if(btn){ btn.disabled = false; btn.textContent = 'Save & build preview'; } };
+    if(btn){ btn.disabled = true; btn.textContent = 'Saving…'; }
+
+    if(IMPORT_MODE === 'shared'){
+        const mappedRows = IMPORT_CUSTOMER_MAP.filter(r => r.customer);
+        const customers = mappedRows.map((r, gi) => ({
+            customer: r.customer.name,
+            differentiator_value: r.differentiator_value,
+            item_code_mapping: readItemCodeRows('imp_cm_items_'+gi),
+            defaults: {
+                default_currency: document.getElementById('imp_cm_currency_'+gi).value,
+                default_price_list: document.getElementById('imp_cm_price_list_'+gi).value.trim(),
+                default_warehouse: document.getElementById('imp_cm_warehouse_'+gi).value,
+                default_consignee: document.getElementById('imp_cm_consignee_'+gi).value.trim(),
+                default_delivery_point: document.getElementById('imp_cm_delivery_point_'+gi).value.trim(),
+                default_shipping_agent: document.getElementById('imp_cm_shipping_agent_'+gi).value.trim(),
+            },
+        }));
+        const platform_name = IMPORT_SHARED_PLATFORM_NAME || IMPORT_NEW_SOURCE_NAME.trim();
+        frappe.call({
+            method: IMPORT_API+'saveSharedPlatformSetup',
+            args: { data: JSON.stringify({
+                platform_name,
+                multi_order_column: IMPORT_SPLIT_COLUMN||'',
+                customer_differentiator_column: IMPORT_DIFFERENTIATOR_COLUMN,
+                field_mappings,
+                customers,
+            }) },
+            callback: r => {
+                const m = r.message || {};
+                if(!m.success){ resetBtn(); showErr(m.error || 'Could not save this mapping.'); return; }
+                frappe.call({
+                    method: IMPORT_API+'buildPreview',
+                    args: { data: JSON.stringify({ platform: m.platform, header: IMPORT_FILE_HEADER, rows: IMPORT_FILE_ROWS }) },
+                    callback: r2 => {
+                        const m2 = r2.message || {};
+                        resetBtn();
+                        if(!m2.success){ showErr(m2.error || 'Could not build a preview from this file.'); return; }
+                        if((m2.unresolved_customers||[]).length){
+                            showErr('No customer mapped for: ' + m2.unresolved_customers.join(', ') + ' — those orders were skipped. Go back to step 2 to map them.');
+                        }
+                        IMPORT_QUEUE = (m2.orders||[]).map(o => Object.assign({}, o, { status: 'pending', order_name: null, error: null }));
+                        IMPORT_SUBVIEW = 'queue';
+                        render();
+                    },
+                    error: () => { resetBtn(); showErr('Could not build a preview from this file.'); },
+                });
+            },
+            error: () => { resetBtn(); showErr('Could not save this mapping.'); },
+        });
+        return;
+    }
+
+    const item_code_mapping = readItemCodeRows('cmItemRows');
+    const defaults = {
+        default_currency: document.getElementById('imp_default_currency').value,
+        default_price_list: document.getElementById('imp_default_price_list').value.trim(),
+        default_warehouse: document.getElementById('imp_default_warehouse').value,
+        default_consignee: document.getElementById('imp_default_consignee').value.trim(),
+        default_delivery_point: document.getElementById('imp_default_delivery_point').value.trim(),
+        default_shipping_agent: document.getElementById('imp_default_shipping_agent').value.trim(),
+    };
     frappe.call({
-        method: IMPORT_API+'buildPreview',
-        args: { data: JSON.stringify({ customer: IMPORT_CUSTOMER.name, platform: IMPORT_PLATFORM, header: IMPORT_FILE_HEADER, rows: IMPORT_FILE_ROWS }) },
+        method: IMPORT_API+'saveCustomerImportSetup',
+        args: { data: JSON.stringify({ customer: IMPORT_CUSTOMER.name, multi_order_column: IMPORT_SPLIT_COLUMN||'', field_mappings, item_code_mapping, defaults }) },
         callback: r => {
             const m = r.message || {};
-            if(btn){ btn.disabled = false; btn.textContent = 'Build preview'; }
-            if(!m.success){ showErr(m.error || 'Could not build a preview from this file.'); return; }
-            IMPORT_QUEUE = (m.orders||[]).map(o => Object.assign({}, o, { status: 'pending', order_name: null, error: null }));
-            IMPORT_SUBVIEW = 'queue';
-            render();
+            if(!m.success){ resetBtn(); showErr(m.error || 'Could not save this mapping.'); return; }
+            frappe.call({
+                method: IMPORT_API+'buildPreview',
+                args: { data: JSON.stringify({ customer: IMPORT_CUSTOMER.name, platform: m.platform, header: IMPORT_FILE_HEADER, rows: IMPORT_FILE_ROWS }) },
+                callback: r2 => {
+                    const m2 = r2.message || {};
+                    resetBtn();
+                    if(!m2.success){ showErr(m2.error || 'Could not build a preview from this file.'); return; }
+                    IMPORT_QUEUE = (m2.orders||[]).map(o => Object.assign({}, o, { status: 'pending', order_name: null, error: null }));
+                    IMPORT_SUBVIEW = 'queue';
+                    render();
+                },
+                error: () => { resetBtn(); showErr('Could not build a preview from this file.'); },
+            });
         },
-        error: () => { if(btn){ btn.disabled = false; btn.textContent = 'Build preview'; } showErr('Could not build a preview from this file.'); },
+        error: () => { resetBtn(); showErr('Could not save this mapping.'); },
     });
 }
 
@@ -1603,20 +2165,279 @@ function renderImportQueueView(root){
         <button class="btn" onclick="IMPORT_SUBVIEW='setup'; render();">← Back to file pick</button>
         <button class="btn btn-primary" onclick="runImportQueue()">Start / continue import</button>
       </div>
-      ${IMPORT_QUEUE.map((q, i) => renderQueueCard(q, i)).join('')}
+      <div id="queueRoot">${IMPORT_QUEUE.map((q, i) => renderQueueCard(q, i)).join('')}</div>
     `;
+    wireResolveExistingSearch();
+}
+// Doctypes the wizard is allowed to create on its own when a saveSalesOrder
+// failure names one of them as missing - mirrors QUICK_ADD_DOCTYPES in
+// api/order_import.py exactly (keep both lists in sync).
+const QUICK_ADD_ALLOWED = new Set(['Consignee', 'Stem Length', 'Delivery Point', 'Shipping Agent', 'Box Type']);
+// Mirrors QUICK_ADD_EXTRA_FIELDS in api/order_import.py - optional fields
+// worth offering on the "+ Create new" mini-form, beyond the bare name.
+const QUICK_ADD_EXTRA_FIELDS = {
+    'Consignee': [{ fieldname: 'country', fieldtype: 'Link', options: 'Country', label: 'Country' }],
+    'Stem Length': [
+        { fieldname: 'company', fieldtype: 'Link', options: 'Company', label: 'Company' },
+        { fieldname: 'price', fieldtype: 'Float', label: 'Price' },
+    ],
+    'Delivery Point': [
+        { fieldname: 'description', fieldtype: 'Data', label: 'Description' },
+        { fieldname: 'business_unit', fieldtype: 'Link', options: 'Business Unit', label: 'Business Unit' },
+    ],
+    'Shipping Agent': [{ fieldname: 'description', fieldtype: 'Data', label: 'Description' }],
+    'Box Type': [
+        { fieldname: 'box_name', fieldtype: 'Data', label: 'Box Name' },
+        { fieldname: 'length_cm', fieldtype: 'Float', label: 'Length (cm)' },
+        { fieldname: 'width_cm', fieldtype: 'Float', label: 'Width (cm)' },
+        { fieldname: 'height_cm', fieldtype: 'Float', label: 'Height (cm)' },
+        { fieldname: 'weight_kg', fieldtype: 'Float', label: 'Weight (kg)' },
+    ],
+};
+// Which Sales Order / Sales Order Item field each quick-addable doctype
+// actually fills - so resolving one missing value (create new, or map to an
+// existing record) can rewrite every queue row/header that referenced the
+// old raw text, across every order, not just the one card it was fixed from.
+const QUICK_ADD_FIELD_TARGETS = {
+    'Consignee': { level: 'header', field: 'custom_consignee' },
+    'Stem Length': { level: 'item', field: 'custom_length' },
+    'Delivery Point': { level: 'header', field: 'custom_delivery_point' },
+    'Shipping Agent': { level: 'header', field: 'custom_shipping_agent' },
+    'Box Type': { level: 'item', field: 'custom_box_type' },
+};
+// Frappe's own Link-validation error (frappe/model/base_document.py) is
+// always "Could not find {label}: {value}[, Row #{n}: {label}: {value}, ...]" -
+// parsed here (never guessed) so a recognised failure can offer to resolve it
+// instead of just leaving the user with the raw error text and a dead end.
+function parseLinkValidationError(message){
+    const m = /^Could not find (.+)$/s.exec((message||'').trim());
+    if(!m) return [];
+    const seen = new Set();
+    const out = [];
+    m[1].split(/,\s+/).forEach(seg => {
+        const sm = /^(?:Row #\d+: )?([A-Za-z][A-Za-z \-]*): (.+)$/.exec(seg.trim());
+        if(!sm) return;
+        const doctype = sm[1].trim(), value = sm[2].trim();
+        if(!QUICK_ADD_ALLOWED.has(doctype)) return;
+        const k = doctype+'|'+value;
+        if(seen.has(k)) return;
+        seen.add(k);
+        out.push({ doctype, value });
+    });
+    return out;
+}
+// Applies a resolved (doctype, old raw value) -> real docname across every
+// order in the queue, not just the one it was fixed from - the same missing
+// Stem Length/Consignee usually blocks several orders from the same file at
+// once. Anything this touches that was 'failed' goes back to 'pending' so
+// the next runImportQueue() sweep picks it straight back up.
+function applyResolvedValue(doctype, oldValue, newValue){
+    const target = QUICK_ADD_FIELD_TARGETS[doctype];
+    if(!target) return;
+    IMPORT_QUEUE.forEach(q => {
+        let touched = false;
+        if(target.level === 'header'){
+            if(q.header[target.field] === oldValue){ q.header[target.field] = newValue; touched = true; }
+        } else {
+            (q.rows||[]).forEach(r => { if(r[target.field] === oldValue){ r[target.field] = newValue; touched = true; } });
+        }
+        if(touched && q.status === 'failed'){ q.status = 'pending'; q.error = null; }
+    });
+}
+function quickAddExtraFieldsHtml(doctype){
+    return (QUICK_ADD_EXTRA_FIELDS[doctype] || []).map(f => `<input class="rmv-extra" data-field="${f.fieldname}" placeholder="${escHtml(f.label)}${f.fieldtype==='Link' ? ' ('+escHtml(f.options)+')' : ''}" type="${f.fieldtype==='Float'?'number':'text'}" ${f.fieldtype==='Float'?'step="any"':''}>`).join('');
+}
+function toggleQuickAddForm(widgetId){
+    const form = document.getElementById('qaform-'+widgetId);
+    if(form) form.style.display = form.style.display === 'none' ? 'flex' : 'none';
+}
+function submitQuickAdd(widgetId, i, doctype, value){
+    const form = document.getElementById('qaform-'+widgetId);
+    const extra = {};
+    (form ? form.querySelectorAll('.rmv-extra') : []).forEach(inp => { if(inp.value.trim()) extra[inp.dataset.field] = inp.value.trim(); });
+    const q = IMPORT_QUEUE[i];
+    frappe.call({
+        method: IMPORT_API+'quickAddMasterValue',
+        args: { data: JSON.stringify({ doctype, value, customer: q.header.customer, extra }) },
+        callback: r => {
+            const m = r.message || {};
+            if(!m.success){ toast(m.error || `Could not add this ${doctype}.`, 'error'); return; }
+            toast(`${doctype} "${m.name}" added.`, 'success');
+            applyResolvedValue(doctype, value, m.name);
+            render();
+            runImportQueue();
+        },
+        error: () => toast(`Could not add this ${doctype}.`, 'error'),
+    });
+}
+function wireResolveExistingSearch(){
+    const root = document.getElementById('queueRoot');
+    if(!root || root.dataset.wired) return;
+    root.dataset.wired = '1';
+    let debounce = null;
+    const run = (input) => {
+        const item = input.closest('.rmv-item');
+        const results = item.querySelector('.rmv-pick-results');
+        const doctype = item.dataset.doctype;
+        openDropdown(input, results);
+        clearTimeout(debounce);
+        debounce = setTimeout(() => {
+            frappe.call({
+                method: IMPORT_API+'searchMasterValue',
+                args: { data: JSON.stringify({ doctype, query: input.value }) },
+                callback: r => {
+                    const m = r.message || {};
+                    const opts = (m.success ? m.options : []) || [];
+                    results.innerHTML = opts.length
+                        ? opts.map(o => `<div class="opt" onmousedown="event.preventDefault(); pickExistingValue('${item.id}', '${o.replace(/'/g,"\\'")}')">${escHtml(o)}</div>`).join('')
+                        : `<div class="opt" style="color:var(--ink-faint);cursor:default">No matches</div>`;
+                },
+            });
+        }, 250);
+    };
+    root.addEventListener('input', e => { if(e.target.classList.contains('rmv-existing-input')) run(e.target); });
+    root.addEventListener('focusin', e => { if(e.target.classList.contains('rmv-existing-input')) run(e.target); });
+}
+function pickExistingValue(itemId, newValue){
+    const item = document.getElementById(itemId);
+    const doctype = item.dataset.doctype, oldValue = item.dataset.value;
+    closeDropdown(item.querySelector('.rmv-pick-results'));
+    applyResolvedValue(doctype, oldValue, newValue);
+    toast(`Mapped to existing ${doctype} "${newValue}".`, 'success');
+    render();
+    runImportQueue();
+}
+function renderResolveMissing(i, quickAdds){
+    return quickAdds.map((qa, qi) => {
+        const widgetId = `${i}-${qi}`;
+        const itemId = `rmv-${widgetId}`;
+        const willBecome = (qa.doctype === 'Stem Length' && /^\d+$/.test(qa.value)) ? `${qa.value}cm` : null;
+        return `<div class="rmv-item" id="${itemId}" data-doctype="${escHtml(qa.doctype)}" data-value="${escHtml(qa.value)}">
+          <div class="rmv-label">Missing ${escHtml(qa.doctype)}: <b>${escHtml(qa.value)}</b>${willBecome ? ` <span class="hint">(will be created as ${willBecome})</span>` : ''}</div>
+          <div class="rmv-row">
+            <div class="typeahead-wrap" style="flex:1">
+              <input class="rmv-existing-input" placeholder="Map to an existing ${escHtml(qa.doctype)}..." autocomplete="off">
+              <div class="pick-results rmv-pick-results"></div>
+            </div>
+            <button class="btn" onclick="toggleQuickAddForm('${widgetId}')">+ Create new</button>
+          </div>
+          <div class="rmv-create-form" id="qaform-${widgetId}" style="display:none">
+            ${quickAddExtraFieldsHtml(qa.doctype)}
+            <button class="btn btn-primary" onclick="submitQuickAdd('${widgetId}', ${i}, '${qa.doctype.replace(/'/g,"\\'")}', '${qa.value.replace(/'/g,"\\'")}')">Create ${escHtml(qa.doctype)}</button>
+          </div>
+        </div>`;
+    }).join('');
+}
+// Every _spec_conflicts entry buildPreview attached to a row, flattened across
+// the whole order and tagged with which row/spec/bunch it came from.
+function specConflictsFor(q){
+    const out = [];
+    (q.rows||[]).forEach((r, ri) => {
+        (r._spec_conflicts||[]).forEach(c => out.push(Object.assign({}, c, {
+            rowIndex: ri, spec_name: r._spec_name, bunch_id: r._spec_bunch_id, item_code: r.item_code,
+        })));
+    });
+    return out;
+}
+const SPEC_CONFLICT_FIELD_LABELS = { _stems_per_bunch: 'Stems per bunch', _bunches_per_box: 'Bunches per box', custom_length: 'Stem length' };
+// Every row buildPreview couldn't fully spec-match, split into the two
+// genuinely different reasons a row's _spec_status can be anything but
+// "matched" - shown up front in the preview (not gated behind a status)
+// so it's clear before the import even runs, not discovered mid-batch.
+function specStatusNotesFor(q){
+    const out = [];
+    (q.rows||[]).forEach(r => {
+        if(r._spec_status === 'no_match'){
+            out.push({ item_code: r.item_code, status: 'no_match' });
+        } else if(r._spec_status === 'incomplete'){
+            out.push({ item_code: r.item_code, status: 'incomplete', spec_name: r._spec_name, missing: r._spec_missing_fields || [] });
+        }
+    });
+    return out;
+}
+function renderSpecStatusNotes(notes){
+    if(!notes.length) return '';
+    return notes.map(n => {
+        if(n.status === 'no_match'){
+            return `<div class="warn-line">⚠ No Specification found for ${escHtml(n.item_code||'')} — pack rate/length will need to be entered manually.</div>`;
+        }
+        const missingLabels = n.missing.map(f => SPEC_CONFLICT_FIELD_LABELS[f]||f).join(', ') || 'pack data';
+        return `<div class="warn-line">⚠ Specification "${escHtml(n.spec_name)}" found for ${escHtml(n.item_code||'')}, but it's missing ${escHtml(missingLabels)} — fill these in manually, or update the Specification.</div>`;
+    }).join('');
+}
+function renderSpecConflicts(i, conflicts){
+    const lines = conflicts.map(c => `<div class="warn-line">⚠ ${escHtml(c.item_code||'')} — ${escHtml(SPEC_CONFLICT_FIELD_LABELS[c.field]||c.field)}: the Specification "${escHtml(c.spec_name)}" says <b>${escHtml(String(c.spec_value))}</b>, this file says <b>${escHtml(String(c.file_value))}</b>.</div>`).join('');
+    return `<div class="spec-conflict-block">
+      ${lines}
+      <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn" onclick="resolveSpecConflicts(${i}, 'file')">Proceed with the file's values</button>
+        <button class="btn btn-primary" onclick="resolveSpecConflicts(${i}, 'spec')">Update the Specification instead</button>
+      </div>
+    </div>`;
+}
+function resolveSpecConflicts(i, choice){
+    const q = IMPORT_QUEUE[i];
+    const conflicts = specConflictsFor(q);
+    if(choice === 'file'){
+        q._specResolved = true;
+        q.status = 'pending';
+        render();
+        runImportQueue();
+        return;
+    }
+    const bySpec = {};
+    conflicts.forEach(c => {
+        const key = c.spec_name + '|' + c.bunch_id;
+        if(!bySpec[key]) bySpec[key] = { spec_name: c.spec_name, bunch_id: c.bunch_id, updates: {} };
+        bySpec[key].updates[c.field] = c.file_value;
+    });
+    const groups = Object.values(bySpec);
+    let remaining = groups.length, anyFailed = false;
+    groups.forEach(g => {
+        frappe.call({
+            method: IMPORT_API+'updateSpecFromImportConflict',
+            args: { data: JSON.stringify(g) },
+            callback: r => {
+                const m = r.message || {};
+                if(!m.success){ anyFailed = true; toast(m.error || 'Could not update the Specification.', 'error'); }
+                remaining--;
+                if(remaining > 0) return;
+                if(anyFailed){ render(); return; }
+                toast('Specification updated.', 'success');
+                q._specResolved = true;
+                q.status = 'pending';
+                render();
+                runImportQueue();
+            },
+            error: () => {
+                anyFailed = true;
+                remaining--;
+                toast('Could not update the Specification.', 'error');
+                if(remaining === 0) render();
+            },
+        });
+    });
 }
 function renderQueueCard(q, i){
     const label = q.header.custom_order_name || q.header.customer || ('Order '+(i+1));
+    const quickAdds = q.status==='failed' ? parseLinkValidationError(q.error) : [];
+    const specConflicts = q.status==='needs_review' ? specConflictsFor(q) : [];
+    const specStatusNotes = specStatusNotesFor(q);
     return `<div class="queue-card">
       <div class="hd">
         <div class="ttl">${escHtml(label)}${q.order_name ? ' → <a href="#" onclick="event.preventDefault(); openEditor(\''+q.order_name.replace(/'/g,"\\'")+'\')">'+escHtml(q.order_name)+'</a>' : ''}</div>
-        <span class="queue-status ${q.status}">${q.status}</span>
+        <span class="queue-status ${q.status}">${q.status==='needs_review' ? 'needs review' : q.status}</span>
       </div>
       <div class="meta">${(q.rows||[]).length} line(s) · delivery ${escHtml(q.header.delivery_date||'—')} · price list ${escHtml(q.header.selling_price_list||'—')}</div>
-      ${(q.unresolved_items||[]).length ? `<div class="warn-line">⚠ Unrecognised item code(s): ${escHtml(q.unresolved_items.join(', '))} — fix in editor before this can save.</div>` : ''}
+      ${(q.unresolved_items||[]).length ? (q.unresolved_items||[]).map(u => `<div class="warn-line">⚠ ${escHtml(u)}</div>`).join('') + `<div class="warn-line">Use Review &amp; Fix below to pick the right variety for each row.</div>` : ''}
+      ${renderSpecStatusNotes(specStatusNotes)}
+      ${specConflicts.length ? renderSpecConflicts(i, specConflicts) : ''}
       ${q.error ? `<div class="err-line">${escHtml(q.error)}</div>` : ''}
-      ${q.status==='failed' ? `<button class="btn" style="margin-top:8px" onclick="fixQueueItemInEditor(${i})">Fix in editor</button>` : ''}
+      ${quickAdds.length ? `<div class="resolve-missing-block">${renderResolveMissing(i, quickAdds)}</div>` : ''}
+      ${q.status==='failed' ? `<div style="margin-top:8px; display:flex; gap:8px;">
+        <button class="btn" onclick="processQueueItem(${i})">Retry</button>
+        <button class="btn" onclick="openOrderReviewModal(${i})">Review &amp; fix</button>
+      </div>` : ''}
     </div>`;
 }
 function mappedRowToManual(r, defaultWarehouse){
@@ -1635,16 +2456,40 @@ function runImportQueue(){
 }
 function processQueueItem(i){
     const q = IMPORT_QUEUE[i];
+    // A blocked order (unresolved item codes, or an unresolved spec conflict)
+    // must never stall the rest of the batch - without this, runImportQueue()
+    // would stop dead at the first one and every order after it would sit
+    // untouched until "Start/continue" was clicked again just for it.
     if((q.unresolved_items||[]).length){
         q.status = 'failed';
         q.error = 'Unrecognised item code(s) need fixing before this order can be created.';
         render();
+        runImportQueue();
+        return;
+    }
+    if(specConflictsFor(q).length && !q._specResolved){
+        q.status = 'needs_review';
+        render();
+        runImportQueue();
         return;
     }
     q.status = 'creating';
     render();
-    const manual_rows = (q.rows||[]).map(r => mappedRowToManual(r, q.default_warehouse));
-    const payload = Object.assign({}, q.header, { manual_rows, spec_rows: [] });
+    // A spec-identified row (_is_spec_row - see _resolve_spec_row in
+    // api/order_import.py) already arrived fully shaped by build_spec_rows
+    // itself, exactly like "+ Add from Spec" would have produced it -
+    // sending it through mappedRowToManual's manual-line shaping would
+    // discard custom_line/custom_mix_name/the spec's detail payload and
+    // re-derive packrate/UOM a second, different way. It goes in as-is,
+    // same as saveOrder()'s own spec_rows handling (and saveSalesOrder
+    // itself: spec_rows are appended to the order untouched).
+    const manual_rows = (q.rows||[]).filter(r => !r._is_spec_row).map(r => mappedRowToManual(r, q.default_warehouse));
+    const spec_rows = (q.rows||[]).filter(r => r._is_spec_row).map(r => {
+        const clean = Object.assign({}, r);
+        Object.keys(clean).forEach(k => { if(k.startsWith('_')) delete clean[k]; });
+        return clean;
+    });
+    const payload = Object.assign({}, q.header, { manual_rows, spec_rows });
     apiCall('saveSalesOrder', { data: JSON.stringify(payload) }, r => {
         if(!r.success){
             q.status = 'failed';
@@ -1658,9 +2503,36 @@ function processQueueItem(i){
         runImportQueue(); // continue with the next pending one
     });
 }
-function fixQueueItemInEditor(i){
+// Opens the real order-editing UI (same header fields, ledger, + Add from
+// Spec as a normal order) in a popup on top of the wizard, instead of
+// navigating away from it - fixing one failed order should never cost you
+// your place in the batch. Picking a variety for a blank/unresolved row
+// autofills from its Specification the same way "+ Add from Spec" would
+// (see autofillFromSpecMatch), since the spec is exactly where the real
+// pack rate/stems-per-bunch/length for that variety already lives.
+function openOrderReviewModal(i){
     const q = IMPORT_QUEUE[i];
-    SPEC_ROWS = []; CARD_SEQ = 1;
+    CARD_SEQ = 1;
+    // A spec-identified row (_is_spec_row) was already fully shaped by
+    // build_spec_rows itself - same as "+ Add from Spec" would have left
+    // it, so it's carried into SPEC_ROWS and shows as the ledger's own
+    // read-only spec summary, not forced through the manual-card editor
+    // below, which is only for whatever this order still needs fixed.
+    const specRows = (q.rows||[]).filter(r => r._is_spec_row);
+    const otherRows = (q.rows||[]).filter(r => !r._is_spec_row);
+    SPEC_ROWS = specRows.map(r => {
+        // One batch per file row (_source_row), not per order - several file
+        // rows can each resolve their own, DIFFERENT Specification into this
+        // same order, and sharing one _batch_id across all of them made the
+        // ledger show every one of them crammed under whichever spec's name
+        // happened to come first, as if they were all one mixed box.
+        const batchId = 'import-' + i + '-row-' + r._source_row;
+        const clean = Object.assign({}, r);
+        Object.keys(clean).forEach(k => { if(k.startsWith('_')) delete clean[k]; });
+        clean._batch_id = batchId;
+        clean._spec = r.custom_line;
+        return clean;
+    });
     CURRENT = Object.assign({
         name: null, docstatus: 0, transaction_date: new Date().toISOString().slice(0,10),
         delivery_date: '', currency: '', selling_price_list: '',
@@ -1668,97 +2540,36 @@ function fixQueueItemInEditor(i){
         custom_s_number: '', custom_truck_details: '', custom_order_name: '',
         set_warehouse: q.default_warehouse || OPTIONS.default_warehouse || '',
     }, q.header);
-    MANUAL_CARDS = [{
+    MANUAL_CARDS = otherRows.length ? [{
+        // Left blank rather than defaulting to OPTIONS[0] (unlike a brand new
+        // manual card) - a blank here means the file genuinely never carried
+        // it, which is exactly what should trigger the spec autofill below
+        // once a variety is picked, not get masked by an arbitrary guess.
         id: 'card' + (CARD_SEQ++), mixed_box: false, mixed_bunch: false,
-        length: (q.rows[0]||{}).custom_length || OPTIONS.stem_lengths[0] || '',
-        box_type: (q.rows[0]||{}).custom_box_type || OPTIONS.box_types[0] || '',
-        boxes: (q.rows[0]||{}).custom_number_of_boxes || '',
-        bunches_per_box: (q.rows[0]||{})._bunches_per_box || '',
-        rows: (q.rows||[]).map(r => ({
+        length: (otherRows[0]||{}).custom_length || '',
+        box_type: (otherRows[0]||{}).custom_box_type || '',
+        boxes: (otherRows[0]||{}).custom_number_of_boxes || '',
+        bunches_per_box: (otherRows[0]||{})._bunches_per_box || '',
+        rows: otherRows.map(r => ({
             variety: r.item_code, item_name: r.item_code,
             stems_per_bunch: r._stems_per_bunch, no_sales_uom: false,
+            source_row: r._source_row,
+            spec_status: r._spec_status, spec_name: r._spec_name, spec_missing_fields: r._spec_missing_fields,
         })),
-    }];
+    }] : [];
     IMPORT_RETURNING_INDEX = i;
-    VIEW = 'editor';
     showErr('');
-    render();
+    const label = q.header.custom_order_name || q.header.customer || ('Order '+(i+1));
+    document.getElementById('orderReviewSub').textContent = `${label} — fill in what's missing, then Save to retry this order. Picking a variety autofills from its Specification, same as "+ Add from Spec".`;
+    document.getElementById('orderReviewBody').innerHTML = editorBodyHtml(CURRENT, false);
+    wireEditorBodyInputs();
+    document.getElementById('orderReviewBackdrop').classList.add('show');
 }
-// ---------- platform editor ----------
-function mappingRowHtml(sourceColumn, targetDoctype, targetField, defaultValue){
-    const soOpts = (CATALOG.sales_order_fields||[]).map(f => `<option value="${escHtml(f.fieldname)}" ${f.fieldname===targetField&&targetDoctype==='Sales Order'?'selected':''}>${escHtml(f.label)} (${escHtml(f.fieldname)})</option>`).join('');
-    const soiOpts = (CATALOG.sales_order_item_fields||[]).map(f => `<option value="${escHtml(f.fieldname)}" ${f.fieldname===targetField&&targetDoctype==='Sales Order Item'?'selected':''}>${escHtml(f.label)} (${escHtml(f.fieldname)})</option>`).join('');
-    return `<div class="mapping-editor-row">
-      <input class="src-col" placeholder="Column name in file" value="${escHtml(sourceColumn||'')}">
-      <select class="tgt-dt" onchange="onMappingRowDoctypeChange(this)">
-        <option value="Sales Order" ${targetDoctype==='Sales Order'?'selected':''}>Sales Order</option>
-        <option value="Sales Order Item" ${targetDoctype==='Sales Order Item'?'selected':''}>Sales Order Item</option>
-      </select>
-      <select class="tgt-field">${targetDoctype==='Sales Order Item' ? soiOpts : soOpts}</select>
-      <input class="dflt-val" placeholder="Default (optional)" value="${escHtml(defaultValue||'')}">
-      <button class="rowmenu" onclick="this.closest('.mapping-editor-row').remove()">✕</button>
-    </div>`;
+function closeOrderReviewModal(){
+    document.getElementById('orderReviewBackdrop').classList.remove('show');
+    IMPORT_RETURNING_INDEX = null;
 }
-function onMappingRowDoctypeChange(sel){
-    const row = sel.closest('.mapping-editor-row');
-    const fieldSel = row.querySelector('.tgt-field');
-    const isItem = sel.value === 'Sales Order Item';
-    const fields = isItem ? CATALOG.sales_order_item_fields : CATALOG.sales_order_fields;
-    fieldSel.innerHTML = (fields||[]).map(f => `<option value="${escHtml(f.fieldname)}">${escHtml(f.label)} (${escHtml(f.fieldname)})</option>`).join('');
-}
-function addMappingRow(containerId, sourceColumn, targetDoctype, targetField, defaultValue){
-    document.getElementById(containerId).insertAdjacentHTML('beforeend', mappingRowHtml(sourceColumn, targetDoctype||'Sales Order Item', targetField, defaultValue));
-}
-function readMappingRows(containerId){
-    const out = [];
-    document.querySelectorAll('#'+containerId+' .mapping-editor-row').forEach(row => {
-        const source_column = row.querySelector('.src-col').value.trim();
-        const target_doctype = row.querySelector('.tgt-dt').value;
-        const target_fieldname = row.querySelector('.tgt-field').value;
-        const default_value = row.querySelector('.dflt-val').value;
-        if(source_column && target_fieldname) out.push({ source_column, target_doctype, target_fieldname, default_value });
-    });
-    return out;
-}
-function openPlatformEditor(name){
-    document.getElementById('pf_platform_name').value = '';
-    document.getElementById('pf_header_row').value = '1';
-    document.getElementById('pf_multi_order_column').value = '';
-    document.getElementById('pfMappingRows').innerHTML = '';
-    document.getElementById('platformBackdrop').dataset.editing = '';
-    if(name){
-        apiOther(IMPORT_API+'getPlatform', { name }, r => {
-            if(!r.success) return;
-            const p = r.platform;
-            document.getElementById('platformBackdrop').dataset.editing = p.name;
-            document.getElementById('pf_platform_name').value = p.platform_name;
-            document.getElementById('pf_header_row').value = p.header_row || 1;
-            document.getElementById('pf_multi_order_column').value = p.multi_order_column || '';
-            (p.default_field_mappings||[]).forEach(m => addMappingRow('pfMappingRows', m.source_column, m.target_doctype, m.target_fieldname, m.default_value));
-        });
-    }
-    document.getElementById('platformBackdrop').classList.add('show');
-}
-function submitPlatform(){
-    const editing = document.getElementById('platformBackdrop').dataset.editing;
-    const payload = {
-        name: editing || undefined,
-        platform_name: document.getElementById('pf_platform_name').value.trim(),
-        header_row: parseInt(document.getElementById('pf_header_row').value || '1', 10),
-        multi_order_column: document.getElementById('pf_multi_order_column').value.trim(),
-        default_field_mappings: readMappingRows('pfMappingRows'),
-    };
-    if(!payload.platform_name){ showErr('Platform name is required.'); return; }
-    frappe.call({ method: IMPORT_API+'savePlatform', args: { data: JSON.stringify(payload) }, callback: r => {
-        const m = r.message || {};
-        if(!m.success){ showErr(m.error || 'Could not save platform.'); return; }
-        closeModal('platformBackdrop');
-        showErr('');
-        apiOther(IMPORT_API+'listPlatforms', {}, r2 => { IMPORT_PLATFORMS = r2.platforms || []; IMPORT_PLATFORM = m.name; render(); });
-    }});
-}
-
-// ---------- customer mapping editor ----------
+// ---------- this customer's item-code mini table (used inside step 3) ----------
 function itemMappingRowHtml(sourceItemCode, item){
     return `<div class="mapping-editor-row" style="grid-template-columns:1.5fr 1.5fr 26px">
       <input class="src-item" placeholder="Customer's item code / name" value="${escHtml(sourceItemCode||'')}">
@@ -1766,68 +2577,11 @@ function itemMappingRowHtml(sourceItemCode, item){
       <button class="rowmenu" onclick="this.closest('.mapping-editor-row').remove()">✕</button>
     </div>`;
 }
+function addItemMappingRowTo(containerId, sourceItemCode, item){
+    document.getElementById(containerId).insertAdjacentHTML('beforeend', itemMappingRowHtml(sourceItemCode, item));
+}
 function addItemMappingRow(sourceItemCode, item){
-    document.getElementById('cmItemRows').insertAdjacentHTML('beforeend', itemMappingRowHtml(sourceItemCode, item));
-}
-function openCustomerMappingEditor(){
-    if(!IMPORT_CUSTOMER){ showErr('Pick a customer first.'); return; }
-    if(!IMPORT_PLATFORM){ showErr('Pick a platform first.'); return; }
-    document.getElementById('custMapSub').textContent = IMPORT_CUSTOMER.label + ' · ' + (IMPORT_PLATFORMS.find(p=>p.name===IMPORT_PLATFORM)||{}).platform_name;
-    document.getElementById('cm_default_currency').innerHTML = OPTIONS.currencies.map(c=>`<option value="${escHtml(c)}">${escHtml(c)}</option>`).join('');
-    document.getElementById('cm_default_warehouse').innerHTML = selOpts(OPTIONS.warehouses, '');
-    document.getElementById('cm_default_price_list').value = '';
-    document.getElementById('cm_default_consignee').value = '';
-    document.getElementById('cm_default_delivery_point').value = '';
-    document.getElementById('cm_default_shipping_agent').value = '';
-    document.getElementById('cmItemRows').innerHTML = '';
-    document.getElementById('cmMappingRows').innerHTML = '';
-    document.getElementById('custMapBackdrop').dataset.editing = '';
-    apiOther(IMPORT_API+'listCustomerMappings', { customer: IMPORT_CUSTOMER.name }, r => {
-        const existing = (r.mappings||[]).find(m => m.platform === IMPORT_PLATFORM);
-        if(!existing){ document.getElementById('custMapBackdrop').classList.add('show'); return; }
-        apiOther(IMPORT_API+'getCustomerMapping', { name: existing.name }, r2 => {
-            if(!r2.success){ document.getElementById('custMapBackdrop').classList.add('show'); return; }
-            const cm = r2.mapping;
-            document.getElementById('custMapBackdrop').dataset.editing = cm.name;
-            if(cm.default_currency) document.getElementById('cm_default_currency').value = cm.default_currency;
-            if(cm.default_warehouse) document.getElementById('cm_default_warehouse').value = cm.default_warehouse;
-            document.getElementById('cm_default_price_list').value = cm.default_price_list || '';
-            document.getElementById('cm_default_consignee').value = cm.default_consignee || '';
-            document.getElementById('cm_default_delivery_point').value = cm.default_delivery_point || '';
-            document.getElementById('cm_default_shipping_agent').value = cm.default_shipping_agent || '';
-            (cm.item_code_mapping||[]).forEach(m => addItemMappingRow(m.source_item_code, m.item));
-            (cm.field_mapping_overrides||[]).forEach(m => addMappingRow('cmMappingRows', m.source_column, m.target_doctype, m.target_fieldname, m.default_value));
-            document.getElementById('custMapBackdrop').classList.add('show');
-        });
-    });
-}
-function submitCustomerMapping(){
-    const editing = document.getElementById('custMapBackdrop').dataset.editing;
-    const item_code_mapping = [];
-    document.querySelectorAll('#cmItemRows .mapping-editor-row').forEach(row => {
-        const source_item_code = row.querySelector('.src-item').value.trim();
-        const item = row.querySelector('.tgt-item').value.trim();
-        if(source_item_code && item) item_code_mapping.push({ source_item_code, item });
-    });
-    const payload = {
-        name: editing || undefined,
-        customer: IMPORT_CUSTOMER.name,
-        platform: IMPORT_PLATFORM,
-        default_currency: document.getElementById('cm_default_currency').value,
-        default_price_list: document.getElementById('cm_default_price_list').value.trim(),
-        default_warehouse: document.getElementById('cm_default_warehouse').value,
-        default_consignee: document.getElementById('cm_default_consignee').value.trim(),
-        default_delivery_point: document.getElementById('cm_default_delivery_point').value.trim(),
-        default_shipping_agent: document.getElementById('cm_default_shipping_agent').value.trim(),
-        item_code_mapping,
-        field_mapping_overrides: readMappingRows('cmMappingRows'),
-    };
-    frappe.call({ method: IMPORT_API+'saveCustomerMapping', args: { data: JSON.stringify(payload) }, callback: r => {
-        const m = r.message || {};
-        if(!m.success){ showErr(m.error || 'Could not save this mapping.'); return; }
-        closeModal('custMapBackdrop');
-        showErr('');
-    }});
+    addItemMappingRowTo('cmItemRows', sourceItemCode, item);
 }
 
 // ---------- render dispatcher ----------
@@ -1836,6 +2590,19 @@ function render(){
     if(VIEW==='list') renderList();
     else if(VIEW==='import') renderImportWizard();
     else renderEditor();
+    refreshOrderReviewModalIfOpen();
+}
+// Every ledger interaction (pick a variety, edit a card field, add a spec
+// row...) mutates CURRENT/MANUAL_CARDS/SPEC_ROWS and calls this same render()
+// - but render() only repaints #viewRoot, and while the Review & Fix popup
+// is open VIEW is still 'import' (the wizard underneath, deliberately left
+// untouched), so none of that would ever reach the popup's own body without
+// this - it would just go visually stale after the first click inside it.
+function refreshOrderReviewModalIfOpen(){
+    const backdrop = document.getElementById('orderReviewBackdrop');
+    if(!backdrop || !backdrop.classList.contains('show')) return;
+    document.getElementById('orderReviewBody').innerHTML = editorBodyHtml(CURRENT, false);
+    wireEditorBodyInputs();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
