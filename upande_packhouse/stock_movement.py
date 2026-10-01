@@ -281,7 +281,8 @@ def ensure_line_bucket_index():
 			validate_fields_for_doctype=False,
 		)
 	if not frappe.db.get_column_index("tabStock Entry Detail", "custom_bucket_id", unique=False):
-		frappe.db.commit()
+		# DDL commits implicitly on MariaDB; commit first so it does not carry half a transaction.
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		frappe.db.sql_ddl(
 			"ALTER TABLE `tabStock Entry Detail` ADD INDEX IF NOT EXISTS `custom_bucket_id_index` (`custom_bucket_id`)"
 		)

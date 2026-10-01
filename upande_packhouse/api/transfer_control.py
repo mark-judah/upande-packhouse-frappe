@@ -892,7 +892,7 @@ def record_truck_load(pli_names):
 			o = matches[0]
 			o.loaded_stems = int(o.loaded_stems or 0) + int(p["stems"])
 			o.varieties = ", ".join(
-				sorted(set(filter(None, (o.varieties or "").split(", "))) | p["varieties"])
+				sorted({v for v in (o.varieties or "").split(", ") if v} | p["varieties"])
 			)
 
 		v = frappe.db.get_value(

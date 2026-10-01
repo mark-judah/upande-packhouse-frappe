@@ -449,7 +449,9 @@ def saveCustomerImportSetup():
 			"Customer Order Mapping", {"customer": customer, "platform": platform_name}
 		)
 		cust_doc = (
-			frappe.get_doc("Customer Order Mapping", cust_name) if cust_name else frappe.new_doc("Customer Order Mapping")
+			frappe.get_doc("Customer Order Mapping", cust_name)
+			if cust_name
+			else frappe.new_doc("Customer Order Mapping")
 		)
 		cust_doc.customer = customer
 		cust_doc.platform = platform_name
@@ -537,7 +539,8 @@ def getSharedPlatformSetup():
 					"customer": cust_doc.customer,
 					"differentiator_value": cust_doc.differentiator_value,
 					"item_code_mapping": [
-						{"source_item_code": m.source_item_code, "item": m.item} for m in cust_doc.item_code_mapping
+						{"source_item_code": m.source_item_code, "item": m.item}
+						for m in cust_doc.item_code_mapping
 					],
 					"defaults": {f: cust_doc.get(f) for f in _CUSTOMER_DEFAULT_FIELDS if cust_doc.get(f)},
 				}
@@ -570,7 +573,10 @@ def saveSharedPlatformSetup():
 			frappe.response["message"] = {"success": False, "error": "This source needs a name"}
 			return
 		if not differentiator_column:
-			frappe.response["message"] = {"success": False, "error": "Pick the column that tells customers apart"}
+			frappe.response["message"] = {
+				"success": False,
+				"error": "Pick the column that tells customers apart",
+			}
 			return
 		if not customers:
 			frappe.response["message"] = {"success": False, "error": "Map at least one customer"}
@@ -629,7 +635,8 @@ def saveSharedPlatformSetup():
 				if not m.get("source_item_code") or not m.get("item"):
 					continue
 				cust_doc.append(
-					"item_code_mapping", {"source_item_code": m.get("source_item_code"), "item": m.get("item")}
+					"item_code_mapping",
+					{"source_item_code": m.get("source_item_code"), "item": m.get("item")},
 				)
 			if cust_doc.is_new():
 				cust_doc.insert()
@@ -963,7 +970,9 @@ def _row_fingerprint(item_row):
 	piece missing - "Row 7: no item code in this row" alone just sends the
 	user hunting through the whole file for an unmarked line."""
 	meta = frappe.get_meta("Sales Order Item")
-	shown = [(meta.get_label(k) or k, v) for k, v in item_row.items() if not k.startswith("_") and k != "item_code"]
+	shown = [
+		(meta.get_label(k) or k, v) for k, v in item_row.items() if not k.startswith("_") and k != "item_code"
+	]
 	if not shown:
 		return ""
 	bits = ", ".join(f"{label}: {v}" for label, v in shown[:3])
@@ -1059,7 +1068,11 @@ def buildPreview():
 		for group_rows in groups:
 			if shared:
 				buyer_raw = next(
-					(v for v in (cell(r, platform_doc.customer_differentiator_column) for _, r in group_rows) if v),
+					(
+						v
+						for v in (cell(r, platform_doc.customer_differentiator_column) for _, r in group_rows)
+						if v
+					),
 					None,
 				)
 				overlay = overlays_by_value.get(buyer_raw) if buyer_raw else None
@@ -1136,7 +1149,9 @@ def buildPreview():
 						)
 				elif len(item_row) > 1:  # more than just _source_row
 					item_row["_unresolved_item"] = True
-					unresolved_items.append(f"Row {file_row_num}: no item code in this row{_row_fingerprint(item_row)}")
+					unresolved_items.append(
+						f"Row {file_row_num}: no item code in this row{_row_fingerprint(item_row)}"
+					)
 				if len(item_row) > 1:
 					_apply_spec_match(item_row, group_customer)
 					item_rows.append(item_row)
@@ -1251,7 +1266,12 @@ QUICK_ADD_EXTRA_FIELDS = {
 	],
 	"Delivery Point": [
 		{"fieldname": "description", "fieldtype": "Data", "label": "Description"},
-		{"fieldname": "business_unit", "fieldtype": "Link", "options": "Business Unit", "label": "Business Unit"},
+		{
+			"fieldname": "business_unit",
+			"fieldtype": "Link",
+			"options": "Business Unit",
+			"label": "Business Unit",
+		},
 	],
 	"Shipping Agent": [
 		{"fieldname": "description", "fieldtype": "Data", "label": "Description"},
@@ -1328,7 +1348,10 @@ def quickAddMasterValue():
 		customer = data.get("customer")
 		extra = data.get("extra") or {}
 		if doctype not in QUICK_ADD_DOCTYPES:
-			frappe.response["message"] = {"success": False, "error": "That isn't something this wizard can create."}
+			frappe.response["message"] = {
+				"success": False,
+				"error": "That isn't something this wizard can create.",
+			}
 			return
 		if not value:
 			frappe.response["message"] = {"success": False, "error": "A value is required."}
@@ -1358,7 +1381,9 @@ def searchMasterValue():
 			frappe.response["message"] = {"success": False, "error": "Not allowed."}
 			return
 		filters = {"name": ["like", f"%{query}%"]} if query else {}
-		names = frappe.get_all(doctype, filters=filters, pluck="name", order_by="name asc", limit_page_length=20)
+		names = frappe.get_all(
+			doctype, filters=filters, pluck="name", order_by="name asc", limit_page_length=20
+		)
 		frappe.response["message"] = {"success": True, "options": names}
 	except Exception as e:
 		frappe.clear_messages()
@@ -1389,7 +1414,10 @@ def updateSpecFromImportConflict():
 		spec_doc = frappe.get_doc("Specifications", spec_name)
 		box_item = next((bi for bi in spec_doc.box_items if bi.bunch_id == bunch_id), None)
 		if not box_item:
-			frappe.response["message"] = {"success": False, "error": "That bunch was not found on this Specification."}
+			frappe.response["message"] = {
+				"success": False,
+				"error": "That bunch was not found on this Specification.",
+			}
 			return
 		field_map = dict(_SPEC_FIELD_MAP)
 		for item_field, raw_val in updates.items():

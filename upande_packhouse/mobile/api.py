@@ -4699,7 +4699,7 @@ def reportAppVersion():
 	}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def setSchedulerOrder():
 	# Frappe Server Script (Type: API), api_method = setSchedulerOrder
 	# Persists the drag order of the Ready Lines column.
@@ -5032,7 +5032,7 @@ def shelveBucket():
 	# Committed explicitly: this endpoint is whitelisted without `methods`, so it
 	# is reachable over GET, and frappe rolls back writes made during a GET
 	# request -- without this the caller gets a success response and no change.
-	frappe.db.commit()  # nosemgrep: frappe-manual-commit
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit, whitelisted-side-effect-on-get -- GET kept for existing scanner clients
 	frappe.response["data"] = {
 		"status": "success",
 		"message": "Bucket {0} shelved successfully with {1} stems.".format(bucket_id, total_qty),

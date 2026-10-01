@@ -10,6 +10,7 @@
 # from a single Stock Entry Detail aggregate.
 
 import frappe
+from frappe import _
 
 from upande_packhouse.api import bucket_replacement
 
@@ -35,14 +36,14 @@ def _has(doctype, column):
 
 
 @frappe.whitelist()
-def getBucketJourney(bucket_id=None):
+def getBucketJourney(bucket_id: str | None = None):
 	bucket_id = (bucket_id or frappe.form_dict.get("bucket_id") or "").strip()
 	if not bucket_id:
-		frappe.throw("Bucket ID is required")
+		frappe.throw(_("Bucket ID is required"))
 	ids = _variants(bucket_id)
 
 	# Every Stock Entry of the bucket in one indexed read, split by type below.
-	ses = frappe.db.sql(
+	ses = frappe.db.sql(  # nosemgrep: frappe-sql-format-injection -- only fixed column lists are interpolated; values are bound
 		f"""SELECT {SE_FIELDS} FROM `tabStock Entry`
 		WHERE custom_bucket_id IN %(ids)s AND docstatus < 2
 		ORDER BY posting_date, posting_time LIMIT {MAX_ENTRIES * 2}""",
@@ -70,7 +71,7 @@ def getBucketJourney(bucket_id=None):
 			)
 			if _has("Stock Entry", c)
 		]
-		grading = frappe.db.sql(
+		grading = frappe.db.sql(  # nosemgrep: frappe-sql-format-injection -- only fixed column lists are interpolated; values are bound
 			f"""SELECT {SE_FIELDS}{"".join(", " + c for c in extra)} FROM `tabStock Entry`
 			WHERE name IN %(names)s ORDER BY posting_date, posting_time""",
 			{"names": tuple(grading_names)},
@@ -90,7 +91,7 @@ def getBucketJourney(bucket_id=None):
 			se_item.setdefault(r.parent, r.item_code or "")
 			se_qty[r.parent] = se_qty.get(r.parent, 0.0) + float(r.stems or 0)
 
-	shelf_log = frappe.db.sql(
+	shelf_log = frappe.db.sql(  # nosemgrep: frappe-sql-format-injection -- only fixed column lists are interpolated; values are bound
 		f"""SELECT name, shelf, farm, variety, stem_qty, stem_length, greenhouse, shelved_on,
 		       removed_on, reason, shelved_by
 		FROM `tabShelving Log` WHERE bucket_id IN %(ids)s ORDER BY removed_on LIMIT {MAX_ROWS}""",
@@ -137,7 +138,7 @@ def getBucketJourney(bucket_id=None):
 		"consignee": "opl_consignee",
 	}
 	header = ", ".join(f"opl.`{c}` AS {alias}" for c, alias in opl_cols.items() if _has("Order Pick List", c))
-	opl_rows = frappe.db.sql(
+	opl_rows = frappe.db.sql(  # nosemgrep: frappe-sql-format-injection -- only fixed column lists are interpolated; values are bound
 		f"""SELECT pli.*, opl.name AS parent{", " + header if header else ""}
 		FROM `tabPick List Item` pli JOIN `tabOrder Pick List` opl ON opl.name = pli.parent
 		WHERE pli.parenttype = 'Order Pick List' AND pli.bucket IN %(ids)s
@@ -256,14 +257,14 @@ def getBucketShelfOverview():
 
 
 @frappe.whitelist()
-def getFarmShelves(farm=None, view="all"):
+def getFarmShelves(farm: str | None = None, view: str = "all"):
 	"""Shelves of one farm ('' = shelves with no farm, None = every farm) with the buckets
 	on each and what each bucket holds. view: all | occupied | free."""
 	cond, params = "", {}
 	if farm is not None:
 		cond = "WHERE COALESCE(NULLIF(sh.farm, ''), '') = %(farm)s"
 		params["farm"] = farm
-	shelves = frappe.db.sql(
+	shelves = frappe.db.sql(  # nosemgrep: frappe-sql-format-injection -- only fixed column lists are interpolated; values are bound
 		f"SELECT sh.name, COALESCE(sh.farm, '') AS farm FROM `tabShelf` sh {cond}", params, as_dict=True
 	)
 	items = {}
@@ -295,7 +296,7 @@ def getFarmShelves(farm=None, view="all"):
 
 
 @frappe.whitelist()
-def getBucketsInUse(kind="all"):
+def getBucketsInUse(kind: str = "all"):
 	"""Buckets in use and where they are. kind: all | harvesting | shelf | truck."""
 	harvesting, on_shelf, on_truck = _in_use_sets()
 	out = []
@@ -345,7 +346,7 @@ def getBucketsInUse(kind="all"):
 			continue
 		m["stems"] += float(r.get("stems") or 0)
 		if r.get("variety") and r["variety"] not in m["variety"].split(", "):
-			m["variety"] = ", ".join(filter(None, [m["variety"], r["variety"]]))
+			m["variety"] = ", ".join(v for v in (m["variety"], r["variety"]) if v)
 	return list(merged.values())[:1000]
 
 

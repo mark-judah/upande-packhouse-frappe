@@ -87,7 +87,9 @@ def mark_found(bucket_id, shelf=None, farm=None):
 
 
 @frappe.whitelist(methods=["POST"])
-def resolveBucketReplacement(name=None, status=None, resolution=None):
+def resolveBucketReplacement(
+	name: str | None = None, status: str | None = None, resolution: str | None = None
+):
 	"""Close an open replacement by hand: Found, Discarded or Written Off."""
 	if not name or not frappe.db.exists("Bucket Replacement", name):
 		frappe.throw(_("Replacement not found."))
