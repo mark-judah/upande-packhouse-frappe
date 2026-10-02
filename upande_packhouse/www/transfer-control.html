@@ -256,6 +256,11 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .va-row .tk-trips.none{color:var(--ink-4);font-weight:500}
 .aph .va-row .tk-route{font:600 11px var(--mono);color:var(--ink-2)}
 .aph .va-row .tk-route.none{color:var(--ink-4);font-weight:500;font-style:italic}
+.aph .va-row .tk-routes{display:flex;flex-direction:column;gap:4px;min-width:0}
+.aph .tk-rt{display:flex;align-items:flex-start;gap:6px;cursor:pointer;line-height:1.35}
+.aph .tk-rt input{margin:2px 0 0;flex:none}
+.aph .tk-rt.off{color:var(--ink-4);text-decoration:line-through}
+.aph .tk-rt-time{flex:none;color:var(--ink-mute)}
 .aph .va-busy{margin-top:2px;font:500 10px var(--mono);color:var(--ink-mute)}
 .aph .rt-editbtn{margin-left:auto;padding:2px 9px;font-size:10px}
 .aph .rt-editor{margin-top:8px;padding-top:8px;border-top:1px dashed var(--hairline);display:flex;flex-wrap:wrap;gap:6px 12px}
@@ -388,6 +393,17 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .nr-list{max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:6px}
 .aph button.nr-pick{width:100%;text-align:left;cursor:pointer;border:1px solid var(--hairline);font:inherit}
 .aph button.nr-pick:hover{border-color:var(--ink-4)}
+.aph .rn-modal .sc-card{width:640px}
+.aph .sc-route{gap:10px;margin-bottom:0;padding:10px 12px}
+.aph .sc-route.off{opacity:.55}
+.aph .sc-chk{display:flex;align-items:center;gap:8px;cursor:pointer}
+.aph .sc-times{display:flex;align-items:center;gap:6px;margin-left:auto}
+.aph .sc-times input{height:32px;font:500 12px var(--f);padding:4px 8px;border:1px solid var(--hairline-2);border-radius:8px;background:var(--surface);color:var(--ink)}
+.aph .sc-all{padding:2px 2px 4px;font:600 12px var(--f);color:var(--ink-2);text-transform:none;letter-spacing:0}
+.aph .sc-days{display:flex;flex-wrap:wrap;gap:6px}
+.aph .sc-day{display:flex;align-items:center;gap:5px;padding:5px 10px;border:1px solid var(--hairline-2);border-radius:999px;font:600 12px var(--f);cursor:pointer;color:var(--ink-mute)}
+.aph .sc-day.on{color:var(--ink);border-color:var(--ink-4)}
+.aph .sc-skipped ul{margin:4px 0 0 16px;padding:0}
 .aph .nr-day{font:600 10px var(--f);text-transform:uppercase;letter-spacing:.06em;color:var(--ink-mute);margin:6px 2px 0}
 /* Farm picker (styled replacement for the native <select> option list) */
 .aph .rn-dd{position:relative}
@@ -435,6 +451,15 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .rl-veh{font:600 12px var(--mono);color:var(--ink-2);background:rgba(10,10,10,.05);padding:3px 9px;border-radius:999px}
 .aph .rl-chain{font:500 13px var(--f);color:var(--ink);flex:1;min-width:220px}
 .aph .rl-chain .hub{color:var(--ink-mute)}
+.aph .rl-run{display:inline-block;font:700 10px var(--mono);text-transform:uppercase;letter-spacing:.04em;color:var(--ink-mute);border:1px solid var(--line,#e5e7eb);border-radius:999px;padding:1px 6px;margin-right:2px}
+.aph .rl-runsep{display:block;height:4px}
+.aph .rb-hint{font:500 11px var(--f);color:var(--ink-mute);margin:-4px 0 10px}
+.aph .rb-run{border:1px solid var(--line,#e5e7eb);border-radius:10px;padding:10px;margin-bottom:10px}
+.aph .rb-run-hd{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.aph .rb-run-hd .rb-run-km{font:500 11px var(--mono);color:var(--ink-mute)}
+.aph .rb-run-hd .tbtn{margin-left:auto}
+.aph .trip-run{font:600 11px var(--mono);color:var(--ink);background:var(--bg-muted,#f3f4f6);border-radius:999px;padding:2px 8px}
+.aph .ts-dups .tbtn{margin-left:auto}
 .aph .rl-km{font:600 12px var(--mono);color:var(--ink-2)}
 .aph .rl-meta{font:500 11px var(--f);color:var(--ink-mute)}
 .aph .rl-empty{padding:22px;text-align:center;color:var(--ink-mute);font:500 12px var(--f);background:var(--surface-2);border:1px dashed var(--hairline-2);border-radius:12px}
@@ -494,6 +519,32 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .bl2-in{font-family:var(--f);font-size:13px;padding:6px 9px;border:1px solid var(--border-2);border-radius:7px;background:var(--bg-card);outline:0;color:var(--text)}
 .aph .bl2-btn{font-family:var(--f);font-size:12px;font-weight:500;padding:6px 12px;border:1px solid var(--border-2);border-radius:7px;background:var(--bg-card);cursor:pointer}
 .aph .bl2-btn:hover{background:var(--bg-hover)}
+/* Filter bar: one height for every control, styled dropdowns (bl2-dd) over the native selects. */
+.aph .bl-bar .bl2-btn{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:999px;font-size:13px}
+.aph .bl-bar .bl2-btn svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.aph .bl2-search{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 14px;border:1px solid var(--border-2);border-radius:999px;background:var(--bg-card);width:240px;transition:border-color .12s,box-shadow .12s}
+.aph .bl2-search:focus-within{border-color:var(--text-3);box-shadow:0 0 0 3px rgba(0,0,0,.06)}
+.aph .bl2-search svg{width:14px;height:14px;flex:none;fill:none;stroke:var(--text-3);stroke-width:2;stroke-linecap:round}
+.aph .aph-content .bl2-search input[type=text],.aph .aph-content .bl2-search input[type=text]:focus,.aph .bl2-search input{border:0!important;outline:0!important;box-shadow:none!important;background:transparent!important;font:inherit;font-size:13px;color:var(--text);width:100%;height:auto;min-height:0;padding:0!important;margin:0;border-radius:0}
+.aph .bl2-dd{position:relative;display:inline-block}
+.aph .bl2-dd-btn{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;height:34px;padding:0 12px 0 14px;width:100%;border:1px solid var(--border-2);border-radius:999px;background:var(--bg-card);color:var(--text);font:500 13px var(--f);cursor:pointer;transition:border-color .12s,box-shadow .12s;text-align:left}
+.aph .bl2-dd-btn:hover{border-color:var(--text-3)}
+.aph .bl2-dd.open .bl2-dd-btn,.aph .bl2-dd-btn:focus-visible{border-color:var(--text-3);box-shadow:0 0 0 3px rgba(0,0,0,.06);outline:0}
+.aph .bl2-dd-btn .v{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.aph .bl2-dd-btn .v.ph{color:var(--text-3)}
+.aph .bl2-dd-btn svg{width:14px;height:14px;flex:none;fill:none;stroke:var(--text-3);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;transition:transform .15s}
+.aph .bl2-dd.open .bl2-dd-btn svg{transform:rotate(180deg)}
+.aph .bl2-dd-pop{position:absolute;z-index:60;top:calc(100% + 6px);left:0;min-width:100%;max-width:280px;background:var(--bg-card);border:1px solid var(--border-2);border-radius:11px;box-shadow:0 12px 32px rgba(16,24,40,.14),0 2px 6px rgba(16,24,40,.06);padding:5px;animation:bl2DdIn .12s ease-out}
+@keyframes bl2DdIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.aph .bl2-dd-q{width:100%;box-sizing:border-box;height:32px;margin:0 0 4px;padding:0 10px;border:1px solid var(--border-2);border-radius:8px;font:13px var(--f);outline:0;background:var(--bg-card);color:var(--text)}
+.aph .bl2-dd-list{max-height:260px;overflow:auto}
+.aph .bl2-dd-opt{display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;border:0;border-radius:7px;background:transparent;color:var(--text);font:500 13px var(--f);text-align:left;cursor:pointer;white-space:nowrap}
+.aph .bl2-dd-opt:hover,.aph .bl2-dd-opt.hl{background:var(--bg-hover)}
+.aph .bl2-dd-opt .ck{width:14px;flex:none;color:var(--text)}
+.aph .bl2-dd-opt.sel{font-weight:700}
+.aph .bl2-dd-opt.all{color:var(--text-2,var(--text-3))}
+.aph .bl2-dd-sep{height:1px;background:var(--border);margin:4px 2px}
+.aph .bl2-dd-empty{padding:10px;color:var(--text-3);font-size:12px}
 .aph .bl2-note{font-size:12px;color:var(--text-2);line-height:1.55;background:var(--bg-muted);border:1px solid var(--border);border-radius:8px;padding:11px 14px;margin-bottom:16px}
 .aph .bl2-note b{color:var(--text);font-weight:600}
 .aph .bl2-note .bl2-pill{font-size:10px;vertical-align:middle}
@@ -501,8 +552,31 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .bl2-ord th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--text-3);font-weight:600;padding:10px 14px;border-bottom:1px solid var(--border)}
 .aph .bl2-ord td{padding:11px 14px;border-top:1px solid var(--border);font-size:13px;vertical-align:middle;color:var(--text)}
 .aph .bl2-ord tr.orow:hover td{background:var(--bg-hover)}
+/* One colour per line by where its buckets are: a bar on the left and a light tint. */
+.aph .bl2-ord tr.orow td{border-top:none;border-bottom:1px solid var(--border-2,var(--border));background:color-mix(in srgb,var(--rc,transparent) 7%,transparent)}
+.aph .bl2-ord tr.orow td:first-child{box-shadow:inset 4px 0 0 var(--rc,transparent)}
+.aph .bl2-ord tr.orow:hover td{background:color-mix(in srgb,var(--rc,transparent) 14%,var(--bg-hover))}
+.aph .bl2-ord tr.rs-issued{--rc:var(--issued)}
+.aph .bl2-ord tr.rs-shelved{--rc:var(--shelved)}
+.aph .bl2-ord tr.rs-transit{--rc:var(--transit)}
+.aph .bl2-ord tr.rs-trolley{--rc:var(--trolley)}
+.aph .bl2-ord tr.rs-farm{--rc:var(--awaiting)}
+.aph .bl2-ord tr.rs-notrip{--rc:var(--bad,#b42318)}
+.aph .bl2-ord tr.fgrp td{border-bottom:1px solid var(--border-2,var(--border))}
+.aph .bl2-legend{display:inline-flex;flex-wrap:wrap;gap:10px;margin-left:14px;font-size:11px;color:var(--text-3)}
+.aph .bl2-legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.aph .bl2-trip{display:inline-block;background:transparent;color:var(--text);border:1px solid var(--border-2);border-radius:999px;padding:2px 9px;font-size:11px;font-weight:600;white-space:nowrap}
+.aph .bl2-ord tr.fgrp td{background:var(--bg-muted,#f6f6f4);cursor:pointer;user-select:none;padding:9px 14px}
+.aph .bl2-ord tr.fgrp td>b{font-size:14px;margin-right:10px}
+.aph .bl2-ord tr.fgrp .bl2-sub{display:inline;margin-right:12px}
+.aph .bl2-ord tr.fgrp .fg-caret{display:inline-block;width:16px;color:var(--text-3)}
+.aph .bl2-ord tr.fgrp:hover td{background:var(--bg-hover)}
+.aph .bl2-ord tr.fgrp-bar td{padding:6px 14px;border-top:none}
+.aph .bl2-ord tr.fgrp-bar .bl2-more{margin-left:8px}
 .aph .bl2-sub{font-size:11px;color:var(--text-3);margin-top:2px}
 .aph .bl2-pill{display:inline-flex;align-items:center;font-size:11px;font-weight:600;color:#fff;padding:2px 8px;border-radius:20px;margin:2px 4px 2px 0;white-space:nowrap}
+.aph .bl2-req{display:inline-flex;align-items:center;font-size:11px;margin:2px 6px 2px 0;white-space:nowrap}
+.aph .bl2-req b{margin-left:3px}
 .aph .bl2-pill.zero{background:var(--bg-muted)!important;color:var(--text-3);font-weight:500}
 .aph .bl2-more{font-size:12px;font-weight:500;padding:5px 12px;border:1px solid var(--border-2);border-radius:7px;background:var(--bg-card);cursor:pointer}
 .aph .bl2-more:hover{background:var(--bg-hover)}
@@ -549,16 +623,16 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
       <div id="panel-logistics" class="ts-panel" style="display:none">
         <div class="bl-bar"><span class="crumb" id="blCount">—</span>
         <span class="bl2-lbl">Farm</span>
-        <select id="blFarm" class="bl2-in" style="width:150px"><option value="">All farms</option></select>
+        <select id="blFarm" class="bl2-in" data-bl2-dd style="width:160px"><option value="">All farms</option></select>
         <span class="bl2-lbl">Team</span>
-        <select id="blTeam" class="bl2-in" style="width:130px"><option value="">All teams</option></select>
-        <input type="text" id="blSearch" class="bl2-in" placeholder="Search order / customer…" style="width:190px">
-        <button class="bl2-btn" id="blRefresh">Refresh</button></div>
+        <select id="blTeam" class="bl2-in" data-bl2-dd style="width:150px"><option value="">All teams</option></select>
+        <label class="bl2-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg><input type="text" id="blSearch" placeholder="Search order / customer…"></label>
+        <button class="bl2-btn" id="blRefresh"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><polyline points="20 4 20 11 13 11"/></svg>Refresh</button></div>
         <div class="aph-kpis" id="blKpis"></div>
       <div class="aph-kpis" id="blTrucks" style="margin-top:14px"></div>
       <table class="bl2-ord">
-        <thead><tr><th>Order</th><th>Team · #</th><th>Delivery</th><th>Initiated</th><th>Transit time</th><th>Farm (source)</th><th>Truck / trip</th><th>Buckets — status</th><th></th></tr></thead>
-        <tbody id="blRows"><tr class="sk-row"><td colspan="9"><span class="sk" style="width:100%;height:12px"></span></td></tr></tbody>
+        <thead><tr><th>Order</th><th>Team · #</th><th>Dates</th><th>Transit time</th><th>Variety</th><th>Truck / trip</th><th>Buckets — status</th><th></th></tr></thead>
+        <tbody id="blRows"><tr class="sk-row"><td colspan="8"><span class="sk" style="width:100%;height:12px"></span></td></tr></tbody>
       </table>
       </div>
       <div class="toast" id="ts-toast"></div>
@@ -609,7 +683,7 @@ var S={ from:window.rtDate.get(), to:window.rtDate.get(), tab:(function(){ try{
   var p=location.pathname.replace(/\/+$/,'');
   if(/\/truck-routes$/.test(p)) return 'routes';
   if(/\/bucket-logistics$/.test(p)) return 'logistics';
-  var t=new URLSearchParams(location.search).get('tab'); return t==='triplist'?'triplist':'orders'; }catch(e){ return 'orders'; } })(), sel:{}, selQty:{}, broken:{}, ordTeam:'all' };
+  var t=new URLSearchParams(location.search).get('tab'); return t==='triplist'?'triplist':'orders'; }catch(e){ return 'orders'; } })(), sel:{}, selQty:{}, broken:{}, offRoutes:{}, ordTeam:'all' };
 function tripVehMap(){ var m={}; DATA.trips.forEach(function(t){ m[t.name]=t.vehicle||''; }); return m; }
 var DATA={orders:[],unscheduled:[],vehicles:[],trips:[],distances:[],truck_status:[],routes:[]};
 
@@ -783,7 +857,7 @@ function loadData(){
   return apiGet('getTransferScheduleData',{from_date:S.from,to_date:S.to}).then(function(d){
     if(d.success===false) throw new Error(d.error||'server error');
     S.loaded=true; S.skel=false;
-    DATA={ farm_list:d.farm_list||[], orders:d.orders||[], unscheduled:d.unscheduled||[], vehicles:d.vehicles||[], trips:d.trips||[], distances:d.distances||[], truck_status:d.truck_status||[], routes:d.routes||[], packhouse:d.packhouse, auto_planning:d.auto_planning||{} };
+    DATA={ duplicate_trips:d.duplicate_trips||{}, farm_list:d.farm_list||[], orders:d.orders||[], unscheduled:d.unscheduled||[], vehicles:d.vehicles||[], trips:d.trips||[], distances:d.distances||[], truck_status:d.truck_status||[], routes:d.routes||[], packhouse:d.packhouse, auto_planning:d.auto_planning||{} };
     var f=$('ts-fresh'); if(f) f.textContent='live · '+new Date().toLocaleTimeString();
     render();
   }).catch(function(e){
@@ -804,6 +878,7 @@ function renderRoutes(){
   if(!$('rl-shell')){
     p.innerHTML='<div id="rl-shell"><div class="rl-bar"><b>Truck routes</b><span class="ts-fld">'+esc(S.rv.date)+'</span><span class="sp"></span>'+
       '<button class="tbtn ghost" data-act="tk-open">+ Add truck</button>'+
+      '<button class="tbtn ghost" data-act="sc-open" title="Reuse saved routes on other days">⟳ Schedule routes</button>'+
       '<button class="tbtn key" data-act="rv-new">+ New route</button></div><div id="rl-list"></div></div><div id="rl-roads"></div>';
   }
   $('rl-roads').innerHTML=roadNetworkHtml();
@@ -818,12 +893,27 @@ function loadRoutes(){
   }).catch(function(e){ if($('rl-list')) $('rl-list').innerHTML='<div class="rl-empty" style="color:var(--bad)">Couldn’t load routes: '+esc((e&&e.message)||'error')+'</div>'; });
 }
 function chainHtml(stops){ return (stops||[]).map(function(f){ return f===pack()?'<span class="hub">'+esc(f)+'</span>':'<b>'+esc(f)+'</b>'; }).join(' → '); }
+/* A route is a list of RUNS: each run leaves the packhouse, collects from its farms and
+   comes back (one trip per run). Kapkolia → A → Kapkolia → B → Kapkolia = [[A],[B]]. */
+function runsOf(r){
+  if(r&&r.runs&&r.runs.length) return r.runs.map(function(x){ return x.slice(); });
+  var runs=[], cur=null;
+  (r&&r.stops||[]).forEach(function(f,i){ if(i===0&&f===pack()) return;
+    if(f===pack()){ if(cur){ runs.push(cur); cur=null; } return; }
+    cur=cur||[]; if(cur.indexOf(f)<0) cur.push(f); });
+  if(cur&&cur.length) runs.push(cur);
+  return runs;
+}
+function runsHtml(runs){
+  if(!runs.length) return '';
+  return runs.map(function(run,i){ return (runs.length>1?'<span class="rl-run">Trip '+(i+1)+'</span> ':'')+chainHtml([pack()].concat(run).concat([pack()])); }).join('<span class="rl-runsep"></span>');
+}
 function drawRouteList(){
   var box=$('rl-list'); if(!box) return;
   var rs=S.rv.routes||[];
   var html=rs.length?rs.map(function(r){
-    return '<div class="rl-card"><span class="rl-veh">'+esc(r.vehicle)+'</span><span class="rl-meta">'+esc(timeRange(r))+'</span><span class="rl-chain">'+chainHtml(r.stops)+'</span>'+
-      '<span class="rl-km">'+Number(r.total_km||0).toFixed(1)+' km</span><span class="rl-meta">'+r.legs.length+' leg'+(r.legs.length===1?'':'s')+'</span>'+
+    return '<div class="rl-card"><span class="rl-veh">'+esc(r.vehicle)+'</span><span class="rl-meta">'+esc(timeRange(r))+'</span><span class="rl-chain">'+runsHtml(runsOf(r))+'</span>'+
+      '<span class="rl-km">'+Number(r.total_km||0).toFixed(1)+' km</span><span class="rl-meta">'+runsOf(r).length+' trip'+(runsOf(r).length===1?'':'s')+' · '+r.legs.length+' leg'+(r.legs.length===1?'':'s')+'</span>'+
       truckStateHtml(r.vehicle, r.route_date)+
       '<button class="tbtn ghost trip-del" data-act="rv-edit" data-name="'+esc(r.name)+'">Edit</button>'+
       '<button class="tbtn ghost trip-del" data-act="rv-del" data-name="'+esc(r.name)+'">Delete</button></div>';
@@ -915,7 +1005,7 @@ function renderNewRouteChoice(){
   else if(!c.routes.length) list='<div class="rl-empty">No routes on earlier days.</div>';
   else { var day='';
     list=c.routes.map(function(r){ var hd=r.route_date!==day?'<div class="nr-day">'+esc(r.route_date)+'</div>':''; day=r.route_date;
-      return hd+'<button type="button" class="rl-card nr-pick" data-act="nr-copy" data-name="'+esc(r.name)+'"><span class="rl-veh">'+esc(r.vehicle)+'</span><span class="rl-meta">'+esc(timeRange(r))+'</span><span class="rl-chain">'+chainHtml(r.stops)+'</span><span class="rl-km">'+Number(r.total_km||0).toFixed(1)+' km</span></button>';
+      return hd+'<button type="button" class="rl-card nr-pick" data-act="nr-copy" data-name="'+esc(r.name)+'"><span class="rl-veh">'+esc(r.vehicle)+'</span><span class="rl-meta">'+esc(timeRange(r))+'</span><span class="rl-chain">'+runsHtml(runsOf(r))+'</span><span class="rl-km">'+Number(r.total_km||0).toFixed(1)+' km</span></button>';
     }).join(''); }
   var html='<div class="dm-card"><div class="dm-hd"><h3>New route for '+esc(S.rv.date)+'</h3><button class="sch-x" data-act="nr-cancel" title="Close">×</button></div>'+
     '<div class="rn-form"><div class="rn-field wide"><span>Copy an earlier route</span></div>'+
@@ -935,16 +1025,108 @@ function copyRouteIntoBuilder(name){
   closeNewRouteChoice();
   openRouteBuilder(null);
   var b=S.rb; b.vehicle=r.vehicle; b.copied=r.name;
-  b.stops=[]; r.stops.forEach(function(f){ if(f&&f!==pack()&&b.stops.indexOf(f)<0) b.stops.push(f); });
+  b.runs=runsOf(r); if(!b.runs.length) b.runs=[[]];
   b.from=shift(r.from_datetime,'00:00'); b.to=shift(r.to_datetime,'23:59'); b.date=b.from.slice(0,10);
   window.rtSetDate($('rb-from'),b.from); window.rtSetDate($('rb-to'),b.to);
   updateRouteBuilder();
 }
+/* ⟳ Schedule routes: copy a day's routes onto a range of days (only the ticked
+   weekdays), each with its own From/To. Every copy is a separate route, so one day
+   can still be edited or deleted without touching the others. */
+var WEEKDAYS=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+function openScheduleRoutes(){
+  var start=addDaysISO(S.rv.date,1);
+  var c=S.sc={src:'',routes:null,pick:{},start:start,end:addDaysISO(start,6),days:[1,1,1,1,1,1,1],busy:false,err:'',skipped:null};
+  renderScheduleRoutes();
+  var fromDay=(S.rv.routes&&S.rv.routes.length&&S.rv.routesDate===S.rv.date)?Promise.resolve(S.rv.date)
+    :apiGet('getLastRoutedDate',{before:addDaysISO(S.rv.date,1)}).then(function(m){ return m.date||S.rv.date; });
+  fromDay.then(function(d){ if(S.sc===c) loadScheduleSource(d); }).catch(function(){ if(S.sc===c) loadScheduleSource(S.rv.date); });
+}
+function loadScheduleSource(date){
+  var c=S.sc; if(!c) return;
+  c.src=date; c.routes=null; c.pick={}; c.skipped=null; renderScheduleRoutes();
+  apiGet('getBucketLogisticsRoutes',{date:date}).then(function(m){ if(S.sc!==c||c.src!==date) return;
+    c.routes=(m.routes||[]).filter(function(r){ return r.legs&&r.legs.length; });
+    c.routes.forEach(function(r){ c.pick[r.name]={on:true,from:(r.from_datetime||'').slice(11,16)||'00:00',to:(r.to_datetime||'').slice(11,16)||'23:59'}; });
+    renderScheduleRoutes();
+  }).catch(function(e){ if(S.sc===c){ c.routes=[]; c.err='Couldn’t load routes: '+((e&&e.message)||'error'); renderScheduleRoutes(); } });
+}
+/* The days the copies land on: start..end, ticked weekdays only. */
+function scheduleDates(c){
+  var out=[]; if(!c.start||!c.end||c.end<c.start) return out;
+  for(var d=c.start,i=0; d<=c.end&&i<370; d=addDaysISO(d,1),i++){
+    var wd=(new Date(d+'T00:00:00').getDay()+6)%7;   // Mon=0
+    if(c.days[wd]) out.push(d);
+  }
+  return out;
+}
+function closeScheduleRoutes(){ S.sc=null; var m=$('sc-modal'); if(m) m.remove(); }
+function renderScheduleRoutes(){
+  var c=S.sc; if(!c){ closeScheduleRoutes(); return; }
+  var list;
+  if(c.routes===null) list=window.rtSkeleton.lines(3);
+  else if(!c.routes.length) list='<div class="rl-empty">No routes on '+esc(c.src)+' — pick another day.</div>';
+  else list=c.routes.map(function(r){ var p=c.pick[r.name];
+    return '<div class="rl-card sc-route'+(p.on?'':' off')+'"><label class="sc-chk"><input type="checkbox" data-sc="pick" data-name="'+esc(r.name)+'"'+(p.on?' checked':'')+'><span class="rl-veh">'+esc(r.vehicle)+'</span></label>'+
+      '<span class="rl-chain">'+runsHtml(runsOf(r))+'</span>'+
+      '<span class="sc-times"><input type="time" data-sc="from" data-name="'+esc(r.name)+'" value="'+esc(p.from)+'"'+(p.on?'':' disabled')+'><span>–</span><input type="time" data-sc="to" data-name="'+esc(r.name)+'" value="'+esc(p.to)+'"'+(p.on?'':' disabled')+'></span></div>'; }).join('');
+  var dates=scheduleDates(c), picked=(c.routes||[]).filter(function(r){ return c.pick[r.name].on; });
+  var all=c.routes&&c.routes.length&&picked.length===c.routes.length;
+  var allBox=c.routes&&c.routes.length>1?'<label class="sc-chk sc-all"><input type="checkbox" data-sc="all"'+(all?' checked':'')+'><span>'+(all?'All '+c.routes.length+' routes selected':'Select all '+c.routes.length+' routes')+(picked.length&&!all?' · '+picked.length+' selected':'')+'</span></label>':'';
+  var n=dates.length*picked.length;
+  var summary=!picked.length?'Tick at least one route.':!dates.length?'No days in that range — check the dates and weekdays.'
+    :n+' route'+(n===1?'':'s')+' · '+picked.length+' truck route'+(picked.length===1?'':'s')+' on '+dates.length+' day'+(dates.length===1?'':'s')+' ('+dates[0]+(dates.length>1?' → '+dates[dates.length-1]:'')+')';
+  var skipped=c.skipped&&c.skipped.length?'<div class="rn-note err sc-skipped"><b>Not scheduled:</b><ul>'+c.skipped.map(function(x){ return '<li>'+esc(x.vehicle||x.route||'')+(x.date?' · '+esc(x.date):'')+' — '+esc(x.reason)+'</li>'; }).join('')+'</ul></div>':'';
+  var html='<div class="dm-card sc-card"><div class="dm-hd"><h3>Schedule routes</h3><button class="sch-x" data-sc="cancel" title="Close">×</button></div>'+
+    '<div class="rn-form">'+
+      '<label class="rn-field"><span>Copy routes from</span><input type="date" data-sc="src" value="'+esc(c.src)+'"></label><div></div>'+
+      '<div class="rn-field wide"><span>Routes · times can be changed for the new days</span>'+allBox+'<div class="nr-list">'+list+'</div></div>'+
+      '<label class="rn-field"><span>First day</span><input type="date" data-sc="start" value="'+esc(c.start)+'"></label>'+
+      '<label class="rn-field"><span>Last day</span><input type="date" data-sc="end" value="'+esc(c.end)+'"></label>'+
+      '<div class="rn-field wide"><span>Repeat on</span><div class="sc-days">'+WEEKDAYS.map(function(w,i){ return '<label class="sc-day'+(c.days[i]?' on':'')+'"><input type="checkbox" data-sc="day" data-i="'+i+'"'+(c.days[i]?' checked':'')+'>'+w+'</label>'; }).join('')+'</div></div>'+
+      '<div class="rn-note wide">'+esc(summary)+' A day where the truck already drives at that time is skipped.</div>'+
+      (c.err?'<div class="rn-note err wide">'+esc(c.err)+'</div>':'')+skipped+
+    '</div>'+
+    '<div class="dm-foot"><button class="tbtn" data-sc="cancel">'+(c.skipped?'Close':'Cancel')+'</button><button class="tbtn key" data-sc="save"'+(c.busy||!n?' disabled':'')+'>'+(c.busy?'Scheduling…':'Schedule '+(n||'')+' route'+(n===1?'':'s'))+'</button></div></div>';
+  var m=$('sc-modal');
+  if(!m){ m=document.createElement('div'); m.id='sc-modal'; m.className='dm-overlay rn-modal'; (document.querySelector('.aph')||document.body).appendChild(m);
+    m.addEventListener('click',function(e){ if(e.target===m){ closeScheduleRoutes(); return; }
+      var b=e.target.closest('button[data-sc]'); if(!b) return;
+      if(b.dataset.sc==='cancel') closeScheduleRoutes(); else if(b.dataset.sc==='save') saveScheduleRoutes(); });
+    m.addEventListener('change',function(e){ var el=e.target, k=el.dataset&&el.dataset.sc, c=S.sc; if(!k||!c) return;
+      if(k==='src'){ if(el.value) loadScheduleSource(el.value); return; }
+      if(k==='pick') c.pick[el.dataset.name].on=el.checked;
+      else if(k==='all') (c.routes||[]).forEach(function(r){ c.pick[r.name].on=el.checked; });
+      else if(k==='from'||k==='to') c.pick[el.dataset.name][k]=el.value;
+      else if(k==='day') c.days[+el.dataset.i]=el.checked?1:0;
+      else if(k==='start'||k==='end') c[k]=el.value;
+      c.err=''; renderScheduleRoutes(); });
+  }
+  m.innerHTML=html;
+}
+function saveScheduleRoutes(){
+  var c=S.sc; if(!c||c.busy) return;
+  var dates=scheduleDates(c);
+  var routes=(c.routes||[]).filter(function(r){ return c.pick[r.name].on; }).map(function(r){ var p=c.pick[r.name]; return {name:r.name,from_time:p.from,to_time:p.to}; });
+  if(!dates.length||!routes.length) return;
+  c.busy=true; c.err=''; c.skipped=null; renderScheduleRoutes();
+  call('scheduleBucketLogisticsRoutes',{routes:JSON.stringify(routes),dates:JSON.stringify(dates)}).then(function(r){
+    var m=r.message||{};
+    if(S.sc!==c) return;
+    c.busy=false;
+    if(m.status!=='success'){ c.err=m.message||'Could not schedule the routes'; renderScheduleRoutes(); return; }
+    var made=(m.created||[]).length, skip=m.skipped||[];
+    toast('Scheduled '+made+' route'+(made===1?'':'s')+(skip.length?' · '+skip.length+' skipped':''));
+    S.rv.routes=null;
+    if(dates.indexOf(todayISO())>=0) loadData(); else renderRoutes();
+    if(skip.length){ c.skipped=skip; renderScheduleRoutes(); } else closeScheduleRoutes();
+  }).catch(function(err){ if(S.sc===c){ c.busy=false; c.err='Failed: '+((err&&err.message)||''); renderScheduleRoutes(); } });
+}
 function openRouteBuilder(route){
-  var stops=[];
-  if(route){ route.stops.forEach(function(f){ if(f&&f!==pack()&&stops.indexOf(f)<0) stops.push(f); }); }
+  var runs=route?runsOf(route):[];
+  if(!runs.length) runs=[[]];
   var dayOf=route?route.route_date:S.rv.date;
-  S.rb={edit:route?route.name:null, vehicle:route?route.vehicle:'', stops:stops, dd:null, busy:false,
+  S.rb={edit:route?route.name:null, vehicle:route?route.vehicle:'', runs:runs, dd:null, busy:false,
     from:route&&route.from_datetime?route.from_datetime.replace(' ','T'):dayOf+'T06:00',
     to:route&&route.to_datetime?route.to_datetime.replace(' ','T'):dayOf+'T18:00',
   };
@@ -960,7 +1142,7 @@ function renderRouteBuilder(){
       '<label class="rn-field"><span>From</span><input type="datetime-local" id="rb-from"></label>'+
       '<label class="rn-field"><span>To</span><input type="datetime-local" id="rb-to"></label></div>'+
       '<div class="rb-row"><div class="rn-field"><span>Truck</span><div id="rb-veh"></div></div></div>'+
-      '<h4>Farms to visit, in order</h4><div id="rb-stops"></div></div>'+
+      '<h4>Trips</h4><div class="rb-hint">Each trip leaves '+esc(pack())+', collects from its farms and comes back. The truck drives the trips one after another, each with a full truck.</div><div id="rb-stops"></div></div>'+
     '<div class="rb-card"><h4>Legs</h4><div id="rb-legs"></div></div></div>'+
     '<div class="rb-foot"><span id="rb-msg"></span><button class="tbtn" data-act="rv-back">Cancel</button><button class="tbtn key" data-act="rb-save" id="rb-save">Save route</button></div></div>';
   [['rb-from','from'],['rb-to','to']].forEach(function(p){ var t=$(p[0]); t.value=b[p[1]]||'';
@@ -985,8 +1167,9 @@ function rbPicker(id,items,val,placeholder,locked){
 }
 /* Legs for the round trip packhouse -> stops -> packhouse, each hop decomposed into
    real road legs (roadPath), in driving direction — what the route record stores. */
-function builderLegs(stops){
-  var seq=[pack()].concat(stops).concat([pack()]), names=[], gaps=[];
+function builderLegs(runs){
+  var seq=[pack()], names=[], gaps=[];
+  (runs||[]).forEach(function(run){ if(!run.length) return; seq=seq.concat(run).concat([pack()]); });
   for(var i=0;i<seq.length-1;i++){
     if(seq[i]===seq[i+1]) continue;
     var rp=roadPath(seq[i],seq[i+1]);
@@ -1008,26 +1191,35 @@ function updateRouteBuilder(){
   $('rb-veh').innerHTML=veh.length?rbPicker('veh',veh,b.vehicle,'Select truck…',!!b.edit):
     '<div class="rl-empty" style="padding:10px">No transfer trucks yet. <button class="tbtn ghost" data-act="tk-open">+ Add truck</button></div>';
   var farms=(DATA.farm_list&&DATA.farm_list.length?DATA.farm_list:allFarmsKnown()).filter(function(f){ return f!==pack(); });
-  var add=farms.filter(function(f){ return b.stops.indexOf(f)<0; }).map(function(f){ var ok=roadPath(pack(),f).legs.length>0;
+  var add=farms.map(function(f){ var ok=roadPath(pack(),f).legs.length>0;
     return {v:f,label:f,dot:ok?'con':'',tag:ok?'reachable':'no road yet',disabled:!ok}; });
-  var n=b.stops.length;
-  var stopsHtml='<div class="rb-stops"><div class="rb-stop fixed"><span class="no">⌂</span>'+esc(pack())+' · start</div>'+
-    b.stops.map(function(f,i){ return '<div class="rb-stop"><span class="no">'+(i+1)+'</span>'+esc(f)+
-      '<span class="act"><button data-act="rb-up" data-i="'+i+'" title="Earlier"'+(i===0?' disabled':'')+'>↑</button>'+
-      '<button data-act="rb-down" data-i="'+i+'" title="Later"'+(i===n-1?' disabled':'')+'>↓</button>'+
-      '<button data-act="rb-rm" data-i="'+i+'" title="Remove">×</button></span></div>'; }).join('')+
-    '<div class="rb-stop fixed"><span class="no">⌂</span>'+esc(pack())+' · back</div></div>'+
-    '<div class="rb-add">'+rbPicker('addstop',add,'','+ Add farm to visit',false)+
-      '<button class="tbtn ghost" data-act="rb-opt" title="Shortest visiting order"'+(n<2?' disabled':'')+'>Optimise order</button></div>';
+  var n=b.runs.reduce(function(a,r){ return a+r.length; },0);
+  var stopsHtml=b.runs.map(function(run,ri){
+    var m=run.length, used={}; run.forEach(function(f){ used[f]=1; });
+    var addable=add.map(function(x){ return used[x.v]?null:x; }).filter(Boolean);
+    return '<div class="rb-run"><div class="rb-run-hd"><b>Trip '+(ri+1)+'</b>'+(m?'<span class="rb-run-km">'+(function(){ var km=routeKm(run); return km==null?'':km.toFixed(1)+' km'; })()+'</span>':'')+
+      (b.runs.length>1?'<button class="tbtn ghost trip-del" data-act="rb-run-rm" data-r="'+ri+'" title="Remove this trip">Remove trip</button>':'')+'</div>'+
+      '<div class="rb-stops"><div class="rb-stop fixed"><span class="no">⌂</span>'+esc(pack())+' · start</div>'+
+      run.map(function(f,i){ return '<div class="rb-stop"><span class="no">'+(i+1)+'</span>'+esc(f)+
+        '<span class="act"><button data-act="rb-up" data-r="'+ri+'" data-i="'+i+'" title="Earlier"'+(i===0?' disabled':'')+'>↑</button>'+
+        '<button data-act="rb-down" data-r="'+ri+'" data-i="'+i+'" title="Later"'+(i===m-1?' disabled':'')+'>↓</button>'+
+        '<button data-act="rb-rm" data-r="'+ri+'" data-i="'+i+'" title="Remove">×</button></span></div>'; }).join('')+
+      '<div class="rb-stop fixed"><span class="no">⌂</span>'+esc(pack())+' · back</div></div>'+
+      '<div class="rb-add">'+rbPicker('addstop-'+ri,addable,'','+ Add farm to trip '+(ri+1),false)+
+        '<button class="tbtn ghost" data-act="rb-opt" data-r="'+ri+'" title="Shortest visiting order"'+(m<2?' disabled':'')+'>Optimise order</button></div></div>';
+  }).join('')+
+  '<div class="rb-add"><button class="tbtn ghost" data-act="rb-run-add"'+(b.runs[b.runs.length-1].length?'':' disabled title="Add a farm to the last trip first"')+'>+ Add trip — back to '+esc(pack())+', then out again</button></div>';
   $('rb-stops').innerHTML=stopsHtml;
-  var L=builderLegs(b.stops);
+  var L=builderLegs(b.runs);
   $('rb-legs').innerHTML=n?('<table class="rn-tbl"><thead><tr><th>#</th><th>From</th><th>To</th><th>Distance</th><th>Road</th></tr></thead><tbody>'+
       L.rows.map(function(r,i){ return '<tr><td>'+(i+1)+'</td><td>'+esc(r.from)+'</td><td>'+esc(r.to)+'</td><td class="km">'+r.km.toFixed(1)+' km</td><td style="color:var(--ink-mute)">'+esc(r.leg)+'</td></tr>'; }).join('')+
       '</tbody></table><div class="rb-tot">Total<span>'+L.km.toFixed(1)+' km</span></div>'):
-    '<div class="rl-empty">Add the farms this truck visits — the legs are worked out from the road network.</div>';
+    '<div class="rl-empty">Add the farms each trip visits — the legs are worked out from the road network.</div>';
+  var emptyRun=b.runs.length>1&&b.runs.some(function(r){ return !r.length; });
   var msg='', cls='';
   var vRec=DATA.vehicles.filter(function(v){ return v.name===b.vehicle; })[0];
   if(L.gaps.length){ msg='No road for '+L.gaps.join(', ')+' — add it under Road network first.'; cls='err'; }
+  else if(emptyRun){ msg='A trip has no farms — add one or remove the trip.'; cls='err'; }
   else if(isToday&&vRec&&vRec.on_road){ msg=b.vehicle+' is on the road ('+vRec.on_road+') — it can be re-routed once it is back at '+(vRec.route_end||pack())+' and the trip is received.'; cls='err'; }
   var others=(b.vehicle&&routedOnDate[b.vehicle])||[];
   var bf=(b.from||'').replace('T',' '), bt=(b.to||'').replace('T',' ');
@@ -1037,14 +1229,14 @@ function updateRouteBuilder(){
   else if(!msg&&clash){ msg=b.vehicle+' already runs '+timeRange(clash)+' on '+b.date+' — pick a time that doesn’t overlap.'; cls='err'; }
   else if(!msg&&others.length){ msg=b.vehicle+' also runs '+others.map(timeRange).join(', ')+' on '+b.date+'.'; cls=''; }
   var m=$('rb-msg'); m.textContent=msg; m.className=cls;
-  var sv=$('rb-save'); sv.disabled=!!b.busy||!b.vehicle||!n||L.gaps.length>0||!!(isToday&&vRec&&vRec.on_road)||!!clash||!!badTime; sv.textContent=b.busy?'Saving…':'Save route';
+  var sv=$('rb-save'); sv.disabled=!!b.busy||!b.vehicle||!n||L.gaps.length>0||emptyRun||!!(isToday&&vRec&&vRec.on_road)||!!clash||!!badTime; sv.textContent=b.busy?'Saving…':'Save route';
   if(S.rv.routesDate!==b.date&&!b.loadingDate){ b.loadingDate=b.date;   // know which trucks are already routed that day
     apiGet('getBucketLogisticsRoutes',{date:b.date}).then(function(r){ if(S.rb&&S.rb.date===b.loadingDate){ S.rv.routes=r.routes||[]; S.rv.routesDate=b.loadingDate; S.rb.loadingDate=null; updateRouteBuilder(); } }).catch(function(){ if(S.rb) S.rb.loadingDate=null; }); }
 }
 function saveRouteBuilder(){
   var b=S.rb; if(!b||b.busy) return;
-  var L=builderLegs(b.stops);
-  if(!b.vehicle||!b.stops.length||L.gaps.length) return;
+  var L=builderLegs(b.runs);
+  if(!b.vehicle||!L.names.length||L.gaps.length) return;
   b.busy=true; updateRouteBuilder();
   var args={vehicle:b.vehicle,legs:L.names.join('|~|'),from_datetime:b.from.replace('T',' '),to_datetime:b.to.replace('T',' ')};
   if(b.edit) args.name=b.edit; else args['new']=1;
@@ -1226,8 +1418,12 @@ function autoReplan(btn){
    A truck plying a route TODAY (Bucket Logistics Route) may only carry buckets
    from the farms on that route. A truck with NO route today is NOT usable at all
    (fleetSorted filters it out) — set its route in the Distribute popup first. */
-/* A truck can run several routes a day; it serves every farm on any of them. */
-function truckFarmSets(){ var m={}; (DATA.routes||[]).forEach(function(r){ var a=m[r.vehicle]=m[r.vehicle]||[]; (r.farms||[]).forEach(function(f){ if(a.indexOf(f)<0) a.push(f); }); }); return m; }
+/* A truck can run several routes a day; it serves every farm on any of them. The
+   planner picks which of a truck's routes ⚡ Distribute may use (all, by default):
+   an unticked route's trips get no buckets. */
+function routeOn(name){ return !S.offRoutes[name]; }
+function activeRoutes(){ return (DATA.routes||[]).filter(function(r){ return routeOn(r.name); }); }
+function truckFarmSets(){ var m={}; activeRoutes().forEach(function(r){ var a=m[r.vehicle]=m[r.vehicle]||[]; (r.farms||[]).forEach(function(f){ if(a.indexOf(f)<0) a.push(f); }); }); return m; }
 function routeByVeh(){ var m={}; (DATA.routes||[]).forEach(function(r){ var c=m[r.vehicle];
   if(!c){ m[r.vehicle]={name:r.name,vehicle:r.vehicle,total_km:Number(r.total_km||0),farms:(r.farms||[]).slice(),legs:(r.legs||[]).slice(),routes:[r]}; return; }
   c.total_km+=Number(r.total_km||0); c.legs=c.legs.concat(r.legs||[]); c.routes.push(r);
@@ -1241,13 +1437,25 @@ function allFarmsKnown(){
   var s={}; DATA.distances.forEach(function(d){ if(d.a&&d.a!==pack())s[d.a]=1; if(d.b&&d.b!==pack())s[d.b]=1; });
   return Object.keys(s).sort();
 }
+/* Truck space to plan into: every still-open RUN of a routed truck is a full truck
+   that only serves that run's farms (one trip per run). A run whose trip already has
+   buckets offers what's left. `key` tells the runs of one truck apart. */
+function openRuns(v){ return (v.runs||[]).filter(function(r){ return (r.stops||[]).length && routeOn(r.route) && (!r.trip||r.trip_status==='Draft'||r.trip_status==='Scheduled'); }); }
 function buildTruckState(){
-  var sets=truckFarmSets();
-  return fleetSorted().map(function(v){
-    return {vehicle:v.name,cap:v.capacity_buckets,rem:v.capacity_buckets,farmSet:sets[v.name],topup:null};
+  var sets=truckFarmSets(), out=[];
+  fleetSorted().forEach(function(v){
+    var runs=openRuns(v);
+    if(!runs.length){ out.push({key:v.name,label:v.name,vehicle:v.name,route:null,run:null,cap:v.capacity_buckets,rem:v.capacity_buckets,farmSet:sets[v.name],topup:null}); return; }
+    runs.forEach(function(r){
+      var t=r.trip?(DATA.trips||[]).filter(function(x){ return x.name===r.trip; })[0]:null;
+      var used=t?Math.max(t.total_buckets||0,t.loaded_buckets||0):0, rem=Math.max(0,v.capacity_buckets-used);
+      if(rem<=0) return;
+      out.push({key:v.name+'#'+r.route+'#'+r.run,label:v.name+(r.runs>1?' · trip '+r.run:''),vehicle:v.name,route:r.route,run:r.run,cap:rem,rem:rem,farmSet:r.stops.slice(),topup:null});
+    });
   });
+  return out;
 }
-function cloneState(state){ return state.map(function(t){ return {vehicle:t.vehicle,cap:t.cap,rem:t.rem,farmSet:t.farmSet,topup:t.topup}; }); }
+function cloneState(state){ return state.map(function(t){ return {key:t.key,label:t.label,vehicle:t.vehicle,route:t.route,run:t.run,cap:t.cap,rem:t.rem,farmSet:t.farmSet,topup:t.topup}; }); }
 function eligibleTrucks(state,farm){
   return state.filter(function(t){ return (t.farmSet==null||t.farmSet.indexOf(farm)>=0)&&t.rem>0; })
     .sort(function(a,b){ return b.rem-a.rem; });
@@ -1262,11 +1470,11 @@ function allocateFarmAmount(state,farm,amount){
   var fits=elig.filter(function(t){ return t.rem>=amount; });
   if(fits.length && amount>0){
     var best=fits[fits.length-1];   // elig is sorted by rem desc → last fit is the tightest
-    best.rem-=amount; return {placed:amount,rows:[{vehicle:best.vehicle,buckets:amount}]};
+    best.rem-=amount; return {placed:amount,rows:[{vehicle:best.key,buckets:amount}]};
   }
   for(var i=0;i<elig.length&&left>0;i++){
     var t=elig[i],take=Math.min(t.rem,left); if(take<=0)continue;
-    t.rem-=take; left-=take; rows.push({vehicle:t.vehicle,buckets:take});
+    t.rem-=take; left-=take; rows.push({vehicle:t.key,buckets:take});
   }
   return {placed:amount-left,rows:rows};
 }
@@ -1379,7 +1587,8 @@ function truckPickHtml(checkAct){
   return '<div class="veh-avail"><div class="va-lbl">Trucks &amp; routes<span class="va-date">'+esc(DATA.today||todayISO())+'</span><span class="va-sub">'+availN+' of '+DATA.vehicles.length+' available</span></div><div class="va-grid">'+
     (DATA.vehicles.length?DATA.vehicles.map(function(v){
       var routed=hasRoute(v.name), hasCap=v.capacity_buckets>0;
-      var avail=routed&&hasCap&&!S.broken[v.name]&&!v.on_road, s=tsMap[v.name];
+      var away=v.on_road&&!openRuns(v).length;
+      var avail=routed&&hasCap&&!S.broken[v.name]&&!away, s=tsMap[v.name];
       var loc='○ Not run yet today', cls='idle';
       if(s){
         if(s.location==='loading'){ loc='Loading at '+esc(s.farm||'farm')+' · '+s.loading_pct+'% done'; cls='load'; }
@@ -1399,10 +1608,12 @@ function truckPickHtml(checkAct){
       var committed=0; trips.forEach(function(t){ committed+=t.total_buckets||0; });
       var busyPct=v.capacity_buckets?Math.min(100,Math.round(committed/v.capacity_buckets*100)):0;
       var dayTrips=(DATA.trips||[]).filter(function(t){ return t.vehicle===v.name&&(t.trip_date===(DATA.today||todayISO())||t.status==='Dispatched'); });
-      var tripList=dayTrips.length?dayTrips.map(function(t){ return esc(t.name)+' ('+tripUsed(t)+' bkt, '+esc(t.status==='Received'?'ended':(t.loading?'loading':String(t.status||'').toLowerCase()))+(t.unscheduled?', unscheduled':'')+')'; }).join(', '):'no trips today';
+      var tripList=dayTrips.length?dayTrips.map(function(t){ return esc(t.name)+(t.run?' · trip '+t.run:'')+' ('+tripUsed(t)+' bkt, '+esc(t.status==='Received'?'ended':(t.loading?'loading':String(t.status||'').toLowerCase()))+(t.unscheduled?', unscheduled':'')+')'; }).join(', '):'no trips today';
       var rt=routeByV[v.name];
-      var routeLine=routed
-        ? '<span class="tk-route">'+esc(rt.farms.join(' · '))+' · '+rt.total_km.toFixed(2)+' km</span>'
+      var routeLine=rt
+        ? '<span class="tk-route tk-routes">'+rt.routes.map(function(r){ var trips=runsOf(r).map(function(run,i){ var tr=(v.runs||[]).filter(function(x){ return x.route===r.name&&x.run===i+1; })[0];
+              return 'Trip '+(i+1)+': '+esc(run.join(' → '))+(tr&&tr.trip_status?' ('+esc(tr.trip_status==='Received'?'back':tr.trip_status.toLowerCase())+')':''); }).join(' · ');
+            return '<label class="tk-rt'+(routeOn(r.name)?'':' off')+'" title="'+esc(r.name)+'"><input type="checkbox" data-act="dist-route" data-route="'+esc(r.name)+'"'+(routeOn(r.name)?' checked':'')+'><span class="tk-rt-time">'+esc(timeRange(r))+'</span><span>'+trips+' · '+Number(r.total_km||0).toFixed(1)+' km</span></label>'; }).join('')+'</span>'
         : '<span class="tk-route none">no route set — not usable until routed</span>';
       var editing=S.routeEdit===v.name;
       var routeEditor='';
@@ -1421,13 +1632,14 @@ function truckPickHtml(checkAct){
           return '<label class="rt-fchk"><input type="checkbox" data-act="route-farm" data-veh="'+esc(v.name)+'" data-farm="'+esc(f)+'"'+(sel[f]?' checked':'')+'>'+esc(f)+'</label>';
         }).join('')+preview+'<div class="rt-editor-foot"><span class="rt-hint" style="display:'+(nsel?'none':'')+'">Tick at least one farm</span><button class="tbtn" data-act="route-cancel">Cancel</button><button class="tbtn key" data-act="route-save" data-veh="'+esc(v.name)+'"'+(nsel?'':' disabled title="Tick at least one farm first"')+'>Save route</button></div></div>';
       }
-      return '<div class="va-card'+(avail?'':' off')+'"><label class="va-top"><input type="checkbox" class="va-chk" data-act="'+checkAct+'" data-veh="'+esc(v.name)+'"'+(avail?' checked':'')+(v.on_road?' disabled title="On the road — available once it is back and its trip is received"':(!hasCap?' disabled title="Set its capacity first"':(routed?'':' disabled title="Set a route for this truck first"')))+'><span class="va-nm">'+esc(v.name)+'</span>'+
+      return '<div class="va-card'+(avail?'':' off')+'"><label class="va-top"><input type="checkbox" class="va-chk" data-act="'+checkAct+'" data-veh="'+esc(v.name)+'"'+(avail?' checked':'')+(away?' disabled title="On the road — available once it is back and its trip is received"':(!hasCap?' disabled title="Set its capacity first"':(routed?'':(rt?' disabled title="Tick one of its routes below"':' disabled title="Set a route for this truck first"'))))+'><span class="va-nm">'+esc(v.name)+'</span>'+
           (hasCap?'<span class="va-cap">'+v.capacity_buckets+' bkt cap</span>':'<span class="va-cap none">no capacity</span><button class="tbtn ghost rt-editbtn" data-act="tk-open" data-veh="'+esc(v.name)+'">Set capacity</button>')+'</label>'+
+        (openRuns(v).length>1?'<div class="va-row"><span class="va-k">Open</span><span class="tk-trips">'+openRuns(v).length+' open trips · '+v.capacity_buckets+' bkt each</span></div>':'')+
         '<div class="va-row"><span class="va-k">Now</span><span class="tk-loc '+cls+'">'+loc+'</span></div>'+
         '<div class="va-row"><span class="va-k">Trips</span><span class="tk-trips'+(dayTrips.length?'':' none')+'">'+tripList+'</span></div>'+
         (trips.length?'<div class="cap-bar" style="margin:4px 0 2px;height:5px"><i style="width:'+busyPct+'%"></i></div><div class="va-busy">'+committed+' / '+v.capacity_buckets+' bkt already committed</div>':'')+
         '<div class="va-row"><span class="va-k">Route</span>'+routeLine+
-        '<button class="tbtn ghost rt-editbtn" data-act="route-edit" data-veh="'+esc(v.name)+'">'+(routed?'Edit':'Set')+'</button></div>'+
+        '<button class="tbtn ghost rt-editbtn" data-act="route-edit" data-veh="'+esc(v.name)+'">'+(rt?'Edit':'Set')+'</button></div>'+
         routeEditor+
         '</div>';
     }).join(''):'<span class="ts-hint">No internal-logistics trucks with a capacity set.</span>')+
@@ -1522,6 +1734,23 @@ function unscheduledHtml(){
 }
 /* Draft/Scheduled trips from an earlier day: the truck never left. They no longer
    hold any buckets (those are open again) — delete them so the trip list is honest. */
+/* A truck with several open trips for the SAME run (the old "same truck, same farm,
+   two trips, one with 0 bkt" mix-up): one Merge folds them into its first trip. */
+function duplicateTripsHtml(){
+  var d=DATA.duplicate_trips||{}, vs=Object.keys(d); if(!vs.length) return '';
+  return '<div class="ts-alert ts-dups"><div class="ts-alert-hd">'+vs.length+' truck'+(vs.length===1?' has':'s have')+' more than one open trip for the same route trip — loads and plan are split across them</div><div class="ts-alert-list">'+
+    vs.map(function(v){ return '<div class="ts-alert-row"><span class="nm">'+esc(v)+'</span><span class="meta">'+d[v].map(esc).join(', ')+'</span>'+
+      '<button class="tbtn key" data-act="trip-merge" data-veh="'+esc(v)+'">Merge into one trip</button></div>'; }).join('')+'</div></div>';
+}
+function mergeTrips(vehicle){
+  if(!vehicle||S.tripBusy) return;
+  confirmModal('Merge trips','Fold '+vehicle+'’s trips '+((DATA.duplicate_trips||{})[vehicle]||[]).join(', ')+' into the first one? Plans and loads for the same order and farm are added together.','Merge').then(function(ok){ if(!ok) return;
+    S.tripBusy=true;
+    call('mergeTruckTrips',{vehicle:vehicle}).then(function(r){ var m=r.message||{}; toast(m.message||(m.status==='success'?'Merged':'Merge failed')); })
+      .catch(function(err){ toast('Failed: '+((err&&err.message)||'')); })
+      .then(function(){ S.tripBusy=false; loadData(); });
+  });
+}
 function staleTripsHtml(){
   var st=DATA.trips.filter(function(t){ return t.stale; }); if(!st.length) return '';
   return '<div class="ts-alert"><div class="ts-alert-hd">'+st.length+' planned trip'+(st.length===1?'':'s')+' from an earlier day never dispatched — '+(st.length===1?'its':'their')+' buckets are open again</div><div class="ts-alert-list">'+
@@ -1532,11 +1761,11 @@ function staleTripsHtml(){
 function renderOrders(){
   var onTrip=savedPortions();
   var tripVeh=tripVehMap();
-  var alerts=unscheduledHtml()+staleTripsHtml();
+  var alerts=unscheduledHtml()+duplicateTripsHtml()+staleTripsHtml();
   if(!DATA.orders.length){ $('panel-orders').innerHTML=alerts+'<div class="ts-empty">No scheduled orders need transferring in this delivery window. Schedule orders in the packhouse-scheduler first.</div>'; return; }
   var anyOpen=DATA.orders.some(function(o){ return openTotal(o)>0; });
   if(!anyOpen){ $('panel-orders').innerHTML=alerts+'<div class="ts-empty">Every scheduled order is already fully on a trip — nothing left to plan. Check the <b>Trips</b> tab.</div>'; return; }
-  var fleet=fleetSorted(), fleetCap=0; fleet.forEach(function(v){ fleetCap+=v.capacity_buckets; });
+  var fleet=fleetSorted(), fleetCap=0; buildTruckState().forEach(function(t){ fleetCap+=t.rem; });
   var bar='<div class="plan-summary"><span class="ps-cap">'+n(fleetCap)+' bkt · '+fleet.length+' truck'+(fleet.length===1?'':'s')+' available</span>'+
     '<span class="ps-fill"></span>'+
     '<button class="tbtn key" id="bDist" data-act="distribute" title="Fill the available trucks with one schedule per team, top priority first">⚡ Distribute across teams</button></div>';
@@ -1613,7 +1842,8 @@ function orderSide(o,sched,planned,pct){
 
 /* Usable fleet for distribution = not manually broken-down AND has a route set today. */
 /* A truck out on a trip (dispatched, not received) isn't available until it's back at its route's end. */
-function fleetSorted(){ var a=DATA.vehicles.filter(function(v){ return !S.broken[v.name] && hasRoute(v.name) && !v.on_road && v.capacity_buckets>0; }); a.sort(function(x,y){return y.capacity_buckets-x.capacity_buckets;}); return a; }
+/* Out on one run, a routed truck can still be planned for its next runs. */
+function fleetSorted(){ var a=DATA.vehicles.filter(function(v){ return !S.broken[v.name] && hasRoute(v.name) && (!v.on_road||openRuns(v).length) && v.capacity_buckets>0; }); a.sort(function(x,y){return y.capacity_buckets-x.capacity_buckets;}); return a; }
 /* Route-aware truck packing core. */
 function packPorts(ports,state,fleet,rank){
   rank=rank||S.rank||{};
@@ -1628,9 +1858,9 @@ function packPorts(ports,state,fleet,rank){
     var per=p.buckets?p.stems/p.buckets:0;
     var r=allocateFarmAmount(state,p.farm,p.buckets);
     r.rows.forEach(function(x){
-      if(!byVeh[x.vehicle]){
-        var vt=null; for(var i=0;i<state.length;i++){ if(state[i].vehicle===x.vehicle){vt=state[i];break;} }
-        byVeh[x.vehicle]={vehicle:x.vehicle,cap:vt?vt.cap:0,topup:vt?vt.topup:null,rows:[]};
+      if(!byVeh[x.vehicle]){   // x.vehicle is the run's key
+        var vt=null; for(var i=0;i<state.length;i++){ if(state[i].key===x.vehicle){vt=state[i];break;} }
+        byVeh[x.vehicle]={vehicle:vt?vt.vehicle:x.vehicle,label:vt?vt.label:x.vehicle,route:vt?vt.route:null,run:vt?vt.run:null,cap:vt?vt.cap:0,topup:vt?vt.topup:null,rows:[]};
       }
       byVeh[x.vehicle].rows.push({opl:p.opl,order_name:p.order_name,customer:p.customer,farm:p.farm,varieties:p.varieties,buckets:x.buckets,stems:Math.round(per*x.buckets),full:p.full});
     });
@@ -1638,7 +1868,7 @@ function packPorts(ports,state,fleet,rank){
     if(short>0){ unplaced+=short; if(!anyoneServes(p.farm)) blockedFarms[p.farm]=1; }
   });
   var loads=Object.keys(byVeh).map(function(k){ var L=byVeh[k]; var newUsed=L.rows.reduce(function(a,r){return a+r.buckets;},0);
-    return {vehicle:L.vehicle,cap:L.cap,rem:L.cap-newUsed,rows:L.rows,tripTarget:null,alreadyOnTrip:0,newBuckets:newUsed};
+    return {vehicle:L.vehicle,label:L.label,route:L.route,run:L.run,cap:L.cap,rem:L.cap-newUsed,rows:L.rows,tripTarget:null,alreadyOnTrip:0,newBuckets:newUsed};
   });
   return {loads:loads,total:total,trucks:loads.length,unplaced:unplaced,blockedFarms:blockedFarms};
 }
@@ -1702,7 +1932,7 @@ function buildScheduleGrid(dist){
   var allocByOpl={};
   if(dist){
     var packed=packPorts(distSelPreview(dist),buildTruckState(),fleetSorted(),distRank(dist));
-    packed.loads.forEach(function(L){ L.rows.forEach(function(r){ (allocByOpl[r.opl]=allocByOpl[r.opl]||[]).push({vehicle:L.vehicle,buckets:r.buckets,tripTarget:L.tripTarget}); }); });
+    packed.loads.forEach(function(L){ L.rows.forEach(function(r){ (allocByOpl[r.opl]=allocByOpl[r.opl]||[]).push({vehicle:L.label||L.vehicle,buckets:r.buckets,tripTarget:L.tripTarget}); }); });
   }
   var sp=savedPortions();
   function tripsForOrder(o){
@@ -1771,13 +2001,14 @@ function saveDispatch(fromModal){
   document.querySelectorAll('[data-act="dist-confirm"]').forEach(function(b){ b.disabled=true; b.textContent='Saving…'; });
   Promise.all(plan.loads.map(function(load){
     var args={ vehicle:load.vehicle, trip_date:todayISO(), status:'Draft', farm:'', collection_order:'', orders:encodeOrders(load.rows) };
+    if(load.route&&load.run){ args.route=load.route; args.run=load.run; }   // the run this load was planned into
     return call('saveBucketTrip',args).then(function(r){ return {load:load, r:r}; }).catch(function(err){ return {load:load, err:err}; });
   })).then(function(results){
     var ok=[], failed=[];
     results.forEach(function(x){
       var m=(x.r&&x.r.message)||{};
-      if(!x.err && m.status==='success') ok.push(x.load.vehicle);
-      else failed.push(x.load.vehicle+': '+(x.err?((x.err&&x.err.message)||'request failed'):(m.message||'save failed')));
+      if(!x.err && m.status==='success') ok.push(x.load.label||x.load.vehicle);
+      else failed.push((x.load.label||x.load.vehicle)+': '+(x.err?((x.err&&x.err.message)||'request failed'):(m.message||'save failed')));
     });
     S.saving=false;
     if(failed.length){ toast((ok.length?ok.length+' truck'+(ok.length===1?'':'s')+' saved, but ':'')+failed.length+' failed — '+failed.join('; ')); }
@@ -1858,6 +2089,7 @@ function tripCardHtml(t){
   }
   return '<div class="trip-card'+(t.stale?' stale':'')+'"><div class="trip-hd"><h3>'+esc(t.name)+'</h3>'+
     (t.vehicle?'<span class="veh">'+esc(t.vehicle)+'</span>':'')+
+    (t.run?'<span class="trip-run" title="'+esc(t.route)+(t.window?' · '+esc(t.window):'')+'">Trip '+t.run+(t.runs>1?' of '+t.runs:'')+'</span>':'')+
     (t.trip_date?'<span style="font:500 11px var(--mono);color:var(--ink-mute)">'+esc(t.trip_date)+'</span>':'')+
     stBadge+(t.unscheduled?'<span class="trip-st unsched">unscheduled</span>':'')+(t.auto_planned?'<span class="trip-st auto" title="Planned by automatic scheduling — re-planned automatically until dispatched">auto</span>':'')+when+
     (t.status==='Dispatched'?'<button class="tbtn key trip-act" data-act="trip-receive" data-trip="'+esc(t.name)+'" title="Ends the trip now; it ends by itself once every bucket on it is shelved">End trip</button>':'')+
@@ -1867,7 +2099,7 @@ function tripCardHtml(t){
     '<div style="font:500 10px var(--mono);color:var(--ink-mute);margin-top:4px">'+used+' / '+(cap||'—')+' buckets'+(shown?' loaded':'')+(shown&&!t.unscheduled?' · '+(t.total_buckets||0)+' planned':'')+(shown?'':' · '+n(t.total_stems||0)+' stems')+(t.tracked_buckets?' · '+(t.shelved_buckets||0)+' / '+t.tracked_buckets+' shelved'+(t.off_truck_buckets?' · '+t.off_truck_buckets+' off the truck':''):'')+(t.received_at?' · ended '+esc(String(t.received_at).slice(11,16)):'')+'</div>'+
     stopsLine+
     statusPillsHtml(t.vehicle)+
-    routeHtml(tripFarms2(t.orders))+
+    (t.run_chain?'<div class="route-box"><div class="route-row"><span class="rl">Route</span><span class="rp">'+esc(t.run_chain)+'</span></div></div>':routeHtml(tripFarms2(t.orders)))+
     '<div class="trip-orders">'+rows+'</div></div>';
 }
 function renderTripList(){   // "Trips" tab — VIEW ONLY: schedule grid + every trip as a read-only card.
@@ -1878,10 +2110,11 @@ function renderTripList(){   // "Trips" tab — VIEW ONLY: schedule grid + every
   DATA.trips.forEach(function(t){ var f=tripFarms2(t.orders); if(!f.length) return;
     var b=bestRoute(f); if(b.km==null) return; anyRoute=true; totBest+=b.km; });
   var routeSum=(DATA.trips.length&&anyRoute)?'<div class="route-sum"><span>'+DATA.trips.length+' trip'+(DATA.trips.length===1?'':'s')+' · recommended total <b class="best">'+totBest.toFixed(2)+' km</b> of driving</span></div>':'';
-  var below=DATA.trips.length
-    ? DATA.trips.map(tripCardHtml).join('')
+  var ordered=DATA.trips.slice().sort(function(a,b){ return (b.trip_date||'').localeCompare(a.trip_date||'')||(a.vehicle||'').localeCompare(b.vehicle||'')||((a.run||99)-(b.run||99)); });
+  var below=ordered.length
+    ? ordered.map(tripCardHtml).join('')
     : '<div class="ts-empty">No bucket request trips yet. Use <b>⚡ Distribute across teams</b> on the Scheduled orders tab.</div>';
-  $('panel-triplist').innerHTML=staleTripsHtml()+gridHtml+routeSum+below;
+  $('panel-triplist').innerHTML=duplicateTripsHtml()+staleTripsHtml()+gridHtml+routeSum+below;
 }
 
 document.addEventListener('click',function(ev){
@@ -1889,6 +2122,7 @@ document.addEventListener('click',function(ev){
   if(a==='tab'){ S.tab=el.dataset.tab; render(); }
   else if(a==='ord-team'){ S.ordTeam=el.dataset.team; renderOrders(); }
   else if(a==='distribute'){ distributeAction(); }
+  else if(a==='dist-route'){ if(el.checked) delete S.offRoutes[el.dataset.route]; else S.offRoutes[el.dataset.route]=1; if(S.dist){ var nd=computeDistribution(); nd.shortQty={}; S.dist=nd; renderDistModal(); } }
   else if(a==='dist-truck'){ if(el.checked) delete S.broken[el.dataset.veh]; else S.broken[el.dataset.veh]=1; if(S.dist){ var nd=computeDistribution(); nd.shortQty={}; S.dist=nd; renderDistModal(); } if(S.tab==='routes') renderRoutes(); }
   else if(a==='route-edit'){
     var vname=el.dataset.veh;
@@ -1910,10 +2144,12 @@ document.addEventListener('click',function(ev){
   else if(a==='dist-confirm'){ if(!el.disabled) applyDistribution(); }
   else if(a==='dist-cancel'){ closeDistModal(); }
   else if(a==='trip-del'){ deleteTrip(el.dataset.trip); }
+  else if(a==='trip-merge'){ mergeTrips(el.dataset.veh); }
   else if(a==='rn-dd-toggle'){ if(S.rn){ S.rn.dd = S.rn.dd===el.dataset.k ? null : el.dataset.k; renderRoadModal();
       var q=document.querySelector('.rn-dd-q'); if(q) q.focus(); } }
   else if(a==='rn-dd-pick'){ if(S.rn&&!el.disabled){ S.rn[el.dataset.k]=el.dataset.v; S.rn.dd=null; S.rn.err=''; renderRoadModal(); } }
   else if(a==='rv-new'){ openNewRouteChoice(); }
+  else if(a==='sc-open'){ openScheduleRoutes(); }
   else if(a==='tk-open'){ openTruckModal(el.dataset.veh); }
   else if(a==='tk-cancel'){ closeTruckModal(); }
   else if(a==='tk-save'){ saveTruckModal(); }
@@ -1925,13 +2161,18 @@ document.addEventListener('click',function(ev){
   else if(a==='rv-del'){ deleteRoute(el.dataset.name); }
   else if(a==='rv-back'){ closeRouteBuilder(); }
   else if(a==='rb-dd-toggle'){ if(S.rb){ S.rb.dd = S.rb.dd===el.dataset.k ? null : el.dataset.k; updateRouteBuilder(); var q=document.querySelector('#rb-page .rn-dd-q'); if(q) q.focus(); } }
-  else if(a==='rb-dd-pick'){ if(S.rb&&!el.disabled){ if(el.dataset.k==='veh') S.rb.vehicle=el.dataset.v; else if(S.rb.stops.indexOf(el.dataset.v)<0) S.rb.stops.push(el.dataset.v); S.rb.dd=null; updateRouteBuilder(); } }
-  else if(a==='rb-up'||a==='rb-down'){ if(S.rb){ var ix=+el.dataset.i, jx=a==='rb-up'?ix-1:ix+1, st=S.rb.stops; if(jx>=0&&jx<st.length){ var t=st[ix]; st[ix]=st[jx]; st[jx]=t; } updateRouteBuilder(); } }
-  else if(a==='rb-rm'){ if(S.rb){ S.rb.stops.splice(+el.dataset.i,1); updateRouteBuilder(); } }
-  else if(a==='rb-opt'){ if(S.rb&&S.rb.stops.length>1){ var cur=S.rb.stops.slice(), before=routeKm(cur), best=bestRoute(cur);
+  else if(a==='rb-dd-pick'){ if(S.rb&&!el.disabled){ var k=el.dataset.k;
+      if(k==='veh') S.rb.vehicle=el.dataset.v;
+      else if(k.indexOf('addstop-')===0){ var rr=S.rb.runs[+k.slice(8)]; if(rr&&rr.indexOf(el.dataset.v)<0) rr.push(el.dataset.v); }
+      S.rb.dd=null; updateRouteBuilder(); } }
+  else if(a==='rb-up'||a==='rb-down'){ if(S.rb){ var ix=+el.dataset.i, jx=a==='rb-up'?ix-1:ix+1, st=S.rb.runs[+el.dataset.r]; if(st&&jx>=0&&jx<st.length){ var t=st[ix]; st[ix]=st[jx]; st[jx]=t; } updateRouteBuilder(); } }
+  else if(a==='rb-rm'){ if(S.rb){ var rs=S.rb.runs[+el.dataset.r]; if(rs) rs.splice(+el.dataset.i,1); updateRouteBuilder(); } }
+  else if(a==='rb-run-add'){ if(S.rb&&!el.disabled){ S.rb.runs.push([]); updateRouteBuilder(); } }
+  else if(a==='rb-run-rm'){ if(S.rb&&S.rb.runs.length>1){ S.rb.runs.splice(+el.dataset.r,1); updateRouteBuilder(); } }
+  else if(a==='rb-opt'){ var orun=S.rb&&S.rb.runs[+el.dataset.r]; if(orun&&orun.length>1){ var cur=orun.slice(), before=routeKm(cur), best=bestRoute(cur);
     if(best.km==null) toast('No road reaches every stop — add the missing roads under Road network');
     else if(best.order.join('|')===cur.join('|')) toast('Already the shortest order · '+best.km.toFixed(1)+' km');
-    else { S.rb.stops=best.order.slice(); toast('Reordered · '+best.km.toFixed(1)+' km'+(before!=null?' (was '+before.toFixed(1)+' km)':'')); }
+    else { S.rb.runs[+el.dataset.r]=best.order.slice(); toast('Reordered · '+best.km.toFixed(1)+' km'+(before!=null?' (was '+before.toFixed(1)+' km)':'')); }
     updateRouteBuilder(); } }
   else if(a==='rb-save'){ saveRouteBuilder(); }
   else if(a==='rn-open'){ openRoadModal(null); }
@@ -1986,14 +2227,31 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
 <script>
 /* Logistics tab — moved verbatim from bucket-logistics.html (own ids: bl*). */
 (function(){
-  const FLAGS=[['awaiting','Awaiting Transfer','var(--awaiting)'],['trolley','Loaded in Trolley','var(--trolley)'],['transit','In Transit','var(--transit)'],['shelved','Shelved','var(--shelved)'],['ready','Ready for Packing','var(--ready)'],['issued','Issued','var(--issued)']];
+  const FLAGS=[['awaiting','Awaiting Transfer','var(--awaiting)'],['trolley','Loaded in Trolley','var(--trolley)'],['transit','In Transit','var(--transit)'],['shelved','Shelved','var(--shelved)'],['ready','Ready for Packing','var(--ready)'],['issued','Issued','var(--issued)'],['not_found','Not found','var(--bad, #b42318)']];
   let STATE={orders:[]},SEARCH='',PV='',AUTODONE=false;
   const $=function(id){return document.getElementById(id);};
   function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
   function tomorrow(){var d=new Date();d.setDate(d.getDate()+1);return d.toISOString().slice(0,10);}
   function api(m,args){var qs=Object.keys(args).filter(function(k){return args[k]!=null&&args[k]!=='';}).map(function(k){return encodeURIComponent(k)+'='+encodeURIComponent(args[k]);}).join('&');return fetch('/api/method/'+m+(qs?('?'+qs):''),{credentials:'same-origin',headers:{'Accept':'application/json'}}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();});}
+  // Every stage as done / requested, so each line reads against what was asked for.
+  // The main stages always show (a 0 is greyed); Ready and Not found only when they happen.
+  var ALWAYS={awaiting:1,trolley:1,transit:1,shelved:1,issued:1};
+  function stagePills(o){var n=o.total||0;
+    return '<span class="bl2-req">Requested <b>'+n+'</b></span>'+FLAGS.map(function(f){var x=o[f[0]]||0;if(!x&&!ALWAYS[f[0]])return '';
+      return '<span class="bl2-pill'+(x?'':' zero')+'" style="background:'+f[2]+'">'+f[1]+' '+x+'/'+n+'</span>';}).join('');}
+  // Where a line's buckets are, for its colour: all issued, all arrived, on a truck, in
+  // a trolley, waiting at the farm with a trip planned, or waiting with no trip at all.
+  var ROW_STATES=[['issued','Issued','var(--issued)'],['shelved','All arrived','var(--shelved)'],['transit','In transit','var(--transit)'],['trolley','In trolley','var(--trolley)'],['farm','At farm, trip planned','var(--awaiting)'],['notrip','At farm, no trip','var(--bad, #b42318)']];
+  function rowState(o){var n=o.total||0;
+    if(n&&(o.issued||0)>=n)return 'issued';
+    if(n&&(o.shelved||0)+(o.ready||0)+(o.issued||0)+(o.not_found||0)>=n)return 'shelved';
+    if(o.transit)return 'transit';
+    if(o.trolley)return 'trolley';
+    return (o.trips||[]).some(function(t){return t.status!=='Received';})?'farm':'notrip';}
   function pills(o){return FLAGS.map(function(f){var n=o[f[0]]||0;if(!n)return '';return '<span class="bl2-pill" style="background:'+f[2]+'">'+f[1]+' '+n+'</span>';}).join('')||'<span class="bl2-pill zero">no buckets</span>';}
   // Transfer initiation time = OPL creation datetime. Show "d Mon, HH:MM".
+  // A date in the same style as fmtDT, without the time: "3 Oct".
+  function fmtD(v){if(!v)return '—';var d=new Date(String(v).slice(0,10)+'T00:00:00');if(isNaN(d.getTime()))return esc(String(v));return d.getDate()+' '+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];}
   function fmtDT(v){if(!v)return '—';var s=String(v).replace(' ','T');var d=new Date(s);if(isNaN(d.getTime()))return esc(String(v));var mon=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];var hh=('0'+d.getHours()).slice(-2),mm=('0'+d.getMinutes()).slice(-2);return d.getDate()+' '+mon+', '+hh+':'+mm;}
   // Transit time = arrival (first bucket shelved) − initiated (OPL created).
   // "In transit" until the first bucket is shelved at the sales farm.
@@ -2015,7 +2273,7 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
     return '<b>'+out.join(' ')+'</b>';
   }
 
-  function visibleOrders(){var q=SEARCH.toLowerCase();return (STATE.orders||[]).filter(function(o){if(!q)return true;return [o.order_name,o.customer,o.sales_order,o.opl].some(function(v){return String(v||'').toLowerCase().indexOf(q)>=0;});});}
+  function visibleOrders(){var q=SEARCH.toLowerCase();return (STATE.orders||[]).filter(function(o){if(!q)return true;return [o.order_name,o.customer,o.sales_order,o.opl,o.varieties].some(function(v){return String(v||'').toLowerCase().indexOf(q)>=0;});});}
   // Format a minutes count as "Nd Nh Nm" (drops leading zero units).
   function fmtDur(mins){if(mins==null)return '—';mins=Math.max(0,Math.round(mins));var dd=Math.floor(mins/1440),hh=Math.floor((mins%1440)/60),mm=mins%60;var out=[];if(dd)out.push(dd+'d');if(hh)out.push(hh+'h');out.push(mm+'m');return out.join(' ');}
   // Minutes between initiated (OPL created) and arrived (first bucket shelved).
@@ -2028,11 +2286,25 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
     if(!o.scheduled) return esc(o.team)+'<div>'+(waiting?'<span class="bl2-pill" style="background:var(--awaiting)" title="Not on the team schedule — Transfer Scheduling can’t plan a truck for it">not scheduled</span>':'<span class="bl2-sub">not scheduled</span>')+'</div>';
     return '<b>'+esc(o.team)+'</b> <span class="bl2-sub">#'+esc(o.schedule)+'</span>';
   }
+  // Varieties of the order's transferring buckets: the first three, the rest behind
+  // "+N more" (full list on hover). A ?variety= deep link is bolded.
+  function varietyCell(o){
+    var v=String(o.varieties||'').split(', ').filter(Boolean);
+    if(!v.length) return '—';
+    var show=v.slice(0,3).map(function(x){var hl=PV&&x.toLowerCase()===PV.toLowerCase();return '<div'+(hl?' style="font-weight:700"':'')+'>'+esc(x)+'</div>';}).join('');
+    return '<span title="'+esc(v.join(', '))+'">'+show+(v.length>3?'<div class="bl2-sub">+'+(v.length-3)+' more</div>':'')+'</span>';
+  }
   var TRIP_COLOR={Draft:'var(--text-3)',Scheduled:'var(--text-3)',Dispatched:'var(--transit)',Received:'var(--shelved)'};
   function tripCell(o){
     var t=o.trips||[];
     if(!t.length) return o.truck?'<span class="bl2-pill" style="background:var(--transit)">'+esc(o.truck)+'</span>':'<span class="bl2-sub">'+((o.awaiting||0)>0?'no trip yet':'—')+'</span>';
-    return t.map(function(x){ return '<div style="margin:1px 0"><span class="bl2-pill" style="background:'+(TRIP_COLOR[x.status]||'var(--text-3)')+'" title="'+esc(x.trip)+' · '+esc(x.trip_date)+'">'+esc(x.vehicle||x.trip)+' · '+esc(x.status)+'</span> <span class="bl2-sub">'+x.buckets+' bkt</span></div>'; }).join('');
+    // One chip per trip: truck · run · status, then loaded vs planned (a load nothing
+    // planned shows "loaded, not planned" — it used to read "0 bkt").
+    return t.map(function(x){
+      var st=x.status==='Received'?'ended':(x.loaded_buckets&&(x.status==='Draft'||x.status==='Scheduled')?'loading':String(x.status||'').toLowerCase());
+      var qty=x.buckets?(x.loaded_buckets?x.loaded_buckets+' / '+x.buckets+' loaded':x.buckets+' planned'):(x.loaded_buckets+' loaded, not planned');
+      if(x.shelved) qty+=' · '+x.shelved+' arrived';
+      return '<div style="margin:1px 0"><span class="bl2-trip" style="border-color:'+(TRIP_COLOR[x.status]||'var(--text-3)')+'" title="'+esc(x.trip)+' · '+esc(x.trip_date)+'">'+esc(x.vehicle||x.trip)+(x.run?' · trip '+x.run:'')+(x.farm?' · '+esc(x.farm):'')+' · '+esc(st)+'</span><div class="bl2-sub" style="margin:2px 0 4px">'+qty+'</div></div>'; }).join('');
   }
   function kpiCard(lbl,val,sub){return '<div class="aph-kpi"><div class="lbl">'+lbl+'</div><div class="v">'+val+'</div><div class="sub">'+(sub||'')+'</div></div>';}
   // Running stats over the currently-visible orders — recomputed every render,
@@ -2053,15 +2325,17 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
     var pct=s.buckets?Math.round(s.shelved/s.buckets*100):0;
     var onRoad=s.transit+s.trolley;                 // in a trolley or on a truck
     var avg=durs.length?durs.reduce(function(a,b){return a+b;},0)/durs.length:null;
-    var med=null;if(durs.length){var ss=durs.slice().sort(function(a,b){return a-b;});med=ss[Math.floor((ss.length-1)/2)];}
+    var of=function(v,n){ return v.toLocaleString()+' <span style="font-size:16px;color:var(--text-3)">/ '+n.toLocaleString()+'</span>'; };
     el.innerHTML=[
-      kpiCard('Orders transferring',s.ord,'<strong>'+s.fullyArr+'</strong> fully arrived · '+s.partArr+' partial'),
-      kpiCard('Buckets in transfer',s.buckets.toLocaleString(),'across '+s.ord+' order'+(s.ord===1?'':'s')),
-      kpiCard('Shelved at destination',s.shelved.toLocaleString()+' <span style="font-size:16px;color:var(--text-3)">/ '+s.buckets.toLocaleString()+'</span>','<strong>'+pct+'%</strong> of buckets arrived'),
-      kpiCard('Still en route',onRoad.toLocaleString(),'<strong>'+Math.max(0,s.awaiting-onRoad).toLocaleString()+'</strong> waiting at farm · '+s.transit.toLocaleString()+' in transit'),
-      kpiCard('Won’t get a truck',(s.unsched+s.noTrip).toLocaleString(),(s.unsched?'<strong style="color:var(--bad)">'+s.unsched+'</strong> not on a schedule'+(s.noTeam?' ('+s.noTeam+' no team)':'')+' · ':'')+s.noTrip+' scheduled, no trip yet'),
-      kpiCard('Avg transit time',fmtDur(avg),(med!=null?'median '+fmtDur(med)+' · ':'')+durs.length+' arrived'),
-      kpiCard('Issued to packhouse',s.issued.toLocaleString(),s.buckets?Math.round(s.issued/s.buckets*100)+'% of buckets':'—')
+      kpiCard('Orders',s.ord),
+      kpiCard('Buckets',s.buckets.toLocaleString()),
+      kpiCard('At farm',Math.max(0,s.awaiting-onRoad).toLocaleString()),
+      kpiCard('In trolley',s.trolley.toLocaleString()),
+      kpiCard('In transit',s.transit.toLocaleString()),
+      kpiCard('Shelved ('+pct+'%)',of(s.shelved,s.buckets)),
+      kpiCard('Issued',of(s.issued,s.buckets)),
+      kpiCard('No trip',(s.unsched+s.noTrip).toLocaleString()),
+      kpiCard('Avg transit',fmtDur(avg))
     ].join('');
     el.style.setProperty('--n',el.children.length||7);
   }
@@ -2070,6 +2344,24 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
   // per order, already returned by getBucketLogistics; just never surfaced in the UI before).
   function renderTrucks(orders){
     var el=$('blTrucks');if(!el)return;
+    // One card per truck from its trips today: every run in order, where it goes and
+    // how far it has got (planned → loading → on the road → back).
+    var runs=(STATE&&STATE.runs)||[];
+    if(runs.length){
+      var byV={}; runs.forEach(function(r){ (byV[r.vehicle]=byV[r.vehicle]||[]).push(r); });
+      var vs=Object.keys(byV).sort();
+      el.innerHTML=vs.map(function(v){
+        var rs=byV[v], planned=0, loaded=0, shelved=0;
+        rs.forEach(function(r){ planned+=r.total_buckets||0; loaded+=r.loaded_buckets||0; shelved+=r.shelved_buckets||0; });
+        var lines=rs.map(function(r){
+          var st=r.status==='Received'?'back':(r.status==='Dispatched'?'on the road':(r.loading?'loading':(r.stale?'stale':'planned')));
+          var lbl=r.run?'Trip '+r.run+(r.runs>1?'/'+r.runs:''):'Trip …'+String(r.name).slice(-5);
+          return '<div title="'+esc(r.name)+(r.run_chain?' · '+esc(r.run_chain):'')+'"><b>'+lbl+'</b> '+st+(rs.length>1?' · '+(r.loaded_buckets||0)+'/'+(r.total_buckets||0):'')+'</div>'; }).join('');
+        return kpiCard(esc(v),loaded.toLocaleString()+' <span style="font-size:14px;color:var(--text-3)">/ '+planned.toLocaleString()+'</span>','<div style="line-height:1.5">'+lines+'</div>');
+      }).join('');
+      el.style.setProperty('--n',Math.max(vs.length,7));
+      return;
+    }
     var byTruck={};
     orders.forEach(function(o){
       if(!o.truck)return;
@@ -2090,22 +2382,62 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
     renderKpis(orders);
     renderTrucks(orders);
     if($('blCount'))$('blCount').textContent=orders.length+' order'+(orders.length===1?'':'s')+' being transferred';
-    if(!orders.length){$('blRows').innerHTML='<tr><td colspan="9"><div class="bl2-loading">No orders being transferred for this delivery date.</div></td></tr>';return;}
-    $('blRows').innerHTML=orders.map(function(o,i){
-      var sub=[o.customer,o.sales_order,o.opl].filter(Boolean).map(esc).join(' · ');
-      return '<tr class="orow"><td><b>'+esc(o.order_name||o.opl)+'</b><div class="bl2-sub">'+sub+'</div></td>'
-        +'<td>'+teamCell(o)+'</td>'
-        +'<td>'+esc(o.delivery_date||'—')+'</td><td>'+fmtDT(o.initiated)+'</td><td>'+transitTime(o)+'</td><td>'+esc(o.farm||'—')+'</td>'
-        +'<td>'+tripCell(o)+'</td>'
-        +'<td>'+pills(o)+'</td>'
-        +'<td style="text-align:right"><button class="bl2-more" data-i="'+i+'" data-opl="'+esc(o.opl)+'">Show more</button></td></tr>'
-        +'<tr id="det-'+i+'" style="display:none"><td colspan="9" style="padding:0"><div class="bl2-det" id="detb-'+i+'"></div></td></tr>';
-    }).join('');
+    if(!orders.length){$('blRows').innerHTML='<tr><td colspan="8"><div class="bl2-loading">No orders being transferred for this delivery date.</div></td></tr>';return;}
+    // Grouped per source farm, each group collapsible. An order collecting from
+    // several farms is listed under each, with that farm's counts and trips only.
+    var groups={};
+    orders.forEach(function(o){
+      var fs=(o.by_farm&&o.by_farm.length)?o.by_farm:[{farm:o.farm||''}];
+      var only=$('blFarm')&&$('blFarm').value;   // a farm filter shows only that farm's group
+      var all=fs; if(only) fs=fs.filter(function(f){ return f.farm===only; });
+      fs.forEach(function(f){
+        var row=Object.assign({},o,f.total!=null?f:{},{farm:f.farm||'',varieties:f.varieties!=null?f.varieties:o.varieties,
+          trips:(o.trips||[]).filter(function(t){ return !t.farm||!f.farm||t.farm===f.farm; }),
+          others:all.length>1?all.filter(function(x){ return x.farm!==f.farm; }).map(function(x){ return x.farm; }):[]});
+        (groups[row.farm||'—']=groups[row.farm||'—']||[]).push(row);
+      });
+    });
+    var farms=Object.keys(groups).sort(), i=0, sum=function(rows,k){ return rows.reduce(function(a,r){ return a+(r[k]||0); },0); };
+    var html='<tr class="fgrp-bar"><td colspan="8"><span class="bl2-sub">'+farms.length+' farm'+(farms.length===1?'':'s')+'</span>'+
+      '<button class="bl2-more" data-fg-all="open">Expand all</button><button class="bl2-more" data-fg-all="shut">Collapse all</button>'+
+      '<span class="bl2-legend">'+ROW_STATES.map(function(x){ return '<span><i style="background:'+x[2]+'"></i>'+x[1]+'</span>'; }).join('')+'</span></td></tr>';
+    farms.forEach(function(farm){
+      var rows=groups[farm], shut=!!FG_SHUT[farm], tot={};
+      FLAGS.forEach(function(f){ tot[f[0]]=sum(rows,f[0]); }); tot.total=sum(rows,'total');
+      html+='<tr class="fgrp'+(shut?' shut':'')+'" data-fg="'+esc(farm)+'"><td colspan="8"><span class="fg-caret">'+(shut?'▸':'▾')+'</span><b>'+esc(farm)+'</b>'+
+        '<span class="bl2-sub">'+rows.length+' order'+(rows.length===1?'':'s')+'</span>'+stagePills(tot)+'</td></tr>';
+      rows.forEach(function(o){
+        var sub=[o.customer,o.sales_order,o.opl].filter(Boolean).map(esc).join(' · ');
+        var hide=shut?' style="display:none"':'';
+        html+='<tr class="orow rs-'+rowState(o)+'" data-fgr="'+esc(farm)+'"'+hide+'><td><b>'+esc(o.order_name||o.opl)+'</b><div class="bl2-sub">'+sub+'</div>'+(o.others.length?'<div class="bl2-sub">also from '+esc(o.others.join(', '))+'</div>':'')+'</td>'
+          +'<td>'+teamCell(o)+'</td>'
+          +'<td style="white-space:nowrap">Deliver <b>'+fmtD(o.delivery_date)+'</b><div class="bl2-sub">Initiated '+fmtDT(o.initiated)+'</div></td><td>'+transitTime(o)+'</td>'
+          +'<td>'+varietyCell(o)+'</td>'
+          +'<td>'+tripCell(o)+'</td>'
+          +'<td>'+stagePills(o)+'</td>'
+          +'<td style="text-align:right"><button class="bl2-more" data-i="'+i+'" data-opl="'+esc(o.opl)+'" data-farm="'+esc(o.farm||'')+'">Show more</button></td></tr>'
+          +'<tr id="det-'+i+'" data-fgr="'+esc(farm)+'" data-det="1" style="display:none"><td colspan="8" style="padding:0"><div class="bl2-det" id="detb-'+i+'"></div></td></tr>';
+        i++;
+      });
+    });
+    $('blRows').innerHTML=html;
+  }
+  // Which farm groups are collapsed — remembered in this browser only.
+  var FG_SHUT=(function(){ try{ return JSON.parse(localStorage.getItem('bl2-farm-shut')||'{}')||{}; }catch(e){ return {}; } })();
+  function saveShut(){ try{ localStorage.setItem('bl2-farm-shut',JSON.stringify(FG_SHUT)); }catch(e){} }
+  function setGroup(farm,shut){
+    if(shut) FG_SHUT[farm]=1; else delete FG_SHUT[farm];
+    var hd=document.querySelector('#blRows tr.fgrp[data-fg="'+CSS.escape(farm)+'"]'); if(!hd) return;
+    hd.classList.toggle('shut',shut); hd.querySelector('.fg-caret').textContent=shut?'▸':'▾';
+    document.querySelectorAll('#blRows tr[data-fgr="'+CSS.escape(farm)+'"]').forEach(function(tr){
+      if(tr.dataset.det){ if(shut) tr.style.display='none'; else{ var b=tr.previousElementSibling&&tr.previousElementSibling.querySelector('.bl2-more[data-opl]'); tr.style.display=b&&b.textContent==='Hide'?'':'none'; } }
+      else tr.style.display=shut?'none':'';
+    });
   }
 
-  function renderDetail(el,opl){
+  function renderDetail(el,opl,farm){
     el.innerHTML=window.rtSkeleton.lines(4);
-    api('upande_packhouse.api.bucket_logistics.getBucketLogisticsDetail',{opl:opl,farm:$('blFarm').value}).then(function(d){
+    api('upande_packhouse.api.bucket_logistics.getBucketLogisticsDetail',{opl:opl,farm:farm||$('blFarm').value}).then(function(d){
       var b=(d&&d.buckets)||[];
       if(!b.length){el.innerHTML='<div class="bl2-loading">No transferring buckets.</div>';return;}
       var chk=function(v){return '<input type="checkbox" disabled '+(Number(v)?'checked':'')+'>';};
@@ -2122,7 +2454,7 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
     // Skeleton only while there is nothing to show yet — re-reads on a tab switch
     // update in place.
     if(!STATE||!(STATE.orders||[]).length){
-      $('blRows').innerHTML=window.rtSkeleton.rows(5,9);
+      $('blRows').innerHTML=window.rtSkeleton.rows(5,8);
       if($('blKpis')) $('blKpis').innerHTML=window.rtSkeleton.kpis(4).replace('<div class="sk-grid">','').replace(/<\/div>$/,'');
     }
     api('upande_packhouse.api.bucket_logistics.getBucketLogistics',{delivery_date:window.rtDate.get(),farm:$('blFarm').value,team:$('blTeam')?$('blTeam').value:''}).then(function(d){
@@ -2130,7 +2462,7 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
       var sel=$('blFarm');if(sel&&sel.options.length<=1){(d.farms||[]).forEach(function(f){var o=document.createElement('option');o.value=f;o.textContent=f;sel.appendChild(o);});}
       render();
       if(PV&&!AUTODONE){var vo=visibleOrders();if(vo.length===1){AUTODONE=true;var b=document.querySelector('.bl2-more[data-i="0"]');if(b)b.click();}}
-    }).catch(function(e){$('blRows').innerHTML='<tr><td colspan="9"><div class="bl2-loading" style="color:var(--issued)">Failed to load: '+esc(e.message)+'</div></td></tr>';});
+    }).catch(function(e){$('blRows').innerHTML='<tr><td colspan="8"><div class="bl2-loading" style="color:var(--issued)">Failed to load: '+esc(e.message)+'</div></td></tr>';});
   }
 
   function boot(){
@@ -2143,9 +2475,13 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
       var sel=$('blTeam');if(!sel)return;(r&&r.message||[]).forEach(function(row){var o=document.createElement('option');o.value=row.name;o.textContent=row.name;sel.appendChild(o);});
     }).catch(function(){});
     document.addEventListener('click',function(e){
+      var all=e.target.closest('[data-fg-all]');
+      if(all){ document.querySelectorAll('#blRows tr.fgrp').forEach(function(h){ setGroup(h.dataset.fg,all.dataset.fgAll==='shut'); }); saveShut(); return; }
+      var g=e.target.closest('#blRows tr.fgrp');
+      if(g){ setGroup(g.dataset.fg,!FG_SHUT[g.dataset.fg]); saveShut(); return; }
       var m=e.target.closest('.bl2-more[data-opl]');if(!m)return;
       var i=m.getAttribute('data-i'),det=$('det-'+i),body=$('detb-'+i);
-      if(det.style.display==='none'){det.style.display='';m.textContent='Hide';if(body.getAttribute('data-l')!=='1'){body.setAttribute('data-l','1');renderDetail(body,m.getAttribute('data-opl'));}}
+      if(det.style.display==='none'){det.style.display='';m.textContent='Hide';if(body.getAttribute('data-l')!=='1'){body.setAttribute('data-l','1');renderDetail(body,m.getAttribute('data-opl'),m.getAttribute('data-farm'));}}
       else{det.style.display='none';m.textContent='Show more';}
     });
     try{var qp=new URLSearchParams(location.search);var pd=qp.get('date'),pq=qp.get('q'),pv=qp.get('variety');if(pq){SEARCH=pq;if($('blSearch'))$('blSearch').value=pq;}PV=pv||'';}catch(e){}
@@ -2157,6 +2493,58 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
   function S_TAB_IS_LOGISTICS(){try{return new URLSearchParams(location.search).get('tab')==='logistics';}catch(e){return false;}}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 
+})();
+
+/* Styled dropdowns for the Bucket Logistics filters. The native <select> stays the
+   source of truth (hidden): picking sets its value and fires "change", so the filter
+   code is untouched; options added later (farms/teams load async) are read on open. */
+(function(){
+  var CHEV='<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
+  function esc(v){ return String(v==null?'':v).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function enhance(sel){
+    if(sel.dataset.bl2Done) return; sel.dataset.bl2Done='1';
+    var wrap=document.createElement('div'); wrap.className='bl2-dd'; wrap.style.width=sel.style.width||'150px';
+    wrap.innerHTML='<button type="button" class="bl2-dd-btn" aria-haspopup="listbox" aria-expanded="false"><span class="v"></span>'+CHEV+'</button>';
+    sel.style.display='none'; sel.parentNode.insertBefore(wrap,sel.nextSibling);
+    var btn=wrap.firstChild, label=btn.querySelector('.v'), pop=null, hl=-1;
+    function sync(){ var o=sel.options[sel.selectedIndex]; label.textContent=o?o.textContent:''; label.classList.toggle('ph',!sel.value); }
+    function close(){ if(pop){ pop.remove(); pop=null; } wrap.classList.remove('open'); btn.setAttribute('aria-expanded','false'); }
+    function pick(v){ if(sel.value!==v){ sel.value=v; sel.dispatchEvent(new Event('change',{bubbles:true})); } sync(); close(); btn.focus(); }
+    function draw(q){
+      var opts=[].slice.call(sel.options), list=pop.querySelector('.bl2-dd-list'); q=(q||'').trim().toLowerCase();
+      var shown=opts.filter(function(o){ return !q||!o.value||o.textContent.toLowerCase().indexOf(q)>=0; });
+      list.innerHTML=shown.map(function(o,i){ var on=o.value===sel.value;
+        return (i===1&&!shown[0].value?'<div class="bl2-dd-sep"></div>':'')+'<button type="button" role="option" class="bl2-dd-opt'+(on?' sel':'')+(o.value?'':' all')+'" data-v="'+esc(o.value)+'" aria-selected="'+on+'"><span class="ck">'+(on?'✓':'')+'</span>'+esc(o.textContent)+'</button>'; }).join('')
+        ||'<div class="bl2-dd-empty">No match</div>';
+      hl=-1;
+    }
+    function open(){
+      if(pop){ close(); return; }
+      document.querySelectorAll('.bl2-dd.open').forEach(function(d){ if(d!==wrap) d.querySelector('.bl2-dd-btn').click(); });
+      pop=document.createElement('div'); pop.className='bl2-dd-pop'; pop.setAttribute('role','listbox');
+      var many=sel.options.length>8;
+      pop.innerHTML=(many?'<input class="bl2-dd-q" placeholder="Search…" autocomplete="off">':'')+'<div class="bl2-dd-list"></div>';
+      wrap.appendChild(pop); wrap.classList.add('open'); btn.setAttribute('aria-expanded','true'); draw('');
+      var q=pop.querySelector('.bl2-dd-q'); if(q){ q.focus(); q.addEventListener('input',function(){ draw(q.value); }); }
+      var cur=pop.querySelector('.bl2-dd-opt.sel'); if(cur) cur.scrollIntoView({block:'nearest'});
+    }
+    btn.addEventListener('click',open);
+    wrap.addEventListener('click',function(e){ var o=e.target.closest('.bl2-dd-opt'); if(o) pick(o.dataset.v); });
+    wrap.addEventListener('keydown',function(e){
+      if(e.key==='Escape'){ close(); btn.focus(); return; }
+      if(!pop){ if(e.key==='ArrowDown'||e.key==='Enter'||e.key===' '){ if(e.target===btn){ e.preventDefault(); open(); } } return; }
+      var items=[].slice.call(pop.querySelectorAll('.bl2-dd-opt')); if(!items.length) return;
+      if(e.key==='ArrowDown'||e.key==='ArrowUp'){ e.preventDefault(); hl=(hl+(e.key==='ArrowDown'?1:-1)+items.length)%items.length;
+        items.forEach(function(x,i){ x.classList.toggle('hl',i===hl); }); items[hl].scrollIntoView({block:'nearest'}); }
+      else if(e.key==='Enter'){ e.preventDefault(); pick((items[hl>=0?hl:0]).dataset.v); }
+    });
+    document.addEventListener('mousedown',function(e){ if(pop&&!wrap.contains(e.target)) close(); });
+    sel.addEventListener('change',sync);
+    new MutationObserver(sync).observe(sel,{childList:true});
+    sync();
+  }
+  function boot(){ document.querySelectorAll('select[data-bl2-dd]').forEach(enhance); }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
 })();
 
 </script>

@@ -149,6 +149,17 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .bs-repl.done{border-color:var(--border);background:var(--bg-muted)}
 .aph .bs-repl b{font-weight:700}
 .aph .bs-repl .m{color:var(--text-3);font-size:11px;margin-top:3px}
+.aph .rt-trace{border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin:0 0 12px;font-size:12px;background:var(--bg-card,#fff)}
+.aph .rt-trace-hd{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline;margin-bottom:6px}
+.aph .rt-trace-hd b{font-weight:700}
+.aph .rt-trace-hd .st{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:2px 7px;border-radius:999px;background:var(--bg-muted);color:var(--text-2)}
+.aph .rt-trace-hd .st.arrived{background:#e7f6ec;color:#067647}
+.aph .rt-trace-hd .st.in_transit{background:#eaf2ff;color:#1d4ed8}
+.aph .rt-trace-hd .st.not_found{background:#fef3f2;color:#b42318}
+.aph .rt-ev{display:grid;grid-template-columns:130px 92px 1fr;gap:2px 10px;padding:3px 0;border-top:1px dashed var(--border)}
+.aph .rt-ev .t{color:var(--text-3);font-variant-numeric:tabular-nums}
+.aph .rt-ev .d .u{color:var(--text-3);font-size:11px}
+@media (max-width:600px){.aph .rt-ev{grid-template-columns:1fr}}
 .aph .bs-acts{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
 .aph .bs-act{font:600 11px var(--f);border:1px solid var(--border);background:#fff;border-radius:999px;padding:4px 10px;cursor:pointer}
 .aph .bs-act:hover{border-color:var(--text)}
@@ -885,6 +896,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 
         <!-- Bucket summary well -->
         <div id="bsReplNote"></div>
+        <div id="bsRemoteTr"></div>
         <div id="bucketSummary" style="display:none" class="well">
             <span class="id-display" id="summaryId"></span>
             <div class="bucket-meta">
@@ -1157,7 +1169,7 @@ async function trackBucket() {
     if (!id) { showError('Please enter a Bucket ID.'); return; }
     clearError();
     setState('loading');
-    bsReplNote(null, []);
+    bsReplNote(null, []); bsRemoteTr([]);
     q('loadingMsg').textContent = 'Tracing bucket journeys...';
     q('searchBtn').disabled = true;
     q('correctBtn').style.display = 'none';
@@ -1206,6 +1218,7 @@ async function trackBucket() {
 
         G = { id, harvestSEs, gradingSEs, receiveSEs, shelfData, discardData, rejectData, quarantineData, allocData, allocFull, oplData, seQtyMap, seItemMap };
         bsReplNote(id, J.replacements || []);
+        bsRemoteTr(J.remote_transfers || []);
         buildJourneys();
 
     } catch (err) {
@@ -1665,7 +1678,7 @@ async function trackBunch() {
     const bunchId = q('trackInput').value.trim();
     if (!bunchId) { showError('Please enter a Bunch ID.'); return; }
     clearError();
-    bsReplNote(null, []); setState('loading');
+    bsReplNote(null, []); bsRemoteTr([]); setState('loading');
     q('loadingMsg').textContent = 'Tracing bunch journey...';
     q('searchBtn').disabled = true;
 
@@ -2335,6 +2348,20 @@ function bsReplLine(r, id) {
     const meta = [r.farm, r.expected_shelf ? 'shelf ' + r.expected_shelf : '', r.item_code && (r.item_code + ' ' + (r.stem_length || '')), r.stems ? Math.round(r.stems) + ' stems' : '',
         r.vehicle ? 'truck ' + r.vehicle : '', when ? when + (who ? ' by ' + who : '') : '', r.status !== 'Open' ? r.status + (r.resolution ? ' · ' + r.resolution : '') : 'still missing'].filter(Boolean);
     return head + `<div class="m">${meta.map(escHtml).join(' · ')}</div>`;
+}
+/* Remote transfers the bucket was trucked in: farm → packhouse, by truck / run / trip,
+   with when it was requested, loaded, dispatched and shelved (or not found at the farm). */
+const RT_STATE = {at_farm:'At farm', on_trolley:'On trolley', in_transit:'In transit', arrived:'Arrived', not_found:'Not found'};
+function bsRemoteTr(list) {
+    const el = q('bsRemoteTr'); if (!el) return;
+    const fmt = v => { if (!v) return '—'; const d = new Date(String(v).replace(' ', 'T')); return isNaN(d) ? escHtml(String(v)) : d.toLocaleString([], {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'}); };
+    el.innerHTML = (list || []).map(t => `<div class="rt-trace"><div class="rt-trace-hd"><b>Remote transfer</b>
+        <span>${escHtml(t.order_name)} · ${escHtml(t.from_farm || '?')} → ${escHtml(t.to_farm || '')}</span>
+        <span class="st ${escHtml(t.state)}">${escHtml(RT_STATE[t.state] || t.state)}</span>
+        <span style="color:var(--text-3)">${escHtml(t.variety)}${t.stems ? ' · ' + Math.round(t.stems) + ' stems' : ''}${t.delivery_date ? ' · due ' + escHtml(t.delivery_date) : ''}</span></div>
+        ${(t.events || []).map(e => `<div class="rt-ev"><span class="t">${fmt(e.datetime)}</span><b>${escHtml(e.stage)}</b>
+          <span class="d">${escHtml(e.detail || '')}${e.user ? ' <span class="u">· ' + escHtml(e.user) + '</span>' : ''}</span></div>`).join('')}
+      </div>`).join('');
 }
 function bsReplNote(id, reps) {
     const el = q('bsReplNote'); if (!el) return;

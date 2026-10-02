@@ -9,6 +9,8 @@
   "bucket",
   "order_pick_list",
   "farm",
+  "loaded_at",
+  "loaded_by",
   "column_break_1",
   "shelved",
   "shelved_at",
@@ -34,6 +36,20 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Farm"
+  },
+  {
+   "fieldname": "loaded_at",
+   "fieldtype": "Datetime",
+   "label": "Loaded At",
+   "read_only": 1,
+   "description": "When it was loaded onto the truck (farm app)."
+  },
+  {
+   "fieldname": "loaded_by",
+   "fieldtype": "Link",
+   "options": "User",
+   "label": "Loaded By",
+   "read_only": 1
   },
   {
    "fieldname": "column_break_1",
@@ -66,7 +82,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-10-01 20:09:45.026352",
+ "modified": "2026-10-02 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Bucket Request Trip Bucket",

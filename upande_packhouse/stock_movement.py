@@ -716,6 +716,11 @@ def post_arrival(
 		frappe.throw(_("Not permitted to move stock between warehouses"), frappe.PermissionError)
 
 	route = resolve_route(source_warehouse, business_unit, upto=ARRIVAL_STAGE)
+	# Shelving at the remote farm itself (Chepsito shelving its own harvest) is not
+	# an arrival: the stems stay in that farm's cold store until the truck brings
+	# them and they are shelved at the farm the route lands on (Kapkolia).
+	if route and not shelved_at_arrival(route, farm):
+		return {"warehouse": source_warehouse, "posted": [], "skipped": [], "moved": False}
 	row = {
 		"bucket_id": bucket_id,
 		"item_code": item_code,
@@ -736,6 +741,79 @@ def post_arrival(
 	}
 
 
+def shelved_at_arrival(route, farm):
+	"""Is a bucket shelved at `farm` at the end of its Arrival leg(s)? True when the
+	farm is unknown (callers that never sent one keep moving as before)."""
+	if not farm:
+		return True
+	arrival = [hop for hop in route if hop["stage"] == ARRIVAL_STAGE]
+	if not arrival:
+		return True
+	dest_farm = frappe.db.get_value("Warehouse", arrival[-1]["to"], "custom_farm")
+	return not dest_farm or dest_farm.lower() == farm.lower()
+
+
+def needs_transfer(source, business_unit):
+	"""The source warehouse is a remote farm's: its route starts with an Arrival leg."""
+	route = resolve_route(source, business_unit, upto=SALE_STAGE) if source else []
+	return bool(route) and route[0]["stage"] == ARRIVAL_STAGE
+
+
+@frappe.whitelist()
+def post_sale_on_arrival(bucket_id: str | None, business_unit: str | None = None):
+	"""Post the sale leg for a remote bucket's allocations once it has arrived.
+
+	Allocation leaves a remote bucket's stems in its farm's cold store (the sale is
+	deferred — see move_allocation_to_sold). When the bucket is shelved at the sales
+	farm, the Arrival leg brings the stems over and this lands every pick row still
+	open for it in the *Sold warehouse. Idempotent: plan_moves skips what is sold.
+	"""
+	if not bucket_id:
+		return {"posted": [], "skipped": []}
+	names = frappe.get_all(
+		"Pick List Item",
+		filters={"bucket": bucket_id, "parenttype": "Order Pick List"},
+		pluck="parent",
+		distinct=True,
+	)
+	rows = []
+	for opl_name in names:
+		opl = frappe.get_doc("Order Pick List", opl_name)
+		if opl.docstatus == 2:
+			continue
+		bu = business_unit or opl_business_unit(opl)
+		for row in opl_rows(opl):
+			if (_row_bucket(row) or "").lower() != bucket_id.lower():
+				continue
+			source = _row_warehouse(row) or receiving_warehouse(bucket_id, row.item_code)
+			if not source:
+				continue
+			rows.append(
+				(
+					bu,
+					{
+						"bucket_id": bucket_id,
+						"item_code": row.item_code,
+						"qty": flt(row.stock_qty) or flt(row.qty),
+						# The farm's own warehouse: only_stage picks the sale leg, which
+						# starts where the Arrival leg landed the stems.
+						"source": source,
+						"stem_length": row.get("stem_length"),
+						"farm": row.get("farm"),
+						"so_item": _row_so_item(row),
+						"opl": opl_name,
+						"remarks": f"Allocated to {opl.sales_order} (arrived)" if opl.sales_order else "Allocated",
+					},
+				)
+			)
+	posted, skipped = [], []
+	for bu in {bu for bu, _ in rows}:
+		plans, skip = plan_moves([r for b, r in rows if b == bu], bu, upto=SALE_STAGE, only_stage=SALE_STAGE)
+		posted += post_plans(plans, bu)
+		skipped += skip
+	return {"posted": posted, "skipped": skipped}
+
+
 # ============================================================
 # EVENT 2 — ALLOCATION (TERMINAL HOP: THE SALE)
 # ============================================================
@@ -747,7 +825,7 @@ def move_allocation_to_sold(allocations, business_unit, sales_order=None, opl=No
 	the caller allocates inside a transaction, so a sale we cannot back with
 	stock must roll the whole allocation back.
 	"""
-	rows = []
+	rows, deferred = [], []
 	for a in allocations:
 		bucket_id = a.get("bucket_id")
 		item_code = a.get("item_code")
@@ -761,6 +839,13 @@ def move_allocation_to_sold(allocations, business_unit, sales_order=None, opl=No
 				f"Bucket {bucket_id} ({item_code}) has no receiving entry — "
 				"its stems were never booked into a cold store."
 			)
+
+		# A remote farm's bucket is sold where it is, but its stems only move when it
+		# is shelved at the sales farm (post_sale_on_arrival) — not now, while it is
+		# still in the farm's cold store waiting for the truck.
+		if needs_transfer(source, business_unit):
+			deferred.append({"bucket_id": bucket_id, "item_code": item_code, "source": source})
+			continue
 
 		rows.append(
 			{
@@ -777,6 +862,7 @@ def move_allocation_to_sold(allocations, business_unit, sales_order=None, opl=No
 		)
 
 	plans, skipped = plan_moves(rows, business_unit)
+	skipped += [{**d, "reason": "awaiting transfer: sold on arrival"} for d in deferred]
 	posted = post_plans(plans, business_unit)
 	return {"posted": posted, "skipped": skipped}
 

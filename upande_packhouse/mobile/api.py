@@ -4474,7 +4474,9 @@ def issueBucketToSaleOrderItem():
 								log.insert(ignore_permissions=True)
 						except Exception:
 							frappe.log_error("Shelving Log on issue failed", str(bucket_id))
-						frappe.delete_doc("Shelf Item", item.name, force=1)
+						# Packhouse users may have no delete on Shelf; the bucket must still
+						# come off the shelf once it is fully issued.
+						frappe.delete_doc("Shelf Item", item.name, force=1, ignore_permissions=True)
 						removed_from_shelf.append(item.parent)
 						# Touch parent shelf to refresh UI/modified time
 						frappe.db.set_value("Shelf", item.parent, "modified", frappe.utils.now())

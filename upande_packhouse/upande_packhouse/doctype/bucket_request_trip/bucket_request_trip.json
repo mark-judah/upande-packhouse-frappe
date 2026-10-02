@@ -7,6 +7,8 @@
  "engine": "InnoDB",
  "field_order": [
   "vehicle",
+  "route",
+  "run",
   "trip_date",
   "status",
   "column_break_1",
@@ -43,6 +45,20 @@
    "label": "Vehicle",
    "options": "Vehicle",
    "reqd": 1
+  },
+  {
+   "fieldname": "route",
+   "fieldtype": "Link",
+   "label": "Route",
+   "options": "Bucket Logistics Route",
+   "description": "The truck route this trip drives."
+  },
+  {
+   "fieldname": "run",
+   "fieldtype": "Int",
+   "label": "Run",
+   "in_list_view": 1,
+   "description": "Which run of the route this trip is (packhouse → farms → packhouse). One trip per run."
   },
   {
    "default": "Today",
@@ -207,7 +223,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 0,
  "links": [],
- "modified": "2026-10-01 23:45:58.685529",
+ "modified": "2026-10-02 13:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Bucket Request Trip",
