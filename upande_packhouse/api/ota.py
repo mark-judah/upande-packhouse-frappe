@@ -103,6 +103,7 @@ def _log_once(key, title, message):
 		pass
 
 
+# nosemgrep: guest-whitelisted-method -- expo-updates fetches the manifest before login; the response is a public build artefact
 @frappe.whitelist(allow_guest=True, methods=["GET"])
 def manifest(runtime: str | None = None, platform: str | None = None):
 	"""Serve the expo-updates manifest for the caller's runtime version.
