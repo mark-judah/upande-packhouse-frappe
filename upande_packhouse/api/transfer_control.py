@@ -892,7 +892,7 @@ def _plan_lock():
 	is a no-op."""
 	got = frappe.db.sql("SELECT GET_LOCK('upande_bucket_trip_plan', 30)")[0][0]
 	if not got:
-		frappe.throw("Trip planning is busy — try again in a moment.")
+		frappe.throw(_("Trip planning is busy — try again in a moment."))
 
 
 def _carry_over(doc, farm=None, date=None, report=None):
@@ -3796,7 +3796,7 @@ def _trip_shelf_state(doc):
 
 
 @frappe.whitelist(methods=["POST"])
-def tripArrival(name=None, farm=None, action="status"):
+def tripArrival(name: str | None = None, farm: str | None = None, action: str = "status"):
 	"""Farm app, In Transit: the truck reached the transfer hub.
 
 	action "status"   — arrival time and every carried bucket's shelved state.
@@ -3861,7 +3861,7 @@ def tripArrival(name=None, farm=None, action="status"):
 
 
 @frappe.whitelist()
-def getFarmShelvedBuckets(farm=None, days=3, delivery_date=None):
+def getFarmShelvedBuckets(farm: str | None = None, days: int = 3, delivery_date: str | None = None):
 	"""Farm app "Shelved": every bucket this farm sent on a dispatched / received trip,
 	per trip, and whether it is shelved at the hub yet (with the shelf and when) — so the
 	remote QC sees what reached the sales farm.
@@ -4020,7 +4020,9 @@ def repair_remote_source_warehouse(dry_run=1, delivery_date=None):
 			if not cint(dry_run):
 				frappe.db.set_value("Shelf Item", r.name, "warehouse", wh, update_modified=False)
 	if not cint(dry_run):
-		frappe.db.commit()
+		# A repair run on demand: its shelf moves are the whole job and must
+		# persist on their own, outside any request transaction.
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	return {
 		"dry_run": bool(cint(dry_run)),
 		"pick_row_count": len(fixed["pick_rows"]),
@@ -4034,7 +4036,7 @@ def _farm_rows(doc, farm):
 
 
 @frappe.whitelist()
-def getFarmCompletedTrips(farm=None, days=3):
+def getFarmCompletedTrips(farm: str | None = None, days: int = 3):
 	"""Farm app "Completed": this farm's trips the truck has left — the stop was closed
 	or the trip dispatched / received — newest first, with what was planned, loaded and
 	left behind (and the open trip that now carries what was left)."""
@@ -4109,7 +4111,7 @@ def getFarmCompletedTrips(farm=None, days=3):
 
 
 @frappe.whitelist(methods=["POST"])
-def reopenTripStop(name=None, farm=None):
+def reopenTripStop(name: str | None = None, farm: str | None = None):
 	"""Farm app: the truck left this farm (stop closed / trip dispatched) before every
 	planned bucket was loaded. While the trip is still on its run the stop reopens — the
 	truck is expected back and the rest can load onto it. Once the trip has gone to the
@@ -4360,6 +4362,7 @@ def fix_bucket_stock_location(dry_run=1, since="2026-09-20", business_unit="Rose
 	fixed = []
 	for farm_wh, arrival in pairs:
 		bucket = sm._bucket_expr()  # line bucket where the site has it, else the entry's
+		# nosemgrep: frappe-sql-format-injection -- {bucket} is a fixed column expression; every value is bound
 		lines = frappe.db.sql(
 			f"""SELECT DISTINCT {bucket} AS bucket, sed.item_code
 			FROM `tabStock Entry` se JOIN `tabStock Entry Detail` sed ON sed.parent = se.name

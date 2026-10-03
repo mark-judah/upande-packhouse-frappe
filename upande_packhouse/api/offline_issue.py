@@ -228,7 +228,9 @@ def _correct(bucket, variety, stem_length):
 		)
 		if not clash:
 			frappe.db.set_value("Bucket Allocation Status", bas.name, target)
-	frappe.db.commit()
+	# correctDetails commits its own corrections; the re-key belongs with them, and
+	# must not be lost if the caller's request fails after this point.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	return {"ok": True, "message": data.get("message")}
 
 
