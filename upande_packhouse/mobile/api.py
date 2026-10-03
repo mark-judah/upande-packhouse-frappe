@@ -4972,30 +4972,16 @@ def shelveBucket():
 		}
 		return
 
-	# A shelf belongs to its farm: never shelve onto (and re-farm) another farm's shelf.
+	# A shelf belongs to its farm: shelving onto it counts at THAT farm, whatever the
+	# app is set to. Never refused; the correction is recorded.
 	if shelf_doc.farm and farm and shelf_doc.farm.lower() != str(farm).lower():
-		frappe.response["data"] = {
-			"status": "failed",
-			"reason": "wrong_farm_shelf",
-			"message": "Shelf {0} belongs to {1}, but the app is set to {2}. Switch the farm to {1} to shelve here.".format(
-				shelf_id, shelf_doc.farm, farm
-			),
-			"payload": {"shelf_id": shelf_id, "bucket_id": bucket_id},
-		}
-		return
+		from upande_packhouse.api import transfer_control as tc
 
-	# Once its transfer has started, a bucket never goes back on a remote shelf.
-	from upande_packhouse.api.transfer_control import remote_shelving_block
-
-	blocked = remote_shelving_block(bucket_id, farm)
-	if blocked:
-		frappe.response["data"] = {
-			"status": "failed",
-			"reason": "already_transferred",
-			"message": blocked,
-			"payload": {"shelf_id": shelf_id, "bucket_id": bucket_id},
-		}
-		return
+		tc.log_transfer_event(
+			bucket_id, "Shelving farm corrected", farm=farm, shelf=shelf_id,
+			details="App set to {0}; shelf {1} belongs to {2} — shelved at {2}".format(farm, shelf_id, shelf_doc.farm),
+		)
+		farm = shelf_doc.farm
 
 	# ── TRANSIT / OPL updates for transfer buckets (local buckets untouched) ──
 	_shelve_update_transit_status(bucket_id, shelf_id, farm, result)
