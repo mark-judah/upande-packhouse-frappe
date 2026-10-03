@@ -136,6 +136,7 @@ def getBucketLogistics():
             SELECT o.order_pick_list AS opl, t.name AS trip, t.vehicle AS vehicle, t.status AS status,
                    t.trip_date AS trip_date, SUM(o.buckets) AS buckets,
                    SUM(o.loaded_buckets) AS loaded_buckets, t.run AS run, t.route AS route,
+                   t.arrived_at AS arrived_at,
                    IFNULL(o.farm, '') AS farm
             FROM `tabBucket Request Trip Order` o
             JOIN `tabBucket Request Trip` t ON t.name = o.parent
@@ -165,6 +166,8 @@ def getBucketLogistics():
 					"run": int(t.run or 0),
 					"route": t.route or "",
 					"farm": t.farm,
+					# The farm app's "Truck arrived at <hub>": at the packhouse, not shelved yet.
+					"arrived_at": str(t.arrived_at or ""),
 				}
 			)
 	# Shelved per (order, farm): a farm's buckets can arrive without the app recording
@@ -237,6 +240,34 @@ def getBucketLogistics():
 					if k != "opl"
 				}
 			)
+	# On a truck that has arrived at the packhouse (the farm app's "Truck arrived"), not
+	# shelved yet — per order and source farm.
+	at_hub = {}
+	if rows:
+		for x in frappe.db.sql(
+			"""SELECT pli.parent AS opl, """
+			+ FARM_EXPR
+			+ """ AS src, COUNT(DISTINCT """
+			+ BKT
+			+ """) AS n
+			FROM `tabBucket Request Trip Bucket` tb
+			JOIN `tabBucket Request Trip` t ON t.name = tb.parent
+			JOIN `tabPick List Item` pli ON pli.parent = tb.order_pick_list AND pli.parenttype = 'Order Pick List'
+			     AND UPPER(pli.bucket) = UPPER(tb.bucket)
+			WHERE tb.parenttype = 'Bucket Request Trip' AND tb.order_pick_list IN %(opls)s
+			  AND t.arrived_at IS NOT NULL AND t.status != 'Received'
+			  AND IFNULL(tb.off_truck, 0) = 0 AND IFNULL(pli.shelved, 0) = 0
+			GROUP BY pli.parent, """
+			+ FARM_EXPR,
+			{"opls": tuple(r["opl"] for r in rows)},
+			as_dict=True,
+		):
+			at_hub[(x.opl, x.src or "")] = int(x.n or 0)
+	for r in rows:
+		r["hub"] = hub
+		r["arrived_hub"] = sum(n for (o, _f), n in at_hub.items() if o == r["opl"])
+		for f in by_farm.get(r["opl"], []):
+			f["arrived_hub"] = at_hub.get((r["opl"], f["farm"]), 0)
 	for r in rows:
 		r["by_farm"] = by_farm.get(r["opl"], [])
 		r["trips"] = trips.get(r["opl"], [])

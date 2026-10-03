@@ -2265,7 +2265,7 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
 <script>
 /* Logistics tab — moved verbatim from bucket-logistics.html (own ids: bl*). */
 (function(){
-  const FLAGS=[['awaiting','Awaiting Transfer','var(--awaiting)'],['trolley','Loaded in Trolley','var(--trolley)'],['transit','In Transit','var(--transit)'],['shelved','Shelved','var(--shelved)'],['ready','Ready for Packing','var(--ready)'],['issued','Issued','var(--issued)'],['not_found','Not found','var(--bad, #b42318)']];
+  const FLAGS=[['awaiting','Awaiting Transfer','var(--awaiting)'],['trolley','Loaded in Trolley','var(--trolley)'],['transit','In Transit','var(--transit)'],['arrived_hub','Arrived at Kapkolia','#0e7490'],['shelved','Shelved','var(--shelved)'],['ready','Ready for Packing','var(--ready)'],['issued','Issued','var(--issued)'],['not_found','Not found','var(--bad, #b42318)']];
   let STATE={orders:[]},SEARCH='',PV='',AUTODONE=false;
   const $=function(id){return document.getElementById(id);};
   function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -2273,7 +2273,7 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
   function api(m,args){var qs=Object.keys(args).filter(function(k){return args[k]!=null&&args[k]!=='';}).map(function(k){return encodeURIComponent(k)+'='+encodeURIComponent(args[k]);}).join('&');return fetch('/api/method/'+m+(qs?('?'+qs):''),{credentials:'same-origin',headers:{'Accept':'application/json'}}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();});}
   // Every stage as done / requested, so each line reads against what was asked for.
   // The main stages always show (a 0 is greyed); Ready and Not found only when they happen.
-  var ALWAYS={awaiting:1,trolley:1,transit:1,shelved:1,issued:1};
+  var ALWAYS={awaiting:1,trolley:1,transit:1,arrived_hub:1,shelved:1,issued:1};
   function stagePills(o){var n=o.total||0;
     return '<span class="bl2-req">Requested <b>'+n+'</b></span>'+FLAGS.map(function(f){var x=o[f[0]]||0;if(!x&&!ALWAYS[f[0]])return '';
       return '<span class="bl2-pill'+(x?'':' zero')+'" style="background:'+f[2]+'">'+f[1]+' '+x+'/'+n+'</span>';}).join('');}
@@ -2288,6 +2288,8 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
     // Not arrived yet: show where the order actually is. "In transit" only once a
     // bucket is really on a truck — it used to say so the moment the OPL existed.
     if(!o.arrived){
+      // The farm app marked the truck arrived at the packhouse: there, not shelved yet.
+      if(o.arrived_hub)return '<span class="bl2-pill" style="background:#0e7490">arrived at '+esc(o.hub||'Kapkolia')+'</span>';
       if(o.transit)return '<span class="bl2-pill" style="background:var(--transit)">in transit</span>';
       if(o.trolley)return '<span class="bl2-pill" style="background:var(--trolley)">in trolley</span>';
       if(o.awaiting)return '<span class="bl2-pill" style="background:var(--awaiting)">at farm</span>';
@@ -2333,7 +2335,7 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
     // One chip per trip: truck · run · status, then loaded vs planned (a load nothing
     // planned shows "loaded, not planned" — it used to read "0 bkt").
     return t.map(function(x){
-      var st=x.status==='Received'?'ended':(x.loaded_buckets&&(x.status==='Draft'||x.status==='Scheduled')?'loading':String(x.status||'').toLowerCase());
+      var st=x.status==='Received'?'ended':(x.status==='Dispatched'&&x.arrived_at?'arrived':(x.loaded_buckets&&(x.status==='Draft'||x.status==='Scheduled')?'loading':String(x.status||'').toLowerCase()));
       var qty=x.buckets?(x.loaded_buckets?x.loaded_buckets+' / '+x.buckets+' loaded':x.buckets+' planned'):(x.loaded_buckets+' loaded, not planned');
       if(x.shelved) qty+=' · '+x.shelved+' arrived';
       // ✎ edit a trip that is only planned (nothing loaded): wrong truck / farm / count.
@@ -2487,9 +2489,9 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
       var chk=function(v){return '<input type="checkbox" disabled '+(Number(v)?'checked':'')+'>';};
       /* One row per bucket (a bucket packed into several boxes has a pick row per box). */
       var head='<tr><th>#</th><th>Bucket</th><th>Variety</th><th>Len</th><th>Boxes</th><th>Stems</th><th>Farm</th><th>Shelf</th><th>Truck</th>'
-        +FLAGS.map(function(f){return '<th class="c">'+f[1]+'</th>';}).join('')+'</tr>';
+        +FLAGS.filter(function(f){return f[0]!=='arrived_hub';}).map(function(f){return '<th class="c">'+f[1]+'</th>';}).join('')+'</tr>';
       var body=b.map(function(x,j){var hl=PV&&String(x.variety||'').toLowerCase()===PV.toLowerCase();return '<tr'+(hl?' style="background:var(--bg-muted)"':'')+'><td>'+(j+1)+'</td><td><b>'+esc(x.bucket||'—')+'</b></td><td'+(hl?' style="font-weight:700"':'')+'>'+esc(x.variety)+'</td><td>'+esc(x.length||'—')+'</td><td>'+esc(x.box_id||String(x.boxes||1))+'</td><td>'+(Number(x.stems)||0).toLocaleString('en-US')+'</td><td>'+esc(x.farm||'—')+'</td><td>'+esc(x.shelf||'—')+'</td><td>'+esc(x.truck||'—')+'</td>'
-        +FLAGS.map(function(f){return '<td class="c">'+chk(x[f[0]])+'</td>';}).join('')+'</tr>';}).join('');
+        +FLAGS.filter(function(f){return f[0]!=='arrived_hub';}).map(function(f){return '<td class="c">'+chk(x[f[0]])+'</td>';}).join('')+'</tr>';}).join('');
       el.innerHTML='<table class="bl2-buck"><thead>'+head+'</thead><tbody>'+body+'</tbody></table>';
     }).catch(function(e){el.innerHTML='<div class="bl2-loading" style="color:var(--issued)">Failed: '+esc(e.message)+'</div>';});
   }
