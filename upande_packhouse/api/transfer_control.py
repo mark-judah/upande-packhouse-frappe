@@ -4402,3 +4402,59 @@ def fix_bucket_stock_location(dry_run=1, since="2026-09-20", business_unit="Rose
 				frappe.db.rollback()
 				fixed[-1]["error"] = str(e)[:200]
 	return {"dry_run": bool(cint(dry_run)), "moves": len(fixed), "rows": fixed, "hub": hub}
+
+
+def remote_shelving_block(bucket_id, farm):
+	"""Why a bucket may NOT be shelved at `farm` (a remote farm), or None.
+
+	Once a bucket's transfer has started it never goes back on that farm's shelf:
+	  * an open order has it on a trolley / truck / in transit (not shelved or issued
+	    yet) — it left the shelf for the packhouse;
+	  * its stock already moved out of the farm's cold store after its latest
+	    receiving (the Remote Transfers leg posted).
+	Finished transfers (shelved / issued) don't count, so a reused bucket received
+	again at the farm can be shelved there."""
+	hub = transfer_hub(required=False) or ""
+	if not bucket_id or not farm or (hub and farm.lower() == hub.lower()):
+		return None
+	moving = frappe.db.sql(
+		"""SELECT pli.parent, MAX(pli.in_transit) AS transit, MAX(pli.transit_truck) AS truck
+		FROM `tabPick List Item` pli
+		JOIN `tabOrder Pick List` opl ON opl.name = pli.parent AND opl.docstatus < 2
+		WHERE pli.parenttype = 'Order Pick List' AND UPPER(pli.bucket) = UPPER(%(b)s)
+		  AND (pli.loaded_in_trolley = 1 OR pli.in_transit = 1)
+		  AND IFNULL(pli.shelved, 0) = 0 AND IFNULL(pli.issued, 0) = 0
+		GROUP BY pli.parent LIMIT 1""",
+		{"b": bucket_id},
+		as_dict=True,
+	)
+	if moving:
+		m = moving[0]
+		where = "on {0}".format(m.truck) if int(m.transit or 0) and m.truck else "on a trolley"
+		return "Bucket {0} is already being transferred to {1} ({2}, {3}) — it can't go back on a {4} shelf.".format(
+			bucket_id, hub or "the packhouse", where, m.parent, farm
+		)
+	from upande_packhouse import stock_movement as sm
+
+	row = sm.mapping_row_for_farm(farm, "Roses")
+	farm_wh = row.source_warehouse if row else None
+	if farm_wh:
+		received = frappe.db.sql(
+			"""SELECT MAX(TIMESTAMP(se.posting_date, se.posting_time)) FROM `tabStock Entry` se
+			WHERE UPPER(se.custom_bucket_id) = UPPER(%(b)s) AND se.docstatus = 1
+			  AND se.stock_entry_type IN ('Receiving', 'Late Receipt')""",
+			{"b": bucket_id},
+		)[0][0]
+		if received:
+			left = frappe.db.sql(
+				"""SELECT se.name FROM `tabStock Entry` se JOIN `tabStock Entry Detail` d ON d.parent = se.name
+				WHERE UPPER(se.custom_bucket_id) = UPPER(%(b)s) AND se.docstatus = 1
+				  AND se.stock_entry_type = %(t)s AND d.s_warehouse = %(wh)s
+				  AND TIMESTAMP(se.posting_date, se.posting_time) >= %(r)s LIMIT 1""",
+				{"b": bucket_id, "t": sm.TYPE_REMOTE_TRANSFER, "wh": farm_wh, "r": received},
+			)
+			if left:
+				return "Bucket {0} was already transferred to {1} ({2}) — it can't go back on a {3} shelf.".format(
+					bucket_id, hub or "the packhouse", left[0][0], farm
+				)
+	return None

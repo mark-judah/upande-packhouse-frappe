@@ -4984,6 +4984,19 @@ def shelveBucket():
 		}
 		return
 
+	# Once its transfer has started, a bucket never goes back on a remote shelf.
+	from upande_packhouse.api.transfer_control import remote_shelving_block
+
+	blocked = remote_shelving_block(bucket_id, farm)
+	if blocked:
+		frappe.response["data"] = {
+			"status": "failed",
+			"reason": "already_transferred",
+			"message": blocked,
+			"payload": {"shelf_id": shelf_id, "bucket_id": bucket_id},
+		}
+		return
+
 	# ── TRANSIT / OPL updates for transfer buckets (local buckets untouched) ──
 	_shelve_update_transit_status(bucket_id, shelf_id, farm, result)
 
