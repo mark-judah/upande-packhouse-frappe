@@ -4983,6 +4983,22 @@ def shelveBucket():
 		)
 		farm = shelf_doc.farm
 
+	# Already transferred: only the sales farm can shelve it (a remote shelf is refused).
+	from upande_packhouse.api.transfer_control import remote_shelving_block
+
+	blocked = remote_shelving_block(bucket_id, farm)
+	if blocked:
+		from upande_packhouse.api import transfer_control as tc
+
+		tc.log_transfer_event(bucket_id, "Shelving refused", outcome="Refused", farm=farm, shelf=shelf_id, details=blocked)
+		frappe.response["data"] = {
+			"status": "failed",
+			"reason": "already_transferred",
+			"message": blocked + " Shelve it at the sales farm.",
+			"payload": {"shelf_id": shelf_id, "bucket_id": bucket_id},
+		}
+		return
+
 	# ── TRANSIT / OPL updates for transfer buckets (local buckets untouched) ──
 	_shelve_update_transit_status(bucket_id, shelf_id, farm, result)
 
