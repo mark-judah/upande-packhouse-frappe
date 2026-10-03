@@ -26,6 +26,8 @@ from upande_packhouse.server_scripts.create_mixed_box_picklist import (
 	_get_confirmed_stems_for_location,
 	_get_shelf_farm_for_location,
 	_lookup_shelf,
+	open_box_slots,
+	placed_stems_by_box,
 )
 
 
@@ -157,6 +159,7 @@ def create_mixed_bunch_pick_list_for_allocated_items(
 					confirmed_qty=confirmed_stems.get(so_item_name, 0),
 					already_stems=already_stems,
 					start_box_num=start_box_num,
+					placed_by_box=placed_stems_by_box(existing_rows),
 				)
 				for loc in box_locs:
 					order_pick_list.append("table_ytkc", loc)
@@ -284,6 +287,7 @@ def _generate_bunch_locations(
 	confirmed_qty=0,
 	already_stems=0,
 	start_box_num=1,
+	placed_by_box=None,
 ):
 	"""Split a single mixed-bunch allocation into box-level OPL rows.
 	Uses custom_packrate_mixed_box as stems-per-box (like mixed boxes).
@@ -316,8 +320,8 @@ def _generate_bunch_locations(
 	sales_uom = so_item.uom
 	stock_uom = so_item.stock_uom
 
-	remaining_boxes = num_boxes - (start_box_num - 1)
-	total_stems_needed = stems_per_box * remaining_boxes
+	box_slots = open_box_slots(placed_by_box, stems_per_box, num_boxes, start_box_num)
+	total_stems_needed = sum(free for _box, free in box_slots)
 	total_allocated = sum(a["qty"] for a in allocations_list)
 
 	if confirmed_qty > 0 and confirmed_qty < total_stems_needed:
@@ -348,13 +352,12 @@ def _generate_bunch_locations(
 			sales_order_item_name,
 			allocations_list,
 			stems_per_box,
-			remaining_boxes,
+			box_slots,
 			conversion_factor,
 			sales_uom,
 			stock_uom,
 			shelf_farm,
 			item_code,
-			start_box_num=start_box_num,
 		)
 	else:
 		return _generate_bunch_flat_locations(
@@ -476,23 +479,23 @@ def _generate_bunch_locations_with_splitting(
 	sales_order_item_name,
 	allocations_list,
 	stems_per_box,
-	num_boxes,
+	box_slots,
 	conversion_factor,
 	sales_uom,
 	stock_uom,
 	shelf_farm,
 	item_code,
-	start_box_num=1,
 ):
 	"""Box-splitting logic for full allocations — fills boxes across buckets.
-	`num_boxes` is how many MORE boxes to fill starting at start_box_num."""
+	`box_slots` is the [(box_num, free_stems)] still to fill -- see
+	create_mixed_box_picklist.open_box_slots."""
 	locations = []
 	bucket_index = 0
 	current_bucket_remaining = 0
 	current_bucket = None
 
-	for box_num in range(start_box_num, start_box_num + num_boxes):
-		stems_needed = stems_per_box
+	for box_num, free_stems in box_slots:
+		stems_needed = free_stems
 		contributions = []
 
 		while stems_needed > 0:
@@ -559,7 +562,7 @@ def _generate_bunch_locations_with_splitting(
 				"Over-allocated for {0}: {1} stem(s) more than the {2} remaining box(es) x {3} "
 				"stems/box can hold. Reduce the allocation, or raise Number of Boxes on the "
 				"Sales Order."
-			).format(item_code, leftover, num_boxes, stems_per_box),
+			).format(item_code, leftover, len(box_slots), stems_per_box),
 			title=_("Overpacked"),
 		)
 

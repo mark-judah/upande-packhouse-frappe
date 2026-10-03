@@ -7,6 +7,8 @@
  "engine": "InnoDB",
  "field_order": [
   "vehicle",
+  "route",
+  "run",
   "trip_date",
   "status",
   "column_break_1",
@@ -24,6 +26,8 @@
   "dispatched_at",
   "column_break_3",
   "received_at",
+  "arrived_at",
+  "arrived_by",
   "departed_stops",
   "heading_to",
   "last_departed_at",
@@ -43,6 +47,20 @@
    "label": "Vehicle",
    "options": "Vehicle",
    "reqd": 1
+  },
+  {
+   "description": "The truck route this trip drives.",
+   "fieldname": "route",
+   "fieldtype": "Link",
+   "label": "Route",
+   "options": "Bucket Logistics Route"
+  },
+  {
+   "description": "Which run of the route this trip is (packhouse → farms → packhouse). One trip per run.",
+   "fieldname": "run",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Run"
   },
   {
    "default": "Today",
@@ -125,11 +143,11 @@
   },
   {
    "default": "0",
+   "description": "Created from a truck load with no planned trip.",
    "fieldname": "unscheduled",
    "fieldtype": "Check",
    "label": "Unscheduled",
-   "read_only": 1,
-   "description": "Created from a truck load with no planned trip."
+   "read_only": 1
   },
   {
    "fieldname": "section_status",
@@ -153,11 +171,25 @@
    "read_only": 1
   },
   {
+   "description": "When a farm confirmed the truck reached the transfer hub (farm app). The trip is Received once every bucket it carried is shelved there.",
+   "fieldname": "arrived_at",
+   "fieldtype": "Datetime",
+   "label": "Arrived At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "arrived_by",
+   "fieldtype": "Link",
+   "label": "Arrived Confirmed By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "description": "Farms the truck has finished loading at and left, in route order.",
    "fieldname": "departed_stops",
    "fieldtype": "Small Text",
    "label": "Departed Stops",
-   "read_only": 1,
-   "description": "Farms the truck has finished loading at and left, in route order."
+   "read_only": 1
   },
   {
    "fieldname": "heading_to",
@@ -207,7 +239,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 0,
  "links": [],
- "modified": "2026-10-01 23:45:58.685529",
+ "modified": "2026-10-03 13:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Bucket Request Trip",

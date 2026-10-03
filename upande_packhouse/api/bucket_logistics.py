@@ -7,7 +7,12 @@
 
 import frappe
 
-from upande_packhouse.api.transfer_control import TRANSFER_TRUCK_OK, TRIP_LOOKBACK_DAYS, _schedule_map
+from upande_packhouse.api.transfer_control import (
+	TRANSFER_TRUCK_OK,
+	TRIP_LOOKBACK_DAYS,
+	_schedule_map,
+	_trip_dict,
+)
 
 
 @frappe.whitelist()
@@ -25,7 +30,8 @@ def getBucketLogistics():
 	# source-farm expression (reused in SELECT + WHERE)
 	FARM_EXPR = "COALESCE(NULLIF(pli.farm, ''), SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1))"
 	TRANSFER = (
-		"(pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1 OR pli.in_transit = 1 OR pli.shelved = 1)"
+		"(pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1 OR pli.in_transit = 1 OR pli.shelved = 1"
+		" OR pli.not_found = 1)"
 	)
 
 	# A bucket's identity on the pick list (case-insensitive; a row without a bucket counts alone).
@@ -54,6 +60,8 @@ def getBucketLogistics():
             GROUP_CONCAT(DISTINCT """
 		+ FARM_EXPR
 		+ """ ORDER BY 1 SEPARATOR ', ') AS farm,
+            -- Only the varieties of the buckets being transferred (same WHERE as the counts).
+            GROUP_CONCAT(DISTINCT pli.item_code ORDER BY pli.item_code SEPARATOR ', ') AS varieties,
             MAX(CASE WHEN """
 		+ TRANSFER_TRUCK_OK
 		+ """ THEN pli.transit_truck END) AS truck,
@@ -62,7 +70,7 @@ def getBucketLogistics():
             COUNT(DISTINCT """
 		+ BKT
 		+ """)                  AS total,
-            COUNT(DISTINCT CASE WHEN pli.awaiting_transfer = 1 THEN """
+            COUNT(DISTINCT CASE WHEN pli.awaiting_transfer = 1 AND NOT (IFNULL(pli.custom_ready_for_packing, 0) = 1 OR IFNULL(pli.issued, 0) = 1) THEN """
 		+ BKT
 		+ """ END) AS awaiting,
             COUNT(DISTINCT CASE WHEN pli.loaded_in_trolley = 1 THEN """
@@ -79,7 +87,11 @@ def getBucketLogistics():
 		+ """ END) AS ready,
             COUNT(DISTINCT CASE WHEN pli.issued = 1 THEN """
 		+ BKT
-		+ """ END) AS issued
+		+ """ END) AS issued,
+            -- Not in the farm's cold room and nothing to replace it: left out of the transfer.
+            COUNT(DISTINCT CASE WHEN pli.not_found = 1 THEN """
+		+ BKT
+		+ """ END) AS not_found
         FROM `tabPick List Item` pli
         JOIN `tabOrder Pick List` opl ON opl.name = pli.parent
         LEFT JOIN `tabSales Order` so ON so.name = opl.sales_order
@@ -95,7 +107,7 @@ def getBucketLogistics():
 
 	sched = _schedule_map()
 	for r in rows:
-		for k in ["total", "awaiting", "trolley", "transit", "shelved", "ready", "issued"]:
+		for k in ["total", "awaiting", "trolley", "transit", "shelved", "ready", "issued", "not_found"]:
 			r[k] = int(r.get(k) or 0)
 		# Transfer initiation time = OPL creation datetime (full timestamp).
 		r["initiated"] = str(r.get("initiated")) if r.get("initiated") else ""
@@ -117,14 +129,17 @@ def getBucketLogistics():
 			"""
             SELECT o.order_pick_list AS opl, t.name AS trip, t.vehicle AS vehicle, t.status AS status,
                    t.trip_date AS trip_date, SUM(o.buckets) AS buckets,
-                   SUM(o.loaded_buckets) AS loaded_buckets
+                   SUM(o.loaded_buckets) AS loaded_buckets, t.run AS run, t.route AS route,
+                   IFNULL(o.farm, '') AS farm
             FROM `tabBucket Request Trip Order` o
             JOIN `tabBucket Request Trip` t ON t.name = o.parent
             WHERE o.order_pick_list IN %(opls)s
               AND (t.trip_date = %(today)s
                    OR (t.trip_date >= %(since)s AND t.status != 'Received'))
-            GROUP BY o.order_pick_list, t.name
-            ORDER BY t.trip_date DESC, t.name
+            -- One entry per trip per farm: each visit to a farm is one trip (run); the
+            -- next pickup from the same farm is the truck's next run, its own entry.
+            GROUP BY o.order_pick_list, t.name, IFNULL(o.farm, '')
+            ORDER BY t.trip_date DESC, t.vehicle, t.run, IFNULL(o.farm, ''), t.name
         """,
 			{
 				"opls": tuple(r["opl"] for r in rows),
@@ -141,10 +156,81 @@ def getBucketLogistics():
 					"trip_date": str(t.trip_date),
 					"buckets": int(t.buckets or 0),
 					"loaded_buckets": int(t.loaded_buckets or 0),
+					"run": int(t.run or 0),
+					"route": t.route or "",
+					"farm": t.farm,
+				}
+			)
+	# Shelved per (order, farm): a farm's buckets can arrive without the app recording
+	# the load, and the chip must not keep saying "planned" once they are in.
+	shelved_at = {}
+	if rows:
+		for x in frappe.db.sql(
+			"""SELECT pli.parent AS opl, """
+			+ FARM_EXPR
+			+ """ AS farm, COUNT(DISTINCT """
+			+ BKT
+			+ """) AS n
+			FROM `tabPick List Item` pli
+			WHERE pli.parenttype = 'Order Pick List' AND pli.parent IN %(opls)s AND pli.shelved = 1
+			GROUP BY pli.parent, farm""",
+			{"opls": tuple(r["opl"] for r in rows)},
+			as_dict=True,
+		):
+			shelved_at[(x.opl, x.farm or "")] = int(x.n or 0)
+	# Per source farm counts of each order (the page groups rows by farm): an order
+	# collecting from two farms shows under both, with that farm's own numbers.
+	by_farm = {}
+	if rows:
+		for x in frappe.db.sql(
+			"""SELECT pli.parent AS opl, """
+			+ FARM_EXPR
+			+ """ AS farm,
+			    COUNT(DISTINCT """
+			+ BKT
+			+ """) AS total,
+			    COUNT(DISTINCT CASE WHEN pli.awaiting_transfer = 1 AND NOT (IFNULL(pli.custom_ready_for_packing, 0) = 1 OR IFNULL(pli.issued, 0) = 1) THEN """
+			+ BKT
+			+ """ END) AS awaiting,
+			    COUNT(DISTINCT CASE WHEN pli.loaded_in_trolley = 1 THEN """
+			+ BKT
+			+ """ END) AS trolley,
+			    COUNT(DISTINCT CASE WHEN pli.in_transit = 1 THEN """
+			+ BKT
+			+ """ END) AS transit,
+			    COUNT(DISTINCT CASE WHEN pli.shelved = 1 THEN """
+			+ BKT
+			+ """ END) AS shelved,
+			    COUNT(DISTINCT CASE WHEN pli.custom_ready_for_packing = 1 THEN """
+			+ BKT
+			+ """ END) AS ready,
+			    COUNT(DISTINCT CASE WHEN pli.issued = 1 THEN """
+			+ BKT
+			+ """ END) AS issued,
+			    COUNT(DISTINCT CASE WHEN pli.not_found = 1 THEN """
+			+ BKT
+			+ """ END) AS not_found,
+			    GROUP_CONCAT(DISTINCT pli.item_code ORDER BY pli.item_code SEPARATOR ', ') AS varieties
+			FROM `tabPick List Item` pli
+			WHERE pli.parenttype = 'Order Pick List' AND pli.parent IN %(opls)s AND """
+			+ TRANSFER
+			+ """
+			GROUP BY pli.parent, farm""",
+			{"opls": tuple(r["opl"] for r in rows)},
+			as_dict=True,
+		):
+			by_farm.setdefault(x.opl, []).append(
+				{
+					k: (int(x[k] or 0) if k not in ("farm", "varieties") else (x[k] or ""))
+					for k in x
+					if k != "opl"
 				}
 			)
 	for r in rows:
+		r["by_farm"] = by_farm.get(r["opl"], [])
 		r["trips"] = trips.get(r["opl"], [])
+		for t in r["trips"]:
+			t["shelved"] = shelved_at.get((r["opl"], t["farm"]), 0)
 
 	# Arrival time per OPL = when the FIRST bucket of the order was shelved at the
 	# sales (destination) farm. Source of truth = the CONTINUOUS `Shelving Log`
@@ -211,6 +297,47 @@ def getBucketLogistics():
 	)
 	farms = [r["f"] for r in farm_rows if r.get("f")]
 
+	# Every run the trucks drive today (one trip per run), for the truck cards: which
+	# run each truck is on, where it goes and how far loading / shelving has got.
+	today = frappe.utils.today()
+	run_trips = set(frappe.get_all("Bucket Request Trip", filters={"trip_date": today}, pluck="name"))
+	run_trips |= set(
+		frappe.get_all(
+			"Bucket Request Trip",
+			filters={
+				"trip_date": [">=", frappe.utils.add_days(today, -TRIP_LOOKBACK_DAYS)],
+				"status": ["!=", "Received"],
+			},
+			pluck="name",
+		)
+	)
+	keep = (
+		"name",
+		"vehicle",
+		"trip_date",
+		"status",
+		"loading",
+		"stale",
+		"run",
+		"runs",
+		"run_chain",
+		"window",
+		"total_buckets",
+		"loaded_buckets",
+		"tracked_buckets",
+		"shelved_buckets",
+		"departed_stops",
+		"heading_to",
+		"dispatched_at",
+		"received_at",
+	)
+	runs = []
+	for name in run_trips:
+		t = _trip_dict(frappe.get_doc("Bucket Request Trip", name), today)
+		runs.append({k: t[k] for k in keep})
+	runs.sort(key=lambda t: (t["vehicle"] or "", t["trip_date"], t["run"] or 99, t["name"]))
+	frappe.response["runs"] = runs
+
 	frappe.response["delivery_date"] = str(delivery_date)
 	frappe.response["orders"] = rows
 	frappe.response["farms"] = farms
@@ -245,9 +372,11 @@ def getBucketLogisticsDetail():
                 pli.item_code                AS variety,
                 pli.stem_length               AS length,
                 pli.shelf                    AS shelf,
-                CASE WHEN """
+                COALESCE(MAX(CASE WHEN """
 			+ TRANSFER_TRUCK_OK
-			+ """ THEN pli.transit_truck END AS truck,
+			+ """ THEN pli.transit_truck END), MAX(tr.vehicle)) AS truck,
+                -- The trip (run) that carried it: shelving can leave no truck on the row.
+                MAX(tr.trip) AS trip, MAX(tr.run) AS run,
                 """
 			+ FARM_EXPR
 			+ """        AS farm,
@@ -268,12 +397,21 @@ def getBucketLogisticsDetail():
                 MAX(GREATEST(IFNULL(pli.shelved, 0), IFNULL(pli.custom_ready_for_packing, 0),
                     IFNULL(pli.issued, 0))) AS shelved,
                 MAX(GREATEST(IFNULL(pli.custom_ready_for_packing, 0), IFNULL(pli.issued, 0))) AS ready,
-                MAX(IFNULL(pli.issued, 0))   AS issued
+                MAX(IFNULL(pli.issued, 0))   AS issued,
+                MAX(IFNULL(pli.not_found, 0)) AS not_found
             FROM `tabPick List Item` pli
             JOIN `tabOrder Pick List` o ON o.name = pli.parent
+            LEFT JOIN (
+                SELECT UPPER(b.bucket) AS bucket, MAX(t.name) AS trip, MAX(t.vehicle) AS vehicle,
+                       MAX(t.run) AS run
+                FROM `tabBucket Request Trip Bucket` b
+                JOIN `tabBucket Request Trip` t ON t.name = b.parent
+                WHERE b.parenttype = 'Bucket Request Trip' AND b.order_pick_list = %(opl)s
+                GROUP BY UPPER(b.bucket)
+            ) tr ON tr.bucket = UPPER(pli.bucket)
             WHERE pli.parenttype = 'Order Pick List' AND o.name = %(opl)s
               AND (pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1
-                   OR pli.in_transit = 1 OR pli.shelved = 1)"""
+                   OR pli.in_transit = 1 OR pli.shelved = 1 OR pli.not_found = 1)"""
 			+ extra
 			+ """
             -- One row per bucket (the pick list keeps a row per box); a bucket holding

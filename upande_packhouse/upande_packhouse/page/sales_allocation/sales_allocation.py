@@ -2508,9 +2508,14 @@ def unallocate_bucket_from_opl(sales_order_item: str, bucket_id: str, stem_lengt
 # another shelved bucket of the same variety + stem length from the same farm,
 # carry the allocation (BAS), the OPL rows and the Sold-leg stock across.
 # ============================================================
-def _requested_bucket_rows(pick_list_item):
+def _requested_bucket_rows(pick_list_item, allow_shelved=False):
 	"""Every OPL row that holds the same physical bucket as `pick_list_item`
-	(an OPL has one row per box, so one bucket can span several rows)."""
+	(an OPL has one row per box, so one bucket can span several rows).
+
+	`allow_shelved` is for issuing (api/offline_issue.py): a bucket that was
+	transferred and shelved at the packhouse is replaced there, from the farm it
+	is shelved at now. Remote transfers leave it off -- a shelved bucket has
+	left their cold room."""
 	anchor = frappe.db.get_value(
 		"Pick List Item",
 		pick_list_item,
@@ -2547,13 +2552,22 @@ def _requested_bucket_rows(pick_list_item):
 					"Bucket {0} carries more than one variety/length on {1}; replace it from the allocation page."
 				).format(anchor.bucket, anchor.parent)
 			)
-		if cint(r.loaded_in_trolley) or cint(r.in_transit) or cint(r.shelved) or cint(r.issued):
+		if (
+			cint(r.loaded_in_trolley)
+			or cint(r.in_transit)
+			or (cint(r.shelved) and not allow_shelved)
+			or cint(r.issued)
+		):
 			frappe.throw(
 				_("Bucket {0} has already left the cold room and cannot be replaced.").format(anchor.bucket)
 			)
 
 	# The missing bucket's shelf decides the farm: the replacement must sit in the same cold room.
-	farm = (frappe.db.get_value("Shelf", anchor.shelf, "farm") if anchor.shelf else None) or anchor.farm
+	shelf = anchor.shelf
+	if allow_shelved:
+		# Where the bucket is shelved now, not where it was picked from.
+		shelf = frappe.db.get_value("Shelf Item", {"bucket_id": anchor.bucket}, "parent") or shelf
+	farm = (frappe.db.get_value("Shelf", shelf, "farm") if shelf else None) or anchor.farm
 	if not farm:
 		frappe.throw(_("Cannot tell which farm bucket {0} was allocated from.").format(anchor.bucket))
 	return anchor, rows, farm
@@ -2837,7 +2851,12 @@ def replace_requested_bucket(
 
 
 def _replace_requested_bucket(
-	pick_list_item: str, new_bucket_id: str | None = None, reason: str | None = None, notes: str | None = None
+	pick_list_item: str,
+	new_bucket_id: str | None = None,
+	reason: str | None = None,
+	notes: str | None = None,
+	allow_shelved: bool = False,
+	keep_old_on_shelf: bool = False,
 ):
 	"""Swap a missing requested bucket for a matching one from the same farm.
 
@@ -2857,7 +2876,7 @@ def _replace_requested_bucket(
 	  instead of walking the route back and forward leg by leg.
 	"""
 	try:
-		anchor, rows, farm = _requested_bucket_rows(pick_list_item)
+		anchor, rows, farm = _requested_bucket_rows(pick_list_item, allow_shelved=allow_shelved)
 		old_bucket = anchor.bucket
 		opl_name = anchor.parent
 		needed = sum(flt(r.stock_qty) for r in rows)
@@ -2899,6 +2918,18 @@ def _replace_requested_bucket(
 				)
 			)
 		old_home = rows[0].source_warehouse or rows[0].warehouse or new_source
+		# Where the missing bucket's sale took its stems from: for a remote bucket that is
+		# the arrival warehouse (Kapkolia Receiving), not its farm's cold store — sending
+		# them back there would put Kapkolia's stems on the farm's books.
+		old_return = next(
+			(hop["from"] for hop in stock_movement.resolve_route(old_home, business_unit) if hop["terminal"]),
+			old_home,
+		)
+		# A remote replacement still at its farm is sold when it is shelved at the sales
+		# farm (post_sale_on_arrival), like any remote allocation — not now.
+		defer_new = new_source == new.warehouse and stock_movement.needs_transfer(
+			new.warehouse, business_unit
+		)
 
 		# ── BAS: release the old bucket ──
 		old_bas_name = frappe.db.get_value(
@@ -2921,7 +2952,11 @@ def _replace_requested_bucket(
 			old_bas.save(ignore_permissions=True)
 
 		# ── Shelf: the missing bucket's row goes once nothing else is allocated from it ──
-		if not old_bas_name or not flt(
+		# Unless it is not missing at all, only mislabelled (wrong variety): it stays
+		# on its shelf for its record to be corrected.
+		if keep_old_on_shelf:
+			pass
+		elif not old_bas_name or not flt(
 			frappe.db.get_value("Bucket Allocation Status", old_bas_name, "allocated_quantity")
 		):
 			for si in frappe.get_all(
@@ -3004,20 +3039,22 @@ def _replace_requested_bucket(
 		# ── Stock: trade the buckets in the Sold warehouse, one entry per SO item ──
 		stock_moves = []
 		for so_item, qty in qty_by_so_item.items():
-			lines = [
-				{
-					"bucket_id": new.bucket_id,
-					"qty": qty,
-					"from": new_source,
-					"to": sold_warehouse,
-					"stem_length": new.stem_length,
-				}
-			]
+			lines = []
+			if not defer_new:
+				lines.append(
+					{
+						"bucket_id": new.bucket_id,
+						"qty": qty,
+						"from": new_source,
+						"to": sold_warehouse,
+						"stem_length": new.stem_length,
+					}
+				)
 			for (bucket, line_so_item, warehouse), outstanding in sold.items():
 				if (
 					bucket == old_bucket
 					and line_so_item == so_item
-					and warehouse != old_home
+					and warehouse != old_return
 					and outstanding > stock_movement.QTY_TOLERANCE
 				):
 					lines.append(
@@ -3025,10 +3062,12 @@ def _replace_requested_bucket(
 							"bucket_id": old_bucket,
 							"qty": outstanding,
 							"from": warehouse,
-							"to": old_home,
+							"to": old_return,
 							"stem_length": anchor.stem_length,
 						}
 					)
+			if not lines:
+				continue
 			entry = _post_bucket_swap(
 				source=new_source,
 				target=sold_warehouse,
