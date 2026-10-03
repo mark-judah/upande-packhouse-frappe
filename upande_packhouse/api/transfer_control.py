@@ -1249,19 +1249,27 @@ def _pick_trip_for_load(trips, opl, farm, assigned):
 					continue
 				if not need_room or int(o.loaded_buckets or 0) + taken(d) < int(o.buckets or 0):
 					return d
-	for d in here:
+	# Nothing planned it: only today's (or later) trips take it — an earlier day's trip
+	# left open is not where today's load goes (a stale 2-Oct trip took a 3-Oct bucket
+	# and was then dispatched with it). None makes the caller open a trip on today's run.
+	today = str(frappe.utils.today())
+	current = [d for d in here if str(d.trip_date) >= today]
+	for d in current:
 		if d.get("run") and farm in ((_run_of(d.route, d.run) or {}).get("stops") or []):
 			return d
-	for d in here:
+	for d in current:
 		if _trip_has_loads(d):
 			return d
-	return here[0] if here else None
+	return current[0] if current else None
 
 
 def _vehicle_trip_doc(truck):
-	"""Legacy fallback: the trip the truck is out on (loaded after its dispatch)."""
+	"""Legacy fallback: the trip the truck is out on (loaded after its dispatch) — only
+	a trip of today: an earlier day's trip never takes today's load."""
 	trip = _vehicle_on_road(truck)
-	return frappe.get_doc("Bucket Request Trip", trip) if trip else None
+	if not trip or str(frappe.db.get_value("Bucket Request Trip", trip, "trip_date")) < str(frappe.utils.today()):
+		return None
+	return frappe.get_doc("Bucket Request Trip", trip)
 
 
 def _new_load_trip(truck, today, farm):
