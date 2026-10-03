@@ -43,7 +43,11 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt, getdate
 
-FARM_EXPR = "COALESCE(NULLIF(pli.farm, ''), SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1))"
+# A transfer bucket's farm is where its stock is: the farm of its source warehouse
+# (kept as the remote farm's cold store until the bucket is shelved at the packhouse),
+# else the row's farm. The shelf's farm can disagree (a mislabelled shelf, an old row)
+# and used to put a bucket on the wrong farm's trip.
+FARM_EXPR = "COALESCE(NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''), NULLIF(pli.farm, ''))"
 # Pick-list creation pre-fills transit_truck with the ORDER's delivery truck label
 # (Sales Order custom_truck, e.g. "SIM Truck", "RAMBO" — not even Vehicle records),
 # the same field the transfer truck is written to on load/dispatch. A value only
@@ -982,9 +986,35 @@ def _trip_stops(doc):
 
 
 def _stop_complete(doc, farm):
-	"""Every bucket planned at this farm is on the truck."""
+	"""Every bucket planned at this farm is on the truck — not counting orders whose
+	delivery date has passed with nothing of them loaded (the farm app no longer shows
+	them, so waiting for them would hold the truck at the stop for good)."""
 	rows = [o for o in doc.orders if (o.farm or "") == farm and int(o.buckets or 0) > 0]
-	return bool(rows) and all(int(o.loaded_buckets or 0) >= int(o.buckets or 0) for o in rows)
+	past = _past_delivery_opls([o.order_pick_list for o in rows])
+	rows = [o for o in rows if o.order_pick_list not in past or int(o.loaded_buckets or 0) > 0]
+	# A row is done once it is fully loaded — or once nothing of that order is still
+	# waiting at this farm (planned higher than the farm really had: a bucket counted
+	# under the wrong farm, replaced, not found, or taken by another trip).
+	open_now = _open_counts([o.order_pick_list for o in rows])
+	return bool(rows) and all(
+		int(o.loaded_buckets or 0) >= int(o.buckets or 0) or not open_now.get((o.order_pick_list, farm), 0)
+		for o in rows
+	)
+
+
+def _past_delivery_opls(opls):
+	"""Of these Order Pick Lists, the ones whose Sales Order delivered before today."""
+	opls = [o for o in set(opls) if o]
+	if not opls:
+		return set()
+	return set(
+		frappe.db.sql_list(
+			"""SELECT opl.name FROM `tabOrder Pick List` opl
+			JOIN `tabSales Order` so ON so.name = opl.sales_order
+			WHERE opl.name IN %(opls)s AND so.delivery_date < %(today)s""",
+			{"opls": tuple(opls), "today": frappe.utils.today()},
+		)
+	)
 
 
 def _advance_stops(doc):
@@ -1226,19 +1256,27 @@ def _pick_trip_for_load(trips, opl, farm, assigned):
 					continue
 				if not need_room or int(o.loaded_buckets or 0) + taken(d) < int(o.buckets or 0):
 					return d
-	for d in here:
+	# Nothing planned it: only today's (or later) trips take it — an earlier day's trip
+	# left open is not where today's load goes (a stale 2-Oct trip took a 3-Oct bucket
+	# and was then dispatched with it). None makes the caller open a trip on today's run.
+	today = str(frappe.utils.today())
+	current = [d for d in here if str(d.trip_date) >= today]
+	for d in current:
 		if d.get("run") and farm in ((_run_of(d.route, d.run) or {}).get("stops") or []):
 			return d
-	for d in here:
+	for d in current:
 		if _trip_has_loads(d):
 			return d
-	return here[0] if here else None
+	return current[0] if current else None
 
 
 def _vehicle_trip_doc(truck):
-	"""Legacy fallback: the trip the truck is out on (loaded after its dispatch)."""
+	"""Legacy fallback: the trip the truck is out on (loaded after its dispatch) — only
+	a trip of today: an earlier day's trip never takes today's load."""
 	trip = _vehicle_on_road(truck)
-	return frappe.get_doc("Bucket Request Trip", trip) if trip else None
+	if not trip or str(frappe.db.get_value("Bucket Request Trip", trip, "trip_date")) < str(frappe.utils.today()):
+		return None
+	return frappe.get_doc("Bucket Request Trip", trip)
 
 
 def _new_load_trip(truck, today, farm):
@@ -1485,6 +1523,9 @@ def _transfer_schedule_payload(from_date, to_date):
 	agg = {}
 	for b in _transfer_buckets(opl_names):
 		if not (b["open"] or b["on_road"]) or not b["farm"]:
+			continue
+		# Stock already at the packhouse needs no truck: never plan it onto a trip.
+		if b["open"] and hub and b["farm"].lower() == hub.lower():
 			continue
 		fmap = agg.setdefault(b["opl"], {})
 		frow = fmap.setdefault(b["farm"], {"varieties": {}, "on_road": 0})
@@ -3648,10 +3689,12 @@ def merge_truck_trips(vehicle, date=None):
 					", ".join(d.name for d in rest)
 				),
 			)
-		keep.save(ignore_permissions=True)
+		# Remove the folded trips first: while they exist their buckets and claims would
+		# make the merged trip look double-booked (Bucket Request Trip.validate).
 		for d in rest:
 			frappe.delete_doc("Bucket Request Trip", d.name, ignore_permissions=True, force=1)
 			removed.append(d.name)
+		keep.save(ignore_permissions=True)
 		kept.append(keep.name)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	if refused and not kept:
@@ -3857,6 +3900,39 @@ def tripArrival(name: str | None = None, farm: str | None = None, action: str = 
 		"waiting": [b["bucket"] for b in buckets if not b["shelved"] and not b["off_truck"]],
 		"farm_total": len(mine),
 		"farm_shelved": sum(1 for b in mine if b["shelved"]),
+		# Per bucket with its order's delivery date: the farm app shows the trip for the
+		# delivery date on screen (a truck can carry today's and tomorrow's orders).
+		"buckets": _with_delivery_dates(buckets),
+	}
+
+
+def _with_delivery_dates(buckets):
+	dd = _opl_delivery_dates({b["opl"] for b in buckets})
+	return [
+		{
+			"bucket": b["bucket"],
+			"opl": b["opl"],
+			"farm": b["farm"],
+			"shelved": bool(b["shelved"]),
+			"off_truck": bool(b["off_truck"]),
+			"delivery_date": dd.get(b["opl"], ""),
+		}
+		for b in buckets
+	]
+
+
+def _opl_delivery_dates(opls):
+	"""Order Pick List -> its Sales Order's delivery date (YYYY-MM-DD)."""
+	opls = [o for o in opls if o]
+	if not opls:
+		return {}
+	return {
+		r[0]: str(r[1] or "")
+		for r in frappe.db.sql(
+			"""SELECT opl.name, so.delivery_date FROM `tabOrder Pick List` opl
+			LEFT JOIN `tabSales Order` so ON so.name = opl.sales_order WHERE opl.name IN %s""",
+			(tuple(opls),),
+		)
 	}
 
 
@@ -4077,6 +4153,7 @@ def getFarmCompletedTrips(farm: str | None = None, days: int = 3):
 				},
 			)
 		info = _trip_run_info(doc) if doc.get("route") and doc.get("run") else {}
+		dds = _opl_delivery_dates({o.order_pick_list for o in rows})
 		out.append(
 			{
 				"trip": name,
@@ -4097,6 +4174,7 @@ def getFarmCompletedTrips(farm: str | None = None, days: int = 3):
 				"orders": [
 					{
 						"opl": o.order_pick_list,
+						"delivery_date": dds.get(o.order_pick_list, ""),
 						"order_name": o.order_name or o.order_pick_list,
 						"customer": o.customer or "",
 						"varieties": o.varieties or "",

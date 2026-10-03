@@ -28,7 +28,7 @@ def getBucketLogistics():
 	delivery_date = fd.get("delivery_date") or frappe.utils.add_days(frappe.utils.today(), 1)
 
 	# source-farm expression (reused in SELECT + WHERE)
-	FARM_EXPR = "COALESCE(NULLIF(pli.farm, ''), SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1))"
+	FARM_EXPR = "COALESCE(NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''), NULLIF(pli.farm, ''))"
 	TRANSFER = (
 		"(pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1 OR pli.in_transit = 1 OR pli.shelved = 1"
 		" OR pli.not_found = 1)"
@@ -37,8 +37,14 @@ def getBucketLogistics():
 	# A bucket's identity on the pick list (case-insensitive; a row without a bucket counts alone).
 	BKT = "COALESCE(NULLIF(UPPER(pli.bucket), ''), pli.name)"
 
-	params = {"d": delivery_date}
-	conds = ["opl.docstatus < 2", "pli.parenttype = 'Order Pick List'", "so.delivery_date = %(d)s", TRANSFER]
+	from upande_packhouse.api.transfer_control import transfer_hub
+
+	# Transfers are from the remote farms only: a bucket whose stock is already at the
+	# packhouse (hub) is not coming from anywhere, whatever its flags say.
+	hub = transfer_hub(required=False) or ""
+	NOT_HUB = "COALESCE(" + FARM_EXPR + ", '') != %(hub)s"
+	params = {"d": delivery_date, "hub": hub}
+	conds = ["opl.docstatus < 2", "pli.parenttype = 'Order Pick List'", "so.delivery_date = %(d)s", TRANSFER, NOT_HUB]
 	if fd.get("farm"):
 		conds.append(FARM_EXPR + " = %(farm)s")
 		params["farm"] = fd.get("farm")
@@ -130,6 +136,7 @@ def getBucketLogistics():
             SELECT o.order_pick_list AS opl, t.name AS trip, t.vehicle AS vehicle, t.status AS status,
                    t.trip_date AS trip_date, SUM(o.buckets) AS buckets,
                    SUM(o.loaded_buckets) AS loaded_buckets, t.run AS run, t.route AS route,
+                   t.arrived_at AS arrived_at,
                    IFNULL(o.farm, '') AS farm
             FROM `tabBucket Request Trip Order` o
             JOIN `tabBucket Request Trip` t ON t.name = o.parent
@@ -159,6 +166,8 @@ def getBucketLogistics():
 					"run": int(t.run or 0),
 					"route": t.route or "",
 					"farm": t.farm,
+					# The farm app's "Truck arrived at <hub>": at the packhouse, not shelved yet.
+					"arrived_at": str(t.arrived_at or ""),
 				}
 			)
 	# Shelved per (order, farm): a farm's buckets can arrive without the app recording
@@ -173,8 +182,10 @@ def getBucketLogistics():
 			+ """) AS n
 			FROM `tabPick List Item` pli
 			WHERE pli.parenttype = 'Order Pick List' AND pli.parent IN %(opls)s AND pli.shelved = 1
-			GROUP BY pli.parent, farm""",
-			{"opls": tuple(r["opl"] for r in rows)},
+			  AND """ + NOT_HUB + """
+			GROUP BY pli.parent, """
+			+ FARM_EXPR,
+			{"opls": tuple(r["opl"] for r in rows), "hub": hub},
 			as_dict=True,
 		):
 			shelved_at[(x.opl, x.farm or "")] = int(x.n or 0)
@@ -212,11 +223,14 @@ def getBucketLogistics():
 			+ """ END) AS not_found,
 			    GROUP_CONCAT(DISTINCT pli.item_code ORDER BY pli.item_code SEPARATOR ', ') AS varieties
 			FROM `tabPick List Item` pli
-			WHERE pli.parenttype = 'Order Pick List' AND pli.parent IN %(opls)s AND """
+			WHERE pli.parent IN %(opls)s AND pli.parenttype = 'Order Pick List' AND """
 			+ TRANSFER
+			+ " AND "
+			+ NOT_HUB
 			+ """
-			GROUP BY pli.parent, farm""",
-			{"opls": tuple(r["opl"] for r in rows)},
+			GROUP BY pli.parent, """
+			+ FARM_EXPR,
+			{"opls": tuple(r["opl"] for r in rows), "hub": hub},
 			as_dict=True,
 		):
 			by_farm.setdefault(x.opl, []).append(
@@ -226,6 +240,34 @@ def getBucketLogistics():
 					if k != "opl"
 				}
 			)
+	# On a truck that has arrived at the packhouse (the farm app's "Truck arrived"), not
+	# shelved yet — per order and source farm.
+	at_hub = {}
+	if rows:
+		for x in frappe.db.sql(
+			"""SELECT pli.parent AS opl, """
+			+ FARM_EXPR
+			+ """ AS src, COUNT(DISTINCT """
+			+ BKT
+			+ """) AS n
+			FROM `tabBucket Request Trip Bucket` tb
+			JOIN `tabBucket Request Trip` t ON t.name = tb.parent
+			JOIN `tabPick List Item` pli ON pli.parent = tb.order_pick_list AND pli.parenttype = 'Order Pick List'
+			     AND UPPER(pli.bucket) = UPPER(tb.bucket)
+			WHERE tb.parenttype = 'Bucket Request Trip' AND tb.order_pick_list IN %(opls)s
+			  AND t.arrived_at IS NOT NULL AND t.status != 'Received'
+			  AND IFNULL(tb.off_truck, 0) = 0 AND IFNULL(pli.shelved, 0) = 0
+			GROUP BY pli.parent, """
+			+ FARM_EXPR,
+			{"opls": tuple(r["opl"] for r in rows)},
+			as_dict=True,
+		):
+			at_hub[(x.opl, x.src or "")] = int(x.n or 0)
+	for r in rows:
+		r["hub"] = hub
+		r["arrived_hub"] = sum(n for (o, _f), n in at_hub.items() if o == r["opl"])
+		for f in by_farm.get(r["opl"], []):
+			f["arrived_hub"] = at_hub.get((r["opl"], f["farm"]), 0)
 	for r in rows:
 		r["by_farm"] = by_farm.get(r["opl"], [])
 		r["trips"] = trips.get(r["opl"], [])
@@ -359,7 +401,7 @@ def getBucketLogisticsDetail():
 	if not opl:
 		frappe.response["buckets"] = []
 	else:
-		FARM_EXPR = "COALESCE(NULLIF(pli.farm, ''), SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1))"
+		FARM_EXPR = "COALESCE(NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''), NULLIF(pli.farm, ''))"
 		params = {"opl": opl}
 		extra = ""
 		if fd.get("farm"):
