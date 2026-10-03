@@ -4978,8 +4978,13 @@ def shelveBucket():
 		from upande_packhouse.api import transfer_control as tc
 
 		tc.log_transfer_event(
-			bucket_id, "Shelving farm corrected", farm=farm, shelf=shelf_id,
-			details="App set to {0}; shelf {1} belongs to {2} — shelved at {2}".format(farm, shelf_id, shelf_doc.farm),
+			bucket_id,
+			"Shelving farm corrected",
+			farm=farm,
+			shelf=shelf_id,
+			details="App set to {0}; shelf {1} belongs to {2} — shelved at {2}".format(
+				farm, shelf_id, shelf_doc.farm
+			),
 		)
 		farm = shelf_doc.farm
 

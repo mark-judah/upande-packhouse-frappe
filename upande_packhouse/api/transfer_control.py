@@ -3251,7 +3251,17 @@ def bucket_transfer_trace(bucket_id, limit=5, after_packhouse=False):
 					"event_time": [">=", allocated[0] or r.requested_at],
 				},
 				or_filters=[["order_pick_list", "=", r.opl], ["order_pick_list", "is", "not set"]],
-				fields=["stage", "outcome", "event_time", "user", "farm", "shelf", "trip", "vehicle", "details"],
+				fields=[
+					"stage",
+					"outcome",
+					"event_time",
+					"user",
+					"farm",
+					"shelf",
+					"trip",
+					"vehicle",
+					"details",
+				],
 				order_by="event_time asc",
 			):
 				bits = [ev.details or ""]
@@ -3274,10 +3284,24 @@ def bucket_transfer_trace(bucket_id, limit=5, after_packhouse=False):
 		# Steps in the order they happen (a step's time isn't always recorded, so time
 		# alone put e.g. an undated "Loaded on truck" after "Issued"); time within a step.
 		order = [
-			"Awaiting transfer", "Not found at farm", "Left remote shelf", "On trolley", "Load refused",
-			"Loaded on truck", "Left the farm", "In transit", "Arrived at packhouse", "Off the truck",
-			"Shelving farm corrected", "Shelving refused", "Shelved at remote farm", "Removed from wrong shelf",
-			"Shelved at sales farm", "Stock moved", "Ready for packing", "Issued",
+			"Awaiting transfer",
+			"Not found at farm",
+			"Left remote shelf",
+			"On trolley",
+			"Load refused",
+			"Loaded on truck",
+			"Left the farm",
+			"In transit",
+			"Arrived at packhouse",
+			"Off the truck",
+			"Shelving farm corrected",
+			"Shelving refused",
+			"Shelved at remote farm",
+			"Removed from wrong shelf",
+			"Shelved at sales farm",
+			"Stock moved",
+			"Ready for packing",
+			"Issued",
 		]
 		events.sort(
 			key=lambda e: (order.index(e["stage"]) if e["stage"] in order else 99, e["datetime"] or "9999")
@@ -3554,7 +3578,12 @@ def closeTripStop():
 	for b in doc.get("trip_buckets") or []:
 		if (b.farm or "") == farm:
 			log_transfer_event(
-				b.bucket, "Left the farm", opl=b.order_pick_list, farm=farm, trip=name, vehicle=doc.vehicle,
+				b.bucket,
+				"Left the farm",
+				opl=b.order_pick_list,
+				farm=farm,
+				trip=name,
+				vehicle=doc.vehicle,
 				details="Truck leaving {0}{1}".format(farm, " — short: {0}".format(reason) if reason else ""),
 			)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
@@ -3895,8 +3924,13 @@ def tripArrival(name: str | None = None, farm: str | None = None, action: str = 
 		for b in doc.get("trip_buckets") or []:
 			if not b.get("off_truck") and not b.get("shelved"):
 				log_transfer_event(
-					b.bucket, "Arrived at packhouse", opl=b.order_pick_list, farm=b.farm, trip=name,
-					vehicle=doc.vehicle, details="Truck arrived at {0}".format(hub or "the packhouse"),
+					b.bucket,
+					"Arrived at packhouse",
+					opl=b.order_pick_list,
+					farm=b.farm,
+					trip=name,
+					vehicle=doc.vehicle,
+					details="Truck arrived at {0}".format(hub or "the packhouse"),
 				)
 		doc.add_comment(
 			"Info",
@@ -4655,12 +4689,16 @@ def log_transfer_event(
 				"order_pick_list": opl if opl and frappe.db.exists("Order Pick List", opl) else None,
 				"trip": trip if trip and frappe.db.exists("Bucket Request Trip", trip) else None,
 				"vehicle": vehicle or "",
-				"stock_entry": stock_entry if stock_entry and frappe.db.exists("Stock Entry", stock_entry) else None,
+				"stock_entry": stock_entry
+				if stock_entry and frappe.db.exists("Stock Entry", stock_entry)
+				else None,
 				"details": details or "",
 			}
 		).insert(ignore_permissions=True)
 	except Exception:
-		frappe.log_error("Bucket transfer event not logged: {0} {1}".format(bucket, stage), frappe.get_traceback())
+		frappe.log_error(
+			"Bucket transfer event not logged: {0} {1}".format(bucket, stage), frappe.get_traceback()
+		)
 
 
 def open_transfer_opls(bucket):
