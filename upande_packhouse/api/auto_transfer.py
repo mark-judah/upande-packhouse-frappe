@@ -17,7 +17,9 @@
 #   3. Route: a truck without a hand-set route today is routed from the farms its
 #      load is at — the real road legs out from the hub, every farm passed on the
 #      way included, cheapest visiting order.
-#   4. Save Draft trips (and the routes) through the same validation the page uses.
+#   4. Save Draft trips (and the routes) through the same validation the page uses —
+#      one trip per run: a hand-set route's runs (packhouse → farms → packhouse) are
+#      each planned as a full truck that serves only that run's farms.
 #
 # Ownership: whatever this saves is flagged auto_planned. Each run replaces only
 # its own still-Draft trips and routes; a trip or route a person saves is theirs
@@ -156,6 +158,8 @@ def _plan():
 			farm="",
 			rows=t["rows"],
 			auto_planned=1,
+			route=t.get("route"),
+			run=t.get("run"),
 		)
 		if res.get("status") == "success":
 			summary["trips"].append(
@@ -191,26 +195,53 @@ def _fleet(data, today):
 	trucks = []
 	for v in data["vehicles"]:
 		cap = int(v.get("capacity_buckets") or 0)
-		if cap <= 0 or v.get("on_road") or v["name"] in manual:
+		if cap <= 0 or v["name"] in manual:
 			continue
 		route = routes.get(v["name"])
-		fixed = None
 		if route and not route.get("auto_planned") and route.get("farms"):
-			fixed = set(route["farms"])
-		trucks.append(
-			{
-				"vehicle": v["name"],
-				"rem": cap,
-				"fixed": fixed,
-				"auto_route": fixed is None,
-				"stops": [],  # farms it collects from, in the order they were added
-				"passes": set(),  # every farm on its roads (stops + on the way)
-				"rows": [],
-			}
-		)
+			# A hand-set route: every run still open is a full truck that only serves
+			# that run's farms (one trip per run). A run on the road is skipped.
+			for r in v.get("runs") or []:
+				if r.get("trip_status") in ("Dispatched", "Received") or not r.get("stops"):
+					continue
+				used = 0
+				if r.get("trip"):
+					t = frappe.db.get_value(
+						"Bucket Request Trip",
+						r["trip"],
+						["total_buckets", "loaded_buckets", "auto_planned"],
+						as_dict=True,
+					)
+					used = (
+						int(t.loaded_buckets or 0)
+						if t.auto_planned
+						else max(int(t.total_buckets or 0), int(t.loaded_buckets or 0))
+					)
+				if cap - used > 0:
+					trucks.append(
+						_truck(v["name"], cap - used, set(r["stops"]), route=r["route"], run=r["run"])
+					)
+			continue
+		if v.get("on_road"):
+			continue
+		trucks.append(_truck(v["name"], cap, None))
 	# Biggest first, as the page's fleetSorted() does.
 	trucks.sort(key=lambda t: -t["rem"])
 	return trucks
+
+
+def _truck(vehicle, rem, fixed, route=None, run=None):
+	return {
+		"vehicle": vehicle,
+		"route": route,
+		"run": run,
+		"rem": rem,
+		"fixed": fixed,
+		"auto_route": fixed is None,
+		"stops": [],  # farms it collects from, in the order they were added
+		"passes": set(),  # every farm on its roads (stops + on the way)
+		"rows": [],
+	}
 
 
 def _open_orders(data):
@@ -497,8 +528,16 @@ def _signature(loads):
 			t["vehicle"],
 			tuple(sorted((r["order_pick_list"], r["farm"], r["buckets"]) for r in t["rows"])),
 		)
-		for t in loads
+		for t in _by_vehicle(loads)
 	)
+
+
+def _by_vehicle(loads):
+	"""Run loads of one truck as one entry (the stored drafts are compared per truck)."""
+	out = {}
+	for t in loads:
+		out.setdefault(t["vehicle"], {"vehicle": t["vehicle"], "rows": []})["rows"] += t["rows"]
+	return list(out.values())
 
 
 def _own_drafts(today):
@@ -516,7 +555,7 @@ def _own_drafts(today):
 
 
 def _current_signature(today):
-	out = []
+	by_vehicle = {}
 	for t in _own_drafts(today):
 		if str(t.trip_date) != str(today):
 			return None  # a stale draft from an earlier day — always replace
@@ -525,8 +564,10 @@ def _current_signature(today):
 			filters={"parent": t.name, "parenttype": "Bucket Request Trip"},
 			fields=["order_pick_list", "farm", "buckets"],
 		)
-		out.append((t.vehicle, tuple(sorted((r.order_pick_list, r.farm, int(r.buckets or 0)) for r in rows))))
-	return sorted(out)
+		by_vehicle.setdefault(t.vehicle, []).extend(
+			(r.order_pick_list, r.farm, int(r.buckets or 0)) for r in rows
+		)
+	return sorted((v, tuple(sorted(rows))) for v, rows in by_vehicle.items())
 
 
 def _clear_own_plan(today):

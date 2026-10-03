@@ -18,6 +18,7 @@
   "is_partial",
   "loaded_buckets",
   "loaded_stems",
+  "short_reason",
   "unscheduled"
  ],
  "fields": [
@@ -83,12 +84,12 @@
    "label": "Is Partial"
   },
   {
+   "description": "Buckets actually loaded onto the truck for this order and farm.",
    "fieldname": "loaded_buckets",
    "fieldtype": "Int",
    "in_list_view": 1,
    "label": "Loaded Buckets",
-   "read_only": 1,
-   "description": "Buckets actually loaded onto the truck for this order and farm."
+   "read_only": 1
   },
   {
    "fieldname": "loaded_stems",
@@ -97,19 +98,26 @@
    "read_only": 1
   },
   {
+   "description": "Why the farm sent fewer buckets than planned when the truck left (from the farm app).",
+   "fieldname": "short_reason",
+   "fieldtype": "Small Text",
+   "label": "Short Reason",
+   "read_only": 1
+  },
+  {
    "default": "0",
+   "description": "Loaded onto the truck without being on the trip's plan.",
    "fieldname": "unscheduled",
    "fieldtype": "Check",
    "label": "Unscheduled",
-   "read_only": 1,
-   "description": "Loaded onto the truck without being on the trip's plan."
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-10-01 19:59:57.183357",
+ "modified": "2026-10-03 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Bucket Request Trip Order",

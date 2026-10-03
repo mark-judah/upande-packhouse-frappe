@@ -1145,9 +1145,9 @@
    "label": "Remote Truck Details",
    "length": 0,
    "link_filters": null,
-   "mandatory_depends_on": "eval: doc.business_unit == \"Roses\"",
+   "mandatory_depends_on": null,
    "mask": 0,
-   "modified": "2025-02-25 21:17:56.106521",
+   "modified": "2026-10-02 10:00:00.000000",
    "modified_by": "Administrator",
    "module": "Upande Packhouse",
    "name": "Sales Order-custom_truck_details",
@@ -1164,7 +1164,7 @@
    "read_only": 0,
    "read_only_depends_on": null,
    "report_hide": 0,
-   "reqd": 1,
+   "reqd": 0,
    "search_index": 0,
    "set_only_once": 0,
    "show_dashboard": 0,
@@ -1873,7 +1873,7 @@
    "field_name": null,
    "idx": 0,
    "is_system_generated": 0,
-   "modified": "2026-09-02 23:29:14.562530",
+   "modified": "2026-10-02 10:00:00.000000",
    "modified_by": "Administrator",
    "module": null,
    "name": "Sales Order-main-field_order",
@@ -1881,7 +1881,7 @@
    "property": "field_order",
    "property_type": "Data",
    "row_name": null,
-   "value": "[\"customer_section\", \"column_break0\", \"company\", \"custom_business_unit\", \"custom_farm\", \"naming_series\", \"custom_sales_order_type\", \"customer\", \"customer_name\", \"customer_name_in_arabic\", \"column_break_7\", \"order_type\", \"transaction_date\", \"transaction_time\", \"delivery_date\", \"column_break1\", \"tax_id\", \"skip_delivery_note\", \"has_unit_price_items\", \"is_subcontracted\", \"amended_from\", \"accounting_dimensions_section\", \"business_unit\", \"cost_center\", \"dimension_col_break\", \"farm\", \"project\", \"custom_shipping_details_sec\", \"custom_order_name\", \"custom_event\", \"custom_week\", \"custom_expected_delivery_date\", \"custom_is_preorder\", \"custom_sd_col0\", \"custom_incoterms\", \"custom_mode_of_transport\", \"custom_delivery_point\", \"custom_shipping_agent\", \"custom_consignee\", \"custom_sd_col\", \"custom_consignee_country\", \"custom_statescountry\", \"custom_s_number\", \"custom_truck_details\", \"custom_customer_flo_id\", \"custom_company_flo_id\", \"custom_rp_cs_sec\", \"custom_confirmed_stems_table\", \"currency_and_price_list\", \"currency\", \"conversion_rate\", \"column_break2\", \"selling_price_list\", \"price_list_currency\", \"plc_conversion_rate\", \"ignore_pricing_rule\", \"sec_warehouse\", \"scan_barcode\", \"last_scanned_warehouse\", \"column_break_28\", \"set_warehouse\", \"reserve_stock\", \"items_section\", \"items\", \"section_break_31\", \"total_qty\", \"total_net_weight\", \"column_break_33\", \"base_total\", \"base_net_total\", \"column_break_33a\", \"total\", \"net_total\", \"taxes_section\", \"tax_category\", \"taxes_and_charges\", \"exempt_from_sales_tax\", \"column_break_38\", \"shipping_rule\", \"column_break_49\", \"incoterm\", \"named_place\", \"section_break_40\", \"taxes\", \"section_break_43\", \"base_total_taxes_and_charges\", \"column_break_46\", \"total_taxes_and_charges\", \"totals_section\", \"grand_total\", \"in_words\", \"disable_rounded_total\", \"column_break_nuxg\", \"rounding_adjustment\", \"rounded_total\", \"base_totals_section\", \"base_grand_total\", \"base_in_words\", \"column_break_bgfw\", \"base_rounding_adjustment\", \"base_rounded_total\", \"section_break_efew\", \"advance_paid\", \"additional_discount_section\", \"apply_discount_on\", \"base_discount_amount\", \"coupon_code\", \"column_break_50\", \"additional_discount_percentage\", \"discount_amount\", \"sec_tax_breakup\", \"other_charges_calculation\", \"item_wise_tax_details\", \"packing_list\", \"packed_items\", \"pricing_rule_details\", \"pricing_rules\", \"contact_info\", \"billing_address_column\", \"customer_address\", \"address_display\", \"customer_group\", \"territory\", \"column_break_84\", \"contact_person\", \"contact_display\", \"contact_phone\", \"contact_mobile\", \"contact_email\", \"shipping_address_column\", \"shipping_address_name\", \"shipping_address\", \"column_break_93\", \"dispatch_address_name\", \"dispatch_address\", \"col_break46\", \"company_address\", \"company_trn\", \"company_address_display\", \"column_break_92\", \"company_contact_person\", \"payment_schedule_section\", \"payment_terms_section\", \"ignore_default_payment_terms_template\", \"payment_terms_template\", \"payment_schedule\", \"terms_section_break\", \"tc_name\", \"terms\", \"more_info\", \"section_break_78\", \"status\", \"delivery_status\", \"per_delivered\", \"column_break_81\", \"per_billed\", \"per_picked\", \"billing_status\", \"advance_payment_status\", \"sales_team_section_break\", \"sales_partner\", \"column_break7\", \"amount_eligible_for_commission\", \"commission_rate\", \"total_commission\", \"section_break1\", \"sales_team\", \"loyalty_points_redemption\", \"loyalty_points\", \"column_break_116\", \"loyalty_amount\", \"auto_repeat_section\", \"from_date\", \"to_date\", \"column_break_108\", \"auto_repeat\", \"update_auto_repeat_reference\", \"printing_details\", \"letter_head\", \"group_same_items\", \"column_break4\", \"select_print_heading\", \"language\", \"vat_section\", \"permit_no\", \"vat_emirate\", \"tourist_tax_return\", \"utm_analytics_section\", \"utm_source\", \"utm_medium\", \"column_break_ijxt\", \"utm_campaign\", \"utm_content\", \"additional_info_section\", \"is_internal_customer\", \"po_no\", \"po_date\", \"represents_company\", \"title\", \"column_break_yvzv\", \"inter_company_order_reference\", \"party_account_currency\", \"proforma_tab\", \"proforma_html\", \"connections_tab\"]"
+   "value": "[\"customer_section\", \"column_break0\", \"company\", \"custom_business_unit\", \"custom_farm\", \"naming_series\", \"custom_sales_order_type\", \"customer\", \"customer_name\", \"customer_name_in_arabic\", \"column_break_7\", \"order_type\", \"transaction_date\", \"transaction_time\", \"delivery_date\", \"column_break1\", \"tax_id\", \"skip_delivery_note\", \"has_unit_price_items\", \"is_subcontracted\", \"amended_from\", \"accounting_dimensions_section\", \"business_unit\", \"cost_center\", \"dimension_col_break\", \"farm\", \"project\", \"custom_shipping_details_sec\", \"custom_order_name\", \"custom_event\", \"custom_week\", \"custom_expected_delivery_date\", \"custom_is_preorder\", \"custom_sd_col0\", \"custom_incoterms\", \"custom_mode_of_transport\", \"custom_delivery_point\", \"custom_shipping_agent\", \"custom_consignee\", \"custom_sd_col\", \"custom_consignee_country\", \"custom_statescountry\", \"custom_s_number\", \"po_no\", \"custom_truck_details\", \"custom_customer_flo_id\", \"custom_company_flo_id\", \"custom_rp_cs_sec\", \"custom_confirmed_stems_table\", \"currency_and_price_list\", \"currency\", \"conversion_rate\", \"column_break2\", \"selling_price_list\", \"price_list_currency\", \"plc_conversion_rate\", \"ignore_pricing_rule\", \"sec_warehouse\", \"scan_barcode\", \"last_scanned_warehouse\", \"column_break_28\", \"set_warehouse\", \"reserve_stock\", \"items_section\", \"items\", \"section_break_31\", \"total_qty\", \"total_net_weight\", \"column_break_33\", \"base_total\", \"base_net_total\", \"column_break_33a\", \"total\", \"net_total\", \"taxes_section\", \"tax_category\", \"taxes_and_charges\", \"exempt_from_sales_tax\", \"column_break_38\", \"shipping_rule\", \"column_break_49\", \"incoterm\", \"named_place\", \"section_break_40\", \"taxes\", \"section_break_43\", \"base_total_taxes_and_charges\", \"column_break_46\", \"total_taxes_and_charges\", \"totals_section\", \"grand_total\", \"in_words\", \"disable_rounded_total\", \"column_break_nuxg\", \"rounding_adjustment\", \"rounded_total\", \"base_totals_section\", \"base_grand_total\", \"base_in_words\", \"column_break_bgfw\", \"base_rounding_adjustment\", \"base_rounded_total\", \"section_break_efew\", \"advance_paid\", \"additional_discount_section\", \"apply_discount_on\", \"base_discount_amount\", \"coupon_code\", \"column_break_50\", \"additional_discount_percentage\", \"discount_amount\", \"sec_tax_breakup\", \"other_charges_calculation\", \"item_wise_tax_details\", \"packing_list\", \"packed_items\", \"pricing_rule_details\", \"pricing_rules\", \"contact_info\", \"billing_address_column\", \"customer_address\", \"address_display\", \"customer_group\", \"territory\", \"column_break_84\", \"contact_person\", \"contact_display\", \"contact_phone\", \"contact_mobile\", \"contact_email\", \"shipping_address_column\", \"shipping_address_name\", \"shipping_address\", \"column_break_93\", \"dispatch_address_name\", \"dispatch_address\", \"col_break46\", \"company_address\", \"company_trn\", \"company_address_display\", \"column_break_92\", \"company_contact_person\", \"payment_schedule_section\", \"payment_terms_section\", \"ignore_default_payment_terms_template\", \"payment_terms_template\", \"payment_schedule\", \"terms_section_break\", \"tc_name\", \"terms\", \"more_info\", \"section_break_78\", \"status\", \"delivery_status\", \"per_delivered\", \"column_break_81\", \"per_billed\", \"per_picked\", \"billing_status\", \"advance_payment_status\", \"sales_team_section_break\", \"sales_partner\", \"column_break7\", \"amount_eligible_for_commission\", \"commission_rate\", \"total_commission\", \"section_break1\", \"sales_team\", \"loyalty_points_redemption\", \"loyalty_points\", \"column_break_116\", \"loyalty_amount\", \"auto_repeat_section\", \"from_date\", \"to_date\", \"column_break_108\", \"auto_repeat\", \"update_auto_repeat_reference\", \"printing_details\", \"letter_head\", \"group_same_items\", \"column_break4\", \"select_print_heading\", \"language\", \"vat_section\", \"permit_no\", \"vat_emirate\", \"tourist_tax_return\", \"utm_analytics_section\", \"utm_source\", \"utm_medium\", \"column_break_ijxt\", \"utm_campaign\", \"utm_content\", \"additional_info_section\", \"is_internal_customer\", \"po_date\", \"represents_company\", \"title\", \"column_break_yvzv\", \"inter_company_order_reference\", \"party_account_currency\", \"proforma_tab\", \"proforma_html\", \"connections_tab\"]"
   },
   {
    "_assign": null,
@@ -2043,6 +2043,29 @@
    "property_type": "Check",
    "row_name": null,
    "value": "0"
+  },
+  {
+   "_assign": null,
+   "_comments": null,
+   "_liked_by": null,
+   "_user_tags": null,
+   "creation": "2026-10-02 10:00:00.000000",
+   "default_value": null,
+   "doc_type": "Sales Order",
+   "docstatus": 0,
+   "doctype_or_field": "DocField",
+   "field_name": "po_no",
+   "idx": 0,
+   "is_system_generated": 0,
+   "modified": "2026-10-02 10:00:00.000000",
+   "modified_by": "Administrator",
+   "module": null,
+   "name": "Sales Order-po_no-label",
+   "owner": "Administrator",
+   "property": "label",
+   "property_type": "Data",
+   "row_name": null,
+   "value": "PO Number"
   }
  ],
  "sync_on_migrate": 1

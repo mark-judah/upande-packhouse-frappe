@@ -18,6 +18,12 @@ the site only ever proxies the small manifest document.
 Site config: ``packhouse_ota_base_url`` overrides the published root (default: the
 GitHub Pages ``ota`` folder).
 
+Pages fallback: while GitHub Pages is not enabled on the repository, the Pages
+URL answers 404 for everything. The same files sit on the ``gh-pages`` branch,
+so on a 404 from Pages the manifest is read from raw.githubusercontent.com
+instead, and its bundle and asset URLs are rewritten to point there too. Once
+Pages serves the manifest the fallback is never reached.
+
 Failure policy: a fleet of phones polls this on every launch, so it never
 answers 500. Upstream 404 (nothing published for that runtime) is the
 protocol's "no update" — a 204 with the protocol header. Any other upstream
@@ -30,6 +36,9 @@ import frappe
 from werkzeug.wrappers import Response
 
 DEFAULT_BASE_URL = "https://mark-judah.github.io/upande-packhouse/ota"
+# The same `gh-pages` branch, served by GitHub without Pages.
+PAGES_ROOT = "https://mark-judah.github.io/upande-packhouse/"
+RAW_ROOT = "https://raw.githubusercontent.com/mark-judah/upande-packhouse/gh-pages/"
 CACHE_SECONDS = 60
 FETCH_TIMEOUT = 10
 
@@ -76,6 +85,22 @@ def fetch_upstream(url):
 
 	response = requests.get(url, timeout=FETCH_TIMEOUT, headers={"Accept": "application/json"})
 	return response.status_code, response.text
+
+
+def _fetch_manifest(platform, runtime):
+	"""(status, body, url) of the published manifest, from Pages or, when Pages
+	answers 404 for the default root, from the raw `gh-pages` branch with its
+	asset URLs moved there as well. A site-config root is used as given."""
+	base = _base_url()
+	url = f"{base}/{platform}/{runtime}/manifest.json"
+	status, body = fetch_upstream(url)
+	if status != 404 or base != DEFAULT_BASE_URL.rstrip("/"):
+		return status, body, url
+	raw_url = url.replace(PAGES_ROOT, RAW_ROOT, 1)
+	raw_status, raw_body = fetch_upstream(raw_url)
+	if raw_status != 200:
+		return status, body, url
+	return raw_status, (raw_body or "").replace(PAGES_ROOT, RAW_ROOT), raw_url
 
 
 def _no_update():
@@ -141,7 +166,7 @@ def _manifest(runtime, platform):
 	if not isinstance(cached, dict):
 		url = f"{_base_url()}/{platform}/{runtime}/manifest.json"
 		try:
-			status, body = fetch_upstream(url)
+			status, body, url = _fetch_manifest(platform, runtime)
 		except Exception:
 			_log_once(key, "Packhouse OTA manifest fetch failed", frappe.get_traceback() + f"\n\nURL: {url}")
 			return _no_update()

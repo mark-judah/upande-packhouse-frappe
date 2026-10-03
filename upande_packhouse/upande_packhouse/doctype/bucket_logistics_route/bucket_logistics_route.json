@@ -13,6 +13,7 @@
   "route_date",
   "total_km",
   "auto_planned",
+  "template",
   "legs"
  ],
  "fields": [
@@ -74,11 +75,19 @@
    "fieldtype": "Table",
    "label": "Legs",
    "options": "Bucket Logistics Route Leg"
+  },
+  {
+   "description": "The saved route this day's route was copied from.",
+   "fieldname": "template",
+   "fieldtype": "Link",
+   "label": "Template",
+   "options": "Bucket Logistics Route Template",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-29 21:00:00.000000",
+ "modified": "2026-10-03 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Bucket Logistics Route",

@@ -35,9 +35,10 @@ def getScheduledOrders():
 def getSchedulerFeed():
 	# Frappe Server Script (Type: API), api_method = getSchedulerFeed
 	# Unified feed for the redesigned Packhouse Scheduler (2 tabs: Unscheduled + Schedule).
-	# Returns every SCHEDULABLE Order Pick List for a date = draft (docstatus 0) or
-	# submitted (docstatus 1) with ZERO issued buckets. Once ANY bucket is issued the
-	# order is being processed and drops off entirely (user rule).
+	# Returns every SCHEDULABLE Order Pick List for a date = a draft (docstatus 0) still
+	# waiting on a remote transfer, with ZERO issued buckets — plus any order already on
+	# a schedule, so saving never drops it. Once ANY bucket is issued the order is being
+	# processed and drops off entirely (user rule).
 	# Each row carries what both tabs need: team, stems, bucket count, farm count, the
 	# transfer state, and the mixed-type (from the Sales Order Items).
 	# Variations (for the Unscheduled tab's show/hide control):
@@ -159,6 +160,20 @@ def getSchedulerFeed():
 					m["bunch"] = 1
 				sj = sj + 1
 
+		# Only orders still waiting on a remote transfer need scheduling: a draft OPL
+		# with buckets awaiting / loaded / in transit. Submitted OPLs and drafts with
+		# nothing to move are left out — unless already on a schedule: saving rebuilds
+		# the whole day from this list, so dropping a scheduled order would unschedule it.
+		on_schedule = {}
+		if len(names) > 0:
+			for sop in frappe.get_all(
+				"Packhouse Schedule Order",
+				filters=[["order_pick_list", "in", names]],
+				pluck="order_pick_list",
+				limit_page_length=0,
+			):
+				on_schedule[sop] = 1
+
 		out = []
 		ci = 0
 		while ci < len(opls):
@@ -188,6 +203,9 @@ def getSchedulerFeed():
 
 			ds = int(o.get("docstatus") or 0)
 			has_x = st["transfer"]
+			if not on_schedule.get(op) and not (ds == 0 and has_x == 1):
+				ci = ci + 1
+				continue
 			if ds == 0 and has_x == 0:
 				variation = "draft_plain"
 			elif ds == 0 and has_x == 1:

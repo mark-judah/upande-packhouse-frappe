@@ -246,6 +246,7 @@ def create_mixed_box_pick_list_for_allocated_items(sales_order_doc, allocations,
 					confirmed_qty=confirmed_stems.get(so_item_name, 0),
 					already_stems=already_stems,
 					start_box_num=start_box_num,
+					placed_by_box=placed_stems_by_box(existing_rows),
 				)
 				for loc in box_locs:
 					order_pick_list.append("table_ytkc", loc)
@@ -394,6 +395,38 @@ def _check_mix_group_complete(order_pick_list, all_items_in_mix, confirmed_stems
 	return True
 
 
+def placed_stems_by_box(rows):
+	"""{box_id: stems} already sitting on the OPL for one Sales Order Item."""
+	placed = defaultdict(float)
+	for row in rows:
+		if row.custom_box_id:
+			placed[int(row.custom_box_id)] += row.stock_qty or 0
+	return placed
+
+
+def open_box_slots(placed_by_box, stems_per_box, num_boxes, start_box_num=1):
+	"""[(box_num, free_stems)] for every box of the line that still has room.
+
+	Unallocating a bucket deletes its Pick List Item rows but leaves the other
+	buckets' rows on their original box numbers, so the boxes on an OPL are not
+	a solid 1..max(box_id) run: unallocate the bucket that filled boxes 1-5 of a
+	10-box line and boxes 6-10 remain. Continuing from max(box_id) + 1 then saw
+	0 boxes left and rejected the re-allocation as over-allocated. Counting what
+	is really in each box finds the gap (and a box a removed bucket only half
+	filled) and fills it.
+
+	Without `placed_by_box` (a fresh OPL) this is boxes start_box_num..num_boxes,
+	each empty.
+	"""
+	if placed_by_box is None:
+		return [(b, stems_per_box) for b in range(start_box_num, num_boxes + 1)]
+	return [
+		(b, stems_per_box - placed_by_box.get(b, 0))
+		for b in range(1, num_boxes + 1)
+		if placed_by_box.get(b, 0) < stems_per_box - 0.001
+	]
+
+
 def _generate_box_locations(
 	alloc,
 	so_item,
@@ -403,6 +436,7 @@ def _generate_box_locations(
 	confirmed_qty=0,
 	already_stems=0,
 	start_box_num=1,
+	placed_by_box=None,
 ):
 	"""
 	Split a single allocation into box-level OPL rows based on packrate.
@@ -417,6 +451,10 @@ def _generate_box_locations(
 	still needed, and box numbering picks up at start_box_num instead of
 	restarting at 1 -- so a second call fills the REMAINING boxes rather
 	than replacing the first call's boxes with a shorter, incomplete set.
+
+	placed_by_box (see placed_stems_by_box) is what is really in each box on the
+	OPL; when given, the free boxes come from it rather than from start_box_num,
+	so boxes emptied by an unallocation are refilled (see open_box_slots).
 	"""
 	item_code = alloc["item_code"]
 	allocations_list = alloc.get("allocations_list", [])
@@ -448,9 +486,9 @@ def _generate_box_locations(
 	stock_uom = so_item.stock_uom
 
 	# Remaining need, net of whatever earlier allocation calls already placed
-	# into boxes 1..(start_box_num - 1) on this OPL.
-	remaining_boxes = num_boxes - (start_box_num - 1)
-	total_stems_needed = stems_per_box * remaining_boxes
+	# into this line's boxes on this OPL.
+	box_slots = open_box_slots(placed_by_box, stems_per_box, num_boxes, start_box_num)
+	total_stems_needed = sum(free for _box, free in box_slots)
 	total_allocated = sum(a["qty"] for a in allocations_list)
 
 	# If confirmed_qty is set, use it as the target instead of full order
@@ -491,13 +529,12 @@ def _generate_box_locations(
 			sales_order_item_name,
 			allocations_list,
 			stems_per_box,
-			remaining_boxes,
+			box_slots,
 			conversion_factor,
 			sales_uom,
 			stock_uom,
 			shelf_farm,
 			item_code,
-			start_box_num=start_box_num,
 		)
 	else:
 		# Flat rows — one row per bucket contribution, no box splitting
@@ -587,24 +624,23 @@ def _generate_box_locations_with_splitting(
 	sales_order_item_name,
 	allocations_list,
 	stems_per_box,
-	num_boxes,
+	box_slots,
 	conversion_factor,
 	sales_uom,
 	stock_uom,
 	shelf_farm,
 	item_code,
-	start_box_num=1,
 ):
-	"""Original box-splitting logic for full allocations. `num_boxes` here is
-	how many MORE boxes to fill starting at start_box_num (the caller has
-	already subtracted whatever earlier calls filled)."""
+	"""Original box-splitting logic for full allocations. `box_slots` is the
+	[(box_num, free_stems)] still to fill (see open_box_slots) -- the caller has
+	already netted off whatever earlier calls filled."""
 	locations = []
 	bucket_index = 0
 	current_bucket_remaining = 0
 	current_bucket = None
 
-	for box_num in range(start_box_num, start_box_num + num_boxes):
-		stems_needed = stems_per_box
+	for box_num, free_stems in box_slots:
+		stems_needed = free_stems
 		contributions = []
 
 		while stems_needed > 0:
@@ -685,7 +721,7 @@ def _generate_box_locations_with_splitting(
 				"Over-allocated for {0}: {1} stem(s) more than the {2} remaining box(es) x {3} "
 				"stems/box can hold. Reduce the allocation, or raise Number of Boxes on the "
 				"Sales Order."
-			).format(item_code, leftover, num_boxes, stems_per_box),
+			).format(item_code, leftover, len(box_slots), stems_per_box),
 			title=_("Overpacked"),
 		)
 

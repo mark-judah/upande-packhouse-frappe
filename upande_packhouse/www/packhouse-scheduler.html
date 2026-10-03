@@ -347,10 +347,10 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .aph .sch-selbar .cl{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.55)}
 /* ---- 2-tab redesign ---- */
 .aph .sch-maintabs{display:inline-flex;gap:2px;background:var(--bg-muted);border-radius:9px;padding:3px;margin-bottom:16px}
-.aph .sch-maintab{border:0;background:transparent;color:var(--text-2);font-size:13px;font-weight:600;padding:7px 16px;border-radius:7px;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+.aph .sch-maintab{border:0;background:transparent;color:var(--text-2);font-size:15px;font-weight:600;padding:9px 20px;border-radius:7px;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
 .aph .sch-maintab:hover{color:var(--text)}
 .aph .sch-maintab.on{background:var(--bg-card);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.06)}
-.aph .sch-maintab .tc{font-family:var(--mono);font-size:11px;font-weight:700;background:var(--bg-muted);color:var(--text-2);border-radius:8px;padding:0 7px}
+.aph .sch-maintab .tc{font-family:var(--mono);font-size:13px;font-weight:700;background:var(--bg-muted);color:var(--text-2);border-radius:8px;padding:1px 8px}
 .aph .sch-maintab.on .tc{background:var(--accent);color:#fff}
 .aph .sch-panel{display:flex;flex-direction:column;min-height:0}
 .aph .sch-varbar{display:flex;flex-wrap:wrap;gap:6px}
@@ -369,9 +369,10 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 /* Side-by-side team columns — every team's schedule visible at once, no tab-switching. */
 .aph .sch-teamcols{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;align-items:start}
 .aph .sch-teamcol{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:12px;min-width:0}
-.aph .sch-teamcol .sch-teamh{display:flex;flex-direction:column;gap:2px;padding-bottom:8px;border-bottom:1px solid var(--border);margin-bottom:10px}
+.aph .sch-teamcol .sch-teamh{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:2px 10px;padding-bottom:8px;border-bottom:1px solid var(--border);margin-bottom:10px}
 .aph .sch-teamcol .sch-teamh .tn{font-size:14px;font-weight:700;letter-spacing:-.2px}
-.aph .sch-teamcol .sch-teamh .ts{font-family:var(--mono);font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3)}
+.aph .sch-teamcol .sch-teamh .ts{font-family:var(--mono);font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);white-space:nowrap}
+.aph .sch-teamcol .sch-teamh .ts-full{flex-basis:100%}
 .aph .sch-teamcol .sch-list{margin-top:0;display:flex;flex-direction:column;gap:8px}
 @media(max-width:900px){.aph .sch-teamcols{grid-template-columns:1fr}}
 .aph .sch-vchip{font-size:10px;font-weight:600;padding:1px 7px;border-radius:9px}
@@ -733,17 +734,18 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     <div class="aph-content">
       <div class="aph-kpis" id="kpis"></div>
       <div class="sch-maintabs">
-        <button class="sch-maintab on" data-mtab="unsched">Unscheduled <span class="tc" id="cUnsched">0</span></button>
+        <button class="sch-maintab on" data-mtab="byteam">By team <span class="tc" id="cTeams">0</span></button>
+        <button class="sch-maintab" data-mtab="unsched">Not scheduled <span class="tc" id="cUnsched">0</span></button>
         <button class="sch-maintab" data-mtab="sched">Schedule <span class="tc" id="cSched">0</span></button>
       </div>
-      <div id="panelUnsched" class="sch-panel">
+      <div id="panelUnsched" class="sch-panel" style="display:none">
         <div class="sch-varbar" id="varBar"></div>
         <input type="text" id="readySearch" class="sch-search wide" placeholder="Search OPL, order name, customer, team&hellip;" autocomplete="off">
         <div class="sch-selbar" id="readySelBar"></div>
         <div class="sch-list" id="bUnsched"><div class="sch-empty">Loading&hellip;</div></div>
         <div class="sch-pager" id="readyPager"></div>
       </div>
-      <div id="panelSched" class="sch-panel" style="display:none">
+      <div id="panelSched" class="sch-panel">
         <div class="sch-selbar" id="schedSelBar"></div>
         <div class="sch-schedwrap" id="bSched"><div class="sch-empty">Loading&hellip;</div></div>
       </div>
@@ -858,30 +860,24 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     feed.forEach(function(o){stems=stems+num(o.total_stems);if(o.customer)custs[o.customer]=1;});
     var vc={draft_plain:0,draft_transfer:0,submitted:0};
     unsched.forEach(function(o){if(vc[o.variation]!=null)vc[o.variation]++;});
-    el('kpis').innerHTML=[['Schedulable',feed.length],['Unscheduled',unsched.length],['Scheduled',sched.length],['Total stems',fmt(stems)],['Customers',Object.keys(custs).length]]
+    el('kpis').innerHTML=[['Schedulable',feed.length],['Not scheduled',unsched.length],['Scheduled',sched.length],['Total stems',fmt(stems)],['Customers',Object.keys(custs).length]]
       .map(function(k){return '<div class="aph-kpi"><div class="lbl">'+k[0]+'</div><div class="v">'+k[1]+'</div></div>';}).join('');
     if(el('cUnsched'))el('cUnsched').textContent=unsched.length;
     if(el('cSched'))el('cSched').textContent=sched.length;
-    var mt=G.mtab||'unsched';
+    if(el('cTeams'))el('cTeams').textContent=Object.keys(sched.reduce(function(a,o){a[o.custom_team||'-']=1;return a;},{})).length;
+    var mt=G.mtab||'byteam';
     document.querySelectorAll('.sch-maintab').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-mtab')===mt);});
     if(el('panelUnsched'))el('panelUnsched').style.display=(mt==='unsched')?'':'none';
-    if(el('panelSched'))el('panelSched').style.display=(mt==='sched')?'':'none';
+    if(el('panelSched'))el('panelSched').style.display=(mt==='sched'||mt==='byteam')?'':'none';
     G.prio={}; var pk={}; STATE.ready.forEach(function(o){ if(STATE.scheduled[o.name]){ var tm=o.custom_team||''; pk[tm]=(pk[tm]||0)+1; G.prio[o.name]=pk[tm]; } });
     renderVarBar(vc);
     if(mt==='unsched') renderUnscheduled(unsched); else renderSchedule(sched);
     renderSelBar();
   }
 
-  function renderVarBar(vc){
-    var box=el('varBar'); if(!box) return;
-    var cur=G.var||'all';
-    var tabs=[['all','All',vc.draft_plain+vc.draft_transfer+vc.submitted],
-              ['draft_plain','Draft',vc.draft_plain],
-              ['draft_transfer','Draft · transfer',vc.draft_transfer],
-              ['submitted','Submitted',vc.submitted]];
-    box.innerHTML=tabs.map(function(x){var a=(cur===x[0])?' active':'';return '<button class="sch-varbtn'+a+'" data-var="'+x[0]+'">'+esc(x[1])+'<span class="tc">'+x[2]+'</span></button>';}).join('');
-    box.querySelectorAll('.sch-varbtn').forEach(function(b){b.onclick=function(){G.var=b.getAttribute('data-var');G.readyPage=1;render();};});
-  }
+  // The Not scheduled list only holds drafts waiting on a transfer now, so there is
+  // nothing to split by Draft / Submitted — no variation bar.
+  function renderVarBar(){ var box=el('varBar'); if(box) box.innerHTML=''; G.var='all'; }
 
   // ---- Unscheduled tab: feed items not yet scheduled, filtered by variation + search ----
   function renderUnscheduled(list){
@@ -907,11 +903,9 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   // list, no team breakdown at all, for when team boundaries don't matter right now.
   function renderSchedule(list){
     var body=el('bSched'); if(!body) return;
-    if(!list.length){ body.innerHTML='<div class="sch-empty">No orders scheduled yet. Schedule orders from the <b>Unscheduled</b> tab.</div>'; return; }
-    var mode=G.schedView||'byteam';
-    var modeBar='<div class="sch-varbar"><button class="sch-varbtn'+(mode==='byteam'?' active':'')+'" data-smode="byteam">By team<span class="tc">'+
-      Object.keys(list.reduce(function(a,o){a[o.custom_team||'-']=1;return a;},{})).length+'</span></button>'+
-      '<button class="sch-varbtn'+(mode==='all'?' active':'')+'" data-smode="all">All<span class="tc">'+list.length+'</span></button></div>';
+    if(!list.length){ body.innerHTML='<div class="sch-empty">No orders scheduled yet. Schedule orders from the <b>Not scheduled</b> tab.</div>'; return; }
+    // Schedule tab = one list in priority order; By team tab = every team's column side by side.
+    var mode=G.mtab==='byteam'?'byteam':'all', modeBar='';
     var content;
     if(mode==='all'){
       // flat list — no per-team grouping, no subtotal header, just every scheduled order
@@ -923,19 +917,19 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       content='<div class="sch-teamcols">'+groups.map(function(g){
         var tb=0,bk=0; g.items.forEach(function(o){tb=tb+num(o.total_stems);bk=bk+num(o.n_buckets);});
         var cards=g.items.map(function(o){return card(o,'sched',0,true,{isNext:(G.prio&&G.prio[o.name]===1),isSel:G.sel.has(o.name)});}).join('');
-        return '<div class="sch-teamcol"><div class="sch-teamh"><span class="tn">'+esc(g.team)+'</span><span class="ts">'+g.items.length+' order'+(g.items.length===1?'':'s')+' · '+fmt(tb)+' stems · '+fmt(bk)+' buckets</span></div>'+
+        return '<div class="sch-teamcol"><div class="sch-teamh"><span class="tn">'+esc(g.team)+' ('+g.items.length+')</span><span class="tn">'+fmt(bk)+' buckets</span><span class="ts ts-full">'+fmt(tb)+' stems</span></div>'+
           '<div class="sch-list" data-team="'+esc(g.team)+'">'+cards+'</div></div>';
       }).join('')+'</div>';
     }
     body.innerHTML=modeBar+content;
-    body.querySelectorAll('.sch-varbar .sch-varbtn').forEach(function(b){ b.onclick=function(){ G.schedView=b.getAttribute('data-smode'); renderSchedule(list); }; });
     body.querySelectorAll('.sch-list').forEach(function(listEl){wireList(listEl,true);});
   }
 
   function renderSelBar(){
-    var mt=G.mtab||'unsched';
-    var other=el(mt==='sched'?'readySelBar':'schedSelBar'); if(other){other.className='sch-selbar';other.innerHTML='';}
-    var bar=el(mt==='sched'?'schedSelBar':'readySelBar'); if(!bar) return;
+    var mt=G.mtab||'byteam';
+    var onSched=mt!=='unsched';
+    var other=el(onSched?'readySelBar':'schedSelBar'); if(other){other.className='sch-selbar';other.innerHTML='';}
+    var bar=el(onSched?'schedSelBar':'readySelBar'); if(!bar) return;
     var n=G.sel.size;
     if(!n){ bar.className='sch-selbar'; bar.innerHTML=''; return; }
     bar.className='sch-selbar on';
@@ -1158,7 +1152,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   window.rtDate.on(load);
   function filterChanged(){G.readyPage=1;render();}
   el('fTeam').onchange=filterChanged;
-  G.mtab='unsched'; G.var='all';
+  G.mtab='byteam'; G.var='all';
   document.querySelectorAll('.sch-maintab').forEach(function(b){b.onclick=function(){G.mtab=b.getAttribute('data-mtab');G.sel.clear();G.readyPage=1;render();};});
   if(el('readySearch'))el('readySearch').oninput=function(){G.readyPage=1;render();};
   if(el('smClose'))el('smClose').onclick=closeSchedModal;
