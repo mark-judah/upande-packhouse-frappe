@@ -104,6 +104,15 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .bs-kpis .v.good{color:var(--good)}.aph .bs-kpis .v.bad{color:var(--bad)}.aph .bs-kpis .v.warn{color:var(--warn)}
 .aph .bs-sk{background:linear-gradient(90deg,var(--bg-muted),#fff,var(--bg-muted));background-size:200% 100%;animation:bsShine 1.2s infinite}
 @keyframes bsShine{to{background-position:-200% 0}}
+.aph .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.aph .jsk{display:block;height:11px;border-radius:6px}
+.aph .jsk-well{display:flex;align-items:center;flex-wrap:wrap;gap:18px;margin-bottom:14px}
+.aph .jsk-steps{display:flex;gap:10px;margin-bottom:22px}
+.aph .jsk-step{flex:1;display:flex;flex-direction:column;align-items:center;gap:7px}
+.aph .jsk-dot{width:26px;height:26px;border-radius:50%}
+.aph .jsk-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.aph .jsk-card{border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:9px}
+@media (max-width:640px){.aph .jsk-cards{grid-template-columns:1fr}.aph .jsk-steps{gap:4px}}
 .aph .bs-farms{display:grid;grid-template-columns:repeat(var(--bs-n,6),minmax(0,1fr));gap:10px;margin-bottom:28px}
 @media (max-width:1100px){.aph .bs-kpis,.aph .bs-farms{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (max-width:640px){.aph .bs-kpis,.aph .bs-farms{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -156,6 +165,18 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .rt-trace-hd .st.arrived{background:#e7f6ec;color:#067647}
 .aph .rt-trace-hd .st.in_transit{background:#eaf2ff;color:#1d4ed8}
 .aph .rt-trace-hd .st.not_found{background:#fef3f2;color:#b42318}
+.aph .rt-trace-hd .st.issued{background:#f4ebff;color:#6941c6}
+.aph .rt-steps{display:flex;gap:0;margin:8px 0 10px;overflow-x:auto}
+.aph .rt-step{flex:1 1 0;min-width:78px;position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;gap:3px;padding-top:2px}
+.aph .rt-step::before{content:'';position:absolute;top:8px;left:-50%;right:50%;height:2px;background:var(--border)}
+.aph .rt-step:first-child::before{display:none}
+.aph .rt-step.done::before{background:#067647}
+.aph .rt-step .dot{position:relative;z-index:1;width:14px;height:14px;border-radius:50%;border:2px solid var(--border);background:var(--bg-card,#fff)}
+.aph .rt-step.done .dot{background:#067647;border-color:#067647}
+.aph .rt-step.cur .dot{box-shadow:0 0 0 4px rgba(6,118,71,.15)}
+.aph .rt-step .lb{font-size:11px;font-weight:600;color:var(--text-3)}
+.aph .rt-step.done .lb{color:var(--text)}
+.aph .rt-step .tm{font-size:10px;color:var(--text-3);min-height:12px}
 .aph .rt-ev{display:grid;grid-template-columns:130px 92px 1fr;gap:2px 10px;padding:3px 0;border-top:1px dashed var(--border)}
 .aph .rt-ev .t{color:var(--text-3);font-variant-numeric:tabular-nums}
 .aph .rt-ev .d .u{color:var(--text-3);font-size:11px}
@@ -889,7 +910,8 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
                 <p style="margin-top:8px">Track a <strong>Bunch</strong> from greenhouse grading through to the packed box.</p>
                 <p style="margin-top:10px"><strong>Spray roses:</strong> Harvest + Grading &rarr; Receiving &rarr; Shelving &rarr; Allocation &rarr; Issue<br>
                 <strong>Standard roses:</strong> Harvest &rarr; Receiving &rarr; Shelving &rarr; Grading &rarr; Allocation &rarr; Issue<br>
-                <strong>Bunch:</strong> Grading &rarr; Receiving &rarr; Shelf &rarr; OPL &rarr; Issue &rarr; Packing</p>
+                <strong>Bunch:</strong> Grading &rarr; Receiving &rarr; Shelf &rarr; OPL &rarr; Issue &rarr; Packing<br>
+                <strong>Remote transfer:</strong> Shelved at the farm &rarr; Requested &rarr; Trolley &rarr; On truck &rarr; In transit &rarr; Shelved at the packhouse &rarr; Ready &rarr; Issued</p>
                 <small id="hintExamples">Bucket examples: 5c8f60 &middot; E0DE9D &middot; 7D1BF6</small>
             </div>
         </div>
@@ -951,11 +973,16 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         <div id="journeyTabs" style="display:none" class="nav-tabs"></div>
         <div id="journeyPanel"></div>
 
-        <div class="panel" id="loadingSection" style="display:none">
-            <div class="panel-body loading-state">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#98a1a9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:10px"><circle cx="12" cy="12" r="10"/></svg>
-                <p id="loadingMsg">Tracing journey...</p>
-            </div>
+        <!-- Loading: a skeleton of the result (summary, journey steps, stage cards). The
+             message stays for screen readers only. -->
+        <div id="loadingSection" style="display:none" aria-busy="true">
+            <p id="loadingMsg" class="sr-only">Tracing journey...</p>
+            <div class="well jsk-well"><span class="bs-sk jsk" style="width:120px;height:22px"></span>
+                <span class="bs-sk jsk" style="width:90px"></span><span class="bs-sk jsk" style="width:110px"></span><span class="bs-sk jsk" style="width:100px"></span></div>
+            <div class="panel"><div class="panel-body">
+                <div class="jsk-steps"><div class="jsk-step"><span class="bs-sk jsk-dot"></span><span class="bs-sk jsk" style="width:60%"></span><span class="bs-sk jsk" style="width:40%;height:9px"></span></div><div class="jsk-step"><span class="bs-sk jsk-dot"></span><span class="bs-sk jsk" style="width:60%"></span><span class="bs-sk jsk" style="width:40%;height:9px"></span></div><div class="jsk-step"><span class="bs-sk jsk-dot"></span><span class="bs-sk jsk" style="width:60%"></span><span class="bs-sk jsk" style="width:40%;height:9px"></span></div><div class="jsk-step"><span class="bs-sk jsk-dot"></span><span class="bs-sk jsk" style="width:60%"></span><span class="bs-sk jsk" style="width:40%;height:9px"></span></div><div class="jsk-step"><span class="bs-sk jsk-dot"></span><span class="bs-sk jsk" style="width:60%"></span><span class="bs-sk jsk" style="width:40%;height:9px"></span></div><div class="jsk-step"><span class="bs-sk jsk-dot"></span><span class="bs-sk jsk" style="width:60%"></span><span class="bs-sk jsk" style="width:40%;height:9px"></span></div></div>
+                <div class="jsk-cards"><div class="jsk-card"><span class="bs-sk jsk" style="width:45%;height:14px"></span><span class="bs-sk jsk" style="width:85%"></span><span class="bs-sk jsk" style="width:70%"></span><span class="bs-sk jsk" style="width:55%"></span></div><div class="jsk-card"><span class="bs-sk jsk" style="width:45%;height:14px"></span><span class="bs-sk jsk" style="width:85%"></span><span class="bs-sk jsk" style="width:70%"></span><span class="bs-sk jsk" style="width:55%"></span></div><div class="jsk-card"><span class="bs-sk jsk" style="width:45%;height:14px"></span><span class="bs-sk jsk" style="width:85%"></span><span class="bs-sk jsk" style="width:70%"></span><span class="bs-sk jsk" style="width:55%"></span></div></div>
+            </div></div>
         </div>
         <div class="panel" id="emptySection" style="display:none">
             <div class="panel-body empty-state">
@@ -2351,17 +2378,42 @@ function bsReplLine(r, id) {
 }
 /* Remote transfers the bucket was trucked in: farm → packhouse, by truck / run / trip,
    with when it was requested, loaded, dispatched and shelved (or not found at the farm). */
-const RT_STATE = {at_farm:'At farm', on_trolley:'On trolley', in_transit:'In transit', arrived:'Arrived', not_found:'Not found'};
+const RT_STATE = {at_farm:'At farm', on_trolley:'On trolley', in_transit:'In transit', arrived:'At packhouse', issued:'Issued', not_found:'Not found'};
+/* Remote transfer: what happened after the bucket was shelved at the remote farm, up to
+   its issue at the packhouse — a step strip (done steps filled), then every event. */
+const RT_STEPS = [
+    ['Awaiting transfer', 'Requested'],
+    ['On trolley', 'Trolley', ['Left remote shelf']],
+    ['Loaded on truck', 'On truck'],
+    ['In transit', 'In transit'],
+    ['Shelved at sales farm', 'Shelved'],
+    ['Ready for packing', 'Ready'],
+    ['Issued', 'Issued'],
+];
 function bsRemoteTr(list) {
     const el = q('bsRemoteTr'); if (!el) return;
     const fmt = v => { if (!v) return '—'; const d = new Date(String(v).replace(' ', 'T')); return isNaN(d) ? escHtml(String(v)) : d.toLocaleString([], {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'}); };
-    el.innerHTML = (list || []).map(t => `<div class="rt-trace"><div class="rt-trace-hd"><b>Remote transfer</b>
-        <span>${escHtml(t.order_name)} · ${escHtml(t.from_farm || '?')} → ${escHtml(t.to_farm || '')}</span>
+    el.innerHTML = (list || []).map(t => {
+        const ev = t.events || [];
+        const has = names => ev.some(e => names.indexOf(e.stage) >= 0);
+        const done = RT_STEPS.map(st => has([st[0]].concat(st[2] || [])));
+        const last = done.lastIndexOf(true);
+        // A later step done means the earlier ones happened too, even if not recorded.
+        const strip = RT_STEPS.map((st, k) => {
+            const e = ev.find(x => x.stage === st[0]);
+            const cls = k <= last ? 'done' : '';
+            return `<div class="rt-step ${cls}${k === last ? ' cur' : ''}"><span class="dot"></span><span class="lb">${escHtml(st[0] === 'Shelved at sales farm' ? 'Shelved at ' + (t.to_farm || 'packhouse') : st[1])}</span>
+              <span class="tm">${e && e.datetime ? fmt(e.datetime) : ''}</span></div>`;
+        }).join('');
+        return `<div class="rt-trace"><div class="rt-trace-hd"><b>Remote transfer</b>
+        <span>${escHtml(t.order_name)} · ${escHtml(t.from_farm || '?')}${t.remote_shelf ? ' shelf ' + escHtml(t.remote_shelf) : ''} → ${escHtml(t.to_farm || '')}</span>
         <span class="st ${escHtml(t.state)}">${escHtml(RT_STATE[t.state] || t.state)}</span>
         <span style="color:var(--text-3)">${escHtml(t.variety)}${t.stems ? ' · ' + Math.round(t.stems) + ' stems' : ''}${t.delivery_date ? ' · due ' + escHtml(t.delivery_date) : ''}</span></div>
-        ${(t.events || []).map(e => `<div class="rt-ev"><span class="t">${fmt(e.datetime)}</span><b>${escHtml(e.stage)}</b>
+        ${t.state === 'not_found' ? '' : `<div class="rt-steps">${strip}</div>`}
+        ${ev.map(e => `<div class="rt-ev"><span class="t">${fmt(e.datetime)}</span><b>${escHtml(e.stage)}</b>
           <span class="d">${escHtml(e.detail || '')}${e.user ? ' <span class="u">· ' + escHtml(e.user) + '</span>' : ''}</span></div>`).join('')}
-      </div>`).join('');
+      </div>`;
+    }).join('');
 }
 function bsReplNote(id, reps) {
     const el = q('bsReplNote'); if (!el) return;

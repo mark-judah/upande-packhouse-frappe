@@ -70,7 +70,7 @@ def getBucketLogistics():
             COUNT(DISTINCT """
 		+ BKT
 		+ """)                  AS total,
-            COUNT(DISTINCT CASE WHEN pli.awaiting_transfer = 1 THEN """
+            COUNT(DISTINCT CASE WHEN pli.awaiting_transfer = 1 AND NOT (IFNULL(pli.custom_ready_for_packing, 0) = 1 OR IFNULL(pli.issued, 0) = 1) THEN """
 		+ BKT
 		+ """ END) AS awaiting,
             COUNT(DISTINCT CASE WHEN pli.loaded_in_trolley = 1 THEN """
@@ -189,7 +189,7 @@ def getBucketLogistics():
 			    COUNT(DISTINCT """
 			+ BKT
 			+ """) AS total,
-			    COUNT(DISTINCT CASE WHEN pli.awaiting_transfer = 1 THEN """
+			    COUNT(DISTINCT CASE WHEN pli.awaiting_transfer = 1 AND NOT (IFNULL(pli.custom_ready_for_packing, 0) = 1 OR IFNULL(pli.issued, 0) = 1) THEN """
 			+ BKT
 			+ """ END) AS awaiting,
 			    COUNT(DISTINCT CASE WHEN pli.loaded_in_trolley = 1 THEN """

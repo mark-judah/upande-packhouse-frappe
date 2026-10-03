@@ -3087,6 +3087,7 @@ def getTransferScheduleData():
           AND so.delivery_date BETWEEN %(f)s AND %(t)s
           AND (pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1 OR pli.in_transit = 1)
           AND pli.shelved = 0
+          AND NOT (IFNULL(pli.custom_ready_for_packing, 0) = 1 OR IFNULL(pli.issued, 0) = 1)
           AND o.name IN (
               SELECT pso2.order_pick_list FROM `tabPackhouse Schedule Order` pso2
               JOIN `tabPackhouse Schedule` ps2 ON ps2.name = pso2.parent
@@ -3473,6 +3474,10 @@ def getTransferScheduleData():
 	# doc per (date, vehicle). Drives which farms a truck is allowed to serve when
 	# distributing schedules. A truck with NO route today is left unrestricted (can serve
 	# any farm) so the feature degrades gracefully until routes are actually set up.
+	# Saved routes are copied onto the day the first time it is asked for.
+	from upande_packhouse.api.transfer_control import ensure_day_routes
+
+	ensure_day_routes(today_str)
 	route_rows = frappe.get_all(
 		"Bucket Logistics Route",
 		filters={"route_date": today_str},
@@ -4541,6 +4546,17 @@ def issueBucketToSaleOrderItem():
 					# which assumed stock was still sitting in the coldstore
 					# at issue time -- it no longer is).
 					issue_transfer = None
+					# A remote bucket's sale waits for it to be shelved at the sales farm.
+					# If that never posted (shelving skipped, or its post failed), post it
+					# now so the issue moves this order's stems instead of nothing. Capped
+					# by the bucket's own stems at the arrival warehouse, idempotent.
+					try:
+						stock_movement.post_sale_on_arrival(bucket_id, "Roses")
+					except Exception:
+						frappe.log_error(
+							title="Issue: deferred sale failed",
+							message=f"bucket={bucket_id}\n{frappe.get_traceback()}",
+						)
 					se_detail = frappe.db.get_all(
 						"Stock Entry Detail",
 						filters={"parent": stock_entry_name},
@@ -4839,7 +4855,8 @@ def shelveBucket():
             JOIN `tabOrder Pick List` opl ON opl.name = pli.parent AND opl.docstatus = 0
             WHERE pli.parenttype = 'Order Pick List' AND pli.bucket = %s
               AND (pli.awaiting_transfer = 1 OR pli.in_transit = 1
-                   OR pli.loaded_in_trolley = 1) LIMIT 1""",
+                   OR pli.loaded_in_trolley = 1)
+              AND NOT (IFNULL(pli.custom_ready_for_packing, 0) = 1 OR IFNULL(pli.issued, 0) = 1) LIMIT 1""",
 			bucket_id,
 			as_dict=True,
 		)
@@ -4981,6 +4998,22 @@ def shelveBucket():
 				"t_warehouse": ri.t_warehouse,
 			}
 		merged[key]["qty"] += ri.qty or 0
+	# Same stock rule as createShelvingEntry: shelving at the farm the route lands on
+	# (Kapkolia) posts the Remote Transfers leg and the shelf row gets that warehouse;
+	# shelving at the bucket's own remote farm moves nothing.
+	at_arrival = False
+	for ri in merged.values():
+		arrival = stock_movement.post_arrival(
+			bucket_id=bucket_id,
+			item_code=ri["item_code"],
+			qty=ri["qty"],
+			source_warehouse=ri["t_warehouse"],
+			business_unit="Roses",
+			farm=farm,
+			stem_length=stem_length,
+		)
+		ri["t_warehouse"] = arrival["warehouse"]
+		at_arrival = at_arrival or arrival.get("at_arrival", False)
 	for ri in merged.values():
 		new_item = shelf_doc.append("items", {})
 		new_item.bucket_id = bucket_id
@@ -4996,6 +5029,9 @@ def shelveBucket():
 		total_qty += ri["qty"] or 0
 		new_items.append(new_item)
 	shelf_doc.save(ignore_permissions=True)
+	# Arrived: the sale allocation deferred for this remote bucket posts now.
+	if at_arrival:
+		result["sale_on_arrival"] = stock_movement.post_sale_on_arrival(bucket_id, "Roses")
 
 	# Shelving Log: one "Shelved" row per Shelf Item row just created.
 	for new_item in new_items:
@@ -5133,11 +5169,25 @@ def _take_over_truck(rows, mine):
 	if not stand_in:
 		return
 	truck, previous = stand_in.transit_truck, mine[0].transit_truck
-	# A bucket spans several rows (one per variety) — move all of the stand-in's.
+	# A bucket spans several rows (one per variety) — move all of the stand-in's. It
+	# never left the farm: back to awaiting, off the trolley and off the trip, so it
+	# can't count as loaded on one truck and then be loaded onto another.
 	for r in rows:
 		if (r.bucket or "").lower() == stand_in.bucket.lower():
 			r.in_transit = 0
+			r.loaded_in_trolley = 0
+			r.trolley_id = None
+			r.awaiting_transfer = 1
 			r.transit_truck = previous
+	try:
+		from upande_packhouse.api.transfer_control import _bucket_trip_rows, _drop_bucket_from_trips
+
+		key = stand_in.bucket.upper()
+		_drop_bucket_from_trips(
+			key, _bucket_trip_rows({key}).get(key, []), "its truck flag went to {0}, which arrived".format(mine[0].bucket)
+		)
+	except Exception:
+		frappe.log_error("Take over truck: removing stand-in from its trip failed", frappe.get_traceback())
 	for r in mine:
 		r.transit_truck = truck
 

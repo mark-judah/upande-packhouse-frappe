@@ -167,7 +167,7 @@ def getBucketJourney(bucket_id: str | None = None):
 		"se_qty": se_qty,
 		"replacements": bucket_replacement.for_bucket(bucket_id),
 		# Remote transfers: farm → packhouse by truck, run and trip, with each event.
-		"remote_transfers": transfer_control.bucket_transfer_trace(bucket_id),
+		"remote_transfers": transfer_control.bucket_transfer_trace(bucket_id, after_packhouse=True),
 	}
 
 

@@ -37,14 +37,14 @@
 </nav>
 <label class="rt-date"{% if rt_active == 'journey' %} hidden{% endif %}>Delivery date <input type="date" id="rt-date"></label>
 <script>
-  // Frappe's Date / Datetime control in place of a native <input type="date"> (or
-  // datetime-local). The original input stays in the DOM, hidden, as the value
+  // Frappe's Date / Datetime / Time control in place of a native <input type="date">
+  // (or datetime-local / time). The original input stays in the DOM, hidden, as the value
   // holder, so '.value' reads and 'change' listeners keep working; if the bundle
   // can't load, the native input simply stays visible.
   (function(){
   window.rtMountDate=function(input){
     if(!input||input._fdp||!window.frappe||!frappe.require) return;
-    var dt=input.type==='datetime-local';
+    var dt=input.type==='datetime-local', tm=input.type==='time';
     frappe.require('controls.bundle.js',function(){
       try{
         if(input._fdp||!frappe.ui||!frappe.ui.form||!frappe.ui.form.make_control) return;
@@ -52,23 +52,23 @@
         input.parentNode.insertBefore(host,input);
         var ctrl=frappe.ui.form.make_control({
           parent:window.jQuery(host),
-          df:{fieldtype:dt?'Datetime':'Date',fieldname:(input.id||'date')+'_fdp',placeholder:input.getAttribute('placeholder')||'',
-            change:function(){ var v=ctrl.get_value()||''; if(dt&&v) v=v.replace(' ','T').slice(0,16);
+          df:{fieldtype:dt?'Datetime':(tm?'Time':'Date'),fieldname:(input.id||'date')+'_fdp',placeholder:input.getAttribute('placeholder')||'',
+            change:function(){ var v=ctrl.get_value()||''; if(dt&&v) v=v.replace(' ','T').slice(0,16); if(tm&&v) v=v.slice(0,5);
               if(v!==input.value){ input.value=v; input.dispatchEvent(new Event('change',{bubbles:true})); } }},
           render_input:true, only_input:true
         });
         host.querySelectorAll('.tooltip-content').forEach(function(t){ t.remove(); });  // fieldname tooltip, see CSS
         input.style.display='none';
         input._fdp=ctrl;
-        ctrl.set_value(dt&&input.value?input.value.replace('T',' ')+':00':(input.value||''));
+        ctrl.set_value(dt&&input.value?input.value.replace('T',' ')+':00':(tm&&input.value?input.value+':00':(input.value||'')));
       }catch(e){ /* keep the native date input */ }
     });
   };
   /* Set a mounted (or native) date / datetime input's value without firing change. */
   window.rtSetDate=function(input,v){
     if(!input) return; input.value=v||'';
-    if(input._fdp){ var dt=input.type==='datetime-local';
-      input._fdp.set_value(dt&&v?v.replace('T',' ')+':00':(v||'')); }
+    if(input._fdp){ var dt=input.type==='datetime-local', tm=input.type==='time';
+      input._fdp.set_value(dt&&v?v.replace('T',' ')+':00':(tm&&v?v+':00':(v||''))); }
   };
   window.rtSyncDate=function(input){ if(input&&input._fdp&&input._fdp.get_value()!==input.value) input._fdp.set_value(input.value||''); };
   })();

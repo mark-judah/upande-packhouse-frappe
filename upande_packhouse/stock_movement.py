@@ -720,7 +720,7 @@ def post_arrival(
 	# an arrival: the stems stay in that farm's cold store until the truck brings
 	# them and they are shelved at the farm the route lands on (Kapkolia).
 	if route and not shelved_at_arrival(route, farm):
-		return {"warehouse": source_warehouse, "posted": [], "skipped": [], "moved": False}
+		return {"warehouse": source_warehouse, "posted": [], "skipped": [], "moved": False, "at_arrival": False}
 	row = {
 		"bucket_id": bucket_id,
 		"item_code": item_code,
@@ -738,6 +738,8 @@ def post_arrival(
 		"posted": posted,
 		"skipped": skipped,
 		"moved": bool(posted),
+		# Shelved where the route lands (or no transfer at all): the deferred sale can post.
+		"at_arrival": True,
 	}
 
 
@@ -765,8 +767,13 @@ def post_sale_on_arrival(bucket_id: str | None, business_unit: str | None = None
 
 	Allocation leaves a remote bucket's stems in its farm's cold store (the sale is
 	deferred — see move_allocation_to_sold). When the bucket is shelved at the sales
-	farm, the Arrival leg brings the stems over and this lands every pick row still
-	open for it in the *Sold warehouse. Idempotent: plan_moves skips what is sold.
+	farm, the Arrival leg brings the stems over and this lands every open pick row of
+	it in the *Sold warehouse. Safe to call again and again:
+	  * a row counts as sold once its stems were EVER sold in (sold_in_qty), so an
+	    order packed in an earlier harvest of a reused bucket ID is never re-sold;
+	  * issued rows and local (no transfer) buckets are skipped;
+	  * it never moves more than this bucket's own stems at the arrival warehouse,
+	    so a skipped arrival can't sell other buckets' stems.
 	"""
 	if not bucket_id:
 		return {"posted": [], "skipped": []}
@@ -776,41 +783,55 @@ def post_sale_on_arrival(bucket_id: str | None, business_unit: str | None = None
 		pluck="parent",
 		distinct=True,
 	)
-	rows = []
+	plans_by_bu, skipped = {}, []
+	left = {}  # (item, warehouse) -> this bucket's stems still there to sell
 	for opl_name in names:
 		opl = frappe.get_doc("Order Pick List", opl_name)
 		if opl.docstatus == 2:
 			continue
 		bu = business_unit or opl_business_unit(opl)
 		for row in opl_rows(opl):
-			if (_row_bucket(row) or "").lower() != bucket_id.lower():
+			if (_row_bucket(row) or "").lower() != bucket_id.lower() or row.get("issued"):
 				continue
 			source = _row_warehouse(row) or receiving_warehouse(bucket_id, row.item_code)
-			if not source:
+			if not source or not needs_transfer(source, bu):
+				continue  # local bucket: sold at allocation
+			sale = next((h for h in resolve_route(source, bu, upto=SALE_STAGE) if h["terminal"]), None)
+			if not sale:
 				continue
-			rows.append(
-				(
-					bu,
-					{
-						"bucket_id": bucket_id,
-						"item_code": row.item_code,
-						"qty": flt(row.stock_qty) or flt(row.qty),
-						# The farm's own warehouse: only_stage picks the sale leg, which
-						# starts where the Arrival leg landed the stems.
-						"source": source,
-						"stem_length": row.get("stem_length"),
-						"farm": row.get("farm"),
-						"so_item": _row_so_item(row),
-						"opl": opl_name,
-						"remarks": f"Allocated to {opl.sales_order} (arrived)" if opl.sales_order else "Allocated",
-					},
+			so_item = _row_so_item(row)
+			qty = flt(row.stock_qty) or flt(row.qty)
+			move = qty - sold_in_qty(bucket_id, row.item_code, so_item, sale["to"])
+			if move <= QTY_TOLERANCE:
+				skipped.append({"bucket_id": bucket_id, "opl": opl_name, "reason": "already sold"})
+				continue
+			key = (row.item_code, sale["from"])
+			if key not in left:
+				left[key] = bucket_balance(bucket_id, row.item_code, sale["from"])
+			move = min(move, left[key])
+			if move <= QTY_TOLERANCE:
+				skipped.append(
+					{"bucket_id": bucket_id, "opl": opl_name, "reason": f"bucket not in {sale['from']} yet"}
 				)
+				continue
+			left[key] -= move
+			plans_by_bu.setdefault(bu, []).append(
+				{
+					**sale,
+					"depth": 0,
+					"bucket_id": bucket_id,
+					"item_code": row.item_code,
+					"qty": move,
+					"stem_length": row.get("stem_length"),
+					"farm": row.get("farm"),
+					"so_item": so_item,
+					"opl": opl_name,
+					"remarks": f"Allocated to {opl.sales_order} (arrived)" if opl.sales_order else "Allocated (arrived)",
+				}
 			)
-	posted, skipped = [], []
-	for bu in {bu for bu, _ in rows}:
-		plans, skip = plan_moves([r for b, r in rows if b == bu], bu, upto=SALE_STAGE, only_stage=SALE_STAGE)
+	posted = []
+	for bu, plans in plans_by_bu.items():
 		posted += post_plans(plans, bu)
-		skipped += skip
 	return {"posted": posted, "skipped": skipped}
 
 

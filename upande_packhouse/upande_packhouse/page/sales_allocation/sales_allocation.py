@@ -2918,6 +2918,16 @@ def _replace_requested_bucket(
 				)
 			)
 		old_home = rows[0].source_warehouse or rows[0].warehouse or new_source
+		# Where the missing bucket's sale took its stems from: for a remote bucket that is
+		# the arrival warehouse (Kapkolia Receiving), not its farm's cold store — sending
+		# them back there would put Kapkolia's stems on the farm's books.
+		old_return = next(
+			(hop["from"] for hop in stock_movement.resolve_route(old_home, business_unit) if hop["terminal"]),
+			old_home,
+		)
+		# A remote replacement still at its farm is sold when it is shelved at the sales
+		# farm (post_sale_on_arrival), like any remote allocation — not now.
+		defer_new = new_source == new.warehouse and stock_movement.needs_transfer(new.warehouse, business_unit)
 
 		# ── BAS: release the old bucket ──
 		old_bas_name = frappe.db.get_value(
@@ -3027,20 +3037,22 @@ def _replace_requested_bucket(
 		# ── Stock: trade the buckets in the Sold warehouse, one entry per SO item ──
 		stock_moves = []
 		for so_item, qty in qty_by_so_item.items():
-			lines = [
-				{
-					"bucket_id": new.bucket_id,
-					"qty": qty,
-					"from": new_source,
-					"to": sold_warehouse,
-					"stem_length": new.stem_length,
-				}
-			]
+			lines = []
+			if not defer_new:
+				lines.append(
+					{
+						"bucket_id": new.bucket_id,
+						"qty": qty,
+						"from": new_source,
+						"to": sold_warehouse,
+						"stem_length": new.stem_length,
+					}
+				)
 			for (bucket, line_so_item, warehouse), outstanding in sold.items():
 				if (
 					bucket == old_bucket
 					and line_so_item == so_item
-					and warehouse != old_home
+					and warehouse != old_return
 					and outstanding > stock_movement.QTY_TOLERANCE
 				):
 					lines.append(
@@ -3048,10 +3060,12 @@ def _replace_requested_bucket(
 							"bucket_id": old_bucket,
 							"qty": outstanding,
 							"from": warehouse,
-							"to": old_home,
+							"to": old_return,
 							"stem_length": anchor.stem_length,
 						}
 					)
+			if not lines:
+				continue
 			entry = _post_bucket_swap(
 				source=new_source,
 				target=sold_warehouse,

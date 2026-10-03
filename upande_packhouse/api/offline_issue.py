@@ -240,11 +240,17 @@ def _fail(message, **extra):
 
 
 @frappe.whitelist()
-def offline_issue_opls(days: int = OPL_LOOKBACK_DAYS):
+def offline_issue_opls(days: int = OPL_LOOKBACK_DAYS, delivery_date: str | None = None):
 	"""Submitted OPLs, delivering from `days` ago to tomorrow, that still have a
-	bucket to issue. Newest first, with how far issuing has got."""
-	since = add_days(today(), -max(0, min(cint(days), 60)))
-	until = add_days(today(), 1)
+	bucket to issue. Newest first, with how far issuing has got.
+
+	`delivery_date` (YYYY-MM-DD) narrows it to that one day, so the cold store
+	works on tomorrow's orders without older ones mixed in."""
+	if delivery_date:
+		since = until = getdate(delivery_date)
+	else:
+		since = add_days(today(), -max(0, min(cint(days), 60)))
+		until = add_days(today(), 1)
 	rows = frappe.db.sql(
 		"""
 		SELECT opl.name AS opl_name, opl.order_name, opl.customer, opl.team, opl.farm,
