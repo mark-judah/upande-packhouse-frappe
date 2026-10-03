@@ -1274,7 +1274,9 @@ def _vehicle_trip_doc(truck):
 	"""Legacy fallback: the trip the truck is out on (loaded after its dispatch) — only
 	a trip of today: an earlier day's trip never takes today's load."""
 	trip = _vehicle_on_road(truck)
-	if not trip or str(frappe.db.get_value("Bucket Request Trip", trip, "trip_date")) < str(frappe.utils.today()):
+	if not trip or str(frappe.db.get_value("Bucket Request Trip", trip, "trip_date")) < str(
+		frappe.utils.today()
+	):
 		return None
 	return frappe.get_doc("Bucket Request Trip", trip)
 

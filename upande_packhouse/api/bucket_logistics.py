@@ -44,7 +44,13 @@ def getBucketLogistics():
 	hub = transfer_hub(required=False) or ""
 	NOT_HUB = "COALESCE(" + FARM_EXPR + ", '') != %(hub)s"
 	params = {"d": delivery_date, "hub": hub}
-	conds = ["opl.docstatus < 2", "pli.parenttype = 'Order Pick List'", "so.delivery_date = %(d)s", TRANSFER, NOT_HUB]
+	conds = [
+		"opl.docstatus < 2",
+		"pli.parenttype = 'Order Pick List'",
+		"so.delivery_date = %(d)s",
+		TRANSFER,
+		NOT_HUB,
+	]
 	if fd.get("farm"):
 		conds.append(FARM_EXPR + " = %(farm)s")
 		params["farm"] = fd.get("farm")
@@ -182,7 +188,9 @@ def getBucketLogistics():
 			+ """) AS n
 			FROM `tabPick List Item` pli
 			WHERE pli.parenttype = 'Order Pick List' AND pli.parent IN %(opls)s AND pli.shelved = 1
-			  AND """ + NOT_HUB + """
+			  AND """
+			+ NOT_HUB
+			+ """
 			GROUP BY pli.parent, """
 			+ FARM_EXPR,
 			{"opls": tuple(r["opl"] for r in rows), "hub": hub},

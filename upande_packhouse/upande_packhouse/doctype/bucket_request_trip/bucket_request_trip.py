@@ -27,14 +27,19 @@ class BucketRequestTrip(Document):
 		before = self.get_doc_before_save()
 		# 1. Buckets newly recorded on this trip must not be on another trip still on the road.
 		old = {(r.order_pick_list, (r.bucket or "").upper()) for r in (before.trip_buckets if before else [])}
-		new = {(r.bucket or "").upper() for r in self.get("trip_buckets") or []
-		       if r.bucket and (r.order_pick_list, (r.bucket or "").upper()) not in old and not r.off_truck}
+		new = {
+			(r.bucket or "").upper()
+			for r in self.get("trip_buckets") or []
+			if r.bucket and (r.order_pick_list, (r.bucket or "").upper()) not in old and not r.off_truck
+		}
 		if new and self.status != "Received":
 			for bucket, where in tc._bucket_trip_rows(new).items():
 				other = [w for w in where if w.trip != self.name]
 				if other:
 					frappe.throw(
-						"Bucket {0} is already on trip {1} ({2}).".format(bucket, other[0].trip, other[0].vehicle),
+						"Bucket {0} is already on trip {1} ({2}).".format(
+							bucket, other[0].trip, other[0].vehicle
+						),
 						title="Bucket already on a trip",
 					)
 		# 2. More buckets planned for an (order, farm) than are still free.
