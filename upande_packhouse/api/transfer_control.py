@@ -3592,10 +3592,12 @@ def merge_truck_trips(vehicle, date=None):
 				"Info",
 				"Merged {0} into this trip (same truck, same trip number)".format(", ".join(d.name for d in rest)),
 			)
-		keep.save(ignore_permissions=True)
+		# Remove the folded trips first: while they exist their buckets and claims would
+		# make the merged trip look double-booked (Bucket Request Trip.validate).
 		for d in rest:
 			frappe.delete_doc("Bucket Request Trip", d.name, ignore_permissions=True, force=1)
 			removed.append(d.name)
+		keep.save(ignore_permissions=True)
 		kept.append(keep.name)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	if refused and not kept:
