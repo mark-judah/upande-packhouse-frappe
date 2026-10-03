@@ -4995,7 +4995,9 @@ def shelveBucket():
 	if blocked:
 		from upande_packhouse.api import transfer_control as tc
 
-		tc.log_transfer_event(bucket_id, "Shelving refused", outcome="Refused", farm=farm, shelf=shelf_id, details=blocked)
+		tc.log_transfer_event(
+			bucket_id, "Shelving refused", outcome="Refused", farm=farm, shelf=shelf_id, details=blocked
+		)
 		frappe.response["data"] = {
 			"status": "failed",
 			"reason": "already_transferred",
