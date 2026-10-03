@@ -3836,6 +3836,39 @@ def tripArrival(name=None, farm=None, action="status"):
 		"waiting": [b["bucket"] for b in buckets if not b["shelved"] and not b["off_truck"]],
 		"farm_total": len(mine),
 		"farm_shelved": sum(1 for b in mine if b["shelved"]),
+		# Per bucket with its order's delivery date: the farm app shows the trip for the
+		# delivery date on screen (a truck can carry today's and tomorrow's orders).
+		"buckets": _with_delivery_dates(buckets),
+	}
+
+
+def _with_delivery_dates(buckets):
+	dd = _opl_delivery_dates({b["opl"] for b in buckets})
+	return [
+		{
+			"bucket": b["bucket"],
+			"opl": b["opl"],
+			"farm": b["farm"],
+			"shelved": bool(b["shelved"]),
+			"off_truck": bool(b["off_truck"]),
+			"delivery_date": dd.get(b["opl"], ""),
+		}
+		for b in buckets
+	]
+
+
+def _opl_delivery_dates(opls):
+	"""Order Pick List -> its Sales Order's delivery date (YYYY-MM-DD)."""
+	opls = [o for o in opls if o]
+	if not opls:
+		return {}
+	return {
+		r[0]: str(r[1] or "")
+		for r in frappe.db.sql(
+			"""SELECT opl.name, so.delivery_date FROM `tabOrder Pick List` opl
+			LEFT JOIN `tabSales Order` so ON so.name = opl.sales_order WHERE opl.name IN %s""",
+			(tuple(opls),),
+		)
 	}
 
 
@@ -4040,6 +4073,7 @@ def getFarmCompletedTrips(farm=None, days=3):
 				{"name": name, "active": tuple(ACTIVE_TRIP_STATUSES), "farm": farm, "opls": tuple(opls) or ("",)},
 			)
 		info = _trip_run_info(doc) if doc.get("route") and doc.get("run") else {}
+		dds = _opl_delivery_dates({o.order_pick_list for o in rows})
 		out.append(
 			{
 				"trip": name,
@@ -4060,6 +4094,7 @@ def getFarmCompletedTrips(farm=None, days=3):
 				"orders": [
 					{
 						"opl": o.order_pick_list,
+						"delivery_date": dds.get(o.order_pick_list, ""),
 						"order_name": o.order_name or o.order_pick_list,
 						"customer": o.customer or "",
 						"varieties": o.varieties or "",
