@@ -990,7 +990,14 @@ def _stop_complete(doc, farm):
 	rows = [o for o in doc.orders if (o.farm or "") == farm and int(o.buckets or 0) > 0]
 	past = _past_delivery_opls([o.order_pick_list for o in rows])
 	rows = [o for o in rows if o.order_pick_list not in past or int(o.loaded_buckets or 0) > 0]
-	return bool(rows) and all(int(o.loaded_buckets or 0) >= int(o.buckets or 0) for o in rows)
+	# A row is done once it is fully loaded — or once nothing of that order is still
+	# waiting at this farm (planned higher than the farm really had: a bucket counted
+	# under the wrong farm, replaced, not found, or taken by another trip).
+	open_now = _open_counts([o.order_pick_list for o in rows])
+	return bool(rows) and all(
+		int(o.loaded_buckets or 0) >= int(o.buckets or 0) or not open_now.get((o.order_pick_list, farm), 0)
+		for o in rows
+	)
 
 
 def _past_delivery_opls(opls):

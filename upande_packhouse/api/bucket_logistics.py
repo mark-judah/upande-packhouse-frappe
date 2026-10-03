@@ -37,8 +37,14 @@ def getBucketLogistics():
 	# A bucket's identity on the pick list (case-insensitive; a row without a bucket counts alone).
 	BKT = "COALESCE(NULLIF(UPPER(pli.bucket), ''), pli.name)"
 
-	params = {"d": delivery_date}
-	conds = ["opl.docstatus < 2", "pli.parenttype = 'Order Pick List'", "so.delivery_date = %(d)s", TRANSFER]
+	from upande_packhouse.api.transfer_control import transfer_hub
+
+	# Transfers are from the remote farms only: a bucket whose stock is already at the
+	# packhouse (hub) is not coming from anywhere, whatever its flags say.
+	hub = transfer_hub(required=False) or ""
+	NOT_HUB = "COALESCE(" + FARM_EXPR + ", '') != %(hub)s"
+	params = {"d": delivery_date, "hub": hub}
+	conds = ["opl.docstatus < 2", "pli.parenttype = 'Order Pick List'", "so.delivery_date = %(d)s", TRANSFER, NOT_HUB]
 	if fd.get("farm"):
 		conds.append(FARM_EXPR + " = %(farm)s")
 		params["farm"] = fd.get("farm")
@@ -173,8 +179,10 @@ def getBucketLogistics():
 			+ """) AS n
 			FROM `tabPick List Item` pli
 			WHERE pli.parenttype = 'Order Pick List' AND pli.parent IN %(opls)s AND pli.shelved = 1
-			GROUP BY pli.parent, farm""",
-			{"opls": tuple(r["opl"] for r in rows)},
+			  AND """ + NOT_HUB + """
+			GROUP BY pli.parent, """
+			+ FARM_EXPR,
+			{"opls": tuple(r["opl"] for r in rows), "hub": hub},
 			as_dict=True,
 		):
 			shelved_at[(x.opl, x.farm or "")] = int(x.n or 0)
@@ -212,11 +220,14 @@ def getBucketLogistics():
 			+ """ END) AS not_found,
 			    GROUP_CONCAT(DISTINCT pli.item_code ORDER BY pli.item_code SEPARATOR ', ') AS varieties
 			FROM `tabPick List Item` pli
-			WHERE pli.parenttype = 'Order Pick List' AND pli.parent IN %(opls)s AND """
+			WHERE pli.parent IN %(opls)s AND pli.parenttype = 'Order Pick List' AND """
 			+ TRANSFER
+			+ " AND "
+			+ NOT_HUB
 			+ """
-			GROUP BY pli.parent, farm""",
-			{"opls": tuple(r["opl"] for r in rows)},
+			GROUP BY pli.parent, """
+			+ FARM_EXPR,
+			{"opls": tuple(r["opl"] for r in rows), "hub": hub},
 			as_dict=True,
 		):
 			by_farm.setdefault(x.opl, []).append(
