@@ -1968,6 +1968,15 @@ function addNewFarmTrip(vehicle){
     saveAddTrip({vehicle:vehicle,route:m.route,run:m.run,rem:v?v.capacity_buckets:a.open,saved:!!m.saved_route});
   }).catch(function(err){ if(S.at===a){ a.busy=false; a.err='Failed: '+((err&&err.message)||''); renderAddTrip(); } });
 }
+/* ✎ from Bucket Logistics: load the trips, then open the same trip editor. */
+window.rtEditTrip=function(name){
+  loadData().then(function(){
+    var t=(DATA.trips||[]).filter(function(x){ return x.name===name; })[0];
+    if(!t){ toast('Trip '+name+' isn’t in today’s plan'); return; }
+    if(!tripEditable(t)){ toast('Trip '+name+' already has buckets on the truck — it can’t be edited'); return; }
+    openTripEdit(name);
+  });
+};
 window.rtAddToTrip=function(opl,farm,orderName){
   var a=S.at={opl:opl,farm:farm,order_name:orderName||opl,customer:'',open:0,choices:[],loading:true,busy:false,err:''};
   renderAddTrip();
@@ -2327,7 +2336,10 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
       var st=x.status==='Received'?'ended':(x.loaded_buckets&&(x.status==='Draft'||x.status==='Scheduled')?'loading':String(x.status||'').toLowerCase());
       var qty=x.buckets?(x.loaded_buckets?x.loaded_buckets+' / '+x.buckets+' loaded':x.buckets+' planned'):(x.loaded_buckets+' loaded, not planned');
       if(x.shelved) qty+=' · '+x.shelved+' arrived';
-      return '<div style="margin:1px 0"><span class="bl2-trip" style="border-color:'+(TRIP_COLOR[x.status]||'var(--text-3)')+'" title="'+esc(x.trip)+' · '+esc(x.trip_date)+'">'+esc(x.vehicle||x.trip)+(x.run?' · trip '+x.run:'')+(x.farm?' · '+esc(x.farm):'')+' · '+esc(st)+'</span><div class="bl2-sub" style="margin:2px 0 4px">'+qty+'</div></div>'; }).join('')+add;
+      // ✎ edit a trip that is only planned (nothing loaded): wrong truck / farm / count.
+      var edit=(x.status==='Draft'||x.status==='Scheduled')&&!x.loaded_buckets
+        ?' <button class="bl2-addtrip" data-addtrip="1" data-edittrip="'+esc(x.trip)+'" title="Edit trip '+esc(x.trip)+'" style="padding:1px 7px">✎</button>':'';
+      return '<div style="margin:1px 0"><span class="bl2-trip" style="border-color:'+(TRIP_COLOR[x.status]||'var(--text-3)')+'" title="'+esc(x.trip)+' · '+esc(x.trip_date)+'">'+esc(x.vehicle||x.trip)+(x.run?' · trip '+x.run:'')+(x.farm?' · '+esc(x.farm):'')+' · '+esc(st)+'</span>'+edit+'<div class="bl2-sub" style="margin:2px 0 4px">'+qty+'</div></div>'; }).join('')+add;
   }
   function kpiCard(lbl,val,sub){return '<div class="aph-kpi"><div class="lbl">'+lbl+'</div><div class="v">'+val+'</div>'+(sub?'<div class="sub">'+sub+'</div>':'')+'</div>';}
   // Running stats over the currently-visible orders — recomputed every render,
@@ -2509,6 +2521,7 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
     document.addEventListener('rt-trips-changed',function(){ load(); });
     document.addEventListener('click',function(e){
       var at=e.target.closest('[data-addtrip]');
+      if(at&&at.dataset.edittrip){ if(window.rtEditTrip) window.rtEditTrip(at.dataset.edittrip); return; }
       if(at){ if(window.rtAddToTrip) window.rtAddToTrip(at.dataset.opl,at.dataset.farm,at.dataset.name); return; }
       var all=e.target.closest('[data-fg-all]');
       if(all){ var shut=!!document.querySelector('#blRows tr.fgrp:not(.shut)');
