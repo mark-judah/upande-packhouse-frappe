@@ -980,9 +980,28 @@ def _trip_stops(doc):
 
 
 def _stop_complete(doc, farm):
-	"""Every bucket planned at this farm is on the truck."""
+	"""Every bucket planned at this farm is on the truck — not counting orders whose
+	delivery date has passed with nothing of them loaded (the farm app no longer shows
+	them, so waiting for them would hold the truck at the stop for good)."""
 	rows = [o for o in doc.orders if (o.farm or "") == farm and int(o.buckets or 0) > 0]
+	past = _past_delivery_opls([o.order_pick_list for o in rows])
+	rows = [o for o in rows if o.order_pick_list not in past or int(o.loaded_buckets or 0) > 0]
 	return bool(rows) and all(int(o.loaded_buckets or 0) >= int(o.buckets or 0) for o in rows)
+
+
+def _past_delivery_opls(opls):
+	"""Of these Order Pick Lists, the ones whose Sales Order delivered before today."""
+	opls = [o for o in set(opls) if o]
+	if not opls:
+		return set()
+	return set(
+		frappe.db.sql_list(
+			"""SELECT opl.name FROM `tabOrder Pick List` opl
+			JOIN `tabSales Order` so ON so.name = opl.sales_order
+			WHERE opl.name IN %(opls)s AND so.delivery_date < %(today)s""",
+			{"opls": tuple(opls), "today": frappe.utils.today()},
+		)
+	)
 
 
 def _advance_stops(doc):
