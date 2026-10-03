@@ -720,7 +720,13 @@ def post_arrival(
 	# an arrival: the stems stay in that farm's cold store until the truck brings
 	# them and they are shelved at the farm the route lands on (Kapkolia).
 	if route and not shelved_at_arrival(route, farm):
-		return {"warehouse": source_warehouse, "posted": [], "skipped": [], "moved": False, "at_arrival": False}
+		return {
+			"warehouse": source_warehouse,
+			"posted": [],
+			"skipped": [],
+			"moved": False,
+			"at_arrival": False,
+		}
 	row = {
 		"bucket_id": bucket_id,
 		"item_code": item_code,
@@ -826,7 +832,9 @@ def post_sale_on_arrival(bucket_id: str | None, business_unit: str | None = None
 					"farm": row.get("farm"),
 					"so_item": so_item,
 					"opl": opl_name,
-					"remarks": f"Allocated to {opl.sales_order} (arrived)" if opl.sales_order else "Allocated (arrived)",
+					"remarks": f"Allocated to {opl.sales_order} (arrived)"
+					if opl.sales_order
+					else "Allocated (arrived)",
 				}
 			)
 	posted = []

@@ -824,7 +824,9 @@ def auto_receive_trucks_for_bucket(bucket_id):
 				as_dict=True,
 			)
 			# Only if it isn't recorded on another trip already: one bucket, one trip.
-			elsewhere = [w for w in _bucket_trip_rows({bucket_id.upper()}).get(bucket_id.upper(), []) if w.trip != trip]
+			elsewhere = [
+				w for w in _bucket_trip_rows({bucket_id.upper()}).get(bucket_id.upper(), []) if w.trip != trip
+			]
 			if not elsewhere:
 				_add_trip_buckets(doc, arrived, stamp=False)
 			if _end_trip_if_shelved(doc):
@@ -1154,8 +1156,13 @@ def _drop_bucket_from_trips(bucket, where, note):
 		doc.set("trip_buckets", [r for r in doc.trip_buckets if (r.bucket or "").upper() != bucket])
 		for r in gone:
 			o = next(
-				(o for o in doc.orders if o.order_pick_list == r.order_pick_list and (o.farm or "") == (r.farm or "")
-				 and int(o.loaded_buckets or 0) > 0),
+				(
+					o
+					for o in doc.orders
+					if o.order_pick_list == r.order_pick_list
+					and (o.farm or "") == (r.farm or "")
+					and int(o.loaded_buckets or 0) > 0
+				),
 				None,
 			)
 			if o:
@@ -2385,9 +2392,15 @@ def _save_day_route_as_template(day_route):
 	if err or not path:
 		return ""
 	start, end = _dt(day.from_datetime)[11:] or "00:00", _dt(day.to_datetime)[11:] or "23:59"
-	tpl = frappe.get_doc(TEMPLATE, day.template) if day.get("template") and frappe.db.exists(TEMPLATE, day.template) else None
+	tpl = (
+		frappe.get_doc(TEMPLATE, day.template)
+		if day.get("template") and frappe.db.exists(TEMPLATE, day.template)
+		else None
+	)
 	if tpl is None:
-		for o in frappe.get_all(TEMPLATE, filters={"vehicle": day.vehicle, "active": 1}, fields=["from_time", "to_time"]):
+		for o in frappe.get_all(
+			TEMPLATE, filters={"vehicle": day.vehicle, "active": 1}, fields=["from_time", "to_time"]
+		):
 			if _windows_clash(start, end, _hhmm(o.from_time), _hhmm(o.to_time)):
 				return ""
 		tpl = frappe.new_doc(TEMPLATE)
@@ -2451,7 +2464,13 @@ def _windows_clash(s1, e1, s2, e2):
 
 def _template_dict(doc):
 	legs = [
-		{"leg": l.leg, "from_farm": l.from_farm, "to_farm": l.to_farm, "distance_km": l.distance_km, "run": l.get("run")}
+		{
+			"leg": l.leg,
+			"from_farm": l.from_farm,
+			"to_farm": l.to_farm,
+			"distance_km": l.distance_km,
+			"run": l.get("run"),
+		}
 		for l in doc.legs
 	]
 	return {
@@ -2515,7 +2534,9 @@ def saveRouteTemplate():
 		return
 	name = fd.get("name")
 	for o in frappe.get_all(
-		TEMPLATE, filters={"vehicle": vehicle, "active": 1, "name": ["!=", name or ""]}, fields=["name", "from_time", "to_time"]
+		TEMPLATE,
+		filters={"vehicle": vehicle, "active": 1, "name": ["!=", name or ""]},
+		fields=["name", "from_time", "to_time"],
 	):
 		if _windows_clash(start, end, _hhmm(o.from_time), _hhmm(o.to_time)):
 			frappe.response["message"] = {
@@ -2525,9 +2546,16 @@ def saveRouteTemplate():
 				),
 			}
 			return
-	doc = frappe.get_doc(TEMPLATE, name) if name and frappe.db.exists(TEMPLATE, name) else frappe.new_doc(TEMPLATE)
+	doc = (
+		frappe.get_doc(TEMPLATE, name)
+		if name and frappe.db.exists(TEMPLATE, name)
+		else frappe.new_doc(TEMPLATE)
+	)
 	if doc.name and doc.vehicle and doc.vehicle != vehicle:
-		frappe.response["message"] = {"status": "error", "message": "Route {0} belongs to {1}.".format(doc.name, doc.vehicle)}
+		frappe.response["message"] = {
+			"status": "error",
+			"message": "Route {0} belongs to {1}.".format(doc.name, doc.vehicle),
+		}
 		return
 	doc.vehicle = vehicle
 	doc.from_time, doc.to_time = start + ":00", end + ":00"
@@ -2592,11 +2620,16 @@ def ensure_day_routes(date=None):
 		)
 	)
 	made = 0
-	for t in frappe.get_all(TEMPLATE, filters={"active": 1}, fields=["name", "vehicle", "from_time", "to_time"]):
+	for t in frappe.get_all(
+		TEMPLATE, filters={"active": 1}, fields=["name", "vehicle", "from_time", "to_time"]
+	):
 		if t.name in have:
 			continue
 		legs = frappe.get_all(
-			"Bucket Logistics Route Leg", filters={"parent": t.name, "parenttype": TEMPLATE}, pluck="leg", order_by="idx asc"
+			"Bucket Logistics Route Leg",
+			filters={"parent": t.name, "parenttype": TEMPLATE},
+			pluck="leg",
+			order_by="idx asc",
 		)
 		if not legs:
 			continue
@@ -2702,7 +2735,9 @@ def _mark_trip_in_transit(doc):
 	# trip: dispatching this one must not claim it too.
 	elsewhere = {
 		k
-		for k, ws in _bucket_trip_rows({(b["bucket"] or "").upper() for b in all_buckets if b["bucket"]}).items()
+		for k, ws in _bucket_trip_rows(
+			{(b["bucket"] or "").upper() for b in all_buckets if b["bucket"]}
+		).items()
 		if any(w.trip != doc.name for w in ws)
 	}
 	pool = {}
@@ -2920,7 +2955,9 @@ def bucket_transfer_trace(bucket_id, limit=5, after_packhouse=False):
 		farm = r.farm or ""
 		times = _pli_flag_times(r.opl, set((r.row_names or "").split(",")), bucket_id)
 		allocated = times.get("allocated") or (r.requested_at, r.requested_by, None)
-		remote_shelf = times.get("remote_shelf") or allocated[2] or (r.shelf if not int(r.shelved or 0) else "")
+		remote_shelf = (
+			times.get("remote_shelf") or allocated[2] or (r.shelf if not int(r.shelved or 0) else "")
+		)
 		if not remote_shelf or (hub and int(r.shelved or 0) and remote_shelf == r.shelf):
 			# Last shelf it sat on at the remote farm before the order took it.
 			remote_shelf = (
@@ -3130,7 +3167,9 @@ def bucket_transfer_trace(bucket_id, limit=5, after_packhouse=False):
 					"stage": "Ready for packing",
 					"datetime": str(at[0] or ""),
 					"user": at[1] or "",
-					"detail": "At {0}{1}".format(hub or "the packhouse", " · box {0}".format(r.box_id) if r.box_id else ""),
+					"detail": "At {0}{1}".format(
+						hub or "the packhouse", " · box {0}".format(r.box_id) if r.box_id else ""
+					),
 				}
 			)
 		if after_packhouse and int(r.issued or 0):
@@ -3143,7 +3182,11 @@ def bucket_transfer_trace(bucket_id, limit=5, after_packhouse=False):
 				{"b": bucket_id, "since": allocated[0] or r.requested_at},
 				as_dict=True,
 			)
-			at = (log[0].removed_on, log[0].modified_by, log[0].shelf) if log else (times.get("issued") or ("", "", None))
+			at = (
+				(log[0].removed_on, log[0].modified_by, log[0].shelf)
+				if log
+				else (times.get("issued") or ("", "", None))
+			)
 			events.append(
 				{
 					"stage": "Issued",
@@ -3157,10 +3200,21 @@ def bucket_transfer_trace(bucket_id, limit=5, after_packhouse=False):
 		# Steps in the order they happen (a step's time isn't always recorded, so time
 		# alone put e.g. an undated "Loaded on truck" after "Issued"); time within a step.
 		order = [
-			"Awaiting transfer", "Not found at farm", "Left remote shelf", "On trolley", "Loaded on truck",
-			"In transit", "Off the truck", "Shelved at sales farm", "Stock moved", "Ready for packing", "Issued",
+			"Awaiting transfer",
+			"Not found at farm",
+			"Left remote shelf",
+			"On trolley",
+			"Loaded on truck",
+			"In transit",
+			"Off the truck",
+			"Shelved at sales farm",
+			"Stock moved",
+			"Ready for packing",
+			"Issued",
 		]
-		events.sort(key=lambda e: (order.index(e["stage"]) if e["stage"] in order else 99, e["datetime"] or "9999"))
+		events.sort(
+			key=lambda e: (order.index(e["stage"]) if e["stage"] in order else 99, e["datetime"] or "9999")
+		)
 		state = (
 			"not_found"
 			if int(r.not_found or 0)
@@ -3590,7 +3644,9 @@ def merge_truck_trips(vehicle, date=None):
 		if rest:
 			keep.add_comment(
 				"Info",
-				"Merged {0} into this trip (same truck, same trip number)".format(", ".join(d.name for d in rest)),
+				"Merged {0} into this trip (same truck, same trip number)".format(
+					", ".join(d.name for d in rest)
+				),
 			)
 		keep.save(ignore_permissions=True)
 		for d in rest:
@@ -3948,7 +4004,9 @@ def repair_remote_source_warehouse(dry_run=1, delivery_date=None):
 	for r in plis:
 		wh = own_wh(r.farm)
 		if wh and wh != r.source_warehouse:
-			fixed["pick_rows"].append({"row": r.name, "opl": r.parent, "bucket": r.bucket, "from": r.source_warehouse, "to": wh})
+			fixed["pick_rows"].append(
+				{"row": r.name, "opl": r.parent, "bucket": r.bucket, "from": r.source_warehouse, "to": wh}
+			)
 			if not cint(dry_run):
 				frappe.db.set_value("Pick List Item", r.name, "source_warehouse", wh, update_modified=False)
 	for r in shelf_items:
@@ -3956,12 +4014,19 @@ def repair_remote_source_warehouse(dry_run=1, delivery_date=None):
 		# Only where the ledger agrees the stems are at the farm: a row whose stems really
 		# moved (e.g. shelved at Kapkolia) must keep pointing at where they are.
 		if wh and wh != r.warehouse and stock_movement.bucket_balance(r.bucket_id, r.variety, wh) > 0:
-			fixed["shelf_items"].append({"row": r.name, "shelf": r.parent, "bucket": r.bucket_id, "from": r.warehouse, "to": wh})
+			fixed["shelf_items"].append(
+				{"row": r.name, "shelf": r.parent, "bucket": r.bucket_id, "from": r.warehouse, "to": wh}
+			)
 			if not cint(dry_run):
 				frappe.db.set_value("Shelf Item", r.name, "warehouse", wh, update_modified=False)
 	if not cint(dry_run):
 		frappe.db.commit()
-	return {"dry_run": bool(cint(dry_run)), "pick_row_count": len(fixed["pick_rows"]), "shelf_item_count": len(fixed["shelf_items"]), **fixed}
+	return {
+		"dry_run": bool(cint(dry_run)),
+		"pick_row_count": len(fixed["pick_rows"]),
+		"shelf_item_count": len(fixed["shelf_items"]),
+		**fixed,
+	}
 
 
 def _farm_rows(doc, farm):
@@ -4002,7 +4067,12 @@ def getFarmCompletedTrips(farm=None, days=3):
 				JOIN `tabBucket Request Trip Order` o ON o.parent = t.name
 				WHERE t.name != %(name)s AND t.status IN %(active)s AND o.farm = %(farm)s
 				  AND o.order_pick_list IN %(opls)s""",
-				{"name": name, "active": tuple(ACTIVE_TRIP_STATUSES), "farm": farm, "opls": tuple(opls) or ("",)},
+				{
+					"name": name,
+					"active": tuple(ACTIVE_TRIP_STATUSES),
+					"farm": farm,
+					"opls": tuple(opls) or ("",),
+				},
 			)
 		info = _trip_run_info(doc) if doc.get("route") and doc.get("run") else {}
 		out.append(
@@ -4064,7 +4134,9 @@ def reopenTripStop(name=None, farm=None):
 			return {"status": "error", "message": "{0}'s stop on {1} is not closed.".format(farm, name)}
 		doc.departed_stops = ",".join(departed)
 		doc.heading_to = farm
-		doc.add_comment("Info", "Stop {0} reopened by {1} ({2} left to load)".format(farm, frappe.session.user, left))
+		doc.add_comment(
+			"Info", "Stop {0} reopened by {1} ({2} left to load)".format(farm, frappe.session.user, left)
+		)
 		doc.save(ignore_permissions=True)
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		return {"status": "success", "mode": "stop", "name": name, "left_behind": left, "trips": [name]}
@@ -4077,7 +4149,9 @@ def reopenTripStop(name=None, farm=None):
 				doc.vehicle, report["open"]
 			)
 		else:
-			msg = "The {0} bucket(s) left behind are already on another trip or no longer waiting.".format(left)
+			msg = "The {0} bucket(s) left behind are already on another trip or no longer waiting.".format(
+				left
+			)
 		return {"status": "error", "message": msg}
 	doc.add_comment(
 		"Info",
@@ -4145,9 +4219,21 @@ def return_early_arrivals(dry_run=1, business_unit="Roses", limit=None):
 			as_dict=True,
 		)
 		if any(cint(r.issued) or cint(r.loaded_in_trolley) or cint(r.in_transit) for r in rows):
-			skipped.append({"shelf_item": si.name, "bucket": si.bucket_id, "reason": "left the shelf (trolley/truck/issued)"})
+			skipped.append(
+				{
+					"shelf_item": si.name,
+					"bucket": si.bucket_id,
+					"reason": "left the shelf (trolley/truck/issued)",
+				}
+			)
 			continue
-		plan = {"shelf_item": si.name, "shelf": si.parent, "bucket": si.bucket_id, "item": si.variety, "qty": qty}
+		plan = {
+			"shelf_item": si.name,
+			"shelf": si.parent,
+			"bucket": si.bucket_id,
+			"item": si.variety,
+			"qty": qty,
+		}
 		if cint(dry_run):
 			plan["sold_orders"] = list(dict.fromkeys(r.sales_order_item for r in rows if r.sales_order_item))
 			plan["at_arrival"] = sm.bucket_balance(si.bucket_id, si.variety, arrival)
@@ -4177,7 +4263,13 @@ def return_early_arrivals(dry_run=1, business_unit="Roses", limit=None):
 		except Exception as e:
 			frappe.db.rollback()
 			skipped.append({"shelf_item": si.name, "bucket": si.bucket_id, "reason": str(e)[:200]})
-	return {"dry_run": bool(cint(dry_run)), "done": len(done), "skipped": len(skipped), "rows": done, "skips": skipped}
+	return {
+		"dry_run": bool(cint(dry_run)),
+		"done": len(done),
+		"skipped": len(skipped),
+		"rows": done,
+		"skips": skipped,
+	}
 
 
 def clear_stale_shelf_items(dry_run=1, since="2026-09-20"):
@@ -4210,14 +4302,21 @@ def clear_stale_shelf_items(dry_run=1, since="2026-09-20"):
 			gone = [
 				r
 				for r in rows
-				if cint(r.loaded_in_trolley) and cint(r.in_transit) and not cint(r.shelved)
-				and not cint(r.issued) and (r.farm or "") == si.farm
+				if cint(r.loaded_in_trolley)
+				and cint(r.in_transit)
+				and not cint(r.shelved)
+				and not cint(r.issued)
+				and (r.farm or "") == si.farm
 			]
 			if gone and str(si.date_added) < str(max(r.modified for r in gone)):
 				why = "Transferred (Trolley/Truck)"
 		elif si.farm == hub:
 			mine = [r for r in rows if r.item_code == si.variety]
-			if mine and all(cint(r.issued) for r in mine) and str(si.date_added) < str(max(r.modified for r in mine)):
+			if (
+				mine
+				and all(cint(r.issued) for r in mine)
+				and str(si.date_added) < str(max(r.modified for r in mine))
+			):
 				why = "Issued to Sales Order"
 		if not why:
 			continue
@@ -4248,8 +4347,14 @@ def fix_bucket_stock_location(dry_run=1, since="2026-09-20", business_unit="Rose
 
 	hub = transfer_hub(required=False) or ""
 	pairs = []
-	for row in frappe.get_doc(sm.MAPPING_DT, frappe.db.get_value(sm.MAPPING_DT, {"business_unit": business_unit})).items:
-		route = sm.resolve_route(row.source_warehouse, business_unit, upto=sm.ARRIVAL_STAGE) if row.source_warehouse else []
+	for row in frappe.get_doc(
+		sm.MAPPING_DT, frappe.db.get_value(sm.MAPPING_DT, {"business_unit": business_unit})
+	).items:
+		route = (
+			sm.resolve_route(row.source_warehouse, business_unit, upto=sm.ARRIVAL_STAGE)
+			if row.source_warehouse
+			else []
+		)
 		if route:
 			pairs.append((row.source_warehouse, route[-1]["to"]))
 	fixed = []
@@ -4285,7 +4390,9 @@ def fix_bucket_stock_location(dry_run=1, since="2026-09-20", business_unit="Rose
 				for d in dups[:-1]:  # always keep the first (real) issue
 					if bal + flt(d.qty) > sm.QTY_TOLERANCE:
 						break
-					fixed.append({"bucket": ln.bucket, "item": ln.item_code, "cancel": d.name, "qty": flt(d.qty)})
+					fixed.append(
+						{"bucket": ln.bucket, "item": ln.item_code, "cancel": d.name, "qty": flt(d.qty)}
+					)
 					if cint(dry_run):
 						bal += flt(d.qty)
 						continue

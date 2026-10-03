@@ -5184,7 +5184,9 @@ def _take_over_truck(rows, mine):
 
 		key = stand_in.bucket.upper()
 		_drop_bucket_from_trips(
-			key, _bucket_trip_rows({key}).get(key, []), "its truck flag went to {0}, which arrived".format(mine[0].bucket)
+			key,
+			_bucket_trip_rows({key}).get(key, []),
+			"its truck flag went to {0}, which arrived".format(mine[0].bucket),
 		)
 	except Exception:
 		frappe.log_error("Take over truck: removing stand-in from its trip failed", frappe.get_traceback())

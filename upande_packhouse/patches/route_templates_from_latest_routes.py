@@ -38,7 +38,13 @@ def execute():
 			for l in src.legs:
 				t.append(
 					"legs",
-					{"leg": l.leg, "run": l.run, "from_farm": l.from_farm, "to_farm": l.to_farm, "distance_km": l.distance_km},
+					{
+						"leg": l.leg,
+						"run": l.run,
+						"from_farm": l.from_farm,
+						"to_farm": l.to_farm,
+						"distance_km": l.distance_km,
+					},
 				)
 			t.total_km = src.total_km
 			t.insert(ignore_permissions=True)
@@ -52,4 +58,6 @@ def execute():
 			r = frappe.get_doc("Bucket Logistics Route", name)
 			key = (_dt(r.from_datetime)[11:], _dt(r.to_datetime)[11:], tuple(l.to_farm for l in r.legs))
 			if key in seen:
-				frappe.db.set_value("Bucket Logistics Route", name, "template", seen[key], update_modified=False)
+				frappe.db.set_value(
+					"Bucket Logistics Route", name, "template", seen[key], update_modified=False
+				)

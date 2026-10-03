@@ -2927,7 +2927,9 @@ def _replace_requested_bucket(
 		)
 		# A remote replacement still at its farm is sold when it is shelved at the sales
 		# farm (post_sale_on_arrival), like any remote allocation — not now.
-		defer_new = new_source == new.warehouse and stock_movement.needs_transfer(new.warehouse, business_unit)
+		defer_new = new_source == new.warehouse and stock_movement.needs_transfer(
+			new.warehouse, business_unit
+		)
 
 		# ── BAS: release the old bucket ──
 		old_bas_name = frappe.db.get_value(
