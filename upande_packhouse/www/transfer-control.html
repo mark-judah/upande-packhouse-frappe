@@ -1968,6 +1968,15 @@ function addNewFarmTrip(vehicle){
     saveAddTrip({vehicle:vehicle,route:m.route,run:m.run,rem:v?v.capacity_buckets:a.open,saved:!!m.saved_route});
   }).catch(function(err){ if(S.at===a){ a.busy=false; a.err='Failed: '+((err&&err.message)||''); renderAddTrip(); } });
 }
+/* ✎ from Bucket Logistics: load the trips, then open the same trip editor. */
+window.rtEditTrip=function(name){
+  loadData().then(function(){
+    var t=(DATA.trips||[]).filter(function(x){ return x.name===name; })[0];
+    if(!t){ toast('Trip '+name+' isn’t in today’s plan'); return; }
+    if(!tripEditable(t)){ toast('Trip '+name+' already has buckets on the truck — it can’t be edited'); return; }
+    openTripEdit(name);
+  });
+};
 window.rtAddToTrip=function(opl,farm,orderName){
   var a=S.at={opl:opl,farm:farm,order_name:orderName||opl,customer:'',open:0,choices:[],loading:true,busy:false,err:''};
   renderAddTrip();
@@ -1982,6 +1991,78 @@ window.rtAddToTrip=function(opl,farm,orderName){
     renderAddTrip();
   });
 };
+/* ✎ Edit a planned trip (Draft / Scheduled, nothing loaded yet): bucket counts per order,
+   remove an order, change the truck (through changeTripVehicle and its checks), notes.
+   Saved through saveBucketTrip by name, which re-checks capacity and that no bucket is
+   already planned on another trip. */
+function tripEditable(t){ return (t.status==='Draft'||t.status==='Scheduled') && !t.loading && !(t.loaded_buckets>0); }
+function closeTripEdit(){ S.te=null; var m=$('te-modal'); if(m) m.remove(); }
+function openTripEdit(name){
+  var t=(DATA.trips||[]).filter(function(x){ return x.name===name; })[0]; if(!t||!tripEditable(t)) return;
+  S.te={t:t,vehicle:t.vehicle||'',notes:t.notes||'',busy:false,err:'',
+    rows:(t.orders||[]).map(function(r){ return {r:r,n:r.buckets||0}; })};
+  renderTripEdit();
+}
+/* Most buckets a row can take: what it has plus what of that order is still open at that farm. */
+function teMax(r){
+  var o=DATA.orders.filter(function(x){ return x.opl===r.order_pick_list; })[0];
+  var f=o&&(o.farms||[]).filter(function(x){ return x.farm===r.farm; })[0];
+  if(!f) return r.buckets||0;
+  var cov=coverMap()[pkey(r.order_pick_list,r.farm)]||0;
+  return (r.buckets||0)+Math.max(0,f.buckets-cov);
+}
+function renderTripEdit(){
+  var e=S.te; if(!e){ closeTripEdit(); return; }
+  var t=e.t, v=DATA.vehicles.filter(function(x){ return x.name===e.vehicle; })[0], cap=v?v.capacity_buckets||0:(t.capacity_buckets||0);
+  var total=e.rows.reduce(function(a,x){ return a+x.n; },0);
+  var trucks=DATA.vehicles.filter(function(x){ return x.capacity_buckets>0 && (!x.on_road||x.name===t.vehicle); });
+  var rows=e.rows.map(function(x,i){ var r=x.r, mx=teMax(r);
+    return '<div class="torow"><span class="nm">'+esc(r.order_name||r.order_pick_list)+'</span>'+(r.farm?'<span class="fm">'+esc(r.farm)+'</span>':'')+
+      '<input type="number" min="0" max="'+mx+'" value="'+x.n+'" data-act="te-n" data-i="'+i+'" style="width:64px;margin-left:auto"'+(e.busy?' disabled':'')+'>'+
+      '<span class="b">/ '+mx+' bkt</span>'+
+      '<button class="tbtn ghost trip-del" data-act="te-rm" data-i="'+i+'"'+(e.busy||!x.n?' disabled':'')+' title="Take this order off the trip">Remove</button></div>'; }).join('');
+  var html='<div class="dm-card" style="height:auto;max-height:88vh"><div class="dm-hd"><h3>Edit '+esc(t.name)+'</h3><button class="sch-x" data-act="te-x" title="Close">×</button></div>'+
+    '<div class="rn-form">'+
+      '<div class="rn-field wide"><span>Truck</span><select data-act="te-veh"'+(e.busy?' disabled':'')+'>'+trucks.map(function(x){
+        return '<option value="'+esc(x.name)+'"'+(x.name===e.vehicle?' selected':'')+'>'+esc(x.name)+' · '+(x.capacity_buckets||0)+' bkt</option>'; }).join('')+'</select></div>'+
+      '<div class="rn-field wide"><span>Orders</span><div class="trip-orders">'+(rows||'<div class="rl-empty">No orders on this trip.</div>')+'</div></div>'+
+      '<div class="rn-note'+(cap&&total>cap?' err':'')+'">'+total+' / '+(cap||'—')+' buckets'+(cap&&total>cap?' — over the truck’s capacity':'')+'</div>'+
+      '<div class="rn-field wide"><span>Notes</span><textarea data-act="te-notes" rows="2"'+(e.busy?' disabled':'')+'>'+esc(e.notes)+'</textarea></div>'+
+      (e.err?'<div class="rn-note err">'+esc(e.err)+'</div>':'')+
+    '</div>'+
+    '<div class="dm-foot"><button class="tbtn" data-act="te-x">Cancel</button>'+
+      '<button class="tbtn key" data-act="te-save"'+(e.busy||(cap&&total>cap)?' disabled':'')+'>'+(e.busy?'Saving…':(total?'Save trip':'Delete trip'))+'</button></div></div>';
+  var m=$('te-modal');
+  if(!m){ m=document.createElement('div'); m.id='te-modal'; m.className='dm-overlay rn-modal'; (document.querySelector('.aph')||document.body).appendChild(m);
+    m.addEventListener('click',function(ev){ if(ev.target===m) closeTripEdit(); }); }
+  m.innerHTML=html;
+}
+function saveTripEdit(){
+  var e=S.te; if(!e||e.busy) return; var t=e.t;
+  var keep=e.rows.filter(function(x){ return x.n>0; });
+  if(!keep.length){
+    confirmModal('Delete trip','Every order was taken off '+t.name+'. Delete the trip?','Delete').then(function(ok){
+      if(!ok) return; e.busy=true; renderTripEdit();
+      call('deleteBucketTrip',{name:t.name}).then(function(r){ var m=r.message||{};
+        if(m.status&&m.status!=='success'){ e.busy=false; e.err=m.message||'Could not delete it'; renderTripEdit(); return; }
+        toast('Deleted '+t.name); closeTripEdit(); loadData(); document.dispatchEvent(new Event('rt-trips-changed'));
+      }).catch(function(err){ e.busy=false; e.err='Failed: '+((err&&err.message)||''); renderTripEdit(); });
+    });
+    return;
+  }
+  e.busy=true; e.err=''; renderTripEdit();
+  var swap=e.vehicle!==t.vehicle?call('changeTripVehicle',{name:t.name,vehicle:e.vehicle}):Promise.resolve({message:{status:'success'}});
+  swap.then(function(r){ var m=r.message||{};
+    if(m.status!=='success') throw new Error(m.message||'Could not change the truck');
+    var rows=keep.map(function(x){ var r=x.r, per=r.buckets?(r.stems||0)/r.buckets:0;
+      return {order_pick_list:r.order_pick_list,order_name:r.order_name,customer:r.customer,farm:r.farm,varieties:r.varieties,buckets:x.n,stems:Math.round(per*x.n),full:Math.max(x.n,r.full_farm_buckets||x.n)}; });
+    return call('saveBucketTrip',{name:t.name,vehicle:e.vehicle,trip_date:t.trip_date||todayISO(),status:t.status||'Draft',notes:e.notes,
+      farm:'',collection_order:t.collection_order||'',orders:encodeOrders(rows)});
+  }).then(function(r){ var m=r.message||{};
+    if(m.status!=='success') throw new Error(m.message||'Could not save the trip');
+    toast('Saved '+t.name+' · '+(m.total_buckets||0)+' buckets'); closeTripEdit(); loadData(); document.dispatchEvent(new Event('rt-trips-changed'));
+  }).catch(function(err){ if(S.te===e){ e.busy=false; e.err=(err&&err.message)||'Failed'; renderTripEdit(); } });
+}
 /* End a dispatched trip (truck back). Dispatch itself happens in the mobile app. */
 function tripAction(method,name,label){
   if(!name || S.tripBusy) return;
@@ -2045,6 +2126,7 @@ function tripCardHtml(t){
     (t.run?'<span class="trip-run" title="'+esc(t.route)+(t.window?' · '+esc(t.window):'')+'">Trip '+t.run+(t.runs>1?' of '+t.runs:'')+'</span>':'')+
     (t.trip_date?'<span style="font:500 11px var(--mono);color:var(--ink-mute)">'+esc(t.trip_date)+'</span>':'')+
     stBadge+(t.unscheduled?'<span class="trip-st unsched">unscheduled</span>':'')+(t.auto_planned?'<span class="trip-st auto" title="Planned by automatic scheduling — re-planned automatically until dispatched">auto</span>':'')+when+
+    (tripEditable(t)?'<button class="tbtn ghost trip-act trip-edit" data-act="trip-edit" data-trip="'+esc(t.name)+'" title="Edit trip">✎</button>':'')+
     (t.status==='Dispatched'?'<button class="tbtn key trip-act" data-act="trip-receive" data-trip="'+esc(t.name)+'" title="Ends the trip now; it ends by itself once every bucket on it is shelved">End trip</button>':'')+
     '</div>'+
     '<div class="cap-bar" style="margin-top:10px"><i style="width:'+pct+'%"></i></div>'+
@@ -2132,10 +2214,18 @@ document.addEventListener('click',function(ev){
   else if(a==='rn-save'){ saveRoadModal(); }
   else if(a==='rn-del'){ removeRoad(el.dataset.name); }
   else if(a==='trip-receive'){ tripAction('receiveBucketTrip',el.dataset.trip,'End'); }
+  else if(a==='trip-edit'){ openTripEdit(el.dataset.trip); }
+  else if(a==='te-x'){ closeTripEdit(); }
+  else if(a==='te-rm'){ if(S.te&&!el.disabled){ S.te.rows[+el.dataset.i].n=0; renderTripEdit(); } }
+  else if(a==='te-save'){ if(!el.disabled) saveTripEdit(); }
   else if(a==='auto-replan'){ autoReplan(el); }
 });
 document.addEventListener('change',function(ev){
   var el=ev.target; if(!el.dataset||!el.dataset.act) return; var a=el.dataset.act;
+  if(a==='te-n'&&S.te){ var tx=S.te.rows[+el.dataset.i], tv=parseInt(el.value,10), tm=parseInt(el.getAttribute('max'),10)||0;
+    if(!isFinite(tv)||tv<0) tv=0; if(tv>tm) tv=tm; tx.n=tv; setTimeout(renderTripEdit,0); return; }
+  if(a==='te-veh'&&S.te){ S.te.vehicle=el.value; setTimeout(renderTripEdit,0); return; }
+  if(a==='te-notes'&&S.te){ S.te.notes=el.value; return; }
   if(a==='rn-field'&&S.rn){ var k=el.dataset.k; if(k==='km') return;  // km is kept live by the 'input' listener, no re-render
     S.rn[k]= k==='road' ? el.value==='1' : el.value; S.rn.err=''; setTimeout(renderRoadModal,0); return; }
   if(a==='dist-shortqty'){ if(S.dist){ var qv=parseInt(el.value,10), qmx=parseInt(el.getAttribute('max'),10)||0; if(!isFinite(qv)||qv<0)qv=0; if(qv>qmx)qv=qmx; S.dist.shortQty[el.dataset.opl]=qv;
@@ -2175,7 +2265,7 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
 <script>
 /* Logistics tab — moved verbatim from bucket-logistics.html (own ids: bl*). */
 (function(){
-  const FLAGS=[['awaiting','Awaiting Transfer','var(--awaiting)'],['trolley','Loaded in Trolley','var(--trolley)'],['transit','In Transit','var(--transit)'],['shelved','Shelved','var(--shelved)'],['ready','Ready for Packing','var(--ready)'],['issued','Issued','var(--issued)'],['not_found','Not found','var(--bad, #b42318)']];
+  const FLAGS=[['awaiting','Awaiting Transfer','var(--awaiting)'],['trolley','Loaded in Trolley','var(--trolley)'],['transit','In Transit','var(--transit)'],['arrived_hub','Arrived at Kapkolia','#0e7490'],['shelved','Shelved','var(--shelved)'],['ready','Ready for Packing','var(--ready)'],['issued','Issued','var(--issued)'],['not_found','Not found','var(--bad, #b42318)']];
   let STATE={orders:[]},SEARCH='',PV='',AUTODONE=false;
   const $=function(id){return document.getElementById(id);};
   function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -2183,7 +2273,7 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
   function api(m,args){var qs=Object.keys(args).filter(function(k){return args[k]!=null&&args[k]!=='';}).map(function(k){return encodeURIComponent(k)+'='+encodeURIComponent(args[k]);}).join('&');return fetch('/api/method/'+m+(qs?('?'+qs):''),{credentials:'same-origin',headers:{'Accept':'application/json'}}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();});}
   // Every stage as done / requested, so each line reads against what was asked for.
   // The main stages always show (a 0 is greyed); Ready and Not found only when they happen.
-  var ALWAYS={awaiting:1,trolley:1,transit:1,shelved:1,issued:1};
+  var ALWAYS={awaiting:1,trolley:1,transit:1,arrived_hub:1,shelved:1,issued:1};
   function stagePills(o){var n=o.total||0;
     return '<span class="bl2-req">Requested <b>'+n+'</b></span>'+FLAGS.map(function(f){var x=o[f[0]]||0;if(!x&&!ALWAYS[f[0]])return '';
       return '<span class="bl2-pill'+(x?'':' zero')+'" style="background:'+f[2]+'">'+f[1]+' '+x+'/'+n+'</span>';}).join('');}
@@ -2198,6 +2288,8 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
     // Not arrived yet: show where the order actually is. "In transit" only once a
     // bucket is really on a truck — it used to say so the moment the OPL existed.
     if(!o.arrived){
+      // The farm app marked the truck arrived at the packhouse: there, not shelved yet.
+      if(o.arrived_hub)return '<span class="bl2-pill" style="background:#0e7490">arrived at '+esc(o.hub||'Kapkolia')+'</span>';
       if(o.transit)return '<span class="bl2-pill" style="background:var(--transit)">in transit</span>';
       if(o.trolley)return '<span class="bl2-pill" style="background:var(--trolley)">in trolley</span>';
       if(o.awaiting)return '<span class="bl2-pill" style="background:var(--awaiting)">at farm</span>';
@@ -2243,10 +2335,13 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
     // One chip per trip: truck · run · status, then loaded vs planned (a load nothing
     // planned shows "loaded, not planned" — it used to read "0 bkt").
     return t.map(function(x){
-      var st=x.status==='Received'?'ended':(x.loaded_buckets&&(x.status==='Draft'||x.status==='Scheduled')?'loading':String(x.status||'').toLowerCase());
+      var st=x.status==='Received'?'ended':(x.status==='Dispatched'&&x.arrived_at?'arrived':(x.loaded_buckets&&(x.status==='Draft'||x.status==='Scheduled')?'loading':String(x.status||'').toLowerCase()));
       var qty=x.buckets?(x.loaded_buckets?x.loaded_buckets+' / '+x.buckets+' loaded':x.buckets+' planned'):(x.loaded_buckets+' loaded, not planned');
       if(x.shelved) qty+=' · '+x.shelved+' arrived';
-      return '<div style="margin:1px 0"><span class="bl2-trip" style="border-color:'+(TRIP_COLOR[x.status]||'var(--text-3)')+'" title="'+esc(x.trip)+' · '+esc(x.trip_date)+'">'+esc(x.vehicle||x.trip)+(x.run?' · trip '+x.run:'')+(x.farm?' · '+esc(x.farm):'')+' · '+esc(st)+'</span><div class="bl2-sub" style="margin:2px 0 4px">'+qty+'</div></div>'; }).join('')+add;
+      // ✎ edit a trip that is only planned (nothing loaded): wrong truck / farm / count.
+      var edit=(x.status==='Draft'||x.status==='Scheduled')&&!x.loaded_buckets
+        ?' <button class="bl2-addtrip" data-addtrip="1" data-edittrip="'+esc(x.trip)+'" title="Edit trip '+esc(x.trip)+'" style="padding:1px 7px">✎</button>':'';
+      return '<div style="margin:1px 0"><span class="bl2-trip" style="border-color:'+(TRIP_COLOR[x.status]||'var(--text-3)')+'" title="'+esc(x.trip)+' · '+esc(x.trip_date)+'">'+esc(x.vehicle||x.trip)+(x.run?' · trip '+x.run:'')+(x.farm?' · '+esc(x.farm):'')+' · '+esc(st)+'</span>'+edit+'<div class="bl2-sub" style="margin:2px 0 4px">'+qty+'</div></div>'; }).join('')+add;
   }
   function kpiCard(lbl,val,sub){return '<div class="aph-kpi"><div class="lbl">'+lbl+'</div><div class="v">'+val+'</div>'+(sub?'<div class="sub">'+sub+'</div>':'')+'</div>';}
   // Running stats over the currently-visible orders — recomputed every render,
@@ -2394,9 +2489,9 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
       var chk=function(v){return '<input type="checkbox" disabled '+(Number(v)?'checked':'')+'>';};
       /* One row per bucket (a bucket packed into several boxes has a pick row per box). */
       var head='<tr><th>#</th><th>Bucket</th><th>Variety</th><th>Len</th><th>Boxes</th><th>Stems</th><th>Farm</th><th>Shelf</th><th>Truck</th>'
-        +FLAGS.map(function(f){return '<th class="c">'+f[1]+'</th>';}).join('')+'</tr>';
+        +FLAGS.filter(function(f){return f[0]!=='arrived_hub';}).map(function(f){return '<th class="c">'+f[1]+'</th>';}).join('')+'</tr>';
       var body=b.map(function(x,j){var hl=PV&&String(x.variety||'').toLowerCase()===PV.toLowerCase();return '<tr'+(hl?' style="background:var(--bg-muted)"':'')+'><td>'+(j+1)+'</td><td><b>'+esc(x.bucket||'—')+'</b></td><td'+(hl?' style="font-weight:700"':'')+'>'+esc(x.variety)+'</td><td>'+esc(x.length||'—')+'</td><td>'+esc(x.box_id||String(x.boxes||1))+'</td><td>'+(Number(x.stems)||0).toLocaleString('en-US')+'</td><td>'+esc(x.farm||'—')+'</td><td>'+esc(x.shelf||'—')+'</td><td>'+esc(x.truck||'—')+'</td>'
-        +FLAGS.map(function(f){return '<td class="c">'+chk(x[f[0]])+'</td>';}).join('')+'</tr>';}).join('');
+        +FLAGS.filter(function(f){return f[0]!=='arrived_hub';}).map(function(f){return '<td class="c">'+chk(x[f[0]])+'</td>';}).join('')+'</tr>';}).join('');
       el.innerHTML='<table class="bl2-buck"><thead>'+head+'</thead><tbody>'+body+'</tbody></table>';
     }).catch(function(e){el.innerHTML='<div class="bl2-loading" style="color:var(--issued)">Failed: '+esc(e.message)+'</div>';});
   }
@@ -2428,6 +2523,7 @@ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded'
     document.addEventListener('rt-trips-changed',function(){ load(); });
     document.addEventListener('click',function(e){
       var at=e.target.closest('[data-addtrip]');
+      if(at&&at.dataset.edittrip){ if(window.rtEditTrip) window.rtEditTrip(at.dataset.edittrip); return; }
       if(at){ if(window.rtAddToTrip) window.rtAddToTrip(at.dataset.opl,at.dataset.farm,at.dataset.name); return; }
       var all=e.target.closest('[data-fg-all]');
       if(all){ var shut=!!document.querySelector('#blRows tr.fgrp:not(.shut)');

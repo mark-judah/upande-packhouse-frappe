@@ -3078,7 +3078,7 @@ def getTransferScheduleData():
                so.custom_truck_details AS truck, 0 AS mixed,
                o.schedule_number AS schedule, o.team AS team,
                pli.bucket AS bucket, pli.item_code AS variety, pli.stock_qty AS stems,
-               COALESCE(NULLIF(pli.farm, ''), SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse, ''), pli.warehouse), ' ', 1)) AS farm,
+               COALESCE(NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''), NULLIF(pli.farm, '')) AS farm,
                pli.awaiting_transfer AS aw, pli.loaded_in_trolley AS ld, pli.in_transit AS tr
         FROM `tabPick List Item` pli
         JOIN `tabOrder Pick List` o ON o.name = pli.parent
@@ -3359,7 +3359,7 @@ def getTransferScheduleData():
         SELECT pli.transit_truck AS truck,
                pli.awaiting_transfer AS aw, pli.loaded_in_trolley AS ld,
                pli.in_transit AS tr, pli.shelved AS sh,
-               COALESCE(NULLIF(pli.farm, ''), SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''),pli.warehouse),' ',1)) AS farm,
+               COALESCE(NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''), NULLIF(pli.farm, '')) AS farm,
                pli.modified AS modified
         FROM `tabPick List Item` pli
         JOIN `tabOrder Pick List` o ON o.name = pli.parent
@@ -4972,6 +4972,22 @@ def shelveBucket():
 		}
 		return
 
+	# A shelf belongs to its farm: shelving onto it counts at THAT farm, whatever the
+	# app is set to. Never refused; the correction is recorded.
+	if shelf_doc.farm and farm and shelf_doc.farm.lower() != str(farm).lower():
+		from upande_packhouse.api import transfer_control as tc
+
+		tc.log_transfer_event(
+			bucket_id,
+			"Shelving farm corrected",
+			farm=farm,
+			shelf=shelf_id,
+			details="App set to {0}; shelf {1} belongs to {2} — shelved at {2}".format(
+				farm, shelf_id, shelf_doc.farm
+			),
+		)
+		farm = shelf_doc.farm
+
 	# ── TRANSIT / OPL updates for transfer buckets (local buckets untouched) ──
 	_shelve_update_transit_status(bucket_id, shelf_id, farm, result)
 
@@ -4979,7 +4995,8 @@ def shelveBucket():
 	stem_length = receiving_doc.get("custom_stem_length")
 	variety = receiving_doc.items[0].item_code if receiving_doc.items else None
 	origin_greenhouse = receiving_doc.items[0].s_warehouse if receiving_doc.items else None
-	shelf_doc.farm = farm
+	if not shelf_doc.farm:
+		shelf_doc.farm = farm
 	total_qty = 0
 	new_items = []
 	# A Receiving entry can carry several rows for the SAME variety (one per
