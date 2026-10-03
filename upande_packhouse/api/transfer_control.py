@@ -43,7 +43,11 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt, getdate
 
-FARM_EXPR = "COALESCE(NULLIF(pli.farm, ''), SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1))"
+# A transfer bucket's farm is where its stock is: the farm of its source warehouse
+# (kept as the remote farm's cold store until the bucket is shelved at the packhouse),
+# else the row's farm. The shelf's farm can disagree (a mislabelled shelf, an old row)
+# and used to put a bucket on the wrong farm's trip.
+FARM_EXPR = "COALESCE(NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''), NULLIF(pli.farm, ''))"
 # Pick-list creation pre-fills transit_truck with the ORDER's delivery truck label
 # (Sales Order custom_truck, e.g. "SIM Truck", "RAMBO" — not even Vehicle records),
 # the same field the transfer truck is written to on load/dispatch. A value only
@@ -1497,6 +1501,9 @@ def _transfer_schedule_payload(from_date, to_date):
 	agg = {}
 	for b in _transfer_buckets(opl_names):
 		if not (b["open"] or b["on_road"]) or not b["farm"]:
+			continue
+		# Stock already at the packhouse needs no truck: never plan it onto a trip.
+		if b["open"] and hub and b["farm"].lower() == hub.lower():
 			continue
 		fmap = agg.setdefault(b["opl"], {})
 		frow = fmap.setdefault(b["farm"], {"varieties": {}, "on_road": 0})
