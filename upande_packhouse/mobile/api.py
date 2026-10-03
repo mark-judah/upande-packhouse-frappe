@@ -4972,6 +4972,31 @@ def shelveBucket():
 		}
 		return
 
+	# A shelf belongs to its farm: never shelve onto (and re-farm) another farm's shelf.
+	if shelf_doc.farm and farm and shelf_doc.farm.lower() != str(farm).lower():
+		frappe.response["data"] = {
+			"status": "failed",
+			"reason": "wrong_farm_shelf",
+			"message": "Shelf {0} belongs to {1}, but the app is set to {2}. Switch the farm to {1} to shelve here.".format(
+				shelf_id, shelf_doc.farm, farm
+			),
+			"payload": {"shelf_id": shelf_id, "bucket_id": bucket_id},
+		}
+		return
+
+	# Once its transfer has started, a bucket never goes back on a remote shelf.
+	from upande_packhouse.api.transfer_control import remote_shelving_block
+
+	blocked = remote_shelving_block(bucket_id, farm)
+	if blocked:
+		frappe.response["data"] = {
+			"status": "failed",
+			"reason": "already_transferred",
+			"message": blocked,
+			"payload": {"shelf_id": shelf_id, "bucket_id": bucket_id},
+		}
+		return
+
 	# ── TRANSIT / OPL updates for transfer buckets (local buckets untouched) ──
 	_shelve_update_transit_status(bucket_id, shelf_id, farm, result)
 
@@ -4979,7 +5004,8 @@ def shelveBucket():
 	stem_length = receiving_doc.get("custom_stem_length")
 	variety = receiving_doc.items[0].item_code if receiving_doc.items else None
 	origin_greenhouse = receiving_doc.items[0].s_warehouse if receiving_doc.items else None
-	shelf_doc.farm = farm
+	if not shelf_doc.farm:
+		shelf_doc.farm = farm
 	total_qty = 0
 	new_items = []
 	# A Receiving entry can carry several rows for the SAME variety (one per
