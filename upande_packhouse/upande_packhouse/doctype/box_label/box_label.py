@@ -16,15 +16,15 @@ _CODE_DOCTYPES = ("Box Label", "Bucket QR Code", "Bunch QR Code")
 
 
 def new_box_code():
-	"""A fresh 6-character hex code, like the bucket codes (e.g. "a3f09c").
+	"""A fresh 6-character uppercase hex code, like the bucket codes (e.g. "A3F09C").
 
 	It replaces BOX-<OPL>-<box no> (BOX-OPL-2026-00742-3): the QR payload drops
-	from {"box_label":"BOX-OPL-2026-00742-3"} to {"box_label":"a3f09c"}, a
+	from {"box_label":"BOX-OPL-2026-00742-3"} to {"box_label":"A3F09C"}, a
 	smaller, easier-to-scan code. The OPL and box number stay on the label as
 	fields. Unique across Box Labels and bucket/bunch codes, so a scan can
 	never mean two things."""
 	for _attempt in range(50):
-		code = secrets.token_hex(3)
+		code = secrets.token_hex(3).upper()
 		if not any(frappe.db.exists(dt, code) for dt in _CODE_DOCTYPES):
 			return code
 	frappe.throw(_("Could not find a free box code. Try again."))
