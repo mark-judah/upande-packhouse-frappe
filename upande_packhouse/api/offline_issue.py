@@ -206,7 +206,7 @@ def _issue(bucket, opl_name):
 
 def _correct(bucket, variety, stem_length):
 	"""Put a mislabelled bucket's real variety/length on its record, with the
-	Quality app's own correction (needs the Harvest Details Updater role), then
+	Quality app's own correction, then
 	re-key its now-unallocated Bucket Allocation Status to match."""
 	try:
 		from upande_quality.mobile import api as quality_api
