@@ -508,6 +508,13 @@ def issue_offline(
 
 	issued = _issue(target, opl_name)
 	issue_ok = bool(issued) and all(r["ok"] for r in issued)
+	if issue_ok:
+		# Marks the line so Bucket Logistics can show it went out through Issue Offline.
+		frappe.db.sql(
+			"""UPDATE `tabPick List Item` SET issued_offline = 1
+			WHERE parent = %s AND parenttype = 'Order Pick List' AND bucket = %s AND issued = 1""",
+			(opl_name, target),
+		)
 
 	correction = None
 	if wrong_variety:

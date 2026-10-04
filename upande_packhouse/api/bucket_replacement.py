@@ -10,7 +10,7 @@
 import frappe
 from frappe import _
 
-REASONS = ("Missing", "Damaged", "Wrong variety", "Other")
+REASONS = ("Missing", "Damaged", "Wrong variety", "Issued offline", "Other")
 RESOLUTIONS = ("Found", "Discarded", "Written Off")
 
 

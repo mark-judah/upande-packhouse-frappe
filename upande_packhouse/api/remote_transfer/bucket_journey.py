@@ -12,7 +12,8 @@
 import frappe
 from frappe import _
 
-from upande_packhouse.api import bucket_replacement, transfer_control
+from upande_packhouse.api import bucket_replacement
+from upande_packhouse.api.remote_transfer import transfer_scheduling
 
 #: Same caps as the page used.
 MAX_ENTRIES = 2000
@@ -167,7 +168,7 @@ def getBucketJourney(bucket_id: str | None = None):
 		"se_qty": se_qty,
 		"replacements": bucket_replacement.for_bucket(bucket_id),
 		# Remote transfers: farm → packhouse by truck, run and trip, with each event.
-		"remote_transfers": transfer_control.bucket_transfer_trace(bucket_id, after_packhouse=True),
+		"remote_transfers": transfer_scheduling.bucket_transfer_trace(bucket_id, after_packhouse=True),
 	}
 
 

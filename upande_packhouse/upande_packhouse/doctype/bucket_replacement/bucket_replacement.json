@@ -73,7 +73,7 @@
    "fieldname": "reason",
    "fieldtype": "Select",
    "label": "Reason",
-   "options": "Missing\nDamaged\nWrong variety\nOther",
+   "options": "Missing\nDamaged\nWrong variety\nIssued offline\nOther",
    "default": "Missing",
    "in_list_view": 1,
    "in_standard_filter": 1

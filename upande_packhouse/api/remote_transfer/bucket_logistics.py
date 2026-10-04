@@ -7,7 +7,7 @@
 
 import frappe
 
-from upande_packhouse.api.transfer_control import (
+from upande_packhouse.api.remote_transfer.transfer_scheduling import (
 	TRANSFER_TRUCK_OK,
 	TRIP_LOOKBACK_DAYS,
 	_schedule_map,
@@ -37,7 +37,7 @@ def getBucketLogistics():
 	# A bucket's identity on the pick list (case-insensitive; a row without a bucket counts alone).
 	BKT = "COALESCE(NULLIF(UPPER(pli.bucket), ''), pli.name)"
 
-	from upande_packhouse.api.transfer_control import transfer_hub
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import transfer_hub
 
 	# Transfers are from the remote farms only: a bucket whose stock is already at the
 	# packhouse (hub) is not coming from anywhere, whatever its flags say.
@@ -94,6 +94,9 @@ def getBucketLogistics():
             COUNT(DISTINCT CASE WHEN pli.issued = 1 THEN """
 		+ BKT
 		+ """ END) AS issued,
+            COUNT(DISTINCT CASE WHEN pli.issued_offline = 1 THEN """
+		+ BKT
+		+ """ END) AS issued_offline,
             -- Not in the farm's cold room and nothing to replace it: left out of the transfer.
             COUNT(DISTINCT CASE WHEN pli.not_found = 1 THEN """
 		+ BKT
@@ -113,7 +116,7 @@ def getBucketLogistics():
 
 	sched = _schedule_map()
 	for r in rows:
-		for k in ["total", "awaiting", "trolley", "transit", "shelved", "ready", "issued", "not_found"]:
+		for k in ["total", "awaiting", "trolley", "transit", "shelved", "ready", "issued", "issued_offline", "not_found"]:
 			r[k] = int(r.get(k) or 0)
 		# Transfer initiation time = OPL creation datetime (full timestamp).
 		r["initiated"] = str(r.get("initiated")) if r.get("initiated") else ""
@@ -218,6 +221,9 @@ def getBucketLogistics():
 			    COUNT(DISTINCT CASE WHEN pli.issued = 1 THEN """
 			+ BKT
 			+ """ END) AS issued,
+			    COUNT(DISTINCT CASE WHEN pli.issued_offline = 1 THEN """
+			+ BKT
+			+ """ END) AS issued_offline,
 			    COUNT(DISTINCT CASE WHEN pli.not_found = 1 THEN """
 			+ BKT
 			+ """ END) AS not_found,
@@ -440,6 +446,7 @@ def getBucketLogisticsDetail():
                     IFNULL(pli.issued, 0))) AS shelved,
                 MAX(GREATEST(IFNULL(pli.custom_ready_for_packing, 0), IFNULL(pli.issued, 0))) AS ready,
                 MAX(IFNULL(pli.issued, 0))   AS issued,
+                MAX(IFNULL(pli.issued_offline, 0)) AS issued_offline,
                 MAX(IFNULL(pli.not_found, 0)) AS not_found
             FROM `tabPick List Item` pli
             JOIN `tabOrder Pick List` o ON o.name = pli.parent
