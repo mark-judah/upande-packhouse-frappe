@@ -19,11 +19,14 @@
   {
    "fieldname": "qr_code_image",
    "fieldtype": "Attach",
+   "in_list_view": 1,
    "label": "QR Code Image"
   },
   {
    "fieldname": "id",
    "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Id ",
    "length": 1000,
    "unique": 1
@@ -31,17 +34,20 @@
   {
    "fieldname": "status",
    "fieldtype": "Select",
+   "in_list_view": 1,
    "label": "Status",
    "options": "Available\nIn Use"
   },
   {
    "fieldname": "last_stock_entry",
    "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Last Stock Entry",
-   "options": "Stock Entry"
+   "options": "Stock Entry",
+   "search_index": 1
   },
   {
-   "description": null,
    "fieldname": "current_journey_start",
    "fieldtype": "Link",
    "label": "Current Journey Start",
@@ -53,14 +59,15 @@
    "fieldname": "label_print_doc",
    "fieldtype": "Link",
    "label": "Label Print Doc",
-   "options": "Label Print"
+   "options": "Label Print",
+   "search_index": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-09 19:20:39.758892",
- "modified_by": "judah@upande.com",
+ "modified": "2026-10-04 20:51:57.570540",
+ "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Bucket QR Code",
  "naming_rule": "By fieldname",

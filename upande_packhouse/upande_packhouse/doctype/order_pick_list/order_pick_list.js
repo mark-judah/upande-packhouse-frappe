@@ -1,23 +1,31 @@
 // Copyright (c) 2026, Upande and contributors
 // For license information, please see license.txt
 
-// "Generate QR Codes" (Actions): bucket QR codes for the standard rows, bunch
-// QR codes for the spray rows. Which is which is decided server-side per row
-// (upande_packhouse.api.opl_qr_codes), so this never has to know what kind of
-// order it is on. The codes are drawn and stored server-side; records that
-// already carry an image are reused untouched -- their label is already
+// "Generate QR Codes" (Actions): every QR code this OPL's buckets move
+// through -- each bucket, every bunch graded from them, the shelves they sit
+// on, and one trolley per remote farm still to be trucked in. The codes are
+// drawn and stored server-side (upande_packhouse.api.opl_qr_codes); records
+// that already carry an image are reused untouched -- their label is already
 // printed and stuck on something physical.
 //
 // The result dialog is a slideshow: one label at a time, big enough to read
 // and scan off the screen, stepped through with the arrow keys (Home/End jump
 // to the first/last). A filmstrip underneath jumps straight to any label, and
-// when an OPL has both kinds, a Buckets/Bunches switch jumps between groups.
+// a Buckets/Bunches/Shelves/Trolleys switch jumps between groups.
 // Printing is one label per page.
 
 const OPL_QR_API = "upande_packhouse.api.opl_qr_codes";
 // Namespace for the document-level keydown handler, so it can be removed
 // cleanly when the dialog closes and never stacks up across re-opens.
 const KEY_NS = ".upande_qr_slideshow";
+
+// Slideshow / summary order. `key` is the plan field holding that kind.
+const QR_KINDS = [
+	{ kind: "bucket", key: "bucket_labels", one: __("Bucket"), many: __("Buckets"), pill: "blue" },
+	{ kind: "bunch", key: "bunch_labels", one: __("Bunch"), many: __("Bunches"), pill: "purple" },
+	{ kind: "shelf", key: "shelf_labels", one: __("Shelf"), many: __("Shelves"), pill: "orange" },
+	{ kind: "trolley", key: "trolley_labels", one: __("Trolley"), many: __("Trolleys"), pill: "cyan" },
+];
 
 frappe.ui.form.on("Order Pick List", {
 	refresh(frm) {
@@ -30,19 +38,15 @@ frappe.ui.form.on("Order Pick List", {
 		frm.add_custom_button(
 			__("Sales Allocation"),
 			() => {
-				// This OPL's own date_created can differ from the Sales Order's
-				// transaction_date by a day or more (OPL is often generated
-				// after the order is placed) -- the allocation page's deep-link
-				// widens its date window to an EXACT match on transaction_date,
-				// so using date_created here silently excludes the order.
-				// Fetch the SO's own value instead.
+				// The allocation page moves its delivery window onto the order's
+				// own delivery date -- read it off the Sales Order, not this OPL.
 				frappe.db
-					.get_value("Sales Order", frm.doc.sales_order, "transaction_date")
+					.get_value("Sales Order", frm.doc.sales_order, "delivery_date")
 					.then((r) => {
 						frappe.route_options = {
 							sales_order: frm.doc.sales_order,
 							farm: frm.doc.farm,
-							transaction_date: r.message && r.message.transaction_date,
+							delivery_date: (r.message && r.message.delivery_date) || "",
 						};
 						frappe.set_route("sales-allocation");
 					});
@@ -52,20 +56,29 @@ frappe.ui.form.on("Order Pick List", {
 	},
 });
 
+function all_labels(plan) {
+	return QR_KINDS.reduce((out, k) => out.concat(plan[k.key] || []), []);
+}
+
+// Storable codes still to be drawn -- trolleys (and shelves with no record)
+// are drawn every time, so they never count as missing.
+function missing_count(labels) {
+	return labels.filter((label) => label.doctype && !label.has_image).length;
+}
+
 function open_plan(frm) {
 	frappe
 		.call({
 			method: `${OPL_QR_API}.plan`,
 			args: { opl: frm.doc.name },
 			freeze: true,
-			freeze_message: __("Reading allocated buckets and bunches..."),
+			freeze_message: __("Reading buckets, bunches, shelves and trolleys..."),
 		})
 		.then((r) => {
 			const plan = r && r.message;
 			if (!plan) return;
 
-			const total = plan.bucket_labels.length + plan.bunch_labels.length;
-			if (!total) {
+			if (!all_labels(plan).length) {
 				frappe.msgprint({
 					title: __("Nothing to Generate"),
 					indicator: "orange",
@@ -92,13 +105,12 @@ function open_plan(frm) {
 }
 
 function generate(frm, plan) {
-	const missing = missing_count(plan.bucket_labels) + missing_count(plan.bunch_labels);
 	frappe
 		.call({
 			method: `${OPL_QR_API}.generate`,
 			args: { opl: frm.doc.name },
 			freeze: true,
-			freeze_message: __("Generating {0} QR code(s)...", [missing]),
+			freeze_message: __("Generating {0} QR code(s)...", [all_labels(plan).length]),
 		})
 		.then((r) => {
 			const result = r && r.message;
@@ -108,11 +120,10 @@ function generate(frm, plan) {
 }
 
 function show_labels(frm, result) {
-	const labels = result.bucket_labels.concat(result.bunch_labels);
+	const labels = all_labels(result);
 	// The print sheet keeps its one-label-per-page layout; only the on-screen
 	// preview is a slideshow.
 	const sheet = labels.map((label) => label_html(label, label.image)).join("");
-	const n_buckets = result.bucket_labels.length;
 
 	const d = new frappe.ui.Dialog({
 		title: __("QR Codes for {0}", [result.opl]),
@@ -124,11 +135,11 @@ function show_labels(frm, result) {
 		},
 	});
 
+	const counts = QR_KINDS.filter((k) => (result[k.key] || []).length)
+		.map((k) => `${result[k.key].length} ${k.many.toLowerCase()}`)
+		.join(", ");
 	const notes = [
-		__("{0} bucket code(s) for standard rows, {1} bunch code(s) for spray rows.", [
-			result.bucket_labels.length,
-			result.bunch_labels.length,
-		]),
+		counts,
 		__("{0} newly stored on their records, {1} already had one.", [
 			result.saved,
 			labels.filter((label) => label.has_image).length,
@@ -142,61 +153,71 @@ function show_labels(frm, result) {
 	const $wrapper = d.fields_dict.sheet.$wrapper;
 	$wrapper.html(
 		`<div class="text-muted small" style="margin-bottom:10px">${notes.join("<br>")}</div>` +
-			slideshow_html(labels, n_buckets) +
+			slideshow_html(labels) +
 			preview_css()
 	);
 
 	// Arrow keys are only listened for while this dialog is open.
 	d.onhide = () => $(document).off(KEY_NS);
 	d.show();
-	slideshow(d, $wrapper, labels.length, n_buckets);
+	slideshow(d, $wrapper, labels);
 	frm.reload_doc();
 }
 
 // ---- Slideshow ---------------------------------------------------------
 
-function slideshow_html(labels, n_buckets) {
-	const n_bunches = labels.length - n_buckets;
+function kind_of(label) {
+	return QR_KINDS.find((k) => k.kind === label.kind) || QR_KINDS[0];
+}
 
+// [{kind, start, count}] for each kind present, in slideshow order.
+function label_groups(labels) {
+	const groups = [];
+	labels.forEach((label, i) => {
+		const last = groups[groups.length - 1];
+		if (last && last.kind === label.kind) last.count++;
+		else groups.push({ kind: label.kind, start: i, count: 1 });
+	});
+	return groups;
+}
+
+function slideshow_html(labels) {
 	const slides = labels
-		.map((label, i) => {
-			const kind = i < n_buckets ? "bucket" : "bunch";
-			return `<div class="upande-qr-slide" data-index="${i}" data-kind="${kind}">${slide_body(
-				label,
-				kind
-			)}</div>`;
-		})
+		.map(
+			(label, i) =>
+				`<div class="upande-qr-slide" data-index="${i}" data-kind="${label.kind}">${slide_body(
+					label
+				)}</div>`
+		)
 		.join("");
 
 	const thumbs = labels
 		.map((label, i) => {
 			const src = label.image;
-			const kind = i < n_buckets ? "bucket" : "bunch";
 			const title = frappe.utils.escape_html(String(first_line(label) || i + 1));
 			const inner = src ? `<img src="${src}" alt="">` : `<span>?</span>`;
-			return `<button type="button" class="upande-qr-thumb" data-index="${i}" data-kind="${kind}" title="${title}">${inner}</button>`;
+			return `<button type="button" class="upande-qr-thumb" data-index="${i}" data-kind="${label.kind}" title="${title}">${inner}</button>`;
 		})
 		.join("");
 
 	// The group switch only earns its place when there is something to
 	// switch between.
-	const groups =
-		n_buckets && n_bunches
-			? `<div class="upande-qr-groups btn-group btn-group-sm" role="group">
-					<button type="button" class="btn btn-default upande-qr-group" data-kind="bucket" data-start="0">${__(
-						"Buckets ({0})",
-						[n_buckets]
-					)}</button>
-					<button type="button" class="btn btn-default upande-qr-group" data-kind="bunch" data-start="${n_buckets}">${__(
-						"Bunches ({0})",
-						[n_bunches]
-					)}</button>
-				</div>`
+	const groups = label_groups(labels);
+	const switcher =
+		groups.length > 1
+			? `<div class="upande-qr-groups btn-group btn-group-sm" role="group">${groups
+					.map(
+						(g) =>
+							`<button type="button" class="btn btn-default upande-qr-group" data-kind="${
+								g.kind
+							}" data-start="${g.start}">${kind_of(g).many} (${g.count})</button>`
+					)
+					.join("")}</div>`
 			: "";
 
 	return `<div class="upande-qr-show" tabindex="-1">
 		<div class="upande-qr-toolbar">
-			${groups}
+			${switcher}
 			<div class="upande-qr-counter"></div>
 			<div class="upande-qr-hint text-muted">${__("Use ← and → to browse")}</div>
 		</div>
@@ -213,8 +234,9 @@ function slideshow_html(labels, n_buckets) {
 	</div>`;
 }
 
-function slide_body(label, kind) {
+function slide_body(label) {
 	const src = label.image;
+	const kind = kind_of(label);
 	const lines = (label.lines || []).filter((line) => line);
 	const text = lines
 		.map(
@@ -227,14 +249,15 @@ function slide_body(label, kind) {
 	const code = src
 		? `<img class="upande-qr-big" src="${src}" alt="">`
 		: `<div class="upande-qr-big upande-qr-missing">${__("No image")}</div>`;
-	const badge = kind === "bucket" ? __("Bucket") : __("Bunch");
 	const state = label.has_image
 		? `<span class="indicator-pill gray">${__("Already on record")}</span>`
-		: `<span class="indicator-pill green">${__("New")}</span>`;
+		: label.doctype
+		? `<span class="indicator-pill green">${__("New")}</span>`
+		: "";
 	return `${code}
 		<div class="upande-qr-details">
 			<div class="upande-qr-badges">
-				<span class="indicator-pill ${kind === "bucket" ? "blue" : "purple"}">${badge}</span>
+				<span class="indicator-pill ${kind.pill}">${kind.one}</span>
 				${state}
 			</div>
 			${text}
@@ -245,8 +268,9 @@ function first_line(label) {
 	return (label.lines || []).filter((line) => line)[0];
 }
 
-function slideshow(d, $root, total, n_buckets) {
-	const n_bunches = total - n_buckets;
+function slideshow(d, $root, labels) {
+	const total = labels.length;
+	const groups = label_groups(labels);
 	const $slides = $root.find(".upande-qr-slide");
 	const $thumbs = $root.find(".upande-qr-thumb");
 	const $groups = $root.find(".upande-qr-group");
@@ -266,21 +290,20 @@ function slideshow(d, $root, total, n_buckets) {
 		const thumb = $thumbs.eq(i).addClass("is-active")[0];
 		if (thumb) thumb.scrollIntoView({ block: "nearest", inline: "center" });
 
-		const is_bucket = i < n_buckets;
+		const group = groups.find((g) => i >= g.start && i < g.start + g.count);
 		$groups.removeClass("btn-primary").addClass("btn-default");
 		$groups
-			.filter(`[data-kind="${is_bucket ? "bucket" : "bunch"}"]`)
+			.filter(`[data-kind="${group.kind}"]`)
 			.removeClass("btn-default")
 			.addClass("btn-primary");
 
-		const in_group = is_bucket
-			? __("Bucket {0} of {1}", [i + 1, n_buckets])
-			: __("Bunch {0} of {1}", [i - n_buckets + 1, n_bunches]);
 		$counter.html(
-			`<strong>${in_group}</strong>` +
-				(n_buckets && n_bunches
-					? ` <span class="text-muted">(${i + 1} / ${total})</span>`
-					: "")
+			`<strong>${__("{0} {1} of {2}", [
+				kind_of(group).one,
+				i - group.start + 1,
+				group.count,
+			])}</strong>` +
+				(groups.length > 1 ? ` <span class="text-muted">(${i + 1} / ${total})</span>` : "")
 		);
 
 		$prev.prop("disabled", i === 0);
@@ -421,8 +444,10 @@ function preview_css() {
 		.upande-qr-thumb span { color: #999; font-size: 14px; }
 		.upande-qr-thumb:hover { opacity: 1; }
 		.upande-qr-thumb.is-active { border-color: var(--primary, #2490ef); opacity: 1; }
-		/* Where the buckets stop and the bunches start in the strip. */
-		.upande-qr-thumb[data-kind="bucket"] + .upande-qr-thumb[data-kind="bunch"] {
+		/* Where one kind stops and the next starts in the strip. */
+		.upande-qr-thumb[data-kind="bucket"] + .upande-qr-thumb:not([data-kind="bucket"]),
+		.upande-qr-thumb[data-kind="bunch"] + .upande-qr-thumb:not([data-kind="bunch"]),
+		.upande-qr-thumb[data-kind="shelf"] + .upande-qr-thumb:not([data-kind="shelf"]) {
 			margin-left: 14px; }
 
 		@media (max-width: 576px) {
@@ -440,28 +465,19 @@ function preview_css() {
 // ---- Plan summary --------------------------------------------------------
 
 function plan_html(plan) {
-	const rows = [];
-	if (plan.bucket_labels.length) {
-		rows.push([
-			__("Bucket QR codes (standard rows)"),
-			plan.bucket_labels.length,
-			missing_count(plan.bucket_labels),
-		]);
-	}
-	if (plan.bunch_labels.length) {
-		rows.push([
-			__("Bunch QR codes (spray rows)"),
-			plan.bunch_labels.length,
-			missing_count(plan.bunch_labels),
-		]);
-	}
-
-	const body = rows
-		.map(
-			(row) =>
-				`<tr><td>${row[0]}</td><td class="text-right">${row[1]}</td>` +
-				`<td class="text-muted">${__("{0} without a code yet", [row[2]])}</td></tr>`
-		)
+	const body = QR_KINDS.filter((k) => (plan[k.key] || []).length)
+		.map((k) => {
+			const labels = plan[k.key];
+			const missing = missing_count(labels);
+			const note = labels.some((label) => label.doctype)
+				? __("{0} without a code yet", [missing])
+				: __("drawn fresh each time");
+			return (
+				`<tr><td>${__("{0} QR codes", [k.one])}</td><td class="text-right">${
+					labels.length
+				}</td>` + `<td class="text-muted">${note}</td></tr>`
+			);
+		})
 		.join("");
 
 	const notes = warnings(plan);
@@ -474,10 +490,6 @@ function plan_html(plan) {
 	);
 }
 
-function missing_count(labels) {
-	return labels.filter((label) => !label.has_image).length;
-}
-
 function warnings(plan) {
 	const out = [];
 	if ((plan.rows_without_bucket || []).length) {
@@ -487,10 +499,10 @@ function warnings(plan) {
 			])
 		);
 	}
-	if ((plan.spray_buckets_without_bunches || []).length) {
+	if ((plan.buckets_without_bunches || []).length) {
 		out.push(
-			__("Spray bucket(s) with no graded bunches: {0}.", [
-				plan.spray_buckets_without_bunches.join(", "),
+			__("Bucket(s) with no graded bunches yet: {0}.", [
+				plan.buckets_without_bunches.join(", "),
 			])
 		);
 	}

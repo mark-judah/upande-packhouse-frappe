@@ -10,10 +10,14 @@
 import frappe
 from frappe.sessions import get_csrf_token
 
+from upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation import default_delivery_date
+
 no_cache = 1
 
 
 def get_context(context):
 	context.csrf_token = get_csrf_token()
 	context.no_cache = 1
+	# Tomorrow by the server's clock (EAT): the page opens on it.
+	context.default_delivery_date = default_delivery_date()
 	return context
