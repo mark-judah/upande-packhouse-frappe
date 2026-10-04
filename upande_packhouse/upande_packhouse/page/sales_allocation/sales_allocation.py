@@ -1766,7 +1766,8 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 
 	return {
 		"success": True,
-		"message": "Allocation completed successfully",
+		"message": "Allocation completed successfully" + "".join("<br>" + n for n in fit_notes),
+		"fit_notes": fit_notes,
 		"pick_list_results": pick_results,
 		"stock_moves": stock_moves,
 	}
