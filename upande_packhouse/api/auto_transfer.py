@@ -42,6 +42,8 @@ DEFAULT_FREQUENCY_MINUTES = 10
 TICK_SLACK_SECONDS = 90
 LAST_RUN_KEY = "upande_packhouse:auto_transfer:last_run"
 LOCK_KEY = "upande_packhouse:auto_transfer:lock"
+#: Set when a change lands while a run is going: that run plans once more at its end.
+RERUN_KEY = "upande_packhouse:auto_transfer:rerun"
 #: Stops beyond this are visited in road order instead of trying every permutation.
 MAX_PERMUTED_STOPS = 7
 
@@ -86,13 +88,55 @@ def runNow():
 	return plan()
 
 
+def replan_soon(doc=None, method=None):
+	"""An order was scheduled (or its waiting buckets changed): put it on a trip now,
+	in the background, instead of waiting for the next timed run. Repeated triggers
+	share one queued job; one landing mid-run makes that run plan again at its end."""
+	if not enabled():
+		return
+	cache = frappe.cache()
+	if cache.get(cache.make_key(LOCK_KEY)):
+		cache.set(cache.make_key(RERUN_KEY), 1, ex=600)
+	frappe.enqueue(
+		"upande_packhouse.api.auto_transfer.plan",
+		queue="short",
+		job_id="upande_packhouse:auto_transfer:replan",
+		deduplicate=True,
+		enqueue_after_commit=True,
+	)
+
+
+def order_pick_list_changed(doc, method=None):
+	"""Re-plan when a picklist is new, changes team, or its buckets waiting at a farm change."""
+
+	def waiting(d):
+		return sorted(
+			(r.get("bucket") or "", r.get("source_warehouse") or "")
+			for r in d.get("table_ytkc") or []
+			if r.get("bucket") and int(r.get("awaiting_transfer") or 0)
+		)
+
+	before = doc.get_doc_before_save()
+	if before is None:
+		if waiting(doc):
+			replan_soon()
+		return
+	if (before.get("team") or "") != (doc.get("team") or "") or waiting(before) != waiting(doc):
+		replan_soon()
+
+
 def plan():
 	cache = frappe.cache()
 	# One run at a time — a manual "Re-plan now" can land while the cron run is going.
 	if not cache.set(cache.make_key(LOCK_KEY), 1, ex=600, nx=True):
+		cache.set(cache.make_key(RERUN_KEY), 1, ex=600)
 		return {"status": "busy", "message": "Automatic scheduling is already running."}
 	try:
-		summary = _plan()
+		for _ in range(3):
+			cache.delete(cache.make_key(RERUN_KEY))
+			summary = _plan()
+			if not cache.get(cache.make_key(RERUN_KEY)):
+				break
 	except Exception:
 		frappe.db.rollback()
 		frappe.log_error("Automatic remote transfer scheduling failed", frappe.get_traceback())

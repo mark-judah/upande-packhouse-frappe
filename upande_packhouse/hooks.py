@@ -258,6 +258,15 @@ doc_events = {
 			"upande_packhouse.sales_order_engine.sales_order_validate",
 		],
 	},
+	# Scheduling an order puts it on a trip straight away (auto_transfer.replan_soon).
+	"Packhouse Schedule": {
+		"on_update": "upande_packhouse.api.auto_transfer.replan_soon",
+		"on_trash": "upande_packhouse.api.auto_transfer.replan_soon",
+	},
+	"Order Pick List": {
+		"after_insert": "upande_packhouse.api.auto_transfer.replan_soon",
+		"on_update": "upande_packhouse.api.auto_transfer.order_pick_list_changed",
+	},
 	"Specifications": {"before_validate": "upande_packhouse.spec.ensure_spec_uoms_and_packrates"},
 	"Delivery Note": {
 		"on_submit": "upande_packhouse.roses_invoice.delivery_note_on_submit",
