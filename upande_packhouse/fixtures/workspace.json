@@ -374,7 +374,7 @@
     "restrict_to_domain": null,
     "stats_filter": null,
     "type": "URL",
-    "url": "/remote-transfers/scheduler"
+    "url": "/remote-transfer/scheduler"
    },
    {
     "color": "Grey",
@@ -416,7 +416,7 @@
     "restrict_to_domain": null,
     "stats_filter": null,
     "type": "URL",
-    "url": "/remote-transfers/bucket-journey"
+    "url": "/remote-transfer/bucket-journey"
    },
    {
     "color": "Grey",
@@ -430,7 +430,7 @@
     "restrict_to_domain": null,
     "stats_filter": null,
     "type": "URL",
-    "url": "/remote-transfers/bucket-logistics"
+    "url": "/remote-transfer/bucket-logistics"
    },
    {
     "color": "Grey",

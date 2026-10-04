@@ -102,15 +102,21 @@ doctype_js = {
 # Home Pages
 # ----------
 
-# Remote Transfers tabs live under /remote-transfers/<tab>, each served by its own www
-# page; the old addresses redirect there (remote_transfer_routes.py keeps the same map).
 website_route_rules = [
-	{"from_route": "/remote-transfers", "to_route": "transfer-control"},
-	{"from_route": "/remote-transfers/truck-routes", "to_route": "transfer-control"},
-	{"from_route": "/remote-transfers/transfer-scheduling", "to_route": "transfer-control"},
-	{"from_route": "/remote-transfers/bucket-logistics", "to_route": "transfer-control"},
-	{"from_route": "/remote-transfers/scheduler", "to_route": "packhouse-scheduler"},
-	{"from_route": "/remote-transfers/bucket-journey", "to_route": "bucket-tracker"},
+	# Remote Transfers is one page (www/remote-transfer.html); each tab has its own address.
+	{"from_route": "/remote-transfer", "to_route": "remote-transfer"},
+	{"from_route": "/remote-transfer/truck-routes", "to_route": "remote-transfer"},
+	{"from_route": "/remote-transfer/scheduler", "to_route": "remote-transfer"},
+	{"from_route": "/remote-transfer/transfer-scheduling", "to_route": "remote-transfer"},
+	{"from_route": "/remote-transfer/bucket-logistics", "to_route": "remote-transfer"},
+	{"from_route": "/remote-transfer/bucket-journey", "to_route": "remote-transfer"},
+	# Its old addresses: the page redirects them to /remote-transfer/<tab>.
+	{"from_route": "/remote-transfers", "to_route": "remote-transfer"},
+	{"from_route": "/remote-transfers/truck-routes", "to_route": "remote-transfer"},
+	{"from_route": "/remote-transfers/scheduler", "to_route": "remote-transfer"},
+	{"from_route": "/remote-transfers/transfer-scheduling", "to_route": "remote-transfer"},
+	{"from_route": "/remote-transfers/bucket-logistics", "to_route": "remote-transfer"},
+	{"from_route": "/remote-transfers/bucket-journey", "to_route": "remote-transfer"},
 ]
 
 # application home page (will override Website Settings)
@@ -252,6 +258,15 @@ doc_events = {
 			"upande_packhouse.sales_order_engine.sales_order_validate",
 		],
 	},
+	# Scheduling an order puts it on a trip straight away (auto_transfer.replan_soon).
+	"Packhouse Schedule": {
+		"on_update": "upande_packhouse.api.auto_transfer.replan_soon",
+		"on_trash": "upande_packhouse.api.auto_transfer.replan_soon",
+	},
+	"Order Pick List": {
+		"after_insert": "upande_packhouse.api.auto_transfer.replan_soon",
+		"on_update": "upande_packhouse.api.auto_transfer.order_pick_list_changed",
+	},
 	"Specifications": {"before_validate": "upande_packhouse.spec.ensure_spec_uoms_and_packrates"},
 	"Delivery Note": {
 		"on_submit": "upande_packhouse.roses_invoice.delivery_note_on_submit",
@@ -278,6 +293,8 @@ scheduler_events = {
 		# Production Settings > Remote Transfers (5-60 minutes).
 		"*/5 * * * *": [
 			"upande_packhouse.api.auto_transfer.run",
+			# A trip ends once what it carried is shelved at the hub — no End trip button.
+			"upande_packhouse.api.remote_transfer.transfer_scheduling.end_shelved_trips",
 		],
 	},
 }

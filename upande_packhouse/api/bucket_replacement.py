@@ -10,7 +10,7 @@
 import frappe
 from frappe import _
 
-REASONS = ("Missing", "Damaged", "Wrong variety", "Other")
+REASONS = ("Missing", "Damaged", "Wrong variety", "Issued offline", "Quality issue", "Other")
 RESOLUTIONS = ("Found", "Discarded", "Written Off")
 
 
@@ -26,8 +26,10 @@ def record(
 	stock_entries,
 	reason=None,
 	notes=None,
+	extra=None,
 ):
-	"""Create the replacement record (inside the swap's transaction)."""
+	"""Create the replacement record (inside the swap's transaction). `extra` sets
+	further fields -- the quality-issue section (packing_quality)."""
 	opl = frappe.db.get_value("Order Pick List", opl_name, ["order_name", "sales_order"], as_dict=True) or {}
 	trip = frappe.db.sql(
 		"""SELECT t.name, t.vehicle FROM `tabBucket Request Trip` t
@@ -60,6 +62,7 @@ def record(
 			"reported_by": frappe.session.user,
 			"reported_at": frappe.utils.now(),
 			"stock_entries": ", ".join(e for e in stock_entries if e),
+			**(extra or {}),
 		}
 	)
 	doc.insert(ignore_permissions=True)

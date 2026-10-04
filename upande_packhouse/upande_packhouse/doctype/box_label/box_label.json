@@ -10,6 +10,9 @@
   "farm",
   "farm_code",
   "customer",
+  "order_name",
+  "variety",
+  "mix_name",
   "length",
   "box_number",
   "order_pick_list",
@@ -48,7 +51,9 @@
    "fieldname": "customer",
    "fieldtype": "Link",
    "label": "Customer",
-   "options": "Customer"
+   "options": "Customer",
+   "in_standard_filter": 1,
+   "in_list_view": 1
   },
   {
    "fieldname": "length",
@@ -219,12 +224,42 @@
    "fieldtype": "Datetime",
    "label": "Precooled At",
    "read_only": 1
+  },
+  {
+   "fieldname": "mix_name",
+   "fieldtype": "Data",
+   "label": "Mix Name",
+   "in_standard_filter": 1,
+   "read_only": 1,
+   "search_index": 1,
+   "description": "The Sales Order line's mix name (several, comma-separated, for a box packed from more than one line)."
+  },
+  {
+   "fieldname": "variety",
+   "fieldtype": "Link",
+   "label": "Variety",
+   "options": "Item",
+   "in_standard_filter": 1,
+   "in_list_view": 1,
+   "read_only": 1,
+   "search_index": 1,
+   "description": "The box's variety; for a mixed box, the variety with the most stems (see Mix Name)."
+  },
+  {
+   "fieldname": "order_name",
+   "fieldtype": "Data",
+   "label": "Order Name",
+   "in_standard_filter": 1,
+   "in_list_view": 1,
+   "read_only": 1,
+   "search_index": 1,
+   "description": "The order's name (Order Pick List / Sales Order), for finding and printing its labels."
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-04 18:46:03.625094",
+ "modified": "2026-10-05 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Box Label",
@@ -307,5 +342,6 @@
  "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "search_fields": "order_name,customer,variety,mix_name"
 }

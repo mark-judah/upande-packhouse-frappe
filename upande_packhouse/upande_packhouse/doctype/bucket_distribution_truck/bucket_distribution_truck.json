@@ -1,0 +1,73 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-10-04 16:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "vehicle",
+  "trip",
+  "run",
+  "farms",
+  "buckets",
+  "stems",
+  "orders"
+ ],
+ "fields": [
+  {
+   "fieldname": "vehicle",
+   "fieldtype": "Link",
+   "options": "Vehicle",
+   "label": "Vehicle",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "trip",
+   "fieldtype": "Link",
+   "options": "Bucket Request Trip",
+   "label": "Trip",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "run",
+   "fieldtype": "Int",
+   "label": "Run"
+  },
+  {
+   "fieldname": "farms",
+   "fieldtype": "Data",
+   "label": "Farms",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "buckets",
+   "fieldtype": "Int",
+   "label": "Buckets",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "stems",
+   "fieldtype": "Int",
+   "label": "Stems"
+  },
+  {
+   "fieldname": "orders",
+   "fieldtype": "Small Text",
+   "label": "Orders"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-10-04 16:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Bucket Distribution Truck",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "istable": 1,
+ "editable_grid": 1
+}

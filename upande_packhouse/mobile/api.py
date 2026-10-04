@@ -2549,6 +2549,9 @@ def getCurrentUserRoles():
 		roles = [r["role"] for r in rows if r.get("role")]
 		frappe.response["data"] = {
 			"user": user,
+			# The app shows people by name, and most users cannot read their own
+			# User record (only System Managers can), so the name comes from here.
+			"full_name": frappe.utils.get_fullname(user),
 			"roles": roles,
 		}
 	except Exception as e:
@@ -2706,6 +2709,10 @@ def getReadySaleOrderItemsData():
 					"parent as opl_name",
 					"custom_ready_for_packing",
 					"issued",
+					"awaiting_transfer",
+					"shelved",
+					"farm",
+					"source_warehouse",
 					"creation",
 				],
 				order_by="creation desc",
@@ -2751,6 +2758,16 @@ def getReadySaleOrderItemsData():
 						"is_issued": 1 if pli.issued else 0,
 						"was_marked_ready": pli.custom_ready_for_packing or 0,
 					}
+					# Replaced at issuing from a remote farm and not here yet: the app shows it
+					# waiting for transfer and the issue scan refuses it until it is shelved.
+					if (
+						pli.awaiting_transfer
+						and not pli.shelved
+						and not pli.custom_ready_for_packing
+						and not pli.issued
+					):
+						packing_item["waiting_transfer"] = 1
+						packing_item["transfer_farm"] = pli.farm or (pli.source_warehouse or "").split(" ")[0]
 
 					packing_list.append(packing_item)
 
@@ -2954,7 +2971,7 @@ def getSchedulerMeta():
 				names = names + [v]
 			p = p + 1
 
-		takt = frappe.db.get_single_value("Production Settings", "custom_takt_time") or 0
+		takt = frappe.db.get_single_value("Production Settings", "takt_time") or 0
 
 		schedule = {}
 		created = {}
@@ -3078,7 +3095,7 @@ def getTransferScheduleData():
                so.custom_truck_details AS truck, 0 AS mixed,
                o.schedule_number AS schedule, o.team AS team,
                pli.bucket AS bucket, pli.item_code AS variety, pli.stock_qty AS stems,
-               COALESCE(NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.origin_warehouse,''), NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''), NULLIF(pli.farm, '')) AS farm,
+               COALESCE(NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''), NULLIF(pli.farm, '')) AS farm,
                pli.awaiting_transfer AS aw, pli.loaded_in_trolley AS ld, pli.in_transit AS tr
         FROM `tabPick List Item` pli
         JOIN `tabOrder Pick List` o ON o.name = pli.parent
@@ -3359,7 +3376,7 @@ def getTransferScheduleData():
         SELECT pli.transit_truck AS truck,
                pli.awaiting_transfer AS aw, pli.loaded_in_trolley AS ld,
                pli.in_transit AS tr, pli.shelved AS sh,
-               COALESCE(NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.origin_warehouse,''), NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''), NULLIF(pli.farm, '')) AS farm,
+               COALESCE(NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''), NULLIF(pli.farm, '')) AS farm,
                pli.modified AS modified
         FROM `tabPick List Item` pli
         JOIN `tabOrder Pick List` o ON o.name = pli.parent
@@ -4241,6 +4258,28 @@ def issueBucketToSaleOrderItem():
 		elif not sale_order_item:
 			frappe.response.message = "Error: Sale Order Item is required"
 			frappe.response.http_status_code = 400
+		elif waiting := frappe.db.sql(
+			"""SELECT COALESCE(NULLIF(farm, ''), SUBSTRING_INDEX(source_warehouse, ' ', 1)) FROM `tabPick List Item`
+			WHERE bucket = %(bucket)s AND parenttype = 'Order Pick List'
+			  AND (%(opl)s IS NULL OR parent = %(opl)s)
+			  AND %(soi)s IN (COALESCE(custom_sale_order_item, ''), COALESCE(sales_order_item, ''))
+			  AND awaiting_transfer = 1 AND IFNULL(shelved, 0) = 0
+			  AND IFNULL(custom_ready_for_packing, 0) = 0 AND IFNULL(issued, 0) = 0
+			LIMIT 1""",
+			{"bucket": bucket_id, "soi": sale_order_item, "opl": opl_name or None},
+		):
+			# Replaced at issuing from a remote farm and not here yet: it is issued once
+			# the truck brings it and it is shelved (that makes the row ready again).
+			frappe.response.message = (
+				f"Bucket {bucket_id} is waiting for transfer from {waiting[0][0] or 'its farm'}. "
+				"Issue it once it arrives and is shelved."
+			)
+			frappe.response.http_status_code = 409
+			frappe.response.data = {
+				"status": "waiting_transfer",
+				"bucket_id": bucket_id,
+				"farm": waiting[0][0],
+			}
 		else:
 			# -------------------------------
 			# Get the Stock Entry this scan is acting on
@@ -4973,8 +5012,18 @@ def shelveBucket():
 		return
 
 	# A shelf belongs to its farm: shelving onto it counts at THAT farm, whatever the
-	# app is set to. Never refused; the correction is recorded.
-	if shelf_doc.farm and farm and shelf_doc.farm.lower() != str(farm).lower():
+	# app is set to; the correction is recorded. Except a bucket already on its way
+	# from the app's own (remote) farm: the person is still there, so a sales-farm
+	# shelf is a mis-scan, not the arrival — checked against the app's farm below.
+	from upande_packhouse.api.transfer_control import remote_shelving_block
+
+	app_farm = farm
+	if (
+		shelf_doc.farm
+		and farm
+		and shelf_doc.farm.lower() != str(farm).lower()
+		and not remote_shelving_block(bucket_id, farm)
+	):
 		from upande_packhouse.api import transfer_control as tc
 
 		tc.log_transfer_event(
@@ -4989,9 +5038,15 @@ def shelveBucket():
 		farm = shelf_doc.farm
 
 	# Already transferred: only the sales farm can shelve it (a remote shelf is refused).
-	from upande_packhouse.api.transfer_control import remote_shelving_block
+	blocked = remote_shelving_block(bucket_id, farm) or remote_shelving_block(bucket_id, app_farm)
+	reason = "already_transferred"
+	if not blocked:
+		# At the sales farm: a bucket still waiting at a remote farm that never went on a
+		# trolley / truck there never arrived.
+		from upande_packhouse.api.transfer_control import hub_shelving_block
 
-	blocked = remote_shelving_block(bucket_id, farm)
+		blocked = hub_shelving_block(bucket_id, farm)
+		reason = "not_transferred" if blocked else reason
 	if blocked:
 		from upande_packhouse.api import transfer_control as tc
 
@@ -5000,8 +5055,8 @@ def shelveBucket():
 		)
 		frappe.response["data"] = {
 			"status": "failed",
-			"reason": "already_transferred",
-			"message": blocked + " Shelve it at the sales farm.",
+			"reason": reason,
+			"message": blocked if reason == "not_transferred" else blocked + " Shelve it at the sales farm.",
 			"payload": {"shelf_id": shelf_id, "bucket_id": bucket_id},
 		}
 		return
@@ -5066,6 +5121,10 @@ def shelveBucket():
 	shelf_doc.save(ignore_permissions=True)
 	# Arrived: the sale allocation deferred for this remote bucket posts now.
 	if at_arrival:
+		# Shelving at the hub has started: its truck has arrived (no "arrived" button).
+		from upande_packhouse.api.remote_transfer.transfer_scheduling import auto_arrive_for_bucket
+
+		auto_arrive_for_bucket(bucket_id)
 		result["sale_on_arrival"] = stock_movement.post_sale_on_arrival(bucket_id, "Roses")
 
 	# Shelving Log: one "Shelved" row per Shelf Item row just created.
@@ -5147,7 +5206,9 @@ def _shelve_update_transit_status(bucket_id, shelf_id, farm, result):
 	updated, skipped = [], []
 	for opl_name in opl_names:
 		opl = frappe.get_doc("Order Pick List", opl_name)
-		if opl.docstatus != 0:
+		# A submitted OPL only has transfer rows when a bucket was replaced at issuing
+		# from a remote farm (offline_issue.replace_for_issuing): it arrives the same way.
+		if opl.docstatus not in (0, 1):
 			continue
 		# opl_rows, not opl.locations: the table fieldname is `table_ytkc`, so
 		# `locations` never matched and a transferred bucket shelved at the sales
@@ -5175,7 +5236,14 @@ def _shelve_update_transit_status(bucket_id, shelf_id, farm, result):
 			row.loaded_in_trolley = 0
 			row.shelved = 1
 			row.shelf = shelf_id
-		opl.save(ignore_permissions=True)
+		if opl.docstatus == 1:
+			# Here now: ready to be scanned and issued like the rest of the order.
+			for row in mine:
+				row.custom_ready_for_packing = 1
+			for row in rows:
+				row.db_update()
+		else:
+			opl.save(ignore_permissions=True)
 		updated.append(opl.name)
 	if updated:
 		result["transit_updated"] = True

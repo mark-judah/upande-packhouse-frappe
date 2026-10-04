@@ -1,0 +1,41 @@
+{#- Remote Transfers — loaded in a tab's frame (www/remote-transfer.html?embed=1). It
+    connects the tab to the page around it, which owns the section's delivery date,
+    Refresh, tab highlight and address:
+      window.rtDate       the page's date (get / set / on change)
+      window.rtOnRefresh  register what the page's Refresh does while this tab is open
+      window.rtSetTab     report the open view (the planner frame switches between three)
+      window.rtSetUrl     report the view's address (path + query) for the page's URL
+    Opened on its own (no page around it), the frame still works: a local date read
+    from ?date=, Refresh does nothing. -#}
+{% include "upande_packhouse/templates/includes/remote_transfer_helpers.html" %}
+<style>
+/* A tab in its frame: just its content — the page around it has the sidebar and header.
+   (A tab's own CSS may add .collapsed from the saved sidebar state — no sidebar here.) */
+.aph.rt-embed,.aph.rt-embed.collapsed{grid-template-columns:1fr!important}
+.aph.rt-embed .aph-side{display:none!important}
+.aph.rt-embed .rt-embed-right{display:flex;justify-content:flex-end;align-items:center;gap:10px}
+.aph.rt-embed .rt-embed-right:empty{display:none}
+</style>
+<script>
+(function(){
+  var GROUP = {{ rt_group|tojson }}, P = null;
+  try { if (window.parent !== window && window.parent.rtRegisterRefresh) P = window.parent; } catch (e) {}
+  if (P) {
+    window.rtDate = P.rtDate;
+    window.rtOnRefresh = function(fn){ P.rtRegisterRefresh(GROUP, fn); };
+    window.rtSetTab = function(tab){ P.rtFrameTab(GROUP, tab); };
+    window.rtSetUrl = function(pathAndQuery){ P.rtFrameUrl(GROUP, pathAndQuery); };
+    return;
+  }
+  function iso(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+  var t = new Date(); t.setDate(t.getDate()+1);
+  var v = new URLSearchParams(location.search).get('date') || iso(t);
+  window.rtDate = {
+    get: function(){ return v; },
+    set: function(nv){ if (!nv || nv === v) return; v = nv; document.dispatchEvent(new CustomEvent('rt-date', {detail: v})); },
+    on: function(fn){ document.addEventListener('rt-date', function(e){ fn(e.detail); }); }
+  };
+  window.rtOnRefresh = function(){};
+  window.rtSetTab = function(){};
+})();
+</script>

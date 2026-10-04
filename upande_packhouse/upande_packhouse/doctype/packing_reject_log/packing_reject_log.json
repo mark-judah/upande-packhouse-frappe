@@ -1,0 +1,238 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:PRL-{#####}",
+ "creation": "2026-10-05 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "order_pick_list",
+  "box_id",
+  "variety",
+  "stem_length",
+  "stems_rejected",
+  "bunches",
+  "column_break_prl1",
+  "status",
+  "farm",
+  "recorded_by",
+  "bunch_id",
+  "bucket",
+  "sale_order_item",
+  "section_break_prl1",
+  "reason",
+  "remarks",
+  "issues",
+  "quality_reporting",
+  "reject_stock_entry",
+  "section_break_prl2",
+  "donor_bucket",
+  "stems_replaced",
+  "column_break_prl2",
+  "approved_by",
+  "approved_at",
+  "replacement_stock_entries"
+ ],
+ "fields": [
+  {
+   "fieldname": "order_pick_list",
+   "fieldtype": "Link",
+   "label": "Order Pick List",
+   "options": "Order Pick List",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "box_id",
+   "fieldtype": "Data",
+   "label": "Box",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "variety",
+   "fieldtype": "Link",
+   "label": "Variety",
+   "options": "Item",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "stem_length",
+   "fieldtype": "Data",
+   "label": "Stem Length"
+  },
+  {
+   "fieldname": "stems_rejected",
+   "fieldtype": "Int",
+   "label": "Stems Rejected",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "bunches",
+   "fieldtype": "Int",
+   "label": "Bunches"
+  },
+  {
+   "fieldname": "column_break_prl1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Pending Approval\nReplaced\nNo Replacement",
+   "default": "Pending Approval",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "farm",
+   "fieldtype": "Link",
+   "label": "Farm",
+   "options": "Farm"
+  },
+  {
+   "fieldname": "recorded_by",
+   "fieldtype": "Link",
+   "label": "Recorded By",
+   "options": "User"
+  },
+  {
+   "fieldname": "bunch_id",
+   "fieldtype": "Data",
+   "label": "Bunch"
+  },
+  {
+   "fieldname": "bucket",
+   "fieldtype": "Data",
+   "label": "Bucket"
+  },
+  {
+   "fieldname": "sale_order_item",
+   "fieldtype": "Data",
+   "label": "Sale Order Item"
+  },
+  {
+   "fieldname": "section_break_prl1",
+   "fieldtype": "Section Break",
+   "label": "Quality"
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Data",
+   "label": "Reason",
+   "description": "A Packhouse Rejection Reason."
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "issues",
+   "fieldtype": "Table",
+   "label": "Issues",
+   "options": "Packing Reject Issue"
+  },
+  {
+   "fieldname": "quality_reporting",
+   "fieldtype": "Data",
+   "label": "Quality Reporting"
+  },
+  {
+   "fieldname": "reject_stock_entry",
+   "fieldtype": "Link",
+   "label": "Reject Stock Entry",
+   "options": "Stock Entry"
+  },
+  {
+   "fieldname": "section_break_prl2",
+   "fieldtype": "Section Break",
+   "label": "Replacement"
+  },
+  {
+   "fieldname": "donor_bucket",
+   "fieldtype": "Data",
+   "label": "Donor Bucket"
+  },
+  {
+   "fieldname": "stems_replaced",
+   "fieldtype": "Int",
+   "label": "Stems Replaced"
+  },
+  {
+   "fieldname": "column_break_prl2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Approved By",
+   "options": "User"
+  },
+  {
+   "fieldname": "approved_at",
+   "fieldtype": "Datetime",
+   "label": "Approved At"
+  },
+  {
+   "fieldname": "replacement_stock_entries",
+   "fieldtype": "Small Text",
+   "label": "Replacement Stock Entries"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-10-05 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Packing Reject Log",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "create": 1,
+   "write": 1,
+   "delete": 1
+  },
+  {
+   "role": "Packing Supervisor",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "create": 1,
+   "write": 1
+  },
+  {
+   "role": "Assistant Packhouse Manager",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "create": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "title_field": "order_pick_list"
+}
