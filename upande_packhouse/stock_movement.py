@@ -761,6 +761,26 @@ def needs_transfer(source, business_unit):
 	return bool(route) and route[0]["stage"] == ARRIVAL_STAGE
 
 
+def holding_warehouse(warehouse, farm, business_unit):
+	"""Where an allocated bucket's stems wait until it is shelved at the sales farm.
+
+	A bucket on a remote farm (Chepsito, Torongo...) stays in that farm's receiving
+	cold store until the truck brings it and it is shelved at the hub; only then do
+	its stems move to the hub and is the sale posted (post_sale_on_arrival). A shelf
+	or pick row naming the hub for such a bucket -- left by an older transfer leg, or
+	a pick row already flipped to the hub on shelving -- would sell the stems from a
+	store they never reached, or skip the sale on arrival, so the farm's own store
+	wins then. Buckets shelved at the sales farm keep their warehouse.
+	"""
+	if warehouse and needs_transfer(warehouse, business_unit):
+		return warehouse
+	row = mapping_row_for_farm(farm, business_unit) if farm else None
+	home = row.source_warehouse if row else None
+	if home and needs_transfer(home, business_unit):
+		return home
+	return warehouse or home
+
+
 @frappe.whitelist()
 def post_sale_on_arrival(bucket_id: str | None, business_unit: str | None = None):
 	"""Post the sale leg for a remote bucket's allocations once it has arrived.
@@ -793,7 +813,15 @@ def post_sale_on_arrival(bucket_id: str | None, business_unit: str | None = None
 		for row in opl_rows(opl):
 			if (_row_bucket(row) or "").lower() != bucket_id.lower() or row.get("issued"):
 				continue
-			source = _row_warehouse(row) or receiving_warehouse(bucket_id, row.item_code)
+			# The bucket's farm store, not the row's current source: shelving at the hub
+			# may already have pointed that at the hub's store.
+			source = holding_warehouse(
+				row.get("origin_warehouse")
+				or _row_warehouse(row)
+				or receiving_warehouse(bucket_id, row.item_code),
+				row.get("farm"),
+				bu,
+			)
 			if not source or not needs_transfer(source, bu):
 				continue  # local bucket: sold at allocation
 			sale = next((h for h in resolve_route(source, bu, upto=SALE_STAGE) if h["terminal"]), None)
@@ -854,7 +882,11 @@ def move_allocation_to_sold(allocations, business_unit, sales_order=None, opl=No
 		if not (bucket_id and item_code and qty > 0):
 			continue
 
-		source = a.get("warehouse") or receiving_warehouse(bucket_id, item_code)
+		source = holding_warehouse(
+			a.get("warehouse") or receiving_warehouse(bucket_id, item_code),
+			a.get("_shelf_farm") or a.get("shelf_farm"),
+			business_unit,
+		)
 		if not source:
 			frappe.throw(
 				f"Bucket {bucket_id} ({item_code}) has no receiving entry — "

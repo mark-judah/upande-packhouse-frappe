@@ -1353,7 +1353,7 @@ def _bucket_trip_rows(buckets):
 		       t.name AS trip, t.status, t.vehicle
 		FROM `tabBucket Request Trip Bucket` tb
 		JOIN `tabBucket Request Trip` t ON t.name = tb.parent
-		WHERE tb.parenttype = 'Bucket Request Trip' AND UPPER(tb.bucket) IN %(b)s
+		WHERE tb.parenttype = 'Bucket Request Trip' AND tb.bucket IN %(b)s
 		  AND t.status != 'Received' AND IFNULL(tb.off_truck, 0) = 0""",
 		{"b": tuple(buckets)},
 		as_dict=True,
@@ -2770,11 +2770,11 @@ def bucket_transfer_trace(bucket_id, limit=5, after_packhouse=False):
 		FROM `tabPick List Item` pli
 		JOIN `tabOrder Pick List` opl ON opl.name = pli.parent
 		LEFT JOIN `tabSales Order` so ON so.name = opl.sales_order
-		WHERE pli.parenttype = 'Order Pick List' AND UPPER(pli.bucket) = UPPER(%(b)s)
+		WHERE pli.parenttype = 'Order Pick List' AND pli.bucket = %(b)s
 		  AND (pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1 OR pli.in_transit = 1
 		       OR pli.shelved = 1 OR IFNULL(pli.not_found, 0) = 1
 		       OR EXISTS (SELECT 1 FROM `tabBucket Request Trip Bucket` tb
-		                  WHERE tb.order_pick_list = pli.parent AND UPPER(tb.bucket) = UPPER(pli.bucket)))
+		                  WHERE tb.order_pick_list = pli.parent AND tb.bucket = pli.bucket))
 		GROUP BY pli.parent
 		ORDER BY opl.creation DESC
 		LIMIT %(limit)s""",
@@ -2864,7 +2864,7 @@ def bucket_transfer_trace(bucket_id, limit=5, after_packhouse=False):
 			FROM `tabBucket Request Trip Bucket` tb
 			JOIN `tabBucket Request Trip` t ON t.name = tb.parent
 			WHERE tb.parenttype = 'Bucket Request Trip' AND tb.order_pick_list = %(opl)s
-			  AND UPPER(tb.bucket) = UPPER(%(b)s)
+			  AND tb.bucket = %(b)s
 			ORDER BY tb.loaded_at, tb.idx""",
 			{"opl": r.opl, "b": bucket_id},
 			as_dict=True,
@@ -3114,7 +3114,7 @@ def _transfer_stock_entry(bucket_id, source_warehouse, since):
 	received = frappe.db.sql(
 		"""SELECT MAX(TIMESTAMP(se.posting_date, se.posting_time)) FROM `tabStock Entry` se
 		JOIN `tabStock Entry Detail` d ON d.parent = se.name
-		WHERE UPPER(se.custom_bucket_id) = UPPER(%(b)s) AND se.docstatus = 1
+		WHERE se.custom_bucket_id = %(b)s AND se.docstatus = 1
 		  AND d.t_warehouse = %(wh)s AND se.stock_entry_type IN ('Receiving', 'Late Receipt')
 		  AND TIMESTAMP(se.posting_date, se.posting_time) <= %(since)s""",
 		{"b": bucket_id, "wh": source_warehouse, "since": since},
@@ -3125,7 +3125,7 @@ def _transfer_stock_entry(bucket_id, source_warehouse, since):
 		"""SELECT se.name, TIMESTAMP(se.posting_date, se.posting_time) AS at, se.owner,
 		       d.s_warehouse, d.t_warehouse
 		FROM `tabStock Entry` se JOIN `tabStock Entry Detail` d ON d.parent = se.name
-		WHERE UPPER(se.custom_bucket_id) = UPPER(%(b)s) AND se.docstatus = 1
+		WHERE se.custom_bucket_id = %(b)s AND se.docstatus = 1
 		  AND d.s_warehouse = %(wh)s AND TIMESTAMP(se.posting_date, se.posting_time) >= %(received)s
 		ORDER BY se.posting_date, se.posting_time LIMIT 1""",
 		{"b": bucket_id, "wh": source_warehouse, "received": received},
@@ -3176,7 +3176,7 @@ def mark_bucket_not_found(pick_list_item, notes=None):
 			"""SELECT pli.name, pli.parent AS opl, """
 			+ FARM_EXPR
 			+ """ AS farm FROM `tabPick List Item` pli
-			WHERE pli.parenttype = 'Order Pick List' AND UPPER(pli.bucket) = UPPER(%(b)s)
+			WHERE pli.parenttype = 'Order Pick List' AND pli.bucket = %(b)s
 			  AND (pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1)
 			  AND IFNULL(pli.in_transit, 0) = 0 AND IFNULL(pli.shelved, 0) = 0 AND NOT """
 			+ PACKED_SQL,
@@ -3674,7 +3674,7 @@ def auto_arrive_for_bucket(bucket):
 		trips = frappe.db.sql(
 			"""SELECT DISTINCT t.name FROM `tabBucket Request Trip Bucket` tb
 			JOIN `tabBucket Request Trip` t ON t.name = tb.parent
-			WHERE tb.parenttype = 'Bucket Request Trip' AND UPPER(tb.bucket) = %s
+			WHERE tb.parenttype = 'Bucket Request Trip' AND tb.bucket = %s
 			  AND t.status = 'Dispatched' AND t.arrived_at IS NULL""",
 			(bucket,),
 			pluck=True,
@@ -4121,7 +4121,7 @@ def return_early_arrivals(dry_run=1, business_unit="Roses", limit=None):
 			"""SELECT pli.name, pli.sales_order_item, pli.issued, pli.loaded_in_trolley, pli.in_transit
 			FROM `tabPick List Item` pli JOIN `tabOrder Pick List` opl ON opl.name = pli.parent
 			WHERE pli.parenttype = 'Order Pick List' AND opl.docstatus < 2
-			  AND UPPER(pli.bucket) = UPPER(%(b)s) AND pli.item_code = %(item)s
+			  AND pli.bucket = %(b)s AND pli.item_code = %(item)s
 			  AND pli.modified >= %(since)s""",
 			{"b": si.bucket_id, "item": si.variety, "since": si.date_added},
 			as_dict=True,
@@ -4325,7 +4325,7 @@ def remote_shelving_block(bucket_id, farm):
 		"""SELECT pli.parent, MAX(pli.in_transit) AS transit, MAX(pli.transit_truck) AS truck
 		FROM `tabPick List Item` pli
 		JOIN `tabOrder Pick List` opl ON opl.name = pli.parent AND opl.docstatus < 2
-		WHERE pli.parenttype = 'Order Pick List' AND UPPER(pli.bucket) = UPPER(%(b)s)
+		WHERE pli.parenttype = 'Order Pick List' AND pli.bucket = %(b)s
 		  AND (pli.loaded_in_trolley = 1 OR pli.in_transit = 1)
 		  AND IFNULL(pli.shelved, 0) = 0 AND IFNULL(pli.issued, 0) = 0
 		GROUP BY pli.parent LIMIT 1""",
@@ -4345,14 +4345,14 @@ def remote_shelving_block(bucket_id, farm):
 	if farm_wh:
 		received = frappe.db.sql(
 			"""SELECT MAX(TIMESTAMP(se.posting_date, se.posting_time)) FROM `tabStock Entry` se
-			WHERE UPPER(se.custom_bucket_id) = UPPER(%(b)s) AND se.docstatus = 1
+			WHERE se.custom_bucket_id = %(b)s AND se.docstatus = 1
 			  AND se.stock_entry_type IN ('Receiving', 'Late Receipt')""",
 			{"b": bucket_id},
 		)[0][0]
 		if received:
 			left = frappe.db.sql(
 				"""SELECT se.name FROM `tabStock Entry` se JOIN `tabStock Entry Detail` d ON d.parent = se.name
-				WHERE UPPER(se.custom_bucket_id) = UPPER(%(b)s) AND se.docstatus = 1
+				WHERE se.custom_bucket_id = %(b)s AND se.docstatus = 1
 				  AND se.stock_entry_type = %(t)s AND d.s_warehouse = %(wh)s
 				  AND TIMESTAMP(se.posting_date, se.posting_time) >= %(r)s LIMIT 1""",
 				{"b": bucket_id, "t": sm.TYPE_REMOTE_TRANSFER, "wh": farm_wh, "r": received},
@@ -4424,7 +4424,7 @@ def open_transfer_opls(bucket):
 	return frappe.db.sql_list(
 		"""SELECT DISTINCT pli.parent FROM `tabPick List Item` pli
 		JOIN `tabOrder Pick List` opl ON opl.name = pli.parent AND opl.docstatus < 2
-		WHERE pli.parenttype = 'Order Pick List' AND UPPER(pli.bucket) = UPPER(%s)
+		WHERE pli.parenttype = 'Order Pick List' AND pli.bucket = %s
 		  AND (pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1 OR pli.in_transit = 1)
 		  AND IFNULL(pli.shelved, 0) = 0 AND IFNULL(pli.issued, 0) = 0""",
 		bucket,

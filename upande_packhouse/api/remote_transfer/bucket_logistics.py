@@ -259,7 +259,7 @@ def getBucketLogistics():
 			FROM `tabBucket Request Trip Bucket` tb
 			JOIN `tabBucket Request Trip` t ON t.name = tb.parent
 			JOIN `tabPick List Item` pli ON pli.parent = tb.order_pick_list AND pli.parenttype = 'Order Pick List'
-			     AND UPPER(pli.bucket) = UPPER(tb.bucket)
+			     AND pli.bucket = tb.bucket
 			WHERE tb.parenttype = 'Bucket Request Trip' AND tb.order_pick_list IN %(opls)s
 			  AND t.arrived_at IS NOT NULL AND t.status != 'Received'
 			  AND IFNULL(tb.off_truck, 0) = 0 AND IFNULL(pli.shelved, 0) = 0

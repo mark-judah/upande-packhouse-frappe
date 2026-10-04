@@ -308,7 +308,7 @@ def getBucketsInUse(kind: str = "all"):
 			"""SELECT si.bucket_id AS bucket, si.parent AS shelf, sh.farm, si.variety, si.stem_length,
 			       si.stem_qty AS stems, si.date_added AS since
 			FROM `tabShelf Item` si LEFT JOIN `tabShelf` sh ON sh.name = si.parent
-			WHERE UPPER(si.bucket_id) IN %(ids)s ORDER BY si.date_added""",
+			WHERE si.bucket_id IN %(ids)s ORDER BY si.date_added""",
 			{"ids": tuple(on_shelf)},
 			as_dict=True,
 		):
@@ -319,7 +319,7 @@ def getBucketsInUse(kind: str = "all"):
 			       pli.stock_qty AS stems, pli.modified AS since
 			FROM `tabPick List Item` pli
 			WHERE pli.parenttype = 'Order Pick List' AND pli.in_transit = 1 AND IFNULL(pli.shelved, 0) = 0
-			  AND UPPER(pli.bucket) IN %(ids)s AND pli.modified >= %(since)s ORDER BY pli.modified""",
+			  AND pli.bucket IN %(ids)s AND pli.modified >= %(since)s ORDER BY pli.modified""",
 			{
 				"ids": tuple(on_truck),
 				"since": frappe.utils.add_days(frappe.utils.today(), -TRUCK_LOOKBACK_DAYS),

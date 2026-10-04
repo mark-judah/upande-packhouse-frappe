@@ -1375,6 +1375,7 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 	)
 
 	so_doc = frappe.get_doc("Sales Order", sales_order)
+	business_unit = stock_movement.business_unit_of(so_doc)
 
 	# ── Validate against confirmed stems ──
 	confirmed_by_item = _get_confirmed_stems_for_farms(sales_order, list(location_farms))[0]
@@ -1571,7 +1572,9 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 			bas.item_code = item_code
 			bas.total_quantity = float(shelf["stem_qty"] or 0)
 			bas.stem_length = shelf["stem_length"] or ""
-			bas.warehouse = shelf["warehouse"] or ""
+			bas.warehouse = (
+				stock_movement.holding_warehouse(shelf["warehouse"], shelf["farm"], business_unit) or ""
+			)
 			bas.harvest_date = shelf.get("harvest_date") or shelf["date_added"]
 			bas.shelf_location = shelf["shelf_location"]
 			bas.shelf_farm = shelf["farm"]
@@ -1653,7 +1656,10 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 		a["_is_sales_shelf"] = farm_config.get(shelf.get("farm", ""), {}).get("sales_shelf", 0)
 		# The shelf row is the server-side truth for where the stems are and how
 		# long they are; the client sends both, so overwrite rather than default.
-		a["warehouse"] = shelf.get("warehouse") or a.get("warehouse")
+		# A remote farm's bucket stays on its farm's store until shelved at the hub.
+		a["warehouse"] = stock_movement.holding_warehouse(
+			shelf.get("warehouse") or a.get("warehouse"), a["_shelf_farm"], business_unit
+		)
 		a["stem_length"] = shelf.get("stem_length") or a.get("stem_length")
 
 	pick_results = _create_pick_list(sales_order, allocations, so_doc, location, confirmed_by_item)
@@ -2903,6 +2909,8 @@ def _replace_requested_bucket(
 		sales_order = frappe.db.get_value("Order Pick List", opl_name, "sales_order")
 		so_doc = frappe.get_doc("Sales Order", sales_order)
 		business_unit = stock_movement.business_unit_of(so_doc)
+		# A replacement from a remote shelf waits in its farm's store, like any allocation.
+		new.warehouse = stock_movement.holding_warehouse(new.warehouse, farm, business_unit)
 
 		# ── Stock: where each bucket's stems sit now ──
 		held, sold = _bucket_ledger([old_bucket, new.bucket_id], anchor.item_code)

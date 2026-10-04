@@ -455,6 +455,8 @@ def issue_offline(
 ):
 	"""Record that `scanned_bucket` went out for `opl_name` in place of
 	`allocated_bucket`, which was not found or was the wrong variety, and issue it.
+	reason "found": the allocated bucket is there after all — scanning it issues it
+	to its line, with no substitute and nothing reported.
 
 	1. Swap the allocation onto the scanned bucket (skipped when the allocated
 	   bucket turned up after all and was scanned itself).
@@ -465,8 +467,17 @@ def issue_offline(
 	"""
 	allocated_bucket = (allocated_bucket or "").strip()
 	scanned_bucket = (scanned_bucket or "").strip()
-	if reason not in REASONS:
-		return _fail(_("Reason must be 'not_found' or 'wrong_variety'."))
+	if reason == "found":
+		if scanned_bucket.upper() != allocated_bucket.upper():
+			return _fail(
+				_(
+					"That is {0}, not {1}. Scan {1} itself, or report it not found or the wrong variety / stem length."
+				).format(scanned_bucket, allocated_bucket),
+				reason="not_the_allocated_bucket",
+			)
+		scanned_bucket = allocated_bucket
+	elif reason not in REASONS:
+		return _fail(_("Reason must be 'found', 'not_found' or 'wrong_variety'."))
 	if not allocated_bucket or not scanned_bucket:
 		return _fail(_("Pick the allocated bucket and scan the bucket that went out."))
 	wrong_variety = reason == "wrong_variety"
