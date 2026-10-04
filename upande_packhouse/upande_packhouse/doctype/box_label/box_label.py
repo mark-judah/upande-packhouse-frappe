@@ -4,15 +4,35 @@
 import base64
 import io
 import json
+import secrets
 
 import frappe
 import qrcode
 from frappe import _
 from frappe.model.document import Document
 
+# Doctypes whose codes share the scanners' 6-hex space: a box must never reuse one.
+_CODE_DOCTYPES = ("Box Label", "Bucket QR Code", "Bunch QR Code")
+
+
+def new_box_code():
+	"""A fresh 6-character hex code, like the bucket codes (e.g. "a3f09c").
+
+	It replaces BOX-<OPL>-<box no> (BOX-OPL-2026-00742-3): the QR payload drops
+	from {"box_label":"BOX-OPL-2026-00742-3"} to {"box_label":"a3f09c"}, a
+	smaller, easier-to-scan code. The OPL and box number stay on the label as
+	fields. Unique across Box Labels and bucket/bunch codes, so a scan can
+	never mean two things."""
+	for _attempt in range(50):
+		code = secrets.token_hex(3)
+		if not any(frappe.db.exists(dt, code) for dt in _CODE_DOCTYPES):
+			return code
+	frappe.throw(_("Could not find a free box code. Try again."))
+
 
 class BoxLabel(Document):
-	pass
+	def autoname(self):
+		self.name = new_box_code()
 
 
 @frappe.whitelist()
