@@ -257,7 +257,8 @@ def offline_issue_opls(days: int = OPL_LOOKBACK_DAYS, delivery_date: str | None 
 		       so.delivery_date,
 		       SUM(pli.stock_qty) AS total_stems,
 		       SUM(CASE WHEN pli.issued = 1 THEN pli.stock_qty ELSE 0 END) AS issued_stems,
-		       COUNT(DISTINCT CASE WHEN COALESCE(pli.issued, 0) = 0 THEN pli.bucket END) AS open_buckets
+		       COUNT(DISTINCT CASE WHEN COALESCE(pli.issued, 0) = 0 THEN pli.bucket END) AS open_buckets,
+		       GROUP_CONCAT(DISTINCT pli.item_code ORDER BY pli.item_code SEPARATOR '||') AS varieties
 		FROM `tabOrder Pick List` opl
 		JOIN `tabSales Order` so ON so.name = opl.sales_order
 		JOIN `tabPick List Item` pli ON pli.parent = opl.name AND pli.parenttype = 'Order Pick List'
@@ -275,6 +276,8 @@ def offline_issue_opls(days: int = OPL_LOOKBACK_DAYS, delivery_date: str | None 
 		total = flt(r.total_stems)
 		r["delivery_date"] = str(getdate(r.delivery_date)) if r.delivery_date else None
 		r["issued_pct"] = round(flt(r.issued_stems) / total * 100) if total else 0
+		# The varieties on the OPL, so the list shows them before it is opened.
+		r["varieties"] = [v for v in (r.varieties or "").split("||") if v]
 	return {"opls": rows}
 
 
