@@ -58,7 +58,7 @@ def getSchedulerFeed():
 		fd = frappe.form_dict
 		dd = fd.get("date") or frappe.utils.today()
 
-		takt = frappe.db.get_single_value("Production Settings", "custom_takt_time") or 0
+		takt = frappe.db.get_single_value("Production Settings", "takt_time") or 0
 
 		# `dd` is the DELIVERY date. An OPL's shipping/delivery date lives on its Sales
 		# Order (OPL has none of its own), so join it. The Schedule tab reads/writes the

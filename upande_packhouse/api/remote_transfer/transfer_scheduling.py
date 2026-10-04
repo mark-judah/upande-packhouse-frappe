@@ -84,7 +84,7 @@ def transfer_hub(required=True):
 	# .get() on the cached doc, not get_single_value: that throws on a site where
 	# the custom field hasn't been migrated in yet.
 	ps = frappe.get_cached_doc("Production Settings")
-	hub = ps.get("custom_transfer_hub_farm")
+	hub = ps.get("transfer_hub_farm")
 	if hub:
 		return hub
 	sales_farms = [
@@ -1029,6 +1029,9 @@ def end_shelved_trips():
 	for r in rows:
 		try:
 			doc = frappe.get_doc("Bucket Request Trip", r.name)
+			# A bucket of it shelved at the hub (by any path): the truck arrived.
+			if ensure_arrived(doc):
+				doc.reload()
 			done = _end_trip_if_shelved(doc)
 			later = latest.get(r.vehicle)
 			if not done and later and later.name != r.name and later.started > r.started:
@@ -3664,9 +3667,22 @@ def _mark_arrived(doc, hub, how):
 	doc.save(ignore_permissions=True)
 
 
+def ensure_arrived(doc, hub=None):
+	"""Any bucket the trip carried shelved at the hub means the truck got there: stamp
+	it arrived (once). Returns True when it stamped now."""
+	if doc.get("arrived_at") or doc.status == "Received" or not doc.get("trip_buckets"):
+		return False
+	first = next((b for b in _trip_shelf_state(doc) if b["shelved"]), None)
+	if not first:
+		return False
+	_mark_arrived(doc, hub or transfer_hub(required=False) or "the packhouse", "bucket {0} shelved there".format(first["bucket"]))
+	return True
+
+
 def auto_arrive_for_bucket(bucket):
-	"""Shelving at the hub starts: the first bucket of a dispatched trip shelved there
-	means its truck has arrived — stamped then, so nobody has to press "arrived"."""
+	"""Shelving at the hub starts: the first bucket of a trip shelved there means its
+	truck has arrived — stamped then, so nobody has to press "arrived". Any trip that
+	carried it counts, dispatched from the dashboard or not yet."""
 	bucket = (bucket or "").strip().upper()
 	if not bucket:
 		return
@@ -3675,7 +3691,8 @@ def auto_arrive_for_bucket(bucket):
 			"""SELECT DISTINCT t.name FROM `tabBucket Request Trip Bucket` tb
 			JOIN `tabBucket Request Trip` t ON t.name = tb.parent
 			WHERE tb.parenttype = 'Bucket Request Trip' AND tb.bucket = %s
-			  AND t.status = 'Dispatched' AND t.arrived_at IS NULL""",
+			  AND t.status != 'Received' AND t.arrived_at IS NULL
+			  AND IFNULL(tb.off_truck, 0) = 0""",
 			(bucket,),
 			pluck=True,
 		)
@@ -3732,6 +3749,8 @@ def tripArrival(name=None, farm=None, action="status"):
 			frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		doc.reload()
 
+	if ensure_arrived(doc, hub):
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	buckets = _trip_shelf_state(doc)
 	mine = [b for b in buckets if not farm or b["farm"] == farm]
 	return {
@@ -3968,6 +3987,10 @@ def getFarmCompletedTrips(farm=None, days=3):
 	out = []
 	for name in names:
 		doc = frappe.get_doc("Bucket Request Trip", name)
+		# Any bucket it carried shelved at the hub: the truck arrived (stamped once).
+		if ensure_arrived(doc):
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit
+		shelved_any = any(b["shelved"] for b in _trip_shelf_state(doc))
 		rows = _farm_rows(doc, farm)
 		planned = sum(int(o.buckets or 0) for o in rows)
 		loaded = sum(int(o.loaded_buckets or 0) for o in rows)
@@ -3997,6 +4020,9 @@ def getFarmCompletedTrips(farm=None, days=3):
 				"run_chain": info.get("run_chain") or "",
 				"left_at": str(doc.get("last_departed_at") or doc.get("dispatched_at") or ""),
 				"dispatched_at": str(doc.get("dispatched_at") or ""),
+				"arrived_at": str(doc.get("arrived_at") or ""),
+				# At least one of its buckets is shelved at the hub: it has arrived.
+				"arrived": 1 if (doc.get("arrived_at") or shelved_any) else 0,
 				"planned": planned,
 				"loaded": loaded,
 				"left_behind": left,
@@ -4362,6 +4388,55 @@ def remote_shelving_block(bucket_id, farm):
 					bucket_id, hub or "the packhouse", left[0][0], farm
 				)
 	return None
+
+
+def hub_shelving_block(bucket_id, farm):
+	"""Why a bucket may NOT be shelved at the hub (`farm`), or None: an order is still
+	waiting for it at a remote farm and it never went on a trolley or truck there, nor
+	on a trip — it never left that farm, so a hub shelf is a mis-scan.
+
+	Production Settings > "Allow Shelving Buckets Not Transferred" lifts this: the
+	bucket is shelved at the hub and its transfer carries on from there."""
+	hub = transfer_hub(required=False) or ""
+	if not bucket_id or not farm or not hub or farm.lower() != hub.lower():
+		return None
+	if frappe.utils.cint(
+		frappe.db.get_single_value("Production Settings", "allow_hub_shelving_without_transfer")
+	):
+		return None
+	rows = frappe.db.sql(
+		"""SELECT pli.parent, pli.source_warehouse,
+		       MAX(GREATEST(IFNULL(pli.loaded_in_trolley, 0), IFNULL(pli.in_transit, 0))) AS moved
+		FROM `tabPick List Item` pli
+		JOIN `tabOrder Pick List` opl ON opl.name = pli.parent AND opl.docstatus < 2
+		WHERE pli.parenttype = 'Order Pick List' AND pli.bucket = %(b)s
+		  AND pli.awaiting_transfer = 1
+		  AND IFNULL(pli.shelved, 0) = 0 AND IFNULL(pli.issued, 0) = 0
+		GROUP BY pli.parent, pli.source_warehouse""",
+		{"b": bucket_id},
+		as_dict=True,
+	)
+	if not rows or any(int(r.moved or 0) for r in rows):
+		return None
+	on_trip = frappe.db.sql(
+		"""SELECT 1 FROM `tabBucket Request Trip Bucket` tb
+		JOIN `tabBucket Request Trip` t ON t.name = tb.parent
+		WHERE tb.parenttype = 'Bucket Request Trip' AND tb.bucket = %(b)s
+		  AND tb.order_pick_list IN %(opls)s AND IFNULL(tb.off_truck, 0) = 0 LIMIT 1""",
+		{"b": bucket_id, "opls": tuple(r.parent for r in rows)},
+	)
+	if on_trip:
+		return None
+	r = rows[0]
+	src = (r.source_warehouse or "").split(" ", 1)[0] or "its farm"
+	shelf = frappe.db.sql(
+		"""SELECT si.parent FROM `tabShelf Item` si JOIN `tabShelf` s ON s.name = si.parent
+		WHERE si.bucket_id = %(b)s AND IFNULL(s.farm, '') != %(hub)s LIMIT 1""",
+		{"b": bucket_id, "hub": hub},
+	)
+	return "Bucket {0} was never transferred — it is still waiting at {1}{2} for {3}, not loaded on a truck. Load it there and send it to {4} first.".format(
+		bucket_id, src, " (shelf {0})".format(shelf[0][0]) if shelf else "", r.parent, hub
+	)
 
 
 # Steps the transfer trace can't work out from flags, trips or the stock ledger —

@@ -34,8 +34,8 @@ import frappe
 from upande_packhouse.api.remote_transfer import transfer_scheduling as tc
 from upande_packhouse.api.remote_transfer import truck_routes
 
-SETTING = "custom_auto_remote_transfer_scheduling"
-FREQUENCY = "custom_auto_transfer_frequency"
+SETTING = "auto_remote_transfer_scheduling"
+FREQUENCY = "auto_transfer_frequency"
 DEFAULT_FREQUENCY_MINUTES = 10
 #: A cron tick lands a little after the interval (the last run's own duration);
 #: without slack a 10-minute setting would drift to every 15.
