@@ -40,8 +40,12 @@ def sync_box_labels_for_fpl(fpl_doc, opl_doc, so_doc):
 	created, updated, skipped = [], [], []
 
 	for box_no, rows in by_box.items():
-		name = "BOX-{0}-{1}".format(opl_doc.name, box_no)
-		existing = frappe.db.exists("Box Label", name)
+		# Found by what it labels, not by name: labels are named with a short
+		# random code (Box Label.autoname), and older ones as BOX-<OPL>-<box no>.
+		existing = frappe.db.get_value(
+			"Box Label", {"order_pick_list": opl_doc.name, "box_number": box_no}, "name"
+		)
+		name = existing
 		if existing:
 			box = frappe.get_doc("Box Label", name)
 			if box.precooling or box.staged or box.loaded or box.delivered:
@@ -55,9 +59,10 @@ def sync_box_labels_for_fpl(fpl_doc, opl_doc, so_doc):
 			box.order_pick_list = opl_doc.name
 			box.box_number = box_no
 
-		# The barcode only encodes the box's own (deterministic) name, so it
-		# never changes across re-packs -- generate it once, not on every sync.
-		if not box.barcode:
+		# The barcode only encodes the box's own name, which never changes across
+		# re-packs -- generate it once. A new label has no name until it is
+		# inserted, so its barcode is made right after (below).
+		if existing and not box.barcode:
 			box.barcode = generate_box_barcode(name)
 
 		total_stems = sum(int(r.stock_qty or 0) for r in rows)
@@ -99,6 +104,7 @@ def sync_box_labels_for_fpl(fpl_doc, opl_doc, so_doc):
 			updated.append(box.name)
 		else:
 			box.insert(ignore_permissions=True)
+			box.db_set("barcode", generate_box_barcode(box.name), update_modified=False)
 			created.append(box.name)
 
 	return {"created": created, "updated": updated, "skipped": skipped}
