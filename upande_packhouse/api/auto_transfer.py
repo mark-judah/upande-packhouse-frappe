@@ -291,6 +291,8 @@ def _open_orders(data):
 				{
 					"farm": f["farm"],
 					"buckets": open_b,
+					# Left behind by a truck that already came: planned first (_place_left_behind).
+					"left_behind": min(open_b, int((f.get("left_behind") or {}).get("buckets") or 0)),
 					"per_bucket": (f["stems"] / f["buckets"]) if f["buckets"] else 0,
 					"varieties": ", ".join(v["variety"] for v in f["varieties"] if v["variety"]),
 				}
@@ -303,7 +305,36 @@ def _open_orders(data):
 # ============================================================
 # DISTRIBUTION ACROSS TEAMS  (port of computeDistribution)
 # ============================================================
+def _place_left_behind(orders, trucks, graph):
+	"""Buckets a truck left behind go FIRST — before any team's queue — on the next
+	trip to their farm. What fits comes off the order's open portions."""
+	for o in orders:
+		for f in o["open_farms"]:
+			n = f.get("left_behind") or 0
+			if not n:
+				continue
+			for truck, k in _place_farm(trucks, f["farm"], n, graph):
+				truck["rows"].append(
+					{
+						"order_pick_list": o["opl"],
+						"order_name": o["order_name"],
+						"customer": o.get("customer") or "",
+						"farm": f["farm"],
+						"varieties": f["varieties"],
+						"buckets": k,
+						"stems": round(f["per_bucket"] * k),
+						"full_farm_buckets": f["buckets"],
+						"is_partial": 1 if k < f["buckets"] else 0,
+					}
+				)
+				f["buckets"] -= k
+				o["open"] -= k
+		o["open_farms"] = [f for f in o["open_farms"] if f["buckets"] > 0]
+
+
 def _distribute(orders, trucks, graph):
+	_place_left_behind(orders, trucks, graph)
+	orders = [o for o in orders if o["open"] > 0]
 	by_team = {}
 	for o in orders:
 		by_team.setdefault(o.get("team") or "", []).append(o)

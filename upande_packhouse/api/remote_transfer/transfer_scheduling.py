@@ -290,6 +290,64 @@ def _open_counts(opl_names):
 	return counts
 
 
+def _left_behind(opl_names):
+	"""(opl, farm) -> buckets a truck LEFT BEHIND there: planned on a trip that has since
+	left that farm (stop closed, dispatched or ended) without loading them, and still
+	waiting at the farm. With the latest such trip, its truck, when it left, the farm's
+	reason (short_reason) and the open trips that now carry them. These go first on the
+	next trip to the farm (_carry_over, auto_transfer)."""
+	if not opl_names:
+		return {}
+	rows = frappe.db.sql(
+		"""SELECT t.name AS trip, t.vehicle AS vehicle, o.order_pick_list AS opl, o.farm AS farm,
+		       GREATEST(IFNULL(o.buckets, 0) - IFNULL(o.loaded_buckets, 0), 0) AS left_n,
+		       o.short_reason AS reason,
+		       COALESCE(t.last_departed_at, t.dispatched_at, t.received_at, t.modified) AS left_at
+		FROM `tabBucket Request Trip` t
+		JOIN `tabBucket Request Trip Order` o ON o.parent = t.name AND o.parenttype = 'Bucket Request Trip'
+		WHERE o.order_pick_list IN %(opls)s AND t.trip_date >= %(since)s AND IFNULL(o.unscheduled, 0) = 0
+		  AND IFNULL(o.buckets, 0) > IFNULL(o.loaded_buckets, 0)
+		  AND (t.status IN ('Dispatched', 'Received') OR FIND_IN_SET(o.farm, IFNULL(t.departed_stops, '')))
+		ORDER BY left_at DESC""",
+		{"opls": tuple(opl_names), "since": frappe.utils.add_days(frappe.utils.today(), -TRIP_LOOKBACK_DAYS)},
+		as_dict=True,
+	)
+	if not rows:
+		return {}
+	waiting = _open_counts(opl_names)
+	out = {}
+	for r in rows:
+		key = (r.opl, r.farm or "")
+		e = out.get(key)
+		if e is None:  # the latest trip that left it
+			e = out[key] = {
+				"buckets": 0,
+				"trip": r.trip,
+				"vehicle": r.vehicle,
+				"left_at": str(r.left_at or "")[:16],
+				"reason": r.reason or "",
+				"now_on": [],
+			}
+		e["buckets"] += int(r.left_n or 0)
+	for key, e in out.items():
+		e["buckets"] = min(e["buckets"], waiting.get(key, 0))  # loaded or shelved since: no longer behind
+	out = {k: v for k, v in out.items() if v["buckets"] > 0}
+	if out:
+		for r in frappe.db.sql(
+			"""SELECT DISTINCT t.name, t.vehicle, o.order_pick_list AS opl, o.farm
+			FROM `tabBucket Request Trip` t
+			JOIN `tabBucket Request Trip Order` o ON o.parent = t.name AND o.parenttype = 'Bucket Request Trip'
+			WHERE t.status IN %(active)s AND t.trip_date >= %(today)s AND o.order_pick_list IN %(opls)s
+			  AND IFNULL(o.buckets, 0) > IFNULL(o.loaded_buckets, 0)""",
+			{"active": ACTIVE_TRIP_STATUSES, "today": frappe.utils.today(), "opls": tuple({k[0] for k in out})},
+			as_dict=True,
+		):
+			e = out.get((r.opl, r.farm or ""))
+			if e and r.name != e["trip"]:
+				e["now_on"].append({"trip": r.name, "vehicle": r.vehicle})
+	return out
+
+
 def _trip_claims(opl_names, exclude_trip=None):
 	"""(opl, farm) -> open buckets still claimed by planned trips — every active trip
 	of today or later, plus any earlier one the truck already started (loads or a closed
@@ -1060,8 +1118,20 @@ def _carry_over(doc, farm=None, date=None, report=None):
 	# Always onto today's (or later) runs: a trip dated earlier would not count as a
 	# claim and the same buckets would be planned again.
 	date = max(str(date or frappe.utils.today()), str(frappe.utils.today()))
-	plan, _unplaced = _split_into_runs(doc.vehicle, date, rows, skip_full=True)
+	plan, unplaced = _split_into_runs(doc.vehicle, date, rows)
 	saved = [_write_run_trip(slot, doc.vehicle, date, "Draft", "", 0) for slot in plan]
+	# This truck has no later run there (or it's full): another truck already going to
+	# that farm today takes them — left-behind buckets never just drop back to "open".
+	holders = farm_holders(date, exclude_vehicle=doc.vehicle) if unplaced else {}
+	for row, n in unplaced:
+		for _v, trip, _w in holders.get(row["farm"], []):
+			per = (row["stems"] / row["buckets"]) if row["buckets"] else 0
+			added, left = _add_rows_to_trip(trip, [{**row, "buckets": n, "stems": round(per * n)}])
+			if added and trip not in saved:
+				saved.append(trip)
+			n = sum(k for _r, k in left)
+			if not n:
+				break
 	if saved:
 		doc.add_comment("Info", "Not loaded on this trip, moved to {0}".format(", ".join(saved)))
 	return saved
@@ -1628,6 +1698,7 @@ def _transfer_schedule_payload(from_date, to_date):
 	)
 	opl_names = [r["opl"] for r in opl_rows]
 	mixed = _mixed_map(opl_names)
+	behind = _left_behind(opl_names)
 
 	# opl -> farm -> {open: variety -> {buckets, stems}, on_road}
 	# Driven by the transfer FLAGS, not "farm != Kapkolia": a bucket at its own
@@ -1676,6 +1747,8 @@ def _transfer_schedule_payload(from_date, to_date):
 					"buckets": fb,
 					"stems": fs,
 					"on_road": frow["on_road"],
+					# Left behind by a truck that already came — goes first on the next trip.
+					"left_behind": behind.get((r["opl"], farm)),
 					"varieties": [
 						{"variety": k, "buckets": v["buckets"], "stems": v["stems"]} for k, v in vmap.items()
 					],
@@ -1840,6 +1913,10 @@ def _transfer_schedule_payload(from_date, to_date):
 		"auto_planning": _auto_planning_status(),
 		"duplicate_trips": duplicate_trips(today),
 		"distributions": _distributions(from_date, to_date),
+		"left_behind": [
+			{**v, "opl": k[0], "farm": k[1], "order_name": next((o["order_name"] for o in orders if o["opl"] == k[0]), k[0])}
+			for k, v in behind.items()
+		],
 		"today": str(today),
 		"window": {"from": str(from_date), "to": str(to_date)},
 		"generated_at": str(frappe.utils.now()),
@@ -3766,6 +3843,7 @@ def getFarmShelvedBuckets(farm=None, days=3, delivery_date=None):
 				on_shelf.setdefault(r.bucket, r)
 		stamped = {(r.bucket or "").upper(): r.shelved_at for r in doc.trip_buckets if r.shelved_at}
 		orders = {o.order_pick_list: o.order_name or o.order_pick_list for o in doc.orders}
+		customers = {o.order_pick_list: o.customer or "" for o in doc.orders}
 		buckets = []
 		for b in mine:
 			key = (b["bucket"] or "").upper()
@@ -3776,6 +3854,7 @@ def getFarmShelvedBuckets(farm=None, days=3, delivery_date=None):
 					"bucket": b["bucket"],
 					"opl": b["opl"],
 					"order_name": orders.get(b["opl"]) or b["opl"],
+					"customer": customers.get(b["opl"]) or "",
 					"shelved": b["shelved"],
 					"shelf": shelf.shelf if shelf else "",
 					"shelved_at": str(at or ""),
