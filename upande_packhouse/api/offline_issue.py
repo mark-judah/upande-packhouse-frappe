@@ -346,20 +346,52 @@ def offline_issue_buckets(opl_name: str, farm: str | None = None):
 	return {"opl_name": opl_name, "buckets": list(buckets.values())}
 
 
+def _offline_history(bucket):
+	"""Earlier reports of `bucket` as not found or the wrong variety (Bucket
+	Replacements, newest first): whether it already went through offline issuing."""
+	rows = frappe.get_all(
+		"Bucket Replacement",
+		filters={"old_bucket": bucket, "reason": ["in", ["Missing", "Wrong variety"]], "docstatus": ["<", 2]},
+		fields=["name", "reason", "status", "new_bucket", "order_pick_list", "order_name", "reported_by", "reported_at"],
+		order_by="reported_at desc, creation desc",
+		limit=5,
+	)
+	return [
+		{
+			"replacement": r.name,
+			"reason": "not_found" if r.reason == "Missing" else "wrong_variety",
+			"status": r.status,
+			"new_bucket": r.new_bucket,
+			"opl_name": r.order_pick_list,
+			"order_name": r.order_name,
+			"reported_by": frappe.utils.get_fullname(r.reported_by) if r.reported_by else "",
+			"reported_at": str(r.reported_at)[:16] if r.reported_at else "",
+		}
+		for r in rows
+	]
+
+
 @frappe.whitelist()
 def replacement_options(opl_name: str, bucket: str, sale_order_item: str | None = None, limit: int = 20):
 	"""Buckets that can stand in for `bucket` on `opl_name` -- remote transfers'
 	rules (same variety, same or longer length, enough stems, unallocated, at the
 	farm the bucket is shelved at), best match first."""
+	history = _offline_history(bucket)
 	try:
 		pli = _anchor_row(opl_name, bucket, sale_order_item)
 		anchor, farm, needed, found = _candidates(pli, max(1, min(cint(limit) or 20, 100)))
 	except frappe.ValidationError as e:
-		return {"found": False, "message": str(e), "candidates": []}
+		return {"found": False, "message": str(e), "candidates": [], "history": history}
 	if not found:
-		return {"found": False, "message": sa._no_replacement_message(anchor, farm, needed), "candidates": []}
+		return {
+			"found": False,
+			"message": sa._no_replacement_message(anchor, farm, needed),
+			"candidates": [],
+			"history": history,
+		}
 	return {
 		"found": True,
+		"history": history,
 		"old_bucket": anchor.bucket,
 		"variety": anchor.item_code,
 		"stem_length": anchor.stem_length,
