@@ -240,12 +240,24 @@ def _fail(message, **extra):
 
 
 @frappe.whitelist()
-def offline_issue_opls(days: int = OPL_LOOKBACK_DAYS, delivery_date: str | None = None):
+def offline_issue_opls(
+	days: int = OPL_LOOKBACK_DAYS, delivery_date: str | None = None, farm: str | None = None
+):
 	"""Submitted OPLs, delivering from `days` ago to tomorrow, that still have a
 	bucket to issue. Newest first, with how far issuing has got.
 
 	`delivery_date` (YYYY-MM-DD) narrows it to that one day, so the cold store
-	works on tomorrow's orders without older ones mixed in."""
+	works on tomorrow's orders without older ones mixed in.
+
+	`farm` is the station's farm. A remote farm sees only the OPLs with buckets
+	coming from it (its remote transfers), counted on those buckets alone; the
+	sales farm (the transfer hub) — or no farm — sees every OPL."""
+	from upande_packhouse.api.transfer_control import FARM_EXPR, transfer_hub
+
+	hub = transfer_hub(required=False) or ""
+	farm_cond = ""
+	if farm and farm != hub:
+		farm_cond = "AND " + FARM_EXPR + " = %(farm)s"
 	if delivery_date:
 		since = until = getdate(delivery_date)
 	else:
@@ -265,11 +277,12 @@ def offline_issue_opls(days: int = OPL_LOOKBACK_DAYS, delivery_date: str | None 
 		WHERE opl.docstatus = 1
 		  AND so.delivery_date BETWEEN %(since)s AND %(until)s
 		  AND COALESCE(pli.bucket, '') != ''
+		  {farm_cond}
 		GROUP BY opl.name
 		HAVING open_buckets > 0
 		ORDER BY so.delivery_date DESC, opl.order_name ASC
-		""",
-		{"since": since, "until": until},
+		""".format(farm_cond=farm_cond),
+		{"since": since, "until": until, "farm": farm},
 		as_dict=True,
 	)
 	for r in rows:
@@ -282,8 +295,13 @@ def offline_issue_opls(days: int = OPL_LOOKBACK_DAYS, delivery_date: str | None 
 
 
 @frappe.whitelist()
-def offline_issue_buckets(opl_name: str):
-	"""The buckets `opl_name` is still waiting on, one entry per bucket."""
+def offline_issue_buckets(opl_name: str, farm: str | None = None):
+	"""The buckets `opl_name` is still waiting on, one entry per bucket. A remote
+	`farm` (not the transfer hub) gets only the buckets coming from it."""
+	from upande_packhouse.api.transfer_control import transfer_hub
+
+	hub = transfer_hub(required=False) or ""
+	only_farm = farm if farm and farm != hub else None
 	rows = frappe.get_all(
 		"Pick List Item",
 		filters={"parent": opl_name, "parenttype": "Order Pick List", "issued": 0, "bucket": ["is", "set"]},
@@ -296,11 +314,21 @@ def offline_issue_buckets(opl_name: str):
 			"not_found",
 			"in_transit",
 			"loaded_in_trolley",
+			"source_warehouse",
+			"warehouse",
+			"farm",
 		],
 		order_by="idx asc",
 	)
 	buckets = {}
 	for r in rows:
+		if only_farm:
+			# Same source-farm rule as FARM_EXPR: source warehouse, then warehouse,
+			# then the row's farm.
+			wh = r.source_warehouse or r.warehouse or ""
+			source = wh.split(" ", 1)[0] if wh else (r.farm or "")
+			if source != only_farm:
+				continue
 		b = buckets.get(r.bucket)
 		if not b:
 			shelf = frappe.db.get_value("Shelf Item", {"bucket_id": r.bucket}, "parent")
