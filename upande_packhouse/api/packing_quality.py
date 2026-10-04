@@ -391,7 +391,7 @@ def report_packing_quality_issue(
 	except Exception as e:
 		frappe.db.rollback()
 		frappe.log_error(title="Packing quality issue failed", message=frappe.get_traceback())
-		return _fail(_("Could not report the quality issue: {0}").format(e))
+		return _fail(_("Could not report the quality issue: {0}").format(str(e)))
 
 	result = {
 		"success": True,

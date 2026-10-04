@@ -41,12 +41,12 @@ LABEL_DOCTYPES = ("Bucket QR Code", "Bunch QR Code", "Shelf QR Code")
 
 
 @frappe.whitelist()
-def plan(opl):
+def plan(opl: str):
 	return _plan(_get_opl(opl))
 
 
 @frappe.whitelist(methods=["POST"])
-def generate(opl):
+def generate(opl: str):
 	opl_doc = _get_opl(opl)
 	result = _plan(opl_doc)
 

@@ -21,7 +21,7 @@ INLINE_LIMIT = 100
 
 
 @frappe.whitelist(methods=["POST"])
-def regenerate(names):
+def regenerate(names: str | list | None = None):
 	names = frappe.parse_json(names) if isinstance(names, str) else names
 	names = [n for n in dict.fromkeys(names or []) if n]
 	if not names:

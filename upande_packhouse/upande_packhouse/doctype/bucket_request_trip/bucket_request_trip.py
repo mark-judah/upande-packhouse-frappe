@@ -38,10 +38,10 @@ class BucketRequestTrip(Document):
 				other = [w for w in where if w.trip != self.name]
 				if other:
 					frappe.throw(
-						"Bucket {0} is already on trip {1} ({2}).".format(
+						_("Bucket {0} is already on trip {1} ({2}).").format(
 							bucket, other[0].trip, other[0].vehicle
 						),
-						title="Bucket already on a trip",
+						title=_("Bucket already on a trip"),
 					)
 		# 2. More buckets planned for an (order, farm) than are still free.
 		if self.status not in tc.ACTIVE_TRIP_STATUSES:
@@ -66,10 +66,10 @@ class BucketRequestTrip(Document):
 			free = free_open.get(k, 0) - claims.get(k, 0)
 			if need > free:
 				frappe.throw(
-					"{0} @ {1}: {2} bucket(s) planned but only {3} still free — the rest are on another trip.".format(
-						k[0], k[1], need, max(0, free)
-					),
-					title="Already planned on another trip",
+					_(
+						"{0} @ {1}: {2} bucket(s) planned but only {3} still free — the rest are on another trip."
+					).format(k[0], k[1], need, max(0, free)),
+					title=_("Already planned on another trip"),
 				)
 
 	def drop_deleted_orders(self):

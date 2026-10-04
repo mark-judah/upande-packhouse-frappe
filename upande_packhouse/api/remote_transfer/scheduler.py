@@ -251,7 +251,7 @@ def getSchedulerFeed():
 		frappe.response["message"] = {"success": False, "error": str(e)}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def saveDaySchedule():
 	# Frappe Server Script (API), api_method = saveDaySchedule
 	# Reorder IS the schedule: takes the global ordered ready list and rebuilds each

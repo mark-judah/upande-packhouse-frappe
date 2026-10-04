@@ -325,6 +325,7 @@ def offline_issue_opls(
 	else:
 		since = add_days(today(), -max(0, min(cint(days), 60)))
 		until = add_days(today(), 1)
+	# nosemgrep: frappe-sql-format-injection -- farm_cond is FARM_EXPR (a fixed column expression); values are bound
 	rows = frappe.db.sql(
 		"""
 		SELECT opl.name AS opl_name, opl.order_name, opl.customer, opl.team, opl.farm,
