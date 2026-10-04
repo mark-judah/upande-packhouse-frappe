@@ -68,8 +68,13 @@ def _describe(c):
 	}
 
 
-def _candidates(pick_list_item, limit):
-	anchor, rows, farm = sa._requested_bucket_rows(pick_list_item, allow_shelved=True)
+def _candidates(pick_list_item, limit, farm=None):
+	"""Replacements for the bucket on `pick_list_item`. With `farm` (the issuing
+	station) they come from there, and a remote-transfer bucket that left its farm
+	but never arrived can be replaced too."""
+	anchor, rows, farm = sa._requested_bucket_rows(
+		pick_list_item, allow_shelved=True, allow_left=bool(farm), farm=farm or None
+	)
 	needed = sum(flt(r.stock_qty) for r in rows)
 	return anchor, farm, needed, sa._replacement_candidates(anchor, farm, needed, limit=limit)
 
@@ -110,7 +115,7 @@ def _why_not(bucket, anchor, farm, needed):
 	)
 
 
-def _swap(pick_list_item, new_bucket_id, reason, notes, keep_old_on_shelf=False):
+def _swap(pick_list_item, new_bucket_id, reason, notes, keep_old_on_shelf=False, farm=None):
 	"""sa.replace_requested_bucket with shelved buckets allowed: same lock wait
 	and retries, since a swap can lose a lock race to another stock posting."""
 	previous = frappe.db.sql("SELECT @@SESSION.innodb_lock_wait_timeout")[0][0]
@@ -125,6 +130,8 @@ def _swap(pick_list_item, new_bucket_id, reason, notes, keep_old_on_shelf=False)
 				notes=notes,
 				allow_shelved=True,
 				keep_old_on_shelf=keep_old_on_shelf,
+				allow_left=bool(farm),
+				farm=farm or None,
 			)
 			if not res.pop("_lock_conflict", False):
 				return res
@@ -230,6 +237,20 @@ def _correct(bucket, variety, stem_length):
 			frappe.db.set_value("Bucket Allocation Status", bas.name, target)
 	frappe.db.commit()
 	return {"ok": True, "message": data.get("message")}
+
+
+def _off_trips(bucket, opl_name):
+	"""A missing remote bucket replaced at issuing is not on any truck: take it off
+	the trips (not yet received) that still list it for `opl_name`."""
+	from upande_packhouse.api import transfer_control as tc
+
+	where = [w for w in tc._bucket_trip_rows([bucket.upper()]).get(bucket.upper(), []) if w.opl == opl_name]
+	if where:
+		try:
+			tc._drop_bucket_from_trips(bucket.upper(), where, "not found; replaced at offline issuing")
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit -- after the committed swap
+		except Exception:
+			frappe.log_error(title="Offline issue: trip clean-up failed", message=frappe.get_traceback())
 
 
 def _fail(message, **extra):
@@ -372,14 +393,16 @@ def _offline_history(bucket):
 
 
 @frappe.whitelist()
-def replacement_options(opl_name: str, bucket: str, sale_order_item: str | None = None, limit: int = 20):
+def replacement_options(
+	opl_name: str, bucket: str, sale_order_item: str | None = None, limit: int = 20, farm: str | None = None
+):
 	"""Buckets that can stand in for `bucket` on `opl_name` -- remote transfers'
 	rules (same variety, same or longer length, enough stems, unallocated, at the
 	farm the bucket is shelved at), best match first."""
 	history = _offline_history(bucket)
 	try:
 		pli = _anchor_row(opl_name, bucket, sale_order_item)
-		anchor, farm, needed, found = _candidates(pli, max(1, min(cint(limit) or 20, 100)))
+		anchor, farm, needed, found = _candidates(pli, max(1, min(cint(limit) or 20, 100)), farm=farm)
 	except frappe.ValidationError as e:
 		return {"found": False, "message": str(e), "candidates": [], "history": history}
 	if not found:
@@ -428,6 +451,7 @@ def issue_offline(
 	notes: str | None = None,
 	variety: str | None = None,
 	stem_length: str | None = None,
+	farm: str | None = None,
 ):
 	"""Record that `scanned_bucket` went out for `opl_name` in place of
 	`allocated_bucket`, which was not found or was the wrong variety, and issue it.
@@ -458,12 +482,12 @@ def issue_offline(
 	target = allocated_bucket
 	if scanned_bucket != allocated_bucket:
 		try:
-			anchor, farm, needed, found = _candidates(pli, 500)
+			anchor, from_farm, needed, found = _candidates(pli, 500, farm=farm)
 		except frappe.ValidationError as e:
 			return _fail(e)
 		if scanned_bucket not in {c.bucket_id for c in found}:
 			return _fail(
-				_why_not(scanned_bucket, anchor, farm, needed),
+				_why_not(scanned_bucket, anchor, from_farm, needed),
 				reason="not_a_replacement",
 				candidates=[_describe(c) for c in found[:5]],
 			)
@@ -473,10 +497,12 @@ def issue_offline(
 			REASONS[reason],
 			notes,
 			keep_old_on_shelf=wrong_variety,
+			farm=farm,
 		)
 		if not swapped.get("success"):
 			return _fail(swapped.get("message") or _("The swap failed."))
 		target = scanned_bucket
+		_off_trips(allocated_bucket, opl_name)
 	elif wrong_variety:
 		return _fail(_("That is the allocated bucket. Scan the bucket that actually went out instead."))
 

@@ -2508,14 +2508,19 @@ def unallocate_bucket_from_opl(sales_order_item: str, bucket_id: str, stem_lengt
 # another shelved bucket of the same variety + stem length from the same farm,
 # carry the allocation (BAS), the OPL rows and the Sold-leg stock across.
 # ============================================================
-def _requested_bucket_rows(pick_list_item, allow_shelved=False):
+def _requested_bucket_rows(pick_list_item, allow_shelved=False, allow_left=False, farm=None):
 	"""Every OPL row that holds the same physical bucket as `pick_list_item`
 	(an OPL has one row per box, so one bucket can span several rows).
 
 	`allow_shelved` is for issuing (api/offline_issue.py): a bucket that was
 	transferred and shelved at the packhouse is replaced there, from the farm it
 	is shelved at now. Remote transfers leave it off -- a shelved bucket has
-	left their cold room."""
+	left their cold room.
+
+	`allow_left` is offline issuing's too: a remote-transfer bucket that left its
+	farm (on a trolley or truck) and never turned up can still be replaced. `farm`
+	is where the replacement comes from -- the station issuing it -- in place of
+	the farm the missing bucket was shelved at."""
 	anchor = frappe.db.get_value(
 		"Pick List Item",
 		pick_list_item,
@@ -2553,8 +2558,8 @@ def _requested_bucket_rows(pick_list_item, allow_shelved=False):
 				).format(anchor.bucket, anchor.parent)
 			)
 		if (
-			cint(r.loaded_in_trolley)
-			or cint(r.in_transit)
+			(cint(r.loaded_in_trolley) and not allow_left)
+			or (cint(r.in_transit) and not allow_left)
 			or (cint(r.shelved) and not allow_shelved)
 			or cint(r.issued)
 		):
@@ -2567,7 +2572,7 @@ def _requested_bucket_rows(pick_list_item, allow_shelved=False):
 	if allow_shelved:
 		# Where the bucket is shelved now, not where it was picked from.
 		shelf = frappe.db.get_value("Shelf Item", {"bucket_id": anchor.bucket}, "parent") or shelf
-	farm = (frappe.db.get_value("Shelf", shelf, "farm") if shelf else None) or anchor.farm
+	farm = farm or (frappe.db.get_value("Shelf", shelf, "farm") if shelf else None) or anchor.farm
 	if not farm:
 		frappe.throw(_("Cannot tell which farm bucket {0} was allocated from.").format(anchor.bucket))
 	return anchor, rows, farm
@@ -2857,6 +2862,8 @@ def _replace_requested_bucket(
 	notes: str | None = None,
 	allow_shelved: bool = False,
 	keep_old_on_shelf: bool = False,
+	allow_left: bool = False,
+	farm: str | None = None,
 ):
 	"""Swap a missing requested bucket for a matching one from the same farm.
 
@@ -2876,7 +2883,9 @@ def _replace_requested_bucket(
 	  instead of walking the route back and forward leg by leg.
 	"""
 	try:
-		anchor, rows, farm = _requested_bucket_rows(pick_list_item, allow_shelved=allow_shelved)
+		anchor, rows, farm = _requested_bucket_rows(
+			pick_list_item, allow_shelved=allow_shelved, allow_left=allow_left, farm=farm
+		)
 		old_bucket = anchor.bucket
 		opl_name = anchor.parent
 		needed = sum(flt(r.stock_qty) for r in rows)
@@ -3025,6 +3034,10 @@ def _replace_requested_bucket(
 			}
 			if r.warehouse:
 				values["warehouse"] = new.warehouse or r.warehouse
+			if allow_left and (cint(r.loaded_in_trolley) or cint(r.in_transit) or cint(r.awaiting_transfer)):
+				# The missing bucket was on its way from a remote farm; the replacement
+				# is here already, so the row is no longer travelling.
+				values.update({"loaded_in_trolley": 0, "in_transit": 0, "awaiting_transfer": 0, "transit_truck": ""})
 			if longer:
 				values["downgrade_reason"] = _("Replacement for missing bucket {0} ({1})").format(
 					old_bucket, anchor.stem_length or ""
