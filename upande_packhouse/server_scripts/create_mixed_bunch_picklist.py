@@ -26,6 +26,7 @@ from upande_packhouse.server_scripts.create_mixed_box_picklist import (
 	_get_confirmed_stems_for_location,
 	_get_shelf_farm_for_location,
 	_lookup_shelf,
+	insufficient_allocation_message,
 	open_box_slots,
 	placed_stems_by_box,
 )
@@ -338,8 +339,16 @@ def _generate_bunch_locations(
 			total_stems_needed = total_allocated
 		else:
 			frappe.throw(
-				f"Insufficient allocation for {item_code}: "
-				f"allocated {total_allocated}, needed {total_stems_needed}"
+				insufficient_allocation_message(
+					item_code,
+					so_item.get("custom_length") or alloc.get("stem_length"),
+					allocations_list,
+					total_allocated,
+					total_stems_needed,
+					stems_per_box,
+					num_boxes,
+				),
+				title=_("Insufficient allocation"),
 			)
 
 	use_box_splitting = total_allocated >= stems_per_box and confirmed_qty == 0

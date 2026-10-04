@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import frappe
+from frappe import _
 from frappe.model.document import Document
 
 
@@ -74,7 +75,9 @@ class BucketRequestTrip(Document):
 		opls = {r.order_pick_list for r in rows if r.order_pick_list}
 		if not opls:
 			return
-		gone = opls - set(frappe.get_all("Order Pick List", filters={"name": ["in", list(opls)]}, pluck="name"))
+		gone = opls - set(
+			frappe.get_all("Order Pick List", filters={"name": ["in", list(opls)]}, pluck="name")
+		)
 		if not gone:
 			return
 		self.set("orders", [r for r in self.orders if r.order_pick_list not in gone])

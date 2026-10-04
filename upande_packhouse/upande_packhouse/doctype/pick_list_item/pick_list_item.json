@@ -14,6 +14,7 @@
   "sales_order_item",
   "custom_sale_order_item",
   "source_warehouse",
+  "origin_warehouse",
   "allocation_details_section",
   "bucket",
   "downgrade_reason",
@@ -96,6 +97,14 @@
    "fieldtype": "Link",
    "label": "Source Warehouse",
    "options": "Warehouse"
+  },
+  {
+   "fieldname": "origin_warehouse",
+   "fieldtype": "Link",
+   "label": "Origin Warehouse",
+   "options": "Warehouse",
+   "read_only": 1,
+   "description": "The bucket's own farm store, set at allocation. Source Warehouse moves to the sales farm's store once the bucket is shelved there; this keeps where it came from."
   },
   {
    "fieldname": "allocation_details_section",
