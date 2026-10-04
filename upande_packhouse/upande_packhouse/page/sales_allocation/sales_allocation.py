@@ -1424,8 +1424,7 @@ def _fit_allocations_to_boxes(so_doc, allocations):
 		frappe.throw(
 			"<br>".join(
 				_(
-					"{0} {1}: all {2} stems ({3} boxes) are already on the pick list; nothing more fits. "
-					"Raise Number of Boxes on the Sales Order to allocate more."
+					"{0} {1}: all {2} stems ({3} boxes) are already on the pick list; nothing more fits. Raise Number of Boxes on the Sales Order to allocate more."
 				).format(
 					lines[s].item_code,
 					lines[s].get("custom_length") or "",
