@@ -29,6 +29,9 @@ from upande_packhouse.upande_packhouse.page.sales_allocation import sales_alloca
 # App reason -> Bucket Replacement reason (bucket_replacement.REASONS).
 REASONS = {"not_found": "Missing", "wrong_variety": "Wrong variety"}
 
+# Reasons the packhouse app's Issuing replace may record (Bucket Replacement.reason).
+ISSUING_REASONS = ("Missing", "Damaged", "Wrong variety", "Issued offline")
+
 # How far back an OPL's delivery date may be and still be offered.
 OPL_LOOKBACK_DAYS = 7
 
@@ -60,6 +63,9 @@ def _anchor_row(opl_name, bucket, sale_order_item=None):
 def _describe(c):
 	return {
 		"new_bucket": c.bucket_id,
+		# Set only for a bucket at a remote farm: it comes on a truck.
+		"farm": c.get("farm"),
+		"remote": bool(c.get("farm")),
 		"shelf": c.shelf,
 		"variety": c.variety,
 		"stem_length": c.stem_length,
@@ -77,6 +83,36 @@ def _candidates(pick_list_item, limit, farm=None):
 	)
 	needed = sum(flt(r.stock_qty) for r in rows)
 	return anchor, farm, needed, sa._replacement_candidates(anchor, farm, needed, limit=limit)
+
+
+def _remote_farms(opl_name, searched):
+	"""The remote farms that truck to `opl_name`'s sales farm (its farm, else the
+	transfer hub), less `searched` -- the farm already looked at."""
+	from upande_packhouse.api.transfer_control import transfer_hub
+
+	sales_farm = frappe.db.get_value("Order Pick List", opl_name, "farm") or transfer_hub(required=False) or searched
+	return [f for f in sa._remote_farms_of(sales_farm) if f != searched]
+
+
+def _remote_candidates(anchor, opl_name, farm, needed, limit):
+	"""Nothing matching at `farm`: the same rules at each remote farm that trucks to
+	the OPL's sales farm, each candidate tagged with its farm, FIFO order kept per
+	farm and farms in configured order."""
+	out = []
+	for remote in _remote_farms(opl_name, farm):
+		for c in sa._replacement_candidates(anchor, remote, needed, limit=limit):
+			c["farm"] = remote
+			out.append(c)
+			if len(out) >= limit:
+				return out
+	return out
+
+
+def _delivers_today(opl_name):
+	"""A remote bucket has to be trucked in: for a same-day order it may not make it."""
+	so = frappe.db.get_value("Order Pick List", opl_name, "sales_order")
+	dd = frappe.db.get_value("Sales Order", so, "delivery_date") if so else None
+	return bool(dd) and getdate(dd) <= getdate(today())
 
 
 def _why_not(bucket, anchor, farm, needed):
@@ -115,7 +151,7 @@ def _why_not(bucket, anchor, farm, needed):
 	)
 
 
-def _swap(pick_list_item, new_bucket_id, reason, notes, keep_old_on_shelf=False, farm=None):
+def _swap(pick_list_item, new_bucket_id, reason, notes, keep_old_on_shelf=False, farm=None, to_remote=False):
 	"""sa.replace_requested_bucket with shelved buckets allowed: same lock wait
 	and retries, since a swap can lose a lock race to another stock posting."""
 	previous = frappe.db.sql("SELECT @@SESSION.innodb_lock_wait_timeout")[0][0]
@@ -130,6 +166,7 @@ def _swap(pick_list_item, new_bucket_id, reason, notes, keep_old_on_shelf=False,
 				notes=notes,
 				allow_shelved=True,
 				keep_old_on_shelf=keep_old_on_shelf,
+				to_remote=to_remote,
 				allow_left=bool(farm),
 				farm=farm or None,
 			)
@@ -405,6 +442,13 @@ def replacement_options(
 		anchor, farm, needed, found = _candidates(pli, max(1, min(cint(limit) or 20, 100)), farm=farm)
 	except frappe.ValidationError as e:
 		return {"found": False, "message": str(e), "candidates": [], "history": history}
+	source = "local"
+	warning = None
+	if not found:
+		found = _remote_candidates(anchor, opl_name, farm, needed, max(1, min(cint(limit) or 20, 100)))
+		source = "remote"
+		if found and _delivers_today(opl_name):
+			warning = _("This order is delivered today. A bucket from a remote farm comes on the next truck and may not arrive in time.")
 	if not found:
 		return {
 			"found": False,
@@ -414,6 +458,9 @@ def replacement_options(
 		}
 	return {
 		"found": True,
+		"source": source,
+		"message": _("No matching bucket at {0}; available at remote farms.").format(farm) if source == "remote" else None,
+		"warning": warning,
 		"history": history,
 		"old_bucket": anchor.bucket,
 		"variety": anchor.item_code,
@@ -437,9 +484,96 @@ def replace_for_issuing(
 	`replacement_options`). The replacement is then issued by scanning it."""
 	try:
 		pli = _anchor_row(opl_name, bucket, sale_order_item)
+		anchor, _rows, farm = sa._requested_bucket_rows(pli, allow_shelved=True)
 	except frappe.ValidationError as e:
 		return _fail(e)
-	return _swap(pli, new_bucket_id, reason if reason in REASONS.values() else "Missing", notes)
+	reason = reason if reason in ISSUING_REASONS else "Missing"
+	# Mislabelled, not gone: the old bucket stays on its shelf for its record to be corrected.
+	keep_old = reason == "Wrong variety"
+	# Where the replacement sits is the server's to decide, never the app's.
+	new_farm = frappe.db.sql(
+		"""SELECT s.farm FROM `tabShelf Item` si JOIN `tabShelf` s ON s.name = si.parent
+		WHERE si.bucket_id = %s LIMIT 1""",
+		new_bucket_id,
+	)
+	new_farm = new_farm[0][0] if new_farm else None
+	if not new_farm or new_farm == farm:
+		return _swap(pli, new_bucket_id, reason, notes, keep_old_on_shelf=keep_old)
+	if new_farm not in _remote_farms(opl_name, farm):
+		return _fail(_("Bucket {0} is at {1}, which does not supply {2}.").format(new_bucket_id, new_farm, farm))
+	res = _swap(pli, new_bucket_id, reason, notes, keep_old_on_shelf=keep_old, farm=new_farm, to_remote=True)
+	if res.get("success"):
+		_off_trips(anchor.bucket, opl_name)
+		res["message"] = _(
+			"{0} replaced with {1}, requested from {2}. Issue it once the truck brings it to {3}."
+		).format(anchor.bucket, new_bucket_id, new_farm, farm)
+	return res
+
+
+def _issued_offline(opl_name, bucket, sale_order_item=None):
+	"""The OPLs `bucket` was already issued on, each with its line (team), and
+	whether that is `opl_name`'s own line: the same OPL, or another on its team."""
+	pli = _anchor_row(opl_name, bucket, sale_order_item)
+	line = frappe.db.get_value("Order Pick List", opl_name, "team") or ""
+	issued = frappe.db.sql(
+		"""SELECT DISTINCT pli.parent AS opl, opl.order_name, IFNULL(opl.team, '') AS team
+		FROM `tabPick List Item` pli JOIN `tabOrder Pick List` opl ON opl.name = pli.parent
+		WHERE pli.parenttype = 'Order Pick List' AND pli.issued = 1 AND pli.bucket = %s""",
+		(bucket,),
+		as_dict=True,
+	)
+	for r in issued:
+		r["same_line"] = r.opl == opl_name or (bool(line) and r.team == line)
+	return pli, line, issued
+
+
+@frappe.whitelist()
+def issued_offline_info(opl_name: str, bucket: str, sale_order_item: str | None = None):
+	"""Replace reason "Issued offline": which line(s) `bucket` was issued to, and
+	whether one is this OPL's own line -- then it is marked issued, not replaced."""
+	try:
+		_pli, line, issued = _issued_offline(opl_name, bucket, sale_order_item)
+	except frappe.ValidationError as e:
+		return _fail(e)
+	return {
+		"success": True,
+		"bucket": bucket,
+		"line": line,
+		"issued_to": issued,
+		"same_line": any(r["same_line"] for r in issued),
+	}
+
+
+@frappe.whitelist(methods=["POST"])
+def mark_issued_offline(opl_name: str, bucket: str, sale_order_item: str | None = None):
+	"""`bucket` already went out to this OPL's own line without the issuing scan:
+	mark it issued here (the scan's own logic, so stock moves the same way), with
+	no replacement. Issued to another line, or nowhere: refused -- replace it."""
+	try:
+		_pli, line, issued = _issued_offline(opl_name, bucket, sale_order_item)
+	except frappe.ValidationError as e:
+		return _fail(e)
+	if not any(r["same_line"] for r in issued):
+		where = ", ".join("{0} ({1})".format(r.team or _("no team"), r.order_name or r.opl) for r in issued)
+		return _fail(
+			_("{0} was issued to {1}, not this line. Replace it instead.").format(bucket, where)
+			if where
+			else _("{0} has not been issued to any line. Replace it instead.").format(bucket)
+		)
+	results = _issue(bucket, opl_name)
+	ok = bool(results) and all(r["ok"] for r in results)
+	if not ok:
+		return _fail(
+			_("Could not mark {0} issued: {1}").format(
+				bucket, "; ".join(str(r["message"]) for r in results if not r["ok"]) or _("nothing to issue")
+			)
+		)
+	frappe.db.sql(
+		"""UPDATE `tabPick List Item` SET issued_offline = 1
+		WHERE parent = %s AND parenttype = 'Order Pick List' AND bucket = %s AND issued = 1""",
+		(opl_name, bucket),
+	)
+	return {"success": True, "message": _("{0} marked issued to {1}.").format(bucket, line or opl_name)}
 
 
 @frappe.whitelist(methods=["POST"])

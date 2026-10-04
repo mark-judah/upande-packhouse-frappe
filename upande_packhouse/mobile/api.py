@@ -2709,6 +2709,10 @@ def getReadySaleOrderItemsData():
 					"parent as opl_name",
 					"custom_ready_for_packing",
 					"issued",
+					"awaiting_transfer",
+					"shelved",
+					"farm",
+					"source_warehouse",
 					"creation",
 				],
 				order_by="creation desc",
@@ -2754,6 +2758,16 @@ def getReadySaleOrderItemsData():
 						"is_issued": 1 if pli.issued else 0,
 						"was_marked_ready": pli.custom_ready_for_packing or 0,
 					}
+					# Replaced at issuing from a remote farm and not here yet: the app shows it
+					# waiting for transfer and the issue scan refuses it until it is shelved.
+					if (
+						pli.awaiting_transfer
+						and not pli.shelved
+						and not pli.custom_ready_for_packing
+						and not pli.issued
+					):
+						packing_item["waiting_transfer"] = 1
+						packing_item["transfer_farm"] = pli.farm or (pli.source_warehouse or "").split(" ")[0]
 
 					packing_list.append(packing_item)
 
@@ -4244,6 +4258,24 @@ def issueBucketToSaleOrderItem():
 		elif not sale_order_item:
 			frappe.response.message = "Error: Sale Order Item is required"
 			frappe.response.http_status_code = 400
+		elif waiting := frappe.db.sql(
+			"""SELECT COALESCE(NULLIF(farm, ''), SUBSTRING_INDEX(source_warehouse, ' ', 1)) FROM `tabPick List Item`
+			WHERE bucket = %(bucket)s AND parenttype = 'Order Pick List'
+			  AND (%(opl)s IS NULL OR parent = %(opl)s)
+			  AND %(soi)s IN (COALESCE(custom_sale_order_item, ''), COALESCE(sales_order_item, ''))
+			  AND awaiting_transfer = 1 AND IFNULL(shelved, 0) = 0
+			  AND IFNULL(custom_ready_for_packing, 0) = 0 AND IFNULL(issued, 0) = 0
+			LIMIT 1""",
+			{"bucket": bucket_id, "soi": sale_order_item, "opl": opl_name or None},
+		):
+			# Replaced at issuing from a remote farm and not here yet: it is issued once
+			# the truck brings it and it is shelved (that makes the row ready again).
+			frappe.response.message = (
+				f"Bucket {bucket_id} is waiting for transfer from {waiting[0][0] or 'its farm'}. "
+				"Issue it once it arrives and is shelved."
+			)
+			frappe.response.http_status_code = 409
+			frappe.response.data = {"status": "waiting_transfer", "bucket_id": bucket_id, "farm": waiting[0][0]}
 		else:
 			# -------------------------------
 			# Get the Stock Entry this scan is acting on
@@ -5163,7 +5195,9 @@ def _shelve_update_transit_status(bucket_id, shelf_id, farm, result):
 	updated, skipped = [], []
 	for opl_name in opl_names:
 		opl = frappe.get_doc("Order Pick List", opl_name)
-		if opl.docstatus != 0:
+		# A submitted OPL only has transfer rows when a bucket was replaced at issuing
+		# from a remote farm (offline_issue.replace_for_issuing): it arrives the same way.
+		if opl.docstatus not in (0, 1):
 			continue
 		# opl_rows, not opl.locations: the table fieldname is `table_ytkc`, so
 		# `locations` never matched and a transferred bucket shelved at the sales
@@ -5191,7 +5225,14 @@ def _shelve_update_transit_status(bucket_id, shelf_id, farm, result):
 			row.loaded_in_trolley = 0
 			row.shelved = 1
 			row.shelf = shelf_id
-		opl.save(ignore_permissions=True)
+		if opl.docstatus == 1:
+			# Here now: ready to be scanned and issued like the rest of the order.
+			for row in mine:
+				row.custom_ready_for_packing = 1
+			for row in rows:
+				row.db_update()
+		else:
+			opl.save(ignore_permissions=True)
 		updated.append(opl.name)
 	if updated:
 		result["transit_updated"] = True

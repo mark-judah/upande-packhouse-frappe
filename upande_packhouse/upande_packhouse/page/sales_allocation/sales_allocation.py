@@ -2,7 +2,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, now_datetime
+from frappe.utils import add_days, cint, flt, now_datetime, nowdate
 
 from upande_packhouse import stock_movement
 
@@ -102,6 +102,27 @@ def _get_production_config():
 		"farm_config": farm_config,
 		"farms_by_location": farms_by_location,
 	}
+
+
+def _remote_farms_of(farm):
+	"""The remote farms trucked to `farm`: same location, not a sales-shelf farm.
+	Another location's farms are never offered -- a line allocated across
+	locations fails every later allocation's location check."""
+	config = _get_production_config()
+	for farms in config["farms_by_location"].values():
+		if farm in farms:
+			return [f for f in farms if f != farm and not config["farm_config"].get(f, {}).get("sales_shelf")]
+	return []
+
+
+# ============================================================
+# HELPER: Default delivery day
+# ============================================================
+@frappe.whitelist()
+def default_delivery_date() -> str:
+	"""Tomorrow on the server's clock, in the site's time zone (EAT), not the
+	browser's -- orders are allocated the day before they ship."""
+	return add_days(nowdate(), 1)
 
 
 # ============================================================
@@ -218,7 +239,12 @@ def get_pending_sales_orders(
 	end_date: str | None = None,
 	delivery_start: str | None = None,
 	delivery_end: str | None = None,
+	sales_order: str | None = None,
 ):
+	# `sales_order` is the order a deep-link (Sales Order / Order Pick List
+	# "Sales Allocation" button) is opening: it is listed whatever the date
+	# window says, so the page can always select it.
+	#
 	# Bound parameters, not interpolation: every one of these four values comes
 	# straight off the request, and this endpoint is whitelisted. They used to be
 	# f-stringed into the WHERE clause inside quotes, so `start_date=" OR 1=1 --`
@@ -235,7 +261,10 @@ def get_pending_sales_orders(
 	elif end_date:
 		date_conditions.append("so.transaction_date <= %(end_date)s")
 		params["end_date"] = end_date
-	else:
+	elif not (delivery_start or delivery_end):
+		# No window at all: fall back to the last week's orders rather than
+		# every open order ever. A delivery window alone is enough -- an order
+		# posted weeks ahead for tomorrow must still show for tomorrow.
 		date_conditions.append("so.transaction_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)")
 
 	if delivery_start and delivery_end:
@@ -248,7 +277,15 @@ def get_pending_sales_orders(
 		date_conditions.append("so.delivery_date <= %(delivery_end)s")
 		params["delivery_end"] = delivery_end
 
-	where_clause = " AND ".join(date_conditions)
+	status_conditions = date_conditions[:2]
+	window_clause = " AND ".join(date_conditions)
+	if sales_order:
+		params["sales_order"] = sales_order
+		where_clause = "({0}) OR (so.name = %(sales_order)s AND {1})".format(
+			window_clause, " AND ".join(status_conditions)
+		)
+	else:
+		where_clause = window_clause
 
 	# nosemgrep: frappe-sql-format-injection -- interpolates a module-level constant, never request data
 	sql = f"""
@@ -1353,7 +1390,10 @@ def allocate_stock_with_buckets(
 		raise
 
 
-def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=None):
+def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=None, target_opl=None):
+	"""`target_opl` (packing_quality's replacement): put the new rows on that
+	Order Pick List -- the one being packed -- whatever box type the line is,
+	instead of the per-type OPL creators (the mixed ones skip a submitted OPL)."""
 	config = _get_production_config()
 	farm_config = config["farm_config"]
 	farms_by_location = config["farms_by_location"]
@@ -1662,7 +1702,10 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 		)
 		a["stem_length"] = shelf.get("stem_length") or a.get("stem_length")
 
-	pick_results = _create_pick_list(sales_order, allocations, so_doc, location, confirmed_by_item)
+	if target_opl:
+		pick_results = _add_rows_to_opl(target_opl, allocations, so_doc, location, confirmed_by_item)
+	else:
+		pick_results = _create_pick_list(sales_order, allocations, so_doc, location, confirmed_by_item)
 
 	# ── Move the stems. Allocation is a sale, so the ledger has to follow the
 	#    SO Warehouse Mapping all the way into a *Sold warehouse. Anything that
@@ -1673,7 +1716,7 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 		for a in allocations
 	}
 	for a in allocations:
-		a["_opl"] = opl_by_soi.get(a["sales_order_item"])
+		a["_opl"] = target_opl or opl_by_soi.get(a["sales_order_item"])
 
 	stock_moves = stock_movement.move_allocation_to_sold(
 		allocations,
@@ -1823,6 +1866,25 @@ def _create_pick_list(sales_order, allocations, so_doc, location, confirmed_by_i
 		results.append({"type": "mixed_bunch", "status": status, "name": name})
 
 	return results
+
+
+def _add_rows_to_opl(opl_name, allocations, so_doc, location, confirmed_by_item=None):
+	"""Add `allocations` as rows of `opl_name`: the ORM append for a draft, the
+	raw append for a submitted one (as _create_pick_list routes straight lines)."""
+	docstatus = frappe.db.get_value("Order Pick List", opl_name, "docstatus")
+	if docstatus == 0:
+		name = _update_existing_pick_list(
+			opl_name, allocations, so_doc, location=location, confirmed_by_item=confirmed_by_item
+		)
+		return [{"type": "target", "status": "draft", "name": name}]
+	if docstatus == 1:
+		for a in allocations:
+			a["_existing_opl"] = opl_name
+		return [
+			{"type": "target", "status": "updated_existing", "name": n}
+			for n in _append_rows_to_existing_opls(allocations, so_doc, location)
+		]
+	frappe.throw(_("Order Pick List {0} is cancelled.").format(opl_name))
 
 
 def _append_rows_to_existing_opls(allocations, so_doc, location):
@@ -2870,8 +2932,16 @@ def _replace_requested_bucket(
 	keep_old_on_shelf: bool = False,
 	allow_left: bool = False,
 	farm: str | None = None,
+	to_remote: bool = False,
 ):
 	"""Swap a missing requested bucket for a matching one from the same farm.
+
+	`to_remote` (issuing, nothing matching at the sales farm): `farm` is a remote
+	farm and the replacement is requested from there. The rows stay on their OPL,
+	submitted or not, but go back to waiting for a truck: awaiting transfer, not
+	ready for packing, the bucket left on its remote shelf for the farm to load.
+	Arrival at the sales farm makes them ready again (mobile.api
+	_shelve_update_transit_status); its sale is posted then (post_sale_on_arrival).
 
 	The replacement is an unallocated bucket of the same variety at the
 	allocation's stem length or longer (a longer one is recorded as a downgrade,
@@ -3026,7 +3096,7 @@ def _replace_requested_bucket(
 				},
 			)
 		recompute_bas_quantities(new_bas, shelf_qty=new.stem_qty)
-		if was_in_transit:
+		if was_in_transit or to_remote:
 			new_bas.in_transit = 1
 		new_bas.save(ignore_permissions=True)
 
@@ -3046,6 +3116,19 @@ def _replace_requested_bucket(
 				# The missing bucket was on its way from a remote farm; the replacement
 				# is here already, so the row is no longer travelling.
 				values.update({"loaded_in_trolley": 0, "in_transit": 0, "awaiting_transfer": 0, "transit_truck": ""})
+			if to_remote:
+				# Requested from the remote farm: waiting for a truck again, wherever it was.
+				values.update(
+					{
+						"farm": farm,
+						"awaiting_transfer": 1,
+						"loaded_in_trolley": 0,
+						"in_transit": 0,
+						"shelved": 0,
+						"custom_ready_for_packing": 0,
+						"transit_truck": "",
+					}
+				)
 			if longer:
 				values["downgrade_reason"] = _("Replacement for missing bucket {0} ({1})").format(
 					old_bucket, anchor.stem_length or ""
@@ -3053,7 +3136,9 @@ def _replace_requested_bucket(
 			frappe.db.set_value("Pick List Item", r.name, values)
 
 		# ── Shelf: the replacement leaves its shelf now it is claimed for this order ──
-		_clear_shelf_item(new.shelf_item, new.shelf, "Replaced")
+		# A remote one stays on its farm's shelf until it is loaded there for the truck.
+		if not to_remote:
+			_clear_shelf_item(new.shelf_item, new.shelf, "Replaced")
 
 		# ── Stock: trade the buckets in the Sold warehouse, one entry per SO item ──
 		stock_moves = []
@@ -3105,7 +3190,8 @@ def _replace_requested_bucket(
 			"Info",
 			_("Bucket {0} ({1}) replaced with {2} ({3}, {4} stems).").format(
 				old_bucket, anchor.stem_length or "", new.bucket_id, new.stem_length or "", int(needed)
-			),
+			)
+			+ (" " + _("Requested from {0}; waiting for transfer.").format(farm) if to_remote else ""),
 		)
 		# The record of what happened: which bucket, why, who, where it should have been.
 		from upande_packhouse.api import bucket_replacement
@@ -3127,6 +3213,7 @@ def _replace_requested_bucket(
 		return {
 			"success": True,
 			"message": _("Bucket {0} replaced with {1}.").format(old_bucket, new.bucket_id),
+			"remote_farm": farm if to_remote else None,
 			"opl": opl_name,
 			"old_bucket": old_bucket,
 			"new_bucket": new.bucket_id,
