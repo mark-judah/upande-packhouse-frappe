@@ -7,6 +7,71 @@ from frappe.utils import nowdate
 from upande_packhouse.packing_guide import sync_packing_guide
 
 
+def insufficient_allocation_message(
+	item_code, stem_length, allocations, allocated, needed, stems_per_box, num_boxes, so_item_name=None
+):
+	"""The error for a line the allocation cannot fill, saying where the stems came
+	from and where any are still free -- per farm and cold store -- so the planner
+	can see which store is short instead of only two totals."""
+	from frappe.utils import escape_html as esc
+	from frappe.utils import fmt_money
+
+	def n(x):
+		return fmt_money(x, precision=0)
+
+	label = esc(" ".join(p for p in (item_code, stem_length or "") if p))
+	lines = [
+		_(
+			"Not enough stems allocated for <b>{0}</b>{1}: {2} of {3} needed ({4} boxes × {5} stems), short by {6}."
+		).format(
+			label,
+			" ({0})".format(esc(so_item_name)) if so_item_name else "",
+			n(allocated),
+			n(needed),
+			int(num_boxes),
+			int(stems_per_box),
+			n(needed - allocated),
+		)
+	]
+	by_wh = {}
+	for a in allocations or []:
+		wh = a.get("warehouse") or a.get("s_warehouse") or _("unknown store")
+		qty, buckets = by_wh.get(wh, (0, 0))
+		by_wh[wh] = (qty + (a.get("qty") or 0), buckets + 1)
+	if by_wh:
+		lines.append("<br><b>{0}</b>".format(_("Allocated from:")))
+		lines += [
+			"• {0}: {1} ({2} bucket{3})".format(esc(wh), n(q), b, "" if b == 1 else "s")
+			for wh, (q, b) in sorted(by_wh.items(), key=lambda kv: -kv[1][0])
+		]
+	free = frappe.db.sql(
+		"""
+		SELECT s.farm, si.warehouse,
+		       SUM(si.stem_qty - COALESCE((
+		           SELECT SUM(b.allocated_quantity) FROM `tabBucket Allocation Status` b
+		           WHERE b.bucket_id = si.bucket_id AND b.item_code = si.variety
+		             AND COALESCE(b.stem_length, '') = COALESCE(si.stem_length, '')), 0)) AS free_stems
+		FROM `tabShelf Item` si
+		JOIN `tabShelf` s ON s.name = si.parent
+		WHERE si.variety = %(item)s AND (%(length)s = '' OR si.stem_length = %(length)s)
+		GROUP BY s.farm, si.warehouse
+		HAVING free_stems > 0
+		ORDER BY free_stems DESC
+		""",
+		{"item": item_code, "length": stem_length or ""},
+		as_dict=True,
+	)
+	lines.append("<br><b>{0}</b>".format(_("Still free on shelves:")))
+	if free:
+		lines += [
+			"• {0} · {1}: {2}".format(esc(r.farm or "?"), esc(r.warehouse or "?"), n(r.free_stems))
+			for r in free
+		]
+	else:
+		lines.append(_("none — no farm or cold store has unallocated {0}.").format(label))
+	return "<br>".join(lines)
+
+
 def _get_shelf_farm_for_location(location):
 	"""
 	Derive the sales-shelf farm for a given location name
@@ -512,8 +577,17 @@ def _generate_box_locations(
 			total_stems_needed = total_allocated
 		else:
 			frappe.throw(
-				f"Insufficient allocation for {item_code}: "
-				f"allocated {total_allocated}, needed {total_stems_needed}"
+				insufficient_allocation_message(
+					item_code,
+					so_item.get("custom_length") or alloc.get("stem_length"),
+					allocations_list,
+					total_allocated,
+					total_stems_needed,
+					stems_per_box,
+					num_boxes,
+					sales_order_item_name,
+				),
+				title=_("Insufficient allocation"),
 			)
 
 	# Determine if we should do box-level splitting or flat rows
