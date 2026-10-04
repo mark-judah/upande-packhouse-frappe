@@ -26,9 +26,9 @@ from upande_packhouse.server_scripts.create_mixed_box_picklist import (
 	_get_confirmed_stems_for_location,
 	_get_shelf_farm_for_location,
 	_lookup_shelf,
+	insufficient_allocation_message,
 	open_box_slots,
 	placed_stems_by_box,
-	insufficient_allocation_message,
 )
 
 
