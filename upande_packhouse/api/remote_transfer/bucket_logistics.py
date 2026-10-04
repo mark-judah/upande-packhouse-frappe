@@ -61,7 +61,13 @@ def getBucketLogistics():
 	hub = transfer_hub(required=False) or ""
 	NOT_HUB = "COALESCE(" + FARM_EXPR + ", '') != %(hub)s"
 	params = {"d": delivery_date, "hub": hub}
-	conds = ["opl.docstatus < 2", "pli.parenttype = 'Order Pick List'", "so.delivery_date = %(d)s", TRANSFER, NOT_HUB]
+	conds = [
+		"opl.docstatus < 2",
+		"pli.parenttype = 'Order Pick List'",
+		"so.delivery_date = %(d)s",
+		TRANSFER,
+		NOT_HUB,
+	]
 	if fd.get("farm"):
 		conds.append(FARM_EXPR + " = %(farm)s")
 		params["farm"] = fd.get("farm")
@@ -93,19 +99,29 @@ def getBucketLogistics():
             COUNT(DISTINCT """
 		+ BKT
 		+ """)                  AS total,
-            COUNT(DISTINCT CASE WHEN """ + REACHED_AWAITING + """ THEN """
+            COUNT(DISTINCT CASE WHEN """
+		+ REACHED_AWAITING
+		+ """ THEN """
 		+ BKT
 		+ """ END) AS awaiting,
-            COUNT(DISTINCT CASE WHEN """ + REACHED_TROLLEY + """ THEN """
+            COUNT(DISTINCT CASE WHEN """
+		+ REACHED_TROLLEY
+		+ """ THEN """
 		+ BKT
 		+ """ END) AS trolley,
-            COUNT(DISTINCT CASE WHEN """ + REACHED_TRANSIT + """ THEN """
+            COUNT(DISTINCT CASE WHEN """
+		+ REACHED_TRANSIT
+		+ """ THEN """
 		+ BKT
 		+ """ END) AS transit,
-            COUNT(DISTINCT CASE WHEN """ + REACHED_SHELVED + """ THEN """
+            COUNT(DISTINCT CASE WHEN """
+		+ REACHED_SHELVED
+		+ """ THEN """
 		+ BKT
 		+ """ END) AS shelved,
-            COUNT(DISTINCT CASE WHEN """ + REACHED_READY + """ THEN """
+            COUNT(DISTINCT CASE WHEN """
+		+ REACHED_READY
+		+ """ THEN """
 		+ BKT
 		+ """ END) AS ready,
             COUNT(DISTINCT CASE WHEN pli.issued = 1 THEN """
@@ -139,7 +155,18 @@ def getBucketLogistics():
 
 	sched = _schedule_map()
 	for r in rows:
-		for k in ["total", "awaiting", "trolley", "transit", "shelved", "ready", "issued", "issued_offline", "not_found", "asap"]:
+		for k in [
+			"total",
+			"awaiting",
+			"trolley",
+			"transit",
+			"shelved",
+			"ready",
+			"issued",
+			"issued_offline",
+			"not_found",
+			"asap",
+		]:
 			r[k] = int(r.get(k) or 0)
 		# Transfer initiation time = OPL creation datetime (full timestamp).
 		r["initiated"] = str(r.get("initiated")) if r.get("initiated") else ""
@@ -208,7 +235,9 @@ def getBucketLogistics():
 			+ """) AS n
 			FROM `tabPick List Item` pli
 			WHERE pli.parenttype = 'Order Pick List' AND pli.parent IN %(opls)s AND pli.shelved = 1
-			  AND """ + NOT_HUB + """
+			  AND """
+			+ NOT_HUB
+			+ """
 			GROUP BY pli.parent, """
 			+ FARM_EXPR,
 			{"opls": tuple(r["opl"] for r in rows), "hub": hub},
@@ -226,19 +255,29 @@ def getBucketLogistics():
 			    COUNT(DISTINCT """
 			+ BKT
 			+ """) AS total,
-			    COUNT(DISTINCT CASE WHEN """ + REACHED_AWAITING + """ THEN """
+			    COUNT(DISTINCT CASE WHEN """
+			+ REACHED_AWAITING
+			+ """ THEN """
 			+ BKT
 			+ """ END) AS awaiting,
-			    COUNT(DISTINCT CASE WHEN """ + REACHED_TROLLEY + """ THEN """
+			    COUNT(DISTINCT CASE WHEN """
+			+ REACHED_TROLLEY
+			+ """ THEN """
 			+ BKT
 			+ """ END) AS trolley,
-			    COUNT(DISTINCT CASE WHEN """ + REACHED_TRANSIT + """ THEN """
+			    COUNT(DISTINCT CASE WHEN """
+			+ REACHED_TRANSIT
+			+ """ THEN """
 			+ BKT
 			+ """ END) AS transit,
-			    COUNT(DISTINCT CASE WHEN """ + REACHED_SHELVED + """ THEN """
+			    COUNT(DISTINCT CASE WHEN """
+			+ REACHED_SHELVED
+			+ """ THEN """
 			+ BKT
 			+ """ END) AS shelved,
-			    COUNT(DISTINCT CASE WHEN """ + REACHED_READY + """ THEN """
+			    COUNT(DISTINCT CASE WHEN """
+			+ REACHED_READY
+			+ """ THEN """
 			+ BKT
 			+ """ END) AS ready,
 			    COUNT(DISTINCT CASE WHEN pli.issued = 1 THEN """
@@ -494,7 +533,9 @@ def getBucketLogisticsDetail():
               AND (pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1
                    OR pli.in_transit = 1 OR pli.shelved = 1 OR pli.not_found = 1
                    OR ((pli.custom_ready_for_packing = 1 OR pli.issued = 1)
-                       AND COALESCE(""" + FARM_EXPR + """, '') != %(hub)s))"""
+                       AND COALESCE("""
+			+ FARM_EXPR
+			+ """, '') != %(hub)s))"""
 			+ extra
 			+ """
             -- One row per bucket (the pick list keeps a row per box); a bucket holding

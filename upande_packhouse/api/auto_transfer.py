@@ -224,9 +224,7 @@ def _plan():
 		else:
 			summary["failed"].append({"vehicle": t["vehicle"], "message": res.get("message")})
 	# Each re-plan that changed the trips is its own entry on the page's Distributed list.
-	tc.log_distribution(
-		window, [{**x, "trip": x["name"]} for x in summary["trips"]], source="Automatic"
-	)
+	tc.log_distribution(window, [{**x, "trip": x["name"]} for x in summary["trips"]], source="Automatic")
 	return summary
 
 

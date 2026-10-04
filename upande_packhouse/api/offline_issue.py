@@ -90,7 +90,9 @@ def _remote_farms(opl_name, searched):
 	transfer hub), less `searched` -- the farm already looked at."""
 	from upande_packhouse.api.transfer_control import transfer_hub
 
-	sales_farm = frappe.db.get_value("Order Pick List", opl_name, "farm") or transfer_hub(required=False) or searched
+	sales_farm = (
+		frappe.db.get_value("Order Pick List", opl_name, "farm") or transfer_hub(required=False) or searched
+	)
 	return [f for f in sa._remote_farms_of(sales_farm) if f != searched]
 
 
@@ -412,7 +414,16 @@ def _offline_history(bucket):
 	rows = frappe.get_all(
 		"Bucket Replacement",
 		filters={"old_bucket": bucket, "reason": ["in", ["Missing", "Wrong variety"]], "docstatus": ["<", 2]},
-		fields=["name", "reason", "status", "new_bucket", "order_pick_list", "order_name", "reported_by", "reported_at"],
+		fields=[
+			"name",
+			"reason",
+			"status",
+			"new_bucket",
+			"order_pick_list",
+			"order_name",
+			"reported_by",
+			"reported_at",
+		],
 		order_by="reported_at desc, creation desc",
 		limit=5,
 	)
@@ -450,7 +461,9 @@ def replacement_options(
 		found = _remote_candidates(anchor, opl_name, farm, needed, max(1, min(cint(limit) or 20, 100)))
 		source = "remote"
 		if found and _delivers_today(opl_name):
-			warning = _("This order is delivered today. A bucket from a remote farm comes on the next truck and may not arrive in time.")
+			warning = _(
+				"This order is delivered today. A bucket from a remote farm comes on the next truck and may not arrive in time."
+			)
 	if not found:
 		return {
 			"found": False,
@@ -461,7 +474,9 @@ def replacement_options(
 	return {
 		"found": True,
 		"source": source,
-		"message": _("No matching bucket at {0}; available at remote farms.").format(farm) if source == "remote" else None,
+		"message": _("No matching bucket at {0}; available at remote farms.").format(farm)
+		if source == "remote"
+		else None,
 		"warning": warning,
 		"history": history,
 		"old_bucket": anchor.bucket,
@@ -502,7 +517,9 @@ def replace_for_issuing(
 	if not new_farm or new_farm == farm:
 		return _swap(pli, new_bucket_id, reason, notes, keep_old_on_shelf=keep_old)
 	if new_farm not in _remote_farms(opl_name, farm):
-		return _fail(_("Bucket {0} is at {1}, which does not supply {2}.").format(new_bucket_id, new_farm, farm))
+		return _fail(
+			_("Bucket {0} is at {1}, which does not supply {2}.").format(new_bucket_id, new_farm, farm)
+		)
 	res = _swap(pli, new_bucket_id, reason, notes, keep_old_on_shelf=keep_old, farm=new_farm, to_remote=True)
 	if res.get("success"):
 		_off_trips(anchor.bucket, opl_name)

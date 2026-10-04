@@ -12,7 +12,10 @@ frappe.listview_settings["Bucket QR Code"] = {
 				return;
 			}
 			frappe.confirm(
-				__("Regenerate the QR code of {0} bucket(s)? Their current QR images are replaced.", [names.length]),
+				__(
+					"Regenerate the QR code of {0} bucket(s)? Their current QR images are replaced.",
+					[names.length]
+				),
 				() =>
 					frappe
 						.call({
@@ -25,7 +28,13 @@ frappe.listview_settings["Bucket QR Code"] = {
 							const m = r.message || {};
 							if (m.queued) {
 								frappe.show_alert(
-									{ message: __("Regenerating {0} QR codes in the background — you'll be told when it's done.", [m.queued]), indicator: "blue" },
+									{
+										message: __(
+											"Regenerating {0} QR codes in the background — you'll be told when it's done.",
+											[m.queued]
+										),
+										indicator: "blue",
+									},
 									7
 								);
 								return;
@@ -34,7 +43,10 @@ frappe.listview_settings["Bucket QR Code"] = {
 							frappe.show_alert(
 								{
 									message: failed
-										? __("Regenerated {0} QR code(s), {1} failed (see Error Log).", [m.regenerated, failed])
+										? __(
+												"Regenerated {0} QR code(s), {1} failed (see Error Log).",
+												[m.regenerated, failed]
+										  )
 										: __("Regenerated {0} QR code(s).", [m.regenerated]),
 									indicator: failed ? "orange" : "green",
 								},

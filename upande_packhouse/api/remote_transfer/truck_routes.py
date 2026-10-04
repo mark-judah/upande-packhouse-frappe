@@ -394,9 +394,15 @@ def _save_day_route_as_template(day_route):
 	if err or not path:
 		return ""
 	start, end = _dt(day.from_datetime)[11:] or "00:00", _dt(day.to_datetime)[11:] or "23:59"
-	tpl = frappe.get_doc(TEMPLATE, day.template) if day.get("template") and frappe.db.exists(TEMPLATE, day.template) else None
+	tpl = (
+		frappe.get_doc(TEMPLATE, day.template)
+		if day.get("template") and frappe.db.exists(TEMPLATE, day.template)
+		else None
+	)
 	if tpl is None:
-		for o in frappe.get_all(TEMPLATE, filters={"vehicle": day.vehicle, "active": 1}, fields=["from_time", "to_time"]):
+		for o in frappe.get_all(
+			TEMPLATE, filters={"vehicle": day.vehicle, "active": 1}, fields=["from_time", "to_time"]
+		):
 			if _windows_clash(start, end, _hhmm(o.from_time), _hhmm(o.to_time)):
 				return ""
 		tpl = frappe.new_doc(TEMPLATE)
@@ -460,7 +466,13 @@ def _windows_clash(s1, e1, s2, e2):
 
 def _template_dict(doc):
 	legs = [
-		{"leg": l.leg, "from_farm": l.from_farm, "to_farm": l.to_farm, "distance_km": l.distance_km, "run": l.get("run")}
+		{
+			"leg": l.leg,
+			"from_farm": l.from_farm,
+			"to_farm": l.to_farm,
+			"distance_km": l.distance_km,
+			"run": l.get("run"),
+		}
 		for l in doc.legs
 	]
 	return {
@@ -524,7 +536,9 @@ def saveRouteTemplate():
 		return
 	name = fd.get("name")
 	for o in frappe.get_all(
-		TEMPLATE, filters={"vehicle": vehicle, "active": 1, "name": ["!=", name or ""]}, fields=["name", "from_time", "to_time"]
+		TEMPLATE,
+		filters={"vehicle": vehicle, "active": 1, "name": ["!=", name or ""]},
+		fields=["name", "from_time", "to_time"],
 	):
 		if _windows_clash(start, end, _hhmm(o.from_time), _hhmm(o.to_time)):
 			frappe.response["message"] = {
@@ -534,9 +548,16 @@ def saveRouteTemplate():
 				),
 			}
 			return
-	doc = frappe.get_doc(TEMPLATE, name) if name and frappe.db.exists(TEMPLATE, name) else frappe.new_doc(TEMPLATE)
+	doc = (
+		frappe.get_doc(TEMPLATE, name)
+		if name and frappe.db.exists(TEMPLATE, name)
+		else frappe.new_doc(TEMPLATE)
+	)
 	if doc.name and doc.vehicle and doc.vehicle != vehicle:
-		frappe.response["message"] = {"status": "error", "message": "Route {0} belongs to {1}.".format(doc.name, doc.vehicle)}
+		frappe.response["message"] = {
+			"status": "error",
+			"message": "Route {0} belongs to {1}.".format(doc.name, doc.vehicle),
+		}
 		return
 	doc.vehicle = vehicle
 	doc.from_time, doc.to_time = start + ":00", end + ":00"
@@ -601,11 +622,16 @@ def ensure_day_routes(date=None):
 		)
 	)
 	made = 0
-	for t in frappe.get_all(TEMPLATE, filters={"active": 1}, fields=["name", "vehicle", "from_time", "to_time"]):
+	for t in frappe.get_all(
+		TEMPLATE, filters={"active": 1}, fields=["name", "vehicle", "from_time", "to_time"]
+	):
 		if t.name in have:
 			continue
 		legs = frappe.get_all(
-			"Bucket Logistics Route Leg", filters={"parent": t.name, "parenttype": TEMPLATE}, pluck="leg", order_by="idx asc"
+			"Bucket Logistics Route Leg",
+			filters={"parent": t.name, "parenttype": TEMPLATE},
+			pluck="leg",
+			order_by="idx asc",
 		)
 		if not legs:
 			continue

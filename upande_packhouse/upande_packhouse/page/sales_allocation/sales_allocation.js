@@ -948,9 +948,10 @@ frappe.pages["sales-allocation"]._explain_missing_order = function (sales_order)
 		const so = r && r.message;
 		let reason;
 		if (!so || so.docstatus === undefined) {
-			reason = __("{0} no longer exists (it may have been deleted), or you cannot read it.", [
-				sales_order,
-			]);
+			reason = __(
+				"{0} no longer exists (it may have been deleted), or you cannot read it.",
+				[sales_order]
+			);
 		} else if (so.docstatus === 0) {
 			reason = __("{0} is still a draft — submit it to allocate.", [sales_order]);
 		} else if (so.docstatus === 2) {

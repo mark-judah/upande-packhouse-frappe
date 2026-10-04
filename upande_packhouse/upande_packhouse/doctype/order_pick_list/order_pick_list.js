@@ -24,7 +24,13 @@ const QR_KINDS = [
 	{ kind: "bucket", key: "bucket_labels", one: __("Bucket"), many: __("Buckets"), pill: "blue" },
 	{ kind: "bunch", key: "bunch_labels", one: __("Bunch"), many: __("Bunches"), pill: "purple" },
 	{ kind: "shelf", key: "shelf_labels", one: __("Shelf"), many: __("Shelves"), pill: "orange" },
-	{ kind: "trolley", key: "trolley_labels", one: __("Trolley"), many: __("Trolleys"), pill: "cyan" },
+	{
+		kind: "trolley",
+		key: "trolley_labels",
+		one: __("Trolley"),
+		many: __("Trolleys"),
+		pill: "cyan",
+	},
 ];
 
 frappe.ui.form.on("Order Pick List", {
@@ -185,9 +191,9 @@ function slideshow_html(labels) {
 	const slides = labels
 		.map(
 			(label, i) =>
-				`<div class="upande-qr-slide" data-index="${i}" data-kind="${label.kind}">${slide_body(
-					label
-				)}</div>`
+				`<div class="upande-qr-slide" data-index="${i}" data-kind="${
+					label.kind
+				}">${slide_body(label)}</div>`
 		)
 		.join("");
 
@@ -241,9 +247,9 @@ function slide_body(label) {
 	const text = lines
 		.map(
 			(line, i) =>
-				`<div class="${i === 0 ? "upande-qr-id" : "upande-qr-line"}">${frappe.utils.escape_html(
-					String(line)
-				)}</div>`
+				`<div class="${
+					i === 0 ? "upande-qr-id" : "upande-qr-line"
+				}">${frappe.utils.escape_html(String(line))}</div>`
 		)
 		.join("");
 	const code = src

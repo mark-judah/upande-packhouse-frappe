@@ -17,15 +17,23 @@ def execute():
 	):
 		opl = box.order_pick_list
 		if opl and opl not in opl_names:
-			opl_names[opl] = frappe.db.get_value("Order Pick List", opl, ["order_name", "sales_order"], as_dict=True) or {}
+			opl_names[opl] = (
+				frappe.db.get_value("Order Pick List", opl, ["order_name", "sales_order"], as_dict=True) or {}
+			)
 		info = opl_names.get(opl) or {}
 		so = info.get("sales_order") or box.customer_purchase_order
 		if so not in mixes:
 			mixes[so] = mix_names(so)
-		order_name = info.get("order_name") or (frappe.db.get_value("Sales Order", so, "custom_order_name") if so else "")
-		rows = frappe.get_all(
-			"Box Label Item", filters={"parent": box.name}, fields=["variety", "qty", "uom"], order_by="idx asc"
+		order_name = info.get("order_name") or (
+			frappe.db.get_value("Sales Order", so, "custom_order_name") if so else ""
 		)
+		rows = frappe.get_all(
+			"Box Label Item",
+			filters={"parent": box.name},
+			fields=["variety", "qty", "uom"],
+			order_by="idx asc",
+		)
+
 		# Box Label Item holds bunches: weight by stems where the UOM says "(10)".
 		def stems(r):
 			m = re.search(r"\((\d+)\)", r.uom or "")

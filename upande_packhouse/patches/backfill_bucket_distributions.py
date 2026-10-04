@@ -31,7 +31,16 @@ def execute():
 				"creation": [">=", frappe.utils.add_days(frappe.utils.today(), -LOOKBACK_DAYS)],
 				"unscheduled": 0,
 			},
-			fields=["name", "creation", "owner", "auto_planned", "vehicle", "run", "total_buckets", "total_stems"],
+			fields=[
+				"name",
+				"creation",
+				"owner",
+				"auto_planned",
+				"vehicle",
+				"run",
+				"total_buckets",
+				"total_stems",
+			],
 			order_by="creation asc",
 		)
 		# Planner trips only (BRT- naming series): hand-made test records are skipped.

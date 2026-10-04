@@ -161,7 +161,9 @@ def _quality_reporting(log, opl, issues):
 		return None
 
 
-def post_donor_stock(*, donor_bucket, variety, stem_length, stems, warehouse, farm, sales_order, so_item, opl):
+def post_donor_stock(
+	*, donor_bucket, variety, stem_length, stems, warehouse, farm, sales_order, so_item, opl
+):
 	"""Stems taken from a donor bucket on the shelf to make up an order's bunches:
 	sold to the order line (shelf → Graded Sold) and issued to the packhouse
 	(Graded Sold → Packhouse), as an issued bucket's are. Raises when either leg
@@ -200,7 +202,9 @@ def post_donor_stock(*, donor_bucket, variety, stem_length, stems, warehouse, fa
 		so_item=so_item,
 	)
 	if not issued.get("moved"):
-		frappe.throw(_("Bucket {0}'s stems could not be issued: {1}").format(donor_bucket, issued.get("reason")))
+		frappe.throw(
+			_("Bucket {0}'s stems could not be issued: {1}").format(donor_bucket, issued.get("reason"))
+		)
 	entries = [x.get("entry") for x in (sold.get("posted") or []) if isinstance(x, dict) and x.get("entry")]
 	entries.append(issued["entry"])
 	return entries
@@ -239,7 +243,10 @@ def get_reject_form(order_pick_list: str):
 	rejects = [
 		_describe(frappe.get_doc("Packing Reject Log", n))
 		for n in frappe.get_all(
-			"Packing Reject Log", filters={"order_pick_list": order_pick_list}, pluck="name", order_by="creation desc"
+			"Packing Reject Log",
+			filters={"order_pick_list": order_pick_list},
+			pluck="name",
+			order_by="creation desc",
 		)
 	]
 	return {
@@ -281,8 +288,10 @@ def record_reject(
 	]
 	if not issues:
 		frappe.throw(_("Pick at least one quality issue."))
-	if reason and frappe.db.exists("DocType", "Packhouse Rejection Reason") and not frappe.db.exists(
-		"Packhouse Rejection Reason", reason
+	if (
+		reason
+		and frappe.db.exists("DocType", "Packhouse Rejection Reason")
+		and not frappe.db.exists("Packhouse Rejection Reason", reason)
 	):
 		frappe.throw(_("Unknown reason {0}.").format(reason))
 
@@ -461,9 +470,9 @@ def approve_replacement(reject: str, donor_bucket: str):
 	return {
 		"success": True,
 		"reject": _describe(log),
-		"message": _("Approved: take {0} stems from bucket {1} (shelf {2}) and pack them into box {3}.").format(
-			cint(stems), donor.bucket_id, donor.shelf, log.box_id
-		),
+		"message": _(
+			"Approved: take {0} stems from bucket {1} (shelf {2}) and pack them into box {3}."
+		).format(cint(stems), donor.bucket_id, donor.shelf, log.box_id),
 	}
 
 
@@ -483,5 +492,7 @@ def close_without_replacement(reject: str):
 	return {
 		"success": True,
 		"reject": _describe(log),
-		"message": _("No replacement for box {0}: close it short with an under-pack reason.").format(log.box_id),
+		"message": _("No replacement for box {0}: close it short with an under-pack reason.").format(
+			log.box_id
+		),
 	}

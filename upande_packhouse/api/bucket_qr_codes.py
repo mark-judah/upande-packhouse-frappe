@@ -63,7 +63,11 @@ def _redraw(name):
 	# The old image goes: one current QR file per bucket.
 	for old in frappe.get_all(
 		"File",
-		filters={"attached_to_doctype": DOCTYPE, "attached_to_name": name, "attached_to_field": "qr_code_image"},
+		filters={
+			"attached_to_doctype": DOCTYPE,
+			"attached_to_name": name,
+			"attached_to_field": "qr_code_image",
+		},
 		pluck="name",
 	):
 		frappe.delete_doc("File", old, ignore_permissions=True, force=1)

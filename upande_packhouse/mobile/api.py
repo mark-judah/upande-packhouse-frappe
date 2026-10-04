@@ -4275,7 +4275,11 @@ def issueBucketToSaleOrderItem():
 				"Issue it once it arrives and is shelved."
 			)
 			frappe.response.http_status_code = 409
-			frappe.response.data = {"status": "waiting_transfer", "bucket_id": bucket_id, "farm": waiting[0][0]}
+			frappe.response.data = {
+				"status": "waiting_transfer",
+				"bucket_id": bucket_id,
+				"farm": waiting[0][0],
+			}
 		else:
 			# -------------------------------
 			# Get the Stock Entry this scan is acting on
@@ -5023,8 +5027,13 @@ def shelveBucket():
 		from upande_packhouse.api import transfer_control as tc
 
 		tc.log_transfer_event(
-			bucket_id, "Shelving farm corrected", farm=farm, shelf=shelf_id,
-			details="App set to {0}; shelf {1} belongs to {2} — shelved at {2}".format(farm, shelf_id, shelf_doc.farm),
+			bucket_id,
+			"Shelving farm corrected",
+			farm=farm,
+			shelf=shelf_id,
+			details="App set to {0}; shelf {1} belongs to {2} — shelved at {2}".format(
+				farm, shelf_id, shelf_doc.farm
+			),
 		)
 		farm = shelf_doc.farm
 
@@ -5041,7 +5050,9 @@ def shelveBucket():
 	if blocked:
 		from upande_packhouse.api import transfer_control as tc
 
-		tc.log_transfer_event(bucket_id, "Shelving refused", outcome="Refused", farm=farm, shelf=shelf_id, details=blocked)
+		tc.log_transfer_event(
+			bucket_id, "Shelving refused", outcome="Refused", farm=farm, shelf=shelf_id, details=blocked
+		)
 		frappe.response["data"] = {
 			"status": "failed",
 			"reason": reason,

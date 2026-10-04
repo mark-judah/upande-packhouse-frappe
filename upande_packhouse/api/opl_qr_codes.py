@@ -72,10 +72,7 @@ def generate(opl):
 
 def _all_labels(result):
 	return (
-		result["bucket_labels"]
-		+ result["bunch_labels"]
-		+ result["shelf_labels"]
-		+ result["trolley_labels"]
+		result["bucket_labels"] + result["bunch_labels"] + result["shelf_labels"] + result["trolley_labels"]
 	)
 
 

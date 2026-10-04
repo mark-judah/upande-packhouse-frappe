@@ -119,7 +119,9 @@ def sync_box_labels_for_fpl(fpl_doc, opl_doc, so_doc):
 		box.freight_agent = so_doc.get("custom_shipping_agent")
 		box.delivery_point = so_doc.get("custom_delivery_point")
 		box.box_total_count = total_boxes
-		box.update(label_filters(order_name, [(r.item_code, int(r.stock_qty or 0)) for r in rows], mix_by_item))
+		box.update(
+			label_filters(order_name, [(r.item_code, int(r.stock_qty or 0)) for r in rows], mix_by_item)
+		)
 
 		box.set("box_item", [])
 		for r in rows:

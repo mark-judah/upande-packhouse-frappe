@@ -288,7 +288,9 @@ def quality_replacement_options(
 	sales_farm = _sales_farm(opl)
 
 	local = (
-		_with_stock(sa._replacement_candidates(anchor, sales_farm, needed, limit=limit), anchor.item_code, needed)
+		_with_stock(
+			sa._replacement_candidates(anchor, sales_farm, needed, limit=limit), anchor.item_code, needed
+		)
 		if sales_farm
 		else []
 	)
@@ -305,16 +307,16 @@ def quality_replacement_options(
 		"on_line": on_line,
 		"needed": needed,
 		"sales_farm": sales_farm,
-		"sales_farm_candidates": [_describe(c, sales_farm, recommended=(i == 0)) for i, c in enumerate(local)],
+		"sales_farm_candidates": [
+			_describe(c, sales_farm, recommended=(i == 0)) for i, c in enumerate(local)
+		],
 		"remote_candidates": remote[:limit],
 		"warning": _(
 			"This order is delivered today. A bucket from a remote farm comes on the next truck and may not arrive in time."
 		)
 		if not local and remote and _delivers_today(opl.sales_order)
 		else None,
-		"message": None
-		if local or remote
-		else sa._no_replacement_message(anchor, sales_farm or "", needed),
+		"message": None if local or remote else sa._no_replacement_message(anchor, sales_farm or "", needed),
 	}
 
 
@@ -355,7 +357,11 @@ def report_packing_quality_issue(
 	if new_bucket_id:
 		for farm in [sales_farm, *sa._remote_farms_of(sales_farm)]:
 			found = _with_stock(
-				[c for c in sa._replacement_candidates(anchor, farm, bad, limit=500) if c.bucket_id == new_bucket_id],
+				[
+					c
+					for c in sa._replacement_candidates(anchor, farm, bad, limit=500)
+					if c.bucket_id == new_bucket_id
+				],
 				anchor.item_code,
 				bad,
 			)
@@ -364,9 +370,9 @@ def report_packing_quality_issue(
 				break
 		if not new:
 			return _fail(
-				_("Bucket {0} can no longer replace these stems (allocated, moved or too short). Pick another.").format(
-					new_bucket_id
-				)
+				_(
+					"Bucket {0} can no longer replace these stems (allocated, moved or too short). Pick another."
+				).format(new_bucket_id)
 			)
 	remote = bool(new) and new_farm != sales_farm
 
@@ -375,7 +381,9 @@ def report_packing_quality_issue(
 		_shrink_old_allocation(opl, rows, anchor, bad, sale_order_item)
 		new_rows, stock_moves = [], []
 		if new:
-			new_rows, stock_moves = _allocate_replacement(opl, rows, anchor, new, new_farm, bad, sale_order_item, remote)
+			new_rows, stock_moves = _allocate_replacement(
+				opl, rows, anchor, new, new_farm, bad, sale_order_item, remote
+			)
 		replacement = _record(
 			opl, rows, anchor, new, new_farm, bad, scope, defect, notes, remote, reject_entry, stock_moves
 		)
@@ -415,9 +423,9 @@ def report_packing_quality_issue(
 	issued = offline_issue._issue(new.bucket_id, opl_name)
 	result["issued"] = bool(issued) and all(r["ok"] for r in issued)
 	if result["issued"]:
-		result["message"] = _("{0} stems of {1} rejected ({2}). {3} from shelf {4} is issued to this line — pack it now.").format(
-			int(bad), bucket, defect, new.bucket_id, new.shelf
-		)
+		result["message"] = _(
+			"{0} stems of {1} rejected ({2}). {3} from shelf {4} is issued to this line — pack it now."
+		).format(int(bad), bucket, defect, new.bucket_id, new.shelf)
 	else:
 		result["message"] = _(
 			"{0} stems of {1} rejected ({2}). {3} is allocated from shelf {4}; scan it at Issuing to bring it to packing."
@@ -437,10 +445,18 @@ def _packhouse_holding(opl, rows, anchor, qty):
 	farms = [r.farm for r in rows if r.farm] + [opl.farm]
 	for farm in farms:
 		row = stock_movement.mapping_row_for_farm(farm, business_unit)
-		if row and row.packhouse and held.get((anchor.bucket, row.packhouse), 0) + stock_movement.QTY_TOLERANCE >= qty:
+		if (
+			row
+			and row.packhouse
+			and held.get((anchor.bucket, row.packhouse), 0) + stock_movement.QTY_TOLERANCE >= qty
+		):
 			return row.packhouse, business_unit
 	for (bucket, warehouse), n in sorted(held.items(), key=lambda kv: -kv[1]):
-		if bucket == anchor.bucket and "packhouse" in (warehouse or "").lower() and n + stock_movement.QTY_TOLERANCE >= qty:
+		if (
+			bucket == anchor.bucket
+			and "packhouse" in (warehouse or "").lower()
+			and n + stock_movement.QTY_TOLERANCE >= qty
+		):
 			return warehouse, business_unit
 	in_packhouse = max(
 		[n for (b, w), n in held.items() if b == anchor.bucket and "packhouse" in (w or "").lower()] or [0]
@@ -485,7 +501,8 @@ def _post_rejects(opl, rows, anchor, qty, defect):
 	se.update(
 		{
 			"stock_entry_type": REJECTS_ENTRY_TYPE,
-			"purpose": frappe.db.get_value("Stock Entry Type", REJECTS_ENTRY_TYPE, "purpose") or "Material Transfer",
+			"purpose": frappe.db.get_value("Stock Entry Type", REJECTS_ENTRY_TYPE, "purpose")
+			or "Material Transfer",
 			"company": company,
 			"posting_date": frappe.utils.nowdate(),
 			"posting_time": frappe.utils.nowtime(),
@@ -537,7 +554,10 @@ def _shrink_old_allocation(opl, rows, anchor, qty, sale_order_item):
 		else:
 			conv = flt(r.conversion_factor) or 1
 			frappe.db.set_value(
-				"Pick List Item", r.name, {"stock_qty": remaining, "qty": remaining / conv}, update_modified=False
+				"Pick List Item",
+				r.name,
+				{"stock_qty": remaining, "qty": remaining / conv},
+				update_modified=False,
 			)
 
 	bas_name = frappe.db.get_value(
@@ -595,12 +615,16 @@ def _allocate_replacement(opl, rows, anchor, new, new_farm, qty, sale_order_item
 		"uom": so_item.uom if so_item else None,
 		"stock_uom": so_item.stock_uom if so_item else None,
 		"conversion_factor": flt(so_item.conversion_factor) if so_item else 1,
-		"downgrade_reason": _("Quality issue replacement for {0} ({1})").format(anchor.bucket, anchor.stem_length or "")
+		"downgrade_reason": _("Quality issue replacement for {0} ({1})").format(
+			anchor.bucket, anchor.stem_length or ""
+		)
 		if longer
 		else "",
 	}
 	before = set(
-		frappe.get_all("Pick List Item", filters={"parent": opl.name, "parenttype": "Order Pick List"}, pluck="name")
+		frappe.get_all(
+			"Pick List Item", filters={"parent": opl.name, "parenttype": "Order Pick List"}, pluck="name"
+		)
 	)
 	res = sa._allocate_stock_with_buckets_impl(
 		opl.sales_order, [allocation], _location_of(opl.farm or new_farm), teams={}, target_opl=opl.name
