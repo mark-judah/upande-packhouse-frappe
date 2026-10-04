@@ -1614,8 +1614,21 @@ function mergeTrips(vehicle){
 }
 function staleTripsHtml(){
   var st=DATA.trips.filter(function(t){ return t.stale; }); if(!st.length) return '';
-  return '<div class="ts-alert"><div class="ts-alert-hd">'+st.length+' planned trip'+(st.length===1?'':'s')+' from an earlier day never dispatched — '+(st.length===1?'its':'their')+' buckets are open again</div><div class="ts-alert-list">'+
-    st.map(function(t){ return '<div class="ts-alert-row"><span class="nm">'+esc(t.name)+'</span><span class="meta">'+esc(t.vehicle||'')+' · '+esc(t.trip_date)+' · '+(t.loaded_buckets?t.loaded_buckets+' of '+(t.total_buckets||0)+' bkt loaded — dispatch it in the farm app':(t.total_buckets||0)+' bkt, none loaded')+' · '+esc(t.status)+'</span></div>'; }).join('')+'</div></div>';
+  return '<div class="ts-alert"><div class="ts-alert-hd">'+st.length+' planned trip'+(st.length===1?'':'s')+' from an earlier day never dispatched — '+(st.length===1?'its':'their')+' buckets are open again'+
+    (st.length>1?'<button class="tbtn ghost trip-del" data-act="stale-del-all">Delete all</button>':'')+'</div><div class="ts-alert-list">'+
+    st.map(function(t){ return '<div class="ts-alert-row"><span class="nm">'+esc(t.name)+'</span><span class="meta">'+esc(t.vehicle||'')+' · '+esc(t.trip_date)+' · '+(t.loaded_buckets?t.loaded_buckets+' of '+(t.total_buckets||0)+' bkt loaded — dispatch it in the farm app':(t.total_buckets||0)+' bkt, none loaded')+' · '+esc(t.status)+'</span>'+
+      (t.loaded_buckets?'':'<button class="tbtn ghost trip-del" data-act="stale-del" data-name="'+esc(t.name)+'">Delete</button>')+'</div>'; }).join('')+'</div></div>';
+}
+/* Delete never-dispatched trips from an earlier day (none loaded). deleteBucketTrip
+   still refuses one whose truck got buckets meanwhile. */
+function deleteStaleTrips(names){
+  if(!names.length||S.tripBusy) return;
+  confirmModal('Delete trip'+(names.length===1?'':'s'),'Delete '+names.join(', ')+'? '+(names.length===1?'It':'They')+' never left and hold'+(names.length===1?'s':'')+' no buckets.','Delete').then(function(ok){ if(!ok) return;
+    S.tripBusy=true;
+    var fails=[];
+    names.reduce(function(p,nm){ return p.then(function(){ return call('deleteBucketTrip',{name:nm}).then(function(r){ var m=r.message||{}; if(m.status!=='success') fails.push(m.message||nm); }).catch(function(err){ fails.push(nm+': '+((err&&err.message)||'failed')); }); }); }, Promise.resolve())
+      .then(function(){ S.tripBusy=false; toast(fails.length?fails.join(' · '):'Deleted '+names.length+' trip'+(names.length===1?'':'s')); loadData(); document.dispatchEvent(new Event('rt-trips-changed')); });
+  });
 }
 /* Scheduling itself is now done ONLY by ⚡ Distribute — this tab is read-only/informational. */
 function renderOrders(){
@@ -2180,6 +2193,8 @@ document.addEventListener('click',function(ev){
   else if(a==='dist-confirm'){ if(!el.disabled) applyDistribution(); }
   else if(a==='dist-cancel'){ closeDistModal(); }
   else if(a==='trip-merge'){ mergeTrips(el.dataset.veh); }
+  else if(a==='stale-del'){ deleteStaleTrips([el.dataset.name]); }
+  else if(a==='stale-del-all'){ deleteStaleTrips(DATA.trips.filter(function(t){ return t.stale&&!t.loaded_buckets; }).map(function(t){ return t.name; })); }
   else if(a==='rn-dd-toggle'){ if(S.rn){ S.rn.dd = S.rn.dd===el.dataset.k ? null : el.dataset.k; renderRoadModal();
       var q=document.querySelector('.rn-dd-q'); if(q) q.focus(); } }
   else if(a==='rn-dd-pick'){ if(S.rn&&!el.disabled){ S.rn[el.dataset.k]=el.dataset.v; S.rn.dd=null; S.rn.err=''; renderRoadModal(); } }

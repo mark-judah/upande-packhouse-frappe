@@ -2549,6 +2549,9 @@ def getCurrentUserRoles():
 		roles = [r["role"] for r in rows if r.get("role")]
 		frappe.response["data"] = {
 			"user": user,
+			# The app shows people by name, and most users cannot read their own
+			# User record (only System Managers can), so the name comes from here.
+			"full_name": frappe.utils.get_fullname(user),
 			"roles": roles,
 		}
 	except Exception as e:

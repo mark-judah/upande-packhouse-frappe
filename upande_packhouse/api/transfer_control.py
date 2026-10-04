@@ -192,6 +192,27 @@ def _schedule_map(lookback_days=14):
 			op = r.get("order_pick_list")
 			if op and op not in out:
 				out[op] = {"team": sc.team, "schedule": int(r.get("sequence") or 0)}
+	# Every OPL already carries its team. One nobody put on a Packhouse Schedule
+	# still gets planned: it joins the END of its team's queue (after the orders the
+	# scheduler sequenced), earliest delivery first. Without this, a teamed order whose
+	# buckets were waiting at a farm was flagged "not scheduled" and never got a truck.
+	last = {}
+	for v in out.values():
+		last[v["team"]] = max(last.get(v["team"], 0), v["schedule"])
+	for r in frappe.db.sql(
+		"""
+		SELECT opl.name AS opl, opl.team AS team
+		FROM `tabOrder Pick List` opl
+		JOIN `tabSales Order` so ON so.name = opl.sales_order
+		WHERE opl.docstatus < 2 AND IFNULL(opl.team, '') != '' AND so.delivery_date >= %(today)s
+		ORDER BY so.delivery_date, opl.name
+		""",
+		{"today": frappe.utils.today()},
+		as_dict=True,
+	):
+		if r.opl not in out:
+			last[r.team] = last.get(r.team, 0) + 1
+			out[r.opl] = {"team": r.team, "schedule": last[r.team], "from_opl": 1}
 	return out
 
 
@@ -1556,9 +1577,10 @@ def _transfer_schedule_payload(from_date, to_date):
 			continue
 		sc = sched.get(r["opl"])
 		if not sc:
-			# Buckets already on a truck count too: an unscheduled order loaded straight
-			# from the farm used to drop off the page the moment it left.
-			if total_b or total_road:
+			# Only buckets still WAITING at a farm need a truck planned. An unscheduled
+			# order whose buckets were loaded straight from the farm is already moving
+			# (its trip card tags it "unscheduled") — flagging it here only cried wolf.
+			if total_b:
 				unscheduled.append(
 					{
 						"opl": r["opl"],
@@ -1569,7 +1591,7 @@ def _transfer_schedule_payload(from_date, to_date):
 						"reason": "not_scheduled" if r.get("opl_team") else "no_team",
 						"buckets": total_b,
 						"on_road": total_road,
-						"farms": sorted(f["farm"] for f in farms_out if f["buckets"] or f["on_road"]),
+						"farms": sorted(f["farm"] for f in farms_out if f["buckets"]),
 					}
 				)
 			continue
