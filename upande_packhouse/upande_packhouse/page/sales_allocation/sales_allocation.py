@@ -1403,6 +1403,91 @@ def allocate_stock_with_buckets(
 		raise
 
 
+def _line_capacity(so_item):
+	"""Stems a Sales Order line's boxes hold: Number of Boxes x stems per box -- the
+	same rule the pick-list builders enforce (create_mixed_box_picklist "Overpacked")."""
+	per_box = (
+		so_item.get("custom_packrate_mixed_box")
+		if so_item.get("custom_mixed_box") == 1
+		else so_item.get("custom_packrate")
+	)
+	return int(per_box or 10) * int(so_item.get("custom_number_of_boxes") or 1)
+
+
+def _fit_allocations_to_boxes(so_doc, allocations):
+	"""Trim an allocation to the room left in each line's boxes, BEFORE anything is
+	written, so it can never fail at the end as "Overpacked".
+
+	Room = the line's capacity less the stems already on its pick rows. Buckets are
+	taken in the order sent; the one that crosses the limit is drawn partially (its
+	balance stays free on the shelf) and any after it are skipped. A line with no
+	room left stops the allocation with a plain message. Returns (allocations, notes).
+	"""
+	lines = {i.name: i for i in so_doc.items}
+	room = {}
+	for soi in {a["sales_order_item"] for a in allocations}:
+		item = lines.get(soi)
+		if not item:
+			continue
+		placed = flt(
+			frappe.db.sql(
+				"""
+				SELECT COALESCE(SUM(pli.stock_qty), 0)
+				FROM `tabPick List Item` pli
+				JOIN `tabOrder Pick List` opl ON opl.name = pli.parent
+				WHERE pli.parenttype = 'Order Pick List' AND opl.docstatus < 2
+				  AND %(soi)s IN (COALESCE(pli.custom_sale_order_item, ''), COALESCE(pli.sales_order_item, ''))
+				""",
+				{"soi": soi},
+			)[0][0]
+		)
+		room[soi] = max(0.0, _line_capacity(item) - placed)
+
+	fitted, notes, full = [], [], set()
+	for a in allocations:
+		soi = a["sales_order_item"]
+		if soi not in room:
+			fitted.append(a)
+			continue
+		qty = flt(a.get("qty"))
+		take = min(qty, room[soi])
+		if take <= 0:
+			full.add(soi)
+			notes.append(
+				_("{0}: skipped bucket {1} ({2} stems), the line's boxes are full.").format(
+					lines[soi].item_code, a.get("bucket_id"), int(qty)
+				)
+			)
+			continue
+		if take < qty:
+			notes.append(
+				_("{0}: took {1} of {2} stems from bucket {3}, the rest stays on its shelf.").format(
+					lines[soi].item_code, int(take), int(qty), a.get("bucket_id")
+				)
+			)
+			a = {**a, "qty": take}
+		room[soi] -= take
+		fitted.append(a)
+
+	empty = [s for s in full if not any(f["sales_order_item"] == s for f in fitted)]
+	if empty:
+		frappe.throw(
+			"<br>".join(
+				_(
+					"{0} {1}: all {2} stems ({3} boxes) are already on the pick list; nothing more fits. Raise Number of Boxes on the Sales Order to allocate more."
+				).format(
+					lines[s].item_code,
+					lines[s].get("custom_length") or "",
+					_line_capacity(lines[s]),
+					int(lines[s].get("custom_number_of_boxes") or 1),
+				)
+				for s in empty
+			),
+			title=_("Line already full"),
+		)
+	return fitted, notes
+
+
 def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=None, target_opl=None):
 	"""`target_opl` (packing_quality's replacement): put the new rows on that
 	Order Pick List -- the one being packed -- whatever box type the line is,
@@ -1428,6 +1513,9 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 	)
 
 	so_doc = frappe.get_doc("Sales Order", sales_order)
+	# Never allocate more than a line's boxes hold: fit it here, before anything is
+	# written, instead of failing as "Overpacked" once the pick list is built.
+	allocations, fit_notes = _fit_allocations_to_boxes(so_doc, allocations)
 	business_unit = stock_movement.business_unit_of(so_doc)
 
 	# ── Validate against confirmed stems ──
@@ -3134,7 +3222,9 @@ def _replace_requested_bucket(
 			if allow_left and (cint(r.loaded_in_trolley) or cint(r.in_transit) or cint(r.awaiting_transfer)):
 				# The missing bucket was on its way from a remote farm; the replacement
 				# is here already, so the row is no longer travelling.
-				values.update({"loaded_in_trolley": 0, "in_transit": 0, "awaiting_transfer": 0, "transit_truck": ""})
+				values.update(
+					{"loaded_in_trolley": 0, "in_transit": 0, "awaiting_transfer": 0, "transit_truck": ""}
+				)
 			if to_remote:
 				# Requested from the remote farm: waiting for a truck again, wherever it was.
 				values.update(
