@@ -1,0 +1,9 @@
+{#- Remote Transfers — Truck Routes tab. Its view is drawn by the planner in
+    transfer_scheduling.html (renderRoutes).
+    The shell (www/remote-transfer.html) includes this file once per part, with rt_part =
+    head (styles) | right (top-bar controls) | body | after (in the page, after the
+    main column: pop-ups) | tail (scripts). -#}
+{% if rt_part == 'body' %}{% raw %}
+      <div id="panel-routes" class="ts-panel" style="display:none"></div>
+{% endraw %}
+{% endif %}
