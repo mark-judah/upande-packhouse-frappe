@@ -3078,7 +3078,7 @@ def getTransferScheduleData():
                so.custom_truck_details AS truck, 0 AS mixed,
                o.schedule_number AS schedule, o.team AS team,
                pli.bucket AS bucket, pli.item_code AS variety, pli.stock_qty AS stems,
-               COALESCE(NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''), NULLIF(pli.farm, '')) AS farm,
+               COALESCE(NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.origin_warehouse,''), NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''), NULLIF(pli.farm, '')) AS farm,
                pli.awaiting_transfer AS aw, pli.loaded_in_trolley AS ld, pli.in_transit AS tr
         FROM `tabPick List Item` pli
         JOIN `tabOrder Pick List` o ON o.name = pli.parent
@@ -3359,7 +3359,7 @@ def getTransferScheduleData():
         SELECT pli.transit_truck AS truck,
                pli.awaiting_transfer AS aw, pli.loaded_in_trolley AS ld,
                pli.in_transit AS tr, pli.shelved AS sh,
-               COALESCE(NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''), NULLIF(pli.farm, '')) AS farm,
+               COALESCE(NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.origin_warehouse,''), NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''), NULLIF(pli.farm, '')) AS farm,
                pli.modified AS modified
         FROM `tabPick List Item` pli
         JOIN `tabOrder Pick List` o ON o.name = pli.parent

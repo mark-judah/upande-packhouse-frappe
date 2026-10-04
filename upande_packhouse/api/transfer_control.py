@@ -47,7 +47,7 @@ from frappe.utils import cint, flt, getdate
 # (kept as the remote farm's cold store until the bucket is shelved at the packhouse),
 # else the row's farm. The shelf's farm can disagree (a mislabelled shelf, an old row)
 # and used to put a bucket on the wrong farm's trip.
-FARM_EXPR = "COALESCE(NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''), NULLIF(pli.farm, ''))"
+FARM_EXPR = "COALESCE(NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.origin_warehouse,''), NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''), NULLIF(pli.farm, ''))"
 # Pick-list creation pre-fills transit_truck with the ORDER's delivery truck label
 # (Sales Order custom_truck, e.g. "SIM Truck", "RAMBO" — not even Vehicle records),
 # the same field the transfer truck is written to on load/dispatch. A value only

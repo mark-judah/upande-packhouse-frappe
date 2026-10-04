@@ -6,6 +6,19 @@ from frappe.utils import cint, flt, now_datetime
 
 from upande_packhouse import stock_movement
 
+
+def _origin_warehouse(farm, fallback=None):
+	"""Where a bucket's stems start: its own farm's Receiving Cold Store, from the
+	warehouse mapping. Not the Shelf Item's warehouse -- an early transfer leg could
+	leave a remote bucket's shelf row pointing at the hub, and a pick row copied from
+	it then sent the transfer's stock move to the wrong store. A pick row keeps this
+	as `origin_warehouse` for good; `source_warehouse` starts here and moves to the
+	sales farm's store only once the bucket is shelved there (createShelvingEntry)."""
+	from upande_packhouse.roses_warehouse_map import source_warehouse_for_farm
+
+	return (source_warehouse_for_farm(farm) if farm else None) or fallback or ""
+
+
 # Buckets locked by an open (non-Rejected) Discard Request must never count as
 # available or be allocated -- unless that row is already discarded, so a reused
 # bucket's fresh harvest does not inherit its previous life's hold. Injected into
@@ -1875,7 +1888,7 @@ def _append_rows_to_existing_opls(allocations, so_doc, location):
                     name, parent, parenttype, parentfield, idx, docstatus,
                     item_code, item_name, shelf, bucket,
                     custom_sale_order_item, farm,
-                    source_warehouse, stem_length, transit_truck,
+                    source_warehouse, origin_warehouse, stem_length, transit_truck,
                     qty, stock_qty, picked_qty, stock_reserved_qty,
                     packrate, uom, conversion_factor,
                     stock_uom, delivered_qty,
@@ -1889,7 +1902,7 @@ def _append_rows_to_existing_opls(allocations, so_doc, location):
                     %(name)s, %(parent)s, 'Order Pick List', 'table_ytkc', %(idx)s, 1,
                     %(item_code)s, %(item_name)s, %(shelf)s, %(bucket)s,
                     %(so_item)s, %(farm)s,
-                    %(warehouse)s, %(stem_length)s, %(truck)s,
+                    %(warehouse)s, %(warehouse)s, %(stem_length)s, %(truck)s,
                     %(qty)s, %(stock_qty)s, 0, 0,
                     %(packrate)s, %(uom)s, %(conv)s,
                     %(stock_uom)s, 0,
@@ -1912,7 +1925,7 @@ def _append_rows_to_existing_opls(allocations, so_doc, location):
 					"bucket": alloc.get("bucket_id"),
 					"so_item": so_item_name,
 					"item_group": so_item.item_group or "",
-					"warehouse": alloc.get("warehouse") or "",
+					"warehouse": _origin_warehouse(alloc.get("_shelf_farm"), alloc.get("warehouse")),
 					"stem_length": alloc.get("stem_length") or so_item.custom_length or "",
 					"truck": so_item.get("custom_truck") or "",
 					"qty": qty_uom,
@@ -2230,7 +2243,8 @@ def _update_existing_pick_list(
 				"qty": qty_uom,
 				"stock_qty": alloc["qty"],
 				"conversion_factor": conv,
-				"source_warehouse": alloc.get("warehouse"),
+				"source_warehouse": _origin_warehouse(alloc.get("_shelf_farm"), alloc.get("warehouse")),
+				"origin_warehouse": _origin_warehouse(alloc.get("_shelf_farm"), alloc.get("warehouse")),
 				"sales_order_item": so_item.name,
 				"stem_length": alloc.get("stem_length") or so_item.custom_length,
 				"transit_truck": so_item.get("custom_truck"),
@@ -3021,7 +3035,9 @@ def _replace_requested_bucket(
 			values = {
 				"bucket": new.bucket_id,
 				"shelf": new.shelf,
-				"source_warehouse": new.warehouse or r.source_warehouse,
+				# The replacement starts where it sits: its farm's own store.
+				"source_warehouse": _origin_warehouse(farm, new.warehouse or r.source_warehouse),
+				"origin_warehouse": _origin_warehouse(farm, new.warehouse or r.source_warehouse),
 				# The pick row keeps the graded length; a longer one is a downgrade.
 				"stem_length": new.stem_length or r.stem_length,
 			}
