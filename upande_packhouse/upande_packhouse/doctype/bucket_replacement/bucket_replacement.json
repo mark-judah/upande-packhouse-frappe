@@ -13,6 +13,14 @@
   "column_break_1",
   "reason",
   "notes",
+  "section_quality",
+  "defect",
+  "defect_category",
+  "replace_scope",
+  "column_break_quality",
+  "replacement_source",
+  "transfer_priority",
+  "reject_entry",
   "section_order",
   "order_pick_list",
   "order_name",
@@ -73,7 +81,7 @@
    "fieldname": "reason",
    "fieldtype": "Select",
    "label": "Reason",
-   "options": "Missing\nDamaged\nWrong variety\nIssued offline\nOther",
+   "options": "Missing\nDamaged\nWrong variety\nIssued offline\nQuality issue\nOther",
    "default": "Missing",
    "in_list_view": 1,
    "in_standard_filter": 1
@@ -82,6 +90,56 @@
    "fieldname": "notes",
    "fieldtype": "Small Text",
    "label": "Notes"
+  },
+  {
+   "fieldname": "section_quality",
+   "fieldtype": "Section Break",
+   "label": "Quality Issue",
+   "depends_on": "eval:doc.reason=='Quality issue'"
+  },
+  {
+   "fieldname": "defect",
+   "fieldtype": "Data",
+   "label": "Defect",
+   "in_standard_filter": 1,
+   "description": "The QC Parameter found on the line (e.g. Thrips, Botrytis, Wrong Length)."
+  },
+  {
+   "fieldname": "defect_category",
+   "fieldtype": "Select",
+   "label": "Defect Category",
+   "options": "\nWrong stem length\nDisease\nPest\nOther",
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "replace_scope",
+   "fieldtype": "Select",
+   "label": "Replaced",
+   "options": "\nWhole bucket\nSome stems"
+  },
+  {
+   "fieldname": "column_break_quality",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "replacement_source",
+   "fieldtype": "Select",
+   "label": "Replacement From",
+   "options": "\nSales farm\nRemote farm",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "transfer_priority",
+   "fieldtype": "Select",
+   "label": "Transfer Priority",
+   "options": "\nASAP"
+  },
+  {
+   "fieldname": "reject_entry",
+   "fieldtype": "Link",
+   "label": "Rejects Stock Entry",
+   "options": "Stock Entry",
+   "description": "Packhouse Rejects entry that moved the bad stems to the Rejects warehouse."
   },
   {
    "fieldname": "section_order",
@@ -215,7 +273,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-10-02 00:03:38.911221",
+ "modified": "2026-10-04 23:30:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Bucket Replacement",

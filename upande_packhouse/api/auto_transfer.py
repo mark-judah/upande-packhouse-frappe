@@ -337,6 +337,8 @@ def _open_orders(data):
 					"buckets": open_b,
 					# Left behind by a truck that already came: planned first (_place_left_behind).
 					"left_behind": min(open_b, int((f.get("left_behind") or {}).get("buckets") or 0)),
+					# Quality-issue replacements requested ASAP: before anything else.
+					"asap": min(open_b, int(f.get("asap") or 0)),
 					"per_bucket": (f["stems"] / f["buckets"]) if f["buckets"] else 0,
 					"varieties": ", ".join(v["variety"] for v in f["varieties"] if v["variety"]),
 				}
@@ -349,12 +351,14 @@ def _open_orders(data):
 # ============================================================
 # DISTRIBUTION ACROSS TEAMS  (port of computeDistribution)
 # ============================================================
-def _place_left_behind(orders, trucks, graph):
+def _place_left_behind(orders, trucks, graph, key="left_behind"):
 	"""Buckets a truck left behind go FIRST — before any team's queue — on the next
-	trip to their farm. What fits comes off the order's open portions."""
+	trip to their farm. What fits comes off the order's open portions. With
+	key="asap" the same for quality-issue replacements requested ASAP, which go
+	before even those."""
 	for o in orders:
 		for f in o["open_farms"]:
-			n = f.get("left_behind") or 0
+			n = min(f["buckets"], f.get(key) or 0)
 			if not n:
 				continue
 			for truck, k in _place_farm(trucks, f["farm"], n, graph):
@@ -377,6 +381,7 @@ def _place_left_behind(orders, trucks, graph):
 
 
 def _distribute(orders, trucks, graph):
+	_place_left_behind(orders, trucks, graph, key="asap")
 	_place_left_behind(orders, trucks, graph)
 	orders = [o for o in orders if o["open"] > 0]
 	by_team = {}

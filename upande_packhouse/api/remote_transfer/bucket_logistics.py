@@ -29,10 +29,27 @@ def getBucketLogistics():
 
 	# source-farm expression (reused in SELECT + WHERE)
 	FARM_EXPR = "COALESCE(NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''), NULLIF(pli.farm, ''))"
+	# Ready / issued keep a remote bucket in view after Kapkolia: issuing can clear
+	# its shelved flag, and an order that reached Kapkolia must not drop off the page.
 	TRANSFER = (
 		"(pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1 OR pli.in_transit = 1 OR pli.shelved = 1"
-		" OR pli.not_found = 1)"
+		" OR pli.not_found = 1 OR pli.custom_ready_for_packing = 1 OR pli.issued = 1)"
 	)
+
+	# Each stage counts a bucket once it has PASSED it, as getBucketLogisticsDetail
+	# ticks it: shelving clears awaiting / trolley / in transit on the row, but the
+	# bucket did go through them -- counting only the flags a row still carries made a
+	# shelved order read "Awaiting 0/2 · Trolley 0/2 · In Transit 0/2 · Shelved 2/2",
+	# as if it had skipped the truck.
+	_ready = "IFNULL(pli.custom_ready_for_packing, 0) = 1 OR IFNULL(pli.issued, 0) = 1"
+	_shelved = "IFNULL(pli.shelved, 0) = 1 OR " + _ready
+	_transit = "IFNULL(pli.in_transit, 0) = 1 OR " + _shelved
+	_trolley = "IFNULL(pli.loaded_in_trolley, 0) = 1 OR IFNULL(pli.trolley_id, '') != '' OR " + _transit
+	REACHED_READY = "(" + _ready + ")"
+	REACHED_SHELVED = "(" + _shelved + ")"
+	REACHED_TRANSIT = "(" + _transit + ")"
+	REACHED_TROLLEY = "(" + _trolley + ")"
+	REACHED_AWAITING = "(IFNULL(pli.awaiting_transfer, 0) = 1 OR " + _trolley + ")"
 
 	# A bucket's identity on the pick list (case-insensitive; a row without a bucket counts alone).
 	BKT = "COALESCE(NULLIF(UPPER(pli.bucket), ''), pli.name)"
@@ -76,19 +93,19 @@ def getBucketLogistics():
             COUNT(DISTINCT """
 		+ BKT
 		+ """)                  AS total,
-            COUNT(DISTINCT CASE WHEN pli.awaiting_transfer = 1 AND NOT (IFNULL(pli.custom_ready_for_packing, 0) = 1 OR IFNULL(pli.issued, 0) = 1) THEN """
+            COUNT(DISTINCT CASE WHEN """ + REACHED_AWAITING + """ THEN """
 		+ BKT
 		+ """ END) AS awaiting,
-            COUNT(DISTINCT CASE WHEN pli.loaded_in_trolley = 1 THEN """
+            COUNT(DISTINCT CASE WHEN """ + REACHED_TROLLEY + """ THEN """
 		+ BKT
 		+ """ END) AS trolley,
-            COUNT(DISTINCT CASE WHEN pli.in_transit = 1 THEN """
+            COUNT(DISTINCT CASE WHEN """ + REACHED_TRANSIT + """ THEN """
 		+ BKT
 		+ """ END) AS transit,
-            COUNT(DISTINCT CASE WHEN pli.shelved = 1 THEN """
+            COUNT(DISTINCT CASE WHEN """ + REACHED_SHELVED + """ THEN """
 		+ BKT
 		+ """ END) AS shelved,
-            COUNT(DISTINCT CASE WHEN pli.custom_ready_for_packing = 1 THEN """
+            COUNT(DISTINCT CASE WHEN """ + REACHED_READY + """ THEN """
 		+ BKT
 		+ """ END) AS ready,
             COUNT(DISTINCT CASE WHEN pli.issued = 1 THEN """
@@ -97,6 +114,12 @@ def getBucketLogistics():
             COUNT(DISTINCT CASE WHEN pli.issued_offline = 1 THEN """
 		+ BKT
 		+ """ END) AS issued_offline,
+            -- Quality-issue replacements requested ASAP (packing) and not here yet.
+            COUNT(DISTINCT CASE WHEN IFNULL(pli.transfer_priority, '') = 'ASAP'
+                AND IFNULL(pli.shelved, 0) = 0 AND IFNULL(pli.issued, 0) = 0
+                AND IFNULL(pli.custom_ready_for_packing, 0) = 0 THEN """
+		+ BKT
+		+ """ END) AS asap,
             -- Not in the farm's cold room and nothing to replace it: left out of the transfer.
             COUNT(DISTINCT CASE WHEN pli.not_found = 1 THEN """
 		+ BKT
@@ -116,7 +139,7 @@ def getBucketLogistics():
 
 	sched = _schedule_map()
 	for r in rows:
-		for k in ["total", "awaiting", "trolley", "transit", "shelved", "ready", "issued", "issued_offline", "not_found"]:
+		for k in ["total", "awaiting", "trolley", "transit", "shelved", "ready", "issued", "issued_offline", "not_found", "asap"]:
 			r[k] = int(r.get(k) or 0)
 		# Transfer initiation time = OPL creation datetime (full timestamp).
 		r["initiated"] = str(r.get("initiated")) if r.get("initiated") else ""
@@ -203,19 +226,19 @@ def getBucketLogistics():
 			    COUNT(DISTINCT """
 			+ BKT
 			+ """) AS total,
-			    COUNT(DISTINCT CASE WHEN pli.awaiting_transfer = 1 AND NOT (IFNULL(pli.custom_ready_for_packing, 0) = 1 OR IFNULL(pli.issued, 0) = 1) THEN """
+			    COUNT(DISTINCT CASE WHEN """ + REACHED_AWAITING + """ THEN """
 			+ BKT
 			+ """ END) AS awaiting,
-			    COUNT(DISTINCT CASE WHEN pli.loaded_in_trolley = 1 THEN """
+			    COUNT(DISTINCT CASE WHEN """ + REACHED_TROLLEY + """ THEN """
 			+ BKT
 			+ """ END) AS trolley,
-			    COUNT(DISTINCT CASE WHEN pli.in_transit = 1 THEN """
+			    COUNT(DISTINCT CASE WHEN """ + REACHED_TRANSIT + """ THEN """
 			+ BKT
 			+ """ END) AS transit,
-			    COUNT(DISTINCT CASE WHEN pli.shelved = 1 THEN """
+			    COUNT(DISTINCT CASE WHEN """ + REACHED_SHELVED + """ THEN """
 			+ BKT
 			+ """ END) AS shelved,
-			    COUNT(DISTINCT CASE WHEN pli.custom_ready_for_packing = 1 THEN """
+			    COUNT(DISTINCT CASE WHEN """ + REACHED_READY + """ THEN """
 			+ BKT
 			+ """ END) AS ready,
 			    COUNT(DISTINCT CASE WHEN pli.issued = 1 THEN """
@@ -261,7 +284,8 @@ def getBucketLogistics():
 			JOIN `tabPick List Item` pli ON pli.parent = tb.order_pick_list AND pli.parenttype = 'Order Pick List'
 			     AND pli.bucket = tb.bucket
 			WHERE tb.parenttype = 'Bucket Request Trip' AND tb.order_pick_list IN %(opls)s
-			  AND t.arrived_at IS NOT NULL AND t.status != 'Received'
+			  -- Any status: a Received trip's unshelved buckets still reached Kapkolia.
+			  AND t.arrived_at IS NOT NULL
 			  AND IFNULL(tb.off_truck, 0) = 0 AND IFNULL(pli.shelved, 0) = 0
 			GROUP BY pli.parent, """
 			+ FARM_EXPR,
@@ -271,9 +295,11 @@ def getBucketLogistics():
 			at_hub[(x.opl, x.src or "")] = int(x.n or 0)
 	for r in rows:
 		r["hub"] = hub
-		r["arrived_hub"] = sum(n for (o, _f), n in at_hub.items() if o == r["opl"])
+		# Reached the hub = on an arrived truck (not shelved yet) + already shelved,
+		# which counts ready / issued too.
+		r["arrived_hub"] = sum(n for (o, _f), n in at_hub.items() if o == r["opl"]) + r["shelved"]
 		for f in by_farm.get(r["opl"], []):
-			f["arrived_hub"] = at_hub.get((r["opl"], f["farm"]), 0)
+			f["arrived_hub"] = at_hub.get((r["opl"], f["farm"]), 0) + f["shelved"]
 	for r in rows:
 		r["by_farm"] = by_farm.get(r["opl"], [])
 		r["trips"] = trips.get(r["opl"], [])
@@ -408,7 +434,9 @@ def getBucketLogisticsDetail():
 		frappe.response["buckets"] = []
 	else:
 		FARM_EXPR = "COALESCE(NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''), NULLIF(pli.farm, ''))"
-		params = {"opl": opl}
+		from upande_packhouse.api.remote_transfer.transfer_scheduling import transfer_hub
+
+		params = {"opl": opl, "hub": transfer_hub(required=False) or ""}
 		extra = ""
 		if fd.get("farm"):
 			extra = " AND " + FARM_EXPR + " = %(farm)s"
@@ -442,6 +470,9 @@ def getBucketLogisticsDetail():
                     IFNULL(pli.custom_ready_for_packing, 0), IFNULL(pli.issued, 0))) AS trolley,
                 MAX(GREATEST(IFNULL(pli.in_transit, 0), IFNULL(pli.shelved, 0),
                     IFNULL(pli.custom_ready_for_packing, 0), IFNULL(pli.issued, 0))) AS transit,
+                -- Reached the hub: its truck arrived there, or it is already shelved.
+                MAX(GREATEST(IF(tr.arrived_at IS NOT NULL, 1, 0), IFNULL(pli.shelved, 0),
+                    IFNULL(pli.custom_ready_for_packing, 0), IFNULL(pli.issued, 0))) AS arrived_hub,
                 MAX(GREATEST(IFNULL(pli.shelved, 0), IFNULL(pli.custom_ready_for_packing, 0),
                     IFNULL(pli.issued, 0))) AS shelved,
                 MAX(GREATEST(IFNULL(pli.custom_ready_for_packing, 0), IFNULL(pli.issued, 0))) AS ready,
@@ -452,7 +483,8 @@ def getBucketLogisticsDetail():
             JOIN `tabOrder Pick List` o ON o.name = pli.parent
             LEFT JOIN (
                 SELECT UPPER(b.bucket) AS bucket, MAX(t.name) AS trip, MAX(t.vehicle) AS vehicle,
-                       MAX(t.run) AS run
+                       MAX(t.run) AS run,
+                       MAX(CASE WHEN IFNULL(b.off_truck, 0) = 0 THEN t.arrived_at END) AS arrived_at
                 FROM `tabBucket Request Trip Bucket` b
                 JOIN `tabBucket Request Trip` t ON t.name = b.parent
                 WHERE b.parenttype = 'Bucket Request Trip' AND b.order_pick_list = %(opl)s
@@ -460,7 +492,9 @@ def getBucketLogisticsDetail():
             ) tr ON tr.bucket = UPPER(pli.bucket)
             WHERE pli.parenttype = 'Order Pick List' AND o.name = %(opl)s
               AND (pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1
-                   OR pli.in_transit = 1 OR pli.shelved = 1 OR pli.not_found = 1)"""
+                   OR pli.in_transit = 1 OR pli.shelved = 1 OR pli.not_found = 1
+                   OR ((pli.custom_ready_for_packing = 1 OR pli.issued = 1)
+                       AND COALESCE(""" + FARM_EXPR + """, '') != %(hub)s))"""
 			+ extra
 			+ """
             -- One row per bucket (the pick list keeps a row per box); a bucket holding

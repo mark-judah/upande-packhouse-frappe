@@ -237,7 +237,8 @@ def _transfer_buckets(opl_names):
 		       pli.awaiting_transfer AS awaiting, pli.loaded_in_trolley AS loaded,
 		       pli.in_transit AS in_transit,
 		       GREATEST(IFNULL(pli.shelved, 0), IFNULL(pli.custom_ready_for_packing, 0), IFNULL(pli.issued, 0)) AS shelved,
-		       pli.transit_truck AS truck
+		       pli.transit_truck AS truck,
+		       IF(IFNULL(pli.transfer_priority, '') = 'ASAP', 1, 0) AS asap
 		FROM `tabPick List Item` pli
 		WHERE pli.parenttype = 'Order Pick List' AND pli.parent IN %(opls)s
 		  AND (pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1
@@ -264,13 +265,14 @@ def _transfer_buckets(opl_names):
 				"loaded": 0,
 				"in_transit": 0,
 				"shelved": 0,
+				"asap": 0,
 				"truck": None,
 			}
 			index[key] = entry
 			out.append(entry)
 		entry["stems"] += float(r.get("stems") or 0)
 		entry["names"].append(r["name"])
-		for flag in ("awaiting", "loaded", "in_transit", "shelved"):
+		for flag in ("awaiting", "loaded", "in_transit", "shelved", "asap"):
 			if int(r.get(flag) or 0):
 				entry[flag] = 1
 		entry["truck"] = entry["truck"] or r.get("truck")
@@ -1689,14 +1691,19 @@ def _transfer_schedule_payload(from_date, to_date):
 		FROM `tabOrder Pick List` opl
 		JOIN `tabSales Order` so ON so.name = opl.sales_order
 		JOIN `tabPick List Item` pli ON pli.parent = opl.name AND pli.parenttype = 'Order Pick List'
-		WHERE opl.docstatus < 2 AND so.delivery_date BETWEEN %(f)s AND %(t)s
+		WHERE opl.docstatus < 2
+		  AND (so.delivery_date BETWEEN %(f)s AND %(t)s
+		       -- A quality-issue replacement requested ASAP (packing_quality) is planned
+		       -- whatever day the page shows: its order is being packed now.
+		       OR (IFNULL(pli.transfer_priority, '') = 'ASAP' AND pli.awaiting_transfer = 1
+		           AND so.delivery_date >= %(today)s))
 		  AND (pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1 OR pli.in_transit = 1
 		       OR pli.shelved = 1)
 		  AND NOT """
 		+ PACKED_SQL
 		+ """
 		""",
-		{"f": from_date, "t": to_date},
+		{"f": from_date, "t": to_date, "today": today},
 		as_dict=True,
 	)
 	opl_names = [r["opl"] for r in opl_rows]
@@ -1724,10 +1731,12 @@ def _transfer_schedule_payload(from_date, to_date):
 		if b["open"] and hub and b["farm"].lower() == hub.lower():
 			continue
 		fmap = agg.setdefault(b["opl"], {})
-		frow = fmap.setdefault(b["farm"], {"varieties": {}, "on_road": 0})
+		frow = fmap.setdefault(b["farm"], {"varieties": {}, "on_road": 0, "asap": 0})
 		if b["on_road"]:
 			frow["on_road"] += 1
 			continue
+		if b["asap"]:
+			frow["asap"] += 1
 		vrow = frow["varieties"].setdefault(b["variety"] or "", {"buckets": 0, "stems": 0})
 		vrow["buckets"] += 1
 		vrow["stems"] += b["stems"]
@@ -1736,7 +1745,7 @@ def _transfer_schedule_payload(from_date, to_date):
 	for r in opl_rows:
 		fmap = agg.get(r["opl"]) or {}
 		farms_out = []
-		total_b, total_s, total_road = 0, 0.0, 0
+		total_b, total_s, total_road, total_asap = 0, 0.0, 0, 0
 		for farm, frow in sorted(fmap.items()):
 			vmap = frow["varieties"]
 			fb = sum(v["buckets"] for v in vmap.values())
@@ -1744,6 +1753,7 @@ def _transfer_schedule_payload(from_date, to_date):
 			total_b += fb
 			total_s += fs
 			total_road += frow["on_road"]
+			total_asap += frow["asap"]
 			farms_out.append(
 				{
 					"farm": farm,
@@ -1752,6 +1762,8 @@ def _transfer_schedule_payload(from_date, to_date):
 					"on_road": frow["on_road"],
 					# Left behind by a truck that already came — goes first on the next trip.
 					"left_behind": behind.get((r["opl"], farm)),
+					# Quality-issue replacements requested ASAP — first of all.
+					"asap": frow["asap"],
 					"varieties": [
 						{"variety": k, "buckets": v["buckets"], "stems": v["stems"]} for k, v in vmap.items()
 					],
@@ -1794,6 +1806,7 @@ def _transfer_schedule_payload(from_date, to_date):
 				"total_buckets": total_b,
 				"total_stems": total_s,
 				"on_road_buckets": total_road,
+				"asap_buckets": total_asap,
 				"trolley_buckets": st["trolley"],
 				"arrived_buckets": st["arrived"],
 				"farms": farms_out,
