@@ -3572,6 +3572,48 @@ def _trip_shelf_state(doc):
 
 
 @frappe.whitelist(methods=["POST"])
+def _mark_arrived(doc, hub, how):
+	"""Stamp a dispatched trip as arrived at the hub, and log every bucket still on it."""
+	doc.arrived_at = frappe.utils.now()
+	doc.arrived_by = frappe.session.user
+	# Traceability: every bucket still on this truck reached the packhouse now.
+	for b in doc.get("trip_buckets") or []:
+		if not b.get("off_truck") and not b.get("shelved"):
+			log_transfer_event(
+				b.bucket, "Arrived at packhouse", opl=b.order_pick_list, farm=b.farm, trip=doc.name,
+				vehicle=doc.vehicle, details="Truck arrived at {0}".format(hub or "the packhouse"),
+			)
+	doc.add_comment("Info", "Truck {0} arrived at {1} — {2}".format(doc.vehicle, hub, how))
+	doc.save(ignore_permissions=True)
+
+
+def auto_arrive_for_bucket(bucket):
+	"""Shelving at the hub starts: the first bucket of a dispatched trip shelved there
+	means its truck has arrived — stamped then, so nobody has to press "arrived"."""
+	bucket = (bucket or "").strip().upper()
+	if not bucket:
+		return
+	try:
+		trips = frappe.db.sql(
+			"""SELECT DISTINCT t.name FROM `tabBucket Request Trip Bucket` tb
+			JOIN `tabBucket Request Trip` t ON t.name = tb.parent
+			WHERE tb.parenttype = 'Bucket Request Trip' AND UPPER(tb.bucket) = %s
+			  AND t.status = 'Dispatched' AND t.arrived_at IS NULL""",
+			(bucket,),
+			pluck=True,
+		)
+		if not trips:
+			return
+		hub = transfer_hub(required=False) or "the packhouse"
+		for name in trips:
+			doc = frappe.get_doc("Bucket Request Trip", name)
+			if not doc.get("arrived_at"):
+				_mark_arrived(doc, hub, "first bucket ({0}) shelved there".format(bucket))
+	except Exception:
+		# Arrival is a convenience on top of shelving; never let it fail the shelve.
+		frappe.log_error(title="Auto trip arrival failed", message=frappe.get_traceback())
+
+
 def tripArrival(name=None, farm=None, action="status"):
 	"""Farm app, In Transit: the truck reached the transfer hub.
 
@@ -3589,20 +3631,7 @@ def tripArrival(name=None, farm=None, action="status"):
 		return {"status": "error", "message": "Trip {0} has not left for {1} yet.".format(name, hub)}
 
 	if action == "arrive" and doc.status == "Dispatched" and not doc.get("arrived_at"):
-		doc.arrived_at = frappe.utils.now()
-		doc.arrived_by = frappe.session.user
-		# Traceability: every bucket still on this truck reached the packhouse now.
-		for b in doc.get("trip_buckets") or []:
-			if not b.get("off_truck") and not b.get("shelved"):
-				log_transfer_event(
-					b.bucket, "Arrived at packhouse", opl=b.order_pick_list, farm=b.farm, trip=name,
-					vehicle=doc.vehicle, details="Truck arrived at {0}".format(hub or "the packhouse"),
-				)
-		doc.add_comment(
-			"Info",
-			"Truck {0} arrived at {1} — confirmed by {2}".format(doc.vehicle, hub, frappe.session.user),
-		)
-		doc.save(ignore_permissions=True)
+		_mark_arrived(doc, hub, "confirmed by {0}".format(frappe.session.user))
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	elif action == "complete" and doc.status == "Dispatched":
 		if not doc.get("arrived_at"):

@@ -5062,6 +5062,10 @@ def shelveBucket():
 	shelf_doc.save(ignore_permissions=True)
 	# Arrived: the sale allocation deferred for this remote bucket posts now.
 	if at_arrival:
+		# Shelving at the hub has started: its truck has arrived (no "arrived" button).
+		from upande_packhouse.api.remote_transfer.transfer_scheduling import auto_arrive_for_bucket
+
+		auto_arrive_for_bucket(bucket_id)
 		result["sale_on_arrival"] = stock_movement.post_sale_on_arrival(bucket_id, "Roses")
 
 	# Shelving Log: one "Shelved" row per Shelf Item row just created.
