@@ -1,7 +1,6 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "",
  "creation": "2026-02-18 18:55:09.395580",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -13,6 +12,7 @@
   "order_name",
   "variety",
   "mix_name",
+  "team",
   "length",
   "box_number",
   "order_pick_list",
@@ -50,14 +50,15 @@
   {
    "fieldname": "customer",
    "fieldtype": "Link",
-   "label": "Customer",
-   "options": "Customer",
+   "in_list_view": 1,
    "in_standard_filter": 1,
-   "in_list_view": 1
+   "label": "Customer",
+   "options": "Customer"
   },
   {
    "fieldname": "length",
    "fieldtype": "Link",
+   "in_list_view": 1,
    "label": "Length",
    "options": "Stem Length"
   },
@@ -69,14 +70,16 @@
   {
    "fieldname": "order_pick_list",
    "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Order Pick List",
-   "options": "Order Pick List"
+   "options": "Order Pick List",
+   "search_index": 1
   },
   {
    "fieldname": "barcode",
    "fieldtype": "Attach Image",
-   "label": "Barcode",
-   "description": "Code 128 barcode encoding this Box Label's own ID (the value staging/loading/dispatch scan)."
+   "label": "Barcode"
   },
   {
    "fetch_from": "farm_pack_lis.farm",
@@ -119,6 +122,8 @@
   {
    "fieldname": "consignee",
    "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Consignee",
    "options": "Consignee"
   },
@@ -138,6 +143,8 @@
    "fetch_from": "farm_pack_lis.delivery_point",
    "fieldname": "delivery_point",
    "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Delivery Point",
    "options": "Delivery Point"
   },
@@ -158,25 +165,29 @@
    "default": "0",
    "fieldname": "staged",
    "fieldtype": "Check",
-   "label": "Staged"
+   "label": "Staged",
+   "read_only": 1
   },
   {
    "default": "0",
    "fieldname": "loaded",
    "fieldtype": "Check",
-   "label": "Loaded"
+   "label": "Loaded",
+   "read_only": 1
   },
   {
    "default": "0",
    "fieldname": "loaded_internal_transfer",
    "fieldtype": "Check",
-   "label": "Loaded Internal Transfer"
+   "label": "Loaded Internal Transfer",
+   "read_only": 1
   },
   {
    "default": "0",
    "fieldname": "delivered",
    "fieldtype": "Check",
-   "label": "Delivered"
+   "label": "Delivered",
+   "read_only": 1
   },
   {
    "fieldname": "section_break_hads",
@@ -205,7 +216,8 @@
    "default": "0",
    "fieldname": "precooling",
    "fieldtype": "Check",
-   "label": "In Precooling"
+   "label": "In Precooling",
+   "read_only": 1
   },
   {
    "fieldname": "precooling_in_at",
@@ -217,7 +229,8 @@
    "default": "0",
    "fieldname": "precooled",
    "fieldtype": "Check",
-   "label": "Precooled"
+   "label": "Precooled",
+   "read_only": 1
   },
   {
    "fieldname": "precooled_at",
@@ -228,38 +241,48 @@
   {
    "fieldname": "mix_name",
    "fieldtype": "Data",
-   "label": "Mix Name",
+   "in_list_view": 1,
    "in_standard_filter": 1,
+   "label": "Mix Name",
    "read_only": 1,
-   "search_index": 1,
-   "description": "The Sales Order line's mix name (several, comma-separated, for a box packed from more than one line)."
+   "search_index": 1
   },
   {
    "fieldname": "variety",
    "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Variety",
    "options": "Item",
-   "in_standard_filter": 1,
-   "in_list_view": 1,
    "read_only": 1,
-   "search_index": 1,
-   "description": "The box's variety; for a mixed box, the variety with the most stems (see Mix Name)."
+   "search_index": 1
   },
   {
    "fieldname": "order_name",
    "fieldtype": "Data",
-   "label": "Order Name",
-   "in_standard_filter": 1,
    "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Order Name",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fetch_from": "order_pick_list.team",
+   "fieldname": "team",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Team",
+   "options": "Packing Teams",
    "read_only": 1,
    "search_index": 1,
-   "description": "The order's name (Order Pick List / Sales Order), for finding and printing its labels."
+   "sticky": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-05 09:00:00.000000",
+ "modified": "2026-10-05 00:27:54.299310",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Box Label",
@@ -340,8 +363,8 @@
   }
  ],
  "row_format": "Dynamic",
+ "search_fields": "order_name,customer,team,variety,mix_name",
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": [],
- "search_fields": "order_name,customer,variety,mix_name"
+ "states": []
 }

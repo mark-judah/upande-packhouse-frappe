@@ -35,6 +35,19 @@ DISCARD_EXCLUSION = """
           )"""
 
 
+def _norm_cut_stage(value) -> str:
+	"""Cut stage as a comparable key: "1.5-2.0" and "1.5-2" are the same stage,
+	as are "1.0" and "1". Each number loses its trailing ".0"; spaces go."""
+	parts = str(value or "").replace(" ", "").split("-")
+	out = []
+	for part in parts:
+		try:
+			out.append(f"{float(part):g}")
+		except ValueError:
+			out.append(part.lower())
+	return "-".join(out)
+
+
 # ============================================================
 # HELPER: Load Production Settings config once
 # Returns: { discard_age, amber_time, farms_by_location, farm_config }
@@ -115,6 +128,27 @@ def _get_production_config():
 		"farm_config": farm_config,
 		"farms_by_location": farms_by_location,
 	}
+
+
+def _order_sales_farm(opl):
+	"""The sales farm an Order Pick List is packed at, which sets where replacements
+	may come from (it and _remote_farms_of it): its Sales Order's farm when that is a
+	sales-shelf farm -- an OPL's own farm can name another location (Karen orders
+	carried Kapkolia), and Karen must never be offered Ravine buckets -- else the
+	OPL's farm, else the transfer hub. `opl`: a name or the document."""
+	from upande_packhouse.api.transfer_control import transfer_hub
+
+	if isinstance(opl, str):
+		opl = (
+			frappe.db.get_value("Order Pick List", opl, ["farm", "sales_order"], as_dict=True)
+			or frappe._dict()
+		)
+	so_farm = (
+		frappe.db.get_value("Sales Order", opl.get("sales_order"), "farm") if opl.get("sales_order") else None
+	)
+	if so_farm and _get_production_config()["farm_config"].get(so_farm, {}).get("sales_shelf"):
+		return so_farm
+	return opl.get("farm") or transfer_hub(required=False)
 
 
 def _remote_farms_of(farm):
@@ -708,7 +742,8 @@ def get_sales_order_items_with_buckets(
 
 	# ── Apply cut_stage filter to buckets ──
 	if cut_stage_list:
-		buckets = [b for b in buckets if str(b.get("cut_stage", "")).strip() in cut_stage_list]
+		wanted_stages = {_norm_cut_stage(s) for s in cut_stage_list}
+		buckets = [b for b in buckets if _norm_cut_stage(b.get("cut_stage")) in wanted_stages]
 
 	so_item_names = [i["sales_order_item"] for i in items]
 	si_placeholders = ", ".join(["%s"] * len(so_item_names))
@@ -787,7 +822,7 @@ def get_sales_order_items_with_buckets(
 			if (
 				not bypass_cut_stage
 				and item["spec_cut_stage"]
-				and str(b.get("cut_stage", "")).strip() != item["spec_cut_stage"].strip()
+				and _norm_cut_stage(b.get("cut_stage")) != _norm_cut_stage(item["spec_cut_stage"])
 			):
 				continue
 
@@ -1042,6 +1077,7 @@ def get_bucket_visibility_diagnostics(
 	]
 	buckets_by_reason = {code: [] for code, _l in REASON_META}
 
+	wanted_stages = {_norm_cut_stage(s) for s in cut_stage_list}
 	for b in rows:
 		b_cm = _parse_cm(b["stem_length"])
 		is_sales_shelf = farm_config.get(b["shelf_farm"], {}).get("sales_shelf", 0)
@@ -1083,7 +1119,7 @@ def get_bucket_visibility_diagnostics(
 			detail = _("{0} stem — the order needs {1}").format(
 				b["stem_length"] or "?", required_length or "?"
 			)
-		elif cut_stage_list and str(b["cut_stage"] or "").strip() not in cut_stage_list:
+		elif cut_stage_list and _norm_cut_stage(b["cut_stage"]) not in wanted_stages:
 			reason = "wrong_cut_stage"
 			if spec_cut_stage:
 				detail = _("Cut stage {0} — the order spec requires {1}").format(
@@ -2999,18 +3035,22 @@ def replace_requested_bucket(
 	new_bucket_id: str | None = None,
 	reason: str | None = None,
 	notes: str | None = None,
+	keep_old_on_shelf: bool = False,
 ):
 	"""Swap a missing requested bucket for a matching one from the same farm,
 	retrying when the swap loses a lock race (see REPLACE_LOCK_WAIT_S). `reason`
 	(Missing / Damaged / Wrong variety / Other) and `notes` go on the Bucket
-	Replacement record."""
+	Replacement record. `keep_old_on_shelf`: the old bucket is there, just
+	mislabelled -- it stays on its shelf for its record to be corrected."""
 	import time
 
 	previous = frappe.db.sql("SELECT @@SESSION.innodb_lock_wait_timeout")[0][0]
 	frappe.db.sql("SET SESSION innodb_lock_wait_timeout = %s", (int(REPLACE_LOCK_WAIT_S),))
 	try:
 		for attempt in range(REPLACE_ATTEMPTS):
-			res = _replace_requested_bucket(pick_list_item, new_bucket_id, reason=reason, notes=notes)
+			res = _replace_requested_bucket(
+				pick_list_item, new_bucket_id, reason=reason, notes=notes, keep_old_on_shelf=keep_old_on_shelf
+			)
 			if not res.pop("_lock_conflict", False):
 				return res
 			if attempt + 1 < REPLACE_ATTEMPTS:

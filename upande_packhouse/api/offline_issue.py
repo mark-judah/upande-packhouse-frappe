@@ -39,6 +39,33 @@ OPL_LOOKBACK_DAYS = 7
 # ── Shared lookups ────────────────────────────────────────────────────────────
 
 
+def _issued_where(bucket):
+	"""Where `bucket` was already issued: [{opl, order_name, team, offline}], newest
+	first -- offline = it went out through Issue Offline."""
+	return frappe.db.sql(
+		"""SELECT pli.parent AS opl, opl.order_name, IFNULL(opl.team, '') AS team,
+		       MAX(IFNULL(pli.issued_offline, 0)) AS offline
+		FROM `tabPick List Item` pli JOIN `tabOrder Pick List` opl ON opl.name = pli.parent
+		WHERE pli.parenttype = 'Order Pick List' AND pli.issued = 1 AND pli.bucket = %s
+		GROUP BY pli.parent, opl.order_name, opl.team
+		ORDER BY MAX(pli.modified) DESC""",
+		(bucket,),
+		as_dict=True,
+	)
+
+
+def _already_issued_message(bucket, where=None):
+	"""'{bucket} was already issued offline to Team A (ORDER-1)' -- or None when it
+	was never issued."""
+	where = where if where is not None else _issued_where(bucket)
+	if not where:
+		return None
+	to = ", ".join("{0} ({1})".format(r.team or _("no team"), r.order_name or r.opl) for r in where)
+	if any(cint(r.offline) for r in where):
+		return _("{0} was already issued offline to {1}.").format(bucket, to)
+	return _("{0} was already issued to {1}.").format(bucket, to)
+
+
 def _anchor_row(opl_name, bucket, sale_order_item=None):
 	"""The Pick List Item that stands for `bucket` on `opl_name`: an unissued
 	one, on `sale_order_item` when given."""
@@ -52,7 +79,10 @@ def _anchor_row(opl_name, bucket, sale_order_item=None):
 		frappe.throw(_("Bucket {0} is not on {1}.").format(bucket, opl_name))
 	unissued = [r for r in rows if not cint(r.issued)]
 	if not unissued:
-		frappe.throw(_("Bucket {0} is already issued on {1}.").format(bucket, opl_name))
+		frappe.throw(
+			_already_issued_message(bucket)
+			or _("Bucket {0} is already issued on {1}.").format(bucket, opl_name)
+		)
 	if sale_order_item:
 		for r in unissued:
 			if sale_order_item in (r.sales_order_item, r.custom_sale_order_item):
@@ -86,13 +116,9 @@ def _candidates(pick_list_item, limit, farm=None):
 
 
 def _remote_farms(opl_name, searched):
-	"""The remote farms that truck to `opl_name`'s sales farm (its farm, else the
-	transfer hub), less `searched` -- the farm already looked at."""
-	from upande_packhouse.api.transfer_control import transfer_hub
-
-	sales_farm = (
-		frappe.db.get_value("Order Pick List", opl_name, "farm") or transfer_hub(required=False) or searched
-	)
+	"""The remote farms that truck to `opl_name`'s sales farm (its Sales Order's farm,
+	else its own, else the transfer hub), less `searched` -- the farm already looked at."""
+	sales_farm = sa._order_sales_farm(opl_name) or searched
 	return [f for f in sa._remote_farms_of(sales_farm) if f != searched]
 
 
@@ -119,6 +145,9 @@ def _delivers_today(opl_name):
 
 def _why_not(bucket, anchor, farm, needed):
 	"""Why `bucket` cannot stand in for `anchor`, in the operator's terms."""
+	issued = _already_issued_message(bucket)
+	if issued:
+		return issued
 	items = frappe.get_all(
 		"Shelf Item",
 		filters={"bucket_id": bucket},
@@ -243,6 +272,113 @@ def _issue(bucket, opl_name):
 	return results
 
 
+def _trip_truck(opl_name, farm):
+	"""The truck of the open trip planned to carry `opl_name`'s buckets from `farm`."""
+	row = frappe.db.sql(
+		"""SELECT t.vehicle FROM `tabBucket Request Trip` t
+		JOIN `tabBucket Request Trip Order` o ON o.parent = t.name AND o.parenttype = 'Bucket Request Trip'
+		WHERE o.order_pick_list = %(opl)s AND o.farm = %(farm)s AND IFNULL(o.unscheduled, 0) = 0
+		  AND t.status IN ('Draft', 'Scheduled', 'Dispatched') AND IFNULL(t.vehicle, '') != ''
+		ORDER BY t.trip_date DESC, t.run ASC LIMIT 1""",
+		{"opl": opl_name, "farm": farm},
+	)
+	return row[0][0] if row else None
+
+
+def _load_on_truck(pli_name, truck):
+	"""Load the bucket on `pli_name` onto `truck` and put it in transit through the
+	Bucket Requests app's own endpoint (setOfflineTrolleyFlags): sibling rows,
+	transit_truck, its farm shelf cleared, the trip's load recorded, the transfer log
+	and the OPL's version history -- exactly as if the farm had loaded it."""
+	try:
+		from upande_quality.mobile import api as quality_api
+	except ImportError:
+		quality_api = None
+	if quality_api is None:
+		from upande_packhouse.api.transfer_control import record_truck_load
+
+		frappe.db.set_value(
+			"Pick List Item",
+			pli_name,
+			{"loaded_in_trolley": 1, "in_transit": 1, **({"transit_truck": truck} if truck else {})},
+		)
+		record_truck_load([pli_name])
+		return None
+	for flag in ("loaded", "transit"):
+		_status, message, _data = _call(
+			quality_api.setOfflineTrolleyFlags,
+			{"data": {"pli_ids": [pli_name], "flag": flag, "truck": truck or ""}},
+		)
+		message = message or {}
+		if message.get("status") != "success":
+			return message.get("message") or _("Could not load it on the truck.")
+		if message.get("conflicts"):
+			c = message["conflicts"][0]
+			return (
+				_("It is already on {0}.").format(c.get("truck"))
+				if c.get("reason") == "on_truck"
+				else _("It has already arrived at the packhouse.")
+			)
+	return None
+
+
+def _send_in_transit(bucket, opl_name):
+	"""A remote-transfer bucket still at its farm, issued offline on `opl_name` (a
+	draft OPL waiting on its transfer): it is not issued here. It goes onto the truck
+	of the trip planned for it and in transit (_load_on_truck -- the trip and the OPL
+	show it on the truck), and the transfer finishes the usual way: shelving it at the
+	hub moves its stock and marks it arrived, then the issuing scan issues it to the
+	line that asked for it. Returns {"farm", "truck"}, or None when the bucket is not
+	waiting on a transfer for this OPL."""
+	from upande_packhouse import stock_movement as sm
+
+	opl = frappe.get_doc("Order Pick List", opl_name)
+	waiting = [
+		r
+		for r in sm.opl_rows(opl)
+		if (r.bucket or "").upper() == bucket.upper()
+		and cint(r.awaiting_transfer)
+		and not cint(r.shelved)
+		and not cint(r.issued)
+	]
+	if not waiting:
+		return None
+	farm = waiting[0].get("farm") or (sm._row_warehouse(waiting[0]) or "").split(" ")[0]
+	truck = waiting[0].get("transit_truck") or _trip_truck(opl_name, farm)
+	if not cint(waiting[0].in_transit):
+		refused = _load_on_truck(waiting[0].name, truck)
+		if refused:
+			frappe.throw(_("{0} can't go on the truck: {1}").format(bucket, refused))
+	return {"farm": farm, "truck": truck}
+
+
+def _issue_remote_aware(bucket, opl_name):
+	"""_issue -- unless `bucket` is a remote-transfer bucket still at its farm: then it
+	is only put in transit (_send_in_transit) and issued once it is shelved at the hub.
+	Returns (issue results, None) or ([], {"farm", "truck"}) for one sent in transit."""
+	try:
+		sent = _send_in_transit(bucket, opl_name)
+	except frappe.ValidationError as e:
+		frappe.db.rollback()
+		return [{"sale_order_item": None, "ok": False, "message": str(e), "data": None}], None
+	if sent:
+		return [], sent
+	return _issue(bucket, opl_name), None
+
+
+def _transit_note(bucket, sent, line):
+	hub = frappe.db.get_single_value("Production Settings", "transfer_hub_farm") or _("the packhouse")
+	return _(
+		"{0} is coming from {1}{2}: in transit to {3}, not issued yet. Shelve it at {3} when it arrives, then issue it to {4}."
+	).format(
+		bucket,
+		sent["farm"],
+		(" " + _("on {0}").format(sent["truck"])) if sent.get("truck") else "",
+		hub,
+		line,
+	)
+
+
 def _correct(bucket, variety, stem_length):
 	"""Put a mislabelled bucket's real variety/length on its record, with the
 	Quality app's own correction, then
@@ -305,8 +441,12 @@ def _fail(message, **extra):
 def offline_issue_opls(
 	days: int = OPL_LOOKBACK_DAYS, delivery_date: str | None = None, farm: str | None = None
 ):
-	"""Submitted OPLs, delivering from `days` ago to tomorrow, that still have a
-	bucket to issue. Newest first, with how far issuing has got.
+	"""OPLs (draft or submitted), delivering from `days` ago to tomorrow, that still
+	have a bucket to issue. Newest first, with how far issuing has got. Drafts are
+	included -- an order waiting on a remote transfer stays a draft until its buckets
+	arrive, and issuing works on it all the same. A draft waiting on a remote transfer
+	shows only once Bucket Requests works on it: scheduled (on a Packhouse Schedule)
+	and planned on a trip. A sales farm's own draft (nothing to transfer) shows as is.
 
 	`delivery_date` (YYYY-MM-DD) narrows it to that one day, so the cold store
 	works on tomorrow's orders without older ones mixed in.
@@ -333,11 +473,20 @@ def offline_issue_opls(
 		       SUM(pli.stock_qty) AS total_stems,
 		       SUM(CASE WHEN pli.issued = 1 THEN pli.stock_qty ELSE 0 END) AS issued_stems,
 		       COUNT(DISTINCT CASE WHEN COALESCE(pli.issued, 0) = 0 THEN pli.bucket END) AS open_buckets,
+		       COUNT(DISTINCT CASE WHEN pli.issued = 1 THEN pli.bucket END) AS issued_buckets,
 		       GROUP_CONCAT(DISTINCT pli.item_code ORDER BY pli.item_code SEPARATOR '||') AS varieties
 		FROM `tabOrder Pick List` opl
 		JOIN `tabSales Order` so ON so.name = opl.sales_order
 		JOIN `tabPick List Item` pli ON pli.parent = opl.name AND pli.parenttype = 'Order Pick List'
-		WHERE opl.docstatus = 1
+		WHERE (opl.docstatus = 1 OR (opl.docstatus = 0 AND (
+		    NOT EXISTS (SELECT 1 FROM `tabPick List Item` x WHERE x.parent = opl.name
+		      AND x.parenttype = 'Order Pick List'
+		      AND (x.awaiting_transfer = 1 OR x.loaded_in_trolley = 1 OR x.in_transit = 1 OR x.shelved = 1))
+		    OR (EXISTS (SELECT 1 FROM `tabPackhouse Schedule Order` pso WHERE pso.order_pick_list = opl.name)
+		      AND EXISTS (SELECT 1 FROM `tabBucket Request Trip Order` tro
+		        JOIN `tabBucket Request Trip` t ON t.name = tro.parent
+		        WHERE tro.order_pick_list = opl.name AND IFNULL(tro.unscheduled, 0) = 0
+		          AND t.status IN ('Draft', 'Scheduled', 'Dispatched', 'Received'))))))
 		  AND so.delivery_date BETWEEN %(since)s AND %(until)s
 		  AND COALESCE(pli.bucket, '') != ''
 		  {farm_cond}
@@ -358,6 +507,32 @@ def offline_issue_opls(
 
 
 @frappe.whitelist()
+def offline_issue_issued(opl_name: str):
+	"""The buckets already issued to `opl_name`'s line, one entry per bucket (a mixed
+	bucket lists each variety): variety, stem length, stems, and whether it went out
+	through Issue Offline. Newest first."""
+	rows = frappe.db.sql(
+		"""SELECT pli.bucket, pli.item_code AS variety, pli.stem_length, SUM(pli.stock_qty) AS stems,
+		       MAX(IFNULL(pli.issued_offline, 0)) AS offline, MAX(pli.modified) AS at
+		FROM `tabPick List Item` pli
+		WHERE pli.parent = %s AND pli.parenttype = 'Order Pick List' AND pli.issued = 1
+		  AND COALESCE(pli.bucket, '') != ''
+		GROUP BY pli.bucket, pli.item_code, pli.stem_length
+		ORDER BY at DESC, pli.bucket""",
+		(opl_name,),
+		as_dict=True,
+	)
+	out = {}
+	for r in rows:
+		b = out.setdefault(
+			r.bucket, {"bucket": r.bucket, "issued_offline": False, "at": str(r.at or ""), "contents": []}
+		)
+		b["issued_offline"] = b["issued_offline"] or bool(cint(r.offline))
+		b["contents"].append({"variety": r.variety, "stem_length": r.stem_length, "stems": flt(r.stems)})
+	return {"opl_name": opl_name, "buckets": list(out.values())}
+
+
+@frappe.whitelist()
 def offline_issue_buckets(opl_name: str, farm: str | None = None):
 	"""The buckets `opl_name` is still waiting on, one entry per bucket. A remote
 	`farm` (not the transfer hub) gets only the buckets coming from it."""
@@ -367,9 +542,11 @@ def offline_issue_buckets(opl_name: str, farm: str | None = None):
 	only_farm = farm if farm and farm != hub else None
 	rows = frappe.get_all(
 		"Pick List Item",
-		filters={"parent": opl_name, "parenttype": "Order Pick List", "issued": 0, "bucket": ["is", "set"]},
+		filters={"parent": opl_name, "parenttype": "Order Pick List", "bucket": ["is", "set"]},
 		fields=[
 			"bucket",
+			"issued",
+			"issued_offline",
 			"item_code",
 			"stem_length",
 			"stock_qty",
@@ -404,9 +581,18 @@ def offline_issue_buckets(opl_name: str, farm: str | None = None):
 				"on_shelf": bool(shelf),
 				"not_found": bool(cint(r.not_found)),
 				"in_transit": bool(cint(r.in_transit) or cint(r.loaded_in_trolley)),
+				"issued": True,
+				"issued_offline": False,
 			}
 		b["stems"] += flt(r.stock_qty)
-	return {"opl_name": opl_name, "buckets": list(buckets.values())}
+		# Issued once every row of it is; issued offline when any row went out that way.
+		b["issued"] = b["issued"] and bool(cint(r.issued))
+		b["issued_offline"] = b["issued_offline"] or bool(cint(r.issued_offline))
+	# Still to issue first; the ones already issued offline stay listed (marked) so
+	# the operator sees they are done. Ones issued by the normal scan drop out.
+	out = [b for b in buckets.values() if not b["issued"]]
+	out += [b for b in buckets.values() if b["issued"] and b["issued_offline"]]
+	return {"opl_name": opl_name, "buckets": out}
 
 
 def _offline_history(bucket):
@@ -580,7 +766,13 @@ def mark_issued_offline(opl_name: str, bucket: str, sale_order_item: str | None 
 			if where
 			else _("{0} has not been issued to any line. Replace it instead.").format(bucket)
 		)
-	results = _issue(bucket, opl_name)
+	results, came_from = _issue_remote_aware(bucket, opl_name)
+	if came_from:
+		return {
+			"success": True,
+			"in_transit": True,
+			"message": _transit_note(bucket, came_from, line or opl_name),
+		}
 	ok = bool(results) and all(r["ok"] for r in results)
 	if not ok:
 		return _fail(
@@ -671,9 +863,10 @@ def issue_offline(
 	elif wrong_variety:
 		return _fail(_("That is the allocated bucket. Scan the bucket that actually went out instead."))
 
-	issued = _issue(target, opl_name)
-	issue_ok = bool(issued) and all(r["ok"] for r in issued)
-	if issue_ok:
+	issued, came_from = _issue_remote_aware(target, opl_name)
+	line = frappe.db.get_value("Order Pick List", opl_name, "team") or opl_name
+	issue_ok = bool(came_from) or (bool(issued) and all(r["ok"] for r in issued))
+	if issue_ok and not came_from:
 		# Marks the line so Bucket Logistics can show it went out through Issue Offline.
 		frappe.db.sql(
 			"""UPDATE `tabPick List Item` SET issued_offline = 1
@@ -689,7 +882,11 @@ def issue_offline(
 	if swapped:
 		parts.append(_("{0} replaced {1}.").format(target, allocated_bucket))
 	parts.append(
-		_("{0} issued to {1}.").format(target, opl_name)
+		(
+			_transit_note(target, came_from, line)
+			if came_from
+			else _("{0} issued to {1}.").format(target, opl_name)
+		)
 		if issue_ok
 		else _("Issuing {0} failed: {1}").format(
 			target, "; ".join(str(r["message"]) for r in issued if not r["ok"]) or _("nothing to issue")
@@ -708,6 +905,8 @@ def issue_offline(
 		"opl_name": opl_name,
 		"allocated_bucket": allocated_bucket,
 		"issued_bucket": target,
+		# A remote bucket still at its farm: sent in transit, issued once shelved at the hub.
+		"in_transit": bool(came_from),
 		"replacement": (swapped or {}).get("replacement"),
 		"issued": issued,
 		"correction": correction,

@@ -167,7 +167,9 @@ def _plan():
 	graph.holders = tc.farm_holders(today, skip_auto_drafts=True)
 	trucks = _fleet(data, today)
 	orders = _open_orders(data)
-	dist = _distribute(orders, trucks, graph)
+	# Bring only what the hub has shelf space for (its own drafts are re-planned).
+	space = tc.hub_shelf_space(skip_auto_drafts=True)
+	dist = _distribute(orders, trucks, graph, budget=space["free"], moving=_moving(data))
 
 	loads = [t for t in trucks if t["rows"]]
 	summary = {
@@ -179,7 +181,12 @@ def _plan():
 			{"opl": o["opl"], "order_name": o["order_name"], "team": o["team"]} for o in dist["unreachable"]
 		],
 		"held": len(dist["held"]),
+		"step": dist.get("step"),
 		"partial": [p["order_name"] for p in dist["partial"]],
+		"waiting": [
+			{"order_name": w["order_name"], "team": w["team"], "why": w["why"]} for w in dist["waiting"]
+		],
+		"hub_space": space,
 		"buckets": sum(r["buckets"] for t in loads for r in t["rows"]),
 	}
 
@@ -349,14 +356,17 @@ def _open_orders(data):
 # ============================================================
 # DISTRIBUTION ACROSS TEAMS  (port of computeDistribution)
 # ============================================================
-def _place_left_behind(orders, trucks, graph, key="left_behind"):
+def _place_left_behind(orders, trucks, graph, key="left_behind", room=None):
 	"""Buckets a truck left behind go FIRST — before any team's queue — on the next
 	trip to their farm. What fits comes off the order's open portions. With
 	key="asap" the same for quality-issue replacements requested ASAP, which go
-	before even those."""
+	before even those. `room`: [free hub shelf space] (None = no limit), used up
+	as they are placed -- they need a shelf at the hub like everything else."""
 	for o in orders:
 		for f in o["open_farms"]:
 			n = min(f["buckets"], f.get(key) or 0)
+			if room is not None:
+				n = min(n, max(0, room[0]))
 			if not n:
 				continue
 			for truck, k in _place_farm(trucks, f["farm"], n, graph):
@@ -375,59 +385,119 @@ def _place_left_behind(orders, trucks, graph, key="left_behind"):
 				)
 				f["buckets"] -= k
 				o["open"] -= k
+				if room is not None:
+					room[0] -= k
 		o["open_farms"] = [f for f in o["open_farms"] if f["buckets"] > 0]
 
 
-def _distribute(orders, trucks, graph):
-	_place_left_behind(orders, trucks, graph, key="asap")
-	_place_left_behind(orders, trucks, graph)
-	orders = [o for o in orders if o["open"] > 0]
-	by_team = {}
+def _loaded(trucks):
+	return sum(r["buckets"] for t in trucks for r in t["rows"])
+
+
+def _moving(data):
+	"""opl -> {schedule, at_farms, on_road} for every scheduled order still moving
+	(buckets at a farm or on the road): its sequence step hasn't arrived yet."""
+	out = {}
+	for o in data.get("orders") or []:
+		k = int(o.get("schedule") or 0)
+		at, road = int(o.get("total_buckets") or 0), int(o.get("on_road_buckets") or 0)
+		if k and (at > 0 or road > 0):
+			out[o["opl"]] = {"schedule": k, "at_farms": at, "on_road": road}
+	return out
+
+
+def _distribute(orders, trucks, graph, budget=None, moving=None):
+	"""Plan the scheduled orders onto the trucks, ONE SEQUENCE STEP AT A TIME: step k
+	is every team's schedule #k. The first step that hasn't fully arrived at the hub
+	is planned -- its whole orders not on a truck yet, each on one truck where one can
+	take it all -- and the next step waits until it has arrived, so the hub shelves
+	one step while the line issues the one before. `budget`: free hub shelf space in
+	buckets (None = no limit); nothing is brought that can't be shelved. Left-behind
+	buckets and ASAP replacements go first. `moving`: _moving(data)."""
+	room = None if budget is None else [budget]
+	_place_left_behind(orders, trucks, graph, key="asap", room=room)
+	_place_left_behind(orders, trucks, graph, room=room)
+	if room is not None:
+		budget = room[0]
+	orders = [o for o in orders if o["open"] > 0 and int(o.get("schedule") or 0) > 0]
+	by_opl = {o["opl"]: o for o in orders}
+	unreachable = [
+		o for o in orders if not any(_any_serves(trucks, f["farm"], graph) for f in o["open_farms"])
+	]
+	stuck = {o["opl"] for o in unreachable}
+	# The step being worked on: the first with an order on the road, planned on a
+	# truck, or still to plan on one that can reach it. An order no truck can reach
+	# is reported but doesn't hold the next steps back -- one farm without a route
+	# must never stop every team.
+	steps = set()
+	for opl, m in (moving or {}).items():
+		o = by_opl.get(opl)
+		if m["on_road"] > 0 or o is None or o["open"] < m["at_farms"] or opl not in stuck:
+			steps.add(m["schedule"])
 	for o in orders:
-		by_team.setdefault(o.get("team") or "", []).append(o)
-	teams = sorted(by_team)
-	for t in teams:
-		by_team[t].sort(key=lambda o: o["schedule"])
+		if o["opl"] not in stuck:
+			steps.add(int(o["schedule"]))
+	if not steps:
+		return {"unreachable": unreachable, "held": [], "partial": [], "waiting": [], "step": None}
+	step = min(steps)
+	held, waiting = [], []
+	for o in orders:
+		if int(o["schedule"]) > step and o["opl"] not in stuck:
+			o["why"] = "sequence: waits for step #{0} to arrive".format(step)
+			held.append(o)
+	# This step's orders not on a truck yet: smallest first, so the most teams move.
+	for o in sorted((o for o in orders if int(o["schedule"]) == step), key=lambda o: o["open"]):
+		if o["opl"] in stuck:
+			continue
+		if budget is not None and o["open"] > budget:
+			o["why"] = "hub shelf space: {0} bkt needed, {1} free".format(o["open"], max(0, budget))
+			waiting.append(o)
+			continue
+		scratch = _clone(trucks)
+		placed = _place_whole(scratch, o, graph) or _place_order(scratch, o, o["open"], graph)
+		if placed >= o["open"]:
+			_commit(trucks, scratch)
+			o["taken"] = True
+			if budget is not None:
+				budget -= o["open"]
+		else:
+			# No partial loads: what doesn't fit whole waits for the next run.
+			o["why"] = "truck room: {0} bkt needed, {1} fit".format(o["open"], placed)
+			waiting.append(o)
+	return {"unreachable": unreachable, "held": held, "partial": [], "waiting": waiting, "step": step}
 
-	# A team's schedule is a queue: if its next order can't be reached by any truck,
-	# the team STOPS there — later orders are held back, never promoted past it.
-	reachable, unreachable, held = {}, [], []
-	for team in teams:
-		reachable[team] = []
-		blocked = False
-		for o in by_team[team]:
-			if blocked:
-				held.append(o)
-			elif any(_any_serves(trucks, f["farm"], graph) for f in o["open_farms"]):
-				reachable[team].append(o)
-			else:
-				unreachable.append(o)
-				blocked = True
 
-	partial = []
-	rounds = max((len(v) for v in reachable.values()), default=0)
-	for r in range(rounds):
-		items = sorted(
-			(reachable[t][r] for t in teams if len(reachable[t]) > r and _took_all(reachable[t][:r])),
-			key=lambda o: o["open"],
-		)  # smallest first = fit the most teams
-		misses = []
-		for o in items:
-			scratch = _clone(trucks)
-			placed = _place_order(scratch, o, o["open"], graph)
-			if placed >= o["open"]:
-				_commit(trucks, scratch)
-				o["taken"] = True
-			else:
-				misses.append(o)
-		if misses:
-			# Gate: this round doesn't fit whole, so it's the last. Fill what space is
-			# left with partial loads, smallest order first, and stop for everyone.
-			for o in misses:
-				if _place_order(trucks, o, o["open"], graph):
-					partial.append(o)
-			break
-	return {"unreachable": unreachable, "held": held, "partial": partial}
+def _place_whole(trucks, order, graph):
+	"""The whole order on ONE truck that serves all its farms and has room for it
+	(the tightest such), so all its buckets arrive at the hub together. Returns the
+	buckets placed, 0 when no single truck can take it (MUTATES trucks)."""
+	farms = [f["farm"] for f in order["open_farms"]]
+	fits = [
+		t
+		for t in trucks
+		if t["rem"] >= order["open"]
+		and all(_serves(t, f, graph) and not _clashes(t, f, trucks, graph) for f in farms)
+	]
+	if not fits:
+		return 0
+	# A truck already collecting from these farms first, then the tightest fit.
+	truck = min(fits, key=lambda t: (-sum(1 for f in farms if f in t["stops"]), t["rem"]))
+	for f in order["open_farms"]:
+		_load(truck, f["farm"], f["buckets"], graph)
+		truck["rows"].append(
+			{
+				"order_pick_list": order["opl"],
+				"order_name": order["order_name"],
+				"customer": order.get("customer") or "",
+				"farm": f["farm"],
+				"varieties": f["varieties"],
+				"buckets": f["buckets"],
+				"stems": round(f["per_bucket"] * f["buckets"]),
+				"full_farm_buckets": f["buckets"],
+				"is_partial": 0,
+			}
+		)
+	return order["open"]
 
 
 def _took_all(earlier):

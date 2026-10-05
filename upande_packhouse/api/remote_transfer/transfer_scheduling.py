@@ -1946,6 +1946,9 @@ def _transfer_schedule_payload(from_date, to_date):
 		"auto_planning": _auto_planning_status(),
 		"duplicate_trips": duplicate_trips(today),
 		"distributions": _distributions(from_date, to_date),
+		"hub_space": hub_shelf_space(),
+		# Ready to issue at the hub (all its buckets on hub shelves): issue them first.
+		"hub_ready": hub_ready_orders(to_date),
 		"left_behind": [
 			{
 				**v,
@@ -3801,9 +3804,13 @@ def ensure_arrived(doc, hub=None):
 
 
 def auto_arrive_for_bucket(bucket):
-	"""Shelving at the hub starts: the first bucket of a trip shelved there means its
-	truck has arrived — stamped then, so nobody has to press "arrived". Any trip that
-	carried it counts, dispatched from the dashboard or not yet."""
+	"""A bucket was shelved at the hub. Its trip, at once (not at the next 5-minute
+	sweep):
+	  * the first bucket shelved means the truck has arrived — stamped then, so nobody
+	    has to press "arrived". Any trip that carried it counts, dispatched or not;
+	  * the bucket is ticked shelved on the trip's bucket list, so the trip, the
+	    dashboard and the farm app count it straight away; the trip ends once every
+	    bucket it carried is shelved (or left the truck)."""
 	bucket = (bucket or "").strip().upper()
 	if not bucket:
 		return
@@ -3812,8 +3819,8 @@ def auto_arrive_for_bucket(bucket):
 			"""SELECT DISTINCT t.name FROM `tabBucket Request Trip Bucket` tb
 			JOIN `tabBucket Request Trip` t ON t.name = tb.parent
 			WHERE tb.parenttype = 'Bucket Request Trip' AND tb.bucket = %s
-			  AND t.status != 'Received' AND t.arrived_at IS NULL
-			  AND IFNULL(tb.off_truck, 0) = 0""",
+			  AND t.status != 'Received'
+			  AND IFNULL(tb.off_truck, 0) = 0 AND IFNULL(tb.shelved, 0) = 0""",
 			(bucket,),
 			pluck=True,
 		)
@@ -3822,8 +3829,24 @@ def auto_arrive_for_bucket(bucket):
 		hub = transfer_hub(required=False) or "the packhouse"
 		for name in trips:
 			doc = frappe.get_doc("Bucket Request Trip", name)
+			# Nobody dispatched it (a stop loaded short never closes by itself): its
+			# buckets reaching the hub prove the truck left — dispatch it now, from
+			# whichever app shelved it (the packhouse app's shelving already did this).
+			if doc.status in ACTIVE_TRIP_STATUSES:
+				doc.status = "Dispatched"
+				doc.dispatched_at = doc.get("last_departed_at") or frappe.utils.now()
+				doc.heading_to = transfer_hub(required=False) or ""
+				doc.add_comment(
+					"Info", "Dispatched: its first bucket ({0}) was shelved at {1}".format(bucket, hub)
+				)
+				doc.save(ignore_permissions=True)
+				doc.reload()
 			if not doc.get("arrived_at"):
 				_mark_arrived(doc, hub, "first bucket ({0}) shelved there".format(bucket))
+				doc.reload()
+			if _end_trip_if_shelved(doc):
+				carry_over_to_next_run(name)
+				doc.add_comment("Info", "Trip completed at {0}: every bucket shelved".format(hub))
 	except Exception:
 		# Arrival is a convenience on top of shelving; never let it fail the shelve.
 		frappe.log_error(title="Auto trip arrival failed", message=frappe.get_traceback())
@@ -4508,6 +4531,160 @@ def fix_bucket_stock_location(dry_run=1, since="2026-09-20", business_unit="Rose
 	return {"dry_run": bool(cint(dry_run)), "moves": len(fixed), "rows": fixed, "hub": hub}
 
 
+def hub_shelf_space(skip_auto_drafts=False):
+	"""Shelf space at the transfer hub, in buckets: capacity = hub shelves x
+	Production Settings > "Buckets per Shelf at the Hub"; free = capacity less the
+	buckets already on its shelves, on the road there (on a trolley / truck) and
+	planned on trips that haven't loaded them yet. Transfer planning brings only what
+	fits. capacity / free are None when buckets-per-shelf isn't set (no limit).
+	`skip_auto_drafts`: leave automatic planning's own draft trips out of "planned"
+	(it replaces them on every run)."""
+	hub = transfer_hub(required=False) or ""
+	per = cint(frappe.get_cached_doc("Production Settings").get("hub_buckets_per_shelf"))
+	shelves = frappe.db.count("Shelf", {"farm": hub}) if hub else 0
+	on_shelves = (
+		frappe.db.sql(
+			"""SELECT COUNT(DISTINCT UPPER(si.bucket_id)) FROM `tabShelf Item` si
+			JOIN `tabShelf` s ON s.name = si.parent WHERE s.farm = %s""",
+			hub,
+		)[0][0]
+		if hub
+		else 0
+	)
+	on_road = frappe.db.sql(
+		"""SELECT COUNT(DISTINCT UPPER(pli.bucket)) FROM `tabPick List Item` pli
+		JOIN `tabOrder Pick List` opl ON opl.name = pli.parent AND opl.docstatus < 2
+		WHERE pli.parenttype = 'Order Pick List' AND COALESCE(pli.bucket, '') != ''
+		  AND (pli.in_transit = 1 OR pli.loaded_in_trolley = 1)
+		  AND IFNULL(pli.shelved, 0) = 0 AND IFNULL(pli.issued, 0) = 0"""
+	)[0][0]
+	planned = frappe.db.sql(
+		"""SELECT COALESCE(SUM(GREATEST(IFNULL(o.buckets, 0) - IFNULL(o.loaded_buckets, 0), 0)), 0)
+		FROM `tabBucket Request Trip Order` o JOIN `tabBucket Request Trip` t ON t.name = o.parent
+		WHERE t.status IN ('Draft', 'Scheduled') AND t.trip_date >= %(today)s
+		  AND IFNULL(o.unscheduled, 0) = 0 AND (%(skip)s = 0 OR IFNULL(t.auto_planned, 0) = 0)""",
+		{"today": frappe.utils.today(), "skip": 1 if skip_auto_drafts else 0},
+	)[0][0]
+	capacity = shelves * per if per else None
+	used = int(on_shelves or 0) + int(on_road or 0) + int(planned or 0)
+	return {
+		"hub": hub,
+		"shelves": shelves,
+		"per_shelf": per,
+		"capacity": capacity,
+		"on_shelves": int(on_shelves or 0),
+		"on_road": int(on_road or 0),
+		"planned": int(planned or 0),
+		"free": max(0, capacity - used) if capacity is not None else None,
+	}
+
+
+def hub_ready_orders(until):
+	"""Orders ready to issue at the hub: every bucket still to issue (delivering from a
+	week back up to `until`) is on a hub shelf. Issuing them first frees that many
+	shelf spaces for the next transfers. Per order: team (its Packhouse Schedule's,
+	else the OPL's), schedule #, delivery date and buckets on the hub's shelves."""
+	hub = transfer_hub(required=False) or ""
+	if not hub:
+		return []
+	rows = frappe.db.sql(
+		"""SELECT opl.name AS opl, opl.order_name, IFNULL(opl.team, '') AS opl_team,
+		       so.delivery_date, opl.docstatus,
+		       COUNT(DISTINCT CASE WHEN IFNULL(pli.issued, 0) = 0 THEN UPPER(pli.bucket) END) AS open_b,
+		       COUNT(DISTINCT CASE WHEN IFNULL(pli.issued, 0) = 0 AND hs.bucket IS NOT NULL
+		                           THEN UPPER(pli.bucket) END) AS at_hub,
+		       COUNT(DISTINCT CASE WHEN pli.issued = 1 THEN UPPER(pli.bucket) END) AS issued_b
+		FROM `tabOrder Pick List` opl
+		JOIN `tabSales Order` so ON so.name = opl.sales_order
+		JOIN `tabPick List Item` pli ON pli.parent = opl.name AND pli.parenttype = 'Order Pick List'
+		LEFT JOIN (
+			SELECT DISTINCT UPPER(si.bucket_id) AS bucket FROM `tabShelf Item` si
+			JOIN `tabShelf` s ON s.name = si.parent WHERE s.farm = %(hub)s
+		) hs ON hs.bucket = UPPER(pli.bucket)
+		WHERE opl.docstatus < 2 AND so.delivery_date BETWEEN %(since)s AND %(until)s
+		  AND COALESCE(pli.bucket, '') != '' AND IFNULL(pli.not_found, 0) = 0
+		GROUP BY opl.name, opl.order_name, opl.team, so.delivery_date, opl.docstatus
+		HAVING open_b > 0 AND open_b = at_hub""",
+		{"hub": hub, "since": frappe.utils.add_days(frappe.utils.today(), -7), "until": until},
+		as_dict=True,
+	)
+	if not rows:
+		return []
+	# Its latest schedule wins (an order can sit on more than one day's schedule).
+	sched = {
+		r.order_pick_list: r
+		for r in frappe.db.sql(
+			"""SELECT pso.order_pick_list, ps.team, pso.sequence FROM `tabPackhouse Schedule Order` pso
+			JOIN `tabPackhouse Schedule` ps ON ps.name = pso.parent
+			WHERE pso.order_pick_list IN %(o)s ORDER BY ps.schedule_date ASC, ps.modified ASC""",
+			{"o": tuple(r.opl for r in rows)},
+			as_dict=True,
+		)
+	}
+	out = []
+	for r in rows:
+		sc = sched.get(r.opl)
+		out.append(
+			{
+				"opl": r.opl,
+				"order_name": r.order_name or r.opl,
+				"team": (sc.team if sc else "") or r.opl_team or "",
+				"schedule": int(sc.sequence or 0) if sc else 0,
+				"delivery_date": str(r.delivery_date),
+				"buckets": int(r.at_hub or 0),
+				"issued": int(r.issued_b or 0),
+				"submitted": int(r.docstatus or 0) == 1,
+			}
+		)
+	# Per team: its sequence first (#1, #2 …), the unscheduled after, oldest delivery first.
+	out.sort(key=lambda x: (x["team"] or "~", x["schedule"] or 9999, x["delivery_date"], x["order_name"]))
+	return out
+
+
+def allow_shelving_in_transit():
+	"""Production Settings > "Allow Shelving Buckets In Transit"."""
+	return bool(
+		frappe.utils.cint(frappe.get_cached_doc("Production Settings").get("allow_shelving_in_transit"))
+	)
+
+
+def return_to_farm(bucket_id, farm):
+	"""With "Allow Shelving Buckets In Transit": a bucket flagged on a trolley / truck
+	for the hub, shelved back at its remote `farm`, never left -- it goes back to
+	waiting there: off the trolley / truck on its open orders (still awaiting the
+	transfer) and off the load of the trips that recorded it. Returns the OPLs touched."""
+	hub = transfer_hub(required=False) or ""
+	if not bucket_id or not farm or (hub and farm.lower() == hub.lower()) or not allow_shelving_in_transit():
+		return []
+	rows = frappe.db.sql(
+		"""SELECT pli.name, pli.parent FROM `tabPick List Item` pli
+		JOIN `tabOrder Pick List` opl ON opl.name = pli.parent AND opl.docstatus < 2
+		WHERE pli.parenttype = 'Order Pick List' AND pli.bucket = %(b)s
+		  AND (pli.loaded_in_trolley = 1 OR pli.in_transit = 1)
+		  AND IFNULL(pli.shelved, 0) = 0 AND IFNULL(pli.issued, 0) = 0
+		  AND COALESCE(NULLIF(pli.farm, ''), SUBSTRING_INDEX(pli.source_warehouse, ' ', 1)) = %(f)s""",
+		{"b": bucket_id, "f": farm},
+		as_dict=True,
+	)
+	if not rows:
+		return []
+	for r in rows:
+		frappe.db.set_value(
+			"Pick List Item",
+			r.name,
+			{"loaded_in_trolley": 0, "in_transit": 0, "transit_truck": None, "awaiting_transfer": 1},
+		)
+	key = bucket_id.upper()
+	where = [w for w in _bucket_trip_rows([key]).get(key, []) if w.opl in {r.parent for r in rows}]
+	if where:
+		_drop_bucket_from_trips(key, where, "shelved back at {0}".format(farm))
+	opls = sorted({r.parent for r in rows})
+	log_transfer_event(
+		bucket_id, "Back on farm shelf", farm=farm, opl=opls[0], details="Shelved again at {0}".format(farm)
+	)
+	return opls
+
+
 def remote_shelving_block(bucket_id, farm):
 	"""Why a bucket may NOT be shelved at `farm` (a remote farm), or None.
 
@@ -4532,7 +4709,8 @@ def remote_shelving_block(bucket_id, farm):
 		{"b": bucket_id},
 		as_dict=True,
 	)
-	if moving:
+	# "Allow Shelving Buckets In Transit": it goes back on the farm's shelf (return_to_farm).
+	if moving and not allow_shelving_in_transit():
 		m = moving[0]
 		where = "on {0}".format(m.truck) if int(m.transit or 0) and m.truck else "on a trolley"
 		return "Bucket {0} is already being transferred to {1} ({2}, {3}) — it can't go back on a {4} shelf.".format(

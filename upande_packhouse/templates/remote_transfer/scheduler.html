@@ -306,6 +306,18 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .aph .sch-col.ready .sch-card{cursor:grab}
 .aph .sch-card.dragging{opacity:.4}
 .aph .sch-r1{display:flex;align-items:flex-start;gap:8px}
+.aph .sch-cwrap{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start}
+.aph .sch-cmain{flex:1 1 200px;min-width:0}
+.aph .sch-sugg{font-family:var(--sans,"Poppins",sans-serif);flex:0 1 220px;min-width:170px;display:flex;flex-direction:column;gap:6px;padding-left:12px;border-left:1px solid var(--border)}
+.aph .sch-sugg .sg-h{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2)}
+.aph .sch-sugg .sg-row{display:flex;flex-direction:column;gap:2px;padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);line-height:1.35}
+.aph .sch-sugg .sg-row.on{background:var(--good-bg,#e2f2e8);border-color:transparent}
+.aph .sch-sugg .sg-row.miss{border-style:dashed}
+.aph .sch-sugg .sg-f{font-size:12px;font-weight:500;color:var(--text-2)}
+.aph .sch-sugg .sg-v{font-size:14px;font-weight:700;color:var(--text)}
+.aph .sch-sugg .sg-r{font-size:12px;color:var(--text-2)}
+.aph .sch-sugg .sg-s{font-size:12px;font-weight:600;color:var(--good,#1f7a32)}
+.aph .sch-sugg .sg-none{font-size:12px;color:var(--text-2)}
 .aph .sch-seq{flex:0 0 auto;width:26px;height:26px;border-radius:7px;background:var(--accent);color:#fff;font-family:var(--mono);font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
 .aph .sch-seq.none{background:var(--bg-muted);color:var(--text-3)}
 .aph .sch-seq.done{background:var(--good)}
@@ -348,6 +360,47 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .aph .sch-selbar .rmsch{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.55)}
 .aph .sch-selbar .cl{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.55)}
 /* ---- 2-tab redesign ---- */
+.aph .pd-body ul{margin:8px 0 8px 18px}
+.aph .seq-board{display:flex;flex-direction:column;gap:12px}
+.aph .seq-card{background:var(--bg-card);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.aph .seq-card.next{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 6px 18px rgba(0,0,0,.06)}
+.aph .seq-card.done{opacity:.62}
+.aph .seq-hd{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--bg-muted);border-bottom:1px solid var(--border)}
+.aph .seq-k{width:40px;height:40px;border-radius:11px;background:var(--text);color:var(--bg-card);display:flex;align-items:center;justify-content:center;font:700 15px var(--mono);flex:none}
+.aph .seq-card.next .seq-k{background:var(--accent);color:#fff}
+.aph .seq-ti{flex:1;min-width:0}
+.aph .seq-ti .t{font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px}
+.aph .seq-ti .m{font-size:12px;color:var(--text-2);margin-top:2px}
+.aph .seq-next{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;background:var(--accent);color:#fff;border-radius:999px;padding:2px 8px}
+.aph .seq-badge{font-size:11px;font-weight:700;border-radius:999px;padding:4px 10px;white-space:nowrap}
+.aph .seq-badge.s0{background:#fffaeb;color:#b54708}
+.aph .seq-badge.s1{background:#eff8ff;color:#175cd3}
+.aph .seq-badge.s2{background:#ecfdf3;color:#067647}
+.aph .seq-badge.s3{background:#f4f3ff;color:#5925dc}
+.aph .seq-badge.s4{background:var(--bg-muted);color:var(--text-2)}
+.aph .seq-rows{display:flex;flex-direction:column}
+.aph .seq-row.sch-card{display:flex;align-items:center;gap:12px;padding:10px 16px;border:0;border-radius:0;border-bottom:1px solid var(--border);cursor:pointer}
+.aph .seq-row.sch-card:last-child{border-bottom:0}
+.aph .seq-row.sch-card:hover{background:var(--bg-muted);box-shadow:none}
+.aph .seq-team{flex:0 0 92px;font-size:11px;font-weight:700;text-align:center;padding:4px 8px;border-radius:999px;background:var(--bg-muted);color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph .seq-ord{flex:1;min-width:0}
+.aph .seq-ord .o{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph .seq-ord .sub{font-size:11px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aph .seq-num{display:flex;flex-direction:column;align-items:flex-end;min-width:54px}
+.aph .seq-num b{font-size:13px;font-feature-settings:'tnum'}
+.aph .seq-num span{font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.03em}
+.aph .seq-st{font-size:11px;font-weight:600;border-radius:999px;padding:3px 9px;white-space:nowrap;min-width:96px;text-align:center}
+.aph .seq-st.farm{background:#fffaeb;color:#b54708}
+.aph .seq-st.road{background:#eff8ff;color:#175cd3}
+.aph .seq-st.ready{background:#ecfdf3;color:#067647}
+.aph .seq-st.issuing{background:#f4f3ff;color:#5925dc}
+.aph .seq-st.done{background:var(--bg-muted);color:var(--text-2)}
+@media (max-width:720px){.aph .seq-row.sch-card{flex-wrap:wrap}.aph .seq-ord{flex-basis:calc(100% - 110px)}.aph .seq-num{min-width:44px}}
+.aph .sch-distbtn{float:right;margin:3px 0 0 10px;border:0;border-radius:8px;padding:9px 16px;background:var(--accent);color:#fff;font-size:13px;font-weight:600;cursor:pointer}
+.aph .sch-distbtn:disabled{opacity:.45;cursor:default}
+.aph .sch-mv{margin-left:auto;display:inline-flex;flex-direction:column;gap:2px;flex:none}
+.aph .sch-mv button{border:1px solid var(--border);background:var(--bg-card);color:var(--text-2);border-radius:5px;width:26px;height:20px;font-size:10px;line-height:1;cursor:pointer;padding:0}
+.aph .sch-mv button:hover{border-color:var(--accent);color:var(--accent)}
 .aph .sch-maintabs{display:inline-flex;gap:2px;background:var(--bg-muted);border-radius:9px;padding:3px;margin-bottom:16px}
 .aph .sch-maintab{border:0;background:transparent;color:var(--text-2);font-size:15px;font-weight:600;padding:9px 20px;border-radius:7px;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
 .aph .sch-maintab:hover{color:var(--text)}
@@ -411,7 +464,14 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .aph .sch-numinp:focus{border-color:var(--accent)}
 .aph .sch-nextbtn{display:block;width:100%;margin-top:8px;padding:7px 10px;border:1px dashed var(--accent);border-radius:8px;background:transparent;color:var(--accent);font-size:11px;font-weight:600;cursor:pointer;text-align:center}
 .aph .sch-nextbtn:hover{background:var(--accent);color:#fff;border-style:solid}
-.aph .smhint{font-size:11px;color:var(--text-3);margin-top:11px;line-height:1.45}
+.aph .smtrips:empty{display:none}
+.aph .smtrips{font-family:var(--sans,"Poppins",sans-serif);margin-top:12px;display:flex;flex-direction:column;gap:6px}
+.aph .smt-farm{display:flex;align-items:center;gap:8px;margin-top:4px}
+.aph .smt-n{font-size:11px;color:var(--text-2)}
+.aph .smt-none{font-size:11px;color:var(--text-3);padding:6px 10px;border:1px dashed var(--border-2,#d9d9d9);border-radius:8px}
+.aph .smt-trip{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:11px}
+.aph .smt-v{font-weight:600}
+.aph .smt-r{flex-basis:100%;color:var(--text-2)}
 .aph .smf{display:flex;align-items:center;gap:8px;padding:14px 18px;border-top:1px solid var(--border);background:var(--bg)}
 .aph .smf .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
 .aph .smf .btn.ghost{background:none;text-decoration:none}
@@ -733,10 +793,12 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 {% elif rt_part == 'body' %}{% raw %}
       <div class="aph-kpis" id="kpis"></div>
       <div class="sch-maintabs">
-        <button class="sch-maintab on" data-mtab="byteam">By team <span class="tc" id="cTeams">0</span></button>
+        <button class="sch-maintab on" data-mtab="byseq">By sequence <span class="tc" id="cSteps">0</span></button>
+        <button class="sch-maintab" data-mtab="byteam">By team <span class="tc" id="cTeams">0</span></button>
         <button class="sch-maintab" data-mtab="unsched">Not scheduled <span class="tc" id="cUnsched">0</span></button>
-        <button class="sch-maintab" data-mtab="sched">Schedule <span class="tc" id="cSched">0</span></button>
+        <button class="sch-maintab" data-mtab="sched">Scheduled <span class="tc" id="cSched">0</span></button>
       </div>
+      <button type="button" class="sch-distbtn" id="distTeams" title="Schedule every order not scheduled yet onto its team's sequence (orders without a team go to the team with the least work)">Distribute to teams</button>
       <div id="panelUnsched" class="sch-panel" style="display:none">
         <div class="sch-varbar" id="varBar"></div>
         <input type="text" id="readySearch" class="sch-search wide" placeholder="Search OPL, order name, customer, team&hellip;" autocomplete="off">
@@ -758,9 +820,9 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       <label class="smfl" for="smNum">Schedule number</label>
       <input type="number" id="smNum" min="1" class="sch-numinp">
       <button type="button" id="smNext" class="sch-nextbtn"></button>
-      <div class="smhint">Sets this order&rsquo;s processing position (1 = next). Other ready orders shift to make room.</div>
+      <div class="smtrips" id="smTrips"></div>
     </div>
-    <div class="smf"><a id="smOpen" class="btn ghost" href="#">Open order</a><span style="flex:1"></span><button class="btn" id="smCancel">Cancel</button><button class="btn primary" id="smSave">Save</button></div>
+    <div class="smf"><span style="flex:1"></span><button class="btn" id="smCancel">Cancel</button><button class="btn primary" id="smSave">Save</button></div>
   </div>
   </div>
 {% endraw %}
@@ -830,17 +892,44 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     var meta='<div class="sch-meta">'+metaParts+'</div>';
     var farmsLine=(o.has_transfer&&o.farms&&o.farms.length)?'<div class="sch-farms">'+o.farms.map(function(f){return '<span class="sch-chip farm">'+esc(f)+'</span>';}).join('')+'</div>':'';
     var draggable=(lane==='sched'&&canDrag)?' draggable="true"':'';
+    var sugg=suggestHtml(o.farm_trips||[]);
     return '<div class="sch-card'+(opts.isSel?' sel':'')+'" data-opl="'+esc(o.name)+'"'+draggable+'>'+
-      '<div class="sch-r1">'+chk+seqHtml+'<div class="sch-cnm"><div class="o">'+nm+'</div><div class="sub">'+sub+'</div></div></div>'+
-      chipsHtml+farmsLine+meta+'</div>';
+      '<div class="sch-cwrap"><div class="sch-cmain">'+
+      '<div class="sch-r1">'+chk+seqHtml+'<div class="sch-cnm"><div class="o">'+nm+'</div><div class="sub">'+sub+'</div></div>'+
+      // Move within the team's sequence — works on touch screens, where dragging doesn't.
+      (lane==='sched'?'<span class="sch-mv"><button type="button" data-mv="up" title="Earlier in the sequence">▲</button><button type="button" data-mv="down" title="Later in the sequence">▼</button></span>':'')+
+      '</div>'+
+      chipsHtml+farmsLine+meta+'</div>'+sugg+'</div></div>';
+  }
+  // The trip to suggest per waiting farm: the one already carrying this order's buckets
+  // from that farm, else the first one going there (the feed sends only available trips).
+  function suggestTrip(f){
+    var ts=f.trips||[], on=null;
+    ts.forEach(function(t){ if(!on&&t.on_trip)on=t; });
+    return on||ts[0]||null;
+  }
+  function suggestHtml(fts){
+    if(!fts.length)return '';
+    return '<div class="sch-sugg"><div class="sg-h">Suggested trip</div>'+fts.map(function(f){
+      var t=suggestTrip(f);
+      var tl=t?('<span class="sg-v">'+esc(t.vehicle||'—')+(t.run?(' · trip '+t.run):'')+'</span>'+
+        (t.route?'<span class="sg-r">'+esc(t.route)+'</span>':'')+
+        (t.on_trip?'<span class="sg-s">'+num(t.on_trip)+' on it</span>':''))
+        :'<span class="sg-none">no trip yet</span>';
+      return '<div class="sg-row'+(t?(t.on_trip?' on':''):' miss')+'" title="'+esc(t?t.trip:'No trip to '+f.farm+' yet')+'">'+
+        '<span class="sg-f">'+esc(f.farm)+' · '+num(f.buckets)+' bucket'+(num(f.buckets)===1?'':'s')+'</span>'+tl+'</div>';
+    }).join('')+'</div>';
   }
 
   // Per-team NEXT-to-issue set: lowest-numbered Ready line per team still below the
   // issue threshold (mirrors the per-team server-side enforcement). Lines already at/
   // above threshold are "cleared" and skipped; the next sub-threshold line is the team's next.
+  // Farm = the section's Farm filter (top bar): orders with buckets at that farm.
+  function curFarm(){return (window.rtFarm&&window.rtFarm.get())||'';}
   function applyFilters(arr){
     var t=el('fTeam')?el('fTeam').value:'';
-    return arr.filter(function(o){return (!t||o.custom_team===t);});
+    var f=curFarm();
+    return arr.filter(function(o){return (!t||o.custom_team===t)&&(!f||(o.farms||[]).indexOf(f)>=0);});
   }
 
   // search haystack: OPL name, order name, customer, team, farms, mixed type
@@ -862,14 +951,16 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       .map(function(k){return '<div class="aph-kpi"><div class="lbl">'+k[0]+'</div><div class="v">'+k[1]+'</div></div>';}).join('');
     if(el('cUnsched'))el('cUnsched').textContent=unsched.length;
     if(el('cSched'))el('cSched').textContent=sched.length;
+    if(el('distTeams')){ el('distTeams').textContent='Distribute to teams'+(unsched.length?' ('+unsched.length+')':''); el('distTeams').disabled=!unsched.length; }
     if(el('cTeams'))el('cTeams').textContent=Object.keys(sched.reduce(function(a,o){a[o.custom_team||'-']=1;return a;},{})).length;
     var mt=G.mtab||'byteam';
     document.querySelectorAll('.sch-maintab').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-mtab')===mt);});
     if(el('panelUnsched'))el('panelUnsched').style.display=(mt==='unsched')?'':'none';
-    if(el('panelSched'))el('panelSched').style.display=(mt==='sched'||mt==='byteam')?'':'none';
+    if(el('panelSched'))el('panelSched').style.display=(mt==='sched'||mt==='byteam'||mt==='byseq')?'':'none';
     G.prio={}; var pk={}; STATE.ready.forEach(function(o){ if(STATE.scheduled[o.name]){ var tm=o.custom_team||''; pk[tm]=(pk[tm]||0)+1; G.prio[o.name]=pk[tm]; } });
     renderVarBar(vc);
-    if(mt==='unsched') renderUnscheduled(unsched); else renderSchedule(sched);
+    if(el('cSteps')){ var stp={}; sched.forEach(function(o){ if(G.prio[o.name]) stp[G.prio[o.name]]=1; }); el('cSteps').textContent=Object.keys(stp).length; }
+    if(mt==='unsched') renderUnscheduled(unsched); else if(mt==='byseq') renderSequence(sched); else renderSchedule(sched);
     renderSelBar();
   }
 
@@ -923,6 +1014,51 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     body.querySelectorAll('.sch-list').forEach(function(listEl){wireList(listEl,true);});
   }
 
+  // ---- By sequence: one card per step (#1 = every team's #1, then #2 …) — the order
+  // transfers, shelving and issuing all follow. Each row: the team's order at that
+  // place, where it stands, and ▲ / ▼ to move it within its team.
+  function orderState(o){
+    var waiting=(o.farm_trips||[]).reduce(function(a,f){ return a+num(f.buckets); },0);
+    if(o.lines && o.issued_lines>=o.lines) return {k:'done',t:'Issued'};
+    if(o.issued_lines>0) return {k:'issuing',t:'Issuing '+o.issued_lines+'/'+o.lines};
+    if(waiting>0) return {k:'farm',t:waiting+' bkt at farm'+((o.farm_trips||[]).length>1?'s':'')};
+    if(o.has_transfer) return {k:'road',t:'Coming in'};
+    return {k:'ready',t:'Ready at Kapkolia'};
+  }
+  var STATE_RANK={farm:0,road:1,ready:2,issuing:3,done:4};
+  function renderSequence(list){
+    var body=el('bSched'); if(!body) return;
+    if(!list.length){ body.innerHTML='<div class="sch-empty">No orders scheduled yet. Use <b>Distribute to teams</b>, or schedule orders from the <b>Not scheduled</b> tab.</div>'; return; }
+    var steps={}, keys=[];
+    list.forEach(function(o){ var k=(G.prio&&G.prio[o.name])||0; if(!steps[k]){ steps[k]=[]; keys.push(k); } steps[k].push(o); });
+    keys.sort(function(a,b){ return a-b; });
+    var nextStep=null;
+    var cards=keys.map(function(k){
+      var items=steps[k].slice().sort(function(a,b){ return String(a.custom_team||'').localeCompare(String(b.custom_team||'')); });
+      var bk=0, st=0, worst=4;
+      var rows=items.map(function(o){
+        var ss=orderState(o); bk+=num(o.n_buckets); st+=num(o.total_stems); worst=Math.min(worst,STATE_RANK[ss.k]);
+        return '<div class="seq-row sch-card" data-opl="'+esc(o.name)+'">'+
+          '<span class="seq-team">'+esc(o.custom_team||'No team')+'</span>'+
+          '<div class="seq-ord"><div class="o">'+esc(o.custom_order_name||o.name)+'</div><div class="sub">'+esc(o.customer||'')+(o.mixed_type?' · '+esc(o.mixed_type):'')+'</div></div>'+
+          '<div class="seq-num"><b>'+fmt(num(o.n_buckets))+'</b><span>bkt</span></div>'+
+          '<div class="seq-num"><b>'+fmt(num(o.total_stems))+'</b><span>stems</span></div>'+
+          '<span class="seq-st '+ss.k+'">'+esc(ss.t)+'</span>'+
+          '<span class="sch-mv"><button type="button" data-mv="up" title="Earlier in its team’s sequence">▲</button><button type="button" data-mv="down" title="Later in its team’s sequence">▼</button></span>'+
+          '</div>';
+      }).join('');
+      var label=['At the farms','On the way','At Kapkolia','Issuing','Done'][worst];
+      var isNext=nextStep==null && worst<4; if(isNext) nextStep=k;
+      return '<div class="seq-card'+(isNext?' next':'')+(worst===4?' done':'')+'">'+
+        '<div class="seq-hd"><div class="seq-k">#'+k+'</div><div class="seq-ti"><div class="t">Sequence '+k+(isNext?' <span class="seq-next">Next</span>':'')+'</div>'+
+        '<div class="m">'+items.length+' order'+(items.length===1?'':'s')+' · '+fmt(bk)+' buckets · '+fmt(st)+' stems</div></div>'+
+        '<span class="seq-badge s'+worst+'">'+label+'</span></div>'+
+        '<div class="seq-rows">'+rows+'</div></div>';
+    }).join('');
+    body.innerHTML='<div class="seq-board">'+cards+'</div>';
+    body.querySelectorAll('.seq-rows').forEach(function(listEl){ wireList(listEl,false); });
+  }
+
   function renderSelBar(){
     var mt=G.mtab||'byteam';
     var onSched=mt!=='unsched';
@@ -945,7 +1081,57 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   // Deliberate scheduling — each action schedules ONLY the order(s) it acts on (the rest
   // stay unscheduled). Priority = per-team position of the scheduled orders in STATE.ready.
   function scheduledOpls(){ var out=[]; STATE.ready.forEach(function(o){ if(STATE.scheduled[o.name]) out.push(o.name); }); return out; }
-  function saveSchedule(){ return frp('upande_packhouse.api.scheduler.saveDaySchedule',{date:STATE.schedDate||STATE.date,order:scheduledOpls().join('|~|')}); }
+  function saveSchedule(){ return frp('upande_packhouse.api.scheduler.saveDaySchedule',{date:STATE.schedDate||STATE.date,order:scheduledOpls().join('|~|'),teams:JSON.stringify(G.teamFor||{})}); }
+
+  // A confirm / notice box in the page's own modal style. frappe.confirm / msgprint
+  // need frappe.ui.Dialog, which only the desk loads -- on this web page they threw
+  // and the action did nothing. pageDialog(title, html, okLabel) -> Promise<bool>;
+  // no okLabel = a notice with just "OK".
+  function pageDialog(title,html,okLabel){
+    return new Promise(function(resolve){
+      var wrap=document.createElement('div');
+      wrap.className='sch-modal open';
+      wrap.innerHTML='<div class="sch-modal-card"><div class="smh"><div><div class="smt">'+esc(title)+'</div></div>'+
+        '<button class="sch-x" data-pd="no" title="Close">&times;</button></div><div class="smb"><div class="sml pd-body">'+html+'</div></div>'+
+        '<div class="smf"><span style="flex:1"></span>'+(okLabel?'<button class="btn" data-pd="no">Cancel</button><button class="btn primary" data-pd="yes">'+esc(okLabel)+'</button>':'<button class="btn primary" data-pd="no">OK</button>')+'</div></div>';
+      (document.querySelector('.aph')||document.body).appendChild(wrap);
+      wrap.addEventListener('click',function(e){
+        var b=e.target.closest('[data-pd]');
+        if(!b && e.target!==wrap) return;
+        wrap.remove(); resolve(!!(b&&b.getAttribute('data-pd')==='yes'));
+      });
+    });
+  }
+
+  // "Distribute to teams": every order not scheduled yet (the board's filters apply)
+  // goes to the END of its team's sequence, in the order the list holds them; one with
+  // no team goes to the team with the fewest buckets scheduled. Sequences already set
+  // are kept. Rearrange after by dragging, or with ▲ / ▼.
+  function distributeToTeams(){
+    var todo=applyFilters(STATE.ready).filter(function(o){ return !STATE.scheduled[o.name]; });
+    if(!todo.length){ if(window.frappe&&frappe.show_alert) frappe.show_alert({message:'Every order is already on a team’s schedule',indicator:'blue'},4); return; }
+    var load={};
+    STATE.ready.forEach(function(o){ if(o.custom_team) load[o.custom_team]=load[o.custom_team]||0; if(STATE.scheduled[o.name]&&o.custom_team) load[o.custom_team]+=num(o.n_buckets); });
+    var teams=Object.keys(load);
+    var noTeam=todo.filter(function(o){ return !o.custom_team; }).length;
+    if(noTeam&&!teams.length){ pageDialog('No packing team','No packing team to give the '+noTeam+' order(s) without a team — set a team on one Order Pick List first.'); return; }
+    var go=function(){
+      G.teamFor=G.teamFor||{};
+      todo.forEach(function(o){
+        var t=o.custom_team;
+        if(!t){ t=teams.reduce(function(a,b){ return load[b]<load[a]?b:a; }); o.custom_team=t; G.teamFor[o.name]=t; }
+        load[t]=(load[t]||0)+num(o.n_buckets);
+        STATE.scheduled[o.name]=1;
+      });
+      var isNew={}; todo.forEach(function(o){ isNew[o.name]=1; });
+      var kept=STATE.ready.filter(function(o){ return STATE.scheduled[o.name]&&!isNew[o.name]; });
+      var rest=STATE.ready.filter(function(o){ return !STATE.scheduled[o.name]; });
+      STATE.ready=kept.concat(todo).concat(rest);
+      G.sel.clear(); G.mtab='byseq'; persist();
+    };
+    var msg='Schedule '+todo.length+' order'+(todo.length===1?'':'s')+' at the end of their teams’ sequences'+(noTeam?' ('+noTeam+' without a team go to the team with the least work)':'')+'?';
+    pageDialog('Distribute to teams',esc(msg),'Distribute').then(function(ok){ if(ok) go(); });
+  }
 
   // Central save: persist the scheduled subset to the Packhouse Schedule doctype, CONFIRM
   // the result to the user, then reload the authoritative doctype state and re-render so
@@ -963,11 +1149,11 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       }
       // Orders without a team are NOT on any team's schedule, so transfer planning
       // never sees them and their remote buckets never get a truck. Say so loudly.
-      if(ok&&noTeam.length&&window.frappe&&frappe.msgprint){
-        frappe.msgprint({title:'Not scheduled — no team',indicator:'orange',
-          message:noTeam.length+' order'+(noTeam.length===1?' has':'s have')+' no team, so '+(noTeam.length===1?'it was':'they were')+' left off the schedule and won’t be picked up by Transfer Scheduling:<ul>'+
-            noTeam.map(function(x){ return '<li><b>'+frappe.utils.escape_html(x.order_name||x.opl)+'</b> '+frappe.utils.escape_html(x.customer||'')+' ('+frappe.utils.escape_html(x.opl)+')</li>'; }).join('')+
-            '</ul>Set the team on the Order Pick List, then schedule it again.'});
+      if(ok&&noTeam.length){
+        pageDialog('Not scheduled — no team',
+          noTeam.length+' order'+(noTeam.length===1?' has':'s have')+' no team, so '+(noTeam.length===1?'it was':'they were')+' left off the schedule and won’t be picked up by Transfer Scheduling:<ul>'+
+            noTeam.map(function(x){ return '<li><b>'+esc(x.order_name||x.opl)+'</b> '+esc(x.customer||'')+' ('+esc(x.opl)+')</li>'; }).join('')+
+            '</ul>Set the team on the Order Pick List, then schedule it again.');
       }
       return reloadScheduled().then(function(){ render(); return r; });
     });
@@ -1072,10 +1258,14 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       container.ondragover=function(e){e.preventDefault();if(!dragEl||container!==dragContainer)return;var after=afterEl(container,e.clientY);if(after==null)container.appendChild(dragEl);else container.insertBefore(dragEl,after);};
     } else { container.ondragover=null; }
     container.querySelectorAll('.sch-chk').forEach(function(cb){cb.addEventListener('click',function(e){e.stopPropagation();var nm=cb.getAttribute('data-sel');if(cb.checked)G.sel.add(nm);else G.sel.delete(nm);render();});});
-    container.querySelectorAll('.sch-card').forEach(function(c){c.addEventListener('click',function(e){if(e.target.classList.contains('sch-chk'))return;openSchedModal(c.getAttribute('data-opl'));});});
+    container.querySelectorAll('.sch-card').forEach(function(c){c.addEventListener('click',function(e){
+      if(e.target.classList.contains('sch-chk'))return;
+      var mv=e.target.closest('[data-mv]');
+      if(mv){ e.stopPropagation(); var nm=c.getAttribute('data-opl'), k=(G.prio&&G.prio[nm])||1;
+        setSchedulePos(nm, mv.getAttribute('data-mv')==='up'?Math.max(1,k-1):k+1); return; }
+      openSchedModal(c.getAttribute('data-opl'));});});
   }
   function afterEl(container,y){var els=Array.prototype.slice.call(container.querySelectorAll('.sch-card:not(.dragging)'));return els.reduce(function(closest,child){var box=child.getBoundingClientRect();var off=y-box.top-box.height/2;if(off<0&&off>closest.offset)return {offset:off,element:child};return closest;},{offset:-Infinity}).element;}
-  function openDoc(name){if(window.frappe&&frappe.set_route)frappe.set_route('Form','Order Pick List',name);else window.open('/app/order-pick-list/'+encodeURIComponent(name),'_blank');}
 
   // ---- schedule-number popup (schedules the order at a per-team priority #) ----
   function openSchedModal(name){
@@ -1100,15 +1290,30 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       nextBtn.onclick=function(){ inp.value=maxK; inp.focus(); };
     }
     el('schModal').setAttribute('data-opl',name);
-    el('smOpen').onclick=function(e){e.preventDefault();openDoc(name);};
+    el('smTrips').innerHTML=tripsHtml(o.farm_trips||[]);
     el('schModal').classList.add('open');
     setTimeout(function(){inp.focus();inp.select();},30);
+  }
+  // Under the guide: per farm the order still has buckets waiting at, the trips going
+  // there on the processing day that can still take buckets (the feed sends only those).
+  function tripsHtml(fts){
+    if(!fts.length)return '';
+    return fts.map(function(f){
+      var head='<div class="smt-farm"><span class="sch-chip farm">'+esc(f.farm)+'</span><span class="smt-n">'+num(f.buckets)+' bucket'+(num(f.buckets)===1?'':'s')+' waiting</span></div>';
+      if(!(f.trips||[]).length)return head+'<div class="smt-none">No trip to '+esc(f.farm)+' yet</div>';
+      return head+f.trips.map(function(t){
+        return '<div class="smt-trip" title="'+esc(t.trip)+'"><span class="smt-v">'+esc(t.vehicle||'—')+(t.run?(' · trip '+t.run):'')+'</span>'+
+          (t.on_trip?'<span class="sch-chip sched">'+num(t.on_trip)+' on it</span>':'')+
+          (t.route?'<span class="smt-r">'+esc(t.route)+'</span>':'')+'</div>';
+      }).join('');
+    }).join('');
   }
   function closeSchedModal(){el('schModal').classList.remove('open');}
   function saveSchedModal(){var name=el('schModal').getAttribute('data-opl');var v=parseInt(el('smNum').value,10);if(!isFinite(v))v=1;closeSchedModal();setSchedulePos(name,v);}
 
   // ---- load ----
   function populateFilters(){
+    if(window.rtFarm){var fm={};STATE.ready.forEach(function(o){(o.farms||[]).forEach(function(f){fm[f]=1;});});window.rtFarm.options(Object.keys(fm));}
     var teams={};STATE.ready.forEach(function(o){if(o.custom_team)teams[o.custom_team]=1;});
     var sel=el('fTeam');if(!sel)return;var cur=sel.value;
     sel.innerHTML='<option value="">All teams</option>'+Object.keys(teams).sort().map(function(k){return '<option'+(k===cur?' selected':'')+'>'+esc(k)+'</option>';}).join('');
@@ -1127,9 +1332,9 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       STATE.drafts=[];STATE.packed=[];
       STATE.ready=rows.map(function(o){
         return {name:o.opl,custom_order_name:o.order_name,customer:o.customer,custom_team:o.team,
-                total_stems:o.total_stems,n_buckets:o.n_buckets,n_farms:o.n_farms,farms:o.farms||[],
+                total_stems:o.total_stems,n_buckets:o.n_buckets,n_farms:o.n_farms,farms:o.farms||[],farm_trips:o.farm_trips||[],
                 n_varieties:o.n_varieties,has_transfer:o.has_transfer,mixed_type:o.mixed_type,
-                docstatus:o.docstatus,variation:o.variation};
+                docstatus:o.docstatus,variation:o.variation,issued_lines:o.issued_lines||0,lines:o.lines||0};
       });
       reloadScheduled().then(function(){
         STATE.ready.sort(function(a,b){
@@ -1153,12 +1358,14 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   window.rtDate.on(load);
   function filterChanged(){G.readyPage=1;render();}
   if(el('fTeam')) el('fTeam').onchange=filterChanged;
-  G.mtab='byteam'; G.var='all';
+  if(window.rtFarm) window.rtFarm.on(filterChanged);
+  G.mtab='byseq'; G.var='all';
   document.querySelectorAll('.sch-maintab').forEach(function(b){b.onclick=function(){G.mtab=b.getAttribute('data-mtab');G.sel.clear();G.readyPage=1;render();};});
   if(el('readySearch'))el('readySearch').oninput=function(){G.readyPage=1;render();};
   if(el('smClose'))el('smClose').onclick=closeSchedModal;
   if(el('smCancel'))el('smCancel').onclick=closeSchedModal;
   if(el('smSave'))el('smSave').onclick=saveSchedModal;
+  if(el('distTeams'))el('distTeams').onclick=distributeToTeams;
   if(el('schModal'))el('schModal').addEventListener('click',function(e){if(e.target===el('schModal'))closeSchedModal();});
   if(el('smNum'))el('smNum').addEventListener('keydown',function(e){if(e.key==='Enter')saveSchedModal();});
   function boot(){if(window.frappe&&frappe.call){load();setInterval(load,60000);}else if(boot._n++<80){setTimeout(boot,100);}}

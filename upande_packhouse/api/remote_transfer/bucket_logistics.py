@@ -59,8 +59,19 @@ def getBucketLogistics():
 	# Transfers are from the remote farms only: a bucket whose stock is already at the
 	# packhouse (hub) is not coming from anywhere, whatever its flags say.
 	hub = transfer_hub(required=False) or ""
-	NOT_HUB = "COALESCE(" + FARM_EXPR + ", '') != %(hub)s"
-	params = {"d": delivery_date, "hub": hub}
+	# Nor from any other sales farm (Production Settings > Shelf Locations, Sales Shelf):
+	# Karen packs and issues its own orders, which never transfer, and their issued
+	# buckets used to show here as if they had come in on a truck.
+	sales_farms = set(
+		frappe.get_all(
+			"Shelf Locations",
+			filters={"parent": "Production Settings", "sales_shelf": 1, "enabled": 1},
+			pluck="farm",
+		)
+	)
+	sales_farms.add(hub)
+	NOT_HUB = "COALESCE(" + FARM_EXPR + ", '') NOT IN %(sales_farms)s"
+	params = {"d": delivery_date, "hub": hub, "sales_farms": tuple(f for f in sales_farms if f) or ("",)}
 	conds = [
 		"opl.docstatus < 2",
 		"pli.parenttype = 'Order Pick List'",
@@ -240,7 +251,7 @@ def getBucketLogistics():
 			+ """
 			GROUP BY pli.parent, """
 			+ FARM_EXPR,
-			{"opls": tuple(r["opl"] for r in rows), "hub": hub},
+			{"opls": tuple(r["opl"] for r in rows), "hub": hub, "sales_farms": params["sales_farms"]},
 			as_dict=True,
 		):
 			shelved_at[(x.opl, x.farm or "")] = int(x.n or 0)
@@ -298,7 +309,7 @@ def getBucketLogistics():
 			+ """
 			GROUP BY pli.parent, """
 			+ FARM_EXPR,
-			{"opls": tuple(r["opl"] for r in rows), "hub": hub},
+			{"opls": tuple(r["opl"] for r in rows), "hub": hub, "sales_farms": params["sales_farms"]},
 			as_dict=True,
 		):
 			by_farm.setdefault(x.opl, []).append(
@@ -408,7 +419,8 @@ def getBucketLogistics():
 		{"d": delivery_date},
 		as_dict=True,
 	)
-	farms = [r["f"] for r in farm_rows if r.get("f")]
+	# Remote farms only: the sales farms (Kapkolia, Karen) send nothing.
+	farms = [r["f"] for r in farm_rows if r.get("f") and r["f"] not in sales_farms]
 
 	# Every run the trucks drive today (one trip per run), for the truck cards: which
 	# run each truck is on, where it goes and how far loading / shelving has got.
