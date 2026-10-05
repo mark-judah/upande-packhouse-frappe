@@ -2999,18 +2999,22 @@ def replace_requested_bucket(
 	new_bucket_id: str | None = None,
 	reason: str | None = None,
 	notes: str | None = None,
+	keep_old_on_shelf: bool = False,
 ):
 	"""Swap a missing requested bucket for a matching one from the same farm,
 	retrying when the swap loses a lock race (see REPLACE_LOCK_WAIT_S). `reason`
 	(Missing / Damaged / Wrong variety / Other) and `notes` go on the Bucket
-	Replacement record."""
+	Replacement record. `keep_old_on_shelf`: the old bucket is there, just
+	mislabelled -- it stays on its shelf for its record to be corrected."""
 	import time
 
 	previous = frappe.db.sql("SELECT @@SESSION.innodb_lock_wait_timeout")[0][0]
 	frappe.db.sql("SET SESSION innodb_lock_wait_timeout = %s", (int(REPLACE_LOCK_WAIT_S),))
 	try:
 		for attempt in range(REPLACE_ATTEMPTS):
-			res = _replace_requested_bucket(pick_list_item, new_bucket_id, reason=reason, notes=notes)
+			res = _replace_requested_bucket(
+				pick_list_item, new_bucket_id, reason=reason, notes=notes, keep_old_on_shelf=keep_old_on_shelf
+			)
 			if not res.pop("_lock_conflict", False):
 				return res
 			if attempt + 1 < REPLACE_ATTEMPTS:

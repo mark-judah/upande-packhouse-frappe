@@ -2,6 +2,7 @@
     connects the tab to the page around it, which owns the section's delivery date,
     Refresh, tab highlight and address:
       window.rtDate       the page's date (get / set / on change)
+      window.rtFarm       the page's farm filter (get / set / options / on change)
       window.rtOnRefresh  register what the page's Refresh does while this tab is open
       window.rtSetTab     report the open view (the planner frame switches between three)
       window.rtSetUrl     report the view's address (path + query) for the page's URL
@@ -22,6 +23,7 @@
   try { if (window.parent !== window && window.parent.rtRegisterRefresh) P = window.parent; } catch (e) {}
   if (P) {
     window.rtDate = P.rtDate;
+    window.rtFarm = P.rtFarm;
     window.rtOnRefresh = function(fn){ P.rtRegisterRefresh(GROUP, fn); };
     window.rtSetTab = function(tab){ P.rtFrameTab(GROUP, tab); };
     window.rtSetUrl = function(pathAndQuery){ P.rtFrameUrl(GROUP, pathAndQuery); };
@@ -34,6 +36,13 @@
     get: function(){ return v; },
     set: function(nv){ if (!nv || nv === v) return; v = nv; document.dispatchEvent(new CustomEvent('rt-date', {detail: v})); },
     on: function(fn){ document.addEventListener('rt-date', function(e){ fn(e.detail); }); }
+  };
+  var farm = '';
+  window.rtFarm = {
+    get: function(){ return farm; },
+    set: function(nv){ farm = nv || ''; document.dispatchEvent(new CustomEvent('rt-farm', {detail: farm})); },
+    options: function(){},
+    on: function(fn){ document.addEventListener('rt-farm', function(e){ fn(e.detail); }); }
   };
   window.rtOnRefresh = function(){};
   window.rtSetTab = function(){};

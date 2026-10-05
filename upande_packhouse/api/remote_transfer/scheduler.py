@@ -109,7 +109,15 @@ def getSchedulerFeed():
 				op = r.get("parent")
 				st = stats.get(op)
 				if not st:
-					st = {"buckets": {}, "farms": {}, "varieties": {}, "transfer": 0, "issued": 0, "lines": 0}
+					st = {
+						"buckets": {},
+						"farms": {},
+						"waiting": {},
+						"varieties": {},
+						"transfer": 0,
+						"issued": 0,
+						"lines": 0,
+					}
 					stats[op] = st
 				b = r.get("bucket")
 				if b:
@@ -122,6 +130,9 @@ def getSchedulerFeed():
 					farm = wh.split(" ")[0]
 				if farm:
 					st["farms"][farm] = 1
+					# Buckets still waiting at the farm for a truck, per farm.
+					if b and int(r.get("awaiting_transfer") or 0) == 1:
+						st["waiting"].setdefault(farm, {})[b] = 1
 				v = r.get("item_code")
 				if v:
 					st["varieties"][v] = 1
@@ -174,6 +185,38 @@ def getSchedulerFeed():
 			):
 				on_schedule[sop] = 1
 
+		# ---- trips to each farm, for the schedule popup ----
+		# Trips run the PROCESSING day (delivery - 1). A trip goes to every farm on its
+		# collection order (falling back to its order rows' farms). Only Draft / Scheduled
+		# trips are listed — they can still take buckets. on_trip = this order's buckets on it.
+		hub = frappe.get_cached_doc("Production Settings").get("transfer_hub_farm") or ""
+		trip_date = frappe.utils.add_days(dd, -1)
+		trips = frappe.get_all(
+			"Bucket Request Trip",
+			filters={"trip_date": trip_date, "status": ["in", ["Draft", "Scheduled"]]},
+			fields=["name", "vehicle", "status", "collection_order", "run"],
+			order_by="creation asc",
+			limit_page_length=0,
+		)
+		trip_rows = {}
+		if trips:
+			for tr in frappe.get_all(
+				"Bucket Request Trip Order",
+				filters=[["parent", "in", [t.name for t in trips]], ["unscheduled", "!=", 1]],
+				fields=["parent", "order_pick_list", "farm", "buckets"],
+				limit_page_length=0,
+			):
+				trip_rows.setdefault(tr.parent, []).append(tr)
+		farm_trips = {}
+		for t in trips:
+			stops = [x.strip() for x in (t.collection_order or "").split("→") if x.strip()]
+			for tr in trip_rows.get(t.name) or []:
+				if tr.farm and tr.farm not in stops:
+					stops.append(tr.farm)
+			for fm in stops:
+				if fm != hub:
+					farm_trips.setdefault(fm, []).append(t)
+
 		out = []
 		ci = 0
 		while ci < len(opls):
@@ -221,6 +264,28 @@ def getSchedulerFeed():
 
 			farm_list = sorted(st["farms"].keys())
 
+			waiting = []
+			for fm in sorted(st.get("waiting", {}).keys()):
+				if fm == hub:
+					continue
+				ft = []
+				for t in farm_trips.get(fm) or []:
+					on_trip = 0
+					for tr in trip_rows.get(t.name) or []:
+						if tr.order_pick_list == op and (tr.farm or "") == fm:
+							on_trip = on_trip + int(tr.buckets or 0)
+					ft.append(
+						{
+							"trip": t.name,
+							"vehicle": t.vehicle or "",
+							"status": t.status,
+							"run": int(t.run or 0),
+							"route": t.collection_order or "",
+							"on_trip": on_trip,
+						}
+					)
+				waiting.append({"farm": fm, "buckets": len(st["waiting"][fm]), "trips": ft})
+
 			row = {
 				"opl": op,
 				"order_name": o.get("custom_order_name") or op,
@@ -230,6 +295,7 @@ def getSchedulerFeed():
 				"n_buckets": len(st["buckets"]),
 				"n_farms": len(farm_list),
 				"farms": farm_list,
+				"farm_trips": waiting,
 				"n_varieties": len(st["varieties"]),
 				"has_transfer": has_x,
 				"mixed_type": mtype,

@@ -306,6 +306,18 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .aph .sch-col.ready .sch-card{cursor:grab}
 .aph .sch-card.dragging{opacity:.4}
 .aph .sch-r1{display:flex;align-items:flex-start;gap:8px}
+.aph .sch-cwrap{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start}
+.aph .sch-cmain{flex:1 1 200px;min-width:0}
+.aph .sch-sugg{font-family:var(--sans,"Poppins",sans-serif);flex:0 1 220px;min-width:170px;display:flex;flex-direction:column;gap:6px;padding-left:12px;border-left:1px solid var(--border)}
+.aph .sch-sugg .sg-h{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2)}
+.aph .sch-sugg .sg-row{display:flex;flex-direction:column;gap:2px;padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);line-height:1.35}
+.aph .sch-sugg .sg-row.on{background:var(--good-bg,#e2f2e8);border-color:transparent}
+.aph .sch-sugg .sg-row.miss{border-style:dashed}
+.aph .sch-sugg .sg-f{font-size:12px;font-weight:500;color:var(--text-2)}
+.aph .sch-sugg .sg-v{font-size:14px;font-weight:700;color:var(--text)}
+.aph .sch-sugg .sg-r{font-size:12px;color:var(--text-2)}
+.aph .sch-sugg .sg-s{font-size:12px;font-weight:600;color:var(--good,#1f7a32)}
+.aph .sch-sugg .sg-none{font-size:12px;color:var(--text-2)}
 .aph .sch-seq{flex:0 0 auto;width:26px;height:26px;border-radius:7px;background:var(--accent);color:#fff;font-family:var(--mono);font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
 .aph .sch-seq.none{background:var(--bg-muted);color:var(--text-3)}
 .aph .sch-seq.done{background:var(--good)}
@@ -411,7 +423,14 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .aph .sch-numinp:focus{border-color:var(--accent)}
 .aph .sch-nextbtn{display:block;width:100%;margin-top:8px;padding:7px 10px;border:1px dashed var(--accent);border-radius:8px;background:transparent;color:var(--accent);font-size:11px;font-weight:600;cursor:pointer;text-align:center}
 .aph .sch-nextbtn:hover{background:var(--accent);color:#fff;border-style:solid}
-.aph .smhint{font-size:11px;color:var(--text-3);margin-top:11px;line-height:1.45}
+.aph .smtrips:empty{display:none}
+.aph .smtrips{font-family:var(--sans,"Poppins",sans-serif);margin-top:12px;display:flex;flex-direction:column;gap:6px}
+.aph .smt-farm{display:flex;align-items:center;gap:8px;margin-top:4px}
+.aph .smt-n{font-size:11px;color:var(--text-2)}
+.aph .smt-none{font-size:11px;color:var(--text-3);padding:6px 10px;border:1px dashed var(--border-2,#d9d9d9);border-radius:8px}
+.aph .smt-trip{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:11px}
+.aph .smt-v{font-weight:600}
+.aph .smt-r{flex-basis:100%;color:var(--text-2)}
 .aph .smf{display:flex;align-items:center;gap:8px;padding:14px 18px;border-top:1px solid var(--border);background:var(--bg)}
 .aph .smf .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
 .aph .smf .btn.ghost{background:none;text-decoration:none}
@@ -758,9 +777,9 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       <label class="smfl" for="smNum">Schedule number</label>
       <input type="number" id="smNum" min="1" class="sch-numinp">
       <button type="button" id="smNext" class="sch-nextbtn"></button>
-      <div class="smhint">Sets this order&rsquo;s processing position (1 = next). Other ready orders shift to make room.</div>
+      <div class="smtrips" id="smTrips"></div>
     </div>
-    <div class="smf"><a id="smOpen" class="btn ghost" href="#">Open order</a><span style="flex:1"></span><button class="btn" id="smCancel">Cancel</button><button class="btn primary" id="smSave">Save</button></div>
+    <div class="smf"><span style="flex:1"></span><button class="btn" id="smCancel">Cancel</button><button class="btn primary" id="smSave">Save</button></div>
   </div>
   </div>
 {% endraw %}
@@ -830,17 +849,41 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     var meta='<div class="sch-meta">'+metaParts+'</div>';
     var farmsLine=(o.has_transfer&&o.farms&&o.farms.length)?'<div class="sch-farms">'+o.farms.map(function(f){return '<span class="sch-chip farm">'+esc(f)+'</span>';}).join('')+'</div>':'';
     var draggable=(lane==='sched'&&canDrag)?' draggable="true"':'';
+    var sugg=suggestHtml(o.farm_trips||[]);
     return '<div class="sch-card'+(opts.isSel?' sel':'')+'" data-opl="'+esc(o.name)+'"'+draggable+'>'+
+      '<div class="sch-cwrap"><div class="sch-cmain">'+
       '<div class="sch-r1">'+chk+seqHtml+'<div class="sch-cnm"><div class="o">'+nm+'</div><div class="sub">'+sub+'</div></div></div>'+
-      chipsHtml+farmsLine+meta+'</div>';
+      chipsHtml+farmsLine+meta+'</div>'+sugg+'</div></div>';
+  }
+  // The trip to suggest per waiting farm: the one already carrying this order's buckets
+  // from that farm, else the first one going there (the feed sends only available trips).
+  function suggestTrip(f){
+    var ts=f.trips||[], on=null;
+    ts.forEach(function(t){ if(!on&&t.on_trip)on=t; });
+    return on||ts[0]||null;
+  }
+  function suggestHtml(fts){
+    if(!fts.length)return '';
+    return '<div class="sch-sugg"><div class="sg-h">Suggested trip</div>'+fts.map(function(f){
+      var t=suggestTrip(f);
+      var tl=t?('<span class="sg-v">'+esc(t.vehicle||'—')+(t.run?(' · trip '+t.run):'')+'</span>'+
+        (t.route?'<span class="sg-r">'+esc(t.route)+'</span>':'')+
+        (t.on_trip?'<span class="sg-s">'+num(t.on_trip)+' on it</span>':''))
+        :'<span class="sg-none">no trip yet</span>';
+      return '<div class="sg-row'+(t?(t.on_trip?' on':''):' miss')+'" title="'+esc(t?t.trip:'No trip to '+f.farm+' yet')+'">'+
+        '<span class="sg-f">'+esc(f.farm)+' · '+num(f.buckets)+' bucket'+(num(f.buckets)===1?'':'s')+'</span>'+tl+'</div>';
+    }).join('')+'</div>';
   }
 
   // Per-team NEXT-to-issue set: lowest-numbered Ready line per team still below the
   // issue threshold (mirrors the per-team server-side enforcement). Lines already at/
   // above threshold are "cleared" and skipped; the next sub-threshold line is the team's next.
+  // Farm = the section's Farm filter (top bar): orders with buckets at that farm.
+  function curFarm(){return (window.rtFarm&&window.rtFarm.get())||'';}
   function applyFilters(arr){
     var t=el('fTeam')?el('fTeam').value:'';
-    return arr.filter(function(o){return (!t||o.custom_team===t);});
+    var f=curFarm();
+    return arr.filter(function(o){return (!t||o.custom_team===t)&&(!f||(o.farms||[]).indexOf(f)>=0);});
   }
 
   // search haystack: OPL name, order name, customer, team, farms, mixed type
@@ -1075,7 +1118,6 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     container.querySelectorAll('.sch-card').forEach(function(c){c.addEventListener('click',function(e){if(e.target.classList.contains('sch-chk'))return;openSchedModal(c.getAttribute('data-opl'));});});
   }
   function afterEl(container,y){var els=Array.prototype.slice.call(container.querySelectorAll('.sch-card:not(.dragging)'));return els.reduce(function(closest,child){var box=child.getBoundingClientRect();var off=y-box.top-box.height/2;if(off<0&&off>closest.offset)return {offset:off,element:child};return closest;},{offset:-Infinity}).element;}
-  function openDoc(name){if(window.frappe&&frappe.set_route)frappe.set_route('Form','Order Pick List',name);else window.open('/app/order-pick-list/'+encodeURIComponent(name),'_blank');}
 
   // ---- schedule-number popup (schedules the order at a per-team priority #) ----
   function openSchedModal(name){
@@ -1100,15 +1142,30 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       nextBtn.onclick=function(){ inp.value=maxK; inp.focus(); };
     }
     el('schModal').setAttribute('data-opl',name);
-    el('smOpen').onclick=function(e){e.preventDefault();openDoc(name);};
+    el('smTrips').innerHTML=tripsHtml(o.farm_trips||[]);
     el('schModal').classList.add('open');
     setTimeout(function(){inp.focus();inp.select();},30);
+  }
+  // Under the guide: per farm the order still has buckets waiting at, the trips going
+  // there on the processing day that can still take buckets (the feed sends only those).
+  function tripsHtml(fts){
+    if(!fts.length)return '';
+    return fts.map(function(f){
+      var head='<div class="smt-farm"><span class="sch-chip farm">'+esc(f.farm)+'</span><span class="smt-n">'+num(f.buckets)+' bucket'+(num(f.buckets)===1?'':'s')+' waiting</span></div>';
+      if(!(f.trips||[]).length)return head+'<div class="smt-none">No trip to '+esc(f.farm)+' yet</div>';
+      return head+f.trips.map(function(t){
+        return '<div class="smt-trip" title="'+esc(t.trip)+'"><span class="smt-v">'+esc(t.vehicle||'—')+(t.run?(' · trip '+t.run):'')+'</span>'+
+          (t.on_trip?'<span class="sch-chip sched">'+num(t.on_trip)+' on it</span>':'')+
+          (t.route?'<span class="smt-r">'+esc(t.route)+'</span>':'')+'</div>';
+      }).join('');
+    }).join('');
   }
   function closeSchedModal(){el('schModal').classList.remove('open');}
   function saveSchedModal(){var name=el('schModal').getAttribute('data-opl');var v=parseInt(el('smNum').value,10);if(!isFinite(v))v=1;closeSchedModal();setSchedulePos(name,v);}
 
   // ---- load ----
   function populateFilters(){
+    if(window.rtFarm){var fm={};STATE.ready.forEach(function(o){(o.farms||[]).forEach(function(f){fm[f]=1;});});window.rtFarm.options(Object.keys(fm));}
     var teams={};STATE.ready.forEach(function(o){if(o.custom_team)teams[o.custom_team]=1;});
     var sel=el('fTeam');if(!sel)return;var cur=sel.value;
     sel.innerHTML='<option value="">All teams</option>'+Object.keys(teams).sort().map(function(k){return '<option'+(k===cur?' selected':'')+'>'+esc(k)+'</option>';}).join('');
@@ -1127,7 +1184,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       STATE.drafts=[];STATE.packed=[];
       STATE.ready=rows.map(function(o){
         return {name:o.opl,custom_order_name:o.order_name,customer:o.customer,custom_team:o.team,
-                total_stems:o.total_stems,n_buckets:o.n_buckets,n_farms:o.n_farms,farms:o.farms||[],
+                total_stems:o.total_stems,n_buckets:o.n_buckets,n_farms:o.n_farms,farms:o.farms||[],farm_trips:o.farm_trips||[],
                 n_varieties:o.n_varieties,has_transfer:o.has_transfer,mixed_type:o.mixed_type,
                 docstatus:o.docstatus,variation:o.variation};
       });
@@ -1153,6 +1210,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   window.rtDate.on(load);
   function filterChanged(){G.readyPage=1;render();}
   if(el('fTeam')) el('fTeam').onchange=filterChanged;
+  if(window.rtFarm) window.rtFarm.on(filterChanged);
   G.mtab='byteam'; G.var='all';
   document.querySelectorAll('.sch-maintab').forEach(function(b){b.onclick=function(){G.mtab=b.getAttribute('data-mtab');G.sel.clear();G.readyPage=1;render();};});
   if(el('readySearch'))el('readySearch').oninput=function(){G.readyPage=1;render();};

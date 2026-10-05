@@ -399,6 +399,18 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .ts-alert-row .nm{font-weight:600;color:var(--ink)}
 .aph .ts-alert-row .why{font:600 9px var(--mono);text-transform:uppercase;letter-spacing:.04em;padding:1px 7px;border-radius:999px;border:1px solid currentColor}
 .aph .ts-alert-row .meta{font:500 10px var(--mono);color:var(--ink-mute)}
+.aph .lb-farms{display:flex;flex-direction:column;gap:8px;margin:4px 0 10px}
+.aph .lb-farm{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;padding:10px 12px;border-radius:10px;background:var(--bg-card,#fff);border:1px solid var(--bad);color:var(--ink)}
+.aph .lb-farm .lb-l,.aph .lb-farm .lb-m{display:flex;flex-direction:column;gap:2px;min-width:0}
+.aph .lb-farm .lb-l{flex:0 1 190px}
+.aph .lb-farm .lb-m{flex:1 1 240px}
+.aph .lb-farm .lb-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto}
+.aph .lb-farm .lb-fm{font:600 11px var(--f);text-transform:uppercase;letter-spacing:.05em;color:var(--bad)}
+.aph .lb-farm .lb-tot{font:700 16px var(--f);color:var(--ink)}
+.aph .lb-farm .lb-h{font:600 10px var(--f);text-transform:uppercase;letter-spacing:.05em;color:var(--ink-mute)}
+.aph .lb-farm .lb-veh{font:700 14px var(--f);color:var(--ink)}
+.aph .lb-farm .lb-sub{font:500 12px var(--f);color:var(--ink-mute)}
+.aph .lb-farm .lb-done{font:600 12px var(--f);color:var(--signal,#1f7a32)}
 .aph .trip-st{font:600 9px var(--mono);text-transform:uppercase;letter-spacing:.05em;padding:3px 8px;border-radius:999px;background:rgba(10,10,10,.05);color:var(--ink-2)}
 .aph .trip-st.Dispatched{background:#e3ecfd;color:#1d4ed8}
 .aph .trip-st.loading{background:var(--warn-soft);color:var(--warn)}
@@ -1677,10 +1689,79 @@ function leftBehindNote(lb){
   return 'Left behind by '+(lb.vehicle||'a truck')+' (trip '+lb.trip+')'+(lb.left_at?' at '+String(lb.left_at).slice(11,16)+' on '+String(lb.left_at).slice(0,10):'')+
     (lb.reason?' — '+lb.reason:'')+'. '+(lb.now_on&&lb.now_on.length?'Now on '+lb.now_on.map(function(t){ return t.vehicle+' ('+t.trip+')'; }).join(', ')+'.':'Not on a trip yet.');
 }
+/* Per farm: the left-behind total, the next trip to take them (tripChoices — the truck
+   already collecting there first, then one with room) and what's still without a trip. */
+function tripByName(name){ return (DATA.trips||[]).filter(function(t){ return t.name===name; })[0]; }
+function leftBehindFarms(){
+  var by={}, order=[];
+  (DATA.left_behind||[]).forEach(function(x){
+    var g=by[x.farm]; if(!g){ g=by[x.farm]={farm:x.farm,total:0,need:[],needN:0,on:{}}; order.push(x.farm); }
+    g.total+=x.buckets||0;
+    if(x.now_on&&x.now_on.length){ var t=x.now_on[0]; g.on[t.trip]=(g.on[t.trip]||0)+(x.buckets||0); }
+    else { g.need.push(x); g.needN+=x.buckets||0; }
+  });
+  return order.map(function(f){ var g=by[f]; g.next=carryingTrip(g)||tripChoices(f).filter(function(c){ return !c.why; })[0]||null; return g; });
+}
+/* The open trip already carrying most of the farm's left-behind buckets is the next
+   vehicle: they were rescheduled onto it. (tripChoices skips a trip that has started
+   loading, which this one usually has — it's at the farm now.) */
+function carryingTrip(g){
+  var best=null;
+  Object.keys(g.on).forEach(function(tn){ var t=tripByName(tn);
+    if(t&&(t.status==='Draft'||t.status==='Scheduled')&&(!best||g.on[tn]>g.on[best.name])) best=t; });
+  if(!best) return null;
+  var cap=best.capacity_buckets||vehCap(best.vehicle)||0;
+  return {vehicle:best.vehicle,route:best.route,run:best.run,stops:tripFrom(best),trip:best.name,
+    rem:Math.max(0,cap-Math.max(best.total_buckets||0,best.loaded_buckets||0)),carrying:g.on[best.name]};
+}
+function tripLabel(vehicle,run){ return esc(vehicle||'')+(run?' · trip '+run:''); }
+function leftBehindFarmHtml(g){
+  var c=g.next, onTxt=Object.keys(g.on).map(function(tn){ var t=tripByName(tn);
+    return g.on[tn]+' on '+(t?tripLabel(t.vehicle,t.run):esc(tn)); }).join(', ');
+  var sug=c?'<span class="lb-veh">'+tripLabel(c.vehicle,c.run)+'</span><span class="lb-sub">'+chainHtml([pack()].concat(c.stops).concat([pack()]))+
+      (c.carrying?' · '+n(c.carrying)+' of them on it':'')+' · '+n(c.rem)+' bkt free</span>'
+    :'<span class="lb-sub">No trip goes to '+esc(g.farm)+' with room — add one</span>';
+  var act;
+  if(g.needN&&c){ var take=Math.min(g.needN,c.rem);
+    act='<button class="tbtn key" data-act="lb-resched" data-farm="'+esc(g.farm)+'">Reschedule '+take+' bkt on '+tripLabel(c.vehicle,c.run)+'</button>'+(take<g.needN?'<span class="lb-sub">'+(g.needN-take)+' won’t fit</span>':''); }
+  else if(g.needN) act='<button class="tbtn key" data-addtrip="1" data-opl="'+esc(g.need[0].opl)+'" data-farm="'+esc(g.farm)+'" data-name="'+esc(g.need[0].order_name)+'">Add a trip</button>';
+  else act='<span class="lb-done">✓ All rescheduled'+(onTxt?' — '+onTxt:'')+'</span>';
+  return '<div class="lb-farm"><div class="lb-l"><span class="lb-fm">'+esc(g.farm)+'</span><span class="lb-tot">'+n(g.total)+' bucket'+(g.total===1?'':'s')+' left behind</span>'+
+    (g.needN&&onTxt?'<span class="lb-sub">'+onTxt+' · '+g.needN+' need a trip</span>':'')+'</div>'+
+    '<div class="lb-m"><span class="lb-h">Next vehicle</span>'+sug+'</div><div class="lb-r">'+act+'</div></div>';
+}
+/* Reschedule: every order's left-behind buckets at the farm that have no trip go on
+   the suggested trip in one save (the same saveBucketTrip as Distribute), filling it
+   up to its free room. */
+function rescheduleLeftBehind(farm){
+  var g=leftBehindFarms().filter(function(x){ return x.farm===farm; })[0]; if(!g||!g.next||!g.needN) return;
+  var c=g.next, room=c.rem, rows=[], names=[];
+  g.need.forEach(function(x){
+    if(room<=0) return;
+    var o=orderByOpl(x.opl), f=o&&openFarms(o).filter(function(p){ return p.farm===farm; })[0]; if(!f) return;
+    var take=Math.min(x.buckets,f.buckets,room); if(take<=0) return;
+    room-=take; names.push(o.order_name||x.opl);
+    rows.push({opl:x.opl,order_name:o.order_name||x.opl,customer:o.customer||'',farm:farm,varieties:(f.varieties||[]).map(function(v){ return v.variety; }).join(', '),
+      buckets:take,stems:f.buckets?Math.round(f.stems/f.buckets*take):0,full:f.total});
+  });
+  if(!rows.length){ toast('Nothing left to reschedule at '+farm); return; }
+  var tot=rows.reduce(function(a,r){ return a+r.buckets; },0), stems=rows.reduce(function(a,r){ return a+r.stems; },0);
+  call('saveBucketTrip',{vehicle:c.vehicle,route:c.route,run:c.run,trip_date:todayISO(),status:'Draft',farm:'',collection_order:'',orders:encodeOrders(rows)}).then(function(r){
+    var m=r.message||{};
+    if(m.status!=='success'){ toast(m.message||'Could not reschedule them'); return; }
+    var red=(m.redirected||[])[0], veh=red?red.vehicle:c.vehicle;
+    toast(m.message?m.message:(tot+' left-behind bucket'+(tot===1?'':'s')+' at '+farm+' rescheduled on '+c.vehicle+' trip '+c.run+(tot<g.needN?' — '+(g.needN-tot)+' still need a trip':'')));
+    var log=call('logDistribution',{delivery_date:S.from,loads:JSON.stringify([{vehicle:veh,trip:m.name,run:red?0:(c.run||0),farms:farm,buckets:tot,stems:stems,orders:names}])}).catch(function(){});
+    log.then(function(){ return loadData(); }); document.dispatchEvent(new Event('rt-trips-changed'));
+  }).catch(function(err){ toast('Failed: '+((err&&err.message)||'')); });
+}
 function leftBehindHtml(){
   var L=DATA.left_behind||[]; if(!L.length) return '';
   var tot=L.reduce(function(a,x){ return a+(x.buckets||0); },0);
-  return '<div class="ts-alert bad"><div class="ts-alert-hd">'+tot+' bucket'+(tot===1?' was':'s were')+' left behind at a farm — '+(tot===1?'it goes':'they go')+' first on the next trip there</div><div class="ts-alert-list">'+
+  // Orders of the selected delivery date only (the server scopes left_behind to it).
+  var dd=new Date(S.from+'T00:00:00'), ddTxt=isNaN(dd)?S.from:dd.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+  return '<div class="ts-alert bad"><div class="ts-alert-hd">'+tot+' bucket'+(tot===1?' was':'s were')+' left behind at a farm for '+esc(ddTxt)+' deliveries — '+(tot===1?'it goes':'they go')+' first on the next trip there</div>'+
+    '<div class="lb-farms">'+leftBehindFarms().map(leftBehindFarmHtml).join('')+'</div><div class="ts-alert-list">'+
     L.map(function(x){
       var on=x.now_on&&x.now_on.length;
       return '<div class="ts-alert-row"><span class="nm">'+esc(x.order_name)+'</span><span class="why">'+esc(x.farm)+'</span>'+
@@ -2355,6 +2436,7 @@ document.addEventListener('click',function(ev){
   else if(a==='dist-confirm'){ if(!el.disabled) applyDistribution(); }
   else if(a==='dist-cancel'){ closeDistModal(); }
   else if(a==='trip-merge'){ mergeTrips(el.dataset.veh); }
+  else if(a==='lb-resched'){ if(!el.disabled){ el.disabled=true; el.textContent='Rescheduling…'; rescheduleLeftBehind(el.dataset.farm); } }
   else if(a==='stale-del'){ deleteStaleTrips([el.dataset.name]); }
   else if(a==='stale-del-all'){ deleteStaleTrips(DATA.trips.filter(function(t){ return t.stale&&!t.loaded_buckets; }).map(function(t){ return t.name; })); }
   else if(a==='rn-dd-toggle'){ if(S.rn){ S.rn.dd = S.rn.dd===el.dataset.k ? null : el.dataset.k; renderRoadModal();
