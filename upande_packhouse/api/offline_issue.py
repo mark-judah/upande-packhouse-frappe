@@ -80,7 +80,8 @@ def _anchor_row(opl_name, bucket, sale_order_item=None):
 	unissued = [r for r in rows if not cint(r.issued)]
 	if not unissued:
 		frappe.throw(
-			_already_issued_message(bucket) or _("Bucket {0} is already issued on {1}.").format(bucket, opl_name)
+			_already_issued_message(bucket)
+			or _("Bucket {0} is already issued on {1}.").format(bucket, opl_name)
 		)
 	if sale_order_item:
 		for r in unissued:
@@ -761,7 +762,11 @@ def mark_issued_offline(opl_name: str, bucket: str, sale_order_item: str | None 
 		)
 	results, came_from = _issue_remote_aware(bucket, opl_name)
 	if came_from:
-		return {"success": True, "in_transit": True, "message": _transit_note(bucket, came_from, line or opl_name)}
+		return {
+			"success": True,
+			"in_transit": True,
+			"message": _transit_note(bucket, came_from, line or opl_name),
+		}
 	ok = bool(results) and all(r["ok"] for r in results)
 	if not ok:
 		return _fail(
@@ -871,7 +876,11 @@ def issue_offline(
 	if swapped:
 		parts.append(_("{0} replaced {1}.").format(target, allocated_bucket))
 	parts.append(
-		(_transit_note(target, came_from, line) if came_from else _("{0} issued to {1}.").format(target, opl_name))
+		(
+			_transit_note(target, came_from, line)
+			if came_from
+			else _("{0} issued to {1}.").format(target, opl_name)
+		)
 		if issue_ok
 		else _("Issuing {0} failed: {1}").format(
 			target, "; ".join(str(r["message"]) for r in issued if not r["ok"]) or _("nothing to issue")

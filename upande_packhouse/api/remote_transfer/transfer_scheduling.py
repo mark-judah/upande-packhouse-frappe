@@ -3836,7 +3836,9 @@ def auto_arrive_for_bucket(bucket):
 				doc.status = "Dispatched"
 				doc.dispatched_at = doc.get("last_departed_at") or frappe.utils.now()
 				doc.heading_to = transfer_hub(required=False) or ""
-				doc.add_comment("Info", "Dispatched: its first bucket ({0}) was shelved at {1}".format(bucket, hub))
+				doc.add_comment(
+					"Info", "Dispatched: its first bucket ({0}) was shelved at {1}".format(bucket, hub)
+				)
 				doc.save(ignore_permissions=True)
 				doc.reload()
 			if not doc.get("arrived_at"):

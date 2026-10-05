@@ -72,7 +72,13 @@ def getBucketLogistics():
 	sales_farms.add(hub)
 	NOT_HUB = "COALESCE(" + FARM_EXPR + ", '') NOT IN %(sales_farms)s"
 	params = {"d": delivery_date, "hub": hub, "sales_farms": tuple(f for f in sales_farms if f) or ("",)}
-	conds = ["opl.docstatus < 2", "pli.parenttype = 'Order Pick List'", "so.delivery_date = %(d)s", TRANSFER, NOT_HUB]
+	conds = [
+		"opl.docstatus < 2",
+		"pli.parenttype = 'Order Pick List'",
+		"so.delivery_date = %(d)s",
+		TRANSFER,
+		NOT_HUB,
+	]
 	if fd.get("farm"):
 		conds.append(FARM_EXPR + " = %(farm)s")
 		params["farm"] = fd.get("farm")
