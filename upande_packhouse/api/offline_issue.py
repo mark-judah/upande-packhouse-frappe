@@ -370,7 +370,13 @@ def _transit_note(bucket, sent, line):
 	hub = frappe.db.get_single_value("Production Settings", "transfer_hub_farm") or _("the packhouse")
 	return _(
 		"{0} is coming from {1}{2}: in transit to {3}, not issued yet. Shelve it at {3} when it arrives, then issue it to {4}."
-	).format(bucket, sent["farm"], _(" on {0}").format(sent["truck"]) if sent.get("truck") else "", hub, line)
+	).format(
+		bucket,
+		sent["farm"],
+		(" " + _("on {0}").format(sent["truck"])) if sent.get("truck") else "",
+		hub,
+		line,
+	)
 
 
 def _correct(bucket, variety, stem_length):
