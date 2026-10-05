@@ -1,0 +1,349 @@
+{#- Remote Transfers — Bucket Logistics tab. Its own script; it reuses the planner
+    (transfer_scheduling.html) for Edit / Add to trip.
+    The shell (www/remote-transfer.html) includes this file once per part, with rt_part =
+    head (styles) | right (top-bar controls) | body | after (in the page, after the
+    main column: pop-ups) | tail (scripts). -#}
+{% if rt_part == 'body' %}{% raw %}
+      <div id="panel-logistics" class="ts-panel" style="display:none">
+        <div class="aph-kpis" id="blKpis"></div>
+      <div class="aph-kpis" id="blTrucks" style="margin-top:14px"></div>
+      <div class="bl2-fgbar" id="blFgBar"></div>
+      <table class="bl2-ord">
+        <thead><tr><th>Order</th><th>Dates</th><th>Transit time</th><th>Variety</th><th>Truck / trip</th><th>Buckets — status</th><th></th></tr></thead>
+        <tbody id="blRows"><tr class="sk-row"><td colspan="7"><span class="sk" style="width:100%;height:12px"></span></td></tr></tbody>
+      </table>
+      </div>
+{% endraw %}
+{% elif rt_part == 'tail' %}{% raw %}
+<script>
+/* Logistics tab — moved verbatim from bucket-logistics.html (own ids: bl*). */
+(function(){
+  const FLAGS=[['awaiting','Awaiting Transfer','var(--awaiting)'],['trolley','Loaded in Trolley','var(--trolley)'],['transit','In Transit','var(--transit)'],['arrived_hub','Arrived at Kapkolia','#0e7490'],['shelved','Shelved','var(--shelved)'],['ready','Ready for Packing','var(--ready)'],['issued','Issued','var(--issued)'],['issued_offline','Issued Offline','#7c3aed'],['not_found','Not found','var(--bad, #b42318)']];
+  let STATE={orders:[]},SEARCH='',PV='',AUTODONE=false;
+  const $=function(id){return document.getElementById(id);};
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  function tomorrow(){var d=new Date();d.setDate(d.getDate()+1);return d.toISOString().slice(0,10);}
+  function api(m,args){var qs=Object.keys(args).filter(function(k){return args[k]!=null&&args[k]!=='';}).map(function(k){return encodeURIComponent(k)+'='+encodeURIComponent(args[k]);}).join('&');return fetch('/api/method/'+m+(qs?('?'+qs):''),{credentials:'same-origin',headers:{'Accept':'application/json'}}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();});}
+  // Every stage as done / requested, so each line reads against what was asked for.
+  // The main stages always show (a 0 is greyed); Ready and Not found only when they happen.
+  var ALWAYS={awaiting:1,trolley:1,transit:1,arrived_hub:1,shelved:1,issued:1};
+  function stagePills(o){var n=o.total||0;
+    return '<span class="bl2-req">Requested <b>'+n+'</b></span>'+FLAGS.map(function(f){var x=o[f[0]]||0;if(!x&&!ALWAYS[f[0]])return '';
+      return '<span class="bl2-pill'+(x?'':' zero')+'" style="background:'+f[2]+'">'+f[1]+' '+x+'/'+n+'</span>';}).join('');}
+  // Transfer initiation time = OPL creation datetime. Show "d Mon, HH:MM".
+  // A date in the same style as fmtDT, without the time: "3 Oct".
+  function fmtD(v){if(!v)return '—';var d=new Date(String(v).slice(0,10)+'T00:00:00');if(isNaN(d.getTime()))return esc(String(v));return d.getDate()+' '+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];}
+  function fmtDT(v){if(!v)return '—';var s=String(v).replace(' ','T');var d=new Date(s);if(isNaN(d.getTime()))return esc(String(v));var mon=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];var hh=('0'+d.getHours()).slice(-2),mm=('0'+d.getMinutes()).slice(-2);return d.getDate()+' '+mon+', '+hh+':'+mm;}
+  // Transit time = arrival (first bucket shelved) − initiated (OPL created).
+  // "In transit" until the first bucket is shelved at the sales farm.
+  function transitTime(o){
+    if(!o.initiated)return '—';
+    // Not arrived yet: show where the order actually is. "In transit" only once a
+    // bucket is really on a truck — it used to say so the moment the OPL existed.
+    if(!o.arrived){
+      // The farm app marked the truck arrived at the packhouse: there, not shelved yet.
+      if(o.arrived_hub)return '<span class="bl2-pill" style="background:#0e7490">arrived at '+esc(o.hub||'Kapkolia')+'</span>';
+      if(o.transit)return '<span class="bl2-pill" style="background:var(--transit)">in transit</span>';
+      if(o.trolley)return '<span class="bl2-pill" style="background:var(--trolley)">in trolley</span>';
+      if(o.awaiting)return '<span class="bl2-pill" style="background:var(--awaiting)">at farm</span>';
+      return '—';
+    }
+    var a=new Date(String(o.initiated).replace(' ','T')),b=new Date(String(o.arrived).replace(' ','T'));
+    if(isNaN(a.getTime())||isNaN(b.getTime()))return '—';
+    var mins=Math.round((b-a)/60000);if(mins<0)mins=0;
+    var dd=Math.floor(mins/1440),hh=Math.floor((mins%1440)/60),mm=mins%60;
+    var out=[];if(dd)out.push(dd+'d');if(hh)out.push(hh+'h');out.push(mm+'m');
+    return '<b>'+out.join(' ')+'</b>';
+  }
+
+  function visibleOrders(){var q=SEARCH.toLowerCase();return (STATE.orders||[]).filter(function(o){if(!q)return true;return [o.order_name,o.customer,o.sales_order,o.opl,o.varieties].some(function(v){return String(v||'').toLowerCase().indexOf(q)>=0;});});}
+  // Format a minutes count as "Nd Nh Nm" (drops leading zero units).
+  function fmtDur(mins){if(mins==null)return '—';mins=Math.max(0,Math.round(mins));var dd=Math.floor(mins/1440),hh=Math.floor((mins%1440)/60),mm=mins%60;var out=[];if(dd)out.push(dd+'d');if(hh)out.push(hh+'h');out.push(mm+'m');return out.join(' ');}
+  // Minutes between initiated (OPL created) and arrived (first bucket shelved).
+  function arrivalMins(o){if(!o.initiated||!o.arrived)return null;var a=new Date(String(o.initiated).replace(' ','T')),b=new Date(String(o.arrived).replace(' ','T'));if(isNaN(a.getTime())||isNaN(b.getTime()))return null;return Math.max(0,(b-a)/60000);}
+  // Team + schedule position. An order that still has buckets out at a remote farm but
+  // is on no team's schedule is invisible to Transfer Scheduling — no truck will come.
+  // Team and schedule number after the order name: "(Team A #16)". No team on the
+  // pick list: a red "no team" (it can't be planned until one is set).
+  // A quality-issue replacement requested during packing, still on its way.
+  function asapTag(o){ return o.asap?' <span class="bl2-pill" style="background:#b42318" title="Quality-issue replacement requested during packing — on the next truck before any other order">ASAP · '+o.asap+'</span>':''; }
+  function teamTag(o){
+    if(o.no_team) return ' <span class="bl2-pill" style="background:var(--bad)" title="Set the team on the Order Pick List">no team</span>';
+    return ' <span class="bl2-team">('+esc(o.team)+(o.schedule?' #'+esc(o.schedule):'')+')</span>';
+  }
+  // Varieties of the order's transferring buckets: the first three, the rest behind
+  // "+N more" (full list on hover). A ?variety= deep link is bolded.
+  function varietyCell(o){
+    var v=String(o.varieties||'').split(', ').filter(Boolean);
+    if(!v.length) return '—';
+    var show=v.slice(0,3).map(function(x){var hl=PV&&x.toLowerCase()===PV.toLowerCase();return '<div'+(hl?' style="font-weight:700"':'')+'>'+esc(x)+'</div>';}).join('');
+    return '<span title="'+esc(v.join(', '))+'">'+show+(v.length>3?'<div class="bl2-sub">+'+(v.length-3)+' more</div>':'')+'</span>';
+  }
+  var TRIP_COLOR={Draft:'var(--text-3)',Scheduled:'var(--text-3)',Dispatched:'var(--transit)',Received:'var(--shelved)'};
+  function tripCell(o){
+    var t=o.trips||[];
+    // Still at the farm with no open trip: offer to put it on one of today's route trips.
+    var atFarm=Math.max(0,(o.awaiting||0)-(o.trolley||0)-(o.transit||0));
+    var add=atFarm>0&&!t.some(function(x){ return x.status!=='Received'; })
+      ?'<button class="bl2-addtrip" data-addtrip="1" data-opl="'+esc(o.opl)+'" data-farm="'+esc(o.farm||'')+'" data-name="'+esc(o.order_name||o.opl)+'">+ Add to trip</button>':'';
+    if(!t.length) return o.truck?'<span class="bl2-pill" style="background:var(--transit)">'+esc(o.truck)+'</span>':'<span class="bl2-sub">'+((o.awaiting||0)>0?'no trip yet':'—')+'</span>'+(add?'<div>'+add+'</div>':'');
+    // One chip per trip: truck · run · status, then loaded vs planned (a load nothing
+    // planned shows "loaded, not planned" — it used to read "0 bkt").
+    return t.map(function(x){
+      var st=x.status==='Received'?'ended':(x.arrived_at?'arrived':(x.loaded_buckets&&(x.status==='Draft'||x.status==='Scheduled')?'loading':String(x.status||'').toLowerCase()));
+      var qty=x.buckets?(x.loaded_buckets?x.loaded_buckets+' / '+x.buckets+' loaded':x.buckets+' planned'):(x.loaded_buckets+' loaded, not planned');
+      if(x.shelved) qty+=' · '+x.shelved+' arrived';
+      // Edit a trip that is only planned (nothing loaded): wrong truck / farm / count.
+      var edit=(x.status==='Draft'||x.status==='Scheduled')&&!x.loaded_buckets
+        ?' <button class="bl2-addtrip" data-addtrip="1" data-edittrip="'+esc(x.trip)+'" title="Edit trip '+esc(x.trip)+'" style="padding:1px 7px">Edit</button>':'';
+      return '<div style="margin:1px 0"><span class="bl2-trip" style="border-color:'+(TRIP_COLOR[x.status]||'var(--text-3)')+'" title="'+esc(x.trip)+' · '+esc(x.trip_date)+'">'+esc(x.vehicle||x.trip)+(x.run?' · trip '+x.run:'')+(x.farm?' · '+esc(x.farm):'')+' · '+esc(st)+'</span>'+edit+'<div class="bl2-sub" style="margin:2px 0 4px">'+qty+'</div></div>'; }).join('')+add;
+  }
+  function kpiCard(lbl,val,sub){return '<div class="aph-kpi"><div class="lbl">'+lbl+'</div><div class="v">'+val+'</div>'+(sub?'<div class="sub">'+sub+'</div>':'')+'</div>';}
+  // Running stats over the currently-visible orders — recomputed every render,
+  // so they grow as more OPLs start transferring and follow the farm/search filter.
+  function renderKpis(orders){
+    var el=$('blKpis');if(!el)return;
+    var s={ord:orders.length,fullyArr:0,partArr:0,buckets:0,shelved:0,transit:0,trolley:0,awaiting:0,issued:0,unsched:0,noTeam:0,noTrip:0};
+    var durs=[];
+    orders.forEach(function(o){
+      s.buckets+=o.total||0;s.shelved+=o.shelved||0;s.transit+=o.transit||0;
+      s.trolley+=o.trolley||0;s.awaiting+=o.awaiting||0;s.issued+=o.issued||0;
+      // "Waiting at the farm" = awaiting and not yet on a truck (dispatch keeps awaiting=1).
+      var atFarm=Math.max(0,(o.awaiting||0)-(o.transit||0)-(o.trolley||0));
+      if(atFarm>0){ if(o.no_team)s.noTeam++; if(!o.scheduled)s.unsched++; else if(!(o.trips||[]).some(function(t){return t.status!=='Received';}))s.noTrip++; }
+      if(o.arrived){var m=arrivalMins(o);if(m!=null)durs.push(m);
+        if((o.shelved||0)>=(o.total||0)&&(o.total||0)>0)s.fullyArr++;else s.partArr++;}
+    });
+    var pct=s.buckets?Math.round(s.shelved/s.buckets*100):0;
+    var onRoad=s.transit+s.trolley;                 // in a trolley or on a truck
+    var avg=durs.length?durs.reduce(function(a,b){return a+b;},0)/durs.length:null;
+    var of=function(v,n){ return v.toLocaleString()+' <span style="font-size:16px;color:var(--text-3)">/ '+n.toLocaleString()+'</span>'; };
+    el.innerHTML=[
+      kpiCard('Orders',s.ord),
+      kpiCard('Buckets',s.buckets.toLocaleString()),
+      kpiCard('At farm',Math.max(0,s.awaiting-onRoad).toLocaleString()),
+      kpiCard('In trolley',s.trolley.toLocaleString()),
+      kpiCard('In transit',s.transit.toLocaleString()),
+      kpiCard('Shelved ('+pct+'%)',of(s.shelved,s.buckets)),
+      kpiCard('Issued',of(s.issued,s.buckets)),
+      kpiCard('No trip',(s.unsched+s.noTrip).toLocaleString()),
+      kpiCard('Avg transit',fmtDur(avg))
+    ].join('');
+    el.style.setProperty('--n',el.children.length||7);
+  }
+
+  // "Trucks on the road" — grouped from the same orders payload (o.truck = MAX(pli.transit_truck)
+  // per order, already returned by getBucketLogistics; just never surfaced in the UI before).
+  function renderTrucks(orders){
+    var el=$('blTrucks');if(!el)return;
+    // One card per truck from its trips today: every run in order, where it goes and
+    // how far it has got (planned → loading → on the road → back).
+    var runs=(STATE&&STATE.runs)||[];
+    if(runs.length){
+      var byV={}; runs.forEach(function(r){ (byV[r.vehicle]=byV[r.vehicle]||[]).push(r); });
+      var vs=Object.keys(byV).sort();
+      el.innerHTML=vs.map(function(v){
+        var rs=byV[v], planned=0, loaded=0, shelved=0;
+        rs.forEach(function(r){ planned+=r.total_buckets||0; loaded+=r.loaded_buckets||0; shelved+=r.shelved_buckets||0; });
+        // Two rows only: the truck and the trip it is on now (first one not back yet;
+        // several trip records for one trip count once), then loaded / planned for the day.
+        var trip=function(r){ return r.run?'Trip '+r.run+(r.runs>1?'/'+r.runs:''):'Trip …'+String(r.name).slice(-5); };
+        var state=function(r){ return r.status==='Received'?'back':(r.status==='Dispatched'?'on the road':(r.loading?'loading':(r.stale?'stale':'planned'))); };
+        var rank={'on the road':0,loading:1,planned:2,stale:3,back:4};
+        var cur=rs.slice().sort(function(a,b){ return (rank[state(a)]===4)-(rank[state(b)]===4)||(a.run||99)-(b.run||99)||rank[state(a)]-rank[state(b)]; })[0];
+        var head=esc(v)+' &middot; <span title="'+esc(rs.map(function(r){ return trip(r)+' '+state(r)+(r.run_chain?' ('+r.run_chain+')':''); }).join(', '))+'">'+(state(cur)==='back'?'all trips back':esc(trip(cur)+' '+state(cur)))+'</span>';
+        return kpiCard(head,loaded.toLocaleString()+' <span style="font-size:14px;color:var(--text-3)">/ '+planned.toLocaleString()+'</span>');
+      }).join('');
+      el.style.setProperty('--n',Math.max(vs.length,7));
+      return;
+    }
+    var byTruck={};
+    orders.forEach(function(o){
+      if(!o.truck)return;
+      var t=byTruck[o.truck]||(byTruck[o.truck]={orders:0,buckets:0,awaiting:0,transit:0});
+      t.orders+=1;t.buckets+=o.total||0;t.awaiting+=o.awaiting||0;t.transit+=o.transit||0;
+    });
+    var trucks=Object.keys(byTruck).sort();
+    if(!trucks.length){el.innerHTML='';return;}
+    el.innerHTML=trucks.map(function(t){
+      var s=byTruck[t];
+      return kpiCard(esc(t)+' &middot; '+s.orders+' order'+(s.orders===1?'':'s'),s.buckets.toLocaleString()+' <span style="font-size:14px;color:var(--text-3)">bkt</span>');
+    }).join('');
+    el.style.setProperty('--n',Math.max(trucks.length,7));  // same width as the KPI tiles
+  }
+
+  function render(){
+    var orders=visibleOrders();
+    renderKpis(orders);
+    renderTrucks(orders);
+    if(!orders.length){if($('blFgBar'))$('blFgBar').innerHTML='';$('blRows').innerHTML='<tr><td colspan="7"><div class="bl2-loading">No orders being transferred for this delivery date.</div></td></tr>';return;}
+    // Grouped per source farm, each group collapsible. An order collecting from
+    // several farms is listed under each, with that farm's counts and trips only.
+    var groups={};
+    orders.forEach(function(o){
+      var fs=(o.by_farm&&o.by_farm.length)?o.by_farm:[{farm:o.farm||''}];
+      var only='';   // (no farm filter any more: every farm's group shows)
+      var all=fs; if(only) fs=fs.filter(function(f){ return f.farm===only; });
+      fs.forEach(function(f){
+        var row=Object.assign({},o,f.total!=null?f:{},{farm:f.farm||'',varieties:f.varieties!=null?f.varieties:o.varieties,
+          trips:(o.trips||[]).filter(function(t){ return !t.farm||!f.farm||t.farm===f.farm; }),
+          others:all.length>1?all.filter(function(x){ return x.farm!==f.farm; }).map(function(x){ return x.farm; }):[]});
+        (groups[row.farm||'—']=groups[row.farm||'—']||[]).push(row);
+      });
+    });
+    var farms=Object.keys(groups).sort(), i=0, sum=function(rows,k){ return rows.reduce(function(a,r){ return a+(r[k]||0); },0); };
+    var anyOpen=farms.some(function(f){ return !FG_SHUT[f]; });
+    // Farm count and the expand/collapse toggle sit above the table, not in it.
+    if($('blFgBar')) $('blFgBar').innerHTML='<b>'+farms.length+' farm'+(farms.length===1?'':'s')+'</b><button class="bl2-more" data-fg-all="1">'+(anyOpen?'Collapse all':'Expand all')+'</button>';
+    var html='';
+    farms.forEach(function(farm){
+      var rows=groups[farm], shut=!!FG_SHUT[farm], tot={};
+      FLAGS.forEach(function(f){ tot[f[0]]=sum(rows,f[0]); }); tot.total=sum(rows,'total');
+      html+='<tr class="fgrp'+(shut?' shut':'')+'" data-fg="'+esc(farm)+'"><td colspan="7"><span class="fg-caret">'+(shut?'▸':'▾')+'</span><b>'+esc(farm)+'</b>'+
+        '<span class="bl2-sub">'+rows.length+' order'+(rows.length===1?'':'s')+'</span>'+stagePills(tot)+'</td></tr>';
+      rows.forEach(function(o,ri){
+        var sub=[o.customer,o.sales_order,o.opl].filter(Boolean).map(esc).join(' · ');
+        var hide=shut?' style="display:none"':'';
+        html+='<tr class="orow'+(ri%2?' alt':'')+'" data-fgr="'+esc(farm)+'"'+hide+'><td><b>'+esc(o.order_name||o.opl)+'</b>'+teamTag(o)+asapTag(o)+'<div class="bl2-sub">'+sub+'</div>'+(o.others.length?'<div class="bl2-sub">also from '+esc(o.others.join(', '))+'</div>':'')+'</td>'
+          +'<td style="white-space:nowrap">Deliver <b>'+fmtD(o.delivery_date)+'</b><div class="bl2-sub">Initiated '+fmtDT(o.initiated)+'</div></td><td>'+transitTime(o)+'</td>'
+          +'<td>'+varietyCell(o)+'</td>'
+          +'<td>'+tripCell(o)+'</td>'
+          +'<td>'+stagePills(o)+'</td>'
+          +'<td style="text-align:right"><button class="bl2-more" data-i="'+i+'" data-opl="'+esc(o.opl)+'" data-farm="'+esc(o.farm||'')+'">More</button></td></tr>'
+          +'<tr id="det-'+i+'" data-fgr="'+esc(farm)+'" data-det="1" style="display:none"><td colspan="7" style="padding:0"><div class="bl2-det" id="detb-'+i+'"></div></td></tr>';
+        i++;
+      });
+    });
+    $('blRows').innerHTML=html;
+  }
+  // Which farm groups are collapsed — remembered in this browser only.
+  var FG_SHUT=(function(){ try{ return JSON.parse(localStorage.getItem('bl2-farm-shut')||'{}')||{}; }catch(e){ return {}; } })();
+  function saveShut(){ try{ localStorage.setItem('bl2-farm-shut',JSON.stringify(FG_SHUT)); }catch(e){} }
+  function setGroup(farm,shut){
+    if(shut) FG_SHUT[farm]=1; else delete FG_SHUT[farm];
+    var hd=document.querySelector('#blRows tr.fgrp[data-fg="'+CSS.escape(farm)+'"]'); if(!hd) return;
+    hd.classList.toggle('shut',shut); hd.querySelector('.fg-caret').textContent=shut?'▸':'▾';
+    document.querySelectorAll('#blRows tr[data-fgr="'+CSS.escape(farm)+'"]').forEach(function(tr){
+      if(tr.dataset.det){ if(shut) tr.style.display='none'; else{ var b=tr.previousElementSibling&&tr.previousElementSibling.querySelector('.bl2-more[data-opl]'); tr.style.display=b&&b.textContent==='Hide'?'':'none'; } }
+      else tr.style.display=shut?'none':'';
+    });
+  }
+  // One toggle for every farm: collapses them all while any is open, else expands them all.
+  function syncAllBtn(){
+    var b=document.querySelector('#blFgBar [data-fg-all]'); if(!b) return;
+    b.textContent=document.querySelector('#blRows tr.fgrp:not(.shut)')?'Collapse all':'Expand all';
+  }
+
+  function renderDetail(el,opl,farm){
+    el.innerHTML=window.rtSkeleton.lines(4);
+    api('upande_packhouse.api.bucket_logistics.getBucketLogisticsDetail',{opl:opl,farm:farm||''}).then(function(d){
+      var b=(d&&d.buckets)||[];
+      if(!b.length){el.innerHTML='<div class="bl2-loading">No transferring buckets.</div>';return;}
+      var chk=function(v){return '<input type="checkbox" disabled '+(Number(v)?'checked':'')+'>';};
+      /* One row per bucket (a bucket packed into several boxes has a pick row per box). */
+      var head='<tr><th>#</th><th>Bucket</th><th>Variety</th><th>Len</th><th>Boxes</th><th>Stems</th><th>Farm</th><th>Shelf</th><th>Truck</th>'
+        +FLAGS.map(function(f){return '<th class="c">'+f[1]+'</th>';}).join('')+'</tr>';
+      var body=b.map(function(x,j){var hl=PV&&String(x.variety||'').toLowerCase()===PV.toLowerCase();return '<tr'+(hl?' style="background:var(--bg-muted)"':'')+'><td>'+(j+1)+'</td><td><b>'+esc(x.bucket||'—')+'</b></td><td'+(hl?' style="font-weight:700"':'')+'>'+esc(x.variety)+'</td><td>'+esc(x.length||'—')+'</td><td>'+esc(x.box_id||String(x.boxes||1))+'</td><td>'+(Number(x.stems)||0).toLocaleString('en-US')+'</td><td>'+esc(x.farm||'—')+'</td><td>'+esc(x.shelf||'—')+'</td><td>'+esc(x.truck||'—')+'</td>'
+        +FLAGS.map(function(f){return '<td class="c">'+chk(x[f[0]])+'</td>';}).join('')+'</tr>';}).join('');
+      el.innerHTML='<table class="bl2-buck"><thead>'+head+'</thead><tbody>'+body+'</tbody></table>';
+    }).catch(function(e){el.innerHTML='<div class="bl2-loading" style="color:var(--issued)">Failed: '+esc(e.message)+'</div>';});
+  }
+
+  function load(skeleton){
+    // Skeleton while there is nothing to show yet, or on the section's Refresh
+    // (skeleton=true) — re-reads on a tab switch update in place.
+    if(skeleton===true||!STATE||!(STATE.orders||[]).length){
+      $('blRows').innerHTML=window.rtSkeleton.rows(5,8);
+      if($('blKpis')) $('blKpis').innerHTML=window.rtSkeleton.kpis(4).replace('<div class="sk-grid">','').replace(/<\/div>$/,'');
+      if(skeleton===true && $('blTrucks')) $('blTrucks').innerHTML=window.rtSkeleton.kpis(4).replace('<div class="sk-grid">','').replace(/<\/div>$/,'');
+    }
+    return api('upande_packhouse.api.bucket_logistics.getBucketLogistics',{delivery_date:window.rtDate.get(),farm:'',team:''}).then(function(d){
+      STATE=d||{orders:[]};
+      render();
+      if(PV&&!AUTODONE){var vo=visibleOrders();if(vo.length===1){AUTODONE=true;var b=document.querySelector('.bl2-more[data-i="0"]');if(b)b.click();}}
+    }).catch(function(e){$('blRows').innerHTML='<tr><td colspan="7"><div class="bl2-loading" style="color:var(--issued)">Failed to load: '+esc(e.message)+'</div></td></tr>';});
+  }
+
+  window.rtLogisticsLoad=load;   // the section-wide Refresh reloads this view (see below)
+  function boot(){
+    document.addEventListener('rt-trips-changed',function(){ load(); });
+    document.addEventListener('click',function(e){
+      var at=e.target.closest('[data-addtrip]');
+      if(at&&at.dataset.edittrip){ if(window.rtEditTrip) window.rtEditTrip(at.dataset.edittrip); return; }
+      if(at){ if(window.rtAddToTrip) window.rtAddToTrip(at.dataset.opl,at.dataset.farm,at.dataset.name); return; }
+      var all=e.target.closest('[data-fg-all]');
+      if(all){ var shut=!!document.querySelector('#blRows tr.fgrp:not(.shut)');
+        document.querySelectorAll('#blRows tr.fgrp').forEach(function(h){ setGroup(h.dataset.fg,shut); }); saveShut(); syncAllBtn(); return; }
+      var g=e.target.closest('#blRows tr.fgrp');
+      if(g){ setGroup(g.dataset.fg,!FG_SHUT[g.dataset.fg]); saveShut(); syncAllBtn(); return; }
+      var m=e.target.closest('.bl2-more[data-opl]');if(!m)return;
+      var i=m.getAttribute('data-i'),det=$('det-'+i),body=$('detb-'+i);
+      if(det.style.display==='none'){det.style.display='';m.textContent='Hide';if(body.getAttribute('data-l')!=='1'){body.setAttribute('data-l','1');renderDetail(body,m.getAttribute('data-opl'),m.getAttribute('data-farm'));}}
+      else{det.style.display='none';m.textContent='More';}
+    });
+    try{var qp=new URLSearchParams(location.search);var pd=qp.get('date'),pq=qp.get('q'),pv=qp.get('variety');if(pq){SEARCH=pq;}   /* deep link (?q=, e.g. from Order Fulfilment) still narrows the list */PV=pv||'';}catch(e){}
+    // Loaded by the Bucket Transfers tab router (window.BL_LOAD) when the Logistics
+    // tab is opened; a deep link carrying a search/variety opens that tab directly.
+    window.BL_LOAD=load;
+    if(document.querySelector('.ts-tab.on[data-tab="logistics"]')||S_TAB_IS_LOGISTICS())load();
+  }
+  function S_TAB_IS_LOGISTICS(){try{return new URLSearchParams(location.search).get('tab')==='logistics';}catch(e){return false;}}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
+
+})();
+
+/* Styled dropdowns for the Bucket Logistics filters. The native <select> stays the
+   source of truth (hidden): picking sets its value and fires "change", so the filter
+   code is untouched; options added later (farms/teams load async) are read on open. */
+(function(){
+  var CHEV='<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
+  function esc(v){ return String(v==null?'':v).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function enhance(sel){
+    if(sel.dataset.bl2Done) return; sel.dataset.bl2Done='1';
+    var wrap=document.createElement('div'); wrap.className='bl2-dd'; wrap.style.width=sel.style.width||'150px';
+    wrap.innerHTML='<button type="button" class="bl2-dd-btn" aria-haspopup="listbox" aria-expanded="false"><span class="v"></span>'+CHEV+'</button>';
+    sel.style.display='none'; sel.parentNode.insertBefore(wrap,sel.nextSibling);
+    var btn=wrap.firstChild, label=btn.querySelector('.v'), pop=null, hl=-1;
+    function sync(){ var o=sel.options[sel.selectedIndex]; label.textContent=o?o.textContent:''; label.classList.toggle('ph',!sel.value); }
+    function close(){ if(pop){ pop.remove(); pop=null; } wrap.classList.remove('open'); btn.setAttribute('aria-expanded','false'); }
+    function pick(v){ if(sel.value!==v){ sel.value=v; sel.dispatchEvent(new Event('change',{bubbles:true})); } sync(); close(); btn.focus(); }
+    function draw(q){
+      var opts=[].slice.call(sel.options), list=pop.querySelector('.bl2-dd-list'); q=(q||'').trim().toLowerCase();
+      var shown=opts.filter(function(o){ return !q||!o.value||o.textContent.toLowerCase().indexOf(q)>=0; });
+      list.innerHTML=shown.map(function(o,i){ var on=o.value===sel.value;
+        return (i===1&&!shown[0].value?'<div class="bl2-dd-sep"></div>':'')+'<button type="button" role="option" class="bl2-dd-opt'+(on?' sel':'')+(o.value?'':' all')+'" data-v="'+esc(o.value)+'" aria-selected="'+on+'"><span class="ck">'+(on?'<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>':'')+'</span>'+esc(o.textContent)+'</button>'; }).join('')
+        ||'<div class="bl2-dd-empty">No match</div>';
+      hl=-1;
+    }
+    function open(){
+      if(pop){ close(); return; }
+      document.querySelectorAll('.bl2-dd.open').forEach(function(d){ if(d!==wrap) d.querySelector('.bl2-dd-btn').click(); });
+      pop=document.createElement('div'); pop.className='bl2-dd-pop'; pop.setAttribute('role','listbox');
+      var many=sel.options.length>8;
+      pop.innerHTML=(many?'<input class="bl2-dd-q" placeholder="Search…" autocomplete="off">':'')+'<div class="bl2-dd-list"></div>';
+      wrap.appendChild(pop); wrap.classList.add('open'); btn.setAttribute('aria-expanded','true'); draw('');
+      var q=pop.querySelector('.bl2-dd-q'); if(q){ q.focus(); q.addEventListener('input',function(){ draw(q.value); }); }
+      var cur=pop.querySelector('.bl2-dd-opt.sel'); if(cur) cur.scrollIntoView({block:'nearest'});
+    }
+    btn.addEventListener('click',open);
+    wrap.addEventListener('click',function(e){ var o=e.target.closest('.bl2-dd-opt'); if(o) pick(o.dataset.v); });
+    wrap.addEventListener('keydown',function(e){
+      if(e.key==='Escape'){ close(); btn.focus(); return; }
+      if(!pop){ if(e.key==='ArrowDown'||e.key==='Enter'||e.key===' '){ if(e.target===btn){ e.preventDefault(); open(); } } return; }
+      var items=[].slice.call(pop.querySelectorAll('.bl2-dd-opt')); if(!items.length) return;
+      if(e.key==='ArrowDown'||e.key==='ArrowUp'){ e.preventDefault(); hl=(hl+(e.key==='ArrowDown'?1:-1)+items.length)%items.length;
+        items.forEach(function(x,i){ x.classList.toggle('hl',i===hl); }); items[hl].scrollIntoView({block:'nearest'}); }
+      else if(e.key==='Enter'){ e.preventDefault(); pick((items[hl>=0?hl:0]).dataset.v); }
+    });
+    document.addEventListener('mousedown',function(e){ if(pop&&!wrap.contains(e.target)) close(); });
+    sel.addEventListener('change',sync);
+    new MutationObserver(sync).observe(sel,{childList:true});
+    sync();
+  }
+  function boot(){ document.querySelectorAll('select[data-bl2-dd]').forEach(enhance); }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
+})();
+
+</script>
+{% endraw %}
+{% endif %}

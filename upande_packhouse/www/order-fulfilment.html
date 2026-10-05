@@ -769,7 +769,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
             var det='';
             if(eo){
               det='<tr class="of-detrow"><td></td><td colspan="6"><table class="of-ltbl"><thead><tr><th>Variety</th><th>Length</th><th class="n">Ordered</th><th class="n">Confirmed</th><th class="n">Packed</th><th class="n">Fulfilled</th></tr></thead><tbody>'
-                +o.lines.map(function(l){var lp=pct(l.packed,l.ordered);var vcell=(l.transferred>0)?('<a class="of-link" href="/remote-transfers/bucket-logistics?date='+encodeURIComponent(dt)+'&q='+encodeURIComponent(o.so)+'&variety='+encodeURIComponent(l.variety||'')+'" target="_blank" rel="noopener" title="Track packing in Bucket Logistics">'+esc(l.variety)+'</a>'):esc(l.variety);return '<tr><td>'+vcell+'</td><td>'+esc(l.length||'—')+'</td><td class="n">'+num(l.ordered)+'</td><td class="n">'+num(l.confirmed)+'</td><td class="n">'+num(l.packed)+'</td><td class="n">'+bar(lp)+lp+'%</td></tr>';}).join('')
+                +o.lines.map(function(l){var lp=pct(l.packed,l.ordered);var vcell=(l.transferred>0)?('<a class="of-link" href="/remote-transfer/bucket-logistics?date='+encodeURIComponent(dt)+'&q='+encodeURIComponent(o.so)+'&variety='+encodeURIComponent(l.variety||'')+'" target="_blank" rel="noopener" title="Track packing in Bucket Logistics">'+esc(l.variety)+'</a>'):esc(l.variety);return '<tr><td>'+vcell+'</td><td>'+esc(l.length||'—')+'</td><td class="n">'+num(l.ordered)+'</td><td class="n">'+num(l.confirmed)+'</td><td class="n">'+num(l.packed)+'</td><td class="n">'+bar(lp)+lp+'%</td></tr>';}).join('')
                 +'</tbody></table></td></tr>';
             }
             return head+det;

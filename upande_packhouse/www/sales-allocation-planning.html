@@ -815,13 +815,29 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         if (Array.from(sel.options).map(o=>o.value).includes(cur)) sel.value = cur;
     }
 
+    // Tomorrow by the server's clock (EAT), never the browser's: rendered with the
+    // page, and asked for again on Refresh so a page left open overnight moves on.
+    let serverTomorrow = '{% endraw %}{{ default_delivery_date }}{% raw %}';
+    function tomorrowISO() { return serverTomorrow; }
+    function refreshServerTomorrow() {
+        return new Promise((resolve) => frappe.call({
+            method: 'upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.default_delivery_date',
+            callback: (r) => { if (r.message) serverTomorrow = r.message; resolve(serverTomorrow); },
+            error: () => resolve(serverTomorrow),
+        }));
+    }
+
     function initFilters() {
         const saved = localStorage.getItem('selectedLocation');
         if (saved) currentLocation = saved;
-        document.getElementById('deliveryDate').value = new Date().toISOString().split('T')[0];
+        document.getElementById('deliveryDate').value = tomorrowISO();
         document.getElementById('deliveryDate').addEventListener('change', () => { showSpinner(true); loadData(); });
         document.getElementById('confirmedByFilter').addEventListener('change', () => { showSpinner(true); applyFiltersDelay(); });
-        document.getElementById('refreshBtn').addEventListener('click', loadData);
+        document.getElementById('refreshBtn').addEventListener('click', () => {
+            // Refresh starts again from tomorrow's deliveries, like a reload.
+            showSpinner(true);
+            refreshServerTomorrow().then((d) => { document.getElementById('deliveryDate').value = d; loadData(); });
+        });
         document.getElementById('clearBtn').addEventListener('click', clearAllFilters);
         initCustomSelect('customer', 'customerFilter', 'customerDropdown');
         initCustomSelect('order', 'orderFilter', 'orderDropdown');
@@ -863,7 +879,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 
     function clearAllFilters() {
         showSpinner(true);
-        document.getElementById('deliveryDate').value = new Date().toISOString().split('T')[0];
+        document.getElementById('deliveryDate').value = tomorrowISO();
         ['customerFilter','orderFilter','varietyFilter','lengthFilter','farmFilter','confirmedByFilter'].forEach(id => { const el=document.getElementById(id); if(el)el.value=''; });
         document.querySelectorAll('.form-control').forEach(el => el.classList.remove('has-value'));
         selectedFilters = { customer:'', order:'', variety:'', length:'', farm:'', confirmedBy:'' };

@@ -1,0 +1,166 @@
+{% extends "templates/web.html" %}
+{% block page_content %}
+{#- Remote Transfers — the whole section on one page, at /remote-transfer/<tab>.
+
+    The page (sidebar, top bar, section tabs, delivery date, Refresh) loads ONCE. Each
+    tab opens in its own frame inside it — the same address with ?embed=1 — and is kept,
+    so switching tabs never reloads the page, the sidebar or a tab already open; the
+    address follows the open tab (history.pushState). Truck Routes, Transfer Scheduling
+    and Bucket Logistics share one frame: one planner script switches their views.
+
+    A tab's screen is its own template in templates/remote_transfer/ (included once per
+    part: head, right, body, after, tail) and its own API module in api/remote_transfer/.
+    In its frame it reaches the page through templates/includes/remote_transfer_frame.html. -#}
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{% if rt_embed %}
+{#- ── A tab, in its frame ─────────────────────────────────────────────────── -#}
+{% include "upande_packhouse/templates/includes/remote_transfer_frame.html" %}
+{% set rt_part = 'head' %}{% for t in rt_templates %}{% include t %}
+{% endfor %}
+<div class="aph rt-embed">
+  <div class="aph-main">
+    <div class="aph-content">
+      <div class="rt-embed-right">{% set rt_part = 'right' %}{% for t in rt_templates %}{% include t %}{% endfor %}</div>
+{% set rt_part = 'body' %}{% for t in rt_templates %}{% include t %}
+{% endfor %}
+    </div>
+  </div>
+{% set rt_part = 'after' %}{% for t in rt_templates %}{% include t %}{% endfor %}
+</div>
+{% set rt_part = 'tail' %}{% for t in rt_templates %}{% include t %}
+{% endfor %}
+{% else %}
+{#- ── The page ─────────────────────────────────────────────────────────────── -#}
+{% set rt_part = 'head' %}{% include "upande_packhouse/templates/remote_transfer/transfer_scheduling.html" %}
+<style>
+/* The open tab's frame fills the space under the top bar; the page itself never scrolls. */
+.aph .aph-main.rt-shell{overflow:hidden}
+.aph .rt-frames{position:relative;flex:1 1 auto;min-height:0}
+/* Tab switch: the open tab cross-fades with the one before it (a hidden tab keeps its
+   place — visibility, not display — so it is never reloaded or re-laid out). */
+.aph .rt-frames>iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:var(--bg);
+  opacity:0;visibility:hidden;pointer-events:none;transition:opacity .22s ease,visibility 0s linear .22s}
+.aph .rt-frames>iframe.on{opacity:1;visibility:visible;pointer-events:auto;transition:opacity .22s ease}
+/* While a tab's frame loads: skeleton cards over the content area, fading out when it's in. */
+.aph .rt-skel{position:absolute;inset:0;z-index:2;background:var(--bg);padding:24px 40px;overflow:hidden;
+  opacity:1;visibility:visible;transition:opacity .22s ease}
+.aph .rt-skel.off{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .22s ease,visibility 0s linear .22s}
+@media (prefers-reduced-motion:reduce){.aph .rt-frames>iframe,.aph .rt-frames>iframe.on,.aph .rt-skel,.aph .rt-skel.off{transition:none}}
+.aph .rt-skel .sk-card{margin-bottom:14px}
+</style>
+<div class="aph">
+  {% set active_page = "remote-transfer" %}{% include "upande_packhouse/templates/includes/packhouse_sidebar.html" %}
+  <div class="aph-main rt-shell">
+    <div class="aph-topbar">
+      <button class="collapse-btn" id="collapseBtn" title="Toggle sidebar" aria-label="Toggle sidebar"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+      <h1>Remote Transfers</h1>
+      {% set rt_active = rt_tab %}{% include "upande_packhouse/templates/includes/remote_transfers_tabs.html" %}
+      <div class="right"></div>
+    </div>
+    <div class="rt-frames" id="rt-frames">
+      <div class="rt-skel" id="rt-skel" aria-busy="true" aria-label="Loading">
+        <div class="sk-card" style="height:52px"></div>
+        <div class="sk-card"><span class="sk" style="width:30%;height:14px"></span><div style="height:10px"></div><span class="sk" style="width:90%;height:12px"></span><div style="height:8px"></div><span class="sk" style="width:62%;height:12px"></span></div>
+        <div class="sk-card"><span class="sk" style="width:26%;height:14px"></span><div style="height:10px"></div><span class="sk" style="width:84%;height:12px"></span><div style="height:8px"></div><span class="sk" style="width:58%;height:12px"></span></div>
+        <div class="sk-card"><span class="sk" style="width:34%;height:14px"></span><div style="height:10px"></div><span class="sk" style="width:76%;height:12px"></span><div style="height:8px"></div><span class="sk" style="width:48%;height:12px"></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var aph=document.querySelector('.aph'), btn=document.getElementById('collapseBtn');
+  try{ if(localStorage.getItem('aphSideCollapsed')==='1') aph.classList.add('collapsed'); }catch(e){}
+  if(btn) btn.addEventListener('click',function(){
+    aph.classList.toggle('collapsed');
+    try{ localStorage.setItem('aphSideCollapsed', aph.classList.contains('collapsed')?'1':'0'); }catch(e){}
+  });
+})();
+/* Tabs in frames: opened on first visit, kept, shown / hidden on switching. */
+(function(){
+  var PATHS={{ rt_paths|tojson }};      // tab -> /remote-transfer/<slug>
+  var GROUPS={{ rt_groups|tojson }};    // tab -> frame (routes/transfer/logistics share one)
+  var box=document.getElementById('rt-frames'), dateLbl=document.querySelector('.rt-date');
+  var skel=document.getElementById('rt-skel');
+  var frames={}, loaded={}, pending={}, refresh={}, view={}, cur=null, first=true;
+
+  function tabOfPath(p){
+    p=(p||'').replace(/\/+$/,'');
+    for(var k in PATHS) if(PATHS[k]===p) return k;
+    return 'transfer';
+  }
+  function withDate(path, extra){
+    var q=new URLSearchParams(extra||'');
+    q.delete('embed'); q.set('date', window.rtDate.get());
+    return path+'?'+q.toString();
+  }
+  function open(tab){
+    var g=GROUPS[tab], f=document.createElement('iframe');
+    // The first frame keeps the page's whole query (deep links: ?q=, ?variety=, ?tab=).
+    var q=new URLSearchParams(first?location.search:''); first=false;
+    q.set('embed','1'); q.set('date', window.rtDate.get());
+    f.src=PATHS[tab]+'?'+q.toString();
+    f.title='Remote Transfers — '+tab;
+    loaded[g]=false;
+    f.addEventListener('load',function(){
+      loaded[g]=true;
+      var t=pending[g]; delete pending[g];
+      if(t && f.contentWindow && f.contentWindow.rtSwitch) f.contentWindow.rtSwitch(t);
+      if(cur && cur.group===g) skel.classList.add('off');   // the tab shows its own skeleton until its data is in
+    });
+    box.appendChild(f);
+    frames[g]=f;
+    return f;
+  }
+  function highlight(tab){
+    if(window.rtSetTab) window.rtSetTab(tab);
+    if(dateLbl) dateLbl.hidden = (tab==='journey');   // Bucket Journey has its own dates
+  }
+  function show(tab, push){
+    var g=GROUPS[tab], f=frames[g], kept=!!f;
+    if(!f) f=open(tab);
+    else if(g==='planner' && view[g]!==tab){
+      var w=f.contentWindow;
+      if(w && w.rtSwitch) w.rtSwitch(tab); else pending[g]=tab;
+    }
+    for(var k in frames) frames[k].classList.toggle('on', k===g);
+    cur={tab:tab, group:g};
+    // A frame still loading: the page's skeleton covers it. A tab already open reloads
+    // its data with its own skeleton (its Refresh), so a switch never shows stale data.
+    if(loaded[g]) skel.classList.add('off');
+    else { skel.style.transition='none'; skel.classList.remove('off'); void skel.offsetWidth; skel.style.transition=''; }   // in at once, fades out
+    if(kept && loaded[g]) (refresh[g]||[]).forEach(function(fn){ try{ fn(); }catch(e){} });
+    highlight(tab);
+    var url=withDate(PATHS[tab], g==='planner' && view[g]===tab && view.url ? view.url.split('?')[1] : '');
+    if(push) history.pushState({tab:tab}, '', url); else history.replaceState({tab:tab}, '', url);
+  }
+
+  // ── what a tab's frame calls (remote_transfer_frame.html) ──
+  window.rtSwitch=function(tab){ if(PATHS[tab] && (!cur || tab!==cur.tab)) show(tab, true); };
+  window.rtRegisterRefresh=function(g, fn){ (refresh[g]=refresh[g]||[]).push(fn); };
+  window.rtRefreshFns=function(){ return cur ? (refresh[cur.group]||[]) : []; };
+  window.rtRefreshFallback=function(){   // a tab with nothing registered: reload just its frame
+    if(!cur) return; refresh[cur.group]=[];
+    var f=frames[cur.group]; if(f && f.contentWindow) f.contentWindow.location.reload();
+  };
+  // The planner frame reports its view (Truck Routes / Transfer Scheduling / Bucket
+  // Logistics) and address on every render — only the open frame touches the page.
+  window.rtFrameTab=function(g, tab){
+    view[g]=tab;
+    if(cur && cur.group===g && tab!==cur.tab){ cur.tab=tab; highlight(tab); }
+  };
+  window.rtFrameUrl=function(g, pathAndQuery){
+    if(g==='planner') view.url=pathAndQuery;
+    if(!cur || cur.group!==g) return;
+    var p=pathAndQuery.split('?');
+    history.replaceState({tab:cur.tab}, '', withDate(p[0], p[1]));
+  };
+
+  window.addEventListener('popstate',function(){ show(tabOfPath(location.pathname), false); });
+  show({{ rt_tab|tojson }}, false);
+})();
+</script>
+{% endif %}
+{% endblock %}

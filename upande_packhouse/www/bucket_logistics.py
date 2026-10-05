@@ -2,7 +2,7 @@
 # For license information, please see license.txt
 #
 # Bucket Logistics was merged into the Remote Transfers section
-# (/remote-transfers/bucket-logistics, served by www/transfer-control.html). Keep the old route working —
+# (/remote-transfer/bucket-logistics, served by www/remote-transfer.html). Keep the old route working —
 # sidebar/workspace links and deep links such as
 # /bucket-logistics?date=…&q=…&variety=… from Order Fulfilment — by redirecting
 # with the query string carried over.

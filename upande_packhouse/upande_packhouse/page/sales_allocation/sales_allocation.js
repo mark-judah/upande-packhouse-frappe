@@ -1,7 +1,7 @@
 // Page: sales-allocation — Stock Allocation Dashboard
 //
 // Layout:
-//   [ compact toolbar: location · delivery · posting (collapsed) ]
+//   [ compact toolbar: location · delivery ]
 //   [ orders rail ] [ order lines | bucket table ] [ action bar ]
 //
 // Only the selected order line's bucket table renders, so allocating a bucket
@@ -20,22 +20,32 @@ frappe.pages["sales-allocation"].on_page_load = function (wrapper) {
 // Fires on every visit (first load AND every return trip), unlike on_page_load
 // which only fires once — so a "Sales Allocation" shortcut clicked from a
 // second Sales Order while this page instance is already alive still lands
-// here. Consumes frappe.route_options (set by the Sales Order shortcut) to
-// pre-select the location + widen the date window so THAT order shows up,
-// then auto-selects it once the order list loads.
+// here. Consumes frappe.route_options (set by the Sales Order / Order Pick
+// List shortcut) to pre-select the location + move the delivery window onto
+// THAT order's delivery date, then auto-selects it once the order list loads.
 frappe.pages["sales-allocation"].on_page_show = function () {
 	const P = frappe.pages["sales-allocation"];
-	if (!frappe.route_options || !frappe.route_options.sales_order) return;
+	// Route options travel through the URL, so a missing value comes back as
+	// the TEXT "null" / "undefined" -- and a date control handed "undefined"
+	// pops "Date undefined must be in format". Keep only real values.
+	const opt = (key) => {
+		const v = frappe.route_options && frappe.route_options[key];
+		return v && v !== "null" && v !== "undefined" ? String(v) : null;
+	};
+	const sales_order = opt("sales_order");
+	if (!sales_order) return;
+	const delivery_date = opt("delivery_date");
 	const deeplink = {
-		sales_order: frappe.route_options.sales_order,
-		farm: frappe.route_options.farm || null,
-		transaction_date: frappe.route_options.transaction_date || null,
+		sales_order,
+		farm: opt("farm"),
+		delivery_date: /^\d{4}-\d{2}-\d{2}$/.test(delivery_date || "") ? delivery_date : null,
 	};
 	frappe.route_options = null;
 	P._run_deeplink(deeplink);
 };
 frappe.pages["sales-allocation"]._run_deeplink = function (deeplink) {
 	const P = frappe.pages["sales-allocation"];
+	P._deeplinked = true; // the order's own day wins over the default
 	const proceed = () => {
 		// Prefer the location that actually owns this order's farm; fall back
 		// to whatever's already selected, else the first configured location.
@@ -57,19 +67,14 @@ frappe.pages["sales-allocation"]._run_deeplink = function (deeplink) {
 			frappe.msgprint(__("No shelf locations configured — cannot open this order here."));
 			return;
 		}
-		// Widen the date window so the order isn't silently excluded by the
-		// default "delivery = tomorrow" / "posting = last 7 days" filters.
-		P.filters.order_start = deeplink.transaction_date || "";
-		P.filters.order_end = deeplink.transaction_date || "";
-		P.filters.delivery_start = "";
-		P.filters.delivery_end = "";
-		$("#orderStartDate").val(P.filters.order_start);
-		$("#orderEndDate").val(P.filters.order_end);
-		$("#deliveryStartDate").val("");
-		$("#deliveryEndDate").val("");
-		if (P.filters.order_start) {
-			$("#postingWrap").css("display", "flex");
-			$("#togglePosting").text("Remove posting date");
+		// Show the order's own delivery day, so it stays listed after the
+		// deep-link has been consumed (refreshes, allocating). The server
+		// lists the deep-linked order whatever the window says anyway. No
+		// delivery date (order gone, or not passed): keep the current window
+		// rather than blanking it.
+		if (deeplink.delivery_date) {
+			P.set_date_filter("delivery_start", deeplink.delivery_date);
+			P.set_date_filter("delivery_end", deeplink.delivery_date);
 		}
 		P._pending_select_order = deeplink.sales_order;
 		if (P.selected_location === loc_name) {
@@ -213,7 +218,23 @@ frappe.pages["sales-allocation"].add_styles = function () {
             outline: none;
         }
         .ufd-sa .sa-inp:focus { border-color: var(--ink-faint); background: var(--surface-2); }
-        .ufd-sa .sa-date { width: 122px; }
+        .ufd-sa .sa-date { width: 130px; }
+        .ufd-sa .sa-date .frappe-control,
+        .ufd-sa .sa-date .form-group { margin: 0; }
+        .ufd-sa .sa-date .control-label,
+        .ufd-sa .sa-date .help-box,
+        .ufd-sa .sa-date .tooltip-content { display: none; }
+        .ufd-sa .sa-date input.form-control {
+            height: auto;
+            padding: 5px 9px;
+            border: 1px solid var(--hairline);
+            border-radius: 8px;
+            font-size: 12px;
+            background: var(--surface);
+            color: var(--ink-3);
+            box-shadow: none;
+        }
+        .ufd-sa .sa-date input.form-control:focus { border-color: var(--ink-faint); background: var(--surface-2); }
         .ufd-sa .sa-ghost-btn {
             padding: 5px 12px;
             border: 1px solid var(--hairline);
@@ -593,7 +614,8 @@ frappe.pages["sales-allocation"].make = function (page) {
 		page.main
 	);
 	page.add_inner_button(__("Refresh"), function () {
-		frappe.pages["sales-allocation"].load_sales_orders();
+		// Refresh starts again from tomorrow's deliveries, like a reload.
+		frappe.pages["sales-allocation"].reset_to_tomorrow(true);
 	});
 	$container.html(`
         <div class="sa-toolbar">
@@ -606,17 +628,10 @@ frappe.pages["sales-allocation"].make = function (page) {
             <div class="sa-tb-div"></div>
             <div class="sa-tb-group">
                 <span class="sa-tb-label">Delivery</span>
-                <input type="date" id="deliveryStartDate" class="sa-inp sa-date">
+                <div class="sa-date" data-filter="delivery_start"></div>
                 <span class="sa-to">to</span>
-                <input type="date" id="deliveryEndDate" class="sa-inp sa-date">
+                <div class="sa-date" data-filter="delivery_end"></div>
             </div>
-            <div class="sa-tb-group" id="postingWrap" style="display:none;">
-                <span class="sa-tb-label">Posting</span>
-                <input type="date" id="orderStartDate" class="sa-inp sa-date">
-                <span class="sa-to">to</span>
-                <input type="date" id="orderEndDate" class="sa-inp sa-date">
-            </div>
-            <button class="sa-ghost-btn" id="togglePosting">Add posting date</button>
             <div class="location-info" id="locationInfo" style="display:none;"></div>
         </div>
         <div class="sa-shell">
@@ -703,13 +718,12 @@ frappe.pages["sales-allocation"].make = function (page) {
 		length: "",
 		item_group: "",
 		alloc: "",
-		order_start: "",
-		order_end: "",
 		delivery_start: tomorrow,
 		delivery_end: tomorrow,
 	};
-	$("#deliveryStartDate").val(tomorrow);
-	$("#deliveryEndDate").val(tomorrow);
+	P.make_date_filters();
+	// The browser's date is only a first guess; the server's (EAT) decides.
+	P.reset_to_tomorrow(false);
 	P.render_allocation_grid();
 	P.load_location_config();
 	P._populate_filter_options();
@@ -737,39 +751,10 @@ frappe.pages["sales-allocation"].make = function (page) {
 		P.filters.alloc = $(this).val();
 		P.apply_filters();
 	});
-	$("#orderStartDate, #orderEndDate").on("change", function () {
-		P.filters.order_start = $("#orderStartDate").val();
-		P.filters.order_end = $("#orderEndDate").val();
-		if (P.selected_location) P.load_sales_orders();
-	});
-	$("#deliveryStartDate, #deliveryEndDate").on("change", function () {
-		P.filters.delivery_start = $("#deliveryStartDate").val();
-		P.filters.delivery_end = $("#deliveryEndDate").val();
-		if (P.selected_location) P.load_sales_orders();
-	});
-	// Posting date is a secondary filter — hidden until asked for.
-	$("#togglePosting").on("click", function () {
-		const $w = $("#postingWrap");
-		const was_open = $w.is(":visible");
-		if (was_open) {
-			$w.hide();
-			$("#orderStartDate, #orderEndDate").val("");
-			const had_value = !!(P.filters.order_start || P.filters.order_end);
-			P.filters.order_start = "";
-			P.filters.order_end = "";
-			$(this).text("Add posting date");
-			if (had_value && P.selected_location) P.load_sales_orders();
-		} else {
-			$w.css("display", "flex");
-			$(this).text("Remove posting date");
-		}
-	});
 	$("#clearFilters").on("click", function () {
 		$(
-			"#orderSearchInput, #priorityFilter, #boxTypeFilter, #lengthFilter, #itemGroupFilter, #allocFilter, #orderStartDate, #orderEndDate, #deliveryStartDate, #deliveryEndDate"
+			"#orderSearchInput, #priorityFilter, #boxTypeFilter, #lengthFilter, #itemGroupFilter, #allocFilter"
 		).val("");
-		$("#postingWrap").hide();
-		$("#togglePosting").text("Add posting date");
 		P.filters = {
 			search: "",
 			priority: "",
@@ -777,12 +762,75 @@ frappe.pages["sales-allocation"].make = function (page) {
 			length: "",
 			item_group: "",
 			alloc: "",
-			order_start: "",
-			order_end: "",
-			delivery_start: "",
-			delivery_end: "",
+			delivery_start: tomorrow,
+			delivery_end: tomorrow,
 		};
+		P.set_date_filter("delivery_start", tomorrow);
+		P.set_date_filter("delivery_end", tomorrow);
 		if (P.selected_location) P.load_sales_orders();
+	});
+};
+
+// Frappe Date controls for the delivery window, built the way page.add_field
+// builds toolbar filters (input only, no label). Each one writes its own key
+// in P.filters and reloads the list -- but only when the value really
+// changed. set_date_filter uses set_input, which neither validates nor fires
+// change, so setting a date from code never triggers a reload of its own.
+frappe.pages["sales-allocation"].make_date_filters = function () {
+	const P = frappe.pages["sales-allocation"];
+	P.date_controls = {};
+	$(".ufd-sa .sa-date[data-filter]").each(function () {
+		const key = $(this).attr("data-filter");
+		const control = frappe.ui.form.make_control({
+			parent: $(this),
+			df: {
+				fieldtype: "Date",
+				fieldname: key,
+				label: "",
+				placeholder: __("Any date"),
+				input_class: "input-xs",
+				change() {
+					const value = control.get_value() || "";
+					if (value === (P.filters[key] || "")) return;
+					P.filters[key] = value;
+					if (P.selected_location) P.load_sales_orders();
+				},
+			},
+			only_input: true,
+		});
+		control.refresh();
+		control.set_input(P.filters[key] || "");
+		P.date_controls[key] = control;
+	});
+};
+frappe.pages["sales-allocation"].set_date_filter = function (key, value) {
+	const P = frappe.pages["sales-allocation"];
+	P.filters[key] = value || "";
+	const control = P.date_controls && P.date_controls[key];
+	if (control) control.set_input(P.filters[key]);
+};
+
+// Put the delivery window on tomorrow by the server's clock (EAT), never the
+// browser's. `refresh` (the Refresh button) always reloads and also leaves a
+// deep-linked order's day; on page load it only corrects the first guess and
+// reloads when the server's day differs.
+frappe.pages["sales-allocation"].reset_to_tomorrow = function (refresh) {
+	const P = frappe.pages["sales-allocation"];
+	frappe.call({
+		method: "upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.default_delivery_date",
+		callback: function (r) {
+			const tomorrow = r.message;
+			if (!tomorrow || (!refresh && P._deeplinked)) return;
+			const changed =
+				P.filters.delivery_start !== tomorrow || P.filters.delivery_end !== tomorrow;
+			P._deeplinked = false;
+			P.set_date_filter("delivery_start", tomorrow);
+			P.set_date_filter("delivery_end", tomorrow);
+			if (P.selected_location && (refresh || changed)) P.load_sales_orders();
+		},
+		error: function () {
+			if (refresh && P.selected_location) P.load_sales_orders();
+		},
 	});
 };
 
@@ -857,15 +905,20 @@ frappe.pages["sales-allocation"].load_sales_orders = function () {
 		return;
 	}
 	$("#salesOrderList").html('<div class="loading-state">Loading orders…</div>');
+	// Only the latest request may paint the list (and consume a deep-link):
+	// a load still in flight from the page's first visit or a location click
+	// used to land after the deep-link's own load, find no such order in its
+	// old date window, and report it missing.
+	const request_id = (P._orders_request_id = (P._orders_request_id || 0) + 1);
 	frappe.call({
 		method: "upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.get_pending_sales_orders",
 		args: {
-			start_date: P.filters.order_start || null,
-			end_date: P.filters.order_end || null,
 			delivery_start: P.filters.delivery_start || null,
 			delivery_end: P.filters.delivery_end || null,
+			sales_order: P._pending_select_order || null,
 		},
 		callback: function (r) {
+			if (request_id !== P._orders_request_id) return;
 			if (r.message && r.message.length) {
 				P.current_sales_orders = r.message;
 				P.apply_filters();
@@ -882,19 +935,34 @@ frappe.pages["sales-allocation"].load_sales_orders = function () {
 				if ((P.current_sales_orders || []).some((o) => o.name === target)) {
 					P.select_order(target, { force: 1 });
 				} else {
-					frappe.show_alert(
-						{
-							message: __(
-								"Could not find {0} in the allocation list for this window.",
-								[target]
-							),
-							indicator: "orange",
-						},
-						6
-					);
+					P._explain_missing_order(target);
 				}
 			}
 		},
+	});
+};
+// The deep-linked order is requested regardless of the date window, so if it
+// is still missing the order itself is not allocatable -- say why.
+frappe.pages["sales-allocation"]._explain_missing_order = function (sales_order) {
+	frappe.db.get_value("Sales Order", sales_order, ["docstatus", "status"]).then((r) => {
+		const so = r && r.message;
+		let reason;
+		if (!so || so.docstatus === undefined) {
+			reason = __(
+				"{0} no longer exists (it may have been deleted), or you cannot read it.",
+				[sales_order]
+			);
+		} else if (so.docstatus === 0) {
+			reason = __("{0} is still a draft — submit it to allocate.", [sales_order]);
+		} else if (so.docstatus === 2) {
+			reason = __("{0} is cancelled.", [sales_order]);
+		} else {
+			reason = __("{0} is {1}, so it is no longer open for allocation.", [
+				sales_order,
+				__(so.status),
+			]);
+		}
+		frappe.show_alert({ message: reason, indicator: "orange" }, 8);
 	});
 };
 // Fill the Length and Item-group dropdowns from the masters (all stem lengths, all

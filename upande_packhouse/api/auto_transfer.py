@@ -31,16 +31,19 @@ from collections import deque
 
 import frappe
 
-from upande_packhouse.api import transfer_control as tc
+from upande_packhouse.api.remote_transfer import transfer_scheduling as tc
+from upande_packhouse.api.remote_transfer import truck_routes
 
-SETTING = "custom_auto_remote_transfer_scheduling"
-FREQUENCY = "custom_auto_transfer_frequency"
+SETTING = "auto_remote_transfer_scheduling"
+FREQUENCY = "auto_transfer_frequency"
 DEFAULT_FREQUENCY_MINUTES = 10
 #: A cron tick lands a little after the interval (the last run's own duration);
 #: without slack a 10-minute setting would drift to every 15.
 TICK_SLACK_SECONDS = 90
 LAST_RUN_KEY = "upande_packhouse:auto_transfer:last_run"
 LOCK_KEY = "upande_packhouse:auto_transfer:lock"
+#: Set when a change lands while a run is going: that run plans once more at its end.
+RERUN_KEY = "upande_packhouse:auto_transfer:rerun"
 #: Stops beyond this are visited in road order instead of trying every permutation.
 MAX_PERMUTED_STOPS = 7
 
@@ -85,13 +88,55 @@ def runNow():
 	return plan()
 
 
+def replan_soon(doc=None, method=None):
+	"""An order was scheduled (or its waiting buckets changed): put it on a trip now,
+	in the background, instead of waiting for the next timed run. Repeated triggers
+	share one queued job; one landing mid-run makes that run plan again at its end."""
+	if not enabled():
+		return
+	cache = frappe.cache()
+	if cache.get(cache.make_key(LOCK_KEY)):
+		cache.set(cache.make_key(RERUN_KEY), 1, ex=600)
+	frappe.enqueue(
+		"upande_packhouse.api.auto_transfer.plan",
+		queue="short",
+		job_id="upande_packhouse:auto_transfer:replan",
+		deduplicate=True,
+		enqueue_after_commit=True,
+	)
+
+
+def order_pick_list_changed(doc, method=None):
+	"""Re-plan when a picklist is new, changes team, or its buckets waiting at a farm change."""
+
+	def waiting(d):
+		return sorted(
+			(r.get("bucket") or "", r.get("source_warehouse") or "")
+			for r in d.get("table_ytkc") or []
+			if r.get("bucket") and int(r.get("awaiting_transfer") or 0)
+		)
+
+	before = doc.get_doc_before_save()
+	if before is None:
+		if waiting(doc):
+			replan_soon()
+		return
+	if (before.get("team") or "") != (doc.get("team") or "") or waiting(before) != waiting(doc):
+		replan_soon()
+
+
 def plan():
 	cache = frappe.cache()
 	# One run at a time — a manual "Re-plan now" can land while the cron run is going.
 	if not cache.set(cache.make_key(LOCK_KEY), 1, ex=600, nx=True):
+		cache.set(cache.make_key(RERUN_KEY), 1, ex=600)
 		return {"status": "busy", "message": "Automatic scheduling is already running."}
 	try:
-		summary = _plan()
+		for _ in range(3):
+			cache.delete(cache.make_key(RERUN_KEY))
+			summary = _plan()
+			if not cache.get(cache.make_key(RERUN_KEY)):
+				break
 	except Exception:
 		frappe.db.rollback()
 		frappe.log_error("Automatic remote transfer scheduling failed", frappe.get_traceback())
@@ -117,6 +162,9 @@ def _plan():
 	data = tc._transfer_schedule_payload(window, window)
 
 	graph = _RoadGraph(hub, data["distances"])
+	# Farms other trucks already collect from today (its own drafts are re-planned):
+	# one truck per farm at a time — see transfer_scheduling.farm_holders.
+	graph.holders = tc.farm_holders(today, skip_auto_drafts=True)
 	trucks = _fleet(data, today)
 	orders = _open_orders(data)
 	dist = _distribute(orders, trucks, graph)
@@ -144,7 +192,7 @@ def _plan():
 		chain = []
 		if t["auto_route"]:
 			chain, legs = graph.route_for(t["stops"])
-			res = tc._save_route(today, t["vehicle"], legs, auto_planned=1)
+			res = truck_routes._save_route(today, t["vehicle"], legs, auto_planned=1)
 			if res.get("status") != "success":
 				summary["failed"].append({"vehicle": t["vehicle"], "message": res.get("message")})
 				continue
@@ -163,10 +211,20 @@ def _plan():
 		)
 		if res.get("status") == "success":
 			summary["trips"].append(
-				{"name": res["name"], "vehicle": t["vehicle"], "buckets": res["total_buckets"]}
+				{
+					"name": res["name"],
+					"vehicle": t["vehicle"],
+					"buckets": res["total_buckets"],
+					"run": t.get("run"),
+					"farms": ", ".join(sorted({r.get("farm") for r in t["rows"] if r.get("farm")})),
+					"stems": sum(int(r.get("stems") or 0) for r in t["rows"]),
+					"orders": sorted({r.get("order_name") or r.get("order_pick_list") for r in t["rows"]}),
+				}
 			)
 		else:
 			summary["failed"].append({"vehicle": t["vehicle"], "message": res.get("message")})
+	# Each re-plan that changed the trips is its own entry on the page's Distributed list.
+	tc.log_distribution(window, [{**x, "trip": x["name"]} for x in summary["trips"]], source="Automatic")
 	return summary
 
 
@@ -219,20 +277,28 @@ def _fleet(data, today):
 					)
 				if cap - used > 0:
 					trucks.append(
-						_truck(v["name"], cap - used, set(r["stops"]), route=r["route"], run=r["run"])
+						_truck(
+							v["name"],
+							cap - used,
+							set(r["stops"]),
+							route=r["route"],
+							run=r["run"],
+							window=tc._trip_window(r["route"], today),
+						)
 					)
 			continue
 		if v.get("on_road"):
 			continue
-		trucks.append(_truck(v["name"], cap, None))
+		trucks.append(_truck(v["name"], cap, None, window=tc._day_span(today)))
 	# Biggest first, as the page's fleetSorted() does.
 	trucks.sort(key=lambda t: -t["rem"])
 	return trucks
 
 
-def _truck(vehicle, rem, fixed, route=None, run=None):
+def _truck(vehicle, rem, fixed, route=None, run=None, window=None):
 	return {
 		"vehicle": vehicle,
+		"window": window,  # (from, to) the run is out — for one truck per farm at a time
 		"route": route,
 		"run": run,
 		"rem": rem,
@@ -267,6 +333,10 @@ def _open_orders(data):
 				{
 					"farm": f["farm"],
 					"buckets": open_b,
+					# Left behind by a truck that already came: planned first (_place_left_behind).
+					"left_behind": min(open_b, int((f.get("left_behind") or {}).get("buckets") or 0)),
+					# Quality-issue replacements requested ASAP: before anything else.
+					"asap": min(open_b, int(f.get("asap") or 0)),
 					"per_bucket": (f["stems"] / f["buckets"]) if f["buckets"] else 0,
 					"varieties": ", ".join(v["variety"] for v in f["varieties"] if v["variety"]),
 				}
@@ -279,7 +349,39 @@ def _open_orders(data):
 # ============================================================
 # DISTRIBUTION ACROSS TEAMS  (port of computeDistribution)
 # ============================================================
+def _place_left_behind(orders, trucks, graph, key="left_behind"):
+	"""Buckets a truck left behind go FIRST — before any team's queue — on the next
+	trip to their farm. What fits comes off the order's open portions. With
+	key="asap" the same for quality-issue replacements requested ASAP, which go
+	before even those."""
+	for o in orders:
+		for f in o["open_farms"]:
+			n = min(f["buckets"], f.get(key) or 0)
+			if not n:
+				continue
+			for truck, k in _place_farm(trucks, f["farm"], n, graph):
+				truck["rows"].append(
+					{
+						"order_pick_list": o["opl"],
+						"order_name": o["order_name"],
+						"customer": o.get("customer") or "",
+						"farm": f["farm"],
+						"varieties": f["varieties"],
+						"buckets": k,
+						"stems": round(f["per_bucket"] * k),
+						"full_farm_buckets": f["buckets"],
+						"is_partial": 1 if k < f["buckets"] else 0,
+					}
+				)
+				f["buckets"] -= k
+				o["open"] -= k
+		o["open_farms"] = [f for f in o["open_farms"] if f["buckets"] > 0]
+
+
 def _distribute(orders, trucks, graph):
+	_place_left_behind(orders, trucks, graph, key="asap")
+	_place_left_behind(orders, trucks, graph)
+	orders = [o for o in orders if o["open"] > 0]
 	by_team = {}
 	for o in orders:
 		by_team.setdefault(o.get("team") or "", []).append(o)
@@ -371,11 +473,20 @@ def _place_farm(trucks, farm, amount, graph):
 	no single truck fits is the portion split, biggest truck first."""
 	if amount <= 0:
 		return []
-	elig = [t for t in trucks if t["rem"] > 0 and _serves(t, farm, graph)]
+	elig = [
+		t for t in trucks if t["rem"] > 0 and _serves(t, farm, graph) and not _clashes(t, farm, trucks, graph)
+	]
 
 	on_the_way = set(graph.path(graph.hub, farm)[1]) - {farm}
 
+	# The vehicle already collecting from this farm takes all of its orders.
+	holder = {v for v, _trip, _w in getattr(graph, "holders", {}).get(farm, [])} | {
+		t["vehicle"] for t in trucks if farm in t["stops"]
+	}
+
 	def tier(t):
+		if t["vehicle"] in holder:
+			return -1
 		if t["fixed"] is not None or farm in t["passes"]:
 			return 0  # already drives past it
 		if t["passes"] & on_the_way:
@@ -403,6 +514,20 @@ def _load(truck, farm, n, graph):
 	if farm not in truck["stops"]:
 		truck["stops"].append(farm)
 		truck["passes"] |= set(graph.path(graph.hub, farm)[1]) | {farm}
+
+
+def _overlap(a, b):
+	return not a or not b or (a[0] < b[1] and b[0] < a[1])
+
+
+def _clashes(truck, farm, trucks, graph):
+	"""Another truck of this plan already collects from `farm` while this one would be
+	out. (A farm a SAVED trip already collects from is fine to plan: _save_trip puts
+	those buckets on that trip instead.)"""
+	return any(
+		t["vehicle"] != truck["vehicle"] and farm in t["stops"] and _overlap(truck["window"], t["window"])
+		for t in trucks
+	)
 
 
 def _serves(truck, farm, graph):

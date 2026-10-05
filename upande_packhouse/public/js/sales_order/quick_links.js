@@ -47,8 +47,8 @@ frappe.ui.form.on("Sales Order", {
 						() => {
 							frappe.route_options = {
 								sales_order: frm.doc.name,
-								farm: frm.doc.farm || frm.doc.custom_farm,
-								transaction_date: frm.doc.transaction_date,
+								farm: frm.doc.farm || frm.doc.custom_farm || "",
+								delivery_date: frm.doc.delivery_date || "",
 							};
 							frappe.set_route("sales-allocation");
 						},
