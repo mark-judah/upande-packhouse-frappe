@@ -35,6 +35,19 @@ DISCARD_EXCLUSION = """
           )"""
 
 
+def _norm_cut_stage(value) -> str:
+	"""Cut stage as a comparable key: "1.5-2.0" and "1.5-2" are the same stage,
+	as are "1.0" and "1". Each number loses its trailing ".0"; spaces go."""
+	parts = str(value or "").replace(" ", "").split("-")
+	out = []
+	for part in parts:
+		try:
+			out.append(f"{float(part):g}")
+		except ValueError:
+			out.append(part.lower())
+	return "-".join(out)
+
+
 # ============================================================
 # HELPER: Load Production Settings config once
 # Returns: { discard_age, amber_time, farms_by_location, farm_config }
@@ -708,7 +721,8 @@ def get_sales_order_items_with_buckets(
 
 	# ── Apply cut_stage filter to buckets ──
 	if cut_stage_list:
-		buckets = [b for b in buckets if str(b.get("cut_stage", "")).strip() in cut_stage_list]
+		wanted_stages = {_norm_cut_stage(s) for s in cut_stage_list}
+		buckets = [b for b in buckets if _norm_cut_stage(b.get("cut_stage")) in wanted_stages]
 
 	so_item_names = [i["sales_order_item"] for i in items]
 	si_placeholders = ", ".join(["%s"] * len(so_item_names))
@@ -787,7 +801,7 @@ def get_sales_order_items_with_buckets(
 			if (
 				not bypass_cut_stage
 				and item["spec_cut_stage"]
-				and str(b.get("cut_stage", "")).strip() != item["spec_cut_stage"].strip()
+				and _norm_cut_stage(b.get("cut_stage")) != _norm_cut_stage(item["spec_cut_stage"])
 			):
 				continue
 
@@ -1042,6 +1056,7 @@ def get_bucket_visibility_diagnostics(
 	]
 	buckets_by_reason = {code: [] for code, _l in REASON_META}
 
+	wanted_stages = {_norm_cut_stage(s) for s in cut_stage_list}
 	for b in rows:
 		b_cm = _parse_cm(b["stem_length"])
 		is_sales_shelf = farm_config.get(b["shelf_farm"], {}).get("sales_shelf", 0)
@@ -1083,7 +1098,7 @@ def get_bucket_visibility_diagnostics(
 			detail = _("{0} stem — the order needs {1}").format(
 				b["stem_length"] or "?", required_length or "?"
 			)
-		elif cut_stage_list and str(b["cut_stage"] or "").strip() not in cut_stage_list:
+		elif cut_stage_list and _norm_cut_stage(b["cut_stage"]) not in wanted_stages:
 			reason = "wrong_cut_stage"
 			if spec_cut_stage:
 				detail = _("Cut stage {0} — the order spec requires {1}").format(
