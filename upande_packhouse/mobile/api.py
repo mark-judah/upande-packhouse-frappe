@@ -67,7 +67,79 @@ def real_box_count_for_opl(opl_name):
 	return sum(len(nums) for nums in boxes_by_group.values())
 
 
-def missing_staged_boxes_for_date(delivery_date):
+def dispatch_locations():
+	"""The dispatch locations: Loading Plan > Location's options (Ravine, Karen)."""
+	field = frappe.get_meta("Loading Plan").get_field("location")
+	return [o for o in (field.options or "").split("\n") if o.strip()] if field else []
+
+
+def location_farms(location):
+	"""The farms a dispatch location covers: the production config's farms of the
+	location with that name (Karen -> Karen), else every farm the other dispatch
+	locations don't (Ravine -> Kapkolia and its remote farms)."""
+	from upande_packhouse.upande_packhouse.page.sales_allocation import sales_allocation as sa
+
+	by_loc = sa._get_production_config()["farms_by_location"]
+	if location in by_loc:
+		return set(by_loc[location])
+	others = set()
+	for loc in dispatch_locations():
+		if loc != location and loc in by_loc:
+			others |= set(by_loc[loc])
+	return {f for farms in by_loc.values() for f in farms} - others | {None, ""}
+
+
+def location_sales_orders(delivery_date, location):
+	"""The Sales Orders of `delivery_date` that `location` dispatches: the ones its
+	Loading Plans for the day carry (by customer, and delivery point where the plan
+	names one), plus every other order of its farms that no other location's plan
+	carries -- so a location without a Loading Plan (or an order left off one) still
+	dispatches its own orders."""
+	plans = frappe.get_all(
+		"Loading Plan", filters={"delivery_date": delivery_date}, fields=["name", "location"]
+	)
+	items = (
+		frappe.get_all(
+			"Loading Plan Item",
+			filters={"parent": ["in", [p.name for p in plans]], "parenttype": "Loading Plan"},
+			fields=["parent", "customer", "delivery_point"],
+		)
+		if plans
+		else []
+	)
+	loc_of = {p.name: p.location for p in plans}
+	sos = frappe.get_all(
+		"Sales Order",
+		filters={"delivery_date": delivery_date, "docstatus": 1},
+		fields=["name", "customer", "custom_delivery_point", "farm"],
+	)
+
+	def on_plan(so, loc):
+		for it in items:
+			if loc_of.get(it.parent) == loc and it.customer == so.customer:
+				if not it.delivery_point or it.delivery_point == so.custom_delivery_point:
+					return True
+		return False
+
+	others = [loc for loc in {p.location for p in plans} if loc and loc != location]
+	farms = location_farms(location)
+	return {
+		so.name
+		for so in sos
+		if on_plan(so, location) or (so.farm in farms and not any(on_plan(so, loc) for loc in others))
+	}
+
+
+def location_departures(ls_name):
+	"""{location: {"seal", "at", "by"}} of the day's Loading Sheet."""
+	raw = frappe.db.get_value("Loading Sheet", ls_name, "location_departures") if ls_name else None
+	try:
+		return json.loads(raw) if raw else {}
+	except ValueError:
+		return {}
+
+
+def missing_staged_boxes_for_date(delivery_date, location=None):
 	"""Box Labels staged for this delivery date's own Sales Orders that never
 	made it onto the Loading Sheet (staged=1, loaded=0) -- these are boxes a
 	picker pulled into the dispatch coldstore that the truck is about to
@@ -78,6 +150,10 @@ def missing_staged_boxes_for_date(delivery_date):
 	so_names = frappe.get_all(
 		"Sales Order", filters={"delivery_date": delivery_date, "docstatus": 1}, pluck="name"
 	)
+	if location:
+		# Only the location's own orders: the other location's boxes aren't its truck's.
+		mine = location_sales_orders(delivery_date, location)
+		so_names = [n for n in so_names if n in mine]
 	if not so_names:
 		return []
 	opl_names = frappe.get_all(
@@ -502,15 +578,34 @@ def createOrUpdateDispatch():
 		data = frappe.request.get_json() or {}
 		delivery_date = data.get("delivery_date") or frappe.utils.add_days(frappe.utils.nowdate(), 1)
 		seal_number = (data.get("seal_number") or "").strip()
+		# location (Loading Plan > Location): dispatch only that location's orders --
+		# its own Delivery Notes and departure; the other location dispatches its own.
+		location = (data.get("location") or "").strip()
 		ls_name = "LS-" + str(delivery_date)
-		missing_boxes = missing_staged_boxes_for_date(delivery_date)
+		missing_boxes = missing_staged_boxes_for_date(delivery_date, location or None)
+		mine = location_sales_orders(delivery_date, location) if location else None
+		departures = location_departures(ls_name) if frappe.db.exists("Loading Sheet", ls_name) else {}
 
 		if not frappe.db.exists("Loading Sheet", ls_name):
 			frappe.response["message"] = {
 				"status": "error",
 				"message": "No loading sheet for " + str(delivery_date),
 			}
-		elif frappe.db.get_value("Loading Sheet", ls_name, "status") == "Departed":
+		elif location and location in departures:
+			frappe.response["message"] = {
+				"status": "error",
+				"message": "Dispatch for {0} on {1} has already been confirmed (seal {2}).".format(
+					location, delivery_date, departures[location].get("seal") or "-"
+				),
+			}
+		elif location and not mine:
+			frappe.response["message"] = {
+				"status": "error",
+				"message": "Nothing for {0} to dispatch on {1}.".format(location, delivery_date),
+			}
+		elif frappe.db.get_value("Loading Sheet", ls_name, "status") == "Departed" and (
+			not location or not departures
+		):
 			# Dispatch is a one-time confirmation, not a repeatable save -- once
 			# the truck has departed for this date, this endpoint refuses to
 			# touch its Delivery Notes again rather than silently re-running.
@@ -565,6 +660,8 @@ def createOrUpdateDispatch():
 				so_name = box.customer_purchase_order
 				if not so_name or not frappe.db.exists("Sales Order", so_name):
 					continue
+				if mine is not None and so_name not in mine:
+					continue  # another location's box: its own dispatch takes it
 				if so_name not in so_cache:
 					so_cache[so_name] = frappe.get_doc("Sales Order", so_name)
 				so = so_cache[so_name]
@@ -631,11 +728,12 @@ def createOrUpdateDispatch():
 				# never matched the doc it had just written, and every
 				# re-run created a fresh Delivery Note instead of updating
 				# the existing draft.
-				existing = frappe.get_all(
-					"Delivery Note",
-					filters={"customer": customer, "custom_delivery_date": delivery_date, "docstatus": 0},
-					pluck="name",
-				)
+				dn_filters = {"customer": customer, "custom_delivery_date": delivery_date, "docstatus": 0}
+				if location:
+					# Per location: a customer served from both locations the same day gets
+					# one Delivery Note from each, never one location rewriting the other's.
+					dn_filters["farm"] = first_so.get("farm")
+				existing = frappe.get_all("Delivery Note", filters=dn_filters, pluck="name")
 				if existing:
 					dn = frappe.get_doc("Delivery Note", existing[0])
 					dn.set("items", [])
@@ -827,7 +925,21 @@ def createOrUpdateDispatch():
 			# for this date is refused above (see the Departed check at the top)
 			# rather than silently rebuilding these Delivery Notes again.
 			ls.seal_number = seal_number
-			ls.status = "Departed"
+			if location:
+				departures[location] = {
+					"seal": seal_number,
+					"at": str(frappe.utils.now()),
+					"by": frappe.session.user,
+				}
+				ls.location_departures = json.dumps(departures)
+				# Departed once every location with a Loading Plan that day has gone.
+				planned = set(
+					frappe.get_all("Loading Plan", filters={"delivery_date": delivery_date}, pluck="location")
+				) - {None, ""}
+				if planned <= set(departures):
+					ls.status = "Departed"
+			else:
+				ls.status = "Departed"
 			ls.save(ignore_permissions=True)
 
 			frappe.db.commit()
@@ -845,7 +957,9 @@ def createOrUpdateDispatch():
 			if updated_count:
 				parts.append(f"updated {updated_count}")
 			summary = " and ".join(parts) if parts else "processed 0"
-			message = f"{summary[0].upper()}{summary[1:]} delivery note(s) for {delivery_date}"
+			message = f"{summary[0].upper()}{summary[1:]} delivery note(s) for {delivery_date}" + (
+				f" ({location})" if location else ""
+			)
 			if skipped_unstaged:
 				message += ". Skipped {0} box(es) not staged: {1}".format(
 					len(skipped_unstaged), ", ".join(skipped_unstaged)
@@ -1759,11 +1873,15 @@ def fetchDispatchLoadedOrders():
 	# -- a planned order with nothing loaded yet still shows, at 0 loaded, so a
 	# gap is visible before dispatch is confirmed, not just what's already done.
 	# Param: delivery_date (optional; defaults to tomorrow, matching loading).
+	# Param: location (optional, Loading Plan > Location): only the orders that
+	# location's Loading Plans carry, and its own departure.
 	try:
 		delivery_date = frappe.form_dict.get("delivery_date") or frappe.utils.add_days(
 			frappe.utils.today(), 1
 		)
+		location = frappe.form_dict.get("location") or ""
 		ls_name = "LS-" + str(delivery_date)
+		mine = location_sales_orders(delivery_date, location) if location else None
 
 		orders_by_so = {}
 		total_boxes = 0
@@ -1783,6 +1901,8 @@ def fetchDispatchLoadedOrders():
 			],
 		)
 		for so in planned_sos:
+			if mine is not None and so.name not in mine:
+				continue
 			opls = frappe.get_all(
 				"Order Pick List", filters={"sales_order": so.name, "docstatus": 1}, pluck="name"
 			)
@@ -1822,6 +1942,8 @@ def fetchDispatchLoadedOrders():
 					as_dict=True,
 				)
 				so_name = (bl.customer_purchase_order or "") if bl else ""
+				if mine is not None and so_name not in mine:
+					continue  # another location's box
 				key = so_name or bl_name
 				if key not in orders_by_so:
 					order_name = so_name
@@ -1854,16 +1976,26 @@ def fetchDispatchLoadedOrders():
 		# Surfaced here too (not just as a rejection from createOrUpdateDispatch)
 		# so the clipboard shows the gap before the operator even tries to
 		# confirm dispatch.
-		missing_boxes = missing_staged_boxes_for_date(delivery_date)
+		missing_boxes = missing_staged_boxes_for_date(delivery_date, location or None)
+		departed = ls_status == "Departed"
+		if location:
+			gone = location_departures(ls_name).get(location)
+			# Departed for this location -- or the whole sheet was dispatched before
+			# dispatch went per location (no departures recorded).
+			departed = bool(gone) or (departed and not location_departures(ls_name))
+			if gone:
+				seal_number = gone.get("seal") or seal_number
 
 		frappe.response["message"] = {
 			"status": "success",
 			"message": "Loaded orders fetched",
 			"data": {
 				"delivery_date": str(delivery_date),
+				"location": location,
+				"locations": dispatch_locations(),
 				"loading_sheet": ls_name if frappe.db.exists("Loading Sheet", ls_name) else None,
 				"loading_sheet_status": ls_status,
-				"dispatched": ls_status == "Departed",
+				"dispatched": departed,
 				"seal_number": seal_number,
 				"total_boxes": total_boxes,
 				"total_orders": len(orders),
@@ -2589,11 +2721,21 @@ def getReadySaleOrderItems():
 
 		# Filter by the Sales Order DELIVERY date, not the pick list creation date.
 		so_names = frappe.get_all("Sales Order", filters={"delivery_date": day}, pluck="name")
+		# Submitted orders, and drafts too (an order waiting on a remote transfer stays a
+		# draft): every order is scheduled, and issuing follows that schedule.
 		ready_orders = (
 			frappe.get_all(
 				"Order Pick List",
-				filters={"docstatus": 1, "sales_order": ["in", so_names]},
-				fields=["name", "order_name", "customer", "item_group", "team", "custom_total_stems"],
+				filters={"docstatus": ["<", 2], "sales_order": ["in", so_names]},
+				fields=[
+					"name",
+					"order_name",
+					"customer",
+					"item_group",
+					"team",
+					"custom_total_stems",
+					"docstatus",
+				],
 			)
 			if so_names
 			else []
@@ -2607,10 +2749,18 @@ def getReadySaleOrderItems():
 			unissued_rows = frappe.get_all(
 				"Pick List Item",
 				filters={"parent": ["in", opl_names], "parenttype": "Order Pick List", "issued": 0},
-				fields=["parent"],
-				distinct=True,
+				fields=["parent", "awaiting_transfer", "shelved", "custom_ready_for_packing"],
 			)
+			draft = {o.name for o in ready_orders if not o.docstatus}
 			for r in unissued_rows:
+				# A draft only once it has a bucket here to issue (arrived, or the hub's own
+				# stock): one still waiting at a remote farm can't be scanned yet.
+				if (
+					r.parent in draft
+					and frappe.utils.cint(r.awaiting_transfer)
+					and not (frappe.utils.cint(r.shelved) or frappe.utils.cint(r.custom_ready_for_packing))
+				):
+					continue
 				opls_with_unissued.add(r.parent)
 
 			variety_rows = frappe.get_all(
@@ -2641,7 +2791,31 @@ def getReadySaleOrderItems():
 					"qty": opl.get("custom_total_stems"),
 				}
 			)
-		orders.sort(key=lambda o: (o["name"], o["opl_name"]))
+		# The Packhouse Schedule: each order's team and place (its latest schedule), the
+		# team's next order flagged, listed in sequence steps (every team's #1, then #2 …)
+		# with the unscheduled after -- issuing holds the schedule's order.
+		sched = {}
+		if orders:
+			for r in frappe.db.sql(
+				"""SELECT pso.order_pick_list, ps.team, pso.sequence FROM `tabPackhouse Schedule Order` pso
+				JOIN `tabPackhouse Schedule` ps ON ps.name = pso.parent
+				WHERE pso.order_pick_list IN %(o)s ORDER BY ps.schedule_date ASC, ps.modified ASC""",
+				{"o": tuple(o["opl_name"] for o in orders)},
+				as_dict=True,
+			):
+				sched[r.order_pick_list] = r
+		nxt = {}
+		for o in orders:
+			sc = sched.get(o["opl_name"])
+			o["schedule"] = int(sc.sequence or 0) if sc else 0
+			o["schedule_team"] = (sc.team if sc else "") or ""
+			if o["schedule"] and (o["schedule_team"] not in nxt or o["schedule"] < nxt[o["schedule_team"]]):
+				nxt[o["schedule_team"]] = o["schedule"]
+		for o in orders:
+			o["is_next"] = bool(o["schedule"]) and nxt.get(o["schedule_team"]) == o["schedule"]
+		orders.sort(
+			key=lambda o: (not o["schedule"], o["schedule"], o["schedule_team"], o["name"], o["opl_name"])
+		)
 
 		frappe.response["orders"] = orders
 		frappe.response["message"] = "Found " + str(len(orders)) + " pick lists ready for packing"
@@ -2664,14 +2838,18 @@ def getReadySaleOrderItemsData():
 			# several OPLs sharing the same order_name, and they must stay separate
 			# so issuing one never pulls in another OPL's buckets.
 			matching_opls = (
-				[opl_name] if frappe.db.exists("Order Pick List", {"name": opl_name, "docstatus": 1}) else []
+				[opl_name]
+				if frappe.db.exists("Order Pick List", {"name": opl_name, "docstatus": ["<", 2]})
+				else []
 			)
 		else:
 			# Legacy fallback: match by the free-text order_name field. Kept only for
 			# callers that predate opl_name; it can span multiple OPLs of one order.
 			order_name = " ".join(order_name.split())
 			all_opls = frappe.get_all(
-				"Order Pick List", fields=["name", "order_name", "sales_order"], filters={"docstatus": 1}
+				"Order Pick List",
+				fields=["name", "order_name", "sales_order"],
+				filters={"docstatus": ["<", 2]},
 			)
 			matching_opls = []
 			for opl in all_opls:
@@ -2696,7 +2874,13 @@ def getReadySaleOrderItemsData():
 			# show issuing progress; the app hides issued ones from the scan list.
 			pick_list_items = frappe.get_all(
 				"Pick List Item",
-				filters={"parent": ["in", matching_opls], "docstatus": 1, "parenttype": "Order Pick List"},
+				# Drafts too (an order waiting on a remote transfer is a draft):
+				# getReadySaleOrderItems lists them once a bucket is here to issue.
+				filters={
+					"parent": ["in", matching_opls],
+					"docstatus": ["<", 2],
+					"parenttype": "Order Pick List",
+				},
 				fields=[
 					"name",
 					"item_code",
@@ -2772,7 +2956,7 @@ def getReadySaleOrderItemsData():
 					packing_list.append(packing_item)
 
 				frappe.response["packing_list"] = packing_list
-				frappe.response["message"] = f"Found {len(packing_list)} buckets from submitted pick lists"
+				frappe.response["message"] = f"Found {len(packing_list)} buckets"
 
 	except Exception as error:
 		frappe.log_error(f"Packing List Error: {error!s}")
@@ -4137,113 +4321,59 @@ def issueBucketToSaleOrderItem():
 		opl_name = payload.get("opl_name")
 
 		# ----------------------------------------------------------------------
-		# SCHEDULER ENFORCEMENT (optional, per-farm + per-TEAM, per delivery date)
+		# SCHEDULE ORDER -- always, unless Production Settings > "Allow Issuing Out of
+		# Schedule Order" is ticked
 		# ----------------------------------------------------------------------
-		# Flip allow_scheduler_validation to 1 to enforce the packhouse schedule:
-		# a bucket for an OPL with a higher custom_schedule_number cannot be issued
-		# until every lower-numbered OPL of the SAME FARM, SAME TEAM and SAME delivery
-		# date has reached scheduler_issue_threshold % issued (issued Pick List Item
-		# rows / total rows). e.g. 50 => once a line is 50% issued the team may start
-		# its next line. Set to 100 to require a line be fully issued before moving on.
-		#
-		# Each TEAM has its own queue, so several lines (one per team) can be the
-		# "next" line at once and teams never wait on each other. A team's own earlier
-		# line still gates its later lines: e.g. with line 1 -> team W and line 6 -> team W,
-		# team W cannot start #6 until #1 is at/above the threshold; meanwhile lines
-		# 2,3,4 for teams X,Y,Z are all issuable in parallel.
-		# Numbering is global per-day but compared only within (farm, team), so
-		# Kapkolia's #9 never blocks Karen's #10, and team X's #2 never blocks team W.
-		# 0 = skip entirely and issue as usual (no behaviour change).
-		allow_scheduler_validation = 0
-		scheduler_issue_threshold = 50
+		# Issuing follows the Packhouse Schedule, per team: an order can't be issued
+		# until every earlier order on its team's schedule is FULLY issued (#2 waits
+		# for all of #1). Drafts (waiting on a transfer) count too: every order is
+		# scheduled. Teams never wait on each other. A line with nothing to issue (or
+		# only not-found buckets) never blocks.
 		schedule_blocked = False
-		if allow_scheduler_validation and opl_name:
-			cur_opl = frappe.db.get_value(
-				"Order Pick List",
+		ps = frappe.get_cached_doc("Production Settings")
+		if opl_name and not frappe.utils.cint(ps.get("allow_issue_out_of_sequence")):
+			threshold = 100.0
+			cur = frappe.db.sql(
+				"""SELECT pso.parent, pso.sequence, ps.team FROM `tabPackhouse Schedule Order` pso
+				JOIN `tabPackhouse Schedule` ps ON ps.name = pso.parent
+				WHERE pso.order_pick_list = %s ORDER BY ps.schedule_date DESC LIMIT 1""",
 				opl_name,
-				["custom_schedule_number", "farm", "team", "sales_order"],
 				as_dict=True,
 			)
-			cur_num = 0
-			if cur_opl:
-				try:
-					cur_num = int(float(cur_opl.custom_schedule_number or 0))
-				except Exception:
-					cur_num = 0
-
-			cur_dd = None
-			if cur_opl and cur_opl.sales_order:
-				cur_dd = frappe.db.get_value("Sales Order", cur_opl.sales_order, "delivery_date")
-
-			# Only enforce when this OPL is scheduled and we know its farm + team + delivery date
-			if cur_opl and cur_num > 0 and cur_opl.farm and cur_opl.team and cur_dd:
-				so_rows = frappe.get_all(
-					"Sales Order", filters=[["delivery_date", "=", cur_dd]], fields=["name"]
-				)
-				so_list = []
-				for so in so_rows:
-					so_list.append(so.name)
-
-				lower_opls = []
-				if so_list:
-					sibs = frappe.get_all(
-						"Order Pick List",
-						filters=[
-							["docstatus", "=", 1],
-							["farm", "=", cur_opl.farm],
-							["team", "=", cur_opl.team],
-							["sales_order", "in", so_list],
-						],
-						fields=["name", "custom_schedule_number"],
-					)
-					for sib in sibs:
-						snum = 0
-						try:
-							snum = int(float(sib.custom_schedule_number or 0))
-						except Exception:
-							snum = 0
-						if snum > 0 and snum < cur_num:
-							lower_opls.append({"name": sib.name, "num": snum})
-
-				# A lower-numbered OPL is "done" only when ALL its Pick List Item rows are issued
+			if cur and int(cur[0].sequence or 0) > 1:
+				cur = cur[0]
 				blockers = []
-				if lower_opls:
-					lower_names = []
-					for lo in lower_opls:
-						lower_names.append(lo["name"])
-					plis = frappe.get_all(
-						"Pick List Item", filters=[["parent", "in", lower_names]], fields=["parent", "issued"]
-					)
-					total_by = {}
-					issued_by = {}
-					for pli in plis:
-						total_by[pli.parent] = total_by.get(pli.parent, 0) + 1
-						if pli.issued:
-							issued_by[pli.parent] = issued_by.get(pli.parent, 0) + 1
-					for lo in lower_opls:
-						t = total_by.get(lo["name"], 0)
-						done = issued_by.get(lo["name"], 0)
-						# A line with no buckets to issue (t == 0) can never reach the
-						# threshold, so treat it as satisfied to avoid a permanent deadlock.
-						pct = (100.0 * done / t) if t else 100.0
-						if pct < scheduler_issue_threshold:
-							blockers.append(lo["num"])
-
+				for lo in frappe.db.sql(
+					"""SELECT pso.order_pick_list AS opl, pso.sequence,
+					       SUM(IFNULL(pli.not_found, 0) = 0) AS total,
+					       SUM(IFNULL(pli.not_found, 0) = 0 AND IFNULL(pli.issued, 0) = 1) AS done
+					FROM `tabPackhouse Schedule Order` pso
+					JOIN `tabOrder Pick List` opl ON opl.name = pso.order_pick_list AND opl.docstatus < 2
+					LEFT JOIN `tabPick List Item` pli ON pli.parent = pso.order_pick_list
+					     AND pli.parenttype = 'Order Pick List' AND COALESCE(pli.bucket, '') != ''
+					WHERE pso.parent = %s AND pso.sequence < %s
+					GROUP BY pso.order_pick_list, pso.sequence""",
+					(cur.parent, cur.sequence),
+					as_dict=True,
+				):
+					total = int(lo.total or 0)
+					pct = (100.0 * int(lo.done or 0) / total) if total else 100.0
+					if pct < threshold:
+						blockers.append(int(lo.sequence))
 				if blockers:
 					start_from = min(blockers)
 					schedule_blocked = True
 					frappe.response.message = (
-						f"Schedule order for team {cur_opl.team} ({cur_opl.farm}): start from #{start_from}. "
-						f"Order #{start_from} is below {scheduler_issue_threshold}% issued, so #{cur_num} cannot be issued before it."
+						f"Schedule order for team {cur.team}: issue #{start_from} first. "
+						f"#{start_from} isn't fully issued yet, so #{cur.sequence} can't be issued before it."
 					)
 					frappe.response.http_status_code = 409
 					frappe.response.data = {
 						"status": "schedule_blocked",
-						"farm": cur_opl.farm,
-						"team": cur_opl.team,
-						"attempted_schedule_number": cur_num,
+						"team": cur.team,
+						"attempted_schedule_number": int(cur.sequence),
 						"start_from": start_from,
-						"threshold_percent": scheduler_issue_threshold,
+						"threshold_percent": threshold,
 						"pending_lower_numbers": sorted(blockers),
 					}
 
@@ -5062,6 +5192,11 @@ def shelveBucket():
 		return
 
 	# ── TRANSIT / OPL updates for transfer buckets (local buckets untouched) ──
+	# Shelved back at its remote farm while flagged on a trolley / truck (allowed by
+	# Production Settings): it never left, so it is waiting there again.
+	from upande_packhouse.api import transfer_control as _tc
+
+	_tc.return_to_farm(bucket_id, farm)
 	_shelve_update_transit_status(bucket_id, shelf_id, farm, result)
 
 	# ── SHELVE: one Shelf Item per received variety ──────────────────────────

@@ -130,6 +130,27 @@ def _get_production_config():
 	}
 
 
+def _order_sales_farm(opl):
+	"""The sales farm an Order Pick List is packed at, which sets where replacements
+	may come from (it and _remote_farms_of it): its Sales Order's farm when that is a
+	sales-shelf farm -- an OPL's own farm can name another location (Karen orders
+	carried Kapkolia), and Karen must never be offered Ravine buckets -- else the
+	OPL's farm, else the transfer hub. `opl`: a name or the document."""
+	from upande_packhouse.api.transfer_control import transfer_hub
+
+	if isinstance(opl, str):
+		opl = (
+			frappe.db.get_value("Order Pick List", opl, ["farm", "sales_order"], as_dict=True)
+			or frappe._dict()
+		)
+	so_farm = (
+		frappe.db.get_value("Sales Order", opl.get("sales_order"), "farm") if opl.get("sales_order") else None
+	)
+	if so_farm and _get_production_config()["farm_config"].get(so_farm, {}).get("sales_shelf"):
+		return so_farm
+	return opl.get("farm") or transfer_hub(required=False)
+
+
 def _remote_farms_of(farm):
 	"""The remote farms trucked to `farm`: same location, not a sales-shelf farm.
 	Another location's farms are never offered -- a line allocated across

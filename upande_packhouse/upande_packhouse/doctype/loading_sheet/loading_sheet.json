@@ -10,6 +10,7 @@
   "status",
   "total_boxes",
   "seal_number",
+  "location_departures",
   "section_break_esay",
   "items"
  ],
@@ -33,10 +34,17 @@
    "read_only": 1
   },
   {
+   "description": "The truck's physical seal number, recorded once at dispatch confirmation.",
    "fieldname": "seal_number",
    "fieldtype": "Data",
-   "label": "Seal Number",
-   "description": "The truck's physical seal number, recorded once at dispatch confirmation."
+   "label": "Seal Number"
+  },
+  {
+   "description": "Dispatch per location (Loading Plan > Location): when each location's truck left, with its seal. The sheet is Departed once every location planned that day has gone.",
+   "fieldname": "location_departures",
+   "fieldtype": "Small Text",
+   "label": "Location Departures",
+   "read_only": 1
   },
   {
    "fieldname": "section_break_esay",
@@ -52,7 +60,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-17 14:38:00.772092",
+ "modified": "2026-10-05 17:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Loading Sheet",

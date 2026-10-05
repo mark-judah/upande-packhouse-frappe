@@ -131,9 +131,8 @@ def _opl(opl_name):
 
 
 def _sales_farm(opl):
-	from upande_packhouse.api.transfer_control import transfer_hub
-
-	return opl.farm or transfer_hub(required=False)
+	# The Sales Order's farm first: Karen's orders are never offered Ravine buckets.
+	return sa._order_sales_farm(opl)
 
 
 def _line_rows(opl_name, bucket, sale_order_item):

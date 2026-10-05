@@ -24,7 +24,23 @@
 /* Section-wide farm filter */
 .aph .rt-farm[hidden]{display:none}
 .aph .rt-farm{display:inline-flex;align-items:center;gap:8px;margin-left:12px;font:600 10px var(--sans,'Poppins',system-ui,sans-serif);text-transform:uppercase;letter-spacing:.06em;color:#8a8a80;white-space:nowrap;flex:none}
-.aph .rt-farm > select{font:500 12px var(--sans,'Poppins',system-ui,sans-serif);text-transform:none;letter-spacing:0;height:30px;padding:4px 10px;border:1px solid rgba(10,10,10,.10);border-radius:8px;background:#fff;color:#0a0a0a;min-width:130px}
+.aph .rt-farm > select{display:none}
+/* Styled farm picker (the hidden <select> above stays the source of truth) */
+.aph .rt-dd{position:relative;text-transform:none;letter-spacing:0}
+.aph .rt-dd-btn{display:inline-flex;align-items:center;gap:8px;height:30px;min-width:140px;padding:0 10px 0 12px;border:1px solid rgba(10,10,10,.10);border-radius:8px;background:#fff;color:#0a0a0a;font:500 12px var(--sans,'Poppins',system-ui,sans-serif);cursor:pointer}
+.aph .rt-dd-btn:hover,.aph .rt-dd.open .rt-dd-btn{border-color:rgba(10,10,10,.28)}
+.aph .rt-dd-btn .v{flex:1;text-align:left;white-space:nowrap}
+.aph .rt-dd-btn .v.ph{color:#8a8a80}
+.aph .rt-dd-btn .dot{width:7px;height:7px;border-radius:50%;background:#12B76A;flex:none}
+.aph .rt-dd-btn svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;transition:transform .15s}
+.aph .rt-dd.open .rt-dd-btn svg{transform:rotate(180deg)}
+.aph .rt-dd-pop{position:absolute;top:calc(100% + 6px);left:0;z-index:50;min-width:100%;background:#fff;border:1px solid rgba(10,10,10,.10);border-radius:10px;box-shadow:0 12px 32px rgba(10,10,10,.14);padding:5px;max-height:320px;overflow-y:auto}
+.aph .rt-dd-opt{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;text-align:left;padding:8px 10px;border-radius:7px;font:500 12px var(--sans,'Poppins',system-ui,sans-serif);color:#0a0a0a;cursor:pointer;white-space:nowrap}
+.aph .rt-dd-opt:hover,.aph .rt-dd-opt.hl{background:rgba(10,10,10,.05)}
+.aph .rt-dd-opt.sel{font-weight:600;background:rgba(18,183,106,.08)}
+.aph .rt-dd-opt .ck{width:14px;color:#12B76A;display:inline-flex}
+.aph .rt-dd-opt.all{color:#5a5a52}
+.aph .rt-dd-sep{height:1px;background:rgba(10,10,10,.08);margin:4px 2px}
 /* Section-wide Refresh: reloads whatever view is open; the icon spins until it's back. */
 /* One header for the whole section: it wraps onto a second row rather than push
    Refresh off the right edge (a tab's own CSS may say nowrap — this wins). */
@@ -116,7 +132,7 @@
       set: function(nv){
         nv = nv || '';
         if (nv === v) return;
-        v = nv; sel.value = v;
+        v = nv; sel.value = v; sync();
         try { sessionStorage.setItem(KEY, v); } catch (e) {}
         document.dispatchEvent(new CustomEvent('rt-farm', {detail: v}));
       },
@@ -134,6 +150,46 @@
       on: function(fn){ document.addEventListener('rt-farm', function(e){ try { fn(e.detail); } catch (err) {} }); }
     };
     sel.addEventListener('change', function(){ window.rtFarm.set(sel.value); });
+
+    // The styled picker over the hidden select: a button with the current farm, a
+    // list with a tick on the chosen one and "All farms" set apart; keyboard works.
+    var CHEV = '<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
+    var TICK = '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    function e(t){ return String(t == null ? '' : t).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+    var wrap = document.createElement('div'); wrap.className = 'rt-dd';
+    wrap.innerHTML = '<button type="button" class="rt-dd-btn" aria-haspopup="listbox" aria-expanded="false"><span class="v"></span>' + CHEV + '</button>';
+    sel.parentNode.insertBefore(wrap, sel.nextSibling);
+    var btn = wrap.firstChild, label = btn.querySelector('.v'), pop = null, hl = -1;
+    function sync(){
+      var o = sel.options[sel.selectedIndex]; label.textContent = o ? o.textContent : 'All farms';
+      label.classList.toggle('ph', !sel.value);
+      var dot = btn.querySelector('.dot'); if (sel.value && !dot) btn.insertAdjacentHTML('afterbegin', '<span class="dot"></span>'); else if (!sel.value && dot) dot.remove();
+    }
+    function close(){ if (pop) { pop.remove(); pop = null; } wrap.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); }
+    function pick(v){ if (sel.value !== v) { sel.value = v; sel.dispatchEvent(new Event('change', {bubbles: true})); } sync(); close(); btn.focus(); }
+    function open(){
+      if (pop) { close(); return; }
+      pop = document.createElement('div'); pop.className = 'rt-dd-pop'; pop.setAttribute('role', 'listbox');
+      var opts = [].slice.call(sel.options);
+      pop.innerHTML = opts.map(function(o, i){ var on = o.value === sel.value;
+        return (i === 1 && !opts[0].value ? '<div class="rt-dd-sep"></div>' : '') +
+          '<button type="button" role="option" class="rt-dd-opt' + (on ? ' sel' : '') + (o.value ? '' : ' all') + '" data-v="' + e(o.value) + '" aria-selected="' + on + '"><span class="ck">' + (on ? TICK : '') + '</span>' + e(o.textContent) + '</button>'; }).join('');
+      wrap.appendChild(pop); wrap.classList.add('open'); btn.setAttribute('aria-expanded', 'true'); hl = -1;
+    }
+    btn.addEventListener('click', open);
+    wrap.addEventListener('click', function(ev){ var o = ev.target.closest('.rt-dd-opt'); if (o) pick(o.dataset.v); });
+    wrap.addEventListener('keydown', function(ev){
+      if (ev.key === 'Escape') { close(); btn.focus(); return; }
+      if (!pop) { if ((ev.key === 'ArrowDown' || ev.key === 'Enter' || ev.key === ' ') && ev.target === btn) { ev.preventDefault(); open(); } return; }
+      var items = [].slice.call(pop.querySelectorAll('.rt-dd-opt')); if (!items.length) return;
+      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); hl = (hl + (ev.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+        items.forEach(function(x, i){ x.classList.toggle('hl', i === hl); }); }
+      else if (ev.key === 'Enter') { ev.preventDefault(); pick(items[hl >= 0 ? hl : 0].dataset.v); }
+    });
+    document.addEventListener('mousedown', function(ev){ if (pop && !wrap.contains(ev.target)) close(); });
+    sel.addEventListener('change', sync);
+    new MutationObserver(sync).observe(sel, {childList: true});
+    sync();
   })();
 </script>
 <script>

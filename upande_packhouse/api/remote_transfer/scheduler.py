@@ -231,8 +231,10 @@ def getSchedulerFeed():
 				"lines": 0,
 			}
 
-			# user rule: hide as soon as any bucket is issued (being processed)
-			if st["issued"] > 0:
+			# Every order is scheduled -- drafts waiting on a transfer, drafts with nothing
+			# to move, submitted orders issued straight from the hub -- and stays on the
+			# schedule while it is being issued; it drops off once fully issued.
+			if st["lines"] and st["issued"] >= st["lines"]:
 				ci = ci + 1
 				continue
 
@@ -246,9 +248,6 @@ def getSchedulerFeed():
 
 			ds = int(o.get("docstatus") or 0)
 			has_x = st["transfer"]
-			if not on_schedule.get(op) and not (ds == 0 and has_x == 1):
-				ci = ci + 1
-				continue
 			if ds == 0 and has_x == 0:
 				variation = "draft_plain"
 			elif ds == 0 and has_x == 1:
@@ -301,6 +300,8 @@ def getSchedulerFeed():
 				"mixed_type": mtype,
 				"docstatus": ds,
 				"variation": variation,
+				"issued_lines": st["issued"],
+				"lines": st["lines"],
 			}
 			out.append(row)
 			ci = ci + 1
@@ -334,6 +335,16 @@ def saveDaySchedule():
 		if v:
 			opls.append(v)
 		p = p + 1
+
+	# "Distribute to teams": orders that had no team get the one the page gave them
+	# ({opl: team}, a Packing Team) -- a team's schedule can only hold its own orders.
+	teams = fd.get("teams")
+	if isinstance(teams, str):
+		teams = frappe.parse_json(teams) if teams.strip() else {}
+	for opl_name, team in (teams or {}).items():
+		if team and opl_name in opls and frappe.db.exists("Packing Teams", team):
+			if not frappe.db.get_value("Order Pick List", opl_name, "team"):
+				frappe.db.set_value("Order Pick List", opl_name, "team", team)
 
 	info_map = {}
 	if opls:
