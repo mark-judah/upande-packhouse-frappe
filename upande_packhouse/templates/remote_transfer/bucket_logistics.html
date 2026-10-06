@@ -1,5 +1,5 @@
 {#- Remote Transfers — Bucket Logistics tab. Its own script; it reuses the planner
-    (transfer_scheduling.html) for Edit / Add to trip.
+    (transfer_scheduling.html).
     The shell (www/remote-transfer.html) includes this file once per part, with rt_part =
     head (styles) | right (top-bar controls) | body | after (in the page, after the
     main column: pop-ups) | tail (scripts). -#}
@@ -82,21 +82,15 @@
   var TRIP_COLOR={Draft:'var(--text-3)',Scheduled:'var(--text-3)',Dispatched:'var(--transit)',Received:'var(--shelved)'};
   function tripCell(o){
     var t=o.trips||[];
-    // Still at the farm with no open trip: offer to put it on one of today's route trips.
-    var atFarm=Math.max(0,(o.awaiting||0)-(o.trolley||0)-(o.transit||0));
-    var add=atFarm>0&&!t.some(function(x){ return x.status!=='Received'; })
-      ?'<button class="bl2-addtrip" data-addtrip="1" data-opl="'+esc(o.opl)+'" data-farm="'+esc(o.farm||'')+'" data-name="'+esc(o.order_name||o.opl)+'">+ Add to trip</button>':'';
-    if(!t.length) return o.truck?'<span class="bl2-pill" style="background:var(--transit)">'+esc(o.truck)+'</span>':'<span class="bl2-sub">'+((o.awaiting||0)>0?'no trip yet':'—')+'</span>'+(add?'<div>'+add+'</div>':'');
+    // Trips are planned by Distribute (Transfer Scheduling), not from here.
+    if(!t.length) return o.truck?'<span class="bl2-pill" style="background:var(--transit)">'+esc(o.truck)+'</span>':'<span class="bl2-sub">'+((o.awaiting||0)>0?'no trip yet':'—')+'</span>';
     // One chip per trip: truck · run · status, then loaded vs planned (a load nothing
     // planned shows "loaded, not planned" — it used to read "0 bkt").
     return t.map(function(x){
       var st=x.status==='Received'?'ended':(x.arrived_at?'arrived':(x.loaded_buckets&&(x.status==='Draft'||x.status==='Scheduled')?'loading':String(x.status||'').toLowerCase()));
       var qty=x.buckets?(x.loaded_buckets?x.loaded_buckets+' / '+x.buckets+' loaded':x.buckets+' planned'):(x.loaded_buckets+' loaded, not planned');
       if(x.shelved) qty+=' · '+x.shelved+' arrived';
-      // Edit a trip that is only planned (nothing loaded): wrong truck / farm / count.
-      var edit=(x.status==='Draft'||x.status==='Scheduled')&&!x.loaded_buckets
-        ?' <button class="bl2-addtrip" data-addtrip="1" data-edittrip="'+esc(x.trip)+'" title="Edit trip '+esc(x.trip)+'" style="padding:1px 7px">Edit</button>':'';
-      return '<div style="margin:1px 0"><span class="bl2-trip" style="border-color:'+(TRIP_COLOR[x.status]||'var(--text-3)')+'" title="'+esc(x.trip)+' · '+esc(x.trip_date)+'">'+esc(x.vehicle||x.trip)+(x.run?' · trip '+x.run:'')+(x.farm?' · '+esc(x.farm):'')+' · '+esc(st)+'</span>'+edit+'<div class="bl2-sub" style="margin:2px 0 4px">'+qty+'</div></div>'; }).join('')+add;
+      return '<div style="margin:1px 0"><span class="bl2-trip" style="border-color:'+(TRIP_COLOR[x.status]||'var(--text-3)')+'" title="'+esc(x.trip)+' · '+esc(x.trip_date)+'">'+esc(x.vehicle||x.trip)+(x.run?' · trip '+x.run:'')+(x.farm?' · '+esc(x.farm):'')+' · '+esc(st)+'</span><div class="bl2-sub" style="margin:2px 0 4px">'+qty+'</div></div>'; }).join('');
   }
   function kpiCard(lbl,val,sub){return '<div class="aph-kpi"><div class="lbl">'+lbl+'</div><div class="v">'+val+'</div>'+(sub?'<div class="sub">'+sub+'</div>':'')+'</div>';}
   // Running stats over the currently-visible orders — recomputed every render,
@@ -172,11 +166,13 @@
     el.style.setProperty('--n',Math.max(trucks.length,7));  // same width as the KPI tiles
   }
 
+  // Only what Distribute has put on a trip (or that is already moving) is in logistics.
+  function onTrip(o){ return (o.trips||[]).length||o.truck||(o.trolley||0)+(o.transit||0)+(o.shelved||0)+(o.issued||0)+(o.arrived_hub||0)>0; }
   function render(){
-    var orders=visibleOrders();
+    var orders=visibleOrders().filter(onTrip);
     renderKpis(orders);
     renderTrucks(orders);
-    if(!orders.length){if($('blFgBar'))$('blFgBar').innerHTML='';$('blRows').innerHTML='<tr><td colspan="7"><div class="bl2-loading">No orders being transferred for this delivery date.</div></td></tr>';return;}
+    if(!orders.length){if($('blFgBar'))$('blFgBar').innerHTML='';$('blRows').innerHTML='<tr><td colspan="7"><div class="bl2-loading">Nothing is on a trip yet for this delivery date.</div></td></tr>';return;}
     // Grouped per source farm, each group collapsible. An order collecting from
     // several farms is listed under each, with that farm's counts and trips only.
     var groups={};
@@ -188,10 +184,13 @@
         var row=Object.assign({},o,f.total!=null?f:{},{farm:f.farm||'',varieties:f.varieties!=null?f.varieties:o.varieties,
           trips:(o.trips||[]).filter(function(t){ return !t.farm||!f.farm||t.farm===f.farm; }),
           others:all.length>1?all.filter(function(x){ return x.farm!==f.farm; }).map(function(x){ return x.farm; }):[]});
+        // A farm of the order still with no trip waits on Transfer Scheduling.
+        if(!onTrip(row)) return;
         (groups[row.farm||'—']=groups[row.farm||'—']||[]).push(row);
       });
     });
     var farms=Object.keys(groups).sort(), i=0, sum=function(rows,k){ return rows.reduce(function(a,r){ return a+(r[k]||0); },0); };
+    if(!farms.length){if($('blFgBar'))$('blFgBar').innerHTML='';$('blRows').innerHTML='<tr><td colspan="7"><div class="bl2-loading">Nothing is on a trip yet for this delivery date.</div></td></tr>';return;}
     var anyOpen=farms.some(function(f){ return !FG_SHUT[f]; });
     // Farm count and the expand/collapse toggle sit above the table, not in it.
     if($('blFgBar')) $('blFgBar').innerHTML='<b>'+farms.length+' farm'+(farms.length===1?'':'s')+'</b><button class="bl2-more" data-fg-all="1">'+(anyOpen?'Collapse all':'Expand all')+'</button>';

@@ -5,6 +5,7 @@
       window.rtFarm       the page's farm filter (get / set / options / on change)
       window.rtOnRefresh  register what the page's Refresh does while this tab is open
       window.rtSetTab     report the open view (the planner frame switches between three)
+      window.rtOpenTab    open another tab and call a function in it (tab, fn name)
       window.rtSetUrl     report the view's address (path + query) for the page's URL
     Opened on its own (no page around it), the frame still works: a local date read
     from ?date=, Refresh does nothing. -#}
@@ -27,6 +28,7 @@
     window.rtOnRefresh = function(fn){ P.rtRegisterRefresh(GROUP, fn); };
     window.rtSetTab = function(tab){ P.rtFrameTab(GROUP, tab); };
     window.rtSetUrl = function(pathAndQuery){ P.rtFrameUrl(GROUP, pathAndQuery); };
+    window.rtOpenTab = function(tab, fn){ P.rtOpenTab(tab, fn); };
     return;
   }
   function iso(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }

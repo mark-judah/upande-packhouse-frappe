@@ -2,9 +2,9 @@
 # For license information, please see license.txt
 #
 # Remote Transfers — Truck Routes tab (/remote-transfer/truck-routes): each truck's
-# route for a day (Bucket Logistics Route), the saved routes they are copied from
-# every day (Bucket Logistics Route Template), and the road network routes are built
-# on (Farm Distance). Split out of transfer_scheduling (formerly api/transfer_control);
+# route for a day (Bucket Logistics Route), made fresh every day — a new one can start
+# from the day before's or a saved route (Bucket Logistics Route Template) — and the
+# road network routes are built on (Farm Distance). Split out of transfer_scheduling (formerly api/transfer_control);
 # the old upande_packhouse.api.transfer_control.<name> paths still reach these.
 
 import frappe
@@ -188,6 +188,10 @@ def _save_route(
 	doc.auto_planned = 1 if auto_planned else 0
 	if template:
 		doc.template = template
+	# A link to a saved route that is gone (deleted, or never copied to this site) would
+	# fail the save: the day route stands on its own, so drop the link instead.
+	if doc.get("template") and not frappe.db.exists(TEMPLATE, doc.template):
+		doc.template = None
 	try:
 		doc.save(ignore_permissions=True)
 	except frappe.ValidationError as e:
@@ -208,7 +212,6 @@ def getBucketLogisticsRoutes():
 	# Every truck's Bucket Logistics Route for one date (default today), legs in
 	# driving order — for the Truck Routes list / route builder.
 	date = frappe.form_dict.get("date") or frappe.utils.today()
-	ensure_day_routes(date)
 	out = []
 	for name in frappe.get_all(
 		"Bucket Logistics Route",
@@ -339,15 +342,13 @@ def deleteBucketLogisticsRoute():
 def addFarmTrip():
 	# Send a truck to one farm: a new trip (packhouse → farm → packhouse) added to the end
 	# of its latest route on `date`, or a new all-day route when it has none that day.
-	# The truck's saved route gets the trip too, so it is driven every day from now on.
-	# Returns the route and the new trip's number, so buckets can be planned straight in.
+	# Only that day's route changes. Returns the route and the new trip's number, so buckets can be planned straight in.
 	fd = frappe.form_dict
 	vehicle, farm = fd.get("vehicle"), fd.get("farm")
 	date = str(frappe.utils.getdate(fd.get("date") or frappe.utils.today()))
 	if not vehicle or not farm:
 		frappe.response["message"] = {"status": "error", "message": "A truck and a farm are required."}
 		return
-	ensure_day_routes(date)
 	hub = transfer_hub()
 	road = _farm_distance_between(hub, farm)
 	if not road:
@@ -378,57 +379,13 @@ def addFarmTrip():
 	if res.get("status") == "success":
 		res["route"] = res["name"]
 		res["run"] = len(_route_runs_by_name(res["name"]))
-		res["saved_route"] = _save_day_route_as_template(res["name"])
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	frappe.response["message"] = res
 
 
-def _save_day_route_as_template(day_route):
-	"""Carry a day route's trips back to its saved route (or save it as a new one), so the
-	change applies every day. Copies already made for later days are made again; the
-	day's own copy is kept (trips are being planned onto it). Returns the saved route's
-	name, or "" when it can't be saved (its time overlaps another saved route)."""
-	day = frappe.get_doc("Bucket Logistics Route", day_route)
-	legs = [l.leg for l in day.legs if l.leg]
-	path, err = _route_path(legs)
-	if err or not path:
-		return ""
-	start, end = _dt(day.from_datetime)[11:] or "00:00", _dt(day.to_datetime)[11:] or "23:59"
-	tpl = (
-		frappe.get_doc(TEMPLATE, day.template)
-		if day.get("template") and frappe.db.exists(TEMPLATE, day.template)
-		else None
-	)
-	if tpl is None:
-		for o in frappe.get_all(
-			TEMPLATE, filters={"vehicle": day.vehicle, "active": 1}, fields=["from_time", "to_time"]
-		):
-			if _windows_clash(start, end, _hhmm(o.from_time), _hhmm(o.to_time)):
-				return ""
-		tpl = frappe.new_doc(TEMPLATE)
-		tpl.vehicle, tpl.active = day.vehicle, 1
-		tpl.from_time, tpl.to_time = start + ":00", end + ":00"
-	tpl.set("legs", [])
-	for leg in path:
-		tpl.append("legs", leg)
-	tpl.total_km = sum(float(l["distance_km"] or 0) for l in path)
-	tpl.save(ignore_permissions=True)
-	if day.get("template") != tpl.name:
-		frappe.db.set_value("Bucket Logistics Route", day.name, "template", tpl.name, update_modified=False)
-	for r in frappe.get_all(
-		"Bucket Logistics Route",
-		filters={"template": tpl.name, "route_date": [">", day.route_date]},
-		pluck="name",
-	):
-		if _day_copy_unused(r):
-			frappe.delete_doc("Bucket Logistics Route", r, ignore_permissions=True, force=1)
-	return tpl.name
-
-
 # ---- Saved routes (no date) ---------------------------------------------------------
-# A truck's route is saved once, with times of day, and used every day: the first time a
-# day is planned (Distribute, Add trip, the farm app, automatic scheduling) each active
-# saved route is copied onto it as a dated Bucket Logistics Route, which trips link to.
+# A route saved once. It is never put on a day by itself: on the Truck routes tab a new
+# day route (Bucket Logistics Route, which trips link to) can start from it.
 
 TEMPLATE = "Bucket Logistics Route Template"
 
@@ -442,13 +399,6 @@ def _hhmm(value):
 		return "{0:02d}:{1:02d}".format(mins // 60 % 24, mins % 60)
 	parts = str(value).split(":")
 	return "{0:02d}:{1:02d}".format(int(parts[0]), int(parts[1] if len(parts) > 1 else 0))
-
-
-def _window_on(date, start, end):
-	"""(from, to) datetimes of a times-of-day window on `date`; To at or before From
-	runs into the next day."""
-	spill = 1 if end <= start else 0
-	return "{0} {1}:00".format(date, start), "{0} {1}:00".format(frappe.utils.add_days(date, spill), end)
 
 
 def _minutes_window(start, end):
@@ -498,23 +448,6 @@ def getRouteTemplates():
 		for n in frappe.get_all(TEMPLATE, pluck="name", order_by="vehicle asc, from_time asc")
 	]
 	frappe.response["message"] = {"status": "success", "routes": out}
-
-
-def _day_copy_unused(name):
-	"""A day copy no trip has used yet — safe to drop and make again."""
-	return not frappe.db.exists("Bucket Request Trip", {"route": name})
-
-
-def _drop_future_copies(template):
-	"""Remove the template's day copies from today on that no trip uses, so the next
-	plan makes them again from the saved route as it is now. Used copies are kept."""
-	for r in frappe.get_all(
-		"Bucket Logistics Route",
-		filters={"template": template, "route_date": [">=", frappe.utils.today()]},
-		pluck="name",
-	):
-		if _day_copy_unused(r):
-			frappe.delete_doc("Bucket Logistics Route", r, ignore_permissions=True, force=1)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -568,88 +501,34 @@ def saveRouteTemplate():
 		doc.append("legs", leg)
 	doc.total_km = sum(float(l["distance_km"] or 0) for l in path)
 	doc.save(ignore_permissions=True)
-	_drop_future_copies(doc.name)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	frappe.response["message"] = {"status": "success", "name": doc.name, "total_km": doc.total_km}
 
 
 @frappe.whitelist(methods=["POST"])
 def setRouteTemplateActive():
-	# Turn a saved route on or off (off = not copied onto new days).
+	# Turn a saved route on or off (off = not offered for copying onto a day).
 	fd = frappe.form_dict
 	name = fd.get("name")
 	if not name or not frappe.db.exists(TEMPLATE, name):
 		frappe.response["message"] = {"status": "error", "message": "Route not found."}
 		return
 	frappe.db.set_value(TEMPLATE, name, "active", 1 if cint(fd.get("active")) else 0)
-	if not cint(fd.get("active")):
-		_drop_future_copies(name)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	frappe.response["message"] = {"status": "success", "name": name}
 
 
 @frappe.whitelist(methods=["POST"])
 def deleteRouteTemplate():
-	# Delete a saved route. Its unused day copies go too; copies a trip already uses stay
-	# (the trip needs them) but no longer point at it.
+	# Delete a saved route. Day routes copied from it stay; they no longer point at it.
 	name = frappe.form_dict.get("name")
 	if not name or not frappe.db.exists(TEMPLATE, name):
 		frappe.response["message"] = {"status": "error", "message": "Route not found."}
 		return
-	_drop_future_copies(name)
 	frappe.db.sql("UPDATE `tabBucket Logistics Route` SET template = NULL WHERE template = %s", name)
 	frappe.delete_doc(TEMPLATE, name, ignore_permissions=True, force=1)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	frappe.response["message"] = {"status": "success", "name": name}
-
-
-def ensure_day_routes(date=None):
-	"""Copy every active saved route onto `date` (default today) unless it already has
-	its copy. A copy that clashes with a route the truck already has that day is
-	skipped. Runs once per date per request."""
-	date = str(frappe.utils.getdate(date or frappe.utils.today()))
-	done = frappe.flags.setdefault("rt_day_routes", set())
-	if date in done:
-		return
-	done.add(date)
-	if not frappe.db.table_exists(TEMPLATE):
-		return
-	have = set(
-		frappe.get_all(
-			"Bucket Logistics Route",
-			filters={"route_date": date, "template": ["is", "set"]},
-			pluck="template",
-		)
-	)
-	made = 0
-	for t in frappe.get_all(
-		TEMPLATE, filters={"active": 1}, fields=["name", "vehicle", "from_time", "to_time"]
-	):
-		if t.name in have:
-			continue
-		legs = frappe.get_all(
-			"Bucket Logistics Route Leg",
-			filters={"parent": t.name, "parenttype": TEMPLATE},
-			pluck="leg",
-			order_by="idx asc",
-		)
-		if not legs:
-			continue
-		from_dt, to_dt = _window_on(date, _hhmm(t.from_time), _hhmm(t.to_time))
-		res = _save_route(
-			date=date,
-			vehicle=t.vehicle,
-			leg_names=legs,
-			new=1,
-			from_datetime=from_dt,
-			to_datetime=to_dt,
-			template=t.name,
-			check_on_road=False,
-		)
-		if res.get("status") == "success":
-			made += 1
-	if made:
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 
 def _farm_distance_between(a, b):

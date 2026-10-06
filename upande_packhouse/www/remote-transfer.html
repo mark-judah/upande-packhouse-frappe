@@ -140,6 +140,15 @@
 
   // ── what a tab's frame calls (remote_transfer_frame.html) ──
   window.rtSwitch=function(tab){ if(PATHS[tab] && (!cur || tab!==cur.tab)) show(tab, true); };
+  // Open `tab` and, once its frame is in, call its window[fn] (e.g. the Schedule's
+  // Distribute to trips opens Transfer Scheduling's Distribute).
+  window.rtOpenTab=function(tab, fn){
+    if(!PATHS[tab]) return;
+    show(tab, true);
+    var g=GROUPS[tab], f=frames[g];
+    var go=function(){ var w=f.contentWindow; if(fn && w && w[fn]) w[fn](); };
+    if(loaded[g]) go(); else f.addEventListener('load', go, {once:true});
+  };
   window.rtRegisterRefresh=function(g, fn){ (refresh[g]=refresh[g]||[]).push(fn); };
   window.rtRefreshFns=function(){ return cur ? (refresh[cur.group]||[]) : []; };
   window.rtRefreshFallback=function(){   // a tab with nothing registered: reload just its frame

@@ -21,14 +21,16 @@ def getBucketLogistics():
 	# A bucket is "being transferred" iff it was ever flagged for transfer (awaiting,
 	# loaded, in transit) or has been shelved. Dispatch keeps awaiting_transfer=1 while
 	# it sets in_transit, but in_transit/loaded are included so nothing drops out.
-	# Source farm = first word of the source warehouse (custom_source_warehouse, else
-	# warehouse) — warehouses are named "<Farm> Receiving Cold Store - KR".
+	# Source farm = the pick row's farm (the shelf the bucket was allocated from), else
+	# the first word of its source warehouse — "<Farm> Receiving Cold Store - KR".
+	# Not the warehouse first: shelving at Kapkolia re-points it to Kapkolia's cold
+	# store, and the shelved bucket then read as a hub bucket and dropped off the page.
 	# Default delivery_date = TOMORROW.
 	fd = frappe.form_dict
 	delivery_date = fd.get("delivery_date") or frappe.utils.add_days(frappe.utils.today(), 1)
 
 	# source-farm expression (reused in SELECT + WHERE)
-	FARM_EXPR = "COALESCE(NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''), NULLIF(pli.farm, ''))"
+	FARM_EXPR = "COALESCE(NULLIF(pli.farm, ''), NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''))"
 	# Ready / issued keep a remote bucket in view after Kapkolia: issuing can clear
 	# its shelved flag, and an order that reached Kapkolia must not drop off the page.
 	TRANSFER = (
@@ -484,7 +486,7 @@ def getBucketLogisticsDetail():
 	if not opl:
 		frappe.response["buckets"] = []
 	else:
-		FARM_EXPR = "COALESCE(NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''), NULLIF(pli.farm, ''))"
+		FARM_EXPR = "COALESCE(NULLIF(pli.farm, ''), NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''))"
 		from upande_packhouse.api.remote_transfer.transfer_scheduling import transfer_hub
 
 		params = {"opl": opl, "hub": transfer_hub(required=False) or ""}

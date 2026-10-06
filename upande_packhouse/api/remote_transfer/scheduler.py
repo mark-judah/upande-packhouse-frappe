@@ -185,6 +185,23 @@ def getSchedulerFeed():
 			):
 				on_schedule[sop] = 1
 
+		# ---- stems packed per OPL (Farm Pack List rows, as on the Order Summary) ----
+		packed = {}
+		if len(names) > 0:
+			for pr in frappe.db.sql(
+				"""
+				SELECT fpl.order_pick_list AS opl, SUM(IFNULL(fpi.stock_qty, 0)) AS stems
+				FROM `tabFarm Pack List` fpl
+				JOIN `tabFarm Packlist Item` fpi ON fpi.parent = fpl.name
+					AND fpi.parenttype = 'Farm Pack List' AND fpi.parentfield = 'pack_list_item'
+				WHERE fpl.docstatus != 2 AND fpl.order_pick_list IN %(names)s
+				GROUP BY fpl.order_pick_list
+				""",
+				{"names": names},
+				as_dict=True,
+			):
+				packed[pr.opl] = float(pr.stems or 0)
+
 		# ---- trips to each farm, for the schedule popup ----
 		# Trips run the PROCESSING day (delivery - 1). A trip goes to every farm on its
 		# collection order (falling back to its order rows' farms). Only Draft / Scheduled
@@ -233,8 +250,9 @@ def getSchedulerFeed():
 
 			# Every order is scheduled -- drafts waiting on a transfer, drafts with nothing
 			# to move, submitted orders issued straight from the hub -- and stays on the
-			# schedule while it is being issued; it drops off once fully issued.
-			if st["lines"] and st["issued"] >= st["lines"]:
+			# schedule through issuing and packing (shown packed once it is). A fully issued
+			# order that was never on a schedule has nothing left to sequence: it is left out.
+			if st["lines"] and st["issued"] >= st["lines"] and not on_schedule.get(op):
 				ci = ci + 1
 				continue
 
@@ -302,6 +320,8 @@ def getSchedulerFeed():
 				"variation": variation,
 				"issued_lines": st["issued"],
 				"lines": st["lines"],
+				"packed_stems": int(packed.get(op) or 0),
+				"packed": 1 if stems > 0 and packed.get(op, 0) >= stems else 0,
 			}
 			out.append(row)
 			ci = ci + 1
@@ -385,6 +405,30 @@ def saveDaySchedule():
 				)
 		i = i + 1
 
+	# Fully issued orders are off the page (the feed drops them) but stay on their
+	# team's schedule, ahead of the list in their old order: packing and the
+	# schedule-order checks still need their place. Rebuilding from the page alone
+	# wiped the sequence of every order that was ready to pack.
+	from upande_packhouse.mobile.api import _issue_progress
+
+	kept = {}
+	old_rows = frappe.db.sql(
+		"""SELECT ps.team, pso.order_pick_list AS opl, pso.order_name, pso.customer, pso.sequence
+		FROM `tabPackhouse Schedule Order` pso JOIN `tabPackhouse Schedule` ps ON ps.name = pso.parent
+		JOIN `tabOrder Pick List` o ON o.name = pso.order_pick_list AND o.docstatus < 2
+		WHERE ps.schedule_date = %s ORDER BY ps.team, pso.sequence""",
+		sdate,
+		as_dict=True,
+	)
+	done = _issue_progress([r.opl for r in old_rows if r.opl not in opls])
+	for r in old_rows:
+		d = done.get(r.opl)
+		if r.opl not in opls and d and d["issued"] >= d["total"]:
+			kept.setdefault(r.team, []).append(r)
+			if r.team not in by_team:
+				by_team[r.team] = []
+				team_order.append(r.team)
+
 	# The ordered list IS the whole day's schedule, so a team that no longer has any
 	# order in it must be emptied too. Only rebuilding the teams present used to
 	# leave stale rows behind: an order moved from Team A to Team B (or unscheduled
@@ -413,8 +457,19 @@ def saveDaySchedule():
 			doc.schedule_date = sdate
 			doc.team = team
 		doc.set("orders", [])
-		rows = by_team[team]
 		seq = 1
+		for r in kept.get(team, []):
+			doc.append(
+				"orders",
+				{
+					"order_pick_list": r.opl,
+					"order_name": r.order_name or "",
+					"customer": r.customer or "",
+					"sequence": seq,
+				},
+			)
+			seq = seq + 1
+		rows = by_team[team]
 		j = 0
 		while j < len(rows):
 			info = info_map.get(rows[j]) or {}
@@ -426,7 +481,7 @@ def saveDaySchedule():
 			seq = seq + 1
 			j = j + 1
 		doc.save(ignore_permissions=True)
-		saved[team] = len(rows)
+		saved[team] = len(rows) + len(kept.get(team, []))
 		k = k + 1
 	# Committed explicitly: this endpoint is whitelisted without `methods`, so it
 	# is reachable over GET, and frappe rolls back writes made during a GET
