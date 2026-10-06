@@ -6,7 +6,9 @@
 #   * bunches  -> the BUNCH QR codes of every bunch graded from those buckets.
 #                 A bunch is tied to a bucket by its Grading Stock Entry, which
 #                 carries both custom_bunch_id and custom_bucket_id.
-#   * shelves  -> the SHELF QR code of each shelf those buckets sit on.
+#   * shelves  -> the SHELF QR code of each shelf those buckets sit on; for a bucket
+#                 still to come from a remote farm, a free shelf at the sales farm
+#                 (the transfer hub) to shelve it on when it arrives (two a shelf).
 #   * trolleys -> one TROLLEY QR code per farm the OPL's buckets come from
 #                 (noting how many still await transfer). Trolleys have no records -- the app takes
 #                 whatever id the scanned code carries -- so each farm gets one
@@ -280,11 +282,30 @@ def _plan(opl):
 				label["bucket"] = name
 				bunch_labels.append(label)
 
-	# ---- shelves the buckets sit on
+	# ---- shelves: where each bucket is, or -- still to come from a remote farm -- a free
+	# shelf at the sales farm to shelve it on when it arrives. The remote farm's own shelf
+	# is no use here: the bucket leaves it and is shelved at the hub.
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import transfer_hub
+
+	hub = transfer_hub(required=False)
 	buckets_on_shelf = {}
+	incoming = []
 	for name in sorted(buckets):
-		if buckets[name]["shelf"]:
-			buckets_on_shelf.setdefault(buckets[name]["shelf"], []).append(name)
+		b = buckets[name]
+		if hub and b["farm"] and b["farm"] != hub and b["awaiting_transfer"]:
+			incoming.append(name)
+		elif b["shelf"]:
+			buckets_on_shelf.setdefault(b["shelf"], []).append(name)
+	if incoming:
+		prefix = _shelf_prefix(hub) + "-%"
+		free = frappe.db.sql_list(
+			"""SELECT s.name FROM `tabShelf` s
+			WHERE s.farm = %(hub)s AND NOT EXISTS (SELECT 1 FROM `tabShelf Item` si WHERE si.parent = s.name)
+			ORDER BY (s.name LIKE %(prefix)s) DESC, s.name LIMIT %(n)s""",
+			{"hub": hub, "prefix": prefix, "n": (len(incoming) + 1) // 2},
+		)
+		for i, name in enumerate(incoming[: 2 * len(free)]):
+			buckets_on_shelf.setdefault(free[i // 2], []).append(name)
 
 	shelf_record = {}
 	shelf_farm = {}

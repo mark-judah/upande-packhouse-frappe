@@ -1181,9 +1181,14 @@ frappe.pages["sales-allocation"]._fetch_items_and_open_dialog = function () {
 // ─── ALLOCATION PANEL ───
 frappe.pages["sales-allocation"].show_allocation_panel = function () {
 	const P = frappe.pages["sales-allocation"];
-	// Per-line team selections (sales_order_item -> team); reset on each load
+	// Per-line team selections (sales_order_item -> team): each line starts from the
+	// team already on its Order Pick List, so an allocated order shows its team.
 	P.item_teams = {};
-	P.order_team = "";
+	(P.order_items || []).forEach((it) => {
+		if (it.opl_team) P.item_teams[it.sales_order_item] = it.opl_team;
+	});
+	const teams = [...new Set(Object.values(P.item_teams))];
+	P.order_team = teams.length === 1 ? teams[0] : "";
 	P.selected_item = P._preserve_item || null;
 	P._preserve_item = null;
 	P.render_allocation_grid();
@@ -2411,8 +2416,27 @@ frappe.pages["sales-allocation"]._do_allocate = function (
 				length_status === "downgrade" ? item.incoming_exact_stems || 0 : 0,
 		});
 	}
-	if (batch) batch.available_qty = Math.max(0, (batch.available_qty || 0) - qty);
+	if (batch) P._take_from_bucket(item.item_code, bucket_id, batch.stem_length || "", qty);
 	P.render_allocation_grid();
+};
+// Stems taken from a bucket for one line are gone for every line: two lines of the same
+// variety (a straight line and a mixed-box line) each hold their own copy of the bucket's
+// free stems, and taking from one copy only let the other line take them again
+// ("Over-allocation on bucket ...: 40.0 available, 80.0 requested").
+frappe.pages["sales-allocation"]._take_from_bucket = function (
+	item_code,
+	bucket_id,
+	stem_length,
+	qty
+) {
+	const P = frappe.pages["sales-allocation"];
+	(P.order_items || []).forEach((it) => {
+		if (it.item_code !== item_code) return;
+		(it.batches || []).forEach((b) => {
+			if (b.bucket_id === bucket_id && (b.stem_length || "") === stem_length)
+				b.available_qty = Math.max(0, (b.available_qty || 0) - qty);
+		});
+	});
 };
 // ─── UNALLOCATE ───
 frappe.pages["sales-allocation"].unallocate_from_bucket = function (
@@ -2593,7 +2617,7 @@ frappe.pages["sales-allocation"]._execute_fifo = function (so_item, downgrade_re
 				available_exact_stems: is_downgrade ? item.incoming_exact_stems || 0 : 0,
 			});
 		}
-		batch.available_qty = Math.max(0, available - qty);
+		P._take_from_bucket(item.item_code, batch.bucket_id, batch.stem_length || "", qty);
 		remaining -= qty;
 		count += qty;
 	}

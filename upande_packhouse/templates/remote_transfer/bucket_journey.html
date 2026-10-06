@@ -2368,7 +2368,7 @@ function bsReplLine(r, id) {
 }
 /* Remote transfers the bucket was trucked in: farm → packhouse, by truck / run / trip,
    with when it was requested, loaded, dispatched and shelved (or not found at the farm). */
-const RT_STATE = {at_farm:'At farm', on_trolley:'On trolley', in_transit:'In transit', arrived:'At packhouse', issued:'Issued', not_found:'Not found'};
+const RT_STATE = {at_farm:'At farm', on_trolley:'On trolley', in_transit:'In transit', arrived:'Shelved', issued:'Issued', not_found:'Not found'};
 /* Remote transfer: what happened after the bucket was shelved at the remote farm, up to
    its issue at the packhouse — a step strip (done steps filled), then every event. */
 const RT_STEPS = [

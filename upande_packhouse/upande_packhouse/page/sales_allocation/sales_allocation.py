@@ -571,8 +571,10 @@ def get_sales_order_items_with_buckets(
             soi.custom_mixed_bunch,
             soi.custom_bunch_group,
             soi.custom_line AS specification,
-            soi.custom_cut_stage
+            soi.custom_cut_stage,
+            opl.team AS opl_team
         FROM `tabSales Order Item` soi
+        LEFT JOIN `tabOrder Pick List` opl ON opl.name = soi.custom_opl AND opl.docstatus < 2
         WHERE soi.parent = %s
         ORDER BY soi.idx
     """,
@@ -692,8 +694,8 @@ def get_sales_order_items_with_buckets(
             s.farm AS shelf_farm,
             DATEDIFF(CURDATE(), COALESCE(si.harvest_date, si.date_added)) AS age_days,
             TIMESTAMPDIFF(HOUR, si.date_added, %s) AS hours_since_shelved,
-            COALESCE(bas.allocated_quantity, 0) AS allocated_qty,
-            GREATEST(0, COALESCE(si.stem_qty, 0) - COALESCE(bas.allocated_quantity, 0)) AS available_qty,
+            COALESCE(ba_out.qty, 0) AS allocated_qty,
+            GREATEST(0, COALESCE(si.stem_qty, 0) - COALESCE(ba_out.qty, 0)) AS available_qty,
             COALESCE(si.cut_stage, '') AS cut_stage,
             COALESCE(bas.in_transit, 0) AS in_transit
         FROM (
@@ -716,6 +718,16 @@ def get_sales_order_items_with_buckets(
             ON bas.bucket_id = si.bucket_id
             AND bas.item_code = si.variety
             AND COALESCE(bas.stem_length, '') = COALESCE(si.stem_length, '')
+        -- Allocated = the bucket's OUTSTANDING allocation rows (not cancelled, not issued),
+        -- counted here the way allocation counts them (recompute_bas_quantities), not the
+        -- stored allocated_quantity: a stale figure offered stems allocation then refused
+        -- ("Over-allocation on bucket ...: 0.0 available").
+        LEFT JOIN (
+            SELECT ba.parent, SUM(ba.quantity_allocated) AS qty
+            FROM `tabBucket Allocations` ba
+            WHERE ba.parenttype = 'Bucket Allocation Status' AND ba.cancelled = 0 AND IFNULL(ba.issued, 0) = 0
+            GROUP BY ba.parent
+        ) ba_out ON ba_out.parent = bas.name
         WHERE s.farm IN ({farm_placeholders})
           AND si.variety IN ({ic_placeholders})
           AND DATEDIFF(CURDATE(), COALESCE(si.harvest_date, si.date_added)) < %s
@@ -1444,7 +1456,7 @@ def _line_capacity(so_item):
 	same rule the pick-list builders enforce (create_mixed_box_picklist "Overpacked")."""
 	per_box = (
 		so_item.get("custom_packrate_mixed_box")
-		if so_item.get("custom_mixed_box") == 1
+		if so_item.get("custom_mixed_box") == 1 or so_item.get("custom_mixed_bunch")
 		else so_item.get("custom_packrate")
 	)
 	return int(per_box or 10) * int(so_item.get("custom_number_of_boxes") or 1)

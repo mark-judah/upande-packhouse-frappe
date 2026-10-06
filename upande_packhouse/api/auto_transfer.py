@@ -236,9 +236,9 @@ def _plan():
 
 
 def _fleet(data, today):
-	"""Trucks this run may plan: internal logistics trucks with a capacity that are
-	not on the road and carry no trip a person planned today. A hand-set route is
-	kept (the truck only serves those farms); otherwise the truck is routed here."""
+	"""Trucks this run may plan: internal logistics trucks with a capacity, a route
+	made for today, and no trip a person planned today. Each open run of the route is
+	a full truck that only serves that run's farms."""
 	manual = set(
 		frappe.get_all(
 			"Bucket Request Trip",
@@ -293,10 +293,8 @@ def _fleet(data, today):
 							window=tc._trip_window(r["route"], today),
 						)
 					)
-			continue
-		if v.get("on_road"):
-			continue
-		trucks.append(_truck(v["name"], cap, None, window=tc._day_span(today)))
+		# No route today = not working today (in the garage, or not needed): routes are
+		# made for each day on the Truck routes tab, and only routed trucks are planned.
 	# Biggest first, as the page's fleetSorted() does.
 	trucks.sort(key=lambda t: -t["rem"])
 	return trucks
@@ -441,36 +439,69 @@ def _distribute(orders, trucks, graph, budget=None, moving=None):
 		return {"unreachable": unreachable, "held": [], "partial": [], "waiting": [], "step": None}
 	step = min(steps)
 	held, waiting = [], []
-	for o in orders:
-		if int(o["schedule"]) > step and o["opl"] not in stuck:
-			o["why"] = "sequence: waits for step #{0} to arrive".format(step)
-			held.append(o)
-	# This step's orders not on a truck yet: smallest first, so the most teams move.
-	for o in sorted((o for o in orders if int(o["schedule"]) == step), key=lambda o: o["open"]):
-		if o["opl"] in stuck:
-			continue
-		if budget is not None and o["open"] > budget:
-			o["why"] = "hub shelf space: {0} bkt needed, {1} free".format(o["open"], max(0, budget))
-			waiting.append(o)
-			continue
-		scratch = _clone(trucks)
-		placed = _place_whole(scratch, o, graph) or _place_order(scratch, o, o["open"], graph)
-		if placed >= o["open"]:
-			_commit(trucks, scratch)
-			o["taken"] = True
-			if budget is not None:
-				budget -= o["open"]
-		else:
-			# No partial loads: what doesn't fit whole waits for the next run.
-			o["why"] = "truck room: {0} bkt needed, {1} fit".format(o["open"], placed)
-			waiting.append(o)
+	# A trip goes to its own farm(s) only, so orders are planned farm by farm: an order's
+	# buckets at each farm are a portion for the trips to that farm. Every team's #step,
+	# then every team's next step, and so on -- each portion on the first trip to its
+	# farm with room (_place_in_trip_order), so a trip fills before the next one to that
+	# farm gets anything. A team keeps its queue per farm: once one of its portions fits
+	# on no trip, its later ones at that farm wait.
+	blocked = set()
+
+	def truck_room():
+		return sum(max(0, int(t.get("rem") or 0)) for t in trucks)
+
+	for k in sorted({int(o["schedule"]) for o in orders if int(o["schedule"]) >= step}):
+		portions = [
+			{**o, "open_farms": [f], "open": f["buckets"], "farm": f["farm"]}
+			for o in orders
+			if int(o["schedule"]) == k and o["opl"] not in stuck
+			for f in o["open_farms"]
+		]
+		for o in sorted(portions, key=lambda o: o["open"]):
+			key = (o.get("team") or "", o["farm"])
+			if key in blocked or truck_room() <= 0 or (budget is not None and budget <= 0):
+				blocked.add(key)
+				o["why"] = "trucks full: waits for the next trip"
+				(waiting if k == step else held).append(o)
+				continue
+			if budget is not None and o["open"] > budget:
+				blocked.add(key)
+				o["why"] = "hub shelf space: {0} bkt needed, {1} free".format(o["open"], max(0, budget))
+				(waiting if k == step else held).append(o)
+				continue
+			scratch = _clone(trucks)
+			placed = _place_in_trip_order(scratch, o, graph)
+			if placed >= o["open"]:
+				_commit(trucks, scratch)
+				if budget is not None:
+					budget -= o["open"]
+			else:
+				# No partial loads: what doesn't fit whole waits for the next run.
+				blocked.add(key)
+				o["why"] = "truck room at {0}: {1} bkt needed, {2} fit".format(o["farm"], o["open"], placed)
+				(waiting if k == step else held).append(o)
 	return {"unreachable": unreachable, "held": held, "partial": [], "waiting": waiting, "step": step}
 
 
-def _place_whole(trucks, order, graph):
-	"""The whole order on ONE truck that serves all its farms and has room for it
-	(the tightest such), so all its buckets arrive at the hub together. Returns the
-	buckets placed, 0 when no single truck can take it (MUTATES trucks)."""
+def _trip_rank(trucks, graph, farms):
+	"""Sort key putting trips in the order they are filled: every truck's trip 1, then
+	trip 2, ...; within one round the truck already collecting from `farms` (see
+	_tier), then fleet order -- the first truck takes the sequence until it is full,
+	and the next truck picks up from there with what is at the farms it can still
+	collect from."""
+	pos = {id(t): i for i, t in enumerate(trucks)}
+	return lambda t: (
+		int(t.get("run") or 1),
+		sum(_tier(t, f, trucks, graph) for f in farms),
+		pos[id(t)],
+	)
+
+
+def _place_in_trip_order(trucks, order, graph):
+	"""The whole order on the FIRST trip (in _trip_rank order) that serves all its
+	farms and has room for it, so trips fill up with the earliest sequences before the
+	next trip gets any. Only an order no single trip can take is split, farm by farm,
+	earliest trips first. Returns the buckets placed (MUTATES trucks)."""
 	farms = [f["farm"] for f in order["open_farms"]]
 	fits = [
 		t
@@ -478,57 +509,43 @@ def _place_whole(trucks, order, graph):
 		if t["rem"] >= order["open"]
 		and all(_serves(t, f, graph) and not _clashes(t, f, trucks, graph) for f in farms)
 	]
-	if not fits:
-		return 0
-	# A truck already collecting from these farms first, then the tightest fit.
-	truck = min(fits, key=lambda t: (-sum(1 for f in farms if f in t["stops"]), t["rem"]))
+	if fits:
+		truck = min(fits, key=_trip_rank(trucks, graph, farms))
+		for f in order["open_farms"]:
+			_load(truck, f["farm"], f["buckets"], graph)
+			truck["rows"].append(_trip_row(order, f, f["buckets"]))
+		return order["open"]
+	placed = 0
 	for f in order["open_farms"]:
-		_load(truck, f["farm"], f["buckets"], graph)
-		truck["rows"].append(
-			{
-				"order_pick_list": order["opl"],
-				"order_name": order["order_name"],
-				"customer": order.get("customer") or "",
-				"farm": f["farm"],
-				"varieties": f["varieties"],
-				"buckets": f["buckets"],
-				"stems": round(f["per_bucket"] * f["buckets"]),
-				"full_farm_buckets": f["buckets"],
-				"is_partial": 0,
-			}
-		)
-	return order["open"]
-
-
-def _took_all(earlier):
-	return all(o.get("taken") for o in earlier)
-
-
-def _place_order(trucks, order, cap, graph):
-	"""Place up to `cap` of an order's open buckets, farm by farm (MUTATES trucks).
-	Returns how many were placed."""
-	left, placed = cap, 0
-	for f in order["open_farms"]:
-		if left <= 0:
-			break
-		want = min(f["buckets"], left)
-		for truck, n in _place_farm(trucks, f["farm"], want, graph):
-			truck["rows"].append(
-				{
-					"order_pick_list": order["opl"],
-					"order_name": order["order_name"],
-					"customer": order.get("customer") or "",
-					"farm": f["farm"],
-					"varieties": f["varieties"],
-					"buckets": n,
-					"stems": round(f["per_bucket"] * n),
-					"full_farm_buckets": f["buckets"],
-					"is_partial": 1 if n < f["buckets"] else 0,
-				}
-			)
-			placed += n
-			left -= n
+		left = f["buckets"]
+		elig = [
+			t
+			for t in trucks
+			if t["rem"] > 0 and _serves(t, f["farm"], graph) and not _clashes(t, f["farm"], trucks, graph)
+		]
+		for t in sorted(elig, key=_trip_rank(trucks, graph, [f["farm"]])):
+			if not left:
+				break
+			take = min(t["rem"], left)
+			_load(t, f["farm"], take, graph)
+			t["rows"].append(_trip_row(order, f, take))
+			placed += take
+			left -= take
 	return placed
+
+
+def _trip_row(order, f, n):
+	return {
+		"order_pick_list": order["opl"],
+		"order_name": order["order_name"],
+		"customer": order.get("customer") or "",
+		"farm": f["farm"],
+		"varieties": f["varieties"],
+		"buckets": n,
+		"stems": round(f["per_bucket"] * n),
+		"full_farm_buckets": f["buckets"],
+		"is_partial": 1 if n < f["buckets"] else 0,
+	}
 
 
 def _place_farm(trucks, farm, amount, graph):
@@ -547,21 +564,8 @@ def _place_farm(trucks, farm, amount, graph):
 		t for t in trucks if t["rem"] > 0 and _serves(t, farm, graph) and not _clashes(t, farm, trucks, graph)
 	]
 
-	on_the_way = set(graph.path(graph.hub, farm)[1]) - {farm}
-
-	# The vehicle already collecting from this farm takes all of its orders.
-	holder = {v for v, _trip, _w in getattr(graph, "holders", {}).get(farm, [])} | {
-		t["vehicle"] for t in trucks if farm in t["stops"]
-	}
-
 	def tier(t):
-		if t["vehicle"] in holder:
-			return -1
-		if t["fixed"] is not None or farm in t["passes"]:
-			return 0  # already drives past it
-		if t["passes"] & on_the_way:
-			return 1  # already on this branch — just drives a little further
-		return 2 if not t["stops"] else 3
+		return _tier(t, farm, trucks, graph)
 
 	fits = [t for t in elig if t["rem"] >= amount]
 	if fits:
@@ -577,6 +581,22 @@ def _place_farm(trucks, farm, amount, graph):
 		if not left:
 			break
 	return out
+
+
+def _tier(truck, farm, trucks, graph):
+	"""How well `truck` suits collecting from `farm` (lower is better): the vehicle
+	already collecting there, then one that drives past it, one already on that branch
+	of the road, an idle one, and last one going somewhere else."""
+	holders = {v for v, _trip, _w in getattr(graph, "holders", {}).get(farm, [])}
+	if truck["vehicle"] in holders or any(
+		farm in t["stops"] and t["vehicle"] == truck["vehicle"] for t in trucks
+	):
+		return -1
+	if truck["fixed"] is not None or farm in truck["passes"]:
+		return 0  # already drives past it
+	if truck["passes"] & (set(graph.path(graph.hub, farm)[1]) - {farm}):
+		return 1  # already on this branch — just drives a little further
+	return 2 if not truck["stops"] else 3
 
 
 def _load(truck, farm, n, graph):
