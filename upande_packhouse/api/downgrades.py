@@ -40,6 +40,9 @@ def getDowngradeData():
 		rose_cond = " AND it.item_group = 'Spray Roses'"
 
 	params = {"from_date": from_date, "to_date": to_date}
+	# Location (Kapkolia / Karen): the Sales Order's farm's location -- the Order Pick
+	# List's farm is Kapkolia on every order, Karen's too.
+	params["loc"] = (fd.get("location") or "").strip()
 	team_filter = fd.get("team_filter") or "all"
 	team_sql = ""
 	if team_filter and team_filter != "all":
@@ -76,7 +79,10 @@ def getDowngradeData():
 		"LEFT JOIN `tabItem` it ON it.name = pli.item_code "
 		"LEFT JOIN `tabSales Order Item` soi ON soi.name = pli.sales_order_item "
 		"LEFT JOIN `tabSales Order` so2 ON so2.name = pli.sales_order "
+		"LEFT JOIN `tabSales Order` so3 ON so3.name = opl.sales_order "
+		"LEFT JOIN `tabFarm` sf ON sf.name = so3.farm "
 		"WHERE pli.parenttype = 'Order Pick List' "
+		"AND (%(loc)s = '' OR sf.farm_location = %(loc)s OR so3.farm = %(loc)s) "
 		"AND pli.downgrade_reason IS NOT NULL AND pli.downgrade_reason != '' "
 		"AND opl.date_created BETWEEN %(from_date)s AND %(to_date)s"
 		+ rose_cond
