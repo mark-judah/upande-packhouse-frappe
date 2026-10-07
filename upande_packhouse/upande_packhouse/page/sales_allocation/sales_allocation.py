@@ -2291,6 +2291,11 @@ def opl_submit_blockers(opl):
 			)
 		)
 
+	# Completed short (buckets not found, no replacement): what is here is the order --
+	# the line's allocation no longer has to cover the rest.
+	if opl.get("short_accepted"):
+		return blockers
+
 	global_confirmed = _get_all_confirmed_stems(opl.sales_order)
 
 	# NOTE: Order Pick List's own fields are "mix_group"/"bunch_group" (no
@@ -2896,7 +2901,12 @@ def _bucket_ledger(bucket_ids, item_code):
 
 	The entries that mention the buckets are joined as a derived table: written
 	as `se.name IN (... UNION ...)` the lookup runs as a dependent subquery over
-	the item's whole ledger (~20s a read on kaitet)."""
+	the item's whole ledger (~20s a read on kaitet).
+
+	Bucket IDs are reused containers, so only each bucket's current cycle counts:
+	its entries from the day of its latest Harvesting on. An earlier cycle of the same variety
+	can leave a balance behind (e.g. stems sold from the cold store after they went
+	to quarantine), which would cancel out the stems the bucket holds now."""
 	buckets = tuple(bucket_ids)
 	if stock_movement.line_has_bucket():
 		bucket = "COALESCE(sed.custom_bucket_id, se.custom_bucket_id)"
@@ -2909,7 +2919,8 @@ def _bucket_ledger(bucket_ids, item_code):
 	lines = frappe.db.sql(
 		f"""
 		SELECT {bucket} AS bucket, se.custom_issued_to AS so_item,
-		       sed.s_warehouse, sed.t_warehouse, sed.qty
+		       sed.s_warehouse, sed.t_warehouse, sed.qty,
+		       se.posting_date AS posted
 		FROM ({mentions}) m
 		JOIN `tabStock Entry` se ON se.name = m.name
 		JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
@@ -2918,10 +2929,29 @@ def _bucket_ledger(bucket_ids, item_code):
 		{"buckets": buckets, "item": item_code},
 		as_dict=True,
 	)
+	# The bucket IDs as asked for, whatever case an entry stored them in.
+	asked = {str(b).upper(): b for b in buckets}
+	# Each bucket's latest harvest day, of any variety: where its current cycle starts
+	# (by day -- a receipt is sometimes posted a little before its harvest).
+	# nosemgrep: frappe-sql-format-injection -- the holes are fixed SQL fragments; every value is bound
+	harvests = frappe.db.sql(
+		f"""
+		SELECT UPPER({bucket}), MAX(se.posting_date)
+		FROM ({mentions}) m
+		JOIN `tabStock Entry` se ON se.name = m.name
+		JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
+		WHERE se.docstatus = 1 AND se.stock_entry_type = 'Harvesting'
+		GROUP BY UPPER({bucket})
+		""",
+		{"buckets": buckets},
+	)
+	cycle = dict(harvests)
 	held, sold = {}, {}
 	for line in lines:
-		if line.bucket not in buckets:
+		key = str(line.bucket or "").upper()
+		if key not in asked or (cycle.get(key) and line.posted < cycle[key]):
 			continue
+		line.bucket = asked[key]
 		for warehouse, sign in ((line.t_warehouse, 1), (line.s_warehouse, -1)):
 			if not warehouse:
 				continue

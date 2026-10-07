@@ -26,6 +26,8 @@
   "column_break_lnia",
   "mix_group",
   "bunch_group",
+  "short_accepted",
+  "short_stems",
   "order_details_section",
   "table_ytkc",
   "bouquet_packing_guide_section",
@@ -126,6 +128,22 @@
    "label": "Bunch Group"
   },
   {
+   "default": "0",
+   "fieldname": "short_accepted",
+   "fieldtype": "Check",
+   "label": "Completed Short",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "short_stems",
+   "fieldtype": "Float",
+   "label": "Short Stems",
+   "read_only": 1,
+   "no_copy": 1,
+   "depends_on": "eval:doc.short_accepted"
+  },
+  {
    "fieldname": "item_group",
    "fieldtype": "Link",
    "label": "Item Group",
@@ -193,7 +211,7 @@
    "link_fieldname": "order_pick_list"
   }
  ],
- "modified": "2026-10-04 21:50:51.669185",
+ "modified": "2026-10-08 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Order Pick List",

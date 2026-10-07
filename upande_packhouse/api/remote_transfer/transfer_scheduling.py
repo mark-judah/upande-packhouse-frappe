@@ -172,6 +172,27 @@ def _mixed_label(m):
 	return "Straight box"
 
 
+def order_locations(opl_names):
+	"""opl -> its dispatch location (Loading Plan > Location: Ravine, Karen), from its
+	Sales Order's farm -- Karen's orders vs Kapkolia and the farms trucking to it."""
+	from upande_packhouse.mobile.api import dispatch_locations, location_farms
+
+	opl_names = [o for o in opl_names or [] if o]
+	if not opl_names:
+		return {}
+	locations = dispatch_locations()
+	farms = {loc: location_farms(loc) for loc in locations}
+	out = {}
+	for r in frappe.db.sql(
+		"""SELECT o.name, so.farm FROM `tabOrder Pick List` o
+		LEFT JOIN `tabSales Order` so ON so.name = o.sales_order WHERE o.name IN %(o)s""",
+		{"o": tuple(opl_names)},
+		as_dict=True,
+	):
+		out[r.name] = next((loc for loc in locations if (r.farm or "") in farms[loc]), "")
+	return out
+
+
 def _schedule_map(lookback_days=14):
 	# OPL -> {team, schedule} from the most recent Packhouse Schedule containing it
 	# (schedule membership only — NOT tied to the delivery-date window; a schedule is
@@ -690,11 +711,16 @@ def _settle_finished_trip(name):
 			  AND transit_truck = %s AND modified >= DATE(%s)""",
 			(doc.vehicle, since),
 		)[0][0]
-		ended = not left and bool(
-			frappe.db.sql(
-				"""SELECT 1 FROM `tabPick List Item` WHERE parenttype = 'Order Pick List'
-				AND transit_truck = %s AND shelved = 1 AND modified >= DATE(%s) LIMIT 1""",
-				(doc.vehicle, since),
+		# A trip that carried nothing has nothing to shelve: it is over once nothing of
+		# its truck is in transit (it kept the truck "on the road" for good).
+		ended = not left and (
+			not int(doc.loaded_buckets or 0)
+			or bool(
+				frappe.db.sql(
+					"""SELECT 1 FROM `tabPick List Item` WHERE parenttype = 'Order Pick List'
+					AND transit_truck = %s AND shelved = 1 AND modified >= DATE(%s) LIMIT 1""",
+					(doc.vehicle, since),
+				)
 			)
 		)
 		if ended:
@@ -2011,6 +2037,9 @@ def _transfer_schedule_payload(from_date, to_date):
 			}
 		)
 
+	where = order_locations([o["opl"] for o in orders] + [u.get("opl") for u in unscheduled])
+	for o in orders + unscheduled:
+		o["location"] = where.get(o.get("opl"), "")
 	return {
 		"success": True,
 		"orders": orders,
@@ -2136,11 +2165,17 @@ def saveBucketTrip():
 	# full_farm_buckets(optional)]. A trip saved here is a person's: it is never
 	# auto-planned, and automatic scheduling leaves it alone from now on.
 	fd = frappe.form_dict
-	frappe.response["message"] = _save_trip(
+	# A trip leaves the hub (Scheduled) only through release_trip, which needs it full.
+	status = fd.get("status") or "Draft"
+	if status == "Scheduled" and not (
+		fd.get("name") and frappe.db.get_value("Bucket Request Trip", fd.get("name"), "status") == "Scheduled"
+	):
+		status = "Draft"
+	res = _save_trip(
 		name=fd.get("name"),
 		vehicle=fd.get("vehicle"),
 		trip_date=fd.get("trip_date") or frappe.utils.today(),
-		status=fd.get("status") or "Draft",
+		status=status,
 		notes=fd.get("notes") or "",
 		collection_order=fd.get("collection_order") or "",
 		farm=fd.get("farm") or "",
@@ -2148,6 +2183,10 @@ def saveBucketTrip():
 		route=fd.get("route") or None,
 		run=frappe.utils.cint(fd.get("run")) or None,
 	)
+	if res.get("status") == "success" and dispatch_full_trips([res["name"]]):
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+		res["dispatched"] = 1
+	frappe.response["message"] = res
 
 
 def _parse_trip_rows(orders_raw):
@@ -3773,6 +3812,97 @@ def dispatchBucketTrip():
 		"buckets_in_transit": marked,
 		"short": short,
 	}
+
+
+def trip_is_full(doc):
+	"""A trip may leave the hub only once its plan fills the truck."""
+	cap = _trip_capacity(doc)
+	return cap > 0 and int(doc.total_buckets or 0) >= cap
+
+
+def release_trip(doc, how="manual"):
+	"""Send a planned trip's truck from the hub to its farms (Draft -> Scheduled).
+	Refused until the trip is full. Returns None, or why it can't go."""
+	if doc.status != "Draft":
+		return "Trip is already {0}.".format(doc.status)
+	if str(doc.trip_date) < str(frappe.utils.today()):
+		return "Trip was planned for an earlier day."
+	cap = _trip_capacity(doc)
+	if not trip_is_full(doc):
+		return "Trip is not full: {0} / {1} buckets.".format(int(doc.total_buckets or 0), cap)
+	out = _vehicle_on_road(doc.vehicle, exclude_trip=doc.name) or frappe.db.get_value(
+		"Bucket Request Trip",
+		{"vehicle": doc.vehicle, "status": "Scheduled", "name": ["!=", doc.name]},
+		"name",
+	)
+	if out:
+		return "{0} is still out on {1}.".format(doc.vehicle, out)
+	doc.status = "Scheduled"
+	doc.released_at = frappe.utils.now()
+	# Its truck has left: automatic scheduling no longer re-plans it.
+	doc.auto_planned = 0
+	doc.save(ignore_permissions=True)
+	doc.add_comment(
+		"Info",
+		"Dispatched to {0} ({1}), full at {2} / {3} buckets".format(
+			", ".join(sorted({o.farm for o in doc.orders if o.farm})) or "the farms",
+			how,
+			int(doc.total_buckets or 0),
+			cap,
+		),
+	)
+	return None
+
+
+def auto_dispatch_enabled():
+	return bool(
+		frappe.utils.cint(frappe.get_cached_doc("Production Settings").get("auto_dispatch_full_trips"))
+	)
+
+
+def dispatch_full_trips(names=None):
+	"""Production Settings > Dispatch Full Trips Automatically: every full Draft trip
+	of today (or just `names`) leaves. Returns the trips dispatched."""
+	if not auto_dispatch_enabled():
+		return []
+	filters = {"status": "Draft", "trip_date": frappe.utils.today()}
+	if names is not None:
+		if not names:
+			return []
+		filters["name"] = ["in", list(names)]
+	out = []
+	for name in frappe.get_all(
+		"Bucket Request Trip", filters=filters, order_by="run asc, creation asc", pluck="name"
+	):
+		doc = frappe.get_doc("Bucket Request Trip", name)
+		if trip_is_full(doc) and not release_trip(doc, how="automatic"):
+			out.append(name)
+	if out:
+		_rank_after_dispatch()
+	return out
+
+
+def _rank_after_dispatch():
+	"""A truck left: its farm's orders take the next block of each team's sequence."""
+	from upande_packhouse.api.remote_transfer.scheduler import rank_schedules
+
+	rank_schedules()
+
+
+@frappe.whitelist(methods=["POST"])
+def releaseBucketTrip():
+	# The dashboard's Dispatch: the truck leaves the hub for its farms -- only full.
+	name = frappe.form_dict.get("name")
+	if not name or not frappe.db.exists("Bucket Request Trip", name):
+		frappe.response["message"] = {"status": "error", "message": "Trip not found."}
+		return
+	why = release_trip(frappe.get_doc("Bucket Request Trip", name))
+	if why:
+		frappe.response["message"] = {"status": "error", "message": why}
+		return
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
+	_rank_after_dispatch()
+	frappe.response["message"] = {"status": "success", "name": name, "trip_status": "Scheduled"}
 
 
 @frappe.whitelist(methods=["POST"])

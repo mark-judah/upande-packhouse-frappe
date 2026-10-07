@@ -63,6 +63,7 @@ def status():
 	return {
 		"enabled": 1 if enabled() else 0,
 		"frequency": frequency_minutes(),
+		"auto_dispatch": 1 if tc.auto_dispatch_enabled() else 0,
 		"last_run": frappe.cache().get_value(LAST_RUN_KEY),
 	}
 
@@ -78,6 +79,14 @@ def run():
 		if elapsed + TICK_SLACK_SECONDS < frequency_minutes() * 60:
 			return
 	plan()
+
+
+@frappe.whitelist(methods=["POST"])
+def distributeTrips(date: str | None = None):
+	"""The page's Distribute: plan the scheduled orders delivering on `date` onto
+	today's trips, each filled as full as it can be (whether or not automatic
+	scheduling is on). A full trip then leaves when someone presses Dispatch."""
+	return plan(window=date or None)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -125,7 +134,7 @@ def order_pick_list_changed(doc, method=None):
 		replan_soon()
 
 
-def plan():
+def plan(window=None):
 	cache = frappe.cache()
 	# One run at a time — a manual "Re-plan now" can land while the cron run is going.
 	if not cache.set(cache.make_key(LOCK_KEY), 1, ex=600, nx=True):
@@ -134,7 +143,7 @@ def plan():
 	try:
 		for _ in range(3):
 			cache.delete(cache.make_key(RERUN_KEY))
-			summary = _plan()
+			summary = _plan(window)
 			if not cache.get(cache.make_key(RERUN_KEY)):
 				break
 	except Exception:
@@ -151,14 +160,14 @@ def plan():
 # ============================================================
 # THE RUN
 # ============================================================
-def _plan():
+def _plan(window=None):
 	hub = tc.transfer_hub(required=False)
 	if not hub:
 		return {"status": "error", "message": "Set Remote Transfer Hub Farm in Production Settings."}
 
 	today = frappe.utils.today()
 	# Same delivery window the page opens on: tomorrow's orders are packed today.
-	window = frappe.utils.add_days(today, 1)
+	window = window or frappe.utils.add_days(today, 1)
 	data = tc._transfer_schedule_payload(window, window)
 
 	graph = _RoadGraph(hub, data["distances"])
@@ -170,6 +179,20 @@ def _plan():
 	# Bring only what the hub has shelf space for (its own drafts are re-planned).
 	space = tc.hub_shelf_space(skip_auto_drafts=True)
 	dist = _distribute(orders, trucks, graph, budget=space["free"], moving=_moving(data))
+	# A trip leaves the hub only full: every truck in use is topped up with what is
+	# still waiting -- tomorrow's orders in schedule order, then the day after's.
+	room = float("inf") if space["free"] is None else space["free"] - _loaded(trucks)
+	later = _open_orders(
+		tc._transfer_schedule_payload(frappe.utils.add_days(window, 1), frappe.utils.add_days(window, 1))
+	)
+	seen = {o["opl"] for o in orders}
+	topped = _top_up(
+		trucks,
+		dist["waiting"] + dist["held"] + [o for o in later if o["opl"] not in seen],
+		graph,
+		room,
+	)
+	_consolidate(trucks, graph)
 
 	loads = [t for t in trucks if t["rows"]]
 	summary = {
@@ -188,10 +211,27 @@ def _plan():
 		],
 		"hub_space": space,
 		"buckets": sum(r["buckets"] for t in loads for r in t["rows"]),
+		"topped_up": topped,
+		"filling": [
+			{
+				"vehicle": t["vehicle"],
+				"run": t.get("run"),
+				"buckets": t["cap"] - t["rem"],
+				"capacity": t["cap"],
+			}
+			for t in loads
+			if t["rem"] > 0
+		],
 	}
 
 	if _signature(loads) == _current_signature(today):
 		summary["unchanged"] = 1
+		from upande_packhouse.api.remote_transfer.scheduler import rank_schedules
+
+		rank_schedules(frappe.utils.add_days(window, -1), replan=False)
+		summary["dispatched"] = tc.dispatch_full_trips()
+		if summary["dispatched"]:
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		return summary
 
 	_clear_own_plan(today)
@@ -232,6 +272,14 @@ def _plan():
 			summary["failed"].append({"vehicle": t["vehicle"], "message": res.get("message")})
 	# Each re-plan that changed the trips is its own entry on the page's Distributed list.
 	tc.log_distribution(window, [{**x, "trip": x["name"]} for x in summary["trips"]], source="Automatic")
+	summary["dispatched"] = tc.dispatch_full_trips([x["name"] for x in summary["trips"]])
+	if summary["dispatched"]:
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+	# Each trip's orders take the next block of every team's sequence, trip after trip
+	# (the schedule is kept on the processing day, the day before delivery).
+	from upande_packhouse.api.remote_transfer.scheduler import rank_schedules
+
+	rank_schedules(frappe.utils.add_days(window, -1), replan=False)
 	return summary
 
 
@@ -244,7 +292,7 @@ def _fleet(data, today):
 			"Bucket Request Trip",
 			filters={
 				"trip_date": today,
-				"status": ["in", tc.ACTIVE_TRIP_STATUSES],
+				"status": "Draft",
 				"auto_planned": 0,
 			},
 			pluck="vehicle",
@@ -267,7 +315,8 @@ def _fleet(data, today):
 			# A hand-set route: every run still open is a full truck that only serves
 			# that run's farms (one trip per run). A run on the road is skipped.
 			for r in v.get("runs") or []:
-				if r.get("trip_status") in ("Dispatched", "Received") or not r.get("stops"):
+				# A run whose truck has left the hub (Scheduled onward) is taken.
+				if r.get("trip_status") in ("Scheduled", "Dispatched", "Received") or not r.get("stops"):
 					continue
 				used = 0
 				if r.get("trip"):
@@ -303,6 +352,7 @@ def _fleet(data, today):
 def _truck(vehicle, rem, fixed, route=None, run=None, window=None):
 	return {
 		"vehicle": vehicle,
+		"cap": rem,
 		"window": window,  # (from, to) the run is out — for one truck per farm at a time
 		"route": route,
 		"run": run,
@@ -532,6 +582,71 @@ def _place_in_trip_order(trucks, order, graph):
 			placed += take
 			left -= take
 	return placed
+
+
+def _top_up(trucks, portions, graph, room):
+	"""Fill every truck already in use to capacity from `portions` (orders or
+	single-farm portions), in order, splitting the last one that fits only in part.
+	A truck only takes farms on its own run. `room`: free hub shelf space. Returns the
+	buckets added."""
+	added = 0
+	for o in portions:
+		for f in o["open_farms"]:
+			for t in trucks:
+				if room <= 0:
+					return added
+				if not t["rows"] or t["rem"] <= 0 or f["buckets"] <= 0:
+					continue
+				if not _serves(t, f["farm"], graph) or _clashes(t, f["farm"], trucks, graph):
+					continue
+				take = min(t["rem"], f["buckets"], room)
+				_load(t, f["farm"], take, graph)
+				t["rows"].append(_trip_row(o, f, take))
+				f["buckets"] -= take
+				room -= take
+				added += take
+	return added
+
+
+def _consolidate(trucks, graph):
+	"""Fill trips in the order they leave: buckets planned on a later trip move up to
+	an earlier one that already collects from that farm (or is the same truck and
+	serves it), so the first trips fill before later ones get anything."""
+	order = sorted(trucks, key=_trip_rank(trucks, graph, []))
+	for i, t in enumerate(order):
+		for later in order[i + 1 :]:
+			if t["rem"] <= 0:
+				break
+			for r in later["rows"]:
+				if t["rem"] <= 0:
+					break
+				farm = r["farm"]
+				same_truck = later["vehicle"] == t["vehicle"] and _serves(t, farm, graph)
+				if not r["buckets"] or (farm not in t["stops"] and not same_truck):
+					continue
+				take = min(t["rem"], r["buckets"])
+				per = r["stems"] / r["buckets"] if r["buckets"] else 0
+				_load(t, farm, take, graph)
+				t["rows"].append({**r, "buckets": take, "stems": round(per * take), "is_partial": 1})
+				r["buckets"] -= take
+				r["stems"] = round(per * r["buckets"])
+				r["is_partial"] = 1
+				later["rem"] += take
+			later["rows"] = [r for r in later["rows"] if r["buckets"] > 0]
+			if not later["rows"]:
+				later["stops"], later["passes"] = [], set()
+	# One row per (order, farm) on each trip.
+	for t in trucks:
+		merged = {}
+		for r in t["rows"]:
+			k = (r["order_pick_list"], r["farm"])
+			if k in merged:
+				merged[k]["buckets"] += r["buckets"]
+				merged[k]["stems"] += r["stems"]
+				merged[k]["is_partial"] = 1 if merged[k]["buckets"] < merged[k]["full_farm_buckets"] else 0
+			else:
+				merged[k] = dict(r)
+		t["rows"] = list(merged.values())
 
 
 def _trip_row(order, f, n):

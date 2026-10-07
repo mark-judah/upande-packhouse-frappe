@@ -9,9 +9,10 @@
     The Delivery date next to the tabs is the whole section's date (window.rtDate):
     every page and tab reads it, it follows you between pages (sessionStorage and
     ?date=) and a change fires a 'rt-date' event on document.
-    The Farm filter beside it (window.rtFarm) works the same way ('rt-farm' event,
-    sessionStorage); a tab that reads it fills its choices (rtFarm.options) and is
-    the only one it shows on (the Scheduler). -#}
+    The Farm, Location and Team filters beside it (window.rtFarm, rtLocation, rtTeam)
+    work the same way ('rt-farm' / 'rt-location' / 'rt-team' events, sessionStorage);
+    a tab that reads one fills its choices (.options). Farm shows on the Scheduler;
+    Location and Team on the Scheduler and Transfer Scheduling. -#}
 <style>
 .aph .rt-tabs{display:inline-flex;background:rgba(10,10,10,.05);border-radius:999px;padding:3px;gap:2px;flex:none}
 .aph .rt-tabs a{font:600 12px var(--sans,'Poppins',system-ui,sans-serif);padding:6px 13px;border-radius:999px;text-decoration:none;color:#5a5a52;white-space:nowrap;line-height:1.2;transition:background .15s,color .15s;display:inline-flex;align-items:center;gap:6px}
@@ -67,6 +68,8 @@
 </nav>
 <label class="rt-date"{% if rt_active == 'journey' %} hidden{% endif %}>Delivery date <input type="date" id="rt-date"></label>
 <label class="rt-farm"{% if rt_active != 'scheduler' %} hidden{% endif %}>Farm <select id="rt-farm"><option value="">All farms</option></select></label>
+<label class="rt-farm rt-location"{% if rt_active not in ('scheduler', 'transfer') %} hidden{% endif %}>Location <select id="rt-location"><option value="">All locations</option></select></label>
+<label class="rt-farm rt-team"{% if rt_active not in ('scheduler', 'transfer') %} hidden{% endif %}>Team <select id="rt-team"><option value="">All teams</option></select></label>
 <button type="button" class="rt-refresh" id="rt-refresh" title="Reload this view"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><polyline points="20 4 20 11 13 11"/></svg>Refresh</button>
 {% include "upande_packhouse/templates/includes/remote_transfer_helpers.html" %}
 <script>
@@ -123,73 +126,79 @@
   })();
 </script>
 <script>
-  // The section-wide farm filter.
+  // The section-wide filters (Farm, Team): each a hidden <select> that stays the source
+  // of truth, a styled picker over it, its choice kept in sessionStorage and announced
+  // with an event on document.
   (function(){
-    var KEY = 'rtFarm', sel = document.getElementById('rt-farm'), v = '';
-    try { v = sessionStorage.getItem(KEY) || ''; } catch (e) {}
-    window.rtFarm = {
-      get: function(){ return v; },
-      set: function(nv){
-        nv = nv || '';
-        if (nv === v) return;
-        v = nv; sel.value = v; sync();
-        try { sessionStorage.setItem(KEY, v); } catch (e) {}
-        document.dispatchEvent(new CustomEvent('rt-farm', {detail: v}));
-      },
-      // The tab's farms to choose from; the current choice stays listed even if it has none today.
-      options: function(list){
-        var farms = (list || []).slice();
-        if (v && farms.indexOf(v) < 0) farms.push(v);
-        farms.sort();
-        sel.innerHTML = '<option value="">All farms</option>' + farms.map(function(f){
-          var e = String(f).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
-          return '<option value="' + e + '">' + e + '</option>';
-        }).join('');
-        sel.value = v;
-      },
-      on: function(fn){ document.addEventListener('rt-farm', function(e){ try { fn(e.detail); } catch (err) {} }); }
-    };
-    sel.addEventListener('change', function(){ window.rtFarm.set(sel.value); });
+    function filter(KEY, sel, all, evt){
+      var v = '';
+      try { v = sessionStorage.getItem(KEY) || ''; } catch (e) {}
+      var api = {
+        get: function(){ return v; },
+        set: function(nv){
+          nv = nv || '';
+          if (nv === v) return;
+          v = nv; sel.value = v; sync();
+          try { sessionStorage.setItem(KEY, v); } catch (e) {}
+          document.dispatchEvent(new CustomEvent(evt, {detail: v}));
+        },
+        // The tab's choices; the current one stays listed even if it has none today.
+        options: function(list){
+          var xs = (list || []).slice();
+          if (v && xs.indexOf(v) < 0) xs.push(v);
+          xs.sort();
+          sel.innerHTML = '<option value="">' + all + '</option>' + xs.map(function(f){
+            var e = String(f).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+            return '<option value="' + e + '">' + e + '</option>';
+          }).join('');
+          sel.value = v;
+        },
+        on: function(fn){ document.addEventListener(evt, function(e){ try { fn(e.detail); } catch (err) {} }); }
+      };
+      sel.addEventListener('change', function(){ api.set(sel.value); });
 
-    // The styled picker over the hidden select: a button with the current farm, a
-    // list with a tick on the chosen one and "All farms" set apart; keyboard works.
-    var CHEV = '<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
-    var TICK = '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-    function e(t){ return String(t == null ? '' : t).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
-    var wrap = document.createElement('div'); wrap.className = 'rt-dd';
-    wrap.innerHTML = '<button type="button" class="rt-dd-btn" aria-haspopup="listbox" aria-expanded="false"><span class="v"></span>' + CHEV + '</button>';
-    sel.parentNode.insertBefore(wrap, sel.nextSibling);
-    var btn = wrap.firstChild, label = btn.querySelector('.v'), pop = null, hl = -1;
-    function sync(){
-      var o = sel.options[sel.selectedIndex]; label.textContent = o ? o.textContent : 'All farms';
-      label.classList.toggle('ph', !sel.value);
-      var dot = btn.querySelector('.dot'); if (sel.value && !dot) btn.insertAdjacentHTML('afterbegin', '<span class="dot"></span>'); else if (!sel.value && dot) dot.remove();
+      var CHEV = '<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
+      var TICK = '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      function e(t){ return String(t == null ? '' : t).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+      var wrap = document.createElement('div'); wrap.className = 'rt-dd';
+      wrap.innerHTML = '<button type="button" class="rt-dd-btn" aria-haspopup="listbox" aria-expanded="false"><span class="v"></span>' + CHEV + '</button>';
+      sel.parentNode.insertBefore(wrap, sel.nextSibling);
+      var btn = wrap.firstChild, label = btn.querySelector('.v'), pop = null, hl = -1;
+      function sync(){
+        var o = sel.options[sel.selectedIndex]; label.textContent = o ? o.textContent : all;
+        label.classList.toggle('ph', !sel.value);
+        var dot = btn.querySelector('.dot'); if (sel.value && !dot) btn.insertAdjacentHTML('afterbegin', '<span class="dot"></span>'); else if (!sel.value && dot) dot.remove();
+      }
+      function close(){ if (pop) { pop.remove(); pop = null; } wrap.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); }
+      function pick(v){ if (sel.value !== v) { sel.value = v; sel.dispatchEvent(new Event('change', {bubbles: true})); } sync(); close(); btn.focus(); }
+      function open(){
+        if (pop) { close(); return; }
+        pop = document.createElement('div'); pop.className = 'rt-dd-pop'; pop.setAttribute('role', 'listbox');
+        var opts = [].slice.call(sel.options);
+        pop.innerHTML = opts.map(function(o, i){ var on = o.value === sel.value;
+          return (i === 1 && !opts[0].value ? '<div class="rt-dd-sep"></div>' : '') +
+            '<button type="button" role="option" class="rt-dd-opt' + (on ? ' sel' : '') + (o.value ? '' : ' all') + '" data-v="' + e(o.value) + '" aria-selected="' + on + '"><span class="ck">' + (on ? TICK : '') + '</span>' + e(o.textContent) + '</button>'; }).join('');
+        wrap.appendChild(pop); wrap.classList.add('open'); btn.setAttribute('aria-expanded', 'true'); hl = -1;
+      }
+      btn.addEventListener('click', open);
+      wrap.addEventListener('click', function(ev){ var o = ev.target.closest('.rt-dd-opt'); if (o) pick(o.dataset.v); });
+      wrap.addEventListener('keydown', function(ev){
+        if (ev.key === 'Escape') { close(); btn.focus(); return; }
+        if (!pop) { if ((ev.key === 'ArrowDown' || ev.key === 'Enter' || ev.key === ' ') && ev.target === btn) { ev.preventDefault(); open(); } return; }
+        var items = [].slice.call(pop.querySelectorAll('.rt-dd-opt')); if (!items.length) return;
+        if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); hl = (hl + (ev.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+          items.forEach(function(x, i){ x.classList.toggle('hl', i === hl); }); }
+        else if (ev.key === 'Enter') { ev.preventDefault(); pick(items[hl >= 0 ? hl : 0].dataset.v); }
+      });
+      document.addEventListener('mousedown', function(ev){ if (pop && !wrap.contains(ev.target)) close(); });
+      sel.addEventListener('change', sync);
+      new MutationObserver(sync).observe(sel, {childList: true});
+      sync();
+      return api;
     }
-    function close(){ if (pop) { pop.remove(); pop = null; } wrap.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); }
-    function pick(v){ if (sel.value !== v) { sel.value = v; sel.dispatchEvent(new Event('change', {bubbles: true})); } sync(); close(); btn.focus(); }
-    function open(){
-      if (pop) { close(); return; }
-      pop = document.createElement('div'); pop.className = 'rt-dd-pop'; pop.setAttribute('role', 'listbox');
-      var opts = [].slice.call(sel.options);
-      pop.innerHTML = opts.map(function(o, i){ var on = o.value === sel.value;
-        return (i === 1 && !opts[0].value ? '<div class="rt-dd-sep"></div>' : '') +
-          '<button type="button" role="option" class="rt-dd-opt' + (on ? ' sel' : '') + (o.value ? '' : ' all') + '" data-v="' + e(o.value) + '" aria-selected="' + on + '"><span class="ck">' + (on ? TICK : '') + '</span>' + e(o.textContent) + '</button>'; }).join('');
-      wrap.appendChild(pop); wrap.classList.add('open'); btn.setAttribute('aria-expanded', 'true'); hl = -1;
-    }
-    btn.addEventListener('click', open);
-    wrap.addEventListener('click', function(ev){ var o = ev.target.closest('.rt-dd-opt'); if (o) pick(o.dataset.v); });
-    wrap.addEventListener('keydown', function(ev){
-      if (ev.key === 'Escape') { close(); btn.focus(); return; }
-      if (!pop) { if ((ev.key === 'ArrowDown' || ev.key === 'Enter' || ev.key === ' ') && ev.target === btn) { ev.preventDefault(); open(); } return; }
-      var items = [].slice.call(pop.querySelectorAll('.rt-dd-opt')); if (!items.length) return;
-      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); hl = (hl + (ev.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
-        items.forEach(function(x, i){ x.classList.toggle('hl', i === hl); }); }
-      else if (ev.key === 'Enter') { ev.preventDefault(); pick(items[hl >= 0 ? hl : 0].dataset.v); }
-    });
-    document.addEventListener('mousedown', function(ev){ if (pop && !wrap.contains(ev.target)) close(); });
-    sel.addEventListener('change', sync);
-    new MutationObserver(sync).observe(sel, {childList: true});
-    sync();
+    window.rtFarm = filter('rtFarm', document.getElementById('rt-farm'), 'All farms', 'rt-farm');
+    window.rtTeam = filter('rtTeam', document.getElementById('rt-team'), 'All teams', 'rt-team');
+    window.rtLocation = filter('rtLocation', document.getElementById('rt-location'), 'All locations', 'rt-location');
   })();
 </script>
 <script>
