@@ -2928,9 +2928,14 @@ def getReadySaleOrderItems():
 		# team, and they must not be merged together in this list).
 		requested_date = frappe.form_dict.get("date")
 		day = requested_date if requested_date else frappe.utils.today()
+		# Optional ?station=<farm>: only that station's location (Karen, or Ravine =
+		# Kapkolia and its remote farms) -- the two share teams, not orders.
+		location, sales_farm = _loading_location((frappe.form_dict.get("station") or "").strip())
 
 		# Filter by the Sales Order DELIVERY date, not the pick list creation date.
-		so_names = frappe.get_all("Sales Order", filters={"delivery_date": day}, pluck="name")
+		so_rows = frappe.get_all("Sales Order", filters={"delivery_date": day}, fields=["name", "farm"])
+		farms = location_farms(location) if location else None
+		so_names = [s.name for s in so_rows if farms is None or s.farm in farms]
 		ready_orders = (
 			frappe.get_all(
 				"Order Pick List",
@@ -2974,7 +2979,7 @@ def getReadySaleOrderItems():
 					"source_warehouse",
 				],
 			)
-			hub = _issue_hub()
+			hub = sales_farm or _issue_hub()
 			for r in unissued_rows:
 				# Listed once it has a bucket here to issue: one still at a remote farm
 				# or on the truck can't be scanned yet.
@@ -3037,6 +3042,8 @@ def getReadySaleOrderItems():
 		# A team's next order is the lowest one on its schedule not fully issued -- drafts
 		# and submitted orders together, as the issue scan enforces -- not the lowest
 		# one in this (sales or remote) list.
+		# With a station, only its location's orders (drafts too) count: Karen's
+		# orders never wait behind Ravine's on a shared team schedule.
 		nxt = {}
 		parents = tuple({sc.parent for sc in sched.values()})
 		if parents:
@@ -3046,11 +3053,12 @@ def getReadySaleOrderItems():
 				       SUM(IFNULL(pli.not_found, 0) = 0 AND IFNULL(pli.issued, 0) = 1) AS done
 				FROM `tabPackhouse Schedule Order` pso
 				JOIN `tabOrder Pick List` opl ON opl.name = pso.order_pick_list AND opl.docstatus < 2
+				     AND (%(all)s OR opl.sales_order IN %(s)s)
 				LEFT JOIN `tabPick List Item` pli ON pli.parent = pso.order_pick_list
 				     AND pli.parenttype = 'Order Pick List' AND COALESCE(pli.bucket, '') != ''
 				WHERE pso.parent IN %(p)s
 				GROUP BY pso.parent, pso.order_pick_list, pso.sequence""",
-				{"p": parents},
+				{"p": parents, "all": 0 if location else 1, "s": tuple(so_names) or ("",)},
 				as_dict=True,
 			):
 				if int(lo.done or 0) < int(lo.total or 0) and int(lo.sequence or 0) < nxt.get(
@@ -3058,8 +3066,11 @@ def getReadySaleOrderItems():
 				):
 					nxt[lo.parent] = int(lo.sequence or 0)
 		bypass = frappe.utils.cint(frappe.get_cached_doc("Production Settings").get(SEQUENCE_BYPASS["issue"]))
-		# Only orders on the Packhouse Schedule are issued here.
-		orders = [o for o in orders if o["opl_name"] in sched]
+		# Only orders on the Packhouse Schedule are issued here -- with a station, its
+		# unscheduled orders are listed after them, so a schedule save that dropped
+		# an order can't hide it from its own location.
+		if not location:
+			orders = [o for o in orders if o["opl_name"] in sched]
 		for o in orders:
 			sc = sched.get(o["opl_name"])
 			o["schedule"] = int(sc.sequence or 0) if sc else 0
@@ -3438,6 +3449,17 @@ def getSchedulerMeta():
 				schedule[r.name] = num
 				created[r.name] = str(r.creation)
 				i = i + 1
+			# The number the packhouse works to: the order's place on its team's latest
+			# Packhouse Schedule (OPL.schedule_number is an old global number, mostly 0).
+			for r in frappe.db.sql(
+				"""SELECT pso.order_pick_list, pso.sequence FROM `tabPackhouse Schedule Order` pso
+				JOIN `tabPackhouse Schedule` ps ON ps.name = pso.parent
+				WHERE pso.order_pick_list IN %(o)s ORDER BY ps.schedule_date ASC, ps.modified ASC""",
+				{"o": tuple(names)},
+				as_dict=True,
+			):
+				if int(r.sequence or 0):
+					schedule[r.order_pick_list] = int(r.sequence)
 
 		# Packed signal = a Farm Pack List exists for the OPL (draft OR submitted).
 		# Workflow: Ready = OPL submitted but packing not yet started. The moment packing

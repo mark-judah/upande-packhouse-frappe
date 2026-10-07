@@ -7,6 +7,154 @@
 import frappe
 
 
+def _own_packing_farms():
+	"""Sales farms other than the transfer hub (e.g. Karen): they pack their own
+	orders with no remote transfers, so the scheduler leaves those orders alone."""
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import transfer_hub
+
+	hub = transfer_hub(required=False)
+	if not hub:
+		return []
+	ps = frappe.get_cached_doc("Production Settings")
+	return [
+		r.farm for r in (ps.shelf_locations or []) if r.enabled and r.sales_shelf and r.farm and r.farm != hub
+	]
+
+
+def _tiers(opls):
+	"""opl -> sort key for its team's schedule:
+	  (0,)  fully issued
+	  (1,)  every bucket already at the hub (nothing awaiting, loaded or in transit)
+	  (2, …) still to come from remote farms, one block per farm in the order its truck
+	        left the hub (on the way back, then dispatched to the farm by when it left,
+	        then planned trips in run order, then no trip yet, by farm). An order
+	        waiting at several farms goes with the one that arrives last.
+	The schedule runs in that order, so packing follows the trucks."""
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import FARM_EXPR
+	from upande_packhouse.mobile.api import _issue_progress
+
+	opls = list(opls or [])
+	if not opls:
+		return {}
+	waiting, on_truck = {}, set()
+	for r in frappe.db.sql(
+		"""SELECT pli.parent AS opl, """
+		+ FARM_EXPR
+		+ """ AS farm, GREATEST(IFNULL(pli.loaded_in_trolley, 0), IFNULL(pli.in_transit, 0)) AS moving
+		FROM `tabPick List Item` pli
+		WHERE pli.parenttype = 'Order Pick List' AND pli.parent IN %(o)s
+		  AND (pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1 OR pli.in_transit = 1)""",
+		{"o": tuple(opls)},
+		as_dict=True,
+	):
+		waiting.setdefault(r.opl, set()).add(r.farm or "")
+		if r.moving:
+			on_truck.add((r.opl, r.farm or ""))
+	trip_key = {}
+	if waiting:
+		far = "9999-12-31 00:00:00"
+		for r in frappe.db.sql(
+			"""SELECT o.order_pick_list AS opl, o.farm, t.name, t.status, t.run,
+			       t.released_at, t.dispatched_at, t.creation
+			FROM `tabBucket Request Trip Order` o
+			JOIN `tabBucket Request Trip` t ON t.name = o.parent
+			WHERE o.order_pick_list IN %(o)s AND t.status IN ('Draft', 'Scheduled', 'Dispatched')
+			  AND t.trip_date >= %(since)s""",
+			{"o": tuple(waiting), "since": frappe.utils.add_days(frappe.utils.today(), -1)},
+			as_dict=True,
+		):
+			left = str(r.released_at or r.dispatched_at or far)
+			rank = {"Dispatched": 0, "Scheduled": 1}.get(r.status, 2)
+			key = (rank, left if rank < 2 else far, int(r.run or 0), str(r.creation), r.name)
+			k = (r.opl, r.farm or "")
+			if k not in trip_key or key < trip_key[k]:
+				trip_key[k] = key
+	issued = {o for o, d in _issue_progress(opls).items() if d["total"] and d["issued"] >= d["total"]}
+	out = {}
+	for o in opls:
+		if o in issued:
+			out[o] = (0,)
+		elif o not in waiting:
+			out[o] = (1,)
+		else:
+			out[o] = (2,) + max(trip_key.get((o, f)) or _no_trip_key(o, f, on_truck) for f in waiting[o])
+	return out
+
+
+def _no_trip_key(opl, farm, on_truck):
+	"""A farm portion on no trip record: already on a truck counts as on the road
+	(after the trips with a time); still at the farm goes last, grouped by farm."""
+	if (opl, farm) in on_truck:
+		return (0, "9999-12-31 00:00:00", 0, "", farm)
+	return (3, farm, 0, "", "")
+
+
+def _keep_own_slots(others, own):
+	"""One team's schedule in order: Karen-type rows (`own`, each with its current
+	`sequence`) stay at their numbers; `others` fill the remaining slots in order."""
+	total = len(others) + len(own)
+	slots = [None] * total
+	late = []
+	for r in sorted(own, key=lambda r: r["sequence"]):
+		i = r["sequence"] - 1
+		if 0 <= i < total and slots[i] is None:
+			slots[i] = r
+		else:
+			late.append(r)
+	fill = iter(others + late)
+	return [s if s is not None else next(fill) for s in slots]
+
+
+def rank_schedules(sdate=None, replan=True):
+	"""Scheduler job (every 5 minutes): keep today's Packhouse Schedules in _tiers
+	order as orders finish issuing and their buckets reach the hub. Karen-type orders
+	(packed at their own sales farm) keep their places after the others."""
+	sdate = sdate or frappe.utils.today()
+	own_farms = _own_packing_farms()
+	changed = []
+	for name in frappe.get_all("Packhouse Schedule", filters={"schedule_date": sdate}, pluck="name"):
+		doc = frappe.get_doc("Packhouse Schedule", name)
+		rows = sorted(doc.orders or [], key=lambda r: int(r.sequence or 0))
+		opls = [r.order_pick_list for r in rows if r.order_pick_list]
+		own = set()
+		if own_farms and opls:
+			own = set(
+				frappe.db.sql_list(
+					"""SELECT o.name FROM `tabOrder Pick List` o
+					JOIN `tabSales Order` so ON so.name = o.sales_order
+					WHERE o.name IN %(o)s AND so.farm IN %(f)s""",
+					{"o": tuple(opls), "f": tuple(own_farms)},
+				)
+			)
+		tier = _tiers([o for o in opls if o not in own])
+		others = sorted(
+			[{"r": r} for r in rows if r.order_pick_list not in own],
+			key=lambda x: tier.get(x["r"].order_pick_list, (2,)),
+		)
+		own_rows = [
+			{"r": r, "sequence": pos} for pos, r in enumerate(rows, start=1) if r.order_pick_list in own
+		]
+		ranked = [x["r"] for x in _keep_own_slots(others, own_rows)]
+		if [r.name for r in ranked] == [r.name for r in rows] and all(
+			int(r.sequence or 0) == i for i, r in enumerate(rows, start=1)
+		):
+			continue
+		# Only the numbers change: a row whose order was since deleted must not stop it.
+		for i, r in enumerate(ranked, start=1):
+			frappe.db.set_value(
+				"Packhouse Schedule Order", r.name, {"sequence": i, "idx": i}, update_modified=False
+			)
+		changed.append(name)
+	if changed and replan:
+		from upande_packhouse.api.auto_transfer import replan_soon
+
+		replan_soon()
+	if changed:
+		# A scheduler job does not commit by itself.
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+	return changed
+
+
 @frappe.whitelist()
 def getScheduledOrders():
 	# Frappe Server Script (API), api_method = getScheduledOrders
@@ -72,9 +220,10 @@ def getSchedulerFeed():
             FROM `tabOrder Pick List` o
             JOIN `tabSales Order` so ON so.name = o.sales_order
             WHERE so.delivery_date = %(dd)s AND o.docstatus < 2
+              AND IFNULL(so.farm, '') NOT IN %(own)s
             ORDER BY o.creation ASC
         """,
-			{"dd": dd},
+			{"dd": dd, "own": tuple(_own_packing_farms()) or ("",)},
 			as_dict=True,
 		)
 
@@ -356,6 +505,32 @@ def saveDaySchedule():
 			opls.append(v)
 		p = p + 1
 
+	# Karen-type orders (packed at their own sales farm, no remote transfers) are not
+	# the scheduler's: never taken from the page, and their existing places are kept.
+	own_farms = _own_packing_farms()
+	own = set()
+	if own_farms:
+		own = set(
+			frappe.db.sql_list(
+				"""SELECT DISTINCT pso.order_pick_list FROM `tabPackhouse Schedule Order` pso
+				JOIN `tabPackhouse Schedule` ps ON ps.name = pso.parent
+				JOIN `tabOrder Pick List` o ON o.name = pso.order_pick_list
+				JOIN `tabSales Order` so ON so.name = o.sales_order
+				WHERE ps.schedule_date = %(d)s AND so.farm IN %(f)s""",
+				{"d": sdate, "f": tuple(own_farms)},
+			)
+		)
+		if opls:
+			own.update(
+				frappe.db.sql_list(
+					"""SELECT o.name FROM `tabOrder Pick List` o
+					JOIN `tabSales Order` so ON so.name = o.sales_order
+					WHERE o.name IN %(o)s AND so.farm IN %(f)s""",
+					{"o": tuple(opls), "f": tuple(own_farms)},
+				)
+			)
+		opls = [o for o in opls if o not in own]
+
 	# "Distribute to teams": orders that had no team get the one the page gave them
 	# ({opl: team}, a Packing Team) -- a team's schedule can only hold its own orders.
 	teams = fd.get("teams")
@@ -405,13 +580,17 @@ def saveDaySchedule():
 				)
 		i = i + 1
 
+	# Every save re-ranks each team (_tiers); the page's order is kept within a tier.
+	tier = _tiers(opls)
+	for team in by_team:
+		by_team[team].sort(key=lambda opl: tier.get(opl, (2,)))
+
 	# Fully issued orders are off the page (the feed drops them) but stay on their
 	# team's schedule, ahead of the list in their old order: packing and the
 	# schedule-order checks still need their place. Rebuilding from the page alone
 	# wiped the sequence of every order that was ready to pack.
-	from upande_packhouse.mobile.api import _issue_progress
-
 	kept = {}
+	own_kept = {}
 	old_rows = frappe.db.sql(
 		"""SELECT ps.team, pso.order_pick_list AS opl, pso.order_name, pso.customer, pso.sequence
 		FROM `tabPackhouse Schedule Order` pso JOIN `tabPackhouse Schedule` ps ON ps.name = pso.parent
@@ -420,8 +599,16 @@ def saveDaySchedule():
 		sdate,
 		as_dict=True,
 	)
+	from upande_packhouse.mobile.api import _issue_progress
+
 	done = _issue_progress([r.opl for r in old_rows if r.opl not in opls])
 	for r in old_rows:
+		if r.opl in own:
+			own_kept.setdefault(r.team, []).append(r)
+			if r.team not in by_team:
+				by_team[r.team] = []
+				team_order.append(r.team)
+			continue
 		d = done.get(r.opl)
 		if r.opl not in opls and d and d["issued"] >= d["total"]:
 			kept.setdefault(r.team, []).append(r)
@@ -456,30 +643,30 @@ def saveDaySchedule():
 			doc = frappe.new_doc("Packhouse Schedule")
 			doc.schedule_date = sdate
 			doc.team = team
-		doc.set("orders", [])
-		seq = 1
-		for r in kept.get(team, []):
-			doc.append(
-				"orders",
-				{
-					"order_pick_list": r.opl,
-					"order_name": r.order_name or "",
-					"customer": r.customer or "",
-					"sequence": seq,
-				},
-			)
-			seq = seq + 1
 		rows = by_team[team]
-		j = 0
-		while j < len(rows):
-			info = info_map.get(rows[j]) or {}
-			row = doc.append("orders", {})
-			row.order_pick_list = rows[j]
-			row.order_name = info.get("order_name") or ""
-			row.customer = info.get("customer") or ""
-			row.sequence = seq
-			seq = seq + 1
-			j = j + 1
+		others = [
+			{"order_pick_list": r.opl, "order_name": r.order_name or "", "customer": r.customer or ""}
+			for r in kept.get(team, [])
+		] + [
+			{
+				"order_pick_list": opl,
+				"order_name": (info_map.get(opl) or {}).get("order_name") or "",
+				"customer": (info_map.get(opl) or {}).get("customer") or "",
+			}
+			for opl in rows
+		]
+		own_rows = [
+			{
+				"order_pick_list": r.opl,
+				"order_name": r.order_name or "",
+				"customer": r.customer or "",
+				"sequence": int(r.sequence or 0),
+			}
+			for r in own_kept.get(team, [])
+		]
+		doc.set("orders", [])
+		for seq, r in enumerate(_keep_own_slots(others, own_rows), start=1):
+			doc.append("orders", {**r, "sequence": seq})
 		doc.save(ignore_permissions=True)
 		saved[team] = len(rows) + len(kept.get(team, []))
 		k = k + 1

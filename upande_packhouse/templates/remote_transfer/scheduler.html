@@ -352,6 +352,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .aph .sch-card.sel{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 .aph .sch-card.packed{background:var(--bg-muted);opacity:.6;filter:grayscale(1);cursor:default}
 .aph .sch-chip.packed{background:var(--text-2);color:var(--bg-card)}
+.aph .sch-chip.hub{background:#e3ecfd;color:#1d4ed8}
 .aph .sch-nextbadge{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.04em;color:#fff;background:var(--good);border-radius:6px;padding:1px 6px;margin-left:6px;vertical-align:middle}
 .aph .sch-selbar{display:none;align-items:center;gap:8px;width:100%;margin-top:9px;padding:7px 9px;background:var(--accent);border-radius:8px}
 .aph .sch-selbar.on{display:flex}
@@ -885,6 +886,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     if(lane==='sched'){
       chips.push('<span class="sch-chip sched">#'+prio+'</span>');
       if(packed) chips.push('<span class="sch-chip packed">Packed</span>');
+      else if(['ready','issuing','done'].indexOf(orderState(o).k)>=0) chips.push('<span class="sch-chip hub">At Kapkolia</span>');
     } else {
       chips.push('<span class="sch-vchip '+varCls(o.variation)+'">'+esc(varLabel(o.variation))+'</span>');
     }
@@ -930,8 +932,9 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   // above threshold are "cleared" and skipped; the next sub-threshold line is the team's next.
   // Farm = the section's Farm filter (top bar): orders with buckets at that farm.
   function curFarm(){return (window.rtFarm&&window.rtFarm.get())||'';}
+  function curTeam(){return (window.rtTeam&&window.rtTeam.get())||'';}
   function applyFilters(arr){
-    var t=el('fTeam')?el('fTeam').value:'';
+    var t=curTeam();
     var f=curFarm();
     return arr.filter(function(o){return (!t||o.custom_team===t)&&(!f||(o.farms||[]).indexOf(f)>=0);});
   }
@@ -1163,7 +1166,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
             noTeam.map(function(x){ return '<li><b>'+esc(x.order_name||x.opl)+'</b> '+esc(x.customer||'')+' ('+esc(x.opl)+')</li>'; }).join('')+
             '</ul>Set the team on the Order Pick List, then schedule it again.');
       }
-      return reloadScheduled().then(function(){ render(); return r; });
+      return reloadScheduled().then(function(){ sortReady(); render(); return r; });
     });
   }
 
@@ -1322,9 +1325,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   // ---- load ----
   function populateFilters(){
     if(window.rtFarm){var fm={};STATE.ready.forEach(function(o){(o.farms||[]).forEach(function(f){fm[f]=1;});});window.rtFarm.options(Object.keys(fm));}
-    var teams={};STATE.ready.forEach(function(o){if(o.custom_team)teams[o.custom_team]=1;});
-    var sel=el('fTeam');if(!sel)return;var cur=sel.value;
-    sel.innerHTML='<option value="">All teams</option>'+Object.keys(teams).sort().map(function(k){return '<option'+(k===cur?' selected':'')+'>'+esc(k)+'</option>';}).join('');
+    if(window.rtTeam){var tm={};STATE.ready.forEach(function(o){if(o.custom_team)tm[o.custom_team]=1;});window.rtTeam.options(Object.keys(tm));}
   }
   function load(){
     var dd=window.rtDate.get();STATE.date=dd;
@@ -1345,19 +1346,25 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
                 docstatus:o.docstatus,variation:o.variation,issued_lines:o.issued_lines||0,lines:o.lines||0,packed:o.packed||0,packed_stems:o.packed_stems||0};
       });
       reloadScheduled().then(function(){
-        STATE.ready.sort(function(a,b){
-          var sa=STATE.scheduled[a.name],sb=STATE.scheduled[b.name];
-          if(!!sa!==!!sb)return sa?-1:1;
-          if(sa){
-            var ta=(sa.team!=null?sa.team:(a.custom_team||'')),tb=(sb.team!=null?sb.team:(b.custom_team||''));
-            if(ta!==tb)return ta<tb?-1:1;
-            var qa=(sa.sequence!=null?sa.sequence:0),qb=(sb.sequence!=null?sb.sequence:0);
-            if(qa!==qb)return qa-qb;
-          }
-          return String(a.name).localeCompare(String(b.name));
-        });
+        sortReady();
         populateFilters();render();
       });
+    });
+  }
+
+  // The stored sequence decides the order (the server moves orders already on a
+  // sales shelf ahead of the ones waiting on a transfer when it saves).
+  function sortReady(){
+    STATE.ready.sort(function(a,b){
+      var sa=STATE.scheduled[a.name],sb=STATE.scheduled[b.name];
+      if(!!sa!==!!sb)return sa?-1:1;
+      if(sa){
+        var ta=(sa.team!=null?sa.team:(a.custom_team||'')),tb=(sb.team!=null?sb.team:(b.custom_team||''));
+        if(ta!==tb)return ta<tb?-1:1;
+        var qa=(sa.sequence!=null?sa.sequence:0),qb=(sb.sequence!=null?sb.sequence:0);
+        if(qa!==qb)return qa-qb;
+      }
+      return String(a.name).localeCompare(String(b.name));
     });
   }
 
@@ -1365,7 +1372,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   if(window.rtOnRefresh) window.rtOnRefresh(function(){ return load(); });
   window.rtDate.on(load);
   function filterChanged(){G.readyPage=1;render();}
-  if(el('fTeam')) el('fTeam').onchange=filterChanged;
+  if(window.rtTeam) window.rtTeam.on(filterChanged);
   if(window.rtFarm) window.rtFarm.on(filterChanged);
   G.mtab='byseq'; G.var='all';
   document.querySelectorAll('.sch-maintab').forEach(function(b){b.onclick=function(){G.mtab=b.getAttribute('data-mtab');G.sel.clear();G.readyPage=1;render();};});

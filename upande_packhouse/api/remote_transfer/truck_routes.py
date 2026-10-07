@@ -156,18 +156,31 @@ def _save_route(
 		# drive it. Runs can be added after it, or changed once the trip is gone.
 		new_runs = {r["run"]: r["stops"] for r in route_runs(path, hub)}
 		old_runs = {r["run"]: r["stops"] for r in _route_runs_by_name(doc.name)}
+		replan = []
 		for t in frappe.get_all(
 			"Bucket Request Trip",
 			filters={"route": doc.name, "status": ["!=", "Received"]},
-			fields=["name", "run"],
+			fields=["name", "run", "status", "auto_planned", "loaded_buckets"],
 		):
 			if new_runs.get(t.run) != old_runs.get(t.run):
+				# Automatic scheduling's own untouched draft: it is re-planned on the new
+				# route, so it never holds a person's route change back.
+				if (
+					t.auto_planned
+					and t.status == "Draft"
+					and not int(t.loaded_buckets or 0)
+					and not frappe.db.exists("Bucket Request Trip Bucket", {"parent": t.name})
+				):
+					replan.append(t.name)
+					continue
 				return {
 					"status": "error",
 					"message": "Trip {0} of {1} is planned as {2} — keep that trip's farms ({3}) or delete the trip first.".format(
 						t.run, doc.name, t.name, ", ".join(old_runs.get(t.run) or [])
 					),
 				}
+		for trip in replan:
+			frappe.delete_doc("Bucket Request Trip", trip, ignore_permissions=True, force=1)
 	if doc is None:
 		doc = frappe.new_doc("Bucket Logistics Route")
 		doc.route_date = date
@@ -198,6 +211,10 @@ def _save_route(
 		frappe.clear_last_message()
 		return {"status": "error", "reason": "overlap", "message": str(e)}
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
+	if not auto_planned:
+		from upande_packhouse.api.auto_transfer import replan_soon
+
+		replan_soon()
 
 	return {
 		"status": "success",

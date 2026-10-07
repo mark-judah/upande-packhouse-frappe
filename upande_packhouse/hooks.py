@@ -295,6 +295,8 @@ scheduler_events = {
 			"upande_packhouse.api.auto_transfer.run",
 			# A trip ends once what it carried is shelved at the hub — no End trip button.
 			"upande_packhouse.api.remote_transfer.transfer_scheduling.end_shelved_trips",
+			# Each team's schedule: fully issued, then at the hub, then waiting on a transfer.
+			"upande_packhouse.api.remote_transfer.scheduler.rank_schedules",
 		],
 	},
 }

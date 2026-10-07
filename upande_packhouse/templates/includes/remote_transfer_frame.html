@@ -3,6 +3,7 @@
     Refresh, tab highlight and address:
       window.rtDate       the page's date (get / set / on change)
       window.rtFarm       the page's farm filter (get / set / options / on change)
+      window.rtTeam       the page's team filter (same)
       window.rtOnRefresh  register what the page's Refresh does while this tab is open
       window.rtSetTab     report the open view (the planner frame switches between three)
       window.rtOpenTab    open another tab and call a function in it (tab, fn name)
@@ -25,6 +26,7 @@
   if (P) {
     window.rtDate = P.rtDate;
     window.rtFarm = P.rtFarm;
+    window.rtTeam = P.rtTeam;
     window.rtOnRefresh = function(fn){ P.rtRegisterRefresh(GROUP, fn); };
     window.rtSetTab = function(tab){ P.rtFrameTab(GROUP, tab); };
     window.rtSetUrl = function(pathAndQuery){ P.rtFrameUrl(GROUP, pathAndQuery); };
@@ -39,13 +41,17 @@
     set: function(nv){ if (!nv || nv === v) return; v = nv; document.dispatchEvent(new CustomEvent('rt-date', {detail: v})); },
     on: function(fn){ document.addEventListener('rt-date', function(e){ fn(e.detail); }); }
   };
-  var farm = '';
-  window.rtFarm = {
-    get: function(){ return farm; },
-    set: function(nv){ farm = nv || ''; document.dispatchEvent(new CustomEvent('rt-farm', {detail: farm})); },
-    options: function(){},
-    on: function(fn){ document.addEventListener('rt-farm', function(e){ fn(e.detail); }); }
-  };
+  function filter(evt){
+    var x = '';
+    return {
+      get: function(){ return x; },
+      set: function(nv){ x = nv || ''; document.dispatchEvent(new CustomEvent(evt, {detail: x})); },
+      options: function(){},
+      on: function(fn){ document.addEventListener(evt, function(e){ fn(e.detail); }); }
+    };
+  }
+  window.rtFarm = filter('rt-farm');
+  window.rtTeam = filter('rt-team');
   window.rtOnRefresh = function(){};
   window.rtSetTab = function(){};
 })();
