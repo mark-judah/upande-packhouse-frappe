@@ -4,6 +4,7 @@
       window.rtDate       the page's date (get / set / on change)
       window.rtFarm       the page's farm filter (get / set / options / on change)
       window.rtTeam       the page's team filter (same)
+      window.rtLocation   the page's location filter (same)
       window.rtOnRefresh  register what the page's Refresh does while this tab is open
       window.rtSetTab     report the open view (the planner frame switches between three)
       window.rtOpenTab    open another tab and call a function in it (tab, fn name)
@@ -27,6 +28,7 @@
     window.rtDate = P.rtDate;
     window.rtFarm = P.rtFarm;
     window.rtTeam = P.rtTeam;
+    window.rtLocation = P.rtLocation;
     window.rtOnRefresh = function(fn){ P.rtRegisterRefresh(GROUP, fn); };
     window.rtSetTab = function(tab){ P.rtFrameTab(GROUP, tab); };
     window.rtSetUrl = function(pathAndQuery){ P.rtFrameUrl(GROUP, pathAndQuery); };
@@ -52,6 +54,7 @@
   }
   window.rtFarm = filter('rt-farm');
   window.rtTeam = filter('rt-team');
+  window.rtLocation = filter('rt-location');
   window.rtOnRefresh = function(){};
   window.rtSetTab = function(){};
 })();

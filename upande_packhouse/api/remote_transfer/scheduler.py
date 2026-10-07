@@ -23,8 +23,9 @@ def _own_packing_farms():
 
 def _tiers(opls):
 	"""opl -> sort key for its team's schedule:
-	  (0,)  fully issued
-	  (1,)  every bucket already at the hub (nothing awaiting, loaded or in transit)
+	  (0,)    fully issued
+	  (1, 0)  submitted (its stock is the sales farm's to issue)
+	  (1, 1)  a draft with every bucket already at the hub (nothing awaiting, loaded or in transit)
 	  (2, …) still to come from remote farms, one block per farm in the order its truck
 	        left the hub (on the way back, then dispatched to the farm by when it left,
 	        then planned trips in run order, then no trip yet, by farm). An order
@@ -70,12 +71,17 @@ def _tiers(opls):
 			if k not in trip_key or key < trip_key[k]:
 				trip_key[k] = key
 	issued = {o for o, d in _issue_progress(opls).items() if d["total"] and d["issued"] >= d["total"]}
+	submitted = set(
+		frappe.get_all("Order Pick List", filters={"name": ["in", opls], "docstatus": 1}, pluck="name")
+	)
 	out = {}
 	for o in opls:
 		if o in issued:
 			out[o] = (0,)
+		elif o in submitted:
+			out[o] = (1, 0)
 		elif o not in waiting:
-			out[o] = (1,)
+			out[o] = (1, 1)
 		else:
 			out[o] = (2,) + max(trip_key.get((o, f)) or _no_trip_key(o, f, on_truck) for f in waiting[o])
 	return out
@@ -383,6 +389,9 @@ def getSchedulerFeed():
 				if fm != hub:
 					farm_trips.setdefault(fm, []).append(t)
 
+		from upande_packhouse.api.remote_transfer.transfer_scheduling import order_locations
+
+		where = order_locations(names)
 		out = []
 		ci = 0
 		while ci < len(opls):
@@ -454,6 +463,7 @@ def getSchedulerFeed():
 
 			row = {
 				"opl": op,
+				"location": where.get(op, ""),
 				"order_name": o.get("custom_order_name") or op,
 				"customer": o.get("customer") or "",
 				"team": o.get("custom_team") or "",

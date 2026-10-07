@@ -419,6 +419,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .aph .sch-varbtn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
 .aph .sch-varbtn .tc{font-family:var(--mono);font-size:10px;font-weight:700;opacity:.7;background:rgba(0,0,0,.06);border-radius:8px;padding:0 6px}
 .aph .sch-varbtn.active .tc{background:rgba(255,255,255,.22);opacity:.95}
+.aph .sch-statusbar{margin:0 0 12px}
 .aph .sch-search.wide{margin-top:12px;max-width:520px}
 .aph .sch-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
 .aph .sch-schedwrap{margin-top:12px;display:flex;flex-direction:column;gap:20px}
@@ -803,6 +804,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         <button class="sch-maintab" data-mtab="unsched">Not scheduled <span class="tc" id="cUnsched">0</span></button>
         <button class="sch-maintab" data-mtab="sched">Scheduled <span class="tc" id="cSched">0</span></button>
       </div>
+      <div class="sch-varbar sch-statusbar" id="statusBar"></div>
       <button type="button" class="sch-distbtn" id="distTeams" title="Plan the scheduled orders onto trips in sequence order — orders not scheduled yet go to the end of their team’s sequence first">Distribute to trips</button>
       <div id="panelUnsched" class="sch-panel" style="display:none">
         <div class="sch-varbar" id="varBar"></div>
@@ -862,7 +864,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   // Board-level filters: farm (tabs) + team (topbar) apply to ALL three columns.
   function readyView(){return applyFilters(STATE.ready);}
 
-  function varLabel(v){return v==='draft_plain'?'Draft':(v==='draft_transfer'?'Draft · transfer':'Submitted');}
+  function varLabel(v){return v==='draft_plain'?'Draft':(v==='draft_transfer'?'Draft waiting transfer':'Submitted');}
   function varCls(v){return v==='draft_plain'?'draft':(v==='draft_transfer'?'xfer':'sub');}
 
   // lane = 'unsched' | 'sched'. Feed rows carry: name, custom_order_name, customer,
@@ -933,10 +935,11 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   // Farm = the section's Farm filter (top bar): orders with buckets at that farm.
   function curFarm(){return (window.rtFarm&&window.rtFarm.get())||'';}
   function curTeam(){return (window.rtTeam&&window.rtTeam.get())||'';}
+  function curLocation(){return (window.rtLocation&&window.rtLocation.get())||'';}
   function applyFilters(arr){
-    var t=curTeam();
+    var t=curTeam(), l=curLocation();
     var f=curFarm();
-    return arr.filter(function(o){return (!t||o.custom_team===t)&&(!f||(o.farms||[]).indexOf(f)>=0);});
+    return arr.filter(function(o){return (!t||o.custom_team===t)&&(!l||o.location===l)&&(!f||(o.farms||[]).indexOf(f)>=0);});
   }
 
   // search haystack: OPL name, order name, customer, team, farms, mixed type
@@ -946,8 +949,22 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     return parts.filter(Boolean).join('  ').toLowerCase();
   }
 
+  // Status filter over every tab: Draft · Draft waiting transfer · Submitted, counted
+  // within the Location / Team / Farm filters.
+  var STATUS=[['draft_plain','Draft'],['draft_transfer','Draft waiting transfer'],['submitted','Submitted']];
+  function renderStatusBar(base){
+    var box=el('statusBar'); if(!box) return;
+    var c={}; base.forEach(function(o){ c[o.variation]=(c[o.variation]||0)+1; });
+    var vv=G.var||'all';
+    box.innerHTML=[['all','All',base.length]].concat(STATUS.map(function(x){ return [x[0],x[1],c[x[0]]||0]; })).map(function(x){
+      return '<button type="button" class="sch-varbtn'+(vv===x[0]?' active':'')+'" data-var="'+x[0]+'">'+esc(x[1])+' <span class="tc">'+x[2]+'</span></button>';
+    }).join('');
+  }
+
   function render(){
-    var feed=applyFilters(STATE.ready);
+    var base=applyFilters(STATE.ready), vv=G.var||'all';
+    renderStatusBar(base);
+    var feed=vv==='all'?base:base.filter(function(o){return o.variation===vv;});
     var unsched=feed.filter(function(o){return !STATE.scheduled[o.name];});
     var sched=feed.filter(function(o){return STATE.scheduled[o.name];});
     var stems=0,custs={};
@@ -974,7 +991,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 
   // The Not scheduled list only holds drafts waiting on a transfer now, so there is
   // nothing to split by Draft / Submitted — no variation bar.
-  function renderVarBar(){ var box=el('varBar'); if(box) box.innerHTML=''; G.var='all'; }
+  function renderVarBar(){ var box=el('varBar'); if(box) box.innerHTML=''; }
 
   // ---- Unscheduled tab: feed items not yet scheduled, filtered by variation + search ----
   function renderUnscheduled(list){
@@ -1326,6 +1343,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   function populateFilters(){
     if(window.rtFarm){var fm={};STATE.ready.forEach(function(o){(o.farms||[]).forEach(function(f){fm[f]=1;});});window.rtFarm.options(Object.keys(fm));}
     if(window.rtTeam){var tm={};STATE.ready.forEach(function(o){if(o.custom_team)tm[o.custom_team]=1;});window.rtTeam.options(Object.keys(tm));}
+    if(window.rtLocation){var lc={};STATE.ready.forEach(function(o){if(o.location)lc[o.location]=1;});window.rtLocation.options(Object.keys(lc));}
   }
   function load(){
     var dd=window.rtDate.get();STATE.date=dd;
@@ -1343,7 +1361,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         return {name:o.opl,custom_order_name:o.order_name,customer:o.customer,custom_team:o.team,
                 total_stems:o.total_stems,n_buckets:o.n_buckets,n_farms:o.n_farms,farms:o.farms||[],farm_trips:o.farm_trips||[],
                 n_varieties:o.n_varieties,has_transfer:o.has_transfer,mixed_type:o.mixed_type,
-                docstatus:o.docstatus,variation:o.variation,issued_lines:o.issued_lines||0,lines:o.lines||0,packed:o.packed||0,packed_stems:o.packed_stems||0};
+                docstatus:o.docstatus,variation:o.variation,location:o.location||'',issued_lines:o.issued_lines||0,lines:o.lines||0,packed:o.packed||0,packed_stems:o.packed_stems||0};
       });
       reloadScheduled().then(function(){
         sortReady();
@@ -1373,10 +1391,12 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   window.rtDate.on(load);
   function filterChanged(){G.readyPage=1;render();}
   if(window.rtTeam) window.rtTeam.on(filterChanged);
+  if(window.rtLocation) window.rtLocation.on(filterChanged);
   if(window.rtFarm) window.rtFarm.on(filterChanged);
   G.mtab='byseq'; G.var='all';
   document.querySelectorAll('.sch-maintab').forEach(function(b){b.onclick=function(){G.mtab=b.getAttribute('data-mtab');G.sel.clear();G.readyPage=1;render();};});
   if(el('readySearch'))el('readySearch').oninput=function(){G.readyPage=1;render();};
+  if(el('statusBar'))el('statusBar').onclick=function(e){var b=e.target.closest('[data-var]');if(!b)return;G.var=b.getAttribute('data-var');G.readyPage=1;render();};
   if(el('smClose'))el('smClose').onclick=closeSchedModal;
   if(el('smCancel'))el('smCancel').onclick=closeSchedModal;
   if(el('smSave'))el('smSave').onclick=saveSchedModal;

@@ -9,10 +9,10 @@
     The Delivery date next to the tabs is the whole section's date (window.rtDate):
     every page and tab reads it, it follows you between pages (sessionStorage and
     ?date=) and a change fires a 'rt-date' event on document.
-    The Farm and Team filters beside it (window.rtFarm, window.rtTeam) work the same
-    way ('rt-farm' / 'rt-team' events, sessionStorage); a tab that reads one fills its
-    choices (.options). Farm shows on the Scheduler; Team on the Scheduler and
-    Transfer Scheduling. -#}
+    The Farm, Location and Team filters beside it (window.rtFarm, rtLocation, rtTeam)
+    work the same way ('rt-farm' / 'rt-location' / 'rt-team' events, sessionStorage);
+    a tab that reads one fills its choices (.options). Farm shows on the Scheduler;
+    Location and Team on the Scheduler and Transfer Scheduling. -#}
 <style>
 .aph .rt-tabs{display:inline-flex;background:rgba(10,10,10,.05);border-radius:999px;padding:3px;gap:2px;flex:none}
 .aph .rt-tabs a{font:600 12px var(--sans,'Poppins',system-ui,sans-serif);padding:6px 13px;border-radius:999px;text-decoration:none;color:#5a5a52;white-space:nowrap;line-height:1.2;transition:background .15s,color .15s;display:inline-flex;align-items:center;gap:6px}
@@ -68,6 +68,7 @@
 </nav>
 <label class="rt-date"{% if rt_active == 'journey' %} hidden{% endif %}>Delivery date <input type="date" id="rt-date"></label>
 <label class="rt-farm"{% if rt_active != 'scheduler' %} hidden{% endif %}>Farm <select id="rt-farm"><option value="">All farms</option></select></label>
+<label class="rt-farm rt-location"{% if rt_active not in ('scheduler', 'transfer') %} hidden{% endif %}>Location <select id="rt-location"><option value="">All locations</option></select></label>
 <label class="rt-farm rt-team"{% if rt_active not in ('scheduler', 'transfer') %} hidden{% endif %}>Team <select id="rt-team"><option value="">All teams</option></select></label>
 <button type="button" class="rt-refresh" id="rt-refresh" title="Reload this view"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><polyline points="20 4 20 11 13 11"/></svg>Refresh</button>
 {% include "upande_packhouse/templates/includes/remote_transfer_helpers.html" %}
@@ -197,6 +198,7 @@
     }
     window.rtFarm = filter('rtFarm', document.getElementById('rt-farm'), 'All farms', 'rt-farm');
     window.rtTeam = filter('rtTeam', document.getElementById('rt-team'), 'All teams', 'rt-team');
+    window.rtLocation = filter('rtLocation', document.getElementById('rt-location'), 'All locations', 'rt-location');
   })();
 </script>
 <script>

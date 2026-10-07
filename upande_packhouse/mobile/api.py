@@ -580,7 +580,7 @@ def createOrUpdateDispatch():
 		seal_number = (data.get("seal_number") or "").strip()
 		# location (Loading Plan > Location): dispatch only that location's orders --
 		# its own Delivery Notes and departure; the other location dispatches its own.
-		location = (data.get("location") or "").strip()
+		location = (data.get("location") or "").strip() or (_station_location() or "")
 		ls_name = "LS-" + str(delivery_date)
 		missing_boxes = missing_staged_boxes_for_date(delivery_date, location or None)
 		mine = location_sales_orders(delivery_date, location) if location else None
@@ -1891,7 +1891,7 @@ def fetchDispatchLoadedOrders():
 		delivery_date = frappe.form_dict.get("delivery_date") or frappe.utils.add_days(
 			frappe.utils.today(), 1
 		)
-		location = frappe.form_dict.get("location") or ""
+		location = _station_location() or ""
 		ls_name = "LS-" + str(delivery_date)
 		mine = location_sales_orders(delivery_date, location) if location else None
 
@@ -2035,6 +2035,178 @@ def _loading_location(farm):
 		if farm == loc or farm in farms:
 			return ("Karen", "Karen") if loc == "Karen" else ("Ravine", loc)
 	return ("Karen", "Karen") if farm == "Karen" else ("Ravine", "Kapkolia")
+
+
+def _station_location():
+	"""The location (Ravine, Karen) the caller works at: ?station=<farm>, else
+	?location=. None = every location (Desk, or an app with no station set). The
+	Employee group is no guide: most staff at both sites are in "Ravine"."""
+	station = (frappe.form_dict.get("station") or "").strip()
+	if station:
+		return _loading_location(station)[0]
+	return (frappe.form_dict.get("location") or "").strip() or None
+
+
+def _short_info(opl_names):
+	"""opl -> {not_found, short_stems, short_pct, short_accepted}: the buckets a farm
+	marked not found (no replacement yet), as a share of the order's stems."""
+	opl_names = [o for o in opl_names or [] if o]
+	if not opl_names:
+		return {}
+	out = {}
+	for r in frappe.db.sql(
+		"""SELECT parent, COUNT(DISTINCT CASE WHEN IFNULL(not_found, 0) = 1 THEN bucket END) AS nf,
+		       SUM(CASE WHEN IFNULL(not_found, 0) = 1 THEN IFNULL(stock_qty, 0) ELSE 0 END) AS short,
+		       SUM(IFNULL(stock_qty, 0)) AS total
+		FROM `tabPick List Item`
+		WHERE parenttype = 'Order Pick List' AND parent IN %(o)s AND COALESCE(bucket, '') != ''
+		GROUP BY parent""",
+		{"o": tuple(opl_names)},
+		as_dict=True,
+	):
+		out[r.parent] = {
+			"not_found": int(r.nf or 0),
+			"short_stems": float(r.short or 0),
+			"short_pct": round(100.0 * float(r.short or 0) / float(r.total)) if r.total else 0,
+		}
+	for o in frappe.get_all(
+		"Order Pick List",
+		filters={"name": ["in", opl_names]},
+		fields=["name", "short_accepted", "short_stems"],
+	):
+		cur = out.setdefault(o.name, {"not_found": 0, "short_stems": 0.0, "short_pct": 0})
+		cur["short_accepted"] = int(o.short_accepted or 0)
+	return out
+
+
+@frappe.whitelist(methods=["POST"])
+def completeOplShort(opl_name: str, reason: str | None = None):
+	"""Complete an order without the buckets a farm marked not found (no replacement):
+	once nothing is still coming by truck and every other bucket is issued, the order is
+	recorded as short by those stems and submitted, so packing takes it."""
+	from upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation import (
+		opl_submit_blockers,
+	)
+
+	if not opl_name or not frappe.db.exists("Order Pick List", opl_name):
+		return {"success": False, "message": _("Order Pick List not found.")}
+	opl = frappe.get_doc("Order Pick List", opl_name)
+	if opl.docstatus == 2:
+		return {"success": False, "message": _("{0} is cancelled.").format(opl_name)}
+	if opl.docstatus == 1 and opl.short_accepted:
+		return {
+			"success": True,
+			"message": _("{0} is already completed short.").format(opl.order_name or opl_name),
+		}
+	rows = [r for r in opl.table_ytkc if r.bucket]
+	missing = [r for r in rows if r.not_found]
+	if not missing:
+		return {"success": False, "message": _("No bucket of {0} is marked not found.").format(opl_name)}
+	moving = sorted(
+		{
+			r.bucket
+			for r in rows
+			if not r.not_found and (r.awaiting_transfer or r.loaded_in_trolley or r.in_transit)
+		}
+	)
+	if moving:
+		return {
+			"success": False,
+			"message": _("Bucket(s) {0} are still coming by truck.").format(", ".join(moving)),
+		}
+	open_rows = sorted({r.bucket for r in rows if not r.not_found and not r.issued})
+	if open_rows:
+		return {
+			"success": False,
+			"message": _("Issue bucket(s) {0} first.").format(", ".join(open_rows)),
+		}
+	short_stems = sum(float(r.stock_qty or 0) for r in missing)
+	total = sum(float(r.stock_qty or 0) for r in rows)
+	pct = round(100.0 * short_stems / total) if total else 0
+	opl.short_accepted = 1
+	opl.short_stems = short_stems
+	opl.flags.ignore_permissions = True
+	# The rows are as allocated: a shelf emptied or removed since must not stop it.
+	opl.flags.ignore_links = True
+	try:
+		if opl.docstatus == 0:
+			blockers = opl_submit_blockers(opl)
+			if blockers:
+				return {"success": False, "message": "; ".join(blockers)}
+			opl.submit()
+		else:
+			opl.save()
+	except frappe.ValidationError as e:
+		frappe.db.rollback()
+		frappe.clear_last_message()
+		return {"success": False, "message": str(e)}
+	opl.add_comment(
+		"Info",
+		_("Completed short by {0} stems ({1}%): {2} not found{3}").format(
+			int(short_stems),
+			pct,
+			", ".join(sorted({r.bucket for r in missing})),
+			(" -- " + reason.strip()) if reason and reason.strip() else "",
+		),
+	)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- the app's packing list reads it next
+	return {
+		"success": True,
+		"message": _("{0} completed short by {1}% -- it is ready for packing.").format(
+			opl.order_name or opl_name, pct
+		),
+		"short_stems": short_stems,
+		"short_pct": pct,
+	}
+
+
+def _stock_here(opl_names, location):
+	"""The OPLs with stock at `location`'s farms (Karen: Karen; Ravine: Kapkolia and
+	its remote farms). Issuing and packing follow the stock, not the order: a Karen
+	order picked from Kapkolia's shelves is issued and packed at Kapkolia."""
+	if not opl_names or not location:
+		return set(opl_names or [])
+	farms = location_farms(location)
+	out = set()
+	for r in frappe.get_all(
+		"Pick List Item",
+		filters={"parent": ["in", list(opl_names)], "parenttype": "Order Pick List"},
+		fields=["parent", "farm", "source_warehouse"],
+	):
+		if _row_farm(r) in farms:
+			out.add(r.parent)
+	return out
+
+
+def _opl_locations(opl_names):
+	"""opl -> location, from its Sales Order's farm."""
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import order_locations
+
+	return order_locations(opl_names)
+
+
+def _stock_locations(opl_names):
+	"""opl -> the location its stock is at (where it is issued and packed): Karen when
+	a bucket is at a Karen farm, else Ravine. A pick list draws from one location."""
+	opl_names = [o for o in opl_names or [] if o]
+	if not opl_names:
+		return {}
+	# Locations with farms of their own (Karen); the rest is the catch-all (Ravine).
+	specific = {
+		loc: location_farms(loc)
+		for loc in dispatch_locations()
+		if location_farms(loc) and None not in location_farms(loc)
+	}
+	out = {o: "Ravine" for o in opl_names}
+	for r in frappe.get_all(
+		"Pick List Item",
+		filters={"parent": ["in", opl_names], "parenttype": "Order Pick List"},
+		fields=["parent", "farm", "source_warehouse"],
+	):
+		for loc, farms in specific.items():
+			if _row_farm(r) in farms:
+				out[r.parent] = loc
+	return out
 
 
 @frappe.whitelist()
@@ -2497,44 +2669,16 @@ def fetchPicklists():
 		# Optional ?date=YYYY-MM-DD to view a past day's picklists; defaults to today.
 		requested_date = frappe.form_dict.get("date")
 		today = requested_date if requested_date else frappe.utils.today()
-		current_user = frappe.session.user
-
-		# Determine user's farm location
-		farm_filter = None
-		employee = frappe.get_all(
-			"Employee",
-			filters={"user_id": current_user, "status": "Active"},
-			fields=["custom_group_name"],
-			limit=1,
-		)
-
-		if employee:
-			group_name = (employee[0].get("custom_group_name") or "").lower()
-			if "ravine" in group_name:
-				farm_filter = "Kapkolia"
-			elif "karen" in group_name:
-				farm_filter = "Karen"
+		# With a station, the orders whose stock is at its farms -- packing happens where
+		# the stock was issued. This used to filter on opl.farm, which is Kapkolia on
+		# every order (and by the Employee group, "Ravine" for most staff at both sites).
+		location = _station_location()
 
 		# Filter by the Sales Order's DELIVERY date (pack today for tomorrow's
 		# shipments), not the pick list creation date. `opl.sales_order` is the real
 		# link; `order_name` is only a display label.
-		if farm_filter:
-			result = frappe.db.sql(
-				"""
-                SELECT opl.name AS opl_name, opl.order_name AS order_name,
-                       opl.item_group AS item_group, opl.custom_total_stems AS planned_stems,
-                       opl.team AS team, opl.customer AS customer
-                FROM `tabOrder Pick List` opl
-                INNER JOIN `tabSales Order` so ON so.name = opl.sales_order
-                WHERE opl.docstatus = 1 AND so.delivery_date = %s AND opl.farm = %s
-                ORDER BY opl.creation DESC LIMIT 500
-            """,
-				(today, farm_filter),
-				as_list=True,
-			)
-		else:
-			result = frappe.db.sql(
-				"""
+		result = frappe.db.sql(
+			"""
                 SELECT opl.name AS opl_name, opl.order_name AS order_name,
                        opl.item_group AS item_group, opl.custom_total_stems AS planned_stems,
                        opl.team AS team, opl.customer AS customer
@@ -2543,9 +2687,13 @@ def fetchPicklists():
                 WHERE opl.docstatus = 1 AND so.delivery_date = %s
                 ORDER BY opl.creation DESC LIMIT 500
             """,
-				(today,),
-				as_list=True,
-			)
+			(today,),
+			as_list=True,
+		)
+		where = _stock_locations([r[0] for r in result])
+		if location:
+			here = _stock_here([r[0] for r in result], location)
+			result = [r for r in result if r[0] in here]
 
 		# NOTE: this used to hide an OPL once it was "fully packed" (packed >=
 		# planned stems from the latest Farm Pack List), so a submitted/finished
@@ -2560,6 +2708,7 @@ def fetchPicklists():
 		# the same 100% the issue scan's schedule order uses.
 		issue = _issue_progress(opl_names)
 		packed = _packed_stems(opl_names)
+		shorts = _short_info(opl_names)
 		result = [r for r in result if issue.get(r[0]) and issue[r[0]]["issued"] >= issue[r[0]]["total"]]
 		opl_names = [r[0] for r in result]
 
@@ -2585,7 +2734,7 @@ def fetchPicklists():
 					lengths_by_opl.setdefault(vr.parent, set()).add(vr.stem_length)
 
 		# Packhouse Schedule: each order's team and place, and the team's first order not
-		# fully packed (Farm Pack List submitted) -- later ones wait for it.
+		# fully packed (Farm Pack List submitted) at the same location -- later ones wait for it.
 		sched, first_open = {}, {}
 		if opl_names:
 			for sc in frappe.db.sql(
@@ -2598,17 +2747,19 @@ def fetchPicklists():
 				sched[sc.order_pick_list] = sc
 			parents = tuple({sc.parent for sc in sched.values()})
 			if parents:
-				for r in frappe.db.sql(
-					"""SELECT pso.parent, MIN(pso.sequence) AS seq
+				open_rows = frappe.db.sql(
+					"""SELECT pso.parent, pso.order_pick_list, pso.sequence
 					FROM `tabPackhouse Schedule Order` pso
 					JOIN `tabOrder Pick List` opl ON opl.name = pso.order_pick_list AND opl.docstatus < 2
 					WHERE pso.parent IN %(p)s AND NOT EXISTS(SELECT 1 FROM `tabFarm Pack List` f
-					      WHERE f.order_pick_list = pso.order_pick_list AND f.docstatus = 1)
-					GROUP BY pso.parent""",
+					      WHERE f.order_pick_list = pso.order_pick_list AND f.docstatus = 1)""",
 					{"p": parents},
 					as_dict=True,
-				):
-					first_open[r.parent] = int(r.seq or 0)
+				)
+				where.update(_stock_locations([r.order_pick_list for r in open_rows]))
+				for r in open_rows:
+					k = (r.parent, where.get(r.order_pick_list))
+					first_open[k] = min(first_open.get(k, 10**9), int(r.sequence or 0))
 		pack_bypass = frappe.utils.cint(
 			frappe.get_cached_doc("Production Settings").get(SEQUENCE_BYPASS["pack"])
 		)
@@ -2617,7 +2768,7 @@ def fetchPicklists():
 		for r in result:
 			sc = sched.get(r[0])
 			seq = int(sc.sequence or 0) if sc else 0
-			waits = first_open.get(sc.parent, 0) if sc else 0
+			waits = first_open.get((sc.parent, where.get(r[0])), 0) if sc else 0
 			opl_list.append(
 				dict(
 					opl_name=r[0],
@@ -2637,6 +2788,8 @@ def fetchPicklists():
 					schedule_team=(sc.team if sc else "") or "",
 					is_next=bool(sc) and waits == seq,
 					waits_for=waits if not pack_bypass and waits and seq > waits else 0,
+					short_pct=(shorts.get(r[0]) or {}).get("short_pct", 0),
+					short_accepted=(shorts.get(r[0]) or {}).get("short_accepted", 0),
 				)
 			)
 
@@ -2824,14 +2977,14 @@ def _schedule_blockers(opl_name, kind):
 		return (cur[0].team, int(cur[0].sequence or 0), []) if cur else (None, 0, [])
 	cur = cur[0]
 	if kind == "pack":
-		done_sql = """SELECT pso.sequence,
+		done_sql = """SELECT pso.sequence, pso.order_pick_list,
 		       EXISTS(SELECT 1 FROM `tabFarm Pack List` f
 		              WHERE f.order_pick_list = pso.order_pick_list AND f.docstatus = 1) AS done
 		FROM `tabPackhouse Schedule Order` pso
 		JOIN `tabOrder Pick List` opl ON opl.name = pso.order_pick_list AND opl.docstatus < 2
 		WHERE pso.parent = %s AND pso.sequence < %s"""
 	else:
-		done_sql = """SELECT pso.sequence,
+		done_sql = """SELECT pso.sequence, pso.order_pick_list,
 		       SUM(IFNULL(pli.not_found, 0) = 0 AND IFNULL(pli.issued, 0) = 0) = 0 AS done
 		FROM `tabPackhouse Schedule Order` pso
 		JOIN `tabOrder Pick List` opl ON opl.name = pso.order_pick_list AND opl.docstatus < 2
@@ -2839,11 +2992,15 @@ def _schedule_blockers(opl_name, kind):
 		     AND pli.parenttype = 'Order Pick List' AND COALESCE(pli.bucket, '') != ''
 		WHERE pso.parent = %s AND pso.sequence < %s
 		GROUP BY pso.order_pick_list, pso.sequence"""
+	# Karen and Ravine share teams, not orders: only earlier orders worked at the same
+	# location (where their stock is) hold it back.
+	earlier = frappe.db.sql(done_sql, (cur.parent, cur.sequence), as_dict=True)
+	loc = _stock_locations([opl_name] + [r.order_pick_list for r in earlier])
 	blockers = sorted(
 		{
 			int(r.sequence)
-			for r in frappe.db.sql(done_sql, (cur.parent, cur.sequence), as_dict=True)
-			if not int(r.done or 0)
+			for r in earlier
+			if not int(r.done or 0) and loc.get(r.order_pick_list) == loc.get(opl_name)
 		}
 	)
 	return cur.team, int(cur.sequence), blockers
@@ -2933,15 +3090,16 @@ def getReadySaleOrderItems():
 		location, sales_farm = _loading_location((frappe.form_dict.get("station") or "").strip())
 
 		# Filter by the Sales Order DELIVERY date, not the pick list creation date.
-		so_rows = frappe.get_all("Sales Order", filters={"delivery_date": day}, fields=["name", "farm"])
+		# Every order of the day: a station lists those with stock at its farms (below),
+		# whichever location the order is for.
+		so_names = frappe.get_all("Sales Order", filters={"delivery_date": day}, pluck="name")
 		farms = location_farms(location) if location else None
-		so_names = [s.name for s in so_rows if farms is None or s.farm in farms]
 		ready_orders = (
 			frappe.get_all(
 				"Order Pick List",
-				# Submitted only: a draft is still waiting on a remote transfer, and
-				# the remote farms work those (getFarmPlannedTrips).
-				filters={"docstatus": 1, "sales_order": ["in", so_names]},
+				# Submitted, plus drafts with nothing still coming by truck (below): a draft
+				# normally waits on a remote transfer the farms work (getFarmPlannedTrips).
+				filters={"docstatus": ["<", 2], "sales_order": ["in", so_names]},
 				fields=[
 					"name",
 					"order_name",
@@ -2955,6 +3113,26 @@ def getReadySaleOrderItems():
 			if so_names
 			else []
 		)
+
+		# A draft whose transfers are all settled -- arrived, or marked not found at the
+		# farm (waiting on a replacement) -- never submits, yet its buckets already here
+		# must be issued: listed like a submitted order. One with a bucket still at a
+		# farm or on the road stays off the list until it arrives.
+		drafts = [o.name for o in ready_orders if not o.docstatus]
+		if drafts:
+			moving = set(
+				frappe.get_all(
+					"Pick List Item",
+					filters=[["parenttype", "=", "Order Pick List"], ["parent", "in", drafts]],
+					or_filters=[
+						["awaiting_transfer", "=", 1],
+						["loaded_in_trolley", "=", 1],
+						["in_transit", "=", 1],
+					],
+					pluck="parent",
+				)
+			)
+			ready_orders = [o for o in ready_orders if o.docstatus or o.name not in moving]
 
 		opl_names = [o.name for o in ready_orders]
 		opls_with_unissued = set()
@@ -2982,8 +3160,9 @@ def getReadySaleOrderItems():
 			hub = sales_farm or _issue_hub()
 			for r in unissued_rows:
 				# Listed once it has a bucket here to issue: one still at a remote farm
-				# or on the truck can't be scanned yet.
-				if _not_here_yet(r, hub):
+				# or on the truck can't be scanned yet -- and, with a station, one at this
+				# station's farms (Karen's buckets are never issued at Kapkolia).
+				if _not_here_yet(r, hub) or (farms is not None and _row_farm(r) not in farms):
 					continue
 				opls_with_unissued.add(r.parent)
 
@@ -3002,12 +3181,18 @@ def getReadySaleOrderItems():
 				if r.stem_length:
 					lengths_by_opl.setdefault(r.parent, set()).add(r.stem_length)
 
-		# Fully issued orders stay listed (at the bottom), so the line can see them done.
+		# Fully issued orders stay listed (at the bottom), so the line can see them done --
+		# with a station, only where their stock was.
 		progress = _issue_progress(opl_names)
+		shorts = _short_info(opl_names)
+		stock_here = _stock_here(opl_names, location) if location else None
 		orders = []
 		for opl in ready_orders:
 			done = progress.get(opl.name) or {"total": 0, "issued": 0}
-			if opl.name not in opls_with_unissued and not (done["total"] and done["issued"] >= done["total"]):
+			finished = done["total"] and done["issued"] >= done["total"]
+			if stock_here is not None and finished and opl.name not in stock_here:
+				continue
+			if opl.name not in opls_with_unissued and not finished:
 				continue
 			orders.append(
 				{
@@ -3024,6 +3209,14 @@ def getReadySaleOrderItems():
 					"issued_buckets": done["issued"],
 					"total_buckets": done["total"],
 					"issued_pct": round(100.0 * done["issued"] / done["total"]) if done["total"] else 0,
+					# A draft listed here has buckets a farm marked not found: replace them, or
+					# complete the order short (completeOplShort).
+					"draft": 0 if opl.docstatus else 1,
+					**{
+						k: v
+						for k, v in (shorts.get(opl.name) or {}).items()
+						if k in ("not_found", "short_stems", "short_pct", "short_accepted")
+					},
 				}
 			)
 		# The Packhouse Schedule: each order's team and place (its latest schedule), the
@@ -3042,29 +3235,30 @@ def getReadySaleOrderItems():
 		# A team's next order is the lowest one on its schedule not fully issued -- drafts
 		# and submitted orders together, as the issue scan enforces -- not the lowest
 		# one in this (sales or remote) list.
-		# With a station, only its location's orders (drafts too) count: Karen's
-		# orders never wait behind Ravine's on a shared team schedule.
+		# Only the order's own location's orders (drafts too) count: Karen's orders never
+		# wait behind Ravine's on a shared team schedule.
 		nxt = {}
+		where = {}
 		parents = tuple({sc.parent for sc in sched.values()})
 		if parents:
-			for lo in frappe.db.sql(
-				"""SELECT pso.parent, pso.sequence,
+			team_rows = frappe.db.sql(
+				"""SELECT pso.parent, pso.order_pick_list, pso.sequence,
 				       SUM(IFNULL(pli.not_found, 0) = 0) AS total,
 				       SUM(IFNULL(pli.not_found, 0) = 0 AND IFNULL(pli.issued, 0) = 1) AS done
 				FROM `tabPackhouse Schedule Order` pso
 				JOIN `tabOrder Pick List` opl ON opl.name = pso.order_pick_list AND opl.docstatus < 2
-				     AND (%(all)s OR opl.sales_order IN %(s)s)
 				LEFT JOIN `tabPick List Item` pli ON pli.parent = pso.order_pick_list
 				     AND pli.parenttype = 'Order Pick List' AND COALESCE(pli.bucket, '') != ''
 				WHERE pso.parent IN %(p)s
 				GROUP BY pso.parent, pso.order_pick_list, pso.sequence""",
-				{"p": parents, "all": 0 if location else 1, "s": tuple(so_names) or ("",)},
+				{"p": parents},
 				as_dict=True,
-			):
-				if int(lo.done or 0) < int(lo.total or 0) and int(lo.sequence or 0) < nxt.get(
-					lo.parent, 10**9
-				):
-					nxt[lo.parent] = int(lo.sequence or 0)
+			)
+			where = _stock_locations([r.order_pick_list for r in team_rows] + [o["opl_name"] for o in orders])
+			for lo in team_rows:
+				k = (lo.parent, where.get(lo.order_pick_list))
+				if int(lo.done or 0) < int(lo.total or 0) and int(lo.sequence or 0) < nxt.get(k, 10**9):
+					nxt[k] = int(lo.sequence or 0)
 		bypass = frappe.utils.cint(frappe.get_cached_doc("Production Settings").get(SEQUENCE_BYPASS["issue"]))
 		# Only orders on the Packhouse Schedule are issued here -- with a station, its
 		# unscheduled orders are listed after them, so a schedule save that dropped
@@ -3075,9 +3269,10 @@ def getReadySaleOrderItems():
 			sc = sched.get(o["opl_name"])
 			o["schedule"] = int(sc.sequence or 0) if sc else 0
 			o["schedule_team"] = (sc.team if sc else "") or ""
-			o["is_next"] = bool(sc) and nxt.get(sc.parent) == o["schedule"]
-			# The team's earlier order not fully issued yet: this one can't be scanned.
-			first_open = nxt.get(sc.parent) if sc else None
+			k = (sc.parent, where.get(o["opl_name"])) if sc else None
+			o["is_next"] = bool(sc) and nxt.get(k) == o["schedule"]
+			# The team's earlier order (same location) not fully issued yet: this one can't be scanned.
+			first_open = nxt.get(k) if sc else None
 			o["waits_for"] = (
 				first_open
 				if not bypass and first_open and o["schedule"] > first_open and o["issued_pct"] < 100
@@ -3172,6 +3367,7 @@ def getReadySaleOrderItemsData():
 					"issued",
 					"awaiting_transfer",
 					"shelved",
+					"not_found",
 					"farm",
 					"source_warehouse",
 					"creation",
@@ -3184,9 +3380,17 @@ def getReadySaleOrderItemsData():
 				frappe.response["message"] = f"No pick list items found for order: {order_name}"
 			else:
 				packing_list = []
-				hub = _issue_hub()
+				# "Here" is the station's sales farm (?station=): at Karen a bucket picked
+				# from Kapkolia's shelves is not here. Without a station, the transfer hub.
+				st_loc, st_farm = _loading_location((frappe.form_dict.get("station") or "").strip())
+				hub = st_farm or _issue_hub()
+				st_farms = location_farms(st_loc) if st_loc else None
 
 				for pli in pick_list_items:
+					# Another location's bucket (a Karen order picked from Kapkolia, seen at
+					# Karen): that station issues it, not this one.
+					if st_farms is not None and _row_farm(pli) not in st_farms:
+						continue
 					so_item_info = None
 					try:
 						so_item_info = frappe.get_doc("Sales Order Item", pli.custom_sale_order_item)
@@ -3222,7 +3426,12 @@ def getReadySaleOrderItemsData():
 					}
 					# From a remote farm and not here yet: the app shows it waiting for
 					# transfer and the issue scan refuses it until it is shelved.
-					if _not_here_yet(pli, hub):
+					if pli.not_found:
+						# Marked not found at its farm: never coming -- replace it, or
+						# complete the order short.
+						packing_item["not_found"] = 1
+						packing_item["is_ready"] = False
+					elif _not_here_yet(pli, hub):
 						packing_item["waiting_transfer"] = 1
 						packing_item["transfer_farm"] = _row_farm(pli)
 
@@ -3295,6 +3504,11 @@ def getSchedulerData():
 			{"delivery_date": delivery_date},
 			as_dict=True,
 		)
+		# The station's location only (Karen and Ravine share teams, not orders).
+		location = _station_location()
+		if location:
+			where = _opl_locations([o["name"] for o in opls])
+			opls = [o for o in opls if where.get(o["name"]) == location]
 
 		opl_names = [o["name"] for o in opls]
 		items_map = {}
@@ -6107,6 +6321,11 @@ def getPackhouseDashboardData():
 			filters={"delivery_date": delivery_date, "docstatus": 1},
 			fields=["name", "customer", "custom_order_name", "custom_delivery_point", "farm"],
 		)
+		# The station's location only (Karen and Ravine share teams, not orders).
+		location = _station_location()
+		if location:
+			farms = location_farms(location)
+			sales_orders = [so for so in sales_orders if (so.farm or "") in farms]
 
 		orders_out = []
 		total_required = 0

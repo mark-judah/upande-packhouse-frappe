@@ -2291,6 +2291,11 @@ def opl_submit_blockers(opl):
 			)
 		)
 
+	# Completed short (buckets not found, no replacement): what is here is the order --
+	# the line's allocation no longer has to cover the rest.
+	if opl.get("short_accepted"):
+		return blockers
+
 	global_confirmed = _get_all_confirmed_stems(opl.sales_order)
 
 	# NOTE: Order Pick List's own fields are "mix_group"/"bunch_group" (no

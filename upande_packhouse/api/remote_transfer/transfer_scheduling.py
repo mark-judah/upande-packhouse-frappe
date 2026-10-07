@@ -172,6 +172,27 @@ def _mixed_label(m):
 	return "Straight box"
 
 
+def order_locations(opl_names):
+	"""opl -> its dispatch location (Loading Plan > Location: Ravine, Karen), from its
+	Sales Order's farm -- Karen's orders vs Kapkolia and the farms trucking to it."""
+	from upande_packhouse.mobile.api import dispatch_locations, location_farms
+
+	opl_names = [o for o in opl_names or [] if o]
+	if not opl_names:
+		return {}
+	locations = dispatch_locations()
+	farms = {loc: location_farms(loc) for loc in locations}
+	out = {}
+	for r in frappe.db.sql(
+		"""SELECT o.name, so.farm FROM `tabOrder Pick List` o
+		LEFT JOIN `tabSales Order` so ON so.name = o.sales_order WHERE o.name IN %(o)s""",
+		{"o": tuple(opl_names)},
+		as_dict=True,
+	):
+		out[r.name] = next((loc for loc in locations if (r.farm or "") in farms[loc]), "")
+	return out
+
+
 def _schedule_map(lookback_days=14):
 	# OPL -> {team, schedule} from the most recent Packhouse Schedule containing it
 	# (schedule membership only — NOT tied to the delivery-date window; a schedule is
@@ -2016,6 +2037,9 @@ def _transfer_schedule_payload(from_date, to_date):
 			}
 		)
 
+	where = order_locations([o["opl"] for o in orders] + [u.get("opl") for u in unscheduled])
+	for o in orders + unscheduled:
+		o["location"] = where.get(o.get("opl"), "")
 	return {
 		"success": True,
 		"orders": orders,

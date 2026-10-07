@@ -82,7 +82,7 @@
 (function(){
   var PATHS={{ rt_paths|tojson }};      // tab -> /remote-transfer/<slug>
   var GROUPS={{ rt_groups|tojson }};    // tab -> frame (routes/transfer/logistics share one)
-  var box=document.getElementById('rt-frames'), dateLbl=document.querySelector('.rt-date'), farmLbl=document.querySelector('.rt-farm:not(.rt-team)'), teamLbl=document.querySelector('.rt-team');
+  var box=document.getElementById('rt-frames'), dateLbl=document.querySelector('.rt-date'), farmLbl=document.querySelector('.rt-farm:not(.rt-team):not(.rt-location)'), teamLbl=document.querySelector('.rt-team'), locLbl=document.querySelector('.rt-location');
   var skel=document.getElementById('rt-skel');
   var frames={}, loaded={}, pending={}, refresh={}, view={}, cur=null, first=true;
 
@@ -119,6 +119,7 @@
     if(dateLbl) dateLbl.hidden = (tab==='journey');   // Bucket Journey has its own dates
     if(farmLbl) farmLbl.hidden = (tab!=='scheduler');  // only the Scheduler reads the farm filter
     if(teamLbl) teamLbl.hidden = (tab!=='scheduler' && tab!=='transfer');
+    if(locLbl) locLbl.hidden = (tab!=='scheduler' && tab!=='transfer');
   }
   function show(tab, push){
     var g=GROUPS[tab], f=frames[g], kept=!!f;

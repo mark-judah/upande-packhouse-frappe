@@ -238,6 +238,15 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .cap-bar.warn i{background:var(--warn)}.aph .cap-bar.over i{background:var(--bad)}
 .aph .torow{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--hairline);font-size:12px}
 .aph .torow .nm{font:600 12px var(--f);color:var(--ink)}
+.aph .ord-tripbar{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}
+.aph .ord-tripbtn{padding:6px 13px;border:1px solid var(--hairline);background:var(--bg);border-radius:999px;font:600 12px var(--f);color:var(--ink-2);cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+.aph .ord-tripbtn.on{background:var(--grad-ink);color:#fafaf6;border-color:transparent}
+.aph .ord-tripbtn .tc{font:700 10px var(--mono);background:rgba(10,10,10,.06);border-radius:8px;padding:0 6px}
+.aph .ord-tripbtn.on .tc{background:rgba(255,255,255,.2)}
+.aph .otag.trip-none{background:var(--bad-soft);color:var(--bad)}
+.aph .otag.trip-planned{background:var(--warn-soft);color:var(--warn)}
+.aph .otag.trip-dispatched{background:#e3ecfd;color:#1d4ed8}
+.aph .otag.trip-arrived{background:var(--good-soft);color:var(--good)}
 .aph .torow .sq{font:700 10px var(--mono);color:#fafaf6;background:var(--grad-ink);padding:1px 7px;border-radius:999px;white-space:nowrap}
 .aph .torow .fm{font:600 10px var(--mono);color:var(--ink-2);background:rgba(10,10,10,.05);padding:1px 7px;border-radius:999px}
 .aph .torow .b{margin-left:auto;font:600 11px var(--mono);color:var(--ink)}
@@ -1130,7 +1139,7 @@ function renderRouteBuilder(){
   var di=$('rb-date'); di.value=b.date;
   // The day's other routes come from the list, so the list follows the date picked.
   di.addEventListener('change',function(e){ if(!S.rb||!e.target.value||e.target.value===S.rb.date) return;
-    S.rb.date=S.rv.date=e.target.value; S.rv.routes=null; loadRoutes(); if(!S.rb.edit) loadRouteSources(); updateRouteBuilder(); });
+    S.rb.date=S.rv.date=e.target.value; S.rb.err=''; S.rv.routes=null; loadRoutes(); if(!S.rb.edit) loadRouteSources(); updateRouteBuilder(); });
   window.rtMountDate(di);   // Frappe's date picker
   if(S.rv.routes===null) loadRoutes();
   updateRouteBuilder();
@@ -1226,6 +1235,8 @@ function updateRouteBuilder(){
   var clash=b.vehicle&&routedOnDate[b.vehicle];
   if(!msg&&!b.date){ msg='Pick a date.'; cls='err'; }
   else if(!msg&&clash){ msg=b.vehicle+' already has a route on '+dayLabel(b.date).toLowerCase()+' — edit that one.'; cls='err'; }
+  // The server's refusal stays until the route is changed (a redraw used to wipe it).
+  if(!msg&&b.err){ msg=b.err; cls='err'; }
   var m=$('rb-msg'); m.textContent=msg; m.className=cls;
   var sv=$('rb-save'); sv.disabled=!!b.busy||!b.vehicle||!b.date||!n||L.gaps.length>0||emptyRun||!!clash; sv.textContent=b.busy?'Saving…':'Save route';
 }
@@ -1233,7 +1244,7 @@ function saveRouteBuilder(){
   var b=S.rb; if(!b||b.busy) return;
   var L=builderLegs(b.runs);
   if(!b.vehicle||!L.names.length||L.gaps.length) return;
-  b.busy=true; updateRouteBuilder();
+  b.busy=true; b.err=''; updateRouteBuilder();
   var d=b.date, args={vehicle:b.vehicle,legs:L.names.join('|~|'),from_datetime:d+' 00:00:00',to_datetime:d+' 23:59:59'};
   if(b.edit) args.name=b.edit; else args['new']=1;
   call('saveBucketLogisticsRoute',args).then(function(r){
@@ -1242,8 +1253,8 @@ function saveRouteBuilder(){
       toast('Route saved — '+b.vehicle+' '+dayLabel(d).toLowerCase()+' · '+Number(m.total_km||0).toFixed(1)+' km');
       S.rv.date=d; S.rv.routes=null; S.rb=null; S.rv.view='list'; $('panel-routes').innerHTML='';
       renderRoutes(); loadData();
-    } else { b.busy=false; var e=$('rb-msg'); if(e){ e.textContent=m.message||'Could not save the route'; e.className='err'; } updateRouteBuilder(); }
-  }).catch(function(err){ b.busy=false; toast('Failed: '+((err&&err.message)||'')); updateRouteBuilder(); });
+    } else { b.busy=false; b.err=m.message||'Could not save the route'; updateRouteBuilder(); }
+  }).catch(function(err){ b.busy=false; b.err='Could not save the route: '+((err&&err.message)||'request failed'); updateRouteBuilder(); });
 }
 
 /* The road network truck routes are built from (Farm Distance). A farm can only be
@@ -1344,6 +1355,7 @@ function removeRoad(name){
 }
 function render(){
   if(window.rtTeam){ var tm={}; (DATA.orders||[]).forEach(function(o){ if(o.team) tm[o.team]=1; }); window.rtTeam.options(Object.keys(tm)); }
+  if(window.rtLocation){ var lc={}; (DATA.orders||[]).forEach(function(o){ if(o.location) lc[o.location]=1; }); window.rtLocation.options(Object.keys(lc)); }
   document.querySelectorAll('.ts-tab').forEach(function(b){ b.classList.toggle('on', b.dataset.tab===S.tab); });
   renderAutoBanner();
   // Keep the tab in the URL (refresh/bookmark reopen it) and in the sidebar's
@@ -1876,7 +1888,14 @@ function renderOrders(){
   if(!DATA.orders.length){ $('panel-orders').innerHTML=bar+alerts+'<div class="ts-empty">No scheduled orders need transferring in this delivery window. Schedule orders in the packhouse-scheduler first.</div>'; return; }
   // Every scheduled order stays listed under its team's schedule; one already on a
   // truck carries a "distributed" badge instead of dropping off the list.
-  var open=DATA.orders.slice();
+  var loc=curLocation();
+  var open=DATA.orders.filter(function(o){ return !loc || o.location===loc; });
+  // Trip status filter: All · No trip · On a planned trip · Dispatched · Arrived.
+  var tc={}; open.forEach(function(o){ var k=orderTripState(o,onTrip).k; tc[k]=(tc[k]||0)+1; });
+  var tf=S.ordTrip||'all';
+  var tripBar='<div class="ord-tripbar">'+TRIP_STATE.map(function(x){ var c=x[0]==='all'?open.length:(tc[x[0]]||0);
+    return '<button class="ord-tripbtn'+(tf===x[0]?' on':'')+'" data-act="ord-trip" data-k="'+x[0]+'">'+x[1]+' <span class="tc">'+c+'</span></button>'; }).join('')+'</div>';
+  if(tf!=='all') open=open.filter(function(o){ return orderTripState(o,onTrip).k===tf; });
   var groups=[], gmap={};
   open.forEach(function(o){
     var tm=o.team||'Unscheduled';
@@ -1896,7 +1915,28 @@ function renderOrders(){
       '<span class="pl-team-sub">Schedule · '+g.orders.length+' order'+(g.orders.length===1?'':'s')+' · '+n(sb)+' / '+n(tb)+' buckets on a truck</span></div>'+
       '<div class="pl-list">'+rows+'</div></div>';
   }).join('');
-  $('panel-orders').innerHTML=alerts+bar+html;
+  $('panel-orders').innerHTML=alerts+bar+tripBar+html;
+}
+/* Where an order stands with the trucks: 'none' (buckets at a farm, no trip),
+   'planned' (on a trip still being filled at the hub), 'dispatched' (its truck has left
+   for the farm, or the buckets are on the road), 'arrived' (all at the packhouse). */
+var TRIP_STATE=[['all','All'],['none','No trip'],['planned','On a planned trip'],['dispatched','Dispatched'],['arrived','Arrived']];
+function orderTripState(o,onTrip){
+  var byName={}; (DATA.trips||[]).forEach(function(t){ byName[t.name]=t; });
+  var trips=[], seen={};
+  (o.farms||[]).forEach(function(f){ var tn=onTrip[pkey(o.opl,f.farm)]; if(tn&&!seen[tn]&&byName[tn]){ seen[tn]=1; trips.push(byName[tn]); } });
+  var road=(o.on_road_buckets||0)>0 || (o.farms||[]).some(function(f){ return f.on_road; });
+  var open=openTotal(o);
+  var k=!(o.total_buckets||0)&&!road?'arrived'
+    :trips.some(function(t){ return t.status==='Draft'; })?'planned'
+    :(trips.length||road)?'dispatched':'none';
+  return {k:k, trips:trips, open:open};
+}
+function tripStateTag(st){
+  var trips=st.trips.map(function(t){ return esc(t.vehicle||t.name)+(st.k==='planned'?' '+(t.total_buckets||0)+'/'+(t.capacity_buckets||'—'):''); }).join(', ');
+  var lbl={none:'No trip',planned:'Planned',dispatched:'Dispatched',arrived:'Arrived'}[st.k];
+  var more=st.k!=='none'&&st.k!=='arrived'&&st.open>0?' · '+n(st.open)+' bkt no trip':'';
+  return '<span class="otag trip-'+st.k+'">'+lbl+(trips?' · '+trips:'')+more+'</span>';
 }
 function orderRow(o,onTrip,tripVeh){
   tripVeh=tripVeh||{};
@@ -1923,7 +1963,7 @@ function orderRow(o,onTrip,tripVeh){
       (vs?'<span class="fc-vs">'+esc(vs)+'</span>':'')+road+asapTag+lbTag+'</span>';
   }).join('');
   var tripsOn=[], seenT={}; o.farms.forEach(function(f){ var tn=onTrip[pkey(o.opl,f.farm)]; if(tn&&!seenT[tn]){ seenT[tn]=1; tripsOn.push(tn); } });
-  var tags=[];
+  var tags=[tripStateTag(orderTripState(o,onTrip))];
   if(sched>0 && !planned){
     var left=o.total_buckets-sched;
     var onWhich=tripsOn.map(function(tn){ return (tripVeh[tn]||'')+(tripVeh[tn]?' · ':'')+tn; }).join(', ');
@@ -2450,10 +2490,11 @@ function renderTripList(){   // "Trips" tab — VIEW ONLY: every trip as a read-
   function tripFarms2(orders){ var seen={}, out=[]; (orders||[]).forEach(function(r){ if(r.farm && !seen[r.farm]){ seen[r.farm]=1; out.push(r.farm); } }); return out; }
   /* Only this delivery window's transfers: a trip shows when it carries orders due in
      it, and its card lists just those orders — other days' never mix in. */
-  var team=curTeam(), teamOf={};
-  if(team) DATA.orders.forEach(function(o){ teamOf[o.opl]=o.team||''; });
+  var team=curTeam(), loc=curLocation(), teamOf={}, locOf={};
+  DATA.orders.forEach(function(o){ teamOf[o.opl]=o.team||''; locOf[o.opl]=o.location||''; });
   var trips=DATA.trips.map(function(t){
-    var mine=(t.orders||[]).filter(function(o){ return o.delivery_date && o.delivery_date>=S.from && o.delivery_date<=S.to && (!team || teamOf[o.order_pick_list]===team); });
+    var mine=(t.orders||[]).filter(function(o){ return o.delivery_date && o.delivery_date>=S.from && o.delivery_date<=S.to &&
+      (!team || teamOf[o.order_pick_list]===team) && (!loc || locOf[o.order_pick_list]===loc); });
     return mine.length?Object.assign({},t,{orders:mine}):null;
   }).filter(Boolean);
   var ordered=trips.sort(function(a,b){ return (b.trip_date||'').localeCompare(a.trip_date||'')||(a.vehicle||'').localeCompare(b.vehicle||'')||((a.run||99)-(b.run||99)); });
@@ -2477,6 +2518,7 @@ function renderTripList(){   // "Trips" tab — VIEW ONLY: every trip as a read-
 
 document.addEventListener('click',function(ev){
   var el=ev.target.closest('[data-act]'); if(!el) return; var a=el.dataset.act;
+  if(S.rb && a.indexOf('rb-')===0 && a!=='rb-save') S.rb.err='';   // the route changed: an old refusal no longer applies
   if(a==='tab'){ S.tab=el.dataset.tab; render(); }
   else if(a==='distribute'){ distributeAction(); }
   else if(a==='dist-run'){ if(el.checked) delete S.offRuns[el.dataset.key]; else S.offRuns[el.dataset.key]=1; if(S.dist){ var nd=computeDistribution(); nd.shortQty={}; S.dist=nd; renderDistModal(); } }
@@ -2541,6 +2583,7 @@ document.addEventListener('click',function(ev){
   else if(a==='rn-del'){ removeRoad(el.dataset.name); }
   else if(a==='trip-edit'){ openTripEdit(el.dataset.trip); }
   else if(a==='trip-dispatch'){ if(!el.disabled) dispatchTrip(el.dataset.trip); }
+  else if(a==='ord-trip'){ S.ordTrip=el.dataset.k; renderOrders(); }
   else if(a==='te-x'){ closeTripEdit(); }
   else if(a==='te-rm'){ if(S.te&&!el.disabled){ S.te.rows[+el.dataset.i].n=0; renderTripEdit(); } }
   else if(a==='te-save'){ if(!el.disabled) saveTripEdit(); }
@@ -2576,9 +2619,11 @@ document.addEventListener('mousedown',function(e){ if(S.rn&&S.rn.dd&&!e.target.c
   document.querySelectorAll('.rn-dd.open').forEach(function(d){ d.classList.remove('open'); var p=d.querySelector('.rn-dd-pop'); if(p) p.remove(); }); } });
 /* The section's delivery date (top bar) drives planning and Bucket Logistics; truck
    routes have their own day (‹ › on the Truck routes tab). */
-/* The section's Team filter (top bar) narrows Scheduled orders and Trips. */
+/* The section's Location and Team filters (top bar) narrow Scheduled orders and Trips. */
 function curTeam(){ return (window.rtTeam&&window.rtTeam.get())||''; }
+function curLocation(){ return (window.rtLocation&&window.rtLocation.get())||''; }
 if(window.rtTeam) window.rtTeam.on(function(){ render(); });
+if(window.rtLocation) window.rtLocation.on(function(){ render(); });
 window.rtDate.on(function(v){
   S.from=S.to=v; S.skel=true;
   loadData();
