@@ -1,0 +1,2269 @@
+{% extends "templates/web.html" %}
+{% block title %}Sales Order · Packhouse{% endblock %}
+{% block page_content %}
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
+<!-- Shared "Fill Order from Spec" popup -- the exact same file Desk loads via
+     hooks.py's doctype_js, so this dashboard and the Sales Order form can't
+     drift into two different spec-fill experiences. Not forked: v2 only calls
+     window.upande_open_spec_fill_overlay. Its backdrop is appended to <body>
+     at z-index 2147483002, above the v2 shell (.ph2, z-index 1000). -->
+<script src="/assets/upande_packhouse/js/sales_order/spec_fill_dialog.js"></script>
+
+<button type="button" class="ph-backbtn" id="so-back" hidden>&larr; All orders</button>
+<header class="ph-head">
+  <div>
+    <div class="ph-head__eyebrow">Packhouse · Stock &amp; Orders</div>
+    <h1 class="ph-head__title" id="so-title">Sales Order</h1>
+    <p class="ph-head__sub" id="so-sub">Create and edit Roses orders — priced, validated and packed exactly like the Desk form.</p>
+  </div>
+  <div class="ph-head__tools" id="so-tools"></div>
+</header>
+
+<div id="so-err" data-so-err></div>
+
+<!-- ── List view ── -->
+<div id="v-list">
+  <div class="ph-filters">
+    <div class="ph-pills" id="f-region" title="Order farm"></div>
+    <div class="ph-pills" id="f-status">
+      <button data-value="all" title="Draft + submitted (cancelled orders excluded)">All</button><button data-value="draft">Draft</button><button data-value="submitted">Submitted</button><button data-value="cancelled">Cancelled</button>
+    </div>
+    <div class="ph-pills" id="f-rose" aria-label="Rose type">
+      <button data-value="all">All roses</button><button data-value="standard">Standards</button><button data-value="spray">Sprays</button>
+    </div>
+    <select class="ph-select" id="f-team" aria-label="Team" title="Team on the order's pick list"><option value="">All teams</option></select>
+    <input class="ph-input" id="f-customer" type="search" placeholder="Any customer" aria-label="Customer">
+    <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Order, customer or PO"></label>
+    <div class="ph-filters__spacer"></div>
+    <div class="ph-pills" id="f-preset">
+      <button data-value="all">All dates</button><button data-value="30d">30 days</button><button data-value="7d">7 days</button><button data-value="today">Today</button><button data-value="next7">Next 7 days</button>
+    </div>
+    <label class="ph-daterange" title="Delivery date range">
+      <span>Delivery</span><input type="date" id="f-from" aria-label="Delivery from"><span class="ph-daterange__sep">→</span><input type="date" id="f-to" aria-label="Delivery to">
+    </label>
+  </div>
+  <section class="ph-kpis" id="kpis"></section>
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head">
+      <h2 class="ph-card__title">Roses sales orders <span class="ph-badge" id="list-count">0</span></h2>
+      <div class="ph-card__tools">
+        <span class="ph-card__meta" id="list-meta"></span>
+        <button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" id="list-export">Export CSV</button>
+      </div>
+    </div>
+    <div id="so-table"></div>
+  </section>
+</div>
+
+<!-- ── Editor view (the same editor body also renders inside the import
+     wizard's "Review & fix" modal) ── -->
+<div id="v-edit" hidden></div>
+
+<!-- ── Import wizard ── -->
+<div id="v-import" hidden></div>
+
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
+<style>
+  /* Sales Order line ledger: one block per box/bunch line (structure on the
+     left, its variety rows on the right) + the import wizard's mapping grids.
+     Grids instead of tables so the variety/field pickers' dropdowns are never
+     clipped by a scrolling table wrapper. */
+  .ph2 .so-lines{display:flex;flex-direction:column;gap:var(--sp-4)}
+  .ph2 .so-line__grid{display:grid;grid-template-columns:minmax(240px,300px) minmax(0,1fr);gap:var(--sp-6);align-items:start}
+  .ph2 .so-line__side{display:flex;flex-direction:column;gap:var(--sp-3);min-width:0}
+  .ph2 .so-line__side .ph-form{gap:var(--sp-3)}
+  .ph2 .so-line .ph-pills,.ph2 #v-import .ph-pills{max-width:100%;overflow-x:auto;scrollbar-width:none}
+  .ph2 .so-line__sub{padding-top:var(--sp-3);border-top:1px solid var(--hairline)}
+  .ph2 .so-row{display:grid;grid-template-columns:minmax(0,1fr) 96px 64px 80px 32px;gap:var(--sp-3);align-items:center;padding:var(--sp-2) 0;border-bottom:1px solid var(--hairline)}
+  .ph2 .so-row:last-child{border-bottom:0}
+  .ph2 .so-row--head{padding-top:0}
+  .ph2 .so-num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .ph2 .so-row__variety{min-width:0;display:flex;flex-direction:column;gap:var(--sp-1);align-items:stretch}
+  .ph2 .so-row__variety .ph-ac{width:100%}
+  .ph2 .so-addbar{display:flex;flex-wrap:wrap;gap:var(--sp-2);margin-top:var(--sp-4)}
+  .ph2 .so-actions{display:flex;justify-content:space-between;align-items:center;gap:var(--sp-3);flex-wrap:wrap;margin-top:var(--sp-5)}
+  .ph2 .so-map{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) minmax(0,1.4fr) minmax(0,1fr) 72px;gap:var(--sp-3);align-items:center;padding:var(--sp-2) 0;border-bottom:1px solid var(--hairline)}
+  .ph2 .so-map:last-child{border-bottom:0}
+  .ph2 .so-map.so-cmap{grid-template-columns:minmax(0,1fr) minmax(0,2fr)}
+  .ph2 .so-map.so-imap{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 32px}
+  .ph2 .so-flat__row{display:grid;grid-template-columns:minmax(0,1fr) auto 88px 88px;gap:var(--sp-3);align-items:center;padding:var(--sp-2) 0}
+  .ph2 .so-search{display:flex;width:100%;min-width:0}
+  .ph2 .so-rmv{display:flex;flex-direction:column;gap:var(--sp-2);padding:var(--sp-3) 0;border-top:1px dashed var(--hairline-2)}
+  .ph2 .so-rmv .ph-ac{flex:1 1 220px;min-width:0}
+  @media (max-width:760px){
+    .ph2 .so-line__grid{grid-template-columns:minmax(0,1fr)}
+    .ph2 .so-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 32px}
+    .ph2 .so-row>.so-row__variety,.ph2 .so-row--head>:first-child{grid-column:1/-1}
+    .ph2 .so-hide-sm{display:none}
+    .ph2 .so-map,.ph2 .so-map.so-cmap{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+    .ph2 .so-map--head{display:none}
+    .ph2 .so-map>.so-map__wide{grid-column:1/-1}
+    .ph2 .so-flat__row{grid-template-columns:minmax(0,1fr) 72px 72px}
+    .ph2 .so-flat__row .ph-badge{display:none}
+  }
+</style>
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  const API = "upande_packhouse.api.sales_order.";
+  const IMPORT_API = "upande_packhouse.api.order_import.";
+  const esc = PH.esc;
+  const vList = document.getElementById("v-list");
+  const vEdit = document.getElementById("v-edit");
+  const vImport = document.getElementById("v-import");
+
+  /* view: list | edit | import. ?name=SO-… deep-links straight into the
+     editor; ?view=edit (no name) opens a blank new order; ?view=import the
+     import wizard. Every list filter (region, status, rose, team, customer,
+     q, delivery from/to) goes to api/v2/sales_order.get_sales_orders, which
+     returns the rows AND the KPIs for the full filtered set. */
+  const st = PH.state({ view: "list", name: "", q: "", status: "all", customer: "", region: "", rose: "all", team: "", from: "", to: "" });
+
+  /** Server call that never rejects: resolves with r.message, or with
+   *  {success:false, error} on a transport/server failure -- the same
+   *  contract the original page's apiCall/apiGet callbacks had. */
+  function call(method, args, get) {
+    return PH.call(method, args || {}, { silent: true, type: get ? "GET" : "POST" }).then(
+      (m) => (m == null ? {} : m),
+      (e) => Object.assign({ success: false, error: (e && e.message) || "Request failed" }, (e && e.response) || {})
+    );
+  }
+  function nOr0(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
+  const searchCustomers = (q) =>
+    call("upande_packhouse.api.specifications.searchCustomers", { query: q }, true).then((r) =>
+      (r.customers || []).map((c) => ({ value: c.name, label: c.customer_name || c.name, description: c.customer_name && c.customer_name !== c.name ? c.name : "" })));
+  const searchVarieties = (q) =>
+    call(API + "searchOrderVarieties", { query: q }, true).then((r) =>
+      (r.varieties || []).map((v) => ({ value: v.name, label: v.name, hasUom: !!v.sales_uom, description: v.sales_uom ? (v.custom_color || "") : "No Sales UOM" })));
+
+  /* ---------- state (same model as the original page) ---------- */
+  let ORDERS = [];
+  let CURRENT = null;         // header fields, plain object
+  let MANUAL_CARDS = [];      // [{id, mixed_box, mixed_bunch, length, box_type, boxes, bunches_per_box, rows:[{variety,item_name,stems_per_bunch,no_sales_uom}]}]
+  let SPEC_ROWS = [];         // flat rows already shaped by spec_autofill.build_spec_rows, tagged _batch_id/_spec (or _saved for rows loaded from the order)
+  let OPTIONS = { stem_lengths: [], box_types: [], warehouses: [], currencies: [], default_warehouse: "" };
+  let SAVING = false;
+  let DIRTY = false;
+  let CARD_SEQ = 1;
+  let RATE_CACHE = {};        // "item|length" -> rate (preview only)
+  let EDIT_HOST = null;       // element the editor body lives in: #v-edit, or the Review & fix modal body
+  let REVIEW_MODAL = null;
+
+  // ---------- import state ----------
+  let CATALOG = { sales_order_fields: [], sales_order_item_fields: [] };
+  let IMPORT_MODE = "single"; // 'single' (one customer owns the whole file) | 'shared' (several customers in one file)
+  let IMPORT_CUSTOMER = null; // single mode
+  let IMPORT_EXISTING = null; // getCustomerImportSetup's result for IMPORT_CUSTOMER, or null if never set up before
+  let IMPORT_SHARED_PLATFORMS = []; // shared mode: listSharedPlatforms' result, for the "which source is this" picker
+  let IMPORT_SHARED_PLATFORM_NAME = null; // shared mode: an existing platform picked, or null for "+ New source"
+  let IMPORT_NEW_SOURCE_NAME = ""; // shared mode: user-typed name when not reusing an existing platform
+  let IMPORT_DIFFERENTIATOR_COLUMN = null; // shared mode: which real file column tells customers apart
+  let IMPORT_CUSTOMER_MAP = []; // shared mode: [{differentiator_value, customer:{name,label}|null, defaults, item_code_mapping}]
+  let IMPORT_MAPPING_ROWS = []; // [{source_column, target_doctype, target_fieldname, default_value}] - one per real file column
+  let IMPORT_SPLIT_COLUMN = null; // which file column separates one order from the next
+  let IMPORT_DEFAULTS = {}; // single mode only - shared mode keeps defaults per customer, on IMPORT_CUSTOMER_MAP
+  let IMPORT_ITEM_CODE_MAPPING = []; // single mode only - see above
+  let IMPORT_QUEUE = [];      // [{header:{}, rows:[{}], unresolved_items:[], default_warehouse, status, order_name, error}]
+  let IMPORT_RETURNING_INDEX = null; // set when "Review & fix" was opened from a failed queue item
+  let IMPORT_SUBVIEW = "file"; // 'file' | 'who' | 'mapping' | 'queue'
+  let IMPORT_FILE_HEADER = null;
+  let IMPORT_FILE_ROWS = null;
+
+  /* ---------- errors ----------
+     Every validation failure goes through showErr(msg): an inline notice
+     (mirrored into the Review & fix modal when it is open, since the page
+     notice sits behind it) AND a long-lived toast, so a validation error is
+     never missed. */
+  function showErr(msg) {
+    PH.$$("[data-so-err]").forEach((el) =>
+      PH.set(el, msg ? `<div class="ph-notice ph-notice--bad">${PH.icon("alert")}<span>${esc(msg)}</span></div>` : ""));
+    if (msg) PH.toast(msg, "bad", 12000);
+  }
+
+  /* ---------- head / views ---------- */
+  function setHead(title, sub) { PH.text("#so-title", title); PH.text("#so-sub", sub); }
+  function setTools(html) { PH.set("#so-tools", html); }
+  function currentView() {
+    const s = st.get();
+    return s.name && s.view !== "import" ? "edit" : s.view;
+  }
+  function showView(v) {
+    vList.hidden = v !== "list";
+    vEdit.hidden = v !== "edit";
+    vImport.hidden = v !== "import";
+    document.getElementById("so-back").hidden = v === "list";
+  }
+  function route() {
+    const v = currentView();
+    showView(v);
+    showErr("");
+    if (v === "edit") return openEditor(st.get("name") || null);
+    if (v === "import") return openImportWizard();
+    return enterList();
+  }
+  function goList() { if (currentView() === "list") enterList(); else st.set({ view: "list", name: "" }); }
+  function goEditor(name) {
+    if (currentView() === "edit" && st.get("name") === (name || "")) openEditor(name || null);
+    else st.set({ view: "edit", name: name || "" });
+  }
+  /** Show an editor whose content was set directly (duplicate / restore). */
+  function showEditorNow() {
+    st.set({ view: "edit", name: "" }, { silent: true });
+    showView("edit");
+    renderEditor();
+  }
+
+  /* ---------- boot ---------- */
+  function boot() {
+    call(API + "getSalesOrderOptions", {}, true).then((r) => {
+      if (r.success) OPTIONS = { stem_lengths: r.stem_lengths || [], box_types: r.box_types || [], warehouses: r.warehouses || [], currencies: r.currencies || [], default_warehouse: r.default_warehouse || "" };
+      route();
+    });
+  }
+
+  /* =================== LIST =================== */
+  let listSeq = 0;
+  let LIST = { kpis: {}, total: 0, truncated: false, line_filtered: false };
+  PH.kpiSkeleton("#kpis", ["Orders", "Drafts", "Boxes", "Stems"]);
+  PH.regionPills("#f-region", st, "region");
+  PH.pills("#f-status", st, "status");
+  PH.pills("#f-rose", st, "rose");
+  PH.bindSelect("#f-team", st, "team");
+  PH.bindSearch("#f-q", st, "q");
+  PH.dateRange({ pills: "#f-preset", from: "#f-from", to: "#f-to", state: st });
+  /* "All dates" is not a PH.date preset: clear the range ourselves and paint
+     its pill after PH.dateRange's own paint. */
+  const allDatesBtn = document.querySelector('#f-preset [data-value="all"]');
+  allDatesBtn.addEventListener("click", () => st.set({ from: "", to: "" }));
+  const paintAllDates = (s) => allDatesBtn.classList.toggle("is-on", !s.from && !s.to);
+  st.on(paintAllDates);
+  paintAllDates(st.get());
+  const fCustomer = document.getElementById("f-customer");
+  fCustomer.value = st.get("customer");
+  PH.autocomplete(fCustomer, { source: searchCustomers, onSelect: (it) => st.set({ customer: it.value }) });
+  fCustomer.addEventListener("input", () => { if (!fCustomer.value.trim() && st.get("customer")) st.set({ customer: "" }); });
+
+  const statusBadge = (ds) => ds === 1 ? '<span class="ph-badge ph-badge--good">Submitted</span>'
+    : ds === 2 ? '<span class="ph-badge">Cancelled</span>' : '<span class="ph-badge ph-badge--warn">Draft</span>';
+  /* Boxes / Stems / Value are server roll-ups (core boxes + units) of the
+     order's lines that match the rose / team / region filters. */
+  const LIST_COLS = [
+    { key: "name", label: "Order", cls: "is-strong" },
+    { key: "customer", label: "Customer" },
+    { key: "transaction_date", label: "Ordered", format: (v) => PH.fmt.date(v) },
+    { key: "delivery_date", label: "Delivery", format: (v) => PH.fmt.date(v) },
+    { key: "farm", label: "Farm", format: (v) => v || "—" },
+    { key: "boxes", label: "Boxes", num: true, total: true },
+    { key: "stems", label: "Stems", num: true, total: true },
+    { key: "value", label: "Value", num: true, format: (v, r) => PH.fmt.money(v || 0, r.currency) },
+    { key: "docstatus", label: "Status", html: (v) => statusBadge(v) },
+    { key: "modified", label: "Modified", format: (v) => PH.fmt.ago(v) || "—" },
+  ];
+  const tableCfg = { columns: LIST_COLS, rows: [], pageSize: 50, empty: "No sales orders", emptyText: "", onRowClick: (r) => goEditor(r.name) };
+  let table = null;
+
+  function enterList() {
+    setHead("Sales Order", "Create and edit Roses orders — priced, validated and packed exactly like the Desk form.");
+    setTools(`<button type="button" class="ph-btn" data-act="import">Import orders…</button>
+      <button type="button" class="ph-btn" data-act="paste">Paste order…</button>
+      <button type="button" class="ph-btn ph-btn--primary" data-act="new">${PH.icon("plus")} New order</button>`);
+    IMPORT_RETURNING_INDEX = null; // leaving the editor any other way than a successful Review & fix save abandons that link back to the queue
+    EDIT_HOST = null;
+    if (fCustomer.value !== st.get("customer")) fCustomer.value = st.get("customer");
+    return loadList();
+  }
+  function listArgs() {
+    const s = st.get();
+    return { status: s.status, customer: s.customer, q: s.q, region: s.region, rose: s.rose, team: s.team, from_date: s.from, to_date: s.to };
+  }
+  function loadList(background) {
+    const my = ++listSeq;
+    if (!background) { PH.loadingKpis("#kpis", true); PH.skeleton("#so-table", "rows", 8); }
+    return call("upande_packhouse.api.v2.sales_order.get_sales_orders", listArgs(), true).then((r) => {
+      if (my !== listSeq) return;
+      if (!r.success) {
+        ORDERS = [];
+        PH.loadingKpis("#kpis", false);
+        PH.error("#so-table", r.error || "Could not load orders.", () => loadList());
+        return;
+      }
+      ORDERS = r.orders || [];
+      LIST = { kpis: r.kpis || {}, total: r.total || 0, truncated: !!r.truncated, line_filtered: !!r.line_filtered };
+      const teamSel = document.getElementById("f-team");
+      if (teamSel.options.length <= 1) PH.options("#f-team", r.teams || [], st.get("team"));
+      renderList();
+      PH.markUpdated();
+    });
+  }
+  function renderList() {
+    const rows = ORDERS;
+    const s = st.get();
+    const k = LIST.kpis;
+    const scope = [
+      s.team ? s.team : "",
+      s.rose !== "all" ? (s.rose === "spray" ? "sprays" : "standards") : "",
+    ].filter(Boolean).join(" · ");
+    const statusTxt = s.status === "all" ? "draft + submitted" : s.status;
+    const draftNote = (n) => (k.drafts && s.status === "all" ? `incl. ${PH.fmt.num(n)} in drafts` : statusTxt);
+    PH.kpis("#kpis", [
+      { label: "Orders", value: k.orders || 0, unit: PH.date.label(s.from, s.to) + " · " + statusTxt },
+      { label: "Drafts", value: k.drafts || 0, unit: "not yet submitted", onClick: () => st.set({ status: s.status === "draft" ? "all" : "draft" }), active: s.status === "draft" },
+      { label: "Boxes", value: k.boxes || 0, unit: (scope ? scope + " lines · " : "") + draftNote(k.draft_boxes || 0) },
+      { label: "Stems", value: k.stems || 0, unit: (scope ? scope + " lines · " : "") + draftNote(k.draft_stems || 0) },
+    ]);
+    PH.text("#list-count", PH.fmt.num(LIST.total));
+    PH.text("#list-meta", (LIST.truncated ? `${PH.fmt.num(rows.length)} most recently modified shown · KPIs cover all ${PH.fmt.num(LIST.total)}` : "Newest first")
+      + (LIST.line_filtered ? " · figures count matching lines only" : ""));
+    const filtered = !!(s.q || s.customer || s.status !== "all" || s.region || s.team || s.rose !== "all" || s.from || s.to);
+    tableCfg.empty = filtered ? "No orders match these filters" : "No sales orders yet";
+    tableCfg.emptyText = filtered
+      ? (s.team ? "Team follows the order's pick list — orders not yet allocated have none. " : "") + "Widen the filters to see more orders."
+      : "Click “New order” to build one.";
+    tableCfg.rows = rows;
+    if (!table) table = PH.table("#so-table", tableCfg);
+    else table.update(rows);
+  }
+  document.getElementById("list-export").addEventListener("click", () => {
+    const rows = ORDERS;
+    if (!rows.length) return PH.toast("Nothing to export", "warn");
+    PH.csv("sales-orders.csv", rows, [
+      { key: "name", label: "Order" }, { key: "customer", label: "Customer" },
+      { key: "transaction_date", label: "Order date" }, { key: "delivery_date", label: "Delivery date" },
+      { key: "po_no", label: "PO" }, { key: "farm", label: "Farm" }, { key: "team", label: "Team" },
+      { key: "boxes", label: "Boxes" }, { key: "stems", label: "Stems" },
+      { key: "value", label: "Value (net)" }, { key: "currency", label: "Currency" },
+      { key: "docstatus", label: "Status", csv: (v) => (v === 1 ? "Submitted" : v === 2 ? "Cancelled" : "Draft") },
+    ]);
+  });
+
+  const LIST_KEYS = ["q", "customer", "status", "region", "rose", "team", "from", "to"];
+  st.on((s, changed) => {
+    if (changed.includes("view") || changed.includes("name")) return route();
+    if (currentView() !== "list") return;
+    if (changed.some((c) => LIST_KEYS.includes(c))) {
+      if (fCustomer.value !== s.customer) fCustomer.value = s.customer;
+      loadList();
+    }
+  });
+
+  /* head tools + back button */
+  document.getElementById("so-tools").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-act]");
+    if (!b) return;
+    const a = b.dataset.act;
+    if (a === "new") goEditor(null);
+    else if (a === "import") st.set({ view: "import", name: "" });
+    else if (a === "paste") openRestoreModal();
+    else if (a === "desk" && CURRENT && CURRENT.name) PH.openDoc("Sales Order", CURRENT.name);
+  });
+  document.getElementById("so-back").addEventListener("click", () => {
+    if (currentView() === "edit" && DIRTY && CURRENT && CURRENT.docstatus === 0) {
+      PH.confirm("Leave this order?", "Unsaved changes on this order will be lost.", { ok: "Leave", danger: true }).then((ok) => ok && goList());
+    } else goList();
+  });
+
+  /* =================== EDITOR =================== */
+  let edSeq = 0;
+  function blankOrder() {
+    return {
+      name: null, docstatus: 0, customer: "", transaction_date: PH.date.today(),
+      delivery_date: "", currency: "", selling_price_list: "",
+      custom_consignee: "", custom_delivery_point: "", custom_shipping_agent: "",
+      custom_s_number: "", custom_truck_details: "", custom_order_name: "", set_warehouse: OPTIONS.default_warehouse || "",
+    };
+  }
+  function openEditor(name) {
+    SPEC_ROWS = []; MANUAL_CARDS = []; CARD_SEQ = 1; DIRTY = false;
+    IMPORT_RETURNING_INDEX = null; // a normal, non-import editor session (openOrderReviewModal sets CURRENT/MANUAL_CARDS directly and never calls openEditor)
+    const my = ++edSeq;
+    if (!name) {
+      CURRENT = blankOrder();
+      showErr("");
+      renderEditor();
+      return Promise.resolve();
+    }
+    setHead(name, "Loading…");
+    setTools("");
+    PH.skeleton(vEdit, "block", 8);
+    return call(API + "getSalesOrder", { name }, true).then((r) => {
+      if (my !== edSeq) return;
+      if (!r.success) {
+        setHead(name, "Could not load this order");
+        PH.error(vEdit, r.error || "Could not load that order.", () => openEditor(name));
+        return;
+      }
+      const o = r.order;
+      CURRENT = {
+        name: o.name, docstatus: o.docstatus, customer: o.customer,
+        transaction_date: o.transaction_date, delivery_date: o.delivery_date,
+        currency: o.currency, selling_price_list: o.selling_price_list,
+        custom_consignee: o.custom_consignee, custom_delivery_point: o.custom_delivery_point,
+        custom_shipping_agent: o.custom_shipping_agent, custom_s_number: o.custom_s_number,
+        custom_truck_details: o.custom_truck_details,
+        // getSalesOrder returns these two; the original page left them out of
+        // CURRENT, so they showed blank on a saved order. Sending them back
+        // unchanged on save is a no-op.
+        custom_order_name: o.custom_order_name, po_no: o.po_no,
+        set_warehouse: o.set_warehouse || OPTIONS.default_warehouse || "",
+      };
+      // Existing rows all render read-only, in ledger card form, tagged by their real grouping.
+      SPEC_ROWS = (o.items || []).map((it) => Object.assign({}, it, { _saved: true }));
+      showErr("");
+      renderEditor();
+      PH.markUpdated();
+    });
+  }
+
+  function docLabel(s) {
+    if (!s.name) return "Not saved yet";
+    return s.docstatus === 1 ? "Submitted" : s.docstatus === 2 ? "Cancelled" : "Draft";
+  }
+  function renderEditor() {
+    const s = CURRENT;
+    setHead(s.name || "New Sales Order", docLabel(s) + (s.customer ? " · " + s.customer : ""));
+    setTools(s.name ? `<button type="button" class="ph-btn" data-act="desk">${PH.icon("external")} Open in Desk</button>` : "");
+    renderEditorInto(vEdit);
+  }
+
+  // The real order-editing UI (header fields, ledger, spec autofill, save) -
+  // used both for the normal full-page editor and for the import wizard's
+  // Review & fix modal, which renders this same body instead of navigating
+  // away from the wizard. IMPORT_RETURNING_INDEX (set only by
+  // openOrderReviewModal) is what tells Cancel to close that modal instead
+  // of leaving for the orders list.
+  function renderEditorInto(host) {
+    EDIT_HOST = host;
+    const s = CURRENT, ro = s.docstatus !== 0, dis = ro ? "disabled" : "";
+    const inReview = IMPORT_RETURNING_INDEX != null;
+    const fld = (label, inner, req) => `<div class="ph-field"><label>${esc(label)}${req ? ' <span class="ph-bad">*</span>' : ""}</label>${inner}</div>`;
+    const inp = (f, extra) => `<input class="ph-control" data-h="${f}" value="${esc(s[f] || "")}" ${extra || ""} ${dis}>`;
+    const opts = (list, cur) => '<option value="">—</option>' + (list || []).map((o) => `<option value="${esc(o)}"${o === cur ? " selected" : ""}>${esc(o)}</option>`).join("");
+    PH.set(host, `
+      ${inReview ? "<div data-so-err></div>" : ""}
+      <section class="ph-card">
+        <div class="ph-card__head"><h2 class="ph-card__title">Order details</h2>${ro ? `<span class="ph-badge">${esc(docLabel(s))} · read-only</span>` : ""}</div>
+        <div class="ph-form">
+          ${fld("Customer", `<input class="ph-control" data-ac="customer" value="${esc(s.customer || "")}" placeholder="Search customer…" ${dis}>`, true)}
+          ${fld("Currency", `<select class="ph-control" data-sel="currency" ${dis}>${opts(OPTIONS.currencies, s.currency)}</select>`, true)}
+          ${fld("Price List", `<input class="ph-control" data-h="selling_price_list" data-ac="price_list" value="${esc(s.selling_price_list || "")}" placeholder="Auto-resolved from customer…" ${dis}>`, true)}
+          ${fld("Order Date", inp("transaction_date", 'type="date"'))}
+          ${fld("Delivery Date", inp("delivery_date", 'type="date"'), true)}
+          ${fld("Consignee", `<input class="ph-control" data-ac="consignee" value="${esc(s.custom_consignee || "")}" placeholder="Search consignee…" ${dis}>`, true)}
+          ${fld("Delivery Point", `<input class="ph-control" data-ac="delivery_point" value="${esc(s.custom_delivery_point || "")}" placeholder="Search delivery point…" ${dis}>`, true)}
+          ${fld("Shipping Agent", `<input class="ph-control" data-ac="shipping_agent" value="${esc(s.custom_shipping_agent || "")}" placeholder="Search shipping agent…" ${dis}>`, true)}
+          ${fld("Order Name", inp("custom_order_name", 'placeholder="Customer PO / reference"'), true)}
+          ${fld("Customer's Purchase Order", inp("po_no"))}
+          ${fld("S Number", inp("custom_s_number"), true)}
+          ${fld("Truck Details", inp("custom_truck_details"), true)}
+          ${fld("Set Warehouse", `<select class="ph-control" data-sel="set_warehouse" ${dis}>${opts(OPTIONS.warehouses, s.set_warehouse)}</select>`)}
+        </div>
+      </section>
+      <section class="ph-kpis" data-totals></section>
+      <section class="ph-card">
+        <div class="ph-card__head">
+          <div><h2 class="ph-card__title">Line items</h2><div class="ph-card__meta">Straight, Mixed Box and Mixed Bunch lines, same as the Specifications ledger</div></div>
+          ${ro ? "" : `<div class="ph-card__tools"><button type="button" class="ph-btn ph-btn--sm" data-act="add-spec">${PH.icon("plus")} Add from spec</button></div>`}
+        </div>
+        <div data-ledger></div>
+        ${ro ? "" : `<div class="so-addbar">
+          <button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-act="add-card" data-kind="straight">+ Straight line</button>
+          <button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-act="add-card" data-kind="mixed_box">+ Mixed box</button>
+          <button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-act="add-card" data-kind="mixed_bunch">+ Mixed bunch</button>
+        </div>`}
+      </section>
+      <div class="so-actions">
+        <div class="ph-flex ph-flex--wrap">
+          ${s.name && s.docstatus === 0 ? '<button type="button" class="ph-btn ph-btn--danger" data-act="delete">Delete draft</button>' : ""}
+          ${s.name ? '<button type="button" class="ph-btn" data-act="duplicate" title="Start a new draft with the same lines">Duplicate</button>' : ""}
+          <button type="button" class="ph-btn" data-act="copy" title="Copy this order's current state so it can be restored later, e.g. if you lose connection before saving">Copy order</button>
+        </div>
+        <div class="ph-flex ph-flex--wrap">
+          <button type="button" class="ph-btn ph-btn--ghost" data-act="cancel">${ro ? "Back" : "Cancel"}</button>
+          ${ro ? "" : `<button type="button" class="ph-btn ph-btn--primary" data-act="save" data-save-btn>${s.name ? "Save changes" : "Create order"}</button>`}
+          ${s.name && s.docstatus === 0 ? '<button type="button" class="ph-btn ph-btn--primary" data-act="submit">Submit</button>' : ""}
+        </div>
+      </div>`);
+    if (!ro) wireHeader(host);
+    renderLedger();
+  }
+
+  function wireHeader(host) {
+    PH.$$("[data-h]", host).forEach((el) => {
+      const f = el.dataset.h;
+      const up = () => { if (CURRENT[f] !== el.value) { CURRENT[f] = el.value; DIRTY = true; } };
+      el.addEventListener("input", up);
+      el.addEventListener("change", () => {
+        const before = CURRENT[f];
+        up();
+        // Preview rates are per price list -- re-price when it changes.
+        if (f === "selling_price_list" && before !== el.value) refetchRates();
+      });
+    });
+    const cur = host.querySelector('[data-sel="currency"]');
+    cur.addEventListener("change", () => { CURRENT.currency = cur.value; DIRTY = true; onCustomerOrCurrencyChange(); });
+    const wh = host.querySelector('[data-sel="set_warehouse"]');
+    wh.addEventListener("change", () => { CURRENT.set_warehouse = wh.value; DIRTY = true; });
+
+    const link = (key, field, source, after) => {
+      const el = host.querySelector(`[data-ac="${key}"]`);
+      PH.autocomplete(el, { source, onSelect: (it) => { CURRENT[field] = it.value; DIRTY = true; if (after) after(); } });
+      // Typing alone never sets the field (only a pick does, as before); clearing it does.
+      el.addEventListener("change", () => { if (!el.value.trim() && CURRENT[field]) { CURRENT[field] = ""; DIRTY = true; } });
+    };
+    link("customer", "customer", searchCustomers, () => { if (IMPORT_RETURNING_INDEX == null) setHead(CURRENT.name || "New Sales Order", docLabel(CURRENT) + " · " + CURRENT.customer); onCustomerOrCurrencyChange(); });
+    link("consignee", "custom_consignee", (q) => call(API + "searchConsignees", { query: q, customer: CURRENT.customer || "" }, true).then((r) => (r.consignees || []).map((c) => ({ value: c.name, label: c.consignee || c.name }))));
+    link("delivery_point", "custom_delivery_point", (q) => call(API + "searchDeliveryPoints", { query: q, customer: CURRENT.customer || "" }, true).then((r) => (r.delivery_points || []).map((c) => ({ value: c.name, label: c.name, description: c.description || "" }))));
+    link("shipping_agent", "custom_shipping_agent", (q) => call(API + "searchShippingAgents", { query: q }, true).then((r) => (r.shipping_agents || []).map((c) => ({ value: c.name, label: c.name, description: c.description || "" }))));
+    link("price_list", "selling_price_list", PH.linkSource("Price List", { filters: { selling: 1 } }), refetchRates);
+  }
+  function setHeaderInput(field, value) {
+    if (!EDIT_HOST) return;
+    const el = field === "currency" ? EDIT_HOST.querySelector('[data-sel="currency"]') : EDIT_HOST.querySelector(`[data-h="${field}"]`);
+    if (el) el.value = value;
+  }
+
+  // Fires the moment the customer is picked -- currency doesn't have to be
+  // set first (the server resolves it too when there's an unambiguous
+  // default), so this backfills BOTH fields from just the customer, matching
+  // what "fetch the customer's price list and autofill" actually means.
+  // When nothing resolves at all (no default anywhere for this customer,
+  // in whatever currency is now known), offer the quick-add popup instead of
+  // silently leaving Price List blank -- every place a save can fail for a
+  // missing master record should offer to create it on the spot.
+  function onCustomerOrCurrencyChange() {
+    if (!CURRENT.customer) return;
+    call(API + "resolvePriceList", { customer: CURRENT.customer, currency: CURRENT.currency || "" }, true).then((r) => {
+      if (!r.success) return;
+      if (r.currency && !CURRENT.currency) {
+        CURRENT.currency = r.currency;
+        setHeaderInput("currency", r.currency);
+      }
+      if (r.price_list) {
+        const changed = CURRENT.selling_price_list !== r.price_list;
+        CURRENT.selling_price_list = r.price_list;
+        setHeaderInput("selling_price_list", r.price_list);
+        if (changed) refetchRates();
+      } else if (CURRENT.currency && !CURRENT.selling_price_list) {
+        openQuickPl();
+      }
+    });
+  }
+
+  /* ---------- totals ---------- */
+  function cardStems(card) { return (card.rows || []).reduce((s, r) => s + nOr0(card.boxes) * nOr0(card.bunches_per_box) * nOr0(r.stems_per_bunch), 0); }
+  function computeTotals() {
+    let boxes = 0, bunches = 0, stems = 0, amount = 0;
+    const seenGroups = new Set();
+    MANUAL_CARDS.forEach((c) => {
+      const b = nOr0(c.boxes);
+      let counted = true;
+      if (c.mixed_box || c.mixed_bunch) {
+        const key = (c.mixed_bunch ? "bunch:" : "mix:") + c.id;
+        if (seenGroups.has(key)) counted = false; else seenGroups.add(key);
+      }
+      if (counted) boxes += b;
+      (c.rows || []).forEach((r) => {
+        const st_ = b * nOr0(c.bunches_per_box) * nOr0(r.stems_per_bunch);
+        stems += st_;
+        bunches += b * nOr0(c.bunches_per_box);
+        const rate = RATE_CACHE[(r.variety || "") + "|" + (c.length || "")] || 0;
+        amount += (nOr0(c.bunches_per_box) * b) * rate;
+      });
+    });
+    SPEC_ROWS.forEach((r) => {
+      const key = r.custom_bunch_group ? ("bunch:" + r.custom_bunch_group) : (r.custom_mix_group ? ("mix:" + r.custom_mix_group) : null);
+      let counted = true;
+      if (key) { if (seenGroups.has(key)) counted = false; else seenGroups.add(key); }
+      if (counted) boxes += nOr0(r.custom_number_of_boxes);
+      stems += nOr0(r.stock_qty) || (nOr0(r.custom_packrate_mixed_box || 0) * nOr0(r.custom_number_of_boxes));
+      bunches += nOr0(r.qty);
+      const rate = r.rate != null ? nOr0(r.rate) : (RATE_CACHE[(r.item_code || "") + "|" + (r.custom_length || "")] || 0);
+      amount += nOr0(r.qty) * rate;
+    });
+    return { boxes, bunches, stems, amount };
+  }
+  function renderTotals() {
+    const el = EDIT_HOST && EDIT_HOST.querySelector("[data-totals]");
+    if (!el) return;
+    const t = computeTotals();
+    PH.kpis(el, [
+      { label: "Boxes", value: t.boxes },
+      { label: "Bunches", value: Math.round(t.bunches) },
+      { label: "Stems", value: Math.round(t.stems) },
+      { label: "Est. subtotal", value: PH.fmt.num(t.amount, 2), unit: (CURRENT.currency ? CURRENT.currency + " · " : "") + "preview, repriced on save", dark: true },
+    ]);
+  }
+
+  /* ---------- ledger rendering (manual cards + spec rows) ---------- */
+  const SPEC_CONFLICT_FIELD_LABELS = { _stems_per_bunch: "Stems per bunch", _bunches_per_box: "Bunches per box", custom_length: "Stem length" };
+  function batchKey(r, i) { return String(r._batch_id || r.custom_bunch_group || r.custom_mix_group || r.name || ("row:" + i)); }
+
+  function renderLedger() {
+    if (!EDIT_HOST || !CURRENT) return;
+    const el = EDIT_HOST.querySelector("[data-ledger]");
+    if (!el) return;
+    const ro = CURRENT.docstatus !== 0;
+    if (!MANUAL_CARDS.length && !SPEC_ROWS.length) {
+      PH.empty(el, "No lines yet", ro ? "This order has no lines." : "Add a manual line or pull one from a spec.");
+    } else {
+      PH.set(el, `<div class="so-lines">${MANUAL_CARDS.map((c, ci) => cardHtml(c, ci, ro)).join("")}${specBatchesHtml(ro)}</div>`);
+      PH.$$("[data-variety-input]", el).forEach((inp) => {
+        const ci = +inp.dataset.ci, ri = +inp.dataset.ri;
+        PH.autocomplete(inp, { source: searchVarieties, onSelect: (it) => pickCardVariety(ci, ri, it.value, it.hasUom) });
+      });
+    }
+    renderTotals();
+  }
+  function selOpts(list, current) {
+    return '<option value="">—</option>' + (list || []).map((o) => `<option value="${esc(o)}"${o === current ? " selected" : ""}>${esc(o)}</option>`).join("");
+  }
+  function cardHtml(c, ci, ro) {
+    const isMixed = !!c.mixed_bunch, isMixedBox = !!c.mixed_box;
+    const kind = isMixed ? "mixed_bunch" : isMixedBox ? "mixed_box" : "straight";
+    const typeLabel = isMixed ? "Mixed bunch" : isMixedBox ? "Mixed box" : "Straight";
+    if (!c.rows || !c.rows.length) c.rows = [{ variety: "", item_name: "", stems_per_bunch: "" }];
+    const dis = ro ? "disabled" : "";
+    const f = (label, inner) => `<div class="ph-field"><label>${label}</label>${inner}</div>`;
+    return `<article class="ph-tile so-line">
+      <div class="so-line__grid">
+        <div class="so-line__side">
+          <div class="ph-flex ph-flex--between"><span class="ph-badge ph-badge--ink">${typeLabel}</span><span class="ph-muted">Line ${ci + 1}</span></div>
+          ${ro ? "" : `<div class="ph-pills">${[["straight", "Straight"], ["mixed_box", "Mixed box"], ["mixed_bunch", "Mixed bunch"]].map(([v, l]) =>
+            `<button type="button" data-act="card-type" data-ci="${ci}" data-value="${v}" class="${kind === v ? "is-on" : ""}">${l}</button>`).join("")}</div>`}
+          <div class="ph-form ph-form--2">
+            ${f("Length", `<select class="ph-control" data-cf="length" data-ci="${ci}" ${dis}>${selOpts(OPTIONS.stem_lengths, c.length)}</select>`)}
+            ${f("Box type", `<select class="ph-control" data-cf="box_type" data-ci="${ci}" ${dis}>${selOpts(OPTIONS.box_types, c.box_type)}</select>`)}
+            ${f("Boxes", `<input class="ph-control" inputmode="numeric" data-cf="boxes" data-ci="${ci}" value="${esc(c.boxes || "")}" ${dis}>`)}
+            ${f("Bunches/box", `<input class="ph-control" inputmode="numeric" data-cf="bunches_per_box" data-ci="${ci}" value="${esc(c.bunches_per_box || "")}" ${dis}>`)}
+          </div>
+          <div class="ph-flex ph-flex--between so-line__sub"><span class="ph-label">Stems</span><b class="ph-strong ph-num" data-card-stems="${ci}">${PH.fmt.num(cardStems(c))}</b></div>
+          ${ro ? "" : `<div class="ph-flex ph-flex--wrap">
+            <button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-act="add-row" data-ci="${ci}">+ ${isMixed ? "Component" : isMixedBox ? "Variety" : "Row"}</button>
+            <button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-act="remove-card" data-ci="${ci}">Remove line</button>
+          </div>`}
+        </div>
+        <div class="so-line__rows">
+          <div class="so-row so-row--head"><span class="ph-label">Variety</span><span class="ph-label so-num">Stems/bch</span><span class="ph-label so-num so-hide-sm">Boxes</span><span class="ph-label so-num">Stems</span><span></span></div>
+          ${c.rows.map((r, ri) => `<div class="so-row">
+            <div class="so-row__variety">${varietyCellHtml(ci, r, ri, ro)}</div>
+            <div><input class="ph-table-input" inputmode="numeric" data-rf="stems_per_bunch" data-ci="${ci}" data-ri="${ri}" value="${esc(r.stems_per_bunch || "")}" aria-label="Stems per bunch" ${dis}></div>
+            <div class="so-num so-hide-sm" data-row-boxes="${ci}">${esc(c.boxes || 0)}</div>
+            <div class="so-num ph-strong" data-row-stems="${ci}-${ri}">${PH.fmt.num(nOr0(c.boxes) * nOr0(c.bunches_per_box) * nOr0(r.stems_per_bunch))}</div>
+            <div>${!ro && c.rows.length > 1 ? `<button type="button" class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-act="remove-row" data-ci="${ci}" data-ri="${ri}" aria-label="Remove row">${PH.icon("close")}</button>` : ""}</div>
+          </div>`).join("")}
+        </div>
+      </div>
+    </article>`;
+  }
+  function varietyCellHtml(ci, r, ri, ro) {
+    // Only set on rows that came from the import wizard's Review & fix popup
+    // (see openOrderReviewModal) - ties this line back to the exact row in
+    // the source file, since that's the whole point of showing it here.
+    const rowTag = r.source_row ? `<div><span class="ph-badge ph-badge--outline">Row ${esc(r.source_row)} in file</span></div>` : "";
+    // Same three-way spec status buildPreview/autofillFromSpecMatch set on
+    // this row - "no spec for this variety" and "found the spec but it's
+    // missing data" need to read as two different problems, not one vague
+    // "something's off" flag.
+    let specTag = "";
+    if (r.spec_status === "no_match") {
+      specTag = '<div class="ph-field__hint ph-warn">⚠ No Specification found for this variety/customer — pack data must be entered by hand</div>';
+    } else if (r.spec_status === "incomplete") {
+      const missingLabels = (r.spec_missing_fields || []).map((f) => SPEC_CONFLICT_FIELD_LABELS[f] || f).join(", ") || "pack data";
+      specTag = `<div class="ph-field__hint ph-warn">⚠ Specification “${esc(r.spec_name || "")}” is missing ${esc(missingLabels)}</div>`;
+    }
+    if (ro) return `${rowTag}<div class="ph-strong">${esc(r.item_name || r.variety || "")}</div>${r.no_sales_uom ? '<div class="ph-field__hint ph-bad">No Sales UOM</div>' : ""}`;
+    if (r.variety) {
+      return `${rowTag}<div class="ph-flex"><span class="ph-strong ph-truncate">${esc(r.item_name || r.variety)}</span>
+          <a href="#" role="button" class="ph-link ph-muted" data-act="clear-variety" data-ci="${ci}" data-ri="${ri}">Change</a></div>
+        ${r.no_sales_uom ? `<div><a href="#" role="button" class="ph-link ph-bad" data-act="quick-uom" data-ci="${ci}" data-ri="${ri}">⚠ No Sales UOM — click to set</a></div>` : ""}
+        ${specTag}`;
+    }
+    return `${rowTag}<input class="ph-control" data-variety-input data-ci="${ci}" data-ri="${ri}" placeholder="Pick variety…" aria-label="Variety">`;
+  }
+  function specBatchesHtml(ro) {
+    const batches = new Map();
+    SPEC_ROWS.forEach((r, i) => {
+      const k = batchKey(r, i);
+      if (!batches.has(k)) batches.set(k, []);
+      batches.get(k).push(r);
+    });
+    return Array.from(batches).map(([key, rows]) => {
+      const first = rows[0];
+      return `<article class="ph-tile so-line">
+        <div class="so-line__grid">
+          <div class="so-line__side">
+            <div class="ph-flex ph-flex--between"><span class="ph-badge ph-badge--signal">From spec</span>${first._saved ? '<span class="ph-badge">Saved</span>' : ""}</div>
+            <div class="ph-strong">${esc(first.custom_line || first._spec || "—")}</div>
+            <div class="ph-muted">${first.custom_mixed_bunch ? "Mixed Bunch" : first.custom_mixed_box ? "Mixed Box" : "Straight"}</div>
+            ${ro ? "" : `<div><button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-act="remove-batch" data-key="${esc(key)}">Remove</button></div>`}
+          </div>
+          <div class="so-line__rows">
+            <div class="so-row so-row--head"><span class="ph-label">Variety</span><span class="ph-label so-num">UOM</span><span class="ph-label so-num so-hide-sm">Boxes</span><span class="ph-label so-num">Stems</span><span></span></div>
+            ${rows.map((r) => `<div class="so-row">
+              <div class="so-row__variety"><span class="ph-strong ph-truncate">${esc(r.item_name || r.item_code || "")}${r.custom_length ? ` <span class="ph-muted">${esc(r.custom_length)}</span>` : ""}</span></div>
+              <div class="so-num ph-muted ph-truncate">${esc(r.uom || "")}</div>
+              <div class="so-num so-hide-sm">${esc(r.custom_number_of_boxes || 0)}</div>
+              <div class="so-num ph-strong">${PH.fmt.num(Math.round(nOr0(r.stock_qty)))}</div>
+              <div></div>
+            </div>`).join("")}
+          </div>
+        </div>
+      </article>`;
+    }).join("");
+  }
+  /** Update every derived number in place -- typing never re-renders the ledger. */
+  function refreshDerived() {
+    if (!EDIT_HOST) return;
+    MANUAL_CARDS.forEach((c, ci) => {
+      PH.text(EDIT_HOST.querySelector(`[data-card-stems="${ci}"]`), PH.fmt.num(cardStems(c)));
+      PH.$$(`[data-row-boxes="${ci}"]`, EDIT_HOST).forEach((x) => (x.textContent = c.boxes || 0));
+      (c.rows || []).forEach((r, ri) => PH.text(EDIT_HOST.querySelector(`[data-row-stems="${ci}-${ri}"]`), PH.fmt.num(nOr0(c.boxes) * nOr0(c.bunches_per_box) * nOr0(r.stems_per_bunch))));
+    });
+    renderTotals();
+  }
+
+  function pickCardVariety(ci, ri, variety, hasUom) {
+    const row = MANUAL_CARDS[ci].rows[ri];
+    row.variety = variety; row.item_name = variety; row.no_sales_uom = !hasUom;
+    DIRTY = true;
+    renderLedger();
+    fetchPreviewRate(variety, MANUAL_CARDS[ci].length);
+    autofillFromSpecMatch(ci, ri, variety);
+  }
+  // Picking a variety should carry exactly what picking it from "+ Add from
+  // Spec" would - pack rate (via stems-per-bunch/bunches-per-box) and length.
+  // Only fills fields that are still blank: a value already on the card/row
+  // (typed by hand, or carried over from the import file) is never overwritten.
+  function autofillFromSpecMatch(ci, ri, variety) {
+    if (!CURRENT.customer || !variety) return;
+    const card = MANUAL_CARDS[ci], row = card.rows[ri];
+    const handle = (m) => {
+      m = m || {};
+      const match = m.success ? m.match : null;
+      if (MANUAL_CARDS.indexOf(card) === -1 || card.rows.indexOf(row) === -1 || row.variety !== variety) return; // superseded by a later pick
+      // Mirrors buildPreview's _apply_spec_match status split - "no spec
+      // for this variety" vs "found it, but it's missing data" read as
+      // two different problems, shown via varietyCellHtml's specTag.
+      if (!match) {
+        row.spec_status = "no_match"; row.spec_name = null; row.spec_missing_fields = null;
+        renderLedger();
+        return;
+      }
+      let changed = false;
+      if (!row.stems_per_bunch && match.stems_per_bunch) { row.stems_per_bunch = match.stems_per_bunch; changed = true; }
+      if (!card.length && match.length) { card.length = match.length; changed = true; }
+      if (!card.bunches_per_box && match.bunches_per_box) { card.bunches_per_box = match.bunches_per_box; changed = true; }
+      const missing = [];
+      if (!match.stems_per_bunch) missing.push("_stems_per_bunch");
+      if (!match.length) missing.push("custom_length");
+      if (!match.bunches_per_box) missing.push("_bunches_per_box");
+      row.spec_status = missing.length ? "incomplete" : "matched";
+      row.spec_name = match.spec_name;
+      row.spec_missing_fields = missing;
+      renderLedger();
+      if (changed) fetchPreviewRate(variety, card.length);
+    };
+    // Transport failures are ignored (as before); a {success:false} reply means "no match".
+    PH.call(IMPORT_API + "getSpecMatchForVariety", { data: JSON.stringify({ customer: CURRENT.customer, item_code: variety }) }, { silent: true })
+      .then(handle, (e) => { if (e && e.response) handle(e.response); });
+  }
+  function fetchPreviewRate(item_code, length) {
+    if (!item_code || !length || !CURRENT.selling_price_list) return;
+    const key = item_code + "|" + length;
+    if (RATE_CACHE[key] != null) return;
+    call(API + "previewRate", { item_code, price_list: CURRENT.selling_price_list, length }, true).then((r) => {
+      RATE_CACHE[key] = r.success ? r.rate : 0;
+      renderTotals();
+    });
+  }
+  function refetchRates() {
+    RATE_CACHE = {};
+    MANUAL_CARDS.forEach((c) => (c.rows || []).forEach((r) => r.variety && fetchPreviewRate(r.variety, c.length)));
+    renderTotals();
+  }
+
+  /* ---------- manual card CRUD ---------- */
+  function addManualCard(kind) {
+    MANUAL_CARDS.push({
+      id: "card" + (CARD_SEQ++), mixed_box: kind === "mixed_box", mixed_bunch: kind === "mixed_bunch",
+      length: OPTIONS.stem_lengths[0] || "", box_type: OPTIONS.box_types[0] || "", boxes: "", bunches_per_box: "",
+      rows: [{ variety: "", item_name: "", stems_per_bunch: "" }],
+    });
+    DIRTY = true;
+    renderLedger();
+  }
+  function setCardType(ci, kind) {
+    const c = MANUAL_CARDS[ci];
+    c.mixed_box = kind === "mixed_box"; c.mixed_bunch = kind === "mixed_bunch";
+    if (!c.mixed_box && !c.mixed_bunch && c.rows.length > 1) c.rows = [c.rows[0]];
+    DIRTY = true;
+    renderLedger();
+  }
+
+  /* ---------- editor events (delegated; bound once per host) ---------- */
+  function bindEditorHost(host) {
+    host.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-act]");
+      if (!b || !host.contains(b)) return;
+      if (b.tagName === "A") e.preventDefault();
+      const a = b.dataset.act, ci = +b.dataset.ci, ri = +b.dataset.ri;
+      switch (a) {
+        case "card-type": return setCardType(ci, b.dataset.value);
+        case "add-card": return addManualCard(b.dataset.kind);
+        case "add-row": MANUAL_CARDS[ci].rows.push({ variety: "", item_name: "", stems_per_bunch: "" }); DIRTY = true; return renderLedger();
+        case "remove-card": MANUAL_CARDS.splice(ci, 1); DIRTY = true; return renderLedger();
+        case "remove-row": MANUAL_CARDS[ci].rows.splice(ri, 1); DIRTY = true; return renderLedger();
+        case "clear-variety": {
+          const row = MANUAL_CARDS[ci].rows[ri];
+          row.variety = ""; row.item_name = ""; row.no_sales_uom = false;
+          row.spec_status = null; row.spec_name = null; row.spec_missing_fields = null;
+          DIRTY = true;
+          renderLedger();
+          const inp = host.querySelector(`[data-variety-input][data-ci="${ci}"][data-ri="${ri}"]`);
+          if (inp) inp.focus();
+          return;
+        }
+        case "quick-uom": return openQuickUom(MANUAL_CARDS[ci].rows[ri].variety);
+        case "remove-batch":
+          SPEC_ROWS = SPEC_ROWS.filter((r, i) => batchKey(r, i) !== b.dataset.key);
+          DIRTY = true;
+          return renderLedger();
+        case "add-spec": return openSpecModal();
+        case "save": return saveOrder();
+        case "submit": return submitOrder();
+        case "delete": return deleteOrder();
+        case "duplicate": return duplicateOrder();
+        case "copy": return copyOrderToClipboard();
+        case "cancel":
+          if (IMPORT_RETURNING_INDEX != null) return closeOrderReviewModal();
+          return document.getElementById("so-back").click();
+      }
+    });
+    const onField = (e, isChange) => {
+      const t = e.target;
+      if (t.dataset.cf != null && t.dataset.ci != null) {
+        const c = MANUAL_CARDS[+t.dataset.ci];
+        if (!c) return;
+        const before = c[t.dataset.cf];
+        c[t.dataset.cf] = t.value;
+        DIRTY = true;
+        refreshDerived();
+        if (isChange && t.dataset.cf === "length" && before !== t.value) (c.rows || []).forEach((r) => r.variety && fetchPreviewRate(r.variety, c.length));
+      } else if (t.dataset.rf != null) {
+        const c = MANUAL_CARDS[+t.dataset.ci];
+        const r = c && c.rows[+t.dataset.ri];
+        if (!r) return;
+        r[t.dataset.rf] = t.value;
+        DIRTY = true;
+        refreshDerived();
+      }
+    };
+    host.addEventListener("input", (e) => onField(e, false));
+    host.addEventListener("change", (e) => onField(e, true));
+  }
+  bindEditorHost(vEdit);
+
+  /* ---------- quick-add fixes ----------
+     A single save can fail on several unpriced/un-UOM'd items at once (e.g.
+     "No price found for: Giselle 62cm, Snowstorm 72cm") -- real multi-variety
+     orders hit this routinely, not as an edge case. QUICK_FIX_QUEUE holds one
+     entry per flagged item; each quick-add, on success, opens the next one
+     automatically instead of only ever fixing the first and leaving the rest
+     to fail silently again on retry. */
+  let QUICK_FIX_QUEUE = [];
+  let QUICK_FIX_ACTIVE = false; // true only while draining a queue seeded from a real failed save
+  function runNextQuickFix() {
+    if (!QUICK_FIX_QUEUE.length) {
+      if (QUICK_FIX_ACTIVE) { QUICK_FIX_ACTIVE = false; saveOrder(); }
+      return;
+    }
+    const next = QUICK_FIX_QUEUE[0];
+    const remaining = QUICK_FIX_QUEUE.length;
+    if (next.type === "uom") openQuickUom(next.item_code, remaining);
+    else openQuickPrice(next.item_code, next.length, remaining);
+  }
+  const fieldHtml = (label, control) => `<div class="ph-form ph-form--1"><div class="ph-field"><label>${esc(label)}</label>${control}</div></div>`;
+
+  function openQuickUom(item_code, queueLen) {
+    const progress = queueLen > 1 ? ` (1 of ${queueLen})` : "";
+    const m = PH.modal({
+      title: "Set Sales UOM",
+      sub: item_code + " has no default Sales UOM yet" + progress,
+      body: fieldHtml("UOM", '<input class="ph-control" data-qa placeholder="e.g. Bunch (10)">'),
+      actions: [
+        { label: "Cancel" },
+        { label: "Save", primary: true, onClick: async (api) => {
+          const uom = api.body.querySelector("[data-qa]").value.trim();
+          if (!uom) return false;
+          const r = await call(API + "setItemSalesUom", { data: JSON.stringify({ item_code, uom }) });
+          if (!r.success) { showErr(r.error || "Could not set Sales UOM."); return false; }
+          MANUAL_CARDS.forEach((c) => (c.rows || []).forEach((row) => { if (row.variety === item_code) row.no_sales_uom = false; }));
+          showErr("");
+          renderLedger();
+          if (QUICK_FIX_QUEUE.length && QUICK_FIX_QUEUE[0].type === "uom" && QUICK_FIX_QUEUE[0].item_code === item_code) QUICK_FIX_QUEUE.shift();
+          runNextQuickFix();
+        } },
+      ],
+    });
+    PH.autocomplete(m.body.querySelector("[data-qa]"), { source: PH.linkSource("UOM") });
+  }
+  function openQuickPrice(item_code, length, queueLen) {
+    const progress = queueLen > 1 ? ` (1 of ${queueLen})` : "";
+    PH.modal({
+      title: "Add Item Price",
+      sub: "No price found for " + item_code + " @ " + length + progress,
+      body: fieldHtml("Rate (per stem)" + (CURRENT && CURRENT.selling_price_list ? " · " + CURRENT.selling_price_list : ""), '<input class="ph-control" data-qa type="number" step="0.01" min="0">'),
+      actions: [
+        { label: "Cancel" },
+        { label: "Save", primary: true, onClick: async (api) => {
+          const rate = parseFloat(api.body.querySelector("[data-qa]").value);
+          if (!rate) return false;
+          if (!CURRENT.selling_price_list) { PH.toast("Set the order's Price List first.", "warn"); return false; }
+          const r = await call(API + "createItemPrice", { data: JSON.stringify({ item_code, price_list: CURRENT.selling_price_list, length, rate }) });
+          if (!r.success) { showErr(r.error || "Could not add price."); return false; }
+          delete RATE_CACHE[item_code + "|" + length];
+          showErr("");
+          fetchPreviewRate(item_code, length);
+          if (QUICK_FIX_QUEUE.length && QUICK_FIX_QUEUE[0].type === "price" && QUICK_FIX_QUEUE[0].item_code === item_code && QUICK_FIX_QUEUE[0].length === length) QUICK_FIX_QUEUE.shift();
+          runNextQuickFix();
+        } },
+      ],
+    });
+  }
+  function openQuickPl() {
+    PH.modal({
+      title: "New Price List",
+      sub: "No price list matched — create one now",
+      body: `<div class="ph-form ph-form--1">
+        <div class="ph-field"><label>Name</label><input class="ph-control" data-pl-name placeholder="e.g. May EUR"></div>
+        <div class="ph-field"><label>Currency</label><select class="ph-control" data-pl-cur>${OPTIONS.currencies.map((c) => `<option value="${esc(c)}"${c === (CURRENT && CURRENT.currency) ? " selected" : ""}>${esc(c)}</option>`).join("")}</select></div>
+      </div>`,
+      actions: [
+        { label: "Cancel" },
+        { label: "Create", primary: true, onClick: async (api) => {
+          const price_list_name = api.body.querySelector("[data-pl-name]").value.trim();
+          const currency = api.body.querySelector("[data-pl-cur]").value;
+          if (!price_list_name) return false;
+          const m = await call("upande_packhouse.api.sales_settings.createPriceList", { data: JSON.stringify({ price_list_name, currency }) });
+          if (!m.success) { showErr(m.error || "Could not create price list."); return false; }
+          CURRENT.selling_price_list = m.name;
+          DIRTY = true;
+          setHeaderInput("selling_price_list", m.name);
+          showErr("");
+          refetchRates();
+        } },
+      ],
+    });
+  }
+  /** Returns true when a quick-fix popup was opened. fromSave: only a failed
+   *  SAVE re-saves automatically once every fix is done (QUICK_FIX_ACTIVE). */
+  function offerQuickFixFor(error, fromSave) {
+    // frappe.throw()'s caught str(e) strips the <b>...</b> markup the
+    // server source embeds (the raw error text here is always plain,
+    // never HTML) -- match on the surrounding plain-text phrasing instead.
+    // Both gates list EVERY offending item comma-separated (a real order
+    // with several unpriced/un-UOM'd varieties is normal, not an edge
+    // case), so every one of them gets queued -- not just the first.
+    if (!error) return false;
+    if (error.indexOf("No Sales UOM set on") !== -1) {
+      const m = error.match(/No Sales UOM set on:\s*([^.]+)\./);
+      // str(e) on a frappe.throw()'d exception has been observed both with
+      // and without the <b>...</b> the server source embeds -- strip any
+      // HTML defensively rather than depend on which one shows up.
+      const items = m ? m[1].replace(/<[^>]*>/g, "").split(",").map((s) => s.trim()).filter(Boolean) : [];
+      if (items.length) {
+        QUICK_FIX_QUEUE = items.map((item) => ({ type: "uom", item_code: item }));
+        QUICK_FIX_ACTIVE = !!fromSave;
+        runNextQuickFix();
+        return true;
+      }
+      return false;
+    }
+    if (error.indexOf("No price found for") !== -1) {
+      const m = error.match(/No price found for:\s*([^.]+)\./);
+      const entries = m ? m[1].replace(/<[^>]*>/g, "").split(",").map((s) => s.trim()).filter(Boolean) : [];
+      if (entries.length) {
+        QUICK_FIX_QUEUE = entries.map((entry) => {
+          const parts = entry.split(" ");
+          const length = parts.pop();
+          const item_code = parts.join(" ");
+          return { type: "price", item_code, length };
+        });
+        QUICK_FIX_ACTIVE = !!fromSave;
+        runNextQuickFix();
+        return true;
+      }
+      return false;
+    }
+    if (error.indexOf("no Default Price List") !== -1 || error.indexOf("Missing Price List") !== -1) {
+      openQuickPl();
+      return true;
+    }
+    return false;
+  }
+
+  /* ---------- add from spec ---------- */
+  function openSpecModal() {
+    const body = document.createElement("div");
+    body.innerHTML = `<label class="ph-search so-search">${PH.icon("search")}<input type="search" data-spec-q placeholder="Search specifications…" autocomplete="off"></label>
+      <div class="ph-mt" data-spec-body></div>`;
+    const m = PH.modal({
+      title: "Add from Specification",
+      sub: "Search a spec to fill this box/bunch automatically",
+      body, size: "lg",
+      actions: [{ label: "Cancel" }, { label: "Add to order", primary: true, onClick: (api) => confirmSpecAdd(api) }],
+    });
+    m.spec = null;
+    const addBtn = m.el.querySelector(".ph-modal__foot .ph-btn--primary");
+    addBtn.hidden = true;
+    const input = body.querySelector("[data-spec-q]");
+    const results = body.querySelector("[data-spec-body]");
+    let seq = 0;
+    const search = () => {
+      const my = ++seq;
+      m.spec = null; addBtn.hidden = true;
+      PH.skeleton(results, "rows", 4);
+      call("upande_packhouse.api.specifications.listSpecifications", { query: input.value }, true).then((r) => {
+        if (my !== seq) return;
+        if (r.success === false) return PH.error(results, r.error || "Could not load specifications.", search);
+        const list = (r.specifications || []).slice(0, 30);
+        if (!list.length) return PH.empty(results, input.value ? "No specifications match “" + input.value + "”" : "No specifications yet", "Specifications are created on the Specifications page.");
+        PH.set(results, `<div class="ph-list ph-list--plain">${list.map((s) => `
+          <div class="ph-list__row is-link" data-spec="${esc(s.name)}">
+            <div><div class="ph-list__name">${esc(s.spec_name || s.name)}</div><div class="ph-list__meta">${esc(s.customer || "No customer")} · ${esc(s.box_assortment || "—")}</div></div>
+            <div>${s.status ? `<span class="ph-badge">${esc(s.status)}</span>` : ""}</div>
+          </div>`).join("")}</div>`);
+      });
+    };
+    input.addEventListener("input", PH.debounce(search, 200));
+    results.addEventListener("click", (e) => {
+      const row = e.target.closest("[data-spec]");
+      if (row) pickSpecForFill(row.dataset.spec, m, addBtn);
+    });
+    search();
+  }
+  // Bunch-aware specs (bunch_id set on every Approved Variety row -- the
+  // normal case for anything saved via the Specifications dashboard) use the
+  // SAME popup Desk uses (public/js/sales_order/spec_fill_dialog.js, loaded
+  // above via a plain <script src>), instead of a second, drifting
+  // reimplementation. Only the older flat/legacy picker (specs saved before
+  // bunch_id existed) still uses this page's own modal.
+  function pickSpecForFill(spec, m, addBtn) {
+    const results = m.body.querySelector("[data-spec-body]");
+    PH.skeleton(results, "rows", 4);
+    call("upande_packhouse.spec_autofill.get_spec_fill_data", { spec }).then((data) => {
+      if (!data || data.success === false || !data.spec) {
+        const msg = (data && data.error) || "Could not load that specification.";
+        showErr(msg);
+        offerQuickFixFor(msg, false);
+        PH.error(results, msg);
+        return;
+      }
+      if (data.bunch_aware) {
+        m.close();
+        openSpecOverlay(data);
+        return;
+      }
+      m.spec = data;
+      const sub = m.el.querySelector(".ph-modal__sub");
+      if (sub) sub.textContent = data.spec_name + (data.is_mixed_box ? " — Mixed Box" : "");
+      PH.set(results, renderFlatPicker(data));
+      bindFlatPickerBoxes(results);
+      addBtn.hidden = false;
+    });
+  }
+  function nextMixGroupFromSpecRows() {
+    let nextMix = 1;
+    SPEC_ROWS.forEach((r) => { if (/^\d+$/.test(String(r.custom_mix_group || ""))) nextMix = Math.max(nextMix, parseInt(r.custom_mix_group, 10) + 1); });
+    return nextMix;
+  }
+  function buildSpecRows(data, selections) {
+    return PH.call("upande_packhouse.spec_autofill.build_spec_rows", {
+      spec: data.spec, selections: JSON.stringify(selections), next_mix_group: nextMixGroupFromSpecRows(), next_bunch_group: 1, source_warehouse: CURRENT.set_warehouse || "",
+    }, { silent: true }).then((msg) => {
+      const rows = (msg && msg.rows) || [];
+      const batchId = "batch" + Date.now();
+      rows.forEach((row) => { row._batch_id = batchId; row._spec = data.spec_name; });
+      SPEC_ROWS = SPEC_ROWS.concat(rows);
+      DIRTY = true;
+      renderLedger();
+      return rows;
+    });
+  }
+  function openSpecOverlay(data) {
+    if (typeof window.upande_open_spec_fill_overlay !== "function") {
+      showErr("The spec picker did not load — reload the page and try again.");
+      return;
+    }
+    window.upande_open_spec_fill_overlay(data, {
+      onSubmit(selections) {
+        return buildSpecRows(data, selections).then(
+          () => undefined,
+          (e) => {
+            const msg = (e && e.message) || "Could not build rows from this specification.";
+            showErr(msg);
+            // A quick-fix popup lives in the v2 shell, below the overlay --
+            // close the overlay so the fix is visible; retry Add from spec after.
+            if (offerQuickFixFor(msg, false)) return undefined;
+            overlayError(msg);
+            return false; // keep the popup open so the user can adjust and retry
+          }
+        );
+      },
+    });
+  }
+  /** The overlay sits above the shell's toasts, so show the error inside it too. */
+  function overlayError(msg) {
+    const scroll = document.querySelector("#usfdOverlayInner .usfd-scroll");
+    if (!scroll) return;
+    let box = scroll.querySelector("[data-so-overlay-err]");
+    if (!box) {
+      box = document.createElement("div");
+      box.className = "usfd-empty";
+      box.setAttribute("data-so-overlay-err", "");
+      scroll.insertBefore(box, scroll.firstChild);
+    }
+    box.innerHTML = `<span class="usfd-warn">${esc(msg)}</span>`;
+  }
+  function renderFlatPicker(data) {
+    return (data.lines || []).map((line) => `
+      <div class="ph-mb" data-line="${esc(line.idx)}">
+        <div class="ph-label">${esc(line.colour)}</div>
+        ${(line.approved || []).map((a) => `
+          <div class="so-flat__row" data-variety="${esc(a.variety)}">
+            <label class="ph-check"><input type="checkbox"><span>${esc(a.item_name)}</span></label>
+            <span class="ph-badge ph-badge--good">${PH.fmt.num(a.available)} available</span>
+            <input class="ph-table-input" type="number" min="0" placeholder="Boxes" data-role="boxes">
+            <input class="ph-table-input" type="number" min="0" placeholder="Stems" data-role="stems">
+          </div>`).join("")}
+      </div>`).join("") || '<p class="ph-muted">This specification has no approved varieties.</p>';
+  }
+  // Boxes is ONE number for the whole spec, not one per variety row. A spec
+  // describes a single box, and build_spec_rows throws "A spec is one box --
+  // every colour must use the same Boxes count" the moment two ticked rows
+  // disagree. Typing in any row therefore sets them all, so the operator can
+  // never build a payload the server will only reject on submit. Desk's
+  // spec_autofill.js does the same for its own flat picker.
+  function bindFlatPickerBoxes(root) {
+    if (root._boxesBound) return;
+    root._boxesBound = true;
+    root.addEventListener("input", (e) => {
+      if (!e.target.matches('[data-role="boxes"]')) return;
+      const v = e.target.value;
+      root.querySelectorAll('[data-role="boxes"]').forEach((inp) => { if (inp !== e.target) inp.value = v; });
+    });
+  }
+  // Only reached for the legacy flat picker (see pickSpecForFill) --
+  // bunch-aware specs submit through spec_fill_dialog.js's own onSubmit.
+  function confirmSpecAdd(api) {
+    const data = api.spec;
+    if (!data) return false;
+    const selections = [];
+    api.body.querySelectorAll("[data-line]").forEach((lineEl) => {
+      const idx = parseInt(lineEl.getAttribute("data-line"), 10);
+      lineEl.querySelectorAll(".so-flat__row").forEach((row) => {
+        const cb = row.querySelector("input[type=checkbox]");
+        if (!cb.checked) return;
+        const variety = row.getAttribute("data-variety");
+        const boxes = parseInt(row.querySelector('[data-role="boxes"]').value || "0", 10);
+        const stems = parseInt(row.querySelector('[data-role="stems"]').value || "0", 10);
+        if (!boxes) return;
+        selections.push({ line_idx: idx, box_idx: 0, variety, boxes, stems });
+      });
+    });
+    if (!selections.length) { showErr("Pick at least one variety with a box count before adding."); return false; }
+    return buildSpecRows(data, selections).then(
+      () => undefined,
+      (e) => {
+        const msg = (e && e.message) || "Could not build rows from this specification.";
+        showErr(msg);
+        offerQuickFixFor(msg, false);
+        return false;
+      }
+    );
+  }
+
+  /* ---------- save / submit / delete ---------- */
+  async function saveOrder() {
+    if (SAVING) return;
+    // saveSalesOrder replaces the order's items with exactly the rows sent,
+    // and (same as the original page) rows already saved on the order are
+    // NOT re-sent -- so say so before an existing draft loses its lines.
+    const savedLines = SPEC_ROWS.filter((r) => r._saved).length;
+    if (CURRENT.name && savedLines) {
+      const ok = await PH.confirm(
+        "Replace this order's saved lines?",
+        `Saving sends only the lines added here. The ${PH.fmt.plural(savedLines, "line")} already saved on ${CURRENT.name} will be replaced by them — the same as the original Sales Order page. To change existing lines without losing them, use “Open in Desk”.`,
+        { ok: "Save anyway", danger: true });
+      if (!ok) return;
+    }
+    SAVING = true;
+    const btn = EDIT_HOST && EDIT_HOST.querySelector("[data-save-btn]");
+    if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
+    const manual_rows = [];
+    MANUAL_CARDS.forEach((c) => {
+      (c.rows || []).forEach((r) => {
+        if (!r.variety) return;
+        manual_rows.push({
+          item_code: r.variety, stems_per_bunch: r.stems_per_bunch, bunches_per_box: c.bunches_per_box,
+          boxes: c.boxes, length: c.length, box_type: c.box_type,
+          mixed_box: c.mixed_box, mixed_bunch: c.mixed_bunch,
+          mix_group: c.id, bunch_group: c.id, warehouse: CURRENT.set_warehouse,
+        });
+      });
+    });
+    const spec_rows = SPEC_ROWS.filter((r) => !r._saved).map((r) => {
+      const clean = Object.assign({}, r);
+      delete clean._batch_id; delete clean._spec; delete clean.no_sales_uom;
+      return clean;
+    });
+    const payload = Object.assign({}, CURRENT, { manual_rows, spec_rows });
+    const r = await call(API + "saveSalesOrder", { data: JSON.stringify(payload) });
+    SAVING = false;
+    if (!r.success) {
+      const msg = r.error || "Could not save this order.";
+      showErr(msg);
+      if (btn) { btn.disabled = false; btn.textContent = CURRENT.name ? "Save changes" : "Create order"; }
+      offerQuickFixFor(msg, true);
+      return;
+    }
+    PH.toast("Order saved.", "good");
+    DIRTY = false;
+    if (IMPORT_RETURNING_INDEX != null) {
+      // This save was the Review & fix popup for a failed import-queue
+      // item - mark it created, close the popup and drop back into the
+      // queue instead of opening the normal single-order editor.
+      const i = IMPORT_RETURNING_INDEX;
+      IMPORT_RETURNING_INDEX = null;
+      IMPORT_QUEUE[i].status = "created";
+      IMPORT_QUEUE[i].order_name = r.name;
+      IMPORT_QUEUE[i].error = null;
+      if (REVIEW_MODAL) REVIEW_MODAL.close();
+      IMPORT_SUBVIEW = "queue";
+      renderImport();
+      runImportQueue();
+      return;
+    }
+    goEditor(r.name);
+  }
+  async function submitOrder() {
+    if (!CURRENT.name) return;
+    const ok = await PH.confirm("Submit this order?", (DIRTY ? "You have unsaved changes — they are NOT included; save first if you need them. " : "") + "It can no longer be edited here afterwards.", { ok: "Submit" });
+    if (!ok) return;
+    const r = await call(API + "submitSalesOrder", { name: CURRENT.name });
+    if (!r.success) { const m = r.error || "Could not submit."; showErr(m); offerQuickFixFor(m, false); return; }
+    PH.toast("Order submitted.", "good");
+    openEditor(CURRENT.name);
+  }
+  async function deleteOrder() {
+    if (!CURRENT.name) return;
+    const ok = await PH.confirm("Delete this draft?", 'Delete draft "' + CURRENT.name + '"? This cannot be undone.', { ok: "Delete", danger: true });
+    if (!ok) return;
+    const r = await call(API + "deleteSalesOrder", { name: CURRENT.name });
+    if (!r.success) { showErr(r.error || "Could not delete."); return; }
+    PH.toast("Draft deleted.", "good");
+    DIRTY = false;
+    goList();
+  }
+
+  /* ---------- duplicate / copy-to-clipboard / restore ----------
+     A saved order's lines only ever live in SPEC_ROWS (tagged _saved -- see
+     openEditor); MANUAL_CARDS is purely the not-yet-saved editing scratchpad
+     and is always empty for anything already persisted. Duplicating means:
+     carry every line over as a fresh, unsaved row (strip _saved/name/idx so
+     saveOrder() resubmits all of them as new Sales Order Item rows) into a
+     brand new draft with no name/docstatus of its own. */
+  function duplicateOrder() {
+    if (!CURRENT || !CURRENT.name) return;
+    const clonedRows = SPEC_ROWS.map((r) => {
+      const clean = Object.assign({}, r);
+      delete clean._saved; delete clean.name; delete clean.idx;
+      return clean;
+    });
+    CURRENT = Object.assign({}, CURRENT, { name: null, docstatus: 0, transaction_date: PH.date.today() });
+    SPEC_ROWS = clonedRows;
+    MANUAL_CARDS = []; CARD_SEQ = 1;
+    IMPORT_RETURNING_INDEX = null;
+    DIRTY = true;
+    showErr("");
+    PH.toast("Duplicated as a new draft — review and save.", "good");
+    showEditorNow();
+  }
+  // Same tag as the original page, so a copy taken there restores here and vice versa.
+  const ORDER_CLIPBOARD_TAG = "UPANDE-SALES-ORDER-DRAFT-V1";
+  function snapshotOrderText() {
+    return ORDER_CLIPBOARD_TAG + "\n" + JSON.stringify({ current: CURRENT, manual_cards: MANUAL_CARDS, spec_rows: SPEC_ROWS, card_seq: CARD_SEQ });
+  }
+  function copyOrderToClipboard() {
+    const text = snapshotOrderText();
+    const m = PH.modal({
+      title: "Copy order", size: "lg",
+      body: `<p class="ph-muted ph-mb">Everything below is this order's current state as text — copied to your clipboard automatically where the browser allows it. Keep it somewhere safe (a note, a chat to yourself) and paste it back via “Paste order…” on the orders list to restore this exact draft, lines and all, even after a lost connection or a closed tab.</p>
+        <textarea class="ph-control ph-mono" rows="8" readonly data-copy></textarea>`,
+      actions: [{ label: "Close" }, { label: "Copy again", primary: true, onClick: (api) => { const ta = api.body.querySelector("[data-copy]"); tryCopyText(ta.value, ta); return false; } }],
+    });
+    const ta = m.body.querySelector("[data-copy]");
+    ta.value = text;
+    tryCopyText(text, ta);
+  }
+  // navigator.clipboard.writeText needs a secure context (https, or literally
+  // "localhost") -- this dashboard runs over plain http on a custom hostname,
+  // where most browsers silently refuse it. Falling back to the textarea's
+  // own select()+execCommand keeps "Copy order" working there regardless; the
+  // textarea stays on screen either way so a manual Ctrl+C always works too.
+  function tryCopyText(text, ta) {
+    const fallback = () => {
+      ta.focus(); ta.select();
+      try { document.execCommand("copy"); PH.toast("Order copied.", "good"); }
+      catch (e) { PH.toast("Select the text above and copy it manually (Ctrl/Cmd+C).", "bad"); }
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(() => PH.toast("Order copied to clipboard.", "good"), fallback);
+    } else fallback();
+  }
+  function openRestoreModal() {
+    PH.modal({
+      title: "Paste order", size: "lg",
+      sub: "Paste the text from a previous “Copy order” to restore that exact draft.",
+      body: '<textarea class="ph-control ph-mono" rows="8" placeholder="Paste here…" data-restore></textarea>',
+      actions: [
+        { label: "Cancel" },
+        { label: "Restore", primary: true, onClick: (api) => {
+          const text = api.body.querySelector("[data-restore]").value.trim();
+          if (!text) { PH.toast("Paste a copied order first.", "bad"); return false; }
+          if (text.indexOf(ORDER_CLIPBOARD_TAG) !== 0) { PH.toast("That doesn't look like a copied order.", "bad"); return false; }
+          let snapshot;
+          try { snapshot = JSON.parse(text.slice(ORDER_CLIPBOARD_TAG.length + 1)); }
+          catch (e) { PH.toast("Could not read that pasted text as an order.", "bad"); return false; }
+          if (!snapshot || !snapshot.current) { PH.toast("Could not read that pasted text as an order.", "bad"); return false; }
+          CURRENT = snapshot.current;
+          MANUAL_CARDS = snapshot.manual_cards || [];
+          SPEC_ROWS = snapshot.spec_rows || [];
+          CARD_SEQ = snapshot.card_seq || 1;
+          IMPORT_RETURNING_INDEX = null;
+          DIRTY = true;
+          showErr("");
+          PH.toast("Order restored from clipboard — review and save.", "good");
+          showEditorNow();
+        } },
+      ],
+    });
+  }
+
+  /* =================== IMPORT WIZARD =================== */
+  function openImportWizard() {
+    setHead("Import Orders", "Upload a customer order file and map it onto real Sales Orders");
+    setTools("");
+    EDIT_HOST = null;
+    if (IMPORT_QUEUE.length) {
+      // An import is already in progress (e.g. the user stepped away to fix
+      // one failed order) -- resume the existing queue, don't discard it.
+      IMPORT_SUBVIEW = "queue";
+      renderImport();
+      return;
+    }
+    IMPORT_SUBVIEW = "file";
+    IMPORT_QUEUE = [];
+    IMPORT_FILE_HEADER = null;
+    IMPORT_FILE_ROWS = null;
+    IMPORT_MODE = "single";
+    IMPORT_CUSTOMER = null;
+    IMPORT_EXISTING = null;
+    IMPORT_SHARED_PLATFORMS = [];
+    IMPORT_SHARED_PLATFORM_NAME = null;
+    IMPORT_NEW_SOURCE_NAME = "";
+    IMPORT_DIFFERENTIATOR_COLUMN = null;
+    IMPORT_CUSTOMER_MAP = [];
+    IMPORT_MAPPING_ROWS = [];
+    IMPORT_SPLIT_COLUMN = null;
+    IMPORT_DEFAULTS = {};
+    IMPORT_ITEM_CODE_MAPPING = [];
+    call(IMPORT_API + "getFieldCatalog", {}, true).then((r) => {
+      if (r.success) CATALOG = { sales_order_fields: r.sales_order_fields || [], sales_order_item_fields: r.sales_order_item_fields || [] };
+    });
+    renderImport();
+  }
+  function importStepHeader(stepNum) {
+    return `<div class="ph-flex ph-flex--wrap ph-mb">${["File", "Who", "Mapping"].map((s, i) =>
+      `<span class="ph-badge ${stepNum >= i + 1 ? "ph-badge--ink" : "ph-badge--outline"}">${i + 1} · ${s}</span>`).join("")}</div>`;
+  }
+  function renderImport() {
+    if (IMPORT_SUBVIEW === "queue") return renderImportQueueView();
+    if (IMPORT_SUBVIEW === "who") return renderImportStepWho();
+    if (IMPORT_SUBVIEW === "mapping") return renderImportStepMapping();
+    return renderImportStepFile();
+  }
+  const cardHead = (title, sub) => `<div class="ph-card__head"><div><h2 class="ph-card__title">${title}</h2>${sub ? `<div class="ph-card__meta">${sub}</div>` : ""}</div></div>`;
+
+  // ---------- step 1: file ----------
+  // The file has to come first - step 2 needs its real columns, both to offer as
+  // the "which column tells customers apart" picker and to read the real buyer codes
+  // out of, so there's nothing to auto-detect from before a file is loaded.
+  function renderImportStepFile() {
+    PH.set(vImport, `
+      ${importStepHeader(1)}
+      <section class="ph-card">
+        ${cardHead("Upload the order file", "CSV or Excel — one file may contain several orders. The first row must be the real column headers.")}
+        <div class="ph-flex ph-flex--wrap">
+          <input type="file" data-imp-file accept=".csv,.xlsx,.xls" hidden>
+          <button type="button" class="ph-btn ph-btn--primary" data-act="imp-choose">${PH.icon("upload")} Choose file…</button>
+          <span class="ph-muted" data-imp-filename>${IMPORT_FILE_HEADER ? esc(IMPORT_FILE_HEADER.length + " columns, " + (IMPORT_FILE_ROWS || []).length + " rows loaded") : "No file chosen"}</span>
+        </div>
+      </section>
+      <div class="so-actions"><span></span>
+        <button type="button" class="ph-btn ph-btn--primary" data-act="imp-to-who" ${!IMPORT_FILE_HEADER ? "disabled" : ""}>Next: who is this for →</button>
+      </div>`);
+  }
+  function goToImportWhoStep() {
+    if (!IMPORT_FILE_HEADER) { showErr("Choose a file first."); return; }
+    showErr("");
+    call(IMPORT_API + "listSharedPlatforms", {}, true).then((r) => {
+      IMPORT_SHARED_PLATFORMS = r.platforms || [];
+      IMPORT_SUBVIEW = "who";
+      renderImport();
+    });
+  }
+
+  // ---------- file parsing ----------
+  function onImportFileChosen(file) {
+    if (!file) return;
+    PH.text(vImport.querySelector("[data-imp-filename]"), "Reading " + file.name + "…");
+    const isExcel = /\.(xlsx|xls)$/i.test(file.name);
+    if (isExcel) {
+      loadSheetJs(() => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const wb = XLSX.read(new Uint8Array(e.target.result), { type: "array" });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" });
+          applyParsedGrid(grid, file.name);
+        };
+        reader.readAsArrayBuffer(file);
+      });
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => applyParsedGrid(parseCSV(String(e.target.result)), file.name);
+      reader.readAsText(file);
+    }
+  }
+  let SHEETJS_LOADING = false;
+  function loadSheetJs(cb) {
+    if (window.XLSX) { cb(); return; }
+    if (SHEETJS_LOADING) { setTimeout(() => loadSheetJs(cb), 200); return; }
+    SHEETJS_LOADING = true;
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    s.onload = () => { SHEETJS_LOADING = false; cb(); };
+    s.onerror = () => { SHEETJS_LOADING = false; showErr("Could not load the Excel reader — save the file as CSV and try again."); };
+    document.head.appendChild(s);
+  }
+  function parseCSV(text) {
+    // Minimal RFC4180-ish parser: handles quoted fields, escaped "" and commas/newlines inside quotes.
+    const rows = [];
+    let row = [], field = "", inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i], next = text[i + 1];
+      if (inQuotes) {
+        if (c === '"' && next === '"') { field += '"'; i++; }
+        else if (c === '"') { inQuotes = false; }
+        else { field += c; }
+      } else {
+        if (c === '"') { inQuotes = true; }
+        else if (c === ",") { row.push(field); field = ""; }
+        else if (c === "\r") { /* skip */ }
+        else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+        else { field += c; }
+      }
+    }
+    if (field.length || row.length) { row.push(field); rows.push(row); }
+    return rows.filter((r) => r.length > 1 || (r[0] || "").trim() !== "");
+  }
+  function applyParsedGrid(grid, filename) {
+    if (!grid || !grid.length) { showErr("Could not read any rows from " + filename); return; }
+    IMPORT_FILE_HEADER = (grid[0] || []).map((h) => String(h || "").trim());
+    IMPORT_FILE_ROWS = grid.slice(1);
+    PH.text(vImport.querySelector("[data-imp-filename]"), filename + " — " + IMPORT_FILE_HEADER.length + " columns, " + IMPORT_FILE_ROWS.length + " rows");
+    const btn = vImport.querySelector('[data-act="imp-to-who"]');
+    if (btn) btn.disabled = false;
+  }
+
+  // ---------- step 2: who this file is for ----------
+  function renderImportStepWho() {
+    PH.set(vImport, `
+      ${importStepHeader(2)}
+      <section class="ph-card">
+        ${cardHead("Who is this file for?", "Most files belong to one customer — pick “multiple” only when this file genuinely mixes several customers' orders together, told apart by one of its own columns")}
+        <div class="ph-pills ph-mb">
+          <button type="button" data-act="imp-mode" data-value="single" class="${IMPORT_MODE === "single" ? "is-on" : ""}">One customer</button>
+          <button type="button" data-act="imp-mode" data-value="shared" class="${IMPORT_MODE === "shared" ? "is-on" : ""}">Multiple customers in this file</button>
+        </div>
+        ${IMPORT_MODE === "shared" ? renderSharedWhoBody() : renderSingleWhoBody()}
+      </section>
+      <div class="so-actions">
+        <button type="button" class="ph-btn ph-btn--ghost" data-act="imp-step" data-step="file">← Back</button>
+        <button type="button" class="ph-btn ph-btn--primary" data-act="imp-to-mapping" disabled>Next: map columns →</button>
+      </div>`);
+    if (IMPORT_MODE === "shared") wireCustomerMapInputs();
+    else {
+      const input = vImport.querySelector("[data-imp-customer]");
+      PH.autocomplete(input, { source: searchCustomers, onSelect: (it) => {
+        IMPORT_CUSTOMER = { name: it.value, label: it.label };
+        input.value = it.label;
+        updateImportWhoNextBtn();
+      } });
+      input.addEventListener("input", () => { IMPORT_CUSTOMER = null; updateImportWhoNextBtn(); });
+    }
+    updateImportWhoNextBtn();
+  }
+  function renderSingleWhoBody() {
+    return `<div class="ph-form"><div class="ph-field"><label>Customer</label>
+      <input class="ph-control" data-imp-customer placeholder="Search customer…" value="${esc(IMPORT_CUSTOMER ? IMPORT_CUSTOMER.label : "")}"></div></div>`;
+  }
+  // ---------- step 2, shared mode: which source + which column + value->customer table ----------
+  function renderSharedWhoBody() {
+    return `<div class="ph-form">
+        <div class="ph-field"><label>Which source is this?</label>
+          <select class="ph-control" data-imp-platform>
+            <option value="">+ New source</option>
+            ${IMPORT_SHARED_PLATFORMS.map((p) => `<option value="${esc(p.name)}"${IMPORT_SHARED_PLATFORM_NAME === p.name ? " selected" : ""}>${esc(p.platform_name)}</option>`).join("")}
+          </select></div>
+        ${!IMPORT_SHARED_PLATFORM_NAME ? `<div class="ph-field"><label>Name this source</label>
+          <input class="ph-control" data-imp-newsource placeholder="e.g. DFG, XPOL Cloud" value="${esc(IMPORT_NEW_SOURCE_NAME || "")}"></div>` : ""}
+        <div class="ph-field"><label>Which column tells customers apart?</label>
+          <select class="ph-control" data-imp-diffcol>
+            <option value="">— pick a column —</option>
+            ${IMPORT_FILE_HEADER.map((c) => `<option value="${esc(c)}"${IMPORT_DIFFERENTIATOR_COLUMN === c ? " selected" : ""}>${esc(c)}</option>`).join("")}
+          </select></div>
+      </div>
+      ${IMPORT_DIFFERENTIATOR_COLUMN ? `<div class="ph-section-title">Map each value found in the file to a real customer</div>
+        <div>${IMPORT_CUSTOMER_MAP.length ? IMPORT_CUSTOMER_MAP.map((r, i) => `
+          <div class="so-map so-cmap" data-i="${i}">
+            <div class="ph-strong ph-truncate" title="${esc(r.differentiator_value)}">${esc(r.differentiator_value)}</div>
+            <input class="ph-control" data-cmap-input placeholder="Search customer…" value="${esc(r.customer ? r.customer.label : "")}">
+          </div>`).join("") : '<p class="ph-muted">That column is empty in every row of this file.</p>'}</div>` : ""}`;
+  }
+  function wireCustomerMapInputs() {
+    PH.$$("[data-cmap-input]", vImport).forEach((input) => {
+      const i = +input.closest("[data-i]").dataset.i;
+      PH.autocomplete(input, { source: searchCustomers, onSelect: (it) => {
+        IMPORT_CUSTOMER_MAP[i].customer = { name: it.value, label: it.label };
+        input.value = it.label;
+        updateImportWhoNextBtn();
+      } });
+      input.addEventListener("input", () => { IMPORT_CUSTOMER_MAP[i].customer = null; updateImportWhoNextBtn(); });
+    });
+  }
+  function onSharedPlatformPicked(value) {
+    if (!value) {
+      IMPORT_SHARED_PLATFORM_NAME = null;
+      IMPORT_DIFFERENTIATOR_COLUMN = null;
+      IMPORT_CUSTOMER_MAP = [];
+      IMPORT_EXISTING = null;
+      renderImport();
+      return;
+    }
+    IMPORT_SHARED_PLATFORM_NAME = value;
+    call(IMPORT_API + "getSharedPlatformSetup", { platform: value }, true).then((r) => {
+      if (!r.success) { showErr(r.error || "Could not load that source."); return; }
+      IMPORT_EXISTING = r; // field_mappings/multi_order_column - buildMappingRowsFromFile reads these in step 3
+      IMPORT_DIFFERENTIATOR_COLUMN = r.customer_differentiator_column || null;
+      const bySavedValue = {};
+      (r.customers || []).forEach((c) => { bySavedValue[c.differentiator_value] = c; });
+      rebuildCustomerMapFromFile(bySavedValue);
+      renderImport();
+    });
+  }
+  function rebuildCustomerMapFromFile(bySavedValue) {
+    bySavedValue = bySavedValue || {};
+    if (!IMPORT_DIFFERENTIATOR_COLUMN) { IMPORT_CUSTOMER_MAP = []; return; }
+    const colIndex = IMPORT_FILE_HEADER.indexOf(IMPORT_DIFFERENTIATOR_COLUMN);
+    const seen = new Set();
+    const values = [];
+    (IMPORT_FILE_ROWS || []).forEach((row) => {
+      const raw = row[colIndex];
+      const v = (raw === undefined || raw === null) ? "" : String(raw).trim();
+      if (v && !seen.has(v)) { seen.add(v); values.push(v); }
+    });
+    IMPORT_CUSTOMER_MAP = values.map((v) => {
+      const saved = bySavedValue[v];
+      return {
+        differentiator_value: v,
+        customer: saved ? { name: saved.customer, label: saved.customer } : null,
+        defaults: saved ? (saved.defaults || {}) : {},
+        item_code_mapping: saved ? (saved.item_code_mapping || []) : [],
+      };
+    });
+  }
+  function updateImportWhoNextBtn() {
+    const btn = vImport.querySelector('[data-act="imp-to-mapping"]');
+    if (!btn) return;
+    let ok;
+    if (IMPORT_MODE === "shared") {
+      ok = (IMPORT_SHARED_PLATFORM_NAME || IMPORT_NEW_SOURCE_NAME.trim())
+        && IMPORT_DIFFERENTIATOR_COLUMN
+        && IMPORT_CUSTOMER_MAP.some((r) => r.customer);
+    } else {
+      ok = !!IMPORT_CUSTOMER;
+    }
+    btn.disabled = !ok;
+  }
+
+  // ---------- step 3: mapping (fetched from the file, not typed by hand) ----------
+  function buildMappingRowsFromFile() {
+    const existingByCol = {};
+    ((IMPORT_EXISTING && IMPORT_EXISTING.field_mappings) || []).forEach((m) => { existingByCol[m.source_column] = m; });
+    IMPORT_MAPPING_ROWS = IMPORT_FILE_HEADER.map((col) => {
+      const ex = existingByCol[col];
+      return {
+        source_column: col,
+        target_doctype: ex ? ex.target_doctype : "",
+        target_fieldname: ex ? ex.target_fieldname : "",
+        default_value: ex ? (ex.default_value || "") : "",
+      };
+    });
+    IMPORT_SPLIT_COLUMN = (IMPORT_EXISTING && IMPORT_EXISTING.multi_order_column) || null;
+    if (IMPORT_MODE !== "shared") {
+      // Shared mode keeps defaults/item codes per customer, already sitting on each
+      // IMPORT_CUSTOMER_MAP row from rebuildCustomerMapFromFile - nothing to copy here.
+      IMPORT_DEFAULTS = Object.assign({}, (IMPORT_EXISTING && IMPORT_EXISTING.defaults) || {});
+      IMPORT_ITEM_CODE_MAPPING = ((IMPORT_EXISTING && IMPORT_EXISTING.item_code_mapping) || []).slice();
+    }
+  }
+  function goToImportMappingStep() {
+    if (!IMPORT_FILE_HEADER) { showErr("Choose a file first."); return; }
+    if (IMPORT_MODE === "shared") {
+      if (!IMPORT_CUSTOMER_MAP.some((r) => r.customer)) { showErr("Map at least one customer first."); return; }
+      showErr("");
+      buildMappingRowsFromFile();
+      IMPORT_SUBVIEW = "mapping";
+      renderImport();
+      return;
+    }
+    if (!IMPORT_CUSTOMER) { showErr("Pick a customer first."); return; }
+    showErr("");
+    call(IMPORT_API + "getCustomerImportSetup", { customer: IMPORT_CUSTOMER.name }, true).then((r) => {
+      IMPORT_EXISTING = (r.success && r.exists) ? r : null;
+      buildMappingRowsFromFile();
+      IMPORT_SUBVIEW = "mapping";
+      renderImport();
+    });
+  }
+  function importSampleValue(colIndex) {
+    for (const row of (IMPORT_FILE_ROWS || [])) {
+      const v = row[colIndex];
+      if (v !== undefined && v !== null && String(v).trim() !== "") return String(v);
+    }
+    return "";
+  }
+  function importTargetLabel(dt, field) {
+    if (!field) return "";
+    const list = dt === "Sales Order Item" ? CATALOG.sales_order_item_fields : CATALOG.sales_order_fields;
+    const found = (list || []).find((f) => f.fieldname === field);
+    return found ? found.label : field;
+  }
+  // Searchable field picker over CATALOG's two field lists (client-side).
+  function importTargetSource(q) {
+    q = (q || "").trim().toLowerCase();
+    const match = (f) => !q || String(f.label || "").toLowerCase().includes(q) || String(f.fieldname || "").toLowerCase().includes(q);
+    const out = [];
+    if (!q) out.push({ value: "", label: "— Don't import —", dt: "", fieldname: "" });
+    (CATALOG.sales_order_fields || []).filter(match).forEach((f) => out.push({ value: f.label, label: f.label + (f.computed ? " (auto)" : ""), description: "Order · once per order", dt: "Sales Order", fieldname: f.fieldname }));
+    (CATALOG.sales_order_item_fields || []).filter(match).forEach((f) => out.push({ value: f.label, label: f.label + (f.computed ? " (auto)" : ""), description: "Line item · once per row", dt: "Sales Order Item", fieldname: f.fieldname }));
+    return Promise.resolve(out);
+  }
+  function defaultsFormHtml(scope, d) {
+    const cur = '<option value="">—</option>' + OPTIONS.currencies.map((c) => `<option value="${esc(c)}"${d.default_currency === c ? " selected" : ""}>${esc(c)}</option>`).join("");
+    const f = (label, ctl) => `<div class="ph-field"><label>${label}</label>${ctl}</div>`;
+    return `<div class="ph-form" data-defaults="${scope}">
+      ${f("Default Currency", `<select class="ph-control" data-def="default_currency">${cur}</select>`)}
+      ${f("Default Price List", `<input class="ph-control" data-def="default_price_list" value="${esc(d.default_price_list || "")}" placeholder="Price List name">`)}
+      ${f("Default Warehouse", `<select class="ph-control" data-def="default_warehouse">${selOpts(OPTIONS.warehouses, d.default_warehouse || "")}</select>`)}
+      ${f("Default Consignee", `<input class="ph-control" data-def="default_consignee" value="${esc(d.default_consignee || "")}" placeholder="Consignee name">`)}
+      ${f("Default Delivery Point", `<input class="ph-control" data-def="default_delivery_point" value="${esc(d.default_delivery_point || "")}" placeholder="Delivery Point name">`)}
+      ${f("Default Shipping Agent", `<input class="ph-control" data-def="default_shipping_agent" value="${esc(d.default_shipping_agent || "")}" placeholder="Shipping Agent name">`)}
+    </div>`;
+  }
+  function itemMappingRowHtml(src, item) {
+    return `<div class="so-map so-imap">
+      <input class="ph-control" data-src-item placeholder="Customer's item code / name" value="${esc(src || "")}">
+      <input class="ph-control" data-tgt-item placeholder="Our Item (variety)" value="${esc(item || "")}">
+      <button type="button" class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-act="imp-item-remove" aria-label="Remove mapping">${PH.icon("close")}</button>
+    </div>`;
+  }
+  function itemMappingCard(scope, rows) {
+    return `<div data-items="${scope}">${(rows || []).map((m) => itemMappingRowHtml(m.source_item_code, m.item)).join("")}</div>
+      <button type="button" class="ph-btn ph-btn--sm ph-btn--ghost ph-mt" data-act="imp-item-add" data-scope="${scope}">+ Add item mapping</button>`;
+  }
+  function wireItemTargets(root) {
+    PH.$$("[data-tgt-item]", root).forEach((inp) => {
+      if (inp.closest(".ph-ac")) return;
+      PH.autocomplete(inp, { source: searchVarieties });
+    });
+  }
+  function renderImportStepMapping() {
+    const shared = IMPORT_MODE === "shared";
+    const sharedMappedRows = shared ? IMPORT_CUSTOMER_MAP.filter((r) => r.customer) : [];
+    PH.set(vImport, `
+      ${importStepHeader(3)}
+      <section class="ph-card">
+        ${cardHead("Map each column", "Pulled straight from your file — pick where each one goes, or leave it as “Don't import”." + (shared ? " This mapping is shared by every customer on this source." : "") + " Pick exactly one column that separates one order from the next.")}
+        <div class="so-map so-map--head"><span class="ph-label">Column in file</span><span class="ph-label">Sample</span><span class="ph-label">Maps to</span><span class="ph-label">Default</span><span class="ph-label">Split</span></div>
+        ${IMPORT_MAPPING_ROWS.map((m, i) => {
+          const sample = importSampleValue(i);
+          return `<div class="so-map" data-i="${i}">
+            <div class="ph-strong ph-truncate" title="${esc(m.source_column)}">${esc(m.source_column)}</div>
+            <div class="ph-muted ph-truncate" title="${esc(sample)}">${esc(sample || "—")}</div>
+            <div class="so-map__wide"><input class="ph-control" data-tgt placeholder="— Don't import —" value="${esc(importTargetLabel(m.target_doctype, m.target_fieldname))}"></div>
+            <input class="ph-control" data-dflt placeholder="Default" value="${esc(m.default_value || "")}">
+            <label class="ph-check"><input type="radio" name="so_imp_split" data-split${IMPORT_SPLIT_COLUMN === m.source_column ? " checked" : ""}> Split</label>
+          </div>`;
+        }).join("")}
+        ${!IMPORT_SPLIT_COLUMN ? '<div class="ph-notice ph-notice--warn ph-mt ph-mb-0" data-nosplit>⚠ No split column picked yet — the whole file will be treated as one order.</div>' : ""}
+      </section>
+      ${shared ? sharedMappedRows.map((r, gi) => `<section class="ph-card">
+          ${cardHead(esc(r.customer.label) + " — defaults &amp; item codes (optional)", "“" + esc(r.differentiator_value) + "” in the file")}
+          ${defaultsFormHtml(String(gi), r.defaults || {})}
+          <div class="ph-section-title">Item codes → our Items</div>
+          ${itemMappingCard(String(gi), r.item_code_mapping)}
+        </section>`).join("")
+      : `<section class="ph-card">
+          ${cardHead("Order-level defaults (optional)", "Used only when the file doesn't carry a value for these at all")}
+          ${defaultsFormHtml("single", IMPORT_DEFAULTS)}
+        </section>
+        <section class="ph-card">
+          ${cardHead("This customer's item codes → our Items (optional)", "Fixes “unrecognised item code” warnings on the preview")}
+          ${itemMappingCard("single", IMPORT_ITEM_CODE_MAPPING)}
+        </section>`}
+      <div class="so-actions">
+        <button type="button" class="ph-btn ph-btn--ghost" data-act="imp-step" data-step="who">← Back</button>
+        <button type="button" class="ph-btn ph-btn--primary" data-act="imp-save-mapping">Save &amp; build preview</button>
+      </div>`);
+    PH.$$("[data-tgt]", vImport).forEach((inp) => {
+      const i = +inp.closest("[data-i]").dataset.i;
+      PH.autocomplete(inp, { source: importTargetSource, onSelect: (it) => {
+        IMPORT_MAPPING_ROWS[i].target_doctype = it.dt;
+        IMPORT_MAPPING_ROWS[i].target_fieldname = it.fieldname;
+        inp.value = importTargetLabel(it.dt, it.fieldname);
+      } });
+      // Emptying the box means "Don't import".
+      inp.addEventListener("change", () => { if (!inp.value.trim()) { IMPORT_MAPPING_ROWS[i].target_doctype = ""; IMPORT_MAPPING_ROWS[i].target_fieldname = ""; } });
+    });
+    wireItemTargets(vImport);
+  }
+  function readItemCodeRows(scope) {
+    const out = [];
+    PH.$$(`[data-items="${scope}"] .so-imap`, vImport).forEach((row) => {
+      const source_item_code = row.querySelector("[data-src-item]").value.trim();
+      const item = row.querySelector("[data-tgt-item]").value.trim();
+      if (source_item_code && item) out.push({ source_item_code, item });
+    });
+    return out;
+  }
+  function readDefaults(scope) {
+    const root = vImport.querySelector(`[data-defaults="${scope}"]`);
+    const v = (k) => { const el = root.querySelector(`[data-def="${k}"]`); return el ? el.value.trim() : ""; };
+    return {
+      default_currency: v("default_currency"),
+      default_price_list: v("default_price_list"),
+      default_warehouse: v("default_warehouse"),
+      default_consignee: v("default_consignee"),
+      default_delivery_point: v("default_delivery_point"),
+      default_shipping_agent: v("default_shipping_agent"),
+    };
+  }
+  async function saveMappingAndBuildPreview() {
+    if (!IMPORT_SPLIT_COLUMN) {
+      const ok = await PH.confirm("No split column picked", "The whole file will be imported as a single order. Continue?", { ok: "Continue" });
+      if (!ok) return;
+    }
+    const field_mappings = IMPORT_MAPPING_ROWS.filter((m) => m.target_fieldname).map((m) => ({
+      source_column: m.source_column, target_doctype: m.target_doctype, target_fieldname: m.target_fieldname, default_value: m.default_value,
+    }));
+    showErr("");
+    const btn = vImport.querySelector('[data-act="imp-save-mapping"]');
+    const resetBtn = () => { if (btn) { btn.disabled = false; btn.textContent = "Save & build preview"; } };
+    if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
+
+    if (IMPORT_MODE === "shared") {
+      const mappedRows = IMPORT_CUSTOMER_MAP.filter((r) => r.customer);
+      const customers = mappedRows.map((r, gi) => ({
+        customer: r.customer.name,
+        differentiator_value: r.differentiator_value,
+        item_code_mapping: readItemCodeRows(String(gi)),
+        defaults: readDefaults(String(gi)),
+      }));
+      const platform_name = IMPORT_SHARED_PLATFORM_NAME || IMPORT_NEW_SOURCE_NAME.trim();
+      const m = await call(IMPORT_API + "saveSharedPlatformSetup", { data: JSON.stringify({
+        platform_name,
+        multi_order_column: IMPORT_SPLIT_COLUMN || "",
+        customer_differentiator_column: IMPORT_DIFFERENTIATOR_COLUMN,
+        field_mappings,
+        customers,
+      }) });
+      if (!m.success) { resetBtn(); showErr(m.error || "Could not save this mapping."); return; }
+      const m2 = await call(IMPORT_API + "buildPreview", { data: JSON.stringify({ platform: m.platform, header: IMPORT_FILE_HEADER, rows: IMPORT_FILE_ROWS }) });
+      resetBtn();
+      if (!m2.success) { showErr(m2.error || "Could not build a preview from this file."); return; }
+      IMPORT_QUEUE = (m2.orders || []).map((o) => Object.assign({}, o, { status: "pending", order_name: null, error: null }));
+      IMPORT_SUBVIEW = "queue";
+      renderImport();
+      if ((m2.unresolved_customers || []).length) {
+        showErr("No customer mapped for: " + m2.unresolved_customers.join(", ") + " — those orders were skipped. Go back to step 2 to map them.");
+      }
+      return;
+    }
+
+    const m = await call(IMPORT_API + "saveCustomerImportSetup", { data: JSON.stringify({
+      customer: IMPORT_CUSTOMER.name, multi_order_column: IMPORT_SPLIT_COLUMN || "", field_mappings,
+      item_code_mapping: readItemCodeRows("single"), defaults: readDefaults("single"),
+    }) });
+    if (!m.success) { resetBtn(); showErr(m.error || "Could not save this mapping."); return; }
+    const m2 = await call(IMPORT_API + "buildPreview", { data: JSON.stringify({ customer: IMPORT_CUSTOMER.name, platform: m.platform, header: IMPORT_FILE_HEADER, rows: IMPORT_FILE_ROWS }) });
+    resetBtn();
+    if (!m2.success) { showErr(m2.error || "Could not build a preview from this file."); return; }
+    IMPORT_QUEUE = (m2.orders || []).map((o) => Object.assign({}, o, { status: "pending", order_name: null, error: null }));
+    IMPORT_SUBVIEW = "queue";
+    renderImport();
+  }
+
+  // ---------- import queue ----------
+  // Doctypes the wizard is allowed to create on its own when a saveSalesOrder
+  // failure names one of them as missing - mirrors QUICK_ADD_DOCTYPES in
+  // api/order_import.py exactly (keep both lists in sync).
+  const QUICK_ADD_ALLOWED = new Set(["Consignee", "Stem Length", "Delivery Point", "Shipping Agent", "Box Type"]);
+  // Mirrors QUICK_ADD_EXTRA_FIELDS in api/order_import.py - optional fields
+  // worth offering on the "+ Create new" mini-form, beyond the bare name.
+  const QUICK_ADD_EXTRA_FIELDS = {
+    "Consignee": [{ fieldname: "country", fieldtype: "Link", options: "Country", label: "Country" }],
+    "Stem Length": [
+      { fieldname: "company", fieldtype: "Link", options: "Company", label: "Company" },
+      { fieldname: "price", fieldtype: "Float", label: "Price" },
+    ],
+    "Delivery Point": [
+      { fieldname: "description", fieldtype: "Data", label: "Description" },
+      { fieldname: "business_unit", fieldtype: "Link", options: "Business Unit", label: "Business Unit" },
+    ],
+    "Shipping Agent": [{ fieldname: "description", fieldtype: "Data", label: "Description" }],
+    "Box Type": [
+      { fieldname: "box_name", fieldtype: "Data", label: "Box Name" },
+      { fieldname: "length_cm", fieldtype: "Float", label: "Length (cm)" },
+      { fieldname: "width_cm", fieldtype: "Float", label: "Width (cm)" },
+      { fieldname: "height_cm", fieldtype: "Float", label: "Height (cm)" },
+      { fieldname: "weight_kg", fieldtype: "Float", label: "Weight (kg)" },
+    ],
+  };
+  // Which Sales Order / Sales Order Item field each quick-addable doctype
+  // actually fills - so resolving one missing value (create new, or map to an
+  // existing record) can rewrite every queue row/header that referenced the
+  // old raw text, across every order, not just the one card it was fixed from.
+  const QUICK_ADD_FIELD_TARGETS = {
+    "Consignee": { level: "header", field: "custom_consignee" },
+    "Stem Length": { level: "item", field: "custom_length" },
+    "Delivery Point": { level: "header", field: "custom_delivery_point" },
+    "Shipping Agent": { level: "header", field: "custom_shipping_agent" },
+    "Box Type": { level: "item", field: "custom_box_type" },
+  };
+  // Frappe's own Link-validation error (frappe/model/base_document.py) is
+  // always "Could not find {label}: {value}[, Row #{n}: {label}: {value}, ...]" -
+  // parsed here (never guessed) so a recognised failure can offer to resolve it
+  // instead of just leaving the user with the raw error text and a dead end.
+  function parseLinkValidationError(message) {
+    const m = /^Could not find (.+)$/s.exec((message || "").trim());
+    if (!m) return [];
+    const seen = new Set();
+    const out = [];
+    m[1].split(/,\s+/).forEach((seg) => {
+      const sm = /^(?:Row #\d+: )?([A-Za-z][A-Za-z \-]*): (.+)$/.exec(seg.trim());
+      if (!sm) return;
+      const doctype = sm[1].trim(), value = sm[2].trim();
+      if (!QUICK_ADD_ALLOWED.has(doctype)) return;
+      const k = doctype + "|" + value;
+      if (seen.has(k)) return;
+      seen.add(k);
+      out.push({ doctype, value });
+    });
+    return out;
+  }
+  // Applies a resolved (doctype, old raw value) -> real docname across every
+  // order in the queue, not just the one it was fixed from - the same missing
+  // Stem Length/Consignee usually blocks several orders from the same file at
+  // once. Anything this touches that was 'failed' goes back to 'pending' so
+  // the next runImportQueue() sweep picks it straight back up.
+  function applyResolvedValue(doctype, oldValue, newValue) {
+    const target = QUICK_ADD_FIELD_TARGETS[doctype];
+    if (!target) return;
+    IMPORT_QUEUE.forEach((q) => {
+      let touched = false;
+      if (target.level === "header") {
+        if (q.header[target.field] === oldValue) { q.header[target.field] = newValue; touched = true; }
+      } else {
+        (q.rows || []).forEach((r) => { if (r[target.field] === oldValue) { r[target.field] = newValue; touched = true; } });
+      }
+      if (touched && q.status === "failed") { q.status = "pending"; q.error = null; }
+    });
+  }
+  // Every _spec_conflicts entry buildPreview attached to a row, flattened across
+  // the whole order and tagged with which row/spec/bunch it came from.
+  function specConflictsFor(q) {
+    const out = [];
+    (q.rows || []).forEach((r, ri) => {
+      (r._spec_conflicts || []).forEach((c) => out.push(Object.assign({}, c, {
+        rowIndex: ri, spec_name: r._spec_name, bunch_id: r._spec_bunch_id, item_code: r.item_code,
+      })));
+    });
+    return out;
+  }
+  // Every row buildPreview couldn't fully spec-match, split into the two
+  // genuinely different reasons a row's _spec_status can be anything but
+  // "matched" - shown up front in the preview (not gated behind a status)
+  // so it's clear before the import even runs, not discovered mid-batch.
+  function specStatusNotesFor(q) {
+    const out = [];
+    (q.rows || []).forEach((r) => {
+      if (r._spec_status === "no_match") out.push({ item_code: r.item_code, status: "no_match" });
+      else if (r._spec_status === "incomplete") out.push({ item_code: r.item_code, status: "incomplete", spec_name: r._spec_name, missing: r._spec_missing_fields || [] });
+    });
+    return out;
+  }
+  const warnLine = (html) => `<div class="ph-field__hint ph-warn">${html}</div>`;
+  function renderSpecStatusNotes(notes) {
+    return notes.map((n) => {
+      if (n.status === "no_match") return warnLine(`⚠ No Specification found for ${esc(n.item_code || "")} — pack rate/length will need to be entered manually.`);
+      const missingLabels = n.missing.map((f) => SPEC_CONFLICT_FIELD_LABELS[f] || f).join(", ") || "pack data";
+      return warnLine(`⚠ Specification “${esc(n.spec_name)}” found for ${esc(n.item_code || "")}, but it's missing ${esc(missingLabels)} — fill these in manually, or update the Specification.`);
+    }).join("");
+  }
+  function renderSpecConflicts(i, conflicts) {
+    return `<div class="ph-notice ph-notice--warn ph-mb-0"><div class="ph-stack">
+      ${conflicts.map((c) => `<div>⚠ ${esc(c.item_code || "")} — ${esc(SPEC_CONFLICT_FIELD_LABELS[c.field] || c.field)}: the Specification “${esc(c.spec_name)}” says <b>${esc(String(c.spec_value))}</b>, this file says <b>${esc(String(c.file_value))}</b>.</div>`).join("")}
+      <div class="ph-flex ph-flex--wrap">
+        <button type="button" class="ph-btn ph-btn--sm" data-act="imp-spec" data-i="${i}" data-choice="file">Proceed with the file's values</button>
+        <button type="button" class="ph-btn ph-btn--sm ph-btn--primary" data-act="imp-spec" data-i="${i}" data-choice="spec">Update the Specification instead</button>
+      </div></div></div>`;
+  }
+  async function resolveSpecConflicts(i, choice) {
+    const q = IMPORT_QUEUE[i];
+    const conflicts = specConflictsFor(q);
+    if (choice === "file") {
+      q._specResolved = true;
+      q.status = "pending";
+      renderImport();
+      runImportQueue();
+      return;
+    }
+    const bySpec = {};
+    conflicts.forEach((c) => {
+      const key = c.spec_name + "|" + c.bunch_id;
+      if (!bySpec[key]) bySpec[key] = { spec_name: c.spec_name, bunch_id: c.bunch_id, updates: {} };
+      bySpec[key].updates[c.field] = c.file_value;
+    });
+    const results = await Promise.all(Object.values(bySpec).map((g) => call(IMPORT_API + "updateSpecFromImportConflict", { data: JSON.stringify(g) })));
+    let anyFailed = false;
+    results.forEach((m) => { if (!m.success) { anyFailed = true; PH.toast(m.error || "Could not update the Specification.", "bad"); } });
+    if (anyFailed) { renderImport(); return; }
+    PH.toast("Specification updated.", "good");
+    q._specResolved = true;
+    q.status = "pending";
+    renderImport();
+    runImportQueue();
+  }
+  const QUEUE_BADGE = { pending: "", creating: "ph-badge--signal", created: "ph-badge--good", failed: "ph-badge--bad", needs_review: "ph-badge--warn" };
+  function renderResolveMissing(i, quickAdds) {
+    return quickAdds.map((qa) => {
+      const willBecome = (qa.doctype === "Stem Length" && /^\d+$/.test(qa.value)) ? `${qa.value}cm` : null;
+      return `<div class="so-rmv" data-i="${i}" data-doctype="${esc(qa.doctype)}" data-value="${esc(qa.value)}">
+        <div>Missing ${esc(qa.doctype)}: <b class="ph-strong">${esc(qa.value)}</b>${willBecome ? ` <span class="ph-muted">(will be created as ${esc(willBecome)})</span>` : ""}</div>
+        <div class="ph-flex ph-flex--wrap">
+          <input class="ph-control" data-rmv-input placeholder="Map to an existing ${esc(qa.doctype)}…">
+          <button type="button" class="ph-btn ph-btn--sm" data-act="imp-qa-toggle">+ Create new</button>
+        </div>
+        <div class="ph-flex ph-flex--wrap" data-qa-form hidden>
+          ${(QUICK_ADD_EXTRA_FIELDS[qa.doctype] || []).map((f) => `<input class="ph-control so-rmv-extra" data-field="${esc(f.fieldname)}" placeholder="${esc(f.label)}${f.fieldtype === "Link" ? " (" + esc(f.options) + ")" : ""}" type="${f.fieldtype === "Float" ? "number" : "text"}"${f.fieldtype === "Float" ? ' step="any"' : ""}>`).join("")}
+          <button type="button" class="ph-btn ph-btn--sm ph-btn--primary" data-act="imp-qa-create">Create ${esc(qa.doctype)}</button>
+        </div>
+      </div>`;
+    }).join("");
+  }
+  function renderQueueCard(q, i) {
+    const label = q.header.custom_order_name || q.header.customer || ("Order " + (i + 1));
+    const quickAdds = q.status === "failed" ? parseLinkValidationError(q.error) : [];
+    const specConflicts = q.status === "needs_review" ? specConflictsFor(q) : [];
+    const notes = specStatusNotesFor(q);
+    return `<article class="ph-tile">
+      <div class="ph-tile__head">
+        <div style="min-width:0"><div class="ph-tile__name">${esc(label)}${q.order_name ? ` → <a href="#" class="ph-link" data-act="imp-open-order" data-name="${esc(q.order_name)}">${esc(q.order_name)}</a>` : ""}</div>
+          <div class="ph-tile__sub">${PH.fmt.plural((q.rows || []).length, "line")} · delivery ${esc(q.header.delivery_date || "—")} · price list ${esc(q.header.selling_price_list || "—")}</div></div>
+        <span class="ph-badge ${QUEUE_BADGE[q.status] || ""}">${q.status === "needs_review" ? "needs review" : esc(q.status)}</span>
+      </div>
+      ${(q.unresolved_items || []).length ? (q.unresolved_items || []).map((u) => warnLine("⚠ " + esc(u))).join("") + warnLine("Use Review &amp; fix below to pick the right variety for each row.") : ""}
+      ${renderSpecStatusNotes(notes)}
+      ${specConflicts.length ? renderSpecConflicts(i, specConflicts) : ""}
+      ${q.error ? `<div class="ph-notice ph-notice--bad ph-mb-0">${esc(q.error)}</div>` : ""}
+      ${quickAdds.length ? `<div>${renderResolveMissing(i, quickAdds)}</div>` : ""}
+      ${q.status === "failed" ? `<div class="ph-flex ph-flex--wrap">
+        <button type="button" class="ph-btn ph-btn--sm" data-act="imp-retry" data-i="${i}">Retry</button>
+        <button type="button" class="ph-btn ph-btn--sm ph-btn--primary" data-act="imp-review" data-i="${i}">Review &amp; fix</button>
+      </div>` : ""}
+    </article>`;
+  }
+  function renderImportQueueView() {
+    const created = IMPORT_QUEUE.filter((q) => q.status === "created").length;
+    const failed = IMPORT_QUEUE.filter((q) => q.status === "failed" || q.status === "needs_review").length;
+    PH.set(vImport, `
+      <section class="ph-kpis" data-qkpis></section>
+      <div class="so-actions ph-mb">
+        <button type="button" class="ph-btn ph-btn--ghost" data-act="imp-step" data-step="file">← Back to file pick</button>
+        <button type="button" class="ph-btn ph-btn--primary" data-act="imp-run">Start / continue import</button>
+      </div>
+      <div class="ph-stack">${IMPORT_QUEUE.length ? IMPORT_QUEUE.map(renderQueueCard).join("") : ""}</div>`);
+    PH.kpis(vImport.querySelector("[data-qkpis]"), [
+      { label: "Orders detected", value: IMPORT_QUEUE.length },
+      { label: "Created", value: created },
+      { label: "Remaining", value: IMPORT_QUEUE.length - created },
+      { label: "Need attention", value: failed },
+    ]);
+    if (!IMPORT_QUEUE.length) {
+      const holder = vImport.querySelector(".ph-stack");
+      PH.empty(holder, "No orders found in this file", "Check the column mapping and the split column, then build the preview again.");
+    }
+    PH.$$("[data-rmv-input]", vImport).forEach((input) => {
+      const item = input.closest(".so-rmv");
+      const doctype = item.dataset.doctype, oldValue = item.dataset.value;
+      PH.autocomplete(input, {
+        source: (q) => call(IMPORT_API + "searchMasterValue", { data: JSON.stringify({ doctype, query: q }) }).then((m) => ((m.success ? m.options : []) || []).map((o) => ({ value: o, label: o }))),
+        onSelect: (it) => {
+          applyResolvedValue(doctype, oldValue, it.value);
+          PH.toast(`Mapped to existing ${doctype} “${it.value}”.`, "good");
+          renderImport();
+          runImportQueue();
+        },
+      });
+    });
+  }
+  async function submitQuickAdd(item) {
+    const i = +item.dataset.i, doctype = item.dataset.doctype, value = item.dataset.value;
+    const extra = {};
+    PH.$$(".so-rmv-extra", item).forEach((inp) => { if (inp.value.trim()) extra[inp.dataset.field] = inp.value.trim(); });
+    const q = IMPORT_QUEUE[i];
+    const m = await call(IMPORT_API + "quickAddMasterValue", { data: JSON.stringify({ doctype, value, customer: q.header.customer, extra }) });
+    if (!m.success) { PH.toast(m.error || `Could not add this ${doctype}.`, "bad"); return; }
+    PH.toast(`${doctype} “${m.name}” added.`, "good");
+    applyResolvedValue(doctype, value, m.name);
+    renderImport();
+    runImportQueue();
+  }
+  function mappedRowToManual(r, defaultWarehouse) {
+    return {
+      item_code: r.item_code, stems_per_bunch: r._stems_per_bunch, bunches_per_box: r._bunches_per_box,
+      boxes: r.custom_number_of_boxes, length: r.custom_length, box_type: r.custom_box_type,
+      mixed_box: !!(r.custom_mixed_box && r.custom_mixed_box !== "0"), mixed_bunch: !!(r.custom_mixed_bunch && r.custom_mixed_bunch !== "0"),
+      mix_group: r.custom_mix_group || "import", bunch_group: r.custom_bunch_group || "import",
+      warehouse: r.warehouse || defaultWarehouse,
+    };
+  }
+  function runImportQueue() {
+    const next = IMPORT_QUEUE.findIndex((q) => q.status === "pending");
+    if (next === -1) return;
+    processQueueItem(next);
+  }
+  function processQueueItem(i) {
+    const q = IMPORT_QUEUE[i];
+    // A blocked order (unresolved item codes, or an unresolved spec conflict)
+    // must never stall the rest of the batch - without this, runImportQueue()
+    // would stop dead at the first one and every order after it would sit
+    // untouched until "Start/continue" was clicked again just for it.
+    if ((q.unresolved_items || []).length) {
+      q.status = "failed";
+      q.error = "Unrecognised item code(s) need fixing before this order can be created.";
+      renderImport();
+      runImportQueue();
+      return;
+    }
+    if (specConflictsFor(q).length && !q._specResolved) {
+      q.status = "needs_review";
+      renderImport();
+      runImportQueue();
+      return;
+    }
+    q.status = "creating";
+    renderImport();
+    // A spec-identified row (_is_spec_row - see _resolve_spec_row in
+    // api/order_import.py) already arrived fully shaped by build_spec_rows
+    // itself, exactly like "+ Add from Spec" would have produced it -
+    // sending it through mappedRowToManual's manual-line shaping would
+    // discard custom_line/custom_mix_name/the spec's detail payload and
+    // re-derive packrate/UOM a second, different way. It goes in as-is,
+    // same as saveOrder()'s own spec_rows handling (and saveSalesOrder
+    // itself: spec_rows are appended to the order untouched).
+    const manual_rows = (q.rows || []).filter((r) => !r._is_spec_row).map((r) => mappedRowToManual(r, q.default_warehouse));
+    const spec_rows = (q.rows || []).filter((r) => r._is_spec_row).map((r) => {
+      const clean = Object.assign({}, r);
+      Object.keys(clean).forEach((k) => { if (k.startsWith("_")) delete clean[k]; });
+      return clean;
+    });
+    const payload = Object.assign({}, q.header, { manual_rows, spec_rows });
+    call(API + "saveSalesOrder", { data: JSON.stringify(payload) }).then((r) => {
+      if (!r.success) {
+        q.status = "failed";
+        q.error = r.error || "Could not create this order.";
+        renderImport();
+        return;
+      }
+      q.status = "created";
+      q.order_name = r.name;
+      renderImport();
+      runImportQueue(); // continue with the next pending one
+    });
+  }
+  // Opens the real order-editing UI (same header fields, ledger, + Add from
+  // Spec as a normal order) in a modal on top of the wizard, instead of
+  // navigating away from it - fixing one failed order should never cost you
+  // your place in the batch. Picking a variety for a blank/unresolved row
+  // autofills from its Specification the same way "+ Add from Spec" would
+  // (see autofillFromSpecMatch), since the spec is exactly where the real
+  // pack rate/stems-per-bunch/length for that variety already lives.
+  function openOrderReviewModal(i) {
+    const q = IMPORT_QUEUE[i];
+    CARD_SEQ = 1;
+    // A spec-identified row (_is_spec_row) was already fully shaped by
+    // build_spec_rows itself - same as "+ Add from Spec" would have left
+    // it, so it's carried into SPEC_ROWS and shows as the ledger's own
+    // read-only spec summary, not forced through the manual-card editor
+    // below, which is only for whatever this order still needs fixed.
+    const specRows = (q.rows || []).filter((r) => r._is_spec_row);
+    const otherRows = (q.rows || []).filter((r) => !r._is_spec_row);
+    SPEC_ROWS = specRows.map((r) => {
+      // One batch per file row (_source_row), not per order - several file
+      // rows can each resolve their own, DIFFERENT Specification into this
+      // same order, and sharing one _batch_id across all of them made the
+      // ledger show every one of them crammed under whichever spec's name
+      // happened to come first, as if they were all one mixed box.
+      const batchId = "import-" + i + "-row-" + r._source_row;
+      const clean = Object.assign({}, r);
+      Object.keys(clean).forEach((k) => { if (k.startsWith("_")) delete clean[k]; });
+      clean._batch_id = batchId;
+      clean._spec = r.custom_line;
+      return clean;
+    });
+    CURRENT = Object.assign(blankOrder(), { set_warehouse: q.default_warehouse || OPTIONS.default_warehouse || "" }, q.header);
+    MANUAL_CARDS = otherRows.length ? [{
+      // Left blank rather than defaulting to OPTIONS[0] (unlike a brand new
+      // manual card) - a blank here means the file genuinely never carried
+      // it, which is exactly what should trigger the spec autofill
+      // once a variety is picked, not get masked by an arbitrary guess.
+      id: "card" + (CARD_SEQ++), mixed_box: false, mixed_bunch: false,
+      length: (otherRows[0] || {}).custom_length || "",
+      box_type: (otherRows[0] || {}).custom_box_type || "",
+      boxes: (otherRows[0] || {}).custom_number_of_boxes || "",
+      bunches_per_box: (otherRows[0] || {})._bunches_per_box || "",
+      rows: otherRows.map((r) => ({
+        variety: r.item_code, item_name: r.item_code,
+        stems_per_bunch: r._stems_per_bunch, no_sales_uom: false,
+        source_row: r._source_row,
+        spec_status: r._spec_status, spec_name: r._spec_name, spec_missing_fields: r._spec_missing_fields,
+      })),
+    }] : [];
+    IMPORT_RETURNING_INDEX = i;
+    DIRTY = false;
+    showErr("");
+    const label = q.header.custom_order_name || q.header.customer || ("Order " + (i + 1));
+    const body = document.createElement("div");
+    bindEditorHost(body);
+    REVIEW_MODAL = PH.modal({
+      title: "Review & fix this order",
+      sub: `${label} — fill in what's missing, then Save to retry this order. Picking a variety autofills from its Specification, same as “+ Add from spec”.`,
+      body, size: "xl",
+      onClose: () => {
+        IMPORT_RETURNING_INDEX = null;
+        REVIEW_MODAL = null;
+        EDIT_HOST = currentView() === "edit" ? vEdit : null;
+      },
+    });
+    renderEditorInto(body);
+  }
+  function closeOrderReviewModal() { if (REVIEW_MODAL) REVIEW_MODAL.close(); }
+
+  /* import events (delegated) */
+  vImport.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-act]");
+    if (!b) return;
+    if (b.tagName === "A") e.preventDefault();
+    const a = b.dataset.act;
+    if (a === "imp-choose") vImport.querySelector("[data-imp-file]").click();
+    else if (a === "imp-to-who") goToImportWhoStep();
+    else if (a === "imp-to-mapping") goToImportMappingStep();
+    else if (a === "imp-step") { IMPORT_SUBVIEW = b.dataset.step; showErr(""); renderImport(); }
+    else if (a === "imp-mode") { IMPORT_MODE = b.dataset.value; renderImport(); }
+    else if (a === "imp-save-mapping") saveMappingAndBuildPreview();
+    else if (a === "imp-item-add") {
+      const box = vImport.querySelector(`[data-items="${b.dataset.scope}"]`);
+      box.insertAdjacentHTML("beforeend", itemMappingRowHtml("", ""));
+      wireItemTargets(box);
+      const inp = box.lastElementChild.querySelector("[data-src-item]");
+      if (inp) inp.focus();
+    }
+    else if (a === "imp-item-remove") b.closest(".so-imap").remove();
+    else if (a === "imp-run") runImportQueue();
+    else if (a === "imp-retry") processQueueItem(+b.dataset.i);
+    else if (a === "imp-review") openOrderReviewModal(+b.dataset.i);
+    else if (a === "imp-spec") resolveSpecConflicts(+b.dataset.i, b.dataset.choice);
+    else if (a === "imp-qa-toggle") { const f = b.closest(".so-rmv").querySelector("[data-qa-form]"); f.hidden = !f.hidden; }
+    else if (a === "imp-qa-create") submitQuickAdd(b.closest(".so-rmv"));
+    else if (a === "imp-open-order") goEditor(b.dataset.name);
+  });
+  vImport.addEventListener("change", (e) => {
+    const t = e.target;
+    if (t.matches("[data-imp-file]")) onImportFileChosen(t.files[0]);
+    else if (t.matches("[data-imp-platform]")) onSharedPlatformPicked(t.value);
+    else if (t.matches("[data-imp-diffcol]")) { IMPORT_DIFFERENTIATOR_COLUMN = t.value || null; rebuildCustomerMapFromFile(); renderImport(); }
+    else if (t.matches("[data-split]")) {
+      IMPORT_SPLIT_COLUMN = IMPORT_MAPPING_ROWS[+t.closest("[data-i]").dataset.i].source_column;
+      const warn = vImport.querySelector("[data-nosplit]");
+      if (warn) warn.remove();
+    }
+  });
+  vImport.addEventListener("input", (e) => {
+    const t = e.target;
+    if (t.matches("[data-imp-newsource]")) { IMPORT_NEW_SOURCE_NAME = t.value; updateImportWhoNextBtn(); }
+    else if (t.matches("[data-dflt]")) IMPORT_MAPPING_ROWS[+t.closest("[data-i]").dataset.i].default_value = t.value;
+  });
+
+  /* ---------- keyboard: Escape ----------
+     PH.modal closes on any Escape that reaches document. Two cases must not:
+     (1) the shared spec-fill overlay is open on top (it has no Escape of its
+     own) -- close just the overlay; (2) Escape was dismissing an open picker
+     dropdown inside a modal -- close just the dropdown. */
+  let acWasOpen = false;
+  window.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const ov = document.getElementById("usfdOverlayBackdrop");
+    if (ov && ov.classList.contains("show")) { e.stopPropagation(); ov.classList.remove("show"); return; }
+    const ac = e.target && e.target.closest && e.target.closest(".ph-ac");
+    acWasOpen = !!(ac && ac.querySelector(".ph-ac__menu"));
+  }, true);
+  document.getElementById("ph2").addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && acWasOpen) { acWasOpen = false; e.stopPropagation(); }
+  });
+
+  /* ---------- refresh ---------- */
+  PH.onRefresh(() => {
+    const v = currentView();
+    if (v === "list") return loadList();
+    if (v === "edit" && CURRENT && CURRENT.name && IMPORT_RETURNING_INDEX == null) {
+      if (DIRTY && CURRENT.docstatus === 0) {
+        return PH.confirm("Reload this order?", "Unsaved changes will be lost.", { ok: "Reload", danger: true }).then((ok) => ok && openEditor(CURRENT.name));
+      }
+      return openEditor(CURRENT.name);
+    }
+    return Promise.resolve();
+  });
+  window.addEventListener("beforeunload", (e) => {
+    if (DIRTY && CURRENT && CURRENT.docstatus === 0 && (currentView() === "edit" || IMPORT_RETURNING_INDEX != null)) { e.preventDefault(); e.returnValue = ""; }
+  });
+
+  PH.ready(boot);
+})();
+</script>
+{% endraw %}
+{% endblock %}

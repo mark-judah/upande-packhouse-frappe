@@ -1,0 +1,451 @@
+{% extends "templates/web.html" %}
+{% block title %}Sales Settings · Packhouse{% endblock %}
+{% block page_content %}
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
+
+<style>
+  /* Sales Settings only: the add-a-default row lines its button up with the inputs. */
+  .ss-add{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,1.4fr) auto;gap:var(--sp-3) var(--sp-4);align-items:end;padding:0 32px var(--sp-5)}
+  .ss-chips{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center}
+  .ss-chips .ph-filter-chip small{opacity:.7}
+  .ss-chips .ph-ac{min-width:240px;flex:0 1 280px}
+  @media (max-width:900px){
+    .ss-add{grid-template-columns:minmax(0,1fr);padding:0 var(--sp-5) var(--sp-5)}
+    .ss-chips .ph-ac{flex:1 1 100%;min-width:0}
+  }
+</style>
+
+<div class="ss">
+<header class="ph-head">
+  <div>
+    <div class="ph-head__eyebrow">Packhouse · Stock &amp; Orders</div>
+    <h1 class="ph-head__title">Sales Settings</h1>
+    <p class="ph-head__sub">Currencies this business quotes in, the price lists it sells from, and each customer’s default price list per currency</p>
+  </div>
+  <div class="ph-head__tools">
+    <button class="ph-btn ph-btn--primary" id="btn-new-pl" type="button">New price list</button>
+  </div>
+</header>
+
+<div class="ph-filters">
+  <select class="ph-select" id="f-currency" aria-label="Currency"><option value="">All currencies</option></select>
+  <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Search customer, price list or currency" aria-label="Search"></label>
+</div>
+
+<section class="ph-kpis" id="kpis"></section>
+
+<section class="ph-card">
+  <div class="ph-card__head">
+    <h2 class="ph-card__title">Default warehouse</h2>
+    <span class="ph-card__meta" id="wh-status"></span>
+  </div>
+  <div class="ph-form">
+    <div class="ph-field">
+      <label for="wh">Default warehouse</label>
+      <select class="ph-control" id="wh" disabled><option value="">Loading…</option></select>
+      <div class="ph-field__hint">Auto-fills a new Sales Order’s Set Warehouse (and each line’s own Warehouse, where blank). Leave unset to require picking one on every order.</div>
+    </div>
+  </div>
+  <div id="wh-error"></div>
+</section>
+
+<div class="ph-row ph-row--2">
+  <section class="ph-card">
+    <div class="ph-card__head">
+      <h2 class="ph-card__title">Currencies <span class="ph-badge" id="cur-count">0</span></h2>
+      <span class="ph-card__meta" id="cur-meta">Every real Currency record</span>
+    </div>
+    <p class="ph-card__meta ph-mb">Enabled currencies matching the filters are shown below. Remove one to disable it, or search to enable another.</p>
+    <div class="ss-chips" id="currencies"></div>
+  </section>
+
+  <section class="ph-card">
+    <div class="ph-card__head">
+      <h2 class="ph-card__title">Price lists <span class="ph-badge" id="pl-count">0</span></h2>
+      <span class="ph-card__meta" id="pl-meta">Selling price lists</span>
+    </div>
+    <p class="ph-card__meta ph-mb">Only enabled price lists can be picked on a Sales Order, in Desk and the dashboard alike. Shown below: enabled ones matching the filters.</p>
+    <div class="ss-chips" id="pricelists"></div>
+  </section>
+</div>
+
+<section class="ph-card ph-card--flush">
+  <div class="ph-card__head">
+    <div>
+      <h2 class="ph-card__title">Default price list per customer &amp; currency</h2>
+      <div class="ph-card__meta">Pre-fills a Sales Order’s price list the moment a customer and currency are picked</div>
+    </div>
+    <div class="ph-card__tools">
+      <button class="ph-iconbtn ph-iconbtn--sm" id="btn-csv" type="button" title="Export CSV" aria-label="Export CSV"></button>
+    </div>
+  </div>
+  <form class="ss-add" id="add-form" autocomplete="off">
+    <div class="ph-field"><label for="add-customer">Customer</label><input class="ph-control" id="add-customer" placeholder="Search customer…"></div>
+    <div class="ph-field"><label for="add-currency">Currency</label><select class="ph-control" id="add-currency"></select></div>
+    <div class="ph-field"><label for="add-pl">Price list</label><input class="ph-control" id="add-pl" placeholder="Search price list…"></div>
+    <button class="ph-btn ph-btn--primary" type="submit">Add default</button>
+  </form>
+  <div id="mappings"></div>
+</section>
+</div>
+
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  const API = "upande_packhouse.api.sales_settings.";
+  // Page-wide filters: currency (exact code) and q (substring, PH.match) narrow the
+  // currency chips, the price-list chips and the defaults table alike. The v1 list
+  // endpoints take no args, so the lists filter in the browser; the KPI strip is
+  // counted on the server over the same rows with the same test
+  // (api/v2/sales_settings.get_summary), so each KPI = what the page lists.
+  const st = PH.state({ q: "", currency: "" });
+  const data = { currencies: null, priceLists: null, mappings: null, warehouse: undefined, warehouses: [] };
+  const err = {};
+  let newCustomer = null;
+  let newPriceList = null;
+
+  const get = (m, args) => PH.call(API + m, args || {}, { silent: true, type: "GET" });
+  const post = (m, payload) => PH.call(API + m, { data: JSON.stringify(payload) });
+
+  /* ── KPIs (server-counted over the filtered set) ── */
+  PH.kpiSkeleton("#kpis", ["Currencies enabled", "Price lists enabled", "Customer defaults", "Default warehouse"]);
+  let kpiSeq = 0;
+  function renderKpis() {
+    const seq = ++kpiSeq;
+    const s = st.get();
+    const filtered = !!(s.q || s.currency);
+    PH.loadingKpis("#kpis", true);
+    return PH.call("upande_packhouse.api.v2.sales_settings.get_summary", { currency: s.currency, q: s.q }, { silent: true, type: "GET" })
+      .then((k) => {
+        if (seq !== kpiSeq) return;
+        data.kpis = k;
+        const scope = filtered ? " matching" : "";
+        PH.kpis("#kpis", [
+          { label: "Currencies enabled", value: k.currencies_enabled, unit: "of " + PH.fmt.num(k.currencies_total) + scope + " currencies" },
+          { label: "Price lists enabled", value: k.price_lists_enabled, unit: "of " + PH.fmt.num(k.price_lists_total) + scope + " selling price lists" },
+          { label: "Customer defaults", value: k.defaults_total, unit: PH.fmt.num(k.defaults_active) + " active · " + PH.fmt.num(k.defaults_disabled) + " disabled" },
+          {
+            label: "Default warehouse", value: k.default_warehouse ? "Set" : "None",
+            unit: (k.default_warehouse || "picked on every order") + (filtered ? " · site-wide, not filtered" : ""),
+            title: k.default_warehouse || "",
+          },
+        ]);
+      })
+      .catch((e) => { if (seq === kpiSeq) { PH.loadingKpis("#kpis", false); PH.error("#kpis", e.message, renderKpis); } });
+  }
+
+  /* ── Default warehouse ── */
+  const whSel = document.getElementById("wh");
+  function loadWarehouse() {
+    PH.set("#wh-error", "");
+    return get("getSalesSettings").then((m) => {
+      data.warehouse = m.default_warehouse || "";
+      data.warehouses = m.warehouses || [];
+      whSel.innerHTML = '<option value="">None — require a pick on every order</option>';
+      PH.options(whSel, data.warehouses, data.warehouse);
+      whSel.disabled = false;
+    }).catch((e) => {
+      whSel.innerHTML = '<option value="">Unavailable</option>';
+      PH.error("#wh-error", e.message, loadWarehouse);
+    });
+  }
+  whSel.addEventListener("change", () => {
+    const v = whSel.value, prev = data.warehouse;
+    whSel.disabled = true;
+    PH.text("#wh-status", "Saving…");
+    post("setDefaultWarehouse", { default_warehouse: v })
+      .then(() => {
+        data.warehouse = v;
+        PH.text("#wh-status", "Saved");
+        PH.toast(v ? "Default warehouse set to " + v : "Default warehouse cleared", "good");
+        renderKpis();
+      })
+      .catch(() => { whSel.value = prev || ""; PH.text("#wh-status", ""); })
+      .finally(() => { whSel.disabled = false; });
+  });
+
+  /* ── Currencies ── */
+  function loadCurrencies() {
+    return get("listCurrencies").then((m) => {
+      data.currencies = m.currencies || [];
+      err.cur = null;
+      renderCurrencies();
+      fillCurrencySelects();
+    }).catch((e) => {
+      err.cur = e.message;
+      PH.error("#currencies", e.message, loadCurrencies);
+    });
+  }
+  function renderCurrencies() {
+    const s = st.get();
+    const on = data.currencies.filter((c) => c.enabled && (!s.currency || c.name === s.currency) && PH.match(c, s.q, ["name", "symbol"]));
+    PH.text("#cur-count", PH.fmt.num(on.length));
+    PH.text("#cur-meta", s.q || s.currency ? "Filtered" : "Every real Currency record");
+    PH.set("#currencies",
+      (on.length ? "" : '<span class="ph-card__meta">' + (s.q || s.currency ? "No enabled currency matches the filters." : "No currency enabled yet.") + "</span>") +
+      on.map((c) => PH.html`<span class="ph-filter-chip"><span class="ph-mono">${c.name}</span>${c.symbol ? PH.html`<small>${c.symbol}</small>` : ""}<button type="button" data-cur-off="${c.name}" title="Disable ${c.name}" aria-label="Disable ${c.name}">${PH.raw(PH.icon("close", 12))}</button></span>`.__raw).join("") +
+      '<input class="ph-control" id="cur-add" placeholder="+ Enable another currency…" aria-label="Enable a currency">');
+    PH.autocomplete("#cur-add", {
+      source: (q) => {
+        const Q = q.toUpperCase();
+        return Promise.resolve(data.currencies.filter((c) => !c.enabled && c.name.toUpperCase().includes(Q)).slice(0, 25)
+          .map((c) => ({ value: c.name, label: c.name, description: c.symbol || "" })));
+      },
+      onSelect: (it) => setCurrency(it.value, true),
+    });
+  }
+  function setCurrency(currency, enabled) {
+    return post("setCurrencyEnabled", { currency, enabled })
+      .then(() => {
+        PH.toast(currency + (enabled ? " enabled" : " disabled"), "good");
+        renderKpis();
+        return loadCurrencies();
+      })
+      .catch(() => {});
+  }
+  document.getElementById("currencies").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-cur-off]");
+    if (b) { b.disabled = true; setCurrency(b.dataset.curOff, false); }
+  });
+  function fillCurrencySelects() {
+    const on = data.currencies.filter((c) => c.enabled).map((c) => c.name);
+    const addSel = document.getElementById("add-currency");
+    const keep = addSel.value;
+    addSel.innerHTML = "";
+    PH.options(addSel, on, on.includes(keep) ? keep : on[0] || "");
+    const used = PH.uniq((data.mappings || []).map((m) => m.currency));
+    PH.options("#f-currency", PH.uniq(on.concat(used, st.get("currency") ? [st.get("currency")] : [])).sort(), st.get("currency"));
+  }
+
+  /* ── Price lists ── */
+  function loadPriceLists() {
+    return get("listPriceLists").then((m) => {
+      data.priceLists = m.price_lists || [];
+      renderPriceLists();
+    }).catch((e) => PH.error("#pricelists", e.message, loadPriceLists));
+  }
+  function renderPriceLists() {
+    const s = st.get();
+    const on = data.priceLists.filter((p) => p.enabled && (!s.currency || p.currency === s.currency) && PH.match(p, s.q, ["name", "currency"]));
+    PH.text("#pl-count", PH.fmt.num(on.length));
+    PH.text("#pl-meta", s.q || s.currency ? "Filtered selling price lists" : "Selling price lists");
+    PH.set("#pricelists",
+      (on.length ? "" : '<span class="ph-card__meta">' + (s.q || s.currency ? "No enabled price list matches the filters." : "No price list enabled yet.") + "</span>") +
+      on.map((p) => PH.html`<span class="ph-filter-chip"><span>${p.name}</span>${p.currency ? PH.html`<small class="ph-mono">${p.currency}</small>` : ""}<button type="button" data-pl-off="${p.name}" title="Disable ${p.name}" aria-label="Disable ${p.name}">${PH.raw(PH.icon("close", 12))}</button></span>`.__raw).join("") +
+      '<input class="ph-control" id="pl-add" placeholder="+ Enable or create a price list…" aria-label="Enable or create a price list">');
+    PH.autocomplete("#pl-add", {
+      source: (q) => {
+        const Q = q.trim().toUpperCase();
+        const items = data.priceLists.filter((p) => !p.enabled && p.name.toUpperCase().includes(Q)).slice(0, 25)
+          .map((p) => ({ value: p.name, label: p.name, description: p.currency || "" }));
+        if (Q && !data.priceLists.some((p) => p.name.toUpperCase() === Q))
+          items.push({ value: q.trim(), label: "+ Create “" + q.trim() + "” as a new price list…", create: true });
+        return Promise.resolve(items);
+      },
+      onSelect: (it) => {
+        if (it.create) {
+          document.getElementById("pl-add").value = "";
+          createPriceListDialog(it.value, null);
+        } else setPriceList(it.value, true);
+      },
+    });
+  }
+  function setPriceList(price_list, enabled) {
+    return post("setPriceListEnabled", { price_list, enabled })
+      .then(() => {
+        PH.toast(price_list + (enabled ? " enabled" : " disabled"), "good");
+        renderKpis();
+        return loadPriceLists();
+      })
+      .catch(() => {});
+  }
+  document.getElementById("pricelists").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-pl-off]");
+    if (b) { b.disabled = true; setPriceList(b.dataset.plOff, false); }
+  });
+
+  // Quick-add: a Selling Price List in a given currency. onCreated(name) runs after success.
+  function createPriceListDialog(name, onCreated) {
+    const cur = document.getElementById("add-currency").value;
+    const on = (data.currencies || []).filter((c) => c.enabled).map((c) => c.name);
+    const body = document.createElement("div");
+    body.className = "ph-form ph-form--1";
+    body.innerHTML = `<div class="ph-field"><label for="qa-name">Name</label><input class="ph-control" id="qa-name" placeholder="e.g. May EUR"></div>
+      <div class="ph-field"><label for="qa-cur">Currency</label><select class="ph-control" id="qa-cur"></select><div class="ph-field__error" id="qa-err" hidden></div></div>`;
+    body.querySelector("#qa-name").value = name || "";
+    PH.options(body.querySelector("#qa-cur"), on, cur);
+    PH.modal({
+      title: "New price list",
+      sub: "A selling price list, enabled straight away",
+      body,
+      actions: [
+        { label: "Cancel" },
+        {
+          label: "Create", primary: true,
+          onClick: () => {
+            const price_list_name = body.querySelector("#qa-name").value.trim();
+            const currency = body.querySelector("#qa-cur").value;
+            const errEl = body.querySelector("#qa-err");
+            if (!price_list_name || !currency) {
+              errEl.textContent = !price_list_name ? "Give the price list a name." : "Pick a currency.";
+              errEl.hidden = false;
+              return false;
+            }
+            return post("createPriceList", { price_list_name, currency }).then((m) => {
+              PH.toast("Price list " + m.name + " created", "good");
+              loadPriceLists();
+              renderKpis();
+              if (onCreated) onCreated(m.name);
+            }).catch(() => false);
+          },
+        },
+      ],
+    });
+  }
+  document.getElementById("btn-new-pl").addEventListener("click", () => createPriceListDialog("", null));
+
+  /* ── Customer × currency defaults ── */
+  PH.bindSearch("#f-q", st, "q");
+  PH.bindSelect("#f-currency", st, "currency");
+  st.on(() => {
+    if (data.currencies) renderCurrencies();
+    if (data.priceLists) renderPriceLists();
+    renderMappings();
+    renderKpis();
+  });
+  PH.set("#btn-csv", PH.icon("download"));
+
+  const table = PH.table("#mappings", {
+    columns: [
+      { key: "customer", label: "Customer", cls: "is-strong" },
+      { key: "currency", label: "Currency", cls: "ph-mono" },
+      { key: "price_list", label: "Price list" },
+      {
+        key: "disabled", label: "Status", sortValue: (r) => (r.disabled ? 1 : 0),
+        html: (v, r) => PH.html`<span role="button" tabindex="0" class="ph-badge ${v ? "" : "ph-badge--good"} is-link" data-toggle="${r.name}" title="Click to ${v ? "enable" : "disable"}">${v ? "Disabled" : "Active"}</span>`,
+      },
+      { key: "name", label: "", sortable: false, width: "48px", html: (v) => PH.html`<button type="button" class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-del="${v}" title="Remove this default" aria-label="Remove this default">${PH.raw(PH.icon("trash"))}</button>` },
+    ],
+    rows: [],
+    sort: { key: "customer", dir: "asc" },
+    pageSize: 50,
+  });
+  PH.skeleton("#mappings", "rows", 5);
+
+  function loadMappings() {
+    return get("listCustomerPriceListDefaults").then((m) => {
+      data.mappings = m.defaults || [];
+      if (data.currencies) fillCurrencySelects();
+      renderMappings();
+    }).catch((e) => PH.error("#mappings", e.message, loadMappings));
+  }
+  function filteredMappings() {
+    const s = st.get();
+    return (data.mappings || []).filter((m) =>
+      (!s.currency || m.currency === s.currency) && PH.match(m, s.q, ["customer", "price_list", "currency"]));
+  }
+  function renderMappings() {
+    if (!data.mappings) return;
+    const rows = filteredMappings();
+    if (!rows.length) {
+      const filtered = st.get("q") || st.get("currency");
+      return PH.empty("#mappings", filtered ? "No defaults match these filters" : "No customer defaults yet",
+        filtered ? "Clear the search or currency filter to see every default." : "Pick a customer, currency and price list above to add the first one.");
+    }
+    table.update(rows);
+  }
+
+  document.getElementById("mappings").addEventListener("click", (e) => {
+    const d = e.target.closest("[data-del]");
+    if (d) {
+      const m = data.mappings.find((x) => x.name === d.dataset.del);
+      PH.confirm("Remove this default?", m ? m.customer + " · " + m.currency + " → " + m.price_list : "", { danger: true, ok: "Remove" }).then((ok) => {
+        if (!ok) return;
+        PH.call(API + "deleteCustomerPriceListDefault", { name: d.dataset.del })
+          .then(() => { PH.toast("Default removed", "good"); loadMappings(); renderKpis(); })
+          .catch(() => {});
+      });
+      return;
+    }
+    const t = e.target.closest("[data-toggle]");
+    if (t) {
+      const m = data.mappings.find((x) => x.name === t.dataset.toggle);
+      if (!m) return;
+      if (t.dataset.busy) return;
+      t.dataset.busy = "1";
+      // saveCustomerPriceListDefault always rewrites `disabled`, so send the full row.
+      post("saveCustomerPriceListDefault", { name: m.name, customer: m.customer, currency: m.currency, price_list: m.price_list, disabled: !m.disabled })
+        .then(() => { PH.toast(m.customer + " · " + m.currency + (m.disabled ? " enabled" : " disabled"), "good"); loadMappings(); renderKpis(); })
+        .catch(() => { delete t.dataset.busy; });
+    }
+  });
+
+  document.getElementById("btn-csv").addEventListener("click", () => {
+    const rows = filteredMappings();
+    if (!rows.length) return PH.toast("Nothing to export", "warn");
+    PH.csv("customer-price-list-defaults.csv", rows, [
+      { key: "customer", label: "Customer" },
+      { key: "currency", label: "Currency" },
+      { key: "price_list", label: "Price List" },
+      { key: "disabled", label: "Status", csv: (v) => (v ? "Disabled" : "Active") },
+    ]);
+  });
+
+  // Add row: customer and price list must be picked from the search results.
+  const custIn = document.getElementById("add-customer");
+  const plIn = document.getElementById("add-pl");
+  custIn.addEventListener("input", () => { newCustomer = null; });
+  plIn.addEventListener("input", () => { newPriceList = null; });
+  PH.autocomplete(custIn, {
+    source: (q) => PH.call("upande_packhouse.api.specifications.searchCustomers", { query: q }, { silent: true, type: "GET" })
+      .then((m) => ((m && m.customers) || []).map((c) => ({ value: c.name, label: c.customer_name || c.name, description: c.customer_name && c.customer_name !== c.name ? c.name : "" }))),
+    onSelect: (it) => { newCustomer = it.value; },
+  });
+  PH.autocomplete(plIn, {
+    source: (q) => get("searchPriceLists", { query: q }).then((m) =>
+      ((m && m.price_lists) || []).map((p) => ({ value: p.name, label: p.name, description: p.currency || "" }))
+        .concat([{ value: "", label: "+ Create a new price list…", create: true }])),
+    onSelect: (it) => {
+      if (it.create) {
+        plIn.value = "";
+        newPriceList = null;
+        createPriceListDialog("", (name) => { plIn.value = name; newPriceList = name; });
+      } else newPriceList = it.value;
+    },
+  });
+  document.getElementById("add-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const currency = document.getElementById("add-currency").value;
+    if (!newCustomer) { PH.toast("Pick a customer from the search results first.", "warn"); custIn.focus(); return; }
+    if (!currency) { PH.toast("Enable a currency first.", "warn"); return; }
+    if (!newPriceList) { PH.toast("Pick (or create) a price list first.", "warn"); plIn.focus(); return; }
+    const btn = e.target.querySelector("button[type=submit]");
+    btn.disabled = true;
+    post("saveCustomerPriceListDefault", { customer: newCustomer, currency, price_list: newPriceList })
+      .then(() => {
+        PH.toast("Default saved for " + newCustomer, "good");
+        newCustomer = null; newPriceList = null;
+        custIn.value = ""; plIn.value = "";
+        renderKpis();
+        return loadMappings();
+      })
+      .catch(() => {})
+      .finally(() => { btn.disabled = false; });
+  });
+
+  /* ── Boot ── */
+  function loadAll() {
+    return Promise.allSettled([loadCurrencies(), loadPriceLists(), loadMappings(), loadWarehouse(), renderKpis()]).then((r) => {
+      if (r.every((x) => x.status === "fulfilled") && data.currencies && data.priceLists && data.mappings && data.warehouse !== undefined && data.kpis) PH.markUpdated();
+    });
+  }
+  PH.skeleton("#currencies", "rows", 2);
+  PH.skeleton("#pricelists", "rows", 2);
+  PH.onRefresh(loadAll);
+  PH.ready(loadAll);
+})();
+</script>
+{% endraw %}
+{% endblock %}

@@ -1,0 +1,710 @@
+{#- Remote Transfers v2 — Scheduler tab (/remote-transfer-v2?tab=scheduler).
+    Each packing team's order sequence for a delivery date. Rebuild of
+    templates/remote_transfer/scheduler.html on the packhouse v2 design system.
+
+    Included twice by www/remote-transfer-v2.html: rt_part 'body' (markup) and
+    rt_part 'script' (after the shell, window.PH available).
+
+    API (api/remote_transfer/scheduler.py, aliased as api.scheduler):
+      getSchedulerFeed {date}            -> {success, data:[row], date, count, takt_minutes}
+      getScheduledOrders {date}          -> {status, date, scheduled:{opl:{team, sequence}}}
+      saveDaySchedule {date, order, teams} (POST) -> {status, saved:{team:n}, no_team:[..], cleared:[..]}
+    `date` on the feed is the DELIVERY date; the Packhouse Schedule is keyed by the
+    PROCESSING day = delivery - 1.
+
+    Filters (PH.state, all in the URL):
+      date  delivery date (shared across Remote Transfers tabs, default tomorrow) -> server
+      farm  orders with buckets at that farm (row.farms)                        -> client
+      team  the order's packing team (row.team)                                 -> client
+      q     search: OPL, order name, customer, team, farms, mixed type          -> client
+      view  byseq | byteam | unsched | sched                                    -> client -#}
+{% if rt_part == 'body' %}
+<style>
+/* Scheduler-only layout: team columns side by side, sequence controls, drag state. */
+.rts-cols{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(300px,1fr);gap:18px;overflow-x:auto;align-items:start;padding-bottom:var(--sp-2);scrollbar-width:thin}
+.rts-cols>.ph-card{margin-bottom:0}
+.rts-list{display:flex;flex-direction:column;gap:var(--sp-3);min-height:var(--sp-9)}
+.rts-item[draggable="true"]{cursor:grab}
+.rts-item.is-dragging{opacity:.45}
+.rts-item.is-sel{box-shadow:0 0 0 2px var(--ink)}
+.ph-table tbody tr.rts-item.is-sel td{background:var(--signal-soft)}
+.rts-mv{display:inline-flex;gap:2px;flex:0 0 auto}
+.rts-up svg{transform:rotate(180deg)}
+.rts-sugg{display:flex;flex-direction:column;gap:var(--sp-1);padding-top:var(--sp-2);border-top:1px solid var(--hairline)}
+.rts-step.is-next{box-shadow:0 0 0 2px var(--ink),var(--shadow-card)}
+.rts-step.is-done{opacity:.62}
+.rts-trips{display:flex;flex-direction:column;gap:var(--sp-3);margin-top:var(--sp-5)}
+</style>
+
+<div class="ph-filters">
+  <div class="ph-pills" id="f-region" aria-label="Region"></div>
+  <select class="ph-select" id="rts-farm" aria-label="Origin farm" title="Origin farm: where the order's buckets are trucked from"><option value="">All origin farms</option></select>
+  <select class="ph-select" id="rts-team" aria-label="Team"><option value="">All teams</option></select>
+  <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="rts-q" type="search" placeholder="Search OPL, order, customer, team, farm" autocomplete="off"></label>
+  <div class="ph-filters__spacer"></div>
+  <div class="ph-pills" id="rts-preset">
+    <button data-value="yesterday">Yesterday</button><button data-value="today">Today</button><button data-value="tomorrow">Tomorrow</button>
+  </div>
+  <label class="ph-daterange" title="Delivery date">
+    <span>Delivery</span><input type="date" id="rts-date" aria-label="Delivery date">
+  </label>
+</div>
+
+<nav class="ph-pills" id="rts-views" aria-label="Scheduler views" style="margin-bottom:var(--sp-6)">
+  <button data-view="byseq" title="Every team's #1, then #2 … — the order transfers, shelving and issuing follow">By sequence <span class="ph-tab__count" data-count="byseq">0</span></button>
+  <button data-view="byteam" title="Every team's sequence side by side">By team <span class="ph-tab__count" data-count="byteam">0</span></button>
+  <button data-view="unsched" title="Orders not on any team's schedule yet">Not scheduled <span class="ph-tab__count" data-count="unsched">0</span></button>
+  <button data-view="sched" title="Every scheduled order in one list">Scheduled <span class="ph-tab__count" data-count="sched">0</span></button>
+</nav>
+
+<section class="ph-kpis" id="rts-kpis"></section>
+
+<div class="ph-flex ph-flex--between ph-flex--wrap ph-mb">
+  <span class="ph-card__meta" id="rts-dates"></span>
+  <div class="ph-flex ph-flex--wrap">
+    <div class="ph-flex ph-flex--wrap" id="rts-selbar"></div>
+    <button type="button" class="ph-btn ph-btn--primary ph-btn--sm" id="rts-dist" title="Schedule every order not scheduled yet onto its team's sequence (orders without a team go to the team with the least work)" disabled>Distribute to teams</button>
+  </div>
+</div>
+
+<div id="rts-body"></div>
+
+{% elif rt_part == 'script' %}{% raw %}
+<script>
+(function () {
+  "use strict";
+  const API = "upande_packhouse.api.scheduler.";
+  const HUB = (window.RT && RT.transferHub) || "the hub";
+  const PAGE = 25;
+  const VIEWS = ["byseq", "byteam", "unsched", "sched"];
+
+  const st = PH.state({ date: RT.defaultDate, region: "", farm: "", team: "", q: "", view: "byseq" });
+  if (VIEWS.indexOf(st.get("view")) < 0) st.set({ view: "byseq" }, { silent: true });
+
+  /* ready: every schedulable order, in global order (scheduled ones first, per team by
+     sequence). scheduled: {opl: {team, sequence}} from the Packhouse Schedule docs. */
+  const S = { ready: [], scheduled: {}, loaded: false };
+  const G = { sel: new Set(), prio: {}, page: 1, teamFor: {} };
+  let seq = 0, schedSeq = 0, saving = 0, saveQueue = Promise.resolve();
+  let drag = null, modalOpen = false;
+
+  const num = (v) => { const n = typeof v === "number" ? v : parseFloat(String(v || "")); return isFinite(n) ? n : 0; };
+  // The date filter is the DELIVERY date; the Packhouse Schedule doc is keyed by the
+  // PROCESSING day = delivery - 1 (you process today for tomorrow's delivery).
+  const schedDate = () => PH.date.add(st.get("date"), -1);
+
+  /* ── Filters ─────────────────────────────────────────────────── */
+  PH.regionPills("#f-region", st, "region");
+  PH.bindSelect("#rts-farm", st, "farm");
+  PH.bindSelect("#rts-team", st, "team");
+  PH.bindSearch("#rts-q", st, "q");
+  PH.dateRange({ pills: "#rts-preset", from: "#rts-date", state: st, fromKey: "date", toKey: "date" });
+  st.on((s, changed) => {
+    if (changed.indexOf("date") >= 0) { G.sel.clear(); G.page = 1; return load(); }
+    if (changed.indexOf("region") >= 0 && s.farm && s.region && PH.regionOf(s.farm) !== s.region) st.set({ farm: "" }, { silent: true });
+    if (changed.indexOf("view") >= 0 || changed.indexOf("region") >= 0 || changed.indexOf("farm") >= 0) G.sel.clear();
+    G.page = 1;
+    render();
+  });
+  document.getElementById("rts-views").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-view]");
+    if (b) st.set({ view: b.dataset.view });
+  });
+
+  // Board-level filters: farm + team + search apply to every view.
+  function hay(o) {
+    return [o.name, o.custom_order_name, o.customer, o.custom_team, o.mixed_type].concat(o.farms || []).filter(Boolean).join("  ");
+  }
+  function applyFilters(arr) {
+    const s = st.get();
+    const rf = PH.regionFarms(s.region);
+    return arr.filter((o) => (!s.team || o.custom_team === s.team) && (!s.farm || (o.farms || []).indexOf(s.farm) >= 0) &&
+      (!rf || (o.farms || []).some((f) => rf.indexOf(f) >= 0)) && PH.match({ h: hay(o) }, s.q));
+  }
+
+  function fillFilterOptions() {
+    const rf = PH.regionFarms(st.get("region"));
+    const farms = PH.uniq([].concat(...S.ready.map((o) => o.farms || []))).filter((f) => !rf || rf.indexOf(f) >= 0).sort();
+    const teams = PH.uniq(S.ready.map((o) => o.custom_team)).sort();
+    // A farm / team from the URL that isn't in today's feed still shows as chosen.
+    const f = st.get("farm"), t = st.get("team");
+    if (f && farms.indexOf(f) < 0) farms.push(f);
+    if (t && teams.indexOf(t) < 0) teams.push(t);
+    PH.options("#rts-farm", farms, f);
+    PH.options("#rts-team", teams, t);
+  }
+
+  /* ── Load ────────────────────────────────────────────────────── */
+  PH.kpiSkeleton("#rts-kpis", ["Schedulable", "Not scheduled", "Scheduled", "Total stems"]);
+
+  function reloadScheduled() {
+    const my = ++schedSeq;
+    return PH.call(API + "getScheduledOrders", { date: schedDate() }, { silent: true }).then((r) => {
+      if (my === schedSeq) S.scheduled = (r && r.scheduled) || {};
+    });
+  }
+
+  function load(background) {
+    // A background refresh never interrupts a drag, an open pop-up or a save in flight.
+    if (background && (drag || modalOpen || saving)) return Promise.resolve();
+    const my = ++seq, date = st.get("date");
+    if (!background) {
+      PH.loadingKpis("#rts-kpis", true);
+      PH.skeleton("#rts-body", "rows", 6);
+    }
+    paintDates();
+    return Promise.all([
+      PH.call(API + "getSchedulerFeed", { date }, { silent: background }),
+      PH.call(API + "getScheduledOrders", { date: schedDate() }, { silent: true }),
+    ])
+      .then(([feed, sch]) =>
+        // Stems come from the pick list rows (the feed's own total is a stale field), per origin farm.
+        PH.call("upande_packhouse.api.v2.remote_transfer.get_opl_stems", { opls: JSON.stringify(((feed && feed.data) || []).map((o) => o.opl)) }, { silent: true })
+          .catch(() => ({})).then((stems) => [feed, sch, stems || {}]))
+      .then(([feed, sch, stems]) => {
+        if (my !== seq) return;
+        S.stems = stems;
+        S.scheduled = (sch && sch.scheduled) || {};
+        S.ready = ((feed && feed.data) || []).map((o) => ({
+          name: o.opl, custom_order_name: o.order_name, customer: o.customer, custom_team: o.team,
+          total_stems: Object.keys(stems[o.opl] || {}).reduce((a, f) => a + stems[o.opl][f], 0), n_buckets: o.n_buckets, n_farms: o.n_farms, farms: o.farms || [], farm_trips: o.farm_trips || [],
+          n_varieties: o.n_varieties, has_transfer: o.has_transfer, mixed_type: o.mixed_type,
+          docstatus: o.docstatus, variation: o.variation, issued_lines: o.issued_lines || 0, lines: o.lines || 0,
+        }));
+        S.ready.sort((a, b) => {
+          const sa = S.scheduled[a.name], sb = S.scheduled[b.name];
+          if (!!sa !== !!sb) return sa ? -1 : 1;
+          if (sa) {
+            const ta = sa.team != null ? sa.team : a.custom_team || "", tb = sb.team != null ? sb.team : b.custom_team || "";
+            if (ta !== tb) return ta < tb ? -1 : 1;
+            const qa = sa.sequence != null ? sa.sequence : 0, qb = sb.sequence != null ? sb.sequence : 0;
+            if (qa !== qb) return qa - qb;
+          }
+          return String(a.name).localeCompare(String(b.name));
+        });
+        const names = new Set(S.ready.map((o) => o.name));
+        G.sel.forEach((n) => { if (!names.has(n)) G.sel.delete(n); });
+        S.loaded = true;
+        fillFilterOptions();
+        if (background) PH.keepScroll(render); else render();
+        PH.markUpdated();
+      })
+      .catch((e) => {
+        if (my !== seq || background) return;
+        PH.loadingKpis("#rts-kpis", false);
+        PH.error("#rts-body", e.message, () => load());
+      });
+  }
+
+  function paintDates() {
+    const d = st.get("date");
+    PH.text("#rts-dates", "Delivery " + PH.fmt.date(d) + " · schedule for processing day " + PH.fmt.date(PH.date.add(d, -1)));
+  }
+
+  /* ── Render ──────────────────────────────────────────────────── */
+  function varLabel(v) { return v === "draft_plain" ? "Draft" : v === "draft_transfer" ? "Draft · transfer" : "Submitted"; }
+  function varCls(v) { return v === "draft_plain" ? "" : v === "draft_transfer" ? "signal" : "good"; }
+
+  // Per-team priority = position among the team's scheduled orders in S.ready.
+  // A team's NEXT to issue is its #1. (The issue rule itself — the lowest-numbered
+  // line still below scheduler_issue_threshold in the "Issue Bucket To Sale Order
+  // Item" server script — is enforced server-side, per team.)
+  function computePrio() {
+    G.prio = {};
+    const pk = {};
+    S.ready.forEach((o) => {
+      if (!S.scheduled[o.name]) return;
+      const tm = o.custom_team || "";
+      pk[tm] = (pk[tm] || 0) + 1;
+      G.prio[o.name] = pk[tm];
+    });
+  }
+
+  function render() {
+    if (!S.loaded) return;
+    computePrio();
+    const view = st.get("view");
+    const feed = applyFilters(S.ready);
+    const unsched = feed.filter((o) => !S.scheduled[o.name]);
+    const sched = feed.filter((o) => S.scheduled[o.name]);
+    // Stems follow the region / origin-farm filter: only the stems trucked from those farms.
+    const rf = PH.regionFarms(st.get("region")), fsel = st.get("farm");
+    const stems = PH.sum(feed, (o) => {
+      const by = (S.stems || {})[o.name] || {};
+      if (!rf && !fsel) return o.total_stems;
+      return Object.keys(by).reduce((a, f) => a + ((!rf || rf.indexOf(f) >= 0) && (!fsel || f === fsel) ? by[f] : 0), 0);
+    });
+    const custs = PH.uniq(feed.map((o) => o.customer)).length;
+    PH.kpis("#rts-kpis", [
+      { label: "Schedulable", value: feed.length, unit: "orders for this delivery date" },
+      { label: "Not scheduled", value: unsched.length, unit: "not on a team's sequence", onClick: () => st.set({ view: "unsched" }), active: view === "unsched" },
+      { label: "Scheduled", value: sched.length, unit: PH.fmt.plural(PH.uniq(sched.map((o) => o.custom_team || "-")).length, "team"), onClick: () => st.set({ view: "byseq" }), active: view !== "unsched" },
+      { label: "Total stems", value: stems, unit: PH.fmt.plural(custs, "customer") + (rf || fsel ? " · from the chosen origin farms" : " · whole orders") },
+    ]);
+    const steps = PH.uniq(sched.map((o) => G.prio[o.name])).length;
+    const counts = { byseq: steps, byteam: PH.uniq(sched.map((o) => o.custom_team || "-")).length, unsched: unsched.length, sched: sched.length };
+    PH.$$("#rts-views [data-view]").forEach((b) => {
+      const on = b.dataset.view === view;
+      b.classList.toggle("is-on", on);
+      if (on) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+    });
+    PH.$$("#rts-views [data-count]").forEach((c) => (c.textContent = PH.fmt.num(counts[c.dataset.count])));
+    const dist = document.getElementById("rts-dist");
+    dist.textContent = "Distribute to teams" + (unsched.length ? " (" + unsched.length + ")" : "");
+    dist.disabled = !unsched.length;
+
+    if (view === "unsched") renderUnscheduled(unsched);
+    else if (view === "byteam") renderByTeam(sched);
+    else if (view === "sched") renderFlat(sched);
+    else renderSequence(sched);
+    renderSelBar();
+  }
+
+  const filtered = () => !!(st.get("region") || st.get("farm") || st.get("team") || st.get("q"));
+  function emptyCard(title, text) {
+    PH.set("#rts-body", '<section class="ph-card"><div id="rts-empty"></div></section>');
+    PH.empty("#rts-empty", title, text);
+  }
+
+  function mvButtons() {
+    return `<span class="rts-mv"><button type="button" class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm rts-up" data-mv="up" title="Earlier in its team's sequence" aria-label="Earlier">${PH.icon("chevronDown")}</button><button type="button" class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-mv="down" title="Later in its team's sequence" aria-label="Later">${PH.icon("chevronDown")}</button></span>`;
+  }
+  const chk = (o) => `<label class="ph-check" title="Select"><input type="checkbox" data-sel="${PH.esc(o.name)}"${G.sel.has(o.name) ? " checked" : ""} aria-label="Select ${PH.esc(o.custom_order_name || o.name)}"></label>`;
+  function typeBadges(o, lane) {
+    const out = [];
+    if (lane === "sched") {
+      out.push(`<span class="ph-badge ph-badge--ink">#${PH.esc(G.prio[o.name] || "?")}</span>`);
+      if (G.prio[o.name] === 1) out.push('<span class="ph-badge ph-badge--signal">Next</span>');
+    } else {
+      out.push(`<span class="ph-badge${varCls(o.variation) ? " ph-badge--" + varCls(o.variation) : ""}">${PH.esc(varLabel(o.variation))}</span>`);
+    }
+    if (o.mixed_type) out.push(`<span class="ph-badge ph-badge--outline">${PH.esc(o.mixed_type)}</span>`);
+    return out.join("");
+  }
+  const farmBadges = (o) => (o.has_transfer && o.farms && o.farms.length ? o.farms.map((f) => `<span class="ph-badge ph-badge--outline">${PH.esc(f)}</span>`).join("") : "");
+
+  // The trip to suggest per waiting farm: the one already carrying this order's buckets
+  // from that farm, else the first one going there (the feed sends only available trips).
+  function suggestTrip(f) {
+    const ts = f.trips || [];
+    return ts.find((t) => t.on_trip) || ts[0] || null;
+  }
+  function tripLabel(t) { return (t.vehicle || "—") + (t.run ? " · trip " + t.run : ""); }
+  function suggestHtml(fts) {
+    if (!fts || !fts.length) return "";
+    return `<div class="rts-sugg"><span class="ph-label">Suggested trip</span>${fts.map((f) => {
+      const t = suggestTrip(f);
+      return `<div class="ph-flex ph-flex--wrap" title="${PH.esc(t ? t.trip : "No trip to " + f.farm + " yet")}">
+        <span class="ph-strong">${PH.esc(f.farm)}</span><span class="ph-muted">${PH.esc(PH.fmt.plural(num(f.buckets), "bucket"))}</span>
+        ${t ? `<span class="ph-badge${t.on_trip ? " ph-badge--signal" : ""}">${PH.esc(tripLabel(t))}${t.on_trip ? " · " + num(t.on_trip) + " on it" : ""}</span>${t.route ? `<span class="ph-tile__sub">${PH.esc(t.route)}</span>` : ""}` : '<span class="ph-badge ph-badge--warn">No trip yet</span>'}
+      </div>`;
+    }).join("")}</div>`;
+  }
+  function suggestText(fts) {
+    return (fts || []).map((f) => { const t = suggestTrip(f); return f.farm + ": " + (t ? tripLabel(t) + (t.on_trip ? " (" + num(t.on_trip) + " on it)" : "") : "no trip yet"); }).join(" · ");
+  }
+
+  // Order tile — the By team columns.
+  function tile(o, lane) {
+    const stats = `<div><small>Stems</small><b>${PH.fmt.num(num(o.total_stems))}</b></div><div><small>Buckets</small><b>${PH.fmt.num(num(o.n_buckets))}</b></div>` +
+      (o.has_transfer && o.n_farms ? `<div><small>${num(o.n_farms) === 1 ? "Farm" : "Farms"}</small><b>${PH.fmt.num(num(o.n_farms))}</b></div>` : "");
+    return `<article class="ph-tile is-link rts-item rts-dnd${G.sel.has(o.name) ? " is-sel" : ""}" data-opl="${PH.esc(o.name)}"${lane === "sched" ? ' draggable="true"' : ""}>
+      <div class="ph-tile__head">
+        <div class="ph-flex" style="min-width:0">${chk(o)}
+          <div style="min-width:0"><div class="ph-tile__name">${PH.esc(o.custom_order_name || o.name)}</div><div class="ph-tile__sub">${PH.esc([o.customer, o.custom_team].filter(Boolean).join(" · "))}</div></div></div>
+        ${lane === "sched" ? mvButtons() : ""}
+      </div>
+      <div class="ph-tile__tags">${typeBadges(o, lane)}${farmBadges(o)}</div>
+      <div class="ph-tile__stats">${stats}</div>
+      ${suggestHtml(o.farm_trips)}
+    </article>`;
+  }
+
+  // Order rows — the Not scheduled and Scheduled lists.
+  function tableHtml(list, lane) {
+    const sched = lane === "sched";
+    const head = `<tr><th style="width:36px"></th>${sched ? '<th class="is-num" style="width:48px">#</th>' : ""}<th>Order</th><th>Team</th><th>Type</th><th>Farms</th><th class="is-num">Buckets</th><th class="is-num">Stems</th><th>Suggested trip</th>${sched ? "<th></th>" : ""}</tr>`;
+    const body = list.map((o) => `<tr class="is-link rts-item rts-dnd${G.sel.has(o.name) ? " is-sel" : ""}" data-opl="${PH.esc(o.name)}"${sched ? ' draggable="true"' : ""}>
+        <td>${chk(o)}</td>
+        ${sched ? `<td class="is-num is-strong">${PH.esc(G.prio[o.name] || "?")}</td>` : ""}
+        <td><div class="is-strong ph-strong">${PH.esc(o.custom_order_name || o.name)}</div><div class="ph-tile__sub">${PH.esc([o.customer, o.name].filter(Boolean).join(" · "))}</div></td>
+        <td>${o.custom_team ? PH.esc(o.custom_team) : '<span class="ph-badge ph-badge--warn">No team</span>'}</td>
+        <td><div class="ph-flex ph-flex--wrap" style="gap:var(--sp-1)">${typeBadges(o, lane)}</div></td>
+        <td class="is-wrap">${PH.esc((o.farms || []).join(", ") || "—")}</td>
+        <td class="is-num">${PH.fmt.num(num(o.n_buckets))}</td>
+        <td class="is-num">${PH.fmt.num(num(o.total_stems))}</td>
+        <td class="is-wrap">${(o.farm_trips || []).length ? PH.esc(suggestText(o.farm_trips)) : '<span class="ph-muted">—</span>'}</td>
+        ${sched ? `<td>${mvButtons()}</td>` : ""}
+      </tr>`).join("");
+    return `<div class="ph-table-wrap"><table class="ph-table ph-table--compact"><thead>${head}</thead><tbody${sched ? ' class="rts-dnd-box"' : ""}>${body}</tbody></table></div>`;
+  }
+
+  // ---- Not scheduled: feed items not yet on any team's sequence (search + paging) ----
+  // Only drafts still waiting on a remote transfer need a place in the sequence; the
+  // feed decides which orders are schedulable.
+  function renderUnscheduled(list) {
+    if (!list.length) return emptyCard(filtered() ? "No orders match the filters" : "Nothing left to schedule", filtered() ? "Clear the region, farm, team or search filter to see every order." : "Every order for this delivery date is on a team's sequence.");
+    const pages = Math.max(1, Math.ceil(list.length / PAGE));
+    G.page = Math.min(Math.max(1, G.page), pages);
+    const start = (G.page - 1) * PAGE, end = Math.min(list.length, start + PAGE);
+    const pager = pages > 1 ? `<div class="ph-pager"><span>${PH.fmt.num(start + 1)}–${PH.fmt.num(end)} of ${PH.fmt.num(list.length)}</span><span class="ph-flex"><button class="ph-iconbtn ph-iconbtn--sm" data-pg="-1"${G.page <= 1 ? " disabled" : ""} aria-label="Previous page">${PH.icon("chevronLeft")}</button><button class="ph-iconbtn ph-iconbtn--sm" data-pg="1"${G.page >= pages ? " disabled" : ""} aria-label="Next page">${PH.icon("chevronRight")}</button></span></div>` : "";
+    PH.set("#rts-body", `<section class="ph-card ph-card--flush">
+      <div class="ph-card__head"><h2 class="ph-card__title">Not scheduled <span class="ph-badge">${PH.fmt.num(list.length)}</span></h2><span class="ph-card__meta">Select orders to schedule them, or open one to give it a place in its team's sequence</span></div>
+      ${tableHtml(list.slice(start, end), "unsched")}${pager}</section>`);
+  }
+
+  // ---- Scheduled: one flat list in priority order, every team together ----
+  function renderFlat(list) {
+    if (!list.length) return emptyCard(filtered() ? "No scheduled orders match the filters" : "No orders scheduled yet", filtered() ? "Clear the region, farm, team or search filter." : "Schedule orders from the Not scheduled view, or use Distribute to teams.");
+    PH.set("#rts-body", `<section class="ph-card ph-card--flush">
+      <div class="ph-card__head"><h2 class="ph-card__title">Scheduled <span class="ph-badge">${PH.fmt.num(list.length)}</span></h2><span class="ph-card__meta">Drag a row, or use the arrows, to move an order within its team · #1 issues first</span></div>
+      ${tableHtml(list, "sched")}</section>`);
+  }
+
+  // ---- By team: every team's column visible AT ONCE, side by side (switching one
+  // team at a time was "very confusing"), each in its team's priority order ----
+  function renderByTeam(list) {
+    if (!list.length) return emptyCard(filtered() ? "No scheduled orders match the filters" : "No orders scheduled yet", filtered() ? "Clear the region, farm, team or search filter." : "Schedule orders from the Not scheduled view, or use Distribute to teams.");
+    const groups = PH.groupBy(list, (o) => o.custom_team || "-");
+    PH.set("#rts-body", `<div class="rts-cols">${Array.from(groups.entries()).map(([team, items]) => `
+      <section class="ph-card">
+        <div class="ph-card__head"><h2 class="ph-card__title">${PH.esc(team)} <span class="ph-badge">${items.length}</span></h2>
+          <span class="ph-card__meta">${PH.fmt.plural(PH.sum(items, "n_buckets"), "bucket")} · ${PH.fmt.num(PH.sum(items, "total_stems"))} stems</span></div>
+        <div class="rts-list rts-dnd-box" data-team="${PH.esc(team)}">${items.map((o) => tile(o, "sched")).join("")}</div>
+      </section>`).join("")}</div>`);
+  }
+
+  // ---- By sequence: one card per step (#1 = every team's #1, then #2 …) — the order
+  // transfers, shelving and issuing all follow. Each row: the team's order at that
+  // place, where it stands, and the arrows to move it within its team. ----
+  function orderState(o) {
+    const fts = o.farm_trips || [];
+    const waiting = fts.reduce((a, f) => a + num(f.buckets), 0);
+    if (o.lines && o.issued_lines >= o.lines) return { k: "done", t: "Issued", c: "good" };
+    if (o.issued_lines > 0) return { k: "issuing", t: "Issuing " + o.issued_lines + "/" + o.lines, c: "signal" };
+    if (waiting > 0) return { k: "farm", t: waiting + " bkt at farm" + (fts.length > 1 ? "s" : ""), c: "warn" };
+    if (o.has_transfer) return { k: "road", t: "Coming in", c: "signal" };
+    return { k: "ready", t: "Ready at " + HUB, c: "ink" };
+  }
+  const STATE_RANK = { farm: 0, road: 1, ready: 2, issuing: 3, done: 4 };
+  const STEP_LABEL = [["At the farms", "warn"], ["On the way", "signal"], ["At " + HUB, "ink"], ["Issuing", "signal"], ["Done", "good"]];
+  function renderSequence(list) {
+    if (!list.length) return emptyCard(filtered() ? "No scheduled orders match the filters" : "No orders scheduled yet", filtered() ? "Clear the region, farm, team or search filter." : "Use Distribute to teams, or schedule orders from the Not scheduled view.");
+    const steps = PH.groupBy(list, (o) => G.prio[o.name] || 0);
+    const keys = Array.from(steps.keys()).sort((a, b) => a - b);
+    let nextStep = null;
+    PH.set("#rts-body", keys.map((k) => {
+      const items = steps.get(k).slice().sort((a, b) => String(a.custom_team || "").localeCompare(String(b.custom_team || "")));
+      let worst = 4;
+      const rows = items.map((o) => {
+        const ss = orderState(o);
+        worst = Math.min(worst, STATE_RANK[ss.k]);
+        return `<tr class="is-link" data-opl="${PH.esc(o.name)}">
+          <td><span class="ph-badge">${PH.esc(o.custom_team || "No team")}</span></td>
+          <td><div class="ph-strong">${PH.esc(o.custom_order_name || o.name)}</div><div class="ph-tile__sub">${PH.esc([o.customer, o.mixed_type].filter(Boolean).join(" · "))}</div></td>
+          <td class="is-num">${PH.fmt.num(num(o.n_buckets))}</td>
+          <td class="is-num">${PH.fmt.num(num(o.total_stems))}</td>
+          <td><span class="ph-badge ph-badge--${ss.c}">${PH.esc(ss.t)}</span></td>
+          <td>${mvButtons()}</td></tr>`;
+      }).join("");
+      const isNext = nextStep == null && worst < 4;
+      if (isNext) nextStep = k;
+      const [label, cls] = STEP_LABEL[worst];
+      return `<section class="ph-card rts-step${isNext ? " is-next" : ""}${worst === 4 ? " is-done" : ""}">
+        <div class="ph-card__head">
+          <div class="ph-flex"><span class="ph-list__rank${isNext ? " lead" : ""}">${PH.esc(k)}</span><h2 class="ph-card__title">Sequence ${PH.esc(k)}${isNext ? ' <span class="ph-badge ph-badge--signal">Next</span>' : ""}</h2></div>
+          <span class="ph-card__meta">${PH.fmt.plural(items.length, "order")} · ${PH.fmt.plural(PH.sum(items, "n_buckets"), "bucket")} · ${PH.fmt.num(PH.sum(items, "total_stems"))} stems</span>
+          <div class="ph-card__tools"><span class="ph-badge ph-badge--${cls}">${PH.esc(label)}</span></div>
+        </div>
+        <div class="ph-table-wrap"><table class="ph-table ph-table--compact"><thead><tr><th>Team</th><th>Order</th><th class="is-num">Buckets</th><th class="is-num">Stems</th><th>Where it stands</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+      </section>`;
+    }).join(""));
+  }
+
+  function renderSelBar() {
+    const n = G.sel.size, view = st.get("view");
+    if (!n) return PH.set("#rts-selbar", "");
+    const btn = (act, label, cls) => `<button type="button" class="ph-btn ph-btn--sm${cls ? " " + cls : ""}" data-act="${act}">${label}</button>`;
+    PH.set("#rts-selbar", `<span class="ph-badge ph-badge--ink">${PH.fmt.num(n)} selected</span>` +
+      (view === "unsched" ? btn("schedule", "Schedule") + btn("next", "Make next to issue") : btn("next", "Make next to issue") + btn("unschedule", "Unschedule")) +
+      btn("clear", "Clear", "ph-btn--ghost"));
+  }
+  document.getElementById("rts-selbar").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-act]");
+    if (!b) return;
+    const a = b.dataset.act;
+    if (a === "schedule") scheduleSel(true);
+    else if (a === "unschedule") scheduleSel(false);
+    else if (a === "next") makeSelectedNext();
+    else { G.sel.clear(); render(); }
+  });
+
+  /* ── Saving ──────────────────────────────────────────────────── */
+  // Deliberate scheduling — each action schedules ONLY the order(s) it acts on (the rest
+  // stay unscheduled). Priority = per-team position of the scheduled orders in S.ready.
+  // The schedule + priority live ONLY in the Packhouse Schedule doctype — no OPL field.
+  const scheduledOpls = () => S.ready.filter((o) => S.scheduled[o.name]).map((o) => o.name);
+
+  // Central save: persist the scheduled subset to the Packhouse Schedule doctype, CONFIRM
+  // the result to the user, then reload the authoritative doctype state and re-render so
+  // the UI always mirrors what was actually stored. Saves run one after another; each
+  // sends the state at the moment it runs, so the last one wins.
+  function commitSchedule() {
+    render(); // optimistic
+    saving++;
+    saveQueue = saveQueue.then(() =>
+      PH.call(API + "saveDaySchedule", { date: schedDate(), order: scheduledOpls().join("|~|"), teams: JSON.stringify(G.teamFor || {}) }, { silent: true })
+        .then((r) => {
+          const ok = r && r.status === "success";
+          const cnt = Object.values((r && r.saved) || {}).reduce((a, b) => a + num(b), 0);
+          const noTeam = (r && r.no_team) || [];
+          if (ok && cnt > 0) PH.toast("Schedule saved — " + PH.fmt.plural(cnt, "order") + " sequenced", "good");
+          else if (ok && !noTeam.length) PH.toast("Schedule cleared");
+          else if (!ok) PH.toast("Save failed — please try again", "bad");
+          // Orders without a team are NOT on any team's schedule, so transfer planning
+          // never sees them and their remote buckets never get a truck. Say so loudly.
+          if (ok && noTeam.length) {
+            PH.modal({
+              title: "Not scheduled — no team",
+              body: `<div class="ph-notice ph-notice--warn">${PH.esc(noTeam.length === 1 ? "1 order has no team, so it was left off the schedule and won’t be picked up by Transfer Scheduling." : noTeam.length + " orders have no team, so they were left off the schedule and won’t be picked up by Transfer Scheduling.")}</div>
+                <div class="ph-list ph-list--plain">${noTeam.map((x) => `<div class="ph-list__row"><div><div class="ph-list__name">${PH.esc(x.order_name || x.opl)}</div><div class="ph-list__meta">${PH.esc([x.customer, x.opl].filter(Boolean).join(" · "))}</div></div><a class="ph-link" href="${PH.esc(PH.docUrl("Order Pick List", x.opl))}" target="_blank" rel="noopener">Open</a></div>`).join("")}</div>
+                <p class="ph-muted ph-mt">Set the team on the Order Pick List, then schedule it again.</p>`,
+              actions: [{ label: "OK", primary: true }],
+            });
+          }
+        })
+        .catch((e) => PH.toast("Save failed — " + (e.message || "please try again"), "bad"))
+        .then(() => {
+          saving--;
+          if (saving) return; // a newer save is queued; it reloads when it lands
+          return reloadScheduled().then(() => PH.keepScroll(render), () => {});
+        })
+    );
+    return saveQueue;
+  }
+  function persist() { if (S.ready.length) commitSchedule(); }
+
+  function scheduleSel(add) {
+    if (!G.sel.size) return;
+    G.sel.forEach((nm) => { if (add) S.scheduled[nm] = S.scheduled[nm] || 1; else delete S.scheduled[nm]; });
+    G.sel.clear();
+    commitSchedule();
+  }
+
+  // Move the selected lines to the front of the global order AND schedule them (keeping
+  // their relative order). Front = lowest per-team sequence -> that team's next to issue.
+  function makeSelectedNext() {
+    if (!G.sel.size) return;
+    const picked = [], rest = [];
+    S.ready.forEach((o) => (G.sel.has(o.name) ? picked : rest).push(o));
+    if (!picked.length) return;
+    picked.forEach((o) => { S.scheduled[o.name] = S.scheduled[o.name] || 1; }); // making next = scheduling
+    S.ready = picked.concat(rest);
+    G.sel.clear(); G.page = 1;
+    persist();
+  }
+
+  // "Distribute to teams": every order not scheduled yet (the board's filters apply)
+  // goes to the END of its team's sequence, in the order the list holds them; one with
+  // no team goes to the team with the fewest buckets scheduled. Sequences already set
+  // are kept. Rearrange after by dragging, or with the arrows.
+  document.getElementById("rts-dist").addEventListener("click", () => {
+    const todo = applyFilters(S.ready).filter((o) => !S.scheduled[o.name]);
+    if (!todo.length) return PH.toast("Every order is already on a team’s schedule");
+    const work = {};
+    S.ready.forEach((o) => {
+      if (o.custom_team) work[o.custom_team] = work[o.custom_team] || 0;
+      if (S.scheduled[o.name] && o.custom_team) work[o.custom_team] += num(o.n_buckets);
+    });
+    const teams = Object.keys(work);
+    const noTeam = todo.filter((o) => !o.custom_team).length;
+    if (noTeam && !teams.length) {
+      return PH.modal({ title: "No packing team", body: PH.html`<p class="ph-muted">No packing team to give the ${noTeam} order(s) without a team — set a team on one Order Pick List first.</p>`, actions: [{ label: "OK", primary: true }] });
+    }
+    const msg = "Schedule " + PH.fmt.plural(todo.length, "order") + " at the end of their teams’ sequences" + (noTeam ? " (" + noTeam + " without a team go to the team with the least work)" : "") + "?";
+    PH.confirm("Distribute to teams", msg, { ok: "Distribute" }).then((ok) => {
+      if (!ok) return;
+      todo.forEach((o) => {
+        let t = o.custom_team;
+        if (!t) { t = teams.reduce((a, b) => (work[b] < work[a] ? b : a)); o.custom_team = t; G.teamFor[o.name] = t; }
+        work[t] = (work[t] || 0) + num(o.n_buckets);
+        S.scheduled[o.name] = 1;
+      });
+      const isNew = new Set(todo.map((o) => o.name));
+      const kept = S.ready.filter((o) => S.scheduled[o.name] && !isNew.has(o.name));
+      const rest = S.ready.filter((o) => !S.scheduled[o.name]);
+      S.ready = kept.concat(todo).concat(rest);
+      G.sel.clear();
+      if (st.get("view") !== "byseq") st.set({ view: "byseq" }, { silent: true });
+      persist();
+    });
+  });
+
+  // Place `name` at schedule position `k` (1 = first to issue) AMONG ITS TEAM'S scheduled
+  // orders, and SCHEDULE it if it wasn't already. Only this one order is affected.
+  function teamScheduledNames(team, exclude) {
+    return S.ready.filter((o) => o.name !== exclude && S.scheduled[o.name] && (o.custom_team || "") === team).map((o) => o.name);
+  }
+  function setSchedulePos(name, k) {
+    const o = S.ready.find((x) => x.name === name);
+    if (!o) return;
+    const team = o.custom_team || "";
+    S.scheduled[name] = S.scheduled[name] || 1;       // acting on it schedules it
+    const peers = teamScheduledNames(team, name);     // other scheduled in this team, in order
+    if (!isFinite(k)) k = peers.length + 1;
+    k = Math.max(1, Math.min(peers.length + 1, k));   // clamp: e.g. "7" of 3 -> last
+    const beforeName = k - 1 < peers.length ? peers[k - 1] : null;
+    const idx = S.ready.indexOf(o);
+    if (idx >= 0) S.ready.splice(idx, 1);
+    let insertAt = S.ready.length;
+    if (beforeName) insertAt = S.ready.findIndex((x) => x.name === beforeName);
+    else if (peers.length) insertAt = S.ready.findIndex((x) => x.name === peers[peers.length - 1]) + 1;
+    else insertAt = 0;
+    S.ready.splice(insertAt, 0, o);
+    persist();
+  }
+
+  /* ── Drag to reorder ─────────────────────────────────────────── */
+  // Scoped to the SPECIFIC container dragged in (a team column, or the flat list) — NOT
+  // the whole board. With every team's column visible at once, reading the cards across
+  // the whole page would flatten every OTHER team's order into whatever position the
+  // dragged card landed at. Instead: replace just the contiguous run of THIS container's
+  // cards, in their new order, leaving every other team's cards untouched.
+  function commitDrag(container, draggedName) {
+    const domOrder = PH.$$(".rts-dnd", container).map((c) => c.dataset.opl);
+    const byName = {};
+    S.ready.forEach((o) => (byName[o.name] = o));
+    const inDom = new Set(domOrder);
+    const before = S.ready.map((o) => o.name).join("|");
+    const next = [];
+    let inserted = false;
+    S.ready.forEach((o) => {
+      if (inDom.has(o.name)) {
+        if (!inserted) { domOrder.forEach((nm) => byName[nm] && next.push(byName[nm])); inserted = true; }
+      } else next.push(o);
+    });
+    if (!inserted) domOrder.forEach((nm) => byName[nm] && next.push(byName[nm]));
+    S.ready = next;
+    if (draggedName) S.scheduled[draggedName] = S.scheduled[draggedName] || 1;
+    if (S.ready.map((o) => o.name).join("|") === before) return render();
+    persist();
+  }
+  function afterEl(container, y) {
+    return PH.$$(".rts-dnd:not(.is-dragging)", container).reduce((closest, child) => {
+      const box = child.getBoundingClientRect(), off = y - box.top - box.height / 2;
+      return off < 0 && off > closest.offset ? { offset: off, element: child } : closest;
+    }, { offset: -Infinity }).element;
+  }
+
+  const body = document.getElementById("rts-body");
+  body.addEventListener("dragstart", (e) => {
+    const it = e.target.closest && e.target.closest('.rts-dnd[draggable="true"]');
+    if (!it) return;
+    drag = { el: it, name: it.dataset.opl, box: it.closest(".rts-dnd-box") };
+    it.classList.add("is-dragging");
+    try { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", drag.name); } catch (err) {}
+  });
+  // Guard against dropping into a DIFFERENT team's column — a card's team isn't
+  // something drag should reassign.
+  body.addEventListener("dragover", (e) => {
+    if (!drag) return;
+    const box = e.target.closest(".rts-dnd-box");
+    if (!box || box !== drag.box) return;
+    e.preventDefault();
+    const after = afterEl(box, e.clientY);
+    if (after == null) box.appendChild(drag.el); else if (after !== drag.el) box.insertBefore(drag.el, after);
+  });
+  body.addEventListener("drop", (e) => { if (drag) e.preventDefault(); });
+  body.addEventListener("dragend", () => {
+    if (!drag) return;
+    const d = drag;
+    drag = null;
+    d.el.classList.remove("is-dragging");
+    commitDrag(d.box, d.name);
+  });
+
+  /* ── Clicks: select, move, page, open ────────────────────────── */
+  body.addEventListener("change", (e) => {
+    const cb = e.target.closest("input[data-sel]");
+    if (!cb) return;
+    if (cb.checked) G.sel.add(cb.dataset.sel); else G.sel.delete(cb.dataset.sel);
+    const it = cb.closest(".rts-item");
+    if (it) it.classList.toggle("is-sel", cb.checked);
+    renderSelBar();
+  });
+  body.addEventListener("click", (e) => {
+    const pg = e.target.closest("[data-pg]");
+    if (pg) { G.page += +pg.dataset.pg; return PH.keepScroll(render); }
+    if (e.target.closest("label.ph-check, input")) return;
+    const row = e.target.closest("[data-opl]");
+    if (!row) return;
+    const mv = e.target.closest("[data-mv]");
+    if (mv) {
+      const k = G.prio[row.dataset.opl] || 1;
+      return setSchedulePos(row.dataset.opl, mv.dataset.mv === "up" ? Math.max(1, k - 1) : k + 1);
+    }
+    if (e.target.closest("button, a")) return;
+    openSchedModal(row.dataset.opl);
+  });
+
+  /* ── Schedule-number pop-up (schedules the order at a per-team priority #) ── */
+  function openSchedModal(name) {
+    const o = S.ready.find((x) => x.name === name);
+    if (!o) return;
+    const team = o.custom_team || "";
+    const peers = teamScheduledNames(team, name);   // other scheduled in this team
+    const isSched = !!S.scheduled[name];
+    const maxK = peers.length + 1;                  // scheduling this order can take slots 1..N+1
+    let curK = maxK;                                // default = last
+    if (isSched) curK = teamScheduledNames(team, null).indexOf(name) + 1 || maxK;
+    const box = document.createElement("div");
+    // Under the guide: per farm the order still has buckets waiting at, the trips going
+    // there on the processing day that can still take buckets (the feed sends only those).
+    const trips = (o.farm_trips || []).map((f) => `<div>
+        <div class="ph-flex ph-flex--wrap ph-mb-0"><span class="ph-badge ph-badge--outline">${PH.esc(f.farm)}</span><span class="ph-muted">${PH.esc(PH.fmt.plural(num(f.buckets), "bucket"))} waiting</span></div>
+        ${(f.trips || []).length ? `<div class="ph-list ph-list--plain">${f.trips.map((t) => `<div class="ph-list__row" title="${PH.esc(t.trip)}"><div><div class="ph-list__name">${PH.esc(tripLabel(t))}</div>${t.route ? `<div class="ph-list__meta">${PH.esc(t.route)}</div>` : ""}</div>${t.on_trip ? `<span class="ph-badge ph-badge--signal">${num(t.on_trip)} on it</span>` : `<span class="ph-badge">${PH.esc(t.status || "")}</span>`}</div>`).join("")}</div>` : `<div class="ph-notice ph-notice--warn ph-mt">No trip to ${PH.esc(f.farm)} yet</div>`}
+      </div>`).join("");
+    box.innerHTML = `<p class="ph-muted ph-mb">${PH.esc((team ? team + " · " : "") + (isSched ? "currently #" + curK + " of " + maxK + " scheduled" : "not scheduled — will join as one of " + maxK) + " · #1 issues first")}</p>
+      <div class="ph-form ph-form--1">
+        <div class="ph-field"><label for="rts-num">Schedule number</label>
+          <input type="number" id="rts-num" class="ph-control" min="1" max="${maxK}" value="${curK}">
+          <div class="ph-field__error" id="rts-num-err" hidden></div></div>
+      </div>
+      <button type="button" class="ph-btn ph-btn--ghost ph-btn--sm ph-mt" id="rts-last">${PH.esc(isSched ? "Move to last position for " + (team || "this team") + " (#" + maxK + ")" : "Guide: next available for " + (team || "this team") + " is #" + maxK)}</button>
+      ${trips ? `<div class="rts-trips"><span class="ph-label">Trips to the farms</span>${trips}</div>` : ""}`;
+    const inp = box.querySelector("#rts-num");
+    // Explicit "next available" guidance — the next open slot for THIS team, so the
+    // user never has to count the column to know what number to type.
+    box.querySelector("#rts-last").addEventListener("click", () => { inp.value = maxK; inp.focus(); });
+    const save = () => {
+      let v = parseInt(inp.value, 10);
+      if (!isFinite(v) || v < 1) {
+        inp.classList.add("is-invalid");
+        const er = box.querySelector("#rts-num-err");
+        er.textContent = "Enter a number from 1 to " + maxK;
+        er.hidden = false;
+        return false;
+      }
+      setSchedulePos(name, v);
+      return true;
+    };
+    modalOpen = true;
+    const m = PH.modal({
+      title: o.custom_order_name || o.name,
+      sub: o.name + (o.customer ? " · " + o.customer : ""),
+      body: box,
+      actions: [{ label: "Cancel" }, { label: "Save", primary: true, onClick: () => save() }],
+      onClose: () => { modalOpen = false; },
+    });
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); if (save()) m.close(); } });
+    setTimeout(() => { inp.focus(); inp.select(); }, 60);
+  }
+
+  /* ── Boot ────────────────────────────────────────────────────── */
+  paintDates();
+  PH.onRefresh(() => load());
+  PH.ready(() => load());
+  PH.poll(load, 60000);
+})();
+</script>
+{% endraw %}{% endif %}

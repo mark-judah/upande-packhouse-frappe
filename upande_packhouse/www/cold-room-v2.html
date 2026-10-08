@@ -1,0 +1,625 @@
+{% extends "templates/web.html" %}
+{% block title %}Cold Room · Packhouse{% endblock %}
+{% block page_content %}
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
+
+<style>
+  /* Cold store pressure bar: segments laid side by side on one .ph-progress,
+     plus a capacity marker. Layout only. */
+  .cr-bar{position:relative;margin:var(--sp-3) 0}
+  .cr-bar .ph-progress>i{border-radius:0}
+  .cr-bar .ph-progress>i:first-child{border-radius:var(--r-pill) 0 0 var(--r-pill)}
+  .cr-cap{position:absolute;top:calc(-1 * var(--sp-1));bottom:calc(-1 * var(--sp-1));width:2px;background:var(--ink);border-radius:var(--r-pill)}
+  .cr-store+.cr-store{margin-top:var(--sp-6);padding-top:var(--sp-6);border-top:1px solid var(--hairline)}
+  .cr-store .ph-legend{margin-top:var(--sp-2)}
+  .cr-farmstats{padding:0 var(--sp-7) var(--sp-5)}
+  @media (max-width:860px){.cr-farmstats{padding:0 var(--sp-5) var(--sp-4)}}
+</style>
+
+<header class="ph-head">
+  <div>
+    <div class="ph-head__eyebrow">Packhouse · Tracking</div>
+    <h1 class="ph-head__title">Cold Room</h1>
+    <p class="ph-head__sub" id="sub">Live cold store inventory, environment and stock pressure</p>
+  </div>
+  <div class="ph-head__tools">
+    <button class="ph-btn" id="export" disabled><svg class="ph-ic" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV</button>
+  </div>
+</header>
+
+<div class="ph-filters">
+  <div class="ph-pills" id="f-region"></div>
+  <select class="ph-select" id="f-farm" aria-label="Farm"><option value="">All farms</option></select>
+  <div class="ph-filters__spacer"></div>
+  <div class="ph-pills" id="f-preset">
+    <button data-value="all">All dates</button><button data-value="today">Today</button><button data-value="7d">7 days</button><button data-value="30d">30 days</button>
+  </div>
+  <label class="ph-daterange" title="Stock on shelf: harvest date (else shelving date). Received, discarded and allocated figures: the day they happened.">
+    <input type="date" id="f-from" aria-label="From"><span class="ph-daterange__sep">→</span><input type="date" id="f-to" aria-label="To">
+  </label>
+</div>
+<p class="ph-muted" id="scope" style="margin:calc(-1 * var(--sp-2)) 0 var(--sp-4)"></p>
+
+<nav class="ph-tabs" id="tabs" role="tablist">
+  <button class="ph-tab" data-view="dashboard" role="tab">Dashboard</button>
+  <button class="ph-tab" data-view="shelf" role="tab">Shelf contents <span class="ph-tab__count" id="tc-shelf">—</span></button>
+  <button class="ph-tab" data-view="buckets" role="tab">Buckets <span class="ph-tab__count" id="tc-buckets">—</span></button>
+</nav>
+
+<section class="ph-kpis" id="kpis"></section>
+
+<!-- ── Dashboard ── -->
+<div id="view-dashboard" hidden>
+  <div class="ph-row ph-row--2-1">
+    <section class="ph-card">
+      <div class="ph-card__head">
+        <h2 class="ph-card__title">Cold store pressure</h2>
+        <div class="ph-legend">
+          <span><span class="ph-dot ph-dot--warn"></span>Received, not shelved</span>
+          <span><span class="ph-dot ph-dot--ink"></span>On shelf</span>
+          <span><span class="ph-dot ph-dot--good"></span>Allocated, not issued</span>
+        </div>
+      </div>
+      <div id="pressure"></div>
+    </section>
+    <section class="ph-card">
+      <div class="ph-card__head">
+        <h2 class="ph-card__title">Stock movement</h2>
+        <span class="ph-card__meta" id="flow-meta">received, allocated, discarded</span>
+      </div>
+      <div id="flow"></div>
+    </section>
+  </div>
+
+  <div class="ph-row ph-row--2">
+    <section class="ph-card">
+      <div class="ph-card__head"><h2 class="ph-card__title" id="t-temp">Temperature</h2><span class="ph-card__meta">last 24 h · °C</span></div>
+      <div class="ph-chart" id="c-temp"></div>
+    </section>
+    <section class="ph-card">
+      <div class="ph-card__head"><h2 class="ph-card__title" id="t-hum">Humidity</h2><span class="ph-card__meta">last 24 h · %</span></div>
+      <div class="ph-chart" id="c-hum"></div>
+    </section>
+  </div>
+
+  <div class="ph-row ph-row--2">
+    <section class="ph-card">
+      <div class="ph-card__head"><h2 class="ph-card__title">Stems by variety</h2><span class="ph-card__meta" id="variety-meta">top 15 on shelf · click to see shelves</span></div>
+      <div class="ph-chart ph-chart--lg" id="c-variety"></div>
+    </section>
+    <section class="ph-card">
+      <div class="ph-card__head"><h2 class="ph-card__title">Stock age</h2><span class="ph-card__meta">stems on shelf by days since harvest · stems</span></div>
+      <div class="ph-chart ph-chart--lg" id="c-age"></div>
+    </section>
+  </div>
+
+  <div class="ph-row ph-row--2">
+    <section class="ph-card">
+      <div class="ph-card__head"><h2 class="ph-card__title">Stems by length</h2><span class="ph-card__meta">on shelf</span></div>
+      <div class="ph-chart" id="c-length"></div>
+    </section>
+    <section class="ph-card">
+      <div class="ph-card__head"><h2 class="ph-card__title">Stems by farm</h2><span class="ph-card__meta">on shelf · click to filter</span></div>
+      <div class="ph-chart" id="c-farm"></div>
+    </section>
+  </div>
+</div>
+
+<!-- ── Shelf contents ── -->
+<div id="view-shelf" hidden>
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head">
+      <div>
+        <h2 class="ph-card__title">Stock availability</h2>
+        <div class="ph-card__meta" id="shelf-meta"></div>
+      </div>
+      <div class="ph-card__tools">
+        <select class="ph-select" id="f-sfarm" aria-label="Farm in table"><option value="">Every farm</option></select>
+        <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Search varieties"></label>
+      </div>
+    </div>
+    <div id="shelf"></div>
+  </section>
+</div>
+
+<!-- ── Buckets ── -->
+<div id="view-buckets" hidden>
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head">
+      <div>
+        <h2 class="ph-card__title">Bucket age <span class="ph-badge" id="age-count">—</span></h2>
+        <div class="ph-card__meta">on shelf, youngest to oldest · one row per bucket, variety and length</div>
+      </div>
+      <div class="ph-card__tools">
+        <select class="ph-select" id="f-bvar" aria-label="Variety"><option value="">All varieties</option></select>
+        <select class="ph-select" id="f-bage" aria-label="Minimum age">
+          <option value="">All ages</option>
+          <option value="0">Today (0d)</option>
+          <option value="1">1+ days</option>
+          <option value="3">3+ days</option>
+          <option value="7">7+ days</option>
+          <option value="14">14+ days</option>
+          <option value="30">30+ days</option>
+        </select>
+        <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-bq" type="search" placeholder="Search bucket or shelf"></label>
+      </div>
+    </div>
+    <div id="b-age"></div>
+  </section>
+
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head">
+      <div>
+        <h2 class="ph-card__title">On the discard list, still on shelves <span class="ph-badge" id="disc-count">—</span></h2>
+        <div class="ph-card__meta">buckets on an open discard request, not yet actioned</div>
+      </div>
+    </div>
+    <div id="b-disc"></div>
+  </section>
+
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head">
+      <div>
+        <h2 class="ph-card__title">Received, not shelved <span class="ph-badge" id="recv-count">—</span></h2>
+        <div class="ph-card__meta">received in the period, per farm</div>
+      </div>
+    </div>
+    <div id="b-recv-farms" class="cr-farmstats"></div>
+    <div id="b-recv"></div>
+  </section>
+
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head">
+      <div>
+        <h2 class="ph-card__title">Requested, not given out <span class="ph-badge" id="req-count">—</span></h2>
+        <div class="ph-card__meta">on pick lists created in the period, not yet issued</div>
+      </div>
+    </div>
+    <div id="b-req"></div>
+  </section>
+</div>
+
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  const SENSOR_API = "upande_sensors.api.sensor_charts.get_sensor_chart_data";
+  const API = "upande_packhouse.api.v2.cold_room.";
+  const st = PH.state({ view: "dashboard", region: "", farm: "", from: "", to: "", sfarm: "", q: "", bvar: "", bage: "", bq: "" });
+  let dash = null, buckets = null, bucketsReq = null;
+  let temp = null, hum = null;
+  let seq = 0, bseq = 0, chartsDirty = true;
+  const tables = {};
+
+  /* ── Filters & tabs ── */
+  PH.regionPills("#f-region", st, "region");
+  PH.bindSelect("#f-farm", st, "farm");
+  PH.dateRange({ pills: "#f-preset", from: "#f-from", to: "#f-to", state: st });
+  PH.bindSelect("#f-sfarm", st, "sfarm");
+  PH.bindSearch("#f-q", st, "q");
+  PH.bindSelect("#f-bvar", st, "bvar");
+  PH.bindSelect("#f-bage", st, "bage");
+  PH.bindSearch("#f-bq", st, "bq");
+  // "All dates" clears the range (PH.dateRange handles the other presets)
+  const allBtn = PH.$('#f-preset [data-value="all"]');
+  allBtn.addEventListener("click", () => st.set({ from: "", to: "" }));
+  const paintAll = () => allBtn.classList.toggle("is-on", !st.get("from") && !st.get("to"));
+  st.on(paintAll); paintAll();
+  PH.$("#tabs").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-view]");
+    if (b) st.set({ view: b.dataset.view });
+  });
+
+  const scopeKey = () => ["region", "farm", "from", "to"].map((k) => st.get(k)).join("|");
+  const scopeArgs = () => ({ region: st.get("region") || "", farm: st.get("farm") || "", from_date: st.get("from") || "", to_date: st.get("to") || "" });
+
+  st.on((s, changed) => {
+    if (changed.some((k) => ["region", "farm", "from", "to"].includes(k))) {
+      if (changed.includes("region") && s.farm && s.region && !(PH.regionFarms(s.region) || []).includes(s.farm)) st.set({ farm: "" }, { silent: true });
+      buckets = null; bucketsReq = null;
+      load();
+      if (st.get("view") === "buckets") loadBuckets();
+      return;
+    }
+    if (changed.includes("view")) showView();
+    if (changed.some((k) => k === "sfarm" || k === "q")) renderShelf();
+    if (changed.some((k) => k === "bvar" || k === "bage" || k === "bq")) renderAge();
+  });
+
+  function showView() {
+    const v = st.get("view");
+    ["dashboard", "shelf", "buckets"].forEach((k) => (PH.$("#view-" + k).hidden = k !== v));
+    PH.$$("#tabs .ph-tab").forEach((b) => b.classList.toggle("is-on", b.dataset.view === v));
+    PH.$("#export").disabled = v === "buckets" ? !buckets : !dash;
+    PH.$("#export").title = v === "buckets" ? "Export bucket ages" : "Export shelf contents";
+    if (v === "dashboard" && dash && chartsDirty) renderCharts();
+    if (v === "buckets" && bucketsReq !== scopeKey()) loadBuckets();
+  }
+
+  const KPI_LABELS = ["Stems on shelf", "Average age", "Received, not shelved", "Allocated, not issued", "Temperature", "Humidity"];
+  PH.kpiSkeleton("#kpis", KPI_LABELS);
+  function load(background) {
+    if (!background) {
+      PH.loadingKpis("#kpis", true);
+      PH.skeleton("#pressure", "rows", 2);
+      PH.skeleton("#flow", "rows", 4);
+      ["#c-variety", "#c-age", "#c-length", "#c-farm"].forEach((c) => PH.skeleton(c, "block", 6));
+      PH.skeleton("#shelf", "rows", 8);
+    }
+    const my = ++seq;
+    return PH.call(API + "get_cold_room", scopeArgs(), { silent: background })
+      .then((m) => {
+        if (my !== seq) return;
+        dash = m || {};
+        const rf = PH.regionFarms(st.get("region"));
+        PH.options("#f-farm", (dash.farm_options || []).filter((f) => !rf || rf.includes(f)), st.get("farm"));
+        chartsDirty = true;
+        renderScope();
+        renderKpis();
+        renderPressure();
+        renderFlow();
+        fillShelfFarms();
+        renderShelf();
+        if (st.get("view") === "dashboard") renderCharts();
+        showView();
+        PH.markUpdated();
+        loadSensors(my, background);
+      })
+      .catch((e) => {
+        if (my !== seq || background) return;
+        dash = null;
+        PH.kpis("#kpis", KPI_LABELS.map((l) => ({ label: l, value: "—" })));
+        const retry = () => load();
+        PH.error("#pressure", e.message, retry);
+        PH.set("#flow", "");
+        ["#c-variety", "#c-age", "#c-length", "#c-farm", "#c-temp", "#c-hum"].forEach((c) => PH.set(c, ""));
+        PH.error("#shelf", e.message, retry);
+        showView();
+      });
+  }
+
+  function renderScope() {
+    const sc = dash.scope || {}, o = dash.outside_range || {};
+    const range = sc.from_date || sc.to_date ? PH.date.label(sc.from_date, sc.to_date || sc.from_date) : "all dates";
+    let t = "Stock on shelf is the live shelf position, " + (sc.from_date || sc.to_date ? "limited to stems harvested (else shelved) " + range : "all dates") + ".";
+    if (sc.from_date || sc.to_date) t += " " + PH.fmt.num(o.stems || 0) + " more stems on the shelves in these farms were harvested outside this range.";
+    t += sc.flow_defaulted ? " Received, allocated and discarded figures cover the last 3 days (pick a range to change)." : " Received, allocated and discarded figures use the same range, by the day they happened.";
+    PH.text("#scope", t);
+    PH.text("#flow-meta", sc.flow_defaulted ? "last 3 days" : range);
+  }
+
+  // Sensor: the selected farm's store from Cold Store Capacity; otherwise the first
+  // configured store in scope (default sensor if none are configured). Live, last 24 h.
+  function sensorFor() {
+    const caps = (dash && dash.capacity) || [];
+    const farm = st.get("farm");
+    const s = farm ? caps.find((c) => c.farm === farm) : caps[0] || null;
+    return {
+      name: (s && s.sensor_name) || "Kapkolia Cold Room 2",
+      temp: { min: (s && s.temp_min) || 2, max: (s && s.temp_max) || 4 },
+      hum: { min: (s && s.humidity_min) || 80, max: (s && s.humidity_max) || 95 },
+    };
+  }
+  function loadSensors(my, background) {
+    const s = sensorFor();
+    PH.text("#t-temp", s.name + " · Temperature");
+    PH.text("#t-hum", s.name + " · Humidity");
+    if (!background) { PH.skeleton("#c-temp", "block", 6); PH.skeleton("#c-hum", "block", 6); }
+    const get = (type) => PH.call(SENSOR_API, { sensor_name: s.name, sensor_type: type, date_from: "", timespan: "last_24h", time_interval: "hourly" }, { silent: true });
+    get("Temperature").then((m) => { if (my === seq) { temp = m ? Object.assign({}, m, { th: s.temp, name: s.name }) : null; renderSensor("temp"); renderKpis(); } })
+      .catch((e) => { if (my === seq) { temp = null; renderSensor("temp", e); renderKpis(); } });
+    get("Humidity").then((m) => { if (my === seq) { hum = m ? Object.assign({}, m, { th: s.hum, name: s.name }) : null; renderSensor("hum"); renderKpis(); } })
+      .catch((e) => { if (my === seq) { hum = null; renderSensor("hum", e); renderKpis(); } });
+  }
+
+  /* ── KPIs ── */
+  const latest = (d) => { const v = (d && d.values) || []; const x = v[v.length - 1]; return x == null ? null : +x; };
+  function renderKpis() {
+    if (!dash) return;
+    const t = dash.totals || {}, f = dash.flows || {}, ns = f.not_shelved || {}, rq = f.requested || {};
+    const tv = latest(temp), hv = latest(hum);
+    let tTrend = null, hTrend = null;
+    if (tv != null) {
+      const th = temp.th;
+      tTrend = tv >= th.min && tv <= th.max ? { dir: "up", text: "Normal", note: th.min + "–" + th.max + "°C" }
+        : { dir: "down", text: tv > th.max ? "Too high" : "Too low", note: th.min + "–" + th.max + "°C" };
+    }
+    if (hv != null) {
+      const th = hum.th;
+      hTrend = hv >= th.min && hv <= th.max ? { dir: "up", text: "Normal", note: th.min + "–" + th.max + "%" }
+        : { dir: "down", text: "Out of range", note: th.min + "–" + th.max + "%" };
+    }
+    const sensorName = sensorFor().name;
+    PH.kpis("#kpis", [
+      { label: "Stems on shelf", value: t.stems || 0, unit: PH.fmt.plural(t.buckets || 0, "bucket") + " on " + PH.fmt.plural(t.shelves || 0, "shelf", "shelves"), dark: true },
+      { label: "Average age", value: PH.fmt.qty(t.avg_age_days || 0, 1), suffix: "d", unit: t.oldest_days ? "oldest " + t.oldest_days + " days · stem-weighted" : "since harvest · stem-weighted" },
+      { label: "Received, not shelved", value: ns.stems || 0, unit: PH.fmt.plural(ns.buckets || 0, "bucket") + " · stems" },
+      { label: "Allocated, not issued", value: rq.stems || 0, unit: PH.fmt.plural(rq.buckets || 0, "bucket") + " · stems" },
+      { label: "Temperature", value: tv == null ? "—" : tv.toFixed(1), suffix: tv == null ? "" : "°C", unit: (tv == null ? "no reading · " : "live · ") + sensorName, trend: tTrend },
+      { label: "Humidity", value: hv == null ? "—" : hv.toFixed(1), suffix: hv == null ? "" : "%", unit: (hv == null ? "no reading · " : "live · ") + sensorName, trend: hTrend },
+    ]);
+    PH.text("#tc-shelf", PH.fmt.num(shelfRows().length));
+  }
+
+  /* ── Pressure: one bar per farm in scope ── */
+  function renderPressure() {
+    const farms = dash.by_farm || [];
+    const caps = {};
+    (dash.capacity || []).forEach((c) => (caps[c.farm] = +c.max_stems || 0));
+    if (!farms.length) return PH.empty("#pressure", "No stock in these filters", "Nothing is on a shelf or waiting to be shelved.");
+    PH.set("#pressure", farms.map((f) => store(f.farm + " cold store", f.not_shelved_stems, f.stems, f.allocated, caps[f.farm] || 0)).join(""));
+  }
+  function store(title, incoming, onShelf, allocated, capacity) {
+    // Bar segments: received (not shelved) | on shelf (not allocated, incl. held for discard) | allocated (not issued)
+    const alloc = Math.min(allocated, onShelf);
+    const unalloc = Math.max(0, onShelf - alloc);
+    const used = incoming + unalloc + alloc;
+    const max = capacity > 0 ? Math.max(capacity, used) : used || 1;
+    const p = (v) => (max > 0 ? (v / max) * 100 : 0);
+    const util = capacity > 0 ? Math.round((used / capacity) * 100) : null;
+    const capLine = capacity > 0 ? Math.min(100, p(capacity)) : 0;
+    const badge = util == null ? "" : PH.html`<span class="ph-badge ph-badge--${util > 90 ? "bad" : util > 70 ? "warn" : "good"}">${util}% used</span>`.__raw;
+    return `<div class="cr-store">
+      <div class="ph-flex ph-flex--between"><div class="ph-strong">${PH.esc(title)}</div>${badge}</div>
+      <div class="cr-bar">
+        <div class="ph-progress">
+          <i class="warn" style="left:0;width:${p(incoming)}%"></i>
+          <i style="left:${p(incoming)}%;width:${p(unalloc)}%"></i>
+          <i class="good" style="left:${p(incoming) + p(unalloc)}%;width:${p(alloc)}%"></i>
+        </div>
+        ${capLine ? `<span class="cr-cap" style="left:calc(${capLine}% - 1px)" title="Capacity ${PH.fmt.num(capacity)} stems"></span>` : ""}
+      </div>
+      <div class="ph-legend">
+        <span><span class="ph-dot ph-dot--warn"></span>${PH.fmt.num(incoming)} received</span>
+        <span><span class="ph-dot ph-dot--ink"></span>${PH.fmt.num(unalloc)} on shelf</span>
+        <span><span class="ph-dot ph-dot--good"></span>${PH.fmt.num(alloc)} allocated</span>
+        <span>${capacity > 0 ? "Capacity " + PH.fmt.num(capacity) : "Total " + PH.fmt.num(used)} stems</span>
+      </div>
+    </div>`;
+  }
+
+  function renderFlow() {
+    const f = dash.flows || {}, t = dash.totals || {};
+    const row = (label, stems, n, word) => PH.html`<dt>${label}</dt><dd>${PH.fmt.num(stems || 0)} stems<div class="ph-muted">${n ? PH.fmt.plural(n, word || "bucket") : "—"}</div></dd>`.__raw;
+    const heldBuckets = (buckets && buckets.summary && buckets.summary.held_buckets) || 0;
+    PH.set("#flow", `<dl class="ph-kv">
+      ${row("Received", (f.received || {}).stems, (f.received || {}).buckets)}
+      ${row("Received, not shelved", (f.not_shelved || {}).stems, (f.not_shelved || {}).buckets)}
+      ${row("Allocated, not issued", (f.requested || {}).stems, (f.requested || {}).buckets)}
+      ${row("Discarded", (f.discarded || {}).stems, (f.discarded || {}).entries, "entry")}
+      ${row("On shelf, held for discard", t.held, heldBuckets)}
+    </dl>`);
+  }
+
+  /* ── Charts ── */
+  const ageColor = (from) => (from < 3 ? PH.statusColor.good : from < 7 ? "#73b3a0" : from < 14 ? PH.statusColor.warn : PH.statusColor.bad);
+  const bandLabel = (b) => (b.to_days == null ? b.from_days + "d+" : b.to_days - b.from_days === 1 ? (b.from_days === 0 ? "Today" : b.from_days + "d") : b.from_days + "–" + (b.to_days - 1) + "d");
+  function chartOrEmpty(sel, has, title, cfg) {
+    if (!has) return PH.empty(sel, title);
+    return PH.chart(sel, cfg).catch((e) => PH.error(sel, e.message));
+  }
+  function renderCharts() {
+    if (!dash) return;
+    chartsDirty = false;
+    const all = dash.by_variety || [];
+    const vs = all.slice(0, 15);
+    PH.text("#variety-meta", "top " + vs.length + " of " + PH.fmt.plural(all.length, "variety", "varieties") + " on shelf · click to see shelves");
+    chartOrEmpty("#c-variety", vs.length, "No stems on shelf", {
+      type: "bar", horizontal: true, labels: vs.map((x) => x.variety), series: [{ label: "Stems", data: vs.map((x) => x.stems) }],
+      onClick: (i, label) => st.set({ view: "shelf", q: label, sfarm: "" }),
+    });
+    const bands = (dash.age_bands || []).filter((b) => b.stems > 0 || b.from_days < 7);
+    const has = (dash.totals || {}).stems > 0;
+    chartOrEmpty("#c-age", has, "No stock age to show", {
+      type: "bar", labels: bands.map(bandLabel), series: [{ label: "Stems", data: bands.map((b) => b.stems), colors: bands.map((b) => ageColor(b.from_days)) }],
+    });
+    const ls = dash.by_length || [];
+    chartOrEmpty("#c-length", ls.length, "No stems on shelf", {
+      type: "bar", labels: ls.map((x) => x.stem_length || "N/A"), series: [{ label: "Stems", data: ls.map((x) => x.stems), color: PH.palette[1] }],
+    });
+    const fs = (dash.by_farm || []).filter((x) => x.stems > 0).sort((x, y) => y.stems - x.stems);
+    chartOrEmpty("#c-farm", fs.length, "No stems on shelf", {
+      type: "doughnut", legend: true, labels: fs.map((x) => x.farm), series: [{ label: "Stems", data: fs.map((x) => x.stems) }],
+      onClick: (i, label) => st.set({ farm: st.get("farm") === label ? "" : label }),
+    });
+    renderSensor("temp");
+    renderSensor("hum");
+  }
+  function renderSensor(kind, err) {
+    const d = kind === "temp" ? temp : hum, sel = kind === "temp" ? "#c-temp" : "#c-hum";
+    if (st.get("view") !== "dashboard") { chartsDirty = true; return; }
+    if (err) return PH.empty(sel, "No sensor readings", "The sensor service did not answer for " + sensorFor().name + ".", "alert");
+    if (!d || !(d.values || []).some((v) => v != null)) return PH.empty(sel, "No sensor readings", "Nothing logged for " + sensorFor().name + " in the last 24 hours.");
+    const th = d.th, n = d.values.length, unit = kind === "temp" ? "°C" : "%";
+    const vals = d.values.map((v) => (v == null ? null : +v));
+    const nums = vals.filter((v) => v != null);
+    const lo = Math.min(th.min, d.min_value != null ? +d.min_value : Math.min(...nums));
+    const hi = Math.max(th.max, d.max_value != null ? +d.max_value : Math.max(...nums));
+    const pad = kind === "temp" ? 1 : 5;
+    PH.chart(sel, {
+      type: "line", labels: d.labels,
+      series: [
+        { label: kind === "temp" ? "Temperature" : "Humidity", data: vals, color: kind === "temp" ? PH.palette[1] : PH.palette[0] },
+        { label: "Min", data: Array(n).fill(th.min), color: PH.statusColor.mute, dashed: true, width: 1.5, fill: false },
+        { label: "Max", data: Array(n).fill(th.max), color: PH.statusColor.mute, dashed: true, width: 1.5, fill: false },
+      ],
+      yFormat: (v) => PH.fmt.qty(v, 1) + unit,
+      options: { scales: { y: { beginAtZero: false, min: Math.floor(lo - pad), max: Math.ceil(hi + pad) } } },
+    }).catch((e) => PH.error(sel, e.message));
+  }
+
+  /* ── Shelf contents: shelved + received-not-shelved per variety/length/farm (server-built) ── */
+  function shelfRows() { return dash ? dash.shelf_rows || [] : []; }
+  function fillShelfFarms() {
+    PH.options("#f-sfarm", PH.uniq(shelfRows().map((r) => r.farm)).sort(), st.get("sfarm"));
+  }
+  function shelfFiltered() {
+    const q = (st.get("q") || "").toLowerCase(), f = st.get("sfarm");
+    return shelfRows().filter((r) => (!q || String(r.variety || "").toLowerCase().includes(q)) && (!f || r.farm === f));
+  }
+  const numCol = (key, label, extra) => Object.assign({ key, label, num: true, total: true, format: (v) => PH.fmt.num(v || 0) }, extra || {});
+  const SHELF_COLS = [
+    { key: "variety", label: "Variety", cls: "is-strong" },
+    { key: "stem_length", label: "Length", format: (v) => v || "N/A" },
+    { key: "farm", label: "Farm" },
+    numCol("shelved", "Shelved"),
+    numCol("held", "Held for discard"),
+    numCol("allocated", "Allocated"),
+    { key: "not_shelved", label: "Not shelved", num: true, total: true, html: (v) => (v ? PH.html`<span class="ph-warn ph-strong">${PH.fmt.num(v)}</span>` : PH.html`<span class="ph-muted">0</span>`) },
+    numCol("total", "Total", { cls: "is-strong" }),
+    numCol("buckets", "Buckets"),
+    { key: "shelves", label: "Shelf location", cls: "is-wrap ph-mono", format: (v) => v || "—" },
+  ];
+  function renderShelf() {
+    if (!dash) return;
+    const rows = shelfFiltered();
+    const sh = PH.sum(rows, "shelved"), ns = PH.sum(rows, "not_shelved");
+    PH.text("#shelf-meta", "Shelved " + PH.fmt.num(sh) + " · not shelved " + PH.fmt.num(ns) + " · total " + PH.fmt.num(sh + ns) + " stems");
+    const filtered = st.get("q") || st.get("sfarm");
+    table("shelf", "#shelf", rows, {
+      columns: SHELF_COLS, pageSize: 100, tall: true,
+      empty: filtered ? "No stock matches these filters" : "No stock in the cold room",
+      emptyText: filtered ? "Clear the farm or search to see everything." : "Shelved and received-but-unshelved stems show here.",
+    });
+    PH.text("#tc-shelf", PH.fmt.num(shelfRows().length));
+  }
+
+  /* One PH.table per holder; a fresh holder each time it is (re)created so
+     click handlers never stack. */
+  function table(name, sel, rows, cfg) {
+    const t = tables[name];
+    if (rows.length && t && t.holder.isConnected && t.holder.querySelector(".ph-table")) return t.update(rows);
+    const holder = document.createElement("div");
+    PH.set(sel, "");
+    PH.$(sel).appendChild(holder);
+    if (!rows.length) { tables[name] = null; return PH.empty(holder, cfg.empty, cfg.emptyText); }
+    tables[name] = PH.table(holder, Object.assign({ rows }, cfg));
+    tables[name].holder = holder;
+  }
+
+  /* ── Buckets tab ── */
+  function loadBuckets(background) {
+    if (!background) ["#b-age", "#b-disc", "#b-req"].forEach((s) => PH.skeleton(s, "rows", 5));
+    if (!background) PH.skeleton("#b-recv", "rows", 3);
+    const my = ++bseq;
+    bucketsReq = scopeKey();
+    return PH.call(API + "get_cold_room_buckets", scopeArgs(), { silent: background })
+      .then((m) => {
+        if (my !== bseq) return;
+        buckets = m || {};
+        const vs = PH.uniq((buckets.age || []).map((x) => x.variety)).sort();
+        PH.options("#f-bvar", vs, st.get("bvar"));
+        PH.text("#tc-buckets", PH.fmt.num((buckets.summary || {}).buckets || 0));
+        renderAge();
+        renderBucketLists();
+        renderFlow();
+        showView();
+      })
+      .catch((e) => {
+        if (my !== bseq || background) return;
+        buckets = null;
+        const retry = () => loadBuckets();
+        PH.error("#b-age", e.message, retry);
+        ["#b-disc", "#b-recv", "#b-req"].forEach((s) => PH.set(s, ""));
+        PH.set("#b-recv-farms", "");
+      });
+  }
+  const ageHtml = (d) => {
+    if (d == null) return PH.html`<span class="ph-muted">—</span>`;
+    d = Math.round(d);
+    const label = d === 0 ? "Today" : d + "d";
+    return d >= 7 ? PH.html`<span class="ph-badge ph-badge--bad">${label}</span>` : d >= 3 ? PH.html`<span class="ph-badge ph-badge--warn">${label}</span>` : label;
+  };
+  const stateHtml = (v) => (v === "held" ? PH.html`<span class="ph-badge ph-badge--bad">Held</span>` : v === "allocated" ? PH.html`<span class="ph-badge ph-badge--good">Allocated</span>` : PH.html`<span class="ph-badge">Free</span>`);
+  const BUCKET = [
+    { key: "bucket_id", label: "Bucket", cls: "ph-mono is-strong" },
+    { key: "variety", label: "Variety" },
+    { key: "stem_length", label: "Length" },
+    { key: "farm", label: "Farm" },
+  ];
+  const AGE_COLS = BUCKET.concat([
+    { key: "shelf", label: "Shelf", cls: "ph-mono is-wrap" },
+    numCol("stems", "Stems"),
+    { key: "state", label: "State", html: stateHtml },
+    { key: "age_days", label: "Age", num: true, html: ageHtml, csv: (v) => (v == null ? "" : v) },
+  ]);
+  function ageFiltered() {
+    if (!buckets) return [];
+    const vf = st.get("bvar"), mn = st.get("bage"), q = (st.get("bq") || "").toLowerCase();
+    return (buckets.age || []).filter((x) =>
+      (!vf || x.variety === vf) &&
+      (mn === "" || (x.age_days != null && x.age_days >= parseInt(mn, 10))) &&
+      (!q || String(x.bucket_id || "").toLowerCase().includes(q) || String(x.shelf || "").toLowerCase().includes(q)));
+  }
+  function renderAge() {
+    if (!buckets) return;
+    const rows = ageFiltered();
+    PH.text("#age-count", PH.fmt.plural(new Set(rows.map((r) => r.bucket_id)).size, "bucket"));
+    const filtered = st.get("bvar") || st.get("bage") || st.get("bq");
+    table("age", "#b-age", rows, {
+      columns: AGE_COLS, pageSize: 100, tall: true,
+      empty: filtered ? "No buckets match these filters" : "No buckets on shelves",
+      emptyText: filtered ? "Clear the variety, age or search filter." : "Shelved buckets appear here with their age since harvest.",
+    });
+  }
+  function renderBucketLists() {
+    const disc = buckets.discard_shelved || [];
+    PH.text("#disc-count", PH.fmt.plural(new Set(disc.map((r) => r.bucket_id)).size, "bucket"));
+    table("disc", "#b-disc", disc, {
+      columns: BUCKET.concat([
+        { key: "shelf", label: "Shelf", cls: "ph-mono is-wrap" },
+        numCol("stems", "Stems"),
+        { key: "age_days", label: "Age", num: true, html: ageHtml },
+        { key: "request", label: "Request", html: (v) => (v ? PH.html`<span class="ph-link ph-mono">${v}</span>` : "—") },
+      ]),
+      onRowClick: (r) => r.request && PH.openDoc("Discard Request", r.request),
+      pageSize: 100,
+      empty: "Nothing on a discard request", emptyText: "No bucket in these filters is waiting to be discarded.",
+    });
+
+    const recv = buckets.received_not_shelved || [];
+    PH.text("#recv-count", PH.fmt.plural(new Set(recv.map((r) => r.bucket_id)).size, "bucket"));
+    const byFarm = Array.from(PH.groupBy(recv, (x) => x.farm || "Unknown")).sort((a, b) => a[0].localeCompare(b[0]));
+    PH.set("#b-recv-farms", byFarm.length > 0
+      ? `<div class="ph-stats">${byFarm.map(([f, rows]) => PH.html`<div class="ph-stat"><small>${f}</small><b>${PH.fmt.num(PH.sum(rows, "stems"))}</b><span class="ph-muted">${PH.fmt.plural(new Set(rows.map((r) => r.bucket_id)).size, "bucket")}</span></div>`.__raw).join("")}</div>`
+      : "");
+    table("recv", "#b-recv", recv, {
+      columns: [{ key: "farm", label: "Farm", format: (v) => v || "Unknown" }, { key: "bucket_id", label: "Bucket", cls: "ph-mono is-strong" }, { key: "variety", label: "Variety" }, { key: "stem_length", label: "Length" },
+        { key: "received_on", label: "Received", format: (v) => (v ? PH.fmt.date(v) : "—") }, numCol("stems", "Stems")],
+      sort: { key: "farm", dir: "asc" }, pageSize: 100,
+      empty: "Nothing waiting to be shelved", emptyText: "Buckets received in this period that are not on a shelf show here.",
+    });
+
+    const req = buckets.requested_not_issued || [];
+    PH.text("#req-count", PH.fmt.plural(new Set(req.map((r) => r.bucket_id)).size, "bucket"));
+    table("req", "#b-req", req, {
+      columns: BUCKET.concat([
+        numCol("stems", "Stems"),
+        { key: "opl", label: "Order", html: (v) => (v ? PH.html`<span class="ph-link ph-mono">${v}</span>` : "—") },
+        { key: "customer", label: "Customer" },
+      ]),
+      onRowClick: (r) => r.opl && PH.openDoc("Order Pick List", r.opl),
+      pageSize: 100,
+      empty: "Nothing outstanding", emptyText: "Every bucket requested on pick lists in this period has been given out.",
+    });
+  }
+
+  /* ── Export the current tab's main table ── */
+  PH.$("#export").addEventListener("click", () => {
+    const tag = [st.get("region") || st.get("farm") || "all-farms", st.get("from") || "all", st.get("to") || ""].filter(Boolean).join("_");
+    if (st.get("view") === "buckets") {
+      if (buckets) PH.csv("cold-room-bucket-age_" + tag + ".csv", ageFiltered(), AGE_COLS);
+    } else if (dash) {
+      PH.csv("cold-room-stock_" + tag + ".csv", shelfFiltered(), SHELF_COLS);
+    }
+  });
+
+  showView();
+  PH.onRefresh(() => Promise.all([load(), st.get("view") === "buckets" ? loadBuckets() : null]));
+  PH.ready(() => load());
+  PH.poll((bg) => { load(bg); if (st.get("view") === "buckets" && buckets) loadBuckets(bg); }, 120000);
+})();
+</script>
+{% endraw %}
+{% endblock %}

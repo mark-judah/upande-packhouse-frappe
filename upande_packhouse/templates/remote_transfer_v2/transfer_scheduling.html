@@ -1,0 +1,1135 @@
+{#- Remote Transfers v2 — Transfer Scheduling tab (/remote-transfer-v2?tab=transfer).
+    Orders → Distribute → trips. Reads getTransferScheduleData (via the planner core,
+    _planner_common.html); writes Bucket Request Trips through saveBucketTrip /
+    deleteBucketTrip / mergeTruckTrips, logs each Distribute (logDistribution), adds farm
+    trips (addFarmTrip) and re-runs automatic scheduling (auto_transfer.runNow).
+
+    Filters (all in the URL): date (?date=, the delivery date shared by every tab — server),
+    view (orders | trips; the old ?tab=triplist still opens Trips), team and q (client-side).
+    Included twice by www/remote-transfer-v2.html: rt_part 'body' then 'script'. -#}
+{% if rt_part == 'body' %}
+{% include "upande_packhouse/templates/remote_transfer_v2/_planner_common.html" %}
+<style>
+  /* An order row: schedule rank · order + its farm portions · distributed share. */
+  .rt-ords{display:flex;flex-direction:column}
+  .rt-ord{display:grid;grid-template-columns:28px minmax(0,1fr) minmax(150px,200px);gap:var(--sp-4);padding:var(--sp-4) 0;border-bottom:1px solid var(--hairline);align-items:start}
+  .rt-ord:last-child{border-bottom:0;padding-bottom:0}
+  .rt-ord:first-child{padding-top:0}
+  .rt-ord__main{display:flex;flex-direction:column;gap:var(--sp-3);min-width:0}
+  .rt-ord__side{display:flex;flex-direction:column;gap:var(--sp-2);align-items:stretch;min-width:0}
+  .rt-farms{display:flex;flex-wrap:wrap;gap:var(--sp-2)}
+  .rt-fchip{display:flex;flex-direction:column;gap:var(--sp-1);padding:var(--sp-2) var(--sp-3);border:1px solid var(--hairline-2);border-radius:var(--r-sm);background:var(--surface-2);min-width:150px;max-width:100%}
+  .rt-fchip.is-done{background:var(--good-soft);border-color:transparent}
+  .rt-fchip.is-part{background:var(--warn-soft);border-color:transparent}
+  .rt-fchip.is-behind{box-shadow:inset 0 0 0 1px var(--bad)}
+  .rt-fchip .ph-btn{align-self:flex-start;margin-top:var(--sp-1)}
+  .rt-stages{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-1)}
+  .rt-stages__line{width:14px;height:1px;background:var(--hairline-3)}
+  .rt-stages .ph-ic{width:12px;height:12px}
+  /* Hub shelf space: one bar split on shelves / on the road / planned / free. */
+  .rt-seg{display:flex;height:10px;border-radius:var(--r-pill);overflow:hidden;background:var(--tint);margin:var(--sp-4) 0 var(--sp-3)}
+  .rt-seg i,.rt-key{display:block;height:100%}
+  .rt-key{display:inline-block;width:10px;height:10px;border-radius:50%}
+  .rt-seg .is-sh,.rt-key.is-sh{background:var(--ink)}
+  .rt-seg .is-rd,.rt-key.is-rd{background:var(--signal)}
+  .rt-seg .is-pl,.rt-key.is-pl{background:var(--ink-faint)}
+  .rt-key.is-fr{background:var(--tint);box-shadow:inset 0 0 0 1px var(--hairline-3)}
+  .rt-det{border-top:1px solid var(--hairline)}
+  .rt-det:last-child{border-bottom:1px solid var(--hairline)}
+  .rt-det>summary{cursor:pointer;padding:var(--sp-3) 0;list-style-position:inside}
+  .rt-det>.ph-list{padding:0 0 var(--sp-3) var(--sp-5)}
+  /* Left behind: per farm — the farm, the next vehicle, the action. */
+  .rt-lb{display:grid;grid-template-columns:minmax(140px,1fr) minmax(0,2fr) auto;gap:var(--sp-4);align-items:center;padding:var(--sp-3) 0;border-bottom:1px solid var(--hairline)}
+  .rt-lb:last-child{border-bottom:0}
+  .rt-trip-orders .ph-list__row{padding:var(--sp-2) 0}
+  .rt-tile-stale{opacity:.7}
+  @media (max-width:900px){
+    .rt-ord{grid-template-columns:28px minmax(0,1fr)}
+    .rt-ord__side{grid-column:2}
+    .rt-lb{grid-template-columns:minmax(0,1fr)}
+  }
+</style>
+
+<div class="ph-filters">
+  <div class="ph-pills" id="tp-view" role="tablist" aria-label="View">
+    <button data-value="orders">Scheduled orders</button><button data-value="trips">Trips</button>
+  </div>
+  <div class="ph-pills" id="f-region" aria-label="Region"></div>
+  <select class="ph-select" id="tp-farm" aria-label="Origin farm" title="Origin farm: where the buckets are trucked from"><option value="">All origin farms</option></select>
+  <select class="ph-select" id="tp-team" aria-label="Team"><option value="">All teams</option></select>
+  <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="tp-q" type="search" placeholder="Search order, customer, farm, truck"></label>
+  <div class="ph-filters__spacer"></div>
+  <div class="ph-pills" id="tp-preset" aria-label="Delivery date presets">
+    <button data-value="yesterday">Yesterday</button><button data-value="today">Today</button><button data-value="tomorrow">Tomorrow</button><button data-value="7d">7 days</button>
+  </div>
+  <label class="ph-daterange" title="Delivery date range"><input type="date" id="tp-from" aria-label="Delivery from"><span class="ph-daterange__sep">→</span><input type="date" id="tp-to" aria-label="Delivery to"></label>
+</div>
+
+<div id="tp-auto"></div>
+<section class="ph-kpis" id="tp-kpis"></section>
+<div id="tp-body"></div>
+
+{% elif rt_part == 'script' %}
+{% include "upande_packhouse/templates/remote_transfer_v2/_planner_common.html" %}
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  const esc = PH.esc, n = (v) => PH.fmt.num(v || 0), pl = (k, one, many) => (k === 1 ? one : many || one + "s");
+  const D = () => RTP.data(), pack = RTP.pack;
+
+  /* ── State: filters in the URL ── */
+  const st = PH.state({ from: RT.defaultDate, to: RT.defaultDate, region: "", farm: "", view: "orders", team: "", q: "" });
+  (function () { const p = new URLSearchParams(location.search); if (p.get("date") && !p.get("from")) st.set({ from: p.get("date"), to: p.get("date") }, { silent: true }); })();
+  // Old deep link: /remote-transfer/transfer-scheduling?tab=triplist opened the Trips view.
+  (function () {
+    const p = new URLSearchParams(location.search);
+    if (p.get("tab") === "triplist") {
+      p.set("tab", "transfer");
+      history.replaceState(history.state, "", location.pathname + "?" + p.toString());
+      st.set({ view: "trips" }, { silent: true });
+    }
+  })();
+  RTP.setDate(() => st.get("to"));
+  RTP.setRange(() => ({ from: st.get("from"), to: st.get("to") }));
+  /* Planner state that isn't a filter. offRuns: runs unticked in the Distribute popup. */
+  const S = { sel: {}, selQty: {}, rank: {}, offRuns: {}, offRoutes: {}, countReady: false, dist: null, distM: null, saving: false, distLoading: false, replanning: false, tripBusy: false, ftBusy: null };
+
+  PH.pills("#tp-view", st, "view");
+  PH.regionPills("#f-region", st, "region");
+  PH.bindSelect("#tp-farm", st, "farm");
+  PH.bindSelect("#tp-team", st, "team");
+  PH.bindSearch("#tp-q", st, "q");
+  PH.dateRange({ pills: "#tp-preset", from: "#tp-from", to: "#tp-to", state: st, fromKey: "from", toKey: "to" });
+  st.on((s, changed) => {
+    if (changed.indexOf("region") >= 0 && s.farm && s.region && PH.regionOf(s.farm) !== s.region) st.set({ farm: "" }, { silent: true });
+    if (changed.indexOf("from") >= 0 || changed.indexOf("to") >= 0) return load(true);
+    render();
+  });
+
+  /* ── Load ── */
+  const KPI_LABELS = ["Not on a trip", "Scheduled orders", "Trips", "Hub shelf space"];
+  function load(skeleton) {
+    if (skeleton || !RTP.loaded) {
+      PH.kpiSkeleton("#tp-kpis", KPI_LABELS);
+      PH.skeleton("#tp-body", "rows", 8);
+    }
+    return RTP.load()
+      .then(() => PH.markUpdated())
+      .catch((e) => {
+        if (RTP.loaded && !skeleton) return RTP.toast("Couldn’t refresh: " + e.message, "bad");
+        PH.loadingKpis("#tp-kpis", false);
+        PH.set("#tp-auto", "");
+        PH.error("#tp-body", e.message, () => load(true));
+      });
+  }
+  RTP.on("data", () => render());
+  RTP.on("changed", () => load());
+
+  /* ── Render ── */
+  function render() {
+    if (!RTP.loaded) return;
+    renderAutoBanner();
+    renderKpis();
+    renderTeamOptions();
+    PH.keepScroll(() => (st.get("view") === "trips" ? renderTripList() : renderOrders()));
+  }
+  function emptyHtml(title, text) {
+    return `<div class="ph-empty"><div class="ph-empty__icon">${PH.icon("inbox", 20)}</div><div class="ph-empty__title">${esc(title)}</div>${text ? `<div class="ph-empty__text">${esc(text)}</div>` : ""}</div>`;
+  }
+  const dateLabel = () => PH.date.label(st.get("from"), st.get("to"));
+  const schedulerUrl = () => "/remote-transfer-v2?tab=scheduler&date=" + encodeURIComponent(st.get("to"));
+
+  /* ── Filter scope ── Region, origin farm, team and search scope every list and KPI
+     below. The planner feed is complete for the range (never truncated); an order is
+     narrowed to its origin-farm portions in the chosen region / farm. Distribute and the
+     trip editors still work on the full feed. */
+  function farmSet() {
+    const rf = PH.regionFarms(st.get("region")), f = st.get("farm");
+    if (!rf && !f) return null;
+    return (rf || [f]).filter((x) => !f || x === f);
+  }
+  const farmOk = (fs, f) => !fs || fs.indexOf(f) >= 0;
+  function scopeOrder(o, fs) {
+    if (!fs) return o;
+    const farms = (o.farms || []).filter((f) => farmOk(fs, f.farm));
+    if (!farms.length) return null;
+    return Object.assign({}, o, { farms, total_buckets: PH.sum(farms, "buckets"), total_stems: PH.sum(farms, "stems"), on_road_buckets: PH.sum(farms, "on_road") });
+  }
+  function scoped() {
+    const d = D(), fs = farmSet(), team = st.get("team"), q = st.get("q");
+    const orders = d.orders.map((o) => scopeOrder(o, fs)).filter((o) => o && (!team || (o.team || "Unscheduled") === team) && matchOrder(o, q));
+    const unscheduled = (d.unscheduled || []).filter((u) => (!fs || (u.farms || []).some((f) => farmOk(fs, f))) && (!team || u.team === team) &&
+      PH.match({ a: u.order_name, b: u.customer, c: u.opl, d: u.team, e: (u.farms || []).join(" ") }, q));
+    const left = (d.left_behind || []).filter((x) => farmOk(fs, x.farm));
+    return { orders, unscheduled, left, fs };
+  }
+
+  function renderKpis() {
+    const d = D(), sc = scoped(), open = sc.orders.filter((o) => RTP.openTotal(o) > 0), openB = open.reduce((a, o) => a + RTP.openTotal(o), 0);
+    const trips = scopedTrips(), road = trips.filter((t) => t.status === "Dispatched").length, planned = trips.filter((t) => t.status === "Draft" || t.status === "Scheduled").length;
+    const teams = PH.uniq(sc.orders.map((o) => o.team)).length, h = d.hub_space;
+    const hubK = h && h.capacity != null
+      ? { label: "Hub shelf space", value: h.free || 0, unit: "of " + n(h.capacity) + " buckets free at " + (h.hub || pack()) + " (hub-wide, all origin farms)", bar: h.capacity ? 100 - (100 * (h.free || 0)) / h.capacity : 0, barClass: (h.free || 0) <= Math.max(10, h.capacity * 0.05) ? "bad" : "" }
+      : { label: "Hub shelf space", value: h ? n(h.shelves) : "—", unit: h ? "shelves · set buckets per shelf to plan by space" : "not set up" };
+    PH.kpis("#tp-kpis", [
+      { label: "Not on a trip", value: openB, unit: "buckets in " + PH.fmt.plural(open.length, "order"), dark: openB > 0 },
+      { label: "Scheduled orders", value: sc.orders.length, unit: PH.fmt.plural(teams, "team") + " · " + n(sc.unscheduled.length) + " not scheduled" },
+      { label: "Trips", value: trips.length, unit: planned + " planned · " + road + " on the road", onClick: () => st.set({ view: "trips" }), active: st.get("view") === "trips" },
+      hubK,
+    ]);
+  }
+  function renderTeamOptions() {
+    const counts = {};
+    const fs = farmSet();
+    D().orders.forEach((o) => { if (!scopeOrder(o, fs)) return; const t = o.team || "Unscheduled"; counts[t] = (counts[t] || 0) + 1; });
+    const cur = st.get("team");
+    if (cur && !counts[cur]) counts[cur] = 0; // the current choice stays listed even if it has none today
+    const rf = PH.regionFarms(st.get("region")), all = [];
+    D().orders.forEach((o) => (o.farms || []).forEach((f) => all.push(f.farm)));
+    PH.options("#tp-farm", PH.uniq(all.concat([st.get("farm")])).filter((f) => !rf || rf.indexOf(f) >= 0).sort(), st.get("farm"));
+    PH.options("#tp-team", Object.keys(counts).sort().map((t) => ({ value: t, label: t + " · " + counts[t] })), cur);
+  }
+
+  /* Automatic scheduling (Production Settings > Enable Automatic Remote Transfers
+     Scheduling): a line saying it's on and what its last run did, plus Re-plan now.
+     Its trips carry an "auto" tag; it replaces only those, and only while Draft. */
+  function renderAutoBanner() {
+    const ap = D().auto_planning || {};
+    if (!ap.enabled) return PH.set("#tp-auto", "");
+    const lr = ap.last_run;
+    let what = "waiting for its first run";
+    if (lr) {
+      const at = String(lr.at || "").slice(11, 16);
+      if (lr.status === "error") what = "last run " + at + " failed — " + (lr.message || "");
+      else if (lr.status === "busy") what = "running…";
+      else {
+        const trips = (lr.trips || []).length;
+        what = "last run " + at + " · " + (lr.unchanged ? "plan unchanged" : trips + " trip" + (trips === 1 ? "" : "s") + " planned") +
+          (lr.buckets ? " · " + n(lr.buckets) + " buckets" : "") +
+          ((lr.unreachable || []).length ? " · " + lr.unreachable.length + " order" + (lr.unreachable.length === 1 ? "" : "s") + " no truck can reach" : "") +
+          ((lr.failed || []).length ? " · " + lr.failed.length + " truck" + (lr.failed.length === 1 ? "" : "s") + " failed: " + lr.failed.map((f) => f.vehicle + " (" + f.message + ")").join("; ") : "");
+      }
+    }
+    PH.set("#tp-auto", `<div class="ph-notice ph-notice--signal ph-flex--wrap"><span class="ph-grow"><b>Automatic scheduling is on</b> — every ${esc(ap.frequency || 10)} min · ${esc(what)}. Dispatch happens in the app.</span>
+      <button class="ph-btn ph-btn--sm" data-act="auto-replan"${S.replanning ? " disabled" : ""}>${S.replanning ? "Planning…" : "Re-plan now"}</button></div>`);
+  }
+  function autoReplan() {
+    if (S.replanning) return;
+    S.replanning = true; renderAutoBanner();
+    RTP.write("upande_packhouse.api.auto_transfer.runNow", {}, "Re-plan failed")
+      .then((m) => RTP.toast(m.unchanged ? "Plan unchanged" : (m.trips || []).length + " trip" + ((m.trips || []).length === 1 ? "" : "s") + " planned"))
+      .catch((e) => RTP.toast(e.message, "bad"))
+      .then(() => { S.replanning = false; RTP.changed(); });
+  }
+
+  /* ── Route-aware truck allocation ──────────────────────────────────────
+     A truck plying a route TODAY (Bucket Logistics Route) may only carry buckets
+     from the farms on that route. A truck with NO route today is NOT usable at all
+     (fleetSorted filters it out). A truck can run several routes a day; it serves
+     every farm on any of them. */
+  const routeOn = (name) => !S.offRoutes[name];
+  const activeRoutes = () => (D().routes || []).filter((r) => routeOn(r.name));
+  function truckFarmSets() {
+    const m = {};
+    activeRoutes().forEach((r) => { const a = (m[r.vehicle] = m[r.vehicle] || []); (r.farms || []).forEach((f) => { if (a.indexOf(f) < 0) a.push(f); }); });
+    return m;
+  }
+  /* A truck is only usable once its route is set today — no route = not selectable. */
+  const hasRoute = (vehicle) => { const s = truckFarmSets()[vehicle]; return !!(s && s.length); };
+  /* Truck space to plan into: every still-open RUN of a routed truck is a full truck
+     that only serves that run's farms (one trip per run). A run whose trip already has
+     buckets offers what's left. `key` tells the runs of one truck apart. */
+  const runKey = (r) => r.route + "#" + r.run;
+  const openRuns = (v) => (v.runs || []).filter((r) => (r.stops || []).length && routeOn(r.route) && !S.offRuns[runKey(r)] && (!r.trip || r.trip_status === "Draft" || r.trip_status === "Scheduled"));
+  /* Usable fleet for distribution = has a route set today. A truck out on a trip
+     (dispatched, not received) isn't available until it's back at its route's end —
+     but out on one run, a routed truck can still be planned for its next runs. */
+  function fleetSorted() {
+    const a = D().vehicles.filter((v) => hasRoute(v.name) && ((v.runs || []).length ? openRuns(v).length : !v.on_road) && v.capacity_buckets > 0);
+    a.sort((x, y) => y.capacity_buckets - x.capacity_buckets);
+    return a;
+  }
+  function buildTruckState() {
+    const sets = truckFarmSets(), out = [];
+    fleetSorted().forEach((v) => {
+      const runs = openRuns(v);
+      if (!runs.length) { out.push({ key: v.name, label: v.name, vehicle: v.name, route: null, run: null, cap: v.capacity_buckets, rem: v.capacity_buckets, farmSet: sets[v.name], topup: null }); return; }
+      runs.forEach((r) => {
+        const t = r.trip ? RTP.tripByName(r.trip) : null;
+        const used = t ? Math.max(t.total_buckets || 0, t.loaded_buckets || 0) : 0, rem = Math.max(0, v.capacity_buckets - used);
+        if (rem <= 0) return;
+        out.push({ key: v.name + "#" + r.route + "#" + r.run, label: v.name + (r.runs > 1 ? " · trip " + r.run : ""), vehicle: v.name, route: r.route, run: r.run, cap: rem, rem, farmSet: r.stops.slice(), topup: null });
+      });
+    });
+    return out;
+  }
+  const cloneState = (state) => state.map((t) => Object.assign({}, t));
+  const eligibleTrucks = (state, farm) => state.filter((t) => (t.farmSet == null || t.farmSet.indexOf(farm) >= 0) && t.rem > 0).sort((a, b) => b.rem - a.rem);
+  /* Place up to `amount` buckets of `farm` into truckState (MUTATES rem).
+     Best fit first: if one truck can take the whole portion, the one with the LEAST
+     room that still fits takes it — splitting an order's farm portion across trucks
+     means the order is only ready when the slowest truck is shelved. Only when no
+     single truck fits is it split, biggest remaining truck first. */
+  function allocateFarmAmount(state, farm, amount) {
+    const rows = [], elig = eligibleTrucks(state, farm);
+    let left = amount;
+    const fits = elig.filter((t) => t.rem >= amount);
+    if (fits.length && amount > 0) {
+      const best = fits[fits.length - 1]; // elig is sorted by rem desc → last fit is the tightest
+      best.rem -= amount;
+      return { placed: amount, rows: [{ vehicle: best.key, buckets: amount }] };
+    }
+    for (let i = 0; i < elig.length && left > 0; i++) {
+      const t = elig[i], take = Math.min(t.rem, left);
+      if (take <= 0) continue;
+      t.rem -= take; left -= take;
+      rows.push({ vehicle: t.key, buckets: take });
+    }
+    return { placed: amount - left, rows };
+  }
+  /* The whole order on ONE truck that visits all its farms and has room (the tightest
+     such), so all its buckets reach the hub together. null when none can. */
+  function allocateWhole(state, farms, total) {
+    const fits = state.filter((t) => t.rem >= total && farms.every((f) => t.farmSet == null || t.farmSet.indexOf(f.farm) >= 0)).sort((a, b) => a.rem - b.rem);
+    if (!fits.length) return null;
+    const t = fits[0];
+    t.rem -= total;
+    return { placed: total, rows: farms.map((f) => ({ farm: f.farm, vehicle: t.key, buckets: f.buckets })) };
+  }
+  /* Try to place an order's OPEN farm portions (up to `cap` total buckets). */
+  function allocateOrder(state, farms, cap) {
+    const rows = [];
+    let left = cap, placed = 0;
+    farms.forEach((f) => {
+      if (left <= 0) return;
+      const r = allocateFarmAmount(state, f.farm, Math.min(f.buckets, left));
+      r.rows.forEach((x) => rows.push({ farm: f.farm, vehicle: x.vehicle, buckets: x.buckets }));
+      placed += r.placed; left -= r.placed;
+    });
+    return { placed, rows };
+  }
+
+  /* Shelf space at the hub (Kapkolia): what's free for new transfers, and the orders
+     already there ready to issue — issuing them first (per team) frees their shelves.
+     Planning brings only what fits (hubBudget). */
+  const hubReadyBuckets = () => (D().hub_ready || []).reduce((a, x) => a + (x.buckets || 0), 0);
+  function hubBudget() {
+    const h = D().hub_space;
+    if (!h || h.free == null) return Infinity; // buckets per shelf not set: no limit
+    return h.free + (S.countReady ? hubReadyBuckets() : 0);
+  }
+
+  function computeDistribution() {
+    const byTeam = {};
+    D().orders.forEach((o) => {
+      const farms = RTP.openFarms(o), open = farms.reduce((a, f) => a + f.buckets, 0);
+      if (open <= 0 || !o.schedule) return;
+      (byTeam[o.team] = byTeam[o.team] || []).push({ opl: o.opl, schedule: o.schedule, open, farms, order_name: o.order_name, team: o.team });
+    });
+    const teams = Object.keys(byTeam).sort();
+    teams.forEach((t) => byTeam[t].sort((a, b) => a.schedule - b.schedule));
+    let state = buildTruckState();
+    const capacity = state.reduce((a, t) => a + t.cap, 0);
+    const fleetFarms = {};
+    state.forEach((t) => { if (t.farmSet) t.farmSet.forEach((f) => (fleetFarms[f] = 1)); });
+    const anyUnrestricted = state.some((t) => !t.farmSet);
+    /* A team's schedule is a queue: it packs #1 before #2. If its next order can't be
+       reached (no truck routed to that farm today) the team STOPS there — its later
+       orders are held back, not promoted. Skipping the blocked order used to send the
+       team #2's buckets while #1 sat at the farm. */
+    const reachable = {}, unreachable = [], held = [];
+    teams.forEach((t) => {
+      reachable[t] = [];
+      let blockedAt = null;
+      byTeam[t].forEach((it) => {
+        if (blockedAt) { held.push({ team: t, opl: it.opl, order_name: it.order_name, schedule: it.schedule, behind: blockedAt }); return; }
+        const ok = anyUnrestricted || it.farms.some((f) => fleetFarms[f.farm]);
+        if (ok) reachable[t].push(it); else { unreachable.push(it); blockedAt = it; }
+      });
+    });
+    /* One SEQUENCE STEP at a time: step k = every team's schedule #k. The first step
+       that hasn't fully arrived at the hub (an order still has buckets at a farm or on
+       the road) is planned — its whole orders not on a truck yet, each on one truck
+       where one can take it all — and the next step waits until it has arrived. Only
+       what the hub can shelve (hubBudget); no partial loads.
+       The step being worked on: the first with an order on the road, planned on a truck,
+       or still to plan on one that can reach it. An order no truck reaches is reported
+       (unreachable) but never holds every team's next steps back. */
+    const moving = {}, canPlan = {};
+    teams.forEach((t) => reachable[t].forEach((it) => { canPlan[it.opl] = 1; moving[it.schedule] = 1; }));
+    D().orders.forEach((o) => {
+      if (!o.schedule) return;
+      const open = RTP.openTotal(o), at = o.total_buckets || 0, road = o.on_road_buckets || 0;
+      if (road > 0 || (at > 0 && open < at) || (open > 0 && canPlan[o.opl])) moving[o.schedule] = 1;
+    });
+    const steps = Object.keys(moving).map(Number).sort((a, b) => a - b);
+    const step = steps.length ? steps[0] : null;
+    let later = 0, budget = hubBudget();
+    const picked = [], candidates = [], stepItems = [];
+    teams.forEach((t) => reachable[t].forEach((it) => { if (it.schedule === step) stepItems.push(it); else if (it.schedule > step) later++; }));
+    stepItems.sort((a, b) => a.open - b.open); // smallest first = the most teams move
+    stepItems.forEach((it) => {
+      if (it.open > budget) { it.maxTake = 0; it.space = Math.max(0, budget); candidates.push(it); return; }
+      const scratch = cloneState(state);
+      const alloc = allocateWhole(scratch, it.farms, it.open) || allocateOrder(scratch, it.farms, it.open);
+      if (alloc.placed >= it.open) { state = scratch; it.alloc = alloc.rows; picked.push(it); budget -= it.open; }
+      else { it.maxTake = 0; it.allocPreview = alloc.rows; candidates.push(it); }
+    });
+    const remaining = state.reduce((a, t) => a + t.rem, 0);
+    return { picked, remaining, candidates, unreachable, held, capacity, teamsWith: teams.length, round: step == null ? -1 : step, finalState: state, step, later, shortQty: {} };
+  }
+  function distributeAction() {
+    if (S.distLoading) return;
+    S.distLoading = true; renderOrdersIfOpen();
+    RTP.load()
+      .then(() => {
+        S.distLoading = false; renderOrdersIfOpen();
+        if (!D().orders.some((o) => RTP.openTotal(o) > 0)) return RTP.toast("All scheduled orders have been distributed — every bucket is on a trip.");
+        if (!fleetSorted().length) RTP.toast("No available trucks — tick a truck in the popup", "warn");
+        S.dist = computeDistribution();
+        openDistModal();
+      })
+      .catch((e) => { S.distLoading = false; renderOrdersIfOpen(); RTP.toast(e.message, "bad"); });
+  }
+  function renderOrdersIfOpen() { if (st.get("view") === "orders" && RTP.loaded) PH.keepScroll(renderOrders); }
+  const recompute = () => { if (S.dist) { S.dist = computeDistribution(); paintDist(); } };
+  const distShortUsed = (d) => d.candidates.reduce((u, c) => u + (d.shortQty[c.opl] || 0), 0);
+  /* The order the distribution committed orders in (round by round, smallest first,
+     then the partial candidates). Truck packing replays THIS order so the plan saved
+     is the plan that was checked — packing by farm name instead could come out
+     different and refuse a selection the popup said fits. */
+  function distRank(d) {
+    const r = {};
+    let i = 0;
+    d.picked.forEach((p) => (r[p.opl] = i++));
+    d.candidates.forEach((c) => { if (r[c.opl] == null) r[c.opl] = i++; });
+    return r;
+  }
+  function applyDistribution() {
+    const dist = S.dist;
+    if (!dist) return;
+    S.sel = {}; S.selQty = {}; S.rank = distRank(dist);
+    dist.picked.forEach((p) => (S.sel[p.opl] = 1));
+    dist.candidates.forEach((c) => { const q = dist.shortQty[c.opl] || 0; if (q > 0) { S.sel[c.opl] = 1; S.selQty[c.opl] = Math.min(c.open, q); } });
+    // Confirm saves the trips straight away (there is no separate "Plan trucks" step):
+    // one Draft trip per truck, then the Trips view shows them.
+    const plan = suggestPlan();
+    const why = !fleetSorted().length ? "No truck available — set a capacity and a route on a truck on the Truck Routes tab."
+      : !plan || plan.empty ? (D().orders.some((o) => RTP.openTotal(o) > 0) ? "Nothing fits the ticked trips — tick more trips or add a trip to the farm." : "All scheduled orders have been distributed.")
+      : plan.nofleet ? "No trucks selected — tick a truck above."
+      : plan.over ? plan.routeMsg || n(plan.total) + " buckets exceed the selected trucks’ capacity (" + n(plan.fleetCap) + ")." : "";
+    if (why) return RTP.toast(why, "bad");
+    saveDispatch();
+  }
+  /* The plan's trucks: one row per trip still to go — truck, trip, the farms it collects
+     from and its free space. Untick a trip to keep the plan off it. */
+  function truckPickHtml() {
+    const rows = [];
+    let picked = 0;
+    D().vehicles.forEach((v) => {
+      (v.runs || []).filter((r) => (r.stops || []).length && (!r.trip || r.trip_status === "Draft" || r.trip_status === "Scheduled")).forEach((r) => {
+        const t = r.trip ? RTP.tripByName(r.trip) : null;
+        const used = t ? Math.max(t.total_buckets || 0, t.loaded_buckets || 0) : 0, rem = Math.max(0, (v.capacity_buckets || 0) - used);
+        const on = !S.offRuns[runKey(r)] && routeOn(r.route) && rem > 0;
+        if (on) picked++;
+        rows.push(`<label class="rt-pick rt-pick--check${on ? "" : " is-off"}"><input type="checkbox" data-dist-run="${esc(runKey(r))}"${on ? " checked" : ""}${rem > 0 ? "" : " disabled"}>
+          <span class="ph-strong">${esc(v.name)}</span><span class="ph-muted">Trip ${r.run}${r.runs > 1 ? "/" + r.runs : ""}${r.from_datetime ? " · " + esc(String(r.from_datetime).slice(11, 16)) : ""}</span>
+          ${RTP.chainHtml([pack()].concat(r.stops).concat([pack()]))}<span class="ph-badge${rem > 0 ? " ph-badge--signal" : ""}">${rem > 0 ? rem + " bkt free" : "full"}</span></label>`);
+      });
+    });
+    return `<div class="rt-sec"><div class="ph-flex ph-flex--between ph-mb"><span class="ph-label">Trucks &amp; routes · ${esc(D().today || RTP.today())}</span><span class="ph-card__meta">${picked} trip${picked === 1 ? "" : "s"} in the plan</span></div>
+      <div class="rt-picks">${rows.join("") || '<div class="ph-notice ph-mb-0">No truck routes today — add one on the Truck Routes tab.</div>'}</div></div>`;
+  }
+  /* Fix it from the plan: send a truck to a farm no route reaches (a new trip on its
+     route, or a new route), then the plan is worked out again with it. */
+  function farmTripFixHtml(farms) {
+    const trucks = RTP.newTripTrucks();
+    if (!farms.length) return "";
+    if (!trucks.length) return '<div class="ph-tile__sub ph-mt">No free truck to send — add one on the Truck Routes tab.</div>';
+    const opts = trucks.map((t) => `<option value="${esc(t.vehicle)}">${esc(t.vehicle)} · ${t.routed ? "trip " + t.next + " on its route" : "new route"}, every day · ${t.cap} bkt</option>`).join("");
+    return farms.map((f) => {
+      const busy = S.ftBusy === f;
+      return `<div class="ph-flex ph-flex--wrap ph-mt"><span>Send a truck to <b>${esc(f)}</b></span><select class="ph-select" data-ft-veh="${esc(f)}"${busy ? " disabled" : ""}>${opts}</select>
+        <button class="ph-btn ph-btn--sm ph-btn--primary" data-dist-farmtrip="${esc(f)}"${S.ftBusy ? " disabled" : ""}>${busy ? "Adding…" : "Add trip"}</button></div>`;
+    }).join("");
+  }
+  function addDistFarmTrip(farm, body) {
+    const sel = body.querySelector('select[data-ft-veh="' + CSS.escape(farm) + '"]');
+    if (!sel || S.ftBusy) return;
+    const veh = sel.value;
+    S.ftBusy = farm; paintDist();
+    RTP.write("addFarmTrip", { vehicle: veh, farm, date: RTP.today() }, "Could not add the trip")
+      .then((m) => {
+        S.ftBusy = null;
+        RTP.toast(veh + " trip " + m.run + " now goes to " + farm + (m.saved_route ? " — saved on its route, every day" : " — today only (its time overlaps another route)"));
+        return RTP.load().then(recompute);
+      })
+      .catch((e) => { S.ftBusy = null; RTP.toast(e.message, "bad"); paintDist(); });
+  }
+  /* Validate the user's chosen short quantities TOGETHER against the actually-committed truck state. */
+  function shortAllocationCheck(d) {
+    const state = cloneState(d.finalState), per = {};
+    let ok = true;
+    d.candidates.forEach((c) => {
+      const q = d.shortQty[c.opl] || 0;
+      if (q <= 0) { per[c.opl] = true; return; }
+      per[c.opl] = allocateOrder(state, c.farms, q).placed >= q;
+      if (!per[c.opl]) ok = false;
+    });
+    return { ok, per };
+  }
+  function openDistModal() {
+    if (S.distM) return paintDist();
+    S.distM = PH.modal({
+      title: "Distribution plan",
+      sub: "Delivery " + dateLabel() + " · trips for today",
+      size: "xl",
+      actions: [{ label: "Cancel" }, { label: "Confirm & create trips", primary: true, onClick: () => { applyDistribution(); return false; } }],
+      onClose: () => { S.dist = null; S.distM = null; },
+    });
+    const body = S.distM.body;
+    body.addEventListener("change", (e) => {
+      const el = e.target;
+      if (el.matches("[data-dist-run]")) { if (el.checked) delete S.offRuns[el.dataset.distRun]; else S.offRuns[el.dataset.distRun] = 1; recompute(); }
+      else if (el.matches("[data-dist-qty]") && S.dist) {
+        let q = parseInt(el.value, 10);
+        const mx = parseInt(el.getAttribute("max"), 10) || 0;
+        if (!isFinite(q) || q < 0) q = 0;
+        if (q > mx) q = mx;
+        S.dist.shortQty[el.dataset.distQty] = q;
+        paintDist();
+      }
+    });
+    body.addEventListener("click", (e) => {
+      const ss = e.target.closest("[data-dist-set]");
+      if (ss && S.dist) { S.dist.shortQty[ss.dataset.distSet] = parseInt(ss.dataset.val, 10) || 0; return paintDist(); }
+      const ft = e.target.closest("[data-dist-farmtrip]");
+      if (ft && !ft.disabled) addDistFarmTrip(ft.dataset.distFarmtrip, body);
+    });
+    paintDist();
+  }
+  function paintDist() {
+    const d = S.dist, m = S.distM;
+    if (!m) return;
+    if (!d) return m.close();
+    const shortUsed = distShortUsed(d), totalUsed = d.capacity - d.remaining + shortUsed, free = Math.max(0, d.capacity - totalUsed);
+    const pct = d.capacity ? Math.round((totalUsed / d.capacity) * 100) : 0, check = shortAllocationCheck(d);
+    const nOrders = d.picked.length + d.candidates.filter((c) => (d.shortQty[c.opl] || 0) > 0).length;
+    // A farm blocking a team's queue gets its fix in the held-back note; the rest in the can't-move box.
+    let unreachHtml = "", heldHtml = "", shortHtml = "";
+    const fixed = {}, heldFarms = {};
+    (d.held || []).forEach((h) => h.behind.farms.forEach((f) => (heldFarms[f.farm] = 1)));
+    if (d.held && d.held.length) {
+      const byTeam = {};
+      d.held.forEach((h) => (byTeam[h.team] = byTeam[h.team] || { behind: h.behind, items: [] }).items.push(h));
+      heldHtml = `<div class="ph-notice ph-notice--warn rt-sec"><div class="ph-grow"><b>Held back to keep each team in schedule order</b>${Object.keys(byTeam).sort().map((t) => {
+        const g = byTeam[t];
+        return `<div class="ph-mt"><b>${esc(t)}</b> is waiting on #${esc(g.behind.schedule)} ${esc(g.behind.order_name)} (${esc(g.behind.farms.map((f) => f.farm).join(", "))} — no truck routed there). ${g.items.length} later order${g.items.length === 1 ? "" : "s"} (${g.items.map((h) => "#" + esc(h.schedule)).join(", ")}) won’t move ahead of it.${farmTripFixHtml(g.behind.farms.map((f) => f.farm).filter((f) => { if (fixed[f]) return false; fixed[f] = 1; return true; }))}</div>`;
+      }).join("")}</div></div>`;
+    }
+    if (d.unreachable && d.unreachable.length) {
+      const byFarm = {};
+      d.unreachable.forEach((u) => u.farms.forEach((f) => (byFarm[f.farm] = byFarm[f.farm] || []).push(u)));
+      const farms = Object.keys(byFarm).sort();
+      unreachHtml = `<div class="ph-notice ph-notice--bad rt-sec"><div class="ph-grow"><b>${d.unreachable.length} order${d.unreachable.length === 1 ? "" : "s"} can’t move today — no selected truck’s route covers their farm</b>
+        <div class="ph-tile__tags ph-mt">${farms.map((f) => `<span class="ph-badge ph-badge--bad">${esc(f)} · ${byFarm[f].length}</span>`).join("")}</div>${farmTripFixHtml(farms.filter((f) => !heldFarms[f]))}</div></div>`;
+    }
+    if (d.candidates.length) {
+      const sets = truckFarmSets();
+      const msgs = d.candidates.map((c) => {
+        const over = Math.max(0, c.open - c.maxTake), farms = c.farms.map((f) => f.farm);
+        const routedTo = fleetSorted().filter((v) => { const fs = sets[v.name] || []; return farms.some((f) => fs.indexOf(f) >= 0); });
+        const reason = c.space != null ? (pack() || "the hub") + " has shelf space for only " + c.space + " more bucket" + (c.space === 1 ? "" : "s")
+          : !routedTo.length ? "no truck with capacity is routed to " + farms.join(" / ") + " today"
+          : "the trucks routed to " + farms.join(" / ") + " have no room left for the whole order";
+        if (c.maxTake <= 0) return `<div>Schedule <b>#${esc(c.schedule)}</b> for <b>${esc(c.team)}</b> (${c.open} bkt) can’t move today — ${esc(reason)}. It waits for the next trip.</div>`;
+        return `<div>Schedule <b>#${esc(c.schedule)}</b> for <b>${esc(c.team)}</b> only fits ${c.maxTake} of ${c.open} buckets — ${esc(reason)}. Move ${c.maxTake} now and the other ${over} on the next trip, or skip it?</div>`;
+      }).join("");
+      const rows = d.candidates.filter((c) => c.maxTake > 0).map((c) => {
+        const q = d.shortQty[c.opl] || 0, take = c.maxTake;
+        return `<div class="rt-te-row"><div class="ph-truncate"><span class="ph-badge">${esc(c.team)}</span> <b>#${esc(c.schedule)}</b> ${esc(c.order_name)}${check.per[c.opl] === false ? ' <span class="ph-badge ph-badge--bad">doesn’t fit</span>' : ""}</div>
+          <button class="ph-btn ph-btn--sm ph-btn--ghost" data-dist-set="${esc(c.opl)}" data-val="0"${q === 0 ? " disabled" : ""}>Skip</button>
+          <span class="ph-flex"><input type="number" class="ph-table-input" data-dist-qty="${esc(c.opl)}" min="0" max="${take}" value="${q}" aria-label="Buckets to move"><span class="ph-muted ph-num">of ${take} that fit (${c.open} open)</span></span>
+          <button class="ph-btn ph-btn--sm" data-dist-set="${esc(c.opl)}" data-val="${take}"${q === take ? " disabled" : ""}>Transfer ${take}</button></div>`;
+      }).join("");
+      shortHtml = `<div class="ph-notice ${check.ok ? "ph-notice--warn" : "ph-notice--bad"} rt-sec"><div class="ph-grow ph-stack">${msgs}${rows ? `<div>${rows}</div>` : ""}${!check.ok ? "<div><b>These amounts compete for the same truck space and don’t all fit together. Reduce one of them.</b></div>" : ""}</div></div>`;
+    }
+    const nothing = d.picked.length || d.candidates.length ? "" : `<div class="ph-notice rt-sec">${D().orders.some((o) => RTP.openTotal(o) > 0) ? "Nothing fits the ticked trips." : "All scheduled orders have been distributed."}</div>`;
+    PH.set(m.body, truckPickHtml() +
+      `<div class="rt-sec"><div class="ph-progress-row"><span><b>${n(totalUsed)}</b> / ${n(d.capacity)} buckets used · ${n(free)} capacity still available · ${d.teamsWith} team${d.teamsWith === 1 ? "" : "s"} · ${nOrders} order${nOrders === 1 ? "" : "s"}</span><b>${pct}%</b></div><div class="ph-progress"><i style="width:${Math.min(100, pct)}%"></i></div>
+       ${d.step != null ? `<div class="ph-tile__sub ph-mt">Sequence step <b>#${esc(d.step)}</b> — every team’s #${esc(d.step)}.${d.later ? " " + d.later + " later order" + (d.later === 1 ? "" : "s") + " wait" + (d.later === 1 ? "s" : "") + " until it has arrived at " + esc(pack() || "the hub") + "." : ""}</div>` : ""}</div>` +
+      nothing + shortHtml + heldHtml + unreachHtml);
+    const ok = m.el.querySelector(".ph-modal__foot .ph-btn--primary");
+    if (ok) {
+      ok.disabled = !check.ok || S.saving;
+      ok.title = check.ok ? "" : "Fix the over-allocated amount above";
+      ok.textContent = S.saving ? "Saving…" : "Confirm & create trips";
+    }
+  }
+
+  /* ── Packing the confirmed selection onto trucks ── */
+  function packPorts(ports, state, fleet, rank) {
+    rank = rank || S.rank || {};
+    let total = 0, unplaced = 0;
+    ports.forEach((p) => (total += p.buckets));
+    const sets = truckFarmSets();
+    const anyoneServes = (farm) => fleet.some((v) => { const s = sets[v.name]; return !s || !s.length || s.indexOf(farm) >= 0; });
+    const rk = (p) => (rank[p.opl] != null ? rank[p.opl] : 1e6 + (p.schedule || 0));
+    // Stable sort: within one order the farms keep openFarms() order, same as allocateOrder.
+    const sorted = ports.slice().sort((a, b) => rk(a) - rk(b));
+    const byVeh = {}, blockedFarms = {};
+    sorted.forEach((p) => {
+      const per = p.buckets ? p.stems / p.buckets : 0;
+      const r = allocateFarmAmount(state, p.farm, p.buckets);
+      r.rows.forEach((x) => {
+        if (!byVeh[x.vehicle]) { // x.vehicle is the run's key
+          const vt = state.find((s) => s.key === x.vehicle);
+          byVeh[x.vehicle] = { vehicle: vt ? vt.vehicle : x.vehicle, label: vt ? vt.label : x.vehicle, route: vt ? vt.route : null, run: vt ? vt.run : null, cap: vt ? vt.cap : 0, rows: [] };
+        }
+        byVeh[x.vehicle].rows.push({ opl: p.opl, order_name: p.order_name, customer: p.customer, farm: p.farm, varieties: p.varieties, buckets: x.buckets, stems: Math.round(per * x.buckets), full: p.full });
+      });
+      const short = p.buckets - r.placed;
+      if (short > 0) { unplaced += short; if (!anyoneServes(p.farm)) blockedFarms[p.farm] = 1; }
+    });
+    const loads = Object.keys(byVeh).map((k) => {
+      const L = byVeh[k], used = L.rows.reduce((a, r) => a + r.buckets, 0);
+      return { vehicle: L.vehicle, label: L.label, route: L.route, run: L.run, cap: L.cap, rem: L.cap - used, rows: L.rows, newBuckets: used };
+    });
+    return { loads, total, trucks: loads.length, unplaced, blockedFarms };
+  }
+  /* The ports that flow from the Distribute-confirmed selection (S.sel/S.selQty). */
+  function selectedPortions() {
+    const out = [];
+    D().orders.forEach((o) => {
+      if (!S.sel[o.opl]) return;
+      const open = RTP.openFarms(o), openTot = open.reduce((a, f) => a + f.buckets, 0);
+      let left = S.selQty[o.opl] != null ? Math.max(0, Math.min(openTot, S.selQty[o.opl])) : openTot;
+      open.forEach((f) => {
+        if (left <= 0) return;
+        const take = Math.min(f.buckets, left), per = f.buckets ? f.stems / f.buckets : 0;
+        left -= take;
+        out.push({ opl: o.opl, order_name: o.order_name, customer: o.customer, schedule: o.schedule, team: o.team, farm: f.farm, varieties: f.varieties.map((v) => v.variety).join(", "), buckets: take, stems: Math.round(per * take), full: f.buckets });
+      });
+    });
+    return out;
+  }
+  function suggestPlan() {
+    const ports = selectedPortions();
+    if (!ports.length) return { empty: true };
+    const fleet = fleetSorted();
+    if (!fleet.length) return { nofleet: true };
+    const state = buildTruckState(), fleetCap = state.reduce((a, t) => a + t.rem, 0), total = ports.reduce((a, p) => a + p.buckets, 0);
+    if (total > fleetCap) return { over: true, total, fleetCap };
+    const packed = packPorts(ports, state, fleet);
+    if (packed.unplaced > 0) {
+      const farms = Object.keys(packed.blockedFarms);
+      const msg = farms.length
+        ? "No truck routed to " + farms.join(", ") + " today — " + packed.unplaced + " bucket" + (packed.unplaced === 1 ? "" : "s") + " can't move. Route a truck there, or deselect that portion."
+        : packed.unplaced + " bucket" + (packed.unplaced === 1 ? "" : "s") + " couldn't fit any eligible truck's remaining capacity. Free up space or add a truck.";
+      return { over: true, total, fleetCap, unplaced: packed.unplaced, routeMsg: msg };
+    }
+    return { loads: packed.loads, total, trucks: packed.trucks };
+  }
+  /* Create the dispatch: one Bucket Request Trip per truck the plan suggests. */
+  function saveDispatch() {
+    // One save at a time: a second click used to create a second set of trips for the
+    // same buckets. (The server now also refuses to claim buckets twice.)
+    if (S.saving) return;
+    const plan = suggestPlan();
+    if (!plan || plan.empty || plan.over || plan.nofleet || !plan.loads) return;
+    S.saving = true; paintDist();
+    Promise.all(plan.loads.map((load) => {
+      const args = { vehicle: load.vehicle, trip_date: RTP.today(), status: "Draft", farm: "", collection_order: "", orders: RTP.encodeOrders(load.rows) };
+      if (load.route && load.run) { args.route = load.route; args.run = load.run; } // the run this load was planned into
+      return RTP.write("saveBucketTrip", args, "save failed").then((m) => ({ load, m }), (err) => ({ load, err }));
+    })).then((results) => {
+      const ok = [], failed = [], notes = [];
+      results.forEach((x) => {
+        if (x.err) failed.push((x.load.label || x.load.vehicle) + ": " + (x.err.message || "request failed"));
+        else { ok.push(x.load.label || x.load.vehicle); if (x.m.message) notes.push(x.m.message); }
+      });
+      S.saving = false;
+      // Each Distribute is logged as its own entry (Bucket Distribution).
+      const logged = results.filter((x) => !x.err && x.m.name).map((x) => {
+        const rows = x.load.rows || [], farms = PH.uniq(rows.map((r) => r.farm)), orders = PH.uniq(rows.map((r) => r.order_name || r.opl));
+        return { vehicle: x.load.vehicle, trip: x.m.name, run: x.load.run || 0, farms: farms.join(", "), buckets: PH.sum(rows, "buckets"), stems: PH.sum(rows, "stems"), orders };
+      });
+      const logP = RTP.logDistribution(logged);
+      if (failed.length) { RTP.toast((ok.length ? ok.length + " truck" + (ok.length === 1 ? "" : "s") + " saved, but " : "") + failed.length + " failed — " + failed.join("; "), "bad"); paintDist(); }
+      else {
+        RTP.toast(plan.trucks + " trip" + (plan.trucks === 1 ? "" : "s") + " planned" + (notes.length ? ". " + notes.join(". ") : ""));
+        S.sel = {}; S.selQty = {}; S.rank = {};
+        if (S.distM) S.distM.close();
+        st.set({ view: "trips" });
+      }
+      logP.then(RTP.changed);
+    });
+  }
+
+  /* ── Orders view ───────────────────────────────────────────────────── */
+  function matchOrder(o, q) {
+    return PH.match({ a: o.order_name, b: o.customer, c: o.opl, d: o.team, e: (o.farms || []).map((f) => f.farm).join(" "), f: o.so }, q);
+  }
+  /* Scheduling itself is done ONLY by Distribute — this list is read-only/informational. */
+  function renderOrders() {
+    const d = D(), team = st.get("team"), q = st.get("q"), sc = scoped();
+    const onTrip = RTP.savedPortions(), tripVeh = RTP.tripVehMap();
+    // Distribute all: plans every team's open orders at once in the distribution popup
+    // (round by round, a preview to confirm). Each farm still keeps its own Distribute.
+    const openOrders = sc.orders.filter((o) => RTP.openTotal(o) > 0), openB = openOrders.reduce((a, o) => a + RTP.openTotal(o), 0);
+    let h = openOrders.length
+      ? `<section class="ph-card"><div class="ph-flex ph-flex--between ph-flex--wrap"><div class="ph-grow"><h2 class="ph-card__title">${n(openB)} bucket${openB === 1 ? "" : "s"} not on a trip yet</h2>
+          <div class="ph-card__meta">in ${PH.fmt.plural(openOrders.length, "order")}${sc.fs || team || q ? " (filtered)" : ""} · Distribute all plans every team’s next schedule step onto today’s trucks — you confirm the plan first</div></div>
+          <button class="ph-btn ph-btn--primary" data-act="distribute"${S.distLoading ? " disabled" : ""}>${PH.icon("truck")}${S.distLoading ? "Loading…" : "Distribute all"}</button></div></section>`
+      : "";
+    h += hubSpaceHtml() + leftBehindHtml() + unscheduledHtml() + duplicateTripsHtml() + staleTripsHtml();
+    if (!sc.orders.length && !(sc.fs || team || q)) return PH.set("#tp-body", h + `<section class="ph-card">${emptyHtml("No scheduled orders need transferring for " + dateLabel(), "Schedule orders on the Scheduler tab first.")}</section>`);
+    // Every scheduled order stays listed under its team's schedule; one already on a
+    // truck carries a "Distributed" badge instead of dropping off the list.
+    const groups = [], gmap = {};
+    sc.orders.forEach((o) => {
+      const tm = o.team || "Unscheduled";
+      if (!gmap[tm]) { gmap[tm] = { team: tm, orders: [] }; groups.push(gmap[tm]); }
+      gmap[tm].orders.push(o);
+    });
+    groups.sort((a, b) => a.team.localeCompare(b.team));
+    // Each team's schedule in its own order: #1, #2, … (unnumbered last).
+    groups.forEach((g) => g.orders.sort((a, b) => (a.schedule || 1e9) - (b.schedule || 1e9)));
+    if (!groups.length) return PH.set("#tp-body", h + `<section class="ph-card">${emptyHtml("No orders match these filters", "Clear the search, region, origin farm or team.")}</section>`);
+    h += groups.map((g) => {
+      let tb = 0, sb = 0;
+      // Every bucket of the team's orders (waiting, on the road, arrived) and how many are on a truck.
+      g.orders.forEach((o) => { const s = orderStages(o, o.total_buckets - RTP.openTotal(o)); tb += s.total; sb += s.onTruck; });
+      return `<section class="ph-card"><div class="ph-card__head"><h2 class="ph-card__title">${esc(g.team)} <span class="ph-badge">${g.orders.length}</span></h2>
+        <span class="ph-card__meta">Schedule · ${n(sb)} / ${n(tb)} buckets on a truck</span></div>
+        <div class="rt-ords">${g.orders.map((o) => orderRow(o, onTrip, tripVeh)).join("")}</div></section>`;
+    }).join("");
+    PH.set("#tp-body", h);
+  }
+  function orderRow(o, onTrip, tripVeh) {
+    const sched = o.total_buckets - RTP.openTotal(o);
+    const planned = sched >= o.total_buckets && o.total_buckets > 0;
+    const cov = RTP.coverMap();
+    // ASAP replacements first on the card, then a farm with buckets left behind.
+    const map = o.farms.slice().sort((a, b) => (b.asap || 0) - (a.asap || 0) || !!b.left_behind - !!a.left_behind).map((f) => {
+      // Buckets already dispatched on a truck (flagged in transit) are no longer open.
+      const road = f.on_road ? `<span class="ph-badge ph-badge--signal">${f.on_road} on the road</span>` : "";
+      if (!f.buckets) return `<div class="rt-fchip is-done"><b class="ph-strong">${esc(f.farm)}</b>${road}</div>`;
+      const covered = cov[RTP.pkey(o.opl, f.farm)] || 0, done = covered >= f.buckets, partial = covered > 0 && !done;
+      const tn = onTrip[RTP.pkey(o.opl, f.farm)], vh = tn ? tripVeh[tn] || "" : "";
+      const vs = f.varieties.map((v) => v.variety + " " + v.buckets).join(" · ");
+      const mark = done ? " · on a trip" : partial ? " · " + covered + "/" + f.buckets + " on a trip" : "";
+      // Left behind by a truck that already came: said plainly, and first on the next trip there.
+      const lb = f.left_behind;
+      const lbTag = lb ? `<span class="ph-badge ph-badge--bad" title="${esc(leftBehindNote(lb))}">${lb.buckets} left behind${lb.now_on && lb.now_on.length ? " · on " + esc(lb.now_on[0].vehicle || lb.now_on[0].trip) : " · needs a trip"}</span>` : "";
+      // A quality-issue replacement found during packing: wanted on the very next truck.
+      const asapTag = f.asap ? `<span class="ph-badge ph-badge--bad" title="Quality-issue replacement requested during packing: goes on the next truck from ${esc(f.farm)} before any other order.">ASAP · ${f.asap} replacement${f.asap === 1 ? "" : "s"}</span>` : "";
+      // Distribute per remote farm: only a farm with buckets no trip covers yet gets the
+      // button — it puts this order's buckets at this farm on a trip (Add to trip).
+      const btn = done ? "" : `<button class="ph-btn ph-btn--sm ph-btn--primary" data-addtrip="1" data-opl="${esc(o.opl)}" data-farm="${esc(f.farm)}" data-name="${esc(o.order_name || o.opl)}" title="Put the ${f.buckets - covered} open bucket(s) at ${esc(f.farm)} on a trip">Distribute</button>`;
+      return `<div class="rt-fchip${done ? " is-done" : partial ? " is-part" : ""}${lb ? " is-behind" : ""}"${tn ? ` title="on ${esc(tn)}${vh ? " / " + esc(vh) : ""}"` : ""}>
+        <div><b class="ph-strong">${esc(f.farm)}</b> <span class="ph-muted">${f.buckets} bkt${mark}</span></div>${vs ? `<div class="ph-tile__sub">${esc(vs)}</div>` : ""}
+        ${road || asapTag || lbTag ? `<div class="ph-tile__tags">${road}${asapTag}${lbTag}</div>` : ""}${btn}</div>`;
+    }).join("");
+    const tripsOn = PH.uniq(o.farms.map((f) => onTrip[RTP.pkey(o.opl, f.farm)]));
+    const tags = [];
+    if (sched > 0 && !planned) {
+      const onWhich = tripsOn.map((tn) => (tripVeh[tn] ? tripVeh[tn] + " · " : "") + tn).join(", ");
+      tags.push(`<span class="ph-badge ph-badge--warn" title="Already on ${esc(onWhich)}">Partial — ${n(sched)} bkt on ${esc(onWhich)} · ${n(o.total_buckets - sched)} bkt balance left</span>`);
+    }
+    if (o.mixed && o.mixed !== "Straight box") tags.push(`<span class="ph-badge ph-badge--outline">${esc(o.mixed)}</span>`);
+    // Which Distribute put it on a truck: the truck(s) and when (Bucket Distribution).
+    let distInfo = "";
+    if (planned) {
+      const dt = distByTrip();
+      distInfo = tripsOn.map((tn) => { const x = dt[tn]; return `<div class="ph-tile__sub" title="${esc(tn)}">${esc(tripVeh[tn] || tn)}${x ? " · " + esc(PH.fmt.datetime(x.at)) : ""}</div>`; }).join("");
+    }
+    // Nothing waiting at a farm: every bucket is already on a truck (no Distribute needed).
+    const onRoadOnly = !o.total_buckets && o.farms.some((f) => f.on_road);
+    const g = orderStages(o, sched), left = o.total_buckets - sched, pct = g.total ? Math.round((g.distributed / g.total) * 100) : 0;
+    const dot = planned ? '<span class="ph-dot ph-dot--good" title="Already planned onto a truck"></span>' : sched > 0 ? '<span class="ph-dot ph-dot--warn" title="Partially planned — the rest is still open"></span>' : "";
+    return `<div class="rt-ord">
+      <span class="ph-list__rank${planned ? " lead" : ""}" title="Schedule priority">${o.schedule ? "#" + esc(o.schedule) : "—"}</span>
+      <div class="rt-ord__main">
+        <div class="ph-flex ph-flex--wrap">${dot}<span class="ph-strong">${esc(o.order_name)}</span><span class="ph-muted">${esc(o.customer || "")}${o.truck ? " · " + esc(o.truck) : ""}</span></div>
+        <div class="rt-farms">${map}</div>
+        ${tags.length ? `<div class="ph-tile__tags">${tags.join("")}</div>` : ""}${stageTrack(g)}
+      </div>
+      <div class="rt-ord__side">
+        ${planned ? '<span class="ph-badge ph-badge--good">Distributed</span>' + distInfo : ""}${onRoadOnly ? '<span class="ph-badge ph-badge--signal" title="Loaded at the farm — already on a truck">On a truck</span>' : ""}
+        <div class="ph-progress-row" title="Buckets distributed of the order’s ${g.total}"><span>Distributed</span><b>${n(g.distributed)} / ${n(g.total)}</b></div>
+        <div class="ph-progress"><i class="${pct >= 100 ? "good" : ""}" style="width:${Math.min(100, pct)}%"></i></div>
+        ${!planned && left > 0 ? `<span class="ph-badge ph-badge--warn">${n(left)} bkt left</span>` : ""}
+      </div></div>`;
+  }
+  /* Stage checks on the order card: Distributed → On truck → Arrived (shelved at the
+     packhouse). A stage every bucket of the order reached gets a check mark; one only
+     some reached shows how many ("3/7"); none, an outline. All of the order's transfer
+     buckets: waiting at a farm (total_buckets) plus on the road plus arrived. */
+  function orderStages(o, sched) {
+    const road = o.on_road_buckets || 0, tro = o.trolley_buckets || 0, arr = o.arrived_buckets || 0;
+    const total = (o.total_buckets || 0) + road + arr;
+    return { total, distributed: Math.min(total, Math.max(sched, tro) + road + arr), onTruck: Math.min(total, tro + road + arr), arrived: arr };
+  }
+  function stageTrack(g) {
+    const total = g.total;
+    if (!total) return "";
+    return '<div class="rt-stages">' + [["Distributed", g.distributed], ["On truck", g.onTruck], ["Arrived", g.arrived]].map((s, i) => {
+      const cnt = s[1], cls = cnt >= total ? "ph-badge--good" : cnt > 0 ? "ph-badge--warn" : "ph-badge--outline";
+      return (i ? '<span class="rt-stages__line"></span>' : "") +
+        `<span class="ph-badge ${cls}" title="${esc(s[0])}: ${cnt} of ${total} bucket${total === 1 ? "" : "s"}">${cnt >= total ? PH.icon("check", 12) : ""}${esc(s[0])}${cnt > 0 && cnt < total ? " " + cnt + "/" + total : ""}</span>`;
+    }).join("") + "</div>";
+  }
+  /* trip -> the Distribute run (Bucket Distribution) that planned it. */
+  function distByTrip() {
+    const m = {};
+    (D().distributions || []).forEach((x) => (x.trucks || []).forEach((t) => { if (t.trip && !m[t.trip]) m[t.trip] = x; }));
+    return m;
+  }
+
+  /* Hub shelf space + the orders ready to issue there. */
+  function hubSpaceHtml() {
+    const h = D().hub_space;
+    if (!h) return "";
+    const ready = D().hub_ready || [], rb = hubReadyBuckets(), hub = h.hub || pack() || "the hub";
+    let body;
+    if (h.capacity == null) {
+      body = `<div class="ph-stats"><div class="ph-stat"><small>Shelves</small><b>${n(h.shelves)}</b></div></div>
+        <div class="ph-notice ph-mt ph-mb-0">Set <b>Buckets per Shelf at the Hub</b> in Production Settings to plan by shelf space.</div>`;
+    } else {
+      const cap = Math.max(1, h.capacity), tight = h.free <= Math.max(10, cap * 0.05);
+      const seg = (v, cls, label) => { const w = Math.max(0, Math.min(100, (100 * v) / cap)); return w ? `<i class="${cls}" style="width:${w}%" title="${label}: ${n(v)}"></i>` : ""; };
+      body = `<div class="ph-stats">
+          <div class="ph-stat"><small>Free</small><b class="${tight ? "ph-bad" : ""}">${n(h.free)}</b><span class="ph-tile__sub">bucket${h.free === 1 ? "" : "s"}${rb ? " → " + n(h.free + rb) + " once the ready orders are issued" : ""}</span></div>
+          <div class="ph-stat"><small>Capacity</small><b>${n(h.capacity)}</b><span class="ph-tile__sub">${n(h.shelves)} shelves × ${esc(h.per_shelf)}</span></div>
+        </div>
+        <div class="rt-seg">${seg(h.on_shelves, "is-sh", "On shelves")}${seg(h.on_road, "is-rd", "On the road")}${seg(h.planned, "is-pl", "Planned on trips")}</div>
+        <div class="ph-legend"><span><i class="rt-key is-sh"></i>${n(h.on_shelves)} on shelves</span><span><i class="rt-key is-rd"></i>${n(h.on_road)} on the road</span><span><i class="rt-key is-pl"></i>${n(h.planned)} planned</span><span><i class="rt-key is-fr"></i>${n(h.free)} free</span></div>`;
+    }
+    const toggle = rb && h.capacity != null
+      ? `<label class="ph-switch" title="Distribute counts the shelves the ready orders free once they are issued"><input type="checkbox" data-act="hub-count-ready"${S.countReady ? " checked" : ""}><i></i>Plan as if the ready orders are issued first</label>` : "";
+    let readyHtml = "";
+    if (ready.length) {
+      const teams = {}, order = [];
+      ready.forEach((x) => { const t = x.team || "No team"; if (!teams[t]) { teams[t] = []; order.push(t); } teams[t].push(x); });
+      const today = D().today || RTP.today();
+      readyHtml = `<div class="ph-divider"></div><div class="ph-card__head ph-mb-0"><h3 class="ph-card__title">Ready to issue at ${esc(hub)}</h3><span class="ph-card__meta">${ready.length} order${ready.length === 1 ? "" : "s"} · ${n(rb)} bkt — issue these first, per team, to free their shelves</span></div>` +
+        order.map((t) => {
+          const xs = teams[t], b = PH.sum(xs, "buckets"), un = xs.filter((x) => !x.schedule).length;
+          return `<details class="rt-det"><summary><b class="ph-strong">${esc(t)}</b> <span class="ph-muted">· ${n(b)} bkt · ${xs.length} order${xs.length === 1 ? "" : "s"}</span> ${un ? `<span class="ph-badge ph-badge--warn">${un} not scheduled</span>` : '<span class="ph-badge ph-badge--outline">in sequence</span>'}</summary>
+            <div class="ph-list ph-list--plain">${xs.map((x) => {
+              const late = String(x.delivery_date) < today;
+              return `<div class="ph-list__row"><div class="ph-flex ph-flex--wrap">${x.schedule ? `<span class="ph-badge ph-badge--ink">#${esc(x.schedule)}</span>` : '<span class="ph-badge ph-badge--outline" title="Not on a schedule — Distribute to teams on the Scheduler gives it a place">—</span>'}<span class="ph-list__name">${esc(x.order_name)}</span>${x.schedule ? "" : '<span class="ph-badge ph-badge--warn">Not scheduled</span>'}</div>
+                <div class="ph-flex"><span class="ph-num">${x.buckets} bkt</span><span class="ph-badge${late ? " ph-badge--bad" : ""}" title="Delivery date${late ? " — overdue" : ""}">${esc(PH.fmt.date(x.delivery_date, true))}</span></div></div>`;
+            }).join("")}</div></details>`;
+        }).join("") +
+        (ready.some((x) => !x.schedule) ? `<div class="ph-tile__sub ph-mt">Orders marked <b>Not scheduled</b> have no place in their team’s sequence yet — use <b>Distribute to teams</b> on the <a class="ph-link" href="${esc(schedulerUrl())}">Scheduler</a> to give them one.</div>` : "");
+    }
+    return `<section class="ph-card"><div class="ph-card__head"><h2 class="ph-card__title">Shelf space at ${esc(hub)}</h2><div class="ph-card__tools">${toggle}</div></div>${body}${readyHtml}</section>`;
+  }
+
+  /* Buckets a truck left behind at a farm (planned, the truck left without them): listed
+     first, with who left them, when and why — they go first on the next trip there. */
+  function leftBehindNote(lb) {
+    return "Left behind by " + (lb.vehicle || "a truck") + " (trip " + lb.trip + ")" + (lb.left_at ? " at " + String(lb.left_at).slice(11, 16) + " on " + String(lb.left_at).slice(0, 10) : "") +
+      (lb.reason ? " — " + lb.reason : "") + ". " + (lb.now_on && lb.now_on.length ? "Now on " + lb.now_on.map((t) => t.vehicle + " (" + t.trip + ")").join(", ") + "." : "Not on a trip yet.");
+  }
+  /* The farms a trip collects from (its route stops, else its orders' farms), hub left out. */
+  function tripFrom(t) {
+    const hub = pack(), src = (t.stops || []).length ? t.stops : (t.orders || []).map((r) => r.farm);
+    return PH.uniq(src.filter((f) => f !== hub));
+  }
+  /* Per farm: the left-behind total, the next trip to take them (the truck already
+     collecting there first, then one with room) and what's still without a trip. */
+  function leftBehindFarms() {
+    const by = {}, order = [];
+    scoped().left.forEach((x) => {
+      let g = by[x.farm];
+      if (!g) { g = by[x.farm] = { farm: x.farm, total: 0, need: [], needN: 0, on: {} }; order.push(x.farm); }
+      g.total += x.buckets || 0;
+      if (x.now_on && x.now_on.length) { const t = x.now_on[0]; g.on[t.trip] = (g.on[t.trip] || 0) + (x.buckets || 0); }
+      else { g.need.push(x); g.needN += x.buckets || 0; }
+    });
+    return order.map((f) => { const g = by[f]; g.next = carryingTrip(g) || RTP.tripChoices(f).find((c) => !c.why) || null; return g; });
+  }
+  /* The open trip already carrying most of the farm's left-behind buckets is the next
+     vehicle: they were rescheduled onto it. (tripChoices skips a trip that has started
+     loading, which this one usually has — it's at the farm now.) */
+  function carryingTrip(g) {
+    let best = null;
+    Object.keys(g.on).forEach((tn) => {
+      const t = RTP.tripByName(tn);
+      if (t && (t.status === "Draft" || t.status === "Scheduled") && (!best || g.on[tn] > g.on[best.name])) best = t;
+    });
+    if (!best) return null;
+    const cap = best.capacity_buckets || RTP.vehCap(best.vehicle) || 0;
+    return { vehicle: best.vehicle, route: best.route, run: best.run, stops: tripFrom(best), trip: best.name, rem: Math.max(0, cap - Math.max(best.total_buckets || 0, best.loaded_buckets || 0)), carrying: g.on[best.name] };
+  }
+  const tripLabel = (vehicle, run) => esc(vehicle || "") + (run ? " · trip " + run : "");
+  function leftBehindFarmHtml(g) {
+    const c = g.next;
+    const onTxt = Object.keys(g.on).map((tn) => { const t = RTP.tripByName(tn); return g.on[tn] + " on " + (t ? tripLabel(t.vehicle, t.run) : esc(tn)); }).join(", ");
+    const sug = c
+      ? `<div class="ph-strong">${tripLabel(c.vehicle, c.run)}</div><div class="ph-tile__sub">${RTP.chainHtml([pack()].concat(c.stops).concat([pack()]))}${c.carrying ? " · " + n(c.carrying) + " of them on it" : ""} · ${n(c.rem)} bkt free</div>`
+      : `<div class="ph-tile__sub">No trip goes to ${esc(g.farm)} with room — add one</div>`;
+    let act;
+    if (g.needN && c) {
+      const take = Math.min(g.needN, c.rem);
+      act = `<button class="ph-btn ph-btn--sm ph-btn--primary" data-act="lb-resched" data-farm="${esc(g.farm)}">Reschedule ${take} bkt on ${tripLabel(c.vehicle, c.run)}</button>${take < g.needN ? `<div class="ph-tile__sub">${g.needN - take} won’t fit</div>` : ""}`;
+    } else if (g.needN) act = `<button class="ph-btn ph-btn--sm ph-btn--primary" data-addtrip="1" data-opl="${esc(g.need[0].opl)}" data-farm="${esc(g.farm)}" data-name="${esc(g.need[0].order_name)}">Add a trip</button>`;
+    else act = `<span class="ph-badge ph-badge--good">${PH.icon("check", 12)}All rescheduled${onTxt ? " — " + onTxt : ""}</span>`;
+    return `<div class="rt-lb"><div><div class="ph-strong">${esc(g.farm)}</div><div class="ph-tile__sub">${n(g.total)} bucket${g.total === 1 ? "" : "s"} left behind${g.needN && onTxt ? " · " + onTxt + " · " + g.needN + " need a trip" : ""}</div></div>
+      <div><div class="ph-label">Next vehicle</div>${sug}</div><div>${act}</div></div>`;
+  }
+  /* Reschedule: every order's left-behind buckets at the farm that have no trip go on
+     the suggested trip in one save (the same saveBucketTrip as Distribute), filling it
+     up to its free room. */
+  function rescheduleLeftBehind(farm, btn) {
+    const g = leftBehindFarms().find((x) => x.farm === farm);
+    if (!g || !g.next || !g.needN) return;
+    const c = g.next, rows = [], names = [];
+    let room = c.rem;
+    g.need.forEach((x) => {
+      if (room <= 0) return;
+      const o = RTP.orderByOpl(x.opl), f = o && RTP.openFarms(o).find((p) => p.farm === farm);
+      if (!f) return;
+      const take = Math.min(x.buckets, f.buckets, room);
+      if (take <= 0) return;
+      room -= take; names.push(o.order_name || x.opl);
+      rows.push({ opl: x.opl, order_name: o.order_name || x.opl, customer: o.customer || "", farm, varieties: (f.varieties || []).map((v) => v.variety).join(", "), buckets: take, stems: f.buckets ? Math.round((f.stems / f.buckets) * take) : 0, full: f.total });
+    });
+    if (!rows.length) return RTP.toast("Nothing left to reschedule at " + farm, "warn");
+    const tot = PH.sum(rows, "buckets"), stems = PH.sum(rows, "stems");
+    btn.disabled = true; btn.textContent = "Rescheduling…";
+    RTP.write("saveBucketTrip", { vehicle: c.vehicle, route: c.route, run: c.run, trip_date: RTP.today(), status: "Draft", farm: "", collection_order: "", orders: RTP.encodeOrders(rows) }, "Could not reschedule them")
+      .then((m) => {
+        const red = (m.redirected || [])[0], veh = red ? red.vehicle : c.vehicle;
+        RTP.toast(m.message ? m.message : tot + " left-behind bucket" + (tot === 1 ? "" : "s") + " at " + farm + " rescheduled on " + c.vehicle + " trip " + c.run + (tot < g.needN ? " — " + (g.needN - tot) + " still need a trip" : ""));
+        RTP.logDistribution([{ vehicle: veh, trip: m.name, run: red ? 0 : c.run || 0, farms: farm, buckets: tot, stems, orders: names }]).then(RTP.changed);
+      })
+      .catch((e) => { RTP.toast(e.message, "bad"); btn.disabled = false; btn.textContent = "Reschedule"; });
+  }
+  function leftBehindHtml() {
+    const L = scoped().left;
+    if (!L.length) return "";
+    const tot = PH.sum(L, "buckets");
+    // Orders of the selected delivery date only (the server scopes left_behind to it).
+    return `<section class="ph-card"><div class="ph-card__head"><h2 class="ph-card__title">Left behind at a farm <span class="ph-badge ph-badge--bad">${n(tot)} bkt</span></h2>
+        <span class="ph-card__meta">For ${esc(dateLabel())} deliveries — ${tot === 1 ? "it goes" : "they go"} first on the next trip there</span></div>
+      <div>${leftBehindFarms().map(leftBehindFarmHtml).join("")}</div>
+      <div class="ph-divider"></div>
+      <div class="ph-list ph-list--plain">${L.map((x) => {
+        const on = x.now_on && x.now_on.length;
+        return `<div class="ph-list__row"><div class="ph-grow"><div class="ph-list__name">${esc(x.order_name)} <span class="ph-muted">· ${esc(x.farm)}</span></div>
+          <div class="ph-list__meta">${x.buckets} bkt · left by ${esc(x.vehicle || "")}${x.left_at ? " at " + esc(String(x.left_at).slice(11, 16)) : ""}${x.reason ? " · “" + esc(x.reason) + "”" : ""} · ${on ? "now on " + esc(x.now_on.map((t) => t.vehicle).join(", ")) : "<b>needs a trip</b>"}</div></div>
+          ${on ? "" : `<button class="ph-btn ph-btn--sm ph-btn--primary" data-addtrip="1" data-opl="${esc(x.opl)}" data-farm="${esc(x.farm)}" data-name="${esc(x.order_name)}">Distribute</button>`}</div>`;
+      }).join("")}</div></section>`;
+  }
+  /* Orders that need buckets moved but are on NO team's schedule — transfer planning
+     can't see them, so without this panel they'd never get a truck and nobody would know. */
+  function unscheduledHtml() {
+    const u = scoped().unscheduled;
+    if (!u.length) return "";
+    const why = { no_team: "no team", not_scheduled: "not scheduled" }, noTeam = u.filter((x) => x.reason === "no_team").length;
+    return `<section class="ph-card"><div class="ph-card__head"><h2 class="ph-card__title">Not on a team schedule <span class="ph-badge ${noTeam ? "ph-badge--bad" : "ph-badge--warn"}">${u.length}</span></h2>
+        <div class="ph-card__tools"><a class="ph-btn ph-btn--sm ph-btn--ghost" href="${esc(schedulerUrl())}">Open Scheduler ${PH.icon("arrowRight", 14)}</a></div></div>
+      <p class="ph-muted ph-mb">${u.length} order${u.length === 1 ? " needs" : "s need"} buckets moved but ${u.length === 1 ? "isn’t" : "aren’t"} on a team schedule — ${u.length === 1 ? "it" : "they"} can’t be planned onto a truck.${noTeam ? " Set the team on the Order Pick List, then schedule it." : ""}</p>
+      <div class="ph-list ph-list--plain">${u.map((x) => `<div class="ph-list__row"><div class="ph-grow"><div class="ph-list__name">${esc(x.order_name)} <span class="ph-badge ${x.reason === "no_team" ? "ph-badge--bad" : "ph-badge--warn"}">${esc(why[x.reason] || x.reason)}</span></div>
+        <div class="ph-list__meta">${esc(x.customer || "")} · ${x.buckets ? n(x.buckets) + " bkt waiting" : ""}${x.buckets && x.on_road ? ", " : ""}${x.on_road ? n(x.on_road) + " bkt on a truck" : ""} at ${esc((x.farms || []).join(", "))}${x.team ? " · team " + esc(x.team) : ""} · due ${esc(PH.fmt.date(x.delivery_date, true))}</div></div></div>`).join("")}</div></section>`;
+  }
+  /* A truck with several open trips for the SAME run (the old "same truck, same farm,
+     two trips, one with 0 bkt" mix-up): one Merge folds them into its first trip. */
+  function duplicateTripsHtml() {
+    const d = D().duplicate_trips || {}, vs = Object.keys(d);
+    if (!vs.length) return "";
+    return `<section class="ph-card"><div class="ph-card__head"><h2 class="ph-card__title">Split trips <span class="ph-badge ph-badge--warn">${vs.length}</span></h2>
+        <span class="ph-card__meta">${vs.length} truck${vs.length === 1 ? " has" : "s have"} more than one open trip for the same route trip — loads and plan are split across them</span></div>
+      <div class="ph-list ph-list--plain">${vs.map((v) => `<div class="ph-list__row"><div class="ph-grow"><div class="ph-list__name">${esc(v)}</div><div class="ph-list__meta">${d[v].map(esc).join(", ")}</div></div>
+        <button class="ph-btn ph-btn--sm ph-btn--primary" data-act="trip-merge" data-veh="${esc(v)}">Merge into one trip</button></div>`).join("")}</div></section>`;
+  }
+  function mergeTrips(vehicle) {
+    if (!vehicle || S.tripBusy) return;
+    PH.confirm("Merge trips", "Fold " + vehicle + "’s trips " + ((D().duplicate_trips || {})[vehicle] || []).join(", ") + " into the first one? Plans and loads for the same order and farm are added together.", { ok: "Merge" }).then((ok) => {
+      if (!ok) return;
+      S.tripBusy = true;
+      RTP.write("mergeTruckTrips", { vehicle }, "Merge failed")
+        .then((m) => RTP.toast(m.message || "Merged"))
+        .catch((e) => RTP.toast(e.message, "bad"))
+        .then(() => { S.tripBusy = false; RTP.changed(); });
+    });
+  }
+  /* Draft/Scheduled trips from an earlier day: the truck never left. They no longer
+     hold any buckets (those are open again) — delete them so the trip list is honest. */
+  function staleTripsHtml() {
+    const sx = D().trips.filter((t) => t.stale);
+    if (!sx.length) return "";
+    return `<section class="ph-card"><div class="ph-card__head"><h2 class="ph-card__title">Never dispatched <span class="ph-badge ph-badge--warn">${sx.length}</span></h2>
+        <div class="ph-card__tools">${sx.length > 1 ? '<button class="ph-btn ph-btn--sm ph-btn--ghost" data-act="stale-del-all">Delete all</button>' : ""}</div></div>
+      <p class="ph-muted ph-mb">${sx.length} planned trip${sx.length === 1 ? "" : "s"} from an earlier day never dispatched — ${sx.length === 1 ? "its" : "their"} buckets are open again.</p>
+      <div class="ph-list ph-list--plain">${sx.map((t) => `<div class="ph-list__row"><div class="ph-grow"><div class="ph-list__name">${esc(t.name)}</div>
+        <div class="ph-list__meta">${esc(t.vehicle || "")} · ${esc(t.trip_date)} · ${t.loaded_buckets ? t.loaded_buckets + " of " + (t.total_buckets || 0) + " bkt loaded — dispatch it in the farm app" : (t.total_buckets || 0) + " bkt, none loaded"} · ${esc(t.status)}</div></div>
+        ${t.loaded_buckets ? "" : `<button class="ph-btn ph-btn--sm ph-btn--ghost" data-act="stale-del" data-name="${esc(t.name)}">Delete</button>`}</div>`).join("")}</div></section>`;
+  }
+  /* Delete never-dispatched trips from an earlier day (none loaded). deleteBucketTrip
+     still refuses one whose truck got buckets meanwhile. */
+  function deleteStaleTrips(names) {
+    if (!names.length || S.tripBusy) return;
+    PH.confirm("Delete trip" + (names.length === 1 ? "" : "s"), "Delete " + names.join(", ") + "? " + (names.length === 1 ? "It" : "They") + " never left and hold" + (names.length === 1 ? "s" : "") + " no buckets.", { ok: "Delete", danger: true }).then((ok) => {
+      if (!ok) return;
+      S.tripBusy = true;
+      const fails = [];
+      names.reduce((p, nm) => p.then(() => RTP.write("deleteBucketTrip", { name: nm }, nm).catch((e) => fails.push(nm + ": " + e.message))), Promise.resolve()).then(() => {
+        S.tripBusy = false;
+        RTP.toast(fails.length ? fails.join(" · ") : "Deleted " + names.length + " trip" + (names.length === 1 ? "" : "s"), fails.length ? "bad" : "good");
+        RTP.changed();
+      });
+    });
+  }
+
+  /* ── Trips view (read-only cards; Edit opens the trip editor) ────────── */
+  /* Only this delivery date's transfers: a trip shows when it carries orders due on it,
+     and its card lists just those orders — other days' never mix in. */
+  function windowTrips() {
+    const from = st.get("from"), to = st.get("to");
+    return D().trips.map((t) => { const mine = (t.orders || []).filter((o) => o.delivery_date && o.delivery_date >= from && o.delivery_date <= to); return mine.length ? Object.assign({}, t, { orders: mine }) : null; }).filter(Boolean);
+  }
+  /* Trips after region / origin farm / team / search: the KPI and the Trips view use the same set. */
+  function scopedTrips() {
+    const fs = farmSet(), team = st.get("team"), q = st.get("q"), teamOf = {};
+    D().orders.forEach((o) => (teamOf[o.opl] = o.team || "Unscheduled"));
+    return windowTrips().map((t) => {
+      let os = t.orders;
+      if (fs) os = os.filter((o) => farmOk(fs, o.farm));
+      if (team) os = os.filter((o) => teamOf[o.order_pick_list] === team);
+      return os.length ? Object.assign({}, t, { orders: os }) : null;
+    }).filter((t) => t && PH.match({ a: t.name, b: t.vehicle, c: tripFrom(t).join(" "), d: t.orders.map((o) => o.order_name + " " + o.order_pick_list + " " + (o.customer || "")).join(" ") }, q));
+  }
+  function renderTripList() {
+    const team = st.get("team"), q = st.get("q");
+    const trips = scopedTrips();
+    trips.sort((a, b) => (b.trip_date || "").localeCompare(a.trip_date || "") || (a.vehicle || "").localeCompare(b.vehicle || "") || (a.run || 99) - (b.run || 99));
+    /* One section per farm: every trip collecting from that farm stacks in it (a trip
+       over several farms gets a section for that combination). */
+    const cols = [], colMap = {};
+    trips.forEach((t) => { const key = tripFrom(t).join(", ") || "—"; if (!colMap[key]) { colMap[key] = { farm: key, trips: [] }; cols.push(colMap[key]); } colMap[key].trips.push(t); });
+    cols.sort((a, b) => a.farm.localeCompare(b.farm));
+    let h = duplicateTripsHtml() + staleTripsHtml();
+    if (!trips.length) {
+      h += `<section class="ph-card">${emptyHtml(q || team || farmSet() ? "No trips match these filters" : "No trips for " + dateLabel() + " deliveries yet", q || team || farmSet() ? "Clear the search, region, origin farm or team." : "Use Distribute on an order’s farm in Scheduled orders.")}</section>`;
+    } else {
+      h += cols.map((c) => `<section class="ph-card"><div class="ph-card__head"><h2 class="ph-card__title">${esc(c.farm)} <span class="ph-badge">${PH.fmt.plural(c.trips.length, "trip")}</span></h2></div>
+        <div class="ph-tiles">${c.trips.map(tripCardHtml).join("")}</div></section>`).join("");
+    }
+    PH.set("#tp-body", h);
+  }
+  /* Gone = the truck left (dispatched or back): from then on what was LOADED is the
+     truth, and the plan is kept beside it — planned buckets not loaded were left behind. */
+  const tripGone = (t) => t.status === "Dispatched" || t.status === "Received";
+  /* Buckets are counted as loaded once any went on the truck, before dispatch too. */
+  const tripLoaded = (t) => tripGone(t) || !!t.loading;
+  const tripUsed = (t) => (tripLoaded(t) ? t.loaded_buckets || 0 : t.total_buckets || 0);
+  /* Live: "1h 29m 07s", ticking every second. Ended: "took 5h 06m". Frappe datetimes are
+     site-local, as is the browser. */
+  function parseDt(v) { const m = String(v || "").match(/^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)(?::(\d\d))?/); return m ? new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)) : null; }
+  function tripAge(since, until) {
+    const a = parseDt(since), b = until ? parseDt(until) : new Date();
+    if (!a || !b) return "";
+    const secs = Math.max(0, Math.floor((b - a) / 1000)), d = Math.floor(secs / 86400), h = Math.floor((secs % 86400) / 3600), m = Math.floor((secs % 3600) / 60), sc = secs % 60;
+    const p2 = (x) => (x < 10 ? "0" : "") + x;
+    if (until) return "took " + (d ? d + "d " + h + "h" : h ? h + "h " + p2(m) + "m" : m + "m");
+    return (d ? d + "d " : "") + (d || h ? h + "h " + p2(m) + "m " : m + "m ") + p2(sc) + "s";
+  }
+  setInterval(() => PH.$$(".rt-age[data-since]:not([data-until])").forEach((el) => (el.textContent = tripAge(el.dataset.since))), 1000);
+  /* Bucket-status breakdown for a trip's truck — from truck_status (the OPLs'
+     transit_truck flags, truck-wide, not bucket-exact per-trip). */
+  function statusPillsHtml(vehicle) {
+    const s = (D().truck_status || []).filter((x) => x.truck === vehicle).pop();
+    if (!s || !s.total) return '<span class="ph-badge ph-badge--outline">no transfer activity yet</span>';
+    const pills = [["awaiting", "Awaiting", "warn"], ["loaded", "Loading", "ink"], ["in_transit", "In transit", "signal"], ["shelved", "Arrived", "good"]]
+      .map((f) => (s[f[0]] ? `<span class="ph-badge ph-badge--${f[2]}">${f[1]} ${s[f[0]]} / ${s.total}</span>` : "")).join("");
+    return pills || '<span class="ph-badge ph-badge--outline">no buckets</span>';
+  }
+  /* This trip now carries buckets a truck left behind at that farm earlier. */
+  const carriesBehind = (trip, r) => (D().left_behind || []).some((x) => x.opl === r.order_pick_list && x.farm === r.farm && (x.now_on || []).some((o) => o.trip === trip));
+  /* "Kapkolia → Chepsito → Kaptumbo → Kapkolia" reads as "Chepsito → Kaptumbo → Kapkolia":
+     the route from the farms to the packhouse, without the empty drive out. */
+  function farmsToHub(chain) {
+    const p = String(chain || "").split(/\s*→\s*/).filter(Boolean);
+    if (p.length > 1 && p[0] === pack()) p.shift();
+    return p;
+  }
+  /* Recommended collection route + distance (round trip from the packhouse). */
+  function routeHtml(t) {
+    if (t.run_chain) return `<div class="ph-tile__sub">Route ${RTP.chainHtml(farmsToHub(t.run_chain))}</div>`;
+    const u = PH.uniq((t.orders || []).map((r) => r.farm));
+    if (!u.length) return "";
+    const best = RTP.bestRoute(u);
+    if (best.km == null) return ""; // distances missing for these farms
+    return `<div class="ph-tile__sub">Route ${RTP.chainHtml(best.order.concat([pack()]))} · ${best.km.toFixed(2)} km</div>`;
+  }
+  function tripCardHtml(t) {
+    const gone = tripGone(t), shown = tripLoaded(t);
+    const cap = t.capacity_buckets || 0, used = tripUsed(t), pct = cap ? Math.min(100, Math.round((used / cap) * 100)) : 0;
+    const status = t.stale ? `<span class="ph-badge ph-badge--bad" title="Planned for an earlier day and never dispatched — its buckets are open again">stale · ${esc(t.status)}</span>`
+      : t.loading ? '<span class="ph-badge ph-badge--warn" title="Buckets are on the truck — dispatched from the app when loading is done">loading</span>'
+      : `<span class="ph-badge ${t.status === "Dispatched" ? "ph-badge--signal" : t.status === "Received" ? "ph-badge--good" : ""}">${esc(t.status === "Received" ? "ended" : t.status || "—")}</span>`;
+    /* Time since the trip was scheduled — ticks live; once the trip ended it is the
+       total, scheduled → ended. */
+    const age = t.scheduled_at ? `<span class="ph-badge ph-badge--outline ph-num rt-age" data-since="${esc(t.scheduled_at)}"${t.received_at ? ` data-until="${esc(t.received_at)}"` : ""} title="Scheduled ${esc(PH.fmt.datetime(t.scheduled_at))}">${esc(tripAge(t.scheduled_at, t.received_at))}</span>` : "";
+    /* Collection progress: stops already loaded and left, the stop the truck is heading to, then the packhouse. */
+    const dep = t.departed_stops || [];
+    let stops = "";
+    if ((t.stops || []).length > 1 || dep.length) {
+      const parts = (t.stops || []).map((f) => (dep.indexOf(f) >= 0 ? `<span class="ph-badge ph-badge--good">${PH.icon("check", 12)}${esc(f)}</span>` : f === t.heading_to ? `<span class="ph-badge ph-badge--signal">${esc(f)} · next</span>` : `<span class="ph-badge ph-badge--outline">${esc(f)}</span>`));
+      parts.push(`<span class="ph-badge ${t.status === "Dispatched" ? "ph-badge--signal" : "ph-badge--outline"}">${esc(pack())}${t.status === "Dispatched" ? " · heading there" : ""}</span>`);
+      stops = `<div class="ph-tile__tags">${parts.join("")}</div>`;
+    }
+    /* Order lines grouped by farm: the farm said once per group when the trip has several. */
+    const byFarm = PH.groupBy(t.orders || [], (r) => r.farm || "");
+    const rows = Array.from(byFarm.entries()).map(([f, list]) => (byFarm.size > 1 ? `<div class="ph-label ph-mt">${esc(f || "—")}</div>` : "") + list.map((r) => {
+      const planned = r.buckets || 0, loaded = r.loaded_buckets || 0, left = gone ? Math.max(0, planned - loaded) : 0;
+      const qty = !shown ? planned + " bkt" : r.unscheduled ? loaded + " bkt" : loaded + " / " + planned + " bkt";
+      return `<div class="ph-list__row"><div class="ph-grow"><div class="ph-list__name">${esc(r.order_name || r.order_pick_list)}</div>
+        ${r.varieties ? `<div class="ph-list__meta">${esc(r.varieties)}</div>` : ""}
+        ${r.unscheduled || left || carriesBehind(t.name, r) ? `<div class="ph-tile__tags">${r.unscheduled ? '<span class="ph-badge ph-badge--warn" title="Loaded at the farm without being planned on this trip">unplanned</span>' : ""}${left ? `<span class="ph-badge ph-badge--bad">${left} left behind</span>` : ""}${carriesBehind(t.name, r) ? '<span class="ph-badge ph-badge--bad" title="Left behind here on an earlier trip — load these first">left behind earlier · load first</span>' : ""}</div>` : ""}</div>
+        <div class="ph-list__qty">${esc(qty)}</div></div>`;
+    }).join("")).join("");
+    const meta = used + " / " + (cap || "—") + " buckets" + (shown ? " loaded" : "") + (shown && !t.unscheduled ? " · " + (t.total_buckets || 0) + " planned" : "") + (shown ? "" : " · " + n(t.total_stems) + " stems") +
+      (t.tracked_buckets ? " · " + (t.shelved_buckets || 0) + " / " + t.tracked_buckets + " shelved" + (t.off_truck_buckets ? " · " + t.off_truck_buckets + " off the truck" : "") : "") + (t.received_at ? " · ended " + String(t.received_at).slice(11, 16) : "");
+    return `<article class="ph-tile${t.stale ? " rt-tile-stale" : ""}">
+      <div class="ph-tile__head"><div class="ph-grow"><div class="ph-tile__name" title="${esc(t.name)}">${esc(t.vehicle || "—")}</div>
+        <div class="ph-tile__sub">${t.run ? `<span title="${esc(t.route)}${t.window ? " · " + esc(t.window) : ""}">Trip ${t.run}${t.runs > 1 ? " of " + t.runs : ""}</span> · ` : ""}${esc(PH.fmt.date(t.trip_date, true))}${t.dispatched_at ? " · left " + esc(String(t.dispatched_at).slice(11, 16)) : ""}</div></div>
+        ${tripEditableHtml(t)}</div>
+      <div class="ph-tile__tags">${status}${t.unscheduled ? '<span class="ph-badge ph-badge--warn" title="The farm loaded this truck before any trip was planned for it — the system made this trip from the load">unplanned load</span>' : ""}${t.auto_planned ? '<span class="ph-badge ph-badge--ink" title="Planned by automatic scheduling — re-planned automatically until dispatched">auto</span>' : ""}${age}</div>
+      <div><div class="ph-progress"><i class="${pct >= 100 ? "warn" : ""}" style="width:${pct}%"></i></div><div class="ph-tile__sub ph-num">${esc(meta)}</div></div>
+      ${stops}<div class="ph-tile__tags">${statusPillsHtml(t.vehicle)}</div>${routeHtml(t)}
+      <div class="ph-list ph-list--plain rt-trip-orders">${rows}</div></article>`;
+  }
+  const tripEditableHtml = (t) => (RTP.tripEditable(t) ? `<button class="ph-btn ph-btn--sm ph-btn--ghost" data-act="trip-edit" data-trip="${esc(t.name)}">${PH.icon("edit", 14)}Edit</button>` : "");
+
+  /* ── Interactions (delegated) ── */
+  document.getElementById("tp-body").addEventListener("click", (e) => {
+    const at = e.target.closest("[data-addtrip]");
+    if (at) return RTP.addToTrip(at.dataset.opl, at.dataset.farm, at.dataset.name);
+    const el = e.target.closest("[data-act]");
+    if (!el || el.disabled) return;
+    const a = el.dataset.act;
+    if (a === "distribute") distributeAction();
+    else if (a === "lb-resched") rescheduleLeftBehind(el.dataset.farm, el);
+    else if (a === "stale-del") deleteStaleTrips([el.dataset.name]);
+    else if (a === "stale-del-all") deleteStaleTrips(D().trips.filter((t) => t.stale && !t.loaded_buckets).map((t) => t.name));
+    else if (a === "trip-merge") mergeTrips(el.dataset.veh);
+    else if (a === "trip-edit") RTP.openTripEdit(el.dataset.trip);
+  });
+  document.getElementById("tp-body").addEventListener("change", (e) => {
+    if (e.target.matches('[data-act="hub-count-ready"]')) { S.countReady = !!e.target.checked; render(); }
+  });
+  document.getElementById("tp-auto").addEventListener("click", (e) => { if (e.target.closest('[data-act="auto-replan"]')) autoReplan(); });
+
+  PH.onRefresh(() => load(true));
+  PH.ready(() => load(true));
+})();
+</script>
+{% endraw %}
+{% endif %}

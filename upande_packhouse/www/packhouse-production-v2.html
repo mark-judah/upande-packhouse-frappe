@@ -1,0 +1,291 @@
+{% extends "templates/web.html" %}
+{% block title %}Production · Packhouse{% endblock %}
+{% block page_content %}
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
+
+<style>
+/* Production v2 — page-only layout: wrapping chip rows inside table cells. */
+.pp-chips{display:flex;flex-wrap:wrap;gap:var(--sp-1)}
+.pp-chips b{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+/* Long unbroken server messages (dotted method names) must not widen the page on phones. */
+.pp-async{min-width:0}
+.pp-async .ph-empty{overflow-wrap:anywhere}
+</style>
+
+<header class="ph-head">
+  <div>
+    <div class="ph-head__eyebrow">Packhouse · Workflow</div>
+    <h1 class="ph-head__title">Production</h1>
+    <p class="ph-head__sub" id="sub">Harvested, received and graded stems per variety</p>
+  </div>
+  <div class="ph-head__tools">
+    <button class="ph-btn" id="export" type="button" disabled>Export CSV</button>
+  </div>
+</header>
+
+<div class="ph-filters">
+  <div class="ph-pills" id="f-region" aria-label="Region"></div>
+  <select class="ph-select" id="f-farm" aria-label="Farm"><option value="">All farms</option></select>
+  <div class="ph-pills" id="f-rose" aria-label="Rose type">
+    <button data-value="all">All items</button><button data-value="standard">Standards</button><button data-value="spray">Sprays</button>
+  </div>
+  <div class="ph-filters__spacer"></div>
+  <div class="ph-pills" id="f-preset">
+    <button data-value="today">Today</button><button data-value="yesterday">Yesterday</button><button data-value="7d">7 days</button><button data-value="30d">30 days</button><button data-value="mtd">Month</button>
+  </div>
+  <label class="ph-daterange" title="Posting date of the harvest / receiving / grading entries">
+    <input type="date" id="f-from" aria-label="From"><span class="ph-daterange__sep">→</span><input type="date" id="f-to" aria-label="To">
+  </label>
+</div>
+
+<section class="ph-kpis" id="kpis"></section>
+
+<div class="ph-row ph-row--2">
+  <section class="ph-card">
+    <div class="ph-card__head">
+      <h2 class="ph-card__title">Stem length mix</h2>
+      <span class="ph-card__meta" id="len-meta"></span>
+    </div>
+    <div class="pp-async" id="lengths"></div>
+  </section>
+  <section class="ph-card">
+    <div class="ph-card__head">
+      <h2 class="ph-card__title">Farms</h2>
+      <span class="ph-card__meta" id="farm-meta"></span>
+    </div>
+    <div class="pp-async" id="farms"></div>
+  </section>
+</div>
+
+<section class="ph-card ph-card--flush">
+  <div class="ph-card__head">
+    <h2 class="ph-card__title">Production by variety <span class="ph-badge" id="var-count">0</span></h2>
+    <div class="ph-card__tools">
+      <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Search variety (filters every number)"></label>
+    </div>
+  </div>
+  <div class="pp-async" id="table"></div>
+</section>
+
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  const API = "upande_packhouse.api.v2.production.";
+  const today = PH.date.today();
+  // Every filter is sent to the server and narrows every number on the page:
+  // region/farm → Stock Entry.farm (harvesting / receiving / grading farm);
+  // rose → Item Group subtree; from/to → Stock Entry posting_date;
+  // q → variety (item code / name).
+  const st = PH.state({ from: today, to: today, region: "", farm: "", rose: "all", q: "" });
+  let data = null;
+  let seq = 0;
+  let allFarms = [];
+
+  /* ── Filters ── */
+  PH.regionPills("#f-region", st, "region");
+  PH.bindSelect("#f-farm", st, "farm");
+  PH.pills("#f-rose", st, "rose");
+  PH.dateRange({ pills: "#f-preset", from: "#f-from", to: "#f-to", state: st });
+  PH.bindSearch("#f-q", st, "q");
+  st.on((s, changed) => {
+    if (changed.indexOf("region") !== -1) paintFarms();
+    load();
+  });
+
+  // Farm <select>: narrowed to the region's farms (a farm outside the region is
+  // still kept if it is the current pick, so the server's "nothing" is visible).
+  function paintFarms() {
+    const r = PH.regionFarms(st.get("region"));
+    const cur = st.get("farm");
+    let list = r ? allFarms.filter((f) => r.indexOf(f) !== -1) : allFarms.slice();
+    if (cur && list.indexOf(cur) === -1) list = list.concat([cur]);
+    PH.options("#f-farm", list, cur);
+  }
+  paintFarms();
+  PH.call(API + "get_production_farms", {}, { silent: true }).then((m) => {
+    allFarms = (m && m.farms) || [];
+    paintFarms();
+  }).catch(() => {});
+
+  /* ── Load ── */
+  const KPI_LABELS = ["Stems harvested", "Stems received", "Stems graded", "Top variety", "Main stem length"];
+  PH.kpiSkeleton("#kpis", KPI_LABELS);
+  const table = PH.table("#table", {
+    columns: columns(),
+    rows: [],
+    sort: { key: "total_stems", dir: "desc" },
+    pageSize: 50,
+    onRowClick: openVariety,
+    empty: "No harvest recorded",
+  });
+
+  function load(background) {
+    const s = st.get();
+    if (!background) {
+      PH.loadingKpis("#kpis", true);
+      PH.skeleton("#lengths", "rows", 5);
+      PH.skeleton("#farms", "rows", 5);
+      PH.skeleton("#table", "rows", 8);
+    }
+    const my = ++seq;
+    const args = { from_date: s.from, to_date: s.to, region: s.region, farm: s.farm, rose_type: s.rose, q: s.q };
+    return PH.call(API + "get_production", args, { silent: background })
+      .then((m) => {
+        if (my !== seq) return;
+        data = m || {};
+        render();
+        PH.markUpdated();
+      })
+      .catch((e) => {
+        if (my !== seq || background) return;
+        data = null;
+        document.getElementById("export").disabled = true;
+        PH.kpis("#kpis", KPI_LABELS.map((l) => ({ label: l, value: "—" })));
+        PH.error("#lengths", e.message, () => load());
+        PH.error("#farms", e.message, () => load());
+        PH.error("#table", e.message, () => load());
+      });
+  }
+
+  /* ── Render ── */
+  function scopeLabel(s) {
+    const bits = [];
+    if (s.region) bits.push(s.region);
+    if (s.farm) bits.push(s.farm);
+    if (s.rose !== "all") bits.push(s.rose === "spray" ? "Sprays" : "Standards");
+    if (s.q) bits.push("“" + s.q + "”");
+    return bits.length ? bits.join(" · ") : "all sites";
+  }
+
+  function render() {
+    const d = data, s = st.get();
+    PH.text("#sub", "Harvested, received and graded stems · " + PH.date.label(s.from, s.to) + " · " + scopeLabel(s));
+    document.getElementById("export").disabled = !d.varieties.length;
+
+    const top = d.top_variety, mainLen = d.main_length;
+    PH.kpis("#kpis", [
+      { label: "Stems harvested", value: d.total_stems, dark: true,
+        unit: PH.fmt.plural(d.harvested_variety_count, "variety", "varieties") + " · " + PH.fmt.plural(d.harvest_farm_count, "farm") },
+      { label: "Stems received", value: d.received_stems, unit: "Receiving entries posted in range" },
+      { label: "Stems graded", value: d.graded_stems, unit: "Grading entries posted in range" },
+      { label: "Top variety", value: top ? top.item_name : "—", unit: top ? PH.fmt.num(top.stems) + " stems · " + share(top.stems) + " of harvest" : "No harvest in range" },
+      { label: "Main stem length", value: mainLen ? mainLen.stem_length : "—", unit: mainLen ? PH.fmt.num(mainLen.stems) + " stems · " + share(mainLen.stems) : "No harvest in range", bar: mainLen && d.total_stems ? (mainLen.stems / d.total_stems) * 100 : null },
+    ]);
+
+    PH.text("#len-meta", d.lengths.length ? PH.fmt.plural(d.lengths.length, "length") + " · harvested" : "");
+    PH.text("#farm-meta", d.farms.length ? PH.fmt.plural(d.farms.length, "farm") : "");
+    if (!d.lengths.length) PH.empty("#lengths", "No harvest in this range", "Pick a wider date range or another site.");
+    else {
+      const max = Math.max.apply(null, d.lengths.map((l) => l.stems)) || 1;
+      PH.set("#lengths", d.lengths.map((l) => PH.html`
+        <div class="ph-hb">
+          <div class="ph-hb__name" title="${l.stem_length}">${l.stem_length}</div>
+          <div class="ph-hb__lane"><div class="ph-hb__est" style="width:100%"></div><div class="ph-hb__act" style="width:${(l.stems / max) * 100}%"></div></div>
+          <div class="ph-hb__pct" title="${PH.fmt.num(l.stems)} stems">${share(l.stems)}</div>
+        </div>`.__raw).join(""));
+    }
+    if (!d.farms.length) PH.empty("#farms", "No production at any farm", "Harvesting, receiving and grading entries in this range show up here.");
+    else PH.set("#farms", '<div class="ph-list">' + d.farms.map((f, i) => PH.html`
+        <div class="ph-list__row">
+          <div class="ph-list__rank${i === 0 ? " lead" : ""}">${i + 1}</div>
+          <div style="min-width:0"><div class="ph-list__name">${f.farm}</div><div class="ph-list__meta">${share(f.stems)} of harvest · ${PH.fmt.num(f.received_stems)} received · ${PH.fmt.num(f.graded_stems)} graded</div></div>
+          <div class="ph-list__qty">${PH.fmt.num(f.stems)}<small>harvested</small></div>
+        </div>`.__raw).join("") + "</div>");
+
+    renderTable();
+  }
+
+  function share(n) {
+    return data && data.total_stems ? PH.fmt.pct((n / data.total_stems) * 100, n / data.total_stems < 0.1 ? 1 : 0) : "—";
+  }
+
+  function renderTable() {
+    if (!data) return;
+    const rows = data.varieties, q = st.get("q");
+    PH.text("#var-count", PH.fmt.num(rows.length));
+    if (!rows.length) {
+      return q
+        ? PH.empty("#table", "No varieties match “" + q + "”", "Clear the search to see every variety.")
+        : PH.empty("#table", "No production recorded", "Nothing was harvested, received or graded for these filters.");
+    }
+    table.update(rows);
+  }
+
+  function chips(list, key, cls) {
+    if (!list.length) return '<span class="ph-muted">—</span>';
+    return '<div class="pp-chips">' + list.map((x) =>
+      PH.html`<span class="ph-badge ${cls}">${x[key]} <b>${PH.fmt.num(x.stems)}</b></span>`.__raw).join("") + "</div>";
+  }
+
+  function columns() {
+    // Footer totals are the server's KPI figures (README rule 7); the list is never truncated.
+    const tot = (k) => () => PH.fmt.qty(data ? data[k] : 0);
+    return [
+      { key: "rank", label: "#", num: true, width: "48px" },
+      { key: "item_name", label: "Variety", cls: "is-strong" },
+      { key: "total_stems", label: "Harvested", num: true, total: tot("total_stems") },
+      { key: "received_stems", label: "Received", num: true, total: tot("received_stems") },
+      { key: "graded_stems", label: "Graded", num: true, total: tot("graded_stems") },
+      { key: "lengths", label: "Harvest by length", cls: "is-wrap", sortable: false, html: (v) => chips(v, "stem_length", "ph-badge--outline") },
+      { key: "farms", label: "Harvest by farm", cls: "is-wrap", sortable: false, html: (v) => chips(v, "farm", "ph-badge--signal") },
+    ];
+  }
+
+  /* ── Variety detail ── */
+  function openVariety(v) {
+    if (!v) return;
+    const body = document.createElement("div");
+    body.innerHTML = PH.html`
+      <div class="ph-stats ph-mb">
+        <div class="ph-stat"><small>Harvested</small><b>${PH.fmt.num(v.total_stems)}</b></div>
+        <div class="ph-stat"><small>Received</small><b>${PH.fmt.num(v.received_stems)}</b></div>
+        <div class="ph-stat"><small>Graded</small><b>${PH.fmt.num(v.graded_stems)}</b></div>
+        <div class="ph-stat"><small>Share of harvest</small><b>${share(v.total_stems)}</b></div>
+      </div>
+      <div class="ph-row ph-row--2 ph-mb-0"><div><div class="ph-label">Harvest by stem length</div><div data-len></div></div><div><div class="ph-label">Harvest by farm</div><div data-farm></div></div></div>`.__raw;
+    const pct = (n) => (v.total_stems ? PH.fmt.pct((n / v.total_stems) * 100) : "—");
+    const sub = (key, label, rows) => PH.table(body.querySelector(key), {
+      compact: true,
+      columns: [
+        { key: label === "Length" ? "stem_length" : "farm", label },
+        { key: "stems", label: "Stems", num: true, total: () => PH.fmt.qty(v.total_stems) },
+        { key: "stems", label: "Share", num: true, sortable: false, format: pct },
+      ],
+      rows,
+      empty: "No harvest",
+    });
+    sub("[data-len]", "Length", v.lengths);
+    sub("[data-farm]", "Farm", v.farms);
+    PH.modal({ title: v.item_name, sub: v.item_code + " · " + PH.date.label(st.get("from"), st.get("to")) + " · " + scopeLabel(st.get()), size: "lg", body });
+  }
+
+  /* ── Export ── */
+  document.getElementById("export").addEventListener("click", () => {
+    if (!data) return;
+    const lens = data.lengths.map((l) => l.stem_length);
+    const out = data.varieties.map((v) => {
+      const r = { rank: v.rank, variety: v.item_name, item_code: v.item_code, total: v.total_stems, received: v.received_stems, graded: v.graded_stems,
+        farms: v.farms.map((f) => f.farm + ": " + f.stems).join("; ") };
+      v.lengths.forEach((l) => (r["len_" + l.stem_length] = l.stems));
+      return r;
+    });
+    const s = st.get();
+    PH.csv("production_" + s.from + "_" + s.to + (s.region ? "_" + s.region : "") + (s.farm ? "_" + s.farm : "") + ".csv", out, [
+      { key: "rank", label: "#" },
+      { key: "variety", label: "Variety" },
+      { key: "item_code", label: "Item code" },
+      { key: "total", label: "Harvested stems" },
+      { key: "received", label: "Received stems" },
+      { key: "graded", label: "Graded stems" },
+    ].concat(lens.map((l) => ({ key: "len_" + l, label: "Harvested " + l, csv: (x) => x || 0 })), [{ key: "farms", label: "Harvest by farm" }]));
+  });
+
+  PH.onRefresh(() => load());
+  PH.ready(() => load());
+  PH.poll(() => load(true), 60000);
+})();
+</script>
+{% endraw %}
+{% endblock %}

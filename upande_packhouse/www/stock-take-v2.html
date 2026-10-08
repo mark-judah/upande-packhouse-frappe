@@ -1,0 +1,309 @@
+{% extends "templates/web.html" %}
+{% block title %}Stock Take · Packhouse{% endblock %}
+{% block page_content %}
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
+
+<header class="ph-head">
+  <div>
+    <div class="ph-head__eyebrow">Packhouse · Tracking</div>
+    <h1 class="ph-head__title">Stock Take</h1>
+    <p class="ph-head__sub" id="sub">Cold store scans against what the system expected on the shelves</p>
+  </div>
+  <div class="ph-head__tools">
+    <button class="ph-btn" id="export" type="button" disabled>Export CSV</button>
+  </div>
+</header>
+
+<div class="ph-filters">
+  <div class="ph-pills" id="f-region" aria-label="Region"></div>
+  <select class="ph-select" id="f-farm" aria-label="Farm"><option value="">All farms</option></select>
+  <select class="ph-select" id="f-take" aria-label="Stock take"><option value="">All stock takes in range</option></select>
+  <select class="ph-select" id="f-variety" aria-label="Variety"><option value="">All varieties</option></select>
+  <div class="ph-pills" id="f-rose" aria-label="Rose type">
+    <button data-value="all">All roses</button><button data-value="standard">Standards</button><button data-value="spray">Sprays</button>
+  </div>
+  <div class="ph-filters__spacer"></div>
+  <div class="ph-pills" id="f-preset">
+    <button data-value="today">Today</button><button data-value="7d">7 days</button><button data-value="30d">30 days</button>
+  </div>
+  <label class="ph-daterange" title="Stock take date">
+    <input type="date" id="f-from" aria-label="From"><span class="ph-daterange__sep">→</span><input type="date" id="f-to" aria-label="To">
+  </label>
+</div>
+
+<section class="ph-kpis" id="kpis"></section>
+<div id="notice"></div>
+
+<nav class="ph-tabs" id="tabs" role="tablist">
+  <button class="ph-tab" data-view="overview" role="tab">Insights</button>
+  <button class="ph-tab" data-view="missing" role="tab">Missing <span class="ph-tab__count" id="tc-missing">—</span></button>
+  <button class="ph-tab" data-view="found" role="tab">Found <span class="ph-tab__count" id="tc-found">—</span></button>
+  <button class="ph-tab" data-view="unexpected" role="tab">Unexpected <span class="ph-tab__count" id="tc-unexpected">—</span></button>
+</nav>
+
+<div id="view-overview" hidden>
+  <div class="ph-row ph-row--2">
+    <section class="ph-card ph-card--flush">
+      <div class="ph-card__head"><h2 class="ph-card__title">By variety</h2><span class="ph-card__meta">buckets · click a row to filter</span></div>
+      <div id="by-variety"></div>
+    </section>
+    <section class="ph-card">
+      <div class="ph-card__head"><h2 class="ph-card__title">By age</h2><span class="ph-card__meta">buckets, days from harvest to the stock take</span></div>
+      <div class="ph-chart" id="c-age"></div>
+    </section>
+  </div>
+  <div class="ph-row ph-row--2">
+    <section class="ph-card ph-card--flush">
+      <div class="ph-card__head"><h2 class="ph-card__title">By shelf zone</h2><span class="ph-card__meta">cold store prefix and shelf block</span></div>
+      <div id="by-zone"></div>
+    </section>
+    <section class="ph-card ph-card--flush">
+      <div class="ph-card__head"><h2 class="ph-card__title">Missing: last journey step</h2><span class="ph-card__meta">where the system last saw them</span></div>
+      <div id="by-step"></div>
+      <div class="ph-card__head"><h2 class="ph-card__title">Unexpected: why</h2><span class="ph-card__meta">what the system says instead</span></div>
+      <div id="by-reason"></div>
+    </section>
+  </div>
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head"><h2 class="ph-card__title">Stock takes</h2><span class="ph-card__meta">each compared with the ledger at its own last scan</span></div>
+    <div id="by-take"></div>
+  </section>
+</div>
+
+<div id="view-missing" hidden>
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head">
+      <div>
+        <h2 class="ph-card__title">Missing buckets <span class="ph-badge ph-badge--bad" id="n-missing">0</span></h2>
+        <div class="ph-card__meta">Harvested and received into this cold store, not allocated, issued, discarded or moved, but not scanned</div>
+      </div>
+      <div class="ph-card__tools"><button class="ph-btn ph-btn--sm" data-csv="missing" type="button">Export CSV</button></div>
+    </div>
+    <div id="t-missing"></div>
+  </section>
+</div>
+<div id="view-found" hidden>
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head">
+      <div>
+        <h2 class="ph-card__title">Found buckets <span class="ph-badge" id="n-found">0</span></h2>
+        <div class="ph-card__meta">Every bucket scanned, and whether the system agrees it belongs there</div>
+      </div>
+      <div class="ph-card__tools"><button class="ph-btn ph-btn--sm" data-csv="found" type="button">Export CSV</button></div>
+    </div>
+    <div id="t-found"></div>
+  </section>
+</div>
+<div id="view-unexpected" hidden>
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head">
+      <div>
+        <h2 class="ph-card__title">Unexpected buckets <span class="ph-badge ph-badge--warn" id="n-unexpected">0</span></h2>
+        <div class="ph-card__meta">Scanned, but the system has them allocated, issued, elsewhere or in another cycle</div>
+      </div>
+      <div class="ph-card__tools"><button class="ph-btn ph-btn--sm" data-csv="unexpected" type="button">Export CSV</button></div>
+    </div>
+    <div id="t-unexpected"></div>
+  </section>
+</div>
+
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  const API = "upande_packhouse.api.v2.stock_take.get_stock_take";
+  const today = PH.date.today();
+  const d30 = PH.date.preset("30d");
+  const st = PH.state({ view: "overview", from: d30[0], to: d30[1], region: "", farm: "", take: "", variety: "", rose: "all" });
+  let data = null, seq = 0, allFarms = [];
+
+  PH.regionPills("#f-region", st, "region");
+  PH.bindSelect("#f-farm", st, "farm");
+  PH.bindSelect("#f-take", st, "take");
+  PH.bindSelect("#f-variety", st, "variety");
+  PH.pills("#f-rose", st, "rose");
+  PH.dateRange({ pills: "#f-preset", from: "#f-from", to: "#f-to", state: st });
+  PH.$("#tabs").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-view]");
+    if (b) st.set({ view: b.dataset.view });
+  });
+
+  function paintFarms() {
+    const only = PH.regionFarms(st.get("region"));
+    const list = only ? allFarms.filter((f) => only.includes(f)) : allFarms;
+    const cur = st.get("farm");
+    PH.options("#f-farm", cur && !list.includes(cur) ? list.concat([cur]) : list, cur);
+  }
+  function paintView() {
+    const v = st.get("view");
+    PH.$$("#tabs .ph-tab").forEach((b) => b.classList.toggle("is-on", b.dataset.view === v));
+    ["overview", "missing", "found", "unexpected"].forEach((n) => { PH.$("#view-" + n).hidden = n !== v; });
+    document.getElementById("export").disabled = !data || v === "overview" || !(data[v] || []).length;
+  }
+  st.on((s, changed) => {
+    paintFarms();
+    paintView();
+    if (changed.length === 1 && changed[0] === "view") return;
+    load();
+  });
+
+  const KPI_LABELS = ["Scanned", "Expected", "Missing", "Unexpected", "Accuracy"];
+  PH.kpiSkeleton("#kpis", KPI_LABELS);
+
+  /* tables */
+  const bk = (v) => PH.fmt.num(v);
+  const stemCol = { key: "stems", label: "Stems", num: true };
+  const listCols = (found) => [
+    { key: "bucket", label: "Bucket", cls: "ph-mono is-strong" },
+    { key: "variety", label: "Variety" },
+    { key: "stem_length", label: "Length" },
+    { key: "stems", label: "Stems", num: true },
+    { key: "age_days", label: "Age (d)", num: true },
+    { key: "shelf", label: found ? "Shelf (scanned)" : "Shelf (system)", cls: "ph-mono" },
+  ].concat(found ? [
+    { key: "sys_shelf", label: "Shelf (system)", cls: "ph-mono" },
+    { key: "scan_status", label: "Scan" },
+    { key: "expected", label: "System agrees", html: (v, r) => (r.expected ? '<span class="ph-badge ph-badge--good">Yes</span>' : '<span class="ph-badge ph-badge--warn">No</span>') , sortValue: (r) => (r.expected ? 1 : 0) },
+    { key: "reason", label: "Why not" },
+  ] : [
+    { key: "step", label: "Last known step" },
+    { key: "received_at", label: "Received", format: (v) => (v ? PH.fmt.datetime(v) : "—") },
+  ]).concat([
+    { key: "take_farm", label: "Farm" },
+    { key: "scanned_at", label: found ? "Scanned" : "Stock take", format: (v, r) => (found ? (v ? PH.fmt.datetime(v) : "—") : r.stock_take) },
+  ]);
+  const unexpCols = [
+    { key: "bucket", label: "Bucket", cls: "ph-mono is-strong" },
+    { key: "variety", label: "Variety" },
+    { key: "stems", label: "Stems", num: true },
+    { key: "age_days", label: "Age (d)", num: true },
+    { key: "shelf", label: "Scanned shelf", cls: "ph-mono" },
+    { key: "reason", label: "System says" },
+    { key: "step", label: "Last step" },
+    { key: "system_at", label: "System location" },
+    { key: "take_farm", label: "Farm" },
+  ];
+  const T = {
+    missing: PH.table("#t-missing", { columns: listCols(false), rows: [], pageSize: 50, sort: { key: "age_days", dir: "desc" }, empty: "Nothing missing" }),
+    found: PH.table("#t-found", { columns: listCols(true), rows: [], pageSize: 50, empty: "No buckets scanned" }),
+    unexpected: PH.table("#t-unexpected", { columns: unexpCols, rows: [], pageSize: 50, empty: "No unexpected buckets" }),
+  };
+  const aggTable = (sel, cols, rowsKey, onClick) => PH.table(sel, { columns: cols, rows: [], compact: true, pageSize: 12, empty: "No data", onRowClick: onClick });
+  const tVar = aggTable("#by-variety", [
+    { key: "variety", label: "Variety", cls: "is-strong" },
+    { key: "scanned", label: "Scanned", num: true },
+    { key: "found_expected", label: "Agreed", num: true },
+    { key: "missing", label: "Missing", num: true },
+    { key: "missing_stems", label: "Missing stems", num: true },
+    { key: "unexpected", label: "Unexpected", num: true },
+  ], "by_variety", (r) => st.set({ variety: st.get("variety") === r.variety ? "" : r.variety }));
+  const tZone = aggTable("#by-zone", [
+    { key: "zone", label: "Zone", cls: "ph-mono is-strong" },
+    { key: "scanned", label: "Scanned", num: true },
+    { key: "missing", label: "Missing", num: true },
+    { key: "missing_stems", label: "Missing stems", num: true },
+  ]);
+  const tStep = aggTable("#by-step", [
+    { key: "step", label: "Last step", cls: "is-strong" },
+    { key: "buckets", label: "Buckets", num: true },
+    { key: "stems", label: "Stems", num: true },
+  ]);
+  const tReason = aggTable("#by-reason", [
+    { key: "reason", label: "System says", cls: "is-strong" },
+    { key: "buckets", label: "Buckets", num: true },
+    { key: "stems", label: "Stems", num: true },
+  ]);
+  const tTake = aggTable("#by-take", [
+    { key: "farm", label: "Farm", cls: "is-strong" },
+    { key: "date", label: "Date", format: (v) => PH.fmt.date(v) },
+    { key: "as_of", label: "Compared at", format: (v) => PH.fmt.datetime(v) },
+    { key: "scanned", label: "Scanned", num: true },
+    { key: "found_expected", label: "Agreed", num: true },
+    { key: "missing", label: "Missing", num: true },
+    { key: "missing_stems", label: "Missing stems", num: true },
+    { key: "unexpected", label: "Unexpected", num: true },
+  ], null, (r) => st.set({ take: r.name }));
+
+  function load() {
+    const s = st.get(), my = ++seq;
+    PH.loadingKpis("#kpis", true);
+    PH.set("#notice", "");
+    const args = { from_date: s.from, to_date: s.to, region: s.region, farm: s.farm, stock_take: s.take, variety: s.variety, rose: s.rose };
+    return PH.call(API, args)
+      .then((m) => { if (my !== seq) return; data = m; render(); PH.markUpdated(); })
+      .catch((e) => {
+        if (my !== seq) return;
+        data = null;
+        PH.kpis("#kpis", KPI_LABELS.map((l) => ({ label: l, value: "—" })));
+        ["#by-variety", "#c-age", "#by-zone", "#by-step", "#by-take", "#t-missing", "#t-found", "#t-unexpected"].forEach((x) => PH.error(x, e.message, () => load()));
+        paintView();
+      });
+  }
+
+  function render() {
+    const d = data, k = d.kpis, s = st.get();
+    allFarms = d.farms || [];
+    paintFarms();
+    PH.options("#f-variety", d.varieties || [], s.variety);
+    PH.options("#f-take", (d.takes || []).map((t) => ({ value: t.name, label: t.farm + " · " + PH.fmt.date(t.date) + " · " + t.buckets + " scanned" })), s.take);
+    const scope = [s.region, s.farm, s.variety, s.rose !== "all" ? s.rose : ""].filter(Boolean);
+    PH.text("#sub", (k.takes ? PH.fmt.plural(k.takes, "stock take") : "No stock takes") + " · " + PH.date.label(s.from, s.to) + (scope.length ? " · " + scope.join(" · ") : ""));
+
+    PH.kpis("#kpis", [
+      { label: "Scanned", value: k.scanned_buckets, unit: "buckets · " + PH.fmt.num(k.scanned_stems) + " stems", dark: true },
+      { label: "Expected", value: k.expected_buckets, unit: "buckets · " + PH.fmt.num(k.expected_stems) + " stems in the cold store", title: "Harvested and received into the cold store this cycle, not allocated, issued, discarded or moved, as at the last scan" },
+      { label: "Missing", value: k.missing_buckets, unit: "buckets · " + PH.fmt.num(k.missing_stems) + " stems not scanned", onClick: () => st.set({ view: "missing" }) },
+      { label: "Unexpected", value: k.unexpected_buckets, unit: "buckets · " + PH.fmt.num(k.unexpected_stems) + " stems the system has elsewhere", onClick: () => st.set({ view: "unexpected" }) },
+      { label: "Accuracy", value: k.accuracy_pct == null ? "—" : PH.fmt.pct(k.accuracy_pct, 1), unit: PH.fmt.num(k.found_expected) + " of " + PH.fmt.num(k.expected_buckets) + " expected buckets found", bar: k.accuracy_pct },
+    ]);
+    const extra = [];
+    if (k.allocated_unscanned_buckets) extra.push(PH.fmt.num(k.allocated_unscanned_buckets) + " buckets (" + PH.fmt.num(k.allocated_unscanned_stems) + " stems) are in the cold store but allocated to orders and were not scanned; they are not counted as missing.");
+    if (d.truncated) extra.push("Lists show the first " + PH.fmt.num(d.row_limit) + " rows; every figure above covers all rows.");
+    PH.set("#notice", extra.length ? PH.html`<div class="ph-notice ph-notice--warn">${extra.join(" ")}</div>` : "");
+
+    PH.text("#tc-missing", PH.fmt.num(k.missing_buckets));
+    PH.text("#tc-found", PH.fmt.num(k.scanned_buckets));
+    PH.text("#tc-unexpected", PH.fmt.num(k.unexpected_buckets));
+    PH.text("#n-missing", PH.fmt.num(k.missing_buckets));
+    PH.text("#n-found", PH.fmt.num(k.scanned_buckets));
+    PH.text("#n-unexpected", PH.fmt.num(k.unexpected_buckets));
+
+    tVar.update(d.by_variety || []);
+    tZone.update(d.by_zone || []);
+    tStep.update(d.by_step || []);
+    tReason.update(d.by_reason || []);
+    tTake.update(d.per_take || []);
+    T.missing.update(d.missing || []);
+    T.found.update(d.found || []);
+    T.unexpected.update(d.unexpected || []);
+    PH.chart("#c-age", {
+      type: "bar", labels: d.by_age.map((x) => x.band), legend: true,
+      series: [
+        { label: "Scanned", data: d.by_age.map((x) => x.scanned), color: PH.statusColor.ink },
+        { label: "Missing", data: d.by_age.map((x) => x.missing), color: PH.statusColor.bad },
+      ],
+    });
+    paintView();
+  }
+
+  /* CSV: the full list currently shown (up to the row limit) */
+  const CSV_COLS = {
+    missing: [["stock_take", "Stock take"], ["take_farm", "Farm"], ["bucket", "Bucket"], ["variety", "Variety"], ["stem_length", "Length"], ["stems", "Expected stems"], ["age_days", "Age (days)"], ["sys_shelf", "System shelf"], ["step", "Last known step"], ["harvest_date", "Harvested"], ["received_at", "Received"], ["system_at", "System location"]],
+    found: [["stock_take", "Stock take"], ["take_farm", "Farm"], ["bucket", "Bucket"], ["variety", "Variety"], ["stem_length", "Length"], ["stems", "Stems"], ["age_days", "Age (days)"], ["shelf", "Scanned shelf"], ["sys_shelf", "System shelf"], ["scan_status", "Scan status"], ["scanned_at", "Scanned at"], ["expected", "System agrees"], ["reason", "Why not"]],
+    unexpected: [["stock_take", "Stock take"], ["take_farm", "Farm"], ["bucket", "Bucket"], ["variety", "Variety"], ["stems", "Stems"], ["age_days", "Age (days)"], ["shelf", "Scanned shelf"], ["reason", "System says"], ["step", "Last step"], ["system_at", "System location"], ["scanned_at", "Scanned at"]],
+  };
+  function exportList(which) {
+    if (!data || !(data[which] || []).length) return;
+    const s = st.get();
+    PH.csv("stock_take_" + which + "_" + s.from + "_" + s.to + ".csv", data[which], CSV_COLS[which].map(([key, label]) => ({ key, label })));
+  }
+  document.getElementById("export").addEventListener("click", () => exportList(st.get("view")));
+  PH.$$("[data-csv]").forEach((b) => b.addEventListener("click", () => exportList(b.dataset.csv)));
+
+  PH.onRefresh(() => load());
+  PH.ready(() => { paintView(); load(); });
+})();
+</script>
+{% endraw %}
+{% endblock %}

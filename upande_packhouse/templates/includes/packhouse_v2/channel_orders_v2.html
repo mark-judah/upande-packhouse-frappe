@@ -1,0 +1,1140 @@
+{#-
+  Packhouse v2 — shared body of Biflorica Orders v2 / Floriday Orders v2.
+  Rebuild of templates/includes/channel_orders.html on the v2 design system.
+
+  The including page sets `channel_key` ("biflorica" | "floriday"); its
+  controller calls packhouse_v2.page_context() and sets co_ecommerce_ready.
+
+  The orders list and its KPIs come from upande_packhouse.api.v2.channel_orders
+  (server-side filters: order date, region, farm, status, search). Every other
+  action goes through the endpoints the ecommerce_integration desk forms
+  (Biflorica Setting / Floriday Settings) already call, plus the read/write
+  helpers in ecommerce_integration…utils.channel_portal.
+-#}
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
+
+<style>
+  /* Layout unique to this page (tokens + spacing scale only). */
+  .co-stepper{display:inline-flex;align-items:center;gap:var(--sp-2)}
+  .co-stepper__v{min-width:64px;text-align:center}
+  .co-hours{width:96px;text-align:right}
+</style>
+
+<div id="co-root" data-channel="{{ channel_key or '' }}" data-ready="{{ 1 if co_ecommerce_ready else 0 }}">
+  <header class="ph-head">
+    <div>
+      <div class="ph-head__eyebrow">Packhouse · Sales channels</div>
+      <h1 class="ph-head__title" id="co-title">{{ ph_title }}</h1>
+      <p class="ph-head__sub" id="co-sub">&nbsp;</p>
+    </div>
+    <div class="ph-head__tools">
+      <button class="ph-btn" id="co-export" type="button" disabled></button>
+      <a class="ph-btn ph-btn--ghost" id="co-settings" href="#" target="_blank" rel="noopener"></a>
+    </div>
+  </header>
+
+  <div id="co-notes"></div>
+
+  <div id="co-body">
+    <div class="ph-filters">
+      <div class="ph-pills" id="f-region"></div>
+      <select class="ph-select" id="f-farm" aria-label="Farm" title="The order's farm"><option value="">All farms</option></select>
+      <div class="ph-pills" id="f-status">
+        <button data-value="all">All</button><button data-value="draft">Drafts</button><button data-value="submitted">Submitted</button>
+      </div>
+      <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Search order, ref, customer, consignee" aria-label="Search orders"></label>
+      <div class="ph-filters__spacer"></div>
+      <div class="ph-pills" id="f-preset">
+        <button data-value="today">Today</button><button data-value="7d">7 days</button><button data-value="14d">14 days</button><button data-value="30d">30 days</button><button data-value="mtd">This month</button>
+      </div>
+      <label class="ph-daterange" title="Order date — the day the order was imported (Sales Order date)">
+        <span>Ordered</span><input type="date" id="f-from" aria-label="Order date from"><span class="ph-daterange__sep">→</span><input type="date" id="f-to" aria-label="Order date to">
+      </label>
+    </div>
+
+    <section class="ph-kpis" id="kpis"></section>
+
+    <section class="ph-card ph-card--flush">
+      <div class="ph-card__head">
+        <div>
+          <h2 class="ph-card__title">Orders <span class="ph-badge" id="co-orders-count">0</span></h2>
+          <div class="ph-card__meta" id="co-orders-meta">&nbsp;</div>
+        </div>
+        <div class="ph-card__tools">
+          <label class="ph-check" id="co-selall-wrap" hidden><input type="checkbox" id="co-selall"> Select all drafts</label>
+          <button class="ph-btn ph-btn--sm ph-btn--primary" id="co-submit-sel" type="button" hidden disabled>Submit &amp; approve selected</button>
+        </div>
+      </div>
+      <div id="co-orders"></div>
+    </section>
+
+    <div class="ph-row ph-row--2">
+      <section class="ph-card">
+        <div class="ph-card__head">
+          <h2 class="ph-card__title">Get orders</h2>
+          <span class="ph-card__meta" id="co-poll-meta"></span>
+        </div>
+        <dl class="ph-kv" id="co-facts"></dl>
+        <hr class="ph-divider">
+        <div class="ph-form ph-form--1">
+          <div class="ph-field">
+            <label for="co-hours">Get orders from the last</label>
+            <div class="ph-flex ph-flex--wrap">
+              <div class="ph-pills" id="co-hours-presets">
+                <button data-value="1">1h</button><button data-value="6">6h</button><button data-value="24">24h</button><button data-value="48">48h</button><button data-value="168">7d</button>
+              </div>
+              <input class="ph-input co-hours" id="co-hours" type="number" min="1" max="720" step="1" title="Hours to look back (1–720)">
+              <span class="ph-muted">hours</span>
+            </div>
+          </div>
+          <div class="ph-field">
+            <label for="co-sched-hours">Scheduled jobs look back</label>
+            <div class="ph-flex ph-flex--wrap">
+              <input class="ph-input co-hours" id="co-sched-hours" type="number" min="1" max="720" step="1" title="Hours the scheduled import looks back (1–720)">
+              <span class="ph-muted">hours</span>
+              <button class="ph-btn ph-btn--sm" id="co-sched-save" type="button">Save</button>
+            </div>
+            <div class="ph-field__hint" id="co-sched-hint"></div>
+          </div>
+          <div class="ph-field">
+            <label for="co-pricelist">Price list</label>
+            <div><select class="ph-select" id="co-pricelist"></select></div>
+          </div>
+        </div>
+        <div class="ph-flex ph-flex--wrap ph-mt" id="co-polls"></div>
+      </section>
+
+      <section class="ph-card ph-card--flush">
+        <div class="ph-card__head">
+          <h2 class="ph-card__title">Schedules</h2>
+          <span class="ph-card__meta" id="co-sched-meta"></span>
+        </div>
+        <div id="co-schedules"></div>
+      </section>
+    </div>
+
+    <section class="ph-card">
+      <div class="ph-card__head">
+        <div>
+          <h2 class="ph-card__title">Stock offered</h2>
+          <div class="ph-card__meta" id="co-stock-meta">&nbsp;</div>
+        </div>
+        <div class="ph-card__tools" id="co-stock-push"></div>
+      </div>
+      <div id="co-stock-note"></div>
+      <div class="ph-flex ph-flex--wrap ph-mb" id="co-stock-tools" hidden>
+        <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-sq" type="search" placeholder="Search variety or stem length" aria-label="Search stock"></label>
+        <label class="ph-check"><input type="checkbox" id="f-en"> Enabled only</label>
+        <span class="ph-muted ph-grow" id="co-stock-count"></span>
+        <button class="ph-btn ph-btn--sm" id="co-disable" type="button">Disable selected</button>
+        <button class="ph-btn ph-btn--sm ph-btn--primary" id="co-enable" type="button">Enable selected</button>
+      </div>
+      <div id="co-stock"></div>
+      <div id="co-wh" hidden></div>
+    </section>
+
+    <section class="ph-card ph-card--flush" id="co-live-card" hidden>
+      <div class="ph-card__head">
+        <div>
+          <h2 class="ph-card__title">Live offers <span class="ph-badge" id="co-live-count">0</span></h2>
+          <div class="ph-card__meta" id="co-live-meta">&nbsp;</div>
+        </div>
+        <div class="ph-card__tools"><button class="ph-btn ph-btn--sm ph-btn--primary" id="co-live-refresh" type="button">Refresh from Biflorica</button></div>
+      </div>
+      <div id="co-live"></div>
+    </section>
+  </div>
+</div>
+
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  const root = document.getElementById("co-root");
+  const KEY = root.dataset.channel;
+  const READY = root.dataset.ready === "1";
+
+  const EI = "ecommerce_integration.ecommerce_integration.";
+  const PORTAL = EI + "utils.channel_portal.";
+  const PICKER = EI + "utils.stock_picker.";
+  const ORDERS_API = "upande_packhouse.api.v2.channel_orders.get_channel_orders";
+  const BIF = EI + "doctype.biflorica_setting.biflorica_setting.";
+  const FLO_SET = EI + "doctype.floriday_settings.floriday_settings.";
+  const FLO_BATCH = EI + "doctype.floriday_settings.floriday_batch.";
+
+  /* ── Per-channel wiring: every method is the one the desk form's button calls ── */
+  const CHANNELS = {
+    biflorica: {
+      label: "Biflorica",
+      settingsDoctype: "Biflorica Setting",
+      sub: "Get Biflorica deals and predeals as Sales Orders, and choose the stock offered on Biflorica.",
+      polls: [
+        { id: "deals", label: "Get Deals", format: fmtBifloricaDeals },
+        { id: "predeals", label: "Get Predeals", format: fmtBifloricaDeals },
+      ],
+      push: { label: "Post Offers", run: openOfferModal },
+      warehouseRefresh: { label: "Refresh Stock", method: BIF + "refresh_stock" },
+      liveOffers: { method: BIF + "get_offers" },
+      approve: "Each order is submitted and approved on Biflorica (predeals approved, deals confirmed). An order Biflorica refuses stays a draft.",
+      confirmLabel: "Submit & approve",
+    },
+    floriday: {
+      label: "Floriday",
+      settingsDoctype: "Floriday Settings",
+      sub: "Get Floriday sales orders as Sales Orders, and choose the stock offered on Floriday.",
+      polls: [{ id: "orders", label: "Get Orders", format: fmtFloridayOrders }],
+      push: { label: "Create Batches", run: createFloridayBatches },
+      warehouseRefresh: null,
+      liveOffers: null,
+      approve: "Each order is submitted and then fulfilled on Floriday.",
+      confirmLabel: "Submit & fulfil",
+    },
+  };
+  // Floriday only takes 200-stem batches; the server floors to that too
+  // (stock_picker.CHANNEL_QTY_MULTIPLE).
+  const CHANNEL_MULTIPLE = { floriday: 200 };
+  const CH = CHANNELS[KEY];
+
+  const $ = (id) => document.getElementById(id);
+  const KIND = { green: "good", orange: "warn", red: "bad", blue: "" };
+  const report = (msg, color) => PH.toast(msg, KIND[color] || "");
+  const notes = (list) => PH.set("#co-notes", list.map((n) => `<div class="ph-notice ph-notice--${n[1]}">${PH.icon(n[1] === "bad" ? "alert" : "info")}<div>${PH.esc(n[0])}</div></div>`).join(""));
+
+  if (!CH || !READY) {
+    PH.text("#co-sub", CH ? CH.sub : "");
+    $("co-export").hidden = true;
+    $("co-settings").hidden = true;
+    $("co-body").hidden = true;
+    notes([[!CH ? "Unknown sales channel for this page." : "The Ecommerce Integration app is not installed on this site, so there are no orders to get.", "bad"]]);
+    return;
+  }
+
+  /* Calls whose {success:false} reply still carries a summary worth showing
+     (importers, offers, batches): resolve with it instead of rejecting. */
+  function run(method, args, type) {
+    return PH.call(method, args || {}, { silent: true, type }).catch((e) => {
+      if (e && e.response) return e.response;
+      throw e;
+    });
+  }
+  function busy(btn, on, text) {
+    if (!btn) return;
+    if (on) {
+      btn.dataset.label = btn.textContent;
+      btn.textContent = text || "Working…";
+      btn.disabled = true;
+      btn.classList.add("is-busy");
+    } else {
+      btn.textContent = btn.dataset.label || btn.textContent;
+      btn.disabled = false;
+      btn.classList.remove("is-busy");
+    }
+  }
+  const money = (v, cur) => PH.fmt.money(v || 0, cur || "");
+  const canonLen = (s) => {
+    const m = String(s || "").match(/\d+/);
+    return m ? parseInt(m[0], 10) + "cm" : "";
+  };
+  const rowKey = (code, len) => code + " " + canonLen(len);
+
+  /* ── Static head ── */
+  PH.text("#co-sub", CH.sub);
+  const settingsLink = $("co-settings");
+  settingsLink.href = PH.docUrl(CH.settingsDoctype);
+  settingsLink.textContent = CH.settingsDoctype;
+  $("co-export").innerHTML = PH.icon("download") + "<span>Export orders</span>";
+
+  /* ── State (URL-synced) ── */
+  const d14 = PH.date.preset("14d");
+  const st = PH.state({ from: d14[0], to: d14[1], region: "", farm: "", status: "all", q: "", sq: "", en: false, hours: 24 });
+  let OV = null; // get_channel_overview reply (settings, schedules, stock, live offers)
+  let ORD = null; // get_channel_orders reply (orders + KPIs, server-filtered)
+  let ordSeq = 0;
+  let STOCK = []; // combined picker rows (shelf mode)
+  let PRICE_META = { price_list: "", currency: "" };
+  let stockReady = false;
+  let seq = 0, stockSeq = 0;
+  const orderSel = new Set();
+  const stockSel = new Set();
+
+  PH.regionPills("#f-region", st, "region");
+  PH.bindSelect("#f-farm", st, "farm");
+  PH.pills("#f-status", st, "status");
+  PH.dateRange({ pills: "#f-preset", from: "#f-from", to: "#f-to", state: st });
+  PH.bindSearch("#f-q", st, "q");
+  PH.bindSearch("#f-sq", st, "sq");
+  const enBox = $("f-en");
+  enBox.checked = !!st.get("en");
+  enBox.addEventListener("change", () => st.set({ en: enBox.checked }));
+  st.on((s, changed) => {
+    enBox.checked = !!s.en;
+    if (changed.includes("region")) paintFarms();
+    if (changed.some((k) => ["from", "to", "region", "farm", "status", "q"].includes(k))) loadOrders();
+    if (changed.some((k) => k === "sq" || k === "en")) renderStock();
+    if (changed.includes("hours")) paintHours();
+  });
+
+  /* Look-back for the manual "Get …" buttons (1–720 h). */
+  const hoursPills = PH.pills("#co-hours-presets", String(st.get("hours")), (v) => st.set({ hours: +v }));
+  const hoursInput = $("co-hours");
+  function paintHours() {
+    const h = clampHours(st.get("hours"));
+    hoursInput.value = h;
+    hoursPills.paint(String(h));
+  }
+  const clampHours = (v) => Math.min(720, Math.max(1, Math.floor(+v || 24)));
+  hoursInput.addEventListener("change", () => {
+    const h = clampHours(hoursInput.value);
+    hoursInput.value = h;
+    st.set({ hours: h });
+  });
+  paintHours();
+
+  /* ── Tables (created once; .update() on every render) ── */
+  const orderTable = PH.table("#co-orders", {
+    columns: [
+      { key: "_sel", label: "", sortable: false, width: "44px", html: (v, r) => (canSubmit(r) ? `<label class="ph-check"><input type="checkbox" data-sel="${PH.esc(r.name)}"${orderSel.has(r.name) ? " checked" : ""} aria-label="Select ${PH.esc(r.name)}"></label>` : "") },
+      { key: "name", label: "Order", cls: "is-nowrap", html: (v, r) => PH.html`<a class="ph-link" href="${PH.docUrl(r.doctype, r.name)}" target="_blank" rel="noopener">${v}</a>${r.doctype !== "Sales Order" ? PH.raw(` <span class="ph-muted">(${PH.esc(r.doctype)})</span>`) : ""}` },
+      { key: "kind", label: "Type", html: (v) => PH.html`<span class="ph-badge${v === "Predeal" ? " ph-badge--signal" : v === "Fulfilled" ? " ph-badge--good" : ""}">${v || "—"}</span>` },
+      { key: "channel_ref", label: "Ref", html: (v, r) => PH.html`<span class="ph-mono" title="${r.po_no || ""}">${v || "—"}</span>` },
+      { key: "customer_name", label: "Customer", cls: "is-wrap", sortValue: (r) => r.customer_name || r.customer, html: (v, r) => PH.html`<div class="ph-strong">${r.customer_name || r.customer || "—"}</div>${r.custom_consignee ? PH.html`<div class="ph-muted">${r.custom_consignee}</div>` : ""}` },
+      { key: "transaction_date", label: "Date", cls: "is-nowrap", format: (v) => PH.fmt.date(v, true) },
+      { key: "delivery_date", label: "Delivery", cls: "is-nowrap", format: (v) => PH.fmt.date(v, true) },
+      { key: "farms", label: "Farm", cls: "is-nowrap", html: (v) => (v ? PH.esc(v) : '<span class="ph-muted" title="Order has no farm">—</span>') },
+      { key: "ordered_stems", label: "Stems", num: true },
+      { key: "value", label: "Value", num: true, html: (v, r) => PH.html`<span title="Grand total incl. tax: ${money(r.grand_total, r.currency)}">${money(v, r.currency)}</span>` },
+      { key: "status", label: "Status", cls: "is-nowrap", sortValue: (r) => r.docstatus + (r.status || ""), html: (v, r) => statusBadge(r) + (canSubmit(r) ? ` <button class="ph-btn ph-btn--sm" type="button" data-submit="${PH.esc(r.name)}">Submit</button>` : "") },
+    ],
+    rows: [],
+    empty: "No orders",
+  });
+
+  const scheduleTable = PH.table("#co-schedules", {
+    columns: [
+      { key: "label", label: "Job", sortable: false, cls: "is-strong" },
+      { key: "enabled", label: "On", sortable: false, html: (v, r) => `<label class="ph-switch" title="${v ? "On — click to stop" : "Off — click to start"}"><input type="checkbox" data-sched-on="${PH.esc(r.key)}"${v ? " checked" : ""}${canEdit() ? "" : " disabled"} aria-label="${PH.esc(r.label)} on"><i></i></label>` },
+      { key: "frequency", label: "Every", sortable: false, html: (v, r) => freqCell(r) },
+      { key: "last_run", label: "Last run", sortable: false, cls: "is-nowrap", format: (v) => (v ? PH.fmt.datetime(v) : "—") },
+      { key: "next_run", label: "Next run", sortable: false, cls: "is-nowrap", format: (v, r) => (r.enabled && v ? PH.fmt.datetime(v) : "—") },
+    ],
+    rows: [],
+    empty: "No schedules configured",
+    emptyText: "Scheduled jobs appear here once the settings define them.",
+  });
+
+  const stockCfg = {
+    columns: [
+      { key: "_sel", label: "", sortable: false, width: "44px", html: (v, r) => `<label class="ph-check"><input type="checkbox" data-ssel="${PH.esc(r.key)}"${stockSel.has(r.key) ? " checked" : ""} aria-label="Select ${PH.esc(r.item_name)} ${PH.esc(r.stem_length)}"></label>` },
+      { key: "item_name", label: "Variety", cls: "is-strong" },
+      { key: "stem_length", label: "Stem length", sortValue: (r) => parseInt(canonLen(r.stem_length), 10) || 0, format: (v) => v || "—" },
+      { key: "total", label: "Shelf qty", num: true },
+      { key: "rate", label: "Price / stem", num: true, html: (v, r) => priceCell(r) },
+      { key: "qty", label: "Qty to offer", num: true, sortable: false, html: (v, r) => stepperCell(r) },
+      { key: "enabled", label: "Status", sortValue: (r) => (r.enabled ? 1 : 0), html: (v, r) => (r.enabled ? `<span class="ph-badge ph-badge--good">Enabled · ${PH.fmt.num(r.published_qty)}</span>` : '<span class="ph-badge">Not offered</span>') },
+    ],
+    rows: [],
+    tall: true,
+    empty: "No stock on any shelf",
+  };
+  const stockTable = PH.table("#co-stock", stockCfg);
+
+  const whTable = PH.table("#co-wh", {
+    columns: [
+      { key: "item_name", label: "Variety", cls: "is-strong", format: (v, r) => v || r.item_code },
+      { key: "stem_length", label: "Stem length", format: (v) => v || "—" },
+      { key: "warehouse", label: "Warehouse" },
+      { key: "qty", label: "Qty", num: true, total: true },
+      { key: "price_per_stem", label: "Price / stem", num: true, format: (v) => (v ? PH.fmt.num(v, 2) : "—") },
+    ],
+    rows: [],
+    tall: true,
+    empty: "No stock listed",
+  });
+
+  const liveTable = CH.liveOffers
+    ? PH.table("#co-live", {
+        columns: [
+          { key: "offer_id", label: "Offer", html: (v) => PH.html`<span class="ph-mono">${v}</span>` },
+          { key: "variety", label: "Variety", html: (v, r) => PH.html`<div class="ph-strong">${v || "—"}</div>${r.type ? PH.html`<div class="ph-muted">${r.type}</div>` : ""}` },
+          { key: "color", label: "Colour" },
+          { key: "size", label: "Size", format: (v, r) => r.sizes_stems || v || "—" },
+          { key: "quantity", label: "Boxes", num: true },
+          { key: "packing", label: "Packing" },
+          { key: "price_per_stem", label: "Price / stem", num: true, html: (v, r) => PH.html`<span title="${r.price_per_stem_list || ""}">${v ? PH.fmt.num(v, 2) : r.price_per_stem_list || "—"}</span>` },
+          { key: "price", label: "Box price", num: true, format: (v) => (v ? PH.fmt.num(v, 2) : "—") },
+          { key: "box_type", label: "Box" },
+          { key: "date_end", label: "Runs", cls: "is-nowrap", format: (v, r) => PH.fmt.date(r.date_start, true) + " → " + PH.fmt.date(v, true) },
+        ],
+        rows: [],
+        empty: "No live offers running",
+        emptyText: "Use Refresh from Biflorica to fetch what is running now.",
+      })
+    : null;
+  if (CH.liveOffers) $("co-live-card").hidden = false;
+
+  /* ── Load ── */
+  PH.kpiSkeleton("#kpis", ["Orders", "Drafts", "Stems ordered", "Order value", "Stems offered"]);
+  function load(background) {
+    const my = ++seq;
+    if (!background) {
+      PH.loadingKpis("#kpis", true);
+      PH.skeleton("#co-orders", "rows", 6);
+      PH.skeleton("#co-schedules", "rows", 3);
+      PH.skeleton("#co-stock", "rows", 5);
+    }
+    // The overview's own order list is not used (orders come from ORDERS_API),
+    // so ask it for the smallest window.
+    const ov = PH.call(PORTAL + "get_channel_overview", { channel: KEY, days: 1 }, { silent: true, type: "GET" })
+      .then((res) => {
+        if (my !== seq) return;
+        OV = res || {};
+        OV.settings = OV.settings || {};
+        PH.markUpdated();
+        renderSettings();
+        renderSchedules();
+        renderLiveOffers();
+        renderKpis();
+        return loadStock(background);
+      })
+      .catch((e) => {
+        if (my !== seq) return;
+        if (background) return PH.toast(e.message, "bad");
+        const retry = () => load();
+        PH.error("#co-schedules", e.message, retry);
+        PH.error("#co-stock", e.message, retry);
+        if (liveTable) PH.error("#co-live", e.message, retry);
+      });
+    return Promise.all([ov, loadOrders(background)]);
+  }
+
+  /* Orders + KPIs: every filter is applied on the server (region, farm,
+     status, search, order-date range); KPIs cover the full filtered set. */
+  function loadOrders(background) {
+    const my = ++ordSeq;
+    const s = st.get();
+    if (!background) {
+      PH.loadingKpis("#kpis", true);
+      PH.skeleton("#co-orders", "rows", 6);
+    }
+    return PH.call(ORDERS_API, { channel: KEY, from_date: s.from, to_date: s.to, region: s.region, farm: s.farm, status: s.status, q: s.q }, { silent: true, type: "GET" })
+      .then((res) => {
+        if (my !== ordSeq) return;
+        ORD = res || {};
+        paintFarms();
+        renderOrders();
+      })
+      .catch((e) => {
+        if (my !== ordSeq) return;
+        if (background) return PH.toast(e.message, "bad");
+        PH.loadingKpis("#kpis", false);
+        PH.error("#co-orders", e.message, () => loadOrders());
+      });
+  }
+
+  /* Farm options: farms seen on these orders' pick lists, narrowed to the region. */
+  const farmSeen = new Set();
+  function paintFarms() {
+    ((ORD && ORD.farm_options) || []).forEach((f) => farmSeen.add(f));
+    const cur = st.get("farm");
+    if (cur) farmSeen.add(cur);
+    const rf = PH.regionFarms(st.get("region"));
+    const list = [...farmSeen].filter((f) => !rf || rf.includes(f) || f === cur).sort();
+    PH.options("#f-farm", list, cur || "");
+  }
+
+  /* ── Settings card ── */
+  const canEdit = () => !!(OV && OV.can_edit_settings);
+  function renderSettings() {
+    const s = OV.settings;
+    const n = [];
+    if ((s.missing_credentials || []).length) n.push([`${CH.settingsDoctype} is missing: ${s.missing_credentials.join(", ")}. Getting orders will fail until they are filled in.`, "warn"]);
+    notes(n);
+
+    PH.set("#co-facts", [
+      ["Creates", s.order_doctype || "Sales Order"],
+      ["Customer", s.customer || "— per order"],
+      ["Warehouse", s.warehouse || "—"],
+      ["Stock source", s.use_shelf_stock ? "Shelves" : "Warehouse"],
+    ].map(([k, v]) => PH.html`<dt>${k}</dt><dd>${v}</dd>`).join(""));
+    PH.text("#co-poll-meta", "Uses " + CH.settingsDoctype);
+
+    // Scheduled import look-back. Biflorica's job looks back at least one run
+    // interval, so the hint says what the job will really use.
+    const ro = !canEdit();
+    const inp = $("co-sched-hours");
+    inp.value = s.period_hours || (KEY === "floriday" ? 24 : "");
+    inp.placeholder = KEY === "floriday" ? "24" : "all";
+    inp.disabled = ro;
+    $("co-sched-save").disabled = ro;
+    const eff = s.scheduled_lookback_hours;
+    let hint = eff ? `Each scheduled run gets orders from the last ${eff} h.` : "Each scheduled run gets every order.";
+    if (KEY === "biflorica") {
+      const deals = (s.schedules || []).find((r) => r.key === "deals") || {};
+      if (eff && eff !== s.period_hours && deals.frequency) hint += ` It runs ${String(deals.frequency).toLowerCase()}, so it never looks back less than one run.`;
+    }
+    PH.text("#co-sched-hint", ro ? `${hint} Read only — needs write access to ${CH.settingsDoctype}.` : hint);
+
+    // Price list (blank = customer default).
+    const sel = $("co-pricelist");
+    const lists = OV.price_lists || [];
+    const current = s.price_list || "";
+    const known = lists.some((p) => p.name === current);
+    PH.set(sel, PH.html`<option value="">— customer default —</option>${current && !known ? PH.html`<option value="${current}">${current} (disabled)</option>` : ""}${lists.map((p) => PH.html`<option value="${p.name}">${p.name}${p.currency ? " · " + p.currency : ""}</option>`)}`);
+    sel.value = current;
+    sel.dataset.current = current;
+    sel.disabled = ro;
+    sel.title = ro ? `You need write access to ${CH.settingsDoctype} to change this` : `Saved on ${CH.settingsDoctype}`;
+
+    PH.set("#co-polls", CH.polls.map((p) => PH.html`<button class="ph-btn ph-btn--primary" type="button" data-poll="${p.id}">${p.label}</button>`).join(""));
+  }
+
+  $("co-sched-save").addEventListener("click", (e) => {
+    const btn = e.currentTarget;
+    const hours = Math.floor(+$("co-sched-hours").value || 0);
+    if (hours < 1 || hours > 720) return report("Enter between 1 and 720 hours.", "orange");
+    busy(btn, true, "Saving…");
+    PH.call(PORTAL + "set_channel_period", { channel: KEY, hours })
+      .then((res) => {
+        const eff = res && res.scheduled_lookback_hours;
+        report(`Scheduled ${CH.label} imports now look back ${hours} h${eff && eff !== hours ? ` (${eff} h, one full run)` : ""}.`, "green");
+        return load(true);
+      })
+      .catch(() => {})
+      .finally(() => busy(btn, false));
+  });
+
+  $("co-pricelist").addEventListener("change", (e) => {
+    const sel = e.currentTarget;
+    const price_list = sel.value, previous = sel.dataset.current || "";
+    if (price_list === previous) return;
+    sel.disabled = true;
+    PH.call(PORTAL + "set_channel_price_list", { channel: KEY, price_list })
+      .then(() => {
+        report(`${CH.label} now prices on ${price_list || "the customer default price list"}.`, "green");
+        return load(true);
+      })
+      .catch(() => { sel.value = previous; })
+      .finally(() => { sel.disabled = !canEdit(); });
+  });
+
+  /* Manual import over the chosen look-back (the Single's Period is untouched). */
+  $("co-polls").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-poll]");
+    if (!btn) return;
+    const p = CH.polls.find((x) => x.id === btn.dataset.poll);
+    const hours = clampHours(st.get("hours"));
+    busy(btn, true, "Getting…");
+    run(PORTAL + "poll_orders", { channel: KEY, kind: p.id, hours })
+      .then((res) => {
+        p.format(res).forEach(([m, c]) => report(`${p.label} · last ${hours} h — ${m}`, c));
+        return load(true);
+      })
+      .catch((err) => report(err.message, "red"))
+      .finally(() => busy(btn, false));
+  });
+
+  /* ── Result wording (same as the desk forms) ── */
+  function fmtBifloricaDeals(res) {
+    res = res || {};
+    const s = res.summary || {};
+    const out = [];
+    if (!res.success && !s.failed) return [[res.message || "Request failed", "red"]];
+    const created = s.created || [], existing = s.existing || [], failed = s.failed || [], incomplete = s.incomplete || [];
+    if (created.length) out.push(["Created: " + created.map((c) => c.sales_order).join(", "), "green"]);
+    if (existing.length) out.push(["Already exists: " + existing.map((x) => `${x.box_label} → ${x.sales_order}`).join(", "), "orange"]);
+    if (incomplete.length) out.push(["Set a Consignee before submitting: " + incomplete.map((c) => c.sales_order).join(", "), "orange"]);
+    if (failed.length) {
+      if (s.shared_reason) out.push([`All ${failed.length} failed: ${s.shared_reason}`, "red"]);
+      else {
+        const by = {};
+        failed.forEach((f) => { const r = f.reason || "rejected"; (by[r] = by[r] || []).push(f.box_label || f.deal_id); });
+        out.push(["Failed: " + Object.keys(by).map((r) => `${by[r].join(", ")} (${r})`).join("; "), "red"]);
+      }
+    }
+    if (!out.length) out.push([res.message || "No new orders", "blue"]);
+    return out;
+  }
+  function fmtFloridayOrders(m) {
+    m = m || {};
+    if (m.status === "error") return [["Sync failed: " + (m.message || "unknown error"), "red"]];
+    const s = m.summary || {};
+    const processed = s.processed || 0, errors = s.errors || 0, duplicates = s.duplicates || 0;
+    const dateFiltered = s.date_filtered || 0, skipped = s.skipped || 0, total = s.total_from_api || 0;
+    if (processed === 0 && errors === 0) {
+      const why = [];
+      if (duplicates) why.push(`${duplicates} already imported`);
+      if (dateFiltered) why.push(`${dateFiltered} outside the time window`);
+      if (skipped) {
+        const sts = Object.keys(s.skipped_statuses || {});
+        why.push(sts.length ? `${skipped} skipped (status ${sts.join(", ")})` : `${skipped} skipped`);
+      }
+      return [[why.length ? `No new sales orders — of ${total} fetched: ${why.join(", ")}` : "No sales orders returned by Floriday", "blue"]];
+    }
+    const parts = [];
+    if (processed) parts.push(`Created ${processed} sales order(s)`);
+    if (duplicates) parts.push(`${duplicates} already imported`);
+    if (errors) parts.push(`${errors} error(s)`);
+    const out = [[parts.join(", "), errors ? "orange" : "green"]];
+    (m.results || []).filter((r) => r.status === "error").slice(0, 5).forEach((r) => out.push([`Order ${String(r.floriday_order_id || "").slice(-8)}: ${r.error}`, "red"]));
+    return out;
+  }
+
+  /* ── Schedules ── */
+  function freqCell(r) {
+    if (r.shared_with) return PH.html`<span class="ph-muted" title="Runs with the ${r.shared_with} job">${r.frequency || "—"} · with ${r.shared_with}</span>`;
+    const opts = (r.frequency_options || []).map((o) => PH.html`<option value="${o}"${o === r.frequency ? PH.raw(" selected") : ""}>${o}</option>`);
+    return PH.html`<select class="ph-select" data-sched-freq="${r.key}" aria-label="${r.label} frequency"${canEdit() ? "" : PH.raw(" disabled")}>${opts}</select>${r.frequency === "Cron" ? PH.html`<div class="ph-mono ph-muted ph-mt">${r.cron_format || "no cron set"}</div>` : ""}`;
+  }
+  function renderSchedules() {
+    PH.text("#co-sched-meta", canEdit() ? "Saved on " + CH.settingsDoctype : "Read only — needs write access to " + CH.settingsDoctype);
+    scheduleTable.update(OV.settings.schedules || []);
+  }
+  const schedRow = (key) => (OV.settings.schedules || []).find((r) => r.key === key) || {};
+  $("co-schedules").addEventListener("change", (e) => {
+    const on = e.target.closest("[data-sched-on]");
+    if (on) return saveSchedule(on.dataset.schedOn, { enabled: on.checked ? 1 : 0 }, on);
+    const fq = e.target.closest("[data-sched-freq]");
+    if (!fq) return;
+    const key = fq.dataset.schedFreq, row = schedRow(key);
+    if (fq.value !== "Cron") return saveSchedule(key, { frequency: fq.value }, fq);
+    // Cron needs an expression first; cancelling puts the old frequency back.
+    let saved = false;
+    const body = document.createElement("div");
+    body.innerHTML = '<div class="ph-field"><label for="co-cron">Cron expression</label><input class="ph-control ph-mono" id="co-cron" placeholder="0 */2 * * *"><div class="ph-field__hint">minute hour day month weekday — e.g. 0 */2 * * * runs every two hours.</div></div>';
+    body.querySelector("input").value = row.cron_format || "";
+    PH.modal({
+      title: "Cron schedule", sub: row.label || key, body,
+      actions: [
+        { label: "Cancel" },
+        { label: "Save", primary: true, onClick: () => {
+          const cron = body.querySelector("input").value.trim();
+          if (!cron) { report("Enter a cron expression.", "orange"); return false; }
+          saved = true;
+          saveSchedule(key, { frequency: "Cron", cron_format: cron }, fq);
+        } },
+      ],
+      onClose: () => { if (!saved) fq.value = row.frequency || ""; },
+    });
+  });
+  function saveSchedule(key, args, el) {
+    const row = schedRow(key);
+    el.disabled = true;
+    return PH.call(PORTAL + "set_channel_schedule", Object.assign({ channel: KEY, key }, args))
+      .then((res) => {
+        OV.settings.schedules = (res && res.schedules) || OV.settings.schedules;
+        const now = schedRow(key);
+        const what = "enabled" in args ? (now.enabled ? "switched on" : "switched off") : `set to ${now.frequency}${now.frequency === "Cron" ? " (" + now.cron_format + ")" : ""}`;
+        report(`${row.label || key} ${what}.`, "green");
+        renderSchedules();
+        return load(true);
+      })
+      .catch(() => renderSchedules());
+  }
+
+  /* ── Orders ── */
+  const canSubmit = (r) => r.doctype === "Sales Order" && r.docstatus === 0;
+  function statusBadge(r) {
+    if (r.docstatus === 0) return '<span class="ph-badge ph-badge--warn">Draft</span>';
+    if (r.docstatus === 2) return '<span class="ph-badge ph-badge--bad">Cancelled</span>';
+    return PH.html`<span class="ph-badge ph-badge--good">${r.status || "Submitted"}</span>`.__raw;
+  }
+  const visibleOrders = () => (ORD && ORD.orders) || [];
+  function scopeText() {
+    const s = st.get();
+    const where = s.farm ? s.farm : s.region ? s.region : "";
+    return PH.date.label(s.from, s.to) + (where ? " · " + where + " orders" : "");
+  }
+  function renderKpis() {
+    if (!ORD) return; // the order KPIs paint once the orders reply is in
+    const k = ORD.kpis || {};
+    const vals = k.value_by_currency || [];
+    const stock = OV ? stockSummary() : null;
+    const scoped = !!(st.get("farm") || st.get("region"));
+    PH.kpis("#kpis", [
+      { label: "Orders", value: k.orders || 0, unit: (k.submitted || 0) + " submitted · " + scopeText(), onClick: () => st.set({ status: "all" }), active: st.get("status") === "all" },
+      { label: "Drafts", value: k.drafts || 0, unit: k.drafts ? "submit to confirm on " + CH.label : "nothing waiting", onClick: () => st.set({ status: "draft" }), active: st.get("status") === "draft" },
+      { label: "Stems ordered", value: k.ordered_stems || 0, unit: scoped ? (st.get("farm") || st.get("region")) + " orders" : "all lines" },
+      { label: "Order value", value: vals.length ? PH.fmt.money(vals[0].value, vals[0].currency, 0) : "—", title: vals.map((v) => money(v.value, v.currency)).join(" · "), unit: vals.length > 1 ? vals.slice(1).map((v) => PH.fmt.money(v.value, v.currency, 0)).join(" · ") : k.orders ? "line amounts, excl. tax" : "no orders" },
+      { label: "Stems offered", value: stock ? stock.value : "—", unit: stock ? stock.unit + " · now, all farms (not dated)" : "loading stock…" },
+    ]);
+  }
+  function renderOrders() {
+    if (!ORD) return;
+    renderKpis();
+    const rows = visibleOrders();
+    // Drop selections that are no longer visible drafts.
+    const submittable = rows.filter(canSubmit);
+    const ok = new Set(submittable.map((r) => r.name));
+    [...orderSel].forEach((n) => { if (!ok.has(n)) orderSel.delete(n); });
+
+    PH.text("#co-orders-count", PH.fmt.num(ORD.total || 0));
+    PH.text("#co-orders-meta", `Imported from ${CH.label} · ordered ${scopeText()}` + (ORD.truncated ? ` · showing the latest ${PH.fmt.num(rows.length)} of ${PH.fmt.num(ORD.total)} (KPIs cover all)` : "") + " · cancelled orders not shown");
+    const filtered = st.get("status") !== "all" || st.get("q") || st.get("region") || st.get("farm");
+    orderTable.update(rows);
+    if (!rows.length) PH.empty("#co-orders", filtered ? "No orders match these filters" : `No ${CH.label} orders ordered ${PH.date.label(st.get("from"), st.get("to"))}`, filtered ? "Clear the search, region or farm, or switch to All. A farm or region only matches orders that carry a farm." : `Widen the date range, or use ${CH.polls.map((p) => p.label).join(" / ")} below to import recent orders.`);
+    $("co-export").disabled = !rows.length;
+    syncOrderSel(submittable.length);
+  }
+  function syncOrderSel(nSubmittable) {
+    if (nSubmittable == null) nSubmittable = visibleOrders().filter(canSubmit).length;
+    const n = orderSel.size;
+    const btn = $("co-submit-sel");
+    btn.hidden = !nSubmittable;
+    btn.disabled = !n;
+    btn.textContent = n ? `Submit & approve ${n} selected` : "Submit & approve selected";
+    $("co-selall-wrap").hidden = !nSubmittable;
+    const all = $("co-selall");
+    all.checked = !!nSubmittable && n === nSubmittable;
+    all.indeterminate = n > 0 && n < nSubmittable;
+  }
+  $("co-orders").addEventListener("change", (e) => {
+    const c = e.target.closest("[data-sel]");
+    if (!c) return;
+    if (c.checked) orderSel.add(c.dataset.sel); else orderSel.delete(c.dataset.sel);
+    syncOrderSel();
+  });
+  $("co-orders").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-submit]");
+    if (b) submitOrders([b.dataset.submit]);
+  });
+  $("co-selall").addEventListener("change", (e) => {
+    const on = e.currentTarget.checked;
+    visibleOrders().filter(canSubmit).forEach((r) => (on ? orderSel.add(r.name) : orderSel.delete(r.name)));
+    PH.$$("#co-orders [data-sel]").forEach((c) => { c.checked = on; });
+    syncOrderSel();
+  });
+  $("co-submit-sel").addEventListener("click", () => submitOrders([...orderSel]));
+
+  /* Confirmation lists exactly what will be submitted and what approval means. */
+  function submitOrders(names) {
+    if (!names.length) return report("Tick at least one draft order.", "orange");
+    const byName = new Map(visibleOrders().map((r) => [r.name, r]));
+    const rows = names.map((n) => byName.get(n) || { name: n });
+    const body = `<p class="ph-muted ph-mb">${PH.esc(CH.approve)}</p><div class="ph-list ph-list--plain">${rows.map((r) => PH.html`<div class="ph-list__row">
+        <div><div class="ph-list__name">${r.name} ${r.kind ? PH.html`<span class="ph-badge${r.kind === "Predeal" ? " ph-badge--signal" : ""}">${r.kind}</span>` : ""}</div>
+          <div class="ph-list__meta">${r.customer_name || r.customer || ""}</div>
+          ${KEY === "biflorica" && !r.custom_consignee ? PH.raw('<div class="ph-list__meta"><span class="ph-warn">No consignee set</span></div>') : ""}</div>
+        <div class="ph-list__qty">${r.grand_total != null ? money(r.grand_total, r.currency) : ""}</div>
+      </div>`.__raw).join("")}</div>`;
+    PH.modal({
+      title: `Submit ${PH.fmt.plural(names.length, "order")}`,
+      sub: CH.label,
+      size: "lg",
+      body,
+      actions: [
+        { label: "Cancel" },
+        { label: CH.confirmLabel, primary: true, onClick: () =>
+          PH.call(PORTAL + "submit_channel_orders", { channel: KEY, names: JSON.stringify(names) }).then((res) => {
+            res = res || {};
+            const ok = res.submitted || [], bad = res.failed || [];
+            if (ok.length) {
+              const how = [...new Set(ok.map((o) => o.approved).filter(Boolean))];
+              report(`Submitted ${ok.map((o) => o.sales_order).join(", ")}${how.length ? " — " + how.join(", ") : ""}.`, "green");
+            }
+            bad.forEach((f) => report(`${f.sales_order} not submitted: ${f.reason}`, "red"));
+            ok.forEach((o) => orderSel.delete(o.sales_order));
+            load(true);
+          }) },
+      ],
+    });
+  }
+
+  $("co-export").addEventListener("click", () => {
+    const rows = visibleOrders();
+    if (!rows.length) return;
+    PH.csv(`${KEY}-orders-${PH.date.today()}.csv`, rows, [
+      { key: "name", label: "Order" },
+      { key: "doctype", label: "Document" },
+      { key: "kind", label: "Type" },
+      { key: "po_no", label: "Customer PO" },
+      { key: "channel_ref", label: CH.label + " ref" },
+      { key: "customer", label: "Customer" },
+      { key: "customer_name", label: "Customer name" },
+      { key: "custom_consignee", label: "Consignee" },
+      { key: "transaction_date", label: "Date" },
+      { key: "delivery_date", label: "Delivery" },
+      { key: "farms", label: "Farm" },
+      { key: "ordered_stems", label: "Stems" },
+      { key: "currency", label: "Currency" },
+      { key: "value", label: "Value excl. tax" },
+      { key: "grand_total", label: "Grand total" },
+      { key: "status", label: "Status", csv: (v, r) => (r.docstatus === 0 ? "Draft" : r.docstatus === 2 ? "Cancelled" : v || "Submitted") },
+    ]);
+  });
+
+  /* ── Live offers (Biflorica) — only offers still running ── */
+  function renderLiveOffers() {
+    if (!liveTable) return;
+    const rows = (OV.live_offers || []).filter((r) => !r.expired);
+    PH.text("#co-live-count", PH.fmt.num(rows.length));
+    PH.text("#co-live-meta", rows.length ? `${rows.length} running · last fetched snapshot` : "Fetch to see what is running on Biflorica");
+    liveTable.update(rows);
+  }
+  $("co-live-refresh").addEventListener("click", (e) => {
+    const btn = e.currentTarget;
+    busy(btn, true, "Fetching…");
+    run(CH.liveOffers.method)
+      .then((res) => {
+        if (res && res.success === false) return report(res.message || "Could not fetch live offers", "red");
+        // Counted from what the table shows, so ended offers never appear here.
+        return load(true).then(() => {
+          const running = ((OV && OV.live_offers) || []).filter((r) => !r.expired).length;
+          report(running ? `${running} live offer(s) running on Biflorica.` : "No live offers running on Biflorica.", running ? "green" : "blue");
+        });
+      })
+      .catch((err) => report(err.message, "red"))
+      .finally(() => busy(btn, false));
+  });
+
+  /* ── Stock ── */
+  function stockSummary() {
+    if (!OV) return null;
+    if (!OV.settings.use_shelf_stock) {
+      const rows = OV.warehouse_stock || [];
+      return { value: PH.fmt.num(PH.sum(rows, "qty")), unit: `${PH.fmt.plural(rows.length, "row")} in ${OV.settings.warehouse || "warehouse"}` };
+    }
+    if (!stockReady) return null;
+    const en = STOCK.filter((r) => r.enabled);
+    return { value: PH.fmt.num(PH.sum(en, "published_qty")), unit: `${PH.fmt.plural(en.length, "length")} enabled` };
+  }
+
+  function renderPushTools() {
+    const s = OV.settings;
+    const tools = [];
+    if (!s.use_shelf_stock && CH.warehouseRefresh) tools.push(PH.html`<button class="ph-btn ph-btn--sm" type="button" data-push="wh">${CH.warehouseRefresh.label}</button>`);
+    tools.push(PH.html`<button class="ph-btn ph-btn--sm ph-btn--primary" type="button" data-push="push">${CH.push.label}</button>`);
+    PH.set("#co-stock-push", tools.join(""));
+  }
+  $("co-stock-push").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-push]");
+    if (!b) return;
+    if (b.dataset.push === "push") return CH.push.run(b);
+    busy(b, true, "Refreshing…");
+    run(CH.warehouseRefresh.method)
+      .then((res) => {
+        report((res && res.message) || "Stock refreshed", res && res.success === false ? "red" : "green");
+        return load(true);
+      })
+      .catch((err) => report(err.message, "red"))
+      .finally(() => busy(b, false));
+  });
+
+  function loadStock(background) {
+    renderPushTools();
+    const s = OV.settings;
+    if (!s.use_shelf_stock) {
+      renderWarehouseStock();
+      return Promise.resolve();
+    }
+    $("co-wh").hidden = true;
+    $("co-stock").hidden = false;
+    $("co-stock-tools").hidden = false;
+    const step = CHANNEL_MULTIPLE[KEY];
+    PH.set("#co-stock-note", `<div class="ph-notice ph-notice--signal">${PH.icon("info")}<div>${PH.esc(`Enabled stock is shared by every sales channel — enabling a row here also offers it on the other channels. ${CH.push.label} sends the enabled rows to ${CH.label}.${step ? ` Quantities go in steps of ${step} stems, one ${CH.label} batch.` : ""}`)}</div></div>`);
+    PH.text("#co-stock-meta", `From shelves · priced on ${s.price_list || "the customer default price list"}`);
+    const my = ++stockSeq;
+    if (!background && !stockReady) PH.skeleton("#co-stock", "rows", 5);
+    return Promise.all([
+      PH.call(PICKER + "get_shelf_rows", {}, { silent: true, type: "GET" }).catch(() => []),
+      PH.call(PICKER + "get_enabled_stock_rows", {}, { silent: true, type: "GET" }).catch(() => []),
+    ]).then(([rows, enabled]) => {
+      if (my !== stockSeq) return;
+      const prev = new Map(STOCK.map((r) => [r.key, r.rate]));
+      STOCK = combineStock(rows || [], enabled || []);
+      STOCK.forEach((r) => { if (prev.has(r.key)) r.rate = prev.get(r.key); });
+      const keys = new Set(STOCK.map((r) => r.key));
+      [...stockSel].forEach((k) => { if (!keys.has(k)) stockSel.delete(k); });
+      stockReady = true;
+      renderKpis();
+      renderStock();
+      return loadPrices(my);
+    });
+  }
+
+  // Same combine rules as the desk picker (shelf_move.js): one row per
+  // (item, stem length) summed across shelves; published rows folded in so an
+  // enabled length with no shelf stock stays editable; qty capped at stock and
+  // snapped to whole bunches (and whole Floriday batches).
+  function combineStock(rows, enabled) {
+    const map = new Map();
+    const blank = (r, k) => ({ key: k, item_code: r.item_code, item_name: r.item_name || r.item_code, stem_length: r.stem_length || "", total: 0, enabled: false, published_qty: 0, bunch: Math.max(1, Math.floor(+r.bunch_size || 1)) });
+    rows.forEach((r) => {
+      const k = rowKey(r.item_code, r.stem_length);
+      if (!map.has(k)) map.set(k, blank(r, k));
+      map.get(k).total += Math.floor(+r.shelf_qty || 0);
+    });
+    enabled.forEach((e) => {
+      const k = rowKey(e.item_code, e.stem_length);
+      if (!map.has(k)) map.set(k, blank(e, k));
+      const a = map.get(k);
+      a.enabled = true;
+      a.published_qty = Math.floor(+e.stock_qty || 0);
+    });
+    const snap = (v, step) => Math.floor(Math.floor(+v || 0) / step) * step;
+    const out = Array.from(map.values());
+    out.forEach((a) => {
+      a.bunch = qtyStep(a.bunch);
+      const cap = snap(a.total, a.bunch);
+      a.max = a.enabled ? Math.max(cap, snap(a.published_qty, a.bunch)) : cap;
+      a.qty = Math.min(snap(a.enabled ? a.published_qty : a.total, a.bunch), a.max);
+      a.rate = null;
+    });
+    out.sort((x, y) => Number(y.enabled) - Number(x.enabled) || y.total - x.total ||
+      String(x.item_name).localeCompare(String(y.item_name)) || String(x.stem_length).localeCompare(String(y.stem_length)));
+    return out;
+  }
+  function qtyStep(bunch) {
+    const m = CHANNEL_MULTIPLE[KEY] || 1;
+    const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+    return (bunch * m) / gcd(bunch, m);
+  }
+
+  function loadPrices(my) {
+    if (!STOCK.length) return Promise.resolve();
+    return PH.call(PICKER + "get_stock_prices", {
+      items: JSON.stringify(STOCK.map((r) => ({ item_code: r.item_code, stem_length: r.stem_length }))),
+      settings_doctype: CH.settingsDoctype,
+    }, { silent: true })
+      .then((res) => {
+        if (my !== stockSeq) return;
+        res = res || {};
+        PRICE_META = { price_list: res.price_list || "", currency: res.currency || "" };
+        const rates = res.rates || {};
+        STOCK.forEach((r) => { r.rate = +rates[r.item_code + "::" + r.stem_length] || 0; });
+        renderStock();
+      })
+      .catch(() => {
+        if (my !== stockSeq) return;
+        STOCK.forEach((r) => { r.rate = 0; });
+        renderStock();
+      });
+  }
+
+  function stockVisible(r) {
+    const s = st.get();
+    if (s.en && !r.enabled) return false;
+    return PH.match(r, s.sq, ["item_name", "item_code", "stem_length"]);
+  }
+  function renderStock() {
+    if (!OV || !OV.settings.use_shelf_stock || !stockReady) return;
+    const rows = STOCK.filter(stockVisible);
+    // A ticked row the filter hides is unticked, so actions only touch what is shown.
+    const vis = new Set(rows.map((r) => r.key));
+    [...stockSel].forEach((k) => { if (!vis.has(k)) stockSel.delete(k); });
+    PH.text("#co-stock-count", `${PH.fmt.num(rows.length)} of ${PH.fmt.plural(STOCK.length, "row")}`);
+    stockCfg.empty = STOCK.length ? "No rows match the filter" : "No stock on any shelf";
+    stockCfg.emptyText = STOCK.length ? "Clear the search or untick Enabled only." : "Stock appears here once stems are put on a shelf.";
+    PH.keepScroll(() => stockTable.update(rows));
+  }
+  const findRow = (key) => STOCK.find((r) => r.key === key);
+
+  function priceCell(r) {
+    if (r.rate === null) return '<span class="ph-muted">…</span>';
+    if (r.rate) return `${PH.esc(money(r.rate, PRICE_META.currency))} <span class="ph-link" role="button" tabindex="0" data-price="${PH.esc(r.key)}">Edit</span>`;
+    return `<span class="ph-bad" title="No rate on ${PH.esc(PRICE_META.price_list || "the price list")} — this row cannot be offered">No price</span> <span class="ph-link" role="button" tabindex="0" data-price="${PH.esc(r.key)}">Set</span>`;
+  }
+  // Qty is stepped, never typed: one step is a whole bunch (a whole 200-stem
+  // batch on Floriday), and stays within 0..max.
+  function stepperCell(r) {
+    const title = r.max ? `Steps of ${r.bunch}; max ${PH.fmt.num(r.max)}` : `Less than ${r.bunch} stems available`;
+    return `<span class="co-stepper" data-key="${PH.esc(r.key)}" title="${PH.esc(title)}">
+      <button class="ph-iconbtn ph-iconbtn--sm" type="button" data-step="-1" aria-label="Decrease"${r.qty <= 0 ? " disabled" : ""}>−</button>
+      <b class="co-stepper__v ph-strong ph-num">${PH.fmt.num(r.qty)}</b>
+      <button class="ph-iconbtn ph-iconbtn--sm" type="button" data-step="1" aria-label="Increase"${r.qty >= r.max ? " disabled" : ""}>+</button>
+    </span>`;
+  }
+  function stepQty(btn) {
+    const box = btn.closest(".co-stepper");
+    const r = box && findRow(box.dataset.key);
+    if (!r) return false;
+    const next = Math.min(r.max, Math.max(0, r.qty + +btn.dataset.step * r.bunch));
+    if (next === r.qty) return false;
+    r.qty = next;
+    box.querySelector(".co-stepper__v").textContent = PH.fmt.num(r.qty);
+    box.querySelector('[data-step="-1"]').disabled = r.qty <= 0;
+    box.querySelector('[data-step="1"]').disabled = r.qty >= r.max;
+    stockSel.add(r.key);
+    const chk = box.closest("tr") && box.closest("tr").querySelector("[data-ssel]");
+    if (chk) chk.checked = true;
+    return true;
+  }
+  const stockEl = $("co-stock");
+  // Press steps once; holding keeps stepping, faster after a moment.
+  stockEl.addEventListener("pointerdown", (e) => {
+    const btn = e.target.closest("[data-step]");
+    if (!btn || btn.disabled || e.button !== 0) return;
+    e.preventDefault();
+    stepQty(btn);
+    let delay = 400, timer = null;
+    const stop = () => {
+      clearTimeout(timer);
+      ["pointerup", "pointerleave", "pointercancel"].forEach((ev) => btn.removeEventListener(ev, stop));
+    };
+    const repeat = () => {
+      if (!stepQty(btn)) return stop();
+      delay = Math.max(60, delay * 0.8);
+      timer = setTimeout(repeat, delay);
+    };
+    ["pointerup", "pointerleave", "pointercancel"].forEach((ev) => btn.addEventListener(ev, stop));
+    timer = setTimeout(repeat, delay);
+  });
+  stockEl.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-step]");
+    if (btn && e.detail === 0) return void stepQty(btn); // keyboard Enter/Space
+    const p = e.target.closest("[data-price]");
+    if (p) openPriceModal(p.dataset.price);
+  });
+  stockEl.addEventListener("keydown", (e) => {
+    const p = e.target.closest("[data-price]");
+    if (p && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openPriceModal(p.dataset.price); }
+  });
+  stockEl.addEventListener("change", (e) => {
+    const c = e.target.closest("[data-ssel]");
+    if (c) c.checked ? stockSel.add(c.dataset.ssel) : stockSel.delete(c.dataset.ssel);
+  });
+
+  function setSelected(enable, btn) {
+    const items = [];
+    STOCK.filter((r) => stockSel.has(r.key) && stockVisible(r)).forEach((r) => {
+      const qty = Math.floor(Math.min(r.qty, r.max) / r.bunch) * r.bunch;
+      if (enable && qty <= 0) return;
+      items.push({ item_code: r.item_code, stem_length: String(r.stem_length || ""), qty });
+    });
+    if (!items.length) return report(enable ? "Tick at least one row with a qty above zero." : "Tick at least one row to disable.", "orange");
+    busy(btn, true, enable ? "Enabling…" : "Disabling…");
+    PH.call(PICKER + "set_enabled_stock", { items: JSON.stringify(items), enabled: enable ? 1 : 0, channel: CH.label })
+      .then((res) => {
+        res = res || {};
+        if (res.unavailable) return report("Nothing was published: " + res.unavailable, "red");
+        let msg = enable ? `${res.updated || 0} length(s) enabled for the channels.` : `${res.updated || 0} length(s) disabled.`;
+        if (enable && res.capped) msg += ` ${res.capped} capped to available stock.`;
+        if (enable && res.below_multiple) msg += ` ${res.below_multiple} skipped: under ${res.multiple} stems.`;
+        report(msg, enable && (res.capped || res.below_multiple) ? "orange" : "green");
+        stockSel.clear();
+        return loadStock(true);
+      })
+      .catch(() => {})
+      .finally(() => busy(btn, false));
+  }
+  $("co-enable").addEventListener("click", (e) => setSelected(true, e.currentTarget));
+  $("co-disable").addEventListener("click", (e) => setSelected(false, e.currentTarget));
+
+  function renderWarehouseStock() {
+    const s = OV.settings;
+    const rows = OV.warehouse_stock || [];
+    $("co-stock-tools").hidden = true;
+    $("co-stock").hidden = true;
+    $("co-wh").hidden = false;
+    stockReady = false;
+    PH.text("#co-stock-meta", `From ${s.warehouse || "the configured warehouse"}`);
+    PH.set("#co-stock-note", `<div class="ph-notice">${PH.icon("info")}<div>${PH.esc(`Use Shelf Stock is off in ${CH.settingsDoctype}, so ${CH.label} is offered the warehouse stock below. Turn it on in the settings to choose stock per shelf from this page.`)}</div></div>`);
+    renderKpis();
+    whTable.update(rows);
+    if (!rows.length) PH.empty("#co-wh", "No stock listed", CH.warehouseRefresh ? `Use ${CH.warehouseRefresh.label} to load it.` : `Nothing in ${s.warehouse || "the configured warehouse"} right now.`);
+  }
+
+  /* ── Price modal ── */
+  function openPriceModal(key) {
+    const r = findRow(key);
+    if (!r) return;
+    const body = document.createElement("div");
+    body.innerHTML = '<div class="ph-field"><label for="co-rate">Price per stem</label><input class="ph-control" id="co-rate" type="number" min="0" step="0.01"></div>';
+    const inp = body.querySelector("input");
+    inp.value = r.rate || "";
+    PH.modal({
+      title: `Price ${r.item_name}${r.stem_length ? " " + r.stem_length : ""}`,
+      sub: PRICE_META.price_list ? `Written to ${PRICE_META.price_list} for this stem length.` : "Written to the channel's price list.",
+      body,
+      actions: [
+        { label: "Cancel" },
+        { label: "Save price", primary: true, onClick: () => {
+          const rate = +inp.value;
+          if (!(rate > 0)) { report("Enter a price greater than zero.", "orange"); return false; }
+          return PH.call(PICKER + "set_stock_price", { item_code: r.item_code, stem_length: r.stem_length, rate, settings_doctype: CH.settingsDoctype }, { silent: true }).then((res) => {
+            r.rate = +(res && res.rate) || rate;
+            report(`Price ${(res && res.action) || "saved"} for ${r.item_name} ${r.stem_length}`, "green");
+            renderStock();
+          });
+        } },
+      ],
+    });
+  }
+
+  /* ── Post Offers (Biflorica) ── */
+  const offerLast = { box: "", packrate: "", minimum: 1, split: false };
+  function openOfferModal() {
+    const types = (OV && OV.box_types) || [];
+    const body = document.createElement("div");
+    body.className = "ph-form ph-form--1";
+    body.innerHTML = `
+      <div class="ph-field"><label for="co-of-box">Box type</label><select class="ph-control" id="co-of-box">${types.map((t) => `<option value="${PH.esc(t)}">${PH.esc(t)}</option>`).join("")}</select></div>
+      <div class="ph-form ph-form--2">
+        <div class="ph-field"><label for="co-of-pack">Packrate (stems per box)</label><input class="ph-control" id="co-of-pack" type="number" min="1" step="1"></div>
+        <div class="ph-field"><label for="co-of-min">Minimum (boxes)</label><input class="ph-control" id="co-of-min" type="number" min="1" step="1"></div>
+      </div>
+      <div class="ph-stack"><label class="ph-check"><input type="checkbox" id="co-of-split"> One offer per stem length</label>
+        <div class="ph-field__hint">Post each stem length as its own offer instead of one box of every length.</div></div>`;
+    const box = body.querySelector("#co-of-box"), pack = body.querySelector("#co-of-pack"), min = body.querySelector("#co-of-min"), split = body.querySelector("#co-of-split");
+    if (types.includes(offerLast.box)) box.value = offerLast.box;
+    pack.value = offerLast.packrate;
+    min.value = offerLast.minimum;
+    split.checked = offerLast.split;
+    PH.modal({
+      title: "Post offers to Biflorica",
+      sub: "Posts every enabled stock row at its price-list rate. Box types are Biflorica's codes plus this site's Box Types.",
+      body,
+      actions: [
+        { label: "Cancel" },
+        { label: "Post offers", primary: true, onClick: () => {
+          const packrate = Math.floor(+pack.value || 0), minimum = Math.floor(+min.value || 0);
+          Object.assign(offerLast, { box: box.value, packrate: pack.value, minimum: min.value, split: split.checked });
+          if (packrate <= 0 || minimum <= 0) { report("Packrate and Minimum are required.", "orange"); return false; }
+          return run(BIF + "post_offers", { box_type: box.value, packrate, minimum, split_lengths: split.checked ? 1 : 0 }).then((res) => {
+            res = res || {};
+            const s = res.summary || {};
+            const ok = s.success_varieties || [], failed = s.failed_varieties || [], skipped = s.skipped_reasons || [];
+            if (res.success === false && !ok.length && !failed.length) report(res.message || "Post Offers failed", "red");
+            if (ok.length) report("Posted: " + ok.join(", "), "green");
+            if (failed.length && !s.settings_hint) report("Failed: " + failed.map((f) => `${f.variety} (${f.reason || "rejected"})`).join(", "), "red");
+            if (s.settings_hint && res.message) report(res.message, "red");
+            skipped.forEach((g) => report(`Not offered — ${g.reason}: ${(g.items || []).join(", ")}`, "orange"));
+            if (res.success !== false && !ok.length && !failed.length && !skipped.length) report(res.message || "No offers processed", "orange");
+            load(true);
+          });
+        } },
+      ],
+    });
+  }
+
+  /* ── Create Batches (Floriday): enabled rows with a mapping, then one batch per row ── */
+  function createFloridayBatches(btn) {
+    busy(btn, true, "Creating…");
+    run(FLO_SET + "get_floriday_batch_rows", {}, "GET")
+      .then((rows) => {
+        rows = Array.isArray(rows) ? rows : [];
+        if (!rows.length) return report("No enabled item has ≥200 stems with a Floriday mapping. Enable stock below first.", "orange");
+        return run(FLO_BATCH + "create_batches_on_floriday", { selected_rows: JSON.stringify(rows) }).then((m) => {
+          if (Array.isArray(m)) {
+            const ok = m.filter((r) => r.status === "success").length;
+            const bad = m.filter((r) => r.status === "failed" || r.status === "error").length;
+            const unmapped = m.filter((r) => r.status === "no_mapping").length;
+            const parts = [];
+            if (ok) parts.push(`Created ${ok} batch(es)`);
+            if (bad) parts.push(`${bad} failed`);
+            if (unmapped) parts.push(`${unmapped} unmapped`);
+            report(parts.join(", ") || "No batches to create", bad ? "orange" : ok ? "green" : "blue");
+          } else {
+            report((m && m.message) || "Done", "blue");
+          }
+        });
+      })
+      .catch((err) => report(err.message, "red"))
+      .finally(() => busy(btn, false));
+  }
+
+  PH.onRefresh(() => load());
+  PH.ready(() => load());
+})();
+</script>
+{% endraw %}
