@@ -131,6 +131,9 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .spec-field select:focus,.card-cell .structure .f select:focus,.modal-card .f select:focus{outline:none;border-color:var(--ink-mute)}
 .spec-field select:disabled,.card-cell .structure .f select:disabled,.modal-card .f select:disabled{cursor:default;opacity:.6}
 .typeahead-wrap{position:relative}
+.rmv-existing-input,.specmm-existing-input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--hairline-2);border-radius:8px;background:var(--surface-2);color:var(--ink);font:500 12px var(--sans)}
+.rmv-existing-input::placeholder,.specmm-existing-input::placeholder{color:var(--ink-faint)}
+.rmv-existing-input:focus,.specmm-existing-input:focus{outline:none;border-color:var(--ink-mute);box-shadow:0 0 0 3px rgba(10,10,10,0.05)}
 .pick-results{position:fixed;background:var(--surface-2);border-radius:10px;box-shadow:var(--shadow-hover);max-height:240px;overflow-y:auto;z-index:900;min-width:220px;display:none}
 .pick-results.show{display:block}
 .pick-results .opt{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;font:500 12px var(--sans);cursor:pointer}
@@ -265,6 +268,7 @@ tr.grand-total .glabel{font:700 11px var(--sans);letter-spacing:.6px;text-transf
 .queue-status.pending{background:rgba(10,10,10,0.05);color:var(--ink-mute)}
 .queue-status.creating{background:var(--signal-soft);color:var(--signal)}
 .queue-status.created{background:var(--good-soft);color:var(--good)}
+.queue-status.duplicate{background:var(--good-soft);color:var(--good)}
 .queue-status.failed{background:var(--bad-soft);color:var(--bad)}
 .queue-status.needs_review{background:var(--warn-soft,rgba(200,140,0,0.12));color:var(--warn)}
 .spec-conflict-block{margin-top:6px;padding:10px 12px;border:1px solid var(--warn);border-radius:10px;background:rgba(200,140,0,0.06)}
@@ -342,7 +346,7 @@ tr.grand-total .glabel{font:700 11px var(--sans);letter-spacing:.6px;text-transf
        of THEM (the spec modal, a quick-add popup) still opens on top of
        this one when triggered from inside it - equal z-index stacks by DOM
        order, and this is the one that needs to sit underneath. -->
-  <div class="modal-backdrop" id="orderReviewBackdrop">
+  <div class="modal-backdrop" id="orderReviewBackdrop" onclick="if(event.target===this) closeOrderReviewModal()">
     <div class="modal-card wide" id="orderReviewCard">
       <div class="ttl">Review &amp; fix this order</div>
       <div class="sub" id="orderReviewSub"></div>
@@ -466,6 +470,7 @@ let IMPORT_DEFAULTS = {}; // single mode only - shared mode keeps defaults per c
 let IMPORT_ITEM_CODE_MAPPING = []; // single mode only - see above
 let IMPORT_QUEUE = [];      // [{header:{}, rows:[{}], unresolved_items:[], default_warehouse, status, order_name, error}]
 let IMPORT_RETURNING_INDEX = null; // set when "fix in editor" was opened from a failed queue item
+let IMPORT_PLATFORM_NAME = null; // the real Order Import Platform name this run's setup save resolved to (single mode: "{customer} Import", auto-named; shared mode: the picked/typed source) - every order in one wizard run shares it, so a Specification rename learned mid-queue (resolveSpecMismatchRow) knows which Customer Order Mapping row to remember it on
 
 function apiCall(method, args, cb){
     frappe.call({ method: API + method, args: args || {}, silent: true, callback: r => cb(r.message || {}), error: () => cb({success:false, error:'Request failed'}) });
@@ -731,8 +736,9 @@ function editorBodyHtml(s, readOnly){
               <input id="f_customer" value="${escHtml(s.customer||'')}" placeholder="Search customer…" autocomplete="off" ${readOnly?'disabled':''}>
               <div class="pick-results" id="customerResults"></div>
             </div>
-            <div class="spec-field"><label>Currency <span class="req">required</span></label>
-              <select id="f_currency" ${readOnly?'disabled':''}>${selOpts(OPTIONS.currencies, s.currency)}</select>
+            <div class="spec-field typeahead-wrap"><label>Currency <span class="req">required</span></label>
+              <input id="f_currency" value="${escHtml(s.currency||'')}" placeholder="Search currency…" autocomplete="off" ${readOnly?'disabled':''}>
+              <div class="pick-results" id="currencyResults"></div>
             </div>
             <div class="spec-field"><label>Price List <span class="req">required</span></label>
               <input id="f_selling_price_list" value="${escHtml(s.selling_price_list||'')}" placeholder="Auto-resolved from customer…" ${readOnly?'disabled':''}>
@@ -755,8 +761,9 @@ function editorBodyHtml(s, readOnly){
             <div class="spec-field"><label>Customer's Purchase Order</label><input id="f_po_no" value="${escHtml(s.po_no||'')}" ${readOnly?'disabled':''}></div>
             <div class="spec-field"><label>S Number <span class="req">required</span></label><input id="f_s_number" value="${escHtml(s.custom_s_number||'')}" ${readOnly?'disabled':''}></div>
             <div class="spec-field"><label>Truck Details <span class="req">required</span></label><input id="f_truck_details" value="${escHtml(s.custom_truck_details||'')}" ${readOnly?'disabled':''}></div>
-            <div class="spec-field"><label>Set Warehouse</label>
-              <select id="f_set_warehouse" ${readOnly?'disabled':''}>${selOpts(OPTIONS.warehouses, s.set_warehouse)}</select>
+            <div class="spec-field typeahead-wrap"><label>Set Warehouse</label>
+              <input id="f_set_warehouse" value="${escHtml(s.set_warehouse||'')}" placeholder="Search warehouse…" autocomplete="off" ${readOnly?'disabled':''}>
+              <div class="pick-results" id="setWarehouseResults"></div>
             </div>
           </div>
         </div>
@@ -792,7 +799,24 @@ function wireEditorBodyInputs(){
     wireTypeahead('f_consignee','consigneeResults', (q,cb)=>apiGet('searchConsignees',{query:q, customer:CURRENT.customer||''},r=>cb((r.consignees||[]).map(c=>({value:c.name,label:c.consignee})))), v=>{ CURRENT.custom_consignee=v; });
     wireTypeahead('f_delivery_point','deliveryPointResults', (q,cb)=>apiGet('searchDeliveryPoints',{query:q, customer:CURRENT.customer||''},r=>cb((r.delivery_points||[]).map(c=>({value:c.name,label:c.name+(c.description?' — '+c.description:'')})))), v=>{ CURRENT.custom_delivery_point=v; });
     wireTypeahead('f_shipping_agent','shippingAgentResults', (q,cb)=>apiGet('searchShippingAgents',{query:q},r=>cb((r.shipping_agents||[]).map(c=>({value:c.name,label:c.name+(c.description?' — '+c.description:'')})))), v=>{ CURRENT.custom_shipping_agent=v; });
+    // Currency/Warehouse are both small, already-loaded lists (OPTIONS.*, fetched
+    // once for the whole editor) - a local filter is enough, no server search
+    // needed the way Customer/Consignee/etc. (real doctype lookups) require.
+    wireTypeahead('f_currency','currencyResults', (q,cb)=>cb(localOptionMatches(OPTIONS.currencies, q)), v=>{ CURRENT.currency=v; onCustomerOrCurrencyChange(); });
+    wireTypeahead('f_set_warehouse','setWarehouseResults', (q,cb)=>cb(localOptionMatches(OPTIONS.warehouses, q)), v=>{ CURRENT.set_warehouse=v; });
 }
+// Synchronous substring filter over a plain pre-fetched option list (what
+// selOpts used to feed a native <select>), shaped the way wireTypeahead's
+// searchFn expects ({value,label} pairs) so Currency/Set Warehouse use the
+// exact same searchable-dropdown widget as Customer/Consignee/etc.
+function localOptionMatches(list, q){
+    const query = (q||'').trim().toLowerCase();
+    return (list||[]).filter(o => !query || o.toLowerCase().includes(query)).slice(0, 50).map(o => ({value:o, label:o}));
+}
+// Still used by the per-line Length/Box Type selects (small, bounded lists -
+// a native <select> is fine there) and the import-setup default-warehouse
+// pickers - only the header's own Currency/Set Warehouse moved to the
+// searchable typeahead above.
 function selOpts(list, current){
     return '<option value="">—</option>' + (list||[]).map(o => `<option value="${escHtml(o)}" ${o===current?'selected':''}>${escHtml(o)}</option>`).join('');
 }
@@ -803,8 +827,6 @@ function wireHeaderInputs(){
         if(!el) return;
         el.addEventListener('change', () => { CURRENT[map[id]] = el.value; });
     });
-    document.getElementById('f_currency').addEventListener('change', function(){ CURRENT.currency = this.value; onCustomerOrCurrencyChange(); });
-    document.getElementById('f_set_warehouse').addEventListener('change', function(){ CURRENT.set_warehouse = this.value; });
 }
 // Fires the moment the customer is picked -- currency doesn't have to be
 // set first (the server resolves it too when there's an unambiguous
@@ -1524,6 +1546,11 @@ function submitRestoreOrder(){
 let IMPORT_SUBVIEW = 'file'; // 'file' | 'who' | 'mapping' | 'queue'
 let IMPORT_FILE_HEADER = null;
 let IMPORT_FILE_ROWS = null;
+let IMPORT_RAW_GRID = null; // every row the file parsed to, BEFORE picking which one is the header - lets the user move the header row without re-choosing the file
+let IMPORT_HEADER_ROW_INDEX = 0; // 0-based index into IMPORT_RAW_GRID of the row treated as the header
+let IMPORT_RAW_TEXT = null; // CSV only - kept so a delimiter change can re-parse without re-reading the file
+let IMPORT_DELIMITER = ','; // CSV only - detected, or overridden by the user
+let IMPORT_FILE_IS_CSV = false;
 
 function openImportWizard(){
     VIEW = 'import';
@@ -1538,9 +1565,15 @@ function openImportWizard(){
     IMPORT_QUEUE = [];
     IMPORT_FILE_HEADER = null;
     IMPORT_FILE_ROWS = null;
+    IMPORT_RAW_GRID = null;
+    IMPORT_HEADER_ROW_INDEX = 0;
+    IMPORT_RAW_TEXT = null;
+    IMPORT_DELIMITER = ',';
+    IMPORT_FILE_IS_CSV = false;
     IMPORT_MODE = 'single';
     IMPORT_CUSTOMER = null;
     IMPORT_EXISTING = null;
+    IMPORT_PLATFORM_NAME = null;
     IMPORT_SHARED_PLATFORMS = [];
     IMPORT_SHARED_PLATFORM_NAME = null;
     IMPORT_NEW_SOURCE_NAME = '';
@@ -1573,22 +1606,52 @@ function renderImportWizard(){
 // The file has to come first now - step 2 needs its real columns, both to offer as
 // the "which column tells customers apart" picker and to read the real buyer codes
 // out of, so there's nothing to auto-detect from before a file is loaded.
+function headerRowPreviewHtml(){
+    if(!IMPORT_RAW_GRID) return '';
+    const row = IMPORT_RAW_GRID[IMPORT_HEADER_ROW_INDEX] || [];
+    const cells = row.filter(c => String(c||'').trim() !== '');
+    if(!cells.length) return `<div class="warn-line">This row looks empty.</div>`;
+    return `<div class="muted" style="font-size:11.5px;margin-top:6px">Treated as columns: ${cells.slice(0,8).map(c=>escHtml(String(c))).join(' · ')}${cells.length>8?' …':''}</div>`;
+}
+function renderImportFileControls(){
+    if(!IMPORT_RAW_GRID) return '';
+    const maxRow = IMPORT_RAW_GRID.length;
+    const delimiterPicker = IMPORT_FILE_IS_CSV ? `
+      <div class="spec-field" style="max-width:220px">
+        <label>Delimiter</label>
+        <select onchange="setImportDelimiter(this.value)">
+          ${Object.entries(DELIMITER_KEYS).map(([key,d]) => `<option value="${key}" ${IMPORT_DELIMITER===d?'selected':''}>${DELIMITER_LABELS[key]}</option>`).join('')}
+        </select>
+      </div>` : '';
+    return `
+      <div class="spec-field-grid" style="margin-top:14px">
+        <div class="spec-field" style="max-width:160px">
+          <label>Header row</label>
+          <input type="number" min="1" max="${maxRow}" value="${IMPORT_HEADER_ROW_INDEX+1}" onchange="setImportHeaderRow(this.value)">
+        </div>
+        ${delimiterPicker}
+      </div>
+      <div class="sub" style="margin-top:4px">Not row 1, or columns running together? Pick the real header row and delimiter here instead of re-exporting the file.</div>
+      ${headerRowPreviewHtml()}
+    `;
+}
 function renderImportStepFile(root){
     root.innerHTML = `
       ${importStepHeader(1)}
       <div class="aph-card">
-        <div class="aph-card-hd"><div class="ttl">Upload the order file</div><div class="sub">CSV or Excel — one file may contain several orders. The first row must be the real column headers.</div></div>
+        <div class="aph-card-hd"><div class="ttl">Upload the order file</div><div class="sub">CSV or Excel — one file may contain several orders.</div></div>
         <div class="aph-card-body">
           <div class="import-dropzone">
             <input type="file" id="importFileInput" accept=".csv,.xlsx,.xls" style="display:none" onchange="onImportFileChosen(this.files[0])">
             <button class="btn btn-primary" onclick="document.getElementById('importFileInput').click()">Choose file…</button>
-            <span id="importFileName" style="margin-left:10px;color:var(--ink-mute)">${IMPORT_FILE_HEADER ? IMPORT_FILE_HEADER.length+' columns, '+(IMPORT_FILE_ROWS||[]).length+' rows loaded' : 'No file chosen'}</span>
+            <span id="importFileName" style="margin-left:10px">${renderFileSummary()}</span>
           </div>
+          ${renderImportFileControls()}
         </div>
       </div>
       <div class="editor-actions">
         <div></div>
-        <button class="btn btn-primary" id="impFileNextBtn" ${(!IMPORT_FILE_HEADER)?'disabled':''} onclick="goToImportWhoStep()">Next: who is this for →</button>
+        <button class="btn btn-primary" id="impFileNextBtn" ${(!IMPORT_FILE_HEADER || !IMPORT_FILE_HEADER.some(h=>h))?'disabled':''} onclick="goToImportWhoStep()">Next: who is this for →</button>
       </div>
     `;
 }
@@ -1800,6 +1863,7 @@ function onImportFileChosen(file){
     if(!file) return;
     document.getElementById('importFileName').textContent = 'Reading ' + file.name + '…';
     const isExcel = /\.(xlsx|xls)$/i.test(file.name);
+    IMPORT_FILE_IS_CSV = !isExcel;
     if(isExcel){
         loadSheetJs(() => {
             const reader = new FileReader();
@@ -1807,15 +1871,44 @@ function onImportFileChosen(file){
                 const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
                 const sheet = wb.Sheets[wb.SheetNames[0]];
                 const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
-                applyParsedGrid(grid, file.name);
+                IMPORT_RAW_TEXT = null;
+                setRawGrid(grid, file.name);
             };
             reader.readAsArrayBuffer(file);
         });
     } else {
         const reader = new FileReader();
-        reader.onload = (e) => applyParsedGrid(parseCSV(String(e.target.result)), file.name);
+        reader.onload = (e) => {
+            const text = String(e.target.result);
+            IMPORT_RAW_TEXT = text;
+            // Same source, inconsistent export settings (regional Excel
+            // comma-vs-semicolon) is common enough to "just work" rather
+            // than silently produce a 1-column file - see detectDelimiter.
+            IMPORT_DELIMITER = detectDelimiter(text);
+            setRawGrid(parseCSV(text, IMPORT_DELIMITER), file.name);
+        };
         reader.readAsText(file);
     }
+}
+// Counts how many times each candidate delimiter appears per (non-blank)
+// line among the file's own first several lines, and picks whichever is both
+// frequent and CONSISTENT line-to-line - the real delimiter appears the same
+// number of times on every data row, while one that only shows up here and
+// there is probably just incidental punctuation inside a cell's text.
+function detectDelimiter(text){
+    const candidates = [',', ';', '\t'];
+    const lines = text.split(/\r\n|\n|\r/).filter(l => l.trim() !== '').slice(0, 10);
+    if(!lines.length) return ',';
+    let best = ',', bestScore = 0;
+    candidates.forEach(d => {
+        const counts = lines.map(l => l.split(d).length - 1);
+        const min = Math.min(...counts), max = Math.max(...counts);
+        if(min === 0) return; // not on every line - not the real delimiter
+        const consistency = max === 0 ? 0 : min / max; // 1 = same count every line
+        const score = min * consistency;
+        if(score > bestScore){ bestScore = score; best = d; }
+    });
+    return best;
 }
 let SHEETJS_LOADING = false;
 function loadSheetJs(cb){
@@ -1827,8 +1920,9 @@ function loadSheetJs(cb){
     s.onload = () => { SHEETJS_LOADING = false; cb(); };
     document.head.appendChild(s);
 }
-function parseCSV(text){
-    // Minimal RFC4180-ish parser: handles quoted fields, escaped "" and commas/newlines inside quotes.
+function parseCSV(text, delimiter){
+    // Minimal RFC4180-ish parser: handles quoted fields, escaped "" and delimiter/newlines inside quotes.
+    delimiter = delimiter || ',';
     const rows = [];
     let row = [], field = '', inQuotes = false;
     for(let i=0; i<text.length; i++){
@@ -1839,7 +1933,7 @@ function parseCSV(text){
             else { field += c; }
         } else {
             if(c === '"'){ inQuotes = true; }
-            else if(c === ','){ row.push(field); field = ''; }
+            else if(c === delimiter){ row.push(field); field = ''; }
             else if(c === '\r'){ /* skip */ }
             else if(c === '\n'){ row.push(field); rows.push(row); row = []; field = ''; }
             else { field += c; }
@@ -1848,13 +1942,57 @@ function parseCSV(text){
     if(field.length || row.length){ row.push(field); rows.push(row); }
     return rows.filter(r => r.length > 1 || (r[0]||'').trim() !== '');
 }
-function applyParsedGrid(grid, filename){
-    if(!grid || !grid.length){ showErr('Could not read any rows from ' + filename); return; }
-    IMPORT_FILE_HEADER = (grid[0]||[]).map(h => String(h||'').trim());
-    IMPORT_FILE_ROWS = grid.slice(1);
-    document.getElementById('importFileName').textContent = filename + ' — ' + IMPORT_FILE_HEADER.length + ' columns, ' + IMPORT_FILE_ROWS.length + ' rows';
+let IMPORT_FILENAME = '';
+function setRawGrid(grid, filename){
+    IMPORT_FILENAME = filename;
+    if(!grid || !grid.length){ showErr('Could not read any rows from ' + filename); IMPORT_RAW_GRID = null; return; }
+    IMPORT_RAW_GRID = grid;
+    // Guess the header row as the first one that looks like labels, not data -
+    // mostly non-numeric cells. Good enough as a starting point; the user can
+    // always move it with the "Header row" control if this guesses wrong.
+    IMPORT_HEADER_ROW_INDEX = 0;
+    for(let i=0; i<Math.min(grid.length, 10); i++){
+        const cells = (grid[i]||[]).filter(c => String(c||'').trim() !== '');
+        if(!cells.length) continue;
+        const numericish = cells.filter(c => /^-?[\d.,]+$/.test(String(c).trim())).length;
+        if(numericish / cells.length < 0.4){ IMPORT_HEADER_ROW_INDEX = i; break; }
+    }
+    deriveHeaderAndRows();
+}
+// Re-slices IMPORT_RAW_GRID at IMPORT_HEADER_ROW_INDEX without re-reading the
+// file - called on load and whenever the user moves the header row or
+// changes the CSV delimiter (see renderFileSummary/setImportHeaderRow).
+function deriveHeaderAndRows(){
+    if(!IMPORT_RAW_GRID) return;
+    const headerRow = IMPORT_RAW_GRID[IMPORT_HEADER_ROW_INDEX] || [];
+    IMPORT_FILE_HEADER = headerRow.map(h => String(h||'').trim());
+    IMPORT_FILE_ROWS = IMPORT_RAW_GRID.slice(IMPORT_HEADER_ROW_INDEX + 1);
+    const el = document.getElementById('importFileName');
+    if(el) el.innerHTML = renderFileSummary();
     const btn = document.getElementById('impFileNextBtn');
-    if(btn) btn.disabled = false;
+    if(btn) btn.disabled = !(IMPORT_FILE_HEADER.length && IMPORT_FILE_HEADER.some(h => h));
+}
+const DELIMITER_KEYS = { comma: ',', semicolon: ';', tab: '\t' };
+const DELIMITER_LABELS = { comma: 'Comma ( , )', semicolon: 'Semicolon ( ; )', tab: 'Tab' };
+function renderFileSummary(){
+    if(!IMPORT_RAW_GRID) return 'No file chosen';
+    const oneCol = IMPORT_FILE_HEADER.length <= 1;
+    return `<span style="color:${oneCol?'var(--bad)':'var(--ink-mute)'}">${escHtml(IMPORT_FILENAME)} — ${IMPORT_FILE_HEADER.length} column(s), ${IMPORT_FILE_ROWS.length} rows</span>`
+        + (oneCol ? `<div class="warn-line" style="margin-top:4px">⚠ Only one column found — this file likely uses a different delimiter than detected, or the header row isn't row 1. Use the controls below to fix it.</div>` : '');
+}
+function setImportHeaderRow(oneBasedValue){
+    const idx = Math.max(0, (parseInt(oneBasedValue, 10) || 1) - 1);
+    if(!IMPORT_RAW_GRID || idx >= IMPORT_RAW_GRID.length) return;
+    IMPORT_HEADER_ROW_INDEX = idx;
+    deriveHeaderAndRows();
+    renderImportStepFile(document.getElementById('viewRoot'));
+}
+function setImportDelimiter(key){
+    const d = DELIMITER_KEYS[key] || ',';
+    IMPORT_DELIMITER = d;
+    if(!IMPORT_RAW_TEXT) return;
+    setRawGrid(parseCSV(IMPORT_RAW_TEXT, d), IMPORT_FILENAME);
+    renderImportStepFile(document.getElementById('viewRoot'));
 }
 
 // ---------- step 3: mapping (fetched from the file, not typed by hand) ----------
@@ -2097,6 +2235,7 @@ function saveMappingAndBuildPreview(){
             callback: r => {
                 const m = r.message || {};
                 if(!m.success){ resetBtn(); showErr(m.error || 'Could not save this mapping.'); return; }
+                IMPORT_PLATFORM_NAME = m.platform;
                 frappe.call({
                     method: IMPORT_API+'buildPreview',
                     args: { data: JSON.stringify({ platform: m.platform, header: IMPORT_FILE_HEADER, rows: IMPORT_FILE_ROWS }) },
@@ -2107,7 +2246,7 @@ function saveMappingAndBuildPreview(){
                         if((m2.unresolved_customers||[]).length){
                             showErr('No customer mapped for: ' + m2.unresolved_customers.join(', ') + ' — those orders were skipped. Go back to step 2 to map them.');
                         }
-                        IMPORT_QUEUE = (m2.orders||[]).map(o => Object.assign({}, o, { status: 'pending', order_name: null, error: null }));
+                        IMPORT_QUEUE = (m2.orders||[]).map(queueItemFromPreview);
                         IMPORT_SUBVIEW = 'queue';
                         render();
                     },
@@ -2134,6 +2273,7 @@ function saveMappingAndBuildPreview(){
         callback: r => {
             const m = r.message || {};
             if(!m.success){ resetBtn(); showErr(m.error || 'Could not save this mapping.'); return; }
+            IMPORT_PLATFORM_NAME = m.platform;
             frappe.call({
                 method: IMPORT_API+'buildPreview',
                 args: { data: JSON.stringify({ customer: IMPORT_CUSTOMER.name, platform: m.platform, header: IMPORT_FILE_HEADER, rows: IMPORT_FILE_ROWS }) },
@@ -2141,7 +2281,7 @@ function saveMappingAndBuildPreview(){
                     const m2 = r2.message || {};
                     resetBtn();
                     if(!m2.success){ showErr(m2.error || 'Could not build a preview from this file.'); return; }
-                    IMPORT_QUEUE = (m2.orders||[]).map(o => Object.assign({}, o, { status: 'pending', order_name: null, error: null }));
+                    IMPORT_QUEUE = (m2.orders||[]).map(queueItemFromPreview);
                     IMPORT_SUBVIEW = 'queue';
                     render();
                 },
@@ -2155,11 +2295,13 @@ function saveMappingAndBuildPreview(){
 // ---------- import queue ----------
 function renderImportQueueView(root){
     const created = IMPORT_QUEUE.filter(q => q.status==='created').length;
+    const duplicate = IMPORT_QUEUE.filter(q => q.status==='duplicate').length;
     root.innerHTML = `
       <div class="totals-bar">
         <div class="t"><div class="k">Orders detected</div><div class="v">${IMPORT_QUEUE.length}</div></div>
         <div class="t"><div class="k">Created</div><div class="v">${created}</div></div>
-        <div class="t"><div class="k">Remaining</div><div class="v">${IMPORT_QUEUE.length-created}</div></div>
+        <div class="t"><div class="k">Already existed</div><div class="v">${duplicate}</div></div>
+        <div class="t"><div class="k">Remaining</div><div class="v">${IMPORT_QUEUE.length-created-duplicate}</div></div>
       </div>
       <div class="editor-actions" style="margin-bottom:14px">
         <button class="btn" onclick="IMPORT_SUBVIEW='setup'; render();">← Back to file pick</button>
@@ -2168,6 +2310,7 @@ function renderImportQueueView(root){
       <div id="queueRoot">${IMPORT_QUEUE.map((q, i) => renderQueueCard(q, i)).join('')}</div>
     `;
     wireResolveExistingSearch();
+    wireSpecMismatchSearch();
 }
 // Doctypes the wizard is allowed to create on its own when a saveSalesOrder
 // failure names one of them as missing - mirrors QUICK_ADD_DOCTYPES in
@@ -2418,22 +2561,164 @@ function resolveSpecConflicts(i, choice){
         });
     });
 }
+// Rows whose Specification name simply didn't match anything (see
+// _unresolved_spec_name in api/order_import.py's buildPreview) - these get an
+// inline "map to the real Specification" dropdown instead of being dumped as
+// a dead-end error line, since a naming mismatch is something the user can
+// actually fix right here, unlike a genuinely incomplete spec.
+function specMismatchRowsFor(q){
+    const out = [];
+    (q.rows||[]).forEach((r, ri) => { if(r._unresolved_spec_name) out.push({ rowIndex: ri, row: r }); });
+    return out;
+}
+function renderSpecMismatchFixes(i, mismatches){
+    return `<div class="resolve-missing-block">` + mismatches.map((m, mi) => {
+        const itemId = `specmm-item-${i}-${mi}`;
+        return `<div class="rmv-item" id="${itemId}" data-order="${i}" data-row="${m.rowIndex}">
+          <div class="rmv-label">Specification not found: <b>${escHtml(m.row.custom_line||'')}</b> <span class="hint">(Row ${m.row._source_row}) — not named like this here? Pick which one it really is.</span></div>
+          <div class="rmv-row">
+            <div class="typeahead-wrap" style="flex:1">
+              <input class="specmm-existing-input" placeholder="This is actually..." autocomplete="off">
+              <div class="pick-results specmm-pick-results"></div>
+            </div>
+          </div>
+        </div>`;
+    }).join('') + `</div>`;
+}
+function wireSpecMismatchSearch(){
+    const root = document.getElementById('queueRoot');
+    if(!root || root.dataset.specWired) return;
+    root.dataset.specWired = '1';
+    let debounce = null;
+    const run = (input) => {
+        const item = input.closest('.rmv-item');
+        const results = item.querySelector('.specmm-pick-results');
+        const q = IMPORT_QUEUE[+item.dataset.order];
+        openDropdown(input, results);
+        clearTimeout(debounce);
+        debounce = setTimeout(() => {
+            frappe.call({
+                method: IMPORT_API+'searchSpecification',
+                args: { data: JSON.stringify({ query: input.value, customer: q.header.customer }) },
+                callback: r => {
+                    const m = r.message || {};
+                    const opts = (m.success ? m.options : []) || [];
+                    results.innerHTML = opts.length
+                        ? opts.map(o => `<div class="opt" onmousedown="event.preventDefault(); pickReplacementSpec('${item.id}', '${o.replace(/'/g,"\\'")}')">${escHtml(o)}</div>`).join('')
+                        : `<div class="opt" style="color:var(--ink-faint);cursor:default">No matches</div>`;
+                },
+            });
+        }, 250);
+    };
+    root.addEventListener('input', e => { if(e.target.classList.contains('specmm-existing-input')) run(e.target); });
+    root.addEventListener('focusin', e => { if(e.target.classList.contains('specmm-existing-input')) run(e.target); });
+}
+function pickReplacementSpec(itemId, specName){
+    const item = document.getElementById(itemId);
+    closeDropdown(item.querySelector('.specmm-pick-results'));
+    resolveSpecMismatchRow(+item.dataset.order, +item.dataset.row, specName);
+}
+// The next mix_group/bunch_group number free in this order - mirrors
+// buildPreview's own per-order spec_row_counters (which this row never got a
+// value from, since it failed before one was assigned), so a fix applied
+// after other spec rows already resolved can't collide with groups they
+// already used. Both counters are always bumped together server-side, so one
+// shared "smallest free integer" covers both.
+function nextSpecGroupNumber(q){
+    let max = 0;
+    (q.rows||[]).forEach(r => {
+        const mg = parseInt(r.custom_mix_group, 10), bg = parseInt(r.custom_bunch_group, 10);
+        if(!isNaN(mg)) max = Math.max(max, mg);
+        if(!isNaN(bg)) max = Math.max(max, bg);
+    });
+    return max + 1;
+}
+function resolveSpecMismatchRow(i, rowIndex, specName){
+    const q = IMPORT_QUEUE[i];
+    const row = q.rows[rowIndex];
+    const sourceSpecName = row.custom_line; // the file's own, un-matched name - captured before the server overwrites it
+    const next = nextSpecGroupNumber(q);
+    frappe.call({
+        method: IMPORT_API+'resolveImportSpecRow',
+        args: { data: JSON.stringify({
+            item_row: row, spec_name: specName, customer: q.header.customer,
+            platform: IMPORT_PLATFORM_NAME, source_spec_name: sourceSpecName,
+            next_mix_group: next, next_bunch_group: next,
+        }) },
+        callback: r => {
+            const m = r.message || {};
+            if(!m.success){ toast(m.error || `Could not use "${specName}" for this row.`, 'error'); return; }
+            q.rows.splice(rowIndex, 1, ...(m.rows||[]));
+            recomputeUnresolved(q);
+            if(!(q.unresolved_items||[]).length && q.status==='failed'){ q.status = 'pending'; q.error = null; }
+            toast(`Row mapped to Specification "${specName}" — remembered for next time.`, 'success');
+            render();
+            runImportQueue();
+        },
+        error: () => toast(`Could not use "${specName}" for this row.`, 'error'),
+    });
+}
+// unresolved_items is a flat, deduped list of "Row N: ..." strings - once a
+// row is fixed, drop just its own line(s), not the whole list, since another
+// row in the same order can still be unresolved for an unrelated reason.
+function recomputeUnresolved(q){
+    const stillUnresolvedRows = new Set((q.rows||[]).filter(r => r._unresolved_item).map(r => r._source_row));
+    q.unresolved_items = (q.unresolved_items||[]).filter(u => {
+        const m = /^Row (\d+):/.exec(u);
+        return m ? stillUnresolvedRows.has(+m[1]) : true;
+    });
+}
+// buildPreview already flags an order whose Customer's Purchase Order matches
+// an existing, non-cancelled Sales Order (existing_order) - the SAME check
+// ERPNext's own Sales Order.validate_po runs on save, just run up front so
+// the queue shows "already exists" the instant it first renders, not only
+// after the user clicks Import and the save gets rejected.
+function queueItemFromPreview(o){
+    if(o.existing_order) return Object.assign({}, o, { status: 'duplicate', order_name: o.existing_order, error: null });
+    return Object.assign({}, o, { status: 'pending', order_name: null, error: null });
+}
+// ERPNext core's own duplicate-PO guard (Sales Order.validate_po, hit when
+// Selling Settings' "Allow Multiple Sales Orders Against a Customer's
+// Purchase Order" is off) - a strong signal the row was already imported
+// before (the file was re-run, or someone entered it by hand already), not a
+// problem to retry or send to Review & Fix. Parsed the same deliberate way as
+// parseLinkValidationError - the message is frappe.bold()-wrapped HTML
+// (<strong>SAL-ORD-2026-00381</strong>...), so tags are stripped before
+// matching rather than guessed at.
+function parseDuplicatePoError(message){
+    const plain = (message||'').replace(/<[^>]+>/g, '');
+    const m = /Sales Order\s+(\S+)\s+already exists against Customer's Purchase Order\s+(\S+)/.exec(plain);
+    return m ? { order_name: m[1], po_no: m[2] } : null;
+}
 function renderQueueCard(q, i){
     const label = q.header.custom_order_name || q.header.customer || ('Order '+(i+1));
     const quickAdds = q.status==='failed' ? parseLinkValidationError(q.error) : [];
     const specConflicts = q.status==='needs_review' ? specConflictsFor(q) : [];
     const specStatusNotes = specStatusNotesFor(q);
+    const specMismatches = specMismatchRowsFor(q);
+    // Rows the new dropdown already handles get pulled out of the plain
+    // warning list, so they're shown once, richly, not twice.
+    const mismatchedSourceRows = new Set(specMismatches.map(m => m.row._source_row));
+    const plainUnresolved = (q.unresolved_items||[]).filter(u => {
+        const m = /^Row (\d+):/.exec(u);
+        return !(m && mismatchedSourceRows.has(+m[1]));
+    });
     return `<div class="queue-card">
       <div class="hd">
         <div class="ttl">${escHtml(label)}${q.order_name ? ' → <a href="#" onclick="event.preventDefault(); openEditor(\''+q.order_name.replace(/'/g,"\\'")+'\')">'+escHtml(q.order_name)+'</a>' : ''}</div>
-        <span class="queue-status ${q.status}">${q.status==='needs_review' ? 'needs review' : q.status}</span>
+        <span class="queue-status ${q.status}">${q.status==='needs_review' ? 'needs review' : q.status==='duplicate' ? 'already exists' : q.status}</span>
       </div>
       <div class="meta">${(q.rows||[]).length} line(s) · delivery ${escHtml(q.header.delivery_date||'—')} · price list ${escHtml(q.header.selling_price_list||'—')}</div>
-      ${(q.unresolved_items||[]).length ? (q.unresolved_items||[]).map(u => `<div class="warn-line">⚠ ${escHtml(u)}</div>`).join('') + `<div class="warn-line">Use Review &amp; Fix below to pick the right variety for each row.</div>` : ''}
+      ${q.status==='duplicate' ? `<div class="meta">Already imported — this order (same Customer's Purchase Order) already exists, so it wasn't created again.</div>` : ''}
+      ${plainUnresolved.length ? plainUnresolved.map(u => `<div class="warn-line">⚠ ${escHtml(u)}</div>`).join('') + `<div class="warn-line">Use Review &amp; Fix below to pick the right variety for each row.</div>` : ''}
+      ${specMismatches.length ? renderSpecMismatchFixes(i, specMismatches) : ''}
       ${renderSpecStatusNotes(specStatusNotes)}
       ${specConflicts.length ? renderSpecConflicts(i, specConflicts) : ''}
       ${q.error ? `<div class="err-line">${escHtml(q.error)}</div>` : ''}
       ${quickAdds.length ? `<div class="resolve-missing-block">${renderResolveMissing(i, quickAdds)}</div>` : ''}
+      ${q.status==='pending' ? `<div style="margin-top:8px; display:flex; gap:8px;">
+        <button class="btn btn-primary" onclick="processQueueItem(${i})">Import this order</button>
+      </div>` : ''}
       ${q.status==='failed' ? `<div style="margin-top:8px; display:flex; gap:8px;">
         <button class="btn" onclick="processQueueItem(${i})">Retry</button>
         <button class="btn" onclick="openOrderReviewModal(${i})">Review &amp; fix</button>
@@ -2492,6 +2777,17 @@ function processQueueItem(i){
     const payload = Object.assign({}, q.header, { manual_rows, spec_rows });
     apiCall('saveSalesOrder', { data: JSON.stringify(payload) }, r => {
         if(!r.success){
+            const dup = parseDuplicatePoError(r.error);
+            if(dup){
+                // Already exists, not a failure - never stall the batch
+                // waiting on a Retry/Review & Fix that has nothing to fix.
+                q.status = 'duplicate';
+                q.order_name = dup.order_name;
+                q.error = null;
+                render();
+                runImportQueue();
+                return;
+            }
             q.status = 'failed';
             q.error = r.error || 'Could not create this order.';
             render();
@@ -2569,6 +2865,18 @@ function closeOrderReviewModal(){
     document.getElementById('orderReviewBackdrop').classList.remove('show');
     IMPORT_RETURNING_INDEX = null;
 }
+// Esc closes the review popup the same way Cancel/clicking outside it does -
+// but only when it's the TOPMOST open modal. Fixing a row inside it can open
+// another modal on top (+ Add from Spec, a quick-add popup) - Esc there
+// should dismiss that one first, not jump straight past it to this one.
+document.addEventListener('keydown', (e) => {
+    if(e.key !== 'Escape') return;
+    const reviewBackdrop = document.getElementById('orderReviewBackdrop');
+    if(!reviewBackdrop.classList.contains('show')) return;
+    const anotherModalOnTop = Array.from(document.querySelectorAll('.modal-backdrop.show')).some(el => el !== reviewBackdrop);
+    if(anotherModalOnTop) return;
+    closeOrderReviewModal();
+});
 // ---------- this customer's item-code mini table (used inside step 3) ----------
 function itemMappingRowHtml(sourceItemCode, item){
     return `<div class="mapping-editor-row" style="grid-template-columns:1.5fr 1.5fr 26px">
