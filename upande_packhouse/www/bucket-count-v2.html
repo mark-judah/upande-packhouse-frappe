@@ -1,0 +1,196 @@
+{% extends "templates/web.html" %}
+{% block title %}Bucket Count · Packhouse{% endblock %}
+{% block page_content %}
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
+
+<header class="ph-head">
+  <div>
+    <div class="ph-head__eyebrow">Packhouse · Tracking</div>
+    <h1 class="ph-head__title">Bucket Count</h1>
+    <p class="ph-head__sub" id="sub">Empty buckets counted by each farm, and where they were</p>
+  </div>
+  <div class="ph-head__tools">
+    <button class="ph-btn" id="export" type="button" disabled>Export CSV</button>
+  </div>
+</header>
+
+<div class="ph-filters">
+  <div class="ph-pills" id="f-region" aria-label="Region"></div>
+  <select class="ph-select" id="f-farm" aria-label="Farm"><option value="">All farms</option></select>
+  <select class="ph-select" id="f-location" aria-label="Location"><option value="">All locations</option></select>
+  <div class="ph-filters__spacer"></div>
+  <div class="ph-pills" id="f-preset">
+    <button data-value="today">Today</button><button data-value="7d">7 days</button><button data-value="30d">30 days</button>
+  </div>
+  <label class="ph-daterange" title="Count date">
+    <input type="date" id="f-from" aria-label="From"><span class="ph-daterange__sep">→</span><input type="date" id="f-to" aria-label="To">
+  </label>
+</div>
+
+<style>
+.bc-loc{padding:var(--sp-2) var(--sp-5) var(--sp-4)}
+.bc-loc__row{display:grid;grid-template-columns:minmax(0,1.4fr) 70px minmax(80px,1fr);gap:var(--sp-3);align-items:center;padding:9px 0;border-top:1px solid var(--hairline);font-size:13px}
+.bc-loc__row:first-child{border-top:0}
+.bc-loc__row.is-na{color:var(--ink-faint)}
+.bc-loc__n{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+</style>
+
+<section class="ph-kpis" id="kpis"></section>
+
+<nav class="ph-tabs" id="tabs" role="tablist">
+  <button class="ph-tab" data-view="overview" role="tab">Overview</button>
+  <button class="ph-tab" data-view="buckets" role="tab">Buckets <span class="ph-tab__count" id="tc-buckets">—</span></button>
+</nav>
+
+<div id="view-overview" hidden>
+  <div class="ph-row ph-row--2">
+    <section class="ph-card ph-card--flush">
+      <div class="ph-card__head"><h2 class="ph-card__title">Where the buckets were</h2><span class="ph-card__meta">each farm's latest count in the range</span></div>
+      <div class="bc-loc" id="by-location"></div>
+    </section>
+    <section class="ph-card">
+      <div class="ph-card__head"><h2 class="ph-card__title">Buckets counted per day</h2><span class="ph-card__meta">all farms in view</span></div>
+      <div class="ph-chart" id="c-trend"></div>
+    </section>
+  </div>
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head"><h2 class="ph-card__title">By farm</h2><span class="ph-card__meta">latest count in the range · a bucket counted twice in a day sits where it was last seen</span></div>
+    <div id="by-farm"></div>
+  </section>
+</div>
+
+<div id="view-buckets" hidden>
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head">
+      <div>
+        <h2 class="ph-card__title">Buckets <span class="ph-badge" id="n-buckets">0</span></h2>
+        <div class="ph-card__meta">Every bucket in each farm's latest count, with where it was last seen</div>
+      </div>
+      <div class="ph-card__tools"><button class="ph-btn ph-btn--sm" data-csv="buckets" type="button">Export CSV</button></div>
+    </div>
+    <div id="t-buckets"></div>
+  </section>
+</div>
+
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  const API = "upande_packhouse.api.v2.bucket_count.get_bucket_count";
+  const d7 = PH.date.preset("7d");
+  const VIEWS = ["overview", "buckets"];
+  const st = PH.state({ view: "overview", from: d7[0], to: d7[1], region: "", farm: "", location: "" });
+  let data = null, seq = 0, allFarms = [];
+
+  PH.regionPills("#f-region", st, "region");
+  PH.bindSelect("#f-farm", st, "farm");
+  PH.bindSelect("#f-location", st, "location");
+  PH.dateRange({ pills: "#f-preset", from: "#f-from", to: "#f-to", state: st });
+  PH.$("#tabs").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-view]");
+    if (b) st.set({ view: b.dataset.view });
+  });
+
+  function paintFarms() {
+    const only = PH.regionFarms(st.get("region"));
+    const list = only ? allFarms.filter((f) => only.includes(f)) : allFarms;
+    const cur = st.get("farm");
+    PH.options("#f-farm", cur && !list.includes(cur) ? list.concat([cur]) : list, cur);
+  }
+  function paintView() {
+    let v = st.get("view");
+    if (!VIEWS.includes(v)) v = "overview";
+    PH.$$("#tabs .ph-tab").forEach((b) => b.classList.toggle("is-on", b.dataset.view === v));
+    VIEWS.forEach((n) => { PH.$("#view-" + n).hidden = n !== v; });
+    document.getElementById("export").disabled = !data || v !== "buckets" || !(data.buckets || []).length;
+  }
+  st.on((s, changed) => {
+    paintFarms();
+    paintView();
+    if (changed.length === 1 && changed[0] === "view") return;
+    load();
+  });
+
+  PH.kpiSkeleton("#kpis", ["Counted", "Farms counted", "Marked in use", "In the system", "Not yet counted"]);
+
+  const dt = (v) => (v ? PH.fmt.datetime(v) : "—");
+  const tFarm = PH.table("#by-farm", { columns: [
+    { key: "farm", label: "Farm", cls: "is-strong" },
+    { key: "date", label: "Counted on", format: (v) => PH.fmt.date(v) },
+    { key: "buckets", label: "Buckets", num: true },
+    { key: "where", label: "Where", format: (v) => v || "—" },
+    { key: "in_use", label: "Marked in use", num: true },
+  ], rows: [], compact: true, pageSize: 12, empty: "No counts in this range" });
+  const tBuckets = PH.table("#t-buckets", { pageSize: 50, empty: "No buckets counted in this range", rows: [], columns: [
+    { key: "bucket", label: "Bucket", cls: "ph-mono is-strong" },
+    { key: "farm", label: "Farm" },
+    { key: "location", label: "Last seen at" },
+    { key: "date", label: "Counted on", format: (v) => PH.fmt.date(v) },
+    { key: "scanned_at", label: "Scanned", format: dt },
+    { key: "in_use", label: "System shows", html: (v) => (v ? '<span class="ph-badge ph-badge--warn">In use</span>' : "Empty"), sortValue: (r) => (r.in_use ? 1 : 0) },
+  ] });
+
+  function load() {
+    const s = st.get(), my = ++seq;
+    PH.loadingKpis("#kpis", true);
+    const args = { from_date: s.from, to_date: s.to, region: s.region, farm: s.farm, location: s.location };
+    return PH.call(API, args)
+      .then((m) => { if (my !== seq) return; data = m; render(); PH.markUpdated(); })
+      .catch((e) => {
+        if (my !== seq) return;
+        PH.loadingKpis("#kpis", false);
+        ["#by-location", "#c-trend", "#by-farm", "#t-buckets"].forEach((x) => PH.error(x, e.message, () => load()));
+        paintView();
+      });
+  }
+
+  function render() {
+    const d = data, s = st.get(), n = PH.fmt.num;
+    allFarms = d.farms || [];
+    paintFarms();
+    PH.options("#f-location", d.locations || [], s.location);
+    const scope = [s.region, s.farm, s.location].filter(Boolean);
+    PH.text("#sub", (d.n_counts ? PH.fmt.plural(d.n_counts, "count") : "No counts") + " · " + PH.date.label(s.from, s.to) + (scope.length ? " · " + scope.join(" · ") : ""));
+
+    PH.kpis("#kpis", [
+      { label: "Counted", value: d.counted, unit: "empty buckets", dark: true, title: "Distinct buckets in each farm's latest count in the range" },
+      { label: "Farms counted", value: d.n_farms, unit: PH.fmt.plural(d.n_counts, "count") + " in range" },
+      { label: "Marked in use", value: d.in_use, unit: "shown full by the system", title: "Counted as empty, yet the system still has the bucket in use. Usually a stems update that has not been posted yet" },
+      { label: "In the system", value: d.fleet, unit: "buckets (all farms)" },
+      { label: "Not yet counted", value: d.not_yet_counted == null ? "—" : d.not_yet_counted, unit: d.not_yet_counted == null ? "all farms, no location" : "no count in range", title: "Buckets in the system with no count in this date range. A bucket has no home farm, so this is group-wide" },
+    ]);
+
+    const max = Math.max(1, ...(d.by_location || []).map((x) => x.buckets));
+    PH.set("#by-location", (d.by_location || []).map((x) =>
+      `<div class="bc-loc__row${x.buckets ? "" : " is-na"}"><span>${PH.esc(x.location)}</span><span class="bc-loc__n">${n(x.buckets)}</span><div class="ph-progress"><i class="good" style="width:${(100 * x.buckets) / max}%"></i></div></div>`
+    ).join("") || '<div class="ph-empty">No counts in this range</div>');
+
+    tFarm.update((d.by_farm || []).map((f) => ({ ...f, where: Object.keys(f.locations).map((k) => k + " " + f.locations[k]).join(" · ") })));
+    tBuckets.update(d.buckets || []);
+    PH.text("#tc-buckets", n(d.counted));
+    PH.text("#n-buckets", n(d.counted));
+
+    PH.chart("#c-trend", {
+      type: "line", labels: (d.trend || []).map((x) => PH.fmt.date(x.date)),
+      series: [{ label: "Counted", data: (d.trend || []).map((x) => x.buckets), color: PH.statusColor.good, fill: true }],
+      options: { elements: { line: { cubicInterpolationMode: "monotone" } } },
+    });
+    paintView();
+  }
+
+  const CSV = [["bucket", "Bucket"], ["farm", "Farm"], ["location", "Last seen at"], ["date", "Counted on"], ["scanned_at", "Scanned"], ["in_use", "System shows in use"]];
+  function exportList() {
+    if (!data || !(data.buckets || []).length) return;
+    const s = st.get();
+    PH.csv("bucket_count_" + s.from + "_" + s.to + ".csv", data.buckets, CSV.map(([key, label]) => ({ key, label })));
+  }
+  document.getElementById("export").addEventListener("click", exportList);
+  PH.$$("[data-csv]").forEach((b) => b.addEventListener("click", exportList));
+
+  PH.onRefresh(() => load());
+  PH.ready(() => { paintView(); load(); });
+})();
+</script>
+{% endraw %}
+{% endblock %}

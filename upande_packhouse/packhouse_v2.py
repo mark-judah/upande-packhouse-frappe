@@ -40,6 +40,7 @@ NAV = [
 			("packhouse-discards", "Discards", "/packhouse-discards-v2", "trash"),
 			("packhouse-downgrades", "Downgrades", "/packhouse-downgrades-v2", "down"),
 			("stock-take", "Stock Take", "/stock-take-v2", "clipboard"),
+			("bucket-count", "Bucket Count", "/bucket-count-v2", "cube"),
 		],
 	),
 	(

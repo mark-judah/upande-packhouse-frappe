@@ -250,7 +250,7 @@ def _flow_times(opl):
 	return {
 		"issued_at": ts(issued),
 		"boxes": boxes,
-		"avg_takt_mins": int(round(sum(takts) / len(takts))) if takts else None,
+		"avg_takt_mins": round(sum(takts) / len(takts)) if takts else None,
 		"takt_boxes": len(takts),
 	}
 

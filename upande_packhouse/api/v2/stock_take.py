@@ -42,18 +42,27 @@ Location
     ledger farm of its latest receipt/transfer. Shelf Item.warehouse and the
     "arrival" Remote Transfer posted at shelving are never used to place a bucket.
 
-EXPECTED at farm F   = in cold store at F, harvested + received (or shelved) in
-                       the current cycle, and not allocated / issued / discarded /
-                       transferred away as of T.
-ALLOCATED (accounted) = in store at F but with an outstanding Bucket Allocation
-                       (created <= T, not cancelled, not issued by T) or an
-                       unissued Pick List Item. Not expected, not missing.
-FOUND                = every scanned bucket.
-  found + expected   = scanned and EXPECTED  (the system agrees)
-UNEXPECTED           = scanned, but the system has it allocated / issued /
-                       discarded / elsewhere / not received / older cycle / unknown.
-MISSING              = EXPECTED and not scanned.
-accuracy %           = found+expected / (found+expected + missing)
+WHAT THE PAGE RECONCILES (per bucket, as of T, for the take's farm)
+
+    Received         every bucket received (or shelved) at the farm in the last LOOKBACK_DAYS
+    - Issued         left through the cold-store issue / packing / dispatch
+    - Issued offline left through Offline Issuing (stock entry, shelf removal or pick-list flag)
+    - Discarded / Sold leg / Quarantine / Moved to another farm
+    = Still in this store (system view), of which
+        on a shelf      -> expected to be scanned
+        not shelved     -> received but never shelved; shelving is always scanned, so these
+                           are expected in the count and are a real gap when not found
+        reserved        -> allocated to an order, still physically in the store
+
+    Counted          every scanned bucket
+    Expected         on a shelf, or received and never shelved
+    Not located      expected, in a zone the count covered, not scanned
+    Outside count    on a shelf per the system, in a zone the count never touched (a partial
+                     count): neither found nor flagged
+    Scanned, not expected = scanned, but the system shows it issued / discarded / elsewhere /
+                     in another cycle.
+
+Located % = counted-as-expected / (counted-as-expected + not located).
 
 Stock take filters (applied on the Cold Store Stock Take header, then per row):
 region / farm (take.farm), from/to over stock_take_date, one take, variety
@@ -69,7 +78,7 @@ from frappe.utils import cint, flt, getdate, today
 from upande_packhouse.api.v2.core import region as region_core
 from upande_packhouse.api.v2.core import rose as rose_core
 
-LOOKBACK_DAYS = 60  # receipts older than this are not searched for "expected"
+LOOKBACK_DAYS = 30  # receipts/harvests older than this are not searched (roses do not keep longer)
 ROW_LIMIT = 3000
 CHUNK = 1500
 
@@ -215,8 +224,8 @@ def _evaluate(take, T, bucket_ids, scanned_keys, ctx):
 			       TIMESTAMP(se.posting_date, se.posting_time) AS dt
 			FROM `tabStock Entry` se
 			WHERE se.custom_bucket_id IN %(ids)s AND se.stock_entry_type = 'Harvesting'
-			  AND se.docstatus = 1 AND se.posting_date <= %(d)s""",
-			{"ids": tuple(ch), "d": tdate},
+			  AND se.docstatus = 1 AND se.posting_date BETWEEN %(a)s AND %(d)s""",
+			{"ids": tuple(ch), "a": tdate - timedelta(days=LOOKBACK_DAYS), "d": tdate},
 			as_dict=True,
 		):
 			if r.dt <= T:
@@ -333,6 +342,9 @@ def _evaluate(take, T, bucket_ids, scanned_keys, ctx):
 			older_shelf=False,
 			detail="",
 			cycle=False,
+			out_kind=None,
+			out_at=None,
+			last_at=None,
 		)
 		out[k] = res
 		if not h:
@@ -382,6 +394,7 @@ def _evaluate(take, T, bucket_ids, scanned_keys, ctx):
 				shelf_stems += flt(s.stems)
 
 		for dt, _p, kind, pl in events:
+			res.last_at = dt
 			if kind == "receipt":
 				res.state, res.step, res.ledger_farm, res.received_at = "in_store", "Received", pl["farm"], dt
 				if pl["type"] == "Quarantine Accept":
@@ -398,11 +411,15 @@ def _evaluate(take, T, bucket_ids, scanned_keys, ctx):
 				res.shelf, res.shelf_farm = None, None
 			elif kind in ("alloc", "issued", "discarded"):
 				res.state, res.shelf, res.shelf_farm = kind, None, None
+				offline = kind == "issued" and "offline" in (pl.get("type") or "").lower()
+				res.out_kind, res.out_at = ("issued_offline" if offline else kind), dt
 				res.step = {
-					"alloc": "Sold leg (Move To Graded Sold)",
+					"alloc": "Sold (moved to graded sold)",
 					"issued": "Issued",
 					"discarded": "Discarded",
 				}[kind]
+				if offline:
+					res.step = "Issued offline"
 				res.detail = pl.get("type", "")
 			elif kind == "move":
 				if res.state == "in_store":
@@ -413,11 +430,14 @@ def _evaluate(take, T, bucket_ids, scanned_keys, ctx):
 		if res.state in ("in_store", "quarantine", "field"):
 			for r in pli.get(k, []):
 				if r.creation >= h.dt and (cint(r.issued) or cint(r.issued_offline)) and r.modified <= T:
-					res.state, res.step, res.detail = "issued", "Issued", "Pick list " + r.parent
+					off = bool(cint(r.issued_offline))
+					res.state, res.step, res.detail = "issued", ("Issued offline" if off else "Issued"), "Pick list " + r.parent
+					res.out_kind, res.out_at = ("issued_offline" if off else "issued"), r.modified
 					res.shelf = res.shelf_farm = None
 			for r in disc.get(k, []):
 				if r.modified >= h.dt:
 					res.state, res.step, res.detail = "discarded", "Discarded", "Discard request"
+					res.out_kind, res.out_at = "discarded", r.modified
 					res.shelf = res.shelf_farm = None
 		if res.state == "in_store":
 			orders = {
@@ -499,29 +519,62 @@ def _zone(shelf):
 	return f"{head}-{tail[:1]}" if tail else shelf
 
 
-def _unexpected_reason(res, farm):
+STATUS_LABEL = {
+	"on_shelf": "On shelf",
+	"not_shelved": "Received, not shelved yet",
+	"reserved": "Reserved for an order",
+	"issued": "Issued",
+	"issued_offline": "Issued offline",
+	"discarded": "Discarded",
+	"sold": "Sold (graded sold)",
+	"moved": "Moved to another farm",
+	"quarantine": "In quarantine",
+	"not_received": "Harvested, not received",
+	"no_cycle": "No harvest record",
+	"other": "Other",
+}
+EXPECTED_STATUS = ("on_shelf", "not_shelved", "reserved")  # physically in this cold store per the system
+OUT_STATUS = ("issued", "issued_offline", "discarded", "sold", "moved", "quarantine")
+
+
+def _status(res, farm):
+	"""The system's view of one bucket at T, for the take's farm."""
 	if not res.cycle:
-		return "No harvest record before the stock take"
-	if res.older_shelf and res.state in ("unknown", "field"):
-		return "Shelf record is from an older cycle"
-	if res.state == "allocated":
-		return "Allocated to an order" + (f" ({res.detail})" if res.detail else "")
-	if res.state == "issued":
-		return "Already issued" + (f" ({res.detail})" if res.detail else "")
-	if res.state == "discarded":
-		return "Already discarded"
-	if res.state == "alloc":
-		return "Moved to graded sold"
-	if res.state == "field":
-		return "Harvested, never received"
-	if res.state == "quarantine":
-		return "In quarantine"
-	if res.state == "in_store" and res.loc != farm:
-		return f"System has it at {res.loc or 'no known farm'}"
-	return "Not expected here"
+		return "no_cycle"
+	st = res.state
+	if st == "field":
+		return "not_received"
+	if st == "quarantine":
+		return "quarantine"
+	if st == "discarded":
+		return "discarded"
+	if st == "alloc":
+		return "sold"
+	if st == "issued":
+		return res.out_kind or "issued"
+	if st in ("in_store", "allocated"):
+		if res.loc != farm:
+			return "moved"
+		if st == "allocated":
+			return "reserved"
+		return "on_shelf" if res.shelf else "not_shelved"
+	return "other"
 
 
-def _row(take, res, srow, age_days, T):
+def _system_says(res, status, farm):
+	"""One short sentence: what the ledger says about a bucket that is not where the count found it."""
+	if status == "no_cycle":
+		return "No harvest in the last %d days" % LOOKBACK_DAYS + (" (shelf record from an older cycle)" if res.older_shelf else "")
+	if status == "moved":
+		return "System has it at " + (res.loc or "another farm")
+	if status == "reserved":
+		return "Reserved" + (" for " + res.detail if res.detail else " for an order")
+	if status in ("issued", "issued_offline"):
+		return STATUS_LABEL[status] + (" (" + res.detail + ")" if res.detail else "")
+	return STATUS_LABEL.get(status, "Not expected here")
+
+
+def _row(take, res, srow, age_days, status, farm):
 	return {
 		"stock_take": take.name,
 		"take_farm": take.farm,
@@ -536,15 +589,25 @@ def _row(take, res, srow, age_days, T):
 		"zone": _zone(srow.shelf if srow and srow.shelf else res.shelf),
 		"scan_status": srow.status if srow else "",
 		"scanned_at": str(srow.scanned_at) if srow and srow.scanned_at else "",
-		"step": res.step,
-		"state": res.state,
+		"step": "Received, no shelving scan" if status == "not_shelved" else res.step,
+		"status": status,
+		"status_label": STATUS_LABEL.get(status, status),
+		"system_says": _system_says(res, status, farm),
 		"system_at": res.loc or "",
 		"harvest_date": str(res.harvest_date) if res.harvest_date else "",
 		"received_at": str(res.received_at) if res.received_at else "",
+		"left_at": str(res.out_at) if res.out_at else "",
+		# when it stopped being in this store: the stamp of the outflow, or of the last
+		# ledger event for buckets that moved away / went to quarantine
+		"gone_at": str(res.out_at or (res.last_at if status in ("moved", "quarantine") else "") or ""),
 	}
 
 
 def _evaluate_take(take, ctx, a):
+	"""-> (T, scans, system) where
+	scans  = one row per scanned bucket  (row["expected"] says the system has it in this store)
+	system = one row per candidate bucket the system knows at this farm (counted or not) with
+	         row["scanned"], row["status"] and, for shelf buckets not scanned, row["covered"]"""
 	T = _cutoff(take)
 	srows = frappe.db.sql(
 		"""SELECT bucket_id, status, shelf, variety, stem_length, age_days, scanned_at
@@ -557,40 +620,42 @@ def _evaluate_take(take, ctx, a):
 		scanned.setdefault(_key(s.bucket_id), s)
 	cands = _shelf_candidates(take.farm, T) | _receipt_candidates(take.farm, T)
 	allk = {_key(b): b for b in cands}
+	cand_keys = set(allk)
 	for k, s in scanned.items():
 		allk.setdefault(k, s.bucket_id)
 	ev = _evaluate(take, T, list(allk.values()), set(scanned), ctx)
 
-	found, missing, unexpected, allocated_unscanned = [], [], [], []
+	# zones the count touched: a partial count says nothing about shelves it never visited
+	counted_zones = {_zone(s.shelf) for s in scanned.values() if s.shelf}
+
+	scans, system = [], []
 	for k, res in ev.items():
 		res.raw = allk.get(k, k)
 		age = (getdate(T) - res.harvest_date).days if res.harvest_date else None
 		s = scanned.get(k)
-		expected = res.cycle and res.state == "in_store" and res.loc == take.farm
+		status = _status(res, take.farm)
+		row = _row(take, res, s, age if age is not None else (s.age_days if s else None), status, take.farm)
+		row["scanned"] = bool(s)
 		if s:
-			row = _row(take, res, s, age if age is not None else s.age_days, T)
-			row["expected"] = bool(expected)
-			row["reason"] = "" if expected else _unexpected_reason(res, take.farm)
-			found.append(row)
-			if not expected:
-				unexpected.append(row)
-		elif expected:
-			missing.append(_row(take, res, None, age, T))
-		elif res.cycle and res.state == "allocated" and res.loc == take.farm:
-			allocated_unscanned.append(_row(take, res, None, age, T))
-	return T, found, missing, unexpected, allocated_unscanned
+			row["expected"] = status in EXPECTED_STATUS
+			row["result"] = "As expected" if row["expected"] else "Not expected here"
+			scans.append(row)
+		if k in cand_keys:
+			row["covered"] = (not res.shelf) or (_zone(res.shelf) in counted_zones)
+			system.append(row)
+	return T, scans, system
 
 
 def _cached_take(take, ctx, a):
-	# A take is a historical fact; evaluating it scans ~60 days of receipts (several
-	# seconds). Cache the unfiltered result 10 min, keyed on the take's modified stamp.
+	# A take is a historical fact; evaluating it scans a month of receipts (seconds).
+	# Cache the unfiltered result keyed on the take's modified stamp.
 	mod = frappe.db.get_value("Cold Store Stock Take", take.name, "modified")
-	key = f"ph2_stock_take::{take.name}::{mod}"
+	key = f"ph2_stock_take_v5::{take.name}::{mod}"
 	hit = frappe.cache.get_value(key)
 	if hit:
 		return hit
 	res = _evaluate_take(take, ctx, a)
-	frappe.cache.set_value(key, res, expires_in_sec=600)
+	frappe.cache.set_value(key, res, expires_in_sec=6 * 3600)
 	return res
 
 
@@ -606,13 +671,94 @@ def _keep(row, a, ctx):
 	return True
 
 
-def _rollup(rows, key):
-	g = defaultdict(lambda: {"buckets": 0, "stems": 0.0})
+def _bs(rows):
+	return {"buckets": len(rows), "stems": float(sum(r["stems"] for r in rows))}
+
+
+def _reconcile(system, scans):
+	"""The reconciliation for a set of rows (one take or all of them)."""
+	by = defaultdict(list)
+	for r in system:
+		if r["status"] not in ("not_received", "no_cycle", "other"):
+			by[r["status"]].append(r)
+	received = [r for st in by.values() for r in st]
+	in_store = by["on_shelf"] + by["not_shelved"] + by["reserved"]
+	on_shelf = by["on_shelf"]
+	# Shelving is always scanned, so a received bucket with no shelving scan is as much a
+	# gap as one that left its shelf: both are expected in the store and neither is on a shelf.
+	expected = on_shelf + by["not_shelved"]
+	found = [r for r in expected if r["scanned"]]
+	not_located = [r for r in expected if not r["scanned"] and r["covered"]]
+	outside = [r for r in expected if not r["scanned"] and not r["covered"]]
+	reserved_unscanned = [r for r in by["reserved"] if not r["scanned"] and r["covered"]]
+	not_expected = [r for r in scans if not r["expected"]]
+	counted_as_expected = [r for r in scans if r["expected"]]
+	den = len(found) + len(not_located)
+	return {
+		"received": _bs(received),
+		"issued": _bs(by["issued"]),
+		"issued_offline": _bs(by["issued_offline"]),
+		"discarded": _bs(by["discarded"]),
+		"sold": _bs(by["sold"]),
+		"moved": _bs(by["moved"]),
+		"quarantine": _bs(by["quarantine"]),
+		"in_store": _bs(in_store),
+		"on_shelf": _bs(on_shelf),
+		"expected": _bs(expected),
+		"not_located_unshelved": _bs([r for r in not_located if r["status"] == "not_shelved"]),
+		"reserved": _bs(by["reserved"]),
+		"not_shelved": _bs(by["not_shelved"]),
+		"counted": _bs(scans),
+		"counted_as_expected": _bs(counted_as_expected),
+		"found_on_shelf": _bs(found),
+		"not_located": _bs(not_located),
+		"outside_count": _bs(outside),
+		"reserved_unscanned": _bs(reserved_unscanned),
+		"not_expected": _bs(not_expected),
+		"located_pct": round(100.0 * len(found) / den, 1) if den else None,
+	}, not_located, not_expected
+
+
+def _day(system, take):
+	"""The count day: balance from the day before + received - issued (online / offline) - other
+	outflows = in the store at the count. Day = the stock take date, from 00:00 to the last scan."""
+	start = str(getdate(take.stock_take_date)) + " 00:00:00"
+	rows = [r for r in system if r["status"] not in ("not_received", "no_cycle", "other")]
+	opening, today_in = [], []
+	out = defaultdict(list)
 	for r in rows:
-		x = g[r[key]]
-		x["buckets"] += 1
-		x["stems"] += r["stems"]
-	return g
+		rec = r["received_at"] or ""
+		gone = r["gone_at"]
+		if r["status"] in OUT_STATUS and not gone:
+			gone = start  # no stamp: count the outflow on the day
+		if rec >= start:
+			today_in.append(r)
+		elif not gone or gone >= start:
+			opening.append(r)
+		else:
+			continue
+		if r["status"] in OUT_STATUS and gone >= start:
+			out[r["status"]].append(r)
+	other = out["discarded"] + out["sold"] + out["moved"] + out["quarantine"]
+	return {
+		"opening": _bs(opening),
+		"received": _bs(today_in),
+		"issued": _bs(out["issued"]),
+		"issued_offline": _bs(out["issued_offline"]),
+		"other_out": _bs(other),
+		"discarded": _bs(out["discarded"]),
+		"sold": _bs(out["sold"]),
+		"moved": _bs(out["moved"]),
+		"quarantine": _bs(out["quarantine"]),
+	}
+
+
+def _merge(a, b):
+	out = {}
+	for k in a:
+		if isinstance(a[k], dict):
+			out[k] = {"buckets": a[k]["buckets"] + b[k]["buckets"], "stems": a[k]["stems"] + b[k]["stems"]}
+	return out
 
 
 @frappe.whitelist()
@@ -622,134 +768,124 @@ def get_stock_take(**kw):
 	takes_all = _takes(a, ignore_take=True)
 	takes = [t for t in takes_all if not a["stock_take"] or t.name == a["stock_take"]]
 	ctx = Ctx()
-	found, missing, unexpected, alloc_un = [], [], [], []
+	scans_all, system_all = [], []
 	per_take = []
+	day_tot = None
 	for t in takes:
-		T, f, m, u, au = _cached_take(t, ctx, a)
-		f = [r for r in f if _keep(r, a, ctx)]
-		m = [r for r in m if _keep(r, a, ctx)]
-		u = [r for r in u if _keep(r, a, ctx)]
-		au = [r for r in au if _keep(r, a, ctx)]
-		found += f
-		missing += m
-		unexpected += u
-		alloc_un += au
-		fe = sum(1 for r in f if r["expected"])
+		T, scans, system = _cached_take(t, ctx, a)
+		scans = [r for r in scans if _keep(r, a, ctx)]
+		system = [r for r in system if _keep(r, a, ctx)]
+		scans_all += scans
+		system_all += system
+		rec, _nl, _ne = _reconcile(system, scans)
+		day = _day(system, t)
+		day_tot = day if day_tot is None else _merge(day_tot, day)
 		per_take.append(
 			{
+				"opening": day["opening"]["buckets"],
+				"received_day": day["received"]["buckets"],
+				"issued": day["issued"]["buckets"],
+				"issued_offline": day["issued_offline"]["buckets"],
+				"other_out": day["other_out"]["buckets"],
 				"name": t.name,
 				"farm": t.farm,
 				"date": str(t.stock_take_date),
 				"as_of": str(T),
-				"scanned": len(f),
-				"found_expected": fe,
-				"missing": len(m),
-				"unexpected": len(u),
-				"missing_stems": sum(r["stems"] for r in m),
+				"received": rec["received"]["buckets"],
+				"left_store": sum(
+					rec[k]["buckets"] for k in ("issued", "issued_offline", "discarded", "sold", "moved", "quarantine")
+				),
+				"held": rec["reserved"]["buckets"],
+				"expected": rec["expected"]["buckets"],
+				"counted": rec["counted"]["buckets"],
+				"not_located": rec["not_located"]["buckets"],
+				"not_located_stems": rec["not_located"]["stems"],
+				"not_expected": rec["not_expected"]["buckets"],
+				"outside_count": rec["outside_count"]["buckets"],
+				"located_pct": rec["located_pct"],
 			}
 		)
 
-	found_expected = sum(1 for r in found if r["expected"])
-	kpi = {
-		"scanned_buckets": len(found),
-		"scanned_stems": sum(r["stems"] for r in found),
-		"found_expected": found_expected,
-		"expected_buckets": found_expected + len(missing),
-		"expected_stems": sum(r["stems"] for r in found if r["expected"]) + sum(r["stems"] for r in missing),
-		"missing_buckets": len(missing),
-		"missing_stems": sum(r["stems"] for r in missing),
-		"unexpected_buckets": len(unexpected),
-		"unexpected_stems": sum(r["stems"] for r in unexpected),
-		"allocated_unscanned_buckets": len(alloc_un),
-		"allocated_unscanned_stems": sum(r["stems"] for r in alloc_un),
-		"accuracy_pct": round(100.0 * found_expected / (found_expected + len(missing)), 1)
-		if (found_expected + len(missing))
-		else None,
-		"takes": len(takes),
+	rec, not_located, not_expected = _reconcile(system_all, scans_all)
+	day_dates = sorted({str(t.stock_take_date) for t in takes})
+
+	varieties = sorted({r["variety"] for r in scans_all + system_all if r["variety"]})
+	by_var = {
+		v: {"variety": v, "expected": 0, "counted": 0, "not_located": 0, "not_located_stems": 0.0, "not_expected": 0}
+		for v in varieties
 	}
+	for r in system_all:
+		if r["status"] in ("on_shelf", "not_shelved") and r["variety"] in by_var:
+			by_var[r["variety"]]["expected"] += 1
+	for r in scans_all:
+		x = by_var.get(r["variety"])
+		if x:
+			x["counted"] += 1
+			x["not_expected"] += 0 if r["expected"] else 1
+	for r in not_located:
+		x = by_var.get(r["variety"])
+		if x:
+			x["not_located"] += 1
+			x["not_located_stems"] += r["stems"]
+	by_variety = sorted(by_var.values(), key=lambda x: (-x["not_located"], -x["counted"], x["variety"]))
 
-	varieties = sorted({r["variety"] for r in found + missing if r["variety"]})
-	by_var = {}
-	for v in varieties:
-		by_var[v] = {
-			"variety": v,
-			"scanned": 0,
-			"found_expected": 0,
-			"missing": 0,
-			"missing_stems": 0.0,
-			"unexpected": 0,
+	by_age = [
+		{
+			"band": label,
+			"counted": sum(1 for r in scans_all if r["age_band"] == label),
+			"not_located": sum(1 for r in not_located if r["age_band"] == label),
 		}
-	for r in found:
-		x = by_var.get(r["variety"])
-		if x:
-			x["scanned"] += 1
-			x["found_expected"] += 1 if r["expected"] else 0
-			x["unexpected"] += 0 if r["expected"] else 1
-	for r in missing:
-		x = by_var.get(r["variety"])
-		if x:
-			x["missing"] += 1
-			x["missing_stems"] += r["stems"]
-	by_variety = sorted(by_var.values(), key=lambda x: (-x["missing"], -x["scanned"], x["variety"]))
+		for label, _lo, _hi in AGE_BANDS
+	]
 
-	by_age = []
-	for label, _lo, _hi in AGE_BANDS:
-		by_age.append(
-			{
-				"band": label,
-				"scanned": sum(1 for r in found if r["age_band"] == label),
-				"missing": sum(1 for r in missing if r["age_band"] == label),
-				"missing_stems": sum(r["stems"] for r in missing if r["age_band"] == label),
-			}
-		)
-
-	zones = defaultdict(lambda: {"scanned": 0, "missing": 0, "missing_stems": 0.0})
-	for r in found:
-		zones[r["zone"]]["scanned"] += 1
-	for r in missing:
-		zones[r["zone"]]["missing"] += 1
-		zones[r["zone"]]["missing_stems"] += r["stems"]
+	zones = defaultdict(lambda: {"expected": 0, "counted": 0, "not_located": 0, "not_located_stems": 0.0})
+	for r in system_all:
+		if r["status"] in ("on_shelf", "not_shelved"):
+			zones[r["zone"]]["expected"] += 1
+	for r in scans_all:
+		zones[r["zone"]]["counted"] += 1
+	for r in not_located:
+		zones[r["zone"]]["not_located"] += 1
+		zones[r["zone"]]["not_located_stems"] += r["stems"]
 	by_zone = sorted(
-		({"zone": z, **v} for z, v in zones.items()), key=lambda x: (-x["missing"], -x["scanned"], x["zone"])
+		({"zone": z, **v} for z, v in zones.items()), key=lambda x: (-x["not_located"], -x["counted"], x["zone"])
 	)
 
-	steps = _rollup(missing, "step")
-	by_step = sorted(
-		({"step": s, "buckets": v["buckets"], "stems": v["stems"]} for s, v in steps.items()),
-		key=lambda x: -x["buckets"],
-	)
-	reasons = _rollup(unexpected, "reason")
-	by_reason = sorted(
-		({"reason": s, "buckets": v["buckets"], "stems": v["stems"]} for s, v in reasons.items()),
-		key=lambda x: -x["buckets"],
-	)
+	def roll(rows, key):
+		g = defaultdict(lambda: {"buckets": 0, "stems": 0.0})
+		for r in rows:
+			g[r[key]]["buckets"] += 1
+			g[r[key]]["stems"] += r["stems"]
+		return sorted(({"label": k, **v} for k, v in g.items()), key=lambda x: -x["buckets"])
 
-	def cap(rows):
-		return rows[:ROW_LIMIT]
+	last_step = roll(not_located, "step")
+	why_not_expected = roll(not_expected, "system_says")
 
-	missing.sort(key=lambda r: (-(r["age_days"] or 0), r["bucket"]))
+	not_located.sort(key=lambda r: (-(r["age_days"] or 0), r["bucket"]))
+	cap = lambda rows: rows[:ROW_LIMIT]  # noqa: E731
 	return {
 		"success": True,
-		"kpis": kpi,
+		"reconciliation": rec,
+		"day": day_tot,
+		"day_dates": day_dates,
 		"takes": [
 			{"name": t.name, "farm": t.farm, "date": str(t.stock_take_date), "buckets": t.buckets}
 			for t in takes_all
 		],
+		"n_takes": len(takes),
 		"per_take": per_take,
-		"farms": sorted(
-			{t.farm for t in _takes({**a, "farm": "", "region": ""}, ignore_take=True) if t.farm}
-		),
+		"farms": sorted({t.farm for t in _takes({**a, "farm": "", "region": ""}, ignore_take=True) if t.farm}),
 		"varieties": varieties,
 		"by_variety": by_variety,
 		"by_age": by_age,
 		"by_zone": by_zone,
-		"by_step": by_step,
-		"by_reason": by_reason,
-		"found": cap(found),
-		"missing": cap(missing),
-		"unexpected": cap(unexpected),
-		"allocated_unscanned": cap(alloc_un),
-		"truncated": any(len(x) > ROW_LIMIT for x in (found, missing, unexpected, alloc_un)),
+		"last_step": last_step,
+		"why_not_expected": why_not_expected,
+		"counted": cap(scans_all),
+		"not_located": cap(not_located),
+		"not_expected": cap(not_expected),
+		"truncated": any(len(x) > ROW_LIMIT for x in (scans_all, not_located, not_expected)),
 		"row_limit": ROW_LIMIT,
+		"lookback_days": LOOKBACK_DAYS,
 		"today": today(),
 	}
