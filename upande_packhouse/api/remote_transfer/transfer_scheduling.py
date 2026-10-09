@@ -678,17 +678,20 @@ def _run_chain(stops, hub=None):
 	return " → ".join([hub] + list(stops) + [hub])
 
 
-def _vehicle_on_road(vehicle, exclude_trip=None):
+def _vehicle_on_road(vehicle, exclude_trip=None, include_arrived=False):
 	"""The trip this truck is out on right now (Dispatched, not yet Received), else None.
 
 	A truck on the road can't be routed, planned or dispatched again until it is back
-	at its route's final destination — which is when its trip is received (by the
-	Receive button, or automatically once the last bucket it carried is shelved)."""
+	at the hub: its trip has arrived (first bucket shelved, or confirmed) or is received
+	(every bucket it carried shelved). include_arrived: also a trip that has arrived but
+	is still waiting on buckets to be shelved — the trip that carried the truck's load."""
 	if not vehicle:
 		return None
 	filters = {"vehicle": vehicle, "status": "Dispatched"}
 	if exclude_trip:
 		filters["name"] = ["!=", exclude_trip]
+	if not include_arrived:
+		filters["arrived_at"] = ["is", "not set"]
 	for name in frappe.get_all(
 		"Bucket Request Trip", filters=filters, pluck="name", order_by="dispatched_at desc"
 	):
@@ -716,16 +719,13 @@ def _settle_finished_trip(name):
 			  AND transit_truck = %s AND modified >= DATE(%s)""",
 			(doc.vehicle, since),
 		)[0][0]
-		# A trip that carried nothing has nothing to shelve: it is over once nothing of
-		# its truck is in transit (it kept the truck "on the road" for good).
-		ended = not left and (
-			not int(doc.loaded_buckets or 0)
-			or bool(
-				frappe.db.sql(
-					"""SELECT 1 FROM `tabPick List Item` WHERE parenttype = 'Order Pick List'
-					AND transit_truck = %s AND shelved = 1 AND modified >= DATE(%s) LIMIT 1""",
-					(doc.vehicle, since),
-				)
+		# Over once something it carried is shelved and nothing else is in transit. A trip
+		# that carried nothing has nothing to shelve: End Trip on Bucket Logistics ends it.
+		ended = not left and bool(
+			frappe.db.sql(
+				"""SELECT 1 FROM `tabPick List Item` WHERE parenttype = 'Order Pick List'
+				AND transit_truck = %s AND shelved = 1 AND modified >= DATE(%s) LIMIT 1""",
+				(doc.vehicle, since),
 			)
 		)
 		if ended:
@@ -812,10 +812,10 @@ def _add_trip_buckets(doc, entries, stamp=True):
 
 
 def _end_trip_if_shelved(doc):
-	"""Tick off the trip's shelved buckets. The trip ends (Received) as soon as its first
-	bucket is shelved at the hub: the truck is back and free for its next run; the rest
-	of its buckets are still ticked off here as they are shelved. Returns True when the
-	trip is over."""
+	"""Tick off the trip's shelved buckets. The trip ends (Received) once every bucket it
+	carried is shelved at the hub or has left the truck; until then it stays Dispatched
+	(the truck is free again as soon as it has arrived — see _vehicle_on_road). Returns
+	True when the trip is over."""
 	rows = doc.get("trip_buckets") or []
 	if not rows:
 		return False
@@ -867,7 +867,7 @@ def _end_trip_if_shelved(doc):
 		if int(row.off_truck or 0) != off:
 			row.off_truck = off
 			changed = True
-	ended = any(r.shelved for r in rows)
+	ended = any(r.shelved for r in rows) and all(r.shelved or r.off_truck for r in rows)
 	if ended and doc.status != "Received":
 		doc.status = "Received"
 		doc.received_at = now
@@ -875,23 +875,6 @@ def _end_trip_if_shelved(doc):
 	if changed:  # also called on every read (_vehicle_on_road): don't save — and version — for nothing
 		doc.save(ignore_permissions=True)
 	return ended
-
-
-def _loading_trip(truck):
-	"""The truck's planned trip that already has buckets loaded (not dispatched yet)."""
-	for name in frappe.get_all(
-		"Bucket Request Trip",
-		filters={
-			"vehicle": truck,
-			"status": ["in", ACTIVE_TRIP_STATUSES],
-			"trip_date": [">=", frappe.utils.add_days(frappe.utils.today(), -TRIP_LOOKBACK_DAYS)],
-		},
-		pluck="name",
-		order_by="trip_date desc, creation desc",
-	):
-		if _trip_has_loads(frappe.get_doc("Bucket Request Trip", name)):
-			return name
-	return None
 
 
 def _requested_buckets_shelved(doc):
@@ -929,10 +912,9 @@ def _requested_buckets_shelved(doc):
 
 
 def _end_trips_with_requests_shelved(bucket_id, already=()):
-	"""End (Received) every not-yet-ended trip whose requested buckets are all shelved,
-	whether or not it was dispatched or its buckets were loaded in the app -- trips the
-	truck-flag path above cannot find (the bucket's transit_truck is the order's
-	delivery-truck label, or the trip never left Draft)."""
+	"""End (Received) every dispatched trip whose requested buckets are all shelved and
+	every bucket it carried is shelved -- trips the truck-flag path above cannot find
+	(the bucket's transit_truck is the order's delivery-truck label)."""
 	trips = frappe.db.sql_list(
 		"""SELECT DISTINCT t.name
 		FROM `tabBucket Request Trip` t
@@ -948,18 +930,18 @@ def _end_trips_with_requests_shelved(bucket_id, already=()):
 		doc = frappe.get_doc("Bucket Request Trip", name)
 		if not _requested_buckets_shelved(doc):
 			continue
-		if doc.get("trip_buckets"):
-			_end_trip_if_shelved(doc)  # ticks off the carried buckets it can
-		_receive_trip(name)
+		# Only a dispatched trip, once every bucket it carried is shelved.
+		if doc.status != "Dispatched" or not _trip_has_loads(doc) or not _end_trip_if_shelved(doc):
+			continue
 		ended.append(name)
 	return ended
 
 
 def auto_receive_trucks_for_bucket(bucket_id):
-	"""Called after a bucket is shelved at the sales farm. The trip of the truck that
-	carried it ticks the bucket off, and ends (Received) once every bucket on it is
-	shelved, so the truck can be routed and planned again. Any trip -- Draft included
-	-- also ends once every bucket it requested is shelved. Returns the trips ended."""
+	"""Called after a bucket is shelved at the sales farm. The dispatched trip of the
+	truck that carried it ticks the bucket off, and ends (Received) once every bucket on
+	it is shelved. Shelving never dispatches a trip, and never ends one any other way
+	(End Trip on Bucket Logistics does). Returns the trips ended."""
 	received = _arrive_trips_carrying(bucket_id)
 	trucks = frappe.db.sql_list(
 		"""SELECT DISTINCT pli.transit_truck FROM `tabPick List Item` pli
@@ -968,11 +950,11 @@ def auto_receive_trucks_for_bucket(bucket_id):
 		bucket_id,
 	)
 	for truck in trucks:
-		trip = _vehicle_on_road(truck) or _loading_trip(truck)
+		# Only a trip that left: shelving never dispatches (or ends) one still loading.
+		trip = _vehicle_on_road(truck, include_arrived=True)
 		if not trip:
 			continue
 		doc = frappe.get_doc("Bucket Request Trip", trip)
-		# A trip nobody dispatched still ends once its buckets arrive; count from its day.
 		since = doc.dispatched_at or doc.trip_date
 		if doc.get("trip_buckets"):
 			# A bucket that took over another's truck flag on arrival (_take_over_truck)
@@ -1077,61 +1059,39 @@ def record_planned_load_on_arrival(bucket_id, farm):
 
 
 def _arrive_trips_carrying(bucket_id):
-	"""A bucket recorded on a trip was just shelved at the packhouse: that run's truck
-	is back, so the trip ends (a trip nobody dispatched is dispatched first). On a trip
-	that already ended the bucket is only ticked off. Returns the trips ended now."""
+	"""A bucket recorded on a trip was just shelved at the packhouse: the bucket is
+	ticked off, and a dispatched trip ends once every bucket it carried is shelved. A
+	trip that hasn't been dispatched is left as it is — shelving a bucket is no proof
+	its truck left (the bucket may have been at the hub already). Returns the trips
+	ended now."""
 	ended = []
 	for name in frappe.db.sql_list(
 		"""SELECT DISTINCT t.name FROM `tabBucket Request Trip` t
 		JOIN `tabBucket Request Trip Bucket` b ON b.parent = t.name AND b.parenttype = 'Bucket Request Trip'
-		WHERE UPPER(b.bucket) = UPPER(%(bucket)s) AND IFNULL(b.shelved, 0) = 0 AND t.trip_date >= %(since)s""",
+		WHERE UPPER(b.bucket) = UPPER(%(bucket)s) AND IFNULL(b.shelved, 0) = 0 AND t.trip_date >= %(since)s
+		  AND t.status IN ('Dispatched', 'Received')""",
 		{"bucket": bucket_id, "since": frappe.utils.add_days(frappe.utils.today(), -TRIP_LOOKBACK_DAYS)},
 	):
 		doc = frappe.get_doc("Bucket Request Trip", name)
 		if doc.status == "Received":
 			_end_trip_if_shelved(doc)  # tick it off; the trip already ended
 			continue
-		if doc.status in ACTIVE_TRIP_STATUSES:
-			doc.status = "Dispatched"
-			doc.dispatched_at = doc.get("last_departed_at") or frappe.utils.now()
-			doc.heading_to = transfer_hub(required=False) or ""
-			doc.add_comment("Info", "Dispatched: its first bucket was shelved at {0}".format(doc.heading_to))
-			doc.save(ignore_permissions=True)
 		if _end_trip_if_shelved(doc):
 			ended.append(name)
 	return ended
 
 
 def end_shelved_trips():
-	"""Scheduler (every 5 minutes): end every open trip whose run is over, so nobody
-	has to press End trip and the truck can be planned again. A run is over when
-
-	  1. every bucket it loaded is shelved at the hub (or left the truck) — shelving
-	     a bucket already ends its trip, but only that one scan's trips, once: a
-	     missed or failed scan left the trip open for good; or
-	  2. the same truck was DISPATCHED on a later run: a truck is on one run at a
-	     time, so the earlier one came back. (Loading alone isn't enough — a clerk can
-	     scan onto the wrong truck.) Buckets it carried that were never shelved stay
-	     flagged in transit (still missing)."""
+	"""Scheduler (every 5 minutes): end every dispatched trip whose buckets are all
+	shelved at the hub (or left the truck). Shelving a bucket already ends its trip,
+	but only that one scan's trips, once: a missed or failed scan would leave the trip
+	open. A trip ends only this way or by End Trip on Bucket Logistics."""
 	rows = frappe.db.sql(
-		"""SELECT t.name, t.vehicle, t.status,
-		       COALESCE(t.dispatched_at, MIN(b.creation), t.creation) AS started
-		FROM `tabBucket Request Trip` t
-		LEFT JOIN `tabBucket Request Trip Bucket` b ON b.parent = t.name AND b.parenttype = 'Bucket Request Trip'
-		WHERE t.status != 'Received' AND t.trip_date >= %(since)s
-		GROUP BY t.name
-		HAVING t.status = 'Dispatched' OR COUNT(b.name) > 0""",
+		"""SELECT t.name FROM `tabBucket Request Trip` t
+		WHERE t.status = 'Dispatched' AND t.trip_date >= %(since)s""",
 		{"since": frappe.utils.add_days(frappe.utils.today(), -TRIP_LOOKBACK_DAYS)},
 		as_dict=True,
 	)
-	latest = {}
-	for r in rows:
-		if (
-			r.vehicle
-			and r.status == "Dispatched"
-			and (r.vehicle not in latest or r.started > latest[r.vehicle].started)
-		):
-			latest[r.vehicle] = r
 	ended = []
 	for r in rows:
 		try:
@@ -1139,21 +1099,7 @@ def end_shelved_trips():
 			# A bucket of it shelved at the hub (by any path): the truck arrived.
 			if ensure_arrived(doc):
 				doc.reload()
-			done = _end_trip_if_shelved(doc)
-			later = latest.get(r.vehicle)
-			if not done and later and later.name != r.name and later.started > r.started:
-				left = sum(1 for b in doc.get("trip_buckets") or [] if not b.shelved and not b.off_truck)
-				_receive_trip(r.name)
-				doc.add_comment(
-					"Info",
-					"Ended: {0} left on a later run ({1}){2}.".format(
-						r.vehicle,
-						later.name,
-						" — {0} bucket(s) it carried were never shelved".format(left) if left else "",
-					),
-				)
-				done = True
-			if done:
+			if _end_trip_if_shelved(doc):
 				ended.append(r.name)
 				carry_over_to_next_run(r.name)
 			frappe.db.commit()  # nosemgrep: frappe-manual-commit -- one trip at a time
@@ -1361,7 +1307,7 @@ def _advance_stops(doc):
 def farm_departed(truck, farm):
 	"""True once the truck carrying this farm's buckets has left the farm: its trip is
 	dispatched, or the farm is one of the trip's departed stops."""
-	if _vehicle_on_road(truck):
+	if _vehicle_on_road(truck, include_arrived=True):
 		return True
 	return any(farm in _departed(d) for d in _truck_open_trips(truck) if _trip_has_loads(d))
 
@@ -4074,8 +4020,9 @@ def _trip_shelf_state(doc):
 
 def _mark_arrived(doc, hub, how):
 	"""Stamp a dispatched trip as arrived at the hub, and log every bucket still on it."""
-	doc.arrived_at = frappe.utils.now()
-	doc.arrived_by = frappe.session.user
+	# Only these two fields: a full save collides with a shelving scan saving the same
+	# trip (TimestampMismatchError) and the arrival is rolled back.
+	doc.db_set({"arrived_at": frappe.utils.now(), "arrived_by": frappe.session.user})
 	# Traceability: every bucket still on this truck reached the packhouse now.
 	for b in doc.get("trip_buckets") or []:
 		if not b.get("off_truck") and not b.get("shelved"):
@@ -4089,13 +4036,12 @@ def _mark_arrived(doc, hub, how):
 				details="Truck arrived at {0}".format(hub or "the packhouse"),
 			)
 	doc.add_comment("Info", "Truck {0} arrived at {1} — {2}".format(doc.vehicle, hub, how))
-	doc.save(ignore_permissions=True)
 
 
 def ensure_arrived(doc, hub=None):
-	"""Any bucket the trip carried shelved at the hub means the truck got there: stamp
-	it arrived (once). Returns True when it stamped now."""
-	if doc.get("arrived_at") or doc.status == "Received" or not doc.get("trip_buckets"):
+	"""Any bucket a dispatched trip carried shelved at the hub means the truck got there:
+	stamp it arrived (once). Returns True when it stamped now."""
+	if doc.get("arrived_at") or doc.status != "Dispatched" or not doc.get("trip_buckets"):
 		return False
 	first = next((b for b in _trip_shelf_state(doc) if b["shelved"]), None)
 	if not first:
@@ -4109,13 +4055,15 @@ def ensure_arrived(doc, hub=None):
 
 
 def auto_arrive_for_bucket(bucket):
-	"""A bucket was shelved at the hub. Its trip, at once (not at the next 5-minute
-	sweep):
+	"""A bucket was shelved at the hub. Its dispatched trip, at once (not at the next
+	5-minute sweep):
 	  * the first bucket shelved means the truck has arrived — stamped then, so nobody
-	    has to press "arrived". Any trip that carried it counts, dispatched or not;
+	    has to press "arrived";
 	  * the bucket is ticked shelved on the trip's bucket list, so the trip, the
 	    dashboard and the farm app count it straight away; the trip ends once every
-	    bucket it carried is shelved (or left the truck)."""
+	    bucket it carried is shelved (or left the truck).
+	A trip not dispatched yet is left alone: the bucket may have been at the hub
+	already, and only the logistics supervisor dispatches a trip."""
 	bucket = (bucket or "").strip().upper()
 	if not bucket:
 		return
@@ -4124,9 +4072,9 @@ def auto_arrive_for_bucket(bucket):
 			"""SELECT DISTINCT t.name FROM `tabBucket Request Trip Bucket` tb
 			JOIN `tabBucket Request Trip` t ON t.name = tb.parent
 			WHERE tb.parenttype = 'Bucket Request Trip' AND tb.bucket = %s
-			  AND t.status != 'Received'
+			  AND t.status = 'Dispatched' AND t.trip_date >= %s
 			  AND IFNULL(tb.off_truck, 0) = 0 AND IFNULL(tb.shelved, 0) = 0""",
-			(bucket,),
+			(bucket, frappe.utils.add_days(frappe.utils.today(), -TRIP_LOOKBACK_DAYS)),
 			pluck=True,
 		)
 		if not trips:
@@ -4134,18 +4082,6 @@ def auto_arrive_for_bucket(bucket):
 		hub = transfer_hub(required=False) or "the packhouse"
 		for name in trips:
 			doc = frappe.get_doc("Bucket Request Trip", name)
-			# Nobody dispatched it (a stop loaded short never closes by itself): its
-			# buckets reaching the hub prove the truck left — dispatch it now, from
-			# whichever app shelved it (the packhouse app's shelving already did this).
-			if doc.status in ACTIVE_TRIP_STATUSES:
-				doc.status = "Dispatched"
-				doc.dispatched_at = doc.get("last_departed_at") or frappe.utils.now()
-				doc.heading_to = transfer_hub(required=False) or ""
-				doc.add_comment(
-					"Info", "Dispatched: its first bucket ({0}) was shelved at {1}".format(bucket, hub)
-				)
-				doc.save(ignore_permissions=True)
-				doc.reload()
 			if not doc.get("arrived_at"):
 				_mark_arrived(doc, hub, "first bucket ({0}) shelved there".format(bucket))
 				doc.reload()
