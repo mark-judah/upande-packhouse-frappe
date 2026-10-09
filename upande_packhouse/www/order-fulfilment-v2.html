@@ -1,0 +1,272 @@
+{% extends "templates/web.html" %}
+{% block title %}Order Fulfilment · Packhouse{% endblock %}
+{% block page_content %}
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
+
+<style>
+/* Order Fulfilment — customer → order → line tree and inline fill bars. */
+.of-fill{display:inline-flex;align-items:center;justify-content:flex-end;gap:var(--sp-2)}
+.of-fill .ph-progress{width:56px}
+.of-fill b{min-width:44px;text-align:right}
+.of-chev{width:28px;color:var(--ink-mute)}
+.of-chev svg{transition:transform .15s}
+tr.is-open>.of-chev svg{transform:rotate(90deg)}
+.ph-table tbody tr.of-ord>td{background:var(--tint-2)}
+.ph-table tbody tr.of-ord>td:nth-child(2){padding-left:var(--sp-6)}
+.ph-table tbody tr.of-ln>td{background:var(--tint-2);font-size:12px;color:var(--ink-3)}
+.ph-table tbody tr.of-ln>td:nth-child(2){padding-left:calc(var(--sp-6) * 2)}
+.of-sub{display:block;font-size:11px;color:var(--ink-mute);font-weight:400}
+</style>
+
+<header class="ph-head">
+  <div>
+    <div class="ph-head__eyebrow">Packhouse · Stock &amp; Orders</div>
+    <h1 class="ph-head__title">Order Fulfilment</h1>
+    <p class="ph-head__sub" id="sub">Supplied vs ordered and supplied vs confirmed stems, by customer</p>
+  </div>
+  <div class="ph-head__tools">
+    <button class="ph-btn" id="export" type="button"></button>
+  </div>
+</header>
+
+<div class="ph-filters">
+  <div class="ph-pills" id="f-region"></div>
+  <select class="ph-select" id="f-farm" aria-label="Farm"><option value="">All farms</option></select>
+  <select class="ph-select" id="f-customer" aria-label="Customer"><option value="">All customers</option></select>
+  <select class="ph-select" id="f-manager" aria-label="Account manager"><option value="">All managers</option></select>
+  <div class="ph-pills" id="f-rose">
+    <button data-value="all">All roses</button><button data-value="spray">Spray</button><button data-value="standard">Standard</button>
+  </div>
+  <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Search customer, order, variety"></label>
+  <div class="ph-filters__spacer"></div>
+  <div class="ph-pills" id="f-preset">
+    <button data-value="yesterday">Yesterday</button><button data-value="today">Today</button><button data-value="7d">7 days</button><button data-value="30d">30 days</button><button data-value="mtd">Month</button>
+  </div>
+  <label class="ph-daterange" title="Sales Order delivery date">
+    <input type="date" id="f-from" aria-label="Delivery from"><span class="ph-daterange__sep">→</span><input type="date" id="f-to" aria-label="Delivery to">
+  </label>
+</div>
+
+<section class="ph-kpis" id="kpis"></section>
+
+<section class="ph-card ph-card--flush">
+  <div class="ph-card__head">
+    <h2 class="ph-card__title">Supplied vs ordered &amp; supplied vs confirmed by account manager</h2>
+    <div class="ph-card__tools">
+      <span class="ph-card__meta">Ranked by supplied ÷ ordered, then supplied ÷ confirmed · click to filter</span>
+    </div>
+  </div>
+  <div id="mgrs"></div>
+</section>
+
+<section class="ph-card ph-card--flush">
+  <div class="ph-card__head">
+    <h2 class="ph-card__title">Customers</h2>
+    <div class="ph-card__tools">
+      <span class="ph-card__meta" id="cust-meta"></span>
+      <div class="ph-pills" id="f-sort">
+        <button data-value="size">Largest</button><button data-value="fill">Lowest fill</button><button data-value="name">A–Z</button>
+      </div>
+    </div>
+  </div>
+  <div id="custs"></div>
+</section>
+
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  const today = PH.date.today();
+  const wk = PH.date.preset("7d");
+  // Every filter goes to the server (api/v2/order_fulfilment.get_order_fulfilment);
+  // it returns the KPIs and every roll-up. `sort` only orders the customer list.
+  const st = PH.state({ from: wk[0], to: wk[1], region: "", farm: "", customer: "", manager: "", rose: "all", q: "", sort: "size" });
+  const SERVER = ["from", "to", "region", "farm", "customer", "manager", "rose", "q"];
+  let DATA = null;
+  let seq = 0;
+  let allFarms = [];
+  const openCust = new Set();
+  const openOrder = new Set();
+
+  /* ── Filters ── */
+  PH.regionPills("#f-region", st, "region");
+  PH.bindSelect("#f-farm", st, "farm");
+  PH.bindSelect("#f-customer", st, "customer");
+  PH.bindSelect("#f-manager", st, "manager");
+  PH.pills("#f-rose", st, "rose");
+  PH.pills("#f-sort", st, "sort");
+  PH.bindSearch("#f-q", st, "q");
+  PH.dateRange({ pills: "#f-preset", from: "#f-from", to: "#f-to", state: st });
+  st.on((s, changed) => {
+    if (changed.includes("region")) paintFarms();
+    if (changed.some((k) => SERVER.includes(k))) return load();
+    render();
+  });
+
+  function paintFarms() {
+    const r = PH.regionFarms(st.get("region"));
+    PH.options("#f-farm", r ? allFarms.filter((f) => r.includes(f)) : allFarms, st.get("farm"));
+  }
+
+  /* ── Formatting (the server sends every total and percentage) ── */
+  const pctTxt = (v) => (v == null ? "—" : PH.fmt.pct(v, v < 10 && v % 1 ? 1 : 0));
+  function fill(v, title) {
+    if (v == null) return PH.raw(`<span class="of-fill" title="${PH.esc(title || "No confirmed stems")}"><span class="ph-muted">—</span></span>`);
+    const w = Math.min(100, v);
+    return PH.raw(`<span class="of-fill"><span class="ph-progress">${w > 0 ? `<i class="${v >= 100 ? "good" : "warn"}" style="width:${w}%"></i>` : ""}</span><b class="ph-num">${pctTxt(v)}</b></span>`);
+  }
+  const n = (v) => PH.fmt.num(v);
+
+  /* ── Load ── */
+  const KPI_LABELS = ["Stems ordered", "Confirmed", "Supplied", "Supplied vs ordered", "Supplied vs confirmed", "Packed"];
+  PH.kpiSkeleton("#kpis", KPI_LABELS);
+  function load() {
+    const my = ++seq;
+    const s = st.get();
+    PH.loadingKpis("#kpis", true);
+    PH.skeleton("#mgrs", "rows", 3);
+    PH.skeleton("#custs", "rows", 6);
+    return PH.call("upande_packhouse.api.v2.order_fulfilment.get_order_fulfilment", {
+      from_date: s.from, to_date: s.to, region: s.region, farm: s.farm, customer: s.customer, manager: s.manager, rose: s.rose, q: s.q,
+    })
+      .then((m) => {
+        if (my !== seq) return;
+        if (!m || m.success === false) throw new Error((m && m.error) || "Could not load order fulfilment");
+        DATA = m;
+        allFarms = m.options.farms || [];
+        paintFarms();
+        const keepOpt = (items, cur) => (cur && !items.some((i) => i.value === cur) ? items.concat([{ value: cur, label: cur }]) : items);
+        PH.options("#f-customer", keepOpt(m.options.customers, s.customer), s.customer);
+        PH.options("#f-manager", keepOpt(m.options.managers, s.manager), s.manager);
+        render();
+        PH.markUpdated();
+      })
+      .catch((e) => {
+        if (my !== seq) return;
+        DATA = null;
+        PH.kpis("#kpis", KPI_LABELS.map((l) => ({ label: l, value: "—" })));
+        PH.error("#mgrs", e.message, () => load());
+        PH.set("#custs", "");
+      });
+  }
+
+  /* ── Render ── */
+  function render() {
+    if (!DATA) return;
+    const s = st.get(), k = DATA.kpis;
+    PH.text("#sub", PH.date.label(DATA.from_date, DATA.to_date) + " (delivery) · " + PH.fmt.plural(k.customers, "customer") + " · " + PH.fmt.plural(k.orders, "order") + " · supplied vs ordered & confirmed stems");
+    const so = k.supplied_vs_ordered_pct, sc = k.supplied_vs_confirmed_pct;
+    PH.kpis("#kpis", [
+      { label: "Stems ordered", value: k.ordered_stems, unit: PH.fmt.plural(k.orders, "order") + " · " + PH.fmt.plural(k.customers, "customer") },
+      { label: "Confirmed", value: k.confirmed_stems, unit: "stems confirmed (Confirmed Stems)" },
+      { label: "Supplied", value: k.supplied_stems, unit: "stems dispatched · " + n(k.to_supply_stems) + " still to supply" },
+      { label: "Supplied vs ordered", value: so == null ? "—" : pctTxt(so), unit: so == null ? "nothing ordered" : "supplied ÷ ordered stems", bar: so == null ? null : so, barClass: so >= 100 ? "good" : "" },
+      { label: "Supplied vs confirmed", value: sc == null ? "—" : pctTxt(sc), unit: sc == null ? "no confirmed stems in this selection" : "supplied ÷ confirmed stems", bar: sc == null ? null : sc, barClass: sc >= 100 ? "good" : "" },
+      { label: "Packed", value: k.packed_stems, unit: "stems on Farm Pack Lists" },
+    ]);
+    renderManagers(s);
+    renderCustomers(s);
+  }
+
+  function renderManagers(s) {
+    const rows = DATA.managers;
+    if (!rows.length) return PH.empty("#mgrs", "No orders in this selection", "Widen the date range or clear a filter.");
+    PH.table("#mgrs", {
+      rows,
+      compact: true,
+      rowClass: (r) => (s.manager && r.manager === s.manager ? "is-selected" : ""),
+      onRowClick: (r) => st.set({ manager: st.get("manager") === r.manager ? "" : r.manager }),
+      columns: [
+        { key: "manager_name", label: "Account manager", cls: "is-strong" },
+        { key: "customers", label: "Customers", num: true },
+        { key: "orders", label: "Orders", num: true },
+        { key: "ordered_stems", label: "Ordered", num: true },
+        { key: "confirmed_stems", label: "Confirmed", num: true },
+        { key: "supplied_stems", label: "Supplied", num: true },
+        { key: "supplied_vs_ordered_pct", label: "Supplied vs ordered", num: true, html: (v) => fill(v, "Nothing ordered") },
+        { key: "supplied_vs_confirmed_pct", label: "Supplied vs confirmed", num: true, html: (v) => fill(v) },
+      ],
+    });
+  }
+
+  function sortedCustomers(s) {
+    const c = DATA.customers.slice();
+    if (s.sort === "name") c.sort((a, b) => String(a.customer_name).localeCompare(String(b.customer_name)));
+    else if (s.sort === "fill") c.sort((a, b) => (a.supplied_vs_ordered_pct ?? 1e9) - (b.supplied_vs_ordered_pct ?? 1e9) || b.ordered_stems - a.ordered_stems);
+    else c.sort((a, b) => b.ordered_stems - a.ordered_stems);
+    return c;
+  }
+
+  function renderCustomers(s) {
+    const custs = sortedCustomers(s);
+    PH.text("#cust-meta", PH.fmt.plural(custs.length, "customer") + " · click a customer for its orders, an order for its lines");
+    if (!custs.length) {
+      const f = s.customer || s.manager || s.q || s.region || s.farm || s.rose !== "all";
+      return PH.empty("#custs", f ? "No order lines match these filters" : "No orders in this date range",
+        f ? "Clear a filter to see more customers. Farm and region use the order's farm." : "Pick another delivery date range.");
+    }
+    const body = custs.map((c) => {
+      const co = openCust.has(c.customer);
+      let h = PH.html`<tr class="is-link${co ? " is-open" : ""}" data-cust="${c.customer}">
+        <td class="of-chev">${PH.raw(PH.icon("chevronRight", 14))}</td>
+        <td class="is-strong">${c.customer_name}<span class="of-sub">${c.manager_name}</span></td>
+        <td class="is-num">${n(c.order_count)}</td>
+        <td class="is-num">${n(c.ordered_stems)}</td><td class="is-num">${n(c.confirmed_stems)}</td><td class="is-num">${n(c.supplied_stems)}</td>
+        <td class="is-num">${fill(c.supplied_vs_ordered_pct)}</td><td class="is-num">${fill(c.supplied_vs_confirmed_pct)}</td>
+      </tr>`.__raw;
+      if (co) h += c.orders.map((o) => orderRows(o)).join("");
+      return h;
+    }).join("");
+    PH.keepScroll(() => PH.set("#custs", `<div class="ph-table-wrap"><table class="ph-table"><thead><tr><th></th><th>Customer · order · variety</th><th class="is-num">Orders</th><th class="is-num">Ordered</th><th class="is-num">Confirmed</th><th class="is-num">Supplied</th><th class="is-num">Supplied vs ordered</th><th class="is-num">Supplied vs confirmed</th></tr></thead><tbody>${body}</tbody></table></div>`));
+  }
+
+  function orderRows(o) {
+    const oo = openOrder.has(o.sales_order);
+    let h = PH.html`<tr class="of-ord is-link${oo ? " is-open" : ""}" data-so="${o.sales_order}">
+      <td class="of-chev">${PH.raw(PH.icon("chevronRight", 14))}</td>
+      <td><a class="ph-link ph-mono" href="${PH.docUrl("Sales Order", o.sales_order)}" target="_blank" rel="noopener">${o.sales_order}</a>${o.order_name ? PH.html` <span class="ph-muted">· ${o.order_name}</span>` : ""}<span class="of-sub">Delivery ${PH.fmt.date(o.delivery_date)} · ${PH.fmt.plural(o.lines.length, "line")}</span></td>
+      <td class="is-num"></td>
+      <td class="is-num">${n(o.ordered_stems)}</td><td class="is-num">${n(o.confirmed_stems)}</td><td class="is-num">${n(o.supplied_stems)}</td>
+      <td class="is-num">${fill(o.supplied_vs_ordered_pct)}</td><td class="is-num">${fill(o.supplied_vs_confirmed_pct)}</td>
+    </tr>`.__raw;
+    if (oo) h += o.lines.map((l) => PH.html`<tr class="of-ln">
+      <td></td>
+      <td>${l.variety || "—"}${l.length ? PH.html` <span class="ph-muted">· ${l.length}</span>` : ""}<span class="of-sub">${l.farm || "No farm on order"} · packed ${n(l.packed_stems)}</span></td>
+      <td class="is-num"></td>
+      <td class="is-num">${n(l.ordered_stems)}</td><td class="is-num">${n(l.confirmed_stems)}</td><td class="is-num">${n(l.supplied_stems)}</td>
+      <td class="is-num">${fill(l.supplied_vs_ordered_pct)}</td><td class="is-num">${fill(l.supplied_vs_confirmed_pct)}</td>
+    </tr>`.__raw).join("");
+    return h;
+  }
+
+  /* ── Interactions ── */
+  document.getElementById("custs").addEventListener("click", (e) => {
+    if (e.target.closest("a")) return;
+    const r = e.target.closest("tr[data-so]");
+    if (r) { const so = r.dataset.so; openOrder.has(so) ? openOrder.delete(so) : openOrder.add(so); return render(); }
+    const c = e.target.closest("tr[data-cust]");
+    if (c) { const k = c.dataset.cust; openCust.has(k) ? openCust.delete(k) : openCust.add(k); render(); }
+  });
+
+  const exportBtn = document.getElementById("export");
+  exportBtn.innerHTML = PH.icon("download") + "<span>Export CSV</span>";
+  exportBtn.addEventListener("click", () => {
+    const rows = DATA ? sortedCustomers(st.get()).flatMap((c) => c.orders.flatMap((o) => o.lines)) : [];
+    if (!rows.length) return PH.toast("Nothing to export", "warn");
+    PH.csv("order-fulfilment-" + st.get("from") + "_" + st.get("to") + ".csv", rows, [
+      { key: "customer_name", label: "Customer" }, { key: "manager_name", label: "Account manager" },
+      { key: "sales_order", label: "Sales Order" }, { key: "order_name", label: "Order name" }, { key: "delivery_date", label: "Delivery date" },
+      { key: "variety", label: "Variety" }, { key: "length", label: "Length" }, { key: "farm", label: "Order farm" },
+      { key: "ordered_stems", label: "Ordered stems" }, { key: "confirmed_stems", label: "Confirmed stems" },
+      { key: "supplied_stems", label: "Supplied stems" }, { key: "packed_stems", label: "Packed stems" },
+      { key: "supplied_vs_ordered_pct", label: "Supplied vs ordered %" }, { key: "supplied_vs_confirmed_pct", label: "Supplied vs confirmed %" },
+    ]);
+  });
+
+  PH.onRefresh(() => load());
+  PH.ready(() => load());
+})();
+</script>
+{% endraw %}
+{% endblock %}

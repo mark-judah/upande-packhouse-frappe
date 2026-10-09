@@ -1,0 +1,274 @@
+{% extends "templates/web.html" %}
+{% block title %}Discards · Packhouse{% endblock %}
+{% block page_content %}
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
+
+<style>
+/* Discards v2 — page-only layout. Long unbroken server messages (dotted
+   method names) must not widen the page on phones. */
+.pd-async{min-width:0}
+.pd-async .ph-empty{overflow-wrap:anywhere}
+</style>
+
+<header class="ph-head">
+  <div>
+    <div class="ph-head__eyebrow">Packhouse · Tracking</div>
+    <h1 class="ph-head__title">Discards</h1>
+    <p class="ph-head__sub" id="sub">Aged buckets in approved discard requests</p>
+  </div>
+  <div class="ph-head__tools">
+    <button class="ph-btn" id="export" type="button" disabled>Export CSV</button>
+  </div>
+</header>
+
+<div class="ph-filters">
+  <div class="ph-pills" id="f-region" aria-label="Region"></div>
+  <select class="ph-select" id="f-farm" aria-label="Farm"><option value="">All farms</option></select>
+  <select class="ph-select" id="f-variety" aria-label="Variety"><option value="">All varieties</option></select>
+  <div class="ph-pills" id="f-rose" aria-label="Rose type">
+    <button data-value="all">All roses</button><button data-value="standard">Standards</button><button data-value="spray">Sprays</button>
+  </div>
+  <div class="ph-filters__spacer"></div>
+  <div class="ph-pills" id="f-preset">
+    <button data-value="today">Today</button><button data-value="7d">7 days</button><button data-value="30d">30 days</button>
+  </div>
+  <label class="ph-daterange" title="Discard date range (approval date, else requested date)">
+    <input type="date" id="f-from" aria-label="From"><span class="ph-daterange__sep">→</span><input type="date" id="f-to" aria-label="To">
+  </label>
+</div>
+
+<section class="ph-kpis" id="kpis"></section>
+
+<div class="ph-row ph-row--2">
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head">
+      <h2 class="ph-card__title">Top varieties</h2>
+      <span class="ph-card__meta">Click a row to filter the page</span>
+    </div>
+    <div class="pd-async" id="by-variety"></div>
+  </section>
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head">
+      <h2 class="ph-card__title">Top farms</h2>
+      <span class="ph-card__meta">Click a row to filter the page</span>
+    </div>
+    <div class="pd-async" id="by-farm"></div>
+  </section>
+</div>
+
+<section class="ph-card ph-card--flush">
+  <div class="ph-card__head">
+    <h2 class="ph-card__title">Discarded buckets <span class="ph-badge ph-badge--bad" id="count">0</span></h2>
+    <div class="ph-card__tools">
+      <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Search request, bucket, variety, shelf"></label>
+    </div>
+  </div>
+  <div id="notice"></div>
+  <div class="pd-async" id="table"></div>
+</section>
+
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  // v2 endpoint: every filter (region, farm, variety, rose, date range, search) is applied on
+  // the server to the KPIs, the top lists and the bucket list alike (api/v2/discards.py).
+  const API = "upande_packhouse.api.v2.discards.get_discards";
+  const today = PH.date.today();
+  const st = PH.state({ from: today, to: today, region: "", farm: "", variety: "", rose: "all", q: "" });
+  let data = null;
+  let seq = 0;
+  let allFarms = [];
+
+  /* ── Filters ── */
+  PH.regionPills("#f-region", st, "region");
+  PH.bindSelect("#f-farm", st, "farm");
+  PH.bindSelect("#f-variety", st, "variety");
+  PH.pills("#f-rose", st, "rose");
+  PH.dateRange({ pills: "#f-preset", from: "#f-from", to: "#f-to", state: st });
+  const qInput = PH.bindSearch("#f-q", st, "q");
+
+  function paintFarmOptions() {
+    const only = PH.regionFarms(st.get("region"));
+    const list = only ? allFarms.filter((f) => only.includes(f)) : allFarms;
+    const cur = st.get("farm");
+    PH.options("#f-farm", cur && !list.includes(cur) ? list.concat([cur]) : list, cur);
+  }
+
+  st.on((s) => {
+    if (qInput.value.trim() !== (s.q || "")) qInput.value = s.q || "";
+    paintFarmOptions();
+    load();
+  });
+
+  /* ── Load ── */
+  const KPI_LABELS = ["Buckets discarded", "Stems discarded", "Avg age at discard", "Foregone value"];
+  PH.kpiSkeleton("#kpis", KPI_LABELS);
+
+  const aggCols = (key, label) => [
+    { key, label, cls: "is-strong", format: (v) => v || "—" },
+    { key: "buckets", label: "Buckets", num: true },
+    { key: "stems", label: "Stems", num: true },
+  ];
+  const varTable = PH.table("#by-variety", {
+    columns: aggCols("variety", "Variety"), rows: [], compact: true, empty: "No discards in range",
+    onRowClick: (r) => r.variety && st.set({ variety: st.get("variety") === r.variety ? "" : r.variety }),
+    rowClass: (r) => (r.variety && r.variety === st.get("variety") ? "is-selected" : ""),
+  });
+  const farmTable = PH.table("#by-farm", {
+    columns: aggCols("farm", "Farm"), rows: [], compact: true, empty: "No discards in range",
+    onRowClick: (r) => r.farm && st.set({ farm: st.get("farm") === r.farm ? "" : r.farm }),
+    rowClass: (r) => (r.farm && r.farm === st.get("farm") ? "is-selected" : ""),
+  });
+
+  function load(background) {
+    const s = st.get();
+    if (!background) {
+      PH.loadingKpis("#kpis", true);
+      PH.skeleton("#by-variety", "rows", 5);
+      PH.skeleton("#by-farm", "rows", 5);
+      PH.skeleton("#table", "rows", 8);
+      PH.set("#notice", "");
+    }
+    const my = ++seq;
+    const args = { from_date: s.from, to_date: s.to, region: s.region, farm: s.farm, variety: s.variety, rose: s.rose, q: s.q };
+    return PH.call(API, args, { silent: background })
+      .then((m) => {
+        if (my !== seq) return;
+        data = m || {};
+        render();
+        PH.markUpdated();
+      })
+      .catch((e) => {
+        if (my !== seq || background) return;
+        data = null;
+        document.getElementById("export").disabled = true;
+        PH.kpis("#kpis", KPI_LABELS.map((l) => ({ label: l, value: "—" })));
+        PH.text("#count", "0");
+        PH.error("#by-variety", e.message, () => load());
+        PH.error("#by-farm", e.message, () => load());
+        PH.error("#table", e.message, () => load());
+      });
+  }
+
+  /* ── Render ── */
+  const ROSE_LABEL = { spray: "Spray roses", standard: "Standard roses" };
+  function render() {
+    const d = data, s = st.get();
+    const cur = d.valuation_currency || "";
+    const buckets = +d.total_buckets || 0;
+    const stems = +d.total_stems || 0;
+
+    if (d.farms) {
+      allFarms = d.farms;
+      paintFarmOptions();
+    }
+    PH.options("#f-variety", d.varieties || [], s.variety);
+
+    const scope = [s.region, s.farm, s.variety, s.rose !== "all" ? ROSE_LABEL[s.rose] : "", s.q ? "“" + s.q + "”" : ""].filter(Boolean);
+    PH.text("#sub", "Approved discard requests · " + PH.date.label(s.from, s.to) + (scope.length ? " · " + scope.join(" · ") : ""));
+    document.getElementById("export").disabled = !(d.rows || []).length;
+
+    // Foregone value: stems × the selling rate on the valuation price list for the bucket's
+    // variety and length, valid on the discard date. Stems with no price that day are left out
+    // and counted in the caption.
+    const unpriced = +d.unpriced_stems || 0;
+    const valueUnit = [
+      d.total_foregone_kes != null ? "≈ KES " + PH.fmt.num(d.total_foregone_kes) : "",
+      unpriced ? PH.fmt.num(unpriced) + " stems unpriced" : stems ? "all stems priced" : "",
+    ].filter(Boolean).join(" · ");
+    PH.kpis("#kpis", [
+      { label: "Buckets discarded", value: buckets, unit: PH.fmt.num(+d.requests || 0) + " requests · " + PH.fmt.num(+d.removed_buckets || 0) + " removed from shelf", dark: true },
+      { label: "Stems discarded", value: stems, unit: buckets ? PH.fmt.num(stems / buckets, 0) + " stems per bucket" : "stems" },
+      { label: "Avg age at discard", value: d.avg_age_days != null ? PH.fmt.num(d.avg_age_days, 1) : "—", suffix: d.avg_age_days != null ? "days" : "", unit: "per bucket, from harvest" },
+      {
+        label: "Foregone value", value: d.total_foregone != null ? PH.fmt.num(d.total_foregone, 2) : "—", suffix: cur, unit: valueUnit || "valued at " + (d.valuation_price_list || "—"),
+        title: cur ? "Stems × " + d.valuation_price_list + " rate valid on the discard date" : "The valuation price list has no currency, so discards cannot be valued",
+      },
+    ]);
+
+    varTable.update(d.by_variety || []);
+    farmTable.update(d.by_farm || []);
+
+    PH.text("#count", PH.fmt.num(buckets));
+    PH.set("#notice", d.truncated
+      ? PH.html`<div class="ph-notice ph-notice--warn ph-mb-0">Showing the latest ${PH.fmt.num((d.rows || []).length)} of ${PH.fmt.num(buckets)} buckets. Narrow the filters to list them all — the figures above and the totals row cover all ${PH.fmt.num(buckets)}.</div>`
+      : "");
+    renderTable();
+  }
+
+  function roseBadge(v, r) {
+    if (r.rose === "spray") return '<span class="ph-badge ph-badge--signal">Spray</span>';
+    if (r.rose === "standard") return '<span class="ph-badge">Standard</span>';
+    return r.item_group ? PH.html`<span class="ph-badge ph-badge--outline">${r.item_group}</span>`.__raw : '<span class="ph-muted">—</span>';
+  }
+
+  // Totals row = the server totals over the full filtered set, so it always equals the KPIs
+  // (and the column sum whenever the list is not truncated).
+  const foregoneCol = {
+    key: "foregone", label: "Foregone", num: true,
+    html: (v) => (v == null ? '<span class="ph-muted" title="No price valid on the discard date for this variety and length">—</span>' : PH.esc(PH.fmt.num(v, 2))),
+    total: () => (data && data.total_foregone != null ? PH.fmt.num(data.total_foregone, 2) : "—"),
+  };
+  const table = PH.table("#table", {
+    columns: [
+      { key: "date", label: "Date", format: (v) => PH.fmt.date(v) },
+      { key: "request", label: "Request", cls: "ph-mono" },
+      { key: "bucket", label: "Bucket", cls: "ph-mono" },
+      { key: "variety", label: "Variety", cls: "is-strong" },
+      { key: "rose", label: "Type", html: roseBadge },
+      { key: "stems", label: "Stems", num: true, total: () => PH.fmt.num(data ? +data.total_stems || 0 : 0) },
+      { key: "length", label: "Length" },
+      { key: "farm", label: "Farm" },
+      { key: "shelf", label: "Shelf", cls: "ph-mono" },
+      { key: "age_days", label: "Age (d)", num: true, html: (v) => (v == null ? '<span class="ph-muted">—</span>' : PH.esc(PH.fmt.num(v))) },
+      foregoneCol,
+    ],
+    rows: [], // server order: newest discard first
+    pageSize: 50,
+    onRowClick: (r) => r.request && PH.openDoc("Discard Request", r.request),
+    empty: "No discards in range",
+  });
+
+  function renderTable() {
+    if (!data) return;
+    const rows = data.rows || [], q = st.get("q");
+    if (!rows.length) {
+      return q
+        ? PH.empty("#table", "No buckets match “" + q + "”", "Clear the search to see every discarded bucket.")
+        : PH.empty("#table", "No discards in range", "Approved discard requests for these filters show up here.");
+    }
+    const cur = data.valuation_currency || "";
+    foregoneCol.label = "Foregone" + (cur ? " (" + cur + ")" : "");
+    table.update(rows);
+  }
+
+  /* ── Export ── */
+  document.getElementById("export").addEventListener("click", () => {
+    if (!data) return;
+    const s = st.get(), cur = data.valuation_currency || "";
+    const tag = [s.region, s.farm, s.variety, s.rose !== "all" ? s.rose : ""].filter(Boolean).join("_").replace(/[^\w-]+/g, "-");
+    PH.csv("discards_" + s.from + "_" + s.to + (tag ? "_" + tag : "") + ".csv", data.rows || [], [
+      { key: "date", label: "Date" },
+      { key: "request", label: "Request" },
+      { key: "bucket", label: "Bucket" },
+      { key: "variety", label: "Variety" },
+      { key: "item_group", label: "Item group" },
+      { key: "stems", label: "Stems" },
+      { key: "length", label: "Length" },
+      { key: "farm", label: "Farm" },
+      { key: "shelf", label: "Shelf" },
+      { key: "age_days", label: "Age (days)" },
+      { key: "rate", label: "Rate on date" + (cur ? " (" + cur + ")" : "") },
+      { key: "foregone", label: "Foregone" + (cur ? " (" + cur + ")" : "") },
+    ]);
+  });
+
+  PH.onRefresh(() => load());
+  PH.ready(() => load());
+  PH.poll(load, 30000);
+})();
+</script>
+{% endraw %}
+{% endblock %}

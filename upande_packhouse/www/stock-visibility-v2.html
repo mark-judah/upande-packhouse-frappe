@@ -1,0 +1,481 @@
+{% extends "templates/web.html" %}
+{% block title %}Stock Visibility · Packhouse{% endblock %}
+{% block page_content %}
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
+
+<style>
+  /* Stock Visibility — page-only layout (tokens + spacing scale only). */
+  .sv-stack{display:flex;height:12px;border-radius:var(--r-pill);overflow:hidden;background:var(--tint)}
+  .sv-stack--thin{height:6px;margin-top:var(--sp-1)}
+  .sv-stack>i{display:block;height:100%;box-shadow:inset -1px 0 0 var(--surface-2)}
+  .sv-stack>i.sv-good{background:var(--grad-good)}
+  .sv-stack>i.sv-ink{background:var(--grad-ink)}
+  .sv-stack>i.sv-warn{background:var(--grad-warn)}
+  .sv-stack>i.sv-bad{background:var(--grad-bad)}
+  .sv-split{display:flex;flex-direction:column;gap:var(--sp-4)}
+  .sv-split .ph-legend b{color:var(--ink);font-weight:600}
+  .sv-pop{max-height:60vh;overflow-y:auto;min-width:220px}
+  .sv-pop .ph-check{display:flex;padding:var(--sp-2) var(--sp-3)}
+  .sv-pop .ph-check:hover{background:var(--tint)}
+  .sv-pop hr{border:0;height:1px;background:var(--hairline);margin:var(--sp-1) 0}
+  .ph-select.is-set{box-shadow:0 0 0 2px var(--ink),var(--shadow-card)}
+  /* Two header rows: the second sticks just under the first. */
+  .sv-grid thead tr:first-child th{height:40px}
+  .sv-grid thead tr+tr th{top:40px}
+  .sv-grid .sv-gs{border-left:1px solid var(--hairline-2)}
+  .sv-grid th.sv-group{text-align:center}
+  .sv-grid .sv-name{min-width:220px;max-width:300px}
+  .sv-grid .sv-name__row{display:flex;align-items:center;gap:var(--sp-2)}
+  .sv-grid .sv-name__row svg.ph-ic{color:var(--ink-mute)}
+  .sv-grid tr.sv-variety{cursor:pointer}
+  .sv-grid tr.sv-variety.is-open td,.sv-grid tbody tr:hover td.ph-sticky-col{background:var(--surface)}
+  .sv-grid tr.sv-farm td{color:var(--ink-mute)}
+  .sv-grid tr.sv-farm td.sv-name{padding-left:calc(var(--sp-5) + var(--sp-6))}
+  .sv-grid tr.sv-detail td{background:var(--surface);white-space:normal}
+  .sv-legend{padding:0 32px var(--sp-4)}
+  @media (max-width:860px){.sv-legend{padding:0 var(--sp-5) var(--sp-4)}}
+  .sv-detail__in{position:sticky;left:var(--sp-5);display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:var(--sp-6);max-width:min(1080px,80vw);padding:var(--sp-2) 0}
+</style>
+
+<header class="ph-head">
+  <div>
+    <div class="ph-head__eyebrow">Packhouse · Stock &amp; Orders</div>
+    <h1 class="ph-head__title">Stock Visibility</h1>
+    <p class="ph-head__sub" id="sub">Variety stock vs orders across farms and lengths</p>
+  </div>
+  <div class="ph-head__tools">
+    <button class="ph-btn" id="export" type="button" disabled></button>
+  </div>
+</header>
+
+<div class="ph-filters">
+  <div class="ph-pills" id="f-region"></div>
+  <div class="ph-pills" id="f-rose">
+    <button data-value="all">All roses</button><button data-value="spray">Sprays</button><button data-value="standard">Standards</button>
+  </div>
+  <button class="ph-select" id="f-farm" type="button" title="Shelf farm (stock) · the order's farm (orders)">Farm: All</button>
+  <button class="ph-select" id="f-len" type="button">Length: All</button>
+  <select class="ph-select" id="f-cust" aria-label="Customer"><option value="">All customers</option></select>
+  <select class="ph-select" id="f-dp" aria-label="Delivery point"><option value="">All delivery points</option></select>
+  <select class="ph-select" id="f-cover" aria-label="Cover">
+    <option value="">Any cover</option><option value="deficit">Deficit</option><option value="tight">Tight</option><option value="surplus">Surplus</option>
+  </select>
+  <select class="ph-select" id="f-age" aria-label="Oldest stems">
+    <option value="">Any age</option><option value="3">Oldest ≥ 3 days</option><option value="5">Oldest ≥ 5 days</option><option value="7">Oldest ≥ 7 days</option><option value="14">Oldest ≥ 14 days</option>
+  </select>
+  <label class="ph-switch"><input type="checkbox" id="f-demand"><i></i>Has orders</label>
+  <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Search variety"></label>
+  <div class="ph-filters__spacer"></div>
+  <div class="ph-pills" id="f-basis" title="Shelf positions can't be rebuilt for a past date, so the range either leaves stock as it is now or keeps only stems harvested in the range">
+    <button data-value="all">Shelf now</button><button data-value="range">Harvested in range</button>
+  </div>
+  <div class="ph-pills" id="f-preset">
+    <button data-value="today">Today</button><button data-value="tomorrow">Tomorrow</button><button data-value="next7">Next 7d</button><button data-value="7d">Last 7d</button><button data-value="30d">Last 30d</button>
+  </div>
+  <label class="ph-daterange" title="Orders: Sales Order delivery date">
+    <span>Delivery</span><input type="date" id="f-from" aria-label="From"><span>→</span><input type="date" id="f-to" aria-label="To">
+  </label>
+</div>
+
+<section class="ph-kpis" id="kpis"></section>
+
+<div class="ph-row ph-row--2">
+  <section class="ph-card ph-mb-0">
+    <div class="ph-card__head">
+      <h2 class="ph-card__title">Where the shelved stems are</h2>
+      <span class="ph-card__meta" id="comp-meta"></span>
+    </div>
+    <div id="comp"></div>
+  </section>
+  <section class="ph-card ph-mb-0">
+    <div class="ph-card__head">
+      <h2 class="ph-card__title">How fresh the shelf is</h2>
+      <span class="ph-card__meta" id="fresh-meta">days since harvest (else shelving)</span>
+    </div>
+    <div id="fresh"></div>
+  </section>
+</div>
+
+<section class="ph-card ph-card--flush">
+  <div class="ph-card__head">
+    <h2 class="ph-card__title">Stock vs orders by farm &amp; length <span class="ph-badge" id="row-count">—</span></h2>
+    <div class="ph-card__tools">
+      <div class="ph-pills" id="f-sort">
+        <button data-value="az">A–Z</button><button data-value="deficit">Deficit first</button><button data-value="avail">Most allocatable</button>
+      </div>
+      <button class="ph-btn ph-btn--sm ph-btn--ghost" id="expand-all" type="button">Expand all</button>
+    </div>
+  </div>
+  <div class="ph-legend sv-legend">
+    <span><span class="ph-dot ph-dot--good"></span>Allocatable</span>
+    <span><span class="ph-dot ph-dot--warn"></span>Free, too old / cooling</span>
+    <span><span class="ph-dot ph-dot--ink"></span>Allocated</span>
+    <span><span class="ph-dot ph-dot--bad"></span>Held (discard request)</span>
+    <span class="ph-muted">Var = allocatable − still to allocate</span>
+  </div>
+  <div class="ph-muted sv-legend">Shelved = held + allocated + free. The bar under each variety splits its shelved stems. Click a variety for its farms, age and balance.</div>
+  <div id="grid"></div>
+</section>
+
+<section class="ph-card ph-card--flush">
+  <div class="ph-card__head">
+    <div>
+      <h2 class="ph-card__title">Coldroom — received, not shelved <span class="ph-badge" id="ns-count">—</span></h2>
+      <div class="ph-card__meta" id="ns-meta">Received and not yet shelved, issued or discarded</div>
+    </div>
+  </div>
+  <div id="ns"></div>
+</section>
+
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  const API = "upande_packhouse.api.v2.stock_visibility.get_stock_visibility";
+  const today = PH.date.today();
+  // farm / len hold a comma-joined multi-selection ("" = all).
+  const st = PH.state({ from: today, to: today, basis: "all", region: "", rose: "all", farm: "", len: "", cust: "", dp: "", cover: "", age: "", demand: false, q: "", sort: "az" });
+  let data = null;        // last API payload (rows already filtered + rolled up on the server)
+  const open = new Set(); // expanded varieties
+  let seq = 0;
+
+  const list = (v) => (v ? String(v).split(",").filter(Boolean) : []);
+  const fmt = (n) => PH.fmt.num(Math.round(n || 0));
+
+  /* ── Filters (every one goes to the server) ── */
+  PH.regionPills("#f-region", st, "region");
+  PH.pills("#f-rose", st, "rose");
+  PH.pills("#f-basis", st, "basis");
+  PH.pills("#f-sort", st, "sort");
+  PH.bindSelect("#f-cust", st, "cust");
+  PH.bindSelect("#f-dp", st, "dp");
+  PH.bindSelect("#f-cover", st, "cover");
+  PH.bindSelect("#f-age", st, "age");
+  PH.bindSearch("#f-q", st, "q", 350);
+  PH.dateRange({ pills: "#f-preset", from: "#f-from", to: "#f-to", state: st });
+  const demandEl = document.getElementById("f-demand");
+  demandEl.checked = !!st.get("demand");
+  demandEl.addEventListener("change", () => st.set({ demand: demandEl.checked }));
+
+  multiSelect("#f-farm", "farm", "Farm");
+  multiSelect("#f-len", "len", "Length");
+
+  st.on((s, changed) => {
+    demandEl.checked = !!s.demand;
+    if (changed.length === 1 && changed[0] === "sort") return render();
+    // A region change drops picked farms outside it (region + farm intersect on the server anyway).
+    if (changed.includes("region") && s.region) {
+      const rf = PH.regionFarms(s.region) || [];
+      const keep = list(s.farm).filter((f) => rf.includes(f)).join(",");
+      if (keep !== s.farm) return st.set({ farm: keep });
+    }
+    load();
+  });
+
+  /* Multi-select popover (Farm / Length) — state holds "a,b,c". */
+  const opts = { farm: [], len: [] };
+  function multiSelect(sel, key, label) {
+    const btn = PH.$(sel);
+    const paint = () => {
+      const v = list(st.get(key));
+      btn.textContent = label + ": " + (!v.length ? "All" : v.length === 1 ? v[0] : v.length + " selected");
+      btn.classList.toggle("is-set", v.length > 0);
+    };
+    paint();
+    st.on((s, changed) => changed.includes(key) && paint());
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".sv-pop").forEach((m) => m.remove());
+      const pop = document.createElement("div");
+      pop.className = "ph-menu sv-pop";
+      const choices = () => {
+        const rf = key === "farm" ? PH.regionFarms(st.get("region")) : null;
+        return rf ? opts[key].filter((v) => rf.includes(v)) : opts[key];
+      };
+      const draw = () => {
+        const on = new Set(list(st.get(key))), ch = choices();
+        pop.innerHTML =
+          `<label class="ph-check"><input type="checkbox" data-all ${on.size ? "" : "checked"}>All</label><hr>` +
+          (ch.length ? ch.map((v) => PH.html`<label class="ph-check"><input type="checkbox" data-v="${v}" ${PH.raw(on.has(v) ? "checked" : "")}>${v}</label>`.__raw).join("")
+            : '<div class="ph-ac__empty">Nothing loaded yet</div>');
+      };
+      draw();
+      pop.addEventListener("change", (e) => {
+        const cb = e.target;
+        if (cb.hasAttribute("data-all")) st.set({ [key]: "" });
+        else {
+          const on = new Set(list(st.get(key)));
+          if (cb.checked) on.add(cb.dataset.v); else on.delete(cb.dataset.v);
+          st.set({ [key]: opts[key].filter((v) => on.has(v)).join(",") });
+        }
+        draw();
+      });
+      document.querySelector(".ph2").appendChild(pop);
+      const r = btn.getBoundingClientRect();
+      pop.style.left = Math.max(8, Math.min(window.innerWidth - pop.offsetWidth - 8, r.left)) + "px";
+      pop.style.top = r.bottom + 6 + "px";
+      setTimeout(() => {
+        const off = (e) => {
+          if (pop.contains(e.target) || e.target === btn) return;
+          pop.remove();
+          document.removeEventListener("mousedown", off);
+        };
+        document.addEventListener("mousedown", off);
+      });
+    });
+  }
+  const closePops = () => document.querySelectorAll(".sv-pop").forEach((m) => m.remove());
+  window.addEventListener("resize", closePops);
+  document.getElementById("ph-main").addEventListener("scroll", closePops, { passive: true });
+
+  /* ── Load ── */
+  const KPI_LABELS = ["Allocatable", "Still to allocate", "Variance", "On shelf", "Coldroom"];
+  PH.kpiSkeleton("#kpis", KPI_LABELS);
+  function args() {
+    const s = st.get();
+    return { from_date: s.from || today, to_date: s.to || s.from || today, basis: s.basis, region: s.region, farm: s.farm, length: s.len,
+      rose: s.rose, q: s.q, customer: s.cust, delivery_point: s.dp, age: s.age, cover: s.cover, demand: s.demand ? 1 : 0 };
+  }
+  function load(background) {
+    const my = ++seq;
+    if (!background) {
+      PH.loadingKpis("#kpis", true);
+      PH.skeleton("#grid", "rows", 8);
+      PH.skeleton("#ns", "rows", 4);
+      PH.skeleton("#comp", "rows", 2);
+      PH.skeleton("#fresh", "rows", 2);
+    }
+    const a = args();
+    PH.text("#sub", "Orders delivering " + PH.date.label(a.from_date, a.to_date) + " vs " +
+      (a.basis === "range" ? "shelf stems harvested in that range" : "everything on the shelf now"));
+    return PH.call(API, a, { silent: background, type: "GET" })
+      .then((m) => {
+        if (my !== seq) return;
+        data = m || {};
+        fillOptions();
+        render();
+        PH.markUpdated();
+      })
+      .catch((e) => {
+        if (my !== seq || background) return;
+        PH.loadingKpis("#kpis", false);
+        PH.kpis("#kpis", KPI_LABELS.map((l) => ({ label: l, value: "—" })));
+        PH.error("#grid", e.message, () => load());
+        PH.error("#ns", e.message, () => load());
+        const na = '<div class="ph-muted">Unavailable until the stock data loads.</div>';
+        PH.set("#comp", na); PH.set("#fresh", na);
+        document.getElementById("export").disabled = true;
+      });
+  }
+
+  function fillOptions() {
+    const o = data.options || {};
+    opts.farm = o.farms || [];
+    opts.len = o.lengths || [];
+    PH.options("#f-cust", o.customers || [], st.get("cust"));
+    PH.options("#f-dp", o.delivery_points || [], st.get("dp"));
+  }
+
+  function sortedRows() {
+    const out = (data.rows || []).slice(), s = st.get("sort");
+    if (s === "deficit") out.sort((a, b) => a.variance - b.variance);
+    else if (s === "avail") out.sort((a, b) => b.allocatable - a.allocatable);
+    return out;
+  }
+
+  /* ── Render (formatting only — every total comes from the server) ── */
+  function render() {
+    if (!data) return;
+    const K = data.kpis || {};
+    const vis = sortedRows();
+    const range = PH.date.label(data.from_date, data.to_date);
+    const basisTxt = data.basis === "range" ? "harvested " + range : "on shelf now";
+    const custTxt = st.get("cust") || st.get("dp") ? " · supply: all customers" : "";
+    const cover = K.to_allocate > 0 ? Math.round((K.allocatable / K.to_allocate) * 100) : 0;
+    const cw = data.coldroom_window || [];
+
+    PH.kpis("#kpis", [
+      { label: "Allocatable", value: fmt(K.allocatable), dark: true,
+        unit: "stems · of " + fmt(K.free) + " free (" + fmt(K.too_old_or_cooling) + " too old / cooling) · " + basisTxt + custTxt },
+      { label: "Still to allocate", value: fmt(K.to_allocate),
+        unit: "stems · " + fmt(K.ordered) + " ordered − " + fmt(K.alloc_to_orders) + " allocated · delivery " + range },
+      { label: "Variance", value: (K.variance > 0 ? "+" : "") + fmt(K.variance), unit: "allocatable − still to allocate",
+        trend: { dir: K.variance >= 0 ? "up" : "down", text: K.to_allocate > 0 ? cover + "% cover" : "Nothing to allocate",
+          note: PH.fmt.plural(K.varieties_short || 0, "variety short", "varieties short") },
+        bar: K.to_allocate > 0 ? Math.min(100, cover) : null, barClass: cover >= 110 ? "good" : cover >= 100 ? "warn" : "bad" },
+      { label: "On shelf", value: fmt(K.stems),
+        unit: "stems · " + fmt(K.held) + " held + " + fmt(K.allocated) + " allocated + " + fmt(K.free) + " free · " +
+          PH.fmt.plural(K.buckets || 0, "bucket") + " · " + basisTxt + custTxt },
+      { label: "Coldroom", value: fmt(K.coldroom),
+        unit: "stems · " + PH.fmt.plural(K.coldroom_buckets || 0, "bucket") + " received " + PH.date.label(cw[0], cw[1]) + ", not shelved" + custTxt },
+    ]);
+
+    PH.text("#comp-meta", fmt(K.stems) + " stems · " + PH.fmt.plural(K.shelves || 0, "shelf", "shelves") +
+      (K.allocated_in_held ? " · ⚠ " + fmt(K.allocated_in_held) + " allocated stems are in held buckets" : ""));
+    PH.set("#comp", splitBlock(compSegs(K)));
+    const bands = data.age_bands || [];
+    PH.text("#fresh-meta", "days since harvest (else shelving)" + (K.avg_age_days != null ? " · avg " + K.avg_age_days + "d, oldest " + K.oldest_days + "d" : ""));
+    PH.set("#fresh", splitBlock(bandSegs(bands.map((b) => b.stems))));
+
+    document.getElementById("export").disabled = !vis.length;
+    renderGrid(vis);
+    renderColdroom(data.coldroom || [], K);
+  }
+
+  const bandLabel = (lo, hi) => (hi == null ? lo + "d +" : lo + "–" + (hi - 1) + "d");
+  function bandSegs(stems) {
+    const b = (data.age_bands || []), cls = ["good", "warn", "bad"];
+    return b.map((x, i) => ({ v: stems[i] || 0, cls: cls[Math.min(i, 2)], label: bandLabel(x.from_days, x.to_days) }));
+  }
+  function compSegs(r) {
+    return [
+      { v: r.allocatable, cls: "good", label: "allocatable" },
+      { v: r.free - r.allocatable, cls: "warn", label: "free, too old / cooling" },
+      { v: r.allocated, cls: "ink", label: "allocated" },
+      { v: r.held, cls: "bad", label: "held (discard request)" },
+    ];
+  }
+
+  function stack(segs, thin) {
+    const total = segs.reduce((a, s) => a + s.v, 0);
+    return `<div class="sv-stack${thin ? " sv-stack--thin" : ""}">${total ? segs.map((s) => (s.v > 0 ? `<i class="sv-${s.cls}" style="width:${(s.v / total) * 100}%" title="${PH.esc(s.label + ": " + fmt(s.v))}"></i>` : "")).join("") : ""}</div>`;
+  }
+  function splitBlock(segs) {
+    const total = segs.reduce((a, s) => a + s.v, 0);
+    if (!total) return '<p class="ph-muted">Nothing on the shelves for these filters.</p>';
+    return `<div class="sv-split">${stack(segs)}<div class="ph-legend">${segs.map((s) => `<span><span class="ph-dot ph-dot--${s.cls}"></span><b>${fmt(s.v)}</b> ${PH.esc(s.label)} <small class="ph-muted">${PH.fmt.pct((s.v / total) * 100)}</small></span>`).join("")}</div></div>`;
+  }
+
+  const dash = '<span class="ph-muted">—</span>';
+  const num = (n) => (n ? fmt(n) : dash);
+  function varCls(v) { return v === 0 ? "ph-muted" : v > 0 ? "ph-good" : v >= -500 ? "ph-warn" : "ph-bad"; }
+  const varTxt = (v) => (v > 0 ? "+" : "") + fmt(v);
+
+  function renderGrid(vis) {
+    PH.text("#row-count", PH.fmt.plural(vis.length, "variety", "varieties"));
+    if (!vis.length) {
+      return PH.empty("#grid", "No varieties match these filters", "Nothing is shelved, in the coldroom or ordered for these filters. Clear a filter, the search or widen the dates.");
+    }
+    const lengths = data.lengths || [];
+    const COLS = 10 + lengths.length * 3;
+    const allOpen = vis.every((r) => open.has(r.variety));
+    PH.text("#expand-all", allOpen ? "Collapse all" : "Expand all");
+    let head1 = `<tr><th class="ph-sticky-col" rowspan="2">Variety</th><th rowspan="2">Farms</th>
+      <th class="sv-group sv-gs" colspan="3">Availability</th><th class="sv-group sv-gs" colspan="5">Shelf breakdown</th>`;
+    let head2 = `<tr><th class="is-num sv-gs" title="Free stems the allocator will accept (not too old, done cooling)">Allocatable</th><th class="is-num" title="Ordered − already allocated to those lines">To allocate</th><th class="is-num">Var</th>
+      <th class="is-num sv-gs">Shelved</th><th class="is-num">Held</th><th class="is-num">Alloc</th><th class="is-num">Free</th><th class="is-num">Coldroom</th>`;
+    lengths.forEach((l) => {
+      head1 += `<th class="sv-group sv-gs" colspan="3">${PH.esc(l)}</th>`;
+      head2 += `<th class="is-num sv-gs">Avail</th><th class="is-num">To alloc</th><th class="is-num">Var</th>`;
+    });
+    let body = "";
+    vis.forEach((r) => {
+      const isOpen = open.has(r.variety);
+      const age = r.oldest_days >= 3 ? `<span class="ph-badge ph-badge--${r.oldest_days >= 7 ? "bad" : "warn"}" title="Oldest stems: ${r.oldest_days} days since harvest">${r.oldest_days}d</span>` : "";
+      const name = r.item_name && r.item_name !== r.variety ? r.item_name : r.variety;
+      body += `<tr class="sv-variety${isOpen ? " is-open" : ""}" data-v="${PH.esc(r.variety)}">
+        <td class="ph-sticky-col sv-name"><div class="sv-name__row">${PH.icon(isOpen ? "chevronDown" : "chevronRight", 14)}<span class="ph-strong ph-truncate ph-grow" title="${PH.esc(r.variety)}">${PH.esc(name)}</span>${age}</div>
+          ${r.stems ? stack(compSegs(r), true) : ""}</td>
+        <td class="ph-muted is-nowrap">${PH.fmt.plural(r.farms.length, "farm")}</td>
+        <td class="is-num is-strong sv-gs">${num(r.allocatable)}</td><td class="is-num" title="${fmt(r.ordered)} ordered">${num(r.to_allocate)}</td>
+        <td class="is-num"><b class="${varCls(r.variance)}">${varTxt(r.variance)}</b></td>
+        <td class="is-num sv-gs">${num(r.stems)}</td><td class="is-num ${r.held ? "ph-bad" : ""}">${num(r.held)}</td><td class="is-num">${num(r.allocated)}</td>
+        <td class="is-num">${num(r.free)}</td><td class="is-num ${r.coldroom ? "ph-warn" : ""}">${num(r.coldroom)}</td>`;
+      lengths.forEach((l) => {
+        const c = r.by_len[l] || {}, av = c.allocatable || 0, o = c.to_allocate || 0, v = av - o;
+        body += `<td class="is-num sv-gs">${num(av)}</td><td class="is-num">${num(o)}</td><td class="is-num ${av || o ? varCls(v) : ""}">${av || o ? varTxt(v) : dash}</td>`;
+      });
+      body += "</tr>";
+      if (!isOpen) return;
+      if (r.stems > 0) body += detailRow(r, COLS);
+      r.farms.forEach((f) => {
+        body += `<tr class="sv-farm"><td class="ph-sticky-col sv-name">${PH.esc(f.farm)}</td><td></td>
+          <td class="is-num sv-gs">${num(f.allocatable)}</td><td class="is-num">${dash}</td><td class="is-num">${dash}</td>
+          <td class="is-num sv-gs">${num(f.stems)}</td><td class="is-num ${f.held ? "ph-bad" : ""}">${num(f.held)}</td><td class="is-num">${num(f.allocated)}</td>
+          <td class="is-num">${num(f.free)}</td><td class="is-num ${f.coldroom ? "ph-warn" : ""}">${num(f.coldroom)}</td>`;
+        lengths.forEach(() => (body += `<td class="is-num sv-gs">${dash}</td><td class="is-num">${dash}</td><td class="is-num">${dash}</td>`));
+        body += "</tr>";
+      });
+    });
+    PH.keepScroll(() => {
+      const prev = document.querySelector("#grid .ph-table-wrap");
+      const sx = prev ? prev.scrollLeft : 0, sy = prev ? prev.scrollTop : 0;
+      PH.set("#grid", `<div class="ph-table-wrap ph-table-wrap--tall"><table class="ph-table ph-table--compact sv-grid"><thead>${head1}</tr>${head2}</tr></thead><tbody>${body}</tbody></table></div>`);
+      const w = document.querySelector("#grid .ph-table-wrap");
+      if (w) { w.scrollLeft = sx; w.scrollTop = sy; }
+    });
+  }
+
+  // Drill-down for one variety: shelf composition, age bands and balance.
+  function detailRow(r, cols) {
+    const block = (title, segs) => `<div class="ph-stack"><div class="ph-label">${PH.esc(title)}</div>${splitBlock(segs)}</div>`;
+    return `<tr class="sv-detail"><td colspan="${cols}"><div class="sv-detail__in">
+      ${block("Where the " + fmt(r.stems) + " shelved stems are", compSegs(r))}
+      ${block("How fresh they are (avg " + (r.avg_age_days ?? "—") + "d)", bandSegs(r.bands))}
+      <div class="ph-stat"><small>Balance</small><b class="${r.variance >= 0 ? "ph-good" : "ph-bad"}">${varTxt(r.variance)}</b><span class="ph-muted">${fmt(r.allocatable)} allocatable vs ${fmt(r.to_allocate)} still to allocate (${fmt(r.ordered)} ordered)</span></div>
+    </div></td></tr>`;
+  }
+
+  let nsTable = null;
+  function renderColdroom(ns, K) {
+    const cw = data.coldroom_window || [];
+    PH.text("#ns-count", fmt(K.coldroom) + " stems");
+    PH.text("#ns-meta", "Received " + PH.date.label(cw[0], cw[1]) + (data.basis === "range" ? "" : " (live: last 3 days)") + " and not yet shelved, issued or discarded");
+    const cfg = {
+      columns: [
+        { key: "item_name", label: "Variety", cls: "is-strong" },
+        { key: "length", label: "Length" },
+        { key: "farm", label: "Farm" },
+        { key: "stems", label: "Stems", num: true, format: (v) => fmt(v), total: () => fmt(data.kpis.coldroom) },
+        { key: "buckets", label: "Buckets", num: true, format: (v) => fmt(v), total: () => fmt(data.kpis.coldroom_buckets) },
+      ],
+      rows: ns, sort: { key: "stems", dir: "desc" }, pageSize: 50,
+      empty: "Nothing awaiting shelving", emptyText: "No received buckets are sitting in the coldroom unshelved for these filters.",
+    };
+    // Built once (PH.table binds its click handler on creation); later loads
+    // re-render through update(), which also replaces any skeleton / error.
+    if (nsTable) nsTable.update(ns);
+    else nsTable = PH.table("#ns", cfg);
+  }
+
+  /* ── Interactions ── */
+  document.getElementById("grid").addEventListener("click", (e) => {
+    const tr = e.target.closest("tr.sv-variety");
+    if (!tr) return;
+    const v = tr.dataset.v;
+    if (open.has(v)) open.delete(v); else open.add(v);
+    render();
+  });
+  document.getElementById("expand-all").addEventListener("click", () => {
+    const vis = data ? data.rows || [] : [];
+    const allOpen = vis.length && vis.every((r) => open.has(r.variety));
+    vis.forEach((r) => (allOpen ? open.delete(r.variety) : open.add(r.variety)));
+    render();
+  });
+
+  const exportBtn = document.getElementById("export");
+  exportBtn.innerHTML = PH.icon("download") + "<span>Export CSV</span>";
+  exportBtn.addEventListener("click", () => {
+    const vis = sortedRows(), lengths = data.lengths || [];
+    const cols = [
+      { key: "variety", label: "Variety" }, { key: "item_name", label: "Name" }, { key: "item_group", label: "Item group" },
+      { key: "allocatable", label: "Allocatable" }, { key: "ordered", label: "Ordered" }, { key: "alloc_to_orders", label: "Allocated to orders" },
+      { key: "to_allocate", label: "Still to allocate" }, { key: "variance", label: "Variance" },
+      { key: "stems", label: "Shelved" }, { key: "held", label: "Held (discard)" }, { key: "allocated", label: "Allocated" },
+      { key: "free", label: "Free" }, { key: "coldroom", label: "Coldroom" }, { key: "oldest_days", label: "Oldest (days)" },
+    ];
+    lengths.forEach((l) => {
+      cols.push({ key: "av:" + l, label: l + " allocatable", csv: (_, r) => Math.round((r.by_len[l] || {}).allocatable || 0) });
+      cols.push({ key: "ta:" + l, label: l + " to allocate", csv: (_, r) => Math.round((r.by_len[l] || {}).to_allocate || 0) });
+    });
+    cols.forEach((c) => { if (!c.csv && !["variety", "item_name", "item_group"].includes(c.key)) c.csv = (v) => Math.round(v || 0); });
+    PH.csv("stock-visibility-" + data.from_date + "_" + data.to_date + ".csv", vis, cols);
+  });
+
+  PH.onRefresh(() => load());
+  PH.ready(() => load());
+  PH.poll(load, 60000);
+})();
+</script>
+{% endraw %}
+{% endblock %}

@@ -664,6 +664,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       <div class="right">
         <span style="font-size:11px;color:var(--text-2);font-weight:600;text-transform:uppercase;letter-spacing:.03em">Delivery date</span>
         <input type="date" id="ofDate" class="of-in" style="width:140px">
+        <select id="ofLoc" class="of-in" style="width:150px"><option value="">All locations</option></select>
         <select id="ofMgr" class="of-in" style="width:170px"><option value="">All managers</option></select>
         <input type="text" id="ofSearch" class="of-in" placeholder="Search customer / SO / variety…" style="width:200px">
         <button class="of-btn" id="ofRefresh">Refresh</button>
@@ -782,7 +783,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 
   function load(){
     $('ofGroups').innerHTML='<div class="of-loading">Loading…</div>';
-    api('upande_packhouse.api.order_fulfilment.getOrderFulfilment',{delivery_date:$('ofDate').value||today()}).then(function(d){
+    api('upande_packhouse.api.order_fulfilment.getOrderFulfilment',{delivery_date:$('ofDate').value||today(),location:$('ofLoc').value}).then(function(d){
       LINES=(d&&d.lines)||[];
       var sel=$('ofMgr');
       if(sel){var mgrs=mgrRank(mgrStats());sel.innerHTML='<option value="">All managers</option>'+mgrs.map(function(m){return '<option value="'+esc(m)+'">'+esc(m)+'</option>';}).join('');if(MGR)sel.value=MGR;}
@@ -794,6 +795,11 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   function boot(){
     $('ofDate').value=today();
     $('ofDate').addEventListener('change',load);
+    // Location (Kapkolia / Karen): each order by its Sales Order's farm.
+    api('upande_packhouse.api.order_summary.getPackhouseLocations',{}).then(function(m){
+      $('ofLoc').innerHTML='<option value="">All locations</option>'+((m&&m.locations)||[]).map(function(l){return '<option value="'+esc(l)+'">'+esc(l)+'</option>';}).join('');
+    }).catch(function(){});
+    $('ofLoc').addEventListener('change',load);
     $('ofRefresh').addEventListener('click',load);
     $('ofMgr').addEventListener('change',function(){MGR=this.value;render();});
     $('ofSearch').addEventListener('input',function(){SEARCH=this.value;render();});

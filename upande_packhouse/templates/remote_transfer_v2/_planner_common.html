@@ -1,0 +1,555 @@
+{#- Remote Transfers v2 — planner core, shared by Truck Routes, Transfer Scheduling and
+    Bucket Logistics (in the old page one planner script switched between the three views
+    in place; in v2 each is its own page load, so what they share lives here).
+
+    Include it from a tab template in BOTH parts:
+      rt_part 'body'   -> the planner's shared layout styles (.rt-*)
+      rt_part 'script' -> window.RTP: the Transfer Scheduling feed (getTransferScheduleData),
+                          the road graph, open-bucket coverage, trip choices, writes, and the
+                          two dialogs other tabs open too: Add to trip and Edit trip.
+
+    Events: RTP.on('data', fn) after every planner load; RTP.on('changed', fn) after every
+    write (each tab reloads what it shows). The delivery date comes from the tab:
+    RTP.setDate(() => st.get('date')). -#}
+{% if rt_part == 'body' %}
+<style>
+  /* A route / run as a chain: hub muted, farms strong. */
+  .rt-chain{display:inline-flex;flex-wrap:wrap;align-items:center;gap:0 var(--sp-1);min-width:0;color:var(--ink-3)}
+  .rt-chain b{color:var(--ink)}
+  .rt-chain__hub{color:var(--ink-mute)}
+  .rt-chain__sep{color:var(--ink-faint)}
+  /* A pickable trip / run row (Add to trip, Distribute's truck list). */
+  .rt-picks{display:flex;flex-direction:column;gap:var(--sp-2)}
+  .rt-pick{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;align-items:center;gap:var(--sp-2) var(--sp-3);
+    width:100%;text-align:left;padding:var(--sp-3) var(--sp-4);border:1px solid var(--hairline-2);border-radius:var(--r-md);
+    background:var(--surface-2);color:inherit;font:inherit;cursor:pointer;transition:border-color .2s,background .2s}
+  .rt-pick:hover{border-color:var(--ink)}
+  .rt-pick:disabled{cursor:not-allowed;opacity:.5}
+  .rt-pick:disabled:hover{border-color:var(--hairline-2)}
+  .rt-pick.is-off{background:var(--surface);opacity:.6}
+  .rt-pick input{accent-color:var(--ink);width:16px;height:16px;margin:0}
+  .rt-pick--check{grid-template-columns:auto auto auto minmax(0,1fr) auto;cursor:pointer}
+  .rt-sec{margin-top:var(--sp-5)}
+  .rt-sec:first-child{margin-top:0}
+  .rt-sec>.ph-label{display:block;margin-bottom:var(--sp-2)}
+  /* Edit trip: one row per order on the trip. */
+  .rt-te-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;align-items:center;gap:var(--sp-3);padding:var(--sp-2) 0;border-bottom:1px solid var(--hairline)}
+  .rt-te-row:last-child{border-bottom:0}
+  .rt-te-row .ph-table-input{width:80px}
+  .rt-textarea{height:auto;padding:var(--sp-3) var(--sp-4);resize:vertical}
+  @media (max-width:640px){
+    .rt-pick,.rt-pick--check{grid-template-columns:auto minmax(0,1fr) auto}
+    .rt-pick .rt-chain{grid-column:1/-1}
+    .rt-te-row{grid-template-columns:minmax(0,1fr) auto}
+  }
+</style>
+{% elif rt_part == 'script' %}{% raw %}
+<script>
+(function () {
+  "use strict";
+  if (window.RTP) return;
+  const RTP = (window.RTP = {});
+  const esc = PH.esc;
+  /* The old /api/method/upande_packhouse.api.transfer_control.* path: an alias of
+     remote_transfer.transfer_scheduling that also passes every Truck Routes name through. */
+  const M = "upande_packhouse.api.transfer_control.";
+  RTP.M = M;
+
+  /* ── Events ─────────────────────────────────────────────────────── */
+  const subs = {};
+  RTP.on = (ev, fn) => (subs[ev] = subs[ev] || []).push(fn);
+  RTP.emit = (ev, x) => (subs[ev] || []).forEach((fn) => { try { fn(x); } catch (e) { console.error(e); } });
+  /** After any write: every open view re-reads what it shows. */
+  RTP.changed = () => RTP.emit("changed");
+
+  /* ── Dates ── The delivery date is the tab's (?date=, default tomorrow). Trips,
+     routes and Add trip are always for TODAY (the browser's date, as before). */
+  let dateFn = () => (window.RT && RT.defaultDate) || PH.date.add(PH.date.today(), 1);
+  RTP.setDate = (fn) => (dateFn = fn);
+  /* Optional: a tab that reads a delivery-date RANGE (from/to) sets it; else the one date. */
+  let rangeFn = null;
+  RTP.setRange = (fn) => (rangeFn = fn);
+  RTP.date = () => dateFn();
+  RTP.today = () => PH.date.today();
+
+  /* ── Calls ──────────────────────────────────────────────────────── */
+  /** A write. Resolves the message when status is 'success', else rejects with its message. */
+  RTP.write = function (method, args, fallback) {
+    return PH.call(method.indexOf(".") >= 0 ? method : M + method, args || {}, { silent: true }).then((m) => {
+      m = m || {};
+      if (m.status !== "success") {
+        const e = new Error(m.message || fallback || "Request failed");
+        e.response = m;
+        throw e;
+      }
+      return m;
+    });
+  };
+  /** A read whose method puts its data on the response itself (frappe.response[key]),
+     not on .message — Bucket Logistics does. Resolves the whole JSON. */
+  RTP.getRaw = function (method, args) {
+    args = args || {};
+    const qs = Object.keys(args)
+      .filter((k) => args[k] != null && args[k] !== "")
+      .map((k) => encodeURIComponent(k) + "=" + encodeURIComponent(args[k]))
+      .join("&");
+    return fetch("/api/method/" + method + (qs ? "?" + qs : ""), { credentials: "same-origin", headers: { Accept: "application/json" } }).then((r) =>
+      r
+        .json()
+        .catch(() => ({}))
+        .then((j) => {
+          if (!r.ok) throw new Error(PH.serverError(j) || (r.status === 403 ? "You don't have permission for this" : "Could not reach the server (HTTP " + r.status + ")"));
+          return j;
+        })
+    );
+  };
+  /** Toast whose colour follows the wording unless given: failures red, partial results
+     orange, no-change neutral, the rest green. Longer messages stay up longer. */
+  RTP.toast = function (msg, kind) {
+    const s = String(msg == null ? "" : msg);
+    if (kind == null) {
+      if (/^failed|failed|could not|can’t|can't|isn’t|no road|no available|not found|error/i.test(s)) kind = "bad";
+      else if (/ but |still need|still to shelve|only fits|today only/i.test(s)) kind = "warn";
+      else if (/unchanged|already the shortest/i.test(s)) kind = "";
+      else kind = "good";
+    }
+    PH.toast(s, kind, Math.min(7, Math.max(3, Math.round(s.length * 0.06))) * 1000);
+  };
+
+  /* ── The planner feed ───────────────────────────────────────────── */
+  function blank() {
+    return { orders: [], unscheduled: [], vehicles: [], trips: [], distances: [], truck_status: [], routes: [], farm_list: [], packhouse: "", auto_planning: {},
+      distributions: [], left_behind: [], hub_space: null, hub_ready: [], duplicate_trips: {}, today: "" };
+  }
+  let DATA = blank();
+  RTP.data = () => DATA;
+  RTP.loaded = false;
+  let seq = 0, latest = null;
+  /** Read getTransferScheduleData for the tab's date. A superseded call resolves with the
+     newer one, so a slow old response never overwrites a newer one. */
+  RTP.load = function () {
+    const my = ++seq, date = RTP.date(), rg = rangeFn ? rangeFn() : { from: date, to: date };
+    const p = PH.call(M + "getTransferScheduleData", { from_date: rg.from, to_date: rg.to }, { silent: true, type: "GET" }).then(
+      (d) => {
+        if (my !== seq) return latest;
+        d = d || {};
+        DATA = Object.assign(blank(), {
+          duplicate_trips: d.duplicate_trips || {}, farm_list: d.farm_list || [], orders: d.orders || [], unscheduled: d.unscheduled || [],
+          vehicles: d.vehicles || [], trips: d.trips || [], distances: d.distances || [], truck_status: d.truck_status || [], routes: d.routes || [],
+          packhouse: d.packhouse || "", auto_planning: d.auto_planning || {}, distributions: d.distributions || [], left_behind: d.left_behind || [],
+          hub_space: d.hub_space || null, hub_ready: d.hub_ready || [], today: d.today || "",
+        });
+        RTP.loaded = true;
+        RTP.emit("data", DATA);
+        return true;
+      },
+      (e) => {
+        if (my !== seq) return latest;
+        throw e;
+      }
+    );
+    latest = p;
+    return p;
+  };
+
+  /* ── Farm road distances + collection-route optimisation (Farm Distance) ── */
+  const pack = (RTP.pack = () => DATA.packhouse || (window.RT && RT.transferHub) || "");
+  function distKm(a, b) {
+    if (a === b) return 0;
+    for (const d of DATA.distances) if ((d.a === a && d.b === b) || (d.a === b && d.b === a)) return d.km;
+    return null;
+  }
+  /* Km between two stops: the shortest drive over real road legs, else a direct-distance record. */
+  function pairKm(a, b) {
+    if (a === b) return 0;
+    const rp = roadPath(a, b);
+    if (rp.legs.length) return rp.km;
+    return distKm(a, b);
+  }
+  RTP.routeKm = function (order) {
+    const seq2 = [pack()].concat(order).concat([pack()]);
+    let tot = 0;
+    for (let i = 0; i < seq2.length - 1; i++) {
+      const dk = pairKm(seq2[i], seq2[i + 1]);
+      if (dk == null) return null;
+      tot += dk;
+    }
+    return tot;
+  };
+  RTP.bestRoute = function (farms) {
+    const u = [];
+    (farms || []).forEach((f) => { if (f && u.indexOf(f) < 0) u.push(f); });
+    if (u.length <= 1) return { order: u.slice(), km: RTP.routeKm(u) };
+    if (u.length > 7) return { order: u.slice(), km: RTP.routeKm(u) }; // safety cap on permutations
+    let best = null;
+    const used = [], cur = [];
+    (function rec() {
+      if (cur.length === u.length) {
+        const km = RTP.routeKm(cur);
+        if (km != null && (best == null || km < best.km)) best = { order: cur.slice(), km };
+        return;
+      }
+      for (let i = 0; i < u.length; i++) {
+        if (used[i]) continue;
+        used[i] = 1; cur.push(u[i]); rec(); cur.pop(); used[i] = 0;
+      }
+    })();
+    return best || { order: u.slice(), km: RTP.routeKm(u) };
+  };
+  /* REAL road-leg graph (is_road_leg=1 only) — physical roads, not derived any-to-any
+     distances. The network is a TREE rooted at the packhouse: e.g. Kapkolia–Simotwo–
+     Kaptumbo is one branch, so a truck driving to Kaptumbo has NO choice but to pass
+     through Simotwo — "Simotwo is on the way to Kaptumbo". A pairwise "Kapkolia-Kaptumbo"
+     distance record is a convenience figure for totals; it is NOT a road and must never
+     be used to build a truck's actual path. */
+  function roadAdjacency() {
+    const adj = {};
+    DATA.distances.forEach((d) => {
+      if (!d.leg) return;
+      (adj[d.a] = adj[d.a] || []).push({ to: d.b, name: d.name, km: Number(d.km || 0) });
+      (adj[d.b] = adj[d.b] || []).push({ to: d.a, name: d.name, km: Number(d.km || 0) });
+    });
+    return adj;
+  }
+  /* Shortest path from `from` to `to` via DIRECT road legs only (Dijkstra by km — the
+     network is a tree, so there's exactly one path). Returns the ordered leg names AND
+     every farm passed through along the way (excluding `from`, including `to`). */
+  const roadPath = (RTP.roadPath = function (from, to) {
+    if (from === to) return { legs: [], farms: [], km: 0 };
+    const adj = roadAdjacency(), dist = {}, prev = {}, done = {};
+    dist[from] = 0;
+    for (;;) {
+      let node = null;
+      Object.keys(dist).forEach((k) => { if (!done[k] && (node === null || dist[k] < dist[node])) node = k; });
+      if (node === null || node === to) break;
+      done[node] = 1;
+      (adj[node] || []).forEach((nb) => {
+        const nd = dist[node] + nb.km;
+        if (!done[nb.to] && (dist[nb.to] == null || nd < dist[nb.to])) { dist[nb.to] = nd; prev[nb.to] = { from: node, name: nb.name }; }
+      });
+    }
+    if (dist[to] == null) return { legs: [], farms: [], km: null }; // no road reaches it
+    const legs = [], farms = [];
+    let at = to;
+    while (at !== from) { const p = prev[at]; legs.unshift(p.name); farms.unshift(at); at = p.from; }
+    return { legs, farms: farms.filter((f) => f !== pack()), km: dist[to] };
+  });
+  /** Every farm the road network knows (hub left out). */
+  RTP.allFarmsKnown = function () {
+    const s = {};
+    DATA.distances.forEach((d) => { if (d.a && d.a !== pack()) s[d.a] = 1; if (d.b && d.b !== pack()) s[d.b] = 1; });
+    return Object.keys(s).sort();
+  };
+  /** Kapkolia → A → B → Kapkolia, hub muted. */
+  RTP.chainHtml = (stops) =>
+    '<span class="rt-chain">' + (stops || []).map((f) => (f === pack() ? `<span class="rt-chain__hub">${esc(f)}</span>` : `<b>${esc(f)}</b>`)).join('<span class="rt-chain__sep">→</span>') + "</span>";
+
+  /* ── Open buckets: what today's planned trips already cover ─────────── */
+  const pkey = (RTP.pkey = (opl, farm) => opl + "||" + farm);
+  RTP.vehCap = (name) => { const v = DATA.vehicles.find((x) => x.name === name); return v ? v.capacity_buckets : 0; };
+  RTP.orderByOpl = (opl) => DATA.orders.find((o) => o.opl === opl) || null;
+  RTP.tripByName = (name) => (DATA.trips || []).find((t) => t.name === name);
+  RTP.tripVehMap = () => { const m = {}; DATA.trips.forEach((t) => (m[t.name] = t.vehicle || "")); return m; };
+  /* A trip that still CLAIMS open buckets: planned today, truck not gone yet. A
+     dispatched trip's buckets are flagged in transit server-side (they're already out
+     of each farm's open count), and a stale draft from an earlier day never left, so
+     neither may cover anything — mirrors _trip_claims in transfer_control.py. */
+  const claimsBuckets = (t) => (t.status === "Draft" || t.status === "Scheduled") && !t.stale;
+  const activeTrips = () => DATA.trips.filter(claimsBuckets);
+  /* portions on planned trips -> pkey -> tripName. PRESENCE only. */
+  RTP.savedPortions = function () {
+    const m = {};
+    activeTrips().forEach((t) => (t.orders || []).forEach((r) => (m[pkey(r.order_pick_list, r.farm)] = t.name)));
+    return m;
+  };
+  /* QUANTITY covered per (opl,farm) across today's planned trips. */
+  const coverMap = (RTP.coverMap = function () {
+    const m = {};
+    activeTrips().forEach((t) => (t.orders || []).forEach((r) => { const k = pkey(r.order_pick_list, r.farm); m[k] = (m[k] || 0) + (r.buckets || 0); }));
+    return m;
+  });
+  /* An order's still-OPEN farm portions (quantity-aware). */
+  const openFarms = (RTP.openFarms = function (o) {
+    const cov = coverMap(), out = [];
+    (o.farms || []).forEach((f) => {
+      const covered = cov[pkey(o.opl, f.farm)] || 0;
+      const open = Math.max(0, f.buckets - covered);
+      if (open <= 0) return;
+      let vs;
+      if (covered > 0 && (f.varieties || []).length === 1) vs = [{ variety: f.varieties[0].variety, buckets: open }];
+      else if (covered > 0) vs = [{ variety: "(partial mix)", buckets: open }];
+      else vs = f.varieties;
+      out.push({ farm: f.farm, buckets: open, stems: f.buckets ? Math.round((f.stems / f.buckets) * open) : 0, varieties: vs, covered, total: f.buckets, partial: covered > 0 });
+    });
+    return out;
+  });
+  RTP.openTotal = (o) => openFarms(o).reduce((a, f) => a + f.buckets, 0);
+
+  /* orders -> delimited string for saveBucketTrip: rows joined by \x1e, fields by \x1f. */
+  const FS = String.fromCharCode(31), RS = String.fromCharCode(30);
+  RTP.encodeOrders = function (orders) {
+    return (orders || [])
+      .map((r) => {
+        const full = r.full != null ? r.full : r.full_farm_buckets != null ? r.full_farm_buckets : r.buckets;
+        const opl = r.order_pick_list != null && r.order_pick_list !== "" ? r.order_pick_list : r.opl || "";
+        return [opl, r.order_name, r.customer, r.farm, r.varieties, r.buckets, r.stems, full].join(FS);
+      })
+      .join(RS);
+  };
+  /** Each Distribute (also a per-farm one) is logged as its own Bucket Distribution. */
+  RTP.logDistribution = (loads) =>
+    loads && loads.length ? PH.call(M + "logDistribution", { delivery_date: RTP.date(), loads: JSON.stringify(loads) }, { silent: true }).catch(() => {}) : Promise.resolve();
+
+  /* ── Which trips can take a farm's buckets ─────────────────────────── */
+  /* One truck per farm at a time (server rule: transfer_control._farm_taken). Trips of
+     today, not ended, that collect from `farm` — [{vehicle, trip, from, to}]. A trip on a
+     route is out in the route's From–To; one without a route, all day. */
+  function farmHolders(farm) {
+    const win = {};
+    DATA.vehicles.forEach((v) => (v.runs || []).forEach((r) => { if (r.trip) win[r.trip] = { from: r.from_datetime, to: r.to_datetime }; }));
+    const today = RTP.today();
+    return (DATA.trips || [])
+      .filter((t) => t.trip_date === today && t.status !== "Received" && (t.departed_stops || []).indexOf(farm) < 0 && (t.orders || []).some((o) => o.farm === farm))
+      .map((t) => { const w = win[t.name] || {}; return { vehicle: t.vehicle, trip: t.name, from: w.from || today + " 00:00:00", to: w.to || today + " 23:59:59" }; });
+  }
+  const overlaps = (a0, a1, b0, b1) => String(a0) < String(b1) && String(b0) < String(a1);
+  /** Every run on today's routes, with why it can't take `farm` (why == '' when it can). */
+  RTP.tripChoices = function (farm) {
+    const out = [], holders = farmHolders(farm), today = RTP.today();
+    DATA.vehicles.forEach((v) => {
+      (v.runs || []).forEach((r) => {
+        const t = r.trip ? RTP.tripByName(r.trip) : null;
+        const used = t ? Math.max(t.total_buckets || 0, t.loaded_buckets || 0) : 0, rem = Math.max(0, (v.capacity_buckets || 0) - used);
+        let why = !(r.stops || []).length ? "no farms"
+          : r.trip && r.trip_status !== "Draft" && r.trip_status !== "Scheduled" ? "already " + (r.trip_status === "Received" ? "back" : String(r.trip_status || "").toLowerCase())
+          : r.stops.indexOf(farm) < 0 ? "doesn’t visit " + farm
+          : !v.capacity_buckets ? "no capacity set"
+          : rem <= 0 ? "full" : "";
+        // Another truck already collecting from this farm at an overlapping time: it takes all the farm's orders.
+        const clash = holders.find((h) => h.vehicle !== v.name && overlaps(r.from_datetime || today + " 00:00:00", r.to_datetime || today + " 23:59:59", h.from, h.to));
+        if (!why && clash) why = clash.vehicle + " is collecting from " + farm + " then — use it";
+        const holds = holders.some((h) => h.vehicle === v.name);
+        out.push({ vehicle: v.name, route: r.route, run: r.run, runs: r.runs, stops: r.stops || [], from: r.from_datetime, to: r.to_datetime, trip: r.trip, rem, why, holds });
+      });
+    });
+    // The truck already at this farm first: it picks up all the farm's orders.
+    out.sort((a, b) => !!a.why - !!b.why || !!b.holds - !!a.holds || a.vehicle.localeCompare(b.vehicle) || String(a.from).localeCompare(String(b.from)) || a.run - b.run);
+    return out;
+  };
+  /* Trucks that could get a new trip to the farm: any truck with a capacity that isn't
+     out on the road. A routed truck gets the trip added after its last one. */
+  RTP.newTripTrucks = function () {
+    return DATA.vehicles
+      .filter((v) => v.capacity_buckets > 0 && !v.on_road)
+      .map((v) => {
+        const runs = v.runs || [];
+        return {
+          vehicle: v.name,
+          next: runs.length ? Math.max.apply(null, runs.filter((r) => r.route === runs[runs.length - 1].route).map((r) => r.run)) + 1 : 1,
+          routed: !!runs.length,
+          cap: v.capacity_buckets,
+        };
+      });
+  };
+  const runLabel = (c) => "Trip " + c.run + (c.runs > 1 ? "/" + c.runs : "") + (c.from ? " · " + String(c.from).slice(11, 16) : "");
+
+  /* ── Add to trip: one order's open buckets at one farm onto a trip ──────
+     Lists every trip on today's routes; the ones that visit the farm and still have room
+     can be picked, the rest show why not. Saves like Distribute, into that trip. */
+  let AT = null;
+  RTP.addToTrip = function (opl, farm, orderName) {
+    const a = (AT = { opl, farm, order_name: orderName || opl, customer: "", open: 0, choices: [], loading: true, busy: false, err: "", portion: null });
+    a.m = PH.modal({ title: "Add to trip", sub: (orderName || opl) + " · " + farm, size: "lg", actions: [{ label: "Close" }], onClose: () => { if (AT === a) AT = null; } });
+    a.m.body.addEventListener("click", (e) => {
+      if (a.busy) return;
+      const nb = e.target.closest("[data-at-new]");
+      if (nb && !nb.disabled) return addNewFarmTrip(a, nb.dataset.atNew);
+      const b = e.target.closest("[data-at]");
+      if (b && !b.disabled) saveAddTrip(a, a.choices[+b.dataset.at]);
+    });
+    paintAddTrip(a);
+    RTP.load()
+      .then(() => {
+        if (AT !== a) return;
+        a.loading = false;
+        const o = DATA.orders.find((x) => x.opl === opl);
+        const f = o && openFarms(o).find((x) => x.farm === farm);
+        if (!o) a.err = "This order isn’t on a team schedule for today, so it can’t go on a trip yet.";
+        else if (!f) a.err = "Nothing left to plan at " + farm + " — its buckets are already on a trip.";
+        else Object.assign(a, { order_name: o.order_name || opl, customer: o.customer || "", portion: f, open: f.buckets, choices: RTP.tripChoices(farm) });
+        paintAddTrip(a);
+      })
+      .catch((e) => {
+        if (AT !== a) return;
+        a.loading = false;
+        a.err = e.message;
+        paintAddTrip(a);
+      });
+  };
+  function paintAddTrip(a) {
+    if (a.loading) return PH.skeleton(a.m.body, "rows", 3);
+    let h = `<p class="ph-muted ph-mb">${esc(a.order_name)} · ${esc(a.farm)}${a.portion ? ` · <b class="ph-strong">${PH.fmt.num(a.open)}</b> bucket${a.open === 1 ? "" : "s"} to move` : ""}${a.busy ? " · saving…" : ""}</p>`;
+    if (a.err && !a.portion) return PH.set(a.m.body, h + `<div class="ph-notice ph-notice--bad ph-mb-0">${esc(a.err)}</div>`);
+    const ok = a.choices.filter((c) => !c.why);
+    h += `<div class="rt-sec"><span class="ph-label">Trips going to ${esc(a.farm)}</span>`;
+    h += ok.length
+      ? '<div class="rt-picks">' +
+        ok.map((c) => {
+          const take = Math.min(a.open, c.rem);
+          return `<button type="button" class="rt-pick" data-at="${a.choices.indexOf(c)}"${a.busy ? " disabled" : ""}><span class="ph-strong">${esc(c.vehicle)}</span><span class="ph-muted">${esc(runLabel(c))}</span>${RTP.chainHtml([pack()].concat(c.stops).concat([pack()]))}<span class="ph-badge ph-badge--signal">${take < a.open ? "fits " + take + " of " + a.open : c.rem + " bkt free"}</span></button>`;
+        }).join("") + "</div>"
+      : `<div class="ph-notice ph-mb-0">No trip goes to ${esc(a.farm)} today.</div>`;
+    h += "</div>";
+    const trucks = RTP.newTripTrucks();
+    h += `<div class="rt-sec"><span class="ph-label">${ok.length ? "Or add" : "Add"} a trip to ${esc(a.farm)}</span>`;
+    h += trucks.length
+      ? '<div class="rt-picks">' +
+        trucks.map((t) => `<button type="button" class="rt-pick" data-at-new="${esc(t.vehicle)}"${a.busy ? " disabled" : ""}><span class="ph-strong">+ ${esc(t.vehicle)}</span><span class="ph-muted">${t.routed ? "Trip " + t.next + " on its route, every day" : "New route, every day"}</span>${RTP.chainHtml([pack(), a.farm, pack()])}<span class="ph-badge">${t.cap} bkt</span></button>`).join("") +
+        "</div>"
+      : '<div class="ph-notice ph-mb-0">No truck free — add one on the Truck Routes tab.</div>';
+    h += "</div>";
+    if (a.err) h += `<div class="ph-notice ph-notice--bad ph-mt ph-mb-0">${esc(a.err)}</div>`;
+    PH.set(a.m.body, h);
+  }
+  /* Put the order's buckets at the farm on trip `c` (a {vehicle, route, run, rem} choice). */
+  function saveAddTrip(a, c) {
+    if (!a || a.busy || !c || !a.portion) return;
+    const f = a.portion, take = Math.min(a.open, c.rem), per = f.buckets ? f.stems / f.buckets : 0;
+    a.busy = true; a.err = ""; paintAddTrip(a);
+    const row = { opl: a.opl, order_name: a.order_name, customer: a.customer, farm: a.farm, varieties: f.varieties.map((v) => v.variety).join(", "), buckets: take, stems: Math.round(per * take), full: f.total };
+    RTP.write("saveBucketTrip", { vehicle: c.vehicle, route: c.route, run: c.run, trip_date: RTP.today(), status: "Draft", farm: "", collection_order: "", orders: RTP.encodeOrders([row]) }, "Could not add it to the trip")
+      .then((m) => {
+        if (AT !== a) return;
+        // Another truck already collecting from this farm took them onto its trip (server rule).
+        const red = (m.redirected || [])[0], veh = red ? red.vehicle : c.vehicle;
+        RTP.toast(m.message ? m.message : take + " bucket" + (take === 1 ? "" : "s") + " added to " + c.vehicle + " trip " + c.run + (c.saved ? " (trip saved on its route, every day)" : "") + (take < a.open ? " — " + (a.open - take) + " still need a trip" : ""));
+        // A per-farm Distribute is a Distribute run too: logged, so the order shows when.
+        const log = RTP.logDistribution([{ vehicle: veh, trip: m.name, run: red ? 0 : c.run || 0, farms: a.farm, buckets: take, stems: row.stems, orders: [a.order_name] }]);
+        a.m.close();
+        log.then(RTP.changed);
+      })
+      .catch((e) => { if (AT === a) { a.busy = false; a.err = e.message; paintAddTrip(a); } });
+  }
+  /* Add a packhouse → farm → packhouse trip to the truck's route, then plan the buckets onto it. */
+  function addNewFarmTrip(a, vehicle) {
+    if (!a || a.busy) return;
+    const v = DATA.vehicles.find((x) => x.name === vehicle);
+    a.busy = true; a.err = ""; paintAddTrip(a);
+    RTP.write("addFarmTrip", { vehicle, farm: a.farm, date: RTP.today() }, "Could not add the trip")
+      .then((m) => {
+        if (AT !== a) return;
+        a.busy = false;
+        saveAddTrip(a, { vehicle, route: m.route, run: m.run, rem: v ? v.capacity_buckets : a.open, saved: !!m.saved_route });
+      })
+      .catch((e) => { if (AT === a) { a.busy = false; a.err = e.message; paintAddTrip(a); } });
+  }
+
+  /* ── Edit a planned trip ─────────────────────────────────────────────
+     Draft / Scheduled, nothing loaded yet: bucket counts per order, remove an order,
+     change the truck (through changeTripVehicle and its checks), notes. Saved through
+     saveBucketTrip by name, which re-checks capacity and that no bucket is already
+     planned on another trip. */
+  const tripEditable = (RTP.tripEditable = (t) => (t.status === "Draft" || t.status === "Scheduled") && !t.loading && !(t.loaded_buckets > 0));
+  /** From another view: load the trips, then open the editor. */
+  RTP.editTrip = function (name) {
+    RTP.load()
+      .then(() => {
+        const t = RTP.tripByName(name);
+        if (!t) return RTP.toast("Trip " + name + " isn’t in today’s plan");
+        if (!tripEditable(t)) return RTP.toast("Trip " + name + " already has buckets on the truck — it can’t be edited");
+        RTP.openTripEdit(name);
+      })
+      .catch((e) => RTP.toast(e.message, "bad"));
+  };
+  /* Most buckets a row can take: what it has plus what of that order is still open at that farm. */
+  function teMax(r) {
+    const o = DATA.orders.find((x) => x.opl === r.order_pick_list);
+    const f = o && (o.farms || []).find((x) => x.farm === r.farm);
+    if (!f) return r.buckets || 0;
+    const cov = coverMap()[pkey(r.order_pick_list, r.farm)] || 0;
+    return (r.buckets || 0) + Math.max(0, f.buckets - cov);
+  }
+  RTP.openTripEdit = function (name) {
+    const t = RTP.tripByName(name);
+    if (!t || !tripEditable(t)) return;
+    const e = { t, vehicle: t.vehicle || "", notes: t.notes || "", busy: false, err: "", rows: (t.orders || []).map((r) => ({ r, n: r.buckets || 0, max: teMax(r) })) };
+    e.m = PH.modal({
+      title: "Edit " + t.name,
+      sub: (t.vehicle || "") + (t.run ? " · trip " + t.run : "") + " · " + (t.trip_date || ""),
+      size: "lg",
+      actions: [{ label: "Cancel" }, { label: "Save trip", primary: true, onClick: () => { saveTripEdit(e); return false; } }],
+    });
+    e.save = e.m.el.querySelector(".ph-modal__foot .ph-btn--primary");
+    e.m.body.addEventListener("change", (ev) => {
+      const el = ev.target;
+      if (el.matches("[data-te-n]")) {
+        const x = e.rows[+el.dataset.teN];
+        let v = parseInt(el.value, 10);
+        if (!isFinite(v) || v < 0) v = 0;
+        if (v > x.max) v = x.max;
+        x.n = v;
+        paintTripEdit(e);
+      } else if (el.matches("[data-te-veh]")) { e.vehicle = el.value; paintTripEdit(e); }
+    });
+    e.m.body.addEventListener("input", (ev) => { if (ev.target.matches("[data-te-notes]")) e.notes = ev.target.value; });
+    e.m.body.addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-te-rm]");
+      if (b && !b.disabled && !e.busy) { e.rows[+b.dataset.teRm].n = 0; paintTripEdit(e); }
+    });
+    paintTripEdit(e);
+  };
+  function paintTripEdit(e) {
+    const t = e.t, v = DATA.vehicles.find((x) => x.name === e.vehicle), cap = v ? v.capacity_buckets || 0 : t.capacity_buckets || 0;
+    const total = e.rows.reduce((a, x) => a + x.n, 0), over = cap && total > cap;
+    const trucks = DATA.vehicles.filter((x) => x.capacity_buckets > 0 && (!x.on_road || x.name === t.vehicle));
+    const dis = e.busy ? " disabled" : "";
+    const rows = e.rows
+      .map((x, i) => `<div class="rt-te-row"><div class="ph-truncate"><span class="ph-strong">${esc(x.r.order_name || x.r.order_pick_list)}</span>${x.r.farm ? ` <span class="ph-muted">· ${esc(x.r.farm)}</span>` : ""}</div>
+        <input type="number" class="ph-table-input" min="0" max="${x.max}" value="${x.n}" data-te-n="${i}" aria-label="Buckets"${dis}>
+        <span class="ph-muted ph-num">/ ${x.max} bkt</span>
+        <button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-te-rm="${i}"${e.busy || !x.n ? " disabled" : ""} title="Take this order off the trip">Remove</button></div>`)
+      .join("");
+    PH.set(
+      e.m.body,
+      `<div class="ph-form ph-form--1">
+        <div class="ph-field"><label>Truck</label><select class="ph-control" data-te-veh${dis}>${trucks.map((x) => `<option value="${esc(x.name)}"${x.name === e.vehicle ? " selected" : ""}>${esc(x.name)} · ${x.capacity_buckets || 0} bkt</option>`).join("")}</select></div>
+        <div class="ph-field"><label>Orders</label><div>${rows || '<div class="ph-muted">No orders on this trip.</div>'}</div></div>
+        <div class="ph-notice ph-mb-0${over ? " ph-notice--bad" : ""}">${total} / ${cap || "—"} buckets${over ? " — over the truck’s capacity" : ""}</div>
+        <div class="ph-field"><label>Notes</label><textarea class="ph-control rt-textarea" rows="2" data-te-notes${dis}>${esc(e.notes)}</textarea></div>
+        ${e.err ? `<div class="ph-notice ph-notice--bad ph-mb-0">${esc(e.err)}</div>` : ""}
+      </div>`
+    );
+    if (e.save) {
+      e.save.disabled = !!(e.busy || over);
+      e.save.textContent = e.busy ? "Saving…" : total ? "Save trip" : "Delete trip";
+    }
+  }
+  function saveTripEdit(e) {
+    if (e.busy) return;
+    const t = e.t, keep = e.rows.filter((x) => x.n > 0);
+    if (!keep.length) {
+      PH.confirm("Delete trip", "Every order was taken off " + t.name + ". Delete the trip?", { ok: "Delete", danger: true }).then((ok) => {
+        if (!ok) return;
+        e.busy = true; paintTripEdit(e);
+        RTP.write("deleteBucketTrip", { name: t.name }, "Could not delete it")
+          .then(() => { RTP.toast("Deleted " + t.name); e.m.close(); RTP.changed(); })
+          .catch((err) => { e.busy = false; e.err = err.message; paintTripEdit(e); });
+      });
+      return;
+    }
+    e.busy = true; e.err = ""; paintTripEdit(e);
+    const swap = e.vehicle !== t.vehicle ? RTP.write("changeTripVehicle", { name: t.name, vehicle: e.vehicle }, "Could not change the truck") : Promise.resolve();
+    swap
+      .then(() => {
+        const rows = keep.map((x) => {
+          const r = x.r, per = r.buckets ? (r.stems || 0) / r.buckets : 0;
+          return { order_pick_list: r.order_pick_list, order_name: r.order_name, customer: r.customer, farm: r.farm, varieties: r.varieties, buckets: x.n, stems: Math.round(per * x.n), full: Math.max(x.n, r.full_farm_buckets || x.n) };
+        });
+        return RTP.write("saveBucketTrip", { name: t.name, vehicle: e.vehicle, trip_date: t.trip_date || RTP.today(), status: t.status || "Draft", notes: e.notes, farm: "", collection_order: t.collection_order || "", orders: RTP.encodeOrders(rows) }, "Could not save the trip");
+      })
+      .then((m) => { RTP.toast("Saved " + t.name + " · " + (m.total_buckets || 0) + " buckets"); e.m.close(); RTP.changed(); })
+      .catch((err) => { e.busy = false; e.err = err.message || "Failed"; paintTripEdit(e); });
+  }
+})();
+</script>
+{% endraw %}{% endif %}

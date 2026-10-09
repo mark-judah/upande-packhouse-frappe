@@ -1,0 +1,382 @@
+{% extends "templates/web.html" %}
+{% block title %}Variety Tree · Packhouse{% endblock %}
+{% block page_content %}
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
+
+<header class="ph-head">
+  <div>
+    <div class="ph-head__eyebrow">Packhouse · Reference</div>
+    <h1 class="ph-head__title">Variety Tree</h1>
+    <p class="ph-head__sub" id="sub">Cut Flowers lines, categories and varieties — live from Item Groups</p>
+  </div>
+</header>
+
+<div class="ph-filters">
+  <div class="ph-pills" id="f-region" aria-label="Region"></div>
+  <select class="ph-select" id="f-farm" aria-label="Farm"><option value="">All farms</option></select>
+  <div class="ph-pills" id="f-status">
+    <button data-value="all">All</button><button data-value="active">Active</button><button data-value="inactive">Inactive</button>
+  </div>
+  <select class="ph-select" id="f-line"><option value="">All lines</option></select>
+  <select class="ph-select" id="f-gap">
+    <option value="">Any data</option>
+    <option value="nocolour">Missing colour</option>
+    <option value="nophoto">Missing photo</option>
+  </select>
+  <div class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Search variety, category or line"></div>
+  <div class="ph-filters__spacer"></div>
+  <div class="ph-pills" id="f-preset">
+    <button data-value="7d">7 days</button><button data-value="14d">14 days</button><button data-value="30d">30 days</button>
+  </div>
+  <label class="ph-daterange" title="Demand: order delivery date · Production: harvest date">
+    <input type="date" id="f-from" aria-label="From"><span class="ph-daterange__sep">→</span><input type="date" id="f-to" aria-label="To">
+  </label>
+</div>
+
+<section class="ph-kpis" id="kpis"></section>
+
+<section class="ph-card">
+  <div class="ph-card__head">
+    <div>
+      <h2 class="ph-card__title">Cut Flowers <span class="ph-badge" id="count">—</span></h2>
+      <div class="ph-card__meta" id="meta">D = demand stems (Sales Orders by delivery date) · P = harvested stems (Harvesting entries by posting date)</div>
+    </div>
+    <div class="ph-card__tools">
+      <button class="ph-btn ph-btn--sm ph-btn--ghost" id="btn-expand">Expand all</button>
+      <button class="ph-btn ph-btn--sm ph-btn--ghost" id="btn-collapse">Collapse all</button>
+    </div>
+  </div>
+  <div id="tree"></div>
+</section>
+
+<style>
+/* Variety tree: nested groups with a hairline guide. Layout only. */
+.vt-row{display:flex;align-items:center;gap:var(--sp-3);min-height:var(--sp-8);padding:var(--sp-1) var(--sp-2);border-bottom:1px solid var(--hairline)}
+.vt-row:hover{background:var(--tint-2)}
+.vt-kids{margin-left:var(--sp-5);padding-left:var(--sp-3);border-left:1px solid var(--hairline-2)}
+.vt-arrow{width:var(--sp-6);height:var(--sp-6);flex:0 0 auto;display:grid;place-items:center;border:0;background:transparent;padding:0;color:var(--ink-mute);cursor:pointer}
+.vt-arrow:hover{color:var(--ink)}
+.vt-arrow svg.ph-ic{transition:transform .15s}
+.vt-arrow.is-closed svg.ph-ic{transform:rotate(-90deg)}
+.vt-name{min-width:0;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vt-row--line .vt-name,.vt-row--root .vt-name{color:var(--ink);font-weight:600}
+.vt-row--cat .vt-name{color:var(--ink-3);font-weight:500}
+.vt-row--var{flex-wrap:wrap;padding-left:var(--sp-8)}
+.vt-row--var .vt-name{color:var(--ink);font-weight:500;flex:1 1 var(--sp-9)}
+.vt-row--var.is-off .vt-name{color:var(--ink-mute);text-decoration:line-through}
+.vt-thumb{width:var(--sp-8);height:var(--sp-8);flex:0 0 auto;border:0;padding:0;background:var(--tint);border-radius:var(--r-sm);overflow:hidden;display:grid;place-items:center;color:var(--ink-faint)}
+.vt-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+button.vt-thumb{cursor:zoom-in}
+.vt-chip{display:inline-flex;align-items:center;gap:var(--sp-2);border:0;background:transparent;padding:0;font:inherit;color:var(--ink-3);cursor:pointer;white-space:nowrap;min-width:calc(var(--sp-9) * 3)}
+.vt-chip:hover{color:var(--ink)}
+.vt-chip.is-none{color:var(--ink-mute)}
+.vt-sw{width:var(--sp-3);height:var(--sp-3);border-radius:50%;flex:0 0 auto;box-shadow:inset 0 0 0 1px var(--hairline-3)}
+.vt-metric{min-width:calc(var(--sp-9) * 2);text-align:right;white-space:nowrap}
+.vt-metric.is-zero{color:var(--ink-faint)}
+.vt-acts{display:flex;gap:var(--sp-1);flex:0 0 auto}
+.vt-hit{background:var(--signal-soft);color:var(--ink);padding:0}
+.vt-colors{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:var(--sp-2)}
+.vt-color{display:flex;align-items:center;gap:var(--sp-2);border:1px solid var(--hairline-2);background:var(--surface-2);border-radius:var(--r-sm);padding:var(--sp-2) var(--sp-3);cursor:pointer;text-align:left;font:inherit;color:var(--ink-3);min-width:0}
+.vt-color:hover{border-color:var(--ink)}
+.vt-color.is-on{border-color:var(--ink);background:var(--tint)}
+.vt-color span:nth-child(2){flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vt-photo{display:block;max-width:100%;max-height:70vh;margin:0 auto;object-fit:contain;border-radius:var(--r-md);background:var(--tint)}
+@media (max-width:860px){
+  .vt-kids{margin-left:var(--sp-2);padding-left:var(--sp-1)}
+  .vt-row--var{padding-left:var(--sp-1);row-gap:var(--sp-1)}
+  .vt-row--var .vt-name{flex-basis:calc(100% - var(--sp-9) - var(--sp-3))}
+  .vt-chip{min-width:0}
+  .vt-chip .ph-mono{display:none}
+  .vt-metric{min-width:0}
+  .vt-acts{margin-left:auto}
+}
+</style>
+
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  const ROOT = "Cut Flowers";
+  const API = "upande_packhouse.api.v2.variety_tree.get_variety_tree";
+  const V1 = "upande_packhouse.api.variety_tree."; // colour writes stay on v1 (unchanged)
+  const [d0, d1] = PH.date.preset("30d");
+  // Every key is sent to the server; the server filters and computes the KPIs.
+  // region/farm/from/to scope demand (order farm, delivery date) and
+  // production (harvest farm, posting date); status/line/gap/q scope varieties.
+  const st = PH.state({ region: "", farm: "", from: d0, to: d1, status: "all", line: "", gap: "", q: "" });
+  let lines = [];          // filtered tree from the server: [{name, count, cats:[{name, group, items:[…]}]}]
+  let data = null;         // last full response (kpis, totals, range)
+  let colors = null;       // getColors() cache
+  let seq = 0;
+  const open = { root: true }; // node key -> expanded
+
+  /* ── Filters ── */
+  PH.regionPills("#f-region", st, "region");
+  function fillFarms() {
+    const list = PH.regionFarms(st.get("region")) || [].concat(PH.REGIONS.Ravine, PH.REGIONS.Karen);
+    PH.options("#f-farm", list, st.get("farm"));
+    if (st.get("farm") && !list.includes(st.get("farm"))) st.set({ farm: "" }); // keep the select and the state in step
+  }
+  fillFarms();
+  PH.bindSelect("#f-farm", st, "farm");
+  PH.pills("#f-status", st, "status");
+  PH.bindSelect("#f-line", st, "line");
+  PH.bindSelect("#f-gap", st, "gap");
+  PH.bindSearch("#f-q", st, "q");
+  PH.dateRange({ pills: "#f-preset", from: "#f-from", to: "#f-to", state: st });
+  st.on((s, changed) => {
+    if (changed.includes("region")) fillFarms(); // farm list follows the region (server still intersects)
+    if (changed.includes("q") && s.q) expandAll(); // a search opens every branch so hits are visible
+    load(false, changed.length === 1 && changed[0] === "q"); // typing refreshes in place, no skeleton flash
+  });
+
+  /* ── Load ── */
+  PH.kpiSkeleton("#kpis", ["Varieties", "Demand", "Production", "Missing colour", "Missing photo"]);
+  function load(background, inPlace) {
+    if (!background && !inPlace) {
+      PH.loadingKpis("#kpis", true);
+      PH.skeleton("#tree", "rows", 10);
+    }
+    const my = ++seq;
+    const s = st.get();
+    const args = { from_date: s.from, to_date: s.to, region: s.region, farm: s.farm, status: s.status, line: s.line, gap: s.gap, q: s.q };
+    return PH.call(API, args, { type: "GET", silent: background })
+      .then((m) => {
+        if (my !== seq) return;
+        const first = !data;
+        data = m || {};
+        lines = data.lines || [];
+        if (first) expandAll();
+        PH.options("#f-line", data.all_lines || [], st.get("line"));
+        render();
+        PH.markUpdated();
+      })
+      .catch((e) => {
+        if (my !== seq || background) return;
+        PH.loadingKpis("#kpis", false);
+        PH.error("#tree", e.message, () => load());
+      });
+  }
+
+  /* ── Filtering is server-side (status, line, gap, search, region, farm, dates) ── */
+  const allItems = () => lines.flatMap((l) => l.cats.flatMap((c) => c.items));
+
+  /* ── Render ── */
+  function hi(text) {
+    const q = st.get("q");
+    const t = String(text == null ? "" : text);
+    if (!q) return PH.esc(t);
+    const i = t.toLowerCase().indexOf(q.toLowerCase());
+    if (i < 0) return PH.esc(t);
+    return PH.esc(t.slice(0, i)) + '<mark class="vt-hit">' + PH.esc(t.slice(i, i + q.length)) + "</mark>" + PH.esc(t.slice(i + q.length));
+  }
+  const arrow = (key) => PH.html`<button class="vt-arrow${PH.raw(open[key] === false ? " is-closed" : "")}" data-toggle="${key}" aria-label="Expand or collapse">${PH.raw(PH.icon("chevronDown", 14))}</button>`.__raw;
+  const openBtn = (type, name) => PH.html`<button class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-open="${type}" data-name="${name}" title="Open in Desk">${PH.raw(PH.icon("external"))}</button>`.__raw;
+
+  function siteLabel() {
+    const s = st.get();
+    return s.farm || s.region || "all sites";
+  }
+  function render() {
+    if (!data) return;
+    const tree = lines;
+    const k = data.kpis || {};
+    const shown = k.varieties || 0;
+    const total = data.catalogue_total || 0;
+    const gap = st.get("gap");
+    const range = PH.date.label(data.from_date, data.to_date);
+    const scope = siteLabel() + " · " + range;
+    PH.kpis("#kpis", [
+      { label: "Varieties", value: shown, unit: PH.fmt.num(k.active || 0) + " active · " + PH.fmt.num(k.inactive || 0) + " inactive · catalogue, all sites", bar: shown ? ((k.active || 0) / shown) * 100 : 0 },
+      { label: "Demand", value: k.demand_stems || 0, suffix: "stems", unit: "≈ " + PH.fmt.num(k.demand_per_week || 0) + "/wk · " + scope + " · order farm", title: "Ordered stems on submitted Roses orders delivering in the range, for the varieties listed" },
+      { label: "Production", value: k.production_stems || 0, suffix: "stems", unit: "≈ " + PH.fmt.num(k.production_per_week || 0) + "/wk · " + scope + " · harvest farm", title: "Harvested stems (Harvesting stock entries) in the range, for the varieties listed" },
+      { label: "Missing colour", value: k.missing_colour || 0, unit: gap === "nocolour" ? "showing these · click to clear" : "click to show them", active: gap === "nocolour", onClick: () => st.set({ gap: gap === "nocolour" ? "" : "nocolour" }) },
+      { label: "Missing photo", value: k.missing_photo || 0, unit: gap === "nophoto" ? "showing these · click to clear" : "click to show them", active: gap === "nophoto", onClick: () => st.set({ gap: gap === "nophoto" ? "" : "nophoto" }) },
+    ]);
+    PH.text("#count", shown === total ? PH.fmt.plural(shown, "variety", "varieties") : PH.fmt.num(shown) + " of " + PH.fmt.plural(total, "variety", "varieties"));
+    PH.text("#meta", "D = demand stems (Sales Orders by delivery date, order farm) · P = harvested stems (by posting date, harvest farm) · " + scope + " (" + PH.fmt.plural(data.days || 0, "day") + ")");
+
+    if (!total) return PH.empty("#tree", "No varieties under Cut Flowers", "Add Item Groups under Cut Flowers and Items to them; they appear here automatically.");
+    if (!tree.length) return PH.empty("#tree", "No varieties match these filters", "Clear the search or a filter to see more.");
+
+    let h = `<div class="vt-row vt-row--root">${arrow("root")}<span class="vt-name">${hi(ROOT)}</span><span class="ph-muted">${PH.fmt.plural(shown, "variety", "varieties")}</span>${openBtn("group", ROOT)}</div>`;
+    if (open.root !== false) {
+      h += '<div class="vt-kids">';
+      for (const l of tree) {
+        h += `<div class="vt-row vt-row--line">${arrow(l.name)}<span class="vt-name">${hi(l.name)}</span><span class="ph-muted">${PH.fmt.plural(l.count, "variety", "varieties")}</span>${openBtn("group", l.name)}</div>`;
+        if (open[l.name] === false) continue;
+        h += '<div class="vt-kids">';
+        for (const c of l.cats) {
+          const key = l.name + "|" + c.name;
+          h += `<div class="vt-row vt-row--cat">${arrow(key)}<span class="vt-name">${hi(c.name)}</span><span class="ph-muted">${PH.fmt.plural(c.items.length, "item")}</span>${openBtn("group", c.group)}</div>`;
+          if (open[key] === false) continue;
+          h += '<div class="vt-kids">' + c.items.map(itemRow).join("") + "</div>";
+        }
+        h += "</div>";
+      }
+      h += "</div>";
+    }
+    PH.keepScroll(() => PH.set("#tree", h));
+  }
+
+  function itemRow(it) {
+    const off = it.s !== "Active";
+    const thumb = it.img
+      ? PH.html`<button class="vt-thumb" data-photo="${it.code}" title="View photo"><img src="${it.img}" alt="" loading="lazy"></button>`.__raw
+      : `<span class="vt-thumb" title="No photo">${PH.icon("box", 16)}</span>`;
+    const chip = it.colour
+      ? PH.html`<button class="vt-chip" data-color="${it.code}" title="Change colour"><span class="vt-sw" style="background:${it.hex || "transparent"}"></span><span>${it.colour}</span>${PH.raw(it.hex ? `<span class="ph-mono ph-muted">${PH.esc(it.hex)}</span>` : "")}</button>`.__raw
+      : PH.html`<button class="vt-chip is-none" data-color="${it.code}" title="Set colour"><span class="vt-sw"></span><span>Set colour</span></button>`.__raw;
+    const metric = (label, v, wk, title) => `<span class="vt-metric ph-num${v ? "" : " is-zero"}" title="${PH.esc(title + " · ≈ " + PH.fmt.num(wk || 0) + " stems/wk")}">${label} <b class="ph-strong">${PH.fmt.num(v || 0)}</b></span>`;
+    return `<div class="vt-row vt-row--var${off ? " is-off" : ""}">
+      ${thumb}
+      <span class="vt-name" title="${PH.esc(it.code)}">${hi(it.n)}</span>
+      ${off ? '<span class="ph-badge">Inactive</span>' : ""}
+      ${chip}
+      ${metric("D", it.demand_stems, it.demand_per_week, "Demand stems — Sales Orders delivering in the range")}
+      ${metric("P", it.production_stems, it.production_per_week, "Harvested stems — Harvesting stock entries in the range")}
+      <span class="vt-acts">
+        ${PH.html`<button class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-upload="${it.code}" title="Upload photo">${PH.raw(PH.icon("upload"))}</button>`.__raw}
+        ${openBtn("item", it.code)}
+      </span>
+    </div>`;
+  }
+
+  function expandAll() {
+    open.root = true;
+    lines.forEach((l) => {
+      open[l.name] = true;
+      l.cats.forEach((c) => (open[l.name + "|" + c.name] = true));
+    });
+  }
+  function collapseAll() {
+    lines.forEach((l) => {
+      open[l.name] = false;
+      l.cats.forEach((c) => (open[l.name + "|" + c.name] = false));
+    });
+  }
+  document.getElementById("btn-expand").addEventListener("click", () => { expandAll(); render(); });
+  document.getElementById("btn-collapse").addEventListener("click", () => { collapseAll(); render(); });
+
+  /* ── Interactions (delegated) ── */
+  const findItem = (code) => allItems().find((i) => i.code === code);
+  document.getElementById("tree").addEventListener("click", (e) => {
+    const t = e.target.closest("[data-toggle]");
+    if (t) {
+      const k = t.dataset.toggle;
+      open[k] = open[k] === false;
+      return render();
+    }
+    const o = e.target.closest("[data-open]");
+    if (o) return PH.openDoc(o.dataset.open === "item" ? "Item" : "Item Group", o.dataset.name);
+    const p = e.target.closest("[data-photo]");
+    if (p) return showPhoto(findItem(p.dataset.photo));
+    const c = e.target.closest("[data-color]");
+    if (c) return pickColour(findItem(c.dataset.color));
+    const u = e.target.closest("[data-upload]");
+    if (u) return chooseFile(u.dataset.upload);
+  });
+
+  /* Photo viewer */
+  function showPhoto(it) {
+    if (!it || !it.img) return;
+    const img = document.createElement("img");
+    img.className = "vt-photo";
+    img.alt = it.n;
+    img.src = it.img;
+    PH.modal({ title: it.n, sub: it.code !== it.n ? it.code : "", size: "lg", body: img });
+  }
+
+  /* Colour picker — assigns Item.custom_color (must be an existing Color) */
+  function pickColour(it) {
+    if (!it) return;
+    const body = document.createElement("div");
+    PH.skeleton(body, "rows", 3);
+    const m = PH.modal({
+      title: "Colour · " + it.n,
+      sub: "Pick a colour for this variety",
+      size: "lg",
+      body,
+      actions: [
+        { label: "Cancel" },
+        { label: "Clear colour", danger: true, onClick: () => applyColour(it, "") },
+      ],
+    });
+    const paint = () => {
+      if (!colors.length) return PH.empty(body, "No colours defined", "Create Color records in Desk first.");
+      PH.set(body, '<div class="vt-colors">' + colors.map((c) =>
+        PH.html`<button class="vt-color${PH.raw(c.name === it.colour ? " is-on" : "")}" data-pick="${c.name}"><span class="vt-sw" style="background:${c.hex || "transparent"}"></span><span>${c.name}</span><span class="ph-mono ph-muted">${c.hex || ""}</span></button>`.__raw).join("") + "</div>");
+    };
+    body.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-pick]");
+      if (!b) return;
+      m.busy(true);
+      applyColour(it, b.dataset.pick).then(() => m.close(), () => m.busy(false));
+    });
+    (colors ? Promise.resolve(colors) : PH.call(V1 + "getColors", {}, { type: "GET" }).then((r) => (colors = (r && r.colors) || [])))
+      .then(paint)
+      .catch((e) => PH.error(body, e.message));
+  }
+  function applyColour(it, color) {
+    return PH.call(V1 + "setVarietyColor", { item: it.code, color }).then((r) => {
+      it.colour = (r && r.colour) || "";
+      it.hex = (r && r.hex) || "";
+      PH.toast(color ? it.n + " set to " + color : "Colour cleared for " + it.n, "good");
+      render();
+      load(true); // server recounts "Missing colour" and re-applies the data-gap filter
+    });
+  }
+
+  /* Photo upload — Frappe's upload_file, attached to the Item's `image` field.
+     upload_file is a raw POST, so it sends the CSRF token itself (minted by the controller). */
+  let fileInput = null, uploadFor = null;
+  function chooseFile(code) {
+    if (!fileInput) {
+      fileInput = document.createElement("input");
+      fileInput.type = "file";
+      fileInput.accept = "image/*";
+      fileInput.hidden = true;
+      document.body.appendChild(fileInput);
+      fileInput.addEventListener("change", () => {
+        const f = fileInput.files && fileInput.files[0];
+        if (f && uploadFor) upload(uploadFor, f);
+        fileInput.value = "";
+      });
+    }
+    uploadFor = code;
+    fileInput.click();
+  }
+  function upload(code, file) {
+    if (!/^image\//.test(file.type)) return PH.toast("Choose an image file", "bad");
+    const it = findItem(code);
+    const fd = new FormData();
+    fd.append("file", file, file.name);
+    fd.append("is_private", "0");
+    fd.append("folder", "Home");
+    fd.append("doctype", "Item");
+    fd.append("docname", code);
+    fd.append("fieldname", "image");
+    PH.toast("Uploading photo for " + ((it && it.n) || code) + "…");
+    fetch("/api/method/upload_file", {
+      method: "POST",
+      headers: { "X-Frappe-CSRF-Token": (window.frappe && frappe.csrf_token) || "", Accept: "application/json" },
+      body: fd,
+    })
+      .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => {
+        if (ok && j.message && j.message.file_url) {
+          PH.toast("Photo uploaded", "good");
+          return load(true);
+        }
+        PH.toast(PH.serverError(j) || "Upload failed", "bad");
+      })
+      .catch(() => PH.toast("Upload failed — could not reach the server", "bad"));
+  }
+
+  PH.onRefresh(() => load());
+  PH.ready(() => load());
+})();
+</script>
+{% endraw %}
+{% endblock %}

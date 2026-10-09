@@ -1,0 +1,374 @@
+{% extends "templates/web.html" %}
+{% block title %}Price Lists · Packhouse{% endblock %}
+{% block page_content %}
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
+
+<header class="ph-head">
+  <div>
+    <div class="ph-head__eyebrow">Packhouse · Reference</div>
+    <h1 class="ph-head__title">Price Lists</h1>
+    <p class="ph-head__sub" id="sub">Selling rates per variety and stem length</p>
+  </div>
+  <div class="ph-head__tools">
+    <a class="ph-btn" href="/new-customer-price-list-v2" id="new-list"></a>
+    <button class="ph-btn" type="button" id="export"></button>
+  </div>
+</header>
+
+<div class="ph-filters">
+  <select class="ph-select" id="f-pl" aria-label="Price list"><option value="">Loading price lists…</option></select>
+  <div class="ph-pills" id="f-asat-pills"><button data-value="today">Today</button></div>
+  <label class="ph-daterange" title="Show the prices valid on this date (Item Price valid from / valid upto). Editing is only available on today's view.">
+    <span>As at</span><input type="date" id="f-asat" aria-label="Prices as at">
+  </label>
+  <div class="ph-pills" id="f-show">
+    <button data-value="all">All varieties</button><button data-value="gaps">With gaps</button><button data-value="complete">Fully priced</button>
+  </div>
+  <select class="ph-select" id="f-line" aria-label="Line"><option value="">All lines</option></select>
+  <select class="ph-select" id="f-cat" aria-label="Category"><option value="">All categories</option></select>
+  <select class="ph-select" id="f-len" aria-label="Length"><option value="">All lengths</option></select>
+  <select class="ph-select" id="f-status" aria-label="Variety status"><option value="">Active &amp; inactive</option><option value="active">Active only</option><option value="inactive">Inactive only</option></select>
+  <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Search variety, code, category or line"></label>
+</div>
+
+<section class="ph-kpis" id="kpis"></section>
+
+<section class="ph-card ph-card--flush">
+  <div class="ph-card__head">
+    <h2 class="ph-card__title">Variety × length <span class="ph-badge" id="count">0</span></h2>
+    <div class="ph-card__meta" id="grid-meta">Click a cell to set a rate · Enter moves to the next length · clear a cell to remove its price</div>
+  </div>
+  <div id="grid"></div>
+</section>
+
+<div class="pl-savebar" id="savebar" hidden>
+  <span class="pl-savebar__n" id="savebar-n"></span>
+  <button class="ph-btn ph-btn--sm" type="button" id="discard">Discard</button>
+  <button class="ph-btn ph-btn--sm" type="button" id="save">Save changes</button>
+</div>
+
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
+<style>
+  /* Price grid: clickable rate cells, line/category group rows, floating save bar. */
+  #grid .pl-group td{background:var(--surface);color:var(--ink);font-weight:600}
+  #grid .pl-group small{color:var(--ink-mute);font-weight:400;margin-left:var(--sp-2)}
+  #grid .pl-cat td{color:var(--ink-mute);padding-top:var(--sp-2);padding-bottom:var(--sp-2)}
+  #grid .pl-cell{cursor:pointer;min-width:96px;transition:background .15s}
+  #grid .pl-cell:hover{background:var(--tint)}
+  #grid .pl-cell.is-readonly{cursor:default}
+  #grid .pl-cell.is-readonly:hover{background:transparent}
+  #grid .pl-cell.is-missing{color:var(--ink-faint)}
+  #grid .pl-cell.is-dirty{background:var(--warn-soft);color:var(--warn)}
+  #grid .pl-cell.is-error{background:var(--bad-soft);color:var(--bad)}
+  #grid .pl-cell.is-saving{opacity:.5}
+  #grid .pl-cell.is-editing{padding-top:var(--sp-1);padding-bottom:var(--sp-1)}
+  #grid .pl-name{min-width:220px}
+  #grid .pl-name small{display:block;color:var(--ink-mute)}
+  .pl-savebar{position:sticky;bottom:var(--sp-5);z-index:6;display:flex;align-items:center;gap:var(--sp-3);width:max-content;max-width:100%;margin:var(--sp-5) auto 0;
+    padding:var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-5);border-radius:var(--r-pill);background:var(--grad-ink);color:var(--surface);box-shadow:var(--shadow-pop)}
+  .pl-savebar__n{flex:1 1 auto;white-space:nowrap}
+</style>
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  // Reads: v2 grid endpoint (KPIs computed server-side over the full filtered set).
+  // Lists + writes: the v1 module, unchanged (shared with /price-lists).
+  const V1 = "upande_packhouse.api.price_list_management.";
+  const GRID = "upande_packhouse.api.v2.price_lists.get_price_grid";
+  const TODAY = PH.date.today();
+  const st = PH.state({ pl: "", asat: TODAY, line: "", cat: "", len: "", status: "", show: "all", q: "" });
+
+  let lists = [];
+  let tree = null;          // get_price_grid message
+  let current = "";         // the price list on screen
+  let seq = 0;
+  let pending = {};         // "code␟length" -> {code, len, raw, orig, error}
+  let saving = false;
+  const nPending = () => Object.keys(pending).length;
+
+  document.getElementById("new-list").innerHTML = PH.icon("plus") + "<span>New customer list</span>";
+  document.getElementById("export").innerHTML = PH.icon("download") + "<span>Export</span>";
+  document.getElementById("save").innerHTML = PH.icon("check") + "<span>Save changes</span>";
+
+  /* ── Filters ── every one reloads the grid + KPIs from the server ── */
+  PH.pills("#f-show", st, "show");
+  PH.dateRange({ pills: "#f-asat-pills", from: "#f-asat", state: st, fromKey: "asat", toKey: "asat" });
+  PH.bindSelect("#f-line", st, "line");
+  PH.bindSelect("#f-cat", st, "cat");
+  PH.bindSelect("#f-len", st, "len");
+  PH.bindSelect("#f-status", st, "status");
+  PH.bindSearch("#f-q", st, "q");
+  const plSel = document.getElementById("f-pl");
+  plSel.addEventListener("change", () => switchTo(plSel.value));
+
+  let lastAsat = st.get("asat");
+  st.on(async (s, changed) => {
+    if (changed.includes("line") && s.cat) {
+      // A category belongs to one line; drop it when the line changes.
+      const c = ((tree && tree.category_options) || []).find((x) => x.value === s.cat);
+      if (!s.line || !c || c.line !== s.line) return st.set({ cat: "" });
+    }
+    if (changed.includes("asat")) {
+      if (!s.asat) return st.set({ asat: TODAY });
+      // Edits only apply on today's view, so leaving it throws staged edits away.
+      if (nPending() && s.asat !== TODAY) {
+        const ok = await PH.confirm("Discard unsaved changes?", "Prices can only be edited on today's view. " + PH.fmt.plural(nPending(), "unsaved price") + " will be discarded.", { danger: true, ok: "Discard" });
+        if (!ok) return st.set({ asat: lastAsat });
+        pending = {};
+      }
+      lastAsat = s.asat;
+    }
+    if (changed.includes("pl")) return;   // handled by switchTo
+    loadGrid(current);
+  });
+
+  // Switching list throws away staged edits, so ask first.
+  async function switchTo(name) {
+    if (name === current) return;
+    if (nPending() && !(await PH.confirm("Discard unsaved changes?", PH.fmt.plural(nPending(), "price") + " on " + current + " have not been saved.", { danger: true, ok: "Discard" }))) {
+      plSel.value = current;
+      return;
+    }
+    pending = {};
+    st.set({ pl: name === (lists[0] && lists[0].name) ? "" : name });
+    loadGrid(name);
+  }
+  window.addEventListener("beforeunload", (e) => {
+    if (nPending()) { e.preventDefault(); e.returnValue = ""; }
+  });
+
+  /* ── Load ── */
+  const KPI_LABELS = ["Coverage", "Priced", "Missing", "Varieties", "Rate range"];
+  PH.kpiSkeleton("#kpis", KPI_LABELS);
+  PH.skeleton("#grid", "rows", 10);
+
+  function loadLists() {
+    return PH.call(V1 + "getPriceLists", {}).then((m) => {
+      lists = (m && m.price_lists) || [];
+      const items = lists.map((p) => ({ value: p.name, label: p.name + (p.currency ? " (" + p.currency + ")" : "") }));
+      const want = st.get("pl");
+      if (want && !lists.some((p) => p.name === want)) items.unshift({ value: want, label: want });
+      plSel.innerHTML = "";
+      PH.options(plSel, items, want || (lists[0] && lists[0].name) || "");
+      if (!items.length) {
+        PH.loadingKpis("#kpis", false);
+        return PH.empty("#grid", "No selling price lists", "Create one for a customer to start pricing varieties.");
+      }
+      return loadGrid(want || lists[0].name);
+    }).catch((e) => {
+      plSel.innerHTML = '<option value="">Price lists unavailable</option>';
+      PH.loadingKpis("#kpis", false);
+      PH.error("#grid", e.message, () => { PH.skeleton("#grid", "rows", 10); loadLists(); });
+    });
+  }
+
+  function loadGrid(name, background) {
+    if (!name) return;
+    current = name;
+    plSel.value = name;
+    const s = st.get();
+    if (!background) { PH.loadingKpis("#kpis", true); if (!tree) PH.skeleton("#grid", "rows", 10); }
+    // A slow response for an earlier filter set must never overwrite the current one.
+    const my = ++seq;
+    return PH.call(GRID, { price_list: name, as_at: s.asat, line: s.line, category: s.cat, length: s.len, status: s.status, show: s.show, q: s.q }, { silent: background })
+      .then((m) => {
+        if (my !== seq) return;
+        tree = m || {};
+        PH.options("#f-line", tree.line_options || [], st.get("line"));
+        PH.options("#f-cat", (tree.category_options || []).map((c) => ({ value: c.value, label: c.label })), st.get("cat"));
+        PH.options("#f-len", tree.all_lengths || [], st.get("len"));
+        render();
+        PH.markUpdated();
+      })
+      .catch((e) => {
+        if (my !== seq || background) return;
+        tree = null;
+        PH.loadingKpis("#kpis", false);
+        PH.error("#grid", e.message, () => loadGrid(name));
+      });
+  }
+
+  /* ── Model helpers ── */
+  const lengths = () => (tree && tree.lengths) || [];
+  const editable = () => !!(tree && tree.editable);
+  const keyOf = (code, len) => code + "␟" + len;
+  const missing = (it) => lengths().filter((l) => it.lengths[l] == null).length;
+  function itemByCode(code) {
+    for (const l of (tree && tree.lines) || []) for (const c of l.cats) for (const it of c.items) if (it.code === code) return it;
+    return null;
+  }
+  const flat = () => ((tree && tree.lines) || []).flatMap((l) => l.cats.flatMap((c) => c.items.map((it) => ({ line: l.name, cat: c.name, it }))));
+  const money = (v) => (v == null ? "—" : PH.fmt.num(v, 2));
+
+  /* ── Render ── (numbers come from the server; the browser only formats) */
+  function render() {
+    if (!tree) return;
+    const k = tree.kpis || {};
+    const lt = tree.list_totals || {};
+    const cur = tree.currency || "";
+    const asatTxt = tree.editable ? "" : " · as at " + PH.fmt.date(tree.as_at);
+    const pct = +k.coverage_pct || 0;
+    PH.text("#sub", current + (cur ? " · " + cur : "") + asatTxt + " · " + PH.fmt.num(lt.priced_cells || 0) + " of " + PH.fmt.num(lt.total_cells || 0) + " variety × length rates set on the whole list");
+    PH.kpis("#kpis", [
+      { label: "Coverage", value: PH.fmt.pct(pct, pct > 0 && pct < 1 ? 1 : 0), unit: "of " + PH.fmt.num(k.total_cells || 0) + " variety × length cells", bar: pct, barClass: pct >= 100 ? "good" : "" },
+      { label: "Priced", value: k.priced_cells || 0, unit: "rates set" + (cur ? " in " + cur : "") },
+      { label: "Missing", value: k.missing_cells || 0, unit: "cells with no rate", onClick: () => st.set({ show: st.get("show") === "gaps" ? "all" : "gaps" }), active: st.get("show") === "gaps" },
+      { label: "Varieties", value: k.varieties || 0, unit: PH.fmt.num(k.complete_varieties || 0) + " fully priced · " + PH.fmt.plural(k.lines || 0, "line") + (k.inactive_varieties ? " · " + k.inactive_varieties + " inactive" : "") },
+      { label: "Rate range", value: k.min_rate == null ? "—" : money(k.min_rate) + "–" + money(k.max_rate), unit: k.median_rate == null ? "no rates in view" : "per stem" + (cur ? " " + cur : "") + " · median " + money(k.median_rate) },
+    ]);
+    const items = flat();
+    PH.text("#count", PH.fmt.num(items.length));
+    PH.text("#grid-meta", editable()
+      ? "Click a cell to set a rate · Enter moves to the next length · clear a cell to remove its price"
+      : "Read-only: prices valid on " + PH.fmt.date(tree.as_at) + " at their current rate · switch to Today to edit");
+    paintBar();
+    if (!tree.has_taxonomy) return PH.empty("#grid", "No varieties found", "There are no items under the Cut Flowers item group.");
+    if (!items.length) return PH.empty("#grid", "No varieties match these filters", "Clear the filters or switch the view to All varieties.");
+    PH.keepScroll(() => PH.set("#grid", table()));
+  }
+
+  function cellHtml(it, len) {
+    const p = pending[keyOf(it.code, len)];
+    const saved = it.lengths[len];
+    let cls = "pl-cell is-num" + (editable() ? "" : " is-readonly"), txt;
+    if (p) {
+      cls += p.error ? " is-error" : " is-dirty";
+      txt = p.raw === "" ? "Clear" : PH.fmt.num(p.raw, 2);
+    } else if (saved == null) { cls += " is-missing"; txt = "—"; }
+    else txt = PH.fmt.num(saved, 2);
+    const title = p && p.error ? "Not saved: " + p.error : p ? "Unsaved" : len;
+    return `<td class="${cls}" data-code="${PH.esc(it.code)}" data-len="${PH.esc(len)}" title="${PH.esc(title)}">${PH.esc(txt)}</td>`;
+  }
+
+  function table() {
+    const L = lengths();
+    const span = L.length + 2;
+    let body = "";
+    tree.lines.forEach((line) => {
+      const n = line.cats.reduce((a, c) => a + c.items.length, 0);
+      body += `<tr class="pl-group"><td colspan="${span}">${PH.esc(line.name)}<small>${PH.fmt.plural(n, "variety", "varieties")}</small></td></tr>`;
+      line.cats.forEach((cat) => {
+        if (cat.name && cat.name !== line.name) body += `<tr class="pl-cat"><td colspan="${span}">${PH.esc(cat.name)}</td></tr>`;
+        cat.items.forEach((it) => {
+          const miss = missing(it);
+          body += `<tr><td class="pl-name"><span class="${it.s === "Inactive" ? "ph-muted" : "ph-strong"}">${PH.esc(it.n)}</span>${it.s === "Inactive" ? ' <span class="ph-badge">Inactive</span>' : ""}<small class="ph-mono">${PH.esc(it.code)}</small></td>
+            ${L.map((len) => cellHtml(it, len)).join("")}
+            <td class="is-num">${miss ? `<span class="ph-badge ph-badge--warn">${miss} missing</span>` : '<span class="ph-badge ph-badge--good">Complete</span>'}</td></tr>`;
+        });
+      });
+    });
+    return `<div class="ph-table-wrap ph-table-wrap--tall"><table class="ph-table ph-table--compact">
+      <thead><tr><th>Variety</th>${L.map((l) => `<th class="is-num">${PH.esc(l)}</th>`).join("")}<th class="is-num">Status</th></tr></thead>
+      <tbody>${body}</tbody></table></div>`;
+  }
+
+  /* ── Inline editing: typed rates are staged, then saved together (today's view only) ── */
+  const grid = document.getElementById("grid");
+  grid.addEventListener("click", (e) => {
+    const td = e.target.closest("td.pl-cell");
+    if (td && editable() && !td.classList.contains("is-editing") && !saving) openEditor(td);
+  });
+
+  function openEditor(td) {
+    const code = td.dataset.code, len = td.dataset.len, k = keyOf(code, len);
+    const it = itemByCode(code);
+    if (!it) return;
+    const orig = it.lengths[len];
+    const p = pending[k];
+    const input = document.createElement("input");
+    input.type = "number"; input.step = "0.01"; input.min = "0";
+    input.className = "ph-table-input";
+    input.setAttribute("aria-label", it.n + " " + len);
+    input.value = p ? p.raw : orig == null ? "" : orig;
+    td.classList.add("is-editing");
+    td.textContent = "";
+    td.appendChild(input);
+    input.focus();
+    input.select();
+    let done = false;
+    const close = (stage, next) => {
+      if (done) return;
+      done = true;
+      if (stage) {
+        const raw = input.value.trim();
+        const same = raw === "" ? orig == null : orig != null && Number(raw) === Number(orig);
+        if (raw !== "" && (isNaN(+raw) || +raw < 0)) PH.toast("Rates must be zero or more", "warn");
+        else if (same) delete pending[k];
+        else pending[k] = { code, len, raw, orig };
+      }
+      td.outerHTML = cellHtml(it, len);
+      paintBar();
+      if (next) {
+        const L = lengths(), i = L.indexOf(len);
+        const nx = i >= 0 && i < L.length - 1 && grid.querySelector(`td.pl-cell[data-code="${CSS.escape(code)}"][data-len="${CSS.escape(L[i + 1])}"]`);
+        if (nx) openEditor(nx);
+      }
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); close(true, true); }
+      else if (e.key === "Escape") { e.preventDefault(); close(false); }
+    });
+    input.addEventListener("blur", () => close(true));
+  }
+
+  function paintBar() {
+    const n = nPending();
+    const failed = Object.values(pending).filter((p) => p.error).length;
+    document.getElementById("savebar").hidden = !n;
+    PH.text("#savebar-n", PH.fmt.plural(n, "unsaved change") + (failed ? " · " + failed + " failed, Save to retry" : ""));
+  }
+
+  document.getElementById("discard").addEventListener("click", () => { pending = {}; render(); });
+  document.getElementById("save").addEventListener("click", saveAll);
+
+  // Every staged cell goes through the v1 setItemPrice; one cell or many is the same path.
+  function saveAll() {
+    const list = Object.entries(pending);
+    if (!list.length || saving) return;
+    saving = true;
+    const btn = document.getElementById("save");
+    btn.disabled = true;
+    const name = current;
+    list.forEach(([, p]) => { const td = grid.querySelector(`td.pl-cell[data-code="${CSS.escape(p.code)}"][data-len="${CSS.escape(p.len)}"]`); if (td) td.classList.add("is-saving"); });
+    Promise.all(list.map(([k, p]) =>
+      PH.call(V1 + "setItemPrice", { item_code: p.code, price_list: name, length: p.len, rate: p.raw }, { silent: true })
+        .then((r) => ({ k, p, r }), (e) => ({ k, p, err: e.message || "Request failed" }))
+    )).then((res) => {
+      let ok = 0, bad = 0;
+      res.forEach(({ k, p, r, err }) => {
+        if (err) { bad++; pending[k].error = err; return; }
+        ok++;
+        const it = itemByCode(p.code);
+        if (it) it.lengths[p.len] = r && r.cleared ? null : r && r.rate != null ? +r.rate : +p.raw;
+        delete pending[k];
+      });
+      saving = false;
+      btn.disabled = false;
+      render();
+      if (ok) PH.toast(PH.fmt.plural(ok, "price") + " saved", "good");
+      if (bad) PH.toast(PH.fmt.plural(bad, "price") + " could not be saved: " + res.find((x) => x.err).err, "bad");
+      // KPIs and the gaps/complete view are server figures: re-read them.
+      if (ok && name === current) loadGrid(name, true);
+    });
+  }
+
+  /* ── Export ── (exactly the rows and lengths on screen) */
+  document.getElementById("export").addEventListener("click", () => {
+    if (!tree) return;
+    const rows = flat().map(({ line, cat, it }) => Object.assign({ line, cat, n: it.n, code: it.code, s: it.s }, it.lengths));
+    if (!rows.length) return PH.toast("Nothing to export", "warn");
+    PH.csv((current || "price-list").replace(/[^\w.-]+/g, "-") + "-" + tree.as_at + ".csv", rows, [
+      { key: "line", label: "Line" }, { key: "cat", label: "Category" }, { key: "n", label: "Variety" }, { key: "code", label: "Item Code" }, { key: "s", label: "Status" },
+    ].concat(lengths().map((l) => ({ key: l, label: l + (tree.currency ? " (" + tree.currency + ")" : "") }))));
+  });
+
+  PH.onRefresh(() => {
+    if (nPending()) { PH.toast("Save or discard your changes before refreshing", "warn"); return; }
+    return current ? loadGrid(current) : loadLists();
+  });
+  PH.ready(loadLists);
+})();
+</script>
+{% endraw %}
+{% endblock %}

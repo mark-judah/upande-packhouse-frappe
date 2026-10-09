@@ -282,6 +282,9 @@ def getCustomerMapping():
 				"item_code_mapping": [
 					{"source_item_code": m.source_item_code, "item": m.item} for m in doc.item_code_mapping
 				],
+				"spec_mapping": [
+					{"source_spec_name": m.source_spec_name, "spec": m.spec} for m in doc.spec_mapping
+				],
 			},
 		}
 	except Exception as e:
@@ -329,6 +332,17 @@ def saveCustomerMapping():
 				{
 					"source_item_code": m.get("source_item_code"),
 					"item": m.get("item"),
+				},
+			)
+		doc.set("spec_mapping", [])
+		for m in data.get("spec_mapping") or []:
+			if not m.get("source_spec_name") or not m.get("spec"):
+				continue
+			doc.append(
+				"spec_mapping",
+				{
+					"source_spec_name": m.get("source_spec_name"),
+					"spec": m.get("spec"),
 				},
 			)
 		if doc.is_new():
@@ -390,13 +404,14 @@ def getCustomerImportSetup():
 		if not frappe.db.exists("Order Import Platform", platform):
 			frappe.response["message"] = {"success": True, "exists": False}
 			return
-		platform_doc, cust_doc, mapping, item_code_map, defaults = _resolve_mapping(customer, platform)
+		platform_doc, cust_doc, mapping, item_code_map, spec_map, defaults = _resolve_mapping(customer, platform)
 		frappe.response["message"] = {
 			"success": True,
 			"exists": True,
 			"multi_order_column": platform_doc.multi_order_column,
 			"field_mappings": [{"source_column": col, **target} for col, target in mapping.items()],
 			"item_code_mapping": [{"source_item_code": k, "item": v} for k, v in item_code_map.items()],
+			"spec_mapping": [{"source_spec_name": k, "spec": v} for k, v in spec_map.items()],
 			"defaults": defaults,
 		}
 	except Exception as e:
@@ -476,6 +491,20 @@ def saveCustomerImportSetup():
 			cust_doc.append(
 				"item_code_mapping", {"source_item_code": m.get("source_item_code"), "item": m.get("item")}
 			)
+		# Specification renames (see resolveImportSpecRow / _remember_spec_mapping)
+		# are additive, remembered one at a time from the queue as they're
+		# resolved - never wiped on a setup re-save the way item_code_mapping
+		# is, which is edited as a whole table here. Existing rows for the
+		# same source name are replaced (last pick wins); anything already
+		# learned that this save doesn't mention is kept.
+		existing_specs = {m.source_spec_name: m.spec for m in cust_doc.spec_mapping}
+		for m in data.get("spec_mapping") or []:
+			if not m.get("source_spec_name") or not m.get("spec"):
+				continue
+			existing_specs[m.get("source_spec_name")] = m.get("spec")
+		cust_doc.set("spec_mapping", [])
+		for source_spec_name, spec in existing_specs.items():
+			cust_doc.append("spec_mapping", {"source_spec_name": source_spec_name, "spec": spec})
 		if cust_doc.is_new():
 			cust_doc.insert()
 		else:
@@ -541,6 +570,10 @@ def getSharedPlatformSetup():
 					"item_code_mapping": [
 						{"source_item_code": m.source_item_code, "item": m.item}
 						for m in cust_doc.item_code_mapping
+					],
+					"spec_mapping": [
+						{"source_spec_name": m.source_spec_name, "spec": m.spec}
+						for m in cust_doc.spec_mapping
 					],
 					"defaults": {f: cust_doc.get(f) for f in _CUSTOMER_DEFAULT_FIELDS if cust_doc.get(f)},
 				}
@@ -638,6 +671,16 @@ def saveSharedPlatformSetup():
 					"item_code_mapping",
 					{"source_item_code": m.get("source_item_code"), "item": m.get("item")},
 				)
+			# Additive, same reasoning as saveCustomerImportSetup - a Specification
+			# rename learned from the queue must survive a later re-save of this setup.
+			existing_specs = {m.source_spec_name: m.spec for m in cust_doc.spec_mapping}
+			for m in c.get("spec_mapping") or []:
+				if not m.get("source_spec_name") or not m.get("spec"):
+					continue
+				existing_specs[m.get("source_spec_name")] = m.get("spec")
+			cust_doc.set("spec_mapping", [])
+			for source_spec_name, spec in existing_specs.items():
+				cust_doc.append("spec_mapping", {"source_spec_name": source_spec_name, "spec": spec})
 			if cust_doc.is_new():
 				cust_doc.insert()
 			else:
@@ -679,10 +722,12 @@ def _platform_field_mapping(platform_doc):
 
 
 def _customer_overlay(cust_doc, base_mapping):
-	"""Field mapping overrides + item code map + defaults for one Customer Order
-	Mapping row, layered onto the platform's own shared base mapping."""
+	"""Field mapping overrides + item code map + Specification rename map +
+	defaults for one Customer Order Mapping row, layered onto the platform's
+	own shared base mapping."""
 	mapping = dict(base_mapping)
 	item_code_map = {}
+	spec_map = {}
 	defaults = {}
 	if cust_doc:
 		for m in cust_doc.field_mapping_overrides:
@@ -693,11 +738,14 @@ def _customer_overlay(cust_doc, base_mapping):
 			}
 		for im in cust_doc.item_code_mapping:
 			item_code_map[im.source_item_code] = im.item
+		for sm in cust_doc.spec_mapping:
+			if sm.source_spec_name:
+				spec_map[sm.source_spec_name] = sm.spec
 		for f in _CUSTOMER_DEFAULT_FIELDS:
 			v = cust_doc.get(f)
 			if v:
 				defaults[f] = v
-	return mapping, item_code_map, defaults
+	return mapping, item_code_map, spec_map, defaults
 
 
 def _resolve_mapping(customer, platform):
@@ -707,8 +755,8 @@ def _resolve_mapping(customer, platform):
 	base_mapping = _platform_field_mapping(platform_doc)
 	cust_name = frappe.db.get_value("Customer Order Mapping", {"customer": customer, "platform": platform})
 	cust_doc = frappe.get_doc("Customer Order Mapping", cust_name) if cust_name else None
-	mapping, item_code_map, defaults = _customer_overlay(cust_doc, base_mapping)
-	return platform_doc, cust_doc, mapping, item_code_map, defaults
+	mapping, item_code_map, spec_map, defaults = _customer_overlay(cust_doc, base_mapping)
+	return platform_doc, cust_doc, mapping, item_code_map, spec_map, defaults
 
 
 def _shared_customer_overlays(platform_doc):
@@ -722,11 +770,12 @@ def _shared_customer_overlays(platform_doc):
 		cust_doc = frappe.get_doc("Customer Order Mapping", name)
 		if not cust_doc.differentiator_value:
 			continue
-		mapping, item_code_map, defaults = _customer_overlay(cust_doc, base_mapping)
+		mapping, item_code_map, spec_map, defaults = _customer_overlay(cust_doc, base_mapping)
 		by_value[cust_doc.differentiator_value] = {
 			"customer": cust_doc.customer,
 			"mapping": mapping,
 			"item_code_map": item_code_map,
+			"spec_map": spec_map,
 			"defaults": defaults,
 		}
 	return by_value
@@ -878,13 +927,22 @@ def _apply_spec_match(item_row, customer):
 # an imported line and a manually spec-filled line are IDENTICAL once saved -
 # same custom_line/custom_mix_name/detail-payload fields, same validate-time
 # exemptions, no second code path for sales_order_engine.py to disagree with.
-def _resolve_spec_row(item_row, group_customer, counters):
+def _resolve_spec_row(item_row, group_customer, counters, spec_map=None):
 	"""item_row's custom_line names a Specification. Returns (rows, error):
 	rows is build_spec_rows's own output - one or more fully shaped Sales
 	Order Item dicts (a multi-bunch spec, e.g. a Mixed Box, expands one file
 	row into one row per bunch) - or rows=None with a plain-English reason
 	the spec couldn't be used, exactly the same checks build_spec_rows itself
 	runs (an incomplete spec, a bunch_id mismatch), not re-invented here.
+
+	spec_map is this customer's remembered "file calls it X, we call it Y"
+	renames (Customer Order Mapping.spec_mapping - see
+	_remember_spec_mapping), checked BEFORE the not-found check so a name
+	already resolved once via the import queue's dropdown never asks again.
+	item_row["custom_line"] is rewritten to the real name on a hit, so every
+	downstream use (the resulting row, the error message, the caller's own
+	_unresolved_spec_name tagging) sees the real Specification, not the
+	file's own spelling of it.
 
 	item_row.get("item_code"), if the file also mapped a variety column, is
 	honoured as the operator's own pick wherever that variety is one of the
@@ -893,6 +951,9 @@ def _resolve_spec_row(item_row, group_customer, counters):
 	variety, the exact same default build_spec_rows itself falls back to
 	when a human's selection omits a pick."""
 	spec_name = item_row.get("custom_line")
+	if spec_map and spec_name in spec_map:
+		spec_name = spec_map[spec_name]
+		item_row["custom_line"] = spec_name
 	boxes = int(item_row.get("custom_number_of_boxes") or 0)
 	if boxes <= 0:
 		return None, "needs Number of Boxes set on this row"
@@ -1013,9 +1074,11 @@ def buildPreview():
 
 		if shared:
 			overlays_by_value = _shared_customer_overlays(platform_doc)
-			mapping = item_code_map = defaults = None  # resolved per group below instead
+			mapping = item_code_map = spec_map = defaults = None  # resolved per group below instead
 		else:
-			_platform_doc, _cust_doc, mapping, item_code_map, defaults = _resolve_mapping(customer, platform)
+			_platform_doc, _cust_doc, mapping, item_code_map, spec_map, defaults = _resolve_mapping(
+				customer, platform
+			)
 
 		col_index = {name: i for i, name in enumerate(header)}
 		split_col = platform_doc.multi_order_column
@@ -1082,11 +1145,13 @@ def buildPreview():
 				group_customer = overlay["customer"]
 				group_mapping = overlay["mapping"]
 				group_item_code_map = overlay["item_code_map"]
+				group_spec_map = overlay["spec_map"]
 				group_defaults = overlay["defaults"]
 			else:
 				group_customer = customer
 				group_mapping = mapping
 				group_item_code_map = item_code_map
+				group_spec_map = spec_map
 				group_defaults = defaults
 
 			header_vals = {}
@@ -1119,7 +1184,9 @@ def buildPreview():
 				# variety from a spec name at all. See _resolve_spec_row.
 				spec_name = item_row.get("custom_line")
 				if spec_name:
-					spec_rows, spec_err = _resolve_spec_row(item_row, group_customer, spec_row_counters)
+					spec_rows, spec_err = _resolve_spec_row(
+						item_row, group_customer, spec_row_counters, spec_map=group_spec_map
+					)
 					if spec_rows:
 						for sr in spec_rows:
 							sr["_source_row"] = file_row_num
@@ -1127,6 +1194,19 @@ def buildPreview():
 						item_rows.extend(spec_rows)
 					else:
 						item_row["_unresolved_item"] = True
+						# "not found" means the name itself didn't match anything -
+						# the common case being the customer's own file names a real
+						# spec differently than it's recorded here (e.g. "XPOL
+						# TOSCA_02720_10" on the file vs "TOSCA_02720_10" on this
+						# bench). That's a renaming problem the user can resolve by
+						# picking which existing Specification it really is - flagged
+						# separately so the wizard can offer that dropdown instead of
+						# just a dead-end error message. The other spec_err reasons
+						# (incomplete, bunch mismatch) name a spec that WAS found
+						# correctly but has its own data problem, which a rename
+						# picker can't fix, so they stay plain-text only.
+						if spec_err == "not found":
+							item_row["_unresolved_spec_name"] = spec_name
 						unresolved_items.append(
 							f'Row {file_row_num}: Specification "{spec_name}" {spec_err}{_row_fingerprint(item_row)}'
 						)
@@ -1208,12 +1288,31 @@ def buildPreview():
 				else:
 					header_vals["transaction_date"] = str(today)
 
+			# Same check ERPNext's own Sales Order.validate_po runs on save
+			# (po_no + customer, any non-cancelled order) - run here too so a
+			# re-imported file shows "already exists" the moment the queue
+			# first renders, not only after the user clicks Import and gets
+			# the save rejected. Respects the same Selling Settings toggle:
+			# when multiple orders against one PO are explicitly allowed,
+			# this isn't a duplicate at all, so it's never flagged as one.
+			existing_order = None
+			po_no = header_vals.get("po_no")
+			if po_no and not frappe.db.get_single_value(
+				"Selling Settings", "allow_against_multiple_purchase_orders"
+			):
+				existing_order = frappe.db.get_value(
+					"Sales Order",
+					filters={"po_no": po_no, "customer": group_customer, "docstatus": ["<", 2]},
+					fieldname="name",
+				)
+
 			previews.append(
 				{
 					"header": header_vals,
 					"rows": item_rows,
 					"unresolved_items": sorted(set(unresolved_items)),
 					"default_warehouse": group_defaults.get("default_warehouse"),
+					"existing_order": existing_order,
 				}
 			)
 
@@ -1389,6 +1488,128 @@ def searchMasterValue():
 		frappe.clear_messages()
 		frappe.log_error(title="searchMasterValue error", message=str(e))
 		frappe.response["message"] = {"success": False, "error": str(e)}
+
+
+# ------------------- fixing a Specification name the file got "wrong" -------------------
+# A row identified by Specification (custom_line) can fail to match purely on
+# naming - the customer's own file calls it one thing, this bench recorded
+# the same real spec under a different name. That's not a missing-master-data
+# problem (QUICK_ADD_DOCTYPES below): a Specification is too rich a record
+# (box items, consumables, approved varieties) to ever quick-add blank, so
+# this is deliberately a SEPARATE, search-only pair of endpoints - find the
+# real one by name, then re-run it through the exact same _resolve_spec_row
+# buildPreview itself uses, so a row fixed this way is shaped identically to
+# one that matched on the first try.
+
+
+@frappe.whitelist()
+def searchSpecification():
+	"""doctype-free sibling of searchMasterValue, scoped to Specifications only
+	- never exposed through QUICK_ADD_DOCTYPES, so nothing can quick-add a
+	blank one. Every Specification belongs to exactly one customer, so when
+	customer is known (always, for an import row - it's the order's own
+	customer) the search is scoped to just that customer's specs, not
+	broadened to every spec in the system."""
+	try:
+		data = _json_payload()
+		query = (data.get("query") or "").strip()
+		customer = data.get("customer")
+		filters = {"name": ["like", f"%{query}%"]} if query else {}
+		if customer:
+			filters["customer"] = customer
+		names = frappe.get_all(
+			"Specifications", filters=filters, pluck="name", order_by="name asc", limit_page_length=20
+		)
+		frappe.response["message"] = {"success": True, "options": names}
+	except Exception as e:
+		frappe.clear_messages()
+		frappe.log_error(title="searchSpecification error", message=str(e))
+		frappe.response["message"] = {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def resolveImportSpecRow():
+	"""item_row (the unresolved preview row, custom_line still carrying the
+	file's own, unmatched spec name), spec_name (the real Specification the
+	user picked from searchSpecification's dropdown), customer, next_mix_group
+	/next_bunch_group (this order's own next-free group numbers, so a fix
+	applied after other spec rows already resolved in the same order can't
+	collide with groups they already used - the wizard computes these from
+	the rows it's already holding, the same way buildPreview's own
+	spec_row_counters would have if this row had matched the first time).
+
+	Returns the same per-row shape buildPreview's spec branch produces: one or
+	more fully shaped Sales Order Item dicts (_is_spec_row=True), or a fresh
+	error if the picked Specification has its own problem (incomplete, bunch
+	mismatch) - a different, real failure the rename picker can't paper over.
+
+	On success, also remembers the fix: source_spec_name (the file's own,
+	original name - distinct from item_row's custom_line, which this function
+	overwrites) + platform, so the NEXT file from this customer with the same
+	mis-named Specification resolves automatically via _resolve_spec_row's own
+	spec_map lookup, no dropdown needed a second time."""
+	try:
+		data = _json_payload()
+		item_row = dict(data.get("item_row") or {})
+		spec_name = (data.get("spec_name") or "").strip()
+		customer = data.get("customer")
+		platform = data.get("platform")
+		source_spec_name = (data.get("source_spec_name") or "").strip()
+		if not spec_name:
+			frappe.response["message"] = {"success": False, "error": "Pick a Specification."}
+			return
+		item_row["custom_line"] = spec_name
+		item_row.pop("_unresolved_item", None)
+		item_row.pop("_unresolved_spec_name", None)
+		source_row = item_row.get("_source_row")
+		counters = {
+			"mix_group": int(data.get("next_mix_group") or 1),
+			"bunch_group": int(data.get("next_bunch_group") or 1),
+		}
+		rows, err = _resolve_spec_row(item_row, customer, counters)
+		if not rows:
+			frappe.response["message"] = {
+				"success": False,
+				"error": f'Specification "{spec_name}" {err}',
+			}
+			return
+		for r in rows:
+			r["_source_row"] = source_row
+			r["_is_spec_row"] = True
+		if source_spec_name and source_spec_name != spec_name:
+			_remember_spec_mapping(customer, platform, source_spec_name, spec_name)
+		frappe.response["message"] = {"success": True, "rows": rows}
+	except Exception as e:
+		frappe.clear_messages()
+		frappe.db.rollback()
+		frappe.log_error(title="resolveImportSpecRow error", message=str(e))
+		frappe.response["message"] = {"success": False, "error": str(e)}
+
+
+def _remember_spec_mapping(customer, platform, source_spec_name, spec_name):
+	"""Persists a resolved "file calls it X, we call it Y" Specification
+	rename onto this customer's own Customer Order Mapping row (under this
+	platform), the same way an item-code fix already is (item_code_mapping) -
+	so it survives for the next import from this customer. Silently skipped
+	(never raised) if that row somehow doesn't exist yet - the rename is a
+	nice-to-have for next time, not something that should fail a save that
+	already succeeded."""
+	if not customer or not platform:
+		return
+	cust_name = frappe.db.get_value("Customer Order Mapping", {"customer": customer, "platform": platform})
+	if not cust_name:
+		return
+	cust_doc = frappe.get_doc("Customer Order Mapping", cust_name)
+	for m in cust_doc.spec_mapping:
+		if m.source_spec_name == source_spec_name:
+			if m.spec != spec_name:
+				m.spec = spec_name
+				cust_doc.save(ignore_permissions=True)
+				frappe.db.commit()  # nosemgrep: frappe-manual-commit
+			return
+	cust_doc.append("spec_mapping", {"source_spec_name": source_spec_name, "spec": spec_name})
+	cust_doc.save(ignore_permissions=True)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 
 # ------------------- pushing an import's values back into a Specification -------------------

@@ -1,0 +1,658 @@
+{% extends "templates/web.html" %}
+{% block title %}Specifications · Packhouse{% endblock %}
+{% block page_content %}
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
+
+<style>
+  /* Specifications — page-only layout (tokens + spacing scale only). */
+  .sp-group__head{cursor:pointer;user-select:none}
+  .sp-group__head svg.ph-ic{color:var(--ink-mute);transition:transform .2s}
+  .sp-group.is-collapsed .sp-group__head{margin-bottom:0;padding-bottom:var(--sp-6)}
+  .sp-group.is-collapsed .sp-group__body{display:none}
+  .sp-group:not(.is-collapsed) .sp-group__head svg.ph-ic{transform:rotate(90deg)}
+  .sp-bunches{display:flex;flex-direction:column;gap:var(--sp-4)}
+  .sp-bunch__top{display:grid;grid-template-columns:minmax(140px,200px) auto minmax(120px,180px) minmax(110px,150px) minmax(0,1fr);gap:var(--sp-3) var(--sp-4);align-items:start}
+  .sp-bunch__sum{text-align:right}
+  .sp-colours{display:flex;flex-direction:column;border-top:1px solid var(--hairline)}
+  .sp-colour{display:grid;grid-template-columns:120px minmax(0,1fr) 110px 90px 32px;gap:var(--sp-4);align-items:start;padding:var(--sp-3) 0;border-bottom:1px solid var(--hairline)}
+  .sp-colour:last-child{border-bottom:0}
+  .sp-colours__labels{padding:var(--sp-2) 0 0;border-bottom:0}
+  .sp-colour .is-num{text-align:right;font-variant-numeric:tabular-nums}
+  .sp-colour__total{padding-top:var(--sp-3)}
+  .sp-chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:var(--sp-2)}
+  .sp-chips:empty{display:none}
+  .sp-chip button{border:0;background:transparent;color:inherit;cursor:pointer;padding:0;display:inline-grid;place-items:center;opacity:.65}
+  .sp-chip button:hover{opacity:1}
+  .sp-chip button svg.ph-ic{width:12px;height:12px}
+  .sp-cons{display:grid;grid-template-columns:150px minmax(0,1.4fr) 120px minmax(0,1.6fr) 90px 100px 32px;gap:var(--sp-3);align-items:start;padding:var(--sp-3) 0;border-bottom:1px solid var(--hairline)}
+  .sp-cons--labels{padding-top:0}
+  .sp-cons .ph-control{height:38px}
+  .sp-bunch .ph-control{height:38px}
+  .sp-foot{display:flex;justify-content:space-between;align-items:center;gap:var(--sp-3);flex-wrap:wrap}
+  @media (max-width:1000px){
+    .sp-bunch__top{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .sp-bunch__sum{text-align:left}
+    .sp-colour{grid-template-columns:minmax(0,1fr) 90px 32px}
+    .sp-colour>.sp-colour__name,.sp-colour>.sp-colour__vars{grid-column:1/-1}
+    .sp-colours__labels{display:none}
+    .sp-cons{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .sp-cons--labels{display:none}
+  }
+</style>
+
+<button class="ph-backbtn" id="back" type="button" hidden></button>
+
+<header class="ph-head">
+  <div>
+    <div class="ph-head__eyebrow">Packhouse · Reference</div>
+    <h1 class="ph-head__title" id="title">Specifications</h1>
+    <p class="ph-head__sub" id="sub">Customer box-build specs — bunches, approved varieties and consumables, in one place.</p>
+  </div>
+  <div class="ph-head__tools" id="tools-list">
+    <button class="ph-btn ph-btn--primary" id="new" type="button"></button>
+  </div>
+  <div class="ph-head__tools" id="tools-editor" hidden>
+    <button class="ph-btn ph-btn--ghost" id="desk" type="button" hidden></button>
+    <button class="ph-btn ph-btn--primary" id="save-top" type="button">Save</button>
+  </div>
+</header>
+
+<div id="list-view">
+  <div class="ph-filters">
+    <div class="ph-pills" id="f-status">
+      <button data-value="">Any status</button><button data-value="Active">Active</button><button data-value="Inactive">Inactive</button>
+    </div>
+    <div class="ph-pills" id="f-type">
+      <button data-value="">Any type</button><button data-value="Permanent">Permanent</button><button data-value="Temporary">Temporary</button>
+    </div>
+    <select class="ph-select" id="f-customer" aria-label="Customer"><option value="">All customers</option></select>
+    <select class="ph-select" id="f-box" aria-label="Box type"><option value="">All box types</option></select>
+    <select class="ph-select" id="f-assort" aria-label="Box assortment"><option value="">Mono &amp; mixed</option><option value="Mono Box">Mono Box</option><option value="Mixed Box">Mixed Box</option></select>
+    <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Search spec name or ID"></label>
+    <div class="ph-filters__spacer"></div>
+    <div class="ph-pills" id="f-preset" title="Only specs used on submitted orders delivering in this range">
+      <button data-value="">Any time</button><button data-value="7d">7 days</button><button data-value="30d">30 days</button>
+    </div>
+    <label class="ph-daterange" title="Used on submitted orders with a delivery date in this range">
+      <span>Used on orders</span><input type="date" id="f-from" aria-label="From"><span class="ph-daterange__sep">→</span><input type="date" id="f-to" aria-label="To">
+    </label>
+  </div>
+  <section class="ph-kpis" id="kpis"></section>
+  <div id="limit-note"></div>
+  <div id="groups"></div>
+</div>
+
+<div id="editor-view" hidden>
+  <div id="problems"></div>
+  <section class="ph-card">
+    <div class="ph-card__head"><h2 class="ph-card__title">Spec details</h2></div>
+    <div class="ph-form" id="details"></div>
+  </section>
+  <section class="ph-card">
+    <div class="ph-card__head">
+      <div>
+        <h2 class="ph-card__title">Bunches</h2>
+        <div class="ph-card__meta">Every bunch's structure and which varieties fill it</div>
+      </div>
+      <div class="ph-card__tools"><span class="ph-badge ph-badge--ink" id="grand">Spec total 0 stems</span></div>
+    </div>
+    <div class="ph-notice">
+      <div><b>Mono</b> bunch = one colour row; <b>Mixed</b> = two or more colour rows combined stem-by-stem into one bunch.
+        Within a colour row the chips are alternatives: the <b>solid</b> chip is the primary variety, <b>outlined</b> chips are approved substitutes — never both delivered.
+        Row total = Stems/Bunch × Bunches/Box.</div>
+    </div>
+    <div class="sp-bunches" id="bunches"></div>
+    <div class="ph-mt"><button class="ph-btn ph-btn--ghost" type="button" data-act="add-bunch" id="add-bunch"></button></div>
+  </section>
+  <section class="ph-card">
+    <div class="ph-card__head"><h2 class="ph-card__title">Consumables</h2></div>
+    <div id="consumables"></div>
+    <div class="ph-mt"><button class="ph-btn ph-btn--ghost" type="button" id="add-cons"></button></div>
+  </section>
+  <div class="sp-foot">
+    <div><button class="ph-btn ph-btn--danger" id="delete" type="button" hidden>Delete specification</button></div>
+    <div class="ph-flex">
+      <button class="ph-btn ph-btn--ghost" id="cancel" type="button">Cancel</button>
+      <button class="ph-btn ph-btn--primary" id="save" type="button">Save</button>
+    </div>
+  </div>
+</div>
+
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  const API = "upande_packhouse.api.specifications.";
+  const get = (m, args) => PH.call(API + m, args || {}, { type: "GET", silent: true });
+  // List + KPIs come from the v2 endpoint (full filtered set, KPIs on the server).
+  const LIST_API = "upande_packhouse.api.v2.specifications.get_specifications";
+
+  // Real Select field options on the doctype (schema, not master data).
+  const DEFOLIATION_OPTIONS = ["10", "12", "15", "20", "25", "WHOLE"];
+  const RUBBER_BAND_OPTIONS = ["Spiral", "Single Round", "Double Round"];
+  const APP_LEVEL_OPTIONS = ["Bunch", "Box"];
+  const CONSUMABLE_TYPES = ["Sleeve", "Label", "Tag", "Flower Food", "Rubber Band", "SFK Liner", "Newsprint", "Staple Pins", "Afritape"];
+  const LIST_SUB = "Customer box-build specs — bunches, approved varieties and consumables, in one place.";
+
+  // spec: "" = list view, "new" = blank editor, otherwise a Specifications name.
+  const st = PH.state({ q: "", customer: "", status: "", spec_type: "", box_type: "", box_assortment: "", from: "", to: "", spec: "" });
+  let OPTIONS = { stem_lengths: [], box_types: [], cut_stages: [] };
+  let SPECS = [], LIST = null;
+  let CURRENT = null; // shaped like getSpecification / saveSpecification payload
+  let dirty = false, saving = false;
+  const collapsed = new Set();
+  let listSeq = 0, specSeq = 0;
+
+  const nOr0 = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+  const $ = (id) => document.getElementById(id);
+  $("new").innerHTML = PH.icon("plus") + "<span>New specification</span>";
+  $("back").innerHTML = PH.icon("chevronLeft") + "<span>All specifications</span>";
+  $("desk").innerHTML = PH.icon("external") + "<span>Open in Desk</span>";
+  $("add-bunch").innerHTML = PH.icon("plus") + "<span>Add bunch</span>";
+  $("add-cons").innerHTML = PH.icon("plus") + "<span>Add consumable</span>";
+
+  /* ── Filters (all go to get_specifications; every KPI follows every one) ── */
+  PH.pills("#f-status", st, "status");
+  PH.pills("#f-type", st, "spec_type");
+  PH.bindSelect("#f-customer", st, "customer");
+  PH.bindSelect("#f-box", st, "box_type");
+  PH.bindSelect("#f-assort", st, "box_assortment");
+  PH.bindSearch("#f-q", st, "q");
+  // Date range = "used on submitted orders delivering in this range" (Sales
+  // Order delivery_date). "Any time" (empty) shows every spec, used or not.
+  PH.dateRange({ pills: "#f-preset", from: "#f-from", to: "#f-to", state: st });
+  const paintAnyTime = () => { const b = document.querySelector('#f-preset button[data-value=""]'); if (b) b.classList.toggle("is-on", !st.get("from") && !st.get("to")); };
+  $("f-preset").addEventListener("click", (e) => { const b = e.target.closest('button[data-value=""]'); if (b) st.set({ from: "", to: "" }); });
+  st.on(paintAnyTime); paintAnyTime();
+  st.on((s, changed) => {
+    if (changed.includes("spec")) return route();
+    if (!s.spec) loadList();
+  });
+
+  /* ── Boot ── */
+  PH.ready(() => {
+    get("getSpecificationOptions").then((r) => {
+      OPTIONS = { stem_lengths: r.stem_lengths || [], box_types: r.box_types || [], cut_stages: r.cut_stages || [] };
+      PH.options("#f-box", OPTIONS.box_types, st.get("box_type"));
+    }).catch(() => {}).finally(() => { loadCustomers(); route(); });
+  });
+  function loadCustomers() {
+    return get("listSpecificationCustomers").then((r) => PH.options("#f-customer", r.customers || [], st.get("customer"))).catch(() => {});
+  }
+
+  function route() {
+    const spec = st.get("spec");
+    const inEditor = !!spec;
+    $("list-view").hidden = inEditor;
+    $("editor-view").hidden = !inEditor;
+    $("tools-list").hidden = inEditor;
+    $("tools-editor").hidden = !inEditor;
+    $("back").hidden = !inEditor;
+    document.getElementById("ph-main").scrollTop = 0;
+    if (!inEditor) {
+      CURRENT = null; dirty = false;
+      PH.text("#title", "Specifications");
+      PH.text("#sub", LIST_SUB);
+      return loadList();
+    }
+    if (spec === "new") return startEditor(blankSpec());
+    return loadSpec(spec);
+  }
+
+  /* ── List view ── */
+  PH.kpiSkeleton("#kpis", ["Specifications", "Active", "Temporary", "Customers", "Used on orders"]);
+  function loadList(background) {
+    const s = st.get();
+    const my = ++listSeq;
+    if (!background) { PH.loadingKpis("#kpis", true); PH.skeleton("#groups", "rows", 6); }
+    return PH.call(LIST_API, { query: s.q, customer: s.customer, status: s.status, spec_type: s.spec_type, box_type: s.box_type, box_assortment: s.box_assortment, from_date: s.from, to_date: s.to }, { type: "GET", silent: true })
+      .then((r) => {
+        if (my !== listSeq) return;
+        LIST = r;
+        SPECS = r.specifications || [];
+        renderList();
+        PH.markUpdated();
+      })
+      .catch((e) => {
+        if (my !== listSeq || background) return;
+        PH.loadingKpis("#kpis", false);
+        PH.error("#groups", e.message, () => loadList());
+      });
+  }
+
+  function renderList() {
+    const k = LIST.kpis || {}, s = st.get();
+    const range = LIST.dated ? PH.date.label(s.from, s.to) : "";
+    PH.kpis("#kpis", [
+      { label: "Specifications", value: k.total, unit: k.no_customer ? PH.fmt.num(k.no_customer) + " with no customer" : "matching these filters" },
+      { label: "Active", value: k.active, unit: PH.fmt.num(k.inactive) + " inactive" + (k.total - k.active - k.inactive ? " · " + PH.fmt.num(k.total - k.active - k.inactive) + " no status" : "") },
+      { label: "Temporary", value: k.temporary, unit: k.temporary_expired ? PH.fmt.num(k.temporary_expired) + " past expiry" : "with a validity window" },
+      { label: "Customers", value: k.customers, unit: "with a spec in this list" },
+      { label: "Used on orders", value: k.used, unit: PH.fmt.plural(k.order_lines, "line") + " · " + PH.fmt.plural(k.orders, "order") + (range ? " · delivery " + range : " · submitted, all dates") },
+    ]);
+    PH.set("#limit-note", LIST.truncated ? `<div class="ph-notice ph-notice--warn">Showing the ${PH.fmt.num(SPECS.length)} most recently updated of ${PH.fmt.num(LIST.total)} specifications (KPIs count all of them). Narrow the search or pick a customer to find older ones.</div>` : "");
+    if (!SPECS.length) {
+      const filtered = Object.keys(st.defaults).some((k) => k !== "spec" && st.get(k));
+      return PH.empty("#groups", filtered ? "No specifications match these filters" : "No specifications yet", filtered ? "Clear a filter or the search to see more." : "Create the first one with “New specification”.");
+    }
+    const groups = PH.groupBy(SPECS, (x) => x.customer || "No customer");
+    const names = Array.from(groups.keys()).sort((a, b) => a.localeCompare(b));
+    PH.keepScroll(() => PH.set("#groups", names.map((c) => {
+      const specs = groups.get(c);
+      return `<section class="ph-card ph-card--flush sp-group${collapsed.has(c) ? " is-collapsed" : ""}" data-group="${PH.esc(c)}">
+        <div class="ph-card__head sp-group__head" data-toggle>
+          <h2 class="ph-card__title">${PH.icon("chevronRight")}${PH.esc(c)} <span class="ph-badge">${PH.fmt.plural(specs.length, "spec")}</span></h2>
+        </div>
+        <div class="sp-group__body"><div class="ph-table-wrap"><table class="ph-table">
+          <thead><tr><th>Spec name</th><th>Assortment</th><th>Box type</th><th>Type</th><th>Status</th><th class="is-num">Order lines</th><th>Last delivery</th><th>Updated</th></tr></thead>
+          <tbody>${specs.map((x) => `<tr class="is-link" data-spec="${PH.esc(x.name)}">
+            <td class="is-strong">${PH.esc(x.spec_name || x.name)}</td>
+            <td>${PH.esc(x.box_assortment || "—")}</td>
+            <td>${PH.esc(x.box_type || "—")}</td>
+            <td>${x.spec_type ? `<span class="ph-badge${x.spec_type === "Temporary" ? " ph-badge--warn" : ""}">${PH.esc(x.spec_type)}</span>` : "—"}</td>
+            <td><span class="ph-badge ph-badge--${x.status === "Active" ? "good" : "outline"}">${PH.esc(x.status || "—")}</span></td>
+            <td class="is-num" title="${PH.esc(PH.fmt.plural(x.orders, "order"))}">${x.order_lines ? PH.fmt.num(x.order_lines) : '<span class="ph-muted">—</span>'}</td>
+            <td>${x.last_delivery ? PH.esc(PH.fmt.date(x.last_delivery)) : '<span class="ph-muted">—</span>'}</td>
+            <td class="ph-muted" title="${PH.esc(x.modified || "")}">${PH.esc(PH.fmt.datetime(x.modified))}</td>
+          </tr>`).join("")}</tbody></table></div></div>
+      </section>`;
+    }).join("")));
+  }
+
+  $("groups").addEventListener("click", (e) => {
+    const row = e.target.closest("tr[data-spec]");
+    if (row) return st.set({ spec: row.dataset.spec });
+    const head = e.target.closest("[data-toggle]");
+    if (head) {
+      const card = head.closest("[data-group]"), c = card.dataset.group;
+      if (collapsed.has(c)) collapsed.delete(c); else collapsed.add(c);
+      card.classList.toggle("is-collapsed", collapsed.has(c));
+    }
+  });
+  $("new").addEventListener("click", () => st.set({ spec: "new" }));
+
+  /* ── Editor: load ── */
+  function blankSpec() {
+    return {
+      name: null, spec_name: "", customer: "", ftnft: "FT", spec_type: "Permanent", status: "Active",
+      valid_from: "", expiry_date: "", category_code: "",
+      box_assortment: "Mono Box", box_type: "", cut_stage: "", defoliation_length: "", rubber_band_type: "",
+      rubber_band_distance_1: "", rubber_band_distance_2: "", min_colours_per_box: "", max_colours_per_box: "",
+      consumables_charge: 0, documentation_charge: 0, certificate_of_origin: 0,
+      bunches: [], consumables: [],
+    };
+  }
+  function loadSpec(name) {
+    const my = ++specSeq;
+    PH.text("#title", "Loading…"); PH.text("#sub", name);
+    PH.set("#problems", "");
+    PH.skeleton("#details", "rows", 4); PH.skeleton("#bunches", "rows", 4); PH.set("#consumables", "");
+    return get("getSpecification", { name }).then((r) => {
+      if (my !== specSeq || st.get("spec") !== name) return;
+      startEditor(r.specification);
+      PH.markUpdated();
+    }).catch((e) => {
+      if (my !== specSeq) return;
+      PH.text("#title", "Specification");
+      PH.error("#details", e.message, () => loadSpec(name));
+      PH.set("#bunches", ""); PH.set("#consumables", "");
+    });
+  }
+  function startEditor(spec) {
+    CURRENT = spec;
+    CURRENT.bunches = CURRENT.bunches || [];
+    CURRENT.consumables = CURRENT.consumables || [];
+    dirty = false;
+    PH.set("#problems", "");
+    paintHead();
+    renderDetails();
+    renderBunches();
+    renderConsumables();
+  }
+  function paintHead() {
+    const s = CURRENT;
+    PH.text("#title", s.name ? s.spec_name || s.name : "New specification");
+    PH.text("#sub", s.name ? s.name + (s.customer ? " · " + s.customer : "") : "Not saved yet");
+    $("desk").hidden = !s.name;
+    $("delete").hidden = !s.name;
+    const label = s.name ? "Save changes" : "Create specification";
+    PH.text("#save", label); PH.text("#save-top", label);
+  }
+
+  /* ── Editor: spec details ── */
+  const opt = (list, cur) => (cur && !(list || []).includes(cur) ? [cur] : []).concat(list || []).map((o) => PH.html`<option value="${o}" ${PH.raw(o === cur ? "selected" : "")}>${o}</option>`.__raw).join("");
+  const sel = (f, label, list, req) => `<div class="ph-field"><label>${label}${req ? " *" : ""}</label><select class="ph-control" data-f="${f}"><option value=""></option>${opt(list, CURRENT[f])}</select></div>`;
+  const inp = (f, label, req, type) => `<div class="ph-field"><label>${label}${req ? " *" : ""}</label><input class="ph-control" data-f="${f}" type="${type || "text"}" value="${PH.esc(CURRENT[f] == null ? "" : CURRENT[f])}"></div>`;
+  const chk = (f, label) => `<label class="ph-check"><input type="checkbox" data-f="${f}" ${CURRENT[f] ? "checked" : ""}>${label}</label>`;
+
+  function renderDetails() {
+    const s = CURRENT;
+    PH.set("#details", [
+      inp("spec_name", "Spec name", true),
+      inp("category_code", "Category code"),
+      `<div class="ph-field"><label>Customer</label><input class="ph-control" id="d-customer" data-f="customer" value="${PH.esc(s.customer || "")}" placeholder="Search customer…"></div>`,
+      `<div class="ph-field"><label>FT / NFT *</label><select class="ph-control" data-f="ftnft">${opt(["FT", "NFT"], s.ftnft)}</select></div>`,
+      `<div class="ph-field"><label>Spec type</label><select class="ph-control" data-f="spec_type">${opt(["Permanent", "Temporary"], s.spec_type)}</select></div>`,
+      `<div class="ph-field"><label>Status</label><select class="ph-control" data-f="status">${opt(["Active", "Inactive"], s.status)}</select></div>`,
+      // Temporary specs need a validity window.
+      s.spec_type === "Temporary" ? inp("valid_from", "Valid from", true, "date") + inp("expiry_date", "Expiry date", true, "date") : "",
+      `<div class="ph-field"><label>Box assortment *</label><select class="ph-control" data-f="box_assortment">${opt(["Mono Box", "Mixed Box"], s.box_assortment)}</select></div>`,
+      sel("box_type", "Box type", OPTIONS.box_types, true),
+      sel("cut_stage", "Cut stage", OPTIONS.cut_stages, true),
+      sel("defoliation_length", "Defoliation length", DEFOLIATION_OPTIONS, true),
+      // A Mixed Box needs its colour range.
+      s.box_assortment === "Mixed Box" ? inp("min_colours_per_box", "Min colours / box", true) + inp("max_colours_per_box", "Max colours / box", true) : "",
+      sel("rubber_band_type", "Rubber band type", RUBBER_BAND_OPTIONS),
+      inp("rubber_band_distance_1", "Distance from base"),
+      inp("rubber_band_distance_2", "2nd band distance"),
+      `<div class="ph-field ph-field--full"><div class="ph-flex ph-flex--wrap">${chk("consumables_charge", "Consumables charge")}${chk("documentation_charge", "Documentation charge")}${chk("certificate_of_origin", "Certificate of origin")}</div></div>`,
+    ].join(""));
+    PH.autocomplete($("d-customer"), {
+      source: (q) => get("searchCustomers", { query: q }).then((r) => (r.customers || []).map((c) => ({ value: c.name, label: c.customer_name || c.name, description: c.customer_name && c.customer_name !== c.name ? c.name : "" }))),
+      onSelect: (it) => { CURRENT.customer = it.value; dirty = true; },
+    });
+  }
+  const onDetail = (e) => {
+    const el = e.target.closest("[data-f]");
+    if (!el || !CURRENT) return;
+    const f = el.dataset.f;
+    CURRENT[f] = el.type === "checkbox" ? (el.checked ? 1 : 0) : el.value;
+    dirty = true;
+    // spec_type / box_assortment gate other fields (Temporary -> Valid From /
+    // Expiry Date, Mixed Box -> Min / Max Colours), so they re-render the form.
+    if (e.type === "change" && (f === "spec_type" || f === "box_assortment")) renderDetails();
+    // Bunches show the header's cut stage / box type.
+    if (e.type === "change" && (f === "cut_stage" || f === "box_type")) renderBunches();
+  };
+  $("details").addEventListener("input", onDetail);
+  $("details").addEventListener("change", onDetail);
+
+  /* ── Editor: bunches ──
+     A row is one colour: the stems it contributes are additive with every other
+     row (that is what makes a bunch "Mixed"). The varieties inside a row are the
+     opposite — alternatives for the SAME colour, never both delivered. The first
+     variety is the primary pick; any others are approved substitutes. Array order
+     IS primary/substitute order, here and in the API payload. */
+  const bunchSubtotal = (b) => (b.rows || []).reduce((sum, r) => sum + nOr0(b.bunches_per_box) * nOr0(r.stems_per_bunch), 0);
+  const specTotal = () => (CURRENT.bunches || []).reduce((sum, b) => sum + bunchSubtotal(b), 0);
+  const newRow = () => ({ varieties: [], colour: "", stems_per_bunch: "", packs: [] });
+
+  function renderBunches() {
+    const s = CURRENT;
+    if (!s.bunches.length) {
+      PH.empty("#bunches", "No bunches yet", "Add a bunch, then pick the varieties that fill each colour row.");
+    } else {
+      PH.set("#bunches", s.bunches.map((b, bi) => {
+        if (!b.rows || !b.rows.length) b.rows = [newRow()];
+        const mixed = b.rows.length > 1;
+        return `<div class="ph-tile sp-bunch" data-b="${bi}">
+          <div class="sp-bunch__top">
+            <div class="ph-field"><label>Bunch ID</label><input class="ph-control" data-bf="id" value="${PH.esc(b.id || "")}" placeholder="e.g. 1" title="The real bunch_id field. Blank stays blank — bunches sharing an ID merge into one group when the spec is reopened."></div>
+            <div class="ph-field"><label>Type</label><div><span class="ph-badge ${mixed ? "ph-badge--signal" : "ph-badge--warn"}" title="Derived from how many colour rows this bunch has">${mixed ? "Mixed · " + b.rows.length + " colours" : "Mono"}</span></div></div>
+            <div class="ph-field"><label>Length *</label><select class="ph-control" data-bf="length"><option value=""></option>${opt(OPTIONS.stem_lengths, b.length)}</select></div>
+            <div class="ph-field"><label>Bunches / box *</label><input class="ph-control" data-bf="bunches_per_box" inputmode="numeric" value="${PH.esc(b.bunches_per_box || "")}"></div>
+            <div class="sp-bunch__sum"><div class="ph-label">Bunch subtotal</div><div class="ph-strong ph-num" data-sub="${bi}">${PH.fmt.num(bunchSubtotal(b))}</div></div>
+          </div>
+          <div class="ph-tile__sub">Cut stage <b>${PH.esc(s.cut_stage || "—")}</b> · Box type <b>${PH.esc(s.box_type || "—")}</b> · from spec details</div>
+          <div class="sp-colours">
+            <div class="sp-colour sp-colours__labels"><span class="ph-label">Colour</span><span class="ph-label">Approved varieties</span><span class="ph-label is-num">Stems / bunch</span><span class="ph-label is-num">Total</span><span></span></div>
+            ${b.rows.map((r, ri) => colourRow(b, bi, r, ri)).join("")}
+          </div>
+          <div class="ph-flex">
+            <button class="ph-btn ph-btn--sm ph-btn--ghost" type="button" data-act="add-row">${PH.icon("plus")}<span>Add colour</span></button>
+            <button class="ph-btn ph-btn--sm ph-btn--ghost" type="button" data-act="rm-bunch">${PH.icon("trash")}<span>Remove bunch</span></button>
+          </div>
+        </div>`;
+      }).join(""));
+      PH.$$(".sp-vsearch", $("bunches")).forEach(wireVarietySearch);
+    }
+    paintTotals();
+  }
+
+  function colourRow(b, bi, r, ri) {
+    const vs = r.varieties || [];
+    const packOf = (v) => (r.packs || []).find((p) => p.variety === v);
+    const chips = vs.map((v, vi) => {
+      const p = packOf(v);
+      // A substitute saved with its own pack (e.g. 80/box vs the primary's 94)
+      // is flagged: saving here writes one pack per colour row.
+      const own = vi > 0 && p && p.stems_per_bunch != null && nOr0(p.stems_per_bunch) !== nOr0(r.stems_per_bunch)
+        ? `<small title="Saved with its own pack: ${PH.esc(p.stems_per_bunch)} stems/bunch. Saving here uses this row's Stems/Bunch.">· ${PH.esc(p.stems_per_bunch)}/bch</small>` : "";
+      return (vi ? '<span class="ph-muted">or</span>' : "") +
+        `<span class="ph-badge sp-chip ${vi ? "ph-badge--outline" : "ph-badge--ink"}" title="${vi ? "Approved substitute — used when the primary is unavailable" : "Primary variety for this colour"}">${PH.esc(v)}${own}
+          ${vi ? `<button type="button" data-act="primary" data-v="${vi}" title="Make primary" aria-label="Make primary">${PH.icon("arrowRight")}</button>` : ""}
+          <button type="button" data-act="rm-variety" data-v="${vi}" title="Remove" aria-label="Remove">${PH.icon("close")}</button></span>`;
+    }).join("");
+    return `<div class="sp-colour" data-r="${ri}">
+      <div class="sp-colour__name"><div class="ph-strong">Colour ${ri + 1}</div><div class="ph-muted">${PH.esc(r.colour || "")}</div></div>
+      <div class="sp-colour__vars"><div class="sp-chips">${chips}</div>
+        <input class="ph-control sp-vsearch" placeholder="${vs.length ? "Add a substitute…" : "Pick the primary variety…"}"></div>
+      <div><input class="ph-control is-num" data-rf="stems_per_bunch" inputmode="numeric" placeholder="Stems / bunch" value="${PH.esc(r.stems_per_bunch || "")}" aria-label="Stems per bunch"></div>
+      <div class="is-num ph-strong sp-colour__total" data-tot="${bi}-${ri}">${PH.fmt.num(nOr0(b.bunches_per_box) * nOr0(r.stems_per_bunch))}</div>
+      <div>${b.rows.length > 1 ? `<button class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" type="button" data-act="rm-row" title="Remove colour" aria-label="Remove colour">${PH.icon("close")}</button>` : ""}</div>
+    </div>`;
+  }
+
+  function wireVarietySearch(input) {
+    const bi = +input.closest("[data-b]").dataset.b, ri = +input.closest("[data-r]").dataset.r;
+    // Varieties are scoped server-side to the Cut Flowers item-group tree.
+    PH.autocomplete(input, {
+      source: (q) => get("searchVarieties", { query: q }).then((r) => (r.varieties || []).map((v) => ({ value: v.name, label: v.name, description: [v.custom_color, v.item_group].filter(Boolean).join(" · "), colour: v.custom_color }))),
+      onSelect: (it) => {
+        const row = CURRENT.bunches[bi].rows[ri];
+        row.varieties = row.varieties || [];
+        // First pick becomes primary; later picks are substitutes, appended.
+        if (!row.varieties.includes(it.value)) row.varieties.push(it.value);
+        if (!row.colour) row.colour = it.colour || "";
+        dirty = true;
+        renderBunches();
+      },
+    });
+  }
+
+  function paintTotals() {
+    (CURRENT.bunches || []).forEach((b, bi) => {
+      PH.text(`[data-sub="${bi}"]`, PH.fmt.num(bunchSubtotal(b)));
+      (b.rows || []).forEach((r, ri) => PH.text(`[data-tot="${bi}-${ri}"]`, PH.fmt.num(nOr0(b.bunches_per_box) * nOr0(r.stems_per_bunch))));
+    });
+    PH.text("#grand", "Spec total " + PH.fmt.num(specTotal()) + " stems");
+  }
+
+  const onBunchInput = (e) => {
+    const el = e.target, card = el.closest("[data-b]");
+    if (!card || !CURRENT) return;
+    const b = CURRENT.bunches[+card.dataset.b];
+    if (el.dataset.bf) b[el.dataset.bf] = el.value;
+    else if (el.dataset.rf) b.rows[+el.closest("[data-r]").dataset.r][el.dataset.rf] = el.value;
+    else return;
+    dirty = true;
+    paintTotals();
+  };
+  $("bunches").addEventListener("input", onBunchInput);
+  $("bunches").addEventListener("change", onBunchInput);
+  $("bunches").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-act]");
+    if (!btn) return;
+    const bi = +btn.closest("[data-b]").dataset.b, b = CURRENT.bunches[bi];
+    const rowEl = btn.closest("[data-r]"), ri = rowEl ? +rowEl.dataset.r : -1;
+    const act = btn.dataset.act;
+    if (act === "add-row") b.rows.push(newRow());
+    else if (act === "rm-bunch") CURRENT.bunches.splice(bi, 1);
+    else if (act === "rm-row") b.rows.splice(ri, 1);
+    else if (act === "rm-variety") b.rows[ri].varieties.splice(+btn.dataset.v, 1);
+    else if (act === "primary") {
+      // Promote a substitute: move it to the front of the row's varieties.
+      const vs = b.rows[ri].varieties, [v] = vs.splice(+btn.dataset.v, 1);
+      vs.unshift(v);
+    } else return;
+    dirty = true;
+    renderBunches();
+  });
+  $("add-bunch").addEventListener("click", () => {
+    CURRENT.bunches.push({ id: "", length: OPTIONS.stem_lengths[0] || "", bunches_per_box: "", rows: [newRow()] });
+    dirty = true;
+    renderBunches();
+  });
+
+  /* ── Editor: consumables ── */
+  function renderConsumables() {
+    const rows = CURRENT.consumables;
+    if (!rows.length) return PH.empty("#consumables", "No consumables", "Add sleeves, labels, flower food … that go with this spec.");
+    PH.set("#consumables", `<div class="sp-cons sp-cons--labels"><span class="ph-label">Type</span><span class="ph-label">Item</span><span class="ph-label">Applied per</span><span class="ph-label">Description</span><span class="ph-label">Qty</span><span class="ph-label">Price</span><span></span></div>` +
+      rows.map((c, ci) => `<div class="sp-cons" data-c="${ci}">
+        <select class="ph-control" data-cf="consumable_type" aria-label="Type"><option value=""></option>${opt(CONSUMABLE_TYPES, c.consumable_type)}</select>
+        <div><input class="ph-control sp-isearch" data-cf="item" value="${PH.esc(c.item || "")}" placeholder="Link an item…" aria-label="Item">${c.item_name && c.item_name !== c.item ? `<div class="ph-field__hint">${PH.esc(c.item_name)}</div>` : ""}</div>
+        <select class="ph-control" data-cf="application_level" aria-label="Applied per"><option value=""></option>${opt(APP_LEVEL_OPTIONS, c.application_level)}</select>
+        <input class="ph-control" data-cf="description" value="${PH.esc(c.description || "")}" placeholder="Description" aria-label="Description">
+        <input class="ph-control is-num" data-cf="qty" inputmode="decimal" value="${PH.esc(c.application_level === "Box" ? c.qty_per_box || "" : c.qty_per_bunch || "")}" placeholder="Qty" aria-label="Quantity per ${PH.esc((c.application_level || "bunch").toLowerCase())}">
+        <input class="ph-control is-num" data-cf="price_inclusive" inputmode="decimal" value="${PH.esc(c.price_inclusive || "")}" placeholder="Price" aria-label="Price">
+        <button class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" type="button" data-act="rm-cons" title="Remove" aria-label="Remove consumable">${PH.icon("close")}</button>
+      </div>`).join(""));
+    PH.$$(".sp-isearch", $("consumables")).forEach((input) => {
+      const ci = +input.closest("[data-c]").dataset.c;
+      PH.autocomplete(input, {
+        source: (q) => get("searchItems", { query: q }).then((r) => (r.items || []).map((it) => ({ value: it.name, label: it.name, description: [it.item_name !== it.name ? it.item_name : "", it.item_group].filter(Boolean).join(" · "), item_name: it.item_name }))),
+        onSelect: (it) => {
+          Object.assign(CURRENT.consumables[ci], { item: it.value, item_name: it.item_name || "" });
+          dirty = true;
+          renderConsumables();
+        },
+      });
+    });
+  }
+  const onConsInput = (e) => {
+    const el = e.target.closest("[data-cf]"), row = e.target.closest("[data-c]");
+    if (!el || !row || !CURRENT) return;
+    const c = CURRENT.consumables[+row.dataset.c], f = el.dataset.cf;
+    if (f === "qty") {
+      // One Qty box: it is per box or per bunch depending on Applied per.
+      if (c.application_level === "Box") c.qty_per_box = el.value; else c.qty_per_bunch = el.value;
+    } else if (f === "item") {
+      // Typing without picking a result clears the linked item — a Link field
+      // can't be left holding a value the user didn't select.
+      if (e.type !== "input") return;
+      c.item = el.value; c.item_name = "";
+    } else c[f] = el.value;
+    dirty = true;
+    if (e.type === "change" && f === "application_level") renderConsumables();
+  };
+  $("consumables").addEventListener("input", onConsInput);
+  $("consumables").addEventListener("change", onConsInput);
+  $("consumables").addEventListener("click", (e) => {
+    const b = e.target.closest('[data-act="rm-cons"]');
+    if (!b) return;
+    CURRENT.consumables.splice(+b.closest("[data-c]").dataset.c, 1);
+    dirty = true;
+    renderConsumables();
+  });
+  $("add-cons").addEventListener("click", () => {
+    CURRENT.consumables.push({ consumable_type: "Sleeve", item: "", item_name: "", application_level: "Bunch", description: "", qty_per_bunch: 1, qty_per_box: 0, price_inclusive: 0 });
+    dirty = true;
+    renderConsumables();
+  });
+
+  /* ── Save / delete ──
+     Mirrors the doctype's own mandatory / validate rules client-side, so a spec
+     that can't save (no bunch yet, a colour with no variety, a Mixed Box with no
+     colour range …) says exactly what's missing before a round trip. */
+  function validate(s) {
+    const p = [];
+    if (!s.spec_name || !String(s.spec_name).trim()) p.push("Spec Name is required.");
+    if (!s.ftnft) p.push("FT/NFT is required.");
+    if (!s.box_assortment) p.push("Box Assortment is required.");
+    if (!s.box_type) p.push("Box Type is required.");
+    if (!s.cut_stage) p.push("Cut Stage is required.");
+    if (!s.defoliation_length) p.push("Defoliation Length is required.");
+    if (s.spec_type === "Temporary") {
+      if (!s.valid_from) p.push("Valid From is required for a Temporary spec.");
+      if (!s.expiry_date) p.push("Expiry Date is required for a Temporary spec.");
+      if (s.valid_from && s.expiry_date && s.valid_from > s.expiry_date) p.push("Valid From cannot be after Expiry Date.");
+    }
+    if (s.box_assortment === "Mixed Box") {
+      if (!s.min_colours_per_box) p.push("Min Colours Per Box is required for a Mixed Box.");
+      if (!s.max_colours_per_box) p.push("Max Colours Per Box is required for a Mixed Box.");
+      if (s.min_colours_per_box && s.max_colours_per_box && Number(s.min_colours_per_box) > Number(s.max_colours_per_box)) p.push("Min Colours Per Box cannot be greater than Max Colours Per Box.");
+    }
+    const bunches = s.bunches || [];
+    if (!bunches.length) p.push("Add at least one bunch.");
+    bunches.forEach((b, bi) => {
+      const label = "Bunch " + (bi + 1) + (b.id ? ' ("' + b.id + '")' : "");
+      if (!b.length) p.push(label + ": Length is required.");
+      if (!nOr0(b.bunches_per_box)) p.push(label + ": Bunches/Box is required.");
+      const rows = b.rows || [];
+      if (!rows.length || rows.every((r) => !(r.varieties || []).length)) p.push(label + ": add at least one approved variety.");
+      rows.forEach((r, ri) => {
+        // The server rejects a colour row with no variety (it would write a pack
+        // with nothing to fill it, breaking Sales Order autofill).
+        if (!(r.varieties || []).length && rows.some((x) => (x.varieties || []).length)) p.push(label + ", colour " + (ri + 1) + ": pick a variety or remove the row.");
+        if ((r.varieties || []).length && !nOr0(r.stems_per_bunch)) p.push(label + ", colour " + (ri + 1) + ": Stems/Bunch is required.");
+      });
+    });
+    return p;
+  }
+  function showProblems(list, title) {
+    if (!list || !list.length) return PH.set("#problems", "");
+    PH.set("#problems", `<div class="ph-notice ph-notice--bad">${PH.icon("alert")}<div><b>${PH.esc(title)}</b><ul class="ph-mt">${list.map((x) => `<li>${PH.esc(x)}</li>`).join("")}</ul></div></div>`);
+    document.getElementById("ph-main").scrollTop = 0;
+  }
+  function save() {
+    if (saving || !CURRENT) return;
+    const problems = validate(CURRENT);
+    if (problems.length) {
+      showProblems(problems, "Fix these before saving");
+      return PH.toast(PH.fmt.plural(problems.length, "thing") + " to fix before saving", "bad");
+    }
+    saving = true;
+    const btns = [$("save"), $("save-top")];
+    btns.forEach((b) => { b.disabled = true; b.textContent = "Saving…"; });
+    PH.call(API + "saveSpecification", { data: JSON.stringify(CURRENT) }, { silent: true })
+      .then((r) => {
+        PH.toast("Specification saved", "good");
+        dirty = false;
+        loadCustomers();
+        if (st.get("spec") === r.name) loadSpec(r.name);
+        else st.set({ spec: r.name });
+      })
+      .catch((e) => {
+        showProblems([e.message], "Could not save this specification");
+        PH.toast(e.message, "bad");
+      })
+      .finally(() => { saving = false; btns.forEach((b) => (b.disabled = false)); if (CURRENT) paintHead(); });
+  }
+  $("save").addEventListener("click", save);
+  $("save-top").addEventListener("click", save);
+  $("delete").addEventListener("click", async () => {
+    if (!CURRENT || !CURRENT.name) return;
+    const ok = await PH.confirm("Delete “" + (CURRENT.spec_name || CURRENT.name) + "”?", "This cannot be undone.", { danger: true, ok: "Delete" });
+    if (!ok) return;
+    PH.call(API + "deleteSpecification", { name: CURRENT.name }).then(() => {
+      PH.toast("Specification deleted", "good");
+      dirty = false;
+      loadCustomers();
+      st.set({ spec: "" });
+    }).catch((e) => showProblems([e.message], "Could not delete this specification"));
+  });
+  $("desk").addEventListener("click", () => CURRENT && CURRENT.name && PH.openDoc("Specifications", CURRENT.name));
+
+  /* ── Leaving the editor ── */
+  async function leave() {
+    if (dirty && !(await PH.confirm("Discard unsaved changes?", "Your edits to this specification have not been saved.", { danger: true, ok: "Discard" }))) return;
+    dirty = false;
+    st.set({ spec: "" });
+  }
+  $("back").addEventListener("click", leave);
+  $("cancel").addEventListener("click", leave);
+  window.addEventListener("beforeunload", (e) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+
+  PH.onRefresh(async () => {
+    const spec = st.get("spec");
+    if (!spec) return loadList();
+    if (spec === "new") return;
+    if (dirty && !(await PH.confirm("Reload this specification?", "Unsaved changes will be lost.", { danger: true, ok: "Reload" }))) return;
+    return loadSpec(spec);
+  });
+})();
+</script>
+{% endraw %}
+{% endblock %}

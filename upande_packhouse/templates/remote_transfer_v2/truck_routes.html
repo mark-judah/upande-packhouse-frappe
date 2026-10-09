@@ -1,0 +1,496 @@
+{#- Remote Transfers v2 — Truck Routes tab (/remote-transfer-v2?tab=routes).
+    Saved truck routes (getRouteTemplates / saveRouteTemplate / setRouteTemplateActive /
+    deleteRouteTemplate), the route builder, the road network routes are built from
+    (Farm Distance: saveFarmDistance / deleteFarmDistance) and Add truck (saveTransferTruck).
+    Trucks, roads and farms come from the planner feed (_planner_common.html).
+
+    Filters (all in the URL): view (routes | roads), route ('' list, 'new', or a route
+    name — the builder, deep-linkable) and q (client-side search). Routes have no date:
+    they are used every day (?date= is only carried on to the other tabs).
+    Included twice by www/remote-transfer-v2.html: rt_part 'body' then 'script'. -#}
+{% if rt_part == 'body' %}
+{% include "upande_packhouse/templates/remote_transfer_v2/_planner_common.html" %}
+<style>
+  /* Route builder: the runs (trips) of a route, each a list of stops. */
+  .rt-run{border:1px solid var(--hairline-2);border-radius:var(--r-md);padding:var(--sp-4);margin-bottom:var(--sp-3)}
+  .rt-stop{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:var(--sp-3);padding:var(--sp-2) 0;border-bottom:1px solid var(--hairline)}
+  .rt-stop:last-child{border-bottom:0}
+  .rt-stop.is-fixed{color:var(--ink-mute)}
+  .rt-add{display:flex;flex-wrap:wrap;gap:var(--sp-2);margin-top:var(--sp-3)}
+  .rt-add .ph-control{flex:1 1 200px;width:auto}
+  .rt-routes-act{display:flex;gap:var(--sp-2);justify-content:flex-end;flex-wrap:nowrap}
+  tr.rt-tile-off td{opacity:.55}
+  .rt-foot{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-3);justify-content:flex-end}
+</style>
+
+<div class="ph-filters">
+  <div class="ph-pills" id="f-region" aria-label="Region"></div>
+  <div class="ph-pills" id="tr-view" aria-label="View">
+    <button data-value="routes">Truck routes</button><button data-value="roads">Road network</button>
+  </div>
+  <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="tr-q" type="search" placeholder="Search truck or farm"></label>
+  <div class="ph-filters__spacer"></div>
+  <span class="ph-card__meta">Routes are used every day · no date range</span>
+</div>
+
+<section class="ph-kpis" id="tr-kpis"></section>
+<div id="tr-body"></div>
+
+{% elif rt_part == 'script' %}
+{% include "upande_packhouse/templates/remote_transfer_v2/_planner_common.html" %}
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  const esc = PH.esc, D = () => RTP.data(), pack = RTP.pack;
+  const st = PH.state({ date: RT.defaultDate, region: "", view: "routes", route: "", q: "" });
+  RTP.setDate(() => st.get("date"));
+  PH.regionPills("#f-region", st, "region");
+  PH.pills("#tr-view", st, "view");
+  PH.bindSearch("#tr-q", st, "q");
+
+  let routes = null, routesErr = null, rseq = 0; // saved route templates
+  let RB = null; // the route builder being edited
+
+  /* ── Load: planner feed (trucks, roads, farms) + saved routes ── */
+  function loadRoutes() {
+    const my = ++rseq;
+    return PH.call(RTP.M + "getRouteTemplates", {}, { silent: true, type: "GET" }).then(
+      (m) => { if (my !== rseq) return; routes = (m && m.routes) || []; routesErr = null; },
+      (e) => { if (my !== rseq) return; routesErr = e.message; }
+    );
+  }
+  function load(skeleton) {
+    if (skeleton || !RTP.loaded) {
+      PH.kpiSkeleton("#tr-kpis", ["Routes", "Trucks", "Roads", "Farms reachable"]);
+      PH.skeleton("#tr-body", "rows", 6);
+    }
+    return Promise.all([RTP.load(), loadRoutes()])
+      .then(() => { PH.markUpdated(); render(); })
+      .catch((e) => {
+        if (RTP.loaded && !skeleton) return RTP.toast("Couldn’t refresh: " + e.message, "bad");
+        PH.loadingKpis("#tr-kpis", false);
+        PH.error("#tr-body", e.message, () => load(true));
+      });
+  }
+  RTP.on("changed", () => load());
+  st.on((s, changed) => {
+    if (changed.indexOf("route") >= 0) RB = null;
+    render();
+  });
+
+  /* ── Region scope ── A route is in a region when it visits one of the region's farms; a road
+     when either end is. Routes, trucks (those on a route in the region), roads and farms all follow it. */
+  const regFarms = () => PH.regionFarms(st.get("region"));
+  const inReg = (f) => { const rf = regFarms(); return !rf || rf.indexOf(f) >= 0; };
+  const routeInReg = (r) => !regFarms() || (r.farms || []).some(inReg);
+  const roadInReg = (d) => !regFarms() || inReg(d.a) || inReg(d.b);
+  /* ── Helpers ── */
+  /* A route is a list of RUNS: each run leaves the packhouse, collects from its farms and
+     comes back (one trip per run). Kapkolia → A → Kapkolia → B → Kapkolia = [[A],[B]]. */
+  function runsOf(r) {
+    if (r && r.runs && r.runs.length) return r.runs.map((x) => x.slice());
+    const runs = [];
+    let cur = null;
+    ((r && r.stops) || []).forEach((f, i) => {
+      if (i === 0 && f === pack()) return;
+      if (f === pack()) { if (cur) { runs.push(cur); cur = null; } return; }
+      cur = cur || [];
+      if (cur.indexOf(f) < 0) cur.push(f);
+    });
+    if (cur && cur.length) runs.push(cur);
+    return runs;
+  }
+  const runsHtml = (runs) => runs.map((run, i) => `<div>${runs.length > 1 ? `<span class="ph-badge ph-badge--outline">Trip ${i + 1}</span> ` : ""}${RTP.chainHtml([pack()].concat(run).concat([pack()]))}</div>`).join("");
+  /* "06:00–18:00", or "22:00–02:00 next day" when it runs past midnight. */
+  const tplRange = (r) => { const f = r.from_time || "", t = r.to_time || ""; if (!f || !t) return "all day"; return f + "–" + t + (t <= f ? " next day" : ""); };
+  /* Same as the server's check: two times-of-day windows overlap on some day. */
+  function tplClash(s1, e1, s2, e2) {
+    const w = (a, b) => { const x = +a.slice(0, 2) * 60 + +a.slice(3, 5), y = +b.slice(0, 2) * 60 + +b.slice(3, 5); return [x, y > x ? y : y + 1440]; };
+    const A = w(s1, e1), B = w(s2, e2);
+    return [-1440, 0, 1440].some((k) => A[0] < B[1] + k && B[0] + k < A[1]);
+  }
+  /* Today only: is the route's truck out (dispatched trip not yet received) or available? */
+  function truckStateHtml(vehicle) {
+    const v = D().vehicles.find((x) => x.name === vehicle);
+    if (!v) return '<span class="ph-muted">—</span>';
+    return v.on_road
+      ? `<span class="ph-badge ph-badge--signal" title="Trip ${esc(v.on_road)}">on the road${v.dispatched_at ? " · since " + esc(String(v.dispatched_at).slice(11, 16)) : ""}</span>`
+      : `<span class="ph-badge ph-badge--good" title="Back at ${esc(v.route_end || pack())} — can be planned">available</span>`;
+  }
+  const farmsOf = () => (D().farm_list && D().farm_list.length ? D().farm_list : RTP.allFarmsKnown().concat([pack()]));
+  const reachable = (f) => RTP.roadPath(pack(), f).legs.length > 0;
+
+  /* ── Render ── */
+  function render() {
+    if (!RTP.loaded) return;
+    renderKpis();
+    const route = st.get("route");
+    if (route) return renderBuilder(route);
+    PH.keepScroll(() => (st.get("view") === "roads" ? renderRoads() : renderList()));
+  }
+  function renderKpis() {
+    const rs = (routes || []).filter(routeInReg), d = D(), roadsAll = d.distances.filter(roadInReg), roads = roadsAll.filter((x) => x.leg).length;
+    const rv = regFarms() ? PH.uniq(rs.map((r) => r.vehicle)) : null, vs = rv ? d.vehicles.filter((v) => rv.indexOf(v.name) >= 0) : d.vehicles;
+    const farms = farmsOf().filter((f) => f !== pack() && inReg(f)), reach = farms.filter(reachable).length;
+    PH.kpis("#tr-kpis", [
+      { label: "Routes", value: rs.filter((r) => r.active).length, unit: "active of " + rs.length + " saved", onClick: () => st.set({ view: "routes", route: "" }), active: st.get("view") === "routes" && !st.get("route") },
+      { label: "Trucks", value: vs.length, unit: vs.filter((v) => !v.on_road).length + " available · " + vs.filter((v) => v.on_road).length + " on the road" + (rv ? " · on routes in this region" : "") },
+      { label: "Roads", value: roads, unit: roadsAll.length - roads + " direct distances", onClick: () => st.set({ view: "roads", route: "" }), active: st.get("view") === "roads" && !st.get("route") },
+      { label: "Farms reachable", value: reach, unit: "of " + farms.length + " farms by road from " + (pack() || "the hub"), bar: farms.length ? (100 * reach) / farms.length : 0 },
+    ]);
+  }
+
+  /* Saved routes have no date: each truck's trips and its From/To time of day. Every
+     active one is copied onto each day automatically when that day is planned. */
+  let listTable = null;
+  function renderList() {
+    const q = st.get("q");
+    PH.set("#tr-body", `<section class="ph-card ph-card--flush"><div class="ph-card__head"><h2 class="ph-card__title">Truck routes</h2>
+      <div class="ph-card__tools"><button class="ph-btn ph-btn--sm ph-btn--ghost" data-act="tk-open">${PH.icon("plus", 14)}Add truck</button><button class="ph-btn ph-btn--sm ph-btn--primary" data-act="rv-new">${PH.icon("plus", 14)}New route</button></div></div><div id="tr-list"></div></section>`);
+    if (routesErr && !routes) return PH.error("#tr-list", "Couldn’t load routes: " + routesErr, () => load(true));
+    const rows = (routes || []).filter(routeInReg).filter((r) => PH.match({ a: r.vehicle, b: (r.farms || []).join(" "), c: r.name }, q)).map((r) => Object.assign({}, r, { _runs: runsOf(r) }));
+    listTable = PH.table("#tr-list", {
+      columns: [
+        { key: "vehicle", label: "Truck", cls: "is-strong" },
+        { key: "from_time", label: "Time", format: (v, r) => tplRange(r) },
+        { key: "_runs", label: "Trips", sortable: false, cls: "is-wrap", html: (v) => runsHtml(v) },
+        { key: "total_km", label: "Distance", num: true, format: (v) => Number(v || 0).toFixed(1) + " km" },
+        { key: "_n", label: "Trips", num: true, sortValue: (r) => r._runs.length, format: (v, r) => String(r._runs.length) },
+        { key: "_state", label: "Today", sortable: false, html: (v, r) => truckStateHtml(r.vehicle) },
+        { key: "active", label: "Active", html: (v, r) => `<label class="ph-switch" title="Off = not used on new days"><input type="checkbox" data-act="rv-active" data-name="${esc(r.name)}"${v ? " checked" : ""}><i></i></label>` },
+        { key: "_act", label: "", sortable: false, html: (v, r) => `<div class="rt-routes-act"><button class="ph-btn ph-btn--sm ph-btn--ghost" data-act="rv-edit" data-name="${esc(r.name)}">Edit</button><button class="ph-btn ph-btn--sm ph-btn--ghost" data-act="rv-del" data-name="${esc(r.name)}">Delete</button></div>` },
+      ],
+      rows,
+      sort: { key: "vehicle", dir: "asc" },
+      rowClass: (r) => (r.active ? "" : "rt-tile-off"),
+      empty: q ? "No routes match “" + q + "”" : "No truck routes yet",
+      emptyText: q ? "Clear the search to see every route." : "Add one with New route — each trip leaves " + (pack() || "the hub") + ", collects from its farms and comes back.",
+    });
+  }
+  function setRouteActive(name, on) {
+    RTP.write("setRouteTemplateActive", { name, active: on ? 1 : 0 }, "Could not change the route")
+      .then(() => RTP.toast(on ? "Route on — used every day" : "Route off — not used on new days"))
+      .catch((e) => RTP.toast(e.message, "bad"))
+      .then(RTP.changed);
+  }
+  function deleteRoute(name) {
+    const r0 = (routes || []).find((x) => x.name === name);
+    PH.confirm("Delete route", "Delete " + (r0 ? r0.vehicle + "’s " + tplRange(r0) + " route" : "this route") + "? It stops being used from today; trips already planned on it keep their route.", { ok: "Delete", danger: true }).then((ok) => {
+      if (!ok) return;
+      RTP.write("deleteRouteTemplate", { name }, "Could not delete the route")
+        .then(() => { RTP.toast("Route deleted"); RTP.changed(); })
+        .catch((e) => RTP.toast(e.message, "bad"));
+    });
+  }
+
+  /* ── Add truck (or its capacity) without leaving the page ── */
+  function openTruckModal(veh) {
+    const v = veh ? D().vehicles.find((x) => x.name === veh) : null;
+    const t = { plate: veh || "", existing: !!veh, type: "internal", make: "", model: "", fuel: "Diesel", trolleys: v && v.trolleys ? String(v.trolleys) : "", per: v && v.buckets_per_trolley ? String(v.buckets_per_trolley) : "", err: "", busy: false };
+    t.m = PH.modal({
+      title: t.existing ? "Truck capacity · " + t.plate : "Add truck",
+      actions: [{ label: "Cancel" }, { label: t.existing ? "Save capacity" : "Add truck", primary: true, onClick: () => { saveTruck(t); return false; } }],
+    });
+    t.m.body.addEventListener("input", (e) => {
+      const k = e.target.dataset.tk;
+      if (!k) return;
+      t[k] = e.target.value;
+      const c = (parseInt(t.trolleys, 10) || 0) * (parseInt(t.per, 10) || 0), el = t.m.body.querySelector("[data-tk-cap]");
+      if (el) el.textContent = c ? "Carries " + c + " buckets" : "Capacity = trolleys × buckets per trolley";
+    });
+    t.m.body.addEventListener("change", (e) => { const k = e.target.dataset.tk; if (k) { t[k] = e.target.value; if (k === "type") paintTruck(t); } });
+    paintTruck(t);
+  }
+  function paintTruck(t) {
+    const fld = (k, label, type, ph) => `<div class="ph-field"><label>${label}</label><input class="ph-control" type="${type}" data-tk="${k}" value="${esc(t[k])}" placeholder="${esc(ph || "")}"${type === "number" ? ' min="1" step="1"' : ""}${t.busy ? " disabled" : ""}></div>`;
+    const cap = (parseInt(t.trolleys, 10) || 0) * (parseInt(t.per, 10) || 0), internal = t.type !== "dispatch";
+    const TYPES = [["internal", "Internal transfer truck"], ["dispatch", "Dispatch truck"], ["both", "Both"]];
+    PH.set(t.m.body, `<div class="ph-form ph-form--2">${t.existing ? "" :
+        fld("plate", "Registration", "text", "KDP 283L") +
+        `<div class="ph-field"><label>Truck type</label><select class="ph-control" data-tk="type">${TYPES.map((x) => `<option value="${x[0]}"${x[0] === t.type ? " selected" : ""}>${x[1]}</option>`).join("")}</select></div>` +
+        `<div class="ph-field"><label>Fuel</label><select class="ph-control" data-tk="fuel">${["Diesel", "Petrol", "Electric", "Natural Gas"].map((f) => `<option${f === t.fuel ? " selected" : ""}>${f}</option>`).join("")}</select></div>` +
+        fld("make", "Make", "text", "Isuzu") + fld("model", "Model", "text", "FRR")}
+      ${internal ? fld("trolleys", "Trolleys", "number", "") + fld("per", "Buckets per trolley", "number", "") + `<div class="ph-field ph-field--full"><div class="ph-notice ph-mb-0" data-tk-cap>${cap ? "Carries " + cap + " buckets" : "Capacity = trolleys × buckets per trolley"}</div></div>`
+        : '<div class="ph-field ph-field--full"><div class="ph-notice ph-mb-0">A dispatch truck takes boxes out — it isn’t used for remote transfers, so no trolley capacity is needed.</div></div>'}
+      ${t.err ? `<div class="ph-field ph-field--full"><div class="ph-notice ph-notice--bad ph-mb-0">${esc(t.err)}</div></div>` : ""}</div>`);
+    const b = t.m.el.querySelector(".ph-modal__foot .ph-btn--primary");
+    if (b) { b.disabled = t.busy; b.textContent = t.busy ? "Saving…" : t.existing ? "Save capacity" : "Add truck"; }
+  }
+  function saveTruck(t) {
+    if (t.busy) return;
+    t.busy = true; t.err = ""; paintTruck(t);
+    RTP.write("saveTransferTruck", Object.assign({ license_plate: t.plate, make: t.make, model: t.model, fuel_type: t.fuel, trolley_capacity: t.trolleys, buckets_per_trolley: t.per }, t.existing ? {} : { truck_type: t.type }), "Could not save the truck")
+      .then((m) => { t.m.close(); RTP.toast((m.updated ? "Updated " : "Added ") + m.name + (m.internal ? " · " + m.capacity_buckets + " buckets" : " · dispatch truck")); RTP.changed(); })
+      .catch((e) => { t.busy = false; t.err = e.message; paintTruck(t); });
+  }
+
+  /* ── Route builder (?route=new | ?route=<name>) ── */
+  function renderBuilder(key) {
+    if (!RB || RB.key !== key) {
+      let route = null;
+      if (key !== "new") {
+        if (!routes) return PH.skeleton("#tr-body", "rows", 6);
+        route = routes.find((r) => r.name === key);
+        if (!route) { RTP.toast("Route " + key + " not found", "bad"); return st.set({ route: "" }); }
+      }
+      const runs = route ? runsOf(route) : [];
+      RB = { key, edit: route ? route.name : null, vehicle: route ? route.vehicle : "", runs: runs.length ? runs : [[]], busy: false, err: "", from: (route && route.from_time) || "06:00", to: (route && route.to_time) || "18:00" };
+      PH.set("#tr-body", `<button class="ph-backbtn" data-act="rv-back">${PH.icon("chevronLeft", 14)}Truck routes</button>
+        <div class="ph-row ph-row--2-1">
+          <section class="ph-card"><div class="ph-card__head"><h2 class="ph-card__title">${RB.edit ? "Edit route" : "New route"}${RB.edit ? ` <span class="ph-badge ph-badge--ink">${esc(RB.vehicle)}</span>` : ""}</h2><span class="ph-card__meta">used every day</span></div><div id="rb-form"></div></section>
+          <section class="ph-card"><div class="ph-card__head"><h2 class="ph-card__title">Legs</h2><span class="ph-card__meta" id="rb-km"></span></div><div id="rb-legs"></div></section>
+        </div>
+        <section class="ph-card"><div class="rt-foot"><span id="rb-msg" class="ph-grow"></span><button class="ph-btn ph-btn--ghost" data-act="rv-back">Cancel</button><button class="ph-btn ph-btn--primary" data-act="rb-save" id="rb-save">${PH.icon("save", 14)}Save route</button></div></section>`);
+    }
+    paintBuilder();
+  }
+  /* Legs for the round trip packhouse -> stops -> packhouse, each hop decomposed into
+     real road legs (roadPath), in driving direction — what the route record stores. */
+  function builderLegs(runs) {
+    let seq = [pack()];
+    const names = [], gaps = [];
+    (runs || []).forEach((run) => { if (run.length) seq = seq.concat(run).concat([pack()]); });
+    for (let i = 0; i < seq.length - 1; i++) {
+      if (seq[i] === seq[i + 1]) continue;
+      const rp = RTP.roadPath(seq[i], seq[i + 1]);
+      if (!rp.legs.length) gaps.push(seq[i] + " → " + seq[i + 1]); else names.push.apply(names, rp.legs);
+    }
+    const byName = {};
+    D().distances.forEach((d) => (byName[d.name] = d));
+    let here = pack(), km = 0;
+    const rows = [];
+    names.forEach((nm) => {
+      const d = byName[nm];
+      if (!d) return;
+      const from = d.a === here ? d.a : d.b, to = d.a === here ? d.b : d.a;
+      rows.push({ leg: nm, from, to, km: Number(d.km || 0) });
+      km += Number(d.km || 0); here = to;
+    });
+    return { names, rows, km, gaps };
+  }
+  function builderCheck() {
+    const b = RB;
+    // The truck's other saved routes (active ones) — a new window mustn't overlap them.
+    const others = (routes || []).filter((r) => r.name !== b.edit && r.active && r.vehicle === b.vehicle);
+    const L = builderLegs(b.runs), n = b.runs.reduce((a, r) => a + r.length, 0);
+    const emptyRun = b.runs.length > 1 && b.runs.some((r) => !r.length);
+    const badTime = !b.from || !b.to || b.from === b.to;
+    const clash = badTime ? null : others.find((r) => tplClash(b.from, b.to, r.from_time, r.to_time));
+    let msg = "", bad = false;
+    if (L.gaps.length) { msg = "No road for " + L.gaps.join(", ") + " — add it under Road network first."; bad = true; }
+    else if (emptyRun) { msg = "A trip has no farms — add one or remove the trip."; bad = true; }
+    else if (badTime) { msg = !b.from || !b.to ? "Set From and To." : "From and To can’t be the same time."; bad = true; }
+    else if (clash) { msg = b.vehicle + " already runs " + tplRange(clash) + " — pick a time that doesn’t overlap."; bad = true; }
+    else if (others.length) msg = b.vehicle + " also runs " + others.map(tplRange).join(", ") + ".";
+    else if (b.to < b.from) msg = "Runs past midnight — ends " + b.to + " the next day.";
+    return { L, n, msg, bad, blocked: !b.vehicle || !n || L.gaps.length > 0 || emptyRun || !!clash || badTime };
+  }
+  function paintBuilder() {
+    const b = RB, form = PH.$("#rb-form");
+    if (!b || !form) return;
+    const routedOn = {};
+    (routes || []).forEach((r) => { if (r.name !== b.edit && r.active) (routedOn[r.vehicle] = routedOn[r.vehicle] || []).push(r); });
+    const vehOpts = D().vehicles.map((v) => `<option value="${esc(v.name)}"${v.name === b.vehicle ? " selected" : ""}>${esc(v.name)} · ${routedOn[v.name] ? routedOn[v.name].map(tplRange).join(", ") + " · " : ""}${v.capacity_buckets} bkt</option>`).join("");
+    const farms = farmsOf().filter((f) => f !== pack());
+    const dis = b.busy ? " disabled" : "";
+    const runs = b.runs.map((run, ri) => {
+      const m = run.length, km = m ? RTP.routeKm(run) : null;
+      const addable = farms.filter((f) => run.indexOf(f) < 0).map((f) => { const ok = reachable(f); return `<option value="${esc(f)}"${ok ? "" : " disabled"}>${esc(f)}${ok ? "" : " — no road yet"}</option>`; }).join("");
+      return `<div class="rt-run"><div class="ph-flex ph-flex--between ph-mb"><b class="ph-strong">Trip ${ri + 1}</b><span class="ph-flex">${km != null && m ? `<span class="ph-badge">${km.toFixed(1)} km</span>` : ""}${b.runs.length > 1 ? `<button class="ph-btn ph-btn--sm ph-btn--ghost" data-act="rb-run-rm" data-r="${ri}"${dis}>Remove trip</button>` : ""}</span></div>
+        <div class="rt-stop is-fixed"><span class="ph-list__rank">⌂</span><span>${esc(pack())} · start</span><span></span></div>
+        ${run.map((f, i) => `<div class="rt-stop"><span class="ph-list__rank lead">${i + 1}</span><span class="ph-strong">${esc(f)}</span><span class="ph-flex">
+          <button class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-act="rb-up" data-r="${ri}" data-i="${i}" title="Earlier" aria-label="Earlier"${i === 0 ? " disabled" : ""}>↑</button>
+          <button class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-act="rb-down" data-r="${ri}" data-i="${i}" title="Later" aria-label="Later"${i === m - 1 ? " disabled" : ""}>↓</button>
+          <button class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-act="rb-rm" data-r="${ri}" data-i="${i}" title="Remove" aria-label="Remove">${PH.icon("close", 14)}</button></span></div>`).join("")}
+        <div class="rt-stop is-fixed"><span class="ph-list__rank">⌂</span><span>${esc(pack())} · back</span><span></span></div>
+        <div class="rt-add"><select class="ph-control" data-rb-add="${ri}" aria-label="Add farm to trip ${ri + 1}"${dis}><option value="">+ Add farm to trip ${ri + 1}…</option>${addable}</select>
+          <button class="ph-btn ph-btn--sm ph-btn--ghost" data-act="rb-opt" data-r="${ri}" title="Shortest visiting order"${m < 2 ? " disabled" : ""}>Optimise order</button></div></div>`;
+    }).join("");
+    const lastEmpty = !b.runs[b.runs.length - 1].length;
+    PH.set(form, `<div class="ph-form ph-form--2 ph-mb">
+        <div class="ph-field"><label>From</label><input class="ph-control" type="time" data-rb="from" value="${esc(b.from)}"${dis}></div>
+        <div class="ph-field"><label>To</label><input class="ph-control" type="time" data-rb="to" value="${esc(b.to)}"${dis}></div>
+        <div class="ph-field ph-field--full"><label>Truck</label>${D().vehicles.length
+          ? `<select class="ph-control" data-rb="vehicle"${b.edit || b.busy ? " disabled" : ""}><option value="">Select truck…</option>${vehOpts}</select>`
+          : `<div class="ph-notice ph-mb-0"><span class="ph-grow">No transfer trucks yet.</span><button class="ph-btn ph-btn--sm" data-act="tk-open">Add truck</button></div>`}</div></div>
+      <div class="ph-label">Trips</div><p class="ph-tile__sub ph-mb">Each trip leaves ${esc(pack())}, collects from its farms and comes back. The truck drives the trips one after another, each with a full truck.</p>
+      ${runs}<button class="ph-btn ph-btn--sm ph-btn--ghost" data-act="rb-run-add"${lastEmpty || b.busy ? ' disabled title="Add a farm to the last trip first"' : ""}>${PH.icon("plus", 14)}Add trip — back to ${esc(pack())}, then out again</button>`);
+    const c = builderCheck();
+    PH.text("#rb-km", c.n ? c.L.km.toFixed(1) + " km total" : "");
+    if (c.n) {
+      PH.table("#rb-legs", {
+        columns: [
+          { key: "i", label: "#", num: true, sortable: false },
+          { key: "from", label: "From", sortable: false },
+          { key: "to", label: "To", sortable: false },
+          { key: "km", label: "Distance", num: true, sortable: false, format: (v) => v.toFixed(1) + " km", total: (rows) => PH.sum(rows, "km").toFixed(1) + " km" },
+          { key: "leg", label: "Road", sortable: false, cls: "ph-muted" },
+        ],
+        rows: c.L.rows.map((r, i) => Object.assign({ i: i + 1 }, r)),
+        compact: true,
+      });
+    } else PH.empty("#rb-legs", "No legs yet", "Add the farms each trip visits — the legs are worked out from the road network.");
+    const msg = PH.$("#rb-msg");
+    if (msg) { msg.textContent = b.err || c.msg; msg.className = "ph-grow " + (b.err || c.bad ? "ph-bad" : "ph-muted"); }
+    const sv = PH.$("#rb-save");
+    if (sv) { sv.disabled = !!b.busy || c.blocked; sv.lastChild.textContent = b.busy ? "Saving…" : "Save route"; }
+  }
+  function saveBuilder() {
+    const b = RB;
+    if (!b || b.busy) return;
+    const L = builderLegs(b.runs);
+    if (!b.vehicle || !L.names.length || L.gaps.length) return;
+    b.busy = true; b.err = ""; paintBuilder();
+    const args = { vehicle: b.vehicle, legs: L.names.join("|~|"), from_time: b.from, to_time: b.to };
+    if (b.edit) args.name = b.edit;
+    RTP.write("saveRouteTemplate", args, "Could not save the route")
+      .then((m) => {
+        RTP.toast("Route saved — " + b.vehicle + " " + tplRange({ from_time: b.from, to_time: b.to }) + " every day · " + Number(m.total_km || 0).toFixed(1) + " km");
+        RB = null;
+        st.set({ route: "", view: "routes" });
+        RTP.changed();
+      })
+      .catch((e) => { b.busy = false; b.err = e.message; paintBuilder(); });
+  }
+
+  /* ── Road network: the roads truck routes are built from (Farm Distance). A farm can
+     only be routed once a road reaches it — add one here and it appears in the builder. */
+  function renderRoads() {
+    const q = st.get("q");
+    PH.set("#tr-body", `<section class="ph-card ph-card--flush"><div class="ph-card__head"><h2 class="ph-card__title">Road network <span class="ph-badge">${D().distances.filter(roadInReg).length}</span></h2>
+      <div class="ph-card__tools"><button class="ph-btn ph-btn--sm ph-btn--primary" data-act="rn-open">${PH.icon("plus", 14)}Add road</button></div></div><div id="tr-roads"></div></section>`);
+    PH.table("#tr-roads", {
+      columns: [
+        { key: "a", label: "From", cls: "is-strong" },
+        { key: "b", label: "To", cls: "is-strong" },
+        { key: "km", label: "Distance", num: true, format: (v) => Number(v || 0).toFixed(1) + " km" },
+        { key: "leg", label: "Kind", html: (v) => (v ? '<span class="ph-badge ph-badge--ink" title="A real road a truck drives">road</span>' : '<span class="ph-badge ph-badge--outline" title="A direct distance, used for totals only">direct</span>') },
+        { key: "via", label: "Via", cls: "ph-muted" },
+        { key: "_act", label: "", sortable: false, html: (v, r) => `<div class="rt-routes-act"><button class="ph-btn ph-btn--sm ph-btn--ghost" data-act="rn-edit" data-name="${esc(r.name)}" title="Change distance / kind">Edit</button><button class="ph-btn ph-btn--sm ph-btn--ghost" data-act="rn-del" data-name="${esc(r.name)}" title="Remove this road">Remove</button></div>` },
+      ],
+      rows: D().distances.filter(roadInReg).filter((d) => PH.match({ a: d.a, b: d.b, c: d.via, d: d.name }, q)),
+      sort: { key: "a", dir: "asc" },
+      empty: q ? "No roads match “" + q + "”" : "No roads yet",
+      emptyText: q ? "Clear the search to see every road." : "Add the first one with Add road.",
+    });
+  }
+  const roadPair = (a, b) => D().distances.find((x) => (x.a === a && x.b === b) || (x.a === b && x.b === a)) || null;
+  function openRoadModal(name) {
+    const d = name ? D().distances.find((x) => x.name === name) : null;
+    const f = { edit: d ? d.name : null, from: d ? d.a : "", to: d ? d.b : "", km: d ? String(d.km || "") : "", road: d ? !!d.leg : true, err: "", busy: false };
+    f.m = PH.modal({ title: f.edit ? "Edit road" : "Add road", actions: [{ label: "Cancel" }, { label: f.edit ? "Save changes" : "Add road", primary: true, onClick: () => { saveRoad(f); return false; } }] });
+    f.m.body.addEventListener("change", (e) => {
+      const k = e.target.dataset.rn;
+      if (!k) return;
+      f[k] = k === "road" ? e.target.value === "1" : e.target.value;
+      f.err = "";
+      if (k !== "km") paintRoad(f);
+    });
+    // Distance: track keystrokes without re-rendering.
+    f.m.body.addEventListener("input", (e) => { if (e.target.dataset.rn === "km") f.km = e.target.value; });
+    paintRoad(f);
+  }
+  /* Farm choices tagged by how each sits in the road network; the farm picked on the
+     other side is disabled. */
+  function farmOptions(f, k) {
+    const linked = {};
+    D().distances.forEach((d) => { if (d.leg) { linked[d.a] = 1; linked[d.b] = 1; } });
+    const other = f[k === "from" ? "to" : "from"];
+    return '<option value="">Select farm…</option>' + farmsOf().map((x) => {
+      const hub = x === pack(), same = x === other, tag = same ? "other side" : hub ? "hub" : linked[x] ? "connected" : "no roads yet";
+      return `<option value="${esc(x)}"${x === f[k] ? " selected" : ""}${same ? " disabled" : ""}>${esc(x)} — ${tag}</option>`;
+    }).join("");
+  }
+  function paintRoad(f) {
+    let note = "", cls = "";
+    if (f.err) { note = f.err; cls = " ph-notice--bad"; }
+    else if (f.from && f.to && f.from !== f.to) {
+      const ex = roadPair(f.from, f.to);
+      if (ex && ex.name !== f.edit) { note = f.from + " ↔ " + f.to + " already exists (" + Number(ex.km || 0).toFixed(1) + " km) — saving updates it."; cls = " ph-notice--warn"; }
+      else if (!f.road) {
+        const via = RTP.roadPath(f.from, f.to).farms.filter((x) => x !== f.to);
+        note = via.length ? "A truck between these farms drives via " + via.join(", ") + "." : "No real road connects these farms yet — add the road legs too, or trucks can’t drive this pair.";
+        cls = via.length ? "" : " ph-notice--warn";
+      } else note = "A truck can drive directly between " + f.from + " and " + f.to + ".";
+    }
+    const lock = f.edit ? ' disabled title="To change the farms, remove this road and add a new one"' : "";
+    PH.set(f.m.body, `<div class="ph-form ph-form--2">
+      <div class="ph-field"><label>From farm</label><select class="ph-control" data-rn="from"${lock}>${farmOptions(f, "from")}</select></div>
+      <div class="ph-field"><label>To farm</label><select class="ph-control" data-rn="to"${lock}>${farmOptions(f, "to")}</select></div>
+      <div class="ph-field ph-field--full"><label>Distance (km)</label><input class="ph-control" type="number" min="0.1" step="0.1" placeholder="e.g. 12.5" data-rn="km" value="${esc(f.km)}"></div>
+      <div class="ph-field ph-field--full"><label>Kind</label>
+        <label class="ph-check"><input type="radio" name="rn-kind" data-rn="road" value="1"${f.road ? " checked" : ""}><span><b>Real road</b> — a truck physically drives it; routes are built from these.</span></label>
+        <label class="ph-check"><input type="radio" name="rn-kind" data-rn="road" value="0"${f.road ? "" : " checked"}><span><b>Direct distance</b> — a distance figure for totals only.</span></label></div>
+      ${note ? `<div class="ph-field ph-field--full"><div class="ph-notice ph-mb-0${cls}">${esc(note)}</div></div>` : ""}</div>`);
+    const b = f.m.el.querySelector(".ph-modal__foot .ph-btn--primary");
+    if (b) { b.disabled = f.busy; b.textContent = f.busy ? "Saving…" : f.edit ? "Save changes" : "Add road"; }
+  }
+  function saveRoad(f) {
+    if (f.busy) return;
+    f.err = "";
+    if (!f.from || !f.to) f.err = "Pick both farms.";
+    else if (f.from === f.to) f.err = "A road needs two different farms.";
+    else if (!(parseFloat(f.km) > 0)) f.err = "Enter the distance in km.";
+    if (f.err) return paintRoad(f);
+    f.busy = true; paintRoad(f);
+    RTP.write("saveFarmDistance", { from_farm: f.from, to_farm: f.to, distance_km: f.km, is_road_leg: f.road ? 1 : 0 }, "Could not save the road")
+      .then((m) => { f.m.close(); RTP.toast((m.updated ? "Updated " : "Added ") + f.from + " ↔ " + f.to + (m.via_farms ? " (via " + m.via_farms + ")" : "")); RTP.changed(); })
+      .catch((e) => { f.busy = false; f.err = e.message; paintRoad(f); });
+  }
+  function removeRoad(name) {
+    PH.confirm("Remove road", "Remove road " + name + "?", { ok: "Remove", danger: true }).then((ok) => {
+      if (!ok) return;
+      RTP.write("deleteFarmDistance", { name }, "Could not remove the road")
+        .then(() => { RTP.toast("Removed " + name); RTP.changed(); })
+        .catch((e) => RTP.toast(e.message, "bad"));
+    });
+  }
+
+  /* ── Interactions (delegated) ── */
+  const body = document.getElementById("tr-body");
+  body.addEventListener("click", (e) => {
+    const el = e.target.closest("[data-act]");
+    if (!el || el.disabled) return;
+    const a = el.dataset.act, b = RB;
+    if (a === "rv-new") st.set({ route: "new" });
+    else if (a === "rv-edit") st.set({ route: el.dataset.name });
+    else if (a === "rv-back") st.set({ route: "" });
+    else if (a === "rv-del") deleteRoute(el.dataset.name);
+    else if (a === "tk-open") openTruckModal(el.dataset.veh);
+    else if (a === "rn-open") openRoadModal(null);
+    else if (a === "rn-edit") openRoadModal(el.dataset.name);
+    else if (a === "rn-del") removeRoad(el.dataset.name);
+    else if (a === "rb-save") saveBuilder();
+    else if (!b || b.busy) return;
+    else if (a === "rb-up" || a === "rb-down") {
+      const run = b.runs[+el.dataset.r], i = +el.dataset.i, j = a === "rb-up" ? i - 1 : i + 1;
+      if (run && j >= 0 && j < run.length) { const t = run[i]; run[i] = run[j]; run[j] = t; }
+      paintBuilder();
+    } else if (a === "rb-rm") { const run = b.runs[+el.dataset.r]; if (run) run.splice(+el.dataset.i, 1); paintBuilder(); }
+    else if (a === "rb-run-add") { b.runs.push([]); paintBuilder(); }
+    else if (a === "rb-run-rm") { if (b.runs.length > 1) b.runs.splice(+el.dataset.r, 1); paintBuilder(); }
+    else if (a === "rb-opt") {
+      const ri = +el.dataset.r, run = b.runs[ri];
+      if (!run || run.length < 2) return;
+      const before = RTP.routeKm(run), best = RTP.bestRoute(run);
+      if (best.km == null) RTP.toast("No road reaches every stop — add the missing roads under Road network");
+      else if (best.order.join("|") === run.join("|")) RTP.toast("Already the shortest order · " + best.km.toFixed(1) + " km");
+      else { b.runs[ri] = best.order.slice(); RTP.toast("Reordered · " + best.km.toFixed(1) + " km" + (before != null ? " (was " + before.toFixed(1) + " km)" : "")); }
+      paintBuilder();
+    }
+  });
+  body.addEventListener("change", (e) => {
+    const el = e.target;
+    if (el.matches('[data-act="rv-active"]')) return setRouteActive(el.dataset.name, el.checked);
+    if (!RB) return;
+    if (el.dataset.rb) { RB[el.dataset.rb] = el.value || ""; RB.err = ""; paintBuilder(); }
+    else if (el.dataset.rbAdd != null && el.value) { const run = RB.runs[+el.dataset.rbAdd]; if (run && run.indexOf(el.value) < 0) run.push(el.value); paintBuilder(); }
+  });
+
+  PH.onRefresh(() => load(true));
+  PH.ready(() => load(true));
+})();
+</script>
+{% endraw %}
+{% endif %}

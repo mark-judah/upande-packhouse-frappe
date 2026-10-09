@@ -1,0 +1,45 @@
+{% extends "templates/web.html" %}
+{% block title %}Remote Transfers · Packhouse{% endblock %}
+{% block page_content %}
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
+
+<header class="ph-head">
+  <div>
+    <div class="ph-head__eyebrow">Packhouse · Remote Transfers</div>
+    <h1 class="ph-head__title">Remote Transfers</h1>
+    <p class="ph-head__sub">{% for k, label, hint in rt_tabs %}{% if k == rt_tab %}{{ hint }}{% endif %}{% endfor %}</p>
+  </div>
+</header>
+
+<nav class="ph-tabs" id="rt-tabs" aria-label="Remote Transfers sections">
+  {%- for k, label, hint in rt_tabs %}
+  <a class="ph-tab{% if k == rt_tab %} is-on{% endif %}" href="/remote-transfer-v2?tab={{ k }}" data-tab="{{ k }}" title="{{ hint }}"{% if k == rt_tab %} aria-current="page"{% endif %}>{{ label }}</a>
+  {%- endfor %}
+</nav>
+
+<script>
+  /* Shared by every tab template: the tab key, the transfer hub, and the
+     delivery date that carries across tabs (?date=, default tomorrow). */
+  window.RT = { tab: {{ rt_tab|tojson }}, transferHub: {{ transfer_hub|tojson }} };
+</script>
+
+{#- Each tab template is included twice: rt_part 'body' (markup, inside the page)
+    and rt_part 'script' (after shell_end, so window.PH exists). -#}
+{% set rt_part = 'body' %}{% include rt_template %}
+
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
+<script>
+(function () {
+  // Tab links carry the shared delivery date across tabs.
+  document.getElementById("rt-tabs").addEventListener("click", function (e) {
+    var a = e.target.closest("a[data-tab]");
+    if (!a) return;
+    // The delivery date (a single day, or the end of a range) and the region carry across tabs.
+    var q = new URLSearchParams(location.search), d = q.get("date") || q.get("to"), r = q.get("region");
+    if (d || r) { e.preventDefault(); location.href = a.getAttribute("href") + (d ? "&date=" + encodeURIComponent(d) : "") + (r ? "&region=" + encodeURIComponent(r) : ""); }
+  });
+  RT.defaultDate = PH.date.add(PH.date.today(), 1);
+})();
+</script>
+{% set rt_part = 'script' %}{% include rt_template %}
+{% endblock %}

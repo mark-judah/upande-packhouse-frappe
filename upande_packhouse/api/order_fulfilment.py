@@ -16,6 +16,9 @@ def getOrderFulfilment():
 	# Fulfilment = packed / ordered. Scope: delivery_date (default today).
 	fd = frappe.form_dict
 	delivery_date = fd.get("delivery_date") or frappe.utils.today()
+	# Location (Kapkolia / Karen): the Sales Order's farm's location -- the Order Pick
+	# List's farm is Kapkolia on every order, Karen's too.
+	location = (fd.get("location") or "").strip()
 
 	rows = frappe.db.sql(
 		"""
@@ -55,12 +58,14 @@ def getOrderFulfilment():
         JOIN `tabSales Order` so ON so.name = soi.parent
         LEFT JOIN `tabCustomer` c ON c.name = so.customer
         LEFT JOIN `tabUser` u ON u.name = c.account_manager
+        LEFT JOIN `tabFarm` sf ON sf.name = so.farm
         WHERE so.docstatus = 1
           AND so.delivery_date = %(d)s
           AND so.status NOT IN ('Cancelled', 'Closed')
+          AND (%(loc)s = '' OR sf.farm_location = %(loc)s OR so.farm = %(loc)s)
         ORDER BY manager_name, so.customer, so.name, soi.idx
     """,
-		{"d": delivery_date},
+		{"d": delivery_date, "loc": location},
 		as_dict=True,
 	)
 

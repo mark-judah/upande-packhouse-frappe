@@ -628,6 +628,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
           </button>
           <div class="dropdown-menu" id="reasonMenu" style="max-height:320px;overflow:auto;min-width:230px"></div>
         </div>
+        <div class="presets" id="locPreset"><span class="p active" data-loc="">All locations</span></div>
         <div class="presets" id="rosePreset">
           <span class="p active" data-rose="all">All</span>
           <span class="p" data-rose="standard">Standards</span>
@@ -701,7 +702,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 </div>
 
 <script>
-    let teams = [], roseType = 'all', dateRange = 'today', customFrom = '', customTo = '';
+    let teams = [], roseType = 'all', dateRange = 'today', customFrom = '', customTo = '', locFilter = '';
     let selOwners = [], selReasons = [], ownerOpts = [], reasonOpts = [];
 
     // Build a multiselect dropdown menu from a list of options; selection lives
@@ -786,6 +787,25 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
                 dateRange = 'custom'; if (customFrom && customTo) load();
             });
         });
+        // Location (Kapkolia / Karen): each order by its Sales Order's farm.
+        const locBox = document.getElementById('locPreset');
+        locBox.addEventListener('click', e => {
+            const btn = e.target.closest('.p'); if (!btn) return;
+            locBox.querySelectorAll('.p').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active'); locFilter = btn.dataset.loc; load();
+        });
+        (function loadLocations() {
+            if (!window.frappe || !frappe.call) { return setTimeout(loadLocations, 150); }
+            frappe.call({
+                method: 'upande_packhouse.api.order_summary.getPackhouseLocations',
+                callback: r => {
+                    const locs = (r.message && r.message.locations) || [];
+                    locBox.innerHTML = '<span class="p active" data-loc="">All locations</span>' +
+                        locs.map(l => '<span class="p" data-loc="' + String(l).replace(/"/g, '&quot;') + '">' +
+                            String(l).replace(/</g, '&lt;') + '</span>').join('');
+                }
+            });
+        })();
         document.querySelectorAll('#rosePreset .p').forEach(btn => {
             btn.addEventListener('click', () => {
                 document.querySelectorAll('#rosePreset .p').forEach(b => b.classList.remove('active'));
@@ -818,6 +838,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
             args: {
                 team_filter: teams.length ? teams.join(',') : 'all',
                 rose_type: roseType,
+                location: locFilter,
                 owner_filter: selOwners.join('|~|'),
                 reason_filter: selReasons.join('|~|'),
                 ...getDateArgs()

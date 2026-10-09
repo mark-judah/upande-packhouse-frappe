@@ -1,0 +1,496 @@
+{% extends "templates/web.html" %}
+{% block title %}Stem Movement · Packhouse{% endblock %}
+{% block page_content %}
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
+
+<style>
+  /* Stem Movement only: the shelf waterfall and the step matrix cells.
+     Tokens and the --sp-* scale only. */
+  .sm-wf{display:grid;grid-template-columns:repeat(var(--n),minmax(0,1fr));gap:var(--sp-2)}
+  .sm-wf__col{display:flex;flex-direction:column;align-items:center;gap:var(--sp-1);min-width:0;text-align:center}
+  .sm-wf__lane{position:relative;width:100%;height:180px;border-bottom:1px solid var(--hairline-3)}
+  .sm-wf__bar{position:absolute;left:12%;right:12%;min-height:2px;border-radius:var(--sp-1)}
+  .sm-wf__val{position:absolute;left:-50%;right:-50%;transform:translateY(-4px);white-space:nowrap}
+  .sm-wf__lbl{overflow-wrap:anywhere;line-height:1.3}
+
+  .sm-gcell{display:flex;align-items:center;gap:var(--sp-2);min-width:160px}
+  .sm-gcell .ph-progress{flex:1 1 auto}
+  .sm-jstep{display:flex;flex-direction:column;gap:2px;min-width:110px}
+</style>
+
+<header class="ph-head">
+  <div>
+    <div class="ph-head__eyebrow">Packhouse · Stock &amp; Orders</div>
+    <h1 class="ph-head__title">Stem Movement</h1>
+    <p class="ph-head__sub" id="sub">Stems through each step of the packhouse, and where the stock on the shelf is now</p>
+  </div>
+</header>
+
+<div class="ph-filters" id="filters">
+  <div class="ph-pills" id="f-region" aria-label="Region"></div>
+  <select class="ph-select" id="f-farm" aria-label="Farm"><option value="">All farms</option></select>
+  <select class="ph-select" id="f-variety" aria-label="Variety"><option value="">All varieties</option></select>
+  <select class="ph-select" id="f-location" aria-label="Greenhouse"><option value="">All greenhouses</option></select>
+  <button class="ph-btn ph-btn--ghost ph-btn--sm" id="f-clear" hidden>Clear filters</button>
+  <div class="ph-filters__spacer"></div>
+  <div class="ph-pills" id="f-preset">
+    <button data-value="today">Today</button><button data-value="7d">7 days</button><button data-value="30d">30 days</button>
+  </div>
+  <label class="ph-daterange" title="Each step is dated by its own event (see the step table)">
+    <input type="date" id="f-from" aria-label="From"><span class="ph-daterange__sep">→</span><input type="date" id="f-to" aria-label="To">
+  </label>
+</div>
+
+<nav class="ph-tabs" id="tabs" role="tablist">
+  <button class="ph-tab" data-tab="flow" role="tab">Flow</button>
+  <button class="ph-tab" data-tab="trace" role="tab">Box traceability</button>
+</nav>
+
+<!-- ── Flow ─────────────────────────────────────────────────────── -->
+<div id="view-flow">
+  <div class="ph-notice ph-notice--signal" id="loc-note" hidden>
+    Greenhouse is recorded on harvest, receive, shelf and discards. The order steps (allocated to dispatched) carry no greenhouse and stay unfiltered by it.
+  </div>
+
+  <section class="ph-kpis" id="kpis"></section>
+
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head">
+      <h2 class="ph-card__title">Stems through each step</h2>
+      <span class="ph-card__meta" id="steps-meta">One shared scale · bar length is the stem count</span>
+    </div>
+    <div id="steps"></div>
+    <p class="ph-card__meta ph-mt" style="padding:0 var(--sp-4) var(--sp-4)">
+      Each step is counted on the date of its own event, so a step can exceed the one before it: a window can pack,
+      issue or dispatch stems that were harvested, received or shelved before it opened, and one order step can be
+      dated a day apart from the next. “Farm used” says which farm a step is filtered by: stock steps use the physical
+      farm, order steps use the order’s farm (Sales Order farm, else pick list farm; orders with no farm drop out while a farm or region filter is on).
+    </p>
+  </section>
+
+  <div class="ph-row ph-row--2">
+    <section class="ph-card">
+      <div class="ph-card__head">
+        <h2 class="ph-card__title">Shelf ledger</h2>
+        <span class="ph-card__meta" id="ledger-meta">From the shelving log · physical farm</span>
+      </div>
+      <div id="shelf-wf"></div>
+    </section>
+
+    <section class="ph-card">
+      <div class="ph-card__head">
+        <h2 class="ph-card__title">On the shelf now</h2>
+        <span class="ph-card__meta">Live count · not limited by the dates · physical farm</span>
+      </div>
+      <div class="ph-label ph-mb">Age of stock on the shelf</div>
+      <div id="shelf-age"></div>
+      <div class="ph-flex ph-flex--wrap ph-mt" id="shelf-reasons"></div>
+    </section>
+  </div>
+
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head">
+      <h2 class="ph-card__title">Stems per day</h2>
+      <span class="ph-card__meta">Totals equal the step table above</span>
+    </div>
+    <div id="gates"></div>
+  </section>
+</div>
+
+<!-- ── Box traceability ─────────────────────────────────────────── -->
+<div id="view-trace" hidden>
+  <section class="ph-card">
+    <div class="ph-card__head">
+      <h2 class="ph-card__title">Trace a box</h2>
+      <span class="ph-card__meta">Scan, type or pick a Box Label to follow its buckets end to end</span>
+    </div>
+    <form class="ph-flex ph-flex--wrap" id="trace-form" autocomplete="off">
+      <label class="ph-search ph-grow" style="max-width:560px">
+        <svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="trace-q" type="search" class="ph-mono" placeholder="Box Label, e.g. BOX-00123" aria-label="Box Label">
+      </label>
+      <button class="ph-btn ph-btn--primary" type="submit">Trace</button>
+    </form>
+  </section>
+  <div id="trace-result"></div>
+</div>
+
+
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  // All numbers come from api/v2/stem_movement.py (get_flow, get_box_trace,
+  // search_box_labels); the browser only formats.
+  const API = "upande_packhouse.api.v2.stem_movement.";
+  const today = PH.date.today();
+  const st = PH.state({ tab: "flow", from: today, to: today, region: "", farm: "", variety: "", location: "", box: "" });
+  let board = null;
+  let seq = 0;
+  let traceSeq = 0;
+  let traced = false;
+
+  const n = (v) => PH.fmt.num(Math.round(+v || 0));
+  const pct = (v, d) => (d > 0 ? Math.max(0, Math.min(100, (v / d) * 100)) : 0);
+  const FILTER_KEYS = ["from", "to", "region", "farm", "variety", "location"];
+
+  /* ── Filters & tabs ── */
+  PH.regionPills("#f-region", st, "region");
+  PH.bindSelect("#f-farm", st, "farm");
+  PH.bindSelect("#f-variety", st, "variety");
+  PH.bindSelect("#f-location", st, "location");
+  PH.dateRange({ pills: "#f-preset", from: "#f-from", to: "#f-to", state: st });
+  document.getElementById("f-clear").addEventListener("click", () => st.set({ region: "", farm: "", variety: "", location: "" }));
+  document.getElementById("tabs").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-tab]");
+    if (b) st.set({ tab: b.dataset.tab });
+  });
+
+  function paintTabs() {
+    const tab = st.get("tab") === "trace" ? "trace" : "flow";
+    PH.$$("#tabs .ph-tab").forEach((b) => {
+      const on = b.dataset.tab === tab;
+      b.classList.toggle("is-on", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    document.getElementById("view-flow").hidden = tab !== "flow";
+    document.getElementById("view-trace").hidden = tab !== "trace";
+    // The filter bar only shapes the flow board.
+    document.getElementById("filters").hidden = tab !== "flow";
+    const s = st.get();
+    document.getElementById("f-clear").hidden = !(s.region || s.farm || s.variety || s.location);
+    document.getElementById("loc-note").hidden = !s.location;
+  }
+
+  st.on((s, changed) => {
+    paintTabs();
+    if (changed.some((k) => FILTER_KEYS.includes(k))) {
+      if (changed.includes("region") || changed.includes("farm")) paintOptions();
+      load();
+    }
+    if (changed.includes("tab")) {
+      if (s.tab === "trace") {
+        if (!traced && !changed.includes("box")) trace();
+        setTimeout(() => document.getElementById("trace-q").focus(), 50);
+      }
+      else if (!board) load();
+    }
+    if (changed.includes("box")) {
+      document.getElementById("trace-q").value = s.box || "";
+      trace();
+    }
+  });
+
+  /* ── Flow board ── */
+  PH.kpiSkeleton("#kpis", ["Harvested", "Packed", "Dispatched", "On the shelf now", "Shelf stock past 48 h"]);
+
+  function load(background) {
+    const s = st.get();
+    if (!background) {
+      PH.loadingKpis("#kpis", true);
+      PH.skeleton("#steps", "rows", 10);
+      PH.skeleton("#shelf-wf", "block", 4);
+      PH.skeleton("#shelf-age", "rows", 4);
+      PH.skeleton("#gates", "rows", 6);
+    }
+    const my = ++seq;
+    return PH.call(API + "get_flow", { from_date: s.from, to_date: s.to, region: s.region, farm: s.farm, variety: s.variety, location: s.location }, { silent: background })
+      .then((m) => {
+        if (my !== seq) return;
+        board = m && m.success ? m : null;
+        if (!board) throw new Error((m && m.error) || "The server returned no flow data.");
+        paintOptions();
+        PH.keepScroll(render);
+        PH.markUpdated();
+      })
+      .catch((e) => {
+        if (my !== seq || background) return;
+        PH.loadingKpis("#kpis", false);
+        ["#steps", "#shelf-wf", "#shelf-age", "#gates"].forEach((el) => PH.error(el, e.message, () => load()));
+      });
+  }
+
+  // Option lists come back with the board. Farm and greenhouse lists narrow to
+  // the region / farm; a URL-selected value stays selectable.
+  function paintOptions() {
+    if (!board) return;
+    const o = board.options || {}, s = st.get();
+    const withSel = (list, v) => (v && !list.includes(v) ? list.concat([v]) : list);
+    const regionFarms = PH.regionFarms(s.region);
+    const farms = regionFarms ? (o.farms || []).filter((f) => regionFarms.includes(f)) : o.farms || [];
+    PH.options("#f-farm", withSel(farms, s.farm), s.farm);
+    PH.options("#f-variety", withSel(o.varieties || [], s.variety), s.variety);
+    const ghs = (o.locations || []).filter((g) => (!s.farm || g.farm === s.farm) && (!regionFarms || regionFarms.includes(g.farm))).map((g) => g.name);
+    PH.options("#f-location", withSel(ghs, s.location), s.location);
+  }
+
+  function render() {
+    const d = board;
+    const f = d.filters || {};
+    const parts = [f.region && "Region " + f.region, f.farm && "Farm " + f.farm, f.variety && "Variety " + f.variety, f.location && "Greenhouse " + f.location].filter(Boolean);
+    PH.text("#sub", (parts.length ? parts.join(" · ") : "All farms, varieties and greenhouses") + " · " + PH.date.label(d.from_date, d.to_date) + " · as of " + (d.as_of || "now"));
+    renderKpis();
+    renderSteps();
+    renderShelfWaterfall();
+    renderShelfAge();
+    renderDays();
+  }
+
+  function renderKpis() {
+    const d = board, t = d.totals || {}, sh = d.shelf || {};
+    const stage = (k) => (d.stages || []).find((x) => x.key === k) || {};
+    const range = PH.date.label(d.from_date, d.to_date);
+    const held = +sh.held || 0;
+    PH.kpis("#kpis", [
+      { label: "Harvested", value: +t.harvested || 0, unit: "stems cut · " + range },
+      { label: "Packed", value: +t.packed || 0, unit: "stems" + (stage("packed").boxes != null ? " in " + PH.fmt.plural(stage("packed").boxes, "box", "boxes") : "") + " · order farm" },
+      { label: "Dispatched", value: +t.dispatched || 0, unit: "stems shipped · order farm" },
+      { label: "On the shelf now", value: +sh.stems || 0, unit: "stems live" + (held ? " · " + n(held) + " held for discard" : ""), dark: true },
+      {
+        label: "Shelf stock past " + (d.threshold_h || 48) + " h",
+        value: +sh.past_threshold || 0, unit: "of " + n(sh.stems) + " stems on the shelf now",
+        bar: pct(sh.past_threshold, sh.stems), barClass: sh.past_threshold > 0 ? "bad" : "good",
+      },
+    ]);
+  }
+
+  function renderSteps() {
+    const stages = board.stages || [];
+    const loc = st.get("location");
+    const gmax = Math.max.apply(null, stages.map((s) => +s.stems || 0).concat([1]));
+    PH.table("#steps", {
+      columns: [
+        { key: "label", label: "Step", cls: "is-strong", sortable: false },
+        {
+          key: "stems", label: "Stems", num: true, sortable: false,
+          html: (v, r) => `<div class="sm-gcell"><div class="ph-progress"><i style="width:${(v > 0 ? Math.max(0.5, pct(v, gmax)) : 0).toFixed(1)}%"></i></div><span class="ph-num ph-strong">${n(v)}</span></div>`,
+        },
+        { key: "boxes", label: "Boxes", num: true, sortable: false, format: (v) => (v == null ? "" : n(v)) },
+        {
+          key: "vs_prev", label: "vs previous step", num: true, sortable: false,
+          html: (v, r) => {
+            if (v == null) return '<span class="ph-muted">—</span>';
+            const over = v > 1.0005;
+            return `<span class="ph-badge ${over ? "ph-badge--warn" : ""}" title="${PH.esc(over ? "More than the step before: it was fed from stock handled before the window, see the note below." : "Share of the previous step")}">${PH.fmt.pct(v * 100)}</span>`;
+          },
+        },
+        {
+          key: "farm_kind", label: "Farm used", sortable: false,
+          html: (v, r) => `<span class="ph-badge ph-badge--outline" title="${PH.esc(r.farm_basis)}">${v === "order" ? "Order farm" : "Physical farm"}${loc && !r.location_ok ? " · all greenhouses" : ""}</span>`,
+        },
+        { key: "date_basis", label: "Dated by", sortable: false, cls: "ph-muted" },
+      ],
+      rows: stages, compact: true, empty: "No steps",
+    });
+  }
+
+  function renderShelfWaterfall() {
+    const L = board.shelf_ledger || {};
+    const otherOut = (+L.replaced_out || 0) + (+L.other_out || 0);
+    const steps = [
+      { label: "Opening", sub: "start of range", v: +L.opening || 0, kind: "level" },
+      { label: "Shelved in", sub: PH.fmt.plural(L.buckets_in || 0, "bucket"), v: +L.shelved_in || 0, kind: "up" },
+      { label: "Issued out", sub: "to packhouse", v: -(+L.issued_out || 0), kind: "down" },
+      { label: "Discarded", sub: "from shelf", v: -(+L.discarded_out || 0), kind: "discard" },
+      { label: "Other exits", sub: "replaced / other", v: -otherOut, kind: "adj" },
+      { label: "Closing", sub: "end of range", v: +L.closing || 0, kind: "level" },
+    ];
+    const run = [];
+    let cur = 0;
+    steps.forEach((x) => {
+      if (x.kind === "level") { run.push([0, x.v]); cur = x.v; }
+      else { run.push([cur, cur + x.v]); cur += x.v; }
+    });
+    const vals = run.reduce((a, p) => a.concat(p), []).filter((v) => v > 0);
+    const unlogged = +L.unlogged_now || 0;
+    const foot = `<p class="ph-card__meta ph-mt">The shelving log covers the filtered farms only where stock was logged when shelved. Counted live on the shelf now: <b class="ph-strong">${n(L.now_live)}</b> stems; the log accounts for ${n((+L.now_live || 0) - unlogged)}, so <b class="ph-strong">${unlogged < 0 ? "−" : ""}${n(Math.abs(unlogged))}</b> ${unlogged >= 0 ? "stems on the shelf have no shelving-log entry (remote farms are not logged yet)" : "more stems are in the log than counted on the shelf (partial issues are not written back to the log)"}.</p>`;
+    if (!vals.length) {
+      PH.set("#shelf-wf", `<div id="shelf-wf-empty"></div>${foot}`);
+      PH.empty("#shelf-wf-empty", "No shelf movement logged", "Shelving-log entries appear here as buckets are shelved and issued.");
+      return;
+    }
+    const hi = Math.max.apply(null, vals), lo = Math.min.apply(null, vals);
+    const pad = (hi - lo) * 0.55 + 200;
+    const yMin = Math.max(0, lo - pad), yMax = hi + pad * 0.25, span = (yMax - yMin) || 1;
+    const Y = (v) => Math.max(0, Math.min(100, ((v - yMin) / span) * 100));
+    const color = { level: "var(--ink-faint)", up: "var(--good)", down: "var(--bad)", discard: "var(--warn)", adj: "var(--ink-4)" };
+    const cols = steps.map((x, i) => {
+      const a = x.kind === "level" ? yMin : run[i][0], b = run[i][1];
+      const bottom = Y(Math.min(a, b)), top = Y(Math.max(a, b));
+      const val = x.kind === "level" ? n(x.v) : (x.v >= 0 ? "+" : "−") + n(Math.abs(x.v));
+      return PH.html`<div class="sm-wf__col">
+        <div class="sm-wf__lane">
+          <div class="sm-wf__bar" style="bottom:${bottom.toFixed(2)}%;height:${Math.max(0, top - bottom).toFixed(2)}%;background:${color[x.kind]}"></div>
+          <div class="sm-wf__val ph-mono ph-strong" style="bottom:${top.toFixed(2)}%">${val}</div>
+        </div>
+        <div class="ph-card__meta ph-strong sm-wf__lbl">${x.label}</div>
+        <div class="ph-card__meta sm-wf__lbl">${x.sub}</div>
+      </div>`.__raw;
+    }).join("");
+    PH.set("#shelf-wf",
+      `<div class="sm-wf" style="--n:${steps.length}">${cols}</div>
+       <p class="ph-card__meta ph-mt">Opening + shelved in − exits = closing, by construction. Axis starts at ${n(yMin)} stems so small exits stay visible.</p>${foot}`);
+  }
+
+  function renderShelfAge() {
+    const s = board.shelf || {};
+    const bands = s.age_bands || [];
+    const mx = Math.max.apply(null, bands.map((b) => +b.qty || 0).concat([1]));
+    const tone = { ok: "high", warn: "mid", bad: "low" };
+    PH.set("#shelf-age", bands.map((b) => PH.html`<div class="ph-hb">
+        <div class="ph-hb__name">${b.label}</div>
+        <div class="ph-hb__lane"><div class="ph-hb__est" style="width:100%"></div><div class="ph-hb__act ${tone[b.tone] || ""}" style="width:${pct(b.qty, mx).toFixed(1)}%"></div></div>
+        <div class="ph-hb__pct">${n(b.qty)}</div>
+      </div>`.__raw).join(""));
+    const past = +s.past_threshold || 0;
+    PH.set("#shelf-reasons",
+      PH.html`<span class="ph-badge ${past > 0 ? "ph-badge--bad" : "ph-badge--good"}">${n(past)} stems past the ${board.threshold_h || 48} h threshold</span>`.__raw +
+      PH.html`<span class="ph-badge ph-badge--outline">Held for discard · ${n(s.held)}</span><span class="ph-badge ph-badge--outline">Allocated · ${n(s.allocated)}</span><span class="ph-badge ph-badge--outline">Free · ${n(s.free)}</span>`.__raw);
+  }
+
+  function renderDays() {
+    const days = board.days || [];
+    const cols = (board.stages || []).map((s) => ({ key: s.key, label: s.label, num: true, total: true }));
+    if (!days.length) return PH.empty("#gates", "No movement in this range", "Nothing was harvested, shelved, packed or dispatched for these filters.");
+    PH.table("#gates", {
+      columns: [{ key: "date", label: "Date", format: (v) => PH.fmt.date(v) }].concat(cols),
+      rows: days, sort: { key: "date", dir: "desc" }, compact: true, pageSize: 14,
+    });
+  }
+
+
+  /* ── Box traceability ── */
+  const traceInput = document.getElementById("trace-q");
+  traceInput.value = st.get("box") || "";
+  PH.autocomplete(traceInput, {
+    minChars: 1,
+    source: (q) => PH.call(API + "search_box_labels", { q }, { silent: true }).then((m) =>
+      ((m && m.results) || []).map((x) => ({ value: x.name, label: x.name, description: [x.customer, x.date && PH.fmt.date(x.date)].filter(Boolean).join(" · ") }))),
+    onSelect: (it) => setBox(it.value),
+  });
+  document.getElementById("trace-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    setBox(traceInput.value.trim());
+  });
+  function setBox(v) {
+    if (v === st.get("box")) trace();
+    else st.set({ box: v });
+  }
+
+  function trace() {
+    const box = (st.get("box") || "").trim();
+    const out = document.getElementById("trace-result");
+    traced = true;
+    if (!box) return PH.empty(out, "Pick a box to trace", "Scan a box label or start typing its name to see every bucket that went into it.", "search");
+    PH.skeleton(out, "block", 6);
+    const my = ++traceSeq;
+    return PH.call(API + "get_box_trace", { box }, { silent: true })
+      .then((m) => {
+        if (my !== traceSeq) return;
+        if (m && m.success === false) throw new Error(m.error || "Couldn’t trace this box.");
+        renderTrace(m || {});
+        PH.markUpdated();
+      })
+      .catch((e) => {
+        if (my !== traceSeq) return;
+        PH.error(out, e.message, () => trace());
+      });
+  }
+
+  function step(on, lines) {
+    if (!on) return '<span class="ph-muted">—</span>';
+    return `<div class="sm-jstep">${lines.filter((l) => l !== "" && l != null).map((l, i) => (i === 0 ? `<span class="ph-strong">${l}</span>` : `<span class="ph-card__meta">${l}</span>`)).join("")}</div>`;
+  }
+  const dt = (v) => (v ? PH.esc(PH.fmt.date(v, true)) : "");
+
+  function renderTrace(m) {
+    const b = m.box || {};
+    const out = document.getElementById("trace-result");
+    const journey = m.journey || [];
+    const gh = m.greenhouses || [];
+    const items = m.box_items || [];
+    const disp = b.dispatched_by ? [b.dispatched_by, b.dispatch_time, b.driver].filter(Boolean).join(" · ") : "";
+
+    const hero = PH.html`<section class="ph-hero">
+      <div class="ph-flex ph-flex--between ph-flex--wrap">
+        <div class="ph-hero__eyebrow">Box label</div>
+        <button class="ph-btn ph-btn--ghost ph-btn--sm" data-open-box="${b.name}">${PH.raw(PH.icon("external"))}Open in Desk</button>
+      </div>
+      <h2 class="ph-hero__name ph-truncate">${b.name}</h2>
+      <p class="ph-hero__sub">${b.customer || "No customer"}${b.date ? " · " + PH.fmt.date(b.date) : ""}${b.farm ? " · " + b.farm : ""}</p>
+      <div class="ph-hero__stats">
+        <div class="ph-stat"><small>Box</small><b>${b.box_number || "?"} / ${b.box_total_count || "?"}</b></div>
+        <div class="ph-stat"><small>Planned stems</small><b>${n(b.planned_stems)}</b></div>
+        <div class="ph-stat"><small>Packed stems</small><b>${n(b.packed_stems)}</b></div>
+        <div class="ph-stat"><small>Packed bunches</small><b>${n(b.packed_bunches)}</b></div>
+        <div class="ph-stat"><small>Bunches on label</small><b>${n(b.label_bunches)}</b></div>
+        <div class="ph-stat"><small>Buckets</small><b>${n(journey.length)}</b></div>
+      </div>
+    </section>`.__raw;
+
+    const kvRow = (k, v) => PH.html`<dt>${k}</dt><dd>${v || "—"}</dd>`.__raw;
+    const details = `<section class="ph-card">
+      <div class="ph-card__head"><h2 class="ph-card__title">Details</h2></div>
+      <dl class="ph-kv">${[
+        kvRow("Farm", b.farm), kvRow("Team", b.team), kvRow("Date", b.date && PH.fmt.date(b.date)),
+        kvRow("Delivery point", b.delivery_point), kvRow("Consignee", b.consignee), kvRow("PO", b.po),
+        kvRow("Pack rate", b.pack_rate), kvRow("Packed by", b.packed_by), kvRow("Dispatched by", disp),
+      ].join("")}</dl>
+    </section>`;
+    const contents = `<section class="ph-card ph-card--flush">
+      <div class="ph-card__head"><h2 class="ph-card__title">On the label</h2><span class="ph-badge">${PH.esc(PH.fmt.plural(items.length, "line"))}</span></div>
+      <div id="trace-items"></div>
+    </section>`;
+
+    const jRows = journey.map((j) => {
+      const h = j.harvested, r = j.received, g = j.graded, s = j.shelved, p = j.packed, d = j.discarded;
+      const qc = r ? `<span class="ph-badge ${r.action === "Quarantined" ? "ph-badge--warn" : r.action === "Accepted" ? "ph-badge--good" : ""}">${PH.esc(r.action)}</span>` : "";
+      return `<tr>
+        <td><div class="sm-jstep"><span class="ph-mono ph-strong">${PH.esc(j.bucket)}</span>${j.group ? `<span class="ph-card__meta">${PH.esc(j.group)}</span>` : ""}</div></td>
+        <td>${step(h, h ? [dt(h.date), PH.esc(h.harvester || ""), PH.esc(h.greenhouse || "")] : [])}</td>
+        <td>${r ? `<div class="sm-jstep"><span class="ph-strong">${dt(r.date)}</span><span>${qc}</span></div>` : step(false)}</td>
+        <td>${step(g, g ? [dt(g.date), PH.esc(g.to || "")] : [])}</td>
+        <td>${step(s, s ? [PH.esc(s.shelf || "—"), s.qty ? n(s.qty) + " stems" : "", dt(s.date)] : [])}</td>
+        <td>${step(p, p ? [n(p.stems) + " stems"] : [])}</td>
+        <td>${d ? `<div class="sm-jstep"><span class="ph-badge ph-badge--bad">Discarded</span><span class="ph-card__meta">${dt(d.date)}</span>${d.reason ? `<span class="ph-card__meta">${PH.esc(d.reason)}</span>` : ""}</div>` : step(false)}</td>
+      </tr>`;
+    }).join("");
+    const journeyCard = `<section class="ph-card ph-card--flush">
+      <div class="ph-card__head"><h2 class="ph-card__title">Bucket journey</h2><span class="ph-badge">${PH.esc(PH.fmt.plural(journey.length, "bucket"))}</span></div>
+      ${journey.length
+        ? `<div class="ph-table-wrap"><table class="ph-table"><thead><tr><th>Bucket</th><th>Harvested</th><th>Received</th><th>Graded</th><th>Shelved</th><th>Issued for box</th><th>Discarded</th></tr></thead><tbody>${jRows}</tbody></table></div>`
+        : '<div id="trace-nojourney"></div>'}
+    </section>`;
+
+    const ghCard = gh.length ? `<section class="ph-card">
+      <div class="ph-card__head"><h2 class="ph-card__title">Origin — greenhouses of these buckets</h2></div>
+      <div class="ph-list">${gh.map((g, i) => {
+        const vs = (g.varieties || []).slice(0, 3).map((v) => v.variety + (v.length ? " " + v.length : "")).join(", ");
+        return PH.html`<div class="ph-list__row"><span class="ph-list__rank${i === 0 ? " lead" : ""}">${i + 1}</span><div style="min-width:0"><div class="ph-list__name">${g.name}</div><div class="ph-list__meta">${PH.fmt.plural(g.bucket_count || 0, "bucket")}${vs ? " · " + vs : ""}</div></div><div class="ph-list__qty">${n(g.total_stems)}<small>stems</small></div></div>`.__raw;
+      }).join("")}</div>
+    </section>` : "";
+
+    PH.set(out, hero + `<div class="ph-row ph-row--2">${details}${contents}</div>` + journeyCard + ghCard);
+    PH.table("#trace-items", {
+      columns: [
+        { key: "variety", label: "Variety" },
+        { key: "length", label: "Length" },
+        { key: "qty", label: "Bunches", num: true, total: true },
+      ],
+      rows: items, compact: true, empty: "No lines on this label",
+    });
+    if (!journey.length) PH.empty("#trace-nojourney", "No buckets linked", "This box has no Order Pick List buckets to trace.");
+  }
+
+  /* ── Boot ── */
+  paintTabs();
+  PH.onRefresh(() => (st.get("tab") === "trace" ? trace() : load()));
+  PH.ready(() => {
+    if (st.get("tab") === "trace") trace();
+    else load();
+  });
+})();
+</script>
+{% endraw %}
+{% endblock %}

@@ -1,0 +1,392 @@
+{% extends "templates/web.html" %}
+{% block title %}Downgrades · Packhouse{% endblock %}
+{% block page_content %}
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
+
+<style>
+  /* Multi-select filter (team / user / reason): a .ph-select-styled button
+     that opens a .ph-menu of checkable options. Layout only. */
+  .ph2 .dg-ms{white-space:nowrap;overflow:hidden;text-align:left}
+  .dg-msmenu{max-height:320px;overflow-y:auto;min-width:220px;max-width:320px}
+  .dg-msmenu button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dg-msmenu button .ph-ic{visibility:hidden;flex:0 0 auto}
+  .dg-msmenu button.is-on{color:var(--ink)}
+  .dg-msmenu button.is-on .ph-ic{visibility:visible}
+  .dg-msmenu .dg-msmenu__sep{height:1px;background:var(--hairline);margin:var(--sp-1) 0}
+  .ph2 .dg-trunc{margin:0 var(--sp-7) var(--sp-4)}
+  @media (max-width:860px){.ph2 .dg-trunc{margin:0 var(--sp-5) var(--sp-4)}}
+  .dg-msmenu .dg-msmenu__none{padding:var(--sp-2) var(--sp-3);color:var(--ink-mute)}
+</style>
+
+<header class="ph-head">
+  <div>
+    <div class="ph-head__eyebrow">Packhouse · Tracking</div>
+    <h1 class="ph-head__title">Downgrades</h1>
+    <p class="ph-head__sub" id="sub">Pick list lines filled with longer stems than the order asked for</p>
+  </div>
+  <div class="ph-head__tools">
+    <button class="ph-btn" id="export" disabled><svg class="ph-ic" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV</button>
+  </div>
+</header>
+
+<div class="ph-filters">
+  <div class="ph-pills" id="f-region" title="Order farm"></div>
+  <select class="ph-select" id="f-farm" aria-label="Order farm" title="Order farm"><option value="">All farms</option></select>
+  <div class="ph-pills" id="f-rose">
+    <button data-value="all">All</button><button data-value="standard">Standard</button><button data-value="spray">Spray</button>
+  </div>
+  <button type="button" class="ph-select dg-ms" id="f-team" aria-haspopup="true">All teams</button>
+  <button type="button" class="ph-select dg-ms" id="f-owner" aria-haspopup="true">All allocators</button>
+  <button type="button" class="ph-select dg-ms" id="f-reason" aria-haspopup="true">All reasons</button>
+  <div class="ph-filters__spacer"></div>
+  <div class="ph-pills" id="f-preset">
+    <button data-value="today">Today</button><button data-value="7d">7d</button><button data-value="30d">30d</button><button data-value="mtd">MTD</button>
+  </div>
+  <label class="ph-daterange" title="Order delivery date">
+    <input type="date" id="f-from" aria-label="From"><span class="ph-daterange__sep">→</span><input type="date" id="f-to" aria-label="To">
+  </label>
+</div>
+
+<section class="ph-kpis" id="kpis"></section>
+
+<div class="ph-row ph-row--2-1">
+  <section class="ph-card">
+    <div class="ph-card__head">
+      <h2 class="ph-card__title">Foregone revenue</h2>
+      <span class="ph-card__meta">(list price at original length − sold price) × stems, in the order’s currency</span>
+    </div>
+    <div id="foregone"></div>
+  </section>
+  <section class="ph-card">
+    <div class="ph-card__head">
+      <h2 class="ph-card__title">By reason</h2>
+      <span class="ph-card__meta">stems downgraded</span>
+    </div>
+    <div id="reasons"></div>
+  </section>
+</div>
+
+<section class="ph-card ph-card--flush">
+  <div class="ph-card__head">
+    <h2 class="ph-card__title">Downgraded lines <span class="ph-badge" id="count">0</span></h2>
+    <div class="ph-card__tools">
+      <span class="ph-card__meta" id="table-meta"></span>
+      <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Search order, customer, variety, reason, user"></label>
+    </div>
+  </div>
+  <div id="truncated"></div>
+  <div id="lines"></div>
+</section>
+
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  // Every filter is applied on the server (api/v2/downgrades.get_downgrades), so
+  // every KPI, the reason list, the foregone card and the table follow all of them.
+  // Region / farm = the ORDER's farm (Sales Order.farm / custom_farm / OPL farm).
+  // The bucket's origin farm (Pick List Item.farm) is only a column.
+  // Date = the order's delivery date. Owner and reason lists are "|~|"-joined
+  // (free text); teams are comma-joined.
+  const API = "upande_packhouse.api.v2.downgrades.";
+  const SEP = "|~|";
+  const who = (e) => String(e || "").replace(/@.*$/, "");
+  const today = PH.date.today();
+  const st = PH.state({ from: today, to: today, region: "", farm: "", rose: "all", team: "", owner: "", reason: "", q: "" });
+  let data = null;
+  let seq = 0;
+  let teamOpts = [];
+  let allFarms = [];
+  let table = null;
+
+  const list = (key) => {
+    const v = st.get(key) || "";
+    return v ? v.split(key === "team" ? "," : SEP).filter(Boolean) : [];
+  };
+  const setList = (key, arr) => st.set({ [key]: arr.join(key === "team" ? "," : SEP) });
+
+  /* ── Filters ── */
+  PH.regionPills("#f-region", st, "region");
+  PH.bindSelect("#f-farm", st, "farm");
+  PH.pills("#f-rose", st, "rose");
+  PH.dateRange({ pills: "#f-preset", from: "#f-from", to: "#f-to", state: st });
+  PH.bindSearch("#f-q", st, "q");
+
+  function paintFarms() {
+    const r = PH.regionFarms(st.get("region"));
+    const farms = allFarms.length ? allFarms : [].concat(PH.REGIONS.Ravine, PH.REGIONS.Karen).sort();
+    PH.options("#f-farm", r ? farms.filter((f) => r.includes(f)) : farms, st.get("farm"));
+  }
+  paintFarms();
+
+  const MULTI = {
+    team: { btn: "#f-team", all: "All teams", one: "team", opts: () => teamOpts },
+    owner: { btn: "#f-owner", all: "All allocators", one: "allocator", opts: () => (data && data.owners) || [], label: (v) => who(v) || "(blank)" },
+    reason: { btn: "#f-reason", all: "All reasons", one: "reason", opts: () => (data && data.reasons) || [] },
+  };
+  function paintMulti(key) {
+    const m = MULTI[key], sel = list(key), b = PH.$(m.btn);
+    const lab = m.label || ((v) => v);
+    b.textContent = !sel.length ? m.all : sel.length === 1 ? lab(sel[0]) : sel.length + " " + m.one + "s";
+    b.title = sel.length ? sel.map(lab).join(", ") : m.all;
+    b.classList.toggle("is-on", !!sel.length);
+  }
+  let openMenu = null;
+  function closeMenu() {
+    if (!openMenu) return;
+    openMenu.el.remove();
+    document.removeEventListener("mousedown", openMenu.off);
+    document.removeEventListener("keydown", openMenu.key);
+    openMenu = null;
+  }
+  function showMulti(key) {
+    const prev = openMenu && openMenu.key_;
+    closeMenu();
+    if (prev === key) return;
+    const m = MULTI[key], anchor = PH.$(m.btn), lab = m.label || ((v) => v);
+    const el = document.createElement("div");
+    el.className = "ph-menu dg-msmenu";
+    el.setAttribute("role", "listbox");
+    const paint = () => {
+      const sel = list(key);
+      // Keep selected values visible even when the current range no longer has them.
+      const opts = PH.uniq(m.opts().concat(sel));
+      el.innerHTML =
+        `<button data-v="" class="${sel.length ? "" : "is-on"}">${PH.icon("check")}<span>${PH.esc(m.all)}</span></button><div class="dg-msmenu__sep"></div>` +
+        (opts.length
+          ? opts.map((v, i) => `<button data-i="${i}" class="${sel.includes(v) ? "is-on" : ""}" title="${PH.esc(v)}">${PH.icon("check")}<span>${PH.esc(lab(v))}</span></button>`).join("")
+          : '<div class="dg-msmenu__none">None in this range</div>');
+      el._opts = opts;
+    };
+    paint();
+    el.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      if (b.dataset.v === "") setList(key, []);
+      else {
+        const v = el._opts[+b.dataset.i], sel = list(key), k = sel.indexOf(v);
+        if (k >= 0) sel.splice(k, 1); else sel.push(v);
+        setList(key, sel);
+      }
+      paint();
+    });
+    (document.querySelector(".ph2") || document.body).appendChild(el);
+    const r = anchor.getBoundingClientRect();
+    el.style.left = Math.max(8, Math.min(window.innerWidth - el.offsetWidth - 8, r.left)) + "px";
+    el.style.top = (r.bottom + el.offsetHeight + 8 > window.innerHeight ? Math.max(8, r.top - el.offsetHeight - 6) : r.bottom + 6) + "px";
+    const off = (e) => { if (!el.contains(e.target) && !anchor.contains(e.target)) closeMenu(); };
+    const keyH = (e) => { if (e.key === "Escape") closeMenu(); };
+    setTimeout(() => document.addEventListener("mousedown", off));
+    document.addEventListener("keydown", keyH);
+    openMenu = { el, off, key: keyH, key_: key };
+  }
+  Object.keys(MULTI).forEach((k) => {
+    PH.$(MULTI[k].btn).addEventListener("click", () => showMulti(k));
+    paintMulti(k);
+  });
+  const main = document.querySelector(".ph-main");
+  if (main) main.addEventListener("scroll", closeMenu, { passive: true });
+  window.addEventListener("resize", closeMenu);
+
+  st.on((s, changed) => {
+    ["team", "owner", "reason"].forEach((k) => changed.includes(k) && paintMulti(k));
+    if (changed.includes("region")) paintFarms();
+    load();
+  });
+
+  // Teams come from the Packing Teams doctype (cached for an instant fill).
+  try { const c = JSON.parse(localStorage.getItem("ph2Teams") || "null"); if (Array.isArray(c)) teamOpts = c; } catch (e) {}
+  PH.call("upande_packhouse.api.dashboard.getTeams", {}, { silent: true }).then((m) => {
+    teamOpts = (m && m.teams) || [];
+    try { localStorage.setItem("ph2Teams", JSON.stringify(teamOpts)); } catch (e) {}
+  }).catch(() => {});
+
+  /* ── Load ── */
+  const KPI_LABELS = ["Downgraded lines", "Stems downgraded", "Orders affected", "Foregone (KES)"];
+  PH.kpiSkeleton("#kpis", KPI_LABELS);
+  function load(background) {
+    const s = st.get();
+    if (!background) {
+      PH.loadingKpis("#kpis", true);
+      PH.skeleton("#foregone", "block", 3);
+      PH.skeleton("#reasons", "rows", 4);
+      PH.skeleton("#lines", "rows", 8);
+    }
+    const my = ++seq;
+    const args = {
+      from_date: s.from,
+      to_date: s.to,
+      region: s.region,
+      farm: s.farm,
+      team: s.team,
+      rose: s.rose,
+      owner: list("owner").join(SEP),
+      reason: list("reason").join(SEP),
+      q: s.q,
+    };
+    return PH.call(API + "get_downgrades", args, { silent: background })
+      .then((m) => {
+        if (my !== seq) return;
+        if (!m || m.success === false) throw new Error((m && m.error) || "Could not load downgrades");
+        data = m;
+        if (m.farms && m.farms.join() !== allFarms.join()) { allFarms = m.farms; paintFarms(); }
+        render();
+        PH.markUpdated();
+      })
+      .catch((e) => {
+        if (my !== seq || background) return;
+        data = null;
+        table = null;
+        PH.$("#export").disabled = true;
+        PH.kpis("#kpis", KPI_LABELS.map((label) => ({ label, value: "—" })));
+        PH.error("#lines", e.message, () => load());
+        PH.set("#foregone", "");
+        PH.set("#reasons", "");
+        PH.set("#truncated", "");
+      });
+  }
+
+  /* ── Render (the server sends every total; the browser only formats) ── */
+  const rate = (v) => (v == null || v === "" ? "—" : PH.fmt.qty(v, 3));
+  function scopeNote() {
+    const s = st.get();
+    const bits = [];
+    if (s.farm) bits.push(s.farm);
+    else if (s.region) bits.push(s.region);
+    return bits.length ? " · " + bits.join(" · ") : "";
+  }
+
+  function render() {
+    const d = data, k = d.kpis || {};
+    const fc = d.foregone_by_currency || {};
+    const curs = Object.keys(fc);
+    const noPl = d.currencies_without_price_list || [];
+    const noFx = d.currencies_without_fx || [];
+    PH.text("#sub", "Pick list lines filled with longer stems than the order asked for · " + PH.date.label(st.get("from"), st.get("to")) + scopeNote());
+    PH.kpis("#kpis", [
+      { label: "Downgraded lines", value: k.lines || 0, unit: "pick list lines" },
+      { label: "Stems downgraded", value: k.stems || 0, unit: k.avg_cm_lost != null ? "stems · avg " + PH.fmt.qty(k.avg_cm_lost, 1) + " cm shorter" : "stems" },
+      { label: "Orders affected", value: k.orders || 0, unit: "sales orders" },
+      {
+        label: "Foregone (KES)", value: curs.length ? PH.fmt.compact(k.foregone_kes || 0) : "—", dark: true,
+        unit: k.unpriced_lines ? PH.fmt.plural(k.unpriced_lines, "line") + " not priced"
+          : noFx.length ? "excl. " + noFx.join(", ") + " (no KES rate)" : curs.length ? "at the FX rate on each delivery date" : "nothing priced in range",
+        title: curs.length ? "KES " + PH.fmt.num(k.foregone_kes || 0) : "",
+      },
+    ]);
+    renderForegone(fc, curs, noPl, noFx);
+    renderReasons();
+    renderTable();
+  }
+
+  function renderForegone(fc, curs, noPl, noFx) {
+    const d = data, k = d.kpis || {};
+    const notice = noPl.length
+      ? PH.html`<div class="ph-notice ph-notice--warn">${PH.raw(PH.icon("alert"))}<div>No price list found for ${noPl.length > 1 ? "currencies" : "currency"} <b>${noPl.join(", ")}</b>, so those lines have no foregone value. Map them under <b>Production Settings → Currency Price Lists</b>.</div></div>`.__raw
+      : "";
+    if (!curs.length) {
+      if (notice) return PH.set("#foregone", notice);
+      return PH.empty("#foregone", "No foregone revenue in range", "Lines need a list price for their original length and a sold rate to be valued.");
+    }
+    const stats = curs.map((c) => PH.html`<div class="ph-stat"><small>${c}</small><b>${PH.fmt.money(fc[c], "", 2)}</b></div>`.__raw).join("");
+    const total = PH.html`<div class="ph-stat"><small>Total in KES</small><b>${PH.fmt.num(k.foregone_kes || 0)}</b></div>`.__raw;
+    const fx = d.fx_to_kes || {};
+    const rates = Object.keys(fx).map((c) => c + " " + fx[c].map((r) => PH.fmt.qty(r, 2)).join("/")).join(" · ");
+    const foot = `<p class="ph-muted ph-mt ph-mb-0">Price valid on each order's delivery date, from the order's own price list. Converted to KES at the selling rate on that date${rates ? " (" + PH.esc(rates) + ")" : ""}. Lines sold above list count 0.${
+      k.unpriced_lines ? " " + PH.esc(PH.fmt.plural(k.unpriced_lines, "line")) + " have no list price at their original length." : ""}${
+      noFx.length ? " " + PH.esc(noFx.join(", ")) + " left out of KES: no exchange rate." : ""}</p>`;
+    PH.set("#foregone", notice + `<div class="ph-stats">${stats}${total}</div><div class="ph-divider"></div>` + foot);
+  }
+
+  function renderReasons() {
+    const items = (data && data.by_reason) || [];
+    if (!items.length) return PH.empty("#reasons", "No reasons to show", "Reasons appear once lines are downgraded in this range.");
+    const sel = list("reason");
+    PH.set("#reasons", `<div class="ph-list">${items.slice(0, 8).map((x, i) => PH.html`
+      <div class="ph-list__row is-link" data-reason="${x.reason}" title="${sel.length === 1 && sel[0] === x.reason ? "Clear reason filter" : "Show only this reason"}">
+        <div class="ph-list__rank${i === 0 ? " lead" : ""}">${i + 1}</div>
+        <div style="min-width:0"><div class="ph-list__name">${x.reason}</div><div class="ph-list__meta">${PH.fmt.plural(x.lines, "line")}</div></div>
+        <div class="ph-list__qty">${PH.fmt.num(x.stems)}<small>stems</small></div>
+      </div>`.__raw).join("")}</div>${items.length > 8 ? `<p class="ph-muted ph-mt ph-mb-0">+ ${items.length - 8} more reasons</p>` : ""}`);
+  }
+  PH.$("#reasons").addEventListener("click", (e) => {
+    const r = e.target.closest("[data-reason]");
+    if (!r) return;
+    const v = r.dataset.reason === "(no reason)" ? "" : r.dataset.reason;
+    if (!v) return;
+    const sel = list("reason");
+    setList("reason", sel.length === 1 && sel[0] === v ? [] : [v]);
+  });
+
+  const tot = (key, fmt) => () => (fmt || PH.fmt.num)((data && data.kpis && data.kpis[key]) || 0);
+  const COLS = [
+    { key: "date", label: "Delivery", format: (v) => PH.fmt.date(v, true), csv: (v) => v || "" },
+    { key: "order_name", label: "Order", html: (v, r) => PH.html`<div class="ph-strong">${r.sales_order || v || r.opl || "—"}</div><div class="ph-muted ph-mono">${r.opl || ""}</div>`, csv: (v, r) => r.sales_order || v || r.opl || "" },
+    { key: "customer", label: "Customer" },
+    { key: "farm", label: "Order farm", html: (v) => (v ? PH.html`${v}` : PH.html`<span class="ph-muted">—</span>`) },
+    { key: "origin_farm", label: "Bucket from" },
+    { key: "allocated_by", label: "Allocated by", html: (v) => PH.html`<span title="${v || ""}">${who(v) || "—"}</span>` },
+    { key: "variety", label: "Variety", cls: "is-strong" },
+    { key: "rose", label: "Type", html: (v) => (v ? PH.html`<span class="ph-badge${v === "Spray" ? " ph-badge--signal" : ""}">${v}</span>` : "—") },
+    { key: "original_length", label: "Original len", sortValue: (r) => parseInt(r.original_length, 10) || 0 },
+    { key: "sold_length", label: "Sold len", sortValue: (r) => parseInt(r.sold_length, 10) || 0 },
+    { key: "dg_stems", label: "Stems", num: true, cls: "is-strong", total: tot("stems") },
+    { key: "rate_original", label: "List @ original", num: true, format: rate },
+    { key: "rate_sold", label: "Sold rate", num: true, format: rate },
+    { key: "reason", label: "Reason", cls: "is-wrap" },
+    {
+      key: "foregone", label: "Foregone", num: true,
+      html: (v, r) => (v != null ? PH.html`<span class="ph-strong" title="${r.foregone_kes != null ? "KES " + PH.fmt.num(r.foregone_kes) : "No KES rate"}">${PH.fmt.money(v, r.currency || "")}</span>` : PH.html`<span class="ph-muted" title="No list price at ${r.original_length || "this length"}${r.price_list ? " in " + r.price_list : ""}">—</span>`),
+      sortValue: (r) => r.foregone_kes, csv: (v) => (v == null ? "" : v),
+    },
+  ];
+  const CSV_COLS = COLS.concat([
+    { key: "currency", label: "Currency" }, { key: "foregone_kes", label: "Foregone KES" }, { key: "price_list", label: "Price list" },
+    { key: "team", label: "Team" }, { key: "opl", label: "Order Pick List" }, { key: "bucket", label: "Bucket" },
+    { key: "avail_exact_stems", label: "Exact-length stems at allocation" },
+  ]);
+
+  function renderTable() {
+    if (!data) return;
+    const rows = data.rows || [];
+    const q = st.get("q");
+    PH.text("#count", PH.fmt.num(data.total_rows || 0));
+    PH.text("#table-meta", (q ? "matching “" + q + "” · " : "") + "newest first · click a line to open its pick list");
+    PH.$("#export").disabled = !rows.length;
+    PH.set("#truncated", data.truncated
+      ? '<div class="ph-notice ph-notice--warn dg-trunc">' + PH.icon("alert") + "<div>Showing the first " + PH.fmt.num(rows.length) + " of " + PH.fmt.num(data.total_rows) + " lines; totals and KPIs cover all of them. Narrow the date range to list them all.</div></div>"
+      : "");
+    if (!rows.length) {
+      table = null;
+      return PH.empty("#lines", q ? "No lines match “" + q + "”" : "No downgrades in range",
+        q ? "Clear the search to see every downgraded line." : "Try a wider date range, or clear the site, farm, team, allocator and reason filters.");
+    }
+    // A fresh holder per table: PH.table binds its click handler to the holder.
+    if (table && table.holder.isConnected && table.holder.querySelector(".ph-table")) return table.update(rows);
+    const holder = document.createElement("div");
+    PH.set("#lines", "");
+    PH.$("#lines").appendChild(holder);
+    table = PH.table(holder, {
+      columns: COLS,
+      rows,
+      pageSize: 100,
+      tall: true,
+      onRowClick: (r) => r.opl && PH.openDoc("Order Pick List", r.opl),
+    });
+    table.holder = holder;
+  }
+
+  PH.$("#export").addEventListener("click", () => {
+    const rows = (data && data.rows) || [];
+    if (!rows.length) return;
+    PH.csv("downgrades_" + st.get("from") + "_" + st.get("to") + ".csv", rows, CSV_COLS);
+  });
+
+  PH.onRefresh(() => load());
+  PH.ready(() => load());
+  PH.poll(load, 30000);
+})();
+</script>
+{% endraw %}
+{% endblock %}

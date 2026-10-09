@@ -77,9 +77,10 @@ def fetchOrderSummaryData():
 	]
 
 	if location:
-		# Location = the packing farm's Location (Karen / Ravine / Naivasha),
-		# via Farm.farm_location. Accept the farm name too for back-compat.
-		where_conditions.append("(opl_farm.farm_location = %(location)s OR opl.farm = %(location)s)")
+		# Location = the Sales Order's farm's Location (Kapkolia / Karen), via
+		# Farm.farm_location; the farm name works too. Not the Order Pick List's farm:
+		# that is Kapkolia on every order, so Karen's orders never matched.
+		where_conditions.append("(so_farm.farm_location = %(location)s OR so.farm = %(location)s)")
 
 	where_clause = " AND ".join(where_conditions)
 
@@ -109,7 +110,7 @@ def fetchOrderSummaryData():
            doesn't exist on this doctype; a stale version of this same comment
            elsewhere led api/production.py to reference it directly and crash). */
         opl.farm         AS processing_location,
-        opl_farm.farm_location           AS location,
+        COALESCE(so_farm.farm_location, opl_farm.farm_location) AS location,
         soi.custom_opl                   AS opl_id,
 
         opl.docstatus                    AS opl_docstatus,
@@ -157,6 +158,7 @@ def fetchOrderSummaryData():
     INNER JOIN `tabSales Order Item` soi ON soi.parent = so.name
     LEFT JOIN `tabOrder Pick List` opl ON opl.name = soi.custom_opl
     LEFT JOIN `tabFarm` opl_farm ON opl_farm.name = opl.farm
+    LEFT JOIN `tabFarm` so_farm ON so_farm.name = so.farm
 
     /* ── Allocated & Issued per SO line item ──────────────────────────────── */
     /* Uses stock_qty from Pick List Item (= stems after UOM conversion).     */

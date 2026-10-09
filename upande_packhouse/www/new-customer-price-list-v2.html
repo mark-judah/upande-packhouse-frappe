@@ -1,0 +1,383 @@
+{% extends "templates/web.html" %}
+{% block title %}New Customer Price List · Packhouse{% endblock %}
+{% block page_content %}
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
+
+<header class="ph-head">
+  <div>
+    <div class="ph-head__eyebrow">Packhouse · Reference</div>
+    <h1 class="ph-head__title">New Customer Price List</h1>
+    <p class="ph-head__sub" id="sub">Create a selling price list for a customer, then fill in its rates</p>
+  </div>
+  <div class="ph-head__tools">
+    <a class="ph-btn ph-btn--ghost" href="/price-lists-v2" id="all-lists">All price lists</a>
+  </div>
+</header>
+
+<section class="ph-card" id="step1">
+  <div class="ph-card__head">
+    <h2 class="ph-card__title"><span class="ph-badge ph-badge--ink">1</span> Create the price list</h2>
+    <div class="ph-card__meta">Named “&lt;prefix&gt; &lt;customer&gt;” and set as the customer’s default price list</div>
+  </div>
+  <div id="create-form">
+    <div class="ph-form">
+      <div class="ph-field">
+        <label for="cust">Customer</label>
+        <input class="ph-control" id="cust" type="text" placeholder="Start typing a customer…" autocomplete="off">
+      </div>
+      <div class="ph-field">
+        <label for="prefix">Prefix</label>
+        <input class="ph-control" id="prefix" type="text" placeholder="e.g. May" maxlength="40">
+      </div>
+      <div class="ph-field">
+        <label for="currency">Currency</label>
+        <select class="ph-control" id="currency"><option value="">Loading…</option></select>
+      </div>
+    </div>
+    <div class="ph-flex ph-flex--wrap ph-flex--between ph-mt">
+      <div class="ph-muted">Will create: <span class="ph-strong" id="preview">—</span></div>
+      <button class="ph-btn ph-btn--primary" type="button" id="create" disabled>Create price list</button>
+    </div>
+    <div id="create-err" class="ph-mt" hidden></div>
+  </div>
+  <div id="created" hidden>
+    <div class="ph-notice ph-notice--good ph-mb-0">
+      <div class="ph-grow">Filling in prices for <b id="created-name"></b>. It is the customer’s default price list.</div>
+      <button class="ph-btn ph-btn--sm" type="button" id="another">Create another</button>
+    </div>
+  </div>
+</section>
+
+<section class="ph-card ph-card--flush" id="step2" hidden>
+  <div class="ph-card__head">
+    <h2 class="ph-card__title"><span class="ph-badge ph-badge--ink">2</span> Fill in prices <span class="ph-badge" id="coverage">—</span></h2>
+    <div class="ph-card__tools">
+      <div class="ph-pills" id="f-show">
+        <button data-value="all">All</button><button data-value="gaps">With gaps</button><button data-value="complete">Fully priced</button>
+      </div>
+      <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Search variety or item code"></label>
+    </div>
+  </div>
+  <p class="ph-muted ncp-hint">Click a cell to set a rate · Enter moves to the next length · clear a cell to remove its price</p>
+  <div id="grid"></div>
+</section>
+
+<div class="ncp-savebar" id="savebar" hidden>
+  <span class="ncp-savebar__n" id="savebar-n"></span>
+  <button class="ph-btn ph-btn--sm" type="button" id="discard">Discard</button>
+  <button class="ph-btn ph-btn--sm" type="button" id="save">Save changes</button>
+</div>
+
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
+<style>
+  /* Price grid (same layout as price-lists-v2): clickable rate cells, group rows, floating save bar. */
+  #step2 .ncp-hint{padding:0 32px var(--sp-4)}
+  #step1 .ph-card__title .ph-badge,#step2 .ph-card__title .ph-badge--ink{width:22px;padding:0;justify-content:center}
+  #grid .ncp-group td{background:var(--surface);color:var(--ink);font-weight:600}
+  #grid .ncp-group small{color:var(--ink-mute);font-weight:400;margin-left:var(--sp-2)}
+  #grid .ncp-cat td{color:var(--ink-mute);padding-top:var(--sp-2);padding-bottom:var(--sp-2)}
+  #grid .ncp-cell{cursor:pointer;min-width:96px;transition:background .15s}
+  #grid .ncp-cell:hover{background:var(--tint)}
+  #grid .ncp-cell.is-missing{color:var(--ink-faint)}
+  #grid .ncp-cell.is-dirty{background:var(--warn-soft);color:var(--warn)}
+  #grid .ncp-cell.is-error{background:var(--bad-soft);color:var(--bad)}
+  #grid .ncp-cell.is-saving{opacity:.5}
+  #grid .ncp-cell.is-editing{padding-top:var(--sp-1);padding-bottom:var(--sp-1)}
+  #grid .ncp-name{min-width:220px}
+  #grid .ncp-name small{display:block;color:var(--ink-mute)}
+  .ncp-savebar{position:sticky;bottom:var(--sp-5);z-index:6;display:flex;align-items:center;gap:var(--sp-3);width:max-content;max-width:100%;margin:var(--sp-5) auto 0;
+    padding:var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-5);border-radius:var(--r-pill);background:var(--grad-ink);color:var(--surface);box-shadow:var(--shadow-pop)}
+  .ncp-savebar__n{flex:1 1 auto;white-space:nowrap}
+  @media (max-width:860px){ #step2 .ncp-hint{padding:0 var(--sp-5) var(--sp-4)} }
+</style>
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  const API = "upande_packhouse.api.price_list_management.";
+  // pl = the list being filled in, so a reload (or a shared link) comes straight back to it.
+  const st = PH.state({ pl: "", show: "all", q: "" });
+
+  let customer = null;      // only set by picking from the list
+  let tree = null;
+  let seq = 0;
+  let pending = {};
+  let saving = false;
+
+  document.getElementById("save").innerHTML = PH.icon("check") + "<span>Save changes</span>";
+  document.getElementById("create").innerHTML = PH.icon("plus") + "<span>Create price list</span>";
+
+  /* ── Step 1: create ── */
+  const custEl = document.getElementById("cust");
+  const prefixEl = document.getElementById("prefix");
+  const curEl = document.getElementById("currency");
+  const createBtn = document.getElementById("create");
+
+  function preview() {
+    const p = prefixEl.value.trim();
+    PH.text("#preview", customer && p ? p + " " + customer : "—");
+    createBtn.disabled = !(customer && p && curEl.value);
+  }
+  PH.autocomplete(custEl, { source: PH.linkSource("Customer"), onSelect: (it) => { customer = it.value; preview(); } });
+  custEl.addEventListener("input", () => { customer = null; preview(); });
+  prefixEl.addEventListener("input", preview);
+  curEl.addEventListener("change", preview);
+
+  PH.ready(() => PH.getList("Currency", { filters: { enabled: 1 }, fields: ["name"], order_by: "name asc" }).then((rows) => {
+    const names = (rows || []).map((r) => r.name);
+    curEl.innerHTML = "";
+    PH.options(curEl, names, names.includes("USD") ? "USD" : names[0] || "");
+    if (!names.length) curEl.innerHTML = '<option value="">No enabled currencies</option>';
+    preview();
+  }).catch(() => { curEl.innerHTML = '<option value="">Could not load currencies</option>'; }));
+
+  function showErr(msg) {
+    const el = document.getElementById("create-err");
+    el.hidden = !msg;
+    PH.set(el, msg ? PH.html`<div class="ph-notice ph-notice--bad ph-mb-0">${msg}</div>` : "");
+  }
+
+  createBtn.addEventListener("click", () => {
+    showErr("");
+    createBtn.disabled = true;
+    PH.call(API + "createCustomerPriceList", { customer, prefix: prefixEl.value.trim(), currency: curEl.value }, { silent: true })
+      .then((m) => {
+        PH.toast("Created " + m.price_list, "good");
+        prefixEl.value = "";
+        custEl.value = "";
+        customer = null;
+        preview();
+        st.set({ pl: m.price_list });
+      })
+      .catch((e) => { showErr(e.message || "Could not create the price list"); createBtn.disabled = false; });
+  });
+
+  document.getElementById("another").addEventListener("click", async () => {
+    if (Object.keys(pending).length && !(await PH.confirm("Discard unsaved changes?", PH.fmt.plural(Object.keys(pending).length, "price") + " have not been saved.", { danger: true, ok: "Discard" }))) return;
+    pending = {};
+    st.set({ pl: "", show: "all", q: "" });
+  });
+
+  /* ── Step 2: fill in ── */
+  PH.pills("#f-show", st, "show");
+  PH.bindSearch("#f-q", st, "q");
+  st.on((s, changed) => {
+    if (changed.includes("pl")) return mode();
+    render();
+  });
+  window.addEventListener("beforeunload", (e) => {
+    if (Object.keys(pending).length) { e.preventDefault(); e.returnValue = ""; }
+  });
+
+  function mode() {
+    const pl = st.get("pl");
+    document.getElementById("create-form").hidden = !!pl;
+    document.getElementById("created").hidden = !pl;
+    document.getElementById("step2").hidden = !pl;
+    PH.text("#created-name", pl);
+    paintBar();
+    if (pl) loadTree();
+    else tree = null;
+  }
+
+  function loadTree(background) {
+    const name = st.get("pl");
+    if (!name) return Promise.resolve();
+    if (!background) PH.skeleton("#grid", "rows", 10);
+    const my = ++seq;
+    return PH.call(API + "getPriceTree", { price_list: name }, { silent: background })
+      .then((m) => {
+        if (my !== seq) return;
+        tree = m || {};
+        render();
+        PH.markUpdated();
+      })
+      .catch((e) => {
+        if (my !== seq || background) return;
+        tree = null;
+        PH.error("#grid", e.message, () => loadTree());
+      });
+  }
+
+  const lengths = () => (tree && tree.lengths) || [];
+  const keyOf = (code, len) => code + "␟" + len;
+  const missing = (it) => lengths().filter((l) => it.lengths[l] == null).length;
+  function itemByCode(code) {
+    for (const l of tree.lines || []) for (const c of l.cats) for (const it of c.items) if (it.code === code) return it;
+    return null;
+  }
+  function view() {
+    const s = st.get();
+    const out = [];
+    (tree.lines || []).forEach((line) => {
+      const cats = [];
+      line.cats.forEach((cat) => {
+        const items = cat.items.filter((it) => {
+          if (s.q && !PH.match({ n: it.n, c: it.code, g: cat.name }, s.q)) return false;
+          const miss = missing(it);
+          if (s.show === "gaps" && !miss) return false;
+          if (s.show === "complete" && miss) return false;
+          return true;
+        });
+        if (items.length) cats.push({ name: cat.name, items });
+      });
+      if (cats.length) out.push({ name: line.name, cats });
+    });
+    return out;
+  }
+
+  function render() {
+    if (!tree) return;
+    // Coverage follows the search and the view pills: it counts the variety × length cells
+    // of exactly the rows listed below (the tree is the full set, so this is not a page sample).
+    const v = view();
+    const filtered = !!(st.get("q") || st.get("show") !== "all");
+    let priced = 0, total = 0, rows = 0;
+    v.forEach((line) => line.cats.forEach((cat) => cat.items.forEach((it) => {
+      rows++;
+      total += lengths().length;
+      priced += lengths().length - missing(it);
+    })));
+    PH.text("#coverage", PH.fmt.num(priced) + " / " + PH.fmt.num(total) + " priced"
+      + (filtered ? " · " + PH.fmt.plural(rows, "variety", "varieties") + " shown" : "")
+      + (tree.currency ? " · " + tree.currency : ""));
+    paintBar();
+    if (!(tree.lines || []).length) return PH.empty("#grid", "No varieties found", "There are no items under the Cut Flowers item group.");
+    if (!v.length) return PH.empty("#grid", "No varieties match", "Clear the search or switch the view to All.");
+    PH.keepScroll(() => PH.set("#grid", table(v)));
+  }
+
+  function cellHtml(it, len) {
+    const p = pending[keyOf(it.code, len)];
+    const saved = it.lengths[len];
+    let cls = "ncp-cell is-num", txt;
+    if (p) {
+      cls += p.error ? " is-error" : " is-dirty";
+      txt = p.raw === "" ? "Clear" : PH.fmt.num(p.raw, 2);
+    } else if (saved == null) { cls += " is-missing"; txt = "—"; }
+    else txt = PH.fmt.num(saved, 2);
+    const title = p && p.error ? "Not saved: " + p.error : p ? "Unsaved" : len;
+    return `<td class="${cls}" data-code="${PH.esc(it.code)}" data-len="${PH.esc(len)}" title="${PH.esc(title)}">${PH.esc(txt)}</td>`;
+  }
+
+  function table(v) {
+    const L = lengths();
+    const span = L.length + 2;
+    let body = "";
+    v.forEach((line) => {
+      const n = line.cats.reduce((a, c) => a + c.items.length, 0);
+      body += `<tr class="ncp-group"><td colspan="${span}">${PH.esc(line.name)}<small>${PH.fmt.plural(n, "variety", "varieties")}</small></td></tr>`;
+      line.cats.forEach((cat) => {
+        if (cat.name && cat.name !== line.name) body += `<tr class="ncp-cat"><td colspan="${span}">${PH.esc(cat.name)}</td></tr>`;
+        cat.items.forEach((it) => {
+          const miss = missing(it);
+          body += `<tr><td class="ncp-name"><span class="${it.s === "Inactive" ? "ph-muted" : "ph-strong"}">${PH.esc(it.n)}</span>${it.s === "Inactive" ? ' <span class="ph-badge">Inactive</span>' : ""}<small class="ph-mono">${PH.esc(it.code)}</small></td>
+            ${L.map((len) => cellHtml(it, len)).join("")}
+            <td class="is-num">${miss ? `<span class="ph-badge ph-badge--warn">${miss} missing</span>` : '<span class="ph-badge ph-badge--good">Complete</span>'}</td></tr>`;
+        });
+      });
+    });
+    return `<div class="ph-table-wrap ph-table-wrap--tall"><table class="ph-table ph-table--compact">
+      <thead><tr><th>Variety</th>${L.map((l) => `<th class="is-num">${PH.esc(l)}</th>`).join("")}<th class="is-num">Status</th></tr></thead>
+      <tbody>${body}</tbody></table></div>`;
+  }
+
+  const grid = document.getElementById("grid");
+  grid.addEventListener("click", (e) => {
+    const td = e.target.closest("td.ncp-cell");
+    if (td && !td.classList.contains("is-editing") && !saving) openEditor(td);
+  });
+
+  // Typed rates are staged, then saved together from the save bar.
+  function openEditor(td) {
+    const code = td.dataset.code, len = td.dataset.len, k = keyOf(code, len);
+    const it = itemByCode(code);
+    if (!it) return;
+    const orig = it.lengths[len];
+    const p = pending[k];
+    const input = document.createElement("input");
+    input.type = "number"; input.step = "0.01"; input.min = "0";
+    input.className = "ph-table-input";
+    input.setAttribute("aria-label", it.n + " " + len);
+    input.value = p ? p.raw : orig == null ? "" : orig;
+    td.classList.add("is-editing");
+    td.textContent = "";
+    td.appendChild(input);
+    input.focus();
+    input.select();
+    let done = false;
+    const close = (stage, next) => {
+      if (done) return;
+      done = true;
+      if (stage) {
+        const raw = input.value.trim();
+        const same = raw === "" ? orig == null : orig != null && Number(raw) === Number(orig);
+        if (raw !== "" && (isNaN(+raw) || +raw < 0)) PH.toast("Rates must be zero or more", "warn");
+        else if (same) delete pending[k];
+        else pending[k] = { code, len, raw, orig };
+      }
+      td.outerHTML = cellHtml(it, len);
+      paintBar();
+      if (next) {
+        const L = lengths(), i = L.indexOf(len);
+        const nx = i >= 0 && i < L.length - 1 && grid.querySelector(`td.ncp-cell[data-code="${CSS.escape(code)}"][data-len="${CSS.escape(L[i + 1])}"]`);
+        if (nx) openEditor(nx);
+      }
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); close(true, true); }
+      else if (e.key === "Escape") { e.preventDefault(); close(false); }
+    });
+    input.addEventListener("blur", () => close(true));
+  }
+
+  function paintBar() {
+    const n = st.get("pl") ? Object.keys(pending).length : 0;
+    const failed = Object.values(pending).filter((p) => p.error).length;
+    document.getElementById("savebar").hidden = !n;
+    PH.text("#savebar-n", PH.fmt.plural(n, "unsaved change") + (failed ? " · " + failed + " failed, Save to retry" : ""));
+  }
+
+  document.getElementById("discard").addEventListener("click", () => { pending = {}; render(); });
+  document.getElementById("save").addEventListener("click", saveAll);
+
+  function saveAll() {
+    const list = Object.entries(pending);
+    if (!list.length || saving) return;
+    saving = true;
+    const btn = document.getElementById("save");
+    btn.disabled = true;
+    const name = st.get("pl");
+    list.forEach(([, p]) => { const td = grid.querySelector(`td.ncp-cell[data-code="${CSS.escape(p.code)}"][data-len="${CSS.escape(p.len)}"]`); if (td) td.classList.add("is-saving"); });
+    Promise.all(list.map(([k, p]) =>
+      PH.call(API + "setItemPrice", { item_code: p.code, price_list: name, length: p.len, rate: p.raw }, { silent: true })
+        .then((r) => ({ k, p, r }), (e) => ({ k, p, err: e.message || "Request failed" }))
+    )).then((res) => {
+      let ok = 0, bad = 0;
+      res.forEach(({ k, p, r, err }) => {
+        if (err) { bad++; pending[k].error = err; return; }
+        ok++;
+        const it = itemByCode(p.code);
+        if (it) {
+          it.lengths[p.len] = r && r.cleared ? null : r && r.rate != null ? +r.rate : +p.raw;
+        }
+        delete pending[k];
+      });
+      saving = false;
+      btn.disabled = false;
+      render();
+      if (ok) PH.toast(PH.fmt.plural(ok, "price") + " saved", "good");
+      if (bad) PH.toast(PH.fmt.plural(bad, "price") + " could not be saved: " + res.find((x) => x.err).err, "bad");
+    });
+  }
+
+  PH.onRefresh(() => {
+    if (!st.get("pl")) return;
+    if (Object.keys(pending).length) { PH.toast("Save or discard your changes before refreshing", "warn"); return; }
+    return loadTree();
+  });
+  PH.ready(mode);
+})();
+</script>
+{% endraw %}
+{% endblock %}

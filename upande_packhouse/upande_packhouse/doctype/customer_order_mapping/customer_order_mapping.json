@@ -20,7 +20,9 @@
   "section_break_fields",
   "field_mapping_overrides",
   "section_break_items",
-  "item_code_mapping"
+  "item_code_mapping",
+  "section_break_specs",
+  "spec_mapping"
  ],
  "fields": [
   {
@@ -114,6 +116,18 @@
    "fieldtype": "Table",
    "label": "Item Code Mapping",
    "options": "Order Import Item Mapping"
+  },
+  {
+   "fieldname": "section_break_specs",
+   "fieldtype": "Section Break",
+   "label": "Specification Renames"
+  },
+  {
+   "description": "Remembered the first time a file's Specification name didn't match anything and the user picked which existing Specification it really is - so the next file with the same name resolves automatically.",
+   "fieldname": "spec_mapping",
+   "fieldtype": "Table",
+   "label": "Specification Renames",
+   "options": "Order Import Spec Mapping"
   }
  ],
  "links": [],
