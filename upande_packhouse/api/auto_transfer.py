@@ -78,15 +78,89 @@ def run():
 		elapsed = frappe.utils.time_diff_in_seconds(frappe.utils.now(), last)
 		if elapsed + TICK_SLACK_SECONDS < frequency_minutes() * 60:
 			return
+	_auto_schedule()
 	plan()
+
+
+def _auto_schedule():
+	"""Schedule what is ready before planning, as the scheduler would by hand: tomorrow's
+	orders and the day after's (trucks are topped up with those)."""
+	from upande_packhouse.api.remote_transfer import scheduler
+
+	today = frappe.utils.today()
+	try:
+		return scheduler.auto_schedule([frappe.utils.add_days(today, 1), frappe.utils.add_days(today, 2)])
+	except Exception:
+		frappe.db.rollback()
+		frappe.log_error("Automatic scheduling failed", frappe.get_traceback())
+		return {}
 
 
 @frappe.whitelist(methods=["POST"])
 def distributeTrips(date: str | None = None):
 	"""The page's Distribute: plan the scheduled orders delivering on `date` onto
 	today's trips, each filled as full as it can be (whether or not automatic
-	scheduling is on). A full trip then leaves when someone presses Dispatch."""
-	return plan(window=date or None)
+	scheduling is on). Buckets left with no trip get one: a new run to their farm is
+	added to a truck's route for today, and the orders are planned again."""
+	summary = plan(window=date or None)
+	added = []
+	for _ in range(3):
+		new = _add_runs_for_waiting(date or None)
+		if not new:
+			break
+		added += new
+		summary = plan(window=date or None)
+	if added:
+		summary["runs_added"] = added
+	return summary
+
+
+def _add_runs_for_waiting(window=None):
+	"""A new run (packhouse → farm → packhouse) for every farm whose scheduled buckets
+	no open trip has room for: on a truck already going there today, else the biggest
+	truck with a route today. Returns [{vehicle, farm, run}]."""
+	from upande_packhouse.api.remote_transfer import truck_routes
+
+	today = frappe.utils.today()
+	window = window or frappe.utils.add_days(today, 1)
+	data = tc._transfer_schedule_payload(window, window)
+	covered = {}
+	for t in data["trips"]:
+		if t["status"] in tc.ACTIVE_TRIP_STATUSES + ("Dispatched",) and not t.get("stale"):
+			for r in t["orders"]:
+				k = (r["order_pick_list"], r["farm"])
+				covered[k] = covered.get(k, 0) + int(r["buckets"] or 0)
+	waiting = {}
+	for o in data["orders"]:
+		if not o.get("schedule"):
+			continue
+		for f in o["farms"]:
+			left = int(f["buckets"] or 0) - covered.get((o["opl"], f["farm"]), 0)
+			if left > 0:
+				waiting[f["farm"]] = waiting.get(f["farm"], 0) + left
+	if not waiting:
+		return []
+	trips = {t["name"]: t for t in data["trips"]}
+	routed = [v for v in data["vehicles"] if int(v.get("capacity_buckets") or 0) > 0 and v.get("runs")]
+	if not routed:
+		return []
+	added = []
+	for farm, need in sorted(waiting.items()):
+		room = 0
+		for v in routed:
+			for r in v["runs"]:
+				if farm in (r.get("stops") or []) and r.get("trip_status") in (None, "Draft"):
+					used = int((trips.get(r.get("trip")) or {}).get("total_buckets") or 0)
+					room += max(0, int(v["capacity_buckets"]) - used)
+		if room >= need:
+			continue
+		serving = [v for v in routed if any(farm in (r.get("stops") or []) for r in v["runs"])]
+		pick = max(serving or routed, key=lambda v: int(v.get("capacity_buckets") or 0))
+		res = truck_routes.add_farm_run(pick["name"], farm, today)
+		if res.get("status") == "success":
+			added.append({"vehicle": pick["name"], "farm": farm, "run": res.get("run")})
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit
+	return added
 
 
 @frappe.whitelist(methods=["POST"])
@@ -94,6 +168,7 @@ def runNow():
 	"""Re-plan immediately (the page's "Re-plan now" button)."""
 	if not enabled():
 		return {"status": "error", "message": "Automatic remote transfer scheduling is switched off."}
+	_auto_schedule()
 	return plan()
 
 
@@ -176,12 +251,9 @@ def _plan(window=None):
 	graph.holders = tc.farm_holders(today, skip_auto_drafts=True)
 	trucks = _fleet(data, today)
 	orders = _open_orders(data)
-	# Bring only what the hub has shelf space for (its own drafts are re-planned).
-	space = tc.hub_shelf_space(skip_auto_drafts=True)
-	dist = _distribute(orders, trucks, graph, budget=space["free"], moving=_moving(data))
+	dist = _distribute(orders, trucks, graph, moving=_moving(data))
 	# A trip leaves the hub only full: every truck in use is topped up with what is
 	# still waiting -- tomorrow's orders in schedule order, then the day after's.
-	room = float("inf") if space["free"] is None else space["free"] - _loaded(trucks)
 	later = _open_orders(
 		tc._transfer_schedule_payload(frappe.utils.add_days(window, 1), frappe.utils.add_days(window, 1))
 	)
@@ -190,7 +262,6 @@ def _plan(window=None):
 		trucks,
 		dist["waiting"] + dist["held"] + [o for o in later if o["opl"] not in seen],
 		graph,
-		room,
 	)
 	_consolidate(trucks, graph)
 
@@ -209,7 +280,6 @@ def _plan(window=None):
 		"waiting": [
 			{"order_name": w["order_name"], "team": w["team"], "why": w["why"]} for w in dist["waiting"]
 		],
-		"hub_space": space,
 		"buckets": sum(r["buckets"] for t in loads for r in t["rows"]),
 		"topped_up": topped,
 		"filling": [
@@ -284,20 +354,12 @@ def _plan(window=None):
 
 
 def _fleet(data, today):
-	"""Trucks this run may plan: internal logistics trucks with a capacity, a route
-	made for today, and no trip a person planned today. Each open run of the route is
-	a full truck that only serves that run's farms."""
-	manual = set(
-		frappe.get_all(
-			"Bucket Request Trip",
-			filters={
-				"trip_date": today,
-				"status": "Draft",
-				"auto_planned": 0,
-			},
-			pluck="vehicle",
-		)
-	)
+	"""Trucks this run may plan: internal logistics trucks with a capacity and a route
+	made for today. Each open run of the route is a truck that only serves that run's
+	farms, less what is already planned on it."""
+	# A planned trip -- a person's, or a rejected request -- is topped up on its run
+	# (their orders stay on it); a requested or released run is held below.
+	manual = set()
 	# A truck may run several routes a day; it serves every farm on its hand-made ones.
 	routes = {}
 	for r in data["routes"]:
@@ -315,8 +377,11 @@ def _fleet(data, today):
 			# A hand-set route: every run still open is a full truck that only serves
 			# that run's farms (one trip per run). A run on the road is skipped.
 			for r in v.get("runs") or []:
-				# A run whose truck has left the hub (Scheduled onward) is taken.
-				if r.get("trip_status") in ("Scheduled", "Dispatched", "Received") or not r.get("stops"):
+				# A run whose truck has left the hub (Scheduled onward) is taken, and one
+				# waiting on the farm's answer (Requested) is held as it was asked for.
+				if r.get("trip_status") in ("Requested", "Scheduled", "Dispatched", "Received") or not r.get(
+					"stops"
+				):
 					continue
 				used = 0
 				if r.get("trip"):
@@ -404,17 +469,14 @@ def _open_orders(data):
 # ============================================================
 # DISTRIBUTION ACROSS TEAMS  (port of computeDistribution)
 # ============================================================
-def _place_left_behind(orders, trucks, graph, key="left_behind", room=None):
+def _place_left_behind(orders, trucks, graph, key="left_behind"):
 	"""Buckets a truck left behind go FIRST — before any team's queue — on the next
 	trip to their farm. What fits comes off the order's open portions. With
 	key="asap" the same for quality-issue replacements requested ASAP, which go
-	before even those. `room`: [free hub shelf space] (None = no limit), used up
-	as they are placed -- they need a shelf at the hub like everything else."""
+	before even those."""
 	for o in orders:
 		for f in o["open_farms"]:
 			n = min(f["buckets"], f.get(key) or 0)
-			if room is not None:
-				n = min(n, max(0, room[0]))
 			if not n:
 				continue
 			for truck, k in _place_farm(trucks, f["farm"], n, graph):
@@ -433,13 +495,7 @@ def _place_left_behind(orders, trucks, graph, key="left_behind", room=None):
 				)
 				f["buckets"] -= k
 				o["open"] -= k
-				if room is not None:
-					room[0] -= k
 		o["open_farms"] = [f for f in o["open_farms"] if f["buckets"] > 0]
-
-
-def _loaded(trucks):
-	return sum(r["buckets"] for t in trucks for r in t["rows"])
 
 
 def _moving(data):
@@ -454,19 +510,15 @@ def _moving(data):
 	return out
 
 
-def _distribute(orders, trucks, graph, budget=None, moving=None):
+def _distribute(orders, trucks, graph, moving=None):
 	"""Plan the scheduled orders onto the trucks, ONE SEQUENCE STEP AT A TIME: step k
 	is every team's schedule #k. The first step that hasn't fully arrived at the hub
 	is planned -- its whole orders not on a truck yet, each on one truck where one can
 	take it all -- and the next step waits until it has arrived, so the hub shelves
-	one step while the line issues the one before. `budget`: free hub shelf space in
-	buckets (None = no limit); nothing is brought that can't be shelved. Left-behind
-	buckets and ASAP replacements go first. `moving`: _moving(data)."""
-	room = None if budget is None else [budget]
-	_place_left_behind(orders, trucks, graph, key="asap", room=room)
-	_place_left_behind(orders, trucks, graph, room=room)
-	if room is not None:
-		budget = room[0]
+	one step while the line issues the one before. Left-behind buckets and ASAP
+	replacements go first. `moving`: _moving(data)."""
+	_place_left_behind(orders, trucks, graph, key="asap")
+	_place_left_behind(orders, trucks, graph)
 	orders = [o for o in orders if o["open"] > 0 and int(o.get("schedule") or 0) > 0]
 	by_opl = {o["opl"]: o for o in orders}
 	unreachable = [
@@ -509,22 +561,15 @@ def _distribute(orders, trucks, graph, budget=None, moving=None):
 		]
 		for o in sorted(portions, key=lambda o: o["open"]):
 			key = (o.get("team") or "", o["farm"])
-			if key in blocked or truck_room() <= 0 or (budget is not None and budget <= 0):
+			if key in blocked or truck_room() <= 0:
 				blocked.add(key)
 				o["why"] = "trucks full: waits for the next trip"
-				(waiting if k == step else held).append(o)
-				continue
-			if budget is not None and o["open"] > budget:
-				blocked.add(key)
-				o["why"] = "hub shelf space: {0} bkt needed, {1} free".format(o["open"], max(0, budget))
 				(waiting if k == step else held).append(o)
 				continue
 			scratch = _clone(trucks)
 			placed = _place_in_trip_order(scratch, o, graph)
 			if placed >= o["open"]:
 				_commit(trucks, scratch)
-				if budget is not None:
-					budget -= o["open"]
 			else:
 				# No partial loads: what doesn't fit whole waits for the next run.
 				blocked.add(key)
@@ -584,26 +629,22 @@ def _place_in_trip_order(trucks, order, graph):
 	return placed
 
 
-def _top_up(trucks, portions, graph, room):
+def _top_up(trucks, portions, graph):
 	"""Fill every truck already in use to capacity from `portions` (orders or
 	single-farm portions), in order, splitting the last one that fits only in part.
-	A truck only takes farms on its own run. `room`: free hub shelf space. Returns the
-	buckets added."""
+	A truck only takes farms on its own run. Returns the buckets added."""
 	added = 0
 	for o in portions:
 		for f in o["open_farms"]:
 			for t in trucks:
-				if room <= 0:
-					return added
 				if not t["rows"] or t["rem"] <= 0 or f["buckets"] <= 0:
 					continue
 				if not _serves(t, f["farm"], graph) or _clashes(t, f["farm"], trucks, graph):
 					continue
-				take = min(t["rem"], f["buckets"], room)
+				take = min(t["rem"], f["buckets"])
 				_load(t, f["farm"], take, graph)
 				t["rows"].append(_trip_row(o, f, take))
 				f["buckets"] -= take
-				room -= take
 				added += take
 	return added
 

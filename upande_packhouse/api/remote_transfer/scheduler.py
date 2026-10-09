@@ -59,7 +59,7 @@ def _tiers(opls):
 			       t.released_at, t.dispatched_at, t.creation
 			FROM `tabBucket Request Trip Order` o
 			JOIN `tabBucket Request Trip` t ON t.name = o.parent
-			WHERE o.order_pick_list IN %(o)s AND t.status IN ('Draft', 'Scheduled', 'Dispatched')
+			WHERE o.order_pick_list IN %(o)s AND t.status IN ('Draft', 'Requested', 'Scheduled', 'Dispatched')
 			  AND t.trip_date >= %(since)s""",
 			{"o": tuple(waiting), "since": frappe.utils.add_days(frappe.utils.today(), -1)},
 			as_dict=True,
@@ -109,6 +109,52 @@ def _keep_own_slots(others, own):
 			late.append(r)
 	fill = iter(others + late)
 	return [s if s is not None else next(fill) for s in slots]
+
+
+def auto_schedule(delivery_dates):
+	"""Automatic scheduling: every schedulable order delivering on these dates -- submitted,
+	or a draft still waiting on a transfer -- joins its team's Packhouse Schedule, saved
+	the way the page saves it (saveDaySchedule ranks each team: submitted, then drafts
+	at the hub, then remote orders by when their truck comes). Orders with no team are
+	left for the scheduler. Returns {processing day: orders added}."""
+	added = {}
+	for dd in delivery_dates:
+		sdate = str(frappe.utils.add_days(dd, -1))
+		current = frappe.db.sql_list(
+			"""SELECT pso.order_pick_list FROM `tabPackhouse Schedule Order` pso
+			JOIN `tabPackhouse Schedule` ps ON ps.name = pso.parent
+			WHERE ps.schedule_date = %s ORDER BY ps.team, pso.sequence""",
+			sdate,
+		)
+		on = set(current)
+		# The orders the Scheduler page lists for that delivery day (its feed), minus
+		# drafts with all their stock at the hub and orders with no team.
+		form, response = frappe.local.form_dict, frappe.local.response.get("message")
+		try:
+			frappe.local.form_dict = frappe._dict(date=dd)
+			getSchedulerFeed()
+			feed = (frappe.local.response.get("message") or {}).get("data") or []
+		finally:
+			frappe.local.form_dict = form
+			frappe.local.response["message"] = response
+		new = [
+			o["opl"]
+			for o in feed
+			if o["opl"] not in on and o.get("team") and o.get("variation") != "draft_plain"
+		]
+		if not new:
+			continue
+		form, response = frappe.local.form_dict, frappe.local.response.get("message")
+		try:
+			frappe.local.form_dict = frappe._dict(date=sdate, order="|~|".join(current + new))
+			saveDaySchedule()
+			res = frappe.local.response.get("message") or {}
+		finally:
+			frappe.local.form_dict = form
+			frappe.local.response["message"] = response
+		if res.get("status") == "success":
+			added[sdate] = len(new)
+	return added
 
 
 def rank_schedules(sdate=None, replan=True):
@@ -241,6 +287,9 @@ def getSchedulerFeed():
 
 		# ---- per-OPL line stats (buckets, farms, transfer, issued) ----
 		stats = {}
+		# Buckets requested from the remote farms: not the hub, not a farm packing its own.
+		not_remote = set(_own_packing_farms())
+		not_remote.add(frappe.get_cached_doc("Production Settings").get("transfer_hub_farm") or "")
 		if len(names) > 0:
 			plis = frappe.get_all(
 				"Pick List Item",
@@ -266,6 +315,8 @@ def getSchedulerFeed():
 				if not st:
 					st = {
 						"buckets": {},
+						"remote": {},
+						"where": {},
 						"farms": {},
 						"waiting": {},
 						"varieties": {},
@@ -285,6 +336,10 @@ def getSchedulerFeed():
 					farm = wh.split(" ")[0]
 				if farm:
 					st["farms"][farm] = 1
+					if b:
+						st["where"][b.upper()] = farm
+					if b and farm not in not_remote:
+						st["remote"][b.upper()] = farm
 					# Buckets still waiting at the farm for a truck, per farm.
 					if b and int(r.get("awaiting_transfer") or 0) == 1:
 						st["waiting"].setdefault(farm, {})[b] = 1
@@ -365,7 +420,7 @@ def getSchedulerFeed():
 		trip_date = frappe.utils.add_days(dd, -1)
 		trips = frappe.get_all(
 			"Bucket Request Trip",
-			filters={"trip_date": trip_date, "status": ["in", ["Draft", "Scheduled"]]},
+			filters={"trip_date": trip_date, "status": ["in", ["Draft", "Requested", "Scheduled"]]},
 			fields=["name", "vehicle", "status", "collection_order", "run"],
 			order_by="creation asc",
 			limit_page_length=0,
@@ -399,6 +454,8 @@ def getSchedulerFeed():
 			op = o.name
 			st = stats.get(op) or {
 				"buckets": {},
+				"remote": {},
+				"where": {},
 				"farms": {},
 				"varieties": {},
 				"transfer": 0,
@@ -469,6 +526,14 @@ def getSchedulerFeed():
 				"team": o.get("custom_team") or "",
 				"total_stems": stems,
 				"n_buckets": len(st["buckets"]),
+				"remote_buckets": len(st["remote"]),
+				"remote_by_farm": {
+					fm: list(st["remote"].values()).count(fm) for fm in set(st["remote"].values())
+				},
+				# Every bucket by the farm it is at (Kapkolia for a submitted order's stock).
+				"buckets_by_farm": {
+					fm: list(st["where"].values()).count(fm) for fm in set(st["where"].values())
+				},
 				"n_farms": len(farm_list),
 				"farms": farm_list,
 				"farm_trips": waiting,
@@ -540,6 +605,39 @@ def saveDaySchedule():
 				)
 			)
 		opls = [o for o in opls if o not in own]
+
+	# A draft with all its stock at the hub (nothing awaiting, loaded or in transit) is
+	# not ready to schedule until it is submitted. One already on the schedule keeps its
+	# place: its remote buckets arrived before it was submitted.
+	not_submitted = []
+	if opls:
+		on_schedule = set(
+			frappe.db.sql_list(
+				"""SELECT pso.order_pick_list FROM `tabPackhouse Schedule Order` pso
+				JOIN `tabPackhouse Schedule` ps ON ps.name = pso.parent
+				WHERE ps.schedule_date = %(d)s AND pso.order_pick_list IN %(o)s""",
+				{"d": sdate, "o": tuple(opls)},
+			)
+		)
+		moving = set(
+			frappe.db.sql_list(
+				"""SELECT DISTINCT parent FROM `tabPick List Item`
+				WHERE parenttype = 'Order Pick List' AND parent IN %(o)s
+				  AND (awaiting_transfer = 1 OR loaded_in_trolley = 1 OR in_transit = 1)""",
+				{"o": tuple(opls)},
+			)
+		)
+		for r in frappe.get_all(
+			"Order Pick List",
+			filters={"name": ["in", opls], "docstatus": 0},
+			fields=["name", "order_name", "customer"],
+			limit_page_length=0,
+		):
+			if r.name not in moving and r.name not in on_schedule:
+				not_submitted.append({"opl": r.name, "order_name": r.order_name, "customer": r.customer})
+		if not_submitted:
+			skip = {x["opl"] for x in not_submitted}
+			opls = [o for o in opls if o not in skip]
 
 	# "Distribute to teams": orders that had no team get the one the page gave them
 	# ({opl: team}, a Packing Team) -- a team's schedule can only hold its own orders.
@@ -684,4 +782,10 @@ def saveDaySchedule():
 	# is reachable over GET, and frappe rolls back writes made during a GET
 	# request -- without this the caller gets a success response and no change.
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
-	frappe.response["message"] = {"status": "success", "saved": saved, "no_team": no_team, "cleared": cleared}
+	frappe.response["message"] = {
+		"status": "success",
+		"saved": saved,
+		"no_team": no_team,
+		"not_submitted": not_submitted,
+		"cleared": cleared,
+	}

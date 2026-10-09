@@ -35,7 +35,7 @@ def record(
 		"""SELECT t.name, t.vehicle FROM `tabBucket Request Trip` t
 		JOIN `tabBucket Request Trip Order` o ON o.parent = t.name
 		WHERE o.order_pick_list = %s AND IFNULL(o.farm, '') = %s
-		  AND t.status IN ('Draft', 'Scheduled', 'Dispatched')
+		  AND t.status IN ('Draft', 'Requested', 'Scheduled', 'Dispatched')
 		ORDER BY t.creation DESC LIMIT 1""",
 		(opl_name, farm or ""),
 		as_dict=True,

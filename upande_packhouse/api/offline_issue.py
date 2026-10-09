@@ -278,7 +278,7 @@ def _trip_truck(opl_name, farm):
 		"""SELECT t.vehicle FROM `tabBucket Request Trip` t
 		JOIN `tabBucket Request Trip Order` o ON o.parent = t.name AND o.parenttype = 'Bucket Request Trip'
 		WHERE o.order_pick_list = %(opl)s AND o.farm = %(farm)s AND IFNULL(o.unscheduled, 0) = 0
-		  AND t.status IN ('Draft', 'Scheduled', 'Dispatched') AND IFNULL(t.vehicle, '') != ''
+		  AND t.status IN ('Draft', 'Requested', 'Scheduled', 'Dispatched') AND IFNULL(t.vehicle, '') != ''
 		ORDER BY t.trip_date DESC, t.run ASC LIMIT 1""",
 		{"opl": opl_name, "farm": farm},
 	)
@@ -486,7 +486,7 @@ def offline_issue_opls(
 		      AND EXISTS (SELECT 1 FROM `tabBucket Request Trip Order` tro
 		        JOIN `tabBucket Request Trip` t ON t.name = tro.parent
 		        WHERE tro.order_pick_list = opl.name AND IFNULL(tro.unscheduled, 0) = 0
-		          AND t.status IN ('Draft', 'Scheduled', 'Dispatched', 'Received'))))))
+		          AND t.status IN ('Draft', 'Requested', 'Scheduled', 'Dispatched', 'Received'))))))
 		  AND so.delivery_date BETWEEN %(since)s AND %(until)s
 		  AND COALESCE(pli.bucket, '') != ''
 		  {farm_cond}

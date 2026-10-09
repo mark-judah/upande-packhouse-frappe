@@ -23,7 +23,13 @@
   "loaded_buckets",
   "unscheduled",
   "section_status",
+  "requested_by",
+  "requested_at",
   "released_at",
+  "released_by",
+  "rejected_by",
+  "rejected_at",
+  "reject_reason",
   "dispatched_at",
   "column_break_3",
   "received_at",
@@ -79,7 +85,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Draft\nScheduled\nDispatched\nReceived"
+   "options": "Draft\nRequested\nScheduled\nDispatched\nReceived"
   },
   {
    "fieldname": "column_break_1",
@@ -156,9 +162,48 @@
    "label": "Dispatch / Receive"
   },
   {
+   "fieldname": "requested_by",
+   "fieldtype": "Link",
+   "options": "User",
+   "label": "Truck Requested By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "requested_at",
+   "fieldtype": "Datetime",
+   "label": "Truck Requested At",
+   "read_only": 1
+  },
+  {
    "fieldname": "released_at",
    "fieldtype": "Datetime",
    "label": "Left Hub At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "released_by",
+   "fieldtype": "Link",
+   "options": "User",
+   "label": "Release Confirmed By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rejected_by",
+   "fieldtype": "Link",
+   "options": "User",
+   "label": "Request Rejected By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rejected_at",
+   "fieldtype": "Datetime",
+   "label": "Request Rejected At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reject_reason",
+   "fieldtype": "Small Text",
+   "label": "Reject Reason",
    "read_only": 1
   },
   {
@@ -246,7 +291,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 0,
  "links": [],
- "modified": "2026-10-07 23:00:00.000000",
+ "modified": "2026-10-09 01:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Bucket Request Trip",

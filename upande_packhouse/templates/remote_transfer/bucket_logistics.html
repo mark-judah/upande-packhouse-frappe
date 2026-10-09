@@ -87,7 +87,7 @@
     // One chip per trip: truck · run · status, then loaded vs planned (a load nothing
     // planned shows "loaded, not planned" — it used to read "0 bkt").
     return t.map(function(x){
-      var st=x.status==='Received'?'ended':(x.arrived_at?'arrived':(x.loaded_buckets&&(x.status==='Draft'||x.status==='Scheduled')?'loading':String(x.status||'').toLowerCase()));
+      var st=x.status==='Received'?'ended':(x.arrived_at?'arrived':(x.loaded_buckets&&(x.status==='Draft'||x.status==='Requested'||x.status==='Scheduled')?'loading':String(x.status||'').toLowerCase()));
       var qty=x.buckets?(x.loaded_buckets?x.loaded_buckets+' / '+x.buckets+' loaded':x.buckets+' planned'):(x.loaded_buckets+' loaded, not planned');
       if(x.shelved) qty+=' · '+x.shelved+' arrived';
       return '<div style="margin:1px 0"><span class="bl2-trip" style="border-color:'+(TRIP_COLOR[x.status]||'var(--text-3)')+'" title="'+esc(x.trip)+' · '+esc(x.trip_date)+'">'+esc(x.vehicle||x.trip)+(x.run?' · trip '+x.run:'')+(x.farm?' · '+esc(x.farm):'')+' · '+esc(st)+'</span><div class="bl2-sub" style="margin:2px 0 4px">'+qty+'</div></div>'; }).join('');

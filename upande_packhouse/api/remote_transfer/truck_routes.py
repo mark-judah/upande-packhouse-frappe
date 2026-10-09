@@ -361,21 +361,27 @@ def addFarmTrip():
 	# of its latest route on `date`, or a new all-day route when it has none that day.
 	# Only that day's route changes. Returns the route and the new trip's number, so buckets can be planned straight in.
 	fd = frappe.form_dict
-	vehicle, farm = fd.get("vehicle"), fd.get("farm")
-	date = str(frappe.utils.getdate(fd.get("date") or frappe.utils.today()))
+	res = add_farm_run(fd.get("vehicle"), fd.get("farm"), fd.get("date"))
+	if res.get("status") == "success":
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+	frappe.response["message"] = res
+
+
+def add_farm_run(vehicle, farm, date=None):
+	"""A new trip (packhouse → farm → packhouse) at the end of the truck's latest route
+	on `date` (a new all-day route if it has none). Returns {status, route, run} or why not."""
+	date = str(frappe.utils.getdate(date or frappe.utils.today()))
 	if not vehicle or not farm:
-		frappe.response["message"] = {"status": "error", "message": "A truck and a farm are required."}
-		return
+		return {"status": "error", "message": "A truck and a farm are required."}
 	hub = transfer_hub()
 	road = _farm_distance_between(hub, farm)
 	if not road:
-		frappe.response["message"] = {
+		return {
 			"status": "error",
 			"message": "No road between {0} and {1} — add it under Road network on the Truck routes tab.".format(
 				hub, farm
 			),
 		}
-		return
 	latest = frappe.get_all(
 		"Bucket Logistics Route",
 		filters={"vehicle": vehicle, "route_date": date},
@@ -396,8 +402,7 @@ def addFarmTrip():
 	if res.get("status") == "success":
 		res["route"] = res["name"]
 		res["run"] = len(_route_runs_by_name(res["name"]))
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit
-	frappe.response["message"] = res
+	return res
 
 
 # ---- Saved routes (no date) ---------------------------------------------------------
