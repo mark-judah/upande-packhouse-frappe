@@ -27,6 +27,7 @@ no issued pick-list line on a pick list created on/after it.
 """
 
 from collections import defaultdict
+from typing import Any
 
 import frappe
 from frappe.utils import add_days, getdate
@@ -259,11 +260,18 @@ def _capacity(sc):
 
 
 def _flow_total(rows):
-	return frappe._dict(stems=sum(r.stems for r in rows), buckets=len({r.bucket_id for r in rows if r.bucket_id}))
+	return frappe._dict(
+		stems=sum(r.stems for r in rows), buckets=len({r.bucket_id for r in rows if r.bucket_id})
+	)
 
 
 def _farm_options():
-	return [r[0] for r in frappe.db.sql("SELECT DISTINCT farm FROM `tabShelf` WHERE IFNULL(farm, '') != '' ORDER BY farm")]
+	return [
+		r[0]
+		for r in frappe.db.sql(
+			"SELECT DISTINCT farm FROM `tabShelf` WHERE IFNULL(farm, '') != '' ORDER BY farm"
+		)
+	]
 
 
 def _meta(sc):
@@ -286,7 +294,7 @@ def _clean(d):
 
 
 @frappe.whitelist()
-def get_cold_room(region=None, farm=None, from_date=None, to_date=None):
+def get_cold_room(region: Any = None, farm: Any = None, from_date: Any = None, to_date: Any = None):
 	"""Dashboard + shelf-contents data. Every number honours every filter."""
 	try:
 		sc = _scope(region, farm, from_date, to_date)
@@ -371,8 +379,13 @@ def get_cold_room(region=None, farm=None, from_date=None, to_date=None):
 			key=lambda x: -x["stems"],
 		)
 		length = sorted(
-			({"stem_length": g.stem_length, "stems": g.stems} for g in stock.summarize(rows, by=("stem_length",))),
-			key=lambda x: (float(x["stem_length"]) if str(x["stem_length"] or "").replace(".", "", 1).isdigit() else 1e9),
+			(
+				{"stem_length": g.stem_length, "stems": g.stems}
+				for g in stock.summarize(rows, by=("stem_length",))
+			),
+			key=lambda x: (
+				float(x["stem_length"]) if str(x["stem_length"] or "").replace(".", "", 1).isdigit() else 1e9
+			),
 		)
 
 		ot = stock.totals(outside)
@@ -380,7 +393,12 @@ def get_cold_room(region=None, farm=None, from_date=None, to_date=None):
 		ns_t, req_t = _flow_total(ns), _flow_total(req)
 		return {
 			"success": True,
-			"scope": dict(_meta(sc), flow_from=str(fs.from_date), flow_to=str(fs.to_date) if fs.to_date else None, flow_defaulted=bool(fs.get("defaulted"))),
+			"scope": dict(
+				_meta(sc),
+				flow_from=str(fs.from_date),
+				flow_to=str(fs.to_date) if fs.to_date else None,
+				flow_defaulted=bool(fs.get("defaulted")),
+			),
 			"totals": {
 				**_clean(t),
 				"not_shelved_stems": ns_t.stems,
@@ -429,7 +447,7 @@ def _open_requests(bucket_ids):
 
 
 @frappe.whitelist()
-def get_cold_room_buckets(region=None, farm=None, from_date=None, to_date=None):
+def get_cold_room_buckets(region: Any = None, farm: Any = None, from_date: Any = None, to_date: Any = None):
 	"""Bucket-level lists for the Buckets tab, same filters as get_cold_room.
 	`age` holds one row per (bucket, variety, length) on the shelf; its stems
 	add up to the dashboard's "Stems on shelf"."""

@@ -71,6 +71,7 @@ def harvest(
 		rose_cond = " AND sed.item_code IN (SELECT name FROM `tabItem` WHERE 1=1{0})".format(frag)
 	cols = [f"{GROUPABLE[g]} AS `{g}`" for g in group_by]
 	group = ", ".join(f"`{g}`" for g in group_by) or "NULL"
+	# nosemgrep: frappe-sql-format-injection -- holes are fixed SQL from GROUPABLE, values bound
 	sql = f"""
 		SELECT STRAIGHT_JOIN {", ".join(cols + ["SUM(sed.transfer_qty) AS stems", "COUNT(DISTINCT se.name) AS entries"])}
 		FROM `tabStock Entry` se FORCE INDEX (stock_entry_type_docstatus_posting_date_index)
@@ -78,4 +79,4 @@ def harvest(
 		WHERE {" AND ".join(where)} {rose_cond}
 		GROUP BY {group}
 	"""
-	return frappe.db.sql(sql, params, as_dict=True)  # nosemgrep: holes are fixed SQL from GROUPABLE, values bound
+	return frappe.db.sql(sql, params, as_dict=True)

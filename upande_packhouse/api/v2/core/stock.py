@@ -42,7 +42,9 @@ from upande_packhouse.availability import reserved_bucket_ids
 
 
 def _config():
-	from upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation import _get_production_config
+	from upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation import (
+		_get_production_config,
+	)
 
 	return _get_production_config()
 
@@ -186,7 +188,4 @@ def age_bands(rows, edges=(1, 2, 3, 5, 7)):
 			if age >= lo_ and (hi is None or age < hi):
 				out[(lo_, hi)] += r.stems
 				break
-	return [
-		{"from_days": lo_, "to_days": hi, "stems": out.get((lo_, hi), 0.0)}
-		for lo_, hi in labels
-	]
+	return [{"from_days": lo_, "to_days": hi, "stems": out.get((lo_, hi), 0.0)} for lo_, hi in labels]

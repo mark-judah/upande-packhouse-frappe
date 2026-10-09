@@ -346,8 +346,6 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .aph .sch-sel{height:32px;padding:0 9px;border:1px solid var(--border-2);border-radius:7px;font-size:12px;font-family:var(--f);background:var(--bg-card);color:var(--text);font-weight:500;outline:0}
 .aph .aph-kpi .lbl{font-size:11px;color:var(--text-2);letter-spacing:.04em;text-transform:uppercase;font-weight:600}
 .aph .aph-kpi .v{font-size:30px;font-weight:600;letter-spacing:-0.035em;font-feature-settings:'tnum';margin-top:8px;line-height:1}
-.aph .sch-search{margin-top:8px;width:100%;height:30px;padding:0 10px;border:1px solid var(--border-2);border-radius:7px;font-size:12px;font-family:var(--f);background:var(--bg);color:var(--text);outline:0}
-.aph .sch-search:focus{border-color:var(--accent)}
 .aph .sch-chk{flex:0 0 auto;width:16px;height:16px;margin-top:5px;cursor:pointer;accent-color:var(--accent)}
 .aph .sch-card.sel{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 .aph .sch-card.packed{background:var(--bg-muted);opacity:.6;filter:grayscale(1);cursor:default}
@@ -364,43 +362,6 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .aph .sch-selbar .cl{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.55)}
 /* ---- 2-tab redesign ---- */
 .aph .pd-body ul{margin:8px 0 8px 18px}
-.aph .seq-board{display:flex;flex-direction:column;gap:12px}
-.aph .seq-card{background:var(--bg-card);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.04)}
-.aph .seq-card.next{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 6px 18px rgba(0,0,0,.06)}
-.aph .seq-card.done{opacity:.62}
-.aph .seq-hd{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--bg-muted);border-bottom:1px solid var(--border)}
-.aph .seq-k{width:40px;height:40px;border-radius:11px;background:var(--text);color:var(--bg-card);display:flex;align-items:center;justify-content:center;font:700 15px var(--mono);flex:none}
-.aph .seq-card.next .seq-k{background:var(--accent);color:#fff}
-.aph .seq-ti{flex:1;min-width:0}
-.aph .seq-ti .t{font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px}
-.aph .seq-ti .m{font-size:12px;color:var(--text-2);margin-top:2px}
-.aph .seq-next{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;background:var(--accent);color:#fff;border-radius:999px;padding:2px 8px}
-.aph .seq-badge{font-size:11px;font-weight:700;border-radius:999px;padding:4px 10px;white-space:nowrap}
-.aph .seq-badge.s0{background:#fffaeb;color:#b54708}
-.aph .seq-badge.s1{background:#eff8ff;color:#175cd3}
-.aph .seq-badge.s2{background:#ecfdf3;color:#067647}
-.aph .seq-badge.s3{background:#f4f3ff;color:#5925dc}
-.aph .seq-badge.s4{background:var(--bg-muted);color:var(--text-2)}
-.aph .seq-badge.s5{background:var(--text-2);color:var(--bg-card)}
-.aph .seq-rows{display:flex;flex-direction:column}
-.aph .seq-row.sch-card{display:flex;align-items:center;gap:12px;padding:10px 16px;border:0;border-radius:0;border-bottom:1px solid var(--border);cursor:pointer}
-.aph .seq-row.sch-card:last-child{border-bottom:0}
-.aph .seq-row.sch-card:hover{background:var(--bg-muted);box-shadow:none}
-.aph .seq-team{flex:0 0 92px;font-size:11px;font-weight:700;text-align:center;padding:4px 8px;border-radius:999px;background:var(--bg-muted);color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.aph .seq-ord{flex:1;min-width:0}
-.aph .seq-ord .o{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.aph .seq-ord .sub{font-size:11px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.aph .seq-num{display:flex;flex-direction:column;align-items:flex-end;min-width:54px}
-.aph .seq-num b{font-size:13px;font-feature-settings:'tnum'}
-.aph .seq-num span{font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.03em}
-.aph .seq-st{font-size:11px;font-weight:600;border-radius:999px;padding:3px 9px;white-space:nowrap;min-width:96px;text-align:center}
-.aph .seq-st.farm{background:#fffaeb;color:#b54708}
-.aph .seq-st.road{background:#eff8ff;color:#175cd3}
-.aph .seq-st.ready{background:#ecfdf3;color:#067647}
-.aph .seq-st.issuing{background:#f4f3ff;color:#5925dc}
-.aph .seq-st.done{background:var(--bg-muted);color:var(--text-2)}
-.aph .seq-st.packed{background:var(--text-2);color:var(--bg-card)}
-@media (max-width:720px){.aph .seq-row.sch-card{flex-wrap:wrap}.aph .seq-ord{flex-basis:calc(100% - 110px)}.aph .seq-num{min-width:44px}}
 .aph .sch-distbtn{float:right;margin:3px 0 0 10px;border:0;border-radius:8px;padding:9px 16px;background:var(--accent);color:#fff;font-size:13px;font-weight:600;cursor:pointer}
 .aph .sch-distbtn:disabled{opacity:.45;cursor:default}
 .aph .sch-mv{margin-left:auto;display:inline-flex;flex-direction:column;gap:2px;flex:none}
@@ -416,11 +377,35 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .aph .sch-varbar{display:flex;flex-wrap:wrap;gap:6px}
 .aph .sch-varbtn{padding:5px 12px;border:1px solid var(--border-2);background:var(--bg);border-radius:999px;font-size:11px;font-weight:600;color:var(--text-2);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
 .aph .sch-varbtn:hover{border-color:var(--accent)}
+.aph .sch-toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 16px;margin-bottom:14px}
+.aph .sch-toolbar .sch-maintabs{margin-bottom:0;flex-wrap:wrap}
+.aph .sch-toolbar .sch-maintab{font-size:12px;padding:6px 12px;gap:6px;color:var(--ink-4)}
+.aph .sch-toolbar .sch-maintab:hover{color:var(--ink);background:rgba(10,10,10,.03)}
+.aph .sch-toolbar .sch-maintab.on{background:var(--surface-2);color:var(--ink);box-shadow:0 1px 2px rgba(10,10,10,.08)}
+.aph .sch-toolbar .sch-maintab .tc{font-size:10px;padding:0 6px;background:rgba(0,0,0,.06);opacity:.7}
+.aph .sch-toolbar .sch-maintab.on .tc{background:var(--ink);color:#fff;opacity:1}
+.aph .sch-toolbar .sch-pills{justify-content:flex-end}
+.aph .sch-toolbar .sch-pills:empty{display:none}
+/* Status: one segmented control. */
+.aph .sch-seg{display:inline-flex;flex-wrap:wrap;gap:2px;padding:3px;border-radius:9px;background:var(--bg-muted);min-width:0}
+.aph .sch-seg .sch-varbtn{border:0;background:transparent;border-radius:7px;padding:6px 12px;font-size:12px;color:var(--ink-4)}
+.aph .sch-seg .sch-varbtn:hover{color:var(--ink);background:rgba(10,10,10,.03)}
+.aph .sch-seg .sch-varbtn.active{background:var(--surface-2);color:var(--ink);box-shadow:0 1px 2px rgba(10,10,10,.08)}
+.aph .sch-seg .sch-varbtn.active .tc{background:var(--ink);color:#fff;opacity:1}
+/* Team: pills, the chosen one filled. */
+.aph .sch-pills{display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.aph .sch-pills .sch-varbtn{padding:5px 11px;font-size:12px;background:var(--surface-2);border:1px solid var(--hairline-2);color:var(--ink-4)}
+.aph .sch-pills .sch-varbtn:hover{border-color:var(--ink-faint);color:var(--ink)}
+.aph .sch-pills .sch-varbtn.active{background:var(--ink);border-color:var(--ink);color:#fff}
+.aph .sch-pills .sch-varbtn.active .tc{background:rgba(255,255,255,.18);opacity:1}
+.aph .sch-kpis-sm{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px}
+.aph .sch-kpis-sm .aph-kpi{min-height:0;padding:10px 14px;border-radius:8px}
+.aph .sch-kpis-sm .aph-kpi .lbl{font-size:10px;letter-spacing:.04em;padding-right:0}
+.aph .sch-kpis-sm .aph-kpi .v{font-size:20px;margin-top:4px;letter-spacing:-0.02em}
+.aph .sch-varnote{margin:-4px 0 14px;padding:8px 12px;border-radius:8px;background:var(--warn-soft,#fff3e0);color:var(--warn,#9a5a00);font-size:12px;font-weight:500}
 .aph .sch-varbtn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
 .aph .sch-varbtn .tc{font-family:var(--mono);font-size:10px;font-weight:700;opacity:.7;background:rgba(0,0,0,.06);border-radius:8px;padding:0 6px}
 .aph .sch-varbtn.active .tc{background:rgba(255,255,255,.22);opacity:.95}
-.aph .sch-statusbar{margin:0 0 12px}
-.aph .sch-search.wide{margin-top:12px;max-width:520px}
 .aph .sch-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
 .aph .sch-schedwrap{margin-top:12px;display:flex;flex-direction:column;gap:20px}
 .aph .sch-teamgrp .sch-teamh{display:flex;align-items:baseline;gap:11px;padding-bottom:8px;border-bottom:1px solid var(--border);margin-bottom:10px}
@@ -797,18 +782,20 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 </style>
 {% endraw %}
 {% elif rt_part == 'body' %}{% raw %}
-      <div class="aph-kpis" id="kpis"></div>
-      <div class="sch-maintabs">
-        <button class="sch-maintab on" data-mtab="byseq">By sequence <span class="tc" id="cSteps">0</span></button>
-        <button class="sch-maintab" data-mtab="byteam">By team <span class="tc" id="cTeams">0</span></button>
-        <button class="sch-maintab" data-mtab="unsched">Not scheduled <span class="tc" id="cUnsched">0</span></button>
-        <button class="sch-maintab" data-mtab="sched">Scheduled <span class="tc" id="cSched">0</span></button>
+      <div class="sch-toolbar">
+        <div class="sch-maintabs">
+          <button class="sch-maintab on" data-mtab="unsched">Not scheduled <span class="tc" id="cUnsched">0</span></button>
+          <button class="sch-maintab" data-mtab="sched">Scheduled <span class="tc" id="cSched">0</span></button>
+          <button class="sch-maintab" data-mtab="byteam">By team <span class="tc" id="cTeams">0</span></button>
+        </div>
+        <div class="sch-seg" id="statusBar"></div>
+        <div class="sch-pills" id="teamBar"></div>
       </div>
-      <div class="sch-varbar sch-statusbar" id="statusBar"></div>
+      <div class="sch-varnote" id="varNote" style="display:none"></div>
+      <div class="aph-kpis sch-kpis-sm" id="kpis"></div>
       <button type="button" class="sch-distbtn" id="distTeams" title="Plan the scheduled orders onto trips in sequence order — orders not scheduled yet go to the end of their team’s sequence first">Distribute to trips</button>
       <div id="panelUnsched" class="sch-panel" style="display:none">
         <div class="sch-varbar" id="varBar"></div>
-        <input type="text" id="readySearch" class="sch-search wide" placeholder="Search OPL, order name, customer, team&hellip;" autocomplete="off">
         <div class="sch-selbar" id="readySelBar"></div>
         <div class="sch-list" id="bUnsched"><div class="sk-card"><span class="sk" style="width:30%;height:14px"></span><div style="height:10px"></div><span class="sk" style="width:90%;height:12px"></span><div style="height:8px"></div><span class="sk" style="width:62%;height:12px"></span></div><div class="sk-card"><span class="sk" style="width:30%;height:14px"></span><div style="height:10px"></div><span class="sk" style="width:90%;height:12px"></span><div style="height:8px"></div><span class="sk" style="width:62%;height:12px"></span></div><div class="sk-card"><span class="sk" style="width:30%;height:14px"></span><div style="height:10px"></div><span class="sk" style="width:90%;height:12px"></span><div style="height:8px"></div><span class="sk" style="width:62%;height:12px"></span></div></div>
         <div class="sch-pager" id="readyPager"></div>
@@ -864,6 +851,9 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   // Board-level filters: farm (tabs) + team (topbar) apply to ALL three columns.
   function readyView(){return applyFilters(STATE.ready);}
 
+  // Schedulable: submitted, or a draft still waiting on a transfer. A draft with all its
+  // stock at Kapkolia waits until it is submitted (one already scheduled stays).
+  function canSchedule(o){ return !!o && (o.variation!=='draft_plain' || !!STATE.scheduled[o.name]); }
   function varLabel(v){return v==='draft_plain'?'Draft':(v==='draft_transfer'?'Draft waiting transfer':'Submitted');}
   function varCls(v){return v==='draft_plain'?'draft':(v==='draft_transfer'?'xfer':'sub');}
 
@@ -876,7 +866,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     var stems=fmt(num(o.total_stems));
     var bkts=num(o.n_buckets);
     var prio=(lane==='sched')?((G.prio&&G.prio[o.name])||'?'):null;
-    var chk='<input type="checkbox" class="sch-chk" data-sel="'+esc(o.name)+'"'+(opts.isSel?' checked':'')+'>';
+    var chk=canSchedule(o)?'<input type="checkbox" class="sch-chk" data-sel="'+esc(o.name)+'"'+(opts.isSel?' checked':'')+'>':'';
     var seqHtml;
     if(lane==='sched'){
       seqHtml='<div class="sch-seq'+(opts.isNext?' next':'')+'">'+prio+'</div>';
@@ -885,12 +875,24 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       seqHtml='<div class="sch-seq draft" title="'+esc(varLabel(o.variation))+'">'+vi+'</div>';
     }
     var chips=[], packed=lane==='sched'&&!!o.packed;
+    // Where the order is: At Kapkolia until it is 100% issued (with the issuing progress
+    // beside it while issuing), then Issued, then Packed.
+    var where=function(){
+      var ws=orderState(o);
+      if(ws.k==='packed') chips.push('<span class="sch-chip packed">Packed</span>');
+      else if(ws.k==='done') chips.push('<span class="sch-chip hub">Issued</span>');
+      else if(ws.k==='ready'||ws.k==='issuing'){
+        chips.push('<span class="sch-chip hub">At Kapkolia</span>');
+        if(ws.k==='issuing') chips.push('<span class="sch-chip">'+esc(ws.t)+'</span>');
+      }
+    };
     if(lane==='sched'){
       chips.push('<span class="sch-chip sched">#'+prio+'</span>');
       if(packed) chips.push('<span class="sch-chip packed">Packed</span>');
-      else if(['ready','issuing','done'].indexOf(orderState(o).k)>=0) chips.push('<span class="sch-chip hub">At Kapkolia</span>');
+      else where();
     } else {
       chips.push('<span class="sch-vchip '+varCls(o.variation)+'">'+esc(varLabel(o.variation))+'</span>');
+      if(o.variation!=='draft_transfer') where();
     }
     if(o.mixed_type) chips.push('<span class="sch-vchip mix">'+esc(o.mixed_type)+'</span>');
     var chipsHtml='<div class="sch-chips">'+chips.join('')+'</div>';
@@ -942,13 +944,6 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     return arr.filter(function(o){return (!t||o.custom_team===t)&&(!l||o.location===l)&&(!f||(o.farms||[]).indexOf(f)>=0);});
   }
 
-  // search haystack: OPL name, order name, customer, team, farms, mixed type
-  function hay(o){
-    var parts=[o.name,o.custom_order_name,o.customer,o.custom_team,o.mixed_type];
-    (o.farms||[]).forEach(function(f){parts.push(f);});
-    return parts.filter(Boolean).join('  ').toLowerCase();
-  }
-
   // Status filter over every tab: Draft · Draft waiting transfer · Submitted, counted
   // within the Location / Team / Farm filters.
   var STATUS=[['draft_plain','Draft'],['draft_transfer','Draft waiting transfer'],['submitted','Submitted']];
@@ -956,8 +951,31 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     var box=el('statusBar'); if(!box) return;
     var c={}; base.forEach(function(o){ c[o.variation]=(c[o.variation]||0)+1; });
     var vv=G.var||'all';
-    box.innerHTML=[['all','All',base.length]].concat(STATUS.map(function(x){ return [x[0],x[1],c[x[0]]||0]; })).map(function(x){
+    // No "All" button: clicking the chosen status again shows every status.
+    box.innerHTML=STATUS.map(function(x){ return [x[0],x[1],c[x[0]]||0]; }).map(function(x){
       return '<button type="button" class="sch-varbtn'+(vv===x[0]?' active':'')+'" data-var="'+x[0]+'">'+esc(x[1])+' <span class="tc">'+x[2]+'</span></button>';
+    }).join('');
+    renderTeamBar();
+    var note=el('varNote');
+    if(note){
+      var msg=vv==='draft_plain'?'These OPLs have stock at Kapkolia and have been allocated, but they have not been submitted.'
+        :vv==='draft_transfer'?'Schedule these OPLs so that the remote QC can start preparing them for transfer.':'';
+      note.textContent=msg; note.style.display=msg?'':'none';
+    }
+  }
+
+  // Team buttons: the header Team filter as one click each, counted within the
+  // Location / Farm filters and the status chosen above.
+  function renderTeamBar(){
+    var box=el('teamBar'); if(!box) return;
+    var l=curLocation(), f=curFarm(), vv=G.var||'all', t=curTeam();
+    var list=STATE.ready.filter(function(o){return (!l||o.location===l)&&(!f||(o.farms||[]).indexOf(f)>=0)&&(vv==='all'||o.variation===vv);});
+    var c={}; list.forEach(function(o){ if(o.custom_team) c[o.custom_team]=(c[o.custom_team]||0)+1; });
+    var teams=Object.keys(c).sort();
+    if(t&&teams.indexOf(t)<0) teams.push(t);
+    if(!teams.length){ box.innerHTML=''; return; }
+    box.innerHTML=[['','All teams',list.length]].concat(teams.map(function(x){ return [x,x,c[x]||0]; })).map(function(x){
+      return '<button type="button" class="sch-varbtn'+(t===x[0]?' active':'')+'" data-team="'+esc(x[0])+'">'+esc(x[1])+' <span class="tc">'+x[2]+'</span></button>';
     }).join('');
   }
 
@@ -967,25 +985,34 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     var feed=vv==='all'?base:base.filter(function(o){return o.variation===vv;});
     var unsched=feed.filter(function(o){return !STATE.scheduled[o.name];});
     var sched=feed.filter(function(o){return STATE.scheduled[o.name];});
-    var stems=0,custs={};
-    feed.forEach(function(o){stems=stems+num(o.total_stems);if(o.customer)custs[o.customer]=1;});
+    var stems=0;
+    feed.forEach(function(o){stems=stems+num(o.total_stems);});
+    // Buckets per tile: a submitted order's own stock (at Kapkolia), a draft's buckets
+    // requested from the remote farms.
+    var bkFarms=function(o){ return o.variation==='submitted'?(o.buckets_by_farm||{}):(o.remote_by_farm||{}); };
+    var rb=function(list){return list.reduce(function(n,o){var f=bkFarms(o);return n+Object.keys(f).reduce(function(a,k){return a+num(f[k]);},0);},0);};
+    // Per-farm split, on hover.
+    var rbFarms=function(list){
+      var by={};
+      list.forEach(function(o){var f=bkFarms(o);Object.keys(f).forEach(function(k){by[k]=(by[k]||0)+num(f[k]);});});
+      return Object.keys(by).sort(function(a,b){return by[b]-by[a]||(a<b?-1:1);}).map(function(k){return k+' '+fmt(by[k]);}).join(' · ');
+    };
     var vc={draft_plain:0,draft_transfer:0,submitted:0};
     unsched.forEach(function(o){if(vc[o.variation]!=null)vc[o.variation]++;});
-    el('kpis').innerHTML=[['Schedulable',feed.length],['Not scheduled',unsched.length],['Scheduled',sched.length],['Total stems',fmt(stems)],['Customers',Object.keys(custs).length]]
-      .map(function(k){return '<div class="aph-kpi"><div class="lbl">'+k[0]+'</div><div class="v">'+k[1]+'</div></div>';}).join('');
+    el('kpis').innerHTML=[['Schedulable buckets',fmt(rb(feed.filter(canSchedule))),rbFarms(feed.filter(canSchedule))],['Not scheduled buckets',fmt(rb(unsched.filter(canSchedule))),rbFarms(unsched.filter(canSchedule))],['Scheduled buckets',fmt(rb(sched)),rbFarms(sched)],['Total stems',fmt(stems)]]
+      .map(function(k){return '<div class="aph-kpi"'+(k[2]?' title="'+esc(k[2])+'"':'')+'><div class="lbl">'+k[0]+'</div><div class="v">'+k[1]+'</div></div>';}).join('');
     if(el('cUnsched'))el('cUnsched').textContent=unsched.length;
     if(el('cSched'))el('cSched').textContent=sched.length;
-    if(el('distTeams')){ el('distTeams').textContent='Distribute to trips'; el('distTeams').disabled=!feed.length; }
+    if(el('distTeams')){ var nd=distTodo().length; el('distTeams').textContent=nd?'Distribute '+nd+' to trips':'Distribute to trips'; el('distTeams').disabled=!nd&&!applyFilters(STATE.ready).some(function(o){ return STATE.scheduled[o.name]; }); }
     if(el('cTeams'))el('cTeams').textContent=Object.keys(sched.reduce(function(a,o){a[o.custom_team||'-']=1;return a;},{})).length;
-    var mt=G.mtab||'byteam';
+    var mt=G.mtab||'unsched';
     document.querySelectorAll('.sch-maintab').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-mtab')===mt);});
     if(el('panelUnsched'))el('panelUnsched').style.display=(mt==='unsched')?'':'none';
-    if(el('panelSched'))el('panelSched').style.display=(mt==='sched'||mt==='byteam'||mt==='byseq')?'':'none';
+    if(el('panelSched'))el('panelSched').style.display=(mt==='sched'||mt==='byteam')?'':'none';
     G.prio={}; G.next={}; var pk={}, nx={}; STATE.ready.forEach(function(o){ if(STATE.scheduled[o.name]){ var tm=o.custom_team||''; pk[tm]=(pk[tm]||0)+1; G.prio[o.name]=pk[tm];
       if(!o.packed&&!nx[tm]){ nx[tm]=1; G.next[o.name]=1; } } });
     renderVarBar(vc);
-    if(el('cSteps')){ var stp={}; sched.forEach(function(o){ if(G.prio[o.name]) stp[G.prio[o.name]]=1; }); el('cSteps').textContent=Object.keys(stp).length; }
-    if(mt==='unsched') renderUnscheduled(unsched); else if(mt==='byseq') renderSequence(sched); else renderSchedule(sched);
+    if(mt==='unsched') renderUnscheduled(unsched); else renderSchedule(sched);
     renderSelBar();
   }
 
@@ -993,12 +1020,17 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   // nothing to split by Draft / Submitted — no variation bar.
   function renderVarBar(){ var box=el('varBar'); if(box) box.innerHTML=''; }
 
-  // ---- Unscheduled tab: feed items not yet scheduled, filtered by variation + search ----
+  // ---- Unscheduled tab: feed items not yet scheduled, filtered by variation ----
   function renderUnscheduled(list){
     var vv=G.var||'all';
     if(vv!=='all') list=list.filter(function(o){return o.variation===vv;});
-    var term=(el('readySearch')?el('readySearch').value:'').toLowerCase().trim();
-    if(term) list=list.filter(function(o){return hay(o).indexOf(term)>=0;});
+    // The order scheduling puts them in: submitted first, then drafts already at
+    // Kapkolia, then orders still to come from the farms.
+    var VR={submitted:0,draft_plain:1,draft_transfer:2};
+    list=list.map(function(o,i){return [o,i];}).sort(function(a,b){
+      var ra=VR[a[0].variation], rb=VR[b[0].variation];
+      return ((ra!=null?ra:3)-(rb!=null?rb:3))||(a[1]-b[1]);
+    }).map(function(x){return x[0];});
     var pages=Math.max(1,Math.ceil(list.length/PAGE));
     if(G.readyPage>pages)G.readyPage=pages; if(G.readyPage<1)G.readyPage=1;
     var start=(G.readyPage-1)*PAGE, end=Math.min(list.length,start+PAGE);
@@ -1006,7 +1038,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     var body=el('bUnsched'); if(!body) return;
     body.innerHTML=view.length
       ? view.map(function(o){return card(o,'unsched',0,false,{isSel:G.sel.has(o.name)});}).join('')
-      : '<div class="sch-empty">'+(term?'No orders match the search':'Nothing unscheduled here')+'</div>';
+      : '<div class="sch-empty">Nothing unscheduled here</div>';
     renderPager(list.length,pages,start,end);
     wireList(body,false);
   }
@@ -1051,42 +1083,8 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     if(o.has_transfer) return {k:'road',t:'Coming in'};
     return {k:'ready',t:'Ready at Kapkolia'};
   }
-  var STATE_RANK={farm:0,road:1,ready:2,issuing:3,done:4,packed:5};
-  function renderSequence(list){
-    var body=el('bSched'); if(!body) return;
-    if(!list.length){ body.innerHTML='<div class="sch-empty">No orders scheduled yet. Use <b>Distribute to trips</b>, or schedule orders from the <b>Not scheduled</b> tab.</div>'; return; }
-    var steps={}, keys=[];
-    list.forEach(function(o){ var k=(G.prio&&G.prio[o.name])||0; if(!steps[k]){ steps[k]=[]; keys.push(k); } steps[k].push(o); });
-    keys.sort(function(a,b){ return a-b; });
-    var nextStep=null;
-    var cards=keys.map(function(k){
-      var items=steps[k].slice().sort(function(a,b){ return String(a.custom_team||'').localeCompare(String(b.custom_team||'')); });
-      var bk=0, st=0, worst=5;
-      var rows=items.map(function(o){
-        var ss=orderState(o); bk+=num(o.n_buckets); st+=num(o.total_stems); worst=Math.min(worst,STATE_RANK[ss.k]);
-        return '<div class="seq-row sch-card'+(ss.k==='packed'?' packed':'')+'" data-opl="'+esc(o.name)+'">'+
-          '<span class="seq-team">'+esc(o.custom_team||'No team')+'</span>'+
-          '<div class="seq-ord"><div class="o">'+esc(o.custom_order_name||o.name)+'</div><div class="sub">'+esc(o.customer||'')+(o.mixed_type?' · '+esc(o.mixed_type):'')+'</div></div>'+
-          '<div class="seq-num"><b>'+fmt(num(o.n_buckets))+'</b><span>bkt</span></div>'+
-          '<div class="seq-num"><b>'+fmt(num(o.total_stems))+'</b><span>stems</span></div>'+
-          '<span class="seq-st '+ss.k+'">'+esc(ss.t)+'</span>'+
-          (ss.k==='packed'?'':'<span class="sch-mv"><button type="button" data-mv="up" title="Earlier in its team’s sequence">▲</button><button type="button" data-mv="down" title="Later in its team’s sequence">▼</button></span>')+
-          '</div>';
-      }).join('');
-      var label=['At the farms','On the way','At Kapkolia','Issuing','Issued','Packed'][worst];
-      var isNext=nextStep==null && worst<4; if(isNext) nextStep=k;
-      return '<div class="seq-card'+(isNext?' next':'')+(worst>=4?' done':'')+'">'+
-        '<div class="seq-hd"><div class="seq-k">#'+k+'</div><div class="seq-ti"><div class="t">Sequence '+k+'</div>'+
-        '<div class="m">'+items.length+' order'+(items.length===1?'':'s')+' · '+fmt(bk)+' buckets · '+fmt(st)+' stems</div></div>'+
-        '<span class="seq-badge s'+worst+'">'+label+'</span></div>'+
-        '<div class="seq-rows">'+rows+'</div></div>';
-    }).join('');
-    body.innerHTML='<div class="seq-board">'+cards+'</div>';
-    body.querySelectorAll('.seq-rows').forEach(function(listEl){ wireList(listEl,false); });
-  }
-
   function renderSelBar(){
-    var mt=G.mtab||'byteam';
+    var mt=G.mtab||'unsched';
     var onSched=mt!=='unsched';
     var other=el(onSched?'readySelBar':'schedSelBar'); if(other){other.className='sch-selbar';other.innerHTML='';}
     var bar=el(onSched?'schedSelBar':'readySelBar'); if(!bar) return;
@@ -1132,15 +1130,31 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   // "Distribute to trips": every order already has its team from allocation; this puts
   // the ones not scheduled yet at the end of their team's sequence, saves, and opens
   // Transfer Scheduling's Distribute, which plans the trips in sequence order.
+  // What Distribute schedules: the unscheduled orders in view -- the chosen status
+  // (e.g. Submitted only) and team, within the Location / Farm filters.
+  function distTodo(){
+    var vv=G.var||'all';
+    return applyFilters(STATE.ready).filter(function(o){
+      return !STATE.scheduled[o.name]&&canSchedule(o)&&(vv==='all'||o.variation===vv);
+    });
+  }
   function distributeToTrips(){
     var openTrips=function(){
       if(window.rtOpenTab) window.rtOpenTab('transfer','rtDistribute');
       else location.href='/remote-transfer/transfer-scheduling?date='+encodeURIComponent(STATE.date||'');
     };
-    var todo=applyFilters(STATE.ready).filter(function(o){ return !STATE.scheduled[o.name]; });
-    if(!todo.length){ openTrips(); return; }
+    var todo=distTodo();
+    if(!todo.length){
+      // Nothing new to schedule: plan what is already scheduled; with nothing scheduled
+      // either there is nothing to plan, so stay here.
+      var sched=applyFilters(STATE.ready).filter(function(o){ return STATE.scheduled[o.name]; });
+      if(sched.length) openTrips();
+      else if(window.frappe&&frappe.show_alert) frappe.show_alert({message:'No orders to schedule in this view',indicator:'orange'},5);
+      return;
+    }
     var noTeam=todo.filter(function(o){ return !o.custom_team; });
-    var msg=todo.length+' order'+(todo.length===1?' isn’t':'s aren’t')+' scheduled yet — '+(todo.length===1?'it goes':'they go')+' to the end of '+(todo.length===1?'its':'their')+' team’s sequence first'+
+    var vv=G.var||'all', scope=(vv!=='all'?' '+varLabel(vv):'')+' order'+(todo.length===1?'':'s')+(curTeam()?' for '+curTeam():'');
+    var msg=todo.length+scope+(todo.length===1?' isn’t':' aren’t')+' scheduled yet — '+(todo.length===1?'it goes':'they go')+' to the end of '+(todo.length===1?'its':'their')+' team’s sequence first'+
       (noTeam.length?' ('+noTeam.length+' without a team go to the team with the least work)':'')+'.';
     pageDialog('Distribute to trips',esc(msg),'Distribute').then(function(ok){
       if(!ok) return;
@@ -1157,7 +1171,13 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       STATE.ready=STATE.ready.filter(function(o){ return STATE.scheduled[o.name]&&!isNew[o.name]; }).concat(todo)
         .concat(STATE.ready.filter(function(o){ return !STATE.scheduled[o.name]; }));
       G.sel.clear();
-      commitSchedule().then(function(r){ if(r&&r.status==='success') openTrips(); });
+      // Only orders with buckets to bring need trips; submitted ones just take their places.
+      var needTrips=todo.some(function(o){ return o.variation==='draft_transfer'; });
+      commitSchedule().then(function(r){
+        if(!(r&&r.status==='success')) return;
+        if(needTrips) openTrips();
+        else { G.mtab='sched'; render(); }   // show where they went
+      });
     });
   }
 
@@ -1170,6 +1190,10 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       var ok=r&&r.status==='success';
       var cnt=0; if(r&&r.saved){ var ks=Object.keys(r.saved); ks.forEach(function(t){ cnt=cnt+r.saved[t]; }); }
       var noTeam=(r&&r.no_team)||[];
+      var notSub=(r&&r.not_submitted)||[];
+      if(notSub.length&&window.frappe&&frappe.show_alert){
+        frappe.show_alert({message:notSub.length+' draft order'+(notSub.length===1?'':'s')+' at Kapkolia left off — submit '+(notSub.length===1?'it':'them')+' first',indicator:'orange'},6);
+      }
       if(window.frappe&&frappe.show_alert){
         if(ok&&cnt>0) frappe.show_alert({message:'✓ Schedule saved — '+cnt+' order'+(cnt===1?'':'s')+' sequenced',indicator:'green'},4);
         else if(ok&&!noTeam.length) frappe.show_alert({message:'Schedule cleared',indicator:'blue'},4);
@@ -1189,7 +1213,8 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 
   function scheduleSel(add){
     if(!G.sel.size) return;
-    G.sel.forEach(function(nm){ if(add) STATE.scheduled[nm]=1; else delete STATE.scheduled[nm]; });
+    var byName={}; STATE.ready.forEach(function(o){ byName[o.name]=o; });
+    G.sel.forEach(function(nm){ if(!add) delete STATE.scheduled[nm]; else if(canSchedule(byName[nm])) STATE.scheduled[nm]=1; });
     G.sel.clear();
     commitSchedule();
   }
@@ -1199,7 +1224,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   function makeSelectedNext(){
     if(!G.sel.size) return;
     var picked=[], rest=[];
-    STATE.ready.forEach(function(o){ (G.sel.has(o.name)?picked:rest).push(o); });
+    STATE.ready.forEach(function(o){ (G.sel.has(o.name)&&canSchedule(o)?picked:rest).push(o); });
     if(!picked.length) return;
     picked.forEach(function(o){ STATE.scheduled[o.name]=1; });   // making next = scheduling
     STATE.ready=picked.concat(rest);
@@ -1234,7 +1259,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     var out=[]; STATE.ready.forEach(function(o){ if(o.name!==exclude && STATE.scheduled[o.name] && (o.custom_team||'')===team) out.push(o.name); }); return out;
   }
   function setSchedulePos(name,k){
-    var o=null; STATE.ready.forEach(function(x){ if(x.name===name) o=x; }); if(!o) return;
+    var o=null; STATE.ready.forEach(function(x){ if(x.name===name) o=x; }); if(!o||!canSchedule(o)) return;
     var team=o.custom_team||'';
     STATE.scheduled[name]=1;                                   // acting on it schedules it
     var peers=teamScheduledNames(team,name);                   // other scheduled in this team, in order
@@ -1269,7 +1294,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     });
     if(!inserted){ domOrder.forEach(function(nm){ if(byName[nm]) newReady.push(byName[nm]); }); }
     STATE.ready=newReady;
-    if(draggedName) STATE.scheduled[draggedName]=1;
+    if(draggedName&&canSchedule(byName[draggedName])) STATE.scheduled[draggedName]=1;
     persist();
   }
 
@@ -1359,7 +1384,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       STATE.drafts=[];STATE.packed=[];
       STATE.ready=rows.map(function(o){
         return {name:o.opl,custom_order_name:o.order_name,customer:o.customer,custom_team:o.team,
-                total_stems:o.total_stems,n_buckets:o.n_buckets,n_farms:o.n_farms,farms:o.farms||[],farm_trips:o.farm_trips||[],
+                total_stems:o.total_stems,n_buckets:o.n_buckets,remote_buckets:o.remote_buckets||0,remote_by_farm:o.remote_by_farm||{},buckets_by_farm:o.buckets_by_farm||{},n_farms:o.n_farms,farms:o.farms||[],farm_trips:o.farm_trips||[],
                 n_varieties:o.n_varieties,has_transfer:o.has_transfer,mixed_type:o.mixed_type,
                 docstatus:o.docstatus,variation:o.variation,location:o.location||'',issued_lines:o.issued_lines||0,lines:o.lines||0,packed:o.packed||0,packed_stems:o.packed_stems||0};
       });
@@ -1391,12 +1416,12 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   window.rtDate.on(load);
   function filterChanged(){G.readyPage=1;render();}
   if(window.rtTeam) window.rtTeam.on(filterChanged);
+  if(el('teamBar'))el('teamBar').onclick=function(e){var b=e.target.closest('[data-team]');if(!b||!window.rtTeam)return;var v=b.getAttribute('data-team');window.rtTeam.set(curTeam()===v?'':v);};
   if(window.rtLocation) window.rtLocation.on(filterChanged);
   if(window.rtFarm) window.rtFarm.on(filterChanged);
-  G.mtab='byseq'; G.var='all';
+  G.mtab='unsched'; G.var='all';
   document.querySelectorAll('.sch-maintab').forEach(function(b){b.onclick=function(){G.mtab=b.getAttribute('data-mtab');G.sel.clear();G.readyPage=1;render();};});
-  if(el('readySearch'))el('readySearch').oninput=function(){G.readyPage=1;render();};
-  if(el('statusBar'))el('statusBar').onclick=function(e){var b=e.target.closest('[data-var]');if(!b)return;G.var=b.getAttribute('data-var');G.readyPage=1;render();};
+  if(el('statusBar'))el('statusBar').onclick=function(e){var b=e.target.closest('[data-var]');if(!b)return;var v=b.getAttribute('data-var');G.var=(G.var===v)?'all':v;G.readyPage=1;render();};
   if(el('smClose'))el('smClose').onclick=closeSchedModal;
   if(el('smCancel'))el('smCancel').onclick=closeSchedModal;
   if(el('smSave'))el('smSave').onclick=saveSchedModal;

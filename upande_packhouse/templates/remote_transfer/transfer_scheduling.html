@@ -136,6 +136,18 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .ts-bar{display:grid;grid-template-columns:1fr auto}
 .aph .ts-bar>.ts-tabs{justify-self:start}
 .aph .ts-distall{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 12px;padding:10px 14px;border:1px solid var(--border, #e5e7eb);border-radius:10px;background:var(--bg-card, #fff)}
+.aph .ts-open{flex-direction:column;align-items:stretch}
+.aph .ts-open-hd{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.aph .ts-open-list{display:flex;flex-direction:column;gap:4px;margin-top:10px;max-height:240px;overflow-y:auto}
+.aph .ts-open-row{display:grid;grid-template-columns:minmax(160px,1.3fr) minmax(110px,.7fr) minmax(160px,1.4fr) minmax(160px,1.4fr);gap:10px;align-items:center;padding:6px 8px;border-radius:8px;font:500 12px var(--f)}
+.aph .ts-open-row:nth-child(odd){background:var(--bg-muted,rgba(10,10,10,.04))}
+.aph .ts-open-ord{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.aph .ts-open-farm{font-family:var(--mono);color:var(--ink-3)}
+.aph .ts-open-why.bad{color:var(--bad)}
+.aph .ts-open-why.warn{color:var(--warn)}
+.aph .ts-open-why.ok{color:var(--good)}
+.aph .ts-open-do{color:var(--ink-4)}
+@media (max-width:900px){.aph .ts-open-row{grid-template-columns:1fr 1fr}}
 .aph .ts-distall-txt{font-size:13px;color:var(--text-2, #475467)}
 .aph .ts-bar>.ts-fld{justify-self:end}
 .aph .ts-fld{font:500 10px var(--f);text-transform:uppercase;letter-spacing:.07em;color:var(--ink-mute);display:flex;align-items:center;gap:7px}
@@ -411,6 +423,9 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .trip-st.Received{background:var(--good-soft);color:var(--good)}
 .aph .trip-st.auto{background:#efe7fd;color:#6d28d9}
 .aph .trip-st.Scheduled{background:#e3ecfd;color:#1d4ed8}
+.aph .trip-st.Requested{background:var(--warn-soft);color:var(--warn)}
+.aph .trip-reject{margin-top:8px;padding:6px 10px;border-radius:8px;background:var(--bad-soft);color:var(--bad);font:500 12px var(--f)}
+.aph .trip-st.req-by{background:transparent;border:1px solid var(--hairline-2);color:var(--ink-4);text-transform:none;letter-spacing:0}
 .aph .trip-st.filling{background:var(--warn-soft);color:var(--warn)}
 .aph .trip-st.full{background:var(--good-soft);color:var(--good)}
 .aph .ts-auto{display:none;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 14px;padding:9px 14px;border-radius:10px;background:#f5f0fe;color:#4c1d95;font:500 12px var(--f)}
@@ -428,19 +443,27 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .trip-col-hd .cnt{font:500 13px var(--f);color:var(--ink-mute)}
 .aph .trip-grid{display:flex;flex-direction:column;gap:14px}
 .aph .trip-grid .trip-card{margin:0;min-width:0}
+.aph .trip-grid .trip-card.trip-free{background:transparent;box-shadow:none;border:1px dashed var(--hairline-2);opacity:.75}
+.aph .trip-grid .trip-card.trip-free:hover{transform:none;box-shadow:none}
+.aph .trip-free .tstops{margin-top:8px}
 .aph .trip-title{display:flex;align-items:flex-start;gap:10px;font:600 15px/1.3 var(--f);color:var(--ink);margin-bottom:8px}
 .aph .trip-title .tt{flex:1;min-width:0;overflow-wrap:anywhere}
-.aph .trip-title .trip-age{flex-shrink:0;margin-top:2px}
 .aph .tofarm{font:600 10px var(--f);text-transform:uppercase;letter-spacing:.05em;color:var(--ink-mute);padding:8px 0 2px}
 .aph .tofarm:first-child{padding-top:0}
 
 .aph .trip-title .arr{color:var(--ink-mute);font-weight:500}
 /* Fixed size: the badge never resizes or shifts as the seconds tick (same-width digits,
    width fits the longest "10d 23h 59m 59s"). */
-.aph .trip-age{font:600 11px var(--f);font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1;box-sizing:border-box;width:132px;flex:0 0 132px;text-align:left;overflow:hidden;color:var(--signal);background:var(--signal-soft);padding:2px 9px;border-radius:999px;white-space:nowrap}
-.aph .trip-age.done{color:var(--good);background:var(--good-soft)}
 .aph .trip-hd .trip-name{font:500 11px var(--f);color:var(--ink-mute)}
-.aph .trip-grid .trip-orders{max-height:260px;overflow-y:auto;padding-right:4px}
+/* Every trip card the same height; its bucket list scrolls inside the card. */
+.aph .trip-grid .trip-card{height:400px;display:flex;flex-direction:column;overflow:hidden}
+.aph .trip-grid .trip-card>*{flex:none}
+/* Alternate rows so each order reads on its own line. */
+.aph .trip-orders .torow{padding:5px 8px;border-radius:8px}
+.aph .trip-orders .torow:nth-child(even){background:var(--bg-muted,rgba(10,10,10,.04))}
+.aph .trip-grid .trip-orders{flex:1 1 auto;min-height:0;max-height:none;overflow-y:auto;padding-right:4px;scrollbar-width:thin}
+.aph .trip-grid .trip-orders::-webkit-scrollbar{width:5px}
+.aph .trip-grid .trip-orders::-webkit-scrollbar-thumb{background:rgba(10,10,10,.18);border-radius:5px}
 .aph .trip-grid .torow{flex-wrap:wrap;row-gap:4px}
 .aph .trip-grid .route-row .rp{white-space:normal}
 /* Thin, quiet scrollbars everywhere on the page (trip tiles' order lists included).
@@ -456,6 +479,10 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .trip-grid .trip-card{transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease}
 .aph .trip-grid .trip-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-hover);border-color:var(--border-2)}
 .aph .trip-grid .trip-card.stale:hover{box-shadow:inset 0 0 0 1px var(--bad),var(--shadow-hover)}
+/* Hover keeps the trip's colour: the left edge stays, and the card picks up a ring of it. */
+.aph .trip-grid .trip-card.tripn:hover{border-color:var(--tc);border-left-color:var(--tc);box-shadow:0 0 0 1px var(--tc),var(--shadow-hover)}
+.aph .trip-cols{padding-top:4px}
+.aph .trip-grid .trip-card.tripn.stale:hover{box-shadow:inset 0 0 0 1px var(--bad),var(--shadow-hover)}
 @media (prefers-reduced-motion:reduce){.aph .trip-grid .trip-card{transition:none}.aph .trip-grid .trip-card:hover{transform:none}}
 @media (max-width:720px){.aph .trip-cols{flex-direction:column;overflow-x:visible}.aph .trip-col{min-width:0;max-width:none;width:100%}}
 .aph .trip-hd .trip-del{margin-left:auto;padding:5px 11px;font-size:11px}
@@ -540,6 +567,15 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph .rb-run-hd .rb-run-km{font:500 11px var(--mono);color:var(--ink-mute)}
 .aph .rb-run-hd .tbtn{margin-left:auto}
 .aph .trip-run{font:600 11px var(--mono);color:var(--ink);background:var(--bg-muted,#f3f4f6);border-radius:999px;padding:2px 8px}
+/* Trip number colours: the card's left edge and its "Trip N" pill. */
+.aph .trip-card.tripn{border-left:5px solid var(--tc)}
+.aph .trip-card.tripn .trip-run{background:var(--tc);color:#fff}
+.aph .tripn-0{--tc:#2563eb}
+.aph .tripn-1{--tc:#16a34a}
+.aph .tripn-2{--tc:#d97706}
+.aph .tripn-3{--tc:#9333ea}
+.aph .tripn-4{--tc:#db2777}
+.aph .tripn-5{--tc:#0891b2}
 .aph .ts-dups .tbtn{margin-left:auto}
 .aph .rl-km{font:600 12px var(--mono);color:var(--ink-2)}
 .aph .rl-meta{font:500 11px var(--f);color:var(--ink-mute)}
@@ -680,14 +716,13 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 {% elif rt_part == 'body' %}{% raw %}
       <div class="ts-bar">
         <div class="ts-tabs">
-          <button class="ts-tab on" data-act="tab" data-tab="orders">Scheduled orders</button>
-          <button class="ts-tab" data-act="tab" data-tab="triplist">Trips</button>
+          <button class="ts-tab on" data-act="tab" data-tab="triplist">Trips</button>
         </div>
         <span class="ts-fld"><span class="live-dot"></span><span id="ts-fresh">live</span></span>
       </div>
       <div class="ts-auto" id="ts-auto"></div>
-      <div id="panel-orders" class="ts-panel"><div class="sk-card" style="height:46px"></div><div class="sk-card"><span class="sk" style="width:30%;height:14px"></span><div style="height:10px"></div><span class="sk" style="width:90%;height:12px"></span><div style="height:8px"></div><span class="sk" style="width:62%;height:12px"></span></div><div class="sk-card"><span class="sk" style="width:26%;height:14px"></span><div style="height:10px"></div><span class="sk" style="width:84%;height:12px"></span><div style="height:8px"></div><span class="sk" style="width:58%;height:12px"></span></div></div>
-      <div id="panel-triplist" class="ts-panel" style="display:none"></div>
+      <div id="panel-orders" class="ts-panel" style="display:none"><div class="sk-card" style="height:46px"></div><div class="sk-card"><span class="sk" style="width:30%;height:14px"></span><div style="height:10px"></div><span class="sk" style="width:90%;height:12px"></span><div style="height:8px"></div><span class="sk" style="width:62%;height:12px"></span></div><div class="sk-card"><span class="sk" style="width:26%;height:14px"></span><div style="height:10px"></div><span class="sk" style="width:84%;height:12px"></span><div style="height:8px"></div><span class="sk" style="width:58%;height:12px"></span></div></div>
+      <div id="panel-triplist" class="ts-panel"></div>
       <div class="toast" id="ts-toast"></div>
 {% endraw %}
 {% elif rt_part == 'tail' %}{% raw %}
@@ -734,7 +769,7 @@ var S={ from:window.rtDate.get(), to:window.rtDate.get(), tab:(function(){ try{
   var p=location.pathname.replace(/\/+$/,'');
   if(/\/truck-routes$/.test(p)) return 'routes';
   if(/\/bucket-logistics$/.test(p)) return 'logistics';
-  var t=new URLSearchParams(location.search).get('tab'); return t==='triplist'?t:'orders'; }catch(e){ return 'orders'; } })(), sel:[], broken:{}, offRoutes:{}, offRuns:{} };
+  return 'triplist'; }catch(e){ return 'triplist'; } })(), sel:[], broken:{}, offRoutes:{}, offRuns:{} };
 function tripVehMap(){ var m={}; DATA.trips.forEach(function(t){ m[t.name]=t.vehicle||''; }); return m; }
 var DATA={orders:[],unscheduled:[],vehicles:[],trips:[],distances:[],truck_status:[],routes:[]};
 
@@ -907,7 +942,7 @@ function orderByOpl(opl){ for(var i=0;i<DATA.orders.length;i++){ if(DATA.orders[
    dispatched trip's buckets are flagged in transit server-side (they're already out
    of each farm's open count), and a stale draft from an earlier day never left, so
    neither may cover anything — mirrors _trip_claims in transfer_control.py. */
-function claimsBuckets(t){ return (t.status==='Draft'||t.status==='Scheduled') && !t.stale; }
+function claimsBuckets(t){ return (t.status==='Draft'||t.status==='Requested'||t.status==='Scheduled') && !t.stale; }
 function activeTrips(){ return DATA.trips.filter(claimsBuckets); }
 /* portions on planned trips -> pkey -> tripName. PRESENCE only. */
 function savedPortions(){
@@ -961,17 +996,17 @@ function loadData(){
   return apiGet('getTransferScheduleData',{from_date:S.from,to_date:S.to}).then(function(d){
     if(d.success===false) throw new Error(d.error||'server error');
     S.loaded=true; S.skel=false;
-    DATA={ duplicate_trips:d.duplicate_trips||{}, farm_list:d.farm_list||[], orders:d.orders||[], unscheduled:d.unscheduled||[], vehicles:d.vehicles||[], trips:d.trips||[], distances:d.distances||[], truck_status:d.truck_status||[], routes:d.routes||[], packhouse:d.packhouse, auto_planning:d.auto_planning||{}, distributions:d.distributions||[], left_behind:d.left_behind||[], hub_space:d.hub_space||null, hub_ready:d.hub_ready||[] };
+    DATA={ duplicate_trips:d.duplicate_trips||{}, farm_list:d.farm_list||[], orders:d.orders||[], vehicles:d.vehicles||[], trips:d.trips||[], distances:d.distances||[], truck_status:d.truck_status||[], routes:d.routes||[], packhouse:d.packhouse, auto_planning:d.auto_planning||{}, distributions:d.distributions||[], left_behind:d.left_behind||[],  hub_ready:d.hub_ready||[] };
     tickLiveClock();
     render();
   }).catch(function(e){
-    var po=$('panel-orders'); if(po) po.innerHTML='<div class="ts-loading" style="color:var(--bad)">Couldn\'t load: '+esc((e&&e.message)||'error')+' — <a href="" onclick="location.reload();return false" style="color:var(--ink);text-decoration:underline">reload</a></div>';
+    var po=$('panel-triplist'); if(po) po.innerHTML='<div class="ts-loading" style="color:var(--bad)">Couldn\'t load: '+esc((e&&e.message)||'error')+' — <a href="" onclick="location.reload();return false" style="color:var(--ink);text-decoration:underline">reload</a></div>';
   });
 }
 
 /* ---------------- render ---------------- */
 /* Top Remote Transfers tabs: Transfer Scheduling <-> Bucket Logistics switch in place. */
-window.rtSwitch=function(key){ S.tab = (key==='logistics'||key==='routes') ? key : (S.lastPlanTab||'orders'); render(); };
+window.rtSwitch=function(key){ S.tab = (key==='logistics'||key==='routes') ? key : 'triplist'; render(); };
 /* The Schedule tab's "Distribute to trips" lands here (rtOpenTab): the same Distribute. */
 window.rtDistribute=function(){ distributeAction(); };
 /* Truck Routes: every truck's route for a date (list), a page to create / edit a
@@ -1051,13 +1086,13 @@ function truckStateHtml(vehicle,date){
     : '<span class="trip-st Received" title="Back at '+esc(v.route_end||pack())+' — can be planned">available</span>';
 }
 /* In-page confirm dialog (replaces window.confirm): resolves true on the action button. */
-function confirmModal(title,msg,okLabel,danger){
+function confirmModal(title,msg,okLabel,danger,cancelLabel){
   return new Promise(function(resolve){
     var old=$('cf-modal'); if(old) old.remove();
     var m=document.createElement('div'); m.id='cf-modal'; m.className='dm-overlay rn-modal';
     m.innerHTML='<div class="dm-card"><div class="dm-hd"><h3>'+esc(title)+'</h3><button class="sch-x" data-cf="0" title="Close">×</button></div>'+
       '<div class="rn-form"><div class="rn-note'+(danger?' warn':'')+'">'+esc(msg)+'</div></div>'+
-      '<div class="dm-foot"><button class="tbtn" data-cf="0">Cancel</button><button class="tbtn key" data-cf="1">'+esc(okLabel||'OK')+'</button></div></div>';
+      '<div class="dm-foot"><button class="tbtn" data-cf="0">'+esc(cancelLabel||'Cancel')+'</button><button class="tbtn key" data-cf="1">'+esc(okLabel||'OK')+'</button></div></div>';
     function done(v){ document.removeEventListener('keydown',onKey,true); m.remove(); resolve(v); }
     function onKey(e){ if(e.key==='Escape'){ e.stopPropagation(); done(false); } else if(e.key==='Enter'){ e.preventDefault(); done(true); } }
     m.addEventListener('click',function(e){ var b=e.target.closest('[data-cf]'); if(b) done(b.dataset.cf==='1'); else if(e.target===m) done(false); });
@@ -1448,7 +1483,7 @@ function allFarmsKnown(){
    that only serves that run's farms (one trip per run). A run whose trip already has
    buckets offers what's left. `key` tells the runs of one truck apart. */
 function runKey(r){ return r.route+'#'+r.run; }
-function openRuns(v){ return (v.runs||[]).filter(function(r){ return (r.stops||[]).length && routeOn(r.route) && !S.offRuns[runKey(r)] && (!r.trip||r.trip_status==='Draft'||r.trip_status==='Scheduled'); }); }
+function openRuns(v){ return (v.runs||[]).filter(function(r){ return (r.stops||[]).length && routeOn(r.route) && !S.offRuns[runKey(r)] && (!r.trip||r.trip_status==='Draft'||r.trip_status==='Requested'||r.trip_status==='Scheduled'); }); }
 function buildTruckState(){
   var sets=truckFarmSets(), out=[];
   fleetSorted().forEach(function(v){
@@ -1603,7 +1638,7 @@ function computeDistribution(){
      that hasn't fully arrived at the hub (an order still has buckets at a farm or on
      the road) is planned — its whole orders not on a truck yet, each on one truck
      where one can take it all — and the next step waits until it has arrived. Only
-     what the hub can shelve (hubBudget); no partial loads. */
+     no partial loads. */
   // The step being worked on: the first with an order on the road, planned on a truck,
   // or still to plan on one that can reach it. An order no truck reaches is reported
   // (unreachable) but never holds every team's next steps back.
@@ -1616,7 +1651,7 @@ function computeDistribution(){
   });
   var steps=Object.keys(moving).map(Number).sort(function(a,b){ return a-b; });
   var step=steps.length?steps[0]:null, later=0, lastStep=step;
-  var picked=[], candidates=[], round=step==null?-1:step, budget=hubBudget();
+  var picked=[], candidates=[], round=step==null?-1:step;
   /* A trip goes to its own farm(s) only, so an order is planned farm by farm: its
      buckets at each farm are a portion for the trips to that farm. Every team's
      #`step`, then every team's next step, and so on — each portion on the first trip
@@ -1638,12 +1673,12 @@ function computeDistribution(){
       items.sort(function(a,b){ return a.open-b.open; });   // smallest first = the most teams move
       items.forEach(function(it){
         var bk=it.team+'|'+it.farm;
-        if(blocked[bk] || budget<=0){ blocked[bk]=1; later++; return; }
+        if(blocked[bk]){ later++; return; }
         var scratch=cloneState(state);
-        var alloc=it.open>budget?null:placeWithAutoTrips(scratch,it.farms,it.open);
-        if(alloc && alloc.placed>=it.open){ state=scratch; it.alloc=alloc.rows; picked.push(it); budget-=it.open; lastStep=k; return; }
+        var alloc=placeWithAutoTrips(scratch,it.farms,it.open);
+        if(alloc && alloc.placed>=it.open){ state=scratch; it.alloc=alloc.rows; picked.push(it); lastStep=k; return; }
         blocked[bk]=1;
-        if(k===step){ it.maxTake=0; if(it.open>budget) it.space=Math.max(0,budget); else it.allocPreview=alloc?alloc.rows:[]; candidates.push(it); }
+        if(k===step){ it.maxTake=0; it.allocPreview=alloc?alloc.rows:[]; candidates.push(it); }
         else later++;
       });
     });
@@ -1663,6 +1698,11 @@ function distributeAction(){
     if(m.status==='error'||m.status==='busy'){ toast(m.message||'Distribute failed','red'); render(); return; }
     var trips=(m.trips||[]).length, filling=(m.filling||[]).length;
     toast(m.unchanged?'Trips unchanged':(trips+' trip'+(trips===1?'':'s')+' planned · '+(trips-filling)+' full'),'green');
+    // Runs Distribute added to the routes for buckets that had no trip.
+    (m.runs_added||[]).forEach(function(a){ toast('Added trip '+(a.run||'')+' on '+a.vehicle+' to '+a.farm,'green'); });
+    // Orders whose farm no open trip goes to today: say so instead of a silent "unchanged".
+    var un=(m.unreachable||[]).length;
+    if(un) toast(un+' order'+(un===1?' has':'s have')+' no truck going to '+(un===1?'its':'their')+' farm today — add a run to a truck route','red');
     S.tab='triplist'; loadData();
   }).catch(function(e){ S.distLoading=false; toast((e&&e.message)||'Distribute failed','red'); render(); });
 }
@@ -1697,7 +1737,7 @@ function applyDistribution(){
 function truckPickHtml(){
   var rows=[], picked=0;
   DATA.vehicles.forEach(function(v){
-    var open=(v.runs||[]).filter(function(r){ return (r.stops||[]).length && (!r.trip||r.trip_status==='Draft'||r.trip_status==='Scheduled'); });
+    var open=(v.runs||[]).filter(function(r){ return (r.stops||[]).length && (!r.trip||r.trip_status==='Draft'||r.trip_status==='Requested'||r.trip_status==='Scheduled'); });
     open.forEach(function(r){
       var t=r.trip?(DATA.trips||[]).filter(function(x){ return x.name===r.trip; })[0]:null;
       var used=t?Math.max(t.total_buckets||0,t.loaded_buckets||0):0, rem=Math.max(0,(v.capacity_buckets||0)-used);
@@ -1779,9 +1819,7 @@ function renderDistModal(){
     var msgs=d.candidates.map(function(c){ var over=Math.max(0,c.open-c.maxTake);
       var farms=c.farms.map(function(f){ return f.farm; });
       var routedTo=fleetSorted().filter(function(v){ var fs=sets[v.name]||[]; return farms.some(function(f){ return fs.indexOf(f)>=0; }); });
-      var reason=c.space!=null
-        ? (pack()||'the hub')+' has shelf space for only '+c.space+' more bucket'+(c.space===1?'':'s')
-        : !routedTo.length
+      var reason=!routedTo.length
         ? 'no truck with capacity is routed to '+farms.join(' / ')+' today'
         : 'the trucks routed to '+farms.join(' / ')+' have no room left for the whole order';
       if(c.maxTake<=0) return '<div class="dm-short-msg">Schedule <b>#'+c.schedule+'</b> for <b>'+esc(c.team)+'</b> ('+c.open+' bkt) can’t move today — '+esc(reason)+'. It waits for the next trip.</div>';
@@ -1814,28 +1852,11 @@ function renderDistModal(){
   m.innerHTML=html;
 }
 
-/* Shelf space at the hub (Kapkolia) free for new transfers: planning brings only what fits. */
-function hubBudget(){
-  var h=DATA.hub_space; if(!h||h.free==null) return Infinity;   // buckets per shelf not set: no limit
-  return h.free;
-}
 /* Buckets a truck left behind at a farm (planned, the truck left without them): listed
    first, with who left them, when and why — they go first on the next trip there. */
 function leftBehindNote(lb){
   return 'Left behind by '+(lb.vehicle||'a truck')+' (trip '+lb.trip+')'+(lb.left_at?' at '+String(lb.left_at).slice(11,16)+' on '+String(lb.left_at).slice(0,10):'')+
     (lb.reason?' — '+lb.reason:'')+'. '+(lb.now_on&&lb.now_on.length?'Now on '+lb.now_on.map(function(t){ return t.vehicle+' ('+t.trip+')'; }).join(', ')+'.':'Not on a trip yet.');
-}
-/* Orders that need buckets moved but are on NO team's schedule — transfer planning
-   can't see them, so without this panel they'd never get a truck and nobody would know. */
-function unscheduledHtml(){
-  var u=DATA.unscheduled||[]; if(!u.length) return '';
-  var why={no_team:'no team',not_scheduled:'not scheduled'};
-  var noTeam=u.filter(function(x){return x.reason==='no_team';}).length;
-  return '<div class="ts-alert'+(noTeam?' bad':'')+'"><div class="ts-alert-hd">'+u.length+' order'+(u.length===1?' needs':'s need')+' buckets moved but '+(u.length===1?'isn’t':'aren’t')+' on a team schedule — '+(u.length===1?'it':'they')+' can’t be planned onto a truck'+
-    '<a href="/remote-transfer/scheduler">Open scheduler →</a></div><div class="ts-alert-list">'+
-    u.map(function(x){ return '<div class="ts-alert-row"><span class="nm">'+esc(x.order_name)+'</span><span class="why">'+esc(why[x.reason]||x.reason)+'</span>'+
-      '<span class="meta">'+esc(x.customer||'')+' · '+(x.buckets?n(x.buckets)+' bkt waiting':'')+(x.buckets&&x.on_road?', ':'')+(x.on_road?n(x.on_road)+' bkt on a truck':'')+' at '+esc((x.farms||[]).join(', '))+(x.team?' · team '+esc(x.team):'')+' · due '+esc(x.delivery_date)+'</span></div>'; }).join('')+
-    '</div>'+(noTeam?'<div style="margin-top:6px">Set the team on the Order Pick List, then schedule it.</div>':'')+'</div>';
 }
 /* Draft/Scheduled trips from an earlier day: the truck never left. They no longer
    hold any buckets (those are open again) — delete them so the trip list is honest. */
@@ -1878,14 +1899,14 @@ function deleteStaleTrips(names){
 function renderOrders(){
   var onTrip=savedPortions();
   var tripVeh=tripVehMap();
-  var alerts=unscheduledHtml()+duplicateTripsHtml()+staleTripsHtml();
+  var alerts=duplicateTripsHtml()+staleTripsHtml();
   // Distribute all: plans every team's open orders at once in the distribution popup
   // (round by round, a preview to confirm). Each farm still keeps its own Distribute.
   var openOrders=DATA.orders.filter(function(o){ return openTotal(o)>0; });
   var openBkts=openOrders.reduce(function(a,o){ return a+openTotal(o); },0);
   var bar=openOrders.length?'<div class="ts-distall"><span class="ts-distall-txt"><b>'+n(openBkts)+'</b> bucket'+(openBkts===1?'':'s')+' in <b>'+openOrders.length+'</b> order'+(openOrders.length===1?'':'s')+' not on a trip yet</span>'+
     '<button class="tbtn key" data-act="distribute"'+(S.distLoading?' disabled':'')+'>Distribute all</button></div>':'';
-  if(!DATA.orders.length){ $('panel-orders').innerHTML=bar+alerts+'<div class="ts-empty">No scheduled orders need transferring in this delivery window. Schedule orders in the packhouse-scheduler first.</div>'; return; }
+  if(!DATA.orders.length){ $('panel-orders').innerHTML=bar+alerts+'<div class="ts-empty">No scheduled orders need transferring.</div>'; return; }
   // Every scheduled order stays listed under its team's schedule; one already on a
   // truck carries a "distributed" badge instead of dropping off the list.
   var loc=curLocation();
@@ -2293,7 +2314,7 @@ window.rtAddToTrip=function(opl,farm,orderName){
    remove an order, change the truck (through changeTripVehicle and its checks), notes.
    Saved through saveBucketTrip by name, which re-checks capacity and that no bucket is
    already planned on another trip. */
-function tripEditable(t){ return (t.status==='Draft'||t.status==='Scheduled') && !t.loading && !(t.loaded_buckets>0); }
+function tripEditable(t){ return (t.status==='Draft'||t.status==='Requested'||t.status==='Scheduled') && !t.loading && !(t.loaded_buckets>0); }
 function closeTripEdit(){ S.te=null; var m=$('te-modal'); if(m) m.remove(); }
 function openTripEdit(name){
   var t=(DATA.trips||[]).filter(function(x){ return x.name===name; })[0]; if(!t||!tripEditable(t)) return;
@@ -2373,19 +2394,33 @@ function statusPillsHtml(vehicle){
 }
 /* Gone = the truck left (dispatched or back): from then on what was LOADED is the
    truth, and the plan is kept beside it — planned buckets not loaded were left behind. */
-/* Draft = being filled; Scheduled = left the hub for its farms; Dispatched = loaded,
-   heading back to the hub; Received = ended. */
-var TRIP_LBL={Draft:'planned',Scheduled:'dispatched',Dispatched:'to packhouse',Received:'ended'};
+/* Draft = planned; Requested = truck asked for; Scheduled = released to its farms;
+   Dispatched = loaded, heading back to the hub; Received = ended. */
+var TRIP_LBL={Draft:'planned',Requested:'truck requested',Scheduled:'released',Dispatched:'to packhouse',Received:'ended'};
 function tripFull(t){ var cap=t.capacity_buckets||0; return cap>0 && (t.total_buckets||0)>=cap; }
-function dispatchTrip(name){
+/* Request truck (Draft -> Requested), then Confirm release (Requested -> Scheduled). */
+function tripStep(name, method, done){
   if(S.dispatching) return; S.dispatching=name; render();
-  call('releaseBucketTrip',{name:name}).then(function(r){
+  call(method,{name:name}).then(function(r){
     var m=(r&&r.message)||{};
     S.dispatching=null;
-    if(m.status==='success') toast('Dispatched','green'); else toast(m.message||'Dispatch failed','red');
+    if(m.status==='success') toast(m.trip_status==='Scheduled'&&method==='requestBucketTrip'?'Truck released':done,'green'); else toast(m.message||'Failed','red');
     loadData();
-  }).catch(function(e){ S.dispatching=null; toast((e&&e.message)||'Dispatch failed','red'); render(); });
+  }).catch(function(e){ S.dispatching=null; toast((e&&e.message)||'Failed','red'); render(); });
 }
+/* Every request is confirmed first (Yes / No); Yes stamps who requested the truck. */
+function requestTrip(name){
+  var t=(DATA.trips||[]).filter(function(x){ return x.name===name; })[0]||{};
+  var cap=t.capacity_buckets||0, n=t.total_buckets||0, farms=tripFrom(t).join(', ')||'the farm';
+  var msg=(cap&&n<cap
+      ? 'The truck capacity is '+cap+' buckets but you are requesting it for '+n+' / '+cap+' buckets.'
+      : 'Send '+(t.vehicle||'the truck')+' to '+farms+' to pick '+n+(cap?' / '+cap:'')+' buckets.')+
+    ' Are you sure you want to request it?';
+  confirmModal('Request '+(t.vehicle||'the truck')+' to '+farms,msg,'Yes',false,'No').then(function(ok){
+    if(ok) tripStep(name,'requestBucketTrip','Truck requested');
+  });
+}
+function dispatchTrip(name){ tripStep(name,'releaseBucketTrip','Release confirmed'); }
 function tripGone(t){ return t.status==='Dispatched'||t.status==='Received'; }
 /* Buckets are counted as loaded once any went on the truck, before dispatch too. */
 function tripLoaded(t){ return tripGone(t)||!!t.loading; }
@@ -2400,8 +2435,6 @@ function tripAge(since,until){
   if(until) return 'took '+(d?d+'d '+h+'h':(h?h+'h '+p2(m)+'m':m+'m'));
   return (d?d+'d ':'')+(d||h?h+'h '+p2(m)+'m ':m+'m ')+p2(sc)+'s';
 }
-function tickTripAges(){ document.querySelectorAll('.trip-age[data-since]:not([data-until])').forEach(function(el){ el.textContent=tripAge(el.dataset.since); }); }
-setInterval(tickTripAges,1000);
 /* The farms a trip collects from (its route stops, else its orders' farms), hub left out. */
 function tripFrom(t){
   var hub=pack(), src=(t.stops||[]).length?t.stops:(t.orders||[]).map(function(r){ return r.farm; }), seen={}, out=[];
@@ -2448,13 +2481,17 @@ function tripCardHtml(t){
   function tripFarms2(orders){ var seen={}, out=[]; (orders||[]).forEach(function(r){ if(r.farm && !seen[r.farm]){ seen[r.farm]=1; out.push(r.farm); } }); return out; }
   var stBadge=t.stale?'<span class="trip-st stale" title="Planned for an earlier day and never dispatched — its buckets are open again">stale · '+esc(t.status)+'</span>'
     :(t.loading?'<span class="trip-st loading" title="Buckets are on the truck — dispatched from the app when loading is done">loading</span>'
-    :'<span class="trip-st '+esc(t.status||'')+'">'+esc(TRIP_LBL[t.status]||t.status||'—')+'</span>');
+    :'<span class="trip-st '+esc(t.status||'')+'"'+(t.status==='Requested'&&t.requested_by?' title="'+esc(t.requested_by+' · '+String(t.requested_at||'').slice(0,16))+'"':(t.released_by&&t.status!=='Draft'?' title="Released by '+esc(t.released_by+' · '+String(t.released_at||'').slice(0,16))+'"':''))+'>'+esc(TRIP_LBL[t.status]||t.status||'—')+'</span>');
   var full=tripFull(t);
-  if(t.status==='Draft' && !t.stale && !t.loading) stBadge+=full?'<span class="trip-st full">full</span>':'<span class="trip-st filling">filling '+(t.total_buckets||0)+' / '+(cap||'—')+'</span>';
-  /* Time since the trip was scheduled — ticks live (see tickTripAges); once the trip
-     ended it is the total, scheduled → ended. */
-  var age=t.scheduled_at?'<span class="trip-age'+(t.received_at?' done':'')+'" data-since="'+esc(t.scheduled_at)+'"'+(t.received_at?' data-until="'+esc(t.received_at)+'"':'')+
-    ' title="Scheduled '+esc(String(t.scheduled_at).slice(0,16))+'">'+tripAge(t.scheduled_at,t.received_at)+'</span>':'';
+  // A request the farm turned down: back here with the reason, to fix and request again.
+  var rejected=(t.status==='Draft'&&t.reject_reason)?'<div class="trip-reject"><b>Request rejected</b>'+(t.rejected_by?' by '+esc(t.rejected_by):'')+(t.rejected_at?' · '+esc(String(t.rejected_at).slice(11,16)):'')+': '+esc(t.reject_reason)+'</div>':'';
+  // Who asked for the truck to go to the farm (and when), on every trip it was asked for.
+  // Released (the truck left for the farm): who released it, the requester on hover.
+  // Until then, who requested it.
+  var gone=t.status==='Scheduled'||t.status==='Dispatched'||t.status==='Received';
+  if(gone && t.released_by) stBadge+='<span class="trip-st req-by" title="'+esc((t.requested_by?'Requested by '+t.requested_by+(t.requested_at?' · '+String(t.requested_at).slice(0,16):'')+'\n':'')+'Released '+String(t.released_at||'').slice(0,16))+'">released by '+esc(t.released_by)+(t.released_at?' · '+esc(String(t.released_at).slice(11,16)):'')+'</span>';
+  else if(t.requested_by && !(t.status==='Draft'&&t.reject_reason)) stBadge+='<span class="trip-st req-by" title="Truck requested '+esc(String(t.requested_at||'').slice(0,16))+'">requested by '+esc(t.requested_by)+(t.requested_at?' · '+esc(String(t.requested_at).slice(11,16)):'')+'</span>';
+  if((t.status==='Draft'||t.status==='Requested') && !t.stale && !t.loading) stBadge+=full?'<span class="trip-st full">full</span>':'<span class="trip-st filling">filling '+(t.total_buckets||0)+' / '+(cap||'—')+'</span>';
   var when=t.dispatched_at?'<span style="font:500 10px var(--mono);color:var(--ink-mute)">left '+esc(String(t.dispatched_at).slice(11,16))+'</span>':'';
   /* Collection progress: stops already loaded and left, the stop the truck is heading to, then the packhouse. */
   var dep=t.departed_stops||[], stopsLine='';
@@ -2467,24 +2504,47 @@ function tripCardHtml(t){
     parts.push('<span class="tstop'+(t.status==='Dispatched'?' next':'')+'">'+esc(pack())+(t.status==='Dispatched'?' · heading there':'')+'</span>');
     stopsLine='<div class="tstops">'+parts.join('<span class="tarrow">→</span>')+'</div>';
   }
-  return '<div class="trip-card'+(t.stale?' stale':'')+'">'+
-    /* The farm is the column's heading; the card is titled by its truck (the trip id
-       only shows on hover). */
-    '<div class="trip-title" title="'+esc(t.name)+'"><span class="tt">'+esc(t.vehicle||'—')+'</span>'+age+'</div>'+
+  // Trip 1, 2, 3 … each its own colour on every truck (repeats after six).
+  return '<div class="trip-card'+(t.stale?' stale':'')+(t.run?' tripn tripn-'+((t.run-1)%6):'')+'">'+
+    /* The truck is the column's heading; the card is titled by the farm(s) it
+       collects from (the trip id only shows on hover). */
+    '<div class="trip-title" title="'+esc(t.name)+'"><span class="tt">'+esc(tripFrom(t).join(', ')||t.vehicle||'—')+'</span></div>'+
     '<div class="trip-hd">'+
     (t.run?'<span class="trip-run" title="'+esc(t.route)+(t.window?' · '+esc(t.window):'')+'">Trip '+t.run+(t.runs>1?' of '+t.runs:'')+'</span>':'')+
     (t.trip_date?'<span style="font:500 11px var(--mono);color:var(--ink-mute)">'+esc(t.trip_date)+'</span>':'')+
     stBadge+(t.unscheduled?'<span class="trip-st unsched" title="The farm loaded this truck before any trip was planned for it — the system made this trip from the load">unplanned load</span>':'')+(t.auto_planned?'<span class="trip-st auto" title="Planned by automatic scheduling — re-planned automatically until dispatched">auto</span>':'')+when+
-    (tripEditable(t)?'<button class="tbtn ghost trip-act trip-edit" data-act="trip-edit" data-trip="'+esc(t.name)+'" title="Edit trip">Edit</button>':'')+
-    (t.status==='Draft' && !t.stale && full?'<button class="tbtn key trip-act" data-act="trip-dispatch" data-trip="'+esc(t.name)+'"'+(S.dispatching===t.name?' disabled':'')+'>Dispatch</button>':'')+
+    (t.status==='Draft' && !t.stale?'<button class="tbtn key trip-act" data-act="trip-request" data-trip="'+esc(t.name)+'"'+(S.dispatching===t.name?' disabled':'')+'>Request truck</button>':'')+
 
     '</div>'+
+    rejected+
     '<div class="cap-bar" style="margin-top:10px"><i style="width:'+pct+'%"></i></div>'+
     '<div style="font:500 10px var(--mono);color:var(--ink-mute);margin-top:4px">'+used+' / '+(cap||'—')+' buckets'+(shown?' loaded':'')+(shown&&!t.unscheduled?' · '+(t.total_buckets||0)+' planned':'')+(shown?'':' · '+n(t.total_stems||0)+' stems')+(t.tracked_buckets?' · '+(t.shelved_buckets||0)+' / '+t.tracked_buckets+' shelved'+(t.off_truck_buckets?' · '+t.off_truck_buckets+' off the truck':''):'')+(t.received_at?' · ended '+esc(String(t.received_at).slice(11,16)):'')+'</div>'+
     stopsLine+
     statusPillsHtml(t.vehicle)+
     (t.run_chain?'<div class="route-box"><div class="route-row"><span class="rl">Route</span><span class="rp">'+esc(farmsToHub(t.run_chain))+'</span></div></div>':routeHtml(tripFarms2(t.orders)))+
     '<div class="trip-orders">'+rows+'</div></div>';
+}
+/* Why a farm's buckets have no trip, and the step that gets them one: no truck goes
+   there today; its trucks' trips there are already requested or released; they are
+   full; or there is room and Distribute places them. */
+function whyOffTrip(farm,need){
+  var runs=[];
+  (DATA.vehicles||[]).forEach(function(v){ (v.runs||[]).forEach(function(r){
+    if((r.stops||[]).indexOf(farm)>=0) runs.push({v:v,r:r});
+  }); });
+  if(!runs.length) return {k:'bad',why:'No truck goes to '+farm+' today',step:'Truck routes → add a run to '+farm+' on a truck, then Distribute all'};
+  var trip=function(x){ return x.r.trip?(DATA.trips||[]).filter(function(t){ return t.name===x.r.trip; })[0]:null; };
+  var open=runs.filter(function(x){ var st=x.r.trip_status; return !st||st==='Draft'; });
+  if(!open.length){
+    var st=runs.map(function(x){ return x.v.name+' ('+(TRIP_LBL[x.r.trip_status]||x.r.trip_status)+')'; }).join(', ');
+    return {k:'warn',why:'Trips to '+farm+' already left or wait on the farm: '+st,step:'Truck routes → add another run to '+farm+', or wait for the trip to end'};
+  }
+  var room=open.map(function(x){ var t=trip(x); return {x:x,left:(x.v.capacity_buckets||0)-((t&&t.total_buckets)||0)}; })
+    .filter(function(y){ return y.left>0; });
+  if(!room.length) return {k:'warn',why:'Trucks going to '+farm+' are full',step:'Truck routes → add a run or a bigger truck to '+farm};
+  var best=room.sort(function(a,b){ return b.left-a.left; })[0];
+  if(best.left<need) return {k:'warn',why:'Only '+best.left+' of '+need+' buckets fit on '+best.x.v.name,step:'Distribute all splits it, or add a run to '+farm};
+  return {k:'ok',why:best.left+' free on '+best.x.v.name+' to '+farm,step:'Press Distribute all'};
 }
 function renderTripList(){   // "Trips" tab — VIEW ONLY: every trip as a read-only card.
   function tripFarms2(orders){ var seen={}, out=[]; (orders||[]).forEach(function(r){ if(r.farm && !seen[r.farm]){ seen[r.farm]=1; out.push(r.farm); } }); return out; }
@@ -2498,22 +2558,56 @@ function renderTripList(){   // "Trips" tab — VIEW ONLY: every trip as a read-
     return mine.length?Object.assign({},t,{orders:mine}):null;
   }).filter(Boolean);
   var ordered=trips.sort(function(a,b){ return (b.trip_date||'').localeCompare(a.trip_date||'')||(a.vehicle||'').localeCompare(b.vehicle||'')||((a.run||99)-(b.run||99)); });
-  /* One column per farm: every trip collecting from that farm stacks in its column
-     (a trip over several farms gets a column for that combination). */
-  var cols=[], colMap={};
-  ordered.forEach(function(t){
-    var key=tripFrom(t).join(', ')||'—';
-    if(!colMap[key]){ colMap[key]={farm:key,trips:[]}; cols.push(colMap[key]); }
-    colMap[key].trips.push(t);
+  /* One column per truck: each of its trips today in driving order (its routes'
+     runs) -- Trip 1 to farm A with its buckets, Trip 2 … to the last trip of the day.
+     A run nothing is planned on yet shows as an empty slot; trips off the routes
+     (an unplanned load, a stale one) follow. */
+  var tripByName={}, used={}, cols=[], colMap={};
+  ordered.forEach(function(t){ tripByName[t.name]=t; });
+  function col(v){ if(!colMap[v]){ colMap[v]={veh:v,items:[]}; cols.push(colMap[v]); } return colMap[v]; }
+  (DATA.vehicles||[]).forEach(function(v){
+    (v.runs||[]).forEach(function(r){
+      if(!(r.stops||[]).length) return;
+      var t=r.trip&&tripByName[r.trip];
+      if(t) used[t.name]=1;
+      col(v.name).items.push({run:r,trip:t||null});
+    });
   });
-  cols.sort(function(a,b){ return a.farm.localeCompare(b.farm); });
-  var below=ordered.length
+  ordered.forEach(function(t){ if(!used[t.name]) col(t.vehicle||'—').items.push({run:null,trip:t}); });
+  cols=cols.filter(function(c){ return c.items.length; });
+  cols.sort(function(a,b){ return a.veh.localeCompare(b.veh); });
+  function freeRun(r){
+    var other=r.trip&&!tripByName[r.trip];
+    return '<div class="trip-card trip-free"><div class="trip-hd"><span class="trip-run">Available</span>'+
+      '<span class="trip-st">'+(other?esc(TRIP_LBL[r.trip_status]||r.trip_status||'')+' · other day':'nothing planned')+'</span></div>'+
+      '<div class="tstops">'+[pack()].concat(r.stops).concat([pack()]).map(function(f){ return '<span class="tstop">'+esc(f)+'</span>'; }).join('<span class="tarrow">→</span>')+'</div></div>';
+  }
+  /* The truck's trips are numbered as it drives them: the planned ones 1, 2, 3 in
+     driving order (a run left empty in between takes no number), then the runs still
+     free today. */
+  var below=cols.length
     ? '<div class="trip-cols">'+cols.map(function(c){
-        return '<div class="trip-col"><div class="trip-col-hd"><span>'+esc(c.farm)+' <span class="cnt">('+c.trips.length+' trip'+(c.trips.length===1?'':'s')+')</span></span></div>'+
-          '<div class="trip-grid">'+c.trips.map(tripCardHtml).join('')+'</div></div>';
+        var planned=c.items.filter(function(x){ return x.trip; }), free=c.items.filter(function(x){ return !x.trip; });
+        var cards=planned.map(function(x,i){ return tripCardHtml(Object.assign({},x.trip,{run:i+1,runs:planned.length})); })
+          .concat(free.map(function(x){ return freeRun(x.run); }));
+        return '<div class="trip-col"><div class="trip-col-hd"><span>'+esc(c.veh)+'</span></div>'+
+          '<div class="trip-grid">'+cards.join('')+'</div></div>';
       }).join('')+'</div>'
-    : '<div class="ts-empty">No trips for deliveries on '+esc(S.from)+(S.to!==S.from?' → '+esc(S.to):'')+' yet. Use <b>Distribute</b> on an order’s farm in the Scheduled orders tab.</div>';
-  $('panel-triplist').innerHTML=duplicateTripsHtml()+staleTripsHtml()+below;
+    : '<div class="ts-empty">No trips for deliveries on '+esc(S.from)+(S.to!==S.from?' → '+esc(S.to):'')+' yet.</div>';
+  // Scheduled orders with buckets on no trip yet: each listed with why and what to do.
+  var openOrders=DATA.orders.filter(function(o){ return openTotal(o)>0; });
+  var openBkts=openOrders.reduce(function(x,o){ return x+openTotal(o); },0);
+  var openRows=[];
+  openOrders.forEach(function(o){ openFarms(o).forEach(function(f){
+    var w=whyOffTrip(f.farm,f.buckets);
+    openRows.push('<div class="ts-open-row"><span class="ts-open-ord">'+seqChip(o.opl)+'<b>'+esc(o.order_name||o.opl)+'</b>'+(o.customer?' · '+esc(o.customer):'')+'</span>'+
+      '<span class="ts-open-farm">'+esc(f.farm)+' · '+n(f.buckets)+' bkt</span>'+
+      '<span class="ts-open-why '+w.k+'">'+esc(w.why)+'</span><span class="ts-open-do">'+esc(w.step)+'</span></div>');
+  }); });
+  var bar=openOrders.length?'<div class="ts-distall ts-open"><div class="ts-open-hd"><span class="ts-distall-txt"><b>'+n(openBkts)+'</b> bucket'+(openBkts===1?'':'s')+' in <b>'+openOrders.length+'</b> order'+(openOrders.length===1?'':'s')+' not on a trip yet</span>'+
+    '<button class="tbtn key" data-act="distribute"'+(S.distLoading?' disabled':'')+'>Distribute all</button></div>'+
+    '<div class="ts-open-list">'+openRows.join('')+'</div></div>':'';
+  $('panel-triplist').innerHTML=bar+duplicateTripsHtml()+staleTripsHtml()+below;
 }
 
 document.addEventListener('click',function(ev){
@@ -2583,6 +2677,7 @@ document.addEventListener('click',function(ev){
   else if(a==='rn-del'){ removeRoad(el.dataset.name); }
   else if(a==='trip-edit'){ openTripEdit(el.dataset.trip); }
   else if(a==='trip-dispatch'){ if(!el.disabled) dispatchTrip(el.dataset.trip); }
+  else if(a==='trip-request'){ if(!el.disabled) requestTrip(el.dataset.trip); }
   else if(a==='ord-trip'){ S.ordTrip=el.dataset.k; renderOrders(); }
   else if(a==='te-x'){ closeTripEdit(); }
   else if(a==='te-rm'){ if(S.te&&!el.disabled){ S.te.rows[+el.dataset.i].n=0; renderTripEdit(); } }

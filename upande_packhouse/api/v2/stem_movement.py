@@ -44,6 +44,7 @@ Reads only; nothing is written or committed (README rule 1).
 """
 
 from collections import defaultdict
+from typing import Any
 
 import frappe
 from frappe.utils import add_days, cint, getdate, now_datetime, today
@@ -69,7 +70,12 @@ KEYS = [s[0] for s in STAGES]
 FARM_NAMES = region_core.REGIONS["Ravine"] + region_core.REGIONS["Karen"]
 ISSUE_REASONS = ("Issued to Sales Order", "Offline Issuing")
 TRANSFER_REASON = "Shelf-to-Shelf"
-AGE_BANDS = [("< 24 h", 0, 24, "ok"), ("24–48 h", 24, 48, "warn"), ("48–72 h", 48, 72, "bad"), ("> 72 h", 72, None, "bad")]
+AGE_BANDS = [
+	("< 24 h", 0, 24, "ok"),
+	("24–48 h", 24, 48, "warn"),
+	("48–72 h", 48, 72, "bad"),
+	("> 72 h", 72, None, "bad"),
+]
 THRESHOLD_H = 48
 
 # Orders carry the farm; a pick list is the last fallback (one farm per order).
@@ -168,8 +174,15 @@ _LOG_FROM = "FROM `tabShelving Log` sl INNER JOIN `tabShelf` s ON s.name = sl.sh
 def _shelf_ledger(a):
 	"""Shelf ledger over the window from the Shelving Log, plus per-day shelved-in."""
 	empty = {
-		"opening": 0.0, "shelved_in": 0.0, "issued_out": 0.0, "discarded_out": 0.0,
-		"replaced_out": 0.0, "other_out": 0.0, "closing": 0.0, "buckets_in": 0, "days": {},
+		"opening": 0.0,
+		"shelved_in": 0.0,
+		"issued_out": 0.0,
+		"discarded_out": 0.0,
+		"replaced_out": 0.0,
+		"other_out": 0.0,
+		"closing": 0.0,
+		"buckets_in": 0,
+		"days": {},
 	}
 	if a.farms is not None and not a.farms:
 		return empty
@@ -386,8 +399,13 @@ def _order_days(a):
 
 def _shelf_now(a):
 	empty = {
-		"stems": 0.0, "buckets": 0, "held": 0.0, "allocated": 0.0, "free": 0.0,
-		"past_threshold": 0.0, "age_bands": [{"label": b[0], "qty": 0.0, "tone": b[3]} for b in AGE_BANDS],
+		"stems": 0.0,
+		"buckets": 0,
+		"held": 0.0,
+		"allocated": 0.0,
+		"free": 0.0,
+		"past_threshold": 0.0,
+		"age_bands": [{"label": b[0], "qty": 0.0, "tone": b[3]} for b in AGE_BANDS],
 		"oldest_h": None,
 	}
 	if a.farms is not None and not a.farms:
@@ -401,7 +419,9 @@ def _shelf_now(a):
 	bands = []
 	for label, lo, hi, tone in AGE_BANDS:
 		qty = sum(
-			r.stems for r in rows if (r.hours_on_shelf or 0) >= lo and (hi is None or (r.hours_on_shelf or 0) < hi)
+			r.stems
+			for r in rows
+			if (r.hours_on_shelf or 0) >= lo and (hi is None or (r.hours_on_shelf or 0) < hi)
 		)
 		bands.append({"label": label, "qty": qty, "tone": tone})
 	return {
@@ -443,7 +463,14 @@ def _options():
 
 
 @frappe.whitelist()
-def get_flow(from_date=None, to_date=None, region=None, farm=None, variety=None, location=None):
+def get_flow(
+	from_date: Any = None,
+	to_date: Any = None,
+	region: Any = None,
+	farm: Any = None,
+	variety: Any = None,
+	location: Any = None,
+):
 	"""Stage totals, per-day matrix, shelf ledger and the shelf right now."""
 	a = _args(from_date, to_date, region, farm, variety, location)
 
@@ -518,7 +545,7 @@ def get_flow(from_date=None, to_date=None, region=None, farm=None, variety=None,
 
 
 @frappe.whitelist()
-def search_box_labels(q=None):
+def search_box_labels(q: Any = None):
 	rows = frappe.get_all(
 		"Box Label",
 		filters={"name": ["like", "%" + (q or "").strip() + "%"]} if (q or "").strip() else {},
@@ -530,7 +557,7 @@ def search_box_labels(q=None):
 
 
 @frappe.whitelist()
-def get_box_trace(box=None):
+def get_box_trace(box: Any = None):
 	"""One box end to end. Planned buckets come from the Pick List Items of the
 	box's pick list (custom_box_id = box number); packed stems from the Farm Pack
 	List rows of THIS box; each bucket's stages are read inside its current cycle
@@ -542,9 +569,20 @@ def get_box_trace(box=None):
 		"Box Label",
 		box,
 		[
-			"name", "farm", "customer", "date", "box_number", "box_total_count", "delivery_point",
-			"customer_purchase_order", "pack_rate", "order_pick_list", "farm_pack_lis", "team",
-			"consignee", "owner",
+			"name",
+			"farm",
+			"customer",
+			"date",
+			"box_number",
+			"box_total_count",
+			"delivery_point",
+			"customer_purchase_order",
+			"pack_rate",
+			"order_pick_list",
+			"farm_pack_lis",
+			"team",
+			"consignee",
+			"owner",
 		],
 		as_dict=True,
 	)
@@ -552,7 +590,10 @@ def get_box_trace(box=None):
 		return {"success": False, "error": "Box Label not found: " + box}
 	opl = (
 		frappe.db.get_value(
-			"Order Pick List", bl.order_pick_list, ["team", "farm", "date_created", "sales_order"], as_dict=True
+			"Order Pick List",
+			bl.order_pick_list,
+			["team", "farm", "date_created", "sales_order"],
+			as_dict=True,
 		)
 		if bl.order_pick_list
 		else None
@@ -653,8 +694,10 @@ def get_box_trace(box=None):
 			{
 				"bucket": b,
 				"group": r.item_code,
-				"harvested": h and {"date": str(h.d), "greenhouse": h.gh or "", "harvester": h.harvester or ""},
-				"received": rc and {"date": str(rc.d), "action": "Quarantined" if "Quarantined" in rc.t else "Received"},
+				"harvested": h
+				and {"date": str(h.d), "greenhouse": h.gh or "", "harvester": h.harvester or ""},
+				"received": rc
+				and {"date": str(rc.d), "action": "Quarantined" if "Quarantined" in rc.t else "Received"},
 				"graded": gr and {"date": str(gr.d), "to": gr.wh or ""},
 				"shelved": sh and {"shelf": sh.shelf, "qty": sh.stem_qty, "date": str(sh.shelved_on)},
 				"packed": {"stems": _num(r.stems), "bunches": 0} if r.issued else None,
@@ -691,7 +734,8 @@ def get_box_trace(box=None):
 				"total_stems": g["stems"],
 				"bucket_count": len(g["buckets"]),
 				"varieties": [
-					{"variety": v, "length": "", "qty": q} for v, q in sorted(g["varieties"].items(), key=lambda x: -x[1])
+					{"variety": v, "length": "", "qty": q}
+					for v, q in sorted(g["varieties"].items(), key=lambda x: -x[1])
 				],
 			}
 			for n, g in sorted(greens.items())

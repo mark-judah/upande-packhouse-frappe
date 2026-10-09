@@ -118,7 +118,8 @@
     if(window.rtSetTab) window.rtSetTab(tab);
     if(dateLbl) dateLbl.hidden = (tab==='journey');   // Bucket Journey has its own dates
     if(farmLbl) farmLbl.hidden = (tab!=='scheduler');  // only the Scheduler reads the farm filter
-    if(teamLbl) teamLbl.hidden = (tab!=='scheduler' && tab!=='transfer');
+    // The Scheduler has its own team buttons (same rtTeam filter).
+    if(teamLbl) teamLbl.hidden = (tab!=='transfer');
     if(locLbl) locLbl.hidden = (tab!=='scheduler' && tab!=='transfer');
   }
   function show(tab, push){

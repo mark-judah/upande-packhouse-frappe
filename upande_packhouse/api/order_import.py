@@ -404,7 +404,9 @@ def getCustomerImportSetup():
 		if not frappe.db.exists("Order Import Platform", platform):
 			frappe.response["message"] = {"success": True, "exists": False}
 			return
-		platform_doc, cust_doc, mapping, item_code_map, spec_map, defaults = _resolve_mapping(customer, platform)
+		platform_doc, cust_doc, mapping, item_code_map, spec_map, defaults = _resolve_mapping(
+			customer, platform
+		)
 		frappe.response["message"] = {
 			"success": True,
 			"exists": True,

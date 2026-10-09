@@ -55,6 +55,7 @@ cover, demand          whole, so every KPI (summed over visible varieties)
 """
 
 from collections import defaultdict
+from typing import Any
 
 import frappe
 from frappe.utils import add_days, getdate, today
@@ -70,7 +71,7 @@ STATE_FIELDS = ("stems", "held", "allocated", "free", "allocatable", "allocated_
 def _list(v):
 	if not v:
 		return []
-	if isinstance(v, (list, tuple)):
+	if isinstance(v, list | tuple):
 		return [str(x).strip() for x in v if str(x).strip()]
 	return [x.strip() for x in str(v).split(",") if x.strip()]
 
@@ -201,9 +202,12 @@ def _coldroom(farms, lengths, rose, q, w_from, w_to):
 	since = min(v[0] for v in latest.values())
 	gone = set()
 	# On a shelf now
-	gone |= set(frappe.db.sql_list(
-		"SELECT DISTINCT bucket_id FROM `tabShelf Item` WHERE stem_qty > 0 AND bucket_id IN %(b)s", {"b": b}
-	))
+	gone |= set(
+		frappe.db.sql_list(
+			"SELECT DISTINCT bucket_id FROM `tabShelf Item` WHERE stem_qty > 0 AND bucket_id IN %(b)s",
+			{"b": b},
+		)
+	)
 	# A later receipt / harvest (new cycle, also beyond the window) or a discard
 	for r in frappe.db.sql(
 		"""SELECT custom_bucket_id AS bucket_id, stock_entry_type AS t, posting_date, name
@@ -251,11 +255,23 @@ def _cover(r):
 
 
 def _new_var(v):
-	d = {"variety": v, "item_name": "", "item_group": "", "rose_type": None,
-	     "ordered": 0.0, "alloc_to_orders": 0.0, "to_allocate": 0.0, "coldroom": 0.0,
-	     "oldest_days": None, "bands": [0.0] * (len(AGE_EDGES) + 1),
-	     "_buckets": set(), "_cr_buckets": set(), "_age_x": 0.0,
-	     "by_len": {}, "farms": {}}
+	d = {
+		"variety": v,
+		"item_name": "",
+		"item_group": "",
+		"rose_type": None,
+		"ordered": 0.0,
+		"alloc_to_orders": 0.0,
+		"to_allocate": 0.0,
+		"coldroom": 0.0,
+		"oldest_days": None,
+		"bands": [0.0] * (len(AGE_EDGES) + 1),
+		"_buckets": set(),
+		"_cr_buckets": set(),
+		"_age_x": 0.0,
+		"by_len": {},
+		"farms": {},
+	}
 	for f in STATE_FIELDS:
 		d[f] = 0.0
 	return d
@@ -268,8 +284,8 @@ def _cell(store, key, extra=()):
 	return c
 
 
-def build(args):
-	a = frappe._dict(args or {})
+def build(filters):
+	a = frappe._dict(filters or {})
 	d_to = getdate(a.to_date or a.from_date or today())
 	d_from = getdate(a.from_date or d_to)
 	if d_from > d_to:
@@ -299,8 +315,11 @@ def build(args):
 		"customers": sorted({ln.customer for ln in lines_all if ln.customer}),
 		"delivery_points": sorted({ln.custom_delivery_point for ln in lines_all if ln.custom_delivery_point}),
 	}
-	lines = [ln for ln in lines_all
-	         if (not cust or ln.customer == cust) and (not dp or ln.custom_delivery_point == dp)]
+	lines = [
+		ln
+		for ln in lines_all
+		if (not cust or ln.customer == cust) and (not dp or ln.custom_delivery_point == dp)
+	]
 
 	V = {}
 
@@ -408,7 +427,14 @@ def build(args):
 		c["stems"] += _f(r.stems)
 		c["_b"].add(r.bucket_id)
 	coldroom = [
-		{"variety": k[0], "item_name": k[1], "length": k[2], "farm": k[3], "stems": c["stems"], "buckets": len(c["_b"])}
+		{
+			"variety": k[0],
+			"item_name": k[1],
+			"length": k[2],
+			"farm": k[3],
+			"stems": c["stems"],
+			"buckets": len(c["_b"]),
+		}
 		for k, c in cold_rows.items()
 	]
 
@@ -435,41 +461,60 @@ def build(args):
 
 def _options():
 	"""Farm and length pick lists (live shelf farms/lengths + every known farm)."""
-	farms = set(frappe.db.sql_list(
-		"""SELECT DISTINCT s.farm FROM `tabShelf` s INNER JOIN `tabShelf Item` si ON si.parent = s.name
+	farms = set(
+		frappe.db.sql_list(
+			"""SELECT DISTINCT s.farm FROM `tabShelf` s INNER JOIN `tabShelf Item` si ON si.parent = s.name
 		   WHERE si.stem_qty > 0 AND IFNULL(s.farm, '') != ''"""
-	))
+		)
+	)
 	for fs in region.REGIONS.values():
 		farms |= set(fs)
-	lengths = set(frappe.db.sql_list(
-		"SELECT DISTINCT TRIM(stem_length) FROM `tabShelf Item` WHERE stem_qty > 0 AND IFNULL(stem_length, '') != ''"
-	))
+	lengths = set(
+		frappe.db.sql_list(
+			"SELECT DISTINCT TRIM(stem_length) FROM `tabShelf Item` WHERE stem_qty > 0 AND IFNULL(stem_length, '') != ''"
+		)
+	)
 	return sorted(farms), sorted(lengths, key=_len_key)
 
 
 @frappe.whitelist(methods=["GET"])
 def get_stock_visibility(
-	from_date=None,
-	to_date=None,
-	basis=None,
-	region=None,
-	farm=None,
-	length=None,
-	rose=None,
-	q=None,
-	customer=None,
-	delivery_point=None,
-	age=None,
-	cover=None,
-	demand=None,
+	from_date: Any = None,
+	to_date: Any = None,
+	basis: Any = None,
+	region: Any = None,
+	farm: Any = None,
+	length: Any = None,
+	rose: Any = None,
+	q: Any = None,
+	customer: Any = None,
+	delivery_point: Any = None,
+	age: Any = None,
+	cover: Any = None,
+	demand: Any = None,
 ):
 	try:
 		out = build(
-			dict(from_date=from_date, to_date=to_date, basis=basis, region=region, farm=farm, length=length,
-			     rose=rose, q=q, customer=customer, delivery_point=delivery_point, age=age, cover=cover, demand=demand)
+			dict(
+				from_date=from_date,
+				to_date=to_date,
+				basis=basis,
+				region=region,
+				farm=farm,
+				length=length,
+				rose=rose,
+				q=q,
+				customer=customer,
+				delivery_point=delivery_point,
+				age=age,
+				cover=cover,
+				demand=demand,
+			)
 		)
 		farms, lens = _options()
-		out["options"].update(farms=farms, lengths=sorted(set(lens) | set(out["lengths"]) - {"--"}, key=_len_key))
+		out["options"].update(
+			farms=farms, lengths=sorted(set(lens) | set(out["lengths"]) - {"--"}, key=_len_key)
+		)
 		return out
 	except Exception:
 		frappe.log_error("v2 get_stock_visibility")

@@ -31,6 +31,7 @@ so_detail is attributed the same way whatever the filters are.
 """
 
 from collections import defaultdict
+from typing import Any
 
 import frappe
 from frappe.utils import getdate, today
@@ -364,13 +365,24 @@ def _flags(it, today_d):
 		else:
 			f.append({"code": "late_dispatch", "label": "Past due · not dispatched", "sev": "warn"})
 	elif days == 0 and not packed_done:
-		f.append({"code": "due_today", "label": "Due today · not packed", "sev": "bad" if st == "notalloc" else "warn"})
+		f.append(
+			{
+				"code": "due_today",
+				"label": "Due today · not packed",
+				"sev": "bad" if st == "notalloc" else "warn",
+			}
+		)
 	elif days == 1 and st == "notalloc":
 		f.append({"code": "due_soon", "label": "Due tomorrow · not allocated", "sev": "warn"})
 	if it["opl"]:
 		if it["packed_stems"] > it["issued_stems"] + 0.5:
 			f.append({"code": "packed_unissued", "label": "Packed more than issued", "sev": "warn"})
-		elif it["docstatus"] == 1 and it["picked_stems"] > 0 and it["issued_stems"] == 0 and it["packed_stems"] == 0:
+		elif (
+			it["docstatus"] == 1
+			and it["picked_stems"] > 0
+			and it["issued_stems"] == 0
+			and it["packed_stems"] == 0
+		):
 			f.append({"code": "not_issued", "label": "Allocated · not issued", "sev": "warn"})
 		elif st == "to_pack":
 			f.append({"code": "not_packing", "label": "Issued · not packing", "sev": "warn"})
@@ -403,20 +415,20 @@ def _sum_items(items, opls):
 
 @frappe.whitelist()
 def get_orders_workflow(
-	from_date=None,
-	to_date=None,
-	region=None,
-	farm=None,
-	team=None,
-	rose_type=None,
-	item_group=None,
-	customer=None,
-	sales_order=None,
-	delivery_note=None,
-	sales_invoice=None,
-	q=None,
-	stage=None,
-	view=None,
+	from_date: Any = None,
+	to_date: Any = None,
+	region: Any = None,
+	farm: Any = None,
+	team: Any = None,
+	rose_type: Any = None,
+	item_group: Any = None,
+	customer: Any = None,
+	sales_order: Any = None,
+	delivery_note: Any = None,
+	sales_invoice: Any = None,
+	q: Any = None,
+	stage: Any = None,
+	view: Any = None,
 ):
 	"""Lines grouped by team (view=team, default) or customer (view=customer), plus KPIs."""
 	from_date = from_date or today()
@@ -489,7 +501,9 @@ def get_orders_workflow(
 	}
 	opl_order_name = {
 		r.name: r.order_name
-		for r in frappe.get_all("Order Pick List", filters={"name": ["in", list(opls) or [""]]}, fields=["name", "order_name"])
+		for r in frappe.get_all(
+			"Order Pick List", filters={"name": ["in", list(opls) or [""]]}, fields=["name", "order_name"]
+		)
 	}
 
 	dns, sis = _documents({ln.parent for ln in lines})
@@ -497,7 +511,9 @@ def get_orders_workflow(
 	# One item per (line, pick list); a line with none is one item of its own.
 	items = []
 	for ln in lines:
-		in_scope = sorted(o for o in ln.opls if (not team or (opls[o].get("team") or "") == team) and farm_ok(ln.parent, o))
+		in_scope = sorted(
+			o for o in ln.opls if (not team or (opls[o].get("team") or "") == team) and farm_ok(ln.parent, o)
+		)
 		if not ln.opls:
 			if team or not farm_ok(ln.parent):
 				continue
@@ -547,9 +563,7 @@ def get_orders_workflow(
 				"dispatched_stems",
 			):
 				it[m] = float(ln[m] or 0) if primary else 0.0
-			it["name"] = " · ".join(
-				[oname, ln.item_code or "", ln.custom_length or "", o or "No pick list"]
-			)
+			it["name"] = " · ".join([oname, ln.item_code or "", ln.custom_length or "", o or "No pick list"])
 			it["stage"] = _stage(it)
 			it["stage_label"] = STAGE_LABEL[it["stage"]]
 			it["flags"] = _flags(it, today_d)
@@ -655,7 +669,7 @@ def get_orders_workflow(
 
 
 @frappe.whitelist()
-def get_opl_detail(opl):
+def get_opl_detail(opl: Any):
 	"""Drill-down extras for one pick list: shelves and packing issues."""
 	if not opl or not frappe.db.exists("Order Pick List", opl):
 		return {"success": False, "error": "Pick list not found."}
@@ -704,7 +718,13 @@ def get_opl_detail(opl):
 				"creation": str(r.creation),
 			}
 		)
-	return {"success": True, "opl": opl, "shelves": shelves, "packing_issues": issues, "flow": _flow_times(opl)}
+	return {
+		"success": True,
+		"opl": opl,
+		"shelves": shelves,
+		"packing_issues": issues,
+		"flow": _flow_times(opl),
+	}
 
 
 @frappe.whitelist()
@@ -723,7 +743,7 @@ def get_filter_options():
 
 
 @frappe.whitelist()
-def get_document_dates(doctype, name):
+def get_document_dates(doctype: Any, name: Any):
 	"""Delivery-date span of the Sales Orders a document belongs to, so picking a
 	document from the search moves the page's date range onto it."""
 	kw = {"Sales Order": "sales_order", "Delivery Note": "delivery_note", "Sales Invoice": "sales_invoice"}

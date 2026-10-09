@@ -2663,6 +2663,30 @@ def fetchLoadingData():
 		frappe.response["message"] = {"status": "error", "message": str(e), "data": {}}
 
 
+def _listed_opls(opl_names, sched, setting):
+	"""The OPLs a station lists for issuing / packing: those on a Packhouse Schedule
+	(`sched`), plus the rest when Production Settings `setting` is on. A sales farm's
+	own orders (Karen) are never on the Scheduler, so they are always listed."""
+	opl_names = list(opl_names)
+	if frappe.utils.cint(frappe.get_cached_doc("Production Settings").get(setting)):
+		return set(opl_names)
+	from upande_packhouse.api.remote_transfer.scheduler import _own_packing_farms
+
+	own_farms = tuple(_own_packing_farms())
+	own = set()
+	rest = [o for o in opl_names if o not in sched]
+	if own_farms and rest:
+		own = set(
+			frappe.db.sql_list(
+				"""SELECT o.name FROM `tabOrder Pick List` o
+				JOIN `tabSales Order` so ON so.name = o.sales_order
+				WHERE o.name IN %(o)s AND so.farm IN %(f)s""",
+				{"o": tuple(rest), "f": own_farms},
+			)
+		)
+	return {o for o in opl_names if o in sched or o in own}
+
+
 @frappe.whitelist()
 def fetchPicklists():
 	try:
@@ -2764,8 +2788,13 @@ def fetchPicklists():
 			frappe.get_cached_doc("Production Settings").get(SEQUENCE_BYPASS["pack"])
 		)
 
+		# Only scheduled orders are packed here (Production Settings > Show Unscheduled
+		# OPLs in Packing lists the others too, after them).
+		listed = _listed_opls([r[0] for r in result], sched, "show_unscheduled_in_packing")
 		opl_list = []
 		for r in result:
+			if r[0] not in listed:
+				continue
 			sc = sched.get(r[0])
 			seq = int(sc.sequence or 0) if sc else 0
 			waits = first_open.get((sc.parent, where.get(r[0])), 0) if sc else 0
@@ -3260,11 +3289,10 @@ def getReadySaleOrderItems():
 				if int(lo.done or 0) < int(lo.total or 0) and int(lo.sequence or 0) < nxt.get(k, 10**9):
 					nxt[k] = int(lo.sequence or 0)
 		bypass = frappe.utils.cint(frappe.get_cached_doc("Production Settings").get(SEQUENCE_BYPASS["issue"]))
-		# Only orders on the Packhouse Schedule are issued here -- with a station, its
-		# unscheduled orders are listed after them, so a schedule save that dropped
-		# an order can't hide it from its own location.
-		if not location:
-			orders = [o for o in orders if o["opl_name"] in sched]
+		# Only scheduled orders are issued here (Production Settings > Show Unscheduled
+		# OPLs in Issuing lists the others too, after them).
+		listed = _listed_opls([o["opl_name"] for o in orders], sched, "show_unscheduled_in_issuing")
+		orders = [o for o in orders if o["opl_name"] in listed]
 		for o in orders:
 			sc = sched.get(o["opl_name"])
 			o["schedule"] = int(sc.sequence or 0) if sc else 0
@@ -3509,6 +3537,18 @@ def getSchedulerData():
 		if location:
 			where = _opl_locations([o["name"] for o in opls])
 			opls = [o for o in opls if where.get(o["name"]) == location]
+		# Only scheduled orders, as in issuing and packing (Production Settings > Show
+		# Unscheduled OPLs in the App Scheduler lists the others too).
+		if opls:
+			on_schedule = set(
+				frappe.db.sql_list(
+					"""SELECT DISTINCT order_pick_list FROM `tabPackhouse Schedule Order`
+					WHERE order_pick_list IN %(o)s""",
+					{"o": tuple(o["name"] for o in opls)},
+				)
+			)
+			listed = _listed_opls([o["name"] for o in opls], on_schedule, "show_unscheduled_in_scheduler")
+			opls = [o for o in opls if o["name"] in listed]
 
 		opl_names = [o["name"] for o in opls]
 		items_map = {}
@@ -3646,6 +3686,7 @@ def getSchedulerMeta():
 
 		schedule = {}
 		created = {}
+		where = {}
 		if names and isinstance(names, list) and len(names) > 0:
 			rows = frappe.get_all(
 				"Order Pick List",
@@ -3674,6 +3715,12 @@ def getSchedulerMeta():
 			):
 				if int(r.sequence or 0):
 					schedule[r.order_pick_list] = int(r.sequence)
+			# Where each order's stock is, as the Scheduler ranks it: issued, at the hub
+			# (Kapkolia -- issue these first), or still coming from a remote farm.
+			from upande_packhouse.api.remote_transfer.scheduler import _tiers
+
+			for op, t in _tiers(names).items():
+				where[op] = "issued" if t[0] == 0 else ("hub" if t[0] == 1 else "remote")
 
 		# Packed signal = a Farm Pack List exists for the OPL (draft OR submitted).
 		# Workflow: Ready = OPL submitted but packing not yet started. The moment packing
@@ -3698,6 +3745,7 @@ def getSchedulerMeta():
 			"success": True,
 			"takt_minutes": takt,
 			"schedule": schedule,
+			"where": where,
 			"created": created,
 			"packed": packed,
 		}

@@ -111,7 +111,16 @@ def _full_where(args, params):
 	q = (args.get("q") or "").strip()
 	if q:
 		params["q"] = "%" + q + "%"
-		cols = ["opl.order_name", "opl.name", "opl.customer", "pli.item_code", "pli.downgrade_reason", "opl.owner", "opl.team", "so.name"]
+		cols = [
+			"opl.order_name",
+			"opl.name",
+			"opl.customer",
+			"pli.item_code",
+			"pli.downgrade_reason",
+			"opl.owner",
+			"opl.team",
+			"so.name",
+		]
 		sql += " AND (" + " OR ".join("IFNULL({0}, '') LIKE %(q)s".format(c) for c in cols) + ")"
 	return sql
 
@@ -148,7 +157,11 @@ def _best_on(cands, on, f="valid_from", u="valid_upto"):
 def _value(rows):
 	cur_pl = {}
 	if frappe.db.exists("DocType", "Currency Price List"):
-		for r in frappe.get_all("Currency Price List", filters={"parenttype": "Production Settings"}, fields=["currency", "price_list"]):
+		for r in frappe.get_all(
+			"Currency Price List",
+			filters={"parenttype": "Production Settings"},
+			fields=["currency", "price_list"],
+		):
 			cur_pl[r.currency] = r.price_list
 	pl_cur = {p.name: p.currency for p in frappe.get_all("Price List", fields=["name", "currency"])}
 
@@ -156,16 +169,23 @@ def _value(rows):
 		r["price_list"] = _pick_price_list(r.get("so_currency"), r.get("so_price_list"), cur_pl, pl_cur)
 		r["currency"] = r.get("so_currency")
 
-	keys = {(r["price_list"], r["variety"], r["original_length"]) for r in rows if r["price_list"] and r["original_length"]}
+	keys = {
+		(r["price_list"], r["variety"], r["original_length"])
+		for r in rows
+		if r["price_list"] and r["original_length"]
+	}
 	prices = {}
 	if keys:
 		p = {}
 		for ip in frappe.db.sql(
 			"SELECT price_list, item_code, custom_length, price_list_rate, valid_from, valid_upto"
 			" FROM `tabItem Price` WHERE selling = 1"
-			" AND price_list IN " + _in(p, "pl", {k[0] for k in keys})
-			+ " AND item_code IN " + _in(p, "it", {k[1] for k in keys})
-			+ " AND custom_length IN " + _in(p, "ln", {k[2] for k in keys}),
+			" AND price_list IN "
+			+ _in(p, "pl", {k[0] for k in keys})
+			+ " AND item_code IN "
+			+ _in(p, "it", {k[1] for k in keys})
+			+ " AND custom_length IN "
+			+ _in(p, "ln", {k[2] for k in keys}),
 			p,
 			as_dict=True,
 		):
@@ -230,14 +250,20 @@ def get_downgrades(**kw):
 	where = _full_where(a, params)
 	rows = frappe.db.sql(
 		"SELECT opl.name AS opl, opl.customer, opl.team, " + _DATE + " AS date, opl.order_name,"
-		" so.name AS sales_order, opl.owner AS allocated_by, " + _FARM + " AS farm, " + _ORIGIN + " AS origin_farm,"
+		" so.name AS sales_order, opl.owner AS allocated_by, "
+		+ _FARM
+		+ " AS farm, "
+		+ _ORIGIN
+		+ " AS origin_farm,"
 		" pli.item_code AS variety, pli.bucket, pli.stem_length AS original_length,"
 		" soi.custom_length AS sold_length,"
 		" COALESCE(NULLIF(pli.stock_qty, 0), pli.qty * COALESCE(NULLIF(pli.conversion_factor, 0), 1), 0) AS dg_stems,"
 		" pli.available_stems_of_exact_length AS avail_raw, TRIM(pli.downgrade_reason) AS reason,"
 		" it.item_group AS rose_group, soi.rate AS so_rate, soi.conversion_factor AS conv,"
 		" so.currency AS so_currency, so.selling_price_list AS so_price_list"
-		+ _FROM + " WHERE " + where
+		+ _FROM
+		+ " WHERE "
+		+ where
 		+ " ORDER BY date DESC, opl.name, pli.idx",
 		params,
 		as_dict=True,
@@ -288,10 +314,14 @@ def get_downgrades(**kw):
 	op = {"from_date": from_date, "to_date": to_date}
 	bw = _base_where(a, op)
 	opts = frappe.db.sql(
-		"SELECT DISTINCT opl.owner, TRIM(pli.downgrade_reason) AS reason" + _FROM + " WHERE " + bw, op, as_dict=True
+		"SELECT DISTINCT opl.owner, TRIM(pli.downgrade_reason) AS reason" + _FROM + " WHERE " + bw,
+		op,
+		as_dict=True,
 	)
 	farms_seen = frappe.db.sql_list(
-		"SELECT DISTINCT " + _FARM + " FROM `tabPick List Item` pli INNER JOIN `tabOrder Pick List` opl ON opl.name = pli.parent"
+		"SELECT DISTINCT "
+		+ _FARM
+		+ " FROM `tabPick List Item` pli INNER JOIN `tabOrder Pick List` opl ON opl.name = pli.parent"
 		" LEFT JOIN `tabSales Order` so ON so.name = opl.sales_order"
 		" WHERE pli.parenttype = 'Order Pick List' AND IFNULL(pli.downgrade_reason, '') != ''"
 	)

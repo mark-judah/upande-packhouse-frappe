@@ -19,6 +19,12 @@
 .aph.rt-embed .aph-side{display:none!important}
 .aph.rt-embed .rt-embed-right{display:flex;justify-content:flex-end;align-items:center;gap:10px}
 .aph.rt-embed .rt-embed-right:empty{display:none}
+/* Thin scrollbars on every Remote Transfers tab: the page and its scrolling panels. */
+.aph-main,.aph-side .nav,.aph .sch-colb,.vmodal-body{scrollbar-width:thin;scrollbar-color:rgba(10,10,10,.18) transparent}
+.aph-main::-webkit-scrollbar,.aph-side .nav::-webkit-scrollbar,.aph .sch-colb::-webkit-scrollbar,.vmodal-body::-webkit-scrollbar{width:5px;height:5px}
+.aph-main::-webkit-scrollbar-track,.aph-side .nav::-webkit-scrollbar-track,.aph .sch-colb::-webkit-scrollbar-track,.vmodal-body::-webkit-scrollbar-track{background:transparent}
+.aph-main::-webkit-scrollbar-thumb,.aph-side .nav::-webkit-scrollbar-thumb,.aph .sch-colb::-webkit-scrollbar-thumb,.vmodal-body::-webkit-scrollbar-thumb{background:rgba(10,10,10,.18);border-radius:5px}
+.aph-main::-webkit-scrollbar-thumb:hover,.aph-side .nav::-webkit-scrollbar-thumb:hover,.aph .sch-colb::-webkit-scrollbar-thumb:hover,.vmodal-body::-webkit-scrollbar-thumb:hover{background:rgba(10,10,10,.32)}
 </style>
 <script>
 (function(){
