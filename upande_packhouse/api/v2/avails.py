@@ -41,7 +41,17 @@ from upande_packhouse.api.v2.core import region as rg
 NO_FARM = "No farm"
 UNKNOWN_FARM = "Unknown"
 NO_LENGTH = "--"
-CELL = ("stems", "held", "allocated", "free", "allocatable", "allocated_in_held", "ordered", "covered", "unmet")
+CELL = (
+	"stems",
+	"held",
+	"allocated",
+	"free",
+	"allocatable",
+	"allocated_in_held",
+	"ordered",
+	"covered",
+	"unmet",
+)
 
 
 def _list(v):
@@ -128,7 +138,9 @@ def get_avails(
 	if varieties:
 		extra += " AND soi.item_code IN %(av_var)s"
 		params["av_var"] = tuple(varieties)
-	lines = pipeline.fetch_lines(delivery_from=from_date, delivery_to=to_date, extra_where=extra, params=params)
+	lines = pipeline.fetch_lines(
+		delivery_from=from_date, delivery_to=to_date, extra_where=extra, params=params
+	)
 	if q:
 		lines = [ln for ln in lines if q in (ln.item_code or "").lower()]
 	if lengths:

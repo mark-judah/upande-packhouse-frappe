@@ -78,4 +78,6 @@ def harvest(
 		WHERE {" AND ".join(where)} {rose_cond}
 		GROUP BY {group}
 	"""
-	return frappe.db.sql(sql, params, as_dict=True)  # nosemgrep: holes are fixed SQL from GROUPABLE, values bound
+	return frappe.db.sql(
+		sql, params, as_dict=True
+	)  # nosemgrep: holes are fixed SQL from GROUPABLE, values bound

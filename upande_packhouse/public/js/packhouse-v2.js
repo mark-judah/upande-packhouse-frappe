@@ -44,7 +44,11 @@
 					const fail = (r) => {
 						if (settled) return;
 						settled = true;
-						const msg = PH.serverError(r) || (r && r.status === 403 ? "You don't have permission for this" : "Could not reach the server");
+						const msg =
+							PH.serverError(r) ||
+							(r && r.status === 403
+								? "You don't have permission for this"
+								: "Could not reach the server");
 						if (!opts.silent) PH.toast(msg, "bad");
 						reject(new Error(msg));
 					};
@@ -69,7 +73,8 @@
 					});
 					// Website-side frappe.call doesn't always invoke `error` (e.g. 403); the
 					// returned jqXHR always settles, so it is the safety net.
-					if (req && typeof req.fail === "function") req.fail((xhr) => fail((xhr && xhr.responseJSON) || xhr));
+					if (req && typeof req.fail === "function")
+						req.fail((xhr) => fail((xhr && xhr.responseJSON) || xhr));
 				})
 		);
 	};
@@ -87,9 +92,12 @@
 				});
 				return PH.stripHtml(msgs.join(" "));
 			}
-			if (r && r.exception) return PH.stripHtml(String(r.exception).split(":").slice(1).join(":").trim());
+			if (r && r.exception)
+				return PH.stripHtml(String(r.exception).split(":").slice(1).join(":").trim());
 			if (r && r.responseJSON) return PH.serverError(r.responseJSON);
-		} catch (e) {}
+		} catch (e) {
+			// not available: carry on without it
+		}
 		return "";
 	};
 
@@ -128,18 +136,24 @@
 	PH.html = function (strings, ...vals) {
 		let out = strings[0];
 		vals.forEach((v, i) => {
-			if (Array.isArray(v)) out += v.map((x) => (x && x.__raw != null ? x.__raw : PH.esc(x))).join("");
+			if (Array.isArray(v))
+				out += v.map((x) => (x && x.__raw != null ? x.__raw : PH.esc(x))).join("");
 			else if (v && v.__raw != null) out += v.__raw;
 			else out += PH.esc(v == null || v === false ? "" : v);
 			out += strings[i + 1];
 		});
 		return { __raw: out, toString: () => out };
 	};
-	PH.raw = (s) => ({ __raw: String(s == null ? "" : s), toString: () => String(s == null ? "" : s) });
+	PH.raw = (s) => ({
+		__raw: String(s == null ? "" : s),
+		toString: () => String(s == null ? "" : s),
+	});
 	/** Set innerHTML from a string or PH.html result. */
 	PH.set = function (el, html) {
 		el = PH.$(el);
-		if (el) el.innerHTML = html && html.__raw != null ? html.__raw : String(html == null ? "" : html);
+		if (el)
+			el.innerHTML =
+				html && html.__raw != null ? html.__raw : String(html == null ? "" : html);
 		return el;
 	};
 	PH.$ = (sel, root) => (typeof sel === "string" ? (root || document).querySelector(sel) : sel);
@@ -151,12 +165,15 @@
 
 	/* ── Icons (stroke icons, 24px grid) ───────────────────────────── */
 	const ICONS = {
-		refresh: '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
+		refresh:
+			'<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
 		search: '<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
 		close: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
-		download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+		download:
+			'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
 		plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
-		external: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
+		external:
+			'<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
 		box: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
 		inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
 		alert: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
@@ -167,7 +184,8 @@
 		chevronDown: '<polyline points="6 9 12 15 18 9"/>',
 		chevronRight: '<polyline points="9 18 15 12 9 6"/>',
 		chevronLeft: '<polyline points="15 18 9 12 15 6"/>',
-		calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+		calendar:
+			'<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
 		filter: '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>',
 		print: '<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>',
 		truck: '<path d="M10 17h4V5H2v12h3"/><path d="M20 17h2v-3.34a4 4 0 0 0-1.17-2.83L19 9h-5v8h1"/><circle cx="7.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
@@ -175,13 +193,16 @@
 		copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
 		upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>',
 		menu: '<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>',
-		sidebar: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/>',
+		sidebar:
+			'<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/>',
 		arrowRight: '<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>',
 		info: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>',
 	};
 	PH.icon = function (name, size) {
 		const s = size || 16;
-		return `<svg class="ph-ic" width="${s}" height="${s}" style="width:${s}px;height:${s}px" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ""}</svg>`;
+		return `<svg class="ph-ic" width="${s}" height="${s}" style="width:${s}px;height:${s}px" viewBox="0 0 24 24" aria-hidden="true">${
+			ICONS[name] || ""
+		}</svg>`;
 	};
 	PH.ICONS = ICONS;
 
@@ -190,7 +211,11 @@
 	const nfCache = {};
 	function nf(dp) {
 		const k = String(dp);
-		if (!nfCache[k]) nfCache[k] = new Intl.NumberFormat("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
+		if (!nfCache[k])
+			nfCache[k] = new Intl.NumberFormat("en-US", {
+				minimumFractionDigits: dp,
+				maximumFractionDigits: dp,
+			});
 		return nfCache[k];
 	}
 	PH.fmt = {
@@ -237,7 +262,11 @@
 			if (!v) return "—";
 			const d = new Date(String(v).replace(" ", "T"));
 			if (isNaN(d)) return String(v);
-			return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) + ", " + d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+			return (
+				d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) +
+				", " +
+				d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+			);
 		},
 		time(v) {
 			if (!v) return "—";
@@ -264,7 +293,13 @@
 	PH.date = {
 		iso(d) {
 			d = d || new Date();
-			return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+			return (
+				d.getFullYear() +
+				"-" +
+				String(d.getMonth() + 1).padStart(2, "0") +
+				"-" +
+				String(d.getDate()).padStart(2, "0")
+			);
 		},
 		today() {
 			return PH.date.iso(new Date());
@@ -312,7 +347,9 @@
 		},
 		/** Which preset (if any) a from/to pair matches. */
 		presetOf(from, to, keys) {
-			return (keys || ["today", "yesterday", "tomorrow", "7d", "14d", "30d", "next7", "mtd"]).find((k) => {
+			return (
+				keys || ["today", "yesterday", "tomorrow", "7d", "14d", "30d", "next7", "mtd"]
+			).find((k) => {
 				const p = PH.date.preset(k);
 				return p && p[0] === from && p[1] === to;
 			});
@@ -336,7 +373,8 @@
 		Object.keys(defaults).forEach((k) => {
 			s[k] = params.has(k) ? params.get(k) : defaults[k];
 			if (typeof defaults[k] === "number" && params.has(k)) s[k] = +s[k];
-			if (typeof defaults[k] === "boolean" && params.has(k)) s[k] = s[k] === "1" || s[k] === "true";
+			if (typeof defaults[k] === "boolean" && params.has(k))
+				s[k] = s[k] === "1" || s[k] === "true";
 		});
 		const subs = [];
 		function writeUrl() {
@@ -347,7 +385,11 @@
 				else p.set(k, typeof v === "boolean" ? (v ? "1" : "0") : v);
 			});
 			const q = p.toString();
-			history.replaceState(history.state, "", location.pathname + (q ? "?" + q : "") + location.hash);
+			history.replaceState(
+				history.state,
+				"",
+				location.pathname + (q ? "?" + q : "") + location.hash
+			);
 		}
 		return {
 			get: (k) => (k ? s[k] : Object.assign({}, s)),
@@ -356,7 +398,8 @@
 				if (!changed.length) return;
 				changed.forEach((k) => (s[k] = patch[k]));
 				writeUrl();
-				if (!(opts && opts.silent)) subs.forEach((fn) => fn(Object.assign({}, s), changed));
+				if (!(opts && opts.silent))
+					subs.forEach((fn) => fn(Object.assign({}, s), changed));
 			},
 			reset() {
 				this.set(Object.assign({}, defaults));
@@ -379,7 +422,10 @@
 		const el = PH.$(sel);
 		if (!el) return;
 		const bound = stOrValue && typeof stOrValue.get === "function";
-		const paint = (v) => PH.$$("button", el).forEach((b) => b.classList.toggle("is-on", b.dataset.value === String(v)));
+		const paint = (v) =>
+			PH.$$("button", el).forEach((b) =>
+				b.classList.toggle("is-on", b.dataset.value === String(v))
+			);
 		paint(bound ? stOrValue.get(keyOrOnChange) : stOrValue);
 		el.addEventListener("click", (e) => {
 			const b = e.target.closest("button[data-value]");
@@ -410,8 +456,12 @@
 			if (pills) {
 				const keys = PH.$$("button[data-value]", pills).map((b) => b.dataset.value);
 				// Single-date pickers (no `to` input) match a preset by its start day.
-				const k = t ? PH.date.presetOf(s[fk], s[tk], keys) : keys.find((x) => (PH.date.preset(x) || [])[0] === s[fk]);
-				PH.$$("button", pills).forEach((b) => b.classList.toggle("is-on", b.dataset.value === k));
+				const k = t
+					? PH.date.presetOf(s[fk], s[tk], keys)
+					: keys.find((x) => (PH.date.preset(x) || [])[0] === s[fk]);
+				PH.$$("button", pills).forEach((b) =>
+					b.classList.toggle("is-on", b.dataset.value === k)
+				);
 			}
 		};
 		if (pills)
@@ -450,7 +500,11 @@
 	};
 	PH.regionOf = function (farm) {
 		const f = String(farm || "").toLowerCase();
-		return Object.keys(PH.REGIONS).find((r) => PH.REGIONS[r].some((x) => x.toLowerCase() === f)) || null;
+		return (
+			Object.keys(PH.REGIONS).find((r) =>
+				PH.REGIONS[r].some((x) => x.toLowerCase() === f)
+			) || null
+		);
 	};
 	PH.regionPills = function (sel, st, key) {
 		const el = PH.$(sel);
@@ -460,7 +514,16 @@
 				'<button data-value="">All sites</button>' +
 				Object.keys(PH.REGIONS)
 					.sort((a, b) => (a === "Ravine" ? -1 : b === "Ravine" ? 1 : 0))
-					.map((r) => '<button data-value="' + r + '" title="' + PH.esc(PH.REGIONS[r].join(", ")) + '">' + r + "</button>")
+					.map(
+						(r) =>
+							'<button data-value="' +
+							r +
+							'" title="' +
+							PH.esc(PH.REGIONS[r].join(", ")) +
+							'">' +
+							r +
+							"</button>"
+					)
 					.join("");
 		}
 		return PH.pills(sel, st, key || "region");
@@ -510,7 +573,10 @@
 		const el = PH.$(sel);
 		if (!el) return;
 		el.value = st.get(key) || "";
-		el.addEventListener("input", PH.debounce(() => st.set({ [key]: el.value.trim() }), ms || 250));
+		el.addEventListener(
+			"input",
+			PH.debounce(() => st.set({ [key]: el.value.trim() }), ms || 250)
+		);
 		return el;
 	};
 
@@ -524,7 +590,11 @@
 			t = setTimeout(() => fn.apply(self, a), ms || 250);
 		};
 	};
-	PH.sum = (arr, k) => (arr || []).reduce((a, r) => a + (+(typeof k === "function" ? k(r) : k ? r[k] : r) || 0), 0);
+	PH.sum = (arr, k) =>
+		(arr || []).reduce(
+			(a, r) => a + (+(typeof k === "function" ? k(r) : k ? r[k] : r) || 0),
+			0
+		);
 	PH.groupBy = function (arr, k) {
 		const m = new Map();
 		(arr || []).forEach((r) => {
@@ -538,10 +608,17 @@
 	PH.match = function (row, q, keys) {
 		if (!q) return true;
 		q = q.toLowerCase();
-		return (keys || Object.keys(row)).some((k) => String(row[k] == null ? "" : row[k]).toLowerCase().includes(q));
+		return (keys || Object.keys(row)).some((k) =>
+			String(row[k] == null ? "" : row[k])
+				.toLowerCase()
+				.includes(q)
+		);
 	};
 	/** Desk URL for a document. */
-	PH.docUrl = (doctype, name) => "/app/" + doctype.toLowerCase().replace(/ /g, "-") + (name ? "/" + encodeURIComponent(name) : "");
+	PH.docUrl = (doctype, name) =>
+		"/app/" +
+		doctype.toLowerCase().replace(/ /g, "-") +
+		(name ? "/" + encodeURIComponent(name) : "");
 	PH.openDoc = (doctype, name) => window.open(PH.docUrl(doctype, name), "_blank", "noopener");
 	PH.user = function () {
 		return (window.frappe && frappe.session && frappe.session.user) || "";
@@ -594,7 +671,9 @@
 		b.hidden = false;
 		b.onclick = () => {
 			b.classList.add("is-spinning");
-			Promise.resolve(fn()).finally(() => setTimeout(() => b.classList.remove("is-spinning"), 300));
+			Promise.resolve(fn()).finally(() =>
+				setTimeout(() => b.classList.remove("is-spinning"), 300)
+			);
 		};
 	};
 
@@ -602,7 +681,10 @@
 	PH.empty = function (el, title, text, icon) {
 		return PH.set(
 			el,
-			`<div class="ph-empty"><div class="ph-empty__icon">${PH.icon(icon || "inbox", 20)}</div><div class="ph-empty__title">${PH.esc(title || "Nothing to show")}</div>${
+			`<div class="ph-empty"><div class="ph-empty__icon">${PH.icon(
+				icon || "inbox",
+				20
+			)}</div><div class="ph-empty__title">${PH.esc(title || "Nothing to show")}</div>${
 				text ? `<div class="ph-empty__text">${PH.esc(text)}</div>` : ""
 			}</div>`
 		);
@@ -612,9 +694,16 @@
 		if (!el) return;
 		PH.set(
 			el,
-			`<div class="ph-empty ph-empty--error"><div class="ph-empty__icon">${PH.icon("alert", 20)}</div><div class="ph-empty__title">Couldn’t load this</div><div class="ph-empty__text">${PH.esc(
+			`<div class="ph-empty ph-empty--error"><div class="ph-empty__icon">${PH.icon(
+				"alert",
+				20
+			)}</div><div class="ph-empty__title">Couldn’t load this</div><div class="ph-empty__text">${PH.esc(
 				text || "The server returned an error."
-			)}</div>${retry ? '<button class="ph-btn ph-btn--sm ph-mt" data-retry>Try again</button>' : ""}</div>`
+			)}</div>${
+				retry
+					? '<button class="ph-btn ph-btn--sm ph-mt" data-retry>Try again</button>'
+					: ""
+			}</div>`
 		);
 		if (retry) el.querySelector("[data-retry]").onclick = retry;
 	};
@@ -630,7 +719,9 @@
 			h = '<span class="ph-sk" style="height:' + (n * 40 || 240) + 'px;width:100%"></span>';
 		} else {
 			for (let i = 0; i < n; i++)
-				h += `<div style="display:flex;gap:16px;padding:14px 0;border-bottom:1px solid var(--hairline)"><span class="ph-sk" style="height:12px;width:${20 + ((i * 13) % 20)}%"></span><span class="ph-sk" style="height:12px;flex:1"></span><span class="ph-sk" style="height:12px;width:12%"></span></div>`;
+				h += `<div style="display:flex;gap:16px;padding:14px 0;border-bottom:1px solid var(--hairline)"><span class="ph-sk" style="height:12px;width:${
+					20 + ((i * 13) % 20)
+				}%"></span><span class="ph-sk" style="height:12px;flex:1"></span><span class="ph-sk" style="height:12px;width:12%"></span></div>`;
 		}
 		return PH.set(el, h);
 	};
@@ -653,12 +744,32 @@
 			el,
 			items
 				.map(
-					(k, i) => `<div class="ph-kpi${k.dark ? " ph-kpi--dark" : ""}${k.onClick ? " is-link" : ""}${k.active ? " is-on" : ""}" data-i="${i}"${k.title ? ` title="${PH.esc(k.title)}"` : ""}>
+					(k, i) => `<div class="ph-kpi${k.dark ? " ph-kpi--dark" : ""}${
+						k.onClick ? " is-link" : ""
+					}${k.active ? " is-on" : ""}" data-i="${i}"${
+						k.title ? ` title="${PH.esc(k.title)}"` : ""
+					}>
 				<div class="ph-kpi__label">${PH.esc(k.label)}</div>
-				<div class="ph-kpi__value">${typeof k.value === "number" ? PH.fmt.num(k.value) : PH.esc(k.value == null ? "—" : k.value)}${k.suffix ? `<small>${PH.esc(k.suffix)}</small>` : ""}</div>
+				<div class="ph-kpi__value">${
+					typeof k.value === "number"
+						? PH.fmt.num(k.value)
+						: PH.esc(k.value == null ? "—" : k.value)
+				}${k.suffix ? `<small>${PH.esc(k.suffix)}</small>` : ""}</div>
 				${k.unit ? `<div class="ph-kpi__unit">${PH.esc(k.unit)}</div>` : ""}
-				${k.trend ? `<div class="ph-kpi__trend ${k.trend.dir || "flat"}">${PH.esc(k.trend.text || "")} ${k.trend.note ? `<small>${PH.esc(k.trend.note)}</small>` : ""}</div>` : ""}
-				${k.bar != null ? `<div class="ph-kpi__bar ph-progress"><i class="${k.barClass || ""}" style="width:${Math.max(0, Math.min(100, +k.bar || 0))}%"></i></div>` : ""}
+				${
+					k.trend
+						? `<div class="ph-kpi__trend ${k.trend.dir || "flat"}">${PH.esc(
+								k.trend.text || ""
+						  )} ${k.trend.note ? `<small>${PH.esc(k.trend.note)}</small>` : ""}</div>`
+						: ""
+				}
+				${
+					k.bar != null
+						? `<div class="ph-kpi__bar ph-progress"><i class="${
+								k.barClass || ""
+						  }" style="width:${Math.max(0, Math.min(100, +k.bar || 0))}%"></i></div>`
+						: ""
+				}
 			</div>`
 				)
 				.join("")
@@ -704,7 +815,10 @@
 			const na = +va,
 				nb = +vb;
 			if (!isNaN(na) && !isNaN(nb) && va !== "" && vb !== "") return na - nb;
-			return String(va).localeCompare(String(vb), undefined, { numeric: true, sensitivity: "base" });
+			return String(va).localeCompare(String(vb), undefined, {
+				numeric: true,
+				sensitivity: "base",
+			});
 		}
 		function sorted() {
 			if (!sort) return rows.slice();
@@ -724,7 +838,9 @@
 			return PH.esc(v == null || v === "" ? "—" : v);
 		}
 		function cls(c) {
-			return [c.num ? "is-num" : "", c.align === "center" ? "is-center" : "", c.cls || ""].filter(Boolean).join(" ");
+			return [c.num ? "is-num" : "", c.align === "center" ? "is-center" : "", c.cls || ""]
+				.filter(Boolean)
+				.join(" ");
 		}
 		function render() {
 			if (!el) return;
@@ -741,15 +857,26 @@
 				.map((c) => {
 					const sortable = c.sortable !== false;
 					const on = sort && sort.key === c.key;
-					return `<th class="${cls(c)}${sortable ? " is-sortable" : ""}${on ? " is-sorted" : ""}" data-k="${PH.esc(c.key)}"${c.width ? ` style="width:${c.width}"` : ""}>${PH.esc(c.label)}${
-						sortable ? `<span class="ph-sort">${on ? (sort.dir === "asc" ? "▲" : "▼") : "↕"}</span>` : ""
+					return `<th class="${cls(c)}${sortable ? " is-sortable" : ""}${
+						on ? " is-sorted" : ""
+					}" data-k="${PH.esc(c.key)}"${
+						c.width ? ` style="width:${c.width}"` : ""
+					}>${PH.esc(c.label)}${
+						sortable
+							? `<span class="ph-sort">${
+									on ? (sort.dir === "asc" ? "▲" : "▼") : "↕"
+							  }</span>`
+							: ""
 					}</th>`;
 				})
 				.join("");
 			const body = view
 				.map((r, i) => {
-					const rc = (cfg.rowClass ? cfg.rowClass(r) : "") + (cfg.onRowClick ? " is-link" : "");
-					return `<tr class="${rc.trim()}" data-i="${i}">${cols.map((c) => `<td class="${cls(c)}">${cell(c, r)}</td>`).join("")}</tr>`;
+					const rc =
+						(cfg.rowClass ? cfg.rowClass(r) : "") + (cfg.onRowClick ? " is-link" : "");
+					return `<tr class="${rc.trim()}" data-i="${i}">${cols
+						.map((c) => `<td class="${cls(c)}">${cell(c, r)}</td>`)
+						.join("")}</tr>`;
 				})
 				.join("");
 			let foot = "";
@@ -769,11 +896,23 @@
 			}
 			const pager =
 				ps && pages > 1
-					? `<div class="ph-pager"><span>${PH.fmt.num(page * ps + 1)}–${PH.fmt.num(Math.min(all.length, page * ps + ps))} of ${PH.fmt.num(all.length)}</span><span class="ph-flex"><button class="ph-iconbtn ph-iconbtn--sm" data-pg="-1" ${
+					? `<div class="ph-pager"><span>${PH.fmt.num(page * ps + 1)}–${PH.fmt.num(
+							Math.min(all.length, page * ps + ps)
+					  )} of ${PH.fmt.num(
+							all.length
+					  )}</span><span class="ph-flex"><button class="ph-iconbtn ph-iconbtn--sm" data-pg="-1" ${
 							page === 0 ? "disabled" : ""
-					  }>${PH.icon("chevronLeft")}</button><button class="ph-iconbtn ph-iconbtn--sm" data-pg="1" ${page >= pages - 1 ? "disabled" : ""}>${PH.icon("chevronRight")}</button></span></div>`
+					  }>${PH.icon(
+							"chevronLeft"
+					  )}</button><button class="ph-iconbtn ph-iconbtn--sm" data-pg="1" ${
+							page >= pages - 1 ? "disabled" : ""
+					  }>${PH.icon("chevronRight")}</button></span></div>`
 					: "";
-			el.innerHTML = `<div class="ph-table-wrap${cfg.tall ? " ph-table-wrap--tall" : ""}"><table class="ph-table${cfg.compact ? " ph-table--compact" : ""}"><thead><tr>${head}</tr></thead><tbody>${body}</tbody>${foot}</table></div>${pager}`;
+			el.innerHTML = `<div class="ph-table-wrap${
+				cfg.tall ? " ph-table-wrap--tall" : ""
+			}"><table class="ph-table${
+				cfg.compact ? " ph-table--compact" : ""
+			}"><thead><tr>${head}</tr></thead><tbody>${body}</tbody>${foot}</table></div>${pager}`;
 			el._view = view;
 		}
 		// One delegated listener per holder: calling PH.table() again on the same
@@ -784,7 +923,10 @@
 				const th = e.target.closest("th.is-sortable");
 				if (th && el.contains(th)) {
 					const k = th.dataset.k;
-					sort = sort && sort.key === k ? { key: k, dir: sort.dir === "asc" ? "desc" : "asc" } : { key: k, dir: cols.find((c) => c.key === k).num ? "desc" : "asc" };
+					sort =
+						sort && sort.key === k
+							? { key: k, dir: sort.dir === "asc" ? "desc" : "asc" }
+							: { key: k, dir: cols.find((c) => c.key === k).num ? "desc" : "asc" };
 					render();
 					return;
 				}
@@ -843,9 +985,15 @@
 	PH.modal = function (o) {
 		const ov = document.createElement("div");
 		ov.className = "ph-overlay" + (o.drawer ? " ph-overlay--drawer" : "");
-		ov.innerHTML = `<div class="ph-modal${o.size ? " ph-modal--" + o.size : ""}" role="dialog" aria-modal="true">
-			<div class="ph-modal__head"><div><div class="ph-modal__title"></div>${o.sub ? '<div class="ph-modal__sub"></div>' : ""}</div>
-			<button class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-close aria-label="Close">${PH.icon("close")}</button></div>
+		ov.innerHTML = `<div class="ph-modal${
+			o.size ? " ph-modal--" + o.size : ""
+		}" role="dialog" aria-modal="true">
+			<div class="ph-modal__head"><div><div class="ph-modal__title"></div>${
+				o.sub ? '<div class="ph-modal__sub"></div>' : ""
+			}</div>
+			<button class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-close aria-label="Close">${PH.icon(
+				"close"
+			)}</button></div>
 			<div class="ph-modal__body"></div>
 			${o.actions && o.actions.length ? '<div class="ph-modal__foot"></div>' : ""}</div>`;
 		const md = ov.firstElementChild;
@@ -870,7 +1018,13 @@
 			const foot = md.querySelector(".ph-modal__foot");
 			o.actions.forEach((a) => {
 				const b = document.createElement("button");
-				b.className = "ph-btn" + (a.primary ? " ph-btn--primary" : a.danger ? " ph-btn--danger" : " ph-btn--ghost");
+				b.className =
+					"ph-btn" +
+					(a.primary
+						? " ph-btn--primary"
+						: a.danger
+						? " ph-btn--danger"
+						: " ph-btn--ghost");
 				b.textContent = a.label;
 				b.onclick = async () => {
 					if (!a.onClick) return api.close();
@@ -909,8 +1063,22 @@
 				title,
 				body: text ? `<p class="ph-muted">${PH.esc(text)}</p>` : "",
 				actions: [
-					{ label: opts.cancel || "Cancel", onClick: () => { done = true; res(false); } },
-					{ label: opts.ok || "Confirm", primary: !opts.danger, danger: !!opts.danger, onClick: () => { done = true; res(true); } },
+					{
+						label: opts.cancel || "Cancel",
+						onClick: () => {
+							done = true;
+							res(false);
+						},
+					},
+					{
+						label: opts.ok || "Confirm",
+						primary: !opts.danger,
+						danger: !!opts.danger,
+						onClick: () => {
+							done = true;
+							res(true);
+						},
+					},
 				],
 				onClose: () => !done && res(false),
 			});
@@ -937,7 +1105,8 @@
 		const w = m.offsetWidth,
 			h = m.offsetHeight;
 		m.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w)) + "px";
-		m.style.top = (r.bottom + h + 8 > window.innerHeight ? r.top - h - 6 : r.bottom + 6) + "px";
+		m.style.top =
+			(r.bottom + h + 8 > window.innerHeight ? r.top - h - 6 : r.bottom + 6) + "px";
 		setTimeout(() => {
 			const off = (e) => {
 				if (!m.contains(e.target)) {
@@ -953,7 +1122,7 @@
 	/* ── Autocomplete (Link-field style) ───────────────────────────── */
 	/**
 	 * PH.autocomplete(inputEl, { source: async (q)=>[{value,label,description}], onSelect:(item)=>{}, minChars:0,
- *   display:(item)=>text  // what the input shows after a pick (default item.value) })
+	 *   display:(item)=>text  // what the input shows after a pick (default item.value) })
 	 * Use PH.linkSource('Customer', {filters, fields}) for doctype search.
 	 */
 	PH.autocomplete = function (input, o) {
@@ -987,7 +1156,16 @@
 			}
 			menu.innerHTML = items.length
 				? items
-						.map((it, i) => `<div class="ph-ac__item${i === active ? " is-active" : ""}" data-i="${i}">${PH.esc(it.label || it.value)}${it.description ? `<small>${PH.esc(it.description)}</small>` : ""}</div>`)
+						.map(
+							(it, i) =>
+								`<div class="ph-ac__item${
+									i === active ? " is-active" : ""
+								}" data-i="${i}">${PH.esc(it.label || it.value)}${
+									it.description
+										? `<small>${PH.esc(it.description)}</small>`
+										: ""
+								}</div>`
+						)
 						.join("")
 				: '<div class="ph-ac__empty">No matches</div>';
 		};
@@ -1041,8 +1219,16 @@
 	PH.linkSource = function (doctype, opts) {
 		opts = opts || {};
 		return (q) =>
-			PH.call("frappe.desk.search.search_link", { doctype, txt: q, filters: opts.filters || null, page_length: opts.limit || 20 }, { silent: true, type: "GET" }).then((r) =>
-				(r || []).map((x) => ({ value: x.value, label: x.label || x.value, description: x.description }))
+			PH.call(
+				"frappe.desk.search.search_link",
+				{ doctype, txt: q, filters: opts.filters || null, page_length: opts.limit || 20 },
+				{ silent: true, type: "GET" }
+			).then((r) =>
+				(r || []).map((x) => ({
+					value: x.value,
+					label: x.label || x.value,
+					description: x.description,
+				}))
 			);
 	};
 
@@ -1054,7 +1240,9 @@
 			v = v == null ? "" : String(v);
 			return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
 		};
-		const lines = [cols.map((c) => q(c.label)).join(",")].concat(rows.map((r) => cols.map((c) => q(c.csv ? c.csv(r[c.key], r) : r[c.key])).join(",")));
+		const lines = [cols.map((c) => q(c.label)).join(",")].concat(
+			rows.map((r) => cols.map((c) => q(c.csv ? c.csv(r[c.key], r) : r[c.key])).join(","))
+		);
 		const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
 		const a = document.createElement("a");
 		a.href = URL.createObjectURL(blob);
@@ -1083,7 +1271,11 @@
 				C.defaults.borderColor = "rgba(10,10,10,0.05)";
 				C.defaults.plugins.legend.display = false;
 				C.defaults.plugins.tooltip.backgroundColor = "#0a0a0a";
-				C.defaults.plugins.tooltip.titleFont = { family: "Poppins", weight: "600", size: 12 };
+				C.defaults.plugins.tooltip.titleFont = {
+					family: "Poppins",
+					weight: "600",
+					size: 12,
+				};
 				C.defaults.plugins.tooltip.bodyFont = { family: "Poppins", size: 12 };
 				C.defaults.plugins.tooltip.padding = 10;
 				C.defaults.plugins.tooltip.cornerRadius = 10;
@@ -1098,8 +1290,26 @@
 		return chartLib;
 	};
 	/** Series palette: ink first, then greys, then the single signal accent. */
-	PH.palette = ["#0a0a0a", "#228883", "#8a8780", "#3a3a34", "#73b3a0", "#b8b6ae", "#5a5a52", "#c4302b", "#f59e0b", "#1a8a3a"];
-	PH.statusColor = { good: "#1a8a3a", warn: "#f59e0b", bad: "#c4302b", signal: "#228883", ink: "#0a0a0a", mute: "#b8b6ae" };
+	PH.palette = [
+		"#0a0a0a",
+		"#228883",
+		"#8a8780",
+		"#3a3a34",
+		"#73b3a0",
+		"#b8b6ae",
+		"#5a5a52",
+		"#c4302b",
+		"#f59e0b",
+		"#1a8a3a",
+	];
+	PH.statusColor = {
+		good: "#1a8a3a",
+		warn: "#f59e0b",
+		bad: "#c4302b",
+		signal: "#228883",
+		ink: "#0a0a0a",
+		mute: "#b8b6ae",
+	};
 	/** Vertical gradient fill for area charts. */
 	PH.gradient = function (ctx, color, a1, a0) {
 		const h = ctx.canvas.clientHeight || 280;
@@ -1111,7 +1321,11 @@
 	};
 	function hexToRgb(h) {
 		h = h.replace("#", "");
-		if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+		if (h.length === 3)
+			h = h
+				.split("")
+				.map((c) => c + c)
+				.join("");
 		const n = parseInt(h, 16);
 		return [(n >> 16) & 255, (n >> 8) & 255, n & 255].join(",");
 	}
@@ -1155,8 +1369,19 @@
 				return d;
 			});
 			const fmt = o.yFormat || ((v) => PH.fmt.compact(v));
-			const valueAxis = { beginAtZero: true, stacked: !!o.stacked, grid: { color: "rgba(10,10,10,0.05)", drawTicks: false }, border: { display: false }, ticks: { padding: 8, callback: fmt } };
-			const catAxis = { stacked: !!o.stacked, grid: { display: false }, border: { display: false }, ticks: { padding: 6, autoSkip: true, maxRotation: 0 } };
+			const valueAxis = {
+				beginAtZero: true,
+				stacked: !!o.stacked,
+				grid: { color: "rgba(10,10,10,0.05)", drawTicks: false },
+				border: { display: false },
+				ticks: { padding: 8, callback: fmt },
+			};
+			const catAxis = {
+				stacked: !!o.stacked,
+				grid: { display: false },
+				border: { display: false },
+				ticks: { padding: 6, autoSkip: true, maxRotation: 0 },
+			};
 			const cfg = {
 				type: isDough ? "doughnut" : isLine ? "line" : "bar",
 				data: { labels: o.labels, datasets },
@@ -1165,18 +1390,37 @@
 					interaction: { mode: isDough ? "nearest" : "index", intersect: isDough },
 					animation: { duration: 400 },
 					plugins: {
-						legend: { display: !!o.legend, position: "bottom", labels: { usePointStyle: true, boxWidth: 8, padding: 16 } },
-						tooltip: { callbacks: { label: (c) => ` ${c.dataset.label || c.label}: ${PH.fmt.qty(c.parsed && typeof c.parsed === "object" ? (o.horizontal ? c.parsed.x : c.parsed.y) : c.parsed)}` } },
+						legend: {
+							display: !!o.legend,
+							position: "bottom",
+							labels: { usePointStyle: true, boxWidth: 8, padding: 16 },
+						},
+						tooltip: {
+							callbacks: {
+								label: (c) =>
+									` ${c.dataset.label || c.label}: ${PH.fmt.qty(
+										c.parsed && typeof c.parsed === "object"
+											? o.horizontal
+												? c.parsed.x
+												: c.parsed.y
+											: c.parsed
+									)}`,
+							},
+						},
 					},
 					onClick: o.onClick
 						? (e, els) => {
-								if (els && els.length) o.onClick(els[0].index, o.labels[els[0].index]);
+								if (els && els.length)
+									o.onClick(els[0].index, o.labels[els[0].index]);
 						  }
 						: undefined,
 				},
 			};
 			if (isDough) cfg.options.cutout = "68%";
-			else cfg.options.scales = o.horizontal ? { x: valueAxis, y: catAxis } : { x: catAxis, y: valueAxis };
+			else
+				cfg.options.scales = o.horizontal
+					? { x: valueAxis, y: catAxis }
+					: { x: catAxis, y: valueAxis };
 			if (o.options) deepMerge(cfg.options, o.options);
 			holder._chart = new C(ctx, cfg);
 			return holder._chart;
@@ -1184,7 +1428,14 @@
 	};
 	function deepMerge(t, s) {
 		Object.keys(s).forEach((k) => {
-			if (s[k] && typeof s[k] === "object" && !Array.isArray(s[k]) && t[k] && typeof t[k] === "object") deepMerge(t[k], s[k]);
+			if (
+				s[k] &&
+				typeof s[k] === "object" &&
+				!Array.isArray(s[k]) &&
+				t[k] &&
+				typeof t[k] === "object"
+			)
+				deepMerge(t[k], s[k]);
 			else t[k] = s[k];
 		});
 	}
@@ -1199,28 +1450,43 @@
 			collapse.addEventListener("click", () => {
 				root.classList.toggle("is-collapsed");
 				try {
-					localStorage.setItem("ph2SideCollapsed", root.classList.contains("is-collapsed") ? "1" : "0");
-				} catch (e) {}
+					localStorage.setItem(
+						"ph2SideCollapsed",
+						root.classList.contains("is-collapsed") ? "1" : "0"
+					);
+				} catch (e) {
+					// not available: carry on without it
+				}
 			});
 		const menuBtn = document.getElementById("ph-menu-btn");
 		const scrim = root.querySelector(".ph-scrim");
 		if (menuBtn) menuBtn.addEventListener("click", () => root.classList.add("is-drawer-open"));
 		if (scrim) scrim.addEventListener("click", () => root.classList.remove("is-drawer-open"));
 		const main = root.querySelector(".ph-main");
-		if (main) main.addEventListener("scroll", () => main.classList.toggle("is-scrolled", main.scrollTop > 4), { passive: true });
+		if (main)
+			main.addEventListener(
+				"scroll",
+				() => main.classList.toggle("is-scrolled", main.scrollTop > 4),
+				{ passive: true }
+			);
 		const nav = root.querySelector(".ph-side__nav");
 		if (nav) {
 			try {
 				const y = sessionStorage.getItem("ph2SideScroll");
 				if (y) nav.scrollTop = +y;
-			} catch (e) {}
+			} catch (e) {
+				// not available: carry on without it
+			}
 			window.addEventListener("pagehide", () => {
 				try {
 					sessionStorage.setItem("ph2SideScroll", String(nav.scrollTop));
-				} catch (e) {}
+				} catch (e) {
+					// not available: carry on without it
+				}
 			});
 		}
 	}
-	if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initShell);
+	if (document.readyState === "loading")
+		document.addEventListener("DOMContentLoaded", initShell);
 	else initShell();
 })();

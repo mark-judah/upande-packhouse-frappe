@@ -364,13 +364,24 @@ def _flags(it, today_d):
 		else:
 			f.append({"code": "late_dispatch", "label": "Past due · not dispatched", "sev": "warn"})
 	elif days == 0 and not packed_done:
-		f.append({"code": "due_today", "label": "Due today · not packed", "sev": "bad" if st == "notalloc" else "warn"})
+		f.append(
+			{
+				"code": "due_today",
+				"label": "Due today · not packed",
+				"sev": "bad" if st == "notalloc" else "warn",
+			}
+		)
 	elif days == 1 and st == "notalloc":
 		f.append({"code": "due_soon", "label": "Due tomorrow · not allocated", "sev": "warn"})
 	if it["opl"]:
 		if it["packed_stems"] > it["issued_stems"] + 0.5:
 			f.append({"code": "packed_unissued", "label": "Packed more than issued", "sev": "warn"})
-		elif it["docstatus"] == 1 and it["picked_stems"] > 0 and it["issued_stems"] == 0 and it["packed_stems"] == 0:
+		elif (
+			it["docstatus"] == 1
+			and it["picked_stems"] > 0
+			and it["issued_stems"] == 0
+			and it["packed_stems"] == 0
+		):
 			f.append({"code": "not_issued", "label": "Allocated · not issued", "sev": "warn"})
 		elif st == "to_pack":
 			f.append({"code": "not_packing", "label": "Issued · not packing", "sev": "warn"})
@@ -489,7 +500,9 @@ def get_orders_workflow(
 	}
 	opl_order_name = {
 		r.name: r.order_name
-		for r in frappe.get_all("Order Pick List", filters={"name": ["in", list(opls) or [""]]}, fields=["name", "order_name"])
+		for r in frappe.get_all(
+			"Order Pick List", filters={"name": ["in", list(opls) or [""]]}, fields=["name", "order_name"]
+		)
 	}
 
 	dns, sis = _documents({ln.parent for ln in lines})
@@ -497,7 +510,9 @@ def get_orders_workflow(
 	# One item per (line, pick list); a line with none is one item of its own.
 	items = []
 	for ln in lines:
-		in_scope = sorted(o for o in ln.opls if (not team or (opls[o].get("team") or "") == team) and farm_ok(ln.parent, o))
+		in_scope = sorted(
+			o for o in ln.opls if (not team or (opls[o].get("team") or "") == team) and farm_ok(ln.parent, o)
+		)
 		if not ln.opls:
 			if team or not farm_ok(ln.parent):
 				continue
@@ -547,9 +562,7 @@ def get_orders_workflow(
 				"dispatched_stems",
 			):
 				it[m] = float(ln[m] or 0) if primary else 0.0
-			it["name"] = " · ".join(
-				[oname, ln.item_code or "", ln.custom_length or "", o or "No pick list"]
-			)
+			it["name"] = " · ".join([oname, ln.item_code or "", ln.custom_length or "", o or "No pick list"])
 			it["stage"] = _stage(it)
 			it["stage_label"] = STAGE_LABEL[it["stage"]]
 			it["flags"] = _flags(it, today_d)
@@ -704,7 +717,13 @@ def get_opl_detail(opl):
 				"creation": str(r.creation),
 			}
 		)
-	return {"success": True, "opl": opl, "shelves": shelves, "packing_issues": issues, "flow": _flow_times(opl)}
+	return {
+		"success": True,
+		"opl": opl,
+		"shelves": shelves,
+		"packing_issues": issues,
+		"flow": _flow_times(opl),
+	}
 
 
 @frappe.whitelist()
