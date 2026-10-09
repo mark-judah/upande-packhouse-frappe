@@ -55,6 +55,7 @@ cover, demand          whole, so every KPI (summed over visible varieties)
 """
 
 from collections import defaultdict
+from typing import Any
 
 import frappe
 from frappe.utils import add_days, getdate, today
@@ -283,8 +284,8 @@ def _cell(store, key, extra=()):
 	return c
 
 
-def build(args):
-	a = frappe._dict(args or {})
+def build(filters):
+	a = frappe._dict(filters or {})
 	d_to = getdate(a.to_date or a.from_date or today())
 	d_from = getdate(a.from_date or d_to)
 	if d_from > d_to:
@@ -478,19 +479,19 @@ def _options():
 
 @frappe.whitelist(methods=["GET"])
 def get_stock_visibility(
-	from_date=None,
-	to_date=None,
-	basis=None,
-	region=None,
-	farm=None,
-	length=None,
-	rose=None,
-	q=None,
-	customer=None,
-	delivery_point=None,
-	age=None,
-	cover=None,
-	demand=None,
+	from_date: Any = None,
+	to_date: Any = None,
+	basis: Any = None,
+	region: Any = None,
+	farm: Any = None,
+	length: Any = None,
+	rose: Any = None,
+	q: Any = None,
+	customer: Any = None,
+	delivery_point: Any = None,
+	age: Any = None,
+	cover: Any = None,
+	demand: Any = None,
 ):
 	try:
 		out = build(

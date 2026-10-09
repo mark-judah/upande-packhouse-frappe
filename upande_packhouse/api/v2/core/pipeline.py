@@ -109,6 +109,7 @@ def fetch_lines(
 			return []
 		where.append("so.name IN %(ph2_sos)s")
 		params["ph2_sos"] = tuple(sales_orders)
+	# nosemgrep: frappe-sql-format-injection -- the f-string holes are fixed SQL, values are bound
 	sql = f"""
 		SELECT {LINE_FIELDS}
 		FROM `tabSales Order Item` soi
@@ -117,9 +118,7 @@ def fetch_lines(
 		  AND IFNULL(soi.item_code, '') != ''
 		ORDER BY so.delivery_date, so.name, soi.idx
 	"""
-	lines = frappe.db.sql(
-		sql, params, as_dict=True
-	)  # nosemgrep: the f-string holes are fixed SQL, values are bound
+	lines = frappe.db.sql(sql, params, as_dict=True)
 	for ln in lines:
 		ln.kind = units.line_kind(ln)
 		ln.box_key = bx.box_key(ln)

@@ -33,6 +33,8 @@ Allocated stems are never subtracted twice: an allocated line's stems sit in
 "allocated" on the shelf and are not in its unmet demand (ST-3).
 """
 
+from typing import Any
+
 import frappe
 
 from upande_packhouse.api.v2.core import pipeline, stock
@@ -84,14 +86,14 @@ def _len(v):
 
 @frappe.whitelist()
 def get_avails(
-	from_date=None,
-	to_date=None,
-	region=None,
-	farm=None,
-	length=None,
-	variety=None,
-	min_age=None,
-	q=None,
+	from_date: Any = None,
+	to_date: Any = None,
+	region: Any = None,
+	farm: Any = None,
+	length: Any = None,
+	variety: Any = None,
+	min_age: Any = None,
+	q: Any = None,
 ):
 	"""Avails pivot + KPIs for the filters. All roll-ups are computed here."""
 	from_date = from_date or frappe.utils.today()

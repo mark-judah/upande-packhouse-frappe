@@ -27,6 +27,7 @@ no issued pick-list line on a pick list created on/after it.
 """
 
 from collections import defaultdict
+from typing import Any
 
 import frappe
 from frappe.utils import add_days, getdate
@@ -293,7 +294,7 @@ def _clean(d):
 
 
 @frappe.whitelist()
-def get_cold_room(region=None, farm=None, from_date=None, to_date=None):
+def get_cold_room(region: Any = None, farm: Any = None, from_date: Any = None, to_date: Any = None):
 	"""Dashboard + shelf-contents data. Every number honours every filter."""
 	try:
 		sc = _scope(region, farm, from_date, to_date)
@@ -446,7 +447,7 @@ def _open_requests(bucket_ids):
 
 
 @frappe.whitelist()
-def get_cold_room_buckets(region=None, farm=None, from_date=None, to_date=None):
+def get_cold_room_buckets(region: Any = None, farm: Any = None, from_date: Any = None, to_date: Any = None):
 	"""Bucket-level lists for the Buckets tab, same filters as get_cold_room.
 	`age` holds one row per (bucket, variety, length) on the shelf; its stems
 	add up to the dashboard's "Stems on shelf"."""

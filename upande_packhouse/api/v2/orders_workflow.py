@@ -31,6 +31,7 @@ so_detail is attributed the same way whatever the filters are.
 """
 
 from collections import defaultdict
+from typing import Any
 
 import frappe
 from frappe.utils import getdate, today
@@ -414,20 +415,20 @@ def _sum_items(items, opls):
 
 @frappe.whitelist()
 def get_orders_workflow(
-	from_date=None,
-	to_date=None,
-	region=None,
-	farm=None,
-	team=None,
-	rose_type=None,
-	item_group=None,
-	customer=None,
-	sales_order=None,
-	delivery_note=None,
-	sales_invoice=None,
-	q=None,
-	stage=None,
-	view=None,
+	from_date: Any = None,
+	to_date: Any = None,
+	region: Any = None,
+	farm: Any = None,
+	team: Any = None,
+	rose_type: Any = None,
+	item_group: Any = None,
+	customer: Any = None,
+	sales_order: Any = None,
+	delivery_note: Any = None,
+	sales_invoice: Any = None,
+	q: Any = None,
+	stage: Any = None,
+	view: Any = None,
 ):
 	"""Lines grouped by team (view=team, default) or customer (view=customer), plus KPIs."""
 	from_date = from_date or today()
@@ -668,7 +669,7 @@ def get_orders_workflow(
 
 
 @frappe.whitelist()
-def get_opl_detail(opl):
+def get_opl_detail(opl: Any):
 	"""Drill-down extras for one pick list: shelves and packing issues."""
 	if not opl or not frappe.db.exists("Order Pick List", opl):
 		return {"success": False, "error": "Pick list not found."}
@@ -742,7 +743,7 @@ def get_filter_options():
 
 
 @frappe.whitelist()
-def get_document_dates(doctype, name):
+def get_document_dates(doctype: Any, name: Any):
 	"""Delivery-date span of the Sales Orders a document belongs to, so picking a
 	document from the search moves the page's date range onto it."""
 	kw = {"Sales Order": "sales_order", "Delivery Note": "delivery_note", "Sales Invoice": "sales_invoice"}

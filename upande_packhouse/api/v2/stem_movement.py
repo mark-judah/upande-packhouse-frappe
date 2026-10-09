@@ -44,6 +44,7 @@ Reads only; nothing is written or committed (README rule 1).
 """
 
 from collections import defaultdict
+from typing import Any
 
 import frappe
 from frappe.utils import add_days, cint, getdate, now_datetime, today
@@ -462,7 +463,14 @@ def _options():
 
 
 @frappe.whitelist()
-def get_flow(from_date=None, to_date=None, region=None, farm=None, variety=None, location=None):
+def get_flow(
+	from_date: Any = None,
+	to_date: Any = None,
+	region: Any = None,
+	farm: Any = None,
+	variety: Any = None,
+	location: Any = None,
+):
 	"""Stage totals, per-day matrix, shelf ledger and the shelf right now."""
 	a = _args(from_date, to_date, region, farm, variety, location)
 
@@ -537,7 +545,7 @@ def get_flow(from_date=None, to_date=None, region=None, farm=None, variety=None,
 
 
 @frappe.whitelist()
-def search_box_labels(q=None):
+def search_box_labels(q: Any = None):
 	rows = frappe.get_all(
 		"Box Label",
 		filters={"name": ["like", "%" + (q or "").strip() + "%"]} if (q or "").strip() else {},
@@ -549,7 +557,7 @@ def search_box_labels(q=None):
 
 
 @frappe.whitelist()
-def get_box_trace(box=None):
+def get_box_trace(box: Any = None):
 	"""One box end to end. Planned buckets come from the Pick List Items of the
 	box's pick list (custom_box_id = box number); packed stems from the Farm Pack
 	List rows of THIS box; each bucket's stages are read inside its current cycle
