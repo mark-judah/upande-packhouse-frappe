@@ -215,13 +215,23 @@ def _swap(pick_list_item, new_bucket_id, reason, notes, keep_old_on_shelf=False,
 
 class _Request:
 	"""Stands in for frappe.request so an endpoint that reads its JSON body can
-	be called from here with the same logic the apps hit."""
+	be called from here with the same logic the apps hit. Everything but the body
+	(path, method, headers, ...) is the real request's: Server Scripts run by the
+	stock posting read frappe.request.path."""
 
-	def __init__(self, payload):
+	def __init__(self, payload, request=None):
 		self.json = payload
+		self._request = request
 
 	def get_json(self, *args, **kwargs):
 		return self.json
+
+	def __getattr__(self, name):
+		if self._request is not None:
+			return getattr(self._request, name)
+		if name == "path":
+			return ""
+		raise AttributeError(name)
 
 
 _RESPONSE_KEYS = ("message", "http_status_code", "data")
@@ -233,7 +243,7 @@ def _call(endpoint, payload):
 	response = frappe.local.response
 	saved = {k: response[k] for k in _RESPONSE_KEYS if k in response}
 	request = getattr(frappe.local, "request", None)
-	frappe.local.request = _Request(payload)
+	frappe.local.request = _Request(payload, request)
 	for k in _RESPONSE_KEYS:
 		response.pop(k, None)
 	try:
