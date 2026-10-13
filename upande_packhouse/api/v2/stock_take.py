@@ -431,7 +431,11 @@ def _evaluate(take, T, bucket_ids, scanned_keys, ctx):
 			for r in pli.get(k, []):
 				if r.creation >= h.dt and (cint(r.issued) or cint(r.issued_offline)) and r.modified <= T:
 					off = bool(cint(r.issued_offline))
-					res.state, res.step, res.detail = "issued", ("Issued offline" if off else "Issued"), "Pick list " + r.parent
+					res.state, res.step, res.detail = (
+						"issued",
+						("Issued offline" if off else "Issued"),
+						"Pick list " + r.parent,
+					)
 					res.out_kind, res.out_at = ("issued_offline" if off else "issued"), r.modified
 					res.shelf = res.shelf_farm = None
 			for r in disc.get(k, []):
@@ -564,7 +568,9 @@ def _status(res, farm):
 def _system_says(res, status, farm):
 	"""One short sentence: what the ledger says about a bucket that is not where the count found it."""
 	if status == "no_cycle":
-		return "No harvest in the last %d days" % LOOKBACK_DAYS + (" (shelf record from an older cycle)" if res.older_shelf else "")
+		return "No harvest in the last %d days" % LOOKBACK_DAYS + (
+			" (shelf record from an older cycle)" if res.older_shelf else ""
+		)
 	if status == "moved":
 		return "System has it at " + (res.loc or "another farm")
 	if status == "reserved":
@@ -694,29 +700,33 @@ def _reconcile(system, scans):
 	not_expected = [r for r in scans if not r["expected"]]
 	counted_as_expected = [r for r in scans if r["expected"]]
 	den = len(found) + len(not_located)
-	return {
-		"received": _bs(received),
-		"issued": _bs(by["issued"]),
-		"issued_offline": _bs(by["issued_offline"]),
-		"discarded": _bs(by["discarded"]),
-		"sold": _bs(by["sold"]),
-		"moved": _bs(by["moved"]),
-		"quarantine": _bs(by["quarantine"]),
-		"in_store": _bs(in_store),
-		"on_shelf": _bs(on_shelf),
-		"expected": _bs(expected),
-		"not_located_unshelved": _bs([r for r in not_located if r["status"] == "not_shelved"]),
-		"reserved": _bs(by["reserved"]),
-		"not_shelved": _bs(by["not_shelved"]),
-		"counted": _bs(scans),
-		"counted_as_expected": _bs(counted_as_expected),
-		"found_on_shelf": _bs(found),
-		"not_located": _bs(not_located),
-		"outside_count": _bs(outside),
-		"reserved_unscanned": _bs(reserved_unscanned),
-		"not_expected": _bs(not_expected),
-		"located_pct": round(100.0 * len(found) / den, 1) if den else None,
-	}, not_located, not_expected
+	return (
+		{
+			"received": _bs(received),
+			"issued": _bs(by["issued"]),
+			"issued_offline": _bs(by["issued_offline"]),
+			"discarded": _bs(by["discarded"]),
+			"sold": _bs(by["sold"]),
+			"moved": _bs(by["moved"]),
+			"quarantine": _bs(by["quarantine"]),
+			"in_store": _bs(in_store),
+			"on_shelf": _bs(on_shelf),
+			"expected": _bs(expected),
+			"not_located_unshelved": _bs([r for r in not_located if r["status"] == "not_shelved"]),
+			"reserved": _bs(by["reserved"]),
+			"not_shelved": _bs(by["not_shelved"]),
+			"counted": _bs(scans),
+			"counted_as_expected": _bs(counted_as_expected),
+			"found_on_shelf": _bs(found),
+			"not_located": _bs(not_located),
+			"outside_count": _bs(outside),
+			"reserved_unscanned": _bs(reserved_unscanned),
+			"not_expected": _bs(not_expected),
+			"located_pct": round(100.0 * len(found) / den, 1) if den else None,
+		},
+		not_located,
+		not_expected,
+	)
 
 
 def _day(system, take):
@@ -793,7 +803,8 @@ def get_stock_take(**kw):
 				"as_of": str(T),
 				"received": rec["received"]["buckets"],
 				"left_store": sum(
-					rec[k]["buckets"] for k in ("issued", "issued_offline", "discarded", "sold", "moved", "quarantine")
+					rec[k]["buckets"]
+					for k in ("issued", "issued_offline", "discarded", "sold", "moved", "quarantine")
 				),
 				"held": rec["reserved"]["buckets"],
 				"expected": rec["expected"]["buckets"],
@@ -811,7 +822,14 @@ def get_stock_take(**kw):
 
 	varieties = sorted({r["variety"] for r in scans_all + system_all if r["variety"]})
 	by_var = {
-		v: {"variety": v, "expected": 0, "counted": 0, "not_located": 0, "not_located_stems": 0.0, "not_expected": 0}
+		v: {
+			"variety": v,
+			"expected": 0,
+			"counted": 0,
+			"not_located": 0,
+			"not_located_stems": 0.0,
+			"not_expected": 0,
+		}
 		for v in varieties
 	}
 	for r in system_all:
@@ -848,7 +866,8 @@ def get_stock_take(**kw):
 		zones[r["zone"]]["not_located"] += 1
 		zones[r["zone"]]["not_located_stems"] += r["stems"]
 	by_zone = sorted(
-		({"zone": z, **v} for z, v in zones.items()), key=lambda x: (-x["not_located"], -x["counted"], x["zone"])
+		({"zone": z, **v} for z, v in zones.items()),
+		key=lambda x: (-x["not_located"], -x["counted"], x["zone"]),
 	)
 
 	def roll(rows, key):
@@ -874,7 +893,9 @@ def get_stock_take(**kw):
 		],
 		"n_takes": len(takes),
 		"per_take": per_take,
-		"farms": sorted({t.farm for t in _takes({**a, "farm": "", "region": ""}, ignore_take=True) if t.farm}),
+		"farms": sorted(
+			{t.farm for t in _takes({**a, "farm": "", "region": ""}, ignore_take=True) if t.farm}
+		),
 		"varieties": varieties,
 		"by_variety": by_variety,
 		"by_age": by_age,

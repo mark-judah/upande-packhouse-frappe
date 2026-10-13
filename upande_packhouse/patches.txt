@@ -12,3 +12,5 @@ upande_packhouse.patches.backfill_route_window
 upande_packhouse.patches.route_templates_from_latest_routes
 upande_packhouse.patches.backfill_bucket_distributions
 upande_packhouse.patches.backfill_box_label_filters #2026-10-05 team
+upande_packhouse.patches.clear_order_truck_from_transit_truck
+upande_packhouse.patches.backfill_transfer_steps

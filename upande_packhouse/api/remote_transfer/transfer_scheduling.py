@@ -820,10 +820,13 @@ def _end_trip_if_shelved(doc):
 	if not rows:
 		return False
 	states = {}
-	# Packed or issued since counts as shelved: the bucket got here.
+	# Packed or issued since counts as shelved: the bucket got here. Ready for packing
+	# only counts once the row no longer waits on its transfer -- a remote row marked
+	# ready while still at its farm must not end the trip early.
 	for r in frappe.db.sql(
 		"""SELECT parent, UPPER(bucket) AS bucket,
-		       MAX(GREATEST(IFNULL(shelved, 0), IFNULL(custom_ready_for_packing, 0), IFNULL(issued, 0))) AS shelved,
+		       MAX(GREATEST(IFNULL(shelved, 0), IFNULL(issued, 0),
+		           IF(IFNULL(custom_ready_for_packing, 0) = 1 AND IFNULL(awaiting_transfer, 0) = 0, 1, 0))) AS shelved,
 		       MAX(GREATEST(IFNULL(in_transit, 0), IFNULL(loaded_in_trolley, 0))) AS in_transit
 		FROM `tabPick List Item`
 		WHERE parenttype = 'Order Pick List' AND parent IN %(opls)s AND bucket IN %(buckets)s
@@ -1081,11 +1084,152 @@ def _arrive_trips_carrying(bucket_id):
 	return ended
 
 
+def _newer_run_started(doc):
+	"""The truck's trip on a later run (that day, or a later day) that has started since
+	this one left -- released, dispatched or buckets loaded on it -- else None. A truck
+	is on one run at a time: once it is out on the next, this one is over."""
+	if not doc.vehicle:
+		return None
+	since = doc.dispatched_at or doc.trip_date
+	# A loaded bucket's time: loaded_at, else the row's last save (a child row's
+	# creation is its trip's, which can be older than this run).
+	rows = frappe.db.sql(
+		"""SELECT t.name FROM `tabBucket Request Trip` t
+		WHERE t.vehicle = %(v)s AND t.name != %(n)s
+		  AND (t.trip_date > %(d)s OR (t.trip_date = %(d)s AND IFNULL(t.run, 0) > %(run)s))
+		  AND (
+		    (t.status IN ('Dispatched', 'Received') AND t.dispatched_at >= %(since)s)
+		    OR (t.status = 'Scheduled' AND t.released_at >= %(since)s)
+		    OR (t.status IN %(active)s AND EXISTS (
+		        SELECT 1 FROM `tabBucket Request Trip Bucket` b
+		        WHERE b.parent = t.name AND b.parenttype = 'Bucket Request Trip'
+		          AND COALESCE(b.loaded_at, b.modified) >= %(since)s))
+		  )
+		ORDER BY t.trip_date, t.run LIMIT 1""",
+		{
+			"v": doc.vehicle,
+			"n": doc.name,
+			"d": doc.trip_date,
+			"run": int(doc.run or 0),
+			"since": since,
+			"active": ACTIVE_TRIP_STATUSES,
+		},
+	)
+	return rows[0][0] if rows else None
+
+
+def _carry_over_unshelved():
+	"""Production Settings > Carry Unshelved Buckets to the Truck's Next Trip (upande_quality's
+	doctype -- off where it isn't installed)."""
+	if not frappe.db.exists("DocType", "Production Settings"):
+		return False
+	return bool(
+		frappe.utils.cint(frappe.db.get_single_value("Production Settings", "carry_over_unshelved_buckets"))
+	)
+
+
+def _carry_unshelved(doc, later, left):
+	"""Move the buckets an ended trip carried but never shelved onto the truck's later
+	trip `later`: they come off the old trip (off_truck) and ride on the new one."""
+	new = frappe.get_doc("Bucket Request Trip", later)
+	have = {((b.bucket or "").upper(), b.order_pick_list) for b in new.get("trip_buckets") or []}
+	idx = len(new.get("trip_buckets") or [])
+	for b in left:
+		b.db_set("off_truck", 1, update_modified=False)
+		if ((b.bucket or "").upper(), b.order_pick_list) in have:
+			continue
+		idx += 1
+		# Child rows written directly: saving the whole trip collides with a loading scan
+		# saving it at the same moment.
+		frappe.get_doc(
+			{
+				"doctype": "Bucket Request Trip Bucket",
+				"parent": later,
+				"parenttype": "Bucket Request Trip",
+				"parentfield": "trip_buckets",
+				"idx": idx,
+				"bucket": b.bucket,
+				"order_pick_list": b.order_pick_list,
+				"farm": b.farm,
+				"loaded_at": b.loaded_at,
+				"loaded_by": b.loaded_by,
+			}
+		).db_insert()
+		log_transfer_event(
+			b.bucket,
+			"Carried to next trip",
+			opl=b.order_pick_list,
+			farm=b.farm,
+			trip=later,
+			vehicle=doc.vehicle,
+			details="Not shelved off {0}; carried on {1}".format(doc.name, later),
+		)
+	if frappe.db.has_column("Bucket Request Trip", "loaded_buckets"):
+		loaded = frappe.db.count(
+			"Bucket Request Trip Bucket",
+			{"parent": later, "parenttype": "Bucket Request Trip", "loaded_at": ["is", "set"]},
+		)
+		frappe.db.set_value("Bucket Request Trip", later, "loaded_buckets", loaded, update_modified=False)
+	doc.add_comment(
+		"Info",
+		"Ended: {0} left on a later run ({1}) — {2} unshelved bucket(s) carried onto it: {3}".format(
+			doc.vehicle, later, len(left), ", ".join(b.bucket for b in left)
+		),
+	)
+
+
+def _end_trip_for_newer_run(doc):
+	"""End (Received) a dispatched trip whose truck has started a later run. Buckets it
+	carried that were never shelved stay on it as not shelved (and stay flagged in
+	transit -- still missing), listed in a comment and the bucket's transfer log.
+	Returns True when it ended the trip."""
+	if doc.status != "Dispatched":
+		return False
+	later = _newer_run_started(doc)
+	if not later:
+		return False
+	left = [b for b in doc.get("trip_buckets") or [] if not b.shelved and not b.off_truck]
+	_receive_trip(doc.name)
+	# Production Settings > Remote Transfers: carry them onto the truck's next trip
+	# instead (they are still on the truck), or (default) leave them on this one.
+	if left and _carry_over_unshelved():
+		_carry_unshelved(doc, later, left)
+		return True
+	doc.add_comment(
+		"Info",
+		"Ended: {0} left on a later run ({1}){2}".format(
+			doc.vehicle,
+			later,
+			" — {0} bucket(s) it carried were never shelved: {1}".format(
+				len(left), ", ".join(b.bucket for b in left)
+			)
+			if left
+			else "",
+		),
+	)
+	for b in left:
+		log_transfer_event(
+			b.bucket,
+			"Not shelved when trip ended",
+			opl=b.order_pick_list,
+			farm=b.farm,
+			trip=doc.name,
+			vehicle=doc.vehicle,
+			details="{0} left on a later run ({1})".format(doc.vehicle, later),
+		)
+	return True
+
+
 def end_shelved_trips():
-	"""Scheduler (every 5 minutes): end every dispatched trip whose buckets are all
-	shelved at the hub (or left the truck). Shelving a bucket already ends its trip,
-	but only that one scan's trips, once: a missed or failed scan would leave the trip
-	open. A trip ends only this way or by End Trip on Bucket Logistics."""
+	"""Scheduler (every 5 minutes): end every dispatched trip whose run is over, so the
+	truck isn't kept busy until someone presses End Trip. A run is over when
+
+	  1. every bucket it carried is shelved at the hub, issued, or left the truck --
+	     shelving a bucket already ends its trip, but only that one scan's trips, once:
+	     a missed or failed scan would leave the trip open; or
+	  2. the same truck has started a later run (released, dispatched, or loading on a
+	     later run or day): a truck is on one run at a time. Buckets it carried that
+	     were never shelved stay recorded on it as not shelved."""
 	rows = frappe.db.sql(
 		"""SELECT t.name FROM `tabBucket Request Trip` t
 		WHERE t.status = 'Dispatched' AND t.trip_date >= %(since)s""",
@@ -1099,7 +1243,7 @@ def end_shelved_trips():
 			# A bucket of it shelved at the hub (by any path): the truck arrived.
 			if ensure_arrived(doc):
 				doc.reload()
-			if _end_trip_if_shelved(doc):
+			if _end_trip_if_shelved(doc) or _end_trip_for_newer_run(doc):
 				ended.append(r.name)
 				carry_over_to_next_run(r.name)
 			frappe.db.commit()  # nosemgrep: frappe-manual-commit -- one trip at a time
@@ -1107,6 +1251,102 @@ def end_shelved_trips():
 			frappe.db.rollback()
 			frappe.log_error("End finished trip {0} failed".format(r.name), frappe.get_traceback())
 	return ended
+
+
+def close_previous_day_trips(before=None):
+	"""End every trip planned for a day before `before` (default today) that is still
+	open, so no trip runs into the next day (scheduler: every midnight; also the
+	Production Settings button).
+
+	  * Dispatched: ended (Received) like End Trip; buckets it carried that were never
+	    shelved stay recorded on it as not shelved.
+	  * Draft / Requested / Scheduled (the truck never left): closed. Buckets loaded on
+	    it go back to waiting at their farm -- off that truck -- for the new day's plan."""
+	before = before or frappe.utils.today()
+	names = frappe.get_all(
+		"Bucket Request Trip",
+		filters={"trip_date": ["<", before], "status": ["!=", "Received"]},
+		order_by="trip_date asc, run asc",
+		pluck="name",
+	)
+	closed = []
+	for name in names:
+		try:
+			doc = frappe.get_doc("Bucket Request Trip", name)
+			was = doc.status
+			left = [b for b in doc.get("trip_buckets") or [] if not b.shelved and not b.off_truck]
+			if was != "Dispatched":
+				_return_loads_to_farm(doc, left)
+			_receive_trip(name)
+			doc.add_comment(
+				"Info",
+				"Closed at the end of {0} ({1}){2}".format(
+					doc.trip_date,
+					was,
+					(
+						" — {0} bucket(s) never shelved: {1}".format(
+							len(left), ", ".join(b.bucket for b in left)
+						)
+						if was == "Dispatched"
+						else " — {0} loaded bucket(s) back to waiting at their farm: {1}".format(
+							len(left), ", ".join(b.bucket for b in left)
+						)
+					)
+					if left
+					else "",
+				),
+			)
+			for b in left:
+				log_transfer_event(
+					b.bucket,
+					"Not shelved when trip ended" if was == "Dispatched" else "Back to awaiting transfer",
+					opl=b.order_pick_list,
+					farm=b.farm,
+					trip=name,
+					vehicle=doc.vehicle,
+					details="Trip {0} closed at the end of {1}".format(name, doc.trip_date),
+				)
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit -- one trip at a time
+			closed.append(name)
+		except Exception:
+			frappe.db.rollback()
+			frappe.log_error("Close previous day trip {0} failed".format(name), frappe.get_traceback())
+	return closed
+
+
+def _return_loads_to_farm(doc, left):
+	"""A trip that never left: its loaded buckets are still at their farm. Take them off
+	this truck (pick rows back to waiting) so the new day's trips can carry them."""
+	for b in left:
+		b.db_set("off_truck", 1, update_modified=False)
+		rows = frappe.get_all(
+			"Pick List Item",
+			filters={
+				"parent": b.order_pick_list,
+				"parenttype": "Order Pick List",
+				"bucket": b.bucket,
+				"in_transit": 0,
+				"shelved": 0,
+				"issued": 0,
+			},
+			fields=["name", "transit_truck"],
+		)
+		for r in rows:
+			values = {"loaded_in_trolley": 0}
+			if frappe.db.has_column("Pick List Item", "loaded_on_truck"):
+				values["loaded_on_truck"] = 0
+			if r.transit_truck == doc.vehicle:
+				values["transit_truck"] = None
+			frappe.db.set_value("Pick List Item", r.name, values)
+
+
+@frappe.whitelist(methods=["POST"])
+def closePreviousDayTrips():
+	"""Production Settings button: close every trip of an earlier day now."""
+	if not frappe.has_permission("Production Settings", "write"):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+	closed = close_previous_day_trips()
+	frappe.response["message"] = {"status": "success", "closed": closed, "count": len(closed)}
 
 
 def carry_over_to_next_run(name):
@@ -1752,8 +1992,9 @@ def getTransferScheduleData():
 		frappe.response["message"] = {"success": False, "error": str(e)}
 
 
-def _transfer_schedule_payload(from_date, to_date):
-	"""The Transfer Scheduling feed — shared by the page and automatic scheduling."""
+def _transfer_schedule_payload(from_date, to_date, trip_date=None):
+	"""The Transfer Scheduling feed — shared by the page and automatic scheduling.
+	`trip_date`: also every trip of that day, whatever its status (the app's day filter)."""
 	today = frappe.utils.today()
 	hub = transfer_hub()
 	sched = _schedule_map()
@@ -1908,6 +2149,10 @@ def _transfer_schedule_payload(from_date, to_date):
 	# dispatched truck still on the road, or a stale draft that never left).
 	# Only loading today's trips hid both of those.
 	trip_names = set(frappe.get_all("Bucket Request Trip", filters={"trip_date": today}, pluck="name"))
+	if trip_date and str(trip_date) != str(today):
+		trip_names |= set(
+			frappe.get_all("Bucket Request Trip", filters={"trip_date": trip_date}, pluck="name")
+		)
 	trip_names |= set(
 		frappe.get_all(
 			"Bucket Request Trip",
@@ -3819,12 +4064,13 @@ def reject_trip(doc, reason):
 
 def release_trip(doc, how="manual"):
 	"""Confirm the truck has left the hub for the trip's farms (Requested -> Scheduled).
-	Automatic scheduling releases a full planned trip straight from Draft, requesting
-	it on the way. Returns None, or why it can't go."""
+	A Draft is requested on the way, by whoever releases it: automatic scheduling, and
+	the packhouse app builds (1.1.8) that release a planned trip directly. Returns None,
+	or why it can't go."""
 	if doc.status not in ("Draft", "Requested"):
 		return "Trip is already {0}.".format(doc.status)
-	if doc.status == "Draft" and how != "automatic":
-		return "Request the truck first."
+	if not doc.vehicle:
+		return "Trip has no truck."
 	if str(doc.trip_date) < str(frappe.utils.today()):
 		return "Trip was planned for an earlier day."
 	cap = _trip_capacity(doc)
@@ -3837,7 +4083,9 @@ def release_trip(doc, how="manual"):
 		return "{0} is still out on {1}.".format(doc.vehicle, out)
 	now = frappe.utils.now()
 	if doc.status == "Draft":
+		# The request step, done by the release: the last rejection is answered.
 		doc.requested_by, doc.requested_at = frappe.session.user, now
+		doc.rejected_by, doc.rejected_at, doc.reject_reason = None, None, ""
 	doc.status = "Scheduled"
 	doc.released_at = now
 	doc.released_by = frappe.session.user
@@ -5046,6 +5294,17 @@ def log_transfer_event(
 				"details": details or "",
 			}
 		).insert(ignore_permissions=True)
+		if outcome == "Done":
+			# The step's tick, time and user on the order's own rows -- in a savepoint, so
+			# a failure here never takes the caller's own writes with it.
+			from upande_packhouse.api.remote_transfer import transfer_steps
+
+			frappe.db.savepoint("transfer_steps")
+			try:
+				transfer_steps.on_event(bucket, stage, opl=opl)
+			except Exception:
+				frappe.db.rollback(save_point="transfer_steps")
+				raise
 	except Exception:
 		frappe.log_error(
 			"Bucket transfer event not logged: {0} {1}".format(bucket, stage), frappe.get_traceback()
