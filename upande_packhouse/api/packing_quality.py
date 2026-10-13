@@ -268,11 +268,16 @@ def quality_issue_lines(opl_name: str):
 
 @frappe.whitelist()
 def quality_replacement_options(
-	opl_name: str, bucket: str, sale_order_item: str, stems: float | None = None, limit: int = 20
+	opl_name: str,
+	bucket: str,
+	sale_order_item: str,
+	stems: float | None = None,
+	limit: int = 20,
+	farm: str | None = None,
 ):
-	"""Buckets that can replace `stems` bad stems of `bucket` on this line: the
-	sales farm's first (the best one recommended), then the remote farms that truck
-	to it — a remote one comes on the next truck, ASAP."""
+	"""Buckets that can replace `stems` bad stems of `bucket` on this line, best one
+	recommended -- only from `farm`, the station packing it (else the sales farm),
+	never from another farm."""
 	try:
 		opl = _opl(opl_name)
 		rows = _line_rows(opl_name, bucket, sale_order_item)
@@ -284,7 +289,7 @@ def quality_replacement_options(
 		return _fail(_("Choose between 1 and {0} stems.").format(int(on_line)))
 	anchor = _anchor(opl_name, rows, bucket)
 	limit = max(1, min(cint(limit) or 20, 100))
-	sales_farm = _sales_farm(opl)
+	sales_farm = farm or _sales_farm(opl)
 
 	local = (
 		_with_stock(
@@ -293,11 +298,6 @@ def quality_replacement_options(
 		if sales_farm
 		else []
 	)
-	remote = []
-	for farm in sa._remote_farms_of(sales_farm) if sales_farm else []:
-		found = sa._replacement_candidates(anchor, farm, needed, limit=limit)
-		for c in _with_stock(found, anchor.item_code, needed):
-			remote.append(_describe(c, farm))
 	return {
 		"success": True,
 		"bucket": bucket,
@@ -309,13 +309,9 @@ def quality_replacement_options(
 		"sales_farm_candidates": [
 			_describe(c, sales_farm, recommended=(i == 0)) for i, c in enumerate(local)
 		],
-		"remote_candidates": remote[:limit],
-		"warning": _(
-			"This order is delivered today. A bucket from a remote farm comes on the next truck and may not arrive in time."
-		)
-		if not local and remote and _delivers_today(opl.sales_order)
-		else None,
-		"message": None if local or remote else sa._no_replacement_message(anchor, sales_farm or "", needed),
+		"remote_candidates": [],
+		"warning": None,
+		"message": None if local else sa._no_replacement_message(anchor, sales_farm or "", needed),
 	}
 
 
@@ -329,10 +325,12 @@ def report_packing_quality_issue(
 	stems: float | None = None,
 	new_bucket_id: str | None = None,
 	notes: str | None = None,
+	farm: str | None = None,
 ):
 	"""Reject the bad stems of `bucket` on this line and replace them with
 	`new_bucket_id` (one of quality_replacement_options), see the module header.
-	Without `new_bucket_id` the stems are only rejected (nothing to replace with)."""
+	Without `new_bucket_id` the stems are only rejected (nothing to replace with).
+	`farm`: the station packing it -- the replacement must be shelved there."""
 	if scope not in SCOPES:
 		return _fail(_("Choose whether the whole bucket or some stems are replaced."))
 	if not (defect or "").strip():
@@ -354,18 +352,19 @@ def report_packing_quality_issue(
 	# Where the replacement sits is the server's to decide, never the app's.
 	new = new_farm = None
 	if new_bucket_id:
-		for farm in [sales_farm, *sa._remote_farms_of(sales_farm)]:
+		# Only the station packing it (else the sales farm), never another farm.
+		for station in [farm or sales_farm]:
 			found = _with_stock(
 				[
 					c
-					for c in sa._replacement_candidates(anchor, farm, bad, limit=500)
+					for c in sa._replacement_candidates(anchor, station, bad, limit=500)
 					if c.bucket_id == new_bucket_id
 				],
 				anchor.item_code,
 				bad,
 			)
 			if found:
-				new, new_farm = found[0], farm
+				new, new_farm = found[0], station
 				break
 		if not new:
 			return _fail(
@@ -373,7 +372,8 @@ def report_packing_quality_issue(
 					"Bucket {0} can no longer replace these stems (allocated, moved or too short). Pick another."
 				).format(new_bucket_id)
 			)
-	remote = bool(new) and new_farm != sales_farm
+	# The replacement sits at the station packing it: nothing to truck in.
+	remote = False
 
 	try:
 		reject_entry = _post_rejects(opl, rows, anchor, bad, defect)

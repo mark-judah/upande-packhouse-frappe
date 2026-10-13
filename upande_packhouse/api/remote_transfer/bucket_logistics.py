@@ -46,10 +46,12 @@ def getBucketLogistics():
 	_ready = "IFNULL(pli.custom_ready_for_packing, 0) = 1 OR IFNULL(pli.issued, 0) = 1"
 	_shelved = "IFNULL(pli.shelved, 0) = 1 OR " + _ready
 	_transit = "IFNULL(pli.in_transit, 0) = 1 OR " + _shelved
-	_trolley = "IFNULL(pli.loaded_in_trolley, 0) = 1 OR IFNULL(pli.trolley_id, '') != '' OR " + _transit
+	_truck = "IFNULL(pli.loaded_on_truck, 0) = 1 OR " + _transit
+	_trolley = "IFNULL(pli.loaded_in_trolley, 0) = 1 OR IFNULL(pli.trolley_id, '') != '' OR " + _truck
 	REACHED_READY = "(" + _ready + ")"
 	REACHED_SHELVED = "(" + _shelved + ")"
 	REACHED_TRANSIT = "(" + _transit + ")"
+	REACHED_TRUCK = "(" + _truck + ")"
 	REACHED_TROLLEY = "(" + _trolley + ")"
 	REACHED_AWAITING = "(IFNULL(pli.awaiting_transfer, 0) = 1 OR " + _trolley + ")"
 
@@ -122,6 +124,11 @@ def getBucketLogistics():
 		+ """ THEN """
 		+ BKT
 		+ """ END) AS trolley,
+            COUNT(DISTINCT CASE WHEN """
+		+ REACHED_TRUCK
+		+ """ THEN """
+		+ BKT
+		+ """ END) AS on_truck,
             COUNT(DISTINCT CASE WHEN """
 		+ REACHED_TRANSIT
 		+ """ THEN """
@@ -278,6 +285,11 @@ def getBucketLogistics():
 			+ """ THEN """
 			+ BKT
 			+ """ END) AS trolley,
+			    COUNT(DISTINCT CASE WHEN """
+			+ REACHED_TRUCK
+			+ """ THEN """
+			+ BKT
+			+ """ END) AS on_truck,
 			    COUNT(DISTINCT CASE WHEN """
 			+ REACHED_TRANSIT
 			+ """ THEN """
@@ -521,6 +533,8 @@ def getBucketLogisticsDetail():
                 MAX(GREATEST(IFNULL(pli.loaded_in_trolley, 0), IF(IFNULL(pli.trolley_id, '') != '', 1, 0),
                     IFNULL(pli.in_transit, 0), IFNULL(pli.shelved, 0),
                     IFNULL(pli.custom_ready_for_packing, 0), IFNULL(pli.issued, 0))) AS trolley,
+                MAX(GREATEST(IFNULL(pli.loaded_on_truck, 0), IFNULL(pli.in_transit, 0), IFNULL(pli.shelved, 0),
+                    IFNULL(pli.custom_ready_for_packing, 0), IFNULL(pli.issued, 0))) AS on_truck,
                 MAX(GREATEST(IFNULL(pli.in_transit, 0), IFNULL(pli.shelved, 0),
                     IFNULL(pli.custom_ready_for_packing, 0), IFNULL(pli.issued, 0))) AS transit,
                 -- Reached the hub: its truck arrived there, or it is already shelved.
@@ -531,7 +545,15 @@ def getBucketLogisticsDetail():
                 MAX(GREATEST(IFNULL(pli.custom_ready_for_packing, 0), IFNULL(pli.issued, 0))) AS ready,
                 MAX(IFNULL(pli.issued, 0))   AS issued,
                 MAX(IFNULL(pli.issued_offline, 0)) AS issued_offline,
-                MAX(IFNULL(pli.not_found, 0)) AS not_found
+                MAX(IFNULL(pli.not_found, 0)) AS not_found,
+                -- When, and by whom, each step was done (first time on any of its rows).
+                MIN(pli.loaded_in_trolley_at) AS trolley_at, MAX(pli.loaded_in_trolley_by) AS trolley_by,
+                MIN(pli.loaded_on_truck_at) AS on_truck_at, MAX(pli.loaded_on_truck_by) AS on_truck_by,
+                MIN(pli.left_farm_at) AS transit_at, MAX(pli.left_farm_by) AS transit_by,
+                MIN(pli.arrived_at) AS arrived_hub_at, MAX(pli.arrived_by) AS arrived_hub_by,
+                MIN(pli.shelved_at) AS shelved_at, MAX(pli.shelved_by) AS shelved_by,
+                MIN(pli.issued_at) AS issued_at, MAX(pli.issued_by) AS issued_by,
+                MIN(pli.not_found_at) AS not_found_at, MAX(pli.not_found_by) AS not_found_by
             FROM `tabPick List Item` pli
             JOIN `tabOrder Pick List` o ON o.name = pli.parent
             LEFT JOIN (
@@ -561,3 +583,16 @@ def getBucketLogisticsDetail():
 			params,
 			as_dict=True,
 		)
+		# Users by name on the dashboard, not by login.
+		users = {u for b in frappe.response["buckets"] for k, u in b.items() if k.endswith("_by") and u}
+		names = {
+			u.name: u.full_name
+			for u in (
+				frappe.get_all("User", filters={"name": ["in", list(users)]}, fields=["name", "full_name"])
+				if users
+				else []
+			)
+		}
+		for b in frappe.response["buckets"]:
+			for k in [k for k in b if k.endswith("_by")]:
+				b[k] = names.get(b[k]) or b[k]

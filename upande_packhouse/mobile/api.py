@@ -3784,7 +3784,8 @@ def getTransferScheduleData():
 	fd = frappe.form_dict
 	from_date = fd.get("from_date") or frappe.utils.add_days(frappe.utils.today(), 1)
 	to_date = fd.get("to_date") or from_date
-	data = _transfer_schedule_payload(from_date, to_date)
+	# trip_date: the app's day filter -- that day's trips too, e.g. an earlier day's.
+	data = _transfer_schedule_payload(from_date, to_date, trip_date=fd.get("trip_date") or None)
 	_trip_bucket_stages(data.get("trips") or [])
 	for key in (
 		"orders",
@@ -4632,6 +4633,20 @@ def issueBucketToSaleOrderItem():
 						{"bucket": bucket_id, "soi": sale_order_item, "opl": opl_name or None},
 						as_dict=True,
 					)
+
+					# Never shelved at the hub (issued straight off the truck): bring the whole
+					# bucket over from its farm and post this line's sale now, while its rows
+					# are still unissued (both skip issued rows), as shelving would have.
+					try:
+						stock_movement.ensure_arrival(
+							bucket_id, "Roses", names=[i.name for i in pick_list_items if not i.issued]
+						)
+						stock_movement.post_sale_on_arrival(bucket_id, "Roses")
+					except Exception:
+						frappe.log_error(
+							title="Issue: arrival of an unshelved remote bucket failed",
+							message=f"bucket={bucket_id}\n{frappe.get_traceback()}",
+						)
 
 					updated_opls = set()
 					for item in pick_list_items:

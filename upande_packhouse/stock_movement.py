@@ -299,7 +299,7 @@ def entry_has_box():
 	return frappe.db.has_column("Stock Entry", "custom_box_label")
 
 
-def _ledger_balance(item_code, warehouse, bucket_id=None):
+def _ledger_balance(item_code, warehouse, bucket_id=None, since=None):
 	"""How many stems of `item_code` this BUCKET still has in `warehouse`.
 
 	Bin is useless for the question: a receiving cold store holds thousands of
@@ -322,6 +322,9 @@ def _ledger_balance(item_code, warehouse, bucket_id=None):
 		"se.docstatus = 1",
 	]
 	params = {"wh": warehouse, "item": item_code, "bucket": bucket_id}
+	if since:
+		conditions.append("se.posting_date >= %(since)s")
+		params["since"] = since
 
 	return flt(
 		# nosemgrep: frappe-sql-format-injection -- the f-string carries no request-derived value
@@ -339,11 +342,34 @@ def _ledger_balance(item_code, warehouse, bucket_id=None):
 	)
 
 
-def bucket_balance(bucket_id, item_code, warehouse):
-	"""How many of THIS bucket's stems the ledger still has in `warehouse`."""
+def bucket_balance(bucket_id, item_code, warehouse, current_cycle=False):
+	"""How many of THIS bucket's stems the ledger still has in `warehouse`.
+
+	`current_cycle`: only from the bucket's latest harvest day on. A bucket ID is
+	reused every harvest, and an earlier cycle moved twice (e.g. Remote Transfers
+	and Offline Issuing) leaves a negative balance behind that would otherwise
+	eat into the new harvest."""
 	if not bucket_id:
 		return 0.0
-	return _ledger_balance(item_code, warehouse, bucket_id=bucket_id)
+	if not current_cycle:
+		return _ledger_balance(item_code, warehouse, bucket_id=bucket_id)
+	here = _ledger_balance(item_code, warehouse, bucket_id=bucket_id, since=cycle_start(bucket_id))
+	if here > QTY_TOLERANCE:
+		return here
+	# Re-harvested while the stems of an earlier harvest still wait here (the ID was
+	# reused before they moved): this harvest has nothing here, the bucket's history does.
+	full = _ledger_balance(item_code, warehouse, bucket_id=bucket_id)
+	return full if full > QTY_TOLERANCE else here
+
+
+def cycle_start(bucket_id):
+	"""The day of the bucket's latest Harvesting (any variety): where its current use starts."""
+	# nosemgrep: frappe-sql-format-injection -- the f-string carries no request-derived value
+	return frappe.db.sql(
+		f"""SELECT MAX(se.posting_date) {_bucket_lines()}
+		  AND se.docstatus = 1 AND se.stock_entry_type = 'Harvesting'""",
+		{"bucket": bucket_id},
+	)[0][0]
 
 
 def sold_qty(bucket_id, item_code, so_item, target):
@@ -591,8 +617,9 @@ def plan_moves(rows, business_unit, upto=SALE_STAGE, only_stage=None):
 					continue
 			elif hop["stage"] == ARRIVAL_STAGE:
 				# Pre-sale: the truck moves the bucket, not an order's share of
-				# it, so the bucket's own balance is the right cap.
-				here = bucket_balance(bucket_id, item_code, hop["from"])
+				# it, so the bucket's own balance -- this harvest's -- is the cap:
+				# the whole bucket goes, whatever part of it the orders asked for.
+				here = bucket_balance(bucket_id, item_code, hop["from"], current_cycle=True)
 				if here <= QTY_TOLERANCE:
 					skipped.append({**hop, "bucket_id": bucket_id, "reason": "bucket already moved"})
 					continue
@@ -787,6 +814,69 @@ def holding_warehouse(warehouse, farm, business_unit):
 	return warehouse or home
 
 
+def ensure_arrival(bucket_id: str | None, business_unit: str | None = None, names=None):
+	"""Bring a remote bucket that was never shelved at the hub over now: its whole
+	current harvest moves from its farm's store to the arrival store, exactly the leg
+	shelving at the hub posts (post_arrival). For the issuing scan -- a bucket issued
+	without being shelved there would otherwise leave its stems at the farm and its
+	sale (post_sale_on_arrival) would find nothing to sell. Idempotent: once moved,
+	the farm store holds none of this harvest."""
+	if not bucket_id:
+		return []
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import transfer_hub
+
+	hub = transfer_hub(required=False)
+	posted, done = [], set()
+	# `names`: only these pick rows (the line being issued) -- never another order's
+	# rows of a reused bucket ID, whose new harvest may still be at its farm.
+	filters = {"bucket": bucket_id, "parenttype": "Order Pick List", "issued": 0}
+	if names is not None:
+		if not names:
+			return []
+		filters["name"] = ["in", list(names)]
+	rows = frappe.get_all(
+		"Pick List Item",
+		filters=filters,
+		fields=[
+			"parent",
+			"item_code",
+			"farm",
+			"origin_warehouse",
+			"source_warehouse",
+			"warehouse",
+			"stem_length",
+		],
+	)
+	for row in rows:
+		if frappe.db.get_value("Order Pick List", row.parent, "docstatus") == 2:
+			continue
+		bu = business_unit or opl_business_unit(frappe.get_doc("Order Pick List", row.parent))
+		source = holding_warehouse(
+			row.origin_warehouse
+			or row.source_warehouse
+			or row.warehouse
+			or receiving_warehouse(bucket_id, row.item_code),
+			row.farm,
+			bu,
+		)
+		if not source or not needs_transfer(source, bu) or (row.item_code, source) in done:
+			continue
+		done.add((row.item_code, source))
+		here = bucket_balance(bucket_id, row.item_code, source, current_cycle=True)
+		if here <= QTY_TOLERANCE:
+			continue
+		posted += post_arrival(
+			bucket_id=bucket_id,
+			item_code=row.item_code,
+			qty=here,
+			source_warehouse=source,
+			business_unit=bu,
+			farm=hub,
+			stem_length=row.stem_length,
+		).get("posted", [])
+	return posted
+
+
 @frappe.whitelist()
 def post_sale_on_arrival(bucket_id: str | None, business_unit: str | None = None):
 	"""Post the sale leg for a remote bucket's allocations once it has arrived.
@@ -841,7 +931,7 @@ def post_sale_on_arrival(bucket_id: str | None, business_unit: str | None = None
 				continue
 			key = (row.item_code, sale["from"])
 			if key not in left:
-				left[key] = bucket_balance(bucket_id, row.item_code, sale["from"])
+				left[key] = bucket_balance(bucket_id, row.item_code, sale["from"], current_cycle=True)
 			move = min(move, left[key])
 			if move <= QTY_TOLERANCE:
 				skipped.append(

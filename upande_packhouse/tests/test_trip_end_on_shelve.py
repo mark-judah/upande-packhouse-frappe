@@ -92,6 +92,7 @@ class UnitTestTripEndOnShelve(UnitTestCase):
 			patch.object(ts.frappe, "get_doc", return_value=doc),
 			patch.object(ts, "ensure_arrived", return_value=False),
 			patch.object(ts, "_end_trip_if_shelved", return_value=False),
+			patch.object(ts, "_newer_run_started", return_value=None),
 			patch.object(ts, "_receive_trip") as receive,
 		):
 			self.assertEqual(ts.end_shelved_trips(), [])

@@ -670,7 +670,6 @@ def _generate_flat_locations(
 			"farm": actual_farm,
 			"custom_consignee": so_item.get("custom_consignee"),
 			"custom_box_label": so_item.get("custom_box_label"),
-			"transit_truck": so_item.get("custom_truck"),
 			"custom_box_id": box_counter,
 			"packrate": (
 				so_item.get("custom_packrate_mixed_box")
@@ -767,7 +766,6 @@ def _generate_box_locations_with_splitting(
 				"farm": actual_farm,
 				"custom_consignee": so_item.get("custom_consignee"),
 				"custom_box_label": so_item.get("custom_box_label"),
-				"transit_truck": so_item.get("custom_truck"),
 				"custom_box_id": box_num,
 				"packrate": (
 					so_item.get("custom_packrate_mixed_box")

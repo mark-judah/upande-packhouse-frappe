@@ -2457,14 +2457,14 @@ def _update_existing_pick_list(
 				"origin_warehouse": _origin_warehouse(alloc.get("_shelf_farm"), alloc.get("warehouse")),
 				"sales_order_item": so_item.name,
 				"stem_length": alloc.get("stem_length") or so_item.custom_length,
-				"transit_truck": so_item.get("custom_truck"),
 				"custom_box_id": box_id_counter,
 				"shelf": shelf_str,
 				"farm": alloc.get("_shelf_farm") or "",
 				"downgrade_reason": alloc.get("downgrade_reason") or "",
 				"available_stems_of_exact_length": alloc.get("available_exact_stems") or 0,
 				"awaiting_transfer": 0 if is_sales_shelf else 1,
-				"custom_ready_for_packing": 1,
+				# A remote bucket is not ready for packing until it is shelved at the hub.
+				"custom_ready_for_packing": 1 if is_sales_shelf else 0,
 			},
 		)
 		box_id_counter += 1
@@ -2772,6 +2772,9 @@ def _requested_bucket_rows(pick_list_item, allow_shelved=False, allow_left=False
 			"shelved",
 			"issued",
 			"awaiting_transfer",
+			"creation",
+			"transit_truck",
+			*(["loaded_on_truck"] if frappe.db.has_column("Pick List Item", "loaded_on_truck") else []),
 		],
 	)
 	for r in rows:
@@ -2781,15 +2784,24 @@ def _requested_bucket_rows(pick_list_item, allow_shelved=False, allow_left=False
 					"Bucket {0} carries more than one variety/length on {1}; replace it from the allocation page."
 				).format(anchor.bucket, anchor.parent)
 			)
-		if (
-			(cint(r.loaded_in_trolley) and not allow_left)
-			or (cint(r.in_transit) and not allow_left)
-			or (cint(r.shelved) and not allow_shelved)
-			or cint(r.issued)
-		):
-			frappe.throw(
-				_("Bucket {0} has already left the cold room and cannot be replaced.").format(anchor.bucket)
-			)
+		moved = (
+			"issued"
+			if cint(r.issued)
+			else "shelved"
+			if cint(r.shelved) and not allow_shelved
+			else "in_transit"
+			if (cint(r.in_transit) or cint(r.loaded_on_truck) or _transfer_truck(r.transit_truck))
+			and not allow_left
+			else "loaded_in_trolley"
+			if cint(r.loaded_in_trolley) and not allow_left
+			else None
+		)
+		if moved:
+			# Raised without a msgprint: every caller turns it into its own reply (info
+			# in Bucket Requests, a refusal in issuing), so no stray dialog rides along.
+			exc = BucketMovedOn(_bucket_whereabouts(anchor, r, moved))
+			exc.moved = moved  # issued / shelved / in_transit / loaded_in_trolley
+			raise exc
 
 	# The missing bucket's shelf decides the farm: the replacement must sit in the same cold room.
 	shelf = anchor.shelf
@@ -2800,6 +2812,74 @@ def _requested_bucket_rows(pick_list_item, allow_shelved=False, allow_left=False
 	if not farm:
 		frappe.throw(_("Cannot tell which farm bucket {0} was allocated from.").format(anchor.bucket))
 	return anchor, rows, farm
+
+
+def _transfer_truck(truck):
+	"""`truck` when it names a remote-transfer truck (an internal Vehicle). transit_truck
+	is the transfer truck only; the order's own truck (Sales Order custom_truck) is freight
+	logistics and is never written there -- rows from before that still carry it."""
+	if not truck:
+		return None
+	return truck if frappe.db.get_value("Vehicle", truck, "custom_dispatch_truck") == 0 else None
+
+
+class BucketMovedOn(frappe.ValidationError):
+	"""The requested bucket is not missing: it is on a trolley / truck, shelved or issued."""
+
+
+def _bucket_whereabouts(anchor, row, state):
+	"""Why a requested bucket cannot be replaced, told as where it is now: it is
+	not missing, it moved on (trolley, truck, shelf at the packhouse, issued)."""
+	stages = {
+		"issued": ("Issued",),
+		"shelved": ("Shelved at sales farm", "Shelved at remote farm"),
+		"in_transit": ("Loaded on truck", "Left the farm"),
+		"loaded_in_trolley": ("Loaded on truck", "Loaded in trolley"),
+	}
+	event = frappe.get_all(
+		"Bucket Transfer Event",
+		filters={"bucket": anchor.bucket, "stage": ["in", stages[state]], "creation": [">=", row.creation]},
+		fields=["stage", "user", "event_time", "farm", "shelf", "vehicle", "trip"],
+		order_by="event_time desc",
+		limit=1,
+	)
+	event = event[0] if event else frappe._dict()
+	who = frappe.db.get_value("User", event.user, "full_name") if event.user else None
+	when = frappe.utils.format_datetime(event.event_time, "dd MMM HH:mm") if event.event_time else None
+	by = " by {0}".format(who) if who else ""
+	at = " at {0}".format(when) if when else ""
+	label = "{0} ({1} {2})".format(anchor.bucket, anchor.item_code, anchor.stem_length or "").replace(
+		" )", ")"
+	)
+
+	if state == "issued":
+		msg = _("Bucket {0} was already issued to the packhouse{1}{2}.").format(label, by, at)
+	elif state == "shelved":
+		from upande_packhouse.api.remote_transfer.transfer_scheduling import transfer_hub
+
+		msg = _("Bucket {0} is already shelved at {1}{2}{3}{4}.").format(
+			label,
+			event.farm or transfer_hub(required=False) or row.farm or "",
+			" on {0}".format(event.shelf) if event.shelf else "",
+			by,
+			at,
+		)
+	elif state == "in_transit" or event.stage == "Loaded on truck":
+		msg = _("Bucket {0} is on {1}{2}, loaded{3}{4}{5}.").format(
+			label,
+			_("truck {0}").format(event.vehicle or _transfer_truck(row.transit_truck))
+			if (event.vehicle or _transfer_truck(row.transit_truck))
+			else _("a truck"),
+			" ({0})".format(event.trip) if event.trip else "",
+			" at {0}".format(row.farm) if row.farm else "",
+			by,
+			at,
+		)
+	else:
+		msg = _("Bucket {0} is already added to the trolley at {1}{2}{3} for {4}.").format(
+			label, row.farm or _("the farm"), by, at, anchor.parent
+		)
+	return msg + " " + _("It is not missing.")
 
 
 def _length_cm(value):
@@ -3028,16 +3108,40 @@ def _clear_shelf_item(shelf_item, shelf, reason):
 	frappe.db.set_value("Shelf", shelf, "modified", frappe.utils.now())
 
 
+def _in_stock(anchor, farm, candidates, needed):
+	"""The candidates holding `needed` stems in the ledger where the swap takes them from
+	(their farm's store, or a later position of their route) -- the same test as the swap."""
+	if not candidates:
+		return candidates
+	sales_order = frappe.db.get_value("Order Pick List", anchor.parent, "sales_order")
+	if not sales_order:
+		return candidates
+	business_unit = stock_movement.business_unit_of(frappe.get_doc("Sales Order", sales_order))
+	held, _sold = _bucket_ledger([c.bucket_id for c in candidates], anchor.item_code)
+	out = []
+	for c in candidates:
+		warehouse = stock_movement.holding_warehouse(c.warehouse, farm, business_unit)
+		route = stock_movement.resolve_route(warehouse, business_unit) if warehouse else []
+		positions = [warehouse] + [hop["to"] for hop in route if not hop["terminal"]]
+		if any(held.get((c.bucket_id, wh), 0) + stock_movement.QTY_TOLERANCE >= needed for wh in positions):
+			out.append(c)
+	return out
+
+
 @frappe.whitelist()
-def find_requested_bucket_replacement(pick_list_item: str, limit: int = 20):
+def find_requested_bucket_replacement(pick_list_item: str, limit: int = 20, farm: str | None = None):
 	"""The buckets `replace_requested_bucket` could swap in, without changing
 	anything: best match first (same length, then nearest longer; oldest
 	harvest first). The top-level fields describe the best match, as before;
 	`candidates` lists up to `limit` so the operator can pick a different one --
 	replace_requested_bucket accepts any of them as `new_bucket_id`."""
-	anchor, rows, farm = _requested_bucket_rows(pick_list_item)
+	# `farm`: the operator's station -- replacements only ever come from there.
+	anchor, rows, farm = _requested_bucket_rows(pick_list_item, farm=farm or None)
 	needed = sum(flt(r.stock_qty) for r in rows)
-	found = _replacement_candidates(anchor, farm, needed, limit=max(1, min(int(limit or 20), 100)))
+	found = _replacement_candidates(anchor, farm, needed, limit=100)
+	# Only buckets whose stems are in stock: replace_requested_bucket refuses the rest
+	# ("has no N stems in stock"), after the operator already picked one.
+	found = _in_stock(anchor, farm, found, needed)[: max(1, min(int(limit or 20), 100))]
 	if not found:
 		return {
 			"found": False,
@@ -3078,8 +3182,10 @@ def replace_requested_bucket(
 	reason: str | None = None,
 	notes: str | None = None,
 	keep_old_on_shelf: bool = False,
+	farm: str | None = None,
 ):
-	"""Swap a missing requested bucket for a matching one from the same farm,
+	"""Swap a missing requested bucket for a matching one from the same farm (`farm`:
+	the operator's station, when sent),
 	retrying when the swap loses a lock race (see REPLACE_LOCK_WAIT_S). `reason`
 	(Missing / Damaged / Wrong variety / Other) and `notes` go on the Bucket
 	Replacement record. `keep_old_on_shelf`: the old bucket is there, just
@@ -3091,7 +3197,12 @@ def replace_requested_bucket(
 	try:
 		for attempt in range(REPLACE_ATTEMPTS):
 			res = _replace_requested_bucket(
-				pick_list_item, new_bucket_id, reason=reason, notes=notes, keep_old_on_shelf=keep_old_on_shelf
+				pick_list_item,
+				new_bucket_id,
+				reason=reason,
+				notes=notes,
+				keep_old_on_shelf=keep_old_on_shelf,
+				farm=farm or None,
 			)
 			if not res.pop("_lock_conflict", False):
 				return res

@@ -115,34 +115,6 @@ def _candidates(pick_list_item, limit, farm=None):
 	return anchor, farm, needed, sa._replacement_candidates(anchor, farm, needed, limit=limit)
 
 
-def _remote_farms(opl_name, searched):
-	"""The remote farms that truck to `opl_name`'s sales farm (its Sales Order's farm,
-	else its own, else the transfer hub), less `searched` -- the farm already looked at."""
-	sales_farm = sa._order_sales_farm(opl_name) or searched
-	return [f for f in sa._remote_farms_of(sales_farm) if f != searched]
-
-
-def _remote_candidates(anchor, opl_name, farm, needed, limit):
-	"""Nothing matching at `farm`: the same rules at each remote farm that trucks to
-	the OPL's sales farm, each candidate tagged with its farm, FIFO order kept per
-	farm and farms in configured order."""
-	out = []
-	for remote in _remote_farms(opl_name, farm):
-		for c in sa._replacement_candidates(anchor, remote, needed, limit=limit):
-			c["farm"] = remote
-			out.append(c)
-			if len(out) >= limit:
-				return out
-	return out
-
-
-def _delivers_today(opl_name):
-	"""A remote bucket has to be trucked in: for a same-day order it may not make it."""
-	so = frappe.db.get_value("Order Pick List", opl_name, "sales_order")
-	dd = frappe.db.get_value("Sales Order", so, "delivery_date") if so else None
-	return bool(dd) and getdate(dd) <= getdate(today())
-
-
 def _why_not(bucket, anchor, farm, needed):
 	"""Why `bucket` cannot stand in for `anchor`, in the operator's terms."""
 	issued = _already_issued_message(bucket)
@@ -652,15 +624,10 @@ def replacement_options(
 		anchor, farm, needed, found = _candidates(pli, max(1, min(cint(limit) or 20, 100)), farm=farm)
 	except frappe.ValidationError as e:
 		return {"found": False, "message": str(e), "candidates": [], "history": history}
+	# Only from the station issuing it (or, without one, the farm the bucket is
+	# shelved at) -- never another farm's bucket.
 	source = "local"
 	warning = None
-	if not found:
-		found = _remote_candidates(anchor, opl_name, farm, needed, max(1, min(cint(limit) or 20, 100)))
-		source = "remote"
-		if found and _delivers_today(opl_name):
-			warning = _(
-				"This order is delivered today. A bucket from a remote farm comes on the next truck and may not arrive in time."
-			)
 	if not found:
 		return {
 			"found": False,
@@ -693,12 +660,17 @@ def replace_for_issuing(
 	reason: str | None = None,
 	notes: str | None = None,
 	sale_order_item: str | None = None,
+	farm: str | None = None,
 ):
 	"""Swap `bucket` on `opl_name` for `new_bucket_id` (one of
-	`replacement_options`). The replacement is then issued by scanning it."""
+	`replacement_options`). The replacement is then issued by scanning it.
+	`farm`: the issuing station -- the replacement must be shelved there."""
+	station = farm or None
 	try:
 		pli = _anchor_row(opl_name, bucket, sale_order_item)
-		anchor, _rows, farm = sa._requested_bucket_rows(pli, allow_shelved=True)
+		_anchor, _rows, farm = sa._requested_bucket_rows(
+			pli, allow_shelved=True, allow_left=bool(station), farm=station
+		)
 	except frappe.ValidationError as e:
 		return _fail(e)
 	reason = reason if reason in ISSUING_REASONS else "Missing"
@@ -711,19 +683,10 @@ def replace_for_issuing(
 		new_bucket_id,
 	)
 	new_farm = new_farm[0][0] if new_farm else None
-	if not new_farm or new_farm == farm:
-		return _swap(pli, new_bucket_id, reason, notes, keep_old_on_shelf=keep_old)
-	if new_farm not in _remote_farms(opl_name, farm):
-		return _fail(
-			_("Bucket {0} is at {1}, which does not supply {2}.").format(new_bucket_id, new_farm, farm)
-		)
-	res = _swap(pli, new_bucket_id, reason, notes, keep_old_on_shelf=keep_old, farm=new_farm, to_remote=True)
-	if res.get("success"):
-		_off_trips(anchor.bucket, opl_name)
-		res["message"] = _(
-			"{0} replaced with {1}, requested from {2}. Issue it once the truck brings it to {3}."
-		).format(anchor.bucket, new_bucket_id, new_farm, farm)
-	return res
+	# Replacements only come from the station issuing it, never from another farm.
+	if new_farm and new_farm != farm:
+		return _fail(_("Bucket {0} is at {1}, not at {2}.").format(new_bucket_id, new_farm, farm))
+	return _swap(pli, new_bucket_id, reason, notes, keep_old_on_shelf=keep_old, farm=station)
 
 
 def _issued_offline(opl_name, bucket, sale_order_item=None):

@@ -419,7 +419,6 @@ def _bunch_row(
 		"farm": actual_farm,
 		"custom_consignee": so_item.get("custom_consignee"),
 		"custom_box_label": so_item.get("custom_box_label"),
-		"transit_truck": so_item.get("custom_truck"),
 		"custom_box_id": box_id,
 		# Mixed bunches use the mixed-box packrate field.
 		"packrate": so_item.get("custom_packrate_mixed_box"),

@@ -92,20 +92,31 @@ def get_bucket_count(**kw):
 	by_loc = defaultdict(int)
 	for r in current:
 		by_loc[r.location] += 1
-	locations = [r.name for r in frappe.get_all("Bucket Count Location", fields=["name"], order_by="creation asc, name asc")]
+	locations = [
+		r.name
+		for r in frappe.get_all("Bucket Count Location", fields=["name"], order_by="creation asc, name asc")
+	]
 	by_location = [{"location": loc, "buckets": by_loc.get(loc, 0)} for loc in locations]
 	by_location += [{"location": loc, "buckets": n} for loc, n in by_loc.items() if loc not in locations]
 
 	farm_rows = {}
 	for r in current:
 		f = farm_rows.setdefault(
-			r.farm, {"farm": r.farm, "date": str(r.count_date), "buckets": 0, "in_use": 0, "locations": defaultdict(int)}
+			r.farm,
+			{
+				"farm": r.farm,
+				"date": str(r.count_date),
+				"buckets": 0,
+				"in_use": 0,
+				"locations": defaultdict(int),
+			},
 		)
 		f["buckets"] += 1
 		f["in_use"] += 1 if r.system_status == "In Use" else 0
 		f["locations"][r.location] += 1
 	by_farm = sorted(
-		({**f, "locations": dict(f["locations"])} for f in farm_rows.values()), key=lambda x: (-x["buckets"], x["farm"])
+		({**f, "locations": dict(f["locations"])} for f in farm_rows.values()),
+		key=lambda x: (-x["buckets"], x["farm"]),
 	)
 
 	per_day = defaultdict(int)  # buckets counted per day, all farms in scope
@@ -141,7 +152,9 @@ def get_bucket_count(**kw):
 		"by_farm": by_farm,
 		"trend": trend,
 		"locations": locations,
-		"farms": frappe.get_all("Bucket Count", filters={"docstatus": ["<", 2]}, pluck="farm", distinct=True, order_by="farm"),
+		"farms": frappe.get_all(
+			"Bucket Count", filters={"docstatus": ["<", 2]}, pluck="farm", distinct=True, order_by="farm"
+		),
 		"buckets": listing,
 		"truncated": len(current) > ROW_LIMIT,
 		"row_limit": ROW_LIMIT,
