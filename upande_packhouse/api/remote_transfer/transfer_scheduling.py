@@ -1118,6 +1118,16 @@ def _newer_run_started(doc):
 	return rows[0][0] if rows else None
 
 
+def _carry_over_unshelved():
+	"""Production Settings > Carry Unshelved Buckets to the Truck's Next Trip (upande_quality's
+	doctype -- off where it isn't installed)."""
+	if not frappe.db.exists("DocType", "Production Settings"):
+		return False
+	return bool(
+		frappe.utils.cint(frappe.db.get_single_value("Production Settings", "carry_over_unshelved_buckets"))
+	)
+
+
 def _carry_unshelved(doc, later, left):
 	"""Move the buckets an ended trip carried but never shelved onto the truck's later
 	trip `later`: they come off the old trip (off_truck) and ride on the new one."""
@@ -1182,9 +1192,7 @@ def _end_trip_for_newer_run(doc):
 	_receive_trip(doc.name)
 	# Production Settings > Remote Transfers: carry them onto the truck's next trip
 	# instead (they are still on the truck), or (default) leave them on this one.
-	if left and frappe.utils.cint(
-		frappe.db.get_single_value("Production Settings", "carry_over_unshelved_buckets")
-	):
+	if left and _carry_over_unshelved():
 		_carry_unshelved(doc, later, left)
 		return True
 	doc.add_comment(
