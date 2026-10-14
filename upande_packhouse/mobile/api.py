@@ -2775,8 +2775,8 @@ def fetchPicklists():
 					"""SELECT pso.parent, pso.order_pick_list, pso.sequence
 					FROM `tabPackhouse Schedule Order` pso
 					JOIN `tabOrder Pick List` opl ON opl.name = pso.order_pick_list AND opl.docstatus < 2
-					WHERE pso.parent IN %(p)s AND NOT EXISTS(SELECT 1 FROM `tabFarm Pack List` f
-					      WHERE f.order_pick_list = pso.order_pick_list AND f.docstatus = 1)""",
+					WHERE pso.parent IN %(p)s AND NOT """
+					+ PACK_DONE_SQL,
 					{"p": parents},
 					as_dict=True,
 				)
@@ -2984,6 +2984,19 @@ def getPostHarvestStaff():
 
 SEQUENCE_BYPASS = {"issue": "allow_issue_out_of_sequence", "pack": "allow_pack_out_of_sequence"}
 
+# An order's place on the packing sequence is done once its Farm Pack List is submitted,
+# or -- packing while waiting for a replacement (the pack_while_waiting_replacement
+# Server Script submitted it with buckets not found) -- once its packing has started:
+# the team packs what was issued and moves on; the replacement is packed into it later.
+PACK_DONE_SQL = """(EXISTS(SELECT 1 FROM `tabFarm Pack List` f
+	      WHERE f.order_pick_list = pso.order_pick_list AND f.docstatus = 1)
+	OR (opl.docstatus = 1 AND IFNULL(opl.short_accepted, 0) = 0
+	    AND EXISTS(SELECT 1 FROM `tabFarm Pack List` f
+	               WHERE f.order_pick_list = pso.order_pick_list AND f.docstatus = 0)
+	    AND EXISTS(SELECT 1 FROM `tabPick List Item` nf
+	               WHERE nf.parent = pso.order_pick_list AND nf.parenttype = 'Order Pick List'
+	                 AND IFNULL(nf.not_found, 0) = 1)))"""
+
 
 def _schedule_blockers(opl_name, kind):
 	"""The Packhouse Schedule per team: an order waits until every earlier order on its
@@ -3006,12 +3019,14 @@ def _schedule_blockers(opl_name, kind):
 		return (cur[0].team, int(cur[0].sequence or 0), []) if cur else (None, 0, [])
 	cur = cur[0]
 	if kind == "pack":
-		done_sql = """SELECT pso.sequence, pso.order_pick_list,
-		       EXISTS(SELECT 1 FROM `tabFarm Pack List` f
-		              WHERE f.order_pick_list = pso.order_pick_list AND f.docstatus = 1) AS done
+		done_sql = (
+			"""SELECT pso.sequence, pso.order_pick_list, """
+			+ PACK_DONE_SQL
+			+ """ AS done
 		FROM `tabPackhouse Schedule Order` pso
 		JOIN `tabOrder Pick List` opl ON opl.name = pso.order_pick_list AND opl.docstatus < 2
 		WHERE pso.parent = %s AND pso.sequence < %s"""
+		)
 	else:
 		done_sql = """SELECT pso.sequence, pso.order_pick_list,
 		       SUM(IFNULL(pli.not_found, 0) = 0 AND IFNULL(pli.issued, 0) = 0) = 0 AS done
