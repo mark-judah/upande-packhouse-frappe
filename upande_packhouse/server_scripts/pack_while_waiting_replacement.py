@@ -2,11 +2,13 @@
 # Server Script (API, POST) -- api_method: pack_while_waiting_replacement
 # Source copy of the live Server Script "Pack While Waiting Replacement" (kaitet-group).
 #
-# Issuing: an order at least PCT% issued whose other buckets the farm marked not found,
-# with no replacement found yet, goes to packing now with what was issued, and the team
-# moves on to its next order. It is NOT recorded short (Complete short does that): when
-# a replacement is found it is issued to the order and packed into the rest of its boxes.
-# Payload: opl_name. Reply (frappe.response["message"]): success, message, issued_pct.
+# Issuing: an order at least PCT% issued whose other buckets can't be found goes to
+# packing now with what was issued, and the team moves on to its next order. The buckets
+# not issued yet are marked not found (unless already); the order is NOT recorded short
+# (Complete short does that): when a replacement is found it is issued to the order and
+# packed into the rest of its boxes.
+# Payload: opl_name. Reply (frappe.response["message"]): success, message, issued_pct,
+# not_found (the buckets marked now).
 # RestrictedPython: no imports, no tuple unpacking, no names starting with "_", no
 # str.format.
 
@@ -42,19 +44,17 @@ def check(opl):
 		return [name + " is cancelled.", pct, missing]
 	if opl.get("short_accepted"):
 		return [name + " is already completed short.", pct, missing]
-	if not missing:
-		return ["No bucket of " + name + " is marked not found.", pct, missing]
 	if moving:
 		return ["Bucket(s) " + ", ".join(moving) + " are still coming by truck.", pct, missing]
-	if open_rows:
-		return ["Issue bucket(s) " + ", ".join(open_rows) + " first.", pct, missing]
+	if not missing and not open_rows:
+		return [name + " is fully issued.", pct, missing]
 	if pct < min_pct:
 		return [
 			"Only " + str(pct) + "% is issued; packing can start from " + str(int(min_pct)) + "%.",
 			pct,
 			missing,
 		]
-	return [None, pct, missing]
+	return [None, pct, [r for r in rows if not r.issued]]
 
 
 # nosemgrep: frappe-breaks-multitenancy -- Server Script body, run per request
@@ -68,6 +68,18 @@ else:
 	if verdict[0]:
 		out["message"] = verdict[0]
 	else:
+		# The buckets not issued yet can't be found: mark them so (every row of each).
+		now = frappe.utils.now()
+		marked = sorted(set([r.bucket for r in verdict[2] if not r.not_found]))
+		for r in verdict[2]:
+			if not r.not_found:
+				frappe.db.set_value(
+					"Pick List Item",
+					r.name,
+					{"not_found": 1, "not_found_at": now, "not_found_by": frappe.session.user},
+				)
+		out["not_found"] = marked
+		opl.reload()
 		submit_error = None
 		if opl.docstatus == 0:
 			opl.flags.ignore_permissions = True
