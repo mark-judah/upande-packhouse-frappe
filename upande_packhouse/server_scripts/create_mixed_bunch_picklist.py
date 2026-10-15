@@ -423,7 +423,9 @@ def _bunch_row(
 		# Mixed bunches use the mixed-box packrate field.
 		"packrate": so_item.get("custom_packrate_mixed_box"),
 		"custom_flower_food": so_item.get("custom_flower_food"),
-		"custom_ready_for_packing": 0,
+		# A bucket on a sales shelf (awaiting_transfer = 0) is already here: ready to issue, like
+		# the straight-box rows. A remote one waits until it is shelved at the hub.
+		"custom_ready_for_packing": 0 if awaiting_transfer else 1,
 		"shelf": shelf_str,
 		"downgrade_reason": downgrade_reason or "",
 		"available_stems_of_exact_length": available_exact_stems or 0,
