@@ -291,96 +291,134 @@
     PH.markUpdated();
   }
 
+  // A journey is one real-world use of this physical bucket: harvested (one or many
+  // scans, Spray roses bunch-at-a-time), graded, received, shelved, maybe allocated,
+  // maybe transferred to another farm and re-shelved there, then issued — or, off that
+  // path, just aged on a shelf until discarded. Bucket IDs get physically reused once
+  // emptied, so one flat timeline can span months and several farms with nothing in
+  // common; the only unambiguous signal that a NEW journey has begun is a fresh Harvest
+  // landing on a bucket that had already reached Receiving or later in its current one
+  // (the same rule Bucket QR Code.current_journey_start already uses live, generalised
+  // here to reconstruct every past journey, not just the open one).
   function buildJourneys() {
-    const { harvestSEs, gradingSEs, receiveSEs, shelfData, discardData, rejectData, quarantineData, allocData, allocFull, oplData, seItemMap } = G;
-    const jmap = {};
-    function getOrCreate(sessionKey, farm, variety) {
-      if (!jmap[sessionKey]) jmap[sessionKey] = { sessionKey, farm, variety, harvestSEs: [], gradingSEs: [], receivingSEs: [], flowerType: null, earliestDate: "", latestDate: "" };
-      return jmap[sessionKey];
-    }
-    // Sessions are built by following the direct traceability links each Harvest SE
-    // carries (custom_grading_entry / custom_receiving_entry) — one harvest event = one
-    // session, unambiguous, no batch-string parsing/heuristics needed any more.
+    const { harvestSEs, gradingSEs, receiveSEs, shelfData, discardData, rejectData, quarantineData, allocData, oplData, seItemMap } = G;
+
+    // Step 1: harvest-centered groups via the direct traceability links each Harvest SE
+    // carries (custom_grading_entry / custom_receiving_entry) — precise, no heuristics.
+    // createReceivingStockEntry aggregates every harvest scan still unclaimed since the
+    // bucket's last receive into ONE shared Receiving entry (Spray roses: many bunches,
+    // scanned seconds apart, all stamped with the same custom_receiving_entry) — so
+    // groups are keyed by THAT shared receiving entry first, merging every harvest scan
+    // that feeds it into one group. Without this, the 2nd scan of the same real session
+    // looks identical to "a harvest arriving after receiving already happened" and
+    // fragments one session into as many journeys as it had scans.
     const gradingByName = {}, receiveByName = {};
     for (const se of gradingSEs) gradingByName[se.name] = se;
     for (const se of receiveSEs) receiveByName[se.name] = se;
     const usedGrading = new Set(), usedReceiving = new Set();
+    const byReceiving = new Map();
+    const groups = [];
     for (const se of harvestSEs) {
-      const farm = se.farm || String(se.custom_greenhouse || "").split(" - ")[0];
-      const j = getOrCreate("h||" + se.name, farm, seItemMap.get(se.name) || "");
-      j.harvestSEs.push(se);
       const g = se.custom_grading_entry && gradingByName[se.custom_grading_entry];
-      if (g) { j.gradingSEs.push(g); usedGrading.add(g.name); if (!j.variety) j.variety = seItemMap.get(g.name) || ""; }
-      const r = se.custom_receiving_entry && receiveByName[se.custom_receiving_entry];
-      if (r) { j.receivingSEs.push(r); usedReceiving.add(r.name); }
+      if (g) usedGrading.add(g.name);
+      const rName = se.custom_receiving_entry;
+      const r = rName && receiveByName[rName];
+      if (r) {
+        usedReceiving.add(rName);
+        let grp = byReceiving.get(rName);
+        if (!grp) { grp = { harvestSEs: [], gradingSEs: [], receivingSEs: [r], anchorMs: Infinity }; byReceiving.set(rName, grp); groups.push(grp); }
+        grp.harvestSEs.push(se);
+        if (g) grp.gradingSEs.push(g);
+        grp.anchorMs = Math.min(grp.anchorMs, seDtMs(se));
+      } else {
+        // Not yet received (still-open intake) — its own group for now.
+        groups.push({ harvestSEs: [se], gradingSEs: g ? [g] : [], receivingSEs: [], anchorMs: seDtMs(se) });
+      }
     }
     // Any grading/receiving SE not reached via a harvest link (older data, or the link
-    // wasn't written back) still needs its own session so it isn't silently dropped.
-    for (const se of gradingSEs) if (!usedGrading.has(se.name)) getOrCreate("g||" + se.name, se.farm || "", seItemMap.get(se.name) || "").gradingSEs.push(se);
-    for (const se of receiveSEs) if (!usedReceiving.has(se.name)) getOrCreate("r||" + se.name, se.farm || "", seItemMap.get(se.name) || "").receivingSEs.push(se);
-    for (const j of Object.values(jmap)) {
+    // wasn't written back) still needs a group so it isn't silently dropped.
+    for (const se of gradingSEs) if (!usedGrading.has(se.name)) groups.push({ harvestSEs: [], gradingSEs: [se], receivingSEs: [], anchorMs: seDtMs(se) });
+    for (const se of receiveSEs) if (!usedReceiving.has(se.name)) groups.push({ harvestSEs: [], gradingSEs: [], receivingSEs: [se], anchorMs: seDtMs(se) });
+    groups.sort((a, b) => a.anchorMs - b.anchorMs);
+
+    // Step 2: walk the groups in time order, merging them into journeys. A Harvest-
+    // carrying group only opens a NEW journey once the one being built has already
+    // reached Receiving — plain re-scans mid-intake (no receiving yet) stay in it. A
+    // farm change with nothing to explain it is an even stronger break: a physical
+    // bucket can't be at two farms at once without an explicit transfer, so activity
+    // from a different farm always starts a new journey too (recycled bucket IDs
+    // colliding across farms is a confirmed, recurring real incident in this system).
+    const journeys = [];
+    let cur = null, reachedReceiving = false, curFarm = "";
+    const freshJourney = () => ({ harvestSEs: [], gradingSEs: [], receivingSEs: [] });
+    function groupFarm(g) {
+      for (const se of [...g.harvestSEs, ...g.gradingSEs, ...g.receivingSEs]) if (se.farm) return se.farm;
+      return "";
+    }
+    for (const g of groups) {
+      const farm = groupFarm(g);
+      const farmBreak = !!(farm && curFarm && farm !== curFarm);
+      if ((g.harvestSEs.length && reachedReceiving) || farmBreak) {
+        journeys.push(cur);
+        cur = null; reachedReceiving = false; curFarm = "";
+      }
+      if (!cur) cur = freshJourney();
+      if (farm) curFarm = farm;
+      cur.harvestSEs.push(...g.harvestSEs);
+      cur.gradingSEs.push(...g.gradingSEs);
+      for (const r of g.receivingSEs) if (!cur.receivingSEs.some((x) => x.name === r.name)) cur.receivingSEs.push(r);
+      if (g.receivingSEs.length) reachedReceiving = true;
+    }
+    if (cur) journeys.push(cur);
+    if (!journeys.length) journeys.push(freshJourney());
+
+    for (const j of journeys) {
       j.harvestSEs.sort((a, b) => seDtMs(a) - seDtMs(b));
       j.gradingSEs.sort((a, b) => seDtMs(a) - seDtMs(b));
       j.receivingSEs.sort((a, b) => seDtMs(a) - seDtMs(b));
       // Spray roses are bunched/graded before receiving; standard roses go straight
       // Harvest → Receiving. A harvest event that has a grading link went through grading.
       j.flowerType = j.gradingSEs.length > 0 ? "spray" : "standard";
+      j.variety = seItemMap.get((j.harvestSEs[0] || {}).name) || seItemMap.get((j.gradingSEs[0] || {}).name) || seItemMap.get((j.receivingSEs[0] || {}).name) || "";
       const all = [...j.harvestSEs, ...j.gradingSEs, ...j.receivingSEs].map((se) => se.posting_date || "").filter(Boolean).sort();
       j.earliestDate = all[0] || "";
       j.latestDate = all[all.length - 1] || "";
+      j.shelfData = []; j.discardData = []; j.rejectData = []; j.quarantineData = []; j.allocData = null; j.allocFull = null; j.oplData = [];
     }
-    const journeys = Object.values(jmap).sort((a, b) => a.earliestDate.localeCompare(b.earliestDate) || a.sessionKey.localeCompare(b.sessionKey));
     journeys.forEach((j, i) => { j.number = i + 1; j.isLatest = i === journeys.length - 1; });
 
-    function matchJourney(eventDateStr, candidates) {
-      if (!candidates.length) return null;
-      if (candidates.length === 1) return candidates[0];
-      const evMs = eventDateStr ? new Date(eventDateStr).getTime() : Infinity;
-      let best = null, bestMs = -Infinity;
-      for (const j of candidates) {
-        const jMs = j.earliestDate ? new Date(j.earliestDate).getTime() : -Infinity;
-        if (jMs <= evMs && jMs > bestMs) { bestMs = jMs; best = j; }
-      }
-      return best || candidates[0];
-    }
-    journeys.forEach((j) => { j.shelfData = []; j.discardData = []; j.rejectData = []; j.quarantineData = []; j.allocData = null; j.allocFull = null; j.oplData = []; });
-    const varietyIndex = {};
-    for (const j of journeys) { const v = (j.variety || "").toLowerCase(); (varietyIndex[v] = varietyIndex[v] || []).push(j); }
-    // Shelving Log episodes → journey by (date, variety); if the variety isn't
-    // indexed (blank on the log row) fall back to the latest journey started on/before the episode.
+    // Step 3: every other event is assigned PURELY by which journey's time window it
+    // falls in (journeyByDate: the latest journey started on/before the event) — never
+    // by variety. Variety-first matching caused a real, confirmed misattribution (see
+    // journeyStartDateTime's comment: a same-day discard landed on the wrong journey of
+    // the same variety); a pure time window against these now-correctly-bounded
+    // journeys doesn't have that failure mode.
     for (const row of shelfData) {
-      const v = (row.variety || "").toLowerCase();
-      const j = matchJourney(String(row.date_added || "").split(" ")[0], varietyIndex[v] || []) || journeyByDate(journeys, row.date_added || "");
+      const j = journeyByDate(journeys, row.date_added || row.shelved_on || "");
       if (j) j.shelfData.push(row);
     }
-    journeys.forEach((j) => j.shelfData.sort((a, b) => String(a.shelved_on || "").localeCompare(String(b.shelved_on || ""))));
-    // Discard stock entries → journey by date (discards carry no variety here).
-    // QC reject and quarantine stock entries → journey by date too.
-    const byDate = (list, key) => {
-      for (const se of list || []) {
-        const at = key === "creation" ? se.creation || "" : (se.posting_date || "") + " " + (se.posting_time || "00:00:00");
-        const j = journeyByDate(journeys, at);
-        if (j) j[key === "creation" ? "discardData" : se._k].push(se);
-      }
-    };
-    byDate(discardData, "creation");
-    byDate((rejectData || []).map((se) => Object.assign({ _k: "rejectData" }, se)));
-    byDate((quarantineData || []).map((se) => Object.assign({ _k: "quarantineData" }, se)));
-
-    // OPL matching: buckets are reused across trips.
-    // Only assign an OPL row to a journey whose harvest started ON OR BEFORE the OPL date.
-    // Among eligible journeys pick the one with the latest start date (closest preceding journey).
-    for (const row of oplData) {
-      const candidates = varietyIndex[(row.item_code || "").toLowerCase()] || [];
-      if (!candidates.length) continue;
-      const oplMs = row.opl_date ? new Date(row.opl_date).getTime() : Infinity;
-      const eligible = candidates.filter((j) => (j.earliestDate ? new Date(j.earliestDate).getTime() : 0) <= oplMs);
-      if (!eligible.length) continue;
-      eligible.reduce((a, b) => (new Date(a.earliestDate).getTime() > new Date(b.earliestDate).getTime() ? a : b)).oplData.push(row);
+    journeys.forEach((j) => j.shelfData.sort((a, b) => String(a.shelved_on || a.date_added || "").localeCompare(String(b.shelved_on || b.date_added || ""))));
+    for (const se of discardData) {
+      const j = journeyByDate(journeys, se.creation || "");
+      if (j) j.discardData.push(se);
     }
+    for (const se of rejectData) {
+      const j = journeyByDate(journeys, (se.posting_date || "") + " " + (se.posting_time || "00:00:00"));
+      if (j) j.rejectData.push(se);
+    }
+    for (const se of quarantineData) {
+      const j = journeyByDate(journeys, (se.posting_date || "") + " " + (se.posting_time || "00:00:00"));
+      if (j) j.quarantineData.push(se);
+    }
+    for (const row of oplData) {
+      const j = journeyByDate(journeys, row.creation || row.opl_date || "");
+      if (j) j.oplData.push(row);
+    }
+    // allocData is a single current-status snapshot (not an append-only log entry), so
+    // it describes the bucket's present situation — always part of its latest journey.
     if (allocData) {
-      const j = matchJourney(allocData.harvest_date || "", varietyIndex[(allocData.item_code || "").toLowerCase()] || []);
-      if (j) { j.allocData = allocData; j.allocFull = allocFull; }
+      const last = journeys[journeys.length - 1];
+      if (last) { last.allocData = allocData; last.allocFull = allocData; }
     }
     G.allJourneys = journeys;
   }
