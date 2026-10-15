@@ -314,6 +314,11 @@ def getBucketLogistics():
 			    COUNT(DISTINCT CASE WHEN pli.not_found = 1 THEN """
 			+ BKT
 			+ """ END) AS not_found,
+			    -- Stems: a bucket split over boxes has a row per box, each with its share.
+			    SUM(pli.stock_qty) AS stems,
+			    SUM(CASE WHEN """
+			+ REACHED_SHELVED
+			+ """ THEN pli.stock_qty ELSE 0 END) AS arrived_stems,
 			    GROUP_CONCAT(DISTINCT pli.item_code ORDER BY pli.item_code SEPARATOR ', ') AS varieties
 			FROM `tabPick List Item` pli
 			WHERE pli.parent IN %(opls)s AND pli.parenttype = 'Order Pick List' AND """
@@ -387,30 +392,44 @@ def getBucketLogistics():
 	opl_names = [r["opl"] for r in rows]
 	arrivals = {}
 	if opl_names:
-		ar_rows = frappe.db.sql(
-			"""
-            SELECT pli.parent AS opl, MIN(COALESCE(sl.shelved_on, sl.creation)) AS arrival
-            FROM `tabPick List Item` pli
-            JOIN `tabOrder Pick List` o2 ON o2.name = pli.parent
-            JOIN `tabShelving Log` sl ON UPPER(sl.bucket_id) = UPPER(pli.bucket)
-            JOIN (
-                SELECT UPPER(sl2.bucket_id) AS bid, MAX(sl2.creation) AS mx
-                FROM `tabShelving Log` sl2
-                JOIN `tabPick List Item` p2 ON UPPER(p2.bucket) = UPPER(sl2.bucket_id)
-                WHERE p2.parenttype = 'Order Pick List' AND p2.parent IN %(opls)s
-                GROUP BY UPPER(sl2.bucket_id)
-            ) latest ON latest.bid = UPPER(sl.bucket_id) AND latest.mx = sl.creation
-            WHERE pli.parenttype = 'Order Pick List'
-              AND sl.farm = o2.farm
-              AND COALESCE(sl.shelved_on, sl.creation) >= o2.creation
-              AND pli.parent IN %(opls)s
-            GROUP BY pli.parent
-        """,
-			{"opls": tuple(opl_names)},
-			as_dict=True,
-		)
-		for a in ar_rows:
-			arrivals[a["opl"]] = a["arrival"]
+		# In steps rather than one join: UPPER() on both sides of the bucket join kept
+		# MySQL off the bucket_id index and scanned the whole Shelving Log (the collation
+		# is case-insensitive, so a plain IN matches any case).
+		opl_meta = {
+			o.name: o
+			for o in frappe.get_all(
+				"Order Pick List", filters={"name": ["in", opl_names]}, fields=["name", "farm", "creation"]
+			)
+		}
+		opl_buckets = {}
+		for p in frappe.get_all(
+			"Pick List Item",
+			filters={"parenttype": "Order Pick List", "parent": ["in", opl_names], "bucket": ["is", "set"]},
+			fields=["parent", "bucket"],
+		):
+			opl_buckets.setdefault(p.parent, set()).add(p.bucket.upper())
+		all_buckets = sorted(set().union(*opl_buckets.values())) if opl_buckets else []
+		# The latest Shelving Log row of each bucket.
+		latest = {}
+		if all_buckets:
+			for sl in frappe.get_all(
+				"Shelving Log",
+				filters={"bucket_id": ["in", all_buckets]},
+				fields=["bucket_id", "farm", "shelved_on", "creation"],
+				order_by="creation asc",
+			):
+				latest[(sl.bucket_id or "").upper()] = sl
+		for opl, buckets in opl_buckets.items():
+			o = opl_meta.get(opl)
+			if not o:
+				continue
+			times = [
+				sl.shelved_on or sl.creation
+				for sl in (latest.get(b) for b in buckets)
+				if sl and sl.farm == o.farm and (sl.shelved_on or sl.creation) >= o.creation
+			]
+			if times:
+				arrivals[opl] = min(times)
 	for r in rows:
 		a = arrivals.get(r["opl"])
 		r["arrived"] = str(a) if a else ""
@@ -462,6 +481,7 @@ def getBucketLogistics():
 		"run_chain",
 		"window",
 		"total_buckets",
+		"capacity_buckets",
 		"loaded_buckets",
 		"tracked_buckets",
 		"shelved_buckets",
@@ -476,6 +496,51 @@ def getBucketLogistics():
 		runs.append({k: t[k] for k in keep})
 	runs.sort(key=lambda t: (t["vehicle"] or "", t["trip_date"], t["run"] or 99, t["name"]))
 	frappe.response["runs"] = runs
+
+	# The page's tiles: every stage counted once per physical bucket -- a bucket split
+	# over two orders is one bucket, though each order's own counts include it.
+	totals = {}
+	if rows:
+		bt = frappe.db.sql(
+			"""SELECT COUNT(DISTINCT """
+			+ BKT
+			+ """) AS total,
+			    COUNT(DISTINCT CASE WHEN """
+			+ REACHED_AWAITING
+			+ """ THEN """
+			+ BKT
+			+ """ END) AS awaiting,
+			    COUNT(DISTINCT CASE WHEN """
+			+ REACHED_TROLLEY
+			+ """ THEN """
+			+ BKT
+			+ """ END) AS trolley,
+			    COUNT(DISTINCT CASE WHEN """
+			+ REACHED_TRANSIT
+			+ """ THEN """
+			+ BKT
+			+ """ END) AS transit,
+			    COUNT(DISTINCT CASE WHEN """
+			+ REACHED_SHELVED
+			+ """ THEN """
+			+ BKT
+			+ """ END) AS shelved,
+			    COUNT(DISTINCT CASE WHEN pli.issued = 1 THEN """
+			+ BKT
+			+ """ END) AS issued,
+			    COUNT(DISTINCT CASE WHEN pli.not_found = 1 THEN """
+			+ BKT
+			+ """ END) AS not_found
+			FROM `tabPick List Item` pli
+			WHERE pli.parent IN %(opls)s AND pli.parenttype = 'Order Pick List' AND """
+			+ TRANSFER
+			+ " AND "
+			+ NOT_HUB,
+			{"opls": tuple(r["opl"] for r in rows), "hub": hub, "sales_farms": params["sales_farms"]},
+			as_dict=True,
+		)
+		totals = {k: int(v or 0) for k, v in (bt[0] if bt else {}).items()}
+	frappe.response["bucket_totals"] = totals
 
 	frappe.response["delivery_date"] = str(delivery_date)
 	frappe.response["orders"] = rows
@@ -596,3 +661,29 @@ def getBucketLogisticsDetail():
 		for b in frappe.response["buckets"]:
 			for k in [k for k in b if k.endswith("_by")]:
 				b[k] = names.get(b[k]) or b[k]
+		# Each variety's colour (Item colour, as on the Variety Tree), for the apps'
+		# per-variety bucket lists.
+		colors = _variety_colors({b.get("variety") for b in frappe.response["buckets"]})
+		for b in frappe.response["buckets"]:
+			b["variety_color"] = colors.get(b.get("variety")) or ""
+
+
+def _variety_colors(item_codes):
+	"""Item code -> its Variety Tree colour hex (Item.custom_color -> Color.color)."""
+	item_codes = [i for i in item_codes if i]
+	if not item_codes or not frappe.get_meta("Item").has_field("custom_color"):
+		return {}
+	item_colour = {
+		i.name: i.custom_color
+		for i in frappe.get_all("Item", filters={"name": ["in", item_codes]}, fields=["name", "custom_color"])
+		if i.custom_color
+	}
+	if not item_colour:
+		return {}
+	hexes = {
+		c.name: c.color
+		for c in frappe.get_all(
+			"Color", filters={"name": ["in", list(set(item_colour.values()))]}, fields=["name", "color"]
+		)
+	}
+	return {k: hexes.get(v) or "" for k, v in item_colour.items()}

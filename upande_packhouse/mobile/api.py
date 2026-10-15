@@ -1287,6 +1287,16 @@ def createOrUpdateFarmPackList():
 						f"({int(already)} already in it, only {allowed} more allowed). Use another box."
 					)
 				)
+
+		# (c) Issued cap: an order sent to packing before all of it was issued packs no
+		# more stems than were issued; the cap rises as replacements are issued.
+		issued_cap_error = _issued_cap_error(
+			order_pick_list_id,
+			sum(existing_total_by_item.values()),
+			sum(incoming_total_by_item.values()),
+		)
+		if issued_cap_error:
+			frappe.throw(issued_cap_error, exc=IssuedCapError, title=_("Not issued yet"))
 		# ===== END OVER-PACK GUARD =====
 
 		existing_doc = frappe.get_all(
@@ -1473,6 +1483,8 @@ def createOrUpdateFarmPackList():
 				"box_labels": fpl_box_labels,
 			}
 
+	except IssuedCapError:
+		raise
 	except Exception as e:
 		frappe.log_error(message=str(e), title="Farm Pack List Packing Error")
 		frappe.throw(_("Error processing packing:") + " " + str(e))
@@ -2734,6 +2746,7 @@ def fetchPicklists():
 		packed = _packed_stems(opl_names)
 		shorts = _short_info(opl_names)
 		result = [r for r in result if issue.get(r[0]) and issue[r[0]]["issued"] >= issue[r[0]]["total"]]
+		stems = _issued_stems([r[0] for r in result])
 		opl_names = [r[0] for r in result]
 
 		# Varieties + stem lengths per OPL, for the picklist picker label
@@ -2813,6 +2826,11 @@ def fetchPicklists():
 					total_buckets=issue[r[0]]["total"],
 					issued_pct=round(100.0 * issue[r[0]]["issued"] / issue[r[0]]["total"]),
 					packed_pct=_packed_pct(packed.get(r[0], 0), r[3]),
+					# Sent to packing before all of it was issued: packing stops at the stems issued.
+					issued_stems=(stems.get(r[0]) or {}).get("issued", 0),
+					total_stems=(stems.get(r[0]) or {}).get("total", 0),
+					issued_stem_pct=(stems.get(r[0]) or {}).get("pct", 100),
+					packed_stems=packed.get(r[0], 0),
 					schedule=seq,
 					schedule_team=(sc.team if sc else "") or "",
 					is_next=bool(sc) and waits == seq,
@@ -3097,6 +3115,67 @@ def _packed_stems(opl_names):
 	}
 
 
+class IssuedCapError(frappe.ValidationError):
+	"""Packing past what an order has issued so far (see _issued_cap_error)."""
+
+
+def _issued_stems(opl_names):
+	"""opl -> {issued, total, pct, moving}: stems of its bucket rows issued vs all of
+	them, not-found ones included (the basis Pack While Waiting uses), and how many
+	unissued rows are still coming by truck."""
+	out = {}
+	if not opl_names:
+		return out
+	for r in frappe.db.sql(
+		"""SELECT parent,
+		       SUM(IFNULL(stock_qty, 0)) AS total,
+		       SUM(IF(IFNULL(issued, 0) = 1, IFNULL(stock_qty, 0), 0)) AS issued,
+		       SUM(IFNULL(issued, 0) = 0 AND IFNULL(not_found, 0) = 0
+		           AND (IFNULL(awaiting_transfer, 0) = 1 OR IFNULL(loaded_in_trolley, 0) = 1
+		                OR IFNULL(in_transit, 0) = 1)) AS moving
+		FROM `tabPick List Item`
+		WHERE parenttype = 'Order Pick List' AND parent IN %(o)s AND COALESCE(bucket, '') != ''
+		GROUP BY parent""",
+		{"o": tuple(opl_names)},
+		as_dict=True,
+	):
+		total = flt(r.total)
+		issued = flt(r.issued)
+		out[r.parent] = {
+			"issued": issued,
+			"total": total,
+			"pct": round(100.0 * issued / total) if total else 0,
+			"moving": int(r.moving or 0),
+		}
+	return out
+
+
+def _can_pack_waiting(stems, short, min_pct):
+	"""pack_while_waiting_replacement's check, read-only: not completed short, nothing
+	still coming by truck, not fully issued, and at least `min_pct`% of its stems issued."""
+	if not stems or (short or {}).get("short_accepted") or stems["moving"]:
+		return False
+	return stems["issued"] < stems["total"] and stems["pct"] >= min_pct
+
+
+def _pack_waiting_min_pct():
+	"""Production Settings > Pack While Waiting for a Replacement From (%); 50 until set."""
+	value = frappe.get_cached_doc("Production Settings").get("pack_waiting_replacement_pct")
+	return flt(value) if value not in (None, "") else 50.0
+
+
+def _issued_cap_error(opl_name, packed, incoming):
+	"""Why packing `incoming` more stems on `opl_name` (with `packed` already on it) is
+	refused, or None: an order sent to packing before all of it was issued (Pack While
+	Waiting, or completed short) packs no more stems than were issued."""
+	cap = _issued_stems([opl_name]).get(opl_name)
+	if not cap or cap["issued"] >= cap["total"] or flt(packed) + flt(incoming) <= cap["issued"]:
+		return None
+	return _(
+		"Only {0}% is issued — pack the rest once more stock is issued ({1} of {2} stems packed)."
+	).format(cap["pct"], int(flt(packed)), int(cap["issued"]))
+
+
 def _packed_pct(packed, planned):
 	planned = flt(planned)
 	return min(100, round(100.0 * packed / planned)) if planned > 0 else 0
@@ -3230,6 +3309,8 @@ def getReadySaleOrderItems():
 		progress = _issue_progress(opl_names)
 		shorts = _short_info(opl_names)
 		stock_here = _stock_here(opl_names, location) if location else None
+		stems = _issued_stems(opl_names)
+		pack_waiting_pct = _pack_waiting_min_pct()
 		orders = []
 		for opl in ready_orders:
 			done = progress.get(opl.name) or {"total": 0, "issued": 0}
@@ -3253,6 +3334,16 @@ def getReadySaleOrderItems():
 					"issued_buckets": done["issued"],
 					"total_buckets": done["total"],
 					"issued_pct": round(100.0 * done["issued"] / done["total"]) if done["total"] else 0,
+					# Stems issued of all its buckets' stems (not-found ones too), and whether it
+					# can go to packing with that now (Pack While Waiting's own rules).
+					"issued_stems": (stems.get(opl.name) or {}).get("issued", 0),
+					"total_stems": (stems.get(opl.name) or {}).get("total", 0),
+					"issued_stem_pct": (stems.get(opl.name) or {}).get("pct", 0),
+					"moving_rows": (stems.get(opl.name) or {}).get("moving", 0),
+					"pack_waiting_pct": pack_waiting_pct,
+					"pack_waiting": _can_pack_waiting(
+						stems.get(opl.name), shorts.get(opl.name), pack_waiting_pct
+					),
 					# A draft listed here has buckets a farm marked not found: replace them, or
 					# complete the order short (completeOplShort).
 					"draft": 0 if opl.docstatus else 1,
@@ -4435,10 +4526,17 @@ def get_pick_list_with_farm_pack_list():
 			except Exception as enrich_err:
 				frappe.log_error(f"mixed-bunch enrich: {enrich_err}", "Pick List Packing Guide Script")
 
+		stems = _issued_stems([pick_list_id]).get(pick_list_id) or {}
 		frappe.response["data"] = {
 			"order_pick_list": order_pick_list,
 			"farm_pack_lists": farm_pack_list_with_items,
 			"packing_guide": packing_guide,
+			# Packing stops at the stems issued until the rest is (issued_pct < 100).
+			"issued": {
+				"issued_stems": stems.get("issued", 0),
+				"total_stems": stems.get("total", 0),
+				"issued_pct": stems.get("pct", 100),
+			},
 		}
 
 	except Exception as e:

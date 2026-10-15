@@ -3410,6 +3410,9 @@ def _replace_requested_bucket(
 				# The pick row keeps the graded length; a longer one is a downgrade.
 				"stem_length": new.stem_length or r.stem_length,
 			}
+			if frappe.db.has_column("Pick List Item", "not_found"):
+				# The replacement is found: the row stops being a missing bucket.
+				values.update({"not_found": 0, "not_found_at": None, "not_found_by": None})
 			if r.warehouse:
 				values["warehouse"] = new.warehouse or r.warehouse
 			if allow_left and (cint(r.loaded_in_trolley) or cint(r.in_transit) or cint(r.awaiting_transfer)):
