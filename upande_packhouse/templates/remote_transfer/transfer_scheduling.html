@@ -2382,11 +2382,11 @@ function saveTripEdit(){
     toast('Saved '+t.name+' · '+(m.total_buckets||0)+' buckets'); closeTripEdit(); loadData(); document.dispatchEvent(new Event('rt-trips-changed'));
   }).catch(function(err){ if(S.te===e){ e.busy=false; e.err=(err&&err.message)||'Failed'; renderTripEdit(); } });
 }
-/* Bucket-status breakdown for a trip's truck — from truck_status (the OPLs'
-   transit_truck flags, truck-wide, not bucket-exact per-trip). */
-function statusPillsHtml(vehicle){
-  var s=null; (DATA.truck_status||[]).forEach(function(x){ if(x.truck===vehicle) s=x; });
-  if(!s||!s.total) return '<div class="ts-pills"><span class="ts-pill zero">no transfer activity yet</span></div>';
+/* Bucket-status breakdown for one trip — its own buckets only (bucket_status from
+   _trip_bucket_status), never the truck's loads for other trips. */
+function statusPillsHtml(t){
+  var s=t.bucket_status;
+  if(!s||!s.total) return '<div class="ts-pills"><span class="ts-pill zero">no buckets</span></div>';
   var flags=[['awaiting','Awaiting','var(--warn)'],['loaded','Loading','#7c5cfc'],['in_transit','In transit','#1d4ed8'],['shelved','Arrived','var(--signal)']];
   var pills=flags.map(function(f){ var v=s[f[0]]||0; if(!v) return '';
     return '<span class="ts-pill" style="background:'+f[2]+'">'+f[1]+' '+v+' / '+s.total+'</span>'; }).join('');
@@ -2520,7 +2520,7 @@ function tripCardHtml(t){
     '<div class="cap-bar" style="margin-top:10px"><i style="width:'+pct+'%"></i></div>'+
     '<div style="font:500 10px var(--mono);color:var(--ink-mute);margin-top:4px">'+used+' / '+(cap||'—')+' buckets'+(shown?' loaded':'')+(shown&&!t.unscheduled?' · '+(t.total_buckets||0)+' planned':'')+(shown?'':' · '+n(t.total_stems||0)+' stems')+(t.tracked_buckets?' · '+(t.shelved_buckets||0)+' / '+t.tracked_buckets+' shelved'+(t.off_truck_buckets?' · '+t.off_truck_buckets+' off the truck':''):'')+(t.received_at?' · ended '+esc(String(t.received_at).slice(11,16)):'')+'</div>'+
     stopsLine+
-    statusPillsHtml(t.vehicle)+
+    statusPillsHtml(t)+
     (t.run_chain?'<div class="route-box"><div class="route-row"><span class="rl">Route</span><span class="rp">'+esc(farmsToHub(t.run_chain))+'</span></div></div>':routeHtml(tripFarms2(t.orders)))+
     '<div class="trip-orders">'+rows+'</div></div>';
 }

@@ -37,6 +37,10 @@
 <style>
 /* The open tab's frame fills the space under the top bar; the page itself never scrolls. */
 .aph .aph-main.rt-shell{overflow:hidden}
+/* Hidden overflow can still be scrolled by the browser (focus, find, a frame's scroll
+   into view), which slid the whole page sideways; clip can't be scrolled at all. */
+html,body{overflow:clip!important}
+.aph .aph-main.rt-shell{overflow:clip}
 .aph .rt-frames{position:relative;flex:1 1 auto;min-height:0}
 /* Tab switch: the open tab cross-fades with the one before it (a hidden tab keeps its
    place — visibility, not display — so it is never reloaded or re-laid out). */
@@ -89,7 +93,7 @@
   function tabOfPath(p){
     p=(p||'').replace(/\/+$/,'');
     for(var k in PATHS) if(PATHS[k]===p) return k;
-    return 'transfer';
+    return 'logistics';
   }
   function withDate(path, extra){
     var q=new URLSearchParams(extra||'');
@@ -129,7 +133,11 @@
       var w=f.contentWindow;
       if(w && w.rtSwitch) w.rtSwitch(tab); else pending[g]=tab;
     }
-    for(var k in frames) frames[k].classList.toggle('on', k===g);
+    for(var k in frames){
+      // A frame being left closes any side panel it has open (Bucket Logistics).
+      if(k!==g){ try{ var fw=frames[k].contentWindow; if(fw && fw.tmClosePanel) fw.tmClosePanel(); }catch(e){} }
+      frames[k].classList.toggle('on', k===g);
+    }
     cur={tab:tab, group:g};
     // A frame still loading: the page's skeleton covers it. A tab already open reloads
     // its data with its own skeleton (its Refresh), so a switch never shows stale data.

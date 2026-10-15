@@ -23,7 +23,8 @@ no_cache = 1
 
 
 def get_context(context):
-	tab = tab_for_path(frappe.request.path) or "transfer"
+	# No Transfer Scheduling tab any more: /remote-transfer opens Bucket Logistics.
+	tab = tab_for_path(frappe.request.path) or "logistics"
 	redirect_old_route(tab)
 	context.rt_tab = tab
 	# ?embed=1: just this tab, in its frame on the page (www/remote-transfer.html).

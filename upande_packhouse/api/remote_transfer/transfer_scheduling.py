@@ -503,6 +503,39 @@ def _user_name(user):
 	return frappe.db.get_value("User", user, "full_name") or user
 
 
+def _trip_bucket_status(doc):
+	"""This trip's own buckets by stage, for the trip card: each bucket loaded onto it
+	at its furthest stage, plus the planned buckets of each order not loaded yet as
+	awaiting, while the trip can still collect them. Never the truck's other loads --
+	_truck_status counts every bucket flagged with the truck, yesterday's runs included."""
+	counts = {"awaiting": 0, "loaded": 0, "in_transit": 0, "shelved": 0}
+	rows = [b for b in doc.get("trip_buckets") or [] if b.shelved or not b.off_truck]
+	flags = {
+		(e["opl"], (e["bucket"] or "").upper()): e
+		for e in _transfer_buckets(list({b.order_pick_list for b in rows if b.order_pick_list}))
+	}
+	gone = doc.status in ("Dispatched", "Received")
+	loaded = {}
+	for b in rows:
+		e = flags.get((b.order_pick_list, (b.bucket or "").upper())) or {}
+		if b.shelved or e.get("shelved"):
+			counts["shelved"] += 1
+		elif e.get("in_transit") or gone:
+			counts["in_transit"] += 1
+		else:
+			counts["loaded"] += 1
+		key = (b.order_pick_list, b.farm or "")
+		loaded[key] = loaded.get(key, 0) + 1
+	if doc.status in ACTIVE_TRIP_STATUSES:
+		for o in doc.orders:
+			key = (o.order_pick_list, o.farm or "")
+			waiting = max(int(o.buckets or 0) - loaded.get(key, 0), 0)
+			counts["awaiting"] += waiting
+			loaded[key] = loaded.get(key, 0) + waiting
+	counts["total"] = sum(counts.values())
+	return counts
+
+
 def _trip_dict(doc, today):
 	# Each order's delivery date, so the page shows a trip under the delivery date
 	# its orders are for (one truck run can carry orders for different days).
@@ -558,6 +591,7 @@ def _trip_dict(doc, today):
 		"tracked_buckets": len(doc.get("trip_buckets") or []),
 		"shelved_buckets": sum(1 for b in doc.get("trip_buckets") or [] if b.shelved),
 		"off_truck_buckets": sum(1 for b in doc.get("trip_buckets") or [] if b.off_truck and not b.shelved),
+		"bucket_status": _trip_bucket_status(doc),
 		"auto_planned": int(doc.get("auto_planned") or 0),
 		"dispatched_at": str(doc.dispatched_at) if doc.dispatched_at else None,
 		"received_at": str(doc.received_at) if doc.received_at else None,
@@ -1165,9 +1199,20 @@ def _carry_unshelved(doc, later, left):
 			details="Not shelved off {0}; carried on {1}".format(doc.name, later),
 		)
 	if frappe.db.has_column("Bucket Request Trip", "loaded_buckets"):
-		loaded = frappe.db.count(
-			"Bucket Request Trip Bucket",
-			{"parent": later, "parenttype": "Bucket Request Trip", "loaded_at": ["is", "set"]},
+		# One per bucket id: a bucket filling two orders has a row per order.
+		loaded = len(
+			{
+				(b or "").upper()
+				for b in frappe.get_all(
+					"Bucket Request Trip Bucket",
+					filters={
+						"parent": later,
+						"parenttype": "Bucket Request Trip",
+						"loaded_at": ["is", "set"],
+					},
+					pluck="bucket",
+				)
+			}
 		)
 		frappe.db.set_value("Bucket Request Trip", later, "loaded_buckets", loaded, update_modified=False)
 	doc.add_comment(
@@ -1540,6 +1585,9 @@ def _advance_stops(doc):
 		doc.heading_to = hub
 		doc.status = "Dispatched"
 		doc.dispatched_at = now
+		# Gone with the truck: its buckets are in transit now, as on a Dispatch press
+		# (left out here, they stayed "loaded on truck" all the way to the hub).
+		_put_loads_in_transit(doc)
 		doc.add_comment("Info", "Dispatched to {0}: every stop loaded".format(hub or "the packhouse"))
 	return newly
 
@@ -1630,7 +1678,9 @@ def record_truck_load(pli_names):
 					)
 					doc = _pick_trip_for_load(trips, b["opl"], b["farm"], by_trip)
 					if doc is None:
-						doc = _vehicle_trip_doc(truck) or _new_load_trip(truck, today, b["farm"])
+						# Never onto the trip the truck is out on (in transit): a load with no
+						# open trip starts the truck's next run.
+						doc = _new_load_trip(truck, today, b["farm"])
 						trips.append(doc)
 				chosen[b["bucket"]] = doc
 			# Already recorded on this trip for this order (a re-scan): don't count it twice.
@@ -1667,6 +1717,14 @@ def _bucket_trip_rows(buckets):
 	return out
 
 
+def _trip_loaded_count(doc):
+	"""Buckets physically on the trip: one per bucket id, however many orders it fills
+	(a bucket split over two orders is one bucket on the truck, not two). Falls back to
+	the orders' count while no bucket is recorded on the trip yet."""
+	ids = {(b.bucket or "").upper() for b in doc.get("trip_buckets") or [] if b.bucket and not b.off_truck}
+	return len(ids) if ids else sum(int(o.loaded_buckets or 0) for o in doc.orders)
+
+
 def _drop_bucket_from_trips(bucket, where, note):
 	"""Take a bucket off trips (still at the farm) it was recorded on, when it was
 	loaded onto another truck: it rides one truck only. Their counts follow."""
@@ -1689,7 +1747,7 @@ def _drop_bucket_from_trips(bucket, where, note):
 			)
 			if o:
 				o.loaded_buckets = int(o.loaded_buckets) - 1
-		doc.loaded_buckets = sum(int(o.loaded_buckets or 0) for o in doc.orders)
+		doc.loaded_buckets = _trip_loaded_count(doc)
 		doc.add_comment("Info", "Bucket {0} taken off: {1}".format(bucket, note))
 		doc.save(ignore_permissions=True)
 
@@ -1762,17 +1820,6 @@ def _pick_trip_for_load(trips, opl, farm, assigned):
 	return current[0] if current else None
 
 
-def _vehicle_trip_doc(truck):
-	"""Legacy fallback: the trip the truck is out on (loaded after its dispatch) — only
-	a trip of today: an earlier day's trip never takes today's load."""
-	trip = _vehicle_on_road(truck)
-	if not trip or str(frappe.db.get_value("Bucket Request Trip", trip, "trip_date")) < str(
-		frappe.utils.today()
-	):
-		return None
-	return frappe.get_doc("Bucket Request Trip", trip)
-
-
 def _new_load_trip(truck, today, farm):
 	"""An unscheduled trip for a load nothing planned — on the first open run of the
 	truck's route that visits the farm, so it still drives one run."""
@@ -1843,8 +1890,8 @@ def _record_loads(doc, truck, entries):
 	doc.capacity_buckets = _vehicle_capacity(truck)
 	doc.total_buckets = sum(int(o.buckets or 0) for o in doc.orders)
 	doc.total_stems = sum(int(o.stems or 0) for o in doc.orders)
-	doc.loaded_buckets = sum(int(o.loaded_buckets or 0) for o in doc.orders)
 	_add_trip_buckets(doc, [r for b in entries for r in b["rows"][:1]])
+	doc.loaded_buckets = _trip_loaded_count(doc)
 	_advance_stops(doc)
 	doc.save(ignore_permissions=True)
 
@@ -3907,7 +3954,7 @@ def merge_truck_trips(vehicle, date=None):
 		keep.capacity_buckets = cap
 		keep.total_buckets = sum(int(o.buckets or 0) for o in keep.orders)
 		keep.total_stems = sum(int(o.stems or 0) for o in keep.orders)
-		keep.loaded_buckets = sum(int(o.loaded_buckets or 0) for o in keep.orders)
+		keep.loaded_buckets = _trip_loaded_count(keep)
 		if rest:
 			keep.add_comment(
 				"Info",
@@ -4210,9 +4257,12 @@ def receiveBucketTrip():
 			"message": "Trip is {0} — must be Dispatched before it can be received.".format(doc.status),
 		}
 		return
-	frappe.db.set_value(
-		"Bucket Request Trip", name, {"status": "Received", "received_at": frappe.utils.now()}
-	)
+	now = frappe.utils.now()
+	values = {"status": "Received", "received_at": now}
+	# Ending the trip says the truck is back: it arrived at the hub, if nothing said so yet.
+	if not doc.get("arrived_at"):
+		values["arrived_at"] = now
+	frappe.db.set_value("Bucket Request Trip", name, values)
 	moved = carry_over_to_next_run(name)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	opls = list({o.order_pick_list for o in doc.orders if o.order_pick_list})
@@ -4506,6 +4556,21 @@ def getFarmShelvedBuckets(farm: str | None = None, days: int = 3, delivery_date:
 			):
 				on_shelf.setdefault(r.bucket, r)
 		stamped = {(r.bucket or "").upper(): r.shelved_at for r in doc.trip_buckets if r.shelved_at}
+		# What each bucket holds for its order: variety, stem length, stems, and the
+		# variety's Variety Tree colour -- the farm app lists the trip by variety.
+		held = {}
+		for r in frappe.db.sql(
+			"""SELECT pli.parent AS opl, UPPER(pli.bucket) AS bucket, pli.item_code, pli.stem_length,
+			       SUM(pli.stock_qty) AS stems, c.color AS color
+			FROM `tabPick List Item` pli
+			LEFT JOIN `tabItem` i ON i.name = pli.item_code
+			LEFT JOIN `tabColor` c ON c.name = i.custom_color
+			WHERE pli.parenttype = 'Order Pick List' AND pli.parent IN %(opls)s AND pli.bucket IN %(ids)s
+			GROUP BY pli.parent, UPPER(pli.bucket), pli.item_code, pli.stem_length, c.color""",
+			{"opls": tuple({b["opl"] for b in mine}), "ids": tuple(ids)},
+			as_dict=True,
+		):
+			held.setdefault((r.opl, r.bucket), r)
 		orders = {o.order_pick_list: o.order_name or o.order_pick_list for o in doc.orders}
 		customers = {o.order_pick_list: o.customer or "" for o in doc.orders}
 		buckets = []
@@ -4513,10 +4578,15 @@ def getFarmShelvedBuckets(farm: str | None = None, days: int = 3, delivery_date:
 			key = (b["bucket"] or "").upper()
 			shelf = on_shelf.get(key)
 			at = (stamped.get(key) or (shelf.at if shelf else "")) if b["shelved"] else ""
+			h = held.get((b["opl"], key)) or {}
 			buckets.append(
 				{
 					"bucket": b["bucket"],
 					"opl": b["opl"],
+					"variety": h.get("item_code") or "",
+					"stem_length": h.get("stem_length") or "",
+					"stems": flt(h.get("stems")),
+					"variety_color": h.get("color") or "",
 					"order_name": orders.get(b["opl"]) or b["opl"],
 					"customer": customers.get(b["opl"]) or "",
 					"shelved": b["shelved"],
@@ -4647,7 +4717,14 @@ def getFarmCompletedTrips(farm: str | None = None, days: int = 3):
 		shelved_any = any(b["shelved"] for b in _trip_shelf_state(doc))
 		rows = _farm_rows(doc, farm)
 		planned = sum(int(o.buckets or 0) for o in rows)
-		loaded = sum(int(o.loaded_buckets or 0) for o in rows)
+		# Buckets this farm put on the truck: one per bucket id (a bucket filling two
+		# orders has a loaded count on each), so loaded never reads above what went.
+		mine = {
+			(b.bucket or "").upper()
+			for b in doc.get("trip_buckets") or []
+			if b.bucket and (b.farm or "") == farm and not b.off_truck
+		}
+		loaded = len(mine) if mine else sum(int(o.loaded_buckets or 0) for o in rows)
 		# Per order, the same count reopenTripStop uses: an order loaded over its plan
 		# must not hide another that went short.
 		left = sum(max(0, int(o.buckets or 0) - int(o.loaded_buckets or 0)) for o in rows)
