@@ -1988,7 +1988,13 @@ def fetchDispatchLoadedOrders():
 				orders_by_so[key]["boxes_loaded"] = orders_by_so[key]["boxes_loaded"] + 1
 				total_boxes = total_boxes + 1
 
-		orders = sorted(orders_by_so.values(), key=lambda o: (o["delivery_point"], o["order_name"]))
+		# Dispatch lists what is on the truck: the orders with boxes loaded (an order
+		# planned but with nothing loaded yet is not dispatched; the staged-but-not-
+		# loaded check below still blocks a dispatch that would leave boxes behind).
+		orders = sorted(
+			(o for o in orders_by_so.values() if o["boxes_loaded"] > 0),
+			key=lambda o: (o["delivery_point"], o["order_name"]),
+		)
 
 		ls_status = ""
 		seal_number = ""
@@ -2089,6 +2095,45 @@ def _short_info(opl_names):
 		cur = out.setdefault(o.name, {"not_found": 0, "short_stems": 0.0, "short_pct": 0})
 		cur["short_accepted"] = int(o.short_accepted or 0)
 	return out
+
+
+def _submit_for_packing(opl_names):
+	"""After an issue scan: a draft order (it waited on a remote transfer) is submitted once
+	nothing is still coming by truck and it is issued as far as Production Settings' Pack
+	While Waiting % -- or every bucket not marked not found is issued -- so packing lists
+	it without anyone confirming. Never fails the scan: an order not ready stays a draft."""
+	from upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation import (
+		opl_submit_blockers,
+	)
+
+	drafts = [o for o in opl_names or [] if frappe.db.get_value("Order Pick List", o, "docstatus") == 0]
+	if not drafts:
+		return
+	min_pct = _pack_waiting_min_pct()
+	stems = _issued_stems(drafts)
+	progress = _issue_progress(drafts)
+	for name in drafts:
+		st = stems.get(name)
+		done = progress.get(name) or {}
+		if not st or st["moving"] or not st["issued"]:
+			continue
+		if st["pct"] < min_pct and not (done.get("total") and done["issued"] >= done["total"]):
+			continue
+		try:
+			opl = frappe.get_doc("Order Pick List", name)
+			if opl_submit_blockers(opl):
+				continue
+			opl.flags.ignore_permissions = True
+			# The rows are as allocated: a shelf emptied or removed since must not stop it.
+			opl.flags.ignore_links = True
+			opl.submit()
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit -- the packing list reads it next
+		except Exception:
+			frappe.db.rollback()
+			frappe.clear_last_message()
+			frappe.log_error(
+				title="Issue: submit for packing failed", message=f"opl={name}\n{frappe.get_traceback()}"
+			)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -2503,6 +2548,10 @@ def fetchLoadingData():
 				"boxes_packed": boxes_packed,
 				"boxes_staged": boxes_staged,
 				"boxes_loaded": boxes_loaded,
+				# What goes on the truck: the boxes staged (still waiting) plus those
+				# loaded already -- planned 200, staged 190: 190 to load, and loading
+				# is done at 190/190.
+				"boxes_to_load": boxes_staged + boxes_loaded,
 				"staged_boxes": staged_boxes,
 			}
 			opl_stats_cache[opl_name] = stats
@@ -2559,6 +2608,41 @@ def fetchLoadingData():
 					for opl in opls:
 						opl_queue.append((so, opl))
 
+				# Plan rows built from the OPLs carry their OPL: pair each row with
+				# exactly that OPL so the row's planned boxes and its progress are the
+				# same order's. OPLs made after the plan was built go on the last row.
+				row_opls = {}
+				linked_names = [
+					item.get("order_pick_list") for item in stop_rows if item.get("order_pick_list")
+				]
+				if linked_names:
+					so_by_name = {so.name: so for so in sales_orders}
+					for opl in frappe.get_all(
+						"Order Pick List",
+						filters={"name": ["in", linked_names], "docstatus": ["<", 2]},
+						fields=["name", "sales_order", "custom_total_stems"],
+					):
+						so = so_by_name.get(opl.sales_order)
+						if so is None:
+							so = frappe.db.get_value(
+								"Sales Order",
+								opl.sales_order,
+								[
+									"name",
+									"custom_order_name",
+									"customer_name",
+									"custom_truck_details",
+									"custom_consignee",
+									"custom_shipping_agent",
+									"total_qty",
+								],
+								as_dict=True,
+							)
+						if so:
+							row_opls[opl.name] = (so, opl)
+					linked = set(linked_names)
+					unplanned = [pair for pair in opl_queue if pair[1].name not in linked]
+
 				stop_key = customer + "|" + delivery_point
 				ls_stop_loaded = ls_loaded_by_stop.get(stop_key, 0)
 				# A stop's Loading Plan can have MORE box-position rows than
@@ -2580,13 +2664,20 @@ def fetchLoadingData():
 					item_number_of_boxes = item.number_of_boxes or 0
 
 					is_last_row = row_idx == len(stop_rows) - 1
-					assigned = opl_queue[row_idx:] if is_last_row else opl_queue[row_idx : row_idx + 1]
+					if linked_names:
+						pair = row_opls.get(item.get("order_pick_list"))
+						assigned = [pair] if pair else []
+						if is_last_row:
+							assigned = assigned + unplanned
+					else:
+						assigned = opl_queue[row_idx:] if is_last_row else opl_queue[row_idx : row_idx + 1]
 
 					orders = [get_opl_stats(so, opl) for so, opl in assigned]
 
 					item_boxes_packed = sum(o["boxes_packed"] for o in orders)
 					item_boxes_staged = sum(o["boxes_staged"] for o in orders)
 					item_boxes_loaded = sum(o["boxes_loaded"] for o in orders)
+					item_boxes_to_load = sum(o["boxes_to_load"] for o in orders)
 
 					if orders:
 						item_boxes_allocated = sum(o["boxes_allocated"] for o in orders)
@@ -2624,6 +2715,7 @@ def fetchLoadingData():
 							"boxes_packed": item_boxes_packed,
 							"boxes_staged": item_boxes_staged,
 							"boxes_loaded": item_boxes_loaded,
+							"boxes_to_load": max(item_boxes_to_load, item_boxes_loaded),
 						}
 					)
 
@@ -2644,6 +2736,7 @@ def fetchLoadingData():
 			"total_boxes_packed": sum(o["boxes_packed"] for o in opl_stats_cache.values()),
 			"total_boxes_staged": sum(o["boxes_staged"] for o in opl_stats_cache.values()),
 			"total_boxes_loaded": sum(o["boxes_loaded"] for o in opl_stats_cache.values()),
+			"total_boxes_to_load": sum(o["boxes_to_load"] for o in opl_stats_cache.values()),
 			"total_stops": len(unique_stops),
 		}
 
@@ -2745,9 +2838,32 @@ def fetchPicklists():
 		issue = _issue_progress(opl_names)
 		packed = _packed_stems(opl_names)
 		shorts = _short_info(opl_names)
-		result = [r for r in result if issue.get(r[0]) and issue[r[0]]["issued"] >= issue[r[0]]["total"]]
+		# ...or one issued as far as Production Settings > Pack While Waiting for a
+		# Replacement From (%): it packs up to the issued stems and the rest is packed as
+		# it is issued -- no confirmation. (Orders sent with the old Pack what's issued
+		# button stay listed too.)
+		min_pct = _pack_waiting_min_pct()
+		issued_now = _issued_stems(opl_names)
+		pack_now = {o for o, st in issued_now.items() if st["issued"] > 0 and st["pct"] >= min_pct}
+		if opl_names and frappe.db.has_column("Order Pick List", "pack_issued_now"):
+			pack_now |= set(
+				frappe.get_all(
+					"Order Pick List",
+					filters={"name": ["in", opl_names], "pack_issued_now": 1},
+					pluck="name",
+				)
+			)
+		result = [
+			r
+			for r in result
+			if r[0] in pack_now or (issue.get(r[0]) and issue[r[0]]["issued"] >= issue[r[0]]["total"])
+		]
 		stems = _issued_stems([r[0] for r in result])
 		opl_names = [r[0] for r in result]
+		# What the packer sees as issued: every bucket of the order, the ones not found
+		# included -- an order sent to packing at 80% reads 80% (4/5), not 100% of the
+		# buckets that were found.
+		all_buckets = _all_bucket_counts(opl_names)
 
 		# Varieties + stem lengths per OPL, for the picklist picker label
 		# (customer · variety · stem length), same as the issuing screen.
@@ -2822,9 +2938,12 @@ def fetchPicklists():
 					stem_lengths=sorted(lengths_by_opl.get(r[0], set())),
 					variety_lengths=_variety_lengths(pairs_by_opl.get(r[0])),
 					qty=r[3],
-					issued_buckets=issue[r[0]]["issued"],
-					total_buckets=issue[r[0]]["total"],
-					issued_pct=round(100.0 * issue[r[0]]["issued"] / issue[r[0]]["total"]),
+					issued_buckets=int((all_buckets.get(r[0]) or {}).get("issued") or issue[r[0]]["issued"]),
+					total_buckets=int((all_buckets.get(r[0]) or {}).get("total") or issue[r[0]]["total"]),
+					# By stems over the whole order (not-found buckets included).
+					issued_pct=(stems.get(r[0]) or {}).get(
+						"pct", round(100.0 * issue[r[0]]["issued"] / issue[r[0]]["total"])
+					),
 					packed_pct=_packed_pct(packed.get(r[0], 0), r[3]),
 					# Sent to packing before all of it was issued: packing stops at the stems issued.
 					issued_stems=(stems.get(r[0]) or {}).get("issued", 0),
@@ -2840,8 +2959,11 @@ def fetchPicklists():
 				)
 			)
 
-		# Schedule order: every team's #1, then #2 …, the unscheduled after.
-		opl_list.sort(key=lambda o: (not o["schedule"], o["schedule"], o["schedule_team"]))
+		# Schedule order: every team's #1, then #2 …, the unscheduled after -- and the
+		# fully packed ones at the bottom whatever their place.
+		opl_list.sort(
+			key=lambda o: (o["packed_pct"] >= 100, not o["schedule"], o["schedule"], o["schedule_team"])
+		)
 		frappe.response["message"] = {"success": True, "data": opl_list, "count": len(opl_list)}
 	except Exception as e:
 		frappe.response["message"] = {"success": False, "error": str(e), "data": []}
@@ -3006,6 +3128,8 @@ SEQUENCE_BYPASS = {"issue": "allow_issue_out_of_sequence", "pack": "allow_pack_o
 # or -- packing while waiting for a replacement (the pack_while_waiting_replacement
 # Server Script submitted it with buckets not found) -- once its packing has started:
 # the team packs what was issued and moves on; the replacement is packed into it later.
+# Likewise an order only partly issued so far is done for now once every stem issued to it
+# is packed (issued 80%, packed all 80%): the next order packs while the rest is issued.
 PACK_DONE_SQL = """(EXISTS(SELECT 1 FROM `tabFarm Pack List` f
 	      WHERE f.order_pick_list = pso.order_pick_list AND f.docstatus = 1)
 	OR (opl.docstatus = 1 AND IFNULL(opl.short_accepted, 0) = 0
@@ -3013,7 +3137,20 @@ PACK_DONE_SQL = """(EXISTS(SELECT 1 FROM `tabFarm Pack List` f
 	               WHERE f.order_pick_list = pso.order_pick_list AND f.docstatus = 0)
 	    AND EXISTS(SELECT 1 FROM `tabPick List Item` nf
 	               WHERE nf.parent = pso.order_pick_list AND nf.parenttype = 'Order Pick List'
-	                 AND IFNULL(nf.not_found, 0) = 1)))"""
+	                 AND IFNULL(nf.not_found, 0) = 1))
+	OR (EXISTS(SELECT 1 FROM `tabPick List Item` u
+	           WHERE u.parent = pso.order_pick_list AND u.parenttype = 'Order Pick List'
+	             AND COALESCE(u.bucket, '') != '' AND IFNULL(u.issued, 0) = 0)
+	    AND (SELECT COALESCE(SUM(COALESCE(NULLIF(fi.stock_qty, 0), IFNULL(fi.bunch_qty, 0) * 10)), 0)
+	         FROM `tabFarm Pack List` f
+	         JOIN `tabFarm Packlist Item` fi ON fi.parent = f.name AND fi.parenttype = 'Farm Pack List'
+	         WHERE f.order_pick_list = pso.order_pick_list AND f.docstatus < 2)
+	        >= (SELECT SUM(IF(IFNULL(i.issued, 0) = 1, IFNULL(i.stock_qty, 0), 0)) FROM `tabPick List Item` i
+	            WHERE i.parent = pso.order_pick_list AND i.parenttype = 'Order Pick List'
+	              AND COALESCE(i.bucket, '') != '') - 0.5
+	    AND (SELECT SUM(IF(IFNULL(i.issued, 0) = 1, IFNULL(i.stock_qty, 0), 0)) FROM `tabPick List Item` i
+	         WHERE i.parent = pso.order_pick_list AND i.parenttype = 'Order Pick List'
+	           AND COALESCE(i.bucket, '') != '') > 0))"""
 
 
 def _schedule_blockers(opl_name, kind):
@@ -3119,6 +3256,25 @@ class IssuedCapError(frappe.ValidationError):
 	"""Packing past what an order has issued so far (see _issued_cap_error)."""
 
 
+def _all_bucket_counts(opl_names):
+	"""opl -> {total, issued}: every bucket of the order, the ones not found included --
+	what the line sees as issued (4 of 5 buckets is 80%, not 100% of the 4 found)."""
+	out = {}
+	if not opl_names:
+		return out
+	for b in frappe.db.sql(
+		"""SELECT parent, COUNT(DISTINCT UPPER(bucket)) AS total,
+		       COUNT(DISTINCT CASE WHEN IFNULL(issued, 0) = 1 THEN UPPER(bucket) END) AS issued
+		FROM `tabPick List Item`
+		WHERE parenttype = 'Order Pick List' AND parent IN %(o)s AND IFNULL(bucket, '') != ''
+		GROUP BY parent""",
+		{"o": tuple(opl_names)},
+		as_dict=True,
+	):
+		out[b.parent] = b
+	return out
+
+
 def _issued_stems(opl_names):
 	"""opl -> {issued, total, pct, moving}: stems of its bucket rows issued vs all of
 	them, not-found ones included (the basis Pack While Waiting uses), and how many
@@ -3160,8 +3316,8 @@ def _can_pack_waiting(stems, short, min_pct):
 
 def _pack_waiting_min_pct():
 	"""Production Settings > Pack While Waiting for a Replacement From (%); 50 until set."""
-	value = frappe.get_cached_doc("Production Settings").get("pack_waiting_replacement_pct")
-	return flt(value) if value not in (None, "") else 50.0
+	# A Float left empty reads 0: that is "not set", not "pack with nothing issued".
+	return flt(frappe.get_cached_doc("Production Settings").get("pack_waiting_replacement_pct")) or 50.0
 
 
 def _issued_cap_error(opl_name, packed, incoming):
@@ -3310,7 +3466,19 @@ def getReadySaleOrderItems():
 		shorts = _short_info(opl_names)
 		stock_here = _stock_here(opl_names, location) if location else None
 		stems = _issued_stems(opl_names)
+		all_buckets = _all_bucket_counts(opl_names)
 		pack_waiting_pct = _pack_waiting_min_pct()
+		packing_issued = (
+			set(
+				frappe.get_all(
+					"Order Pick List",
+					filters={"name": ["in", opl_names], "pack_issued_now": 1},
+					pluck="name",
+				)
+			)
+			if opl_names and frappe.db.has_column("Order Pick List", "pack_issued_now")
+			else set()
+		)
 		orders = []
 		for opl in ready_orders:
 			done = progress.get(opl.name) or {"total": 0, "issued": 0}
@@ -3319,6 +3487,7 @@ def getReadySaleOrderItems():
 				continue
 			if opl.name not in opls_with_unissued and not finished:
 				continue
+			shown = all_buckets.get(opl.name) or done
 			orders.append(
 				{
 					"opl_name": opl.name,
@@ -3331,9 +3500,14 @@ def getReadySaleOrderItems():
 					# "Wham (50cm)", "Fuchsiana (50cm, 60cm)": each variety with its own lengths.
 					"variety_lengths": _variety_lengths(pairs_by_opl.get(opl.name)),
 					"qty": opl.get("custom_total_stems"),
-					"issued_buckets": done["issued"],
-					"total_buckets": done["total"],
-					"issued_pct": round(100.0 * done["issued"] / done["total"]) if done["total"] else 0,
+					# Shown: every bucket, not-found ones included (4/5 = 80%). issue_done is
+					# the schedule's "done" (not-found buckets don't hold the team back).
+					"issued_buckets": int(shown["issued"] or 0),
+					"total_buckets": int(shown["total"] or 0),
+					"issued_pct": round(100.0 * int(shown["issued"] or 0) / int(shown["total"]))
+					if shown["total"]
+					else 0,
+					"issue_done": bool(finished),
 					# Stems issued of all its buckets' stems (not-found ones too), and whether it
 					# can go to packing with that now (Pack While Waiting's own rules).
 					"issued_stems": (stems.get(opl.name) or {}).get("issued", 0),
@@ -3341,9 +3515,11 @@ def getReadySaleOrderItems():
 					"issued_stem_pct": (stems.get(opl.name) or {}).get("pct", 0),
 					"moving_rows": (stems.get(opl.name) or {}).get("moving", 0),
 					"pack_waiting_pct": pack_waiting_pct,
-					"pack_waiting": _can_pack_waiting(
-						stems.get(opl.name), shorts.get(opl.name), pack_waiting_pct
-					),
+					# Already sent to packing with what was issued: packing it, and the rest
+					# is issued here as it is found (nothing marked not found).
+					"pack_issued_now": 1 if opl.name in packing_issued else 0,
+					"pack_waiting": opl.name not in packing_issued
+					and _can_pack_waiting(stems.get(opl.name), shorts.get(opl.name), pack_waiting_pct),
 					# A draft listed here has buckets a farm marked not found: replace them, or
 					# complete the order short (completeOplShort).
 					"draft": 0 if opl.docstatus else 1,
@@ -3409,12 +3585,12 @@ def getReadySaleOrderItems():
 			first_open = nxt.get(k) if sc else None
 			o["waits_for"] = (
 				first_open
-				if not bypass and first_open and o["schedule"] > first_open and o["issued_pct"] < 100
+				if not bypass and first_open and o["schedule"] > first_open and not o["issue_done"]
 				else 0
 			)
 		orders.sort(
 			key=lambda o: (
-				o["issued_pct"] >= 100,
+				o["issue_done"],
 				not o["schedule"],
 				o["schedule"],
 				o["schedule_team"],
@@ -3983,7 +4159,32 @@ def get_pick_list_with_farm_pack_list():
 		# Consolidate locations by variety, stem length, and bunch size
 		consolidated_locations = {}
 
+		# One packing line per ORDER line length: allocation can fill a 62cm line with a
+		# longer bucket (its row says 72cm), but its bunches pack against the order's
+		# 62cm -- grouping by the row's own length split the line in two (21 + 3) and
+		# refused the last bunches as "already fully packed".
+		so_lengths = {}
+		so_item_refs = list(
+			{
+				loc.get("custom_sale_order_item") or loc.get("sales_order_item")
+				for loc in order_pick_list.get("table_ytkc", [])
+				if loc.get("custom_sale_order_item") or loc.get("sales_order_item")
+			}
+		)
+		if so_item_refs:
+			for soi in frappe.get_all(
+				"Sales Order Item", filters={"name": ["in", so_item_refs]}, fields=["name", "custom_length"]
+			):
+				if soi.custom_length:
+					so_lengths[soi.name] = soi.custom_length
 		for location in order_pick_list.get("table_ytkc", []):
+			so_len = so_lengths.get(
+				location.get("custom_sale_order_item") or location.get("sales_order_item")
+			)
+			if so_len and so_len != location.get("stem_length"):
+				location = dict(location)
+				location["bucket_stem_length"] = location.get("stem_length")
+				location["stem_length"] = so_len
 			key = (
 				location.get("item_code"),
 				location.get("stem_length"),
@@ -4435,6 +4636,27 @@ def get_pick_list_with_farm_pack_list():
 				"overall_percentage": overall_percentage,
 				"items": items_guide,
 			}
+			# What goes in each box, straight from the Packing Guide: per box, each
+			# variety's bunches and stems (e.g. Box 1: 3 Athena, 4 Fireworks) -- the
+			# app shows it per box and holds each variety to its own box's count.
+			if guide_rows:
+				boxes = {}
+				for r in guide_rows:
+					bn = safe_int(r.get("box_number"))
+					if not bn or not r.get("variety"):
+						continue
+					boxes.setdefault(bn, []).append(
+						{
+							"variety": r.get("variety"),
+							"item_name": r.get("item_name") or r.get("variety"),
+							"colour": r.get("colour") or "",
+							"length": r.get("length") or "",
+							"stems_per_bunch": safe_int(r.get("stems_per_bunch")),
+							"bunches": safe_int(r.get("bunches")),
+							"stems": safe_int(r.get("stems")),
+						}
+					)
+				packing_guide["boxes"] = [{"box_number": bn, "items": boxes[bn]} for bn in sorted(boxes)]
 
 			# =========================================================
 			# MIXED BUNCH enrichment (additive — never affects the above).
@@ -4984,6 +5206,7 @@ def issueBucketToSaleOrderItem():
 					# Commit all changes
 					# -------------------------------
 					frappe.db.commit()
+					_submit_for_packing(updated_opls)
 
 					frappe.response.message = (
 						f"Bucket {bucket_id} successfully issued to {sale_order_item}, and removed from shelf"

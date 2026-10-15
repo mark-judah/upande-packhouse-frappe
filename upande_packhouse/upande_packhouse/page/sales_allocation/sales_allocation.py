@@ -2732,6 +2732,22 @@ def unallocate_bucket_from_opl(sales_order_item: str, bucket_id: str, stem_lengt
 # another shelved bucket of the same variety + stem length from the same farm,
 # carry the allocation (BAS), the OPL rows and the Sold-leg stock across.
 # ============================================================
+def _order_length(anchor):
+	"""The length the anchor's ORDER LINE asks for (Sales Order Item.custom_length).
+
+	A pick row keeps its bucket's own length -- longer than the order on a downgrade --
+	so a replacement is measured against the order line, not against the bucket it
+	replaces: a downgraded 72cm row on a 62cm line takes any bucket of 62cm or longer,
+	the order's own length first."""
+	if anchor.get("order_length"):
+		return anchor.order_length
+	soi = anchor.get("sales_order_item")
+	if not soi and anchor.get("name"):
+		soi = frappe.db.get_value("Pick List Item", anchor.name, "sales_order_item")
+	length = frappe.db.get_value("Sales Order Item", soi, "custom_length") if soi else None
+	return length or anchor.get("stem_length") or ""
+
+
 def _requested_bucket_rows(pick_list_item, allow_shelved=False, allow_left=False, farm=None):
 	"""Every OPL row that holds the same physical bucket as `pick_list_item`
 	(an OPL has one row per box, so one bucket can span several rows).
@@ -2748,11 +2764,22 @@ def _requested_bucket_rows(pick_list_item, allow_shelved=False, allow_left=False
 	anchor = frappe.db.get_value(
 		"Pick List Item",
 		pick_list_item,
-		["name", "parent", "parenttype", "bucket", "item_code", "stem_length", "shelf", "farm"],
+		[
+			"name",
+			"parent",
+			"parenttype",
+			"bucket",
+			"item_code",
+			"stem_length",
+			"shelf",
+			"farm",
+			"sales_order_item",
+		],
 		as_dict=True,
 	)
 	if not anchor or anchor.parenttype != "Order Pick List" or not anchor.bucket:
 		frappe.throw(_("Pick List Item {0} is not a bucket on an Order Pick List.").format(pick_list_item))
+	anchor["order_length"] = _order_length(anchor)
 
 	rows = frappe.get_all(
 		"Pick List Item",
@@ -2902,7 +2929,9 @@ def _replacement_candidates(anchor, farm, needed, limit=1):
 	config = _get_production_config()
 	discard_age = flt(config.get("discard_age") or 5)
 	max_age = flt(config.get("farm_config", {}).get(farm, {}).get("max_allocation_age") or discard_age)
-	min_cm = _length_cm(anchor.stem_length)
+	# The order line's length, not the replaced bucket's: a replacement obeys the order.
+	order_length = _order_length(anchor)
+	min_cm = _length_cm(order_length)
 	taken = set(
 		frappe.get_all(
 			"Pick List Item",
@@ -2953,7 +2982,7 @@ def _replacement_candidates(anchor, farm, needed, limit=1):
 		cm = _length_cm(r.stem_length)
 		if min_cm is not None and (cm is None or cm < min_cm):
 			continue
-		if min_cm is None and (r.stem_length or "") != (anchor.stem_length or ""):
+		if min_cm is None and (r.stem_length or "") != (order_length or ""):
 			continue
 		if flt(r.stem_qty) + stock_movement.QTY_TOLERANCE < needed:
 			continue
@@ -2971,7 +3000,7 @@ def _replacement_candidates(anchor, farm, needed, limit=1):
 
 def _no_replacement_message(anchor, farm, needed):
 	return _("No unallocated {0} bucket of {1} or longer at {2} holds {3} stems.").format(
-		anchor.item_code, anchor.stem_length or "", farm, int(needed)
+		anchor.item_code, _order_length(anchor), farm, int(needed)
 	)
 
 
@@ -3320,6 +3349,27 @@ def _replace_requested_bucket(
 			{"bucket_id": old_bucket, "item_code": anchor.item_code, "stem_length": anchor.stem_length or ""},
 			"name",
 		)
+		if not old_bas_name:
+			# The row carries the order line's length while the bucket's status keeps the
+			# bucket's own (a downgrade, or a row set to the order's length): find it by
+			# the allocation this order holds on it.
+			old_bas_name = next(
+				iter(
+					frappe.db.sql_list(
+						"""SELECT b.name FROM `tabBucket Allocation Status` b
+						JOIN `tabBucket Allocations` a ON a.parent = b.name
+						WHERE b.bucket_id = %(b)s AND b.item_code = %(item)s
+						  AND a.sales_order_item IN %(so_items)s AND IFNULL(a.cancelled, 0) = 0
+						LIMIT 1""",
+						{
+							"b": old_bucket,
+							"item": anchor.item_code,
+							"so_items": tuple(qty_by_so_item) or ("",),
+						},
+					)
+				),
+				None,
+			)
 		was_in_transit = any(cint(r.awaiting_transfer) for r in rows)
 		if old_bas_name:
 			old_bas = frappe.get_doc("Bucket Allocation Status", old_bas_name, for_update=True)
@@ -3399,7 +3449,12 @@ def _replace_requested_bucket(
 		new_bas.save(ignore_permissions=True)
 
 		# ── OPL: point every row of the old bucket at the new one ──
-		longer = (new.stem_length or "") != (anchor.stem_length or "")
+		# A downgrade only when the replacement is longer than the ORDER LINE asks for; at
+		# the order's length the row carries the order's length (and no downgrade).
+		order_length = _order_length(anchor)
+		longer = (_length_cm(new.stem_length) or 0) > (_length_cm(order_length) or 0) and (
+			new.stem_length or ""
+		) != (order_length or "")
 		for r in rows:
 			values = {
 				"bucket": new.bucket_id,
@@ -3407,8 +3462,10 @@ def _replace_requested_bucket(
 				# The replacement starts where it sits: its farm's own store.
 				"source_warehouse": _origin_warehouse(farm, new.warehouse or r.source_warehouse),
 				"origin_warehouse": _origin_warehouse(farm, new.warehouse or r.source_warehouse),
-				# The pick row keeps the graded length; a longer one is a downgrade.
-				"stem_length": new.stem_length or r.stem_length,
+				# The pick row carries the ORDER LINE's length: packing counts the line by it.
+				# A longer replacement is a downgrade, recorded in downgrade_reason (its
+				# Bucket Allocation Status keeps the bucket's own length).
+				"stem_length": order_length or new.stem_length or r.stem_length,
 			}
 			if frappe.db.has_column("Pick List Item", "not_found"):
 				# The replacement is found: the row stops being a missing bucket.
@@ -3435,9 +3492,14 @@ def _replace_requested_bucket(
 					}
 				)
 			if longer:
-				values["downgrade_reason"] = _("Replacement for missing bucket {0} ({1})").format(
-					old_bucket, anchor.stem_length or ""
+				values["downgrade_reason"] = _(
+					"Replacement for missing bucket {0} ({1}): {2} is {3} on a {4} order line"
+				).format(
+					old_bucket, anchor.stem_length or "", new.bucket_id, new.stem_length or "", order_length
 				)
+			else:
+				# At the order's length: no downgrade (a previous one on this row is over).
+				values["downgrade_reason"] = ""
 			frappe.db.set_value("Pick List Item", r.name, values)
 
 		# ── Shelf: the replacement leaves its shelf now it is claimed for this order ──

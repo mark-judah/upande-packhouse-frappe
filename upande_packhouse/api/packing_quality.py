@@ -601,9 +601,17 @@ def _allocate_replacement(opl, rows, anchor, new, new_farm, qty, sale_order_item
 	"""Allocate `qty` stems of `new` to the line, as rows of this OPL, with the
 	allocation page's own core. Returns (new pick row names, stock moves)."""
 	so_item = frappe.db.get_value(
-		"Sales Order Item", sale_order_item, ["uom", "stock_uom", "conversion_factor"], as_dict=True
+		"Sales Order Item",
+		sale_order_item,
+		["uom", "stock_uom", "conversion_factor", "custom_length"],
+		as_dict=True,
 	)
-	longer = (new.stem_length or "") != (anchor.stem_length or "")
+	# Measured against the ORDER LINE, not the bucket replaced: a longer one is a downgrade,
+	# and its rows carry the order line's length so packing counts the line as one.
+	order_length = (so_item.custom_length if so_item else None) or anchor.stem_length or ""
+	longer = (sa._length_cm(new.stem_length) or 0) > (sa._length_cm(order_length) or 0) and (
+		new.stem_length or ""
+	) != order_length
 	allocation = {
 		"sales_order_item": sale_order_item,
 		"bucket_id": new.bucket_id,
@@ -614,9 +622,9 @@ def _allocate_replacement(opl, rows, anchor, new, new_farm, qty, sale_order_item
 		"uom": so_item.uom if so_item else None,
 		"stock_uom": so_item.stock_uom if so_item else None,
 		"conversion_factor": flt(so_item.conversion_factor) if so_item else 1,
-		"downgrade_reason": _("Quality issue replacement for {0} ({1})").format(
-			anchor.bucket, anchor.stem_length or ""
-		)
+		"downgrade_reason": _(
+			"Quality issue replacement for {0} ({1}): {2} is {3} on a {4} order line"
+		).format(anchor.bucket, anchor.stem_length or "", new.bucket_id, new.stem_length or "", order_length)
 		if longer
 		else "",
 	}
@@ -642,7 +650,11 @@ def _allocate_replacement(opl, rows, anchor, new, new_farm, qty, sale_order_item
 
 	# The replacement fills the boxes the bad stems came out of.
 	box = rows[-1]
-	values = {"custom_box_id": box.custom_box_id, "custom_box_label": box.custom_box_label}
+	values = {
+		"custom_box_id": box.custom_box_id,
+		"custom_box_label": box.custom_box_label,
+		"stem_length": order_length or None,
+	}
 	if remote:
 		# Requested from the remote farm: waits for a truck, first in line.
 		values.update(

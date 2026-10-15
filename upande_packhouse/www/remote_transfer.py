@@ -31,6 +31,13 @@ def get_context(context):
 	context.rt_embed = frappe.utils.cint(
 		frappe.form_dict.get("embed") or (frappe.request.args.get("embed") if frappe.request else 0)
 	)
+	# The Transfer Scheduling tab is gone: its address (the sidebar's old link, bookmarks,
+	# /transfer-control) opens Bucket Logistics. Only the Scheduler's distribute step still
+	# opens it, inside its frame (?embed=1).
+	if tab == "transfer" and not context.rt_embed:
+		query = frappe.request.query_string.decode() if frappe.request.query_string else ""
+		frappe.local.flags.redirect_location = PATHS["logistics"] + ("?" + query if query else "")
+		raise frappe.Redirect(302)
 	context.rt_group = GROUPS[tab]
 	context.rt_templates = template_paths(tab)
 	context.rt_paths = PATHS
