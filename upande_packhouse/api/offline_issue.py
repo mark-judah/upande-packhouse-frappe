@@ -132,10 +132,11 @@ def _why_not(bucket, anchor, farm, needed):
 		return _("Bucket {0} holds {1}, not {2}.").format(bucket, items[0].variety, anchor.item_code)
 	if not any(frappe.db.get_value("Shelf", i.parent, "farm") == farm for i in same):
 		return _("Bucket {0} is not shelved at {1}.").format(bucket, farm)
-	min_cm = sa._length_cm(anchor.stem_length)
+	order_length = sa._order_length(anchor)
+	min_cm = sa._length_cm(order_length)
 	if min_cm is not None and all((sa._length_cm(i.stem_length) or 0) < min_cm for i in same):
-		return _("Bucket {0} is {1}, shorter than the {2} needed.").format(
-			bucket, same[0].stem_length or "?", anchor.stem_length
+		return _("Bucket {0} is {1}, shorter than the {2} the order needs.").format(
+			bucket, same[0].stem_length or "?", order_length
 		)
 	if all(flt(i.stem_qty) < needed for i in same):
 		return _("Bucket {0} holds {1} stems; {2} are needed.").format(
@@ -645,7 +646,8 @@ def replacement_options(
 		"history": history,
 		"old_bucket": anchor.bucket,
 		"variety": anchor.item_code,
-		"stem_length": anchor.stem_length,
+		# What the order line asks for: the replacement is at least this long.
+		"stem_length": sa._order_length(anchor),
 		"needed_qty": needed,
 		"farm": farm,
 		"candidates": [_describe(c) for c in found],

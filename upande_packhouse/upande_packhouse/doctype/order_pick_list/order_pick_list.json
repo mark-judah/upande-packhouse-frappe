@@ -28,6 +28,7 @@
   "bunch_group",
   "short_accepted",
   "short_stems",
+  "pack_issued_now",
   "order_details_section",
   "table_ytkc",
   "bouquet_packing_guide_section",
@@ -144,6 +145,15 @@
    "depends_on": "eval:doc.short_accepted"
   },
   {
+   "allow_on_submit": 1,
+   "default": "0",
+   "description": "Sent to packing with what was issued (Production Settings > Pack While Waiting From %): packing stops at the issued stems; the rest is issued as it is found.",
+   "fieldname": "pack_issued_now",
+   "fieldtype": "Check",
+   "label": "Packing What Was Issued",
+   "read_only": 1
+  },
+  {
    "fieldname": "item_group",
    "fieldtype": "Link",
    "label": "Item Group",
@@ -211,7 +221,7 @@
    "link_fieldname": "order_pick_list"
   }
  ],
- "modified": "2026-10-08 12:00:00.000000",
+ "modified": "2026-10-15 16:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Order Pick List",

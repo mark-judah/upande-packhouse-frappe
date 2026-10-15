@@ -53,6 +53,8 @@ frappe.ui.form.on("Loading Plan", {
 										row.loading_position = item.loading_position;
 										row.box_type = item.box_type;
 										row.number_of_boxes = item.number_of_boxes;
+										row.sales_order = item.sales_order;
+										row.order_pick_list = item.opl;
 									});
 									frm.refresh_field("loading_plan_items");
 									frm.dirty();
