@@ -113,3 +113,35 @@ class UnitTestExpandWideMatrix(UnitTestCase):
 		bad_layout = _layout(matrix_group_column_width=0)
 		with self.assertRaises(frappe.exceptions.ValidationError):
 			expand_wide_matrix([], TWO_GROUP_ROWS, bad_layout)
+
+
+class UnitTestOrderImportPlatformSchema(UnitTestCase):
+	def test_layout_type_defaults_to_standard_rows(self):
+		meta = frappe.get_meta("Order Import Platform")
+		df = meta.get_field("layout_type")
+		self.assertEqual(df.default, "Standard Rows")
+		self.assertIn("Wide Matrix", df.options)
+
+	def test_matrix_layout_fields_exist(self):
+		meta = frappe.get_meta("Order Import Platform")
+		for fieldname in (
+			"matrix_group_label_row",
+			"matrix_order_date_row",
+			"matrix_delivery_date_row",
+			"matrix_po_row",
+			"matrix_items_start_row",
+			"matrix_code_column",
+			"matrix_description_column",
+			"matrix_bunch_rate_column",
+			"matrix_first_group_column",
+			"matrix_group_column_width",
+			"matrix_stop_value",
+		):
+			self.assertIsNotNone(meta.get_field(fieldname), f"missing field {fieldname}")
+
+	def test_virtual_item_fields_include_bunches_and_bunch_rate(self):
+		from upande_packhouse.api.order_import import VIRTUAL_ITEM_FIELDS
+
+		names = {f["fieldname"] for f in VIRTUAL_ITEM_FIELDS}
+		self.assertIn("_bunches_ordered", names)
+		self.assertIn("_bunch_rate", names)

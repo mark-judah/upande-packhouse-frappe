@@ -29,6 +29,16 @@ from upande_packhouse import spec_autofill
 VIRTUAL_ITEM_FIELDS = [
 	{"fieldname": "_stems_per_bunch", "label": "Stems Per Bunch (auto Pack Rate + UOM)", "fieldtype": "Int"},
 	{"fieldname": "_bunches_per_box", "label": "Bunches Per Box (auto Pack Rate + UOM)", "fieldtype": "Int"},
+	{
+		"fieldname": "_bunches_ordered",
+		"label": "Bunches Ordered (converts to boxes via the Specification)",
+		"fieldtype": "Int",
+	},
+	{
+		"fieldname": "_bunch_rate",
+		"label": "Bunch Rate (stems/bunch, cross-checked against the Specification)",
+		"fieldtype": "Int",
+	},
 ]
 
 # A Wide Matrix file lays out several orders as side-by-side colour-coded
