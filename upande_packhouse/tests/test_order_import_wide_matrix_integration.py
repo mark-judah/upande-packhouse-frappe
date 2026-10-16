@@ -231,8 +231,18 @@ class IntegrationTestWideMatrixBuildPreview(IntegrationTestCase):
 	def test_build_preview_splits_into_one_order_per_po_group(self):
 		from upande_packhouse.api.order_import import buildPreview
 
+		# header/rows split the same way the real client always does (see
+		# applyParsedGrid in sales-order-v2.html/sales-order.html): the
+		# file's actual row 0 is stripped off into `header`, never left in
+		# `rows` - every matrix_*_row config above is 0-indexed against the
+		# FULL grid including that stripped row.
 		frappe.form_dict.data = json.dumps(
-			{"customer": CUSTOMER, "platform": PLATFORM, "header": [], "rows": TWO_GROUP_ROWS}
+			{
+				"customer": CUSTOMER,
+				"platform": PLATFORM,
+				"header": TWO_GROUP_ROWS[0],
+				"rows": TWO_GROUP_ROWS[1:],
+			}
 		)
 		buildPreview()
 		result = frappe.response["message"]

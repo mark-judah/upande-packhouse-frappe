@@ -71,10 +71,20 @@ def _matrix_cell(rows, row_idx, col_idx):
 def expand_wide_matrix(header, rows, platform_doc):
 	"""Pivot a Wide Matrix platform's raw grid into the same flat "long"
 	header/rows shape buildPreview already groups by Multi-Order Split
-	Column. `header` is accepted for signature symmetry with the Standard
-	Rows path but unused - a Wide Matrix file's column meaning comes
+	Column.
+
+	Unlike the Standard Rows path, a Wide Matrix file's column meaning comes
 	entirely from platform_doc's own row/column position fields, never from
-	column names (there is no single header row to name them)."""
+	column names (there is no single named header row) - but those position
+	fields are still 0-indexed against the FULL file grid, including the
+	file's own real row 0. The real caller (applyParsedGrid in
+	upande_packhouse/www/sales-order-v2.html, and the older sales-order.html)
+	always strips that row 0 off into `header` before sending `rows` - so
+	`header` is stitched back onto the front of `rows` here, first thing,
+	before any row-indexed lookup runs. Every matrix_*_row config value a
+	platform is configured with therefore means exactly what it says: a
+	0-indexed row number counting from the file's own real row 0."""
+	full_rows = [header] + list(rows)
 	label_row = int(platform_doc.matrix_group_label_row or 0)
 	order_date_row = int(platform_doc.matrix_order_date_row or 0)
 	delivery_date_row = int(platform_doc.matrix_delivery_date_row or 0)
@@ -105,28 +115,28 @@ def expand_wide_matrix(header, rows, platform_doc):
 	groups = []
 	col = first_group_col
 	while True:
-		label = _matrix_cell(rows, label_row, col)
+		label = _matrix_cell(full_rows, label_row, col)
 		if not label:
 			break
 		groups.append(
 			{
-				"order_date": _matrix_cell(rows, order_date_row, col),
-				"delivery_date": _matrix_cell(rows, delivery_date_row, col),
-				"po_number": _matrix_cell(rows, po_row, col),
+				"order_date": _matrix_cell(full_rows, order_date_row, col),
+				"delivery_date": _matrix_cell(full_rows, delivery_date_row, col),
+				"po_number": _matrix_cell(full_rows, po_row, col),
 				"ordered_col": col,
 			}
 		)
 		col += group_width
 
 	new_rows = []
-	for row_idx in range(items_start_row, len(rows)):
-		code = _matrix_cell(rows, row_idx, code_col)
+	for row_idx in range(items_start_row, len(full_rows)):
+		code = _matrix_cell(full_rows, row_idx, code_col)
 		if not code or str(code).strip().lower() == stop_value:
 			break
-		description = _matrix_cell(rows, row_idx, desc_col)
-		bunch_rate = _matrix_cell(rows, row_idx, bunch_rate_col)
+		description = _matrix_cell(full_rows, row_idx, desc_col)
+		bunch_rate = _matrix_cell(full_rows, row_idx, bunch_rate_col)
 		for g in groups:
-			ordered = _matrix_cell(rows, row_idx, g["ordered_col"])
+			ordered = _matrix_cell(full_rows, row_idx, g["ordered_col"])
 			try:
 				ordered_num = float(ordered) if ordered not in (None, "") else 0.0
 			except (TypeError, ValueError):

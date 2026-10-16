@@ -49,7 +49,13 @@ TWO_GROUP_ROWS = [
 
 class UnitTestExpandWideMatrix(UnitTestCase):
 	def test_pivots_two_groups_and_skips_all_zero_row(self):
-		header, rows = expand_wide_matrix([], TWO_GROUP_ROWS, _layout())
+		# header/rows split the same way the real client always does (see
+		# applyParsedGrid in sales-order-v2.html/sales-order.html): the
+		# file's actual row 0 is stripped off into `header`, never left in
+		# `rows` - every matrix_*_row config value here is 0-indexed against
+		# the FULL grid including that stripped row, so TWO_GROUP_ROWS[0]
+		# (not an empty header) must be what's passed as `header`.
+		header, rows = expand_wide_matrix(TWO_GROUP_ROWS[0], TWO_GROUP_ROWS[1:], _layout())
 		self.assertEqual(header, WIDE_MATRIX_SYNTHETIC_HEADER)
 		# ZEROCODE is dropped entirely (zero in every group); MIXCODE only
 		# appears for Alpha, SINGLECODE only for Beta.
@@ -65,14 +71,14 @@ class UnitTestExpandWideMatrix(UnitTestCase):
 		# The legend row below "Total" literally repeats "LINE CODE"/"LINE" as
 		# plain text in the code/description columns - if the stop condition
 		# didn't fire, it would be mis-read as a bogus extra item line.
-		header, rows = expand_wide_matrix([], TWO_GROUP_ROWS, _layout())
+		_header, rows = expand_wide_matrix(TWO_GROUP_ROWS[0], TWO_GROUP_ROWS[1:], _layout())
 		descriptions = [r[0] for r in rows]
 		self.assertNotIn("LINE", descriptions)
 
 	def test_detects_fewer_groups_than_a_six_group_reference_file(self):
 		# Only 2 groups configured/present here (vs. the real Flamingo file's
 		# 6) - group count must come from the label row, not be hardcoded.
-		_header, rows = expand_wide_matrix([], TWO_GROUP_ROWS, _layout())
+		_header, rows = expand_wide_matrix(TWO_GROUP_ROWS[0], TWO_GROUP_ROWS[1:], _layout())
 		po_numbers = {r[3] for r in rows}
 		self.assertEqual(po_numbers, {"PO-1001", "PO-1002"})
 
@@ -87,7 +93,7 @@ class UnitTestExpandWideMatrix(UnitTestCase):
 			["CODE1", "Four Group Spec x10 STEMS", "1.0", "10", "5", "5", "5", "5", "5", "5", "5", "5"],
 			["Total"],
 		]
-		_header, rows = expand_wide_matrix([], four_group_rows, _layout())
+		_header, rows = expand_wide_matrix(four_group_rows[0], four_group_rows[1:], _layout())
 		self.assertEqual({r[3] for r in rows}, {"PO-A", "PO-B", "PO-C", "PO-D"})
 
 	def test_rejects_unset_row_layout(self):
@@ -102,17 +108,39 @@ class UnitTestExpandWideMatrix(UnitTestCase):
 			matrix_items_start_row=0,
 		)
 		with self.assertRaises(frappe.exceptions.ValidationError):
-			expand_wide_matrix([], TWO_GROUP_ROWS, bad_layout)
+			expand_wide_matrix(TWO_GROUP_ROWS[0], TWO_GROUP_ROWS[1:], bad_layout)
 
 	def test_rejects_colliding_columns(self):
 		bad_layout = _layout(matrix_description_column=0)  # same as matrix_code_column
 		with self.assertRaises(frappe.exceptions.ValidationError):
-			expand_wide_matrix([], TWO_GROUP_ROWS, bad_layout)
+			expand_wide_matrix(TWO_GROUP_ROWS[0], TWO_GROUP_ROWS[1:], bad_layout)
 
 	def test_rejects_group_column_width_below_one(self):
 		bad_layout = _layout(matrix_group_column_width=0)
 		with self.assertRaises(frappe.exceptions.ValidationError):
-			expand_wide_matrix([], TWO_GROUP_ROWS, bad_layout)
+			expand_wide_matrix(TWO_GROUP_ROWS[0], TWO_GROUP_ROWS[1:], bad_layout)
+
+	def test_pivot_matches_real_client_header_rows_split(self):
+		# Pins the real calling convention directly (see applyParsedGrid in
+		# upande_packhouse/www/sales-order-v2.html): given a whole raw grid,
+		# the real client always does `header = grid[0]; rows = grid[1:]`
+		# before ever calling buildPreview -> expand_wide_matrix. This test
+		# builds the grid fresh and performs exactly that split itself,
+		# rather than relying on a fixture already pre-split for it, so a
+		# future regression in how `header`/`rows` are stitched back
+		# together inside expand_wide_matrix is caught here directly.
+		grid = TWO_GROUP_ROWS
+		header = grid[0]
+		rows = grid[1:]
+		new_header, new_rows = expand_wide_matrix(header, rows, _layout())
+		self.assertEqual(new_header, WIDE_MATRIX_SYNTHETIC_HEADER)
+		self.assertEqual(
+			new_rows,
+			[
+				["Test Mix Spec x20 STEMS", 40.0, "20", "PO-1001", "01/01/2026", "03/01/2026"],
+				["Test Single Spec x10 STEMS", 30.0, "10", "PO-1002", "02/01/2026", "04/01/2026"],
+			],
+		)
 
 
 class UnitTestOrderImportPlatformSchema(UnitTestCase):
