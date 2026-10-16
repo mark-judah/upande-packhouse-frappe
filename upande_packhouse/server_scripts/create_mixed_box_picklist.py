@@ -677,7 +677,9 @@ def _generate_flat_locations(
 				else so_item.get("custom_packrate")
 			),
 			"custom_flower_food": so_item.get("custom_flower_food"),
-			"custom_ready_for_packing": 0,
+			# A bucket on a sales shelf is already here: ready to issue, like the straight-box
+			# rows. Only a remote bucket waits (awaiting_transfer) until it is shelved at the hub.
+			"custom_ready_for_packing": 0 if awaiting_transfer else 1,
 			"shelf": shelf_str,
 			"downgrade_reason": alloc_entry.get("downgrade_reason", ""),
 			"available_stems_of_exact_length": alloc_entry.get("available_exact_stems", 0),
@@ -773,7 +775,8 @@ def _generate_box_locations_with_splitting(
 					else so_item.get("custom_packrate")
 				),
 				"custom_flower_food": so_item.get("custom_flower_food"),
-				"custom_ready_for_packing": 0,
+				# See _generate_flat_locations: a sales-shelf bucket is ready, a remote one waits.
+				"custom_ready_for_packing": 0 if awaiting_transfer else 1,
 				"shelf": shelf_str,
 				"downgrade_reason": contrib.get("downgrade_reason", ""),
 				"available_stems_of_exact_length": contrib.get("available_exact_stems", 0),
