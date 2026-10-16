@@ -18,13 +18,23 @@ ALLOC = frappe._dict({"stem_length": "52cm"})
 
 
 def _sales(bucket, qty=50):
-	return {"bucket_id": bucket, "qty": qty, "warehouse": "Karen Receiving Cold Store - KR",
-		"_shelf_farm": "Karen", "_is_sales_shelf": 1}
+	return {
+		"bucket_id": bucket,
+		"qty": qty,
+		"warehouse": "Karen Receiving Cold Store - KR",
+		"_shelf_farm": "Karen",
+		"_is_sales_shelf": 1,
+	}
 
 
 def _remote(bucket, qty=50):
-	return {"bucket_id": bucket, "qty": qty, "warehouse": "Chepsito Store - CH",
-		"_shelf_farm": "Chepsito", "_is_sales_shelf": 0}
+	return {
+		"bucket_id": bucket,
+		"qty": qty,
+		"warehouse": "Chepsito Store - CH",
+		"_shelf_farm": "Chepsito",
+		"_is_sales_shelf": 0,
+	}
 
 
 def _unflagged(bucket, qty=50):
@@ -39,12 +49,14 @@ class UnitTestMixedBoxReady(UnitTestCase):
 	def _flat(self, allocs):
 		with patch.object(box, "_lookup_shelf", return_value="K58M"):
 			return box._generate_flat_locations(
-				ALLOC, SO_ITEM, "SO-1", "soi-1", allocs, 1, "Stem", "Stem", "Karen", "Bombastic")
+				ALLOC, SO_ITEM, "SO-1", "soi-1", allocs, 1, "Stem", "Stem", "Karen", "Bombastic"
+			)
 
 	def _split(self, allocs, slots):
 		with patch.object(box, "_lookup_shelf", return_value="K58M"):
 			return box._generate_box_locations_with_splitting(
-				ALLOC, SO_ITEM, "SO-1", "soi-1", allocs, 50, slots, 1, "Stem", "Stem", "Karen", "Bombastic")
+				ALLOC, SO_ITEM, "SO-1", "soi-1", allocs, 50, slots, 1, "Stem", "Stem", "Karen", "Bombastic"
+			)
 
 	def test_flat_rows(self):
 		rows = self._flat([_sales("S1"), _remote("R1")])
@@ -66,8 +78,25 @@ class UnitTestMixedBoxReady(UnitTestCase):
 
 class UnitTestMixedBunchReady(UnitTestCase):
 	def _row(self, awaiting):
-		return bunch._bunch_row(SO_ITEM, "Bombastic", "SO-1", "soi-1", ALLOC, "B1", 50,
-			"Karen Receiving Cold Store - KR", "", 0, awaiting, "K58M", "Karen", 1, "Stem", "Stem", 1)
+		return bunch._bunch_row(
+			SO_ITEM,
+			"Bombastic",
+			"SO-1",
+			"soi-1",
+			ALLOC,
+			"B1",
+			50,
+			"Karen Receiving Cold Store - KR",
+			"",
+			0,
+			awaiting,
+			"K58M",
+			"Karen",
+			1,
+			"Stem",
+			"Stem",
+			1,
+		)
 
 	def test_row_not_awaiting_transfer_is_ready(self):
 		row = self._row(0)
@@ -80,12 +109,33 @@ class UnitTestMixedBunchReady(UnitTestCase):
 	def test_flat_rows(self):
 		with patch.object(bunch, "_lookup_shelf", return_value="K58M"):
 			rows = bunch._generate_bunch_flat_locations(
-				ALLOC, SO_ITEM, "SO-1", "soi-1", [_sales("S1"), _remote("R1")], 1, "Stem", "Stem", "Karen", "Bombastic")
+				ALLOC,
+				SO_ITEM,
+				"SO-1",
+				"soi-1",
+				[_sales("S1"), _remote("R1")],
+				1,
+				"Stem",
+				"Stem",
+				"Karen",
+				"Bombastic",
+			)
 		self.assertEqual(_flags(rows), {"S1": (0, 1), "R1": (1, 0)})
 
 	def test_split_rows(self):
 		with patch.object(bunch, "_lookup_shelf", return_value="K58M"):
 			rows = bunch._generate_bunch_locations_with_splitting(
-				ALLOC, SO_ITEM, "SO-1", "soi-1", [_sales("S1"), _remote("R1")], 50, [(1, 50), (2, 50)],
-				1, "Stem", "Stem", "Karen", "Bombastic")
+				ALLOC,
+				SO_ITEM,
+				"SO-1",
+				"soi-1",
+				[_sales("S1"), _remote("R1")],
+				50,
+				[(1, 50), (2, 50)],
+				1,
+				"Stem",
+				"Stem",
+				"Karen",
+				"Bombastic",
+			)
 		self.assertEqual(_flags(rows), {"S1": (0, 1), "R1": (1, 0)})

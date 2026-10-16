@@ -1128,8 +1128,8 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   }
 
   // "Distribute to trips": every order already has its team from allocation; this puts
-  // the ones not scheduled yet at the end of their team's sequence, saves, and opens
-  // Transfer Scheduling's Distribute, which plans the trips in sequence order.
+  // the ones not scheduled yet at the end of their team's sequence, saves, and plans
+  // the trips in sequence order (auto_transfer.distributeTrips).
   // What Distribute schedules: the unscheduled orders in view -- the chosen status
   // (e.g. Submitted only) and team, within the Location / Farm filters.
   function distTodo(){
@@ -1139,9 +1139,18 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     });
   }
   function distributeToTrips(){
+    // Plans the scheduled orders onto the day's trips right here (the server's
+    // distributeTrips); the trips show on Bucket Logistics -- no separate Trips page.
     var openTrips=function(){
-      if(window.rtOpenTab) window.rtOpenTab('transfer','rtDistribute');
-      else location.href='/remote-transfer/transfer-scheduling?date='+encodeURIComponent(STATE.date||'');
+      var alert=function(m,c,s){ if(window.frappe&&frappe.show_alert) frappe.show_alert({message:m,indicator:c},s||5); };
+      frp('upande_packhouse.api.auto_transfer.distributeTrips',{date:STATE.date||window.rtDate.get()}).then(function(m){
+        if(!m||m.status==='error'||m.status==='busy'){ alert((m&&m.message)||'Distribute failed','red',6); return; }
+        var trips=(m.trips||[]).length, filling=(m.filling||[]).length;
+        alert(m.unchanged?'Trips unchanged':(trips+' trip'+(trips===1?'':'s')+' planned · '+(trips-filling)+' full'),'green');
+        (m.runs_added||[]).forEach(function(a){ alert('Added trip '+(a.run||'')+' on '+a.vehicle+' to '+a.farm,'green'); });
+        var un=(m.unreachable||[]).length;
+        if(un) alert(un+' order'+(un===1?' has':'s have')+' no truck going to '+(un===1?'its':'their')+' farm today — add a run to a truck route','red',8);
+      });
     };
     var todo=distTodo();
     if(!todo.length){

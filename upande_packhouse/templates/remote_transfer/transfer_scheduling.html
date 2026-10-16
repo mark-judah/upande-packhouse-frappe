@@ -769,7 +769,7 @@ var S={ from:window.rtDate.get(), to:window.rtDate.get(), tab:(function(){ try{
   var p=location.pathname.replace(/\/+$/,'');
   if(/\/truck-routes$/.test(p)) return 'routes';
   if(/\/bucket-logistics$/.test(p)) return 'logistics';
-  return 'triplist'; }catch(e){ return 'triplist'; } })(), sel:[], broken:{}, offRoutes:{}, offRuns:{} };
+  return 'logistics'; }catch(e){ return 'logistics'; } })(), sel:[], broken:{}, offRoutes:{}, offRuns:{} };
 function tripVehMap(){ var m={}; DATA.trips.forEach(function(t){ m[t.name]=t.vehicle||''; }); return m; }
 var DATA={orders:[],unscheduled:[],vehicles:[],trips:[],distances:[],truck_status:[],routes:[]};
 
@@ -1006,7 +1006,7 @@ function loadData(){
 
 /* ---------------- render ---------------- */
 /* Top Remote Transfers tabs: Transfer Scheduling <-> Bucket Logistics switch in place. */
-window.rtSwitch=function(key){ S.tab = (key==='logistics'||key==='routes') ? key : 'triplist'; render(); };
+window.rtSwitch=function(key){ S.tab = key==='routes' ? 'routes' : 'logistics'; render(); };
 /* The Schedule tab's "Distribute to trips" lands here (rtOpenTab): the same Distribute. */
 window.rtDistribute=function(){ distributeAction(); };
 /* Truck Routes: every truck's route for a date (list), a page to create / edit a
@@ -1703,7 +1703,7 @@ function distributeAction(){
     // Orders whose farm no open trip goes to today: say so instead of a silent "unchanged".
     var un=(m.unreachable||[]).length;
     if(un) toast(un+' order'+(un===1?' has':'s have')+' no truck going to '+(un===1?'its':'their')+' farm today — add a run to a truck route','red');
-    S.tab='triplist'; loadData();
+    S.tab='logistics'; loadData();
   }).catch(function(e){ S.distLoading=false; toast((e&&e.message)||'Distribute failed','red'); render(); });
 }
 function closeDistModal(){ S.dist=null; var m=$('dist-modal'); if(m) m.remove(); }
@@ -2161,7 +2161,7 @@ function saveDispatch(fromModal){
     });
     var logP=logged.length?call('logDistribution',{delivery_date:S.from, loads:JSON.stringify(logged)}).catch(function(){}):Promise.resolve();
     if(failed.length){ toast((ok.length?ok.length+' truck'+(ok.length===1?'':'s')+' saved, but ':'')+failed.length+' failed — '+failed.join('; ')); }
-    else { toast(plan.trucks+' trip'+(plan.trucks===1?'':'s')+' planned'+(notes.length?'. '+notes.join('. '):'')); S.sel=[]; S.rank={}; S.tab='triplist'; if(fromModal) closeDistModal(); }
+    else { toast(plan.trucks+' trip'+(plan.trucks===1?'':'s')+' planned'+(notes.length?'. '+notes.join('. '):'')); S.sel=[]; S.rank={}; S.tab='logistics'; if(fromModal) closeDistModal(); }
     if(failed.length && fromModal) document.querySelectorAll('[data-act="dist-confirm"]').forEach(function(b){ b.disabled=false; b.textContent='Confirm & create trips'; });
     logP.then(function(){ return loadData(); }).then(function(){ render(); });
   });

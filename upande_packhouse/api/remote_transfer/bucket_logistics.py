@@ -200,8 +200,10 @@ def getBucketLogistics():
 	if team_filter:
 		rows = [r for r in rows if r["team"] == team_filter]
 
-	# Trips carrying each order: today's plus any not yet received (still on the road
-	# or a stale draft). One order can ride several trucks.
+	# Trips carrying each order, whatever their status: an order delivered tomorrow is
+	# trucked in today or the day before, so a trip dated before today that has been
+	# received still carried it (it is not "Not Scheduled"). One order can ride several
+	# trucks.
 	trips = {}
 	if rows:
 		for t in frappe.db.sql(
@@ -214,8 +216,7 @@ def getBucketLogistics():
             FROM `tabBucket Request Trip Order` o
             JOIN `tabBucket Request Trip` t ON t.name = o.parent
             WHERE o.order_pick_list IN %(opls)s
-              AND (t.trip_date = %(today)s
-                   OR (t.trip_date >= %(since)s AND t.status != 'Received'))
+              AND t.trip_date >= %(since)s
             -- One entry per trip per farm: each visit to a farm is one trip (run); the
             -- next pickup from the same farm is the truck's next run, its own entry.
             GROUP BY o.order_pick_list, t.name, IFNULL(o.farm, '')
@@ -223,7 +224,6 @@ def getBucketLogistics():
         """,
 			{
 				"opls": tuple(r["opl"] for r in rows),
-				"today": frappe.utils.today(),
 				"since": frappe.utils.add_days(frappe.utils.today(), -TRIP_LOOKBACK_DAYS),
 			},
 			as_dict=True,
