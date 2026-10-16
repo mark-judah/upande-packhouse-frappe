@@ -1244,6 +1244,8 @@ def buildPreview():
 			return
 
 		platform_doc = frappe.get_doc("Order Import Platform", platform)
+		if platform_doc.layout_type == "Wide Matrix":
+			header, rows = expand_wide_matrix(header, rows, platform_doc)
 		shared = bool(platform_doc.customer_differentiator_column)
 		if not shared and not customer:
 			frappe.response["message"] = {"success": False, "error": "Customer is required"}
