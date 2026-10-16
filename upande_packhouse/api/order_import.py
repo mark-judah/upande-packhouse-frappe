@@ -1044,6 +1044,28 @@ def _apply_spec_match(item_row, customer):
 # an imported line and a manually spec-filled line are IDENTICAL once saved -
 # same custom_line/custom_mix_name/detail-payload fields, same validate-time
 # exemptions, no second code path for sales_order_engine.py to disagree with.
+def _boxes_from_bunches(bi, bunches_ordered):
+	"""Convert an imported bunches-ordered count into a box count using one
+	resolved Spec Box Item's own Bunches Per Box - the ratio a Wide Matrix
+	platform's file never states directly (see
+	docs/superpowers/specs/2026-10-16-flamingo-wide-matrix-order-import-design.md).
+	Returns (boxes, error); never rounds - an uneven division is a data
+	problem for a human to see, not something to guess past."""
+	bunches_per_box = int(bi.bunches_per_box or 0)
+	if bunches_per_box <= 0:
+		return None, "has no Bunches Per Box set for its primary variety's pack"
+	bunches_ordered = int(bunches_ordered or 0)
+	if bunches_ordered <= 0:
+		return None, "needs a positive Bunches Ordered value on this row"
+	boxes, remainder = divmod(bunches_ordered, bunches_per_box)
+	if remainder != 0:
+		return None, (
+			f"{bunches_ordered} bunches doesn't divide evenly into boxes of "
+			f"{bunches_per_box} bunches/box for this Specification"
+		)
+	return boxes, None
+
+
 def _resolve_spec_row(item_row, group_customer, counters, spec_map=None):
 	"""item_row's custom_line names a Specification. Returns (rows, error):
 	rows is build_spec_rows's own output - one or more fully shaped Sales
