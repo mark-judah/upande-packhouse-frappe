@@ -1517,7 +1517,7 @@
       </section>
       <div class="so-actions">
         <button type="button" class="ph-btn ph-btn--ghost" data-act="imp-step" data-step="file">← Back</button>
-        <button type="button" class="ph-btn ph-btn--primary" data-act="imp-to-mapping" disabled>${IMPORT_MODE === "single" && IMPORT_LAYOUT_TYPE === "Wide Matrix" ? "Next: build preview →" : "Next: map columns →"}</button>
+        <button type="button" class="ph-btn ph-btn--primary" data-act="imp-to-mapping" disabled>Next: map columns →</button>
       </div>`);
     if (IMPORT_MODE === "shared") wireCustomerMapInputs();
     else {
@@ -1708,13 +1708,9 @@
       IMPORT_LAYOUT_TYPE = (IMPORT_EXISTING && IMPORT_EXISTING.layout_type) || "Standard Rows";
       // A Wide Matrix platform's layout is fully described by its own Desk
       // config (matrix_* row/column positions + its fixed synthetic-column
-      // mappings) - there is nothing left for this screen to map, so skip
-      // straight to the preview instead of showing an empty/nonsensical
-      // "map each column" screen for it.
-      if (IMPORT_EXISTING && IMPORT_LAYOUT_TYPE === "Wide Matrix") {
-        buildPreviewForExistingPlatform(IMPORT_EXISTING.platform);
-        return;
-      }
+      // mappings) - there's nothing to EDIT here, but the user should still
+      // see what it resolves to before orders start building from it, same
+      // as the editable mapping screen gives every other platform.
       buildMappingRowsFromFile();
       IMPORT_SUBVIEW = "mapping";
       renderImport();
@@ -1780,7 +1776,31 @@
       PH.autocomplete(inp, { source: searchVarieties });
     });
   }
+  // A Wide Matrix platform's column mapping is fixed in Desk (it maps the
+  // pivot's synthetic columns - "Specification", "Bunches Ordered", etc. -
+  // onto real fields), not something this screen lets you edit per file.
+  // Shown read-only instead of skipped entirely, so the user still sees what
+  // it resolves to before any order gets built from it.
+  function renderImportStepMappingReadOnly() {
+    const mappings = (IMPORT_EXISTING && IMPORT_EXISTING.field_mappings) || [];
+    PH.set(vImport, `
+      ${importStepHeader(3)}
+      <section class="ph-card">
+        ${cardHead("How this source is mapped", "This platform's layout and column mapping are configured once in Desk (Order Import Platform), not per file — there's nothing to change here.")}
+        <div class="so-map so-map--head"><span class="ph-label">Column</span><span class="ph-label">Maps to</span></div>
+        ${mappings.map((m) => `<div class="so-map">
+          <div class="ph-strong ph-truncate" title="${esc(m.source_column)}">${esc(m.source_column)}</div>
+          <div class="so-map__wide">${esc(importTargetLabel(m.target_doctype, m.target_fieldname) || "— Don't import —")}</div>
+        </div>`).join("")}
+        <div class="ph-muted ph-mt">Splits into one order per <b>${esc((IMPORT_EXISTING && IMPORT_EXISTING.multi_order_column) || "—")}</b>.</div>
+      </section>
+      <div class="so-actions">
+        <button type="button" class="ph-btn ph-btn--ghost" data-act="imp-step" data-step="who">← Back</button>
+        <button type="button" class="ph-btn ph-btn--primary" data-act="imp-build-preview-readonly">Build preview →</button>
+      </div>`);
+  }
   function renderImportStepMapping() {
+    if (IMPORT_MODE === "single" && IMPORT_LAYOUT_TYPE === "Wide Matrix") { renderImportStepMappingReadOnly(); return; }
     const shared = IMPORT_MODE === "shared";
     const sharedMappedRows = shared ? IMPORT_CUSTOMER_MAP.filter((r) => r.customer) : [];
     PH.set(vImport, `
@@ -2288,6 +2308,7 @@
     else if (a === "imp-step") { IMPORT_SUBVIEW = b.dataset.step; showErr(""); renderImport(); }
     else if (a === "imp-mode") { IMPORT_MODE = b.dataset.value; renderImport(); }
     else if (a === "imp-save-mapping") saveMappingAndBuildPreview();
+    else if (a === "imp-build-preview-readonly") buildPreviewForExistingPlatform(IMPORT_EXISTING.platform);
     else if (a === "imp-item-add") {
       const box = vImport.querySelector(`[data-items="${b.dataset.scope}"]`);
       box.insertAdjacentHTML("beforeend", itemMappingRowHtml("", ""));

@@ -1700,7 +1700,7 @@ function renderImportStepWho(root){
       </div>
       <div class="editor-actions">
         <button class="btn" onclick="IMPORT_SUBVIEW='file'; render();">← Back</button>
-        <button class="btn btn-primary" id="impWhoNextBtn" disabled onclick="goToImportMappingStep()">${IMPORT_MODE==='single' && IMPORT_LAYOUT_TYPE==='Wide Matrix' ? 'Next: build preview →' : 'Next: map columns →'}</button>
+        <button class="btn btn-primary" id="impWhoNextBtn" disabled onclick="goToImportMappingStep()">Next: map columns →</button>
       </div>
     `;
     if(IMPORT_MODE==='shared') wireCustomerMapTypeahead();
@@ -2092,13 +2092,9 @@ function goToImportMappingStep(){
         IMPORT_LAYOUT_TYPE = (IMPORT_EXISTING && IMPORT_EXISTING.layout_type) || 'Standard Rows';
         // A Wide Matrix platform's layout is fully described by its own Desk
         // config (matrix_* row/column positions + its fixed synthetic-column
-        // mappings) - there is nothing left for this screen to map, so skip
-        // straight to the preview instead of showing an empty/nonsensical
-        // "map each column" screen for it.
-        if(IMPORT_EXISTING && IMPORT_LAYOUT_TYPE === 'Wide Matrix'){
-            buildPreviewForExistingPlatform(IMPORT_EXISTING.platform);
-            return;
-        }
+        // mappings) - there's nothing to EDIT here, but the user should still
+        // see what it resolves to before orders start building from it, same
+        // as the editable mapping screen gives every other platform.
         buildMappingRowsFromFile();
         IMPORT_SUBVIEW = 'mapping';
         render();
@@ -2196,7 +2192,40 @@ function onImportSplitPicked(col){
     const warn = document.getElementById('impNoSplitWarn');
     if(warn) warn.remove();
 }
+// A Wide Matrix platform's column mapping is fixed in Desk (it maps the
+// pivot's synthetic columns - "Specification", "Bunches Ordered", etc. -
+// onto real fields), not something this screen lets you edit per file. Shown
+// read-only instead of skipped entirely, so the user still sees what it
+// resolves to before any order gets built from it - the same visibility
+// every editable-mapping platform already has.
+function renderImportStepMappingReadOnly(root){
+    const mappings = (IMPORT_EXISTING && IMPORT_EXISTING.field_mappings) || [];
+    const platform = (IMPORT_EXISTING && IMPORT_EXISTING.platform) || '';
+    root.innerHTML = `
+      ${importStepHeader(3)}
+      <div class="aph-card">
+        <div class="aph-card-hd"><div class="ttl">How this source is mapped</div><div class="sub">This platform's layout and column mapping are configured once in Desk (Order Import Platform), not per file - there's nothing to change here.</div></div>
+        <div class="aph-card-body">
+          <div class="import-map-table">
+            <div class="mapping-editor-row import-map-row import-map-hd" style="grid-template-columns:1fr 1fr">
+              <div>Column</div><div>Maps to</div>
+            </div>
+            ${mappings.map(m => `<div class="mapping-editor-row import-map-row" style="grid-template-columns:1fr 1fr">
+              <div>${escHtml(m.source_column)}</div>
+              <div>${escHtml(importTargetLabel(m.target_doctype, m.target_fieldname) || "— Don't import —")}</div>
+            </div>`).join('')}
+          </div>
+          <div class="meta" style="margin-top:10px">Splits into one order per <b>${escHtml((IMPORT_EXISTING && IMPORT_EXISTING.multi_order_column) || '—')}</b>.</div>
+        </div>
+      </div>
+      <div class="editor-actions">
+        <button class="btn" onclick="IMPORT_SUBVIEW='who'; render();">← Back</button>
+        <div><button class="btn btn-primary" onclick="buildPreviewForExistingPlatform('${platform.replace(/'/g,"\\'")}')">Build preview →</button></div>
+      </div>
+    `;
+}
 function renderImportStepMapping(root){
+    if(IMPORT_MODE==='single' && IMPORT_LAYOUT_TYPE==='Wide Matrix'){ renderImportStepMappingReadOnly(root); return; }
     const sharedMappedRows = IMPORT_MODE==='shared' ? IMPORT_CUSTOMER_MAP.filter(r=>r.customer) : [];
     root.innerHTML = `
       ${importStepHeader(3)}
