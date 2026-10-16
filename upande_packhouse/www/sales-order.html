@@ -264,6 +264,7 @@ tr.grand-total .glabel{font:700 11px var(--sans);letter-spacing:.6px;text-transf
 .queue-card .meta{font-size:11px;color:var(--ink-mute);margin-top:4px}
 .queue-card .warn-line{font-size:11px;color:var(--warn);margin-top:6px}
 .queue-card .err-line{font-size:11px;color:var(--bad);margin-top:6px}
+.queue-card .ok-line{font-size:11px;color:var(--good);margin-top:6px}
 .queue-status{font:600 10px var(--sans);letter-spacing:.4px;text-transform:uppercase;padding:3px 10px;border-radius:999px}
 .queue-status.pending{background:rgba(10,10,10,0.05);color:var(--ink-mute)}
 .queue-status.creating{background:var(--signal-soft);color:var(--signal)}
@@ -2725,6 +2726,7 @@ function resolveSpecMismatchRow(i, rowIndex, specName){
     const q = IMPORT_QUEUE[i];
     const row = q.rows[rowIndex];
     const sourceSpecName = row.custom_line; // the file's own, un-matched name - captured before the server overwrites it
+    const sourceRowNumber = row._source_row; // captured before the splice replaces this row entirely
     const next = nextSpecGroupNumber(q);
     frappe.call({
         method: IMPORT_API+'resolveImportSpecRow',
@@ -2739,6 +2741,13 @@ function resolveSpecMismatchRow(i, rowIndex, specName){
             q.rows.splice(rowIndex, 1, ...(m.rows||[]));
             recomputeUnresolved(q);
             if(!(q.unresolved_items||[]).length && q.status==='failed'){ q.status = 'pending'; q.error = null; }
+            // The toast fades in a few seconds and the "pick which one it
+            // really is" prompt itself disappears the moment this row stops
+            // being unresolved - without this, nothing in the card is left
+            // to show what it actually got mapped to. Kept on the order for
+            // as long as the card exists (not just this one render).
+            q._resolvedSpecNotes = q._resolvedSpecNotes || [];
+            q._resolvedSpecNotes.push({ source_row: sourceRowNumber, spec_name: specName });
             toast(`Row mapped to Specification "${specName}" — remembered for next time.`, 'success');
             render();
             continueQueueSoon();
@@ -2799,6 +2808,7 @@ function renderQueueCard(q, i){
       <div class="meta">${(q.rows||[]).length} line(s) · delivery ${escHtml(q.header.delivery_date||'—')} · price list ${escHtml(q.header.selling_price_list||'—')}</div>
       ${q.status==='duplicate' ? `<div class="meta">Already imported — this order (same Customer's Purchase Order) already exists, so it wasn't created again.</div>` : ''}
       ${plainUnresolved.length ? plainUnresolved.map(u => `<div class="warn-line">⚠ ${escHtml(u)}</div>`).join('') + `<div class="warn-line">Use Review &amp; Fix below to pick the right variety for each row.</div>` : ''}
+      ${(q._resolvedSpecNotes||[]).map(n => `<div class="ok-line">✓ Row ${n.source_row}: mapped to Specification "${escHtml(n.spec_name)}".</div>`).join('')}
       ${specMismatches.length ? renderSpecMismatchFixes(i, specMismatches) : ''}
       ${renderSpecStatusNotes(specStatusNotes)}
       ${specConflicts.length ? renderSpecConflicts(i, specConflicts) : ''}
