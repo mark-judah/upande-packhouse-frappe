@@ -459,6 +459,10 @@ let CATALOG = { sales_order_fields: [], sales_order_item_fields: [] };
 let IMPORT_MODE = 'single'; // 'single' (one customer owns the whole file) | 'shared' (several customers in one file)
 let IMPORT_CUSTOMER = null; // single mode
 let IMPORT_EXISTING = null; // getCustomerImportSetup's result for IMPORT_CUSTOMER, or null if never set up before
+let IMPORT_LAYOUT_TYPE = 'Standard Rows'; // layout_type of whichever platform step 3 would use - "Wide Matrix" skips the mapping screen entirely
+let IMPORT_SINGLE_PLATFORMS = []; // single mode: listPlatforms' result, minus shared ones - for the "which source is this" picker
+let IMPORT_SINGLE_PLATFORM_NAME = null; // single mode: an existing platform explicitly picked, or null for "+ New source" (falls back to this customer's default platform)
+let IMPORT_SINGLE_NEW_SOURCE_NAME = ''; // single mode: user-typed name when not reusing an existing platform and not using the default
 let IMPORT_SHARED_PLATFORMS = []; // shared mode: listSharedPlatforms' result, for the "which source is this" picker
 let IMPORT_SHARED_PLATFORM_NAME = null; // shared mode: an existing platform picked, or null for "+ New source"
 let IMPORT_NEW_SOURCE_NAME = ''; // shared mode: user-typed name when not reusing an existing platform
@@ -1574,6 +1578,10 @@ function openImportWizard(){
     IMPORT_CUSTOMER = null;
     IMPORT_EXISTING = null;
     IMPORT_PLATFORM_NAME = null;
+    IMPORT_LAYOUT_TYPE = 'Standard Rows';
+    IMPORT_SINGLE_PLATFORMS = [];
+    IMPORT_SINGLE_PLATFORM_NAME = null;
+    IMPORT_SINGLE_NEW_SOURCE_NAME = '';
     IMPORT_SHARED_PLATFORMS = [];
     IMPORT_SHARED_PLATFORM_NAME = null;
     IMPORT_NEW_SOURCE_NAME = '';
@@ -1660,8 +1668,14 @@ function goToImportWhoStep(){
     showErr('');
     apiOther(IMPORT_API+'listSharedPlatforms', {}, r => {
         IMPORT_SHARED_PLATFORMS = r.platforms || [];
-        IMPORT_SUBVIEW = 'who';
-        render();
+        apiOther(IMPORT_API+'listPlatforms', {}, r2 => {
+            // Single mode's picker only offers sources that aren't already a
+            // shared platform (told apart by a differentiator column) - those
+            // belong to the "multiple customers in this file" picker instead.
+            IMPORT_SINGLE_PLATFORMS = (r2.platforms || []).filter(p => !p.customer_differentiator_column);
+            IMPORT_SUBVIEW = 'who';
+            render();
+        });
     });
 }
 
@@ -1685,18 +1699,60 @@ function renderImportStepWho(root){
       </div>
       <div class="editor-actions">
         <button class="btn" onclick="IMPORT_SUBVIEW='file'; render();">← Back</button>
-        <button class="btn btn-primary" id="impWhoNextBtn" disabled onclick="goToImportMappingStep()">Next: map columns →</button>
+        <button class="btn btn-primary" id="impWhoNextBtn" disabled onclick="goToImportMappingStep()">${IMPORT_MODE==='single' && IMPORT_LAYOUT_TYPE==='Wide Matrix' ? 'Next: build preview →' : 'Next: map columns →'}</button>
       </div>
     `;
     if(IMPORT_MODE==='shared') wireCustomerMapTypeahead();
     else wireImportCustomerTypeahead();
     updateImportWhoNextBtn();
 }
+// Source first, customer second: each single-customer platform belongs to
+// exactly one customer (see listPlatforms' `customer` field), so picking an
+// existing source resolves the customer automatically - same relationship
+// the shared flow already has, just 1:1 instead of 1:many. The customer
+// field only needs asking when it isn't already known: a brand new source
+// ("+ New source"), or an existing source nobody has imported into yet.
 function renderSingleWhoBody(){
-    return `<div class="spec-field typeahead-wrap" style="margin-top:14px"><label>Customer</label>
-      <input id="imp_customer" placeholder="Search customer…" autocomplete="off" value="${escHtml(IMPORT_CUSTOMER?IMPORT_CUSTOMER.label:'')}">
-      <div class="pick-results" id="impCustomerResults"></div>
+    const picked = IMPORT_SINGLE_PLATFORM_NAME ? IMPORT_SINGLE_PLATFORMS.find(p => p.name === IMPORT_SINGLE_PLATFORM_NAME) : null;
+    const customerKnown = !!(picked && picked.customer);
+    return `<div style="margin-top:14px">
+      <div class="spec-field"><label>Which source is this?</label>
+        <select id="imp_single_platform" onchange="onSinglePlatformPicked(this.value)">
+          <option value="">+ New source</option>
+          ${IMPORT_SINGLE_PLATFORMS.map(p=>`<option value="${escHtml(p.name)}" ${IMPORT_SINGLE_PLATFORM_NAME===p.name?'selected':''}>${escHtml(p.platform_name)}${p.layout_type==='Wide Matrix'?' (Wide Matrix)':''}</option>`).join('')}
+        </select>
+      </div>
+      ${!IMPORT_SINGLE_PLATFORM_NAME ? `<div class="spec-field"><label>Name this source (optional)</label>
+        <input id="imp_single_new_source" placeholder="e.g. Flamingo UK (Sandy)" value="${escHtml(IMPORT_SINGLE_NEW_SOURCE_NAME||'')}" oninput="IMPORT_SINGLE_NEW_SOURCE_NAME=this.value; updateImportWhoNextBtn();"></div>` : ''}
+      <div class="spec-field typeahead-wrap"><label>Customer</label>
+        ${customerKnown
+          ? `<input value="${escHtml(IMPORT_CUSTOMER?IMPORT_CUSTOMER.label:picked.customer)}" disabled>`
+          : `<input id="imp_customer" placeholder="Search customer…" autocomplete="off" value="${escHtml(IMPORT_CUSTOMER?IMPORT_CUSTOMER.label:'')}">
+             <div class="pick-results" id="impCustomerResults"></div>`}
+      </div>
     </div>`;
+}
+function onSinglePlatformPicked(value){
+    IMPORT_SINGLE_PLATFORM_NAME = value || null;
+    const picked = IMPORT_SINGLE_PLATFORM_NAME ? IMPORT_SINGLE_PLATFORMS.find(p => p.name === IMPORT_SINGLE_PLATFORM_NAME) : null;
+    IMPORT_CUSTOMER = (picked && picked.customer) ? { name: picked.customer, label: picked.customer } : null;
+    IMPORT_EXISTING = null;
+    IMPORT_LAYOUT_TYPE = 'Standard Rows';
+    if(IMPORT_CUSTOMER) fetchSingleCustomerSetup();
+    else { render(); updateImportWhoNextBtn(); }
+}
+// Re-fetches this (customer, platform) pair's setup - mirrors
+// onSharedPlatformPicked's eager-fetch, so the layout_type (and therefore
+// the Next button's label/behaviour) is known before step 3.
+function fetchSingleCustomerSetup(){
+    const args = { customer: IMPORT_CUSTOMER.name };
+    if(IMPORT_SINGLE_PLATFORM_NAME) args.platform = IMPORT_SINGLE_PLATFORM_NAME;
+    apiOther(IMPORT_API+'getCustomerImportSetup', args, r => {
+        IMPORT_EXISTING = (r.success && r.exists) ? r : null;
+        IMPORT_LAYOUT_TYPE = (IMPORT_EXISTING && IMPORT_EXISTING.layout_type) || 'Standard Rows';
+        updateImportWhoNextBtn();
+        render();
+    });
 }
 function wireImportCustomerTypeahead(){
     const input = document.getElementById('imp_customer');
@@ -1726,7 +1782,7 @@ function pickImportCustomer(name, label){
     IMPORT_CUSTOMER = { name, label };
     document.getElementById('imp_customer').value = label;
     closeDropdown(document.getElementById('impCustomerResults'));
-    updateImportWhoNextBtn();
+    if(IMPORT_SINGLE_PLATFORM_NAME) fetchSingleCustomerSetup(); else updateImportWhoNextBtn();
 }
 
 // ---------- step 2, shared mode: which source + which column + value->customer table ----------
@@ -2028,11 +2084,39 @@ function goToImportMappingStep(){
     }
     if(!IMPORT_CUSTOMER){ showErr('Pick a customer first.'); return; }
     showErr('');
-    apiOther(IMPORT_API+'getCustomerImportSetup', { customer: IMPORT_CUSTOMER.name }, r => {
+    const whoArgs = { customer: IMPORT_CUSTOMER.name };
+    if(IMPORT_SINGLE_PLATFORM_NAME) whoArgs.platform = IMPORT_SINGLE_PLATFORM_NAME;
+    apiOther(IMPORT_API+'getCustomerImportSetup', whoArgs, r => {
         IMPORT_EXISTING = (r.success && r.exists) ? r : null;
+        IMPORT_LAYOUT_TYPE = (IMPORT_EXISTING && IMPORT_EXISTING.layout_type) || 'Standard Rows';
+        // A Wide Matrix platform's layout is fully described by its own Desk
+        // config (matrix_* row/column positions + its fixed synthetic-column
+        // mappings) - there is nothing left for this screen to map, so skip
+        // straight to the preview instead of showing an empty/nonsensical
+        // "map each column" screen for it.
+        if(IMPORT_EXISTING && IMPORT_LAYOUT_TYPE === 'Wide Matrix'){
+            buildPreviewForExistingPlatform(IMPORT_EXISTING.platform);
+            return;
+        }
         buildMappingRowsFromFile();
         IMPORT_SUBVIEW = 'mapping';
         render();
+    });
+}
+function buildPreviewForExistingPlatform(platformName){
+    showErr('');
+    frappe.call({
+        method: IMPORT_API+'buildPreview',
+        args: { data: JSON.stringify({ customer: IMPORT_CUSTOMER.name, platform: platformName, header: IMPORT_FILE_HEADER, rows: IMPORT_FILE_ROWS }) },
+        callback: r2 => {
+            const m2 = r2.message || {};
+            if(!m2.success){ showErr(m2.error || 'Could not build a preview from this file.'); return; }
+            IMPORT_PLATFORM_NAME = platformName;
+            IMPORT_QUEUE = (m2.orders||[]).map(queueItemFromPreview);
+            IMPORT_SUBVIEW = 'queue';
+            render();
+        },
+        error: () => { showErr('Could not build a preview from this file.'); },
     });
 }
 function importSampleValue(colIndex){
@@ -2269,7 +2353,11 @@ function saveMappingAndBuildPreview(){
     };
     frappe.call({
         method: IMPORT_API+'saveCustomerImportSetup',
-        args: { data: JSON.stringify({ customer: IMPORT_CUSTOMER.name, multi_order_column: IMPORT_SPLIT_COLUMN||'', field_mappings, item_code_mapping, defaults }) },
+        args: { data: JSON.stringify({
+            customer: IMPORT_CUSTOMER.name,
+            platform_name: IMPORT_SINGLE_PLATFORM_NAME || IMPORT_SINGLE_NEW_SOURCE_NAME.trim(),
+            multi_order_column: IMPORT_SPLIT_COLUMN||'', field_mappings, item_code_mapping, defaults,
+        }) },
         callback: r => {
             const m = r.message || {};
             if(!m.success){ resetBtn(); showErr(m.error || 'Could not save this mapping.'); return; }
