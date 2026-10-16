@@ -86,6 +86,49 @@ class IntegrationTestResolveSpecRowBunches(IntegrationTestCase):
 		frappe.db.commit()
 		return doc
 
+	def _make_bunch_aware_spec(self, name, bunch_id="B1", bunches_per_box=10, stems_per_bunch=5, pack_rate=50):
+		"""A genuinely bunch_aware Specification: its one Approved Variety row
+		carries a non-blank bunch_id, paired with a Box Item row sharing that
+		same bunch_id (one Box Item per colour - see
+		spec_autofill._bunch_shape), so _bunch_shape(doc) returns
+		bunch_aware=True instead of falling back to the flat picker the way
+		every _make_spec fixture above does (those never set bunch_id)."""
+		if frappe.db.exists("Specifications", name):
+			return frappe.get_doc("Specifications", name)
+		doc = frappe.get_doc(
+			{
+				"doctype": "Specifications",
+				"spec_name": name,
+				"ftnft": "FT",
+				"spec_type": "Permanent",
+				"cut_stage": CUT_STAGE,
+				"defoliation_length": "20",
+				"box_assortment": "Mono Box",
+				"box_type": BOX_TYPE,
+				"approved_varieties": [
+					{
+						"colour": "Test Wide Matrix Red",
+						"variety": "Test Wide Matrix Variety Red",
+						"is_primary": 1,
+						"bunch_id": bunch_id,
+					}
+				],
+				"box_items": [
+					{
+						"bunch_id": bunch_id,
+						"bunch_type": "Mono Bunch",
+						"stems_per_bunch": stems_per_bunch,
+						"length": STEM_LENGTH,
+						"bunches_per_box": bunches_per_box,
+						"pack_rate": pack_rate,
+					}
+				],
+			}
+		)
+		doc.insert(ignore_permissions=True)
+		frappe.db.commit()
+		return doc
+
 	def test_mix_spec_expands_one_row_per_colour_via_bunches_input(self):
 		self._make_spec(
 			"Test Wide Matrix Mix Spec",
@@ -180,3 +223,47 @@ class IntegrationTestResolveSpecRowBunches(IntegrationTestCase):
 		rows, error = _resolve_spec_row(item_row, "Test Customer", {"mix_group": 1, "bunch_group": 1})
 		self.assertIsNone(rows)
 		self.assertIn("needs Number of Boxes", error)
+
+	def test_bunch_aware_spec_with_bunches_ordered_still_needs_boxes(self):
+		# The re-added guard inside `if bunch_aware:` only fires once
+		# _resolve_spec_row actually reaches the bunch_aware branch, which
+		# needs a genuinely bunch_aware spec (every Approved Variety row
+		# carrying a non-blank bunch_id - see spec_autofill._bunch_shape).
+		# test_bunch_aware_spec_without_boxes_still_needs_boxes above uses a
+		# flat spec with NO _bunches_ordered at all, so it's caught by the
+		# earlier top-level guard before bunch_aware is even checked; this
+		# test supplies _bunches_ordered on a real bunch-aware spec to prove
+		# bunches-input is correctly NOT honoured there (bunches-input is
+		# flat-spec only, per this plan's Global Constraints).
+		self._make_bunch_aware_spec("Test Wide Matrix Bunch Aware Spec")
+		item_row = {
+			"custom_line": "Test Wide Matrix Bunch Aware Spec",
+			"_bunches_ordered": 20,
+		}
+		rows, error = _resolve_spec_row(item_row, "Test Customer", {"mix_group": 1, "bunch_group": 1})
+		self.assertIsNone(rows)
+		self.assertEqual(error, "needs Number of Boxes set on this row")
+
+	def test_boxes_given_directly_is_unaffected_by_new_bunches_path(self):
+		# Pre-existing behaviour (today's only path, used by every existing
+		# Standard Rows platform): custom_number_of_boxes given directly, no
+		# _bunches_ordered/_bunch_rate at all. Must produce output identical
+		# to before this task - in particular, no _bunch_rate_mismatch key
+		# should appear on a row that never supplied a Bunch Rate to compare
+		# against.
+		self._make_spec(
+			"Test Wide Matrix Spec Direct Boxes",
+			[("Test Wide Matrix Red", "Test Wide Matrix Variety Red", True)],
+			bunches_per_box=10,
+			stems_per_bunch=5,
+		)
+		item_row = {
+			"custom_line": "Test Wide Matrix Spec Direct Boxes",
+			"custom_number_of_boxes": 4,
+		}
+		rows, error = _resolve_spec_row(item_row, "Test Customer", {"mix_group": 1, "bunch_group": 1})
+		self.assertIsNone(error)
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["item_code"], "Test Wide Matrix Variety Red")
+		self.assertEqual(rows[0]["custom_number_of_boxes"], 4)
+		self.assertNotIn("_bunch_rate_mismatch", rows[0])
