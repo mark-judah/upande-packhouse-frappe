@@ -1193,21 +1193,40 @@ def _resolve_spec_row(item_row, group_customer, counters, spec_map=None):
 			if box_err:
 				return None, box_err
 
-		file_bunch_rate = item_row.get("_bunch_rate")
-		if file_bunch_rate and first_bi and int(first_bi.stems_per_bunch or 0) != int(file_bunch_rate or 0):
-			bunch_rate_warning = (
-				f"file's Bunch Rate ({file_bunch_rate}) doesn't match this Specification's "
-				f"Stems Per Bunch ({first_bi.stems_per_bunch}) - check the matched Specification "
-				"is correct"
-			)
-
+		# Built per colour so the Bunch Rate cross-check below can sum every
+		# chosen colour's own stems_per_bunch - a real multi-colour mix's file
+		# Bunch Rate is the TOTAL stems across the whole bouquet (e.g. a
+		# 4-colour mix with stems_per_bunch 7/7/7/1 reports BUNCH RATE 22, the
+		# sum), never just one colour's own value.
 		selections = []
+		total_stems_per_bunch = 0
 		for _colour, av_rows in rows_by_colour.items():
 			candidates = sorted(av_rows, key=lambda a: 0 if a.is_primary else 1)
 			chosen = next((a for a in candidates if a.variety == picked), None) if picked else None
 			variety = (chosen or candidates[0]).variety
 			idxs = box_idxs.get(variety) or [0]
-			selections.append({"box_idx": idxs[0], "variety": variety, "boxes": boxes})
+			idx = idxs[0]
+			bi = items[idx] if idx < len(items) else None
+			if bi:
+				total_stems_per_bunch += int(bi.stems_per_bunch or 0)
+			selections.append({"box_idx": idx, "variety": variety, "boxes": boxes})
+
+		# Non-blocking warning only (see Global Constraints) - a file value
+		# that doesn't even look like a number (garbage text) is skipped
+		# silently rather than raising or forcing a 0 comparison that would
+		# always "mismatch".
+		file_bunch_rate = item_row.get("_bunch_rate")
+		parsed_bunch_rate = _parse_numberish(file_bunch_rate)
+		if (
+			parsed_bunch_rate is not None
+			and total_stems_per_bunch
+			and round(parsed_bunch_rate) != total_stems_per_bunch
+		):
+			bunch_rate_warning = (
+				f"file's Bunch Rate ({file_bunch_rate}) doesn't match this Specification's "
+				f"total Stems Per Bunch across its colours ({total_stems_per_bunch}) - check "
+				"the matched Specification is correct"
+			)
 
 	try:
 		result = spec_autofill.build_spec_rows(

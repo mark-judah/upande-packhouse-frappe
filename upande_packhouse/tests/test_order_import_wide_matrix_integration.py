@@ -261,10 +261,15 @@ class IntegrationTestWideMatrixBuildPreview(IntegrationTestCase):
 			"Test Wide Matrix Integration Variety Red",
 			"Test Wide Matrix Integration Variety Blue",
 		})
-		# 30 bunches / 10 per box = 3 boxes, matching bunch rate (10 == spec's 5? no -
-		# this fixture's file Bunch Rate column is "10", spec's stems_per_bunch is 5,
-		# so a mismatch warning is expected here deliberately.
-		self.assertIn("_bunch_rate_mismatch", mix_order["rows"][0])
+		# 30 bunches / 10 per box = 3 boxes. This fixture's file Bunch Rate
+		# column is "10" - the correct, sum-based cross-check (Finding 2)
+		# compares it against the SUM of both colours' stems_per_bunch (5 +
+		# 5 = 10), which matches, so no mismatch warning is expected here.
+		# (The now-fixed bug used to compare only the first colour's own
+		# value (5) against 10, producing a false-positive warning on every
+		# real mix line - this assertion used to pin that bug; it's flipped
+		# here to pin the fix instead.)
+		self.assertNotIn("_bunch_rate_mismatch", mix_order["rows"][0])
 
 		single_order = by_po["PO-WM-1002"]
 		self.assertEqual(len(single_order["rows"]), 1)

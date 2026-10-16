@@ -207,6 +207,71 @@ class IntegrationTestResolveSpecRowBunches(IntegrationTestCase):
 		self.assertIsNone(error)
 		self.assertNotIn("_bunch_rate_mismatch", rows[0])
 
+	def test_mix_spec_bunch_rate_matches_sum_across_colours_no_warning(self):
+		# The file's Bunch Rate on a real multi-colour mix line is the TOTAL
+		# stems across the whole bouquet (sum across every colour), not any
+		# one colour's own stems_per_bunch - comparing against only the
+		# first colour (5) would false-positive here, since the file value
+		# (10) actually matches the SUM of both colours (5 + 5).
+		self._make_spec(
+			"Test Wide Matrix Mix Spec Bunch Rate Sum Match",
+			[
+				("Test Wide Matrix Red", "Test Wide Matrix Variety Red", True),
+				("Test Wide Matrix Blue", "Test Wide Matrix Variety Blue", True),
+			],
+			bunches_per_box=10,
+			stems_per_bunch=5,
+		)
+		item_row = {
+			"custom_line": "Test Wide Matrix Mix Spec Bunch Rate Sum Match",
+			"_bunches_ordered": 30,
+			"_bunch_rate": 10,  # 5 (red) + 5 (blue) = 10
+		}
+		rows, error = _resolve_spec_row(item_row, "Test Customer", {"mix_group": 1, "bunch_group": 1})
+		self.assertIsNone(error)
+		self.assertEqual(len(rows), 2)
+		for r in rows:
+			self.assertNotIn("_bunch_rate_mismatch", r)
+
+	def test_mix_spec_bunch_rate_mismatch_against_sum_is_flagged(self):
+		self._make_spec(
+			"Test Wide Matrix Mix Spec Bunch Rate Sum Mismatch",
+			[
+				("Test Wide Matrix Red", "Test Wide Matrix Variety Red", True),
+				("Test Wide Matrix Blue", "Test Wide Matrix Variety Blue", True),
+			],
+			bunches_per_box=10,
+			stems_per_bunch=5,
+		)
+		item_row = {
+			"custom_line": "Test Wide Matrix Mix Spec Bunch Rate Sum Mismatch",
+			"_bunches_ordered": 30,
+			"_bunch_rate": 7,  # doesn't match the sum (10)
+		}
+		rows, error = _resolve_spec_row(item_row, "Test Customer", {"mix_group": 1, "bunch_group": 1})
+		self.assertIsNone(error)
+		self.assertIn("_bunch_rate_mismatch", rows[0])
+		self.assertIn("10", rows[0]["_bunch_rate_mismatch"])
+
+	def test_unparseable_bunch_rate_skips_cross_check_silently(self):
+		# A file Bunch Rate value that isn't a number at all must never
+		# crash the row (a bare int() would raise) nor produce a bogus
+		# warning - it's skipped silently.
+		self._make_spec(
+			"Test Wide Matrix Spec Bunch Rate Garbage",
+			[("Test Wide Matrix Red", "Test Wide Matrix Variety Red", True)],
+			bunches_per_box=10,
+			stems_per_bunch=5,
+		)
+		item_row = {
+			"custom_line": "Test Wide Matrix Spec Bunch Rate Garbage",
+			"_bunches_ordered": 20,
+			"_bunch_rate": "n/a",
+		}
+		rows, error = _resolve_spec_row(item_row, "Test Customer", {"mix_group": 1, "bunch_group": 1})
+		self.assertIsNone(error)
+		self.assertNotIn("_bunch_rate_mismatch", rows[0])
+
 	def test_bunch_aware_spec_without_boxes_still_needs_boxes(self):
 		# Scoping guard (Global Constraints): bunches-input is flat-spec only.
 		# A bunch-aware spec's existing "needs Number of Boxes" error must be
