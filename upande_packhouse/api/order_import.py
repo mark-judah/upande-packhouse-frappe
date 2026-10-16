@@ -31,6 +31,111 @@ VIRTUAL_ITEM_FIELDS = [
 	{"fieldname": "_bunches_per_box", "label": "Bunches Per Box (auto Pack Rate + UOM)", "fieldtype": "Int"},
 ]
 
+# A Wide Matrix file lays out several orders as side-by-side colour-coded
+# column groups under a multi-row header (see
+# docs/superpowers/specs/2026-10-16-flamingo-wide-matrix-order-import-design.md)
+# instead of one named-header row per Standard Rows. expand_wide_matrix
+# pivots it into this fixed synthetic header so the rest of buildPreview -
+# column mapping, grouping-by-PO-number, everything below - runs completely
+# unchanged.
+WIDE_MATRIX_SYNTHETIC_HEADER = [
+	"Specification",
+	"Bunches Ordered",
+	"Bunch Rate",
+	"PO Number",
+	"Order Date",
+	"Delivery Date",
+]
+
+
+def _matrix_cell(rows, row_idx, col_idx):
+	if row_idx < 0 or row_idx >= len(rows):
+		return None
+	row = rows[row_idx]
+	if col_idx < 0 or col_idx >= len(row):
+		return None
+	v = row[col_idx]
+	return v.strip() if isinstance(v, str) else v
+
+
+def expand_wide_matrix(header, rows, platform_doc):
+	"""Pivot a Wide Matrix platform's raw grid into the same flat "long"
+	header/rows shape buildPreview already groups by Multi-Order Split
+	Column. `header` is accepted for signature symmetry with the Standard
+	Rows path but unused - a Wide Matrix file's column meaning comes
+	entirely from platform_doc's own row/column position fields, never from
+	column names (there is no single header row to name them)."""
+	label_row = int(platform_doc.matrix_group_label_row or 0)
+	order_date_row = int(platform_doc.matrix_order_date_row or 0)
+	delivery_date_row = int(platform_doc.matrix_delivery_date_row or 0)
+	po_row = int(platform_doc.matrix_po_row or 0)
+	items_start_row = int(platform_doc.matrix_items_start_row or 0)
+	code_col = int(platform_doc.matrix_code_column or 0)
+	desc_col = int(platform_doc.matrix_description_column or 0)
+	bunch_rate_col = int(platform_doc.matrix_bunch_rate_column or 0)
+	first_group_col = int(platform_doc.matrix_first_group_column or 0)
+	group_width = int(platform_doc.matrix_group_column_width or 0)
+	stop_value = str(platform_doc.matrix_stop_value or "Total").strip().lower()
+
+	row_positions = [label_row, order_date_row, delivery_date_row, po_row, items_start_row]
+	if row_positions != sorted(row_positions) or len(set(row_positions)) != len(row_positions):
+		frappe.throw(
+			"Wide Matrix layout rows must be distinct and in order: Group Label Row < Order "
+			"Date Row < Delivery Date Row < PO Number Row < Items Start Row."
+		)
+	fixed_cols = [code_col, desc_col, bunch_rate_col]
+	if len(set(fixed_cols)) != len(fixed_cols) or first_group_col in fixed_cols:
+		frappe.throw(
+			"Wide Matrix layout columns (Item Code, Description, Bunch Rate, First Group) "
+			"must all be distinct."
+		)
+	if group_width < 1:
+		frappe.throw("Wide Matrix Group Column Width must be at least 1.")
+
+	groups = []
+	col = first_group_col
+	while True:
+		label = _matrix_cell(rows, label_row, col)
+		if not label:
+			break
+		groups.append(
+			{
+				"order_date": _matrix_cell(rows, order_date_row, col),
+				"delivery_date": _matrix_cell(rows, delivery_date_row, col),
+				"po_number": _matrix_cell(rows, po_row, col),
+				"ordered_col": col,
+			}
+		)
+		col += group_width
+
+	new_rows = []
+	for row_idx in range(items_start_row, len(rows)):
+		code = _matrix_cell(rows, row_idx, code_col)
+		if not code or str(code).strip().lower() == stop_value:
+			break
+		description = _matrix_cell(rows, row_idx, desc_col)
+		bunch_rate = _matrix_cell(rows, row_idx, bunch_rate_col)
+		for g in groups:
+			ordered = _matrix_cell(rows, row_idx, g["ordered_col"])
+			try:
+				ordered_num = float(ordered) if ordered not in (None, "") else 0.0
+			except (TypeError, ValueError):
+				ordered_num = 0.0
+			if not ordered_num:
+				continue
+			new_rows.append(
+				[
+					description,
+					ordered_num,
+					bunch_rate,
+					g["po_number"],
+					g["order_date"],
+					g["delivery_date"],
+				]
+			)
+
+	return WIDE_MATRIX_SYNTHETIC_HEADER, new_rows
+
 IGNORED_FIELDTYPES = {
 	"Section Break",
 	"Column Break",
