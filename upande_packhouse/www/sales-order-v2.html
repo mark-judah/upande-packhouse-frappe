@@ -155,6 +155,10 @@
   let IMPORT_MODE = "single"; // 'single' (one customer owns the whole file) | 'shared' (several customers in one file)
   let IMPORT_CUSTOMER = null; // single mode
   let IMPORT_EXISTING = null; // getCustomerImportSetup's result for IMPORT_CUSTOMER, or null if never set up before
+  let IMPORT_LAYOUT_TYPE = "Standard Rows"; // layout_type of whichever platform step 3 would use - "Wide Matrix" skips the mapping screen entirely
+  let IMPORT_SINGLE_PLATFORMS = []; // single mode: listPlatforms' result, minus shared ones - for the "which source is this" picker
+  let IMPORT_SINGLE_PLATFORM_NAME = null; // single mode: an existing platform explicitly picked, or null for "+ New source" (falls back to this customer's default platform)
+  let IMPORT_SINGLE_NEW_SOURCE_NAME = ""; // single mode: user-typed name when not reusing an existing platform and not using the default
   let IMPORT_SHARED_PLATFORMS = []; // shared mode: listSharedPlatforms' result, for the "which source is this" picker
   let IMPORT_SHARED_PLATFORM_NAME = null; // shared mode: an existing platform picked, or null for "+ New source"
   let IMPORT_NEW_SOURCE_NAME = ""; // shared mode: user-typed name when not reusing an existing platform
@@ -1370,6 +1374,10 @@
     IMPORT_MODE = "single";
     IMPORT_CUSTOMER = null;
     IMPORT_EXISTING = null;
+    IMPORT_LAYOUT_TYPE = "Standard Rows";
+    IMPORT_SINGLE_PLATFORMS = [];
+    IMPORT_SINGLE_PLATFORM_NAME = null;
+    IMPORT_SINGLE_NEW_SOURCE_NAME = "";
     IMPORT_SHARED_PLATFORMS = [];
     IMPORT_SHARED_PLATFORM_NAME = null;
     IMPORT_NEW_SOURCE_NAME = "";
@@ -1418,8 +1426,15 @@
   function goToImportWhoStep() {
     if (!IMPORT_FILE_HEADER) { showErr("Choose a file first."); return; }
     showErr("");
-    call(IMPORT_API + "listSharedPlatforms", {}, true).then((r) => {
-      IMPORT_SHARED_PLATFORMS = r.platforms || [];
+    Promise.all([
+      call(IMPORT_API + "listSharedPlatforms", {}, true),
+      call(IMPORT_API + "listPlatforms", {}, true),
+    ]).then(([shared, all]) => {
+      IMPORT_SHARED_PLATFORMS = shared.platforms || [];
+      // Single mode's picker only offers sources that aren't already a shared
+      // platform (told apart by a differentiator column) - those belong to the
+      // "multiple customers in this file" picker instead.
+      IMPORT_SINGLE_PLATFORMS = (all.platforms || []).filter((p) => !p.customer_differentiator_column);
       IMPORT_SUBVIEW = "who";
       renderImport();
     });
@@ -1502,7 +1517,7 @@
       </section>
       <div class="so-actions">
         <button type="button" class="ph-btn ph-btn--ghost" data-act="imp-step" data-step="file">← Back</button>
-        <button type="button" class="ph-btn ph-btn--primary" data-act="imp-to-mapping" disabled>Next: map columns →</button>
+        <button type="button" class="ph-btn ph-btn--primary" data-act="imp-to-mapping" disabled>${IMPORT_MODE === "single" && IMPORT_LAYOUT_TYPE === "Wide Matrix" ? "Next: build preview →" : "Next: map columns →"}</button>
       </div>`);
     if (IMPORT_MODE === "shared") wireCustomerMapInputs();
     else {
@@ -1510,15 +1525,54 @@
       PH.autocomplete(input, { source: searchCustomers, onSelect: (it) => {
         IMPORT_CUSTOMER = { name: it.value, label: it.label };
         input.value = it.label;
-        updateImportWhoNextBtn();
+        // A fresh customer pick always re-resolves to THEIR own default
+        // platform, not whatever was explicitly picked for a previous
+        // customer - otherwise this would silently look up the new
+        // customer against the old customer's platform.
+        IMPORT_SINGLE_PLATFORM_NAME = null;
+        onSingleCustomerOrPlatformChanged();
       } });
-      input.addEventListener("input", () => { IMPORT_CUSTOMER = null; updateImportWhoNextBtn(); });
+      input.addEventListener("input", () => {
+        IMPORT_CUSTOMER = null;
+        IMPORT_SINGLE_PLATFORM_NAME = null;
+        IMPORT_EXISTING = null;
+        IMPORT_LAYOUT_TYPE = "Standard Rows";
+        updateImportWhoNextBtn();
+      });
     }
     updateImportWhoNextBtn();
   }
   function renderSingleWhoBody() {
-    return `<div class="ph-form"><div class="ph-field"><label>Customer</label>
-      <input class="ph-control" data-imp-customer placeholder="Search customer…" value="${esc(IMPORT_CUSTOMER ? IMPORT_CUSTOMER.label : "")}"></div></div>`;
+    return `<div class="ph-form">
+      <div class="ph-field"><label>Customer</label>
+        <input class="ph-control" data-imp-customer placeholder="Search customer…" value="${esc(IMPORT_CUSTOMER ? IMPORT_CUSTOMER.label : "")}"></div>
+      <div class="ph-field"><label>Which source is this?</label>
+        <select class="ph-control" data-imp-single-platform>
+          <option value="">+ New source</option>
+          ${IMPORT_SINGLE_PLATFORMS.map((p) => `<option value="${esc(p.name)}"${IMPORT_SINGLE_PLATFORM_NAME === p.name ? " selected" : ""}>${esc(p.platform_name)}${p.layout_type === "Wide Matrix" ? " (Wide Matrix)" : ""}</option>`).join("")}
+        </select></div>
+      ${!IMPORT_SINGLE_PLATFORM_NAME ? `<div class="ph-field"><label>Name this source (optional)</label>
+        <input class="ph-control" data-imp-single-newsource placeholder="Leave blank to use this customer's usual source" value="${esc(IMPORT_SINGLE_NEW_SOURCE_NAME || "")}"></div>` : ""}
+    </div>`;
+  }
+  // Re-fetches this customer's setup whenever the customer or the explicitly
+  // picked source changes - mirrors onSharedPlatformPicked's eager-fetch, so
+  // the layout_type (and therefore the Next button's label/behaviour) is known
+  // before the user even reaches step 3.
+  function onSingleCustomerOrPlatformChanged() {
+    if (!IMPORT_CUSTOMER) { updateImportWhoNextBtn(); return; }
+    const args = { customer: IMPORT_CUSTOMER.name };
+    if (IMPORT_SINGLE_PLATFORM_NAME) args.platform = IMPORT_SINGLE_PLATFORM_NAME;
+    call(IMPORT_API + "getCustomerImportSetup", args, true).then((r) => {
+      IMPORT_EXISTING = (r.success && r.exists) ? r : null;
+      IMPORT_LAYOUT_TYPE = (IMPORT_EXISTING && IMPORT_EXISTING.layout_type) || "Standard Rows";
+      // Nothing explicitly picked yet, but this customer already has a
+      // default platform - surface it as the picker's selection instead of
+      // silently leaving "+ New source" shown while actually reusing it.
+      if (!IMPORT_SINGLE_PLATFORM_NAME && IMPORT_EXISTING) IMPORT_SINGLE_PLATFORM_NAME = IMPORT_EXISTING.platform;
+      updateImportWhoNextBtn();
+      renderImport();
+    });
   }
   // ---------- step 2, shared mode: which source + which column + value->customer table ----------
   function renderSharedWhoBody() {
@@ -1642,12 +1696,32 @@
     }
     if (!IMPORT_CUSTOMER) { showErr("Pick a customer first."); return; }
     showErr("");
-    call(IMPORT_API + "getCustomerImportSetup", { customer: IMPORT_CUSTOMER.name }, true).then((r) => {
+    const args = { customer: IMPORT_CUSTOMER.name };
+    if (IMPORT_SINGLE_PLATFORM_NAME) args.platform = IMPORT_SINGLE_PLATFORM_NAME;
+    call(IMPORT_API + "getCustomerImportSetup", args, true).then((r) => {
       IMPORT_EXISTING = (r.success && r.exists) ? r : null;
+      IMPORT_LAYOUT_TYPE = (IMPORT_EXISTING && IMPORT_EXISTING.layout_type) || "Standard Rows";
+      // A Wide Matrix platform's layout is fully described by its own Desk
+      // config (matrix_* row/column positions + its fixed synthetic-column
+      // mappings) - there is nothing left for this screen to map, so skip
+      // straight to the preview instead of showing an empty/nonsensical
+      // "map each column" screen for it.
+      if (IMPORT_EXISTING && IMPORT_LAYOUT_TYPE === "Wide Matrix") {
+        buildPreviewForExistingPlatform(IMPORT_EXISTING.platform);
+        return;
+      }
       buildMappingRowsFromFile();
       IMPORT_SUBVIEW = "mapping";
       renderImport();
     });
+  }
+  async function buildPreviewForExistingPlatform(platformName) {
+    showErr("");
+    const m2 = await call(IMPORT_API + "buildPreview", { data: JSON.stringify({ customer: IMPORT_CUSTOMER.name, platform: platformName, header: IMPORT_FILE_HEADER, rows: IMPORT_FILE_ROWS }) });
+    if (!m2.success) { showErr(m2.error || "Could not build a preview from this file."); return; }
+    IMPORT_QUEUE = (m2.orders || []).map((o) => Object.assign({}, o, { status: "pending", order_name: null, error: null }));
+    IMPORT_SUBVIEW = "queue";
+    renderImport();
   }
   function importSampleValue(colIndex) {
     for (const row of (IMPORT_FILE_ROWS || [])) {
@@ -1815,7 +1889,9 @@
     }
 
     const m = await call(IMPORT_API + "saveCustomerImportSetup", { data: JSON.stringify({
-      customer: IMPORT_CUSTOMER.name, multi_order_column: IMPORT_SPLIT_COLUMN || "", field_mappings,
+      customer: IMPORT_CUSTOMER.name,
+      platform_name: IMPORT_SINGLE_PLATFORM_NAME || IMPORT_SINGLE_NEW_SOURCE_NAME.trim(),
+      multi_order_column: IMPORT_SPLIT_COLUMN || "", field_mappings,
       item_code_mapping: readItemCodeRows("single"), defaults: readDefaults("single"),
     }) });
     if (!m.success) { resetBtn(); showErr(m.error || "Could not save this mapping."); return; }
@@ -2216,6 +2292,7 @@
     const t = e.target;
     if (t.matches("[data-imp-file]")) onImportFileChosen(t.files[0]);
     else if (t.matches("[data-imp-platform]")) onSharedPlatformPicked(t.value);
+    else if (t.matches("[data-imp-single-platform]")) { IMPORT_SINGLE_PLATFORM_NAME = t.value || null; onSingleCustomerOrPlatformChanged(); }
     else if (t.matches("[data-imp-diffcol]")) { IMPORT_DIFFERENTIATOR_COLUMN = t.value || null; rebuildCustomerMapFromFile(); renderImport(); }
     else if (t.matches("[data-split]")) {
       IMPORT_SPLIT_COLUMN = IMPORT_MAPPING_ROWS[+t.closest("[data-i]").dataset.i].source_column;
@@ -2226,6 +2303,7 @@
   vImport.addEventListener("input", (e) => {
     const t = e.target;
     if (t.matches("[data-imp-newsource]")) { IMPORT_NEW_SOURCE_NAME = t.value; updateImportWhoNextBtn(); }
+    else if (t.matches("[data-imp-single-newsource]")) { IMPORT_SINGLE_NEW_SOURCE_NAME = t.value; updateImportWhoNextBtn(); }
     else if (t.matches("[data-dflt]")) IMPORT_MAPPING_ROWS[+t.closest("[data-i]").dataset.i].default_value = t.value;
   });
 

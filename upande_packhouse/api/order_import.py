@@ -255,7 +255,14 @@ def listPlatforms():
 	try:
 		rows = frappe.get_all(
 			"Order Import Platform",
-			fields=["name", "platform_name", "file_type", "multi_order_column"],
+			fields=[
+				"name",
+				"platform_name",
+				"file_type",
+				"multi_order_column",
+				"layout_type",
+				"customer_differentiator_column",
+			],
 			order_by="platform_name asc",
 		)
 		frappe.response["message"] = {"success": True, "platforms": rows}
@@ -279,6 +286,7 @@ def getPlatform():
 				"name": doc.name,
 				"platform_name": doc.platform_name,
 				"file_type": doc.file_type,
+				"layout_type": doc.layout_type,
 				"header_row": doc.header_row,
 				"multi_order_column": doc.multi_order_column,
 				"notes": doc.notes,
@@ -519,13 +527,19 @@ def getCustomerImportSetup():
 	"""What step 3 pre-fills itself from for a customer who's been set up before -
 	the same merged platform + customer-mapping view buildPreview already computes,
 	handed back as a flat list of {source_column, target_doctype, target_fieldname,
-	default_value} rows instead of a platform name the user never has to see."""
+	default_value} rows instead of a platform name the user never has to see.
+
+	`platform` is optional - the wizard's "Which source is this?" picker (mirroring
+	the shared-platform flow) passes it explicitly once a customer picks something
+	other than their own default auto-named platform (e.g. an existing Wide Matrix
+	one, configured in Desk). Left out, this keeps resolving the customer's own
+	default platform exactly as it always has."""
 	try:
 		customer = frappe.form_dict.get("customer")
 		if not customer:
 			frappe.response["message"] = {"success": False, "error": "Customer is required"}
 			return
-		platform = _platform_name_for_customer(customer)
+		platform = frappe.form_dict.get("platform") or _platform_name_for_customer(customer)
 		if not frappe.db.exists("Order Import Platform", platform):
 			frappe.response["message"] = {"success": True, "exists": False}
 			return
@@ -535,6 +549,8 @@ def getCustomerImportSetup():
 		frappe.response["message"] = {
 			"success": True,
 			"exists": True,
+			"platform": platform_doc.name,
+			"layout_type": platform_doc.layout_type,
 			"multi_order_column": platform_doc.multi_order_column,
 			"field_mappings": [{"source_column": col, **target} for col, target in mapping.items()],
 			"item_code_mapping": [{"source_item_code": k, "item": v} for k, v in item_code_map.items()],
@@ -552,14 +568,18 @@ def saveCustomerImportSetup():
 	"""file_type/header_row are fixed, not user input - CSV and Excel are already
 	told apart by file extension client-side, and the header is always row 1 (see
 	applyParsedGrid, which never reads anything else - the old Header Row field
-	promised a configurability nothing downstream of it actually honoured)."""
+	promised a configurability nothing downstream of it actually honoured).
+
+	`platform_name` is optional - an explicit pick/typed name from the wizard's
+	"Which source is this?" picker overrides the customer's own default auto-named
+	platform, the same override `getCustomerImportSetup` accepts."""
 	try:
 		data = _json_payload()
 		customer = data.get("customer")
 		if not customer:
 			frappe.response["message"] = {"success": False, "error": "Customer is required"}
 			return
-		platform_name = _platform_name_for_customer(customer)
+		platform_name = (data.get("platform_name") or "").strip() or _platform_name_for_customer(customer)
 
 		if frappe.db.exists("Order Import Platform", platform_name):
 			platform_doc = frappe.get_doc("Order Import Platform", platform_name)
