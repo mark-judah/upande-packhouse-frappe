@@ -137,10 +137,10 @@ def expand_wide_matrix(header, rows, platform_doc):
 		bunch_rate = _matrix_cell(full_rows, row_idx, bunch_rate_col)
 		for g in groups:
 			ordered = _matrix_cell(full_rows, row_idx, g["ordered_col"])
-			try:
-				ordered_num = float(ordered) if ordered not in (None, "") else 0.0
-			except (TypeError, ValueError):
-				ordered_num = 0.0
+			# flt strips thousands-separator commas ("1,200") instead of
+			# raising on them like bare float() would - a real spreadsheet
+			# export commonly formats large bunch counts this way.
+			ordered_num = frappe.utils.flt(ordered) if ordered not in (None, "") else 0.0
 			if not ordered_num:
 				continue
 			new_rows.append(
@@ -1054,23 +1054,46 @@ def _apply_spec_match(item_row, customer):
 # an imported line and a manually spec-filled line are IDENTICAL once saved -
 # same custom_line/custom_mix_name/detail-payload fields, same validate-time
 # exemptions, no second code path for sales_order_engine.py to disagree with.
+def _parse_numberish(v):
+	"""Tolerant numeric parse for a raw imported cell value. Unlike
+	frappe.utils.flt (which silently returns 0.0 for anything it can't
+	parse, including blank/garbage text), this distinguishes "not a number
+	at all" (returns None) from "parsed to zero" - callers that must skip a
+	check rather than treat unparseable text as zero need that distinction.
+	Thousands-separator commas ("1,200") are stripped, same as flt."""
+	if v in (None, ""):
+		return None
+	try:
+		return float(str(v).replace(",", "").strip())
+	except (TypeError, ValueError):
+		return None
+
+
 def _boxes_from_bunches(bi, bunches_ordered):
 	"""Convert an imported bunches-ordered count into a box count using one
 	resolved Spec Box Item's own Bunches Per Box - the ratio a Wide Matrix
 	platform's file never states directly (see
 	docs/superpowers/specs/2026-10-16-flamingo-wide-matrix-order-import-design.md).
-	Returns (boxes, error); never rounds - an uneven division is a data
-	problem for a human to see, not something to guess past."""
+	Returns (boxes, error); never rounds - an uneven division (or a
+	non-whole-number bunches value) is a data problem for a human to see,
+	not something to guess past. Parses tolerantly via frappe.utils.flt
+	(handles comma-formatted spreadsheet numbers like "1,200" and numeric
+	strings like "14.0") rather than a bare int(), which would either raise
+	on either of those or truncate a genuinely fractional value like "14.5"
+	silently."""
 	bunches_per_box = int(bi.bunches_per_box or 0)
 	if bunches_per_box <= 0:
 		return None, "has no Bunches Per Box set for its primary variety's pack"
-	bunches_ordered = int(bunches_ordered or 0)
-	if bunches_ordered <= 0:
+	bunches_val = frappe.utils.flt(bunches_ordered)
+	if bunches_val <= 0:
 		return None, "needs a positive Bunches Ordered value on this row"
-	boxes, remainder = divmod(bunches_ordered, bunches_per_box)
+	if bunches_val != round(bunches_val):
+		return None, f"{bunches_ordered} is not a whole number of bunches"
+	bunches_ordered_int = round(bunches_val)
+	boxes, remainder = divmod(bunches_ordered_int, bunches_per_box)
 	if remainder != 0:
 		return None, (
-			f"{bunches_ordered} bunches doesn't divide evenly into boxes of "
+			f"{bunches_ordered_int} bunches doesn't divide evenly into boxes of "
 			f"{bunches_per_box} bunches/box for this Specification"
 		)
 	return boxes, None

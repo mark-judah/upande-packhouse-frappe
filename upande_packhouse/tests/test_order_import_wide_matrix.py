@@ -120,6 +120,24 @@ class UnitTestExpandWideMatrix(UnitTestCase):
 		with self.assertRaises(frappe.exceptions.ValidationError):
 			expand_wide_matrix(TWO_GROUP_ROWS[0], TWO_GROUP_ROWS[1:], bad_layout)
 
+	def test_comma_formatted_ordered_quantity_parses_correctly(self):
+		# A real spreadsheet export commonly formats a large bunch count with
+		# a thousands-separator comma ("1,200") - bare float() raises on
+		# that (caught, silently treated as 0/skipped), so the whole line
+		# would vanish from the import with no error shown to the user.
+		comma_rows = [
+			["Title"],
+			["Customer"],
+			["", "", "", "", "Alpha"],
+			["", "", "", "", "01/01/2026"],
+			["", "", "", "", "03/01/2026"],
+			["", "", "", "", "PO-9001", "confirmation"],
+			["CODE", "Big Order Spec", "1.0", "20", "1,200", "1,200"],
+			["Total"],
+		]
+		_header, rows = expand_wide_matrix(comma_rows[0], comma_rows[1:], _layout())
+		self.assertEqual(rows, [["Big Order Spec", 1200.0, "20", "PO-9001", "01/01/2026", "03/01/2026"]])
+
 	def test_pivot_matches_real_client_header_rows_split(self):
 		# Pins the real calling convention directly (see applyParsedGrid in
 		# upande_packhouse/www/sales-order-v2.html): given a whole raw grid,
