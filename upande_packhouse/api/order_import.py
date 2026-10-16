@@ -252,6 +252,12 @@ def getFieldCatalog():
 
 @frappe.whitelist()
 def listPlatforms():
+	"""`customer` is only ever filled in for a platform that genuinely belongs
+	to exactly one customer - a Mixed/shared platform (several customers told
+	apart by customer_differentiator_column) naturally has several Customer
+	Order Mapping rows, so it's left null there; the wizard's single-customer
+	picker uses this to resolve "which source is this?" straight to the
+	customer it already belongs to, instead of asking for both separately."""
 	try:
 		rows = frappe.get_all(
 			"Order Import Platform",
@@ -265,6 +271,12 @@ def listPlatforms():
 			],
 			order_by="platform_name asc",
 		)
+		customers_by_platform = {}
+		for m in frappe.get_all("Customer Order Mapping", fields=["platform", "customer"]):
+			customers_by_platform.setdefault(m.platform, set()).add(m.customer)
+		for row in rows:
+			owners = customers_by_platform.get(row["name"])
+			row["customer"] = next(iter(owners)) if owners and len(owners) == 1 else None
 		frappe.response["message"] = {"success": True, "platforms": rows}
 	except Exception as e:
 		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind

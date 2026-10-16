@@ -1522,54 +1522,59 @@
     if (IMPORT_MODE === "shared") wireCustomerMapInputs();
     else {
       const input = vImport.querySelector("[data-imp-customer]");
-      PH.autocomplete(input, { source: searchCustomers, onSelect: (it) => {
-        IMPORT_CUSTOMER = { name: it.value, label: it.label };
-        input.value = it.label;
-        // A fresh customer pick always re-resolves to THEIR own default
-        // platform, not whatever was explicitly picked for a previous
-        // customer - otherwise this would silently look up the new
-        // customer against the old customer's platform.
-        IMPORT_SINGLE_PLATFORM_NAME = null;
-        onSingleCustomerOrPlatformChanged();
-      } });
-      input.addEventListener("input", () => {
-        IMPORT_CUSTOMER = null;
-        IMPORT_SINGLE_PLATFORM_NAME = null;
-        IMPORT_EXISTING = null;
-        IMPORT_LAYOUT_TYPE = "Standard Rows";
-        updateImportWhoNextBtn();
-      });
+      if (input) {
+        PH.autocomplete(input, { source: searchCustomers, onSelect: (it) => {
+          IMPORT_CUSTOMER = { name: it.value, label: it.label };
+          input.value = it.label;
+          if (IMPORT_SINGLE_PLATFORM_NAME) fetchSingleCustomerSetup(); else updateImportWhoNextBtn();
+        } });
+        input.addEventListener("input", () => { IMPORT_CUSTOMER = null; updateImportWhoNextBtn(); });
+      }
     }
     updateImportWhoNextBtn();
   }
+  // Source first, customer second: each single-customer platform belongs to
+  // exactly one customer (see listPlatforms' `customer` field), so picking an
+  // existing source resolves the customer automatically - same relationship
+  // the shared flow already has, just 1:1 instead of 1:many. The customer
+  // field only needs asking when it isn't already known: a brand new source
+  // ("+ New source"), or an existing source nobody has imported into yet.
   function renderSingleWhoBody() {
+    const picked = IMPORT_SINGLE_PLATFORM_NAME ? IMPORT_SINGLE_PLATFORMS.find((p) => p.name === IMPORT_SINGLE_PLATFORM_NAME) : null;
+    const customerKnown = !!(picked && picked.customer);
     return `<div class="ph-form">
-      <div class="ph-field"><label>Customer</label>
-        <input class="ph-control" data-imp-customer placeholder="Search customer…" value="${esc(IMPORT_CUSTOMER ? IMPORT_CUSTOMER.label : "")}"></div>
       <div class="ph-field"><label>Which source is this?</label>
         <select class="ph-control" data-imp-single-platform>
           <option value="">+ New source</option>
           ${IMPORT_SINGLE_PLATFORMS.map((p) => `<option value="${esc(p.name)}"${IMPORT_SINGLE_PLATFORM_NAME === p.name ? " selected" : ""}>${esc(p.platform_name)}${p.layout_type === "Wide Matrix" ? " (Wide Matrix)" : ""}</option>`).join("")}
         </select></div>
       ${!IMPORT_SINGLE_PLATFORM_NAME ? `<div class="ph-field"><label>Name this source (optional)</label>
-        <input class="ph-control" data-imp-single-newsource placeholder="Leave blank to use this customer's usual source" value="${esc(IMPORT_SINGLE_NEW_SOURCE_NAME || "")}"></div>` : ""}
+        <input class="ph-control" data-imp-single-newsource placeholder="e.g. Flamingo UK (Sandy)" value="${esc(IMPORT_SINGLE_NEW_SOURCE_NAME || "")}"></div>` : ""}
+      <div class="ph-field"><label>Customer</label>
+        ${customerKnown
+          ? `<input class="ph-control" value="${esc(IMPORT_CUSTOMER ? IMPORT_CUSTOMER.label : picked.customer)}" disabled>`
+          : `<input class="ph-control" data-imp-customer placeholder="Search customer…" value="${esc(IMPORT_CUSTOMER ? IMPORT_CUSTOMER.label : "")}">`}
+      </div>
     </div>`;
   }
-  // Re-fetches this customer's setup whenever the customer or the explicitly
-  // picked source changes - mirrors onSharedPlatformPicked's eager-fetch, so
-  // the layout_type (and therefore the Next button's label/behaviour) is known
-  // before the user even reaches step 3.
-  function onSingleCustomerOrPlatformChanged() {
-    if (!IMPORT_CUSTOMER) { updateImportWhoNextBtn(); return; }
+  function onSinglePlatformPicked(value) {
+    IMPORT_SINGLE_PLATFORM_NAME = value || null;
+    const picked = IMPORT_SINGLE_PLATFORM_NAME ? IMPORT_SINGLE_PLATFORMS.find((p) => p.name === IMPORT_SINGLE_PLATFORM_NAME) : null;
+    IMPORT_CUSTOMER = (picked && picked.customer) ? { name: picked.customer, label: picked.customer } : null;
+    IMPORT_EXISTING = null;
+    IMPORT_LAYOUT_TYPE = "Standard Rows";
+    if (IMPORT_CUSTOMER) fetchSingleCustomerSetup();
+    else { renderImport(); updateImportWhoNextBtn(); }
+  }
+  // Re-fetches this (customer, platform) pair's setup - mirrors
+  // onSharedPlatformPicked's eager-fetch, so the layout_type (and therefore
+  // the Next button's label/behaviour) is known before step 3.
+  function fetchSingleCustomerSetup() {
     const args = { customer: IMPORT_CUSTOMER.name };
     if (IMPORT_SINGLE_PLATFORM_NAME) args.platform = IMPORT_SINGLE_PLATFORM_NAME;
     call(IMPORT_API + "getCustomerImportSetup", args, true).then((r) => {
       IMPORT_EXISTING = (r.success && r.exists) ? r : null;
       IMPORT_LAYOUT_TYPE = (IMPORT_EXISTING && IMPORT_EXISTING.layout_type) || "Standard Rows";
-      // Nothing explicitly picked yet, but this customer already has a
-      // default platform - surface it as the picker's selection instead of
-      // silently leaving "+ New source" shown while actually reusing it.
-      if (!IMPORT_SINGLE_PLATFORM_NAME && IMPORT_EXISTING) IMPORT_SINGLE_PLATFORM_NAME = IMPORT_EXISTING.platform;
       updateImportWhoNextBtn();
       renderImport();
     });
@@ -2292,7 +2297,7 @@
     const t = e.target;
     if (t.matches("[data-imp-file]")) onImportFileChosen(t.files[0]);
     else if (t.matches("[data-imp-platform]")) onSharedPlatformPicked(t.value);
-    else if (t.matches("[data-imp-single-platform]")) { IMPORT_SINGLE_PLATFORM_NAME = t.value || null; onSingleCustomerOrPlatformChanged(); }
+    else if (t.matches("[data-imp-single-platform]")) onSinglePlatformPicked(t.value);
     else if (t.matches("[data-imp-diffcol]")) { IMPORT_DIFFERENTIATOR_COLUMN = t.value || null; rebuildCustomerMapFromFile(); renderImport(); }
     else if (t.matches("[data-split]")) {
       IMPORT_SPLIT_COLUMN = IMPORT_MAPPING_ROWS[+t.closest("[data-i]").dataset.i].source_column;
