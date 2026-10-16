@@ -1094,7 +1094,8 @@ def _resolve_spec_row(item_row, group_customer, counters, spec_map=None):
 		spec_name = spec_map[spec_name]
 		item_row["custom_line"] = spec_name
 	boxes = int(item_row.get("custom_number_of_boxes") or 0)
-	if boxes <= 0:
+	bunches_ordered = item_row.get("_bunches_ordered")
+	if boxes <= 0 and not bunches_ordered:
 		return None, "needs Number of Boxes set on this row"
 	if not frappe.db.exists("Specifications", spec_name):
 		return None, "not found"
@@ -1109,8 +1110,14 @@ def _resolve_spec_row(item_row, group_customer, counters, spec_map=None):
 
 	picked = item_row.get("item_code") or None
 	warehouse = item_row.get("warehouse")
+	bunch_rate_warning = None
 
 	if bunch_aware:
+		# Bunches-ordered input is flat-spec only (see this plan's Global
+		# Constraints) - a bunch-aware spec with no direct box count still
+		# gets the same error a Standard Rows platform would.
+		if boxes <= 0:
+			return None, "needs Number of Boxes set on this row"
 		selections = []
 		for b in bunches:
 			picks = {}
@@ -1133,6 +1140,34 @@ def _resolve_spec_row(item_row, group_customer, counters, spec_map=None):
 		if not rows_by_colour:
 			return None, "has no Approved Varieties configured"
 		box_idxs = spec_autofill._box_idxs_by_variety(spec_doc)
+		items = spec_doc.box_items or []
+
+		first_av_rows = next(iter(rows_by_colour.values()))
+		first_candidates = sorted(first_av_rows, key=lambda a: 0 if a.is_primary else 1)
+		first_variety = first_candidates[0].variety
+		first_idx = (box_idxs.get(first_variety) or [0])[0]
+		first_bi = items[first_idx] if first_idx < len(items) else None
+
+		if boxes <= 0:
+			# No direct box count - derive one from the imported bunches
+			# total using the first colour's chosen variety's own pack data.
+			# build_spec_rows itself requires every colour in one fill to
+			# share the same Boxes count, so any colour's ratio is as valid
+			# a source as any other.
+			if not first_bi:
+				return None, "has no matching Box Item for its primary variety"
+			boxes, box_err = _boxes_from_bunches(first_bi, bunches_ordered)
+			if box_err:
+				return None, box_err
+
+		file_bunch_rate = item_row.get("_bunch_rate")
+		if file_bunch_rate and first_bi and int(first_bi.stems_per_bunch or 0) != int(file_bunch_rate or 0):
+			bunch_rate_warning = (
+				f"file's Bunch Rate ({file_bunch_rate}) doesn't match this Specification's "
+				f"Stems Per Bunch ({first_bi.stems_per_bunch}) - check the matched Specification "
+				"is correct"
+			)
+
 		selections = []
 		for _colour, av_rows in rows_by_colour.items():
 			candidates = sorted(av_rows, key=lambda a: 0 if a.is_primary else 1)
@@ -1155,6 +1190,9 @@ def _resolve_spec_row(item_row, group_customer, counters, spec_map=None):
 	rows = result.get("rows") or []
 	if not rows:
 		return None, "produced no lines - check its Approved Varieties"
+	if bunch_rate_warning:
+		for r in rows:
+			r["_bunch_rate_mismatch"] = bunch_rate_warning
 	# Bumped only once this spec-fill actually produced rows - the next one
 	# in the SAME order (another file row, another Specification) needs a
 	# value neither it nor any earlier fill on this order already used.
