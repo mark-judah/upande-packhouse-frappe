@@ -2030,7 +2030,7 @@
       q._specResolved = true;
       q.status = "pending";
       renderImport();
-      runImportQueue();
+      continueQueueSoon();
       return;
     }
     const bySpec = {};
@@ -2047,7 +2047,7 @@
     q._specResolved = true;
     q.status = "pending";
     renderImport();
-    runImportQueue();
+    continueQueueSoon();
   }
   const QUEUE_BADGE = { pending: "", creating: "ph-badge--signal", created: "ph-badge--good", failed: "ph-badge--bad", needs_review: "ph-badge--warn" };
   function renderResolveMissing(i, quickAdds) {
@@ -2117,7 +2117,7 @@
           applyResolvedValue(doctype, oldValue, it.value);
           PH.toast(`Mapped to existing ${doctype} “${it.value}”.`, "good");
           renderImport();
-          runImportQueue();
+          continueQueueSoon();
         },
       });
     });
@@ -2132,7 +2132,7 @@
     PH.toast(`${doctype} “${m.name}” added.`, "good");
     applyResolvedValue(doctype, value, m.name);
     renderImport();
-    runImportQueue();
+    continueQueueSoon();
   }
   function mappedRowToManual(r, defaultWarehouse) {
     return {
@@ -2147,6 +2147,17 @@
     const next = IMPORT_QUEUE.findIndex((q) => q.status === "pending");
     if (next === -1) return;
     processQueueItem(next);
+  }
+  // Resolving one order's last blocker (a missing item code, a spec conflict)
+  // flips that SAME order back to "pending", and it's usually the very first
+  // pending one - calling runImportQueue() straight away would re-enter
+  // processQueueItem on it in the same tick, so the card the user just fixed
+  // jumps straight to "creating"/"created" before the resolved, pending state
+  // (and its success toast) ever gets a chance to paint. This is for those
+  // same-order re-entry points only - the queue's own internal chaining
+  // between genuinely different orders (inside processQueueItem) stays instant.
+  function continueQueueSoon() {
+    setTimeout(runImportQueue, 900);
   }
   function processQueueItem(i) {
     const q = IMPORT_QUEUE[i];

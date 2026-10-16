@@ -2496,7 +2496,7 @@ function submitQuickAdd(widgetId, i, doctype, value){
             toast(`${doctype} "${m.name}" added.`, 'success');
             applyResolvedValue(doctype, value, m.name);
             render();
-            runImportQueue();
+            continueQueueSoon();
         },
         error: () => toast(`Could not add this ${doctype}.`, 'error'),
     });
@@ -2536,7 +2536,7 @@ function pickExistingValue(itemId, newValue){
     applyResolvedValue(doctype, oldValue, newValue);
     toast(`Mapped to existing ${doctype} "${newValue}".`, 'success');
     render();
-    runImportQueue();
+    continueQueueSoon();
 }
 function renderResolveMissing(i, quickAdds){
     return quickAdds.map((qa, qi) => {
@@ -2613,7 +2613,7 @@ function resolveSpecConflicts(i, choice){
         q._specResolved = true;
         q.status = 'pending';
         render();
-        runImportQueue();
+        continueQueueSoon();
         return;
     }
     const bySpec = {};
@@ -2638,7 +2638,7 @@ function resolveSpecConflicts(i, choice){
                 q._specResolved = true;
                 q.status = 'pending';
                 render();
-                runImportQueue();
+                continueQueueSoon();
             },
             error: () => {
                 anyFailed = true;
@@ -2741,7 +2741,7 @@ function resolveSpecMismatchRow(i, rowIndex, specName){
             if(!(q.unresolved_items||[]).length && q.status==='failed'){ q.status = 'pending'; q.error = null; }
             toast(`Row mapped to Specification "${specName}" — remembered for next time.`, 'success');
             render();
-            runImportQueue();
+            continueQueueSoon();
         },
         error: () => toast(`Could not use "${specName}" for this row.`, 'error'),
     });
@@ -2826,6 +2826,17 @@ function runImportQueue(){
     const next = IMPORT_QUEUE.findIndex(q => q.status === 'pending');
     if(next === -1) return;
     processQueueItem(next);
+}
+// Resolving one order's last blocker (a spec mismatch, a missing item code, a
+// spec conflict) flips that SAME order back to "pending", and it's usually
+// the very first pending one - calling runImportQueue() straight away would
+// re-enter processQueueItem on it in the same tick, so the card the user just
+// fixed jumps straight to "creating"/"created" before the resolved, pending
+// state (and its success toast) ever gets a chance to paint. This is for
+// those same-order re-entry points only - the queue's own internal chaining
+// between genuinely different orders (inside processQueueItem) stays instant.
+function continueQueueSoon(){
+    setTimeout(runImportQueue, 900);
 }
 function processQueueItem(i){
     const q = IMPORT_QUEUE[i];
