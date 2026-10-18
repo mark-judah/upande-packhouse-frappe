@@ -358,6 +358,17 @@ def getSchedulerFeed():
 					st["transfer"] = 1
 				pj = pj + 1
 
+		# A bucket several orders share is requested once, for its lead order: the others
+		# don't count it among their remote buckets (the page sums them per farm).
+		from upande_packhouse.api.remote_transfer.transfer_scheduling import shared_buckets, shared_lead
+
+		shared = shared_buckets({b for st in stats.values() for b in st["remote"]})
+		if shared:
+			for op, st in stats.items():
+				st["remote"] = {
+					b: fm for b, fm in st["remote"].items() if shared_lead(shared, b, fm) in (None, op)
+				}
+
 		# ---- mixed-type from Sales Order Items ----
 		mixed = {}
 		if len(names) > 0:

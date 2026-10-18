@@ -58,6 +58,20 @@
 .aph .rt-refresh svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .aph .rt-refresh.spin svg{animation:rtSpin .8s linear infinite}
 @keyframes rtSpin{to{transform:rotate(360deg)}}
+/* Desktop: one row — tighter gaps and pickers so Refresh stays on the top row; below
+   1200px it wraps as above. */
+@media (min-width:1200px){
+  .aph .aph-main .aph-topbar{flex-wrap:nowrap!important;column-gap:10px!important}
+  .aph .rt-date,.aph .rt-farm{margin-left:4px}
+  .aph .rt-dd-btn{min-width:118px}
+}
+/* Narrower desktops: the pickers read without their labels ("Date", "Farm", …) and the
+   bar's side padding is trimmed, so the row still fits. */
+@media (min-width:1200px) and (max-width:1799px){
+  .aph .aph-main .aph-topbar{padding-left:20px!important;padding-right:20px!important}
+  .aph .rt-date,.aph .rt-farm{font-size:0;gap:0}
+  .aph .rt-tabs a{padding:6px 10px}
+}
 @media (prefers-reduced-motion:reduce){.aph .rt-refresh.spin svg{animation:none}}
 </style>
 <nav class="rt-tabs" aria-label="Remote Transfers">

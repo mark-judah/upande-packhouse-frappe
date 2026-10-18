@@ -203,31 +203,35 @@ def order_locations(opl_names):
 	return out
 
 
-def _schedule_map(lookback_days=14):
+def _schedule_map(lookback_days=14, opls=None):
 	# OPL -> {team, schedule} from the most recent Packhouse Schedule containing it
 	# (schedule membership only — NOT tied to the delivery-date window; a schedule is
 	# created the day before delivery, so gating on the delivery window misses it).
 	# This is the ONE source of schedule/team for every transfer view: the per-team
 	# sequence the scheduler saved, not Order Pick List.schedule_number (a separate
 	# global number the mobile setSchedulerOrder writes).
+	# `opls`: only these orders' entries (same answer for each, one smaller read).
 	from_date = frappe.utils.add_days(frappe.utils.today(), -lookback_days)
-	names = frappe.get_all(
-		"Packhouse Schedule",
-		filters={"schedule_date": [">=", from_date]},
-		fields=["name", "schedule_date", "team"],
-		order_by="schedule_date desc, modified desc",
+	if opls is not None:
+		opls = tuple({o for o in opls if o})
+		if not opls:
+			return {}
+	rows = frappe.db.sql(
+		"""SELECT pso.order_pick_list AS opl, pso.sequence AS sequence, ps.team AS team
+		FROM `tabPackhouse Schedule` ps
+		JOIN `tabPackhouse Schedule Order` pso ON pso.parent = ps.name
+		  AND pso.parenttype = 'Packhouse Schedule'
+		WHERE ps.schedule_date >= %(since)s AND IFNULL(pso.order_pick_list, '') != ''"""
+		+ (" AND pso.order_pick_list IN %(opls)s" if opls is not None else "")
+		+ """
+		ORDER BY ps.schedule_date DESC, ps.modified DESC, ps.name, pso.creation DESC""",
+		{"since": from_date, "opls": opls},
+		as_dict=True,
 	)
 	out = {}
-	for sc in names:
-		rows = frappe.get_all(
-			"Packhouse Schedule Order",
-			filters={"parent": sc.name},
-			fields=["order_pick_list", "sequence"],
-		)
-		for r in rows:
-			op = r.get("order_pick_list")
-			if op and op not in out:
-				out[op] = {"team": sc.team, "schedule": int(r.get("sequence") or 0)}
+	for r in rows:
+		if r.opl not in out:
+			out[r.opl] = {"team": r.team, "schedule": int(r.sequence or 0)}
 	# Only orders on a Packhouse Schedule: an order goes to the farms and the planner
 	# once it is scheduled (by the page, or by automatic scheduling).
 	return out
@@ -291,7 +295,145 @@ def _transfer_buckets(opl_names):
 	for e in out:
 		e["open"] = 1 if (e["awaiting"] or e["loaded"]) and not e["in_transit"] and not e["shelved"] else 0
 		e["on_road"] = 1 if e["in_transit"] and not e["shelved"] else 0
+		e["rides"] = None
+	# A bucket several orders take stems from travels once, for one of them (its lead):
+	# the others' rows of it ride along and count nowhere as a bucket to collect.
+	groups = shared_buckets({e["bucket"] for e in out if e["bucket"] and (e["open"] or e["on_road"])})
+	for e in out:
+		lead = shared_lead(groups, e["bucket"], e["farm"])
+		if lead and lead != e["opl"] and (e["open"] or e["on_road"]):
+			e["rides"] = lead
+			e["open"] = e["on_road"] = 0
 	return out
+
+
+def shared_buckets(buckets):
+	"""Buckets several live orders take stems from at one farm (a 200-stem bucket split
+	100/100 over two orders): one physical bucket, requested, planned, loaded and
+	counted ONCE. Its LEAD is the order it travels for; the others ride along.
+
+	Lead, in this order: the order whose rows are already on a trolley / truck, the one
+	it is recorded on a trip for, the one on the earliest trip still to collect it from
+	that farm, one on a Packhouse Schedule (only those are planned), then the earliest
+	delivery date, schedule sequence and name. Only orders not yet past their delivery
+	date share: a past order's row left waiting, or one shelved / packed, is an earlier
+	harvest of a reused bucket id.
+
+	Returns {(UPPER(bucket), farm): {"lead": opl, "opls": [opl, ...], "rows": {opl: [pick row]}}}."""
+	buckets = {(b or "").strip().upper() for b in buckets or [] if b}
+	if not buckets:
+		return {}
+	lot = (
+		"IFNULL(pli.loaded_on_truck, 0)" if frappe.db.has_column("Pick List Item", "loaded_on_truck") else "0"
+	)
+	rows = frappe.db.sql(
+		"""SELECT pli.name, pli.parent AS opl, UPPER(pli.bucket) AS bucket, """
+		+ FARM_EXPR
+		+ """ AS farm,
+		       GREATEST(IFNULL(pli.loaded_in_trolley, 0), IFNULL(pli.in_transit, 0), """
+		+ lot
+		+ """) AS moving, so.delivery_date AS delivery_date
+		FROM `tabPick List Item` pli
+		JOIN `tabOrder Pick List` opl ON opl.name = pli.parent AND opl.docstatus < 2
+		LEFT JOIN `tabSales Order` so ON so.name = opl.sales_order
+		WHERE pli.parenttype = 'Order Pick List' AND pli.bucket IN %(b)s
+		  AND IFNULL(pli.not_found, 0) = 0 AND IFNULL(pli.shelved, 0) = 0 AND NOT """
+		+ PACKED_SQL
+		+ """
+		  AND (pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1 OR pli.in_transit = 1)
+		  AND (so.delivery_date IS NULL OR so.delivery_date >= %(today)s)""",
+		{"b": tuple(buckets), "today": frappe.utils.today()},
+		as_dict=True,
+	)
+	groups = {}
+	for r in rows:
+		g = groups.setdefault((r.bucket, r.farm or ""), {"rows": {}, "moving": set(), "due": {}})
+		g["rows"].setdefault(r.opl, []).append(r.name)
+		g["due"][r.opl] = str(r.delivery_date or "9999-12-31")
+		if int(r.moving or 0):
+			g["moving"].add(r.opl)
+	groups = {k: g for k, g in groups.items() if len(g["rows"]) > 1}
+	if not groups:
+		return {}
+	opls = tuple({o for g in groups.values() for o in g["rows"]})
+	pinned = {
+		(r.opl, r.bucket)
+		for r in frappe.db.sql(
+			"""SELECT tb.order_pick_list AS opl, UPPER(tb.bucket) AS bucket
+			FROM `tabBucket Request Trip Bucket` tb
+			JOIN `tabBucket Request Trip` t ON t.name = tb.parent
+			WHERE tb.parenttype = 'Bucket Request Trip' AND tb.bucket IN %(b)s
+			  AND tb.order_pick_list IN %(o)s AND t.status != 'Received'
+			  AND IFNULL(tb.off_truck, 0) = 0 AND IFNULL(tb.shelved, 0) = 0""",
+			{"b": tuple({k[0] for k in groups}), "o": opls},
+			as_dict=True,
+		)
+	}
+	# Earliest trip still to collect each (order, farm), in the order trucks drive them.
+	none = ("9999-12-31", 1, 0, "", "")
+	trips = {}
+	for r in frappe.db.sql(
+		"""SELECT o.order_pick_list AS opl, IFNULL(o.farm, '') AS farm, t.name, t.trip_date, t.run,
+		       t.creation, t.departed_stops
+		FROM `tabBucket Request Trip Order` o
+		JOIN `tabBucket Request Trip` t ON t.name = o.parent
+		WHERE o.order_pick_list IN %(o)s AND t.status IN %(active)s AND t.trip_date >= %(since)s
+		  AND IFNULL(o.buckets, 0) > IFNULL(o.loaded_buckets, 0)""",
+		{
+			"o": opls,
+			"active": ACTIVE_TRIP_STATUSES,
+			"since": frappe.utils.add_days(frappe.utils.today(), -TRIP_LOOKBACK_DAYS),
+		},
+		as_dict=True,
+	):
+		if any(_same_farm(f, r.farm) for f in (r.departed_stops or "").split(",") if f):
+			continue
+		key = (str(r.trip_date), 0 if r.run else 1, int(r.run or 0), str(r.creation), r.name)
+		trips.setdefault(r.opl, []).append((r.farm, key))
+	sequence = {}
+	for r in frappe.db.sql(
+		"""SELECT pso.order_pick_list AS opl, pso.sequence FROM `tabPackhouse Schedule Order` pso
+		JOIN `tabPackhouse Schedule` ps ON ps.name = pso.parent
+		WHERE pso.order_pick_list IN %(o)s AND ps.schedule_date >= %(since)s
+		ORDER BY ps.schedule_date DESC, ps.modified DESC""",
+		{"o": opls, "since": frappe.utils.add_days(frappe.utils.today(), -14)},
+		as_dict=True,
+	):
+		sequence.setdefault(r.opl, int(r.sequence or 0))
+	out = {}
+	for (bucket, farm), g in groups.items():
+
+		def rank(opl, bucket=bucket, farm=farm, g=g):
+			trip = min((k for f, k in trips.get(opl, []) if _same_farm(f, farm) or not f), default=none)
+			return (
+				0 if opl in g["moving"] else 1,
+				0 if (opl, bucket) in pinned else 1,
+				trip,
+				0 if opl in sequence else 1,
+				g["due"][opl],
+				sequence.get(opl, 0),
+				opl,
+			)
+
+		ordered = sorted(g["rows"], key=rank)
+		out[(bucket, farm)] = {"lead": ordered[0], "opls": ordered, "rows": g["rows"]}
+	return out
+
+
+def shared_lead(groups, bucket, farm):
+	"""The order a shared bucket travels for (see shared_buckets); None when not shared."""
+	g = shared_group(groups, bucket, farm)
+	return g["lead"] if g else None
+
+
+def shared_group(groups, bucket, farm):
+	"""The shared_buckets entry of this bucket at this farm, or None."""
+	bucket = (bucket or "").strip().upper()
+	if not bucket:
+		return None
+	return groups.get((bucket, farm or "")) or next(
+		(g for (b, f), g in groups.items() if b == bucket and _same_farm(f, farm)), None
+	)
 
 
 def _open_counts(opl_names):
@@ -1619,7 +1761,8 @@ def record_truck_load(pli_names):
 	rows = frappe.db.sql(
 		"""
 		SELECT pli.name AS name, pli.parent AS opl, pli.bucket AS bucket, pli.item_code AS variety,
-		       pli.stock_qty AS stems, pli.transit_truck AS truck, pli.modified AS modified, """
+		       pli.stock_qty AS stems, pli.transit_truck AS truck, pli.modified AS modified,
+		       pli.loaded_in_trolley_at AS scanned_at, """
 		+ FARM_EXPR
 		+ """ AS farm
 		FROM `tabPick List Item` pli
@@ -1654,7 +1797,17 @@ def record_truck_load(pli_names):
 		trips = _truck_open_trips(truck)
 		by_trip, docs = {}, {d.name: d for d in trips}
 		chosen = {}  # bucket -> trip doc: a bucket split over two orders rides one trip
+		# Earliest scanned first, as trip_bucket_shares counts them: an order split over
+		# two runs fills the earlier run with the buckets the farm scanned for it first.
 		for b in buckets.values():
+			b["scanned_at"] = min((str(r.get("scanned_at") or "9999") for r in b["rows"]), default="9999")
+		# A bucket several orders share goes on the trip once, for its lead order; the
+		# others' rows of it ride along uncounted (they were flagged with it).
+		groups = shared_buckets({b["bucket"] for b in buckets.values()})
+		for b in sorted(buckets.values(), key=lambda b: (b["scanned_at"], b["bucket"])):
+			lead = shared_lead(groups, b["bucket"], b["farm"])
+			if lead and lead != b["opl"] and (lead, b["bucket"]) in buckets:
+				continue
 			doc = chosen.get(b["bucket"])
 			if doc is None:
 				where = on_trips.get(b["bucket"], [])
@@ -1715,6 +1868,259 @@ def _bucket_trip_rows(buckets):
 	):
 		out.setdefault(r.bucket, []).append(r)
 	return out
+
+
+#: How far along a bucket is, furthest first: the order an order's buckets fill its trips in.
+_SHARE_RANK = {"transit": 0, "loaded": 0, "trolley": 1, "awaiting": 2}
+
+
+def _same_farm(a, b):
+	a, b = (a or "").strip(), (b or "").strip()
+	return bool(a and b and (a == b or a in b or b in a))
+
+
+def trip_bucket_shares(opls):
+	"""Which trip each bucket of these orders counts for: one bucket, one trip. The farm
+	app, the Bucket Logistics dashboard and truck loads all count by this.
+
+	A trip plans an order at a farm as a COUNT of buckets (Bucket Request Trip Order),
+	not as named buckets, and one order's farm portion can be split over several runs.
+	So, per (order, farm):
+	- a bucket recorded on a trip (loaded there, still on the truck or shelved) is that
+	  trip's;
+	- the rest fill the trips planning that portion in the order the trucks drive them,
+	  earliest first, each up to its planned count less what is recorded on it -- buckets
+	  further along first (on a truck, then on a trolley, earliest scanned first), then
+	  waiting ones. Only a trip still at the farm (not dispatched, stop not departed)
+	  takes more; a bucket flagged on a truck only fills that truck's trips. A bucket on a
+	  trolley or truck beyond every plan goes on the last trip still at the farm;
+	- a bucket already shelved / packed and recorded on no trip reached the hub some
+	  other way (an earlier run, a copied site): it is on none of these trips.
+
+	Returns {trip: {(opl, farm): {"planned", "total", "awaiting", "trolley", "loaded",
+	"transit", "shelved", "buckets": {UPPER(bucket): state}, "riding",
+	"riding_buckets"}}} for the trips (from the lookback window on) planning or carrying
+	these orders. `farm` is the trip order row's farm.
+
+	A bucket several orders share (shared_buckets) is one bucket: it counts on its lead
+	order's portion only, on the one trip that takes it; the other orders' portions on
+	that trip list it under riding / riding_buckets, never in total or a state count."""
+	opls = {o for o in (opls or []) if o}
+	if not opls:
+		return {}
+	groups = shared_buckets(
+		frappe.db.sql_list(
+			"""SELECT DISTINCT pli.bucket FROM `tabPick List Item` pli
+			WHERE pli.parenttype = 'Order Pick List' AND pli.parent IN %(o)s
+			  AND IFNULL(pli.bucket, '') != '' AND IFNULL(pli.shelved, 0) = 0
+			  AND (pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1 OR pli.in_transit = 1)""",
+			{"o": tuple(opls)},
+		)
+	)
+	# The orders sharing their buckets too: where a shared bucket goes is its lead's call.
+	opls = tuple(opls | {o for g in groups.values() for o in g["opls"]})
+	since = frappe.utils.add_days(frappe.utils.today(), -TRIP_LOOKBACK_DAYS)
+	trips = {}
+	plans = {}  # (opl, farm) -> {trip: planned}
+	for r in frappe.db.sql(
+		"""SELECT t.name, t.vehicle, t.status, t.trip_date, t.run, t.creation, t.departed_stops,
+		       o.order_pick_list AS opl, IFNULL(o.farm, '') AS farm,
+		       GREATEST(IFNULL(o.buckets, 0), IFNULL(o.loaded_buckets, 0)) AS planned
+		FROM `tabBucket Request Trip Order` o
+		JOIN `tabBucket Request Trip` t ON t.name = o.parent
+		WHERE o.order_pick_list IN %(opls)s AND t.trip_date >= %(since)s""",
+		{"opls": opls, "since": since},
+		as_dict=True,
+	):
+		trips.setdefault(r.name, r)
+		p = plans.setdefault((r.opl, r.farm), {})
+		p[r.name] = p.get(r.name, 0) + int(r.planned or 0)
+	pinned = {}  # (opl, UPPER(bucket)) -> (trip, farm)
+	for r in frappe.db.sql(
+		"""SELECT tb.order_pick_list AS opl, UPPER(tb.bucket) AS bucket, IFNULL(tb.farm, '') AS farm,
+		       t.name, t.vehicle, t.status, t.trip_date, t.run, t.creation, t.departed_stops
+		FROM `tabBucket Request Trip Bucket` tb
+		JOIN `tabBucket Request Trip` t ON t.name = tb.parent
+		WHERE tb.parenttype = 'Bucket Request Trip' AND tb.order_pick_list IN %(opls)s
+		  AND IFNULL(tb.bucket, '') != '' AND t.trip_date >= %(since)s
+		  AND (IFNULL(tb.off_truck, 0) = 0 OR IFNULL(tb.shelved, 0) = 1)
+		ORDER BY t.trip_date DESC, t.creation DESC""",
+		{"opls": opls, "since": since},
+		as_dict=True,
+	):
+		trips.setdefault(r.name, r)
+		pinned.setdefault((r.opl, r.bucket), (r.name, r.farm))
+
+	def drive_order(name):
+		t = trips[name]
+		return (str(t.trip_date), 0 if t.run else 1, int(t.run or 0), str(t.creation), name)
+
+	def still_here(name, farm):
+		t = trips[name]
+		departed = [f for f in (t.departed_stops or "").split(",") if f]
+		return t.status in ACTIVE_TRIP_STATUSES and not any(_same_farm(f, farm) for f in departed)
+
+	# Each bucket of each order once, at its furthest state (a bucket spans a row per box).
+	lot = (
+		"IFNULL(pli.loaded_on_truck, 0) = 1"
+		if frappe.db.has_column("Pick List Item", "loaded_on_truck")
+		else "0"
+	)
+	buckets = {}  # (opl, UPPER(bucket)) -> dict
+	for r in frappe.db.sql(
+		"""SELECT pli.parent AS opl, UPPER(pli.bucket) AS bucket,
+		       COALESCE(NULLIF(pli.farm, ''), """
+		+ _WH_FARM
+		+ """, '') AS farm,
+		       MAX(GREATEST(IFNULL(pli.shelved, 0), IFNULL(pli.issued, 0),
+		           IF(IFNULL(pli.custom_ready_for_packing, 0) = 1 AND IFNULL(pli.awaiting_transfer, 0) = 0, 1, 0))) AS shelved,
+		       MAX(IFNULL(pli.in_transit, 0)) AS transit,
+		       MAX(IF((IFNULL(pli.loaded_in_trolley, 0) = 1 OR """
+		+ lot
+		+ """) AND """
+		+ TRANSFER_TRUCK_OK
+		+ """, 1, 0)) AS on_truck,
+		       MAX(IFNULL(pli.loaded_in_trolley, 0)) AS trolley,
+		       MAX(IF(IFNULL(pli.in_transit, 0) = 1 OR IFNULL(pli.loaded_in_trolley, 0) = 1 OR """
+		+ lot
+		+ """, pli.transit_truck, NULL)) AS truck,
+		       MIN(pli.loaded_in_trolley_at) AS scanned_at
+		FROM `tabPick List Item` pli
+		WHERE pli.parenttype = 'Order Pick List' AND pli.parent IN %(opls)s
+		  AND IFNULL(pli.bucket, '') != '' AND IFNULL(pli.not_found, 0) = 0
+		GROUP BY pli.parent, UPPER(pli.bucket), COALESCE(NULLIF(pli.farm, ''), """
+		+ _WH_FARM
+		+ """, '')""",
+		{"opls": opls},
+		as_dict=True,
+	):
+		state = (
+			"shelved"
+			if r.shelved
+			else "transit"
+			if r.transit
+			else "loaded"
+			if r.on_truck
+			else "trolley"
+			if r.trolley
+			else "awaiting"
+		)
+		buckets.setdefault((r.opl, r.bucket), frappe._dict(r, state=state))
+
+	out = {}
+
+	def portion(trip, opl, farm):
+		return out.setdefault(trip, {}).setdefault(
+			(opl, farm),
+			{
+				"planned": plans.get((opl, farm), {}).get(trip, 0),
+				"total": 0,
+				"awaiting": 0,
+				"trolley": 0,
+				"loaded": 0,
+				"transit": 0,
+				"shelved": 0,
+				"buckets": {},
+				# Shared buckets travelling for another order on this trip: listed under
+				# this order too, but counted once (on the lead's portion).
+				"riding": 0,
+				"riding_buckets": {},
+			},
+		)
+
+	def put(trip, opl, farm, bucket, state):
+		s = portion(trip, opl, farm)
+		s["total"] += 1
+		s[state] += 1
+		s["buckets"][bucket] = state
+
+	# The plan farm a bucket's farm stands for on this order (a trip row names the farm short).
+	def plan_farm(opl, farm):
+		if (opl, farm) in plans:
+			return farm
+		return next((f for (o, f) in plans if o == opl and _same_farm(f, farm)), farm)
+
+	placed = {}  # (opl, bucket) -> (trip, plan farm)
+	riders = []  # a shared bucket's rows for the orders it does not travel for
+	free = {}  # (opl, plan farm) -> [bucket]
+	for (opl, bkt), b in buckets.items():
+		farm = plan_farm(opl, b.farm)
+		lead = shared_lead(groups, bkt, b.farm)
+		if lead and lead != opl and (lead, bkt) in buckets:
+			riders.append((opl, bkt, b, farm, lead))
+			continue
+		pin = pinned.get((opl, bkt))
+		if pin:
+			placed[(opl, bkt)] = (pin[0], plan_farm(opl, pin[1] or farm))
+			put(pin[0], opl, placed[(opl, bkt)][1], bkt, b.state)
+		elif b.state != "shelved":
+			free.setdefault((opl, farm), []).append(b)
+	for (opl, farm), bs in free.items():
+		plan = plans.get((opl, farm)) or {}
+		order = sorted(plan, key=drive_order)
+		here = [t for t in order if still_here(t, farm)]
+		room = {t: plan[t] - len((out.get(t, {}).get((opl, farm)) or {}).get("buckets", {})) for t in here}
+		bs.sort(key=lambda b: (_SHARE_RANK[b.state], str(b.scanned_at or "9999"), b.bucket))
+		for b in bs:
+			on_truck = b.state in ("loaded", "transit") and b.truck
+			fits = [t for t in here if not on_truck or (trips[t].vehicle or "") == b.truck]
+			trip = next((t for t in fits if room[t] > 0), None)
+			if trip is None and b.state != "awaiting" and fits:
+				trip = fits[-1]  # on a trolley / truck beyond the plan: the last run still here
+			if trip is None:
+				continue
+			room[trip] -= 1
+			put(trip, opl, farm, b.bucket, b.state)
+			placed[(opl, b.bucket)] = (trip, farm)
+	# A shared bucket rides the one trip its lead's portion takes it on.
+	for opl, bkt, b, farm, lead in riders:
+		where = placed.get((lead, bkt))
+		if where:
+			s = portion(where[0], opl, farm)
+			s["riding"] += 1
+			s["riding_buckets"][bkt] = b.state
+	# Trips that plan a portion none of whose buckets count there still show it (0 of n).
+	for (opl, farm), plan in plans.items():
+		for trip in plan:
+			portion(trip, opl, farm)
+	return out
+
+
+def earlier_trip_with_room(opl, farm, trip):
+	"""The earlier run still at `farm` whose share of (opl, farm) is not yet on trolleys
+	or trucks, when `trip` plans that portion too -- its buckets go there first (a farm
+	loads an order's runs in order). None when `trip` is the one to fill now."""
+	shares = trip_bucket_shares([opl])
+	mine = [
+		(t, s) for t, by in shares.items() for (o, f), s in by.items() if o == opl and _same_farm(f, farm)
+	]
+	if not any(t == trip for t, _s in mine):
+		return None
+	meta = {
+		t.name: t
+		for t in frappe.get_all(
+			"Bucket Request Trip",
+			filters={"name": ["in", [t for t, _s in mine]]},
+			fields=["name", "vehicle", "run", "trip_date", "creation", "status", "departed_stops"],
+		)
+	}
+
+	def key(t):
+		m = meta[t]
+		return (str(m.trip_date), 0 if m.run else 1, int(m.run or 0), str(m.creation), t)
+
+	for t, s in sorted(mine, key=lambda x: key(x[0])):
+		if t == trip:
+			return None
+		m = meta[t]
+		if m.status not in ACTIVE_TRIP_STATUSES or any(
+			_same_farm(f, farm) for f in (m.departed_stops or "").split(",") if f
+		):
+			continue
+		# Its share still has buckets waiting on the shelf (not-found / short ones don't hold it up).
+		if s["awaiting"] > 0:
+			return m
+	return None
 
 
 def _trip_loaded_count(doc):
@@ -2504,7 +2910,7 @@ def _add_rows_to_trip(name, rows):
 	as far as the truck has room. Returns (added rows, [(row, buckets not added)])."""
 	doc = frappe.get_doc("Bucket Request Trip", name)
 	cap = _trip_capacity(doc)
-	room = (cap - max(int(doc.total_buckets or 0), int(doc.loaded_buckets or 0))) if cap else 10**9
+	room = (cap - max(_live_planned(name), int(doc.loaded_buckets or 0))) if cap else 10**9
 	added, left = [], []
 	for row in rows:
 		take = max(0, min(int(row["buckets"]), room))
@@ -2600,6 +3006,47 @@ def _redirect_to_holders(vehicle, date, rows, runs, route=None, only=None):
 	return keep, redirected, short
 
 
+def _top_up_open_trip(vehicle, date, rows):
+	"""Rows onto the truck's own open trip that day (not yet left their farm), as far as
+	it has room. Returns (rows left over, [{trip, vehicle, farm, buckets}] added)."""
+	trips = frappe.get_all(
+		"Bucket Request Trip",
+		filters={"vehicle": vehicle, "trip_date": date, "status": ["in", ACTIVE_TRIP_STATUSES]},
+		pluck="name",
+		order_by="creation asc",
+	)
+	added_to = []
+	for trip in trips:
+		gone = _departed(frappe.get_doc("Bucket Request Trip", trip))
+		fit = [r for r in rows if r["farm"] not in gone]
+		if not fit:
+			continue
+		added, left = _add_rows_to_trip(trip, fit)
+		short = {id(r): n for r, n in left}
+		fit_ids = {id(r) for r in fit}
+		rest = []
+		for r in rows:
+			if id(r) not in fit_ids:
+				rest.append(r)
+			elif id(r) in short:
+				n = short[id(r)]
+				per = (r["stems"] / r["buckets"]) if r["buckets"] else 0
+				rest.append({**r, "buckets": n, "stems": round(per * n)})
+		rows = rest
+		for farm in sorted({a["farm"] for a in added}):
+			added_to.append(
+				{
+					"trip": trip,
+					"vehicle": vehicle,
+					"farm": farm,
+					"buckets": sum(a["buckets"] for a in added if a["farm"] == farm),
+				}
+			)
+		if not rows:
+			break
+	return rows, added_to
+
+
 def _redirect_note(redirected, short):
 	parts = [
 		"{0} bkt at {1} went on {2}'s trip {3} — it is already collecting there".format(
@@ -2639,6 +3086,7 @@ def _save_trip(
 	auto_planned=0,
 	route=None,
 	run=None,
+	commit=True,
 ):
 	"""Validate and upsert a Bucket Request Trip; returns the response message.
 
@@ -2646,7 +3094,8 @@ def _save_trip(
 	save, no partial write. Also refuses to claim more buckets of an (order, farm) than
 	are still open once every other planned trip today is counted. That is what stops a
 	double-click (or a second planner, or the automatic scheduler) from putting the
-	same buckets on two trucks."""
+	same buckets on two trucks. commit=False leaves committing to the caller (the
+	automatic scheduler saves a truck's runs together or not at all)."""
 	if not vehicle:
 		return {"status": "error", "message": "A vehicle is required."}
 	existing = name and frappe.db.exists("Bucket Request Trip", name)
@@ -2730,6 +3179,11 @@ def _save_trip(
 	redirected, short = [], []
 	if not existing:
 		rows, redirected, short = _redirect_to_holders(vehicle, trip_date, rows, runs, route=route, only=only)
+		if rows and not runs:
+			# An unrouted truck drives one trip at a time: its open trip that day is filled
+			# before a second one is made.
+			rows, topped = _top_up_open_trip(vehicle, trip_date, rows)
+			redirected += topped
 		if not rows:
 			if not redirected:
 				return {
@@ -2737,7 +3191,8 @@ def _save_trip(
 					"reason": "farm_taken",
 					"message": _redirect_note(redirected, short),
 				}
-			frappe.db.commit()  # nosemgrep: frappe-manual-commit
+			if commit:
+				frappe.db.commit()  # nosemgrep: frappe-manual-commit
 			return {
 				"status": "success",
 				"name": redirected[0]["trip"],
@@ -2779,7 +3234,8 @@ def _save_trip(
 				),
 			}
 		names = [_write_run_trip(slot, vehicle, trip_date, status, notes, auto_planned) for slot in plan]
-		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+		if commit:
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		return {
 			"status": "success",
 			"name": names[0],
@@ -2843,7 +3299,8 @@ def _save_trip(
 	for r in rows:
 		doc.append("orders", r)
 	doc.save(ignore_permissions=True)
-	frappe.db.commit()  # nosemgrep: frappe-manual-commit
+	if commit:
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 	return {
 		"status": "success",
@@ -2856,22 +3313,63 @@ def _save_trip(
 	}
 
 
+def _live_planned(trip):
+	"""Buckets planned on a trip, counting only orders whose pick list still exists. A
+	deleted (re-allocated) pick list's rows are dropped the next time the trip is saved
+	(drop_deleted_orders), so counting them left that much room empty on the first trip
+	while the overflow opened a second one."""
+	return int(
+		frappe.db.sql(
+			"""SELECT COALESCE(SUM(o.buckets), 0) FROM `tabBucket Request Trip Order` o
+			JOIN `tabOrder Pick List` opl ON opl.name = o.order_pick_list
+			WHERE o.parent = %s AND o.parenttype = 'Bucket Request Trip'""",
+			trip,
+		)[0][0]
+	)
+
+
+def _open_run_room(vehicle, date, farm):
+	"""[(run, room)] for each of the truck's runs on `date` that visit `farm` and can
+	still collect there (no trip yet, or its trip hasn't left and hasn't left the farm),
+	in driving order. room = capacity less what is planned (live) or loaded on it."""
+	cap = _vehicle_capacity(vehicle)
+	out = []
+	for run in _day_runs(vehicle, date):
+		if not _run_open(run) or farm not in run["stops"]:
+			continue
+		used = 0
+		if run["trip"]:
+			t = frappe.get_doc("Bucket Request Trip", run["trip"])
+			if farm in _departed(t):
+				continue
+			used = max(_live_planned(t.name), int(t.loaded_buckets or 0))
+		out.append((run, max(0, cap - used) if cap else 10**9))
+	return out
+
+
 def _split_into_runs(vehicle, date, rows, skip_full=False, only=None):
 	"""Spread plan rows over the truck's still-open runs that day, earliest first: a
 	row goes to the first run that visits its farm (and hasn't left it) with room, and
 	is split across runs when one run can't hold it all. Each run is a full truck.
-	Returns (slots with their rows, unplaced [(row, buckets, reason)])."""
+	`only` = (route, run): rows go on that run -- or an earlier open run to the same
+	farm that still has room, which fills first (a later run never gets buckets while
+	an earlier one to that farm is short). Returns (slots with their rows, unplaced
+	[(row, buckets, reason)])."""
 	cap = _vehicle_capacity(vehicle)
 	slots = []
 	for run in _day_runs(vehicle, date):
-		if not _run_open(run) or (only and (run["route"], run["run"]) != only):
+		if not _run_open(run):
 			continue
 		used, departed = 0, []
 		if run["trip"]:
 			t = frappe.get_doc("Bucket Request Trip", run["trip"])
-			used = max(int(t.total_buckets or 0), int(t.loaded_buckets or 0))
+			used = max(_live_planned(t.name), int(t.loaded_buckets or 0))
 			departed = _departed(t)
 		slots.append({**run, "room": (cap - used) if cap else 10**9, "departed": departed, "rows": []})
+		if only and (run["route"], run["run"]) == only:
+			break
+	if only and not any((sl["route"], sl["run"]) == only for sl in slots):
+		slots = []
 	unplaced = []
 	for row in rows:
 		left = int(row["buckets"])
@@ -2994,6 +3492,7 @@ def _mark_trip_in_transit(doc):
 		).items()
 		if any(w.trip != doc.name for w in ws)
 	}
+	groups = shared_buckets({b["bucket"] for b in all_buckets if b["open"] and b["bucket"]})
 	pool = {}
 	for b in all_buckets:
 		if b["open"] and not b["loaded"] and (b["bucket"] or "").upper() not in elsewhere:
@@ -3004,7 +3503,10 @@ def _mark_trip_in_transit(doc):
 		take, rest = bucket_list[: int(o.buckets or 0)], bucket_list[int(o.buckets or 0) :]
 		pool[(o.order_pick_list, o.farm or "")] = rest
 		for b in take:
-			for row_name in b["names"]:
+			# A shared bucket's rows on the orders riding with it go too.
+			g = shared_group(groups, b["bucket"], b["farm"]) or {}
+			riding = [n for o, ns in (g.get("rows") or {}).items() if o != b["opl"] for n in ns]
+			for row_name in b["names"] + riding:
 				frappe.db.set_value(
 					"Pick List Item",
 					row_name,
@@ -3642,6 +4144,8 @@ def mark_bucket_not_found(pick_list_item, notes=None):
 		)
 	else:
 		waiting = [frappe._dict(name=row.name, opl=row.opl, farm=row.farm)]
+	# A shared bucket was planned once, for its lead order: only that plan expects one fewer.
+	shared = shared_group(shared_buckets({row.bucket}), row.bucket, row.farm) if row.bucket else None
 	now, user = frappe.utils.now(), frappe.session.user
 	for w in waiting:
 		frappe.db.set_value(
@@ -3667,6 +4171,8 @@ def mark_bucket_not_found(pick_list_item, notes=None):
 				row.bucket or row.name, farm, (" " + notes) if notes else ""
 			),
 		)
+		if shared and opl in shared["opls"] and opl != shared["lead"]:
+			continue
 		trip, gone = _plan_one_fewer(opl, farm, row.bucket)
 		if trip:
 			trips.append(trip)
@@ -4043,15 +4549,18 @@ def dispatchBucketTrip():
 
 def _put_loads_in_transit(doc):
 	"""Dispatch: every bucket loaded on this trip's truck (its trip buckets, still on the
-	truck) is in transit now."""
-	for b in doc.get("trip_buckets") or []:
-		if b.shelved or b.off_truck or not b.bucket:
-			continue
+	truck) is in transit now -- for every order a shared bucket fills (shared_buckets),
+	not only the one it is recorded for."""
+	loads = [b for b in doc.get("trip_buckets") or [] if not (b.shelved or b.off_truck or not b.bucket)]
+	groups = shared_buckets({b.bucket for b in loads})
+	for b in loads:
+		g = shared_group(groups, b.bucket, b.farm)
+		opls = {b.order_pick_list} | set((g or {}).get("opls") or [])
 		frappe.db.sql(
 			"""UPDATE `tabPick List Item` SET in_transit = 1, transit_truck = %(v)s
-			WHERE parenttype = 'Order Pick List' AND parent = %(opl)s AND UPPER(bucket) = %(b)s
+			WHERE parenttype = 'Order Pick List' AND parent IN %(opls)s AND UPPER(bucket) = %(b)s
 			  AND IFNULL(shelved, 0) = 0 AND IFNULL(issued, 0) = 0 AND IFNULL(not_found, 0) = 0""",
-			{"v": doc.vehicle, "opl": b.order_pick_list, "b": (b.bucket or "").upper()},
+			{"v": doc.vehicle, "opls": tuple(opls), "b": (b.bucket or "").upper()},
 		)
 
 
@@ -5400,6 +5909,52 @@ def open_transfer_opls(bucket):
 		  AND IFNULL(pli.shelved, 0) = 0 AND IFNULL(pli.issued, 0) = 0""",
 		bucket,
 	)
+
+
+def opl_delete_blockers(opl):
+	"""Why this Order Pick List must not be deleted while its buckets move: rows loaded on
+	a trolley or truck, in transit, or awaiting transfer at a farm, and active trips it
+	is planned on. Deleting it then drops the request from the farm app and its trips
+	for good. [] when it can go."""
+	loaded = "pli.loaded_in_trolley = 1"
+	if frappe.db.has_column("Pick List Item", "loaded_on_truck"):
+		loaded += " OR pli.loaded_on_truck = 1"
+	row = frappe.db.sql(
+		"SELECT SUM(CASE WHEN ("
+		+ loaded
+		+ """) AND IFNULL(pli.in_transit, 0) = 0 THEN 1 ELSE 0 END),
+		     SUM(CASE WHEN pli.in_transit = 1 THEN 1 ELSE 0 END),
+		     SUM(CASE WHEN pli.awaiting_transfer = 1 AND IFNULL(pli.in_transit, 0) = 0 AND NOT ("""
+		+ loaded
+		+ """) THEN 1 ELSE 0 END)
+		FROM `tabPick List Item` pli
+		WHERE pli.parent = %s AND pli.parenttype = 'Order Pick List'
+		  AND IFNULL(pli.bucket, '') != '' AND IFNULL(pli.shelved, 0) = 0 AND IFNULL(pli.issued, 0) = 0""",
+		opl,
+	)[0]
+	out = []
+	for n, what in zip(
+		row,
+		(
+			_("{0} row(s) loaded on a truck"),
+			_("{0} row(s) in transit"),
+			_("{0} row(s) awaiting transfer at a farm"),
+		),
+		strict=True,
+	):
+		if int(n or 0):
+			out.append(what.format(int(n)))
+	trips = frappe.db.sql_list(
+		"""SELECT DISTINCT t.name FROM `tabBucket Request Trip Order` o
+		JOIN `tabBucket Request Trip` t ON t.name = o.parent
+		WHERE o.order_pick_list = %s AND o.parenttype = 'Bucket Request Trip'
+		  AND t.status IN ('Draft', 'Requested', 'Scheduled', 'Dispatched')
+		  AND (IFNULL(o.buckets, 0) > 0 OR IFNULL(o.loaded_buckets, 0) > 0)""",
+		opl,
+	)
+	if trips:
+		out.append(_("planned on trip(s) {0}").format(", ".join(trips)))
+	return out
 
 
 # Truck Routes moved to truck_routes.py. Imported last (it imports helpers from this

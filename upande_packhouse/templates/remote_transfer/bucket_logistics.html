@@ -120,6 +120,9 @@
     #tm-root .tt-trip-h { display: flex; align-items: baseline; gap: 10px; cursor: pointer; padding: 10px 8px; background: #1a1a1a; color: #fff; border-radius: 6px; font-size: 14px; font-weight: 700; user-select: none; }
     #tm-root .tt-trip-h .ov-sub { color: #bbb; }
     #tm-root .tt-trip-h .ov-count { color: #ccc; margin-left: auto; }
+    #tm-root .tt-trip-farms { flex: 1 1 auto; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; min-width: 0; }
+    #tm-root .tt-trip-farm { background: #2b2b2b; border: 1px solid #555; color: #fff; border-radius: 12px; padding: 1px 9px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    #tm-root .tt-trip-farm b { color: #fff; }
     #tm-root .tt-exp { flex: none; border: 1px solid #555; background: #2b2b2b; color: #fff; border-radius: 6px; padding: 3px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
     #tm-root .tt-exp:hover { background: #3a3a3a; border-color: #777; }
     #tm-root .tt-cap { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 6px 10px; margin: 2px 0 6px; background: #f6f7f9; border-radius: 6px; font-size: 12px; color: #333; }
@@ -135,7 +138,6 @@
     #tm-root { box-sizing: border-box; max-width: 100%; overflow-x: hidden; }
     #tm-root .tt-trip-h, #tm-root .tt-farm-h, #tm-root .tt-order-h { flex-wrap: wrap; min-width: 0; }
     #tm-root .tt-trip, #tm-root .tt-farm, #tm-root .tt-order, #tm-root .tt-status, #tm-root .tt-cap { min-width: 0; max-width: 100%; }
-    #tm-root .tt-cap-split { min-width: 0; }
     #tm-root .aph-kpis { min-width: 0; }
     #tm-root .aph-kpi { min-width: 0; overflow-wrap: anywhere; }
     #tm-root .aph-kpi.tt-truck { cursor: pointer; transition: box-shadow .12s, border-color .12s; }
@@ -143,8 +145,6 @@
     #tm-root .aph-kpi.tt-truck.is-on { border-color: #2563eb; box-shadow: inset 0 0 0 2px #2563eb; background: #eff5ff; }
     #tm-root .tt-cap-bar { display: inline-block; width: 120px; height: 7px; background: #e3e5e8; border-radius: 4px; overflow: hidden; }
     #tm-root .tt-cap-bar span { display: block; height: 100%; }
-    #tm-root .tt-cap-split { display: flex; flex-wrap: wrap; gap: 5px; margin-left: auto; }
-    #tm-root .tt-cap-farm { background: #fff; border: 1px solid #dcdfe3; border-radius: 12px; padding: 1px 8px; white-space: nowrap; }
     #tm-root .tt-farms { padding: 4px 0 8px 20px; }
     #tm-root .tt-farm { margin-bottom: 2px; }
     #tm-root .tt-farm-h { display: flex; align-items: baseline; gap: 8px; cursor: pointer; padding: 8px 6px; background: #f6f6f4; border-radius: 6px; font-size: 13px; font-weight: 700; user-select: none; }
@@ -456,7 +456,9 @@
     var day = (window.rtDate && window.rtDate.get()) || OV.date;
     if (day !== OV.date) OV.trucks = {};
     OV.date = day;
-    return ovApi('upande_packhouse.api.bucket_logistics.getBucketLogistics', { delivery_date: OV.date, farm: (window.rtFarm && window.rtFarm.get()) || '', team: (window.rtTeam && window.rtTeam.get()) || '' }).then(function (d) {
+    // Every order of the day: the Farm / Team filters are the Scheduler's and aren't shown
+    // on this tab, so a choice left there must not quietly hide orders here.
+    return ovApi('upande_packhouse.api.bucket_logistics.getBucketLogistics', { delivery_date: OV.date }).then(function (d) {
       OV.orders = (d && d.orders) || []; OV.runs = (d && d.runs) || []; OV.totals = (d && d.bucket_totals) || null; OV.loading = false;
       OV.details = {}; OV.owners = {}; OV.transit = {}; OV.repl = [];
       renderActive();
@@ -771,13 +773,22 @@
 
   // ---------- Design 6: Trip Drill Down (trip > farm > order > status) ----------
   // A trip's capacity and how its buckets split: by farm, and loaded / arrived / free.
+  // A trip's planned buckets per farm (the header's farm chips).
+  function ttTripFarms(g) {
+    var byFarm = {};
+    g.rows.forEach(function (r) {
+      var t = r.trip || {};
+      byFarm[r.farm || '—'] = (byFarm[r.farm || '—'] || 0) + (Number(t.buckets) || Number(t.loaded_buckets) || 0);
+    });
+    return byFarm;
+  }
   function ttTripLoad(g) {
     var run = (OV.runs || []).filter(function (r) { return r.name === g.trip.trip; })[0] || {};
-    var byFarm = {}, planned = 0, loaded = 0, arrived = 0;
+    var planned = 0, trolley = 0, loaded = 0, arrived = 0;
     g.rows.forEach(function (r) {
-      var t = r.trip || {}, n = Number(t.buckets) || Number(t.loaded_buckets) || 0;
-      byFarm[r.farm || '—'] = (byFarm[r.farm || '—'] || 0) + n; planned += n;
-      loaded += Number(t.loaded_buckets) || 0; arrived += Number(t.shelved) || 0;
+      var t = r.trip || {};
+      planned += Number(t.buckets) || Number(t.loaded_buckets) || 0;
+      trolley += Number(t.trolley) || 0; loaded += Number(t.loaded_buckets) || 0; arrived += Number(t.shelved) || 0;
     });
     var total = Math.max(Number(run.total_buckets) || 0, planned), cap = Number(run.capacity_buckets) || 0;
     var free = cap - total, pct = cap ? Math.round(100 * total / cap) : 0;
@@ -786,9 +797,9 @@
       '<span class="tt-cap-k">Capacity <b>' + (cap || '—') + '</b></span>' + bar +
       '<span class="tt-cap-k">Buckets <b>' + total + '</b>' + (cap ? ' <span class="ov-sub">(' + pct + '%)</span>' : '') + '</span>' +
       (cap ? '<span class="tt-cap-k" style="color:' + (free < 0 ? '#c4302b' : 'inherit') + '">' + (free < 0 ? 'Over <b>' + (-free) + '</b>' : 'Free <b>' + free + '</b>') + '</span>' : '') +
+      '<span class="tt-cap-k">Trolley <b>' + trolley + '</b></span>' +
       '<span class="tt-cap-k">Loaded <b>' + loaded + '</b></span>' +
       '<span class="tt-cap-k">Arrived <b>' + arrived + '</b></span>' +
-      '<span class="tt-cap-split">' + Object.keys(byFarm).sort().map(function (f) { return '<span class="tt-cap-farm">' + esc(f) + ' <b>' + byFarm[f] + '</b></span>'; }).join('') + '</span>' +
     '</div>';
   }
   // An order's buckets and stems from this farm, and the stems that have arrived.
@@ -823,6 +834,8 @@
       var tShut = !TRIPTREE_OPEN['t:' + tkey];
       var farmCount = uniqSorted(g.rows.map(function (r) { return r.farm; })).length;
       var orderCount = uniqSorted(g.rows.map(function (r) { return r.opl; })).length;
+      var tFarms = g.trip ? ttTripFarms(g) : {};
+      var farmsChips = '<span class="tt-trip-farms">' + Object.keys(tFarms).sort().map(function (f) { return '<span class="tt-trip-farm">' + esc(f) + ' <b>' + tFarms[f] + '</b></span>'; }).join('') + '</span>';
       var tLabel = g.trip
         ? (esc((g.trip.vehicle || g.trip.trip) + (g.trip.run ? ' · Trip ' + g.trip.run : '')) + ' <span class="ov-sub">· ' + esc(g.trip.status) + (g.trip.trip_date ? ' · ' + esc(g.trip.trip_date) : '') + '</span>')
         : '<i>Not Scheduled</i>';
@@ -863,7 +876,7 @@
         }).join('');
       }
       return '<div class="tt-trip">' +
-        '<div class="tt-trip-h" data-tt-toggle="t:' + esc(tkey) + '"><span class="ov-caret">' + (tShut ? '▸' : '▾') + '</span><span>' + tLabel + '</span><span class="ov-count">' + farmCount + ' farm' + (farmCount === 1 ? '' : 's') + ' · ' + orderCount + ' order' + (orderCount === 1 ? '' : 's') + '</span>' +
+        '<div class="tt-trip-h" data-tt-toggle="t:' + esc(tkey) + '"><span class="ov-caret">' + (tShut ? '▸' : '▾') + '</span><span>' + tLabel + '</span>' + farmsChips + '<span class="ov-count">' + farmCount + ' farm' + (farmCount === 1 ? '' : 's') + ' · ' + orderCount + ' order' + (orderCount === 1 ? '' : 's') + '</span>' +
           '<button type="button" class="tt-exp" data-tt-exp="' + esc(tkey) + '">' + (ttTripAllOpen(tkey) ? 'Collapse' : 'Expand') + '</button></div>' +
         (g.trip ? ttTripLoad(g) : '') +
         (tShut ? '' : '<div class="tt-farms">' + farmsHtml + '</div>') +
@@ -1395,8 +1408,6 @@
   document.addEventListener('keydown', function (e) { if (e.key !== 'Escape') return; if (TR.open) trClose(); else if (BP.open) bpClose(); });
 
   renderTabs();
-  if (window.rtFarm) window.rtFarm.on(function () { ovLoad(); });
-  if (window.rtTeam) window.rtTeam.on(function () { ovLoad(); });
   ovLoad();
 })();
 </script>

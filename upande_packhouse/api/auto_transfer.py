@@ -21,9 +21,9 @@
 #      one trip per run: a hand-set route's runs (packhouse → farms → packhouse) are
 #      each planned as a full truck that serves only that run's farms.
 #
-# Ownership: whatever this saves is flagged auto_planned. Each run replaces only
-# its own still-Draft trips and routes; a trip or route a person saves is theirs
-# and is never touched, and a truck with a person's trip today is left alone.
+# Ownership: whatever this saves is flagged auto_planned. Each run re-plans only its
+# own still-Draft trips (in place, keeping their names) and routes; a trip a person
+# saves keeps its orders and is only topped up while its run has room.
 # Dispatch stays manual — only a person knows the truck has actually left.
 
 import itertools
@@ -140,19 +140,15 @@ def _add_runs_for_waiting(window=None):
 				waiting[f["farm"]] = waiting.get(f["farm"], 0) + left
 	if not waiting:
 		return []
-	trips = {t["name"]: t for t in data["trips"]}
 	routed = [v for v in data["vehicles"] if int(v.get("capacity_buckets") or 0) > 0 and v.get("runs")]
 	if not routed:
 		return []
 	added = []
-	for farm, need in sorted(waiting.items()):
-		room = 0
-		for v in routed:
-			for r in v["runs"]:
-				if farm in (r.get("stops") or []) and r.get("trip_status") in (None, "Draft"):
-					used = int((trips.get(r.get("trip")) or {}).get("total_buckets") or 0)
-					room += max(0, int(v["capacity_buckets"]) - used)
-		if room >= need:
+	for farm in sorted(waiting):
+		# A new run only once every open trip to the farm is full (planned, requested or
+		# released, not yet gone from the farm): one with room left is topped up first
+		# (plan() fills it, and the next round adds a run if still short).
+		if any(n > 0 for v in routed for _r, n in tc._open_run_room(v["name"], today, farm)):
 			continue
 		serving = [v for v in routed if any(farm in (r.get("stops") or []) for r in v["runs"])]
 		pick = max(serving or routed, key=lambda v: int(v.get("capacity_buckets") or 0))
@@ -304,42 +300,7 @@ def _plan(window=None):
 			frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		return summary
 
-	_clear_own_plan(today)
-	for t in loads:
-		chain = []
-		if t["auto_route"]:
-			chain, legs = graph.route_for(t["stops"])
-			res = truck_routes._save_route(today, t["vehicle"], legs, auto_planned=1)
-			if res.get("status") != "success":
-				summary["failed"].append({"vehicle": t["vehicle"], "message": res.get("message")})
-				continue
-		res = tc._save_trip(
-			name=None,
-			vehicle=t["vehicle"],
-			trip_date=today,
-			status="Draft",
-			notes="Auto-planned for deliveries on {0}.".format(window),
-			collection_order=" → ".join([hub] + chain + [hub]) if chain else "",
-			farm="",
-			rows=t["rows"],
-			auto_planned=1,
-			route=t.get("route"),
-			run=t.get("run"),
-		)
-		if res.get("status") == "success":
-			summary["trips"].append(
-				{
-					"name": res["name"],
-					"vehicle": t["vehicle"],
-					"buckets": res["total_buckets"],
-					"run": t.get("run"),
-					"farms": ", ".join(sorted({r.get("farm") for r in t["rows"] if r.get("farm")})),
-					"stems": sum(int(r.get("stems") or 0) for r in t["rows"]),
-					"orders": sorted({r.get("order_name") or r.get("order_pick_list") for r in t["rows"]}),
-				}
-			)
-		else:
-			summary["failed"].append({"vehicle": t["vehicle"], "message": res.get("message")})
+	summary["trips"], summary["failed"] = _save_plan(loads, today, window, hub, graph)
 	# Each re-plan that changed the trips is its own entry on the page's Distributed list.
 	tc.log_distribution(window, [{**x, "trip": x["name"]} for x in summary["trips"]], source="Automatic")
 	summary["dispatched"] = tc.dispatch_full_trips([x["name"] for x in summary["trips"]])
@@ -377,31 +338,49 @@ def _fleet(data, today):
 			# A hand-set route: every run still open is a full truck that only serves
 			# that run's farms (one trip per run). A run on the road is skipped.
 			for r in v.get("runs") or []:
-				# A run whose truck has left the hub (Scheduled onward) is taken, and one
-				# waiting on the farm's answer (Requested) is held as it was asked for.
-				if r.get("trip_status") in ("Requested", "Scheduled", "Dispatched", "Received") or not r.get(
-					"stops"
-				):
+				# A run whose truck is gone (Dispatched, Received) is taken. A requested or
+				# released one is only topped up -- its orders stay on it -- at the farms
+				# it hasn't left: a later run never gets buckets an earlier one has room for.
+				if r.get("trip_status") in ("Dispatched", "Received") or not r.get("stops"):
 					continue
-				used = 0
+				used, stops = 0, set(r["stops"])
 				if r.get("trip"):
 					t = frappe.db.get_value(
 						"Bucket Request Trip",
 						r["trip"],
-						["total_buckets", "loaded_buckets", "auto_planned"],
+						[
+							"name",
+							"status",
+							"total_buckets",
+							"loaded_buckets",
+							"auto_planned",
+							"departed_stops",
+						],
 						as_dict=True,
 					)
+					stops -= set(tc._departed(t))
+					if not stops:
+						continue
+					# Room on the run is what _save_trip will accept: its planned buckets,
+					# unless it is one of this run's own drafts about to be replaced.
 					used = (
-						int(t.loaded_buckets or 0)
-						if t.auto_planned
-						else max(int(t.total_buckets or 0), int(t.loaded_buckets or 0))
+						0
+						if _replaceable(
+							{
+								"name": t.name,
+								"status": t.status,
+								"auto_planned": t.auto_planned,
+								"loading": int(t.loaded_buckets or 0),
+							}
+						)
+						else max(tc._live_planned(t.name), int(t.loaded_buckets or 0))
 					)
 				if cap - used > 0:
 					trucks.append(
 						_truck(
 							v["name"],
 							cap - used,
-							set(r["stops"]),
+							stops,
 							route=r["route"],
 							run=r["run"],
 							window=tc._trip_window(r["route"], today),
@@ -431,12 +410,13 @@ def _truck(vehicle, rem, fixed, route=None, run=None, window=None):
 
 
 def _open_orders(data):
-	"""Scheduled orders with their still-open farm portions. Buckets on a person's
-	planned trip today are covered; this run's own drafts are about to be replaced,
-	so they cover nothing."""
+	"""Scheduled orders with their still-open farm portions. Buckets on any planned trip
+	today are covered, except this run's own drafts, which are about to be replaced
+	(_own_drafts). One already loading is kept, so its planned buckets stay covered:
+	planning them again made _save_trip refuse the whole trip as over-claimed."""
 	covered = {}
 	for t in data["trips"]:
-		if t["status"] in tc.ACTIVE_TRIP_STATUSES and not t["stale"] and not t.get("auto_planned"):
+		if t["status"] in tc.ACTIVE_TRIP_STATUSES and not t["stale"] and not _replaceable(t):
 			for r in t["orders"]:
 				key = (r["order_pick_list"], r["farm"])
 				covered[key] = covered.get(key, 0) + int(r["buckets"] or 0)
@@ -911,6 +891,14 @@ def _by_vehicle(loads):
 	return list(out.values())
 
 
+def _replaceable(trip):
+	"""True for one of this scheduler's own drafts that _save_plan re-plans in place:
+	auto-planned, still Draft, and nothing loaded on it yet."""
+	if not trip.get("auto_planned") or trip.get("status") != "Draft" or trip.get("loading"):
+		return False
+	return not frappe.db.exists("Bucket Request Trip Bucket", {"parent": trip.get("name")})
+
+
 def _own_drafts(today):
 	# A draft whose truck is already being loaded is no longer the scheduler's to replace.
 	return [
@@ -941,11 +929,188 @@ def _current_signature(today):
 	return sorted((v, tuple(sorted(rows))) for v, rows in by_vehicle.items())
 
 
-def _clear_own_plan(today):
-	"""Delete this scheduler's undispatched drafts and today's routes it set — except
-	the route of a truck that is on the road or carries a person's trip."""
-	for t in _own_drafts(today):
-		frappe.delete_doc("Bucket Request Trip", t.name, ignore_permissions=True, force=1)
+def _save_plan(loads, today, window, hub, graph):
+	"""Write the plan over this scheduler's own drafts. A draft keeps its name: its run's
+	new plan is written into it in place (the farm app keeps the trip it has open), and
+	only a draft whose run gets nothing, with nothing loaded, is deleted. Nothing is
+	committed until the end, and each truck's runs are saved together or not at all:
+	when one is refused the truck keeps its last plan (restored as far as its buckets
+	are still free), so a refusal never leaves orders on no trip. A truck's runs are
+	saved first to last, so a later run never gets buckets an earlier one has room for.
+	Returns (saved trips, failed)."""
+	tc._plan_lock()
+	own = _own_drafts(today)
+	last = _empty_drafts([t.name for t in own])
+	trips, failed, refused = [], [], set()
+	by_truck = {}
+	for t in sorted(loads, key=lambda t: (t["vehicle"], int(t.get("run") or 0))):
+		by_truck.setdefault(t["vehicle"], []).append(t)
+	for vehicle, runs in by_truck.items():
+		frappe.db.savepoint("auto_plan_truck")
+		saved, refusal = [], None
+		for t in runs:
+			try:
+				res = _save_load(t, today, window, hub, graph)
+			except frappe.ValidationError as e:
+				frappe.clear_last_message()
+				res = {"status": "error", "message": str(e)}
+			if res.get("status") != "success":
+				refusal = res
+				break
+			saved.append(
+				{
+					"name": res["name"],
+					"vehicle": t["vehicle"],
+					"buckets": res["total_buckets"],
+					"run": t.get("run"),
+					"farms": ", ".join(sorted({r.get("farm") for r in t["rows"] if r.get("farm")})),
+					"stems": sum(int(r.get("stems") or 0) for r in t["rows"]),
+					"orders": sorted({r.get("order_name") or r.get("order_pick_list") for r in t["rows"]}),
+				}
+			)
+		if refusal:
+			frappe.db.rollback(save_point="auto_plan_truck")
+			refused.add(vehicle)
+			failed.append(
+				{
+					"vehicle": vehicle,
+					"message": "{0} — {1} keeps its last plan.".format(
+						refusal.get("message") or "Refused", vehicle
+					),
+				}
+			)
+		else:
+			trips += saved
+	# Buckets the refused trucks were to take, or had on their last plan, go back on the
+	# drafts that carried them, as far as they are still free.
+	keys = {(r["order_pick_list"], r["farm"]) for t in loads if t["vehicle"] in refused for r in t["rows"]}
+	_restore_drafts(
+		{
+			n: [r for r in rows if r["vehicle"] in refused or (r["order_pick_list"], r["farm"]) in keys]
+			for n, rows in last.items()
+		}
+	)
+	_drop_empty_drafts(list(last))
+	_drop_own_routes(today)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- the whole re-plan at once
+	return trips, failed
+
+
+def _save_load(t, today, window, hub, graph):
+	"""Save one planned truck run (not committed)."""
+	chain = []
+	if t["auto_route"]:
+		chain, legs = graph.route_for(t["stops"])
+		res = truck_routes._save_route(today, t["vehicle"], legs, auto_planned=1, commit=False)
+		if res.get("status") != "success":
+			return res
+	return tc._save_trip(
+		name=None,
+		vehicle=t["vehicle"],
+		trip_date=today,
+		status="Draft",
+		notes="Auto-planned for deliveries on {0}.".format(window),
+		collection_order=" → ".join([hub] + chain + [hub]) if chain else "",
+		farm="",
+		rows=t["rows"],
+		auto_planned=1,
+		route=t.get("route"),
+		run=t.get("run"),
+		commit=False,
+	)
+
+
+def _empty_drafts(names):
+	"""Take the plan rows off these drafts (kept, to be re-planned in place). Returns
+	{draft: [its rows as they were, with its vehicle]}."""
+	last = {}
+	for name in names:
+		vehicle = frappe.db.get_value("Bucket Request Trip", name, "vehicle")
+		last[name] = [
+			{**r, "vehicle": vehicle}
+			for r in frappe.get_all(
+				"Bucket Request Trip Order",
+				filters={"parent": name, "parenttype": "Bucket Request Trip"},
+				fields=[
+					"order_pick_list",
+					"order_name",
+					"customer",
+					"farm",
+					"varieties",
+					"buckets",
+					"stems",
+					"full_farm_buckets",
+					"is_partial",
+					"unscheduled",
+				],
+				order_by="idx asc",
+			)
+		]
+		frappe.db.delete("Bucket Request Trip Order", {"parent": name, "parenttype": "Bucket Request Trip"})
+		frappe.db.set_value(
+			"Bucket Request Trip", name, {"total_buckets": 0, "total_stems": 0}, update_modified=False
+		)
+	return last
+
+
+def _restore_drafts(rows_by_draft):
+	"""Put rows back on the (emptied or re-planned) drafts they came from, each capped
+	by what is still free of its (order, farm) and by the truck's room."""
+	for name, rows in rows_by_draft.items():
+		if not rows or not frappe.db.exists("Bucket Request Trip", name):
+			continue
+		opls = list({r["order_pick_list"] for r in rows})
+		open_counts, claims = tc._open_counts(opls), tc._trip_claims(opls)
+		doc = frappe.get_doc("Bucket Request Trip", name)
+		cap = tc._trip_capacity(doc)
+		room = (cap - tc._live_planned(name)) if cap else 10**9
+		back = 0
+		for r in rows:
+			key = (r["order_pick_list"], r["farm"] or "")
+			take = min(int(r["buckets"] or 0), max(0, open_counts.get(key, 0) - claims.get(key, 0)), room)
+			if take <= 0:
+				continue
+			claims[key] = claims.get(key, 0) + take
+			room -= take
+			back += take
+			per = (int(r["stems"] or 0) / int(r["buckets"])) if int(r["buckets"] or 0) else 0
+			same = next(
+				(
+					o
+					for o in doc.orders
+					if o.order_pick_list == r["order_pick_list"] and (o.farm or "") == key[1]
+				),
+				None,
+			)
+			if same:
+				same.buckets = int(same.buckets or 0) + take
+				same.stems = int(same.stems or 0) + round(per * take)
+			else:
+				row = {k: v for k, v in r.items() if k != "vehicle"}
+				doc.append("orders", {**row, "buckets": take, "stems": round(per * take)})
+		if back:
+			doc.total_buckets = sum(int(o.buckets or 0) for o in doc.orders)
+			doc.total_stems = sum(int(o.stems or 0) for o in doc.orders)
+			doc.save(ignore_permissions=True)
+
+
+def _drop_empty_drafts(names):
+	"""Delete the drafts left with nothing planned and nothing loaded."""
+	for name in names:
+		if not frappe.db.exists("Bucket Request Trip", name):
+			continue
+		if frappe.db.exists(
+			"Bucket Request Trip Order", {"parent": name, "parenttype": "Bucket Request Trip"}
+		) or frappe.db.exists("Bucket Request Trip Bucket", {"parent": name}):
+			continue
+		if int(frappe.db.get_value("Bucket Request Trip", name, "loaded_buckets") or 0):
+			continue
+		frappe.delete_doc("Bucket Request Trip", name, ignore_permissions=True, force=1)
+
+
+def _drop_own_routes(today):
+	"""Delete today's routes this scheduler set -- except the route of a truck that is on
+	the road or has a trip today."""
 	for r in frappe.get_all(
 		"Bucket Logistics Route",
 		filters={"route_date": today, "auto_planned": 1},
@@ -957,4 +1122,3 @@ def _clear_own_plan(today):
 		)
 		if not busy:
 			frappe.delete_doc("Bucket Logistics Route", r.name, ignore_permissions=True, force=1)
-	frappe.db.commit()  # nosemgrep: frappe-manual-commit
