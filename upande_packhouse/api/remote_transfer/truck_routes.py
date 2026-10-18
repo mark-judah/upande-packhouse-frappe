@@ -14,6 +14,7 @@ from upande_packhouse.api.remote_transfer.transfer_scheduling import (
 	_day_window,
 	_dt,
 	_on_road_message,
+	_open_run_room,
 	_route_farms,
 	_route_runs_by_name,
 	_vehicle_on_road,
@@ -130,6 +131,7 @@ def _save_route(
 	to_datetime=None,
 	template=None,
 	check_on_road=True,
+	commit=True,
 ):
 	"""Validate and save a truck's Bucket Logistics Route; returns the response message.
 	A route saved by hand (auto_planned=0) is never re-routed by automatic scheduling.
@@ -210,6 +212,8 @@ def _save_route(
 	except frappe.ValidationError as e:
 		frappe.clear_last_message()
 		return {"status": "error", "reason": "overlap", "message": str(e)}
+	if not commit:
+		return {"status": "success", "name": doc.name, "legs": len(doc.legs), "total_km": total_km}
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	if not auto_planned:
 		from upande_packhouse.api.auto_transfer import replan_soon
@@ -373,6 +377,19 @@ def add_farm_run(vehicle, farm, date=None):
 	date = str(frappe.utils.getdate(date or frappe.utils.today()))
 	if not vehicle or not farm:
 		return {"status": "error", "message": "A truck and a farm are required."}
+	# Trip 2 to a farm only once trip 1 there is full: a trip with room is filled first.
+	roomy = [(r, n) for r, n in _open_run_room(vehicle, date, farm) if n > 0]
+	if roomy:
+		run, room = roomy[0]
+		return {
+			"status": "error",
+			"reason": "has_room",
+			"route": run["route"],
+			"run": run["run"],
+			"message": "{0}'s trip {1} to {2} still has room for {3} bucket(s) — it is filled before another trip is added.".format(
+				vehicle, run["run"], farm, room
+			),
+		}
 	hub = transfer_hub()
 	road = _farm_distance_between(hub, farm)
 	if not road:

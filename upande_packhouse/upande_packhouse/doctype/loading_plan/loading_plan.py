@@ -6,7 +6,27 @@ from frappe.model.document import Document
 
 
 class LoadingPlan(Document):
-	pass
+	def fill_from_orders(self):
+		"""Replace the rows with the delivery date/location's orders, as the form's
+		"Fetch Orders" button does. Returns how many rows were added."""
+		res = fetch_loading_plan_orders(str(self.delivery_date), self.location)
+		if res.get("status") != "success":
+			frappe.throw(res.get("message") or frappe._("Could not fetch orders."))
+		self.set("loading_plan_items", [])
+		for item in res.get("items") or []:
+			self.append(
+				"loading_plan_items",
+				{
+					"customer": item["customer"],
+					"delivery_point": item["delivery_point"],
+					"loading_position": item["loading_position"],
+					"box_type": item["box_type"],
+					"number_of_boxes": item["number_of_boxes"],
+					"sales_order": item["sales_order"],
+					"order_pick_list": item["opl"],
+				},
+			)
+		return len(self.loading_plan_items)
 
 
 # Ported from a live-only Desk "Server Script" (api_method

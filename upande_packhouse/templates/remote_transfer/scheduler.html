@@ -169,6 +169,25 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   .aph-kpi .v{font-size:26px}
   .aph-page-hd .ttl{font-size:20px}
 }
+/* ERPNext desk alert look (frappe desk/toast.scss) — appended to <body>, so not under .aph.
+   .aph is a full-screen layer at z-index 2147483000: anything below that (Frappe's own
+   alert included) is drawn behind the page. The alert goes on top of it. */
+#sch-alert-container{position:fixed;bottom:0;right:20px;z-index:2147483647;display:flex;flex-direction:column;align-items:flex-end}
+.sch-desk-alert{position:relative;width:400px;max-width:calc(100vw - 20px);min-height:50px;max-height:200px;overflow-y:auto;margin-bottom:12px;border-radius:8px;
+  box-shadow:0 2px 6px rgba(17,43,66,.08),0 10px 24px rgba(17,43,66,.12);font:500 13px/20px 'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1f272e;
+  animation:tsBackInRight .6s both}
+.sch-desk-alert.green{background:#e4f5e9}.sch-desk-alert.red{background:#fff0f0}.sch-desk-alert.orange{background:#fff5e6}.sch-desk-alert.blue{background:#e8f2fd}
+.sch-desk-alert .sch-am{display:flex;align-items:center;padding:12px 40px 12px 12px}
+.sch-desk-alert .sch-ai{flex-shrink:0;width:20px;height:20px;margin-right:10px}
+.sch-desk-alert.green .sch-ai{fill:#278f5e}.sch-desk-alert.red .sch-ai{fill:#e03636}.sch-desk-alert.orange .sch-ai{fill:#e86c13}.sch-desk-alert.blue .sch-ai{fill:#2490ef}
+.sch-desk-alert .sch-amsg{overflow-wrap:anywhere}
+.sch-desk-alert .sch-aclose{position:absolute;top:14px;right:12px;cursor:pointer;line-height:0}
+.sch-desk-alert .sch-aclose svg{width:16px;height:16px;fill:#7c7c7c}
+.sch-desk-alert.out{animation:tsBackOutRight 1.6s both}
+@keyframes tsBackInRight{0%{transform:translateX(2000px) scale(.8);opacity:.7}80%{transform:translateX(0) scale(.8);opacity:.7}100%{transform:scale(1);opacity:1}}
+@keyframes tsBackOutRight{0%{opacity:1}100%{transform:translateX(2000px);opacity:.7}}
+@media (max-width:576px){#sch-alert-container{right:0}.sch-desk-alert{width:100vw;max-width:100vw}}
+@media (prefers-reduced-motion:reduce){.sch-desk-alert,.sch-desk-alert.out{animation:none}}
 </style>
 
 <!-- ════════ Page-specific tweaks (appended; reference tokens above are untouched) ════════ -->
@@ -793,7 +812,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       </div>
       <div class="sch-varnote" id="varNote" style="display:none"></div>
       <div class="aph-kpis sch-kpis-sm" id="kpis"></div>
-      <button type="button" class="sch-distbtn" id="distTeams" title="Plan the scheduled orders onto trips in sequence order — orders not scheduled yet go to the end of their team’s sequence first">Distribute to trips</button>
+      <button type="button" class="sch-distbtn" id="distTeams" >Distribute to trips</button>
       <div id="panelUnsched" class="sch-panel" style="display:none">
         <div class="sch-varbar" id="varBar"></div>
         <div class="sch-selbar" id="readySelBar"></div>
@@ -830,7 +849,29 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   var esc=function(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');};
   var num=function(v){var n=typeof v==='number'?v:parseFloat(String(v||''));return isFinite(n)?n:0;};
   var fmt=function(n){return Number(n||0).toLocaleString();};
-  function frp(method,args){return new Promise(function(res){frappe.call({method:method,args:args||{},callback:function(r){res((r&&r.message)||{});},error:function(){res({});}});});}
+  // A failed call resolves with the server's reason, so the caller can show it.
+  function serverError(r){
+    try{ var m=JSON.parse((r&&r._server_messages)||'[]'); if(m.length){ var x=JSON.parse(m[m.length-1]); return String(x.message||x).replace(/<[^>]+>/g,''); } }catch(e){}
+    return (r&&(r.exc_type||r.exception))?String(r.exception||r.exc_type).replace(/^.*?:\s*/,''):'Request failed';
+  }
+  function frp(method,args){return new Promise(function(res){frappe.call({method:method,args:args||{},freeze:false,callback:function(r){res((r&&r.message)||{});},error:function(r){res({status:'error',message:serverError(r&&r.responseJSON||r)});}});});}
+  // Notices in the desk alert's look: frappe.show_alert's styles only load in the desk,
+  // so on this page it drew off-screen behind the page and nothing seemed to happen.
+  var TOAST_ICON={green:'<path d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm3.2-8.6-3.7 3.9a.75.75 0 0 1-1.1 0L4.8 8.6a.75.75 0 1 1 1.1-1l1.1 1.2 3.1-3.4a.75.75 0 1 1 1.1 1z"/>',
+    red:'<path d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zM7.25 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5zM8 11.75a.9.9 0 1 1 0-1.8.9.9 0 0 1 0 1.8z"/>',
+    orange:'<path d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zM7.25 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5zM8 11.75a.9.9 0 1 1 0-1.8.9.9 0 0 1 0 1.8z"/>',
+    blue:'<path d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zM8.75 11.25a.75.75 0 0 1-1.5 0v-3.5a.75.75 0 0 1 1.5 0v3.5zM8 4.25a.9.9 0 1 1 0 1.8.9.9 0 0 1 0-1.8z"/>'};
+  function notify(msg,ind){
+    ind=TOAST_ICON[ind]?ind:'blue';
+    var box=document.getElementById('sch-alert-container');
+    if(!box){ box=document.createElement('div'); box.id='sch-alert-container'; document.body.appendChild(box); }
+    var a=document.createElement('div'); a.className='sch-desk-alert '+ind; a.setAttribute('role','alert');
+    a.innerHTML='<div class="sch-am"><svg class="sch-ai" viewBox="0 0 16 16" aria-hidden="true">'+TOAST_ICON[ind]+'</svg><div class="sch-amsg">'+esc(msg)+'</div></div><a class="sch-aclose" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.3 4.3a.75.75 0 0 1 1.06 0L8 6.94l2.64-2.64a.75.75 0 1 1 1.06 1.06L9.06 8l2.64 2.64a.75.75 0 1 1-1.06 1.06L8 9.06l-2.64 2.64a.75.75 0 0 1-1.06-1.06L6.94 8 4.3 5.36a.75.75 0 0 1 0-1.06z"/></svg></a>';
+    box.appendChild(a);
+    var close=function(){ if(a.classList.contains('out')) return; a.classList.add('out'); setTimeout(function(){ a.remove(); },800); };
+    a.querySelector('.sch-aclose').addEventListener('click',close);
+    setTimeout(close,Math.min(8,Math.max(4,Math.round(String(msg).length*0.06)))*1000);
+  }
   function isoOf(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
   function addDaysISO(iso,n){var d=new Date(iso+'T00:00:00');d.setDate(d.getDate()+n);return isoOf(d);}
   function todayISO(){return isoOf(new Date());}
@@ -1003,7 +1044,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       .map(function(k){return '<div class="aph-kpi"'+(k[2]?' title="'+esc(k[2])+'"':'')+'><div class="lbl">'+k[0]+'</div><div class="v">'+k[1]+'</div></div>';}).join('');
     if(el('cUnsched'))el('cUnsched').textContent=unsched.length;
     if(el('cSched'))el('cSched').textContent=sched.length;
-    if(el('distTeams')){ var nd=distTodo().length; el('distTeams').textContent=nd?'Distribute '+nd+' to trips':'Distribute to trips'; el('distTeams').disabled=!nd&&!applyFilters(STATE.ready).some(function(o){ return STATE.scheduled[o.name]; }); }
+    if(el('distTeams')){ var nd=distTodo().length; var dt=distTarget(); el('distTeams').textContent=nd?'Distribute '+nd+' to '+dt:'Distribute to '+dt; el('distTeams').disabled=!nd&&!applyFilters(STATE.ready).some(function(o){ return STATE.scheduled[o.name]; }); }
     if(el('cTeams'))el('cTeams').textContent=Object.keys(sched.reduce(function(a,o){a[o.custom_team||'-']=1;return a;},{})).length;
     var mt=G.mtab||'unsched';
     document.querySelectorAll('.sch-maintab').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-mtab')===mt);});
@@ -1138,18 +1179,32 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       return !STATE.scheduled[o.name]&&canSchedule(o)&&(vv==='all'||o.variation===vv);
     });
   }
+  // Only orders with buckets to bring from a farm need trips; the rest (submitted, or
+  // drafts with nothing to move) just take their places on their teams' sequences.
+  function needsTrips(list){ return list.some(function(o){ return o.variation==='draft_transfer'; }); }
+  function distTarget(){
+    var todo=distTodo();
+    var list=todo.length?todo:applyFilters(STATE.ready).filter(function(o){ return STATE.scheduled[o.name]; });
+    return needsTrips(list)?'trips':'teams';
+  }
   function distributeToTrips(){
     // Plans the scheduled orders onto the day's trips right here (the server's
     // distributeTrips); the trips show on Bucket Logistics -- no separate Trips page.
     var openTrips=function(){
-      var alert=function(m,c,s){ if(window.frappe&&frappe.show_alert) frappe.show_alert({message:m,indicator:c},s||5); };
+      var btn=el('distTeams'), label=btn?btn.textContent:'';
+      if(btn){ btn.disabled=true; btn.textContent='Distributing…'; }
       frp('upande_packhouse.api.auto_transfer.distributeTrips',{date:STATE.date||window.rtDate.get()}).then(function(m){
-        if(!m||m.status==='error'||m.status==='busy'){ alert((m&&m.message)||'Distribute failed','red',6); return; }
-        var trips=(m.trips||[]).length, filling=(m.filling||[]).length;
-        alert(m.unchanged?'Trips unchanged':(trips+' trip'+(trips===1?'':'s')+' planned · '+(trips-filling)+' full'),'green');
-        (m.runs_added||[]).forEach(function(a){ alert('Added trip '+(a.run||'')+' on '+a.vehicle+' to '+a.farm,'green'); });
-        var un=(m.unreachable||[]).length;
-        if(un) alert(un+' order'+(un===1?' has':'s have')+' no truck going to '+(un===1?'its':'their')+' farm today — add a run to a truck route','red',8);
+        if(btn){ btn.disabled=false; btn.textContent=label; }
+        if(!m||m.status==='error'||m.status==='busy'||!m.status){ notify((m&&m.message)||'Distribute failed','red'); return; }
+        var trips=(m.trips||[]).length, filling=(m.filling||[]).length, failed=m.failed||[];
+        var un=(m.unreachable||[]).length, waiting=m.waiting||[];
+        if(m.unchanged) notify('No new schedules to distribute','blue');
+        else if(trips) notify(trips+' trip'+(trips===1?'':'s')+' planned · '+(trips-filling)+' full','green');
+        else if(!failed.length&&!un&&!waiting.length) notify('Nothing to put on a trip','blue');
+        (m.runs_added||[]).forEach(function(a){ notify('Added trip '+(a.run||'')+' on '+a.vehicle+' to '+a.farm,'green'); });
+        failed.forEach(function(x){ notify(x.message||String(x),'red'); });
+        if(un) notify(un+' order'+(un===1?' has':'s have')+' no truck going to '+(un===1?'its':'their')+' farm today — add a run to a truck route','red');
+        if(waiting.length&&!trips) notify(waiting.length+' order'+(waiting.length===1?'':'s')+' still waiting: '+(waiting[0].why||'no room on a trip'),'orange');
       });
     };
     var todo=distTodo();
@@ -1157,15 +1212,17 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       // Nothing new to schedule: plan what is already scheduled; with nothing scheduled
       // either there is nothing to plan, so stay here.
       var sched=applyFilters(STATE.ready).filter(function(o){ return STATE.scheduled[o.name]; });
-      if(sched.length) openTrips();
-      else if(window.frappe&&frappe.show_alert) frappe.show_alert({message:'No orders to schedule in this view',indicator:'orange'},5);
+      if(sched.length&&needsTrips(sched)) openTrips();
+      else if(sched.length) notify('Already on their teams’ sequences','blue');
+      else notify('No orders to schedule in this view','orange');
       return;
     }
     var noTeam=todo.filter(function(o){ return !o.custom_team; });
     var vv=G.var||'all', scope=(vv!=='all'?' '+varLabel(vv):'')+' order'+(todo.length===1?'':'s')+(curTeam()?' for '+curTeam():'');
     var msg=todo.length+scope+(todo.length===1?' isn’t':' aren’t')+' scheduled yet — '+(todo.length===1?'it goes':'they go')+' to the end of '+(todo.length===1?'its':'their')+' team’s sequence first'+
       (noTeam.length?' ('+noTeam.length+' without a team go to the team with the least work)':'')+'.';
-    pageDialog('Distribute to trips',esc(msg),'Distribute').then(function(ok){
+    var toTrips=needsTrips(todo);
+    pageDialog(toTrips?'Distribute to trips':'Distribute to teams',esc(msg),'Distribute').then(function(ok){
       if(!ok) return;
       var load={}; STATE.ready.forEach(function(o){ if(o.custom_team){ load[o.custom_team]=load[o.custom_team]||0; if(STATE.scheduled[o.name]) load[o.custom_team]+=num(o.n_buckets); } });
       var teams=Object.keys(load);
@@ -1181,10 +1238,9 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         .concat(STATE.ready.filter(function(o){ return !STATE.scheduled[o.name]; }));
       G.sel.clear();
       // Only orders with buckets to bring need trips; submitted ones just take their places.
-      var needTrips=todo.some(function(o){ return o.variation==='draft_transfer'; });
       commitSchedule().then(function(r){
         if(!(r&&r.status==='success')) return;
-        if(needTrips) openTrips();
+        if(toTrips) openTrips();
         else { G.mtab='sched'; render(); }   // show where they went
       });
     });
@@ -1200,14 +1256,12 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       var cnt=0; if(r&&r.saved){ var ks=Object.keys(r.saved); ks.forEach(function(t){ cnt=cnt+r.saved[t]; }); }
       var noTeam=(r&&r.no_team)||[];
       var notSub=(r&&r.not_submitted)||[];
-      if(notSub.length&&window.frappe&&frappe.show_alert){
-        frappe.show_alert({message:notSub.length+' draft order'+(notSub.length===1?'':'s')+' at Kapkolia left off — submit '+(notSub.length===1?'it':'them')+' first',indicator:'orange'},6);
+      if(notSub.length){
+        notify(notSub.length+' draft order'+(notSub.length===1?'':'s')+' at Kapkolia left off — submit '+(notSub.length===1?'it':'them')+' first','orange');
       }
-      if(window.frappe&&frappe.show_alert){
-        if(ok&&cnt>0) frappe.show_alert({message:'✓ Schedule saved — '+cnt+' order'+(cnt===1?'':'s')+' sequenced',indicator:'green'},4);
-        else if(ok&&!noTeam.length) frappe.show_alert({message:'Schedule cleared',indicator:'blue'},4);
-        else if(!ok) frappe.show_alert({message:'Save failed — please try again',indicator:'red'},6);
-      }
+      if(ok&&cnt>0) notify('✓ Schedule saved — '+cnt+' order'+(cnt===1?'':'s')+' sequenced','green');
+      else if(ok&&!noTeam.length) notify('Schedule cleared','blue');
+      else if(!ok) notify((r&&r.message)||'Save failed — please try again','red');
       // Orders without a team are NOT on any team's schedule, so transfer planning
       // never sees them and their remote buckets never get a truck. Say so loudly.
       if(ok&&noTeam.length){

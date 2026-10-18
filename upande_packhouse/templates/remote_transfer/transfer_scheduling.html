@@ -1697,7 +1697,7 @@ function distributeAction(){
     S.distLoading=false;
     if(m.status==='error'||m.status==='busy'){ toast(m.message||'Distribute failed','red'); render(); return; }
     var trips=(m.trips||[]).length, filling=(m.filling||[]).length;
-    toast(m.unchanged?'Trips unchanged':(trips+' trip'+(trips===1?'':'s')+' planned · '+(trips-filling)+' full'),'green');
+    toast(m.unchanged?'No new schedules to distribute':(trips+' trip'+(trips===1?'':'s')+' planned · '+(trips-filling)+' full'),'green');
     // Runs Distribute added to the routes for buckets that had no trip.
     (m.runs_added||[]).forEach(function(a){ toast('Added trip '+(a.run||'')+' on '+a.vehicle+' to '+a.farm,'green'); });
     // Orders whose farm no open trip goes to today: say so instead of a silent "unchanged".

@@ -2768,6 +2768,108 @@ def fetchLoadingData():
 		frappe.response["message"] = {"status": "error", "message": str(e), "data": {}}
 
 
+def _plan_location(farm=None, location=None):
+	"""The Loading Plan location for a station farm, an explicit location, or the
+	caller's station (?station= / ?location=)."""
+	if location in ("Ravine", "Karen"):
+		return location
+	if farm:
+		return _loading_location(farm)[0]
+	return _station_location()
+
+
+def _plan_summary(doc):
+	return {
+		"name": doc.name,
+		"delivery_date": str(doc.delivery_date),
+		"location": doc.location,
+		"vehicle": doc.vehicle or "",
+		"items": len(doc.loading_plan_items),
+	}
+
+
+@frappe.whitelist(methods=["POST"])
+def createLoadingPlan(
+	vehicle: str,
+	delivery_date: str | None = None,
+	farm: str | None = None,
+	location: str | None = None,
+):
+	"""Create the Loading Plan for a delivery date (default tomorrow, as the loading
+	screen), the station's location and a truck, with the orders' Order Pick Lists as
+	its rows -- what the Loading Plan form's "Fetch Orders" builds. A plan for that
+	date, location and truck already there is returned (status "exists"), not doubled."""
+	if not frappe.has_permission("Loading Plan", "create"):
+		return {"status": "error", "message": _("You are not allowed to create a Loading Plan.")}
+	delivery_date = delivery_date or frappe.utils.add_days(frappe.utils.today(), 1)
+	plan_location = _plan_location(farm, location)
+	if not plan_location:
+		return {"status": "error", "message": _("No station location set.")}
+	if not vehicle or not frappe.db.exists("Vehicle", vehicle):
+		return {"status": "error", "message": _("Select a truck.")}
+
+	existing = frappe.db.get_value(
+		"Loading Plan",
+		{"delivery_date": delivery_date, "location": plan_location, "vehicle": vehicle},
+		"name",
+	)
+	if existing:
+		doc = frappe.get_doc("Loading Plan", existing)
+		return {
+			"status": "exists",
+			"message": _("{0} already has a loading plan for {1}.").format(vehicle, delivery_date),
+			"data": _plan_summary(doc),
+		}
+
+	doc = frappe.new_doc("Loading Plan")
+	doc.update({"delivery_date": delivery_date, "location": plan_location, "vehicle": vehicle})
+	if not doc.fill_from_orders():
+		return {
+			"status": "error",
+			"message": _("No orders with pick lists for {0} at {1}.").format(delivery_date, plan_location),
+		}
+	try:
+		doc.insert()
+	except frappe.DuplicateEntryError:
+		frappe.clear_last_message()
+		return {
+			"status": "error",
+			"message": _("A loading plan named {0} already exists.").format(doc.name),
+		}
+	return {
+		"status": "success",
+		"message": _("{0} created with {1} orders.").format(doc.name, len(doc.loading_plan_items)),
+		"data": _plan_summary(doc),
+	}
+
+
+@frappe.whitelist(methods=["POST"])
+def refreshLoadingPlan(plan: str):
+	"""Re-fetch a Loading Plan's rows from its date and location's Order Pick Lists,
+	as the form's "Fetch Orders" button does (rows replaced)."""
+	if not plan or not frappe.db.exists("Loading Plan", plan):
+		return {"status": "error", "message": _("Loading Plan not found.")}
+	doc = frappe.get_doc("Loading Plan", plan)
+	if not doc.has_permission("write"):
+		return {"status": "error", "message": _("You are not allowed to change {0}.").format(plan)}
+	if not doc.location:
+		return {"status": "error", "message": _("{0} has no location.").format(plan)}
+	before = len(doc.loading_plan_items)
+	if not doc.fill_from_orders():
+		return {
+			"status": "error",
+			"message": _("No orders with pick lists for {0} at {1}.").format(doc.delivery_date, doc.location),
+		}
+	doc.save()
+	return {
+		"status": "success",
+		"message": _("{0} refreshed: {1} orders (was {2}).").format(
+			doc.name, len(doc.loading_plan_items), before
+		),
+		"data": _plan_summary(doc),
+	}
+
+
 def _listed_opls(opl_names, sched, setting):
 	"""The OPLs a station lists for issuing / packing: those on a Packhouse Schedule
 	(`sched`), plus the rest when Production Settings `setting` is on. A sales farm's
@@ -5796,6 +5898,18 @@ def _shelve_update_transit_status(bucket_id, shelf_id, farm, result):
 		distinct=True,
 	)
 	updated, skipped = [], []
+	# One physical bucket can fill several orders: it arrives for all of them. When any
+	# order's rows of it were on a truck, that truck carried it -- the other orders'
+	# rows never take over another bucket's truck.
+	carried = bool(
+		opl_names
+		and frappe.db.sql(
+			"""SELECT 1 FROM `tabPick List Item` WHERE parenttype = 'Order Pick List'
+			AND bucket = %(b)s AND parent IN %(o)s AND IFNULL(in_transit, 0) = 1
+			AND IFNULL(shelved, 0) = 0 LIMIT 1""",
+			{"b": bucket_id, "o": tuple(opl_names)},
+		)
+	)
 	for opl_name in opl_names:
 		opl = frappe.get_doc("Order Pick List", opl_name)
 		# A submitted OPL only has transfer rows when a bucket was replaced at issuing
@@ -5820,7 +5934,7 @@ def _shelve_update_transit_status(bucket_id, shelf_id, farm, result):
 		if sales_farm and (farm or "").lower() != sales_farm.lower():
 			skipped.append({"opl": opl.name, "sales_farm": sales_farm})
 			continue
-		if not any(row.in_transit for row in mine):
+		if not carried and not any(row.in_transit for row in mine):
 			_take_over_truck(rows, mine)
 		for row in mine:
 			row.in_transit = 0

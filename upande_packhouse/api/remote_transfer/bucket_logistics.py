@@ -12,6 +12,7 @@ from upande_packhouse.api.remote_transfer.transfer_scheduling import (
 	TRIP_LOOKBACK_DAYS,
 	_schedule_map,
 	_trip_dict,
+	trip_bucket_shares,
 )
 
 
@@ -369,11 +370,24 @@ def getBucketLogistics():
 		r["arrived_hub"] = sum(n for (o, _f), n in at_hub.items() if o == r["opl"]) + r["shelved"]
 		for f in by_farm.get(r["opl"], []):
 			f["arrived_hub"] = at_hub.get((r["opl"], f["farm"]), 0) + f["shelved"]
+	# Per trip, the buckets that count on it -- one trip per bucket, the same rule the
+	# farm app and truck loads use (an order split over two runs fills the earlier one
+	# first). A bucket shelved before the trip was planned is not "arrived" on it.
+	shares = trip_bucket_shares([r["opl"] for r in rows]) if rows else {}
 	for r in rows:
 		r["by_farm"] = by_farm.get(r["opl"], [])
 		r["trips"] = trips.get(r["opl"], [])
 		for t in r["trips"]:
-			t["shelved"] = shelved_at.get((r["opl"], t["farm"]), 0)
+			sh = (shares.get(t["trip"]) or {}).get((r["opl"], t["farm"]))
+			if sh and (sh["total"] or t["status"] not in ("Dispatched", "Received")):
+				t["trolley"] = sh["trolley"]
+				# On the truck or past it: what the farm app counts as loaded.
+				t["loaded_buckets"] = sh["loaded"] + sh["transit"] + sh["shelved"]
+				t["shelved"] = sh["shelved"]
+			else:
+				# A trip that left before buckets were recorded on trips: its order's shelved.
+				t["trolley"] = 0
+				t["shelved"] = shelved_at.get((r["opl"], t["farm"]), 0)
 
 	# Arrival time per OPL = when the FIRST bucket of the order was shelved at the
 	# sales (destination) farm. Source of truth = the CONTINUOUS `Shelving Log`
