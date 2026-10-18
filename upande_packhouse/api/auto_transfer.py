@@ -152,7 +152,7 @@ def _add_runs_for_waiting(window=None):
 			continue
 		serving = [v for v in routed if any(farm in (r.get("stops") or []) for r in v["runs"])]
 		pick = max(serving or routed, key=lambda v: int(v.get("capacity_buckets") or 0))
-		res = truck_routes.add_farm_run(pick["name"], farm, today)
+		res = truck_routes.add_farm_run(pick["name"], farm, today, enforce_room=True)
 		if res.get("status") == "success":
 			added.append({"vehicle": pick["name"], "farm": farm, "run": res.get("run")})
 			frappe.db.commit()  # nosemgrep: frappe-manual-commit
@@ -957,17 +957,7 @@ def _save_plan(loads, today, window, hub, graph):
 			if res.get("status") != "success":
 				refusal = res
 				break
-			saved.append(
-				{
-					"name": res["name"],
-					"vehicle": t["vehicle"],
-					"buckets": res["total_buckets"],
-					"run": t.get("run"),
-					"farms": ", ".join(sorted({r.get("farm") for r in t["rows"] if r.get("farm")})),
-					"stems": sum(int(r.get("stems") or 0) for r in t["rows"]),
-					"orders": sorted({r.get("order_name") or r.get("order_pick_list") for r in t["rows"]}),
-				}
-			)
+			saved += _saved_trips(t, res)
 		if refusal:
 			frappe.db.rollback(save_point="auto_plan_truck")
 			refused.add(vehicle)
@@ -980,7 +970,14 @@ def _save_plan(loads, today, window, hub, graph):
 				}
 			)
 		else:
-			trips += saved
+			for x in saved:
+				same = next((y for y in trips if y["name"] == x["name"]), None)
+				if same:
+					same["buckets"] += x["buckets"]
+					same["stems"] += x["stems"]
+					same["orders"] = sorted(set(same["orders"]) | set(x["orders"]))
+				else:
+					trips.append(x)
 	# Buckets the refused trucks were to take, or had on their last plan, go back on the
 	# drafts that carried them, as far as they are still free.
 	keys = {(r["order_pick_list"], r["farm"]) for t in loads if t["vehicle"] in refused for r in t["rows"]}
@@ -994,6 +991,40 @@ def _save_plan(loads, today, window, hub, graph):
 	_drop_own_routes(today)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- the whole re-plan at once
 	return trips, failed
+
+
+def _saved_trips(t, res):
+	"""The summary rows for every trip one planned load was saved into -- each run it
+	was split over and each trip it topped up (redirected), not only res["name"]."""
+	buckets, runs, vehicles = {}, {}, {}
+	if res.get("runs"):
+		for x in res["runs"]:
+			buckets[x["trip"]] = int(x["buckets"] or 0)
+			runs[x["trip"]] = x["run"]
+	elif not res.get("names"):  # one trip written; "names" alone = all redirected
+		buckets[res["name"]] = int(res.get("total_buckets") or 0)
+		runs[res["name"]] = t.get("run")
+	for r in res.get("redirected") or []:
+		buckets[r["trip"]] = buckets.get(r["trip"], 0) + int(r.get("buckets") or 0)
+		vehicles[r["trip"]] = r.get("vehicle") or t["vehicle"]
+	farms = ", ".join(sorted({r.get("farm") for r in t["rows"] if r.get("farm")}))
+	orders = sorted({r.get("order_name") or r.get("order_pick_list") for r in t["rows"]})
+	stems = sum(int(r.get("stems") or 0) for r in t["rows"])
+	out = []
+	for name, n in buckets.items():
+		run = runs[name] if name in runs else frappe.db.get_value("Bucket Request Trip", name, "run")
+		out.append(
+			{
+				"name": name,
+				"vehicle": vehicles.get(name, t["vehicle"]),
+				"buckets": n,
+				"run": run,
+				"farms": farms,
+				"stems": 0 if out else stems,  # the load's stems once, so totals still add up
+				"orders": orders,
+			}
+		)
+	return out
 
 
 def _save_load(t, today, window, hub, graph):

@@ -371,14 +371,16 @@ def addFarmTrip():
 	frappe.response["message"] = res
 
 
-def add_farm_run(vehicle, farm, date=None):
+def add_farm_run(vehicle, farm, date=None, enforce_room: bool = False):
 	"""A new trip (packhouse → farm → packhouse) at the end of the truck's latest route
-	on `date` (a new all-day route if it has none). Returns {status, route, run} or why not."""
+	on `date` (a new all-day route if it has none). Returns {status, route, run} or why not.
+	enforce_room (automatic scheduling): refused while the truck's open trip to the farm
+	still has room, so trip 2 is only added once trip 1 is full. A person adding a trip
+	on the page is not refused."""
 	date = str(frappe.utils.getdate(date or frappe.utils.today()))
 	if not vehicle or not farm:
 		return {"status": "error", "message": "A truck and a farm are required."}
-	# Trip 2 to a farm only once trip 1 there is full: a trip with room is filled first.
-	roomy = [(r, n) for r, n in _open_run_room(vehicle, date, farm) if n > 0]
+	roomy = enforce_room and [(r, n) for r, n in _open_run_room(vehicle, date, farm) if n > 0]
 	if roomy:
 		run, room = roomy[0]
 		return {

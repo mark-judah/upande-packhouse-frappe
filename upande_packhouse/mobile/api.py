@@ -2770,12 +2770,20 @@ def fetchLoadingData():
 
 def _plan_location(farm=None, location=None):
 	"""The Loading Plan location for a station farm, an explicit location, or the
-	caller's station (?station= / ?location=)."""
-	if location in ("Ravine", "Karen"):
-		return location
+	caller's station (?station= / ?location=). None when none of them names Ravine or
+	Karen (a Loading Plan's only locations)."""
+	loc = _known_plan_location(location)
+	if loc:
+		return loc
 	if farm:
 		return _loading_location(farm)[0]
-	return _station_location()
+	return _known_plan_location(_station_location())
+
+
+def _known_plan_location(value):
+	"""Ravine / Karen for that name in any case, else None."""
+	value = (value or "").strip().lower() if isinstance(value, str) else ""
+	return {"ravine": "Ravine", "karen": "Karen"}.get(value)
 
 
 def _plan_summary(doc):

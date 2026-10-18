@@ -5915,7 +5915,36 @@ def opl_delete_blockers(opl):
 	"""Why this Order Pick List must not be deleted while its buckets move: rows loaded on
 	a trolley or truck, in transit, or awaiting transfer at a farm, and active trips it
 	is planned on. Deleting it then drops the request from the farm app and its trips
-	for good. [] when it can go."""
+	for good. [] when it can go: a cancelled pick list, or one whose delivery date has
+	passed (its rows are stale, as in shared_buckets) on no current trip."""
+	head = frappe.db.sql(
+		"""SELECT opl.docstatus, so.delivery_date FROM `tabOrder Pick List` opl
+		LEFT JOIN `tabSales Order` so ON so.name = opl.sales_order WHERE opl.name = %s""",
+		opl,
+	)
+	if not head or int(head[0][0] or 0) == 2:
+		return []
+	today = frappe.utils.getdate(frappe.utils.today())
+	current = head[0][1] is None or frappe.utils.getdate(head[0][1]) >= today
+	out = []
+	if current:
+		out = _opl_moving_rows(opl)
+	trips = frappe.db.sql_list(
+		"""SELECT DISTINCT t.name FROM `tabBucket Request Trip Order` o
+		JOIN `tabBucket Request Trip` t ON t.name = o.parent
+		WHERE o.order_pick_list = %(opl)s AND o.parenttype = 'Bucket Request Trip'
+		  AND t.status IN ('Draft', 'Requested', 'Scheduled', 'Dispatched')
+		  AND t.trip_date >= %(since)s
+		  AND (IFNULL(o.buckets, 0) > 0 OR IFNULL(o.loaded_buckets, 0) > 0)""",
+		{"opl": opl, "since": frappe.utils.add_days(today, -TRIP_LOOKBACK_DAYS)},
+	)
+	if trips:
+		out.append(_("planned on trip(s) {0}").format(", ".join(trips)))
+	return out
+
+
+def _opl_moving_rows(opl):
+	"""opl_delete_blockers' row counts: loaded, in transit, awaiting transfer."""
 	loaded = "pli.loaded_in_trolley = 1"
 	if frappe.db.has_column("Pick List Item", "loaded_on_truck"):
 		loaded += " OR pli.loaded_on_truck = 1"
@@ -5944,16 +5973,6 @@ def opl_delete_blockers(opl):
 	):
 		if int(n or 0):
 			out.append(what.format(int(n)))
-	trips = frappe.db.sql_list(
-		"""SELECT DISTINCT t.name FROM `tabBucket Request Trip Order` o
-		JOIN `tabBucket Request Trip` t ON t.name = o.parent
-		WHERE o.order_pick_list = %s AND o.parenttype = 'Bucket Request Trip'
-		  AND t.status IN ('Draft', 'Requested', 'Scheduled', 'Dispatched')
-		  AND (IFNULL(o.buckets, 0) > 0 OR IFNULL(o.loaded_buckets, 0) > 0)""",
-		opl,
-	)
-	if trips:
-		out.append(_("planned on trip(s) {0}").format(", ".join(trips)))
 	return out
 
 
