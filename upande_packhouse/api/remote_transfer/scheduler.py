@@ -304,6 +304,10 @@ def getSchedulerFeed():
 					"awaiting_transfer",
 					"loaded_in_trolley",
 					"in_transit",
+					"loaded_on_truck",
+					"trolley_id",
+					"shelved",
+					"custom_ready_for_packing",
 				],
 				limit_page_length=0,
 			)
@@ -319,6 +323,7 @@ def getSchedulerFeed():
 						"where": {},
 						"farms": {},
 						"waiting": {},
+						"moving": {},
 						"varieties": {},
 						"transfer": 0,
 						"issued": 0,
@@ -343,6 +348,23 @@ def getSchedulerFeed():
 					# Buckets still waiting at the farm for a truck, per farm.
 					if b and int(r.get("awaiting_transfer") or 0) == 1:
 						st["waiting"].setdefault(farm, {})[b] = 1
+					# Remote buckets still to come to the hub -- at the farm, on a trolley
+					# or on the road, not shelved there yet (Bucket Logistics' awaiting
+					# less shelved).
+					started = (
+						int(r.get("awaiting_transfer") or 0)
+						or int(r.get("loaded_in_trolley") or 0)
+						or (r.get("trolley_id") or "") != ""
+						or int(r.get("loaded_on_truck") or 0)
+						or int(r.get("in_transit") or 0)
+					)
+					arrived = (
+						int(r.get("shelved") or 0)
+						or int(r.get("custom_ready_for_packing") or 0)
+						or int(r.get("issued") or 0)
+					)
+					if b and farm not in not_remote and started and not arrived:
+						st["moving"][b.upper()] = farm
 				v = r.get("item_code")
 				if v:
 					st["varieties"][v] = 1
@@ -362,12 +384,13 @@ def getSchedulerFeed():
 		# don't count it among their remote buckets (the page sums them per farm).
 		from upande_packhouse.api.remote_transfer.transfer_scheduling import shared_buckets, shared_lead
 
-		shared = shared_buckets({b for st in stats.values() for b in st["remote"]})
-		if shared:
-			for op, st in stats.items():
-				st["remote"] = {
-					b: fm for b, fm in st["remote"].items() if shared_lead(shared, b, fm) in (None, op)
-				}
+		shared = shared_buckets({b for st in stats.values() for b in st["where"]})
+		for op, st in stats.items():
+			# Each physical bucket once, on its lead order (the trip_numbers rule).
+			own = {b: fm for b, fm in st["where"].items() if shared_lead(shared, b, fm) in (None, op)}
+			st["own"] = own
+			st["remote"] = {b: fm for b, fm in st["remote"].items() if b in own}
+			st["moving"] = {b: fm for b, fm in st["moving"].items() if b in own}
 
 		# ---- mixed-type from Sales Order Items ----
 		mixed = {}
@@ -424,16 +447,34 @@ def getSchedulerFeed():
 				packed[pr.opl] = float(pr.stems or 0)
 
 		# ---- trips to each farm, for the schedule popup ----
-		# Trips run the PROCESSING day (delivery - 1). A trip goes to every farm on its
-		# collection order (falling back to its order rows' farms). Only Draft / Scheduled
-		# trips are listed — they can still take buckets. on_trip = this order's buckets on it.
+		# The open trips (Draft / Requested / Scheduled: they can still take buckets) that
+		# plan these orders: the ones already carrying an order's rows, whatever their
+		# date, and today's -- Distribute plans onto today's trips, whichever day the
+		# orders deliver. A trip goes to every farm on its collection order (falling back
+		# to its order rows' farms). on_trip = this order's buckets on it.
+		from upande_packhouse.api.remote_transfer.transfer_scheduling import ACTIVE_TRIP_STATUSES
+
 		hub = frappe.get_cached_doc("Production Settings").get("transfer_hub_farm") or ""
-		trip_date = frappe.utils.add_days(dd, -1)
+		carrying = set()
+		if names:
+			carrying = set(
+				frappe.get_all(
+					"Bucket Request Trip Order",
+					filters=[
+						["parenttype", "=", "Bucket Request Trip"],
+						["order_pick_list", "in", names],
+						["unscheduled", "!=", 1],
+					],
+					pluck="parent",
+					limit_page_length=0,
+				)
+			)
 		trips = frappe.get_all(
 			"Bucket Request Trip",
-			filters={"trip_date": trip_date, "status": ["in", ["Draft", "Requested", "Scheduled"]]},
-			fields=["name", "vehicle", "status", "collection_order", "run"],
-			order_by="creation asc",
+			filters={"status": ["in", list(ACTIVE_TRIP_STATUSES)]},
+			or_filters={"trip_date": frappe.utils.today(), "name": ["in", list(carrying) or [""]]},
+			fields=["name", "vehicle", "status", "collection_order", "run", "trip_date"],
+			order_by="trip_date asc, run asc, creation asc",
 			limit_page_length=0,
 		)
 		trip_rows = {}
@@ -507,8 +548,13 @@ def getSchedulerFeed():
 
 			farm_list = sorted(st["farms"].keys())
 
+			# Per farm, the buckets still to come to the hub -- each physical bucket once,
+			# on its lead order (the same set as count_by_farm) -- and the trips there.
+			to_move = {}
+			for fm in st.get("moving", {}).values():
+				to_move[fm] = to_move.get(fm, 0) + 1
 			waiting = []
-			for fm in sorted(st.get("waiting", {}).keys()):
+			for fm in sorted(to_move):
 				if fm == hub:
 					continue
 				ft = []
@@ -522,12 +568,15 @@ def getSchedulerFeed():
 							"trip": t.name,
 							"vehicle": t.vehicle or "",
 							"status": t.status,
+							"trip_date": str(t.trip_date or ""),
 							"run": int(t.run or 0),
 							"route": t.collection_order or "",
 							"on_trip": on_trip,
 						}
 					)
-				waiting.append({"farm": fm, "buckets": len(st["waiting"][fm]), "trips": ft})
+				# The trip already carrying this order's buckets first.
+				ft.sort(key=lambda x: 0 if x["on_trip"] else 1)
+				waiting.append({"farm": fm, "buckets": to_move[fm], "trips": ft})
 
 			row = {
 				"opl": op,
@@ -544,6 +593,14 @@ def getSchedulerFeed():
 				# Every bucket by the farm it is at (Kapkolia for a submitted order's stock).
 				"buckets_by_farm": {
 					fm: list(st["where"].values()).count(fm) for fm in set(st["where"].values())
+				},
+				# The buckets the page counts for this order, each physical bucket once (a
+				# shared one on its lead): an order waiting on a transfer, its remote buckets
+				# still to come to the hub; any other, all its buckets.
+				"count_by_farm": {
+					fm: list(cnt.values()).count(fm)
+					for cnt in [st.get("moving", {}) if variation == "draft_transfer" else st.get("own", {})]
+					for fm in set(cnt.values())
 				},
 				"n_farms": len(farm_list),
 				"farms": farm_list,
@@ -789,9 +846,8 @@ def saveDaySchedule():
 		doc.save(ignore_permissions=True)
 		saved[team] = len(rows) + len(kept.get(team, []))
 		k = k + 1
-	# Committed explicitly: this endpoint is whitelisted without `methods`, so it
-	# is reachable over GET, and frappe rolls back writes made during a GET
-	# request -- without this the caller gets a success response and no change.
+	# Committed explicitly so the saved schedule is in before the reply (the endpoint
+	# is POST-only; Distribute reads it straight after).
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	frappe.response["message"] = {
 		"status": "success",

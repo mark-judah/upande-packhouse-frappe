@@ -977,7 +977,7 @@ if(window.rtOnRefresh) window.rtOnRefresh(function(){
   // Every view shows its loading skeleton again while it reloads.
   if(S.tab==='logistics') return window.rtLogisticsLoad?window.rtLogisticsLoad(true):null;
   if(S.tab==='routes'){
-    if(S.rv) S.rv.routes=null;
+    routesStale();
     var p=$('panel-routes'); if(p) p.innerHTML=window.rtSkeleton.cards(3);   // renderRoutes rebuilds its shell
     return loadData().then(function(){ renderRoutes(); });
   }
@@ -1014,7 +1014,7 @@ window.rtDistribute=function(){ distributeAction(); };
 function renderRoutes(){
   var p=$('panel-routes'); if(!p) return;
   if(!S.loaded){ p.innerHTML=window.rtSkeleton.cards(3); return; }
-  S.rv=S.rv||{view:'list',routes:null,date:todayISO()};
+  S.rv=S.rv||{view:'list',routes:null,date:routesDay()};
   if(S.rv.view==='build'){ if(!$('rb-page')) renderRouteBuilder(); else updateRouteBuilder(); return; }
   if(!$('rl-shell')){
     p.innerHTML='<div id="rl-shell"><div class="rl-bar"><b>Truck routes</b>'+
@@ -1032,14 +1032,30 @@ function renderRoutes(){
 }
 /* Routes are made for each day: only the trucks working that day get one. Nothing is
    carried over by itself — a new route can start from the day before's or a saved one. */
+/* The routes day is the section's working day: the top bar's Date (rtDate is the
+   delivery date, the day after it). */
+function routesDay(){ return addDaysISO(window.rtDate.get(),-1); }
+/* The routes changed (save, delete, a new day): the next load asks again -- a reply
+   still out from before is never reused, and is dropped when it comes in. */
+function routesStale(){ if(!S.rv) return; S.rv.routes=null; S.rv.pending=null; S.rv.gen=(S.rv.gen||0)+1; }
+/* Move the routes day: through the section date, so the top bar, the address and ‹ ›
+   always agree. */
+function setRoutesDay(d){ if(!d) return; if(S.rv&&S.rv.date!==d){ S.rv.date=d; routesStale(); } window.rtDate.set(addDaysISO(d,1)); }
 function dayLabel(iso){ var t=todayISO();
   if(iso===t) return 'Today'; if(iso===addDaysISO(t,1)) return 'Tomorrow'; if(iso===addDaysISO(t,-1)) return 'Yesterday';
   return new Date(iso+'T00:00:00').toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'}); }
 function loadRoutes(){
   var box=$('rl-list'); if(box&&!(S.rv.routes||[]).length) box.innerHTML=window.rtSkeleton.cards(2);
-  return apiGet('getBucketLogisticsRoutes',{date:S.rv.date}).then(function(m){
+  // One request per day; a reply for a day no longer shown is dropped.
+  var day=S.rv.date, gen=S.rv.gen||0;
+  if(S.rv.pending&&S.rv.pending.day===day&&S.rv.pending.gen===gen) return S.rv.pending.p;
+  var p=apiGet('getBucketLogisticsRoutes',{date:day}).then(function(m){
+    if(S.rv.pending&&S.rv.pending.p===p) S.rv.pending=null;
+    if(S.rv.date!==day||(S.rv.gen||0)!==gen) return;
     S.rv.routes=m.routes||[]; drawRouteList(); if(S.rb) updateRouteBuilder();
-  }).catch(function(e){ if($('rl-list')) $('rl-list').innerHTML='<div class="rl-empty" style="color:var(--bad)">Couldn’t load routes: '+esc((e&&e.message)||'error')+'</div>'; });
+  }).catch(function(e){ if(S.rv.pending&&S.rv.pending.p===p) S.rv.pending=null; if(S.rv.date!==day||(S.rv.gen||0)!==gen) return; if($('rl-list')) $('rl-list').innerHTML='<div class="rl-empty" style="color:var(--bad)">Couldn’t load routes: '+esc((e&&e.message)||'error')+'</div>'; });
+  S.rv.pending={day:day,gen:gen,p:p};
+  return p;
 }
 function chainHtml(stops){ return (stops||[]).map(function(f){ return f===pack()?'<span class="hub">'+esc(f)+'</span>':'<b>'+esc(f)+'</b>'; }).join(' → '); }
 /* A route is a list of RUNS: each run leaves the packhouse, collects from its farms and
@@ -1108,7 +1124,7 @@ function deleteRoute(name){
   call('deleteBucketLogisticsRoute',{name:name}).then(function(r){
     var m=r.message||{};
     toast(m.status==='success'?'Route deleted':(m.message||'Could not delete the route'));
-    if(m.status==='success'){ S.rv.routes=null; renderRoutes(); loadData(); }
+    if(m.status==='success'){ routesStale(); renderRoutes(); loadData(); }
   }).catch(function(err){ toast('Failed: '+((err&&err.message)||'')); });
   });
 }
@@ -1174,7 +1190,7 @@ function renderRouteBuilder(){
   var di=$('rb-date'); di.value=b.date;
   // The day's other routes come from the list, so the list follows the date picked.
   di.addEventListener('change',function(e){ if(!S.rb||!e.target.value||e.target.value===S.rb.date) return;
-    S.rb.date=S.rv.date=e.target.value; S.rb.err=''; S.rv.routes=null; loadRoutes(); if(!S.rb.edit) loadRouteSources(); updateRouteBuilder(); });
+    S.rb.date=e.target.value; S.rb.err=''; setRoutesDay(S.rb.date); loadRoutes(); if(!S.rb.edit) loadRouteSources(); updateRouteBuilder(); });
   window.rtMountDate(di);   // Frappe's date picker
   if(S.rv.routes===null) loadRoutes();
   updateRouteBuilder();
@@ -1286,7 +1302,7 @@ function saveRouteBuilder(){
     var m=r.message||{};
     if(m.status==='success'){
       toast('Route saved — '+b.vehicle+' '+dayLabel(d).toLowerCase()+' · '+Number(m.total_km||0).toFixed(1)+' km');
-      S.rv.date=d; S.rv.routes=null; S.rb=null; S.rv.view='list'; $('panel-routes').innerHTML='';
+      S.rb=null; S.rv.view='list'; routesStale(); setRoutesDay(d); $('panel-routes').innerHTML='';
       renderRoutes(); loadData();
     } else { b.busy=false; b.err=m.message||'Could not save the route'; updateRouteBuilder(); }
   }).catch(function(err){ b.busy=false; b.err='Could not save the route: '+((err&&err.message)||'request failed'); updateRouteBuilder(); });
@@ -1769,7 +1785,7 @@ function addDistFarmTrip(farm){
     var m=r.message||{}; S.ftBusy=null;
     if(m.status!=='success'){ toast(m.message||'Could not add the trip'); renderDistModal(); return; }
     toast(sel.value+' trip '+m.run+' now goes to '+farm);
-    if(S.rv) S.rv.routes=null;
+    routesStale();
     delete S.broken[sel.value];
     return loadData().then(function(){ if(S.dist){ var nd=computeDistribution(); nd.shortQty={}; S.dist=nd; renderDistModal(); } });
   }).catch(function(err){ S.ftBusy=null; toast('Failed: '+((err&&err.message)||'')); renderDistModal(); });
@@ -2283,7 +2299,7 @@ function addNewFarmTrip(vehicle){
     if(S.at!==a) return;
     if(m.status!=='success'){ a.busy=false; a.err=m.message||'Could not add the trip'; renderAddTrip(); return; }
     a.busy=false;
-    if(S.rv) S.rv.routes=null;
+    routesStale();
     saveAddTrip({vehicle:vehicle,route:m.route,run:m.run,rem:v?v.capacity_buckets:a.open});
   }).catch(function(err){ if(S.at===a){ a.busy=false; a.err='Failed: '+((err&&err.message)||''); renderAddTrip(); } });
 }
@@ -2383,11 +2399,12 @@ function saveTripEdit(){
   }).catch(function(err){ if(S.te===e){ e.busy=false; e.err=(err&&err.message)||'Failed'; renderTripEdit(); } });
 }
 /* Bucket-status breakdown for one trip — its own buckets only (bucket_status from
-   _trip_bucket_status), never the truck's loads for other trips. */
+   trip_numbers, as the dashboard and the apps count them), never the truck's loads
+   for other trips. */
 function statusPillsHtml(t){
   var s=t.bucket_status;
   if(!s||!s.total) return '<div class="ts-pills"><span class="ts-pill zero">no buckets</span></div>';
-  var flags=[['awaiting','Awaiting','var(--warn)'],['loaded','Loading','#7c5cfc'],['in_transit','In transit','#1d4ed8'],['shelved','Arrived','var(--signal)']];
+  var flags=[['awaiting','Awaiting','var(--warn)'],['trolley','Trolley','#7c3aed'],['loaded','Loading','#7c5cfc'],['in_transit','In transit','#1d4ed8'],['shelved','Arrived','var(--signal)']];
   var pills=flags.map(function(f){ var v=s[f[0]]||0; if(!v) return '';
     return '<span class="ts-pill" style="background:'+f[2]+'">'+f[1]+' '+v+' / '+s.total+'</span>'; }).join('');
   return '<div class="ts-pills">'+(pills||'<span class="ts-pill zero">no buckets</span>')+'</div>';
@@ -2645,7 +2662,7 @@ document.addEventListener('click',function(ev){
       var q=document.querySelector('.rn-dd-q'); if(q) q.focus(); } }
   else if(a==='rn-dd-pick'){ if(S.rn&&!el.disabled){ S.rn[el.dataset.k]=el.dataset.v; S.rn.dd=null; S.rn.err=''; renderRoadModal(); } }
   else if(a==='rv-new'){ openRouteBuilder(null); }
-  else if(a==='rv-day'){ S.rv.date=addDaysISO(S.rv.date,+el.dataset.d); S.rv.routes=null; renderRoutes(); }
+  else if(a==='rv-day'){ setRoutesDay(addDaysISO(routesDay(),+el.dataset.d)); }
   else if(a==='rv-roads'){ S.rv.roads=!S.rv.roads; renderRoutes(); }
   else if(a==='tk-open'){ openTruckModal(el.dataset.veh); }
   else if(a==='tk-cancel'){ closeTruckModal(); }
@@ -2712,8 +2729,8 @@ document.addEventListener('mousedown',function(e){ if(S.rb&&S.rb.dd&&!e.target.c
   document.querySelectorAll('#rb-page .rn-dd.open').forEach(function(d){ d.classList.remove('open'); var p=d.querySelector('.rn-dd-pop'); if(p) p.remove(); }); } });
 document.addEventListener('mousedown',function(e){ if(S.rn&&S.rn.dd&&!e.target.closest('.rn-dd')){ S.rn.dd=null;
   document.querySelectorAll('.rn-dd.open').forEach(function(d){ d.classList.remove('open'); var p=d.querySelector('.rn-dd-pop'); if(p) p.remove(); }); } });
-/* The section's delivery date (top bar) drives planning and Bucket Logistics; truck
-   routes have their own day (‹ › on the Truck routes tab). */
+/* The section's delivery date (top bar) drives planning, Bucket Logistics and the
+   truck routes' day (the working day: the top bar's Date; ‹ › move it). */
 /* The section's Location and Team filters (top bar) narrow Scheduled orders and Trips. */
 function curTeam(){ return (window.rtTeam&&window.rtTeam.get())||''; }
 function curLocation(){ return (window.rtLocation&&window.rtLocation.get())||''; }
@@ -2721,6 +2738,7 @@ if(window.rtTeam) window.rtTeam.on(function(){ render(); });
 if(window.rtLocation) window.rtLocation.on(function(){ render(); });
 window.rtDate.on(function(v){
   S.from=S.to=v; S.skel=true;
+  if(S.rv&&S.rv.date!==addDaysISO(v,-1)){ S.rv.date=addDaysISO(v,-1); routesStale(); if(S.tab==='routes'&&S.rv.view!=='build') renderRoutes(); }
   loadData();
   if(S.tab==='logistics'&&window.BL_LOAD) window.BL_LOAD();
 });

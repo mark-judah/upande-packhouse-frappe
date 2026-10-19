@@ -13,6 +13,8 @@ from upande_packhouse.api.remote_transfer.transfer_scheduling import (
 	_schedule_map,
 	_trip_dict,
 	trip_bucket_shares,
+	trip_numbers,
+	trip_order_numbers,
 )
 
 
@@ -77,10 +79,14 @@ def getBucketLogistics():
 	sales_farms.add(hub)
 	NOT_HUB = "COALESCE(" + FARM_EXPR + ", '') NOT IN %(sales_farms)s"
 	params = {"d": delivery_date, "hub": hub, "sales_farms": tuple(f for f in sales_farms if f) or ("",)}
+	# onward=1: every order delivering on delivery_date or later (the page's default view:
+	# tomorrow onwards), not that one day only.
+	onward = frappe.utils.cint(fd.get("onward"))
+	date_cond = "so.delivery_date >= %(d)s" if onward else "so.delivery_date = %(d)s"
 	conds = [
 		"opl.docstatus < 2",
 		"pli.parenttype = 'Order Pick List'",
-		"so.delivery_date = %(d)s",
+		date_cond,
 		TRANSFER,
 		NOT_HUB,
 	]
@@ -212,7 +218,7 @@ def getBucketLogistics():
             SELECT o.order_pick_list AS opl, t.name AS trip, t.vehicle AS vehicle, t.status AS status,
                    t.trip_date AS trip_date, SUM(o.buckets) AS buckets,
                    SUM(o.loaded_buckets) AS loaded_buckets, t.run AS run, t.route AS route,
-                   t.arrived_at AS arrived_at,
+                   t.arrived_at AS arrived_at, t.dispatched_at AS dispatched_at,
                    IFNULL(o.farm, '') AS farm
             FROM `tabBucket Request Trip Order` o
             JOIN `tabBucket Request Trip` t ON t.name = o.parent
@@ -242,29 +248,9 @@ def getBucketLogistics():
 					"farm": t.farm,
 					# The farm app's "Truck arrived at <hub>": at the packhouse, not shelved yet.
 					"arrived_at": str(t.arrived_at or ""),
+					"dispatched_at": str(t.dispatched_at or ""),
 				}
 			)
-	# Shelved per (order, farm): a farm's buckets can arrive without the app recording
-	# the load, and the chip must not keep saying "planned" once they are in.
-	shelved_at = {}
-	if rows:
-		for x in frappe.db.sql(
-			"""SELECT pli.parent AS opl, """
-			+ FARM_EXPR
-			+ """ AS farm, COUNT(DISTINCT """
-			+ BKT
-			+ """) AS n
-			FROM `tabPick List Item` pli
-			WHERE pli.parenttype = 'Order Pick List' AND pli.parent IN %(opls)s AND pli.shelved = 1
-			  AND """
-			+ NOT_HUB
-			+ """
-			GROUP BY pli.parent, """
-			+ FARM_EXPR,
-			{"opls": tuple(r["opl"] for r in rows), "hub": hub, "sales_farms": params["sales_farms"]},
-			as_dict=True,
-		):
-			shelved_at[(x.opl, x.farm or "")] = int(x.n or 0)
 	# Per source farm counts of each order (the page groups rows by farm): an order
 	# collecting from two farms shows under both, with that farm's own numbers.
 	by_farm = {}
@@ -370,24 +356,43 @@ def getBucketLogistics():
 		r["arrived_hub"] = sum(n for (o, _f), n in at_hub.items() if o == r["opl"]) + r["shelved"]
 		for f in by_farm.get(r["opl"], []):
 			f["arrived_hub"] = at_hub.get((r["opl"], f["farm"]), 0) + f["shelved"]
-	# Per trip, the buckets that count on it -- one trip per bucket, the same rule the
-	# farm app and truck loads use (an order split over two runs fills the earlier one
-	# first). A bucket shelved before the trip was planned is not "arrived" on it.
-	shares = trip_bucket_shares([r["opl"] for r in rows]) if rows else {}
+	# Per trip, the buckets that count on it: trip_numbers, the one count the farm app,
+	# the packhouse app and truck loads show too (one trip per bucket; an order split
+	# over two runs fills the earlier one first; a shared bucket counts once). The
+	# trips' other orders are counted too, for each trip's own totals.
+	today = frappe.utils.today()
+	current = _current_trips(today)
+	run_trips = current | {t["trip"] for ts in trips.values() for t in ts}
+	shares = trip_bucket_shares({r["opl"] for r in rows} | _trip_order_opls(run_trips))
+	rides = _riding_trips(shares, {r["opl"] for r in rows})
+	numbers = trip_numbers(run_trips | {t["trip"] for ts in rides.values() for t in ts}, shares)
 	for r in rows:
 		r["by_farm"] = by_farm.get(r["opl"], [])
-		r["trips"] = trips.get(r["opl"], [])
-		for t in r["trips"]:
-			sh = (shares.get(t["trip"]) or {}).get((r["opl"], t["farm"]))
-			if sh and (sh["total"] or t["status"] not in ("Dispatched", "Received")):
-				t["trolley"] = sh["trolley"]
-				# On the truck or past it: what the farm app counts as loaded.
-				t["loaded_buckets"] = sh["loaded"] + sh["transit"] + sh["shelved"]
-				t["shelved"] = sh["shelved"]
-			else:
-				# A trip that left before buckets were recorded on trips: its order's shelved.
-				t["trolley"] = 0
-				t["shelved"] = shelved_at.get((r["opl"], t["farm"]), 0)
+		mine = trips.get(r["opl"], [])
+		# A shared bucket rides with its lead order: that trip carries this order too.
+		have = {(t["trip"], t["farm"]) for t in mine}
+		ride = {(t["trip"], t["farm"]): t for t in rides.get(r["opl"], [])}
+		mine += [t for k, t in ride.items() if k not in have]
+		for t in mine:
+			p = trip_order_numbers(numbers.get(t["trip"])).get((r["opl"], t["farm"])) or {}
+			t["buckets"] = int(p.get("buckets") or 0)
+			t["planned"] = int(p.get("planned") or 0)
+			t["trolley"] = int(p.get("trolley") or 0)
+			# On the truck or past it: what the farm app counts as loaded.
+			t["loaded_buckets"] = int(p.get("on_truck") or 0)
+			t["shelved"] = int(p.get("shelved") or 0)
+			t["riding"] = int(p.get("riding") or 0)
+			t["counted"] = int(p.get("total") or 0) + t["riding"]
+			# Its own trip entry with buckets riding along too: name the order they ride with.
+			lead = ride.get((t["trip"], t["farm"]))
+			if t["riding"] and lead and not t.get("lead_name"):
+				t["lead"] = lead["lead"]
+				t["lead_name"] = lead["lead_name"]
+		# A trip closed without ever leaving that took none of this order's buckets is
+		# not one of its trips.
+		r["trips"] = [t for t in mine if t["counted"] or t["dispatched_at"] or t["status"] != "Received"]
+		# Buckets riding with another order on a trip still out.
+		r["riding"] = sum(t["riding"] for t in r["trips"] if t["status"] != "Received")
 
 	# Arrival time per OPL = when the FIRST bucket of the order was shelved at the
 	# sales (destination) farm. Source of truth = the CONTINUOUS `Shelving Log`
@@ -458,7 +463,9 @@ def getBucketLogistics():
         JOIN `tabOrder Pick List` opl ON opl.name = pli.parent
         LEFT JOIN `tabSales Order` so ON so.name = opl.sales_order
         WHERE opl.docstatus < 2 AND pli.parenttype = 'Order Pick List'
-          AND so.delivery_date = %(d)s AND """
+          AND """
+		+ date_cond
+		+ """ AND """
 		+ TRANSFER
 		+ """
         ORDER BY 1
@@ -469,20 +476,11 @@ def getBucketLogistics():
 	# Remote farms only: the sales farms (Kapkolia, Karen) send nothing.
 	farms = [r["f"] for r in farm_rows if r.get("f") and r["f"] not in sales_farms]
 
-	# Every run the trucks drive today (one trip per run), for the truck cards: which
-	# run each truck is on, where it goes and how far loading / shelving has got.
-	today = frappe.utils.today()
-	run_trips = set(frappe.get_all("Bucket Request Trip", filters={"trip_date": today}, pluck="name"))
-	run_trips |= set(
-		frappe.get_all(
-			"Bucket Request Trip",
-			filters={
-				"trip_date": [">=", frappe.utils.add_days(today, -TRIP_LOOKBACK_DAYS)],
-				"status": ["!=", "Received"],
-			},
-			pluck="name",
-		)
-	)
+	# Every run the trucks drive today (one trip per run), for the truck cards (current),
+	# and the earlier trips the orders rode, for their trip cards: which run each truck is
+	# on, where it goes and how far loading / shelving has got -- the trip's own totals,
+	# whichever day its orders deliver.
+	run_trips = current | {t["trip"] for r in rows for t in r["trips"]}
 	keep = (
 		"name",
 		"vehicle",
@@ -504,10 +502,21 @@ def getBucketLogistics():
 		"dispatched_at",
 		"received_at",
 	)
+	numbers.update(trip_numbers(run_trips - set(numbers), shares))
 	runs = []
 	for name in run_trips:
-		t = _trip_dict(frappe.get_doc("Bucket Request Trip", name), today)
-		runs.append({k: t[k] for k in keep})
+		n = numbers.get(name) or {}
+		t = _trip_dict(frappe.get_doc("Bucket Request Trip", name), today, n)
+		run = {k: t[k] for k in keep}
+		run["current"] = 1 if name in current else 0
+		# The trip's own numbers (trip_numbers): whole trip, every order on it.
+		run["numbers"] = {k: v for k, v in n.items() if k != "orders"}
+		run["total_buckets"] = n.get("buckets") or 0
+		run["capacity_buckets"] = n.get("capacity") or 0
+		run["loaded_buckets"] = n.get("on_truck") or 0
+		run["trolley_buckets"] = n.get("trolley") or 0
+		run["shelved_buckets"] = n.get("shelved") or 0
+		runs.append(run)
 	runs.sort(key=lambda t: (t["vehicle"] or "", t["trip_date"], t["run"] or 99, t["name"]))
 	frappe.response["runs"] = runs
 
@@ -557,9 +566,103 @@ def getBucketLogistics():
 	frappe.response["bucket_totals"] = totals
 
 	frappe.response["delivery_date"] = str(delivery_date)
+	frappe.response["onward"] = onward
 	frappe.response["orders"] = rows
 	frappe.response["farms"] = farms
 	frappe.response["total_orders"] = len(rows)
+
+
+def _current_trips(today):
+	"""Trips driving today, and earlier ones (lookback) not received yet."""
+	names = set(frappe.get_all("Bucket Request Trip", filters={"trip_date": today}, pluck="name"))
+	return names | set(
+		frappe.get_all(
+			"Bucket Request Trip",
+			filters={
+				"trip_date": [">=", frappe.utils.add_days(today, -TRIP_LOOKBACK_DAYS)],
+				"status": ["!=", "Received"],
+			},
+			pluck="name",
+		)
+	)
+
+
+def _trip_order_opls(trips):
+	"""Every order planned on these trips."""
+	if not trips:
+		return set()
+	return set(
+		frappe.get_all(
+			"Bucket Request Trip Order",
+			filters={"parenttype": "Bucket Request Trip", "parent": ["in", list(trips)]},
+			pluck="order_pick_list",
+		)
+	) - {None, ""}
+
+
+def _riding_trips(shares, opls):
+	"""opl -> trip entries (as getBucketLogistics lists them) for the trips its shared
+	buckets ride on with their lead order (trip_bucket_shares' riding portions)."""
+	found = {}
+	for trip, by in shares.items():
+		for (opl, farm), sh in by.items():
+			if opl in opls and sh["riding"]:
+				lead = next(
+					(
+						o
+						for (o, _f), x in by.items()
+						if o != opl and any(b in x["buckets"] for b in sh["riding_buckets"])
+					),
+					"",
+				)
+				found.setdefault(trip, []).append((opl, farm, lead))
+	if not found:
+		return {}
+	meta = {
+		t.name: t
+		for t in frappe.get_all(
+			"Bucket Request Trip",
+			filters={"name": ["in", list(found)]},
+			fields=["name", "vehicle", "status", "trip_date", "run", "route", "arrived_at", "dispatched_at"],
+		)
+	}
+	leads = {l for v in found.values() for (_o, _f, l) in v if l}
+	names = (
+		dict(
+			frappe.get_all(
+				"Order Pick List",
+				filters={"name": ["in", list(leads)]},
+				fields=["name", "order_name"],
+				as_list=True,
+			)
+		)
+		if leads
+		else {}
+	)
+	out = {}
+	for trip, entries in found.items():
+		t = meta.get(trip)
+		if not t:
+			continue
+		for opl, farm, lead in entries:
+			out.setdefault(opl, []).append(
+				{
+					"trip": trip,
+					"vehicle": t.vehicle,
+					"status": t.status,
+					"trip_date": str(t.trip_date),
+					"buckets": 0,
+					"loaded_buckets": 0,
+					"run": int(t.run or 0),
+					"route": t.route or "",
+					"farm": farm,
+					"arrived_at": str(t.arrived_at or ""),
+					"dispatched_at": str(t.dispatched_at or ""),
+					"lead": lead,
+					"lead_name": names.get(lead) or lead,
+				}
+			)
+	return out
 
 
 @frappe.whitelist()

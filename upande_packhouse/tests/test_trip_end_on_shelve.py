@@ -94,7 +94,9 @@ class UnitTestTripEndOnShelve(UnitTestCase):
 			patch.object(ts, "_end_trip_if_shelved", return_value=False),
 			patch.object(ts, "_newer_run_started", return_value=None),
 			patch.object(ts, "_receive_trip") as receive,
+			patch.object(ts.frappe.db, "sql_list", return_value=[]),
+			patch.object(ts, "_dispatch_waiting_trips", return_value=[]),
 		):
 			self.assertEqual(ts.end_shelved_trips(), [])
-		self.assertIn("t.status = 'Dispatched'", sql.call_args.args[0])
+		self.assertTrue(any("t.status = 'Dispatched'" in c.args[0] for c in sql.call_args_list))
 		receive.assert_not_called()

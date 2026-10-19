@@ -440,6 +440,22 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .aph .sch-teamcol .sch-teamh .ts-full{flex-basis:100%}
 .aph .sch-teamcol .sch-list{margin-top:0;display:flex;flex-direction:column;gap:8px}
 @media(max-width:900px){.aph .sch-teamcols{grid-template-columns:1fr}}
+/* Phone: the tab frame drops Bootstrap's container gutter (the page has its own), the
+   tab rows scroll sideways instead of overflowing, Distribute spans the width. */
+@media(max-width:700px){
+  main.container:has(> .page_content > .aph){padding-left:0!important;padding-right:0!important;max-width:none!important}
+  .aph.rt-embed{width:100%!important}
+  .aph .sch-toolbar{flex-direction:column;align-items:stretch;gap:8px}
+  .aph .sch-seg{flex-wrap:wrap}
+  .aph .sch-toolbar .sch-maintab{padding:6px 9px}
+  .aph .sch-toolbar .sch-maintabs,.aph .sch-pills{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-width:100%;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .aph .sch-toolbar .sch-maintabs::-webkit-scrollbar,.aph .sch-pills::-webkit-scrollbar{display:none}
+  .aph .sch-toolbar .sch-maintabs{display:flex}
+  .aph .sch-toolbar .sch-pills{justify-content:flex-start}
+  .aph .sch-maintab,.aph .sch-varbtn{flex:none;white-space:nowrap}
+  .aph .sch-distbtn{float:none;display:block;width:100%;margin:0 0 12px}
+  .aph .sch-kpis-sm{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
 .aph .sch-vchip{font-size:10px;font-weight:600;padding:1px 7px;border-radius:9px}
 .aph .sch-vchip.draft{background:#f3effe;color:#6d28d9}
 .aph .sch-vchip.xfer{background:#eef6ff;color:#1d4ed8}
@@ -894,6 +910,11 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 
   // Schedulable: submitted, or a draft still waiting on a transfer. A draft with all its
   // stock at Kapkolia waits until it is submitted (one already scheduled stays).
+  // The buckets an order counts for, on its card and in the tiles: each physical bucket
+  // once (a shared one on its lead order); waiting on a transfer, the remote ones still
+  // to come to Kapkolia (count_by_farm, getSchedulerFeed).
+  function cardFarms(o){ return o.count_by_farm||o.buckets_by_farm||{}; }
+  function cardBuckets(o){ var f=cardFarms(o); return Object.keys(f).reduce(function(a,k){ return a+num(f[k]); },0); }
   function canSchedule(o){ return !!o && (o.variation!=='draft_plain' || !!STATE.scheduled[o.name]); }
   function varLabel(v){return v==='draft_plain'?'Draft':(v==='draft_transfer'?'Draft waiting transfer':'Submitted');}
   function varCls(v){return v==='draft_plain'?'draft':(v==='draft_transfer'?'xfer':'sub');}
@@ -905,7 +926,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     var nm=esc(o.custom_order_name||o.name);
     var sub=[o.customer,o.custom_team].filter(Boolean).map(esc).join('  ·  ');
     var stems=fmt(num(o.total_stems));
-    var bkts=num(o.n_buckets);
+    var bkts=cardBuckets(o);
     var prio=(lane==='sched')?((G.prio&&G.prio[o.name])||'?'):null;
     var chk=canSchedule(o)?'<input type="checkbox" class="sch-chk" data-sel="'+esc(o.name)+'"'+(opts.isSel?' checked':'')+'>':'';
     var seqHtml;
@@ -938,7 +959,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     if(o.mixed_type) chips.push('<span class="sch-vchip mix">'+esc(o.mixed_type)+'</span>');
     var chipsHtml='<div class="sch-chips">'+chips.join('')+'</div>';
     var metaParts='<div class="m"><div class="mv">'+stems+'</div><div class="ml">stems</div></div>'+
-      '<div class="m"><div class="mv">'+bkts+'</div><div class="ml">buckets</div></div>';
+      '<div class="m"><div class="mv">'+bkts+'</div><div class="ml">'+(o.variation==='draft_transfer'?'to move':'buckets')+'</div></div>';
     if(o.has_transfer&&o.n_farms){metaParts=metaParts+'<div class="m"><div class="mv">'+num(o.n_farms)+'</div><div class="ml">farm'+(num(o.n_farms)===1?'':'s')+'</div></div>';}
     var meta='<div class="sch-meta">'+metaParts+'</div>';
     var farmsLine=(o.has_transfer&&o.farms&&o.farms.length)?'<div class="sch-farms">'+o.farms.map(function(f){return '<span class="sch-chip farm">'+esc(f)+'</span>';}).join('')+'</div>':'';
@@ -1028,10 +1049,9 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     var sched=feed.filter(function(o){return STATE.scheduled[o.name];});
     var stems=0;
     feed.forEach(function(o){stems=stems+num(o.total_stems);});
-    // Buckets per tile: a submitted order's own stock (at Kapkolia), a draft's buckets
-    // requested from the remote farms.
-    var bkFarms=function(o){ return o.variation==='submitted'?(o.buckets_by_farm||{}):(o.remote_by_farm||{}); };
-    var rb=function(list){return list.reduce(function(n,o){var f=bkFarms(o);return n+Object.keys(f).reduce(function(a,k){return a+num(f[k]);},0);},0);};
+    // Buckets per tile: the orders' cards summed (cardBuckets), split on hover by farm.
+    var bkFarms=cardFarms;
+    var rb=function(list){return list.reduce(function(n,o){return n+cardBuckets(o);},0);};
     // Per-farm split, on hover.
     var rbFarms=function(list){
       var by={};
@@ -1040,11 +1060,11 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     };
     var vc={draft_plain:0,draft_transfer:0,submitted:0};
     unsched.forEach(function(o){if(vc[o.variation]!=null)vc[o.variation]++;});
-    el('kpis').innerHTML=[['Schedulable buckets',fmt(rb(feed.filter(canSchedule))),rbFarms(feed.filter(canSchedule))],['Not scheduled buckets',fmt(rb(unsched.filter(canSchedule))),rbFarms(unsched.filter(canSchedule))],['Scheduled buckets',fmt(rb(sched)),rbFarms(sched)],['Total stems',fmt(stems)]]
+    el('kpis').innerHTML=[['Total buckets',fmt(rb(feed)),rbFarms(feed)],['Not scheduled buckets',fmt(rb(unsched)),rbFarms(unsched)],['Scheduled buckets',fmt(rb(sched)),rbFarms(sched)],['Total stems',fmt(stems)]]
       .map(function(k){return '<div class="aph-kpi"'+(k[2]?' title="'+esc(k[2])+'"':'')+'><div class="lbl">'+k[0]+'</div><div class="v">'+k[1]+'</div></div>';}).join('');
     if(el('cUnsched'))el('cUnsched').textContent=unsched.length;
     if(el('cSched'))el('cSched').textContent=sched.length;
-    if(el('distTeams')){ var nd=distTodo().length; var dt=distTarget(); el('distTeams').textContent=nd?'Distribute '+nd+' to '+dt:'Distribute to '+dt; el('distTeams').disabled=!nd&&!applyFilters(STATE.ready).some(function(o){ return STATE.scheduled[o.name]; }); }
+    if(el('distTeams')){ var nd=distTodo().length; var dt=distTarget(); el('distTeams').textContent=nd?'Distribute '+nd+' to '+dt:'Distribute to '+dt; el('distTeams').disabled=!nd&&!viewScheduled().length; }
     if(el('cTeams'))el('cTeams').textContent=Object.keys(sched.reduce(function(a,o){a[o.custom_team||'-']=1;return a;},{})).length;
     var mt=G.mtab||'unsched';
     document.querySelectorAll('.sch-maintab').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-mtab')===mt);});
@@ -1102,7 +1122,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       var groups=[], gmap={};
       list.forEach(function(o){var tm=o.custom_team||'-';if(!gmap[tm]){gmap[tm]={team:tm,items:[]};groups.push(gmap[tm]);}gmap[tm].items.push(o);});
       content='<div class="sch-teamcols">'+groups.map(function(g){
-        var tb=0,bk=0; g.items.forEach(function(o){tb=tb+num(o.total_stems);bk=bk+num(o.n_buckets);});
+        var tb=0,bk=0; g.items.forEach(function(o){tb=tb+num(o.total_stems);bk=bk+cardBuckets(o);});
         var cards=g.items.map(function(o){return card(o,'sched',0,true,{isNext:!!(G.next&&G.next[o.name]),isSel:G.sel.has(o.name)});}).join('');
         return '<div class="sch-teamcol"><div class="sch-teamh"><span class="tn">'+esc(g.team)+' ('+g.items.length+')</span><span class="tn">'+fmt(bk)+' buckets</span><span class="ts ts-full">'+fmt(tb)+' stems</span></div>'+
           '<div class="sch-list" data-team="'+esc(g.team)+'">'+cards+'</div></div>';
@@ -1173,19 +1193,21 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   // the trips in sequence order (auto_transfer.distributeTrips).
   // What Distribute schedules: the unscheduled orders in view -- the chosen status
   // (e.g. Submitted only) and team, within the Location / Farm filters.
-  function distTodo(){
+  // The orders in view: the status chosen above, within the Location / Team / Farm filters.
+  function viewOrders(){
     var vv=G.var||'all';
-    return applyFilters(STATE.ready).filter(function(o){
-      return !STATE.scheduled[o.name]&&canSchedule(o)&&(vv==='all'||o.variation===vv);
-    });
+    return applyFilters(STATE.ready).filter(function(o){ return vv==='all'||o.variation===vv; });
   }
+  function distTodo(){
+    return viewOrders().filter(function(o){ return !STATE.scheduled[o.name]&&canSchedule(o); });
+  }
+  function viewScheduled(){ return viewOrders().filter(function(o){ return STATE.scheduled[o.name]; }); }
   // Only orders with buckets to bring from a farm need trips; the rest (submitted, or
   // drafts with nothing to move) just take their places on their teams' sequences.
   function needsTrips(list){ return list.some(function(o){ return o.variation==='draft_transfer'; }); }
   function distTarget(){
     var todo=distTodo();
-    var list=todo.length?todo:applyFilters(STATE.ready).filter(function(o){ return STATE.scheduled[o.name]; });
-    return needsTrips(list)?'trips':'teams';
+    return needsTrips(todo.length?todo:viewScheduled())?'trips':'teams';
   }
   function distributeToTrips(){
     // Plans the scheduled orders onto the day's trips right here (the server's
@@ -1198,20 +1220,29 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         if(!m||m.status==='error'||m.status==='busy'||!m.status){ notify((m&&m.message)||'Distribute failed','red'); return; }
         var trips=(m.trips||[]).length, filling=(m.filling||[]).length, failed=m.failed||[];
         var un=(m.unreachable||[]).length, waiting=m.waiting||[];
-        if(m.unchanged) notify('No new schedules to distribute','blue');
+        // held / dispatched / partial come as a count or a list.
+        var cnt=function(v){ return Array.isArray(v)?v.length:(Number(v)||0); };
+        var held=cnt(m.held), disp=cnt(m.dispatched), part=cnt(m.partial);
+        var ords=function(n){ return n+' order'+(n===1?'':'s'); };
+        if(m.unchanged&&!waiting.length&&!held) notify('No new schedules to distribute','blue');
         else if(trips) notify(trips+' trip'+(trips===1?'':'s')+' planned · '+(trips-filling)+' full','green');
-        else if(!failed.length&&!un&&!waiting.length) notify('Nothing to put on a trip','blue');
+        else if(!m.unchanged&&!failed.length&&!un&&!waiting.length&&!held) notify('Nothing to put on a trip','blue');
         (m.runs_added||[]).forEach(function(a){ notify('Added trip '+(a.run||'')+' on '+a.vehicle+' to '+a.farm,'green'); });
+        if(disp) notify(disp+' trip'+(disp===1?'':'s')+' dispatched','green');
         failed.forEach(function(x){ notify(x.message||String(x),'red'); });
         if(un) notify(un+' order'+(un===1?' has':'s have')+' no truck going to '+(un===1?'its':'their')+' farm today — add a run to a truck route','red');
-        if(waiting.length&&!trips) notify(waiting.length+' order'+(waiting.length===1?'':'s')+' still waiting: '+(waiting[0].why||'no room on a trip'),'orange');
+        if(waiting.length) notify(ords(waiting.length)+' waiting: '+(waiting[0].why||'no room on a trip'),'orange');
+        if(held) notify(ords(held)+' held: no truck room','orange');
+        if(part) notify(ords(part)+' partly planned','orange');
+        // The plan changed the orders' trips: read the feed again.
+        load();
       });
     };
     var todo=distTodo();
     if(!todo.length){
       // Nothing new to schedule: plan what is already scheduled; with nothing scheduled
       // either there is nothing to plan, so stay here.
-      var sched=applyFilters(STATE.ready).filter(function(o){ return STATE.scheduled[o.name]; });
+      var sched=viewScheduled();
       if(sched.length&&needsTrips(sched)) openTrips();
       else if(sched.length) notify('Already on their teams’ sequences','blue');
       else notify('No orders to schedule in this view','orange');
@@ -1224,13 +1255,13 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     var toTrips=needsTrips(todo);
     pageDialog(toTrips?'Distribute to trips':'Distribute to teams',esc(msg),'Distribute').then(function(ok){
       if(!ok) return;
-      var load={}; STATE.ready.forEach(function(o){ if(o.custom_team){ load[o.custom_team]=load[o.custom_team]||0; if(STATE.scheduled[o.name]) load[o.custom_team]+=num(o.n_buckets); } });
+      var load={}; STATE.ready.forEach(function(o){ if(o.custom_team){ load[o.custom_team]=load[o.custom_team]||0; if(STATE.scheduled[o.name]) load[o.custom_team]+=cardBuckets(o); } });
       var teams=Object.keys(load);
       G.teamFor=G.teamFor||{};
       todo.forEach(function(o){
         var t=o.custom_team;
         if(!t&&teams.length){ t=teams.reduce(function(a,b){ return load[b]<load[a]?b:a; }); o.custom_team=t; G.teamFor[o.name]=t; }
-        if(t) load[t]=(load[t]||0)+num(o.n_buckets);
+        if(t) load[t]=(load[t]||0)+cardBuckets(o);
         STATE.scheduled[o.name]=1;
       });
       var isNew={}; todo.forEach(function(o){ isNew[o.name]=1; });
@@ -1410,8 +1441,8 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     el('schModal').classList.add('open');
     setTimeout(function(){inp.focus();inp.select();},30);
   }
-  // Under the guide: per farm the order still has buckets waiting at, the trips going
-  // there on the processing day that can still take buckets (the feed sends only those).
+  // Under the guide: per farm the order still has buckets to come from, the open trips
+  // there that plan it (the ones carrying it, whatever their date, and today's).
   function tripsHtml(fts){
     if(!fts.length)return '';
     return fts.map(function(f){
@@ -1443,11 +1474,17 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     if(el('bUnsched'))el('bUnsched').innerHTML=SKEL;
     if(el('bSched'))el('bSched').innerHTML=SKEL;
     frp('upande_packhouse.api.scheduler.getSchedulerFeed',{date:dd}).then(function(r){
+      if(r&&(r.success===false||r.status==='error')){
+        var msg='<div class="sch-empty" style="color:var(--bad)">Couldn’t load: '+esc(r.error||r.message||'server error')+'</div>';
+        if(el('bUnsched'))el('bUnsched').innerHTML=msg;
+        if(el('bSched'))el('bSched').innerHTML=msg;
+        return;
+      }
       var rows=(r&&r.data)||[];
       STATE.drafts=[];STATE.packed=[];
       STATE.ready=rows.map(function(o){
         return {name:o.opl,custom_order_name:o.order_name,customer:o.customer,custom_team:o.team,
-                total_stems:o.total_stems,n_buckets:o.n_buckets,remote_buckets:o.remote_buckets||0,remote_by_farm:o.remote_by_farm||{},buckets_by_farm:o.buckets_by_farm||{},n_farms:o.n_farms,farms:o.farms||[],farm_trips:o.farm_trips||[],
+                total_stems:o.total_stems,n_buckets:o.n_buckets,remote_buckets:o.remote_buckets||0,remote_by_farm:o.remote_by_farm||{},buckets_by_farm:o.buckets_by_farm||{},count_by_farm:o.count_by_farm||null,n_farms:o.n_farms,farms:o.farms||[],farm_trips:o.farm_trips||[],
                 n_varieties:o.n_varieties,has_transfer:o.has_transfer,mixed_type:o.mixed_type,
                 docstatus:o.docstatus,variation:o.variation,location:o.location||'',issued_lines:o.issued_lines||0,lines:o.lines||0,packed:o.packed||0,packed_stems:o.packed_stems||0};
       });
