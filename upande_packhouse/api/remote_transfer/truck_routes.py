@@ -132,19 +132,16 @@ def _save_route(
 	template=None,
 	check_on_road=True,
 	commit=True,
+	append_only=False,
 ):
 	"""Validate and save a truck's Bucket Logistics Route; returns the response message.
 	A route saved by hand (auto_planned=0) is never re-routed by automatic scheduling.
-	`template` marks a day copy of a saved route (made even while the truck is out)."""
+	`template` marks a day copy of a saved route (made even while the truck is out).
+	append_only: saved even while the truck is on the road, as long as the save only
+	adds legs after the route's existing ones (or starts a new route) -- the run in
+	progress and every earlier run stay exactly as they are."""
 	if not vehicle:
 		return {"status": "error", "message": "A vehicle is required."}
-	busy = _vehicle_on_road(vehicle) if check_on_road else None
-	if busy and str(date) == str(frappe.utils.today()):
-		return {
-			"status": "error",
-			"reason": "on_road",
-			"message": _on_road_message(vehicle, busy, "re-routed"),
-		}
 	path, err = _route_path(leg_names)
 	if err:
 		return {"status": "error", "message": err}
@@ -153,6 +150,13 @@ def _save_route(
 	doc, err = _route_to_update(date, vehicle, name=name, new=new, auto_planned=auto_planned)
 	if err:
 		return {"status": "error", "message": err}
+	busy = _vehicle_on_road(vehicle) if check_on_road else None
+	if busy and str(date) == str(frappe.utils.today()) and not (append_only and _appends_only(doc, path)):
+		return {
+			"status": "error",
+			"reason": "on_road",
+			"message": _on_road_message(vehicle, busy, "re-routed"),
+		}
 	if doc is not None:
 		# A run that already has a trip keeps its farms: its trip (and the farm app)
 		# drive it. Runs can be added after it, or changed once the trip is gone.
@@ -226,6 +230,17 @@ def _save_route(
 		"legs": len(doc.legs),
 		"total_km": total_km,
 	}
+
+
+def _appends_only(doc, path):
+	"""True when saving `path` over route `doc` (None = a new route) keeps every existing
+	leg as it is -- same road, same direction, same run -- and only adds legs after them."""
+	if doc is None:
+		return True
+	old = [(l.leg, l.from_farm, l.to_farm) for l in doc.legs]
+	return (
+		len(path) > len(old) and [(p["leg"], p["from_farm"], p["to_farm"]) for p in path[: len(old)]] == old
+	)
 
 
 @frappe.whitelist()
@@ -371,12 +386,13 @@ def addFarmTrip():
 	frappe.response["message"] = res
 
 
-def add_farm_run(vehicle, farm, date=None, enforce_room: bool = False):
+def add_farm_run(vehicle, farm, date=None, enforce_room: bool = False, while_on_road: bool = False):
 	"""A new trip (packhouse → farm → packhouse) at the end of the truck's latest route
 	on `date` (a new all-day route if it has none). Returns {status, route, run} or why not.
 	enforce_room (automatic scheduling): refused while the truck's open trip to the farm
 	still has room, so trip 2 is only added once trip 1 is full. A person adding a trip
-	on the page is not refused."""
+	on the page is not refused. while_on_road (automatic scheduling): added even while
+	the truck is out -- only appended after its runs, so the one on the road is untouched."""
 	date = str(frappe.utils.getdate(date or frappe.utils.today()))
 	if not vehicle or not farm:
 		return {"status": "error", "message": "A truck and a farm are required."}
@@ -415,9 +431,17 @@ def add_farm_run(vehicle, farm, date=None, enforce_room: bool = False):
 			pluck="leg",
 			order_by="idx asc",
 		)
-		res = _save_route(date=date, vehicle=vehicle, leg_names=legs + [road, road], name=latest[0])
+		res = _save_route(
+			date=date,
+			vehicle=vehicle,
+			leg_names=legs + [road, road],
+			name=latest[0],
+			append_only=while_on_road,
+		)
 	else:
-		res = _save_route(date=date, vehicle=vehicle, leg_names=[road, road], new=1)
+		res = _save_route(
+			date=date, vehicle=vehicle, leg_names=[road, road], new=1, append_only=while_on_road
+		)
 	if res.get("status") == "success":
 		res["route"] = res["name"]
 		res["run"] = len(_route_runs_by_name(res["name"]))

@@ -271,8 +271,10 @@
   function loadLS(k) { try { return JSON.parse(localStorage.getItem(k) || '{}') || {}; } catch (e) { return {}; } }
   function saveLS(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
-  function todayISO() { return new Date().toISOString().slice(0, 10); }
-  function tomorrowISO() { var d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); }
+  // Local calendar dates (toISOString is UTC: the day before until 03:00 in Kenya).
+  function isoLocal(d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  function todayISO() { return isoLocal(new Date()); }
+  function tomorrowISO() { var d = new Date(); d.setDate(d.getDate() + 1); return isoLocal(d); }
   function ovApi(method, args) {
     var qs = Object.keys(args).filter(function (k) { return args[k] != null && args[k] !== ''; })
       .map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(args[k]); }).join('&');
@@ -333,9 +335,14 @@
   var OV_TRIP_CLASS = { Dispatched: 'is-dispatched', Received: 'is-received' };
   function ovTripLineHtml(t) {
     var st = t.status === 'Received' ? 'ended' : (t.arrived_at ? 'arrived' : (t.loaded_buckets && (t.status === 'Draft' || t.status === 'Scheduled') ? 'loading' : String(t.status || '').toLowerCase()));
-    var qty = t.buckets ? (t.loaded_buckets ? t.loaded_buckets + ' / ' + t.buckets + ' loaded' : t.buckets + ' planned') : (t.loaded_buckets + ' loaded, not planned');
-    if (t.shelved) qty += ' · ' + t.shelved + ' arrived';
+    var qty = ovTripQty(t);
     return '<div class="ov-trip"><span class="ov-trip-chip ' + (OV_TRIP_CLASS[t.status] || '') + '" title="' + esc(t.trip) + ' · ' + esc(t.trip_date) + '">' + esc(t.vehicle || t.trip) + (t.run ? ' · Trip ' + t.run : '') + (t.farm ? ' · ' + esc(t.farm) : '') + ' · ' + esc(st) + '</span><div class="ov-trip-qty">' + esc(qty) + '</div></div>';
+  }
+  function ovTripQty(t) {
+    var qty = t.buckets ? (t.loaded_buckets ? t.loaded_buckets + ' / ' + t.buckets + ' loaded' : t.buckets + ' planned') : (t.riding ? '' : t.loaded_buckets + ' loaded, not planned');
+    if (t.riding) qty += (qty ? ' · ' : '') + t.riding + ' with ' + (t.lead_name || 'another order');
+    if (t.shelved) qty += ' · ' + t.shelved + ' arrived';
+    return qty;
   }
   function ovTripCell(o) {
     var t = o.trips || [];
@@ -353,41 +360,72 @@
   function ovKpiCard(lbl, val, sub) {
     return '<div class="ov-kpi"><div class="lbl">' + esc(lbl) + '</div><div class="v">' + val + '</div>' + (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>';
   }
+  // Stage counts are cumulative (a bucket in transit also counts as awaiting and in a
+  // trolley), so a bucket is still at its farm when it is awaiting but has not reached a
+  // trolley.
+  function ovAtFarm(o) {
+    return Math.max(0, (o.awaiting || 0) - (o.trolley || 0));
+  }
+  // Average truck transit: each trip the orders rode, from leaving the farm (dispatched)
+  // to arriving at the hub. With no trip timed both ways yet: order made -> first arrival.
+  function ovAvgTransit(orders) {
+    var seen = {}, mins = [];
+    var ts = function (v) { var d = new Date(String(v || '').replace(' ', 'T')); return isNaN(d.getTime()) ? null : d.getTime(); };
+    orders.forEach(function (o) {
+      (o.trips || []).forEach(function (t) {
+        if (seen[t.trip]) return; seen[t.trip] = 1;
+        var a = ts(t.dispatched_at), b = ts(t.arrived_at);
+        if (a != null && b != null && b >= a) mins.push((b - a) / 60000);
+      });
+    });
+    if (mins.length) return { label: 'Avg truck transit', val: ovFmtDur(mins.reduce(function (x, y) { return x + y; }, 0) / mins.length) };
+    var durs = [];
+    orders.forEach(function (o) { if (o.arrived) { var m = ovArrivalMins(o); if (m != null) durs.push(m); } });
+    return { label: 'Avg order → first arrival', val: ovFmtDur(durs.length ? durs.reduce(function (x, y) { return x + y; }, 0) / durs.length : null) };
+  }
+  // Buckets replaced on these orders: one per (order, bucket), however many records.
+  function ovReplacedCount() {
+    var seen = {};
+    (OV.repl || []).forEach(function (r) { seen[r.order_pick_list + '||' + String(r.old_bucket || r.name).toUpperCase()] = 1; });
+    return Object.keys(seen).length;
+  }
+  // On a trip still out: its own, or its shared buckets ride with another order's.
+  function ovOnTrip(o) {
+    return (Number(o.riding) || 0) > 0 || (o.trips || []).some(function (t) { return t.status !== 'Received'; });
+  }
   function ovSum(rows, k) { return rows.reduce(function (a, r) { return a + (r[k] || 0); }, 0); }
   function ovRenderKpis(orders) {
-    var s = { buckets: 0, shelved: 0, transit: 0, trolley: 0, awaiting: 0, issued: 0, noTrip: 0 }, durs = [];
+    var s = { buckets: 0, shelved: 0, transit: 0, trolley: 0, awaiting: 0, issued: 0, noTrip: 0 };
     orders.forEach(function (o) {
       s.buckets += o.total || 0; s.shelved += o.shelved || 0; s.transit += o.transit || 0;
       s.trolley += o.trolley || 0; s.awaiting += o.awaiting || 0; s.issued += o.issued || 0;
-      var atFarm = Math.max(0, (o.awaiting || 0) - (o.transit || 0) - (o.trolley || 0));
-      if (atFarm > 0 && !(o.trips || []).some(function (t) { return t.status !== 'Received'; })) s.noTrip++;
-      if (o.arrived) { var m = ovArrivalMins(o); if (m != null) durs.push(m); }
+      var atFarm = ovAtFarm(o);
+      if (atFarm > 0 && !ovOnTrip(o)) s.noTrip++;
     });
     var pct = s.buckets ? Math.round(s.shelved / s.buckets * 100) : 0;
-    var avg = durs.length ? durs.reduce(function (a, b) { return a + b; }, 0) / durs.length : null;
+    var avg = ovAvgTransit(orders);
     return [
       ovKpiCard('Orders', orders.length),
       ovKpiCard('Buckets', s.buckets.toLocaleString()),
-      ovKpiCard('At farm', Math.max(0, s.awaiting - s.transit - s.trolley).toLocaleString()),
-      ovKpiCard('In trolley', s.trolley.toLocaleString()),
-      ovKpiCard('In transit', s.transit.toLocaleString()),
+      ovKpiCard('At farm', ovAtFarm(s).toLocaleString()),
+      ovKpiCard('In trolley', Math.max(0, s.trolley - s.transit).toLocaleString()),
+      ovKpiCard('In transit', Math.max(0, s.transit - s.shelved).toLocaleString()),
       ovKpiCard('Shelved', pct + '%', s.shelved.toLocaleString() + ' / ' + s.buckets.toLocaleString()),
       ovKpiCard('Issued', s.issued.toLocaleString()),
-      ovKpiCard('No trip', s.noTrip.toLocaleString()),
-      ovKpiCard('Avg transit', ovFmtDur(avg)),
+      ovKpiCard('Orders without trip', s.noTrip.toLocaleString()),
+      ovKpiCard(avg.label, avg.val),
     ].join('');
   }
   // The original Bucket Logistics KPI tiles and truck cards, as they were (page's
   // aph-kpi styles): stage totals over the orders shown, then one card per truck.
   function ovOrigKpis(orders) {
     var card = function (lbl, val, sub) { return '<div class="aph-kpi"><div class="lbl">' + lbl + '</div><div class="v">' + val + '</div>' + (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>'; };
-    var s = { buckets: 0, shelved: 0, transit: 0, trolley: 0, awaiting: 0, issued: 0, notFound: 0, unsched: 0, noTrip: 0 }, durs = [];
+    var s = { buckets: 0, shelved: 0, transit: 0, trolley: 0, awaiting: 0, issued: 0, notFound: 0, unsched: 0, noTrip: 0 };
     orders.forEach(function (o) {
       s.buckets += o.total || 0; s.shelved += o.shelved || 0; s.transit += o.transit || 0;
       s.trolley += o.trolley || 0; s.awaiting += o.awaiting || 0; s.issued += o.issued || 0; s.notFound += o.not_found || 0;
-      var atFarm = Math.max(0, (o.awaiting || 0) - (o.transit || 0) - (o.trolley || 0));
-      if (atFarm > 0) { if (!o.scheduled) s.unsched++; else if (!(o.trips || []).some(function (t) { return t.status !== 'Received'; })) s.noTrip++; }
-      if (o.arrived) { var m = ovArrivalMins(o); if (m != null) durs.push(m); }
+      var atFarm = ovAtFarm(o);
+      if (atFarm > 0 && !ovOnTrip(o)) { if (!o.scheduled) s.unsched++; else s.noTrip++; }
     });
     // Bucket tiles once per physical bucket (a bucket split over two orders is one).
     var tt = OV.totals;
@@ -396,30 +434,31 @@
       s.awaiting = tt.awaiting; s.issued = tt.issued; s.notFound = tt.not_found;
     }
     var pct = s.buckets ? Math.round(s.shelved / s.buckets * 100) : 0;
-    var avg = durs.length ? durs.reduce(function (a, b) { return a + b; }, 0) / durs.length : null;
+    var avg = ovAvgTransit(orders), nRepl = ovReplacedCount();
     var of = function (v, n) { return v.toLocaleString() + ' <span style="font-size:16px;color:var(--text-3)">/ ' + n.toLocaleString() + '</span>'; };
     var tiles = [
       card('Orders', orders.length),
       card('Buckets', s.buckets.toLocaleString()),
-      card('At farm', Math.max(0, s.awaiting - s.transit - s.trolley).toLocaleString()),
-      card('In trolley', s.trolley.toLocaleString()),
-      card('In transit', s.transit.toLocaleString()),
+      card('At farm', ovAtFarm(s).toLocaleString()),
+      card('In trolley', Math.max(0, s.trolley - s.transit).toLocaleString()),
+      card('In transit', Math.max(0, s.transit - s.shelved).toLocaleString()),
       card('Shelved (' + pct + '%)', of(s.shelved, s.buckets)),
       card('Issued', of(s.issued, s.buckets)),
-      card('Not found · no replacement', '<span style="color:' + (s.notFound ? '#c4302b' : 'inherit') + '">' + s.notFound.toLocaleString() + '</span>').replace('<div class="aph-kpi">', '<div class="aph-kpi" data-nf-tile="1" style="cursor:pointer">'),
-      card('Replaced', '<span style="color:' + ((OV.repl || []).length ? '#7c3aed' : 'inherit') + '">' + (OV.repl || []).length.toLocaleString() + '</span>'),
-      card('No trip', (s.unsched + s.noTrip).toLocaleString()),
-      card('Avg transit', ovFmtDur(avg)),
+      card('Not found', '<span style="color:' + (s.notFound ? '#c4302b' : 'inherit') + '">' + s.notFound.toLocaleString() + '</span>').replace('<div class="aph-kpi">', '<div class="aph-kpi" data-nf-tile="1" style="cursor:pointer">'),
+      card('Replaced buckets', '<span style="color:' + (nRepl ? '#7c3aed' : 'inherit') + '">' + nRepl.toLocaleString() + '</span>'),
+      card('Orders without trip', (s.unsched + s.noTrip).toLocaleString()),
+      card(avg.label, avg.val),
     ];
-    var runs = OV.runs || [], byV = {};
+    var runs = (OV.runs || []).filter(function (r) { return r.current; }), byV = {};
     runs.forEach(function (r) { (byV[r.vehicle] = byV[r.vehicle] || []).push(r); });
     var trip = function (r) { return r.run ? 'Trip ' + r.run + (r.runs > 1 ? '/' + r.runs : '') : 'Trip …' + String(r.name).slice(-5); };
     var state = function (r) { return r.status === 'Received' ? 'back' : (r.status === 'Dispatched' ? 'on the road' : (r.loading ? 'loading' : (r.stale ? 'stale' : 'planned'))); };
     var rank = { 'on the road': 0, loading: 1, planned: 2, stale: 3, back: 4 };
     var trucks = Object.keys(byV).sort().map(function (v) {
       var rs = byV[v], planned = 0, loaded = 0;
-      rs.forEach(function (r) { planned += r.total_buckets || 0; loaded += r.loaded_buckets || 0; });
-      var cur = rs.slice().sort(function (a, b) { return (rank[state(a)] === 4) - (rank[state(b)] === 4) || (a.run || 99) - (b.run || 99) || rank[state(a)] - rank[state(b)]; })[0];
+      rs.forEach(function (r) { var n = r.numbers || {}; planned += Number(n.buckets) || 0; loaded += Number(n.on_truck) || 0; });
+      // The truck's current trip: on the road, else loading, else planned; then by run.
+      var cur = rs.slice().sort(function (a, b) { return rank[state(a)] - rank[state(b)] || (a.run || 99) - (b.run || 99); })[0];
       var head = esc(v) + ' &middot; <span title="' + esc(rs.map(function (r) { return trip(r) + ' ' + state(r) + (r.run_chain ? ' (' + r.run_chain + ')' : ''); }).join(', ')) + '">' + (state(cur) === 'back' ? 'all trips back' : esc(trip(cur) + ' ' + state(cur))) + '</span>';
       var on = !!(OV.trucks || {})[v];
       return card(head, loaded.toLocaleString() + ' <span style="font-size:14px;color:var(--text-3)">/ ' + planned.toLocaleString() + '</span>')
@@ -449,27 +488,65 @@
       renderActive();
     });
   }
+  // One load in flight per day: the 30 s tick or Refresh while one is still out waits for
+  // it (a slow reply is never thrown away by the next tick). A reply is dropped only when
+  // its day is no longer the day shown, or a newer reply for that day is already in.
+  var OV_SEQ = 0, OV_PENDING = null;
   function ovLoad() {
-    OV.loading = true; OV.error = null;
-    renderActive();
     // The page's global filters (date, farm, team) decide what is shown.
     var day = (window.rtDate && window.rtDate.get()) || OV.date;
-    if (day !== OV.date) OV.trucks = {};
+    if (OV_PENDING && OV_PENDING.day === day) return OV_PENDING.p;
+    var tok = { seq: ++OV_SEQ, day: day };
+    var newDay = day !== OV.date;
+    if (newDay) { OV.trucks = {}; OV.orders = []; OV.runs = []; OV.totals = null; OV.sig = null; }
     OV.date = day;
+    var wasErr = !!OV.error;
+    OV.loading = true; OV.error = null;
     // Every order of the day: the Farm / Team filters are the Scheduler's and aren't shown
     // on this tab, so a choice left there must not quietly hide orders here.
-    return ovApi('upande_packhouse.api.bucket_logistics.getBucketLogistics', { delivery_date: OV.date }).then(function (d) {
-      OV.orders = (d && d.orders) || []; OV.runs = (d && d.runs) || []; OV.totals = (d && d.bucket_totals) || null; OV.loading = false;
-      OV.details = {}; OV.owners = {}; OV.transit = {}; OV.repl = [];
-      renderActive();
-      ovLoadOwners();
-      ovLoadReplacements();
+    var p = ovApi('upande_packhouse.api.bucket_logistics.getBucketLogistics', { delivery_date: day, onward: 1 }).then(function (d) {
+      if (OV_PENDING && OV_PENDING.p === p) OV_PENDING = null;
+      if (!ovCurrent(tok, 'main')) return;
+      OV.loading = false;
+      var sig = JSON.stringify([d && d.orders, d && d.runs, d && d.bucket_totals]);
+      if (sig !== OV.sig) {
+        OV.sig = sig;
+        OV.orders = (d && d.orders) || []; OV.runs = (d && d.runs) || []; OV.totals = (d && d.bucket_totals) || null;
+        OV.details = {};
+        renderActive();
+      } else if (!OV.orders.length) renderActive();
+      ovLoadOwners(tok);
+      ovLoadReplacements(tok);
       // Trip Drill Down shows no per-order transit line: skip that lookup there.
-      if (ACTIVE !== 'triptree') ovLoadTransitInfo();
+      if (ACTIVE !== 'triptree') ovLoadTransitInfo(tok);
     }).catch(function (e) {
+      if (OV_PENDING && OV_PENDING.p === p) OV_PENDING = null;
+      if (!ovCurrent(tok, 'main')) return;
       OV.loading = false; OV.error = e.message || String(e);
       renderActive();
     });
+    OV_PENDING = { day: day, p: p };
+    // A new day: the old day's replacements and transit lines go once it is requested
+    // (a refresh of the same day keeps them up).
+    if (newDay) { OV.repl = []; OV.transit = {}; OV._sig_repl = OV._sig_owners = OV._sig_transit = null; }
+    // Only an empty page shows "Loading…"; a refresh keeps the list up while it loads.
+    if (!OV.orders.length || wasErr) renderActive();
+    return p;
+  }
+  // Is this reply still wanted: its day is the one shown and nothing newer for it is in.
+  function ovCurrent(tok, key) {
+    if (!tok || tok.day !== OV.date) return false;
+    if (tok.seq < (OV['_seq_' + key] || 0)) return false;
+    OV['_seq_' + key] = tok.seq;
+    return true;
+  }
+  // A follow-up lookup's rows, applied only when still wanted and changed.
+  function ovFresh(tok, key, rows) {
+    if (!ovCurrent(tok, key)) return false;
+    var sig = JSON.stringify(rows || []);
+    if (OV['_sig_' + key] === sig) return false;
+    OV['_sig_' + key] = sig;
+    return true;
   }
   // Who put this OPL into Awaiting Transfer, and exactly when: the Order Pick
   // List's own creation + owner — every bucket on it starts awaiting-transfer
@@ -477,20 +554,23 @@
   // to read (getBucketLogisticsDetail leaves that column with nothing to show).
   // Buckets replaced on these orders (Bucket Replacement): a not-found bucket that got a
   // stand-in counts as replaced, not as missing.
-  function ovLoadReplacements() {
+  function ovLoadReplacements(seq) {
     var opls = uniqSorted((OV.orders || []).map(function (o) { return o.opl; }));
-    if (!opls.length) return;
+    if (!opls.length) { if ((OV.repl || []).length) { OV.repl = []; OV._sig_repl = null; } return; }
     ovApi('frappe.client.get_list', {
       doctype: 'Bucket Replacement',
       filters: JSON.stringify({ order_pick_list: ['in', opls] }),
       fields: JSON.stringify(['name', 'order_pick_list', 'old_bucket', 'new_bucket', 'reason', 'status', 'reported_by', 'reported_at', 'creation']),
       limit_page_length: 0,
-    }).then(function (rows) { OV.repl = rows || []; renderActive(); if (BP.open) renderBp(); }).catch(function () {});
+    }).then(function (rows) {
+      if (!ovFresh(seq, 'repl', rows)) return;
+      OV.repl = rows || []; renderActive(); if (BP.open) renderBp();
+    }).catch(function () {});
   }
   function ovReplacedBy(opl, bucket) {
     return (OV.repl || []).filter(function (r) { return r.order_pick_list === opl && r.new_bucket === bucket; })[0];
   }
-  function ovLoadOwners() {
+  function ovLoadOwners(seq) {
     var opls = uniqSorted((OV.orders || []).map(function (o) { return o.opl; }));
     if (!opls.length) return;
     ovApi('frappe.client.get_list', {
@@ -499,6 +579,7 @@
       fields: JSON.stringify(['name', 'owner', 'creation']),
       limit_page_length: 0,
     }).then(function (rows) {
+      if (!ovFresh(seq, 'owners', rows)) return;
       (rows || []).forEach(function (r) { OV.owners[r.name] = { owner: r.owner, creation: r.creation }; });
       renderActive();
       if (BP.open) renderBp();
@@ -510,7 +591,7 @@
   // implicitly via GREATEST(shelved, ...)). Where a real "In transit" Bucket
   // Transfer Event WAS logged, pull the most recent one per OPL — that event's
   // own `farm` is usually blank, so this is keyed by order, not order+farm.
-  function ovLoadTransitInfo() {
+  function ovLoadTransitInfo(seq) {
     var opls = uniqSorted((OV.orders || []).map(function (o) { return o.opl; }));
     if (!opls.length) return;
     ovApi('frappe.client.get_list', {
@@ -520,9 +601,12 @@
       order_by: 'event_time desc',
       limit_page_length: 0,
     }).then(function (rows) {
+      if (!ovFresh(seq, 'transit', rows)) return;
+      var tr = {};
       (rows || []).forEach(function (r) {
-        if (!OV.transit[r.order_pick_list]) OV.transit[r.order_pick_list] = { time: r.event_time, user: r.user };
+        if (!tr[r.order_pick_list]) tr[r.order_pick_list] = { time: r.event_time, user: r.user };
       });
+      OV.transit = tr;
       renderActive();
       ovLoadEmployees();
     }).catch(function () {});
@@ -753,8 +837,7 @@
           if (!oShut) {
             tripsHtml = byOrder[opl].map(function (r) {
               if (!r.trip) return '<div class="tr-trip-row"><span class="ov-sub">no trip yet</span></div>';
-              var t = r.trip, qty = t.buckets ? (t.loaded_buckets ? t.loaded_buckets + ' / ' + t.buckets + ' loaded' : t.buckets + ' planned') : (t.loaded_buckets + ' loaded, not planned');
-              if (t.shelved) qty += ' · ' + t.shelved + ' arrived';
+              var t = r.trip, qty = ovTripQty(t);
               return '<div class="tr-trip-row"><span class="ov-trip-chip">' + esc((t.vehicle || t.trip) + (t.run ? ' · Trip ' + t.run : '')) + ' · ' + esc(t.status) + '</span><span class="ov-sub">' + esc(qty) + '</span></div>';
             }).join('');
           }
@@ -776,6 +859,12 @@
   // A trip's planned buckets per farm (the header's farm chips).
   function ttTripFarms(g) {
     var byFarm = {};
+    var run = (OV.runs || []).filter(function (r) { return r.name === g.trip.trip; })[0] || {};
+    var farms = (run.numbers || {}).farms;
+    if (farms) {
+      Object.keys(farms).forEach(function (f) { byFarm[f || '—'] = Number(farms[f].buckets) || 0; });
+      return byFarm;
+    }
     g.rows.forEach(function (r) {
       var t = r.trip || {};
       byFarm[r.farm || '—'] = (byFarm[r.farm || '—'] || 0) + (Number(t.buckets) || Number(t.loaded_buckets) || 0);
@@ -784,23 +873,40 @@
   }
   function ttTripLoad(g) {
     var run = (OV.runs || []).filter(function (r) { return r.name === g.trip.trip; })[0] || {};
+    var n = run.numbers || {};
     var planned = 0, trolley = 0, loaded = 0, arrived = 0;
     g.rows.forEach(function (r) {
       var t = r.trip || {};
-      planned += Number(t.buckets) || Number(t.loaded_buckets) || 0;
+      planned += Number(t.buckets) || 0;
       trolley += Number(t.trolley) || 0; loaded += Number(t.loaded_buckets) || 0; arrived += Number(t.shelved) || 0;
     });
-    var total = Math.max(Number(run.total_buckets) || 0, planned), cap = Number(run.capacity_buckets) || 0;
+    // Whole trip (trip_numbers: every order on it, whatever day it delivers), then the
+    // orders listed here when the trip carries others too.
+    var total = Number(n.buckets) || 0, cap = Number(n.capacity) || 0;
     var free = cap - total, pct = cap ? Math.round(100 * total / cap) : 0;
     var bar = cap ? '<span class="tt-cap-bar"><span style="width:' + Math.min(100, pct) + '%;background:' + (free < 0 ? '#c4302b' : pct >= 90 ? '#d97706' : '#16a34a') + '"></span></span>' : '';
+    var k = function (lbl, v, extra) { return '<span class="tt-cap-k">' + lbl + ' <b>' + v + '</b>' + (extra || '') + '</span>'; };
+    var same = planned === total && trolley === (Number(n.trolley) || 0) && loaded === (Number(n.on_truck) || 0) && arrived === (Number(n.shelved) || 0);
+    var listed = same ? '' : '<span class="tt-cap-k ov-sub">From ' + esc(ovFmtD(OV.date)) + ': <b>' + planned + '</b> · trolley <b>' + trolley + '</b> · loaded <b>' + loaded + '</b> · arrived <b>' + arrived + '</b></span>';
     return '<div class="tt-cap">' +
-      '<span class="tt-cap-k">Capacity <b>' + (cap || '—') + '</b></span>' + bar +
-      '<span class="tt-cap-k">Buckets <b>' + total + '</b>' + (cap ? ' <span class="ov-sub">(' + pct + '%)</span>' : '') + '</span>' +
+      '<span class="tt-cap-k"><b>Trip</b></span>' +
+      k('Planned', total + ' / ' + (cap || '—')) + bar +
       (cap ? '<span class="tt-cap-k" style="color:' + (free < 0 ? '#c4302b' : 'inherit') + '">' + (free < 0 ? 'Over <b>' + (-free) + '</b>' : 'Free <b>' + free + '</b>') + '</span>' : '') +
-      '<span class="tt-cap-k">Trolley <b>' + trolley + '</b></span>' +
-      '<span class="tt-cap-k">Loaded <b>' + loaded + '</b></span>' +
-      '<span class="tt-cap-k">Arrived <b>' + arrived + '</b></span>' +
+      k('Trolley', Number(n.trolley) || 0) +
+      k('Loaded', (Number(n.on_truck) || 0) + ' / ' + total) +
+      k('In transit', Number(n.transit) || 0) +
+      k('Arrived', Number(n.shelved) || 0) +
+      listed +
     '</div>';
+  }
+  // This order's share of the trip it is listed under: one order can ride several trips.
+  function ttOnTrip(t) {
+    if (!t) return '';
+    var n = Number(t.buckets) || Number(t.loaded_buckets) || 0;
+    if (!n && Number(t.riding)) return '<span class="tt-qty"><span><b>' + Number(t.riding) + '</b> with ' + esc(t.lead_name || 'another order') + '</span></span>';
+    return '<span class="tt-qty"><span><b>' + n + '</b> on this trip</span>' +
+      (Number(t.loaded_buckets) ? '<span><b>' + Number(t.loaded_buckets) + '</b> loaded</span>' : '') +
+      (Number(t.shelved) ? '<span style="color:#16a34a"><b>' + Number(t.shelved) + '</b> arrived</span>' : '') + '</span>';
   }
   // An order's buckets and stems from this farm, and the stems that have arrived.
   function ttOrderQty(o) {
@@ -831,7 +937,7 @@
     });
     return keys.map(function (tkey) {
       var g = byTrip[tkey];
-      var tShut = !TRIPTREE_OPEN['t:' + tkey];
+      var tShut = !ttOpen('t:' + tkey);
       var farmCount = uniqSorted(g.rows.map(function (r) { return r.farm; })).length;
       var orderCount = uniqSorted(g.rows.map(function (r) { return r.opl; })).length;
       var tFarms = g.trip ? ttTripFarms(g) : {};
@@ -843,7 +949,7 @@
       if (!tShut) {
         var byFarm = groupBy(g.rows, 'farm'), farms = Object.keys(byFarm).sort();
         farmsHtml = farms.map(function (farm) {
-          var fkey = tkey + '||' + farm, fShut = !TRIPTREE_OPEN['f:' + fkey];
+          var fkey = tkey + '||' + farm, fShut = !ttOpen('f:' + fkey);
           var frows = byFarm[farm];
           var byOrder = {}, oKeys = [];
           frows.forEach(function (r) { if (!byOrder[r.opl]) { byOrder[r.opl] = r; oKeys.push(r.opl); } });
@@ -855,7 +961,7 @@
           var ordersHtml = '';
           if (!fShut) {
             ordersHtml = oKeys.map(function (opl) {
-              var o = byOrder[opl], okey = fkey + '||' + opl, oShut = !TRIPTREE_OPEN['o:' + okey];
+              var o = byOrder[opl], okey = fkey + '||' + opl, oShut = !ttOpen('o:' + okey);
               var statusHtml = '';
               if (!oShut) {
                 statusHtml = '<div class="tt-status">' +
@@ -864,7 +970,7 @@
                 '</div>';
               }
               return '<div class="tt-order">' +
-                '<div class="tt-order-h" data-tt-toggle="o:' + esc(okey) + '"><span class="ov-caret">' + (oShut ? '▸' : '▾') + '</span><span class="tt-oname"><b>' + esc(o.order_name) + '</b>' + ovTeamTag(o) + '<span class="ov-sub">' + esc(o.customer || '') + '</span></span>' + ttOrderQty(o) + '</div>' +
+                '<div class="tt-order-h" data-tt-toggle="o:' + esc(okey) + '"><span class="ov-caret">' + (oShut ? '▸' : '▾') + '</span><span class="tt-oname"><b>' + esc(o.order_name) + '</b>' + ovTeamTag(o) + '<span class="ov-sub">' + esc(o.customer || '') + '</span></span>' + ttOrderQty(o) + ttOnTrip(o.trip) + '</div>' +
                 statusHtml +
               '</div>';
             }).join('');
@@ -914,7 +1020,7 @@
     return cur;
   }
   function bpOpen(opl, farm, name) {
-    BP.sugg = {}; BP.open = true; BP.multi = false; BP.opl = opl; BP.farm = farm; BP.name = name; BP.loading = true; BP.error = null; BP.buckets = []; BP.on = {};
+    BP.sugg = {}; BP.open = true; BP.multi = false; BP.opl = opl; BP.farm = farm; BP.name = name; BP.loading = true; BP.error = null; BP.warn = null; BP.buckets = []; BP.on = {};
     renderBp();
     ovApi('upande_packhouse.api.bucket_logistics.getBucketLogisticsDetail', { opl: opl, farm: farm || '' }).then(function (d) {
       BP.buckets = ((d && d.buckets) || []).map(function (x) { x._opl = opl; x._order = name; return x; }); BP.loading = false; renderBp(); bpSuggest();
@@ -931,15 +1037,21 @@
       fs.forEach(function (f) { if (f.not_found) parts.push({ opl: o.opl, farm: f.farm || '', name: o.order_name || o.opl }); });
     });
     BP.sugg = {}; BP.open = true; BP.multi = true; BP.opl = null; BP.farm = null; BP.name = 'Not found · ' + parts.length + ' order' + (parts.length === 1 ? '' : 's');
-    BP.loading = true; BP.error = null; BP.buckets = []; BP.on = { not_found: 1 };
+    BP.loading = true; BP.error = null; BP.warn = null; BP.buckets = []; BP.on = { not_found: 1 };
     renderBp();
-    Promise.all(parts.map(function (pt) {
+    var bp = BP.name;
+    // One order failing to load must not blank the others.
+    Promise.allSettled(parts.map(function (pt) {
       return ovApi('upande_packhouse.api.bucket_logistics.getBucketLogisticsDetail', { opl: pt.opl, farm: pt.farm }).then(function (d) {
         return ((d && d.buckets) || []).map(function (x) { x._opl = pt.opl; x._order = pt.name; return x; });
       });
-    })).then(function (lists) {
-      BP.buckets = [].concat.apply([], lists); BP.loading = false; renderBp(); bpSuggest();
-    }).catch(function (e) { BP.loading = false; BP.error = e.message || String(e); renderBp(); });
+    })).then(function (res) {
+      if (!BP.open || !BP.multi || BP.name !== bp) return;
+      var ok = res.filter(function (r) { return r.status === 'fulfilled'; }), bad = res.length - ok.length;
+      BP.buckets = [].concat.apply([], ok.map(function (r) { return r.value; })); BP.loading = false;
+      BP.warn = bad ? (bad + ' of ' + res.length + ' orders did not load') : null;
+      renderBp(); bpSuggest();
+    });
   }
   function bpClose() { BP.open = false; BP.multi = false; trClose(); renderBp(); }
   // ---------- Bucket traceability (from the bucket id): harvest → allocation → transfer ----------
@@ -1162,6 +1274,7 @@
     if (!BP.open) { panel.innerHTML = ''; return; }
     var head = '<div class="bp-head"><div><div class="bp-title">Bucket status</div><div class="ov-sub">' + esc(BP.name || BP.opl || '') + (BP.farm ? ' · ' + esc(BP.farm) : '') + '</div></div><button class="bp-close" id="bp-close-btn">✕</button></div>';
     var body;
+    if (BP.warn && !BP.loading) head += '<div class="tm-empty" style="padding:8px 0;color:#b42318;">' + esc(BP.warn) + '</div>';
     if (BP.loading) body = '<div class="tm-loading">Loading…</div>';
     else if (BP.error) body = '<div class="tm-empty">Failed: ' + esc(BP.error) + '</div>';
     else if (!BP.buckets.length) body = '<div class="tm-empty">No transferring buckets.</div>';
@@ -1340,16 +1453,28 @@
   function ttTripAllOpen(tkey) {
     return !!TRIPTREE_OPEN['t:' + tkey] && ttTripKeys(tkey).some(function (k) { return k.indexOf('o:') === 0; });
   }
+  // Opening a whole trip (or every trip, '*'): the tree is drawn once off-screen with
+  // that part forced open, its toggles become the open set, then the page renders once.
+  var TT_FORCE = null;
+  function ttForced(k) {
+    if (TT_FORCE === null) return false;
+    var r = k.slice(2);
+    return TT_FORCE === '*' || r === TT_FORCE || r.indexOf(TT_FORCE + '||') === 0;
+  }
+  function ttOpen(k) { return ttForced(k) || !!TRIPTREE_OPEN[k]; }
+  function ttOpenKeys(force) {
+    var html;
+    TT_FORCE = force;
+    try { html = renderTripTree(buildCombos(OV.orders)); } finally { TT_FORCE = null; }
+    var t = document.createElement('template'); t.innerHTML = html;
+    TT_FORCE = force;
+    var keys = [].map.call(t.content.querySelectorAll('[data-tt-toggle]'), function (h) { return h.getAttribute('data-tt-toggle'); }).filter(ttForced);
+    TT_FORCE = null;
+    return keys;
+  }
   function ttSetTrip(tkey) {
     if (ttTripAllOpen(tkey)) { ttTripKeys(tkey).forEach(function (k) { delete TRIPTREE_OPEN[k]; }); renderActive(); return; }
-    TRIPTREE_OPEN['t:' + tkey] = 1;
-    for (var i = 0; i < 2; i++) {
-      renderActive();
-      document.querySelectorAll('#tm-root [data-tt-toggle]').forEach(function (h) {
-        var k = h.getAttribute('data-tt-toggle');
-        if (k.indexOf('f:' + tkey + '||') === 0 || k.indexOf('o:' + tkey + '||') === 0) TRIPTREE_OPEN[k] = 1;
-      });
-    }
+    ttOpenKeys(tkey).forEach(function (k) { TRIPTREE_OPEN[k] = 1; });
     renderActive();
   }
   function ttAnyOpen() {
@@ -1358,11 +1483,7 @@
   }
   function ttSetAll(shut) {
     TRIPTREE_OPEN = {};
-    // Open level by level (trips, then farms, then orders): each render shows the next.
-    for (var i = 0; !shut && i < 3; i++) {
-      renderActive();
-      document.querySelectorAll('#tm-root [data-tt-toggle]').forEach(function (h) { TRIPTREE_OPEN[h.getAttribute('data-tt-toggle')] = 1; });
-    }
+    if (!shut) ttOpenKeys('*').forEach(function (k) { TRIPTREE_OPEN[k] = 1; });
     renderActive();
   }
   function renderActive() {

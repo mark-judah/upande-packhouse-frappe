@@ -95,16 +95,19 @@ html,body{overflow:clip!important}
     for(var k in PATHS) if(PATHS[k]===p) return k;
     return 'logistics';
   }
+  // The date goes with the day it was set (on=): an address reopened on a later day
+  // starts from tomorrow's deliveries again (remote_transfers_tabs.html).
+  function today(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
   function withDate(path, extra){
     var q=new URLSearchParams(extra||'');
-    q.delete('embed'); q.set('date', window.rtDate.get());
+    q.delete('embed'); q.set('date', window.rtDate.get()); q.set('on', today());
     return path+'?'+q.toString();
   }
   function open(tab){
     var g=GROUPS[tab], f=document.createElement('iframe');
     // The first frame keeps the page's whole query (deep links: ?q=, ?variety=, ?tab=).
     var q=new URLSearchParams(first?location.search:''); first=false;
-    q.set('embed','1'); q.set('date', window.rtDate.get());
+    q.set('embed','1'); q.set('date', window.rtDate.get()); q.set('on', today());
     f.src=PATHS[tab]+'?'+q.toString();
     f.title='Remote Transfers — '+tab;
     loaded[g]=false;

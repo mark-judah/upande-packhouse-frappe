@@ -42,6 +42,8 @@ from upande_packhouse.api.remote_transfer.transfer_scheduling import (
 	_schedule_map,
 	_trip_dict,
 	transfer_hub,
+	trip_numbers,
+	trip_order_numbers,
 )
 from upande_packhouse.api.v2.core import region as region_core
 
@@ -305,6 +307,8 @@ def get_logistics(from_date=None, to_date=None, region=None, farm=None, team=Non
 		):
 			arrivals[a["opl"]] = a["arrival"]
 
+	# Each trip's numbers as every surface shows them (trip_numbers).
+	numbers = trip_numbers({tr["trip"] for ts in trips.values() for tr in ts})
 	for o in orders:
 		sc = sched.get(o["opl"]) or {}
 		o["team"] = sc.get("team") or o["opl_team"] or ""
@@ -317,7 +321,13 @@ def get_logistics(from_date=None, to_date=None, region=None, farm=None, team=Non
 			b["arrived_hub"] = at_hub.get((o["opl"], b["farm"]), 0) + b["shelved"]
 		o["arrived_hub"] = sum(b["arrived_hub"] for b in o["by_farm"])
 		for tr in o["trips"]:
-			tr["shelved"] = next((b["flag_shelved"] for b in o["by_farm"] if b["farm"] == tr["farm"]), 0)
+			p = trip_order_numbers(numbers.get(tr["trip"])).get((o["opl"], tr["farm"])) or {}
+			tr["buckets"] = int(p.get("buckets") or 0)
+			tr["planned"] = int(p.get("planned") or 0)
+			tr["loaded_buckets"] = int(p.get("on_truck") or 0)
+			tr["trolley"] = int(p.get("trolley") or 0)
+			tr["shelved"] = int(p.get("shelved") or 0)
+			tr["riding"] = int(p.get("riding") or 0)
 		a = arrivals.get(o["opl"])
 		o["arrived"] = str(a) if a else ""
 		o["_arrived"] = a
@@ -395,10 +405,18 @@ def get_logistics(from_date=None, to_date=None, region=None, farm=None, team=Non
 		"name vehicle trip_date status loading stale run runs run_chain window total_buckets loaded_buckets"
 		" tracked_buckets shelved_buckets departed_stops heading_to dispatched_at received_at"
 	).split()
+	numbers.update(trip_numbers(run_trips - set(numbers)))
 	runs = []
 	for name in run_trips:
-		td = _trip_dict(frappe.get_doc("Bucket Request Trip", name), today())
-		runs.append({x: td[x] for x in keep})
+		td = _trip_dict(frappe.get_doc("Bucket Request Trip", name), today(), numbers.get(name) or {})
+		run = {x: td[x] for x in keep}
+		# The trip's own numbers (trip_numbers), as the other pages and the apps show them.
+		n = numbers.get(name) or {}
+		run["total_buckets"] = n.get("buckets") or 0
+		run["loaded_buckets"] = n.get("on_truck") or 0
+		run["shelved_buckets"] = n.get("shelved") or 0
+		run["capacity_buckets"] = n.get("capacity") or 0
+		runs.append(run)
 	runs.sort(key=lambda x: (x["vehicle"] or "", x["trip_date"], x["run"] or 99, x["name"]))
 
 	note = ""

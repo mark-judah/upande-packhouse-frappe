@@ -273,6 +273,10 @@ def _load_on_truck(pli_name, truck):
 	Bucket Requests app's own endpoint (setOfflineTrolleyFlags): sibling rows,
 	transit_truck, its farm shelf cleared, the trip's load recorded, the transfer log
 	and the OPL's version history -- exactly as if the farm had loaded it."""
+	if not truck:
+		# Refused before anything is flagged: a "loaded" call with no truck would leave
+		# the bucket on a trolley (its farm shelf cleared) that no truck takes.
+		return _("No truck is planned for it yet: plan it on a trip first.")
 	try:
 		from upande_quality.mobile import api as quality_api
 	except ImportError:
@@ -296,13 +300,22 @@ def _load_on_truck(pli_name, truck):
 		if message.get("status") != "success":
 			return message.get("message") or _("Could not load it on the truck.")
 		if message.get("conflicts"):
-			c = message["conflicts"][0]
-			return (
-				_("It is already on {0}.").format(c.get("truck"))
-				if c.get("reason") == "on_truck"
-				else _("It has already arrived at the packhouse.")
-			)
+			return _conflict_message(message["conflicts"][0])
 	return None
+
+
+def _conflict_message(c):
+	"""Why setOfflineTrolleyFlags refused the row, in the issuer's words."""
+	reason = c.get("reason")
+	if reason == "on_truck":
+		return _("It is already on {0}.").format(c.get("truck"))
+	if reason == "already_arrived":
+		return _("It has already arrived at the packhouse.")
+	if reason == "not_loaded":
+		return _("It is not on the truck yet: load it first.")
+	if reason == "trip_left":
+		return _("Its trip ({0}) has already left the farm.").format(c.get("truck") or "")
+	return c.get("message") or _("Could not load it on the truck.")
 
 
 def _send_in_transit(bucket, opl_name):

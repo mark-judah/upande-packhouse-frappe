@@ -68,9 +68,38 @@
 /* Narrower desktops: the pickers read without their labels ("Date", "Farm", …) and the
    bar's side padding is trimmed, so the row still fits. */
 @media (min-width:1200px) and (max-width:1799px){
-  .aph .aph-main .aph-topbar{padding-left:20px!important;padding-right:20px!important}
+  .aph .aph-main .aph-topbar{padding-left:16px!important;padding-right:16px!important;column-gap:8px!important}
   .aph .rt-date,.aph .rt-farm{font-size:0;gap:0}
-  .aph .rt-tabs a{padding:6px 10px}
+  .aph .rt-tabs a{padding:6px 9px}
+  .aph .rt-dd-btn{min-width:0;max-width:170px}
+  .aph .rt-dd-btn .v{overflow:hidden;text-overflow:ellipsis}
+}
+/* Below 1440px the filter pickers beside Date (Scheduler, Transfer Scheduling) no
+   longer fit next to the tabs: they take a second row; Refresh stays top right. */
+@media (min-width:1200px) and (max-width:1439px){
+  .aph .aph-main .aph-topbar:has(.rt-location:not([hidden])){flex-wrap:wrap!important}
+  .aph .aph-topbar:has(.rt-location:not([hidden]))::after{content:'';order:100;flex:0 0 100%;height:0;margin-top:-8px}
+  .aph .aph-topbar:has(.rt-location:not([hidden]))>.rt-refresh{margin-left:auto}
+  .aph .aph-topbar:has(.rt-location:not([hidden]))>.rt-farm{order:101}
+  .aph .aph-topbar:has(.rt-location:not([hidden]))>.rt-farm:not(.rt-location):not(.rt-team){margin-left:0}
+}
+/* Phone: title and Refresh on the first row, the section tabs scroll sideways on the
+   second, the date and filters share the third. */
+@media (max-width:699px){
+  .aph .aph-main .aph-topbar{column-gap:8px!important;row-gap:8px!important}
+  .aph .aph-topbar>h1{order:0;flex:1 1 auto;min-width:0;font-size:16px}
+  .aph .aph-topbar>.rt-refresh{order:1;margin-left:0}
+  .aph .aph-topbar>.right:empty{display:none}
+  .aph .rt-tabs{order:2;flex:1 1 100%;min-width:0;max-width:100%;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .aph .rt-tabs::-webkit-scrollbar{display:none}
+  .aph .rt-tabs a{flex:none;padding:6px 11px}
+  .aph .rt-date,.aph .rt-farm{order:3;flex:1 1 0;min-width:0;margin-left:0;font-size:0;gap:0}
+  .aph .rt-date > *,.aph .rt-farm .rt-dd{flex:1 1 auto;min-width:0;width:100%}
+  .aph .rt-date .fdp-host{display:block}
+  .aph .rt-date .fdp-host .frappe-control{max-width:none}
+  .aph .rt-date input,.aph .rt-date .fdp-host input.form-control{width:100%;min-width:0}
+  .aph .rt-dd-btn{min-width:0;width:100%;padding:0 8px}
+  .aph .rt-dd-btn .v{overflow:hidden;text-overflow:ellipsis}
 }
 @media (prefers-reduced-motion:reduce){.aph .rt-refresh.spin svg{animation:none}}
 </style>
@@ -120,10 +149,26 @@
     function shift(s, n){ var p = String(s || '').split('-').map(Number); if (p.length !== 3 || !p[0]) return ''; return iso(new Date(p[0], p[1]-1, p[2]+n)); }
     var t = new Date(); t.setDate(t.getDate()+1);
     var v = iso(t);
-    try { v = new URLSearchParams(location.search).get('date') || sessionStorage.getItem(KEY) || v; } catch (e) {}
+    // Opens on tomorrow's deliveries (the picker shows today, the working day): a date
+    // picked earlier is kept while moving between tabs, but only on the day it was
+    // picked -- the next day starts from tomorrow's deliveries again.
+    // The address keeps the date with the day it was set (?date=…&on=…): a page left open
+    // overnight or reopened from history starts on today; a shared link without `on` is kept.
+    var today = iso(new Date()), fromUrl = '', kept = null;
+    try {
+      var q = new URLSearchParams(location.search);
+      if (q.get('date') && (!q.get('on') || q.get('on') === today)) fromUrl = q.get('date');
+    } catch (e) {}
+    try { kept = JSON.parse(sessionStorage.getItem(KEY) || 'null'); } catch (e) { kept = null; }
+    v = fromUrl || (kept && kept.on === today ? kept.v : '') || v;
     function persist(){
-      try { sessionStorage.setItem(KEY, v); } catch (e) {}
-      try { var u = new URL(location.href); if (u.searchParams.get('date') !== v) { u.searchParams.set('date', v); history.replaceState(null, '', u.toString()); } } catch (e) {}
+      try { sessionStorage.setItem(KEY, JSON.stringify({ v: v, on: today })); } catch (e) {}
+      try {
+        var u = new URL(location.href);
+        if (u.searchParams.get('date') !== v || u.searchParams.get('on') !== today) {
+          u.searchParams.set('date', v); u.searchParams.set('on', today); history.replaceState(null, '', u.toString());
+        }
+      } catch (e) {}
     }
     window.rtDate = {
       get: function(){ return v; },

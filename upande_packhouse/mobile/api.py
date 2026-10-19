@@ -4177,7 +4177,12 @@ def getTransferScheduleData():
 	from_date = fd.get("from_date") or frappe.utils.add_days(frappe.utils.today(), 1)
 	to_date = fd.get("to_date") or from_date
 	# trip_date: the app's day filter -- that day's trips too, e.g. an earlier day's.
-	data = _transfer_schedule_payload(from_date, to_date, trip_date=fd.get("trip_date") or None)
+	data = _transfer_schedule_payload(
+		from_date,
+		to_date,
+		trip_date=fd.get("trip_date") or None,
+		route_date=fd.get("route_date") or None,
+	)
 	_trip_bucket_stages(data.get("trips") or [])
 	for key in (
 		"orders",
@@ -4196,47 +4201,39 @@ def getTransferScheduleData():
 
 
 def _trip_bucket_stages(trips):
-	"""Each trip line's buckets by stage -- awaiting at the farm, loaded on a trolley,
-	in transit, shelved at the packhouse -- one count per physical bucket."""
-	opls = {line.get("order_pick_list") for t in trips for line in t.get("orders") or []} - {None, ""}
-	stages = {}
-	seen = set()
-	if opls:
-		for row in frappe.get_all(
-			"Pick List Item",
-			filters={"parent": ["in", list(opls)], "parenttype": "Order Pick List", "bucket": ["!=", ""]},
-			fields=[
-				"parent",
-				"bucket",
-				"farm",
-				"source_warehouse",
-				"awaiting_transfer",
-				"loaded_in_trolley",
-				"in_transit",
-				"shelved",
-			],
-			limit_page_length=0,
-		):
-			if (row.parent, (row.bucket or "").lower()) in seen:
-				continue
-			seen.add((row.parent, (row.bucket or "").lower()))
-			st = stages.setdefault(
-				(row.parent, _row_farm(row)), {"awaiting": 0, "loaded": 0, "in_transit": 0, "shelved": 0}
-			)
-			if int(row.shelved or 0):
-				st["shelved"] += 1
-			elif int(row.in_transit or 0):
-				st["in_transit"] += 1
-			elif int(row.loaded_in_trolley or 0):
-				st["loaded"] += 1
-			elif int(row.awaiting_transfer or 0):
-				st["awaiting"] += 1
+	"""The app shows each trip's numbers as the dashboard and the farm app do
+	(transfer_scheduling.trip_numbers, on every trip as `numbers`): the trip's
+	planned / loaded / arrived totals, and each order line's buckets on THIS trip by
+	stage -- awaiting at the farm, loaded (on a trolley or the truck there), in transit,
+	shelved at the packhouse. A line no longer counted on the trip (its pick list was
+	deleted, or it is past delivery with nothing loaded) is left out."""
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import trip_order_numbers
+
 	for t in trips:
+		n = t.get("numbers") or {}
+		if not n:
+			continue
+		t["total_buckets"] = n.get("buckets") or 0
+		t["loaded_buckets"] = n.get("on_truck") or 0
+		t["shelved_buckets"] = n.get("shelved") or 0
+		by = trip_order_numbers(n)
+		lines, seen = [], set()
 		for line in t.get("orders") or []:
-			line.update(
-				stages.get((line.get("order_pick_list"), line.get("farm") or ""))
-				or {"awaiting": 0, "loaded": 0, "in_transit": 0, "shelved": 0}
-			)
+			key = (line.get("order_pick_list"), line.get("farm") or "")
+			p = by.get(key)
+			if not p or not p["counts"]:
+				continue
+			# The order's buckets on this trip, once (a second plan row of it adds none).
+			line["buckets"] = 0 if key in seen else p["buckets"]
+			seen.add(key)
+			line["awaiting"] = p["awaiting"]
+			line["loaded"] = p["trolley"] + p["loaded"]
+			line["trolley"] = p["trolley"]
+			line["in_transit"] = p["transit"]
+			line["shelved"] = p["shelved"]
+			line["riding"] = p["riding"]
+			lines.append(line)
+		t["orders"] = lines
 
 
 @frappe.whitelist()
