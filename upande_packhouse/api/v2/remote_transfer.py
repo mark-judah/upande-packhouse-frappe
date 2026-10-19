@@ -135,7 +135,14 @@ def _stage_split(r):
 
 
 @frappe.whitelist()
-def get_logistics(from_date=None, to_date=None, region=None, farm=None, team=None, q=None):
+def get_logistics(
+	from_date: str | None = None,
+	to_date: str | None = None,
+	region: str | None = None,
+	farm: str | None = None,
+	team: str | None = None,
+	q: str | None = None,
+):
 	"""Bucket Logistics: every order with buckets being transferred for a delivery-date
 	range, per origin farm. KPIs are computed here over exactly the rows returned."""
 	f, t = _dates(from_date, to_date)
