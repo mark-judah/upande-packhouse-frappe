@@ -1127,11 +1127,12 @@ def auto_receive_trucks_for_bucket(bucket_id):
 		since = doc.dispatched_at or doc.trip_date
 		if doc.get("trip_buckets"):
 			# A bucket that took over another's truck flag on arrival (_take_over_truck)
-			# was never recorded on the trip: add it as it is shelved.
+			# was never recorded on the trip: add it as it is shelved, under the farm it
+			# came from (FARM_EXPR reads a shelved row's hub warehouse).
 			arrived = frappe.db.sql(
-				"""SELECT pli.parent AS opl, pli.bucket AS bucket, """
-				+ FARM_EXPR
-				+ """ AS farm FROM `tabPick List Item` pli
+				"""SELECT pli.parent AS opl, pli.bucket AS bucket, COALESCE(NULLIF(pli.farm, ''), """
+				+ _WH_FARM
+				+ """) AS farm FROM `tabPick List Item` pli
 				WHERE pli.parenttype = 'Order Pick List' AND pli.bucket = %s
 				  AND pli.transit_truck = %s AND pli.shelved = 1 AND pli.modified >= DATE(%s)""",
 				(bucket_id, truck, since),
@@ -1150,6 +1151,8 @@ def auto_receive_trucks_for_bucket(bucket_id):
 					"since": frappe.utils.add_days(frappe.utils.today(), -TRIP_LOOKBACK_DAYS),
 				},
 			)
+			# A packhouse bucket never rode the truck, whatever its stale truck flag says.
+			arrived = [r for r in arrived if r.farm and r.farm != transfer_hub(required=False)]
 			if not elsewhere:
 				_add_trip_buckets(doc, arrived, stamp=False)
 			if _end_trip_if_shelved(doc):
@@ -2227,17 +2230,19 @@ def _advance_stops(doc, hold=True):
 	dispatched to the packhouse. Stops are left in route order only (a later farm
 	loading early doesn't skip an earlier one). Returns the farms left by this call.
 
-	hold: a trip whose last stop is loaded but whose truck still has room, while more
-	scheduled buckets wait at that farm for no other trip, is not dispatched: those
-	buckets are planned onto it and it keeps loading there (_hold_for_waiting). The
-	farm's "Truck leaving" (closeTripStop) and the Dispatch button still send a short
-	trip; they pass hold=False or don't come here."""
+	hold (a load): the truck moves on only once it is full; until then the farm sends
+	it ("Truck leaving" / "Send to packhouse": closeTripStop, hold=False) or Dispatch
+	does."""
 	if doc.status not in ACTIVE_TRIP_STATUSES:
 		return []
 	stops = _trip_stops(doc)
 	if not stops:
 		return []
 	departed = [f for f in (doc.get("departed_stops") or "").split(",") if f]
+	# A load never sends the truck on by itself unless the truck is full: the farm
+	# sends it ("Truck leaving" / "Send to packhouse"), or Dispatch does.
+	if hold and not _truck_full(doc):
+		return []
 	newly = []
 	for f in stops:
 		if f in departed:
@@ -3104,6 +3109,12 @@ def _record_loads(doc, truck, entries):
 	doc.loaded_buckets = _trip_loaded_count(doc)
 	_advance_stops(doc)
 	doc.save(ignore_permissions=True)
+
+
+def _truck_full(doc):
+	"""Every place on the trip's truck is taken (False when its capacity is unknown)."""
+	cap = _trip_capacity(doc)
+	return bool(cap) and _trip_loaded_count(doc) >= cap
 
 
 def _trip_capacity(doc):
@@ -5110,6 +5121,18 @@ def closeTripStop():
 	rows = [o for o in doc.orders if (o.farm or "") == farm]
 	planned = sum(int(o.buckets or 0) for o in rows)
 	loaded = sum(int(o.loaded_buckets or 0) for o in rows)
+	# complete: the farm app's send button -- only once every bucket planned here is on.
+	if cint(fd.get("complete")) and not _stop_complete(doc, farm):
+		frappe.response["message"] = {
+			"status": "error",
+			"reason": "incomplete",
+			"loaded": loaded,
+			"planned": planned,
+			"message": "{0} of {1} buckets are on {2} — load the rest or mark them not found.".format(
+				loaded, planned, doc.vehicle
+			),
+		}
+		return
 	if reason:
 		for o in rows:
 			if int(o.loaded_buckets or 0) < int(o.buckets or 0):
