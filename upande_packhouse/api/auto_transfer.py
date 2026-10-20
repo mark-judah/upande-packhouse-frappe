@@ -151,6 +151,7 @@ def _add_runs_for_waiting(window=None):
 	if not routed:
 		return []
 	holders = tc.farm_holders(today)
+	collected = _farms_collected(today)
 	added = []
 	for farm in sorted(waiting):
 		# A new run only once every open trip to the farm is full (planned, requested or
@@ -159,6 +160,9 @@ def _add_runs_for_waiting(window=None):
 		if any(n > 0 for v in routed for _r, n in tc._open_run_room(v["name"], today, farm)):
 			continue
 		for pick in _run_candidates(routed, farm, holders):
+			# A truck already collected here today: another run only for a full load.
+			if farm in collected and waiting[farm] < int(pick.get("capacity_buckets") or 0):
+				continue
 			frappe.db.savepoint("add_farm_run")
 			res = truck_routes.add_farm_run(pick["name"], farm, today, enforce_room=True, while_on_road=True)
 			if res.get("status") == "success":
@@ -170,6 +174,20 @@ def _add_runs_for_waiting(window=None):
 			if res.get("reason") == "has_room":
 				break  # a trip to the farm still has room: plan() fills it first
 	return added
+
+
+def _farms_collected(date):
+	"""The farms a truck has already left today: its trip was dispatched (or has ended),
+	or the farm is one of the trip's departed stops."""
+	return set(
+		frappe.db.sql_list(
+			"""SELECT DISTINCT o.farm FROM `tabBucket Request Trip` t
+			JOIN `tabBucket Request Trip Order` o ON o.parent = t.name AND o.parenttype = 'Bucket Request Trip'
+			WHERE t.trip_date = %(d)s AND IFNULL(o.farm, '') != ''
+			  AND (t.status IN ('Dispatched', 'Received') OR FIND_IN_SET(o.farm, IFNULL(t.departed_stops, '')))""",
+			{"d": str(date)},
+		)
+	)
 
 
 #: MariaDB ER_SP_DOES_NOT_EXIST: "SAVEPOINT ... does not exist".
