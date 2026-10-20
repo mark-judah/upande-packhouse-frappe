@@ -5783,7 +5783,13 @@ def auto_arrive_for_bucket(bucket):
 			if not doc.get("arrived_at"):
 				_mark_arrived(doc, hub, "first bucket ({0}) shelved there".format(bucket))
 				doc.reload()
-			if _end_trip_if_shelved(doc):
+			try:
+				ended = _end_trip_if_shelved(doc)
+			except frappe.TimestampMismatchError:
+				# Another scan saved the trip a moment ago: tick it off on the fresh copy.
+				doc.reload()
+				ended = _end_trip_if_shelved(doc)
+			if ended:
 				carry_over_to_next_run(name)
 				doc.add_comment("Info", "Trip completed at {0}: every bucket shelved".format(hub))
 	except Exception:
