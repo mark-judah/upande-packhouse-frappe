@@ -670,7 +670,8 @@
           var k = fl[0]; base[k] = f[k] != null ? f[k] : o[k];
         });
         if (trips.length) trips.forEach(function (t) { combos.push(Object.assign({}, base, { trip: t })); });
-        else combos.push(Object.assign({}, base, { trip: null }));
+        // Every bucket of it here marked not found: nothing left for a trip to carry.
+        else if (!(base.total > 0 && (base.not_found || 0) >= base.total)) combos.push(Object.assign({}, base, { trip: null }));
       });
     });
     return combos;
