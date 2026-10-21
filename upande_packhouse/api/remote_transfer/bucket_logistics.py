@@ -12,6 +12,7 @@ from upande_packhouse.api.remote_transfer.transfer_scheduling import (
 	TRIP_LOOKBACK_DAYS,
 	_schedule_map,
 	_trip_dict,
+	shared_buckets,
 	trip_bucket_shares,
 	trip_numbers,
 	trip_order_numbers,
@@ -616,6 +617,17 @@ def _riding_trips(shares, opls):
 					"",
 				)
 				found.setdefault(trip, []).append((opl, farm, lead))
+	# An order whose only buckets here ride with another order (shared buckets) has no
+	# row of its own on that trip: it rides there with the lead that carries them.
+	groups = shared_buckets({b for by in shares.values() for x in by.values() for b in x["buckets"]})
+	for trip, by in shares.items():
+		for (lead, farm), x in by.items():
+			for b in x["buckets"]:
+				for opl in (groups.get((b, farm)) or {}).get("opls") or []:
+					if opl in opls and opl != lead and (opl, farm) not in by:
+						entry = (opl, farm, lead)
+						if entry not in found.get(trip, []):
+							found.setdefault(trip, []).append(entry)
 	if not found:
 		return {}
 	meta = {
