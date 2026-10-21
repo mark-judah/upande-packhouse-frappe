@@ -246,13 +246,18 @@ def replan_soon(doc=None, method=None):
 	cache = frappe.cache()
 	if cache.get(cache.make_key(LOCK_KEY)):
 		cache.set(cache.make_key(RERUN_KEY), 1, ex=600)
-	frappe.enqueue(
-		"upande_packhouse.api.auto_transfer.plan",
-		queue="short",
-		job_id="upande_packhouse:auto_transfer:replan",
-		deduplicate=True,
-		enqueue_after_commit=True,
-	)
+	# A hint only (the 5-minute run plans it anyway): a queue hiccup -- rq's KeyError
+	# b'created_at' on a stale job record -- must never fail the pick list's save.
+	try:
+		frappe.enqueue(
+			"upande_packhouse.api.auto_transfer.plan",
+			queue="short",
+			job_id="upande_packhouse:auto_transfer:replan",
+			deduplicate=True,
+			enqueue_after_commit=True,
+		)
+	except Exception:
+		frappe.log_error("Automatic re-plan not queued", frappe.get_traceback())
 
 
 def order_pick_list_changed(doc, method=None):
@@ -376,8 +381,13 @@ def _plan(window=None):
 		return summary
 
 	summary["trips"], summary["failed"] = _save_plan(loads, today, window, hub, graph)
-	# Each re-plan that changed the trips is its own entry on the page's Distributed list.
-	tc.log_distribution(window, [{**x, "trip": x["name"]} for x in summary["trips"]], source="Automatic")
+	# Each re-plan that changed the trips is its own entry on the page's Distributed list:
+	# a record only -- a lock on its naming series (a Distribute running) never undoes the plan.
+	frappe.db.savepoint("auto_plan_log")
+	try:
+		tc.log_distribution(window, [{**x, "trip": x["name"]} for x in summary["trips"]], source="Automatic")
+	except frappe.QueryTimeoutError:
+		_undo_to_savepoint("auto_plan_log")
 	summary["dispatched"] = tc.dispatch_full_trips([x["name"] for x in summary["trips"]])
 	if summary["dispatched"]:
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
