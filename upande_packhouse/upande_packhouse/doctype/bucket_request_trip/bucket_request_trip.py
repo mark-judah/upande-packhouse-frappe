@@ -11,11 +11,83 @@ class BucketRequestTrip(Document):
 	# runs at the start of save/insert.
 	def save(self, *args, **kwargs):
 		self.drop_deleted_orders()
+		self.sync_riding_orders()
 		return super().save(*args, **kwargs)
 
 	def insert(self, *args, **kwargs):
 		self.drop_deleted_orders()
+		self.sync_riding_orders()
 		return super().insert(*args, **kwargs)
+
+	def sync_riding_orders(self):
+		"""Every order a bucket on this trip is shared with is on the trip too: a bucket
+		several orders take stems from is planned once, under its lead order, and the
+		others ride with it. Each rider gets a row of its own (0 buckets, nothing counted)
+		so every screen and the farm app see the order on this trip -- they all read the
+		trip's order rows."""
+		from upande_packhouse.api import transfer_control as tc
+
+		if self.status not in tc.ACTIVE_TRIP_STATUSES + ("Dispatched",):
+			return
+		hub = tc.transfer_hub(required=False)
+		planned = {
+			(o.order_pick_list, o.farm or "")
+			for o in self.get("orders") or []
+			if o.order_pick_list and o.farm and o.farm != hub and int(o.buckets or 0) > 0
+		}
+		riders = {}
+		if planned:
+			buckets = frappe.db.sql_list(
+				"""SELECT DISTINCT UPPER(pli.bucket) FROM `tabPick List Item` pli
+				WHERE pli.parenttype = 'Order Pick List' AND pli.parent IN %(o)s
+				  AND IFNULL(pli.bucket, '') != '' AND IFNULL(pli.shelved, 0) = 0
+				  AND (pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1 OR pli.in_transit = 1)""",
+				{"o": tuple({k[0] for k in planned})},
+			)
+			for (_bucket, farm), g in tc.shared_buckets(buckets).items():
+				if (g["lead"], farm) not in planned:
+					continue
+				for opl in g["opls"]:
+					if opl != g["lead"]:
+						riders.setdefault((opl, farm), g["lead"])
+		have = {(o.order_pick_list, o.farm or "") for o in self.get("orders") or []}
+		new = [k for k in riders if k not in have]
+		if not new:
+			return
+		opls = {
+			r.name: r
+			for r in frappe.get_all(
+				"Order Pick List",
+				filters={"name": ["in", list({k[0] for k in new})]},
+				fields=["name", "order_name", "sales_order"],
+			)
+		}
+		sos = [r.sales_order for r in opls.values() if r.sales_order]
+		customers = (
+			dict(
+				frappe.get_all(
+					"Sales Order", filters={"name": ["in", sos]}, fields=["name", "customer"], as_list=True
+				)
+			)
+			if sos
+			else {}
+		)
+		for opl, farm in new:
+			m = opls.get(opl)
+			if m:
+				self.append(
+					"orders",
+					{
+						"order_pick_list": opl,
+						"order_name": m.order_name or opl,
+						"customer": customers.get(m.sales_order) or "",
+						"farm": farm,
+						"buckets": 0,
+						"stems": 0,
+						"loaded_buckets": 0,
+						"loaded_stems": 0,
+					},
+				)
 
 	def validate(self):
 		self.validate_no_double_booking()

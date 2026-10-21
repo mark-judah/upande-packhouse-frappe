@@ -767,7 +767,7 @@
       var g = byTrip[k];
       var head = g.trip
         ? (esc((g.trip.vehicle || g.trip.trip) + (g.trip.run ? ' · Trip ' + g.trip.run : '')) + '<div class="bd-sub">' + esc(g.farm) + ' · ' + esc(g.trip.status) + '</div>')
-        : ('<i>Not Scheduled</i><div class="bd-sub">' + esc(g.farm) + '</div>');
+        : ('<i>No trip</i><div class="bd-sub">' + esc(g.farm) + '</div>');
       var cards = g.rows.map(function (r) {
         return '<div class="bd-card"><b>' + esc(r.order_name) + '</b>' + ovTeamTag(r) + '<div class="ov-sub">' + esc(r.customer || '') + '</div><div class="bd-pills">' + ovStagePills(r) + '</div></div>';
       }).join('');
@@ -944,7 +944,7 @@
       var farmsChips = '<span class="tt-trip-farms">' + Object.keys(tFarms).sort().map(function (f) { return '<span class="tt-trip-farm">' + esc(f) + ' <b>' + tFarms[f] + '</b></span>'; }).join('') + '</span>';
       var tLabel = g.trip
         ? (esc((g.trip.vehicle || g.trip.trip) + (g.trip.run ? ' · Trip ' + g.trip.run : '')) + ' <span class="ov-sub">· ' + esc(g.trip.status) + (g.trip.trip_date ? ' · ' + esc(g.trip.trip_date) : '') + '</span>')
-        : '<i>Not Scheduled</i>';
+        : '<i>No trip</i>';
       var farmsHtml = '';
       if (!tShut) {
         var byFarm = groupBy(g.rows, 'farm'), farms = Object.keys(byFarm).sort();
