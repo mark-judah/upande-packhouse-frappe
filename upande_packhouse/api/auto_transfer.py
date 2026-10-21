@@ -79,7 +79,30 @@ def run():
 		if elapsed + TICK_SLACK_SECONDS < frequency_minutes() * 60:
 			return
 	_auto_schedule()
-	plan()
+	summary = plan()
+	if summary.get("status") == "success":
+		_plan_waiting(summary)
+
+
+def _plan_waiting(summary, window=None):
+	"""Buckets no open trip has room for get a trip: a new run to their farm on a truck's
+	route (after its last one, also while it is out), then the orders are planned again
+	-- so a truck that left a farm short, or orders allocated after it left, never leave
+	buckets on no trip. Returns the runs added."""
+	added = []
+	for _ in range(3):
+		new = _add_runs_for_waiting(window)
+		if not new:
+			break
+		added += new
+		again = plan(window=window)
+		summary.clear()
+		summary.update(again)
+		if summary.get("status") != "success":
+			break
+	if added:
+		summary["runs_added"] = added
+	return added
 
 
 def _auto_schedule():
@@ -107,17 +130,7 @@ def distributeTrips(date: str | None = None):
 	# committed route changes the page then reported as a failure.
 	if summary.get("status") != "success":
 		return summary
-	added = []
-	for _ in range(3):
-		new = _add_runs_for_waiting(date or None)
-		if not new:
-			break
-		added += new
-		summary = plan(window=date or None)
-		if summary.get("status") != "success":
-			break
-	if added:
-		summary["runs_added"] = added
+	_plan_waiting(summary, date or None)
 	return summary
 
 
@@ -133,9 +146,14 @@ def _add_runs_for_waiting(window=None):
 	covered = {}
 	for t in data["trips"]:
 		if t["status"] in tc.ACTIVE_TRIP_STATUSES + ("Dispatched",) and not t.get("stale"):
+			gone = t["status"] == "Dispatched"
 			for r in t["orders"]:
 				k = (r["order_pick_list"], r["farm"])
-				covered[k] = covered.get(k, 0) + int(r["buckets"] or 0)
+				# Left that farm: only what it loaded there is covered -- planned buckets
+				# it left behind wait for a trip again.
+				left = gone or r["farm"] in (t.get("departed_stops") or [])
+				n = int(r.get("loaded_buckets") or 0) if left else int(r["buckets"] or 0)
+				covered[k] = covered.get(k, 0) + n
 	waiting = {}
 	orders = data["orders"] + _overdue_orders(window, {o["opl"] for o in data["orders"]})
 	for o in orders:
@@ -151,7 +169,6 @@ def _add_runs_for_waiting(window=None):
 	if not routed:
 		return []
 	holders = tc.farm_holders(today)
-	collected = _farms_collected(today)
 	added = []
 	for farm in sorted(waiting):
 		# A new run only once every open trip to the farm is full (planned, requested or
@@ -160,9 +177,6 @@ def _add_runs_for_waiting(window=None):
 		if any(n > 0 for v in routed for _r, n in tc._open_run_room(v["name"], today, farm)):
 			continue
 		for pick in _run_candidates(routed, farm, holders):
-			# A truck already collected here today: another run only for a full load.
-			if farm in collected and waiting[farm] < int(pick.get("capacity_buckets") or 0):
-				continue
 			frappe.db.savepoint("add_farm_run")
 			res = truck_routes.add_farm_run(pick["name"], farm, today, enforce_room=True, while_on_road=True)
 			if res.get("status") == "success":
@@ -174,20 +188,6 @@ def _add_runs_for_waiting(window=None):
 			if res.get("reason") == "has_room":
 				break  # a trip to the farm still has room: plan() fills it first
 	return added
-
-
-def _farms_collected(date):
-	"""The farms a truck has already left today: its trip was dispatched (or has ended),
-	or the farm is one of the trip's departed stops."""
-	return set(
-		frappe.db.sql_list(
-			"""SELECT DISTINCT o.farm FROM `tabBucket Request Trip` t
-			JOIN `tabBucket Request Trip Order` o ON o.parent = t.name AND o.parenttype = 'Bucket Request Trip'
-			WHERE t.trip_date = %(d)s AND IFNULL(o.farm, '') != ''
-			  AND (t.status IN ('Dispatched', 'Received') OR FIND_IN_SET(o.farm, IFNULL(t.departed_stops, '')))""",
-			{"d": str(date)},
-		)
-	)
 
 
 #: MariaDB ER_SP_DOES_NOT_EXIST: "SAVEPOINT ... does not exist".
