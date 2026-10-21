@@ -165,7 +165,10 @@ def _add_runs_for_waiting(window=None):
 				waiting[f["farm"]] = waiting.get(f["farm"], 0) + left
 	if not waiting:
 		return []
-	routed = [v for v in data["vehicles"] if int(v.get("capacity_buckets") or 0) > 0 and v.get("runs")]
+	trucks = [v for v in data["vehicles"] if int(v.get("capacity_buckets") or 0) > 0]
+	# Trucks with a route today go first; with none yet (early morning, before the
+	# day's routes are drawn) any truck takes the run -- add_farm_run gives it a route.
+	routed = [v for v in trucks if v.get("runs")] or trucks
 	if not routed:
 		return []
 	holders = tc.farm_holders(today)
@@ -187,6 +190,17 @@ def _add_runs_for_waiting(window=None):
 			_undo_to_savepoint("add_farm_run")
 			if res.get("reason") == "has_room":
 				break  # a trip to the farm still has room: plan() fills it first
+		else:
+			# No truck could take a run there: said once a day, so it is seen and fixed.
+			key = "upande_packhouse:auto_transfer:no_run:{0}:{1}".format(today, farm)
+			if not frappe.cache().get_value(key):
+				frappe.cache().set_value(key, 1, expires_in_sec=86400)
+				frappe.log_error(
+					"Automatic scheduling: no truck for {0}".format(farm),
+					"{0} bucket(s) at {1} have no trip and no truck could take a run there today.".format(
+						waiting[farm], farm
+					),
+				)
 	return added
 
 
