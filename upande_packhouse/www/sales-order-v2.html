@@ -24,26 +24,38 @@
 <!-- ── List view ── -->
 <div id="v-list">
   <div class="ph-filters">
+    <div class="ph-pills" id="f-layout" aria-label="View">
+      <button data-value="list">List</button><button data-value="calendar" title="Standing orders (Auto Repeat) on a calendar">Calendar</button>
+    </div>
     <div class="ph-pills" id="f-region" title="Order farm"></div>
-    <div class="ph-pills" id="f-status">
+    <div class="ph-pills so-lonly" id="f-status">
       <button data-value="all" title="Draft + submitted (cancelled orders excluded)">All</button><button data-value="draft">Draft</button><button data-value="submitted">Submitted</button><button data-value="cancelled">Cancelled</button>
     </div>
-    <div class="ph-pills" id="f-rose" aria-label="Rose type">
+    <div class="so-lonly ph-pills" id="f-rose" aria-label="Rose type">
       <button data-value="all">All roses</button><button data-value="standard">Standards</button><button data-value="spray">Sprays</button>
     </div>
-    <select class="ph-select" id="f-team" aria-label="Team" title="Team on the order's pick list"><option value="">All teams</option></select>
+    <select class="so-lonly ph-select" id="f-team" aria-label="Team" title="Team on the order's pick list"><option value="">All teams</option></select>
     <input class="ph-input" id="f-customer" type="search" placeholder="Any customer" aria-label="Customer">
-    <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Order, customer or PO"></label>
+    <label class="so-lonly ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Order, customer or PO"></label>
     <div class="ph-filters__spacer"></div>
-    <div class="ph-pills" id="f-preset">
+    <div class="so-lonly ph-pills" id="f-preset">
       <button data-value="all">All dates</button><button data-value="30d">30 days</button><button data-value="7d">7 days</button><button data-value="today">Today</button><button data-value="next7">Next 7 days</button>
     </div>
-    <label class="ph-daterange" title="Delivery date range">
+    <label class="so-lonly ph-daterange" title="Delivery date range">
       <span>Delivery</span><input type="date" id="f-from" aria-label="Delivery from"><span class="ph-daterange__sep">→</span><input type="date" id="f-to" aria-label="Delivery to">
     </label>
+    <div class="ph-pills so-conly" id="f-sstate" hidden title="Standing order state">
+      <button data-value="all">All</button><button data-value="active">Active</button><button data-value="disabled">Disabled</button>
+    </div>
+    <div class="ph-pills so-conly" id="f-cmode" hidden><button data-value="month">Month</button><button data-value="week">Week</button></div>
+    <div class="ph-flex so-conly" id="cal-nav" hidden>
+      <button type="button" class="ph-btn ph-btn--sm" id="cal-prev" aria-label="Previous">&larr;</button>
+      <button type="button" class="ph-btn ph-btn--sm" id="cal-today">Today</button>
+      <button type="button" class="ph-btn ph-btn--sm" id="cal-next" aria-label="Next">&rarr;</button>
+    </div>
   </div>
   <section class="ph-kpis" id="kpis"></section>
-  <section class="ph-card ph-card--flush">
+  <section class="ph-card ph-card--flush so-lonly" id="so-listcard">
     <div class="ph-card__head">
       <h2 class="ph-card__title">Roses sales orders <span class="ph-badge" id="list-count">0</span></h2>
       <div class="ph-card__tools">
@@ -52,6 +64,14 @@
       </div>
     </div>
     <div id="so-table"></div>
+  </section>
+  <section class="ph-card so-conly" id="so-calcard" hidden>
+    <div class="ph-card__head">
+      <h2 class="ph-card__title" id="cal-title">Standing orders</h2>
+      <div class="ph-card__tools"><span class="ph-card__meta" id="cal-meta"></span>
+        <span class="ph-legend"><i class="is-bar so-k-generated"></i> Generated <i class="is-bar so-k-scheduled"></i> Scheduled <i class="is-bar so-k-source"></i> Source order</span></div>
+    </div>
+    <div id="so-cal"></div>
   </section>
 </div>
 
@@ -68,6 +88,24 @@
      left, its variety rows on the right) + the import wizard's mapping grids.
      Grids instead of tables so the variety/field pickers' dropdowns are never
      clipped by a scrolling table wrapper. */
+  /* Standing-order calendar (so-cal-*) */
+  .ph2 .so-lonly[hidden],.ph2 .so-conly[hidden]{display:none!important}
+  .ph2 .so-cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:1px;background:var(--hairline);border:1px solid var(--hairline);border-radius:var(--r-lg);overflow:hidden}
+  .ph2 .so-cal__dow{background:var(--tint);padding:var(--sp-2) var(--sp-3);font-size:var(--fs-xs,12px);color:var(--ink-4);font-weight:600}
+  .ph2 .so-cal__day{background:var(--surface-2);min-height:112px;padding:var(--sp-2);display:flex;flex-direction:column;gap:var(--sp-1);text-align:left;border:0;cursor:pointer;color:inherit;font:inherit;min-width:0}
+  .ph2 .so-cal--week .so-cal__day{min-height:260px}
+  .ph2 .so-cal__day:hover,.ph2 .so-cal__day:focus-visible{background:var(--tint)}
+  .ph2 .so-cal__day.is-out{opacity:.5}
+  .ph2 .so-cal__day.is-today .so-cal__n{background:var(--signal);color:var(--on-signal,#fff);border-radius:var(--r-pill);padding:0 var(--sp-2)}
+  .ph2 .so-cal__top{display:flex;justify-content:space-between;align-items:center;gap:var(--sp-1)}
+  .ph2 .so-cal__n{font-weight:600;font-variant-numeric:tabular-nums}
+  .ph2 .so-chip{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;padding:1px var(--sp-2);border-radius:var(--r-sm,4px);border-left:3px solid var(--ink-4);background:var(--tint)}
+  .ph2 .so-chip.so-k-generated,.ph2 i.so-k-generated{border-left-color:var(--good,var(--signal))}
+  .ph2 .so-chip.so-k-scheduled,.ph2 i.so-k-scheduled{border-left-color:var(--signal);border-left-style:dashed}
+  .ph2 .so-chip.so-k-source{border-left-color:var(--ink)}
+  .ph2 i.so-k-generated{background:var(--good,var(--signal))}.ph2 i.so-k-scheduled{background:var(--signal);opacity:.55}.ph2 i.so-k-source{background:var(--ink)}
+  .ph2 .so-cal__sum{font-size:11px;color:var(--ink-4);margin-top:auto;font-variant-numeric:tabular-nums}
+  @media (max-width:760px){.ph2 .so-cal__day{min-height:76px}.ph2 .so-chip{font-size:10px}}
   .ph2 .so-lines{display:flex;flex-direction:column;gap:var(--sp-4)}
   .ph2 .so-line__grid{display:grid;grid-template-columns:minmax(240px,300px) minmax(0,1fr);gap:var(--sp-6);align-items:start}
   .ph2 .so-line__side{display:flex;flex-direction:column;gap:var(--sp-3);min-width:0}
@@ -118,7 +156,8 @@
      import wizard. Every list filter (region, status, rose, team, customer,
      q, delivery from/to) goes to api/v2/sales_order.get_sales_orders, which
      returns the rows AND the KPIs for the full filtered set. */
-  const st = PH.state({ view: "list", name: "", q: "", status: "all", customer: "", region: "", rose: "all", team: "", from: "", to: "" });
+  const st = PH.state({ view: "list", name: "", q: "", status: "all", customer: "", region: "", rose: "all", team: "", from: "", to: "",
+    layout: "list", cmode: "month", cday: "", sstate: "all" });
 
   /** Server call that never rejects: resolves with r.message, or with
    *  {success:false, error} on a transport/server failure -- the same
@@ -275,6 +314,8 @@
     IMPORT_RETURNING_INDEX = null; // leaving the editor any other way than a successful Review & fix save abandons that link back to the queue
     EDIT_HOST = null;
     if (fCustomer.value !== st.get("customer")) fCustomer.value = st.get("customer");
+    applyLayout();
+    if (st.get("layout") === "calendar") return enterCalendar();
     return loadList();
   }
   function listArgs() {
@@ -345,11 +386,154 @@
   st.on((s, changed) => {
     if (changed.includes("view") || changed.includes("name")) return route();
     if (currentView() !== "list") return;
+    if (changed.includes("layout")) { applyLayout(); return enterList(); }
+    if (s.layout === "calendar") {
+      if (changed.some((c) => ["customer", "region", "sstate", "cmode", "cday"].includes(c))) {
+        if (fCustomer.value !== s.customer) fCustomer.value = s.customer;
+        loadCal();
+      }
+      return;
+    }
     if (changed.some((c) => LIST_KEYS.includes(c))) {
       if (fCustomer.value !== s.customer) fCustomer.value = s.customer;
       loadList();
     }
   });
+
+
+  /* =================== STANDING ORDERS CALENDAR ===================
+     Standing orders are Frappe Auto Repeat records on Sales Orders. The server
+     (api/v2/sales_order.get_standing_orders) returns one event per generated
+     order, source order and FUTURE scheduled occurrence (Frappe's own schedule
+     rule), plus KPIs that follow customer / region / state. The browser only
+     lays the events out on a grid. */
+  let calSeq = 0;
+  let CAL = { events: [], kpis: {}, today: "" };
+  const KINDS = { generated: "Generated", scheduled: "Scheduled", source: "Source order" };
+  const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const dateOf = (iso) => { const [y, m, d] = String(iso).slice(0, 10).split("-").map(Number); return new Date(y, m - 1, d); };
+  const addDaysD = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+  const mondayOf = (d) => addDaysD(d, -((d.getDay() + 6) % 7));
+  const anchorDate = () => dateOf(st.get("cday") || isoOf(new Date()));
+  /** Grid range (whole Monday-first weeks) and the month that the KPI covers. */
+  function calRange() {
+    const a = anchorDate();
+    if (st.get("cmode") === "week") {
+      const m = mondayOf(a);
+      return { from: m, to: addDaysD(m, 6), kFrom: m, kTo: addDaysD(m, 6), title: `${PH.fmt.date(isoOf(m))} – ${PH.fmt.date(isoOf(addDaysD(m, 6)))}` };
+    }
+    const first = new Date(a.getFullYear(), a.getMonth(), 1);
+    const last = new Date(a.getFullYear(), a.getMonth() + 1, 0);
+    return { from: mondayOf(first), to: addDaysD(mondayOf(last), 6), kFrom: first, kTo: last,
+      title: first.toLocaleDateString("en-GB", { month: "long", year: "numeric" }) };
+  }
+  PH.pills("#f-layout", st, "layout");
+  PH.pills("#f-sstate", st, "sstate");
+  PH.pills("#f-cmode", st, "cmode");
+  function applyLayout() {
+    const cal = st.get("layout") === "calendar";
+    document.querySelectorAll(".so-lonly").forEach((el) => { el.hidden = cal; });
+    document.querySelectorAll(".so-conly").forEach((el) => { el.hidden = !cal; });
+  }
+  function enterCalendar() {
+    setHead("Sales Order", "Standing orders — repeating orders from Auto Repeat, past and upcoming.");
+    setTools(`<button type="button" class="ph-btn" data-act="import">Import orders…</button>
+      <button type="button" class="ph-btn" data-act="paste">Paste order…</button>
+      <button type="button" class="ph-btn ph-btn--primary" data-act="new">${PH.icon("plus")} New order</button>`);
+    EDIT_HOST = null;
+    if (fCustomer.value !== st.get("customer")) fCustomer.value = st.get("customer");
+    return loadCal();
+  }
+  function loadCal(background) {
+    const my = ++calSeq;
+    const s = st.get();
+    const rg = calRange();
+    PH.text("#cal-title", rg.title);
+    if (!background) { PH.kpiSkeleton("#kpis", ["Active standing orders", "Due next 7 days", "Generated", "Disabled"]); PH.loadingKpis("#kpis", true); PH.skeleton("#so-cal", "block", 8); }
+    return call("upande_packhouse.api.v2.sales_order.get_standing_orders", {
+      from_date: isoOf(rg.from), to_date: isoOf(rg.to), kpi_from: isoOf(rg.kFrom), kpi_to: isoOf(rg.kTo),
+      customer: s.customer, region: s.region, state: s.sstate,
+    }, true).then((r) => {
+      if (my !== calSeq) return;
+      if (!r.success) {
+        PH.loadingKpis("#kpis", false);
+        PH.error("#so-cal", r.error || "Could not load standing orders.", () => loadCal());
+        return;
+      }
+      CAL = { events: r.events || [], standing: r.standing || [], kpis: r.kpis || {}, today: String(r.today || "").slice(0, 10) };
+      renderCal();
+      PH.markUpdated();
+    });
+  }
+  function renderCal() {
+    const s = st.get();
+    const k = CAL.kpis;
+    const rg = calRange();
+    const scope = [s.customer, s.region].filter(Boolean).join(" · ");
+    PH.kpis("#kpis", [
+      { label: "Active standing orders", value: k.active || 0, unit: scope || "all customers", onClick: () => st.set({ sstate: s.sstate === "active" ? "all" : "active" }), active: s.sstate === "active" },
+      { label: "Due next 7 days", value: k.due_week || 0, unit: "scheduled occurrences" },
+      { label: "Generated", value: k.generated || 0, unit: (st.get("cmode") === "week" ? "this week" : "this month") + " · " + PH.fmt.num(k.generated_boxes || 0) + " boxes · " + PH.fmt.num(k.generated_stems || 0) + " stems" },
+      { label: "Disabled", value: k.disabled || 0, unit: "paused", onClick: () => st.set({ sstate: s.sstate === "disabled" ? "all" : "disabled" }), active: s.sstate === "disabled" },
+    ]);
+    PH.text("#cal-meta", `${PH.fmt.num(k.total || 0)} standing order${k.total === 1 ? "" : "s"}`);
+    const byDay = {};
+    CAL.events.forEach((e) => { (byDay[String(e.date).slice(0, 10)] = byDay[String(e.date).slice(0, 10)] || []).push(e); });
+    const dows = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    let h = `<div class="so-cal${st.get("cmode") === "week" ? " so-cal--week" : ""}">` + dows.map((d) => `<div class="so-cal__dow">${d}</div>`).join("");
+    const month = anchorDate().getMonth();
+    const maxChips = st.get("cmode") === "week" ? 12 : 3;
+    for (let d = rg.from; d <= rg.to; d = addDaysD(d, 1)) {
+      const iso = isoOf(d);
+      const ev = byDay[iso] || [];
+      const stems = ev.reduce((a, e) => a + (e.stems || 0), 0);
+      const boxes = ev.reduce((a, e) => a + (e.boxes || 0), 0);
+      const cls = ["so-cal__day", st.get("cmode") === "month" && d.getMonth() !== month ? "is-out" : "", iso === CAL.today ? "is-today" : ""].join(" ");
+      h += `<button type="button" class="${cls}" data-day="${iso}" aria-label="${esc(iso)}: ${ev.length} standing order events">
+        <span class="so-cal__top"><span class="so-cal__n">${d.getDate()}</span>${ev.length ? `<span class="ph-badge">${ev.length}</span>` : ""}</span>
+        ${ev.slice(0, maxChips).map((e) => `<span class="so-chip so-k-${e.kind}" title="${esc(KINDS[e.kind])}">${esc(e.customer_name || e.customer || "")}</span>`).join("")}
+        ${ev.length > maxChips ? `<span class="ph-muted">+${ev.length - maxChips} more</span>` : ""}
+        ${ev.length ? `<span class="so-cal__sum">${PH.fmt.num(boxes)} bx · ${PH.fmt.num(stems)} st</span>` : ""}
+      </button>`;
+    }
+    h += "</div>";
+    if (!CAL.events.length) h += `<div class="ph-notice ph-notice--signal ph-mt"><span>${(k.total || 0) ? "No standing order falls in this range." : "No standing orders match these filters. Standing orders are Auto Repeat records on a Sales Order."}</span></div>`;
+    PH.set("#so-cal", h);
+  }
+  document.getElementById("so-cal").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-day]");
+    if (b) openDay(b.dataset.day);
+  });
+  function openDay(iso) {
+    const ev = CAL.events.filter((e) => String(e.date).slice(0, 10) === iso);
+    const stems = ev.reduce((a, e) => a + (e.stems || 0), 0);
+    const boxes = ev.reduce((a, e) => a + (e.boxes || 0), 0);
+    const rows = ev.map((e, i) => `<tr>
+        <td class="is-strong">${esc(e.customer_name || e.customer || "")}</td>
+        <td><span class="ph-badge${e.kind === "generated" ? " ph-badge--good" : e.kind === "scheduled" ? " ph-badge--signal" : ""}">${esc(KINDS[e.kind])}</span>${e.docstatus === 0 ? ' <span class="ph-badge ph-badge--warn">Draft</span>' : ""}</td>
+        <td>${esc(e.frequency || "")}</td><td>${e.next_date ? esc(PH.fmt.date(e.next_date)) : "—"}</td>
+        <td><span class="ph-badge${e.status === "Active" ? " ph-badge--good" : ""}">${esc(e.status)}</span></td>
+        <td class="is-num">${PH.fmt.num(e.boxes || 0)}</td><td class="is-num">${PH.fmt.num(e.stems || 0)}</td>
+        <td>${e.order ? `<a href="#" data-open="${esc(e.order)}">${esc(e.order)}</a><br>` : ""}<a href="#" class="ph-muted" data-open="${esc(e.source)}">${e.kind === "source" ? "" : "Source "}${e.kind === "source" ? "" : esc(e.source)}</a></td></tr>`).join("");
+    const body = `<div class="ph-table-wrap"><table class="ph-table"><thead><tr><th>Customer</th><th>Type</th><th>Frequency</th><th>Next date</th><th>Status</th><th class="is-num">Boxes</th><th class="is-num">Stems</th><th>Order</th></tr></thead><tbody>${rows || '<tr><td colspan="8" class="ph-muted">No standing orders on this day.</td></tr>'}</tbody></table></div>
+      <p class="ph-muted ph-mt">Scheduled occurrences show the source order's boxes and stems (what Auto Repeat will copy).</p>`;
+    const m = PH.modal({ title: PH.fmt.date(iso), sub: `${ev.length} event${ev.length === 1 ? "" : "s"} · ${PH.fmt.num(boxes)} boxes · ${PH.fmt.num(stems)} stems`, body, size: "xl", drawer: true });
+    m.body.addEventListener("click", (e) => {
+      const a = e.target.closest("[data-open]");
+      if (!a) return;
+      e.preventDefault();
+      m.close();
+      goEditor(a.dataset.open);
+    });
+  }
+  function calShift(dir) {
+    const a = anchorDate();
+    st.set({ cday: isoOf(st.get("cmode") === "week" ? addDaysD(a, 7 * dir) : new Date(a.getFullYear(), a.getMonth() + dir, 1)) });
+  }
+  document.getElementById("cal-prev").addEventListener("click", () => calShift(-1));
+  document.getElementById("cal-next").addEventListener("click", () => calShift(1));
+  document.getElementById("cal-today").addEventListener("click", () => st.set({ cday: isoOf(new Date()) }));
+  applyLayout();
 
   /* head tools + back button */
   document.getElementById("so-tools").addEventListener("click", (e) => {

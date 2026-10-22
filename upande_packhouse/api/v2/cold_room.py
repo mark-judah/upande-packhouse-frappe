@@ -33,6 +33,7 @@ import frappe
 from frappe.utils import add_days, getdate
 
 from upande_packhouse.api.v2.core import region as region_mod
+from upande_packhouse.api.v2 import cold_room_capacity as capacity_mod
 from upande_packhouse.api.v2.core import stock
 
 RECEIPT_TYPES = ("Receiving", "Late Receipt")
@@ -188,63 +189,6 @@ def _not_shelved(sc):
 	return rows
 
 
-def _received(sc):
-	if sc.farms == []:
-		return frappe._dict(stems=0.0, buckets=0)
-	params = {"rt": RECEIPT_TYPES}
-	cond = _farm_cond("se.farm", sc, params) + _date_cond("se.posting_date", sc, params)
-	r = frappe.db.sql(
-		f"""SELECT IFNULL(SUM(sed.qty), 0) AS stems, COUNT(DISTINCT se.custom_bucket_id) AS buckets
-		    FROM `tabStock Entry` se INNER JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
-		    WHERE se.docstatus = 1 AND se.stock_entry_type IN %(rt)s
-		      AND IFNULL(se.custom_bucket_id, '') != ''{cond}""",
-		params,
-		as_dict=True,
-	)[0]  # nosemgrep
-	return frappe._dict(stems=float(r.stems or 0), buckets=int(r.buckets or 0))
-
-
-def _discarded(sc):
-	if sc.farms == []:
-		return frappe._dict(stems=0.0, buckets=0, entries=0)
-	params = {}
-	cond = _farm_cond("se.farm", sc, params) + _date_cond("se.posting_date", sc, params)
-	r = frappe.db.sql(
-		f"""SELECT IFNULL(SUM(sed.qty), 0) AS stems, COUNT(DISTINCT se.name) AS entries,
-		           COUNT(DISTINCT NULLIF(se.custom_bucket_id, '')) AS buckets
-		    FROM `tabStock Entry` se INNER JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
-		    WHERE se.docstatus = 1 AND se.stock_entry_type = 'Discard'{cond}""",
-		params,
-		as_dict=True,
-	)[0]  # nosemgrep
-	return frappe._dict(stems=float(r.stems or 0), entries=int(r.entries or 0), buckets=int(r.buckets or 0))
-
-
-PL_FARM = "COALESCE(NULLIF(opl.farm, ''), pli.farm)"
-
-
-def _requested(sc):
-	"""Pick-list lines (submitted pick lists created in range) not yet issued."""
-	if sc.farms == []:
-		return []
-	params = {}
-	cond = _farm_cond(PL_FARM, sc, params) + _date_cond("opl.date_created", sc, params)
-	rows = frappe.db.sql(
-		f"""SELECT pli.bucket AS bucket_id, pli.item_code AS variety, pli.stem_length,
-		           {PL_FARM} AS farm, pli.stock_qty AS stems, opl.name AS opl,
-		           opl.customer, opl.date_created
-		    FROM `tabOrder Pick List` opl
-		    INNER JOIN `tabPick List Item` pli ON pli.parent = opl.name
-		    WHERE opl.docstatus = 1 AND IFNULL(pli.issued, 0) = 0{cond}
-		    ORDER BY farm, pli.item_code""",
-		params,
-		as_dict=True,
-	)  # nosemgrep
-	for r in rows:
-		r.stems = float(r.stems or 0)
-	return rows
-
-
 def _capacity(sc):
 	if not frappe.db.table_exists("Cold Store Capacity"):
 		return []
@@ -263,6 +207,17 @@ def _flow_total(rows):
 	return frappe._dict(
 		stems=sum(r.stems for r in rows), buckets=len({r.bucket_id for r in rows if r.bucket_id})
 	)
+
+
+def _sensors_available():
+	"""The temperature / humidity charts call the optional upande_sensors app. When
+	it is missing, or installed without the chart API (the local site), the page
+	hides the two cards instead of calling a method that does not exist."""
+	try:
+		frappe.get_attr("upande_sensors.api.sensor_charts.get_sensor_chart_data")
+		return True
+	except Exception:
+		return False
 
 
 def _farm_options():
@@ -302,9 +257,8 @@ def get_cold_room(region: Any = None, farm: Any = None, from_date: Any = None, t
 		t = stock.totals(rows)
 		fs = _flow_scope(sc)
 		ns = _not_shelved(fs)
-		req = _requested(fs)
 
-		# per shelf farm (pressure bars, farm chart)
+		# per shelf farm (farm chart)
 		by_farm = {g.shelf_farm: g for g in stock.summarize(rows, by=("shelf_farm",))}
 		ns_farm = defaultdict(lambda: {"stems": 0.0, "buckets": set()})
 		for r in ns:
@@ -390,7 +344,7 @@ def get_cold_room(region: Any = None, farm: Any = None, from_date: Any = None, t
 
 		ot = stock.totals(outside)
 		anchors = [r.age_anchor for r in outside if r.age_anchor]
-		ns_t, req_t = _flow_total(ns), _flow_total(req)
+		ns_t = _flow_total(ns)
 		return {
 			"success": True,
 			"scope": dict(
@@ -404,12 +358,7 @@ def get_cold_room(region: Any = None, farm: Any = None, from_date: Any = None, t
 				"not_shelved_stems": ns_t.stems,
 				"not_shelved_buckets": ns_t.buckets,
 			},
-			"flows": {
-				"received": _received(fs),
-				"not_shelved": ns_t,
-				"requested": req_t,
-				"discarded": _discarded(fs),
-			},
+			"flows": {"not_shelved": ns_t},
 			"outside_range": {
 				"stems": ot.stems,
 				"buckets": ot.buckets,
@@ -422,6 +371,13 @@ def get_cold_room(region: Any = None, farm: Any = None, from_date: Any = None, t
 			"age_bands": stock.age_bands(rows, edges=AGE_EDGES),
 			"shelf_rows": shelf_rows,
 			"capacity": _capacity(sc),
+			# live bucket capacity: all stock in the farm scope, not date-limited
+			"bucket_capacity": capacity_mod.build(
+					rows + outside,
+					sc.farms,
+					incoming={f: len(v["buckets"]) for f, v in ns_farm.items()},
+				),
+				"sensors_available": _sensors_available(),
 			"farm_options": _farm_options(),
 		}
 	except Exception:
@@ -429,35 +385,16 @@ def get_cold_room(region: Any = None, farm: Any = None, from_date: Any = None, t
 		return {"success": False, "error": "Could not load cold room data. The error was logged."}
 
 
-def _open_requests(bucket_ids):
-	"""bucket -> earliest open Discard Request holding it (availability.reserved_bucket_ids rule)."""
-	if not bucket_ids:
-		return {}
-	return dict(
-		frappe.db.sql(
-			"""SELECT drb.bucket_id, MIN(drb.parent)
-			   FROM `tabDiscard Request Bucket` drb
-			   INNER JOIN `tabDiscard Request` dr ON dr.name = drb.parent
-			   WHERE COALESCE(dr.workflow_state, '') != 'Rejected' AND COALESCE(drb.discarded, 0) = 0
-			     AND drb.bucket_id IN %(b)s
-			   GROUP BY drb.bucket_id""",
-			{"b": tuple(bucket_ids)},
-		)
-	)
-
-
 @frappe.whitelist()
 def get_cold_room_buckets(region: Any = None, farm: Any = None, from_date: Any = None, to_date: Any = None):
-	"""Bucket-level lists for the Buckets tab, same filters as get_cold_room.
+	"""Bucket-level rows behind the page's drilldowns, same filters as get_cold_room.
 	`age` holds one row per (bucket, variety, length) on the shelf; its stems
 	add up to the dashboard's "Stems on shelf"."""
 	try:
 		sc = _scope(region, farm, from_date, to_date)
 		rows, _ = _stock(sc)
 		names = _shelf_names(sc)
-		held_ids = {r.bucket_id for r in rows if r.in_discard_request}
-		reqs = _open_requests(held_ids)
-		age, disc = [], []
+		age = []
 		for r in rows:
 			shelves = sorted(names.get((r.bucket_id, r.variety, r.stem_length), {r.shelf}))
 			row = {
@@ -475,30 +412,20 @@ def get_cold_room_buckets(region: Any = None, farm: Any = None, from_date: Any =
 				"state": "held" if r.in_discard_request else ("allocated" if r.allocated else "free"),
 			}
 			age.append(row)
-			if r.in_discard_request:
-				disc.append(dict(row, request=reqs.get(r.bucket_id), allocated_in_held=r.allocated_in_held))
 		age.sort(key=lambda x: (x["age_days"] if x["age_days"] is not None else 1e9, x["variety"] or ""))
-		disc.sort(key=lambda x: -(x["age_days"] or 0))
 		fs = _flow_scope(sc)
 		ns = _not_shelved(fs)
-		req = _requested(fs)
 		t = stock.totals(rows)
 		return {
 			"success": True,
 			"scope": _meta(sc),
 			"age": age,
-			"discard_shelved": disc,
 			"received_not_shelved": [_clean(r) for r in ns],
-			"requested_not_issued": [_clean(r) for r in req],
 			"summary": {
 				"stems": t.stems,
 				"buckets": t.buckets,
 				"rows": len(age),
-				"held_stems": t.held,
-				"held_buckets": len(held_ids),
-				"allocated_in_held": t.allocated_in_held,
 				"not_shelved": _flow_total(ns),
-				"requested": _flow_total(req),
 			},
 		}
 	except Exception:

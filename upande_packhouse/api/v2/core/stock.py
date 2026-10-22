@@ -41,6 +41,14 @@ from upande_packhouse.api.v2.core.rose import rose_sql, rose_type
 from upande_packhouse.availability import reserved_bucket_ids
 
 
+# The ONE sentence every page uses for "available stock" (tooltips, legends).
+AVAILABLE_DEFINITION = (
+	"Available stock = stems on a shelf at the farm that are not held (bucket on an open discard "
+	"request), not already allocated to an order, not too old to allocate and not still cooling "
+	"- exactly what Stock Visibility calls Allocatable."
+)
+
+
 def _config():
 	from upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation import (
 		_get_production_config,
@@ -54,8 +62,14 @@ def bucket_rows(*, farms=None, varieties=None, lengths=None, rose=None, company=
 	params = {"now": now_datetime()}
 	where = ["si.stem_qty > 0", "IFNULL(si.bucket_id, '') != ''", "IFNULL(si.variety, '') != ''"]
 	# None = no farm filter; an empty list means "no such farm" and matches nothing.
+	# The farm / company filters are applied to the GROUPED row (HAVING on MIN(s.farm)),
+	# never to individual Shelf Items. A bucket id whose items sit on shelves of two
+	# farms (31 such groups locally) is one row located at its first farm; filtering
+	# the items instead would split that row differently depending on the filter, so
+	# Allocation Planning, Stock Visibility, Avails and Cold Room disagreed by farm.
+	having = []
 	if farms is not None:
-		where.append("s.farm IN %(farms)s")
+		having.append("MIN(s.farm) IN %(farms)s")
 		params["farms"] = tuple(farms) or ("",)
 	if varieties:
 		where.append("si.variety IN %(varieties)s")
@@ -64,7 +78,7 @@ def bucket_rows(*, farms=None, varieties=None, lengths=None, rose=None, company=
 		where.append("si.stem_length IN %(lengths)s")
 		params["lengths"] = tuple(lengths)
 	if company:
-		where.append("s.farm IN (SELECT name FROM `tabFarm` WHERE company = %(company)s)")
+		having.append("MIN(s.farm) IN (SELECT name FROM `tabFarm` WHERE company = %(company)s)")
 		params["company"] = company
 	rose_cond = rose_sql("i.item_group", rose, params)
 	rows = frappe.db.sql(
@@ -83,6 +97,7 @@ def bucket_rows(*, farms=None, varieties=None, lengths=None, rose=None, company=
 		LEFT JOIN `tabItem` i ON i.name = si.variety
 		WHERE {" AND ".join(where)} {rose_cond}
 		GROUP BY si.bucket_id, si.variety, si.stem_length
+		{("HAVING " + " AND ".join(having)) if having else ""}
 		""",
 		params,
 		as_dict=True,
@@ -189,3 +204,39 @@ def age_bands(rows, edges=(1, 2, 3, 5, 7)):
 				out[(lo_, hi)] += r.stems
 				break
 	return [{"from_days": lo_, "to_days": hi, "stems": out.get((lo_, hi), 0.0)} for lo_, hi in labels]
+
+
+def available_cells(*, farms=None, varieties=None, lengths=None, rose=None, company=None, pairs=None):
+	"""{(variety, stem_length, shelf_farm): summary} -- the single "available stock" read.
+
+	`available` is `allocatable` (see AVAILABLE_DEFINITION): the figure Stock
+	Visibility shows as Allocatable, Avails shows as `allocatable`, and Allocation
+	Planning shows as Available. `pairs` (optional set of (variety, length)) narrows
+	the result to exactly those pairs after the SQL read; a "" length matches
+	stock with no length. Returns (cells, rows) so callers can also total the rows.
+	"""
+	rows = bucket_rows(farms=farms, varieties=varieties, lengths=lengths, rose=rose, company=company)
+	if pairs is not None:
+		rows = [r for r in rows if (r.variety, r.stem_length or "") in pairs]
+	cells = {}
+	for g in summarize(rows, by=("variety", "stem_length", "shelf_farm")):
+		cells[(g.variety, g.stem_length or "", g.shelf_farm)] = g
+	return cells, rows
+
+
+def variety_availability(varieties, lengths=None, farms=None):
+	"""{variety: {farm: available_stems}} on the core definition (allocatable).
+
+	Drop-in for upande_packhouse.availability.variety_availability (used by
+	spec_autofill / the Sales Order v2 spec popup), which counts free stems
+	including too-old / cooling ones and groups by Shelf Item.farm."""
+	varieties = [v for v in (varieties or []) if v]
+	if not varieties:
+		return {}
+	cells, _rows = available_cells(farms=farms, varieties=varieties, lengths=list(lengths or []) or None)
+	out = {}
+	for (v, _ln, farm), g in cells.items():
+		if g.allocatable > 0:
+			d = out.setdefault(v, {})
+			d[farm or "Unknown"] = d.get(farm or "Unknown", 0.0) + g.allocatable
+	return out
