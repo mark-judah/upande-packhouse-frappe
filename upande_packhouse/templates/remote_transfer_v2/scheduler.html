@@ -17,7 +17,7 @@
       farm  orders with buckets at that farm (row.farms)                        -> client
       team  the order's packing team (row.team)                                 -> client
       q     search: OPL, order name, customer, team, farms, mixed type          -> client
-      view  byseq | byteam | unsched | sched                                    -> client -#}
+      view  unsched | sched | byteam                                    -> client -#}
 {% if rt_part == 'body' %}
 <style>
 /* Scheduler-only layout: team columns side by side, sequence controls, drag state. */
@@ -32,6 +32,7 @@
 .rts-up svg{transform:rotate(180deg)}
 .rts-sugg{display:flex;flex-direction:column;gap:var(--sp-1);padding-top:var(--sp-2);border-top:1px solid var(--hairline)}
 .rts-step.is-next{box-shadow:0 0 0 2px var(--ink),var(--shadow-card)}
+.rts-item.is-packed{opacity:.6;cursor:default}
 .rts-step.is-done{opacity:.62}
 .rts-trips{display:flex;flex-direction:column;gap:var(--sp-3);margin-top:var(--sp-5)}
 </style>
@@ -40,6 +41,8 @@
   <div class="ph-pills" id="f-region" aria-label="Region"></div>
   <select class="ph-select" id="rts-farm" aria-label="Origin farm" title="Origin farm: where the order's buckets are trucked from"><option value="">All origin farms</option></select>
   <select class="ph-select" id="rts-team" aria-label="Team"><option value="">All teams</option></select>
+  <select class="ph-select" id="rts-loc" aria-label="Dispatch location" title="Dispatch location of the order"><option value="">All locations</option></select>
+  <div class="ph-pills" id="rts-status" aria-label="Order status" title="Click the chosen status again to show every status"></div>
   <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="rts-q" type="search" placeholder="Search OPL, order, customer, team, farm" autocomplete="off"></label>
   <div class="ph-filters__spacer"></div>
   <div class="ph-pills" id="rts-preset">
@@ -51,19 +54,19 @@
 </div>
 
 <nav class="ph-pills" id="rts-views" aria-label="Scheduler views" style="margin-bottom:var(--sp-6)">
-  <button data-view="byseq" title="Every team's #1, then #2 … — the order transfers, shelving and issuing follow">By sequence <span class="ph-tab__count" data-count="byseq">0</span></button>
-  <button data-view="byteam" title="Every team's sequence side by side">By team <span class="ph-tab__count" data-count="byteam">0</span></button>
   <button data-view="unsched" title="Orders not on any team's schedule yet">Not scheduled <span class="ph-tab__count" data-count="unsched">0</span></button>
-  <button data-view="sched" title="Every scheduled order in one list">Scheduled <span class="ph-tab__count" data-count="sched">0</span></button>
+  <button data-view="sched" title="Every scheduled order in one list, in priority order">Scheduled <span class="ph-tab__count" data-count="sched">0</span></button>
+  <button data-view="byteam" title="Every team's sequence side by side">By team <span class="ph-tab__count" data-count="byteam">0</span></button>
 </nav>
 
+<div class="ph-notice ph-notice--warn ph-mb" id="rts-varnote" hidden></div>
 <section class="ph-kpis" id="rts-kpis"></section>
 
 <div class="ph-flex ph-flex--between ph-flex--wrap ph-mb">
   <span class="ph-card__meta" id="rts-dates"></span>
   <div class="ph-flex ph-flex--wrap">
     <div class="ph-flex ph-flex--wrap" id="rts-selbar"></div>
-    <button type="button" class="ph-btn ph-btn--primary ph-btn--sm" id="rts-dist" title="Schedule every order not scheduled yet onto its team's sequence (orders without a team go to the team with the least work)" disabled>Distribute to teams</button>
+    <button type="button" class="ph-btn ph-btn--primary ph-btn--sm" id="rts-trips-btn" title="Plan the scheduled orders onto trips in sequence order — orders not scheduled yet go to the end of their team’s sequence first">Distribute to trips</button>
   </div>
 </div>
 
@@ -76,10 +79,10 @@
   const API = "upande_packhouse.api.scheduler.";
   const HUB = (window.RT && RT.transferHub) || "the hub";
   const PAGE = 25;
-  const VIEWS = ["byseq", "byteam", "unsched", "sched"];
+  const VIEWS = ["unsched", "sched", "byteam"];
 
-  const st = PH.state({ date: RT.defaultDate, region: "", farm: "", team: "", q: "", view: "byseq" });
-  if (VIEWS.indexOf(st.get("view")) < 0) st.set({ view: "byseq" }, { silent: true });
+  const st = PH.state({ date: RT.defaultDate, region: "", farm: "", team: "", loc: "", status: "", q: "", view: "unsched" });
+  if (VIEWS.indexOf(st.get("view")) < 0) st.set({ view: "unsched" }, { silent: true });
 
   /* ready: every schedulable order, in global order (scheduled ones first, per team by
      sequence). scheduled: {opl: {team, sequence}} from the Packhouse Schedule docs. */
@@ -97,6 +100,7 @@
   PH.regionPills("#f-region", st, "region");
   PH.bindSelect("#rts-farm", st, "farm");
   PH.bindSelect("#rts-team", st, "team");
+  PH.bindSelect("#rts-loc", st, "loc");
   PH.bindSearch("#rts-q", st, "q");
   PH.dateRange({ pills: "#rts-preset", from: "#rts-date", state: st, fromKey: "date", toKey: "date" });
   st.on((s, changed) => {
@@ -115,10 +119,12 @@
   function hay(o) {
     return [o.name, o.custom_order_name, o.customer, o.custom_team, o.mixed_type].concat(o.farms || []).filter(Boolean).join("  ");
   }
-  function applyFilters(arr) {
+  const STATUS = [["draft_plain", "Draft"], ["draft_transfer", "Draft waiting transfer"], ["submitted", "Submitted"]];
+  const STATUS_NOTE = { draft_plain: "These OPLs have stock at the hub and have been allocated, but they have not been submitted.", draft_transfer: "Schedule these OPLs so that the remote QC can start preparing them for transfer." };
+  function applyFilters(arr, skipStatus) {
     const s = st.get();
     const rf = PH.regionFarms(s.region);
-    return arr.filter((o) => (!s.team || o.custom_team === s.team) && (!s.farm || (o.farms || []).indexOf(s.farm) >= 0) &&
+    return arr.filter((o) => (!s.team || o.custom_team === s.team) && (!s.loc || o.location === s.loc) && (skipStatus || !s.status || o.variation === s.status) && (!s.farm || (o.farms || []).indexOf(s.farm) >= 0) &&
       (!rf || (o.farms || []).some((f) => rf.indexOf(f) >= 0)) && PH.match({ h: hay(o) }, s.q));
   }
 
@@ -132,10 +138,32 @@
     if (t && teams.indexOf(t) < 0) teams.push(t);
     PH.options("#rts-farm", farms, f);
     PH.options("#rts-team", teams, t);
+    const locs = PH.uniq(S.ready.map((o) => o.location)).sort(), l = st.get("loc");
+    if (l && locs.indexOf(l) < 0) locs.push(l);
+    PH.options("#rts-loc", locs, l);
   }
 
   /* ── Load ────────────────────────────────────────────────────── */
   PH.kpiSkeleton("#rts-kpis", ["Schedulable", "Not scheduled", "Scheduled", "Total stems"]);
+
+  // The stored sequence decides the order (the server moves orders already on a sales shelf
+  // ahead of the ones waiting on a transfer when it saves).
+  function sortReady() {
+    S.ready.sort((a, b) => {
+      const sa = S.scheduled[a.name], sb = S.scheduled[b.name];
+      if (!!sa !== !!sb) return sa ? -1 : 1;
+      if (sa) {
+        const ta = sa.team != null ? sa.team : a.custom_team || "", tb = sb.team != null ? sb.team : b.custom_team || "";
+        if (ta !== tb) return ta < tb ? -1 : 1;
+        const qa = sa.sequence != null ? sa.sequence : 0, qb = sb.sequence != null ? sb.sequence : 0;
+        if (qa !== qb) return qa - qb;
+      }
+      return String(a.name).localeCompare(String(b.name));
+    });
+  }
+  // Schedulable: submitted, or a draft still waiting on a transfer. A draft with all its stock
+  // at the hub waits until it is submitted (one already scheduled stays).
+  const canSchedule = (o) => !!o && (o.variation !== "draft_plain" || !!S.scheduled[o.name]);
 
   function reloadScheduled() {
     const my = ++schedSeq;
@@ -157,31 +185,17 @@
       PH.call(API + "getSchedulerFeed", { date }, { silent: background }),
       PH.call(API + "getScheduledOrders", { date: schedDate() }, { silent: true }),
     ])
-      .then(([feed, sch]) =>
-        // Stems come from the pick list rows (the feed's own total is a stale field), per origin farm.
-        PH.call("upande_packhouse.api.v2.remote_transfer.get_opl_stems", { opls: JSON.stringify(((feed && feed.data) || []).map((o) => o.opl)) }, { silent: true })
-          .catch(() => ({})).then((stems) => [feed, sch, stems || {}]))
-      .then(([feed, sch, stems]) => {
+      .then(([feed, sch]) => {
         if (my !== seq) return;
-        S.stems = stems;
         S.scheduled = (sch && sch.scheduled) || {};
         S.ready = ((feed && feed.data) || []).map((o) => ({
           name: o.opl, custom_order_name: o.order_name, customer: o.customer, custom_team: o.team,
-          total_stems: Object.keys(stems[o.opl] || {}).reduce((a, f) => a + stems[o.opl][f], 0), n_buckets: o.n_buckets, n_farms: o.n_farms, farms: o.farms || [], farm_trips: o.farm_trips || [],
+          total_stems: num(o.total_stems), n_buckets: o.n_buckets, n_farms: o.n_farms, farms: o.farms || [], farm_trips: o.farm_trips || [],
           n_varieties: o.n_varieties, has_transfer: o.has_transfer, mixed_type: o.mixed_type,
+          location: o.location || "", packed: o.packed || 0, remote_by_farm: o.remote_by_farm || {}, buckets_by_farm: o.buckets_by_farm || {},
           docstatus: o.docstatus, variation: o.variation, issued_lines: o.issued_lines || 0, lines: o.lines || 0,
         }));
-        S.ready.sort((a, b) => {
-          const sa = S.scheduled[a.name], sb = S.scheduled[b.name];
-          if (!!sa !== !!sb) return sa ? -1 : 1;
-          if (sa) {
-            const ta = sa.team != null ? sa.team : a.custom_team || "", tb = sb.team != null ? sb.team : b.custom_team || "";
-            if (ta !== tb) return ta < tb ? -1 : 1;
-            const qa = sa.sequence != null ? sa.sequence : 0, qb = sb.sequence != null ? sb.sequence : 0;
-            if (qa !== qb) return qa - qb;
-          }
-          return String(a.name).localeCompare(String(b.name));
-        });
+        sortReady();
         const names = new Set(S.ready.map((o) => o.name));
         G.sel.forEach((n) => { if (!names.has(n)) G.sel.delete(n); });
         S.loaded = true;
@@ -210,13 +224,14 @@
   // line still below scheduler_issue_threshold in the "Issue Bucket To Sale Order
   // Item" server script — is enforced server-side, per team.)
   function computePrio() {
-    G.prio = {};
-    const pk = {};
+    G.prio = {}; G.next = {};
+    const pk = {}, nx = {};
     S.ready.forEach((o) => {
       if (!S.scheduled[o.name]) return;
       const tm = o.custom_team || "";
       pk[tm] = (pk[tm] || 0) + 1;
       G.prio[o.name] = pk[tm];
+      if (!o.packed && !nx[tm]) { nx[tm] = 1; G.next[o.name] = 1; }   // a team's next = its first order not yet packed
     });
   }
 
@@ -227,56 +242,81 @@
     const feed = applyFilters(S.ready);
     const unsched = feed.filter((o) => !S.scheduled[o.name]);
     const sched = feed.filter((o) => S.scheduled[o.name]);
-    // Stems follow the region / origin-farm filter: only the stems trucked from those farms.
-    const rf = PH.regionFarms(st.get("region")), fsel = st.get("farm");
-    const stems = PH.sum(feed, (o) => {
-      const by = (S.stems || {})[o.name] || {};
-      if (!rf && !fsel) return o.total_stems;
-      return Object.keys(by).reduce((a, f) => a + ((!rf || rf.indexOf(f) >= 0) && (!fsel || f === fsel) ? by[f] : 0), 0);
-    });
-    const custs = PH.uniq(feed.map((o) => o.customer)).length;
+    // Stems: the feed's own total per order (Order Pick List.custom_total_stems), as in v1.
+    const stems = PH.sum(feed, (o) => o.total_stems);
+    // Buckets per order: a submitted order's own stock (at the hub), a draft's buckets requested from the remote farms.
+    const bkFarms = (o) => (o.variation === "submitted" ? o.buckets_by_farm : o.remote_by_farm) || {};
+    const rb = (list) => list.reduce((n, o) => n + Object.keys(bkFarms(o)).reduce((a, k) => a + num(bkFarms(o)[k]), 0), 0);
+    const rbFarms = (list) => {
+      const by = {};
+      list.forEach((o) => { const f = bkFarms(o); Object.keys(f).forEach((k) => { by[k] = (by[k] || 0) + num(f[k]); }); });
+      return Object.keys(by).sort((a, b) => by[b] - by[a] || (a < b ? -1 : 1)).map((k) => k + " " + PH.fmt.num(by[k])).join(" · ");
+    };
+    const schedulable = feed.filter(canSchedule), unschedOk = unsched.filter(canSchedule);
     PH.kpis("#rts-kpis", [
-      { label: "Schedulable", value: feed.length, unit: "orders for this delivery date" },
-      { label: "Not scheduled", value: unsched.length, unit: "not on a team's sequence", onClick: () => st.set({ view: "unsched" }), active: view === "unsched" },
-      { label: "Scheduled", value: sched.length, unit: PH.fmt.plural(PH.uniq(sched.map((o) => o.custom_team || "-")).length, "team"), onClick: () => st.set({ view: "byseq" }), active: view !== "unsched" },
-      { label: "Total stems", value: stems, unit: PH.fmt.plural(custs, "customer") + (rf || fsel ? " · from the chosen origin farms" : " · whole orders") },
+      { label: "Schedulable buckets", value: rb(schedulable), unit: rbFarms(schedulable) || "no buckets to bring", title: rbFarms(schedulable) },
+      { label: "Not scheduled buckets", value: rb(unschedOk), unit: rbFarms(unschedOk) || "none", title: rbFarms(unschedOk), onClick: () => st.set({ view: "unsched" }), active: view === "unsched" },
+      { label: "Scheduled buckets", value: rb(sched), unit: rbFarms(sched) || "none", title: rbFarms(sched), onClick: () => st.set({ view: "sched" }), active: view !== "unsched" },
+      { label: "Total stems", value: stems, unit: "stems as recorded on the order pick lists (Order Pick List total stems), not counted from the pick rows", title: "Stems are the Order Pick List's recorded total, as in the old Scheduler. They can differ from the stems on the pick rows (for example a pick list with no rows yet shows 0 there)." },
     ]);
-    const steps = PH.uniq(sched.map((o) => G.prio[o.name])).length;
-    const counts = { byseq: steps, byteam: PH.uniq(sched.map((o) => o.custom_team || "-")).length, unsched: unsched.length, sched: sched.length };
+    const counts = { byteam: PH.uniq(sched.map((o) => o.custom_team || "-")).length, unsched: unsched.length, sched: sched.length };
     PH.$$("#rts-views [data-view]").forEach((b) => {
       const on = b.dataset.view === view;
       b.classList.toggle("is-on", on);
       if (on) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
     });
     PH.$$("#rts-views [data-count]").forEach((c) => (c.textContent = PH.fmt.num(counts[c.dataset.count])));
-    const dist = document.getElementById("rts-dist");
-    dist.textContent = "Distribute to teams" + (unsched.length ? " (" + unsched.length + ")" : "");
-    dist.disabled = !unsched.length;
+    renderStatus();
+    const tb = document.getElementById("rts-trips-btn"), nd = distTodo().length;
+    tb.textContent = nd ? "Distribute " + nd + " to trips" : "Distribute to trips";
+    tb.disabled = !nd && !feed.some((o) => S.scheduled[o.name]);
 
     if (view === "unsched") renderUnscheduled(unsched);
     else if (view === "byteam") renderByTeam(sched);
-    else if (view === "sched") renderFlat(sched);
-    else renderSequence(sched);
+    else renderFlat(sched);
     renderSelBar();
   }
 
-  const filtered = () => !!(st.get("region") || st.get("farm") || st.get("team") || st.get("q"));
+  // Status pills count within the other filters; clicking the chosen one again shows every status.
+  function renderStatus() {
+    const base = applyFilters(S.ready, true), c = {}, cur = st.get("status");
+    base.forEach((o) => { c[o.variation] = (c[o.variation] || 0) + 1; });
+    PH.set("#rts-status", STATUS.map((x) => `<button type="button" data-status="${x[0]}"${cur === x[0] ? ' class="is-on"' : ""}>${PH.esc(x[1])} <span class="ph-tab__count">${PH.fmt.num(c[x[0]] || 0)}</span></button>`).join(""));
+    const note = document.getElementById("rts-varnote"), msg = STATUS_NOTE[cur] || "";
+    note.textContent = msg; note.hidden = !msg;
+  }
+  document.getElementById("rts-status").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-status]");
+    if (b) st.set({ status: st.get("status") === b.dataset.status ? "" : b.dataset.status });
+  });
+  const filtered = () => !!(st.get("region") || st.get("farm") || st.get("team") || st.get("loc") || st.get("status") || st.get("q"));
   function emptyCard(title, text) {
     PH.set("#rts-body", '<section class="ph-card"><div id="rts-empty"></div></section>');
     PH.empty("#rts-empty", title, text);
   }
 
-  function mvButtons() {
+  function mvButtons(o) {
+    if (o && o.packed) return "";
     return `<span class="rts-mv"><button type="button" class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm rts-up" data-mv="up" title="Earlier in its team's sequence" aria-label="Earlier">${PH.icon("chevronDown")}</button><button type="button" class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-mv="down" title="Later in its team's sequence" aria-label="Later">${PH.icon("chevronDown")}</button></span>`;
   }
-  const chk = (o) => `<label class="ph-check" title="Select"><input type="checkbox" data-sel="${PH.esc(o.name)}"${G.sel.has(o.name) ? " checked" : ""} aria-label="Select ${PH.esc(o.custom_order_name || o.name)}"></label>`;
+  const chk = (o) => o.packed || !canSchedule(o) ? "" : `<label class="ph-check" title="Select"><input type="checkbox" data-sel="${PH.esc(o.name)}"${G.sel.has(o.name) ? " checked" : ""} aria-label="Select ${PH.esc(o.custom_order_name || o.name)}"></label>`;
   function typeBadges(o, lane) {
     const out = [];
     if (lane === "sched") {
       out.push(`<span class="ph-badge ph-badge--ink">#${PH.esc(G.prio[o.name] || "?")}</span>`);
-      if (G.prio[o.name] === 1) out.push('<span class="ph-badge ph-badge--signal">Next</span>');
+      if (G.next[o.name]) out.push('<span class="ph-badge ph-badge--signal">Next</span>');
+      if (o.packed) out.push('<span class="ph-badge ph-badge--good">Packed</span>');
     } else {
       out.push(`<span class="ph-badge${varCls(o.variation) ? " ph-badge--" + varCls(o.variation) : ""}">${PH.esc(varLabel(o.variation))}</span>`);
+    }
+    // Where the order is: at the hub until 100% issued (issuing progress beside it), then Issued, then Packed.
+    const ws = orderState(o);
+    if (!o.packed && (lane === "sched" || o.variation !== "draft_transfer")) {
+      if (ws.k === "done") out.push('<span class="ph-badge ph-badge--outline">Issued</span>');
+      else if (ws.k === "ready" || ws.k === "issuing") {
+        out.push(`<span class="ph-badge ph-badge--outline">At ${PH.esc(HUB)}</span>`);
+        if (ws.k === "issuing") out.push(`<span class="ph-badge">${PH.esc(ws.t)}</span>`);
+      }
     }
     if (o.mixed_type) out.push(`<span class="ph-badge ph-badge--outline">${PH.esc(o.mixed_type)}</span>`);
     return out.join("");
@@ -308,11 +348,11 @@
   function tile(o, lane) {
     const stats = `<div><small>Stems</small><b>${PH.fmt.num(num(o.total_stems))}</b></div><div><small>Buckets</small><b>${PH.fmt.num(num(o.n_buckets))}</b></div>` +
       (o.has_transfer && o.n_farms ? `<div><small>${num(o.n_farms) === 1 ? "Farm" : "Farms"}</small><b>${PH.fmt.num(num(o.n_farms))}</b></div>` : "");
-    return `<article class="ph-tile is-link rts-item rts-dnd${G.sel.has(o.name) ? " is-sel" : ""}" data-opl="${PH.esc(o.name)}"${lane === "sched" ? ' draggable="true"' : ""}>
+    return `<article class="ph-tile is-link rts-item rts-dnd${G.sel.has(o.name) ? " is-sel" : ""}${o.packed ? " is-packed" : ""}" data-opl="${PH.esc(o.name)}"${lane === "sched" && !o.packed ? ' draggable="true"' : ""}>
       <div class="ph-tile__head">
         <div class="ph-flex" style="min-width:0">${chk(o)}
           <div style="min-width:0"><div class="ph-tile__name">${PH.esc(o.custom_order_name || o.name)}</div><div class="ph-tile__sub">${PH.esc([o.customer, o.custom_team].filter(Boolean).join(" · "))}</div></div></div>
-        ${lane === "sched" ? mvButtons() : ""}
+        ${lane === "sched" ? mvButtons(o) : ""}
       </div>
       <div class="ph-tile__tags">${typeBadges(o, lane)}${farmBadges(o)}</div>
       <div class="ph-tile__stats">${stats}</div>
@@ -324,7 +364,7 @@
   function tableHtml(list, lane) {
     const sched = lane === "sched";
     const head = `<tr><th style="width:36px"></th>${sched ? '<th class="is-num" style="width:48px">#</th>' : ""}<th>Order</th><th>Team</th><th>Type</th><th>Farms</th><th class="is-num">Buckets</th><th class="is-num">Stems</th><th>Suggested trip</th>${sched ? "<th></th>" : ""}</tr>`;
-    const body = list.map((o) => `<tr class="is-link rts-item rts-dnd${G.sel.has(o.name) ? " is-sel" : ""}" data-opl="${PH.esc(o.name)}"${sched ? ' draggable="true"' : ""}>
+    const body = list.map((o) => `<tr class="is-link rts-item rts-dnd${G.sel.has(o.name) ? " is-sel" : ""}${o.packed ? " is-packed" : ""}" data-opl="${PH.esc(o.name)}"${sched && !o.packed ? ' draggable="true"' : ""}>
         <td>${chk(o)}</td>
         ${sched ? `<td class="is-num is-strong">${PH.esc(G.prio[o.name] || "?")}</td>` : ""}
         <td><div class="is-strong ph-strong">${PH.esc(o.custom_order_name || o.name)}</div><div class="ph-tile__sub">${PH.esc([o.customer, o.name].filter(Boolean).join(" · "))}</div></td>
@@ -334,7 +374,7 @@
         <td class="is-num">${PH.fmt.num(num(o.n_buckets))}</td>
         <td class="is-num">${PH.fmt.num(num(o.total_stems))}</td>
         <td class="is-wrap">${(o.farm_trips || []).length ? PH.esc(suggestText(o.farm_trips)) : '<span class="ph-muted">—</span>'}</td>
-        ${sched ? `<td>${mvButtons()}</td>` : ""}
+        ${sched ? `<td>${mvButtons(o)}</td>` : ""}
       </tr>`).join("");
     return `<div class="ph-table-wrap"><table class="ph-table ph-table--compact"><thead>${head}</thead><tbody${sched ? ' class="rts-dnd-box"' : ""}>${body}</tbody></table></div>`;
   }
@@ -344,6 +384,9 @@
   // feed decides which orders are schedulable.
   function renderUnscheduled(list) {
     if (!list.length) return emptyCard(filtered() ? "No orders match the filters" : "Nothing left to schedule", filtered() ? "Clear the region, farm, team or search filter to see every order." : "Every order for this delivery date is on a team's sequence.");
+    // The order scheduling puts them in: submitted first, then drafts already at the hub, then orders still to come from the farms.
+    const VR = { submitted: 0, draft_plain: 1, draft_transfer: 2 };
+    list = list.map((o, i) => [o, i]).sort((a, b) => ((VR[a[0].variation] != null ? VR[a[0].variation] : 3) - (VR[b[0].variation] != null ? VR[b[0].variation] : 3)) || a[1] - b[1]).map((x) => x[0]);
     const pages = Math.max(1, Math.ceil(list.length / PAGE));
     G.page = Math.min(Math.max(1, G.page), pages);
     const start = (G.page - 1) * PAGE, end = Math.min(list.length, start + PAGE);
@@ -355,7 +398,7 @@
 
   // ---- Scheduled: one flat list in priority order, every team together ----
   function renderFlat(list) {
-    if (!list.length) return emptyCard(filtered() ? "No scheduled orders match the filters" : "No orders scheduled yet", filtered() ? "Clear the region, farm, team or search filter." : "Schedule orders from the Not scheduled view, or use Distribute to teams.");
+    if (!list.length) return emptyCard(filtered() ? "No scheduled orders match the filters" : "No orders scheduled yet", filtered() ? "Clear the region, farm, team or search filter." : "Schedule orders from the Not scheduled view, or use Distribute to trips.");
     PH.set("#rts-body", `<section class="ph-card ph-card--flush">
       <div class="ph-card__head"><h2 class="ph-card__title">Scheduled <span class="ph-badge">${PH.fmt.num(list.length)}</span></h2><span class="ph-card__meta">Drag a row, or use the arrows, to move an order within its team · #1 issues first</span></div>
       ${tableHtml(list, "sched")}</section>`);
@@ -364,7 +407,7 @@
   // ---- By team: every team's column visible AT ONCE, side by side (switching one
   // team at a time was "very confusing"), each in its team's priority order ----
   function renderByTeam(list) {
-    if (!list.length) return emptyCard(filtered() ? "No scheduled orders match the filters" : "No orders scheduled yet", filtered() ? "Clear the region, farm, team or search filter." : "Schedule orders from the Not scheduled view, or use Distribute to teams.");
+    if (!list.length) return emptyCard(filtered() ? "No scheduled orders match the filters" : "No orders scheduled yet", filtered() ? "Clear the region, farm, team or search filter." : "Schedule orders from the Not scheduled view, or use Distribute to trips.");
     const groups = PH.groupBy(list, (o) => o.custom_team || "-");
     PH.set("#rts-body", `<div class="rts-cols">${Array.from(groups.entries()).map(([team, items]) => `
       <section class="ph-card">
@@ -374,51 +417,15 @@
       </section>`).join("")}</div>`);
   }
 
-  // ---- By sequence: one card per step (#1 = every team's #1, then #2 …) — the order
-  // transfers, shelving and issuing all follow. Each row: the team's order at that
-  // place, where it stands, and the arrows to move it within its team. ----
   function orderState(o) {
     const fts = o.farm_trips || [];
     const waiting = fts.reduce((a, f) => a + num(f.buckets), 0);
+    if (o.packed) return { k: "done", t: "Packed", c: "good" };
     if (o.lines && o.issued_lines >= o.lines) return { k: "done", t: "Issued", c: "good" };
     if (o.issued_lines > 0) return { k: "issuing", t: "Issuing " + o.issued_lines + "/" + o.lines, c: "signal" };
     if (waiting > 0) return { k: "farm", t: waiting + " bkt at farm" + (fts.length > 1 ? "s" : ""), c: "warn" };
     if (o.has_transfer) return { k: "road", t: "Coming in", c: "signal" };
     return { k: "ready", t: "Ready at " + HUB, c: "ink" };
-  }
-  const STATE_RANK = { farm: 0, road: 1, ready: 2, issuing: 3, done: 4 };
-  const STEP_LABEL = [["At the farms", "warn"], ["On the way", "signal"], ["At " + HUB, "ink"], ["Issuing", "signal"], ["Done", "good"]];
-  function renderSequence(list) {
-    if (!list.length) return emptyCard(filtered() ? "No scheduled orders match the filters" : "No orders scheduled yet", filtered() ? "Clear the region, farm, team or search filter." : "Use Distribute to teams, or schedule orders from the Not scheduled view.");
-    const steps = PH.groupBy(list, (o) => G.prio[o.name] || 0);
-    const keys = Array.from(steps.keys()).sort((a, b) => a - b);
-    let nextStep = null;
-    PH.set("#rts-body", keys.map((k) => {
-      const items = steps.get(k).slice().sort((a, b) => String(a.custom_team || "").localeCompare(String(b.custom_team || "")));
-      let worst = 4;
-      const rows = items.map((o) => {
-        const ss = orderState(o);
-        worst = Math.min(worst, STATE_RANK[ss.k]);
-        return `<tr class="is-link" data-opl="${PH.esc(o.name)}">
-          <td><span class="ph-badge">${PH.esc(o.custom_team || "No team")}</span></td>
-          <td><div class="ph-strong">${PH.esc(o.custom_order_name || o.name)}</div><div class="ph-tile__sub">${PH.esc([o.customer, o.mixed_type].filter(Boolean).join(" · "))}</div></td>
-          <td class="is-num">${PH.fmt.num(num(o.n_buckets))}</td>
-          <td class="is-num">${PH.fmt.num(num(o.total_stems))}</td>
-          <td><span class="ph-badge ph-badge--${ss.c}">${PH.esc(ss.t)}</span></td>
-          <td>${mvButtons()}</td></tr>`;
-      }).join("");
-      const isNext = nextStep == null && worst < 4;
-      if (isNext) nextStep = k;
-      const [label, cls] = STEP_LABEL[worst];
-      return `<section class="ph-card rts-step${isNext ? " is-next" : ""}${worst === 4 ? " is-done" : ""}">
-        <div class="ph-card__head">
-          <div class="ph-flex"><span class="ph-list__rank${isNext ? " lead" : ""}">${PH.esc(k)}</span><h2 class="ph-card__title">Sequence ${PH.esc(k)}${isNext ? ' <span class="ph-badge ph-badge--signal">Next</span>' : ""}</h2></div>
-          <span class="ph-card__meta">${PH.fmt.plural(items.length, "order")} · ${PH.fmt.plural(PH.sum(items, "n_buckets"), "bucket")} · ${PH.fmt.num(PH.sum(items, "total_stems"))} stems</span>
-          <div class="ph-card__tools"><span class="ph-badge ph-badge--${cls}">${PH.esc(label)}</span></div>
-        </div>
-        <div class="ph-table-wrap"><table class="ph-table ph-table--compact"><thead><tr><th>Team</th><th>Order</th><th class="is-num">Buckets</th><th class="is-num">Stems</th><th>Where it stands</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-      </section>`;
-    }).join(""));
   }
 
   function renderSelBar() {
@@ -452,12 +459,16 @@
   function commitSchedule() {
     render(); // optimistic
     saving++;
+    let result = null;
     saveQueue = saveQueue.then(() =>
       PH.call(API + "saveDaySchedule", { date: schedDate(), order: scheduledOpls().join("|~|"), teams: JSON.stringify(G.teamFor || {}) }, { silent: true })
         .then((r) => {
+          result = r;
           const ok = r && r.status === "success";
           const cnt = Object.values((r && r.saved) || {}).reduce((a, b) => a + num(b), 0);
           const noTeam = (r && r.no_team) || [];
+          const notSub = (r && r.not_submitted) || [];
+          if (notSub.length) PH.toast(notSub.length + " draft order" + (notSub.length === 1 ? "" : "s") + " at the hub left off — submit " + (notSub.length === 1 ? "it" : "them") + " first", "warn");
           if (ok && cnt > 0) PH.toast("Schedule saved — " + PH.fmt.plural(cnt, "order") + " sequenced", "good");
           else if (ok && !noTeam.length) PH.toast("Schedule cleared");
           else if (!ok) PH.toast("Save failed — please try again", "bad");
@@ -477,16 +488,17 @@
         .then(() => {
           saving--;
           if (saving) return; // a newer save is queued; it reloads when it lands
-          return reloadScheduled().then(() => PH.keepScroll(render), () => {});
+          return reloadScheduled().then(() => { sortReady(); PH.keepScroll(render); }, () => {});
         })
     );
-    return saveQueue;
+    return saveQueue.then(() => result);
   }
   function persist() { if (S.ready.length) commitSchedule(); }
 
   function scheduleSel(add) {
     if (!G.sel.size) return;
-    G.sel.forEach((nm) => { if (add) S.scheduled[nm] = S.scheduled[nm] || 1; else delete S.scheduled[nm]; });
+    const byName = {}; S.ready.forEach((o) => { byName[o.name] = o; });
+    G.sel.forEach((nm) => { if (!add) delete S.scheduled[nm]; else if (canSchedule(byName[nm])) S.scheduled[nm] = 1; });
     G.sel.clear();
     commitSchedule();
   }
@@ -496,47 +508,53 @@
   function makeSelectedNext() {
     if (!G.sel.size) return;
     const picked = [], rest = [];
-    S.ready.forEach((o) => (G.sel.has(o.name) ? picked : rest).push(o));
+    S.ready.forEach((o) => (G.sel.has(o.name) && canSchedule(o) ? picked : rest).push(o));
     if (!picked.length) return;
-    picked.forEach((o) => { S.scheduled[o.name] = S.scheduled[o.name] || 1; }); // making next = scheduling
+    picked.forEach((o) => { S.scheduled[o.name] = 1; }); // making next = scheduling
     S.ready = picked.concat(rest);
     G.sel.clear(); G.page = 1;
     persist();
   }
 
-  // "Distribute to teams": every order not scheduled yet (the board's filters apply)
-  // goes to the END of its team's sequence, in the order the list holds them; one with
-  // no team goes to the team with the fewest buckets scheduled. Sequences already set
-  // are kept. Rearrange after by dragging, or with the arrows.
-  document.getElementById("rts-dist").addEventListener("click", () => {
-    const todo = applyFilters(S.ready).filter((o) => !S.scheduled[o.name]);
-    if (!todo.length) return PH.toast("Every order is already on a team’s schedule");
-    const work = {};
-    S.ready.forEach((o) => {
-      if (o.custom_team) work[o.custom_team] = work[o.custom_team] || 0;
-      if (S.scheduled[o.name] && o.custom_team) work[o.custom_team] += num(o.n_buckets);
-    });
-    const teams = Object.keys(work);
-    const noTeam = todo.filter((o) => !o.custom_team).length;
-    if (noTeam && !teams.length) {
-      return PH.modal({ title: "No packing team", body: PH.html`<p class="ph-muted">No packing team to give the ${noTeam} order(s) without a team — set a team on one Order Pick List first.</p>`, actions: [{ label: "OK", primary: true }] });
+  // "Distribute to trips": every order already has its team from allocation; this puts the ones
+  // not scheduled yet at the end of their team's sequence, saves, and opens Transfer Scheduling's
+  // Distribute, which plans the trips in sequence order. What it schedules: the unscheduled
+  // orders in view (chosen status and team, within the location / farm filters).
+  function distTodo() { return applyFilters(S.ready).filter((o) => !S.scheduled[o.name] && canSchedule(o)); }
+  function openTrips() {
+    const q = new URLSearchParams({ tab: "transfer", date: st.get("date"), distribute: "1" });
+    const r = st.get("region"); if (r) q.set("region", r);
+    location.href = "/remote-transfer-v2?" + q.toString();
+  }
+  document.getElementById("rts-trips-btn").addEventListener("click", () => {
+    const todo = distTodo();
+    if (!todo.length) {
+      if (applyFilters(S.ready).some((o) => S.scheduled[o.name])) return openTrips();
+      return PH.toast("No orders to schedule in this view");
     }
-    const msg = "Schedule " + PH.fmt.plural(todo.length, "order") + " at the end of their teams’ sequences" + (noTeam ? " (" + noTeam + " without a team go to the team with the least work)" : "") + "?";
-    PH.confirm("Distribute to teams", msg, { ok: "Distribute" }).then((ok) => {
+    const noTeam = todo.filter((o) => !o.custom_team), vv = st.get("status");
+    const scope = (vv ? " " + varLabel(vv) : "") + " order" + (todo.length === 1 ? "" : "s") + (st.get("team") ? " for " + st.get("team") : "");
+    const msg = todo.length + scope + (todo.length === 1 ? " isn’t" : " aren’t") + " scheduled yet — " + (todo.length === 1 ? "it goes" : "they go") + " to the end of " + (todo.length === 1 ? "its" : "their") + " team’s sequence first" + (noTeam.length ? " (" + noTeam.length + " without a team go to the team with the least work)" : "") + ".";
+    PH.confirm("Distribute to trips", msg, { ok: "Distribute" }).then((ok) => {
       if (!ok) return;
+      const work = {};
+      S.ready.forEach((o) => { if (o.custom_team) { work[o.custom_team] = work[o.custom_team] || 0; if (S.scheduled[o.name]) work[o.custom_team] += num(o.n_buckets); } });
+      const teams = Object.keys(work);
       todo.forEach((o) => {
         let t = o.custom_team;
-        if (!t) { t = teams.reduce((a, b) => (work[b] < work[a] ? b : a)); o.custom_team = t; G.teamFor[o.name] = t; }
-        work[t] = (work[t] || 0) + num(o.n_buckets);
+        if (!t && teams.length) { t = teams.reduce((a, b) => (work[b] < work[a] ? b : a)); o.custom_team = t; G.teamFor[o.name] = t; }
+        if (t) work[t] = (work[t] || 0) + num(o.n_buckets);
         S.scheduled[o.name] = 1;
       });
       const isNew = new Set(todo.map((o) => o.name));
-      const kept = S.ready.filter((o) => S.scheduled[o.name] && !isNew.has(o.name));
-      const rest = S.ready.filter((o) => !S.scheduled[o.name]);
-      S.ready = kept.concat(todo).concat(rest);
+      S.ready = S.ready.filter((o) => S.scheduled[o.name] && !isNew.has(o.name)).concat(todo).concat(S.ready.filter((o) => !S.scheduled[o.name]));
       G.sel.clear();
-      if (st.get("view") !== "byseq") st.set({ view: "byseq" }, { silent: true });
-      persist();
+      // Only orders with buckets to bring need trips; submitted ones just take their places.
+      const needTrips = todo.some((o) => o.variation === "draft_transfer");
+      commitSchedule().then((r) => {
+        if (!(r && r.status === "success")) return;
+        if (needTrips) openTrips(); else st.set({ view: "sched" });
+      });
     });
   });
 
@@ -547,9 +565,9 @@
   }
   function setSchedulePos(name, k) {
     const o = S.ready.find((x) => x.name === name);
-    if (!o) return;
+    if (!o || !canSchedule(o)) return;
     const team = o.custom_team || "";
-    S.scheduled[name] = S.scheduled[name] || 1;       // acting on it schedules it
+    S.scheduled[name] = 1;       // acting on it schedules it
     const peers = teamScheduledNames(team, name);     // other scheduled in this team, in order
     if (!isFinite(k)) k = peers.length + 1;
     k = Math.max(1, Math.min(peers.length + 1, k));   // clamp: e.g. "7" of 3 -> last
@@ -561,6 +579,7 @@
     else if (peers.length) insertAt = S.ready.findIndex((x) => x.name === peers[peers.length - 1]) + 1;
     else insertAt = 0;
     S.ready.splice(insertAt, 0, o);
+    G.page = Math.floor(insertAt / PAGE) + 1;
     persist();
   }
 
@@ -585,7 +604,7 @@
     });
     if (!inserted) domOrder.forEach((nm) => byName[nm] && next.push(byName[nm]));
     S.ready = next;
-    if (draggedName) S.scheduled[draggedName] = S.scheduled[draggedName] || 1;
+    if (draggedName && canSchedule(byName[draggedName])) S.scheduled[draggedName] = 1;
     if (S.ready.map((o) => o.name).join("|") === before) return render();
     persist();
   }
@@ -638,6 +657,8 @@
     if (e.target.closest("label.ph-check, input")) return;
     const row = e.target.closest("[data-opl]");
     if (!row) return;
+    const rowO = S.ready.find((x) => x.name === row.dataset.opl);
+    if (rowO && rowO.packed) return;
     const mv = e.target.closest("[data-mv]");
     if (mv) {
       const k = G.prio[row.dataset.opl] || 1;

@@ -29,7 +29,132 @@ from upande_packhouse import spec_autofill
 VIRTUAL_ITEM_FIELDS = [
 	{"fieldname": "_stems_per_bunch", "label": "Stems Per Bunch (auto Pack Rate + UOM)", "fieldtype": "Int"},
 	{"fieldname": "_bunches_per_box", "label": "Bunches Per Box (auto Pack Rate + UOM)", "fieldtype": "Int"},
+	{
+		"fieldname": "_bunches_ordered",
+		"label": "Bunches Ordered (converts to boxes via the Specification)",
+		"fieldtype": "Int",
+	},
+	{
+		"fieldname": "_bunch_rate",
+		"label": "Bunch Rate (stems/bunch, cross-checked against the Specification)",
+		"fieldtype": "Int",
+	},
 ]
+
+# A Wide Matrix file lays out several orders as side-by-side colour-coded
+# column groups under a multi-row header (see
+# docs/superpowers/specs/2026-10-16-flamingo-wide-matrix-order-import-design.md)
+# instead of one named-header row per Standard Rows. expand_wide_matrix
+# pivots it into this fixed synthetic header so the rest of buildPreview -
+# column mapping, grouping-by-PO-number, everything below - runs completely
+# unchanged.
+WIDE_MATRIX_SYNTHETIC_HEADER = [
+	"Specification",
+	"Bunches Ordered",
+	"Bunch Rate",
+	"PO Number",
+	"Order Date",
+	"Delivery Date",
+]
+
+
+def _matrix_cell(rows, row_idx, col_idx):
+	if row_idx < 0 or row_idx >= len(rows):
+		return None
+	row = rows[row_idx]
+	if col_idx < 0 or col_idx >= len(row):
+		return None
+	v = row[col_idx]
+	return v.strip() if isinstance(v, str) else v
+
+
+def expand_wide_matrix(header, rows, platform_doc):
+	"""Pivot a Wide Matrix platform's raw grid into the same flat "long"
+	header/rows shape buildPreview already groups by Multi-Order Split
+	Column.
+
+	Unlike the Standard Rows path, a Wide Matrix file's column meaning comes
+	entirely from platform_doc's own row/column position fields, never from
+	column names (there is no single named header row) - but those position
+	fields are still 0-indexed against the FULL file grid, including the
+	file's own real row 0. The real caller (applyParsedGrid in
+	upande_packhouse/www/sales-order-v2.html, and the older sales-order.html)
+	always strips that row 0 off into `header` before sending `rows` - so
+	`header` is stitched back onto the front of `rows` here, first thing,
+	before any row-indexed lookup runs. Every matrix_*_row config value a
+	platform is configured with therefore means exactly what it says: a
+	0-indexed row number counting from the file's own real row 0."""
+	full_rows = [header] + list(rows)
+	label_row = int(platform_doc.matrix_group_label_row or 0)
+	order_date_row = int(platform_doc.matrix_order_date_row or 0)
+	delivery_date_row = int(platform_doc.matrix_delivery_date_row or 0)
+	po_row = int(platform_doc.matrix_po_row or 0)
+	items_start_row = int(platform_doc.matrix_items_start_row or 0)
+	code_col = int(platform_doc.matrix_code_column or 0)
+	desc_col = int(platform_doc.matrix_description_column or 0)
+	bunch_rate_col = int(platform_doc.matrix_bunch_rate_column or 0)
+	first_group_col = int(platform_doc.matrix_first_group_column or 0)
+	group_width = int(platform_doc.matrix_group_column_width or 0)
+	stop_value = str(platform_doc.matrix_stop_value or "Total").strip().lower()
+
+	row_positions = [label_row, order_date_row, delivery_date_row, po_row, items_start_row]
+	if row_positions != sorted(row_positions) or len(set(row_positions)) != len(row_positions):
+		frappe.throw(
+			"Wide Matrix layout rows must be distinct and in order: Group Label Row < Order "
+			"Date Row < Delivery Date Row < PO Number Row < Items Start Row."
+		)
+	fixed_cols = [code_col, desc_col, bunch_rate_col]
+	if len(set(fixed_cols)) != len(fixed_cols) or first_group_col in fixed_cols:
+		frappe.throw(
+			"Wide Matrix layout columns (Item Code, Description, Bunch Rate, First Group) "
+			"must all be distinct."
+		)
+	if group_width < 1:
+		frappe.throw("Wide Matrix Group Column Width must be at least 1.")
+
+	groups = []
+	col = first_group_col
+	while True:
+		label = _matrix_cell(full_rows, label_row, col)
+		if not label:
+			break
+		groups.append(
+			{
+				"order_date": _matrix_cell(full_rows, order_date_row, col),
+				"delivery_date": _matrix_cell(full_rows, delivery_date_row, col),
+				"po_number": _matrix_cell(full_rows, po_row, col),
+				"ordered_col": col,
+			}
+		)
+		col += group_width
+
+	new_rows = []
+	for row_idx in range(items_start_row, len(full_rows)):
+		code = _matrix_cell(full_rows, row_idx, code_col)
+		if not code or str(code).strip().lower() == stop_value:
+			break
+		description = _matrix_cell(full_rows, row_idx, desc_col)
+		bunch_rate = _matrix_cell(full_rows, row_idx, bunch_rate_col)
+		for g in groups:
+			ordered = _matrix_cell(full_rows, row_idx, g["ordered_col"])
+			# flt strips thousands-separator commas ("1,200") instead of
+			# raising on them like bare float() would - a real spreadsheet
+			# export commonly formats large bunch counts this way.
+			ordered_num = frappe.utils.flt(ordered) if ordered not in (None, "") else 0.0
+			if not ordered_num:
+				continue
+			new_rows.append(
+				[
+					description,
+					ordered_num,
+					bunch_rate,
+					g["po_number"],
+					g["order_date"],
+					g["delivery_date"],
+				]
+			)
+
+	return WIDE_MATRIX_SYNTHETIC_HEADER, new_rows
 
 IGNORED_FIELDTYPES = {
 	"Section Break",
@@ -127,12 +252,31 @@ def getFieldCatalog():
 
 @frappe.whitelist()
 def listPlatforms():
+	"""`customer` is only ever filled in for a platform that genuinely belongs
+	to exactly one customer - a Mixed/shared platform (several customers told
+	apart by customer_differentiator_column) naturally has several Customer
+	Order Mapping rows, so it's left null there; the wizard's single-customer
+	picker uses this to resolve "which source is this?" straight to the
+	customer it already belongs to, instead of asking for both separately."""
 	try:
 		rows = frappe.get_all(
 			"Order Import Platform",
-			fields=["name", "platform_name", "file_type", "multi_order_column"],
+			fields=[
+				"name",
+				"platform_name",
+				"file_type",
+				"multi_order_column",
+				"layout_type",
+				"customer_differentiator_column",
+			],
 			order_by="platform_name asc",
 		)
+		customers_by_platform = {}
+		for m in frappe.get_all("Customer Order Mapping", fields=["platform", "customer"]):
+			customers_by_platform.setdefault(m.platform, set()).add(m.customer)
+		for row in rows:
+			owners = customers_by_platform.get(row["name"])
+			row["customer"] = next(iter(owners)) if owners and len(owners) == 1 else None
 		frappe.response["message"] = {"success": True, "platforms": rows}
 	except Exception as e:
 		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
@@ -154,6 +298,7 @@ def getPlatform():
 				"name": doc.name,
 				"platform_name": doc.platform_name,
 				"file_type": doc.file_type,
+				"layout_type": doc.layout_type,
 				"header_row": doc.header_row,
 				"multi_order_column": doc.multi_order_column,
 				"notes": doc.notes,
@@ -394,13 +539,19 @@ def getCustomerImportSetup():
 	"""What step 3 pre-fills itself from for a customer who's been set up before -
 	the same merged platform + customer-mapping view buildPreview already computes,
 	handed back as a flat list of {source_column, target_doctype, target_fieldname,
-	default_value} rows instead of a platform name the user never has to see."""
+	default_value} rows instead of a platform name the user never has to see.
+
+	`platform` is optional - the wizard's "Which source is this?" picker (mirroring
+	the shared-platform flow) passes it explicitly once a customer picks something
+	other than their own default auto-named platform (e.g. an existing Wide Matrix
+	one, configured in Desk). Left out, this keeps resolving the customer's own
+	default platform exactly as it always has."""
 	try:
 		customer = frappe.form_dict.get("customer")
 		if not customer:
 			frappe.response["message"] = {"success": False, "error": "Customer is required"}
 			return
-		platform = _platform_name_for_customer(customer)
+		platform = frappe.form_dict.get("platform") or _platform_name_for_customer(customer)
 		if not frappe.db.exists("Order Import Platform", platform):
 			frappe.response["message"] = {"success": True, "exists": False}
 			return
@@ -410,6 +561,8 @@ def getCustomerImportSetup():
 		frappe.response["message"] = {
 			"success": True,
 			"exists": True,
+			"platform": platform_doc.name,
+			"layout_type": platform_doc.layout_type,
 			"multi_order_column": platform_doc.multi_order_column,
 			"field_mappings": [{"source_column": col, **target} for col, target in mapping.items()],
 			"item_code_mapping": [{"source_item_code": k, "item": v} for k, v in item_code_map.items()],
@@ -427,14 +580,18 @@ def saveCustomerImportSetup():
 	"""file_type/header_row are fixed, not user input - CSV and Excel are already
 	told apart by file extension client-side, and the header is always row 1 (see
 	applyParsedGrid, which never reads anything else - the old Header Row field
-	promised a configurability nothing downstream of it actually honoured)."""
+	promised a configurability nothing downstream of it actually honoured).
+
+	`platform_name` is optional - an explicit pick/typed name from the wizard's
+	"Which source is this?" picker overrides the customer's own default auto-named
+	platform, the same override `getCustomerImportSetup` accepts."""
 	try:
 		data = _json_payload()
 		customer = data.get("customer")
 		if not customer:
 			frappe.response["message"] = {"success": False, "error": "Customer is required"}
 			return
-		platform_name = _platform_name_for_customer(customer)
+		platform_name = (data.get("platform_name") or "").strip() or _platform_name_for_customer(customer)
 
 		if frappe.db.exists("Order Import Platform", platform_name):
 			platform_doc = frappe.get_doc("Order Import Platform", platform_name)
@@ -929,6 +1086,51 @@ def _apply_spec_match(item_row, customer):
 # an imported line and a manually spec-filled line are IDENTICAL once saved -
 # same custom_line/custom_mix_name/detail-payload fields, same validate-time
 # exemptions, no second code path for sales_order_engine.py to disagree with.
+def _parse_numberish(v):
+	"""Tolerant numeric parse for a raw imported cell value. Unlike
+	frappe.utils.flt (which silently returns 0.0 for anything it can't
+	parse, including blank/garbage text), this distinguishes "not a number
+	at all" (returns None) from "parsed to zero" - callers that must skip a
+	check rather than treat unparseable text as zero need that distinction.
+	Thousands-separator commas ("1,200") are stripped, same as flt."""
+	if v in (None, ""):
+		return None
+	try:
+		return float(str(v).replace(",", "").strip())
+	except (TypeError, ValueError):
+		return None
+
+
+def _boxes_from_bunches(bi, bunches_ordered):
+	"""Convert an imported bunches-ordered count into a box count using one
+	resolved Spec Box Item's own Bunches Per Box - the ratio a Wide Matrix
+	platform's file never states directly (see
+	docs/superpowers/specs/2026-10-16-flamingo-wide-matrix-order-import-design.md).
+	Returns (boxes, error); never rounds - an uneven division (or a
+	non-whole-number bunches value) is a data problem for a human to see,
+	not something to guess past. Parses tolerantly via frappe.utils.flt
+	(handles comma-formatted spreadsheet numbers like "1,200" and numeric
+	strings like "14.0") rather than a bare int(), which would either raise
+	on either of those or truncate a genuinely fractional value like "14.5"
+	silently."""
+	bunches_per_box = int(bi.bunches_per_box or 0)
+	if bunches_per_box <= 0:
+		return None, "has no Bunches Per Box set for its primary variety's pack"
+	bunches_val = frappe.utils.flt(bunches_ordered)
+	if bunches_val <= 0:
+		return None, "needs a positive Bunches Ordered value on this row"
+	if bunches_val != round(bunches_val):
+		return None, f"{bunches_ordered} is not a whole number of bunches"
+	bunches_ordered_int = round(bunches_val)
+	boxes, remainder = divmod(bunches_ordered_int, bunches_per_box)
+	if remainder != 0:
+		return None, (
+			f"{bunches_ordered_int} bunches doesn't divide evenly into boxes of "
+			f"{bunches_per_box} bunches/box for this Specification"
+		)
+	return boxes, None
+
+
 def _resolve_spec_row(item_row, group_customer, counters, spec_map=None):
 	"""item_row's custom_line names a Specification. Returns (rows, error):
 	rows is build_spec_rows's own output - one or more fully shaped Sales
@@ -957,7 +1159,8 @@ def _resolve_spec_row(item_row, group_customer, counters, spec_map=None):
 		spec_name = spec_map[spec_name]
 		item_row["custom_line"] = spec_name
 	boxes = int(item_row.get("custom_number_of_boxes") or 0)
-	if boxes <= 0:
+	bunches_ordered = item_row.get("_bunches_ordered")
+	if boxes <= 0 and not bunches_ordered:
 		return None, "needs Number of Boxes set on this row"
 	if not frappe.db.exists("Specifications", spec_name):
 		return None, "not found"
@@ -972,8 +1175,14 @@ def _resolve_spec_row(item_row, group_customer, counters, spec_map=None):
 
 	picked = item_row.get("item_code") or None
 	warehouse = item_row.get("warehouse")
+	bunch_rate_warning = None
 
 	if bunch_aware:
+		# Bunches-ordered input is flat-spec only (see this plan's Global
+		# Constraints) - a bunch-aware spec with no direct box count still
+		# gets the same error a Standard Rows platform would.
+		if boxes <= 0:
+			return None, "needs Number of Boxes set on this row"
 		selections = []
 		for b in bunches:
 			picks = {}
@@ -996,13 +1205,60 @@ def _resolve_spec_row(item_row, group_customer, counters, spec_map=None):
 		if not rows_by_colour:
 			return None, "has no Approved Varieties configured"
 		box_idxs = spec_autofill._box_idxs_by_variety(spec_doc)
+		items = spec_doc.box_items or []
+
+		first_av_rows = next(iter(rows_by_colour.values()))
+		first_candidates = sorted(first_av_rows, key=lambda a: 0 if a.is_primary else 1)
+		first_variety = first_candidates[0].variety
+		first_idx = (box_idxs.get(first_variety) or [0])[0]
+		first_bi = items[first_idx] if first_idx < len(items) else None
+
+		if boxes <= 0:
+			# No direct box count - derive one from the imported bunches
+			# total using the first colour's chosen variety's own pack data.
+			# build_spec_rows itself requires every colour in one fill to
+			# share the same Boxes count, so any colour's ratio is as valid
+			# a source as any other.
+			if not first_bi:
+				return None, "has no matching Box Item for its primary variety"
+			boxes, box_err = _boxes_from_bunches(first_bi, bunches_ordered)
+			if box_err:
+				return None, box_err
+
+		# Built per colour so the Bunch Rate cross-check below can sum every
+		# chosen colour's own stems_per_bunch - a real multi-colour mix's file
+		# Bunch Rate is the TOTAL stems across the whole bouquet (e.g. a
+		# 4-colour mix with stems_per_bunch 7/7/7/1 reports BUNCH RATE 22, the
+		# sum), never just one colour's own value.
 		selections = []
+		total_stems_per_bunch = 0
 		for _colour, av_rows in rows_by_colour.items():
 			candidates = sorted(av_rows, key=lambda a: 0 if a.is_primary else 1)
 			chosen = next((a for a in candidates if a.variety == picked), None) if picked else None
 			variety = (chosen or candidates[0]).variety
 			idxs = box_idxs.get(variety) or [0]
-			selections.append({"box_idx": idxs[0], "variety": variety, "boxes": boxes})
+			idx = idxs[0]
+			bi = items[idx] if idx < len(items) else None
+			if bi:
+				total_stems_per_bunch += int(bi.stems_per_bunch or 0)
+			selections.append({"box_idx": idx, "variety": variety, "boxes": boxes})
+
+		# Non-blocking warning only (see Global Constraints) - a file value
+		# that doesn't even look like a number (garbage text) is skipped
+		# silently rather than raising or forcing a 0 comparison that would
+		# always "mismatch".
+		file_bunch_rate = item_row.get("_bunch_rate")
+		parsed_bunch_rate = _parse_numberish(file_bunch_rate)
+		if (
+			parsed_bunch_rate is not None
+			and total_stems_per_bunch
+			and round(parsed_bunch_rate) != total_stems_per_bunch
+		):
+			bunch_rate_warning = (
+				f"file's Bunch Rate ({file_bunch_rate}) doesn't match this Specification's "
+				f"total Stems Per Bunch across its colours ({total_stems_per_bunch}) - check "
+				"the matched Specification is correct"
+			)
 
 	try:
 		result = spec_autofill.build_spec_rows(
@@ -1018,6 +1274,9 @@ def _resolve_spec_row(item_row, group_customer, counters, spec_map=None):
 	rows = result.get("rows") or []
 	if not rows:
 		return None, "produced no lines - check its Approved Varieties"
+	if bunch_rate_warning:
+		for r in rows:
+			r["_bunch_rate_mismatch"] = bunch_rate_warning
 	# Bumped only once this spec-fill actually produced rows - the next one
 	# in the SAME order (another file row, another Specification) needs a
 	# value neither it nor any earlier fill on this order already used.
@@ -1069,6 +1328,8 @@ def buildPreview():
 			return
 
 		platform_doc = frappe.get_doc("Order Import Platform", platform)
+		if platform_doc.layout_type == "Wide Matrix":
+			header, rows = expand_wide_matrix(header, rows, platform_doc)
 		shared = bool(platform_doc.customer_differentiator_column)
 		if not shared and not customer:
 			frappe.response["message"] = {"success": False, "error": "Customer is required"}

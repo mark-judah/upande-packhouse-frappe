@@ -40,7 +40,7 @@ import frappe
 
 from upande_packhouse.api.v2.core import boxes as bx
 from upande_packhouse.api.v2.core import units
-from upande_packhouse.api.v2.core.rose import rose_type
+from upande_packhouse.api.v2.core.rose import rose_groups, rose_type
 
 STAGES = ("ordered", "allocated", "issued", "packed", "precooling", "staged", "loaded", "dispatched")
 
@@ -76,6 +76,29 @@ def _box_no(v):
 # ---------------------------------------------------------------- lines
 
 
+def business_unit_sql(business_unit, params, so="so", soi="soi"):
+	"""SQL condition keeping only `business_unit` orders (Sales Order.business_unit).
+
+	The site also sells coffee ("Endebess Coffee": Services items such as
+	Coffee-Milling, with fractional quantities like 116.667), so every order-side
+	figure is limited to one business unit; stems are whole numbers for Roses.
+
+	An order with NO business unit set is not silently dropped: when the unit is
+	Roses its LINES still count if they are rose item groups (Spray / Standard
+	Roses trees); a blank-unit order of anything else stays out. (Local data:
+	one order, SAL-ORD-2026-00098, 10 spray stems.)
+	"""
+	params["ph2_bu"] = business_unit
+	cond = "{0}.business_unit = %(ph2_bu)s".format(so)
+	if business_unit == "Roses":
+		groups = tuple(rose_groups("spray") + rose_groups("standard")) or ("",)
+		params["ph2_bu_groups"] = groups
+		cond += (
+			" OR (IFNULL({0}.business_unit, '') = '' AND {1}.item_group IN %(ph2_bu_groups)s)".format(so, soi)
+		)
+	return "(" + cond + ")"
+
+
 def fetch_lines(
 	*,
 	delivery_from=None,
@@ -96,8 +119,7 @@ def fetch_lines(
 	where = ["so.docstatus IN %(ph2_ds)s"]
 	params["ph2_ds"] = tuple(docstatus)
 	if business_unit:
-		where.append("so.business_unit = %(ph2_bu)s")
-		params["ph2_bu"] = business_unit
+		where.append(business_unit_sql(business_unit, params))
 	if delivery_from:
 		where.append("so.delivery_date >= %(ph2_from)s")
 		params["ph2_from"] = delivery_from
@@ -410,31 +432,94 @@ def _attach_dispatch(lines, by_name, soi, sos):
 # ------------------------------------------------------------- roll-ups
 
 
+#: One rule for every stage label (audit: a card said "Loaded" with 200 of 800
+#: stems loaded). A stage is DONE only when its stems cover the total; any
+#: smaller positive count is IN PROGRESS and is worded as an activity.
+#:   stage        in progress   done
+STAGE_WORDS = {
+	"allocated": ("Allocating", "Allocated"),
+	"issued": ("Issuing", "Issued"),
+	"packed": ("Packing", "Packed"),
+	"precooling": ("Precooling", "Precooled"),
+	"staged": ("Staging", "Staged"),
+	"loaded": ("Loading", "Loaded"),
+	"dispatched": ("Dispatching", "Dispatched"),
+}
+STAGE_TOLERANCE = 0.5  # stems are whole numbers; half a stem absorbs float noise
+
+
+def stage_state(done, total):
+	"""'done' when `done` covers `total` (>0), 'partial' when some but not all,
+	'none' otherwise. The only place this threshold is defined."""
+	done, total = float(done or 0), float(total or 0)
+	if total > 0 and done >= total - STAGE_TOLERANCE:
+		return "done"
+	if done > 0:
+		return "partial"
+	return "none"
+
+
+def stage_word(stage, state):
+	"""'Loaded' for ('loaded', 'done'), 'Loading' for ('loaded', 'partial'),
+	'Not loaded' when nothing has reached the stage yet."""
+	doing, done = STAGE_WORDS[stage]
+	if state == "none":
+		return "Not " + done.lower()
+	return done if state == "done" else doing
+
+
+def stage_ladder(ln):
+	"""[(stage, stems done, stems expected)] for a line; every stage after
+	allocation is measured against the ordered stems."""
+	ordered = ln.ordered_stems or 0
+	return (
+		("allocated", ln.allocated_stems, ordered),
+		("issued", ln.issued_stems, ordered),
+		("packed", ln.packed_stems, ordered),
+		("precooling", ln.precooled_stems, ordered),
+		("staged", ln.staged_stems, ordered),
+		("loaded", ln.loaded_stems, ordered),
+		("dispatched", ln.dispatched_stems, ordered),
+	)
+
+
 def line_stage(ln):
 	"""Furthest stage this line has fully reached, and whether the next is under way.
 
-	Stages compare stems against what is ordered; a stage counts as reached
-	when it covers the ordered stems (ignoring over-pack)."""
-	ordered = ln.ordered_stems or 0
+	Returns (reached, partial): `reached` is the last stage whose stems cover the
+	ordered stems ("ordered" when none), `partial` the stage after it that has
+	started but is not complete (else None). Word them with stage_word()."""
 	reached, partial = "ordered", None
-	ladder = (
-		("allocated", ln.allocated_stems),
-		("issued", ln.issued_stems),
-		("packed", ln.packed_stems),
-		("precooling", ln.precooled_stems),
-		("staged", ln.staged_stems),
-		("loaded", ln.loaded_stems),
-		("dispatched", ln.dispatched_stems),
-	)
-	for stage, stems in ladder:
-		if ordered and stems >= ordered - 0.001:
+	for stage, done, total in stage_ladder(ln):
+		state = stage_state(done, total)
+		if state == "done":
 			reached, partial = stage, None
-		elif stems > 0:
+		elif state == "partial":
 			partial = stage
 			break
 		else:
 			break
 	return reached, partial
+
+
+def completion_pct(staged, ordered):
+	"""How complete an order line's journey is, issue -> staged: staged stems as a share of
+	ordered stems, 0-100 (None when nothing is ordered). Staged is cumulative (a loaded or
+	dispatched box counts), so 100 means every ordered stem has been staged; it is the only
+	time anything is shown as 'Complete'. Loading and dispatch come after this journey."""
+	ordered = float(ordered or 0)
+	if ordered <= 0:
+		return None
+	return round(min(100.0, float(staged or 0) * 100.0 / ordered), 1)
+
+
+def line_stage_label(ln):
+	"""One label for the line's current stage: 'Loading' when only part is loaded,
+	'Loaded' only when all of it is."""
+	reached, partial = line_stage(ln)
+	if partial:
+		return stage_word(partial, "partial")
+	return stage_word(reached, "done") if reached in STAGE_WORDS else "Ordered"
 
 
 def order_rollup(lines, opls):
@@ -557,4 +642,5 @@ LINE_PUBLIC = (
 def line_public(ln):
 	d = {k: ln.get(k) for k in LINE_PUBLIC}
 	d["stage"], d["stage_partial"] = line_stage(ln)
+	d["stage_label"] = line_stage_label(ln)
 	return d

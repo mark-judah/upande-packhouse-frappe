@@ -8,10 +8,24 @@
  "field_order": [
   "platform_name",
   "file_type",
+  "layout_type",
   "column_break_1",
   "header_row",
   "multi_order_column",
   "customer_differentiator_column",
+  "section_break_matrix",
+  "matrix_group_label_row",
+  "matrix_order_date_row",
+  "matrix_delivery_date_row",
+  "matrix_po_row",
+  "matrix_items_start_row",
+  "column_break_matrix_1",
+  "matrix_code_column",
+  "matrix_description_column",
+  "matrix_bunch_rate_column",
+  "matrix_first_group_column",
+  "matrix_group_column_width",
+  "matrix_stop_value",
   "section_break_1",
   "notes",
   "section_break_2",
@@ -31,6 +45,14 @@
    "fieldtype": "Select",
    "label": "File Type",
    "options": "CSV\nExcel"
+  },
+  {
+   "default": "Standard Rows",
+   "description": "Standard Rows: one header row names every column, one row per order line (the existing behavior). Wide Matrix: several orders laid out as side-by-side column groups under a multi-row header (e.g. a colour/date/PO row per group) - see the Wide Matrix Layout section below.",
+   "fieldname": "layout_type",
+   "fieldtype": "Select",
+   "label": "Layout Type",
+   "options": "Standard Rows\nWide Matrix"
   },
   {
    "fieldname": "column_break_1",
@@ -54,6 +76,84 @@
    "fieldname": "customer_differentiator_column",
    "fieldtype": "Data",
    "label": "Customer Differentiator Column"
+  },
+  {
+   "depends_on": "eval:doc.layout_type=='Wide Matrix'",
+   "fieldname": "section_break_matrix",
+   "fieldtype": "Section Break",
+   "label": "Wide Matrix Layout"
+  },
+  {
+   "description": "0-indexed row holding each column-group's label (e.g. a colour name).",
+   "fieldname": "matrix_group_label_row",
+   "fieldtype": "Int",
+   "label": "Group Label Row"
+  },
+  {
+   "description": "0-indexed row holding each group's order date.",
+   "fieldname": "matrix_order_date_row",
+   "fieldtype": "Int",
+   "label": "Order Date Row"
+  },
+  {
+   "description": "0-indexed row holding each group's delivery date.",
+   "fieldname": "matrix_delivery_date_row",
+   "fieldtype": "Int",
+   "label": "Delivery Date Row"
+  },
+  {
+   "description": "0-indexed row holding each group's PO number (the pair's first column).",
+   "fieldname": "matrix_po_row",
+   "fieldtype": "Int",
+   "label": "PO Number Row"
+  },
+  {
+   "description": "0-indexed row where item lines begin.",
+   "fieldname": "matrix_items_start_row",
+   "fieldtype": "Int",
+   "label": "Items Start Row"
+  },
+  {
+   "fieldname": "column_break_matrix_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "0-indexed column of the item's own code (informational only - matching uses Description, not this).",
+   "fieldname": "matrix_code_column",
+   "fieldtype": "Int",
+   "label": "Item Code Column"
+  },
+  {
+   "description": "0-indexed column of the item's description - this is the text matched against a Specification.",
+   "fieldname": "matrix_description_column",
+   "fieldtype": "Int",
+   "label": "Description Column"
+  },
+  {
+   "description": "0-indexed column of the item's stems-per-bunch rate (cross-checked against the resolved Specification, not load-bearing).",
+   "fieldname": "matrix_bunch_rate_column",
+   "fieldtype": "Int",
+   "label": "Bunch Rate Column"
+  },
+  {
+   "description": "0-indexed column where the first group's ordered-quantity column starts.",
+   "fieldname": "matrix_first_group_column",
+   "fieldtype": "Int",
+   "label": "First Group Column"
+  },
+  {
+   "default": "2",
+   "description": "Columns per group (e.g. 2 for an ordered/confirmed pair).",
+   "fieldname": "matrix_group_column_width",
+   "fieldtype": "Int",
+   "label": "Group Column Width"
+  },
+  {
+   "default": "Total",
+   "description": "Text in the Item Code Column that marks the end of item rows.",
+   "fieldname": "matrix_stop_value",
+   "fieldtype": "Data",
+   "label": "Stop Value"
   },
   {
    "fieldname": "section_break_1",

@@ -11,9 +11,16 @@ the page records. Every number comes from api/v2/core:
   allocated    pipeline.attach_pipeline -> allocated_stems (Bucket Allocations)
   confirmed    Confirmed Stems rows with a farm and stems > 0 (the chips the
                page shows; same rows confimSalesOrderItem keeps)
-  stock        stock.bucket_rows: shelf farm (Shelf.farm), split into held /
+  stock        stock.available_cells (= bucket_rows + summarize, the read Stock
+               Visibility uses): shelf farm (Shelf.farm), split into held /
                allocated / free; "available" = `allocatable` (free, not too old,
-               cooled) -- what the allocator will actually accept (OR-A5)
+               cooled) -- what the allocator will actually accept (OR-A5).
+               stock.AVAILABLE_DEFINITION is the one sentence shown in tooltips.
+
+Confirmation is NOT written here: the page calls the v1 endpoint
+api.allocation.confimSalesOrderItem, which edits Sales Order >
+custom_confirmed_stems_table (Confirmed Stems rows: farm, stems,
+sales_order_item). The Sales Order Item row itself is never written.
 
 Date meaning: Sales Order delivery_date (README rule 4), any from/to range.
 Orders: submitted (docstatus 1).
@@ -37,7 +44,20 @@ from upande_packhouse.api.v2.core import pipeline, stock
 from upande_packhouse.api.v2.core import region as region_mod
 
 LINE_LIMIT = 1500
-STATUSES = ("open", "partial", "full")
+# open / partial / full: the three states. "confirmed" = partial or full (any stems
+# confirmed); "remaining" = open or partial (still stems to confirm). The pills use
+# the first three, the KPIs use all five.
+STATUSES = ("open", "partial", "full", "confirmed", "remaining")
+
+
+def _matches_status(status, state):
+	if status == "all":
+		return True
+	if status == "confirmed":
+		return state in ("partial", "full")
+	if status == "remaining":
+		return state in ("open", "partial")
+	return state == status
 
 
 def _f(v):
@@ -125,6 +145,7 @@ def get_allocation_planning(
 	by=None,
 	q=None,
 	my_farm=None,
+	cover=None,
 ):
 	"""Order lines, per-farm stock cells and KPIs for the planning grid."""
 	today = frappe.utils.today()
@@ -198,7 +219,7 @@ def get_allocation_planning(
 			return False
 		if by and not any(e["farm"] == by for e in entries.get(ln.name, ())):
 			return False
-		if status != "all" and _state(_f(ln.ordered_stems), confirmed_of(ln)) != status:
+		if not _matches_status(status, _state(_f(ln.ordered_stems), confirmed_of(ln))):
 			return False
 		if q:
 			hay = " ".join(
@@ -218,21 +239,41 @@ def get_allocation_planning(
 
 	kept = [ln for ln in lines if keep(ln)]
 
-	# ---- supply: one stock read for the (variety, length) pairs the lines need
-	pairs = {(ln.item_code, ln.custom_length or "") for ln in kept}
-	cells = {}  # (variety, length, farm) -> summary
-	if pairs and farm_set != set():
-		rows = stock.bucket_rows(
+	# ---- supply: one stock read (core.stock.available_cells -- the same read and
+	# definition as Stock Visibility) for the (variety, length) pairs the lines need
+	def read_supply(for_lines):
+		pairs = {(ln.item_code, ln.custom_length or "") for ln in for_lines}
+		if not pairs or farm_set == set():
+			return {}, []
+		return stock.available_cells(
 			farms=sorted(farm_set) if farm_set is not None else None,
 			varieties=sorted({p[0] for p in pairs}),
 			# a line with no length matches NULL-length stock, which IN can't
 			lengths=None if any(not p[1] for p in pairs) else sorted({p[1] for p in pairs}),
+			pairs=pairs,
 		)
-		rows = [r for r in rows if (r.variety, r.stem_length or "") in pairs]
-		for g in stock.summarize(rows, by=("variety", "stem_length", "shelf_farm")):
-			cells[(g.variety, g.stem_length or "", g.shelf_farm)] = g
-	else:
-		rows = []
+
+	cells, rows = read_supply(kept)
+
+	def pair_cover(for_lines):
+		d = defaultdict(float)
+		for ln in for_lines:
+			d[(ln.item_code, ln.custom_length or "")] += _f(ln.ordered_stems)
+		s_ = defaultdict(float)
+		for (v, length_, _farm), g in cells.items():
+			s_[(v, length_)] += g.allocatable
+		return d, s_
+
+	# Coverage filter: lines whose (variety, length) demand, over the lines that pass
+	# every OTHER filter, exceeds the stock available for it. The pair is all-or-nothing,
+	# so the surviving lines keep the pair's demand intact and the KPIs stay exact.
+	if cover == "short":
+		d0, s0 = pair_cover(kept)
+		short_pairs = {k for k, dem in d0.items() if dem > s0.get(k, 0.0)}
+		kept = [ln for ln in kept if (ln.item_code, ln.custom_length or "") in short_pairs]
+		keep_pairs = {(ln.item_code, ln.custom_length or "") for ln in kept}
+		cells = {k: g for k, g in cells.items() if (k[0], k[1]) in keep_pairs}
+		rows = [r for r in rows if (r.variety, r.stem_length or "") in keep_pairs]
 
 	# Columns: farms in scope that hold stock for these lines or confirmed one.
 	col_set = {k[2] for k in cells} | {e["farm"] for ln in kept for e in entries.get(ln.name, ())}
@@ -254,13 +295,10 @@ def get_allocation_planning(
 	for ln in kept:
 		by_order[ln.parent].append(ln)
 	boxes = sum(bx.order_boxes(v) for v in by_order.values())
-	demand = defaultdict(float)
-	for ln in kept:
-		demand[(ln.item_code, ln.custom_length or "")] += _f(ln.ordered_stems)
-	supply = defaultdict(float)
-	for (v, length_, _farm), g in cells.items():
-		supply[(v, length_)] += g.allocatable
+	demand, supply = pair_cover(kept)
 	uncovered = sum(max(0.0, d - supply.get(k, 0.0)) for k, d in demand.items())
+	short_pairs_now = {k for k, d in demand.items() if d > supply.get(k, 0.0)}
+	states = [_state(_f(ln.ordered_stems), confirmed_of(ln)) for ln in kept]
 	stock_tot = stock.totals(rows) if rows else None
 	kpis = {
 		"lines": len(kept),
@@ -275,10 +313,33 @@ def get_allocation_planning(
 		"stock_allocated_stems": stock_tot.allocated if stock_tot else 0.0,
 		"stock_buckets": stock_tot.buckets if stock_tot else 0,
 		"uncovered_stems": uncovered,
+		"short_lines": sum(1 for ln in kept if (ln.item_code, ln.custom_length or "") in short_pairs_now),
 		"confirmed_stems": confirmed,
+		"confirmed_lines": sum(1 for x in states if x in ("partial", "full")),
+		"open_lines": states.count("open"),
+		"partial_lines": states.count("partial"),
+		"full_lines": states.count("full"),
+		"remaining_stems": sum(max(0.0, _f(ln.ordered_stems) - confirmed_of(ln)) for ln in kept),
+		"remaining_lines": sum(1 for x in states if x in ("open", "partial")),
 		"confirmed_pct": round(confirmed * 100.0 / ordered, 1) if ordered else None,
 		"my_confirmed_stems": mine,
 	}
+
+	# Stock cover per (variety, length): the numbers behind Ordered / Available / Uncovered.
+	cover_rows = []
+	for k, dem in sorted(demand.items()):
+		av = supply.get(k, 0.0)
+		cover_rows.append(
+			{
+				"variety": k[0],
+				"length": k[1],
+				"lines": sum(1 for ln in kept if (ln.item_code, ln.custom_length or "") == k),
+				"ordered": dem,
+				"available": av,
+				"uncovered": max(0.0, dem - av),
+				"farms": {c.shelf_farm: c.allocatable for c in cells.values() if (c.variety, c.stem_length or "") == k},
+			}
+		)
 
 	# ---- line rows (possibly truncated; KPIs above are not)
 	shown = kept[:LINE_LIMIT]
@@ -294,25 +355,43 @@ def get_allocation_planning(
 	out = []
 	for ln in shown:
 		ordered_l = _f(ln.ordered_stems)
-		lf = {}
+		conf = confirmed_of(ln)
+		conf_by_farm = defaultdict(float)
+		for e in entries.get(ln.name, ()):
+			conf_by_farm[e["farm"]] += e["stems"]
+		bd = []
 		for f in columns:
 			g = cells.get((ln.item_code, ln.custom_length or "", f))
-			if not g:
-				continue
-			avail = g.allocatable
-			lf[f] = {
-				"available": avail,
-				"on_shelf": g.stems,
-				"held": g.held,
-				"allocated": g.allocated,
-				"buckets": g.buckets,
-				"balance": avail - ordered_l,
-				"cover_pct": round(avail * 100.0 / ordered_l, 1) if ordered_l else None,
-				"status": "Sufficient"
-				if avail >= ordered_l and avail > 0
-				else ("Partial" if avail > 0 else "No Stock"),
-			}
-		conf = confirmed_of(ln)
+			avail = g.allocatable if g else 0.0
+			c = conf_by_farm.get(f, 0.0)
+			bd.append(
+				{
+					"farm": f,
+					"available": avail,
+					"on_shelf": g.stems if g else 0.0,
+					"held": g.held if g else 0.0,
+					# stems already allocated at this farm for the variety+length, ALL orders
+					# (the allocation ledger has no per-line farm)
+					"allocated": g.allocated if g else 0.0,
+					"buckets": g.buckets if g else 0,
+					"confirmed": c,
+					# confirmed here beyond what the farm can still allocate
+					"shortfall": max(0.0, c - avail),
+				}
+			)
+		avail_total = sum(x["available"] for x in bd)
+		breakdown_totals = {
+			"available": avail_total,
+			"on_shelf": sum(x["on_shelf"] for x in bd),
+			"held": sum(x["held"] for x in bd),
+			"allocated": sum(x["allocated"] for x in bd),
+			"confirmed": sum(x["confirmed"] for x in bd),
+			"shortfall": sum(x["shortfall"] for x in bd),
+			"ordered": ordered_l,
+			"unconfirmed": max(0.0, ordered_l - conf),
+			# ordered beyond the stock available across the farms listed
+			"line_shortfall": max(0.0, ordered_l - avail_total),
+		}
 		out.append(
 			{
 				"key": ln.parent + "||" + str(ln.idx),
@@ -332,13 +411,15 @@ def get_allocation_planning(
 				"stems_ordered": ordered_l,
 				"allocated_stems": _f(ln.allocated_stems),
 				"pick_list_farm": ", ".join(sorted(farms_of.get(ln.name, ()))),
+				"opls": sorted(ln.opls or ()),
 				# confimSalesOrderItem caps a line at custom_ordered_quantity (stale on
 				# older lines, OR-A3); the page caps its input the same way.
 				"confirm_cap": caps.get(ln.name, 0.0),
 				"confirmed_stems": conf,
 				"state": _state(ordered_l, conf),
 				"entries": entries.get(ln.name, []),
-				"farms": lf,
+				"breakdown": bd,
+				"breakdown_totals": breakdown_totals,
 			}
 		)
 	return {
@@ -350,5 +431,7 @@ def get_allocation_planning(
 		"total_lines": len(kept),
 		"truncated": len(kept) > LINE_LIMIT,
 		"kpis": kpis,
+		"cover": cover_rows,
+		"available_definition": stock.AVAILABLE_DEFINITION,
 		"options": options,
 	}

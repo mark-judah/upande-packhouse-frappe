@@ -32,28 +32,38 @@
 .ow-flaglines{display:flex;flex-wrap:wrap;gap:var(--sp-4)}
 .ow-flagline{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500}
 .ow-flagline--bad{color:var(--bad,#dc2626)}.ow-flagline--warn{color:#b45309}
-.ow-flowcard{display:flex;align-items:center;gap:var(--sp-5);background:var(--surface,#fff);border:1px solid var(--hairline);border-radius:12px;padding:var(--sp-4) var(--sp-5);overflow-x:auto}
-.ow-stepper{display:flex;align-items:flex-start;flex:1;min-width:520px}
-.ow-st{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:84px}
-.ow-st__dot{width:30px;height:30px;border-radius:50%;border:2px solid var(--hairline);background:var(--surface,#fff);display:flex;align-items:center;justify-content:center;color:#fff;font-style:normal}
+#kpis .ph-kpi__label{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.3}
+#kpis .ph-kpi__unit{white-space:normal;overflow:visible;text-overflow:clip;font-size:11px;line-height:1.35;overflow-wrap:anywhere}
+.ow-panel{background:var(--surface-2,#fafaf6);border:1px solid var(--hairline);border-radius:14px;padding:var(--sp-4) var(--sp-5);display:flex;align-items:center;gap:var(--sp-5);flex-wrap:wrap}
+.ow-stepwrap{flex:1 1 520px;min-width:0;overflow-x:auto}
+.ow-stepper{display:flex;align-items:flex-start;min-width:540px}
+.ow-st{display:flex;flex-direction:column;align-items:center;gap:3px;min-width:84px;text-align:center}
+.ow-st__dot{width:34px;height:34px;border-radius:50%;border:2px solid var(--hairline);background:var(--surface,#fff);display:grid;place-items:center;color:#fff;position:relative;font-style:normal}
 .ow-st.is-done .ow-st__dot{background:var(--good,#16a34a);border-color:var(--good,#16a34a)}
-.ow-st.is-part .ow-st__dot{border-color:transparent;background:conic-gradient(#f59e0b var(--p),var(--hairline) 0);box-shadow:inset 0 0 0 4px var(--surface,#fff)}
-.ow-st__name{font-size:12px;color:var(--ink)}
-.ow-st__n{font-size:12px;color:var(--ink-mute)}
-.ow-st.is-done .ow-st__n{color:var(--good,#16a34a);font-weight:600}
-.ow-st__line{flex:1;height:2px;background:var(--hairline);margin-top:14px;min-width:16px}
+.ow-st.is-part .ow-st__dot{border-color:#f59e0b}
+.ow-st.is-part .ow-st__dot::after{content:"";width:18px;height:18px;border-radius:50%;background:conic-gradient(#f59e0b var(--p),#fde9c4 0)}
+.ow-st__name{font-size:13px;color:var(--ink-mute)}
+.ow-st.is-part .ow-st__name,.ow-st.is-done .ow-st__name{color:var(--ink);font-weight:600}
+.ow-st__n{font-size:12px;color:var(--ink-faint);font-variant-numeric:tabular-nums}
+.ow-st.is-part .ow-st__n{color:var(--ink-mute)}.ow-st.is-done .ow-st__n{color:var(--good,#16a34a);font-weight:600}
+.ow-st__line{flex:1;height:2px;background:var(--hairline);margin-top:17px;min-width:16px}
 .ow-st__line.is-done{background:var(--good,#16a34a)}
-.ow-pill{background:#ecf8ef;color:#166534;border-radius:10px;padding:8px 14px;font-weight:600;font-size:13px;white-space:nowrap;display:flex;flex-direction:column}
-.ow-pill small{font-weight:400;font-size:11px;opacity:.8}.ow-pill.is-na{background:var(--tint-2);color:var(--ink-mute)}
-.ow-ring{width:84px;height:84px;border-radius:50%;background:conic-gradient(#3b82f6 var(--p),#e5ecf8 0);display:flex;align-items:center;justify-content:center;flex:none}
-.ow-ring>div{width:66px;height:66px;border-radius:50%;background:var(--surface,#fff);display:flex;flex-direction:column;align-items:center;justify-content:center}
-.ow-ring b{font-size:16px}.ow-ring span{font-size:10px;color:var(--ink-mute)}
+.ow-takt{background:var(--tint-2);border-radius:10px;padding:8px 14px;display:flex;flex-direction:column;font-size:11px;color:var(--ink-faint);white-space:nowrap}
+.ow-takt b{font:600 15px var(--sans);color:var(--ink-mute)}
+.ow-takt--done b{color:var(--ink)}
+.ow-takt--running{background:#fef3dc}.ow-takt--running b{color:#b45309}.ow-takt--running span{color:#b45309}
+.ow-ring{width:84px;height:84px;border-radius:50%;background:conic-gradient(var(--ring,#3b82f6) var(--p),#e5ecf8 0);display:flex;align-items:center;justify-content:center;flex:none}
+.ow-ring.is-full{--ring:var(--good,#16a34a)}
+.ow-ring>div{width:66px;height:66px;border-radius:50%;background:var(--surface,#fff);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.ow-ring b{font-size:16px;line-height:1.1}.ow-ring span{font-size:10px;color:var(--ink-mute);line-height:1.15;max-width:58px}
+.ow-panel__right{display:flex;align-items:center;gap:var(--sp-4);margin-left:auto}
+.ow-gapnote{font-size:12px;color:var(--ink-mute);margin:0}
 .ow-boxes-d summary{cursor:pointer;font-size:12px;color:var(--ink-3)}
 .ow-boxes{max-height:260px;overflow:auto}
 .ow-boxes td,.ow-boxes th{font-size:12px;white-space:nowrap}
 .ow-note,.ow-foot{font-size:12px;margin:0}
 .ow-lines .is-sub td{color:var(--ink-mute)}
-@media (max-width:860px){.ow-sec__head,.ow-hrow,.ow-row,.ow-detail{padding-left:var(--sp-5);padding-right:var(--sp-5)}.ow-sec__head{grid-template-columns:20px 1fr auto}.ow-sec__bar{display:none}}
+@media (max-width:860px){.ow-detail{position:sticky;left:0;max-width:calc(100vw - 80px);box-sizing:border-box}.ow-panel{padding:var(--sp-4)}.ow-panel__right{margin-left:0}.ow-sec__head,.ow-hrow,.ow-row,.ow-detail{padding-left:var(--sp-5);padding-right:var(--sp-5)}.ow-sec__head{grid-template-columns:20px 1fr auto}.ow-sec__bar{display:none}}
 </style>
 
 <header class="ph-head">
@@ -82,8 +92,8 @@
   <div class="ph-pills" id="f-preset">
     <button data-value="today">Today</button><button data-value="7d">7 days</button><button data-value="30d">30 days</button>
   </div>
-  <label class="ph-daterange" title="Sales Order delivery date">
-    <input type="date" id="f-from" aria-label="From"><span class="ph-daterange__sep">→</span><input type="date" id="f-to" aria-label="To">
+  <label class="ph-daterange" title="Filters by the Sales Order delivery date">
+    <span class="ph-card__meta" style="margin-right:6px">Delivery date</span><input type="date" id="f-from" aria-label="Delivery date from"><span class="ph-daterange__sep">→</span><input type="date" id="f-to" aria-label="Delivery date to">
   </label>
 </div>
 <div class="ph-filters">
@@ -120,7 +130,7 @@
   let autoOpen = true;
   const masters = { teams: [], farms: [], groups: [] };
 
-  const KPI_LABELS = ["Order lines", "Stems to deliver", "Issuing", "Packing", "Boxes packed", "Dispatched", "Needs attention"];
+  const KPI_LABELS = ["Order lines", "Stems to deliver", "Issued of picked", "Packed of planned", "Boxes packed", "Dispatched", "Needs attention"];
   const FILTER_KEYS = ["region", "team", "farm", "group", "customer", "so", "dn", "si", "q"];
 
   /* ── Filters ── */
@@ -223,14 +233,44 @@
 
   function renderKpis(k) {
     PH.kpis("#kpis", [
-      { label: "Order lines", value: k.lines, unit: PH.fmt.plural(k.orders, "order") + " · " + PH.fmt.plural(k.customers, "customer") + " · " + n(k.unallocated_lines) + " not allocated" },
-      { label: "Stems to deliver", value: k.to_deliver_stems, unit: n(k.ordered_stems) + " ordered · " + n(k.dispatched_stems) + " dispatched · " + n(k.boxes) + " boxes", title: "Ordered stems less dispatched stems" },
-      { label: "Issuing", value: k.issuing_pct == null ? "—" : Math.round(k.issuing_pct), suffix: k.issuing_pct == null ? "" : "%", unit: n(k.issued_stems) + " / " + n(k.picked_stems) + " stems issued", bar: k.issuing_pct || 0, barClass: k.issuing_pct >= 100 ? "good" : "" },
-      { label: "Packing", value: k.packing_pct == null ? "—" : Math.round(k.packing_pct), suffix: k.packing_pct == null ? "" : "%", unit: n(k.packed_stems) + " / " + n(k.planned_stems) + " stems packed", bar: k.packing_pct || 0, barClass: k.packing_pct >= 100 ? "good" : "" },
-      { label: "Boxes packed", value: n(k.complete_boxes) + " / " + n(k.planned_boxes), unit: "complete / planned · " + n(k.precooled_boxes) + " precooling · " + n(k.staged_boxes) + " staged · " + n(k.loaded_boxes) + " loaded" },
-      { label: "Dispatched", value: k.dispatched_pct == null ? "—" : PH.fmt.pct(k.dispatched_pct, 1), unit: n(k.dispatched_stems) + " / " + n(k.ordered_stems) + " stems ordered", bar: k.dispatched_pct || 0, barClass: k.dispatched_pct >= 100 ? "good" : "" },
-      { label: "Needs attention", value: k.bad + k.warn, unit: k.bad + " urgent · " + k.warn + " to check · " + PH.fmt.plural(k.packing_issues, "packing issue") },
+      { label: "Order lines", value: k.lines, unit: PH.fmt.plural(k.orders, "order") + " · " + PH.fmt.plural(k.customers, "customer") + " · " + n(k.unallocated_lines) + " unallocated", title: "Sales Order lines in view (Roses business unit). Click to list them", onClick: () => drill("lines") },
+      { label: "Stems to deliver", value: k.to_deliver_stems, unit: n(k.ordered_stems) + " ordered · " + n(k.boxes) + " boxes", title: "Per order line: ordered stems less dispatched stems (never below 0), added up. Mixed-bunch and mixed-box lines are counted per variety. Click for the lines", onClick: () => drill("deliver") },
+      { label: "Issued of picked", value: k.issuing_pct == null ? "—" : Math.round(k.issuing_pct), suffix: k.issuing_pct == null ? "" : "%", unit: n(k.issued_stems) + " / " + n(k.picked_stems) + " stems", title: "Issued stems ÷ picked stems. Picked = stems the allocator put on the pick lists (Pick List Item rows). Click for the rows", bar: k.issuing_pct || 0, barClass: k.issuing_pct >= 100 ? "good" : "", onClick: () => drill("issuing") },
+      { label: "Packed of planned", value: k.packing_pct == null ? "—" : Math.round(k.packing_pct), suffix: k.packing_pct == null ? "" : "%", unit: n(k.packed_stems) + " / " + n(k.planned_stems) + " stems", title: "Packed stems ÷ planned stems. Planned = every stem in the pick lists' Packing Guide (the full box plan), which can be more than is picked while stock is short. Click for the rows", bar: k.packing_pct || 0, barClass: k.packing_pct >= 100 ? "good" : "", onClick: () => drill("packing") },
+      { label: "Boxes packed", value: n(k.complete_boxes) + " / " + n(k.planned_boxes), unit: "complete / planned · " + n(k.staged_boxes) + " staged · " + n(k.loaded_boxes) + " loaded", title: "Click for the pick lists", onClick: () => drill("boxes") },
+      { label: "Dispatched", value: k.dispatched_pct == null ? "—" : PH.fmt.pct(k.dispatched_pct, 1), unit: n(k.dispatched_stems) + " / " + n(k.ordered_stems) + " stems", title: "Dispatched stems ÷ ordered stems. Click for the lines", bar: k.dispatched_pct || 0, barClass: k.dispatched_pct >= 100 ? "good" : "", onClick: () => drill("dispatched") },
+      { label: "Needs attention", value: k.bad + k.warn, unit: k.bad + " urgent · " + k.warn + " to check · " + k.packing_issues + " pack issues", title: "Click for the lines", onClick: () => drill("attention") },
     ]);
+  }
+
+  /* ── KPI drill-downs: the rows behind each figure (values come from the server; the
+     footer shows the same KPI figure the card does) ── */
+  const allRows = () => ((data && data.sections) || []).reduce((a, sec) => a.concat(sec.rows), []);
+  const lineName = { key: "name", label: "Order · variety · length · pick list", cls: "is-wrap" };
+  function drill(kind) {
+    if (!data) return;
+    const k = data.kpis, rows = allRows();
+    const num = (key, label, total) => ({ key, label, num: true, format: (v) => PH.fmt.num(v), total: total == null ? undefined : () => PH.fmt.num(total) });
+    const stage = { key: "stage_label", label: "Stage" };
+    const cfg = {
+      lines: { title: "Order lines", note: "Every Sales Order line in view (Roses business unit only), one row per line per pick list.", cols: [lineName, { key: "customer_name", label: "Customer" }, { key: "delivery_date", label: "Delivery" }, num("ordered_stems", "Ordered", k.ordered_stems), stage], rows },
+      deliver: { title: "Stems to deliver", note: "Per line: ordered stems less dispatched stems, never below 0. Mixed bunches and mixed boxes are one line per variety, so they add up like any other line.", cols: [lineName, num("ordered_stems", "Ordered", k.ordered_stems), num("dispatched_stems", "Dispatched", k.dispatched_stems), num("to_deliver_stems", "To deliver", k.to_deliver_stems), stage], rows: rows.filter((r) => r.primary) },
+      issuing: { title: "Issuing", note: "Issued stems ÷ picked stems. Picked is what the allocator put on the pick list (Pick List Item rows), so lines without a pick list, or short on it, are not in the denominator.", cols: [lineName, num("picked_stems", "Picked (denominator)", k.picked_stems), num("issued_stems", "Issued", k.issued_stems), num("not_issued_stems", "Not yet issued"), stage], rows: rows.filter((r) => r.opl) },
+      packing: { title: "Packing", note: "Packed stems ÷ planned stems. Planned is the full Packing Guide for the pick list, so it exceeds picked when stems are still to be allocated; see the last column.", cols: [lineName, num("picked_stems", "Picked", k.picked_stems), num("planned_stems", "Planned (denominator)", k.planned_stems), num("packed_stems", "Packed", k.packed_stems), num("not_packed_stems", "Not yet packed"), num("planned_minus_picked", "Planned − picked"), stage], rows: rows.filter((r) => r.opl) },
+      boxes: { title: "Boxes by pick list", note: "Planned boxes come from the Packing Guide; a box is complete when every planned variety in it is packed.", cols: [{ key: "opl", label: "Pick list" }, { key: "team", label: "Team" }, { key: "opl_planned", label: "Planned", num: true }, { key: "opl_complete", label: "Complete", num: true }, { key: "opl_precooled", label: "Precooling", num: true }, { key: "opl_staged", label: "Staged", num: true }, { key: "opl_loaded", label: "Loaded", num: true }], rows: uniqueOpls(rows) },
+      dispatched: { title: "Dispatched", note: "Delivery Note stems (submitted, not returns) against ordered stems.", cols: [lineName, num("ordered_stems", "Ordered", k.ordered_stems), num("dispatched_stems", "Dispatched", k.dispatched_stems), { key: "delivery_notes", label: "Delivery notes", format: (v) => (v || []).join(", ") || "—", cls: "is-wrap" }, stage], rows: rows.filter((r) => r.primary) },
+      attention: { title: "Needs attention", note: "Lines with a flag; urgent first.", cols: [lineName, { key: "flags", label: "Flags", cls: "is-wrap", format: (v) => (v || []).map((f) => f.label).join("; ") }, stage], rows: rows.filter((r) => (r.flags || []).length) },
+    }[kind];
+    const box = document.createElement("div");
+    box.innerHTML = '<p class="ph-muted ow-note" style="margin:0 0 var(--sp-3)"></p><div></div>';
+    box.firstChild.textContent = cfg.note;
+    PH.modal({ title: cfg.title, sub: PH.date.label(st.get("from"), st.get("to")) + " · " + PH.fmt.plural(cfg.rows.length, "row"), size: "xl", body: box });
+    PH.table(box.lastChild, { columns: cfg.cols, rows: cfg.rows, compact: true, pageSize: 15, empty: "Nothing here" });
+  }
+  function uniqueOpls(rows) {
+    const seen = {}, out = [];
+    rows.forEach((r) => { if (r.opl && !seen[r.opl]) { seen[r.opl] = 1; const b = r.opl_boxes || {}; out.push({ opl: r.opl, team: r.team, opl_planned: b.planned, opl_complete: b.complete, opl_precooled: b.precooled, opl_staged: b.staged, opl_loaded: b.loaded }); } });
+    return out;
   }
 
   const STAGES = [["all", "All"], ["notalloc", "Not allocated"], ["issue", "Issuing"], ["pack", "Packing"], ["packed", "Packed"], ["precooling", "Precooling"], ["staged", "Staged"], ["loaded", "Loaded"], ["dispatched", "Dispatched"], ["invoiced", "Invoiced"]];
@@ -282,14 +322,14 @@
       <button class="ow-sec__head" type="button" data-toggle-sec="${PH.esc(sec.key)}">
         <span class="ow-chev">${PH.icon("chevronRight", 14)}</span>
         <div><div class="ow-sec__name">${PH.esc(sec.name)}</div><div class="ow-sec__meta">${PH.esc(meta)}</div></div>
-        ${unalloc ? "<div></div><div></div>" : secBar(t.issued_stems, t.picked_stems, "Issuing") + secBar(t.packed_stems, t.planned_stems, "Packing")}
+        ${unalloc ? "<div></div><div></div>" : secBar(t.issued_stems, t.picked_stems, "Issued of picked") + secBar(t.packed_stems, t.planned_stems, "Packed of planned")}
         <div class="ow-flags">${flags}</div>
       </button>`;
     if (open) {
       const byCust = data.view === "customer";
       h += `<div class="ph-table-wrap"><div class="ow-inner"><div class="ow-grid ow-hrow">
         <span></span><span class="ph-card__meta">Order · variety · length · pick list</span><span class="ph-card__meta">Delivery</span>
-        <span class="ph-card__meta">Issuing (stems)</span><span class="ph-card__meta">Packing (stems)</span><span class="ph-card__meta">Stage</span><span class="ph-card__meta">Attention</span></div>`;
+        <span class="ph-card__meta" title="Issued / picked on the pick list">Issuing (stems)</span><span class="ph-card__meta" title="Packed / planned in the Packing Guide">Packing (stems)</span><span class="ph-card__meta">Stage</span><span class="ph-card__meta">Attention</span></div>`;
       h += sec.rows.map((r) => rowHtml(r, byCust)).join("") + "</div></div>";
     }
     return h + "</section>";
@@ -302,7 +342,7 @@
     const lbl = PH.fmt.date(r.delivery_date, true);
     return done ? lbl : d < 0 ? lbl + " · " + -d + "d late" : d === 0 ? lbl + " · today" : lbl;
   };
-  const stageCls = (r) => ({ notalloc: "bad", allocating: "", to_issue: "outline", issuing: "signal", to_pack: "warn", packing: "signal", packed: "good", staged: "good", loaded: "good", dispatched: "good", invoiced: "good" }[r.stage] || "");
+  const stageCls = (r) => ({ notalloc: "bad", allocating: "", to_issue: "outline", issuing: "signal", to_pack: "warn", packing: "signal", packed: "good", precooling: "signal", precooled: "good", staging: "signal", staged: "good", loading: "signal", loaded: "good", dispatching: "signal", dispatched: "good", invoiced: "good" }[r.stage] || "");
 
   function rowHtml(r, byCust) {
     const open = openRow.has(r.key), un = !r.opl;
@@ -343,51 +383,57 @@
     return h;
   }
 
-  const dur = (m) => m == null ? "" : (Math.floor(m / 60) ? Math.floor(m / 60) + "h " : "") + (m % 60) + "m";
+  const dur = (sec) => {
+    if (sec == null) return "";
+    if (sec < 60) return sec + "s";
+    const m = Math.floor(sec / 60), d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60);
+    return (d ? d + "d " : "") + (d || h ? h + "h " : "") + (m % 60) + "m";
+  };
+  const tm = (x) => x ? PH.fmt.date(x.slice(0, 10), true) + " " + x.slice(11, 16) : "—";
 
-  /* Line drill-down: documents, the flow in stems (issued → packed → staged → loaded → dispatched),
-     per-box takt (issuing → precooling) with each box's stage times and one footer line. */
+  /* Order card: the stage (one word, "Loaded" only when every stem is loaded), takt time,
+     one bar per stage, and the per-box times in a drill-down.
+     Takt = first issue → last box staged; while boxes are still to stage it is shown as
+     "in progress" with the time elapsed since the first issue. */
+  function stagedNote(r, t) {
+    const sp = (r.progress || []).find((x) => x.stage === "staged");
+    return r.primary && sp ? n(sp.done) + " / " + n(sp.total) + " stems staged" : n(t.staged_boxes) + " / " + n(t.boxes) + " boxes staged";
+  }
+  function ringHtml(r) {
+    if (r.completion_pct == null || !r.primary) return "";
+    const p = r.completion_pct, full = p >= 100;
+    return `<div class="ow-ring${full ? " is-full" : ""}" style="--p:${p}%" title="Order completion = staged stems ÷ ordered stems, issue to staged (${n(r.staged_stems)} / ${n(r.ordered_stems)}). Only 100% is Complete; before that the word is the current stage."><div><b>${Math.round(p)}%</b><span>${full ? "Complete" : PH.esc(r.stage_label)}</span></div></div>`;
+  }
+  function taktHtml(r) {
+    const t = r.takt || { state: "none" };
+    if (t.state === "done") return `<div class="ow-takt ow-takt--done" title="Takt time: first stem issued (${tm(t.issued_at)}) to last box staged (${tm(t.staged_at)})"><b>Takt ${dur(t.secs)}</b><span>issue → staged</span></div>`;
+    if (t.state === "running") return `<div class="ow-takt ow-takt--running" title="Takt is final once every box is staged. Shown: time since the first stem was issued (${tm(t.issued_at)}); ${stagedNote(r, t)}"><b>Takt ${dur(t.secs)}</b><span>in progress · issue → staged</span></div>`;
+    return `<div class="ow-takt ow-takt--none" title="${PH.esc(t.reason || "Not issued yet")}"><b>Takt —</b><span>issue → staged</span></div>`;
+  }
   function detailHtml(r) {
     const d = detail[r.opl] || {}, fl = d.flow, ob = r.opl_boxes, own = r.primary;
     const flags = (r.flags || []).map((f) => `<span class="ow-flagline ow-flagline--${f.sev === "bad" ? "bad" : "warn"}">${PH.icon("alert", 14)}${PH.esc(f.label)}</span>`).join("");
-    // Stepper: Issued → Packed → Precooling → Staged → Loaded → Dispatched (stems; the last four against ordered).
-    const steps = r.opl ? [
-      ["Issued", r.issued_stems, r.picked_stems],
-      ["Packed", r.packed_stems, r.planned_stems],
-      ["Precooling", own ? r.precooled_stems : null, r.ordered_stems],
-      ["Staged", own ? r.staged_stems : null, r.ordered_stems],
-      ["Loaded", own ? r.loaded_stems : null, r.ordered_stems],
-      ["Dispatched", own ? r.dispatched_stems : null, r.ordered_stems],
-    ] : [];
-    const ratio = (x) => (x[1] == null || !x[2]) ? 0 : Math.min(1, x[1] / x[2]);
-    const overall = steps.length ? Math.round(100 * steps.reduce((a, x) => a + ratio(x), 0) / steps.length) : 0;
-    const stepper = steps.map((x, i) => {
-      const f = ratio(x), done = f >= 0.999, part = !done && f > 0;
-      const mark = done ? PH.icon("check", 14) : "";
-      return `<div class="ow-st${done ? " is-done" : part ? " is-part" : ""}">
-        <i class="ow-st__dot" style="${part ? "--p:" + Math.round(f * 100) + "%" : ""}">${mark}</i>
-        <span class="ow-st__name">${x[0]}</span>
-        <span class="ow-st__n">${x[1] == null ? "—" : n(x[1]) + " / " + n(x[2])}</span>
-      </div>${i < steps.length - 1 ? '<span class="ow-st__line' + (done ? " is-done" : "") + '"></span>' : ""}`;
+    const prog = r.progress || [];
+    const stepper = prog.map((x, i) => {
+      const na = !(x.stage === "issued" || x.stage === "packed") && !own;   // later stages sit on the line's first pick list
+      const f = na || !x.total ? 0 : Math.min(1, x.done / x.total);
+      const done = !na && x.state === "done", part = !na && x.state === "partial";
+      const label = x.state === "none" || na ? PH.esc(x.word.replace(/^Not /, "").replace(/^./, (c) => c.toUpperCase())) : PH.esc(x.word);
+      return `<div class="ow-st${done ? " is-done" : part ? " is-part" : ""}"><i class="ow-st__dot" style="${part ? "--p:" + Math.round(f * 100) + "%" : ""}">${done ? PH.icon("check", 16) : ""}</i><span class="ow-st__name">${label}</span><span class="ow-st__n">${na ? "—" : n(x.done) + " / " + n(x.total)}</span></div>${i < prog.length - 1 ? '<span class="ow-st__line' + (done ? " is-done" : "") + '"></span>' : ""}`;
     }).join("");
-    const takt = fl && fl.avg_takt_mins != null
-      ? `<div class="ow-pill" title="Average time from issuing to precooling, over ${fl.takt_boxes} boxes">Takt ${dur(fl.avg_takt_mins)}<small>issue → precool</small></div>`
-      : `<div class="ow-pill is-na" title="No box has been scanned into precooling yet">Takt —<small>issue → precool</small></div>`;
-    const ring = `<div class="ow-ring" style="--p:${overall}%"><div><b>${overall}%</b><span>Complete</span></div></div>`;
-    const tm = (x) => x ? PH.fmt.date(x.slice(0, 10), true) + " " + x.slice(11, 16) : "—";
     let boxes = "";
     if (r.opl && ob) {
       const bx = fl ? fl.boxes : [];
-      const rowsH = bx.map((b) => `<tr><td>${PH.esc(b.no || b.box)}</td><td>${tm(b.packed_at)}</td><td>${tm(b.precooling_at)}</td><td><b>${b.takt_mins == null ? "—" : dur(b.takt_mins)}</b></td><td>${tm(b.staged_at)}</td><td>${tm(b.loaded_at)}</td><td>${tm(b.dispatched_at)}</td></tr>`).join("");
-      boxes = `<details class="ow-boxes-d"><summary>${n(ob.complete)} / ${n(ob.planned)} boxes packed · per-box times${fl && fl.issued_at ? " · issued " + tm(fl.issued_at) : ""}</summary>
-        <div class="ow-boxes"><table class="ph-table"><thead><tr><th>Box</th><th>Packed</th><th>Precooling in</th><th>Takt</th><th>Staged</th><th>Loaded</th><th>Dispatched</th></tr></thead><tbody>${rowsH || '<tr><td colspan="7" class="ph-muted">' + (fl ? "No boxes packed yet" : "…") + "</td></tr>"}</tbody></table></div></details>`;
+      const rowsH = bx.map((b) => `<tr><td>${PH.esc(b.no || b.box)}</td><td>${tm(b.packed_at)}</td><td>${tm(b.precooling_at)}</td><td>${tm(b.staged_at)}</td><td title="${PH.esc(b.takt_note || "")}"><b>${b.takt_secs == null ? "—" : dur(b.takt_secs)}</b></td><td>${tm(b.loaded_at)}</td><td>${tm(b.dispatched_at)}</td></tr>`).join("");
+      boxes = `<details class="ow-boxes-d"><summary>${n(ob.complete)} / ${n(ob.planned)} boxes packed · per-box times${fl && fl.issued_at ? " · first issued " + tm(fl.issued_at) : ""}</summary>
+        <div class="ow-boxes"><table class="ph-table"><thead><tr><th>Box</th><th>Packed</th><th>Precooling in</th><th>Staged</th><th>Takt (issue → staged)</th><th>Loaded</th><th>Dispatched</th></tr></thead><tbody>${rowsH || '<tr><td colspan="7" class="ph-muted">' + (fl ? "No boxes packed yet" : "…") + "</td></tr>"}</tbody></table></div></details>`;
     }
     const sh = d.shelves && d.shelves.length ? PH.esc(d.shelves.slice(0, 3).join(", ")) + (d.shelves.length > 3 ? " +" + (d.shelves.length - 3) : "") : "";
     const foot = [r.origin_farm ? "Stems from " + PH.esc(r.origin_farm) : "", sh ? "Shelves " + sh : "", r.opl && !own ? "Several pick lists: precooling to dispatch show on the first" : ""].filter(Boolean).join(" · ");
     const issues = r.packing_issues ? ` <button class="ph-btn ph-btn--ghost ph-btn--sm" type="button" data-issues="${PH.esc(r.opl)}">${PH.fmt.plural(r.packing_issues, "packing issue")}</button>` : "";
     return `<div class="ow-detail" data-detail="${PH.esc(r.key)}">
       ${flags ? `<div class="ow-flaglines">${flags}</div>` : ""}
-      ${steps.length ? `<div class="ow-flowcard"><div class="ow-stepper">${stepper}</div>${takt}${ring}</div>` : '<p class="ph-muted ow-note">No pick list yet.</p>'}
+      ${r.opl ? `<div class="ow-panel"><div class="ow-stepwrap"><div class="ow-stepper">${stepper}</div></div><div class="ow-panel__right">${taktHtml(r)}${ringHtml(r)}</div></div>` : '<p class="ph-muted ow-note">No pick list yet.</p>'}
       ${boxes}
       <div class="ow-docs">${docLinks(r)}</div>
       ${foot || issues ? `<div class="ph-muted ow-foot">${foot}${issues}</div>` : ""}
@@ -447,7 +493,7 @@
       { key: "ordered_stems", label: "Ordered stems" }, { key: "picked_stems", label: "Picked stems" }, { key: "issued_stems", label: "Issued stems" },
       { key: "planned_stems", label: "Planned stems" }, { key: "packed_stems", label: "Packed stems" }, { key: "precooled_stems", label: "Precooling stems (entered)" }, { key: "staged_stems", label: "Staged stems" },
       { key: "loaded_stems", label: "Loaded stems" }, { key: "dispatched_stems", label: "Dispatched stems" },
-      { key: "stage_label", label: "Stage" }, { key: "flags", label: "Attention", csv: (v) => (v || []).map((f) => f.label).join("; ") },
+      { key: "stage_label", label: "Stage" }, { key: "takt_secs", label: "Takt seconds (issue to staged, when complete)", csv: (v, r) => (r.takt && r.takt.state === "done" ? r.takt.secs : "") }, { key: "flags", label: "Attention", csv: (v) => (v || []).map((f) => f.label).join("; ") },
       { key: "delivery_notes", label: "Delivery notes", csv: (v) => (v || []).join(", ") }, { key: "sales_invoices", label: "Sales invoices", csv: (v) => (v || []).join(", ") },
     ]);
   });

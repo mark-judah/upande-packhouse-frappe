@@ -41,45 +41,44 @@
 
 <section class="ph-card ph-card--flush">
   <div class="ph-card__head">
-    <h2 class="ph-card__title">Farm stock &amp; confirmation <span class="ph-badge" id="line-count">0</span></h2>
+    <h2 class="ph-card__title">Order lines <span class="ph-badge" id="line-count">0</span></h2>
     <div class="ph-card__tools" id="chips"></div>
   </div>
-  <div class="ap-legend ph-legend">
-    <span><span class="ph-dot ph-dot--good"></span>Sufficient stock</span>
-    <span><span class="ph-dot ph-dot--warn"></span>Partial stock</span>
-    <span><span class="ph-dot"></span>No stock</span>
-    <span>Stock = stems available to allocate at the shelf's farm (not held for discard, not allocated, not too old, cooled). Under it: balance after the line · cover %</span>
-  </div>
+  <div class="ap-legend ph-muted" id="legend"></div>
   <div id="grid"></div>
   <p class="ph-muted ap-note" id="trunc" hidden></p>
 </section>
 
 {% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
 <style>
-  /* Allocation grid: one row per order line, one stock column per farm. */
-  .ap-legend{padding:0 32px var(--sp-4)}
+  /* Allocation grid: one compact row per order line. */
+  .ap-legend{padding:0 32px var(--sp-4);font-size:13px}
   .ap-note{padding:var(--sp-3) 32px;margin:0}
-  #grid .ph-table td{vertical-align:top}
+  #grid .ph-table td{vertical-align:middle}
   #grid .ph-table td small{display:block;margin-top:2px;color:var(--ink-mute);white-space:nowrap}
-  #grid .ap-stock{display:inline-flex;align-items:center;gap:var(--sp-2)}
-  #grid .ap-chips{display:flex;flex-wrap:wrap;gap:var(--sp-1);margin-bottom:var(--sp-2);max-width:280px}
-  #grid .ap-chips .ph-badge button{border:0;background:transparent;color:inherit;cursor:pointer;padding:0;display:inline-grid;place-items:center;opacity:.7}
-  #grid .ap-chips .ph-badge button:hover{opacity:1}
-  #grid .ap-chips .ph-ic{width:11px;height:11px}
-  #grid .ap-mine{margin-top:var(--sp-3)}
-  #grid .ap-mine:empty{display:none}
-  #grid .ap-act{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:nowrap}
-  #grid .ap-act .ph-table-input{width:96px;flex:0 0 auto}
-  #grid .ap-first{min-width:200px}
+  #grid .ap-first{min-width:170px;max-width:260px}
+  #grid .ap-first small{white-space:normal;word-break:break-word}
+  #grid .ap-first .ph-strong{white-space:normal}
   #grid .is-strong{white-space:nowrap}
-  @media (max-width:860px){ .ap-legend{padding:0 var(--sp-5) var(--sp-4)} .ap-note{padding:var(--sp-3) var(--sp-5)} }
+  #grid .ap-conf{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:nowrap;min-width:230px}
+  #grid .ap-conf .ph-table-input{width:76px;flex:0 0 auto}
+  #grid .ap-conf .ph-badge{flex:0 0 auto}
+  #grid a.ap-doc,.ap-drawer a.ap-doc{color:inherit;text-decoration:underline;text-decoration-color:var(--hairline);text-underline-offset:3px}
+  #grid a.ap-doc:hover,.ap-drawer a.ap-doc:hover{text-decoration-color:currentColor}
+  .ap-drawer .ph-table td,.ap-drawer .ph-table th{white-space:nowrap}
+  .ap-drawer tfoot td{font-weight:600;border-top:1px solid var(--hairline)}
+  .ap-drawer .ap-rec{margin-top:var(--sp-4)}
+  .ap-drawer .ap-rec .ph-row{display:flex;justify-content:space-between;gap:var(--sp-3);padding:4px 0}
+  @media (max-width:860px){ .ph-filters .ph-select{max-width:100%} .ap-legend{padding:0 var(--sp-5) var(--sp-4)} .ap-note{padding:var(--sp-3) var(--sp-5)} #grid .ap-conf{min-width:230px} }
 </style>
+
 {% raw %}
 <script>
 (function () {
   "use strict";
   const DD_METHOD = "upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.default_delivery_date";
   const FETCH = "upande_packhouse.api.v2.allocation_planning.get_allocation_planning";
+  // The v1 write endpoint, unchanged: it edits Sales Order > Confirmed Stems (custom_confirmed_stems_table).
   const CONFIRM = "upande_packhouse.api.allocation.confimSalesOrderItem";
   // Same key the original page used, so the user's farm carries across.
   const LOC_KEY = "selectedLocation";
@@ -89,7 +88,7 @@
   // Old links carried a single ?date=; open them on that day.
   const legacyDate = new URLSearchParams(location.search).get("date");
   const st = PH.state({
-    from: serverTomorrow, to: serverTomorrow, region: "", farm: "", status: "all",
+    from: serverTomorrow, to: serverTomorrow, region: "", farm: "", status: "all", cover: "",
     customer: "", order: "", variety: "", length: "", by: "", q: "",
   });
   if (legacyDate && /^\d{4}-\d{2}-\d{2}$/.test(legacyDate) && !new URLSearchParams(location.search).has("from")) st.set({ from: legacyDate, to: legacyDate }, { silent: true });
@@ -135,11 +134,12 @@
   const remaining = (l) => Math.max(0, cap(l) - confirmedTotal(l));
 
   /* ── Load ── */
-  PH.kpiSkeleton("#kpis", ["Order lines", "Ordered stems", "Available stock", "Uncovered demand", "Confirmed"]);
+  const KPI_LABELS = ["Order lines", "Ordered stems", "Available stock", "Uncovered demand", "Confirmed"];
+  PH.kpiSkeleton("#kpis", KPI_LABELS);
   function args() {
     const s = st.get();
     return {
-      from_date: s.from, to_date: s.to, region: s.region, farm: s.farm, status: s.status,
+      from_date: s.from, to_date: s.to, region: s.region, farm: s.farm, status: s.status, cover: s.cover,
       customer: s.customer, sales_order: s.order, variety: s.variety, length: s.length, by: s.by, q: s.q, my_farm: myFarm,
     };
   }
@@ -198,7 +198,8 @@
   function render() {
     if (!data) return;
     const s = st.get();
-    PH.text("#sub", "Farm-wise stock and partial confirmation · deliveries " + (s.from === s.to ? "on " : "") + PH.date.label(s.from, s.to));
+    PH.text("#sub", "Confirm order lines by farm · deliveries " + (s.from === s.to ? "on " : "") + PH.date.label(s.from, s.to));
+    PH.text("#legend", (data.available_definition || "") + " Use Per farm on a row for the farm split.");
     renderKpis();
     renderChips();
     PH.text("#line-count", PH.fmt.num(data.total_lines || 0));
@@ -211,102 +212,155 @@
         scope ? "Only orders whose farm is " + scope + " are listed while a farm or region is chosen. Orders with no farm show under All sites."
           : "No submitted sales orders deliver " + PH.date.label(s.from, s.to) + " with these filters.");
     }
-    PH.keepScroll(() => PH.set("#grid", table(lines, data.columns || [])));
+    PH.keepScroll(() => PH.set("#grid", table(lines)));
+  }
+
+  // A KPI click narrows the table to the rows behind that number; clicking it again clears it.
+  function quick(patch) {
+    const s = st.get();
+    const same = Object.keys(patch).every((k) => s[k] === patch[k]);
+    st.set(same ? { status: "all", cover: "" } : Object.assign({ status: "all", cover: "" }, patch));
   }
 
   function renderKpis() {
     const k = data.kpis || {};
+    const s = st.get();
     const scope = scopeLabel();
     const pct = k.confirmed_pct;
     const linesUnit = PH.fmt.plural(k.customers || 0, "customer") + " · " + PH.fmt.plural(k.orders || 0, "order") + (scope ? " · orders for " + scope : "");
     PH.kpis("#kpis", [
-      { label: "Order lines", value: k.lines || 0, unit: linesUnit },
-      { label: "Ordered stems", value: k.ordered_stems || 0, unit: PH.fmt.plural(k.ordered_boxes || 0, "box", "boxes") + " · " + PH.fmt.num(k.allocated_stems || 0) + " allocated" },
+      { label: "Order lines", value: k.lines || 0, unit: linesUnit, active: s.status === "all" && !s.cover,
+        title: "Click to show every line (clears the status and coverage shortcuts)", onClick: () => st.set({ status: "all", cover: "" }) },
+      { label: "Ordered stems", value: k.ordered_stems || 0, unit: PH.fmt.plural(k.ordered_boxes || 0, "box", "boxes") + " · " + PH.fmt.num(k.allocated_stems || 0) + " allocated",
+        title: "Click for ordered stems by variety and length", onClick: () => openCover("ordered") },
       { label: "Available stock", value: k.available_stems || 0,
         unit: "stems · of " + PH.fmt.num(k.on_shelf_stems || 0) + " on shelf" + (scope ? " at " + scope : ""),
-        title: "For the varieties/lengths these lines need. On shelf " + PH.fmt.num(k.on_shelf_stems || 0) + " in " + PH.fmt.num(k.stock_buckets || 0) + " buckets: "
-          + PH.fmt.num(k.held_stems || 0) + " held for discard, " + PH.fmt.num(k.stock_allocated_stems || 0) + " already allocated; the rest minus too-old / cooling stems is available." },
-      { label: "Uncovered demand", value: k.uncovered_stems || 0, unit: "stems ordered beyond available stock (per variety & length)" },
+        title: (data.available_definition || "") + " On shelf " + PH.fmt.num(k.on_shelf_stems || 0) + " in " + PH.fmt.num(k.stock_buckets || 0) + " buckets: "
+          + PH.fmt.num(k.held_stems || 0) + " held for discard, " + PH.fmt.num(k.stock_allocated_stems || 0) + " already allocated. Click for the stock by variety and length.",
+        onClick: () => openCover("available") },
+      { label: "Uncovered demand", value: k.uncovered_stems || 0, unit: "stems · " + PH.fmt.plural(k.short_lines || 0, "line") + " short of stock",
+        title: "Ordered beyond available stock, per variety and length. Click to list the lines that are short.",
+        active: s.cover === "short", onClick: () => quick({ cover: "short" }) },
       { label: "Confirmed", value: k.confirmed_stems || 0,
-        unit: PH.fmt.pct(pct) + " of ordered · " + (myFarm ? PH.fmt.num(k.my_confirmed_stems || 0) + " by " + myFarm : "select your farm"),
-        title: myFarm ? "My confirmed: " + PH.fmt.num(k.my_confirmed_stems || 0) + " stems" : "", bar: pct || 0, barClass: (pct || 0) >= 100 ? "good" : "" },
+        unit: PH.fmt.plural(k.confirmed_lines || 0, "line") + " · " + PH.fmt.pct(pct) + " of ordered" + (myFarm ? " · " + PH.fmt.num(k.my_confirmed_stems || 0) + " by " + myFarm : ""),
+        title: "Click to list the lines with any confirmed stems. Stems still to confirm: " + PH.fmt.num(k.remaining_stems || 0) + " on " + PH.fmt.plural(k.remaining_lines || 0, "line") + " (use the Unconfirmed / Partial pills)", bar: pct || 0, barClass: (pct || 0) >= 100 ? "good" : "",
+        active: s.status === "confirmed", onClick: () => quick({ status: "confirmed" }) },
     ]);
   }
 
-  const LABELS = { region: "Region", farm: "Farm", status: "Status", customer: "Customer", order: "Order", variety: "Variety", length: "Length", by: "Confirmed by", q: "Search" };
-  const STATUS = { open: "Unconfirmed", partial: "Partial", full: "Confirmed" };
+  const LABELS = { region: "Region", farm: "Farm", status: "Status", cover: "Coverage", customer: "Customer", order: "Order", variety: "Variety", length: "Length", by: "Confirmed by", q: "Search" };
+  const STATUS = { open: "Unconfirmed", partial: "Partial", full: "Confirmed", confirmed: "Has confirmed stems", remaining: "Still to confirm" };
+  const COVER = { short: "Short of stock" };
   function renderChips() {
     const s = st.get();
     const act = Object.keys(LABELS).filter((k) => k === "status" ? s.status !== "all" : s[k]);
-    if (!act.length && s.from === st.defaults.from && s.to === st.defaults.to) return PH.set("#chips", "");
-    PH.set("#chips", act.map((k) => PH.html`<span class="ph-filter-chip">${LABELS[k]}: ${k === "status" ? STATUS[s.status] : s[k]}<button type="button" data-clear="${k}" aria-label="Remove filter">${PH.raw(PH.icon("close", 12))}</button></span>`).join("")
+    if (!act.length) return PH.set("#chips", "");
+    PH.set("#chips", act.map((k) => PH.html`<span class="ph-filter-chip">${LABELS[k]}: ${k === "status" ? STATUS[s.status] || s.status : k === "cover" ? COVER[s.cover] || s.cover : s[k]}<button type="button" data-clear="${k}" aria-label="Remove filter">${PH.raw(PH.icon("close", 12))}</button></span>`).join("")
       + '<span class="ph-link" data-clear-all>Clear all</span>');
   }
   document.getElementById("chips").addEventListener("click", (e) => {
     const one = e.target.closest("[data-clear]");
     if (one) return st.set({ [one.dataset.clear]: one.dataset.clear === "status" ? "all" : "" });
-    if (e.target.closest("[data-clear-all]")) st.reset();
+    // Clears every filter but keeps the delivery dates being looked at.
+    if (e.target.closest("[data-clear-all]")) st.set({ region: "", farm: "", status: "all", cover: "", customer: "", order: "", variety: "", length: "", by: "", q: "" });
   });
 
-  function stockCell(c) {
-    if (!c) return '<td class="is-num ph-muted">—</td>';
-    const avail = +c.available || 0, bal = +c.balance || 0;
-    const dot = c.status === "Sufficient" ? "good" : c.status === "Partial" ? "warn" : "";
-    const title = c.status + " · " + PH.fmt.num(c.on_shelf) + " on shelf in " + PH.fmt.num(c.buckets || 0) + " buckets"
-      + (c.held ? " · " + PH.fmt.num(c.held) + " held for discard" : "") + (c.allocated ? " · " + PH.fmt.num(c.allocated) + " allocated" : "")
-      + " · balance " + PH.fmt.num(bal);
-    return PH.html`<td class="is-num" title="${title}"><span class="ap-stock"><span class="ph-dot${dot ? " ph-dot--" + dot : ""}"></span><span class="${avail ? "ph-strong" : "ph-muted"}">${PH.fmt.num(avail)}</span></span><small class="${bal >= 0 ? "ph-good" : "ph-bad"}">${bal >= 0 ? "+" : ""}${PH.fmt.num(bal)} · ${PH.fmt.pct(c.cover_pct)}</small>${avail !== +c.on_shelf ? PH.raw(`<small>${PH.fmt.num(c.on_shelf)} on shelf</small>`) : ""}</td>`.__raw;
-  }
+  /* ── Table: customer/order, line, variety, length, ordered, boxes, confirmation, + Per farm ── */
+  const docLink = (doctype, name, text, cls) => PH.html`<a class="ap-doc ${cls || ""}" href="${PH.docUrl(doctype, name)}" target="_blank" rel="noopener" data-doc="${doctype}">${text == null ? name : text}</a>`.__raw;
 
-  function confirmedCell(l) {
+  function confirmationCell(l) {
     const ct = confirmedTotal(l), ord = +l.stems_ordered || 0;
-    const pc = ord > 0 ? Math.min(100, Math.round((ct / ord) * 100)) : 0;
-    const chips = entries(l).map((e) => {
-      const mine = e.farm === myFarm;
-      return PH.html`<span class="ph-badge${mine ? " ph-badge--ink" : ""}" title="${e.farm}: ${PH.fmt.num(e.stems)} stems">${e.farm}: ${PH.fmt.num(e.stems)}${mine ? PH.raw(`<button type="button" data-remove="${PH.esc(l.key)}" aria-label="Remove my confirmation">${PH.icon("close")}</button>`) : ""}</span>`.__raw;
-    }).join("");
-    return `<td><div class="ap-chips">${chips || '<span class="ph-muted">None yet</span>'}</div>
-      <div class="ph-progress-row"><span>${PH.fmt.num(ct)} / ${PH.fmt.num(ord)}</span><b>${pc}%</b></div>
-      <div class="ph-progress"><i class="${pc >= 100 ? "good" : pc > 0 ? "warn" : ""}" style="width:${pc}%"></i></div>
-      <div class="ap-mine">${actionCell(l)}</div></td>`;
+    const farms = entries(l).map((e) => e.farm + ": " + PH.fmt.num(e.stems)).join(" · ");
+    const state = l.state;
+    const badge = state === "full" ? '<span class="ph-badge ph-badge--good" data-state="full">Confirmed</span>'
+      : state === "partial" ? `<span class="ph-badge ph-badge--warn" data-state="partial">${PH.fmt.num(ct)} / ${PH.fmt.num(ord)}</span>`
+      : '<span class="ph-badge" data-state="open">Unconfirmed</span>';
+    return `<td><div class="ap-conf" title="${PH.esc(farms || "Not confirmed by any farm yet")}">${badge}${actionCell(l)}</div></td>`;
   }
 
   function actionCell(l) {
     const c = cap(l), rem = remaining(l), mine = myStems(l);
-    if (!myFarm) return '<span class="ph-link" data-pick-farm>Select your farm to confirm</span>';
+    if (!myFarm) return l.state === "full" ? "" : '<span class="ph-link" data-pick-farm>Select your farm to confirm</span>';
     if (rem > 0 || mine > 0) {
       const max = rem + mine;
       const def = mine > 0 ? mine : Math.min(rem, c);
       const val = drafts[l.key] != null ? drafts[l.key] : def;
       const k = PH.esc(l.key);
-      return `<div class="ap-act">
-        <input class="ph-table-input" type="number" min="0" max="${max}" step="1" value="${PH.esc(val)}" data-input="${k}" title="Up to ${PH.fmt.num(max)} stems" aria-label="Stems to confirm">
+      return `<input class="ph-table-input" type="number" min="0" max="${max}" step="1" value="${PH.esc(val)}" data-input="${k}" title="Up to ${PH.fmt.num(max)} stems for ${PH.esc(myFarm)}" aria-label="Stems to confirm">
         <button type="button" class="ph-btn ph-btn--sm ph-btn--primary" data-confirm="${k}">${mine > 0 ? "Update" : "Confirm"}</button>
-        ${mine > 0 ? `<button type="button" class="ph-iconbtn ph-iconbtn--sm" data-remove="${k}" title="Remove my confirmation" aria-label="Remove my confirmation">${PH.icon("close")}</button>` : ""}
-      </div><small>Up to ${PH.fmt.num(max)} for ${PH.esc(myFarm)}</small>`;
+        ${mine > 0 ? `<button type="button" class="ph-iconbtn ph-iconbtn--sm" data-remove="${k}" title="Remove my confirmation" aria-label="Remove my confirmation">${PH.icon("close")}</button>` : ""}`;
     }
-    if (c > 0 && confirmedTotal(l) >= c) return '<span class="ph-badge ph-badge--good">Fully confirmed</span>';
-    if (c <= 0 && (+l.stems_ordered || 0) > 0) return '<small class="ph-muted" title="The line\'s stored ordered quantity is 0, so the confirmation service refuses it">Line can\'t be confirmed (stored ordered qty 0)</small>';
+    if (c <= 0 && (+l.stems_ordered || 0) > 0) return '<small class="ph-muted" title="The line\'s stored ordered quantity is 0, so the confirmation service refuses it">Can\'t confirm (stored qty 0)</small>';
     return "";
   }
 
-  function table(list, shown) {
-    const head = `<tr><th class="ph-sticky-col">Customer / order</th><th>Ln</th><th>Variety</th><th>Len</th><th class="is-num">Ordered</th><th class="is-num">Boxes</th><th>Confirmation</th>
-      ${shown.map((f) => `<th class="is-num">${PH.esc(f)}</th>`).join("")}</tr>`;
-    const body = list.map((l) => `<tr>
-      <td class="ph-sticky-col ap-first"><div class="ph-strong">${PH.esc(l.customer || "—")}</div>
-        <small><span class="ph-link" data-so="${PH.esc(l.sales_order)}">${PH.esc(l.sales_order)}</span>${l.order_name ? " · " + PH.esc(l.order_name) : ""}</small>
-        <small>Ordered ${PH.esc(PH.fmt.date(l.transaction_date, true))} · deliver ${PH.esc(PH.fmt.date(l.delivery_date, true))}</small></td>
+  function table(list) {
+    const head = `<tr><th class="ph-sticky-col">Customer / order</th><th>Ln</th><th>Variety</th><th>Len</th><th class="is-num">Ordered</th><th class="is-num">Boxes</th><th>Confirmation</th><th></th></tr>`;
+    const body = list.map((l) => `<tr data-key="${PH.esc(l.key)}">
+      <td class="ph-sticky-col ap-first" title="Delivers ${PH.esc(l.delivery_date)}"><div class="ph-strong">${docLink("Customer", l.customer, l.customer_name || l.customer)}</div>
+        <small>${docLink("Sales Order", l.sales_order)}${l.order_name ? " · " + PH.esc(l.order_name) : ""}</small></td>
       <td class="ph-muted">${PH.esc(l.line_no)}</td>
       <td class="is-strong">${PH.esc(l.item_code || "—")}${l.kind === "mixed_bunch" ? "<small>Mixed bunch</small>" : l.kind === "mixed_box" ? "<small>Mixed box</small>" : ""}</td>
       <td>${PH.esc(l.length || "—")}</td>
-      <td class="is-num is-strong">${PH.fmt.num(l.stems_ordered || 0)}${l.allocated_stems ? `<small>${PH.fmt.num(l.allocated_stems)} allocated${l.pick_list_farm ? " · " + PH.esc(l.pick_list_farm) : ""}</small>` : ""}</td>
+      <td class="is-num is-strong">${PH.fmt.num(l.stems_ordered || 0)}</td>
       <td class="is-num">${PH.fmt.qty(l.boxes || 0)}</td>
-      ${confirmedCell(l)}
-      ${shown.map((f) => stockCell((l.farms || {})[f])).join("")}
+      ${confirmationCell(l)}
+      <td><button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-farms="${PH.esc(l.key)}">Per farm</button></td>
     </tr>`).join("");
-    return `<div class="ph-table-wrap ph-table-wrap--tall"><table class="ph-table">
+    return `<div class="ph-table-wrap ph-table-wrap--tall"><table class="ph-table ph-table--compact">
       <thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+  }
+
+  /* ── Per-farm breakdown drawer ── */
+  const n = (v) => PH.fmt.num(Math.round((+v || 0) * 100) / 100);
+  function openBreakdown(l) {
+    const t = l.breakdown_totals || {};
+    const bd = l.breakdown || [];
+    const rows = bd.map((f) => `<tr data-farm="${PH.esc(f.farm)}"><td class="ph-strong">${PH.esc(f.farm)}</td>
+      <td class="is-num is-strong" title="${PH.esc(data.available_definition || "")}">${n(f.available)}</td>
+      <td class="is-num">${n(f.on_shelf)}</td><td class="is-num">${n(f.held)}</td><td class="is-num">${n(f.allocated)}</td>
+      <td class="is-num is-strong">${n(f.confirmed)}</td>
+      <td class="is-num ${f.shortfall > 0 ? "ph-bad" : "ph-muted"}">${n(f.shortfall)}</td></tr>`).join("");
+    const sv = "/stock-visibility-v2?q=" + encodeURIComponent(l.item_code) + (l.length ? "&len=" + encodeURIComponent(l.length) : "")
+      + (l.delivery_date ? "&from=" + l.delivery_date + "&to=" + l.delivery_date : "");
+    const opls = (l.opls || []).map((o) => docLink("Order Pick List", o)).join(", ");
+    const body = `<div class="ap-drawer">
+      <div class="ph-stats">
+        <div class="ph-stat"><small>Ordered</small><b data-k="ordered">${n(t.ordered)}</b></div>
+        <div class="ph-stat"><small>Confirmed</small><b data-k="confirmed">${n(t.confirmed)}</b></div>
+        <div class="ph-stat"><small>Unconfirmed</small><b data-k="unconfirmed">${n(t.unconfirmed)}</b></div>
+        <div class="ph-stat"><small>Allocated to line</small><b>${n(l.allocated_stems)}</b></div>
+      </div>
+      <div class="ph-table-wrap ph-mt"><table class="ph-table ph-table--compact">
+        <thead><tr><th>Farm</th><th class="is-num" title="${PH.esc(data.available_definition || "")}">Available</th><th class="is-num" title="Stems on shelves at this farm for this variety and length">On shelf</th>
+          <th class="is-num" title="On shelf, bucket on an open discard request">Held</th><th class="is-num" title="Already allocated at this farm for this variety and length, all orders">Allocated</th>
+          <th class="is-num" title="Stems this farm has confirmed for this line">Confirmed</th><th class="is-num" title="Confirmed beyond what the farm can still allocate">Shortfall</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="7" class="ph-muted">No farm holds stock or has confirmed this line.</td></tr>'}</tbody>
+        <tfoot><tr data-total><td>Total</td><td class="is-num">${n(t.available)}</td><td class="is-num">${n(t.on_shelf)}</td><td class="is-num">${n(t.held)}</td><td class="is-num">${n(t.allocated)}</td><td class="is-num">${n(t.confirmed)}</td><td class="is-num">${n(t.shortfall)}</td></tr></tfoot>
+      </table></div>
+      <div class="ap-rec ph-muted">
+        <div class="ph-row"><span>Confirmed across farms</span><b>${n(t.confirmed)} of ${n(t.ordered)} ordered</b></div>
+        <div class="ph-row"><span>Line shortfall (ordered beyond available stock)</span><b class="${t.line_shortfall > 0 ? "ph-bad" : ""}" data-k="line_shortfall">${n(t.line_shortfall)}</b></div>
+        <p>${PH.esc(data.available_definition || "")} Stock is shared by every line of the same variety and length, so farm figures are not reserved for this line alone.</p>
+      </div>
+      <p class="ph-mt">${opls ? "Pick lists: " + opls + " · " : "No pick list yet · "}<a class="ap-doc" href="${sv}" target="_blank" rel="noopener" data-doc="stock-visibility">Stock Visibility for ${PH.esc(l.item_code)}${l.length ? " " + PH.esc(l.length) : ""}</a> · ${docLink("Sales Order", l.sales_order)}</p>
+    </div>`;
+    PH.modal({ title: "Per-farm breakdown", sub: l.sales_order + " · line " + l.line_no + " · " + (l.item_code || "") + (l.length ? " " + l.length : "") + " · " + (l.customer_name || l.customer), body, drawer: true, size: "lg" });
+  }
+
+  /* ── Stock cover modal (the numbers behind Ordered / Available / Uncovered) ── */
+  function openCover(focus) {
+    const rows = (data.cover || []).slice().sort((a, b) => focus === "available" ? b.available - a.available : b.ordered - a.ordered);
+    const sum = (k) => rows.reduce((s, r) => s + (+r[k] || 0), 0);
+    const body = `<div class="ph-table-wrap"><table class="ph-table ph-table--compact" id="ap-cover">
+      <thead><tr><th>Variety</th><th>Len</th><th class="is-num">Lines</th><th class="is-num">Ordered</th><th class="is-num" title="${PH.esc(data.available_definition || "")}">Available</th><th class="is-num">Uncovered</th><th>Available by farm</th></tr></thead>
+      <tbody>${rows.map((r) => `<tr><td class="ph-strong">${PH.esc(r.variety)}</td><td>${PH.esc(r.length || "—")}</td><td class="is-num">${n(r.lines)}</td>
+        <td class="is-num ${focus === "ordered" ? "is-strong" : ""}">${n(r.ordered)}</td><td class="is-num ${focus === "available" ? "is-strong" : ""}">${n(r.available)}</td>
+        <td class="is-num ${r.uncovered > 0 ? "ph-bad" : ""}">${n(r.uncovered)}</td>
+        <td class="ph-muted">${Object.keys(r.farms || {}).filter((f) => r.farms[f] > 0).sort().map((f) => PH.esc(f) + " " + n(r.farms[f])).join(" · ") || "—"}</td></tr>`).join("")}</tbody>
+      <tfoot><tr data-total><td>Total</td><td></td><td class="is-num">${n(sum("lines"))}</td><td class="is-num">${n(sum("ordered"))}</td><td class="is-num">${n(sum("available"))}</td><td class="is-num">${n(sum("uncovered"))}</td><td></td></tr></tfoot>
+      </table></div><p class="ph-muted ph-mt">${PH.esc(data.available_definition || "")}</p>`;
+    PH.modal({ title: focus === "available" ? "Available stock by variety and length" : "Ordered stems by variety and length", sub: "Same filters as the table. Totals equal the KPI cards.", body, size: "xl" });
   }
 
   /* ── Actions ── */
@@ -319,9 +373,10 @@
     const i = e.target.closest("[data-input]");
     if (i && e.key === "Enter") { e.preventDefault(); confirmLine(i.dataset.input); }
   });
+  const lineByKey = (k) => lines.find((l) => l.key === k);
   grid.addEventListener("click", (e) => {
-    const so = e.target.closest("[data-so]");
-    if (so) return PH.openDoc("Sales Order", so.dataset.so);
+    const f = e.target.closest("[data-farms]");
+    if (f) { const l = lineByKey(f.dataset.farms); return l && openBreakdown(l); }
     const c = e.target.closest("[data-confirm]");
     if (c) return confirmLine(c.dataset.confirm, c);
     const r = e.target.closest("[data-remove]");
@@ -329,10 +384,11 @@
     if (e.target.closest("[data-pick-farm]")) { farmSel.focus(); if (farmSel.showPicker) try { farmSel.showPicker(); } catch (x) {} }
   });
 
-  const lineByKey = (k) => lines.find((l) => l.key === k);
-  // Show the change at once, then re-read so the KPIs (server-side) catch up.
+  // Show the change at once, then re-read so the KPIs and per-farm figures (server-side) catch up.
   function applyEntries(l, list) {
     l.entries = list;
+    const ct = list.reduce((s, e) => s + (+e.stems || 0), 0), ord = +l.stems_ordered || 0;
+    l.state = ct <= 0 ? "open" : ord > 0 && ct >= ord ? "full" : "partial";
     render();
     load(true, true);
   }
@@ -384,21 +440,18 @@
       .finally(() => busy--);
   }
 
-  /* ── Export: one row per listed order line x farm column ── */
+  /* ── Export: one row per listed order line x farm ── */
   document.getElementById("export").addEventListener("click", () => {
     const s = st.get();
-    const cols = (data && data.columns) || [];
     const out = [];
     lines.forEach((l) => {
       const base = { customer: l.customer, transaction_date: l.transaction_date, delivery_date: l.delivery_date, sales_order: l.sales_order,
         order_name: l.order_name, line_no: l.line_no, item_code: l.item_code, length: l.length, stems_ordered: l.stems_ordered, boxes: l.boxes,
         allocated: l.allocated_stems, confirmed: entries(l).map((e) => e.farm + ": " + e.stems).join("; "), confirmed_total: confirmedTotal(l) };
-      if (!cols.length) out.push(base);
-      cols.forEach((f) => {
-        const c = (l.farms || {})[f] || {};
-        out.push(Object.assign({}, base, { farm: f, available: c.available || 0, on_shelf: c.on_shelf || 0, status: c.status || "No Stock",
-          cover: c.cover_pct, balance: (c.available || 0) - (+l.stems_ordered || 0) }));
-      });
+      const bd = l.breakdown || [];
+      if (!bd.length) out.push(base);
+      bd.forEach((c) => out.push(Object.assign({}, base, { farm: c.farm, available: c.available, on_shelf: c.on_shelf, held: c.held,
+        farm_allocated: c.allocated, farm_confirmed: c.confirmed, shortfall: c.shortfall })));
     });
     if (!out.length) return PH.toast("Nothing to export", "warn");
     PH.csv("allocation-" + s.from + (s.to !== s.from ? "_" + s.to : "") + ".csv", out, [
@@ -406,9 +459,9 @@
       { key: "sales_order", label: "Sales Order" }, { key: "order_name", label: "Order Name" }, { key: "line_no", label: "Line" },
       { key: "item_code", label: "Variety" }, { key: "length", label: "Length" }, { key: "stems_ordered", label: "Ordered Stems" },
       { key: "boxes", label: "Boxes" }, { key: "allocated", label: "Allocated Stems" }, { key: "farm", label: "Stock Farm" },
-      { key: "available", label: "Available Stems" }, { key: "on_shelf", label: "On Shelf Stems" },
-      { key: "status", label: "Stock Status" }, { key: "cover", label: "Cover %" },
-      { key: "confirmed", label: "Confirmed" }, { key: "confirmed_total", label: "Confirmed Total" }, { key: "balance", label: "Balance" },
+      { key: "available", label: "Available Stems" }, { key: "on_shelf", label: "On Shelf Stems" }, { key: "held", label: "Held Stems" },
+      { key: "farm_allocated", label: "Farm Allocated Stems" }, { key: "farm_confirmed", label: "Farm Confirmed Stems" }, { key: "shortfall", label: "Shortfall" },
+      { key: "confirmed", label: "Confirmed" }, { key: "confirmed_total", label: "Confirmed Total" },
     ]);
   });
 
