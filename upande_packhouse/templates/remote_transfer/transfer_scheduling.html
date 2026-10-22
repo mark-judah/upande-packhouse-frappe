@@ -822,13 +822,6 @@ function roadPath(from,to){
   while(at!==from){ var p=prev[at]; legs.unshift(p.name); farms.unshift(at); at=p.from; }
   return {legs:legs,farms:farms.filter(function(f){return f!==pack();}),km:dist[to]};
 }
-/* The farms a truck ACTUALLY drives past to serve the given selection — ticking
-   only Kaptumbo still recognises Simotwo is on the way: walk the real road from
-   the packhouse to each ticked farm and fold in every farm passed through. */
-function expandViaRoadLegs(farms){
-  var out={}; farms.forEach(function(f){ out[f]=1; roadPath(pack(),f).farms.forEach(function(x){ out[x]=1; }); });
-  return Object.keys(out);
-}
 /* Farm Distance leg names for the round trip Kapkolia→…→Kapkolia over `farms`, in
    visiting order — what a Bucket Logistics Route's legs are saved as. Each hop
    between consecutive stops is decomposed into its REAL constituent road legs
@@ -838,14 +831,13 @@ function legNamesForRoute(farms){
   for(var i=0;i<seq.length-1;i++){ legs=legs.concat(roadPath(seq[i],seq[i+1]).legs); }
   return legs;
 }
-/* Save today's route for a truck from a set of chosen farms — auto-expanded to
-   include any "on the way" farms, then visiting-order optimised. */
+/* Save today's route for a truck from a set of chosen farms — one trip per farm
+   (one farm per trip), each out from the packhouse and back. */
 function saveRoute(vehicle){
   var sel=(S.routeEditSel&&S.routeEditSel[vehicle])||{};
-  var ticked=Object.keys(sel).filter(function(f){return sel[f];});
-  var farms=expandViaRoadLegs(ticked);
-  var best=bestRoute(farms);
-  var legs=legNamesForRoute(best.order.length?best.order:farms);
+  var farms=Object.keys(sel).filter(function(f){return sel[f];});
+  var legs=[];
+  farms.forEach(function(f){ legs=legs.concat(legNamesForRoute([f])); });
   call('saveBucketLogisticsRoute',{vehicle:vehicle,date:todayISO(),legs:legs.join('|~|')}).then(function(r){
     var m=r.message||{};
     if(m.status==='success'){ toast((farms.length?'Route saved for ':'Route cleared for ')+vehicle);
@@ -1167,8 +1159,13 @@ function saveTruckModal(){
     loadData().then(function(){ if(S.rb) updateRouteBuilder(); if(S.dist){ var nd=computeDistribution(); nd.shortQty={}; S.dist=nd; renderDistModal(); } });
   }).catch(function(err){ if(S.tk){ S.tk.busy=false; S.tk.err='Failed: '+((err&&err.message)||''); renderTruckModal(); } });
 }
+/* One farm per trip: a trip drawn with several farms becomes one trip per farm. */
+function oneFarmRuns(runs){
+  var out=[]; runs.forEach(function(run){ if(run.length>1) run.forEach(function(f){ out.push([f]); }); else out.push(run.slice()); });
+  return out;
+}
 function openRouteBuilder(route){
-  var runs=route?runsOf(route):[];
+  var runs=route?oneFarmRuns(runsOf(route)):[];
   if(!runs.length) runs=[[]];
   S.rb={edit:route?route.name:null, vehicle:route?route.vehicle:'', runs:runs, dd:null, busy:false,
     date:route&&route.route_date||S.rv.date, src:'', srcList:null};
@@ -1184,7 +1181,7 @@ function renderRouteBuilder(){
       '<label class="rn-field"><span>Date</span><input type="date" id="rb-date"'+(b.edit?' disabled':'')+'></label></div>'+
       (b.edit?'':'<div class="rb-row"><div class="rn-field"><span>Copy from</span><div id="rb-src"></div></div></div>')+
       '<div class="rb-row"><div class="rn-field"><span>Truck</span><div id="rb-veh"></div></div></div>'+
-      '<h4>Trips</h4><div class="rb-hint">Each trip leaves '+esc(pack())+', collects from its farms and comes back. The truck drives the trips one after another, each with a full truck.</div><div id="rb-stops"></div></div>'+
+      '<h4>Trips</h4><div class="rb-hint">Each trip leaves '+esc(pack())+', collects from one farm and comes back. The truck drives the trips one after another, each with a full truck.</div><div id="rb-stops"></div></div>'+
     '<div class="rb-card"><h4>Legs</h4><div id="rb-legs"></div></div></div>'+
     '<div class="rb-foot"><span id="rb-msg"></span><button class="tbtn" data-act="rv-back">Cancel</button><button class="tbtn key" data-act="rb-save" id="rb-save">Save route</button></div></div>';
   var di=$('rb-date'); di.value=b.date;
@@ -1211,7 +1208,7 @@ function loadRouteSources(){
 }
 function pickRouteSource(v){
   var b=S.rb, x=(b.srcList||[]).filter(function(y){ return y.v===v; })[0]; if(!x) return;
-  b.src=v; b.vehicle=x.route.vehicle; b.runs=runsOf(x.route); if(!b.runs.length) b.runs=[[]];
+  b.src=v; b.vehicle=x.route.vehicle; b.runs=oneFarmRuns(runsOf(x.route)); if(!b.runs.length) b.runs=[[]];
 }
 /* A generic styled picker (same look as the farm picker in the road modal). */
 function rbPicker(id,items,val,placeholder,locked){
@@ -1259,18 +1256,14 @@ function updateRouteBuilder(){
     return {v:f,label:f,dot:ok?'con':'',tag:ok?'reachable':'no road yet',disabled:!ok}; });
   var n=b.runs.reduce(function(a,r){ return a+r.length; },0);
   var stopsHtml=b.runs.map(function(run,ri){
-    var m=run.length, used={}; run.forEach(function(f){ used[f]=1; });
-    var addable=add.map(function(x){ return used[x.v]?null:x; }).filter(Boolean);
+    var m=run.length;
     return '<div class="rb-run"><div class="rb-run-hd"><b>Trip '+(ri+1)+'</b>'+(m?'<span class="rb-run-km">'+(function(){ var km=routeKm(run); return km==null?'':km.toFixed(1)+' km'; })()+'</span>':'')+
       (b.runs.length>1?'<button class="tbtn ghost trip-del" data-act="rb-run-rm" data-r="'+ri+'" title="Remove this trip">Remove trip</button>':'')+'</div>'+
       '<div class="rb-stops"><div class="rb-stop fixed"><span class="no">⌂</span>'+esc(pack())+' · start</div>'+
       run.map(function(f,i){ return '<div class="rb-stop"><span class="no">'+(i+1)+'</span>'+esc(f)+
-        '<span class="act"><button data-act="rb-up" data-r="'+ri+'" data-i="'+i+'" title="Earlier"'+(i===0?' disabled':'')+'>↑</button>'+
-        '<button data-act="rb-down" data-r="'+ri+'" data-i="'+i+'" title="Later"'+(i===m-1?' disabled':'')+'>↓</button>'+
-        '<button data-act="rb-rm" data-r="'+ri+'" data-i="'+i+'" title="Remove">×</button></span></div>'; }).join('')+
+        '<span class="act"><button data-act="rb-rm" data-r="'+ri+'" data-i="'+i+'" title="Remove">×</button></span></div>'; }).join('')+
       '<div class="rb-stop fixed"><span class="no">⌂</span>'+esc(pack())+' · back</div></div>'+
-      '<div class="rb-add">'+rbPicker('addstop-'+ri,addable,'','+ Add farm to trip '+(ri+1),false)+
-        '<button class="tbtn ghost" data-act="rb-opt" data-r="'+ri+'" title="Shortest visiting order"'+(m<2?' disabled':'')+'>Optimise order</button></div></div>';
+      (m?'':'<div class="rb-add">'+rbPicker('addstop-'+ri,add,'','+ Add farm to trip '+(ri+1),false)+'</div>')+'</div>';
   }).join('')+
   '<div class="rb-add"><button class="tbtn ghost" data-act="rb-run-add"'+(b.runs[b.runs.length-1].length?'':' disabled title="Add a farm to the last trip first"')+'>+ Add trip — back to '+esc(pack())+', then out again</button></div>';
   $('rb-stops').innerHTML=stopsHtml;
@@ -1278,18 +1271,20 @@ function updateRouteBuilder(){
   $('rb-legs').innerHTML=n?('<table class="rn-tbl"><thead><tr><th>#</th><th>From</th><th>To</th><th>Distance</th><th>Road</th></tr></thead><tbody>'+
       L.rows.map(function(r,i){ return '<tr><td>'+(i+1)+'</td><td>'+esc(r.from)+'</td><td>'+esc(r.to)+'</td><td class="km">'+r.km.toFixed(1)+' km</td><td style="color:var(--ink-mute)">'+esc(r.leg)+'</td></tr>'; }).join('')+
       '</tbody></table><div class="rb-tot">Total<span>'+L.km.toFixed(1)+' km</span></div>'):
-    '<div class="rl-empty">Add the farms each trip visits — the legs are worked out from the road network.</div>';
+    '<div class="rl-empty">Add the farm each trip goes to — the legs are worked out from the road network.</div>';
   var emptyRun=b.runs.length>1&&b.runs.some(function(r){ return !r.length; });
+  var multi=-1; b.runs.forEach(function(r,i){ if(multi<0&&r.length>1) multi=i; });
   var msg='', cls='';
   if(L.gaps.length){ msg='No road for '+L.gaps.join(', ')+' — add it under Road network first.'; cls='err'; }
-  else if(emptyRun){ msg='A trip has no farms — add one or remove the trip.'; cls='err'; }
+  else if(emptyRun){ msg='A trip has no farm — add one or remove the trip.'; cls='err'; }
+  else if(multi>=0){ msg='Trip '+(multi+1)+': one farm per trip — split it into separate trips.'; cls='err'; }
   var clash=b.vehicle&&routedOnDate[b.vehicle];
   if(!msg&&!b.date){ msg='Pick a date.'; cls='err'; }
   else if(!msg&&clash){ msg=b.vehicle+' already has a route on '+dayLabel(b.date).toLowerCase()+' — edit that one.'; cls='err'; }
   // The server's refusal stays until the route is changed (a redraw used to wipe it).
   if(!msg&&b.err){ msg=b.err; cls='err'; }
   var m=$('rb-msg'); m.textContent=msg; m.className=cls;
-  var sv=$('rb-save'); sv.disabled=!!b.busy||!b.vehicle||!b.date||!n||L.gaps.length>0||emptyRun||!!clash; sv.textContent=b.busy?'Saving…':'Save route';
+  var sv=$('rb-save'); sv.disabled=!!b.busy||!b.vehicle||!b.date||!n||L.gaps.length>0||emptyRun||multi>=0||!!clash; sv.textContent=b.busy?'Saving…':'Save route';
 }
 function saveRouteBuilder(){
   var b=S.rb; if(!b||b.busy) return;
@@ -2640,7 +2635,7 @@ document.addEventListener('click',function(ev){
     var vname=el.dataset.veh;
     if(S.routeEdit===vname){ S.routeEdit=null; }
     else{ S.routeEdit=vname; S.routeEditSel=S.routeEditSel||{};
-      var rt=routeByVeh()[vname]; var seed={}; if(rt){ rt.farms.forEach(function(f){seed[f]=1;}); }
+      var rt=routeByVeh()[vname]; var seed={}; if(rt){ rt.routes.forEach(function(r){ (r.runs||[]).forEach(function(run){ run.forEach(function(f){seed[f]=1;}); }); }); }
       S.routeEditSel[vname]=seed; }
     if(S.dist) renderDistModal();
     if(S.tab==='routes') renderRoutes();
@@ -2675,17 +2670,11 @@ document.addEventListener('click',function(ev){
   else if(a==='rb-dd-pick'){ if(S.rb&&!el.disabled){ var k=el.dataset.k;
       if(k==='veh') S.rb.vehicle=el.dataset.v;
       else if(k==='src') pickRouteSource(el.dataset.v);
-      else if(k.indexOf('addstop-')===0){ var rr=S.rb.runs[+k.slice(8)]; if(rr&&rr.indexOf(el.dataset.v)<0) rr.push(el.dataset.v); }
+      else if(k.indexOf('addstop-')===0){ var rr=S.rb.runs[+k.slice(8)]; if(rr&&!rr.length) rr.push(el.dataset.v); }
       S.rb.dd=null; updateRouteBuilder(); } }
-  else if(a==='rb-up'||a==='rb-down'){ if(S.rb){ var ix=+el.dataset.i, jx=a==='rb-up'?ix-1:ix+1, st=S.rb.runs[+el.dataset.r]; if(st&&jx>=0&&jx<st.length){ var t=st[ix]; st[ix]=st[jx]; st[jx]=t; } updateRouteBuilder(); } }
   else if(a==='rb-rm'){ if(S.rb){ var rs=S.rb.runs[+el.dataset.r]; if(rs) rs.splice(+el.dataset.i,1); updateRouteBuilder(); } }
   else if(a==='rb-run-add'){ if(S.rb&&!el.disabled){ S.rb.runs.push([]); updateRouteBuilder(); } }
   else if(a==='rb-run-rm'){ if(S.rb&&S.rb.runs.length>1){ S.rb.runs.splice(+el.dataset.r,1); updateRouteBuilder(); } }
-  else if(a==='rb-opt'){ var orun=S.rb&&S.rb.runs[+el.dataset.r]; if(orun&&orun.length>1){ var cur=orun.slice(), before=routeKm(cur), best=bestRoute(cur);
-    if(best.km==null) toast('No road reaches every stop — add the missing roads under Road network');
-    else if(best.order.join('|')===cur.join('|')) toast('Already the shortest order · '+best.km.toFixed(1)+' km');
-    else { S.rb.runs[+el.dataset.r]=best.order.slice(); toast('Reordered · '+best.km.toFixed(1)+' km'+(before!=null?' (was '+before.toFixed(1)+' km)':'')); }
-    updateRouteBuilder(); } }
   else if(a==='rb-save'){ saveRouteBuilder(); }
   else if(a==='rn-open'){ openRoadModal(null); }
   else if(a==='rn-edit'){ openRoadModal(el.dataset.name); }

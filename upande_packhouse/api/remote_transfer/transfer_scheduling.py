@@ -869,38 +869,57 @@ def _route_farms(legs):
 
 
 def route_runs(legs, hub=None):
-	"""A route's runs in driving order: [{"run": 1, "stops": [farm, ...], "legs": [...]}].
+	"""A route's runs in driving order: [{"run": 1, "stops": [farm], "via": [...], "legs": [...]}].
 
-	A run leaves the packhouse, collects from its farms and ends back at the packhouse;
+	A run leaves the packhouse, collects from ONE farm and ends back at the packhouse;
 	the next run starts from the packhouse again (Kapkolia → Chepsito → Kapkolia →
-	Simotwo → Kapkolia is two runs). Each run is driven as ONE trip. Derived from the
-	legs (split where they come back to the hub), so routes saved before runs existed
-	read the same way."""
+	Simotwo → Kapkolia is two runs). Each run is driven as ONE trip. Its stop is the farm
+	it turns round at; a farm it only drives through (passed going out and again coming
+	back) is in `via`, not a stop. A run saved before one farm per trip may still list
+	more than one stop. Derived from the legs (split where they come back to the hub),
+	so routes saved before runs existed read the same way."""
 	hub = hub or transfer_hub(required=False)
 	runs, cur = [], None
 	for leg in legs or []:
 		if cur is None:
-			cur = {"run": len(runs) + 1, "stops": [], "legs": []}
+			cur = {"run": len(runs) + 1, "stops": [], "via": [], "legs": [], "seen": []}
 			runs.append(cur)
 		cur["legs"].append(leg)
 		to = leg.get("to_farm")
-		if to and to != hub and to not in cur["stops"]:
-			cur["stops"].append(to)
+		if to and to != hub:
+			cur["seen"].append(to)
 		if to == hub:
 			cur = None
+	for run in runs:
+		run["stops"], run["via"] = _run_stops(run.pop("seen"))
 	return runs
 
 
-def _route_runs_by_name(name):
+def _run_stops(seen):
+	"""(stops, via) of one run from the farms it reaches, in driving order. A farm reached
+	once is a stop; one reached again on the way back was driven through. A there-and-back
+	with no farm reached once turns round at its middle farm."""
+	farms = list(dict.fromkeys(seen))
+	stops = [f for f in farms if seen.count(f) == 1]
+	if not stops and seen:
+		stops = [seen[(len(seen) - 1) // 2]]
+	return stops, [f for f in farms if f not in stops]
+
+
+def _route_legs(name):
+	"""A day route's legs in driving order ([] when it doesn't exist)."""
 	if not name or not frappe.db.exists("Bucket Logistics Route", name):
 		return []
-	legs = frappe.get_all(
+	return frappe.get_all(
 		"Bucket Logistics Route Leg",
 		filters={"parent": name, "parenttype": "Bucket Logistics Route"},
 		fields=["from_farm", "to_farm", "leg", "distance_km"],
 		order_by="idx asc",
 	)
-	return route_runs(legs)
+
+
+def _route_runs_by_name(name):
+	return route_runs(_route_legs(name))
 
 
 def _run_of(route, run):
@@ -2386,10 +2405,10 @@ def _carry_row(o, buckets, stems):
 
 
 def _carry_rows(doc, rows, date=None, report=None):
-	"""Put plan rows a trip left behind on the truck's next open run to their farm: its
-	trip (made on the route's run if it has none yet), a new run when every run there
-	is full, else another truck already collecting there. Only orders delivering the
-	day after `date` or the day after that (drop_due_orders), and only what is still
+	"""Put plan rows a trip left behind on the open trip to their farm, on any truck (a
+	farm gets a second trip only once its first is full or has left), else the truck's
+	next open run there (its trip made on the route's run), else a new run. Only orders
+	delivering the day after `date` or the day after that (drop_due_orders), and only what is still
 	open and unclaimed: a next trip that already has them is never topped up twice.
 	Returns [(trip, row placed)]."""
 	if not rows:
@@ -2423,32 +2442,31 @@ def _carry_rows(doc, rows, date=None, report=None):
 			name = _write_run_trip(slot, doc.vehicle, date, "Draft", "", 0)
 			placed.extend((name, r) for r in slot["rows"])
 
-	plan, unplaced = _split_into_runs(doc.vehicle, date, carried)
-	write(plan)
-	# Every run of the truck to that farm is full (or none is left today): it gets
-	# another run, as automatic scheduling adds one.
-	rest = []
-	for row, n, _why in unplaced:
+	def part(row, n):
 		per = (row["stems"] / row["buckets"]) if row["buckets"] else 0
-		part = {**row, "buckets": n, "stems": round(per * n)}
-		res = truck_routes.add_farm_run(doc.vehicle, row["farm"], date, enforce_room=True, while_on_road=True)
-		if res.get("status") != "success":
-			rest.append((part, n))
-			continue
-		more, left = _split_into_runs(doc.vehicle, date, [part], only=(res["route"], res["run"]))
-		write(more)
-		rest.extend((r, k) for r, k, _w in left)
-	# No run of this truck takes them: another truck already going to that farm today
-	# does -- left-behind buckets never just drop back to "open".
-	holders = farm_holders(date, exclude_vehicle=doc.vehicle, with_room=True) if rest else {}
-	for row, n in rest:
-		for _v, trip, _w in holders.get(row["farm"], []):
-			per = (row["stems"] / row["buckets"]) if row["buckets"] else 0
-			added, left = _add_rows_to_trip(trip, [{**row, "buckets": n, "stems": round(per * n)}])
-			placed.extend((trip, a) for a in added)
+		return {**row, "buckets": n, "stems": round(per * n)}
+
+	# The open trip to the farm, whichever truck drives it, is filled first.
+	rest = []
+	for row in carried:
+		n = row["buckets"]
+		for t in open_trips_to_farm(row["farm"], date, exclude_trip=doc.name):
+			added, left = _add_rows_to_trip(t["trip"], [part(row, n)])
+			placed.extend((t["trip"], a) for a in added)
 			n = sum(k for _r, k in left)
 			if not n:
 				break
+		if n:
+			rest.append(part(row, n))
+	plan, unplaced = _split_into_runs(doc.vehicle, date, rest)
+	write(plan)
+	# Every run of the truck to that farm is full (or none is left today): it gets
+	# another run, as automatic scheduling adds one.
+	for row, n, _why in unplaced:
+		res = truck_routes.add_farm_run(doc.vehicle, row["farm"], date, enforce_room=True, while_on_road=True)
+		if res.get("status") == "success":
+			more, _left = _split_into_runs(doc.vehicle, date, [part(row, n)], only=(res["route"], res["run"]))
+			write(more)
 	return placed
 
 
@@ -3628,11 +3646,37 @@ def _departed(doc):
 	return [f for f in (doc.get("departed_stops") or "").split(",") if f]
 
 
+def _farms_of_rows(rows, hub=None):
+	"""The farms trip order `rows` collect from: those with buckets planned, else those of
+	every row (riders, loads nobody planned). The hub is never one."""
+	hub = transfer_hub(required=False) if hub is None else hub
+	farms = [r for r in rows if r.get("farm") and r.get("farm") != hub]
+	planned = {r.get("farm") for r in farms if int(r.get("buckets") or 0) > 0}
+	return planned or {r.get("farm") for r in farms}
+
+
+def trip_farms(trip):
+	"""The farms a trip (doc or name) collects from -- one, as every trip goes to one farm;
+	more only on a trip planned before that rule. Empty for a trip with nothing on it yet
+	(then its `farm`, when set)."""
+	if isinstance(trip, str):
+		rows = frappe.get_all(
+			"Bucket Request Trip Order",
+			filters={"parent": trip, "parenttype": "Bucket Request Trip"},
+			fields=["farm", "buckets"],
+		)
+		own = frappe.db.get_value("Bucket Request Trip", trip, "farm")
+	else:
+		rows, own = trip.get("orders") or [], trip.get("farm")
+	return _farms_of_rows(rows) or ({own} if own else set())
+
+
 def _pick_trip_for_load(trips, opl, farm, assigned):
 	"""The trip a bucket of (opl, farm) just loaded belongs to: the earliest run that
 	planned that order at that farm and still has room for it, else the earliest that
-	planned it at all, else the run that visits the farm (and hasn't left it), else
-	the trip the truck is already loading. None = no fitting trip."""
+	planned it at all, else a trip to that farm: the run that visits it (and hasn't left
+	it), else the one the truck is already loading there. Never another farm's trip (one
+	farm per trip). None = no fitting trip."""
 
 	def taken(d):
 		return sum(1 for b in assigned.get(d.name, []) if b["opl"] == opl and b["farm"] == farm)
@@ -3649,9 +3693,17 @@ def _pick_trip_for_load(trips, opl, farm, assigned):
 	# left open is not where today's load goes (a stale 2-Oct trip took a 3-Oct bucket
 	# and was then dispatched with it). None makes the caller open a trip on today's run.
 	today = str(frappe.utils.today())
-	current = [d for d in here if str(d.trip_date) >= today]
+
+	def visits(d):
+		return bool(d.get("run")) and farm in ((_run_of(d.route, d.run) or {}).get("stops") or [])
+
+	current = [
+		d
+		for d in here
+		if str(d.trip_date) >= today and (trip_farms(d) == {farm} or (not trip_farms(d) and visits(d)))
+	]
 	for d in current:
-		if d.get("run") and farm in ((_run_of(d.route, d.run) or {}).get("stops") or []):
+		if visits(d):
 			return d
 	for d in current:
 		if _trip_has_loads(d):
@@ -3661,10 +3713,11 @@ def _pick_trip_for_load(trips, opl, farm, assigned):
 
 def _new_load_trip(truck, today, farm):
 	"""An unscheduled trip for a load nothing planned — on the first open run of the
-	truck's route that visits the farm, so it still drives one run."""
+	truck's route that visits the farm, so it still drives one run. It is that farm's."""
 	doc = frappe.new_doc("Bucket Request Trip")
 	doc.vehicle = truck
 	doc.trip_date = today
+	doc.farm = farm
 	doc.unscheduled = 1
 	# Loaded, not gone: the run ends when its buckets are shelved at the packhouse.
 	doc.status = "Scheduled"
@@ -4423,58 +4476,100 @@ def trip_room(name):
 
 def farm_holders(date, exclude_vehicle=None, exclude_trip=None, skip_auto_drafts=False, with_room=False):
 	"""farm -> [(vehicle, trip, (from, to))]: the farms a truck is collecting from on
-	`date` — every trip not ended, except at a farm its truck has already left.
+	`date` — every trip not ended, except at a farm its truck has already left. A trip
+	holds its one farm (one farm per trip); one planned before that rule, with buckets
+	at several farms, holds none of them.
 	with_room: only trips that still have room (trip_room). One that is full no longer
 	holds its farm: a second truck (or run) may collect there once the first is full --
 	never while it still has room."""
 	hub = transfer_hub(required=False)
 	out = {}
-	rooms = {}
+	trips = {}
 	for r in frappe.db.sql(
-		"""SELECT DISTINCT t.name, t.vehicle, t.route, t.status, t.auto_planned, t.departed_stops, o.farm
+		"""SELECT t.name, t.vehicle, t.route, t.status, t.auto_planned, t.departed_stops, t.creation,
+			o.farm, o.buckets
 		FROM `tabBucket Request Trip` t
 		JOIN `tabBucket Request Trip Order` o ON o.parent = t.name AND o.parenttype = 'Bucket Request Trip'
-		WHERE t.trip_date = %(d)s AND t.status != 'Received' AND IFNULL(o.farm, '') != ''""",
+		WHERE t.trip_date = %(d)s AND t.status != 'Received' AND IFNULL(o.farm, '') != ''
+		ORDER BY t.creation ASC""",
 		{"d": str(date)},
 		as_dict=True,
 	):
-		if r.farm == hub or r.vehicle == exclude_vehicle or r.name == exclude_trip:
+		trips.setdefault(r.name, []).append(r)
+	for name, rows in trips.items():
+		r = rows[0]
+		farms = _farms_of_rows(rows, hub)
+		if len(farms) != 1:
+			continue
+		farm = next(iter(farms))
+		if r.vehicle == exclude_vehicle or name == exclude_trip:
 			continue
 		if skip_auto_drafts and r.auto_planned and r.status == "Draft":
 			continue  # the automatic scheduler replaces its own drafts
 		if r.status == "Dispatched":
 			continue  # the truck has left every farm and is heading to the hub
-		if r.farm in [f for f in (r.departed_stops or "").split(",") if f]:
+		if farm in [f for f in (r.departed_stops or "").split(",") if f]:
 			continue
 		if with_room:
-			if r.name not in rooms:
-				rooms[r.name] = trip_room(r.name)
-			if rooms[r.name] is not None and rooms[r.name] <= 0:
+			room = trip_room(name)
+			if room is not None and room <= 0:
 				continue
-		out.setdefault(r.farm, []).append((r.vehicle, r.name, _trip_window(r.route, date)))
+		out.setdefault(farm, []).append((r.vehicle, name, _trip_window(r.route, date)))
 	return out
 
 
-def _farm_taken(vehicle, date, farm_windows, exclude_trip=None):
-	"""(farm, other vehicle, its trip) for the first farm another truck already collects
-	from at an overlapping time with room left, else None. farm_windows: [(farm, (from, to))]."""
+def open_trips_to_farm(farm, date, exclude_vehicle=None, exclude_trip=None):
+	"""[{trip, vehicle, room, route, run}]: every truck's open trip to `farm` on `date` --
+	not left the farm, room left (trip_room), routed or not -- earliest first. While one
+	is listed the farm gets no second trip: its buckets go on this one."""
+	out = []
+	for v, trip, _w in farm_holders(
+		date, exclude_vehicle=exclude_vehicle, exclude_trip=exclude_trip, with_room=True
+	).get(farm, []):
+		room = trip_room(trip)
+		route, run = frappe.db.get_value("Bucket Request Trip", trip, ["route", "run"]) or (None, None)
+		out.append(
+			{
+				"trip": trip,
+				"vehicle": v,
+				"room": 10**9 if room is None else room,
+				"route": route,
+				"run": int(run or 0) or None,
+			}
+		)
+	return out
+
+
+def open_trip_to_farm(farm, date, exclude_vehicle=None, exclude_trip=None):
+	"""The first of open_trips_to_farm, else None."""
+	found = open_trips_to_farm(farm, date, exclude_vehicle=exclude_vehicle, exclude_trip=exclude_trip)
+	return found[0] if found else None
+
+
+def _farm_taken(vehicle, date, farms, exclude_trip=None):
+	"""(farm, other vehicle, its trip) for the first of `farms` another truck already has
+	an open trip to with room left, else None -- whatever time either truck is out."""
 	holders = farm_holders(date, exclude_vehicle=vehicle, exclude_trip=exclude_trip, with_room=True)
-	for farm, (a0, a1) in farm_windows:
-		for v, trip, (b0, b1) in holders.get(farm, []):
-			if a0 < b1 and b0 < a1:
-				return farm, v, trip
+	for farm in farms:
+		for v, trip, _w in holders.get(farm, []):
+			return farm, v, trip
 	return None
 
 
 def _add_rows_to_trip(name, rows):
 	"""Put plan rows on an existing trip (planned, loading or on its way — the truck is
 	still collecting from their farm): merged into its row for the same order and farm,
-	as far as the truck has room. Returns (added rows, [(row, buckets not added)])."""
+	as far as the truck has room. Rows of another farm are never added (one farm per
+	trip). Returns (added rows, [(row, buckets not added)])."""
 	doc = frappe.get_doc("Bucket Request Trip", name)
 	room = trip_room(name)
 	room = 10**9 if room is None else max(0, room)
+	have = trip_farms(doc)
 	added, left = [], []
 	for row in rows:
+		if have and have != {row["farm"]}:
+			left.append((row, int(row["buckets"])))
+			continue
 		take = max(0, min(int(row["buckets"]), room))
 		if take < int(row["buckets"]):
 			left.append((row, int(row["buckets"]) - take))
@@ -4504,6 +4599,7 @@ def _add_rows_to_trip(name, rows):
 				},
 			)
 		room -= take
+		have = {row["farm"]}
 		added.append({**row, "buckets": take, "stems": stems})
 	if added:
 		doc.total_buckets = sum(int(o.buckets or 0) for o in doc.orders)
@@ -4518,38 +4614,23 @@ def _add_rows_to_trip(name, rows):
 	return added, left
 
 
-def _redirect_to_holders(vehicle, date, rows, runs, route=None, only=None):
-	"""Rows for a farm another truck is already collecting from at an overlapping time
-	go on THAT truck's trip as far as it has room — a second truck collects there only
-	once the first is full. Returns (rows left for `vehicle`: what no such trip had room
-	for, [{trip, vehicle, farm, buckets}] redirected, [(row, n)] that didn't fit on the
-	other trucks -- also in the rows left)."""
+def _redirect_to_holders(vehicle, date, rows):
+	"""Rows for a farm another truck already has an open trip to go on THAT trip as far
+	as it has room -- a farm gets a second trip only once its first is full or has left,
+	whenever either truck is out. Returns (rows left for `vehicle`: what no such trip had
+	room for, [{trip, vehicle, farm, buckets}] redirected, [(row, n)] that didn't fit on
+	the other trucks -- also in the rows left)."""
 	hub = transfer_hub(required=False)
 	holders = farm_holders(date, exclude_vehicle=vehicle, with_room=True)
 	if not holders:
 		return rows, [], []
-
-	def mine(farm):
-		"""When this truck would be at `farm`: its open runs that visit it, else all day."""
-		if runs:
-			ws = [
-				_trip_window(r["route"], date)
-				for r in runs
-				if farm in r["stops"] and _run_open(r) and (not only or (r["route"], r["run"]) == only)
-			]
-			return ws or [_day_span(date)]
-		return [_trip_window(route, date)]
 
 	keep, redirected, short = [], [], []
 	for row in rows:
 		farm = row["farm"]
 		hits = []
 		if farm and farm != hub:
-			hits = [
-				(v, trip)
-				for v, trip, (b0, b1) in holders.get(farm, [])
-				if any(a0 < b1 and b0 < a1 for a0, a1 in mine(farm))
-			]
+			hits = [(v, trip) for v, trip, _w in holders.get(farm, [])]
 		for v, trip in hits:
 			added, left = _add_rows_to_trip(trip, [row])
 			if added:
@@ -4569,8 +4650,9 @@ def _redirect_to_holders(vehicle, date, rows, runs, route=None, only=None):
 
 
 def _top_up_open_trip(vehicle, date, rows):
-	"""Rows onto the truck's own open trip that day (not yet left their farm), as far as
-	it has room. Returns (rows left over, [{trip, vehicle, farm, buckets}] added)."""
+	"""Rows onto the truck's own open trip to their farm that day (not yet left it), as
+	far as it has room -- never onto another farm's trip. Returns (rows left over,
+	[{trip, vehicle, farm, buckets}] added)."""
 	trips = frappe.get_all(
 		"Bucket Request Trip",
 		filters={"vehicle": vehicle, "trip_date": date, "status": ["in", ACTIVE_TRIP_STATUSES]},
@@ -4579,8 +4661,9 @@ def _top_up_open_trip(vehicle, date, rows):
 	)
 	added_to = []
 	for trip in trips:
-		gone = _departed(frappe.get_doc("Bucket Request Trip", trip))
-		fit = [r for r in rows if r["farm"] not in gone]
+		tdoc = frappe.get_doc("Bucket Request Trip", trip)
+		gone, have = _departed(tdoc), trip_farms(tdoc)
+		fit = [r for r in rows if len(have) == 1 and r["farm"] in have and r["farm"] not in gone]
 		if not fit:
 			continue
 		added, left = _add_rows_to_trip(trip, fit)
@@ -4693,7 +4776,6 @@ def _save_trip(
 
 	if not rows:
 		return {"status": "error", "message": "The trip has no buckets on it."}
-
 	# Claim check, whatever the trip's date: claims span every active trip, so the same
 	# buckets can't be planned on two trips or two trucks (tomorrow's included).
 	_plan_lock()
@@ -4733,11 +4815,24 @@ def _save_trip(
 			"conflicts": conflicts,
 		}
 
-	# One truck per farm at a time: a farm another truck is already collecting from
-	# (planned, loading or on its way) — those rows go on that truck's trip instead.
+	# One farm per trip: a trip edited by name keeps rows of one farm.
+	hub = transfer_hub(required=False)
+	if existing:
+		farms = sorted(_farms_of_rows(rows, hub))
+		if len(farms) > 1:
+			return {
+				"status": "error",
+				"reason": "one_farm",
+				"message": "Trip {0} goes to one farm — {1} go on separate trips.".format(
+					name, " and ".join(farms)
+				),
+			}
+
+	# A farm another truck already has an open trip to (planned, loading or on its way,
+	# with room) — those rows go on that trip instead.
 	redirected, short = [], []
 	if not existing:
-		rows, redirected, short = _redirect_to_holders(vehicle, trip_date, rows, runs, route=route, only=only)
+		rows, redirected, short = _redirect_to_holders(vehicle, trip_date, rows)
 		if rows and not runs:
 			# An unrouted truck drives one trip at a time: its open trip that day is filled
 			# before a second one is made.
@@ -4765,16 +4860,10 @@ def _save_trip(
 
 	if runs:
 		plan, unplaced = _split_into_runs(vehicle, trip_date, rows, only=only)
-		hub = transfer_hub(required=False)
 		hit = _farm_taken(
 			vehicle,
 			trip_date,
-			[
-				(r["farm"], _trip_window(sl["route"], trip_date))
-				for sl in plan
-				for r in sl["rows"]
-				if r["farm"] != hub
-			],
+			list(dict.fromkeys(r["farm"] for sl in plan for r in sl["rows"] if r["farm"] != hub)),
 		)
 		if hit:
 			return _farm_taken_refusal(hit)
@@ -4810,66 +4899,70 @@ def _save_trip(
 			"capacity_buckets": _vehicle_capacity(vehicle),
 		}
 
-	total_buckets = sum(r["buckets"] for r in rows)
-	total_stems = sum(r["stems"] for r in rows)
-
 	v = frappe.db.get_value(
 		"Vehicle", vehicle, ["custom_trolley_capacity", "custom_buckets_per_trolley"], as_dict=True
 	)
 	cap = int((v.custom_trolley_capacity or 0) * (v.custom_buckets_per_trolley or 0)) if v else 0
-	if cap > 0 and total_buckets > cap:
-		return {
-			"status": "error",
-			"reason": "over_capacity",
-			"message": "{0} buckets exceeds {1}'s capacity of {2}.".format(total_buckets, vehicle, cap),
-			"total_buckets": total_buckets,
-			"capacity_buckets": cap,
-		}
+	# A truck with no route: one trip per farm (a trip edited by name is one already).
+	groups = {}
+	for r in rows:
+		groups.setdefault("" if existing else r["farm"] or "", []).append(r)
+	for farm_rows in groups.values():
+		total_buckets = sum(r["buckets"] for r in farm_rows)
+		if cap > 0 and total_buckets > cap:
+			return {
+				"status": "error",
+				"reason": "over_capacity",
+				"message": "{0} buckets exceeds {1}'s capacity of {2}.".format(total_buckets, vehicle, cap),
+				"total_buckets": total_buckets,
+				"capacity_buckets": cap,
+			}
 
-	hub = transfer_hub(required=False)
-	window = _trip_window(
-		frappe.db.get_value("Bucket Request Trip", name, "route") if existing else route, trip_date
-	)
 	hit = _farm_taken(
 		vehicle,
 		trip_date,
-		[(r["farm"], window) for r in rows if r["farm"] and r["farm"] != hub],
+		list(dict.fromkeys(r["farm"] for r in rows if r["farm"] and r["farm"] != hub)),
 		exclude_trip=name if existing else None,
 	)
 	if hit:
 		return _farm_taken_refusal(hit)
 
-	if existing:
-		doc = frappe.get_doc("Bucket Request Trip", name)
-	else:
-		doc = frappe.new_doc("Bucket Request Trip")
-
-	doc.vehicle = vehicle
-	doc.trip_date = trip_date
-	doc.status = status
-	doc.notes = notes
-	doc.collection_order = collection_order
-	doc.farm = farm
-	doc.auto_planned = 1 if auto_planned else 0
-	doc.total_buckets = total_buckets
-	doc.total_stems = total_stems
-	doc.capacity_buckets = cap
-	doc.set("orders", [])
-	for r in rows:
-		doc.append("orders", r)
-	doc.save(ignore_permissions=True)
+	docs = []
+	for trip_farm, farm_rows in groups.items():
+		doc = (
+			frappe.get_doc("Bucket Request Trip", name) if existing else frappe.new_doc("Bucket Request Trip")
+		)
+		doc.vehicle = vehicle
+		doc.trip_date = trip_date
+		doc.status = status
+		doc.notes = notes
+		doc.collection_order = collection_order
+		doc.farm = trip_farm or farm
+		doc.auto_planned = 1 if auto_planned else 0
+		doc.total_buckets = sum(r["buckets"] for r in farm_rows)
+		doc.total_stems = sum(r["stems"] for r in farm_rows)
+		doc.capacity_buckets = cap
+		doc.set("orders", [])
+		for r in farm_rows:
+			doc.append("orders", r)
+		doc.save(ignore_permissions=True)
+		docs.append(doc)
 	if commit:
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
-	return {
+	out = {
 		"status": "success",
-		"name": doc.name,
+		"name": docs[0].name,
 		"redirected": redirected,
 		"message": _redirect_note(redirected, short),
-		"total_buckets": total_buckets,
-		"total_stems": total_stems,
+		"total_buckets": sum(r["buckets"] for r in rows),
+		"total_stems": sum(r["stems"] for r in rows),
 		"capacity_buckets": cap,
 	}
+	if len(docs) > 1:
+		out["names"] = [d.name for d in docs]
+		out["runs"] = [{"trip": d.name, "run": None, "buckets": d.total_buckets} for d in docs]
+	return out
 
 
 def _live_planned(trip):
@@ -4921,28 +5014,54 @@ def _shared_overlap(planned):
 
 def _open_run_room(vehicle, date, farm):
 	"""[(run, room)] for each of the truck's runs on `date` that visit `farm` and can
-	still collect there (no trip yet, or its trip hasn't left and hasn't left the farm),
-	in driving order. room = capacity less what it takes (_trip_used)."""
+	still collect there (no trip yet, or its trip -- that farm's -- hasn't left it), in
+	driving order, then its trips to the farm with no route (run = {"route": None, ...}).
+	room = what trip_room says the trip can still take; a run with no trip, the truck."""
 	cap = _vehicle_capacity(vehicle)
+
+	def room_of(trip):
+		room = trip_room(trip)
+		return 10**9 if room is None else max(0, room)
+
 	out = []
 	for run in _day_runs(vehicle, date):
 		if not _run_open(run) or farm not in run["stops"]:
 			continue
-		used = 0
+		room = cap if cap else 10**9
 		if run["trip"]:
 			t = frappe.get_doc("Bucket Request Trip", run["trip"])
-			if farm in _departed(t):
+			if farm in _departed(t) or not trip_farms(t) <= {farm}:
 				continue
-			used = _trip_used(t.name)
-		out.append((run, max(0, cap - used) if cap else 10**9))
+			room = room_of(t.name)
+		out.append((run, room))
+	for name in frappe.get_all(
+		"Bucket Request Trip",
+		filters={
+			"vehicle": vehicle,
+			"trip_date": date,
+			"status": ["in", ACTIVE_TRIP_STATUSES],
+			"route": ["is", "not set"],
+		},
+		pluck="name",
+		order_by="creation asc",
+	):
+		t = frappe.get_doc("Bucket Request Trip", name)
+		if farm in _departed(t) or trip_farms(t) != {farm}:
+			continue
+		out.append(
+			(
+				{"route": None, "run": None, "stops": [farm], "trip": name, "trip_status": t.status},
+				room_of(name),
+			)
+		)
 	return out
 
 
 def _split_into_runs(vehicle, date, rows, skip_full=False, only=None):
 	"""Spread plan rows over the truck's still-open runs that day, earliest first: a
 	row goes to the first run that visits its farm (and hasn't left it) with room, and
-	is split across runs when one run can't hold it all. Each run is a full truck.
-	`only` = (route, run): rows go on that run -- or an earlier open run to the same
+	is split across runs when one run can't hold it all. Each run is a full truck that
+	takes one farm's rows only. `only` = (route, run): rows go on that run -- or an earlier open run to the same
 	farm that still has room, which fills first (a later run never gets buckets while
 	an earlier one to that farm is short). Returns (slots with their rows, unplaced
 	[(row, buckets, reason)])."""
@@ -4951,12 +5070,21 @@ def _split_into_runs(vehicle, date, rows, skip_full=False, only=None):
 	for run in _day_runs(vehicle, date):
 		if not _run_open(run):
 			continue
-		used, departed = 0, []
+		used, departed, farms = 0, [], set()
 		if run["trip"]:
 			t = frappe.get_doc("Bucket Request Trip", run["trip"])
 			used = _trip_used(t.name)
 			departed = _departed(t)
-		slots.append({**run, "room": (cap - used) if cap else 10**9, "departed": departed, "rows": []})
+			farms = trip_farms(t)
+		slots.append(
+			{
+				**run,
+				"room": (cap - used) if cap else 10**9,
+				"departed": departed,
+				"farms": farms,
+				"rows": [],
+			}
+		)
 		if only and (run["route"], run["run"]) == only:
 			break
 	if only and not any((sl["route"], sl["run"]) == only for sl in slots):
@@ -4967,8 +5095,10 @@ def _split_into_runs(vehicle, date, rows, skip_full=False, only=None):
 		visits = [sl for sl in slots if row["farm"] in sl["stops"] and row["farm"] not in sl["departed"]]
 		for sl in visits:
 			take = min(left, sl["room"])
-			if take <= 0:
+			# One farm per trip: a run already collecting at another farm takes none.
+			if take <= 0 or not sl["farms"] <= {row["farm"]}:
 				continue
+			sl["farms"] = {row["farm"]}
 			per = (row["stems"] / row["buckets"]) if row["buckets"] else 0
 			sl["rows"].append(
 				{
@@ -5005,7 +5135,9 @@ def _write_run_trip(slot, vehicle, date, status, notes, auto_planned):
 		doc.status = "Scheduled"
 	if notes and notes not in (doc.notes or ""):
 		doc.notes = ((doc.notes or "") + "\n" + notes).strip()
-	doc.collection_order = _run_chain(slot["stops"])
+	doc.collection_order = _run_chain(
+		sorted({r["farm"] for r in slot["rows"] if r.get("farm")}) or slot["stops"]
+	)
 	for r in slot["rows"]:
 		match = next(
 			(
@@ -5945,10 +6077,12 @@ def _match_run(runs, farms):
 
 
 def _trip_groups(date):
-	"""Not-yet-gone trips on `date`, grouped by the run they drive:
-	{(vehicle, route, run): [trip, ...]} (earliest first). A trip without a run is put
-	on the run of its truck's route that visits its farms."""
-	runs_of, groups = {}, {}
+	"""Not-yet-gone trips on `date`, grouped by the run they drive and their farm:
+	{(vehicle, route, run, farms): [trip, ...]} (earliest first) -- trips of different
+	farms are never one group (one farm per trip). A trip without a run is put on the
+	run of its truck's route that visits its farm, unless that run is another farm's
+	(its trip, or a trip already put on it here)."""
+	runs_of, groups, owner = {}, {}, {}
 	for t in frappe.get_all(
 		"Bucket Request Trip",
 		filters={"trip_date": date, "status": ["in", ACTIVE_TRIP_STATUSES]},
@@ -5956,22 +6090,20 @@ def _trip_groups(date):
 		order_by="creation asc",
 	):
 		route, run = t.route or "", int(t.run or 0)
+		farms = tuple(sorted(trip_farms(t.name)))
 		if not run:
-			runs = runs_of.setdefault(t.vehicle, [r for r in _day_runs(t.vehicle, date) if _run_open(r)])
-			farms = sorted(
-				set(
-					frappe.get_all(
-						"Bucket Request Trip Order",
-						filters={"parent": t.name, "parenttype": "Bucket Request Trip"},
-						pluck="farm",
-					)
-				)
-				- {None, ""}
-			)
-			m = _match_run(runs, farms)
+			if t.vehicle not in runs_of:
+				runs_of[t.vehicle] = [r for r in _day_runs(t.vehicle, date) if _run_open(r)]
+				for r in runs_of[t.vehicle]:
+					if r["trip"]:
+						owner.setdefault((r["route"], r["run"]), tuple(sorted(trip_farms(r["trip"]))))
+			free = [r for r in runs_of[t.vehicle] if owner.get((r["route"], r["run"]), farms) in (farms, ())]
+			m = _match_run(free, list(farms))
 			if m:
 				route, run = m["route"], m["run"]
-		groups.setdefault((t.vehicle, route, run), []).append(t.name)
+		if run and not owner.get((route, run)):
+			owner[(route, run)] = farms
+		groups.setdefault((t.vehicle, route, run, farms), []).append(t.name)
 	return groups
 
 
@@ -5980,10 +6112,10 @@ def duplicate_trips(date=None):
 	trips for the same run — the "same truck, same farm, two trips, one with 0 planned"
 	mix-up, loads on one trip and the plan on another — or a trip saved before runs
 	existed that belongs to one of its truck's runs. {vehicle: [trip, ...]}. Trips on
-	different runs are separate trips on purpose and don't count."""
+	different runs, or to different farms, are separate trips on purpose and don't count."""
 	date = date or frappe.utils.today()
 	out = {}
-	for (vehicle, _route, run), names in _trip_groups(date).items():
+	for (vehicle, _route, run, _farms), names in _trip_groups(date).items():
 		legacy = run and any(not frappe.db.get_value("Bucket Request Trip", n, "run") for n in names)
 		if len(names) > 1 or legacy:
 			out.setdefault(vehicle, []).extend(names)
@@ -6006,7 +6138,7 @@ def merge_truck_trips(vehicle, date=None):
 		return {"status": "success", "merged": [], "message": "{0} has no duplicate trips.".format(vehicle)}
 	cap = _vehicle_capacity(vehicle)
 	kept, removed, refused = [], [], []
-	for (veh, route, run), names in _trip_groups(date).items():
+	for (veh, route, run, _farms), names in _trip_groups(date).items():
 		if veh != vehicle or not set(names) & set(todo):
 			continue
 		group = [frappe.get_doc("Bucket Request Trip", n) for n in names]

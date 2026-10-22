@@ -16,8 +16,10 @@ from upande_packhouse.api.remote_transfer.transfer_scheduling import (
 	_on_road_message,
 	_open_run_room,
 	_route_farms,
+	_route_legs,
 	_route_runs_by_name,
 	_vehicle_on_road,
+	open_trip_to_farm,
 	route_runs,
 	transfer_hub,
 )
@@ -76,10 +78,12 @@ def _route_to_update(date, vehicle, name=None, new=0, auto_planned=0):
 	return None, None
 
 
-def _route_path(leg_names):
+def _route_path(leg_names, old_legs=None):
 	"""Farm Distance names in driving order -> (path, error). The path is one continuous
 	round trip from the packhouse back to it, each leg stored in the direction driven
-	(roads are undirected) and numbered with its run (trip)."""
+	(roads are undirected) and numbered with its run (trip). One farm per trip: a run
+	that collects at more than one farm is refused -- unless `old_legs` (the route being
+	saved over) already had that run as it is, from before the rule."""
 	leg_names = [n for n in (leg_names or []) if n]
 	leg_docs = []
 	if leg_names:
@@ -117,6 +121,12 @@ def _route_path(leg_names):
 			run += 1
 	if path and here != hub:
 		return None, "Route ends at {0} — it must return to {1}.".format(here, hub)
+	kept = {r["run"]: r["stops"] for r in route_runs(old_legs or [], hub)}
+	for r in route_runs(path, hub):
+		if len(r["stops"]) > 1 and kept.get(r["run"]) != r["stops"]:
+			return None, "Trip {0} ({1}): one farm per trip — split it into separate trips.".format(
+				r["run"], ", ".join(r["stops"])
+			)
 	return path, None
 
 
@@ -142,14 +152,14 @@ def _save_route(
 	progress and every earlier run stay exactly as they are."""
 	if not vehicle:
 		return {"status": "error", "message": "A vehicle is required."}
-	path, err = _route_path(leg_names)
+	doc, err = _route_to_update(date, vehicle, name=name, new=new, auto_planned=auto_planned)
+	if err:
+		return {"status": "error", "message": err}
+	path, err = _route_path(leg_names, old_legs=_route_legs(doc.name) if doc is not None else None)
 	if err:
 		return {"status": "error", "message": err}
 	hub = transfer_hub()
 
-	doc, err = _route_to_update(date, vehicle, name=name, new=new, auto_planned=auto_planned)
-	if err:
-		return {"status": "error", "message": err}
 	busy = _vehicle_on_road(vehicle) if check_on_road else None
 	if busy and str(date) == str(frappe.utils.today()) and not (append_only and _appends_only(doc, path)):
 		return {
@@ -379,6 +389,8 @@ def addFarmTrip():
 	# Send a truck to one farm: a new trip (packhouse → farm → packhouse) added to the end
 	# of its latest route on `date`, or a new all-day route when it has none that day.
 	# Only that day's route changes. Returns the route and the new trip's number, so buckets can be planned straight in.
+	# Refused (reason "open_trip", with that trip, its truck and room) while any truck's
+	# trip to the farm has room and hasn't left it: the buckets go on that trip.
 	fd = frappe.form_dict
 	res = add_farm_run(fd.get("vehicle"), fd.get("farm"), fd.get("date"))
 	if res.get("status") == "success":
@@ -389,13 +401,29 @@ def addFarmTrip():
 def add_farm_run(vehicle, farm, date=None, enforce_room: bool = False, while_on_road: bool = False):
 	"""A new trip (packhouse → farm → packhouse) at the end of the truck's latest route
 	on `date` (a new all-day route if it has none). Returns {status, route, run} or why not.
-	enforce_room (automatic scheduling): refused while the truck's open trip to the farm
-	still has room, so trip 2 is only added once trip 1 is full. A person adding a trip
-	on the page is not refused. while_on_road (automatic scheduling): added even while
-	the truck is out -- only appended after its runs, so the one on the road is untouched."""
+	One farm per trip, and a farm's second trip only once its first is full or has left:
+	refused while any truck's open trip to the farm has room (reason "open_trip", with
+	that trip). enforce_room (automatic scheduling): also refused while one of the truck's
+	runs to the farm with no trip yet is open. while_on_road (automatic scheduling):
+	added even while the truck is out -- only appended after its runs, so the one on the
+	road is untouched."""
 	date = str(frappe.utils.getdate(date or frappe.utils.today()))
 	if not vehicle or not farm:
 		return {"status": "error", "message": "A truck and a farm are required."}
+	held = open_trip_to_farm(farm, date)
+	if held:
+		return {
+			"status": "error",
+			"reason": "open_trip",
+			"trip": held["trip"],
+			"vehicle": held["vehicle"],
+			"room": held["room"],
+			"route": held["route"],
+			"run": held["run"],
+			"message": "{0}'s trip {1} to {2} still has room for {3} bucket(s) — put the buckets on it.".format(
+				held["vehicle"], held["trip"], farm, held["room"]
+			),
+		}
 	roomy = enforce_room and [(r, n) for r, n in _open_run_room(vehicle, date, farm) if n > 0]
 	if roomy:
 		run, room = roomy[0]
@@ -528,11 +556,12 @@ def saveRouteTemplate():
 	if len(start) != 5 or len(end) != 5 or start == end:
 		frappe.response["message"] = {"status": "error", "message": "Set a From and a To time."}
 		return
-	path, err = _route_path((fd.get("legs") or "").split("|~|"))
+	name = fd.get("name")
+	old = frappe.get_doc(TEMPLATE, name).legs if name and frappe.db.exists(TEMPLATE, name) else None
+	path, err = _route_path((fd.get("legs") or "").split("|~|"), old_legs=old)
 	if err or not path:
 		frappe.response["message"] = {"status": "error", "message": err or "Add at least one farm."}
 		return
-	name = fd.get("name")
 	for o in frappe.get_all(
 		TEMPLATE,
 		filters={"vehicle": vehicle, "active": 1, "name": ["!=", name or ""]},
