@@ -10,12 +10,22 @@ class BucketRequestTrip(Document):
 	# Links are checked before any hook (before_validate included), so the clean-up
 	# runs at the start of save/insert.
 	def save(self, *args, **kwargs):
+		from upande_packhouse.api import transfer_control as tc
+
 		self.drop_deleted_orders()
+		self.drop_due_orders()
+		# A farm the truck has left (any dispatch path, or a departed stop): its rows are
+		# cut to what was loaded, and the rest goes on the truck's next run there.
+		left = tc.trim_left_farms(self)
 		self.sync_riding_orders()
-		return super().save(*args, **kwargs)
+		out = super().save(*args, **kwargs)
+		if left:
+			tc.carry_left_behind(self, left)
+		return out
 
 	def insert(self, *args, **kwargs):
 		self.drop_deleted_orders()
+		self.drop_due_orders()
 		self.sync_riding_orders()
 		return super().insert(*args, **kwargs)
 
@@ -122,27 +132,72 @@ class BucketRequestTrip(Document):
 		for o in before.orders if before else []:
 			k = (o.order_pick_list, o.farm or "")
 			was[k] = was.get(k, 0) + int(o.buckets or 0)
-		want, loaded = {}, {}
+		want = {}
 		for o in self.get("orders") or []:
 			k = (o.order_pick_list, o.farm or "")
 			want[k] = want.get(k, 0) + int(o.buckets or 0)
-			loaded[k] = loaded.get(k, 0) + int(o.loaded_buckets or 0)
 		grew = [k for k, n in want.items() if n > was.get(k, 0) and k[0]]
 		if not grew:
 			return
 		opls = list({k[0] for k in grew})
 		free_open = tc._open_counts(opls)
-		claims = tc._trip_claims(opls, exclude_trip=None if self.is_new() else self.name)
+		# What this trip claims (as _trip_claims counts it): its plan or what is loaded for
+		# it (truck, trip record or trolley), whichever is more. Loaded buckets are still
+		# open, so they are not taken off the plan.
+		loads = {} if self.is_new() else tc._trip_loads(opls).get(self.name, {})
+		need = {k: max(n, loads.get(k, 0)) for k, n in want.items() if k[0]}
+		# By physical bucket: a shared bucket this or another trip already carries under
+		# another of its orders is not free for this one.
+		claims = tc._bucket_claims(
+			opls,
+			exclude_trip=None if self.is_new() else self.name,
+			planning=need,
+		)
 		for k in grew:
-			need = max(0, want[k] - loaded.get(k, 0))
+			need_k = need[k]
 			free = free_open.get(k, 0) - claims.get(k, 0)
-			if need > free:
+			if need_k > free:
 				frappe.throw(
 					_(
 						"{0} @ {1}: {2} bucket(s) planned but only {3} still free — the rest are on another trip."
-					).format(k[0], k[1], need, max(0, free)),
+					).format(k[0], k[1], need_k, max(0, free)),
 					title=_("Already planned on another trip"),
 				)
+
+	def drop_due_orders(self):
+		"""A trip only carries orders delivering after its trip date (tomorrow or the day
+		after): an order already due is dropped on every save -- Distribute, automatic
+		scheduling or a manual add -- unless its buckets are already loaded on the truck."""
+		from upande_packhouse.api import transfer_control as tc
+
+		if self.status not in tc.ACTIVE_TRIP_STATUSES or not self.trip_date:
+			return
+		opls = {o.order_pick_list for o in self.get("orders") or [] if o.order_pick_list}
+		if not opls:
+			return
+		due = set(
+			frappe.db.sql_list(
+				"""SELECT opl.name FROM `tabOrder Pick List` opl
+				JOIN `tabSales Order` so ON so.name = opl.sales_order
+				WHERE opl.name IN %(o)s AND so.delivery_date <= %(d)s""",
+				{"o": tuple(opls), "d": self.trip_date},
+			)
+		)
+		dropped = [o for o in self.orders if o.order_pick_list in due and not int(o.loaded_buckets or 0)]
+		if not dropped:
+			return
+		self.set("orders", [o for o in self.orders if o not in dropped])
+		for i, r in enumerate(self.orders, 1):
+			r.idx = i
+		self.total_buckets = sum(int(o.buckets or 0) for o in self.orders)
+		self.total_stems = sum(int(o.stems or 0) for o in self.orders)
+		if not self.is_new():
+			self.add_comment(
+				"Info",
+				"Dropped order(s) delivering on or before {0}: {1}".format(
+					self.trip_date, ", ".join(sorted({o.order_name or o.order_pick_list for o in dropped}))
+				),
+			)
 
 	def drop_deleted_orders(self):
 		"""An Order Pick List deleted after it was planned would fail every later save of

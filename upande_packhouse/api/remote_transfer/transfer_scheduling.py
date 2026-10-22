@@ -43,6 +43,7 @@
 # no longer claims anything because its buckets are flagged in_transit instead.
 
 import json
+import math
 
 import frappe
 from frappe import _
@@ -415,7 +416,9 @@ def shared_group(groups, bucket, farm):
 
 
 def _open_counts(opl_names):
-	"""(opl, farm) -> number of OPEN buckets (awaiting, not on a truck, not shelved)."""
+	"""(opl, farm) -> number of OPEN buckets: waiting at the farm, or loaded (trolley /
+	truck) but not on the road yet; not shelved. A loaded one is claimed by its trip
+	(_trip_claims), so it is open for no other."""
 	counts = {}
 	for b in _transfer_buckets(opl_names):
 		if b["open"]:
@@ -486,34 +489,153 @@ def _left_behind(opl_names):
 	return out
 
 
-def _trip_claims(opl_names, exclude_trip=None):
+def _trip_claims(opl_names, exclude_trip=None, unloaded=False):
 	"""(opl, farm) -> open buckets still claimed by planned trips — every active trip
-	of today or later, plus any earlier one the truck already started (loads or a closed
-	stop). Only an earlier day's untouched draft is ignored: its truck never went, so
-	its buckets are open again (the dashboard flags it for cleanup). A row's loaded
-	buckets are no longer open, so only its unloaded remainder is claimed."""
+	of today or later, plus any earlier one the truck already started (loads, a closed
+	stop or a bucket in a trolley for it). Only an earlier day's untouched draft is
+	ignored: its truck never went, so its buckets are open again (the dashboard flags it
+	for cleanup).
+
+	A bucket loaded for a trip (on its truck, recorded on it, or in a trolley it takes:
+	_trip_loads) is still open -- it hasn't left -- and is that trip's: at a farm the
+	truck is still at, a trip claims its plan or what it loaded there, whichever is
+	more; at a farm it has left (a departed stop), exactly what it loaded there. A
+	dispatched trip claims nothing open: its loads are in transit.
+
+	unloaded: only the part still to be loaded (the plan less what is loaded, nothing at
+	a departed farm) -- for counting against buckets still waiting on the shelf."""
 	if not opl_names:
 		return {}
-	rows = frappe.db.sql(
+	plans = {}
+	for r in frappe.db.sql(
 		"""
-		SELECT o.order_pick_list AS opl, o.farm AS farm,
-		       SUM(GREATEST(IFNULL(o.buckets, 0) - LEAST(IFNULL(o.loaded_buckets, 0), IFNULL(o.buckets, 0)), 0)) AS buckets
+		SELECT o.parent AS trip, o.order_pick_list AS opl, IFNULL(o.farm, '') AS farm,
+		       SUM(IFNULL(o.buckets, 0)) AS buckets
 		FROM `tabBucket Request Trip Order` o
 		JOIN `tabBucket Request Trip` t ON t.name = o.parent
-		WHERE t.status IN %(active)s
-		  AND (t.trip_date >= %(today)s OR IFNULL(t.loaded_buckets, 0) > 0 OR IFNULL(t.departed_stops, '') != '')
-		  AND o.order_pick_list IN %(opls)s AND t.name != %(exclude)s
-		GROUP BY o.order_pick_list, o.farm
+		WHERE t.status IN %(active)s AND o.order_pick_list IN %(opls)s AND t.name != %(exclude)s
+		GROUP BY o.parent, o.order_pick_list, IFNULL(o.farm, '')
 		""",
-		{
-			"active": ACTIVE_TRIP_STATUSES,
-			"today": frappe.utils.today(),
-			"opls": tuple(opl_names),
-			"exclude": exclude_trip or "",
-		},
+		{"active": ACTIVE_TRIP_STATUSES, "opls": tuple(opl_names), "exclude": exclude_trip or ""},
 		as_dict=True,
-	)
-	return {(r.opl, r.farm or ""): int(r.buckets or 0) for r in rows}
+	):
+		plans[(r.trip, r.opl, r.farm)] = int(r.buckets or 0)
+	loads = _trip_loads(opl_names)
+	names = {k[0] for k in plans} | set(loads)
+	names.discard(exclude_trip or "")
+	if not names:
+		return {}
+	trips = {
+		t.name: t
+		for t in frappe.get_all(
+			"Bucket Request Trip",
+			filters={"name": ["in", list(names)], "status": ["in", ACTIVE_TRIP_STATUSES]},
+			fields=["name", "trip_date", "loaded_buckets", "departed_stops"],
+		)
+	}
+	today = str(frappe.utils.today())
+	out = {}
+	for trip, opl, farm in set(plans) | {(t, *k) for t, by in loads.items() for k in by}:
+		t = trips.get(trip)
+		if not t:
+			continue
+		departed = _departed(t)
+		if not (str(t.trip_date) >= today or int(t.loaded_buckets or 0) or departed or loads.get(trip)):
+			continue
+		planned = plans.get((trip, opl, farm), 0)
+		loaded = loads.get(trip, {}).get((opl, farm), 0)
+		left = any(_same_farm(f, farm) for f in departed)
+		if unloaded:
+			n = 0 if left else max(0, planned - loaded)
+		else:
+			n = loaded if left else max(planned, loaded)
+		if n:
+			out[(opl, farm)] = out.get((opl, farm), 0) + n
+	return out
+
+
+def _trip_loads(opl_names):
+	"""trip -> {(opl, farm): buckets loaded for it that haven't left yet}: on its truck
+	or recorded on it, or in a trolley at the farm it takes (trip_bucket_shares: one
+	bucket, one trip -- a trolley's bucket fills the trip still at its farm with room,
+	beyond every plan the last one). The farm is the trip order row's."""
+	out = {}
+	for trip, by in trip_bucket_shares(opl_names).items():
+		for key, s in by.items():
+			n = int(s.get("trolley") or 0) + int(s.get("loaded") or 0)
+			if n:
+				out.setdefault(trip, {})[key] = n
+	return out
+
+
+def _trip_used(name):
+	"""Buckets of its truck trip `name` takes: per (order, farm) its plan or what is
+	loaded for it there (_trip_loads), whichever is more -- a bucket loaded beyond the
+	plan, or in a trolley for it, takes a place too -- and never less than what is
+	recorded loaded on it."""
+	doc = frappe.db.get_value("Bucket Request Trip", name, ["name", "loaded_buckets"], as_dict=True)
+	if not doc:
+		return 0
+	plan = {}
+	for o in frappe.get_all(
+		"Bucket Request Trip Order",
+		filters={"parent": name, "parenttype": "Bucket Request Trip"},
+		fields=["order_pick_list", "farm", "buckets"],
+	):
+		key = (o.order_pick_list, o.farm or "")
+		plan[key] = plan.get(key, 0) + int(o.buckets or 0)
+	loads = _trip_loads(list({k[0] for k in plan if k[0]})).get(name, {}) if plan else {}
+	extra = sum(max(0, n - plan.get(key, 0)) for key, n in loads.items())
+	return max(_live_planned(name) + extra, int(doc.loaded_buckets or 0))
+
+
+def _bucket_claims(opl_names, exclude_trip=None, planning=None):
+	"""_trip_claims counted by physical bucket: a shared bucket already planned on a trip
+	under another of its orders (_shared_covered) is claimed for its lead too, so it is
+	never open for a second order. `planning`: {(opl, farm): buckets} of the rows being
+	saved, which claim like a trip's."""
+	claims = _trip_claims(opl_names, exclude_trip)
+	for key, n in _shared_covered(opl_names, exclude_trip, planning).items():
+		claims[key] = claims.get(key, 0) + n
+	return claims
+
+
+def _shared_covered(opl_names, exclude_trip=None, planning=None, claims_of=None):
+	"""(opl, farm) -> open buckets these orders lead (shared_buckets) that a trip already
+	carries under another of the bucket's orders. Planned before the lead moved, such a
+	bucket sits in the other order's claim beyond that order's own open buckets: it is
+	counted against the lead, never planned twice. `claims_of(opls)`: the other orders'
+	claims (default _trip_claims, plus `planning`)."""
+	if not opl_names:
+		return {}
+	leads = [e for e in _transfer_buckets(opl_names) if e["open"] and e["bucket"]]
+	groups = shared_buckets({e["bucket"] for e in leads})
+	if not groups:
+		return {}
+	owed = {}  # (other order, farm) -> [the lead's (opl, farm) per bucket]
+	for e in leads:
+		g = shared_group(groups, e["bucket"], e["farm"])
+		if not g or g["lead"] != e["opl"]:
+			continue
+		for opl in g["opls"]:
+			if opl != e["opl"]:
+				owed.setdefault((opl, e["farm"]), []).append((e["opl"], e["farm"]))
+	if not owed:
+		return {}
+	others = list({k[0] for k in owed})
+	own = _open_counts(others)
+	if claims_of:
+		claims = claims_of(others)
+	else:
+		claims = _trip_claims(others, exclude_trip)
+		for key, n in (planning or {}).items():
+			claims[key] = claims.get(key, 0) + int(n or 0)
+	out = {}
+	for key, lead_keys in owed.items():
+		extra = max(0, claims.get(key, 0) - own.get(key, 0))
+		for lead in lead_keys[:extra]:
+			out[lead] = out.get(lead, 0) + 1
+	return out
 
 
 def _truck_status(today):
@@ -1351,7 +1473,7 @@ def _all_stops_left(doc):
 
 def _carried_rows(doc, rows):
 	"""Of these trip bucket rows, the ones carried onto this trip from the truck's earlier
-	trip (_carry_unshelved): that trip's row of the same bucket and order, taken off its
+	trip (the former carry-over of unshelved buckets): that trip's row of the same bucket and order, taken off its
 	truck, with the same load time. Such a bucket rode the EARLIER run to the hub."""
 	if not rows:
 		return set()
@@ -1436,11 +1558,21 @@ def _settle_held_trip(doc, how, estimate=False):
 	doc.dispatched_at = at
 	doc.heading_to = hub
 	doc.auto_planned = 0  # its truck has gone: no longer the planner's to re-plan
+	# Measured before the loads go in transit; the truck is at the hub already, so a
+	# short load is only noted, never held.
+	short = below_minimum(doc)
 	_put_loads_in_transit(doc)
 	doc.add_comment(
 		"Info",
 		"Dispatched on arrival at {0}: {1} — the trip was still {2}".format(hub or "the packhouse", how, was),
 	)
+	if short:
+		doc.add_comment(
+			"Info",
+			"Arrived at {0} with {1} of {2} (min {3}) — sent without pressing Send".format(
+				hub or "the packhouse", short["loaded"], short["capacity"], short["needed"]
+			),
+		)
 	doc.save(ignore_permissions=True)
 	_mark_arrived(doc, hub or "the packhouse", how)
 	doc.reload()
@@ -1627,44 +1759,27 @@ def _carry_unshelved(doc, later, left):
 
 
 def _end_trip_for_newer_run(doc):
-	"""End (Received) a dispatched trip whose truck has started a later run. Buckets it
-	carried that were never shelved stay on it as not shelved (and stay flagged in
-	transit -- still missing), listed in a comment and the bucket's transfer log.
-	Returns True when it ended the trip."""
+	"""End (Received) a dispatched trip whose truck has started a later run, once nothing
+	it carried is still on the truck: every one of its buckets is shelved or has left the
+	truck. A later run alone never ends it -- the farm loads the truck's next run while
+	the truck is still unloading this one at the hub; its stragglers wait for their
+	shelving scan, End Trip, or the midnight close. With Production Settings > Carry
+	Unshelved Buckets to the Truck's Next Trip on, the stragglers ride the later trip
+	instead and this one ends. Returns True when it ended the trip."""
 	if doc.status != "Dispatched":
+		return False
+	left = [b for b in doc.get("trip_buckets") or [] if not b.shelved and not b.off_truck]
+	carry = bool(left) and _carry_over_unshelved()
+	if left and not carry:
 		return False
 	later = _newer_run_started(doc)
 	if not later:
 		return False
-	left = [b for b in doc.get("trip_buckets") or [] if not b.shelved and not b.off_truck]
 	_receive_trip(doc.name)
-	# Production Settings > Remote Transfers: carry them onto the truck's next trip
-	# instead (they are still on the truck), or (default) leave them on this one.
-	if left and _carry_over_unshelved():
+	if carry:
 		_carry_unshelved(doc, later, left)
 		return True
-	doc.add_comment(
-		"Info",
-		"Ended: {0} left on a later run ({1}){2}".format(
-			doc.vehicle,
-			later,
-			" — {0} bucket(s) it carried were never shelved: {1}".format(
-				len(left), ", ".join(b.bucket for b in left)
-			)
-			if left
-			else "",
-		),
-	)
-	for b in left:
-		log_transfer_event(
-			b.bucket,
-			"Not shelved when trip ended",
-			opl=b.order_pick_list,
-			farm=b.farm,
-			trip=doc.name,
-			vehicle=doc.vehicle,
-			details="{0} left on a later run ({1})".format(doc.vehicle, later),
-		)
+	doc.add_comment("Info", "Ended: {0} left on a later run ({1})".format(doc.vehicle, later))
 	return True
 
 
@@ -1676,8 +1791,8 @@ def end_shelved_trips():
 	     shelving a bucket already ends its trip, but only that one scan's trips, once:
 	     a missed or failed scan would leave the trip open; or
 	  2. the same truck has started a later run (released, dispatched, or loading on a
-	     later run or day): a truck is on one run at a time. Buckets it carried that
-	     were never shelved stay recorded on it as not shelved.
+	     later run or day) and nothing it carried is still on the truck. A bucket still
+	     in transit keeps it open, whatever its orders' other buckets did.
 
 	First, a trip still at the farms whose loaded buckets reached the hub (a shelving
 	scan's settlement missed or failed) is dispatched and arrived (_settle_held_trip),
@@ -1736,7 +1851,11 @@ def close_previous_day_trips(before=None):
 	  * Dispatched: ended (Received) like End Trip; buckets it carried that were never
 	    shelved stay recorded on it as not shelved.
 	  * Draft / Requested / Scheduled (the truck never left): closed. Buckets loaded on
-	    it go back to waiting at their farm -- off that truck -- for the new day's plan."""
+	    it come off that truck and its trolley and are kept as anomalies
+	    (keep_as_anomaly): not put back on a shelf, not waiting for a new trip.
+
+	Then every bucket still in a trolley or on a truck from before `before` is kept as
+	an anomaly the same way (clear_left_trolleys): each day starts on a clean slate."""
 	before = before or frappe.utils.today()
 	names = frappe.get_all(
 		"Bucket Request Trip",
@@ -1757,69 +1876,438 @@ def close_previous_day_trips(before=None):
 					continue
 			was = doc.status
 			left = [b for b in doc.get("trip_buckets") or [] if not b.shelved and not b.off_truck]
-			if was != "Dispatched":
-				_return_loads_to_farm(doc, left)
+			back = _return_loads_to_farm(doc, left, before) if was != "Dispatched" else {}
 			_receive_trip(name)
-			doc.add_comment(
-				"Info",
-				"Closed at the end of {0} ({1}){2}".format(
-					doc.trip_date,
-					was,
-					(
-						" — {0} bucket(s) never shelved: {1}".format(
-							len(left), ", ".join(b.bucket for b in left)
-						)
-						if was == "Dispatched"
-						else " — {0} loaded bucket(s) back to waiting at their farm: {1}".format(
-							len(left), ", ".join(b.bucket for b in left)
-						)
-					)
-					if left
-					else "",
-				),
-			)
+			doc.add_comment("Info", _close_comment(doc, was, left, back))
 			for b in left:
+				r = back.get(b.bucket) or {}
+				if was == "Dispatched":
+					stage = "Not shelved when trip ended"
+					details = "Trip {0} closed at the end of {1}".format(name, doc.trip_date)
+				else:
+					stage = LEFT_OVERNIGHT
+					details = _anomaly_details(
+						TRUCK_OVERNIGHT, doc.trip_date, r, trip=name, truck=doc.vehicle
+					)
 				log_transfer_event(
 					b.bucket,
-					"Not shelved when trip ended" if was == "Dispatched" else "Back to awaiting transfer",
+					stage,
 					opl=b.order_pick_list,
 					farm=b.farm,
 					trip=name,
 					vehicle=doc.vehicle,
-					details="Trip {0} closed at the end of {1}".format(name, doc.trip_date),
+					details=details,
 				)
 			frappe.db.commit()  # nosemgrep: frappe-manual-commit -- one trip at a time
 			closed.append(name)
 		except Exception:
 			frappe.db.rollback()
 			frappe.log_error("Close previous day trip {0} failed".format(name), frappe.get_traceback())
+	clear_left_trolleys(before)
 	return closed
 
 
-def _return_loads_to_farm(doc, left):
-	"""A trip that never left: its loaded buckets are still at their farm. Take them off
-	this truck (pick rows back to waiting) so the new day's trips can carry them."""
+def clear_left_trolleys(before=None):
+	"""The rest of the midnight clean slate (close_previous_day_trips): every bucket still
+	in a trolley or flagged on a truck from before `before` (default today) -- scanned
+	into a trolley but never loaded, or loaded on a truck that never left -- is kept as
+	an anomaly (keep_as_anomaly): its trolley and truck flags are cleared, so the farm
+	app's saved trolleys are gone and nothing of an earlier day counts on the new day's
+	trips, but it is not put back on a shelf nor set waiting for a truck. Each is logged
+	as LEFT_OVERNIGHT (Bucket Transfer Event) and listed on its order and on the trip
+	that planned it there. Left alone: buckets on the road (in transit), shelved, packed
+	or issued; buckets recorded on a trip not yet ended (a later day's); rows changed on
+	`before` or later (today's scans). Only rows last changed in the TRIP_LOOKBACK_DAYS
+	before `before`. One bucket at a time, committed; a failure is logged and the rest
+	go on. Returns the buckets kept."""
+	before = str(before or frappe.utils.today())
+	day = str(frappe.utils.add_days(before, -1))
+	has_lot = frappe.db.has_column("Pick List Item", "loaded_on_truck")
+	lot = " OR IFNULL(pli.loaded_on_truck, 0) = 1" if has_lot else ""
+	flagged = "(pli.loaded_in_trolley = 1 OR IFNULL(pli.trolley_id, '') != ''" + lot + ")"
+	rows = frappe.db.sql(
+		"""SELECT pli.name, pli.parent AS opl, pli.bucket, IFNULL(pli.trolley_id, '') AS trolley,
+		       """
+		+ ("IFNULL(pli.loaded_on_truck, 0)" if has_lot else "0")
+		+ """ AS lot,
+		       IFNULL("""
+		+ FARM_EXPR
+		+ """, '') AS farm,
+		       IF("""
+		+ TRANSFER_TRUCK_OK
+		+ """, pli.transit_truck, '') AS truck
+		FROM `tabPick List Item` pli
+		JOIN `tabOrder Pick List` o ON o.name = pli.parent AND o.docstatus < 2
+		WHERE pli.parenttype = 'Order Pick List' AND IFNULL(pli.bucket, '') != '' AND """
+		+ flagged
+		+ """
+		  AND IFNULL(pli.in_transit, 0) = 0 AND IFNULL(pli.shelved, 0) = 0
+		  AND IFNULL(pli.not_found, 0) = 0 AND NOT """
+		+ PACKED_SQL
+		+ """
+		  AND pli.modified < %(before)s AND pli.modified >= %(since)s
+		  AND NOT EXISTS (
+		      SELECT 1 FROM `tabBucket Request Trip Bucket` tb
+		      JOIN `tabBucket Request Trip` t ON t.name = tb.parent
+		      WHERE tb.parenttype = 'Bucket Request Trip' AND tb.order_pick_list = pli.parent
+		        AND tb.bucket = pli.bucket AND t.status != 'Received' AND IFNULL(tb.off_truck, 0) = 0)
+		ORDER BY pli.parent, pli.idx""",
+		{"before": before, "since": str(frappe.utils.add_days(before, -TRIP_LOOKBACK_DAYS))},
+		as_dict=True,
+	)
+	groups = {}  # opl -> {UPPER(bucket): [rows]}
+	for r in rows:
+		groups.setdefault(r.opl, {}).setdefault(r.bucket.upper(), []).append(r)
+	kept = []
+	on_trips = {}  # trip -> ["bucket (reason, order)"]
+	for opl, by_bucket in groups.items():
+		left, back = [], {}
+		for bkt_rows in by_bucket.values():
+			r = bkt_rows[0]
+			try:
+				# Kept already with another order's rows (a shared bucket on one truck).
+				if not frappe.db.sql(
+					"SELECT 1 FROM `tabPick List Item` pli WHERE pli.name IN %(n)s AND " + flagged,
+					{"n": tuple(x.name for x in bkt_rows)},
+				):
+					continue
+				truck = next((x.truck for x in bkt_rows if x.truck), "")
+				on_truck = bool(truck or any(cint(x.lot) for x in bkt_rows))
+				reason = TRUCK_OVERNIGHT if on_truck else TROLLEY_OVERNIGHT
+				trip = _planning_trip(opl, r.farm, before)
+				res = keep_as_anomaly(r.bucket, opl, r.farm, truck or None)
+				res["trolley"] = res.get("trolley") or next((x.trolley for x in bkt_rows if x.trolley), "")
+				res["reason"] = reason
+				log_transfer_event(
+					r.bucket,
+					LEFT_OVERNIGHT,
+					opl=opl,
+					farm=r.farm,
+					trip=trip,
+					vehicle=truck or None,
+					details=_anomaly_details(reason, day, res, trip=trip, truck=truck),
+				)
+				frappe.db.commit()  # nosemgrep: frappe-manual-commit -- one bucket at a time
+				left.append(frappe._dict(bucket=r.bucket))
+				back[r.bucket] = res
+				kept.append(r.bucket)
+				if trip:
+					on_trips.setdefault(trip, []).append(
+						"{0} ({1}, {2}, order due {3})".format(r.bucket, reason, opl, res.get("due") or "?")
+					)
+			except Exception:
+				frappe.db.rollback()
+				frappe.log_error(
+					"Clear left trolley bucket {0} ({1}) failed".format(r.bucket, opl), frappe.get_traceback()
+				)
+		if left:
+			_comment(
+				"Order Pick List",
+				opl,
+				"Left in a trolley or on a truck at the end of {0} — {1}".format(
+					day, _anomaly_part(left, back, "bucket(s)")
+				),
+			)
+	for trip, listed in on_trips.items():
+		_comment(
+			"Bucket Request Trip",
+			trip,
+			"Kept as anomaly at the end of {0} — {1} bucket(s) left in a trolley or on a truck: {2}".format(
+				day, len(listed), "; ".join(listed)
+			),
+		)
+	return kept
+
+
+#: The transfer event of a bucket a new day found still in a trolley, or loaded on a
+#: truck that never left: kept off any shelf and any trip, for someone to look into.
+LEFT_OVERNIGHT = "Anomaly: left overnight"
+TROLLEY_OVERNIGHT = "left in trolley overnight"
+TRUCK_OVERNIGHT = "loaded on a truck that never left"
+
+
+def keep_as_anomaly(bucket, opl, farm, vehicle=None):
+	"""A new day's clean slate for a bucket left in a trolley or loaded on a truck that
+	never left: its pick rows (_load_rows: this order's, plus the other orders' rows of
+	the same bucket loaded on this truck at that farm) come off the trolley and truck --
+	no trolley id, the truck's name cleared -- so it counts on no trip and in no trolley.
+	It is NOT put back on a shelf and NOT set waiting for a truck: an anomaly, logged by
+	the caller. Returns {"due": `opl`'s delivery date, "so": its sales order, "trolley":
+	the trolley id it was in}."""
+	lot = frappe.db.has_column("Pick List Item", "loaded_on_truck")
+	trolley = frappe.db.has_column("Pick List Item", "trolley_id")
+	rows = _load_rows(bucket, opl, farm, vehicle)
+	out = {
+		"due": str(_opl_delivery_dates({opl}).get(opl) or ""),
+		"so": frappe.db.get_value("Order Pick List", opl, "sales_order") or "",
+		"trolley": next((r.trolley_id for r in rows if r.get("trolley_id")), ""),
+	}
+	for r in rows:
+		values = {"loaded_in_trolley": 0}
+		if lot:
+			values["loaded_on_truck"] = 0
+		if trolley:
+			values["trolley_id"] = None
+		# Allocation pre-fills transit_truck with the order's delivery label: only this
+		# truck's name is cleared.
+		if vehicle and (r.transit_truck or "").strip().upper() == vehicle.strip().upper():
+			values["transit_truck"] = None
+		frappe.db.set_value("Pick List Item", r.name, values)
+	return out
+
+
+def _anomaly_details(reason, day, res, trip=None, truck=None):
+	"""The LEFT_OVERNIGHT event's details: why, when, and where it was."""
+	parts = [reason, "left at the end of {0}".format(day)]
+	if res.get("trolley"):
+		parts.append("trolley {0}".format(res["trolley"]))
+	if trip:
+		parts.append("trip {0}".format(trip))
+	if truck:
+		parts.append("truck {0}".format(truck))
+	if res.get("so"):
+		parts.append("sales order {0}".format(res["so"]))
+	parts.append("delivery {0}".format(res.get("due") or "unknown"))
+	return "; ".join(parts)
+
+
+def _planning_trip(opl, farm, before):
+	"""The latest trip before `before` that planned `opl` at `farm`, or None."""
+	for t in frappe.db.sql(
+		"""SELECT t.name, IFNULL(o.farm, '') AS farm
+		FROM `tabBucket Request Trip Order` o
+		JOIN `tabBucket Request Trip` t ON t.name = o.parent
+		WHERE o.order_pick_list = %(opl)s AND t.trip_date < %(before)s
+		ORDER BY t.trip_date DESC, t.run DESC, t.creation DESC LIMIT 10""",
+		{"opl": opl, "before": before},
+		as_dict=True,
+	):
+		if not farm or not t.farm or _same_farm(t.farm, farm):
+			return t.name
+	return None
+
+
+def _comment(doctype, name, content):
+	"""An Info comment, committed on its own; a failure is logged, never raised."""
+	try:
+		frappe.get_doc(
+			{
+				"doctype": "Comment",
+				"comment_type": "Info",
+				"reference_doctype": doctype,
+				"reference_name": name,
+				"content": content,
+			}
+		).insert(ignore_permissions=True)
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit -- one comment at a time
+	except Exception:
+		frappe.db.rollback()
+		frappe.log_error("Comment on {0} {1} failed".format(doctype, name), frappe.get_traceback())
+
+
+def _close_comment(doc, was, left, back):
+	"""The trip comment of close_previous_day_trips: what happened to the buckets left on it."""
+	head = "Closed at the end of {0} ({1})".format(doc.trip_date, was)
+	if not left:
+		return head
+	if was == "Dispatched":
+		return head + " — {0} bucket(s) never shelved: {1}".format(
+			len(left), ", ".join(b.bucket for b in left)
+		)
+	return head + " — " + _anomaly_part(left, back)
+
+
+def _anomaly_part(left, back, what="loaded bucket(s)"):
+	"""Buckets kept as anomalies (keep_as_anomaly results `back`), with their orders' due dates."""
+	return "{0} {1} kept as anomaly (left overnight, not carried over): {2}".format(
+		len(left),
+		what,
+		", ".join(
+			"{0} ({1}order due {2})".format(
+				b.bucket,
+				"{0}, ".format(back[b.bucket]["reason"]) if (back.get(b.bucket) or {}).get("reason") else "",
+				(back.get(b.bucket) or {}).get("due") or "?",
+			)
+			for b in left
+		),
+	)
+
+
+def _return_loads_to_farm(doc, left, before=None):
+	"""A trip that never left at the end of its day: its loaded buckets come off this
+	truck and are kept as anomalies (keep_as_anomaly) -- not put back on a shelf, not
+	waiting for a new day's trip. Returns {bucket: keep_as_anomaly's result}."""
+	out = {}
 	for b in left:
 		b.db_set("off_truck", 1, update_modified=False)
-		rows = frappe.get_all(
-			"Pick List Item",
-			filters={
-				"parent": b.order_pick_list,
-				"parenttype": "Order Pick List",
-				"bucket": b.bucket,
-				"in_transit": 0,
-				"shelved": 0,
-				"issued": 0,
-			},
-			fields=["name", "transit_truck"],
+		out[b.bucket] = keep_as_anomaly(b.bucket, b.order_pick_list, b.farm, doc.vehicle)
+	return out
+
+
+def back_to_farm_shelf(bucket, opl, farm, vehicle=None, before=None):
+	"""Undo a bucket's trolley scan and truck load at its farm (saveTrolleyData /
+	setOfflineTrolleyFlags, then loadTrolleyInTruck): its pick rows come off the trolley
+	and truck (no trolley id, the truck's name cleared) and the shelf rows the scan
+	removed come back (_restore_farm_shelf). A row goes back to waiting for transfer
+	(awaiting_transfer) only when its order delivers after `before` (default today): an
+	order due by then is not carried over to a new day's trip. The rows are this
+	order's, plus the other orders' rows of the same bucket loaded on this truck at that
+	farm (a shared bucket is loaded once for all its orders). Rows already on the road,
+	shelved or issued are left alone. No stock moves: neither the scan nor the load
+	posted any. Returns {"shelf": the shelf or None, "carried": `opl`'s rows waiting
+	again, "due": `opl`'s delivery date}."""
+	before = str(before or frappe.utils.today())
+	lot = frappe.db.has_column("Pick List Item", "loaded_on_truck")
+	trolley = frappe.db.has_column("Pick List Item", "trolley_id")
+	rows = _load_rows(bucket, opl, farm, vehicle)
+	dds = _opl_delivery_dates({r.parent for r in rows} | {opl})
+	out = {"shelf": None, "carried": False, "due": dds.get(opl) or ""}
+	if not rows:
+		return out
+	out["shelf"] = shelf = _restore_farm_shelf(
+		bucket, farm, next((r.shelf for r in rows if r.shelf), None), rows
+	)
+	for r in rows:
+		values = {"loaded_in_trolley": 0}
+		# Due on or before the new day: back on the shelf, never waiting for its trucks.
+		if not dds.get(r.parent) or dds[r.parent] > before:
+			values["awaiting_transfer"] = 1
+			out["carried"] = out["carried"] or r.parent == opl
+		if lot:
+			values["loaded_on_truck"] = 0
+		if trolley:
+			values["trolley_id"] = None
+		# Allocation pre-fills transit_truck with the order's delivery label: only this
+		# truck's name is cleared.
+		if vehicle and (r.transit_truck or "").strip().upper() == vehicle.strip().upper():
+			values["transit_truck"] = None
+		if shelf:
+			values["shelf"] = shelf
+		frappe.db.set_value("Pick List Item", r.name, values)
+	return out
+
+
+def _load_rows(bucket, opl, farm, vehicle=None):
+	"""A bucket's pick rows at its farm that a trolley scan / truck load flagged: this
+	order's, plus the other orders' rows of the same bucket loaded on `vehicle` at that
+	farm. Never rows on the road, shelved, issued or not found."""
+	return frappe.db.sql(
+		"""SELECT pli.name, pli.parent, pli.shelf, pli.transit_truck, pli.trolley_id
+		FROM `tabPick List Item` pli
+		WHERE pli.parenttype = 'Order Pick List' AND pli.bucket = %(b)s
+		  AND IFNULL(pli.in_transit, 0) = 0 AND IFNULL(pli.shelved, 0) = 0
+		  AND IFNULL(pli.issued, 0) = 0 AND IFNULL(pli.not_found, 0) = 0
+		  AND (pli.parent = %(opl)s OR (pli.loaded_in_trolley = 1 AND %(truck)s != ''
+		       AND UPPER(TRIM(IFNULL(pli.transit_truck, ''))) = UPPER(TRIM(%(truck)s))
+		       AND """
+		+ FARM_EXPR
+		+ """ = %(farm)s))""",
+		{"b": bucket, "opl": opl or "", "truck": vehicle or "", "farm": farm or ""},
+		as_dict=True,
+	)
+
+
+#: The Shelving Log reason the trolley scan writes on the shelf rows it removes.
+TROLLEY_REMOVED = "Transferred (Trolley/Truck)"
+
+
+def _restore_farm_shelf(bucket, farm, fallback_shelf=None, rows=None):
+	"""Put a bucket taken off its farm shelf by its trolley scan back there. The scan
+	deleted its Shelf Item rows and marked their Shelving Log rows "Transferred
+	(Trolley/Truck)" (kept, with the shelf, variety, stems and dates): each such row of
+	the bucket's last removal comes back as it was, on the same shelf, and its log row
+	is "Shelved" again. Nothing when the bucket is on a shelf at the farm already, or
+	shelved since. With no log row: onto `fallback_shelf` (the pick row's shelf) from
+	the pick rows `rows`, with a new "Shelved" log row. Returns the shelf, or None when
+	none is known (it then waits off any shelf)."""
+	farm = farm or ""
+	on_shelf = frappe.db.sql(
+		"""SELECT si.parent FROM `tabShelf Item` si JOIN `tabShelf` s ON s.name = si.parent
+		WHERE si.bucket_id = %(b)s AND (%(farm)s = '' OR s.farm = %(farm)s) LIMIT 1""",
+		{"b": bucket, "farm": farm},
+	)
+	if on_shelf:
+		return on_shelf[0][0]
+	logs = frappe.db.sql(
+		"""SELECT sl.* FROM `tabShelving Log` sl
+		WHERE sl.bucket_id = %(b)s AND (%(farm)s = '' OR IFNULL(sl.farm, '') IN ('', %(farm)s))
+		ORDER BY sl.shelved_on DESC, sl.creation DESC""",
+		{"b": bucket, "farm": farm},
+		as_dict=True,
+	)
+	if logs and logs[0].reason == TROLLEY_REMOVED and logs[0].shelf:
+		last = [
+			sl
+			for sl in logs
+			if sl.reason == TROLLEY_REMOVED and sl.removed_on == logs[0].removed_on and sl.shelf
+		]
+		shelf_name = frappe.db.get_value("Shelf", {"name": last[0].shelf}) or frappe.db.get_value(
+			"Shelf", {"shelf_id": last[0].shelf}
 		)
-		for r in rows:
-			values = {"loaded_in_trolley": 0}
-			if frappe.db.has_column("Pick List Item", "loaded_on_truck"):
-				values["loaded_on_truck"] = 0
-			if r.transit_truck == doc.vehicle:
-				values["transit_truck"] = None
-			frappe.db.set_value("Pick List Item", r.name, values)
+		if shelf_name:
+			shelf = frappe.get_doc("Shelf", shelf_name)
+			added = []
+			for sl in last:
+				row = shelf.append(
+					"items",
+					{
+						"bucket_id": sl.bucket_id,
+						"variety": sl.variety,
+						"stem_qty": sl.stem_qty,
+						"stem_length": sl.stem_length,
+						"greenhouse": sl.greenhouse,
+						"warehouse": sl.warehouse,
+						"cut_stage": sl.cut_stage,
+						"harvest_date": sl.harvest_date,
+						"receiving_date": sl.receiving_date,
+						"farm": sl.farm or shelf.farm,
+						"harvester": sl.harvester,
+						"graded_by": sl.graded_by,
+						"grading_date": sl.grading_date,
+						"date_added": sl.shelved_on,
+					},
+				)
+				added.append((sl, row))
+			shelf.save(ignore_permissions=True)
+			for sl, row in added:
+				frappe.db.set_value(
+					"Shelving Log",
+					sl.name,
+					{"reason": "Shelved", "removed_on": None, "shelf_item": row.name},
+					update_modified=False,
+				)
+			return shelf.name
+	if not fallback_shelf or not rows or not frappe.db.exists("Shelf", fallback_shelf):
+		return None
+	shelf = frappe.get_doc("Shelf", fallback_shelf)
+	if farm and shelf.farm and shelf.farm != farm:
+		return None
+	picks = frappe.get_all(
+		"Pick List Item",
+		filters={"name": ["in", [r.name for r in rows]]},
+		fields=["item_code", "stock_qty", "stem_length", "source_warehouse", "warehouse"],
+	)
+	added = [
+		shelf.append(
+			"items",
+			{
+				"bucket_id": bucket,
+				"variety": p.item_code,
+				"stem_qty": cint(p.stock_qty),
+				"stem_length": p.stem_length,
+				"warehouse": p.source_warehouse or p.warehouse,
+				"farm": farm or shelf.farm,
+				"date_added": frappe.utils.now_datetime(),
+			},
+		)
+		for p in picks
+	]
+	shelf.save(ignore_permissions=True)
+	from upande_quality.mobile.api import _write_shelved_log
+
+	for row in added:
+		_write_shelved_log(row, shelf.name, farm or shelf.farm)
+	return shelf.name
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1862,10 +2350,11 @@ def _plan_lock():
 
 def _carry_over(doc, farm=None, date=None, report=None):
 	"""Move the trip's planned-but-not-loaded buckets (one farm's, or every farm's) to
-	the truck's next open run. Idempotent: what another trip already claims is skipped."""
+	the truck's next open run. Idempotent: what another trip already claims is skipped
+	-- and a trip already trimmed when it left the farm (trim_left_farms) has nothing
+	left to move."""
 	if not (doc.get("route") and doc.get("run")):
 		return []
-	_plan_lock()
 	rows = []
 	for o in doc.orders:
 		if farm and (o.farm or "") != farm:
@@ -1873,54 +2362,175 @@ def _carry_over(doc, farm=None, date=None, report=None):
 		left = int(o.buckets or 0) - int(o.loaded_buckets or 0)
 		if left > 0 and not int(o.unscheduled or 0):
 			per = (int(o.stems or 0) / int(o.buckets)) if int(o.buckets or 0) else 0
-			rows.append(
-				{
-					"order_pick_list": o.order_pick_list,
-					"order_name": o.order_name,
-					"customer": o.customer,
-					"farm": o.farm,
-					"varieties": o.varieties,
-					"buckets": left,
-					"stems": round(per * left),
-					"full_farm_buckets": left,
-					"is_partial": 0,
-				}
-			)
-	if not rows:
-		return []
-	# Only what is still open (not shelved, not on another trip).
-	opls = list({r["order_pick_list"] for r in rows})
-	open_counts, claims = _open_counts(opls), _trip_claims(opls)
-	for r in rows:
-		key = (r["order_pick_list"], r["farm"] or "")
-		free = max(0, open_counts.get(key, 0) - claims.get(key, 0))
-		r["buckets"] = min(r["buckets"], free)
-		claims[key] = claims.get(key, 0) + r["buckets"]
-	rows = [r for r in rows if r["buckets"] > 0]
-	if report is not None:
-		report["open"] = sum(r["buckets"] for r in rows)
-	if not rows:
-		return []
-	# Always onto today's (or later) runs: a trip dated earlier would not count as a
-	# claim and the same buckets would be planned again.
-	date = max(str(date or frappe.utils.today()), str(frappe.utils.today()))
-	plan, unplaced = _split_into_runs(doc.vehicle, date, rows)
-	saved = [_write_run_trip(slot, doc.vehicle, date, "Draft", "", 0) for slot in plan]
-	# This truck has no later run there (or it's full): another truck already going to
-	# that farm today takes them — left-behind buckets never just drop back to "open".
-	holders = farm_holders(date, exclude_vehicle=doc.vehicle, with_room=True) if unplaced else {}
-	for row, n, _why in unplaced:
-		for _v, trip, _w in holders.get(row["farm"], []):
-			per = (row["stems"] / row["buckets"]) if row["buckets"] else 0
-			added, left = _add_rows_to_trip(trip, [{**row, "buckets": n, "stems": round(per * n)}])
-			if added and trip not in saved:
-				saved.append(trip)
-			n = sum(k for _r, k in left)
-			if not n:
-				break
+			rows.append(_carry_row(o, left, round(per * left)))
+	placed = _carry_rows(doc, rows, date, report)
+	saved = list(dict.fromkeys(t for t, _r in placed))
 	if saved:
 		doc.add_comment("Info", "Not loaded on this trip, moved to {0}".format(", ".join(saved)))
 	return saved
+
+
+def _carry_row(o, buckets, stems):
+	"""A plan row for `buckets` of trip order row `o`, to go on another run."""
+	return {
+		"order_pick_list": o.order_pick_list,
+		"order_name": o.order_name,
+		"customer": o.customer,
+		"farm": o.farm,
+		"varieties": o.varieties,
+		"buckets": buckets,
+		"stems": stems,
+		"full_farm_buckets": buckets,
+		"is_partial": 0,
+	}
+
+
+def _carry_rows(doc, rows, date=None, report=None):
+	"""Put plan rows a trip left behind on the truck's next open run to their farm: its
+	trip (made on the route's run if it has none yet), a new run when every run there
+	is full, else another truck already collecting there. Only orders delivering the
+	day after `date` or the day after that (drop_due_orders), and only what is still
+	open and unclaimed: a next trip that already has them is never topped up twice.
+	Returns [(trip, row placed)]."""
+	if not rows:
+		return []
+	_plan_lock()
+	# Always onto today's (or later) runs: a trip dated earlier would not count as a
+	# claim and the same buckets would be planned again.
+	date = max(str(date or frappe.utils.today()), str(frappe.utils.today()))
+	last = str(frappe.utils.add_days(date, 2))
+	dds = _opl_delivery_dates({r["order_pick_list"] for r in rows})
+	rows = [r for r in rows if not dds.get(r["order_pick_list"]) or date < dds[r["order_pick_list"]] <= last]
+	# Only what is still open (not shelved, not on another trip).
+	opls = list({r["order_pick_list"] for r in rows})
+	open_counts, claims = (_open_counts(opls), _bucket_claims(opls)) if opls else ({}, {})
+	carried = []
+	for r in rows:
+		key = (r["order_pick_list"], r["farm"] or "")
+		n = min(r["buckets"], max(0, open_counts.get(key, 0) - claims.get(key, 0)))
+		claims[key] = claims.get(key, 0) + n
+		if n > 0:
+			per = (r["stems"] / r["buckets"]) if r["buckets"] else 0
+			carried.append({**r, "buckets": n, "stems": round(per * n), "full_farm_buckets": n})
+	if report is not None:
+		report["open"] = sum(r["buckets"] for r in carried)
+	if not carried:
+		return []
+	placed = []
+
+	def write(plan):
+		for slot in plan:
+			name = _write_run_trip(slot, doc.vehicle, date, "Draft", "", 0)
+			placed.extend((name, r) for r in slot["rows"])
+
+	plan, unplaced = _split_into_runs(doc.vehicle, date, carried)
+	write(plan)
+	# Every run of the truck to that farm is full (or none is left today): it gets
+	# another run, as automatic scheduling adds one.
+	rest = []
+	for row, n, _why in unplaced:
+		per = (row["stems"] / row["buckets"]) if row["buckets"] else 0
+		part = {**row, "buckets": n, "stems": round(per * n)}
+		res = truck_routes.add_farm_run(doc.vehicle, row["farm"], date, enforce_room=True, while_on_road=True)
+		if res.get("status") != "success":
+			rest.append((part, n))
+			continue
+		more, left = _split_into_runs(doc.vehicle, date, [part], only=(res["route"], res["run"]))
+		write(more)
+		rest.extend((r, k) for r, k, _w in left)
+	# No run of this truck takes them: another truck already going to that farm today
+	# does -- left-behind buckets never just drop back to "open".
+	holders = farm_holders(date, exclude_vehicle=doc.vehicle, with_room=True) if rest else {}
+	for row, n in rest:
+		for _v, trip, _w in holders.get(row["farm"], []):
+			per = (row["stems"] / row["buckets"]) if row["buckets"] else 0
+			added, left = _add_rows_to_trip(trip, [{**row, "buckets": n, "stems": round(per * n)}])
+			placed.extend((trip, a) for a in added)
+			n = sum(k for _r, k in left)
+			if not n:
+				break
+	return placed
+
+
+def _left_farms(doc):
+	"""The farms the trip's truck has left, with nothing more to collect there: every
+	farm once it is dispatched, else its departed stops."""
+	if doc.status == "Dispatched":
+		hub = transfer_hub(required=False)
+		return {o.farm for o in doc.orders if o.farm and o.farm != hub}
+	if doc.status in ACTIVE_TRIP_STATUSES:
+		return set(_departed(doc))
+	return set()
+
+
+def trim_left_farms(doc):
+	"""Before a trip is saved: at each farm its truck has left (_left_farms) its order
+	rows are cut to what was loaded there -- the rest is no longer this trip's to
+	collect, and claimed here it stayed on this trip while the next run planned the same
+	buckets. A row left with nothing is dropped (sync_riding_orders adds a rider back).
+	Returns {farm: {planned, loaded, rows}}: the planned and loaded counts there, and the
+	plan rows cut off, for carry_left_behind once the trip is saved."""
+	farms = _left_farms(doc)
+	if not farms:
+		return {}
+	totals = {}
+	for o in doc.orders:
+		if (o.farm or "") in farms:
+			t = totals.setdefault(o.farm, [0, 0])
+			t[0] += int(o.buckets or 0)
+			t[1] += int(o.loaded_buckets or 0)
+	out, keep = {}, []
+	for o in doc.orders:
+		planned, loaded = int(o.buckets or 0), int(o.loaded_buckets or 0)
+		if (o.farm or "") not in farms or loaded >= planned:
+			keep.append(o)
+			continue
+		e = out.setdefault(o.farm, {"planned": totals[o.farm][0], "loaded": totals[o.farm][1], "rows": []})
+		left = planned - loaded
+		left_stems = round(int(o.stems or 0) * left / planned)
+		if not int(o.unscheduled or 0):
+			e["rows"].append(_carry_row(o, left, left_stems))
+		o.full_farm_buckets = max(int(o.full_farm_buckets or 0), planned)
+		o.buckets = loaded
+		o.stems = int(o.stems or 0) - left_stems
+		o.is_partial = 1 if loaded < o.full_farm_buckets else 0
+		if loaded:
+			keep.append(o)
+	if not out:
+		return {}
+	if len(keep) != len(doc.orders):
+		doc.set("orders", keep)
+		for i, r in enumerate(doc.orders, 1):
+			r.idx = i
+	doc.total_buckets = sum(int(o.buckets or 0) for o in doc.orders)
+	doc.total_stems = sum(int(o.stems or 0) for o in doc.orders)
+	return out
+
+
+def carry_left_behind(doc, left):
+	"""After a trip that left farms is saved trimmed (trim_left_farms): what it left
+	behind goes on the truck's next run there now (_carry_rows), not once the trip is
+	received. A failed carry-over never fails the save: the buckets are open again and
+	automatic scheduling plans them."""
+	rows = [r for e in left.values() for r in e["rows"]]
+	placed = []
+	if rows:
+		frappe.db.savepoint("carry_left_behind")
+		try:
+			placed = _carry_rows(doc, rows)
+		except Exception:
+			frappe.db.rollback(save_point="carry_left_behind")
+			frappe.log_error("Carry over from trip {0} failed".format(doc.name), frappe.get_traceback())
+			placed = []
+	for farm, e in left.items():
+		moved = [(t, r) for t, r in placed if (r["farm"] or "") == farm]
+		msg = "Left {0} with {1} of {2} planned".format(farm, e["loaded"], e["planned"])
+		if moved:
+			msg += "; {0} moved to {1}".format(
+				sum(r["buckets"] for _t, r in moved), ", ".join(dict.fromkeys(t for t, _r in moved))
+			)
+		doc.add_comment("Info", msg)
+	return placed
 
 
 def _trip_stops(doc):
@@ -2098,7 +2708,7 @@ def _waiting_at_farm(doc, farm):
 	# Planned to be collected by another open trip, or still by this one (in memory:
 	# its loads since the last save aren't in the database): taken off an order's
 	# buckets that go last first, so what the planner puts first stays free.
-	claims = _trip_claims(list({o for o, _k in counts}), exclude_trip=doc.name)
+	claims = _trip_claims(list({o for o, _k in counts}), exclude_trip=doc.name, unloaded=True)
 	for o in doc.orders:
 		if (o.farm or "") == farm:
 			key = (o.order_pick_list, farm)
@@ -2251,6 +2861,18 @@ def _advance_stops(doc, hold=True):
 			break
 		if hold and f == stops[-1] and _hold_for_waiting(doc, f):
 			break  # the last stop stays open: its new buckets are still to load
+		if f == stops[-1]:
+			# Leaving the last stop sends the truck to the hub: never by itself under
+			# its minimum load -- it waits there for Send with a reason, or more loads.
+			short = below_minimum(doc)
+			if short:
+				doc.add_comment(
+					"Info",
+					"Held at {0}: {1} of {2} buckets on {3} (min {4}) — send it with a reason or load more".format(
+						f, short["loaded"], short["capacity"], doc.vehicle, short["needed"]
+					),
+				)
+				break
 		departed.append(f)
 		newly.append(f)
 	if not newly:
@@ -2584,7 +3206,9 @@ def trip_bucket_shares(opls):
 		+ """) AND """
 		+ TRANSFER_TRUCK_OK
 		+ """, 1, 0)) AS on_truck,
-		       MAX(IFNULL(pli.loaded_in_trolley, 0)) AS trolley,
+		       -- In a trolley since today only: an earlier day's trolley is gone at
+		       -- midnight (clear_left_trolleys), never counted on today's trips.
+		       MAX(IF(IFNULL(pli.loaded_in_trolley, 0) = 1 AND pli.modified >= %(today)s, 1, 0)) AS trolley,
 		       MAX(IF(IFNULL(pli.in_transit, 0) = 1 OR IFNULL(pli.loaded_in_trolley, 0) = 1 OR """
 		+ lot
 		+ """, pli.transit_truck, NULL)) AS truck,
@@ -2595,7 +3219,7 @@ def trip_bucket_shares(opls):
 		GROUP BY pli.parent, UPPER(pli.bucket), COALESCE(NULLIF(pli.farm, ''), """
 		+ _WH_FARM
 		+ """, '')""",
-		{"opls": opls},
+		{"opls": opls, "today": str(frappe.utils.today())},
 		as_dict=True,
 	):
 		state = (
@@ -3132,6 +3756,73 @@ def _vehicle_capacity(vehicle):
 	return int((v.custom_trolley_capacity or 0) * (v.custom_buckets_per_trolley or 0)) if v else 0
 
 
+def _production_setting(fieldname):
+	"""A Production Settings value, None while the field doesn't exist (before migrate)."""
+	try:
+		return frappe.db.get_single_value("Production Settings", fieldname)
+	except Exception:
+		return None
+
+
+def min_load_needed(vehicle):
+	"""The buckets a truck must carry before it may be sent to the hub without a reason:
+	all of its capacity, or -- Production Settings > Allow Sending Partly Loaded Trucks --
+	Minimum Truck Load (%) of it, rounded up. Returns (needed, capacity, pct); needed is
+	0 (no check) while the truck's capacity is unknown."""
+	cap = _vehicle_capacity(vehicle) if vehicle else 0
+	if cap <= 0:
+		return 0, 0, 0
+	pct = 100.0
+	if cint(_production_setting("allow_partial_truck_load")):
+		pct = min(100.0, max(0.0, flt(_production_setting("min_truck_load_pct"))))
+	needed = int(math.ceil(cap * pct / 100 - 1e-9))
+	return needed, cap, int(pct) if pct == int(pct) else pct
+
+
+def _trip_load_count(doc):
+	"""The buckets this trip takes to the hub: those loaded on its truck, or -- nothing
+	loaded through the app -- the ones it plans (Dispatch flags them in transit)."""
+	return _trip_loaded_count(doc) if _trip_has_loads(doc) else int(doc.get("total_buckets") or 0)
+
+
+def below_minimum(doc):
+	"""The trip's truck is under its minimum load (min_load_needed): {loaded, capacity,
+	needed, pct}, else None."""
+	needed, cap, pct = min_load_needed(doc.vehicle)
+	if not needed:
+		return None
+	loaded = _trip_load_count(doc)
+	if loaded >= needed:
+		return None
+	return {"loaded": loaded, "capacity": cap, "needed": needed, "pct": pct}
+
+
+def below_minimum_refusal(doc, short):
+	"""The reply refusing to send a truck under its minimum load without a reason."""
+	return {
+		"status": "error",
+		"reason": "below_minimum",
+		"loaded": short["loaded"],
+		"capacity": short["capacity"],
+		"needed": short["needed"],
+		"pct": short["pct"],
+		"message": "{0} has {1} of {2} buckets — it leaves at {3} ({4}%). Load more or give a reason to send it now.".format(
+			doc.vehicle, short["loaded"], short["capacity"], short["needed"], short["pct"]
+		),
+	}
+
+
+def below_minimum_note(short, reason=None, hub=None):
+	"""'Sent to <hub> with 12 of 144 (min 116): <reason>'."""
+	return "Sent to {0} with {1} of {2} (min {3}){4}".format(
+		hub or transfer_hub(required=False) or "the packhouse",
+		short["loaded"],
+		short["capacity"],
+		short["needed"],
+		": {0}".format(frappe.utils.escape_html(reason)) if reason else "",
+	)
+
+
 @frappe.whitelist()
 def getTransferControlData():
 	# Read-only per-bucket transfer state for a delivery-date window.
@@ -3551,6 +4242,16 @@ def log_distribution(delivery_date, loads, source="Manual"):
 	the page lists each run on its own. loads: [{vehicle, trip, run, farms, buckets,
 	stems, orders: [order names]}], only the trucks that were actually saved."""
 	loads = [l for l in loads or [] if l.get("trip")]
+	# A trip the run emptied and deleted (an untouched draft re-planned away) is not logged:
+	# its link would fail the whole record.
+	kept = set(
+		frappe.get_all(
+			"Bucket Request Trip", filters={"name": ["in", [l["trip"] for l in loads]]}, pluck="name"
+		)
+		if loads
+		else []
+	)
+	loads = [l for l in loads if l["trip"] in kept]
 	if not loads:
 		return None
 	doc = frappe.new_doc(DISTRIBUTION)
@@ -3998,21 +4699,18 @@ def _save_trip(
 	_plan_lock()
 	opls = list({r["order_pick_list"] for r in rows})
 	open_counts = _open_counts(opls)
-	claims = _trip_claims(opls, exclude_trip=name if existing else None)
 	wanted = {}
 	for r in rows:
 		key = (r["order_pick_list"], r["farm"])
 		wanted[key] = wanted.get(key, 0) + r["buckets"]
 	if existing:
-		# Buckets this trip already carries are no longer open: only the rest must be free.
-		for o in frappe.get_all(
-			"Bucket Request Trip Order",
-			filters={"parent": name, "parenttype": "Bucket Request Trip"},
-			fields=["order_pick_list", "farm", "loaded_buckets"],
-		):
-			key = (o.order_pick_list, o.farm or "")
+		# Buckets loaded for this trip (truck, trip record or trolley) are open and its
+		# own: it claims its new plan or those, whichever is more -- never both.
+		for key, n in _trip_loads(opls).get(name, {}).items():
 			if key in wanted:
-				wanted[key] = max(0, wanted[key] - int(o.loaded_buckets or 0))
+				wanted[key] = max(wanted[key], n)
+	# By physical bucket: a shared bucket another order's trip already carries is not open.
+	claims = _bucket_claims(opls, exclude_trip=name if existing else None, planning=wanted)
 	conflicts = []
 	for (opl, fm), want in wanted.items():
 		free = open_counts.get((opl, fm), 0) - claims.get((opl, fm), 0)
@@ -4178,21 +4876,53 @@ def _live_planned(trip):
 	"""Buckets planned on a trip, counting only orders whose pick list still exists. A
 	deleted (re-allocated) pick list's rows are dropped the next time the trip is saved
 	(drop_deleted_orders), so counting them left that much room empty on the first trip
-	while the overflow opened a second one."""
-	return int(
-		frappe.db.sql(
-			"""SELECT COALESCE(SUM(o.buckets), 0) FROM `tabBucket Request Trip Order` o
-			JOIN `tabOrder Pick List` opl ON opl.name = o.order_pick_list
-			WHERE o.parent = %s AND o.parenttype = 'Bucket Request Trip'""",
-			trip,
-		)[0][0]
+	while the overflow opened a second one. Distinct buckets: a shared bucket planned
+	under two of its orders on this trip counts once (_shared_overlap)."""
+	rows = frappe.db.sql(
+		"""SELECT o.order_pick_list AS opl, IFNULL(o.farm, '') AS farm, SUM(o.buckets) AS buckets
+		FROM `tabBucket Request Trip Order` o
+		JOIN `tabOrder Pick List` opl ON opl.name = o.order_pick_list
+		WHERE o.parent = %s AND o.parenttype = 'Bucket Request Trip'
+		GROUP BY o.order_pick_list, IFNULL(o.farm, '')""",
+		trip,
+		as_dict=True,
 	)
+	planned = {(r.opl, r.farm): int(r.buckets or 0) for r in rows if int(r.buckets or 0) > 0}
+	return sum(planned.values()) - _shared_overlap(planned)
+
+
+def _shared_overlap(planned):
+	"""How many buckets of one trip's plan ({(opl, farm): buckets}) are counted twice: a
+	shared bucket planned under an order beyond that order's own buckets (it moved to
+	another lead) while its lead is planned on the same trip too."""
+	if len(planned) < 2:
+		return 0
+	own, shared = {}, {}
+	for e in _transfer_buckets(list({k[0] for k in planned})):
+		if e["shelved"]:
+			continue
+		key = (e["opl"], e["farm"])
+		if not e["rides"]:
+			own[key] = own.get(key, 0) + 1
+		elif (e["rides"], e["farm"]) in planned:
+			shared.setdefault(key, []).append((e["rides"], e["farm"]))
+	overlap, lead_left = 0, dict(planned)
+	for key, leads in shared.items():
+		extra = max(0, planned.get(key, 0) - own.get(key, 0))
+		for lead in leads:
+			if extra <= 0:
+				break
+			if lead_left.get(lead, 0) > 0:
+				lead_left[lead] -= 1
+				extra -= 1
+				overlap += 1
+	return overlap
 
 
 def _open_run_room(vehicle, date, farm):
 	"""[(run, room)] for each of the truck's runs on `date` that visit `farm` and can
 	still collect there (no trip yet, or its trip hasn't left and hasn't left the farm),
-	in driving order. room = capacity less what is planned (live) or loaded on it."""
+	in driving order. room = capacity less what it takes (_trip_used)."""
 	cap = _vehicle_capacity(vehicle)
 	out = []
 	for run in _day_runs(vehicle, date):
@@ -4203,7 +4933,7 @@ def _open_run_room(vehicle, date, farm):
 			t = frappe.get_doc("Bucket Request Trip", run["trip"])
 			if farm in _departed(t):
 				continue
-			used = max(_live_planned(t.name), int(t.loaded_buckets or 0))
+			used = _trip_used(t.name)
 		out.append((run, max(0, cap - used) if cap else 10**9))
 	return out
 
@@ -4224,7 +4954,7 @@ def _split_into_runs(vehicle, date, rows, skip_full=False, only=None):
 		used, departed = 0, []
 		if run["trip"]:
 			t = frappe.get_doc("Bucket Request Trip", run["trip"])
-			used = max(_live_planned(t.name), int(t.loaded_buckets or 0))
+			used = _trip_used(t.name)
 			departed = _departed(t)
 		slots.append({**run, "room": (cap - used) if cap else 10**9, "departed": departed, "rows": []})
 		if only and (run["route"], run["run"]) == only:
@@ -5133,6 +5863,12 @@ def closeTripStop():
 			),
 		}
 		return
+	# Closing the last stop sends the truck to the hub: under its minimum load only with
+	# a reason (the same reason covers a short stop too). An earlier stop just moves on.
+	short_load = None if remaining else below_minimum(doc)
+	if short_load and not reason:
+		frappe.response["message"] = below_minimum_refusal(doc, short_load)
+		return
 	if reason:
 		for o in rows:
 			if int(o.loaded_buckets or 0) < int(o.buckets or 0):
@@ -5161,6 +5897,8 @@ def closeTripStop():
 			"; dispatched" if doc.status == "Dispatched" else "",
 		),
 	)
+	if short_load:
+		doc.add_comment("Info", below_minimum_note(short_load, reason))
 	doc.save(ignore_permissions=True)
 	# Traceability: each bucket of this farm on the truck left the farm now.
 	for b in doc.get("trip_buckets") or []:
@@ -5172,7 +5910,16 @@ def closeTripStop():
 				farm=farm,
 				trip=name,
 				vehicle=doc.vehicle,
-				details="Truck leaving {0}{1}".format(farm, " — short: {0}".format(reason) if reason else ""),
+				details="Truck leaving {0}{1}".format(
+					farm,
+					" — below minimum load ({0} of {1}, min {2}): {3}".format(
+						short_load["loaded"], short_load["capacity"], short_load["needed"], reason
+					)
+					if short_load
+					else " — short: {0}".format(reason)
+					if reason
+					else "",
+				),
 			)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	frappe.response["message"] = {
@@ -5182,6 +5929,7 @@ def closeTripStop():
 		"heading_to": doc.heading_to,
 		"loaded": loaded,
 		"left_behind": max(0, planned - loaded),
+		"below_minimum": 1 if short_load else 0,
 	}
 
 
@@ -5397,6 +6145,12 @@ def dispatchBucketTrip():
 			"message": _on_road_message(doc.vehicle, busy, "dispatched again"),
 		}
 		return
+	# Under the truck's minimum load it goes only with a reason, recorded on the trip.
+	reason = (fd.get("reason") or "").strip()[:500]
+	short_load = below_minimum(doc)
+	if short_load and not reason:
+		frappe.response["message"] = below_minimum_refusal(doc, short_load)
+		return
 	if _trip_has_loads(doc):
 		# Loaded at the farms; they go in transit now, with the truck.
 		_put_loads_in_transit(doc)
@@ -5417,6 +6171,8 @@ def dispatchBucketTrip():
 	doc.status = "Dispatched"
 	doc.dispatched_at = frappe.utils.now()
 	doc.heading_to = transfer_hub(required=False) or ""
+	if short_load:
+		doc.add_comment("Info", below_minimum_note(short_load, reason, hub=doc.heading_to))
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	frappe.response["message"] = {
@@ -5425,6 +6181,7 @@ def dispatchBucketTrip():
 		"trip_status": "Dispatched",
 		"buckets_in_transit": marked,
 		"short": short,
+		"below_minimum": 1 if short_load else 0,
 	}
 
 
@@ -5783,12 +6540,17 @@ def auto_arrive_for_bucket(bucket):
 			if not doc.get("arrived_at"):
 				_mark_arrived(doc, hub, "first bucket ({0}) shelved there".format(bucket))
 				doc.reload()
-			try:
-				ended = _end_trip_if_shelved(doc)
-			except frappe.TimestampMismatchError:
-				# Another scan saved the trip a moment ago: tick it off on the fresh copy.
-				doc.reload()
-				ended = _end_trip_if_shelved(doc)
+			ended = False
+			for attempt in range(3):
+				try:
+					ended = _end_trip_if_shelved(doc)
+					break
+				except frappe.TimestampMismatchError:
+					# Another scan saved the trip a moment ago: tick it off on the fresh copy.
+					# Scans in quick succession keep clashing -- end_shelved_trips catches up.
+					if attempt == 2:
+						break
+					doc.reload()
 			if ended:
 				carry_over_to_next_run(name)
 				doc.add_comment("Info", "Trip completed at {0}: every bucket shelved".format(hub))
@@ -6612,12 +7374,15 @@ def return_to_farm(bucket_id, farm):
 	)
 	if not rows:
 		return []
+	# Back as before its trolley scan (as back_to_farm_shelf; the shelving just put it
+	# on the shelf): off the trolley and truck too.
+	values = {"loaded_in_trolley": 0, "in_transit": 0, "transit_truck": None, "awaiting_transfer": 1}
+	if frappe.db.has_column("Pick List Item", "loaded_on_truck"):
+		values["loaded_on_truck"] = 0
+	if frappe.db.has_column("Pick List Item", "trolley_id"):
+		values["trolley_id"] = None
 	for r in rows:
-		frappe.db.set_value(
-			"Pick List Item",
-			r.name,
-			{"loaded_in_trolley": 0, "in_transit": 0, "transit_truck": None, "awaiting_transfer": 1},
-		)
+		frappe.db.set_value("Pick List Item", r.name, values)
 	key = bucket_id.upper()
 	where = [w for w in _bucket_trip_rows([key]).get(key, []) if w.opl in {r.parent for r in rows}]
 	if where:

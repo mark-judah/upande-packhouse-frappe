@@ -82,6 +82,7 @@ def run():
 	summary = plan()
 	if summary.get("status") == "success":
 		_plan_waiting(summary)
+		_place_scheduled(summary)
 
 
 def _plan_waiting(summary, window=None):
@@ -103,6 +104,179 @@ def _plan_waiting(summary, window=None):
 	if added:
 		summary["runs_added"] = added
 	return added
+
+
+#: Rounds of _place_scheduled: each places buckets or adds a run, else it stops.
+PLACE_ROUNDS = 20
+
+
+def _place_scheduled(summary=None):
+	"""Every scheduled order's buckets still waiting at a remote farm get a trip, in
+	every sequence step -- the steps _distribute holds back included. Each farm's open
+	portions go on the open run to it with room (the run's own trip is topped up, also
+	while it is loading); with none, the truck serving the farm gets its next run there
+	(only once every run to it is full) and they go on that. Repeats until nothing is
+	open or a round changes nothing. Only orders delivering tomorrow or the day after."""
+	cache = frappe.cache()
+	if not cache.set(cache.make_key(LOCK_KEY), 1, ex=600, nx=True):
+		return {}
+	placed, added = [], []
+	try:
+		today = frappe.utils.today()
+		for _ in range(PLACE_ROUNDS):
+			portions = _scheduled_portions(today)
+			if not portions:
+				break
+			progress = False
+			for farm in sorted(portions):
+				done = _place_on_open_run(farm, portions[farm], today)
+				if done:
+					placed += done
+					progress = True
+					continue
+				run = _add_run_for(farm, today)
+				if run:
+					added.append(run)
+					progress = True
+			if not progress:
+				break
+	except Exception:
+		frappe.db.rollback()
+		frappe.log_error("Placing scheduled orders on trips failed", frappe.get_traceback())
+	finally:
+		cache.delete(cache.make_key(LOCK_KEY))
+	out = {"placed": placed, "runs_added": added}
+	if summary is not None:
+		if placed:
+			summary["scheduled_placed"] = placed
+		if added:
+			summary["runs_added"] = (summary.get("runs_added") or []) + added
+	return out
+
+
+def _scheduled_portions(today):
+	"""farm -> [trip row] of every scheduled order delivering tomorrow or the day after
+	with buckets at a remote farm that no trip claims (counted by physical bucket, as
+	_save_trip does) -- earliest delivery, then schedule step, then team first."""
+	hub = tc.transfer_hub(required=False)
+	orders = [
+		o
+		for o in tc.schedule_orders(frappe.utils.add_days(today, 1), frappe.utils.add_days(today, 2))
+		if o.get("schedule") and o.get("farms") and str(o.get("delivery_date") or "") > str(today)
+	]
+	if not orders:
+		return {}
+	orders.sort(
+		key=lambda o: (o.get("delivery_date") or "", int(o.get("schedule") or 0), o.get("team") or "")
+	)
+	opls = [o["opl"] for o in orders]
+	open_counts, claims = tc._open_counts(opls), tc._bucket_claims(opls)
+	out = {}
+	for o in orders:
+		for f in o["farms"]:
+			if not f.get("farm") or f["farm"] == hub:
+				continue
+			key = (o["opl"], f["farm"])
+			n = min(int(f.get("buckets") or 0), open_counts.get(key, 0) - claims.get(key, 0))
+			if n <= 0:
+				continue
+			per = (f["stems"] / f["buckets"]) if f.get("buckets") else 0
+			out.setdefault(f["farm"], []).append(
+				{
+					"order_pick_list": o["opl"],
+					"order_name": o["order_name"],
+					"customer": o.get("customer") or "",
+					"farm": f["farm"],
+					"varieties": ", ".join(v["variety"] for v in f.get("varieties") or [] if v["variety"]),
+					"buckets": n,
+					"stems": round(per * n),
+					"full_farm_buckets": int(f["buckets"]),
+					"is_partial": 1 if n < int(f["buckets"]) else 0,
+				}
+			)
+	return out
+
+
+def _trucks(today):
+	"""The internal logistics trucks with a capacity, shaped for _run_candidates."""
+	out = []
+	for name in frappe.get_all("Vehicle", filters={"custom_is_internal_logistics_truck": 1}, pluck="name"):
+		cap = tc._vehicle_capacity(name)
+		if cap > 0:
+			out.append({"name": name, "capacity_buckets": cap, "runs": tc._day_runs(name, today)})
+	return out
+
+
+def _farm_trucks(farm, today):
+	"""The trucks that may collect at `farm` now, in the order they are tried: the one
+	already collecting there with room (one truck per farm at a time), else every truck
+	as _run_candidates orders them."""
+	trucks = _trucks(today)
+	holders = tc.farm_holders(today, with_room=True)
+	holding = [v for v, _trip, _w in holders.get(farm, [])]
+	if holding:
+		return [v for v in trucks if v["name"] in holding]
+	routed = [v for v in trucks if v["runs"]] or trucks
+	return _run_candidates(routed, farm, holders) if routed else []
+
+
+def _place_on_open_run(farm, rows, today):
+	"""As many of `rows` (one farm's open portions, in order) as fit on the first open
+	run to the farm with room, through the planner's own save. Returns the rows placed."""
+	for v in _farm_trucks(farm, today):
+		for run, room in tc._open_run_room(v["name"], today, farm):
+			if room <= 0:
+				continue
+			take = _take(rows, room)
+			res = tc._save_trip(
+				name=None,
+				vehicle=v["name"],
+				trip_date=today,
+				status="Draft",
+				rows=take,
+				route=run["route"],
+				run=run["run"],
+				notes="Scheduled orders for deliveries from {0}.".format(frappe.utils.add_days(today, 1)),
+				collection_order="",
+				farm="",
+			)
+			if res.get("status") == "success":
+				return [{**r, "vehicle": v["name"], "run": run["run"]} for r in take]
+			frappe.clear_last_message()
+	return []
+
+
+def _take(rows, room):
+	"""The first `room` buckets of `rows`, the last row split."""
+	out = []
+	for r in rows:
+		if room <= 0:
+			break
+		n = min(int(r["buckets"]), room)
+		per = (r["stems"] / r["buckets"]) if r["buckets"] else 0
+		out.append(
+			{**r, "buckets": n, "stems": round(per * n), "is_partial": 1 if n < r["full_farm_buckets"] else 0}
+		)
+		room -= n
+	return out
+
+
+def _add_run_for(farm, today):
+	"""The next run to `farm` on the truck serving it -- only when no open run to the
+	farm has room (a second trip once the first is full). Returns {vehicle, farm, run}."""
+	trucks = _trucks(today)
+	if any(n > 0 for v in trucks for _r, n in tc._open_run_room(v["name"], today, farm)):
+		return None
+	for pick in _farm_trucks(farm, today):
+		frappe.db.savepoint("add_farm_run")
+		res = truck_routes.add_farm_run(pick["name"], farm, today, enforce_room=True, while_on_road=True)
+		if res.get("status") == "success":
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit
+			return {"vehicle": pick["name"], "farm": farm, "run": res.get("run")}
+		_undo_to_savepoint("add_farm_run")
+		if res.get("reason") == "has_room":
+			break
+	return None
 
 
 def _auto_schedule():
@@ -131,12 +305,13 @@ def distributeTrips(date: str | None = None):
 	if summary.get("status") != "success":
 		return summary
 	_plan_waiting(summary, date or None)
+	_place_scheduled(summary)
 	return summary
 
 
 def _add_runs_for_waiting(window=None):
 	"""A new run (packhouse → farm → packhouse) for every farm whose scheduled buckets
-	no open trip has room for -- overdue orders (_overdue_orders) included: on a truck
+	no open trip has room for -- on a truck
 	already going there today, else the biggest truck with a route today. A truck out on
 	the road gets the run after its last one; one that can't take it hands it to the
 	next truck serving the farm. Returns [{vehicle, farm, run}]."""
@@ -155,8 +330,7 @@ def _add_runs_for_waiting(window=None):
 				n = int(r.get("loaded_buckets") or 0) if left else int(r["buckets"] or 0)
 				covered[k] = covered.get(k, 0) + n
 	waiting = {}
-	orders = data["orders"] + _overdue_orders(window, {o["opl"] for o in data["orders"]})
-	for o in orders:
+	for o in data["orders"]:
 		if not o.get("schedule"):
 			continue
 		for f in o["farms"]:
@@ -248,7 +422,19 @@ def runNow():
 	if not enabled():
 		return {"status": "error", "message": "Automatic remote transfer scheduling is switched off."}
 	_auto_schedule()
-	return plan()
+	summary = plan()
+	if summary.get("status") == "success":
+		_place_scheduled(summary)
+	return summary
+
+
+def replan():
+	"""replan_soon's background job: plan, then every scheduled bucket still waiting gets
+	a trip (_place_scheduled) -- the same as a timed run."""
+	summary = plan()
+	if summary.get("status") == "success":
+		_place_scheduled(summary)
+	return summary
 
 
 def replan_soon(doc=None, method=None):
@@ -264,7 +450,7 @@ def replan_soon(doc=None, method=None):
 	# b'created_at' on a stale job record -- must never fail the pick list's save.
 	try:
 		frappe.enqueue(
-			"upande_packhouse.api.auto_transfer.plan",
+			"upande_packhouse.api.auto_transfer.replan",
 			queue="short",
 			job_id="upande_packhouse:auto_transfer:replan",
 			deduplicate=True,
@@ -335,19 +521,16 @@ def _plan(window=None):
 	# Only trips with room hold their farm: a full one lets another truck collect there.
 	graph.holders = tc.farm_holders(today, skip_auto_drafts=True, with_room=True)
 	trucks = _fleet(data, today)
+	# Only orders delivering in the window or later: one already due is never carried
+	# into a new day's trips.
 	orders = _open_orders(data)
-	# Orders delivering before the window still waiting at a farm (their trip closed
-	# before it collected them) go first, on the earliest trips -- see _distribute.
-	overdue = _open_orders({**data, "orders": _overdue_orders(window, {o["opl"] for o in orders})})
-	for o in overdue:
-		o["overdue"] = 1
-	dist = _distribute(overdue + orders, trucks, graph, moving=_moving(data))
+	dist = _distribute(orders, trucks, graph, moving=_moving(data))
 	# A trip leaves the hub only full: every truck in use is topped up with what is
 	# still waiting -- tomorrow's orders in schedule order, then the day after's.
 	# The day after's orders only: its trips are today's, already in `data`.
 	day_after = frappe.utils.add_days(window, 1)
 	later = _open_orders({**data, "orders": tc.schedule_orders(day_after, day_after)})
-	seen = {o["opl"] for o in orders + overdue}
+	seen = {o["opl"] for o in orders}
 	topped = _top_up(
 		trucks,
 		dist["waiting"] + dist["held"] + [o for o in later if o["opl"] not in seen],
@@ -400,8 +583,9 @@ def _plan(window=None):
 	frappe.db.savepoint("auto_plan_log")
 	try:
 		tc.log_distribution(window, [{**x, "trip": x["name"]} for x in summary["trips"]], source="Automatic")
-	except frappe.QueryTimeoutError:
+	except Exception:
 		_undo_to_savepoint("auto_plan_log")
+		frappe.log_error("Distribution log not saved", frappe.get_traceback())
 	summary["dispatched"] = tc.dispatch_full_trips([x["name"] for x in summary["trips"]])
 	if summary["dispatched"]:
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
@@ -472,7 +656,7 @@ def _fleet(data, today):
 								"loading": int(t.loaded_buckets or 0),
 							}
 						)
-						else max(tc._live_planned(t.name), int(t.loaded_buckets or 0))
+						else tc._trip_used(t.name)
 					)
 				if cap - used > 0:
 					truck = _truck(
@@ -520,44 +704,6 @@ def _truck(vehicle, rem, fixed, route=None, run=None, window=None):
 	}
 
 
-#: Orders delivering up to this many days before the window are still planned -- but
-#: never before today: a past-delivery order is dropped by the farm app, the trip's stop
-#: check (_past_delivery_opls) and shared_buckets, so planning it would only hold room.
-OVERDUE_LOOKBACK_DAYS = 3
-
-
-def _overdue_orders(window, skip=()):
-	"""The Transfer Scheduling feed's orders (same shape as data["orders"]) delivering
-	before `window`, from today (at most OVERDUE_LOOKBACK_DAYS back), earliest delivery
-	(then schedule) first: scheduled, Sales Order not cancelled or closed, not packed.
-	`skip`: orders already in the window's feed (an ASAP replacement is listed there
-	whatever its date)."""
-	start = max(
-		frappe.utils.getdate(frappe.utils.add_days(window, -OVERDUE_LOOKBACK_DAYS)),
-		frappe.utils.getdate(frappe.utils.today()),
-	)
-	end = frappe.utils.getdate(frappe.utils.add_days(window, -1))
-	if start > end:
-		return []
-	# Only the feed's orders: the caller has today's trips, fleet and routes already.
-	orders = [o for o in tc.schedule_orders(str(start), str(end)) if o["opl"] not in skip and o["farms"]]
-	if not orders:
-		return []
-	live = set(
-		frappe.db.sql_list(
-			"""SELECT opl.name FROM `tabOrder Pick List` opl
-			JOIN `tabSales Order` so ON so.name = opl.sales_order
-			WHERE opl.name IN %(opls)s AND opl.docstatus < 2 AND so.docstatus < 2
-			  AND IFNULL(so.status, '') NOT IN ('Closed', 'Completed', 'Cancelled')""",
-			{"opls": tuple(o["opl"] for o in orders)},
-		)
-	)
-	return sorted(
-		(o for o in orders if o["opl"] in live),
-		key=lambda o: (o.get("delivery_date") or "", int(o.get("schedule") or 0), o.get("team") or ""),
-	)
-
-
 def _open_orders(data):
 	"""Scheduled orders with their still-open farm portions. Buckets on any planned trip
 	today are covered, except this run's own drafts, which are about to be replaced
@@ -569,6 +715,11 @@ def _open_orders(data):
 			for r in t["orders"]:
 				key = (r["order_pick_list"], r["farm"])
 				covered[key] = covered.get(key, 0) + int(r["buckets"] or 0)
+	# A shared bucket a kept trip carries under another of its orders is covered for its
+	# lead too: _save_trip counts by physical bucket and would refuse the run.
+	scheduled = [o["opl"] for o in data["orders"] if o.get("schedule")]
+	for key, n in tc._shared_covered(scheduled, claims_of=lambda _opls: covered).items():
+		covered[key] = covered.get(key, 0) + n
 	out = []
 	for o in data["orders"]:
 		if not o.get("schedule"):
@@ -645,43 +796,10 @@ def _distribute(orders, trucks, graph, moving=None):
 	is planned -- its whole orders not on a truck yet, each on one truck where one can
 	take it all -- and the next step waits until it has arrived, so the hub shelves
 	one step while the line issues the one before. ASAP replacements go first, then
-	overdue orders (o["overdue"]), then left-behind buckets. `moving`: _moving(data)."""
+	left-behind buckets. `moving`: _moving(data)."""
 	_place_left_behind(orders, trucks, graph, key="asap")
-	# Overdue orders (o["overdue"], _overdue_orders) next, on the earliest trips with room.
-	# They are not part of the sequence steps: what doesn't fit waits for the next run.
-	late, orders = [o for o in orders if o.get("overdue")], [o for o in orders if not o.get("overdue")]
-	_place_overdue(late, trucks, graph)
 	_place_left_behind(orders, trucks, graph)
-	late_waiting, late_unreachable = [], []
-	for o in late:
-		if o["open"] <= 0:
-			continue
-		if not any(_any_serves(trucks, f["farm"], graph) for f in o["open_farms"]):
-			late_unreachable.append(o)
-		else:
-			o["why"] = "overdue: trucks full, waits for the next trip"
-			late_waiting.append(o)
-	res = _distribute_steps(orders, trucks, graph, moving)
-	res["unreachable"] = late_unreachable + res["unreachable"]
-	res["waiting"] = late_waiting + res["waiting"]
-	return res
-
-
-def _place_overdue(orders, trucks, graph):
-	"""Each overdue order, in the order given, on the first trips (_place_in_trip_order)
-	that can take it -- split over trips when no one trip can. What is placed comes off
-	the order's open portions."""
-	for o in orders:
-		if o["open"] <= 0:
-			continue
-		before = {id(t): len(t["rows"]) for t in trucks}
-		_place_in_trip_order(trucks, o, graph)
-		for t in trucks:
-			for r in t["rows"][before[id(t)] :]:
-				f = next(f for f in o["open_farms"] if f["farm"] == r["farm"])
-				f["buckets"] -= r["buckets"]
-				o["open"] -= r["buckets"]
-		o["open_farms"] = [f for f in o["open_farms"] if f["buckets"] > 0]
+	return _distribute_steps(orders, trucks, graph, moving)
 
 
 def _distribute_steps(orders, trucks, graph, moving):
@@ -1288,7 +1406,7 @@ def _restore_drafts(rows_by_draft):
 		if not rows or not frappe.db.exists("Bucket Request Trip", name):
 			continue
 		opls = list({r["order_pick_list"] for r in rows})
-		open_counts, claims = tc._open_counts(opls), tc._trip_claims(opls)
+		open_counts, claims = tc._open_counts(opls), tc._bucket_claims(opls)
 		doc = frappe.get_doc("Bucket Request Trip", name)
 		cap = tc._trip_capacity(doc)
 		room = (cap - tc._live_planned(name)) if cap else 10**9
