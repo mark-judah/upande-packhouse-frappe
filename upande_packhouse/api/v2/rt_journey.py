@@ -257,6 +257,8 @@ def read_bucket(bucket_id, trace=True):
 	from upande_packhouse.api import bucket_replacement
 
 	R["replacements"] = bucket_replacement.for_bucket(bucket_id)
+	ropl = tuple({x.get("order_pick_list") for x in R["replacements"] if x.get("order_pick_list")})
+	R["opl_so"] = dict(frappe.db.sql("SELECT name, sales_order FROM `tabOrder Pick List` WHERE name IN %(n)s", {"n": ropl})) if ropl else {}
 	R["anomalies"] = frappe.db.sql(
 		"""SELECT name, skipped_step, detected_on, farm, greenhouse, variety, stems, previous_shelf, discard_request, harvest_stock_entry
 		FROM `tabBucket Reuse Anomaly` WHERE bucket_id IN %(ids)s ORDER BY detected_on""", {"ids": ids}, as_dict=True) if frappe.db.exists("DocType", "Bucket Reuse Anomaly") else []
@@ -527,7 +529,7 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 		ghost = bool(not off and r.get("shelf_item") and r["shelf_item"] not in live and (r["shelf"], on) not in live_keys)
 		if not off and not r.get("shelf_item") and (r["shelf"], on) not in live_keys:
 			ghost = not any(i["parent"] == r["shelf"] and _near(_ts(i["date_added"]), on, 0.01) for i in R["shelf_items"])
-		phantom = bool(r.get("reason") == "Shelf Cleared" and off and _near(on, off, 0.003))
+		phantom = bool(r.get("reason") == "Shelf Cleared" and off and _near(on, off, 0.0006))  # created closed by the clear itself: same second
 		rows.append({"src": "log", "name": r["name"], "shelf": r["shelf"], "farm": r.get("farm") or "", "variety": r.get("variety") or "",
 			"stems": _num(r.get("stem_qty")), "length": r.get("stem_length") or "", "gh": r.get("greenhouse") or "", "on": on, "off": off,
 			"reason": r.get("reason") or "", "by": r.get("shelved_by") or "", "ghost": ghost, "phantom": phantom,
@@ -550,20 +552,38 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 		return _doc("Shelving Log" if r["src"] == "log" else "Shelf Item", r["name"], "%s · %s" % (r["shelf"], r["name"]))
 
 	on_groups, off_groups, consumed = {}, {}, set()
-	for r in rows:
+	# rows of one bucket written by ONE request (a multi-variety bucket: one row per variety) lie within
+	# a couple of seconds of each other; separate shelvings are always further apart
+	def stamp(last, key, ts):
+		prev = last.get(key)
+		if prev and abs(_hours(prev[0], ts) or 0) <= 2 / 3600.0:
+			last[key] = (ts, prev[1])
+			return prev[1]
+		last[key] = (ts, ts)
+		return ts
+
+	last_on, last_off = {}, {}
+	for r in sorted(rows, key=lambda x: x["on"]):
 		if not r["phantom"]:
-			on_groups.setdefault((r["shelf"], r["on"][:16]), []).append(r)
-		if r["off"]:
-			off_groups.setdefault((r["shelf"], r["off"][:16], r["reason"]), []).append(r)
+			on_groups.setdefault((r["shelf"], stamp(last_on, r["shelf"], r["on"])), []).append(r)
+	for r in sorted((x for x in rows if x["off"]), key=lambda x: x["off"]):
+		off_groups.setdefault((r["shelf"], stamp(last_off, (r["shelf"], r["reason"]), r["off"]), r["reason"]), []).append(r)
 	s2s_targets = {}
 	for (shelf, off_m, reason), rs in off_groups.items():
 		if reason != S2S:
 			continue
+		# the new shelving row is written in the same request that closes the old one: nearest within seconds
+		best = None
 		for gk, g in on_groups.items():
-			if gk[0] != shelf and _near(g[0]["on"], rs[0]["off"], 0.05) and gk not in consumed:
-				s2s_targets[(shelf, off_m, reason)] = g
-				consumed.add(gk)
-				break
+			if gk[0] == shelf or gk in consumed:
+				continue
+			h = _hours(g[0]["on"], rs[0]["off"])
+			h = 99 if h is None else abs(h)
+			if h < 30 / 3600.0 and (best is None or h < best[0]):
+				best = (h, gk, g)
+		if best:
+			s2s_targets[(shelf, off_m, reason)] = best[2]
+			consumed.add(best[1])
 	for gk, g in on_groups.items():
 		if gk in consumed:
 			continue
@@ -581,7 +601,7 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 		on_since = min(x["on"] for x in g if x["on"]) if any(x["on"] for x in g) else f["off"]
 		cmt = [c for x in g for c in x["comments"]]
 		dest = s2s_targets.get((shelf, off_m, reason))
-		old_hit = next((x for x in repl_old if abs(_hours(_ts(x.get("reported_at")), f["off"]) or 99) < 0.1), None)
+		old_hit = next((x for x in repl_old if abs(_hours(_ts(x.get("reported_at")), f["off"]) or 99) < 10 / 3600.0), None)  # same request
 		if reason == S2S:
 			ev = _e("shelf_move", f["off"], "Moved to another shelf", where=" → ".join([" · ".join(y for y in (shelf, f["farm"]) if y)] + ([dest[0]["shelf"]] if dest else [])),
 				line=_stems(stems), tone="info", facts=[["From", shelf], ["To", dest[0]["shelf"] if dest else "no new shelving row found"]], docs=[rdoc(x) for x in g + (dest or [])], on_since=on_since, stems=stems)
@@ -596,7 +616,8 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 			ev = _e("transfer_transit", f["off"], "Taken off the shelf for transfer", where=" · ".join(x for x in (shelf, f["farm"]) if x), line=_stems(stems),
 				tone="info", docs=[rdoc(x) for x in g], on_since=on_since, stems=stems, shelf_empty=True)
 		elif reason == "Replaced":
-			ev = _e("replace", f["off"], "Used as a replacement for another bucket", where=" · ".join(x for x in (shelf, f["farm"]) if x),
+			rep_hit = next((x for x in repl_new if abs(_hours(_ts(x.get("reported_at")), f["off"]) or 99) < 10 / 3600.0), None)
+			ev = _e("replace", f["off"], "Taken off the shelf: used as the replacement" if rep_hit else "Used as a replacement for another bucket", where=" · ".join(x for x in (shelf, f["farm"]) if x),
 				line=" · ".join(x for x in (_stems(stems), ("for %s" % repl_new[0]["old_bucket"]) if repl_new else "") if x), tone="warn",
 				docs=[rdoc(x) for x in g], on_since=on_since, stems=stems, shelf_empty=True)
 		elif reason == "Shelf Cleared":
@@ -613,7 +634,12 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 	for d in R["discard_rows"]:
 		ts = _end_of_day(d.get("harvest_date")) if d.get("harvest_date") else _ts(d.get("creation"))
 		listed = _ts(d.get("approval_date") or d.get("requested_date") or d.get("creation"))
-		ev = _e("discard_listed", listed, "On a discard request" if not _num(d.get("discarded")) else "Listed on a discard request (discarded)", where=" · ".join(x for x in (d.get("farm"), d.get("shelf")) if x),
+		if listed.endswith(" 00:00:00"):  # dates only on the request: the row creation has the clock time
+			listed = _ts(d.get("creation")) or listed
+		# reuse clean-up force-marks stale request rows discarded; with no Discard entry that is NOT a discard
+		if _num(d.get("discarded")) and any(a.get("discard_request") == d["parent"] for a in R["anomalies"]) and not any(x.get("stock_entry_type") == "Discard" for x in R["ses"]):
+			d = dict(d, discarded=0, swept=1)
+		ev = _e("discard_listed", listed, ("On a discard request, never discarded (closed when the bucket was reused)" if d.get("swept") else "On a discard request") if not _num(d.get("discarded")) else "Listed on a discard request (discarded)", where=" · ".join(x for x in (d.get("farm"), d.get("shelf")) if x),
 			line=" · ".join(x for x in (_stems(_num(d.get("stem_qty"))), "age %s days" % _n(d.get("age_days")) if d.get("age_days") else "", d.get("workflow_state")) if x),
 			tone="warn" if not _num(d.get("discarded")) else "bad",
 			facts=[["Request", d["parent"]], ["Discarded", "yes" if _num(d.get("discarded")) else "no"], ["Variety", d.get("variety")], ["Stem length", d.get("stem_length")],
@@ -650,7 +676,7 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 		table = [[("box %s" % r["custom_box_id"]) if r.get("custom_box_id") else "row %s" % r.get("idx"), _n(_num(r.get("stock_qty"))),
 			"issued offline" if _num(r.get("issued_offline")) else ("issued" if _num(r.get("issued")) else ("not found" if _num(r.get("not_found")) else "open")),
 			r.get("sales_order_item") or r.get("custom_sale_order_item") or "", r.get("shelf") or ""] for r in rs]
-		ev = _e("allocate", ts, ("Allocated to %s" % order) + (" (cancelled pick list)" if cancelled else ""), where=p0.get("shelf") or "", who=_who(p0.get("owner")),
+		ev = _e("allocate", ts, ("Allocated to %s" % order) + (" · %s" % opl if sum(1 for q in groups.values() if (q[0].get("opl_order_name") or q[0].get("opl_sales_order")) == (p0.get("opl_order_name") or p0.get("opl_sales_order"))) > 1 else "") + (" (cancelled pick list)" if cancelled else ""), where=p0.get("shelf") or "", who=_who(p0.get("owner")),
 			line=" · ".join(x for x in (_stems(stems), "%d row%s" % (len(rs), "" if len(rs) == 1 else "s"), p0.get("opl_customer"),
 				("issued %s of %s" % (_n(iss_st), _stems(stems))) if iss else "not issued") if x),
 			tone="" if cancelled else ("ok" if iss and iss_st >= stems else "info"),
@@ -686,32 +712,56 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 			c["ev"].append(_e("pack", _ts(max(r.get("modified") or "" for r in ready)), "Ready for packing", where=p0.get("shelf") or "",
 				line="%s%s" % (order, " · box " + str(ready[0]["custom_box_id"]) if ready[0].get("custom_box_id") else ""), tone="ok",
 				facts=[["Time", "approximate: last change of the pick row"]], docs=[_doc("Order Pick List", opl)], approx=True, opl=opl))
-	# Bucket Allocation Status snapshots
+	# Bucket Allocation Status: ONE row per bucket+variety+length for ALL journeys. Its child lines carry their own
+	# creation time, so each journey gets only its own lines (the header numbers are the current state, not history).
+	soi_cycle = {}
+	soi_ts = {}
+	for p in R["pli"]:
+		for key in (p.get("sales_order_item"), p.get("custom_sale_order_item")):
+			if key and opl_cycle.get(p["opl"]) is not None:
+				soi_cycle[key] = opl_cycle[p["opl"]]
+				soi_ts[key] = min(soi_ts.get(key) or "9", str(p.get("creation")))
 	allocs = {}
 	for a in R["bas_alloc"]:
 		allocs.setdefault(a["parent"], []).append(a)
 	for b in R["bas"]:
 		al = allocs.get(b["name"], [])
-		ts = _ts(min([a.get("creation") or "" for a in al] or [b.get("creation")]))
-		c = next((c for c in cycles if b.get("receiving_entry") and any(r["name"] == b["receiving_entry"] for r in c["receiving"])), None) or place(cycles, ts)
-		live_al = [a for a in al if not _num(a.get("cancelled"))]
-		ev = _e("allocate", ts, ("Allocation status: %s of %s stems allocated" % (_n(_num(b.get("allocated_quantity"))), _n(_num(b.get("total_quantity"))))) if _num(b.get("total_quantity")) else "Allocation record (no stems recorded)",
-			where=b.get("shelf_location") or "", line="%d order line%s%s" % (len(live_al), "" if len(live_al) == 1 else "s", ", %d cancelled" % (len(al) - len(live_al)) if len(al) > len(live_al) else ""),
-			tone="info", facts=[["Variety", b.get("item_code")], ["Stem length", b.get("stem_length")], ["Total", b.get("total_quantity")], ["Allocated", b.get("allocated_quantity")],
-				["Available", b.get("available_quantity")], ["In transit", "yes" if _num(b.get("in_transit")) else ""], ["Receiving entry", b.get("receiving_entry")]],
-			docs=[_doc("Sales Order", a["sales_order"], "%s (%s%s)" % (a["sales_order"], _n(_num(a.get("quantity_allocated"))), ", cancelled" if _num(a.get("cancelled")) else "")) for a in al],
-			approx=not al, bas=True)
-		if c is None:
-			ev["reason"] = "before the first harvest on record" if cycles else "this bucket has no harvest or receiving record"
-			unplaced.append(ev)
-		else:
-			c["ev"].append(ev)
-			c.setdefault("bas", []).append(b)
+		per = {}
+		for a in al:
+			c = soi_cycle.get(a.get("sales_order_item"))
+			if c is None:
+				rp = next((x for x in repl_old if (x.get("sales_order") or R.get("opl_so", {}).get(x.get("order_pick_list"))) == a.get("sales_order")), None)
+				c = place(cycles, _ts(rp.get("reported_at"))) if rp else None
+			if c is None:
+				c = place(cycles, _ts(a.get("creation"))) or place(cycles, _ts(b.get("creation")))
+			per.setdefault(id(c) if c else 0, (c, []))[1].append(a)
+		if not al:
+			c = next((c for c in cycles if b.get("receiving_entry") and any(r["name"] == b["receiving_entry"] for r in c["receiving"])), None) or place(cycles, _ts(b.get("creation")))
+			per[id(c) if c else 0] = (c, [])
+		for c, lines in per.values():
+			live_al = [a for a in lines if not _num(a.get("cancelled"))]
+			st = sum(_num(a.get("quantity_allocated")) for a in live_al)
+			ts = _ts(min([soi_ts.get(a.get("sales_order_item")) or a.get("creation") or "" for a in lines] or [b.get("creation")]))
+			if c is not None and ts < c["start"]:
+				ts = c["start"]
+			ev = _e("allocate", ts, "Allocation record: %s on %d order line%s" % (_stems(st) or "no stems", len(live_al), "" if len(live_al) == 1 else "s"),
+				where=b.get("shelf_location") or "", line="%d line%s%s · current record: %s of %s allocated" % (len(lines), "" if len(lines) == 1 else "s", ", %d cancelled" % (len(lines) - len(live_al)) if len(lines) > len(live_al) else "",
+					_n(_num(b.get("allocated_quantity"))), _n(_num(b.get("total_quantity")))),
+				tone="info", facts=[["Variety", b.get("item_code")], ["Stem length", b.get("stem_length")], ["Total (now)", b.get("total_quantity")], ["Allocated (now)", b.get("allocated_quantity")],
+					["Available (now)", b.get("available_quantity")], ["In transit (now)", "yes" if _num(b.get("in_transit")) else ""], ["Receiving entry", b.get("receiving_entry")]],
+				docs=[_doc("Bucket Allocation Status", b["name"])] + [_doc("Sales Order", a["sales_order"], "%s (%s%s%s)" % (a["sales_order"], _n(_num(a.get("quantity_allocated"))), ", cancelled" if _num(a.get("cancelled")) else "", ", issued" if _num(a.get("issued")) else "")) for a in lines],
+				approx=not lines, bas=True)
+			if c is None:
+				ev["reason"] = "before the first harvest on record" if cycles else "this bucket has no harvest or receiving record"
+				unplaced.append(ev)
+			else:
+				c["ev"].append(ev)
+				c.setdefault("bas", []).append(b)
 
 	# --- replacements ---------------------------------------------------------------------
 	for x in R["replacements"]:
 		old = _up(x.get("old_bucket")) == _up(bucket)
-		during = "during a transfer" if (x.get("trip") or x.get("vehicle")) else "while issuing"
+		during = "during a transfer" if (x.get("trip") or x.get("vehicle") or (hub and x.get("farm") and _up(x["farm"]) != _up(hub))) else "while issuing"
 		order = x.get("order_name") or x.get("order_pick_list") or "an order"
 		if old:
 			title = "Replaced by %s %s" % (x.get("new_bucket") or "?", during)
@@ -760,7 +810,14 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 				continue
 			if st == "Shelved at sales farm" and c and any(x["ev"] == "shelve" and x.get("farm_hub") for x in c["ev"]):
 				continue
-			ev = _e(key, at, title, where=where, who=_who(e.get("user")), line=e.get("detail") or "", tone=tone, stage=st, transfer=tr.get("opl"),
+			line = e.get("detail") or ""
+			if st == "Awaiting transfer":  # the trace reads the pick row's CURRENT farm/shelf: use the shelf the bucket really stood on
+				sr = next((r for r in sorted(rows, key=lambda x: x["on"]) if r["reason"] == TRUCK_REASON and r["off"] >= at), None) or next(
+					(r for r in sorted(rows, key=lambda x: x["on"], reverse=True) if r["on"] <= at and r["shelf"] and r["farm"]), None)
+				if sr:
+					where = sr["farm"]
+					line = "%s shelf %s → %s for %s" % (sr["farm"], sr["shelf"], tr.get("to_farm") or hub or "packhouse", tr.get("order_name") or tr.get("opl"))
+			ev = _e(key, at, title, where=where, who=_who(e.get("user")), line=line, tone=tone, stage=st, transfer=tr.get("opl"),
 				docs=[_doc("Bucket Request Trip", e.get("trip")), _doc("Order Pick List", tr.get("opl"))], opl=tr.get("opl"))
 			if c is None:
 				ev["reason"] = "before the first harvest on record" if cycles else "this bucket has no harvest or receiving record"
@@ -823,11 +880,13 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 		if c is None:
 			continue
 		closers = [e["t"] for e in c["ev"] if e["ev"] == "discard" and e["t"] >= gr["on"]]
+		# a Skipped Transfer anomaly names the remote shelf it removed, and when
+		closers += [_ts(an.get("detected_on")) for an in R["anomalies"] if an.get("skipped_step") == "Skipped Transfer" and an.get("previous_shelf") == gr["shelf"] and _ts(an.get("detected_on")) >= gr["on"]]
 		nxt = next((x["start"] for x in cycles if x["n"] == c["n"] + 1), "")
 		closers += [t for t in (nxt,) if t]
 		close = min(closers) if closers else ""
 		if close and not any(e.get("ghost_close") == gr["name"] for e in c["ev"]):
-			c["ev"].append(_e("clear", close, "Left the shelf (not recorded)", where=" · ".join(y for y in (gr["shelf"], gr["farm"]) if y), tone="warn",
+			c["ev"].append(_e("clear", close, "Taken off the shelf by the discard (shelving log left open)" if close in [e["t"] for e in c["ev"] if e["ev"] == "discard"] else "Left the shelf (not recorded)", where=" · ".join(y for y in (gr["shelf"], gr["farm"]) if y), tone="warn",
 				line="the shelf item is gone but the shelving log was never closed", docs=[rdoc(gr)], approx=True, ghost_close=gr["name"], shelf_empty=True, on_since=gr["on"]))
 
 	for c in cycles:
@@ -958,7 +1017,9 @@ def stage_of(c, steps, on_shelf_now, issued, alloc, q_in, accepted, rejected, no
 	if issued > 0:
 		return S("partly_issued", "Partly issued", "%s issued, %s still on the shelf" % (_stems(issued), _stems(sum(_num(i.get("stem_qty")) for i in on_shelf_now))), "info")
 	tr = [t for t in c.get("traces", []) if t.get("state") in ("at_farm", "on_trolley", "in_transit", "not_found")]
-	if tr and not on_shelf_now:
+	# waiting for the truck the bucket still stands on its (remote) shelf; later stages mean it has left it
+	tr = [t for t in tr if not on_shelf_now or t.get("state") == "at_farm"]
+	if tr:
 		t = tr[0]
 		lab = {"at_farm": "Awaiting transfer", "on_trolley": "On trolley", "in_transit": "In transit", "not_found": "Marked not found"}[t["state"]]
 		return S("transfer", lab, "%s → %s for %s" % (t.get("from_farm") or "?", t.get("to_farm") or "packhouse", t.get("order_name") or t.get("opl")), "bad" if t["state"] == "not_found" else "info")

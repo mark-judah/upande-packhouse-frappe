@@ -7,6 +7,8 @@
 # templates/remote_transfer_v2/<tab>.html. Switching tabs is a normal page
 # load (no iframes); the shared delivery date travels in ?date=.
 
+import os
+
 import frappe
 
 from upande_packhouse.packhouse_v2 import page_context
@@ -36,6 +38,21 @@ SLUGS = {
 }
 
 
+def _tab_version():
+	"""Cache-buster for the tab scripts and styles: changes whenever any of them changes."""
+	public = os.path.join(os.path.dirname(os.path.dirname(__file__)), "public")
+	newest = 0
+	for kind, ext in (("js", ".js"), ("css", ".css")):
+		folder = os.path.join(public, kind)
+		try:
+			for f in os.listdir(folder):
+				if f.startswith("rt-") and f.endswith(ext):
+					newest = max(newest, os.path.getmtime(os.path.join(folder, f)))
+		except OSError:
+			pass
+	return str(int(newest)) or "1"
+
+
 def get_context(context):
 	tab = frappe.form_dict.get("tab") or "transfer"
 	if tab not in TABS:
@@ -45,6 +62,9 @@ def get_context(context):
 	context.rt_tabs = [(k, v[0], v[1]) for k, v in TABS.items()]
 	context.rt_template = "upande_packhouse/templates/remote_transfer_v2/{0}.html".format(TABS[tab][2])
 	context.ph_wide = 1
+	# Tab scripts change independently of the shared css/js that ph_v tracks, so a browser kept
+	# serving a stale tab script (e.g. an old Bucket Journey script against the new API).
+	context.rt_v = _tab_version()
 	# The Bucket Journey's "Transfer" stage names where remote buckets are trucked to.
 	from upande_packhouse.api.remote_transfer.transfer_scheduling import transfer_hub
 

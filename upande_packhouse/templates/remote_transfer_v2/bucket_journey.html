@@ -15,7 +15,7 @@
     State (PH.state, in the URL): mode bucket|bunch, q (the id), limit, from, to (journeys
     started between), j (journey number open), region. ?q=7D0406 opens that bucket. -#}
 {% if rt_part == 'body' %}
-<link rel="stylesheet" href="/assets/upande_packhouse/css/rt-journey-v2.css?v={{ ph_v }}">
+<link rel="stylesheet" href="/assets/upande_packhouse/css/rt-journey-v2.css?v={{ rt_v }}">
 
 <section class="ph-card rtj-find">
   <div class="rtj-find__row">
@@ -37,5 +37,5 @@
 
 {% elif rt_part == 'script' %}
 <script>window.RTJ_CFG = { hub: {{ (transfer_hub or '') | tojson }} };</script>
-<script src="/assets/upande_packhouse/js/rt-journey-v2.js?v={{ ph_v }}"></script>
+<script src="/assets/upande_packhouse/js/rt-journey-v2.js?v={{ rt_v }}"></script>
 {% endif %}
