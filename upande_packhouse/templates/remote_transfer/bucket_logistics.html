@@ -346,7 +346,7 @@
   }
   function ovTripCell(o) {
     var t = o.trips || [];
-    if (!t.length) return o.truck ? ('<span class="ov-trip-chip">' + esc(o.truck) + '</span>') : ('<span class="ov-sub">' + ((o.awaiting || 0) > 0 ? 'no trip yet' : '—') + '</span>');
+    if (!t.length) return o.truck ? ('<span class="ov-trip-chip">' + esc(o.truck) + '</span>') : ('<span class="ov-sub">' + ((o.awaiting || 0) > 0 && ovNoTripSection(o) ? esc(ovNoTripSection(o)) : '—') + '</span>');
     return t.map(ovTripLineHtml).join('');
   }
   function ovStagePills(o) {
@@ -389,18 +389,24 @@
     (OV.repl || []).forEach(function (r) { seen[r.order_pick_list + '||' + String(r.old_bucket || r.name).toUpperCase()] = 1; });
     return Object.keys(seen).length;
   }
+  // The one section for an order without a trip (getBucketLogistics no_trip_section):
+  // "Not scheduled". A scheduled order is always planned onto a trip.
+  function ovNoTripSection(o) {
+    if (o.no_trip_section !== undefined) return o.no_trip_section || null;
+    return o.scheduled ? null : 'Not scheduled';
+  }
   // On a trip still out: its own, or its shared buckets ride with another order's.
   function ovOnTrip(o) {
     return (Number(o.riding) || 0) > 0 || (o.trips || []).some(function (t) { return t.status !== 'Received'; });
   }
   function ovSum(rows, k) { return rows.reduce(function (a, r) { return a + (r[k] || 0); }, 0); }
   function ovRenderKpis(orders) {
-    var s = { buckets: 0, shelved: 0, transit: 0, trolley: 0, awaiting: 0, issued: 0, noTrip: 0 };
+    var s = { buckets: 0, shelved: 0, transit: 0, trolley: 0, awaiting: 0, issued: 0, unsched: 0 };
     orders.forEach(function (o) {
       s.buckets += o.total || 0; s.shelved += o.shelved || 0; s.transit += o.transit || 0;
       s.trolley += o.trolley || 0; s.awaiting += o.awaiting || 0; s.issued += o.issued || 0;
       var atFarm = ovAtFarm(o);
-      if (atFarm > 0 && !ovOnTrip(o)) s.noTrip++;
+      if (atFarm > 0 && !ovOnTrip(o) && ovNoTripSection(o)) s.unsched++;
     });
     var pct = s.buckets ? Math.round(s.shelved / s.buckets * 100) : 0;
     var avg = ovAvgTransit(orders);
@@ -412,7 +418,7 @@
       ovKpiCard('In transit', Math.max(0, s.transit - s.shelved).toLocaleString()),
       ovKpiCard('Shelved', pct + '%', s.shelved.toLocaleString() + ' / ' + s.buckets.toLocaleString()),
       ovKpiCard('Issued', s.issued.toLocaleString()),
-      ovKpiCard('Orders without trip', s.noTrip.toLocaleString()),
+      ovKpiCard('Not scheduled', s.unsched.toLocaleString()),
       ovKpiCard(avg.label, avg.val),
     ].join('');
   }
@@ -420,12 +426,12 @@
   // aph-kpi styles): stage totals over the orders shown, then one card per truck.
   function ovOrigKpis(orders) {
     var card = function (lbl, val, sub) { return '<div class="aph-kpi"><div class="lbl">' + lbl + '</div><div class="v">' + val + '</div>' + (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>'; };
-    var s = { buckets: 0, shelved: 0, transit: 0, trolley: 0, awaiting: 0, issued: 0, notFound: 0, unsched: 0, noTrip: 0 };
+    var s = { buckets: 0, shelved: 0, transit: 0, trolley: 0, awaiting: 0, issued: 0, notFound: 0, unsched: 0 };
     orders.forEach(function (o) {
       s.buckets += o.total || 0; s.shelved += o.shelved || 0; s.transit += o.transit || 0;
       s.trolley += o.trolley || 0; s.awaiting += o.awaiting || 0; s.issued += o.issued || 0; s.notFound += o.not_found || 0;
       var atFarm = ovAtFarm(o);
-      if (atFarm > 0 && !ovOnTrip(o)) { if (!o.scheduled) s.unsched++; else s.noTrip++; }
+      if (atFarm > 0 && !ovOnTrip(o) && ovNoTripSection(o)) s.unsched++;
     });
     // Bucket tiles once per physical bucket (a bucket split over two orders is one).
     var tt = OV.totals;
@@ -446,7 +452,7 @@
       card('Issued', of(s.issued, s.buckets)),
       card('Not found', '<span style="color:' + (s.notFound ? '#c4302b' : 'inherit') + '">' + s.notFound.toLocaleString() + '</span>').replace('<div class="aph-kpi">', '<div class="aph-kpi" data-nf-tile="1" style="cursor:pointer">'),
       card('Replaced buckets', '<span style="color:' + (nRepl ? '#7c3aed' : 'inherit') + '">' + nRepl.toLocaleString() + '</span>'),
-      card('Orders without trip', (s.unsched + s.noTrip).toLocaleString()),
+      card('Not scheduled', s.unsched.toLocaleString()),
       card(avg.label, avg.val),
     ];
     var runs = (OV.runs || []).filter(function (r) { return r.current; }), byV = {};
@@ -652,8 +658,8 @@
     return meta && meta.owner ? (when + ' <span class="ov-sub">by ' + esc(ovPersonLabel(meta.owner)) + '</span>') : when;
   }
   // Every (order, farm) split into (order, farm, trip) rows — the unit every
-  // tab below renders. An order+farm with no trip yet still gets one row
-  // (trip: null), so "awaiting, unassigned" buckets stay visible everywhere.
+  // tab below renders. An unscheduled order+farm with no trip gets one row
+  // (trip: null, section "Not scheduled"); a scheduled order is always on a trip.
   function buildCombos(orders) {
     var combos = [];
     (orders || []).forEach(function (o) {
@@ -671,7 +677,7 @@
         });
         if (trips.length) trips.forEach(function (t) { combos.push(Object.assign({}, base, { trip: t })); });
         // Every bucket of it here marked not found: nothing left for a trip to carry.
-        else if (!(base.total > 0 && (base.not_found || 0) >= base.total)) combos.push(Object.assign({}, base, { trip: null }));
+        else if (ovNoTripSection(o) && !(base.total > 0 && (base.not_found || 0) >= base.total)) combos.push(Object.assign({}, base, { trip: null, section: ovNoTripSection(o) }));
       });
     });
     return combos;
@@ -731,7 +737,7 @@
       var trips = Object.keys(tripMap).map(function (k) { return tripMap[k]; }).sort(function (a, b) { return (a.run || 0) - (b.run || 0); });
       var orderMap = {}; rows.forEach(function (r) { orderMap[r.opl] = orderMap[r.opl] || r; });
       var orders = Object.keys(orderMap).map(function (k) { return orderMap[k]; }).sort(function (a, b) { return (a.order_name || '').localeCompare(b.order_name || ''); });
-      var head = '<th>Order</th>' + trips.map(function (t) { return '<th>' + esc((t.vehicle || t.trip) + (t.run ? ' · Trip ' + t.run : '')) + '<div class="pv-th-sub">' + esc(t.status) + '</div></th>'; }).join('') + '<th>No trip yet</th><th>Stage</th>';
+      var head = '<th>Order</th>' + trips.map(function (t) { return '<th>' + esc((t.vehicle || t.trip) + (t.run ? ' · Trip ' + t.run : '')) + '<div class="pv-th-sub">' + esc(t.status) + '</div></th>'; }).join('') + '<th>Not scheduled</th><th>Stage</th>';
       var body = orders.map(function (o) {
         var mine = rows.filter(function (r) { return r.opl === o.opl; });
         var cells = trips.map(function (t) {
@@ -740,9 +746,9 @@
           var qty = m.trip.loaded_buckets ? (m.trip.loaded_buckets + ' / ' + m.trip.buckets) : (m.trip.buckets || 0);
           return '<td class="pv-cell"><b>' + qty + '</b>' + (m.trip.shelved ? '<div class="pv-sub">' + m.trip.shelved + ' arrived</div>' : '') + '</td>';
         }).join('');
-        var noTripRow = mine.filter(function (r) { return !r.trip; })[0];
-        var noTripCell = noTripRow ? '<td class="pv-cell pv-warn"><b>' + (noTripRow.total || 0) + '</b></td>' : '<td class="pv-blank">—</td>';
-        return '<tr><td class="pv-order"><b>' + esc(o.order_name) + '</b>' + ovTeamTag(o) + '<div class="ov-sub">' + esc(o.customer || '') + '</div></td>' + cells + noTripCell + '<td style="text-align:left"><div class="ov-pill-row">' + ovStagePills(o) + '</div></td></tr>';
+        var unschedRow = mine.filter(function (r) { return !r.trip; })[0];
+        var unschedCell = unschedRow ? '<td class="pv-cell pv-warn"><b>' + (unschedRow.total || 0) + '</b></td>' : '<td class="pv-blank">—</td>';
+        return '<tr><td class="pv-order"><b>' + esc(o.order_name) + '</b>' + ovTeamTag(o) + '<div class="ov-sub">' + esc(o.customer || '') + '</div></td>' + cells + unschedCell + '<td style="text-align:left"><div class="ov-pill-row">' + ovStagePills(o) + '</div></td></tr>';
       }).join('');
       return '<div class="pv-farm-h"><span>' + esc(farm) + '</span><span class="ov-count">' + orders.length + ' order' + (orders.length === 1 ? '' : 's') + '</span></div>' +
         '<div style="overflow-x:auto;"><table class="pv-table"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>';
@@ -768,7 +774,7 @@
       var g = byTrip[k];
       var head = g.trip
         ? (esc((g.trip.vehicle || g.trip.trip) + (g.trip.run ? ' · Trip ' + g.trip.run : '')) + '<div class="bd-sub">' + esc(g.farm) + ' · ' + esc(g.trip.status) + '</div>')
-        : ('<i>No trip</i><div class="bd-sub">' + esc(g.farm) + '</div>');
+        : ('<i>Not scheduled</i><div class="bd-sub">' + esc(g.farm) + '</div>');
       var cards = g.rows.map(function (r) {
         return '<div class="bd-card"><b>' + esc(r.order_name) + '</b>' + ovTeamTag(r) + '<div class="ov-sub">' + esc(r.customer || '') + '</div><div class="bd-pills">' + ovStagePills(r) + '</div></div>';
       }).join('');
@@ -790,18 +796,18 @@
     if (!farms.length) return '<div class="tm-empty">Nothing to show.</div>';
     var tripMap = {}; combos.forEach(function (r) { if (r.trip) tripMap[r.trip.trip] = r.trip; });
     var trips = Object.keys(tripMap).map(function (k) { return tripMap[k]; }).sort(function (a, b) { return (a.run || 0) - (b.run || 0); });
-    var cellIndex = {}, noTripIndex = {};
+    var cellIndex = {}, unschedIndex = {};
     combos.forEach(function (r) {
       if (r.trip) {
         var k = r.farm + '||' + r.trip.trip;
         cellIndex[k] = cellIndex[k] || { total: 0, shelved: 0, orders: {} };
         cellIndex[k].total += r.total || 0; cellIndex[k].shelved += r.shelved || 0; cellIndex[k].orders[r.opl] = r.order_name;
       } else {
-        noTripIndex[r.farm] = noTripIndex[r.farm] || { total: 0, orders: {} };
-        noTripIndex[r.farm].total += r.total || 0; noTripIndex[r.farm].orders[r.opl] = r.order_name;
+        unschedIndex[r.farm] = unschedIndex[r.farm] || { total: 0, orders: {} };
+        unschedIndex[r.farm].total += r.total || 0; unschedIndex[r.farm].orders[r.opl] = r.order_name;
       }
     });
-    var head = '<th>Farm</th>' + trips.map(function (t) { return '<th>' + esc((t.vehicle || t.trip) + ' · Trip ' + (t.run || '')) + '</th>'; }).join('') + '<th>No trip</th>';
+    var head = '<th>Farm</th>' + trips.map(function (t) { return '<th>' + esc((t.vehicle || t.trip) + ' · Trip ' + (t.run || '')) + '</th>'; }).join('') + '<th>Not scheduled</th>';
     var body = farms.map(function (farm) {
       var cells = trips.map(function (t) {
         var c = cellIndex[farm + '||' + t.trip];
@@ -810,7 +816,7 @@
         var names = Object.keys(c.orders).map(function (k) { return c.orders[k]; });
         return '<td class="hm-cell" style="background:' + hmColor(pct) + '" title="' + esc(names.join(', ')) + '"><b>' + c.total + '</b><div class="hm-sub">' + pct + '% shelved</div></td>';
       }).join('');
-      var nt = noTripIndex[farm];
+      var nt = unschedIndex[farm];
       var ntNames = nt ? Object.keys(nt.orders).map(function (k) { return nt.orders[k]; }) : [];
       var ntCell = nt ? '<td class="hm-cell hm-warn" title="' + esc(ntNames.join(', ')) + '"><b>' + nt.total + '</b></td>' : '<td class="hm-blank">—</td>';
       return '<tr><td class="hm-farm">' + esc(farm) + '</td>' + cells + ntCell + '</tr>';
@@ -837,7 +843,7 @@
           var tripsHtml = '';
           if (!oShut) {
             tripsHtml = byOrder[opl].map(function (r) {
-              if (!r.trip) return '<div class="tr-trip-row"><span class="ov-sub">no trip yet</span></div>';
+              if (!r.trip) return '<div class="tr-trip-row"><span class="ov-sub">' + esc(r.section || 'Not scheduled') + '</span></div>';
               var t = r.trip, qty = ovTripQty(t);
               return '<div class="tr-trip-row"><span class="ov-trip-chip">' + esc((t.vehicle || t.trip) + (t.run ? ' · Trip ' + t.run : '')) + ' · ' + esc(t.status) + '</span><span class="ov-sub">' + esc(qty) + '</span></div>';
             }).join('');
@@ -909,6 +915,12 @@
       (Number(t.loaded_buckets) ? '<span><b>' + Number(t.loaded_buckets) + '</b> loaded</span>' : '') +
       (Number(t.shelved) ? '<span style="color:#16a34a"><b>' + Number(t.shelved) + '</b> arrived</span>' : '') + '</span>';
   }
+  // Under a trip: the order's stages over its buckets on that trip, out of its count there.
+  function ttTripStages(o) {
+    var t = o.trip, n = t ? (Number(t.buckets) || Number(t.loaded_buckets) || 0) : 0;
+    if (!n || !t.stages) return o;
+    return Object.assign({}, t.stages, { total: n });
+  }
   // An order's buckets and stems from this farm, and the stems that have arrived.
   function ttOrderQty(o) {
     var n = function (v) { return (Math.round(Number(v) || 0)).toLocaleString(); };
@@ -945,7 +957,7 @@
       var farmsChips = '<span class="tt-trip-farms">' + Object.keys(tFarms).sort().map(function (f) { return '<span class="tt-trip-farm">' + esc(f) + ' <b>' + tFarms[f] + '</b></span>'; }).join('') + '</span>';
       var tLabel = g.trip
         ? (esc((g.trip.vehicle || g.trip.trip) + (g.trip.run ? ' · Trip ' + g.trip.run : '')) + ' <span class="ov-sub">· ' + esc(g.trip.status) + (g.trip.trip_date ? ' · ' + esc(g.trip.trip_date) : '') + '</span>')
-        : '<i>No trip</i>';
+        : '<i>Not scheduled</i>';
       var farmsHtml = '';
       if (!tShut) {
         var byFarm = groupBy(g.rows, 'farm'), farms = Object.keys(byFarm).sort();
@@ -954,7 +966,7 @@
           var frows = byFarm[farm];
           var byOrder = {}, oKeys = [];
           frows.forEach(function (r) { if (!byOrder[r.opl]) { byOrder[r.opl] = r; oKeys.push(r.opl); } });
-          // Waiting-transfer (no trip yet) is sorted oldest-first by when it was
+          // Not scheduled (no trip) is sorted oldest-first by when it was
           // initiated — the longest-waiting order surfaces at the top. A farm
           // that's already on a real trip keeps the alphabetical order instead.
           if (g.trip) oKeys.sort(function (a, b) { return (byOrder[a].order_name || '').localeCompare(byOrder[b].order_name || ''); });
@@ -966,7 +978,7 @@
               var statusHtml = '';
               if (!oShut) {
                 statusHtml = '<div class="tt-status">' +
-                  '<div class="ov-pill-row">' + ovStagePills(o) + '</div>' +
+                  '<div class="ov-pill-row">' + ovStagePills(ttTripStages(o)) + '</div>' +
                   '<button class="ov-more" style="margin-top:8px;" data-bp-opl="' + esc(o.opl) + '" data-bp-farm="' + esc(o.farm || '') + '" data-bp-name="' + esc(o.order_name) + '">Bucket status →</button>' +
                 '</div>';
               }
@@ -1371,7 +1383,7 @@
       return '<th data-flatsort="' + c.k + '">' + esc(c.label) + arrow + '</th>';
     }).join('');
     var body = rows.map(function (r) {
-      var tripLabel = r.trip ? ((r.trip.vehicle || r.trip.trip) + (r.trip.run ? ' · Trip ' + r.trip.run : '')) : 'no trip yet';
+      var tripLabel = r.trip ? ((r.trip.vehicle || r.trip.trip) + (r.trip.run ? ' · Trip ' + r.trip.run : '')) : (r.section || 'Not scheduled');
       var status = r.trip ? r.trip.status : '—';
       return '<tr><td>' + esc(r.farm) + '</td><td><b>' + esc(r.order_name) + '</b></td><td>' + esc(r.customer || '') + '</td>' +
         '<td>' + esc(r.team || '') + (r.no_team ? ' <span class="ov-pill" style="background:#b42318">no team</span>' : '') + '</td>' +
@@ -1554,6 +1566,23 @@ window.BL_LOAD = window.rtLogisticsLoad;
     if (document.hidden || !window.rtLogisticsLoad || (panel && panel.style.display === 'none')) return;
     window.rtLogisticsLoad();
   }, 30000);
+  // Trips change in bursts (Distribute, a truck being loaded): a light check every 3 s
+  // re-reads the moment today's trips change, so their counts move as buckets go on.
+  var tripStamp = null, stampBusy = false;
+  setInterval(function () {
+    var panel = document.getElementById('panel-logistics');
+    if (stampBusy || document.hidden || !window.rtLogisticsLoad || (panel && panel.style.display === 'none')) return;
+    stampBusy = true;
+    fetch('/api/method/upande_packhouse.api.remote_transfer.bucket_logistics.getTripsStamp', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        var stamp = d && d.message;
+        if (stamp && tripStamp !== null && stamp !== tripStamp) window.rtLogisticsLoad();
+        if (stamp) tripStamp = stamp;
+      })
+      .catch(function () {})
+      .then(function () { stampBusy = false; });
+  }, 3000);
   window.addEventListener('pagehide', function () { if (window.tmClosePanel) window.tmClosePanel(); });
 })();
 </script>
