@@ -100,7 +100,37 @@ class BucketRequestTrip(Document):
 				)
 
 	def validate(self):
+		self.validate_one_farm()
 		self.validate_no_double_booking()
+
+	def validate_one_farm(self):
+		"""One farm per trip (packhouse → farm → packhouse): buckets are planned at one farm
+		only. Riders (0 buckets) ride with their lead at its farm, and a load nobody planned
+		is recorded where it was loaded. A trip planned at several farms before this rule
+		can still be saved, as long as no farm is added to it. Fills the trip's farm."""
+		from upande_packhouse.api import transfer_control as tc
+
+		hub = tc.transfer_hub(required=False)
+		planned = {
+			o.farm for o in self.get("orders") or [] if o.farm and o.farm != hub and int(o.buckets or 0) > 0
+		}
+		if len(planned) > 1:
+			before = self.get_doc_before_save()
+			was = {
+				o.farm
+				for o in (before.orders if before else [])
+				if o.farm and o.farm != hub and int(o.buckets or 0) > 0
+			}
+			if not planned <= was:
+				frappe.throw(
+					_(
+						"One farm per trip: {0} has buckets planned at {1}. Plan each farm on its own trip."
+					).format(self.name or _("this trip"), ", ".join(sorted(planned))),
+					title=_("One farm per trip"),
+				)
+		farms = tc.trip_farms(self)
+		if len(farms) == 1:
+			self.farm = next(iter(farms))
 
 	def validate_no_double_booking(self):
 		"""Backstop for every planning / loading path: a bucket rides one trip, and the

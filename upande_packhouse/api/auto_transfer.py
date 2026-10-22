@@ -14,19 +14,16 @@
 #      first), a team stops at an order no truck can reach, and the first round
 #      that no longer fits whole fills the remaining truck space with a partial
 #      load and ends the plan. Port of computeDistribution in transfer-control.html.
-#   3. Route: a truck without a hand-set route today is routed from the farms its
-#      load is at — the real road legs out from the hub, every farm passed on the
-#      way included, cheapest visiting order.
-#   4. Save Draft trips (and the routes) through the same validation the page uses —
-#      one trip per run: a hand-set route's runs (packhouse → farms → packhouse) are
-#      each planned as a full truck that serves only that run's farms.
+#   3. Save Draft trips through the same validation the page uses — one trip per run,
+#      one farm per trip: each run of a truck's route (packhouse → farm → packhouse) is
+#      planned as a full truck that collects at one farm. A farm gets a second trip
+#      only once its first, on any truck, is full or has left it.
 #
 # Ownership: whatever this saves is flagged auto_planned. Each run re-plans only its
 # own still-Draft trips (in place, keeping their names) and routes; a trip a person
 # saves keeps its orders and is only topped up while its run has room.
 # Dispatch stays manual — only a person knows the truck has actually left.
 
-import itertools
 from collections import deque
 
 import frappe
@@ -44,8 +41,6 @@ LAST_RUN_KEY = "upande_packhouse:auto_transfer:last_run"
 LOCK_KEY = "upande_packhouse:auto_transfer:lock"
 #: Set when a change lands while a run is going: that run plans once more at its end.
 RERUN_KEY = "upande_packhouse:auto_transfer:rerun"
-#: Stops beyond this are visited in road order instead of trying every permutation.
-MAX_PERMUTED_STOPS = 7
 
 
 def enabled():
@@ -228,6 +223,14 @@ def _place_on_open_run(farm, rows, today):
 			if room <= 0:
 				continue
 			take = _take(rows, room)
+			if not run.get("route"):
+				# A trip to the farm with no route: topped up as it is.
+				tc._plan_lock()
+				added, _left = tc._add_rows_to_trip(run["trip"], take)
+				if added:
+					frappe.db.commit()  # nosemgrep: frappe-manual-commit
+					return [{**r, "vehicle": v["name"], "run": None} for r in added]
+				continue
 			res = tc._save_trip(
 				name=None,
 				vehicle=v["name"],
@@ -274,7 +277,7 @@ def _add_run_for(farm, today):
 			frappe.db.commit()  # nosemgrep: frappe-manual-commit
 			return {"vehicle": pick["name"], "farm": farm, "run": res.get("run")}
 		_undo_to_savepoint("add_farm_run")
-		if res.get("reason") == "has_room":
+		if res.get("reason") in ("has_room", "open_trip"):
 			break
 	return None
 
@@ -362,7 +365,7 @@ def _add_runs_for_waiting(window=None):
 				break
 			# Refused (no road, a clash with its other routes, ...): nothing of it is kept.
 			_undo_to_savepoint("add_farm_run")
-			if res.get("reason") == "has_room":
+			if res.get("reason") in ("has_room", "open_trip"):
 				break  # a trip to the farm still has room: plan() fills it first
 		else:
 			# No truck could take a run there: said once a day, so it is seen and fixed.
@@ -668,6 +671,8 @@ def _fleet(data, today):
 						window=tc._trip_window(r["route"], today),
 					)
 					if used:
+						# One farm per trip: a kept trip only takes more of its own farm.
+						truck["kept_farms"] = tc.trip_farms(r["trip"])
 						# A kept trip already collects at its farms: it is filled there before
 						# another truck or run collects at them (_fill_order, _clashes).
 						truck["stops"] = sorted(
@@ -697,7 +702,7 @@ def _truck(vehicle, rem, fixed, route=None, run=None, window=None):
 		"run": run,
 		"rem": rem,
 		"fixed": fixed,
-		"auto_route": fixed is None,
+		"kept_farms": set(),  # the farm of the kept trip it tops up (one farm per trip)
 		"stops": [],  # farms it collects from, in the order they were added
 		"passes": set(),  # every farm on its roads (stops + on the way)
 		"rows": [],
@@ -894,7 +899,8 @@ def _fill_order(trucks, graph, farm):
 
 def _fill(trucks, farm, amount, graph, row=None, only=None):
 	"""Put `amount` buckets of `farm` on trips in _fill_order, each as full as it can be
-	before the next one. Eligibility is re-checked after each one: a truck clashing with
+	before the next one. One farm per trip: a trip with another farm's buckets on it
+	takes none. Eligibility is re-checked after each one: a truck clashing with
 	another that collects there (_clashes) may take the rest once that one is full.
 	`row(t, n)` records n buckets on t; `only(t)` limits the trips. Returns the buckets
 	placed (MUTATES trucks)."""
@@ -905,6 +911,7 @@ def _fill(trucks, farm, amount, graph, row=None, only=None):
 			for t in trucks
 			if t["rem"] > 0
 			and (only is None or only(t))
+			and _one_farm(t, farm)
 			and _serves(t, farm, graph)
 			and not _clashes(t, farm, trucks, graph)
 		]
@@ -917,6 +924,11 @@ def _fill(trucks, farm, amount, graph, row=None, only=None):
 			row(t, take)
 		left -= take
 	return amount - left
+
+
+def _one_farm(truck, farm):
+	"""The trip may collect at `farm`: nothing on it yet, or only that farm's buckets."""
+	return set(truck["stops"]) <= {farm} and set(truck.get("kept_farms") or ()) <= {farm}
 
 
 def _place_in_trip_order(trucks, order, graph):
@@ -961,8 +973,8 @@ def _top_up(trucks, portions, graph):
 
 def _consolidate(trucks, graph):
 	"""Fill trips in the order they leave: buckets planned on a later trip move up to
-	an earlier one that already collects from that farm (or is the same truck and
-	serves it), so the first trips fill before later ones get anything."""
+	an earlier one that already collects from that farm (one farm per trip), so the
+	first trips fill before later ones get anything."""
 	order = sorted(trucks, key=_trip_rank(trucks, graph, []))
 	for i, t in enumerate(order):
 		for later in order[i + 1 :]:
@@ -972,8 +984,7 @@ def _consolidate(trucks, graph):
 				if t["rem"] <= 0:
 					break
 				farm = r["farm"]
-				same_truck = later["vehicle"] == t["vehicle"] and _serves(t, farm, graph)
-				if not r["buckets"] or (farm not in t["stops"] and not same_truck):
+				if not r["buckets"] or farm not in t["stops"] or not _one_farm(t, farm):
 					continue
 				take = min(t["rem"], r["buckets"])
 				per = r["stems"] / r["buckets"] if r["buckets"] else 0
@@ -1047,22 +1058,12 @@ def _load(truck, farm, n, graph):
 		truck["passes"] |= set(graph.path(graph.hub, farm)[1]) | {farm}
 
 
-def _overlap(a, b):
-	return not a or not b or (a[0] < b[1] and b[0] < a[1])
-
-
 def _clashes(truck, farm, trucks, graph):
-	"""Another truck of this plan already collects from `farm` while this one would be
-	out, and still has room there: a second truck collects at a farm only once the
-	first is full. (A farm a SAVED trip already collects from is fine to plan:
-	_save_trip puts those buckets on that trip, as far as it has room.)"""
-	return any(
-		t["vehicle"] != truck["vehicle"]
-		and t["rem"] > 0
-		and farm in t["stops"]
-		and _overlap(truck["window"], t["window"])
-		for t in trucks
-	)
+	"""Another truck of this plan already collects from `farm` and still has room there:
+	a second truck collects at a farm only once the first is full, whenever either is
+	out. (A farm a SAVED trip already collects from is fine to plan: _save_trip puts
+	those buckets on that trip, as far as it has room.)"""
+	return any(t["vehicle"] != truck["vehicle"] and t["rem"] > 0 and farm in t["stops"] for t in trucks)
 
 
 def _serves(truck, farm, graph):
@@ -1087,23 +1088,20 @@ def _commit(trucks, scratch):
 
 
 # ============================================================
-# ROAD NETWORK  (port of roadPath / expandViaRoadLegs / bestRoute)
+# ROAD NETWORK  (port of roadPath)
 # ============================================================
 class _RoadGraph:
 	"""Farm Distance records flagged is_road_leg are the real roads (a tree rooted at
-	the hub); every other record is a pairwise convenience figure, used only to score
-	a visiting order, never to drive."""
+	the hub); every other record is a pairwise figure, never driven."""
 
 	def __init__(self, hub, distances):
 		self.hub = hub
-		self.adj, self.km, self.leg_km = {}, {}, {}
+		self.adj = {}
 		for d in distances:
 			a, b = d.get("a"), d.get("b")
 			if not (a and b):
 				continue
-			self.km[frozenset((a, b))] = float(d.get("km") or 0)
 			if d.get("leg"):
-				self.leg_km[d["name"]] = float(d.get("km") or 0)
 				self.adj.setdefault(a, []).append((b, d["name"]))
 				self.adj.setdefault(b, []).append((a, d["name"]))
 		self._paths = {}
@@ -1133,50 +1131,6 @@ class _RoadGraph:
 
 	def reaches(self, farm):
 		return farm == self.hub or bool(self.path(self.hub, farm)[0])
-
-	def _dist(self, a, b):
-		"""km actually driven between two stops: along the road legs when a road joins
-		them, else the pairwise figure (a truck can't take a road that isn't there, so
-		scoring Torongo→Kaptumbo by a direct 34 km would pick the wrong order)."""
-		if a == b:
-			return 0.0
-		legs = self.path(a, b)[0]
-		if legs:
-			return sum(self.leg_km[leg] for leg in legs)
-		return self.km.get(frozenset((a, b)))
-
-	def _round_trip_km(self, order):
-		seq = [self.hub, *order, self.hub]
-		total = 0.0
-		for a, b in itertools.pairwise(seq):
-			d = self._dist(a, b)
-			if d is None:
-				return None
-			total += d
-		return total
-
-	def route_for(self, stops):
-		"""(visiting order, leg names) for a round trip hub → stops → hub. Every farm
-		passed on the way is a stop too; the cheapest order wins."""
-		farms = []
-		for s in stops:
-			for f in [*self.path(self.hub, s)[1], s]:
-				if f != self.hub and f not in farms:
-					farms.append(f)
-		order = farms
-		if 1 < len(farms) <= MAX_PERMUTED_STOPS:
-			best = None
-			for perm in itertools.permutations(farms):
-				km = self._round_trip_km(perm)
-				if km is not None and (best is None or km < best[0]):
-					best = (km, list(perm))
-			if best:
-				order = best[1]
-		seq = [self.hub, *order, self.hub]
-		legs = []
-		for a, b in itertools.pairwise(seq):
-			legs += self.path(a, b)[0]
-		return order, legs
 
 
 # ============================================================
@@ -1343,20 +1297,15 @@ def _saved_trips(t, res):
 
 
 def _save_load(t, today, window, hub, graph):
-	"""Save one planned truck run (not committed)."""
-	chain = []
-	if t["auto_route"]:
-		chain, legs = graph.route_for(t["stops"])
-		res = truck_routes._save_route(today, t["vehicle"], legs, auto_planned=1, commit=False)
-		if res.get("status") != "success":
-			return res
+	"""Save one planned truck run (not committed). Runs come from the trucks' routes
+	(add_farm_run adds one to a farm), never a route made up here."""
 	return tc._save_trip(
 		name=None,
 		vehicle=t["vehicle"],
 		trip_date=today,
 		status="Draft",
 		notes="Auto-planned for deliveries on {0}.".format(window),
-		collection_order=" → ".join([hub] + chain + [hub]) if chain else "",
+		collection_order="",
 		farm="",
 		rows=t["rows"],
 		auto_planned=1,

@@ -101,6 +101,8 @@
     if (cur && cur.length) runs.push(cur);
     return runs;
   }
+  /* One farm per trip: a trip drawn with several farms becomes one trip per farm. */
+  const oneFarmRuns = (runs) => runs.reduce((out, run) => out.concat(run.length > 1 ? run.map((f) => [f]) : [run.slice()]), []);
   const runsHtml = (runs) => runs.map((run, i) => `<div>${runs.length > 1 ? `<span class="ph-badge ph-badge--outline">Trip ${i + 1}</span> ` : ""}${RTP.chainHtml([pack()].concat(run).concat([pack()]))}</div>`).join("");
   /* "06:00–18:00", or "22:00–02:00 next day" when it runs past midnight. */
   const tplRange = (r) => { const f = r.from_time || "", t = r.to_time || ""; if (!f || !t) return "all day"; return f + "–" + t + (t <= f ? " next day" : ""); };
@@ -165,7 +167,7 @@
       sort: { key: "vehicle", dir: "asc" },
       rowClass: (r) => (r.active ? "" : "rt-tile-off"),
       empty: q ? "No routes match “" + q + "”" : "No truck routes yet",
-      emptyText: q ? "Clear the search to see every route." : "Add one with New route — each trip leaves " + (pack() || "the hub") + ", collects from its farms and comes back.",
+      emptyText: q ? "Clear the search to see every route." : "Add one with New route — each trip leaves " + (pack() || "the hub") + ", collects from one farm and comes back.",
     });
   }
   function setRouteActive(name, on) {
@@ -234,7 +236,7 @@
         route = routes.find((r) => r.name === key);
         if (!route) { RTP.toast("Route " + key + " not found", "bad"); return st.set({ route: "" }); }
       }
-      const runs = route ? runsOf(route) : [];
+      const runs = route ? oneFarmRuns(runsOf(route)) : [];
       RB = { key, edit: route ? route.name : null, vehicle: route ? route.vehicle : "", runs: runs.length ? runs : [[]], busy: false, err: "", from: (route && route.from_time) || "06:00", to: (route && route.to_time) || "18:00" };
       PH.set("#tr-body", `<button class="ph-backbtn" data-act="rv-back">${PH.icon("chevronLeft", 14)}Truck routes</button>
         <div class="ph-row ph-row--2-1">
@@ -275,16 +277,18 @@
     const others = (routes || []).filter((r) => r.name !== b.edit && r.active && r.vehicle === b.vehicle);
     const L = builderLegs(b.runs), n = b.runs.reduce((a, r) => a + r.length, 0);
     const emptyRun = b.runs.length > 1 && b.runs.some((r) => !r.length);
+    const multi = b.runs.findIndex((r) => r.length > 1);
     const badTime = !b.from || !b.to || b.from === b.to;
     const clash = badTime ? null : others.find((r) => tplClash(b.from, b.to, r.from_time, r.to_time));
     let msg = "", bad = false;
     if (L.gaps.length) { msg = "No road for " + L.gaps.join(", ") + " — add it under Road network first."; bad = true; }
-    else if (emptyRun) { msg = "A trip has no farms — add one or remove the trip."; bad = true; }
+    else if (emptyRun) { msg = "A trip has no farm — add one or remove the trip."; bad = true; }
+    else if (multi >= 0) { msg = "Trip " + (multi + 1) + ": one farm per trip — split it into separate trips."; bad = true; }
     else if (badTime) { msg = !b.from || !b.to ? "Set From and To." : "From and To can’t be the same time."; bad = true; }
     else if (clash) { msg = b.vehicle + " already runs " + tplRange(clash) + " — pick a time that doesn’t overlap."; bad = true; }
     else if (others.length) msg = b.vehicle + " also runs " + others.map(tplRange).join(", ") + ".";
     else if (b.to < b.from) msg = "Runs past midnight — ends " + b.to + " the next day.";
-    return { L, n, msg, bad, blocked: !b.vehicle || !n || L.gaps.length > 0 || emptyRun || !!clash || badTime };
+    return { L, n, msg, bad, blocked: !b.vehicle || !n || L.gaps.length > 0 || emptyRun || multi >= 0 || !!clash || badTime };
   }
   function paintBuilder() {
     const b = RB, form = PH.$("#rb-form");
@@ -296,16 +300,13 @@
     const dis = b.busy ? " disabled" : "";
     const runs = b.runs.map((run, ri) => {
       const m = run.length, km = m ? RTP.routeKm(run) : null;
-      const addable = farms.filter((f) => run.indexOf(f) < 0).map((f) => { const ok = reachable(f); return `<option value="${esc(f)}"${ok ? "" : " disabled"}>${esc(f)}${ok ? "" : " — no road yet"}</option>`; }).join("");
+      const addable = farms.map((f) => { const ok = reachable(f); return `<option value="${esc(f)}"${ok ? "" : " disabled"}>${esc(f)}${ok ? "" : " — no road yet"}</option>`; }).join("");
       return `<div class="rt-run"><div class="ph-flex ph-flex--between ph-mb"><b class="ph-strong">Trip ${ri + 1}</b><span class="ph-flex">${km != null && m ? `<span class="ph-badge">${km.toFixed(1)} km</span>` : ""}${b.runs.length > 1 ? `<button class="ph-btn ph-btn--sm ph-btn--ghost" data-act="rb-run-rm" data-r="${ri}"${dis}>Remove trip</button>` : ""}</span></div>
         <div class="rt-stop is-fixed"><span class="ph-list__rank">⌂</span><span>${esc(pack())} · start</span><span></span></div>
         ${run.map((f, i) => `<div class="rt-stop"><span class="ph-list__rank lead">${i + 1}</span><span class="ph-strong">${esc(f)}</span><span class="ph-flex">
-          <button class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-act="rb-up" data-r="${ri}" data-i="${i}" title="Earlier" aria-label="Earlier"${i === 0 ? " disabled" : ""}>↑</button>
-          <button class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-act="rb-down" data-r="${ri}" data-i="${i}" title="Later" aria-label="Later"${i === m - 1 ? " disabled" : ""}>↓</button>
           <button class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-act="rb-rm" data-r="${ri}" data-i="${i}" title="Remove" aria-label="Remove">${PH.icon("close", 14)}</button></span></div>`).join("")}
         <div class="rt-stop is-fixed"><span class="ph-list__rank">⌂</span><span>${esc(pack())} · back</span><span></span></div>
-        <div class="rt-add"><select class="ph-control" data-rb-add="${ri}" aria-label="Add farm to trip ${ri + 1}"${dis}><option value="">+ Add farm to trip ${ri + 1}…</option>${addable}</select>
-          <button class="ph-btn ph-btn--sm ph-btn--ghost" data-act="rb-opt" data-r="${ri}" title="Shortest visiting order"${m < 2 ? " disabled" : ""}>Optimise order</button></div></div>`;
+        ${m ? "" : `<div class="rt-add"><select class="ph-control" data-rb-add="${ri}" aria-label="Add farm to trip ${ri + 1}"${dis}><option value="">+ Add farm to trip ${ri + 1}…</option>${addable}</select></div>`}</div>`;
     }).join("");
     const lastEmpty = !b.runs[b.runs.length - 1].length;
     PH.set(form, `<div class="ph-form ph-form--2 ph-mb">
@@ -314,7 +315,7 @@
         <div class="ph-field ph-field--full"><label>Truck</label>${D().vehicles.length
           ? `<select class="ph-control" data-rb="vehicle"${b.edit || b.busy ? " disabled" : ""}><option value="">Select truck…</option>${vehOpts}</select>`
           : `<div class="ph-notice ph-mb-0"><span class="ph-grow">No transfer trucks yet.</span><button class="ph-btn ph-btn--sm" data-act="tk-open">Add truck</button></div>`}</div></div>
-      <div class="ph-label">Trips</div><p class="ph-tile__sub ph-mb">Each trip leaves ${esc(pack())}, collects from its farms and comes back. The truck drives the trips one after another, each with a full truck.</p>
+      <div class="ph-label">Trips</div><p class="ph-tile__sub ph-mb">Each trip leaves ${esc(pack())}, collects from one farm and comes back. The truck drives the trips one after another, each with a full truck.</p>
       ${runs}<button class="ph-btn ph-btn--sm ph-btn--ghost" data-act="rb-run-add"${lastEmpty || b.busy ? ' disabled title="Add a farm to the last trip first"' : ""}>${PH.icon("plus", 14)}Add trip — back to ${esc(pack())}, then out again</button>`);
     const c = builderCheck();
     PH.text("#rb-km", c.n ? c.L.km.toFixed(1) + " km total" : "");
@@ -330,7 +331,7 @@
         rows: c.L.rows.map((r, i) => Object.assign({ i: i + 1 }, r)),
         compact: true,
       });
-    } else PH.empty("#rb-legs", "No legs yet", "Add the farms each trip visits — the legs are worked out from the road network.");
+    } else PH.empty("#rb-legs", "No legs yet", "Add the farm each trip goes to — the legs are worked out from the road network.");
     const msg = PH.$("#rb-msg");
     if (msg) { msg.textContent = b.err || c.msg; msg.className = "ph-grow " + (b.err || c.bad ? "ph-bad" : "ph-muted"); }
     const sv = PH.$("#rb-save");
@@ -463,29 +464,16 @@
     else if (a === "rn-del") removeRoad(el.dataset.name);
     else if (a === "rb-save") saveBuilder();
     else if (!b || b.busy) return;
-    else if (a === "rb-up" || a === "rb-down") {
-      const run = b.runs[+el.dataset.r], i = +el.dataset.i, j = a === "rb-up" ? i - 1 : i + 1;
-      if (run && j >= 0 && j < run.length) { const t = run[i]; run[i] = run[j]; run[j] = t; }
-      paintBuilder();
-    } else if (a === "rb-rm") { const run = b.runs[+el.dataset.r]; if (run) run.splice(+el.dataset.i, 1); paintBuilder(); }
+    else if (a === "rb-rm") { const run = b.runs[+el.dataset.r]; if (run) run.splice(+el.dataset.i, 1); paintBuilder(); }
     else if (a === "rb-run-add") { b.runs.push([]); paintBuilder(); }
     else if (a === "rb-run-rm") { if (b.runs.length > 1) b.runs.splice(+el.dataset.r, 1); paintBuilder(); }
-    else if (a === "rb-opt") {
-      const ri = +el.dataset.r, run = b.runs[ri];
-      if (!run || run.length < 2) return;
-      const before = RTP.routeKm(run), best = RTP.bestRoute(run);
-      if (best.km == null) RTP.toast("No road reaches every stop — add the missing roads under Road network");
-      else if (best.order.join("|") === run.join("|")) RTP.toast("Already the shortest order · " + best.km.toFixed(1) + " km");
-      else { b.runs[ri] = best.order.slice(); RTP.toast("Reordered · " + best.km.toFixed(1) + " km" + (before != null ? " (was " + before.toFixed(1) + " km)" : "")); }
-      paintBuilder();
-    }
   });
   body.addEventListener("change", (e) => {
     const el = e.target;
     if (el.matches('[data-act="rv-active"]')) return setRouteActive(el.dataset.name, el.checked);
     if (!RB) return;
     if (el.dataset.rb) { RB[el.dataset.rb] = el.value || ""; RB.err = ""; paintBuilder(); }
-    else if (el.dataset.rbAdd != null && el.value) { const run = RB.runs[+el.dataset.rbAdd]; if (run && run.indexOf(el.value) < 0) run.push(el.value); paintBuilder(); }
+    else if (el.dataset.rbAdd != null && el.value) { const run = RB.runs[+el.dataset.rbAdd]; if (run && !run.length) run.push(el.value); paintBuilder(); }
   });
 
   PH.onRefresh(() => load(true));

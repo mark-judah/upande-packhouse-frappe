@@ -7,6 +7,7 @@ from frappe.tests import UnitTestCase
 from upande_packhouse.api import auto_transfer as at
 from upande_packhouse.api.remote_transfer import bucket_logistics as bl
 from upande_packhouse.api.remote_transfer import transfer_scheduling as tc
+from upande_packhouse.api.remote_transfer import truck_routes as tr
 
 # Remote Transfers planning rules: a trip carries only orders delivering tomorrow or the
 # day after; every scheduled order's waiting buckets end up on a trip (a full run gets
@@ -1084,3 +1085,279 @@ class UnitTestMidnightCleanSlate(UnitTestCase):
 		r.commit.assert_not_called()
 		r.set_value.assert_not_called()
 		r.sql.assert_called_once()  # the sweep's one query, finding nothing
+
+
+class UnitTestOneFarmPerTrip(UnitTestCase):
+	"""A trip goes Kapkolia → one farm → Kapkolia, never mixing farms; a farm gets a
+	second trip only when its first, on any truck, is full or has left that farm."""
+
+	HUB = "Kapkolia"
+
+	def setUp(self):
+		self.today = str(frappe.utils.today())
+
+	def _roads(self):
+		return [
+			frappe._dict(name="FD-K-C", from_farm=self.HUB, to_farm="Chepsito", distance_km=10),
+			frappe._dict(name="FD-K-T", from_farm=self.HUB, to_farm="Torongo", distance_km=12),
+			frappe._dict(name="FD-C-T", from_farm="Chepsito", to_farm="Torongo", distance_km=5),
+		]
+
+	def _path(self, legs, old_legs=None):
+		with (
+			patch.object(tr, "transfer_hub", return_value=self.HUB),
+			patch.object(tc, "transfer_hub", return_value=self.HUB),
+			patch.object(tr.frappe, "get_all", return_value=self._roads()),
+		):
+			return tr._route_path(legs, old_legs=old_legs)
+
+	def test_a_two_farm_run_is_refused_on_route_save(self):
+		path, err = self._path(["FD-K-C", "FD-C-T", "FD-K-T"])
+		self.assertIsNone(path)
+		self.assertIn("one farm per trip", err)
+		# Saving a day route refuses it the same way, before anything is written.
+		with (
+			patch.object(tr, "_route_to_update", return_value=(None, None)),
+			patch.object(tr, "transfer_hub", return_value=self.HUB),
+			patch.object(tc, "transfer_hub", return_value=self.HUB),
+			patch.object(tr.frappe, "get_all", return_value=self._roads()),
+		):
+			res = tr._save_route(self.today, "KDP 283L", ["FD-K-C", "FD-C-T", "FD-K-T"])
+		self.assertEqual(res["status"], "error")
+		self.assertIn("one farm per trip", res["message"])
+
+	def test_a_one_farm_runs_and_a_farm_driven_through_are_saved(self):
+		path, err = self._path(["FD-K-C", "FD-K-C", "FD-K-T", "FD-K-T"])
+		self.assertIsNone(err)
+		self.assertEqual([leg["run"] for leg in path], [1, 1, 2, 2])
+		# Torongo reached through Chepsito: Chepsito is passed, not a stop.
+		path, err = self._path(["FD-K-C", "FD-C-T", "FD-C-T", "FD-K-C"])
+		self.assertIsNone(err)
+		runs = tc.route_runs(path, self.HUB)
+		self.assertEqual([(r["stops"], r["via"]) for r in runs], [(["Torongo"], ["Chepsito"])])
+
+	def test_a_run_saved_before_the_rule_stays_as_it_was(self):
+		old = [
+			frappe._dict(from_farm=self.HUB, to_farm="Chepsito"),
+			frappe._dict(from_farm="Chepsito", to_farm="Torongo"),
+			frappe._dict(from_farm="Torongo", to_farm=self.HUB),
+		]
+		path, err = self._path(["FD-K-C", "FD-C-T", "FD-K-T", "FD-K-C", "FD-K-C"], old_legs=old)
+		self.assertIsNone(err)
+		self.assertEqual(path[-1]["run"], 2)
+
+	def _graph(self):
+		graph = at._RoadGraph(
+			self.HUB,
+			[
+				{"name": "FD-K-C", "a": self.HUB, "b": "Chepsito", "km": 10, "leg": 1},
+				{"name": "FD-K-T", "a": self.HUB, "b": "Torongo", "km": 12, "leg": 1},
+			],
+		)
+		graph.holders = {}
+		return graph
+
+	def _orders(self):
+		def order(opl, farm, n, schedule):
+			return {
+				"opl": opl,
+				"order_name": opl.replace("OPL", "ORD"),
+				"team": "A",
+				"schedule": schedule,
+				"open": n,
+				"open_farms": [
+					{
+						"farm": farm,
+						"buckets": n,
+						"left_behind": 0,
+						"asap": 0,
+						"per_bucket": 100,
+						"varieties": "Rose",
+					}
+				],
+			}
+
+		return [order("OPL-C", "Chepsito", 2, 1), order("OPL-T", "Torongo", 6, 1)]
+
+	def _plan(self, trucks):
+		graph = self._graph()
+		dist = at._distribute(self._orders(), trucks, graph, moving={})
+		at._top_up(trucks, dist["waiting"] + dist["held"], graph)
+		at._consolidate(trucks, graph)
+		return [t for t in trucks if t["rows"]]
+
+	def test_b_distribute_puts_each_farm_on_its_own_trip(self):
+		trucks = [
+			at._truck("KDP 283L", 20, {"Chepsito"}, route="R1", run=1),
+			at._truck("KDP 283L", 20, {"Torongo"}, route="R1", run=2),
+		]
+		loads = self._plan(trucks)
+		self.assertEqual(
+			sorted((t["run"], r["farm"], r["buckets"]) for t in loads for r in t["rows"]),
+			[(1, "Chepsito", 2), (2, "Torongo", 6)],
+		)
+		for t in loads:
+			self.assertEqual(len({r["farm"] for r in t["rows"]}), 1)
+
+	def test_b_a_run_drawn_with_two_farms_still_carries_one(self):
+		loads = self._plan([at._truck("KDP 283L", 20, {"Chepsito", "Torongo"}, route="R1", run=1)])
+		self.assertEqual(len(loads), 1)
+		self.assertEqual(len({r["farm"] for r in loads[0]["rows"]}), 1)
+
+	def _sql(self, trips):
+		"""farm_holders' query: one row per trip order row."""
+		return [
+			frappe._dict(
+				name=name,
+				vehicle=vehicle,
+				route=None,
+				status="Draft",
+				auto_planned=0,
+				departed_stops="",
+				farm=farm,
+				buckets=n,
+			)
+			for name, vehicle, farm, n in trips
+		]
+
+	def _add_run(self, room):
+		trips = [("BRT-C1", "KTCB 443K", "Chepsito", 10)]
+		with (
+			patch.object(tc, "transfer_hub", return_value=self.HUB),
+			patch.object(tc.frappe.db, "sql", return_value=self._sql(trips)),
+			patch.object(tc.frappe.db, "get_value", return_value=(None, None)),
+			patch.object(tc, "trip_room", return_value=room),
+			patch.object(tr, "transfer_hub", return_value=self.HUB),
+			patch.object(tr, "_farm_distance_between", return_value="FD-K-C"),
+			patch.object(tr.frappe, "get_all", return_value=[]),
+			patch.object(tr, "_save_route", return_value={"status": "success", "name": "R9"}) as save,
+			patch.object(tr, "_route_runs_by_name", return_value=[{"run": 1}]),
+		):
+			return tr.add_farm_run("KDG 076V", "Chepsito", self.today), save
+
+	def test_c_no_second_trip_while_the_first_has_room_on_any_truck(self):
+		# Chepsito trip 1 has no route and is on another truck: still the farm's trip.
+		res, save = self._add_run(room=4)
+		self.assertEqual(res["reason"], "open_trip")
+		self.assertEqual((res["trip"], res["vehicle"], res["room"]), ("BRT-C1", "KTCB 443K", 4))
+		self.assertIsNone(res["route"])
+		save.assert_not_called()
+
+	def test_d_second_trip_once_the_first_is_full(self):
+		res, save = self._add_run(room=0)
+		self.assertEqual(res["status"], "success")
+		self.assertEqual((res["route"], res["run"]), ("R9", 1))
+		save.assert_called_once()
+
+	def test_c_a_mixed_trip_from_before_holds_no_farm(self):
+		trips = [("BRT-X", "KTCB 443K", "Chepsito", 3), ("BRT-X", "KTCB 443K", "Torongo", 2)]
+		with (
+			patch.object(tc, "transfer_hub", return_value=self.HUB),
+			patch.object(tc.frappe.db, "sql", return_value=self._sql(trips)),
+		):
+			self.assertEqual(tc.farm_holders(self.today), {})
+
+	def _trip(self, rows, before=None):
+		doc = frappe.new_doc("Bucket Request Trip")
+		doc.name, doc.status, doc.trip_date = "BRT-1", "Draft", self.today
+		for farm, n in rows:
+			doc.append("orders", {"order_pick_list": "OPL-" + farm, "farm": farm, "buckets": n})
+		doc.get_doc_before_save = lambda: before
+		return doc
+
+	def test_e_validate_refuses_two_farms_and_allows_riders(self):
+		with patch.object(tc, "transfer_hub", return_value=self.HUB):
+			doc = self._trip([("Chepsito", 3), ("Torongo", 2)])
+			with self.assertRaises(frappe.ValidationError):
+				doc.validate_one_farm()
+			doc = self._trip([("Chepsito", 3), ("Chepsito", 0), ("Torongo", 0)])
+			doc.validate_one_farm()
+			self.assertEqual(doc.farm, "Chepsito")
+			# A trip planned at two farms before the rule saves as long as no farm is added.
+			before = frappe._dict(orders=self._trip([("Chepsito", 3), ("Torongo", 2)]).orders)
+			self._trip([("Chepsito", 1), ("Torongo", 2)], before=before).validate_one_farm()
+
+	def test_f_merge_never_mixes_farms(self):
+		trips = [
+			frappe._dict(name="BRT-C", vehicle="KDP 283L", route=None, run=0),
+			frappe._dict(name="BRT-T", vehicle="KDP 283L", route=None, run=0),
+		]
+		farms = {"BRT-C": {"Chepsito"}, "BRT-T": {"Torongo"}}
+		runs = [
+			{"route": "R1", "run": 1, "stops": ["Chepsito", "Torongo"], "trip": None, "trip_status": None}
+		]
+		with (
+			patch.object(tc.frappe, "get_all", return_value=trips),
+			patch.object(tc, "trip_farms", side_effect=lambda n: farms[n]),
+			patch.object(tc, "_day_runs", return_value=runs),
+		):
+			groups = tc._trip_groups(self.today)
+		self.assertEqual(
+			groups,
+			{
+				("KDP 283L", "R1", 1, ("Chepsito",)): ["BRT-C"],
+				("KDP 283L", "", 0, ("Torongo",)): ["BRT-T"],
+			},
+		)
+
+	def test_g_farm_b_load_never_lands_on_a_farm_a_trip(self):
+		def trip(name, farm, run=None):
+			doc = frappe.new_doc("Bucket Request Trip")
+			doc.name, doc.status, doc.trip_date, doc.route, doc.run = name, "Scheduled", self.today, "R1", run
+			if farm:
+				doc.append("orders", {"order_pick_list": "OPL-A", "farm": farm, "buckets": 5})
+			return doc
+
+		chep = trip("BRT-C", "Chepsito", run=1)
+		with (
+			patch.object(tc, "transfer_hub", return_value=self.HUB),
+			patch.object(
+				tc, "_run_of", side_effect=lambda route, run: {"stops": ["Torongo"]} if run == 2 else None
+			),
+			patch.object(tc, "_trip_has_loads", return_value=True),
+		):
+			self.assertIsNone(tc._pick_trip_for_load([chep], "OPL-B", "Torongo", {}))
+			# The truck's empty run to Torongo takes it.
+			toro = trip("BRT-T", None, run=2)
+			self.assertIs(tc._pick_trip_for_load([chep, toro], "OPL-B", "Torongo", {}), toro)
+			# A new trip for a load nobody planned is that farm's from the start.
+			with patch.object(tc, "_day_runs", return_value=[]):
+				new = tc._new_load_trip("KDG 076V", self.today, "Torongo")
+			self.assertEqual(tc.trip_farms(new), {"Torongo"})
+			self.assertIs(tc._pick_trip_for_load([new, chep], "OPL-C", "Chepsito", {}), chep)
+
+	def test_h_carry_goes_to_the_open_same_farm_trip_first(self):
+		doc = frappe.new_doc("Bucket Request Trip")
+		doc.name, doc.vehicle, doc.status, doc.trip_date = "BRT-1", "KDG 076V", "Dispatched", self.today
+		row = {
+			"order_pick_list": "OPL-S",
+			"order_name": "ORD-S",
+			"farm": "Torongo",
+			"buckets": 3,
+			"stems": 300,
+			"full_farm_buckets": 3,
+		}
+		with (
+			patch.object(tc, "_plan_lock"),
+			patch.object(tc, "_opl_delivery_dates", return_value={}),
+			patch.object(tc, "_open_counts", return_value={("OPL-S", "Torongo"): 3}),
+			patch.object(tc, "_bucket_claims", return_value={}),
+			patch.object(
+				tc,
+				"open_trips_to_farm",
+				return_value=[
+					{"trip": "BRT-9", "vehicle": "KTCB 443K", "room": 10, "route": None, "run": None}
+				],
+			) as holders,
+			patch.object(tc, "_add_rows_to_trip", side_effect=lambda trip, rows: (rows, [])) as add,
+			patch.object(tc, "_day_runs", return_value=[]),
+			patch.object(tc, "_vehicle_capacity", return_value=100),
+			patch.object(tc, "_write_run_trip") as write,
+			patch.object(tc.truck_routes, "add_farm_run") as add_run,
+		):
+			placed = tc._carry_rows(doc, [row])
+		holders.assert_called_once_with("Torongo", self.today, exclude_trip="BRT-1")
+		self.assertEqual(add.call_args[0][0], "BRT-9")
+		self.assertEqual([(t, r["buckets"]) for t, r in placed], [("BRT-9", 3)])
+		write.assert_not_called()
+		add_run.assert_not_called()
