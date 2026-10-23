@@ -1,0 +1,4292 @@
+{
+ "site": "kaitet.local",
+ "created": [
+  {
+   "order": 1,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020954",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J1 harvest"
+  },
+  {
+   "order": 2,
+   "doctype": "Stock Ledger Entry",
+   "name": "749a35b581",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J1 harvest"
+  },
+  {
+   "order": 3,
+   "doctype": "Bucket QR Code",
+   "name": "JTEST-001",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J1 harvest"
+  },
+  {
+   "order": 4,
+   "doctype": "Version",
+   "name": "35fv1f8imq",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J1 harvest"
+  },
+  {
+   "order": 5,
+   "doctype": "Error Log",
+   "name": "34260m4nha",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J1 harvest"
+  },
+  {
+   "order": 6,
+   "doctype": "Error Log",
+   "name": "3a37grt2ia",
+   "how": "api:createReceivingStockEntry",
+   "step": "J1 receive"
+  },
+  {
+   "order": 7,
+   "doctype": "Error Log",
+   "name": "3crd2ashon",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J1 receive"
+  },
+  {
+   "order": 8,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020955",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J1 receive"
+  },
+  {
+   "order": 9,
+   "doctype": "Stock Ledger Entry",
+   "name": "7c801ce37c",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J1 receive"
+  },
+  {
+   "order": 10,
+   "doctype": "Stock Ledger Entry",
+   "name": "2489eea264",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J1 receive"
+  },
+  {
+   "order": 11,
+   "doctype": "Version",
+   "name": "49nqtuchgh",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J1 receive"
+  },
+  {
+   "order": 12,
+   "doctype": "Shelving Log",
+   "name": "4ci2v477e9",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J1 shelve"
+  },
+  {
+   "order": 13,
+   "doctype": "Shelf",
+   "name": "JTEST-SHELF-01",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J1 shelve"
+  },
+  {
+   "order": 14,
+   "doctype": "Shelf Item",
+   "name": "4chbfummc9",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J1 shelve"
+  },
+  {
+   "order": 15,
+   "doctype": "Sales Order",
+   "name": "JTEST-SO-J1-A",
+   "how": "direct",
+   "step": "SO J1-A"
+  },
+  {
+   "order": 16,
+   "doctype": "Comment",
+   "name": "582n5i54ma",
+   "how": "direct",
+   "step": "SO J1-A"
+  },
+  {
+   "order": 17,
+   "doctype": "Version",
+   "name": "585skef0fu",
+   "how": "direct",
+   "step": "SO J1-A"
+  },
+  {
+   "order": 18,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020956",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 19,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020957",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 20,
+   "doctype": "Stock Ledger Entry",
+   "name": "06bda19ab5",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 21,
+   "doctype": "Stock Ledger Entry",
+   "name": "2189e0b495",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 22,
+   "doctype": "Stock Ledger Entry",
+   "name": "f857283834",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 23,
+   "doctype": "Stock Ledger Entry",
+   "name": "81f22f8380",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 24,
+   "doctype": "Bucket Allocation Status",
+   "name": "5dkggg56a5",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 25,
+   "doctype": "Order Pick List",
+   "name": "OPL-2026-00057",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 26,
+   "doctype": "Order Pick List",
+   "name": "OPL-2026-00058",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 27,
+   "doctype": "Comment",
+   "name": "5dqncaqm0t",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 28,
+   "doctype": "Comment",
+   "name": "5drgqgth83",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 29,
+   "doctype": "Comment",
+   "name": "5dvth1tsfa",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 30,
+   "doctype": "Comment",
+   "name": "5dv4bvk4r3",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 31,
+   "doctype": "Version",
+   "name": "5e4rih45sv",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 32,
+   "doctype": "Version",
+   "name": "5e6t9m8v8e",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 33,
+   "doctype": "Error Log",
+   "name": "5di4oinbv7",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 34,
+   "doctype": "Error Log",
+   "name": "5dme1a6pdq",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 35,
+   "doctype": "Error Log",
+   "name": "5dtjcfaqbi",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 36,
+   "doctype": "Error Log",
+   "name": "5dthh7vksi",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 37,
+   "doctype": "Error Log",
+   "name": "5e0a347e0l",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 38,
+   "doctype": "Pick List Item",
+   "name": "5do6mq12g7",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 39,
+   "doctype": "Pick List Item",
+   "name": "5du6ucsnkg",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 40,
+   "doctype": "Bucket Allocations",
+   "name": "5dlbk348i2",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 41,
+   "doctype": "Bucket Allocations",
+   "name": "5dltiucpam",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-A"
+  },
+  {
+   "order": 42,
+   "doctype": "Sales Order",
+   "name": "JTEST-SO-J1-B",
+   "how": "direct",
+   "step": "SO J1-B"
+  },
+  {
+   "order": 43,
+   "doctype": "Comment",
+   "name": "5jfqk2bkv9",
+   "how": "direct",
+   "step": "SO J1-B"
+  },
+  {
+   "order": 44,
+   "doctype": "Version",
+   "name": "5jhmt5idnt",
+   "how": "direct",
+   "step": "SO J1-B"
+  },
+  {
+   "order": 45,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020958",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-B"
+  },
+  {
+   "order": 46,
+   "doctype": "Stock Ledger Entry",
+   "name": "f05ef2aa1c",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-B"
+  },
+  {
+   "order": 47,
+   "doctype": "Stock Ledger Entry",
+   "name": "bc5dbe4602",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-B"
+  },
+  {
+   "order": 48,
+   "doctype": "Order Pick List",
+   "name": "OPL-2026-00059",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-B"
+  },
+  {
+   "order": 49,
+   "doctype": "Comment",
+   "name": "5jpp6namjs",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-B"
+  },
+  {
+   "order": 50,
+   "doctype": "Comment",
+   "name": "5jpvjcbtu6",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-B"
+  },
+  {
+   "order": 51,
+   "doctype": "Version",
+   "name": "5jtloff46l",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-B"
+  },
+  {
+   "order": 52,
+   "doctype": "Error Log",
+   "name": "5jms4n6t2q",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-B"
+  },
+  {
+   "order": 53,
+   "doctype": "Error Log",
+   "name": "5jntn2mph2",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-B"
+  },
+  {
+   "order": 54,
+   "doctype": "Error Log",
+   "name": "5jqr4mhc69",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-B"
+  },
+  {
+   "order": 55,
+   "doctype": "Pick List Item",
+   "name": "5jokt3csoo",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-B"
+  },
+  {
+   "order": 56,
+   "doctype": "Sales Order",
+   "name": "JTEST-SO-J1-C",
+   "how": "direct",
+   "step": "SO J1-C"
+  },
+  {
+   "order": 57,
+   "doctype": "Comment",
+   "name": "5kmohpb9t3",
+   "how": "direct",
+   "step": "SO J1-C"
+  },
+  {
+   "order": 58,
+   "doctype": "Version",
+   "name": "5knrotmfbc",
+   "how": "direct",
+   "step": "SO J1-C"
+  },
+  {
+   "order": 59,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020959",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-C"
+  },
+  {
+   "order": 60,
+   "doctype": "Stock Ledger Entry",
+   "name": "5f4ee3a0ea",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-C"
+  },
+  {
+   "order": 61,
+   "doctype": "Stock Ledger Entry",
+   "name": "519f20d45f",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-C"
+  },
+  {
+   "order": 62,
+   "doctype": "Order Pick List",
+   "name": "OPL-2026-00060",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-C"
+  },
+  {
+   "order": 63,
+   "doctype": "Comment",
+   "name": "5ks0pk9i4m",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-C"
+  },
+  {
+   "order": 64,
+   "doctype": "Comment",
+   "name": "5ksv6in5q7",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-C"
+  },
+  {
+   "order": 65,
+   "doctype": "Version",
+   "name": "5l19qqios6",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-C"
+  },
+  {
+   "order": 66,
+   "doctype": "Error Log",
+   "name": "5kp93q10c1",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-C"
+  },
+  {
+   "order": 67,
+   "doctype": "Error Log",
+   "name": "5kqblq6hq0",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-C"
+  },
+  {
+   "order": 68,
+   "doctype": "Error Log",
+   "name": "5kt3psm004",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-C"
+  },
+  {
+   "order": 69,
+   "doctype": "Pick List Item",
+   "name": "5kq5tqivju",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J1 allocate OPL-C"
+  },
+  {
+   "order": 70,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020960",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "J1 issue A1"
+  },
+  {
+   "order": 71,
+   "doctype": "Stock Ledger Entry",
+   "name": "b3c4c2b3e2",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "J1 issue A1"
+  },
+  {
+   "order": 72,
+   "doctype": "Stock Ledger Entry",
+   "name": "a0ae13cbf9",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "J1 issue A1"
+  },
+  {
+   "order": 73,
+   "doctype": "Version",
+   "name": "5of0jn61o2",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "J1 issue A1"
+  },
+  {
+   "order": 74,
+   "doctype": "Error Log",
+   "name": "5oav3qol5c",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "J1 issue A1"
+  },
+  {
+   "order": 75,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020961",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "J1 issue A2"
+  },
+  {
+   "order": 76,
+   "doctype": "Stock Ledger Entry",
+   "name": "7dff1af2b6",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "J1 issue A2"
+  },
+  {
+   "order": 77,
+   "doctype": "Stock Ledger Entry",
+   "name": "6bd1498f69",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "J1 issue A2"
+  },
+  {
+   "order": 78,
+   "doctype": "Version",
+   "name": "5r27dmtqee",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "J1 issue A2"
+  },
+  {
+   "order": 79,
+   "doctype": "Error Log",
+   "name": "5qusv494d4",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "J1 issue A2"
+  },
+  {
+   "order": 80,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020962",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "J1 issue B"
+  },
+  {
+   "order": 81,
+   "doctype": "Stock Ledger Entry",
+   "name": "43ed0183ac",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "J1 issue B"
+  },
+  {
+   "order": 82,
+   "doctype": "Stock Ledger Entry",
+   "name": "c6bed4fac2",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "J1 issue B"
+  },
+  {
+   "order": 83,
+   "doctype": "Version",
+   "name": "5rus9lqr1v",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "J1 issue B"
+  },
+  {
+   "order": 84,
+   "doctype": "Error Log",
+   "name": "5rp6busvle",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "J1 issue B"
+  },
+  {
+   "order": 85,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020963",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "J1 issue C"
+  },
+  {
+   "order": 86,
+   "doctype": "Stock Ledger Entry",
+   "name": "99b69f068a",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "J1 issue C"
+  },
+  {
+   "order": 87,
+   "doctype": "Stock Ledger Entry",
+   "name": "7756959b98",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "J1 issue C"
+  },
+  {
+   "order": 88,
+   "doctype": "Comment",
+   "name": "5slpaftsmf",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "J1 issue C"
+  },
+  {
+   "order": 89,
+   "doctype": "Version",
+   "name": "5spvgqhg5a",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "J1 issue C"
+  },
+  {
+   "order": 90,
+   "doctype": "Error Log",
+   "name": "5skro5u7cc",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "J1 issue C"
+  },
+  {
+   "order": 91,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020964",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J2 harvest"
+  },
+  {
+   "order": 92,
+   "doctype": "Stock Ledger Entry",
+   "name": "4c9f2df2c4",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J2 harvest"
+  },
+  {
+   "order": 93,
+   "doctype": "Version",
+   "name": "69mtsmjpc2",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J2 harvest"
+  },
+  {
+   "order": 94,
+   "doctype": "Error Log",
+   "name": "68l5d2ur4g",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J2 harvest"
+  },
+  {
+   "order": 95,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020965",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J2 receive"
+  },
+  {
+   "order": 96,
+   "doctype": "Stock Ledger Entry",
+   "name": "e3a6c4c269",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J2 receive"
+  },
+  {
+   "order": 97,
+   "doctype": "Stock Ledger Entry",
+   "name": "d13fbc2b0f",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J2 receive"
+  },
+  {
+   "order": 98,
+   "doctype": "Version",
+   "name": "6ahrqpuoto",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J2 receive"
+  },
+  {
+   "order": 99,
+   "doctype": "Error Log",
+   "name": "6b745k1tpq",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J3 harvest"
+  },
+  {
+   "order": 100,
+   "doctype": "Error Log",
+   "name": "6b8oi1scae",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J3 harvest"
+  },
+  {
+   "order": 102,
+   "doctype": "Stock Ledger Entry",
+   "name": "7339fd39a2",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J3 QC quarantine"
+  },
+  {
+   "order": 103,
+   "doctype": "Stock Ledger Entry",
+   "name": "599e7ab4b7",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J3 QC quarantine"
+  },
+  {
+   "order": 105,
+   "doctype": "Version",
+   "name": "6cohio6pj3",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J3 QC quarantine"
+  },
+  {
+   "order": 106,
+   "doctype": "Error Log",
+   "name": "6ckspjdjjr",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J3 QC quarantine"
+  },
+  {
+   "order": 107,
+   "doctype": "Error Log",
+   "name": "6crfan4d2r",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J3 QC quarantine"
+  },
+  {
+   "order": 106,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020966",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J2 harvest"
+  },
+  {
+   "order": 107,
+   "doctype": "Stock Ledger Entry",
+   "name": "5e7b239d25",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J2 harvest"
+  },
+  {
+   "order": 108,
+   "doctype": "Version",
+   "name": "bdgu69lhlf",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J2 harvest"
+  },
+  {
+   "order": 109,
+   "doctype": "Error Log",
+   "name": "bcl9nm538i",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J2 harvest"
+  },
+  {
+   "order": 110,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020967",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J2 receive"
+  },
+  {
+   "order": 111,
+   "doctype": "Stock Ledger Entry",
+   "name": "9f01f590f3",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J2 receive"
+  },
+  {
+   "order": 112,
+   "doctype": "Stock Ledger Entry",
+   "name": "87b99b806c",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J2 receive"
+  },
+  {
+   "order": 113,
+   "doctype": "Version",
+   "name": "beb91ddiku",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J2 receive"
+  },
+  {
+   "order": 114,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020968",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J3 harvest"
+  },
+  {
+   "order": 115,
+   "doctype": "Stock Ledger Entry",
+   "name": "5c1cc393b8",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J3 harvest"
+  },
+  {
+   "order": 116,
+   "doctype": "Version",
+   "name": "bfirlbotfc",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J3 harvest"
+  },
+  {
+   "order": 117,
+   "doctype": "Error Log",
+   "name": "bf0jnrahb2",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J3 harvest"
+  },
+  {
+   "order": 118,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020969",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J3 receive"
+  },
+  {
+   "order": 119,
+   "doctype": "Stock Ledger Entry",
+   "name": "379a84324e",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J3 receive"
+  },
+  {
+   "order": 120,
+   "doctype": "Stock Ledger Entry",
+   "name": "68a6a3964b",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J3 receive"
+  },
+  {
+   "order": 121,
+   "doctype": "Version",
+   "name": "bg9bhkuf53",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J3 receive"
+  },
+  {
+   "order": 122,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020970",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J3 QC quarantine"
+  },
+  {
+   "order": 123,
+   "doctype": "Stock Ledger Entry",
+   "name": "40a26582be",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J3 QC quarantine"
+  },
+  {
+   "order": 124,
+   "doctype": "Stock Ledger Entry",
+   "name": "7a14f6e226",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J3 QC quarantine"
+  },
+  {
+   "order": 125,
+   "doctype": "Quality Reporting",
+   "name": "Intake-Kapkolia-12593",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J3 QC quarantine"
+  },
+  {
+   "order": 126,
+   "doctype": "Version",
+   "name": "bh14o6g52j",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J3 QC quarantine"
+  },
+  {
+   "order": 127,
+   "doctype": "Error Log",
+   "name": "bgv142t5ds",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J3 QC quarantine"
+  },
+  {
+   "order": 128,
+   "doctype": "Error Log",
+   "name": "bh3km89etg",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J3 QC quarantine"
+  },
+  {
+   "order": 129,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020971",
+   "how": "api:upande_quality.mobile.api.releaseFromQuarantine",
+   "step": "J3 release accept 7"
+  },
+  {
+   "order": 130,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020972",
+   "how": "api:upande_quality.mobile.api.releaseFromQuarantine",
+   "step": "J3 release accept 7"
+  },
+  {
+   "order": 131,
+   "doctype": "Stock Ledger Entry",
+   "name": "5fdb6c13a0",
+   "how": "api:upande_quality.mobile.api.releaseFromQuarantine",
+   "step": "J3 release accept 7"
+  },
+  {
+   "order": 132,
+   "doctype": "Stock Ledger Entry",
+   "name": "85669b972c",
+   "how": "api:upande_quality.mobile.api.releaseFromQuarantine",
+   "step": "J3 release accept 7"
+  },
+  {
+   "order": 133,
+   "doctype": "Stock Ledger Entry",
+   "name": "896f0f6b12",
+   "how": "api:upande_quality.mobile.api.releaseFromQuarantine",
+   "step": "J3 release accept 7"
+  },
+  {
+   "order": 134,
+   "doctype": "Stock Ledger Entry",
+   "name": "c5bf612925",
+   "how": "api:upande_quality.mobile.api.releaseFromQuarantine",
+   "step": "J3 release accept 7"
+  },
+  {
+   "order": 135,
+   "doctype": "Version",
+   "name": "bhsc0ec9nl",
+   "how": "api:upande_quality.mobile.api.releaseFromQuarantine",
+   "step": "J3 release accept 7"
+  },
+  {
+   "order": 136,
+   "doctype": "Version",
+   "name": "bhu6d6impi",
+   "how": "api:upande_quality.mobile.api.releaseFromQuarantine",
+   "step": "J3 release accept 7"
+  },
+  {
+   "order": 137,
+   "doctype": "Shelving Log",
+   "name": "bimgigq71o",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J3 shelve"
+  },
+  {
+   "order": 138,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020973",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J4 harvest (reuse: J3 never issued)"
+  },
+  {
+   "order": 139,
+   "doctype": "Stock Ledger Entry",
+   "name": "e45bfeb409",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J4 harvest (reuse: J3 never issued)"
+  },
+  {
+   "order": 140,
+   "doctype": "Bucket Reuse Anomaly",
+   "name": "BRA-JTEST-001-03066",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J4 harvest (reuse: J3 never issued)"
+  },
+  {
+   "order": 141,
+   "doctype": "Comment",
+   "name": "bmm8v4fdnk",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J4 harvest (reuse: J3 never issued)"
+  },
+  {
+   "order": 142,
+   "doctype": "Version",
+   "name": "bmldn7a6jr",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J4 harvest (reuse: J3 never issued)"
+  },
+  {
+   "order": 143,
+   "doctype": "Error Log",
+   "name": "bluvk55uko",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J4 harvest (reuse: J3 never issued)"
+  },
+  {
+   "order": 144,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020974",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J4 receive"
+  },
+  {
+   "order": 145,
+   "doctype": "Stock Ledger Entry",
+   "name": "7fdb686af7",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J4 receive"
+  },
+  {
+   "order": 146,
+   "doctype": "Stock Ledger Entry",
+   "name": "f496b5da98",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J4 receive"
+  },
+  {
+   "order": 147,
+   "doctype": "Version",
+   "name": "bngvvo6k4o",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J4 receive"
+  },
+  {
+   "order": 148,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020975",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J4 QC quarantine"
+  },
+  {
+   "order": 149,
+   "doctype": "Stock Ledger Entry",
+   "name": "97b774da32",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J4 QC quarantine"
+  },
+  {
+   "order": 150,
+   "doctype": "Stock Ledger Entry",
+   "name": "84eefd9cc6",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J4 QC quarantine"
+  },
+  {
+   "order": 151,
+   "doctype": "Quality Reporting",
+   "name": "Intake-Kapkolia-12594",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J4 QC quarantine"
+  },
+  {
+   "order": 152,
+   "doctype": "Version",
+   "name": "bo91408pen",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J4 QC quarantine"
+  },
+  {
+   "order": 153,
+   "doctype": "Error Log",
+   "name": "bo540kh9ob",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J4 QC quarantine"
+  },
+  {
+   "order": 154,
+   "doctype": "Error Log",
+   "name": "boasfjatg1",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J4 QC quarantine"
+  },
+  {
+   "order": 155,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020976",
+   "how": "api:upande_quality.mobile.api.releaseFromQuarantine",
+   "step": "J4 release: reject 4, accept rest"
+  },
+  {
+   "order": 156,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020977",
+   "how": "api:upande_quality.mobile.api.releaseFromQuarantine",
+   "step": "J4 release: reject 4, accept rest"
+  },
+  {
+   "order": 157,
+   "doctype": "Stock Ledger Entry",
+   "name": "7c45ab6bde",
+   "how": "api:upande_quality.mobile.api.releaseFromQuarantine",
+   "step": "J4 release: reject 4, accept rest"
+  },
+  {
+   "order": 158,
+   "doctype": "Stock Ledger Entry",
+   "name": "c51e56ef2e",
+   "how": "api:upande_quality.mobile.api.releaseFromQuarantine",
+   "step": "J4 release: reject 4, accept rest"
+  },
+  {
+   "order": 159,
+   "doctype": "Stock Ledger Entry",
+   "name": "d25d06c7fa",
+   "how": "api:upande_quality.mobile.api.releaseFromQuarantine",
+   "step": "J4 release: reject 4, accept rest"
+  },
+  {
+   "order": 160,
+   "doctype": "Stock Ledger Entry",
+   "name": "8889b33c21",
+   "how": "api:upande_quality.mobile.api.releaseFromQuarantine",
+   "step": "J4 release: reject 4, accept rest"
+  },
+  {
+   "order": 161,
+   "doctype": "Version",
+   "name": "bp1sjd38c7",
+   "how": "api:upande_quality.mobile.api.releaseFromQuarantine",
+   "step": "J4 release: reject 4, accept rest"
+  },
+  {
+   "order": 162,
+   "doctype": "Version",
+   "name": "bp3voeeigc",
+   "how": "api:upande_quality.mobile.api.releaseFromQuarantine",
+   "step": "J4 release: reject 4, accept rest"
+  },
+  {
+   "order": 163,
+   "doctype": "Shelving Log",
+   "name": "bpqgg5ckjj",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J4 shelve"
+  },
+  {
+   "order": 164,
+   "doctype": "Shelf",
+   "name": "JTEST-SHELF-02",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J4 shelve"
+  },
+  {
+   "order": 165,
+   "doctype": "Shelf Item",
+   "name": "bppg9ueggm",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J4 shelve"
+  },
+  {
+   "order": 166,
+   "doctype": "Discard Request",
+   "name": "DR-2026-011",
+   "how": "direct",
+   "step": "J4 discard request"
+  },
+  {
+   "order": 167,
+   "doctype": "Comment",
+   "name": "c1m4ofbep3",
+   "how": "direct",
+   "step": "J4 discard request"
+  },
+  {
+   "order": 168,
+   "doctype": "Comment",
+   "name": "c1n1s7blkh",
+   "how": "direct",
+   "step": "J4 discard request"
+  },
+  {
+   "order": 169,
+   "doctype": "Version",
+   "name": "c1b55i744b",
+   "how": "direct",
+   "step": "J4 discard request"
+  },
+  {
+   "order": 170,
+   "doctype": "Version",
+   "name": "c1l5ma5n63",
+   "how": "direct",
+   "step": "J4 discard request"
+  },
+  {
+   "order": 171,
+   "doctype": "Version",
+   "name": "c1p9o1t2ki",
+   "how": "direct",
+   "step": "J4 discard request"
+  },
+  {
+   "order": 172,
+   "doctype": "Version",
+   "name": "c1pdqmstuq",
+   "how": "direct",
+   "step": "J4 discard request"
+  },
+  {
+   "order": 173,
+   "doctype": "Error Log",
+   "name": "c1buiesciu",
+   "how": "direct",
+   "step": "J4 discard request"
+  },
+  {
+   "order": 174,
+   "doctype": "Error Log",
+   "name": "c1bl4ebpm0",
+   "how": "direct",
+   "step": "J4 discard request"
+  },
+  {
+   "order": 175,
+   "doctype": "Error Log",
+   "name": "c1e3tb1urp",
+   "how": "direct",
+   "step": "J4 discard request"
+  },
+  {
+   "order": 176,
+   "doctype": "Discard Request Bucket",
+   "name": "c1l527o10k",
+   "how": "direct",
+   "step": "J4 discard request"
+  },
+  {
+   "order": 177,
+   "doctype": "Version",
+   "name": "c242ekpftf",
+   "how": "api:upande_quality.mobile.api.createDiscardEntry",
+   "step": "J4 discard"
+  },
+  {
+   "order": 178,
+   "doctype": "Version",
+   "name": "c24qqf4rj4",
+   "how": "api:upande_quality.mobile.api.createDiscardEntry",
+   "step": "J4 discard"
+  },
+  {
+   "order": 179,
+   "doctype": "Version",
+   "name": "c24c6b4fqg",
+   "how": "api:upande_quality.mobile.api.createDiscardEntry",
+   "step": "J4 discard"
+  },
+  {
+   "order": 180,
+   "doctype": "Shelf",
+   "name": "JTEST-SHELF-03",
+   "how": "direct",
+   "step": "shelf JTEST-SHELF-03"
+  },
+  {
+   "order": 181,
+   "doctype": "Shelving Log",
+   "name": "c8o7v04frv",
+   "how": "api:upande_quality.mobile.api.transferBucket",
+   "step": "J4 shelf move 02->03"
+  },
+  {
+   "order": 182,
+   "doctype": "Comment",
+   "name": "c8o4cku61j",
+   "how": "api:upande_quality.mobile.api.transferBucket",
+   "step": "J4 shelf move 02->03"
+  },
+  {
+   "order": 183,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020978",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J5 harvest (reuse: J4 listed for discard, never discarded)"
+  },
+  {
+   "order": 184,
+   "doctype": "Stock Ledger Entry",
+   "name": "0925945e75",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J5 harvest (reuse: J4 listed for discard, never discarded)"
+  },
+  {
+   "order": 185,
+   "doctype": "Bucket Reuse Anomaly",
+   "name": "BRA-JTEST-001-03067",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J5 harvest (reuse: J4 listed for discard, never discarded)"
+  },
+  {
+   "order": 186,
+   "doctype": "Comment",
+   "name": "ca1bd7uvlt",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J5 harvest (reuse: J4 listed for discard, never discarded)"
+  },
+  {
+   "order": 187,
+   "doctype": "Version",
+   "name": "ca03t9v9ig",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J5 harvest (reuse: J4 listed for discard, never discarded)"
+  },
+  {
+   "order": 188,
+   "doctype": "Error Log",
+   "name": "c9d0pgl1jt",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J5 harvest (reuse: J4 listed for discard, never discarded)"
+  },
+  {
+   "order": 189,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020979",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J5 receive"
+  },
+  {
+   "order": 190,
+   "doctype": "Stock Ledger Entry",
+   "name": "6986d05e04",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J5 receive"
+  },
+  {
+   "order": 191,
+   "doctype": "Stock Ledger Entry",
+   "name": "aad66f5774",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J5 receive"
+  },
+  {
+   "order": 192,
+   "doctype": "Version",
+   "name": "caod8lj32a",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J5 receive"
+  },
+  {
+   "order": 193,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020980",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J5 QC reject at intake"
+  },
+  {
+   "order": 194,
+   "doctype": "Stock Ledger Entry",
+   "name": "2d1561eafe",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J5 QC reject at intake"
+  },
+  {
+   "order": 195,
+   "doctype": "Quality Reporting",
+   "name": "Intake-Kapkolia-12595",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J5 QC reject at intake"
+  },
+  {
+   "order": 196,
+   "doctype": "Error Log",
+   "name": "cbd4rt1dsi",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J5 QC reject at intake"
+  },
+  {
+   "order": 197,
+   "doctype": "Error Log",
+   "name": "cbethf2k25",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J5 QC reject at intake"
+  },
+  {
+   "order": 198,
+   "doctype": "Error Log",
+   "name": "cbfr5eavbq",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality",
+   "step": "J5 QC reject at intake"
+  },
+  {
+   "order": 199,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020981",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J6 harvest"
+  },
+  {
+   "order": 200,
+   "doctype": "Stock Ledger Entry",
+   "name": "bd8c744bbe",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J6 harvest"
+  },
+  {
+   "order": 201,
+   "doctype": "Version",
+   "name": "d6n2se8a59",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J6 harvest"
+  },
+  {
+   "order": 202,
+   "doctype": "Error Log",
+   "name": "d662jnplac",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J6 harvest"
+  },
+  {
+   "order": 203,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020982",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J6 receive"
+  },
+  {
+   "order": 204,
+   "doctype": "Stock Ledger Entry",
+   "name": "85f2de7d41",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J6 receive"
+  },
+  {
+   "order": 205,
+   "doctype": "Stock Ledger Entry",
+   "name": "3ab6e03582",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J6 receive"
+  },
+  {
+   "order": 206,
+   "doctype": "Version",
+   "name": "d7dmvda7pr",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J6 receive"
+  },
+  {
+   "order": 207,
+   "doctype": "Shelving Log",
+   "name": "d84iq9jr5u",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J6 shelve"
+  },
+  {
+   "order": 208,
+   "doctype": "Comment",
+   "name": "d91924ttp1",
+   "how": "api:clearShelfItem",
+   "step": "J6 clearShelfItem"
+  },
+  {
+   "order": 209,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020983",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J7 harvest"
+  },
+  {
+   "order": 210,
+   "doctype": "Stock Ledger Entry",
+   "name": "9a1a944702",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J7 harvest"
+  },
+  {
+   "order": 211,
+   "doctype": "Version",
+   "name": "da5k23k6qv",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J7 harvest"
+  },
+  {
+   "order": 212,
+   "doctype": "Error Log",
+   "name": "d9ntfji374",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J7 harvest"
+  },
+  {
+   "order": 213,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020984",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J7 receive"
+  },
+  {
+   "order": 214,
+   "doctype": "Stock Ledger Entry",
+   "name": "9241d827c7",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J7 receive"
+  },
+  {
+   "order": 215,
+   "doctype": "Stock Ledger Entry",
+   "name": "bf5d4ae55b",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J7 receive"
+  },
+  {
+   "order": 216,
+   "doctype": "Version",
+   "name": "darunt31np",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J7 receive"
+  },
+  {
+   "order": 217,
+   "doctype": "Shelving Log",
+   "name": "dbgcjgmejm",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J7 shelve"
+  },
+  {
+   "order": 218,
+   "doctype": "Comment",
+   "name": "dc63ik5s5t",
+   "how": "api:upande_quality.mobile.api.createOfflineIssuingEntry",
+   "step": "J7 offline issue"
+  },
+  {
+   "order": 219,
+   "doctype": "Comment",
+   "name": "dc6lcripel",
+   "how": "api:upande_quality.mobile.api.createOfflineIssuingEntry",
+   "step": "J7 offline issue"
+  },
+  {
+   "order": 220,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020985",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J1 harvest"
+  },
+  {
+   "order": 221,
+   "doctype": "Stock Ledger Entry",
+   "name": "e7545a0f06",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J1 harvest"
+  },
+  {
+   "order": 222,
+   "doctype": "Bucket QR Code",
+   "name": "JTEST-002",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J1 harvest"
+  },
+  {
+   "order": 223,
+   "doctype": "Version",
+   "name": "dif6kg20e6",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J1 harvest"
+  },
+  {
+   "order": 224,
+   "doctype": "Error Log",
+   "name": "di2ad28td1",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J1 harvest"
+  },
+  {
+   "order": 225,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020986",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B2-J1 receive"
+  },
+  {
+   "order": 226,
+   "doctype": "Stock Ledger Entry",
+   "name": "66c6845bc3",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B2-J1 receive"
+  },
+  {
+   "order": 227,
+   "doctype": "Stock Ledger Entry",
+   "name": "9b14f15398",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B2-J1 receive"
+  },
+  {
+   "order": 228,
+   "doctype": "Version",
+   "name": "dj5o077g33",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B2-J1 receive"
+  },
+  {
+   "order": 229,
+   "doctype": "Shelving Log",
+   "name": "djqkidr62l",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B2-J1 shelve"
+  },
+  {
+   "order": 230,
+   "doctype": "Shelf",
+   "name": "JTEST-SHELF-10",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B2-J1 shelve"
+  },
+  {
+   "order": 231,
+   "doctype": "Shelf Item",
+   "name": "djqnerlm4r",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B2-J1 shelve"
+  },
+  {
+   "order": 232,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020987",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J8 harvest"
+  },
+  {
+   "order": 233,
+   "doctype": "Stock Ledger Entry",
+   "name": "ccff812517",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J8 harvest"
+  },
+  {
+   "order": 234,
+   "doctype": "Version",
+   "name": "dkrul2h8md",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J8 harvest"
+  },
+  {
+   "order": 235,
+   "doctype": "Error Log",
+   "name": "dkfd617ba8",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J8 harvest"
+  },
+  {
+   "order": 236,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020988",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J8 receive"
+  },
+  {
+   "order": 237,
+   "doctype": "Stock Ledger Entry",
+   "name": "ae355fec5e",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J8 receive"
+  },
+  {
+   "order": 238,
+   "doctype": "Stock Ledger Entry",
+   "name": "1dfbb00730",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J8 receive"
+  },
+  {
+   "order": 239,
+   "doctype": "Version",
+   "name": "dlhi3vfi9q",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J8 receive"
+  },
+  {
+   "order": 240,
+   "doctype": "Shelving Log",
+   "name": "dm7h46h38i",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J8 shelve"
+  },
+  {
+   "order": 241,
+   "doctype": "Sales Order",
+   "name": "JTEST-SO-J8",
+   "how": "direct",
+   "step": "SO J8"
+  },
+  {
+   "order": 242,
+   "doctype": "Comment",
+   "name": "dn6ihnokca",
+   "how": "direct",
+   "step": "SO J8"
+  },
+  {
+   "order": 243,
+   "doctype": "Version",
+   "name": "dn8mi2ejbl",
+   "how": "direct",
+   "step": "SO J8"
+  },
+  {
+   "order": 244,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020989",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J8 allocate"
+  },
+  {
+   "order": 245,
+   "doctype": "Stock Ledger Entry",
+   "name": "07c0e1f64c",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J8 allocate"
+  },
+  {
+   "order": 246,
+   "doctype": "Stock Ledger Entry",
+   "name": "172bb5f6c3",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J8 allocate"
+  },
+  {
+   "order": 247,
+   "doctype": "Order Pick List",
+   "name": "OPL-2026-00061",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J8 allocate"
+  },
+  {
+   "order": 248,
+   "doctype": "Comment",
+   "name": "dnbuu5kqcp",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J8 allocate"
+  },
+  {
+   "order": 249,
+   "doctype": "Comment",
+   "name": "dnbo2r9tj8",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J8 allocate"
+  },
+  {
+   "order": 250,
+   "doctype": "Version",
+   "name": "dncr10s6rq",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J8 allocate"
+  },
+  {
+   "order": 251,
+   "doctype": "Error Log",
+   "name": "dn96s39v5i",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J8 allocate"
+  },
+  {
+   "order": 252,
+   "doctype": "Error Log",
+   "name": "dn9417llpv",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J8 allocate"
+  },
+  {
+   "order": 253,
+   "doctype": "Error Log",
+   "name": "dnbitrkohr",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J8 allocate"
+  },
+  {
+   "order": 254,
+   "doctype": "Pick List Item",
+   "name": "dnagtsibpa",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J8 allocate"
+  },
+  {
+   "order": 255,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020990",
+   "how": "api:upande_quality.mobile.api.replaceRequestedBucket",
+   "step": "J8 replace JTEST-001 by JTEST-002"
+  },
+  {
+   "order": 256,
+   "doctype": "Stock Ledger Entry",
+   "name": "89fdfb812b",
+   "how": "api:upande_quality.mobile.api.replaceRequestedBucket",
+   "step": "J8 replace JTEST-001 by JTEST-002"
+  },
+  {
+   "order": 257,
+   "doctype": "Stock Ledger Entry",
+   "name": "53aa7eed3e",
+   "how": "api:upande_quality.mobile.api.replaceRequestedBucket",
+   "step": "J8 replace JTEST-001 by JTEST-002"
+  },
+  {
+   "order": 258,
+   "doctype": "Stock Ledger Entry",
+   "name": "848f39718b",
+   "how": "api:upande_quality.mobile.api.replaceRequestedBucket",
+   "step": "J8 replace JTEST-001 by JTEST-002"
+  },
+  {
+   "order": 259,
+   "doctype": "Stock Ledger Entry",
+   "name": "b0054b887f",
+   "how": "api:upande_quality.mobile.api.replaceRequestedBucket",
+   "step": "J8 replace JTEST-001 by JTEST-002"
+  },
+  {
+   "order": 260,
+   "doctype": "Bucket Allocation Status",
+   "name": "do2mo900h2",
+   "how": "api:upande_quality.mobile.api.replaceRequestedBucket",
+   "step": "J8 replace JTEST-001 by JTEST-002"
+  },
+  {
+   "order": 261,
+   "doctype": "Bucket Replacement",
+   "name": "BRPL-2026-03068",
+   "how": "api:upande_quality.mobile.api.replaceRequestedBucket",
+   "step": "J8 replace JTEST-001 by JTEST-002"
+  },
+  {
+   "order": 262,
+   "doctype": "Comment",
+   "name": "do2nbjbu4h",
+   "how": "api:upande_quality.mobile.api.replaceRequestedBucket",
+   "step": "J8 replace JTEST-001 by JTEST-002"
+  },
+  {
+   "order": 263,
+   "doctype": "Comment",
+   "name": "do2ohi2pdq",
+   "how": "api:upande_quality.mobile.api.replaceRequestedBucket",
+   "step": "J8 replace JTEST-001 by JTEST-002"
+  },
+  {
+   "order": 264,
+   "doctype": "Comment",
+   "name": "do4hgdhksn",
+   "how": "api:upande_quality.mobile.api.replaceRequestedBucket",
+   "step": "J8 replace JTEST-001 by JTEST-002"
+  },
+  {
+   "order": 265,
+   "doctype": "Version",
+   "name": "do4s88mjq6",
+   "how": "api:upande_quality.mobile.api.replaceRequestedBucket",
+   "step": "J8 replace JTEST-001 by JTEST-002"
+  },
+  {
+   "order": 266,
+   "doctype": "Bucket Allocations",
+   "name": "do2omfh1nu",
+   "how": "api:upande_quality.mobile.api.replaceRequestedBucket",
+   "step": "J8 replace JTEST-001 by JTEST-002"
+  },
+  {
+   "order": 267,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020991",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J9 harvest"
+  },
+  {
+   "order": 268,
+   "doctype": "Stock Ledger Entry",
+   "name": "9795b4d046",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J9 harvest"
+  },
+  {
+   "order": 269,
+   "doctype": "Version",
+   "name": "eddk1ndjr2",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J9 harvest"
+  },
+  {
+   "order": 270,
+   "doctype": "Error Log",
+   "name": "ecv7ibd8id",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J9 harvest"
+  },
+  {
+   "order": 271,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020992",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J9 receive"
+  },
+  {
+   "order": 272,
+   "doctype": "Stock Ledger Entry",
+   "name": "8c4acc2daa",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J9 receive"
+  },
+  {
+   "order": 273,
+   "doctype": "Stock Ledger Entry",
+   "name": "9a07350efe",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J9 receive"
+  },
+  {
+   "order": 274,
+   "doctype": "Version",
+   "name": "ee3l37pkmj",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J9 receive"
+  },
+  {
+   "order": 275,
+   "doctype": "Shelving Log",
+   "name": "eeo994bav7",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J9 shelve at remote farm Simotwo"
+  },
+  {
+   "order": 276,
+   "doctype": "Shelf",
+   "name": "JTEST-SHELF-R1",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J9 shelve at remote farm Simotwo"
+  },
+  {
+   "order": 277,
+   "doctype": "Shelf Item",
+   "name": "eeofjon6q9",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J9 shelve at remote farm Simotwo"
+  },
+  {
+   "order": 278,
+   "doctype": "Sales Order",
+   "name": "JTEST-SO-J9",
+   "how": "direct",
+   "step": "SO J9"
+  },
+  {
+   "order": 279,
+   "doctype": "Comment",
+   "name": "efk1km1u16",
+   "how": "direct",
+   "step": "SO J9"
+  },
+  {
+   "order": 280,
+   "doctype": "Version",
+   "name": "eflnkbfq6m",
+   "how": "direct",
+   "step": "SO J9"
+  },
+  {
+   "order": 281,
+   "doctype": "Order Pick List",
+   "name": "OPL-2026-00062",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J9 allocate (remote bucket -> awaiting transfer)"
+  },
+  {
+   "order": 282,
+   "doctype": "Comment",
+   "name": "efn6j34dp8",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J9 allocate (remote bucket -> awaiting transfer)"
+  },
+  {
+   "order": 283,
+   "doctype": "Comment",
+   "name": "efnuis1fag",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J9 allocate (remote bucket -> awaiting transfer)"
+  },
+  {
+   "order": 284,
+   "doctype": "Error Log",
+   "name": "efmive5tk9",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J9 allocate (remote bucket -> awaiting transfer)"
+  },
+  {
+   "order": 285,
+   "doctype": "Error Log",
+   "name": "efm167uemb",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J9 allocate (remote bucket -> awaiting transfer)"
+  },
+  {
+   "order": 286,
+   "doctype": "Error Log",
+   "name": "efnb98me8c",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J9 allocate (remote bucket -> awaiting transfer)"
+  },
+  {
+   "order": 287,
+   "doctype": "Error Log",
+   "name": "efnagp6v3k",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J9 allocate (remote bucket -> awaiting transfer)"
+  },
+  {
+   "order": 288,
+   "doctype": "Pick List Item",
+   "name": "efnok2nru3",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J9 allocate (remote bucket -> awaiting transfer)"
+  },
+  {
+   "order": 289,
+   "doctype": "Bucket Transfer Event",
+   "name": "egdb5chh02",
+   "how": "api:upande_quality.mobile.api.saveTrolleyData",
+   "step": "J9 on trolley"
+  },
+  {
+   "order": 290,
+   "doctype": "Bucket Request Trip",
+   "name": "BRT-2026-10-23-03069",
+   "how": "api:upande_quality.mobile.api.loadTrolleyInTruck",
+   "step": "J9 loaded on truck"
+  },
+  {
+   "order": 291,
+   "doctype": "Version",
+   "name": "ekkib7p6oj",
+   "how": "api:upande_packhouse.mobile.api.dispatchBucketTrip",
+   "step": "J9 dispatch trip"
+  },
+  {
+   "order": 292,
+   "doctype": "Shelf",
+   "name": "JTEST-SHELF-04",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J9 shelved at the hub (arrival)"
+  },
+  {
+   "order": 293,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020993",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B3-J1 harvest at Simotwo"
+  },
+  {
+   "order": 294,
+   "doctype": "Stock Ledger Entry",
+   "name": "5bd4841bf5",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B3-J1 harvest at Simotwo"
+  },
+  {
+   "order": 295,
+   "doctype": "Bucket QR Code",
+   "name": "JTEST-003",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B3-J1 harvest at Simotwo"
+  },
+  {
+   "order": 296,
+   "doctype": "Version",
+   "name": "f0eis4hhf8",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B3-J1 harvest at Simotwo"
+  },
+  {
+   "order": 297,
+   "doctype": "Error Log",
+   "name": "f0din1o4hr",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B3-J1 harvest at Simotwo"
+  },
+  {
+   "order": 298,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020994",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B3-J1 receive"
+  },
+  {
+   "order": 299,
+   "doctype": "Stock Ledger Entry",
+   "name": "2a5b938b2f",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B3-J1 receive"
+  },
+  {
+   "order": 300,
+   "doctype": "Stock Ledger Entry",
+   "name": "a246765ac3",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B3-J1 receive"
+  },
+  {
+   "order": 301,
+   "doctype": "Version",
+   "name": "f14ag479un",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B3-J1 receive"
+  },
+  {
+   "order": 302,
+   "doctype": "Shelving Log",
+   "name": "f1pst2821o",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J1 shelve Simotwo"
+  },
+  {
+   "order": 303,
+   "doctype": "Shelf",
+   "name": "JTEST-SHELF-R2",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J1 shelve Simotwo"
+  },
+  {
+   "order": 304,
+   "doctype": "Shelf Item",
+   "name": "f1pfhtqt7m",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J1 shelve Simotwo"
+  },
+  {
+   "order": 305,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020995",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J10 harvest at Simotwo"
+  },
+  {
+   "order": 306,
+   "doctype": "Stock Ledger Entry",
+   "name": "b88bfb5470",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J10 harvest at Simotwo"
+  },
+  {
+   "order": 307,
+   "doctype": "Version",
+   "name": "f2ftc0gn6m",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J10 harvest at Simotwo"
+  },
+  {
+   "order": 308,
+   "doctype": "Error Log",
+   "name": "f2eftfd0lf",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J10 harvest at Simotwo"
+  },
+  {
+   "order": 309,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020996",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J10 receive"
+  },
+  {
+   "order": 310,
+   "doctype": "Stock Ledger Entry",
+   "name": "fad9765155",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J10 receive"
+  },
+  {
+   "order": 311,
+   "doctype": "Stock Ledger Entry",
+   "name": "951e2e245f",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J10 receive"
+  },
+  {
+   "order": 312,
+   "doctype": "Version",
+   "name": "f35944pnpd",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J10 receive"
+  },
+  {
+   "order": 313,
+   "doctype": "Shelving Log",
+   "name": "f3qn04b5to",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J10 shelve Simotwo"
+  },
+  {
+   "order": 314,
+   "doctype": "Bucket Transfer Event",
+   "name": "f3rh5683n9",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J10 shelve Simotwo"
+  },
+  {
+   "order": 315,
+   "doctype": "Error Log",
+   "name": "f3q4fsvf5n",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J10 shelve Simotwo"
+  },
+  {
+   "order": 316,
+   "doctype": "Sales Order",
+   "name": "JTEST-SO-J10",
+   "how": "direct",
+   "step": "SO J10"
+  },
+  {
+   "order": 317,
+   "doctype": "Comment",
+   "name": "f4mlnketlh",
+   "how": "direct",
+   "step": "SO J10"
+  },
+  {
+   "order": 318,
+   "doctype": "Version",
+   "name": "f4nbjbi7ck",
+   "how": "direct",
+   "step": "SO J10"
+  },
+  {
+   "order": 319,
+   "doctype": "Error Log",
+   "name": "f4o1gs1fo7",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "J10 allocate (awaiting transfer)"
+  },
+  {
+   "order": 320,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020997",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J10 shelved at the hub: arrival of the J9 transfer (skipped transfer self-heal)"
+  },
+  {
+   "order": 321,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020998",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J10 shelved at the hub: arrival of the J9 transfer (skipped transfer self-heal)"
+  },
+  {
+   "order": 322,
+   "doctype": "Stock Ledger Entry",
+   "name": "804a6f8d69",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J10 shelved at the hub: arrival of the J9 transfer (skipped transfer self-heal)"
+  },
+  {
+   "order": 323,
+   "doctype": "Stock Ledger Entry",
+   "name": "c8f5c9cecf",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J10 shelved at the hub: arrival of the J9 transfer (skipped transfer self-heal)"
+  },
+  {
+   "order": 324,
+   "doctype": "Stock Ledger Entry",
+   "name": "cc50dde231",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J10 shelved at the hub: arrival of the J9 transfer (skipped transfer self-heal)"
+  },
+  {
+   "order": 325,
+   "doctype": "Stock Ledger Entry",
+   "name": "5adb2d859d",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J10 shelved at the hub: arrival of the J9 transfer (skipped transfer self-heal)"
+  },
+  {
+   "order": 326,
+   "doctype": "Shelving Log",
+   "name": "fdqe2vv9pm",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J10 shelved at the hub: arrival of the J9 transfer (skipped transfer self-heal)"
+  },
+  {
+   "order": 327,
+   "doctype": "Bucket Reuse Anomaly",
+   "name": "BRA-JTEST-001-03070",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J10 shelved at the hub: arrival of the J9 transfer (skipped transfer self-heal)"
+  },
+  {
+   "order": 328,
+   "doctype": "Bucket Transfer Event",
+   "name": "fdpgl8743q",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J10 shelved at the hub: arrival of the J9 transfer (skipped transfer self-heal)"
+  },
+  {
+   "order": 329,
+   "doctype": "Bucket Transfer Event",
+   "name": "fdqe9m10kk",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J10 shelved at the hub: arrival of the J9 transfer (skipped transfer self-heal)"
+  },
+  {
+   "order": 330,
+   "doctype": "Bucket Transfer Event",
+   "name": "fdr8jisgnt",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J10 shelved at the hub: arrival of the J9 transfer (skipped transfer self-heal)"
+  },
+  {
+   "order": 331,
+   "doctype": "Comment",
+   "name": "fdp73a890h",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J10 shelved at the hub: arrival of the J9 transfer (skipped transfer self-heal)"
+  },
+  {
+   "order": 332,
+   "doctype": "Comment",
+   "name": "fdpponglcf",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J10 shelved at the hub: arrival of the J9 transfer (skipped transfer self-heal)"
+  },
+  {
+   "order": 333,
+   "doctype": "Comment",
+   "name": "fdq3mpl8tg",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J10 shelved at the hub: arrival of the J9 transfer (skipped transfer self-heal)"
+  },
+  {
+   "order": 334,
+   "doctype": "Version",
+   "name": "fdpa3i8i4p",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J10 shelved at the hub: arrival of the J9 transfer (skipped transfer self-heal)"
+  },
+  {
+   "order": 335,
+   "doctype": "Version",
+   "name": "fdpl3df5ra",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J10 shelved at the hub: arrival of the J9 transfer (skipped transfer self-heal)"
+  },
+  {
+   "order": 336,
+   "doctype": "Version",
+   "name": "fdqo98gk9k",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J10 shelved at the hub: arrival of the J9 transfer (skipped transfer self-heal)"
+  },
+  {
+   "order": 337,
+   "doctype": "Error Log",
+   "name": "fdr8j98rsn",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J10 shelved at the hub: arrival of the J9 transfer (skipped transfer self-heal)"
+  },
+  {
+   "order": 338,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020999",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J11 harvest (reuse: J10 never issued)"
+  },
+  {
+   "order": 339,
+   "doctype": "Stock Ledger Entry",
+   "name": "e5715ae452",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J11 harvest (reuse: J10 never issued)"
+  },
+  {
+   "order": 340,
+   "doctype": "Bucket Reuse Anomaly",
+   "name": "BRA-JTEST-001-03071",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J11 harvest (reuse: J10 never issued)"
+  },
+  {
+   "order": 341,
+   "doctype": "Comment",
+   "name": "fi5ik1r9pk",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J11 harvest (reuse: J10 never issued)"
+  },
+  {
+   "order": 342,
+   "doctype": "Version",
+   "name": "fi54ommaia",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J11 harvest (reuse: J10 never issued)"
+  },
+  {
+   "order": 343,
+   "doctype": "Error Log",
+   "name": "fhn19odefk",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "J11 harvest (reuse: J10 never issued)"
+  },
+  {
+   "order": 344,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100021000",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J11 receive"
+  },
+  {
+   "order": 345,
+   "doctype": "Stock Ledger Entry",
+   "name": "35ec879f0f",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J11 receive"
+  },
+  {
+   "order": 346,
+   "doctype": "Stock Ledger Entry",
+   "name": "dd92ee1d2b",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J11 receive"
+  },
+  {
+   "order": 347,
+   "doctype": "Version",
+   "name": "firm6gh1u0",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "J11 receive"
+  },
+  {
+   "order": 348,
+   "doctype": "Shelving Log",
+   "name": "fjgqqjm1t1",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "J11 shelve"
+  },
+  {
+   "order": 349,
+   "doctype": "Discard Request",
+   "name": "DR-2026-012",
+   "how": "direct",
+   "step": "J11 discard request (left listed, not discarded)"
+  },
+  {
+   "order": 350,
+   "doctype": "Version",
+   "name": "fkbo4qn0ra",
+   "how": "direct",
+   "step": "J11 discard request (left listed, not discarded)"
+  },
+  {
+   "order": 351,
+   "doctype": "Version",
+   "name": "fkbu6ke2ia",
+   "how": "direct",
+   "step": "J11 discard request (left listed, not discarded)"
+  },
+  {
+   "order": 352,
+   "doctype": "Discard Request Bucket",
+   "name": "fkaks7k5a2",
+   "how": "direct",
+   "step": "J11 discard request (left listed, not discarded)"
+  },
+  {
+   "order": 353,
+   "doctype": "Discard Request",
+   "name": "DR-2026-013",
+   "how": "direct",
+   "step": "B3-J1 discard request"
+  },
+  {
+   "order": 354,
+   "doctype": "Version",
+   "name": "g1qg0tm3s0",
+   "how": "direct",
+   "step": "B3-J1 discard request"
+  },
+  {
+   "order": 355,
+   "doctype": "Version",
+   "name": "g1qbcg7bhj",
+   "how": "direct",
+   "step": "B3-J1 discard request"
+  },
+  {
+   "order": 356,
+   "doctype": "Discard Request Bucket",
+   "name": "g1q43uets2",
+   "how": "direct",
+   "step": "B3-J1 discard request"
+  },
+  {
+   "order": 357,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100021001",
+   "how": "api:upande_quality.mobile.api.createDiscardEntry",
+   "step": "B3-J1 discard"
+  },
+  {
+   "order": 358,
+   "doctype": "Stock Ledger Entry",
+   "name": "11da78ee73",
+   "how": "api:upande_quality.mobile.api.createDiscardEntry",
+   "step": "B3-J1 discard"
+  },
+  {
+   "order": 359,
+   "doctype": "Comment",
+   "name": "g2am6nujde",
+   "how": "api:upande_quality.mobile.api.createDiscardEntry",
+   "step": "B3-J1 discard"
+  },
+  {
+   "order": 360,
+   "doctype": "Version",
+   "name": "g2agu8f8r0",
+   "how": "api:upande_quality.mobile.api.createDiscardEntry",
+   "step": "B3-J1 discard"
+  },
+  {
+   "order": 361,
+   "doctype": "Error Log",
+   "name": "gai4l3veli",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "B2-J1 issue to the order it replaced JTEST-001 on"
+  },
+  {
+   "order": 362,
+   "doctype": "Error Log",
+   "name": "gajbdh11q2",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "B2-J1 issue to the order it replaced JTEST-001 on"
+  },
+  {
+   "order": 363,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100021002",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B3-J2 harvest"
+  },
+  {
+   "order": 364,
+   "doctype": "Stock Ledger Entry",
+   "name": "a3a70623d8",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B3-J2 harvest"
+  },
+  {
+   "order": 365,
+   "doctype": "Version",
+   "name": "gb87iomsim",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B3-J2 harvest"
+  },
+  {
+   "order": 366,
+   "doctype": "Error Log",
+   "name": "gb77u97q5d",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B3-J2 harvest"
+  },
+  {
+   "order": 367,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100021003",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B3-J2 receive"
+  },
+  {
+   "order": 368,
+   "doctype": "Stock Ledger Entry",
+   "name": "ba4462cd64",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B3-J2 receive"
+  },
+  {
+   "order": 369,
+   "doctype": "Stock Ledger Entry",
+   "name": "4ca5c59b87",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B3-J2 receive"
+  },
+  {
+   "order": 370,
+   "doctype": "Version",
+   "name": "gbu87116v9",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B3-J2 receive"
+  },
+  {
+   "order": 371,
+   "doctype": "Shelving Log",
+   "name": "gckr8qissm",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J2 shelve Simotwo"
+  },
+  {
+   "order": 372,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100021004",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J2 harvest at Simotwo (reuse: J1 left 10 stems on the shelf)"
+  },
+  {
+   "order": 373,
+   "doctype": "Stock Ledger Entry",
+   "name": "2e90377aeb",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J2 harvest at Simotwo (reuse: J1 left 10 stems on the shelf)"
+  },
+  {
+   "order": 374,
+   "doctype": "Version",
+   "name": "gdaraulslh",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J2 harvest at Simotwo (reuse: J1 left 10 stems on the shelf)"
+  },
+  {
+   "order": 375,
+   "doctype": "Error Log",
+   "name": "gd9avcddqq",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J2 harvest at Simotwo (reuse: J1 left 10 stems on the shelf)"
+  },
+  {
+   "order": 376,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100021005",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B2-J2 receive"
+  },
+  {
+   "order": 377,
+   "doctype": "Stock Ledger Entry",
+   "name": "cc818a5f74",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B2-J2 receive"
+  },
+  {
+   "order": 378,
+   "doctype": "Stock Ledger Entry",
+   "name": "cd5cfa3b94",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B2-J2 receive"
+  },
+  {
+   "order": 379,
+   "doctype": "Version",
+   "name": "ge0e1fmccq",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B2-J2 receive"
+  },
+  {
+   "order": 380,
+   "doctype": "Shelving Log",
+   "name": "gela4cc73l",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B2-J2 shelve Simotwo"
+  },
+  {
+   "order": 381,
+   "doctype": "Shelf",
+   "name": "JTEST-SHELF-R3",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B2-J2 shelve Simotwo"
+  },
+  {
+   "order": 382,
+   "doctype": "Shelf Item",
+   "name": "geljvrd7d4",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B2-J2 shelve Simotwo"
+  },
+  {
+   "order": 383,
+   "doctype": "Sales Order",
+   "name": "JTEST-SO-B2-J2",
+   "how": "direct",
+   "step": "SO B2-J2"
+  },
+  {
+   "order": 384,
+   "doctype": "Comment",
+   "name": "gfh5kobuu7",
+   "how": "direct",
+   "step": "SO B2-J2"
+  },
+  {
+   "order": 385,
+   "doctype": "Version",
+   "name": "gfithbmcak",
+   "how": "direct",
+   "step": "SO B2-J2"
+  },
+  {
+   "order": 386,
+   "doctype": "Order Pick List",
+   "name": "OPL-2026-00063",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J2 allocate (awaiting transfer)"
+  },
+  {
+   "order": 387,
+   "doctype": "Comment",
+   "name": "gfk65i48hf",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J2 allocate (awaiting transfer)"
+  },
+  {
+   "order": 388,
+   "doctype": "Comment",
+   "name": "gfl4sod6h5",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J2 allocate (awaiting transfer)"
+  },
+  {
+   "order": 389,
+   "doctype": "Error Log",
+   "name": "gfjnhdck48",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J2 allocate (awaiting transfer)"
+  },
+  {
+   "order": 390,
+   "doctype": "Error Log",
+   "name": "gfja2inus0",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J2 allocate (awaiting transfer)"
+  },
+  {
+   "order": 391,
+   "doctype": "Error Log",
+   "name": "gfkunn5ktn",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J2 allocate (awaiting transfer)"
+  },
+  {
+   "order": 392,
+   "doctype": "Error Log",
+   "name": "gfl6cl7j94",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J2 allocate (awaiting transfer)"
+  },
+  {
+   "order": 393,
+   "doctype": "Pick List Item",
+   "name": "gfk30c2ej4",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J2 allocate (awaiting transfer)"
+  },
+  {
+   "order": 394,
+   "doctype": "Bucket Allocation Status",
+   "name": "ggbcvsqtd8",
+   "how": "api:upande_quality.mobile.api.replaceRequestedBucket",
+   "step": "B2-J2 replace JTEST-002 by JTEST-003 during transfer"
+  },
+  {
+   "order": 395,
+   "doctype": "Bucket Replacement",
+   "name": "BRPL-2026-03072",
+   "how": "api:upande_quality.mobile.api.replaceRequestedBucket",
+   "step": "B2-J2 replace JTEST-002 by JTEST-003 during transfer"
+  },
+  {
+   "order": 396,
+   "doctype": "Comment",
+   "name": "ggbvsuqf22",
+   "how": "api:upande_quality.mobile.api.replaceRequestedBucket",
+   "step": "B2-J2 replace JTEST-002 by JTEST-003 during transfer"
+  },
+  {
+   "order": 397,
+   "doctype": "Comment",
+   "name": "ggceru16fk",
+   "how": "api:upande_quality.mobile.api.replaceRequestedBucket",
+   "step": "B2-J2 replace JTEST-002 by JTEST-003 during transfer"
+  },
+  {
+   "order": 398,
+   "doctype": "Comment",
+   "name": "ggctstl67v",
+   "how": "api:upande_quality.mobile.api.replaceRequestedBucket",
+   "step": "B2-J2 replace JTEST-002 by JTEST-003 during transfer"
+  },
+  {
+   "order": 399,
+   "doctype": "Bucket Allocations",
+   "name": "ggbcot03a7",
+   "how": "api:upande_quality.mobile.api.replaceRequestedBucket",
+   "step": "B2-J2 replace JTEST-002 by JTEST-003 during transfer"
+  },
+  {
+   "order": 400,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100021006",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J3 harvest at Simotwo"
+  },
+  {
+   "order": 401,
+   "doctype": "Stock Ledger Entry",
+   "name": "234b9d543d",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J3 harvest at Simotwo"
+  },
+  {
+   "order": 402,
+   "doctype": "Version",
+   "name": "gmj5jj3frs",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J3 harvest at Simotwo"
+  },
+  {
+   "order": 403,
+   "doctype": "Error Log",
+   "name": "gmi644cr07",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J3 harvest at Simotwo"
+  },
+  {
+   "order": 404,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100021007",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B2-J3 receive"
+  },
+  {
+   "order": 405,
+   "doctype": "Stock Ledger Entry",
+   "name": "7fd199d00a",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B2-J3 receive"
+  },
+  {
+   "order": 406,
+   "doctype": "Stock Ledger Entry",
+   "name": "2c79ce6aac",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B2-J3 receive"
+  },
+  {
+   "order": 407,
+   "doctype": "Version",
+   "name": "gn9fpt9rpn",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B2-J3 receive"
+  },
+  {
+   "order": 408,
+   "doctype": "Shelving Log",
+   "name": "gnu464tg1d",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B2-J3 shelve Simotwo"
+  },
+  {
+   "order": 409,
+   "doctype": "Sales Order",
+   "name": "JTEST-SO-B2-J3",
+   "how": "direct",
+   "step": "SO B2-J3"
+  },
+  {
+   "order": 410,
+   "doctype": "Comment",
+   "name": "goquupp47c",
+   "how": "direct",
+   "step": "SO B2-J3"
+  },
+  {
+   "order": 411,
+   "doctype": "Version",
+   "name": "gorqp1spub",
+   "how": "direct",
+   "step": "SO B2-J3"
+  },
+  {
+   "order": 412,
+   "doctype": "Order Pick List",
+   "name": "OPL-2026-00064",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J3 allocate (awaiting transfer)"
+  },
+  {
+   "order": 413,
+   "doctype": "Comment",
+   "name": "gotjm25390",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J3 allocate (awaiting transfer)"
+  },
+  {
+   "order": 414,
+   "doctype": "Comment",
+   "name": "goto5p647i",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J3 allocate (awaiting transfer)"
+  },
+  {
+   "order": 415,
+   "doctype": "Error Log",
+   "name": "gosge4bsv2",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J3 allocate (awaiting transfer)"
+  },
+  {
+   "order": 416,
+   "doctype": "Error Log",
+   "name": "gos1l0aj5b",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J3 allocate (awaiting transfer)"
+  },
+  {
+   "order": 417,
+   "doctype": "Error Log",
+   "name": "gos0egsk8h",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J3 allocate (awaiting transfer)"
+  },
+  {
+   "order": 418,
+   "doctype": "Error Log",
+   "name": "gotadan20k",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J3 allocate (awaiting transfer)"
+  },
+  {
+   "order": 419,
+   "doctype": "Pick List Item",
+   "name": "gotirv3po4",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J3 allocate (awaiting transfer)"
+  },
+  {
+   "order": 420,
+   "doctype": "Comment",
+   "name": "gpj7mtks0m",
+   "how": "api:upande_packhouse.api.remote_transfer.transfer_scheduling.markRequestedBucketNotFound",
+   "step": "B2-J3 marked not found"
+  },
+  {
+   "order": 421,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100021008",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J4 harvest at Simotwo"
+  },
+  {
+   "order": 422,
+   "doctype": "Stock Ledger Entry",
+   "name": "df05b5b62f",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J4 harvest at Simotwo"
+  },
+  {
+   "order": 423,
+   "doctype": "Bucket Reuse Anomaly",
+   "name": "BRA-JTEST-002-03073",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J4 harvest at Simotwo"
+  },
+  {
+   "order": 424,
+   "doctype": "Comment",
+   "name": "gq91rc5gs2",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J4 harvest at Simotwo"
+  },
+  {
+   "order": 425,
+   "doctype": "Version",
+   "name": "gq809iiqnh",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J4 harvest at Simotwo"
+  },
+  {
+   "order": 426,
+   "doctype": "Error Log",
+   "name": "gq7isg7me5",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J4 harvest at Simotwo"
+  },
+  {
+   "order": 427,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100021009",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B2-J4 receive"
+  },
+  {
+   "order": 428,
+   "doctype": "Stock Ledger Entry",
+   "name": "cd23ce88d2",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B2-J4 receive"
+  },
+  {
+   "order": 429,
+   "doctype": "Stock Ledger Entry",
+   "name": "a70fc83910",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B2-J4 receive"
+  },
+  {
+   "order": 430,
+   "doctype": "Version",
+   "name": "gqvhn8moqi",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B2-J4 receive"
+  },
+  {
+   "order": 431,
+   "doctype": "Shelving Log",
+   "name": "grk4n1u714",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B2-J4 shelve Simotwo"
+  },
+  {
+   "order": 432,
+   "doctype": "Error Log",
+   "name": "grkis9gaq3",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B2-J4 shelve Simotwo"
+  },
+  {
+   "order": 433,
+   "doctype": "Error Log",
+   "name": "grk2mhdoqr",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B2-J4 shelve Simotwo"
+  },
+  {
+   "order": 434,
+   "doctype": "Sales Order",
+   "name": "JTEST-SO-B2-J4",
+   "how": "direct",
+   "step": "SO B2-J4"
+  },
+  {
+   "order": 435,
+   "doctype": "Comment",
+   "name": "gsam32h11b",
+   "how": "direct",
+   "step": "SO B2-J4"
+  },
+  {
+   "order": 436,
+   "doctype": "Version",
+   "name": "gsajd7ffjh",
+   "how": "direct",
+   "step": "SO B2-J4"
+  },
+  {
+   "order": 437,
+   "doctype": "Error Log",
+   "name": "gsbneqcung",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J4 allocate (awaiting transfer)"
+  },
+  {
+   "order": 438,
+   "doctype": "Bucket Transfer Event",
+   "name": "h7nn2qtgu4",
+   "how": "api:upande_quality.mobile.api.saveTrolleyData",
+   "step": "B3-J2 on trolley"
+  },
+  {
+   "order": 439,
+   "doctype": "Bucket Request Trip",
+   "name": "BRT-2026-10-23-03074",
+   "how": "api:upande_quality.mobile.api.loadTrolleyInTruck",
+   "step": "B3-J2 loaded on truck"
+  },
+  {
+   "order": 440,
+   "doctype": "Version",
+   "name": "h97pafalf7",
+   "how": "api:upande_packhouse.mobile.api.dispatchBucketTrip",
+   "step": "B3-J2 dispatch trip"
+  },
+  {
+   "order": 441,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100021010",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J2 shelved at the hub (arrival)"
+  },
+  {
+   "order": 442,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100021011",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J2 shelved at the hub (arrival)"
+  },
+  {
+   "order": 443,
+   "doctype": "Stock Ledger Entry",
+   "name": "e16c41642f",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J2 shelved at the hub (arrival)"
+  },
+  {
+   "order": 444,
+   "doctype": "Stock Ledger Entry",
+   "name": "66e03d6b05",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J2 shelved at the hub (arrival)"
+  },
+  {
+   "order": 445,
+   "doctype": "Stock Ledger Entry",
+   "name": "ff0a72e0f1",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J2 shelved at the hub (arrival)"
+  },
+  {
+   "order": 446,
+   "doctype": "Stock Ledger Entry",
+   "name": "a4501a35f8",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J2 shelved at the hub (arrival)"
+  },
+  {
+   "order": 447,
+   "doctype": "Shelving Log",
+   "name": "h9uk9ljp1q",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J2 shelved at the hub (arrival)"
+  },
+  {
+   "order": 448,
+   "doctype": "Shelf",
+   "name": "JTEST-SHELF-11",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J2 shelved at the hub (arrival)"
+  },
+  {
+   "order": 449,
+   "doctype": "Bucket Transfer Event",
+   "name": "h9thdl6eik",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J2 shelved at the hub (arrival)"
+  },
+  {
+   "order": 450,
+   "doctype": "Bucket Transfer Event",
+   "name": "h9vdq6142a",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J2 shelved at the hub (arrival)"
+  },
+  {
+   "order": 451,
+   "doctype": "Comment",
+   "name": "h9tfc9qeqq",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J2 shelved at the hub (arrival)"
+  },
+  {
+   "order": 452,
+   "doctype": "Comment",
+   "name": "h9tib6eoec",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J2 shelved at the hub (arrival)"
+  },
+  {
+   "order": 453,
+   "doctype": "Version",
+   "name": "h9t04bdq6v",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J2 shelved at the hub (arrival)"
+  },
+  {
+   "order": 454,
+   "doctype": "Version",
+   "name": "h9tnjr2s1m",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J2 shelved at the hub (arrival)"
+  },
+  {
+   "order": 455,
+   "doctype": "Version",
+   "name": "h9ukb87f0n",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J2 shelved at the hub (arrival)"
+  },
+  {
+   "order": 456,
+   "doctype": "Error Log",
+   "name": "h9u3i1mmr8",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J2 shelved at the hub (arrival)"
+  },
+  {
+   "order": 457,
+   "doctype": "Error Log",
+   "name": "h9vgvm8div",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J2 shelved at the hub (arrival)"
+  },
+  {
+   "order": 458,
+   "doctype": "Shelf Item",
+   "name": "h9u7svrdl4",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J2 shelved at the hub (arrival)"
+  },
+  {
+   "order": 459,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100021012",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "B3-J2 issue"
+  },
+  {
+   "order": 460,
+   "doctype": "Stock Ledger Entry",
+   "name": "24a1aa17de",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "B3-J2 issue"
+  },
+  {
+   "order": 461,
+   "doctype": "Stock Ledger Entry",
+   "name": "c45e5bf110",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "B3-J2 issue"
+  },
+  {
+   "order": 462,
+   "doctype": "Version",
+   "name": "hal3q8c22l",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "B3-J2 issue"
+  },
+  {
+   "order": 463,
+   "doctype": "Error Log",
+   "name": "haklh2rh42",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem",
+   "step": "B3-J2 issue"
+  },
+  {
+   "order": 464,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100021013",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B3-J3 harvest at Simotwo"
+  },
+  {
+   "order": 465,
+   "doctype": "Stock Ledger Entry",
+   "name": "1662240a6f",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B3-J3 harvest at Simotwo"
+  },
+  {
+   "order": 466,
+   "doctype": "Bucket Reuse Anomaly",
+   "name": "BRA-JTEST-003-03075",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B3-J3 harvest at Simotwo"
+  },
+  {
+   "order": 467,
+   "doctype": "Comment",
+   "name": "hbbkr6prlh",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B3-J3 harvest at Simotwo"
+  },
+  {
+   "order": 468,
+   "doctype": "Version",
+   "name": "hbb36rg237",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B3-J3 harvest at Simotwo"
+  },
+  {
+   "order": 469,
+   "doctype": "Error Log",
+   "name": "hbauipird6",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B3-J3 harvest at Simotwo"
+  },
+  {
+   "order": 470,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100021014",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B3-J3 receive"
+  },
+  {
+   "order": 471,
+   "doctype": "Stock Ledger Entry",
+   "name": "8bff661b60",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B3-J3 receive"
+  },
+  {
+   "order": 472,
+   "doctype": "Stock Ledger Entry",
+   "name": "2ecbdc61c0",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B3-J3 receive"
+  },
+  {
+   "order": 473,
+   "doctype": "Version",
+   "name": "hc1sc2k5am",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B3-J3 receive"
+  },
+  {
+   "order": 474,
+   "doctype": "Shelving Log",
+   "name": "hcmr3jr7o0",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B3-J3 shelve Simotwo"
+  },
+  {
+   "order": 475,
+   "doctype": "Sales Order",
+   "name": "JTEST-SO-B3-J3",
+   "how": "direct",
+   "step": "SO B3-J3"
+  },
+  {
+   "order": 476,
+   "doctype": "Comment",
+   "name": "hdevi08jt1",
+   "how": "direct",
+   "step": "SO B3-J3"
+  },
+  {
+   "order": 477,
+   "doctype": "Version",
+   "name": "hdf2jic3np",
+   "how": "direct",
+   "step": "SO B3-J3"
+  },
+  {
+   "order": 478,
+   "doctype": "Order Pick List",
+   "name": "OPL-2026-00065",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B3-J3 allocate (awaiting transfer)"
+  },
+  {
+   "order": 479,
+   "doctype": "Comment",
+   "name": "hdhk1idopp",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B3-J3 allocate (awaiting transfer)"
+  },
+  {
+   "order": 480,
+   "doctype": "Comment",
+   "name": "hdhvmp7m7p",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B3-J3 allocate (awaiting transfer)"
+  },
+  {
+   "order": 481,
+   "doctype": "Error Log",
+   "name": "hdgv4atmke",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B3-J3 allocate (awaiting transfer)"
+  },
+  {
+   "order": 482,
+   "doctype": "Error Log",
+   "name": "hdgunm6akj",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B3-J3 allocate (awaiting transfer)"
+  },
+  {
+   "order": 483,
+   "doctype": "Error Log",
+   "name": "hdgjf3479m",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B3-J3 allocate (awaiting transfer)"
+  },
+  {
+   "order": 484,
+   "doctype": "Error Log",
+   "name": "hdh53l6rgf",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B3-J3 allocate (awaiting transfer)"
+  },
+  {
+   "order": 485,
+   "doctype": "Pick List Item",
+   "name": "hdge8rtebt",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B3-J3 allocate (awaiting transfer)"
+  },
+  {
+   "order": 486,
+   "doctype": "Bucket Transfer Event",
+   "name": "he6cjsqjdn",
+   "how": "api:upande_quality.mobile.api.saveTrolleyData",
+   "step": "B3-J3 on trolley"
+  },
+  {
+   "order": 487,
+   "doctype": "Bucket Request Trip",
+   "name": "BRT-2026-10-23-03076",
+   "how": "api:upande_quality.mobile.api.loadTrolleyInTruck",
+   "step": "B3-J3 loaded on truck"
+  },
+  {
+   "order": 488,
+   "doctype": "Version",
+   "name": "hfh2r1qbli",
+   "how": "api:upande_packhouse.mobile.api.dispatchBucketTrip",
+   "step": "B3-J3 dispatch trip (left, stays in transit)"
+  },
+  {
+   "order": 489,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100021015",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J5 harvest Ever Red at Simotwo"
+  },
+  {
+   "order": 490,
+   "doctype": "Stock Ledger Entry",
+   "name": "3777661505",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J5 harvest Ever Red at Simotwo"
+  },
+  {
+   "order": 491,
+   "doctype": "Bucket Reuse Anomaly",
+   "name": "BRA-JTEST-002-03077",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J5 harvest Ever Red at Simotwo"
+  },
+  {
+   "order": 492,
+   "doctype": "Comment",
+   "name": "hg7dteeicr",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J5 harvest Ever Red at Simotwo"
+  },
+  {
+   "order": 493,
+   "doctype": "Version",
+   "name": "hg7mvi4dfk",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J5 harvest Ever Red at Simotwo"
+  },
+  {
+   "order": 494,
+   "doctype": "Error Log",
+   "name": "hg5gkerair",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry",
+   "step": "B2-J5 harvest Ever Red at Simotwo"
+  },
+  {
+   "order": 495,
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100021016",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B2-J5 receive"
+  },
+  {
+   "order": 496,
+   "doctype": "Stock Ledger Entry",
+   "name": "4baa3ca17a",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B2-J5 receive"
+  },
+  {
+   "order": 497,
+   "doctype": "Stock Ledger Entry",
+   "name": "39e6277935",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B2-J5 receive"
+  },
+  {
+   "order": 498,
+   "doctype": "Version",
+   "name": "hgtvoga7m4",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry",
+   "step": "B2-J5 receive"
+  },
+  {
+   "order": 499,
+   "doctype": "Shelving Log",
+   "name": "hhjefbt2u0",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry",
+   "step": "B2-J5 shelve Simotwo"
+  },
+  {
+   "order": 500,
+   "doctype": "Sales Order",
+   "name": "JTEST-SO-B2-J5",
+   "how": "direct",
+   "step": "SO B2-J5"
+  },
+  {
+   "order": 501,
+   "doctype": "Comment",
+   "name": "hi96sqasvm",
+   "how": "direct",
+   "step": "SO B2-J5"
+  },
+  {
+   "order": 502,
+   "doctype": "Version",
+   "name": "hi9avq4i7j",
+   "how": "direct",
+   "step": "SO B2-J5"
+  },
+  {
+   "order": 503,
+   "doctype": "Bucket Allocation Status",
+   "name": "hiad37mkmk",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J5 allocate (awaiting transfer, stays open)"
+  },
+  {
+   "order": 504,
+   "doctype": "Order Pick List",
+   "name": "OPL-2026-00066",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J5 allocate (awaiting transfer, stays open)"
+  },
+  {
+   "order": 505,
+   "doctype": "Comment",
+   "name": "hib99mg0gm",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J5 allocate (awaiting transfer, stays open)"
+  },
+  {
+   "order": 506,
+   "doctype": "Comment",
+   "name": "hibj2raibp",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J5 allocate (awaiting transfer, stays open)"
+  },
+  {
+   "order": 507,
+   "doctype": "Error Log",
+   "name": "hiakjh9af1",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J5 allocate (awaiting transfer, stays open)"
+  },
+  {
+   "order": 508,
+   "doctype": "Error Log",
+   "name": "hiatikt8hj",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J5 allocate (awaiting transfer, stays open)"
+  },
+  {
+   "order": 509,
+   "doctype": "Error Log",
+   "name": "hibdbbrfk3",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J5 allocate (awaiting transfer, stays open)"
+  },
+  {
+   "order": 510,
+   "doctype": "Error Log",
+   "name": "hibint95ao",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J5 allocate (awaiting transfer, stays open)"
+  },
+  {
+   "order": 511,
+   "doctype": "Pick List Item",
+   "name": "hibo19ggb0",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J5 allocate (awaiting transfer, stays open)"
+  },
+  {
+   "order": 512,
+   "doctype": "Bucket Allocations",
+   "name": "hia47cegp3",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets",
+   "step": "B2-J5 allocate (awaiting transfer, stays open)"
+  },
+  {
+   "order": 513,
+   "doctype": "Shelf Item",
+   "name": "fjg8cuaeoj",
+   "how": "reconcile",
+   "step": "by bucket id"
+  },
+  {
+   "order": 514,
+   "doctype": "Shelf Item",
+   "name": "hhjfj5knsf",
+   "how": "reconcile",
+   "step": "by bucket id"
+  },
+  {
+   "order": 515,
+   "doctype": "Bucket Allocations",
+   "name": "5jnh3ffa0k",
+   "how": "reconcile",
+   "step": "child of BAS"
+  },
+  {
+   "order": 516,
+   "doctype": "Bucket Allocations",
+   "name": "5kpqmgoboq",
+   "how": "reconcile",
+   "step": "child of BAS"
+  },
+  {
+   "order": 517,
+   "doctype": "Bucket Allocations",
+   "name": "dn9pkf5f2d",
+   "how": "reconcile",
+   "step": "child of BAS"
+  },
+  {
+   "order": 518,
+   "doctype": "Bucket Allocations",
+   "name": "efmooqnecf",
+   "how": "reconcile",
+   "step": "child of BAS"
+  },
+  {
+   "order": 519,
+   "doctype": "Bucket Allocations",
+   "name": "gfjohs01ee",
+   "how": "reconcile",
+   "step": "child of BAS"
+  },
+  {
+   "order": 520,
+   "doctype": "Bucket Allocations",
+   "name": "gosfgj9oe0",
+   "how": "reconcile",
+   "step": "child of BAS"
+  },
+  {
+   "order": 521,
+   "doctype": "Bucket Allocations",
+   "name": "hdgh7msnop",
+   "how": "reconcile",
+   "step": "child of BAS"
+  }
+ ],
+ "touched_existing": [],
+ "steps": [
+  {
+   "step": "J1 harvest",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry {\"farm\": \"Kapkolia\", \"greenhouse\": \"Chepsito GH 12 - KR\", \"harvester\": \"201480\", \"stem_length\": \"52cm\", \"item_code\": \"Aqua\", \"cut_stage\": \"1.5-2.0\", \"quantity\": 100, \"bucket_id\": \"JTEST-001\"} -> 200",
+   "at": "2026-10-23 00:33:57.023871"
+  },
+  {
+   "step": "J1 receive",
+   "how": "api:createReceivingStockEntry {\"bucket_id\": \"JTEST-001\", \"custom_receiving_batch_id\": \"JTBATCH-1\"} -> 500",
+   "at": "2026-10-23 00:34:11.958871"
+  },
+  {
+   "step": "J1 receive",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry {\"bucket_id\": \"JTEST-001\", \"custom_receiving_batch_id\": \"JTBATCH-1\"} -> 500",
+   "at": "2026-10-23 00:34:20.513591"
+  },
+  {
+   "step": "J1 receive",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry {\"bucket_id\": \"JTEST-001\", \"custom_receiving_batch_id\": \"JTBATCH-1\"} -> 200",
+   "at": "2026-10-23 00:35:53.002254"
+  },
+  {
+   "step": "J1 shelve",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry {\"shelf_id\": \"JTEST-SHELF-01\", \"bucket_id\": \"JTEST-001\", \"farm\": \"Kapkolia\"} -> 200",
+   "at": "2026-10-23 00:36:02.741682"
+  },
+  {
+   "step": "SO J1-A",
+   "how": "direct: new Sales Order JTEST-SO-J1-A (lines [20, 20]) copied from structure of SAL-ORD-2026-01738",
+   "at": "2026-10-23 00:37:30.363794"
+  },
+  {
+   "step": "J1 allocate OPL-A",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets {\"sales_order\": \"JTEST-SO-J1-A\", \"allocations\": [{\"item_code\": \"Aqua\", \"bucket_id\": \"JTEST-001\", \"qty\": 20, \"sales_order_item\": \"57skgm0gr9\", \"stem_length\": \"52cm\", \"warehouse\": \"\", \"uom\": \"Bunch (10)\", \"stock_uom\": \"Stems\", \"conversion_factor\": 10, \"length_status\": \"exact\"}, {\"item_code\": \"Aqua\", \" -> 200",
+   "at": "2026-10-23 00:37:49.753700"
+  },
+  {
+   "step": "SO J1-B",
+   "how": "direct: new Sales Order JTEST-SO-J1-B (lines [30]) copied from structure of SAL-ORD-2026-01738",
+   "at": "2026-10-23 00:38:07.021485"
+  },
+  {
+   "step": "J1 allocate OPL-B",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets {\"sales_order\": \"JTEST-SO-J1-B\", \"allocations\": [{\"item_code\": \"Aqua\", \"bucket_id\": \"JTEST-001\", \"qty\": 30, \"sales_order_item\": \"5jacjmdm8b\", \"stem_length\": \"52cm\", \"warehouse\": \"\", \"uom\": \"Bunch (10)\", \"stock_uom\": \"Stems\", \"conversion_factor\": 10, \"length_status\": \"exact\"}], \"location\": \"Kapkolia\" -> 200",
+   "at": "2026-10-23 00:38:07.882555"
+  },
+  {
+   "step": "SO J1-C",
+   "how": "direct: new Sales Order JTEST-SO-J1-C (lines [30]) copied from structure of SAL-ORD-2026-01738",
+   "at": "2026-10-23 00:38:10.453080"
+  },
+  {
+   "step": "J1 allocate OPL-C",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets {\"sales_order\": \"JTEST-SO-J1-C\", \"allocations\": [{\"item_code\": \"Aqua\", \"bucket_id\": \"JTEST-001\", \"qty\": 30, \"sales_order_item\": \"5kjg5cr20b\", \"stem_length\": \"52cm\", \"warehouse\": \"\", \"uom\": \"Bunch (10)\", \"stock_uom\": \"Stems\", \"conversion_factor\": 10, \"length_status\": \"exact\"}], \"location\": \"Kapkolia\" -> 200",
+   "at": "2026-10-23 00:38:11.425859"
+  },
+  {
+   "step": "J1 issue A1",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem {\"bucket\": \"JTEST-001\", \"sale_order_item\": \"57skgm0gr9\", \"opl_name\": \"OPL-2026-00057\"} -> 200",
+   "at": "2026-10-23 00:38:22.509579"
+  },
+  {
+   "step": "J1 issue A2",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem {\"bucket\": \"JTEST-001\", \"sale_order_item\": \"57sqk3l4v2\", \"opl_name\": \"OPL-2026-00058\"} -> 200",
+   "at": "2026-10-23 00:38:30.889802"
+  },
+  {
+   "step": "J1 issue B",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem {\"bucket\": \"JTEST-001\", \"sale_order_item\": \"5jacjmdm8b\", \"opl_name\": \"OPL-2026-00059\"} -> 200",
+   "at": "2026-10-23 00:38:33.605858"
+  },
+  {
+   "step": "J1 issue C",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem {\"bucket\": \"JTEST-001\", \"sale_order_item\": \"5kjg5cr20b\", \"opl_name\": \"OPL-2026-00060\"} -> 200",
+   "at": "2026-10-23 00:38:36.341611"
+  },
+  {
+   "step": "J2 harvest",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry {\"farm\": \"Kapkolia\", \"greenhouse\": \"Chepsito GH 12 - KR\", \"harvester\": \"201480\", \"stem_length\": \"52cm\", \"item_code\": \"Aqua\", \"cut_stage\": \"1.5-2.0\", \"quantity\": 80, \"bucket_id\": \"JTEST-001\"} -> 200",
+   "at": "2026-10-23 00:39:17.718143"
+  },
+  {
+   "step": "J2 receive",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry {\"bucket_id\": \"JTEST-001\", \"custom_receiving_batch_id\": \"JTBATCH-2\"} -> 200",
+   "at": "2026-10-23 00:39:20.303034"
+  },
+  {
+   "step": "J3 harvest",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry {\"farm\": \"Kapkolia\", \"greenhouse\": \"Chepsito GH 12 - KR\", \"harvester\": \"201480\", \"stem_length\": \"52cm\", \"item_code\": \"Aqua\", \"cut_stage\": \"1.5-2.0\", \"quantity\": 100, \"bucket_id\": \"JTEST-001\"} -> 400",
+   "at": "2026-10-23 00:39:22.602438"
+  },
+  {
+   "step": "J3 receive",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry {\"bucket_id\": \"JTEST-001\", \"custom_receiving_batch_id\": \"JTBATCH-3\"} -> 200",
+   "at": "2026-10-23 00:39:24.782825"
+  },
+  {
+   "step": "J3 QC quarantine",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality {\"batch_no\": \"JTBATCH-3\", \"control_point\": \"Intake\", \"batch_decision\": \"QUARANTINE\", \"quarantine_scope\": \"batch\", \"farm\": \"Kapkolia\", \"company\": \"Karen Roses\", \"buckets\": [{\"bucket_id\": \"JTEST-001\", \"stems\": 100, \"selected\": true, \"item_code\": \"Aqua\", \"item_name\": \"Aqua\", \"warehouse\": \"Kapkolia Rece -> 200",
+   "at": "2026-10-23 00:39:27.774335"
+  },
+  {
+   "step": "J2 harvest",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry {\"farm\": \"Kapkolia\", \"greenhouse\": \"Chepsito GH 12 - KR\", \"harvester\": \"201480\", \"stem_length\": \"52cm\", \"item_code\": \"Aqua\", \"cut_stage\": \"1.5-2.0\", \"quantity\": 10, \"bucket_id\": \"JTEST-001\"} -> 200",
+   "at": "2026-10-23 00:48:01.829430"
+  },
+  {
+   "step": "J2 receive",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry {\"bucket_id\": \"JTEST-001\", \"custom_receiving_batch_id\": \"JTBATCH-2\"} -> 200",
+   "at": "2026-10-23 00:48:04.392248"
+  },
+  {
+   "step": "J3 harvest",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry {\"farm\": \"Kapkolia\", \"greenhouse\": \"Chepsito GH 12 - KR\", \"harvester\": \"201480\", \"stem_length\": \"52cm\", \"item_code\": \"Aqua\", \"cut_stage\": \"1.5-2.0\", \"quantity\": 10, \"bucket_id\": \"JTEST-001\"} -> 200",
+   "at": "2026-10-23 00:48:08.258443"
+  },
+  {
+   "step": "J3 receive",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry {\"bucket_id\": \"JTEST-001\", \"custom_receiving_batch_id\": \"JTBATCH-3\"} -> 200",
+   "at": "2026-10-23 00:48:10.673240"
+  },
+  {
+   "step": "J3 QC quarantine",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality {\"batch_no\": \"JTBATCH-3\", \"control_point\": \"Intake\", \"batch_decision\": \"QUARANTINE\", \"quarantine_scope\": \"batch\", \"farm\": \"Kapkolia\", \"company\": \"Karen Roses\", \"buckets\": [{\"bucket_id\": \"JTEST-001\", \"stems\": 10, \"selected\": true, \"item_code\": \"Aqua\", \"item_name\": \"Aqua\", \"warehouse\": \"Kapkolia Recei -> 200",
+   "at": "2026-10-23 00:48:13.246365"
+  },
+  {
+   "step": "J3 release accept 7",
+   "how": "api:upande_quality.mobile.api.releaseFromQuarantine {\"bucket_id\": \"JTEST-001\", \"action\": \"accept\", \"stems_to_release\": 7, \"batch_no\": \"JTBATCH-3\"} -> 200",
+   "at": "2026-10-23 00:48:15.977622"
+  },
+  {
+   "step": "J3 shelve",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry {\"shelf_id\": \"JTEST-SHELF-01\", \"bucket_id\": \"JTEST-001\", \"farm\": \"Kapkolia\"} -> 200",
+   "at": "2026-10-23 00:48:18.372054"
+  },
+  {
+   "step": "J4 harvest (reuse: J3 never issued)",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry {\"farm\": \"Kapkolia\", \"greenhouse\": \"Chepsito GH 12 - KR\", \"harvester\": \"201480\", \"stem_length\": \"52cm\", \"item_code\": \"Aqua\", \"cut_stage\": \"1.5-2.0\", \"quantity\": 10, \"bucket_id\": \"JTEST-001\"} -> 200",
+   "at": "2026-10-23 00:48:31.216910"
+  },
+  {
+   "step": "J4 receive",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry {\"bucket_id\": \"JTEST-001\", \"custom_receiving_batch_id\": \"JTBATCH-4\"} -> 200",
+   "at": "2026-10-23 00:48:33.692672"
+  },
+  {
+   "step": "J4 QC quarantine",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality {\"batch_no\": \"JTBATCH-4\", \"control_point\": \"Intake\", \"batch_decision\": \"QUARANTINE\", \"quarantine_scope\": \"batch\", \"farm\": \"Kapkolia\", \"company\": \"Karen Roses\", \"buckets\": [{\"bucket_id\": \"JTEST-001\", \"stems\": 10, \"selected\": true, \"item_code\": \"Aqua\", \"item_name\": \"Aqua\", \"warehouse\": \"Kapkolia Recei -> 200",
+   "at": "2026-10-23 00:48:36.288137"
+  },
+  {
+   "step": "J4 release: reject 4, accept rest",
+   "how": "api:upande_quality.mobile.api.releaseFromQuarantine {\"bucket_id\": \"JTEST-001\", \"action\": \"reject\", \"stems_to_release\": 4, \"batch_no\": \"JTBATCH-4\"} -> 200",
+   "at": "2026-10-23 00:48:38.817787"
+  },
+  {
+   "step": "J4 shelve",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry {\"shelf_id\": \"JTEST-SHELF-02\", \"bucket_id\": \"JTEST-001\", \"farm\": \"Kapkolia\"} -> 200",
+   "at": "2026-10-23 00:48:41.127056"
+  },
+  {
+   "step": "J4 shelf move 02->03",
+   "how": "api:upande_quality.mobile.api.transferBucket {\"bucket_id\": \"JTEST-001\", \"to_shelf_id\": \"JTEST-SHELF-03\"} -> 200",
+   "at": "2026-10-23 00:49:02.968323"
+  },
+  {
+   "step": "J4 discard request",
+   "how": "direct insert/update in-process",
+   "at": "2026-10-23 00:49:06.619615"
+  },
+  {
+   "step": "J4 discard",
+   "how": "api:upande_quality.mobile.api.createDiscardEntry {\"bucket_id\": \"JTEST-001\", \"from_discard_request\": 1, \"farm\": \"Kapkolia\"} -> 200",
+   "at": "2026-10-23 00:49:07.783668"
+  },
+  {
+   "step": "shelf JTEST-SHELF-03",
+   "how": "direct insert/update in-process",
+   "at": "2026-10-23 00:49:27.540551"
+  },
+  {
+   "step": "J4 shelf move 02->03",
+   "how": "api:upande_quality.mobile.api.transferBucket {\"bucket_id\": \"JTEST-001\", \"to_shelf_id\": \"JTEST-SHELF-03\"} -> 200",
+   "at": "2026-10-23 00:49:28.906263"
+  },
+  {
+   "step": "J5 harvest (reuse: J4 listed for discard, never discarded)",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry {\"farm\": \"Kapkolia\", \"greenhouse\": \"Chepsito GH 12 - KR\", \"harvester\": \"201480\", \"stem_length\": \"52cm\", \"item_code\": \"Aqua\", \"cut_stage\": \"1.5-2.0\", \"quantity\": 10, \"bucket_id\": \"JTEST-001\"} -> 200",
+   "at": "2026-10-23 00:49:33.068686"
+  },
+  {
+   "step": "J5 receive",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry {\"bucket_id\": \"JTEST-001\", \"custom_receiving_batch_id\": \"JTBATCH-5\"} -> 200",
+   "at": "2026-10-23 00:49:35.297218"
+  },
+  {
+   "step": "J5 QC reject at intake",
+   "how": "api:upande_quality.mobile.api.submitBatchQuality {\"batch_no\": \"JTBATCH-5\", \"control_point\": \"Intake\", \"batch_decision\": \"REJECT\", \"quarantine_scope\": \"batch\", \"farm\": \"Kapkolia\", \"company\": \"Karen Roses\", \"buckets\": [{\"bucket_id\": \"JTEST-001\", \"stems\": 10, \"selected\": true, \"item_code\": \"Aqua\", \"item_name\": \"Aqua\", \"warehouse\": \"Kapkolia Receiving -> 200",
+   "at": "2026-10-23 00:49:37.612949"
+  },
+  {
+   "step": "J6 harvest",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry {\"farm\": \"Kapkolia\", \"greenhouse\": \"Chepsito GH 12 - KR\", \"harvester\": \"201480\", \"stem_length\": \"52cm\", \"item_code\": \"Aqua\", \"cut_stage\": \"1.5-2.0\", \"quantity\": 10, \"bucket_id\": \"JTEST-001\"} -> 200",
+   "at": "2026-10-23 00:51:04.804411"
+  },
+  {
+   "step": "J6 receive",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry {\"bucket_id\": \"JTEST-001\", \"custom_receiving_batch_id\": \"JTBATCH-6\"} -> 200",
+   "at": "2026-10-23 00:51:07.040482"
+  },
+  {
+   "step": "J6 shelve",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry {\"shelf_id\": \"JTEST-SHELF-01\", \"bucket_id\": \"JTEST-001\", \"farm\": \"Kapkolia\"} -> 200",
+   "at": "2026-10-23 00:51:09.291390"
+  },
+  {
+   "step": "J6 clearShelfItem",
+   "how": "api:clearShelfItem {\"shelf_item\": \"d846sr4tcg\"} -> 200",
+   "at": "2026-10-23 00:51:12.265123"
+  },
+  {
+   "step": "J7 harvest",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry {\"farm\": \"Kapkolia\", \"greenhouse\": \"Chepsito GH 12 - KR\", \"harvester\": \"201480\", \"stem_length\": \"52cm\", \"item_code\": \"Aqua\", \"cut_stage\": \"1.5-2.0\", \"quantity\": 10, \"bucket_id\": \"JTEST-001\"} -> 200",
+   "at": "2026-10-23 00:51:15.779357"
+  },
+  {
+   "step": "J7 receive",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry {\"bucket_id\": \"JTEST-001\", \"custom_receiving_batch_id\": \"JTBATCH-7\"} -> 200",
+   "at": "2026-10-23 00:51:17.978514"
+  },
+  {
+   "step": "J7 shelve",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry {\"shelf_id\": \"JTEST-SHELF-02\", \"bucket_id\": \"JTEST-001\", \"farm\": \"Kapkolia\"} -> 200",
+   "at": "2026-10-23 00:51:20.130202"
+  },
+  {
+   "step": "J7 offline issue",
+   "how": "api:upande_quality.mobile.api.createOfflineIssuingEntry {\"bucket_id\": \"JTEST-001\", \"reason\": \"Stems wilted; given to the florist next door\"} -> 200",
+   "at": "2026-10-23 00:51:22.248858"
+  },
+  {
+   "step": "B2-J1 harvest",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry {\"farm\": \"Kapkolia\", \"greenhouse\": \"Chepsito GH 12 - KR\", \"harvester\": \"201480\", \"stem_length\": \"52cm\", \"item_code\": \"Aqua\", \"cut_stage\": \"1.5-2.0\", \"quantity\": 20, \"bucket_id\": \"JTEST-002\"} -> 200",
+   "at": "2026-10-23 00:51:42.405732"
+  },
+  {
+   "step": "B2-J1 receive",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry {\"bucket_id\": \"JTEST-002\", \"custom_receiving_batch_id\": \"JTBATCH-B2-1\"} -> 200",
+   "at": "2026-10-23 00:51:44.585398"
+  },
+  {
+   "step": "B2-J1 shelve",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry {\"shelf_id\": \"JTEST-SHELF-10\", \"bucket_id\": \"JTEST-002\", \"farm\": \"Kapkolia\"} -> 200",
+   "at": "2026-10-23 00:51:46.713544"
+  },
+  {
+   "step": "J8 harvest",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry {\"farm\": \"Kapkolia\", \"greenhouse\": \"Chepsito GH 12 - KR\", \"harvester\": \"201480\", \"stem_length\": \"52cm\", \"item_code\": \"Aqua\", \"cut_stage\": \"1.5-2.0\", \"quantity\": 10, \"bucket_id\": \"JTEST-001\"} -> 200",
+   "at": "2026-10-23 00:51:50.014393"
+  },
+  {
+   "step": "J8 receive",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry {\"bucket_id\": \"JTEST-001\", \"custom_receiving_batch_id\": \"JTBATCH-8\"} -> 200",
+   "at": "2026-10-23 00:51:52.229229"
+  },
+  {
+   "step": "J8 shelve",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry {\"shelf_id\": \"JTEST-SHELF-01\", \"bucket_id\": \"JTEST-001\", \"farm\": \"Kapkolia\"} -> 200",
+   "at": "2026-10-23 00:51:54.344314"
+  },
+  {
+   "step": "SO J8",
+   "how": "direct: new Sales Order JTEST-SO-J8 (lines [10]) copied from structure of SAL-ORD-2026-01738",
+   "at": "2026-10-23 00:51:57.641219"
+  },
+  {
+   "step": "J8 allocate",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets {\"sales_order\": \"JTEST-SO-J8\", \"allocations\": [{\"item_code\": \"Aqua\", \"bucket_id\": \"JTEST-001\", \"qty\": 10, \"sales_order_item\": \"dn3c3kbe6s\", \"stem_length\": \"52cm\", \"warehouse\": \"\", \"uom\": \"Bunch (10)\", \"stock_uom\": \"Stems\", \"conversion_factor\": 10, \"length_status\": \"exact\"}], \"location\": \"Kapkolia\",  -> 200",
+   "at": "2026-10-23 00:51:58.144289"
+  },
+  {
+   "step": "J8 replace JTEST-001 by JTEST-002",
+   "how": "api:upande_quality.mobile.api.replaceRequestedBucket {\"data\": {\"pick_list_item\": \"dnagtsibpa\", \"new_bucket_id\": \"JTEST-002\", \"reason\": \"Missing\", \"notes\": \"Bucket not on shelf at issuing\"}} -> 200",
+   "at": "2026-10-23 00:52:00.487650"
+  },
+  {
+   "step": "J9 harvest",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry {\"farm\": \"Kapkolia\", \"greenhouse\": \"Chepsito GH 12 - KR\", \"harvester\": \"201480\", \"stem_length\": \"52cm\", \"item_code\": \"Aqua\", \"cut_stage\": \"1.5-2.0\", \"quantity\": 10, \"bucket_id\": \"JTEST-001\"} -> 200",
+   "at": "2026-10-23 00:53:08.588297"
+  },
+  {
+   "step": "J9 receive",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry {\"bucket_id\": \"JTEST-001\", \"custom_receiving_batch_id\": \"JTBATCH-9\"} -> 200",
+   "at": "2026-10-23 00:53:10.767696"
+  },
+  {
+   "step": "J9 shelve at remote farm Simotwo",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry {\"shelf_id\": \"JTEST-SHELF-R1\", \"bucket_id\": \"JTEST-001\", \"farm\": \"Simotwo\"} -> 200",
+   "at": "2026-10-23 00:53:12.887806"
+  },
+  {
+   "step": "SO J9",
+   "how": "direct: new Sales Order JTEST-SO-J9 (lines [10]) copied from structure of SAL-ORD-2026-01738",
+   "at": "2026-10-23 00:53:15.805217"
+  },
+  {
+   "step": "J9 allocate (remote bucket -> awaiting transfer)",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets {\"sales_order\": \"JTEST-SO-J9\", \"allocations\": [{\"item_code\": \"Aqua\", \"bucket_id\": \"JTEST-001\", \"qty\": 10, \"sales_order_item\": \"efi3fim3if\", \"stem_length\": \"52cm\", \"warehouse\": \"\", \"uom\": \"Bunch (10)\", \"stock_uom\": \"Stems\", \"conversion_factor\": 10, \"length_status\": \"exact\"}], \"location\": \"Kapkolia\",  -> 200",
+   "at": "2026-10-23 00:53:16.048067"
+  },
+  {
+   "step": "J9 on trolley",
+   "how": "api:upande_quality.mobile.api.saveTrolleyData {\"data\": {\"trolley_id\": \"JTEST-TROLLEY-1\", \"buckets\": [{\"opl_name\": \"OPL-2026-00062\", \"bucket_id\": \"JTEST-001\"}]}} -> 200",
+   "at": "2026-10-23 00:53:18.168512"
+  },
+  {
+   "step": "J9 loaded on truck",
+   "how": "api:upande_quality.mobile.api.loadTrolleyInTruck {\"data\": {\"trolley_id\": \"JTEST-TROLLEY-1\", \"truck_id\": \"KCF 700Z\"}} -> 200",
+   "at": "2026-10-23 00:53:20.302729"
+  },
+  {
+   "step": "J9 dispatch trip",
+   "how": "api:upande_packhouse.mobile.api.dispatchBucketTrip {\"name\": \"BRT-2026-10-23-03069\"} -> 200",
+   "at": "2026-10-23 00:53:31.641274"
+  },
+  {
+   "step": "J9 shelved at the hub (arrival)",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry {\"shelf_id\": \"JTEST-SHELF-04\", \"bucket_id\": \"JTEST-001\", \"farm\": \"Kapkolia\"} -> 200",
+   "at": "2026-10-23 00:53:33.732665"
+  },
+  {
+   "step": "B3-J1 harvest at Simotwo",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry {\"farm\": \"Simotwo\", \"greenhouse\": \"Simotwo GH 14 - KR\", \"harvester\": \"100374\", \"stem_length\": \"52cm\", \"item_code\": \"Aqua\", \"cut_stage\": \"1.5-2\", \"quantity\": 20, \"bucket_id\": \"JTEST-003\"} -> 200",
+   "at": "2026-10-23 00:54:09.526951"
+  },
+  {
+   "step": "B3-J1 receive",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry {\"bucket_id\": \"JTEST-003\", \"custom_receiving_batch_id\": \"JTBATCH-B3-1\"} -> 200",
+   "at": "2026-10-23 00:54:11.701644"
+  },
+  {
+   "step": "B3-J1 shelve Simotwo",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry {\"shelf_id\": \"JTEST-SHELF-R2\", \"bucket_id\": \"JTEST-003\", \"farm\": \"Simotwo\"} -> 200",
+   "at": "2026-10-23 00:54:13.808681"
+  },
+  {
+   "step": "J10 harvest at Simotwo",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry {\"farm\": \"Simotwo\", \"greenhouse\": \"Simotwo GH 14 - KR\", \"harvester\": \"100374\", \"stem_length\": \"52cm\", \"item_code\": \"Aqua\", \"cut_stage\": \"1.5-2\", \"quantity\": 10, \"bucket_id\": \"JTEST-001\"} -> 200",
+   "at": "2026-10-23 00:54:15.976018"
+  },
+  {
+   "step": "J10 receive",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry {\"bucket_id\": \"JTEST-001\", \"custom_receiving_batch_id\": \"JTBATCH-10\"} -> 200",
+   "at": "2026-10-23 00:54:18.173481"
+  },
+  {
+   "step": "J10 shelve Simotwo",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry {\"shelf_id\": \"JTEST-SHELF-R1\", \"bucket_id\": \"JTEST-001\", \"farm\": \"Simotwo\"} -> 200",
+   "at": "2026-10-23 00:54:20.331801"
+  },
+  {
+   "step": "SO J10",
+   "how": "direct: new Sales Order JTEST-SO-J10 (lines [10]) copied from structure of SAL-ORD-2026-01738",
+   "at": "2026-10-23 00:54:23.211012"
+  },
+  {
+   "step": "J10 allocate (awaiting transfer)",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets {\"sales_order\": \"JTEST-SO-J10\", \"allocations\": [{\"item_code\": \"Aqua\", \"bucket_id\": \"JTEST-001\", \"qty\": 10, \"sales_order_item\": \"f4l9asd7ev\", \"stem_length\": \"52cm\", \"warehouse\": \"\", \"uom\": \"Bunch (10)\", \"stock_uom\": \"Stems\", \"conversion_factor\": 10, \"length_status\": \"exact\"}], \"location\": \"Kapkolia\", -> 417",
+   "at": "2026-10-23 00:54:23.305100"
+  },
+  {
+   "step": "J10 replace during transfer",
+   "how": "api:upande_quality.mobile.api.replaceRequestedBucket {\"data\": {\"pick_list_item\": null, \"new_bucket_id\": \"JTEST-003\", \"reason\": \"Missing\", \"notes\": \"Not on the Simotwo shelf when the truck came\"}} -> 417",
+   "at": "2026-10-23 00:54:25.385056"
+  },
+  {
+   "step": "J10 shelved at the hub: arrival of the J9 transfer (skipped transfer self-heal)",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry {\"shelf_id\": \"JTEST-SHELF-04\", \"bucket_id\": \"JTEST-001\", \"farm\": \"Kapkolia\"} -> 200",
+   "at": "2026-10-23 00:54:52.378282"
+  },
+  {
+   "step": "J11 harvest (reuse: J10 never issued)",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry {\"farm\": \"Kapkolia\", \"greenhouse\": \"Chepsito GH 12 - KR\", \"harvester\": \"201480\", \"stem_length\": \"52cm\", \"item_code\": \"Aqua\", \"cut_stage\": \"1.5-2.0\", \"quantity\": 10, \"bucket_id\": \"JTEST-001\"} -> 200",
+   "at": "2026-10-23 00:55:06.172175"
+  },
+  {
+   "step": "J11 receive",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry {\"bucket_id\": \"JTEST-001\", \"custom_receiving_batch_id\": \"JTBATCH-11\"} -> 200",
+   "at": "2026-10-23 00:55:08.367239"
+  },
+  {
+   "step": "J11 shelve",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry {\"shelf_id\": \"JTEST-SHELF-01\", \"bucket_id\": \"JTEST-001\", \"farm\": \"Kapkolia\"} -> 200",
+   "at": "2026-10-23 00:55:10.494985"
+  },
+  {
+   "step": "J11 discard request (left listed, not discarded)",
+   "how": "direct insert/update in-process",
+   "at": "2026-10-23 00:55:13.194476"
+  },
+  {
+   "step": "B3-J1 discard request",
+   "how": "direct insert/update in-process",
+   "at": "2026-10-23 00:55:56.326993"
+  },
+  {
+   "step": "B3-J1 discard",
+   "how": "api:upande_quality.mobile.api.createDiscardEntry {\"bucket_id\": \"JTEST-003\", \"from_discard_request\": 1, \"farm\": \"Simotwo\"} -> 200",
+   "at": "2026-10-23 00:55:57.944780"
+  },
+  {
+   "step": "B2-J1 issue to the order it replaced JTEST-001 on",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem {\"bucket\": \"JTEST-002\", \"sale_order_item\": \"dn3c3kbe6s\", \"opl_name\": \"OPL-2026-00061\"} -> 200",
+   "at": "2026-10-23 00:56:24.324019"
+  },
+  {
+   "step": "B3-J2 harvest",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry {\"farm\": \"Simotwo\", \"greenhouse\": \"Simotwo GH 14 - KR\", \"harvester\": \"100374\", \"stem_length\": \"52cm\", \"item_code\": \"Aqua\", \"cut_stage\": \"1.5-2\", \"quantity\": 20, \"bucket_id\": \"JTEST-003\"} -> 200",
+   "at": "2026-10-23 00:56:26.533131"
+  },
+  {
+   "step": "B3-J2 receive",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry {\"bucket_id\": \"JTEST-003\", \"custom_receiving_batch_id\": \"JTBATCH-B3-2\"} -> 200",
+   "at": "2026-10-23 00:56:28.740620"
+  },
+  {
+   "step": "B3-J2 shelve Simotwo",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry {\"shelf_id\": \"JTEST-SHELF-R2\", \"bucket_id\": \"JTEST-003\", \"farm\": \"Simotwo\"} -> 200",
+   "at": "2026-10-23 00:56:30.861163"
+  },
+  {
+   "step": "B2-J2 harvest at Simotwo (reuse: J1 left 10 stems on the shelf)",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry {\"farm\": \"Simotwo\", \"greenhouse\": \"Simotwo GH 14 - KR\", \"harvester\": \"100374\", \"stem_length\": \"52cm\", \"item_code\": \"Aqua\", \"cut_stage\": \"1.5-2\", \"quantity\": 10, \"bucket_id\": \"JTEST-002\"} -> 200",
+   "at": "2026-10-23 00:56:33.044909"
+  },
+  {
+   "step": "B2-J2 receive",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry {\"bucket_id\": \"JTEST-002\", \"custom_receiving_batch_id\": \"JTBATCH-B2-2\"} -> 200",
+   "at": "2026-10-23 00:56:35.240187"
+  },
+  {
+   "step": "B2-J2 shelve Simotwo",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry {\"shelf_id\": \"JTEST-SHELF-R3\", \"bucket_id\": \"JTEST-002\", \"farm\": \"Simotwo\"} -> 200",
+   "at": "2026-10-23 00:56:37.366973"
+  },
+  {
+   "step": "SO B2-J2",
+   "how": "direct: new Sales Order JTEST-SO-B2-J2 (lines [10]) copied from structure of SAL-ORD-2026-01738",
+   "at": "2026-10-23 00:56:40.283021"
+  },
+  {
+   "step": "B2-J2 allocate (awaiting transfer)",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets {\"sales_order\": \"JTEST-SO-B2-J2\", \"allocations\": [{\"item_code\": \"Aqua\", \"bucket_id\": \"JTEST-002\", \"qty\": 10, \"sales_order_item\": \"gfghinicjb\", \"stem_length\": \"52cm\", \"warehouse\": \"\", \"uom\": \"Bunch (10)\", \"stock_uom\": \"Stems\", \"conversion_factor\": 10, \"length_status\": \"exact\"}], \"location\": \"Kapkolia -> 200",
+   "at": "2026-10-23 00:56:40.653730"
+  },
+  {
+   "step": "B2-J2 replace JTEST-002 by JTEST-003 during transfer",
+   "how": "api:upande_quality.mobile.api.replaceRequestedBucket {\"data\": {\"pick_list_item\": \"gfk30c2ej4\", \"new_bucket_id\": \"JTEST-003\", \"reason\": \"Missing\", \"notes\": \"Not on the Simotwo shelf when the truck came\"}} -> 200",
+   "at": "2026-10-23 00:56:42.875806"
+  },
+  {
+   "step": "B2-J3 harvest at Simotwo",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry {\"farm\": \"Simotwo\", \"greenhouse\": \"Simotwo GH 14 - KR\", \"harvester\": \"100374\", \"stem_length\": \"52cm\", \"item_code\": \"Aqua\", \"cut_stage\": \"1.5-2\", \"quantity\": 10, \"bucket_id\": \"JTEST-002\"} -> 200",
+   "at": "2026-10-23 00:57:02.785750"
+  },
+  {
+   "step": "B2-J3 receive",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry {\"bucket_id\": \"JTEST-002\", \"custom_receiving_batch_id\": \"JTBATCH-B2-3\"} -> 200",
+   "at": "2026-10-23 00:57:04.973979"
+  },
+  {
+   "step": "B2-J3 shelve Simotwo",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry {\"shelf_id\": \"JTEST-SHELF-R3\", \"bucket_id\": \"JTEST-002\", \"farm\": \"Simotwo\"} -> 200",
+   "at": "2026-10-23 00:57:07.092652"
+  },
+  {
+   "step": "SO B2-J3",
+   "how": "direct: new Sales Order JTEST-SO-B2-J3 (lines [10]) copied from structure of SAL-ORD-2026-01738",
+   "at": "2026-10-23 00:57:10.004600"
+  },
+  {
+   "step": "B2-J3 allocate (awaiting transfer)",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets {\"sales_order\": \"JTEST-SO-B2-J3\", \"allocations\": [{\"item_code\": \"Aqua\", \"bucket_id\": \"JTEST-002\", \"qty\": 10, \"sales_order_item\": \"gopku6aprt\", \"stem_length\": \"52cm\", \"warehouse\": \"\", \"uom\": \"Bunch (10)\", \"stock_uom\": \"Stems\", \"conversion_factor\": 10, \"length_status\": \"exact\"}], \"location\": \"Kapkolia -> 200",
+   "at": "2026-10-23 00:57:10.237026"
+  },
+  {
+   "step": "B2-J3 marked not found",
+   "how": "api:upande_packhouse.api.remote_transfer.transfer_scheduling.markRequestedBucketNotFound {\"pick_list_item\": \"gotirv3po4\", \"notes\": \"Bucket not in the Simotwo cold room\"} -> 200",
+   "at": "2026-10-23 00:57:12.332210"
+  },
+  {
+   "step": "B2-J4 harvest at Simotwo",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry {\"farm\": \"Simotwo\", \"greenhouse\": \"Simotwo GH 14 - KR\", \"harvester\": \"100374\", \"stem_length\": \"52cm\", \"item_code\": \"Aqua\", \"cut_stage\": \"1.5-2\", \"quantity\": 10, \"bucket_id\": \"JTEST-002\"} -> 200",
+   "at": "2026-10-23 00:57:14.555476"
+  },
+  {
+   "step": "B2-J4 receive",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry {\"bucket_id\": \"JTEST-002\", \"custom_receiving_batch_id\": \"JTBATCH-B2-4\"} -> 200",
+   "at": "2026-10-23 00:57:16.746836"
+  },
+  {
+   "step": "B2-J4 shelve Simotwo",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry {\"shelf_id\": \"JTEST-SHELF-R3\", \"bucket_id\": \"JTEST-002\", \"farm\": \"Simotwo\"} -> 200",
+   "at": "2026-10-23 00:57:18.893419"
+  },
+  {
+   "step": "SO B2-J4",
+   "how": "direct: new Sales Order JTEST-SO-B2-J4 (lines [10]) copied from structure of SAL-ORD-2026-01738",
+   "at": "2026-10-23 00:57:21.073194"
+  },
+  {
+   "step": "B2-J4 allocate (awaiting transfer)",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets {\"sales_order\": \"JTEST-SO-B2-J4\", \"allocations\": [{\"item_code\": \"Aqua\", \"bucket_id\": \"JTEST-002\", \"qty\": 10, \"sales_order_item\": \"gs90ndnad4\", \"stem_length\": \"52cm\", \"warehouse\": \"\", \"uom\": \"Bunch (10)\", \"stock_uom\": \"Stems\", \"conversion_factor\": 10, \"length_status\": \"exact\"}], \"location\": \"Kapkolia -> 417",
+   "at": "2026-10-23 00:57:21.170831"
+  },
+  {
+   "step": "B2-J4 on trolley",
+   "how": "api:upande_quality.mobile.api.saveTrolleyData {\"data\": {\"trolley_id\": \"JTEST-TROLLEY-2\", \"buckets\": [{\"opl_name\": null, \"bucket_id\": \"JTEST-002\"}]}} -> 200",
+   "at": "2026-10-23 00:57:23.244472"
+  },
+  {
+   "step": "B2-J4 loaded on truck",
+   "how": "api:upande_quality.mobile.api.loadTrolleyInTruck {\"data\": {\"trolley_id\": \"JTEST-TROLLEY-2\", \"truck_id\": \"KCF 700Z\"}} -> 200",
+   "at": "2026-10-23 00:57:25.320995"
+  },
+  {
+   "step": "B2-J4 dispatch trip",
+   "how": "api:upande_packhouse.mobile.api.dispatchBucketTrip {\"name\": null} -> 200",
+   "at": "2026-10-23 00:57:27.393796"
+  },
+  {
+   "step": "B3-J2 on trolley",
+   "how": "api:upande_quality.mobile.api.saveTrolleyData {\"data\": {\"trolley_id\": \"JTEST-TROLLEY-2\", \"buckets\": [{\"opl_name\": \"OPL-2026-00063\", \"bucket_id\": \"JTEST-003\"}]}} -> 200",
+   "at": "2026-10-23 00:57:57.617322"
+  },
+  {
+   "step": "B3-J2 loaded on truck",
+   "how": "api:upande_quality.mobile.api.loadTrolleyInTruck {\"data\": {\"trolley_id\": \"JTEST-TROLLEY-2\", \"truck_id\": \"KCF 700Z\"}} -> 200",
+   "at": "2026-10-23 00:57:59.731305"
+  },
+  {
+   "step": "B3-J2 dispatch trip",
+   "how": "api:upande_packhouse.mobile.api.dispatchBucketTrip {\"name\": \"BRT-2026-10-23-03074\"} -> 200",
+   "at": "2026-10-23 00:58:02.335953"
+  },
+  {
+   "step": "B3-J2 shelved at the hub (arrival)",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry {\"shelf_id\": \"JTEST-SHELF-11\", \"bucket_id\": \"JTEST-003\", \"farm\": \"Kapkolia\"} -> 200",
+   "at": "2026-10-23 00:58:04.803716"
+  },
+  {
+   "step": "B3-J2 issue",
+   "how": "api:upande_packhouse.mobile.api.issueBucketToSaleOrderItem {\"bucket\": \"JTEST-003\", \"sale_order_item\": \"gfghinicjb\", \"opl_name\": \"OPL-2026-00063\"} -> 200",
+   "at": "2026-10-23 00:58:07.021141"
+  },
+  {
+   "step": "B3-J3 harvest at Simotwo",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry {\"farm\": \"Simotwo\", \"greenhouse\": \"Simotwo GH 14 - KR\", \"harvester\": \"100374\", \"stem_length\": \"52cm\", \"item_code\": \"Aqua\", \"cut_stage\": \"1.5-2\", \"quantity\": 20, \"bucket_id\": \"JTEST-003\"} -> 200",
+   "at": "2026-10-23 00:58:09.234331"
+  },
+  {
+   "step": "B3-J3 receive",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry {\"bucket_id\": \"JTEST-003\", \"custom_receiving_batch_id\": \"JTBATCH-B3-3\"} -> 200",
+   "at": "2026-10-23 00:58:11.407680"
+  },
+  {
+   "step": "B3-J3 shelve Simotwo",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry {\"shelf_id\": \"JTEST-SHELF-R2\", \"bucket_id\": \"JTEST-003\", \"farm\": \"Simotwo\"} -> 200",
+   "at": "2026-10-23 00:58:13.519317"
+  },
+  {
+   "step": "SO B3-J3",
+   "how": "direct: new Sales Order JTEST-SO-B3-J3 (lines [10]) copied from structure of SAL-ORD-2026-01738",
+   "at": "2026-10-23 00:58:15.980426"
+  },
+  {
+   "step": "B3-J3 allocate (awaiting transfer)",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets {\"sales_order\": \"JTEST-SO-B3-J3\", \"allocations\": [{\"item_code\": \"Aqua\", \"bucket_id\": \"JTEST-003\", \"qty\": 10, \"sales_order_item\": \"hdcd20dk0l\", \"stem_length\": \"52cm\", \"warehouse\": \"\", \"uom\": \"Bunch (10)\", \"stock_uom\": \"Stems\", \"conversion_factor\": 10, \"length_status\": \"exact\"}], \"location\": \"Kapkolia -> 200",
+   "at": "2026-10-23 00:58:16.213606"
+  },
+  {
+   "step": "B3-J3 on trolley",
+   "how": "api:upande_quality.mobile.api.saveTrolleyData {\"data\": {\"trolley_id\": \"JTEST-TROLLEY-3\", \"buckets\": [{\"opl_name\": \"OPL-2026-00065\", \"bucket_id\": \"JTEST-003\"}]}} -> 200",
+   "at": "2026-10-23 00:58:18.322628"
+  },
+  {
+   "step": "B3-J3 loaded on truck",
+   "how": "api:upande_quality.mobile.api.loadTrolleyInTruck {\"data\": {\"trolley_id\": \"JTEST-TROLLEY-3\", \"truck_id\": \"KCF 700Z\"}} -> 200",
+   "at": "2026-10-23 00:58:20.431914"
+  },
+  {
+   "step": "B3-J3 dispatch trip (left, stays in transit)",
+   "how": "api:upande_packhouse.mobile.api.dispatchBucketTrip {\"name\": \"BRT-2026-10-23-03076\"} -> 200",
+   "at": "2026-10-23 00:58:22.534361"
+  },
+  {
+   "step": "B2-J5 harvest Ever Red at Simotwo",
+   "how": "api:upande_agriculture.mobile.api.createHarvestStockEntry {\"farm\": \"Simotwo\", \"greenhouse\": \"Simotwo GH 14 - KR\", \"harvester\": \"100374\", \"stem_length\": \"52cm\", \"item_code\": \"Ever Red\", \"cut_stage\": \"1.5-2\", \"quantity\": 10, \"bucket_id\": \"JTEST-002\"} -> 200",
+   "at": "2026-10-23 00:58:24.848462"
+  },
+  {
+   "step": "B2-J5 receive",
+   "how": "api:upande_quality.mobile.api.createReceivingStockEntry {\"bucket_id\": \"JTEST-002\", \"custom_receiving_batch_id\": \"JTBATCH-B2-5\"} -> 200",
+   "at": "2026-10-23 00:58:27.039893"
+  },
+  {
+   "step": "B2-J5 shelve Simotwo",
+   "how": "api:upande_quality.mobile.api.createShelvingEntry {\"shelf_id\": \"JTEST-SHELF-R3\", \"bucket_id\": \"JTEST-002\", \"farm\": \"Simotwo\"} -> 200",
+   "at": "2026-10-23 00:58:29.172581"
+  },
+  {
+   "step": "SO B2-J5",
+   "how": "direct: new Sales Order JTEST-SO-B2-J5 (lines [10]) copied from structure of SAL-ORD-2026-01738",
+   "at": "2026-10-23 00:58:31.402017"
+  },
+  {
+   "step": "B2-J5 allocate (awaiting transfer, stays open)",
+   "how": "api:upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.allocate_stock_with_buckets {\"sales_order\": \"JTEST-SO-B2-J5\", \"allocations\": [{\"item_code\": \"Ever Red\", \"bucket_id\": \"JTEST-002\", \"qty\": 10, \"sales_order_item\": \"hi7dvbsl7a\", \"stem_length\": \"52cm\", \"warehouse\": \"\", \"uom\": \"Bunch (10)\", \"stock_uom\": \"Stems\", \"conversion_factor\": 10, \"length_status\": \"exact\"}], \"location\": \"Kapk -> 200",
+   "at": "2026-10-23 00:58:31.680988"
+  }
+ ],
+ "removed_mistakes": [
+  {
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020966",
+   "why": "quarantine entry created against the wrong (already received) batch because the J3 harvest was refused by the 200-stems/day cap"
+  },
+  {
+   "doctype": "Quality Reporting",
+   "name": "Intake-Kapkolia-12593",
+   "why": "same mistaken QC call"
+  },
+  {
+   "doctype": "Stock Entry",
+   "name": "MAT-STE-2026-100020964/965",
+   "why": "first J2 (80 stems) cancelled, kept as cancelled rows: cap of 200 Standard Roses stems/day/bucket (counts every harvest dated today) cannot be exceeded, so later journeys use ~10 stems"
+  }
+ ]
+}

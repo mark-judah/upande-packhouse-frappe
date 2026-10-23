@@ -404,7 +404,7 @@
     h += `<div class="rt-sec"><span class="ph-label">${ok.length ? "Or add" : "Add"} a trip to ${esc(a.farm)}</span>`;
     h += trucks.length
       ? '<div class="rt-picks">' +
-        trucks.map((t) => `<button type="button" class="rt-pick" data-at-new="${esc(t.vehicle)}"${a.busy ? " disabled" : ""}><span class="ph-strong">+ ${esc(t.vehicle)}</span><span class="ph-muted">${t.routed ? "Trip " + t.next + " on its route, every day" : "New route, every day"}</span>${RTP.chainHtml([pack(), a.farm, pack()])}<span class="ph-badge">${t.cap} bkt</span></button>`).join("") +
+        trucks.map((t) => `<button type="button" class="rt-pick" data-at-new="${esc(t.vehicle)}"${a.busy ? " disabled" : ""}><span class="ph-strong">+ ${esc(t.vehicle)}</span><span class="ph-muted">${t.routed ? "Trip " + t.next + " on its route today" : "New route today"}</span>${RTP.chainHtml([pack(), a.farm, pack()])}<span class="ph-badge">${t.cap} bkt</span></button>`).join("") +
         "</div>"
       : '<div class="ph-notice ph-mb-0">No truck free — add one on the Truck Routes tab.</div>';
     h += "</div>";
@@ -422,7 +422,7 @@
         if (AT !== a) return;
         // Another truck already collecting from this farm took them onto its trip (server rule).
         const red = (m.redirected || [])[0], veh = red ? red.vehicle : c.vehicle;
-        RTP.toast(m.message ? m.message : take + " bucket" + (take === 1 ? "" : "s") + " added to " + c.vehicle + " trip " + c.run + (c.saved ? " (trip saved on its route, every day)" : "") + (take < a.open ? " — " + (a.open - take) + " still need a trip" : ""));
+        RTP.toast(m.message ? m.message : take + " bucket" + (take === 1 ? "" : "s") + " added to " + c.vehicle + " trip " + c.run + (c.saved ? " (trip saved on its route today)" : "") + (take < a.open ? " — " + (a.open - take) + " still need a trip" : ""));
         // A per-farm Distribute is a Distribute run too: logged, so the order shows when.
         const log = RTP.logDistribution([{ vehicle: veh, trip: m.name, run: red ? 0 : c.run || 0, farms: a.farm, buckets: take, stems: row.stems, orders: [a.order_name] }]);
         a.m.close();

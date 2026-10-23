@@ -264,6 +264,7 @@ tr.grand-total .glabel{font:700 11px var(--sans);letter-spacing:.6px;text-transf
 .queue-card .meta{font-size:11px;color:var(--ink-mute);margin-top:4px}
 .queue-card .warn-line{font-size:11px;color:var(--warn);margin-top:6px}
 .queue-card .err-line{font-size:11px;color:var(--bad);margin-top:6px}
+.queue-card .ok-line{font-size:11px;color:var(--good);margin-top:6px}
 .queue-status{font:600 10px var(--sans);letter-spacing:.4px;text-transform:uppercase;padding:3px 10px;border-radius:999px}
 .queue-status.pending{background:rgba(10,10,10,0.05);color:var(--ink-mute)}
 .queue-status.creating{background:var(--signal-soft);color:var(--signal)}
@@ -459,6 +460,10 @@ let CATALOG = { sales_order_fields: [], sales_order_item_fields: [] };
 let IMPORT_MODE = 'single'; // 'single' (one customer owns the whole file) | 'shared' (several customers in one file)
 let IMPORT_CUSTOMER = null; // single mode
 let IMPORT_EXISTING = null; // getCustomerImportSetup's result for IMPORT_CUSTOMER, or null if never set up before
+let IMPORT_LAYOUT_TYPE = 'Standard Rows'; // layout_type of whichever platform step 3 would use - "Wide Matrix" skips the mapping screen entirely
+let IMPORT_SINGLE_PLATFORMS = []; // single mode: listPlatforms' result, minus shared ones - for the "which source is this" picker
+let IMPORT_SINGLE_PLATFORM_NAME = null; // single mode: an existing platform explicitly picked, or null for "+ New source" (falls back to this customer's default platform)
+let IMPORT_SINGLE_NEW_SOURCE_NAME = ''; // single mode: user-typed name when not reusing an existing platform and not using the default
 let IMPORT_SHARED_PLATFORMS = []; // shared mode: listSharedPlatforms' result, for the "which source is this" picker
 let IMPORT_SHARED_PLATFORM_NAME = null; // shared mode: an existing platform picked, or null for "+ New source"
 let IMPORT_NEW_SOURCE_NAME = ''; // shared mode: user-typed name when not reusing an existing platform
@@ -1574,6 +1579,10 @@ function openImportWizard(){
     IMPORT_CUSTOMER = null;
     IMPORT_EXISTING = null;
     IMPORT_PLATFORM_NAME = null;
+    IMPORT_LAYOUT_TYPE = 'Standard Rows';
+    IMPORT_SINGLE_PLATFORMS = [];
+    IMPORT_SINGLE_PLATFORM_NAME = null;
+    IMPORT_SINGLE_NEW_SOURCE_NAME = '';
     IMPORT_SHARED_PLATFORMS = [];
     IMPORT_SHARED_PLATFORM_NAME = null;
     IMPORT_NEW_SOURCE_NAME = '';
@@ -1660,8 +1669,14 @@ function goToImportWhoStep(){
     showErr('');
     apiOther(IMPORT_API+'listSharedPlatforms', {}, r => {
         IMPORT_SHARED_PLATFORMS = r.platforms || [];
-        IMPORT_SUBVIEW = 'who';
-        render();
+        apiOther(IMPORT_API+'listPlatforms', {}, r2 => {
+            // Single mode's picker only offers sources that aren't already a
+            // shared platform (told apart by a differentiator column) - those
+            // belong to the "multiple customers in this file" picker instead.
+            IMPORT_SINGLE_PLATFORMS = (r2.platforms || []).filter(p => !p.customer_differentiator_column);
+            IMPORT_SUBVIEW = 'who';
+            render();
+        });
     });
 }
 
@@ -1692,11 +1707,53 @@ function renderImportStepWho(root){
     else wireImportCustomerTypeahead();
     updateImportWhoNextBtn();
 }
+// Source first, customer second: each single-customer platform belongs to
+// exactly one customer (see listPlatforms' `customer` field), so picking an
+// existing source resolves the customer automatically - same relationship
+// the shared flow already has, just 1:1 instead of 1:many. The customer
+// field only needs asking when it isn't already known: a brand new source
+// ("+ New source"), or an existing source nobody has imported into yet.
 function renderSingleWhoBody(){
-    return `<div class="spec-field typeahead-wrap" style="margin-top:14px"><label>Customer</label>
-      <input id="imp_customer" placeholder="Search customer…" autocomplete="off" value="${escHtml(IMPORT_CUSTOMER?IMPORT_CUSTOMER.label:'')}">
-      <div class="pick-results" id="impCustomerResults"></div>
+    const picked = IMPORT_SINGLE_PLATFORM_NAME ? IMPORT_SINGLE_PLATFORMS.find(p => p.name === IMPORT_SINGLE_PLATFORM_NAME) : null;
+    const customerKnown = !!(picked && picked.customer);
+    return `<div style="margin-top:14px">
+      <div class="spec-field"><label>Which source is this?</label>
+        <select id="imp_single_platform" onchange="onSinglePlatformPicked(this.value)">
+          <option value="">+ New source</option>
+          ${IMPORT_SINGLE_PLATFORMS.map(p=>`<option value="${escHtml(p.name)}" ${IMPORT_SINGLE_PLATFORM_NAME===p.name?'selected':''}>${escHtml(p.platform_name)}${p.layout_type==='Wide Matrix'?' (Wide Matrix)':''}</option>`).join('')}
+        </select>
+      </div>
+      ${!IMPORT_SINGLE_PLATFORM_NAME ? `<div class="spec-field"><label>Name this source (optional)</label>
+        <input id="imp_single_new_source" placeholder="e.g. Flamingo UK (Sandy)" value="${escHtml(IMPORT_SINGLE_NEW_SOURCE_NAME||'')}" oninput="IMPORT_SINGLE_NEW_SOURCE_NAME=this.value; updateImportWhoNextBtn();"></div>` : ''}
+      <div class="spec-field typeahead-wrap"><label>Customer</label>
+        ${customerKnown
+          ? `<input value="${escHtml(IMPORT_CUSTOMER?IMPORT_CUSTOMER.label:picked.customer)}" disabled>`
+          : `<input id="imp_customer" placeholder="Search customer…" autocomplete="off" value="${escHtml(IMPORT_CUSTOMER?IMPORT_CUSTOMER.label:'')}">
+             <div class="pick-results" id="impCustomerResults"></div>`}
+      </div>
     </div>`;
+}
+function onSinglePlatformPicked(value){
+    IMPORT_SINGLE_PLATFORM_NAME = value || null;
+    const picked = IMPORT_SINGLE_PLATFORM_NAME ? IMPORT_SINGLE_PLATFORMS.find(p => p.name === IMPORT_SINGLE_PLATFORM_NAME) : null;
+    IMPORT_CUSTOMER = (picked && picked.customer) ? { name: picked.customer, label: picked.customer } : null;
+    IMPORT_EXISTING = null;
+    IMPORT_LAYOUT_TYPE = 'Standard Rows';
+    if(IMPORT_CUSTOMER) fetchSingleCustomerSetup();
+    else { render(); updateImportWhoNextBtn(); }
+}
+// Re-fetches this (customer, platform) pair's setup - mirrors
+// onSharedPlatformPicked's eager-fetch, so the layout_type (and therefore
+// the Next button's label/behaviour) is known before step 3.
+function fetchSingleCustomerSetup(){
+    const args = { customer: IMPORT_CUSTOMER.name };
+    if(IMPORT_SINGLE_PLATFORM_NAME) args.platform = IMPORT_SINGLE_PLATFORM_NAME;
+    apiOther(IMPORT_API+'getCustomerImportSetup', args, r => {
+        IMPORT_EXISTING = (r.success && r.exists) ? r : null;
+        IMPORT_LAYOUT_TYPE = (IMPORT_EXISTING && IMPORT_EXISTING.layout_type) || 'Standard Rows';
+        updateImportWhoNextBtn();
+        render();
+    });
 }
 function wireImportCustomerTypeahead(){
     const input = document.getElementById('imp_customer');
@@ -1726,7 +1783,7 @@ function pickImportCustomer(name, label){
     IMPORT_CUSTOMER = { name, label };
     document.getElementById('imp_customer').value = label;
     closeDropdown(document.getElementById('impCustomerResults'));
-    updateImportWhoNextBtn();
+    if(IMPORT_SINGLE_PLATFORM_NAME) fetchSingleCustomerSetup(); else updateImportWhoNextBtn();
 }
 
 // ---------- step 2, shared mode: which source + which column + value->customer table ----------
@@ -2028,11 +2085,35 @@ function goToImportMappingStep(){
     }
     if(!IMPORT_CUSTOMER){ showErr('Pick a customer first.'); return; }
     showErr('');
-    apiOther(IMPORT_API+'getCustomerImportSetup', { customer: IMPORT_CUSTOMER.name }, r => {
+    const whoArgs = { customer: IMPORT_CUSTOMER.name };
+    if(IMPORT_SINGLE_PLATFORM_NAME) whoArgs.platform = IMPORT_SINGLE_PLATFORM_NAME;
+    apiOther(IMPORT_API+'getCustomerImportSetup', whoArgs, r => {
         IMPORT_EXISTING = (r.success && r.exists) ? r : null;
+        IMPORT_LAYOUT_TYPE = (IMPORT_EXISTING && IMPORT_EXISTING.layout_type) || 'Standard Rows';
+        // A Wide Matrix platform's layout is fully described by its own Desk
+        // config (matrix_* row/column positions + its fixed synthetic-column
+        // mappings) - there's nothing to EDIT here, but the user should still
+        // see what it resolves to before orders start building from it, same
+        // as the editable mapping screen gives every other platform.
         buildMappingRowsFromFile();
         IMPORT_SUBVIEW = 'mapping';
         render();
+    });
+}
+function buildPreviewForExistingPlatform(platformName){
+    showErr('');
+    frappe.call({
+        method: IMPORT_API+'buildPreview',
+        args: { data: JSON.stringify({ customer: IMPORT_CUSTOMER.name, platform: platformName, header: IMPORT_FILE_HEADER, rows: IMPORT_FILE_ROWS }) },
+        callback: r2 => {
+            const m2 = r2.message || {};
+            if(!m2.success){ showErr(m2.error || 'Could not build a preview from this file.'); return; }
+            IMPORT_PLATFORM_NAME = platformName;
+            IMPORT_QUEUE = (m2.orders||[]).map(queueItemFromPreview);
+            IMPORT_SUBVIEW = 'queue';
+            render();
+        },
+        error: () => { showErr('Could not build a preview from this file.'); },
     });
 }
 function importSampleValue(colIndex){
@@ -2111,7 +2192,40 @@ function onImportSplitPicked(col){
     const warn = document.getElementById('impNoSplitWarn');
     if(warn) warn.remove();
 }
+// A Wide Matrix platform's column mapping is fixed in Desk (it maps the
+// pivot's synthetic columns - "Specification", "Bunches Ordered", etc. -
+// onto real fields), not something this screen lets you edit per file. Shown
+// read-only instead of skipped entirely, so the user still sees what it
+// resolves to before any order gets built from it - the same visibility
+// every editable-mapping platform already has.
+function renderImportStepMappingReadOnly(root){
+    const mappings = (IMPORT_EXISTING && IMPORT_EXISTING.field_mappings) || [];
+    const platform = (IMPORT_EXISTING && IMPORT_EXISTING.platform) || '';
+    root.innerHTML = `
+      ${importStepHeader(3)}
+      <div class="aph-card">
+        <div class="aph-card-hd"><div class="ttl">How this source is mapped</div><div class="sub">This platform's layout and column mapping are configured once in Desk (Order Import Platform), not per file - there's nothing to change here.</div></div>
+        <div class="aph-card-body">
+          <div class="import-map-table">
+            <div class="mapping-editor-row import-map-row import-map-hd" style="grid-template-columns:1fr 1fr">
+              <div>Column</div><div>Maps to</div>
+            </div>
+            ${mappings.map(m => `<div class="mapping-editor-row import-map-row" style="grid-template-columns:1fr 1fr">
+              <div>${escHtml(m.source_column)}</div>
+              <div>${escHtml(importTargetLabel(m.target_doctype, m.target_fieldname) || "— Don't import —")}</div>
+            </div>`).join('')}
+          </div>
+          <div class="meta" style="margin-top:10px">Splits into one order per <b>${escHtml((IMPORT_EXISTING && IMPORT_EXISTING.multi_order_column) || '—')}</b>.</div>
+        </div>
+      </div>
+      <div class="editor-actions">
+        <button class="btn" onclick="IMPORT_SUBVIEW='who'; render();">← Back</button>
+        <div><button class="btn btn-primary" onclick="buildPreviewForExistingPlatform('${platform.replace(/'/g,"\\'")}')">Build preview →</button></div>
+      </div>
+    `;
+}
 function renderImportStepMapping(root){
+    if(IMPORT_MODE==='single' && IMPORT_LAYOUT_TYPE==='Wide Matrix'){ renderImportStepMappingReadOnly(root); return; }
     const sharedMappedRows = IMPORT_MODE==='shared' ? IMPORT_CUSTOMER_MAP.filter(r=>r.customer) : [];
     root.innerHTML = `
       ${importStepHeader(3)}
@@ -2269,7 +2383,11 @@ function saveMappingAndBuildPreview(){
     };
     frappe.call({
         method: IMPORT_API+'saveCustomerImportSetup',
-        args: { data: JSON.stringify({ customer: IMPORT_CUSTOMER.name, multi_order_column: IMPORT_SPLIT_COLUMN||'', field_mappings, item_code_mapping, defaults }) },
+        args: { data: JSON.stringify({
+            customer: IMPORT_CUSTOMER.name,
+            platform_name: IMPORT_SINGLE_PLATFORM_NAME || IMPORT_SINGLE_NEW_SOURCE_NAME.trim(),
+            multi_order_column: IMPORT_SPLIT_COLUMN||'', field_mappings, item_code_mapping, defaults,
+        }) },
         callback: r => {
             const m = r.message || {};
             if(!m.success){ resetBtn(); showErr(m.error || 'Could not save this mapping.'); return; }
@@ -2408,7 +2526,7 @@ function submitQuickAdd(widgetId, i, doctype, value){
             toast(`${doctype} "${m.name}" added.`, 'success');
             applyResolvedValue(doctype, value, m.name);
             render();
-            runImportQueue();
+            continueQueueSoon();
         },
         error: () => toast(`Could not add this ${doctype}.`, 'error'),
     });
@@ -2448,7 +2566,7 @@ function pickExistingValue(itemId, newValue){
     applyResolvedValue(doctype, oldValue, newValue);
     toast(`Mapped to existing ${doctype} "${newValue}".`, 'success');
     render();
-    runImportQueue();
+    continueQueueSoon();
 }
 function renderResolveMissing(i, quickAdds){
     return quickAdds.map((qa, qi) => {
@@ -2525,7 +2643,7 @@ function resolveSpecConflicts(i, choice){
         q._specResolved = true;
         q.status = 'pending';
         render();
-        runImportQueue();
+        continueQueueSoon();
         return;
     }
     const bySpec = {};
@@ -2550,7 +2668,7 @@ function resolveSpecConflicts(i, choice){
                 q._specResolved = true;
                 q.status = 'pending';
                 render();
-                runImportQueue();
+                continueQueueSoon();
             },
             error: () => {
                 anyFailed = true;
@@ -2637,6 +2755,7 @@ function resolveSpecMismatchRow(i, rowIndex, specName){
     const q = IMPORT_QUEUE[i];
     const row = q.rows[rowIndex];
     const sourceSpecName = row.custom_line; // the file's own, un-matched name - captured before the server overwrites it
+    const sourceRowNumber = row._source_row; // captured before the splice replaces this row entirely
     const next = nextSpecGroupNumber(q);
     frappe.call({
         method: IMPORT_API+'resolveImportSpecRow',
@@ -2651,9 +2770,16 @@ function resolveSpecMismatchRow(i, rowIndex, specName){
             q.rows.splice(rowIndex, 1, ...(m.rows||[]));
             recomputeUnresolved(q);
             if(!(q.unresolved_items||[]).length && q.status==='failed'){ q.status = 'pending'; q.error = null; }
+            // The toast fades in a few seconds and the "pick which one it
+            // really is" prompt itself disappears the moment this row stops
+            // being unresolved - without this, nothing in the card is left
+            // to show what it actually got mapped to. Kept on the order for
+            // as long as the card exists (not just this one render).
+            q._resolvedSpecNotes = q._resolvedSpecNotes || [];
+            q._resolvedSpecNotes.push({ source_row: sourceRowNumber, spec_name: specName });
             toast(`Row mapped to Specification "${specName}" — remembered for next time.`, 'success');
             render();
-            runImportQueue();
+            continueQueueSoon();
         },
         error: () => toast(`Could not use "${specName}" for this row.`, 'error'),
     });
@@ -2711,6 +2837,7 @@ function renderQueueCard(q, i){
       <div class="meta">${(q.rows||[]).length} line(s) · delivery ${escHtml(q.header.delivery_date||'—')} · price list ${escHtml(q.header.selling_price_list||'—')}</div>
       ${q.status==='duplicate' ? `<div class="meta">Already imported — this order (same Customer's Purchase Order) already exists, so it wasn't created again.</div>` : ''}
       ${plainUnresolved.length ? plainUnresolved.map(u => `<div class="warn-line">⚠ ${escHtml(u)}</div>`).join('') + `<div class="warn-line">Use Review &amp; Fix below to pick the right variety for each row.</div>` : ''}
+      ${(q._resolvedSpecNotes||[]).map(n => `<div class="ok-line">✓ Row ${n.source_row}: mapped to Specification "${escHtml(n.spec_name)}".</div>`).join('')}
       ${specMismatches.length ? renderSpecMismatchFixes(i, specMismatches) : ''}
       ${renderSpecStatusNotes(specStatusNotes)}
       ${specConflicts.length ? renderSpecConflicts(i, specConflicts) : ''}
@@ -2738,6 +2865,17 @@ function runImportQueue(){
     const next = IMPORT_QUEUE.findIndex(q => q.status === 'pending');
     if(next === -1) return;
     processQueueItem(next);
+}
+// Resolving one order's last blocker (a spec mismatch, a missing item code, a
+// spec conflict) flips that SAME order back to "pending", and it's usually
+// the very first pending one - calling runImportQueue() straight away would
+// re-enter processQueueItem on it in the same tick, so the card the user just
+// fixed jumps straight to "creating"/"created" before the resolved, pending
+// state (and its success toast) ever gets a chance to paint. This is for
+// those same-order re-entry points only - the queue's own internal chaining
+// between genuinely different orders (inside processQueueItem) stays instant.
+function continueQueueSoon(){
+    setTimeout(runImportQueue, 900);
 }
 function processQueueItem(i){
     const q = IMPORT_QUEUE[i];

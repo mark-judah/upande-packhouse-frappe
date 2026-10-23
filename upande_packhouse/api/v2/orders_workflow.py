@@ -46,6 +46,7 @@ NOT_ALLOCATED = "Not allocated"
 
 STEM_MEASURES = (
 	"ordered_stems",
+	"to_deliver_stems",
 	"confirmed_stems",
 	"allocated_stems",
 	"picked_stems",
@@ -58,18 +59,25 @@ STEM_MEASURES = (
 	"dispatched_stems",
 )
 
+# One word per stage and state from core.pipeline.stage_word (a stage is
+# "Loaded" only when ALL its stems are; otherwise "Loading"). The item stage is
+# the furthest stage with any stems, plus whether that stage is complete.
 STAGE_LABEL = {
 	"notalloc": "Not allocated",
 	"allocating": "Allocating",
 	"to_issue": "To issue",
-	"issuing": "Issuing",
-	"to_pack": "To pack",
-	"packing": "Packing",
-	"packed": "Packed",
-	"precooling": "Precooling",
-	"staged": "Staged",
-	"loaded": "Loaded",
-	"dispatched": "Dispatched",
+	"issuing": pipeline.stage_word("issued", "partial"),
+	"to_pack": "To pack",  # fully issued, nothing packed yet
+	"packing": pipeline.stage_word("packed", "partial"),
+	"packed": pipeline.stage_word("packed", "done"),
+	"precooling": pipeline.stage_word("precooling", "partial"),
+	"precooled": pipeline.stage_word("precooling", "done"),
+	"staging": pipeline.stage_word("staged", "partial"),
+	"staged": pipeline.stage_word("staged", "done"),
+	"loading": pipeline.stage_word("loaded", "partial"),
+	"loaded": pipeline.stage_word("loaded", "done"),
+	"dispatching": pipeline.stage_word("dispatched", "partial"),
+	"dispatched": pipeline.stage_word("dispatched", "done"),
 	"invoiced": "Invoiced",
 }
 # Stage tabs on the page (Order Summary's buckets) -> the row stages they hold.
@@ -78,12 +86,17 @@ BUCKETS = {
 	"issue": ("allocating", "to_issue", "issuing"),
 	"pack": ("to_pack", "packing"),
 	"packed": ("packed",),
-	"precooling": ("precooling",),
-	"staged": ("staged",),
-	"loaded": ("loaded",),
-	"dispatched": ("dispatched",),
+	"precooling": ("precooling", "precooled"),
+	"staged": ("staging", "staged"),
+	"loaded": ("loading", "loaded"),
+	"dispatched": ("dispatching", "dispatched"),
 	"invoiced": ("invoiced",),
 }
+# Stages from "packed" onward: the stems have been packed (used by the late flags).
+PACKED_OR_BEYOND = (
+	"packed", "precooling", "precooled", "staging", "staged", "loading", "loaded",
+	"dispatching", "dispatched", "invoiced",
+)  # fmt: skip
 
 
 def _num(v):
@@ -192,21 +205,107 @@ def _pairs(opl_names):
 	return out
 
 
-def _flow_times(opl):
-	"""Per-box flow of one pick list, following mobile/api.py:
-	Issue -> Pack -> Precooling -> Stage -> Load -> Dispatch (each its own stage).
+def _ts(x):
+	return str(x)[:19] if x else None
 
-	Takt time = issuing -> precooling. Issuing has no stamp of its own, so it is the pick list's
-	last issued Pick List Item `modified` (every stem is issued before the order can be finished);
-	precooling is the box's `precooling_in_at` (createPrecoolingEntry "in"). Per box: takt =
-	precooling_in_at - issued_at; the order's takt is the average over boxes that have both.
-	Packed = Box Label creation; staged = `precooled_at` (the staging scan takes the box out of
-	precooling and sets it); loaded = the box's Loading Sheet Item creation; dispatched = delivery
-	note posting. Boxes without a stamp fall back to the label's `modified` for staged/loaded, and
-	show None for precooling. Times are 'YYYY-MM-DD HH:MM:SS' strings or None."""
-	issued = frappe.db.sql(
-		"SELECT MAX(modified) FROM `tabPick List Item` WHERE parent = %s AND issued = 1", opl
-	)[0][0]
+
+def _secs(a, b):
+	"""Whole seconds from a to b; None when either is missing or b is BEFORE a."""
+	return int((b - a).total_seconds()) if a and b and b >= a else None
+
+
+def _first_issue(opl_names):
+	"""{opl: first issue time}. Takt starts when the FIRST stem of the pick list is
+	issued: MIN(Pick List Item.issued_at), else the row's `modified` for rows issued
+	before issued_at existed."""
+	out = {}
+	if not opl_names:
+		return out
+	for o, t in frappe.db.sql(
+		"""SELECT parent, MIN(COALESCE(issued_at, modified)) FROM `tabPick List Item`
+		   WHERE parent IN %(o)s AND (issued = 1 OR issued_offline = 1) GROUP BY parent""",
+		{"o": tuple(opl_names)},
+	):
+		out[o] = t
+	return out
+
+
+def _staged_times(opl_names):
+	"""{opl: {boxes, staged_boxes, last_staged}} over Box Labels that came from a Farm
+	Pack List. A box is staged at `precooled_at` (the staging scan takes it out of
+	precooling and stamps it), else the label's `modified`; the pick list is fully
+	staged when every one of its labelled boxes is."""
+	out = {}
+	if not opl_names:
+		return out
+	for r in frappe.db.sql(
+		"""SELECT order_pick_list AS opl, COUNT(*) AS boxes,
+		          SUM(IFNULL(staged, 0) OR IFNULL(loaded, 0) OR IFNULL(delivered, 0)) AS staged,
+		          MAX(CASE WHEN IFNULL(staged, 0) OR IFNULL(loaded, 0) OR IFNULL(delivered, 0)
+		                   THEN COALESCE(precooled_at, modified) END) AS last_staged
+		   FROM `tabBox Label`
+		   WHERE order_pick_list IN %(o)s AND IFNULL(farm_pack_lis, '') != ''
+		   GROUP BY order_pick_list""",
+		{"o": tuple(opl_names)},
+		as_dict=True,
+	):
+		out[r.opl] = {
+			"boxes": int(r.boxes or 0),
+			"staged_boxes": int(r.staged or 0),
+			"last_staged": r.last_staged,
+		}
+	return out
+
+
+def _takt(opl, planned_boxes, issue, staged, now, stems_staged=None, packed_any=False):
+	"""Takt time of a pick list = FIRST issue -> LAST box staged, in seconds (`secs`).
+
+	state 'done'    every box is staged: secs = last staged - first issue.
+	state 'running' still staging: secs = now - first issue (time so far).
+	state 'none'    no number; `reason` says why: no issue scan was recorded (stems were
+	                packed but no Pick List Item was ever issued), or not issued yet.
+	state 'invalid' staging was recorded BEFORE the first issue, so there is no honest takt.
+	`stems_staged` (False when this line's staged stems don't yet cover what is ordered)
+	keeps it running even if every box labelled so far is staged."""
+	first = issue.get(opl)
+	if not first:
+		why = "No issue scan recorded" if packed_any else "Not issued yet"
+		return {"state": "none", "secs": None, "mins": None, "reason": why, "issued_at": None, "staged_at": None}
+	st = staged.get(opl) or {}
+	total = max(planned_boxes or 0, st.get("boxes", 0))
+	if stems_staged is not False and total and st.get("staged_boxes", 0) >= total and st.get("last_staged"):
+		secs = _secs(first, st["last_staged"])
+		return {
+			"state": "done" if secs is not None else "invalid",
+			"secs": secs,
+			"mins": None if secs is None else secs // 60,
+			"reason": None if secs is not None else "Staging recorded before issue",
+			"issued_at": _ts(first),
+			"staged_at": _ts(st["last_staged"]),
+		}
+	secs = _secs(first, now)
+	return {
+		"state": "running",
+		"secs": secs,
+		"mins": None if secs is None else secs // 60,
+		"issued_at": _ts(first),
+		"staged_at": None,
+		"staged_boxes": st.get("staged_boxes", 0),
+		"boxes": total,
+	}
+
+
+def _flow_times(opl):
+	"""Per-box times of one pick list (mobile/api.py order: Issue -> Pack -> Precooling
+	-> Stage -> Load -> Dispatch).
+
+	Takt time = issuing -> staging: from the pick list's FIRST issue (_first_issue) to
+	the box's staging time (`precooled_at`, set by the staging scan; `modified` for a
+	staged box without one). Per-box takt = box staged - first issue, None until staged.
+	The pick list's takt (_takt) uses the last box. Packed = Box Label creation; loaded =
+	the box's Loading Sheet Item creation; dispatched = delivery note posting. Times are
+	'YYYY-MM-DD HH:MM:SS' strings or None."""
+	first = _first_issue([opl]).get(opl)
 	rows = frappe.db.sql(
 		"""SELECT bl.name, bl.box_number, bl.creation, bl.precooling_in_at, bl.precooled_at,
 		          bl.staged, bl.loaded, bl.delivered, bl.modified, bl.delivery_note,
@@ -219,40 +318,29 @@ def _flow_times(opl):
 		opl,
 		as_dict=True,
 	)
-
-	def ts(x):
-		return str(x)[:19] if x else None
-
-	def mins(a, b):
-		return int((b - a).total_seconds() // 60) if a and b and b >= a else None
-
-	boxes, takts = [], []
+	boxes = []
 	for r in rows:
 		in_stage = bool(r.staged or r.loaded or r.delivered)
-		staged_at = r.precooled_at or (r.modified if in_stage else None)
+		staged_at = (r.precooled_at or r.modified) if in_stage else None
 		loaded_at = r.load_at or (r.modified if (r.loaded or r.delivered) else None)
-		takt = mins(issued, r.precooling_in_at)
-		if takt is not None:
-			takts.append(takt)
 		boxes.append(
 			{
 				"box": r.name,
 				"no": r.box_number,
-				"packed_at": ts(r.creation),
-				"precooling_at": ts(r.precooling_in_at),
-				"staged_at": ts(staged_at),
-				"loaded_at": ts(loaded_at),
-				"dispatched_at": ts(r.dispatch_at),
-				"takt_mins": takt,
-				"precooling_mins": mins(r.precooling_in_at, staged_at),
+				"packed_at": _ts(r.creation),
+				"precooling_at": _ts(r.precooling_in_at),
+				"staged_at": _ts(staged_at),
+				"loaded_at": _ts(loaded_at),
+				"dispatched_at": _ts(r.dispatch_at),
+				"takt_secs": _secs(first, staged_at),
+				"takt_note": (
+					"Staging recorded before issue"
+					if first and staged_at and staged_at < first
+					else ("No issue scan recorded" if not first and staged_at else None)
+				),
 			}
 		)
-	return {
-		"issued_at": ts(issued),
-		"boxes": boxes,
-		"avg_takt_mins": round(sum(takts) / len(takts)) if takts else None,
-		"takt_boxes": len(takts),
-	}
+	return {"issued_at": _ts(first), "boxes": boxes}
 
 
 def _issue_counts(opl_names):
@@ -324,30 +412,66 @@ def _documents(sos):
 # are counted once per distinct pick list.
 
 
+def _ladder(it):
+	"""[(core stage, stems done, stems expected)] for an item. Issuing is against
+	what is picked on the pick list, packing against the Packing Guide plan, every
+	later stage against the ordered stems (so 'Loaded' means ALL ordered stems)."""
+	ref = it["ordered_stems"] or it["planned_stems"]
+	return (
+		("issued", it["issued_stems"], it["picked_stems"]),
+		("packed", it["packed_stems"], it["planned_stems"] or it["picked_stems"] or ref),
+		("precooling", it["precooled_stems"], ref),
+		("staged", it["staged_stems"], ref),
+		("loaded", it["loaded_stems"], ref),
+		("dispatched", it["dispatched_stems"], ref),
+	)
+
+
 def _stage(it):
+	"""The item's current stage: its furthest stage with any stems, 'done' wording
+	only when that stage covers its total (core.pipeline.stage_state)."""
 	if not it["opl"]:
 		return "notalloc"
-	if it["sales_invoices"] and it["dispatched_stems"] > 0:
-		return "invoiced"
-	if it["dispatched_stems"] > 0:
-		return "dispatched"
 	if it["docstatus"] == 0:
 		return "allocating"
-	if it["loaded_stems"] > 0:
-		return "loaded"
-	if it["staged_stems"] > 0:
-		return "staged"
-	if it["precooled_stems"] > 0:
-		return "precooling"
-	if it["planned_stems"] and it["packed_stems"] >= it["planned_stems"] - 0.5:
-		return "packed"
-	if it["packed_stems"] > 0:
-		return "packing"
-	if it["picked_stems"] > 0 and it["issued_stems"] >= it["picked_stems"] - 0.5:
-		return "to_pack"
-	if it["issued_stems"] > 0:
-		return "issuing"
-	return "to_issue"
+	far = None
+	for stage, done, total in _ladder(it):
+		if done > 0:
+			far = (stage, pipeline.stage_state(done, total))
+	if not far:
+		return "to_issue"
+	stage, state = far
+	whole = state == "done"
+	if stage == "issued":
+		return "to_pack" if whole else "issuing"
+	if stage == "dispatched" and whole and it["sales_invoices"]:
+		return "invoiced"
+	word = {
+		"packed": ("packing", "packed"),
+		"precooling": ("precooling", "precooled"),
+		"staged": ("staging", "staged"),
+		"loaded": ("loading", "loaded"),
+		"dispatched": ("dispatching", "dispatched"),
+	}[stage]
+	return word[1] if whole else word[0]
+
+
+def _progress(it):
+	"""Per-stage bars for the order card: [{stage, word, done, total, state}].
+	`word` follows the one rule (Loaded only when complete, else Loading)."""
+	out = []
+	for stage, done, total in _ladder(it):
+		state = pipeline.stage_state(done, total)
+		out.append(
+			{
+				"stage": stage,
+				"word": pipeline.stage_word(stage, state),
+				"done": done,
+				"total": total,
+				"state": state,
+			}
+		)
+	return out
 
 
 def _flags(it, today_d):
@@ -356,8 +480,8 @@ def _flags(it, today_d):
 	f = []
 	due = getdate(it["delivery_date"]) if it["delivery_date"] else None
 	days = (due - today_d).days if due else None
-	packed_done = st in ("packed", "precooling", "staged", "loaded", "dispatched", "invoiced")
-	if days is not None and days < 0 and st not in ("dispatched", "invoiced"):
+	packed_done = st in PACKED_OR_BEYOND
+	if days is not None and days < 0 and st not in ("dispatched", "invoiced"):  # dispatching = still open
 		if st == "notalloc":
 			f.append({"code": "late", "label": "Past due · not allocated", "sev": "bad"})
 		elif not packed_done:
@@ -563,9 +687,18 @@ def get_orders_workflow(
 				"dispatched_stems",
 			):
 				it[m] = float(ln[m] or 0) if primary else 0.0
+			# Stems still to go out: this line's ordered less dispatched, never below 0
+			# (a line over-dispatched must not hide stems another line still owes).
+			it["to_deliver_stems"] = max(0.0, it["ordered_stems"] - it["dispatched_stems"])
+			it["completion_pct"] = pipeline.completion_pct(it["staged_stems"], it["ordered_stems"])
+			# Gaps shown in the Issuing / Packing drill-downs.
+			it["not_issued_stems"] = max(0.0, it["picked_stems"] - it["issued_stems"])
+			it["not_packed_stems"] = max(0.0, it["planned_stems"] - it["packed_stems"])
+			it["planned_minus_picked"] = it["planned_stems"] - it["picked_stems"]
 			it["name"] = " · ".join([oname, ln.item_code or "", ln.custom_length or "", o or "No pick list"])
 			it["stage"] = _stage(it)
 			it["stage_label"] = STAGE_LABEL[it["stage"]]
+			it["progress"] = _progress(it)
 			it["flags"] = _flags(it, today_d)
 			it["severity"] = it["flags"][0]["sev"] if it["flags"] else ""
 			items.append(it)
@@ -593,6 +726,8 @@ def get_orders_workflow(
 	# Pick-list level facts for the drill-down and the issue count.
 	names = sorted({i["opl"] for i in items if i["opl"]})
 	issues = _issue_counts(names)
+	issue_at, staged_at = _first_issue(names), _staged_times(names)
+	now = frappe.utils.now_datetime()
 	for i in items:
 		o = opls.get(i["opl"]) if i["opl"] else None
 		i["opl_boxes"] = (
@@ -607,6 +742,23 @@ def get_orders_workflow(
 			else None
 		)
 		i["packing_issues"] = issues.get(i["opl"], 0) if i["opl"] else 0
+		i["takt"] = (
+			_takt(
+				i["opl"],
+				o.planned_box_count,
+				issue_at,
+				staged_at,
+				now,
+				packed_any=i["packed_stems"] > 0 or i["staged_stems"] > 0,
+				stems_staged=(
+					next(p for p in i["progress"] if p["stage"] == "staged")["state"] == "done"
+					if i["primary"]
+					else None
+				),
+			)
+			if o
+			else {"state": "none", "secs": None, "mins": None, "reason": "No pick list", "issued_at": None, "staged_at": None}
+		)
 
 	sev_rank = {"bad": 0, "warn": 1, "": 2}
 	groups = defaultdict(list)
@@ -654,7 +806,6 @@ def get_orders_workflow(
 	for s_ in used:
 		by_so[prim[s_].parent].append(prim[s_])
 	k["boxes"] = sum(bx.order_boxes(v) for v in by_so.values())
-	k["to_deliver_stems"] = max(0.0, k["ordered_stems"] - k["dispatched_stems"])
 	return {
 		"success": True,
 		"from_date": str(from_date),
