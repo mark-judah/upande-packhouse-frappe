@@ -3859,7 +3859,7 @@ def below_minimum_refusal(doc, short):
 		"capacity": short["capacity"],
 		"needed": short["needed"],
 		"pct": short["pct"],
-		"message": "{0} has {1} of {2} buckets — it leaves at {3} ({4}%). Load more or give a reason to send it now.".format(
+		"message": "{0} has {1} of {2} buckets — it leaves at {3} ({4}%). Load more buckets before sending.".format(
 			doc.vehicle, short["loaded"], short["capacity"], short["needed"], short["pct"]
 		),
 	}
@@ -5995,10 +5995,10 @@ def closeTripStop():
 			),
 		}
 		return
-	# Closing the last stop sends the truck to the hub: under its minimum load only with
-	# a reason (the same reason covers a short stop too). An earlier stop just moves on.
+	# Closing the last stop sends the truck to the hub. Under its minimum load, it is
+	# refused: load more buckets first. An earlier stop just moves on.
 	short_load = None if remaining else below_minimum(doc)
-	if short_load and not reason:
+	if short_load:
 		frappe.response["message"] = below_minimum_refusal(doc, short_load)
 		return
 	if reason:
@@ -6277,10 +6277,8 @@ def dispatchBucketTrip():
 			"message": _on_road_message(doc.vehicle, busy, "dispatched again"),
 		}
 		return
-	# Under the truck's minimum load it goes only with a reason, recorded on the trip.
-	reason = (fd.get("reason") or "").strip()[:500]
 	short_load = below_minimum(doc)
-	if short_load and not reason:
+	if short_load:
 		frappe.response["message"] = below_minimum_refusal(doc, short_load)
 		return
 	if _trip_has_loads(doc):
@@ -6303,8 +6301,6 @@ def dispatchBucketTrip():
 	doc.status = "Dispatched"
 	doc.dispatched_at = frappe.utils.now()
 	doc.heading_to = transfer_hub(required=False) or ""
-	if short_load:
-		doc.add_comment("Info", below_minimum_note(short_load, reason, hub=doc.heading_to))
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	frappe.response["message"] = {
@@ -6313,7 +6309,6 @@ def dispatchBucketTrip():
 		"trip_status": "Dispatched",
 		"buckets_in_transit": marked,
 		"short": short,
-		"below_minimum": 1 if short_load else 0,
 	}
 
 
