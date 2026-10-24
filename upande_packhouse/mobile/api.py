@@ -91,10 +91,15 @@ def location_farms(location):
 
 def location_sales_orders(delivery_date, location):
 	"""The Sales Orders of `delivery_date` that `location` dispatches: the ones its
-	Loading Plans for the day carry (by customer, and delivery point where the plan
-	names one), plus every other order of its farms that no other location's plan
-	carries -- so a location without a Loading Plan (or an order left off one) still
-	dispatches its own orders."""
+	Loading Plans for the day carry, plus every other order of its farms that no
+	other location's plan carries -- so a location without a Loading Plan (or an
+	order left off one) still dispatches its own orders.
+
+	A plan row naming a Sales Order carries that order only. A row without one
+	carries the customer's orders (at its delivery point, where it names one) of the
+	location's own farms -- never another location's: Ravine's plan having ROSE PARIS
+	at MITCHEL COTTS must not claim Karen's ROSE PARIS order, or Karen's staged boxes
+	block Ravine's dispatch and Karen can't dispatch its own order."""
 	plans = frappe.get_all(
 		"Loading Plan", filters={"delivery_date": delivery_date}, fields=["name", "location"]
 	)
@@ -102,7 +107,7 @@ def location_sales_orders(delivery_date, location):
 		frappe.get_all(
 			"Loading Plan Item",
 			filters={"parent": ["in", [p.name for p in plans]], "parenttype": "Loading Plan"},
-			fields=["parent", "customer", "delivery_point"],
+			fields=["parent", "customer", "delivery_point", "sales_order"],
 		)
 		if plans
 		else []
@@ -113,12 +118,24 @@ def location_sales_orders(delivery_date, location):
 		filters={"delivery_date": delivery_date, "docstatus": 1},
 		fields=["name", "customer", "custom_delivery_point", "farm"],
 	)
+	farms_of = {}
 
 	def on_plan(so, loc):
 		for it in items:
-			if loc_of.get(it.parent) == loc and it.customer == so.customer:
-				if not it.delivery_point or it.delivery_point == so.custom_delivery_point:
+			if loc_of.get(it.parent) != loc:
+				continue
+			if it.sales_order:
+				if it.sales_order == so.name:
 					return True
+				continue
+			if it.customer != so.customer:
+				continue
+			if it.delivery_point and it.delivery_point != so.custom_delivery_point:
+				continue
+			if loc not in farms_of:
+				farms_of[loc] = location_farms(loc)
+			if so.farm in farms_of[loc]:
+				return True
 		return False
 
 	others = [loc for loc in {p.location for p in plans} if loc and loc != location]
@@ -130,6 +147,45 @@ def location_sales_orders(delivery_date, location):
 	}
 
 
+def split_over_order_lines(var, so_cache):
+	"""(so, variety, {stems, boxes, length, source_farm}, Sales Order Item) per
+	Delivery Note row: each (order, variety, length) of loaded stems goes to the
+	order's lines of that variety and length -- else of that variety -- filling each
+	up to what it still has to deliver, any surplus on the last. Matching on the
+	variety alone put every length's stems on the first line, over its quantity:
+	"This document is over limit by Qty ... Are you making another Delivery Note
+	against the same Sales Order Item?"."""
+	left = {}
+	out = []
+	for (so_name, v, length), d in var.items():
+		items = so_cache[so_name].items
+		lines = [i for i in items if i.item_code == v and (i.get("custom_length") or "") == length] or [
+			i for i in items if i.item_code == v
+		]
+		if not lines:
+			out.append((so_name, v, d, None))
+			continue
+		stems = d["stems"]
+		boxes_left = d["boxes"]
+		for n, soi in enumerate(lines):
+			if soi.name not in left:
+				left[soi.name] = max(
+					((soi.qty or 0) - (soi.delivered_qty or 0)) * (soi.conversion_factor or 1), 0
+				)
+			last = n == len(lines) - 1
+			part = stems if last else min(stems, left[soi.name])
+			if part <= 0:
+				continue
+			left[soi.name] -= part
+			stems -= part
+			boxes = boxes_left if stems <= 0 else min(boxes_left, round(d["boxes"] * part / d["stems"]))
+			boxes_left -= boxes
+			out.append((so_name, v, dict(d, stems=part, boxes=boxes, length=length or d["length"]), soi))
+			if stems <= 0:
+				break
+	return out
+
+
 def location_departures(ls_name):
 	"""{location: {"seal", "at", "by"}} of the day's Loading Sheet."""
 	raw = frappe.db.get_value("Loading Sheet", ls_name, "location_departures") if ls_name else None
@@ -139,13 +195,127 @@ def location_departures(ls_name):
 		return {}
 
 
-def missing_staged_boxes_for_date(delivery_date, location=None):
+def truck_key(location, vehicle):
+	"""A truck's own entry in the Loading Sheet's location_departures."""
+	return "{0} / {1}".format(location, vehicle)
+
+
+def loaded_boxes_by_vehicle(delivery_date, location, mine=None):
+	"""{vehicle: [(Loading Sheet Item, Sales Order)]} of the location's boxes on the
+	day's Loading Sheet. A box loaded before loading recorded its vehicle counts on
+	the location's truck when it has only one."""
+	ls_name = "LS-" + str(delivery_date)
+	if not frappe.db.exists("Loading Sheet", ls_name):
+		return {}
+	if mine is None:
+		mine = location_sales_orders(delivery_date, location)
+	planned = location_plans(delivery_date, location)
+	sole = next(iter(planned)) if len(planned) == 1 else ""
+	items = frappe.get_all(
+		"Loading Sheet Item",
+		filters={"parent": ls_name, "parenttype": "Loading Sheet"},
+		fields=["name", "box_label_link", "box_label", "vehicle"],
+		order_by="idx asc",
+	)
+	names = [it.box_label_link or it.box_label for it in items if it.box_label_link or it.box_label]
+	so_of = {
+		b.name: b.customer_purchase_order
+		for b in (
+			frappe.get_all(
+				"Box Label", filters={"name": ["in", names]}, fields=["name", "customer_purchase_order"]
+			)
+			if names
+			else []
+		)
+	}
+	out = {}
+	for it in items:
+		so_name = so_of.get(it.box_label_link or it.box_label)
+		if so_name in mine:
+			out.setdefault(it.vehicle or sole, []).append((it, so_name))
+	return out
+
+
+def location_plans(delivery_date, location):
+	"""{vehicle: Loading Plan} of the location's trucks for the day."""
+	return {
+		p.vehicle: p.name
+		for p in frappe.get_all(
+			"Loading Plan",
+			filters={"delivery_date": delivery_date, "location": location},
+			fields=["name", "vehicle"],
+		)
+		if p.vehicle
+	}
+
+
+def dispatch_trucks(delivery_date, location, mine=None):
+	"""The location's trucks to dispatch: every vehicle with boxes loaded for its
+	orders, plus every one its Loading Plans name, with what each has loaded and
+	whether it has left."""
+	planned = location_plans(delivery_date, location)
+	loaded = loaded_boxes_by_vehicle(delivery_date, location, mine)
+	departures = location_departures("LS-" + str(delivery_date))
+	trucks = []
+	for vehicle in sorted(set(planned) | {v for v in loaded if v}):
+		gone = departures.get(truck_key(location, vehicle)) or {}
+		trucks.append(
+			{
+				"vehicle": vehicle,
+				"loading_plan": planned.get(vehicle) or "",
+				"boxes_loaded": len(loaded.get(vehicle, [])),
+				"dispatched": bool(gone),
+				"seal_number": gone.get("seal") or "",
+			}
+		)
+	return trucks
+
+
+def truck_sales_orders(delivery_date, location, vehicle, mine=None):
+	"""The location's orders `vehicle` carries: the ones its Loading Plan carries
+	(rows naming an order, else the customer at its delivery point from the
+	location's farms) plus any with boxes loaded on it. A location's only truck
+	carries all of them."""
+	if mine is None:
+		mine = location_sales_orders(delivery_date, location)
+	planned = location_plans(delivery_date, location)
+	if len(planned) <= 1 and (not planned or vehicle in planned):
+		return set(mine)
+	out = {so for _it, so in loaded_boxes_by_vehicle(delivery_date, location, mine).get(vehicle, [])}
+	plan = planned.get(vehicle)
+	if plan:
+		rows = frappe.get_all(
+			"Loading Plan Item",
+			filters={"parent": plan, "parenttype": "Loading Plan"},
+			fields=["customer", "delivery_point", "sales_order"],
+		)
+		out |= {r.sales_order for r in rows if r.sales_order}
+		loose = [r for r in rows if not r.sales_order]
+		if loose:
+			farms = location_farms(location)
+			for so in frappe.get_all(
+				"Sales Order",
+				filters={"name": ["in", list(mine)]},
+				fields=["name", "customer", "custom_delivery_point", "farm"],
+			):
+				if so.farm in farms and any(
+					r.customer == so.customer
+					and (not r.delivery_point or r.delivery_point == so.custom_delivery_point)
+					for r in loose
+				):
+					out.add(so.name)
+	return out & set(mine)
+
+
+def missing_staged_boxes_for_date(delivery_date, location=None, vehicle=None):
 	"""Box Labels staged for this delivery date's own Sales Orders that never
 	made it onto the Loading Sheet (staged=1, loaded=0) -- these are boxes a
 	picker pulled into the dispatch coldstore that the truck is about to
 	leave without. Dispatch has no business confirming while any exist:
 	before this, createOrUpdateDispatch only ever looked at what WAS on the
 	Loading Sheet, never at what was staged but silently left behind.
+	With a `vehicle`, only the orders that truck carries: another truck's boxes
+	never hold it back.
 	"""
 	so_names = frappe.get_all(
 		"Sales Order", filters={"delivery_date": delivery_date, "docstatus": 1}, pluck="name"
@@ -153,6 +323,8 @@ def missing_staged_boxes_for_date(delivery_date, location=None):
 	if location:
 		# Only the location's own orders: the other location's boxes aren't its truck's.
 		mine = location_sales_orders(delivery_date, location)
+		if vehicle:
+			mine = truck_sales_orders(delivery_date, location, vehicle, mine)
 		so_names = [n for n in so_names if n in mine]
 	if not so_names:
 		return []
@@ -507,6 +679,10 @@ def createLoadingEntry():
 								"customer": customer,
 								"box_label_link": box_label_name,
 								"position": position,
+								# The truck it went on: dispatch is confirmed per truck.
+								"vehicle": vehicle
+								if vehicle and frappe.db.exists("Vehicle", vehicle)
+								else None,
 								"loaded": 1,
 								# The operator's cold-chain temperature reading at the
 								# moment THIS box was loaded -- was read from the
@@ -581,15 +757,36 @@ def createOrUpdateDispatch():
 		# location (Loading Plan > Location): dispatch only that location's orders --
 		# its own Delivery Notes and departure; the other location dispatches its own.
 		location = (data.get("location") or "").strip() or (_station_location() or "")
+		# vehicle: dispatch only that truck -- the boxes loaded on it, its seal, and
+		# only its own orders' unloaded boxes hold it back.
+		vehicle = (data.get("vehicle") or "").strip() if location else ""
 		ls_name = "LS-" + str(delivery_date)
-		missing_boxes = missing_staged_boxes_for_date(delivery_date, location or None)
+		missing_boxes = missing_staged_boxes_for_date(delivery_date, location or None, vehicle or None)
 		mine = location_sales_orders(delivery_date, location) if location else None
+		on_truck = None
+		if vehicle:
+			on_truck = {
+				it.name for it, _so in loaded_boxes_by_vehicle(delivery_date, location, mine).get(vehicle, [])
+			}
+			mine = truck_sales_orders(delivery_date, location, vehicle, mine)
 		departures = location_departures(ls_name) if frappe.db.exists("Loading Sheet", ls_name) else {}
 
 		if not frappe.db.exists("Loading Sheet", ls_name):
 			frappe.response["message"] = {
 				"status": "error",
 				"message": "No loading sheet for " + str(delivery_date),
+			}
+		elif vehicle and truck_key(location, vehicle) in departures:
+			frappe.response["message"] = {
+				"status": "error",
+				"message": "{0} has already been dispatched on {1} (seal {2}).".format(
+					vehicle, delivery_date, departures[truck_key(location, vehicle)].get("seal") or "-"
+				),
+			}
+		elif vehicle and not on_truck:
+			frappe.response["message"] = {
+				"status": "error",
+				"message": "Nothing loaded on {0} for {1}.".format(vehicle, delivery_date),
 			}
 		elif location and location in departures:
 			frappe.response["message"] = {
@@ -645,6 +842,8 @@ def createOrUpdateDispatch():
 			so_cache = {}
 			skipped_unstaged = []
 			for it in ls.items:
+				if on_truck is not None and it.name not in on_truck:
+					continue  # another truck's box: its own dispatch takes it
 				box_name = it.get("box_label") or it.get("box_label_link")
 				if not box_name or not frappe.db.exists("Box Label", box_name):
 					continue
@@ -683,7 +882,9 @@ def createOrUpdateDispatch():
 						size_digits = "".join([c for c in str(bi.uom or "") if c.isdigit()])
 						bunch_size = int(size_digits) if size_digits else 1
 						stems = (bi.qty or 0) * bunch_size
-						key = (so.name, v)
+						# By length too: an order asks for one variety at several
+						# lengths, each its own Sales Order line.
+						key = (so.name, v, bi.length or "")
 						d = var.setdefault(
 							key,
 							{
@@ -733,6 +934,9 @@ def createOrUpdateDispatch():
 					# Per location: a customer served from both locations the same day gets
 					# one Delivery Note from each, never one location rewriting the other's.
 					dn_filters["farm"] = first_so.get("farm")
+				if vehicle:
+					# Per truck: a customer split over two trucks gets one from each.
+					dn_filters["vehicle_no"] = vehicle
 				existing = frappe.get_all("Delivery Note", filters=dn_filters, pluck="name")
 				if existing:
 					dn = frappe.get_doc("Delivery Note", existing[0])
@@ -745,6 +949,8 @@ def createOrUpdateDispatch():
 				dn.customer = customer
 				dn.company = first_so.company
 				dn.posting_date = frappe.utils.today()
+				if vehicle:
+					dn.vehicle_no = vehicle
 				dn.custom_delivery_date = delivery_date
 				dn.currency = first_so.currency
 				dn.selling_price_list = first_so.selling_price_list
@@ -752,9 +958,8 @@ def createOrUpdateDispatch():
 				dn.farm = first_so.get("farm")
 				dn.po_no = first_so.get("po_no")
 
-				for (so_name, v), d in var.items():
+				for so_name, v, d, soi in split_over_order_lines(var, so_cache):
 					so = so_cache[so_name]
-					soi = next((i for i in so.items if i.item_code == v), None)
 					rate = soi.rate if soi else 0
 					# soi.warehouse is the farm's Receiving Cold Store (the
 					# Sales Order's own source, not a delivery target -- see
@@ -926,11 +1131,15 @@ def createOrUpdateDispatch():
 			# rather than silently rebuilding these Delivery Notes again.
 			ls.seal_number = seal_number
 			if location:
-				departures[location] = {
-					"seal": seal_number,
-					"at": str(frappe.utils.now()),
-					"by": frappe.session.user,
-				}
+				gone = {"seal": seal_number, "at": str(frappe.utils.now()), "by": frappe.session.user}
+				if vehicle:
+					departures[truck_key(location, vehicle)] = dict(gone, vehicle=vehicle)
+					# The location has gone once every truck it planned or loaded has.
+					left = [t for t in dispatch_trucks(delivery_date, location) if t["vehicle"] != vehicle]
+					if all(departures.get(truck_key(location, t["vehicle"])) for t in left):
+						departures[location] = gone
+				else:
+					departures[location] = gone
 				ls.location_departures = json.dumps(departures)
 				# Departed once every location with a Loading Plan that day has gone.
 				planned = set(
@@ -1808,6 +2017,58 @@ def fetchPrecoolingSummary(delivery_date: str | None = None):
 
 
 @frappe.whitelist()
+def fetchColdstoreBoxes(location: str | None = None):
+	"""Boxes staged in the dispatch coldstore and not yet loaded, for orders delivering
+	today or later, grouped by drop-off (delivery) point: each box with the spot it was
+	scanned to and when it got there. `location` (Ravine / Karen, else the caller's
+	station) keeps it to that location's own orders."""
+	location = (location or "").strip() or (_station_location() or "")
+	today = frappe.utils.nowdate()
+	rows = frappe.db.sql(
+		"""
+		SELECT bl.name, bl.box_number, bl.customer, bl.staging_location, bl.delivery_point,
+			bl.customer_purchase_order AS sales_order, so.delivery_date,
+			COALESCE(bl.staged_at, bl.precooled_at, bl.modified) AS since
+		FROM `tabBox Label` bl
+		JOIN `tabSales Order` so ON so.name = bl.customer_purchase_order
+		WHERE bl.staged = 1 AND IFNULL(bl.loaded, 0) = 0
+			AND so.docstatus = 1 AND so.delivery_date >= %(today)s
+		ORDER BY since ASC
+		""",
+		{"today": today},
+		as_dict=True,
+	)
+	if location:
+		mine = set()
+		for d in {r.delivery_date for r in rows}:
+			mine |= location_sales_orders(d, location)
+		rows = [r for r in rows if r.sales_order in mine]
+	groups = {}
+	for r in rows:
+		dp = r.delivery_point or ""
+		groups.setdefault(dp, []).append(
+			{
+				"box_label": r.name,
+				"box_number": r.box_number or 0,
+				"customer": r.customer or "",
+				"sales_order": r.sales_order,
+				"delivery_date": str(r.delivery_date),
+				"staging_location": r.staging_location or "",
+				"since": str(r.since) if r.since else "",
+			}
+		)
+	return {
+		"location": location,
+		"now": str(frappe.utils.now_datetime()),
+		"total": len(rows),
+		"delivery_points": [
+			{"delivery_point": dp, "boxes": boxes}
+			for dp, boxes in sorted(groups.items(), key=lambda g: (g[0] == "", g[0]))
+		],
+	}
+
+
+@frappe.whitelist()
 def createStagingEntry():
 	payload = frappe.request.get_json()
 	frappe.log_error("Staging Payload", payload)
@@ -1838,6 +2099,8 @@ def createStagingEntry():
 					box.precooled = 1
 					box.precooled_at = frappe.utils.now_datetime()
 				box.staged = 1
+				# When it reached the spot: the coldstore list counts its time there from this.
+				box.staged_at = frappe.utils.now_datetime()
 				# Record WHERE the box was staged in the dispatch coldstore
 				# (QR that maps to a physical place). Optional for older callers.
 				if location:
@@ -1899,13 +2162,23 @@ def fetchDispatchLoadedOrders():
 	# Param: delivery_date (optional; defaults to tomorrow, matching loading).
 	# Param: location (optional, Loading Plan > Location): only the orders that
 	# location's Loading Plans carry, and its own departure.
+	# Param: vehicle (optional, with location): only that truck -- its orders, the
+	# boxes loaded on it and its own departure. `trucks` lists the location's trucks.
 	try:
 		delivery_date = frappe.form_dict.get("delivery_date") or frappe.utils.add_days(
 			frappe.utils.today(), 1
 		)
 		location = _station_location() or ""
+		vehicle = (frappe.form_dict.get("vehicle") or "").strip() if location else ""
 		ls_name = "LS-" + str(delivery_date)
 		mine = location_sales_orders(delivery_date, location) if location else None
+		trucks = dispatch_trucks(delivery_date, location, mine) if location else []
+		on_truck = None
+		if vehicle:
+			on_truck = {
+				it.name for it, _so in loaded_boxes_by_vehicle(delivery_date, location, mine).get(vehicle, [])
+			}
+			mine = truck_sales_orders(delivery_date, location, vehicle, mine)
 
 		orders_by_so = {}
 		total_boxes = 0
@@ -1949,6 +2222,8 @@ def fetchDispatchLoadedOrders():
 		if frappe.db.exists("Loading Sheet", ls_name):
 			ls_doc = frappe.get_doc("Loading Sheet", ls_name)
 			for it in ls_doc.items:
+				if on_truck is not None and it.name not in on_truck:
+					continue  # another truck's box
 				bl_name = it.box_label_link or it.box_label or ""
 				if not bl_name or not frappe.db.exists("Box Label", bl_name):
 					continue
@@ -2006,15 +2281,23 @@ def fetchDispatchLoadedOrders():
 		# Surfaced here too (not just as a rejection from createOrUpdateDispatch)
 		# so the clipboard shows the gap before the operator even tries to
 		# confirm dispatch.
-		missing_boxes = missing_staged_boxes_for_date(delivery_date, location or None)
+		missing_boxes = missing_staged_boxes_for_date(delivery_date, location or None, vehicle or None)
 		departed = ls_status == "Departed"
 		if location:
 			gone = location_departures(ls_name).get(location)
+			if vehicle:
+				# The truck's own departure, or the whole location dispatched at once.
+				gone = location_departures(ls_name).get(truck_key(location, vehicle)) or (
+					gone if gone and not gone.get("vehicle") else None
+				)
 			# Departed for this location -- or the whole sheet was dispatched before
 			# dispatch went per location (no departures recorded).
 			departed = bool(gone) or (departed and not location_departures(ls_name))
 			if gone:
 				seal_number = gone.get("seal") or seal_number
+			elif not departed:
+				# The sheet's seal is whichever truck or location left last, not this one's.
+				seal_number = ""
 
 		frappe.response["message"] = {
 			"status": "success",
@@ -2023,6 +2306,8 @@ def fetchDispatchLoadedOrders():
 				"delivery_date": str(delivery_date),
 				"location": location,
 				"locations": dispatch_locations(),
+				"vehicle": vehicle,
+				"trucks": trucks,
 				"loading_sheet": ls_name if frappe.db.exists("Loading Sheet", ls_name) else None,
 				"loading_sheet_status": ls_status,
 				"dispatched": departed,

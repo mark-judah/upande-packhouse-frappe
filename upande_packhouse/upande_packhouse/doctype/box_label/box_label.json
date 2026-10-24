@@ -35,6 +35,7 @@
   "precooled",
   "precooled_at",
   "staged",
+  "staged_at",
   "loaded",
   "loaded_internal_transfer",
   "delivered",
@@ -169,6 +170,12 @@
    "read_only": 1
   },
   {
+   "fieldname": "staged_at",
+   "fieldtype": "Datetime",
+   "label": "Staged At",
+   "read_only": 1
+  },
+  {
    "default": "0",
    "fieldname": "loaded",
    "fieldtype": "Check",
@@ -282,7 +289,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-05 00:27:54.299310",
+ "modified": "2026-10-24 22:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Box Label",
