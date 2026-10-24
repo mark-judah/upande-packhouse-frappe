@@ -337,7 +337,11 @@ def get_allocation_planning(
 				"ordered": dem,
 				"available": av,
 				"uncovered": max(0.0, dem - av),
-				"farms": {c.shelf_farm: c.allocatable for c in cells.values() if (c.variety, c.stem_length or "") == k},
+				"farms": {
+					c.shelf_farm: c.allocatable
+					for c in cells.values()
+					if (c.variety, c.stem_length or "") == k
+				},
 			}
 		)
 

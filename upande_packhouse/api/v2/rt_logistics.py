@@ -153,14 +153,18 @@ def get_logistics_view(from_date=None, to_date=None, region=None, farm=None, tea
 	if region_farms is not None:
 		keep_farms = set(region_farms)
 		farms = {f for f in farms if f in keep_farms}
-		orders = [_rebuild(o, keep_farms) for o in orders if any(f["farm"] in keep_farms for f in o["by_farm"])]
+		orders = [
+			_rebuild(o, keep_farms) for o in orders if any(f["farm"] in keep_farms for f in o["by_farm"])
+		]
 	if q:
 		ql = q.lower()
 		orders = [
 			o
 			for o in orders
 			if ql
-			in " ".join(str(o.get(k) or "") for k in ("order_name", "customer", "sales_order", "opl", "varieties")).lower()
+			in " ".join(
+				str(o.get(k) or "") for k in ("order_name", "customer", "sales_order", "opl", "varieties")
+			).lower()
 		]
 	runs.sort(key=lambda t: (t["vehicle"] or "", t["trip_date"], t["run"] or 99, t["name"]))
 	now_s = now()
@@ -171,7 +175,9 @@ def get_logistics_view(from_date=None, to_date=None, region=None, farm=None, tea
 	if opls:
 		sales_farms = set(
 			frappe.get_all(
-				"Shelf Locations", filters={"parent": "Production Settings", "sales_shelf": 1, "enabled": 1}, pluck="farm"
+				"Shelf Locations",
+				filters={"parent": "Production Settings", "sales_shelf": 1, "enabled": 1},
+				pluck="farm",
 			)
 		)
 		sales_farms.add(hub)
@@ -220,7 +226,16 @@ def get_logistics_view(from_date=None, to_date=None, region=None, farm=None, tea
 			repl = frappe.get_all(
 				"Bucket Replacement",
 				filters={"order_pick_list": ["in", list(opls)]},
-				fields=["name", "order_pick_list", "old_bucket", "new_bucket", "reason", "status", "reported_by", "reported_at"],
+				fields=[
+					"name",
+					"order_pick_list",
+					"old_bucket",
+					"new_bucket",
+					"reason",
+					"status",
+					"reported_by",
+					"reported_at",
+				],
 				limit_page_length=0,
 			)
 			for r in repl:
@@ -256,7 +271,9 @@ def get_logistics_view(from_date=None, to_date=None, region=None, farm=None, tea
 		tt = trips.get(r["name"]) or {}
 		r["left_at"], r["arrived_at"] = tt.get("left_at", ""), tt.get("arrived_at", "")
 		r["state"] = _trip_state(r["status"], r["left_at"], r["arrived_at"])
-		r["transit_minutes"] = _minutes(r["left_at"], r["arrived_at"] or (now_s if r["state"] == "in_transit" else None))
+		r["transit_minutes"] = _minutes(
+			r["left_at"], r["arrived_at"] or (now_s if r["state"] == "in_transit" else None)
+		)
 	trip_state = {}
 	for o in orders:
 		o["owner_name"] = owners.get(o["opl"], "")

@@ -27,30 +27,46 @@ class TestOccurrenceDates(IntegrationTestCase):
 
 	def test_weekly_and_fortnightly(self):
 		ar = _ar_doc(frequency="Weekly", start_date="2026-03-02")
-		self.assertEqual([str(d) for d in so_api.occurrence_dates(ar, "2026-03-01", "2026-03-31")],
-			["2026-03-09", "2026-03-16", "2026-03-23", "2026-03-30"])
+		self.assertEqual(
+			[str(d) for d in so_api.occurrence_dates(ar, "2026-03-01", "2026-03-31")],
+			["2026-03-09", "2026-03-16", "2026-03-23", "2026-03-30"],
+		)
 		ar = _ar_doc(frequency="Fortnightly", start_date="2026-03-02")
-		self.assertEqual([str(d) for d in so_api.occurrence_dates(ar, "2026-03-01", "2026-03-31")],
-			["2026-03-16", "2026-03-30"])
+		self.assertEqual(
+			[str(d) for d in so_api.occurrence_dates(ar, "2026-03-01", "2026-03-31")],
+			["2026-03-16", "2026-03-30"],
+		)
 
 	def test_weekly_on_days(self):
-		ar = _ar_doc(frequency="Weekly", start_date="2026-03-02",  # a Monday
-			repeat_on_days=[{"day": "Monday"}, {"day": "Thursday"}])
-		self.assertEqual([str(d) for d in so_api.occurrence_dates(ar, "2026-03-01", "2026-03-16")],
-			["2026-03-05", "2026-03-09", "2026-03-12", "2026-03-16"])
+		ar = _ar_doc(
+			frequency="Weekly",
+			start_date="2026-03-02",  # a Monday
+			repeat_on_days=[{"day": "Monday"}, {"day": "Thursday"}],
+		)
+		self.assertEqual(
+			[str(d) for d in so_api.occurrence_dates(ar, "2026-03-01", "2026-03-16")],
+			["2026-03-05", "2026-03-09", "2026-03-12", "2026-03-16"],
+		)
 
 	def test_monthly_quarterly_halfyearly_yearly(self):
 		for freq, step in (("Monthly", 1), ("Quarterly", 3), ("Half-yearly", 6), ("Yearly", 12)):
 			ar = _ar_doc(frequency=freq, start_date="2026-01-15")
 			got = so_api.occurrence_dates(ar, "2026-01-01", "2028-12-31")
-			want = [str(getdate(add_months("2026-01-15", step * i))) for i in range(1, 40)
-				if getdate(add_months("2026-01-15", step * i)) <= getdate("2028-12-31")]
+			want = [
+				str(getdate(add_months("2026-01-15", step * i)))
+				for i in range(1, 40)
+				if getdate(add_months("2026-01-15", step * i)) <= getdate("2028-12-31")
+			]
 			self.assertEqual([str(d) for d in got], want, freq)
 
 	def test_monthly_last_day_and_end_date(self):
-		ar = _ar_doc(frequency="Monthly", start_date="2026-01-31", repeat_on_last_day=1, end_date="2026-04-15")
-		self.assertEqual([str(d) for d in so_api.occurrence_dates(ar, "2026-01-01", "2026-12-31")],
-			["2026-02-28", "2026-03-31"])  # nothing after end_date
+		ar = _ar_doc(
+			frequency="Monthly", start_date="2026-01-31", repeat_on_last_day=1, end_date="2026-04-15"
+		)
+		self.assertEqual(
+			[str(d) for d in so_api.occurrence_dates(ar, "2026-01-01", "2026-12-31")],
+			["2026-02-28", "2026-03-31"],
+		)  # nothing after end_date
 
 	def test_window_lower_bound(self):
 		ar = _ar_doc(frequency="Daily", start_date="2026-03-01")
@@ -66,7 +82,9 @@ class TestStandingOrdersEndpoint(IntegrationTestCase):
 		rows = frappe.db.sql(
 			"""SELECT name, customer, delivery_date FROM `tabSales Order`
 			   WHERE business_unit = 'Roses' AND docstatus = 1 AND IFNULL(auto_repeat, '') = ''
-			   ORDER BY modified DESC LIMIT 6""", as_dict=True)
+			   ORDER BY modified DESC LIMIT 6""",
+			as_dict=True,
+		)
 		if len(rows) < 3:
 			self.skipTest("needs 3 submitted Roses sales orders")
 		self.src, self.gen1, self.gen2 = rows[0], rows[1], rows[2]
@@ -79,13 +97,20 @@ class TestStandingOrdersEndpoint(IntegrationTestCase):
 
 	def _ar(self, **kw):
 		today = getdate(nowdate())
-		d = {"doctype": "Auto Repeat", "reference_doctype": "Sales Order", "reference_document": self.src.name,
-			"frequency": "Weekly", "start_date": add_days(today, -30)}
+		d = {
+			"doctype": "Auto Repeat",
+			"reference_doctype": "Sales Order",
+			"reference_document": self.src.name,
+			"frequency": "Weekly",
+			"start_date": add_days(today, -30),
+		}
 		d.update(kw)
 		return frappe.get_doc(d).insert(ignore_permissions=True)
 
 	def _tag(self, ar, so, date):
-		frappe.db.set_value("Sales Order", so, {"auto_repeat": ar.name, "delivery_date": date}, update_modified=False)
+		frappe.db.set_value(
+			"Sales Order", so, {"auto_repeat": ar.name, "delivery_date": date}, update_modified=False
+		)
 
 	def _call(self, **kw):
 		today = getdate(nowdate())
@@ -108,9 +133,17 @@ class TestStandingOrdersEndpoint(IntegrationTestCase):
 		self.assertTrue(all((getdate(e["date"]) - getdate(ar.start_date)).days % 7 == 0 for e in sched))
 		self.assertEqual(r["kpis"]["active"], 1)
 		self.assertEqual(r["kpis"]["generated"], 2)
-		self.assertEqual(r["kpis"]["due_week"], sum(1 for e in sched if getdate(e["date"]) <= add_days(today, 6)))
+		self.assertEqual(
+			r["kpis"]["due_week"], sum(1 for e in sched if getdate(e["date"]) <= add_days(today, 6))
+		)
 		# boxes / stems on the generated rows are the core figures of that order
-		self.assertEqual(sum(e["stems"] for e in gen), sum(so_api._order_figures([self.gen1.name, self.gen2.name])[n][1] for n in (self.gen1.name, self.gen2.name)))
+		self.assertEqual(
+			sum(e["stems"] for e in gen),
+			sum(
+				so_api._order_figures([self.gen1.name, self.gen2.name])[n][1]
+				for n in (self.gen1.name, self.gen2.name)
+			),
+		)
 
 	def test_kpi_range_independent_of_grid(self):
 		today = getdate(nowdate())
@@ -139,8 +172,11 @@ class TestStandingOrdersEndpoint(IntegrationTestCase):
 	def test_region_filter(self):
 		self._ar()
 		from upande_packhouse.api.v2.core import region
+
 		mine = frappe.db.sql(
-			"SELECT COALESCE(NULLIF(farm,''), NULLIF(custom_farm,'')) FROM `tabSales Order` WHERE name=%s", self.src.name)[0][0]
+			"SELECT COALESCE(NULLIF(farm,''), NULLIF(custom_farm,'')) FROM `tabSales Order` WHERE name=%s",
+			self.src.name,
+		)[0][0]
 		reg = region.region_of(mine)
 		if not reg:
 			self.skipTest("source order farm has no region")

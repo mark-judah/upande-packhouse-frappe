@@ -7,7 +7,8 @@ from unittest.mock import patch
 import frappe
 from frappe.tests import IntegrationTestCase
 
-from upande_packhouse.api.v2 import cold_room, cold_room_capacity as cc
+from upande_packhouse.api.v2 import cold_room
+from upande_packhouse.api.v2 import cold_room_capacity as cc
 from upande_packhouse.api.v2.core import stock
 
 
@@ -59,9 +60,12 @@ class TestAgainstStock(IntegrationTestCase):
 		by_farm = {g.shelf_farm: g.buckets for g in stock.summarize(rows, by=("shelf_farm",))}
 		for s in block["stores"]:
 			self.assertEqual(s["occupied"], by_farm.get(s["farm_key"] or None, 0), s["farm"])
-			self.assertEqual(s["free"] + s["over_by"], abs(s["capacity"] - s["occupied"]) if s["over_by"] else s["free"])
+			self.assertEqual(
+				s["free"] + s["over_by"], abs(s["capacity"] - s["occupied"]) if s["over_by"] else s["free"]
+			)
 		self.assertEqual(
-			sum(s["occupied"] for s in block["stores"]) - block["total"]["shared_buckets"], block["total"]["occupied"]
+			sum(s["occupied"] for s in block["stores"]) - block["total"]["shared_buckets"],
+			block["total"]["occupied"],
 		)
 
 	def test_endpoint_follows_farm_filter_and_ignores_dates(self):
@@ -69,7 +73,9 @@ class TestAgainstStock(IntegrationTestCase):
 		if not farm:
 			self.skipTest("no shelf data on this site")
 		a = cold_room.get_cold_room(farm=farm)["bucket_capacity"]
-		b = cold_room.get_cold_room(farm=farm, from_date="2000-01-01", to_date="2000-01-02")["bucket_capacity"]
+		b = cold_room.get_cold_room(farm=farm, from_date="2000-01-01", to_date="2000-01-02")[
+			"bucket_capacity"
+		]
 		self.assertEqual([s["farm"] for s in a["stores"]], [farm])
 		self.assertEqual(a["total"], b["total"])  # live position: dates do not change it
 
@@ -82,7 +88,9 @@ class TestAgainstStock(IntegrationTestCase):
 		self.assertTrue(all(s["farm"] == farm for s in sl["shelves"]))
 		self.assertEqual(sl["occupied_shelves"], len(sl["shelves"]))
 		self.assertEqual(sl["slots_used"], sum(s["buckets"] for s in sl["shelves"]))
-		self.assertEqual(sl["over_shelves"], sum(1 for s in sl["shelves"] if s["buckets"] > cc.BUCKETS_PER_SHELF))
+		self.assertEqual(
+			sl["over_shelves"], sum(1 for s in sl["shelves"] if s["buckets"] > cc.BUCKETS_PER_SHELF)
+		)
 		counts = [s["buckets"] for s in sl["shelves"]]
 		self.assertEqual(counts, sorted(counts, reverse=True))
 		# every distinct bucket in the stock rows sits on at least one listed shelf
@@ -139,15 +147,25 @@ class TestKpisAndPressure(IntegrationTestCase):
 			d["full" if n == 2 else "over" if n > 2 else "partial"] += c
 		for s in self.out["bucket_capacity"]["stores"]:
 			w = want.get(s["farm_key"] or None, {"full": 0, "over": 0, "partial": 0})
-			self.assertEqual((s["shelves_full"], s["shelves_over"], s["shelves_partial"]), (w["full"], w["over"], w["partial"]), s["farm"])
+			self.assertEqual(
+				(s["shelves_full"], s["shelves_over"], s["shelves_partial"]),
+				(w["full"], w["over"], w["partial"]),
+				s["farm"],
+			)
 			self.assertEqual(s["shelves_empty"], s["shelves"] - sum(w.values()), s["farm"])
 			if s["shelves"]:
-				self.assertAlmostEqual(s["shelves_full_pct"], round((w["full"] + w["over"]) / s["shelves"] * 100, 1), places=1)
+				self.assertAlmostEqual(
+					s["shelves_full_pct"], round((w["full"] + w["over"]) / s["shelves"] * 100, 1), places=1
+				)
 
 	def test_pressure_level_is_shelf_capacity_level(self):
 		for s in self.out["bucket_capacity"]["stores"]:
-			self.assertEqual(s["capacity"], s["shelves"] * cc.BUCKETS_PER_SHELF, s["farm"])  # no override on this site
-			self.assertEqual(s["level"], cc.level_for(s["occupied"] / s["capacity"] * 100 if s["capacity"] else None)[0])
+			self.assertEqual(
+				s["capacity"], s["shelves"] * cc.BUCKETS_PER_SHELF, s["farm"]
+			)  # no override on this site
+			self.assertEqual(
+				s["level"], cc.level_for(s["occupied"] / s["capacity"] * 100 if s["capacity"] else None)[0]
+			)
 			self.assertEqual(s["incoming_exceeds_free"], s["incoming_buckets"] > s["free"])
 
 	def test_average_age_is_stem_weighted_from_core_stock(self):
@@ -178,13 +196,19 @@ class TestKpisAndPressure(IntegrationTestCase):
 		age = b["age"]
 		self.assertAlmostEqual(sum(r["stems"] for r in age), self.out["totals"]["stems"], places=3)
 		for v in self.out["by_variety"]:
-			self.assertAlmostEqual(sum(r["stems"] for r in age if r["variety"] == v["variety"]), v["stems"], places=3)
+			self.assertAlmostEqual(
+				sum(r["stems"] for r in age if r["variety"] == v["variety"]), v["stems"], places=3
+			)
 		for v in self.out["by_length"]:
 			self.assertAlmostEqual(
-				sum(r["stems"] for r in age if str(r["stem_length"] or "") == str(v["stem_length"] or "")), v["stems"], places=3
+				sum(r["stems"] for r in age if str(r["stem_length"] or "") == str(v["stem_length"] or "")),
+				v["stems"],
+				places=3,
 			)
 		for v in self.out["by_farm"]:
-			self.assertAlmostEqual(sum(r["stems"] for r in age if r["farm"] == v["farm"]), v["stems"], places=3)
+			self.assertAlmostEqual(
+				sum(r["stems"] for r in age if r["farm"] == v["farm"]), v["stems"], places=3
+			)
 		for band in self.out["age_bands"]:
 			got = sum(
 				r["stems"] for r in age
