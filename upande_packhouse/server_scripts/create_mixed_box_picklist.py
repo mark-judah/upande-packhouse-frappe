@@ -7,6 +7,31 @@ from frappe.utils import nowdate
 from upande_packhouse.packing_guide import sync_packing_guide
 
 
+def _auto_confirm_on_so(sales_order, sales_order_item, stems, farm):
+	"""Write a Confirmed Stems row on the SO when the allocator allocated fewer
+	stems than a full box but no explicit confirmation existed, so the allocation
+	planning page reflects what was actually allocated."""
+	if not farm or stems <= 0:
+		return
+	try:
+		existing = frappe.db.exists(
+			"Confirmed Stems",
+			{"parent": sales_order, "parentfield": "custom_confirmed_stems_table",
+			 "sales_order_item": sales_order_item, "farm": farm},
+		)
+		if existing:
+			return
+		so_doc = frappe.get_doc("Sales Order", sales_order)
+		so_doc.append("custom_confirmed_stems_table", {
+			"farm": farm, "stems": stems, "sales_order_item": sales_order_item,
+		})
+		so_doc.flags.ignore_validate_update_after_submit = True
+		so_doc.save()
+	except Exception:
+		frappe.log_error(title="Auto-confirm stems failed",
+			message=f"SO={sales_order}, item={sales_order_item}, stems={stems}, farm={farm}")
+
+
 def insufficient_allocation_message(
 	item_code, stem_length, allocations, allocated, needed, stems_per_box, num_boxes, so_item_name=None
 ):
@@ -571,24 +596,9 @@ def _generate_box_locations(
 			f"Needed: {total_stems_needed}, Confirmed: {confirmed_qty}, "
 			f"Already placed: {already_stems}, Full order: {stems_per_box * num_boxes}",
 		)
-		# For partial confirmations, allow the allocation if it matches what was allocated
-		# (the validation already happened in allocate_stock_with_buckets)
-		if confirmed_qty > 0:
-			total_stems_needed = total_allocated
-		else:
-			frappe.throw(
-				insufficient_allocation_message(
-					item_code,
-					so_item.get("custom_length") or alloc.get("stem_length"),
-					allocations_list,
-					total_allocated,
-					total_stems_needed,
-					stems_per_box,
-					num_boxes,
-					sales_order_item_name,
-				),
-				title=_("Insufficient allocation"),
-			)
+		if confirmed_qty == 0 and sales_order_name and shelf_farm:
+			_auto_confirm_on_so(sales_order_name, sales_order_item_name, total_allocated, shelf_farm)
+		total_stems_needed = total_allocated
 
 	# Determine if we should do box-level splitting or flat rows
 	# Box splitting only makes sense when we have enough stems for complete boxes
