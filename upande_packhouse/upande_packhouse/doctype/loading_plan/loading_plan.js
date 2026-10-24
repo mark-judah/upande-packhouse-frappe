@@ -39,6 +39,8 @@ frappe.ui.form.on("Loading Plan", {
 							args: {
 								delivery_date: frm.doc.delivery_date,
 								location: frm.doc.location,
+								vehicle: frm.doc.vehicle,
+								plan: frm.is_new() ? null : frm.doc.name,
 							},
 							freeze: true,
 							freeze_message: "Fetching orders...",
