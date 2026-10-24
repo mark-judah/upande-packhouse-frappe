@@ -152,21 +152,23 @@ def _make_test_company():
 
 	year = frappe.utils.now_datetime().year
 	setup_complete(
-		{
-			"currency": "KES",
-			"full_name": "Test User",
-			"company_name": TEST_COMPANY,
-			"timezone": "Africa/Nairobi",
-			"company_abbr": "KR",
-			"country": "Kenya",
-			"fy_start_date": "{0}-01-01".format(year),
-			"fy_end_date": "{0}-12-31".format(year),
-			"language": "english",
-			"company_tagline": "Testing",
-			"email": "test@example.com",
-			"password": "test",
-			"chart_of_accounts": "Standard",
-		}
+		frappe._dict(
+			{
+				"currency": "KES",
+				"full_name": "Test User",
+				"company_name": TEST_COMPANY,
+				"timezone": "Africa/Nairobi",
+				"company_abbr": "KR",
+				"country": "Kenya",
+				"fy_start_date": "{0}-01-01".format(year),
+				"fy_end_date": "{0}-12-31".format(year),
+				"language": "english",
+				"company_tagline": "Testing",
+				"email": "test@example.com",
+				"password": "test",
+				"chart_of_accounts": "Standard",
+			}
+		)
 	)
 
 
