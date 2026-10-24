@@ -91,10 +91,15 @@ def location_farms(location):
 
 def location_sales_orders(delivery_date, location):
 	"""The Sales Orders of `delivery_date` that `location` dispatches: the ones its
-	Loading Plans for the day carry (by customer, and delivery point where the plan
-	names one), plus every other order of its farms that no other location's plan
-	carries -- so a location without a Loading Plan (or an order left off one) still
-	dispatches its own orders."""
+	Loading Plans for the day carry, plus every other order of its farms that no
+	other location's plan carries -- so a location without a Loading Plan (or an
+	order left off one) still dispatches its own orders.
+
+	A plan row naming a Sales Order carries that order only. A row without one
+	carries the customer's orders (at its delivery point, where it names one) of the
+	location's own farms -- never another location's: Ravine's plan having ROSE PARIS
+	at MITCHEL COTTS must not claim Karen's ROSE PARIS order, or Karen's staged boxes
+	block Ravine's dispatch and Karen can't dispatch its own order."""
 	plans = frappe.get_all(
 		"Loading Plan", filters={"delivery_date": delivery_date}, fields=["name", "location"]
 	)
@@ -102,7 +107,7 @@ def location_sales_orders(delivery_date, location):
 		frappe.get_all(
 			"Loading Plan Item",
 			filters={"parent": ["in", [p.name for p in plans]], "parenttype": "Loading Plan"},
-			fields=["parent", "customer", "delivery_point"],
+			fields=["parent", "customer", "delivery_point", "sales_order"],
 		)
 		if plans
 		else []
@@ -113,12 +118,24 @@ def location_sales_orders(delivery_date, location):
 		filters={"delivery_date": delivery_date, "docstatus": 1},
 		fields=["name", "customer", "custom_delivery_point", "farm"],
 	)
+	farms_of = {}
 
 	def on_plan(so, loc):
 		for it in items:
-			if loc_of.get(it.parent) == loc and it.customer == so.customer:
-				if not it.delivery_point or it.delivery_point == so.custom_delivery_point:
+			if loc_of.get(it.parent) != loc:
+				continue
+			if it.sales_order:
+				if it.sales_order == so.name:
 					return True
+				continue
+			if it.customer != so.customer:
+				continue
+			if it.delivery_point and it.delivery_point != so.custom_delivery_point:
+				continue
+			if loc not in farms_of:
+				farms_of[loc] = location_farms(loc)
+			if so.farm in farms_of[loc]:
+				return True
 		return False
 
 	others = [loc for loc in {p.location for p in plans} if loc and loc != location]
