@@ -2017,6 +2017,58 @@ def fetchPrecoolingSummary(delivery_date: str | None = None):
 
 
 @frappe.whitelist()
+def fetchColdstoreBoxes(location: str | None = None):
+	"""Boxes staged in the dispatch coldstore and not yet loaded, for orders delivering
+	today or later, grouped by drop-off (delivery) point: each box with the spot it was
+	scanned to and when it got there. `location` (Ravine / Karen, else the caller's
+	station) keeps it to that location's own orders."""
+	location = (location or "").strip() or (_station_location() or "")
+	today = frappe.utils.nowdate()
+	rows = frappe.db.sql(
+		"""
+		SELECT bl.name, bl.box_number, bl.customer, bl.staging_location, bl.delivery_point,
+			bl.customer_purchase_order AS sales_order, so.delivery_date,
+			COALESCE(bl.staged_at, bl.precooled_at, bl.modified) AS since
+		FROM `tabBox Label` bl
+		JOIN `tabSales Order` so ON so.name = bl.customer_purchase_order
+		WHERE bl.staged = 1 AND IFNULL(bl.loaded, 0) = 0
+			AND so.docstatus = 1 AND so.delivery_date >= %(today)s
+		ORDER BY since ASC
+		""",
+		{"today": today},
+		as_dict=True,
+	)
+	if location:
+		mine = set()
+		for d in {r.delivery_date for r in rows}:
+			mine |= location_sales_orders(d, location)
+		rows = [r for r in rows if r.sales_order in mine]
+	groups = {}
+	for r in rows:
+		dp = r.delivery_point or ""
+		groups.setdefault(dp, []).append(
+			{
+				"box_label": r.name,
+				"box_number": r.box_number or 0,
+				"customer": r.customer or "",
+				"sales_order": r.sales_order,
+				"delivery_date": str(r.delivery_date),
+				"staging_location": r.staging_location or "",
+				"since": str(r.since) if r.since else "",
+			}
+		)
+	return {
+		"location": location,
+		"now": str(frappe.utils.now_datetime()),
+		"total": len(rows),
+		"delivery_points": [
+			{"delivery_point": dp, "boxes": boxes}
+			for dp, boxes in sorted(groups.items(), key=lambda g: (g[0] == "", g[0]))
+		],
+	}
+
+
+@frappe.whitelist()
 def createStagingEntry():
 	payload = frappe.request.get_json()
 	frappe.log_error("Staging Payload", payload)
@@ -2047,6 +2099,8 @@ def createStagingEntry():
 					box.precooled = 1
 					box.precooled_at = frappe.utils.now_datetime()
 				box.staged = 1
+				# When it reached the spot: the coldstore list counts its time there from this.
+				box.staged_at = frappe.utils.now_datetime()
 				# Record WHERE the box was staged in the dispatch coldstore
 				# (QR that maps to a physical place). Optional for older callers.
 				if location:
