@@ -328,7 +328,7 @@ scheduler_events = {
 # Testing
 # -------
 
-# before_tests = "upande_packhouse.install.before_tests"
+before_tests = "upande_packhouse.install.before_tests"
 
 # Overriding Methods
 # ------------------------------

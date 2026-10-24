@@ -121,3 +121,96 @@ def _run():
 				title=f"upande_packhouse post-deploy step failed: {step.__name__}",
 				message=frappe.get_traceback(),
 			)
+
+
+# ─── tests ────────────────────────────────────────────────────────────────
+
+TEST_COMPANY = "Karen Roses"
+
+
+def before_tests():
+	"""Give a bare CI site the masters live has and the suite reads: a Company (the
+	setup wizard's, with its Price Lists and UOMs), the Business Unit and Farm
+	accounting dimensions (Sales Order's `business_unit` and `farm` columns), the
+	Roses Business Unit and the "Cash before collection" payment terms."""
+	frappe.clear_cache()
+	if not frappe.db.count("Company"):
+		_make_test_company()
+	if not frappe.db.exists("Business Unit", "Roses"):
+		frappe.get_doc({"doctype": "Business Unit", "business_unit_name": "Roses"}).insert(
+			ignore_permissions=True
+		)
+	for document_type in ("Business Unit", "Farm"):
+		_ensure_accounting_dimension(document_type)
+	_ensure_payment_terms("Cash before collection")
+	frappe.db.commit()  # nosemgrep
+	frappe.clear_cache()
+
+
+def _make_test_company():
+	from erpnext.setup.setup_wizard.setup_wizard import setup_complete
+
+	year = frappe.utils.now_datetime().year
+	setup_complete(
+		{
+			"currency": "KES",
+			"full_name": "Test User",
+			"company_name": TEST_COMPANY,
+			"timezone": "Africa/Nairobi",
+			"company_abbr": "KR",
+			"country": "Kenya",
+			"fy_start_date": "{0}-01-01".format(year),
+			"fy_end_date": "{0}-12-31".format(year),
+			"language": "english",
+			"company_tagline": "Testing",
+			"email": "test@example.com",
+			"password": "test",
+			"chart_of_accounts": "Standard",
+		}
+	)
+
+
+def _ensure_accounting_dimension(document_type):
+	from erpnext.accounts.doctype.accounting_dimension.accounting_dimension import (
+		make_dimension_in_accounting_doctypes,
+	)
+
+	name = frappe.db.get_value("Accounting Dimension", {"document_type": document_type})
+	doc = (
+		frappe.get_doc("Accounting Dimension", name)
+		if name
+		else frappe.get_doc({"doctype": "Accounting Dimension", "document_type": document_type}).insert(
+			ignore_permissions=True
+		)
+	)
+	frappe.clear_cache(doctype="Sales Order")
+	if not frappe.get_meta("Sales Order").has_field(doc.fieldname):
+		make_dimension_in_accounting_doctypes(doc=doc)
+
+
+def _ensure_payment_terms(name):
+	if not frappe.db.exists("Payment Term", name):
+		frappe.get_doc(
+			{
+				"doctype": "Payment Term",
+				"payment_term_name": name,
+				"invoice_portion": 100,
+				"due_date_based_on": "Day(s) after invoice date",
+				"credit_days": 0,
+			}
+		).insert(ignore_permissions=True)
+	if not frappe.db.exists("Payment Terms Template", name):
+		frappe.get_doc(
+			{
+				"doctype": "Payment Terms Template",
+				"template_name": name,
+				"terms": [
+					{
+						"payment_term": name,
+						"invoice_portion": 100,
+						"due_date_based_on": "Day(s) after invoice date",
+						"credit_days": 0,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
