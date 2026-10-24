@@ -131,8 +131,8 @@ TEST_COMPANY = "Karen Roses"
 def before_tests():
 	"""Give a bare CI site the masters live has and the suite reads: a Company (the
 	setup wizard's, with its Price Lists and UOMs), the Business Unit and Farm
-	accounting dimensions (Sales Order's `business_unit` and `farm` columns), the
-	Roses Business Unit and the "Cash before collection" payment terms."""
+	accounting dimensions (Sales Order's `business_unit` and `farm` columns), Sales
+	Order's `custom_farm`, the Roses Business Unit and the "Cash before collection" payment terms."""
 	frappe.clear_cache()
 	if not frappe.db.count("Company"):
 		_make_test_company()
@@ -142,6 +142,14 @@ def before_tests():
 		)
 	for document_type in ("Business Unit", "Farm"):
 		_ensure_accounting_dimension(document_type)
+	# Sales Order's own farm field, which live carries from another app's customizations.
+	if not frappe.get_meta("Sales Order").has_field("custom_farm"):
+		from frappe.custom.doctype.custom_field.custom_field import create_custom_field
+
+		create_custom_field(
+			"Sales Order",
+			{"fieldname": "custom_farm", "label": "Farm", "fieldtype": "Link", "options": "Farm"},
+		)
 	_ensure_payment_terms("Cash before collection")
 	frappe.db.commit()  # nosemgrep
 	frappe.clear_cache()
