@@ -2845,6 +2845,19 @@ def fetchLoadingData():
 		if loading_plan:
 			sorted_items = sorted(loading_plan.loading_plan_items, key=lambda x: x.loading_position or 0)
 
+			# OPLs another truck's plan carries never join this one as "made after the plan".
+			other_plan_opls = set(
+				frappe.get_all(
+					"Loading Plan Item",
+					filters={
+						"parenttype": "Loading Plan",
+						"parent": ["in", [p.name for p in all_plans if p.name != plan_name] or [""]],
+						"order_pick_list": ["is", "set"],
+					},
+					pluck="order_pick_list",
+				)
+			)
+
 			# Group rows by (customer, delivery_point) -- several rows can
 			# share one real stop -- keeping each stop's rows in position
 			# order (plain dict: insertion-ordered since Python 3.7).
@@ -2926,7 +2939,11 @@ def fetchLoadingData():
 						if so:
 							row_opls[opl.name] = (so, opl)
 					linked = set(linked_names)
-					unplanned = [pair for pair in opl_queue if pair[1].name not in linked]
+					unplanned = [
+						pair
+						for pair in opl_queue
+						if pair[1].name not in linked and pair[1].name not in other_plan_opls
+					]
 
 				stop_key = customer + "|" + delivery_point
 				ls_stop_loaded = ls_loaded_by_stop.get(stop_key, 0)
@@ -3119,7 +3136,9 @@ def createLoadingPlan(
 	if not doc.fill_from_orders():
 		return {
 			"status": "error",
-			"message": _("No orders with pick lists for {0} at {1}.").format(delivery_date, plan_location),
+			"message": _("No orders with pick lists for {0} at {1}.").format(delivery_date, plan_location)
+			if doc.flags.fill_message == "0 orders found"
+			else (doc.flags.fill_message or "") + ".",
 		}
 	try:
 		doc.insert()
@@ -3151,7 +3170,9 @@ def refreshLoadingPlan(plan: str):
 	if not doc.fill_from_orders():
 		return {
 			"status": "error",
-			"message": _("No orders with pick lists for {0} at {1}.").format(doc.delivery_date, doc.location),
+			"message": _("No orders with pick lists for {0} at {1}.").format(doc.delivery_date, doc.location)
+			if doc.flags.fill_message == "0 orders found"
+			else (doc.flags.fill_message or "") + ".",
 		}
 	doc.save()
 	return {

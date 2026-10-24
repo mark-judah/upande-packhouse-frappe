@@ -9,9 +9,12 @@ class LoadingPlan(Document):
 	def fill_from_orders(self):
 		"""Replace the rows with the delivery date/location's orders, as the form's
 		"Fetch Orders" button does. Returns how many rows were added."""
-		res = fetch_loading_plan_orders(str(self.delivery_date), self.location)
+		res = fetch_loading_plan_orders(
+			str(self.delivery_date), self.location, self.vehicle, None if self.is_new() else self.name
+		)
 		if res.get("status") != "success":
 			frappe.throw(res.get("message") or frappe._("Could not fetch orders."))
+		self.flags.fill_message = res.get("message")
 		self.set("loading_plan_items", [])
 		for item in res.get("items") or []:
 			self.append(
@@ -85,14 +88,131 @@ def _opl_boxes_by_type(opl_name):
 	return {bt: len(b) for bt, b in boxes.items()}
 
 
+def _box_capacity(vehicle):
+	"""The dispatch truck's Box Capacity; 0 when it has none (no limit)."""
+	if not vehicle or not frappe.get_meta("Vehicle").has_field("custom_box_capacity"):
+		return 0
+	return frappe.utils.cint(frappe.db.get_value("Vehicle", vehicle, "custom_box_capacity"))
+
+
+def _loaded_by_vehicle(delivery_date):
+	"""{vehicle: {opl: boxes}} loaded on the day's Loading Sheet ('' = no vehicle recorded)."""
+	items = frappe.get_all(
+		"Loading Sheet Item",
+		filters={"parent": "LS-" + str(delivery_date), "parenttype": "Loading Sheet"},
+		fields=["box_label_link", "box_label", "vehicle"],
+	)
+	names = list({it.box_label_link or it.box_label for it in items if it.box_label_link or it.box_label})
+	opl_of = (
+		{
+			b.name: b.order_pick_list
+			for b in frappe.get_all(
+				"Box Label", filters={"name": ["in", names]}, fields=["name", "order_pick_list"]
+			)
+		}
+		if names
+		else {}
+	)
+	out = {}
+	for it in items:
+		opl = opl_of.get(it.box_label_link or it.box_label)
+		if opl:
+			per = out.setdefault(it.vehicle or "", {})
+			per[opl] = per.get(opl, 0) + 1
+	return out
+
+
+def other_trucks_boxes(delivery_date, location, vehicle, plan=None):
+	"""{opl: boxes} the location's other trucks carry that day: every box loaded on
+	them, and for one with a Box Capacity that hasn't left, the rest its plan holds."""
+	from upande_packhouse.mobile.api import location_departures, truck_key
+
+	others = {
+		p.vehicle: p.name
+		for p in frappe.get_all(
+			"Loading Plan",
+			filters={"delivery_date": delivery_date, "location": location},
+			fields=["name", "vehicle"],
+		)
+		if p.vehicle and p.vehicle != vehicle and p.name != plan
+	}
+	loaded = _loaded_by_vehicle(delivery_date)
+	# A box loaded before loading recorded its truck is the other truck's (when there
+	# is one), never this one's.
+	blank = loaded.pop("", {})
+	if others:
+		sole = next(iter(others)) if len(others) == 1 else ""
+		per = loaded.setdefault(sole, {})
+		for opl, n in blank.items():
+			per[opl] = per.get(opl, 0) + n
+
+	claim = {}
+	for v, per in loaded.items():
+		if v == vehicle:
+			continue
+		for opl, n in per.items():
+			claim[opl] = claim.get(opl, 0) + n
+
+	departures = location_departures("LS-" + str(delivery_date))
+	for v, name in others.items():
+		if not _box_capacity(v) or departures.get(truck_key(location, v)):
+			continue
+		planned = {}
+		for r in frappe.get_all(
+			"Loading Plan Item",
+			filters={"parent": name, "parenttype": "Loading Plan"},
+			fields=["order_pick_list", "number_of_boxes"],
+		):
+			if r.order_pick_list:
+				planned[r.order_pick_list] = planned.get(r.order_pick_list, 0) + (r.number_of_boxes or 0)
+		for opl, n in planned.items():
+			claim[opl] = claim.get(opl, 0) + max(0, n - loaded.get(v, {}).get(opl, 0))
+	return claim
+
+
+def _truck_share(entries, claim, capacity):
+	"""The entries (in loading order) less the boxes other trucks carry, cut to the
+	truck's capacity (0 = no limit). An OPL with no box count yet stays only while no
+	other truck has any of it."""
+	left = dict(claim)
+	room = capacity or None
+	out = []
+	for e in entries:
+		n = e["number_of_boxes"]
+		taken = left.get(e["opl"], 0)
+		if not n:
+			if taken:
+				continue
+		else:
+			cut = min(n, taken)
+			left[e["opl"]] = taken - cut
+			n -= cut
+			if not n:
+				continue
+		if room is not None:
+			if room <= 0:
+				break
+			n = min(n, room)
+			room -= n
+		out.append({**e, "number_of_boxes": n})
+	return out
+
+
 @frappe.whitelist()
-def fetch_loading_plan_orders(delivery_date: str | None = None, location: str | None = None):
+def fetch_loading_plan_orders(
+	delivery_date: str | None = None,
+	location: str | None = None,
+	vehicle: str | None = None,
+	plan: str | None = None,
+):
 	"""The orders to load for a delivery date/location, from their Order Pick Lists --
 	the orders that have stock allocated -- one row per OPL and box type, with the
 	OPL's real box count (its Packing Guide; a mixed box/bunch's colours share boxes)
 	and what is packed on it. Sales Orders with no OPL (nothing allocated) are left out;
-	so are cancelled orders and OPLs. Called by the Loading Plan form's "Fetch Orders"
-	button (loading_plan.js).
+	so are cancelled orders and OPLs. With a `vehicle`, the boxes the location's other
+	trucks carry are left out and the rest is cut to the truck's Box Capacity (`plan`
+	is the truck's own plan, never counted as another's). Called by the Loading Plan
+	form's "Fetch Orders" button (loading_plan.js).
 	"""
 	location_farm = {"Karen": "Karen", "Ravine": "Kapkolia"}
 	farm = location_farm.get(location) if location else None
@@ -182,12 +302,28 @@ def fetch_loading_plan_orders(delivery_date: str | None = None, location: str | 
 			)
 
 	entries.sort(key=lambda x: (x["delivery_point"], x["customer"], x["order_name"], x["box_type"]))
+	capacity = 0
+	found = len(entries)
+	if vehicle and location:
+		capacity = _box_capacity(vehicle)
+		claim = other_trucks_boxes(delivery_date, location, vehicle, plan)
+		if claim or capacity:
+			entries = _truck_share(entries, claim, capacity)
 	items = []
 	for position, e in enumerate(entries, start=1):
 		items.append({**e, "loading_position": position})
 
+	boxes = sum(i["number_of_boxes"] or 0 for i in items)
+	if found and not items:
+		message = "Every box for {0} at {1} is on another truck".format(delivery_date, location)
+	elif capacity:
+		message = "{0} orders found, {1} of {2} boxes".format(len(items), boxes, capacity)
+	else:
+		message = str(len(items)) + " orders found"
 	return {
 		"status": "success",
-		"message": str(len(items)) + " orders found",
+		"message": message,
 		"items": items,
+		"boxes": boxes,
+		"capacity": capacity,
 	}
