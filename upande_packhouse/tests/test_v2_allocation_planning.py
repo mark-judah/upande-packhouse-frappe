@@ -125,7 +125,10 @@ class TestConfirmWritesSalesOrderChildTable(unittest.TestCase):
 	def test_confirm_update_partial_two_farms_unconfirm(self):
 		so, idx, soi, cap = self.row.parent, self.row.idx, self.row.name, float(self.row.cap)
 		soi_before = frappe.db.get_value(
-			"Sales Order Item", soi, ["stock_qty", "qty", "custom_ordered_quantity", "item_code"], as_dict=True
+			"Sales Order Item",
+			soi,
+			["stock_qty", "qty", "custom_ordered_quantity", "item_code"],
+			as_dict=True,
 		)
 		with _Rollback():
 			self.assertEqual(self._entries(soi), [])
@@ -137,7 +140,8 @@ class TestConfirmWritesSalesOrderChildTable(unittest.TestCase):
 			self.assertEqual(len(e), 1)
 			self.assertEqual((e[0].farm, e[0].stems), ("Kapkolia", part))
 			self.assertEqual(
-				(e[0].parent, e[0].parenttype, e[0].parentfield), (so, "Sales Order", "custom_confirmed_stems_table")
+				(e[0].parent, e[0].parenttype, e[0].parentfield),
+				(so, "Sales Order", "custom_confirmed_stems_table"),
 			)
 			self.assertEqual(frappe.db.get_value("Sales Order", so, "docstatus"), 1)  # still submitted
 			# the page's own read endpoint now shows it
@@ -156,7 +160,10 @@ class TestConfirmWritesSalesOrderChildTable(unittest.TestCase):
 			self.assertEqual([(x.farm, x.stems) for x in e], [("Kapkolia", part * 2)])
 			# 3. second farm -> second child row; total = sum
 			m = _confirm(so, idx, "Torongo", "confirm", part)
-			self.assertEqual(sorted((x.farm, x.stems) for x in self._entries(soi)), [("Kapkolia", part * 2), ("Torongo", part)])
+			self.assertEqual(
+				sorted((x.farm, x.stems) for x in self._entries(soi)),
+				[("Kapkolia", part * 2), ("Torongo", part)],
+			)
 			ln, _ = self._line(so, soi)
 			self.assertEqual(ln["confirmed_stems"], part * 3)
 			self.assertEqual(sum(b["confirmed"] for b in ln["breakdown"]), part * 3)
@@ -164,7 +171,10 @@ class TestConfirmWritesSalesOrderChildTable(unittest.TestCase):
 			m = _confirm(so, idx, "Torongo", "confirm", cap)
 			self.assertFalse(m["success"])
 			self.assertIn("Cannot confirm", m["error"])
-			self.assertEqual(sorted((x.farm, x.stems) for x in self._entries(soi)), [("Kapkolia", part * 2), ("Torongo", part)])
+			self.assertEqual(
+				sorted((x.farm, x.stems) for x in self._entries(soi)),
+				[("Kapkolia", part * 2), ("Torongo", part)],
+			)
 			# 5. full confirm by one farm up to the cap -> state "full"
 			m = _confirm(so, idx, "Torongo", "confirm", cap - part * 2)
 			self.assertTrue(m["success"])
@@ -182,7 +192,10 @@ class TestConfirmWritesSalesOrderChildTable(unittest.TestCase):
 			self.assertEqual((ln["confirmed_stems"], ln["state"]), (0.0, "open"))
 			# the Sales Order Item itself was never a write target
 			soi_now = frappe.db.get_value(
-				"Sales Order Item", soi, ["stock_qty", "qty", "custom_ordered_quantity", "item_code"], as_dict=True
+				"Sales Order Item",
+				soi,
+				["stock_qty", "qty", "custom_ordered_quantity", "item_code"],
+				as_dict=True,
 			)
 			self.assertEqual(soi_now, soi_before)
 
@@ -244,7 +257,9 @@ class TestAllocationPlanningNumbers(unittest.TestCase):
 			t = ln["breakdown_totals"]
 			self.assertAlmostEqual(sum(b["confirmed"] for b in ln["breakdown"]), ln["confirmed_stems"], 6)
 			self.assertAlmostEqual(t["confirmed"], ln["confirmed_stems"], 6)
-			self.assertAlmostEqual(t["ordered"] - t["confirmed"], t["unconfirmed"], 6) if t["confirmed"] <= t["ordered"] else None
+			self.assertAlmostEqual(t["ordered"] - t["confirmed"], t["unconfirmed"], 6) if t["confirmed"] <= t[
+				"ordered"
+			] else None
 			self.assertAlmostEqual(sum(b["available"] for b in ln["breakdown"]), t["available"], 6)
 			for b in ln["breakdown"]:  # held + allocated + free == on shelf, available <= free
 				self.assertLessEqual(b["available"], b["on_shelf"] - b["held"] - b["allocated"] + 1e-6)
@@ -256,7 +271,9 @@ class TestAllocationPlanningNumbers(unittest.TestCase):
 			r = ap.get_allocation_planning(from_date=DAY, to_date=DAY)
 			pairs = {(ln["item_code"], ln["length"]) for ln in r["lines"]}
 			cells, _rows = stock.available_cells(pairs=pairs, varieties=sorted({p[0] for p in pairs}))
-			self.assertAlmostEqual(r["kpis"]["available_stems"], sum(g.allocatable for g in cells.values()), 6)
+			self.assertAlmostEqual(
+				r["kpis"]["available_stems"], sum(g.allocatable for g in cells.values()), 6
+			)
 			self.assertAlmostEqual(sum(c["available"] for c in r["cover"]), r["kpis"]["available_stems"], 6)
 			self.assertAlmostEqual(sum(c["ordered"] for c in r["cover"]), r["kpis"]["ordered_stems"], 6)
 			self.assertAlmostEqual(sum(c["uncovered"] for c in r["cover"]), r["kpis"]["uncovered_stems"], 6)
@@ -293,15 +310,23 @@ class TestAvailableStockIsOneNumber(unittest.TestCase):
 		self.assertTrue(a["lines"], (variety, length))
 		line = a["lines"][0]
 		ap_cell = next(b for b in line["breakdown"] if b["farm"] == farm)
-		sv = stock_visibility.get_stock_visibility(from_date=FROM, to_date=TO, farm=farm, length=length, q=variety)
+		sv = stock_visibility.get_stock_visibility(
+			from_date=FROM, to_date=TO, farm=farm, length=length, q=variety
+		)
 		sv_row = next(r for r in sv["rows"] if r["variety"] == variety)
 		av = avails.get_avails(from_date=FROM, to_date=TO, farm=farm, length=length, variety=variety)
-		av_cell = next(c for r in av["rows"] if r["variety"] == variety for c in r["cells"] if c["farm"] == farm)
+		av_cell = next(
+			c for r in av["rows"] if r["variety"] == variety for c in r["cells"] if c["farm"] == farm
+		)
 		cr = cold_room.get_cold_room(farm=farm)
 		cr_cell = next(
-			c for c in cr["shelf_rows"] if (c["variety"], c["stem_length"] or "", c["farm"]) == (variety, length, farm)
+			c
+			for c in cr["shelf_rows"]
+			if (c["variety"], c["stem_length"] or "", c["farm"]) == (variety, length, farm)
 		)
-		core = stock.available_cells(farms=[farm], varieties=[variety], lengths=[length])[0][(variety, length, farm)]
+		core = stock.available_cells(farms=[farm], varieties=[variety], lengths=[length])[0][
+			(variety, length, farm)
+		]
 		msg = (variety, length, farm)
 		# on shelf = held + allocated + free, identical on every page
 		for name, v in (
@@ -311,12 +336,26 @@ class TestAvailableStockIsOneNumber(unittest.TestCase):
 			("cold_room", cr_cell["shelved"]),
 		):
 			self.assertAlmostEqual(v, core.stems, 6, f"on shelf {name} {msg}")
-		for name, v in (("ap", ap_cell["held"]), ("sv", sv_row["held"]), ("avails", av_cell["held"]), ("cr", cr_cell["held"])):
+		for name, v in (
+			("ap", ap_cell["held"]),
+			("sv", sv_row["held"]),
+			("avails", av_cell["held"]),
+			("cr", cr_cell["held"]),
+		):
 			self.assertAlmostEqual(v, core.held, 6, f"held {name} {msg}")
-		for name, v in (("ap", ap_cell["allocated"]), ("sv", sv_row["allocated"]), ("avails", av_cell["allocated"]), ("cr", cr_cell["allocated"])):
+		for name, v in (
+			("ap", ap_cell["allocated"]),
+			("sv", sv_row["allocated"]),
+			("avails", av_cell["allocated"]),
+			("cr", cr_cell["allocated"]),
+		):
 			self.assertAlmostEqual(v, core.allocated, 6, f"allocated {name} {msg}")
 		# available = allocatable: Allocation Planning, Stock Visibility, Avails
-		for name, v in (("ap", ap_cell["available"]), ("sv", sv_row["allocatable"]), ("avails", av_cell["allocatable"])):
+		for name, v in (
+			("ap", ap_cell["available"]),
+			("sv", sv_row["allocatable"]),
+			("avails", av_cell["allocatable"]),
+		):
 			self.assertAlmostEqual(v, core.allocatable, 6, f"available {name} {msg}")
 		# Cold Room shows `free` (before the too-old / cooling cut): free >= available, same free elsewhere
 		self.assertAlmostEqual(cr_cell["free"], core.free, 6)
@@ -337,18 +376,24 @@ class TestAvailableStockIsOneNumber(unittest.TestCase):
 			if len(combos) < 3:
 				self.skipTest("fewer than 3 cells")
 			got = [self._check(*c) for c in combos]
-			self.assertTrue(any(g.allocatable > 0 for g in got), "relaxed config should expose allocatable stems")
+			self.assertTrue(
+				any(g.allocatable > 0 for g in got), "relaxed config should expose allocatable stems"
+			)
 
 	def test_core_variety_availability_matches_allocatable(self):
 		with _relaxed():
 			cells, _ = stock.available_cells()
-			variety = next(k[0] for k, g in cells.items() if g.allocatable > 0)
+			variety = next((k[0] for k, g in cells.items() if g.allocatable > 0), None)
+			if not variety:
+				self.skipTest("no allocatable stock on this site")
 			by_farm = stock.variety_availability([variety])[variety]
 			expect = defaultdict(float)
 			for (v, _ln, farm), g in cells.items():
 				if v == variety and g.allocatable > 0:
 					expect[farm] += g.allocatable
-			self.assertEqual({k: round(v, 6) for k, v in by_farm.items()}, {k: round(v, 6) for k, v in expect.items()})
+			self.assertEqual(
+				{k: round(v, 6) for k, v in by_farm.items()}, {k: round(v, 6) for k, v in expect.items()}
+			)
 
 
 if __name__ == "__main__":

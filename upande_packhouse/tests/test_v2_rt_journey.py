@@ -4,6 +4,7 @@ Builder tests use pure in-memory fixtures (no database). The *_site tests read t
 site read-only: nothing is written or committed, and they skip when the data is absent."""
 
 import unittest
+from typing import ClassVar
 
 import frappe
 
@@ -11,29 +12,93 @@ from upande_packhouse.api.v2 import rt_journey as RJ
 
 
 def se(name, typ, date, time, qty=0, **kw):
-	d = dict(name=name, stock_entry_type=typ, posting_date=date, posting_time=time, creation=f"{date} {time}", owner="u@x.com", farm="Karen",
-		custom_greenhouse="GH 1 - K", custom_stem_length="52cm", qty=qty, items=[{"item": "Aqua", "qty": qty, "length": "52cm", "s": "A - K", "t": "B - K"}] if qty else [])
+	d = dict(
+		name=name,
+		stock_entry_type=typ,
+		posting_date=date,
+		posting_time=time,
+		creation=f"{date} {time}",
+		owner="u@x.com",
+		farm="Karen",
+		custom_greenhouse="GH 1 - K",
+		custom_stem_length="52cm",
+		qty=qty,
+		items=[{"item": "Aqua", "qty": qty, "length": "52cm", "s": "A - K", "t": "B - K"}] if qty else [],
+	)
 	d.update(kw)
 	return d
 
 
 def R(**kw):
-	base = dict(id="B1", ses=[], cancelled=[], shelf_log=[], shelf_items=[], log_comments=[], discard_rows=[], pli=[], bas=[], bas_alloc=[],
-		replacements=[], anomalies=[], tevents=[], stem_repl=[], pack_reject=[], stock_take=[], bucket_count=[], trace=[], qr={})
+	base = dict(
+		id="B1",
+		ses=[],
+		cancelled=[],
+		shelf_log=[],
+		shelf_items=[],
+		log_comments=[],
+		discard_rows=[],
+		pli=[],
+		bas=[],
+		bas_alloc=[],
+		replacements=[],
+		anomalies=[],
+		tevents=[],
+		stem_repl=[],
+		pack_reject=[],
+		stock_take=[],
+		bucket_count=[],
+		trace=[],
+		qr={},
+	)
 	base.update(kw)
 	return base
 
 
 def log(name, shelf, on, off=None, reason="Shelved", qty=50, **kw):
-	d = dict(name=name, shelf=shelf, farm="Kap", variety="Aqua", stem_qty=qty, stem_length="52cm", greenhouse="", shelved_on=on, removed_on=off, reason=reason,
-		shelved_by="u", harvest_date=None, receiving_date=None, shelf_item=None, harvester=None, graded_by=None, cut_stage=None)
+	d = dict(
+		name=name,
+		shelf=shelf,
+		farm="Kap",
+		variety="Aqua",
+		stem_qty=qty,
+		stem_length="52cm",
+		greenhouse="",
+		shelved_on=on,
+		removed_on=off,
+		reason=reason,
+		shelved_by="u",
+		harvest_date=None,
+		receiving_date=None,
+		shelf_item=None,
+		harvester=None,
+		graded_by=None,
+		cut_stage=None,
+	)
 	d.update(kw)
 	return d
 
 
 def pli(opl, name, bucket="B1", qty=10, created="2026-10-02 09:00:00", **kw):
-	d = dict(name=name, opl=opl, parent=opl, idx=1, bucket=bucket, stock_qty=qty, creation=created, modified=created, shelf="K-1", issued=0, issued_offline=0,
-		not_found=0, opl_docstatus=1, opl_customer="Cust", opl_order_name=opl + "-ORD", item_code="Aqua", custom_box_id=1)
+	d = dict(
+		name=name,
+		opl=opl,
+		parent=opl,
+		idx=1,
+		bucket=bucket,
+		stock_qty=qty,
+		creation=created,
+		modified=created,
+		shelf="K-1",
+		issued=0,
+		issued_offline=0,
+		not_found=0,
+		opl_docstatus=1,
+		opl_customer="Cust",
+		opl_order_name=opl + "-ORD",
+		item_code="Aqua",
+		custom_box_id=1,
+	)
 	d.update(kw)
 	return d
 
@@ -41,7 +106,8 @@ def pli(opl, name, bucket="B1", qty=10, created="2026-10-02 09:00:00", **kw):
 def two_cycles():
 	"""Two cycles the same day (08:00 and 14:00): the date-tie case."""
 	return [
-		se("H1", "Harvesting", "2026-10-01", "08:00:00", 10, custom_receiving_entry="R1"), se("H1b", "Harvesting", "2026-10-01", "08:00:30", 10, custom_receiving_entry="R1"),
+		se("H1", "Harvesting", "2026-10-01", "08:00:00", 10, custom_receiving_entry="R1"),
+		se("H1b", "Harvesting", "2026-10-01", "08:00:30", 10, custom_receiving_entry="R1"),
 		se("R1", "Receiving", "2026-10-01", "09:00:00", 20, custom_receiving_batch_id="BATCH1"),
 		se("H2", "Harvesting", "2026-10-01", "14:00:00", 30, custom_receiving_entry="R2"),
 		se("R2", "Receiving", "2026-10-01", "15:00:00", 30, custom_receiving_batch_id="BATCH2"),
@@ -65,8 +131,17 @@ class TestCycles(unittest.TestCase):
 		self.assertEqual(len(evs(cyc(res)[0], "harvest")), 1)  # 2 scans, one step
 
 	def test_same_day_tie_places_by_full_timestamp_not_date(self):
-		r = R(ses=two_cycles(), shelf_log=[log("L1", "K-1", "2026-10-01 10:00:00", "2026-10-01 11:00:00", "Issued to Sales Order"), log("L2", "K-2", "2026-10-01 16:00:00")],
-			pli=[pli("OPL1", "P1", created="2026-10-01 09:30:00"), pli("OPL2", "P2", created="2026-10-01 16:30:00")])
+		r = R(
+			ses=two_cycles(),
+			shelf_log=[
+				log("L1", "K-1", "2026-10-01 10:00:00", "2026-10-01 11:00:00", "Issued to Sales Order"),
+				log("L2", "K-2", "2026-10-01 16:00:00"),
+			],
+			pli=[
+				pli("OPL1", "P1", created="2026-10-01 09:30:00"),
+				pli("OPL2", "P2", created="2026-10-01 16:30:00"),
+			],
+		)
 		res = RJ.build_bucket(R(**r))
 		c1, c2 = cyc(res)
 		self.assertEqual([s["where"] for s in evs(c1, "shelve")], ["K-1 · Kap"])
@@ -89,7 +164,15 @@ class TestCycles(unittest.TestCase):
 class TestQuality(unittest.TestCase):
 	def test_quarantine_release_reject_with_quantities_placed_by_batch(self):
 		ses = two_cycles() + [
-			se("Q1", "Receiving Quarantined", "2026-10-01", "09:10:00", 20, custom_receiving_batch_id="BATCH1", custom_bucket_id="b1"),
+			se(
+				"Q1",
+				"Receiving Quarantined",
+				"2026-10-01",
+				"09:10:00",
+				20,
+				custom_receiving_batch_id="BATCH1",
+				custom_bucket_id="b1",
+			),
 			# released AFTER cycle 2 started: only the batch can place it
 			se("A1", "Quarantine Accept", "2026-10-01", "16:00:00", 15, custom_receiving_batch_id="BATCH1"),
 			se("X1", "Quarantine Rejects", "2026-10-01", "16:00:01", 5, custom_receiving_batch_id="BATCH1"),
@@ -100,11 +183,23 @@ class TestQuality(unittest.TestCase):
 		self.assertIn("5 stems rejected", evs(c1, "reject")[0]["line"])
 
 	def test_open_quarantine_is_current_stage(self):
-		ses = two_cycles()[:3] + [se("Q1", "Receiving Quarantined", "2026-10-01", "09:10:00", 20, custom_receiving_batch_id="BATCH1")]
+		ses = two_cycles()[:3] + [
+			se(
+				"Q1",
+				"Receiving Quarantined",
+				"2026-10-01",
+				"09:10:00",
+				20,
+				custom_receiving_batch_id="BATCH1",
+			)
+		]
 		self.assertEqual(cyc(RJ.build_bucket(R(ses=ses)))[0]["stage"]["key"], "quarantine")
 
 	def test_coldroom_reject_and_ledger_legs_are_kept(self):
-		ses = two_cycles() + [se("C1", "Coldroom Rejects", "2026-10-01", "10:00:00", 3), se("M1", "Move To Graded Sold", "2026-10-01", "10:30:00", 5)]
+		ses = two_cycles() + [
+			se("C1", "Coldroom Rejects", "2026-10-01", "10:00:00", 3),
+			se("M1", "Move To Graded Sold", "2026-10-01", "10:30:00", 5),
+		]
 		c1 = cyc(RJ.build_bucket(R(ses=ses)))[0]
 		self.assertEqual(len(evs(c1, "reject")), 1)
 		self.assertEqual(len(c1["ledger"]), 1)
@@ -112,27 +207,64 @@ class TestQuality(unittest.TestCase):
 
 class TestDiscardAndAnomaly(unittest.TestCase):
 	def test_discard_se_listed_not_discarded_and_stage(self):
-		d = dict(name="D1", parent="DR1", discarded=0, farm="Karen", shelf="K-1", age_days=5, variety="Aqua", stem_qty=20, stem_length="52cm", harvest_date="2026-10-01 08:00:00",
-			creation="2026-10-04 00:00:00", workflow_state="Approved", requested_date="2026-10-04", approval_date="2026-10-04", docstatus=1)
+		d = dict(
+			name="D1",
+			parent="DR1",
+			discarded=0,
+			farm="Karen",
+			shelf="K-1",
+			age_days=5,
+			variety="Aqua",
+			stem_qty=20,
+			stem_length="52cm",
+			harvest_date="2026-10-01 08:00:00",
+			creation="2026-10-04 00:00:00",
+			workflow_state="Approved",
+			requested_date="2026-10-04",
+			approval_date="2026-10-04",
+			docstatus=1,
+		)
 		res = RJ.build_bucket(R(ses=two_cycles(), discard_rows=[d]))
 		c1, c2 = cyc(res)
 		self.assertEqual(len(evs(c1, "discard_listed")) + len(evs(c2, "discard_listed")), 1)
 		listed = (evs(c1, "discard_listed") or evs(c2, "discard_listed"))[0]
 		self.assertIn("never discarded", listed["flags"][0])
-		ses = two_cycles() + [se("DS", "Discard", "2026-10-05", "10:00:00", 30, creation="2026-10-05 10:00:00")]
+		ses = two_cycles() + [
+			se("DS", "Discard", "2026-10-05", "10:00:00", 30, creation="2026-10-05 10:00:00")
+		]
 		self.assertEqual(cyc(RJ.build_bucket(R(ses=ses)))[1]["stage"]["key"], "discarded")
 
 	def test_reuse_anomaly_lands_on_the_cycle_its_harvest_started(self):
-		a = dict(name="BRA1", skipped_step="Issuing Skipped", detected_on="2026-10-01 14:00:01", farm="Karen", greenhouse="", variety="Aqua", stems=20, previous_shelf="K-1",
-			discard_request=None, harvest_stock_entry="H2")
+		a = dict(
+			name="BRA1",
+			skipped_step="Issuing Skipped",
+			detected_on="2026-10-01 14:00:01",
+			farm="Karen",
+			greenhouse="",
+			variety="Aqua",
+			stems=20,
+			previous_shelf="K-1",
+			discard_request=None,
+			harvest_stock_entry="H2",
+		)
 		c1, c2 = cyc(RJ.build_bucket(R(ses=two_cycles(), anomalies=[a])))
 		self.assertTrue([s for s in c2["steps"] if s.get("anomaly") and not s.get("leftover")])
 		self.assertTrue([s for s in c1["steps"] if s.get("leftover")])
 		self.assertTrue(any("anomaly" in f["text"].lower() for f in c2["flags"]))
 
 	def test_skipped_transfer_placed_by_time(self):
-		a = dict(name="BRA2", skipped_step="Skipped Transfer", detected_on="2026-10-01 09:30:00", farm="Kap", greenhouse="", variety="Aqua", stems=20, previous_shelf="REM-1",
-			discard_request=None, harvest_stock_entry=None)
+		a = dict(
+			name="BRA2",
+			skipped_step="Skipped Transfer",
+			detected_on="2026-10-01 09:30:00",
+			farm="Kap",
+			greenhouse="",
+			variety="Aqua",
+			stems=20,
+			previous_shelf="REM-1",
+			discard_request=None,
+			harvest_stock_entry=None,
+		)
 		c1, c2 = cyc(RJ.build_bucket(R(ses=two_cycles(), anomalies=[a])))
 		self.assertEqual(len(evs(c1, "anomaly")), 1)
 		self.assertEqual(len(evs(c2, "anomaly")), 0)
@@ -140,7 +272,10 @@ class TestDiscardAndAnomaly(unittest.TestCase):
 
 class TestAllocation(unittest.TestCase):
 	def test_every_pick_row_shows_with_totals_and_cancelled_opl(self):
-		rows = [pli("OPL1", "P%d" % i, qty=10, idx=i, custom_box_id=i) for i in range(1, 11)] + [pli("OPL2", "Q1", qty=30, issued=1), pli("OPL3", "Z1", qty=7, opl_docstatus=2)]
+		rows = [pli("OPL1", "P%d" % i, qty=10, idx=i, custom_box_id=i) for i in range(1, 11)] + [
+			pli("OPL2", "Q1", qty=30, issued=1),
+			pli("OPL3", "Z1", qty=7, opl_docstatus=2),
+		]
 		c = cyc(RJ.build_bucket(R(ses=two_cycles()[:3], pli=rows)))[0]
 		al = [s for s in c["steps"] if s["ev"] == "allocate" and "opl_all" in s]
 		self.assertEqual(sum(s["rows"] for s in al), 12)
@@ -154,16 +289,60 @@ class TestAllocation(unittest.TestCase):
 		self.assertEqual(c["stage"]["key"], "partly_issued")
 
 	def test_replaced_row_follows_the_replacement_time(self):
-		rep = dict(name="BR1", old_bucket="OLD", new_bucket="B1", status="Open", reason="Missing", order_pick_list="OPL1", order_name="ORD", reported_at="2026-10-01 16:10:00", reported_by="u",
-			farm="Karen", notes=None, expected_shelf=None, new_shelf=None, trip=None, vehicle=None, stems=10, resolved_at=None, resolution=None)
+		rep = dict(
+			name="BR1",
+			old_bucket="OLD",
+			new_bucket="B1",
+			status="Open",
+			reason="Missing",
+			order_pick_list="OPL1",
+			order_name="ORD",
+			reported_at="2026-10-01 16:10:00",
+			reported_by="u",
+			farm="Karen",
+			notes=None,
+			expected_shelf=None,
+			new_shelf=None,
+			trip=None,
+			vehicle=None,
+			stems=10,
+			resolved_at=None,
+			resolution=None,
+		)
 		# the pick row keeps the creation time of the order made for the OLD bucket (before this bucket's 2nd cycle)
-		c1, c2 = cyc(RJ.build_bucket(R(ses=two_cycles(), pli=[pli("OPL1", "P1", created="2026-10-01 09:30:00")], replacements=[rep])))
+		c1, c2 = cyc(
+			RJ.build_bucket(
+				R(
+					ses=two_cycles(),
+					pli=[pli("OPL1", "P1", created="2026-10-01 09:30:00")],
+					replacements=[rep],
+				)
+			)
+		)
 		self.assertEqual(len([s for s in c2["steps"] if s["ev"] == "allocate" and s.get("opl")]), 1)
 		self.assertIn("Used as the replacement for OLD while issuing", evs(c2, "replace")[0]["title"])
 
 	def test_replacement_direction_for_the_old_bucket(self):
-		rep = dict(name="BR1", old_bucket="B1", new_bucket="NEW", status="Open", reason="Missing", order_pick_list="OPL1", order_name="ORD", reported_at="2026-10-01 10:10:00", reported_by="u",
-			farm="Karen", trip="T1", vehicle="V1", notes=None, expected_shelf=None, new_shelf=None, stems=10, resolved_at=None, resolution=None)
+		rep = dict(
+			name="BR1",
+			old_bucket="B1",
+			new_bucket="NEW",
+			status="Open",
+			reason="Missing",
+			order_pick_list="OPL1",
+			order_name="ORD",
+			reported_at="2026-10-01 10:10:00",
+			reported_by="u",
+			farm="Karen",
+			trip="T1",
+			vehicle="V1",
+			notes=None,
+			expected_shelf=None,
+			new_shelf=None,
+			stems=10,
+			resolved_at=None,
+			resolution=None,
+		)
 		c1 = cyc(RJ.build_bucket(R(ses=two_cycles(), replacements=[rep])))[0]
 		self.assertEqual(evs(c1, "replace")[0]["title"], "Replaced by NEW during a transfer")
 
@@ -176,13 +355,25 @@ class TestShelf(unittest.TestCase):
 			log("C", "K-3", "2026-10-01 11:10:00", "2026-10-01 12:00:00", "Offline Issuing"),
 			log("D", "K-4", "2026-10-01 12:10:00", "2026-10-01 12:10:00", "Shelf Cleared"),
 		]
-		c1 = cyc(RJ.build_bucket(R(ses=two_cycles(), shelf_log=rows, log_comments=[dict(reference_name="C", content="<p>Damaged</p>", creation="x", owner="u")])))[0]
+		c1 = cyc(
+			RJ.build_bucket(
+				R(
+					ses=two_cycles(),
+					shelf_log=rows,
+					log_comments=[
+						dict(reference_name="C", content="<p>Damaged</p>", creation="x", owner="u")
+					],
+				)
+			)
+		)[0]
 		titles = [s["title"] for s in c1["steps"]]
 		self.assertIn("Moved to another shelf", titles)  # not "Transferred out"/"In transit"
 		self.assertIn("Used as a replacement for another bucket", titles)
 		self.assertIn("Issued offline", titles)
 		self.assertTrue(any("Damaged" in s["line"] for s in evs(c1, "issue")))
-		self.assertEqual(sum(1 for s in c1["steps"] if s["ev"] == "shelve"), 2)  # the moved-to row and the phantom cleared row have no shelving step of their own
+		self.assertEqual(
+			sum(1 for s in c1["steps"] if s["ev"] == "shelve"), 2
+		)  # the moved-to row and the phantom cleared row have no shelving step of their own
 		self.assertTrue(any("no shelving record" in s["line"] for s in evs(c1, "clear")))
 
 	def test_open_log_without_shelf_item_is_flagged_and_closed_by_the_next_harvest(self):
@@ -192,21 +383,69 @@ class TestShelf(unittest.TestCase):
 		self.assertNotEqual(c1["stage"]["key"], "on_shelf")
 
 	def test_live_shelf_item_is_the_current_stage(self):
-		item = dict(name="SI1", parent="K-9", farm="Kap", variety="Aqua", stem_qty=20, stem_length="52cm", greenhouse="", date_added="2026-10-01 16:00:00", harvest_date=None, receiving_date=None)
+		item = dict(
+			name="SI1",
+			parent="K-9",
+			farm="Kap",
+			variety="Aqua",
+			stem_qty=20,
+			stem_length="52cm",
+			greenhouse="",
+			date_added="2026-10-01 16:00:00",
+			harvest_date=None,
+			receiving_date=None,
+		)
 		c2 = cyc(RJ.build_bucket(R(ses=two_cycles(), shelf_items=[item])))[1]
 		self.assertEqual(c2["stage"]["label"], "On shelf K-9")
 
 
 class TestTransfer(unittest.TestCase):
 	def test_trace_current_stage(self):
-		tr = dict(opl="OPL1", order_name="ORD", from_farm="Karen", to_farm="Kap", state="in_transit", events=[
-			dict(stage="Awaiting transfer", datetime="2026-10-01 10:00:00", user="u", detail="x"), dict(stage="Loaded on truck", datetime="2026-10-01 11:00:00", user="u", detail="V1", trip="T1"),
-			dict(stage="In transit", datetime="2026-10-01 12:00:00", user="u", detail="left")])
-		c1 = cyc(RJ.build_bucket(R(ses=two_cycles(), pli=[pli("OPL1", "P1", created="2026-10-01 09:30:00", awaiting_transfer=1)], trace=[tr])))[0]
-		self.assertEqual([s["ev"] for s in c1["steps"] if s["ev"].startswith("transfer")], ["transfer_req", "transfer_transit", "transfer_transit"])
+		tr = dict(
+			opl="OPL1",
+			order_name="ORD",
+			from_farm="Karen",
+			to_farm="Kap",
+			state="in_transit",
+			events=[
+				dict(stage="Awaiting transfer", datetime="2026-10-01 10:00:00", user="u", detail="x"),
+				dict(
+					stage="Loaded on truck", datetime="2026-10-01 11:00:00", user="u", detail="V1", trip="T1"
+				),
+				dict(stage="In transit", datetime="2026-10-01 12:00:00", user="u", detail="left"),
+			],
+		)
+		c1 = cyc(
+			RJ.build_bucket(
+				R(
+					ses=two_cycles(),
+					pli=[pli("OPL1", "P1", created="2026-10-01 09:30:00", awaiting_transfer=1)],
+					trace=[tr],
+				)
+			)
+		)[0]
+		self.assertEqual(
+			[s["ev"] for s in c1["steps"] if s["ev"].startswith("transfer")],
+			["transfer_req", "transfer_transit", "transfer_transit"],
+		)
 
 	def test_not_found_is_a_step(self):
-		c1 = cyc(RJ.build_bucket(R(ses=two_cycles(), pli=[pli("OPL1", "P1", created="2026-10-01 09:30:00", not_found=1, not_found_at="2026-10-01 10:00:00")])))[0]
+		c1 = cyc(
+			RJ.build_bucket(
+				R(
+					ses=two_cycles(),
+					pli=[
+						pli(
+							"OPL1",
+							"P1",
+							created="2026-10-01 09:30:00",
+							not_found=1,
+							not_found_at="2026-10-01 10:00:00",
+						)
+					],
+				)
+			)
+		)[0]
 		self.assertEqual(len(evs(c1, "not_found")), 1)
 
 
@@ -218,8 +457,30 @@ class TestHelpers(unittest.TestCase):
 
 	def test_flow_covers_every_event_key_used(self):
 		keys = {f[0] for f in RJ.FLOW}
-		for k in ("harvest", "grade", "receive", "quarantine", "release", "reject", "accept", "shelve", "shelf_move", "transfer_req", "transfer_transit", "transfer_recv", "allocate",
-			"issue", "replace", "not_found", "pack", "discard_listed", "discard", "clear", "anomaly", "count"):
+		for k in (
+			"harvest",
+			"grade",
+			"receive",
+			"quarantine",
+			"release",
+			"reject",
+			"accept",
+			"shelve",
+			"shelf_move",
+			"transfer_req",
+			"transfer_transit",
+			"transfer_recv",
+			"allocate",
+			"issue",
+			"replace",
+			"not_found",
+			"pack",
+			"discard_listed",
+			"discard",
+			"clear",
+			"anomaly",
+			"count",
+		):
 			self.assertIn(k, keys)
 		self.assertEqual({f[0] for f in RJ.FLOW if f[2] == "no"} >= {"qc", "dispatch"}, True)
 
@@ -227,7 +488,14 @@ class TestHelpers(unittest.TestCase):
 class TestReconciliationSite(unittest.TestCase):
 	"""Read-only: every row keyed to a real bucket appears in exactly one journey, or in `unplaced`."""
 
-	BUCKETS = ["SIM-BUCKET-0012", "RDHWGJ", "L2XS68", "450960", "DISCARD-TEST-001", "DISCARD-TEST-002"]
+	BUCKETS: ClassVar[list[str]] = [
+		"SIM-BUCKET-0012",
+		"RDHWGJ",
+		"L2XS68",
+		"450960",
+		"DISCARD-TEST-001",
+		"DISCARD-TEST-002",
+	]
 
 	@classmethod
 	def setUpClass(cls):
@@ -271,14 +539,18 @@ class TestJtestFindings(unittest.TestCase):
 
 	def test_shelf_move_pairs_with_the_row_written_in_the_same_request_not_an_earlier_shelving(self):
 		rows = [
-			log("A", "K-1", "2026-10-01 10:00:00", "2026-10-01 10:00:40", "Shelved"),  # an unrelated earlier shelving 50s before the move
+			log(
+				"A", "K-1", "2026-10-01 10:00:00", "2026-10-01 10:00:40", "Shelved"
+			),  # an unrelated earlier shelving 50s before the move
 			log("B", "K-2", "2026-10-01 10:00:50", "2026-10-01 10:01:30", RJ.S2S, shelf_item="X"),
 			log("C", "K-3", "2026-10-01 10:01:30", None, "Shelved"),
 		]
 		c1 = cyc(RJ.build_bucket(R(ses=two_cycles(), shelf_log=rows)))[0]
 		move = evs(c1, "shelf_move")[0]
 		self.assertIn("K-3", move["where"])
-		self.assertEqual(sorted(s["shelf"] for s in evs(c1, "shelve")), ["K-1", "K-2"])  # K-3 is the move's target, K-1 keeps its own step
+		self.assertEqual(
+			sorted(s["shelf"] for s in evs(c1, "shelve")), ["K-1", "K-2"]
+		)  # K-3 is the move's target, K-1 keeps its own step
 
 	def test_cleared_row_a_few_seconds_after_shelving_is_a_real_shelving_not_a_phantom(self):
 		rows = [log("A", "K-1", "2026-10-01 10:00:00", "2026-10-01 10:00:06", "Shelf Cleared")]
@@ -287,15 +559,45 @@ class TestJtestFindings(unittest.TestCase):
 		self.assertFalse(any("no shelving record" in s["line"] for s in evs(c1, "clear")))
 
 	def test_two_shelvings_in_the_same_minute_stay_two_steps(self):
-		rows = [log("A", "K-1", "2026-10-01 10:00:05", "2026-10-01 10:00:15"), log("B", "K-1", "2026-10-01 10:00:50")]
+		rows = [
+			log("A", "K-1", "2026-10-01 10:00:05", "2026-10-01 10:00:15"),
+			log("B", "K-1", "2026-10-01 10:00:50"),
+		]
 		c1 = cyc(RJ.build_bucket(R(ses=two_cycles(), shelf_log=rows)))[0]
 		self.assertEqual(len(evs(c1, "shelve")), 2)
 
 	def test_discard_row_swept_by_reuse_cleanup_is_not_a_discard_and_has_a_clock_time(self):
-		row = dict(name="D1", parent="DR1", discarded=1, farm="Kap", greenhouse="", shelf="K-1", is_shelved=1, age_days=5, variety="Aqua", stem_qty=7, stem_length="52cm",
-			harvest_date="2026-10-01 08:30:00", creation="2026-10-01 09:20:00", workflow_state="Approved", requested_date="2026-10-01", approval_date="2026-10-01", docstatus=1)
-		an = dict(name="BRA1", skipped_step="Discarding Skipped", detected_on="2026-10-01 14:00:05", farm="Kap", greenhouse="", variety="Aqua", stems=7, previous_shelf="K-1",
-			discard_request="DR1", harvest_stock_entry="H2")
+		row = dict(
+			name="D1",
+			parent="DR1",
+			discarded=1,
+			farm="Kap",
+			greenhouse="",
+			shelf="K-1",
+			is_shelved=1,
+			age_days=5,
+			variety="Aqua",
+			stem_qty=7,
+			stem_length="52cm",
+			harvest_date="2026-10-01 08:30:00",
+			creation="2026-10-01 09:20:00",
+			workflow_state="Approved",
+			requested_date="2026-10-01",
+			approval_date="2026-10-01",
+			docstatus=1,
+		)
+		an = dict(
+			name="BRA1",
+			skipped_step="Discarding Skipped",
+			detected_on="2026-10-01 14:00:05",
+			farm="Kap",
+			greenhouse="",
+			variety="Aqua",
+			stems=7,
+			previous_shelf="K-1",
+			discard_request="DR1",
+			harvest_stock_entry="H2",
+		)
 		c1 = cyc(RJ.build_bucket(R(ses=two_cycles(), discard_rows=[row], anomalies=[an])))[0]
 		ev = evs(c1, "discard_listed")[0]
 		self.assertTrue(ev["listed_only"])
@@ -303,31 +605,123 @@ class TestJtestFindings(unittest.TestCase):
 		self.assertIn("never discarded", ev["title"])
 
 	def test_replacement_at_a_remote_farm_is_during_a_transfer_even_without_a_trip(self):
-		rep = dict(name="BR1", old_bucket="B1", new_bucket="NEW", status="Open", reason="Missing", order_pick_list="OPL1", order_name="ORD", reported_at="2026-10-01 10:10:00", reported_by="u",
-			farm="Simotwo", trip=None, vehicle=None, notes=None, expected_shelf=None, new_shelf=None, stems=10, resolved_at=None, resolution=None)
+		rep = dict(
+			name="BR1",
+			old_bucket="B1",
+			new_bucket="NEW",
+			status="Open",
+			reason="Missing",
+			order_pick_list="OPL1",
+			order_name="ORD",
+			reported_at="2026-10-01 10:10:00",
+			reported_by="u",
+			farm="Simotwo",
+			trip=None,
+			vehicle=None,
+			notes=None,
+			expected_shelf=None,
+			new_shelf=None,
+			stems=10,
+			resolved_at=None,
+			resolution=None,
+		)
 		c1 = cyc(RJ.build_bucket(R(ses=two_cycles(), replacements=[rep]), hub="Kapkolia"))[0]
 		self.assertEqual(evs(c1, "replace")[0]["title"], "Replaced by NEW during a transfer")
 
 	def test_allocation_record_is_split_per_journey_by_the_pick_rows(self):
-		bas = dict(name="BAS1", bucket_id="B1", item_code="Aqua", farm=None, stem_length="52cm", shelf_location="K-1", shelf_farm="Kap", harvest_date=None, receiving_entry=None,
-			total_quantity=10, allocated_quantity=10, available_quantity=0, in_transit=0, creation="2026-10-01 09:30:00", modified="2026-10-01 15:30:00")
-		al = [dict(parent="BAS1", sales_order="SO1", sales_order_item="I1", quantity_allocated=20, cancelled=0, issued=0, creation="2026-10-01 09:30:00"),
-			dict(parent="BAS1", sales_order="SO2", sales_order_item="I2", quantity_allocated=30, cancelled=0, issued=0, creation="2026-10-01 09:30:00")]  # a child row inherits its parent's creation
+		bas = dict(
+			name="BAS1",
+			bucket_id="B1",
+			item_code="Aqua",
+			farm=None,
+			stem_length="52cm",
+			shelf_location="K-1",
+			shelf_farm="Kap",
+			harvest_date=None,
+			receiving_entry=None,
+			total_quantity=10,
+			allocated_quantity=10,
+			available_quantity=0,
+			in_transit=0,
+			creation="2026-10-01 09:30:00",
+			modified="2026-10-01 15:30:00",
+		)
+		al = [
+			dict(
+				parent="BAS1",
+				sales_order="SO1",
+				sales_order_item="I1",
+				quantity_allocated=20,
+				cancelled=0,
+				issued=0,
+				creation="2026-10-01 09:30:00",
+			),
+			dict(
+				parent="BAS1",
+				sales_order="SO2",
+				sales_order_item="I2",
+				quantity_allocated=30,
+				cancelled=0,
+				issued=0,
+				creation="2026-10-01 09:30:00",
+			),
+		]  # a child row inherits its parent's creation
 		p1 = pli("OPL1", "P1", created="2026-10-01 09:30:00", sales_order_item="I1")
 		p2 = pli("OPL2", "P2", created="2026-10-01 15:30:00", sales_order_item="I2")
 		c1, c2 = cyc(RJ.build_bucket(R(ses=two_cycles(), pli=[p1, p2], bas=[bas], bas_alloc=al)))
-		self.assertEqual([s["title"] for s in c1["steps"] if s.get("bas")], ["Allocation record: 20 stems on 1 order line"])
-		self.assertEqual([s["title"] for s in c2["steps"] if s.get("bas")], ["Allocation record: 30 stems on 1 order line"])
+		self.assertEqual(
+			[s["title"] for s in c1["steps"] if s.get("bas")], ["Allocation record: 20 stems on 1 order line"]
+		)
+		self.assertEqual(
+			[s["title"] for s in c2["steps"] if s.get("bas")], ["Allocation record: 30 stems on 1 order line"]
+		)
 
 	def test_skipped_transfer_anomaly_closes_the_remote_shelving_row(self):
 		rows = [log("A", "REM-1", "2026-10-01 10:00:00", shelf_item="GONE")]
-		an = dict(name="BRA2", skipped_step="Skipped Transfer", detected_on="2026-10-01 11:00:00", farm="Kap", greenhouse="", variety="Aqua", stems=7, previous_shelf="REM-1",
-			discard_request=None, harvest_stock_entry=None)
+		an = dict(
+			name="BRA2",
+			skipped_step="Skipped Transfer",
+			detected_on="2026-10-01 11:00:00",
+			farm="Kap",
+			greenhouse="",
+			variety="Aqua",
+			stems=7,
+			previous_shelf="REM-1",
+			discard_request=None,
+			harvest_stock_entry=None,
+		)
 		c1 = cyc(RJ.build_bucket(R(ses=two_cycles(), shelf_log=rows, anomalies=[an])))[0]
 		self.assertEqual([s["t"] for s in evs(c1, "clear")], ["2026-10-01 11:00:00"])
 
 	def test_bucket_waiting_for_the_truck_on_its_remote_shelf_reads_awaiting_transfer(self):
-		item = dict(name="SI1", parent="REM-9", farm="Sim", variety="Aqua", stem_qty=20, stem_length="52cm", greenhouse="", date_added="2026-10-01 16:00:00", harvest_date=None, receiving_date=None)
-		tr = dict(opl="OPL1", state="at_farm", from_farm="Sim", to_farm="Kap", order_name="ORD", events=[dict(stage="Awaiting transfer", datetime="2026-10-01 16:10:00")])
-		c2 = cyc(RJ.build_bucket(R(ses=two_cycles(), shelf_items=[item], pli=[pli("OPL1", "P1", created="2026-10-01 16:05:00")], trace=[tr])))[1]
+		item = dict(
+			name="SI1",
+			parent="REM-9",
+			farm="Sim",
+			variety="Aqua",
+			stem_qty=20,
+			stem_length="52cm",
+			greenhouse="",
+			date_added="2026-10-01 16:00:00",
+			harvest_date=None,
+			receiving_date=None,
+		)
+		tr = dict(
+			opl="OPL1",
+			state="at_farm",
+			from_farm="Sim",
+			to_farm="Kap",
+			order_name="ORD",
+			events=[dict(stage="Awaiting transfer", datetime="2026-10-01 16:10:00")],
+		)
+		c2 = cyc(
+			RJ.build_bucket(
+				R(
+					ses=two_cycles(),
+					shelf_items=[item],
+					pli=[pli("OPL1", "P1", created="2026-10-01 16:05:00")],
+					trace=[tr],
+				)
+			)
+		)[1]
 		self.assertEqual(c2["stage"]["label"], "Awaiting transfer")

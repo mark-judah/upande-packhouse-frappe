@@ -121,3 +121,162 @@ def _run():
 				title=f"upande_packhouse post-deploy step failed: {step.__name__}",
 				message=frappe.get_traceback(),
 			)
+
+
+# ─── tests ────────────────────────────────────────────────────────────────
+
+TEST_COMPANY = "Karen Roses"
+
+
+def before_tests():
+	"""Give a bare CI site the masters live has and the suite reads: a Company (the
+	setup wizard's, with its Price Lists and UOMs), the Business Unit and Farm
+	accounting dimensions (Sales Order's `business_unit` and `farm` columns), the
+	fields this app reads that live gets from other apps, the Roses Business Unit
+	and the "Cash before collection" payment terms."""
+	frappe.clear_cache()
+	if not frappe.db.count("Company"):
+		_make_test_company()
+	if not frappe.db.exists("Business Unit", "Roses"):
+		frappe.get_doc({"doctype": "Business Unit", "business_unit_name": "Roses"}).insert(
+			ignore_permissions=True
+		)
+	for document_type in ("Business Unit", "Farm"):
+		_ensure_accounting_dimension(document_type)
+	_ensure_foreign_fields()
+	_ensure_payment_terms("Cash before collection")
+	frappe.db.commit()  # nosemgrep
+	frappe.clear_cache()
+
+
+def _make_test_company():
+	from erpnext.setup.setup_wizard.setup_wizard import setup_complete
+
+	year = frappe.utils.now_datetime().year
+	setup_complete(
+		frappe._dict(
+			{
+				"currency": "KES",
+				"full_name": "Test User",
+				"company_name": TEST_COMPANY,
+				"timezone": "Africa/Nairobi",
+				"company_abbr": "KR",
+				"country": "Kenya",
+				"fy_start_date": "{0}-01-01".format(year),
+				"fy_end_date": "{0}-12-31".format(year),
+				"language": "english",
+				"company_tagline": "Testing",
+				"email": "test@example.com",
+				"password": "test",
+				"chart_of_accounts": "Standard",
+			}
+		)
+	)
+
+
+def _ensure_accounting_dimension(document_type):
+	from erpnext.accounts.doctype.accounting_dimension.accounting_dimension import (
+		make_dimension_in_accounting_doctypes,
+	)
+
+	name = frappe.db.get_value("Accounting Dimension", {"document_type": document_type})
+	doc = (
+		frappe.get_doc("Accounting Dimension", name)
+		if name
+		else frappe.get_doc({"doctype": "Accounting Dimension", "document_type": document_type}).insert(
+			ignore_permissions=True
+		)
+	)
+	frappe.clear_cache(doctype="Sales Order")
+	if not frappe.get_meta("Sales Order").has_field(doc.fieldname):
+		make_dimension_in_accounting_doctypes(doc=doc)
+
+
+# Fields this app's code reads that live carries from other apps' customizations.
+FOREIGN_FIELDS = {
+	"Customer": [("custom_business_unit", "Link", "Business Unit")],
+	"Delivery Note": [("custom_business_unit", "Link", "Business Unit")],
+	"Item": [("custom_pack_rate", "Float", None)],
+	"Sales Invoice": [("custom_business_unit", "Link", "Business Unit"), ("custom_farm", "Link", "Farm")],
+	"Sales Order": [
+		("custom_priority", "Data", None),
+		("custom_business_unit", "Link", "Business Unit"),
+		("custom_farm", "Link", "Farm"),
+		("custom_order_name", "Data", None),
+		("custom_floriday_delivery_id", "Data", None),
+		("custom_floriday_fulfillment_order_id", "Data", None),
+	],
+	"Sales Order Item": [
+		("custom_source_warehouse", "Link", "Warehouse"),
+		("custom_pack_rate", "Float", None),
+	],
+	"Stock Entry": [
+		("custom_scanned_packing", "Check", None),
+		("custom_scanned_grading", "Check", None),
+		("custom_bunch_id", "Data", None),
+		("custom_bunched_by", "Link", "UOM"),
+		("custom_graded_by", "Link", "Employee"),
+		("custom_harvest_entry", "Link", "Stock Entry"),
+		("custom_grading_entry", "Link", "Stock Entry"),
+		("custom_stem_length", "Link", "Stem Length"),
+		("custom_receiving_batch_id", "Data", None),
+		("custom_cut_stage", "Link", "Cut Stage"),
+		("custom_harvester", "Link", "Employee"),
+		("custom_receiving_entry", "Link", "Stock Entry"),
+		("custom_bucket_id", "Link", "Bucket QR Code"),
+		("custom_greenhouse", "Link", "Warehouse"),
+	],
+	"Stock Entry Detail": [
+		("custom_stem_length", "Link", "Stem Length"),
+		("custom_bucket_id", "Link", "Bucket QR Code"),
+	],
+}
+
+
+def _ensure_foreign_fields():
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_field
+
+	for doctype, fields in FOREIGN_FIELDS.items():
+		meta = frappe.get_meta(doctype)
+		for fieldname, fieldtype, options in fields:
+			if meta.has_field(fieldname):
+				continue
+			if fieldtype == "Link" and not frappe.db.exists("DocType", options):
+				fieldtype, options = "Data", None
+			create_custom_field(
+				doctype,
+				{
+					"fieldname": fieldname,
+					"label": fieldname[7:].replace("_", " ").title(),
+					"fieldtype": fieldtype,
+					"options": options,
+				},
+			)
+
+
+def _ensure_payment_terms(name):
+	if not frappe.db.exists("Payment Term", name):
+		frappe.get_doc(
+			{
+				"doctype": "Payment Term",
+				"payment_term_name": name,
+				"invoice_portion": 100,
+				"due_date_based_on": "Day(s) after invoice date",
+				"credit_days": 0,
+			}
+		).insert(ignore_permissions=True)
+	if not frappe.db.exists("Payment Terms Template", name):
+		frappe.get_doc(
+			{
+				"doctype": "Payment Terms Template",
+				"template_name": name,
+				"terms": [
+					{
+						"payment_term": name,
+						"invoice_portion": 100,
+						"due_date_based_on": "Day(s) after invoice date",
+						"credit_days": 0,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)

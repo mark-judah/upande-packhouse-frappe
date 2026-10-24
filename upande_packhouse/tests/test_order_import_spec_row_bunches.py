@@ -86,7 +86,9 @@ class IntegrationTestResolveSpecRowBunches(IntegrationTestCase):
 		frappe.db.commit()
 		return doc
 
-	def _make_bunch_aware_spec(self, name, bunch_id="B1", bunches_per_box=10, stems_per_bunch=5, pack_rate=50):
+	def _make_bunch_aware_spec(
+		self, name, bunch_id="B1", bunches_per_box=10, stems_per_bunch=5, pack_rate=50
+	):
 		"""A genuinely bunch_aware Specification: its one Approved Variety row
 		carries a non-blank bunch_id, paired with a Box Item row sharing that
 		same bunch_id (one Box Item per colour - see

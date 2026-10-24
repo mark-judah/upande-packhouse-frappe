@@ -565,15 +565,16 @@ class UnitTestMinimumTruckLoad(UnitTestCase):
 		self.assertEqual(res["reason"], "below_minimum")
 		self.assertEqual((res["loaded"], res["needed"], res["pct"]), (115, 116, 80))
 
-	def test_d_reason_overrides_the_minimum(self):
+	def test_d_reason_does_not_override_the_minimum(self):
+		# The minimum load is a hard block (#56): a reason no longer sends the truck.
 		doc = self._trip(12)
 		res = self._close(doc, reason="Rain, road closing")
-		self.assertEqual(res["status"], "success")
-		self.assertEqual(res["trip_status"], "Dispatched")
-		self.assertEqual(res["below_minimum"], 1)
-		self.assertIn("Sent to Kapkolia with 12 of 144 (min 144): Rain, road closing", self._comments(doc))
+		self.assertEqual(res["status"], "error")
+		self.assertEqual(res["reason"], "below_minimum")
+		self.assertEqual(doc.status, "Scheduled")
+		doc.save.assert_not_called()
 
-	def test_d_reason_records_on_the_bucket_events(self):
+	def test_d_refused_truck_records_no_bucket_events(self):
 		doc = self._trip(12)
 		with patch.object(tc, "log_transfer_event") as log:
 			self._call(
@@ -582,8 +583,7 @@ class UnitTestMinimumTruckLoad(UnitTestCase):
 				{"name": doc.name, "farm": "Torongo", "reason": "Rain"},
 				skip=("log_transfer_event",),
 			)
-		self.assertEqual(log.call_count, 12)
-		self.assertIn("below minimum load (12 of 144, min 144): Rain", log.call_args.kwargs["details"])
+		log.assert_not_called()
 
 	def test_earlier_stop_of_a_multi_stop_trip_is_not_checked(self):
 		stops = ("Torongo", "Kapsoit")
@@ -594,17 +594,14 @@ class UnitTestMinimumTruckLoad(UnitTestCase):
 		self.assertEqual(res["heading_to"], "Kapsoit")
 		self.assertNotEqual(doc.status, "Dispatched")
 
-	def test_desk_dispatch_needs_a_reason_below_the_minimum(self):
+	def test_desk_dispatch_below_the_minimum_is_refused_even_with_a_reason(self):
 		doc = self._trip(100)
 		res = self._call(tc.dispatchBucketTrip, doc, {"name": doc.name})
 		self.assertEqual(res["reason"], "below_minimum")
 		self.assertEqual(doc.status, "Scheduled")
 		res = self._call(tc.dispatchBucketTrip, doc, {"name": doc.name, "reason": "Truck needed elsewhere"})
-		self.assertEqual(res["status"], "success")
-		self.assertEqual(doc.status, "Dispatched")
-		self.assertIn(
-			"Sent to Kapkolia with 100 of 144 (min 144): Truck needed elsewhere", self._comments(doc)
-		)
+		self.assertEqual(res["reason"], "below_minimum")
+		self.assertEqual(doc.status, "Scheduled")
 
 	def test_desk_dispatch_of_a_truck_with_unknown_capacity_is_not_checked(self):
 		doc = self._trip(5)

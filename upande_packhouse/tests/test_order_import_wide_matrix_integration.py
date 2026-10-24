@@ -257,10 +257,13 @@ class IntegrationTestWideMatrixBuildPreview(IntegrationTestCase):
 		self.assertEqual(str(mix_order["header"]["transaction_date"]), "2026-01-15")
 		self.assertEqual(str(mix_order["header"]["delivery_date"]), "2026-01-17")
 		self.assertEqual(len(mix_order["rows"]), 2)  # mix spec -> one row per colour
-		self.assertEqual({r["item_code"] for r in mix_order["rows"]}, {
-			"Test Wide Matrix Integration Variety Red",
-			"Test Wide Matrix Integration Variety Blue",
-		})
+		self.assertEqual(
+			{r["item_code"] for r in mix_order["rows"]},
+			{
+				"Test Wide Matrix Integration Variety Red",
+				"Test Wide Matrix Integration Variety Blue",
+			},
+		)
 		# 30 bunches / 10 per box = 3 boxes. This fixture's file Bunch Rate
 		# column is "10" - the correct, sum-based cross-check (Finding 2)
 		# compares it against the SUM of both colours' stems_per_bunch (5 +

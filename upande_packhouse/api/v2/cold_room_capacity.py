@@ -172,7 +172,14 @@ def build(rows, farms, incoming=None):
 	total = gauge(distinct, sum(s["capacity"] for s in stores))
 	total["shared_buckets"] = sum(s["occupied"] for s in stores) - distinct
 	total["shelves"] = sum(s["shelves"] for s in stores)
-	for k in ("shelves_full", "shelves_over", "shelves_partial", "shelves_empty", "shelves_in_use", "incoming_buckets"):
+	for k in (
+		"shelves_full",
+		"shelves_over",
+		"shelves_partial",
+		"shelves_empty",
+		"shelves_in_use",
+		"incoming_buckets",
+	):
 		total[k] = sum(s[k] for s in stores)
 	at_cap = total["shelves_full"] + total["shelves_over"]
 	total["shelves_full_pct"] = round(at_cap / total["shelves"] * 100.0, 1) if total["shelves"] else None

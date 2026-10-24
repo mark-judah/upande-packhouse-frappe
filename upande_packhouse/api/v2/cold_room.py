@@ -32,8 +32,8 @@ from typing import Any
 import frappe
 from frappe.utils import add_days, getdate
 
-from upande_packhouse.api.v2.core import region as region_mod
 from upande_packhouse.api.v2 import cold_room_capacity as capacity_mod
+from upande_packhouse.api.v2.core import region as region_mod
 from upande_packhouse.api.v2.core import stock
 
 RECEIPT_TYPES = ("Receiving", "Late Receipt")
@@ -373,11 +373,11 @@ def get_cold_room(region: Any = None, farm: Any = None, from_date: Any = None, t
 			"capacity": _capacity(sc),
 			# live bucket capacity: all stock in the farm scope, not date-limited
 			"bucket_capacity": capacity_mod.build(
-					rows + outside,
-					sc.farms,
-					incoming={f: len(v["buckets"]) for f, v in ns_farm.items()},
-				),
-				"sensors_available": _sensors_available(),
+				rows + outside,
+				sc.farms,
+				incoming={f: len(v["buckets"]) for f, v in ns_farm.items()},
+			),
+			"sensors_available": _sensors_available(),
 			"farm_options": _farm_options(),
 		}
 	except Exception:

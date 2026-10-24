@@ -156,6 +156,7 @@ def expand_wide_matrix(header, rows, platform_doc):
 
 	return WIDE_MATRIX_SYNTHETIC_HEADER, new_rows
 
+
 IGNORED_FIELDTYPES = {
 	"Section Break",
 	"Column Break",

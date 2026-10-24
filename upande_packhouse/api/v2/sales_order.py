@@ -270,7 +270,9 @@ def _order_figures(names):
 	by_so = defaultdict(list)
 	for ln in lines:
 		by_so[ln.parent].append(ln)
-	return {n: (bx.order_boxes(by_so.get(n, [])), sum(l.ordered_stems for l in by_so.get(n, []))) for n in names}
+	return {
+		n: (bx.order_boxes(by_so.get(n, [])), sum(l.ordered_stems for l in by_so.get(n, []))) for n in names
+	}
 
 
 @frappe.whitelist()
@@ -330,9 +332,7 @@ def get_standing_orders(**kwargs):
 		sources_in_window = [
 			r for r in repeats if r.source_delivery_date and w_from <= getdate(r.source_delivery_date) <= w_to
 		]
-		fig = _order_figures(
-			{g.name for g in generated} | {r.reference_document for r in repeats}
-		)
+		fig = _order_figures({g.name for g in generated} | {r.reference_document for r in repeats})
 
 		events, due_week = [], 0
 		for g in generated:
@@ -342,22 +342,40 @@ def get_standing_orders(**kwargs):
 			b, s = fig.get(g.name, (0, 0))
 			events.append(
 				{
-					"date": g.delivery_date, "kind": "generated", "order": g.name,
-					"auto_repeat": ar.name, "source": ar.reference_document,
-					"customer": g.customer, "customer_name": g.customer_name,
-					"frequency": ar.frequency, "status": ar.status, "next_date": ar.next_schedule_date,
-					"farm": ar.farm or "", "docstatus": g.docstatus, "boxes": b, "stems": s,
+					"date": g.delivery_date,
+					"kind": "generated",
+					"order": g.name,
+					"auto_repeat": ar.name,
+					"source": ar.reference_document,
+					"customer": g.customer,
+					"customer_name": g.customer_name,
+					"frequency": ar.frequency,
+					"status": ar.status,
+					"next_date": ar.next_schedule_date,
+					"farm": ar.farm or "",
+					"docstatus": g.docstatus,
+					"boxes": b,
+					"stems": s,
 				}
 			)
 		for ar in sources_in_window:
 			b, s = fig.get(ar.reference_document, (0, 0))
 			events.append(
 				{
-					"date": ar.source_delivery_date, "kind": "source", "order": ar.reference_document,
-					"auto_repeat": ar.name, "source": ar.reference_document,
-					"customer": ar.customer, "customer_name": ar.customer_name,
-					"frequency": ar.frequency, "status": ar.status, "next_date": ar.next_schedule_date,
-					"farm": ar.farm or "", "docstatus": ar.source_docstatus, "boxes": b, "stems": s,
+					"date": ar.source_delivery_date,
+					"kind": "source",
+					"order": ar.reference_document,
+					"auto_repeat": ar.name,
+					"source": ar.reference_document,
+					"customer": ar.customer,
+					"customer_name": ar.customer_name,
+					"frequency": ar.frequency,
+					"status": ar.status,
+					"next_date": ar.next_schedule_date,
+					"farm": ar.farm or "",
+					"docstatus": ar.source_docstatus,
+					"boxes": b,
+					"stems": s,
 				}
 			)
 
@@ -367,28 +385,47 @@ def get_standing_orders(**kwargs):
 			if ar.status == "Active":
 				doc = frappe.get_doc("Auto Repeat", ar.name)
 				for d in occurrence_dates(doc, today, max(w_to, week_to)):
-					if d < today or d in taken[ar.name] or d == getdate(ar.source_delivery_date or "1900-01-01"):
+					if (
+						d < today
+						or d in taken[ar.name]
+						or d == getdate(ar.source_delivery_date or "1900-01-01")
+					):
 						continue
 					if d <= week_to:
 						due_week += 1
 					if w_from <= d <= w_to:
 						events.append(
 							{
-								"date": d, "kind": "scheduled", "order": None,
-								"auto_repeat": ar.name, "source": ar.reference_document,
-								"customer": ar.customer, "customer_name": ar.customer_name,
-								"frequency": ar.frequency, "status": ar.status,
-								"next_date": ar.next_schedule_date, "farm": ar.farm or "",
-								"docstatus": None, "boxes": b, "stems": s,
+								"date": d,
+								"kind": "scheduled",
+								"order": None,
+								"auto_repeat": ar.name,
+								"source": ar.reference_document,
+								"customer": ar.customer,
+								"customer_name": ar.customer_name,
+								"frequency": ar.frequency,
+								"status": ar.status,
+								"next_date": ar.next_schedule_date,
+								"farm": ar.farm or "",
+								"docstatus": None,
+								"boxes": b,
+								"stems": s,
 							}
 						)
 			standing.append(
 				{
-					"name": ar.name, "source": ar.reference_document, "customer": ar.customer,
-					"customer_name": ar.customer_name, "frequency": ar.frequency,
-					"start_date": ar.start_date, "end_date": ar.end_date,
-					"next_date": ar.next_schedule_date, "status": ar.status, "farm": ar.farm or "",
-					"boxes": b, "stems": s,
+					"name": ar.name,
+					"source": ar.reference_document,
+					"customer": ar.customer,
+					"customer_name": ar.customer_name,
+					"frequency": ar.frequency,
+					"start_date": ar.start_date,
+					"end_date": ar.end_date,
+					"next_date": ar.next_schedule_date,
+					"status": ar.status,
+					"farm": ar.farm or "",
+					"boxes": b,
+					"stems": s,
 				}
 			)
 
@@ -407,8 +444,12 @@ def get_standing_orders(**kwargs):
 		}
 		return {
 			"success": True,
-			"from_date": w_from, "to_date": w_to, "today": today,
-			"events": events, "standing": standing, "kpis": kpis,
+			"from_date": w_from,
+			"to_date": w_to,
+			"today": today,
+			"events": events,
+			"standing": standing,
+			"kpis": kpis,
 		}
 	except Exception as e:
 		frappe.clear_messages()

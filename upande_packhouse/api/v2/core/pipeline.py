@@ -93,8 +93,8 @@ def business_unit_sql(business_unit, params, so="so", soi="soi"):
 	if business_unit == "Roses":
 		groups = tuple(rose_groups("spray") + rose_groups("standard")) or ("",)
 		params["ph2_bu_groups"] = groups
-		cond += (
-			" OR (IFNULL({0}.business_unit, '') = '' AND {1}.item_group IN %(ph2_bu_groups)s)".format(so, soi)
+		cond += " OR (IFNULL({0}.business_unit, '') = '' AND {1}.item_group IN %(ph2_bu_groups)s)".format(
+			so, soi
 		)
 	return "(" + cond + ")"
 

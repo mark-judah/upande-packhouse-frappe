@@ -40,7 +40,6 @@ from frappe.utils import now_datetime
 from upande_packhouse.api.v2.core.rose import rose_sql, rose_type
 from upande_packhouse.availability import reserved_bucket_ids
 
-
 # The ONE sentence every page uses for "available stock" (tooltips, legends).
 AVAILABLE_DEFINITION = (
 	"Available stock = stems on a shelf at the farm that are not held (bucket on an open discard "

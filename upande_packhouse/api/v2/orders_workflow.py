@@ -270,7 +270,14 @@ def _takt(opl, planned_boxes, issue, staged, now, stems_staged=None, packed_any=
 	first = issue.get(opl)
 	if not first:
 		why = "No issue scan recorded" if packed_any else "Not issued yet"
-		return {"state": "none", "secs": None, "mins": None, "reason": why, "issued_at": None, "staged_at": None}
+		return {
+			"state": "none",
+			"secs": None,
+			"mins": None,
+			"reason": why,
+			"issued_at": None,
+			"staged_at": None,
+		}
 	st = staged.get(opl) or {}
 	total = max(planned_boxes or 0, st.get("boxes", 0))
 	if stems_staged is not False and total and st.get("staged_boxes", 0) >= total and st.get("last_staged"):
@@ -757,7 +764,14 @@ def get_orders_workflow(
 				),
 			)
 			if o
-			else {"state": "none", "secs": None, "mins": None, "reason": "No pick list", "issued_at": None, "staged_at": None}
+			else {
+				"state": "none",
+				"secs": None,
+				"mins": None,
+				"reason": "No pick list",
+				"issued_at": None,
+				"staged_at": None,
+			}
 		)
 
 	sev_rank = {"bad": 0, "warn": 1, "": 2}
