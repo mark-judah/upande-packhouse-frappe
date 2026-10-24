@@ -132,7 +132,14 @@ def _rebuild(o, farms):
 
 
 @frappe.whitelist()
-def get_logistics_view(from_date=None, to_date=None, region=None, farm=None, team=None, q=None):
+def get_logistics_view(
+	from_date: str | None = None,
+	to_date: str | None = None,
+	region: str | None = None,
+	farm: str | None = None,
+	team: str | None = None,
+	q: str | None = None,
+):
 	from upande_packhouse.api.v2.core import region as region_core
 
 	hub = transfer_hub(required=False) or ""
@@ -350,7 +357,7 @@ def get_logistics_view(from_date=None, to_date=None, region=None, farm=None, tea
 
 
 @frappe.whitelist()
-def get_bucket_detail(opl=None, farm=None):
+def get_bucket_detail(opl: str | None = None, farm: str | None = None):
 	"""v1's getBucketLogisticsDetail (one row per bucket with each stage's time and user),
 	plus when the bucket's truck left the remote farm, arrived at the hub, and the minutes
 	in transit."""

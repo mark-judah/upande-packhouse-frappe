@@ -133,19 +133,19 @@ def _state(ordered, confirmed):
 
 @frappe.whitelist()
 def get_allocation_planning(
-	from_date=None,
-	to_date=None,
-	region=None,
-	farm=None,
-	customer=None,
-	sales_order=None,
-	variety=None,
-	length=None,
-	status=None,
-	by=None,
-	q=None,
-	my_farm=None,
-	cover=None,
+	from_date: str | None = None,
+	to_date: str | None = None,
+	region: str | None = None,
+	farm: str | None = None,
+	customer: str | None = None,
+	sales_order: str | None = None,
+	variety: str | None = None,
+	length: str | None = None,
+	status: str | None = None,
+	by: str | None = None,
+	q: str | None = None,
+	my_farm: str | None = None,
+	cover: str | None = None,
 ):
 	"""Order lines, per-farm stock cells and KPIs for the planning grid."""
 	today = frappe.utils.today()

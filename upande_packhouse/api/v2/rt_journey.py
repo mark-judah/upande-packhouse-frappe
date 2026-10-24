@@ -286,15 +286,17 @@ def read_bucket(bucket_id, trace=True):
 		{"ids": ids},
 		as_dict=True,
 	)
-	farm_col = "COALESCE(NULLIF(si.farm, ''), sh.farm)" if _has("Shelf Item", "farm") else "sh.farm"
-	R["shelf_items"] = frappe.db.sql(
-		f"""SELECT si.name, si.parent, {farm_col} AS farm, si.variety, si.stem_qty, si.stem_length, si.greenhouse, si.date_added,
-		       si.harvest_date, si.receiving_date
+	if _has("Shelf Item", "farm"):
+		shelf_sql = """SELECT si.name, si.parent, COALESCE(NULLIF(si.farm, ''), sh.farm) AS farm, si.variety, si.stem_qty, si.stem_length,
+		       si.greenhouse, si.date_added, si.harvest_date, si.receiving_date
 		FROM `tabShelf Item` si LEFT JOIN `tabShelf` sh ON sh.name = si.parent
-		WHERE si.bucket_id IN %(ids)s ORDER BY si.date_added""",
-		{"ids": ids},
-		as_dict=True,
-	)  # nosemgrep
+		WHERE si.bucket_id IN %(ids)s ORDER BY si.date_added"""
+	else:
+		shelf_sql = """SELECT si.name, si.parent, sh.farm AS farm, si.variety, si.stem_qty, si.stem_length,
+		       si.greenhouse, si.date_added, si.harvest_date, si.receiving_date
+		FROM `tabShelf Item` si LEFT JOIN `tabShelf` sh ON sh.name = si.parent
+		WHERE si.bucket_id IN %(ids)s ORDER BY si.date_added"""
+	R["shelf_items"] = frappe.db.sql(shelf_sql, {"ids": ids}, as_dict=True)
 	log_names = [r["name"] for r in R["shelf_log"]]
 	R["log_comments"] = (
 		frappe.db.sql(
