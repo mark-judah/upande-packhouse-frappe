@@ -37,6 +37,7 @@ frappe.pages["sales-allocation"].on_page_show = function () {
 	const delivery_date = opt("delivery_date");
 	const deeplink = {
 		sales_order,
+		item: opt("sales_order_item"),
 		farm: opt("farm"),
 		delivery_date: /^\d{4}-\d{2}-\d{2}$/.test(delivery_date || "") ? delivery_date : null,
 	};
@@ -77,6 +78,7 @@ frappe.pages["sales-allocation"]._run_deeplink = function (deeplink) {
 			P.set_date_filter("delivery_end", deeplink.delivery_date);
 		}
 		P._pending_select_order = deeplink.sales_order;
+		P._deeplink_item = deeplink.item || null; // open on this variety's line, not the first
 		if (P.selected_location === loc_name) {
 			P.load_sales_orders();
 		} else {
@@ -1104,6 +1106,10 @@ frappe.pages["sales-allocation"].select_order = function (order_name, opts) {
 		return;
 	}
 	P._preserve_item = opts.keep ? P.selected_item : null;
+	if (P._deeplink_item) {
+		P._preserve_item = P._deeplink_item;
+		P._deeplink_item = null;
+	}
 	P.allocations = [];
 	P.selected_order = order_name;
 	P.selected_item = null;

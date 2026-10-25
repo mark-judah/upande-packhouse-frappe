@@ -63,6 +63,29 @@
 .ow-boxes td,.ow-boxes th{font-size:12px;white-space:nowrap}
 .ow-note,.ow-foot{font-size:12px;margin:0}
 .ow-lines .is-sub td{color:var(--ink-mute)}
+.ow-orders{padding:var(--sp-2) var(--sp-6) var(--sp-5)}
+.ow-ord{padding:var(--sp-5) 0;border-top:1px solid var(--hairline)}
+.ow-ord:first-child{border-top:0}
+.ow-ord__head{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-4);flex-wrap:wrap;margin-bottom:var(--sp-3)}
+.ow-ord__title{order:1;font:500 16px var(--sans);margin:0;display:flex;align-items:center;gap:var(--sp-3);min-width:0}
+.ow-num{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--ink);color:var(--surface,#fff);font:600 11px var(--sans);flex:none}
+.ow-ord__meta{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;font-size:12px}
+.ow-ord__head>.ow-ring-wrap{order:2}.ow-ord__head .ow-ring{width:60px;height:60px}.ow-ord__head .ow-ring>div{width:46px;height:46px}.ow-ord__head .ow-ring b{font-size:13px}.ow-ord__head .ow-ring span{display:none}
+.ow-ord__title{flex:1}.ow-ord__meta{order:3}
+.ow-ord__tbl.is-plain td:last-child{text-align:right;white-space:nowrap}
+.ow-ord__tbl.is-plain .is-num{width:120px}
+.ow-ord__tbl.is-wide{min-width:0}.ow-ord__tbl .ph-badge{white-space:nowrap}.ow-ord__tbl td:last-child .ph-badge{white-space:normal;text-align:left}.ow-ord__tbl td,.ow-ord__tbl th{padding-left:var(--sp-2);padding-right:var(--sp-2)}
+.ow-ln{cursor:pointer}.ow-ln:hover{background:var(--tint-2)}.ow-ln.is-open{background:var(--tint-2)}
+.ow-ln.is-open .ow-chev{transform:rotate(90deg)}
+.ow-chev-td{width:24px;padding-right:0}
+.ow-ln-detail>td{padding:0;background:var(--tint-2)}
+.ow-ln-detail .ow-detail{border-top:0}
+.ow-ord__tbl th{text-transform:uppercase;font-size:11px;letter-spacing:.8px}
+.ow-ring-wrap{display:grid;place-items:center}
+.ow-ord .ow-detail{margin-top:var(--sp-3);border-radius:12px}
+@media (max-width:860px){.ow-orders{padding-left:var(--sp-4);padding-right:var(--sp-4)}}
+.ow-act{display:inline-flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap}
+.ph-daterange.is-off{opacity:.45}
 @media (max-width:860px){.ow-detail{position:sticky;left:0;max-width:calc(100vw - 80px);box-sizing:border-box}.ow-panel{padding:var(--sp-4)}.ow-panel__right{margin-left:0}.ow-sec__head,.ow-hrow,.ow-row,.ow-detail{padding-left:var(--sp-5);padding-right:var(--sp-5)}.ow-sec__head{grid-template-columns:20px 1fr auto}.ow-sec__bar{display:none}}
 </style>
 
@@ -90,9 +113,10 @@
   <select class="ph-select" id="f-group" aria-label="Item group"><option value="">All item groups</option></select>
   <div class="ph-filters__spacer"></div>
   <div class="ph-pills" id="f-preset">
-    <button data-value="today">Today</button><button data-value="7d">7 days</button><button data-value="30d">30 days</button>
+    <button data-value="today">Today</button><button data-value="tomorrow">Tomorrow</button><button data-value="7d">7 days</button><button data-value="30d">30 days</button>
   </div>
-  <label class="ph-daterange" title="Filters by the Sales Order delivery date">
+  <button class="ph-btn ph-btn--sm" id="f-pt" type="button" aria-pressed="false" title="Only the pick lists packed today, whatever their delivery date">Packed today</button>
+  <label class="ph-daterange" id="f-dates" title="Filters by the Sales Order delivery date">
     <span class="ph-card__meta" style="margin-right:6px">Delivery date</span><input type="date" id="f-from" aria-label="Delivery date from"><span class="ph-daterange__sep">→</span><input type="date" id="f-to" aria-label="Delivery date to">
   </label>
 </div>
@@ -121,7 +145,8 @@
   "use strict";
   const API = "upande_packhouse.api.v2.orders_workflow.";
   const today = PH.date.today();
-  const st = PH.state({ from: today, to: today, region: "", rose: "all", team: "", farm: "", group: "", customer: "", so: "", dn: "", si: "", q: "", stage: "all", view: "team" });
+  const tomorrow = PH.date.add(today, 1);
+  const st = PH.state({ from: tomorrow, to: tomorrow, pt: "", region: "", rose: "all", team: "", farm: "", group: "", customer: "", so: "", dn: "", si: "", q: "", stage: "all", view: "team" });
   let data = null;
   let seq = 0;
   const openSec = new Set();
@@ -131,13 +156,28 @@
   const masters = { teams: [], farms: [], groups: [] };
 
   const KPI_LABELS = ["Order lines", "Stems to deliver", "Issued of picked", "Packed of planned", "Boxes packed", "Dispatched", "Needs attention"];
-  const FILTER_KEYS = ["region", "team", "farm", "group", "customer", "so", "dn", "si", "q"];
+  const FILTER_KEYS = ["pt", "region", "team", "farm", "group", "customer", "so", "dn", "si", "q"];
 
   /* ── Filters ── */
   PH.pills("#f-view", st, "view");
   PH.regionPills("#f-region", st, "region");
   PH.pills("#f-rose", st, "rose");
   PH.dateRange({ pills: "#f-preset", from: "#f-from", to: "#f-to", state: st });
+  // Packed today: every delivery date, only pick lists packed today. Picking any date turns it off.
+  const ptBtn = document.getElementById("f-pt");
+  const paintPt = () => {
+    const on = st.get("pt") === "1";
+    ptBtn.classList.toggle("ph-btn--primary", on);
+    ptBtn.setAttribute("aria-pressed", on ? "true" : "false");
+    document.getElementById("f-dates").classList.toggle("is-off", on);
+    if (on) document.querySelectorAll("#f-preset button").forEach((b) => b.classList.remove("is-on"));
+  };
+  ptBtn.addEventListener("click", () => st.set({ pt: st.get("pt") === "1" ? "" : "1" }));
+  st.on((s, changed) => {
+    if (s.pt === "1" && (changed.includes("from") || changed.includes("to"))) st.set({ pt: "" });
+    else if (changed.includes("pt") || changed.includes("from") || changed.includes("to")) paintPt();
+  });
+  paintPt();
   PH.bindSelect("#f-team", st, "team");
   PH.bindSelect("#f-farm", st, "farm");
   PH.bindSelect("#f-group", st, "group");
@@ -202,7 +242,7 @@
     }
     return PH.call(API + "get_orders_workflow", {
       from_date: s.from, to_date: s.to, region: s.region, farm: s.farm, team: s.team, rose_type: s.rose, item_group: s.group,
-      customer: s.customer, sales_order: s.so, delivery_note: s.dn, sales_invoice: s.si, q: s.q, stage: s.stage, view: s.view,
+      customer: s.customer, sales_order: s.so, delivery_note: s.dn, sales_invoice: s.si, q: s.q, stage: s.stage, view: s.view, packed_today: s.pt === "1" ? 1 : 0,
     }, { silent: background }).then((m) => {
       if (my !== seq) return;
       if (!m || m.success === false) throw new Error((m && m.error) || "Could not load");
@@ -224,7 +264,7 @@
   function render() {
     if (!data) return;
     const s = st.get(), k = data.kpis;
-    PH.text("#sub", PH.date.label(s.from, s.to) + " · " + PH.fmt.plural(k.lines, "line") + " · " + PH.fmt.plural(k.orders, "order") + " · " + PH.fmt.plural(k.opls, "pick list"));
+    PH.text("#sub", (s.pt === "1" ? "Packed today · any delivery date" : PH.date.label(s.from, s.to)) + " · " + PH.fmt.plural(k.lines, "line") + " · " + PH.fmt.plural(k.orders, "order") + " · " + PH.fmt.plural(k.opls, "pick list"));
     document.getElementById("clear").hidden = !(FILTER_KEYS.some((x) => s[x]) || s.stage !== "all" || s.rose !== "all");
     renderKpis(k);
     renderStages();
@@ -264,7 +304,7 @@
     const box = document.createElement("div");
     box.innerHTML = '<p class="ph-muted ow-note" style="margin:0 0 var(--sp-3)"></p><div></div>';
     box.firstChild.textContent = cfg.note;
-    PH.modal({ title: cfg.title, sub: PH.date.label(st.get("from"), st.get("to")) + " · " + PH.fmt.plural(cfg.rows.length, "row"), size: "xl", body: box });
+    PH.modal({ title: cfg.title, sub: (st.get("pt") === "1" ? "Packed today" : PH.date.label(st.get("from"), st.get("to"))) + " · " + PH.fmt.plural(cfg.rows.length, "row"), size: "xl", body: box });
     PH.table(box.lastChild, { columns: cfg.cols, rows: cfg.rows, compact: true, pageSize: 15, empty: "Nothing here" });
   }
   function uniqueOpls(rows) {
@@ -273,7 +313,7 @@
     return out;
   }
 
-  const STAGES = [["all", "All"], ["notalloc", "Not allocated"], ["issue", "Issuing"], ["pack", "Packing"], ["packed", "Packed"], ["precooling", "Precooling"], ["staged", "Staged"], ["loaded", "Loaded"], ["dispatched", "Dispatched"], ["invoiced", "Invoiced"]];
+  const STAGES = [["all", "All"], ["notalloc", "Not allocated"], ["partial", "Part allocated"], ["issue", "Issuing"], ["pack", "Packing"], ["packed", "Packed"], ["precooling", "Precooling"], ["staged", "Staged"], ["loaded", "Loaded"], ["dispatched", "Dispatched"], ["invoiced", "Invoiced"]];
   function renderStages() {
     const el = document.getElementById("stages"), cur = st.get("stage"), c = data.stage_counts || {};
     el.hidden = false;
@@ -316,7 +356,7 @@
     const t = sec.totals, open = openSec.has(sec.key);
     const unalloc = sec.kind === "unallocated";
     const meta = PH.fmt.plural(t.lines, "line") + " · " + PH.fmt.plural(t.orders, "order") +
-      (sec.kind === "customer" ? " · " + n(t.ordered_stems) + " stems ordered" : unalloc ? " · " + n(t.ordered_stems) + " stems waiting for a pick list" : " · " + PH.fmt.plural(t.opls, "pick list"));
+      (sec.kind === "customer" ? " · " + n(t.ordered_stems) + " stems ordered" : unalloc ? " · " + n(t.ordered_stems) + " stems waiting for a pick list" : sec.kind === "partial" ? " · on a pick list, but short of what was ordered" : " · " + PH.fmt.plural(t.opls, "pick list"));
     const flags = (t.bad ? `<span class="ph-badge ph-badge--bad">${t.bad} urgent</span>` : "") + (t.warn ? `<span class="ph-badge ph-badge--warn">${t.warn} to check</span>` : "") + (!t.bad && !t.warn ? '<span class="ph-badge ph-badge--good">On track</span>' : "");
     let h = `<section class="ph-card ow-sec${open ? " is-open" : ""}" data-sec="${PH.esc(sec.key)}">
       <button class="ow-sec__head" type="button" data-toggle-sec="${PH.esc(sec.key)}">
@@ -327,10 +367,7 @@
       </button>`;
     if (open) {
       const byCust = data.view === "customer";
-      h += `<div class="ph-table-wrap"><div class="ow-inner"><div class="ow-grid ow-hrow">
-        <span></span><span class="ph-card__meta">Order · variety · length · pick list</span><span class="ph-card__meta">Delivery</span>
-        <span class="ph-card__meta" title="Issued / picked on the pick list">Issuing (stems)</span><span class="ph-card__meta" title="Packed / planned in the Packing Guide">Packing (stems)</span><span class="ph-card__meta">Stage</span><span class="ph-card__meta">Attention</span></div>`;
-      h += sec.rows.map((r) => rowHtml(r, byCust)).join("") + "</div></div>";
+      h += '<div class="ow-orders">' + groupRows(sec.rows).map((g, i) => groupHtml(g, byCust, i + 1)).join("") + "</div>";
     }
     return h + "</section>";
   }
@@ -344,23 +381,74 @@
   };
   const stageCls = (r) => ({ notalloc: "bad", allocating: "", to_issue: "outline", issuing: "signal", to_pack: "warn", packing: "signal", packed: "good", precooling: "signal", precooled: "good", staging: "signal", staged: "good", loading: "signal", loaded: "good", dispatching: "signal", dispatched: "good", invoiced: "good" }[r.stage] || "");
 
-  function rowHtml(r, byCust) {
-    const open = openRow.has(r.key), un = !r.opl;
-    const sub = byCust ? (r.team || (un ? "Not allocated" : "No team")) + " · " + r.sales_order : [r.customer_name, r.farm].filter(Boolean).join(" · ");
-    const fl = r.flags || [];
-    const flagHtml = fl.length
-      ? `<span class="ph-badge ph-badge--${fl[0].sev === "bad" ? "bad" : "warn"}" title="${PH.esc(fl.map((x) => x.label).join("; "))}">${PH.esc(fl[0].label)}</span>${fl.length > 1 ? `<span class="ph-muted" style="font-size:11px"> +${fl.length - 1}</span>` : ""}`
-      : '<span class="ph-muted" style="font-size:12px">—</span>';
-    let h = `<div class="ow-grid ow-row${open ? " is-open" : ""}${r.severity ? " is-" + r.severity : ""}" data-row="${PH.esc(r.key)}">
-      <span class="ow-chev">${PH.icon("chevronRight", 14)}</span>
-      <div class="ow-name"><div class="ph-list__name" title="${PH.esc(r.name)}">${PH.esc(r.name)}</div><div class="ph-list__meta" title="${PH.esc(sub)}">${PH.esc(sub)}</div></div>
-      <div style="font-size:12px;color:var(--ink-3)">${PH.esc(dueText(r))}</div>
-      ${un ? `<div class="ow-cell is-na" style="grid-column:span 2">${n(r.ordered_stems)} stems ordered · no pick list</div>` : bar(r.issued_stems, r.picked_stems, "Issuing") + bar(r.packed_stems, r.planned_stems, "Packing")}
-      <div><span class="ph-badge ph-badge--${stageCls(r)}">${PH.esc(r.stage_label)}</span></div>
-      <div>${flagHtml}</div>
+  /* One row per order on a pick list ("COOP-2600"); its varieties nest underneath. */
+  const STAGE_RANK = ["notalloc", "allocating", "to_issue", "issuing", "to_pack", "packing", "packed", "precooling", "precooled", "staging", "staged", "loading", "loaded", "dispatching", "dispatched", "invoiced"];
+  const grpIndex = {};
+  function groupRows(rows) {
+    const map = new Map();
+    rows.forEach((r) => {
+      const key = "g::" + r.sales_order + "::" + (r.opl || "so");
+      let g = map.get(key);
+      if (!g) { g = { key, first: r, opl: r.opl, rows: [], picked_stems: 0, issued_stems: 0, planned_stems: 0, packed_stems: 0, staged_stems: 0, loaded_stems: 0, ordered_stems: 0, severity: "", flags: {} }; map.set(key, g); grpIndex[key] = g; }
+      g.rows.push(r);
+      ["picked_stems", "issued_stems", "planned_stems", "packed_stems", "staged_stems", "loaded_stems", "ordered_stems"].forEach((m) => { g[m] += r[m] || 0; });
+      if (r.severity === "bad" || (r.severity === "warn" && !g.severity)) g.severity = r.severity;
+      (r.flags || []).forEach((f) => { const x = g.flags[f.label] || (g.flags[f.label] = { label: f.label, sev: f.sev, n: 0 }); x.n++; });
+    });
+    return [...map.values()].map((g) => {
+      g.stage = g.rows.reduce((a, r) => (STAGE_RANK.indexOf(r.stage) < STAGE_RANK.indexOf(a.stage) ? r : a), g.rows[0]);
+      g.flagList = Object.values(g.flags).sort((a, b) => (a.sev === "bad" ? 0 : 1) - (b.sev === "bad" ? 0 : 1) || b.n - a.n);
+      return g;
+    });
+  }
+  // Sales Allocation (the Desk page): opens on the order and on this variety's line.
+  const allocUrl = (r) => "/desk/sales-allocation?sales_order=" + encodeURIComponent(r.sales_order) + "&sales_order_item=" + encodeURIComponent(r.soi) + (r.delivery_date ? "&delivery_date=" + r.delivery_date : "") + (r.farm ? "&farm=" + encodeURIComponent(r.farm) : "");
+  const allocBtn = (r, label) => `<a class="ph-btn ph-btn--sm ph-btn--primary" href="${PH.esc(allocUrl(r))}" target="_blank" rel="noopener" title="${PH.esc(label || "Allocate")} ${PH.esc(r.variety)} on ${PH.esc(r.sales_order)} in Sales Allocation">${PH.esc(label || "Allocate")}</a>`;
+
+  /* One block per order, like the old Order Summary: numbered title, a line table with the
+     boxes at each step, and the order's completion ring. Boxes per step are the line's boxes
+     scaled by the share of its stems that reached the step. */
+  const boxesAt = (r, stems) => (r.line_boxes && r.ordered_stems ? Math.round(r.line_boxes * Math.min(1, (stems || 0) / r.ordered_stems)) : 0);
+  const boxCell = (done, total) => !total ? '<span class="ph-muted">—</span>' : `<span class="ph-badge ph-badge--${done >= total ? "good" : done > 0 ? "warn" : "bad"}">${done} ${done === 1 ? "box" : "boxes"}</span>`;
+  function lineTakt(g, r, packed) {
+    const t = g.first.takt || {};
+    if (!packed || !r.line_boxes) return '<span class="ph-muted">Not started</span>';
+    const hrs = t.secs ? t.secs / 3600 : 0;
+    return hrs > 0 ? (boxesAt(r, r.staged_stems || r.packed_stems) / hrs).toFixed(2) + " boxes/hr" : "—";
+  }
+  function groupHtml(g, byCust, num) {
+    const r = g.first, open = openRow.has(g.key), un = !g.opl, part = st.get("stage") === "partial";
+    const title = [r.customer_name, "Order " + (r.order_name || r.sales_order), g.opl].filter(Boolean).join(" | ");
+    const pctDone = g.ordered_stems ? Math.min(100, Math.round((100 * g.staged_stems) / g.ordered_stems)) : 0;
+    const COLS = 11;
+    const rows = g.rows.map((x) => {
+      const name = [x.variety, x.length].filter(Boolean).join(" ");
+      const o = openRow.has(x.key);
+      const fl = x.flags || [];
+      const fb = fl.length ? `<span class="ph-badge ph-badge--${fl[0].sev === "bad" ? "bad" : "warn"}" title="${PH.esc(fl.map((f) => f.label).join("; "))}">${PH.esc(fl[0].label)}</span>${fl.length > 1 ? `<span class="ph-muted" style="font-size:11px"> +${fl.length - 1}</span>` : ""}` : '<span class="ph-muted">—</span>';
+      const stage = `<span class="ph-badge ph-badge--${stageCls(x)}">${PH.esc(x.stage_label)}</span>`;
+      const chev = `<td class="ow-chev-td"><span class="ow-chev">${PH.icon("chevronRight", 14)}</span></td>`;
+      const nm = `<td class="is-wrap"><b>${PH.esc(name)}</b></td>`;
+      let tr;
+      if (part) tr = `<tr>${nm}<td class="is-num">${n(x.ordered_stems)}</td><td class="is-num">${n(x.line_picked_stems)}</td><td class="is-num"><b>${n(x.short_stems)}</b></td><td class="ph-muted">${PH.esc(x.team || "No team")}${x.opl ? " · " + PH.esc(x.opl) : ""}</td><td class="ow-end">${allocBtn(x, "Continue allocating")}</td></tr>`;
+      else if (un) tr = `<tr>${nm}<td class="is-num">${n(x.ordered_stems)} stems</td><td class="ow-end">${allocBtn(x)}</td></tr>`;
+      else {
+        const lb = x.line_boxes;
+        tr = `<tr class="ow-ln${o ? " is-open" : ""}" data-row="${PH.esc(x.key)}">${chev}${nm}<td>${lb ? lb + (lb === 1 ? " box" : " boxes") : "—"}</td><td>${bar(x.issued_stems, x.picked_stems, "Issuing")}</td><td>${bar(x.packed_stems, x.planned_stems, "Packing")}</td><td>${boxCell(boxesAt(x, x.packed_stems), lb)}</td><td>${boxCell(boxesAt(x, x.staged_stems), lb)}</td><td>${boxCell(boxesAt(x, x.loaded_stems), lb)}</td><td>${lineTakt(g, x, x.packed_stems > 0)}</td><td>${stage}</td><td>${fb}</td></tr>`;
+      }
+      return tr + (o ? `<tr class="ow-ln-detail"><td colspan="${COLS}">${detailHtml(x)}</td></tr>` : "");
+    }).join("");
+    const head = part ? '<th>Variety</th><th class="is-num">Ordered</th><th class="is-num">On pick list</th><th class="is-num">Still to allocate</th><th>Team · pick list</th><th></th>' : un ? '<th>Variety</th><th class="is-num">Ordered</th><th></th>' : '<th></th><th>Line</th><th>Assigned</th><th title="Issued / picked on the pick list">Issuing (stems)</th><th title="Packed / planned in the Packing Guide">Packing (stems)</th><th>Packed</th><th>Staged</th><th>Loaded</th><th>Takt time</th><th>Stage</th><th>Attention</th>';
+    const side = un || part
+      ? ""
+      : `<div class="ow-ring-wrap"><div class="ow-ring${pctDone >= 100 ? " is-full" : ""}" style="--p:${pctDone}%" title="Order completion: staged stems ÷ ordered stems (${n(g.staged_stems)} / ${n(g.ordered_stems)})"><div><b>${pctDone}%</b><span>${pctDone >= 100 ? "Complete" : PH.esc(g.stage.stage_label)}</span></div></div></div>`;
+    return `<div class="ow-ord${g.severity ? " is-" + g.severity : ""}">
+      <div class="ow-ord__head">${side}<h3 class="ow-ord__title"><span class="ow-num">${num}</span>${PH.esc(title)}</h3>
+        <div class="ow-ord__meta">${un ? `<span class="ph-muted">${PH.fmt.plural(g.rows.length, "variety", "varieties")} · ${n(g.ordered_stems)} stems · no pick list</span> <span class="ph-badge ph-badge--bad">${PH.esc(dueText(r))}</span>` : `<span class="ph-badge ph-badge--${stageCls(g.stage)}">${PH.esc(g.stage.stage_label)}</span> <span class="ph-muted">${PH.esc(dueText(r))}</span>`}
+        <button class="ph-btn ph-btn--ghost ph-btn--sm" type="button" data-grp="${PH.esc(g.key)}">${open ? "Hide details" : "Details"}</button></div></div>
+      <div class="ow-ord__body"><div class="ph-table-wrap"><table class="ph-table ow-ord__tbl${un || part ? " is-plain" : " is-wide"}"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div></div>
+      ${open ? orderDetailHtml(g) : ""}
     </div>`;
-    if (open) h += detailHtml(r);
-    return h;
   }
 
   /* Delivery note + packing list PDFs per DN; invoice PDF per SI (print formats as on the old Order Summary). */
@@ -410,8 +498,9 @@
     if (t.state === "running") return `<div class="ow-takt ow-takt--running" title="Takt is final once every box is staged. Shown: time since the first stem was issued (${tm(t.issued_at)}); ${stagedNote(r, t)}"><b>Takt ${dur(t.secs)}</b><span>in progress · issue → staged</span></div>`;
     return `<div class="ow-takt ow-takt--none" title="${PH.esc(t.reason || "Not issued yet")}"><b>Takt —</b><span>issue → staged</span></div>`;
   }
+  /* A line's own progress: stage stepper, takt and completion ring (the original row detail). */
   function detailHtml(r) {
-    const d = detail[r.opl] || {}, fl = d.flow, ob = r.opl_boxes, own = r.primary;
+    const own = r.primary;
     const flags = (r.flags || []).map((f) => `<span class="ow-flagline ow-flagline--${f.sev === "bad" ? "bad" : "warn"}">${PH.icon("alert", 14)}${PH.esc(f.label)}</span>`).join("");
     const prog = r.progress || [];
     const stepper = prog.map((x, i) => {
@@ -421,19 +510,30 @@
       const label = x.state === "none" || na ? PH.esc(x.word.replace(/^Not /, "").replace(/^./, (c) => c.toUpperCase())) : PH.esc(x.word);
       return `<div class="ow-st${done ? " is-done" : part ? " is-part" : ""}"><i class="ow-st__dot" style="${part ? "--p:" + Math.round(f * 100) + "%" : ""}">${done ? PH.icon("check", 16) : ""}</i><span class="ow-st__name">${label}</span><span class="ow-st__n">${na ? "—" : n(x.done) + " / " + n(x.total)}</span></div>${i < prog.length - 1 ? '<span class="ow-st__line' + (done ? " is-done" : "") + '"></span>' : ""}`;
     }).join("");
+    const note = r.opl && !own ? '<div class="ph-muted ow-foot">Several pick lists: precooling to dispatch show on the first</div>' : "";
+    return `<div class="ow-detail" data-detail="${PH.esc(r.key)}">
+      ${flags ? `<div class="ow-flaglines">${flags}</div>` : ""}
+      ${r.opl ? `<div class="ow-panel"><div class="ow-stepwrap"><div class="ow-stepper">${stepper}</div></div><div class="ow-panel__right">${taktHtml(r)}${ringHtml(r)}</div></div>` : '<p class="ph-muted ow-note">No pick list yet.</p>'}
+      ${note}
+    </div>`;
+  }
+
+  /* The order's own panel: takt, per-box times, documents, and Allocate while it has no pick list. */
+  function orderDetailHtml(g) {
+    const r = g.first, d = detail[g.opl] || {}, fl = d.flow, ob = r.opl_boxes;
     let boxes = "";
-    if (r.opl && ob) {
+    if (g.opl && ob) {
       const bx = fl ? fl.boxes : [];
       const rowsH = bx.map((b) => `<tr><td>${PH.esc(b.no || b.box)}</td><td>${tm(b.packed_at)}</td><td>${tm(b.precooling_at)}</td><td>${tm(b.staged_at)}</td><td title="${PH.esc(b.takt_note || "")}"><b>${b.takt_secs == null ? "—" : dur(b.takt_secs)}</b></td><td>${tm(b.loaded_at)}</td><td>${tm(b.dispatched_at)}</td></tr>`).join("");
       boxes = `<details class="ow-boxes-d"><summary>${n(ob.complete)} / ${n(ob.planned)} boxes packed · per-box times${fl && fl.issued_at ? " · first issued " + tm(fl.issued_at) : ""}</summary>
         <div class="ow-boxes"><table class="ph-table"><thead><tr><th>Box</th><th>Packed</th><th>Precooling in</th><th>Staged</th><th>Takt (issue → staged)</th><th>Loaded</th><th>Dispatched</th></tr></thead><tbody>${rowsH || '<tr><td colspan="7" class="ph-muted">' + (fl ? "No boxes packed yet" : "…") + "</td></tr>"}</tbody></table></div></details>`;
     }
     const sh = d.shelves && d.shelves.length ? PH.esc(d.shelves.slice(0, 3).join(", ")) + (d.shelves.length > 3 ? " +" + (d.shelves.length - 3) : "") : "";
-    const foot = [r.origin_farm ? "Stems from " + PH.esc(r.origin_farm) : "", sh ? "Shelves " + sh : "", r.opl && !own ? "Several pick lists: precooling to dispatch show on the first" : ""].filter(Boolean).join(" · ");
-    const issues = r.packing_issues ? ` <button class="ph-btn ph-btn--ghost ph-btn--sm" type="button" data-issues="${PH.esc(r.opl)}">${PH.fmt.plural(r.packing_issues, "packing issue")}</button>` : "";
-    return `<div class="ow-detail" data-detail="${PH.esc(r.key)}">
-      ${flags ? `<div class="ow-flaglines">${flags}</div>` : ""}
-      ${r.opl ? `<div class="ow-panel"><div class="ow-stepwrap"><div class="ow-stepper">${stepper}</div></div><div class="ow-panel__right">${taktHtml(r)}${ringHtml(r)}</div></div>` : '<p class="ph-muted ow-note">No pick list yet.</p>'}
+    const foot = [r.origin_farm ? "Stems from " + PH.esc(r.origin_farm) : "", sh ? "Shelves " + sh : ""].filter(Boolean).join(" · ");
+    const issuesN = r.packing_issues || 0;
+    const issues = issuesN ? ` <button class="ph-btn ph-btn--ghost ph-btn--sm" type="button" data-issues="${PH.esc(g.opl)}">${PH.fmt.plural(issuesN, "packing issue")}</button>` : "";
+    return `<div class="ow-detail" data-detail="${PH.esc(g.key)}">
+      
       ${boxes}
       <div class="ow-docs">${docLinks(r)}</div>
       ${foot || issues ? `<div class="ph-muted ow-foot">${foot}${issues}</div>` : ""}
@@ -457,7 +557,13 @@
     if (rw) {
       const k = rw.dataset.row;
       if (openRow.has(k)) openRow.delete(k); else { openRow.add(k); const r = find(k); if (r && r.opl && !detail[r.opl]) loadDetail(r.opl); }
-      PH.keepScroll(render);
+      return PH.keepScroll(render);
+    }
+    const gr = e.target.closest("[data-grp]");
+    if (gr) {
+      const k = gr.dataset.grp;
+      if (openRow.has(k)) openRow.delete(k); else { openRow.add(k); const g = grpIndex[k]; if (g && g.opl && !detail[g.opl]) loadDetail(g.opl); }
+      return PH.keepScroll(render);
     }
   });
   function loadDetail(opl) {

@@ -560,8 +560,13 @@ def get_orders_workflow(
 	q: Any = None,
 	stage: Any = None,
 	view: Any = None,
+	packed_today: Any = None,
 ):
-	"""Lines grouped by team (view=team, default) or customer (view=customer), plus KPIs."""
+	"""Lines grouped by team (view=team, default) or customer (view=customer), plus KPIs.
+
+	packed_today: only the pick lists that had a Farm Pack List created today, whatever their
+	delivery date (the date range is then ignored).
+	"""
 	from_date = from_date or today()
 	to_date = to_date or from_date
 	if str(from_date) > str(to_date):
@@ -584,7 +589,28 @@ def get_orders_workflow(
 	farms = region_mod.farms_for(region=region, farm=farm)
 
 	# Pipeline over every line of the range (attribution independent of filters).
-	all_lines = pipeline.fetch_lines(delivery_from=from_date, delivery_to=to_date)
+	packed_opls = None
+	if str(packed_today or "").lower() in ("1", "true", "yes"):
+		packed_opls = set(
+			frappe.db.sql_list(
+				"""SELECT DISTINCT order_pick_list FROM `tabFarm Pack List`
+				   WHERE docstatus < 2 AND creation >= %s AND IFNULL(order_pick_list, '') != ''""",
+				str(today_d),
+			)
+		)
+		pt_orders = (
+			set(
+				frappe.db.sql_list(
+					"SELECT DISTINCT sales_order FROM `tabOrder Pick List` WHERE name IN %(o)s",
+					{"o": tuple(packed_opls)},
+				)
+			)
+			if packed_opls
+			else set()
+		)
+		all_lines = pipeline.fetch_lines(sales_orders=pt_orders)
+	else:
+		all_lines = pipeline.fetch_lines(delivery_from=from_date, delivery_to=to_date)
 	opls = pipeline.attach_pipeline(all_lines)
 	keep = (
 		set(
@@ -643,12 +669,20 @@ def get_orders_workflow(
 	items = []
 	for ln in lines:
 		in_scope = sorted(
-			o for o in ln.opls if (not team or (opls[o].get("team") or "") == team) and farm_ok(ln.parent, o)
+			o
+			for o in ln.opls
+			if (not team or (opls[o].get("team") or "") == team)
+			and farm_ok(ln.parent, o)
+			and (packed_opls is None or o in packed_opls)
 		)
 		if not ln.opls:
-			if team or not farm_ok(ln.parent):
+			if team or packed_opls is not None or not farm_ok(ln.parent):
 				continue
 			in_scope = [None]
+		# Picked on every pick list of the line: below the ordered stems it is allocated partially.
+		line_picked = sum(
+			cells[(o, ln.name)]["picked_stems"] for o in ln.opls if (o, ln.name) in cells
+		)
 		for i, o in enumerate(in_scope):
 			primary = i == 0
 			cell = cells.get((o, ln.name)) if o else None
@@ -702,6 +736,12 @@ def get_orders_workflow(
 			it["not_issued_stems"] = max(0.0, it["picked_stems"] - it["issued_stems"])
 			it["not_packed_stems"] = max(0.0, it["planned_stems"] - it["packed_stems"])
 			it["planned_minus_picked"] = it["planned_stems"] - it["picked_stems"]
+			ordered_here = float(ln["ordered_stems"] or 0)
+			it["line_picked_stems"] = line_picked if primary else 0.0
+			it["partial"] = bool(
+				primary and o and 0 < line_picked < ordered_here - 0.5
+			)  # allocated partially: some stems on a pick list, not all
+			it["short_stems"] = max(0.0, ordered_here - line_picked) if it["partial"] else 0.0
 			it["name"] = " · ".join([oname, ln.item_code or "", ln.custom_length or "", o or "No pick list"])
 			it["stage"] = _stage(it)
 			it["stage_label"] = STAGE_LABEL[it["stage"]]
@@ -727,7 +767,10 @@ def get_orders_workflow(
 	counts = {"all": len(items)}
 	for b, stages in BUCKETS.items():
 		counts[b] = sum(1 for i in items if i["stage"] in stages)
-	if stage != "all" and stage in BUCKETS:
+	counts["partial"] = sum(1 for i in items if i["partial"])
+	if stage == "partial":
+		items = [i for i in items if i["partial"]]
+	elif stage != "all" and stage in BUCKETS:
 		items = [i for i in items if i["stage"] in BUCKETS[stage]]
 
 	# Pick-list level facts for the drill-down and the issue count.
@@ -777,7 +820,9 @@ def get_orders_workflow(
 	sev_rank = {"bad": 0, "warn": 1, "": 2}
 	groups = defaultdict(list)
 	for i in items:
-		if view == "team":
+		if stage == "partial":
+			key = (3, "Allocated partially")
+		elif view == "team":
 			key = (2, NOT_ALLOCATED) if not i["opl"] else ((0, i["team"]) if i["team"] else (1, NO_TEAM))
 		else:
 			key = (0, i["customer"] or "—")
@@ -786,8 +831,8 @@ def get_orders_workflow(
 	for key, rs in sorted(groups.items(), key=lambda kv: tuple(str(x) for x in kv[0])):
 		rs.sort(key=lambda r: (sev_rank[r["severity"]], r["delivery_date"] or "", r["name"]))
 		tot = _sum_items(rs, opls)
-		if view == "team":
-			kind, name, skey = ("team", "noteam", "unallocated")[key[0]], key[1], key[1]
+		if view == "team" or stage == "partial":
+			kind, name, skey = ("team", "noteam", "unallocated", "partial")[key[0]], key[1], key[1]
 		else:
 			kind, skey = "customer", key[1]
 			name = rs[0]["customer_name"] or key[1]
@@ -826,6 +871,7 @@ def get_orders_workflow(
 		"to_date": str(to_date),
 		"today": str(today_d),
 		"view": view,
+		"packed_today": packed_opls is not None,
 		"farms": farms,
 		"kpis": k,
 		"stage_counts": counts,

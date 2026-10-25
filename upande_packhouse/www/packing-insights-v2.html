@@ -242,7 +242,7 @@
     const worstFin = k.finish_eta_min == null ? null : nowHour() + k.finish_eta_min / 60;
     const late = worstFin != null && worstFin > byHour();
     PH.kpis("#kpis", [
-      { label: "Packed", value: n(k.packed_boxes), suffix: " / " + n(k.expected_boxes), unit: "boxes · " + n(k.packed_today_boxes) + " packed today", bar: k.expected_boxes ? (100 * k.packed_boxes) / k.expected_boxes : 0, title: "Boxes packed against boxes expected on the orders in view. Click for the days and who issued.", onClick: () => drill("packed") },
+      { label: "Packed", value: n(k.packed_boxes), suffix: " / " + n(k.expected_boxes), unit: "boxes complete", bar: k.expected_boxes ? (100 * k.packed_boxes) / k.expected_boxes : 0, title: "Boxes packed against boxes expected on the orders in view. Click for the days and who issued.", onClick: () => drill("packed") },
       { label: "Can pack now", value: k.can_pack_stems, unit: "stems issued and waiting for packers", title: "Issued stems not yet on a pack list. Click for the teams.", onClick: () => drill("can") },
       { label: "Held up", value: k.held_stems, unit: "stems waiting to be issued, on transfer, missing or in draft", title: "Click for remote supply and orders with no pick list.", onClick: () => drill("held") },
       { label: "Flow", value: k.packing_stems_per_min, unit: "stems a minute packed today, first to last pack list", title: "Click for the wait between steps.", onClick: () => drill("flow") },
@@ -277,7 +277,7 @@
         '<td><b>' + (t.bph ? t.bph.toFixed(1) : "—") + '</b> <span class="ph-muted">· ' + (t.issue_spm ? n(t.issue_spm) : "—") + '</span><span class="pi-sub' + (t.pack_idle > 45 && t.to_pack > 0 ? " is-bad" : "") + '">' + (t.pack_last ? "last pack list " + PH.esc(t.pack_last) + (t.pack_idle > 45 ? " (" + Math.round(t.pack_idle) + " min ago)" : "") : "no pack list today") + "</span></td>" +
         '<td><span class="ph-badge ph-badge--' + s.c + '">' + (s.fin != null ? clock(s.fin) : s.w) + "</span>" + (s.fin != null ? '<span class="pi-sub">' + s.w + "</span>" : "") + (t.blocked > 0 && t.state !== "done" ? '<span class="pi-sub">+' + n(t.blocked) + " stems blocked</span>" : "") + "</td></tr>";
     });
-    if (uTotal > 0) h += '<tr><td class="pi-team">Not allocated yet<small>no team assigned</small></td><td colspan="8"><button class="pi-cell is-warn" style="--a:24%" data-team="alloc" data-k="alloc">' + n(uTotal) + " stems<small>" + n(u0) + " due " + (un[0] ? PH.fmt.date(un[0].due, true) : "") + " · " + n(u1) + " due " + (un[1] ? PH.fmt.date(un[1].due, true) : "") + ", no pick list yet</small></button></td></tr>";
+    if (uTotal > 0) h += '<tr><td class="pi-team">Not allocated yet<small>no team assigned</small></td><td colspan="8"><button class="pi-cell is-warn" style="--a:24%" data-team="alloc" data-k="alloc">' + n(uTotal) + " stems<small>" + un.filter((x) => x.ordered > x.allocated).map((x) => n(x.ordered - x.allocated) + " due " + PH.fmt.date(x.due, true)).join(" · ") + " · no pick list yet</small></button></td></tr>";
     h += "</tbody></table></div>";
     PH.set("#matrix", h);
     document.getElementById("pi-mx").onclick = (e) => { const b = e.target.closest(".pi-cell"); if (b) drillCell(b.dataset.team, b.dataset.k); };
@@ -331,7 +331,7 @@
     } else if (kind === "held") {
       const mx = Math.max(1, ...D.remote.map((x) => x.stems));
       open("Held up", "Supply and allocation", '<h3 class="ph-section-title">Remote buckets on the way</h3>' + list(D.remote.map((x) => lrow(PH.esc(x.farm), PH.fmt.plural(x.buckets, "bucket") + " · oldest order due " + dueOf(x.due), n(x.stems), (100 * x.stems) / mx, "warn"))) +
-        '<h3 class="ph-section-title" style="margin-top:var(--sp-6)">Orders with no pick list yet</h3>' + list(D.unalloc.map((x) => lrow("Due " + dueOf(x.due), n(x.allocated) + " of " + n(x.ordered) + " stems allocated", n(Math.max(0, x.ordered - x.allocated)) + " left", (100 * Math.max(0, x.ordered - x.allocated)) / Math.max(1, x.ordered), "warn"))));
+        '<h3 class="ph-section-title" style="margin-top:var(--sp-6)">Orders with no pick list yet</h3>' + list(D.unalloc.map((x) => lrow("Due " + dueOf(x.due), n(x.allocated) + " of " + n(x.ordered) + " stems on a pick list", n(Math.max(0, x.ordered - x.allocated)) + " left", (100 * Math.max(0, x.ordered - x.allocated)) / Math.max(1, x.ordered), "warn"))));
     } else if (kind === "flow") {
       const W = D.waits, N = [["alloc_to_issue", "Allocation to first issue"], ["issuing", "Issuing, first to last stem"], ["wait_pack", "Last issue to pack list opened"], ["packing", "Pack list open to submitted"], ["wait_stage", "Submitted to last box staged"]];
       open("Flow", "One order from allocation to staged, middle value of the pick lists packed today", tbl([["Step"], ["Middle", 1], ["Pick lists", 1]], N.map((x) => "<tr><td>" + x[1] + '</td><td class="is-num is-strong">' + fm(W[x[0]].median) + '</td><td class="is-num">' + W[x[0]].n + "</td></tr>")));
@@ -342,7 +342,7 @@
   }
 
   function drillCell(team, k) {
-    if (k === "alloc") return open("Not allocated yet", "Allocation is manual and happens the day before delivery", list(data.unalloc.map((x) => lrow("Due " + dueOf(x.due), n(x.allocated) + " of " + n(x.ordered) + " stems allocated", n(Math.max(0, x.ordered - x.allocated)) + " left", (100 * Math.max(0, x.ordered - x.allocated)) / Math.max(1, x.ordered), "warn"))));
+    if (k === "alloc") return open("Not allocated yet", "Allocation is manual and happens the day before delivery", list(data.unalloc.map((x) => lrow("Due " + dueOf(x.due), n(x.allocated) + " of " + n(x.ordered) + " stems on a pick list", n(Math.max(0, x.ordered - x.allocated)) + " left", (100 * Math.max(0, x.ordered - x.allocated)) / Math.max(1, x.ordered), "warn"))));
     const NM = { queue: "can pack now", issue: "to issue", transfer: "transfer", not_found: "not found", draft: "draft" };
     const WHY = { queue: "Issued stems are on the packing floor and not yet packed. These are the only stems the team can pack right now.", issue: "Pick list is submitted but the stems have not been issued, so nothing can be packed yet.", transfer: "Remote buckets have not reached the hub. The order stays a draft until its last bucket is shelved.", not_found: "A bucket was marked not found at issuing. The order cannot be completed until it is replaced.", draft: "The order is not submitted, so it cannot be issued." };
     const col = COLS.find((c) => c.k === k), rows = k === "queue" ? data.qdrill.filter((r) => r.team === team) : data.drill.filter((r) => r.team === team && r.cause === k);

@@ -471,15 +471,22 @@
 				const p = PH.date.preset(b.dataset.value);
 				if (p) st.set({ [fk]: p[0], [tk]: p[1] });
 			});
-		const onInput = () => {
+		// A date being typed is valid at every keystroke ("0002-…" on the way to 2026), so
+		// ignore years before 1900. When one end passes the other it drags the other along;
+		// it never swaps them, so the date the person just picked stays as picked.
+		const real = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v || "") && +v.slice(0, 4) >= 1900;
+		const onInput = (which) => () => {
 			let a = f ? f.value : "",
 				b = t ? t.value : "";
-			if (!a || (t && !b)) return;
-			if (t && a > b) [a, b] = [b, a];
-			st.set(t ? { [fk]: a, [tk]: b } : { [fk]: a });
+			if (!real(which === "from" ? a : b)) return;
+			if (!t) return st.set({ [fk]: a });
+			if (!real(a)) a = b;
+			if (!real(b)) b = a;
+			if (a > b) which === "from" ? (b = a) : (a = b);
+			st.set({ [fk]: a, [tk]: b });
 		};
-		if (f) f.addEventListener("change", onInput);
-		if (t) t.addEventListener("change", onInput);
+		if (f) f.addEventListener("change", onInput("from"));
+		if (t) t.addEventListener("change", onInput("to"));
 		st.on(paint);
 		paint();
 	};

@@ -1,54 +1,74 @@
 {#- Remote Transfers v2 — Bucket Logistics tab (/remote-transfer-v2?tab=logistics).
-    Every order with buckets being transferred for a delivery-date range.
-    Two views of the same data (toggle, in the URL as ?view=):
-      trip  (default, the v1 drill-down): trip -> origin farm -> order -> bucket status
-      farm  orders grouped by origin farm, buckets inline
-    Per trip / leg / bucket: the time the truck LEFT the remote farm, the time it ARRIVED
-    at the hub (Kapkolia) and the minutes in transit; a trip still on the road shows the
-    time so far, one not yet gone shows "not left".
-    Data: api.v2.rt_logistics.get_logistics_view (builds on api.v2.remote_transfer.get_logistics)
-    and get_bucket_detail. Add to trip / Edit trip use the planner core (_planner_common.html).
-    Filters (all in the URL): date range, region, farm, team, q (server), variety (deep link
-    ?variety=), view. Included twice: rt_part 'body' then 'script'. -#}
+    The body is v1's Bucket Logistics (templates/remote_transfer/bucket_logistics.html, the
+    "Trip Drill Down") on the v2 design system: the same tiles, truck cards, trip -> farm -> order
+    tree, bucket status drawer and bucket trace, in the same order and wording. Colours keep
+    their meaning, mapped onto the v2 tokens (amber = at the farm, ink = trolley / issued,
+    teal = on the truck / in transit / at the hub, green = shelved / ready, red = not found).
+    The v2 page shell is kept: region / origin farm / team / search / delivery date filters.
+    Data: api.v2.rt_logistics.get_logistics_view (v1's getBucketLogistics for every day of the
+    range) and get_bucket_detail (v1's getBucketLogisticsDetail). All tile numbers are computed
+    here exactly as v1 does, from the orders v1 returned.
+    Included twice: rt_part 'body' then 'script'. -#}
 {% if rt_part == 'body' %}
-{% include "upande_packhouse/templates/remote_transfer_v2/_planner_common.html" %}
 <style>
-  .bl td{vertical-align:top}
-  .bl tr.bl-grp td{background:var(--surface);cursor:pointer;border-bottom:1px solid var(--hairline-2)}
-  .bl tr.bl-grp:hover td{background:var(--tint)}
-  .bl tr.bl-det>td{background:var(--surface);padding-top:0}
-  .bl-caret{display:inline-block;width:16px;color:var(--ink-mute)}
-  .bl-trip{margin-bottom:var(--sp-2)}
-  .bl-hl{font-weight:600;color:var(--ink)}
-  .bl-ok{color:var(--good)}
-  .bl-no{color:var(--ink-faint)}
-  .bl-tgl{cursor:pointer;display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-3);user-select:none}
-  .bl-tgl:hover{background:var(--tint)}
-  .bl-trip-card{padding:0;overflow:hidden}
-  .bl-trip-card>.bl-tgl{padding:var(--sp-4) var(--sp-5)}
-  .bl-times{display:flex;flex-wrap:wrap;gap:var(--sp-5);padding:0 var(--sp-5) var(--sp-4)}
-  .bl-times .ph-stat{min-width:120px}
-  .bl-cap{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-3) var(--sp-5);padding:0 var(--sp-5) var(--sp-4)}
-  .bl-cap .ph-progress{width:120px}
-  .bl-body{padding:0 var(--sp-5) var(--sp-4)}
-  .bl-farm{margin-top:var(--sp-3)}
-  .bl-farm>.bl-tgl{padding:var(--sp-3) var(--sp-4);background:var(--surface);border-radius:var(--r-md)}
-  .bl-order{border-bottom:1px solid var(--hairline);padding:var(--sp-3) var(--sp-4)}
-  .bl-order:last-child{border-bottom:0}
-  .bl-order>.bl-tgl{padding:var(--sp-2) 0}
-  .bl-qty{display:inline-grid;grid-template-columns:110px 120px 150px;gap:var(--sp-3);color:var(--ink-mute);font-variant-numeric:tabular-nums}
-  .bl-qty b{color:var(--ink)}
-  .bl-status{padding:var(--sp-2) 0 var(--sp-3) var(--sp-5)}
-  .bl-truck.is-on{outline:2px solid var(--ink)}
+  .bl-k-warn{--k:var(--warn)}
+  .bl-k-ink{--k:var(--ink)}
+  .bl-k-signal{--k:var(--signal)}
+  .bl-k-good{--k:var(--good)}
+  .bl-k-bad{--k:var(--bad)}
+  .bl-k-outline{--k:var(--ink-mute)}
+  .bl-kpi-bad .ph-kpi__value{color:var(--bad)}
+  .bl-kpi-sig .ph-kpi__value{color:var(--signal)}
+  #bl-kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:var(--sp-3);margin-bottom:var(--sp-5)}
+  #bl-kpis .ph-kpi{padding:var(--sp-5)}
+  #bl-kpis .ph-kpi__label{white-space:normal}
+  #bl-kpis .ph-kpi__value{overflow:visible;white-space:normal}
+  .bl-trucks{margin-bottom:var(--sp-5)}
   .bl-truck{cursor:pointer}
-  .bl-flags{display:flex;flex-wrap:wrap;gap:var(--sp-2);margin-bottom:var(--sp-4)}
-  .bl-flags button{cursor:pointer;border:0}
-  .bl-dr td,.bl-dr th{white-space:normal}
-  .bl-when{font-size:11px;white-space:nowrap}
-  .bl-when small{display:block;color:var(--ink-mute)}
-  .bl-live{color:var(--signal)}
+  .bl-truck.is-on{outline:2px solid var(--ink)}
+  .bl-allrow{display:flex;justify-content:flex-end;margin-bottom:var(--sp-3)}
+  .bl-trip{margin-bottom:var(--sp-2)}
+  .bl-tgl{cursor:pointer;user-select:none}
+  .bl-caret{display:inline-block;width:16px;flex:0 0 auto}
+  .bl-trip-h{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);background:var(--ink);color:var(--surface);border-radius:var(--r-md);font-weight:600}
+  .bl-trip-h .bl-sub{color:var(--ink-faint);font-weight:400}
+  .bl-trip-h .bl-times{color:var(--surface);font-weight:500;white-space:nowrap}
+  .bl-trip-h .bl-count{margin-left:auto;color:var(--ink-faint);font-weight:400}
+  .bl-trip-farms{flex:1 1 auto;display:flex;flex-wrap:wrap;justify-content:center;gap:var(--sp-2);min-width:0}
+  .bl-chip{background:var(--ink-2);box-shadow:inset 0 0 0 1px var(--ink-4);color:var(--surface);border-radius:var(--r-pill);padding:0 var(--sp-3);white-space:nowrap}
+  .bl-exp{flex:none;border:0;cursor:pointer;background:var(--ink-2);box-shadow:inset 0 0 0 1px var(--ink-4);color:var(--surface);border-radius:var(--r-sm);padding:var(--sp-1) var(--sp-3);font-weight:600}
+  .bl-exp:hover{background:var(--ink-3)}
+  .bl-cap{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2) var(--sp-4);padding:var(--sp-2) var(--sp-3);margin:var(--sp-1) 0 var(--sp-2);background:var(--tint);border-radius:var(--r-sm)}
+  .bl-cap .ph-progress{width:120px}
+  .bl-farms{padding:var(--sp-1) 0 var(--sp-2) var(--sp-5)}
+  .bl-farm-h{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2);padding:var(--sp-2) var(--sp-3);background:var(--surface);border-radius:var(--r-sm);font-weight:600;color:var(--ink)}
+  .bl-farm-h .bl-count{margin-left:auto;font-weight:400;color:var(--ink-mute)}
+  .bl-orders{padding:var(--sp-1) 0 var(--sp-2) var(--sp-5)}
+  .bl-order{border-bottom:1px solid var(--hairline)}
+  .bl-order-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--sp-2);padding:var(--sp-2) var(--sp-1)}
+  .bl-oname{flex:0 1 320px;min-width:0;display:inline-flex;align-items:baseline;gap:var(--sp-2);overflow:hidden;white-space:nowrap}
+  .bl-oname .bl-sub{overflow:hidden;text-overflow:ellipsis}
+  .bl-qty{display:inline-grid;grid-template-columns:100px 115px 150px;column-gap:var(--sp-3);color:var(--ink-mute)}
+  .bl-qty>span{white-space:nowrap}
+  .bl-qty b{color:var(--ink)}
+  .bl-qty .bl-ok,.bl-qty .bl-ok b{color:var(--good)}
+  .bl-sub{color:var(--ink-mute);font-weight:400}
+  .bl-status{padding:var(--sp-1) var(--sp-1) var(--sp-3) var(--sp-5)}
+  .bl-pills{display:flex;flex-wrap:wrap;gap:var(--sp-1)}
+  .bl-status .ph-btn{margin-top:var(--sp-2)}
+  .bl-flags{display:flex;flex-wrap:nowrap;gap:var(--sp-1);margin-bottom:var(--sp-3)}
+  .bl-flags button{flex:1 1 0;min-width:0;justify-content:center;cursor:pointer;border:0}
+  .bl-flags .bl-fl{overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .bl-dr td,.bl-dr th{white-space:normal;vertical-align:top;padding-left:var(--sp-2);padding-right:var(--sp-2)}
+  .bl-dr td.bl-nw,.bl-dr th.bl-nw{white-space:nowrap}
+  .bl-dr tr.bl-row{background:color-mix(in srgb,var(--k) 8%,transparent);box-shadow:inset 3px 0 0 var(--k)}
+  .bl-ev{border-left:3px solid var(--k);padding-left:var(--sp-2)}
+  .bl-ev b{color:var(--k);display:block}
+  .bl-ev small{display:block;color:var(--ink-mute)}
+  .bl-tick{color:var(--k);font-weight:600}
+  .bl-dash{color:var(--ink-faint)}
   .ph-modal.bl-wide{width:min(98vw,1500px);max-width:none}
-  .bl-truck .ph-tile__head{flex-wrap:wrap;gap:var(--sp-2)}
+  .ph-modal.bl-trace{width:min(96vw,820px)}
 </style>
 
 <div class="ph-filters">
@@ -56,7 +76,6 @@
   <select class="ph-select" id="bl-farm" aria-label="Origin farm" title="Origin farm: where the bucket is trucked from"><option value="">All origin farms</option></select>
   <select class="ph-select" id="bl-team" aria-label="Team"><option value="">All teams</option></select>
   <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="bl-q" type="search" placeholder="Search order, customer, OPL, variety"></label>
-  <span id="bl-variety"></span>
   <div class="ph-filters__spacer"></div>
   <div class="ph-pills" id="bl-preset" aria-label="Delivery date presets">
     <button data-value="yesterday">Yesterday</button><button data-value="today">Today</button><button data-value="tomorrow">Tomorrow</button><button data-value="7d">7 days</button><button data-value="30d">30 days</button>
@@ -65,53 +84,47 @@
 </div>
 
 <section class="ph-kpis" id="bl-kpis"></section>
-<section class="ph-kpis" id="bl-kpis2"></section>
-<section class="ph-kpis" id="bl-kpis3"></section>
 <div id="bl-note"></div>
-<section class="ph-card" id="bl-trucks-card" hidden><div class="ph-card__head"><h2 class="ph-card__title">Trucks today</h2><span class="ph-card__meta">loaded / planned · click a truck to show only its trips</span></div><div class="ph-tiles ph-tiles--sm" id="bl-trucks"></div></section>
-<section class="ph-card ph-card--flush">
-  <div class="ph-card__head"><h2 class="ph-card__title" id="bl-title">Trips <span class="ph-badge" id="bl-count">0</span></h2>
-    <div class="ph-card__tools">
-      <div class="ph-pills" id="bl-view" aria-label="View"><button data-value="trip">By trip</button><button data-value="farm">By farm</button></div>
-      <button class="ph-btn ph-btn--sm ph-btn--ghost" id="bl-csv">Export CSV</button>
-      <button class="ph-btn ph-btn--sm ph-btn--ghost" id="bl-fold" hidden>Expand all</button></div></div>
+<div class="ph-tiles ph-tiles--sm bl-trucks" id="bl-trucks" hidden></div>
+<section class="ph-card">
+  <div class="bl-allrow" id="bl-allrow" hidden><button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" id="bl-fold">Expand all</button></div>
   <div id="bl-rows"></div>
 </section>
 
 {% elif rt_part == 'script' %}
-{% include "upande_packhouse/templates/remote_transfer_v2/_planner_common.html" %}
 {% raw %}
 <script>
 (function () {
   "use strict";
-  const esc = PH.esc, n = (v) => PH.fmt.num(v || 0);
+  const esc = PH.esc;
+  const n = (v) => PH.fmt.num(Math.round(Number(v) || 0));
   const HUB = RT.transferHub || "Kapkolia";
   const API = "upande_packhouse.api.v2.rt_logistics.";
-  /* Every stage, as done / requested. kind = badge colour. */
-  const FLAGS = [
-    ["awaiting", "Awaiting transfer", "warn"], ["trolley", "Loaded in trolley", "ink"], ["on_truck", "Loaded on truck", "signal"], ["transit", "In transit", "signal"], ["arrived_hub", "Arrived at " + HUB, "signal"],
-    ["shelved", "Shelved", "good"], ["ready", "Ready for packing", "good"], ["issued", "Issued", "ink"], ["issued_offline", "Issued offline", "outline"], ["not_found", "Not found", "bad"],
-  ];
-  // The main stages always show (a 0 is greyed); Issued offline / Not found only when they happen (as v1).
-  const ALWAYS = { awaiting: 1, trolley: 1, on_truck: 1, transit: 1, arrived_hub: 1, shelved: 1, ready: 1, issued: 1 };
-  const TRIP_KIND = { not_left: ["outline", "Not left yet"], in_transit: ["signal", "In transit"], arrived: ["good", "Arrived"] };
+  const ST = (v) => (v === 1 ? "" : "s");
 
-  const st = PH.state({ from: RT.defaultDate, to: RT.defaultDate, region: "", farm: "", team: "", q: "", variety: "", view: "trip" });
+  /* v1's stages and their order. kind = the v2 colour that carries the v1 meaning. */
+  const FLAGS = [
+    ["awaiting", "Awaiting Transfer", "warn"], ["trolley", "Loaded in Trolley", "ink"], ["on_truck", "Loaded on Truck", "signal"], ["transit", "In Transit", "signal"],
+    ["arrived_hub", "Arrived at " + HUB, "signal"], ["shelved", "Shelved", "good"], ["ready", "Ready for Packing", "good"], ["issued", "Issued", "ink"],
+    ["issued_offline", "Issued Offline", "outline"], ["not_found", "Not found", "bad"],
+  ];
+  // The main stages always show (a 0 is greyed); Issued Offline / Not found only when they happen.
+  const ALWAYS = { awaiting: 1, trolley: 1, on_truck: 1, transit: 1, arrived_hub: 1, shelved: 1, ready: 1, issued: 1 };
+  const KIND = {}; FLAGS.forEach((f) => (KIND[f[0]] = f[2]));
+  const LABEL = {}; FLAGS.forEach((f) => (LABEL[f[0]] = f[1]));
+
+  const st = PH.state({ from: RT.defaultDate, to: RT.defaultDate, region: "", farm: "", team: "", q: "" });
   // Old/shared ?date= link: a single delivery day.
-  (function () { const d = new URLSearchParams(location.search).get("date"); if (d && !new URLSearchParams(location.search).get("from")) st.set({ from: d, to: d }, { silent: true }); })();
-  RTP.setDate(() => st.get("to"));
-  RTP.setRange(() => ({ from: st.get("from"), to: st.get("to") }));
+  (function () { const p = new URLSearchParams(location.search), d = p.get("date"); if (d && !p.get("from")) st.set({ from: d, to: d }, { silent: true }); })();
   PH.regionPills("#f-region", st, "region");
   PH.bindSelect("#bl-farm", st, "farm");
   PH.bindSelect("#bl-team", st, "team");
   PH.bindSearch("#bl-q", st, "q");
-  PH.pills("#bl-view", st, "view");
   PH.dateRange({ pills: "#bl-preset", from: "#bl-from", to: "#bl-to", state: st, fromKey: "from", toKey: "to" });
   st.on((s, changed) => {
     if (changed.indexOf("region") >= 0 && s.farm && PH.regionOf(s.farm) !== s.region && s.region) st.set({ farm: "" }, { silent: true });
-    // Every filter scopes the KPIs, so every filter is a server read.
-    if (changed.some((k) => k === "from" || k === "to" || k === "region" || k === "farm" || k === "team" || k === "q")) return load(!changed.every((k) => k === "q"));
-    render();
+    // Every filter scopes the tiles, so every filter is a server read.
+    load(!changed.every((k) => k === "q"));
   });
 
   // Teams: the canonical list, plus any team the orders carry.
@@ -122,9 +135,9 @@
     PH.options("#bl-team", all, st.get("team"));
   }
 
-  /* ── Time helpers ── */
-  const dt = (v) => (v ? PH.fmt.datetime(v) : "—");
-  // Format a minutes count as "Nd Nh Nm" (drops leading zero units).
+  /* ── Formatting, as v1 ── */
+  const fmtD = (v) => PH.fmt.date(v, true);
+  const fmtDT = (v) => PH.fmt.datetime(v);
   function fmtDur(mins) {
     if (mins == null) return "—";
     mins = Math.max(0, Math.round(mins));
@@ -134,130 +147,126 @@
     out.push(mm + "m");
     return out.join(" ");
   }
-  // Minutes between initiated (OPL created) and arrived (first bucket shelved).
+  const ts = (v) => { const d = new Date(String(v || "").replace(" ", "T")); return isNaN(d.getTime()) ? null : d.getTime(); };
   function arrivalMins(o) {
-    if (!o.initiated || !o.arrived) return null;
-    const a = new Date(String(o.initiated).replace(" ", "T")), b = new Date(String(o.arrived).replace(" ", "T"));
-    return isNaN(a) || isNaN(b) ? null : Math.max(0, (b - a) / 60000);
+    const a = ts(o.initiated), b = ts(o.arrived);
+    return !o.initiated || !o.arrived || a == null || b == null ? null : Math.max(0, (b - a) / 60000);
   }
-  // The truck's times as three labelled facts: left the farm · arrived at the hub · time in transit.
-  function transitFacts(x) {
-    const kind = TRIP_KIND[x.state] || TRIP_KIND.not_left;
-    const dur = x.transit_minutes == null ? "—" : fmtDur(x.transit_minutes) + (x.state === "in_transit" ? " so far" : "");
-    return `<div class="ph-stat"><small>Left the farm</small><b>${esc(dt(x.left_at))}</b></div>` +
-      `<div class="ph-stat"><small>Arrived at ${esc(HUB)}</small><b>${x.arrived_at ? esc(dt(x.arrived_at)) : x.state === "in_transit" ? '<span class="bl-live">on the road</span>' : "—"}</b></div>` +
-      `<div class="ph-stat"><small>Time in transit</small><b>${esc(dur)}</b></div>` +
-      `<div class="ph-stat"><small>Truck</small><b><span class="ph-badge ph-badge--${kind[0]}">${kind[1]}</span></b></div>`;
-  }
-  // One line: "left 6 Oct, 06:10 · arrived 6 Oct, 08:40 · 2h 30m" (for table cells / tooltips).
-  function transitLine(x) {
-    if (x.state === "not_left") return "not left yet";
-    return "left " + dt(x.left_at) + (x.arrived_at ? " · arrived " + dt(x.arrived_at) + " · " + fmtDur(x.transit_minutes) : " · on the road" + (x.transit_minutes != null ? " " + fmtDur(x.transit_minutes) : ""));
-  }
+  const rangeLabel = () => fmtD(st.get("from")) + (st.get("to") !== st.get("from") ? " → " + fmtD(st.get("to")) : "");
 
   /* ── Load ── */
-  let DATA = null, seq = 0, autoDone = false;
-  const open = {}, details = {}; // open detail rows (By farm), and their loaded content, by opl||farm
-  const OPEN = {};              // open levels of the trip drill-down: t:<trip>, f:<trip>||<farm>, o:<trip>||<farm>||<opl>
-  const TRUCKS = {};            // trucks picked in the cards
+  let DATA = null, seq = 0;
+  const OPEN = {};   // open levels of the tree: t:<trip>, f:<trip>||<farm>, o:<trip>||<farm>||<opl>
+  const TRUCKS = {}; // trucks picked in the cards
   function load(skeleton) {
     const my = ++seq, s = st.get();
     if (skeleton || !DATA) {
-      PH.kpiSkeleton("#bl-kpis", ["Orders", "Buckets", "At farm", "In trolley", "In transit", "Shelved"]);
-      PH.kpiSkeleton("#bl-kpis2", ["Issued", "Not found", "Replaced", "No trip", "Avg transit"]);
-      PH.kpiSkeleton("#bl-kpis3", ["Trips", "Truck transit"]);
+      PH.kpiSkeleton("#bl-kpis", ["Orders", "Buckets", "At farm", "In trolley", "In transit", "Shelved", "Issued", "Not found", "Replaced buckets", "Not scheduled", "Avg truck transit"]);
       PH.skeleton("#bl-rows", "rows", 8);
     }
     return PH.call(API + "get_logistics_view", { from_date: s.from, to_date: s.to, region: s.region, farm: s.farm, team: s.team, q: s.q }, { silent: true })
       .then((d) => {
         if (my !== seq) return;
         d = d || {};
-        DATA = { orders: d.orders || [], farms: d.farms || [], runs: d.runs || [], kpis: d.kpis || {}, note: d.note || "", repl: d.replacements || [] };
+        DATA = { orders: d.orders || [], farms: d.farms || [], runs: d.runs || [], totals: d.bucket_totals || null, note: d.note || "", repl: d.replacements || [], hub: d.hub || HUB };
         const rf = PH.regionFarms(s.region);
         PH.options("#bl-farm", PH.uniq(DATA.farms.concat([st.get("farm")])).filter((f) => !rf || rf.indexOf(f) >= 0).sort(), st.get("farm"));
         teamOptions();
-        Object.keys(details).forEach((k) => delete details[k]);
         render();
         PH.markUpdated();
-        // ?variety= deep link: open the order when it is the only one that matches.
-        if (st.get("variety") && !autoDone && st.get("view") === "farm") {
-          const rows = PH.$$("#bl-rows [data-more]");
-          if (rows.length === 1) { autoDone = true; rows[0].click(); }
-        }
       })
       .catch((e) => {
         if (my !== seq) return;
-        if (DATA && !skeleton) return RTP.toast("Couldn’t refresh: " + e.message, "bad");
+        if (DATA && !skeleton) return PH.toast("Couldn’t refresh: " + e.message, "bad");
         PH.loadingKpis("#bl-kpis", false);
-        PH.loadingKpis("#bl-kpis2", false);
-        PH.loadingKpis("#bl-kpis3", false);
         PH.error("#bl-rows", e.message, () => load(true));
       });
   }
-  RTP.on("changed", () => load());
 
-  /* ── Render ── */
   function render() {
     if (!DATA) return;
-    const v = st.get("variety");
-    PH.set("#bl-variety", v ? `<span class="ph-filter-chip" title="Highlighted variety (deep link)">${esc(v)}<button type="button" data-clear-variety aria-label="Clear variety">${PH.icon("close", 12)}</button></span>` : "");
-    renderKpis();
-    renderTrucks();
-    PH.keepScroll(() => (st.get("view") === "farm" ? renderFarmView(DATA.orders) : renderTripView()));
+    PH.keepScroll(() => { renderKpis(); renderTrucks(); renderTree(); });
   }
-  // KPIs are computed on the server over exactly the orders listed, every bucket counted once.
+
+  /* ── Tiles: v1's, over the orders listed ── */
+  const atFarm = (o) => Math.max(0, (o.awaiting || 0) - (o.trolley || 0));
+  // No-trip section of an order (v1: only an unscheduled order has one).
+  const noTripSection = (o) => (o.no_trip_section !== undefined ? o.no_trip_section || null : o.scheduled ? null : "Not scheduled");
+  // On a trip still out: its own, or its shared buckets ride with another order's.
+  const onTrip = (o) => (Number(o.riding) || 0) > 0 || (o.trips || []).some((t) => t.status !== "Received");
+  // Average truck transit: each trip the orders rode, from leaving the farm (dispatched) to arriving at
+  // the hub. With no trip timed both ways yet: order made -> first arrival.
+  function avgTransit(orders) {
+    const seen = {}, mins = [];
+    orders.forEach((o) => (o.trips || []).forEach((t) => {
+      if (seen[t.trip]) return;
+      seen[t.trip] = 1;
+      const a = ts(t.dispatched_at), b = ts(t.arrived_at);
+      if (a != null && b != null && b >= a) mins.push((b - a) / 60000);
+    }));
+    if (mins.length) return { label: "Avg truck transit", val: fmtDur(mins.reduce((x, y) => x + y, 0) / mins.length) };
+    const durs = [];
+    orders.forEach((o) => { if (o.arrived) { const m = arrivalMins(o); if (m != null) durs.push(m); } });
+    return { label: "Avg order → first arrival", val: fmtDur(durs.length ? durs.reduce((x, y) => x + y, 0) / durs.length : null) };
+  }
+  // Buckets replaced on these orders: one per (order, bucket), however many records.
+  function replacedCount() {
+    const seen = {};
+    (DATA.repl || []).forEach((r) => { seen[r.order_pick_list + "||" + String(r.old_bucket || r.name).toUpperCase()] = 1; });
+    return Object.keys(seen).length;
+  }
   function renderKpis() {
-    // v1's tiles: stage totals once per physical bucket, then the no-trip and transit tiles.
-    const k = DATA.kpis || {}, buckets = k.buckets || 0, pct = buckets ? Math.round(((k.shelved || 0) / buckets) * 100) : 0;
+    const orders = DATA.orders, s = { buckets: 0, shelved: 0, transit: 0, trolley: 0, awaiting: 0, issued: 0, notFound: 0, unsched: 0 };
+    orders.forEach((o) => {
+      s.buckets += o.total || 0; s.shelved += o.shelved || 0; s.transit += o.transit || 0;
+      s.trolley += o.trolley || 0; s.awaiting += o.awaiting || 0; s.issued += o.issued || 0; s.notFound += o.not_found || 0;
+      if (atFarm(o) > 0 && !onTrip(o) && noTripSection(o)) s.unsched++;
+    });
+    // Bucket tiles once per physical bucket (a bucket split over two orders is one).
+    const tt = DATA.totals;
+    if (tt && tt.total != null) Object.assign(s, { buckets: tt.total, shelved: tt.shelved, transit: tt.transit, trolley: tt.trolley, awaiting: tt.awaiting, issued: tt.issued, notFound: tt.not_found });
+    const pct = s.buckets ? Math.round((s.shelved / s.buckets) * 100) : 0, avg = avgTransit(orders), nRepl = replacedCount();
     PH.kpis("#bl-kpis", [
-      { label: "Orders", value: k.orders || 0, unit: "being transferred" },
-      { label: "Buckets", value: buckets, unit: "each physical bucket counted once" },
-      { label: "At farm", value: k.at_farm || 0, unit: "awaiting transfer, not yet on a trolley" },
-      { label: "In trolley", value: k.trolley || 0 },
-      { label: "In transit", value: k.transit || 0 },
-      { label: "Shelved", value: k.shelved || 0, suffix: "/ " + n(buckets), unit: pct + "% at " + HUB, bar: pct, barClass: pct >= 100 ? "good" : "" },
+      { label: "Orders", value: orders.length },
+      { label: "Buckets", value: s.buckets },
+      { label: "At farm", value: atFarm(s) },
+      { label: "In trolley", value: Math.max(0, s.trolley - s.transit) },
+      { label: "In transit", value: Math.max(0, s.transit - s.shelved) },
+      { label: "Shelved (" + pct + "%)", value: s.shelved, suffix: "/ " + n(s.buckets) },
+      { label: "Issued", value: s.issued, suffix: "/ " + n(s.buckets) },
+      { label: "Not found", value: s.notFound, onClick: () => openNotFound(), title: "Click for the buckets" },
+      { label: "Replaced buckets", value: nRepl },
+      { label: "Not scheduled", value: s.unsched },
+      { label: avg.label, value: avg.val },
     ]);
-    PH.kpis("#bl-kpis2", [
-      { label: "Issued", value: k.issued || 0, suffix: "/ " + n(buckets), unit: "to the sales order" },
-      { label: "Not found · no replacement", value: k.not_found || 0, unit: "click for the buckets", onClick: () => openNotFound(), dark: (k.not_found || 0) > 0 },
-      { label: "Replaced", value: k.replaced || 0, unit: "stand-in buckets" },
-      { label: "No trip", value: k.no_trip || 0, unit: (k.not_scheduled || 0) + " not scheduled · " + (k.without_trip || 0) + " without a trip", dark: (k.no_trip || 0) > 0 },
-      { label: "Avg transit", value: k.avg_transit_minutes == null ? "—" : fmtDur(k.avg_transit_minutes), unit: "order created → first shelved · " + PH.fmt.plural(k.arrived_orders || 0, "order") },
-    ]);
-    PH.kpis("#bl-kpis3", [
-      { label: "Trips", value: k.trips || 0, unit: n(k.trips_not_left) + " not left · " + n(k.trips_in_transit) + " on the road · " + n(k.trips_arrived) + " arrived" },
-      { label: "Truck transit", value: k.avg_truck_minutes == null ? "—" : fmtDur(k.avg_truck_minutes), unit: "left the farm → arrived at " + HUB + " · avg of " + PH.fmt.plural(k.trips_arrived || 0, "trip") },
-    ]);
+    const cards = PH.$$("#bl-kpis .ph-kpi");
+    if (s.notFound && cards[7]) cards[7].classList.add("bl-kpi-bad");
+    if (nRepl && cards[8]) cards[8].classList.add("bl-kpi-sig");
     PH.set("#bl-note", DATA.note ? `<div class="ph-notice">${esc(DATA.note)}</div>` : "");
   }
 
-  /* One card per truck from its trips today: the trip it is on now, loaded / planned, and its times. */
-  function runState(r) { return r.status === "Received" ? "back" : r.status === "Dispatched" ? "on the road" : r.loading ? "loading" : r.stale ? "stale" : "planned"; }
+  /* ── Truck cards: one per truck from the trips driving now (loaded / planned) ── */
+  const runState = (r) => (r.status === "Received" ? "back" : r.status === "Dispatched" ? "on the road" : r.loading ? "loading" : r.stale ? "stale" : "planned");
   const runLabel = (r) => (r.run ? "Trip " + r.run + (r.runs > 1 ? "/" + r.runs : "") : "Trip …" + String(r.name).slice(-5));
   function renderTrucks() {
-    const runs = DATA.runs || [], card = document.getElementById("bl-trucks-card");
-    if (!runs.length) {
-      // No trips today: trucks from the orders' transit flags.
-      const byTruck = {};
-      DATA.orders.forEach((o) => { if (!o.truck) return; const t = (byTruck[o.truck] = byTruck[o.truck] || { orders: 0, buckets: 0 }); t.orders++; t.buckets += o.total || 0; });
-      const ks = Object.keys(byTruck).sort();
-      card.hidden = !ks.length;
-      return PH.set("#bl-trucks", ks.map((t) => `<div class="ph-tile"><div class="ph-tile__name">${esc(t)}</div><div class="ph-tile__sub">${PH.fmt.plural(byTruck[t].orders, "order")}</div><div class="ph-stat"><b>${n(byTruck[t].buckets)}</b><small>buckets</small></div></div>`).join(""));
-    }
-    card.hidden = false;
-    const byV = PH.groupBy(runs, "vehicle"), rank = { "on the road": 0, loading: 1, planned: 2, stale: 3, back: 4 }, cls = { "on the road": "signal", loading: "warn", planned: "", stale: "bad", back: "good" };
-    PH.set("#bl-trucks", Array.from(byV.keys()).sort().map((v) => {
-      const rs = byV.get(v), planned = PH.sum(rs, "total_buckets"), loaded = PH.sum(rs, "loaded_buckets");
-      const cur = rs.slice().sort((a, b) => (rank[runState(a)] === 4) - (rank[runState(b)] === 4) || (a.run || 99) - (b.run || 99) || rank[runState(a)] - rank[runState(b)])[0];
-      const allBack = runState(cur) === "back";
-      return `<div class="ph-tile bl-truck${TRUCKS[v] ? " is-on" : ""}" data-truck="${esc(v)}" title="${esc(rs.map((r) => runLabel(r) + " " + runState(r) + (r.run_chain ? " (" + r.run_chain + ")" : "") + " · " + transitLine(r)).join("\n"))}">
-        <div class="ph-tile__head"><div class="ph-tile__name">${esc(v)}</div><span class="ph-badge${cls[runState(cur)] ? " ph-badge--" + cls[runState(cur)] : ""}">${allBack ? "all trips back" : esc(runLabel(cur) + " · " + runState(cur))}</span></div>
-        <div class="ph-stat"><b>${n(loaded)} <span class="ph-muted">/ ${n(planned)}</span></b><small>buckets loaded / planned</small></div>
-        <div class="ph-tile__sub">Left ${esc(dt(cur.left_at))} · ${cur.arrived_at ? "arrived " + esc(dt(cur.arrived_at)) : cur.state === "in_transit" ? "on the road " + esc(fmtDur(cur.transit_minutes)) : "not arrived"}</div></div>`;
+    const el = document.getElementById("bl-trucks"), runs = (DATA.runs || []).filter((r) => r.current);
+    el.hidden = !runs.length;
+    if (!runs.length) return PH.set(el, "");
+    const byV = PH.groupBy(runs, "vehicle"), rank = { "on the road": 0, loading: 1, planned: 2, stale: 3, back: 4 };
+    PH.set(el, Array.from(byV.keys()).sort().map((v) => {
+      const rs = byV.get(v);
+      let planned = 0, loaded = 0;
+      rs.forEach((r) => { const nn = r.numbers || {}; planned += Number(nn.buckets) || 0; loaded += Number(nn.on_truck) || 0; });
+      const cur = rs.slice().sort((a, b) => rank[runState(a)] - rank[runState(b)] || (a.run || 99) - (b.run || 99))[0];
+      const tip = rs.map((r) => runLabel(r) + " " + runState(r) + (r.run_chain ? " (" + r.run_chain + ")" : "")).join(", ");
+      return `<div class="ph-tile is-link bl-truck${TRUCKS[v] ? " is-on" : ""}" data-truck="${esc(v)}" title="${esc(tip)}">
+        <div class="ph-tile__head"><div class="ph-tile__name">${esc(v)} · ${runState(cur) === "back" ? "all trips back" : esc(runLabel(cur) + " " + runState(cur))}</div></div>
+        <div class="ph-stat"><b>${n(loaded)} <span class="ph-muted">/ ${n(planned)}</span></b></div></div>`;
     }).join(""));
   }
 
-  /* ── Shared cells ── */
+  /* ── Cells ── */
+  // A bucket count out of a total, v1's stage chip: lit in the stage's colour when it has any.
   function stagePills(o) {
     const tot = o.total || 0;
     return `<span class="ph-badge ph-badge--outline">Requested <b>${tot}</b></span>` + FLAGS.map((f) => {
@@ -266,72 +275,42 @@
       return `<span class="ph-badge ${x ? "ph-badge--" + f[2] : "ph-badge--outline ph-muted"}">${f[1]} ${x}/${tot}</span>`;
     }).join("");
   }
-  // Transit time = arrival (first bucket shelved) − initiated (OPL created). Not arrived
-  // yet: where the order actually is ("in transit" only once a bucket is on a truck).
-  function transitCell(o) {
-    if (!o.initiated) return "—";
-    if (!o.arrived) {
-      if (o.arrived_hub) return `<span class="ph-badge ph-badge--signal">arrived at ${esc(o.hub || HUB)}</span>`;
-      if (o.transit) return '<span class="ph-badge ph-badge--signal">in transit</span>';
-      if (o.trolley) return '<span class="ph-badge ph-badge--ink">in trolley</span>';
-      if (o.awaiting) return '<span class="ph-badge ph-badge--warn">at farm</span>';
-      return "—";
-    }
-    const m = arrivalMins(o);
-    return m == null ? "—" : `<b class="ph-strong">${fmtDur(m)}</b>`;
-  }
-  // The order's transferring varieties: the first three, the rest behind "+N more"; ?variety= is bold.
-  function varietyCell(o) {
-    const v = String(o.varieties || "").split(", ").filter(Boolean), pv = st.get("variety").toLowerCase();
-    if (!v.length) return "—";
-    return `<div title="${esc(v.join(", "))}">${v.slice(0, 3).map((x) => `<div${pv && x.toLowerCase() === pv ? ' class="bl-hl"' : ""}>${esc(x)}</div>`).join("")}${v.length > 3 ? `<div class="ph-tile__sub">+${v.length - 3} more</div>` : ""}</div>`;
-  }
   function teamTag(o) {
     if (o.no_team) return ' <span class="ph-badge ph-badge--bad" title="Set the team on the Order Pick List">no team</span>';
     return ` <span class="ph-muted">(${esc(o.team)}${o.schedule ? " #" + esc(o.schedule) : ""})</span>`;
   }
-  // A quality-issue replacement requested during packing, still on its way.
-  const asapTag = (o) => (o.asap ? ` <span class="ph-badge ph-badge--bad" title="Quality-issue replacement requested during packing — on the next truck before any other order">ASAP · ${o.asap}</span>` : "");
-  const addBtn = (o, farm) => `<button class="ph-btn ph-btn--sm ph-btn--primary" data-addtrip="1" data-opl="${esc(o.opl)}" data-farm="${esc(farm || "")}" data-name="${esc(o.order_name || o.opl)}">${PH.icon("plus", 14)}Add to trip</button>`;
-  const atFarmOf = (o) => Math.max(0, (o.awaiting || 0) - (o.transit || 0) - (o.trolley || 0));
-  const canAdd = (o) => atFarmOf(o) > 0 && !(o.trips || []).some((x) => x.status !== "Received");
 
-  // One (order, farm) row per farm of each order, with that farm's counts and trips only.
-  function orderFarmRows(orders) {
-    const rows = [];
+  /* ── Rows: every (order, farm) split into (order, farm, trip) — v1's buildCombos ── */
+  function buildCombos(orders) {
+    const combos = [];
     orders.forEach((o) => {
       const fs = o.by_farm && o.by_farm.length ? o.by_farm : [{ farm: o.farm || "" }];
       fs.forEach((f) => {
-        rows.push(Object.assign({}, o, f.total != null ? f : {}, {
-          farm: f.farm || "", varieties: f.varieties != null ? f.varieties : o.varieties,
-          trips: (o.trips || []).filter((t) => !t.farm || !f.farm || t.farm === f.farm),
-          others: fs.length > 1 ? fs.filter((x) => x.farm !== f.farm).map((x) => x.farm) : [],
-        }));
+        const trips = (o.trips || []).filter((t) => !t.farm || !f.farm || t.farm === f.farm);
+        const base = {
+          opl: o.opl, order_name: o.order_name || o.opl, customer: o.customer, sales_order: o.sales_order, team: o.team, no_team: o.no_team, schedule: o.schedule,
+          delivery_date: o.delivery_date, initiated: o.initiated, owner_name: o.owner_name, arrived: o.arrived, hub: o.hub, truck: o.truck, farm: f.farm || "",
+          varieties: f.varieties != null ? f.varieties : o.varieties,
+        };
+        FLAGS.map((x) => x[0]).concat(["total", "stems", "arrived_stems"]).forEach((k) => { base[k] = f[k] != null ? f[k] : o[k]; });
+        if (trips.length) trips.forEach((t) => combos.push(Object.assign({}, base, { trip: t })));
+        // Every bucket of it here marked not found: nothing left for a trip to carry.
+        else if (noTripSection(o) && !(base.total > 0 && (base.not_found || 0) >= base.total)) combos.push(Object.assign({}, base, { trip: null, section: noTripSection(o) }));
       });
     });
-    return rows;
-  }
-
-  /* ═════════ View 1: trip -> farm -> order -> bucket status ═════════ */
-  // Remembered between visits (this browser only).
-  function legQty(t) {
-    let q = t.buckets ? (t.loaded_buckets ? t.loaded_buckets + " / " + t.buckets + " loaded" : t.buckets + " planned") : t.loaded_buckets + " loaded, not planned";
-    if (t.shelved) q += " · " + t.shelved + " arrived";
-    return q;
+    return combos;
   }
   function buildTrips() {
     const groups = {}, order = [];
-    orderFarmRows(DATA.orders).forEach((r) => {
-      const legs = r.trips.length ? r.trips : [null];
-      legs.forEach((t) => {
-        const key = t ? t.trip : "UNASSIGNED";
-        if (!groups[key]) { groups[key] = { key, trip: t, run: t ? (DATA.runs || []).find((x) => x.name === t.trip) || null : null, rows: [] }; order.push(key); }
-        groups[key].rows.push(Object.assign({}, r, { leg: t }));
-      });
+    buildCombos(DATA.orders).forEach((r) => {
+      const key = r.trip ? r.trip.trip : "UNASSIGNED";
+      if (!groups[key]) { groups[key] = { key, trip: r.trip, rows: [] }; order.push(key); }
+      groups[key].rows.push(r);
     });
     let list = order.map((k) => groups[k]);
     const picked = Object.keys(TRUCKS);
     if (picked.length) list = list.filter((g) => g.trip && picked.indexOf(g.trip.vehicle) >= 0);
+    // A truck's trips one after the other: by truck, then day, then run; not scheduled last.
     list.sort((a, b) => {
       if (!!a.trip !== !!b.trip) return a.trip ? -1 : 1;
       if (!a.trip) return 0;
@@ -339,172 +318,117 @@
     });
     return list;
   }
-  // The trip's own times (its run), else the first leg's.
-  const tripTimes = (g) => (g.run && g.run.state ? g.run : g.rows[0].leg || {});
-  function capacityBar(g) {
-    const run = g.run || {};
-    let planned = 0, loaded = 0, arrived = 0;
-    const byFarm = {};
-    g.rows.forEach((r) => {
-      const t = r.leg || {}, k = Number(t.buckets) || Number(t.loaded_buckets) || 0;
-      byFarm[r.farm || "—"] = (byFarm[r.farm || "—"] || 0) + k; planned += k; loaded += Number(t.loaded_buckets) || 0; arrived += Number(t.shelved) || 0;
-    });
-    const total = Math.max(Number(run.total_buckets) || 0, planned), cap = Number(run.capacity_buckets) || 0, free = cap - total, pct = cap ? Math.round((100 * total) / cap) : 0;
-    return `<div class="bl-cap"><span>Capacity <b class="ph-strong">${cap || "—"}</b></span>${cap ? `<span class="ph-progress"><i class="${free < 0 ? "bad" : pct >= 90 ? "warn" : "good"}" style="width:${Math.min(100, pct)}%"></i></span>` : ""}
-      <span>Buckets <b class="ph-strong">${n(total)}</b>${cap ? ` <span class="ph-muted">(${pct}%)</span>` : ""}</span>${cap ? `<span${free < 0 ? ' class="ph-strong" style="color:var(--bad)"' : ""}>${free < 0 ? "Over <b>" + n(-free) + "</b>" : "Free <b>" + n(free) + "</b>"}</span>` : ""}
-      <span>Loaded <b class="ph-strong">${n(loaded)}</b></span><span>Arrived <b class="ph-strong">${n(arrived)}</b></span>
-      <span class="ph-flex ph-flex--wrap">${Object.keys(byFarm).sort().map((f) => `<span class="ph-badge ph-badge--outline">${esc(f)} <b>${byFarm[f]}</b></span>`).join("")}</span></div>`;
+  // Start / stop of the truck: when it left the remote farm and arrived at the hub (clock times; the date
+  // too when it is not the day it left).
+  function tripTimes(g) {
+    const r = runOf(g), leg = (g.rows.find((x) => x.trip && x.trip.state) || {}).trip || {};
+    const src = r.state ? r : leg, left = src.left_at || "", arr = src.arrived_at || "";
+    if (!left && !arr) return '<span class="bl-times">Not left yet</span>';
+    const clk = (v, ref) => { const d = String(v).slice(0, 10); return (ref && d !== String(ref).slice(0, 10) ? PH.fmt.date(v, true) + " " : "") + PH.fmt.time(v); };
+    let h = "Left " + (left ? clk(left) : "—");
+    if (arr) h += " · Arrived " + clk(arr, left) + (src.transit_minutes != null ? " · " + fmtDur(src.transit_minutes) : "");
+    else h += " · on the road" + (src.transit_minutes != null ? " " + fmtDur(src.transit_minutes) : "");
+    return `<span class="bl-times" title="Truck left the remote farm / arrived at ${esc(HUB)}">${esc(h)}</span>`;
   }
-  const qtyCells = (o) => `<span class="bl-qty"><span><b>${n(o.total)}</b> ${Number(o.total) === 1 ? "bucket" : "buckets"}</span><span><b>${n(o.stems)}</b> stems</span><span${Number(o.arrived_stems) ? ' class="bl-ok"' : ""}><b${Number(o.arrived_stems) ? ' class="bl-ok"' : ""}>${n(o.arrived_stems)}</b> stems arrived</span></span>`;
-  function renderTripView() {
-    const list = buildTrips(), el = document.getElementById("bl-rows"), fold = document.getElementById("bl-fold");
-    PH.text("#bl-count", n(list.length));
-    PH.set("#bl-title", 'Trips <span class="ph-badge" id="bl-count">' + n(list.length) + "</span>");
-    if (!list.length) {
-      fold.hidden = true;
-      const f = st.get("q") || st.get("farm") || st.get("team") || st.get("region") || Object.keys(TRUCKS).length;
-      return PH.empty(el, f ? "No trips match these filters" : "No orders being transferred for " + PH.fmt.date(st.get("from")) + (st.get("to") !== st.get("from") ? " → " + PH.fmt.date(st.get("to")) : ""), f ? "Clear the search, region, farm, team or truck." : "Buckets appear here once an order’s pick list flags them for transfer.");
-    }
-    fold.hidden = false;
-    fold.textContent = Object.keys(OPEN).some((k) => k.indexOf("t:") === 0) ? "Collapse all" : "Expand all";
-    PH.set(el, '<div class="ph-stack" style="padding:var(--sp-4)">' + list.map(tripCard).join("") + "</div>");
+  const runOf = (g) => (DATA.runs || []).find((r) => r.name === g.trip.trip) || {};
+  // A trip's planned buckets per farm (the header's farm chips).
+  function tripFarms(g) {
+    const byFarm = {}, farms = (runOf(g).numbers || {}).farms;
+    if (farms) { Object.keys(farms).forEach((f) => { byFarm[f || "—"] = Number(farms[f].buckets) || 0; }); return byFarm; }
+    g.rows.forEach((r) => { const t = r.trip || {}; byFarm[r.farm || "—"] = (byFarm[r.farm || "—"] || 0) + (Number(t.buckets) || Number(t.loaded_buckets) || 0); });
+    return byFarm;
   }
-  function tripCard(g) {
-    const tk = g.key, isOpen = !!OPEN["t:" + tk], t = g.trip;
-    const farms = PH.uniq(g.rows.map((r) => r.farm)), orders = PH.uniq(g.rows.map((r) => r.opl));
-    const tt = tripTimes(g), kind = TRIP_KIND[tt.state] || TRIP_KIND.not_left;
-    const label = t ? `<b class="ph-strong">${esc((t.vehicle || t.trip) + (t.run ? " · Trip " + t.run : ""))}</b> <span class="ph-muted">· ${esc(t.status)} · ${esc(t.trip_date || "")}</span> <span class="ph-badge ph-badge--${kind[0]}">${kind[1]}${tt.state === "in_transit" && tt.transit_minutes != null ? " " + esc(fmtDur(tt.transit_minutes)) : tt.state === "arrived" && tt.transit_minutes != null ? " · " + esc(fmtDur(tt.transit_minutes)) : ""}</span>` : '<b class="ph-strong">Not scheduled</b> <span class="ph-muted">· no trip yet</span>';
-    let h = `<div class="ph-card bl-trip-card"><div class="bl-tgl" data-tgl="t:${esc(tk)}"><span class="bl-caret">${isOpen ? "▾" : "▸"}</span><span>${label}</span><span class="ph-muted" style="margin-left:auto">${PH.fmt.plural(farms.length, "farm")} · ${PH.fmt.plural(orders.length, "order")}</span><button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-tripall="${esc(tk)}">${tripAllOpen(g) ? "Collapse" : "Expand"}</button></div>`;
-    if (t) h += `<div class="bl-times ph-stats">${transitFacts(tt)}</div>` + capacityBar(g);
-    if (isOpen) {
-      const byFarm = PH.groupBy(g.rows, "farm");
-      h += '<div class="bl-body">' + Array.from(byFarm.keys()).sort().map((farm) => farmBlock(g, farm, byFarm.get(farm))).join("") + "</div>";
-    }
-    return h + "</div>";
+  // A trip's capacity and how its buckets split: loaded / arrived / free.
+  function tripLoad(g) {
+    const nn = runOf(g).numbers || {};
+    let planned = 0, trolley = 0, loaded = 0, arrived = 0;
+    g.rows.forEach((r) => { const t = r.trip || {}; planned += Number(t.buckets) || 0; trolley += Number(t.trolley) || 0; loaded += Number(t.loaded_buckets) || 0; arrived += Number(t.shelved) || 0; });
+    // Whole trip (every order on it, whatever day it delivers), then the orders listed here when it carries others too.
+    const total = Number(nn.buckets) || 0, cap = Number(nn.capacity) || 0, free = cap - total, pct = cap ? Math.round((100 * total) / cap) : 0;
+    const bar = cap ? `<span class="ph-progress"><i class="${free < 0 ? "bad" : pct >= 90 ? "warn" : "good"}" style="width:${Math.min(100, pct)}%"></i></span>` : "";
+    const k = (lbl, v) => `<span>${lbl} <b class="ph-strong">${v}</b></span>`;
+    const same = planned === total && trolley === (Number(nn.trolley) || 0) && loaded === (Number(nn.on_truck) || 0) && arrived === (Number(nn.shelved) || 0);
+    const listed = same ? "" : `<span class="bl-sub">From ${esc(rangeLabel())}: <b class="ph-strong">${planned}</b> · trolley <b class="ph-strong">${trolley}</b> · loaded <b class="ph-strong">${loaded}</b> · arrived <b class="ph-strong">${arrived}</b></span>`;
+    return `<div class="bl-cap"><b class="ph-strong">Trip</b>${k("Planned", total + " / " + (cap || "—"))}${bar}` +
+      (cap ? `<span${free < 0 ? ' style="color:var(--bad)"' : ""}>${free < 0 ? "Over <b>" + -free + "</b>" : "Free <b>" + free + "</b>"}</span>` : "") +
+      k("Trolley", Number(nn.trolley) || 0) + k("Loaded", (Number(nn.on_truck) || 0) + " / " + total) + k("In transit", Number(nn.transit) || 0) + k("Arrived", Number(nn.shelved) || 0) + listed + "</div>";
   }
-  function farmBlock(g, farm, rows) {
-    const fk = "f:" + g.key + "||" + farm, isOpen = !!OPEN[fk];
-    const seen = {}, uniq = [];
-    rows.forEach((r) => { if (!seen[r.opl]) { seen[r.opl] = 1; uniq.push(r); } });
-    // Waiting (no trip): longest-waiting first; on a trip: by name.
-    if (g.trip) uniq.sort((a, b) => String(a.order_name || "").localeCompare(String(b.order_name || ""))); else uniq.sort((a, b) => String(a.initiated || "").localeCompare(String(b.initiated || "")));
-    const lt = g.trip ? uniq.map((r) => r.leg).filter(Boolean) : [];
-    const left = lt.map((x) => x.left_at).filter(Boolean).sort()[0], arr = lt.map((x) => x.arrived_at).filter(Boolean).sort()[0];
-    const legInfo = g.trip ? `<span class="ph-muted bl-when">${left ? "left " + esc(dt(left)) : "not left"}${arr ? " · arrived " + esc(dt(arr)) : ""}</span>` : "";
-    return `<div class="bl-farm"><div class="bl-tgl" data-tgl="${esc(fk)}"><span class="bl-caret">${isOpen ? "▾" : "▸"}</span><b class="ph-strong">${esc(farm)}</b>${legInfo}<span class="ph-muted" style="margin-left:auto">${PH.fmt.plural(uniq.length, "order")}</span></div>` +
-      (isOpen ? uniq.map((o) => orderBlock(g, farm, o)).join("") : "") + "</div>";
+  // This order's share of the trip it is listed under: one order can ride several trips.
+  function onThisTrip(t) {
+    if (!t) return "";
+    const k = Number(t.buckets) || Number(t.loaded_buckets) || 0;
+    if (!k && Number(t.riding)) return `<span class="bl-qty"><span><b>${Number(t.riding)}</b> with ${esc(t.lead_name || "another order")}</span></span>`;
+    return `<span class="bl-qty"><span><b>${k}</b> on this trip</span>${Number(t.loaded_buckets) ? `<span><b>${Number(t.loaded_buckets)}</b> loaded</span>` : ""}${Number(t.shelved) ? `<span class="bl-ok"><b>${Number(t.shelved)}</b> arrived</span>` : ""}</span>`;
   }
-  function orderBlock(g, farm, o) {
-    const ok = "o:" + g.key + "||" + farm + "||" + o.opl, isOpen = !!OPEN[ok];
-    const leg = o.leg, sub = [o.customer, o.sales_order, o.opl].filter(Boolean).map(esc).join(" · ");
-    let h = `<div class="bl-order"><div class="bl-tgl" data-tgl="${esc(ok)}"><span class="bl-caret">${isOpen ? "▾" : "▸"}</span><span><b class="ph-strong">${esc(o.order_name || o.opl)}</b>${teamTag(o)}${asapTag(o)}<div class="ph-tile__sub">${sub}</div></span><span style="margin-left:auto">${qtyCells(o)}</span></div>`;
-    if (isOpen) {
-      h += `<div class="bl-status"><div class="ph-flex ph-flex--wrap">${stagePills(o)}</div>`;
-      if (leg) h += `<div class="ph-tile__sub ph-mt">${esc(legQty(leg))} · ${esc(transitLine(leg))}</div>`;
-      h += `<div class="ph-tile__sub">Deliver ${esc(PH.fmt.date(o.delivery_date, true))} · initiated ${esc(PH.fmt.datetime(o.initiated))}${o.owner_name ? " by " + esc(o.owner_name) : ""} · transit ${transitCell(o)}</div>`;
-      h += `<div class="ph-flex ph-flex--wrap ph-mt"><button class="ph-btn ph-btn--sm ph-btn--ghost" data-bp-opl="${esc(o.opl)}" data-bp-farm="${esc(o.farm || "")}" data-bp-name="${esc(o.order_name || o.opl)}">Bucket status →</button>` +
-        (!leg && canAdd(o) ? addBtn(o, o.farm) : "") +
-        (leg && (leg.status === "Draft" || leg.status === "Scheduled") && !leg.loaded_buckets ? `<button class="ph-btn ph-btn--sm ph-btn--ghost" data-edittrip="${esc(leg.trip)}">Edit trip</button>` : "") + "</div></div>";
-    }
-    return h + "</div>";
+  // Under a trip: the order's stages over its buckets on that trip, out of its count there.
+  function tripStages(o) {
+    const t = o.trip, k = t ? Number(t.buckets) || Number(t.loaded_buckets) || 0 : 0;
+    return !k || !t.stages ? o : Object.assign({}, t.stages, { total: k });
   }
+  // An order's buckets and stems from this farm, and the stems that have arrived.
+  const orderQty = (o) => `<span class="bl-qty"><span><b>${n(o.total)}</b> bucket${ST(Number(o.total))}</span><span><b>${n(o.stems)}</b> stems</span><span${Number(o.arrived_stems) ? ' class="bl-ok"' : ""}><b>${n(o.arrived_stems)}</b> stems arrived</span></span>`;
+
+  /* ── Tree: trip -> farm -> order -> status ── */
   const tripKeys = (tk) => Object.keys(OPEN).filter((k) => k === "t:" + tk || k.indexOf("f:" + tk + "||") === 0 || k.indexOf("o:" + tk + "||") === 0);
-  function tripAllOpen(g) { return !!OPEN["t:" + g.key] && tripKeys(g.key).some((k) => k.indexOf("o:") === 0); }
+  const tripAllOpen = (tk) => !!OPEN["t:" + tk] && tripKeys(tk).some((k) => k.indexOf("o:") === 0);
   function setTripOpen(g, on) {
     tripKeys(g.key).forEach((k) => delete OPEN[k]);
     if (!on) return;
     OPEN["t:" + g.key] = 1;
     g.rows.forEach((r) => { OPEN["f:" + g.key + "||" + r.farm] = 1; OPEN["o:" + g.key + "||" + r.farm + "||" + r.opl] = 1; });
   }
-
-  /* ═════════ View 2: orders grouped by origin farm ═════════ */
-  const SHUT = (() => { try { return JSON.parse(localStorage.getItem("rt2-bl-farm-shut") || "{}") || {}; } catch (e) { return {}; } })();
-  const saveShut = () => { try { localStorage.setItem("rt2-bl-farm-shut", JSON.stringify(SHUT)); } catch (e) {} };
-  function tripCell(o) {
-    const t = o.trips || [];
-    // Still at the farm with no open trip: offer to put it on one of today's route trips.
-    const add = canAdd(o) ? `<div class="ph-mt">${addBtn(o, o.farm)}</div>` : "";
-    if (!t.length) return (o.truck ? `<span class="ph-badge ph-badge--signal">${esc(o.truck)}</span>` : `<span class="ph-muted">${(o.awaiting || 0) > 0 ? "no trip yet" : "—"}</span>`) + add;
-    // One line per trip: truck · run · status, then loaded vs planned, then the truck's times.
-    return t.map((x) => {
-      const s = x.status === "Received" ? "ended" : x.arrived_at ? "arrived" : x.loaded_buckets && (x.status === "Draft" || x.status === "Scheduled") ? "loading" : String(x.status || "").toLowerCase();
-      const cls = x.status === "Received" ? "good" : x.status === "Dispatched" || x.arrived_at ? "signal" : s === "loading" ? "warn" : "outline";
-      const edit = (x.status === "Draft" || x.status === "Scheduled") && !x.loaded_buckets ? ` <button class="ph-btn ph-btn--sm ph-btn--ghost" data-edittrip="${esc(x.trip)}" title="Edit trip ${esc(x.trip)}">Edit</button>` : "";
-      return `<div class="bl-trip"><span class="ph-badge ph-badge--${cls}" title="${esc(x.trip)} · ${esc(x.trip_date)}">${esc(x.vehicle || x.trip)}${x.run ? " · trip " + x.run : ""}${x.farm ? " · " + esc(x.farm) : ""} · ${esc(s)}</span>${edit}<div class="ph-tile__sub">${esc(legQty(x))}</div><div class="ph-tile__sub bl-when">${esc(transitLine(x))}</div></div>`;
-    }).join("") + add;
-  }
-  function renderFarmView(orders) {
-    PH.set("#bl-title", 'Orders by farm <span class="ph-badge" id="bl-count">' + n(orders.length) + "</span>");
-    const fold = document.getElementById("bl-fold");
-    if (!orders.length) {
-      fold.hidden = true;
-      const f = st.get("q") || st.get("farm") || st.get("team") || st.get("region");
-      return PH.empty("#bl-rows", f ? "No orders match these filters" : "No orders being transferred for " + PH.fmt.date(st.get("from")) + (st.get("to") !== st.get("from") ? " → " + PH.fmt.date(st.get("to")) : ""), f ? "Clear the search, region, farm or team." : "Buckets appear here once an order’s pick list flags them for transfer.");
+  const anyOpen = () => Object.keys(OPEN).some((k) => k.indexOf("t:") === 0);
+  const car = (open) => `<span class="bl-caret">${open ? "▾" : "▸"}</span>`;
+  function renderTree() {
+    const list = buildTrips(), el = document.getElementById("bl-rows"), bar = document.getElementById("bl-allrow");
+    bar.hidden = !DATA.orders.length;
+    document.getElementById("bl-fold").textContent = anyOpen() ? "Collapse all" : "Expand all";
+    if (!list.length) {
+      const f = st.get("q") || st.get("farm") || st.get("team") || st.get("region") || Object.keys(TRUCKS).length;
+      return PH.empty(el, "Nothing to show.", f ? "No orders being transferred match these filters. Clear the search, region, farm, team or truck." : "No orders being transferred for " + rangeLabel() + ". Buckets appear here once an order’s pick list flags them for transfer.");
     }
-    const groups = {};
-    orderFarmRows(orders).forEach((row) => { (groups[row.farm || "—"] = groups[row.farm || "—"] || []).push(row); });
-    const farms = Object.keys(groups).sort();
-    fold.hidden = false;
-    fold.textContent = farms.some((f) => !SHUT[f]) ? "Collapse all" : "Expand all";
-    let h = '<div class="ph-table-wrap"><table class="ph-table bl"><thead><tr><th>Order</th><th>Dates</th><th>Transit time</th><th>Variety</th><th>Truck / trip · left → arrived</th><th>Buckets — status</th><th></th></tr></thead><tbody>';
-    farms.forEach((farm) => {
-      const rows = groups[farm], shut = !!SHUT[farm], tot = { total: PH.sum(rows, "total") };
-      FLAGS.forEach((f) => (tot[f[0]] = PH.sum(rows, f[0])));
-      h += `<tr class="bl-grp" data-fg="${esc(farm)}"><td colspan="7"><div class="ph-flex ph-flex--wrap"><span class="bl-caret">${shut ? "▸" : "▾"}</span><b class="ph-strong">${esc(farm)}</b><span class="ph-muted">${PH.fmt.plural(rows.length, "order")}</span>${stagePills(tot)}</div></td></tr>`;
-      if (shut) return;
-      rows.forEach((o) => {
-        const key = o.opl + "||" + (o.farm || ""), isOpen = !!open[key];
-        const sub = [o.customer, o.sales_order, o.opl].filter(Boolean).map(esc).join(" · ");
-        h += `<tr><td style="min-width:220px"><b class="ph-strong">${esc(o.order_name || o.opl)}</b>${teamTag(o)}${asapTag(o)}<div class="ph-tile__sub">${sub}</div>${o.others.length ? `<div class="ph-tile__sub">also from ${esc(o.others.join(", "))}</div>` : ""}</td>
-          <td class="is-nowrap">Deliver <b class="ph-strong">${esc(PH.fmt.date(o.delivery_date, true))}</b><div class="ph-tile__sub">Initiated ${esc(PH.fmt.datetime(o.initiated))}${o.owner_name ? " by " + esc(o.owner_name) : ""}</div></td>
-          <td>${transitCell(o)}</td><td>${varietyCell(o)}</td><td>${tripCell(o)}</td>
-          <td style="min-width:220px"><div class="ph-flex ph-flex--wrap">${stagePills(o)}</div></td>
-          <td class="is-num"><button class="ph-btn ph-btn--sm ph-btn--ghost" data-more="${esc(key)}" data-opl="${esc(o.opl)}" data-farm="${esc(o.farm || "")}" data-name="${esc(o.order_name || o.opl)}">${isOpen ? "Hide" : "Buckets"}</button></td></tr>`;
-        if (isOpen) h += `<tr class="bl-det"><td colspan="7"><div data-detail="${esc(key)}">${details[key] || ""}</div></td></tr>`;
-      });
-    });
-    PH.set("#bl-rows", h + "</tbody></table></div>");
-    PH.$$("#bl-rows [data-detail]").forEach((el) => { if (!details[el.dataset.detail]) loadDetail(el); });
+    PH.set(el, list.map(tripBlock).join(""));
+  }
+  function tripBlock(g) {
+    const tk = g.key, open = !!OPEN["t:" + tk], t = g.trip;
+    const farmCount = PH.uniq(g.rows.map((r) => r.farm)).length, orderCount = PH.uniq(g.rows.map((r) => r.opl)).length;
+    const tf = t ? tripFarms(g) : {};
+    const chips = '<span class="bl-trip-farms">' + Object.keys(tf).sort().map((f) => `<span class="bl-chip">${esc(f)} <b>${tf[f]}</b></span>`).join("") + "</span>";
+    const label = t ? `${esc((t.vehicle || t.trip) + (t.run ? " · Trip " + t.run : ""))} <span class="bl-sub">· ${esc(t.status)}${t.trip_date ? " · " + esc(t.trip_date) : ""}</span>` : "<i>Not scheduled</i>";
+    let h = `<div class="bl-trip"><div class="bl-trip-h bl-tgl" data-tgl="t:${esc(tk)}">${car(open)}<span>${label}</span>${t ? tripTimes(g) : ""}${chips}<span class="bl-count">${farmCount} farm${ST(farmCount)} · ${orderCount} order${ST(orderCount)}</span>` +
+      `<button type="button" class="bl-exp" data-tripall="${esc(tk)}">${tripAllOpen(tk) ? "Collapse" : "Expand"}</button></div>` + (t ? tripLoad(g) : "");
+    if (open) {
+      const byFarm = PH.groupBy(g.rows, "farm");
+      h += '<div class="bl-farms">' + Array.from(byFarm.keys()).sort().map((farm) => farmBlock(g, farm, byFarm.get(farm))).join("") + "</div>";
+    }
+    return h + "</div>";
+  }
+  function farmBlock(g, farm, rows) {
+    const fk = "f:" + g.key + "||" + farm, open = !!OPEN[fk], seen = {}, uniq = [];
+    rows.forEach((r) => { if (!seen[r.opl]) { seen[r.opl] = 1; uniq.push(r); } });
+    // Not scheduled: the longest-waiting order first; on a trip: by name.
+    if (g.trip) uniq.sort((a, b) => String(a.order_name || "").localeCompare(String(b.order_name || "")));
+    else uniq.sort((a, b) => (ts(a.initiated) == null ? Infinity : ts(a.initiated)) - (ts(b.initiated) == null ? Infinity : ts(b.initiated)));
+    return `<div><div class="bl-farm-h bl-tgl" data-tgl="${esc(fk)}">${car(open)}<b>${esc(farm)}</b><span class="bl-count">${uniq.length} order${ST(uniq.length)}</span></div>` +
+      (open ? '<div class="bl-orders">' + uniq.map((o) => orderBlock(g, farm, o)).join("") + "</div>" : "") + "</div>";
+  }
+  function orderBlock(g, farm, o) {
+    const ok = "o:" + g.key + "||" + farm + "||" + o.opl, open = !!OPEN[ok];
+    let h = `<div class="bl-order"><div class="bl-order-h bl-tgl" data-tgl="${esc(ok)}">${car(open)}<span class="bl-oname"><b class="ph-strong">${esc(o.order_name)}</b>${teamTag(o)}<span class="bl-sub">${esc(o.customer || "")}</span></span>${orderQty(o)}${onThisTrip(o.trip)}</div>`;
+    if (open) {
+      h += `<div class="bl-status"><div class="bl-pills">${stagePills(tripStages(o))}</div>` +
+        `<button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-bp-opl="${esc(o.opl)}" data-bp-farm="${esc(o.farm || "")}" data-bp-name="${esc(o.order_name)}">Bucket status →</button></div>`;
+    }
+    return h + "</div>";
   }
 
-  /* ═════════ Bucket table (inline in By farm, and in the Bucket status drawer) ═════════ */
-  const tick = (v) => (Number(v) ? `<span class="bl-ok" title="yes">${PH.icon("check", 14)}</span>` : '<span class="bl-no">·</span>');
-  const whenCell = (at, by) => (at ? `<div class="bl-when"><b>${esc(dt(at))}</b>${by ? `<small>${esc(by)}</small>` : ""}</div>` : '<span class="bl-no">—</span>');
-  function transitCols(x) {
-    const live = x.in_transit_now;
-    return `<td class="bl-when">${x.left_at ? esc(dt(x.left_at)) : '<span class="bl-no">—</span>'}</td><td class="bl-when">${x.arrived_at ? esc(dt(x.arrived_at)) : live ? '<span class="bl-live">on the road</span>' : '<span class="bl-no">—</span>'}</td><td class="bl-when">${x.transit_minutes != null ? esc(fmtDur(x.transit_minutes)) + (live ? " so far" : "") : '<span class="bl-no">—</span>'}</td>`;
-  }
-  function bucketTable(b) {
-    const pv = st.get("variety").toLowerCase();
-    return `<div class="ph-table-wrap"><table class="ph-table ph-table--compact"><thead><tr><th>#</th><th>Bucket</th><th>Variety</th><th>Len</th><th>Boxes</th><th class="is-num">Stems</th><th>Farm</th><th>Shelf</th><th>Truck</th><th>Left the farm</th><th>Arrived at ${esc(HUB)}</th><th>In transit</th>${FLAGS.map((f) => `<th class="is-center">${esc(f[1])}</th>`).join("")}</tr></thead><tbody>` +
-      b.map((x, j) => {
-        const hl = pv && String(x.variety || "").toLowerCase() === pv;
-        return `<tr class="${hl ? "is-selected" : ""}"><td>${j + 1}</td><td class="is-strong"><a href="#" data-trail="${j}" title="Transfer trail of this bucket">${esc(x.bucket || "—")}</a></td><td${hl ? ' class="bl-hl"' : ""}>${esc(x.variety)}</td><td>${esc(x.length || "—")}</td><td>${esc(x.box_id || String(x.boxes || 1))}</td><td class="is-num">${n(x.stems)}</td><td>${esc(x.farm || "—")}</td><td>${esc(x.shelf || "—")}</td><td>${esc(x.truck || "—")}</td>${transitCols(x)}${FLAGS.map((f) => `<td class="is-center">${tick(x[f[0]])}</td>`).join("")}</tr>`;
-      }).join("") + "</tbody></table></div>";
-  }
-  let detailRows = {}; // key -> buckets, for the trail links of inline tables
-  function loadDetail(el) {
-    const key = el.dataset.detail, [opl, farm] = key.split("||");
-    PH.skeleton(el, "rows", 3);
-    PH.call(API + "get_bucket_detail", { opl, farm }, { silent: true })
-      .then((d) => {
-        const b = (d && d.buckets) || [];
-        detailRows[key] = b;
-        const html = b.length ? bucketTable(b) : '<div class="ph-empty"><div class="ph-empty__title">No transferring buckets</div></div>';
-        details[key] = html;
-        const cur = document.querySelector('#bl-rows [data-detail="' + CSS.escape(key) + '"]');
-        if (cur) PH.set(cur, html);
-      })
-      .catch((e) => { const cur = document.querySelector('#bl-rows [data-detail="' + CSS.escape(key) + '"]'); if (cur) PH.error(cur, e.message, () => loadDetail(cur)); });
-  }
-
-  /* ═════════ Bucket status drawer: stage toggles, times, not-found replacement, trail ═════════ */
+  /* ═════════ Bucket status drawer: stage toggles, times, not-found replacement, trace ═════════ */
+  const BP = { api: null, multi: false, name: "", opl: "", farm: "", buckets: [], on: {}, sugg: {}, busy: null, loading: false, error: null, warn: null };
   const COLS = [
-    ["awaiting", "Awaiting transfer", null, null], ["trolley", "Loaded in trolley", "trolley_at", "trolley_by"], ["on_truck", "Loaded on truck", "on_truck_at", "on_truck_by"],
-    ["transit", "In transit (left the farm)", "transit_at", "transit_by"], ["arrived_hub", "Arrived at " + HUB, "arrived_hub_at", "arrived_hub_by"], ["shelved", "Shelved", "shelved_at", "shelved_by"],
-    ["ready", "Ready for packing", null, null], ["issued", "Issued", "issued_at", "issued_by"], ["issued_offline", "Issued offline", null, null], ["not_found", "Not found", "not_found_at", "not_found_by"],
+    ["awaiting", null, null], ["trolley", "trolley_at", "trolley_by"], ["on_truck", "on_truck_at", "on_truck_by"], ["transit", "transit_at", "transit_by"],
+    ["arrived_hub", "arrived_hub_at", "arrived_hub_by"], ["shelved", "shelved_at", "shelved_by"], ["ready", null, null], ["issued", "issued_at", "issued_by"],
+    ["issued_offline", null, null], ["not_found", "not_found_at", "not_found_by"],
   ];
-  const BP = { api: null, multi: false, name: "", opl: "", farm: "", buckets: [], on: {}, sugg: {}, busy: null, loading: false, error: null };
   // A bucket's current stage: not found wins, else the furthest stage it reached.
   function bpStage(x) {
     if (Number(x.not_found)) return "not_found";
@@ -512,12 +436,11 @@
     ["awaiting", "trolley", "on_truck", "transit", "arrived_hub", "shelved", "ready", "issued", "issued_offline"].forEach((k) => { if (Number(x[k])) cur = k; });
     return cur;
   }
-  const flagKind = (k) => (FLAGS.find((f) => f[0] === k) || [0, 0, "outline"])[2];
-  const flagName = (k) => (COLS.find((f) => f[0] === k) || [0, k])[1];
   const bpKey = (x) => (x._opl || BP.opl) + "||" + x.bucket;
+  const orderOf = (opl) => (DATA.orders || []).find((r) => r.opl === opl) || {};
+  function bpReset(o) { Object.assign(BP, { buckets: [], sugg: {}, loading: true, error: null, warn: null }, o); bpShow(); }
   function bpOpen(opl, farm, name) {
-    Object.assign(BP, { multi: false, opl, farm, name, buckets: [], on: {}, sugg: {}, loading: true, error: null });
-    bpShow();
+    bpReset({ multi: false, opl, farm, name, on: {} });
     PH.call(API + "get_bucket_detail", { opl, farm }, { silent: true }).then((d) => {
       BP.buckets = ((d && d.buckets) || []).map((x) => Object.assign(x, { _opl: opl, _order: name })); BP.loading = false; bpPaint(); bpSuggest();
     }).catch((e) => { BP.loading = false; BP.error = e.message; bpPaint(); });
@@ -525,25 +448,31 @@
   // Not found tile: every order with buckets not found, in one panel.
   function openNotFound() {
     const parts = [];
-    orderFarmRows(DATA.orders).forEach((r) => { if (r.not_found) parts.push({ opl: r.opl, farm: r.farm, name: r.order_name || r.opl }); });
-    Object.assign(BP, { multi: true, opl: "", farm: "", name: "Not found · " + PH.fmt.plural(parts.length, "order"), buckets: [], on: { not_found: 1 }, sugg: {}, loading: true, error: null });
-    bpShow();
-    Promise.all(parts.map((pt) => PH.call(API + "get_bucket_detail", { opl: pt.opl, farm: pt.farm }, { silent: true }).then((d) => ((d && d.buckets) || []).map((x) => Object.assign(x, { _opl: pt.opl, _order: pt.name })))))
-      .then((lists) => { BP.buckets = [].concat.apply([], lists); BP.loading = false; bpPaint(); bpSuggest(); })
-      .catch((e) => { BP.loading = false; BP.error = e.message; bpPaint(); });
+    DATA.orders.forEach((o) => {
+      const fs = o.by_farm && o.by_farm.length ? o.by_farm : [{ farm: o.farm || "", not_found: o.not_found }];
+      fs.forEach((f) => { if (f.not_found) parts.push({ opl: o.opl, farm: f.farm || "", name: o.order_name || o.opl }); });
+    });
+    const name = "Not found · " + parts.length + " order" + ST(parts.length);
+    bpReset({ multi: true, opl: "", farm: "", name, on: { not_found: 1 } });
+    // One order failing to load must not blank the others.
+    Promise.allSettled(parts.map((pt) => PH.call(API + "get_bucket_detail", { opl: pt.opl, farm: pt.farm }, { silent: true }).then((d) => ((d && d.buckets) || []).map((x) => Object.assign(x, { _opl: pt.opl, _order: pt.name })))))
+      .then((res) => {
+        if (!BP.api || !BP.multi || BP.name !== name) return;
+        const ok = res.filter((r) => r.status === "fulfilled"), bad = res.length - ok.length;
+        BP.buckets = [].concat.apply([], ok.map((r) => r.value)); BP.loading = false;
+        BP.warn = bad ? bad + " of " + res.length + " orders did not load" : null;
+        bpPaint(); bpSuggest();
+      });
   }
   function bpShow() {
-    if (BP.api) BP.api.close();
-    BP.api = PH.modal({ title: "Bucket status", sub: BP.name + (BP.farm ? " · " + BP.farm : ""), drawer: true, size: "xl", body: '<div data-bp></div>', onClose: () => { BP.api = null; },
-      actions: [{ label: "Export CSV", onClick: () => { bpCsv(); return false; } }, { label: "Close" }] });
-    BP.api.el.classList.add("bl-wide");
-    BP.api.body.addEventListener("click", bpClick);
+    if (BP.api) { const old = BP.api; BP.api = null; old.close(); }
+    const api = PH.modal({ title: "Bucket status", sub: BP.name + (BP.farm ? " · " + BP.farm : ""), drawer: true, size: "xl", body: "<div data-bp></div>", onClose: () => { if (BP.api === api) BP.api = null; } });
+    BP.api = api;
+    api.el.classList.add("bl-wide");
+    api.body.addEventListener("click", bpClick);
     bpPaint();
   }
-  function bpCsv() {
-    const rows = BP.buckets.map((x) => Object.assign({}, x, { order: x._order || BP.name, stage: flagName(bpStage(x)) }));
-    PH.csv("bucket-status.csv", rows, [{ key: "order", label: "Order" }, { key: "bucket", label: "Bucket" }, { key: "variety", label: "Variety" }, { key: "length", label: "Stem length" }, { key: "stems", label: "Stems" }, { key: "farm", label: "Origin farm" }, { key: "shelf", label: "Shelf" }, { key: "truck", label: "Truck" }, { key: "trip", label: "Trip" }, { key: "stage", label: "Stage" }, { key: "left_at", label: "Left the farm" }, { key: "arrived_at", label: "Arrived at " + HUB }, { key: "transit_minutes", label: "Minutes in transit" }].concat(COLS.filter((c) => c[2]).map((c) => ({ key: c[2], label: c[1] + " at" }))));
-  }
+  // A not-found bucket: the best bucket at its farm that can stand in for it, and a Replace that swaps it.
   function bpSuggest() {
     BP.buckets.filter((x) => Number(x.not_found) && x.bucket).forEach((x) => {
       const k = bpKey(x);
@@ -561,7 +490,7 @@
     const c = (g.candidates || [])[0];
     if (!c) return `<span class="ph-muted">${esc(g.message || "No bucket to replace it")}</span>`;
     const busy = BP.busy === bpKey(x);
-    return `<div><b class="ph-strong">${esc(c.new_bucket || c.bucket)}</b> <span class="ph-muted">${esc([c.shelf, c.stem_length, c.available_qty != null ? c.available_qty + " stems" : ""].filter(Boolean).join(" · "))}</span></div><button type="button" class="ph-btn ph-btn--sm ph-btn--primary ph-mt" data-bp-replace="${esc(bpKey(x))}" data-bp-new="${esc(c.new_bucket || c.bucket)}"${busy ? " disabled" : ""}>${busy ? "Replacing…" : "Replace"}</button>`;
+    return `<div><b class="ph-strong">${esc(c.new_bucket || c.bucket)}</b> <span class="ph-muted">${esc([c.shelf, c.stem_length, c.available_qty != null ? c.available_qty + " stems" : ""].filter(Boolean).join(" · "))}</span></div><button type="button" class="ph-btn ph-btn--sm ph-btn--ghost ph-mt" data-bp-replace="${esc(bpKey(x))}" data-bp-new="${esc(c.new_bucket || c.bucket)}"${busy ? " disabled" : ""}>${busy ? "Replacing…" : "Replace"}</button>`;
   }
   function bpReplace(k, nb) {
     const x = BP.buckets.find((b) => bpKey(b) === k);
@@ -573,16 +502,24 @@
         .then((m) => {
           m = m || {};
           BP.busy = null;
-          RTP.toast(m.message || (m.success ? "Replaced" : "Not replaced"), m.success ? "good" : "bad");
+          PH.toast(m.message || (m.success ? "Replaced" : "Not replaced"), m.success ? "good" : "bad");
           if (m.success) { BP.sugg = {}; if (BP.multi) openNotFound(); else bpOpen(BP.opl, BP.farm, BP.name); load(false); } else bpPaint();
         })
-        .catch((e) => { BP.busy = null; RTP.toast(e.message, "bad"); bpPaint(); });
+        .catch((e) => { BP.busy = null; PH.toast(e.message, "bad"); bpPaint(); });
     });
   }
+  // A stage cell: the stage's colour, with when / by whom where the step was logged. Awaiting has no
+  // per-bucket event: every bucket on the order started awaiting the moment its pick list was created.
   function bpCell(x, f) {
-    if (!Number(x[f[0]])) return '<span class="bl-no">—</span>';
-    const at = f[2] ? x[f[2]] : null, c = flagKind(f[0]);
-    return at ? whenCell(at, x[f[3]]) : `<span class="ph-badge ph-badge--${c}">✓</span>`;
+    const k = f[0], kind = KIND[k];
+    if (k === "awaiting") {
+      const o = orderOf(x._opl || BP.opl);
+      if (!o.initiated) return '<span class="bl-dash">—</span>';
+      return `<div class="bl-ev bl-k-${kind}"><b>${esc(fmtDT(o.initiated))}</b><small>${esc(o.owner_name || "")}</small></div>`;
+    }
+    if (!Number(x[k])) return '<span class="bl-dash">—</span>';
+    const at = f[1] ? x[f[1]] : null;
+    return `<div class="bl-ev bl-k-${kind}">` + (at ? `<b>${esc(fmtDT(at))}</b><small>${esc(x[f[2]] || "")}</small>` : '<span class="bl-tick">✓</span>') + "</div>";
   }
   function bpPaint() {
     if (!BP.api) return;
@@ -590,26 +527,30 @@
     if (BP.loading) return PH.skeleton(el, "rows", 5);
     if (BP.error) return PH.error(el, BP.error, () => (BP.multi ? openNotFound() : bpOpen(BP.opl, BP.farm, BP.name)));
     if (!BP.buckets.length) return PH.empty(el, "No transferring buckets", "");
+    const warn = BP.warn ? `<div class="ph-notice ph-notice--bad">${esc(BP.warn)}</div>` : "";
+    // One toggle per stage: on = only the buckets that reached it (any of the ones on).
     const picked = COLS.filter((f) => BP.on[f[0]]);
     const toggles = '<div class="bl-flags">' + COLS.map((f) => {
       const cnt = BP.buckets.filter((x) => Number(x[f[0]])).length, on = !!BP.on[f[0]];
-      return `<button type="button" class="ph-badge ${on ? "ph-badge--" + flagKind(f[0]) : "ph-badge--outline"}" data-bp-flag="${f[0]}" title="${esc(f[1])}">${esc(f[1])} <b>${cnt}</b></button>`;
+      return `<button type="button" class="ph-badge ${on ? "ph-badge--" + KIND[f[0]] : "ph-badge--outline ph-muted"}" data-bp-flag="${f[0]}" title="${esc(LABEL[f[0]])}"><span class="bl-fl">${esc(LABEL[f[0]])}</span><b>${cnt}</b></button>`;
     }).join("") + "</div>";
     const shown = picked.length ? BP.buckets.filter((x) => picked.some((f) => Number(x[f[0]]))) : BP.buckets;
     const anyNf = shown.some((x) => Number(x.not_found));
-    // A stage no bucket shown has reached is left out (its toggle above still says 0).
+    // Only "Not found" on: the stages a missing bucket never reached are left out. A stage no bucket
+    // shown has reached is left out too (its toggle above still says 0).
     const nfOnly = picked.length === 1 && picked[0][0] === "not_found";
     const cols = (nfOnly ? COLS.filter((f) => f[0] === "awaiting" || f[0] === "not_found") : COLS).filter((f) => shown.some((x) => Number(x[f[0]])));
+    const has = (k) => shown.some((x) => x[k]);
     const oneFarm = PH.uniq(shown.map((x) => x.farm || "")).length <= 1;
-    const head = `<tr><th>#</th>${BP.multi ? "<th>Order</th>" : ""}<th>Bucket</th><th>Variety</th><th>Status</th>${anyNf ? "<th>Replace with</th>" : ""}<th>Left the farm</th><th>Arrived at ${esc(HUB)}</th><th>In transit</th>${cols.map((f) => `<th>${esc(f[1])}</th>`).join("")}<th>Boxes</th><th class="is-num">Stems</th>${oneFarm ? "" : "<th>Farm</th>"}<th>Shelf</th><th>Truck</th></tr>`;
+    const head = `<tr><th>#</th>${BP.multi ? "<th>Order</th>" : ""}<th class="bl-nw">Bucket</th><th>Variety</th><th>Status</th>${anyNf ? "<th>Replace with</th>" : ""}${cols.map((f) => `<th>${esc(LABEL[f[0]])}</th>`).join("")}<th>Boxes</th><th class="is-num">Stems</th>${oneFarm ? "" : "<th>Farm</th>"}${has("shelf") ? "<th>Shelf</th>" : ""}${has("truck") ? "<th>Truck</th>" : ""}</tr>`;
     const body = shown.map((x, j) => {
-      const s = bpStage(x), label = s === "not_found" ? "Not found · no replacement" : s ? flagName(s) : "—";
+      const s = bpStage(x), label = s === "not_found" ? "Not found · no replacement" : s ? LABEL[s] : "—";
       const rp = (DATA.repl || []).find((r) => r.order_pick_list === (x._opl || BP.opl) && r.new_bucket === x.bucket);
-      return `<tr><td>${j + 1}</td>${BP.multi ? `<td><b class="ph-strong">${esc(x._order || "")}</b></td>` : ""}<td class="is-strong"><a href="#" data-trail="${BP.buckets.indexOf(x)}" title="Transfer trail of this bucket">${esc(x.bucket || "—")}</a></td><td>${esc(x.variety || "—")}${x.length ? " (" + esc(x.length) + ")" : ""}</td>
-        <td>${s ? `<span class="ph-badge ph-badge--${flagKind(s)}">${esc(label)}</span>` : "—"}${rp ? `<div class="ph-mt"><span class="ph-badge ph-badge--ink" title="${esc((rp.reason || "") + (rp.reported_by ? " · " + rp.reported_by : ""))}">Replaced ${esc(rp.old_bucket)}</span></div>` : ""}</td>
-        ${anyNf ? `<td>${bpSuggCell(x)}</td>` : ""}${transitCols(x)}${cols.map((f) => `<td>${bpCell(x, f)}</td>`).join("")}<td>${esc(x.box_id || String(x.boxes || 1))}</td><td class="is-num">${n(x.stems)}</td>${oneFarm ? "" : `<td>${esc(x.farm || "—")}</td>`}<td>${esc(x.shelf || "—")}</td><td>${esc(x.truck || "—")}</td></tr>`;
+      return `<tr class="${s ? "bl-row bl-k-" + KIND[s] : ""}"><td>${j + 1}</td>${BP.multi ? `<td><b class="ph-strong">${esc(x._order || "")}</b></td>` : ""}<td class="is-strong bl-nw">${x.bucket ? `<a href="#" class="ph-link" data-trail="${BP.buckets.indexOf(x)}" title="Transfer trail of this bucket">${esc(x.bucket)}</a>` : "<b>—</b>"}</td><td>${esc(x.variety || "—")}${x.length ? " (" + esc(x.length) + ")" : ""}</td>
+        <td class="bl-nw">${s ? `<span class="ph-badge ph-badge--${KIND[s]}" title="${esc(label)}">${esc(label)}</span>` : "—"}${rp ? `<div class="ph-mt"><span class="ph-badge ph-badge--ink" title="${esc((rp.reason || "") + (rp.reported_by ? " · " + rp.reported_by : ""))}">Replaced ${esc(rp.old_bucket)}</span></div>` : ""}</td>
+        ${anyNf ? `<td>${bpSuggCell(x)}</td>` : ""}${cols.map((f) => `<td>${bpCell(x, f)}</td>`).join("")}<td>${esc(x.box_id || String(x.boxes || 1))}</td><td class="is-num">${n(x.stems)}</td>${oneFarm ? "" : `<td class="bl-nw">${esc(x.farm || "—")}</td>`}${has("shelf") ? `<td>${esc(x.shelf || "—")}</td>` : ""}${has("truck") ? `<td>${esc(x.truck || "—")}</td>` : ""}</tr>`;
     }).join("");
-    PH.set(el, toggles + (shown.length ? `<div class="ph-table-wrap"><table class="ph-table ph-table--compact bl-dr"><thead>${head}</thead><tbody>${body}</tbody></table></div>` : '<div class="ph-empty"><div class="ph-empty__title">No buckets</div></div>'));
+    PH.set(el, warn + toggles + (shown.length ? `<div class="ph-table-wrap"><table class="ph-table ph-table--compact bl-dr"><thead>${head}</thead><tbody>${body}</tbody></table></div>` : '<div class="ph-empty"><div class="ph-empty__title">No buckets</div></div>'));
   }
   function bpClick(e) {
     const f = e.target.closest("[data-bp-flag]");
@@ -617,76 +558,148 @@
     const r = e.target.closest("[data-bp-replace]");
     if (r) return bpReplace(r.dataset.bpReplace, r.dataset.bpNew);
     const t = e.target.closest("[data-trail]");
-    if (t) { e.preventDefault(); trail(BP.buckets[+t.dataset.trail]); }
-  }
-  /* The transfer trail of one bucket on one order: every step with its time and user,
-     the truck's departure from the farm and arrival at the hub included. */
-  function trail(x) {
-    if (!x) return;
-    const o = (DATA.orders || []).find((r) => r.opl === (x._opl || BP.opl)) || {};
-    const steps = [];
-    if (o.initiated) steps.push({ t: o.initiated, s: "Awaiting transfer", by: o.owner_name || "", d: [x._order || o.order_name, x.farm].filter(Boolean).join(" · ") });
-    [["trolley", "Loaded in trolley", "trolley_at", "trolley_by"], ["on_truck", "Loaded on truck", "on_truck_at", "on_truck_by"]].forEach((c) => { if (Number(x[c[0]])) steps.push({ t: x[c[2]], s: c[1], by: x[c[3]], d: [x.truck, x.trip ? "trip " + (x.run || x.trip) : ""].filter(Boolean).join(" · ") }); });
-    if (x.left_at) steps.push({ t: x.left_at, s: "Truck left the farm", by: x.transit_by, d: [x.farm, x.truck].filter(Boolean).join(" · ") });
-    else if (Number(x.transit)) steps.push({ t: "", s: "Truck left the farm", by: "", d: "time not recorded" });
-    if (x.arrived_at) steps.push({ t: x.arrived_at, s: "Truck arrived at " + HUB, by: x.arrived_hub_by, d: x.transit_minutes != null ? "in transit " + fmtDur(x.transit_minutes) : "" });
-    else if (x.in_transit_now) steps.push({ t: "", s: "On the road", by: "", d: x.transit_minutes != null ? fmtDur(x.transit_minutes) + " so far" : "" });
-    [["shelved", "Shelved at " + HUB, "shelved_at", "shelved_by", x.shelf], ["issued", "Issued", "issued_at", "issued_by", "to " + (x._order || "")], ["not_found", "Not found", "not_found_at", "not_found_by", ""]].forEach((c) => { if (Number(x[c[0]])) steps.push({ t: x[c[2]], s: c[1], by: x[c[3]], d: c[4] }); });
-    steps.sort((a, b) => (a.t && b.t ? (a.t < b.t ? -1 : a.t > b.t ? 1 : 0) : 0));
-    const link = "/remote-transfer-v2?tab=journey&mode=bucket&q=" + encodeURIComponent(x.bucket || "");
-    PH.modal({ title: "Bucket " + (x.bucket || ""), sub: [x.variety, x.length, n(x.stems) + " stems"].filter(Boolean).join(" · "), size: "lg",
-      body: `<div class="ph-table-wrap"><table class="ph-table ph-table--compact"><thead><tr><th>When</th><th>Step</th><th>Detail</th><th>By</th></tr></thead><tbody>${steps.map((s) => `<tr><td class="is-nowrap">${s.t ? esc(dt(s.t)) : "—"}</td><td><span class="ph-badge ph-badge--outline">${esc(s.s)}</span></td><td>${esc(s.d || "")}</td><td>${esc(s.by || "")}</td></tr>`).join("")}</tbody></table></div><p class="ph-mt"><a class="ph-link" href="${esc(link)}" target="_blank" rel="noopener">Full journey, harvest to issue →</a></p>` });
+    if (t) { e.preventDefault(); const x = BP.buckets[+t.dataset.trail]; if (x) trOpen(x.bucket, x.variety, x.stems); }
   }
 
-  /* ── Export ── */
-  function exportCsv() {
-    if (!DATA) return;
-    const rows = [];
-    orderFarmRows(DATA.orders).forEach((r) => {
-      const legs = r.trips.length ? r.trips : [{}];
-      legs.forEach((t) => rows.push(Object.assign({}, r, { t, truck_label: t.vehicle || r.truck || "", trip_label: t.run ? "Trip " + t.run : "", trip_status: t.status || "" })));
-    });
-    PH.csv("bucket-logistics-" + st.get("from") + "-" + st.get("to") + ".csv", rows, [
-      { key: "delivery_date", label: "Delivery date" }, { key: "order_name", label: "Order" }, { key: "customer", label: "Customer" }, { key: "opl", label: "Pick list" }, { key: "team", label: "Team" }, { key: "farm", label: "Origin farm" },
-      { key: "truck_label", label: "Truck" }, { key: "trip_label", label: "Trip" }, { key: "trip_status", label: "Trip status" },
-      { key: "t", label: "Left the farm", csv: (t) => t.left_at || "" }, { key: "t", label: "Arrived at " + HUB, csv: (t) => t.arrived_at || "" }, { key: "t", label: "Minutes in transit", csv: (t) => (t.transit_minutes == null ? "" : t.transit_minutes) },
-      { key: "t", label: "Truck state", csv: (t) => (t.state || "").replace("_", " ") },
-      { key: "total", label: "Buckets" }, { key: "stems", label: "Stems" }, { key: "arrived_stems", label: "Stems arrived" }, { key: "awaiting", label: "Awaiting" }, { key: "trolley", label: "In trolley" }, { key: "on_truck", label: "On truck" }, { key: "transit", label: "In transit" },
-      { key: "arrived_hub", label: "Arrived at " + HUB }, { key: "shelved", label: "Shelved" }, { key: "ready", label: "Ready" }, { key: "issued", label: "Issued" }, { key: "not_found", label: "Not found" },
-      { key: "initiated", label: "Initiated" }, { key: "arrived", label: "First shelved" },
-    ]);
+  /* ═════════ Bucket traceability (from the bucket id): harvest -> allocation -> transfer ═════════ */
+  const TR = { api: null, bucket: null, item: null, data: null, loading: false, error: null, rows: [], users: {} };
+  function trOpen(bucket, item) {
+    Object.assign(TR, { bucket, item, data: null, loading: true, error: null, users: TR.users });
+    // The bucket's rows in the status panel: its remote-transfer stamps per order.
+    TR.rows = (BP.buckets || []).filter((x) => String(x.bucket || "").toUpperCase() === String(bucket || "").toUpperCase());
+    if (TR.api) { const old = TR.api; TR.api = null; old.close(); }
+    const api = PH.modal({ title: bucket, sub: item || "", drawer: true, size: "lg", body: '<div data-tr></div>', onClose: () => { if (TR.api === api) TR.api = null; } });
+    TR.api = api;
+    api.el.classList.add("bl-trace");
+    trPaint();
+    Promise.all([
+      PH.call("upande_packhouse.api.bucket_journey.getBucketJourney", { bucket_id: bucket }, { silent: true }),
+      // The Shelving Log is the base of the trail: every shelf change of the bucket.
+      PH.getList("Shelving Log", { silent: true, filters: { bucket_id: bucket }, order_by: "shelved_on asc", fields: ["name", "shelf", "farm", "variety", "stem_length", "stem_qty", "greenhouse", "warehouse", "cut_stage", "harvest_date", "receiving_date", "harvester", "graded_by", "grading_date", "reason", "shelved_on", "shelved_by", "removed_on", "modified_by"] }),
+    ]).then((res) => {
+      if (TR.api !== api) return;
+      const d = res[0] || {}; d.shelving_log = res[1] || [];
+      TR.data = d; TR.loading = false; trPaint();
+      // Full names for everyone on the trail.
+      const emails = PH.uniq(trSteps(d).steps.map((s) => s.who)).filter((m) => m && m.indexOf("@") > 0 && !TR.users[m]);
+      if (emails.length) PH.getList("User", { silent: true, filters: { name: ["in", emails] }, fields: ["name", "full_name"] }).then((rows) => { (rows || []).forEach((r) => (TR.users[r.name] = r.full_name)); if (TR.api === api) trPaint(); }).catch(() => {});
+    }).catch((e) => { if (TR.api !== api) return; TR.loading = false; TR.error = e.message; trPaint(); });
   }
+  // posting_time can come unpadded ("9:05:3.25"): pad each part so it sorts and parses.
+  function trTs(d, t) {
+    if (!d) return "";
+    const p = String(t || "0:0:0").split(":").map((x) => ("0" + String(parseInt(x, 10) || 0)).slice(-2));
+    return String(d).slice(0, 10) + " " + [p[0] || "00", p[1] || "00", p[2] || "00"].join(":");
+  }
+  // This harvest of the bucket only: ids are reused, so everything before the latest harvest of the
+  // allocated variety belongs to earlier uses of the bucket.
+  function trSteps(m) {
+    const item = TR.item || (m.alloc && m.alloc.item_code) || "";
+    const vOf = (se) => (m.se_item || {})[se.name] || "";
+    const qOf = (se) => (m.se_qty || {})[se.name];
+    const hv = (m.harvest || []).filter((h) => !item || vOf(h) === item);
+    let start = hv.length ? trTs(hv[hv.length - 1].posting_date, "00:00:00") : "";
+    // The latest journey only: from the bucket's latest harvest (the stock entry, or the harvest date its
+    // Shelving Log recorded -- whichever is later) to where it is now.
+    const allLogs = (m.shelving_log || []).filter((l) => !item || l.variety === item);
+    const hd = allLogs.map((l) => String(l.harvest_date || "").slice(0, 10)).filter(Boolean).sort().pop();
+    if (hd && (!start || hd + " 00:00:00" > start)) start = hd + " 00:00:00";
+    if (!start && allLogs.length) start = String(allLogs[allLogs.length - 1].shelved_on || "").slice(0, 10) + " 00:00:00";
+    const logs = allLogs.filter((l) => !start || String(l.shelved_on || "") >= start);
+    const after = (t) => !start || (t && t >= start);
+    const steps = [];
+    hv.filter((h) => after(trTs(h.posting_date, h.posting_time))).forEach((h) => {
+      steps.push({ t: trTs(h.posting_date, h.posting_time), stage: "Harvested", k: "outline", detail: [vOf(h), h.custom_stem_length, qOf(h) != null ? qOf(h) + " stems" : "", h.custom_greenhouse].filter(Boolean).join(" · "), who: h.custom_harvester ? "Harvester " + h.custom_harvester : "" });
+    });
+    (m.grading || []).forEach((g) => { const t = trTs(g.posting_date, g.posting_time); if (after(t)) steps.push({ t, stage: "Graded", k: "outline", detail: [vOf(g), g.custom_stem_length].filter(Boolean).join(" · "), who: g.custom_graded_by || "" }); });
+    (m.receiving || []).forEach((r) => { const t = trTs(r.posting_date, r.posting_time); if (after(t)) steps.push({ t, stage: "Received", k: "signal", detail: [vOf(r), qOf(r) != null ? qOf(r) + " stems" : "", r.to_warehouse].filter(Boolean).join(" · "), who: "" }); });
+    // Shelving Log: every time the bucket went on a shelf, and how it came off (the log's reason) and by whom.
+    const OFF = { "Transferred (Trolley/Truck)": "ink", "Issued to Sales Order": "ink", Replaced: "warn", "Offline Issuing": "outline", "Shelf Cleared": "outline" };
+    logs.forEach((l) => {
+      steps.push({ t: String(l.shelved_on || ""), stage: "Shelved on " + (l.shelf || "?"), k: "good", detail: [l.farm, l.variety, l.stem_length, l.stem_qty ? l.stem_qty + " stems" : "", l.cut_stage ? "cut " + l.cut_stage : "", l.warehouse].filter(Boolean).join(" · "), who: l.shelved_by || "" });
+      if (l.removed_on) steps.push({ t: String(l.removed_on), stage: (l.reason && l.reason !== "Shelved" ? l.reason : "Off the shelf") + " · " + (l.shelf || ""), k: OFF[l.reason] || "outline", detail: [l.farm, l.variety, l.stem_length].filter(Boolean).join(" · "), who: l.modified_by || "" });
+    });
+    // Harvest / grading / receiving as the log recorded them, where no stock entry shows it.
+    const first = logs[0];
+    if (first) {
+      if (!steps.some((x) => x.stage === "Harvested") && first.harvest_date) steps.push({ t: String(first.harvest_date), stage: "Harvested", k: "outline", detail: [first.variety, first.stem_length, first.greenhouse].filter(Boolean).join(" · "), who: first.harvester ? "Harvester " + first.harvester : "" });
+      if (!steps.some((x) => x.stage === "Graded") && first.grading_date) steps.push({ t: String(first.grading_date), stage: "Graded", k: "outline", detail: [first.variety, first.stem_length].filter(Boolean).join(" · "), who: first.graded_by || "" });
+      if (!steps.some((x) => x.stage === "Received") && first.receiving_date) steps.push({ t: String(first.receiving_date), stage: "Received", k: "signal", detail: [first.variety, first.warehouse].filter(Boolean).join(" · "), who: "" });
+    }
+    (m.opl_rows || []).forEach((o) => {
+      if (after(String(o.creation || ""))) steps.push({ t: String(o.creation || ""), stage: "Allocated", k: "warn", detail: [o.parent, o.item_code, o.stem_length, o.stock_qty ? o.stock_qty + " stems" : "", o.farm, o.shelf].filter(Boolean).join(" · "), who: o.owner || "" });
+    });
+    // Remote transfer, per order the bucket goes to: awaiting -> trolley -> truck -> in transit -> arrived at the hub
+    // -> shelved -> issued. From the pick rows' own stamps; a stage reached with no stamp keeps its place.
+    const hubName = DATA.hub || HUB;
+    const RTS = [
+      ["trolley", "Loaded in trolley", "ink", "trolley_at", "trolley_by"], ["on_truck", "Loaded on truck", "signal", "on_truck_at", "on_truck_by"], ["transit", "In transit", "signal", "transit_at", "transit_by"],
+      ["arrived_hub", "Arrived at " + hubName, "signal", "arrived_hub_at", "arrived_hub_by"], ["shelved", "Shelved at " + hubName, "good", "shelved_at", "shelved_by"],
+      ["issued", "Issued", "ink", "issued_at", "issued_by"], ["issued_offline", "Issued offline", "outline", null, null], ["not_found", "Not found", "bad", "not_found_at", "not_found_by"],
+    ];
+    (TR.rows || []).forEach((x) => {
+      const opl = x._opl || BP.opl, order = x._order || BP.name || opl, o = orderOf(opl);
+      let prev = String(o.initiated || "");
+      steps.push({ t: prev, stage: "Awaiting transfer", k: "warn", detail: [order, opl, x.farm].filter(Boolean).join(" · "), who: o.owner_name || "" });
+      RTS.forEach((f) => {
+        if (!Number(x[f[0]])) return;
+        const at = f[3] ? String(x[f[3]] || "") : "";
+        const detail = f[0] === "trolley" || f[0] === "on_truck" || f[0] === "transit" ? [x.truck, x.trip ? "trip " + (x.run || x.trip) : ""].filter(Boolean).join(" · ")
+          : f[0] === "shelved" ? x.shelf || ""
+          : f[0] === "issued" || f[0] === "issued_offline" ? "to " + [order, opl].filter(Boolean).join(" · ") : "";
+        steps.push({ t: at || prev, stage: f[1], k: f[2], detail, who: f[4] ? x[f[4]] || "" : "", noTime: !at });
+        if (at) prev = at;
+      });
+    });
+    (m.remote_transfers || []).forEach((rt) => (rt.events || []).forEach((ev) => {
+      if (ev.stage === "Awaiting transfer") return; // the allocation above
+      // The stamped stages above already tell these; refusals still show.
+      if ((TR.rows || []).length && !ev.refused) return;
+      if (after(String(ev.datetime || ""))) steps.push({ t: String(ev.datetime || ""), stage: ev.stage + (ev.refused ? " (refused)" : ""), k: ev.refused ? "bad" : "signal", detail: [rt.order_name, ev.detail, ev.trip].filter(Boolean).join(" · "), who: ev.user || "" });
+    }));
+    (m.rejects || []).concat(m.discards || [], m.quarantine || []).forEach((r) => {
+      const t = trTs(r.posting_date, r.posting_time) || String(r.creation || "");
+      if (after(t)) steps.push({ t, stage: r.stock_entry_type || "Discard", k: "bad", detail: [vOf(r), qOf(r) != null ? qOf(r) + " stems" : ""].filter(Boolean).join(" · "), who: "" });
+    });
+    (m.replacements || []).forEach((r) => { const t = String(r.reported_at || r.creation || ""); if (after(t)) steps.push({ t, stage: "Replaced", k: "warn", detail: [r.old_bucket + " → " + r.new_bucket, r.reason].filter(Boolean).join(" · "), who: r.reported_by || "" }); });
+    steps.sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0));
+    return { steps, harvested: hv.length > 0 || logs.some((l) => l.harvest_date) };
+  }
+  function trWho(who) {
+    if (!who) return "";
+    if (who.indexOf("@") < 0) return esc(who);
+    const name = TR.users[who];
+    return `<div class="ph-strong">${esc(name || who)}</div>` + (name ? `<div class="bl-sub">${esc(who)}</div>` : "");
+  }
+  function trPaint() {
+    if (!TR.api) return;
+    const el = TR.api.body.querySelector("[data-tr]");
+    if (TR.loading) return PH.skeleton(el, "rows", 5);
+    if (TR.error) return PH.error(el, TR.error, () => trOpen(TR.bucket, TR.item));
+    const r = trSteps(TR.data || {});
+    PH.set(el, (r.harvested ? "" : `<div class="ph-notice ph-notice--bad">No harvest of ${esc(TR.item || "this variety")} recorded for this bucket.</div>`) +
+      (r.steps.length
+        ? '<div class="ph-table-wrap"><table class="ph-table ph-table--compact bl-dr"><thead><tr><th>When</th><th>Step</th><th>Detail</th><th>By</th></tr></thead><tbody>' + r.steps.map((s) =>
+          `<tr class="bl-row bl-k-${s.k}"><td class="bl-nw">${s.noTime ? '<span class="bl-dash">—</span>' : esc(fmtDT(s.t))}</td><td class="bl-nw"><span class="ph-badge ph-badge--${s.k}">${esc(s.stage)}</span></td><td>${esc(s.detail)}</td><td>${trWho(s.who)}</td></tr>`).join("") + "</tbody></table></div>"
+        : '<div class="ph-empty"><div class="ph-empty__title">Nothing recorded.</div></div>'));
+  }
+  // Escape closes the trace first, then the status drawer (the shared modal would close both).
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape" && TR.api) { e.preventDefault(); e.stopPropagation(); TR.api.close(); } }, true);
 
   /* ── Interactions (delegated) ── */
   document.getElementById("bl-rows").addEventListener("click", (e) => {
-    const ed = e.target.closest("[data-edittrip]");
-    if (ed) return RTP.editTrip(ed.dataset.edittrip);
-    const at = e.target.closest("[data-addtrip]");
-    if (at) return RTP.addToTrip(at.dataset.opl, at.dataset.farm, at.dataset.name);
     const bp = e.target.closest("[data-bp-opl]");
     if (bp) return bpOpen(bp.dataset.bpOpl, bp.dataset.bpFarm, bp.dataset.bpName);
-    const tr = e.target.closest("[data-trail]");
-    if (tr) { e.preventDefault(); const row = tr.closest("[data-detail]"); return trail(((row && detailRows[row.dataset.detail]) || [])[+tr.dataset.trail]); }
     const all = e.target.closest("[data-tripall]");
-    if (all) { e.stopPropagation(); const g = buildTrips().find((x) => x.key === all.dataset.tripall); if (g) { setTripOpen(g, !tripAllOpen(g)); render(); } return; }
+    if (all) { e.stopPropagation(); const g = buildTrips().find((x) => x.key === all.dataset.tripall); if (g) { setTripOpen(g, !tripAllOpen(g.key)); render(); } return; }
     const tg = e.target.closest("[data-tgl]");
-    if (tg) { const k = tg.dataset.tgl; if (OPEN[k]) delete OPEN[k]; else OPEN[k] = 1; return render(); }
-    const more = e.target.closest("[data-more]");
-    if (more) { const k = more.dataset.more; if (open[k]) delete open[k]; else open[k] = 1; return render(); }
-    const g = e.target.closest("tr.bl-grp");
-    if (g) { if (SHUT[g.dataset.fg]) delete SHUT[g.dataset.fg]; else SHUT[g.dataset.fg] = 1; saveShut(); render(); }
+    if (tg) { const k = tg.dataset.tgl; if (OPEN[k]) delete OPEN[k]; else OPEN[k] = 1; render(); }
   });
   // One toggle for everything: collapses while any is open, else expands all.
   document.getElementById("bl-fold").addEventListener("click", () => {
-    if (st.get("view") === "farm") {
-      const farms = PH.$$("#bl-rows tr.bl-grp").map((r) => r.dataset.fg), anyOpen = farms.some((f) => !SHUT[f]);
-      farms.forEach((f) => { if (anyOpen) SHUT[f] = 1; else delete SHUT[f]; });
-      saveShut();
-    } else {
-      const anyOpen = Object.keys(OPEN).some((k) => k.indexOf("t:") === 0);
-      Object.keys(OPEN).forEach((k) => delete OPEN[k]);
-      if (!anyOpen) buildTrips().forEach((g) => setTripOpen(g, true));
-    }
+    const was = anyOpen();
+    Object.keys(OPEN).forEach((k) => delete OPEN[k]);
+    if (!was) buildTrips().forEach((g) => setTripOpen(g, true));
     render();
   });
   document.getElementById("bl-trucks").addEventListener("click", (e) => {
@@ -696,11 +709,20 @@
     if (TRUCKS[v]) delete TRUCKS[v]; else TRUCKS[v] = 1;
     render();
   });
-  document.getElementById("bl-csv").addEventListener("click", exportCsv);
-  document.getElementById("bl-variety").addEventListener("click", (e) => { if (e.target.closest("[data-clear-variety]")) st.set({ variety: "" }); });
 
   PH.onRefresh(() => load(true));
   PH.poll(() => load(false), 30000); // farms scan buckets onto trolleys and trucks all day
+  // Trips change in bursts (Distribute, a truck being loaded): a light check every 3 s re-reads the moment
+  // today's trips change, so their counts move as buckets go on.
+  let tripStamp = null, stampBusy = false;
+  PH.poll(() => {
+    if (stampBusy) return;
+    stampBusy = true;
+    PH.call("upande_packhouse.api.remote_transfer.bucket_logistics.getTripsStamp", {}, { silent: true })
+      .then((stamp) => { if (stamp && tripStamp !== null && stamp !== tripStamp) load(false); if (stamp) tripStamp = stamp; })
+      .catch(() => {})
+      .then(() => { stampBusy = false; });
+  }, 3000);
   PH.ready(() => load(true));
 })();
 </script>

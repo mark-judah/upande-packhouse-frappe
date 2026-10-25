@@ -22,7 +22,9 @@ Numbers (stems unless the key says otherwise):
   not found        open pick rows a picker marked not found
   draft            open pick rows on a pick list that is not submitted
   expected boxes   core/boxes.order_boxes over each pick list's Sales Order lines
-  packed boxes     distinct box numbers on Farm Pack Lists of those pick lists
+  packed boxes     complete boxes, as Orders & Workflow counts them: every Packing Guide
+                   (box, variety) met on the pick list, or closed short on purpose
+  not allocated    stems on order lines that have no pick list yet
 
 Speed and finish time are live: activity today (pack lists created today, stems issued today),
 per team, over the time since the team's first event, never less than 30 minutes. Finish time
@@ -60,6 +62,13 @@ _CAUSE = (
 	"AND (t.in_transit = 1 OR t.loaded_in_trolley = 1 OR t.awaiting_transfer = 1)) THEN 'transfer' "
 	"WHEN o.docstatus = 0 THEN 'draft' ELSE 'issue' END"
 )
+
+
+def _box_no(v):
+	try:
+		return int(float(v))
+	except (TypeError, ValueError):
+		return None
 
 
 def _num(v):
@@ -315,18 +324,44 @@ def _boxes(teams, where, params):
 		lines.setdefault(r.opl, []).append(r)
 	for opl, rows in lines.items():
 		_team_row(teams, opl_team[opl])["exp_boxes"] += boxes_mod.order_boxes(rows)
+	# a box is packed when it is complete, as Orders & Workflow counts it (core/pipeline step 6):
+	# every Packing Guide (box, variety) met on the pick list, or closed short on purpose
+	need, have, started, under, opl_of = {}, {}, {}, {}, {}
 	for r in frappe.db.sql(
-		f"""SELECT {_TEAM} AS team, COUNT(DISTINCT CONCAT(f.name, '|', TRIM(fi.box_id))) AS boxes
+		f"""SELECT o.name AS opl, {_TEAM} AS team, g.box_number, g.variety, SUM(g.stems) AS stems
+		    FROM `tabPacking Guide` g
+		    JOIN `tabOrder Pick List` o ON o.name = g.parent
+		    JOIN `tabSales Order` so ON so.name = o.sales_order
+		    WHERE {where} AND g.parenttype = 'Order Pick List'
+		    GROUP BY o.name, team, g.box_number, g.variety""",
+		params,
+		as_dict=True,
+	):
+		opl_of[r.opl] = r.team
+		k = (r.opl, _box_no(r.box_number), r.variety)
+		need[k] = need.get(k, 0.0) + _num(r.stems)
+	for r in frappe.db.sql(
+		f"""SELECT o.name AS opl, {_TEAM} AS team, fi.box_id, fi.item_code, SUM(fi.stock_qty) AS stems,
+		           MAX(IFNULL(fi.under_pack_reason, '') != '') AS short
 		    FROM `tabFarm Pack List` f
 		    JOIN `tabFarm Packlist Item` fi ON fi.parent = f.name
 		    JOIN `tabOrder Pick List` o ON o.name = f.order_pick_list
 		    JOIN `tabSales Order` so ON so.name = o.sales_order
-		    WHERE {where} AND f.docstatus < 2 AND IFNULL(TRIM(fi.box_id), '') != ''
-		    GROUP BY team""",
+		    WHERE {where} AND f.docstatus < 2
+		    GROUP BY o.name, team, fi.box_id, fi.item_code""",
 		params,
 		as_dict=True,
 	):
-		_team_row(teams, r.team)["packed_boxes"] = _num(r.boxes)
+		opl_of[r.opl] = r.team
+		b = _box_no(r.box_id) or 1
+		started[(r.opl, b)] = 1
+		have[(r.opl, b, r.item_code)] = have.get((r.opl, b, r.item_code), 0.0) + _num(r.stems)
+		if r.short:
+			under[(r.opl, b)] = 1
+	for opl, b in started:
+		keys = [k for k in need if k[0] == opl and k[1] == b]
+		if (opl, b) in under or (keys and all(have.get(k, 0.0) >= need[k] - 0.001 for k in keys)):
+			_team_row(teams, opl_of[opl])["packed_boxes"] += 1
 
 
 def _finish(t):
@@ -377,20 +412,11 @@ def _kpis(team_list, line, act_where, act_params, today):
 	held = sum(t["cells"].get("issue", {}).get("stems", 0.0) + t["blocked"] for t in team_list)
 	timed = [t for t in team_list if t["eta_min"] is not None and t["state"] != "done"]
 	worst = max(timed, key=lambda t: t["eta_min"]) if timed else None
-	today_boxes = frappe.db.sql(
-		f"""SELECT COUNT(DISTINCT CONCAT(f.name, '|', TRIM(fi.box_id)))
-		    FROM `tabFarm Pack List` f JOIN `tabFarm Packlist Item` fi ON fi.parent = f.name
-		    JOIN `tabOrder Pick List` o ON o.name = f.order_pick_list
-		    JOIN `tabSales Order` so ON so.name = o.sales_order
-		    WHERE {act_where} AND f.docstatus < 2 AND f.creation >= %(ph_today)s AND IFNULL(TRIM(fi.box_id), '') != ''""",
-		{**act_params, "ph_today": today},
-	)[0][0]
 	pack = line["pack"]
 	flow = pack["stems"] / pack["mins"] if pack["mins"] > 1 else 0.0
 	return {
 		"expected_boxes": exp,
 		"packed_boxes": packed,
-		"packed_today_boxes": _num(today_boxes),
 		"can_pack_stems": can,
 		"held_stems": held,
 		"packing_stems_per_min": flow,
@@ -456,7 +482,7 @@ def _remote(where, params):
 
 
 def _unallocated(a):
-	"""Ordered against allocated stems per delivery date (orders with no pick list yet)."""
+	"""Ordered stems per delivery date against those on a line with a pick list (Orders & Workflow's "not allocated": lines with no pick list; short lines are not counted)."""
 	params = {"ph_from": a["from_date"], "ph_to": a["to_date"]}
 	where = ["so.docstatus = 1", "so.delivery_date BETWEEN %(ph_from)s AND %(ph_to)s"]
 	where.append(business_unit_sql(a["business_unit"], params, so="so", soi="soi"))
@@ -469,7 +495,7 @@ def _unallocated(a):
 		{"due": str(r.due), "ordered": _num(r.ordered), "allocated": _num(r.allocated)}
 		for r in frappe.db.sql(
 			f"""SELECT so.delivery_date AS due, ROUND(SUM(soi.stock_qty)) AS ordered,
-			           ROUND(SUM(IFNULL(al.s, 0))) AS allocated
+			           ROUND(SUM(CASE WHEN al.line IS NULL THEN 0 ELSE soi.stock_qty END)) AS allocated
 			    FROM `tabSales Order Item` soi
 			    JOIN `tabSales Order` so ON so.name = soi.parent
 			    LEFT JOIN (SELECT p.sales_order_item AS line, SUM(p.stock_qty) AS s FROM `tabPick List Item` p
