@@ -28,6 +28,7 @@ NAV = [
 		"Workflow",
 		[
 			("packhouse-dashboard", "Orders & Workflow", "/packhouse-dashboard-v2", "layout"),
+			("packing-insights", "Packing Insights", "/packing-insights-v2", "eye"),
 			("sales-allocation-planning", "Allocation Planning", "/sales-allocation-planning-v2", "grid"),
 			("packhouse-production", "Production", "/packhouse-production-v2", "home"),
 			("remote-transfer", "Remote Transfers", "/remote-transfer-v2?tab=transfer", "truck"),

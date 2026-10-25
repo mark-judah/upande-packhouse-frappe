@@ -1,0 +1,253 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:bucket_id",
+ "creation": "2026-10-23 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "bucket_id",
+  "status",
+  "source",
+  "cb1",
+  "farm",
+  "reason",
+  "sec_who",
+  "watching_since",
+  "added_by",
+  "added_on",
+  "cb2",
+  "order_pick_list",
+  "reference_doctype",
+  "reference_name",
+  "sec_seen",
+  "last_seen_at",
+  "last_seen_event",
+  "last_seen_journey",
+  "cb3",
+  "last_seen_location",
+  "last_seen_stage",
+  "last_checked_at",
+  "sec_close",
+  "closed_by",
+  "closed_on",
+  "cb4",
+  "close_note"
+ ],
+ "fields": [
+  {
+   "fieldname": "bucket_id",
+   "fieldtype": "Data",
+   "label": "Bucket ID",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "description": "Stored upper-case, as Shelving Log and Pick List Item keep it."
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Watching\nReappeared\nClosed - Resolved\nClosed - Confirmed Missing",
+   "default": "Watching",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Select",
+   "label": "Source",
+   "options": "Manual\nNot found during issuing\nNot found during transfer",
+   "default": "Manual",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "cb1",
+   "fieldtype": "Column Break",
+   "label": ""
+  },
+  {
+   "fieldname": "farm",
+   "fieldtype": "Data",
+   "label": "Farm",
+   "in_standard_filter": 1,
+   "description": "Where it went missing (or was last known)."
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Reason / note"
+  },
+  {
+   "fieldname": "sec_who",
+   "fieldtype": "Section Break",
+   "label": "Watch"
+  },
+  {
+   "fieldname": "watching_since",
+   "fieldtype": "Datetime",
+   "label": "Watching since",
+   "reqd": 1,
+   "description": "Auto-added: the not-found event time. Manual: when added."
+  },
+  {
+   "fieldname": "added_by",
+   "fieldtype": "Link",
+   "label": "Added by",
+   "options": "User"
+  },
+  {
+   "fieldname": "added_on",
+   "fieldtype": "Datetime",
+   "label": "Added on"
+  },
+  {
+   "fieldname": "cb2",
+   "fieldtype": "Column Break",
+   "label": ""
+  },
+  {
+   "fieldname": "order_pick_list",
+   "fieldtype": "Data",
+   "label": "Order pick list"
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Data",
+   "label": "Triggered by (DocType)"
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Data",
+   "label": "Triggered by"
+  },
+  {
+   "fieldname": "sec_seen",
+   "fieldtype": "Section Break",
+   "label": "Latest appearance"
+  },
+  {
+   "fieldname": "last_seen_at",
+   "fieldtype": "Datetime",
+   "label": "Last seen at"
+  },
+  {
+   "fieldname": "last_seen_event",
+   "fieldtype": "Small Text",
+   "label": "Last seen event"
+  },
+  {
+   "fieldname": "last_seen_journey",
+   "fieldtype": "Int",
+   "label": "Last seen journey no."
+  },
+  {
+   "fieldname": "cb3",
+   "fieldtype": "Column Break",
+   "label": ""
+  },
+  {
+   "fieldname": "last_seen_location",
+   "fieldtype": "Data",
+   "label": "Last seen location"
+  },
+  {
+   "fieldname": "last_seen_stage",
+   "fieldtype": "Data",
+   "label": "Last seen stage"
+  },
+  {
+   "fieldname": "last_checked_at",
+   "fieldtype": "Datetime",
+   "label": "Last checked"
+  },
+  {
+   "fieldname": "sec_close",
+   "fieldtype": "Section Break",
+   "label": "Closing"
+  },
+  {
+   "fieldname": "closed_by",
+   "fieldtype": "Link",
+   "label": "Closed by",
+   "options": "User"
+  },
+  {
+   "fieldname": "closed_on",
+   "fieldtype": "Datetime",
+   "label": "Closed on"
+  },
+  {
+   "fieldname": "cb4",
+   "fieldtype": "Column Break",
+   "label": ""
+  },
+  {
+   "fieldname": "close_note",
+   "fieldtype": "Small Text",
+   "label": "Close note"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-23 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Bucket Watch",
+ "owner": "Administrator",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "title_field": "bucket_id",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1,
+   "export": 1,
+   "share": 1,
+   "delete": 1
+  },
+  {
+   "role": "Stock Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1,
+   "export": 1,
+   "share": 1
+  },
+  {
+   "role": "Stock User",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1,
+   "export": 1,
+   "share": 1
+  },
+  {
+   "role": "Assistant Packhouse Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1,
+   "export": 1,
+   "share": 1
+  },
+  {
+   "role": "Packing Supervisor",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1,
+   "export": 1,
+   "share": 1
+  }
+ ]
+}

@@ -5886,6 +5886,13 @@ def mark_bucket_not_found(pick_list_item, notes=None):
 	orders = {}
 	for w in waiting:
 		orders.setdefault(w.opl, w.farm or "")
+	# Bucket Watchlist (Bucket Journey v2): watch the bucket until it turns up. Guarded: never raises.
+	try:
+		from upande_packhouse.api.v2 import rt_watchlist
+
+		rt_watchlist.safe_add_transfer_not_found(row.bucket, row.farm, list(orders), now, notes)
+	except Exception:
+		pass
 	trips, departed = [], []
 	for opl, farm in orders.items():
 		frappe.get_doc("Order Pick List", opl).add_comment(
