@@ -216,8 +216,23 @@
   function hh(h) { const m = Math.round(h * 60); return String(Math.floor(m / 60) % 24).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0"); }
   function byHour() { const p = st.get("by").split(":"); return +p[0] + +p[1] / 60; }
   function clock(f) { return f == null ? "—" : (f >= 24 ? "tomorrow " : "") + hh(f); }
+  const dhm = (min) => { const m = Math.round(min); return m < 60 ? m + " min" : Math.floor(m / 60) + "h " + String(m % 60).padStart(2, "0") + "m"; };
+  const hmOf = (x) => (x ? x.split(" ")[1].slice(0, 5) : "—");
+  const dayLabel = () => PH.fmt.date(data.work_day, true);
   function status(t) {
     const tgt = byHour();
+    // Delivery dates that have passed: the finish that happened against the one the early speed predicted.
+    if (data.past && t.past) {
+      const p = t.past;
+      if (p.actual_at) {
+        const d = p.diff_min;
+        const c = d == null || d <= 15 ? "good" : d <= 60 ? "warn" : "bad";
+        return { c, w: "Finished " + hmOf(p.actual_at), fin: null, past: p, sub: p.est_at ? "estimated " + hmOf(p.est_at) + (d == null ? "" : d > 15 ? " · " + dhm(d) + " later" : d < -15 ? " · " + dhm(-d) + " earlier" : " · on time") : "no estimate" };
+      }
+      return { c: "bad", w: "Not finished", fin: null, past: p, sub: n(p.left_stems) + " stems unpacked · last pack list " + hmOf(p.last_pack_at) + (p.est_at ? " · estimated " + hmOf(p.est_at) : "") };
+    }
+    if (data.past) return { c: t.state === "done" ? "good" : "bad", w: t.state === "done" ? "Done" : "Not packed", fin: null };
+    if (!data.live && t.state === "ok") return { c: "warn", w: "Packing resumes", fin: null, left: t.eta_min, sub: "at the " + dayLabel() + " speed" };
     if (t.state === "done") return t.blocked > 0 ? { c: "warn", w: "Waiting on stock", fin: null } : { c: "good", w: "Done", fin: null };
     if (t.state === "nodata") return { c: "bad", w: "Not packing", fin: null };
     const fin = nowHour() + t.eta_min / 60;
@@ -229,8 +244,9 @@
   function render() {
     if (!data) return;
     const s = st.get();
-    PH.text("#sub", PH.date.label(s.from, s.to) + " · live at " + data.as_of.split(" ")[1].slice(0, 5) + " · " + PH.fmt.plural(data.teams.length, "team"));
+    PH.text("#sub", PH.date.label(s.from, s.to) + " · " + (data.past ? "delivery dates have passed" : data.live ? "live at " + data.as_of.split(" ")[1].slice(0, 5) : "speeds from " + dayLabel()) + " · " + PH.fmt.plural(data.teams.length, "team"));
     document.getElementById("clear").hidden = !(FILTER_KEYS.some((k) => s[k]) || s.rose !== "all");
+    PH.text("#mx-meta", "Stems by team and by what they are waiting for. " + (data.past ? "Each team's actual finish is set against the finish its speed in the first two hours predicted." : data.live ? "Finish time uses each team's speed so far today." : "Nothing is packed yet today, so finish times use the speed of " + dayLabel() + "."));
     renderKpis(); renderMatrix(); renderTodo(); renderLine(); showView();
     document.getElementById("export").onclick = exportCsv;
   }
@@ -239,14 +255,21 @@
   function renderKpis() {
     const k = data.kpis, T = data.teams;
     const behind = T.filter((t) => BAD(status(t).c)).length;
-    const worstFin = k.finish_eta_min == null ? null : nowHour() + k.finish_eta_min / 60;
+    const worstFin = k.finish_eta_min == null || data.past || !data.live ? null : nowHour() + k.finish_eta_min / 60;
+    const fin = T.filter((t) => t.past && t.past.actual_at), notFin = T.filter((t) => t.past && !t.past.actual_at).length;
+    const lastAct = fin.length ? fin.reduce((a, t) => (t.past.actual_at > a.past.actual_at ? t : a)) : null;
+    const lastEst = T.filter((t) => t.past && t.past.est_at).reduce((a, t) => (!a || t.past.est_at > a ? t.past.est_at : a), null);
     const late = worstFin != null && worstFin > byHour();
     PH.kpis("#kpis", [
       { label: "Packed", value: n(k.packed_boxes), suffix: " / " + n(k.expected_boxes), unit: "boxes complete", bar: k.expected_boxes ? (100 * k.packed_boxes) / k.expected_boxes : 0, title: "Boxes packed against boxes expected on the orders in view. Click for the days and who issued.", onClick: () => drill("packed") },
       { label: "Can pack now", value: k.can_pack_stems, unit: "stems issued and waiting for packers", title: "Issued stems not yet on a pack list. Click for the teams.", onClick: () => drill("can") },
       { label: "Held up", value: k.held_stems, unit: "stems waiting to be issued, on transfer, missing or in draft", title: "Click for remote supply and orders with no pick list.", onClick: () => drill("held") },
-      { label: "Flow", value: k.packing_stems_per_min, unit: "stems a minute packed today, first to last pack list", title: "Click for the wait between steps.", onClick: () => drill("flow") },
-      { label: "Finish by", value: worstFin == null ? "—" : hh(worstFin), unit: k.finish_team ? (worstFin >= 24 ? "tomorrow · " : "") + "last team: " + k.finish_team : "no speed measured yet", trend: worstFin == null ? null : { dir: late ? "down" : "up", text: behind + " of " + T.length + " teams behind or at risk" }, title: "When the last team finishes at its speed so far today. Click for the working.", onClick: () => drill("finish") },
+      { label: "Flow", value: k.packing_stems_per_min, unit: data.past ? "stems a minute packed, first to last pack list of these deliveries" : data.live ? "stems a minute packed today, first to last pack list" : "stems a minute packed on " + dayLabel() + ", first to last pack list", title: "Click for the wait between steps.", onClick: () => drill("flow") },
+      data.past
+        ? { label: "Finished", value: lastAct ? hmOf(lastAct.past.actual_at) : "—", unit: lastAct ? "last team: " + lastAct.team + (lastEst ? " · estimated " + hmOf(lastEst) : "") : notFin + " teams not finished", trend: { dir: notFin ? "down" : "up", text: (T.length - notFin) + " of " + T.length + " teams finished" }, title: "When the last team packed its final pack list for these deliveries, against the finish its speed in the first two hours predicted. Click for the working.", onClick: () => drill("finish") }
+        : !data.live
+          ? { label: "Packing resumes", value: k.finish_eta_min == null ? "—" : dhm(k.finish_eta_min), unit: k.finish_team ? "to finish at the " + dayLabel() + " speed · slowest: " + k.finish_team : "no speed measured", title: "Nothing packed yet today, so this uses the speed of " + dayLabel() + ". Click for the working.", onClick: () => drill("finish") }
+          : { label: "Finish by", value: worstFin == null ? "—" : hh(worstFin), unit: k.finish_team ? (worstFin >= 24 ? "tomorrow · " : "") + "last team: " + k.finish_team : "no speed measured yet", trend: worstFin == null ? null : { dir: late ? "down" : "up", text: behind + " of " + T.length + " teams behind or at risk" }, title: "When the last team finishes at its speed so far today. Click for the working.", onClick: () => drill("finish") },
     ]);
   }
 
@@ -268,14 +291,14 @@
     const uTotal = un.reduce((a, x) => a + Math.max(0, x.ordered - x.allocated), 0);
     let h = '<div class="ph-table-wrap"><table class="ph-table pi-mx" id="pi-mx"><thead><tr><th>Team</th>' +
       COLS.map((c) => "<th>" + c.n + "<small>" + c.sub + "</small></th>").join("") +
-      '<th>Boxes<small>packed · expected</small></th><th>Speed<small>boxes/h · issuing stems/min</small></th><th>Finish by<small>at the current speed</small></th></tr></thead><tbody>';
+      '<th>Boxes<small>packed · expected</small></th><th>Speed<small>boxes/h · issuing stems/min</small></th><th>' + (data.past ? "Finish<small>actual · estimated</small>" : "Finish by<small>" + (data.live ? "at the current speed" : "at the " + dayLabel() + " speed") + "</small>") + '</th></tr></thead><tbody>';
     T.forEach((t) => {
       const s = status(t);
       h += '<tr class="pi-row is-' + s.c + '"><td class="pi-team">' + PH.esc(t.team) + "<small>" + PH.fmt.plural(t.pack_people, "person", "people") + " packing · " + t.issue_people + " issuing</small></td>" +
         COLS.map((c) => { const d = cellOf(t, c.k); return d && d.stems ? '<td><button class="pi-cell is-' + c.tone + '" style="--a:' + alpha(d.stems) + '%" data-team="' + PH.esc(t.team) + '" data-k="' + c.k + '">' + n(d.stems) + "<small>" + PH.fmt.plural(d.orders, "order") + "</small></button></td>" : '<td><span class="pi-none">—</span></td>'; }).join("") +
         '<td class="is-strong">' + n(t.packed_boxes) + ' <span class="ph-muted">/ ' + n(t.exp_boxes) + '</span><div class="ph-progress pi-mini"><i style="width:' + (t.exp_boxes ? Math.min(100, (100 * t.packed_boxes) / t.exp_boxes) : 0) + '%"></i></div></td>' +
-        '<td><b>' + (t.bph ? t.bph.toFixed(1) : "—") + '</b> <span class="ph-muted">· ' + (t.issue_spm ? n(t.issue_spm) : "—") + '</span><span class="pi-sub' + (t.pack_idle > 45 && t.to_pack > 0 ? " is-bad" : "") + '">' + (t.pack_last ? "last pack list " + PH.esc(t.pack_last) + (t.pack_idle > 45 ? " (" + Math.round(t.pack_idle) + " min ago)" : "") : "no pack list today") + "</span></td>" +
-        '<td><span class="ph-badge ph-badge--' + s.c + '">' + (s.fin != null ? clock(s.fin) : s.w) + "</span>" + (s.fin != null ? '<span class="pi-sub">' + s.w + "</span>" : "") + (t.blocked > 0 && t.state !== "done" ? '<span class="pi-sub">+' + n(t.blocked) + " stems blocked</span>" : "") + "</td></tr>";
+        '<td><b>' + (t.bph ? t.bph.toFixed(1) : "—") + '</b> <span class="ph-muted">· ' + (t.issue_spm ? n(t.issue_spm) : "—") + '</span><span class="pi-sub' + (t.pack_idle > 45 && t.to_pack > 0 ? " is-bad" : "") + '">' + (t.pack_last ? (data.past ? "packed " + PH.esc(t.pack_first) + " to " : data.live ? "last pack list " : dayLabel() + " · last pack list ") + PH.esc(t.pack_last) + (data.live && t.pack_idle > 45 ? " (" + Math.round(t.pack_idle) + " min ago)" : "") : data.past ? "nothing packed" : "no pack list yet") + "</span></td>" +
+        '<td><span class="ph-badge ph-badge--' + s.c + '">' + (s.fin != null ? clock(s.fin) : s.left != null ? "≈ " + dhm(s.left) + " left" : s.w) + "</span>" + (s.fin != null ? '<span class="pi-sub">' + s.w + "</span>" : s.sub ? '<span class="pi-sub">' + PH.esc(s.sub) + "</span>" : "") + (t.blocked > 0 && t.state !== "done" && !data.past ? '<span class="pi-sub">+' + n(t.blocked) + " stems blocked</span>" : "") + "</td></tr>";
     });
     if (uTotal > 0) h += '<tr><td class="pi-team">Not allocated yet<small>no team assigned</small></td><td colspan="8"><button class="pi-cell is-warn" style="--a:24%" data-team="alloc" data-k="alloc">' + n(uTotal) + " stems<small>" + un.filter((x) => x.ordered > x.allocated).map((x) => n(x.ordered - x.allocated) + " due " + PH.fmt.date(x.due, true)).join(" · ") + " · no pick list yet</small></button></td></tr>";
     h += "</tbody></table></div>";
@@ -285,7 +308,7 @@
 
   function renderTodo() {
     const T = data.teams, rows = [];
-    T.forEach((t) => { const s = status(t); if (BAD(s.c)) rows.push({ a: t.team + (s.fin != null ? " will finish at " + clock(s.fin) : " is not packing"), b: n(t.to_pack) + " stems left to pack" + (t.pack_idle > 45 ? " · last pack list " + Math.round(t.pack_idle) + " min ago" : "") }); });
+    T.forEach((t) => { const s = status(t); if (BAD(s.c)) rows.push(data.past ? { a: t.team + (s.past && s.past.actual_at ? " finished at " + hmOf(s.past.actual_at) : " did not finish"), b: s.sub || "" } : { a: t.team + (s.fin != null ? " will finish at " + clock(s.fin) : s.left != null ? " needs about " + dhm(s.left) + " once packing resumes" : " is not packing"), b: n(t.to_pack) + " stems left to pack" + (data.live && t.pack_idle > 45 ? " · last pack list " + Math.round(t.pack_idle) + " min ago" : "") }); });
     const TXT = { issue: "waiting to be issued", transfer: "waiting on remote buckets", not_found: "have a missing bucket", draft: "are on drafts" };
     const big = []; T.forEach((t) => Object.keys(TXT).forEach((k) => { const d = t.cells[k]; if (d && d.stems >= 1000) big.push({ t: t.team, k, d }); }));
     big.sort((a, b) => b.d.stems - a.d.stems).slice(0, 3).forEach((x) => rows.push({ a: n(x.d.stems) + " stems for " + x.t + " " + TXT[x.k], b: PH.fmt.plural(x.d.orders, "order") }));
@@ -335,6 +358,9 @@
     } else if (kind === "flow") {
       const W = D.waits, N = [["alloc_to_issue", "Allocation to first issue"], ["issuing", "Issuing, first to last stem"], ["wait_pack", "Last issue to pack list opened"], ["packing", "Pack list open to submitted"], ["wait_stage", "Submitted to last box staged"]];
       open("Flow", "One order from allocation to staged, middle value of the pick lists packed today", tbl([["Step"], ["Middle", 1], ["Pick lists", 1]], N.map((x) => "<tr><td>" + x[1] + '</td><td class="is-num is-strong">' + fm(W[x[0]].median) + '</td><td class="is-num">' + W[x[0]].n + "</td></tr>")));
+    } else if (kind === "finish" && data.past) {
+      open("Estimated against actual finish", "Actual = the team's last pack list for these deliveries. Estimated = the finish its packing speed over the first two hours predicted, for the stems it packed in the end plus any left unpacked.", tbl([["Team"], ["First pack list"], ["Estimated finish"], ["Actual finish"], ["Difference"], ["Unpacked stems", 1]],
+        T.map((t) => { const p = t.past, s = status(t); return "<tr><td>" + PH.esc(t.team) + "</td><td>" + (p ? hmOf(p.first_at) : "—") + "</td><td>" + (p && p.est_at ? hmOf(p.est_at) : "—") + '</td><td><span class="ph-badge ph-badge--' + s.c + '">' + (p && p.actual_at ? hmOf(p.actual_at) : "Not finished") + '</span></td><td>' + (p && p.diff_min != null ? (p.diff_min > 15 ? dhm(p.diff_min) + " later" : p.diff_min < -15 ? dhm(-p.diff_min) + " earlier" : "on time") : "—") + '</td><td class="is-num">' + (p ? n(p.left_stems) : "—") + "</td></tr>"; })));
     } else if (kind === "finish") {
       open("Finish by", "Left to pack divided by speed so far today. Issuing and packing run side by side, so the slower one sets the finish.", tbl([["Team"], ["Left to pack", 1], ["Still to issue", 1], ["Packing stems/min", 1], ["Issuing stems/min", 1], ["Hours", 1], ["Finish"]],
         T.map((t) => { const s = status(t); return "<tr><td>" + PH.esc(t.team) + '</td><td class="is-num">' + n(t.to_pack) + '</td><td class="is-num">' + n((t.cells.issue || {}).stems) + '</td><td class="is-num">' + (t.pack_spm ? t.pack_spm.toFixed(1) : "—") + '</td><td class="is-num">' + (t.issue_spm ? t.issue_spm.toFixed(1) : "—") + '</td><td class="is-num">' + (t.eta_min != null ? (t.eta_min / 60).toFixed(1) : "—") + '</td><td><span class="ph-badge ph-badge--' + s.c + '">' + (s.fin != null ? clock(s.fin) : s.w) + "</span></td></tr>"; })));

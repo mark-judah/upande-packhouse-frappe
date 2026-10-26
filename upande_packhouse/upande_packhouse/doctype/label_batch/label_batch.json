@@ -1,0 +1,195 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:LB-{######}",
+ "creation": "2026-10-26 09:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "request_key",
+  "kind",
+  "label_type",
+  "status",
+  "template",
+  "total",
+  "rendered",
+  "chunk_size",
+  "chunks_done",
+  "first_code",
+  "last_code",
+  "heartbeat",
+  "started",
+  "finished",
+  "error",
+  "parts",
+  "design",
+  "layout",
+  "spec"
+ ],
+ "fields": [
+  {
+   "fieldname": "request_key",
+   "fieldtype": "Data",
+   "label": "Request key",
+   "unique": 1,
+   "read_only": 1,
+   "reqd": 1,
+   "description": "Idempotency key: a retry of the same request returns this batch instead of making another."
+  },
+  {
+   "fieldname": "kind",
+   "fieldtype": "Select",
+   "label": "Kind",
+   "options": "New\nReprint",
+   "default": "New",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "label_type",
+   "fieldtype": "Select",
+   "label": "Label type",
+   "options": "bunch\nbucket\nshelf\nsf_shelf\ntrolley\nstaging",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Queued\nRendering\nDone\nFailed\nCancelled",
+   "default": "Queued",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "template",
+   "fieldtype": "Link",
+   "label": "Template",
+   "read_only": 1,
+   "options": "Label Template"
+  },
+  {
+   "fieldname": "total",
+   "fieldtype": "Int",
+   "label": "Labels",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "rendered",
+   "fieldtype": "Int",
+   "label": "Rendered",
+   "read_only": 1
+  },
+  {
+   "fieldname": "chunk_size",
+   "fieldtype": "Int",
+   "label": "Chunk size",
+   "read_only": 1
+  },
+  {
+   "fieldname": "chunks_done",
+   "fieldtype": "Int",
+   "label": "Chunks done",
+   "read_only": 1
+  },
+  {
+   "fieldname": "first_code",
+   "fieldtype": "Data",
+   "label": "First code",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_code",
+   "fieldtype": "Data",
+   "label": "Last code",
+   "read_only": 1
+  },
+  {
+   "fieldname": "heartbeat",
+   "fieldtype": "Datetime",
+   "label": "Last heartbeat",
+   "read_only": 1
+  },
+  {
+   "fieldname": "started",
+   "fieldtype": "Datetime",
+   "label": "Started",
+   "read_only": 1
+  },
+  {
+   "fieldname": "finished",
+   "fieldtype": "Datetime",
+   "label": "Finished",
+   "read_only": 1
+  },
+  {
+   "fieldname": "error",
+   "fieldtype": "Small Text",
+   "label": "Last error",
+   "read_only": 1
+  },
+  {
+   "fieldname": "parts",
+   "fieldtype": "Long Text",
+   "label": "Files",
+   "read_only": 1
+  },
+  {
+   "fieldname": "design",
+   "fieldtype": "Long Text",
+   "label": "Design used",
+   "read_only": 1
+  },
+  {
+   "fieldname": "layout",
+   "fieldtype": "Long Text",
+   "label": "Layout",
+   "read_only": 1
+  },
+  {
+   "fieldname": "spec",
+   "fieldtype": "Long Text",
+   "label": "Request",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-26 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Label Batch",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "role": "Assistant Packhouse Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1
+  },
+  {
+   "role": "Packing Supervisor",
+   "read": 1,
+   "create": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

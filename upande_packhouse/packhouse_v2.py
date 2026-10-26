@@ -58,6 +58,12 @@ NAV = [
 		],
 	),
 	(
+		"Tools",
+		[
+			("label-print-manager", "Label Print Manager", "/label-print-manager-v2", "doc"),
+		],
+	),
+	(
 		"Reference",
 		[
 			("variety-tree", "Variety Tree", "/variety-tree-v2", "tree"),

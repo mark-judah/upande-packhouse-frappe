@@ -1,0 +1,127 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:ref",
+ "creation": "2026-10-26 09:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "ref",
+  "label_type",
+  "code",
+  "status",
+  "batch",
+  "seq",
+  "print_count",
+  "last_printed",
+  "meta"
+ ],
+ "fields": [
+  {
+   "fieldname": "ref",
+   "fieldtype": "Data",
+   "label": "Ref",
+   "reqd": 1,
+   "unique": 1,
+   "read_only": 1,
+   "description": "type:code - the primary key that makes a duplicate impossible."
+  },
+  {
+   "fieldname": "label_type",
+   "fieldtype": "Select",
+   "label": "Label type",
+   "options": "bunch\nbucket\nshelf\nsf_shelf\ntrolley\nstaging",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "code",
+   "fieldtype": "Data",
+   "label": "Code",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Reserved\nRendered\nVoided",
+   "default": "Reserved",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "batch",
+   "fieldtype": "Link",
+   "label": "Batch",
+   "options": "Label Batch",
+   "read_only": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "seq",
+   "fieldtype": "Int",
+   "label": "Position in batch",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "print_count",
+   "fieldtype": "Int",
+   "label": "Times printed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_printed",
+   "fieldtype": "Datetime",
+   "label": "Last printed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "meta",
+   "fieldtype": "Long Text",
+   "label": "Details",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-26 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Label Code",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "role": "Assistant Packhouse Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1
+  },
+  {
+   "role": "Packing Supervisor",
+   "read": 1,
+   "create": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "code",
+ "search_fields": "code,label_type"
+}

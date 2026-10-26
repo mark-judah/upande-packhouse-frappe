@@ -36,6 +36,7 @@ Filters follow README rules 4, 6 and 6a: delivery date range, region, farm (the 
 rose type, and team. Every figure on the page follows every filter.
 """
 
+from datetime import timedelta
 from typing import Any
 
 import frappe
@@ -196,6 +197,11 @@ def get_packing_insights(
 	where, params = _scope(a)
 	act_where, act_params = _scope(a, dates=False)
 	teams = {}
+	# The day the speeds are read from: today once anything was packed or issued today, else the
+	# last day with packing (so after midnight yesterday's speed still shows, labelled as such).
+	day = _work_day(act_where, act_params, today)
+	live = day == today
+	past = a["to_date"] < today  # delivery dates that have passed: estimated against actual finish
 
 	# 1. open pick rows by team and cause
 	for r in frappe.db.sql(
@@ -247,10 +253,10 @@ def get_packing_insights(
 		    JOIN `tabFarm Packlist Item` fi ON fi.parent = f.name
 		    JOIN `tabOrder Pick List` o ON o.name = f.order_pick_list
 		    JOIN `tabSales Order` so ON so.name = o.sales_order
-		    WHERE {act_where} AND f.docstatus < 2 AND f.creation >= %(ph_today)s
+		    WHERE {act_where} AND f.docstatus < 2 AND f.creation >= %(ph_today)s AND f.creation < %(ph_next)s
 		      AND IFNULL(TRIM(fi.box_id), '') != ''
 		    GROUP BY team""",
-		{**act_params, "ph_today": today},
+		{**act_params, "ph_today": day, "ph_next": str(add_days(day, 1))},
 		as_dict=True,
 	):
 		_team_row(teams, r.team)["pack"] = {
@@ -259,8 +265,8 @@ def get_packing_insights(
 			"last": _hm(r.last_t),
 			"boxes": _num(r.boxes),
 			"stems": _num(r.stems),
-			"mins": _minutes(r.first_t, now),
-			"idle": _minutes(r.last_t, now),
+			"mins": _minutes(r.first_t, now if live else r.last_t),
+			"idle": _minutes(r.last_t, now) if live else None,
 		}
 	for r in frappe.db.sql(
 		f"""SELECT {_TEAM} AS team, COUNT(DISTINCT p.issued_by) AS people, MIN(p.issued_at) AS first_t,
@@ -268,9 +274,9 @@ def get_packing_insights(
 		    FROM `tabPick List Item` p
 		    JOIN `tabOrder Pick List` o ON o.name = p.parent
 		    JOIN `tabSales Order` so ON so.name = o.sales_order
-		    WHERE {act_where} AND p.issued_at >= %(ph_today)s
+		    WHERE {act_where} AND p.issued_at >= %(ph_today)s AND p.issued_at < %(ph_next)s
 		    GROUP BY team""",
-		{**act_params, "ph_today": today},
+		{**act_params, "ph_today": day, "ph_next": str(add_days(day, 1))},
 		as_dict=True,
 	):
 		_team_row(teams, r.team)["issue"] = {
@@ -278,29 +284,36 @@ def get_packing_insights(
 			"first": _hm(r.first_t),
 			"last": _hm(r.last_t),
 			"stems": _num(r.stems),
-			"mins": _minutes(r.first_t, now),
-			"idle": _minutes(r.last_t, now),
+			"mins": _minutes(r.first_t, now if live else r.last_t),
+			"idle": _minutes(r.last_t, now) if live else None,
 		}
 
-	team_list = [_finish(t) for t in teams.values()]
+	if past:
+		_past_packing(teams, where, params)
+	team_list = [_finish(t, live) for t in teams.values()]
 	team_list.sort(key=lambda x: -(x["to_pack"] + x["blocked"]))
-	line = _line(act_where, act_params, today)
+	line = _line(act_where, act_params, day)
+	if past:
+		line["pack"] = _past_line(teams)
 
 	return {
 		"success": True,
 		"as_of": str(now).split(".")[0],
 		"today": today,
+		"work_day": day,
+		"live": live,
+		"past": past,
 		"from_date": a["from_date"],
 		"to_date": a["to_date"],
 		"teams": team_list,
-		"kpis": _kpis(team_list, line, act_where, act_params, today),
+		"kpis": _kpis(team_list, line, act_where, act_params, day),
 		"drill": _drill(where, params),
 		"qdrill": _top_queue(queue_rows),
 		"remote": _remote(where, params),
 		"unalloc": _unallocated(a),
-		"issuers": _issuers(act_where, act_params, today),
+		"issuers": _issuers(act_where, act_params, day),
 		"line": line,
-		"waits": _waits(act_where, act_params, today),
+		"waits": _waits(act_where, act_params, day),
 	}
 
 
@@ -364,7 +377,89 @@ def _boxes(teams, where, params):
 			_team_row(teams, opl_of[opl])["packed_boxes"] += 1
 
 
-def _finish(t):
+def _work_day(act_where, act_params, today):
+	"""Today when anything was packed or issued today, else the latest day in the last week that had packing."""
+	since = str(add_days(today, -7))
+	p = {**act_params, "ph_since": since}
+	last = frappe.db.sql(
+		f"""SELECT MAX(DATE(f.creation)) FROM `tabFarm Pack List` f
+		    JOIN `tabOrder Pick List` o ON o.name = f.order_pick_list
+		    JOIN `tabSales Order` so ON so.name = o.sales_order
+		    WHERE {act_where} AND f.docstatus < 2 AND f.creation >= %(ph_since)s""",
+		p,
+	)[0][0]
+	issued = frappe.db.sql(
+		f"""SELECT MAX(DATE(p.issued_at)) FROM `tabPick List Item` p
+		    JOIN `tabOrder Pick List` o ON o.name = p.parent
+		    JOIN `tabSales Order` so ON so.name = o.sales_order
+		    WHERE {act_where} AND p.issued_at >= %(ph_since)s""",
+		p,
+	)[0][0]
+	days = [str(d) for d in (last, issued) if d]
+	return max(days) if days else today
+
+
+# Packing speed for the estimate is read over this long after a team's first pack list.
+ESTIMATE_AFTER_MIN = 120
+
+
+def _past_packing(teams, where, params):
+	"""Delivery dates that have passed: each team's real packing window and its estimated finish.
+
+	Actual finish = the team's last pack list. Estimated finish = the finish the team's speed over its
+	first ESTIMATE_AFTER_MIN minutes of packing predicted, for the stems it packed in the end plus
+	what is still unpacked: the estimate someone watching the screen two hours in would have had.
+	"""
+	rows = {}
+	for r in frappe.db.sql(
+		f"""SELECT {_TEAM} AS team, f.name AS fpl, f.owner AS who, MIN(f.creation) AS c, MAX(f.modified) AS m,
+		           SUM(fi.stock_qty) AS stems, COUNT(DISTINCT TRIM(fi.box_id)) AS boxes
+		    FROM `tabFarm Pack List` f
+		    JOIN `tabFarm Packlist Item` fi ON fi.parent = f.name
+		    JOIN `tabOrder Pick List` o ON o.name = f.order_pick_list
+		    JOIN `tabSales Order` so ON so.name = o.sales_order
+		    WHERE {where} AND f.docstatus < 2 AND IFNULL(TRIM(fi.box_id), '') != ''
+		    GROUP BY team, f.name, f.owner""",
+		params,
+		as_dict=True,
+	):
+		rows.setdefault(r.team, []).append(r)
+	for name, rs in rows.items():
+		t = _team_row(teams, name)
+		first = min(r.c for r in rs)
+		last = max(r.m for r in rs)
+		stems = sum(_num(r.stems) for r in rs)
+		t["pack"] = {
+			"people": len({r.who for r in rs}),
+			"first": _hm(first),
+			"last": _hm(last),
+			"boxes": sum(_num(r.boxes) for r in rs),
+			"stems": stems,
+			"mins": _minutes(first, last),
+			"idle": None,
+		}
+		early = sum(_num(r.stems) for r in rs if _minutes(first, r.c) < ESTIMATE_AFTER_MIN)
+		window = max(min(_minutes(first, last), ESTIMATE_AFTER_MIN), MIN_WINDOW_MIN)
+		t["past"] = {
+			"first_at": str(first),
+			"last_at": str(last),
+			"early_rate": early / window,
+			"packed_stems": stems,
+		}
+
+
+def _past_line(teams):
+	rs = [t["pack"] for t in teams.values() if t.get("pack")]
+	firsts = [t["past"]["first_at"] for t in teams.values() if t.get("past")]
+	lasts = [t["past"]["last_at"] for t in teams.values() if t.get("past")]
+	stems = sum(r["stems"] for r in rs)
+	if not firsts:
+		return {"stems": 0.0, "first": "", "last": "", "mins": 0.0}
+	first, last = get_datetime(min(firsts)), get_datetime(max(lasts))
+	return {"stems": stems, "first": _hm(first), "last": _hm(last), "mins": _minutes(first, last)}
+
+
+def _finish(t, live=True):
 	"""One team's row: what is left, its speed today and the hours to finish at that speed."""
 	c = t["cells"]
 	queue = t["queue"]["stems"]
@@ -382,7 +477,25 @@ def _finish(t):
 	else:
 		eta = max(to_pack / pack_rate, (to_issue / issue_rate) if to_issue > 0 else 0.0)
 	bph = pk["boxes"] / (max(pk["mins"], MIN_WINDOW_MIN) / 60.0) if pk else 0.0
+	past = None
+	if t.get("past"):
+		p = t["past"]
+		first, last = get_datetime(p["first_at"]), get_datetime(p["last_at"])
+		left = to_pack
+		est = None
+		if p["early_rate"] > 0:
+			est = first + timedelta(minutes=(p["packed_stems"] + left) / p["early_rate"])
+		past = {
+			"first_at": p["first_at"],
+			"actual_at": p["last_at"] if left < 1 else None,
+			"last_pack_at": p["last_at"],
+			"est_at": str(est).split(".")[0] if est else None,
+			"diff_min": _minutes(est, last) if est and left < 1 else None,
+			"left_stems": left,
+		}
 	return {
+		"past": past,
+		"stale": not live,
 		"team": t["team"],
 		"cells": c,
 		"queue": t["queue"],
@@ -518,9 +631,9 @@ def _issuers(act_where, act_params, today):
 			    JOIN `tabOrder Pick List` o ON o.name = p.parent
 			    JOIN `tabSales Order` so ON so.name = o.sales_order
 			    LEFT JOIN `tabUser` u ON u.name = p.issued_by
-			    WHERE {act_where} AND p.issued_at >= %(ph_today)s
+			    WHERE {act_where} AND p.issued_at >= %(ph_today)s AND p.issued_at < %(ph_next)s
 			    GROUP BY p.issued_by ORDER BY stems DESC LIMIT 8""",
-			{**act_params, "ph_today": today},
+			{**act_params, "ph_today": today, "ph_next": str(add_days(today, 1))},
 			as_dict=True,
 		)
 	]
@@ -528,13 +641,13 @@ def _issuers(act_where, act_params, today):
 
 def _line(act_where, act_params, today):
 	"""Stems per minute through each step today: allocated, issued, packed, staged."""
-	p = {**act_params, "ph_today": today}
+	p = {**act_params, "ph_today": today, "ph_next": str(add_days(today, 1))}
 	line = {}
 	r = frappe.db.sql(
 		f"""SELECT MIN(o.creation) AS first_t, MAX(o.creation) AS last_t,
 		           ROUND(SUM((SELECT SUM(x.stock_qty) FROM `tabPick List Item` x WHERE x.parent = o.name))) AS stems
 		    FROM `tabOrder Pick List` o JOIN `tabSales Order` so ON so.name = o.sales_order
-		    WHERE {act_where} AND o.creation >= %(ph_today)s""",
+		    WHERE {act_where} AND o.creation >= %(ph_today)s AND o.creation < %(ph_next)s""",
 		p,
 		as_dict=True,
 	)[0]
@@ -543,7 +656,7 @@ def _line(act_where, act_params, today):
 		f"""SELECT SUM(p.stock_qty) AS stems, MIN(p.issued_at) AS first_t, MAX(p.issued_at) AS last_t
 		    FROM `tabPick List Item` p JOIN `tabOrder Pick List` o ON o.name = p.parent
 		    JOIN `tabSales Order` so ON so.name = o.sales_order
-		    WHERE {act_where} AND p.issued_at >= %(ph_today)s""",
+		    WHERE {act_where} AND p.issued_at >= %(ph_today)s AND p.issued_at < %(ph_next)s""",
 		p,
 		as_dict=True,
 	)[0]
@@ -552,7 +665,7 @@ def _line(act_where, act_params, today):
 		f"""SELECT SUM(fi.stock_qty) AS stems, MIN(f.creation) AS first_t, MAX(f.modified) AS last_t
 		    FROM `tabFarm Pack List` f JOIN `tabFarm Packlist Item` fi ON fi.parent = f.name
 		    JOIN `tabOrder Pick List` o ON o.name = f.order_pick_list JOIN `tabSales Order` so ON so.name = o.sales_order
-		    WHERE {act_where} AND f.docstatus < 2 AND f.creation >= %(ph_today)s""",
+		    WHERE {act_where} AND f.docstatus < 2 AND f.creation >= %(ph_today)s AND f.creation < %(ph_next)s""",
 		p,
 		as_dict=True,
 	)[0]
@@ -561,7 +674,7 @@ def _line(act_where, act_params, today):
 		f"""SELECT COUNT(*) AS boxes, MIN(b.precooled_at) AS first_t, MAX(b.precooled_at) AS last_t
 		    FROM `tabBox Label` b JOIN `tabOrder Pick List` o ON o.name = b.order_pick_list
 		    JOIN `tabSales Order` so ON so.name = o.sales_order
-		    WHERE {act_where} AND b.precooled_at >= %(ph_today)s""",
+		    WHERE {act_where} AND b.precooled_at >= %(ph_today)s AND b.precooled_at < %(ph_next)s""",
 		p,
 		as_dict=True,
 	)[0]
@@ -590,9 +703,9 @@ def _waits(act_where, act_params, today):
 		    FROM `tabFarm Pack List` f
 		    JOIN `tabOrder Pick List` o ON o.name = f.order_pick_list
 		    JOIN `tabSales Order` so ON so.name = o.sales_order
-		    WHERE {act_where} AND f.docstatus < 2 AND f.creation >= %(ph_today)s
+		    WHERE {act_where} AND f.docstatus < 2 AND f.creation >= %(ph_today)s AND f.creation < %(ph_next)s
 		    GROUP BY o.name, o.creation""",
-		{**act_params, "ph_today": today},
+		{**act_params, "ph_today": today, "ph_next": str(add_days(today, 1))},
 		as_dict=True,
 	):
 		if r.fi:

@@ -1,0 +1,1180 @@
+{% extends "templates/web.html" %}
+{% block title %}Label Print Manager · Packhouse{% endblock %}
+{% block page_content %}
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
+
+<header class="ph-head">
+  <div>
+    <div class="ph-head__eyebrow">Packhouse · Tools</div>
+    <h1 class="ph-head__title">Label Print Manager</h1>
+    <p class="ph-head__sub" id="sub">QR labels for bunches, buckets, shelves, trolleys and staging locations</p>
+  </div>
+</header>
+
+<div class="ph-filters">
+  <div class="ph-pills" id="f-type" role="group" aria-label="Label type">
+    <button data-value="bunch">Bunch</button>
+    <button data-value="bucket">Bucket</button>
+    <button data-value="shelf">Shelf</button>
+    <button data-value="sf_shelf">Sea freight shelf</button>
+    <button data-value="trolley">Trolley</button>
+    <button data-value="staging">Staging location</button>
+  </div>
+</div>
+
+<style>
+.ll-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,400px);gap:18px;align-items:start}
+.ll-main{min-width:0}
+.ll-side{position:sticky;top:76px;min-width:0}
+.ll-side .ph-card{margin-bottom:0}
+.ll-bar{position:sticky;bottom:var(--sp-4);z-index:3;display:flex;align-items:center;justify-content:space-between;gap:var(--sp-4);flex-wrap:wrap;
+  background:var(--surface-2);border-radius:var(--r-xl);box-shadow:var(--shadow-pop);padding:var(--sp-4) var(--sp-5) var(--sp-4) var(--sp-6)}
+.ll-bar__sum{min-width:0;flex:1 1 240px}
+.ll-bar__sum b{color:var(--ink)}
+.ll-mt{margin-top:var(--sp-4)}
+.ll-gap{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center}
+.ll-code{height:42px;display:flex;align-items:center}
+.ll-ms{position:relative;display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center;border:1px solid var(--hairline-2);border-radius:var(--r-md);background:var(--surface-2);padding:var(--sp-2) var(--sp-3);min-height:48px}
+.ll-ms:focus-within{border-color:var(--ink)}
+.ll-ms input{flex:1 1 180px;min-width:140px;border:0;outline:0;background:transparent;font:inherit;color:var(--ink);padding:var(--sp-1) 0}
+.ll-ms__list{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:6;max-height:280px;overflow:auto;background:var(--surface-2);border-radius:var(--r-md);box-shadow:var(--shadow-pop);padding:var(--sp-2);margin:0;list-style:none}
+.ll-ms__list li{padding:var(--sp-2) var(--sp-3);border-radius:var(--r-sm);cursor:pointer}
+.ll-ms__list li.is-on,.ll-ms__list li:hover{background:var(--tint)}
+.ll-ms__list li mark{background:transparent;color:var(--ink);font-weight:700}
+.ll-ms__list .ll-ms__none{cursor:default;color:var(--ink-3)}
+.ll-ms__hint{display:flex;flex-wrap:wrap;gap:var(--sp-3);align-items:center;margin-top:var(--sp-2)}
+.ll-tools{display:flex;flex-wrap:wrap;gap:var(--sp-3);align-items:center;margin:var(--sp-5) 0 var(--sp-3)}
+.ll-tools .ph-search{flex:1 1 200px;min-width:160px}
+.ll-gridwrap{max-height:min(52vh,540px);border:1px solid var(--hairline);border-radius:var(--r-md)}
+.ll-gridwrap .ph-table td{padding-top:6px;padding-bottom:6px}
+.ll-gridwrap tr.is-on td{background:var(--signal-soft)}
+.ll-tot{display:flex;flex-wrap:wrap;gap:var(--sp-5);align-items:baseline;margin-top:var(--sp-3)}
+.ll-qty{max-width:110px;text-align:right}
+.ll-chips{display:flex;flex-wrap:wrap;gap:var(--sp-2)}
+button.ll-chip{cursor:pointer;border:0;background:var(--tint);color:var(--ink-3)}
+button.ll-chip:hover{background:var(--hairline-2);color:var(--ink)}
+button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.ll-pv{display:flex;flex-direction:column;gap:var(--sp-3)}
+.ll-pv__img{background:var(--tint);border-radius:var(--r-md);padding:var(--sp-4);display:grid;place-items:center;min-height:160px;transition:opacity .15s}
+.ll-pv__img img{display:block;max-width:100%;max-height:340px;height:auto;width:auto;background:var(--surface-2);box-shadow:var(--shadow-card);border-radius:2px}
+.ll-pv__img.is-busy{opacity:.55}
+.ll-pv__notes .ph-notice{margin-bottom:var(--sp-2);padding:var(--sp-3) var(--sp-4)}
+.ll-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-2) var(--sp-4);margin:0}
+.ll-facts div{min-width:0}
+.ll-facts dt{color:var(--ink-mute);font-weight:400}
+.ll-facts dd{margin:0;color:var(--ink);font-weight:500}
+.ll-ctl{margin-top:var(--sp-5);display:flex;flex-direction:column;gap:var(--sp-4)}
+.ll-ctl .ph-form{gap:var(--sp-3)}
+.ll-row{display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap}
+.ll-row .ph-btn{flex:1 1 auto}
+.ll-txt{text-align:left}
+.ll-row .ph-control{flex:1 1 100%;min-width:0}
+.ll-cap{color:var(--ink-mute)}
+.ll-steps{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-bottom:var(--sp-5)}
+.ll-steps li{list-style:none;display:flex;align-items:center;gap:var(--sp-2);color:var(--ink-mute)}
+.ll-steps li b{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--tint);color:var(--ink-4)}
+.ll-steps li.is-on{color:var(--ink)}
+.ll-steps li.is-on b{background:var(--ink);color:var(--surface)}
+.ll-steps li.is-done b{background:var(--good-soft);color:var(--good)}
+.ll-steps li+li::before{content:"";width:20px;height:1px;background:var(--hairline-3);margin-right:var(--sp-2)}
+.ll-find{display:flex;gap:var(--sp-2)}
+.ll-find .ph-control{height:52px;border-radius:var(--r-md);flex:1 1 auto}
+.ll-find .ph-btn{height:52px}
+.ll-list{margin-top:var(--sp-5)}
+.ll-res{scroll-margin-top:76px}
+.ll-res .ph-progress{margin:var(--sp-3) 0}
+.ll-res__top{display:flex;justify-content:space-between;gap:var(--sp-3);align-items:flex-start;flex-wrap:wrap}
+.ll-res__acts{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-4)}
+.ll-h{margin:var(--sp-6) 0 var(--sp-3);color:var(--ink-mute)}
+.ll-h:first-child{margin-top:0}
+.ph-overlay--drawer .ph-modal{width:min(760px,100%)}
+.ph-overlay--drawer .ph-modal--lg{width:min(1180px,100%)}
+.ll-dz{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:var(--sp-6);align-items:start}
+.ll-dz__top{position:sticky;top:0;z-index:2;background:var(--surface-2);padding:var(--sp-1) 0 var(--sp-4)}
+.ll-dz__top .ll-pv__img{min-height:200px;padding:var(--sp-4)}
+.ll-dz__top .ll-pv__img img{max-height:360px}
+@media (max-width:980px){.ll-dz{grid-template-columns:minmax(0,1fr)}.ll-dz__top .ll-pv__img img{max-height:200px}}
+.ll-parts{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center;flex:1 1 auto;min-width:0;padding:var(--sp-2);border:1px solid var(--hairline-2);border-radius:var(--r-md);background:var(--surface)}
+.ll-tok{display:inline-flex;align-items:center;gap:var(--sp-1);padding:2px 4px 2px 10px;border-radius:var(--r-pill);background:var(--ink);color:var(--surface);font-weight:600}
+.ll-tok button{border:0;background:transparent;color:inherit;cursor:pointer;opacity:.7;padding:0 6px;line-height:1}
+.ll-tok button:hover,.ll-tok button:focus-visible{opacity:1}
+.ll-tok--bad{background:var(--bad-soft,var(--tint));color:var(--bad,var(--ink))}
+.ll-lit{border:0;border-bottom:1px dashed var(--hairline-2);background:transparent;min-width:3ch;padding:2px 4px;font:inherit;color:var(--ink)}
+.ll-lit:focus{outline:none;border-bottom-color:var(--ink)}
+.ll-add{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center}
+.ll-tplbar{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center}
+.ll-tplbar .ph-control{flex:1 1 200px;min-width:0}
+.ll-line{border:1px solid var(--hairline-2);border-radius:var(--r-md);padding:var(--sp-3);margin-bottom:var(--sp-3);display:flex;flex-direction:column;gap:var(--sp-3)}
+.ll-line__row{display:flex;gap:var(--sp-2)}
+.ll-line__row .ph-control{flex:1 1 auto;min-width:0}
+.ll-line__opts{display:flex;flex-wrap:wrap;gap:var(--sp-3) var(--sp-4);align-items:center}
+.ll-line__opts label.ll-num{display:flex;align-items:center;gap:var(--sp-2)}
+.ll-line__opts .ph-table-input{width:76px;min-width:0}
+.ll-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.ll-hist-acts{display:flex;gap:var(--sp-2);flex-wrap:wrap}
+@media (max-width:1100px){
+  .ll-grid{grid-template-columns:minmax(0,1fr)}
+  .ll-side{position:static}
+}
+@media (max-width:640px){
+  .ll-bar{border-radius:var(--r-lg);padding:var(--sp-4)}
+  .ll-facts{grid-template-columns:minmax(0,1fr)}
+}
+</style>
+
+<nav class="ph-tabs" id="tabs" role="tablist">
+  <button class="ph-tab" data-view="print" role="tab">Print labels</button>
+  <button class="ph-tab" data-view="reprint" role="tab">Reprint <span class="ph-tab__count" id="tc-reprint" hidden>0</span></button>
+  <button class="ph-tab" data-view="history" role="tab">History</button>
+</nav>
+
+<!-- ── Print labels ───────────────────────────────────────── -->
+<div id="view-print" hidden>
+  <div class="ll-grid">
+    <div class="ll-main">
+      <div id="result" class="ll-res"></div>
+      <section class="ph-card">
+        <div class="ph-card__head"><h2 class="ph-card__title" id="form-title">What to print</h2><span class="ph-card__meta" id="form-meta"></span></div>
+        <div id="form"></div>
+      </section>
+      <div class="ll-bar" id="bar"></div>
+    </div>
+    <aside class="ll-side" aria-label="Label preview">
+      <section class="ph-card">
+        <div class="ph-card__head"><h2 class="ph-card__title">Preview</h2><span class="ph-card__meta">drawn by the printer's own renderer</span></div>
+        <div class="ll-pv"><div class="ll-pv__img" aria-live="polite"></div><div class="ll-pv__notes"></div><dl class="ll-facts ph-muted"></dl></div>
+        <div class="ll-ctl"></div>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<!-- ── Reprint ────────────────────────────────────────────── -->
+<div id="view-reprint" hidden>
+  <div class="ll-grid">
+    <div class="ll-main">
+      <div id="rp-result" class="ll-res"></div>
+      <section class="ph-card">
+        <div class="ph-card__head"><h2 class="ph-card__title">Reprint a damaged or lost label</h2><span class="ph-card__meta">the same code is printed again - nothing new is created</span></div>
+        <ol class="ll-steps" id="rp-steps" aria-label="Steps"></ol>
+        <div class="ph-field">
+          <label for="rp-in">Scan, type or paste codes</label>
+          <div class="ll-find">
+            <input class="ph-control" id="rp-in" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Scan the label, or type BUNCH-127040 · a range BUNCH-100..BUNCH-120">
+            <button class="ph-btn ph-btn--primary" id="rp-add" type="button">Find</button>
+          </div>
+          <div class="ph-field__hint">A scanned QR is read directly. Separate several codes with spaces, commas or new lines.</div>
+        </div>
+        <div id="rp-sugg" class="ll-chips ll-mt" hidden></div>
+        <div id="rp-missing"></div>
+        <div id="rp-list" class="ll-list"></div>
+      </section>
+      <div class="ll-bar" id="rp-bar"></div>
+    </div>
+    <aside class="ll-side" aria-label="Label preview">
+      <section class="ph-card">
+        <div class="ph-card__head"><h2 class="ph-card__title">Preview</h2><span class="ph-card__meta">each label prints with its own code</span></div>
+        <div class="ll-pv"><div class="ll-pv__img" aria-live="polite"></div><div class="ll-pv__notes"></div><dl class="ll-facts ph-muted"></dl></div>
+        <div class="ll-ctl"></div>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<!-- ── History ────────────────────────────────────────────── -->
+<div id="view-history" hidden>
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head">
+      <div>
+        <h2 class="ph-card__title">Batches <span class="ph-badge" id="n-hist">0</span></h2>
+        <div class="ph-card__meta" id="hist-meta">Every print and reprint, newest first</div>
+      </div>
+      <div class="ph-card__tools">
+        <label class="ph-switch"><input type="checkbox" id="h-all"><i></i>All label types</label>
+        <select class="ph-select" id="h-status" aria-label="Status">
+          <option value="">Any status</option><option value="Done">Done</option><option value="running">Running</option><option value="Failed">Failed</option><option value="Cancelled">Cancelled</option>
+        </select>
+      </div>
+    </div>
+    <div id="t-history"></div>
+  </section>
+</div>
+
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  const API = "upande_packhouse.api.v2.label_manager.";
+  const call = (m, a, o) => PH.call(API + m, a || {}, o);
+  const esc = PH.esc, N = PH.fmt.num;
+  const TYPES = ["bunch", "bucket", "shelf", "sf_shelf", "trolley", "staging"];
+  const VIEWS = ["print", "reprint", "history"];
+  const st = PH.state({ t: "bunch", tab: "print", farm: "", hs: "", all: false });
+  const clone = (o) => JSON.parse(JSON.stringify(o));
+  const uuid = () => (window.crypto && crypto.randomUUID ? crypto.randomUUID() : "k" + Date.now().toString(36) + Math.random().toString(36).slice(2, 12));
+  const ls = {
+    get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage unavailable */ } },
+  };
+  const curType = () => (TYPES.includes(st.get("t")) ? st.get("t") : "bunch");
+  const tLabel = (t) => (boot && boot.types[t] ? boot.types[t].label : t);
+  const toInt = (v) => { const n = parseInt(String(v).replace(/[^\d]/g, ""), 10); return isNaN(n) ? 0 : n; };
+  const fixedKind = (t) => !["bunch", "bucket"].includes(t);
+  const TERMINAL = ["Done", "Failed", "Cancelled"];
+
+  let boot = null;
+  const D = {};   // per type: { name, design, base }
+  const LAY = {}; // per type: layout
+  const INT = {}; // per type: { sig, key } request key for the current intent
+  const RP = {};  // per type: reprint state
+  const F = {
+    bunch: { farm: "", vsel: [], vopen: false, vact: 0, rows: [], loaded: false, loading: false, q: "", only: false, err: "", note: "", created: false },
+    bucket: { qty: "" },
+    shelf: { rows: [{ prefix: "", row: "", from: 1, to: "" }], levels: { T: true, M: true, B: true } },
+    sf_shelf: { rows: [{ row: "", from: 1, to: "" }], levels: { T: true, M: true, B: true } },
+    trolley: { rows: [{ prefix: "", from: 1, to: "" }] },
+    staging: { text: "" },
+  };
+  TYPES.forEach((t) => { INT[t] = { sig: null, key: null }; RP[t] = { items: [], missing: [], sugg: [], total: 0, reason: "Damaged", note: "", busy: false, blob: null, intent: { sig: null, key: null } }; });
+
+  const keyFor = (obj, sig) => { if (obj.sig !== sig || !obj.key) { obj.sig = sig; obj.key = uuid(); } return obj.key; };
+
+  /* ════════════════ designs, layouts ════════════════ */
+  const defaultLayout = () => ({ mode: "single", sheet: { paper: "A4", orientation: "portrait", margin: 8, gap: 2, guides: false } });
+  function initDesign(t) {
+    const list = boot.templates.filter((x) => x.label_type === t);
+    const want = ls.get("ll_tpl_" + t);
+    const tp = list.find((x) => x.name === want) || list.find((x) => x.is_default) || list[0];
+    if (tp) setTemplate(t, tp);
+    let l = null;
+    try { l = JSON.parse(ls.get("ll_lay_" + t) || "null"); } catch (e) { l = null; }
+    LAY[t] = l && l.mode ? Object.assign(defaultLayout(), l, { sheet: Object.assign(defaultLayout().sheet, l.sheet || {}) }) : defaultLayout();
+  }
+  function setTemplate(t, tp) {
+    D[t] = { name: tp.name, design: clone(tp.design), base: JSON.stringify(tp.design) };
+    ls.set("ll_tpl_" + t, tp.name);
+  }
+  const dirty = (t) => D[t] && JSON.stringify(D[t].design) !== D[t].base;
+  const saveLayout = (t) => ls.set("ll_lay_" + t, JSON.stringify(LAY[t]));
+  const tplList = (t) => boot.templates.filter((x) => x.label_type === t);
+
+  /* ════════════════ forms: counting, validation, spec ════════════════ */
+  const RE_PREFIX = /^[A-Z0-9]{1,6}$/, RE_ROW = /^[A-Z0-9]{1,3}$/;
+  const levelsOf = (f) => ["T", "M", "B"].filter((l) => f.levels[l]);
+
+  function rowCheck(t, r) {
+    if (t !== "sf_shelf" && t !== "staging" && !RE_PREFIX.test(r.prefix || "")) return "Farm prefix: 1 to 6 letters or numbers";
+    if ((t === "shelf" || t === "sf_shelf") && !RE_ROW.test(r.row || "")) return "Row letter: 1 to 3 letters or numbers";
+    const a = toInt(r.from), b = toInt(r.to);
+    if (a < 1 || b < a || b > 1000) return "Positions run from 1 up, for example 1 to 21";
+    return "";
+  }
+  function fixedCodes(t) {
+    const f = F[t], out = { count: 0, first: "", last: "", err: "" };
+    if (t === "staging") {
+      const seen = new Set(), dups = [], bad = [];
+      f.text.split(/\r?\n/).forEach((raw) => {
+        const s = raw.replace(/\s+/g, " ").trim();
+        if (!s) return;
+        if (s.length > 60 || /["\\]/.test(s)) { bad.push(s); return; }
+        const k = s.toUpperCase();
+        if (seen.has(k)) { dups.push(s); return; }
+        seen.add(k);
+        if (!out.first) out.first = s;
+        out.last = s;
+        out.count++;
+      });
+      out.dups = dups; out.bad = bad;
+      if (bad.length) out.err = "Not a valid location name (max 60 characters, no quotes): " + bad[0];
+      else if (!out.count) out.err = "Enter at least one location name";
+      return out;
+    }
+    const lv = t === "trolley" ? ["-"] : levelsOf(f);
+    if (!lv.length) { out.err = "Pick at least one shelf level"; return out; }
+    const seen = new Set();
+    for (const r of f.rows) {
+      const e = rowCheck(t, r);
+      if (e) { out.err = e; continue; }
+      const prefix = t === "sf_shelf" ? "SF" : (r.prefix || "").toUpperCase();
+      for (let n = toInt(r.from); n <= toInt(r.to); n++) {
+        for (const l of lv) {
+          const code = t === "trolley" ? prefix + "-TROLLEY-" + n : prefix + "-" + (r.row || "").toUpperCase() + n + l;
+          if (seen.has(code)) continue;
+          seen.add(code);
+          if (!out.first) out.first = code;
+          out.last = code;
+        }
+      }
+    }
+    out.count = seen.size;
+    if (!out.count && !out.err) out.err = "Add at least one row";
+    return out;
+  }
+  function rowCount(t, r) {
+    if (rowCheck(t, r)) return 0;
+    return (toInt(r.to) - toInt(r.from) + 1) * (t === "trolley" ? 1 : levelsOf(F[t]).length);
+  }
+  const bunchRows = () => F.bunch.rows.filter((r) => toInt(r.qty) > 0);
+  const hiddenUsed = () => (F.bunch.vsel.length ? F.bunch.rows.filter((r) => toInt(r.qty) > 0 && !F.bunch.vsel.includes(r.variety)).length : 0);
+  const bunchTotal = () => F.bunch.rows.reduce((s, r) => s + toInt(r.qty), 0);
+
+  function info(t) {
+    const max = boot.max_batch;
+    if (t === "bunch") {
+      const f = F.bunch, total = bunchTotal(), farm = boot.farms.find((x) => x.name === f.farm);
+      let why = "";
+      if (!f.farm) why = "Choose a farm";
+      else if (farm && !farm.farm_code) why = "This farm has no Farm Code - set it on the Farm record first";
+      else if (!total) why = "Enter a quantity on at least one row";
+      else if (total > max) why = "A batch is limited to " + N(max) + " labels";
+      return { count: total, why, sum: total ? `<b>${N(total)}</b> bunch labels across ${N(bunchRows().length)} rows. Numbers are assigned when you press print.` : "Enter quantities in the table." };
+    }
+    if (t === "bucket") {
+      const q = toInt(F.bucket.qty);
+      return { count: q, why: !q ? "Enter how many labels" : q > max ? "A batch is limited to " + N(max) + " labels" : "", sum: q ? `<b>${N(q)}</b> bucket labels. Six-character codes are generated when you press print.` : "Enter how many bucket labels you need." };
+    }
+    const c = fixedCodes(t);
+    return { count: c.count, why: c.count > max ? "A batch is limited to " + N(max) + " labels" : c.err, sum: c.count ? `<b>${N(c.count)}</b> ${tLabel(t).toLowerCase()} labels · <span class="ph-mono">${esc(c.first)}</span>${c.count > 1 ? ` → <span class="ph-mono">${esc(c.last)}</span>` : ""}` : "Fill in the form to see what will print.", fixed: c };
+  }
+  function specOf(t) {
+    if (t === "bunch") return { rows: bunchRows().map((r) => ({ farm: F.bunch.farm, variety: r.variety, bunch_size: r.bunch_size, stem_length: r.stem_length, qty: toInt(r.qty) })) };
+    if (t === "bucket") return { qty: toInt(F.bucket.qty) };
+    if (t === "staging") return { names: F.staging.text.split(/\r?\n/) };
+    const f = F[t], rows = f.rows.filter((r) => !rowCheck(t, r)).map((r) => ({ prefix: (r.prefix || "").toUpperCase(), row: (r.row || "").toUpperCase(), from: toInt(r.from), to: toInt(r.to) }));
+    return t === "trolley" ? { rows } : { rows, levels: levelsOf(f) };
+  }
+  const previewSpec = (t) => {
+    if (curTab() === "reprint") return rpSpec(t);
+    const s = specOf(t);
+    if (t === "bunch") return s.rows.length ? { rows: s.rows.slice(0, 300) } : bunchSample(); // a sample row until a quantity is typed
+    return s;
+  };
+  const bunchSample = () => { const m = boot.types.bunch.sample; return { rows: [{ farm: m.farm, variety: m.variety, bunch_size: m.bunch_size, stem_length: m.stem_length, qty: 1 }] }; };
+  const curTab = () => (VIEWS.includes(st.get("tab")) ? st.get("tab") : "print");
+
+  /* ════════════════ preview ════════════════ */
+  let pseq = 0, ptimer = null, lastPrev = null;
+  const hosts = () => PH.$$(".ll-pv");
+  function schedulePreview(ms) { clearTimeout(ptimer); ptimer = setTimeout(runPreview, ms == null ? 250 : ms); }
+  function runPreview() {
+    if (!boot) return;
+    const t = curType(), my = ++pseq;
+    hosts().forEach((h) => h.querySelector(".ll-pv__img").classList.add("is-busy"));
+    if (!lastPrev) hosts().forEach((h) => PH.skeleton(h.querySelector(".ll-pv__img"), "block", 4));
+    return call("preview", { label_type: t, design: D[t].design, layout: LAY[t], spec: previewSpec(t) }, { silent: true })
+      .then((r) => { if (my !== pseq) return; lastPrev = r; paintPrev(r); })
+      .catch((e) => { if (my !== pseq) return; lastPrev = null; hosts().forEach((h) => {
+        h.querySelector(".ll-pv__img").classList.remove("is-busy");
+        PH.error(h.querySelector(".ll-pv__img"), e.message, () => runPreview());
+        h.querySelector(".ll-pv__notes").innerHTML = "";
+        h.querySelector(".ll-facts").innerHTML = "";
+      }); });
+  }
+  function paintPrev(r) {
+    if (!r) return;
+    const t = curType();
+    const modOk = r.module_mm >= 0.33;
+    const facts = [
+      ["Label", `${r.label_mm[0]} × ${r.label_mm[1]} mm`],
+      ["QR code", `${r.qr_mm} mm`],
+      ["QR module", `<span class="${modOk ? "" : "ph-strong"}">${r.module_mm} mm</span> · ${r.modules}×${r.modules}`],
+      ["Text size", r.font_pt.length ? r.font_pt.map((x) => x + "pt").join(" / ") : "none"],
+      ["Per sheet", r.per_page > 1 ? N(r.per_page) + " labels" : "one label per page"],
+      ["Based on", r.sample_count > 1 ? N(r.sample_count) + " labels" : "a sample label"],
+    ];
+    hosts().forEach((h) => {
+      const img = h.querySelector(".ll-pv__img");
+      img.classList.remove("is-busy");
+      img.innerHTML = `<img src="${esc(r.image)}" alt="Preview of a ${esc(tLabel(t))} label, ${r.label_mm[0]} by ${r.label_mm[1]} millimetres">`;
+      h.querySelector(".ll-pv__notes").innerHTML =
+        (r.unknown_fields || []).map((f) => `<div class="ph-notice ph-notice--bad">${PH.icon("alert")}<span>Unknown field {${esc(f)}} in the design</span></div>`).join("") +
+        (r.warnings || []).map((w) => `<div class="ph-notice ph-notice--warn">${PH.icon("alert")}<span>${esc(w)}</span></div>`).join("");
+      h.querySelector(".ll-facts").innerHTML = facts.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${v}</dd></div>`).join("");
+    });
+  }
+
+  /* the template + layout controls under each preview */
+  function paintCtl() {
+    const t = curType(), d = D[t], lay = LAY[t], sh = lay.sheet;
+    const opts = tplList(t).map((x) => `<option value="${esc(x.name)}"${x.name === d.name ? " selected" : ""}>${esc(x.template_name)}${x.is_default ? " · default" : ""}</option>`).join("");
+    const html = `
+      <div class="ph-field"><label>Template</label>
+        <div class="ll-row"><select class="ph-control" data-ll="tpl" aria-label="Template">${opts}</select>
+        <button class="ph-btn ph-btn--sm" type="button" data-ll="design">${PH.icon("edit", 14)} Adjust design</button></div>
+        ${dirty(t) ? '<div class="ph-field__hint"><span class="ph-badge ph-badge--warn">Unsaved design changes</span> used for this print only until saved</div>' : ""}</div>
+      <div class="ph-field"><label>Print layout</label>
+        <div class="ph-pills" data-ll="mode" role="group" aria-label="Print layout"><button data-value="single" class="${lay.mode === "single" ? "is-on" : ""}">One label per page</button><button data-value="sheet" class="${lay.mode === "sheet" ? "is-on" : ""}">Sheet</button></div>
+        <div class="ph-field__hint">${lay.mode === "single" ? "Each label is its own page, sized to the label - for roll and thermal printers." : "Labels are packed onto a sheet, for A4 or Letter label paper."}</div></div>
+      ${lay.mode === "sheet" ? `<div class="ph-form ph-form--2">
+        <div class="ph-field"><label for="sh-paper">Paper</label><select class="ph-control" id="sh-paper" data-sh="paper">${Object.keys(boot.papers).map((p) => `<option${p === sh.paper ? " selected" : ""}>${esc(p)}</option>`).join("")}</select></div>
+        <div class="ph-field"><label for="sh-or">Orientation</label><select class="ph-control" id="sh-or" data-sh="orientation"><option value="portrait"${sh.orientation === "portrait" ? " selected" : ""}>Portrait</option><option value="landscape"${sh.orientation === "landscape" ? " selected" : ""}>Landscape</option></select></div>
+        <div class="ph-field"><label for="sh-m">Sheet margin (mm)</label><input class="ph-control" id="sh-m" type="number" min="0" max="40" step="0.5" data-sh="margin" value="${esc(sh.margin)}"></div>
+        <div class="ph-field"><label for="sh-g">Gap between (mm)</label><input class="ph-control" id="sh-g" type="number" min="0" max="20" step="0.5" data-sh="gap" value="${esc(sh.gap)}"></div>
+        <div class="ph-field ph-field--full"><label class="ph-check"><input type="checkbox" data-sh="guides"${sh.guides ? " checked" : ""}> Draw cut guides around each label</label></div></div>` : ""}`;
+    PH.$$(".ll-ctl").forEach((el) => {
+      const keep = document.activeElement && el.contains(document.activeElement) ? document.activeElement.id : "";
+      el.innerHTML = html;
+      if (keep) { const n = document.getElementById(keep); if (n) n.focus(); }
+    });
+  }
+  document.addEventListener("change", (e) => {
+    const el = e.target, t = curType();
+    if (el.matches('select[data-ll="tpl"]')) {
+      const tp = boot.templates.find((x) => x.name === el.value);
+      const go = () => { setTemplate(t, tp); paintCtl(); schedulePreview(0); };
+      if (dirty(t)) PH.confirm("Discard design changes?", "You have unsaved changes to this template. Switching loads the saved version.", { ok: "Discard changes", danger: true }).then((ok) => (ok ? go() : paintCtl()));
+      else go();
+    }
+    if (el.dataset && el.dataset.sh) {
+      LAY[t].sheet[el.dataset.sh] = el.type === "checkbox" ? el.checked : el.type === "number" ? parseFloat(el.value) || 0 : el.value;
+      saveLayout(t); schedulePreview(el.type === "number" ? 250 : 0);
+    }
+  });
+  document.addEventListener("input", (e) => {
+    const el = e.target;
+    if (el.dataset && el.dataset.sh && el.type === "number") { LAY[curType()].sheet[el.dataset.sh] = parseFloat(el.value) || 0; saveLayout(curType()); schedulePreview(); }
+  });
+  document.addEventListener("click", (e) => {
+    const t = curType();
+    const mode = e.target.closest('[data-ll="mode"] button');
+    if (mode) { LAY[t].mode = mode.dataset.value; saveLayout(t); paintCtl(); schedulePreview(0); return; }
+    if (e.target.closest('[data-ll="design"]')) openDesigner();
+  });
+
+  /* ════════════════ print tab: forms ════════════════ */
+  function paintForm() {
+    const t = curType(), el = PH.$("#form");
+    PH.text("#form-title", { bunch: "Bunch labels", bucket: "Bucket labels", shelf: "Shelf labels", sf_shelf: "Sea freight shelf labels", trolley: "Trolley labels", staging: "Staging location labels" }[t]);
+    PH.text("#form-meta", { bunch: "one table per farm, as before - but safe to retry", bucket: "random 6-character codes", shelf: "farm prefix + row + position + level", sf_shelf: "SF cold room: SF-A1T", trolley: "PREFIX-TROLLEY-n", staging: "one label per location name" }[t]);
+    ({ bunch: formBunch, bucket: formBucket, shelf: formShelf, sf_shelf: formShelf, trolley: formShelf, staging: formStaging })[t](el, t);
+    paintBar();
+  }
+
+  /* — bunch — */
+  function formBunch(el) {
+    const f = F.bunch;
+    el.innerHTML = `
+      <div class="ph-form ph-form--2">
+        <div class="ph-field"><label for="b-farm">Farm</label><select class="ph-control" id="b-farm"><option value="">Choose a farm…</option>${boot.farms.map((x) => `<option value="${esc(x.name)}"${x.name === f.farm ? " selected" : ""}>${esc(x.name)}</option>`).join("")}</select></div>
+        <div class="ph-field"><label>Farm code</label><div class="ll-code" id="b-code"></div></div>
+      </div>
+      <div id="b-note" class="ll-mt"></div>
+      <div id="b-body"></div>`;
+    paintFarmCode(); paintBunchBody();
+  }
+  function paintFarmCode() {
+    const f = F.bunch, farm = boot.farms.find((x) => x.name === f.farm), c = PH.$("#b-code"), n = PH.$("#b-note");
+    if (!c) return;
+    c.innerHTML = !f.farm ? '<span class="ph-muted">Pick a farm to see its code</span>' : farm && farm.farm_code ? `<span class="ph-mono ph-strong">${esc(farm.farm_code)}</span>` : '<span class="ph-badge ph-badge--bad">Not set</span>';
+    n.innerHTML = f.farm && farm && !farm.farm_code ? `<div class="ph-notice ph-notice--bad">${PH.icon("alert")}<span><b>${esc(f.farm)}</b> has no Farm Code on its Farm record, and every bunch label prints it. Set the code on the Farm first - nothing can be printed for this farm until then.</span></div>` : "";
+  }
+  function paintBunchBody() {
+    const f = F.bunch, b = PH.$("#b-body");
+    if (!b) return;
+    if (!f.farm) { PH.empty(b, "Choose a farm", "Its planted spray-rose varieties appear here, once per stem length, ready for quantities.", "box"); return; }
+    if (f.loading) { PH.skeleton(b, "rows", 6); return; }
+    if (f.err) { PH.error(b, f.err, () => loadBunch(f.farm)); return; }
+    if (!f.rows.length) { PH.empty(b, "Nothing to label", f.note || "No varieties found for this farm.", "box"); return; }
+    b.innerHTML = `
+      <div class="ph-field ll-mt"><label for="b-vin">Varieties</label><div id="b-ms"></div></div>
+      <div class="ll-tools">
+        <label class="ph-search">${PH.icon("search")}<input type="search" id="b-q" placeholder="Search variety or length" aria-label="Search varieties" value="${esc(f.q)}"></label>
+        <label class="ph-switch"><input type="checkbox" id="b-only"${f.only ? " checked" : ""}><i></i>Only rows with labels</label>
+      </div>
+      <div class="ll-tools" style="margin-top:0">
+        <span class="ph-muted">Fill empty rows with</span>
+        <div class="ll-chips">${[20, 50, 100, 150, 200, 250, 300].map((n) => `<button type="button" class="ph-badge ph-badge--outline ll-chip" data-fill="${n}">${n}</button>`).join("")}</div>
+        <button type="button" class="ph-btn ph-btn--sm" data-avg>Use last week's daily average</button>
+        <button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-clear>Clear all</button>
+      </div>
+      <div id="b-grid"></div>
+      <div class="ll-tot" id="b-tot" aria-live="polite"></div>`;
+    paintMs(); paintGrid(); paintTotals();
+  }
+  /* — varieties multiselect — */
+  const knownVarieties = () => [...new Set(F.bunch.rows.map((r) => r.variety))].sort((a, b) => a.localeCompare(b));
+  const vKey = () => "ll.varieties." + F.bunch.farm;
+  const vSave = () => ls.set(vKey(), JSON.stringify(F.bunch.vsel));
+  function vSuggest() {
+    const f = F.bunch, inp = PH.$("#b-vin"), q = inp ? inp.value.trim().toLowerCase() : "";
+    return knownVarieties().filter((v) => !f.vsel.includes(v) && (!q || v.toLowerCase().includes(q)));
+  }
+  function paintMs(keepFocus) {
+    const f = F.bunch, box = PH.$("#b-ms");
+    if (!box) return;
+    const had = keepFocus || (document.activeElement && document.activeElement.id === "b-vin"), val = PH.$("#b-vin") ? PH.$("#b-vin").value : "";
+    const all = knownVarieties();
+    box.innerHTML = `<div class="ll-ms" role="combobox" aria-expanded="${f.vopen}" aria-haspopup="listbox">${f.vsel.map((v) => `<span class="ll-tok" data-v="${esc(v)}">${esc(v)}<button type="button" data-vdel="${esc(v)}" aria-label="Remove ${esc(v)}">×</button></span>`).join("")}<input id="b-vin" type="text" autocomplete="off" spellcheck="false" aria-autocomplete="list" aria-controls="b-vlist" placeholder="${f.vsel.length ? "Add another variety…" : `Type to pick varieties - or leave empty to work with all ${all.length}`}" value="${esc(val)}"><ul class="ll-ms__list" id="b-vlist" role="listbox" hidden></ul></div>
+      <div class="ll-ms__hint ph-muted"><span>${f.vsel.length ? `Showing <b class="ph-strong">${f.vsel.length}</b> of ${all.length} varieties` : `All ${all.length} varieties shown`} · paste a list separated by commas or new lines to add several at once</span>${f.vsel.length ? '<button type="button" class="ph-link" data-vclear>Show all varieties</button>' : ""}</div>`;
+    paintVList();
+    if (had) { const i = PH.$("#b-vin"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+  }
+  function paintVList() {
+    const f = F.bunch, ul = PH.$("#b-vlist"), inp = PH.$("#b-vin");
+    if (!ul) return;
+    const items = vSuggest(), q = inp.value.trim();
+    ul.hidden = !f.vopen;
+    inp.closest(".ll-ms").setAttribute("aria-expanded", String(f.vopen));
+    if (!f.vopen) return;
+    f.vact = Math.max(0, Math.min(f.vact, items.length - 1));
+    const mark = (v) => { if (!q) return esc(v); const i = v.toLowerCase().indexOf(q.toLowerCase()); return i < 0 ? esc(v) : esc(v.slice(0, i)) + "<mark>" + esc(v.slice(i, i + q.length)) + "</mark>" + esc(v.slice(i + q.length)); };
+    ul.innerHTML = items.length ? items.slice(0, 60).map((v, i) => `<li role="option" data-vpick="${esc(v)}" class="${i === f.vact ? "is-on" : ""}" aria-selected="${i === f.vact}">${mark(v)}</li>`).join("") : `<li class="ll-ms__none">${q ? "No variety matches “" + esc(q) + "”" : "Every variety is already in the list"}</li>`;
+    const on = ul.querySelector(".is-on"); if (on) on.scrollIntoView({ block: "nearest" });
+  }
+  function vAdd(names) {
+    const f = F.bunch, known = knownVarieties(), low = new Map(known.map((v) => [v.toLowerCase(), v])), miss = [];
+    names.forEach((raw) => {
+      const n = raw.trim(); if (!n) return;
+      const hit = low.get(n.toLowerCase()) || known.find((v) => v.toLowerCase().includes(n.toLowerCase()) && names.length === 1);
+      if (hit) { if (!f.vsel.includes(hit)) f.vsel.push(hit); } else miss.push(n);
+    });
+    if (miss.length) PH.toast("Not found for this farm: " + miss.slice(0, 5).join(", ") + (miss.length > 5 ? "…" : ""), "bad");
+    vSave();
+  }
+  function vChanged() { paintMs(true); paintGrid(); paintTotals(); }
+  function vEvents(e) {
+    const f = F.bunch, el = e.target;
+    if (e.type === "input" && el.id === "b-vin") {
+      if (/[,;\n]/.test(el.value)) { const parts = el.value.split(/[,;\n]+/); el.value = ""; vAdd(parts); f.vopen = false; vChanged(); return true; }
+      f.vopen = true; f.vact = 0; paintVList(); return true;
+    }
+    if (e.type === "paste" && el.id === "b-vin") {
+      const txt = (e.clipboardData || window.clipboardData).getData("text");
+      if (/[,;\n]/.test(txt)) { e.preventDefault(); vAdd(txt.split(/[,;\n]+/)); f.vopen = false; vChanged(); }
+      return true;
+    }
+    if (e.type === "focusin" && el.id === "b-vin") { f.vopen = true; paintVList(); return true; }
+    if (e.type === "focusout" && el.id === "b-vin") { setTimeout(() => { if (document.activeElement !== PH.$("#b-vin")) { f.vopen = false; paintVList(); } }, 150); return true; }
+    if (e.type === "keydown" && el.id === "b-vin") {
+      const items = vSuggest();
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); f.vopen = true; f.vact = (f.vact + (e.key === "ArrowDown" ? 1 : -1) + Math.max(items.length, 1)) % Math.max(items.length, 1); paintVList(); }
+      else if (e.key === "Enter") { e.preventDefault(); const v = items[f.vact]; if (v) { vAdd([v]); el.value = ""; f.vact = 0; vChanged(); } }
+      else if (e.key === "Escape") { f.vopen = false; paintVList(); }
+      else if (e.key === "Backspace" && !el.value && f.vsel.length) { f.vsel.pop(); vSave(); vChanged(); }
+      return true;
+    }
+    if (e.type === "mousedown" && el.closest("[data-vpick]")) { e.preventDefault(); vAdd([el.closest("[data-vpick]").dataset.vpick]); PH.$("#b-vin").value = ""; f.vact = 0; vChanged(); return true; }
+    if (e.type === "click") {
+      const del = el.closest("[data-vdel]");
+      if (del) { f.vsel = f.vsel.filter((v) => v !== del.dataset.vdel); vSave(); vChanged(); PH.$("#b-vin").focus(); return true; }
+      if (el.closest("[data-vclear]")) { f.vsel = []; vSave(); vChanged(); return true; }
+    }
+    return false;
+  }
+  function visibleRows() {
+    const f = F.bunch, q = f.q.trim().toLowerCase();
+    return f.rows.filter((r) => (!f.vsel.length || f.vsel.includes(r.variety)) && (!q || (r.variety + " " + r.stem_length + " " + r.bunch_size).toLowerCase().includes(q)) && (!f.only || toInt(r.qty) > 0));
+  }
+  function paintGrid() {
+    const g = PH.$("#b-grid");
+    if (!g) return;
+    const keep = g.querySelector(".ll-gridwrap");
+    const top = keep ? keep.scrollTop : 0;
+    const vis = visibleRows();
+    if (!vis.length) { PH.empty(g, "No rows match", "Clear the search or the 'only rows with labels' switch.", "search"); return; }
+    g.innerHTML = `<div class="ph-table-wrap ll-gridwrap"><table class="ph-table ph-table--compact"><thead><tr><th>Variety</th><th>Bunch size</th><th>Stem length</th><th class="is-num">Last week / day</th><th class="is-num">Labels</th></tr></thead><tbody>${
+      vis.map((r) => `<tr data-i="${r._i}"${toInt(r.qty) > 0 ? ' class="is-on"' : ""}><td class="is-strong">${esc(r.variety)}</td><td>${esc(r.bunch_size)}</td><td>${esc(r.stem_length)}</td><td class="is-num">${r.prev_week_avg ? N(r.prev_week_avg) : '<span class="ph-muted">-</span>'}</td><td class="is-num"><input class="ph-table-input ll-qty" type="number" inputmode="numeric" min="0" step="1" data-i="${r._i}" value="${toInt(r.qty) || ""}" placeholder="0" aria-label="Labels for ${esc(r.variety)} ${esc(r.stem_length)}"></td></tr>`).join("")
+    }</tbody></table></div>`;
+    g.querySelector(".ll-gridwrap").scrollTop = top;
+  }
+  function paintTotals() {
+    const t = PH.$("#b-tot");
+    if (!t) return;
+    const total = bunchTotal(), max = boot.max_batch;
+    t.innerHTML = `<span><b class="ph-strong">${N(bunchRows().length)}</b> <span class="ph-muted">rows used</span></span><span><b class="ph-strong">${N(total)}</b> <span class="ph-muted">labels</span></span>${hiddenUsed() ? `<span class="ph-badge ph-badge--warn">${hiddenUsed()} row${hiddenUsed() === 1 ? "" : "s"} with labels hidden by the variety list</span>` : ""}${total > max ? `<span class="ph-badge ph-badge--bad">Over the ${N(max)} limit for one batch</span>` : ""}`;
+  }
+  function loadBunch(farm) {
+    const f = F.bunch, my = (loadBunch.seq = (loadBunch.seq || 0) + 1);
+    f.loading = true; f.err = ""; f.rows = []; f.vsel = []; f.loaded = false; paintBunchBody(); paintBar();
+    return call("bunch_table", { farm }, { silent: true }).then((r) => {
+      if (my !== loadBunch.seq) return;
+      f.loading = false; f.loaded = true; f.note = r.note || "";
+      f.rows = (r.rows || []).map((x, i) => Object.assign(x, { _i: i, qty: 0 }));
+      try { const saved = JSON.parse(ls.get("ll.varieties." + farm) || "[]"); const known = new Set(f.rows.map((x) => x.variety)); f.vsel = saved.filter((v) => known.has(v)); } catch (e2) { f.vsel = []; }
+      paintBunchBody(); paintBar(); schedulePreview();
+    }).catch((e) => { if (my !== loadBunch.seq) return; f.loading = false; f.err = e.message; paintBunchBody(); PH.toast(e.message, "bad"); });
+  }
+  function bunchEvents(e) {
+    const f = F.bunch, el = e.target;
+    if (vEvents(e)) return;
+    if (e.type === "change" && el.id === "b-farm") {
+      const go = () => { f.farm = el.value; st.set({ farm: f.farm }, { silent: true }); f.created = false; paintFarmCode(); if (f.farm) loadBunch(f.farm); else { f.rows = []; paintBunchBody(); paintBar(); schedulePreview(); } };
+      if (bunchTotal() > 0) PH.confirm("Switch farm?", "The quantities you typed for " + f.farm + " will be cleared.", { ok: "Switch farm", danger: true }).then((ok) => (ok ? go() : (el.value = f.farm)));
+      else go();
+    } else if (e.type === "input" && el.classList.contains("ll-qty")) {
+      const r = f.rows[+el.dataset.i], v = toInt(el.value);
+      r.qty = v; f.created = false;
+      el.closest("tr").classList.toggle("is-on", v > 0);
+      paintTotals(); paintBar(); schedulePreview(400);
+    } else if (e.type === "input" && el.id === "b-q") { f.q = el.value; clearTimeout(bunchEvents.t); bunchEvents.t = setTimeout(paintGrid, 150); }
+    else if (e.type === "change" && el.id === "b-only") { f.only = el.checked; paintGrid(); }
+    else if (e.type === "click") {
+      const fill = el.closest("[data-fill]");
+      if (fill) { visibleRows().forEach((r) => { if (!toInt(r.qty)) r.qty = +fill.dataset.fill; }); f.created = false; paintGrid(); paintTotals(); paintBar(); schedulePreview(); }
+      else if (el.closest("[data-avg]")) {
+        let n = 0; visibleRows().forEach((r) => { if (!toInt(r.qty) && r.prev_week_avg > 0) { r.qty = r.prev_week_avg; n++; } });
+        if (!n) PH.toast("No empty rows with a last-week average", "bad"); f.created = false; paintGrid(); paintTotals(); paintBar(); schedulePreview();
+      } else if (el.closest("[data-clear]")) {
+        if (bunchTotal() > 0) PH.confirm("Clear all quantities?", "Every quantity you typed will be removed.", { ok: "Clear all", danger: true }).then((ok) => { if (ok) { f.rows.forEach((r) => (r.qty = 0)); paintGrid(); paintTotals(); paintBar(); schedulePreview(); } });
+      }
+    } else if (e.type === "keydown" && el.classList.contains("ll-qty") && ["Enter", "ArrowDown", "ArrowUp"].includes(e.key)) {
+      e.preventDefault();
+      const all = PH.$$(".ll-qty", PH.$("#b-grid")), i = all.indexOf(el), nx = all[i + (e.key === "ArrowUp" ? -1 : 1)];
+      if (nx) nx.focus();
+    } else if (e.type === "focusin" && el.classList.contains("ll-qty")) el.select();
+  }
+
+  /* — bucket — */
+  function formBucket(el) {
+    const f = F.bucket;
+    el.innerHTML = `
+      <div class="ph-form ph-form--2"><div class="ph-field"><label for="k-qty">How many labels</label><input class="ph-control" id="k-qty" type="number" inputmode="numeric" min="1" max="${boot.max_batch}" value="${esc(f.qty)}" placeholder="e.g. 500"></div></div>
+      <div class="ll-chips ll-mt">${[100, 250, 500, 1000, 2000, 5000].map((n) => `<button type="button" class="ph-badge ph-badge--outline ll-chip" data-qty="${n}">${N(n)}</button>`).join("")}</div>
+      <div class="ph-notice ph-notice--signal ll-mt">${PH.icon("info")}<span>Each bucket gets a fresh six-character code. The code is checked against every existing bucket, bunch and box code, so a label can never mean two things. Codes use letters and numbers that are hard to confuse (no 0, O, 1 or I).</span></div>`;
+  }
+  /* — shelf / sea freight / trolley — */
+  function formShelf(el, t) {
+    const f = F[t], sf = t === "sf_shelf", tr = t === "trolley", hasPrefix = !sf;
+    el.innerHTML = `
+      <table class="ph-table ph-table--compact" id="x-rows"><thead><tr>${hasPrefix ? "<th>Farm prefix</th>" : ""}${tr ? "" : "<th>Row letter</th>"}<th>From position</th><th>To position</th><th class="is-num">Labels</th><th><span class="ll-sr">Remove</span></th></tr></thead><tbody></tbody></table>
+      <div class="ll-mt"><button type="button" class="ph-btn ph-btn--sm" data-addrow>${PH.icon("plus", 14)} Add ${tr ? "range" : "row"}</button></div>
+      ${tr ? "" : `<div class="ll-mt"><label class="ph-label">Levels</label><div class="ll-gap">${["T", "M", "B"].map((l) => `<label class="ph-check"><input type="checkbox" data-lv="${l}"${f.levels[l] ? " checked" : ""}> ${{ T: "Top", M: "Middle", B: "Bottom" }[l]} (${l})</label>`).join("")}</div></div>`}
+      <div id="x-sum" class="ll-mt" aria-live="polite"></div>
+      <div class="ph-notice ph-notice--signal ll-mt">${PH.icon("info")}<span>${sf ? "Sea freight shelves always use the SF prefix, as in SF-A1T. " : ""}A code that already exists is printed again as a reprint - it is never created twice.</span></div>`;
+    paintShelfRows(t); paintShelfSum(t);
+  }
+  function paintShelfRows(t) {
+    const f = F[t], tr = t === "trolley", hasPrefix = t !== "sf_shelf", body = PH.$("#x-rows tbody");
+    body.innerHTML = f.rows.map((r, i) => `<tr data-ri="${i}">${hasPrefix ? `<td><input class="ph-table-input ll-txt" data-k="prefix" maxlength="6" value="${esc(r.prefix)}" placeholder="KPK" aria-label="Farm prefix"></td>` : ""}${tr ? "" : `<td><input class="ph-table-input ll-txt" data-k="row" maxlength="3" value="${esc(r.row)}" placeholder="A" aria-label="Row letter"></td>`}<td><input class="ph-table-input" type="number" min="1" max="1000" data-k="from" value="${esc(r.from)}" aria-label="From position"></td><td><input class="ph-table-input" type="number" min="1" max="1000" data-k="to" value="${esc(r.to)}" aria-label="To position"></td><td class="is-num" data-rc>${rowCount(t, r) ? N(rowCount(t, r)) : '<span class="ph-muted">-</span>'}</td><td><button type="button" class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-delrow="${i}" aria-label="Remove row ${i + 1}"${f.rows.length < 2 ? " disabled" : ""}>${PH.icon("trash", 14)}</button></td></tr>`).join("");
+  }
+  function paintShelfSum(t) {
+    const s = PH.$("#x-sum");
+    if (!s) return;
+    const c = fixedCodes(t);
+    s.innerHTML = c.count ? `<span><b class="ph-strong">${N(c.count)}</b> labels · first <span class="ph-mono">${esc(c.first)}</span> · last <span class="ph-mono">${esc(c.last)}</span></span>` : "";
+    if (c.err && F[t].rows.some((r) => r.to || r.row || r.prefix)) s.innerHTML += `<div class="ph-field__error">${esc(c.err)}</div>`;
+  }
+  function shelfEvents(e, t) {
+    const f = F[t], el = e.target;
+    if (e.type === "input" && el.dataset.k) {
+      const r = f.rows[+el.closest("tr").dataset.ri], k = el.dataset.k;
+      if (k === "prefix" || k === "row") { const v = el.value.toUpperCase().replace(/[^A-Z0-9]/g, ""); if (v !== el.value) el.value = v; r[k] = v; }
+      else r[k] = el.value;
+      const rc = el.closest("tr").querySelector("[data-rc]"), n = rowCount(t, r);
+      rc.innerHTML = n ? N(n) : '<span class="ph-muted">-</span>';
+      paintShelfSum(t); paintBar(); schedulePreview(400);
+    } else if (e.type === "change" && el.dataset.lv) { f.levels[el.dataset.lv] = el.checked; paintShelfRows(t); paintShelfSum(t); paintBar(); schedulePreview(); }
+    else if (e.type === "click") {
+      if (el.closest("[data-addrow]")) { const last = f.rows[f.rows.length - 1]; f.rows.push(Object.assign({ from: 1, to: "" }, t !== "sf_shelf" ? { prefix: last.prefix } : {}, t !== "trolley" ? { row: "" } : {})); paintShelfRows(t); const ins = PH.$$("#x-rows tbody tr:last-child input"); if (ins[0]) ins[0].focus(); paintShelfSum(t); paintBar(); }
+      const del = el.closest("[data-delrow]");
+      if (del && f.rows.length > 1) { f.rows.splice(+del.dataset.delrow, 1); paintShelfRows(t); paintShelfSum(t); paintBar(); schedulePreview(); }
+    }
+  }
+  /* — staging — */
+  function formStaging(el) {
+    el.innerHTML = `
+      <div class="ph-field"><label for="s-text">Location names, one per line</label><textarea class="ph-control" id="s-text" rows="8" placeholder="COLD ROOM 1&#10;COLD ROOM 2&#10;DISPATCH BAY A" spellcheck="false">${esc(F.staging.text)}</textarea>
+      <div class="ph-field__hint">The label carries exactly this text, and it is what the staging scan stores on each box. Names are not case-sensitive: COLD ROOM 1 and cold room 1 count as the same location.</div></div>
+      <div id="s-sum" class="ll-mt" aria-live="polite"></div>`;
+    paintStagingSum();
+  }
+  function paintStagingSum() {
+    const s = PH.$("#s-sum");
+    if (!s) return;
+    const c = fixedCodes("staging");
+    s.innerHTML = (c.count ? `<b class="ph-strong">${N(c.count)}</b> <span class="ph-muted">locations</span>` : "") +
+      (c.dups && c.dups.length ? `<div class="ph-notice ph-notice--warn ll-mt">${PH.icon("alert")}<span>Repeated and skipped: ${c.dups.slice(0, 5).map(esc).join(", ")}${c.dups.length > 5 ? " …" : ""}</span></div>` : "") +
+      (c.bad && c.bad.length ? `<div class="ph-field__error">${esc(c.err)}</div>` : "");
+  }
+  function stagingEvents(e) {
+    if (e.type === "input" && e.target.id === "s-text") { F.staging.text = e.target.value; paintStagingSum(); paintBar(); schedulePreview(400); }
+  }
+  function qtyEvents(e) {
+    const el = e.target;
+    if (e.type === "input" && el.id === "k-qty") { F.bucket.qty = el.value; paintBar(); schedulePreview(400); }
+    else if (e.type === "click" && el.closest("[data-qty]")) { F.bucket.qty = el.closest("[data-qty]").dataset.qty; PH.$("#k-qty").value = F.bucket.qty; paintBar(); schedulePreview(0); }
+  }
+  ["input", "change", "click", "keydown", "focusin", "focusout", "paste", "mousedown"].forEach((ev) => PH.$("#form").addEventListener(ev, (e) => {
+    const t = curType();
+    if (t === "bunch") bunchEvents(e);
+    else if (t === "bucket") qtyEvents(e);
+    else if (t === "staging") stagingEvents(e);
+    else shelfEvents(e, t);
+  }));
+
+  /* ════════════════ result card (progress) ════════════════ */
+  const STATUS = { Queued: ["signal", "Queued"], Rendering: ["signal", "Rendering"], Done: ["good", "Done"], Failed: ["bad", "Stopped"], Cancelled: ["outline", "Cancelled"] };
+  function Result(host, onAnother, onState) {
+    let cur = null, tok = 0, timer = null, shown = "", resumeBusy = false;
+    const api = {
+      get active() { return cur; },
+      get running() { return !!cur && !TERMINAL.includes(cur.status); },
+      show(b, note) { cur = b; tok++; clearTimeout(timer); shown = ""; paint(note); schedule(); },
+      clear() { cur = null; tok++; clearTimeout(timer); host.innerHTML = ""; shown = ""; },
+    };
+    const pct = (b) => (b.total ? Math.min(100, Math.round((100 * (b.rendered || 0)) / b.total)) : 0);
+    function stateKey() { return [cur.status, !!cur.stale, (cur.parts || []).length, cur.error].join("|"); }
+    function paint(note) {
+      const b = cur, [kind, word] = STATUS[b.status] || ["outline", b.status], key = stateKey();
+      if (key === shown) {
+        const bar = host.querySelector(".ph-progress i"), txt = host.querySelector("[data-rtxt]");
+        if (bar) { bar.style.width = pct(b) + "%"; host.querySelector(".ph-progress").setAttribute("aria-valuenow", pct(b)); }
+        if (txt) txt.textContent = `${N(b.rendered || 0)} of ${N(b.total)} labels drawn`;
+        return;
+      }
+      shown = key;
+      const running = !TERMINAL.includes(b.status), stale = running && b.stale;
+      const parts = (b.parts || []).map((p, i) => `<a class="ph-btn ph-btn--primary${(b.parts.length > 1 && i) ? "" : ""}" href="${esc(p.url)}" target="_blank" rel="noopener">${PH.icon("download", 14)} ${b.parts.length > 1 ? "Part " + (i + 1) + " · " + N(p.labels) + " labels" : "Download PDF"}</a>`).join("");
+      host.innerHTML = `<section class="ph-card">
+        <div class="ll-res__top"><div><div class="ph-label">${esc(b.kind === "Reprint" ? "Reprint" : "New batch")} · ${esc(tLabel(b.label_type))}</div>
+          <h2 class="ph-card__title"><span class="ph-mono">${esc(b.name)}</span> <span class="ph-badge ph-badge--${kind}">${esc(stale ? "Not progressing" : word)}</span></h2>
+          <div class="ph-muted">${N(b.total)} labels · <span class="ph-mono">${esc(b.first_code || "")}</span>${b.total > 1 ? ` → <span class="ph-mono">${esc(b.last_code || "")}</span>` : ""}</div></div></div>
+        ${note ? `<div class="ph-notice ph-notice--signal ll-mt">${PH.icon("info")}<span>${esc(note)}</span></div>` : ""}
+        ${b.status === "Cancelled" ? "" : `<div class="ph-progress ${b.status === "Failed" || stale ? "ph-progress--bad" : b.status === "Done" ? "ph-progress--good" : "ph-progress--signal"}" role="progressbar" aria-label="Rendering progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct(b)}"><i style="width:${pct(b)}%"></i></div>`}
+        <div class="ph-muted" data-rtxt aria-live="polite">${b.status === "Done" ? `${N(b.total)} labels ready` : b.status === "Cancelled" ? "Cancelled - unprinted codes were voided" : `${N(b.rendered || 0)} of ${N(b.total)} labels drawn`}</div>
+        ${b.status === "Failed" || stale ? `<div class="ph-notice ph-notice--warn ll-mt">${PH.icon("alert")}<span>${stale ? "This batch has stopped moving - the worker may have restarted. " : "This batch stopped" + (b.error ? ": " + esc(b.error) + ". " : ". ")}<b>Resume</b> carries on from the last finished chunk with the same codes; nothing is created twice.</span></div>` : ""}
+        ${b.status === "Done" ? `<div class="ph-notice ph-notice--good ll-mt">${PH.icon("check")}<span>Open the PDF and print it at <b>100% / actual size</b> with page scaling off, on the label printer. Pages are exactly label-sized${b.kind === "New" ? "; the codes are now reserved and will not be reused" : ""}.</span></div>` : ""}
+        <div class="ll-res__acts">${parts}${b.status === "Failed" || stale ? `<button class="ph-btn ph-btn--primary" data-r="resume">Resume</button><button class="ph-btn ph-btn--danger" data-r="cancel">Cancel and void unprinted codes</button>` : ""}${TERMINAL.includes(b.status) ? `<button class="ph-btn ph-btn--ghost" data-r="another">${b.kind === "Reprint" ? "Reprint another" : "Start another"}</button>` : ""}</div></section>`;
+      if (onState) onState();
+    }
+    function schedule() {
+      clearTimeout(timer);
+      if (!cur || TERMINAL.includes(cur.status)) return;
+      const my = tok;
+      timer = setTimeout(() => {
+        call("batch", { name: cur.name }, { silent: true }).then((b) => { if (my !== tok) return; cur = b; paint(); schedule(); }).catch(() => { if (my === tok) { timer = setTimeout(schedule, 4000); } });
+      }, 1500);
+    }
+    host.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-r]");
+      if (!b || !cur) return;
+      const act = b.dataset.r;
+      if (act === "another") return onAnother();
+      if (act === "resume" && !resumeBusy) { resumeBusy = true; b.disabled = true; call("resume", { name: cur.name }).then((r) => { PH.toast("Resumed - continuing where it stopped", "good"); api.show(r); }).finally(() => (resumeBusy = false)).catch(() => (b.disabled = false)); }
+      if (act === "cancel") PH.confirm("Cancel " + cur.name + "?", "Codes in this batch that were never printed are voided and will not be reused. This cannot be undone.", { ok: "Cancel batch", danger: true }).then((ok) => ok && call("cancel", { name: cur.name }).then((r) => api.show(r)));
+    });
+    return api;
+  }
+  const resPrint = Result(PH.$("#result"), () => startAnother(), () => paintBar());
+  const resReprint = Result(PH.$("#rp-result"), () => rpClear(), () => rpBar());
+
+  /* ════════════════ print: bar + create ════════════════ */
+  let creating = false;
+  function paintBar() {
+    const t = curType(), bar = PH.$("#bar"), i = info(t), running = resPrint.running, done = resPrint.active && !resPrint.running;
+    const verb = fixedKind(t) ? "Print" : "Reserve & print";
+    const label = done ? "Start another" : running ? "Printing…" : `${verb} ${i.count ? N(i.count) + " " : ""}label${i.count === 1 ? "" : "s"}`;
+    bar.innerHTML = `<div class="ll-bar__sum ph-muted">${i.why && i.count !== 0 ? `<span class="ph-badge ph-badge--warn">${esc(i.why)}</span>` : i.sum}</div>
+      <button class="ph-btn ph-btn--primary" id="go" type="button"${!done && (creating || running || i.why || !boot.can_write) ? " disabled" : ""}>${PH.icon("print", 16)} ${esc(label)}</button>`;
+    if (!boot.can_write) bar.querySelector(".ll-bar__sum").innerHTML = `<span class="ph-strong">You can view labels but not create them.</span>`;
+  }
+  PH.$("#bar").addEventListener("click", (e) => {
+    if (!e.target.closest("#go")) return;
+    if (resPrint.active && !resPrint.running) return startAnother();
+    submitCreate();
+  });
+  function submitCreate() {
+    const t = curType(), i = info(t);
+    if (creating || i.why) return;
+    const fixed = fixedKind(t) && t !== "bucket";
+    const text = t === "bunch" ? `This reserves ${N(i.count)} new bunch numbers (BUNCH-n) right now. They are never reused. If printing stops part-way you can resume it - nothing is duplicated.`
+      : t === "bucket" ? `This generates ${N(i.count)} new bucket codes and registers them so they scan. If printing stops part-way you can resume it.`
+      : `${N(i.count)} labels: ${i.fixed.first}${i.count > 1 ? " to " + i.fixed.last : ""}. Codes that already exist are printed again (a reprint), never created twice.`;
+    PH.confirm(`Print ${N(i.count)} ${tLabel(t).toLowerCase()} label${i.count === 1 ? "" : "s"}?`, text, { ok: fixed ? "Print" : "Reserve and print" }).then((ok) => {
+      if (!ok) return;
+      const spec = specOf(t), key = keyFor(INT[t], JSON.stringify([t, spec]));
+      creating = true; paintBar();
+      call("create", { label_type: t, spec, design: D[t].design, layout: LAY[t], template: D[t].name, request_key: key })
+        .then((b) => {
+          F.bunch.created = true;
+          resPrint.show(b, b.duplicate ? "This request was already submitted, so this is the existing batch. Its design was fixed when it was first created." : "");
+          PH.toast(b.duplicate ? "Existing batch shown - nothing new was created" : "Batch created", "good");
+          PH.$("#result").scrollIntoView({ behavior: "smooth", block: "start" });
+        })
+        .catch(() => { /* PH.call already toasted; the key is kept so a retry cannot double-reserve */ })
+        .finally(() => { creating = false; paintBar(); });
+    });
+  }
+  function startAnother() {
+    const t = curType();
+    resPrint.clear();
+    INT[t] = { sig: null, key: null };
+    if (t === "bunch") { F.bunch.rows.forEach((r) => (r.qty = 0)); F.bunch.created = true; }
+    else if (t === "bucket") F.bucket.qty = "";
+    else if (t === "staging") F.staging.text = "";
+    else { F[t].rows = F[t].rows.map((r) => Object.assign({}, r, { to: "" })); }
+    paintForm(); schedulePreview(0);
+  }
+  window.addEventListener("beforeunload", (e) => {
+    if (F.bunch.loaded && !F.bunch.created && bunchTotal() > 0) { e.preventDefault(); e.returnValue = ""; }
+  });
+
+  /* ════════════════ design drawer ════════════════ */
+  const getPath = (o, p) => p.split(".").reduce((c, k) => (c == null ? c : c[k]), o);
+  function setPath(o, p, v) { const ks = p.split("."); let c = o; for (let i = 0; i < ks.length - 1; i++) c = c[ks[i]]; c[ks[ks.length - 1]] = v; }
+  const EC = [["L", "Low", "7% damage tolerated - smallest code"], ["M", "Medium", "15% damage tolerated"], ["Q", "Quartile", "25% damage tolerated - the usual choice"], ["H", "High", "30% damage tolerated - biggest code"]];
+  const POS = [["left", "Text on the left"], ["right", "Text on the right"], ["top", "Text above"], ["bottom", "Text below"]];
+  let dz = null;
+  const FIELD = { code: "Code", number: "Number", variety: "Variety", bunch_size: "Bunch size", stem_length: "Stem length", farm: "Farm", farm_code: "Farm code", prefix: "Prefix", main: "Main code", row: "Row", pos: "Position", level: "Level" };
+  const fieldName = (f) => FIELD[f] || f.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+  /* a line's text is stored as "TROLLEY {number}"; the editor shows it as parts - field pills and typed text - so the braces never reach the user */
+  const partsOf = (text) => String(text || "").split(/(\{\w+\})/).filter((x) => x !== "");
+  const partsHtml = (text, fields) => partsOf(text).map((p) => { const m = /^\{(\w+)\}$/.exec(p); return m ? `<span class="ll-tok${fields.includes(m[1]) ? "" : " ll-tok--bad"}" data-f="${esc(m[1])}">${esc(fieldName(m[1]))}<button type="button" data-tokdel aria-label="Remove ${esc(fieldName(m[1]))}">×</button></span>` : `<input class="ll-lit" data-lit value="${esc(p)}" aria-label="Text" size="${Math.max(3, p.length)}">`; }).join("");
+  const textOfParts = (box) => [...box.children].map((c) => (c.dataset.f ? "{" + c.dataset.f + "}" : c.value || "")).join("");
+  function openDesigner() {
+    const t = curType();
+    if (dz) return;
+    dz = PH.modal({ title: tLabel(t) + " label design", sub: "Changes show in the preview straight away. Save them as a template to keep them.", drawer: true, size: "lg", body: "", onClose: () => { dz = null; paintCtl(); schedulePreview(0); } });
+    dzRender(); schedulePreview(0);
+    dz.body.addEventListener("input", dzInput);
+    dz.body.addEventListener("change", dzInput);
+    dz.body.addEventListener("click", dzClick);
+  }
+  const pills = (path, items, cur) => `<div class="ph-pills" data-pp="${path}" role="group">${items.map(([v, l]) => `<button type="button" data-value="${esc(v)}" class="${String(cur) === String(v) ? "is-on" : ""}">${esc(l)}</button>`).join("")}</div>`;
+  function dzRender() {
+    if (!dz) return;
+    const t = curType(), d = D[t].design, fields = boot.types[t].fields;
+    const presets = Object.entries(boot.presets).map(([k, v]) => [k, `${v.w} × ${v.h}`]);
+    const curPreset = Object.keys(boot.presets).find((k) => boot.presets[k].w === d.page.w && boot.presets[k].h === d.page.h) || "";
+    const scroll = dz.body.scrollTop;
+    dz.body.innerHTML = `
+      <div class="ll-dz"><div class="ll-dz__top"><div class="ll-pv"><div class="ll-pv__img" aria-live="polite"></div><div class="ll-pv__notes"></div><dl class="ll-facts ph-muted" hidden></dl></div></div>
+      <div class="ll-dz__main"><div id="dz-tpl"></div>
+      <h3 class="ph-section-title ll-h">Label size</h3>
+      ${pills("preset", presets, curPreset)}
+      <div class="ph-form ph-form--2 ll-mt">
+        <div class="ph-field"><label for="dz-w">Width (mm)</label><input class="ph-control" id="dz-w" type="number" min="15" max="400" step="0.5" data-p="page.w" value="${d.page.w}"></div>
+        <div class="ph-field"><label for="dz-h">Height (mm)</label><input class="ph-control" id="dz-h" type="number" min="10" max="400" step="0.5" data-p="page.h" value="${d.page.h}"></div>
+        <div class="ph-field"><label for="dz-m">Margin (mm)</label><input class="ph-control" id="dz-m" type="number" min="0" max="30" step="0.5" data-p="margin" value="${d.margin}"></div>
+      </div>
+      <h3 class="ph-section-title ll-h">QR code</h3>
+      <div class="ph-form ph-form--2">
+        <div class="ph-field"><label for="dz-q">QR size (mm)</label><input class="ph-control" id="dz-q" type="number" min="0" max="300" step="0.5" data-p="qr.size" value="${d.qr.size || ""}" placeholder="Auto"><div class="ph-field__hint">Leave empty to let the label decide.</div></div>
+        <div class="ph-field"><label>Error correction</label>${pills("qr.ec", EC.map((x) => [x[0], x[1]]), d.qr.ec)}<div class="ph-field__hint" id="dz-ec">${esc(EC.find((x) => x[0] === d.qr.ec)[2])}</div></div>
+      </div>
+      <h3 class="ph-section-title ll-h">Text beside the QR</h3>
+      <div class="ph-field"><label>Position of the text</label>${pills("layout.text_position", POS, d.layout.text_position)}</div>
+      <div class="ph-form ph-form--2 ll-mt">
+        <div class="ph-field"><label>Line up the text and QR</label>${pills("layout.align", [["start", "Start"], ["center", "Middle"], ["end", "End"]], d.layout.align)}</div>
+        <div class="ph-field"><label>Text alignment</label>${pills("layout.text_align", [["left", "Left"], ["center", "Centre"], ["right", "Right"]], d.layout.text_align)}</div>
+        <div class="ph-field"><label>Place the pair</label>${pills("layout.group", [["start", "Start"], ["center", "Centre"], ["end", "End"]], d.layout.group)}</div>
+        <div class="ph-field"><label for="dz-gap">Gap QR to text (mm)</label><input class="ph-control" id="dz-gap" type="number" min="0" max="50" step="0.5" data-p="layout.gap" value="${d.layout.gap}"></div>
+        <div class="ph-field"><label for="dz-lg">Space between lines</label><input class="ph-control" id="dz-lg" type="number" min="0" max="2" step="0.05" data-p="layout.line_gap" value="${d.layout.line_gap}"><div class="ph-field__hint">As a fraction of the text size.</div></div>
+        <div class="ph-field"><label for="dz-bp">Text size (pt)</label><input class="ph-control" id="dz-bp" type="number" min="0" max="300" step="0.5" data-p="base_pt" value="${d.base_pt || ""}" placeholder="Auto"><div class="ph-field__hint">Auto makes the text as big as fits. Type a size to fix it - it only shrinks if it cannot fit the label.</div></div>
+      </div>
+      <h3 class="ph-section-title ll-h">Text lines</h3>
+      <div id="dz-lines"></div>
+      <button type="button" class="ph-btn ph-btn--sm" data-addline${d.lines.length >= 8 ? " disabled" : ""}>${PH.icon("plus", 14)} Add a line</button>
+      <div class="ph-field__hint ll-mt">Add fields with the buttons under each line; the label fills them in for every code. Size "auto" fits the longest value across the whole batch, so every label lines up.</div></div></div>`;
+    dzTpl(); dzLines();
+    dz.body.scrollTop = scroll;
+    if (lastPrev) paintPrev(lastPrev);
+  }
+  function dzTpl() {
+    const t = curType(), d = D[t], el = PH.$("#dz-tpl", dz.body), cur = boot.templates.find((x) => x.name === d.name), list = tplList(t);
+    const isDirty = dirty(t);
+    el.innerHTML = `<div class="ll-tplbar">
+      <select class="ph-control" id="dz-sel" aria-label="Template">${list.map((x) => `<option value="${esc(x.name)}"${x.name === d.name ? " selected" : ""}>${esc(x.template_name)}${x.is_default ? " · default" : ""}</option>`).join("")}</select>
+      ${isDirty ? '<span class="ph-badge ph-badge--warn">Unsaved changes</span>' : '<span class="ph-badge ph-badge--good">Saved</span>'}</div>
+      <div class="ll-tplbar ll-mt">
+      <button class="ph-btn ph-btn--sm ph-btn--primary" type="button" data-t="save"${isDirty ? "" : " disabled"}>Save</button>
+      <button class="ph-btn ph-btn--sm" type="button" data-t="saveas">Save as new…</button>
+      <button class="ph-btn ph-btn--sm" type="button" data-t="default"${cur && cur.is_default ? " disabled" : ""}>Make default</button>
+      <button class="ph-btn ph-btn--sm ph-btn--ghost" type="button" data-t="reset"${isDirty ? "" : " disabled"}>Reset</button>
+      <button class="ph-btn ph-btn--sm ph-btn--danger" type="button" data-t="delete"${cur && cur.is_default ? ' disabled title="Make another template the default first"' : ""}>Delete</button></div>`;
+  }
+  function dzLines() {
+    const t = curType(), d = D[t].design, fields = boot.types[t].fields, el = PH.$("#dz-lines", dz.body);
+    el.innerHTML = d.lines.map((ln, i) => `<div class="ll-line" data-li="${i}">
+      <div class="ll-line__row"><div class="ll-parts" data-parts role="group" aria-label="Line ${i + 1}">${partsHtml(ln.text, fields) || '<span class="ph-muted">Empty - add a field</span>'}</div>
+        <button type="button" class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-lact="up" aria-label="Move line ${i + 1} up"${i === 0 ? " disabled" : ""}>↑</button>
+        <button type="button" class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-lact="down" aria-label="Move line ${i + 1} down"${i === d.lines.length - 1 ? " disabled" : ""}>↓</button>
+        <button type="button" class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-lact="del" aria-label="Remove line ${i + 1}">${PH.icon("trash", 14)}</button></div>
+      <div class="ll-add"><span class="ph-muted">Add</span>${fields.map((f) => `<button type="button" class="ph-badge ph-badge--outline ll-chip" data-chip="${esc(f)}" title="Add ${esc(fieldName(f))} to this line">+ ${esc(fieldName(f))}</button>`).join("")}<button type="button" class="ph-badge ph-badge--outline ll-chip" data-addtext title="Add your own text">+ Text</button></div>
+      <div class="ll-line__opts">
+        <label class="ll-num ph-muted">Size (pt) <input class="ph-table-input" type="number" min="0" max="200" step="0.5" data-lf="size" value="${ln.size || ""}" placeholder="Auto"></label>
+        <label class="ll-num ph-muted">Relative size <input class="ph-table-input" type="number" min="0.1" max="3" step="0.05" data-lf="scale" value="${ln.scale}"${ln.size > 0 ? " disabled" : ""}></label>
+        <label class="ph-check"><input type="checkbox" data-lc="bold"${ln.bold ? " checked" : ""}> Bold</label>
+        <label class="ph-check"><input type="checkbox" data-lc="upper"${ln.upper ? " checked" : ""}> UPPERCASE</label></div></div>`).join("") || '<div class="ph-muted ll-mt">No text - the QR prints on its own.</div>';
+  }
+  const dzChanged = () => { dzTplDirty(); schedulePreview(); };
+  function dzTplDirty() { const t = curType(), b = PH.$("#dz-tpl", dz.body); if (!b) return; const isD = dirty(t); const badge = b.querySelector(".ph-badge"); badge.className = "ph-badge ph-badge--" + (isD ? "warn" : "good"); badge.textContent = isD ? "Unsaved changes" : "Saved"; PH.$$("[data-t=save],[data-t=reset]", b).forEach((x) => (x.disabled = !isD)); }
+  function dzInput(e) {
+    const t = curType(), d = D[t].design, el = e.target;
+    if (el.id === "dz-sel" && e.type === "change") {
+      const tp = boot.templates.find((x) => x.name === el.value), go = () => { setTemplate(t, tp); dzRender(); schedulePreview(0); };
+      if (dirty(t)) PH.confirm("Discard design changes?", "You have unsaved changes to this template.", { ok: "Discard changes", danger: true }).then((ok) => (ok ? go() : dzTpl()));
+      else go();
+      return;
+    }
+    if (el.dataset.p && e.type === "input") {
+      const v = el.value === "" ? 0 : parseFloat(el.value);
+      if (!isNaN(v)) { setPath(d, el.dataset.p, v); const pr = PH.$$(".ph-pills[data-pp=preset] button", dz.body); const m = Object.keys(boot.presets).find((k) => boot.presets[k].w === d.page.w && boot.presets[k].h === d.page.h); pr.forEach((b) => b.classList.toggle("is-on", b.dataset.value === m)); dzChanged(); }
+      return;
+    }
+    const li = el.closest("[data-li]");
+    if (li) {
+      const ln = d.lines[+li.dataset.li];
+      if (el.matches("[data-lit]") && e.type === "input") { ln.text = textOfParts(li.querySelector("[data-parts]")); el.size = Math.max(3, el.value.length); dzChanged(); }
+      else if (el.dataset.lf && e.type === "input") {
+        { const v = el.value === "" ? 0 : parseFloat(el.value); if (!isNaN(v)) ln[el.dataset.lf] = v; if (el.dataset.lf === "size") li.querySelector('[data-lf="scale"]').disabled = ln.size > 0; }
+        dzChanged();
+      } else if (el.dataset.lc && e.type === "change") { ln[el.dataset.lc] = el.checked; dzChanged(); }
+    }
+  }
+  function dzClick(e) {
+    const t = curType(), d = D[t].design, el = e.target;
+    const pill = el.closest(".ph-pills[data-pp] button");
+    if (pill) {
+      const path = pill.parentElement.dataset.pp;
+      if (path === "preset") { const p = boot.presets[pill.dataset.value]; d.page.w = p.w; d.page.h = p.h; PH.$("#dz-w", dz.body).value = p.w; PH.$("#dz-h", dz.body).value = p.h; }
+      else { setPath(d, path, pill.dataset.value); if (path === "qr.ec") PH.$("#dz-ec", dz.body).textContent = EC.find((x) => x[0] === pill.dataset.value)[2]; }
+      PH.$$("button", pill.parentElement).forEach((b) => b.classList.toggle("is-on", b === pill));
+      return dzChanged();
+    }
+    if (el.closest("[data-addline]")) { if (d.lines.length < 8) { d.lines.push({ text: "{code}", scale: 1, bold: true, upper: false, size: 0 }); dzLines(); const btn = PH.$("[data-addline]", dz.body); if (d.lines.length >= 8) btn.disabled = true; dzChanged(); } return; }
+    const li = el.closest("[data-li]");
+    if (li) {
+      const i = +li.dataset.li, chip = el.closest("[data-chip]"), act = el.closest("[data-lact]");
+      const tokdel = el.closest("[data-tokdel]"), addtext = el.closest("[data-addtext]");
+      const redo = (focusLast) => { const box = li.querySelector("[data-parts]"); box.innerHTML = partsHtml(d.lines[i].text, boot.types[t].fields) || '<span class="ph-muted">Empty - add a field</span>'; if (focusLast) { const l = box.querySelector("[data-lit]:last-of-type"); if (l) l.focus(); } dzChanged(); };
+      if (chip) { d.lines[i].text += "{" + chip.dataset.chip + "}"; redo(); }
+      else if (addtext) { d.lines[i].text += " "; redo(true); }
+      else if (tokdel) { tokdel.parentElement.remove(); d.lines[i].text = textOfParts(li.querySelector("[data-parts]")); redo(); }
+      else if (act) {
+        const a = act.dataset.lact;
+        if (a === "del") d.lines.splice(i, 1);
+        else { const j = a === "up" ? i - 1 : i + 1; if (j >= 0 && j < d.lines.length) [d.lines[i], d.lines[j]] = [d.lines[j], d.lines[i]]; }
+        dzLines(); const btn = PH.$("[data-addline]", dz.body); btn.disabled = d.lines.length >= 8; dzChanged();
+      }
+      return;
+    }
+    const tb = el.closest("[data-t]");
+    if (tb) dzTplAction(tb.dataset.t);
+  }
+  function applyRows(rows) { boot.templates = rows; }
+  function dzTplAction(a) {
+    const t = curType(), d = D[t], cur = boot.templates.find((x) => x.name === d.name);
+    if (a === "reset") { d.design = JSON.parse(d.base); dzRender(); schedulePreview(0); }
+    else if (a === "save") call("save_template", { label_type: t, template_name: d.name, design: d.design }).then((rows) => { applyRows(rows); const tp = rows.find((x) => x.name === d.name); setTemplate(t, tp); PH.toast("Template saved", "good"); dzRender(); schedulePreview(0); });
+    else if (a === "default") call("save_template", { label_type: t, template_name: d.name, design: JSON.parse(d.base), is_default: 1 }).then((rows) => { applyRows(rows); PH.toast("Now the default for " + tLabel(t).toLowerCase() + " labels", "good"); dzTpl(); });
+    else if (a === "delete") PH.confirm("Delete " + (cur ? cur.template_name : d.name) + "?", "The template is removed. Batches already printed keep their own copy of the design.", { ok: "Delete", danger: true }).then((ok) => ok && call("delete_template", { name: d.name }).then((rows) => { applyRows(rows); const def = rows.find((x) => x.label_type === t && x.is_default) || rows.find((x) => x.label_type === t); setTemplate(t, def); PH.toast("Template deleted", "good"); dzRender(); schedulePreview(0); }));
+    else if (a === "saveas") {
+      const m = PH.modal({ title: "Save as a new template", body: `<div class="ph-field"><label for="tn">Template name</label><input class="ph-control" id="tn" maxlength="60" placeholder="e.g. Bunch 100×50" autocomplete="off"></div>`,
+        actions: [{ label: "Cancel" }, { label: "Save template", primary: true, onClick: async () => {
+          const name = m.body.querySelector("#tn").value.trim();
+          if (!name) { PH.toast("Give the template a name", "bad"); return false; }
+          const rows = await call("save_template", { label_type: t, template_name: name, design: d.design });
+          applyRows(rows); setTemplate(t, rows.find((x) => x.name === name)); PH.toast("Saved as " + name, "good"); dzRender(); schedulePreview(0);
+        } }] });
+      m.body.querySelector("#tn").addEventListener("keydown", (e) => { if (e.key === "Enter") m.el.querySelector(".ph-btn--primary").click(); });
+    }
+  }
+
+  /* ════════════════ reprint ════════════════ */
+  function rpSpec(t) {
+    const it = RP[t].items[0];
+    if (!it) return null;
+    const m = it.meta || {};
+    if (t === "bunch") { const rows = [{ farm: m.farm || "", variety: m.variety || "", bunch_size: m.bunch_size || "", stem_length: m.stem_length || "", qty: 1 }].filter((r) => r.variety && r.bunch_size && r.stem_length); return rows.length ? { rows } : bunchSample(); }
+    if (t === "shelf" || t === "sf_shelf") { const x = /^(?:([A-Z0-9]+)-)?([A-Z]+)(\d+)([A-Z])$/.exec(it.code.toUpperCase()); return x ? { rows: [{ prefix: x[1] || "X", row: x[2], from: +x[3], to: +x[3] }], levels: [x[4]] } : null; }
+    if (t === "trolley") { const x = /^([A-Z0-9]+)-TROLLEY-(\d+)$/.exec(it.code.toUpperCase()); return x ? { rows: [{ prefix: x[1], from: +x[2], to: +x[2] }] } : null; }
+    if (t === "staging") return { names: [it.code] };
+    return null;
+  }
+  const rpInput = PH.$("#rp-in");
+  function rpAdd(text) {
+    const t = curType(), r = RP[t];
+    text = (text == null ? rpInput.value : text).trim();
+    if (!text) return;
+    r.busy = true; PH.$("#rp-add").disabled = true;
+    return call("lookup", { label_type: t, text }).then((res) => {
+      if (t !== curType()) return;
+      const have = new Set(r.items.map((x) => x.code.toUpperCase()));
+      (res.items || []).forEach((x) => { if (!have.has(x.code.toUpperCase())) { r.items.push(x); have.add(x.code.toUpperCase()); } });
+      const more = (res.total || 0) - (res.items || []).length;
+      r.truncated = more > 0 ? more : 0;
+      r.missing = Array.from(new Set(r.missing.concat(res.missing || [])));
+      r.missingCount = (r.missingCount || 0) + Math.max(0, (res.missing_count || 0) - (res.missing || []).length);
+      r.sugg = res.suggestions || [];
+      if (res.items && res.items.length) rpInput.value = "";
+      rpPaint(); schedulePreview(0);
+    }).finally(() => { r.busy = false; PH.$("#rp-add").disabled = false; rpInput.focus(); });
+  }
+  function rpPaint() {
+    const t = curType(), r = RP[t];
+    PH.text("#tc-reprint", N(r.items.length)); PH.$("#tc-reprint").hidden = !r.items.length;
+    const sg = PH.$("#rp-sugg");
+    sg.hidden = !r.sugg.length || !!r.items.find((x) => x.code === r.sugg[0] && r.sugg.length === 1);
+    sg.innerHTML = r.sugg.length ? '<span class="ph-muted">Did you mean</span>' + r.sugg.map((s) => `<button type="button" class="ph-badge ph-badge--outline ll-chip" data-sugg="${esc(s)}">${esc(s)}</button>`).join("") : "";
+    PH.$("#rp-missing").innerHTML = r.missing.length ? `<div class="ph-notice ph-notice--warn ll-mt">${PH.icon("alert")}<span><b>Not found:</b> ${r.missing.slice(0, 8).map((x) => `<span class="ph-mono">${esc(x)}</span>`).join(", ")}${r.missing.length > 8 ? " …" : ""}. Check the code, or print it as a new label on the Print tab (shelves, trolleys and staging locations).</span></div>` : "";
+    const list = PH.$("#rp-list");
+    if (!r.items.length) { PH.empty(list, "No labels selected yet", "Scan the damaged label or type its code above.", "search"); }
+    else list.innerHTML = `<div class="ph-table-wrap ll-gridwrap"><table class="ph-table ph-table--compact"><thead><tr><th>Code</th><th>Status</th><th class="is-num">Printed</th><th>Last printed</th><th>Batch</th><th><span class="ll-sr">Remove</span></th></tr></thead><tbody>${r.items.map((x) => {
+      const legacy = x.source === "legacy";
+      const kind = x.status === "Voided" ? "bad" : x.status === "Reserved" ? "warn" : "good";
+      const word = legacy ? "Printed before this manager" : x.status === "Rendered" ? "Printed" : x.status === "Reserved" ? "Not printed yet" : x.status;
+      return `<tr><td class="ph-mono is-strong">${esc(x.code)}</td><td><span class="ph-badge ph-badge--${kind}">${esc(word)}</span></td><td class="is-num">${x.print_count == null ? "-" : N(x.print_count)}</td><td>${x.last_printed ? esc(PH.fmt.datetime(x.last_printed)) : "-"}</td><td class="ph-mono">${esc(x.batch || "-")}</td><td><button type="button" class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-rm="${esc(x.code)}" aria-label="Remove ${esc(x.code)}">${PH.icon("close", 14)}</button></td></tr>`;
+    }).join("")}</tbody></table></div>${r.truncated ? `<div class="ph-field__hint ll-mt">${N(r.truncated)} more matched; only the first ${N(r.items.length)} are listed and will print. Add the rest as a second range.</div>` : ""}
+      <div class="ll-mt"><button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-rpclear>Clear list</button></div>`;
+    const done = r.items.length > 0;
+    PH.$("#rp-steps").innerHTML = ["Find the code", "Check the preview", "Print"].map((s, i) => `<li class="${i === 0 ? (done ? "is-done" : "is-on") : i === 1 ? (done ? "is-on" : "") : ""}"><b>${i === 0 && done ? "✓" : i + 1}</b>${s}</li>`).join("");
+    rpBar();
+  }
+  const REASONS = ["Damaged", "Faded", "Lost", "Other"];
+  function rpBar() {
+    const t = curType(), r = RP[t], n = r.items.length, bar = PH.$("#rp-bar"), run = resReprint.running;
+    bar.innerHTML = `<div class="ll-bar__sum"><div class="ll-gap"><label class="ph-field" style="flex:0 0 160px"><span class="ph-label">Reason</span><select class="ph-control" id="rp-reason" aria-label="Reason">${REASONS.map((x) => `<option${x === r.reason ? " selected" : ""}>${x}</option>`).join("")}</select></label>${r.reason === "Other" ? `<label class="ph-field" style="flex:1 1 180px"><span class="ph-label">Note</span><input class="ph-control" id="rp-note" maxlength="120" value="${esc(r.note)}" placeholder="What happened?"></label>` : ""}</div></div>
+      <div class="ll-gap">${r.blob ? '<button class="ph-btn" id="rp-open" type="button">Open the last PDF again</button>' : ""}<button class="ph-btn ph-btn--primary" id="rp-go" type="button"${!n || r.busy || run || !boot.can_write ? " disabled" : ""}>${PH.icon("print", 16)} Print ${n ? N(n) + " " : ""}label${n === 1 ? "" : "s"}</button></div>`;
+  }
+  function rpClear() { const r = RP[curType()]; r.items = []; r.missing = []; r.sugg = []; r.truncated = 0; r.intent = { sig: null, key: null }; resReprint.clear(); rpPaint(); schedulePreview(0); rpInput.focus(); }
+  rpInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); rpAdd(); } });
+  rpInput.addEventListener("input", () => {
+    const v = rpInput.value.trim();
+    if (v.endsWith("}")) { try { JSON.parse(v); return rpAdd(v); } catch (e) { /* still typing */ } }
+    clearTimeout(rpInput.t);
+    if (v.length >= 2 && !/[\s,;]/.test(v)) rpInput.t = setTimeout(() => {
+      const t = curType();
+      call("lookup", { label_type: t, text: v }, { silent: true }).then((res) => { if (rpInput.value.trim() !== v) return; RP[t].sugg = res.items.length ? [] : res.suggestions || []; rpPaint(); }).catch(() => {});
+    }, 300);
+  });
+  PH.$("#rp-add").addEventListener("click", () => rpAdd());
+  PH.$("#view-reprint").addEventListener("click", (e) => {
+    const t = curType(), r = RP[t];
+    const sg = e.target.closest("[data-sugg]"); if (sg) { rpAdd(sg.dataset.sugg); return; }
+    const rm = e.target.closest("[data-rm]"); if (rm) { r.items = r.items.filter((x) => x.code !== rm.dataset.rm); rpPaint(); schedulePreview(0); return; }
+    if (e.target.closest("[data-rpclear]")) rpClear();
+    if (e.target.closest("#rp-open") && r.blob) window.open(r.blob, "_blank");
+    if (e.target.closest("#rp-go")) rpPrint();
+  });
+  PH.$("#view-reprint").addEventListener("change", (e) => { if (e.target.id === "rp-reason") { RP[curType()].reason = e.target.value; rpBar(); } });
+  PH.$("#view-reprint").addEventListener("input", (e) => { if (e.target.id === "rp-note") RP[curType()].note = e.target.value; });
+  function rpPrint() {
+    const t = curType(), r = RP[t];
+    if (!r.items.length || r.busy) return;
+    const go = () => {
+      const w = r.items.length <= boot.inline_reprint_max ? window.open("", "_blank") : null; // opened now, filled in when the PDF arrives, so popup blockers allow it
+      if (w) w.document.title = "Preparing labels…";
+      const codes = r.items.map((x) => x.code), reason = r.reason === "Other" ? ("Other: " + r.note).slice(0, 140) : r.reason;
+      const key = keyFor(r.intent, JSON.stringify([t, codes, reason]));
+      r.busy = true; rpBar();
+      call("reprint", { label_type: t, codes, design: D[t].design, layout: LAY[t], template: D[t].name, request_key: key, reason })
+        .then((res) => {
+          if (res.pdf) {
+            const bin = atob(res.pdf), buf = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+            if (r.blob) URL.revokeObjectURL(r.blob);
+            r.blob = URL.createObjectURL(new Blob([buf], { type: "application/pdf" }));
+            r.intent = { sig: null, key: null }; // printed: a deliberate second press is a new reprint, a retry after an error is not
+            if (w) w.location = r.blob; else window.open(r.blob, "_blank");
+            PH.toast(`${N(r.items.length)} label${r.items.length === 1 ? "" : "s"} ready to print`, "good");
+            resReprint.show(Object.assign({}, res.batch, { parts: [] }), "The PDF opened in a new tab. Print it at 100% / actual size. If it did not open, use 'Open the last PDF again'.");
+          } else { if (w) w.close(); resReprint.show(res.batch, res.batch.duplicate ? "This reprint was already submitted, so this is the existing batch." : ""); }
+        })
+        .catch(() => { if (w) w.close(); })
+        .finally(() => { r.busy = false; rpPaint(); });
+    };
+    if (r.items.length > 50) PH.confirm(`Reprint ${N(r.items.length)} labels?`, "The same codes are printed again. Nothing new is created.", { ok: "Reprint" }).then((ok) => ok && go());
+    else go();
+  }
+
+  /* ════════════════ history ════════════════ */
+  let hist = [], hseq = 0, htimer = null;
+  const hStatus = (b) => (b.stale && !TERMINAL.includes(b.status) ? ["warn", "Not progressing"] : (STATUS[b.status] || ["outline", b.status]).slice());
+  const tHist = PH.table("#t-history", { pageSize: 25, rows: [], empty: "No batches yet", emptyText: "Batches you print appear here.", sort: { key: "creation", dir: "desc" }, columns: [
+    { key: "name", label: "Batch", cls: "ph-mono is-strong" },
+    { key: "label_type", label: "Type", format: (v) => tLabel(v) },
+    { key: "kind", label: "Kind", html: (v) => `<span class="ph-badge ph-badge--${v === "Reprint" ? "signal" : "outline"}">${esc(v)}</span>` },
+    { key: "total", label: "Labels", num: true },
+    { key: "first_code", label: "Codes", sortable: false, html: (v, r) => `<span class="ph-mono">${esc(r.first_code || "")}${r.total > 1 ? " → " + esc(r.last_code || "") : ""}</span>` },
+    { key: "status", label: "Status", html: (v, r) => { const [k, w] = hStatus(r); return `<span class="ph-badge ph-badge--${k}">${esc(w)}</span>${!TERMINAL.includes(r.status) ? ` <span class="ph-muted">${N(r.rendered || 0)}/${N(r.total)}</span>` : ""}`; } },
+    { key: "owner", label: "By", format: (v) => (v || "").split("@")[0] },
+    { key: "creation", label: "When", format: (v) => PH.fmt.datetime(v) },
+    { key: "reason", label: "Reason", format: (v) => v || "" },
+    { key: "name", label: "", sortable: false, html: (v, r) => {
+      const a = [];
+      (r.parts || []).forEach((p, i) => a.push(`<a class="ph-btn ph-btn--sm" href="${esc(p.url)}" target="_blank" rel="noopener">${PH.icon("download", 12)} ${r.parts.length > 1 ? "Part " + (i + 1) : "PDF"}</a>`));
+      if (r.status === "Failed" || r.stale) a.push(`<button class="ph-btn ph-btn--sm ph-btn--primary" data-h="resume" data-n="${esc(r.name)}">Resume</button><button class="ph-btn ph-btn--sm ph-btn--danger" data-h="cancel" data-n="${esc(r.name)}">Cancel</button>`);
+      if (r.kind === "New" && ["bunch", "trolley"].includes(r.label_type) && r.status === "Done" && r.total > 0) a.push(`<button class="ph-btn ph-btn--sm ph-btn--ghost" data-h="range" data-n="${esc(r.name)}">Reprint range</button>`);
+      return `<div class="ll-hist-acts">${a.join("")}</div>`;
+    } },
+  ] });
+  function loadHistory(quiet) {
+    if (curTab() !== "history") return;
+    const my = ++hseq, t = curType(), all = st.get("all");
+    if (!quiet && !hist.length) PH.skeleton("#t-history", "rows", 6);
+    return call("batches", { label_type: all ? "" : t, limit: 100 }, { silent: true }).then((rows) => {
+      if (my !== hseq) return;
+      hist = rows; paintHistory();
+    }).catch((e) => { if (my !== hseq) return; PH.error("#t-history", e.message, () => loadHistory()); });
+  }
+  function paintHistory() {
+    const hs = st.get("hs"), rows = hist.filter((b) => !hs || (hs === "running" ? !TERMINAL.includes(b.status) : b.status === hs));
+    tHist.update(rows);
+    PH.text("#n-hist", N(rows.length));
+    PH.text("#hist-meta", (st.get("all") ? "All label types" : tLabel(curType()) + " batches") + " · every print and reprint, newest first");
+    clearTimeout(htimer);
+    if (hist.some((b) => !TERMINAL.includes(b.status)) && curTab() === "history") htimer = setTimeout(() => loadHistory(true), 3000);
+  }
+  PH.$("#t-history").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-h]");
+    if (!b) return;
+    const n = b.dataset.n, row = hist.find((x) => x.name === n);
+    if (b.dataset.h === "resume") { b.disabled = true; call("resume", { name: n }).then(() => { PH.toast("Resumed", "good"); loadHistory(true); }).catch(() => (b.disabled = false)); }
+    if (b.dataset.h === "cancel") PH.confirm("Cancel " + n + "?", "Codes in this batch that were never printed are voided and will not be reused.", { ok: "Cancel batch", danger: true }).then((ok) => ok && call("cancel", { name: n }).then(() => loadHistory(true)));
+    if (b.dataset.h === "range" && row) { st.set({ t: row.label_type, tab: "reprint" }); rpInput.value = row.first_code + (row.total > 1 ? ".." + row.last_code : ""); rpAdd(); }
+  });
+  PH.bindSelect("#h-status", st, "hs");
+  const hAll = PH.$("#h-all");
+  hAll.checked = !!st.get("all");
+  hAll.addEventListener("change", () => st.set({ all: hAll.checked }));
+
+  /* ════════════════ shell: tabs, type pills, boot ════════════════ */
+  PH.pills("#f-type", st, "t");
+  PH.$("#tabs").addEventListener("click", (e) => { const b = e.target.closest("[data-view]"); if (b) st.set({ tab: b.dataset.view }); });
+  function paintTabs() {
+    const v = curTab();
+    PH.$$("#tabs .ph-tab").forEach((b) => { b.classList.toggle("is-on", b.dataset.view === v); b.setAttribute("aria-selected", b.dataset.view === v); });
+    VIEWS.forEach((n) => { PH.$("#view-" + n).hidden = n !== v; });
+    PH.$("#f-type").parentElement.hidden = false;
+  }
+  function paintSub() {
+    const t = curType();
+    PH.text("#sub", { print: "Print new " + tLabel(t).toLowerCase() + " labels - codes are reserved once, so a retry can never duplicate", reprint: "Reprint a damaged " + tLabel(t).toLowerCase() + " label - the same code, never a new one", history: "Every batch and reprint, with resume for anything that stopped" }[curTab()]);
+  }
+  function paintAll(changed) {
+    paintTabs(); paintSub();
+    if (!boot) return;
+    const typeChanged = !changed || changed.includes("t");
+    if (typeChanged) { lastPrev = null; paintForm(); paintCtl(); rpPaint(); }
+    if (!changed || changed.includes("t") || changed.includes("tab")) { schedulePreview(0); }
+    if (curTab() === "history" && (!changed || changed.some((k) => ["t", "tab", "all"].includes(k)))) loadHistory();
+    else if (changed && changed.includes("hs")) paintHistory();
+    if (curTab() === "print") paintBar();
+    if (curTab() === "reprint") rpBar();
+  }
+  st.on((s, changed) => paintAll(changed));
+
+  PH.skeleton("#form", "rows", 5);
+  PH.onRefresh(() => { if (!boot) return; if (curTab() === "history") return loadHistory(); return runPreview(); });
+  PH.ready(() => {
+    paintTabs(); paintSub();
+    call("bootstrap").then((b) => {
+      boot = b;
+      TYPES.forEach(initDesign);
+      PH.markUpdated();
+      if (st.get("farm")) F.bunch.farm = st.get("farm");
+      paintAll();
+      if (F.bunch.farm && curType() === "bunch") loadBunch(F.bunch.farm);
+      // pick up a batch that was still running when the page was last closed
+      call("batches", { limit: 20 }, { silent: true }).then((rows) => {
+        const live = rows.find((x) => !TERMINAL.includes(x.status) && x.kind === "New") || rows.find((x) => !TERMINAL.includes(x.status));
+        if (live) { (live.kind === "Reprint" ? resReprint : resPrint).show(live, "Picked up a batch that was still running."); paintBar(); }
+      }).catch(() => {});
+    }).catch((e) => { PH.error("#form", e.message, () => location.reload()); });
+  });
+})();
+</script>
+{% endraw %}
+{% endblock %}
