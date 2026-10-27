@@ -57,7 +57,14 @@ TYPES = {
 		"kind": "fixed",
 		"legacy": "Shelf QR Code",
 		"fields": ["code", "prefix", "main", "row", "pos", "level"],
-		"sample": {"code": "KPK-D21M", "prefix": "KPK", "main": "D21M", "row": "D", "pos": "21", "level": "M"},
+		"sample": {
+			"code": "KPK-D21M",
+			"prefix": "KPK",
+			"main": "D21M",
+			"row": "D",
+			"pos": "21",
+			"level": "M",
+		},
 	},
 	"sf_shelf": {
 		"label": "Sea freight shelf",
@@ -101,7 +108,18 @@ def _line(text, scale=1.0, bold=True, upper=False, size=0):
 	return {"text": text, "scale": scale, "bold": bold, "upper": upper, "size": size}
 
 
-def _design(page, margin, qr_size, position, lines, gap=4.0, line_gap=0.3, text_align="left", align="center", group="center"):
+def _design(
+	page,
+	margin,
+	qr_size,
+	position,
+	lines,
+	gap=4.0,
+	line_gap=0.3,
+	text_align="left",
+	align="center",
+	group="center",
+):
 	return {
 		"page": {"w": page[0], "h": page[1]},
 		"margin": margin,

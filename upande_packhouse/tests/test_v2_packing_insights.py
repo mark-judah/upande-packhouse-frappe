@@ -4,6 +4,7 @@ The pure-function tests need no data. The *_site tests read the local site read-
 (nothing written or committed).
 """
 
+import unittest
 from datetime import datetime, timedelta
 
 import frappe
@@ -146,6 +147,13 @@ class TestHelpers(UnitTestCase):
 
 class TestSite(UnitTestCase):
 	"""Read-only against the local site."""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		# Unit tests run before before_tests adds the Business Unit dimension on a bare site.
+		if not frappe.db.has_column("Sales Order", "business_unit"):
+			raise unittest.SkipTest("Sales Order has no business_unit column on this site")
 
 	def test_insights_shape(self):
 		r = pi.get_packing_insights()

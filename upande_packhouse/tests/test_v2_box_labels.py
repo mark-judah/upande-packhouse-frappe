@@ -32,7 +32,9 @@ class TestBoxLabels(IntegrationTestCase):
 		o, first = self._first_order()
 		self.assertEqual(o["totals"]["boxes"], sum(r["boxes"] for r in o["orders"]))
 		by_customer = bl.orders(*self.wide, customer=first["customer"])
-		self.assertTrue(by_customer["orders"] and all(r["customer"] == first["customer"] for r in by_customer["orders"]))
+		self.assertTrue(
+			by_customer["orders"] and all(r["customer"] == first["customer"] for r in by_customer["orders"])
+		)
 		by_order = bl.orders(*self.wide, q=first["sales_order"])
 		self.assertIn(first["sales_order"], [r["sales_order"] for r in by_order["orders"]])
 		self.assertEqual(bl.orders(*self.wide, q="no-such-order-zzz")["orders"], [])
@@ -45,7 +47,10 @@ class TestBoxLabels(IntegrationTestCase):
 		again = next(r for r in bl.orders(*self.wide)["orders"] if r["sales_order"] == first["sales_order"])
 		self.assertEqual(again["printed"], first["printed"] + (0 if boxes[0]["printed"] else 1))
 		if first["boxes"] == 1:
-			self.assertNotIn(first["sales_order"], [r["sales_order"] for r in bl.orders(*self.wide, printed="todo")["orders"]])
+			self.assertNotIn(
+				first["sales_order"],
+				[r["sales_order"] for r in bl.orders(*self.wide, printed="todo")["orders"]],
+			)
 		bl.set_printed(names=[boxes[0]["name"]], printed=0)
 		self.assertIsNone(frappe.db.get_value("Box Label", boxes[0]["name"], "printed_at"))
 
@@ -54,7 +59,12 @@ class TestBoxLabels(IntegrationTestCase):
 		bl.set_printed(sales_order=first["sales_order"], printed=1)
 		row = next(r for r in bl.orders(*self.wide)["orders"] if r["sales_order"] == first["sales_order"])
 		self.assertEqual(row["printed"], row["boxes"])
-		self.assertEqual([r["sales_order"] for r in bl.orders(*self.wide, printed="done")["orders"]].count(first["sales_order"]), 1)
+		self.assertEqual(
+			[r["sales_order"] for r in bl.orders(*self.wide, printed="done")["orders"]].count(
+				first["sales_order"]
+			),
+			1,
+		)
 
 	def test_preview_uses_the_print_format_and_returns_pdf_and_pages(self):
 		o, first = self._first_order()

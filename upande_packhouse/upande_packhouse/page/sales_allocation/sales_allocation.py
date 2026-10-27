@@ -1462,6 +1462,42 @@ def _line_capacity(so_item):
 	return int(per_box or 10) * int(so_item.get("custom_number_of_boxes") or 1)
 
 
+def _box_pieces(so_item, line_rows, allocs):
+	"""Split `allocs` for one line into [(alloc, stems, box_id)], filling the line's
+	boxes in order from what `line_rows` (its rows already on the OPL) leave free --
+	the same rule the pick-list builders use (open_box_slots), so a top-up continues
+	the part-filled box instead of starting a new box per bucket."""
+	from upande_packhouse.server_scripts.create_mixed_box_picklist import (
+		open_box_slots,
+		placed_stems_by_box,
+	)
+
+	per_box = int(_line_capacity(so_item) / int(so_item.get("custom_number_of_boxes") or 1))
+	slots = open_box_slots(
+		placed_stems_by_box(line_rows), per_box, int(so_item.get("custom_number_of_boxes") or 1)
+	)
+	pieces = []
+	for alloc in allocs:
+		left = flt(alloc["qty"])
+		while left > 0.001:
+			if not slots:
+				frappe.throw(
+					_("Over-allocated for {0}: {1} stem(s) more than its boxes can hold.").format(
+						so_item.item_code, left
+					),
+					title=_("Overpacked"),
+				)
+			box_id, free = slots[0]
+			take = min(left, free)
+			pieces.append((alloc, take, box_id))
+			left -= take
+			if free - take > 0.001:
+				slots[0] = (box_id, free - take)
+			else:
+				slots.pop(0)
+	return pieces
+
+
 def _fit_allocations_to_boxes(so_doc, allocations):
 	"""Trim an allocation to the room left in each line's boxes, BEFORE anything is
 	written, so it can never fail at the end as "Overpacked".
@@ -1785,11 +1821,18 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 				"Please refresh and try again."
 			)
 
-		existing_so_items = {row.sales_order_item for row in bas.bucket_allocations if not row.cancelled}
+		# A top-up from a bucket the line already holds adds to that line's row.
+		outstanding = {
+			row.sales_order_item: row
+			for row in bas.bucket_allocations
+			if not row.cancelled and not row.issued
+		}
 		for a in group:
-			if a["sales_order_item"] in existing_so_items:
+			row = outstanding.get(a["sales_order_item"])
+			if row:
+				row.quantity_allocated = flt(row.quantity_allocated) + float(a["qty"])
 				continue
-			bas.append(
+			outstanding[a["sales_order_item"]] = bas.append(
 				"bucket_allocations",
 				{
 					"sales_order": sales_order,
@@ -1867,8 +1910,31 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 	for a in allocations:
 		a["_opl"] = target_opl or opl_by_soi.get(a["sales_order_item"])
 
+	# The sale leg moves what the line holds in the bucket less what is already
+	# sold, so a top-up from a bucket the line already holds passes the line's total.
+	held = {
+		(r.bucket_id, r.item_code, r.stem_length or "", r.sales_order_item): flt(r.qty)
+		for r in frappe.db.sql(
+			"""
+            SELECT bas.bucket_id, bas.item_code, bas.stem_length, ba.sales_order_item,
+                   SUM(ba.quantity_allocated) AS qty
+            FROM `tabBucket Allocations` ba
+            INNER JOIN `tabBucket Allocation Status` bas ON bas.name = ba.parent
+            WHERE ba.sales_order_item IN %(soi)s AND ba.cancelled = 0 AND ba.issued = 0
+            GROUP BY bas.bucket_id, bas.item_code, bas.stem_length, ba.sales_order_item
+        """,
+			{"soi": tuple({a["sales_order_item"] for a in allocations})},
+			as_dict=True,
+		)
+	}
+	sale_rows = {}
+	for a in allocations:
+		key = (a["bucket_id"], a["item_code"], a.get("stem_length") or "", a["sales_order_item"])
+		sale_rows.setdefault(key, {**a, "qty": held.get(key, a["qty"])})
+	sale_rows = list(sale_rows.values())
+
 	stock_moves = stock_movement.move_allocation_to_sold(
-		allocations,
+		sale_rows,
 		business_unit=stock_movement.business_unit_of(so_doc),
 		sales_order=sales_order,
 	)
@@ -2053,33 +2119,27 @@ def _append_rows_to_existing_opls(allocations, so_doc, location):
 			or 0
 		)
 
-		max_box_id = (
-			frappe.db.sql(
-				"SELECT COALESCE(MAX(custom_box_id), 0) FROM `tabPick List Item` WHERE parent = %s", opl_name
-			)[0][0]
-			or 0
-		)
-
 		alloc_bucket_ids = [a.get("bucket_id") for a in allocs if a.get("bucket_id")]
 		shelf_lookup = _fetch_shelf_for_buckets(alloc_bucket_ids, [a["item_code"] for a in allocs])
 
-		for alloc in allocs:
-			so_item_name = alloc["sales_order_item"]
+		pieces = []
+		for so_item_name in dict.fromkeys(a["sales_order_item"] for a in allocs):
 			so_item = next((i for i in so_doc.items if i.name == so_item_name), None)
 			if not so_item:
 				continue
-
-			existing = frappe.db.exists(
+			line_rows = frappe.get_all(
 				"Pick List Item",
-				{"parent": opl_name, "sales_order_item": so_item_name, "bucket": alloc.get("bucket_id")},
+				filters={"parent": opl_name, "sales_order_item": so_item_name},
+				fields=["bucket", "custom_box_id", "stock_qty"],
 			)
-			if existing:
-				continue
+			new = [a for a in allocs if a["sales_order_item"] == so_item_name]
+			pieces += [(so_item, *p) for p in _box_pieces(so_item, line_rows, new)]
 
+		for so_item, alloc, stems, box_id in pieces:
+			so_item_name = so_item.name
 			conv = so_item.conversion_factor or 1
-			qty_uom = alloc["qty"] / conv if conv > 0 else alloc["qty"]
+			qty_uom = stems / conv if conv > 0 else stems
 			max_idx += 1
-			max_box_id += 1
 
 			shelf_str = shelf_lookup.get((alloc.get("bucket_id"), alloc["item_code"]), "")
 			is_sales_shelf = alloc.get("_is_sales_shelf", 1)
@@ -2134,12 +2194,12 @@ def _append_rows_to_existing_opls(allocations, so_doc, location):
 					"stem_length": alloc.get("stem_length") or so_item.custom_length or "",
 					"truck": so_item.get("custom_truck") or "",
 					"qty": qty_uom,
-					"stock_qty": alloc["qty"],
+					"stock_qty": stems,
 					"packrate": so_item.get("custom_packrate") or "",
 					"uom": so_item.uom,
 					"conv": conv,
 					"stock_uom": so_item.stock_uom,
-					"box_id": max_box_id,
+					"box_id": box_id,
 					"sales_order": so_doc.name,
 					"downgrade_reason": alloc.get("downgrade_reason") or "",
 					"available_exact_stems": alloc.get("available_exact_stems") or 0,
@@ -2417,26 +2477,18 @@ def _update_existing_pick_list(
 	alloc_item_codes = [a["item_code"] for a in new_allocations]
 	shelf_lookup = _fetch_shelf_for_buckets(alloc_bucket_ids, alloc_item_codes)
 
-	box_id_counter = max([loc.custom_box_id or 0 for loc in opl.table_ytkc], default=0) + 1
-	affected_items = set()
-	has_awaiting_transfer = any(not a.get("_is_sales_shelf") for a in new_allocations)
-
-	for alloc in new_allocations:
-		so_item_name = alloc["sales_order_item"]
-		affected_items.add(so_item_name)
-
+	pieces = []
+	for so_item_name in dict.fromkeys(a["sales_order_item"] for a in new_allocations):
 		so_item = next((i for i in so_doc.items if i.name == so_item_name), None)
 		if not so_item:
 			continue
+		line_rows = [loc for loc in opl.table_ytkc if loc.sales_order_item == so_item_name]
+		new = [a for a in new_allocations if a["sales_order_item"] == so_item_name]
+		pieces += [(so_item, *p) for p in _box_pieces(so_item, line_rows, new)]
 
+	for so_item, alloc, stems, box_id in pieces:
 		conv = so_item.conversion_factor or 1
-		qty_uom = alloc["qty"] / conv if conv > 0 else alloc["qty"]
-
-		if any(
-			loc.bucket == alloc.get("bucket_id") and loc.sales_order_item == so_item_name
-			for loc in opl.table_ytkc
-		):
-			continue
+		qty_uom = stems / conv if conv > 0 else stems
 
 		shelf_str = shelf_lookup.get((alloc.get("bucket_id"), alloc["item_code"]), "")
 		is_sales_shelf = alloc.get("_is_sales_shelf", 1)
@@ -2446,18 +2498,18 @@ def _update_existing_pick_list(
 			{
 				"item_code": alloc["item_code"],
 				"bucket": alloc.get("bucket_id"),
-				"custom_sale_order_item": so_item_name,
+				"custom_sale_order_item": so_item.name,
 				"item_name": so_item.item_name,
 				"stock_uom": so_item.stock_uom,
 				"uom": so_item.uom,
 				"qty": qty_uom,
-				"stock_qty": alloc["qty"],
+				"stock_qty": stems,
 				"conversion_factor": conv,
 				"source_warehouse": _origin_warehouse(alloc.get("_shelf_farm"), alloc.get("warehouse")),
 				"origin_warehouse": _origin_warehouse(alloc.get("_shelf_farm"), alloc.get("warehouse")),
 				"sales_order_item": so_item.name,
 				"stem_length": alloc.get("stem_length") or so_item.custom_length,
-				"custom_box_id": box_id_counter,
+				"custom_box_id": box_id,
 				"shelf": shelf_str,
 				"farm": alloc.get("_shelf_farm") or "",
 				"downgrade_reason": alloc.get("downgrade_reason") or "",
@@ -2467,7 +2519,6 @@ def _update_existing_pick_list(
 				"custom_ready_for_packing": 1 if is_sales_shelf else 0,
 			},
 		)
-		box_id_counter += 1
 
 	total_stems = sum(loc.stock_qty for loc in opl.table_ytkc)
 	opl.custom_total_stems = total_stems
@@ -3776,8 +3827,8 @@ def get_substitute_varieties(
 def substitute_variety(sales_order: str | None, sales_order_item: str | None, new_item_code: str | None):
 	"""
 	Substitutes the variety on a Sales Order Item.
-	Updates item_code and item_name on the SO item row.
-	Only allowed if the item has no existing allocations.
+	Releases the old variety's buckets on this line, then updates item_code and
+	item_name on the SO item row. Refused once any of its buckets is issued.
 
 	Returns: { success: True/False, message: str }
 	"""
@@ -3805,37 +3856,55 @@ def substitute_variety(sales_order: str | None, sales_order_item: str | None, ne
 	if old_item_code == new_item_code:
 		return {"success": False, "message": "New variety is the same as current variety"}
 
-	# Check no existing allocations for this item
-	existing_alloc = (
-		frappe.db.sql(
-			"""
-        SELECT COALESCE(SUM(ba.quantity_allocated), 0) AS total
+	# A substitution REPLACES the line's variety. Whatever the old variety
+	# already has on this line is released first -- bucket by bucket, through
+	# the same unallocation the page's Unallocate button uses -- so the line
+	# never ends up carrying both varieties, and no other line on the order (or
+	# its pick list) is touched.
+	issued = frappe.db.sql(
+		"""
+        SELECT DISTINCT bas.bucket_id
         FROM `tabBucket Allocations` ba
         INNER JOIN `tabBucket Allocation Status` bas ON bas.name = ba.parent
-        WHERE ba.sales_order_item = %s AND ba.cancelled = 0
+        WHERE ba.sales_order_item = %s AND ba.cancelled = 0 AND ba.issued = 1
     """,
-			sales_order_item,
-		)[0][0]
-		or 0
+		sales_order_item,
 	)
-
-	if existing_alloc > 0:
+	if issued:
 		return {
 			"success": False,
-			"message": f"Cannot substitute: {int(existing_alloc)} stems already allocated. "
-			f"Unallocate first before substituting.",
+			"message": "Cannot substitute: bucket(s) {0} already issued for {1}.".format(
+				", ".join(r[0] for r in issued), old_item_name
+			),
 		}
 
-	# Check the item has an existing OPL — block if submitted
-	existing_opl = frappe.db.get_value("Sales Order Item", sales_order_item, "custom_opl")
-	if existing_opl:
-		opl_status = frappe.db.get_value("Order Pick List", existing_opl, "docstatus")
-		if opl_status == 1:
+	held = frappe.db.sql(
+		"""
+        SELECT bas.bucket_id, COALESCE(bas.stem_length, '') AS stem_length
+        FROM `tabBucket Allocations` ba
+        INNER JOIN `tabBucket Allocation Status` bas ON bas.name = ba.parent
+        WHERE ba.sales_order_item = %(soi)s AND ba.cancelled = 0
+        UNION
+        SELECT pli.bucket, COALESCE(pli.stem_length, '')
+        FROM `tabPick List Item` pli
+        INNER JOIN `tabOrder Pick List` opl ON opl.name = pli.parent
+        WHERE pli.parenttype = 'Order Pick List' AND opl.docstatus < 2
+          AND pli.sales_order_item = %(soi)s AND IFNULL(pli.bucket, '') <> ''
+    """,
+		{"soi": sales_order_item},
+		as_dict=True,
+	)
+	released = []
+	for h in held:
+		res = unallocate_bucket_from_opl(sales_order_item, h.bucket_id, h.stem_length) or {}
+		if not res.get("success"):
 			return {
 				"success": False,
-				"message": f"Cannot substitute: item is on submitted pick list {existing_opl}. "
-				f"Cancel or remove from pick list first.",
+				"message": "Cannot substitute: releasing bucket {0} failed ({1}). Released so far: {2}".format(
+					h.bucket_id, res.get("message"), ", ".join(released) or "none"
+				),
 			}
+		released.append(h.bucket_id)
 
 	# Fetch new item details
 	new_item = frappe.db.get_value(
@@ -3883,6 +3952,7 @@ def substitute_variety(sales_order: str | None, sales_order_item: str | None, ne
 			"old_item_code": old_item_code,
 			"new_item_code": new_item_code,
 			"new_item_name": new_item.item_name,
+			"released_buckets": released,
 		}
 
 	except Exception as e:

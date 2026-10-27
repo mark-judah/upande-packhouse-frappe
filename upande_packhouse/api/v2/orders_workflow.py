@@ -680,9 +680,7 @@ def get_orders_workflow(
 				continue
 			in_scope = [None]
 		# Picked on every pick list of the line: below the ordered stems it is allocated partially.
-		line_picked = sum(
-			cells[(o, ln.name)]["picked_stems"] for o in ln.opls if (o, ln.name) in cells
-		)
+		line_picked = sum(cells[(o, ln.name)]["picked_stems"] for o in ln.opls if (o, ln.name) in cells)
 		for i, o in enumerate(in_scope):
 			primary = i == 0
 			cell = cells.get((o, ln.name)) if o else None

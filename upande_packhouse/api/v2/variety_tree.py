@@ -204,7 +204,9 @@ def get_variety_tree(
 		status = (status or "all").lower()
 		gap = (gap or "").lower()
 		ql = (q or "").strip().lower()
-		has = lambda v: bool(v) and ql in str(v).lower()  # noqa: E731
+
+		def has(v):
+			return bool(v) and ql in str(v).lower()
 
 		out = []
 		k = {

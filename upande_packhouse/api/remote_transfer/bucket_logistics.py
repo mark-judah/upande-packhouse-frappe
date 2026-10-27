@@ -27,7 +27,7 @@ NOT_SCHEDULED = "Not scheduled"
 FARM_EXPR = "COALESCE(NULLIF(pli.farm, ''), NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''))"
 # Ready / issued keep a remote bucket in view after Kapkolia: issuing can clear
 # its shelved flag, and an order that reached Kapkolia must not drop off the page.
-TRANSFER = (
+_FLAGGED = (
 	"(pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1 OR pli.in_transit = 1 OR pli.shelved = 1"
 	" OR pli.not_found = 1 OR pli.custom_ready_for_packing = 1 OR pli.issued = 1)"
 )
@@ -51,6 +51,31 @@ REACHED_AWAITING = "(IFNULL(pli.awaiting_transfer, 0) = 1 OR " + _trolley + ")"
 
 # A bucket's identity on the pick list (case-insensitive; a row without a bucket counts alone).
 BKT = "COALESCE(NULLIF(UPPER(pli.bucket), ''), pli.name)"
+
+# Still waiting at its farm: on no trolley or truck, not shelved, not given up as not found.
+_WAITING = (
+	"(IFNULL(pli.awaiting_transfer, 0) = 1 AND NOT (" + _trolley + ") AND IFNULL(pli.not_found, 0) = 0)"
+)
+
+
+def transfer_cond():
+	"""The pick rows the page counts: ever flagged for transfer, less the waiting ones the
+	transfer planner drops too (transfer_scheduling._transfer_buckets) -- an order due
+	today or earlier (an ASAP replacement aside), or a bucket harvested again since it
+	was allocated."""
+	today = frappe.db.escape(frappe.utils.today())
+	return (
+		_FLAGGED
+		+ " AND NOT ("
+		+ _WAITING
+		+ " AND ((IFNULL(pli.transfer_priority, '') != 'ASAP' AND (SELECT s.delivery_date"
+		" FROM `tabOrder Pick List` o2 JOIN `tabSales Order` s ON s.name = o2.sales_order"
+		" WHERE o2.name = pli.parent) <= "
+		+ today
+		+ ") OR EXISTS (SELECT 1 FROM `tabStock Entry` se WHERE se.stock_entry_type = 'Harvesting'"
+		" AND se.docstatus = 1 AND se.custom_bucket_id = pli.bucket AND se.posting_date >= DATE(pli.creation)"
+		" AND TIMESTAMP(se.posting_date, se.posting_time) > pli.creation)))"
+	)
 
 
 def no_trip_section(order):
@@ -100,7 +125,7 @@ def getBucketLogistics():
 		"opl.docstatus < 2",
 		"pli.parenttype = 'Order Pick List'",
 		date_cond,
-		TRANSFER,
+		transfer_cond(),
 		NOT_HUB,
 	]
 	if fd.get("farm"):
@@ -245,7 +270,10 @@ def getBucketLogistics():
         """,
 			{
 				"opls": tuple(r["opl"] for r in rows),
-				"since": frappe.utils.add_days(frappe.utils.today(), -TRIP_LOOKBACK_DAYS),
+				# Before the orders' delivery date: an earlier day's page still finds its trips.
+				"since": frappe.utils.add_days(
+					min(str(frappe.utils.today()), str(delivery_date)), -TRIP_LOOKBACK_DAYS
+				),
 			},
 			as_dict=True,
 		):
@@ -325,7 +353,7 @@ def getBucketLogistics():
 			    GROUP_CONCAT(DISTINCT pli.item_code ORDER BY pli.item_code SEPARATOR ', ') AS varieties
 			FROM `tabPick List Item` pli
 			WHERE pli.parent IN %(opls)s AND pli.parenttype = 'Order Pick List' AND """
-			+ TRANSFER
+			+ transfer_cond()
 			+ " AND "
 			+ NOT_HUB
 			+ """
@@ -484,7 +512,7 @@ def getBucketLogistics():
           AND """
 		+ date_cond
 		+ """ AND """
-		+ TRANSFER
+		+ transfer_cond()
 		+ """
         ORDER BY 1
     """,
@@ -574,7 +602,7 @@ def getBucketLogistics():
 			+ """ END) AS not_found
 			FROM `tabPick List Item` pli
 			WHERE pli.parent IN %(opls)s AND pli.parenttype = 'Order Pick List' AND """
-			+ TRANSFER
+			+ transfer_cond()
 			+ " AND "
 			+ NOT_HUB,
 			{"opls": tuple(r["opl"] for r in rows), "hub": hub, "sales_farms": params["sales_farms"]},
@@ -954,7 +982,9 @@ def getBucketLogisticsDetail():
                    OR ((pli.custom_ready_for_packing = 1 OR pli.issued = 1)
                        AND COALESCE("""
 			+ FARM_EXPR
-			+ """, '') != %(hub)s))"""
+			+ """, '') != %(hub)s))
+              AND """
+			+ transfer_cond()
 			+ extra
 			+ """
             -- One row per bucket (the pick list keeps a row per box); a bucket holding

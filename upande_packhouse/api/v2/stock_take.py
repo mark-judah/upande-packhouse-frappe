@@ -102,7 +102,9 @@ AGE_BANDS = (("0 d", 0, 1), ("1 d", 1, 2), ("2 d", 2, 3), ("3-4 d", 3, 5), ("5-6
 
 
 def _args(kw):
-	g = lambda k, d="": kw.get(k) if kw.get(k) is not None else d  # noqa: E731
+	def g(k, d=""):
+		return kw.get(k) if kw.get(k) is not None else d
+
 	return {
 		"from_date": g("from_date") or None,
 		"to_date": g("to_date") or None,
@@ -881,7 +883,10 @@ def get_stock_take(**kw):
 	why_not_expected = roll(not_expected, "system_says")
 
 	not_located.sort(key=lambda r: (-(r["age_days"] or 0), r["bucket"]))
-	cap = lambda rows: rows[:ROW_LIMIT]  # noqa: E731
+
+	def cap(rows):
+		return rows[:ROW_LIMIT]
+
 	return {
 		"success": True,
 		"reconciliation": rec,

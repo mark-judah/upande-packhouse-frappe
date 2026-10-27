@@ -41,7 +41,7 @@ def existing_names(doctype, names):
 	"""Which of `names` already exist as `doctype` records."""
 	found = set()
 	for part in _chunks(names):
-		found.update(frappe.db.sql_list(f"select name from `tab{doctype}` where name in %(n)s", {"n": part}))  # noqa: S608
+		found.update(frappe.db.sql_list(f"select name from `tab{doctype}` where name in %(n)s", {"n": part}))
 	return found
 
 
@@ -85,7 +85,7 @@ def take_bunch_numbers(n):
 			"Label Code", [f"bunch:{x}" for x in names]
 		)
 		used = {u.replace("bunch:", "") for u in used}
-		nums += [c for c, nm in zip(cand, names) if nm not in used]
+		nums += [c for c, nm in zip(cand, names, strict=False) if nm not in used]
 		cur += want
 	_sequence_store("bunch_counter", cur)
 	return nums
@@ -97,16 +97,20 @@ def _bunch_items(spec):
 		frappe.throw(_("Enter a quantity on at least one row."))
 	total = sum(cint(r["qty"]) for r in rows)
 	if total > MAX_BATCH:
-		frappe.throw(_("A batch is limited to {0} labels; this one has {1}.").format(f"{MAX_BATCH:,}", f"{total:,}"))
+		frappe.throw(
+			_("A batch is limited to {0} labels; this one has {1}.").format(f"{MAX_BATCH:,}", f"{total:,}")
+		)
 
 	farms = sorted({r.get("farm") for r in rows})
-	codes = dict(frappe.db.get_all("Farm", filters={"name": ["in", farms]}, fields=["name", "farm_code"], as_list=True))
+	codes = dict(
+		frappe.db.get_all("Farm", filters={"name": ["in", farms]}, fields=["name", "farm_code"], as_list=True)
+	)
 	missing = [f for f in farms if not codes.get(f)]
 	if missing:
 		frappe.throw(
-			_("These farms have no Farm Code on their Farm record: {0}. Set it there first - nothing was reserved.").format(
-				", ".join(frappe.bold(m) for m in missing)
-			)
+			_(
+				"These farms have no Farm Code on their Farm record: {0}. Set it there first - nothing was reserved."
+			).format(", ".join(frappe.bold(m) for m in missing))
 		)
 	for dt, key in (("Item", "variety"), ("UOM", "bunch_size"), ("Stem Length", "stem_length")):
 		wanted = {r.get(key) for r in rows}
@@ -150,7 +154,9 @@ def _bucket_items(spec):
 		taken = set()
 		for dt in ("Bucket QR Code", "Bunch QR Code", "Box Label"):
 			taken |= {t.upper() for t in existing_names(dt, cand)}
-		taken |= {t.split(":", 1)[1].upper() for t in existing_names("Label Code", [f"bucket:{c}" for c in cand])}
+		taken |= {
+			t.split(":", 1)[1].upper() for t in existing_names("Label Code", [f"bucket:{c}" for c in cand])
+		}
 		codes += [c for c in cand if c not in taken][:need]
 	if len(codes) < n:
 		frappe.throw(_("Could not find enough free bucket codes. Try again."))
@@ -192,7 +198,14 @@ def _shelf_items(spec, label_type):
 				items.append(
 					{
 						"code": code,
-						"meta": {"prefix": prefix, "main": f"{row}{pos}{lv}", "row": row, "pos": str(pos), "level": lv, "row_id": f"{prefix}-{row}"},
+						"meta": {
+							"prefix": prefix,
+							"main": f"{row}{pos}{lv}",
+							"row": row,
+							"pos": str(pos),
+							"level": lv,
+							"row_id": f"{prefix}-{row}",
+						},
 						"new": True,
 					}
 				)
@@ -270,7 +283,18 @@ def persist(label_type, items, batch, owner):
 		it["seq"] = seq
 	for it in fresh:
 		values.append(
-			[refs[it["code"]], refs[it["code"]], label_type, it["code"], "Reserved", batch, it["seq"], 0, json.dumps(it["meta"], separators=(",", ":")), *std.values()]
+			[
+				refs[it["code"]],
+				refs[it["code"]],
+				label_type,
+				it["code"],
+				"Reserved",
+				batch,
+				it["seq"],
+				0,
+				json.dumps(it["meta"], separators=(",", ":")),
+				*std.values(),
+			]
 		)
 	if values:
 		frappe.db.bulk_insert("Label Code", fields=fields, values=values, ignore_duplicates=False)
@@ -288,11 +312,26 @@ def _persist_legacy(label_type, legacy, items, std):
 		return
 	if label_type == "bunch":
 		f = ["name", "id", "item_code", "bunch_size", "stem_length", "farm", "farm_code", *std]
-		v = [[i["code"], i["code"], i["meta"]["variety"], i["meta"]["bunch_size"], i["meta"]["stem_length"], i["meta"]["farm"], i["meta"]["farm_code"], *std.values()] for i in missing]
+		v = [
+			[
+				i["code"],
+				i["code"],
+				i["meta"]["variety"],
+				i["meta"]["bunch_size"],
+				i["meta"]["stem_length"],
+				i["meta"]["farm"],
+				i["meta"]["farm_code"],
+				*std.values(),
+			]
+			for i in missing
+		]
 	elif label_type == "bucket":
 		f = ["name", "id", "status", *std]
 		v = [[i["code"], i["code"], "Available", *std.values()] for i in missing]
 	else:  # shelf / sf_shelf
 		f = ["name", "shelf_id", "row_id", "position", *std]
-		v = [[i["code"], i["code"], i["meta"]["row_id"], cint(i["meta"]["pos"]), *std.values()] for i in missing]
+		v = [
+			[i["code"], i["code"], i["meta"]["row_id"], cint(i["meta"]["pos"]), *std.values()]
+			for i in missing
+		]
 	frappe.db.bulk_insert(legacy, fields=f, values=v, ignore_duplicates=False)

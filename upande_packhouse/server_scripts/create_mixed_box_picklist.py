@@ -7,71 +7,6 @@ from frappe.utils import nowdate
 from upande_packhouse.packing_guide import sync_packing_guide
 
 
-def insufficient_allocation_message(
-	item_code, stem_length, allocations, allocated, needed, stems_per_box, num_boxes, so_item_name=None
-):
-	"""The error for a line the allocation cannot fill, saying where the stems came
-	from and where any are still free -- per farm and cold store -- so the planner
-	can see which store is short instead of only two totals."""
-	from frappe.utils import escape_html as esc
-	from frappe.utils import fmt_money
-
-	def n(x):
-		return fmt_money(x, precision=0)
-
-	label = esc(" ".join(p for p in (item_code, stem_length or "") if p))
-	lines = [
-		_(
-			"Not enough stems allocated for <b>{0}</b>{1}: {2} of {3} needed ({4} boxes × {5} stems), short by {6}."
-		).format(
-			label,
-			" ({0})".format(esc(so_item_name)) if so_item_name else "",
-			n(allocated),
-			n(needed),
-			int(num_boxes),
-			int(stems_per_box),
-			n(needed - allocated),
-		)
-	]
-	by_wh = {}
-	for a in allocations or []:
-		wh = a.get("warehouse") or a.get("s_warehouse") or _("unknown store")
-		qty, buckets = by_wh.get(wh, (0, 0))
-		by_wh[wh] = (qty + (a.get("qty") or 0), buckets + 1)
-	if by_wh:
-		lines.append("<br><b>{0}</b>".format(_("Allocated from:")))
-		lines += [
-			"• {0}: {1} ({2} bucket{3})".format(esc(wh), n(q), b, "" if b == 1 else "s")
-			for wh, (q, b) in sorted(by_wh.items(), key=lambda kv: -kv[1][0])
-		]
-	free = frappe.db.sql(
-		"""
-		SELECT s.farm, si.warehouse,
-		       SUM(si.stem_qty - COALESCE((
-		           SELECT SUM(b.allocated_quantity) FROM `tabBucket Allocation Status` b
-		           WHERE b.bucket_id = si.bucket_id AND b.item_code = si.variety
-		             AND COALESCE(b.stem_length, '') = COALESCE(si.stem_length, '')), 0)) AS free_stems
-		FROM `tabShelf Item` si
-		JOIN `tabShelf` s ON s.name = si.parent
-		WHERE si.variety = %(item)s AND (%(length)s = '' OR si.stem_length = %(length)s)
-		GROUP BY s.farm, si.warehouse
-		HAVING free_stems > 0
-		ORDER BY free_stems DESC
-		""",
-		{"item": item_code, "length": stem_length or ""},
-		as_dict=True,
-	)
-	lines.append("<br><b>{0}</b>".format(_("Still free on shelves:")))
-	if free:
-		lines += [
-			"• {0} · {1}: {2}".format(esc(r.farm or "?"), esc(r.warehouse or "?"), n(r.free_stems))
-			for r in free
-		]
-	else:
-		lines.append(_("none — no farm or cold store has unallocated {0}.").format(label))
-	return "<br>".join(lines)
-
-
 def _get_shelf_farm_for_location(location):
 	"""
 	Derive the sales-shelf farm for a given location name
@@ -553,46 +488,9 @@ def _generate_box_locations(
 	# Remaining need, net of whatever earlier allocation calls already placed
 	# into this line's boxes on this OPL.
 	box_slots = open_box_slots(placed_by_box, stems_per_box, num_boxes, start_box_num)
-	total_stems_needed = sum(free for _box, free in box_slots)
-	total_allocated = sum(a["qty"] for a in allocations_list)
-
-	# If confirmed_qty is set, use it as the target instead of full order
-	# This handles partial confirmations where a location only manages a portion
-	if confirmed_qty > 0 and confirmed_qty < total_stems_needed:
-		# Partial confirmation — don't validate against full box count
-		# Instead, create rows per bucket without the box-splitting logic
-		# since the location may not fill complete boxes
-		total_stems_needed = confirmed_qty
-
-	if total_allocated < total_stems_needed - 0.001:
-		frappe.log_error(
-			title="Box Location - Allocation Check",
-			message=f"Item: {item_code}, Allocated: {total_allocated}, "
-			f"Needed: {total_stems_needed}, Confirmed: {confirmed_qty}, "
-			f"Already placed: {already_stems}, Full order: {stems_per_box * num_boxes}",
-		)
-		# For partial confirmations, allow the allocation if it matches what was allocated
-		# (the validation already happened in allocate_stock_with_buckets)
-		if confirmed_qty > 0:
-			total_stems_needed = total_allocated
-		else:
-			frappe.throw(
-				insufficient_allocation_message(
-					item_code,
-					so_item.get("custom_length") or alloc.get("stem_length"),
-					allocations_list,
-					total_allocated,
-					total_stems_needed,
-					stems_per_box,
-					num_boxes,
-					sales_order_item_name,
-				),
-				title=_("Insufficient allocation"),
-			)
-
-	# Determine if we should do box-level splitting or flat rows
-	# Box splitting only makes sense when we have enough stems for complete boxes
-	use_box_splitting = total_allocated >= stems_per_box and confirmed_qty == 0
+	# Box splitting whenever the line is filled against its boxes; flat rows only
+	# for a location's partial confirmation.
+	use_box_splitting = confirmed_qty == 0
 
 	if use_box_splitting:
 		# Original box-splitting logic for full allocations
@@ -706,7 +604,8 @@ def _generate_box_locations_with_splitting(
 	shelf_farm,
 	item_code,
 ):
-	"""Original box-splitting logic for full allocations. `box_slots` is the
+	"""Fill `box_slots` in order from the allocated buckets. A partial allocation
+	leaves its last box part-filled and the boxes after it empty. `box_slots` is the
 	[(box_num, free_stems)] still to fill (see open_box_slots) -- the caller has
 	already netted off whatever earlier calls filled."""
 	locations = []
@@ -740,9 +639,6 @@ def _generate_box_locations_with_splitting(
 			)
 			stems_needed -= take
 			current_bucket_remaining -= take
-
-		if stems_needed > 0:
-			frappe.throw(f"Cannot fill box {box_num} for {item_code}: missing {stems_needed} stems.")
 
 		for contrib in contributions:
 			bucket_id = contrib["bucket_id"]

@@ -48,9 +48,8 @@ from frappe import _
 from frappe.utils import add_days, cint, flt, get_datetime, getdate, now_datetime, today
 
 from upande_packhouse.api.v2 import stock_visibility as sv
-from upande_packhouse.api.v2.core import pipeline
+from upande_packhouse.api.v2.core import pipeline, stock
 from upande_packhouse.api.v2.core import region as region_core
-from upande_packhouse.api.v2.core import stock
 from upande_packhouse.api.v2.core.rose import rose_sql, rose_type
 
 COLDROOM_DAYS = 5
@@ -60,18 +59,78 @@ TRANSIT_DAYS = 5
 
 # key: (label, group, why, who acts)
 STATE_META = {
-	"sellable": ("Sellable now", "sellable", "On a shelf, free, fresh enough and cooled.", "Sales: confirm it"),
-	"cooling": ("Still cooling", "soon", "On a shelf but inside the farm's cooling hours.", "Nobody - it frees up by itself"),
-	"coldroom": ("Coldroom floor, not shelved", "soon", "Received but not on a shelf yet, so allocation cannot see it.", "Cold room: shelve the bucket"),
-	"awaiting": ("Harvested, not yet received", "soon", "Cut recently and on its way to be booked in.", "Receiving: book it in"),
-	"committed_live": ("Allocated to a live order", "committed", "Promised to an order that is still going out.", "-"),
-	"committed_transit": ("On the move for an order", "committed", "Allocated and on a trolley or truck to the packhouse.", "-"),
-	"reclaimable": ("Allocated, but stale", "committed", "Held by an order that is cancelled, delivered or past its delivery date.", "Sales: release it in Sales Allocation"),
-	"discard": ("On a discard request", "withheld", "The whole bucket is queued for discard, so allocation refuses it.", "Quality: discard it, or reject the request"),
-	"quarantine": ("In quarantine", "withheld", "Held pending a quality decision; it is not on any shelf.", "Quality: accept or reject the batch"),
-	"too_old": ("Too old to allocate", "withheld", "Older than the farm's maximum allocation age.", "Sales: sell as a downgrade; Quality: discard"),
-	"unreceived": ("Harvested, never received", "withheld", "Harvested more than 36 hours ago and never booked in.", "Receiving: book it in or find the bucket"),
-	"farm_disabled": ("Farm not enabled for sales", "withheld", "On a shelf at a farm that Production Settings does not enable.", "Admin: enable the farm in Shelf Locations"),
+	"sellable": (
+		"Sellable now",
+		"sellable",
+		"On a shelf, free, fresh enough and cooled.",
+		"Sales: confirm it",
+	),
+	"cooling": (
+		"Still cooling",
+		"soon",
+		"On a shelf but inside the farm's cooling hours.",
+		"Nobody - it frees up by itself",
+	),
+	"coldroom": (
+		"Coldroom floor, not shelved",
+		"soon",
+		"Received but not on a shelf yet, so allocation cannot see it.",
+		"Cold room: shelve the bucket",
+	),
+	"awaiting": (
+		"Harvested, not yet received",
+		"soon",
+		"Cut recently and on its way to be booked in.",
+		"Receiving: book it in",
+	),
+	"committed_live": (
+		"Allocated to a live order",
+		"committed",
+		"Promised to an order that is still going out.",
+		"-",
+	),
+	"committed_transit": (
+		"On the move for an order",
+		"committed",
+		"Allocated and on a trolley or truck to the packhouse.",
+		"-",
+	),
+	"reclaimable": (
+		"Allocated, but stale",
+		"committed",
+		"Held by an order that is cancelled, delivered or past its delivery date.",
+		"Sales: release it in Sales Allocation",
+	),
+	"discard": (
+		"On a discard request",
+		"withheld",
+		"The whole bucket is queued for discard, so allocation refuses it.",
+		"Quality: discard it, or reject the request",
+	),
+	"quarantine": (
+		"In quarantine",
+		"withheld",
+		"Held pending a quality decision; it is not on any shelf.",
+		"Quality: accept or reject the batch",
+	),
+	"too_old": (
+		"Too old to allocate",
+		"withheld",
+		"Older than the farm's maximum allocation age.",
+		"Sales: sell as a downgrade; Quality: discard",
+	),
+	"unreceived": (
+		"Harvested, never received",
+		"withheld",
+		"Harvested more than 36 hours ago and never booked in.",
+		"Receiving: book it in or find the bucket",
+	),
+	"farm_disabled": (
+		"Farm not enabled for sales",
+		"withheld",
+		"On a shelf at a farm that Production Settings does not enable.",
+		"Admin: enable the farm in Shelf Locations",
+	),
 }
 STATE_ORDER = list(STATE_META)
 PHYSICAL = tuple(s for s in STATE_ORDER)  # every state is stems that exist
@@ -136,7 +195,13 @@ def classify_shelf_row(r, *, held_by, farm_cfg, farm_known, stale_qty, now=None)
 		ready = None
 		if after == "cooling" and r.get("date_added") is not None and farm_cfg.get("cooling_hours"):
 			ready = get_datetime(r["date_added"]) + timedelta(hours=farm_cfg["cooling_hours"])
-		out.append(("reclaimable", stale, {"after": after, "ready_at": ready, "remote": not farm_cfg.get("sales_shelf")}))
+		out.append(
+			(
+				"reclaimable",
+				stale,
+				{"after": after, "ready_at": ready, "remote": not farm_cfg.get("sales_shelf")},
+			)
+		)
 	if alloc - stale > 0:
 		out.append(("committed_live", alloc - stale, {}))
 	free = r["stems"] - alloc
@@ -455,16 +520,22 @@ def collect(a):
 		key = (_up(r.bucket_id), r.variety, r.stem_length or "")
 		stale = sum(x.qty for x in by_key.get(key, []) if x.reason in RECLAIM_REASONS)
 		hb = held.get(r.bucket_id)
-		for state, stems, extra in classify_shelf_row(r, held_by=hb, farm_cfg=fc, farm_known=known, stale_qty=stale, now=now):
+		for state, stems, extra in classify_shelf_row(
+			r, held_by=hb, farm_cfg=fc, farm_known=known, stale_qty=stale, now=now
+		):
 			detail = ""
 			if state == "discard" and hb:
 				detail = f"On {hb['name']} ({hb['state']})"
 			elif state == "too_old":
-				detail = f"{r.age_days} days old; the limit at {farm} is {fc.get('max_allocation_age', 5)} days"
+				detail = (
+					f"{r.age_days} days old; the limit at {farm} is {fc.get('max_allocation_age', 5)} days"
+				)
 			elif state == "farm_disabled":
 				detail = f"{farm} is not enabled in Production Settings"
 			elif state == "reclaimable":
-				why = sorted({STALE_LABEL[x.reason] for x in by_key.get(key, []) if x.reason in RECLAIM_REASONS})
+				why = sorted(
+					{STALE_LABEL[x.reason] for x in by_key.get(key, []) if x.reason in RECLAIM_REASONS}
+				)
 				detail = "; ".join(why)
 			elif state == "committed_live":
 				ords = sorted({x.sales_order for x in by_key.get(key, []) if x.sales_order})
@@ -476,12 +547,22 @@ def collect(a):
 				r,
 				stems,
 				since=r.date_added,
-				ref=extra.get("ref") and extra["ref"]["name"] if isinstance(extra.get("ref"), dict) else extra.get("ref"),
+				ref=extra.get("ref") and extra["ref"]["name"]
+				if isinstance(extra.get("ref"), dict)
+				else extra.get("ref"),
 				detail=detail,
 				ready_at=extra.get("ready_at"),
 				remote=extra.get("remote", False),
 				after=extra.get("after"),
-				from_orders=sorted({x.sales_order for x in by_key.get(key, []) if x.reason in RECLAIM_REASONS and x.sales_order}) if state == "reclaimable" else None,
+				from_orders=sorted(
+					{
+						x.sales_order
+						for x in by_key.get(key, [])
+						if x.reason in RECLAIM_REASONS and x.sales_order
+					}
+				)
+				if state == "reclaimable"
+				else None,
 			)
 
 	# stale allocations whose bucket is on no shelf: they hold no stems, but the order still
@@ -489,7 +570,11 @@ def collect(a):
 	for al in allocs:
 		if al.key in shelf_keys or al.reason not in RECLAIM_REASONS:
 			continue
-		if not (sv._qmatch(a.q, al.variety) and (not a.lengths or _ln(al.length) in a.lengths) and _farm_ok(a, al.farm)):
+		if not (
+			sv._qmatch(a.q, al.variety)
+			and (not a.lengths or _ln(al.length) in a.lengths)
+			and _farm_ok(a, al.farm)
+		):
 			continue
 		add(
 			"reclaimable",
@@ -513,21 +598,56 @@ def collect(a):
 
 	for r in _coldroom_rows(a):
 		if keep(r):
-			add("coldroom", r, _f(r.stems), since=r.since, ref=r.ref, detail=f"Received at {r.farm or 'Unknown'}, not on a shelf yet")
+			add(
+				"coldroom",
+				r,
+				_f(r.stems),
+				since=r.since,
+				ref=r.ref,
+				detail=f"Received at {r.farm or 'Unknown'}, not on a shelf yet",
+			)
 	for r in _harvest_rows(a):
 		if not keep(r):
 			continue
 		hrs = (now - get_datetime(r.since)).total_seconds() / 3600 if r.since else 0
 		if hrs <= AWAITING_HOURS:
-			add("awaiting", r, _f(r.stems), since=r.since, ref=r.ref, detail=f"Harvested {int(hrs)}h ago at {r.farm or 'Unknown'}")
+			add(
+				"awaiting",
+				r,
+				_f(r.stems),
+				since=r.since,
+				ref=r.ref,
+				detail=f"Harvested {int(hrs)}h ago at {r.farm or 'Unknown'}",
+			)
 		else:
-			add("unreceived", r, _f(r.stems), since=r.since, ref=r.ref, detail=f"Harvested {int(hrs // 24)}d ago at {r.farm or 'Unknown'} and never received")
+			add(
+				"unreceived",
+				r,
+				_f(r.stems),
+				since=r.since,
+				ref=r.ref,
+				detail=f"Harvested {int(hrs // 24)}d ago at {r.farm or 'Unknown'} and never received",
+			)
 	for r in _quarantine_rows():
 		if keep(r):
-			add("quarantine", r, _f(r.stems), since=r.since, ref=r.batch, detail="Held in quarantine pending a quality decision")
+			add(
+				"quarantine",
+				r,
+				_f(r.stems),
+				since=r.since,
+				ref=r.batch,
+				detail="Held in quarantine pending a quality decision",
+			)
 	for r in _transit_rows():
 		if keep(r):
-			add("committed_transit", r, _f(r.stems), since=r.since, ref=r.ref, detail=("On the truck" if r.on_truck else "On a trolley") + f" from {r.farm or 'Unknown'}")
+			add(
+				"committed_transit",
+				r,
+				_f(r.stems),
+				since=r.since,
+				ref=r.ref,
+				detail=("On the truck" if r.on_truck else "On a trolley") + f" from {r.farm or 'Unknown'}",
+			)
 
 	for it in items:
 		it["rose_type"] = rose_type(it["item_group"])
@@ -542,7 +662,7 @@ def _rose_groups(a):
 	cond = rose_sql("ig.name", a.rose, params)
 	if not cond:
 		return None
-	return set(frappe.db.sql_list(f"SELECT ig.name FROM `tabItem Group` ig WHERE 1=1 {cond}", params))  # noqa: S608
+	return set(frappe.db.sql_list(f"SELECT ig.name FROM `tabItem Group` ig WHERE 1=1 {cond}", params))
 
 
 def demand(a, lines_cache=None):
@@ -617,7 +737,10 @@ def overview(
 				cl = v["by_len"][length] = {"states": _zero(), "ordered": 0.0, "to_allocate": 0.0}
 			return cl
 
-		reasons = {s: {"stems": 0.0, "varieties": set(), "buckets": set(), "oldest_days": None, "since": None} for s in STATE_ORDER}
+		reasons = {
+			s: {"stems": 0.0, "varieties": set(), "buckets": set(), "oldest_days": None, "since": None}
+			for s in STATE_ORDER
+		}
 		for it in c["items"]:
 			v = var(it)
 			s, n = it["state"], it["stems"]
@@ -673,9 +796,12 @@ def overview(
 			v["groups"] = g
 			v["atp"] = st["sellable"] - v["to_allocate"]  # free to promise
 			v["cover"] = (
-				"none" if v["to_allocate"] <= 0 and g["sellable"] <= 0 and not g["soon"]
-				else "short" if v["atp"] < 0
-				else "tight" if v["to_allocate"] > 0 and st["sellable"] / v["to_allocate"] < 1.1
+				"none"
+				if v["to_allocate"] <= 0 and g["sellable"] <= 0 and not g["soon"]
+				else "short"
+				if v["atp"] < 0
+				else "tight"
+				if v["to_allocate"] > 0 and st["sellable"] / v["to_allocate"] < 1.1
 				else "ok"
 			)
 			v["buckets"] = len(v["buckets"])
@@ -715,9 +841,16 @@ def overview(
 			label, group, why, who = STATE_META[s]
 			reason_rows.append(
 				{
-					"state": s, "label": label, "group": group, "why": why, "who": who,
-					"stems": r["stems"], "varieties": len(r["varieties"]), "buckets": len(r["buckets"]),
-					"oldest_days": r["oldest_days"], "since": r["since"],
+					"state": s,
+					"label": label,
+					"group": group,
+					"why": why,
+					"who": who,
+					"stems": r["stems"],
+					"varieties": len(r["varieties"]),
+					"buckets": len(r["buckets"]),
+					"oldest_days": r["oldest_days"],
+					"since": r["since"],
 				}
 			)
 		sc = stock._config()
@@ -730,10 +863,15 @@ def overview(
 			"rows": rows,
 			"limits": {
 				"discard_age": sc["discard_age"],
-				"farms": {f: {k: c_.get(k) for k in ("sales_shelf", "max_allocation_age", "cooling_hours")} for f, c_ in sc["farm_config"].items()},
+				"farms": {
+					f: {k: c_.get(k) for k in ("sales_shelf", "max_allocation_age", "cooling_hours")}
+					for f, c_ in sc["farm_config"].items()
+				},
 			},
 			"options": _options(),
-			"states": {k: {"label": m[0], "group": m[1], "why": m[2], "who": m[3]} for k, m in STATE_META.items()},
+			"states": {
+				k: {"label": m[0], "group": m[1], "why": m[2], "who": m[3]} for k, m in STATE_META.items()
+			},
 		}
 	except Exception:
 		frappe.log_error("v2 stock_truth.overview")
@@ -793,12 +931,16 @@ def variety(variety: Any, region: Any = None, farm: Any = None, through: Any = N
 		c = collect(a)
 		items = [i for i in c["items"] if i["variety"] == variety]
 		lines = [ln for ln in demand(a) if ln.item_code == variety]
-		lens = defaultdict(lambda: {"states": _zero(), "ordered": 0.0, "to_allocate": 0.0, "oldest_days": None})
+		lens = defaultdict(
+			lambda: {"states": _zero(), "ordered": 0.0, "to_allocate": 0.0, "oldest_days": None}
+		)
 		for i in items:
 			cl = lens[i["length"]]
 			cl["states"][i["state"]] += i["stems"]
 			if i["age_days"] is not None and not i["phantom"]:
-				cl["oldest_days"] = i["age_days"] if cl["oldest_days"] is None else max(cl["oldest_days"], i["age_days"])
+				cl["oldest_days"] = (
+					i["age_days"] if cl["oldest_days"] is None else max(cl["oldest_days"], i["age_days"])
+				)
 		for ln in lines:
 			cl = lens[ln.length]
 			cl["ordered"] += ln.ordered_stems
@@ -815,7 +957,12 @@ def variety(variety: Any, region: Any = None, farm: Any = None, through: Any = N
 			if al.variety != variety or not _farm_ok(a, al.farm):
 				continue
 			o = orders[al.sales_order]
-			o.update(sales_order=al.sales_order, customer=al.customer_name or al.customer, delivery_date=str(al.delivery_date or ""), created=_ts(al.creation))
+			o.update(
+				sales_order=al.sales_order,
+				customer=al.customer_name or al.customer,
+				delivery_date=str(al.delivery_date or ""),
+				created=_ts(al.creation),
+			)
 			o["qty"] += al.qty
 			o["buckets"].add(al.bucket_id)
 			if al.reason:
@@ -836,7 +983,14 @@ def variety(variety: Any, region: Any = None, farm: Any = None, through: Any = N
 			"forecast": _forecast(a).get(variety),
 			"farms": sorted({i["farm"] for i in items}),
 			"demand": [
-				{"sales_order": ln.parent, "customer": ln.customer_name or ln.customer, "delivery_date": str(ln.delivery_date), "length": ln.length, "ordered": ln.ordered_stems, "to_allocate": ln.to_allocate}
+				{
+					"sales_order": ln.parent,
+					"customer": ln.customer_name or ln.customer,
+					"delivery_date": str(ln.delivery_date),
+					"length": ln.length,
+					"ordered": ln.ordered_stems,
+					"to_allocate": ln.to_allocate,
+				}
 				for ln in lines
 				if ln.to_allocate > 0
 			][:200],
@@ -847,7 +1001,14 @@ def variety(variety: Any, region: Any = None, farm: Any = None, through: Any = N
 
 
 @frappe.whitelist(methods=["GET"])
-def allocations(region: Any = None, farm: Any = None, length: Any = None, rose: Any = None, q: Any = None, reason: Any = None):
+def allocations(
+	region: Any = None,
+	farm: Any = None,
+	length: Any = None,
+	rose: Any = None,
+	q: Any = None,
+	reason: Any = None,
+):
 	"""Allocation health: outstanding allocations that hold, or may hold, stock for nobody."""
 	_guard()
 	try:
@@ -860,7 +1021,11 @@ def allocations(region: Any = None, farm: Any = None, length: Any = None, rose: 
 		total_open = 0.0
 		reclaim_held = 0.0
 		for al in allocs:
-			if not (sv._qmatch(a.q, al.variety) and (not a.lengths or _ln(al.length) in a.lengths) and _farm_ok(a, al.farm)):
+			if not (
+				sv._qmatch(a.q, al.variety)
+				and (not a.lengths or _ln(al.length) in a.lengths)
+				and _farm_ok(a, al.farm)
+			):
 				continue
 			total_open += al.qty
 			if not al.reason or (want and al.reason not in want):
@@ -872,11 +1037,31 @@ def allocations(region: Any = None, farm: Any = None, length: Any = None, rose: 
 			b["rows"] += 1
 			b["orders"].add(al.sales_order)
 			o = orders[al.sales_order]
-			o.update(sales_order=al.sales_order, customer=al.customer_name or al.customer, delivery_date=str(al.delivery_date or ""), so_status=al.so_status)
+			o.update(
+				sales_order=al.sales_order,
+				customer=al.customer_name or al.customer,
+				delivery_date=str(al.delivery_date or ""),
+				so_status=al.so_status,
+			)
 			o["qty"] += al.qty
 			o["lines"].append(
-				{"sales_order_item": al.sales_order_item, "stem_length": al.length, "releasable": al.reason in RELEASABLE and not blocked.get((al.sales_order_item, _up(al.bucket_id))),
-				"release_block": _release_block(al, blocked), "variety": al.variety, "length": _ln(al.length), "bucket": al.bucket_id, "farm": al.farm, "qty": al.qty, "reason": al.reason, "reason_label": STALE_LABEL[al.reason], "allocated_days": al.age_days, "in_transit": bool(al.in_transit), "on_discard": bool(al.held)}
+				{
+					"sales_order_item": al.sales_order_item,
+					"stem_length": al.length,
+					"releasable": al.reason in RELEASABLE
+					and not blocked.get((al.sales_order_item, _up(al.bucket_id))),
+					"release_block": _release_block(al, blocked),
+					"variety": al.variety,
+					"length": _ln(al.length),
+					"bucket": al.bucket_id,
+					"farm": al.farm,
+					"qty": al.qty,
+					"reason": al.reason,
+					"reason_label": STALE_LABEL[al.reason],
+					"allocated_days": al.age_days,
+					"in_transit": bool(al.in_transit),
+					"on_discard": bool(al.held),
+				}
 			)
 		order_rows = sorted(orders.values(), key=lambda o: -o["qty"])
 		return {
@@ -887,7 +1072,14 @@ def allocations(region: Any = None, farm: Any = None, length: Any = None, rose: 
 			"can_release": _can_release(),
 			"at_risk": sum(v["qty"] for k, v in by_reason.items() if k in RISK_REASONS),
 			"by_reason": [
-				{"code": k, "label": STALE_LABEL[k], "kind": "reclaim" if k in RECLAIM_REASONS else "risk", "qty": v["qty"], "rows": v["rows"], "orders": len(v["orders"])}
+				{
+					"code": k,
+					"label": STALE_LABEL[k],
+					"kind": "reclaim" if k in RECLAIM_REASONS else "risk",
+					"qty": v["qty"],
+					"rows": v["rows"],
+					"orders": len(v["orders"]),
+				}
 				for k, v in sorted(by_reason.items(), key=lambda kv: -kv[1]["qty"])
 			],
 			"orders": order_rows[:300],
@@ -900,8 +1092,17 @@ def allocations(region: Any = None, farm: Any = None, length: Any = None, rose: 
 
 # ------------------------------------------------------------------ releasing stale allocations
 
-RELEASE_ROLES = ("System Manager", "Sales Manager", "Sales Master Manager", "Sales Representative", "Sales User")  # the Sales Allocation page's own roles
-RELEASABLE = ("order_cancelled", "delivery_passed")  # "already delivered" is left to a person: the stems have gone out the door
+RELEASE_ROLES = (
+	"System Manager",
+	"Sales Manager",
+	"Sales Master Manager",
+	"Sales Representative",
+	"Sales User",
+)  # the Sales Allocation page's own roles
+RELEASABLE = (
+	"order_cancelled",
+	"delivery_passed",
+)  # "already delivered" is left to a person: the stems have gone out the door
 RELEASE_CHUNK = 10
 RELEASE_BUDGET_SECONDS = 20  # a request stops taking new lines after this long, however many it has done
 
@@ -947,17 +1148,27 @@ def _release_groups(a, sales_order=None, items=None, skip=None, sales_orders=Non
 	"""Releasable allocations grouped by (sales order item, bucket, length) + what is skipped and why."""
 	allocs = _allocations(set(), set())  # staleness of cancelled / past-due orders does not need the shelf
 	allocs = [x for x in allocs if x.reason in RECLAIM_REASONS]
-	allocs = [x for x in allocs if sv._qmatch(a.q, x.variety) and (not a.lengths or _ln(x.length) in a.lengths) and _farm_ok(a, x.farm)]
+	allocs = [
+		x
+		for x in allocs
+		if sv._qmatch(a.q, x.variety)
+		and (not a.lengths or _ln(x.length) in a.lengths)
+		and _farm_ok(a, x.farm)
+	]
 	if sales_order:
 		allocs = [x for x in allocs if x.sales_order == sales_order]
 	if sales_orders:
 		chosen = set(sales_orders)
 		allocs = [x for x in allocs if x.sales_order in chosen]
 	if items:
-		want = {(i.get("sales_order_item"), _up(i.get("bucket_id")), i.get("stem_length") or "") for i in items}
+		want = {
+			(i.get("sales_order_item"), _up(i.get("bucket_id")), i.get("stem_length") or "") for i in items
+		}
 		allocs = [x for x in allocs if (x.sales_order_item, _up(x.bucket_id), x.length or "") in want]
 	if skip:
-		gone = {(i.get("sales_order_item"), _up(i.get("bucket_id")), i.get("stem_length") or "") for i in skip}
+		gone = {
+			(i.get("sales_order_item"), _up(i.get("bucket_id")), i.get("stem_length") or "") for i in skip
+		}
 		allocs = [x for x in allocs if (x.sales_order_item, _up(x.bucket_id), x.length or "") not in gone]
 	blocked = _blocked_pairs({x.sales_order_item for x in allocs})
 	groups, skipped = {}, defaultdict(lambda: {"stems": 0.0, "orders": set()})
@@ -969,7 +1180,18 @@ def _release_groups(a, sales_order=None, items=None, skip=None, sales_orders=Non
 			skipped[k]["orders"].add(x.sales_order)
 			continue
 		key = (x.sales_order_item, x.bucket_id, x.length or "")
-		g = groups.setdefault(key, {"sales_order_item": x.sales_order_item, "bucket_id": x.bucket_id, "stem_length": x.length or "", "sales_order": x.sales_order, "variety": x.variety, "qty": 0.0, "reason": x.reason})
+		g = groups.setdefault(
+			key,
+			{
+				"sales_order_item": x.sales_order_item,
+				"bucket_id": x.bucket_id,
+				"stem_length": x.length or "",
+				"sales_order": x.sales_order,
+				"variety": x.variety,
+				"qty": 0.0,
+				"reason": x.reason,
+			},
+		)
 		g["qty"] += x.qty
 	return list(groups.values()), skipped
 
@@ -1002,13 +1224,37 @@ def _ensure_release_index():
 
 
 @frappe.whitelist(methods=["GET", "POST"])
-def release_plan(sales_order: Any = None, items: Any = None, region: Any = None, farm: Any = None, length: Any = None, rose: Any = None, q: Any = None, sales_orders: Any = None):
+def release_plan(
+	sales_order: Any = None,
+	items: Any = None,
+	region: Any = None,
+	farm: Any = None,
+	length: Any = None,
+	rose: Any = None,
+	q: Any = None,
+	sales_orders: Any = None,
+):
 	"""What a release would do, without doing it (feeds the confirmation)."""
 	_guard()
 	a = _args(dict(region=region, farm=farm, length=length, rose=rose, q=q))
-	groups, skipped = _release_groups(a, sales_order, frappe.parse_json(items) if isinstance(items, str) else items, None, frappe.parse_json(sales_orders) if isinstance(sales_orders, str) else sales_orders)
+	groups, skipped = _release_groups(
+		a,
+		sales_order,
+		frappe.parse_json(items) if isinstance(items, str) else items,
+		None,
+		frappe.parse_json(sales_orders) if isinstance(sales_orders, str) else sales_orders,
+	)
 	soi = {g["sales_order_item"] for g in groups}
-	opls = sorted(frappe.db.sql_list("SELECT DISTINCT p.parent FROM `tabPick List Item` p INNER JOIN `tabOrder Pick List` o ON o.name = p.parent AND o.docstatus < 2 WHERE p.sales_order_item IN %(i)s", {"i": tuple(soi)})) if soi else []
+	opls = (
+		sorted(
+			frappe.db.sql_list(
+				"SELECT DISTINCT p.parent FROM `tabPick List Item` p INNER JOIN `tabOrder Pick List` o ON o.name = p.parent AND o.docstatus < 2 WHERE p.sales_order_item IN %(i)s",
+				{"i": tuple(soi)},
+			)
+		)
+		if soi
+		else []
+	)
 	return {
 		"success": True,
 		"can_release": _can_release(),
@@ -1024,7 +1270,20 @@ def release_plan(sales_order: Any = None, items: Any = None, region: Any = None,
 
 
 @frappe.whitelist(methods=["POST"])
-def release_stale(sales_order: Any = None, items: Any = None, region: Any = None, farm: Any = None, length: Any = None, rose: Any = None, q: Any = None, limit: Any = RELEASE_CHUNK, confirm: Any = 0, skip: Any = None, sales_orders: Any = None, budget: Any = RELEASE_BUDGET_SECONDS):
+def release_stale(
+	sales_order: Any = None,
+	items: Any = None,
+	region: Any = None,
+	farm: Any = None,
+	length: Any = None,
+	rose: Any = None,
+	q: Any = None,
+	limit: Any = RELEASE_CHUNK,
+	confirm: Any = 0,
+	skip: Any = None,
+	sales_orders: Any = None,
+	budget: Any = RELEASE_BUDGET_SECONDS,
+):
 	"""Release stale allocations: cancel them, put the stems back on the shelf and take the lines off their pick lists.
 
 	It is the Sales Allocation page's own unallocate step (unallocate_bucket_from_opl), run for
@@ -1036,10 +1295,18 @@ def release_stale(sales_order: Any = None, items: Any = None, region: Any = None
 		frappe.throw(_("You need a sales role to release allocations."), frappe.PermissionError)
 	if not cint(confirm):
 		frappe.throw(_("Confirm the release first."))
-	from upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation import unallocate_bucket_from_opl
+	from upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation import (
+		unallocate_bucket_from_opl,
+	)
 
 	a = _args(dict(region=region, farm=farm, length=length, rose=rose, q=q))
-	groups, _skipped = _release_groups(a, sales_order, frappe.parse_json(items) if isinstance(items, str) else items, frappe.parse_json(skip) if isinstance(skip, str) else skip, frappe.parse_json(sales_orders) if isinstance(sales_orders, str) else sales_orders)
+	groups, _skipped = _release_groups(
+		a,
+		sales_order,
+		frappe.parse_json(items) if isinstance(items, str) else items,
+		frappe.parse_json(skip) if isinstance(skip, str) else skip,
+		frappe.parse_json(sales_orders) if isinstance(sales_orders, str) else sales_orders,
+	)
 	todo = groups[: max(1, min(cint(limit) or RELEASE_CHUNK, 50))]
 	done, failed, orders = [], [], defaultdict(float)
 	t0 = time.monotonic()
@@ -1056,10 +1323,23 @@ def release_stale(sales_order: Any = None, items: Any = None, region: Any = None
 			done.append({k: g[k] for k in ("sales_order", "sales_order_item", "bucket_id", "variety", "qty")})
 			orders[g["sales_order"]] += g["qty"]
 		else:
-			failed.append({"sales_order": g["sales_order"], "sales_order_item": g["sales_order_item"], "stem_length": g["stem_length"], "bucket_id": g["bucket_id"], "variety": g["variety"], "qty": g["qty"], "error": (res.get("message") or "")[:300]})
+			failed.append(
+				{
+					"sales_order": g["sales_order"],
+					"sales_order_item": g["sales_order_item"],
+					"stem_length": g["stem_length"],
+					"bucket_id": g["bucket_id"],
+					"variety": g["variety"],
+					"qty": g["qty"],
+					"error": (res.get("message") or "")[:300],
+				}
+			)
 	for so, qty in orders.items():
 		try:
-			frappe.get_doc("Sales Order", so).add_comment("Info", f"Stale allocation released from Stock Visibility by {frappe.session.user}: {int(qty):,} stems (order cancelled or delivery date passed).")
+			frappe.get_doc("Sales Order", so).add_comment(
+				"Info",
+				f"Stale allocation released from Stock Visibility by {frappe.session.user}: {int(qty):,} stems (order cancelled or delivery date passed).",
+			)
 		except Exception:
 			frappe.log_error(frappe.get_traceback(), "Stock Visibility release comment")
 	try:
@@ -1113,10 +1393,23 @@ def check(lines: Any = None, date: Any = None, region: Any = None, farm: Any = N
 			qty = _f(r.get("qty"))
 			known = frappe.db.get_value("Item", v, ["name", "item_name"], as_dict=True) if v else None
 			if not known:
-				hit = frappe.db.get_value("Item", {"item_name": v}, ["name", "item_name"], as_dict=True) if v else None
+				hit = (
+					frappe.db.get_value("Item", {"item_name": v}, ["name", "item_name"], as_dict=True)
+					if v
+					else None
+				)
 				known = hit
 			if not known:
-				out.append({"variety": v, "length": ln, "qty": qty, "code": "unknown", "label": "Variety not found", "message": f"No variety called '{v}'."})
+				out.append(
+					{
+						"variety": v,
+						"length": ln,
+						"qty": qty,
+						"code": "unknown",
+						"label": "Variety not found",
+						"message": f"No variety called '{v}'.",
+					}
+				)
 				continue
 			v = known.name
 			its = by_v.get(v, [])
@@ -1137,11 +1430,15 @@ def check(lines: Any = None, date: Any = None, region: Any = None, farm: Any = N
 			dg = []
 			dg_total = 0.0
 			req_cm = _cm(ln)
-			for L in sorted({i["length"] for i in its if i["state"] == "sellable" and _cm(i["length"]) > req_cm}, key=_cm):
+			for L in sorted(
+				{i["length"] for i in its if i["state"] == "sellable" and _cm(i["length"]) > req_cm}, key=_cm
+			):
 				n = sum(i["stems"] for i in its if i["length"] == L and i["state"] == "sellable")
 				n = max(0.0, n - dem_by.get((v, L), 0.0))
 				if n > 0:
-					age = max((i["age_days"] or 0) for i in its if i["length"] == L and i["state"] == "sellable")
+					age = max(
+						(i["age_days"] or 0) for i in its if i["length"] == L and i["state"] == "sellable"
+					)
 					dg.append({"length": L, "stems": n, "needs_approval": age < amber, "oldest_days": age})
 					dg_total += n
 			code, label = verdict(qty, safe, soon, dg_total)
@@ -1180,7 +1477,10 @@ def check(lines: Any = None, date: Any = None, region: Any = None, farm: Any = N
 					"owed_to_orders": owed,
 					"downgrades": dg,
 					"blockers": blockers_rows,
-					"other_lengths": [{"length": k, "stems": n} for k, n in sorted(other_len.items(), key=lambda kv: _cm(kv[0]))],
+					"other_lengths": [
+						{"length": k, "stems": n}
+						for k, n in sorted(other_len.items(), key=lambda kv: _cm(kv[0]))
+					],
 					"message": ", ".join(parts) + (f"; short by {int(short):,}" if short else ""),
 					"confirm_up_to": safe,
 				}
@@ -1198,18 +1498,33 @@ def check(lines: Any = None, date: Any = None, region: Any = None, farm: Any = N
 
 SOURCES = (
 	("shelf", "On the shelf", "Free, fresh stems on a sales shelf."),
-	("remote", "At remote farms", "Free stems at a farm that is not a sales shelf; they move to the hub when allocated."),
+	(
+		"remote",
+		"At remote farms",
+		"Free stems at a farm that is not a sales shelf; they move to the hub when allocated.",
+	),
 	("floor", "Coldroom floor", "Received but not shelved yet."),
 	("cooling", "Still cooling", "On a shelf, ready before the delivery date."),
 	("arriving", "Harvested, not received", "Cut in the last 36 hours and not booked in yet."),
 	("overdue", "Harvested, overdue", "Cut more than 36 hours ago and still not received."),
 	("stale", "Held by stale allocations", "Promised to cancelled or past-due orders; free once released."),
 	("downgrade", "Longer stems", "Longer stems of the same variety (a downgrade; needs approval)."),
-	("greenhouse", "Not cut yet", "Greenhouse forecast for the weeks before delivery (grade level; length not guaranteed)."),
+	(
+		"greenhouse",
+		"Not cut yet",
+		"Greenhouse forecast for the weeks before delivery (grade level; length not guaranteed).",
+	),
 )
 SOURCE_KEYS = [x[0] for x in SOURCES]
 EXACT_ORDER = ("shelf", "remote", "stale", "cooling", "floor", "arriving", "overdue")
-SOON_KEYS = ("remote", "stale", "floor", "arriving", "overdue", "cooling")  # exists, but not on a sales shelf yet
+SOON_KEYS = (
+	"remote",
+	"stale",
+	"floor",
+	"arriving",
+	"overdue",
+	"cooling",
+)  # exists, but not on a sales shelf yet
 # worst first
 STATUS_RANK = {"short": 0, "greenhouse": 1, "downgrade": 2, "action": 3, "available": 4, "allocated": 5}
 WHERE_SHOWN = 8
@@ -1225,7 +1540,10 @@ def pool_totals(pool, when):
 
 	Straight totals of what exists: nothing is split between orders, because
 	allocation does that - stock that is not allocated is available."""
-	t = {k: sum(i["qty"] for i in (pool or {}).get(k, [])) for k in ("shelf", "remote", "stale", "floor", "arriving", "overdue")}
+	t = {
+		k: sum(i["qty"] for i in (pool or {}).get(k, []))
+		for k in ("shelf", "remote", "stale", "floor", "arriving", "overdue")
+	}
 	t["cooling"] = sum(i["qty"] for i in (pool or {}).get("cooling", []) if i["ready_date"] <= when)
 	return t
 
@@ -1256,7 +1574,19 @@ def _where(pool, when):
 		for it in sorted((pool or {}).get(src, []), key=lambda i: -i["qty"]):
 			if src == "cooling" and it["ready_date"] > when:
 				continue
-			rows.append({"source": src, "stems": it["qty"], "farm": it.get("farm", ""), "shelf": it.get("shelf", ""), "bucket": it.get("bucket", ""), "age_days": it.get("age_days"), "ready_at": it.get("ready_at"), "detail": it.get("detail", ""), "ref": it.get("ref")})
+			rows.append(
+				{
+					"source": src,
+					"stems": it["qty"],
+					"farm": it.get("farm", ""),
+					"shelf": it.get("shelf", ""),
+					"bucket": it.get("bucket", ""),
+					"age_days": it.get("age_days"),
+					"ready_at": it.get("ready_at"),
+					"detail": it.get("detail", ""),
+					"ref": it.get("ref"),
+				}
+			)
 	return rows
 
 
@@ -1274,6 +1604,7 @@ def _forecast_window(a, d_to):
 		return {}
 	cond = " OR ".join(["(w.iso_year = %s AND w.week_number = %s)"] * len(weeks))
 	vals = [x for y, wk, _d in weeks for x in (y, wk)]
+	# nosemgrep: frappe-sql-format-injection -- the interpolated parts are fixed SQL fragments; every value is a bound parameter
 	rows = frappe.db.sql(
 		f"""
 		SELECT pf.variety, w.iso_year AS y, w.week_number AS wk,
@@ -1287,7 +1618,7 @@ def _forecast_window(a, d_to):
 		        WHERE p2.greenhouse = pf.greenhouse AND p2.variety = pf.variety
 		          AND p2.forecast_year = pf.forecast_year AND p2.status = 'Active')
 		GROUP BY pf.variety, w.iso_year, w.week_number
-		""",  # noqa: S608
+		""",
 		vals,
 		as_dict=True,
 	)
@@ -1322,7 +1653,11 @@ def _build_pools(items):
 		elif s_ == "unreceived":
 			pools[k]["overdue"].append(it)
 		elif s_ == "reclaimable" and i["after"] == "sellable":
-			it["detail"] = "Held by " + ", ".join((i.get("from_orders") or [])[:3]) + (" - " + i["detail"] if i["detail"] else "")
+			it["detail"] = (
+				"Held by "
+				+ ", ".join((i.get("from_orders") or [])[:3])
+				+ (" - " + i["detail"] if i["detail"] else "")
+			)
 			pools[k]["stale"].append(it)
 		elif (s_ == "cooling" or (s_ == "reclaimable" and i["after"] == "cooling")) and i["ready_at"]:
 			it["ready_date"] = getdate(i["ready_at"])
@@ -1350,7 +1685,9 @@ def outlook(
 	variety and length, by place. Nothing is distributed between orders: allocation
 	does that, and stock that is not allocated is available. Read-only."""
 	_guard()
-	key = "stock_truth_outlook2:" + frappe.as_json([from_date, to_date, region, farm, length, rose, q, customer], indent=None)
+	key = "stock_truth_outlook2:" + frappe.as_json(
+		[from_date, to_date, region, farm, length, rose, q, customer], indent=None
+	)
 	if not cint(force):
 		hit = frappe.cache.get_value(key)
 		if hit:
@@ -1390,11 +1727,26 @@ def outlook(
 		opl_docs = {}
 		names = {o for ln in lines for o in ln.opls}
 		if names:
-			opl_docs = {r.name: r for r in frappe.db.get_all("Order Pick List", {"name": ["in", list(names)]}, ["name", "docstatus", "team"])}
+			opl_docs = {
+				r.name: r
+				for r in frappe.db.get_all(
+					"Order Pick List", {"name": ["in", list(names)]}, ["name", "docstatus", "team"]
+				)
+			}
 
 		pairs = {}
 		for ln in lines:
-			p = pairs.setdefault((ln.item_code, ln.length), {"variety": ln.item_code, "item_name": ln.item_name, "length": ln.length, "need": 0.0, "lines": 0, "orders": set()})
+			p = pairs.setdefault(
+				(ln.item_code, ln.length),
+				{
+					"variety": ln.item_code,
+					"item_name": ln.item_name,
+					"length": ln.length,
+					"need": 0.0,
+					"lines": 0,
+					"orders": set(),
+				},
+			)
 			if _f(ln.to_allocate) > 0:
 				p["need"] += _f(ln.to_allocate)
 				p["lines"] += 1
@@ -1406,7 +1758,9 @@ def outlook(
 			pool = pools.get((ln.item_code, ln.length))
 			when = getdate(ln.delivery_date)
 			mk = (ln.item_code, ln.length, when)
-			if mk not in memo:  # one answer per variety, length and day: the stock does not change between lines
+			if (
+				mk not in memo
+			):  # one answer per variety, length and day: the stock does not change between lines
 				av0 = pool_totals(pool, when)
 				longer0, lens0 = longer_than(ln.item_code, _cm(ln.length), when)
 				memo[mk] = (av0, longer0, lens0, forecast_for(ln.item_code, when), _where(pool, when))
@@ -1417,26 +1771,51 @@ def outlook(
 			o = orders.get(ln.parent)
 			if o is None:
 				o = orders[ln.parent] = {
-					"sales_order": ln.parent, "customer": ln.customer_name or ln.customer, "delivery_date": str(ln.delivery_date),
-					"delivery_point": ln.custom_delivery_point or "", "status": "allocated", "ordered": 0.0, "to_allocate": 0.0, "lines": [],
+					"sales_order": ln.parent,
+					"customer": ln.customer_name or ln.customer,
+					"delivery_date": str(ln.delivery_date),
+					"delivery_point": ln.custom_delivery_point or "",
+					"status": "allocated",
+					"ordered": 0.0,
+					"to_allocate": 0.0,
+					"lines": [],
 				}
 			o["ordered"] += _f(ln.ordered_stems)
 			o["to_allocate"] += need
 			if STATUS_RANK[status] < STATUS_RANK[o["status"]]:
 				o["status"] = status
-			opls = [{"name": n, "docstatus": opl_docs[n].docstatus if n in opl_docs else None, "team": opl_docs[n].team if n in opl_docs else ""} for n in ln.opls]
+			opls = [
+				{
+					"name": n,
+					"docstatus": opl_docs[n].docstatus if n in opl_docs else None,
+					"team": opl_docs[n].team if n in opl_docs else "",
+				}
+				for n in ln.opls
+			]
 			where = where_all if need > 0 else []
 			o["lines"].append(
 				{
-					"line": ln.name, "idx": ln.idx, "variety": ln.item_code, "item_name": ln.item_name, "length": ln.length,
-					"ordered": _f(ln.ordered_stems), "allocated": ln.alloc_to_line, "to_allocate": need,
-					"issued": _f(ln.issued_stems), "packed": _f(ln.packed_stems),
-					"stage": pipeline.line_stage_label(ln), "opls": opls, "status": status,
+					"line": ln.name,
+					"idx": ln.idx,
+					"variety": ln.item_code,
+					"item_name": ln.item_name,
+					"length": ln.length,
+					"ordered": _f(ln.ordered_stems),
+					"allocated": ln.alloc_to_line,
+					"to_allocate": need,
+					"issued": _f(ln.issued_stems),
+					"packed": _f(ln.packed_stems),
+					"stage": pipeline.line_stage_label(ln),
+					"opls": opls,
+					"status": status,
 					"available": {k: v for k, v in av.items() if v > 0},
-					"longer": longer, "longer_lengths": lens, "forecast": gh,
+					"longer": longer,
+					"longer_lengths": lens,
+					"forecast": gh,
 					"short_by": max(0.0, need - covered - longer - gh) if need > 0 else 0.0,
 					"pool_need": pairs[(ln.item_code, ln.length)]["need"],
-					"where": where[:WHERE_SHOWN], "where_total": len(where),
+					"where": where[:WHERE_SHOWN],
+					"where_total": len(where),
 				}
 			)
 		# stock for the sizes these orders need: each variety and length counted once
@@ -1457,8 +1836,25 @@ def outlook(
 				stock["greenhouse"] += forecast_for(v, when)
 			gh_p = forecast_for(v, when)
 			covered_p = av["shelf"] + sum(av[k] for k in SOON_KEYS)
-			pair_rows.append({"variety": v, "item_name": p["item_name"], "length": ln_, "need": p["need"], "lines": p["lines"], "orders": len(p["orders"]), "available": {k: n for k, n in av.items() if n > 0}, "longer": longer, "longer_lengths": lens, "forecast": gh_p, "status": line_status(p["need"], av, longer, gh_p), "short_by": max(0.0, p["need"] - covered_p - longer - gh_p)})
-		order_rows = sorted(orders.values(), key=lambda o: (STATUS_RANK[o["status"]], o["delivery_date"], o["sales_order"]))
+			pair_rows.append(
+				{
+					"variety": v,
+					"item_name": p["item_name"],
+					"length": ln_,
+					"need": p["need"],
+					"lines": p["lines"],
+					"orders": len(p["orders"]),
+					"available": {k: n for k, n in av.items() if n > 0},
+					"longer": longer,
+					"longer_lengths": lens,
+					"forecast": gh_p,
+					"status": line_status(p["need"], av, longer, gh_p),
+					"short_by": max(0.0, p["need"] - covered_p - longer - gh_p),
+				}
+			)
+		order_rows = sorted(
+			orders.values(), key=lambda o: (STATUS_RANK[o["status"]], o["delivery_date"], o["sales_order"])
+		)
 		order_counts = defaultdict(int)
 		for o in order_rows:
 			order_counts[o["status"]] += 1
@@ -1478,7 +1874,9 @@ def outlook(
 			"orders": order_rows[:600],
 			"order_total": len(order_rows),
 			"forecast_weeks_used": bool(fc),
-			"customers": sorted({ln.customer_name or ln.customer for ln in lines if (ln.customer_name or ln.customer)}),
+			"customers": sorted(
+				{ln.customer_name or ln.customer for ln in lines if (ln.customer_name or ln.customer)}
+			),
 			"as_of": str(now_datetime()),
 		}
 		frappe.cache.set_value(key, result, expires_in_sec=OUTLOOK_CACHE_SECONDS)

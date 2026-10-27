@@ -26,7 +26,6 @@ from upande_packhouse.server_scripts.create_mixed_box_picklist import (
 	_get_confirmed_stems_for_location,
 	_get_shelf_farm_for_location,
 	_lookup_shelf,
-	insufficient_allocation_message,
 	open_box_slots,
 	placed_stems_by_box,
 )
@@ -322,36 +321,7 @@ def _generate_bunch_locations(
 	stock_uom = so_item.stock_uom
 
 	box_slots = open_box_slots(placed_by_box, stems_per_box, num_boxes, start_box_num)
-	total_stems_needed = sum(free for _box, free in box_slots)
-	total_allocated = sum(a["qty"] for a in allocations_list)
-
-	if confirmed_qty > 0 and confirmed_qty < total_stems_needed:
-		total_stems_needed = confirmed_qty
-
-	if total_allocated < total_stems_needed - 0.001:
-		frappe.log_error(
-			title="Bunch Location - Allocation Check",
-			message=f"Item: {item_code}, Allocated: {total_allocated}, "
-			f"Needed: {total_stems_needed}, Confirmed: {confirmed_qty}, "
-			f"Already placed: {already_stems}, Full order: {stems_per_box * num_boxes}",
-		)
-		if confirmed_qty > 0:
-			total_stems_needed = total_allocated
-		else:
-			frappe.throw(
-				insufficient_allocation_message(
-					item_code,
-					so_item.get("custom_length") or alloc.get("stem_length"),
-					allocations_list,
-					total_allocated,
-					total_stems_needed,
-					stems_per_box,
-					num_boxes,
-				),
-				title=_("Insufficient allocation"),
-			)
-
-	use_box_splitting = total_allocated >= stems_per_box and confirmed_qty == 0
+	use_box_splitting = confirmed_qty == 0
 
 	if use_box_splitting:
 		return _generate_bunch_locations_with_splitting(
@@ -530,9 +500,6 @@ def _generate_bunch_locations_with_splitting(
 			)
 			stems_needed -= take
 			current_bucket_remaining -= take
-
-		if stems_needed > 0:
-			frappe.throw(f"Cannot fill box {box_num} for {item_code}: missing {stems_needed} stems.")
 
 		for contrib in contributions:
 			bucket_id = contrib["bucket_id"]
