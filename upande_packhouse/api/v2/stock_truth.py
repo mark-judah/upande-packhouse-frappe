@@ -1604,6 +1604,7 @@ def _forecast_window(a, d_to):
 		return {}
 	cond = " OR ".join(["(w.iso_year = %s AND w.week_number = %s)"] * len(weeks))
 	vals = [x for y, wk, _d in weeks for x in (y, wk)]
+	# nosemgrep: frappe-sql-format-injection -- the interpolated parts are fixed SQL fragments; every value is a bound parameter
 	rows = frappe.db.sql(
 		f"""
 		SELECT pf.variety, w.iso_year AS y, w.week_number AS wk,

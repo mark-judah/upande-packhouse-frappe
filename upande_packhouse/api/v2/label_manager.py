@@ -15,6 +15,7 @@ must never be reachable by a link someone clicks).
 
 import json
 import re
+from typing import Any
 
 import frappe
 from frappe import _
@@ -197,9 +198,9 @@ def preview(label_type: str, design=None, layout=None, spec=None):
 @frappe.whitelist(methods=["POST"])
 def create(
 	label_type: str,
-	spec=None,
-	design=None,
-	layout=None,
+	spec: Any = None,
+	design: Any = None,
+	layout: Any = None,
 	template: str | None = None,
 	request_key: str | None = None,
 ):
@@ -365,10 +366,10 @@ def lookup(label_type: str, text: str | None = None):
 @frappe.whitelist(methods=["POST"])
 def reprint(
 	label_type: str,
-	codes=None,
+	codes: Any = None,
 	text: str | None = None,
-	design=None,
-	layout=None,
+	design: Any = None,
+	layout: Any = None,
 	template: str | None = None,
 	request_key: str | None = None,
 	reason: str | None = None,
@@ -384,7 +385,11 @@ def reprint(
 
 @frappe.whitelist(methods=["POST"])
 def save_template(
-	label_type: str, template_name: str, design=None, is_default=0, description: str | None = None
+	label_type: str,
+	template_name: str,
+	design: Any = None,
+	is_default: Any = 0,
+	description: str | None = None,
 ):
 	frappe.has_permission("Label Template", "write", throw=True)
 	if label_type not in lp_types.TYPES:

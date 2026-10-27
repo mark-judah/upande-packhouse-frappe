@@ -216,6 +216,7 @@ def sync_not_found(since=None):
 	out = {"replacements": 0, "transfers": 0, "added": 0, "updated": 0}
 	events = []
 	cond = "AND reported_at >= %(since)s" if since else ""
+	# nosemgrep: frappe-sql-format-injection -- the interpolated parts are fixed SQL fragments; every value is a bound parameter
 	for r in frappe.db.sql(
 		f"""SELECT name, old_bucket, reported_at, farm, trip, vehicle, notes, order_name, order_pick_list FROM `tabBucket Replacement`
 		WHERE reason = 'Missing' AND status = 'Open' AND IFNULL(old_bucket, '') != '' {cond}""",
@@ -240,6 +241,7 @@ def sync_not_found(since=None):
 		)
 		out["replacements"] += 1
 	cond = "AND pli.not_found_at >= %(since)s" if since else ""
+	# nosemgrep: frappe-sql-format-injection -- the interpolated parts are fixed SQL fragments; every value is a bound parameter
 	for r in frappe.db.sql(
 		f"""SELECT pli.bucket, MIN(pli.not_found_at) AS at, MAX(pli.farm) AS farm, GROUP_CONCAT(DISTINCT pli.parent) AS opls
 		FROM `tabPick List Item` pli JOIN `tabOrder Pick List` o ON o.name = pli.parent

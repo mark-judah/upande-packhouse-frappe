@@ -83,6 +83,7 @@ def orders(
 		having = "HAVING SUM(IFNULL(bl.printed, 0)) < COUNT(bl.name)"
 	elif printed == "done":
 		having = "HAVING SUM(IFNULL(bl.printed, 0)) >= COUNT(bl.name)"
+	# nosemgrep: frappe-sql-format-injection -- the interpolated parts are fixed SQL fragments; every value is a bound parameter
 	rows = frappe.db.sql(
 		f"""
 		SELECT so.name AS sales_order, so.customer, so.customer_name, so.delivery_date,
@@ -106,6 +107,7 @@ def orders(
 		r["opls"] = [x for x in (r["opls"] or "").split(",") if x]
 		r["delivery_date"] = str(r["delivery_date"])
 		r["last_printed"] = str(r["last_printed"]) if r["last_printed"] else None
+	# nosemgrep: frappe-sql-format-injection -- the interpolated parts are fixed SQL fragments; every value is a bound parameter
 	customers = frappe.db.sql(
 		f"""SELECT DISTINCT so.customer, so.customer_name {_FROM}
 		    WHERE so.delivery_date BETWEEN %(f)s AND %(t)s ORDER BY so.customer_name""",
@@ -132,6 +134,7 @@ def orders(
 def boxes(sales_order: str):
 	"""The box labels of one sales order, with what is in each box."""
 	_check()
+	# nosemgrep: frappe-sql-format-injection -- the interpolated parts are fixed SQL fragments; every value is a bound parameter
 	rows = frappe.db.sql(
 		f"""
 		SELECT bl.name, bl.box_number, bl.order_pick_list, bl.printed, bl.printed_at, bl.pack_rate,
@@ -175,12 +178,14 @@ def boxes(sales_order: str):
 def _resolve(names, sales_order):
 	if names:
 		names = list(dict.fromkeys(names))
+		# nosemgrep: frappe-sql-format-injection -- the interpolated parts are fixed SQL fragments; every value is a bound parameter
 		found = frappe.db.sql(
 			f"""SELECT bl.name {_FROM} WHERE bl.name IN %(n)s ORDER BY bl.order_pick_list, bl.box_number""",
 			{"n": tuple(names)},
 			as_dict=True,
 		)
 	elif sales_order:
+		# nosemgrep: frappe-sql-format-injection -- the interpolated parts are fixed SQL fragments; every value is a bound parameter
 		found = frappe.db.sql(
 			f"""SELECT bl.name {_FROM} WHERE so.name = %(so)s ORDER BY bl.order_pick_list, bl.box_number""",
 			{"so": sales_order},
@@ -194,7 +199,7 @@ def _resolve(names, sales_order):
 
 
 @frappe.whitelist(methods=["POST"])
-def preview(sales_order: str | None = None, names=None, print_format: str | None = None):
+def preview(sales_order: str | None = None, names: Any = None, print_format: str | None = None):
 	"""The labels as the print format draws them, as one PDF (base64). Nothing is changed."""
 	_check()
 	from frappe.utils.pdf import get_file_data_from_writer
@@ -250,7 +255,7 @@ def preview(sales_order: str | None = None, names=None, print_format: str | None
 
 
 @frappe.whitelist(methods=["POST"])
-def set_printed(names=None, printed: Any = 1, sales_order: str | None = None):
+def set_printed(names: Any = None, printed: Any = 1, sales_order: str | None = None):
 	"""Tick or untick `printed` on box labels (a whole order with `sales_order`)."""
 	_check("write")
 	names = frappe.parse_json(names) if isinstance(names, str) else names
