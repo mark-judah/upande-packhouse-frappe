@@ -283,7 +283,8 @@ def getDashboardData():
 			)
 			# One read of every pack list's rows (was a full get_doc per pack list).
 			fpl_opl = {f.name: f.order_pick_list for f in fpls}
-			fpl_stems, fpl_boxes = {}, {}
+			# Stems packed into each box of each order, across its pack lists.
+			box_packed = {}
 			if fpl_opl:
 				for row in frappe.get_all(
 					"Farm Packlist Item",
@@ -291,12 +292,42 @@ def getDashboardData():
 					fields=["parent", "stock_qty", "box_id"],
 					limit_page_length=0,
 				):
-					fpl_stems[row.parent] = fpl_stems.get(row.parent, 0) + (row.stock_qty or 0)
+					oid = fpl_opl[row.parent]
+					packed_stems_by_opl[oid] = packed_stems_by_opl.get(oid, 0) + (row.stock_qty or 0)
 					if row.box_id:
-						fpl_boxes.setdefault(row.parent, set()).add(str(row.box_id).strip())
-			for name, oid in fpl_opl.items():
-				packed_stems_by_opl[oid] = packed_stems_by_opl.get(oid, 0) + fpl_stems.get(name, 0)
-				packed_boxes_by_opl[oid] = packed_boxes_by_opl.get(oid, 0) + len(fpl_boxes.get(name, ()))
+						key = (oid, str(row.box_id).strip())
+						box_packed[key] = box_packed.get(key, 0) + (row.stock_qty or 0)
+			# A box counts as packed once it holds all the stems its pick rows put in it
+			# (an order whose rows carry no box: its stems spread evenly over its boxes);
+			# a box packed part-way is not packed yet.
+			box_planned = {}
+			pick_rows = (
+				frappe.get_all(
+					"Pick List Item",
+					filters={
+						"parent": ["in", list({oid for oid, _b in box_packed})],
+						"parenttype": "Order Pick List",
+					},
+					fields=["parent", "custom_box_id", "stock_qty"],
+					limit_page_length=0,
+				)
+				if box_packed
+				else []
+			)
+			for row in pick_rows:
+				if row.custom_box_id:
+					key = (row.parent, str(row.custom_box_id).strip())
+					box_planned[key] = box_planned.get(key, 0) + (row.stock_qty or 0)
+			for (oid, box), packed in box_packed.items():
+				need = box_planned.get((oid, box))
+				if need is None:
+					need = (
+						(total_stems_by_opl_pick.get(oid, 0) / expected_boxes_by_opl[oid])
+						if expected_boxes_by_opl.get(oid)
+						else 0
+					)
+				if packed >= need - 0.5:
+					packed_boxes_by_opl[oid] = packed_boxes_by_opl.get(oid, 0) + 1
 
 		# ================================================================
 		# Packing issues per OPL (bypass reports + under-packed boxes) --

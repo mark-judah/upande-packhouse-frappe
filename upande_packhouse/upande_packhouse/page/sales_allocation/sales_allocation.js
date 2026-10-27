@@ -1743,8 +1743,15 @@ frappe.pages["sales-allocation"]._show_substitute_dialog = function (so_item) {
 			const new_code = $(this).data("item-code");
 			const new_name = $(this).data("item-name");
 			if (!new_code) return;
+			const held = item.total_allocated_qty || 0;
 			frappe.confirm(
-				`Substitute <strong>${item.item_name}</strong> with <strong>${new_name}</strong> on this sales order?`,
+				`Substitute <strong>${
+					item.item_name
+				}</strong> with <strong>${new_name}</strong> on this sales order?${
+					held
+						? ` ${held} allocated stems of ${item.item_name} will be unallocated.`
+						: ""
+				}`,
 				() => {
 					sub_dialog.hide();
 					P._execute_substitute(so_item, new_code, new_name);

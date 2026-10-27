@@ -476,14 +476,14 @@ class UnitTestMinimumTruckLoad(UnitTestCase):
 		doc.reload = MagicMock()
 		return doc
 
-	def _settings(self, partial=0, pct=None):
-		values = {"allow_partial_truck_load": partial, "min_truck_load_pct": pct}
+	def _settings(self, partial=0):
+		values = {"allow_partial_truck_load": partial}
 		return patch.object(tc, "_production_setting", side_effect=lambda f: values.get(f))
 
-	def _common(self, stack, doc, stops, partial=0, pct=None, skip=()):
+	def _common(self, stack, doc, stops, partial=0, skip=()):
 		"""Patch the trip's world (the database mocked) onto `stack`, but those in skip."""
 		patches = {
-			"settings": self._settings(partial, pct),
+			"settings": self._settings(partial),
 			"transfer_hub": patch.object(tc, "transfer_hub", return_value="Kapkolia"),
 			"_vehicle_capacity": patch.object(tc, "_vehicle_capacity", return_value=self.CAP),
 			"_trip_stops": patch.object(tc, "_trip_stops", return_value=list(stops)),
@@ -501,14 +501,14 @@ class UnitTestMinimumTruckLoad(UnitTestCase):
 			if key not in skip:
 				stack.enter_context(p)
 
-	def _call(self, fn, doc, form, stops=("Torongo",), partial=0, pct=None, skip=()):
+	def _call(self, fn, doc, form, stops=("Torongo",), partial=0, skip=()):
 		"""Call a whitelisted method with this form; returns its response message."""
 		saved_form, saved_resp = frappe.local.form_dict, getattr(frappe.local, "response", None)
 		frappe.local.form_dict = frappe._dict(form)
 		frappe.local.response = frappe._dict()
 		try:
 			with ExitStack() as stack:
-				self._common(stack, doc, stops, partial, pct, skip)
+				self._common(stack, doc, stops, partial, skip)
 				fn()
 			return frappe.local.response.get("message")
 		finally:
@@ -528,8 +528,8 @@ class UnitTestMinimumTruckLoad(UnitTestCase):
 		with patch.object(tc, "_vehicle_capacity", return_value=self.CAP):
 			with self._settings(0):
 				self.assertEqual(tc.min_load_needed("KDG 076V"), (144, 144, 100))
-			with self._settings(1, 80):
-				self.assertEqual(tc.min_load_needed("KDG 076V"), (116, 144, 80))
+			with self._settings(1):
+				self.assertEqual(tc.min_load_needed("KDG 076V"), (1, 144, 0))
 		with patch.object(tc, "_vehicle_capacity", return_value=0), self._settings(0):
 			self.assertEqual(tc.min_load_needed("KDG 076V"), (0, 0, 0))
 
@@ -557,13 +557,14 @@ class UnitTestMinimumTruckLoad(UnitTestCase):
 		self.assertEqual(res["trip_status"], "Dispatched")
 		self.assertEqual(res["below_minimum"], 0)
 
-	def test_c_checkbox_on_at_80_pct(self):
-		res = self._close(self._trip(116), partial=1, pct=80)
+	def test_c_checkbox_on_sends_any_load(self):
+		res = self._close(self._trip(1), partial=1)
 		self.assertEqual(res["status"], "success")
 		self.assertEqual(res["trip_status"], "Dispatched")
-		res = self._close(self._trip(115), partial=1, pct=80)
-		self.assertEqual(res["reason"], "below_minimum")
-		self.assertEqual((res["loaded"], res["needed"], res["pct"]), (115, 116, 80))
+		self.assertEqual(self._close(self._trip(0), partial=1)["status"], "error")
+		res = self._call(tc.dispatchBucketTrip, self._trip(0), {"name": "BRT-MIN"}, partial=1)
+		self.assertEqual((res["reason"], res["loaded"], res["needed"]), ("below_minimum", 0, 1))
+		self.assertIn("KDG 076V has no buckets loaded", res["message"])
 
 	def test_d_reason_does_not_override_the_minimum(self):
 		# The minimum load is a hard block (#56): a reason no longer sends the truck.

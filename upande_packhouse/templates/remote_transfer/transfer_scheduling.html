@@ -1917,7 +1917,7 @@ function renderOrders(){
   var openBkts=openOrders.reduce(function(a,o){ return a+openTotal(o); },0);
   var bar=openOrders.length?'<div class="ts-distall"><span class="ts-distall-txt"><b>'+n(openBkts)+'</b> bucket'+(openBkts===1?'':'s')+' in <b>'+openOrders.length+'</b> order'+(openOrders.length===1?'':'s')+' not on a trip yet</span>'+
     '<button class="tbtn key" data-act="distribute"'+(S.distLoading?' disabled':'')+'>Distribute all</button></div>':'';
-  if(!DATA.orders.length){ $('panel-orders').innerHTML=bar+alerts+'<div class="ts-empty">No scheduled orders need transferring.</div>'; return; }
+  if(!DATA.orders.length){ $('panel-orders').innerHTML=bar+alerts+'<div class="ts-empty">No orders need transferring.</div>'; return; }
   // Every scheduled order stays listed under its team's schedule; one already on a
   // truck carries a "distributed" badge instead of dropping off the list.
   var loc=curLocation();

@@ -227,7 +227,8 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .aph .kpi-date-row input{height:26px;padding:0 8px;font-size:11px;width:120px;border-radius:8px;border:0;background:rgba(10,10,10,0.04);font-family:var(--sans);outline:0;color:var(--ink)}
 
 /* ── Issuing vs Packing dual card ── */
-.aph .kpi-dual-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:28px}
+.aph .kpi-dual-row{display:grid;grid-template-columns:repeat(4,1fr);gap:28px}
+@media(max-width:1000px){.aph .kpi-dual-row{grid-template-columns:1fr 1fr}}
 .aph .kpi-dual-item{text-align:left}
 .aph .kpi-dual-label{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:1.6px;color:var(--ink-mute);margin-bottom:10px}
 .aph .kpi-dual-value{font:600 34px/1 var(--sans);color:var(--ink);letter-spacing:-1px;font-feature-settings:'tnum'}
@@ -405,8 +406,14 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
               <div class="kpi-dual-item">
                 <div class="kpi-dual-label">Packing</div>
                 <div class="kpi-dual-value" id="kpiAvgPacking">0%</div>
-                <div class="kpi-dual-sub" id="kpiPackingDetail">0 / 0 allocated stems</div>
+                <div class="kpi-dual-sub" id="kpiPackingDetail">0 / 0 issued stems</div>
                 <div class="kpi-dual-bar"><div class="progress-track"><div class="progress-fill packing" id="kpiPackingBar" style="width:0%"></div></div></div>
+              </div>
+              <div class="kpi-dual-item">
+                <div class="kpi-dual-label">Packed of Allocated</div>
+                <div class="kpi-dual-value" id="kpiPackedAlloc">0%</div>
+                <div class="kpi-dual-sub" id="kpiPackedAllocDetail">0 / 0 allocated stems</div>
+                <div class="kpi-dual-bar"><div class="progress-track"><div class="progress-fill packing" id="kpiPackedAllocBar" style="width:0%"></div></div></div>
               </div>
               <div class="kpi-dual-item">
                 <div class="kpi-dual-label">Fulfillment Rate</div>
@@ -552,6 +559,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 
     const SK_IDS = ['statTotalOPLs','statReady','statTotalBoxes','ebTotalStems','issueCount',
         'kpiAvgIssuing','kpiIssuingDetail','kpiIssuingBar','kpiAvgPacking','kpiPackingDetail','kpiPackingBar',
+        'kpiPackedAlloc','kpiPackedAllocDetail','kpiPackedAllocBar',
         'kpiFulfillment','kpiFulfillmentDetail','kpiFulfillmentBar'];
     function skOn(ids) { ids.forEach(id => { const e = document.getElementById(id); if (e) e.classList.add('sk-val'); }); }
     function skOff(ids) { ids.forEach(id => { const e = document.getElementById(id); if (e) e.classList.remove('sk-val'); }); }
@@ -609,11 +617,23 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         document.getElementById('issueCount').textContent     = (data.ready_to_issue || []).length;
 
         renderIssuingPackingKpi(data);
-        renderOPLs('issueGrid', data.ready_to_issue || []);
+        renderOPLs('issueGrid', byProgress(data.ready_to_issue || []));
 
         // Restore scroll after the in-place DOM update so a 30s refresh keeps the
         // viewer exactly where they were instead of snapping to the top.
         if (main) main.scrollTop = st;
+    }
+
+    // Not issued or packed first, then issued with packing not started, then packing,
+    // fully issued and fully packed last; the server's order is kept within each.
+    function byProgress(opls) {
+        const rank = o => {
+            const iss = Math.round(o.issuing_percentage || 0), pack = Math.round(o.packing_percentage || 0);
+            if (iss >= 100 && pack >= 100) return 3;
+            if (pack > 0) return 2;
+            return iss > 0 ? 1 : 0;
+        };
+        return opls.map((o, i) => [rank(o), i, o]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]);
     }
 
     function renderIssuingPackingKpi(data) {
@@ -621,14 +641,16 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         // so it agrees with the fraction shown beneath it. avg_*_pct is a mean of
         // per-OPL percentages (capped at 100) and does NOT equal the totals.
         const avgIssuing  = data.global_issuing_pct || 0;
-        const avgPacking  = data.global_packing_pct || 0;
-        const globalIss   = data.global_issuing_pct || 0;
+        const packedOfAlloc = data.global_packing_pct || 0;
         const fulfillment = data.global_fulfillment_pct || 0;
-        const gap         = avgPacking - avgIssuing;
+        // Both against the allocation: how far packing trails issuing.
+        const gap         = packedOfAlloc - avgIssuing;
         const totalPickStems  = data.total_pick_stems    || 0;
         const totalIssuedStems = data.total_issued_stems || 0;
         const totalPlanned = data.total_planned_stems || 0;
         const totalPacked  = data.total_packed_stems  || 0;
+        // Packing against what has been issued: what the packers have to work with.
+        const avgPacking  = totalIssuedStems > 0 ? Math.min(100, Math.round(totalPacked / totalIssuedStems * 100)) : 0;
         const boxesOrdered = data.total_expected_boxes || 0;
         const boxesPacked  = data.total_packed_boxes   || 0;
 
@@ -637,7 +659,10 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         document.getElementById('kpiFulfillment').textContent = fulfillment + '%';
 
         document.getElementById('kpiIssuingDetail').textContent  = totalIssuedStems.toLocaleString() + ' / ' + totalPickStems.toLocaleString() + ' allocated stems';
-        document.getElementById('kpiPackingDetail').textContent  = totalPacked.toLocaleString() + ' / ' + totalPlanned.toLocaleString() + ' allocated stems';
+        document.getElementById('kpiPackingDetail').textContent  = totalPacked.toLocaleString() + ' / ' + totalIssuedStems.toLocaleString() + ' issued stems';
+        document.getElementById('kpiPackedAlloc').textContent = packedOfAlloc + '%';
+        document.getElementById('kpiPackedAllocDetail').textContent = totalPacked.toLocaleString() + ' / ' + totalPlanned.toLocaleString() + ' allocated stems';
+        document.getElementById('kpiPackedAllocBar').style.width = Math.min(packedOfAlloc, 100) + '%';
         document.getElementById('kpiFulfillmentDetail').textContent = boxesPacked.toLocaleString() + ' / ' + boxesOrdered.toLocaleString() + ' boxes packed';
 
         document.getElementById('kpiIssuingBar').style.width     = Math.min(avgIssuing, 100) + '%';

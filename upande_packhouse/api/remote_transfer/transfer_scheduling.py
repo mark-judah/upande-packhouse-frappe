@@ -254,7 +254,7 @@ def _transfer_buckets(opl_names):
 		       pli.awaiting_transfer AS awaiting, pli.loaded_in_trolley AS loaded,
 		       pli.in_transit AS in_transit,
 		       GREATEST(IFNULL(pli.shelved, 0), IFNULL(pli.custom_ready_for_packing, 0), IFNULL(pli.issued, 0)) AS shelved,
-		       pli.transit_truck AS truck,
+		       pli.transit_truck AS truck, pli.creation AS allocated_at,
 		       IF(IFNULL(pli.transfer_priority, '') = 'ASAP', 1, 0) AS asap
 		FROM `tabPick List Item` pli
 		WHERE pli.parenttype = 'Order Pick List' AND pli.parent IN %(opls)s
@@ -284,15 +284,27 @@ def _transfer_buckets(opl_names):
 				"shelved": 0,
 				"asap": 0,
 				"truck": None,
+				"allocated_at": None,
 			}
 			index[key] = entry
 			out.append(entry)
+		at = r.get("allocated_at")
+		if at and (not entry["allocated_at"] or at > entry["allocated_at"]):
+			entry["allocated_at"] = at
 		entry["stems"] += float(r.get("stems") or 0)
 		entry["names"].append(r["name"])
 		for flag in ("awaiting", "loaded", "in_transit", "shelved", "asap"):
 			if int(r.get(flag) or 0):
 				entry[flag] = 1
 		entry["truck"] = entry["truck"] or r.get("truck")
+	# Waiting at the farm only: one whose order delivers today or earlier is never
+	# collected (trucks carry tomorrow's and later; an ASAP replacement aside), nor one
+	# whose bucket was harvested again since (stale_waiting_buckets).
+	waiting = [e for e in out if e["awaiting"] and not (e["loaded"] or e["in_transit"] or e["shelved"])]
+	past = _past_delivery_opls([e["opl"] for e in waiting if not e["asap"]], today_too=True)
+	stale = stale_waiting_buckets([(e["bucket"], e["allocated_at"]) for e in waiting if e["opl"] not in past])
+	dropped = {id(e) for e in waiting if e["opl"] in past or (e["bucket"], e["allocated_at"]) in stale}
+	out = [e for e in out if id(e) not in dropped]
 	for e in out:
 		e["open"] = 1 if (e["awaiting"] or e["loaded"]) and not e["in_transit"] and not e["shelved"] else 0
 		e["on_road"] = 1 if e["in_transit"] and not e["shelved"] else 0
@@ -306,6 +318,33 @@ def _transfer_buckets(opl_names):
 			e["rides"] = lead
 			e["open"] = e["on_road"] = 0
 	return out
+
+
+def stale_waiting_buckets(rows):
+	"""The (bucket, allocated_at) pairs among `rows` whose bucket was harvested again
+	after the allocation: the allocated stems left it unrecorded, so it no longer
+	waits at the farm."""
+	rows = [(b, at) for b, at in rows if b and at]
+	if not rows:
+		return set()
+	since = min(frappe.utils.get_datetime(at) for _b, at in rows).date()
+	harvested = {
+		(r.bucket or "").upper(): r.at
+		for r in frappe.db.sql(
+			"""SELECT UPPER(custom_bucket_id) AS bucket, MAX(TIMESTAMP(posting_date, posting_time)) AS at
+			FROM `tabStock Entry`
+			WHERE stock_entry_type = 'Harvesting' AND docstatus = 1
+			  AND custom_bucket_id IN %(b)s AND posting_date >= %(since)s
+			GROUP BY UPPER(custom_bucket_id)""",
+			{"b": tuple({b for b, _at in rows}), "since": since},
+			as_dict=True,
+		)
+	}
+	return {
+		(b, at)
+		for b, at in rows
+		if harvested.get(b.upper()) and harvested[b.upper()] > frappe.utils.get_datetime(at)
+	}
 
 
 def shared_buckets(buckets):
@@ -2603,8 +2642,9 @@ def _stop_complete(doc, farm):
 	)
 
 
-def _past_delivery_opls(opls):
-	"""Of these Order Pick Lists, the ones whose Sales Order delivered before today."""
+def _past_delivery_opls(opls, today_too=False):
+	"""Of these Order Pick Lists, the ones whose Sales Order delivered before today (or
+	delivers today too, `today_too`)."""
 	opls = [o for o in set(opls) if o]
 	if not opls:
 		return set()
@@ -2612,7 +2652,9 @@ def _past_delivery_opls(opls):
 		frappe.db.sql_list(
 			"""SELECT opl.name FROM `tabOrder Pick List` opl
 			JOIN `tabSales Order` so ON so.name = opl.sales_order
-			WHERE opl.name IN %(opls)s AND so.delivery_date < %(today)s""",
+			WHERE opl.name IN %(opls)s AND so.delivery_date """
+			+ ("<=" if today_too else "<")
+			+ """ %(today)s""",
 			{"opls": tuple(opls), "today": frappe.utils.today()},
 		)
 	)
@@ -3818,18 +3860,16 @@ def _production_setting(fieldname):
 
 
 def min_load_needed(vehicle):
-	"""The buckets a truck must carry before it may be sent to the hub without a reason:
-	all of its capacity, or -- Production Settings > Allow Sending Partly Loaded Trucks --
-	Minimum Truck Load (%) of it, rounded up. Returns (needed, capacity, pct); needed is
-	0 (no check) while the truck's capacity is unknown."""
+	"""The buckets a truck must carry before it may be sent to the hub: all of its
+	capacity, or -- Production Settings > Allow Sending Partly Loaded Trucks -- any one.
+	Returns (needed, capacity, pct); needed is 0 (no check) while the truck's capacity
+	is unknown."""
 	cap = _vehicle_capacity(vehicle) if vehicle else 0
 	if cap <= 0:
 		return 0, 0, 0
-	pct = 100.0
 	if cint(_production_setting("allow_partial_truck_load")):
-		pct = min(100.0, max(0.0, flt(_production_setting("min_truck_load_pct"))))
-	needed = int(math.ceil(cap * pct / 100 - 1e-9))
-	return needed, cap, int(pct) if pct == int(pct) else pct
+		return 1, cap, 0
+	return cap, cap, 100
 
 
 def _trip_load_count(doc):
@@ -3859,8 +3899,12 @@ def below_minimum_refusal(doc, short):
 		"capacity": short["capacity"],
 		"needed": short["needed"],
 		"pct": short["pct"],
-		"message": "{0} has {1} of {2} buckets — it leaves at {3} ({4}%). Load more buckets before sending.".format(
-			doc.vehicle, short["loaded"], short["capacity"], short["needed"], short["pct"]
+		"message": (
+			"{0} has no buckets loaded. Load a bucket before sending.".format(doc.vehicle)
+			if short["needed"] == 1
+			else "{0} has {1} of {2} buckets — it leaves at {3} ({4}%). Load more buckets before sending.".format(
+				doc.vehicle, short["loaded"], short["capacity"], short["needed"], short["pct"]
+			)
 		),
 	}
 
@@ -4107,9 +4151,9 @@ def _schedule_orders(from_date, to_date, hub=None):
 		st = stage.get(r["opl"]) or {"arrived": 0, "trolley": 0}
 		if not farms_out and not st["arrived"]:
 			continue
-		sc = sched.get(r["opl"])
-		if not sc:
-			continue
+		# Every order of the day is listed; one not on a Packhouse Schedule has no team or
+		# step (planning skips it until it is scheduled).
+		sc = sched.get(r["opl"]) or {}
 		orders.append(
 			{
 				"opl": r["opl"],
