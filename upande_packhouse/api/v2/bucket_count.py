@@ -38,7 +38,9 @@ def _short(name):
 
 
 def _args(kw):
-	g = lambda k: str(kw.get(k) or "").strip()  # noqa: E731
+	def g(k):
+		return str(kw.get(k) or "").strip()
+
 	return {
 		"from_date": g("from_date") or None,
 		"to_date": g("to_date") or None,

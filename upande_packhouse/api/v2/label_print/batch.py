@@ -77,7 +77,14 @@ def meta_from_code(label_type, code):
 		if m:
 			prefix, row, pos, lv = m.groups()
 			prefix = prefix or ""
-			return {"prefix": prefix, "main": f"{row}{pos}{lv}", "row": row, "pos": pos, "level": lv, "row_id": f"{prefix}-{row}" if prefix else row}
+			return {
+				"prefix": prefix,
+				"main": f"{row}{pos}{lv}",
+				"row": row,
+				"pos": pos,
+				"level": lv,
+				"row_id": f"{prefix}-{row}" if prefix else row,
+			}
 		return {"prefix": "", "main": code, "row": "", "pos": "", "level": ""}
 	if label_type == "trolley":
 		m = _TROLLEY.match(code.upper())
@@ -95,7 +102,9 @@ def sample_ctxs(label_type, spec):
 			out = []
 			for r in rows:
 				base = dict(lp_types.TYPES["bunch"]["sample"])
-				base.update({k: r.get(k) or base[k] for k in ("variety", "bunch_size", "stem_length", "farm")})
+				base.update(
+					{k: r.get(k) or base[k] for k in ("variety", "bunch_size", "stem_length", "farm")}
+				)
 				out.append(base)
 			return out or [dict(lp_types.TYPES["bunch"]["sample"])]
 		if label_type == "shelf" or label_type == "sf_shelf":
@@ -117,7 +126,22 @@ def summary(name, duplicate=False):
 	d = frappe.db.get_value(
 		"Label Batch",
 		name,
-		["name", "kind", "label_type", "status", "total", "rendered", "first_code", "last_code", "parts", "error", "creation", "owner", "finished", "heartbeat"],
+		[
+			"name",
+			"kind",
+			"label_type",
+			"status",
+			"total",
+			"rendered",
+			"first_code",
+			"last_code",
+			"parts",
+			"error",
+			"creation",
+			"owner",
+			"finished",
+			"heartbeat",
+		],
 		as_dict=True,
 	)
 	d["parts"] = json.loads(d["parts"] or "[]")
@@ -161,7 +185,7 @@ def create_batch(label_type, spec, design, layout, template, request_key):
 		frappe.throw(_("Unknown label type."))
 	if not request_key or len(request_key) < 8:
 		frappe.throw(_("Missing request key."))
-	if (name := _find_batch(request_key)):
+	if name := _find_batch(request_key):
 		return summary(name, duplicate=True)
 
 	design = render.normalize_design(design, label_type)
@@ -184,7 +208,7 @@ def create_batch(label_type, spec, design, layout, template, request_key):
 	except frappe.UniqueValidationError:
 		# a parallel request with the same key won the race
 		frappe.db.rollback()
-		if (name := _find_batch(request_key)):
+		if name := _find_batch(request_key):
 			return summary(name, duplicate=True)
 		raise
 	_enqueue(doc.name)
@@ -220,7 +244,13 @@ def _labels_for(b, start, end):
 		)
 		return [ctx_of(c, m) for c, m in rows]
 	codes = json.loads(b.spec)["codes"][start - 1 : end]
-	by = {r[0].upper(): r for r in frappe.db.sql("select code, meta from `tabLabel Code` where ref in %s", ([f"{b.label_type}:{c}" for c in codes],))}
+	by = {
+		r[0].upper(): r
+		for r in frappe.db.sql(
+			"select code, meta from `tabLabel Code` where ref in %s",
+			([f"{b.label_type}:{c}" for c in codes],),
+		)
+	}
 	return [ctx_of(by[c.upper()][0], by[c.upper()][1]) for c in codes if c.upper() in by]
 
 
@@ -247,7 +277,9 @@ def run_batch(batch):
 			start, end = idx * size + 1, min((idx + 1) * size, b.total)
 			ctxs = _labels_for(b, start, end)
 			if len(ctxs) != end - start + 1:
-				frappe.throw(_("Chunk {0} is missing {1} label(s).").format(idx + 1, end - start + 1 - len(ctxs)))
+				frappe.throw(
+					_("Chunk {0} is missing {1} label(s).").format(idx + 1, end - start + 1 - len(ctxs))
+				)
 			data = render.render_pdf(design, layout, ctxs, b.label_type, geo)
 			path = os.path.join(_chunk_dir(batch), f"c{idx:05d}.pdf")
 			with open(path + ".tmp", "wb") as f:
@@ -259,7 +291,11 @@ def run_batch(batch):
 	except Exception:
 		frappe.db.rollback()
 		frappe.log_error(frappe.get_traceback(), f"Label batch {batch} failed")
-		_set(batch, status="Failed", error=frappe.get_traceback(with_context=False)[-400:].strip().splitlines()[-1][:300])
+		_set(
+			batch,
+			status="Failed",
+			error=frappe.get_traceback(with_context=False)[-400:].strip().splitlines()[-1][:300],
+		)
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 
@@ -270,7 +306,9 @@ def _finalize(b, design, layout):
 	files = sorted(os.listdir(_chunk_dir(b.name)))
 	files = [f for f in files if f.endswith(".pdf")]
 	limit = int(get_max_file_size() * 0.8)
-	for old in frappe.get_all("File", {"attached_to_doctype": "Label Batch", "attached_to_name": b.name}, pluck="name"):
+	for old in frappe.get_all(
+		"File", {"attached_to_doctype": "Label Batch", "attached_to_name": b.name}, pluck="name"
+	):
 		frappe.delete_doc("File", old, ignore_permissions=True, force=True)
 
 	groups, cur, size = [], [], 0
@@ -296,7 +334,14 @@ def _finalize(b, design, layout):
 		labels = min(len(grp) * cint(b.chunk_size), b.total - done) if b.chunk_size else b.total
 		name = f"{b.name}.pdf" if len(groups) == 1 else f"{b.name}_part{i}_of_{len(groups)}.pdf"
 		fd = frappe.get_doc(
-			{"doctype": "File", "file_name": name, "attached_to_doctype": "Label Batch", "attached_to_name": b.name, "is_private": 1, "content": buf.getvalue()}
+			{
+				"doctype": "File",
+				"file_name": name,
+				"attached_to_doctype": "Label Batch",
+				"attached_to_name": b.name,
+				"is_private": 1,
+				"content": buf.getvalue(),
+			}
 		).insert(ignore_permissions=True)
 		parts.append({"url": fd.file_url, "name": name, "labels": labels, "bytes": len(buf.getvalue())})
 		done += labels
@@ -310,7 +355,9 @@ def _finalize(b, design, layout):
 		)
 	else:
 		_mark_printed(b.label_type, listed, ts)
-	_set(b.name, status="Done", parts=json.dumps(parts), finished=ts, heartbeat=ts, rendered=b.total, error="")
+	_set(
+		b.name, status="Done", parts=json.dumps(parts), finished=ts, heartbeat=ts, rendered=b.total, error=""
+	)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	shutil.rmtree(_chunk_dir(b.name), ignore_errors=True)
 
@@ -392,7 +439,17 @@ def resolve(label_type, wanted):
 			):
 				rows[r.code.upper()] = r
 		missing = [c for c in wanted if c.upper() not in rows]
-	found = [dict(code=rows[c.upper()].code, meta=json.loads(rows[c.upper()].meta or "{}"), status=rows[c.upper()].status, print_count=rows[c.upper()].print_count, last_printed=rows[c.upper()].last_printed) for c in wanted if c.upper() in rows]
+	found = [
+		dict(
+			code=rows[c.upper()].code,
+			meta=json.loads(rows[c.upper()].meta or "{}"),
+			status=rows[c.upper()].status,
+			print_count=rows[c.upper()].print_count,
+			last_printed=rows[c.upper()].last_printed,
+		)
+		for c in wanted
+		if c.upper() in rows
+	]
 	return found, missing
 
 
@@ -402,13 +459,37 @@ def _adopt(label_type, legacy, codes):
 	std = lp_codes._std(frappe.session.user, ts)
 	info = {}
 	if label_type == "bunch":
-		for r in frappe.get_all(legacy, {"name": ["in", codes]}, ["name", "item_code", "bunch_size", "stem_length", "farm", "farm_code"]):
-			info[r.name] = {"variety": r.item_code, "bunch_size": r.bunch_size, "stem_length": r.stem_length, "farm": r.farm, "farm_code": r.farm_code, "number": r.name.split("-", 1)[-1]}
+		for r in frappe.get_all(
+			legacy,
+			{"name": ["in", codes]},
+			["name", "item_code", "bunch_size", "stem_length", "farm", "farm_code"],
+		):
+			info[r.name] = {
+				"variety": r.item_code,
+				"bunch_size": r.bunch_size,
+				"stem_length": r.stem_length,
+				"farm": r.farm,
+				"farm_code": r.farm_code,
+				"number": r.name.split("-", 1)[-1],
+			}
 	fields = ["name", "ref", "label_type", "code", "status", "batch", "seq", "print_count", "meta", *std]
 	values = []
 	for c in codes:
 		meta = info.get(c) or meta_from_code(label_type, c)
-		values.append([f"{label_type}:{c}", f"{label_type}:{c}", label_type, c, "Rendered", None, 0, 0, json.dumps(meta, separators=(",", ":")), *std.values()])
+		values.append(
+			[
+				f"{label_type}:{c}",
+				f"{label_type}:{c}",
+				label_type,
+				c,
+				"Rendered",
+				None,
+				0,
+				0,
+				json.dumps(meta, separators=(",", ":")),
+				*std.values(),
+			]
+		)
 	frappe.db.bulk_insert("Label Code", fields=fields, values=values, ignore_duplicates=True)
 
 
@@ -416,14 +497,16 @@ def reprint(label_type, wanted, design, layout, template, request_key, reason=""
 	"""Reprint existing codes. Never reserves a number. <= INLINE_REPRINT_MAX
 	labels come back immediately as a PDF; larger runs become a batch."""
 	frappe.has_permission("Label Batch", "create", throw=True)
-	if (name := _find_batch(request_key)):
+	if name := _find_batch(request_key):
 		s = summary(name, duplicate=True)
 		return {"batch": s, "pdf": None}
 	design = render.normalize_design(design, label_type)
 	layout = normalize_layout(layout)
 	found, missing = resolve(label_type, wanted)
 	if missing:
-		frappe.throw(_("Not found: {0}").format(", ".join(missing[:20]) + (" ..." if len(missing) > 20 else "")))
+		frappe.throw(
+			_("Not found: {0}").format(", ".join(missing[:20]) + (" ..." if len(missing) > 20 else ""))
+		)
 	if not found:
 		frappe.throw(_("Nothing to print."))
 	if len(found) > lp_codes.MAX_BATCH:
@@ -438,14 +521,16 @@ def reprint(label_type, wanted, design, layout, template, request_key, reason=""
 		doc.insert(ignore_permissions=True)
 	except frappe.UniqueValidationError:
 		frappe.db.rollback()
-		if (name := _find_batch(request_key)):
+		if name := _find_batch(request_key):
 			return {"batch": summary(name, duplicate=True), "pdf": None}
 		raise
 	if len(found) <= INLINE_REPRINT_MAX:
 		data = render.render_pdf(design, layout, ctxs, label_type, geo)
 		ts = now_datetime()
 		_mark_printed(label_type, spec["codes"], ts)
-		_set(doc.name, status="Done", rendered=len(found), chunks_done=1, started=ts, finished=ts, heartbeat=ts)
+		_set(
+			doc.name, status="Done", rendered=len(found), chunks_done=1, started=ts, finished=ts, heartbeat=ts
+		)
 		return {"batch": summary(doc.name), "pdf": base64.b64encode(data).decode()}
 	_enqueue(doc.name)
 	return {"batch": summary(doc.name), "pdf": None}

@@ -533,7 +533,7 @@
     const issuesN = r.packing_issues || 0;
     const issues = issuesN ? ` <button class="ph-btn ph-btn--ghost ph-btn--sm" type="button" data-issues="${PH.esc(g.opl)}">${PH.fmt.plural(issuesN, "packing issue")}</button>` : "";
     return `<div class="ow-detail" data-detail="${PH.esc(g.key)}">
-      
+
       ${boxes}
       <div class="ow-docs">${docLinks(r)}</div>
       ${foot || issues ? `<div class="ph-muted ow-foot">${foot}${issues}</div>` : ""}

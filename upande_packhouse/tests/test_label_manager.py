@@ -19,7 +19,15 @@ from upande_packhouse.api.v2.label_print import types as lp_types
 
 
 def _bunch_rows(qty=5):
-	return [{"farm": "Kapkolia", "variety": "Marisa", "bunch_size": "Bunch (10)", "stem_length": "62cm", "qty": qty}]
+	return [
+		{
+			"farm": "Kapkolia",
+			"variety": "Marisa",
+			"bunch_size": "Bunch (10)",
+			"stem_length": "62cm",
+			"qty": qty,
+		}
+	]
 
 
 class TestLabelManager(IntegrationTestCase):
@@ -42,14 +50,26 @@ class TestLabelManager(IntegrationTestCase):
 
 	def setUp(self):
 		frappe.set_user("Administrator")
-		for dt, name in (("Farm", "Kapkolia"), ("Item", "Marisa"), ("UOM", "Bunch (10)"), ("Stem Length", "62cm")):
+		for dt, name in (
+			("Farm", "Kapkolia"),
+			("Item", "Marisa"),
+			("UOM", "Bunch (10)"),
+			("Stem Length", "62cm"),
+		):
 			if not frappe.db.exists(dt, name):
 				self.skipTest(f"{dt} {name} not on this site")
 		if not frappe.db.get_value("Farm", "Kapkolia", "farm_code"):
 			self.skipTest("Kapkolia has no farm code")
 
 	def _create(self, label_type="bunch", spec=None, key=None, design=None, layout=None):
-		return lp_batch.create_batch(label_type, spec or {"rows": _bunch_rows()}, design, layout or {}, None, key or frappe.generate_hash(length=12))
+		return lp_batch.create_batch(
+			label_type,
+			spec or {"rows": _bunch_rows()},
+			design,
+			layout or {},
+			None,
+			key or frappe.generate_hash(length=12),
+		)
 
 	# --- renderer
 
@@ -70,7 +90,9 @@ class TestLabelManager(IntegrationTestCase):
 		self.assertEqual(lp_types.payload("staging", "COLD ROOM 2"), '{"location":"COLD ROOM 2"}')
 
 	def test_design_is_clamped_and_unknown_fields_reported(self):
-		d = render.normalize_design({"margin": 999, "lines": [{"text": "{nope}{code}", "size": 9999}]}, "bucket")
+		d = render.normalize_design(
+			{"margin": 999, "lines": [{"text": "{nope}{code}", "size": 9999}]}, "bucket"
+		)
 		self.assertEqual(d["margin"], 30)
 		self.assertEqual(d["lines"][0]["size"], 200)
 		self.assertEqual(d["_unknown_fields"], ["nope"])
@@ -90,7 +112,12 @@ class TestLabelManager(IntegrationTestCase):
 		layout = lp_batch.normalize_layout({"mode": "sheet", "sheet": {"paper": "A4"}})
 		per = render.labels_per_page(d, layout)
 		self.assertGreater(per, 1)
-		pdf = render.render_pdf(d, layout, [dict(lp_types.TYPES["shelf"]["sample"], code=f"KPK-A{i}T") for i in range(per + 1)], "shelf")
+		pdf = render.render_pdf(
+			d,
+			layout,
+			[dict(lp_types.TYPES["shelf"]["sample"], code=f"KPK-A{i}T") for i in range(per + 1)],
+			"shelf",
+		)
 		self.assertEqual(pymupdf.open(stream=pdf, filetype="pdf").page_count, 2)
 
 	# --- reservation
@@ -131,7 +158,15 @@ class TestLabelManager(IntegrationTestCase):
 
 	def test_failed_request_leaves_no_trace(self):
 		before_counter = frappe.db.get_single_value("QR Sequence", "bunch_counter")
-		bad = [{"farm": "Kapkolia", "variety": "No Such Variety", "bunch_size": "Bunch (10)", "stem_length": "62cm", "qty": 3}]
+		bad = [
+			{
+				"farm": "Kapkolia",
+				"variety": "No Such Variety",
+				"bunch_size": "Bunch (10)",
+				"stem_length": "62cm",
+				"qty": 3,
+			}
+		]
 		with self.assertRaises(frappe.ValidationError):
 			self._create(spec={"rows": bad})
 		self.assertEqual(frappe.db.get_single_value("QR Sequence", "bunch_counter"), before_counter)
@@ -188,7 +223,9 @@ class TestLabelManager(IntegrationTestCase):
 		with patch.object(lp_batch, "CHUNK_LABELS", 2), patch.object(render, "render_pdf", flaky):
 			frappe.db.set_value("Label Batch", b["name"], "chunk_size", 2)
 			lp_batch.run_batch(b["name"])
-			mid = frappe.db.get_value("Label Batch", b["name"], ["status", "chunks_done", "rendered"], as_dict=True)
+			mid = frappe.db.get_value(
+				"Label Batch", b["name"], ["status", "chunks_done", "rendered"], as_dict=True
+			)
 			self.assertEqual((mid.status, mid.chunks_done, mid.rendered), ("Failed", 2, 4))
 			lp_batch.resume(b["name"])
 			lp_batch.run_batch(b["name"])
@@ -196,7 +233,9 @@ class TestLabelManager(IntegrationTestCase):
 		self.assertEqual(done["status"], "Done")
 		self.assertEqual(done["rendered"], 7)
 		self.assertEqual(calls["n"], 5)  # 2 ok + 1 failed + 2 resumed: finished chunks were not redone
-		self.assertEqual(sum(frappe.db.get_all("Label Code", {"batch": b["name"]}, "print_count", pluck="print_count")), 7)
+		self.assertEqual(
+			sum(frappe.db.get_all("Label Code", {"batch": b["name"]}, "print_count", pluck="print_count")), 7
+		)
 		path = frappe.get_site_path(done["parts"][0]["url"].lstrip("/"))
 		self.assertEqual(pymupdf.open(path).page_count, 7)
 
@@ -225,7 +264,9 @@ class TestLabelManager(IntegrationTestCase):
 		self.assertEqual(frappe.db.get_value("Label Code", f"bunch:{code}", "print_count"), 2)
 
 	def test_reprint_adopts_a_legacy_bunch(self):
-		legacy = frappe.db.get_value("Bunch QR Code", {"name": ["like", "BUNCH-%"], "item_code": ["is", "set"]}, "name")
+		legacy = frappe.db.get_value(
+			"Bunch QR Code", {"name": ["like", "BUNCH-%"], "item_code": ["is", "set"]}, "name"
+		)
 		if not legacy:
 			self.skipTest("no legacy bunch")
 		out = lp_batch.reprint("bunch", [legacy], None, {}, None, frappe.generate_hash(length=12), "")
@@ -241,7 +282,9 @@ class TestLabelManager(IntegrationTestCase):
 	def test_lookup_reads_scanned_payloads_and_ranges(self):
 		b = self._create(spec={"rows": _bunch_rows(3)})
 		codes = frappe.get_all("Label Code", {"batch": b["name"]}, pluck="code", order_by="seq")
-		res = lm.lookup("bunch", json.dumps({"bunch_id": codes[0]}) + f" {codes[1]}..{codes[2].split('-')[1]}")
+		res = lm.lookup(
+			"bunch", json.dumps({"bunch_id": codes[0]}) + f" {codes[1]}..{codes[2].split('-')[1]}"
+		)
 		self.assertEqual({i["code"] for i in res["items"]}, set(codes))
 		self.assertEqual(res["missing"], [])
 
@@ -255,9 +298,13 @@ class TestLabelManager(IntegrationTestCase):
 		design = render.normalize_design({"base_pt": 14}, "bunch")
 		rows = lm.save_template("bunch", "ZZ test bunch", design, 0)
 		mine = next(r for r in rows if r["name"] == "ZZ test bunch")
-		self.assertEqual((mine["label_type"], mine["design"]["base_pt"], mine["is_default"]), ("bunch", 14, 0))
+		self.assertEqual(
+			(mine["label_type"], mine["design"]["base_pt"], mine["is_default"]), ("bunch", 14, 0)
+		)
 		rows = lm.save_template("bunch", "ZZ test bunch", design, 1)
-		self.assertEqual([r["name"] for r in rows if r["label_type"] == "bunch" and r["is_default"]], ["ZZ test bunch"])
+		self.assertEqual(
+			[r["name"] for r in rows if r["label_type"] == "bunch" and r["is_default"]], ["ZZ test bunch"]
+		)
 		with self.assertRaises(frappe.ValidationError):
 			lm.delete_template("ZZ test bunch")
 		std = next(r for r in rows if r["label_type"] == "bunch" and r["name"] != "ZZ test bunch")

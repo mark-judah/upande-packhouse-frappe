@@ -96,9 +96,7 @@ def normalize_design(d, label_type):
 		"max_pt": _num(d.get("max_pt"), 6, 300, 96),
 		"base_pt": _num(d.get("base_pt"), 0, 300, 0),
 	}
-	out["_unknown_fields"] = sorted(
-		{f for ln in lines for f in _placeholders(ln["text"]) if f not in fields}
-	)
+	out["_unknown_fields"] = sorted({f for ln in lines for f in _placeholders(ln["text"]) if f not in fields})
 	return out
 
 
@@ -207,23 +205,35 @@ def solve(design, ctxs, label_type):
 			s = min(s, max(th - fixed_cap, 1) / denom_h if denom_h else s)
 		s = max(s, MIN_PT)
 		if design["base_pt"] and s < design["base_pt"] - 0.05:
-			warnings.append(_("Text size {0}pt does not fit this label; it was reduced to {1}pt. Make the label bigger or the QR smaller.").format(round(design["base_pt"], 1), round(s, 1)))
+			warnings.append(
+				_(
+					"Text size {0}pt does not fit this label; it was reduced to {1}pt. Make the label bigger or the QR smaller."
+				).format(round(design["base_pt"], 1), round(s, 1))
+			)
 		if s <= MIN_PT + 0.01:
-			warnings.append(_("Text is at the {0}pt minimum and may overflow; make the label larger.").format(int(MIN_PT)))
+			warnings.append(
+				_("Text is at the {0}pt minimum and may overflow; make the label larger.").format(int(MIN_PT))
+			)
 		for i, ln in enumerate(lines):
 			sz = s * ln["scale"] if ln["size"] <= 0 else ln["size"]
 			if unit[i] > 0 and unit[i] * sz > tw + 0.01:
 				if ln["size"] > 0:
-					warnings.append(_("Line {0} was reduced from {1}pt to {2}pt to fit the label width.").format(i + 1, round(ln["size"], 1), round(tw / unit[i], 1)))
+					warnings.append(
+						_("Line {0} was reduced from {1}pt to {2}pt to fit the label width.").format(
+							i + 1, round(ln["size"], 1), round(tw / unit[i], 1)
+						)
+					)
 				sz = tw / unit[i]
 			sizes.append(sz)
-		smallest = min((sz for sz, ln in zip(sizes, lines) if ln["text"].strip()), default=99)
+		smallest = min((sz for sz, ln in zip(sizes, lines, strict=False) if ln["text"].strip()), default=99)
 		if smallest < 6:
-			warnings.append(_("Smallest text is {0}pt - hard to read when printed.").format(round(smallest, 1)))
+			warnings.append(
+				_("Smallest text is {0}pt - hard to read when printed.").format(round(smallest, 1))
+			)
 		caps = [CAP * sz for sz in sizes]
 		gap_l = lg * (s if auto_idx else max(sizes))
 		bh = sum(caps) + (len(lines) - 1) * gap_l
-		bw = max((u * sz for u, sz in zip(unit, sizes)), default=0)
+		bw = max((u * sz for u, sz in zip(unit, sizes, strict=False)), default=0)
 	else:
 		caps, gap_l, bh, bw = [], 0, 0, 0
 
@@ -252,8 +262,19 @@ def solve(design, ctxs, label_type):
 		tx, t_top = ax, ay
 
 	geo = {
-		"W": W, "H": H, "q": q, "qr_x": qr_x, "qr_top": qr_top, "tx": tx, "t_top": t_top,
-		"bw": bw, "bh": bh, "caps": caps, "sizes": sizes, "gap_l": gap_l, "unit": unit,
+		"W": W,
+		"H": H,
+		"q": q,
+		"qr_x": qr_x,
+		"qr_top": qr_top,
+		"tx": tx,
+		"t_top": t_top,
+		"bw": bw,
+		"bh": bh,
+		"caps": caps,
+		"sizes": sizes,
+		"gap_l": gap_l,
+		"unit": unit,
 	}
 
 	# scan-ability: smallest module across the batch's densest QR
@@ -264,10 +285,14 @@ def solve(design, ctxs, label_type):
 	geo["modules"] = n_mod
 	if mod_mm < 0.25:
 		warnings.append(
-			_("QR modules are {0}mm - too small for most label printers. Enlarge the QR or shorten the code.").format(round(mod_mm, 2))
+			_(
+				"QR modules are {0}mm - too small for most label printers. Enlarge the QR or shorten the code."
+			).format(round(mod_mm, 2))
 		)
 	elif mod_mm < 0.33:
-		warnings.append(_("QR modules are {0}mm - borderline for 203dpi thermal printers.").format(round(mod_mm, 2)))
+		warnings.append(
+			_("QR modules are {0}mm - borderline for 203dpi thermal printers.").format(round(mod_mm, 2))
+		)
 	quiet = min(qr_x, W - qr_x - q, qr_top, H - qr_top - q)
 	if quiet < 2 * mod_mm * MM:
 		warnings.append(_("Little white space around the QR; scanners need a clear border."))
@@ -299,12 +324,19 @@ def label_ops(design, geo, ctx, label_type):
 	ops.append(b"f")
 	top = geo["t_top"]
 	lay = design["layout"]
-	for ln, cap, sz in zip(design["lines"], geo["caps"], geo["sizes"]):
+	for ln, cap, sz in zip(design["lines"], geo["caps"], geo["sizes"], strict=False):
 		s = fill(ln["text"], ctx, ln["upper"])
 		if s:
 			w = _tw(s, ln["bold"], sz)
-			x = geo["tx"] + {"left": 0, "center": (geo["bw"] - w) / 2, "right": geo["bw"] - w}[lay["text_align"]]
-			ops.append(b"BT /%s %.2f Tf %.3f %.3f Td (" % (FONT[ln["bold"]][0].encode(), sz, x, H - (top + cap)) + _esc(s) + b") Tj ET")
+			x = (
+				geo["tx"]
+				+ {"left": 0, "center": (geo["bw"] - w) / 2, "right": geo["bw"] - w}[lay["text_align"]]
+			)
+			ops.append(
+				b"BT /%s %.2f Tf %.3f %.3f Td (" % (FONT[ln["bold"]][0].encode(), sz, x, H - (top + cap))
+				+ _esc(s)
+				+ b") Tj ET"
+			)
 		top += cap + geo["gap_l"]
 	return b"\n".join(ops)
 

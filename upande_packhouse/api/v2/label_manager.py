@@ -75,7 +75,13 @@ def bootstrap():
 	_check()
 	_ensure_templates()
 	types = {
-		k: {"label": v["label"], "kind": v["kind"], "fields": v["fields"], "sample": v["sample"], "default": lp_types.DEFAULT_DESIGNS[k]}
+		k: {
+			"label": v["label"],
+			"kind": v["kind"],
+			"fields": v["fields"],
+			"sample": v["sample"],
+			"default": lp_types.DEFAULT_DESIGNS[k],
+		}
 		for k, v in lp_types.TYPES.items()
 	}
 	farms = frappe.get_all("Farm", fields=["name", "farm_code"], order_by="name asc")
@@ -121,7 +127,13 @@ def bunch_table(farm: str | None = None):
 	lengths = frappe.get_all("Stem Length", pluck="length", order_by="length asc")
 	avg = _prev_week(farm)
 	rows = [
-		{"variety": it.name, "bunch_size": it.sales_uom or "", "stem_length": sl, "prev_week_avg": avg.get(f"{it.name}|{sl}", 0), "qty": 0}
+		{
+			"variety": it.name,
+			"bunch_size": it.sales_uom or "",
+			"stem_length": sl,
+			"prev_week_avg": avg.get(f"{it.name}|{sl}", 0),
+			"qty": 0,
+		}
 		for it in items
 		for sl in lengths
 	]
@@ -183,8 +195,17 @@ def preview(label_type: str, design=None, layout=None, spec=None):
 
 
 @frappe.whitelist(methods=["POST"])
-def create(label_type: str, spec=None, design=None, layout=None, template: str | None = None, request_key: str | None = None):
-	return lp_batch.create_batch(label_type, _loads(spec, {}), _loads(design, None), _loads(layout, {}), template, request_key)
+def create(
+	label_type: str,
+	spec=None,
+	design=None,
+	layout=None,
+	template: str | None = None,
+	request_key: str | None = None,
+):
+	return lp_batch.create_batch(
+		label_type, _loads(spec, {}), _loads(design, None), _loads(layout, {}), template, request_key
+	)
 
 
 @frappe.whitelist()
@@ -195,7 +216,9 @@ def batches(label_type: str | None = None, kind: str | None = None, limit: int =
 		filters["label_type"] = label_type
 	if kind:
 		filters["kind"] = kind
-	names = frappe.get_all("Label Batch", filters, pluck="name", order_by="creation desc", limit=min(cint(limit) or 60, 200))
+	names = frappe.get_all(
+		"Label Batch", filters, pluck="name", order_by="creation desc", limit=min(cint(limit) or 60, 200)
+	)
 	out = []
 	for n in names:
 		s = lp_batch.summary(n)
@@ -290,33 +313,79 @@ def lookup(label_type: str, text: str | None = None):
 	for c in toks:
 		r = reg.get(c.upper())
 		if r:
-			items.append({"code": r.code, "status": r.status, "print_count": r.print_count, "last_printed": r.last_printed, "batch": r.batch, "source": "registry", "meta": json.loads(r.meta or "{}")})
+			items.append(
+				{
+					"code": r.code,
+					"status": r.status,
+					"print_count": r.print_count,
+					"last_printed": r.last_printed,
+					"batch": r.batch,
+					"source": "registry",
+					"meta": json.loads(r.meta or "{}"),
+				}
+			)
 		elif c.upper() in old_u:
-			items.append({"code": c, "status": "Printed earlier", "print_count": None, "last_printed": None, "batch": None, "source": "legacy", "meta": {}})
+			items.append(
+				{
+					"code": c,
+					"status": "Printed earlier",
+					"print_count": None,
+					"last_printed": None,
+					"batch": None,
+					"source": "legacy",
+					"meta": {},
+				}
+			)
 		else:
 			missing.append(c)
 	suggestions = []
 	if len(toks) == 1 and not items and len(toks[0]) >= 2:
 		like = toks[0].replace("%", "").replace("_", r"\_") + "%"
 		suggestions = frappe.db.sql_list(
-			"select code from `tabLabel Code` where label_type=%s and code like %s order by code limit 12", (label_type, like)
+			"select code from `tabLabel Code` where label_type=%s and code like %s order by code limit 12",
+			(label_type, like),
 		)
 		if legacy and len(suggestions) < 12:
-			suggestions += [s for s in frappe.db.sql_list(f"select name from `tab{legacy}` where name like %s order by name limit 12", (like,)) if s not in suggestions]  # noqa: S608
-	return {"items": items[:500], "total": len(items), "missing": missing[:100], "missing_count": len(missing), "suggestions": suggestions[:12]}
+			suggestions += [
+				s
+				for s in frappe.db.sql_list(
+					f"select name from `tab{legacy}` where name like %s order by name limit 12", (like,)
+				)
+				if s not in suggestions
+			]
+	return {
+		"items": items[:500],
+		"total": len(items),
+		"missing": missing[:100],
+		"missing_count": len(missing),
+		"suggestions": suggestions[:12],
+	}
 
 
 @frappe.whitelist(methods=["POST"])
-def reprint(label_type: str, codes=None, text: str | None = None, design=None, layout=None, template: str | None = None, request_key: str | None = None, reason: str | None = None):
+def reprint(
+	label_type: str,
+	codes=None,
+	text: str | None = None,
+	design=None,
+	layout=None,
+	template: str | None = None,
+	request_key: str | None = None,
+	reason: str | None = None,
+):
 	wanted = _loads(codes, None) or _tokens(label_type, text)
-	return lp_batch.reprint(label_type, wanted, _loads(design, None), _loads(layout, {}), template, request_key, reason or "")
+	return lp_batch.reprint(
+		label_type, wanted, _loads(design, None), _loads(layout, {}), template, request_key, reason or ""
+	)
 
 
 # ------------------------------------------------------------- templates
 
 
 @frappe.whitelist(methods=["POST"])
-def save_template(label_type: str, template_name: str, design=None, is_default=0, description: str | None = None):
+def save_template(
+	label_type: str, template_name: str, design=None, is_default=0, description: str | None = None
+):
 	frappe.has_permission("Label Template", "write", throw=True)
 	if label_type not in lp_types.TYPES:
 		frappe.throw(_("Unknown label type."))

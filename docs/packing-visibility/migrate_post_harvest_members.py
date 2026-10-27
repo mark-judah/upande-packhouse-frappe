@@ -19,6 +19,7 @@ Run from the sites folder:
   ../env/bin/python ../apps/upande_packhouse/docs/packing-visibility/migrate_post_harvest_members.py           # dry run
   ../env/bin/python ../apps/upande_packhouse/docs/packing-visibility/migrate_post_harvest_members.py --apply   # write
 """
+
 import json
 import os
 import sys
@@ -36,12 +37,17 @@ def main(apply):
 	rows = json.load(open(os.path.join(HERE, "post_harvest_members_v15.json")))
 	teams = {t.lower(): t for t in frappe.get_all("Post Harvest Team", pluck="name")}
 	roles = {r.lower(): r for r in frappe.get_all("Role", pluck="name")}
-	emp = {e.name: e for e in frappe.get_all("Employee", fields=["name", "employee_name", "status", "designation"])}
+	emp = {
+		e.name: e
+		for e in frappe.get_all("Employee", fields=["name", "employee_name", "status", "designation"])
+	}
 	by_name = {}
 	for e in emp.values():
 		by_name.setdefault((e.employee_name or "").strip().lower(), []).append(e)
-	existing = {(m.parent, m.employee_id) for m in frappe.get_all(
-		"Post Harvest Team Member Detail", fields=["parent", "employee_id"])}
+	existing = {
+		(m.parent, m.employee_id)
+		for m in frappe.get_all("Post Harvest Team Member Detail", fields=["parent", "employee_id"])
+	}
 	plan, report = {}, Counter()
 	skipped = []
 	for r in rows:
@@ -68,7 +74,8 @@ def main(apply):
 			role = roles.get((r["role"] or "").lower())
 			report["role kept" if role else "role dropped"] += 1
 			plan.setdefault(team, []).append(
-				{"employee_id": e.name, "payroll_id": e.name, "full_name": e.name, "role": role})
+				{"employee_id": e.name, "payroll_id": e.name, "full_name": e.name, "role": role}
+			)
 			report["to import"] += 1
 	print("Source rows:", len(rows))
 	for k, v in sorted(report.items()):

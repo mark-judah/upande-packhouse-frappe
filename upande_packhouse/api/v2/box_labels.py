@@ -48,7 +48,9 @@ _FROM = """
 
 def formats():
 	"""The print formats a Box Label can use, default first (read-only: they are never edited here)."""
-	names = frappe.get_all("Print Format", {"doc_type": "Box Label", "disabled": 0}, pluck="name", order_by="name asc")
+	names = frappe.get_all(
+		"Print Format", {"doc_type": "Box Label", "disabled": 0}, pluck="name", order_by="name asc"
+	)
 	if DEFAULT_FORMAT in names:
 		names.remove(DEFAULT_FORMAT)
 		names.insert(0, DEFAULT_FORMAT)
@@ -94,7 +96,7 @@ def orders(
 		{having}
 		ORDER BY so.delivery_date, so.customer_name, so.name
 		LIMIT 600
-		""",  # noqa: S608
+		""",
 		params,
 		as_dict=True,
 	)
@@ -106,7 +108,7 @@ def orders(
 		r["last_printed"] = str(r["last_printed"]) if r["last_printed"] else None
 	customers = frappe.db.sql(
 		f"""SELECT DISTINCT so.customer, so.customer_name {_FROM}
-		    WHERE so.delivery_date BETWEEN %(f)s AND %(t)s ORDER BY so.customer_name""",  # noqa: S608
+		    WHERE so.delivery_date BETWEEN %(f)s AND %(t)s ORDER BY so.customer_name""",
 		{"f": f, "t": t},
 		as_dict=True,
 	)
@@ -137,7 +139,7 @@ def boxes(sales_order: str):
 		{_FROM}
 		WHERE so.name = %(so)s
 		ORDER BY bl.order_pick_list, bl.box_number
-		""",  # noqa: S608
+		""",
 		{"so": sales_order},
 		as_dict=True,
 	)
@@ -151,12 +153,22 @@ def boxes(sales_order: str):
 		order_by="idx asc",
 		limit_page_length=0,
 	):
-		items[it.parent].append({"variety": it.variety, "qty": cint(it.qty), "length": it.length, "uom": it.uom})
+		items[it.parent].append(
+			{"variety": it.variety, "qty": cint(it.qty), "length": it.length, "uom": it.uom}
+		)
 	for r in rows:
 		r["printed"] = cint(r["printed"])
 		r["printed_at"] = str(r["printed_at"]) if r["printed_at"] else None
 		r["items"] = items.get(r.name, [])
-		r["stage"] = "Delivered" if r["delivered"] else "Loaded" if r["loaded"] else "Staged" if r["staged"] else "Packed"
+		r["stage"] = (
+			"Delivered"
+			if r["delivered"]
+			else "Loaded"
+			if r["loaded"]
+			else "Staged"
+			if r["staged"]
+			else "Packed"
+		)
 	return {"success": True, "boxes": rows}
 
 
@@ -164,13 +176,13 @@ def _resolve(names, sales_order):
 	if names:
 		names = list(dict.fromkeys(names))
 		found = frappe.db.sql(
-			f"""SELECT bl.name {_FROM} WHERE bl.name IN %(n)s ORDER BY bl.order_pick_list, bl.box_number""",  # noqa: S608
+			f"""SELECT bl.name {_FROM} WHERE bl.name IN %(n)s ORDER BY bl.order_pick_list, bl.box_number""",
 			{"n": tuple(names)},
 			as_dict=True,
 		)
 	elif sales_order:
 		found = frappe.db.sql(
-			f"""SELECT bl.name {_FROM} WHERE so.name = %(so)s ORDER BY bl.order_pick_list, bl.box_number""",  # noqa: S608
+			f"""SELECT bl.name {_FROM} WHERE so.name = %(so)s ORDER BY bl.order_pick_list, bl.box_number""",
 			{"so": sales_order},
 			as_dict=True,
 		)
@@ -195,7 +207,11 @@ def preview(sales_order: str | None = None, names=None, print_format: str | None
 		frappe.throw(_("{0} is not a print format for Box Label.").format(fmt))
 	todo = _resolve(names, sales_order)
 	if len(todo) > MAX_PREVIEW:
-		frappe.throw(_("That is {0} labels; preview up to {1} at a time (pick a single order or some boxes).").format(len(todo), MAX_PREVIEW))
+		frappe.throw(
+			_("That is {0} labels; preview up to {1} at a time (pick a single order or some boxes).").format(
+				len(todo), MAX_PREVIEW
+			)
+		)
 	t0 = now_datetime()
 	writer = PdfWriter()
 	try:
@@ -212,7 +228,11 @@ def preview(sales_order: str | None = None, names=None, print_format: str | None
 		for i, pg in enumerate(doc)
 		if i < IMAGE_PAGES
 	]
-	page_mm = [round(doc[0].rect.width * 25.4 / 72), round(doc[0].rect.height * 25.4 / 72)] if doc.page_count else [0, 0]
+	page_mm = (
+		[round(doc[0].rect.width * 25.4 / 72), round(doc[0].rect.height * 25.4 / 72)]
+		if doc.page_count
+		else [0, 0]
+	)
 	page_count = doc.page_count
 	doc.close()
 	return {
@@ -238,5 +258,8 @@ def set_printed(names=None, printed: Any = 1, sales_order: str | None = None):
 	todo = _resolve(names, sales_order)
 	ts = now_datetime() if flag else None
 	for part in [todo[i : i + 500] for i in range(0, len(todo), 500)]:
-		frappe.db.sql("UPDATE `tabBox Label` SET printed = %s, printed_at = %s WHERE name IN %s", (flag, ts, tuple(part)))
+		frappe.db.sql(
+			"UPDATE `tabBox Label` SET printed = %s, printed_at = %s WHERE name IN %s",
+			(flag, ts, tuple(part)),
+		)
 	return {"success": True, "updated": len(todo), "printed": flag}
