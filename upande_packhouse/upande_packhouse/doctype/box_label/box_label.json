@@ -36,6 +36,8 @@
   "precooled_at",
   "staged",
   "staged_at",
+  "printed",
+  "printed_at",
   "loaded",
   "loaded_internal_transfer",
   "delivered",
@@ -173,6 +175,21 @@
    "fieldname": "staged_at",
    "fieldtype": "Datetime",
    "label": "Staged At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "printed",
+   "fieldtype": "Check",
+   "label": "Printed",
+   "default": "0",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "description": "Ticked when this label has been printed (set from the Label Print Manager)."
+  },
+  {
+   "fieldname": "printed_at",
+   "fieldtype": "Datetime",
+   "label": "Printed at",
    "read_only": 1
   },
   {

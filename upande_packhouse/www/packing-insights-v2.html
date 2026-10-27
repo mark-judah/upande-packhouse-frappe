@@ -1,0 +1,460 @@
+{% extends "templates/web.html" %}
+{% block title %}Packing Insights · Packhouse{% endblock %}
+{% block page_content %}
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
+
+<style>
+/* Packing Insights: layout only, colours come from the shared tokens. */
+.pi-mx{min-width:1080px}
+#kpis .ph-kpi__label,#kpis .ph-kpi__unit{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.35;overflow-wrap:anywhere}
+.pi-mx th small{display:block;font-weight:400;text-transform:none;letter-spacing:0;color:var(--ink-faint);margin-top:2px}
+.pi-team{font-weight:600;color:var(--ink);white-space:nowrap}
+.pi-team small{display:block;font-weight:400;font-size:11px;color:var(--ink-mute)}
+.pi-row{box-shadow:inset 3px 0 0 transparent}
+.pi-row.is-good{box-shadow:inset 3px 0 0 var(--good)}
+.pi-row.is-warn{box-shadow:inset 3px 0 0 var(--warn)}
+.pi-row.is-bad{box-shadow:inset 3px 0 0 var(--bad)}
+.pi-cell{display:block;width:100%;border:0;border-radius:var(--r-sm);padding:var(--sp-2) var(--sp-3);text-align:left;font:600 14px var(--sans);color:var(--ink);cursor:pointer;background:var(--tint);min-height:46px}
+.pi-cell small{display:block;font:400 11px var(--sans);color:var(--ink-4)}
+.pi-cell:hover{filter:brightness(.97)}
+.pi-cell.is-ink{background:color-mix(in srgb,var(--ink) var(--a),transparent)}
+.pi-cell.is-warn{background:color-mix(in srgb,var(--warn) var(--a),transparent)}
+.pi-cell.is-bad{background:color-mix(in srgb,var(--bad) var(--a),transparent)}
+.pi-none{color:var(--ink-faint)}
+.pi-sub{display:block;font-size:11px;color:var(--ink-mute);margin-top:3px}
+.pi-sub.is-bad{color:var(--bad)}
+.pi-mini{height:4px;width:90px;margin-top:5px}
+.pi-line{display:grid;grid-template-columns:1fr auto 1fr auto 1fr auto 1fr;gap:var(--sp-5);align-items:start}
+.pi-wait{display:flex;flex-direction:column;align-items:center;gap:2px;padding-top:var(--sp-5);color:var(--ink-mute);font-size:11px;text-transform:uppercase;letter-spacing:1px}
+.pi-wait b{font:600 12px var(--sans);color:var(--ink);text-transform:none;letter-spacing:0;white-space:nowrap}
+.pi-wait.is-hot b{color:var(--bad)}
+.pi-big{font:600 28px/1.1 var(--sans);color:var(--ink);letter-spacing:-.8px;margin-top:var(--sp-2)}
+.pi-big small{font:500 12px var(--sans);color:var(--ink-mute);letter-spacing:0;margin-left:4px}
+.pi-fc{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:var(--sp-5);align-items:start}
+.pi-res{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-4)}
+.pi-res .ph-tile{cursor:default}
+.pi-hero{grid-column:1/-1;background:var(--grad-ink);color:#fafaf6;border-radius:var(--r-lg);padding:var(--sp-5) var(--sp-6)}
+.pi-hero small{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:1.6px;opacity:.65;display:block}
+.pi-hero b{display:block;font:600 40px/1.05 var(--sans);letter-spacing:-1.2px;margin-top:var(--sp-2)}
+.pi-hero b i{font:500 16px var(--sans);font-style:normal;opacity:.7;margin-left:4px;letter-spacing:0}
+.pi-hero span{display:block;font-size:13px;opacity:.75;margin-top:var(--sp-1)}
+.pi-num{display:flex;align-items:center;gap:var(--sp-2)}
+.pi-num .ph-input{text-align:center;font-weight:600;font-size:18px;min-width:0}
+/* wide side panel: the shared drawer stops at 860px */
+.ph-overlay.ph-overlay--drawer .ph-modal.ph-modal--pi{width:min(1180px,100%)}
+.pi-between{display:flex;align-items:center;gap:var(--sp-2)}
+@media (max-width:1000px){.pi-line{grid-template-columns:repeat(2,minmax(0,1fr))}.pi-wait{display:none}.pi-fc{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:640px){.pi-res{grid-template-columns:minmax(0,1fr)}}
+</style>
+
+<header class="ph-head">
+  <div>
+    <div class="ph-head__eyebrow">Packhouse · Workflow</div>
+    <h1 class="ph-head__title">Packing Insights</h1>
+    <p class="ph-head__sub" id="sub">Which teams will finish on time, and what is holding up the rest</p>
+  </div>
+  <div class="ph-head__tools">
+    <button class="ph-btn" id="export" type="button"></button>
+  </div>
+</header>
+
+<div class="ph-filters">
+  <div class="ph-pills" id="f-region"></div>
+  <div class="ph-pills" id="f-rose">
+    <button data-value="all">All roses</button><button data-value="standard">Standards</button><button data-value="spray">Sprays</button>
+  </div>
+  <select class="ph-select" id="f-team" aria-label="Team"><option value="">All teams</option></select>
+  <select class="ph-select" id="f-farm" aria-label="Farm"><option value="">All farms</option></select>
+  <select class="ph-select" id="f-by" aria-label="Finish by" title="Teams that will finish by this time are shown green"></select>
+  <div class="ph-filters__spacer"></div>
+  <button class="ph-btn ph-btn--ghost ph-btn--sm" id="clear" type="button" hidden>Clear filters</button>
+  <div class="ph-pills" id="f-preset">
+    <button data-value="today">Today</button><button data-value="tomorrow">Tomorrow</button><button data-value="next7">Next 7 days</button>
+  </div>
+  <label class="ph-daterange" title="Filters by the Sales Order delivery date">
+    <span class="ph-card__meta" style="margin-right:6px">Delivery date</span><input type="date" id="f-from" aria-label="Delivery date from"><span class="ph-daterange__sep">→</span><input type="date" id="f-to" aria-label="Delivery date to">
+  </label>
+</div>
+
+<section class="ph-kpis" id="kpis"></section>
+
+<nav class="ph-tabs" id="tabs" aria-label="View">
+  <button class="ph-tab is-on" data-view="overview">Overview</button>
+  <button class="ph-tab" data-view="forecast">Forecast</button>
+</nav>
+
+<div id="v-overview">
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head"><div><h2 class="ph-card__title">What is holding up packing</h2><div class="ph-card__meta" id="mx-meta">Stems by team and by what they are waiting for. Finish time uses each team's speed so far today.</div></div></div>
+    <div id="matrix"></div>
+  </section>
+  <section class="ph-card" style="margin-top:var(--sp-4)">
+    <div class="ph-card__head"><div><h2 class="ph-card__title">Do this first</h2><div class="ph-card__meta">Teams behind, then the biggest stoppages</div></div></div>
+    <div id="todo"></div>
+  </section>
+  <section class="ph-card" style="margin-top:var(--sp-4)">
+    <div class="ph-card__head"><div><h2 class="ph-card__title">The line</h2><div class="ph-card__meta">Stems per minute through each step today, with the usual wait between steps</div></div></div>
+    <div id="line"></div>
+  </section>
+</div>
+
+<div id="v-forecast" hidden>
+  <div class="pi-fc">
+    <section class="ph-card">
+      <div class="ph-card__head"><div><h2 class="ph-card__title">What if</h2><div class="ph-card__meta">Set the people and the day, or set the boxes</div></div></div>
+      <div class="ph-form ph-form--1">
+        <div class="ph-field"><label class="ph-label">Speed taken from</label>
+          <div class="pi-between"><select class="ph-select" id="fc-from" aria-label="From"></select><span class="ph-muted">to</span><select class="ph-select" id="fc-to" aria-label="To"></select></div></div>
+        <div class="ph-field"><label class="ph-label" for="fc-hd">History available</label>
+          <select class="ph-select" id="fc-hd" aria-label="How far back the history goes"><option value="14">Last 14 days</option><option value="30">Last 30 days</option><option value="45">Last 45 days</option><option value="90">Last 90 days</option><option value="120">Last 120 days</option></select>
+          <div class="ph-card__meta" id="fc-hn" style="margin-top:var(--sp-2)"></div></div>
+        <div class="ph-form ph-form--2">
+          <div class="ph-field"><label class="ph-label" for="fc-i">People issuing</label><div class="pi-num"><button class="ph-iconbtn ph-iconbtn--sm" data-step="i-1" aria-label="Fewer issuers" type="button">&minus;</button><input class="ph-input" id="fc-i" type="number" min="1" inputmode="numeric"><button class="ph-iconbtn ph-iconbtn--sm" data-step="i+1" aria-label="More issuers" type="button">+</button></div></div>
+          <div class="ph-field"><label class="ph-label" for="fc-p">People packing</label><div class="pi-num"><button class="ph-iconbtn ph-iconbtn--sm" data-step="p-1" aria-label="Fewer packers" type="button">&minus;</button><input class="ph-input" id="fc-p" type="number" min="1" inputmode="numeric"><button class="ph-iconbtn ph-iconbtn--sm" data-step="p+1" aria-label="More packers" type="button">+</button></div></div>
+        </div>
+        <div class="ph-form ph-form--2">
+          <div class="ph-field"><label class="ph-label">Day starts</label><select class="ph-select" id="fc-st"></select></div>
+          <div class="ph-field"><label class="ph-label">Day ends</label><select class="ph-select" id="fc-en"></select></div>
+        </div>
+        <div class="ph-field"><label class="ph-label" for="fc-x">Boxes to pack</label><input class="ph-input" id="fc-x" type="number" min="1" inputmode="numeric" value="1200">
+          <div class="ph-pills" id="fc-pre" style="margin-top:var(--sp-2)"></div></div>
+        <div class="ph-field"><label class="ph-label" for="fc-d">Days to do it in</label><input class="ph-input" id="fc-d" type="number" min="1" max="14" inputmode="numeric" value="1"></div>
+      </div>
+    </section>
+    <section class="ph-card">
+      <div class="ph-card__head"><div><h2 class="ph-card__title">Speed</h2><div class="ph-card__meta" id="fc-sub"></div></div></div>
+      <div class="pi-res" id="fc-spd"></div>
+      <h3 class="ph-section-title" style="margin-top:var(--sp-6)">With these people</h3>
+      <div class="pi-res" id="fc-res"></div>
+      <h3 class="ph-section-title" style="margin-top:var(--sp-6)" id="fc-rh"></h3>
+      <div class="pi-res" id="fc-rev"></div>
+      <button class="ph-link" id="fc-how" type="button" style="margin-top:var(--sp-4)">How this is worked out</button>
+    </section>
+  </div>
+</div>
+
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  const API = "upande_packhouse.api.v2.packing_insights.";
+  const OW = "upande_packhouse.api.v2.orders_workflow.";
+  const today = PH.date.today();
+  const st = PH.state({ from: PH.date.add(today, 1), to: PH.date.add(today, 1), region: "", rose: "all", team: "", farm: "", by: "17:00", view: "overview" });
+  let data = null, hist = null, seq = 0, hseq = 0;
+  const masters = { teams: [], farms: [] };
+  const FILTER_KEYS = ["region", "team", "farm"];
+  const KPI_LABELS = ["Packed", "Can pack now", "Held up", "Flow", "Finish by"];
+  const n = (v) => PH.fmt.num(v || 0);
+  const F = { hd: 14, date: null, i: 5, p: 10, st: 9, en: 19, x: 1200, d: 1, from: null, to: null, how: "" };
+
+  /* ── Filters ── */
+  PH.regionPills("#f-region", st, "region");
+  PH.pills("#f-rose", st, "rose");
+  PH.dateRange({ pills: "#f-preset", from: "#f-from", to: "#f-to", state: st });
+  PH.bindSelect("#f-team", st, "team");
+  PH.bindSelect("#f-farm", st, "farm");
+  const clockOpts = []; for (let h = 14; h <= 22; h += 0.5) clockOpts.push({ value: hh(h), label: "Finish by " + hh(h) });
+  PH.options("#f-by", clockOpts, st.get("by"));
+  PH.bindSelect("#f-by", st, "by");
+
+  function fillSelects() {
+    const s = st.get(), farms = PH.regionFarms(s.region);
+    PH.options("#f-team", PH.uniq(masters.teams.concat(s.team ? [s.team] : [])), s.team);
+    PH.options("#f-farm", PH.uniq((farms ? masters.farms.filter((f) => farms.includes(f)) : masters.farms).concat(s.farm ? [s.farm] : [])), s.farm);
+  }
+  PH.call(OW + "get_filter_options", {}, { silent: true }).then((m) => {
+    masters.teams = (m && m.teams) || []; masters.farms = (m && m.farms) || []; fillSelects();
+  }).catch(() => {});
+
+  st.on((s, changed) => {
+    if (changed.length === 1 && changed[0] === "view") return showView();
+    if (changed.length === 1 && changed[0] === "by") return data && render();
+    if (changed.includes("region")) fillSelects();
+    load();
+    if (changed.some((k) => ["region", "farm", "rose"].includes(k))) loadHistory();
+  });
+  document.getElementById("clear").addEventListener("click", () => st.set({ region: "", team: "", farm: "", rose: "all" }));
+  document.getElementById("tabs").addEventListener("click", (e) => { const b = e.target.closest("button[data-view]"); if (b) st.set({ view: b.dataset.view }); });
+
+  function showView() {
+    const v = st.get("view") === "forecast" ? "forecast" : "overview";
+    document.getElementById("v-overview").hidden = v !== "overview";
+    document.getElementById("v-forecast").hidden = v !== "forecast";
+    PH.$$("#tabs .ph-tab").forEach((b) => b.classList.toggle("is-on", b.dataset.view === v));
+  }
+
+  /* ── Load ── */
+  PH.kpiSkeleton("#kpis", KPI_LABELS);
+  function load(background) {
+    const s = st.get(), my = ++seq;
+    if (!background) { PH.loadingKpis("#kpis", true); PH.skeleton("#matrix", "rows", 6); }
+    return PH.call(API + "get_packing_insights", { from_date: s.from, to_date: s.to, region: s.region, farm: s.farm, team: s.team, rose_type: s.rose }, { silent: background })
+      .then((m) => {
+        if (my !== seq) return;
+        if (!m || m.success === false) throw new Error((m && m.error) || "Could not load");
+        data = m;
+        background ? PH.keepScroll(render) : render();
+        PH.markUpdated();
+      }).catch((e) => {
+        if (my !== seq || background) return;
+        PH.loadingKpis("#kpis", false);
+        PH.kpis("#kpis", KPI_LABELS.map((l) => ({ label: l, value: "—" })));
+        PH.error("#matrix", e.message, () => load());
+      });
+  }
+  function loadHistory() {
+    const s = st.get(), my = ++hseq;
+    return PH.call(API + "get_speed_history", { region: s.region, farm: s.farm, rose_type: s.rose, days: F.hd }, { silent: true }).then((m) => {
+      if (my !== hseq || !m || m.success === false) return;
+      hist = m; initForecast();
+    }).catch(() => {});
+  }
+  PH.onRefresh(() => Promise.all([load(true), loadHistory()]));
+  PH.poll(load, 300000);
+
+  /* ── Finish time and colour against the chosen time ── */
+  function nowHour() { const p = data.as_of.split(" ")[1].split(":"); return +p[0] + +p[1] / 60; }
+  function hh(h) { const m = Math.round(h * 60); return String(Math.floor(m / 60) % 24).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0"); }
+  function byHour() { const p = st.get("by").split(":"); return +p[0] + +p[1] / 60; }
+  function clock(f) { return f == null ? "—" : (f >= 24 ? "tomorrow " : "") + hh(f); }
+  const dhm = (min) => { const m = Math.round(min); return m < 60 ? m + " min" : Math.floor(m / 60) + "h " + String(m % 60).padStart(2, "0") + "m"; };
+  const hmOf = (x) => (x ? x.split(" ")[1].slice(0, 5) : "—");
+  const dayLabel = () => PH.fmt.date(data.work_day, true);
+  function status(t) {
+    const tgt = byHour();
+    // Delivery dates that have passed: the finish that happened against the one the early speed predicted.
+    if (data.past && t.past) {
+      const p = t.past;
+      if (p.actual_at) {
+        const d = p.diff_min;
+        const c = d == null || d <= 15 ? "good" : d <= 60 ? "warn" : "bad";
+        return { c, w: "Finished " + hmOf(p.actual_at), fin: null, past: p, sub: p.est_at ? "estimated " + hmOf(p.est_at) + (d == null ? "" : d > 15 ? " · " + dhm(d) + " later" : d < -15 ? " · " + dhm(-d) + " earlier" : " · on time") : "no estimate" };
+      }
+      return { c: "bad", w: "Not finished", fin: null, past: p, sub: n(p.left_stems) + " stems unpacked · last pack list " + hmOf(p.last_pack_at) + (p.est_at ? " · estimated " + hmOf(p.est_at) : "") };
+    }
+    if (data.past) return { c: t.state === "done" ? "good" : "bad", w: t.state === "done" ? "Done" : "Not packed", fin: null };
+    if (!data.live && t.state === "ok") return { c: "warn", w: "Packing resumes", fin: null, left: t.eta_min, sub: "at the " + dayLabel() + " speed" };
+    if (t.state === "done") return t.blocked > 0 ? { c: "warn", w: "Waiting on stock", fin: null } : { c: "good", w: "Done", fin: null };
+    if (t.state === "nodata") return { c: "bad", w: "Not packing", fin: null };
+    const fin = nowHour() + t.eta_min / 60;
+    return fin <= tgt ? { c: "good", w: "On track", fin } : fin <= tgt + 1 ? { c: "warn", w: "At risk", fin } : { c: "bad", w: "Behind", fin };
+  }
+  const BAD = (c) => c === "bad" || c === "warn";
+
+  /* ── Render ── */
+  function render() {
+    if (!data) return;
+    const s = st.get();
+    PH.text("#sub", PH.date.label(s.from, s.to) + " · " + (data.past ? "delivery dates have passed" : data.live ? "live at " + data.as_of.split(" ")[1].slice(0, 5) : "speeds from " + dayLabel()) + " · " + PH.fmt.plural(data.teams.length, "team"));
+    document.getElementById("clear").hidden = !(FILTER_KEYS.some((k) => s[k]) || s.rose !== "all");
+    PH.text("#mx-meta", "Stems by team and by what they are waiting for. " + (data.past ? "Each team's actual finish is set against the finish its speed in the first two hours predicted." : data.live ? "Finish time uses each team's speed so far today." : "Nothing is packed yet today, so finish times use the speed of " + dayLabel() + "."));
+    renderKpis(); renderMatrix(); renderTodo(); renderLine(); showView();
+    document.getElementById("export").onclick = exportCsv;
+  }
+  PH.set("#export", PH.icon("download") + " Export");
+
+  function renderKpis() {
+    const k = data.kpis, T = data.teams;
+    const behind = T.filter((t) => BAD(status(t).c)).length;
+    const worstFin = k.finish_eta_min == null || data.past || !data.live ? null : nowHour() + k.finish_eta_min / 60;
+    const fin = T.filter((t) => t.past && t.past.actual_at), notFin = T.filter((t) => t.past && !t.past.actual_at).length;
+    const lastAct = fin.length ? fin.reduce((a, t) => (t.past.actual_at > a.past.actual_at ? t : a)) : null;
+    const lastEst = T.filter((t) => t.past && t.past.est_at).reduce((a, t) => (!a || t.past.est_at > a ? t.past.est_at : a), null);
+    const late = worstFin != null && worstFin > byHour();
+    PH.kpis("#kpis", [
+      { label: "Packed", value: n(k.packed_boxes), suffix: " / " + n(k.expected_boxes), unit: "boxes complete", bar: k.expected_boxes ? (100 * k.packed_boxes) / k.expected_boxes : 0, title: "Boxes packed against boxes expected on the orders in view. Click for the days and who issued.", onClick: () => drill("packed") },
+      { label: "Can pack now", value: k.can_pack_stems, unit: "stems issued and waiting for packers", title: "Issued stems not yet on a pack list. Click for the teams.", onClick: () => drill("can") },
+      { label: "Held up", value: k.held_stems, unit: "stems waiting to be issued, on transfer, missing or in draft", title: "Click for remote supply and orders with no pick list.", onClick: () => drill("held") },
+      { label: "Flow", value: k.packing_stems_per_min, unit: data.past ? "stems a minute packed, first to last pack list of these deliveries" : data.live ? "stems a minute packed today, first to last pack list" : "stems a minute packed on " + dayLabel() + ", first to last pack list", title: "Click for the wait between steps.", onClick: () => drill("flow") },
+      data.past
+        ? { label: "Finished", value: lastAct ? hmOf(lastAct.past.actual_at) : "—", unit: lastAct ? "last team: " + lastAct.team + (lastEst ? " · estimated " + hmOf(lastEst) : "") : notFin + " teams not finished", trend: { dir: notFin ? "down" : "up", text: (T.length - notFin) + " of " + T.length + " teams finished" }, title: "When the last team packed its final pack list for these deliveries, against the finish its speed in the first two hours predicted. Click for the working.", onClick: () => drill("finish") }
+        : !data.live
+          ? { label: "Packing resumes", value: k.finish_eta_min == null ? "—" : dhm(k.finish_eta_min), unit: k.finish_team ? "to finish at the " + dayLabel() + " speed · slowest: " + k.finish_team : "no speed measured", title: "Nothing packed yet today, so this uses the speed of " + dayLabel() + ". Click for the working.", onClick: () => drill("finish") }
+          : { label: "Finish by", value: worstFin == null ? "—" : hh(worstFin), unit: k.finish_team ? (worstFin >= 24 ? "tomorrow · " : "") + "last team: " + k.finish_team : "no speed measured yet", trend: worstFin == null ? null : { dir: late ? "down" : "up", text: behind + " of " + T.length + " teams behind or at risk" }, title: "When the last team finishes at its speed so far today. Click for the working.", onClick: () => drill("finish") },
+    ]);
+  }
+
+  const COLS = [
+    { k: "queue", n: "Can pack now", sub: "issued, not packed", tone: "ink" },
+    { k: "issue", n: "To issue", sub: "waiting for issuers", tone: "warn" },
+    { k: "transfer", n: "Transfer", sub: "remote buckets", tone: "bad" },
+    { k: "not_found", n: "Not found", sub: "bucket missing", tone: "bad" },
+    { k: "draft", n: "Draft", sub: "not submitted", tone: "warn" },
+  ];
+  const cellOf = (t, k) => (k === "queue" ? (t.queue.stems ? t.queue : null) : t.cells[k] || null);
+
+  function renderMatrix() {
+    const T = data.teams;
+    if (!T.length) return PH.empty("#matrix", "No packing work in view", "No pick lists match these filters. Widen the delivery dates or clear a filter.");
+    let mx = 1; T.forEach((t) => COLS.forEach((c) => { const d = cellOf(t, c.k); if (d && d.stems > mx) mx = d.stems; }));
+    const alpha = (v) => 8 + Math.round(34 * Math.sqrt(v / mx));
+    const un = data.unalloc, u0 = un[0] ? un[0].ordered - un[0].allocated : 0, u1 = un[1] ? un[1].ordered - un[1].allocated : 0;
+    const uTotal = un.reduce((a, x) => a + Math.max(0, x.ordered - x.allocated), 0);
+    let h = '<div class="ph-table-wrap"><table class="ph-table pi-mx" id="pi-mx"><thead><tr><th>Team</th>' +
+      COLS.map((c) => "<th>" + c.n + "<small>" + c.sub + "</small></th>").join("") +
+      '<th>Boxes<small>packed · expected</small></th><th>Speed<small>boxes/h · issuing stems/min</small></th><th>' + (data.past ? "Finish<small>actual · estimated</small>" : "Finish by<small>" + (data.live ? "at the current speed" : "at the " + dayLabel() + " speed") + "</small>") + '</th></tr></thead><tbody>';
+    T.forEach((t) => {
+      const s = status(t);
+      h += '<tr class="pi-row is-' + s.c + '"><td class="pi-team">' + PH.esc(t.team) + "<small>" + PH.fmt.plural(t.pack_people, "person", "people") + " packing · " + t.issue_people + " issuing</small></td>" +
+        COLS.map((c) => { const d = cellOf(t, c.k); return d && d.stems ? '<td><button class="pi-cell is-' + c.tone + '" style="--a:' + alpha(d.stems) + '%" data-team="' + PH.esc(t.team) + '" data-k="' + c.k + '">' + n(d.stems) + "<small>" + PH.fmt.plural(d.orders, "order") + "</small></button></td>" : '<td><span class="pi-none">—</span></td>'; }).join("") +
+        '<td class="is-strong">' + n(t.packed_boxes) + ' <span class="ph-muted">/ ' + n(t.exp_boxes) + '</span><div class="ph-progress pi-mini"><i style="width:' + (t.exp_boxes ? Math.min(100, (100 * t.packed_boxes) / t.exp_boxes) : 0) + '%"></i></div></td>' +
+        '<td><b>' + (t.bph ? t.bph.toFixed(1) : "—") + '</b> <span class="ph-muted">· ' + (t.issue_spm ? n(t.issue_spm) : "—") + '</span><span class="pi-sub' + (t.pack_idle > 45 && t.to_pack > 0 ? " is-bad" : "") + '">' + (t.pack_last ? (data.past ? "packed " + PH.esc(t.pack_first) + " to " : data.live ? "last pack list " : dayLabel() + " · last pack list ") + PH.esc(t.pack_last) + (data.live && t.pack_idle > 45 ? " (" + Math.round(t.pack_idle) + " min ago)" : "") : data.past ? "nothing packed" : "no pack list yet") + "</span></td>" +
+        '<td><span class="ph-badge ph-badge--' + s.c + '">' + (s.fin != null ? clock(s.fin) : s.left != null ? "≈ " + dhm(s.left) + " left" : s.w) + "</span>" + (s.fin != null ? '<span class="pi-sub">' + s.w + "</span>" : s.sub ? '<span class="pi-sub">' + PH.esc(s.sub) + "</span>" : "") + (t.blocked > 0 && t.state !== "done" && !data.past ? '<span class="pi-sub">+' + n(t.blocked) + " stems blocked</span>" : "") + "</td></tr>";
+    });
+    if (uTotal > 0) h += '<tr><td class="pi-team">Not allocated yet<small>no team assigned</small></td><td colspan="8"><button class="pi-cell is-warn" style="--a:24%" data-team="alloc" data-k="alloc">' + n(uTotal) + " stems<small>" + un.filter((x) => x.ordered > x.allocated).map((x) => n(x.ordered - x.allocated) + " due " + PH.fmt.date(x.due, true)).join(" · ") + " · no pick list yet</small></button></td></tr>";
+    h += "</tbody></table></div>";
+    PH.set("#matrix", h);
+    document.getElementById("pi-mx").onclick = (e) => { const b = e.target.closest(".pi-cell"); if (b) drillCell(b.dataset.team, b.dataset.k); };
+  }
+
+  function renderTodo() {
+    const T = data.teams, rows = [];
+    T.forEach((t) => { const s = status(t); if (BAD(s.c)) rows.push(data.past ? { a: t.team + (s.past && s.past.actual_at ? " finished at " + hmOf(s.past.actual_at) : " did not finish"), b: s.sub || "" } : { a: t.team + (s.fin != null ? " will finish at " + clock(s.fin) : s.left != null ? " needs about " + dhm(s.left) + " once packing resumes" : " is not packing"), b: n(t.to_pack) + " stems left to pack" + (data.live && t.pack_idle > 45 ? " · last pack list " + Math.round(t.pack_idle) + " min ago" : "") }); });
+    const TXT = { issue: "waiting to be issued", transfer: "waiting on remote buckets", not_found: "have a missing bucket", draft: "are on drafts" };
+    const big = []; T.forEach((t) => Object.keys(TXT).forEach((k) => { const d = t.cells[k]; if (d && d.stems >= 1000) big.push({ t: t.team, k, d }); }));
+    big.sort((a, b) => b.d.stems - a.d.stems).slice(0, 3).forEach((x) => rows.push({ a: n(x.d.stems) + " stems for " + x.t + " " + TXT[x.k], b: PH.fmt.plural(x.d.orders, "order") }));
+    const u0 = data.unalloc[0] ? data.unalloc[0].ordered - data.unalloc[0].allocated : 0;
+    if (u0 > 0) rows.push({ a: n(u0) + " stems due " + PH.fmt.date(data.unalloc[0].due, true) + " have no pick list", b: "no team can start them" });
+    if (!rows.length) return PH.empty("#todo", "Nothing needs action", "Every team is on track and nothing large is blocked.");
+    PH.set("#todo", '<div class="ph-list">' + rows.slice(0, 5).map((r, i) => '<div class="ph-list__row"><span class="ph-list__rank' + (i === 0 ? " lead" : "") + '">' + (i + 1) + '</span><div class="ph-grow"><div class="ph-list__name">' + PH.esc(r.a) + '</div><div class="ph-list__meta">' + PH.esc(r.b) + '</div></div></div>').join("") + "</div>");
+  }
+
+  const fm = (m) => (m == null ? "—" : m >= 120 ? (m / 60).toFixed(1) + " h" : Math.round(m) + " min");
+  function renderLine() {
+    const L = data.line, W = data.waits, rate = (o) => (o.mins > 1 ? o.stems / o.mins : 0), win = (o) => (o.first ? o.first + " to " + o.last : "not started");
+    const stn = (name, big, unit, sub) => '<div><div class="ph-card__meta">' + name + '</div><div class="pi-big">' + big + "<small>" + unit + '</small></div><div class="ph-card__meta">' + sub + "</div></div>";
+    const wait = (m, hot) => '<div class="pi-wait' + (hot ? " is-hot" : "") + '"><span>→</span><b>' + fm(m) + "</b>wait</div>";
+    PH.set("#line", '<div class="pi-line">' +
+      stn("Allocated", n(rate(L.alloc)), "stems/min", n(L.alloc.stems) + " stems · " + win(L.alloc)) + wait(W.alloc_to_issue.median) +
+      stn("Issued", n(rate(L.issue)), "stems/min", n(L.issue.stems) + " stems · " + win(L.issue)) + wait(W.wait_pack.median) +
+      stn("Packed", n(rate(L.pack)), "stems/min", n(L.pack.stems) + " stems · " + win(L.pack)) + wait(W.wait_stage.median, true) +
+      stn("Staged", n(L.stage.mins > 1 ? (L.stage.boxes / L.stage.mins) * 60 : 0), "boxes/h", n(L.stage.boxes) + " boxes · " + win(L.stage)) + "</div>");
+  }
+
+  /* ── Drill-downs (drawer) ── */
+  const list = (rows) => '<div class="ph-list ph-list--plain">' + (rows.length ? rows.join("") : '<div class="ph-muted">Nothing to show.</div>') + "</div>";
+  const lrow = (name, meta, qty, p, cls) => '<div class="ph-list__row"><div class="ph-grow"><div class="ph-list__name">' + name + '</div><div class="ph-list__meta">' + meta + '</div><div class="ph-progress"><i class="' + (cls || "") + '" style="width:' + Math.min(100, p) + '%"></i></div></div><div class="ph-list__qty">' + qty + "</div></div>";
+  const tbl = (head, rows) => '<div class="ph-table-wrap"><table class="ph-table"><thead><tr>' + head.map((h) => "<th" + (h[1] ? ' class="is-num"' : "") + ">" + h[0] + "</th>").join("") + "</tr></thead><tbody>" + rows.join("") + "</tbody></table></div>";
+  const dueOf = (d) => PH.fmt.date(d, true);
+
+  function open(title, sub, body) { return PH.modal({ title, sub, body, drawer: true, size: "pi" }); }
+
+  function drill(kind) {
+    if (!data) return;
+    const D = data, T = D.teams;
+    if (kind === "packed") {
+      const m = open("Packed", "Boxes by day, and who issued today", '<h3 class="ph-section-title">Boxes per day</h3><div class="ph-chart" id="pi-daychart"></div><h3 class="ph-section-title" style="margin-top:var(--sp-6)">Who issued today</h3>' +
+        list(D.issuers.map((x) => lrow(PH.esc(x.who), "last issue " + PH.esc(x.last), n(x.stems), (100 * x.stems) / Math.max(1, D.issuers[0].stems)))));
+      const days = ((hist && hist.days) || []).slice(-14);
+      if (days.length) PH.chart("#pi-daychart", { type: "bar", labels: days.map((d) => PH.fmt.date(d.d, true)), series: [{ label: "Boxes", data: days.map((d) => d.boxes) }] });
+      else PH.set("#pi-daychart", '<div class="ph-muted">History is still loading.</div>');
+    } else if (kind === "can") {
+      const q = T.filter((t) => t.queue.stems > 0), mx = Math.max(1, ...q.map((t) => t.queue.stems));
+      open("Can pack now", "Issued stems waiting for packers", list(q.map((t) => lrow(PH.esc(t.team), PH.fmt.plural(t.queue.orders, "order") + " · " + (t.pack_last ? "last pack list " + PH.esc(t.pack_last) : "no pack list today"), n(t.queue.stems), (100 * t.queue.stems) / mx))) +
+        '<h3 class="ph-section-title" style="margin-top:var(--sp-6)">Biggest orders waiting</h3>' + tbl([["Team"], ["Order"], ["Due"], ["Stems", 1]], D.qdrill.map((r) => "<tr><td>" + PH.esc(r.team) + "</td><td>" + PH.esc(r.opl) + "</td><td>" + dueOf(r.due) + '</td><td class="is-num">' + n(r.stems) + "</td></tr>")));
+    } else if (kind === "held") {
+      const mx = Math.max(1, ...D.remote.map((x) => x.stems));
+      open("Held up", "Supply and allocation", '<h3 class="ph-section-title">Remote buckets on the way</h3>' + list(D.remote.map((x) => lrow(PH.esc(x.farm), PH.fmt.plural(x.buckets, "bucket") + " · oldest order due " + dueOf(x.due), n(x.stems), (100 * x.stems) / mx, "warn"))) +
+        '<h3 class="ph-section-title" style="margin-top:var(--sp-6)">Orders with no pick list yet</h3>' + list(D.unalloc.map((x) => lrow("Due " + dueOf(x.due), n(x.allocated) + " of " + n(x.ordered) + " stems on a pick list", n(Math.max(0, x.ordered - x.allocated)) + " left", (100 * Math.max(0, x.ordered - x.allocated)) / Math.max(1, x.ordered), "warn"))));
+    } else if (kind === "flow") {
+      const W = D.waits, N = [["alloc_to_issue", "Allocation to first issue"], ["issuing", "Issuing, first to last stem"], ["wait_pack", "Last issue to pack list opened"], ["packing", "Pack list open to submitted"], ["wait_stage", "Submitted to last box staged"]];
+      open("Flow", "One order from allocation to staged, middle value of the pick lists packed today", tbl([["Step"], ["Middle", 1], ["Pick lists", 1]], N.map((x) => "<tr><td>" + x[1] + '</td><td class="is-num is-strong">' + fm(W[x[0]].median) + '</td><td class="is-num">' + W[x[0]].n + "</td></tr>")));
+    } else if (kind === "finish" && data.past) {
+      open("Estimated against actual finish", "Actual = the team's last pack list for these deliveries. Estimated = the finish its packing speed over the first two hours predicted, for the stems it packed in the end plus any left unpacked.", tbl([["Team"], ["First pack list"], ["Estimated finish"], ["Actual finish"], ["Difference"], ["Unpacked stems", 1]],
+        T.map((t) => { const p = t.past, s = status(t); return "<tr><td>" + PH.esc(t.team) + "</td><td>" + (p ? hmOf(p.first_at) : "—") + "</td><td>" + (p && p.est_at ? hmOf(p.est_at) : "—") + '</td><td><span class="ph-badge ph-badge--' + s.c + '">' + (p && p.actual_at ? hmOf(p.actual_at) : "Not finished") + '</span></td><td>' + (p && p.diff_min != null ? (p.diff_min > 15 ? dhm(p.diff_min) + " later" : p.diff_min < -15 ? dhm(-p.diff_min) + " earlier" : "on time") : "—") + '</td><td class="is-num">' + (p ? n(p.left_stems) : "—") + "</td></tr>"; })));
+    } else if (kind === "finish") {
+      open("Finish by", "Left to pack divided by speed so far today. Issuing and packing run side by side, so the slower one sets the finish.", tbl([["Team"], ["Left to pack", 1], ["Still to issue", 1], ["Packing stems/min", 1], ["Issuing stems/min", 1], ["Hours", 1], ["Finish"]],
+        T.map((t) => { const s = status(t); return "<tr><td>" + PH.esc(t.team) + '</td><td class="is-num">' + n(t.to_pack) + '</td><td class="is-num">' + n((t.cells.issue || {}).stems) + '</td><td class="is-num">' + (t.pack_spm ? t.pack_spm.toFixed(1) : "—") + '</td><td class="is-num">' + (t.issue_spm ? t.issue_spm.toFixed(1) : "—") + '</td><td class="is-num">' + (t.eta_min != null ? (t.eta_min / 60).toFixed(1) : "—") + '</td><td><span class="ph-badge ph-badge--' + s.c + '">' + (s.fin != null ? clock(s.fin) : s.w) + "</span></td></tr>"; })));
+    }
+  }
+
+  function drillCell(team, k) {
+    if (k === "alloc") return open("Not allocated yet", "Allocation is manual and happens the day before delivery", list(data.unalloc.map((x) => lrow("Due " + dueOf(x.due), n(x.allocated) + " of " + n(x.ordered) + " stems on a pick list", n(Math.max(0, x.ordered - x.allocated)) + " left", (100 * Math.max(0, x.ordered - x.allocated)) / Math.max(1, x.ordered), "warn"))));
+    const NM = { queue: "can pack now", issue: "to issue", transfer: "transfer", not_found: "not found", draft: "draft" };
+    const WHY = { queue: "Issued stems are on the packing floor and not yet packed. These are the only stems the team can pack right now.", issue: "Pick list is submitted but the stems have not been issued, so nothing can be packed yet.", transfer: "Remote buckets have not reached the hub. The order stays a draft until its last bucket is shelved.", not_found: "A bucket was marked not found at issuing. The order cannot be completed until it is replaced.", draft: "The order is not submitted, so it cannot be issued." };
+    const col = COLS.find((c) => c.k === k), rows = k === "queue" ? data.qdrill.filter((r) => r.team === team) : data.drill.filter((r) => r.team === team && r.cause === k);
+    open(team + " · " + NM[k], WHY[k], tbl([["Order"], [k === "queue" ? "" : "Where from"], ["Stems", 1], ["Due"]], rows.map((r) => "<tr><td>" + PH.esc(r.opl) + "</td><td>" + (k === "queue" ? "" : PH.esc((r.farms || "").replace(/,/g, ", ")) + (r.buckets ? " · " + PH.fmt.plural(r.buckets, "bucket") : "")) + '</td><td class="is-num">' + n(r.stems) + "</td><td>" + dueOf(r.due) + "</td></tr>")) +
+      '<p class="ph-muted" style="margin-top:var(--sp-3)">The largest orders</p>');
+  }
+
+  function exportCsv() {
+    if (!data) return;
+    PH.csv("packing-insights-" + data.today + ".csv", data.teams.map((t) => ({ team: t.team, can_pack_now: t.queue.stems, to_issue: (t.cells.issue || {}).stems || 0, transfer: (t.cells.transfer || {}).stems || 0, not_found: (t.cells.not_found || {}).stems || 0, draft: (t.cells.draft || {}).stems || 0, packed_boxes: t.packed_boxes, expected_boxes: t.exp_boxes, boxes_per_hour: t.bph.toFixed(1), issuing_stems_per_min: t.issue_spm.toFixed(1), finish_by: status(t).fin != null ? clock(status(t).fin) : status(t).w })),
+      [["team", "Team"], ["can_pack_now", "Can pack now"], ["to_issue", "To issue"], ["transfer", "Transfer"], ["not_found", "Not found"], ["draft", "Draft"], ["packed_boxes", "Packed boxes"], ["expected_boxes", "Expected boxes"], ["boxes_per_hour", "Boxes per hour"], ["issuing_stems_per_min", "Issuing stems per min"], ["finish_by", "Finish by"]].map((c) => ({ key: c[0], label: c[1] })));
+  }
+
+  /* ── Forecast: what if ── */
+  const med = (a) => { const v = a.filter((x) => x != null).sort((x, y) => x - y), k = v.length; return k ? (k % 2 ? v[(k - 1) / 2] : (v[k / 2 - 1] + v[k / 2]) / 2) : null; };
+  const tm = (t) => { if (!t) return null; const p = t.split(":"); return +p[0] + +p[1] / 60; };
+  const fdays = () => { const D = hist.days, a = D.findIndex((d) => d.d === F.from), b = D.findIndex((d) => d.d === F.to); return a < 0 || b < 0 ? D.slice(-1) : D.slice(Math.min(a, b), Math.max(a, b) + 1); };
+  function rates(days) {
+    let boxes = 0, pph = 0, ph = 0, stems = 0, iph = 0, ih = 0, pk = 0, np = 0, ni = 0, bk = 0;
+    days.forEach((d) => { boxes += d.boxes; pk += d.pack_stems; ph += d.pack_win / 60; pph += (d.packers * d.pack_win) / 60; np += d.packers; stems += d.issue_stems; bk += d.issue_buckets || 0; ih += d.issue_win / 60; iph += (d.issuers * d.issue_win) / 60; ni += d.issuers; });
+    const k = days.length || 1;
+    return { rp: pph ? boxes / pph : 0, ri: iph ? stems / iph : 0, bph: ph ? boxes / ph : 0, sph: ih ? stems / ih : 0, spb: boxes ? pk / boxes : 0, spbk: bk ? stems / bk : 0, np: Math.round(np / k), ni: Math.round(ni / k),
+      pf: med(days.map((d) => tm(d.pack_first))), pl: med(days.map((d) => tm(d.pack_last))), isf: med(days.map((d) => tm(d.issue_first))), il: med(days.map((d) => tm(d.issue_last))) };
+  }
+  const out = (r, i, p, h) => { const byPack = p * r.rp * h, byIssue = r.spb ? (i * r.ri * h) / r.spb : 0; return { byPack, byIssue, boxes: Math.min(byPack, byIssue), limit: byPack <= byIssue ? "packing" : "issuing" }; };
+
+  function initForecast() {
+    const D = hist.days, hd = hist.history_days || F.hd;
+    $("fc-hd").value = String(hd);
+    PH.text("#fc-hn", "Only the last " + PH.fmt.plural(hd, "day") + " (since " + PH.fmt.date(hist.since, true) + ") is used" + (D.length ? "; the latest activity in it is " + PH.fmt.date(D[D.length - 1].d, true) : "") + ". Choose a longer period to go further back.");
+    if (!D.length) { PH.set("#fc-from", ""); PH.set("#fc-to", ""); PH.empty("#fc-res", "No packing history", "There are no pack lists or issued stems in the last " + PH.fmt.plural(hd, "day") + " for these filters. Extend the history above to look further back."); PH.set("#fc-spd", ""); PH.set("#fc-rev", ""); return; }
+    const opts = D.map((d) => ({ value: d.d, label: PH.fmt.date(d.d, true) }));
+    const last = D.length - 1, end = D[last].d === hist.today && last > 0 ? last - 1 : last;
+    F.to = D[end].d; F.from = D[Math.max(0, end - 6)].d;
+    PH.options("#fc-from", opts, F.from); PH.options("#fc-to", opts, F.to);
+    const hs = (a, b) => { const o = []; for (let h = a; h <= b; h += 0.5) o.push({ value: String(h), label: hh(h) }); return o; };
+    PH.options("#fc-st", hs(6, 14), String(F.st)); PH.options("#fc-en", hs(14, 24), String(F.en));
+    const pre = Object.keys(hist.due_boxes).sort().map((d) => '<button data-value="' + hist.due_boxes[d].boxes + '" data-date="' + d + '">' + PH.fmt.date(d, true) + " · " + n(hist.due_boxes[d].boxes) + "</button>").join("") + '<button data-value="800">Peak · 800</button>';
+    document.getElementById("fc-pre").innerHTML = pre;
+    seed(); fcalc();
+  }
+  function seed() { const r = rates(fdays()); F.i = Math.max(1, r.ni); F.p = Math.max(1, r.np); document.getElementById("fc-i").value = F.i; document.getElementById("fc-p").value = F.p; }
+  const $ = (id) => document.getElementById(id);
+  const mark = () => PH.$$("#fc-pre button").forEach((b) => b.classList.toggle("is-on", +b.dataset.value === F.x));
+  function bindForecast() {
+    const num = (id, key) => $(id).addEventListener("input", () => { F[key] = Math.max(1, Math.round(+$(id).value || 1)); if (key === "x") { F.date = null; mark(); } fcalc(); });
+    num("fc-i", "i"); num("fc-p", "p"); num("fc-x", "x"); num("fc-d", "d");
+    $("v-forecast").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-step]"); if (b) { const key = b.dataset.step[0], d = b.dataset.step.includes("+") ? 1 : -1; F[key] = Math.max(1, F[key] + d); $("fc-" + key).value = F[key]; fcalc(); }
+      const pb = e.target.closest("#fc-pre button"); if (pb) { F.x = +pb.dataset.value; F.date = pb.dataset.date || null; $("fc-x").value = F.x; mark(); fcalc(); }
+    });
+    $("fc-hd").addEventListener("change", () => { F.hd = +$("fc-hd").value; loadHistory(); });
+    $("fc-from").addEventListener("change", () => { F.from = $("fc-from").value; seed(); fcalc(); });
+    $("fc-to").addEventListener("change", () => { F.to = $("fc-to").value; seed(); fcalc(); });
+    $("fc-st").addEventListener("change", () => { F.st = +$("fc-st").value; fcalc(); });
+    $("fc-en").addEventListener("change", () => { F.en = +$("fc-en").value; fcalc(); });
+    $("fc-how").addEventListener("click", () => PH.modal({ title: "How this is worked out", body: '<p class="ph-muted" style="line-height:1.6">' + PH.esc(F.how) + "</p>", drawer: true }));
+  }
+  function fcalc() {
+    if (!hist || !hist.days.length) return;
+    const days = fdays(), r = rates(days), H = Math.max(1, F.en - F.st), c = out(r, F.i, F.p, H);
+    const lbl = days.length === 1 ? PH.fmt.date(days[0].d, true) : PH.fmt.date(days[0].d, true) + " to " + PH.fmt.date(days[days.length - 1].d, true);
+    const tile = (l, v, sm, u, wide) => '<div class="ph-tile"' + (wide ? ' style="grid-column:1/-1"' : "") + '><div class="ph-tile__sub">' + l + '</div><div class="pi-big">' + v + "<small>" + sm + '</small></div><div class="ph-card__meta">' + u + "</div></div>";
+    const win = (a, b) => (a != null ? hh(a) + " to " + hh(b) : "—");
+    PH.text("#fc-sub", "Measured on " + lbl + ", the whole floor over the working day");
+    PH.set("#fc-spd", tile("Packing", r.bph.toFixed(1), "boxes an hour", r.rp.toFixed(1) + " per packer · " + r.np + " packers · " + win(r.pf, r.pl)) + tile("Issuing", n(r.sph / 60), "stems a minute", n(r.ri / 60) + " per issuer · " + r.ni + " issuers · " + win(r.isf, r.il)));
+    const gain = (di, dp) => Math.round(out(r, F.i + di, F.p + dp, H).boxes - c.boxes);
+    PH.set("#fc-res", '<div class="pi-hero"><small>' + F.i + " issuing, " + F.p + " packing, " + hh(F.st) + " to " + hh(F.en) + "</small><b>" + n(c.boxes) + "<i>boxes</i></b><span>" + (c.limit === "packing" ? "Packing" : "Issuing") + " is the limit · " + (c.limit === "packing" ? "issuing could supply " + n(c.byIssue) : "packers could pack " + n(c.byPack)) + "</span></div>" +
+      tile("Add one issuer", gain(1, 0) > 0 ? "+" + n(gain(1, 0)) : "0", "boxes", gain(1, 0) > 0 ? "three more: +" + n(gain(3, 0)) : "packing is the limit") + tile("Add one packer", gain(0, 1) > 0 ? "+" + n(gain(0, 1)) : "0", "boxes", gain(0, 1) > 0 ? "three more: +" + n(gain(0, 3)) : "issuing is the limit"));
+    const X = F.x, nd = Math.max(1, F.d), perDay = X / nd, have = c.boxes * nd, dd = c.boxes ? Math.ceil(X / c.boxes) : 0;
+    const bpb = r.spbk ? r.spb / r.spbk : 0, bxP = perDay / F.p, bxI = perDay / F.i, capP = r.rp * H, capI = r.spb ? (r.ri * H) / r.spb : 0;
+    const fit = (need, cap) => (cap ? (need <= cap ? "within the " + n(cap) + " one can do" : n(need - cap) + " over the " + n(cap) + " one can do") : "no speed measured");
+    PH.text("#fc-rh", "To meet " + (F.date ? PH.fmt.date(F.date, true) + ": " : "") + n(X) + " boxes in " + PH.fmt.plural(nd, "day"));
+    PH.set("#fc-rev", tile("Each of " + F.p + " packers packs", n(bxP), "boxes a day", "about " + n(bxP * bpb) + " buckets · " + fit(bxP, capP)) + tile("Each of " + F.i + " issuers issues", n(bxI), "boxes a day", "about " + n(bxI * bpb) + " buckets · " + n(bxI * r.spb) + " stems · " + fit(bxI, capI)) +
+      tile("With " + F.i + " issuing and " + F.p + " packing", dd, dd === 1 ? "day" : "days", have >= X ? "fits in " + PH.fmt.plural(nd, "day") : n(X - have) + " boxes short after " + PH.fmt.plural(nd, "day"), true));
+    F.how = "Speed from " + lbl + ": " + r.np + " people packing did " + r.bph.toFixed(1) + " boxes an hour (" + r.rp.toFixed(1) + " each), " + r.ni + " issuing did " + n(r.sph / 60) + " stems a minute (" + n(r.ri / 60) + " each). One box is " + n(r.spb) + " stems and a bucket holds " + n(r.spbk) + " stems, so a box is " + bpb.toFixed(2) + " buckets. What each person must do is the day's boxes shared equally between the people you set; 'can do' is their measured speed over the working day. A day is " + hh(F.st) + " to " + hh(F.en) + ", " + H.toFixed(1) + " hours. Each extra person is assumed to work at the average speed of the people in that period. Real speed drops when floor space, trolleys or stock run short.";
+  }
+
+  bindForecast();
+  showView();
+  load();
+  loadHistory();
+})();
+</script>
+{% endraw %}
+{% endblock %}

@@ -28,6 +28,7 @@ NAV = [
 		"Workflow",
 		[
 			("packhouse-dashboard", "Orders & Workflow", "/packhouse-dashboard-v2", "layout"),
+			("packing-insights", "Packing Insights", "/packing-insights-v2", "eye"),
 			("sales-allocation-planning", "Allocation Planning", "/sales-allocation-planning-v2", "grid"),
 			("packhouse-production", "Production", "/packhouse-production-v2", "home"),
 			("remote-transfer", "Remote Transfers", "/remote-transfer-v2?tab=transfer", "truck"),
@@ -54,6 +55,12 @@ NAV = [
 			("floriday-orders", "Floriday Orders", "/floriday-orders-v2", "flower"),
 			("sales-order", "Sales Order", "/sales-order-v2", "clipboard"),
 			("sales-settings", "Sales Settings", "/sales-settings-v2", "gear"),
+		],
+	),
+	(
+		"Tools",
+		[
+			("label-print-manager", "Label Print Manager", "/label-print-manager-v2", "doc"),
 		],
 	),
 	(

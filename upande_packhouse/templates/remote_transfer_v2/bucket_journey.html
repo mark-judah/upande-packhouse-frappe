@@ -12,11 +12,23 @@
                api.bucket_replacement.resolveBucketReplacement (POST, existing v1 write),
                frappe.client.set_value ("Correct details", as v1).
 
+    Views (rt-watch-v2.js, ?view=bucket|watch|inactive): Bucket (this page), Watchlist
+    (api/v2/rt_watchlist.py) and Inactive buckets (api/v2/rt_inactive.py).
+
     State (PH.state, in the URL): mode bucket|bunch, q (the id), limit, from, to (journeys
     started between), j (journey number open), region. ?q=7D0406 opens that bucket. -#}
 {% if rt_part == 'body' %}
 <link rel="stylesheet" href="/assets/upande_packhouse/css/rt-journey-v2.css?v={{ rt_v }}">
+<link rel="stylesheet" href="/assets/upande_packhouse/css/rt-watch-v2.css?v={{ rt_v }}">
 
+<div class="rtw-switch" role="tablist" aria-label="Bucket Journey view">
+  <div class="ph-pills" id="rtw-view">
+    <button data-value="bucket" role="tab">Bucket</button><button data-value="watch" role="tab">Watchlist <span class="rtw-count" id="rtw-c-watch" hidden></span></button><button data-value="inactive" role="tab">Inactive <span class="rtw-count" id="rtw-c-inactive" hidden></span></button>
+  </div>
+  <span class="rtw-switch__hint" id="rtw-hint"></span>
+</div>
+
+<div id="rtw-bucket">
 <section class="ph-card rtj-find">
   <div class="rtj-find__row">
     <div class="ph-pills" id="rtj-mode" aria-label="Trace a">
@@ -34,8 +46,12 @@
 </section>
 
 <div id="rtj-result"></div>
+</div>
+
+<div id="rtw-panel" hidden></div>
 
 {% elif rt_part == 'script' %}
 <script>window.RTJ_CFG = { hub: {{ (transfer_hub or '') | tojson }} };</script>
 <script src="/assets/upande_packhouse/js/rt-journey-v2.js?v={{ rt_v }}"></script>
+<script src="/assets/upande_packhouse/js/rt-watch-v2.js?v={{ rt_v }}"></script>
 {% endif %}

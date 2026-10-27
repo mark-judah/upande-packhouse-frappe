@@ -410,14 +410,9 @@
               <div><small>Stems</small><b>${b.stems ? PH.fmt.num(b.stems) : "—"}</b></div>
               <div><small>Origin farm</small><b>${E(b.farm || "—")}</b></div>
             </div>
-            <div class="rtj-sum__meta">${PH.fmt.plural(b.journeys, "journey")} · first use ${E(
-				PH.fmt.date(b.first_use)
-			)} · last activity ${E(PH.fmt.date(b.latest_activity))}${
-				canc ? ` · ${canc} cancelled stock entries hidden` : ""
-			}</div>
-            <div class="rtj-ph" style="margin-top:12px"><button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" id="rtj-correct">${PH.icon(
-				"edit"
-			)} Correct details</button></div>
+            <div class="rtj-sum__meta">${PH.fmt.plural(b.journeys, "journey")} · first use ${E(PH.fmt.date(b.first_use))} · last activity ${E(PH.fmt.date(b.latest_activity))}${canc ? ` · ${canc} cancelled stock entries hidden` : ""}</div>
+            <div class="rtj-ph" style="margin-top:12px"><button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" id="rtj-correct">${PH.icon("edit")} Correct details</button><span id="rtw-bw" class="rtw-bw" data-bucket="${E(b.id)}"></span></div>
+            <div id="rtw-bwline" class="rtw-bwline"></div>
           </div>
           <div>
             <div class="ph-label" style="margin-bottom:6px">Current stage</div>
@@ -466,14 +461,11 @@
 			}
         </div>
       </div>
-      ${
-			jHtml ||
-			'<section class="ph-card"><div class="ph-muted">No journeys in that range.</div></section>'
-		}
-      ${unplacedHtml()}`
-		);
-		paintFlow();
-	}
+      ${jHtml || '<section class="ph-card"><div class="ph-muted">No journeys in that range.</div></section>'}
+      ${unplacedHtml()}`);
+    paintFlow();
+    document.dispatchEvent(new CustomEvent("rtj:bucket", { detail: { id: b.id } }));  // rt-watch-v2.js paints the Watch button
+  }
 
 	function unplacedHtml() {
 		const u = G.unplaced || [];
@@ -1509,41 +1501,28 @@
 		}
 	}
 
-	/* ── Clicks inside the result ────────────────────────────────── */
-	$res.addEventListener("click", (e) => {
-		const more = e.target.closest("[data-more]");
-		if (more) {
-			const li = more.closest(".rtj-s");
-			li.classList.toggle("is-open");
-			more.textContent = li.classList.contains("is-open") ? "Hide details" : "Details";
-			return;
-		}
-		const jt = e.target.closest("[data-jt]");
-		if (jt) {
-			const a = jt.closest(".rtj-j");
-			a.classList.toggle("is-open");
-			jt.setAttribute("aria-expanded", a.classList.contains("is-open"));
-			paintFlow();
-			return;
-		}
-		if (e.target.closest("#rtj-correct")) return openCorrection();
-		if (e.target.closest("#rtj-reset")) return st.set({ from: "", to: "", limit: "5" });
-		const tb = e.target.closest("[data-track]");
-		if (tb) return go(tb.dataset.track, "bucket");
-	});
-	$res.addEventListener("change", (e) => {
-		if (e.target.id === "rtj-limit") st.set({ limit: e.target.value });
-		else if (e.target.id === "rtj-from" || e.target.id === "rtj-to") {
-			let a = document.getElementById("rtj-from").value,
-				b = document.getElementById("rtj-to").value;
-			if (a && b && a > b) [a, b] = [b, a];
-			st.set({ from: a, to: b });
-		}
-	});
-	$chips.addEventListener("click", (e) => {
-		const t = e.target.closest("[data-track]");
-		if (t) go(t.dataset.track, "bucket");
-	});
+  /* ── Clicks inside the result ────────────────────────────────── */
+  $res.addEventListener("click", (e) => {
+    const more = e.target.closest("[data-more]");
+    if (more) { const li = more.closest(".rtj-s"); li.classList.toggle("is-open"); more.textContent = li.classList.contains("is-open") ? "Hide details" : "Details"; return; }
+    const jt = e.target.closest("[data-jt]");
+    if (jt) { const a = jt.closest(".rtj-j"); a.classList.toggle("is-open"); jt.setAttribute("aria-expanded", a.classList.contains("is-open")); paintFlow(); return; }
+    if (e.target.closest("#rtj-correct")) return openCorrection();
+    if (e.target.closest("#rtj-reset")) return st.set({ from: "", to: "", limit: "5" });
+    const tb = e.target.closest("[data-track]");
+    if (tb) return go(tb.dataset.track, "bucket");
+  });
+  $res.addEventListener("change", (e) => {
+    if (e.target.id === "rtj-limit") st.set({ limit: e.target.value });
+    else if (e.target.id === "rtj-from" || e.target.id === "rtj-to") {
+      let a = document.getElementById("rtj-from").value, b = document.getElementById("rtj-to").value;
+      if (a && b && a > b) [a, b] = [b, a];
+      st.set({ from: a, to: b });
+    }
+  });
+  $chips.addEventListener("click", (e) => { const t = e.target.closest("[data-track]"); if (t) go(t.dataset.track, "bucket"); });
+
+  window.RTJ_OPEN = (id) => go(id, "bucket");  // used by the Watchlist / Inactive views (rt-watch-v2.js)
 
 	/* ── Boot ────────────────────────────────────────────────────── */
 	$q.value = st.get("q");

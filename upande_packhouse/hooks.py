@@ -263,6 +263,8 @@ doc_events = {
 		"on_update": "upande_packhouse.api.auto_transfer.replan_soon",
 		"on_trash": "upande_packhouse.api.auto_transfer.replan_soon",
 	},
+	# Bucket Watchlist: a bucket marked not found while issuing (reason Missing) is watched from then on.
+	"Bucket Replacement": {"after_insert": "upande_packhouse.api.v2.rt_watchlist.on_replacement_insert"},
 	"Order Pick List": {
 		"after_insert": "upande_packhouse.api.auto_transfer.replan_soon",
 		"on_update": "upande_packhouse.api.auto_transfer.order_pick_list_changed",
@@ -286,6 +288,10 @@ doc_events = {
 scheduler_events = {
 	"daily": [
 		"upande_packhouse.spec.expire_temporary_specs",
+	],
+	# Safety net for not-found marks written by a path with no hook (Bucket Watchlist).
+	"hourly": [
+		"upande_packhouse.api.v2.rt_watchlist.hourly_sync",
 	],
 	"cron": {
 		# Midnight: every trip of the day before is ended -- none runs into the next day.
