@@ -15,3 +15,4 @@ upande_packhouse.patches.backfill_box_label_filters #2026-10-05 team
 upande_packhouse.patches.clear_order_truck_from_transit_truck
 upande_packhouse.patches.backfill_transfer_steps
 upande_packhouse.patches.label_code_batch_seq_index #2026-10-26 label print manager
+upande_packhouse.patches.index_stock_entry_issued_to #2026-10-27 release speed

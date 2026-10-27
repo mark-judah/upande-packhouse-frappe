@@ -4,477 +4,1543 @@
 {% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
 
 <style>
-  /* Stock Visibility — page-only layout (tokens + spacing scale only). */
-  .sv-stack{display:flex;height:12px;border-radius:var(--r-pill);overflow:hidden;background:var(--tint)}
-  .sv-stack--thin{height:6px;margin-top:var(--sp-1)}
-  .sv-stack>i{display:block;height:100%;box-shadow:inset -1px 0 0 var(--surface-2)}
-  .sv-stack>i.sv-good{background:var(--grad-good)}
-  .sv-stack>i.sv-ink{background:var(--grad-ink)}
-  .sv-stack>i.sv-warn{background:var(--grad-warn)}
-  .sv-stack>i.sv-bad{background:var(--grad-bad)}
-  .sv-split{display:flex;flex-direction:column;gap:var(--sp-4)}
-  .sv-split .ph-legend b{color:var(--ink);font-weight:600}
-  .sv-pop{max-height:60vh;overflow-y:auto;min-width:220px}
-  .sv-pop .ph-check{display:flex;padding:var(--sp-2) var(--sp-3)}
-  .sv-pop .ph-check:hover{background:var(--tint)}
-  .sv-pop hr{border:0;height:1px;background:var(--hairline);margin:var(--sp-1) 0}
-  .ph-select.is-set{box-shadow:0 0 0 2px var(--ink),var(--shadow-card)}
-  /* Two header rows: the second sticks just under the first. */
-  .sv-grid thead tr:first-child th{height:40px}
-  .sv-grid thead tr+tr th{top:40px}
-  .sv-grid .sv-gs{border-left:1px solid var(--hairline-2)}
-  .sv-grid th.sv-group{text-align:center}
-  .sv-grid .sv-name{min-width:220px;max-width:300px}
-  .sv-grid .sv-name__row{display:flex;align-items:center;gap:var(--sp-2)}
-  .sv-grid .sv-name__row svg.ph-ic{color:var(--ink-mute)}
-  .sv-grid tr.sv-variety{cursor:pointer}
-  .sv-grid tr.sv-variety.is-open td,.sv-grid tbody tr:hover td.ph-sticky-col{background:var(--surface)}
-  .sv-grid tr.sv-farm td{color:var(--ink-mute)}
-  .sv-grid tr.sv-farm td.sv-name{padding-left:calc(var(--sp-5) + var(--sp-6))}
-  .sv-grid tr.sv-detail td{background:var(--surface);white-space:normal}
-  .sv-legend{padding:0 32px var(--sp-4)}
-  @media (max-width:860px){.sv-legend{padding:0 var(--sp-5) var(--sp-4)}}
-  .sv-detail__in{position:sticky;left:var(--sp-5);display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:var(--sp-6);max-width:min(1080px,80vw);padding:var(--sp-2) 0}
+/* Stock Visibility — page-only layout (tokens + spacing scale only). */
+.sv-ms{position:relative;display:inline-flex;flex-wrap:wrap;gap:var(--sp-1);align-items:center;min-height:var(--ctl-h);width:max-content;min-width:150px;max-width:360px;padding:var(--sp-1) var(--sp-3);border-radius:var(--r-pill);background:var(--surface-2);box-shadow:var(--shadow-card)}
+.sv-ms:focus-within{box-shadow:0 0 0 2px var(--ink),var(--shadow-card)}
+.sv-ms input{flex:1 1 9ch;width:9ch;min-width:7ch;border:0;outline:0;background:transparent;font:inherit;color:var(--ink);padding:var(--sp-1) 0}
+.sv-ms__list{position:absolute;left:0;top:calc(100% + var(--sp-1));z-index:30;min-width:200px;max-height:260px;overflow:auto;background:var(--surface-2);border-radius:var(--r-md);box-shadow:var(--shadow-pop);padding:var(--sp-2);margin:0;list-style:none}
+.sv-ms__list li{padding:var(--sp-2) var(--sp-3);border-radius:var(--r-sm);cursor:pointer}
+.sv-ms__list li.is-on,.sv-ms__list li:hover{background:var(--tint)}
+.sv-tok{display:inline-flex;align-items:center;gap:var(--sp-1);padding:2px var(--sp-1) 2px var(--sp-3);border-radius:var(--r-pill);background:var(--ink);color:var(--surface);font-weight:600}
+.sv-tok button{border:0;background:transparent;color:inherit;cursor:pointer;opacity:.7;padding:0 var(--sp-2);line-height:1}
+.sv-tok button:hover,.sv-tok button:focus-visible{opacity:1}
+.sv-fgroup{display:contents}
+.sv-fgroup[hidden]{display:none}
+.sv-linkbtn{border:0;background:transparent;padding:0;font:inherit;color:var(--ink);font-weight:600;text-decoration:underline;cursor:pointer;display:inline-flex;align-items:center;gap:var(--sp-1)}
+.sv-linkbtn:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.sv-grow{flex:1 1 0}
+.sv-live{display:inline-flex;align-items:center;gap:var(--sp-1);color:var(--ink-3)}
+.sv-live b,.sv-cap b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.sv-cap{display:flex;align-items:center;color:var(--ink-4);margin:0 0 var(--sp-3)}
+.sv-pulse{display:inline-block;width:10px;height:10px;border-radius:var(--r-pill);background:var(--good);margin-right:var(--sp-2);flex:none;animation:sv-pulse 2s ease-out infinite}
+.sv-pulse.is-off{background:var(--bad);animation:none}
+@keyframes sv-pulse{0%{box-shadow:0 0 0 0 var(--good-soft)}70%{box-shadow:0 0 0 8px var(--tint-2)}100%{box-shadow:0 0 0 0 var(--tint-2)}}
+.sv-fail{margin:0 0 var(--sp-4)}
+.sv-flash{animation:sv-flash 1.6s ease-out 1}
+@keyframes sv-flash{0%{background:var(--warn-soft)}100%{background:transparent}}
+@media (prefers-reduced-motion:reduce){.sv-pulse,.sv-flash{animation:none}}
+.sv-chg{display:inline-flex;align-items:center;height:22px;padding:0 var(--sp-3);border-radius:var(--r-pill);background:var(--warn-soft);color:var(--warn);font-weight:600;white-space:nowrap}
+.sv-chgline{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2);margin-top:var(--sp-2);color:var(--warn)}
+.sv-lc{border-radius:var(--r-md);background:var(--surface-2);box-shadow:inset 0 0 0 1px var(--hairline);padding:var(--sp-4) var(--sp-5);margin:var(--sp-3) 0;cursor:pointer;transition:box-shadow .15s}
+.sv-lc:hover{box-shadow:inset 0 0 0 1px var(--hairline-3)}
+.sv-lc:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.sv-lc.is-changed{box-shadow:inset 0 0 0 2px var(--warn)}
+.sv-lc__head{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-3)}
+.sv-lc__body{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:var(--sp-6);margin-top:var(--sp-3);cursor:default}
+@media (max-width:980px){.sv-lc__body{grid-template-columns:minmax(0,1fr)}}
+.sv-where{display:flex;flex-direction:column;gap:var(--sp-3)}
+.sv-wsrc__h{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2);color:var(--ink);font-weight:600}
+.sv-picks{margin:var(--sp-1) 0 0;padding:0 0 0 var(--sp-6);list-style:none;color:var(--ink-4)}
+.sv-picks li{margin:0 0 var(--sp-1)}
+.sv-picks li b{color:var(--ink);font-weight:600;margin-right:var(--sp-2);font-variant-numeric:tabular-nums}
+.sv-more{color:var(--ink-mute);padding-left:var(--sp-6)}
+.sv-loc{font-weight:500;color:var(--ink-3);text-decoration:underline;text-decoration-color:var(--hairline-3)}
+.sv-rank{display:inline-flex;align-items:center;height:22px;padding:0 var(--sp-3);border-radius:var(--r-pill);background:var(--ink);color:var(--surface);font-weight:500;white-space:nowrap}
+.sv-nowrap{white-space:nowrap!important}
+.sv-rank.is-solo{background:var(--tint);color:var(--ink-4)}
+.sv-queue{margin:var(--sp-3) 0 0;color:var(--ink-3)}
+.sv-kv{color:var(--ink-3)}
+.sv-supply{margin:0 0 var(--sp-3);color:var(--ink-3)}
+.sv-rule{display:flex;gap:var(--sp-2);align-items:flex-start;color:var(--ink-mute);margin:0}
+tr.is-me td{background:var(--tint)}
+tr[data-lineopen]{cursor:pointer}
+tr[data-lineopen]:hover td{background:var(--tint-2)}
+.sv-sum{color:var(--ink-3);margin:0 0 var(--sp-5);max-width:80ch}
+.sv-sum b{color:var(--ink);font-weight:600}
+.sv-sbar{display:flex;height:22px;border-radius:var(--r-pill);overflow:hidden;background:var(--tint);margin-bottom:var(--sp-4)}
+.sv-sbar>i{display:block;height:100%;box-shadow:inset -1px 0 0 var(--surface-2);min-width:2px}
+.sv-srcs{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:var(--sp-3)}
+.sv-src{display:flex;flex-direction:column;gap:var(--sp-1);text-align:left;border:0;background:var(--surface);border-radius:var(--r-md);padding:var(--sp-3) var(--sp-4);cursor:pointer;color:inherit;font:inherit;min-width:0;box-shadow:inset 0 0 0 1px var(--hairline);transition:box-shadow .2s,transform .2s}
+.sv-src:hover{transform:translateY(-2px);box-shadow:inset 0 0 0 1px var(--hairline-3),var(--shadow-card)}
+.sv-src:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.sv-src.is-on{box-shadow:0 0 0 2px var(--ink)}
+.sv-src.is-zero{opacity:.55}
+.sv-src__k{display:flex;align-items:center;gap:var(--sp-2);color:var(--ink-4);font-weight:500;min-width:0}
+.sv-src__k span{white-space:normal;line-height:1.3}
+.sv-src__n{color:var(--ink);font-weight:600;font-size:1.45em;line-height:1.15;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.sv-src__n small{color:var(--ink-mute);font-size:.6em;font-weight:500;margin-left:var(--sp-2);letter-spacing:0}
+.sv-src__t{color:var(--ink-mute);font-size:.86em}
+/* order source colours: one family per tone, steps by opacity */
+.sv-o-allocated{background:var(--good)}
+.sv-o-shelf{background:var(--good);opacity:.55}
+.sv-o-remote{background:var(--warn);opacity:.5}
+.sv-o-stale{background:var(--warn)}
+.sv-o-cooling{background:var(--warn);opacity:.75}
+.sv-o-floor{background:var(--signal)}
+.sv-o-arriving{background:var(--signal);opacity:.45}
+.sv-o-downgrade{background:var(--ink-3)}
+.sv-o-greenhouse{background:var(--ink-mute);opacity:.6}
+.sv-o-short{background:var(--bad)}
+.sv-ostat{display:inline-flex;align-items:center;gap:var(--sp-2)}
+.sv-orow td{vertical-align:middle}
+.sv-orow.is-open td{background:var(--surface)}
+.sv-orow td.sv-cust{max-width:260px;white-space:normal}
+.sv-od>td{background:var(--surface);padding:var(--sp-2) var(--sp-5) var(--sp-4) var(--sp-8)!important;white-space:normal!important;max-width:0;overflow:visible}
+.sv-od .ph-table{width:100%;min-width:880px;table-layout:fixed}
+.sv-od .ph-table td,.sv-od .ph-table th{white-space:normal;vertical-align:top;overflow-wrap:anywhere}
+.sv-od .ph-badge{height:auto;min-height:22px;white-space:normal;text-align:left;padding:2px var(--sp-3)}
+.sv-opl{display:flex;flex-wrap:wrap;gap:var(--sp-1);margin-top:var(--sp-1)}
+.sv-opl .ph-badge{height:auto;min-height:22px;white-space:normal;text-align:left;padding-top:2px;padding-bottom:2px}
+.sv-do{margin:0;padding:0;list-style:none;min-width:200px}
+.sv-do li{margin:0 0 var(--sp-1);color:var(--ink-3)}
+.sv-do a,.sv-do .ph-link{white-space:nowrap}
+.sv-split{display:flex;flex-wrap:wrap;gap:var(--sp-1) var(--sp-3);margin-top:var(--sp-1);color:var(--ink-4)}
+.sv-split span{display:inline-flex;align-items:center;white-space:nowrap}
+.sv-split b{color:var(--ink);font-weight:600;margin-left:var(--sp-1)}
+.sv-days td,.sv-days th{white-space:nowrap}
+.sv-days tbody tr{cursor:pointer}
+.sv-days tbody tr:hover td{background:var(--tint)}
+.sv-hint{color:var(--ink-mute);margin:calc(-1 * var(--sp-4)) 0 var(--sp-6)}
+.sv-hint b{color:var(--ink-3);font-weight:600}
+.sv-coming{display:flex;align-items:center;gap:var(--sp-3);color:var(--ink-4);margin:calc(-1 * var(--sp-4)) 0 var(--sp-6)}
+.sv-coming b{color:var(--ink);font-weight:600}
+.sv-kpis .ph-kpi__value.is-good{color:var(--good)}
+.sv-kpis .ph-kpi__value.is-bad{color:var(--bad)}
+.sv-kpis .ph-kpi__value.is-warn{color:var(--warn)}
+.sv-kpis .ph-kpi__unit{white-space:normal}
+
+/* state colours — one family per group */
+.sv-c-sellable{background:var(--good)}
+.sv-c-cooling{background:var(--signal)}
+.sv-c-coldroom{background:var(--signal);opacity:.7}
+.sv-c-awaiting{background:var(--signal);opacity:.45}
+.sv-c-committed_live{background:var(--ink-3)}
+.sv-c-committed_transit{background:var(--ink-mute)}
+.sv-c-reclaimable{background:var(--warn)}
+.sv-c-discard{background:var(--bad)}
+.sv-c-quarantine{background:var(--bad);opacity:.7}
+.sv-c-too_old{background:var(--warn);opacity:.55}
+.sv-c-unreceived{background:var(--bad);opacity:.45}
+.sv-c-farm_disabled{background:var(--ink-faint)}
+.sv-stack{display:flex;height:10px;border-radius:var(--r-pill);overflow:hidden;background:var(--tint);min-width:80px}
+.sv-stack>i{display:block;height:100%;box-shadow:inset -1px 0 0 var(--surface-2)}
+.sv-dot{display:inline-block;width:10px;height:10px;border-radius:var(--r-pill);margin-right:var(--sp-2);flex:none}
+
+/* pipeline */
+.sv-pipe{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:var(--sp-3);align-items:stretch}
+.sv-stage{display:flex;flex-direction:column;gap:var(--sp-2);text-align:left;border:0;background:var(--surface);border-radius:var(--r-lg);padding:var(--sp-4) var(--sp-4);cursor:pointer;color:inherit;font:inherit;min-width:0;box-shadow:inset 0 0 0 1px var(--hairline);transition:box-shadow .2s,transform .2s}
+.sv-stage:hover{transform:translateY(-2px);box-shadow:inset 0 0 0 1px var(--hairline-3),var(--shadow-card)}
+.sv-stage:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.sv-stage--static{cursor:default}
+.sv-stage--static:hover{transform:none;box-shadow:inset 0 0 0 1px var(--hairline)}
+.sv-stage--shelf{grid-column:span 2}
+.sv-stage__k{color:var(--ink-mute);font-weight:500}
+.sv-stage__n{color:var(--ink);font-weight:600;font-size:1.7em;line-height:1.1;font-variant-numeric:tabular-nums;letter-spacing:-.03em}
+.sv-stage__s{color:var(--ink-mute)}
+.sv-stage__legend{display:flex;flex-wrap:wrap;gap:var(--sp-1) var(--sp-4);margin-top:var(--sp-1)}
+.sv-stage__legend span{display:inline-flex;align-items:center;color:var(--ink-4)}
+.sv-stage__legend b{color:var(--ink);font-weight:600;margin-left:var(--sp-1)}
+@media (max-width:1180px){.sv-pipe{grid-template-columns:repeat(3,minmax(0,1fr))}.sv-stage--shelf{grid-column:span 3;order:-1}}
+@media (max-width:640px){.sv-pipe{grid-template-columns:repeat(2,minmax(0,1fr))}.sv-stage--shelf{grid-column:span 2}}
+
+/* why list */
+.sv-why{display:grid;grid-template-columns:minmax(200px,1.4fr) minmax(120px,1.4fr) 92px 64px minmax(110px,.8fr) minmax(160px,1.2fr);gap:var(--sp-4);align-items:center;width:100%;text-align:left;border:0;background:transparent;font:inherit;color:inherit;padding:var(--sp-3) var(--sp-3);border-radius:var(--r-md);cursor:pointer}
+.sv-why:hover{background:var(--tint)}
+.sv-why:focus-visible{outline:2px solid var(--ink)}
+.sv-why--head{cursor:default;color:var(--ink-mute);font-weight:500;padding-top:0}
+.sv-why--head:hover{background:transparent}
+.sv-why__name{display:flex;align-items:center;min-width:0;color:var(--ink);font-weight:600}
+.sv-why__num{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink);font-weight:600}
+.sv-why__who{color:var(--ink-4)}
+.sv-why .sv-bar{height:8px;border-radius:var(--r-pill);background:var(--tint);overflow:hidden}
+.sv-why .sv-bar i{display:block;height:100%;min-width:2px}
+@media (max-width:980px){.sv-why{grid-template-columns:minmax(150px,1.5fr) 80px 56px minmax(120px,1.2fr)}.sv-why>:nth-child(2),.sv-why>:nth-child(5){display:none}}
+.sv-means{margin-top:var(--sp-4);color:var(--ink-4)}
+.sv-means summary{cursor:pointer;color:var(--ink-3);font-weight:600}
+.sv-means dl{display:grid;grid-template-columns:minmax(180px,max-content) 1fr;gap:var(--sp-2) var(--sp-5);margin:var(--sp-3) 0 0}
+.sv-means dt{display:flex;align-items:center;color:var(--ink)}
+.sv-means dd{margin:0}
+
+/* varieties table */
+.sv-tbl-tools{display:flex;flex-wrap:wrap;gap:var(--sp-3);align-items:center}
+.sv-tbl th,.sv-tbl td{white-space:nowrap}
+.sv-tbl td.sv-name{min-width:210px;max-width:300px;white-space:normal}
+.sv-tbl .sv-name__row{display:flex;align-items:center;gap:var(--sp-2)}
+.sv-tbl .sv-x{border:0;background:transparent;cursor:pointer;color:var(--ink-mute);padding:var(--sp-1);border-radius:var(--r-sm);display:inline-flex;transition:transform .15s}
+.sv-tbl .sv-x:hover{background:var(--tint);color:var(--ink)}
+.sv-tbl .sv-x[aria-expanded="true"]{transform:rotate(90deg)}
+.sv-link{border:0;background:transparent;padding:0;font:inherit;color:var(--ink);font-weight:600;cursor:pointer;text-align:left}
+.sv-link:hover{text-decoration:underline}
+.sv-link:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.sv-num{border:0;background:transparent;padding:var(--sp-1) var(--sp-2);margin:0 calc(-1 * var(--sp-2));font:inherit;color:inherit;font-variant-numeric:tabular-nums;cursor:pointer;border-radius:var(--r-sm)}
+.sv-num:hover{background:var(--tint);text-decoration:underline}
+.sv-num:disabled{cursor:default;color:var(--ink-faint);text-decoration:none;background:transparent}
+.sv-tbl tr.sv-len td{background:var(--surface);color:var(--ink-4)}
+.sv-tbl tr.sv-len td.sv-name{padding-left:calc(var(--sp-5) + var(--sp-6))}
+.sv-sub{display:block;color:var(--ink-mute);font-size:.86em}
+.sv-sub.is-bad{color:var(--bad)}
+.sv-neg{color:var(--bad);font-weight:600}
+.sv-pos{color:var(--good);font-weight:600}
+.sv-tbl td .ph-badge{margin-left:var(--sp-2)}
+.sv-focus{display:flex;align-items:center;gap:var(--sp-3);padding:0 32px var(--sp-3)}
+.sv-scroll{overflow:auto}
+
+/* drawers: wider than the default */
+.ph-overlay--drawer .ph-modal{width:min(780px,100%)}
+.ph-overlay--drawer .ph-modal--lg{width:min(1180px,100%)}
+.sv-sec{margin:var(--sp-7) 0 var(--sp-3);color:var(--ink-mute);font-weight:600;text-transform:uppercase;letter-spacing:.12em}
+.sv-sec:first-child{margin-top:0}
+.sv-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:var(--sp-4)}
+.sv-stat{background:var(--surface);border-radius:var(--r-md);padding:var(--sp-4);box-shadow:inset 0 0 0 1px var(--hairline)}
+.sv-stat small{display:block;color:var(--ink-mute);margin-bottom:var(--sp-1)}
+.sv-stat b{color:var(--ink);font-size:1.5em;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.sv-chips{display:flex;flex-wrap:wrap;gap:var(--sp-2)}
+.sv-chip{display:inline-flex;align-items:center;gap:var(--sp-2);border:0;background:var(--tint);color:var(--ink-3);padding:var(--sp-1) var(--sp-3);border-radius:var(--r-pill);font:inherit;cursor:pointer}
+.sv-chip:hover{background:var(--hairline-2)}
+.sv-chip.is-on{background:var(--ink);color:var(--surface)}
+.sv-chip b{font-weight:600;font-variant-numeric:tabular-nums}
+.sv-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+
+/* check availability */
+.sv-lines{display:flex;flex-direction:column;gap:var(--sp-2)}
+.sv-line{display:grid;grid-template-columns:minmax(160px,2fr) minmax(90px,.8fr) minmax(90px,.8fr) 40px;gap:var(--sp-2);align-items:center}
+.sv-line .ph-control{min-width:0;width:100%}
+.sv-line.is-bad .ph-control:first-child{box-shadow:0 0 0 2px var(--warn)}
+.sv-checkbar{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-3);margin-top:var(--sp-4)}
+.sv-res{display:flex;flex-direction:column;gap:var(--sp-4);margin-top:var(--sp-6)}
+.sv-verdict{background:var(--surface);border-radius:var(--r-lg);padding:var(--sp-5) var(--sp-6);box-shadow:inset 0 0 0 1px var(--hairline);border-left:6px solid var(--hairline-3)}
+.sv-verdict.v-safe{border-left-color:var(--good)}
+.sv-verdict.v-possible,.sv-verdict.v-downgrade{border-left-color:var(--warn)}
+.sv-verdict.v-short{border-left-color:var(--bad)}
+.sv-verdict__head{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-3);justify-content:space-between}
+.sv-verdict__title{color:var(--ink);font-weight:600}
+.sv-big{font:600 2.2em/1.1 var(--sans);color:var(--ink);letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.sv-big small{font-size:.45em;font-weight:500;color:var(--ink-mute);letter-spacing:0;margin-left:var(--sp-2)}
+.sv-parts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:var(--sp-3);margin:var(--sp-4) 0}
+.sv-part{padding:var(--sp-3) var(--sp-4);border-radius:var(--r-md);background:var(--surface-2)}
+.sv-part small{display:block;color:var(--ink-mute)}
+.sv-part b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.sv-part.is-short b{color:var(--bad)}
+.sv-reply{display:flex;gap:var(--sp-3);align-items:flex-start;margin-top:var(--sp-4);padding:var(--sp-3) var(--sp-4);border-radius:var(--r-md);background:var(--surface-2);box-shadow:inset 0 0 0 1px var(--hairline)}
+.sv-reply p{flex:1;color:var(--ink-3);margin:0;white-space:pre-wrap}
+.sv-list{margin:var(--sp-2) 0 0;padding-left:var(--sp-5);color:var(--ink-4)}
+.sv-list li{margin:var(--sp-1) 0}
+
+/* ledger */
+.sv-led__head{margin-bottom:var(--sp-4)}
+.sv-led__tools{display:flex;flex-wrap:wrap;gap:var(--sp-3);align-items:center;margin-bottom:var(--sp-4)}
+.sv-led__foot{display:flex;flex-wrap:wrap;gap:var(--sp-3);align-items:center;justify-content:space-between;margin-top:var(--sp-4);color:var(--ink-mute)}
+.sv-led .ph-table td,.sv-led .ph-table th{white-space:nowrap}
+.sv-led .ph-table td.sv-wrap{white-space:normal;min-width:220px}
+.sv-pillst{display:inline-flex;align-items:center;white-space:nowrap}
+
+/* allocation health */
+.sv-ord{border-radius:var(--r-md);background:var(--surface);margin-bottom:var(--sp-3);box-shadow:inset 0 0 0 1px var(--hairline)}
+.sv-ord>summary{display:grid;grid-template-columns:minmax(190px,1.2fr) minmax(150px,1.5fr) 110px 100px minmax(0,2fr) 170px;gap:var(--sp-4);align-items:center;padding:var(--sp-4) var(--sp-5);cursor:pointer;list-style:none}
+.sv-ord>summary::-webkit-details-marker{display:none}
+.sv-ord[open]>summary{border-bottom:1px solid var(--hairline)}
+.sv-ord__body{padding:var(--sp-2) var(--sp-5) var(--sp-4);overflow:auto}
+@media (max-width:1100px){.sv-ord>summary{grid-template-columns:minmax(130px,1fr) minmax(130px,1fr) 100px 90px}.sv-ord>summary>:nth-child(5),.sv-ord>summary>:nth-child(6){grid-column:span 2}}
+.sv-reasons{display:flex;flex-direction:column;gap:var(--sp-2)}
+.sv-reason{display:grid;grid-template-columns:minmax(180px,1.2fr) minmax(120px,2fr) 100px 120px;gap:var(--sp-4);align-items:center;border:0;background:transparent;font:inherit;color:inherit;text-align:left;padding:var(--sp-3);border-radius:var(--r-md);cursor:pointer}
+.sv-reason:hover{background:var(--tint)}
+.sv-reason.is-on{box-shadow:0 0 0 2px var(--ink)}
+.sv-reason:focus-visible{outline:2px solid var(--ink)}
+.sv-reason .sv-bar{height:8px;border-radius:var(--r-pill);background:var(--tint);overflow:hidden}
+.sv-reason .sv-bar i{display:block;height:100%;min-width:2px}
+.sv-note{display:flex;gap:var(--sp-3);align-items:flex-start}
+@media (max-width:820px){.ph-overlay--drawer .ph-modal--lg{width:100%}.sv-line{grid-template-columns:1fr 1fr 1fr 40px}.sv-line>:first-child{grid-column:span 3}.sv-reason{grid-template-columns:1fr 90px}.sv-reason>:nth-child(2),.sv-reason>:nth-child(4){display:none}}
+
+/* ───── redesign: toolbar, filters popover, tabs ───── */
+.sv-top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--sp-3) var(--sp-5);margin:0 0 var(--sp-5)}
+.sv-top .ph-tabs{margin:0}
+.sv-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-3)}
+.sv-fwrap{position:relative}
+.sv-fcount{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 var(--sp-2);margin-left:var(--sp-2);border-radius:var(--r-pill);background:var(--ink);color:var(--surface);font-weight:600}
+.sv-pop{position:absolute;left:0;top:calc(100% + var(--sp-2));z-index:40;width:min(460px,92vw);background:var(--surface-2);border-radius:var(--r-lg);box-shadow:var(--shadow-pop);padding:var(--sp-5);display:flex;flex-direction:column;gap:var(--sp-4)}
+.sv-pop[hidden]{display:none}
+.sv-pop__row{display:flex;flex-direction:column;gap:var(--sp-2)}
+.sv-pop__k{color:var(--ink-mute);font-weight:600;text-transform:uppercase;letter-spacing:.1em}
+.sv-pop__foot{display:flex;justify-content:space-between;align-items:center}
+.sv-pop .sv-ms{width:100%;max-width:none;box-shadow:inset 0 0 0 1px var(--hairline-2)}
+.sv-fchips{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center}
+.sv-fchip{display:inline-flex;align-items:center;gap:var(--sp-1);padding:2px var(--sp-1) 2px var(--sp-3);border-radius:var(--r-pill);background:var(--tint);color:var(--ink-3)}
+.sv-fchip button{border:0;background:transparent;color:inherit;cursor:pointer;padding:0 var(--sp-2);line-height:1;opacity:.7}
+.sv-fchip button:hover,.sv-fchip button:focus-visible{opacity:1}
+.ph-tab__count{margin-left:var(--sp-2);display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 var(--sp-2);border-radius:var(--r-pill);background:var(--bad);color:var(--surface);font-weight:600}
+.ph-tab__count.is-warn{background:var(--warn)}
+.sv-datebar{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-3);margin:0 0 var(--sp-4)}
+.sv-stepper{display:inline-flex;align-items:center;gap:var(--sp-2);background:var(--surface-2);border-radius:var(--r-pill);box-shadow:var(--shadow-card);padding:2px var(--sp-1)}
+.sv-stepper strong{min-width:128px;text-align:center;color:var(--ink);font-variant-numeric:tabular-nums}
+.sv-range{display:inline-flex;align-items:center;gap:var(--sp-2)}
+.sv-range .ph-control{width:auto}
+.sv-datebar .ph-select{max-width:200px}
+
+/* segmented bar colours: tint with colour-mix so labels keep full contrast */
+.sv-o-overdue{background:color-mix(in srgb,var(--bad) 55%,var(--surface-2))}
+.sv-cust2{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap!important}
+/* day brief */
+.sv-brief{margin-bottom:var(--sp-5)}
+.sv-headline{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--sp-3) var(--sp-5);margin:0 0 var(--sp-5)}
+.sv-headline__n{font:600 2.6em/1 var(--sans);letter-spacing:-.04em;color:var(--ink);font-variant-numeric:tabular-nums}
+.sv-headline__n.is-bad{color:var(--bad)}
+.sv-headline__n.is-good{color:var(--good)}
+.sv-headline__t{color:var(--ink);font-weight:600;font-size:1.2em;line-height:1.3}
+.sv-headline__s{color:var(--ink-4);flex-basis:100%}
+.sv-legend{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2) var(--sp-3);margin-top:var(--sp-5)}
+.sv-lg{display:inline-flex;align-items:center;gap:var(--sp-2);border:0;background:var(--surface);box-shadow:inset 0 0 0 1px var(--hairline);border-radius:var(--r-pill);padding:var(--sp-1) var(--sp-4) var(--sp-1) var(--sp-3);font:inherit;color:var(--ink-3);cursor:pointer}
+.sv-lg b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.sv-lg small{color:var(--ink-mute)}
+.sv-lg:hover{box-shadow:inset 0 0 0 1px var(--hairline-3)}
+.sv-lg.is-on{box-shadow:0 0 0 2px var(--ink)}
+.sv-lg:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+
+/* work list */
+.sv-workhead{flex-wrap:wrap;gap:var(--sp-3) var(--sp-5);justify-content:space-between;align-items:center}
+.sv-workhead .ph-card__tools{margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
+.sv-seg{display:inline-flex;gap:var(--sp-1)}
+.sv-rule{display:flex;gap:var(--sp-2);align-items:flex-start;color:var(--ink-mute);margin:0;padding:var(--sp-3) 32px var(--sp-5)}
+.sv-oc{border-top:1px solid var(--hairline)}
+.sv-oc__row{display:grid;grid-template-columns:28px minmax(180px,1.5fr) minmax(220px,2fr) 96px 96px minmax(130px,1fr);gap:var(--sp-4);align-items:center;padding:var(--sp-4) 32px;cursor:pointer}
+.sv-oc__row:hover{background:var(--tint-2)}
+.sv-oc__row:focus-visible{outline:2px solid var(--ink);outline-offset:-2px}
+.sv-oc__who{min-width:0}
+.sv-oc__who .ph-strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sv-oc__need{color:var(--ink-3);min-width:0}
+.sv-oc__need b{color:var(--ink);font-weight:600}
+.sv-oc__num{text-align:right;font-variant-numeric:tabular-nums}
+.sv-oc__num small{display:block;color:var(--ink-mute)}
+.sv-oc__num.is-bad b{color:var(--bad)}
+.sv-oc.is-open{background:var(--surface)}
+.sv-oc.is-open>.sv-oc__row{background:var(--surface)}
+.sv-oc__lines{padding:0 32px var(--sp-4) calc(32px + 28px + var(--sp-4))}
+.sv-lr{display:grid;grid-template-columns:minmax(230px,1.3fr) minmax(0,3fr) 150px 110px;gap:var(--sp-4);align-items:center;padding:var(--sp-3) var(--sp-4);border-radius:var(--r-md);background:var(--surface-2);box-shadow:inset 0 0 0 1px var(--hairline);margin-top:var(--sp-2);cursor:pointer}
+.sv-lr:hover{box-shadow:inset 0 0 0 1px var(--hairline-3)}
+.sv-lr:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.sv-lr.is-changed{box-shadow:inset 0 0 0 2px var(--warn)}
+.sv-lr__v{min-width:0}
+.sv-lr__v .sv-link{display:block}
+.sv-lr__nums{color:var(--ink-mute)}
+.sv-lr__src{display:flex;flex-wrap:wrap;gap:var(--sp-1) var(--sp-4);color:var(--ink-3)}
+.sv-lr__src span{display:inline-flex;align-items:center}
+.sv-lr__src b{color:var(--ink);font-weight:600;margin-right:var(--sp-1);font-variant-numeric:tabular-nums}
+.sv-lr__eta{display:block;color:var(--ink-mute);margin-top:var(--sp-1)}
+.sv-lr__st{display:flex;flex-direction:column;gap:var(--sp-1);align-items:flex-start}
+.sv-lr__go{justify-self:end}
+.sv-pool{border-top:1px solid var(--hairline)}
+.sv-pool__row{display:grid;grid-template-columns:28px minmax(200px,1.2fr) 120px minmax(0,3fr) 170px;gap:var(--sp-4);align-items:center;padding:var(--sp-4) 32px;cursor:pointer}
+.sv-pool__row:hover{background:var(--tint-2)}
+.sv-pool.is-open{background:var(--surface)}
+.sv-pool__body{padding:0 32px var(--sp-4) calc(32px + 28px + var(--sp-4))}
+@media (max-width:1100px){
+  .sv-oc__row{grid-template-columns:28px minmax(140px,1.3fr) 90px 90px;grid-template-areas:"x who ord st" ". need need need"}
+  .sv-oc__row>:nth-child(1){grid-area:x}.sv-oc__row>:nth-child(2){grid-area:who}.sv-oc__row>:nth-child(3){grid-area:need}.sv-oc__row>:nth-child(4){grid-area:ord}.sv-oc__row>:nth-child(5){display:none}.sv-oc__row>:nth-child(6){grid-area:st}
+  .sv-lr{grid-template-columns:minmax(0,1fr) auto}.sv-lr>:nth-child(2){grid-column:1/-1;order:3}.sv-lr__st{flex-direction:row;flex-wrap:wrap}
+  .sv-pool__row{grid-template-columns:28px minmax(140px,1.4fr) 100px}.sv-pool__row>:nth-child(4),.sv-pool__row>:nth-child(5){grid-column:2/-1}
+  .sv-oc__lines,.sv-pool__body{padding-left:32px}
+}
+
+/* stock hero */
+.sv-hero{padding-bottom:var(--sp-5)}
+.sv-hero__top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:var(--sp-4);margin-bottom:var(--sp-4)}
+.sv-hero__on{color:var(--ink-4)}
+.sv-hero__on b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.sv-gcols{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) minmax(240px,1.3fr);gap:var(--sp-4);margin-top:var(--sp-4)}
+.sv-gcol{display:flex;flex-direction:column;gap:var(--sp-1);text-align:left;border:0;background:transparent;font:inherit;color:inherit;padding:var(--sp-3) var(--sp-4);border-radius:var(--r-md);cursor:pointer;min-width:0}
+.sv-gcol:hover{background:var(--tint)}
+.sv-gcol.is-on{background:var(--tint);box-shadow:0 0 0 2px var(--ink)}
+.sv-gcol:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.sv-gcol__k{display:flex;align-items:center}.sv-gcol__k::before{content:"";width:10px;height:10px;border-radius:var(--r-pill);margin-right:var(--sp-2);background:var(--hairline-3);flex:none}.sv-gcol.g-sellable .sv-gcol__k::before{background:var(--good)}.sv-gcol.g-soon .sv-gcol__k::before{background:var(--signal)}.sv-gcol.g-committed .sv-gcol__k::before{background:var(--ink-3)}.sv-gcol.g-withheld .sv-gcol__k::before{background:var(--bad)}
+.sv-gcol__k{color:var(--ink-mute);font-weight:500}
+.sv-gcol__n{font:600 1.9em/1.1 var(--sans);letter-spacing:-.03em;color:var(--ink);font-variant-numeric:tabular-nums}
+.sv-gcol__s{color:var(--ink-mute);line-height:1.35}
+.sv-gcol__s .is-bad{color:var(--bad)}
+.sv-free{display:flex;flex-direction:column;gap:var(--sp-1);padding:var(--sp-3) var(--sp-5);border-radius:var(--r-md);background:var(--surface);box-shadow:inset 0 0 0 1px var(--hairline)}
+.sv-free__n{font:600 2.2em/1.1 var(--sans);letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+.sv-free__n.is-good{color:var(--good)}.sv-free__n.is-bad{color:var(--bad)}.sv-free__n.is-warn{color:var(--warn)}
+.sv-free small{color:var(--ink-mute);line-height:1.35}
+.sv-free input[type=date]{width:auto;margin-top:var(--sp-1)}
+.sv-g-sellable{background:var(--good)}.sv-g-soon{background:var(--signal)}.sv-g-committed{background:var(--ink-3)}.sv-g-withheld{background:var(--bad)}
+.sv-flow{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2);margin-top:var(--sp-5);padding-top:var(--sp-4);border-top:1px solid var(--hairline)}
+.sv-flow__k{color:var(--ink-mute);font-weight:600;text-transform:uppercase;letter-spacing:.1em;margin-right:var(--sp-2)}
+.sv-fl{display:inline-flex;align-items:center;gap:var(--sp-2);border:0;background:var(--surface);box-shadow:inset 0 0 0 1px var(--hairline);border-radius:var(--r-pill);padding:var(--sp-1) var(--sp-4);font:inherit;color:var(--ink-3);cursor:pointer}
+.sv-fl b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.sv-fl.is-zero{opacity:.5}
+.sv-fl:hover:not(.is-static){box-shadow:inset 0 0 0 1px var(--hairline-3)}
+.sv-fl.is-static{cursor:default}
+.sv-fl:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.sv-flow__arrow{color:var(--ink-faint)}
+.sv-flow__side{margin-left:auto;display:inline-flex;gap:var(--sp-2)}
+
+/* blocking list */
+.sv-bl{display:grid;grid-template-columns:minmax(220px,2fr) 110px minmax(200px,2fr);gap:var(--sp-4);align-items:center;width:100%;text-align:left;border:0;background:transparent;font:inherit;color:inherit;padding:var(--sp-3);border-radius:var(--r-md);cursor:pointer}
+.sv-bl:hover{background:var(--tint)}
+.sv-bl:focus-visible{outline:2px solid var(--ink)}
+.sv-bl__name{display:flex;flex-direction:column;min-width:0}
+.sv-bl__name b{display:flex;align-items:center;color:var(--ink);font-weight:600}
+.sv-bl__name small{color:var(--ink-mute);padding-left:calc(10px + var(--sp-2))}
+.sv-bl .sv-bar{height:8px;border-radius:var(--r-pill);background:var(--tint);overflow:hidden}
+.sv-bl .sv-bar i{display:block;height:100%;min-width:2px}
+.sv-bl__n{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink);font-weight:600}
+.sv-bl__n small{display:block;color:var(--ink-mute);font-weight:400}
+.sv-bl__who{color:var(--ink-4)}
+@media (max-width:900px){.sv-bl{grid-template-columns:minmax(150px,1.5fr) 100px}.sv-bl>:nth-child(3){display:none}.sv-gcols{grid-template-columns:repeat(2,minmax(0,1fr))}.sv-gcols .sv-free{grid-column:1/-1}}
+
+/* varieties table: fits without clipping */
+.sv-vt{width:100%;table-layout:fixed;min-width:820px}
+.sv-vt th,.sv-vt td{white-space:nowrap}
+.sv-vt td.sv-name{white-space:normal}
+.sv-vt .sv-grp td{background:var(--surface);color:var(--ink);font-weight:600;padding-top:var(--sp-4);padding-bottom:var(--sp-2);white-space:nowrap}
+.sv-vt .sv-grp small{color:var(--ink-mute);font-weight:400;margin-left:var(--sp-2)}
+.sv-vt .sv-dim{color:var(--ink-faint)}
+.sv-more2{padding:var(--sp-3) 32px var(--sp-5)}
+.sv-gh{display:inline-block;width:8px;height:8px;border-radius:var(--r-pill);margin-right:var(--sp-2);flex:none}
+
+/* stale allocations */
+.sv-todo{display:flex;flex-wrap:wrap;gap:var(--sp-5);align-items:center;justify-content:space-between}
+.sv-todo__small{color:var(--ink-mute);margin-top:var(--sp-3)}
+.sv-todo .sv-chips{margin-top:var(--sp-4)}
+.sv-hdone{display:flex;align-items:center;gap:var(--sp-3);color:var(--ink)}
+.sv-headline__act{margin-left:auto}
+.sv-rel{display:inline-flex;align-items:center;gap:var(--sp-2);justify-content:flex-end}
+.sv-relcell{max-width:260px;white-space:normal}
+.sv-selbar{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-4);padding:var(--sp-3) var(--sp-4);margin:0 0 var(--sp-3);border-radius:var(--r-md);background:var(--surface);box-shadow:inset 0 0 0 1px var(--hairline);position:sticky;top:0;z-index:3}
+.sv-selall{display:inline-flex;align-items:center;gap:var(--sp-2);cursor:pointer;font-weight:600}
+.sv-selc{display:flex;align-items:center;gap:var(--sp-3)}
+.sv-selbox,.sv-selall input{width:18px;height:18px;accent-color:var(--ink);cursor:pointer;flex:none}
+.sv-selbox-gap{display:inline-block;width:18px;flex:none}
+.sv-fails{max-height:200px;overflow:auto;margin:var(--sp-3) 0 0;padding:0;list-style:none;color:var(--ink-3)}
+.sv-fails li{padding:var(--sp-1) 0;border-bottom:1px solid var(--hairline)}
+@media (max-width:640px){.sv-lr{grid-template-columns:1fr}.sv-lr>:nth-child(2){order:0}}
+
+/* ───── order outlook grid ───── */
+.sv-kpis{margin-bottom:var(--sp-5)}
+.sv-hbar2{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2) var(--sp-3);margin:0 0 var(--sp-5)}
+.sv-dueby{display:inline-flex;align-items:center;gap:var(--sp-3)}
+.sv-dueby .ph-control{width:auto}
+.sv-mx{width:100%;table-layout:fixed;min-width:1240px}
+.sv-mx td{white-space:nowrap}
+.sv-mx th{white-space:normal;vertical-align:bottom;line-height:1.2;letter-spacing:.02em;font-size:.8em;padding-left:var(--sp-2);padding-right:var(--sp-2)}
+.sv-mx td.mx-name{overflow:hidden;text-overflow:ellipsis}
+.sv-mx td.mx-name>b{display:inline-block;max-width:calc(100% - 28px);overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+.sv-mx .mx-sub{display:block;margin-top:2px;padding-left:calc(14px + var(--sp-2))}
+.sv-mx tr.mx-g td{background:var(--surface);cursor:pointer;border-top:1px solid var(--hairline)}
+.sv-mx tr.mx-g:hover td{background:var(--tint-2)}
+.sv-mx tr.mx-g.is-open td{background:var(--tint)}
+.sv-mx tr.mx-g:focus-visible,.sv-mx tr.mx-l:focus-visible{outline:2px solid var(--ink);outline-offset:-2px}
+.sv-mx tr.mx-l{cursor:pointer}
+.sv-mx tr.mx-l:hover td{background:var(--tint-2)}
+.sv-mx tr.mx-l.is-changed td{box-shadow:inset 0 2px 0 var(--warn),inset 0 -2px 0 var(--warn)}
+.sv-mx tr.mx-l td.mx-name{padding-left:calc(var(--sp-5) + var(--sp-6))}
+.sv-mx td.mx-c b{font-weight:600;font-variant-numeric:tabular-nums}
+.sv-mx td.src-alloc{background:color-mix(in srgb,var(--ink-3) 10%,transparent)}
+.sv-mx td.src-shelf{background:color-mix(in srgb,var(--good) 16%,transparent)}
+.sv-mx td.src-floor{background:color-mix(in srgb,var(--signal) 16%,transparent)}
+.sv-mx td.src-cooling{background:color-mix(in srgb,var(--warn) 16%,transparent)}
+.sv-mx td.src-arriving{background:color-mix(in srgb,var(--signal) 9%,transparent)}
+.sv-mx td.src-remote{background:color-mix(in srgb,var(--warn) 10%,transparent)}
+.sv-mx td.src-stale{background:color-mix(in srgb,var(--bad) 10%,transparent)}
+.sv-mx td.src-downgrade,.sv-mx td.src-greenhouse{background:color-mix(in srgb,var(--ink-mute) 12%,transparent)}
 </style>
 
 <header class="ph-head">
   <div>
     <div class="ph-head__eyebrow">Packhouse · Stock &amp; Orders</div>
     <h1 class="ph-head__title">Stock Visibility</h1>
-    <p class="ph-head__sub" id="sub">Variety stock vs orders across farms and lengths</p>
+    <p class="ph-head__sub" id="sub">Loading the stock…</p>
   </div>
   <div class="ph-head__tools">
-    <button class="ph-btn" id="export" type="button" disabled></button>
+    <button class="ph-btn" id="export" type="button" disabled>Export CSV</button>
+    <button class="ph-btn ph-btn--primary" id="check-open" type="button"><span id="check-ic"></span> Check availability</button>
   </div>
 </header>
 
-<div class="ph-filters">
-  <div class="ph-pills" id="f-region"></div>
-  <div class="ph-pills" id="f-rose">
-    <button data-value="all">All roses</button><button data-value="spray">Sprays</button><button data-value="standard">Standards</button>
+<div class="sv-top">
+<nav class="ph-tabs" id="tabs" aria-label="Views">
+  <button class="ph-tab" data-tab="outlook">Order outlook <span class="ph-tab__count" id="tab-orders" hidden></span></button>
+  <button class="ph-tab" data-tab="board">Stock</button>
+  <button class="ph-tab" data-tab="health">Stale allocations <span class="ph-tab__count" id="tab-health" hidden></span></button>
+</nav>
+<div class="sv-toolbar">
+  <div class="sv-fwrap">
+    <button class="ph-btn" id="f-toggle" type="button" aria-expanded="false" aria-controls="f-panel">Filters <span class="sv-fcount" id="f-count" hidden></span></button>
+    <div class="sv-pop" id="f-panel" role="dialog" aria-label="Filters" hidden>
+      <div class="sv-pop__row"><span class="sv-pop__k">Site</span><div class="ph-pills" id="f-region" role="group" aria-label="Site"></div></div>
+      <div class="sv-pop__row"><span class="sv-pop__k">Farm</span><select class="ph-select" id="f-farm" aria-label="Farm"><option value="">All farms</option></select></div>
+      <div class="sv-pop__row"><span class="sv-pop__k">Stem length</span><div id="f-len" aria-label="Stem length"></div></div>
+      <div class="sv-pop__row"><span class="sv-pop__k">Rose type</span><div class="ph-pills" id="f-rose" role="group" aria-label="Rose type"><button data-value="all">All roses</button><button data-value="spray">Sprays</button><button data-value="standard">Standards</button></div></div>
+      <div class="sv-pop__foot"><button type="button" class="ph-link" id="f-clear">Clear filters</button><button type="button" class="ph-btn ph-btn--sm ph-btn--primary" id="f-done">Done</button></div>
+    </div>
   </div>
-  <button class="ph-select" id="f-farm" type="button" title="Shelf farm (stock) · the order's farm (orders)">Farm: All</button>
-  <button class="ph-select" id="f-len" type="button">Length: All</button>
-  <select class="ph-select" id="f-cust" aria-label="Customer"><option value="">All customers</option></select>
-  <select class="ph-select" id="f-dp" aria-label="Delivery point"><option value="">All delivery points</option></select>
-  <select class="ph-select" id="f-cover" aria-label="Cover">
-    <option value="">Any cover</option><option value="deficit">Deficit</option><option value="tight">Tight</option><option value="surplus">Surplus</option>
-  </select>
-  <select class="ph-select" id="f-age" aria-label="Oldest stems">
-    <option value="">Any age</option><option value="3">Oldest ≥ 3 days</option><option value="5">Oldest ≥ 5 days</option><option value="7">Oldest ≥ 7 days</option><option value="14">Oldest ≥ 14 days</option>
-  </select>
-  <label class="ph-switch"><input type="checkbox" id="f-demand"><i></i>Has orders</label>
-  <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Search variety"></label>
-  <div class="ph-filters__spacer"></div>
-  <div class="ph-pills" id="f-basis" title="Shelf positions can't be rebuilt for a past date, so the range either leaves stock as it is now or keeps only stems harvested in the range">
-    <button data-value="all">Shelf now</button><button data-value="range">Harvested in range</button>
-  </div>
-  <div class="ph-pills" id="f-preset">
-    <button data-value="today">Today</button><button data-value="tomorrow">Tomorrow</button><button data-value="next7">Next 7d</button><button data-value="7d">Last 7d</button><button data-value="30d">Last 30d</button>
-  </div>
-  <label class="ph-daterange" title="Orders: Sales Order delivery date">
-    <span>Delivery</span><input type="date" id="f-from" aria-label="From"><span>→</span><input type="date" id="f-to" aria-label="To">
-  </label>
+  <label class="ph-search" for="f-q"><span id="f-q-ic"></span><input id="f-q" type="search" placeholder="Search variety" autocomplete="off" aria-label="Search variety"></label>
+  <div class="sv-fchips" id="f-chips" aria-label="Active filters"></div>
+</div>
 </div>
 
-<section class="ph-kpis" id="kpis"></section>
 
-<div class="ph-row ph-row--2">
-  <section class="ph-card ph-mb-0">
-    <div class="ph-card__head">
-      <h2 class="ph-card__title">Where the shelved stems are</h2>
-      <span class="ph-card__meta" id="comp-meta"></span>
+<!-- ───── Orders (the default view) ───── -->
+<div id="v-outlook">
+  <div class="sv-datebar">
+    <div class="sv-stepper" role="group" aria-label="Delivery day">
+      <button type="button" id="o-prev" class="ph-iconbtn ph-iconbtn--flat" aria-label="Previous day"></button>
+      <strong id="o-daylbl"></strong>
+      <button type="button" id="o-next" class="ph-iconbtn ph-iconbtn--flat" aria-label="Next day"></button>
     </div>
-    <div id="comp"></div>
-  </section>
-  <section class="ph-card ph-mb-0">
-    <div class="ph-card__head">
-      <h2 class="ph-card__title">How fresh the shelf is</h2>
-      <span class="ph-card__meta" id="fresh-meta">days since harvest (else shelving)</span>
+    <div class="ph-pills" id="o-pre" role="group" aria-label="Delivery date presets">
+      <button data-a="0" data-b="0">Today</button><button data-a="1" data-b="1">Tomorrow</button><button data-a="0" data-b="6">Next 7 days</button>
     </div>
-    <div id="fresh"></div>
-  </section>
-</div>
+    <button type="button" class="sv-linkbtn" id="o-range-toggle" aria-expanded="false">Range…</button>
+    <span class="sv-range" id="o-range" hidden><input type="date" class="ph-control" id="o-from" aria-label="Delivery from"><span class="ph-muted">to</span><input type="date" class="ph-control" id="o-to" aria-label="Delivery to"></span>
+    <select class="ph-select" id="o-cust" aria-label="Customer"><option value="">All customers</option></select>
+    <span class="sv-grow"></span>
+    <span class="sv-live" id="o-asof" aria-live="off"></span>
+    <button type="button" class="sv-chip" id="o-chg" hidden></button>
+    <button type="button" class="ph-btn ph-btn--sm" id="o-refresh">Refresh now</button>
+  </div>
+  <div class="ph-notice ph-notice--warn sv-fail" id="o-fail" hidden role="status"></div>
 
-<section class="ph-card ph-card--flush">
-  <div class="ph-card__head">
-    <h2 class="ph-card__title">Stock vs orders by farm &amp; length <span class="ph-badge" id="row-count">—</span></h2>
-    <div class="ph-card__tools">
-      <div class="ph-pills" id="f-sort">
-        <button data-value="az">A–Z</button><button data-value="deficit">Deficit first</button><button data-value="avail">Most allocatable</button>
+  <section class="ph-kpis sv-kpis" id="o-kpis" aria-live="polite"></section>
+
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head sv-workhead">
+      <div class="ph-pills" id="o-seg" role="group" aria-label="Which orders"></div>
+      <div class="ph-card__tools sv-tbl-tools">
+        <div class="ph-pills" id="o-view" role="group" aria-label="Group by"><button data-value="order">Order</button><button data-value="customer">Customer</button><button data-value="variety">Variety</button><button data-value="length">Length</button></div>
+        <label class="ph-search"><span id="o-q-ic"></span><input id="o-q" type="search" placeholder="Search order, customer or variety" autocomplete="off" aria-label="Search orders"></label>
+        <button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" id="o-exp" disabled>Export CSV</button>
       </div>
-      <button class="ph-btn ph-btn--sm ph-btn--ghost" id="expand-all" type="button">Expand all</button>
     </div>
-  </div>
-  <div class="ph-legend sv-legend">
-    <span><span class="ph-dot ph-dot--good"></span>Allocatable</span>
-    <span><span class="ph-dot ph-dot--warn"></span>Free, too old / cooling</span>
-    <span><span class="ph-dot ph-dot--ink"></span>Allocated</span>
-    <span><span class="ph-dot ph-dot--bad"></span>Held (discard request)</span>
-    <span class="ph-muted">Var = allocatable − still to allocate</span>
-  </div>
-  <div class="ph-muted sv-legend">Shelved = held + allocated + free. The bar under each variety splits its shelved stems. Click a variety for its farms, age and balance.</div>
-  <div id="grid"></div>
-</section>
+    <div id="o-orders"></div>
+  </section>
+</div>
 
-<section class="ph-card ph-card--flush">
-  <div class="ph-card__head">
-    <div>
-      <h2 class="ph-card__title">Coldroom — received, not shelved <span class="ph-badge" id="ns-count">—</span></h2>
-      <div class="ph-card__meta" id="ns-meta">Received and not yet shelved, issued or discarded</div>
+<!-- ───── Stock ───── -->
+<div id="v-board" hidden>
+  <section class="ph-kpis sv-kpis" id="kpis" aria-live="polite"></section>
+  <section class="ph-card sv-hero" id="hero"></section>
+
+  <section class="ph-card">
+    <div class="ph-card__head"><h2 class="ph-card__title">What’s blocking sales</h2><span class="ph-card__meta" id="why-meta"></span></div>
+    <div id="why"></div>
+  </section>
+
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head">
+      <h2 class="ph-card__title">Varieties <span class="ph-badge" id="vt-count"></span></h2>
+      <div class="ph-card__tools sv-tbl-tools">
+        <div class="ph-pills" id="f-sort" role="group" aria-label="Sort">
+          <button data-value="attn">Needs attention</button><button data-value="az">A–Z</button><button data-value="sellable">Most sellable</button><button data-value="withheld">Most withheld</button>
+        </div>
+        <button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" id="b-all">Bucket list</button>
+      </div>
     </div>
-  </div>
-  <div id="ns"></div>
-</section>
+    <div class="sv-focus" id="focus" hidden></div>
+    <div id="vt"></div>
+  </section>
+</div>
+
+<!-- ───── Stale allocations ───── -->
+<div id="v-health" hidden>
+  <section class="ph-kpis sv-kpis" id="h-kpis" aria-live="polite"></section>
+  <div class="sv-hbar2" id="h-head"></div>
+  <section class="ph-card">
+    <div class="ph-card__head"><h2 class="ph-card__title">Orders holding stock <span class="ph-badge" id="h-count"></span></h2><span class="ph-card__meta" id="h-filter"></span></div>
+    <div id="h-orders"></div>
+  </section>
+</div>
 
 {% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
 {% raw %}
 <script>
 (function () {
   "use strict";
-  const API = "upande_packhouse.api.v2.stock_visibility.get_stock_visibility";
+  const API = "upande_packhouse.api.v2.stock_truth.";
+  const GET = (m, a) => PH.call(API + m, a || {}, { type: "GET", silent: true });
+  const POST = (m, a) => PH.call(API + m, a || {}, { type: "POST", silent: true });
+  const esc = PH.esc, N = PH.fmt.num;
   const today = PH.date.today();
-  // farm / len hold a comma-joined multi-selection ("" = all).
-  const st = PH.state({ from: today, to: today, basis: "all", region: "", rose: "all", farm: "", len: "", cust: "", dp: "", cover: "", age: "", demand: false, q: "", sort: "az" });
-  let data = null;        // last API payload (rows already filtered + rolled up on the server)
-  const open = new Set(); // expanded varieties
-  let seq = 0;
+  const st = PH.state({ tab: "outlook", region: "", farm: "", length: "", rose: "all", q: "", through: PH.date.add(today, 1), sort: "attn", focus: "", reason: "", ofrom: PH.date.add(today, 1), oto: PH.date.add(today, 1), ocust: "", osrc: "", os: "", ochg: false, oseg: "attn", oview: "order", vall: false });
 
-  const list = (v) => (v ? String(v).split(",").filter(Boolean) : []);
-  const fmt = (n) => PH.fmt.num(Math.round(n || 0));
+  const TABS = ["outlook", "board", "health"];
+  const GROUPS = { sellable: "Sellable now", soon: "Ready soon", committed: "Committed", withheld: "Withheld" };
+  const GROUP_STATES = {
+    sellable: ["sellable"],
+    soon: ["cooling", "coldroom", "awaiting"],
+    committed: ["committed_live", "committed_transit", "reclaimable"],
+    withheld: ["discard", "quarantine", "too_old", "unreceived", "farm_disabled"],
+  };
+  const ORDER = [].concat(GROUP_STATES.sellable, GROUP_STATES.soon, GROUP_STATES.committed, GROUP_STATES.withheld);
+  const SHELF = ["sellable", "cooling", "committed_live", "reclaimable", "too_old", "discard", "farm_disabled"];
+  const STALE = { order_cancelled: "Order cancelled", dispatched: "Order already delivered", delivery_passed: "Delivery date has passed", discard_held: "Bucket is on a discard request", bucket_gone: "Bucket is on no shelf", not_found: "Bucket marked not found" };
+  const RISK = ["discard_held", "bucket_gone", "not_found"];
+  const REFDOC = { discard: "Discard Request", reclaimable: "Sales Order", committed_live: "Sales Order", committed_transit: "Order Pick List", coldroom: "Stock Entry", awaiting: "Stock Entry", unreceived: "Stock Entry" };
 
-  /* ── Filters (every one goes to the server) ── */
+  let ov = null, hl = null, ledgers = [], ovSeq = 0, hlSeq = 0;
+  const meta = (s) => ((ov && ov.states && ov.states[s]) || { label: s, group: "withheld", why: "", who: "" });
+  const lbl = (s) => meta(s).label;
+  const sumOf = (states, keys) => keys.reduce((t, k) => t + (+(states || {})[k] || 0), 0);
+  const filterParams = () => ({ region: st.get("region"), farm: st.get("farm"), length: st.get("length"), rose: st.get("rose"), q: st.get("q") });
+  const dayLabel = (iso) => { const d = PH.date.parse(iso); return d ? d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }) : iso; };
+  const dot = (s) => `<span class="sv-dot sv-c-${esc(s)}" aria-hidden="true"></span>`;
+  const sc = (s) => `<span class="sv-pillst">${dot(s)}${esc(lbl(s))}</span>`;
+  const docBtn = (dt, name) => (name ? `<button type="button" class="sv-link" data-doc="${esc(dt)}" data-name="${esc(name)}">${esc(name)}</button>` : "");
+  const soLink = (so) => `/desk/sales-allocation?sales_order=${encodeURIComponent(so)}`;
+  const copy = (text) => {
+    const done = () => PH.toast("Copied", "good");
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, () => fallback());
+    else fallback();
+    function fallback() { const t = document.createElement("textarea"); t.value = text; document.body.appendChild(t); t.select(); try { document.execCommand("copy"); done(); } catch (e) { PH.toast("Could not copy", "bad"); } t.remove(); }
+  };
+  const lenKey = (v) => { const m = /^\s*(\d+)/.exec(v || ""); return m ? +m[1] : 1e9; };
+  const sortLens = (a) => a.slice().sort((x, y) => lenKey(x) - lenKey(y) || String(x).localeCompare(String(y)));
+
+  document.getElementById("check-ic").innerHTML = PH.icon("search", 16);
+  document.getElementById("f-q-ic").innerHTML = PH.icon("search", 16);
+  document.getElementById("o-q-ic").innerHTML = PH.icon("search", 16);
+
+  /* ════════════ filters ════════════ */
   PH.regionPills("#f-region", st, "region");
   PH.pills("#f-rose", st, "rose");
-  PH.pills("#f-basis", st, "basis");
+  PH.bindSearch("#f-q", st, "q", 300);
+  PH.$("#f-q").value = st.get("q");
   PH.pills("#f-sort", st, "sort");
-  PH.bindSelect("#f-cust", st, "cust");
-  PH.bindSelect("#f-dp", st, "dp");
-  PH.bindSelect("#f-cover", st, "cover");
-  PH.bindSelect("#f-age", st, "age");
-  PH.bindSearch("#f-q", st, "q", 350);
-  PH.dateRange({ pills: "#f-preset", from: "#f-from", to: "#f-to", state: st });
-  const demandEl = document.getElementById("f-demand");
-  demandEl.checked = !!st.get("demand");
-  demandEl.addEventListener("change", () => st.set({ demand: demandEl.checked }));
-
-  multiSelect("#f-farm", "farm", "Farm");
-  multiSelect("#f-len", "len", "Length");
-
-  st.on((s, changed) => {
-    demandEl.checked = !!s.demand;
-    if (changed.length === 1 && changed[0] === "sort") return render();
-    // A region change drops picked farms outside it (region + farm intersect on the server anyway).
-    if (changed.includes("region") && s.region) {
-      const rf = PH.regionFarms(s.region) || [];
-      const keep = list(s.farm).filter((f) => rf.includes(f)).join(",");
-      if (keep !== s.farm) return st.set({ farm: keep });
-    }
-    load();
-  });
-
-  /* Multi-select popover (Farm / Length) — state holds "a,b,c". */
-  const opts = { farm: [], len: [] };
-  function multiSelect(sel, key, label) {
-    const btn = PH.$(sel);
-    const paint = () => {
-      const v = list(st.get(key));
-      btn.textContent = label + ": " + (!v.length ? "All" : v.length === 1 ? v[0] : v.length + " selected");
-      btn.classList.toggle("is-set", v.length > 0);
-    };
-    paint();
-    st.on((s, changed) => changed.includes(key) && paint());
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".sv-pop").forEach((m) => m.remove());
-      const pop = document.createElement("div");
-      pop.className = "ph-menu sv-pop";
-      const choices = () => {
-        const rf = key === "farm" ? PH.regionFarms(st.get("region")) : null;
-        return rf ? opts[key].filter((v) => rf.includes(v)) : opts[key];
-      };
-      const draw = () => {
-        const on = new Set(list(st.get(key))), ch = choices();
-        pop.innerHTML =
-          `<label class="ph-check"><input type="checkbox" data-all ${on.size ? "" : "checked"}>All</label><hr>` +
-          (ch.length ? ch.map((v) => PH.html`<label class="ph-check"><input type="checkbox" data-v="${v}" ${PH.raw(on.has(v) ? "checked" : "")}>${v}</label>`.__raw).join("")
-            : '<div class="ph-ac__empty">Nothing loaded yet</div>');
-      };
-      draw();
-      pop.addEventListener("change", (e) => {
-        const cb = e.target;
-        if (cb.hasAttribute("data-all")) st.set({ [key]: "" });
-        else {
-          const on = new Set(list(st.get(key)));
-          if (cb.checked) on.add(cb.dataset.v); else on.delete(cb.dataset.v);
-          st.set({ [key]: opts[key].filter((v) => on.has(v)).join(",") });
-        }
-        draw();
-      });
-      document.querySelector(".ph2").appendChild(pop);
-      const r = btn.getBoundingClientRect();
-      pop.style.left = Math.max(8, Math.min(window.innerWidth - pop.offsetWidth - 8, r.left)) + "px";
-      pop.style.top = r.bottom + 6 + "px";
-      setTimeout(() => {
-        const off = (e) => {
-          if (pop.contains(e.target) || e.target === btn) return;
-          pop.remove();
-          document.removeEventListener("mousedown", off);
-        };
-        document.addEventListener("mousedown", off);
-      });
-    });
+  PH.pills("#o-view", st, "oview");
+  function paintThrough() { const i = PH.$("#f-through"); if (i) i.value = st.get("through"); }
+  PH.$("#f-farm").addEventListener("change", (e) => st.set({ farm: e.target.value }));
+  function paintFarms() {
+    const sel = PH.$("#f-farm");
+    let farms = ((ov && ov.options && ov.options.farms) || []).slice();
+    const reg = PH.regionFarms(st.get("region"));
+    if (reg) farms = farms.filter((f) => reg.indexOf(f) >= 0);
+    const cur = st.get("farm");
+    if (cur && farms.indexOf(cur) < 0) farms.push(cur);
+    sel.innerHTML = '<option value="">All farms</option>' + farms.map((f) => `<option${f === cur ? " selected" : ""}>${esc(f)}</option>`).join("");
+    sel.classList.toggle("is-set", !!cur);
   }
-  const closePops = () => document.querySelectorAll(".sv-pop").forEach((m) => m.remove());
-  window.addEventListener("resize", closePops);
-  document.getElementById("ph-main").addEventListener("scroll", closePops, { passive: true });
-
-  /* ── Load ── */
-  const KPI_LABELS = ["Allocatable", "Still to allocate", "Variance", "On shelf", "Coldroom"];
-  PH.kpiSkeleton("#kpis", KPI_LABELS);
-  function args() {
-    const s = st.get();
-    return { from_date: s.from || today, to_date: s.to || s.from || today, basis: s.basis, region: s.region, farm: s.farm, length: s.len,
-      rose: s.rose, q: s.q, customer: s.cust, delivery_point: s.dp, age: s.age, cover: s.cover, demand: s.demand ? 1 : 0 };
-  }
-  function load(background) {
-    const my = ++seq;
-    if (!background) {
-      PH.loadingKpis("#kpis", true);
-      PH.skeleton("#grid", "rows", 8);
-      PH.skeleton("#ns", "rows", 4);
-      PH.skeleton("#comp", "rows", 2);
-      PH.skeleton("#fresh", "rows", 2);
-    }
-    const a = args();
-    PH.text("#sub", "Orders delivering " + PH.date.label(a.from_date, a.to_date) + " vs " +
-      (a.basis === "range" ? "shelf stems harvested in that range" : "everything on the shelf now"));
-    return PH.call(API, a, { silent: background, type: "GET" })
-      .then((m) => {
-        if (my !== seq) return;
-        data = m || {};
-        fillOptions();
-        render();
-        PH.markUpdated();
-      })
-      .catch((e) => {
-        if (my !== seq || background) return;
-        PH.loadingKpis("#kpis", false);
-        PH.kpis("#kpis", KPI_LABELS.map((l) => ({ label: l, value: "—" })));
-        PH.error("#grid", e.message, () => load());
-        PH.error("#ns", e.message, () => load());
-        const na = '<div class="ph-muted">Unavailable until the stock data loads.</div>';
-        PH.set("#comp", na); PH.set("#fresh", na);
-        document.getElementById("export").disabled = true;
-      });
-  }
-
-  function fillOptions() {
-    const o = data.options || {};
-    opts.farm = o.farms || [];
-    opts.len = o.lengths || [];
-    PH.options("#f-cust", o.customers || [], st.get("cust"));
-    PH.options("#f-dp", o.delivery_points || [], st.get("dp"));
-  }
-
-  function sortedRows() {
-    const out = (data.rows || []).slice(), s = st.get("sort");
-    if (s === "deficit") out.sort((a, b) => a.variance - b.variance);
-    else if (s === "avail") out.sort((a, b) => b.allocatable - a.allocatable);
+  /* the Filters popover and the chips that show what is on */
+  const fToggle = PH.$("#f-toggle"), fPanel = PH.$("#f-panel");
+  function fOpen(o) { fPanel.hidden = !o; fToggle.setAttribute("aria-expanded", String(o)); }
+  fToggle.addEventListener("click", (e) => { e.stopPropagation(); fOpen(fPanel.hidden); });
+  PH.$("#f-done").addEventListener("click", () => fOpen(false));
+  PH.$("#f-clear").addEventListener("click", () => st.set({ region: "", farm: "", length: "", rose: "all" }));
+  document.addEventListener("click", (e) => { if (!fPanel.hidden && !e.target.closest(".sv-fwrap")) fOpen(false); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !fPanel.hidden) { fOpen(false); fToggle.focus(); } });
+  function filterChips() {
+    const out = [];
+    if (st.get("region")) out.push(["region", "", "Site: " + st.get("region")]);
+    if (st.get("farm")) out.push(["farm", "", st.get("farm")]);
+    lenSel().forEach((v) => out.push(["length", v, v]));
+    if (st.get("rose") !== "all") out.push(["rose", "", st.get("rose") === "spray" ? "Sprays" : "Standards"]);
     return out;
   }
+  function paintChips() {
+    const chips = filterChips(), c = PH.$("#f-count");
+    c.hidden = !chips.length; c.textContent = chips.length;
+    PH.$("#f-chips").innerHTML = chips.map((x) => `<span class="sv-fchip">${esc(x[2])}<button type="button" data-fclear="${esc(x[0])}" data-fval="${esc(x[1])}" aria-label="Remove ${esc(x[2])}">×</button></span>`).join("");
+  }
+  PH.$("#f-chips").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-fclear]"); if (!b) return;
+    const k = b.dataset.fclear;
+    if (k === "length") lenSet(lenSel().filter((v) => v !== b.dataset.fval));
+    else st.set({ [k]: k === "rose" ? "all" : "" });
+  });
 
-  /* ── Render (formatting only — every total comes from the server) ── */
-  function render() {
-    if (!data) return;
-    const K = data.kpis || {};
-    const vis = sortedRows();
-    const range = PH.date.label(data.from_date, data.to_date);
-    const basisTxt = data.basis === "range" ? "harvested " + range : "on shelf now";
-    const custTxt = st.get("cust") || st.get("dp") ? " · supply: all customers" : "";
-    const cover = K.to_allocate > 0 ? Math.round((K.allocatable / K.to_allocate) * 100) : 0;
-    const cw = data.coldroom_window || [];
+  /* length multiselect (type to search, × to remove) */
+  const lenSel = () => st.get("length").split(",").map((s) => s.trim()).filter(Boolean);
+  let lenOpen = false, lenAct = 0;
+  function paintLen(keepFocus) {
+    const box = PH.$("#f-len"), sel = lenSel();
+    const had = keepFocus || (document.activeElement && document.activeElement.id === "f-len-in");
+    const val = PH.$("#f-len-in") ? PH.$("#f-len-in").value : "";
+    box.innerHTML = `<div class="sv-ms" role="combobox" aria-expanded="${lenOpen}" aria-haspopup="listbox">${sel.map((v) => `<span class="sv-tok">${esc(v)}<button type="button" data-ldel="${esc(v)}" aria-label="Remove ${esc(v)}">×</button></span>`).join("")}<input id="f-len-in" type="text" autocomplete="off" spellcheck="false" aria-controls="f-len-list" placeholder="${sel.length ? "Add length…" : "All lengths"}" value="${esc(val)}"><ul class="sv-ms__list" id="f-len-list" role="listbox" hidden></ul></div>`;
+    paintLenList();
+    if (had) { const i = PH.$("#f-len-in"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+  }
+  function lenSuggest() {
+    const inp = PH.$("#f-len-in"), q = inp ? inp.value.trim().toLowerCase() : "";
+    const all = sortLens(((ov && ov.options && ov.options.lengths) || []).filter(Boolean));
+    return all.filter((v) => lenSel().indexOf(v) < 0 && (!q || v.toLowerCase().includes(q)));
+  }
+  function paintLenList() {
+    const ul = PH.$("#f-len-list"); if (!ul) return;
+    ul.hidden = !lenOpen;
+    if (!lenOpen) return;
+    const items = lenSuggest(); lenAct = Math.max(0, Math.min(lenAct, items.length - 1));
+    ul.innerHTML = items.length ? items.slice(0, 60).map((v, i) => `<li role="option" data-lpick="${esc(v)}" class="${i === lenAct ? "is-on" : ""}" aria-selected="${i === lenAct}">${esc(v)}</li>`).join("") : '<li class="ph-muted">No more lengths</li>';
+  }
+  function lenSet(list) { st.set({ length: list.join(",") }); }
+  const lenBox = PH.$("#f-len");
+  lenBox.addEventListener("input", (e) => { if (e.target.id === "f-len-in") { lenOpen = true; lenAct = 0; paintLenList(); } });
+  lenBox.addEventListener("focusin", (e) => { if (e.target.id === "f-len-in") { lenOpen = true; paintLenList(); } });
+  lenBox.addEventListener("focusout", (e) => { if (e.target.id === "f-len-in") setTimeout(() => { if (document.activeElement !== PH.$("#f-len-in")) { lenOpen = false; paintLenList(); } }, 150); });
+  lenBox.addEventListener("mousedown", (e) => { const li = e.target.closest("[data-lpick]"); if (li) { e.preventDefault(); lenSet(lenSel().concat(li.dataset.lpick)); PH.$("#f-len-in").value = ""; } });
+  lenBox.addEventListener("click", (e) => { const d = e.target.closest("[data-ldel]"); if (d) { lenSet(lenSel().filter((v) => v !== d.dataset.ldel)); PH.$("#f-len-in").focus(); } });
+  lenBox.addEventListener("keydown", (e) => {
+    if (e.target.id !== "f-len-in") return;
+    const items = lenSuggest();
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); lenOpen = true; lenAct = (lenAct + (e.key === "ArrowDown" ? 1 : -1) + Math.max(items.length, 1)) % Math.max(items.length, 1); paintLenList(); }
+    else if (e.key === "Enter") { e.preventDefault(); const v = items[lenAct]; if (v) { lenSet(lenSel().concat(v)); PH.$("#f-len-in").value = ""; } }
+    else if (e.key === "Escape") { lenOpen = false; paintLenList(); }
+    else if (e.key === "Backspace" && !e.target.value && lenSel().length) lenSet(lenSel().slice(0, -1));
+  });
 
+  /* ════════════ tabs ════════════ */
+  PH.$("#tabs").addEventListener("click", (e) => { const b = e.target.closest("[data-tab]"); if (b) st.set({ tab: b.dataset.tab }); });
+  function paintTab() {
+    const t = TABS.indexOf(st.get("tab")) < 0 ? "outlook" : st.get("tab");
+    PH.$$("#tabs .ph-tab").forEach((b) => b.classList.toggle("is-on", b.dataset.tab === t));
+    TABS.forEach((k) => (PH.$("#v-" + k).hidden = k !== t));
+    PH.$("#export").hidden = t === "health";
+    paintThrough();
+    return t;
+  }
+
+  /* ════════════ overview ════════════ */
+  function loadOverview(silent) {
+    const my = ++ovSeq;
+    if (!silent) { PH.kpiSkeleton("#kpis", ["Sellable now", "Ready soon", "Committed", "Withheld", "Free to promise"]); PH.skeleton("#hero", "block", 2); PH.skeleton("#why", "rows", 4); PH.skeleton("#vt", "rows", 8); }
+    return GET("overview", Object.assign({ through: st.get("through") }, filterParams())).then((r) => {
+      if (my !== ovSeq) return;
+      ov = r; paintFarms(); paintLen(); paintChips(); renderBoard(); PH.markUpdated();
+      loadNextReady(my);
+    }).catch((e) => {
+      if (my !== ovSeq) return;
+      if (silent && ov) return;
+      ["#hero", "#why", "#vt"].forEach((x) => PH.error(x, e.message, () => loadOverview())); PH.$("#kpis").innerHTML = "";
+    });
+  }
+  let nextReady = null;
+  function loadNextReady(my) {
+    nextReady = null;
+    if (!ov || !(ov.kpis.states.cooling > 0)) return;
+    GET("ledger", Object.assign({ state: "cooling", limit: 300 }, filterParams())).then((r) => {
+      if (my !== ovSeq) return;
+      const now = Date.now();
+      const times = (r.rows || []).map((x) => x.ready_at && new Date(String(x.ready_at).replace(" ", "T")).getTime()).filter((t) => t && t >= now).sort((a, b) => a - b);
+      if (times.length) { nextReady = new Date(times[0]); paintHero(); }
+    }).catch(() => {});
+  }
+  function renderBoard() {
+    if (!ov) return;
+    paintHero(); paintWhy(); paintVarieties();
+    PH.$("#sub").textContent = `${N(ov.kpis.on_hand)} stems on hand across ${N(ov.kpis.varieties)} varieties`;
+    PH.$("#export").disabled = st.get("tab") === "outlook" ? !(ol && ol.orders.length) : !ov.rows.length;
+  }
+
+  /* ── stock position: one bar, four groups, one answer ── */
+  const GROUP_KEYS = ["sellable", "soon", "committed", "withheld"];
+  function flowHtml() {
+    const k = ov.kpis, S = k.states;
+    const harv = S.awaiting + S.unreceived, move = S.committed_transit;
+    const shelf = SHELF.reduce((t, x) => t + S[x], 0) - k.phantom_allocations;
+    const chip = (label, n, states, title) => (n > 0 && states
+      ? `<button type="button" class="sv-fl" data-states="${states.join(",")}" data-title="${esc(title || label)}">${esc(label)} <b>${N(n)}</b></button>`
+      : `<span class="sv-fl is-static${n > 0 ? "" : " is-zero"}">${esc(label)} <b>${n == null ? "—" : N(n)}</b></span>`);
+    const arrow = `<span class="sv-flow__arrow" aria-hidden="true">${PH.icon("arrowRight", 12)}</span>`;
+    const gh = k.forecast_this_week || k.forecast_next_week
+      ? `<span class="sv-fl is-static" title="Still in the greenhouses: not cut, not committable, grade-level forecast">Greenhouse <b>${N(k.forecast_this_week)}</b> <small class="ph-muted">this week · ${N(k.forecast_next_week)} next</small></span>`
+      : '<span class="sv-fl is-static is-zero">Greenhouse <b>—</b></span>';
+    return `<div class="sv-flow"><span class="sv-flow__k">Where it is</span>${gh}${arrow}${chip("Harvested, not received", harv, ["awaiting", "unreceived"])}${arrow}${chip("Coldroom floor", S.coldroom, ["coldroom"])}${arrow}${chip("On a shelf", shelf, SHELF, "On a shelf")}${arrow}${chip("On the move", move, ["committed_transit"])}<span class="sv-flow__side">${chip("In quarantine", S.quarantine, ["quarantine"])}</span></div>`;
+  }
+  function paintHero() {
+    const k = ov.kpis, S = k.states, f = st.get("focus");
+    const free = k.free_to_promise, topW = GROUP_STATES.withheld.map((x) => [x, S[x]]).sort((a, b) => b[1] - a[1])[0];
+    const soonBits = [["cooling", S.cooling], ["on the coldroom floor", S.coldroom], ["just harvested", S.awaiting]].filter((x) => x[1] > 0).map((x) => `${N(x[1])} ${x[0]}`);
+    if (nextReady) soonBits.push(`next ready ${PH.fmt.time(nextReady)}`);
+    const item = (g, o) => Object.assign({ label: GROUPS[g], active: f === g, onClick: () => st.set({ focus: f === g ? "" : g }) }, o);
     PH.kpis("#kpis", [
-      { label: "Allocatable", value: fmt(K.allocatable), dark: true,
-        unit: "stems · of " + fmt(K.free) + " free (" + fmt(K.too_old_or_cooling) + " too old / cooling) · " + basisTxt + custTxt },
-      { label: "Still to allocate", value: fmt(K.to_allocate),
-        unit: "stems · " + fmt(K.ordered) + " ordered − " + fmt(K.alloc_to_orders) + " allocated · delivery " + range },
-      { label: "Variance", value: (K.variance > 0 ? "+" : "") + fmt(K.variance), unit: "allocatable − still to allocate",
-        trend: { dir: K.variance >= 0 ? "up" : "down", text: K.to_allocate > 0 ? cover + "% cover" : "Nothing to allocate",
-          note: PH.fmt.plural(K.varieties_short || 0, "variety short", "varieties short") },
-        bar: K.to_allocate > 0 ? Math.min(100, cover) : null, barClass: cover >= 110 ? "good" : cover >= 100 ? "warn" : "bad" },
-      { label: "On shelf", value: fmt(K.stems),
-        unit: "stems · " + fmt(K.held) + " held + " + fmt(K.allocated) + " allocated + " + fmt(K.free) + " free · " +
-          PH.fmt.plural(K.buckets || 0, "bucket") + " · " + basisTxt + custTxt },
-      { label: "Coldroom", value: fmt(K.coldroom),
-        unit: "stems · " + PH.fmt.plural(K.coldroom_buckets || 0, "bucket") + " received " + PH.date.label(cw[0], cw[1]) + ", not shelved" + custTxt },
+      item("sellable", { dark: true, value: k.sellable, unit: k.remote_sellable > 0 ? `stems · ${N(k.remote_sellable)} at remote farms` : "stems on a shelf" }),
+      item("soon", { value: k.soon, unit: soonBits.join(" · ") || "stems on their way" }),
+      item("committed", { value: k.committed, unit: "stems promised to orders", trend: k.reclaimable > 0 ? { dir: "down", text: `${N(k.reclaimable)} stale` } : null }),
+      item("withheld", { value: k.withheld, unit: topW && topW[1] > 0 ? `mostly ${lbl(topW[0]).toLowerCase()}` : "stems" }),
+      { label: "Free to promise", value: free, unit: `${N(k.sellable)} sellable − ${N(k.to_allocate)} to allocate`, title: "Sellable now minus what orders due by the chosen date still need" },
     ]);
+    const ftp = PH.$$("#kpis .ph-kpi")[4];
+    if (ftp) PH.$(".ph-kpi__value", ftp).classList.add(k.to_allocate <= 0 && free >= 0 ? "is-good" : free < 0 ? "is-bad" : free === 0 ? "is-warn" : "is-good");
+    PH.$("#hero").innerHTML = `<div class="sv-hero__top"><span></span><label class="sv-dueby"><span class="ph-muted">Free to promise counts orders due by</span><input class="ph-control" type="date" id="f-through" min="${today}" value="${esc(st.get("through"))}" aria-label="Orders due by"></label></div>${flowHtml()}`;
+  }
+  PH.$("#hero").addEventListener("change", (e) => { if (e.target.id === "f-through" && e.target.value) st.set({ through: e.target.value < today ? today : e.target.value }); });
+  PH.$("#hero").addEventListener("click", (e) => { const g = e.target.closest("[data-focus]"); if (g) st.set({ focus: st.get("focus") === g.dataset.focus ? "" : g.dataset.focus }); });
 
-    PH.text("#comp-meta", fmt(K.stems) + " stems · " + PH.fmt.plural(K.shelves || 0, "shelf", "shelves") +
-      (K.allocated_in_held ? " · ⚠ " + fmt(K.allocated_in_held) + " allocated stems are in held buckets" : ""));
-    PH.set("#comp", splitBlock(compSegs(K)));
-    const bands = data.age_bands || [];
-    PH.text("#fresh-meta", "days since harvest (else shelving)" + (K.avg_age_days != null ? " · avg " + K.avg_age_days + "d, oldest " + K.oldest_days + "d" : ""));
-    PH.set("#fresh", splitBlock(bandSegs(bands.map((b) => b.stems))));
-
-    document.getElementById("export").disabled = !vis.length;
-    renderGrid(vis);
-    renderColdroom(data.coldroom || [], K);
+  /* ── what's blocking sales: only reasons that hold stems ── */
+  function paintWhy() {
+    const rows = ov.reasons.filter((r) => r.group !== "sellable" && r.state !== "committed_live" && r.state !== "committed_transit" && r.stems > 0).sort((a, b) => b.stems - a.stems);
+    const on = ov.kpis.on_hand || 1, held = rows.reduce((t, r) => t + r.stems, 0);
+    PH.$("#why-meta").textContent = rows.length ? `${N(held)} stems` : "";
+    if (!(ov.kpis.on_hand > 0)) { PH.empty("#why", "No stock on hand", "Nothing is on a shelf, on the coldroom floor or in quarantine for these filters.", "box"); return; }
+    if (!rows.length) { PH.empty("#why", "Nothing is being held back", "Every stem on hand is either sellable or promised to an order.", "check"); return; }
+    PH.$("#why").innerHTML = rows.map((r) => {
+      const pct = (r.stems / on) * 100;
+      const age = r.oldest_days != null ? `up to ${N(r.oldest_days)} d old` : (r.since ? "since " + PH.fmt.date(String(r.since).slice(0, 10), true) : "");
+      return `<button type="button" class="sv-bl" data-states="${esc(r.state)}" data-title="${esc(r.label)}" title="${esc(r.why)}"><span class="sv-bl__name"><b>${dot(r.state)}${esc(r.label)}</b><small>${[age, `${N(r.varieties)} varieties`, `${N(r.buckets)} buckets`].filter(Boolean).join(" · ")}</small></span><span class="sv-bl__n">${N(r.stems)}<small>${pct < 1 ? "<1" : N(pct)}%</small></span><span class="sv-bl__who">${esc(r.who === "-" ? "Nobody needs to act" : r.who)}</span></button>`;
+    }).join("");
   }
 
-  const bandLabel = (lo, hi) => (hi == null ? lo + "d +" : lo + "–" + (hi - 1) + "d");
-  function bandSegs(stems) {
-    const b = (data.age_bands || []), cls = ["good", "warn", "bad"];
-    return b.map((x, i) => ({ v: stems[i] || 0, cls: cls[Math.min(i, 2)], label: bandLabel(x.from_days, x.to_days) }));
+  /* ════════════ varieties: needs attention first, dead rows folded away ════════════ */
+  const openRows = new Set();
+  const COVER_RANK = { short: 0, tight: 1, ok: 2, none: 3 };
+  function groupOf(v) {
+    if (v.cover === "short") return 0;
+    if (v.cover === "tight") return 1;
+    if (v.to_allocate > 0) return 2;
+    if (v.states.sellable > 0 || v.groups.soon > 0) return 3;
+    if (v.groups.withheld > 0 || v.groups.committed > 0) return 4;
+    return 5;
   }
-  function compSegs(r) {
-    return [
-      { v: r.allocatable, cls: "good", label: "allocatable" },
-      { v: r.free - r.allocatable, cls: "warn", label: "free, too old / cooling" },
-      { v: r.allocated, cls: "ink", label: "allocated" },
-      { v: r.held, cls: "bad", label: "held (discard request)" },
-    ];
+  const GROUP_TITLES = ["Short", "Tight", "Can cover its orders", "In stock, no orders", "Only withheld or committed stock - nothing to sell", "No stock and no orders"];
+  function visibleVarieties() {
+    let rows = ov.rows.slice();
+    const f = st.get("focus");
+    if (f) rows = rows.filter((v) => v.groups[f] > 0);
+    const s = st.get("sort");
+    const nm = (a, b) => a.variety.localeCompare(b.variety);
+    const cmp = {
+      attn: (a, b) => groupOf(a) - groupOf(b) || a.atp - b.atp || nm(a, b),
+      az: nm,
+      sellable: (a, b) => b.states.sellable - a.states.sellable || nm(a, b),
+      withheld: (a, b) => b.groups.withheld - a.groups.withheld || nm(a, b),
+    }[s] || nm;
+    return rows.sort(cmp);
   }
-
-  function stack(segs, thin) {
-    const total = segs.reduce((a, s) => a + s.v, 0);
-    return `<div class="sv-stack${thin ? " sv-stack--thin" : ""}">${total ? segs.map((s) => (s.v > 0 ? `<i class="sv-${s.cls}" style="width:${(s.v / total) * 100}%" title="${PH.esc(s.label + ": " + fmt(s.v))}"></i>` : "")).join("") : ""}</div>`;
+  const dim = '<span class="sv-dim">–</span>';
+  function numBtn(n, states, v, len) { return n > 0 ? `<button type="button" class="sv-num" data-states="${states.join(",")}" data-v="${esc(v)}" data-len="${esc(len || "")}">${N(n)}</button>` : dim; }
+  function cells(states, toAlloc, atp, v, len) {
+    const g = (k) => sumOf(states, GROUP_STATES[k]);
+    const topW = GROUP_STATES.withheld.map((x) => [x, states[x]]).sort((a, b) => b[1] - a[1])[0];
+    const stale = states.reclaimable;
+    return `<td class="is-num" title="Cooling ${N(states.cooling)} · coldroom floor ${N(states.coldroom)} · just harvested ${N(states.awaiting)}">${numBtn(states.sellable, ["sellable"], v, len)}</td>
+      <td class="is-num">${numBtn(g("soon"), GROUP_STATES.soon, v, len)}</td>
+      <td class="is-num">${numBtn(g("committed"), GROUP_STATES.committed, v, len)}${stale > 0 ? `<span class="sv-sub is-bad">${N(stale)} stale</span>` : ""}</td>
+      <td class="is-num">${numBtn(g("withheld"), GROUP_STATES.withheld, v, len)}${topW && topW[1] > 0 ? `<span class="sv-sub">mostly ${esc(lbl(topW[0]).toLowerCase())}</span>` : ""}</td>
+      <td class="is-num">${toAlloc > 0 ? N(toAlloc) : dim}</td>
+      <td class="is-num">${toAlloc <= 0 ? dim : `<span class="${atp < 0 ? "sv-neg" : "sv-pos"}">${atp > 0 ? "+" : ""}${N(atp)}</span>`}</td>`;
   }
-  function splitBlock(segs) {
-    const total = segs.reduce((a, s) => a + s.v, 0);
-    if (!total) return '<p class="ph-muted">Nothing on the shelves for these filters.</p>';
-    return `<div class="sv-split">${stack(segs)}<div class="ph-legend">${segs.map((s) => `<span><span class="ph-dot ph-dot--${s.cls}"></span><b>${fmt(s.v)}</b> ${PH.esc(s.label)} <small class="ph-muted">${PH.fmt.pct((s.v / total) * 100)}</small></span>`).join("")}</div></div>`;
+  function varRow(v) {
+    const open = openRows.has(v.variety);
+    const chip = v.cover === "short" ? ' <span class="ph-badge ph-badge--bad">Short</span>' : v.cover === "tight" ? ' <span class="ph-badge ph-badge--warn">Tight</span>' : "";
+    const lens = open ? sortLens(Object.keys(v.by_len)).map((L) => { const c = v.by_len[L]; return `<tr class="sv-len"><td class="sv-name"><button type="button" class="sv-link" data-vopen="${esc(v.variety)}" data-len="${esc(L)}" style="font-weight:500">${esc(L)}</button></td>${cells(c.states, c.to_allocate, c.atp, v.variety, L)}</tr>`; }).join("") : "";
+    return `<tr data-v="${esc(v.variety)}"><td class="sv-name"><div class="sv-name__row"><button type="button" class="sv-x" data-xp="${esc(v.variety)}" aria-expanded="${open}" aria-label="Show lengths of ${esc(v.variety)}">${PH.icon("chevronRight", 14)}</button><button type="button" class="sv-link" data-vopen="${esc(v.variety)}">${esc(v.variety)}</button>${chip}</div></td>${cells(v.states, v.to_allocate, v.atp, v.variety, "")}</tr>${lens}`;
   }
-
-  const dash = '<span class="ph-muted">—</span>';
-  const num = (n) => (n ? fmt(n) : dash);
-  function varCls(v) { return v === 0 ? "ph-muted" : v > 0 ? "ph-good" : v >= -500 ? "ph-warn" : "ph-bad"; }
-  const varTxt = (v) => (v > 0 ? "+" : "") + fmt(v);
-
-  function renderGrid(vis) {
-    PH.text("#row-count", PH.fmt.plural(vis.length, "variety", "varieties"));
-    if (!vis.length) {
-      return PH.empty("#grid", "No varieties match these filters", "Nothing is shelved, in the coldroom or ordered for these filters. Clear a filter, the search or widen the dates.");
-    }
-    const lengths = data.lengths || [];
-    const COLS = 10 + lengths.length * 3;
-    const allOpen = vis.every((r) => open.has(r.variety));
-    PH.text("#expand-all", allOpen ? "Collapse all" : "Expand all");
-    let head1 = `<tr><th class="ph-sticky-col" rowspan="2">Variety</th><th rowspan="2">Farms</th>
-      <th class="sv-group sv-gs" colspan="3">Availability</th><th class="sv-group sv-gs" colspan="5">Shelf breakdown</th>`;
-    let head2 = `<tr><th class="is-num sv-gs" title="Free stems the allocator will accept (not too old, done cooling)">Allocatable</th><th class="is-num" title="Ordered − already allocated to those lines">To allocate</th><th class="is-num">Var</th>
-      <th class="is-num sv-gs">Shelved</th><th class="is-num">Held</th><th class="is-num">Alloc</th><th class="is-num">Free</th><th class="is-num">Coldroom</th>`;
-    lengths.forEach((l) => {
-      head1 += `<th class="sv-group sv-gs" colspan="3">${PH.esc(l)}</th>`;
-      head2 += `<th class="is-num sv-gs">Avail</th><th class="is-num">To alloc</th><th class="is-num">Var</th>`;
+  function paintVarieties() {
+    const all = visibleVarieties();
+    const f = st.get("focus"), fc = PH.$("#focus");
+    fc.hidden = !f;
+    fc.innerHTML = f ? `<span class="ph-muted">Showing varieties with <b>${esc(GROUPS[f].toLowerCase())}</b> stems</span><button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-clear-focus>Clear</button>` : "";
+    PH.$$("#f-sort button").forEach((b) => b.classList.toggle("is-on", b.dataset.value === st.get("sort")));
+    if (!ov.rows.length) { PH.empty("#vt", "No stock or orders match", "Change the filters.", "box"); PH.$("#vt-count").textContent = "0"; return; }
+    const grouped = st.get("sort") === "attn";
+    const searching = !!st.get("q") || !!f;
+    const showDead = st.get("vall") || searching;
+    let rows = all, hiddenDead = 0;
+    if (grouped && !showDead) { rows = all.filter((v) => groupOf(v) < 5); hiddenDead = all.length - rows.length; }
+    PH.$("#vt-count").textContent = `${N(rows.length)}${hiddenDead ? " of " + N(all.length) : ""}`;
+    if (!rows.length && !hiddenDead) { PH.empty("#vt", "No varieties match", "Clear the focus above.", "search"); return; }
+    let body = "", last = -1;
+    rows.forEach((v) => {
+      if (grouped) { const g = groupOf(v); if (g !== last) { last = g; body += `<tr class="sv-grp"><td colspan="7">${esc(GROUP_TITLES[g])}<small>${N(rows.filter((x) => groupOf(x) === g).length)}</small></td></tr>`; } }
+      body += varRow(v);
     });
-    let body = "";
-    vis.forEach((r) => {
-      const isOpen = open.has(r.variety);
-      const age = r.oldest_days >= 3 ? `<span class="ph-badge ph-badge--${r.oldest_days >= 7 ? "bad" : "warn"}" title="Oldest stems: ${r.oldest_days} days since harvest">${r.oldest_days}d</span>` : "";
-      const name = r.item_name && r.item_name !== r.variety ? r.item_name : r.variety;
-      body += `<tr class="sv-variety${isOpen ? " is-open" : ""}" data-v="${PH.esc(r.variety)}">
-        <td class="ph-sticky-col sv-name"><div class="sv-name__row">${PH.icon(isOpen ? "chevronDown" : "chevronRight", 14)}<span class="ph-strong ph-truncate ph-grow" title="${PH.esc(r.variety)}">${PH.esc(name)}</span>${age}</div>
-          ${r.stems ? stack(compSegs(r), true) : ""}</td>
-        <td class="ph-muted is-nowrap">${PH.fmt.plural(r.farms.length, "farm")}</td>
-        <td class="is-num is-strong sv-gs">${num(r.allocatable)}</td><td class="is-num" title="${fmt(r.ordered)} ordered">${num(r.to_allocate)}</td>
-        <td class="is-num"><b class="${varCls(r.variance)}">${varTxt(r.variance)}</b></td>
-        <td class="is-num sv-gs">${num(r.stems)}</td><td class="is-num ${r.held ? "ph-bad" : ""}">${num(r.held)}</td><td class="is-num">${num(r.allocated)}</td>
-        <td class="is-num">${num(r.free)}</td><td class="is-num ${r.coldroom ? "ph-warn" : ""}">${num(r.coldroom)}</td>`;
-      lengths.forEach((l) => {
-        const c = r.by_len[l] || {}, av = c.allocatable || 0, o = c.to_allocate || 0, v = av - o;
-        body += `<td class="is-num sv-gs">${num(av)}</td><td class="is-num">${num(o)}</td><td class="is-num ${av || o ? varCls(v) : ""}">${av || o ? varTxt(v) : dash}</td>`;
-      });
-      body += "</tr>";
-      if (!isOpen) return;
-      if (r.stems > 0) body += detailRow(r, COLS);
-      r.farms.forEach((f) => {
-        body += `<tr class="sv-farm"><td class="ph-sticky-col sv-name">${PH.esc(f.farm)}</td><td></td>
-          <td class="is-num sv-gs">${num(f.allocatable)}</td><td class="is-num">${dash}</td><td class="is-num">${dash}</td>
-          <td class="is-num sv-gs">${num(f.stems)}</td><td class="is-num ${f.held ? "ph-bad" : ""}">${num(f.held)}</td><td class="is-num">${num(f.allocated)}</td>
-          <td class="is-num">${num(f.free)}</td><td class="is-num ${f.coldroom ? "ph-warn" : ""}">${num(f.coldroom)}</td>`;
-        lengths.forEach(() => (body += `<td class="is-num sv-gs">${dash}</td><td class="is-num">${dash}</td><td class="is-num">${dash}</td>`));
-        body += "</tr>";
-      });
-    });
+    const head = `<colgroup><col style="width:28%"><col style="width:12%"><col style="width:12%"><col style="width:13%"><col style="width:15%"><col style="width:10%"><col style="width:10%"></colgroup><thead><tr><th>Variety</th><th class="is-num">Sellable</th><th class="is-num">Ready soon</th><th class="is-num">Committed</th><th class="is-num">Withheld</th><th class="is-num" title="Orders due up to the chosen date that still need stems allocated">Orders need</th><th class="is-num" title="Sellable now − orders need">Free to promise</th></tr></thead>`;
     PH.keepScroll(() => {
-      const prev = document.querySelector("#grid .ph-table-wrap");
-      const sx = prev ? prev.scrollLeft : 0, sy = prev ? prev.scrollTop : 0;
-      PH.set("#grid", `<div class="ph-table-wrap ph-table-wrap--tall"><table class="ph-table ph-table--compact sv-grid"><thead>${head1}</tr>${head2}</tr></thead><tbody>${body}</tbody></table></div>`);
-      const w = document.querySelector("#grid .ph-table-wrap");
-      if (w) { w.scrollLeft = sx; w.scrollTop = sy; }
+      PH.$("#vt").innerHTML = `<div class="ph-table-wrap sv-scroll"><table class="ph-table sv-tbl sv-vt">${head}<tbody>${body}</tbody></table></div>
+      ${hiddenDead ? `<div class="sv-more2"><button type="button" class="ph-btn ph-btn--sm" data-showdead>Show ${N(hiddenDead)} varieties with no stock and no orders</button></div>` : st.get("vall") && grouped ? '<div class="sv-more2"><button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-hidedead>Hide varieties with no stock and no orders</button></div>' : ""}`;
     });
   }
 
-  // Drill-down for one variety: shelf composition, age bands and balance.
-  function detailRow(r, cols) {
-    const block = (title, segs) => `<div class="ph-stack"><div class="ph-label">${PH.esc(title)}</div>${splitBlock(segs)}</div>`;
-    return `<tr class="sv-detail"><td colspan="${cols}"><div class="sv-detail__in">
-      ${block("Where the " + fmt(r.stems) + " shelved stems are", compSegs(r))}
-      ${block("How fresh they are (avg " + (r.avg_age_days ?? "—") + "d)", bandSegs(r.bands))}
-      <div class="ph-stat"><small>Balance</small><b class="${r.variance >= 0 ? "ph-good" : "ph-bad"}">${varTxt(r.variance)}</b><span class="ph-muted">${fmt(r.allocatable)} allocatable vs ${fmt(r.to_allocate)} still to allocate (${fmt(r.ordered)} ordered)</span></div>
-    </div></td></tr>`;
+  /* delegated actions on the board */
+  document.addEventListener("click", (e) => {
+    const t = e.target;
+    const doc = t.closest("[data-doc]");
+    if (doc) { PH.openDoc(doc.dataset.doc, doc.dataset.name); return; }
+    const stg = t.closest("[data-states]");
+    if (stg && (stg.classList.contains("sv-fl") || stg.classList.contains("sv-bl") || stg.classList.contains("sv-num") || stg.classList.contains("sv-chip-ledger"))) {
+      const states = stg.dataset.states.split(",");
+      openLedger({ states, variety: stg.dataset.v || "", length: stg.dataset.len || "", title: stg.dataset.title || (stg.dataset.v ? `${stg.dataset.v}${stg.dataset.len ? " · " + stg.dataset.len : ""}` : "Stock"), fromVariety: stg.dataset.v });
+      return;
+    }
+    const tg = t.closest("[data-xp]");
+    if (tg) { const v = tg.dataset.xp; openRows.has(v) ? openRows.delete(v) : openRows.add(v); paintVarieties(); return; }
+    const vo = t.closest("[data-vopen]");
+    if (vo) { openVariety(vo.dataset.vopen, vo.dataset.len || ""); return; }
+    if (t.closest("[data-clear-focus]")) st.set({ focus: "" });
+    if (t.closest("[data-showdead]")) st.set({ vall: true });
+    if (t.closest("[data-hidedead]")) st.set({ vall: false });
+  });
+  PH.$("#b-all").addEventListener("click", () => openLedger({ states: [], title: "All stock" }));
+
+  PH.$("#export").addEventListener("click", () => {
+    if (st.get("tab") === "outlook") return exportOutlook();
+    if (!ov) return;
+    const rows = visibleVarieties().map((v) => Object.assign({ variety: v.variety, cover: v.cover, sellable: v.states.sellable, remote: v.remote, soon: v.groups.soon, cooling: v.states.cooling, coldroom: v.states.coldroom, awaiting: v.states.awaiting, committed: v.groups.committed, stale: v.states.reclaimable, withheld: v.groups.withheld, discard: v.states.discard, quarantine: v.states.quarantine, too_old: v.states.too_old, unreceived: v.states.unreceived, farm_disabled: v.states.farm_disabled, to_allocate: v.to_allocate, free_to_promise: v.atp }));
+    const cols = ["variety", "cover", "sellable", "remote", "soon", "cooling", "coldroom", "awaiting", "committed", "stale", "withheld", "discard", "quarantine", "too_old", "unreceived", "farm_disabled", "to_allocate", "free_to_promise"].map((k) => ({ key: k, label: k.replace(/_/g, " ") }));
+    PH.csv(`stock-visibility-${today}.csv`, rows, cols);
+  });
+
+  /* ════════════ ledger (drawer + tab) ════════════ */
+  function Ledger(el, o) {
+    const S = { states: (o.states || []).slice(), variety: o.variety || "", length: o.length || "", q: "", offset: 0, limit: 100, seq: 0, data: null, locked: !!o.locked };
+    el.innerHTML = `<div class="sv-led__head"></div><div class="sv-led__tools"></div><div class="sv-led__body"></div><div class="sv-led__foot"></div>`;
+    const head = PH.$(".sv-led__head", el), tools = PH.$(".sv-led__tools", el), body = PH.$(".sv-led__body", el), foot = PH.$(".sv-led__foot", el);
+    const params = (lim, off) => Object.assign(filterParams(), { state: S.states.join(","), variety: S.variety, length: S.length || st.get("length"), q: S.q || st.get("q"), limit: lim, offset: off });
+    function paintHead() {
+      const one = S.states.length === 1 ? meta(S.states[0]) : null;
+      head.innerHTML = one ? `<div class="ph-notice ph-notice--signal">${PH.icon("info", 16)}<span><b>${esc(one.label)}.</b> ${esc(one.why)}${one.who && one.who !== "-" ? ` <b>Who acts:</b> ${esc(one.who)}.` : ""}</span></div>` : "";
+    }
+    function paintTools() {
+      tools.innerHTML = `<div class="sv-chips" role="group" aria-label="States">${ORDER.map((s) => `<button type="button" class="sv-chip${S.states.indexOf(s) >= 0 ? " is-on" : ""}" data-st="${s}">${dot(s)}${esc(lbl(s))}</button>`).join("")}</div>
+        <label class="ph-search"><span>${PH.icon("search", 16)}</span><input type="search" data-q placeholder="Search variety" value="${esc(S.q)}" aria-label="Search variety"></label>
+        <button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-csv>${PH.icon("download", 14)} Export CSV</button>`;
+    }
+    function row(r) {
+      const dt = REFDOC[r.state];
+      const ref = r.ref ? (r.state === "quarantine" ? `<span class="ph-mono">${esc(r.ref)}</span>` : docBtn(dt || "Stock Entry", r.ref)) : "";
+      const ready = r.ready_at ? ` · ready ${esc(PH.fmt.datetime(r.ready_at))}` : "";
+      return `<tr><td>${sc(r.state)}</td><td class="is-strong"><button type="button" class="sv-link" data-vopen="${esc(r.variety)}" data-len="${esc(r.length)}">${esc(r.variety)}</button></td><td>${esc(r.length)}</td><td>${esc(r.farm)}</td><td>${esc(r.shelf || "—")}</td><td class="ph-mono">${esc(r.bucket || "—")}</td><td class="is-num">${N(r.stems)}</td><td class="is-num">${r.age_days != null ? N(r.age_days) + " d" : "—"}</td><td>${r.since ? esc(PH.fmt.datetime(r.since)) : "—"}</td><td class="sv-wrap">${esc(r.detail || "")}${esc(ready)}${r.phantom ? ' <span class="ph-badge ph-badge--warn">no bucket on a shelf</span>' : ""} ${ref}</td></tr>`;
+    }
+    function load(silent) {
+      const my = ++S.seq;
+      if (!silent) PH.skeleton(body, "rows", 7);
+      paintHead(); paintTools();
+      return GET("ledger", params(S.limit, S.offset)).then((r) => {
+        if (my !== S.seq) return;
+        S.data = r;
+        if (!r.rows.length) { PH.empty(body, "No stock in this list", S.states.length ? "Nothing matches these states and filters." : "Nothing matches these filters.", "box"); }
+        else body.innerHTML = `<div class="ph-table-wrap"><table class="ph-table ph-table--compact"><thead><tr><th>State</th><th>Variety</th><th>Length</th><th>Farm</th><th>Shelf</th><th>Bucket</th><th class="is-num">Stems</th><th class="is-num">Age</th><th>Since</th><th>Detail</th></tr></thead><tbody>${r.rows.map(row).join("")}</tbody></table></div>`;
+        const from = r.total ? S.offset + 1 : 0, to = Math.min(S.offset + S.limit, r.total);
+        foot.innerHTML = `<span>${N(from)}–${N(to)} of ${N(r.total)} rows · <b class="ph-strong">${N(r.stems)}</b> stems</span><span class="ph-flex"><button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-prev${S.offset <= 0 ? " disabled" : ""}>${PH.icon("chevronLeft", 14)} Previous</button><button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-next${to >= r.total ? " disabled" : ""}>Next ${PH.icon("chevronRight", 14)}</button></span>`;
+        PH.markUpdated();
+      }).catch((e) => { if (my === S.seq) { PH.error(body, e.message, () => load()); foot.innerHTML = ""; } });
+    }
+    el.addEventListener("click", (e) => {
+      const c = e.target.closest("[data-st]");
+      if (c) { const s = c.dataset.st, i = S.states.indexOf(s); i >= 0 ? S.states.splice(i, 1) : S.states.push(s); S.offset = 0; load(); return; }
+      if (e.target.closest("[data-prev]")) { S.offset = Math.max(0, S.offset - S.limit); load(); }
+      else if (e.target.closest("[data-next]")) { S.offset += S.limit; load(); }
+      else if (e.target.closest("[data-csv]")) {
+        GET("ledger", params(1000, 0)).then((r) => {
+          PH.csv(`stock-list-${today}.csv`, r.rows.map((x) => Object.assign({}, x, { state: lbl(x.state) })), ["state", "variety", "length", "farm", "shelf", "bucket", "stems", "age_days", "since", "ref", "detail"].map((k) => ({ key: k, label: k.replace(/_/g, " ") })));
+          if (r.total > 1000) PH.toast("Exported the first 1,000 of " + N(r.total) + " rows", "warn");
+        }).catch((er) => PH.toast(er.message, "bad"));
+      }
+    });
+    let qt = null;
+    el.addEventListener("input", (e) => { if (e.target.matches("[data-q]")) { clearTimeout(qt); S.q = e.target.value; qt = setTimeout(() => { S.offset = 0; load(true); }, 300); } });
+    const api = { load, reload: () => { S.offset = 0; return load(); }, silent: () => load(true), el };
+    ledgers.push(api);
+    return api;
+  }
+  function openLedger(o) {
+    const m = PH.modal({ title: o.title || "Stock", sub: o.variety ? "Every bucket behind this number" : "Every bucket in this group", drawer: true, size: "lg", body: '<div class="sv-led"></div>', onClose: () => { ledgers = ledgers.filter((x) => x !== L); } });
+    const L = Ledger(PH.$(".sv-led", m.body), o);
+    L.load();
+    return m;
   }
 
-  let nsTable = null;
-  function renderColdroom(ns, K) {
-    const cw = data.coldroom_window || [];
-    PH.text("#ns-count", fmt(K.coldroom) + " stems");
-    PH.text("#ns-meta", "Received " + PH.date.label(cw[0], cw[1]) + (data.basis === "range" ? "" : " (live: last 3 days)") + " and not yet shelved, issued or discarded");
-    const cfg = {
-      columns: [
-        { key: "item_name", label: "Variety", cls: "is-strong" },
-        { key: "length", label: "Length" },
-        { key: "farm", label: "Farm" },
-        { key: "stems", label: "Stems", num: true, format: (v) => fmt(v), total: () => fmt(data.kpis.coldroom) },
-        { key: "buckets", label: "Buckets", num: true, format: (v) => fmt(v), total: () => fmt(data.kpis.coldroom_buckets) },
-      ],
-      rows: ns, sort: { key: "stems", dir: "desc" }, pageSize: 50,
-      empty: "Nothing awaiting shelving", emptyText: "No received buckets are sitting in the coldroom unshelved for these filters.",
+  /* ════════════ verdicts (check) ════════════ */
+  const VCHIP = { safe: "good", possible: "warn", downgrade: "warn", short: "bad", unknown: "outline" };
+  function replyText(l, date) {
+    const nm = `${l.item_name || l.variety} ${l.length}`;
+    if (l.code === "unknown") return `${l.variety}: I could not find this variety - please confirm the name.`;
+    if (l.code === "safe") return `${nm}: ${N(l.qty)} confirmed for ${dayLabel(date)}.`;
+    const parts = [`${nm}: ${N(l.safe)} confirmed now`];
+    if (l.soon > 0) parts.push(`up to ${N(l.soon)} more possible by ${dayLabel(date)} (not guaranteed yet)`);
+    if (l.downgrade > 0) parts.push(`${N(l.downgrade)} available as longer stems (${l.downgrades.map((d) => d.length).join(", ")}) if you accept a longer stem`);
+    if (l.short > 0) parts.push(`we cannot cover ${N(l.short)}`);
+    return parts.join("; ") + ".";
+  }
+  function verdictHtml(l, date, idx) {
+    const chip = `<span class="ph-badge ph-badge--${VCHIP[l.code] || "outline"}">${esc(l.label)}</span>`;
+    if (l.code === "unknown") return `<div class="sv-verdict"><div class="sv-verdict__head"><span class="sv-verdict__title">${esc(l.variety)} ${esc(l.length)} × ${N(l.qty)}</span>${chip}</div><p class="ph-muted">${esc(l.message)} Check the spelling, or pick the variety from the list.</p></div>`;
+    const bad = l.blockers || [];
+    const reply = replyText(l, date);
+    const possibleNote = l.soon > 0 ? `<p class="ph-notice ph-notice--warn" style="margin:var(--sp-3) 0 0">${PH.icon("alert", 16)}<span><b>Not guaranteed:</b> ${N(l.soon)} stems are still cooling, on the coldroom floor or just harvested.</span></p>` : "";
+    const why = `<details class="sv-means"><summary>Why - the numbers behind it</summary>
+      <div class="sv-parts">
+        <div class="sv-part"><small>Safe now</small><b>${N(l.safe)}</b>${l.remote > 0 ? `<small>${N(l.remote)} at a remote farm - moved to the hub</small>` : ""}</div>
+        <div class="sv-part"><small>Ready by ${esc(dayLabel(date))} (not guaranteed)</small><b>${N(l.soon)}</b></div>
+        <div class="sv-part"><small>As longer stems</small><b>${N(l.downgrade)}</b></div>
+        <div class="sv-part${l.short > 0 ? " is-short" : ""}"><small>Short by</small><b>${N(l.short)}</b></div>
+        <div class="sv-part"><small>Sellable on shelf / owed to other orders</small><b>${N(l.sellable_now)} / ${N(l.owed_to_orders)}</b></div>
+      </div>
+      ${l.downgrades && l.downgrades.length ? `<div class="sv-sec">Longer stems you could offer</div><ul class="sv-list">${l.downgrades.map((d) => `<li><b>${N(d.stems)}</b> × ${esc(d.length)} · oldest ${N(d.oldest_days)} d${d.needs_approval ? ' <span class="ph-badge ph-badge--warn">needs approval</span>' : ""}</li>`).join("")}</ul>` : ""}
+      ${bad.length ? `<div class="sv-sec">Stock of this size that is not sellable</div><ul class="sv-list">${bad.map((b) => `<li><b>${N(b.stems)}</b> ${esc(b.label.toLowerCase())} - <span class="ph-muted">${esc(b.who === "-" ? "" : b.who)}</span></li>`).join("")}</ul>` : ""}
+      ${l.other_lengths && l.other_lengths.length ? `<div class="sv-sec">Other lengths on the shelf</div><div class="sv-chips">${l.other_lengths.map((o) => `<span class="ph-badge ph-badge--outline">${esc(o.length)} · ${N(o.stems)}</span>`).join("")}</div>` : ""}</details>`;
+    return `<div class="sv-verdict v-${esc(l.code)}" data-vi="${idx}">
+      <div class="sv-verdict__head"><span class="sv-verdict__title">${esc(l.item_name || l.variety)} · ${esc(l.length)} · asked ${N(l.qty)} for ${esc(dayLabel(date))}</span>${chip}</div>
+      <div class="sv-big ph-mt">${N(l.confirm_up_to)}<small>stems you can confirm now</small></div>
+      <p class="ph-muted" style="margin:var(--sp-3) 0 0">${esc(l.message)}</p>
+      ${possibleNote}
+      <div class="sv-reply"><p>${esc(reply)}</p><button type="button" class="ph-btn ph-btn--primary ph-btn--sm" data-copy="${idx}">${PH.icon("copy", 14)} Copy reply</button></div>
+      ${why}
+    </div>`;
+  }
+  function checkResultsInto(el, res, date) {
+    const lines = res.lines || [];
+    el.innerHTML = lines.map((l, i) => verdictHtml(l, date, i)).join("") + (lines.length > 1 ? `<button type="button" class="ph-btn" data-copyall>${PH.icon("copy", 14)} Copy reply for all lines</button>` : "");
+    el._lines = lines; el._date = date;
+    el.onclick = (e) => {
+      const c = e.target.closest("[data-copy]");
+      if (c) copy(replyText(lines[+c.dataset.copy], date));
+      else if (e.target.closest("[data-copyall]")) copy(lines.map((l) => replyText(l, date)).join("\n"));
     };
-    // Built once (PH.table binds its click handler on creation); later loads
-    // re-render through update(), which also replaces any skeleton / error.
-    if (nsTable) nsTable.update(ns);
-    else nsTable = PH.table("#ns", cfg);
   }
 
-  /* ── Interactions ── */
-  document.getElementById("grid").addEventListener("click", (e) => {
-    const tr = e.target.closest("tr.sv-variety");
-    if (!tr) return;
-    const v = tr.dataset.v;
-    if (open.has(v)) open.delete(v); else open.add(v);
-    render();
-  });
-  document.getElementById("expand-all").addEventListener("click", () => {
-    const vis = data ? data.rows || [] : [];
-    const allOpen = vis.length && vis.every((r) => open.has(r.variety));
-    vis.forEach((r) => (allOpen ? open.delete(r.variety) : open.add(r.variety)));
-    render();
-  });
-
-  const exportBtn = document.getElementById("export");
-  exportBtn.innerHTML = PH.icon("download") + "<span>Export CSV</span>";
-  exportBtn.addEventListener("click", () => {
-    const vis = sortedRows(), lengths = data.lengths || [];
-    const cols = [
-      { key: "variety", label: "Variety" }, { key: "item_name", label: "Name" }, { key: "item_group", label: "Item group" },
-      { key: "allocatable", label: "Allocatable" }, { key: "ordered", label: "Ordered" }, { key: "alloc_to_orders", label: "Allocated to orders" },
-      { key: "to_allocate", label: "Still to allocate" }, { key: "variance", label: "Variance" },
-      { key: "stems", label: "Shelved" }, { key: "held", label: "Held (discard)" }, { key: "allocated", label: "Allocated" },
-      { key: "free", label: "Free" }, { key: "coldroom", label: "Coldroom" }, { key: "oldest_days", label: "Oldest (days)" },
-    ];
-    lengths.forEach((l) => {
-      cols.push({ key: "av:" + l, label: l + " allocatable", csv: (_, r) => Math.round((r.by_len[l] || {}).allocatable || 0) });
-      cols.push({ key: "ta:" + l, label: l + " to allocate", csv: (_, r) => Math.round((r.by_len[l] || {}).to_allocate || 0) });
+  /* ════════════ Check availability drawer ════════════ */
+  function parseList(text) {
+    const known = ((ov && ov.rows) || []).map((v) => v.variety);
+    const lens = (ov && ov.options && ov.options.lengths) || [];
+    return String(text || "").split(/\r?\n/).map((raw) => {
+      let s = raw.trim(); if (!s) return null;
+      s = s.replace(/[,;\t|]+/g, " ").replace(/\bx\b|×/gi, " ").replace(/\b(stems?|stm|pcs|pieces)\b/gi, " ").replace(/\s+/g, " ").trim();
+      const toks = s.split(" ");
+      const num = toks.map((t, i) => ({ t, i, m: /^(\d+)(cm)?$/i.exec(t.replace(/,/g, "")) })).filter((x) => x.m);
+      let qty = "", length = "", drop = new Set();
+      const cm = num.filter((x) => x.m[2]);
+      if (cm.length) { length = cm[0].m[1] + "cm"; drop.add(cm[0].i); const rest = num.filter((x) => x !== cm[0]); if (rest.length) { qty = rest[rest.length - 1].m[1]; drop.add(rest[rest.length - 1].i); } }
+      else if (num.length >= 2) { length = num[0].m[1] + "cm"; qty = num[num.length - 1].m[1]; drop.add(num[0].i); drop.add(num[num.length - 1].i); }
+      else if (num.length === 1) { qty = num[0].m[1]; drop.add(num[0].i); }
+      let variety = toks.filter((_, i) => !drop.has(i)).join(" ").trim();
+      const lo = variety.toLowerCase();
+      const exact = known.find((k) => k.toLowerCase() === lo);
+      if (exact) variety = exact;
+      else { const sw = known.filter((k) => k.toLowerCase().startsWith(lo)); if (lo && sw.length === 1) variety = sw[0]; }
+      if (length && lens.indexOf(length) < 0) { const hit = lens.find((l) => lenKey(l) === lenKey(length)); if (hit) length = hit; }
+      return { variety, length, qty, known: known.indexOf(variety) >= 0 };
+    }).filter(Boolean);
+  }
+  function openCheck(pre) {
+    const rows = [];
+    if (pre && pre.lines) pre.lines.forEach((l) => rows.push(Object.assign({}, l)));
+    if (!rows.length) rows.push({ variety: "", length: "", qty: "" });
+    let date = (pre && pre.date) || st.get("through");
+    const lens = sortLens((ov && ov.options && ov.options.lengths) || []);
+    const names = ((ov && ov.rows) || []).map((v) => v.variety);
+    const m = PH.modal({ title: "Check availability", sub: "Answer a customer with certainty before you confirm", drawer: true, size: "lg", body: "" });
+    const b = m.body;
+    b.innerHTML = `<datalist id="ck-names">${names.map((n) => `<option value="${esc(n)}"></option>`).join("")}</datalist>
+      <div class="sv-sec">What does the customer want?</div>
+      <div class="sv-lines" id="ck-lines" role="group" aria-label="Lines to check"></div>
+      <div class="sv-checkbar"><button type="button" class="ph-btn ph-btn--sm" id="ck-add">${PH.icon("plus", 14)} Add a line</button>
+        <label class="ph-field" style="flex-direction:row;align-items:center;gap:var(--sp-2);margin:0"><span class="ph-muted">For delivery on</span><input class="ph-control" type="date" id="ck-date" min="${today}" value="${esc(date)}" style="width:auto"></label></div>
+      <details class="sv-means ph-mt" ${pre && pre.paste ? "open" : ""}><summary>Paste a list from WhatsApp or email</summary>
+        <textarea class="ph-control ph-mt" id="ck-paste" rows="5" placeholder="Avalanche 50cm 600&#10;Mnt Fuji, 60, 400&#10;Explorer 70cm x 250" spellcheck="false"></textarea>
+        <button type="button" class="ph-btn ph-btn--sm ph-mt" id="ck-parse">Understand the list</button>
+        <span class="ph-muted"> Each line becomes a row above so you can fix it before checking.</span></details>
+      <div class="sv-checkbar"><button type="button" class="ph-btn ph-btn--primary" id="ck-run">Check stock</button><span class="ph-muted" id="ck-msg"></span></div>
+      <div class="sv-res" id="ck-res" aria-live="polite"></div>`;
+    const box = PH.$("#ck-lines", b), res = PH.$("#ck-res", b);
+    function paintLines() {
+      box.innerHTML = rows.map((r, i) => `<div class="sv-line${r.variety && r.known === false ? " is-bad" : ""}" data-i="${i}">
+        <input class="ph-control" list="ck-names" data-k="variety" value="${esc(r.variety)}" placeholder="Variety" aria-label="Variety, line ${i + 1}" autocomplete="off">
+        <select class="ph-control" data-k="length" aria-label="Length, line ${i + 1}"><option value="">Length…</option>${lens.concat(r.length && lens.indexOf(r.length) < 0 ? [r.length] : []).map((l) => `<option${l === r.length ? " selected" : ""}>${esc(l)}</option>`).join("")}</select>
+        <input class="ph-control" type="number" min="1" step="1" data-k="qty" value="${esc(r.qty)}" placeholder="Stems" aria-label="Stems, line ${i + 1}">
+        <button type="button" class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-del="${i}" aria-label="Remove line ${i + 1}"${rows.length < 2 ? " disabled" : ""}>${PH.icon("trash", 14)}</button></div>`).join("");
+    }
+    paintLines();
+    b.addEventListener("input", (e) => { const ln = e.target.closest(".sv-line"); if (ln && e.target.dataset.k) { rows[+ln.dataset.i][e.target.dataset.k] = e.target.value; if (e.target.dataset.k === "variety") { rows[+ln.dataset.i].known = names.indexOf(e.target.value) >= 0 ? true : undefined; ln.classList.remove("is-bad"); } } });
+    b.addEventListener("change", (e) => { const ln = e.target.closest(".sv-line"); if (ln && e.target.dataset.k) rows[+ln.dataset.i][e.target.dataset.k] = e.target.value; if (e.target.id === "ck-date") date = e.target.value; });
+    b.addEventListener("click", (e) => {
+      if (e.target.closest("#ck-add")) { rows.push({ variety: "", length: "", qty: "" }); paintLines(); PH.$$(".sv-line [data-k=variety]", b).pop().focus(); }
+      const del = e.target.closest("[data-del]"); if (del && rows.length > 1) { rows.splice(+del.dataset.del, 1); paintLines(); }
+      if (e.target.closest("#ck-parse")) {
+        const parsed = parseList(PH.$("#ck-paste", b).value);
+        if (!parsed.length) { PH.toast("Paste one request per line, like “Avalanche 50cm 600”.", "warn"); return; }
+        rows.splice(0, rows.length, ...parsed); paintLines();
+        const bad = parsed.filter((p) => !p.known || !p.length || !p.qty).length;
+        PH.$("#ck-msg", b).textContent = `Understood ${parsed.length} line${parsed.length === 1 ? "" : "s"}${bad ? ` - ${bad} need a look (highlighted or missing a length or amount)` : ""}. Fix anything wrong, then check.`;
+      }
+      if (e.target.closest("#ck-run")) run();
     });
-    cols.forEach((c) => { if (!c.csv && !["variety", "item_name", "item_group"].includes(c.key)) c.csv = (v) => Math.round(v || 0); });
-    PH.csv("stock-visibility-" + data.from_date + "_" + data.to_date + ".csv", vis, cols);
-  });
+    function run() {
+      const lines = rows.filter((r) => (r.variety || "").trim() || r.qty).map((r) => ({ variety: (r.variety || "").trim(), length: r.length, qty: +r.qty || 0 }));
+      const miss = lines.filter((l) => !l.variety || !l.length || !(l.qty > 0));
+      if (!lines.length || miss.length) { PH.$("#ck-msg", b).textContent = "Each line needs a variety, a length and a number of stems."; return; }
+      const btn = PH.$("#ck-run", b); btn.disabled = true; btn.textContent = "Checking…";
+      PH.$("#ck-msg", b).textContent = "";
+      PH.skeleton(res, "block", 3);
+      POST("check", { lines: JSON.stringify(lines), date, region: st.get("region"), farm: st.get("farm") }).then((r) => { checkResultsInto(res, r, r.date || date); res.scrollIntoView({ block: "nearest", behavior: "smooth" }); })
+        .catch((e) => PH.error(res, e.message, run)).finally(() => { btn.disabled = false; btn.textContent = "Check stock"; });
+    }
+    if (pre && pre.run) run();
+    return m;
+  }
+  PH.$("#check-open").addEventListener("click", () => openCheck());
 
-  PH.onRefresh(() => load());
-  PH.ready(() => load());
-  PH.poll(load, 60000);
+  /* ════════════ Variety drawer ════════════ */
+  function openVariety(v, length) {
+    const row = ov && ov.rows.find((x) => x.variety === v);
+    const m = PH.modal({ title: v, sub: row ? `${N(row.states.sellable)} sellable now · ${N(row.groups.withheld)} withheld · ${N(row.to_allocate)} still to allocate` : "Variety detail", drawer: true, size: "lg", body: "" });
+    const b = m.body; PH.skeleton(b, "rows", 8);
+    GET("variety", { variety: v, region: st.get("region"), farm: st.get("farm"), through: st.get("through") }).then((d) => {
+      const lens = d.lengths;
+      const tot = {}; ORDER.forEach((s) => (tot[s] = lens.reduce((t, l) => t + (l.states[s] || 0), 0)));
+      const toAlloc = lens.reduce((t, l) => t + l.to_allocate, 0), sell = tot.sellable, atp = sell - toAlloc;
+      const defLen = length || (lens.find((l) => l.to_allocate > 0) || lens.find((l) => l.states.sellable > 0) || lens[0] || {}).length || "";
+      const wh = ORDER.filter((s) => meta(s).group === "withheld" || s === "reclaimable").filter((s) => tot[s] > 0);
+      b.innerHTML = `
+        <div class="ph-kpis" id="vk"></div>
+        <div class="sv-sec">Can I confirm it?</div>
+        <div class="sv-checkbar" style="margin-top:0">
+          <select class="ph-control" id="vq-len" style="width:auto" aria-label="Length">${lens.map((l) => `<option${l.length === defLen ? " selected" : ""}>${esc(l.length)}</option>`).join("")}</select>
+          <input class="ph-control" id="vq-qty" type="number" min="1" placeholder="Stems" style="width:140px" aria-label="Stems">
+          <input class="ph-control" id="vq-date" type="date" min="${today}" value="${esc(st.get("through"))}" style="width:auto" aria-label="For delivery on">
+          <button type="button" class="ph-btn ph-btn--primary" id="vq-run">Check</button>
+          <button type="button" class="ph-btn ph-btn--ghost" id="vq-more">Check several lines</button></div>
+        <div class="sv-res" id="vq-res"></div>
+        <div class="sv-sec">By length</div>
+        <div class="ph-table-wrap"><table class="ph-table ph-table--compact"><thead><tr><th>Length</th><th class="is-num">Sellable now</th><th class="is-num">Ready soon</th><th class="is-num">Committed</th><th class="is-num">Withheld</th><th class="is-num">Still to allocate</th><th class="is-num">Free to promise</th><th class="is-num">Oldest</th><th></th></tr></thead><tbody>${lens.map((l) => `<tr><td class="is-strong">${esc(l.length)}</td><td class="is-num">${numBtn(l.states.sellable, ["sellable"], v, l.length)}</td><td class="is-num">${numBtn(sumOf(l.states, GROUP_STATES.soon), GROUP_STATES.soon, v, l.length)}</td><td class="is-num">${numBtn(sumOf(l.states, GROUP_STATES.committed), GROUP_STATES.committed, v, l.length)}${l.states.reclaimable > 0 ? `<span class="sv-sub is-bad">${N(l.states.reclaimable)} stale</span>` : ""}</td><td class="is-num">${numBtn(sumOf(l.states, GROUP_STATES.withheld), GROUP_STATES.withheld, v, l.length)}</td><td class="is-num">${N(l.to_allocate)}</td><td class="is-num"><span class="${l.atp < 0 ? "sv-neg" : l.atp > 0 ? "sv-pos" : ""}">${l.to_allocate <= 0 && l.atp <= 0 ? "—" : (l.atp > 0 ? "+" : "") + N(l.atp)}</span></td><td class="is-num">${l.oldest_days != null ? N(l.oldest_days) + " d" : "—"}</td><td><button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-vq="${esc(l.length)}">Check</button></td></tr>`).join("")}</tbody></table></div>
+        ${wh.length ? `<div class="sv-sec">Why some of it is withheld</div><div class="sv-chips">${wh.map((s) => `<button type="button" class="sv-chip sv-chip-ledger" data-states="${s}" data-v="${esc(v)}" data-title="${esc(v + " · " + lbl(s))}">${dot(s)}${esc(lbl(s))} <b>${N(tot[s])}</b></button>`).join("")}</div>` : ""}
+        <div class="sv-sec">Orders holding this variety</div>
+        ${d.orders.length ? `<div class="ph-table-wrap"><table class="ph-table ph-table--compact"><thead><tr><th>Order</th><th>Customer</th><th>Delivery</th><th class="is-num">Stems</th><th class="is-num">Buckets</th><th>Status</th><th></th></tr></thead><tbody>${d.orders.map((o) => `<tr><td>${docBtn("Sales Order", o.sales_order)}</td><td>${esc(o.customer || "")}</td><td>${o.delivery_date ? esc(PH.fmt.date(o.delivery_date, true)) : "—"}</td><td class="is-num">${N(o.qty)}</td><td class="is-num">${N(o.buckets)}</td><td>${o.reasons.length ? o.reasons.map((r) => `<span class="ph-badge ph-badge--${RISK.indexOf(r.code) >= 0 ? "bad" : "warn"}">${esc(r.label)}</span>`).join(" ") : '<span class="ph-badge ph-badge--good">Live</span>'}</td><td><a class="ph-link" href="${soLink(o.sales_order)}" target="_blank" rel="noopener">Open in Sales Allocation ${PH.icon("external", 12)}</a></td></tr>`).join("")}</tbody></table></div>` : '<p class="ph-muted">No allocations hold this variety.</p>'}
+        <div class="sv-sec">Orders still waiting for stems</div>
+        ${d.demand.length ? `<div class="ph-table-wrap"><table class="ph-table ph-table--compact"><thead><tr><th>Order</th><th>Customer</th><th>Delivery</th><th>Length</th><th class="is-num">Ordered</th><th class="is-num">Still to allocate</th></tr></thead><tbody>${d.demand.map((o) => `<tr><td>${docBtn("Sales Order", o.sales_order)}</td><td>${esc(o.customer || "")}</td><td>${esc(PH.fmt.date(o.delivery_date, true))}</td><td>${esc(o.length)}</td><td class="is-num">${N(o.ordered)}</td><td class="is-num">${N(o.to_allocate)}</td></tr>`).join("")}</tbody></table></div>` : '<p class="ph-muted">No open orders need this variety up to the chosen date.</p>'}
+        ${d.forecast ? `<div class="sv-sec">Coming from the greenhouses</div><p>${N(d.forecast.this_week)} forecast this week, ${N(d.forecast.next_week)} next. Not cut yet and not committable; the forecast has no stem length.</p>` : ""}
+        <div class="sv-sec">Farms</div><div class="sv-chips">${d.farms.map((f) => `<span class="ph-badge ph-badge--outline">${esc(f)}</span>`).join("") || '<span class="ph-muted">None</span>'}</div>`;
+      PH.kpis("#vk", [{ label: "Sellable now", value: sell, dark: true }, { label: "Ready soon", value: sumOf(tot, GROUP_STATES.soon) }, { label: "Committed", value: sumOf(tot, GROUP_STATES.committed) }, { label: "Withheld", value: sumOf(tot, GROUP_STATES.withheld) }, { label: "Still to allocate", value: toAlloc }, { label: "Free to promise", value: atp }]);
+      const res = PH.$("#vq-res", b);
+      const quick = (len) => {
+        const L = len || PH.$("#vq-len", b).value, q = +PH.$("#vq-qty", b).value, dt = PH.$("#vq-date", b).value || st.get("through");
+        if (len) PH.$("#vq-len", b).value = len;
+        if (!(q > 0)) { PH.$("#vq-qty", b).focus(); PH.toast("Enter how many stems the customer wants", "warn"); return; }
+        PH.skeleton(res, "block", 3);
+        POST("check", { lines: JSON.stringify([{ variety: v, length: L, qty: q }]), date: dt, region: st.get("region"), farm: st.get("farm") }).then((r) => checkResultsInto(res, r, r.date || dt)).catch((e) => PH.error(res, e.message, () => quick(len)));
+      };
+      b.addEventListener("click", (e) => {
+        if (e.target.closest("#vq-run")) quick();
+        const vq = e.target.closest("[data-vq]"); if (vq) { PH.$("#vq-len", b).value = vq.dataset.vq; PH.$("#vq-qty", b).focus(); res.innerHTML = ""; }
+        if (e.target.closest("#vq-more")) openCheck({ lines: [{ variety: v, length: PH.$("#vq-len", b).value, qty: PH.$("#vq-qty", b).value }] });
+      });
+    }).catch((e) => PH.error(b, e.message, () => { m.close(); openVariety(v, length); }));
+    return m;
+  }
+
+  /* ════════════ stale allocations: a to-do list ════════════ */
+  function loadHealth(silent) {
+    const my = ++hlSeq;
+    if (!silent) { PH.kpiSkeleton("#h-kpis", ["Stale stems", "Orders", "Allocated in total", "Also on a discard request"]); PH.skeleton("#h-orders", "rows", 6); }
+    return GET("allocations", filterParams()).then((r) => {
+      if (my !== hlSeq) return;
+      hl = r; paintHealth(); PH.markUpdated();
+    }).catch((e) => { if (my !== hlSeq || (silent && hl)) return; PH.error("#h-orders", e.message, () => loadHealth()); PH.$("#h-head").innerHTML = ""; PH.$("#h-kpis").innerHTML = ""; });
+  }
+  function paintHealth() {
+    const r = hl, sel = st.get("reason");
+    const tb = PH.$("#tab-health"); tb.hidden = !(r.reclaimable > 0); tb.textContent = N(r.order_count); tb.classList.remove("is-warn");
+    const orderCount = new Set(r.orders.filter((o) => o.lines.some((l) => RISK.indexOf(l.reason) < 0)).map((o) => o.sales_order)).size;
+    PH.kpis("#h-kpis", [
+      { label: "Stale stems", value: r.reclaimable, dark: true, unit: "held by cancelled or past-due orders" },
+      { label: "Orders", value: orderCount, unit: "holding them" },
+      { label: "Allocated in total", value: r.total_open, unit: "stems to live and stale orders" },
+      { label: "Also on a discard request", value: r.reclaimable_on_discard, unit: "stale stems in discard-held buckets" },
+    ]);
+    PH.$("#h-head").innerHTML = (r.reclaimable > 0 || r.at_risk > 0)
+      ? `${r.by_reason.map((x) => `<button type="button" class="sv-lg${sel === x.code ? " is-on" : ""}" data-reason="${esc(x.code)}" aria-pressed="${sel === x.code}"><span class="sv-dot ${x.kind === "reclaim" ? "sv-c-reclaimable" : "sv-c-discard"}" aria-hidden="true"></span>${esc(x.label)} <b>${N(x.qty)}</b> <small>${N(x.orders)} order${x.orders === 1 ? "" : "s"}</small></button>`).join("")}${sel ? '<button type="button" class="ph-link" data-reason="">Show all</button>' : ""}${r.can_release ? '<span class="sv-grow"></span><button type="button" class="ph-btn ph-btn--primary" data-rel-all>Release stale allocations…</button>' : ""}`
+      : `<div class="sv-hdone">${PH.icon("check", 22)}<div><b>Every open allocation is healthy.</b></div></div>`;
+    const orders = r.orders.map((o) => { const ls = sel ? o.lines.filter((l) => l.reason === sel) : o.lines; return Object.assign({}, o, { lines: ls, qty: ls.reduce((t, l) => t + l.qty, 0) }); }).filter((o) => o.lines.length);
+    PH.$("#h-count").textContent = N(orders.length) + (r.order_count > r.orders.length ? "+" : "");
+    PH.$("#h-filter").innerHTML = sel ? `Showing: ${esc(STALE[sel] || sel)}` : "";
+    if (!orders.length) { PH.empty("#h-orders", "Nothing to release", "No allocations are held by cancelled, delivered or past-due orders.", "check"); return; }
+    const releasable = orders.filter((o) => o.lines.some((l) => l.releasable)).map((o) => o.sales_order);
+    [...relSel].forEach((x) => { if (releasable.indexOf(x) < 0) relSel.delete(x); });
+    const selStems = orders.filter((o) => relSel.has(o.sales_order)).reduce((t, o) => t + o.lines.filter((l) => l.releasable).reduce((u, l) => u + l.qty, 0), 0);
+    const bar = r.can_release && releasable.length ? `<div class="sv-selbar"><label class="sv-selall"><input type="checkbox" id="sel-all"${relSel.size && relSel.size === releasable.length ? " checked" : ""}> Select all ${N(releasable.length)} order${releasable.length === 1 ? "" : "s"}</label>${relSel.size ? `<span><b>${N(relSel.size)}</b> selected · <b>${N(selStems)}</b> stems</span><span class="sv-grow"></span><button type="button" class="ph-btn ph-btn--ghost ph-btn--sm" data-sel-clear>Clear</button><button type="button" class="ph-btn ph-btn--primary ph-btn--sm" data-rel-sel>Release ${N(relSel.size)} selected</button>` : '<span class="ph-muted">Tick orders to release them together.</span>'}</div>` : "";
+    PH.$("#h-orders").innerHTML = bar + orders.map((o) => `<details class="sv-ord"><summary>
+      <span class="sv-selc">${r.can_release && o.lines.some((l) => l.releasable) ? `<input type="checkbox" class="sv-selbox" data-sel="${esc(o.sales_order)}"${relSel.has(o.sales_order) ? " checked" : ""} aria-label="Select ${esc(o.sales_order)}">` : '<span class="sv-selbox-gap"></span>'}<span>${docBtn("Sales Order", o.sales_order)}<span class="sv-sub">${esc(o.so_status || "")}</span></span></span>
+      <span class="ph-strong">${esc(o.customer || "")}</span>
+      <span>${o.delivery_date ? esc(PH.fmt.date(o.delivery_date, true)) : "—"}</span>
+      <span class="sv-why__num">${N(o.qty)} stems</span>
+      <span class="sv-chips">${[...new Set(o.lines.map((l) => l.reason))].map((c) => `<span class="ph-badge ph-badge--${RISK.indexOf(c) >= 0 ? "bad" : "warn"}">${esc(STALE[c] || c)}</span>`).join("")}</span>
+      <span class="sv-rel">${r.can_release && o.lines.some((l) => l.releasable) ? `<button type="button" class="ph-btn ph-btn--sm ph-btn--primary" data-rel-order="${esc(o.sales_order)}">Release</button>` : ""}<a class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" href="${soLink(o.sales_order)}" target="_blank" rel="noopener" title="Open in Sales Allocation" aria-label="Open ${esc(o.sales_order)} in Sales Allocation">${PH.icon("external", 14)}</a></span></summary>
+      <div class="sv-ord__body"><table class="ph-table ph-table--compact"><thead><tr><th>Variety</th><th>Length</th><th>Bucket</th><th>Farm</th><th class="is-num">Stems</th><th>Why</th><th>Allocated</th><th></th></tr></thead><tbody>${o.lines.map((l) => `<tr><td class="is-strong">${esc(l.variety)}</td><td>${esc(l.length)}</td><td class="ph-mono">${esc(l.bucket)}</td><td>${esc(l.farm || "")}</td><td class="is-num">${N(l.qty)}</td><td><span class="ph-badge ph-badge--${RISK.indexOf(l.reason) >= 0 ? "bad" : "warn"}">${esc(l.reason_label)}</span>${l.on_discard && RISK.indexOf(l.reason) < 0 ? ' <span class="ph-badge ph-badge--bad">on discard request</span>' : ""}${l.in_transit ? ' <span class="ph-badge ph-badge--outline">in transit</span>' : ""}</td><td>${l.allocated_days != null ? N(l.allocated_days) + " d ago" : "—"}</td><td class="sv-relcell">${l.releasable && r.can_release ? `<button type="button" class="ph-btn ph-btn--sm" data-rel-line="${esc(l.sales_order_item)}|${esc(l.bucket)}|${esc(l.stem_length)}|${esc(o.sales_order)}">Release</button>` : `<span class="ph-muted" title="${esc(l.release_block || "")}">${esc(l.release_block || "")}</span>`}</td></tr>`).join("")}</tbody></table></div></details>`).join("") + (r.order_count > r.orders.length ? `<p class="ph-muted">Showing the ${N(r.orders.length)} orders holding the most stems of ${N(r.order_count)}.</p>` : "");
+  }
+  /* ── release (the Sales Allocation unallocate step, run here) ── */
+  function releaseFlow(scope, label) {
+    const params = Object.assign({}, scope);
+    const q = Object.assign({}, filterParams(), params.sales_order ? { sales_order: params.sales_order } : {}, params.sales_orders ? { sales_orders: JSON.stringify(params.sales_orders) } : {}, params.items ? { items: JSON.stringify(params.items) } : {});
+    POST("release_plan", q).then((plan) => {
+      if (!plan.can_release) { PH.toast("You need a sales role to release allocations.", "bad"); return; }
+      if (!plan.lines) { PH.toast("Nothing here can be released any more.", "warn"); loadHealth(true); return; }
+      const skipped = (plan.skipped || []).map((x) => `<li><b>${N(x.stems)}</b> stems on ${N(x.orders)} order${x.orders === 1 ? "" : "s"}: ${esc(x.why)}</li>`).join("");
+      const m = PH.modal({ title: "Release stale allocations", sub: label, body: "" });
+      const b = m.body;
+      b.innerHTML = `<p style="font-size:1.1em;margin:0 0 var(--sp-4)"><b>${N(plan.stems)} stems</b> on ${N(plan.lines)} line${plan.lines === 1 ? "" : "s"} from ${N(plan.orders)} order${plan.orders === 1 ? "" : "s"} will be released.</p>
+        <ul class="sv-list"><li>Each allocation is cancelled and its stems return to the shelf.</li><li>The lines come off ${N(plan.opl_count)} pick list${plan.opl_count === 1 ? "" : "s"}; an empty pick list is deleted.</li><li><b>This cannot be undone.</b></li></ul>
+        ${plan.index_building ? `<div class="ph-notice ph-notice--signal ph-mt">${PH.icon("info", 16)}<span>The database is building an index that makes releases much faster. It takes a minute or two; releasing now works but will be slow until then.</span></div>` : ""}
+        ${skipped ? `<div class="ph-notice ph-notice--warn ph-mt">${PH.icon("alert", 16)}<span><b>Not included</b> - these stay as they are:<ul class="sv-list">${skipped}</ul></span></div>` : ""}
+        <div class="sv-checkbar"><button type="button" class="ph-btn ph-btn--danger" id="rl-go">Release ${N(plan.stems)} stems</button><button type="button" class="ph-btn ph-btn--ghost" id="rl-no">Cancel</button></div>`;
+      PH.$("#rl-no", b).addEventListener("click", () => m.close());
+      PH.$("#rl-go", b).addEventListener("click", () => runRelease(m, params, plan));
+    }).catch((e) => PH.toast(e.message, "bad"));
+  }
+  async function runRelease(m, scope, plan) {
+    const b = m.body; let lines = 0, stems = 0, cancelled = false, err = "", waiting = true, finished = false, batchStart = Date.now(); const failed = [], skip = [], t0 = Date.now();
+    const base = Object.assign({}, filterParams(), scope.sales_order ? { sales_order: scope.sales_order } : {}, scope.sales_orders ? { sales_orders: JSON.stringify(scope.sales_orders) } : {}, scope.items ? { items: JSON.stringify(scope.items) } : {});
+    const secs = () => Math.round((Date.now() - t0) / 1000);
+    let timer = null;
+    function paint() {
+      const done = lines + failed.length, eta = done > 0 && plan.lines > done ? Math.round((secs() / done) * (plan.lines - done)) : 0;
+      const title = finished ? (err ? "Stopped" : cancelled ? `Stopped. Released ${N(stems)} stems.` : failed.length ? `Released ${N(lines)} line${lines === 1 ? "" : "s"}; ${N(failed.length)} could not be released.` : `Released ${N(stems)} stems.`) : "Releasing - keep this window open";
+      const slow = !finished && waiting && Date.now() - batchStart > 8000 ? `Still working on this batch (${Math.round((Date.now() - batchStart) / 1000)} s). Large releases can be slow until the database index is ready.` : "";
+      b.innerHTML = `<p style="margin:0;font-size:1.1em"><b>${esc(title)}</b></p>
+        <p class="ph-muted" role="status" aria-live="polite" style="margin:var(--sp-3) 0 0"><b class="ph-strong">${N(lines)}</b> of ${N(plan.lines)} lines released · <b class="ph-strong">${N(stems)}</b> stems · ${secs()} s${failed.length ? ` · <b class="sv-neg">${N(failed.length)} could not be released</b>` : ""}${!finished && eta > 5 ? ` · about ${eta} s left` : ""}</p>${slow ? `<p class="ph-muted" style="margin:var(--sp-2) 0 0">${esc(slow)}</p>` : ""}${err ? `<div class="ph-notice ph-notice--bad ph-mt">${esc(err)}<br>Nothing already released is lost. Continue to pick up where it stopped.</div>` : ""}
+        ${failed.length ? `<ul class="sv-fails">${failed.slice(0, 20).map((f) => `<li><b>${esc(f.sales_order)}</b> ${esc(f.variety)} · bucket ${esc(f.bucket_id)} - ${esc(f.error)}</li>`).join("")}${failed.length > 20 ? `<li class="ph-muted">+${N(failed.length - 20)} more</li>` : ""}</ul>` : ""}
+        <div class="sv-checkbar">${finished ? `${err ? '<button type="button" class="ph-btn ph-btn--primary" id="rl-resume">Continue</button>' : ""}<button type="button" class="ph-btn ${err ? "" : "ph-btn--primary"}" id="rl-close">${err ? "Close" : "Done"}</button>` : '<button type="button" class="ph-btn ph-btn--ghost" id="rl-stop">Stop after this batch</button>'}</div>`;
+      const c = PH.$("#rl-close", b); if (c) c.addEventListener("click", () => m.close());
+      const rz = PH.$("#rl-resume", b); if (rz) rz.addEventListener("click", () => { err = ""; finished = false; loop(); });
+      const x = PH.$("#rl-stop", b); if (x) x.addEventListener("click", () => { cancelled = true; x.disabled = true; x.textContent = "Stopping…"; });
+    }
+    async function loop() {
+      timer = setInterval(paint, 1000); paint();
+      try {
+        for (let guard = 0; guard < 2000 && !cancelled; guard++) {
+          waiting = true; batchStart = Date.now();
+          const r = await POST("release_stale", Object.assign({}, base, { confirm: 1, limit: 10, skip: JSON.stringify(skip) }));
+          waiting = false;
+          lines += r.released.length; stems += r.stems_released;
+          r.failed.forEach((f) => { failed.push(f); skip.push({ sales_order_item: f.sales_order_item, bucket_id: f.bucket_id, stem_length: f.stem_length }); });
+          paint();
+          if (!(r.remaining > 0) || !(r.released.length + r.failed.length)) break;
+        }
+      } catch (e) { err = e.message || "The request failed."; }
+      clearInterval(timer); finished = true; waiting = false; paint();
+      relSel.clear(); tabLoaded.outlook = false; loadHealth(true); loadOverview(true);
+    }
+    loop();
+  }
+  const relSel = new Set();
+  PH.$("#v-health").addEventListener("click", (e) => {
+    const sb = e.target.closest("[data-sel]"); if (sb) { e.stopPropagation(); sb.checked ? relSel.add(sb.dataset.sel) : relSel.delete(sb.dataset.sel); PH.keepScroll(() => paintHealth()); return; }
+    if (e.target.closest("#sel-all")) { const all = e.target.closest("#sel-all"); PH.$$("[data-sel]").forEach((c) => (all.checked ? relSel.add(c.dataset.sel) : relSel.delete(c.dataset.sel))); PH.keepScroll(() => paintHealth()); return; }
+    if (e.target.closest("[data-sel-clear]")) { relSel.clear(); PH.keepScroll(() => paintHealth()); return; }
+    const rs = e.target.closest("[data-rel-sel]"); if (rs) { releaseFlow({ sales_orders: [...relSel] }, `${N(relSel.size)} selected order${relSel.size === 1 ? "" : "s"}`); return; }
+    const ra = e.target.closest("[data-rel-all]"); if (ra) { releaseFlow({}, "Every stale allocation that can be released" + (filterChips().length ? " (with the filters on)" : "")); return; }
+    const ro = e.target.closest("[data-rel-order]"); if (ro) { releaseFlow({ sales_order: ro.dataset.relOrder }, ro.dataset.relOrder); return; }
+    const rl = e.target.closest("[data-rel-line]");
+    if (rl) { const [soi, bucket, len, so] = rl.dataset.relLine.split("|"); releaseFlow({ items: [{ sales_order_item: soi, bucket_id: bucket, stem_length: len }] }, so + " · bucket " + bucket); return; }
+  });
+  PH.$("#v-health").addEventListener("click", (e) => { const rb = e.target.closest("[data-reason]"); if (rb) { const c = rb.dataset.reason; st.set({ reason: st.get("reason") === c ? "" : c }); } });
+
+  /* ════════════ orders: what is allocated, and what is available ════════════ */
+  const STATUS = {
+    short: ["Short", "bad", "Even all the stock for this size would not cover it."],
+    greenhouse: ["Not cut yet", "signal", "Needs stems that are still in the greenhouse."],
+    downgrade: ["Longer stems only", "warn", "Only longer stems of this variety are available."],
+    action: ["Not on the shelf yet", "warn", "The stock exists but is not all on a sales shelf."],
+    available: ["On the shelf", "good", "The stock is on a sales shelf."],
+    allocated: ["Allocated", "outline", "Nothing left to allocate."],
+  };
+  const STATUS_ORDER = ["short", "greenhouse", "downgrade", "action", "available", "allocated"];
+  const SEG_STATUS = { attn: ["short", "greenhouse", "downgrade", "action"], ready: ["available"], allocated: ["allocated"] };
+  const SRC_ORDER = ["shelf", "remote", "floor", "cooling", "arriving", "overdue", "stale"];
+  const SRC_LBL = { shelf: "on the shelf", remote: "at remote farms", floor: "on the coldroom floor", cooling: "still cooling", arriving: "harvested, not received", overdue: "harvested, overdue", stale: "held by stale allocations", downgrade: "as longer stems", greenhouse: "not cut yet (forecast)" };
+  const CHANGE_MS = 120000, POLL_MS = 30000;
+  let ol = null, olSeq = 0, olShown = 100, olKey = "", prevIdx = null, lineIndex = new Map(), olFail = null, olAt = 0, olLoading = false, olRetryT = null;
+  const olOpen = new Set(), olPoolOpen = new Set(), changed = new Map(); // line id -> {reason, at, since}
+  let lastChange = null, lineDrawer = null, flashIds = new Set();
+  const reduceMotion = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const stChip = (s) => `<span class="ph-badge ph-badge--${STATUS[s][1]}" title="${esc(STATUS[s][2])}">${esc(STATUS[s][0])}</span>`;
+  const sdot = (k) => `<span class="sv-dot sv-o-${esc(k)}" aria-hidden="true"></span>`;
+  const hhmmss = (v) => (v ? String(v).slice(11, 19) : "");
+  const hhmm = (v) => (v ? String(v).slice(11, 16) : "");
+  const oRange = () => { const a = st.get("ofrom"), b = st.get("oto"); return a <= b ? [a, b] : [b, a]; };
+  const liveChanged = (id) => { const c = changed.get(id); return !!c && Date.now() - c.at < CHANGE_MS; };
+  const fmtWhen = (v) => { if (!v) return ""; const x = String(v); return x.slice(0, 10) === today ? PH.fmt.time(x) : PH.fmt.datetime(x); };
+  const cap = (x) => x.charAt(0).toUpperCase() + x.slice(1);
+  const changedBanner = (id) => { const c = changed.get(id); return c && liveChanged(id) ? `<div class="sv-chgline"><span class="sv-chg">Changed</span> <span>${esc(new Date(c.at).toTimeString().slice(0, 5))}</span> <span>${esc(c.reason)}</span></div>` : ""; };
+  const chgPill = (id) => { const c = changed.get(id); return c && liveChanged(id) ? `<span class="sv-chg" title="${esc(c.reason)}">Changed</span>` : ""; };
+
+  /* ── live data ── */
+  const paramsOf = () => { const [a, b] = oRange(); return Object.assign({ from_date: a, to_date: b, customer: st.get("ocust") }, filterParams()); };
+  function snapOf(l) {
+    const r = (x) => Math.round(+x || 0), av = {};
+    Object.keys(l.available || {}).forEach((k) => (av[k] = r(l.available[k])));
+    return { status: l.status, short: r(l.short_by), av, longer: r(l.longer), fc: r(l.forecast) };
+  }
+  const sameSnap = (a, b) => a.status === b.status && a.short === b.short && a.longer === b.longer && a.fc === b.fc && SRC_ORDER.every((k) => (a.av[k] || 0) === (b.av[k] || 0));
+  function reasonOf(a, b) {
+    const out = [], d = (k) => (b.av[k] || 0) - (a.av[k] || 0);
+    if ((b.av.shelf || 0) !== (a.av.shelf || 0)) out.push(`${N(b.av.shelf || 0)} now on the shelf (was ${N(a.av.shelf || 0)})`);
+    SRC_ORDER.filter((k) => k !== "shelf" && d(k) !== 0).slice(0, 1).forEach((k) => out.push(`${SRC_LBL[k]} ${N(a.av[k] || 0)} → ${N(b.av[k] || 0)}`));
+    if (a.status !== b.status) out.push(`now “${STATUS[b.status][0].toLowerCase()}” (was “${STATUS[a.status][0].toLowerCase()}”)`);
+    return out.slice(0, 2).join("; ") || "stock changed";
+  }
+  function applyPayload(r) {
+    const key = JSON.stringify(paramsOf()), idx = new Map();
+    r.orders.forEach((o) => o.lines.forEach((l) => idx.set(l.line, { l, o })));
+    let n = 0;
+    const prevAsOf = ol ? ol.as_of : null;
+    if (olKey === key && prevIdx) {
+      idx.forEach((v, id) => { const p = prevIdx.get(id); if (!p) return; const a = snapOf(p.l), b = snapOf(v.l); if (!sameSnap(a, b)) { changed.set(id, { reason: reasonOf(a, b), at: Date.now(), since: prevAsOf }); flashIds.add(id); n++; } });
+    } else { changed.clear(); flashIds.clear(); lastChange = null; }
+    for (const [id, c] of changed) if (Date.now() - c.at >= CHANGE_MS || !idx.has(id)) changed.delete(id);
+    olKey = key; prevIdx = idx; lineIndex = idx; ol = r; olAt = Date.now(); olFail = null;
+    if (n) { lastChange = prevAsOf; PH.toast(`${n} line${n === 1 ? "" : "s"} changed since ${hhmm(prevAsOf)}`, "warn"); }
+  }
+  function loadOutlook(silent, force) {
+    const my = ++olSeq, params = paramsOf();
+    if (!silent) { PH.skeleton("#o-orders", "rows", 8); PH.kpiSkeleton("#o-kpis", ["Orders", "Still to allocate", "On the shelf", "Not on the shelf yet", "Need attention"]); }
+    olLoading = true; paintLive();
+    if (force) params.force = 1;
+    return GET("outlook", params).then((r) => {
+      if (my !== olSeq) return;
+      olLoading = false; clearTimeout(olRetryT); applyPayload(r); paintOutlook(); PH.markUpdated();
+    }).catch((e) => {
+      if (my !== olSeq) return;
+      olLoading = false;
+      if (ol && olKey === JSON.stringify(paramsOf())) {
+        olFail = { at: Date.now(), msg: e.message }; paintLive(); if (!silent) PH.toast("Could not refresh: " + e.message, "bad");
+        clearTimeout(olRetryT); olRetryT = setTimeout(() => { if (st.get("tab") === "outlook") loadOutlook(true); }, 10000);
+        return;
+      }
+      PH.error("#o-orders", e.message, () => loadOutlook()); PH.$("#o-kpis").innerHTML = "";
+    });
+  }
+  function paintLive() {
+    const el = PH.$("#o-asof"), fail = PH.$("#o-fail"), btn = PH.$("#o-refresh");
+    btn.disabled = olLoading; btn.innerHTML = `${PH.icon("refresh", 14)} ${olLoading ? "Refreshing…" : "Refresh now"}`;
+    if (!ol) { el.innerHTML = ""; fail.hidden = true; return; }
+    const secs = Math.max(0, Math.round((Date.now() - olAt) / 1000)), ago = secs < 5 ? "just now" : secs < 90 ? secs + " s ago" : Math.round(secs / 60) + " min ago";
+    el.innerHTML = `<i class="sv-pulse${olFail ? " is-off" : ""}" aria-hidden="true"></i><span title="Updated ${esc(ago)}">${olFail ? "Not updating" : "Live"} · as of <b>${esc(hhmmss(ol.as_of))}</b></span>`;
+    fail.hidden = !olFail;
+    fail.innerHTML = olFail ? `${PH.icon("alert", 16)}<span><b>Not updating - retrying.</b> Showing data as of ${esc(hhmmss(ol.as_of))}.</span>` : "";
+    const chg = PH.$("#o-chg"), live = [...changed.keys()].filter(liveChanged).length;
+    chg.hidden = !live; chg.classList.toggle("is-on", st.get("ochg"));
+    chg.innerHTML = `${live} line${live === 1 ? "" : "s"} changed${lastChange ? " since " + esc(hhmm(lastChange)) : ""}`;
+    if (!live && st.get("ochg")) st.set({ ochg: false });
+  }
+
+  /* ── head ── */
+  function dateLabelOf(a, b) {
+    const tm = PH.date.add(today, 1), one = (d) => (d === today ? "Today · " : d === tm ? "Tomorrow · " : "") + dayLabel(d);
+    return a === b ? one(a) : `${dayLabel(a)} – ${dayLabel(b)}`;
+  }
+  function paintDatebar() {
+    const [a, b] = oRange();
+    PH.$("#o-daylbl").textContent = dateLabelOf(a, b);
+    PH.$("#o-from").value = a; PH.$("#o-to").value = b;
+    PH.$$("#o-pre button").forEach((x) => x.classList.toggle("is-on", PH.date.add(today, +x.dataset.a) === a && PH.date.add(today, +x.dataset.b) === b));
+    const rg = PH.$("#o-range"), open = a !== b || rg.dataset.open === "1";
+    rg.hidden = !open; PH.$("#o-range-toggle").setAttribute("aria-expanded", String(open));
+  }
+  const attnCount = (oc) => ["short", "greenhouse", "downgrade", "action"].reduce((t, k) => t + (oc[k] || 0), 0);
+  function paintSeg() {
+    const oc = ol.order_counts || {}, n = ol.order_total || 0, seg = st.get("oseg");
+    PH.$("#o-seg").innerHTML = [["attn", "Needs attention", attnCount(oc)], ["ready", "On the shelf", oc.available || 0], ["allocated", "Allocated", oc.allocated || 0], ["all", "All", n]]
+      .map((d) => `<button type="button" data-seg="${d[0]}" class="${seg === d[0] ? "is-on" : ""}" aria-pressed="${seg === d[0]}">${d[1]} <b>${N(d[2])}</b></button>`).join("");
+  }
+  function paintOutlook() {
+    const r = ol; if (!r) return;
+    paintLive(); paintDatebar();
+    const oc = r.order_counts || {}, n = r.order_total || 0, attn = attnCount(oc), stk = Object.fromEntries(r.stock.map((x) => [x.key, x.stems]));
+    const tb = PH.$("#tab-orders"); tb.hidden = !attn; tb.textContent = attn; tb.classList.toggle("is-warn", !oc.short);
+    const c0 = st.get("ocust"), cl = (r.customers || []).slice(); if (c0 && cl.indexOf(c0) < 0) cl.push(c0);
+    PH.$("#o-cust").innerHTML = '<option value="">All customers</option>' + cl.map((c) => `<option${c === c0 ? " selected" : ""}>${esc(c)}</option>`).join("");
+    PH.$("#o-cust").classList.toggle("is-set", !!c0);
+    PH.$("#o-q").value = st.get("os");
+    PH.$$("#o-view button").forEach((b) => b.classList.toggle("is-on", b.dataset.value === st.get("oview")));
+    const [a_, b_] = oRange(), notShelf = ["floor", "cooling", "arriving", "overdue", "remote", "stale"].reduce((t, k) => t + (stk[k] || 0), 0);
+    if (!n) {
+      PH.$("#o-kpis").innerHTML = ""; PH.$("#o-seg").innerHTML = ""; PH.$("#o-exp").disabled = true;
+      PH.empty("#o-orders", `No orders due ${a_ === b_ ? "on " + dayLabel(a_) : "between " + dayLabel(a_) + " and " + dayLabel(b_)}`, "Pick another day.", "calendar"); return;
+    }
+    PH.kpis("#o-kpis", [
+      { label: "Orders", value: n, dark: true, unit: `due ${dateLabelOf(a_, b_).toLowerCase()}`, onClick: () => st.set({ oseg: "all" }), active: st.get("oseg") === "all" },
+      { label: "Still to allocate", value: r.demand, unit: `of ${N(r.ordered)} ordered` },
+      { label: "On the shelf", value: stk.shelf || 0, unit: "available for these sizes" },
+      { label: "Not on the shelf yet", value: notShelf, unit: "floor, cooling, harvested, remote, stale-held" },
+      { label: "Need attention", value: attn, unit: "orders", trend: oc.short ? { dir: "down", text: `${N(oc.short)} short` } : null, onClick: () => st.set({ oseg: "attn" }), active: st.get("oseg") === "attn" },
+    ]);
+    paintSeg(); paintOrders();
+    if (lineDrawer) renderLine();
+    if (st.get("tab") === "outlook") PH.$("#export").disabled = !r.orders.length;
+  }
+
+  /* ── the grid: one row, every place the stock is ── */
+  const MX = [["alloc", "Allocated", "Already allocated to the line"], ["shelf", "Shelf", "On the shelf"], ["floor", "Floor", "On the coldroom floor, not shelved"], ["cooling", "Cooling", "On a shelf, still cooling"], ["harv", "Harvested", "Harvested, not received yet"], ["remote", "Remote", "At remote farms"], ["stale", "Stale-held", "Held by stale allocations (free once released)"], ["longer", "Longer", "Longer stems (downgrade)"], ["fc", "Not cut", "Not cut yet (greenhouse forecast)"]];
+  const SRC_CLASS = { alloc: "alloc", shelf: "shelf", floor: "floor", cooling: "cooling", harv: "arriving", remote: "remote", stale: "stale", longer: "downgrade", fc: "greenhouse" };
+  const mxVal = (l, k) => { const a = l.available || {}; return k === "alloc" ? l.allocated : k === "harv" ? (a.arriving || 0) + (a.overdue || 0) : k === "longer" ? l.longer : k === "fc" ? l.forecast : (a[k] || 0); };
+  const mxCell = (n, k) => (n > 0 ? `<td class="is-num mx-c src-${SRC_CLASS[k]}"><b>${N(n)}</b></td>` : '<td class="is-num mx-c"><span class="sv-dim">–</span></td>');
+  const mxHead = `<colgroup><col style="width:25%"><col style="width:6.5%"><col style="width:7%">${MX.map(() => '<col style="width:5.5%">').join("")}<col style="width:12%"></colgroup><thead><tr><th>Order · variety · length</th><th class="is-num">Ordered</th><th class="is-num">To allocate</th>${MX.map((m) => `<th class="is-num mx-h" title="${esc(m[2])}">${esc(m[1])}</th>`).join("")}<th>Status</th></tr></thead>`;
+  const worst = (xs) => xs.reduce((a, x) => (STATUS_ORDER.indexOf(x) < STATUS_ORDER.indexOf(a) ? x : a), "allocated");
+  const segOK = (status) => { const g = st.get("oseg"); return g === "all" || (SEG_STATUS[g] || SEG_STATUS.attn).indexOf(status) >= 0; };
+  function lineMatches(l, o, q) { return !q || (o.sales_order + " " + o.customer + " " + l.variety + " " + (l.item_name || "") + " " + l.length).toLowerCase().includes(q); }
+  function mxLineRow(l, o, nameHtml) {
+    const id = l.line;
+    return `<tr class="mx-l${liveChanged(id) ? " is-changed" : ""}${flashIds.has(id) && !reduceMotion ? " sv-flash" : ""}" data-line="${esc(id)}" data-lineopen="${esc(id)}" tabindex="0"><td class="mx-name">${nameHtml}</td><td class="is-num">${N(l.ordered)}</td><td class="is-num">${l.to_allocate > 0 ? `<b>${N(l.to_allocate)}</b>` : '<span class="sv-dim">–</span>'}</td>${MX.map((m) => mxCell(mxVal(l, m[0]), m[0])).join("")}<td>${stChip(l.status)}${chgPill(id)}</td></tr>`;
+  }
+  function paintOrders() {
+    PH.$("#o-exp").disabled = !ol.orders.length;
+    const mode = st.get("oview"), q = st.get("os").trim().toLowerCase(), showAll = st.get("ochg");
+    const lines = [];
+    ol.orders.forEach((o) => o.lines.forEach((l) => { if ((showAll ? liveChanged(l.line) : segOK(l.status) || liveChanged(l.line)) && lineMatches(l, o, q)) lines.push({ l, o }); }));
+    if (!lines.length) { emptyWork(); flashIds.clear(); return; }
+    const groups = new Map();
+    const add = (key, g, item) => { let x = groups.get(key); if (!x) groups.set(key, (x = Object.assign({ key, items: [] }, g))); x.items.push(item); };
+    lines.forEach(({ l, o }) => {
+      if (mode === "customer") add("c|" + o.customer, { title: o.customer, sub: "" }, { l, o });
+      else if (mode === "variety") add("v|" + l.variety, { title: l.item_name || l.variety, sub: "" }, { l, o });
+      else if (mode === "length") add("l|" + l.length, { title: l.length, sub: "" }, { l, o });
+      else add("o|" + o.sales_order, { title: o.customer, sub: `${o.sales_order} · ${PH.fmt.date(o.delivery_date, true)}${o.delivery_point ? " · " + o.delivery_point : ""}`, order: o }, { l, o });
+    });
+    const arr = [...groups.values()].map((g) => { g.status = worst(g.items.map((x) => x.l.status)); return g; });
+    arr.sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status) || a.title.localeCompare(b.title) || a.key.localeCompare(b.key));
+    const shown = arr.slice(0, olShown);
+    const body = shown.map((g) => {
+      const open = olOpen.has(g.key);
+      // distinct variety+length pairs, so shared stock is counted once in a group total
+      const pairs = new Map(); g.items.forEach(({ l }) => { const k = l.variety + "|" + l.length; if (!pairs.has(k)) pairs.set(k, l); });
+      const sum = (k) => [...pairs.values()].reduce((t, l) => t + mxVal(l, k), 0);
+      const ordered = g.items.reduce((t, x) => t + x.l.ordered, 0), need = g.items.reduce((t, x) => t + x.l.to_allocate, 0);
+      const cells = MX.map((m) => { const n = m[0] === "alloc" ? g.items.reduce((t, x) => t + x.l.allocated, 0) : sum(m[0]); return mxCell(n, m[0]); }).join("");
+      const chg = g.items.filter((x) => liveChanged(x.l.line)).length;
+      const head = `<tr class="mx-g${open ? " is-open" : ""}" data-gx="${esc(g.key)}" tabindex="0" role="button" aria-expanded="${open}"><td class="mx-name"><span class="sv-x" aria-hidden="true" style="display:inline-flex;vertical-align:middle;margin-right:var(--sp-2);transform:rotate(${open ? 90 : 0}deg)">${PH.icon("chevronRight", 14)}</span><b class="ph-strong" title="${esc(g.title)}">${esc(g.title)}</b>${g.order ? `<small class="ph-muted mx-sub">${docBtn("Sales Order", g.order.sales_order)} · ${esc(PH.fmt.date(g.order.delivery_date, true))}${g.order.delivery_point ? " · " + esc(g.order.delivery_point) : ""}</small>` : `<small class="ph-muted mx-sub">${N(g.items.length)} line${g.items.length === 1 ? "" : "s"}</small>`}</td><td class="is-num">${N(ordered)}</td><td class="is-num">${need > 0 ? `<b>${N(need)}</b>` : '<span class="sv-dim">–</span>'}</td>${cells}<td>${stChip(g.status)}${chg ? ` <span class="sv-chg">${chg} changed</span>` : ""}</td></tr>`;
+      if (!open) return head;
+      const rows = g.items.slice().sort((a, b) => STATUS_ORDER.indexOf(a.l.status) - STATUS_ORDER.indexOf(b.l.status) || a.l.variety.localeCompare(b.l.variety) || a.l.length.localeCompare(b.l.length)).map(({ l, o }) => {
+        const nm = mode === "order" ? `<button type="button" class="sv-link" data-vopen="${esc(l.variety)}" data-len="${esc(l.length)}">${esc(l.item_name || l.variety)}</button> <span class="ph-badge ph-badge--outline">${esc(l.length)}</span>`
+          : mode === "customer" ? `${docBtn("Sales Order", o.sales_order)} <button type="button" class="sv-link" data-vopen="${esc(l.variety)}" data-len="${esc(l.length)}">${esc(l.item_name || l.variety)}</button> <span class="ph-badge ph-badge--outline">${esc(l.length)}</span>`
+          : mode === "variety" ? `<span class="ph-badge ph-badge--outline">${esc(l.length)}</span> ${docBtn("Sales Order", o.sales_order)} <span class="ph-muted">${esc(o.customer)}</span>`
+          : `<button type="button" class="sv-link" data-vopen="${esc(l.variety)}" data-len="${esc(l.length)}">${esc(l.item_name || l.variety)}</button> ${docBtn("Sales Order", o.sales_order)} <span class="ph-muted">${esc(o.customer)}</span>`;
+        return mxLineRow(l, o, nm);
+      }).join("");
+      return head + rows;
+    }).join("");
+    PH.keepScroll(() => {
+      PH.$("#o-orders").innerHTML = `<div class="ph-table-wrap sv-scroll"><table class="ph-table sv-mx">${mxHead}<tbody>${body}</tbody></table></div>`
+        + (arr.length > olShown ? `<div style="padding:var(--sp-4) 32px"><button type="button" class="ph-btn ph-btn--sm" data-omore>Show ${N(Math.min(100, arr.length - olShown))} more of ${N(arr.length - olShown)}</button></div>` : "");
+    });
+    flashIds.clear();
+  }
+  function emptyWork() {
+    const seg = st.get("oseg"), oc = ol.order_counts || {};
+    let t = "Nothing matches", d = "Clear the search.", go = "";
+    if (st.get("ochg")) { t = "Nothing has changed"; d = "No line changed in the last two minutes."; }
+    else if (seg === "attn") { t = "Nothing needs attention"; d = ""; if (oc.available) go = `<button type="button" class="ph-btn ph-btn--sm" data-seg="ready">See the ${N(oc.available)} on the shelf</button>`; }
+    PH.empty("#o-orders", t, d, seg === "attn" && !st.get("ochg") ? "check" : "search");
+    if (go) PH.$("#o-orders").insertAdjacentHTML("beforeend", `<div style="text-align:center;padding-bottom:var(--sp-6)">${go}</div>`);
+  }
+  const needSentence = () => "";
+  const filteredOrders = () => ol.orders.filter((o) => o.lines.some((l) => segOK(l.status)));
+
+  /* ── line drawer ── */
+  function answerLine(l) {
+    if (l.status === "allocated") return "Fully allocated.";
+    const a = l.available || {}, parts = SRC_ORDER.filter((k) => a[k] > 0).map((k) => `${N(a[k])} ${SRC_LBL[k]}`);
+    if (l.longer > 0) parts.push(`${N(l.longer)} ${SRC_LBL.downgrade}`);
+    if (l.forecast > 0) parts.push(`${N(l.forecast)} ${SRC_LBL.greenhouse}`);
+    return `Needs ${N(l.to_allocate)}. ${parts.length ? "Available: " + parts.join(", ") + "." : "No stock for this size."}`;
+  }
+  function renderLine() {
+    if (!lineDrawer) return;
+    const hit = lineIndex.get(lineDrawer.id), b = lineDrawer.m.body, top = b.scrollTop;
+    if (!hit) { b.innerHTML = `<div class="ph-notice ph-notice--warn">${PH.icon("alert", 16)}<span>This line is no longer in the window. Close this panel to go back.</span></div>`; return; }
+    const { l, o } = hit;
+    lineDrawer.m.el.querySelector(".ph-modal__title").textContent = `${l.item_name || l.variety} · ${l.length}`;
+    const sub = lineDrawer.m.el.querySelector(".ph-modal__sub"); if (sub) sub.textContent = `${o.sales_order} · ${o.customer} · ${PH.fmt.date(o.delivery_date, true)}${o.delivery_point ? " · " + o.delivery_point : ""} · as of ${hhmmss(ol.as_of)}`;
+    const others = [...lineIndex.values()].filter((x) => x.l.variety === l.variety && x.l.length === l.length && x.l.to_allocate > 0);
+    const where = (l.where || []).map((p) => `<tr><td>${sdot(p.source)}${esc(cap(SRC_LBL[p.source] || p.source))}</td><td class="is-num">${N(p.stems)}</td><td>${[p.shelf ? `<button type="button" class="sv-link sv-loc" data-doc="Shelf" data-name="${esc(p.shelf)}">${esc(p.shelf)}</button>` : "", p.bucket ? `bucket <button type="button" class="sv-link sv-loc ph-mono" data-doc="Bucket QR Code" data-name="${esc(p.bucket)}">${esc(p.bucket)}</button>` : "", esc(p.farm || "")].filter(Boolean).join(" · ")}${p.ready_at ? ` · ready ${esc(fmtWhen(p.ready_at))}` : ""}</td><td class="is-num">${p.age_days != null ? N(p.age_days) + " d" : "—"}</td></tr>`).join("");
+    b.innerHTML = `${olFail ? `<div class="ph-notice ph-notice--warn">${PH.icon("alert", 16)}<span><b>Not updating.</b> Data as of ${esc(hhmmss(ol.as_of))}.</span></div>` : ""}
+      <p class="sv-headline__t" style="margin:0 0 var(--sp-4)">${esc(answerLine(l))}</p>
+      ${changedBanner(l.line) ? `<div>${changedBanner(l.line)}</div>` : ""}
+      <div class="ph-kpis ph-mt" id="lk"></div><p style="margin:var(--sp-3) 0 0">${stChip(l.status)}</p>
+      <div class="sv-sec">Where the stock is</div>
+      ${where ? `<div class="ph-table-wrap"><table class="ph-table ph-table--compact"><thead><tr><th>Source</th><th class="is-num">Stems</th><th>Location</th><th class="is-num">Age</th></tr></thead><tbody>${where}</tbody></table></div>${l.where_total > (l.where || []).length ? `<p class="ph-muted" style="margin:var(--sp-2) 0 0">+${N(l.where_total - l.where.length)} more places</p>` : ""}` : '<p class="ph-muted">No stock of this size.</p>'}
+      ${l.longer > 0 ? `<p style="margin:var(--sp-3) 0 0"><b>${N(l.longer)}</b> longer stems: ${esc((l.longer_lengths || []).join(", "))}</p>` : ""}
+      <div class="sv-sec">Orders needing ${esc(l.item_name || l.variety)} ${esc(l.length)}</div>
+      <div class="ph-table-wrap sv-scroll"><table class="ph-table ph-table--compact"><thead><tr><th>Order</th><th>Customer</th><th>Delivery</th><th class="is-num">To allocate</th></tr></thead><tbody>${others.map(({ l: x, o: oo }) => `<tr class="${x.line === l.line ? "is-me" : ""}"><td class="sv-nowrap">${docBtn("Sales Order", oo.sales_order)}${x.line === l.line ? ' <span class="ph-badge ph-badge--ink">this line</span>' : ""}</td><td class="sv-cust2" title="${esc(oo.customer)}">${esc(oo.customer)}</td><td>${esc(PH.fmt.date(oo.delivery_date, true))}</td><td class="is-num">${N(x.to_allocate)}</td></tr>`).join("")}</tbody></table></div>
+      <div class="sv-sec">Stage and pick lists</div><p>${esc(l.stage || "")}</p><div class="sv-opl">${(l.opls || []).map((p) => `<button type="button" class="ph-badge ph-badge--outline is-link" data-doc="Order Pick List" data-name="${esc(p.name)}">${esc(p.name)} · ${p.docstatus === 1 ? "submitted" : p.docstatus === 0 ? "draft" : "—"}${p.team ? " · " + esc(p.team) : ""}</button>`).join("") || '<span class="ph-muted">none yet</span>'}</div>
+      <p class="ph-mt"><button type="button" class="ph-btn ph-btn--sm" data-vopen="${esc(l.variety)}" data-len="${esc(l.length)}">Open ${esc(l.item_name || l.variety)} stock</button></p>`;
+    PH.kpis("#lk", [{ label: "Ordered", value: l.ordered }, { label: "Allocated", value: l.allocated }, { label: "To allocate", value: l.to_allocate, dark: true }, { label: "All orders need", value: l.pool_need, unit: "this size" }]);
+    b.scrollTop = top;
+  }
+  function openLine(id) {
+    if (!lineIndex.has(id)) return;
+    if (lineDrawer) { lineDrawer.id = id; renderLine(); return; }
+    const m = PH.modal({ title: "Line", sub: "", drawer: true, size: "lg", body: "", onClose: () => { lineDrawer = null; } });
+    lineDrawer = { id, m };
+    renderLine();
+  }
+
+  function exportOutlook() {
+    if (!ol) return;
+    const rows = [];
+    filteredOrders().forEach((o) => o.lines.forEach((l) => { const r = { sales_order: o.sales_order, customer: o.customer, delivery_date: o.delivery_date, delivery_point: o.delivery_point, variety: l.variety, length: l.length, ordered: l.ordered, allocated: l.allocated, to_allocate: l.to_allocate, status: STATUS[l.status][0], all_orders_need: l.pool_need, longer_stems: l.longer, forecast: l.forecast, stage: l.stage, as_of: ol.as_of }; SRC_ORDER.forEach((k) => (r[k] = (l.available || {})[k] || 0)); rows.push(r); }));
+    const cols = ["sales_order", "customer", "delivery_date", "delivery_point", "variety", "length", "ordered", "allocated", "to_allocate", "status", "all_orders_need"].concat(SRC_ORDER, ["longer_stems", "forecast", "stage", "as_of"]).map((k) => ({ key: k, label: k.replace(/_/g, " ") }));
+    PH.csv(`orders-${oRange()[0]}.csv`, rows, cols);
+  }
+
+  /* ── controls ── */
+  PH.$("#o-prev").innerHTML = PH.icon("chevronLeft", 16);
+  PH.$("#o-next").innerHTML = PH.icon("chevronRight", 16);
+  const spanDays = (a, b) => Math.round((PH.date.parse(b) - PH.date.parse(a)) / 864e5) + 1;
+  const shiftDays = (dir) => { const [a, b] = oRange(), n = spanDays(a, b); st.set({ ofrom: PH.date.add(a, dir * n), oto: PH.date.add(b, dir * n) }); };
+  PH.$("#o-prev").addEventListener("click", () => shiftDays(-1));
+  PH.$("#o-next").addEventListener("click", () => shiftDays(1));
+  PH.$("#o-range-toggle").addEventListener("click", () => { const rg = PH.$("#o-range"); rg.dataset.open = rg.hidden ? "1" : "0"; paintDatebar(); if (!rg.hidden) PH.$("#o-from").focus(); });
+  PH.$("#o-pre").addEventListener("click", (e) => { const x = e.target.closest("button[data-a]"); if (x) st.set({ ofrom: PH.date.add(today, +x.dataset.a), oto: PH.date.add(today, +x.dataset.b) }); });
+  PH.$("#o-from").addEventListener("change", (e) => { if (!e.target.value) return; const f = e.target.value; st.set({ ofrom: f, oto: st.get("oto") < f ? f : st.get("oto") }); });
+  PH.$("#o-to").addEventListener("change", (e) => { if (!e.target.value) return; const t2 = e.target.value; st.set({ oto: t2, ofrom: st.get("ofrom") > t2 ? t2 : st.get("ofrom") }); });
+  PH.$("#o-cust").addEventListener("change", (e) => st.set({ ocust: e.target.value }));
+  let oqt = null;
+  PH.$("#o-q").addEventListener("input", (e) => { clearTimeout(oqt); const v = e.target.value; oqt = setTimeout(() => st.set({ os: v }), 250); });
+  PH.$("#o-exp").addEventListener("click", exportOutlook);
+  PH.$("#o-refresh").addEventListener("click", () => loadOutlook(true, true));
+  PH.$("#o-chg").addEventListener("click", () => st.set({ ochg: !st.get("ochg") }));
+  const inInteractive = (t) => t.closest("a,button,input,select,textarea,[data-doc],[data-vopen],.sv-link");
+  document.addEventListener("click", (e) => {
+    const lo = e.target.closest("[data-lineopen]");
+    if (lo && (!e.target.closest("a,[data-doc],[data-vopen]"))) { openLine(lo.dataset.lineopen); return; }
+    const card = e.target.closest(".sv-lr");
+    if (card && !inInteractive(e.target)) openLine(card.dataset.line);
+  });
+  document.addEventListener("keydown", (e) => {
+    if ((e.key === "Enter" || e.key === " ") && !inInteractive(e.target)) {
+      const c = e.target.closest("tr[data-lineopen]"); if (c) { e.preventDefault(); openLine(c.dataset.line || c.dataset.lineopen); return; }
+      const g = e.target.closest("[data-gx]"); if (g) { e.preventDefault(); const k = g.dataset.gx; olOpen.has(k) ? olOpen.delete(k) : olOpen.add(k); paintOrders(); }
+    }
+  });
+  PH.$("#v-outlook").addEventListener("click", (e) => {
+    const t = e.target;
+    const sg = t.closest("[data-seg]"); if (sg) { st.set({ oseg: sg.dataset.seg }); return; }
+    const sb = t.closest("[data-osrc]"); if (sb) { st.set({ osrc: st.get("osrc") === sb.dataset.osrc ? "" : sb.dataset.osrc }); return; }
+    const skip = t.closest("a,[data-doc],[data-vopen]");
+    const x = t.closest("[data-gx]"); if (x && !skip) { const k = x.dataset.gx; olOpen.has(k) ? olOpen.delete(k) : olOpen.add(k); paintOrders(); return; }
+    if (t.closest("[data-omore]")) { olShown += 100; paintOrders(); }
+  });
+  document.addEventListener("click", (e) => { const g = e.target.closest("[data-gotab]"); if (g) { st.set({ tab: g.dataset.gotab, ofrom: g.dataset.date || st.get("ofrom"), oto: g.dataset.date || st.get("oto") }); } });
+
+  /* live: poll every 30 s while this tab is showing and the page is visible; refresh at once on return */
+  setInterval(() => { if (st.get("tab") === "outlook" && !document.hidden) loadOutlook(true); }, POLL_MS);
+  const wake = () => { if (st.get("tab") === "outlook" && !document.hidden && ol) loadOutlook(true); };
+  document.addEventListener("visibilitychange", wake);
+  window.addEventListener("focus", wake);
+  setInterval(() => { if (!ol || st.get("tab") !== "outlook") return; paintLive(); const before = changed.size; for (const [id, c] of changed) if (Date.now() - c.at >= CHANGE_MS) changed.delete(id); if (before !== changed.size) { paintOrders(); if (lineDrawer) renderLine(); } }, 5000);
+
+  /* ════════════ wiring ════════════ */
+  let tabLoaded = { health: false, outlook: false };
+  function applyTab(reload) {
+    const t = paintTab();
+    if (t === "outlook") { paintDatebar(); if (reload || !tabLoaded.outlook) { tabLoaded.outlook = true; loadOutlook(); } }
+    if (t === "health" && (reload || !tabLoaded.health)) { tabLoaded.health = true; loadHealth(); }
+  }
+  st.on((s, changedKeys) => {
+    const has = (ks) => changedKeys.some((k) => ks.indexOf(k) >= 0);
+    const srv = has(["region", "farm", "length", "rose", "q"]);
+    if (has(["farm"]) && !srv) paintFarms();
+    if (has(["length"])) paintLen();
+    if (srv) { paintChips(); tabLoaded.health = false; tabLoaded.outlook = false; loadOverview(); applyTab(true); }
+    else if (has(["through"])) { paintThrough(); loadOverview(true); }
+    else if (has(["ofrom", "oto", "ocust"])) { tabLoaded.outlook = false; paintDatebar(); if (s.tab === "outlook") applyTab(true); }
+    else if (has(["osrc", "os", "ochg", "oseg", "oview"])) { if (ol) paintOutlook(); }
+    else if (has(["tab"])) applyTab(false);
+    else if (has(["sort", "focus", "vall"])) { if (ov) { paintHero(); paintVarieties(); } }
+    else if (has(["reason"]) && hl) paintHealth();
+  });
+  paintThrough(); paintTab(); paintLen(); paintChips();
+  PH.$$("#f-sort button").forEach((b) => b.classList.toggle("is-on", b.dataset.value === st.get("sort")));
+  loadOverview().then(() => applyTab(false));
+  loadHealth(true); tabLoaded.health = true;
+  PH.onRefresh(() => { tabLoaded.health = false; return Promise.all([loadOverview(), st.get("tab") === "outlook" ? loadOutlook(true, true) : null, loadHealth(true)]); });
+  PH.poll((silent) => { PH.keepScroll(() => { loadOverview(true); if (st.get("tab") === "health") loadHealth(true); }); }, 60000);
 })();
 </script>
 {% endraw %}

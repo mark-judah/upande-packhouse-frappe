@@ -19,6 +19,7 @@
     <button data-value="sf_shelf">Sea freight shelf</button>
     <button data-value="trolley">Trolley</button>
     <button data-value="staging">Staging location</button>
+    <button data-value="box">Box labels <span class="ph-tab__count" id="tc-box" hidden>0</span></button>
   </div>
 </div>
 
@@ -120,6 +121,35 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
   .ll-bar{border-radius:var(--r-lg);padding:var(--sp-4)}
   .ll-facts{grid-template-columns:minmax(0,1fr)}
 }
+
+/* ───── box labels ───── */
+.bx-bar{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-3);margin:0 0 var(--sp-5)}
+.bx-sum{display:flex;flex-wrap:wrap;gap:var(--sp-6);align-items:baseline;padding:0 32px var(--sp-4);color:var(--ink-4)}
+.bx-sum b{font:600 1.6em/1 var(--sans);letter-spacing:-.03em;color:var(--ink);margin-right:var(--sp-2);font-variant-numeric:tabular-nums}
+.bx-o{border-top:1px solid var(--hairline)}
+.bx-o.is-open{background:var(--surface)}
+.bx-row{display:grid;grid-template-columns:28px minmax(200px,1.6fr) minmax(120px,.8fr) minmax(180px,1.1fr) auto;gap:var(--sp-4);align-items:center;padding:var(--sp-4) 32px;cursor:pointer}
+.bx-row:hover{background:var(--tint-2)}
+.bx-row:focus-visible{outline:2px solid var(--ink);outline-offset:-2px}
+.bx-who{min-width:0}
+.bx-who strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
+.bx-who small{color:var(--ink-mute)}
+.bx-acts{display:flex;align-items:center;gap:var(--sp-3);justify-content:flex-end}
+.bx-body{padding:0 32px var(--sp-5) calc(32px + 28px + var(--sp-4))}
+.bx-bulk{display:flex;flex-wrap:wrap;gap:var(--sp-2);margin:0 0 var(--sp-3)}
+.bx-tbl td,.bx-tbl th{white-space:nowrap}
+.bx-tbl td.bx-wrap{white-space:normal;min-width:220px}
+.bx-chk{display:inline-flex;align-items:center;gap:var(--sp-2)}
+.bx-chk input{width:18px;height:18px;accent-color:var(--ink);cursor:pointer}
+.bx-chk input:disabled{cursor:not-allowed}
+.bx-gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:var(--sp-4);margin-top:var(--sp-4)}
+.bx-pg{background:var(--surface-2);border-radius:var(--r-md);box-shadow:inset 0 0 0 1px var(--hairline);padding:var(--sp-3);display:flex;flex-direction:column;gap:var(--sp-2)}
+.bx-pg img{width:100%;height:auto;border-radius:var(--r-sm);background:#fff;box-shadow:0 0 0 1px var(--hairline-2)}
+.bx-pg small{color:var(--ink-mute)}
+.bx-tool{display:flex;flex-wrap:wrap;gap:var(--sp-3);align-items:center;justify-content:space-between;padding:var(--sp-3) var(--sp-4);border-radius:var(--r-md);background:var(--surface);box-shadow:inset 0 0 0 1px var(--hairline);margin-bottom:var(--sp-4)}
+.bx-tool__l{display:flex;flex-wrap:wrap;gap:var(--sp-3);align-items:center;color:var(--ink-3)}
+.bx-tool__r{display:flex;flex-wrap:wrap;gap:var(--sp-2)}
+@media (max-width:1000px){.bx-row{grid-template-columns:28px minmax(0,1fr) auto}.bx-row>:nth-child(3),.bx-row>:nth-child(4){grid-column:2/-1}.bx-body{padding-left:32px}}
 </style>
 
 <nav class="ph-tabs" id="tabs" role="tablist">
@@ -147,6 +177,22 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
       </section>
     </aside>
   </div>
+</div>
+
+<!-- ── Box labels ─────────────────────────────────────────── -->
+<div id="view-box" hidden>
+  <div class="bx-bar">
+    <div class="ph-pills" id="bx-pre" role="group" aria-label="Delivery days"><button data-a="0" data-b="1">Today &amp; tomorrow</button><button data-a="0" data-b="0">Today</button><button data-a="1" data-b="1">Tomorrow</button><button data-a="0" data-b="6">Next 7 days</button></div>
+    <label class="ph-daterange"><span class="ph-muted">Delivery</span><input type="date" id="bx-from" aria-label="Delivery from"><span class="ph-daterange__sep">→</span><input type="date" id="bx-to" aria-label="Delivery to"></label>
+    <select class="ph-select" id="bx-cust" aria-label="Customer"><option value="">All customers</option></select>
+    <label class="ph-search"><span id="bx-q-ic"></span><input id="bx-q" type="search" placeholder="Search order, PO or box" autocomplete="off" aria-label="Search orders"></label>
+    <div class="ph-pills" id="bx-st" role="group" aria-label="Printed"><button data-value="">All</button><button data-value="todo">To print</button><button data-value="done">Printed</button></div>
+  </div>
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head"><h2 class="ph-card__title">Box labels <span class="ph-badge" id="bx-count">0</span></h2></div>
+    <div class="bx-sum" id="bx-sum"></div>
+    <div id="bx-list"></div>
+  </section>
 </div>
 
 <!-- ── Reprint ────────────────────────────────────────────── -->
@@ -210,7 +256,8 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
   const esc = PH.esc, N = PH.fmt.num;
   const TYPES = ["bunch", "bucket", "shelf", "sf_shelf", "trolley", "staging"];
   const VIEWS = ["print", "reprint", "history"];
-  const st = PH.state({ t: "bunch", tab: "print", farm: "", hs: "", all: false });
+  const isBox = () => st.get("t") === "box";
+  const st = PH.state({ t: "bunch", tab: "print", farm: "", hs: "", all: false, bfrom: PH.date.today(), bto: PH.date.add(PH.date.today(), 1), bcust: "", bq: "", bst: "" });
   const clone = (o) => JSON.parse(JSON.stringify(o));
   const uuid = () => (window.crypto && crypto.randomUUID ? crypto.randomUUID() : "k" + Date.now().toString(36) + Math.random().toString(36).slice(2, 12));
   const ls = {
@@ -1130,21 +1177,127 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
   hAll.checked = !!st.get("all");
   hAll.addEventListener("change", () => st.set({ all: hAll.checked }));
 
+  /* ════════════════ box labels ════════════════ */
+  const BX = { data: null, seq: 0, open: new Set(), boxes: {}, canMark: false };
+  const bxGet = (m, a) => PH.call("upande_packhouse.api.v2.box_labels." + m, a || {}, { type: "GET", silent: true });
+  const bxPost = (m, a) => PH.call("upande_packhouse.api.v2.box_labels." + m, a || {}, { type: "POST", silent: true });
+  PH.$("#bx-q-ic").innerHTML = PH.icon("search", 16);
+  const bxRange = () => { const a = st.get("bfrom"), b = st.get("bto"); return a <= b ? [a, b] : [b, a]; };
+  function bxParams() { const [a, b] = bxRange(); return { from_date: a, to_date: b, customer: st.get("bcust"), q: st.get("bq"), printed: st.get("bst") }; }
+  function bxLoad(silent) {
+    const my = ++BX.seq;
+    if (!silent) PH.skeleton("#bx-list", "rows", 6);
+    return bxGet("orders", bxParams()).then((r) => {
+      if (my !== BX.seq) return;
+      BX.data = r; BX.canMark = r.can_mark; bxPaint(); PH.markUpdated();
+    }).catch((e) => { if (my !== BX.seq) return; if (silent && BX.data) return; PH.error("#bx-list", e.message, () => bxLoad()); });
+  }
+  function bxControls() {
+    const [a, b] = bxRange(), r = BX.data;
+    PH.$("#bx-from").value = a; PH.$("#bx-to").value = b;
+    PH.$$("#bx-pre button").forEach((x) => x.classList.toggle("is-on", PH.date.add(PH.date.today(), +x.dataset.a) === a && PH.date.add(PH.date.today(), +x.dataset.b) === b));
+    PH.$$("#bx-st button").forEach((x) => x.classList.toggle("is-on", x.dataset.value === st.get("bst")));
+    const cur = st.get("bcust"), list = (r && r.customers) || [];
+    PH.$("#bx-cust").innerHTML = '<option value="">All customers</option>' + list.map((c) => `<option value="${esc(c.customer)}"${c.customer === cur ? " selected" : ""}>${esc(c.name)}</option>`).join("") + (cur && !list.some((c) => c.customer === cur) ? `<option value="${esc(cur)}" selected>${esc(cur)}</option>` : "");
+    PH.$("#bx-cust").classList.toggle("is-set", !!cur);
+    PH.$("#bx-q").value = st.get("bq");
+  }
+  const bxDate = (d) => { const x = PH.date.parse(d); return x ? x.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }) : d; };
+  function bxPaint() {
+    const r = BX.data; if (!r) return;
+    bxControls();
+    const t = r.totals, todo = t.boxes - t.printed;
+    PH.$("#bx-count").textContent = PH.fmt.num(t.orders);
+    const tb = PH.$("#tc-box"); tb.hidden = !(todo > 0); tb.textContent = PH.fmt.num(todo);
+    PH.$("#bx-sum").innerHTML = t.boxes ? `<span><b>${PH.fmt.num(t.orders)}</b>order${t.orders === 1 ? "" : "s"}</span><span><b>${PH.fmt.num(t.boxes)}</b>box label${t.boxes === 1 ? "" : "s"}</span><span><b>${PH.fmt.num(t.printed)}</b>printed</span><span><b>${PH.fmt.num(todo)}</b>to print</span>` : "";
+    if (!r.orders.length) { PH.empty("#bx-list", "No box labels in this window", "Box labels appear once boxes are packed. Try Next 7 days, or clear the customer and search.", "box"); return; }
+    PH.keepScroll(() => { PH.$("#bx-list").innerHTML = r.orders.map(bxRow).join(""); });
+  }
+  function bxState(o) { return o.printed >= o.boxes ? '<span class="ph-badge ph-badge--good">All printed</span>' : o.printed ? `<span class="ph-badge ph-badge--warn">${o.boxes - o.printed} to print</span>` : '<span class="ph-badge ph-badge--outline">Not printed</span>'; }
+  function bxRow(o) {
+    const open = BX.open.has(o.sales_order);
+    return `<div class="bx-o${open ? " is-open" : ""}"><div class="bx-row" data-bxx="${esc(o.sales_order)}" tabindex="0" role="button" aria-expanded="${open}" aria-label="Show the boxes of ${esc(o.sales_order)}">
+      <span aria-hidden="true" style="display:inline-flex;transform:rotate(${open ? 90 : 0}deg)">${PH.icon("chevronRight", 14)}</span>
+      <div class="bx-who"><strong title="${esc(o.customer_name || o.customer)}">${esc(o.customer_name || o.customer)}</strong><small>${esc(o.sales_order)}${o.po_no ? " · PO " + esc(o.po_no) : ""}</small></div>
+      <div><strong>${esc(bxDate(o.delivery_date))}</strong><br><small class="ph-muted">${esc(o.delivery_point || "")}</small></div>
+      <div><strong>${PH.fmt.num(o.printed)} of ${PH.fmt.num(o.boxes)}</strong><br><small class="ph-muted">printed</small></div>
+      <div class="bx-acts">${bxState(o)}<button type="button" class="ph-btn ph-btn--sm ph-btn--primary" data-bxprev="${esc(o.sales_order)}">Preview</button></div></div>${open ? bxBody(o) : ""}</div>`;
+  }
+  function bxBody(o) {
+    const d = BX.boxes[o.sales_order];
+    if (!d) return `<div class="bx-body"><span class="ph-sk" style="height:84px;display:block"></span></div>`;
+    if (d.error) return `<div class="bx-body"><div class="ph-notice ph-notice--bad">${esc(d.error)}</div></div>`;
+    const dis = BX.canMark ? "" : " disabled";
+    return `<div class="bx-body"><div class="bx-bulk">${BX.canMark ? `<button type="button" class="ph-btn ph-btn--sm" data-bxall="1" data-so="${esc(o.sales_order)}">Mark all printed</button><button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-bxall="0" data-so="${esc(o.sales_order)}">Mark all not printed</button>` : '<span class="ph-muted">You can preview these labels but not mark them printed.</span>'}</div>
+      <div class="ph-table-wrap"><table class="ph-table ph-table--compact bx-tbl"><thead><tr><th>Printed</th><th>Box</th><th>Label</th><th>Contents</th><th>Stage</th><th>Pick list</th><th></th></tr></thead><tbody>${d.boxes.map((b) => `<tr data-box="${esc(b.name)}"><td><label class="bx-chk"><input type="checkbox" data-bxchk="${esc(b.name)}"${b.printed ? " checked" : ""}${dis} aria-label="Printed: box ${b.box_number}"><span class="ph-muted">${b.printed_at ? esc(PH.fmt.datetime(b.printed_at)) : ""}</span></label></td><td class="is-strong">${b.box_number}${b.box_total_count ? " of " + b.box_total_count : ""}</td><td class="ph-mono">${esc(b.name)}</td><td class="bx-wrap">${esc(b.items.map((i) => `${i.qty} ${i.variety}${i.length ? " " + i.length : ""}`).join(", ") || b.mix_name || "—")}</td><td>${esc(b.stage)}</td><td>${esc(b.order_pick_list)}</td><td><button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-bxone="${esc(b.name)}" data-so="${esc(o.sales_order)}">Preview</button></td></tr>`).join("")}</tbody></table></div></div>`;
+  }
+  function bxToggle(so) {
+    if (BX.open.has(so)) { BX.open.delete(so); bxPaint(); return; }
+    BX.open.add(so); bxPaint();
+    if (!BX.boxes[so]) bxGet("boxes", { sales_order: so }).then((r) => { BX.boxes[so] = r; bxPaint(); }).catch((e) => { BX.boxes[so] = { error: e.message, boxes: [] }; bxPaint(); });
+  }
+  function bxMark(names, flag, so) {
+    return bxPost("set_printed", { names: JSON.stringify(names), printed: flag ? 1 : 0 }).then(() => {
+      const d = BX.boxes[so], o = BX.data && BX.data.orders.find((x) => x.sales_order === so);
+      if (d) d.boxes.forEach((b) => { if (names.indexOf(b.name) >= 0) { b.printed = flag ? 1 : 0; b.printed_at = flag ? new Date().toISOString().slice(0, 19).replace("T", " ") : null; } });
+      if (o && d) { o.printed = d.boxes.filter((b) => b.printed).length; BX.data.totals.printed = BX.data.orders.reduce((t, x) => t + x.printed, 0); }
+      bxPaint();
+    }).catch((e) => { PH.toast(e.message, "bad"); bxLoad(true); if (BX.boxes[so]) delete BX.boxes[so], bxToggle(so), bxToggle(so); });
+  }
+  function bxPreview(so, names, title) {
+    const m = PH.modal({ title: title || so, sub: "Box Label print format", drawer: true, size: "lg", body: "" });
+    const b = m.body; let url = null;
+    b.innerHTML = '<div class="ph-muted">Rendering the labels…</div>';
+    bxPost("preview", Object.assign({ sales_order: so }, names ? { names: JSON.stringify(names) } : {})).then((r) => {
+      const blob = new Blob([Uint8Array.from(atob(r.pdf_base64), (c) => c.charCodeAt(0))], { type: "application/pdf" }); url = URL.createObjectURL(blob);
+      const nm = r.names || [];
+      b.innerHTML = `<div class="bx-tool"><div class="bx-tool__l"><b class="ph-strong">${PH.fmt.num(r.count)} label${r.count === 1 ? "" : "s"}</b><span>${esc(r.print_format)}</span><span>${r.page_mm[0]} × ${r.page_mm[1]} mm</span><span class="ph-muted">${r.seconds}s</span></div>
+        <div class="bx-tool__r"><a class="ph-btn ph-btn--primary ph-btn--sm" href="${url}" target="_blank" rel="noopener" id="bx-open">${PH.icon("print", 14)} Open PDF to print</a><a class="ph-btn ph-btn--sm" href="${url}" download="${esc(r.filename)}">${PH.icon("download", 14)} Download</a>${BX.canMark ? '<button type="button" class="ph-btn ph-btn--sm" id="bx-mark">Mark as printed</button>' : ""}</div></div>
+        ${r.page_count > r.pages.length ? `<div class="ph-notice ph-notice--signal">${PH.icon("info", 16)}<span>Showing the first ${r.pages.length} of ${r.page_count} labels here; the PDF has all of them.</span></div>` : ""}
+        <div class="bx-gal">${r.pages.map((p, i) => `<figure class="bx-pg" style="margin:0"><img src="${p}" alt="Label ${i + 1}"><small>${esc(nm[i] || "")}</small></figure>`).join("")}</div>`;
+      const mk = PH.$("#bx-mark", b);
+      if (mk) mk.addEventListener("click", () => { mk.disabled = true; bxMark(names || (BX.boxes[so] ? BX.boxes[so].boxes.map((x) => x.name) : []), true, so).then(() => { PH.toast("Marked as printed", "good"); m.close(); }); });
+    }).catch((e) => { b.innerHTML = `<div class="ph-notice ph-notice--bad">${esc(e.message)}</div>`; });
+    return m;
+  }
+  const bxBound = () => {
+    PH.$("#bx-pre").addEventListener("click", (e) => { const x = e.target.closest("button[data-a]"); if (x) st.set({ bfrom: PH.date.add(PH.date.today(), +x.dataset.a), bto: PH.date.add(PH.date.today(), +x.dataset.b) }); });
+    PH.$("#bx-from").addEventListener("change", (e) => { if (!e.target.value) return; const f = e.target.value; st.set({ bfrom: f, bto: st.get("bto") < f ? f : st.get("bto") }); });
+    PH.$("#bx-to").addEventListener("change", (e) => { if (!e.target.value) return; const t2 = e.target.value; st.set({ bto: t2, bfrom: st.get("bfrom") > t2 ? t2 : st.get("bfrom") }); });
+    PH.$("#bx-cust").addEventListener("change", (e) => st.set({ bcust: e.target.value }));
+    PH.$("#bx-st").addEventListener("click", (e) => { const x = e.target.closest("button[data-value]"); if (x) st.set({ bst: x.dataset.value }); });
+    let t = null; PH.$("#bx-q").addEventListener("input", (e) => { clearTimeout(t); const v = e.target.value; t = setTimeout(() => st.set({ bq: v }), 300); });
+    const list = PH.$("#bx-list");
+    list.addEventListener("click", (e) => {
+      const pv = e.target.closest("[data-bxprev]"); if (pv) { bxPreview(pv.dataset.bxprev, null); return; }
+      const one = e.target.closest("[data-bxone]"); if (one) { bxPreview(one.dataset.so, [one.dataset.bxone], one.dataset.bxone); return; }
+      const all = e.target.closest("[data-bxall]"); if (all) { const so = all.dataset.so, d = BX.boxes[so]; if (d) bxMark(d.boxes.map((b) => b.name), all.dataset.bxall === "1", so); return; }
+      if (e.target.closest("input,label,a,button")) return;
+      const row = e.target.closest("[data-bxx]"); if (row) bxToggle(row.dataset.bxx);
+    });
+    list.addEventListener("change", (e) => { const c = e.target.closest("[data-bxchk]"); if (c) { const so = c.closest(".bx-o").querySelector("[data-bxx]").dataset.bxx; bxMark([c.dataset.bxchk], c.checked, so); } });
+    list.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.matches("[data-bxx]")) { e.preventDefault(); bxToggle(e.target.dataset.bxx); } });
+  };
+  bxBound();
+
   /* ════════════════ shell: tabs, type pills, boot ════════════════ */
   PH.pills("#f-type", st, "t");
   PH.$("#tabs").addEventListener("click", (e) => { const b = e.target.closest("[data-view]"); if (b) st.set({ tab: b.dataset.view }); });
   function paintTabs() {
     const v = curTab();
     PH.$$("#tabs .ph-tab").forEach((b) => { b.classList.toggle("is-on", b.dataset.view === v); b.setAttribute("aria-selected", b.dataset.view === v); });
-    VIEWS.forEach((n) => { PH.$("#view-" + n).hidden = n !== v; });
-    PH.$("#f-type").parentElement.hidden = false;
+    PH.$("#tabs").hidden = isBox();
+    VIEWS.forEach((n) => { PH.$("#view-" + n).hidden = isBox() || n !== v; });
+    PH.$("#view-box").hidden = !isBox();
   }
   function paintSub() {
+    if (isBox()) { PH.text("#sub", "Box labels for orders delivering today and tomorrow"); return; }
     const t = curType();
     PH.text("#sub", { print: "Print new " + tLabel(t).toLowerCase() + " labels - codes are reserved once, so a retry can never duplicate", reprint: "Reprint a damaged " + tLabel(t).toLowerCase() + " label - the same code, never a new one", history: "Every batch and reprint, with resume for anything that stopped" }[curTab()]);
   }
   function paintAll(changed) {
     paintTabs(); paintSub();
+    if (isBox()) { if (!changed || changed.some((k) => ["t", "bfrom", "bto", "bcust", "bq", "bst"].includes(k))) { BX.open.clear(); bxLoad(); } return; }
     if (!boot) return;
     const typeChanged = !changed || changed.includes("t");
     if (typeChanged) { lastPrev = null; paintForm(); paintCtl(); rpPaint(); }
@@ -1157,9 +1310,10 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
   st.on((s, changed) => paintAll(changed));
 
   PH.skeleton("#form", "rows", 5);
-  PH.onRefresh(() => { if (!boot) return; if (curTab() === "history") return loadHistory(); return runPreview(); });
+  PH.onRefresh(() => { if (isBox()) { BX.boxes = {}; return bxLoad(true); } if (!boot) return; if (curTab() === "history") return loadHistory(); return runPreview(); });
   PH.ready(() => {
     paintTabs(); paintSub();
+    if (isBox()) bxLoad(); else bxGet("orders", bxParams()).then((r) => { BX.data = r; BX.canMark = r.can_mark; const todo = r.totals.boxes - r.totals.printed; const tb = PH.$("#tc-box"); tb.hidden = !(todo > 0); tb.textContent = PH.fmt.num(todo); }).catch(() => {});
     call("bootstrap").then((b) => {
       boot = b;
       TYPES.forEach(initDesign);
