@@ -345,6 +345,8 @@ class TestRelease(IntegrationTestCase):
 		self.assertEqual(plan["orders"], 1)
 
 	def test_the_stock_entry_lookup_the_release_depends_on_is_indexed(self):
+		if not frappe.db.has_column("Stock Entry", "custom_issued_to"):
+			self.skipTest("Stock Entry has no custom_issued_to column on this site")
 		idx = frappe.db.sql("SHOW INDEX FROM `tabStock Entry` WHERE Column_name = 'custom_issued_to'")
 		self.assertTrue(
 			idx,

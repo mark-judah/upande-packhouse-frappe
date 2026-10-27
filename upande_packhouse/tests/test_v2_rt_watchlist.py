@@ -292,6 +292,8 @@ class TestReappearance(Base):
 		self.assertIsNone(self.seen())
 
 	def test_stem_replacement_and_counts(self):
+		if not frappe.db.table_exists("Stem Replacement Log"):
+			self.skipTest("Stem Replacement Log is not installed on this site")
 		ins("Stem Replacement Log", donor_bucket=B, destination_bucket="TWATCH-5", replaced_at=self.after)
 		self.assertEqual(self.seen()["kind"], "replace")
 		ins(
@@ -381,6 +383,8 @@ class TestSetting(Base):
 			self.assertEqual(INA.inactive_days(), 4)
 
 	def test_field_exists_on_production_settings_with_default_4(self):
+		if not frappe.db.exists("DocType", "Production Settings"):
+			self.skipTest("Production Settings (upande_quality) is not installed on this site")
 		f = frappe.get_meta("Production Settings").get_field("inactive_bucket_days")
 		self.assertIsNotNone(f)
 		self.assertEqual((f.fieldtype, str(f.default)), ("Int", "4"))
@@ -485,6 +489,8 @@ class TestReconcileAndSpeed(Base):
 		# buckets whose stage is something else (transit / allocation) are out of this comparison
 		other = {r["bucket"] for r in rows if r["stage"] not in ("On shelf", "Open shelving log")}
 		ids = tuple(stage_ids)
+		if not ids:
+			self.skipTest("no bucket is on a shelf on this site")
 		P = {"ids": ids, "c": cutoff, "d": cutoff.date() - timedelta(days=1)}
 		active = {
 			r[0]
