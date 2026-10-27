@@ -145,6 +145,8 @@ def before_tests():
 	for document_type in ("Business Unit", "Farm"):
 		_ensure_accounting_dimension(document_type)
 	_ensure_foreign_fields()
+	# Live has it from the patch; a bare site gets the column after install ran.
+	ensure_issued_to_index()
 	_ensure_payment_terms("Cash before collection")
 	frappe.db.commit()  # nosemgrep
 	frappe.clear_cache()
