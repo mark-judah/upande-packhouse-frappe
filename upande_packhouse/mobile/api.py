@@ -6941,6 +6941,33 @@ def getPackhouseDashboardData():
 		frappe.response["message"] = {"error": str(e)}
 
 
+def _box_label_print_formats():
+	"""(enabled Print Format names for Box Label, the default one to preselect).
+
+	The default is the doctype's own `default_print_format` (what the desk
+	prints with) when it is still an enabled format; otherwise the format
+	literally named "Box Label" (the one this endpoint always used), otherwise
+	the first enabled one. None when no format exists at all."""
+	formats = frappe.get_all(
+		"Print Format",
+		filters={"doc_type": "Box Label", "disabled": 0},
+		pluck="name",
+		order_by="name asc",
+	)
+	default = frappe.get_meta("Box Label").default_print_format
+	if default not in formats:
+		default = "Box Label" if "Box Label" in formats else (formats[0] if formats else None)
+	return formats, default
+
+
+@frappe.whitelist()
+def getBoxLabelPrintFormats():
+	"""Print formats the packing screen offers for box labels, plus the
+	default to preselect."""
+	formats, default = _box_label_print_formats()
+	frappe.response["message"] = {"formats": formats, "default": default}
+
+
 @frappe.whitelist()
 def generateBoxLabelsPdf():
 	"""Consolidates every Box Label on one Order Pick List into a single PDF,
@@ -6953,6 +6980,11 @@ def generateBoxLabelsPdf():
 	page_width_mm / page_height_mm are optional -- wkhtmltopdf options
 	overriding the print format's own default (A4). Omit either to fall
 	back to that default.
+
+	print_format is optional -- one of getBoxLabelPrintFormats' names; omitted
+	(or no longer enabled) falls back to that endpoint's default. preview=1
+	renders only the first box's label, so the operator can check the format
+	and size before printing the whole order.
 	"""
 	from frappe.utils.pdf import get_file_data_from_writer
 	from pypdf import PdfWriter
@@ -6961,6 +6993,8 @@ def generateBoxLabelsPdf():
 	opl_name = data.get("order_pick_list") or data.get("opl")
 	page_width = data.get("page_width_mm")
 	page_height = data.get("page_height_mm")
+	requested_format = data.get("print_format")
+	preview = frappe.utils.cint(data.get("preview"))
 
 	if not opl_name:
 		frappe.throw(_("Order Pick List is required"))
@@ -6976,6 +7010,18 @@ def generateBoxLabelsPdf():
 	if not box_names:
 		frappe.throw(_("No box labels found for {0}. Pack at least one box first.").format(opl_name))
 
+	formats, default_format = _box_label_print_formats()
+	if requested_format:
+		if requested_format not in formats:
+			frappe.throw(_("Print Format {0} is not available for Box Label").format(requested_format))
+		print_format = requested_format
+	else:
+		print_format = default_format
+	if not print_format:
+		frappe.throw(_("No print format is set up for Box Label"))
+	if preview:
+		box_names = box_names[:1]
+
 	pdf_options = {}
 	if page_width:
 		pdf_options["page-width"] = f"{flt(page_width)}mm"
@@ -6988,7 +7034,7 @@ def generateBoxLabelsPdf():
 			frappe.get_print(
 				"Box Label",
 				box_name,
-				"Box Label",
+				print_format,
 				as_pdf=True,
 				output=writer,
 				pdf_options=pdf_options,
@@ -6999,6 +7045,7 @@ def generateBoxLabelsPdf():
 
 	frappe.response["message"] = {
 		"pdf_base64": base64.b64encode(pdf_bytes).decode(),
-		"filename": f"{opl_name}-box-labels.pdf",
+		"filename": f"{opl_name}-box-label-preview.pdf" if preview else f"{opl_name}-box-labels.pdf",
 		"count": len(box_names),
+		"print_format": print_format,
 	}

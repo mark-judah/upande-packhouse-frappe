@@ -105,6 +105,9 @@
       <div class="ph-form ph-form--1">
         <div class="ph-field"><label class="ph-label">Speed taken from</label>
           <div class="pi-between"><select class="ph-select" id="fc-from" aria-label="From"></select><span class="ph-muted">to</span><select class="ph-select" id="fc-to" aria-label="To"></select></div></div>
+        <div class="ph-field"><label class="ph-label" for="fc-hd">History available</label>
+          <select class="ph-select" id="fc-hd" aria-label="How far back the history goes"><option value="14">Last 14 days</option><option value="30">Last 30 days</option><option value="45">Last 45 days</option><option value="90">Last 90 days</option><option value="120">Last 120 days</option></select>
+          <div class="ph-card__meta" id="fc-hn" style="margin-top:var(--sp-2)"></div></div>
         <div class="ph-form ph-form--2">
           <div class="ph-field"><label class="ph-label" for="fc-i">People issuing</label><div class="pi-num"><button class="ph-iconbtn ph-iconbtn--sm" data-step="i-1" aria-label="Fewer issuers" type="button">&minus;</button><input class="ph-input" id="fc-i" type="number" min="1" inputmode="numeric"><button class="ph-iconbtn ph-iconbtn--sm" data-step="i+1" aria-label="More issuers" type="button">+</button></div></div>
           <div class="ph-field"><label class="ph-label" for="fc-p">People packing</label><div class="pi-num"><button class="ph-iconbtn ph-iconbtn--sm" data-step="p-1" aria-label="Fewer packers" type="button">&minus;</button><input class="ph-input" id="fc-p" type="number" min="1" inputmode="numeric"><button class="ph-iconbtn ph-iconbtn--sm" data-step="p+1" aria-label="More packers" type="button">+</button></div></div>
@@ -144,7 +147,7 @@
   const FILTER_KEYS = ["region", "team", "farm"];
   const KPI_LABELS = ["Packed", "Can pack now", "Held up", "Flow", "Finish by"];
   const n = (v) => PH.fmt.num(v || 0);
-  const F = { i: 5, p: 10, st: 9, en: 19, x: 1200, d: 1, from: null, to: null, how: "" };
+  const F = { hd: 14, date: null, i: 5, p: 10, st: 9, en: 19, x: 1200, d: 1, from: null, to: null, how: "" };
 
   /* ── Filters ── */
   PH.regionPills("#f-region", st, "region");
@@ -203,7 +206,7 @@
   }
   function loadHistory() {
     const s = st.get(), my = ++hseq;
-    return PH.call(API + "get_speed_history", { region: s.region, farm: s.farm, rose_type: s.rose }, { silent: true }).then((m) => {
+    return PH.call(API + "get_speed_history", { region: s.region, farm: s.farm, rose_type: s.rose, days: F.hd }, { silent: true }).then((m) => {
       if (my !== hseq || !m || m.success === false) return;
       hist = m; initForecast();
     }).catch(() => {});
@@ -387,24 +390,26 @@
   const tm = (t) => { if (!t) return null; const p = t.split(":"); return +p[0] + +p[1] / 60; };
   const fdays = () => { const D = hist.days, a = D.findIndex((d) => d.d === F.from), b = D.findIndex((d) => d.d === F.to); return a < 0 || b < 0 ? D.slice(-1) : D.slice(Math.min(a, b), Math.max(a, b) + 1); };
   function rates(days) {
-    let boxes = 0, pph = 0, ph = 0, stems = 0, iph = 0, ih = 0, pk = 0, np = 0, ni = 0;
-    days.forEach((d) => { boxes += d.boxes; pk += d.pack_stems; ph += d.pack_win / 60; pph += (d.packers * d.pack_win) / 60; np += d.packers; stems += d.issue_stems; ih += d.issue_win / 60; iph += (d.issuers * d.issue_win) / 60; ni += d.issuers; });
+    let boxes = 0, pph = 0, ph = 0, stems = 0, iph = 0, ih = 0, pk = 0, np = 0, ni = 0, bk = 0;
+    days.forEach((d) => { boxes += d.boxes; pk += d.pack_stems; ph += d.pack_win / 60; pph += (d.packers * d.pack_win) / 60; np += d.packers; stems += d.issue_stems; bk += d.issue_buckets || 0; ih += d.issue_win / 60; iph += (d.issuers * d.issue_win) / 60; ni += d.issuers; });
     const k = days.length || 1;
-    return { rp: pph ? boxes / pph : 0, ri: iph ? stems / iph : 0, bph: ph ? boxes / ph : 0, sph: ih ? stems / ih : 0, spb: boxes ? pk / boxes : 0, np: Math.round(np / k), ni: Math.round(ni / k),
+    return { rp: pph ? boxes / pph : 0, ri: iph ? stems / iph : 0, bph: ph ? boxes / ph : 0, sph: ih ? stems / ih : 0, spb: boxes ? pk / boxes : 0, spbk: bk ? stems / bk : 0, np: Math.round(np / k), ni: Math.round(ni / k),
       pf: med(days.map((d) => tm(d.pack_first))), pl: med(days.map((d) => tm(d.pack_last))), isf: med(days.map((d) => tm(d.issue_first))), il: med(days.map((d) => tm(d.issue_last))) };
   }
   const out = (r, i, p, h) => { const byPack = p * r.rp * h, byIssue = r.spb ? (i * r.ri * h) / r.spb : 0; return { byPack, byIssue, boxes: Math.min(byPack, byIssue), limit: byPack <= byIssue ? "packing" : "issuing" }; };
 
   function initForecast() {
-    const D = hist.days;
-    if (!D.length) { PH.empty("#fc-res", "No packing history", "There are no pack lists in the last two weeks for these filters."); return; }
+    const D = hist.days, hd = hist.history_days || F.hd;
+    $("fc-hd").value = String(hd);
+    PH.text("#fc-hn", "Only the last " + PH.fmt.plural(hd, "day") + " (since " + PH.fmt.date(hist.since, true) + ") is used" + (D.length ? "; the latest activity in it is " + PH.fmt.date(D[D.length - 1].d, true) : "") + ". Choose a longer period to go further back.");
+    if (!D.length) { PH.set("#fc-from", ""); PH.set("#fc-to", ""); PH.empty("#fc-res", "No packing history", "There are no pack lists or issued stems in the last " + PH.fmt.plural(hd, "day") + " for these filters. Extend the history above to look further back."); PH.set("#fc-spd", ""); PH.set("#fc-rev", ""); return; }
     const opts = D.map((d) => ({ value: d.d, label: PH.fmt.date(d.d, true) }));
     const last = D.length - 1, end = D[last].d === hist.today && last > 0 ? last - 1 : last;
     F.to = D[end].d; F.from = D[Math.max(0, end - 6)].d;
     PH.options("#fc-from", opts, F.from); PH.options("#fc-to", opts, F.to);
     const hs = (a, b) => { const o = []; for (let h = a; h <= b; h += 0.5) o.push({ value: String(h), label: hh(h) }); return o; };
     PH.options("#fc-st", hs(6, 14), String(F.st)); PH.options("#fc-en", hs(14, 24), String(F.en));
-    const pre = Object.keys(hist.due_boxes).sort().map((d) => '<button data-value="' + hist.due_boxes[d].boxes + '">' + PH.fmt.date(d, true) + " · " + n(hist.due_boxes[d].boxes) + "</button>").join("") + '<button data-value="800">Peak · 800</button>';
+    const pre = Object.keys(hist.due_boxes).sort().map((d) => '<button data-value="' + hist.due_boxes[d].boxes + '" data-date="' + d + '">' + PH.fmt.date(d, true) + " · " + n(hist.due_boxes[d].boxes) + "</button>").join("") + '<button data-value="800">Peak · 800</button>';
     document.getElementById("fc-pre").innerHTML = pre;
     seed(); fcalc();
   }
@@ -412,12 +417,13 @@
   const $ = (id) => document.getElementById(id);
   const mark = () => PH.$$("#fc-pre button").forEach((b) => b.classList.toggle("is-on", +b.dataset.value === F.x));
   function bindForecast() {
-    const num = (id, key) => $(id).addEventListener("input", () => { F[key] = Math.max(1, Math.round(+$(id).value || 1)); if (key === "x") mark(); fcalc(); });
+    const num = (id, key) => $(id).addEventListener("input", () => { F[key] = Math.max(1, Math.round(+$(id).value || 1)); if (key === "x") { F.date = null; mark(); } fcalc(); });
     num("fc-i", "i"); num("fc-p", "p"); num("fc-x", "x"); num("fc-d", "d");
     $("v-forecast").addEventListener("click", (e) => {
       const b = e.target.closest("[data-step]"); if (b) { const key = b.dataset.step[0], d = b.dataset.step.includes("+") ? 1 : -1; F[key] = Math.max(1, F[key] + d); $("fc-" + key).value = F[key]; fcalc(); }
-      const pb = e.target.closest("#fc-pre button"); if (pb) { F.x = +pb.dataset.value; $("fc-x").value = F.x; mark(); fcalc(); }
+      const pb = e.target.closest("#fc-pre button"); if (pb) { F.x = +pb.dataset.value; F.date = pb.dataset.date || null; $("fc-x").value = F.x; mark(); fcalc(); }
     });
+    $("fc-hd").addEventListener("change", () => { F.hd = +$("fc-hd").value; loadHistory(); });
     $("fc-from").addEventListener("change", () => { F.from = $("fc-from").value; seed(); fcalc(); });
     $("fc-to").addEventListener("change", () => { F.to = $("fc-to").value; seed(); fcalc(); });
     $("fc-st").addEventListener("change", () => { F.st = +$("fc-st").value; fcalc(); });
@@ -435,12 +441,13 @@
     const gain = (di, dp) => Math.round(out(r, F.i + di, F.p + dp, H).boxes - c.boxes);
     PH.set("#fc-res", '<div class="pi-hero"><small>' + F.i + " issuing, " + F.p + " packing, " + hh(F.st) + " to " + hh(F.en) + "</small><b>" + n(c.boxes) + "<i>boxes</i></b><span>" + (c.limit === "packing" ? "Packing" : "Issuing") + " is the limit · " + (c.limit === "packing" ? "issuing could supply " + n(c.byIssue) : "packers could pack " + n(c.byPack)) + "</span></div>" +
       tile("Add one issuer", gain(1, 0) > 0 ? "+" + n(gain(1, 0)) : "0", "boxes", gain(1, 0) > 0 ? "three more: +" + n(gain(3, 0)) : "packing is the limit") + tile("Add one packer", gain(0, 1) > 0 ? "+" + n(gain(0, 1)) : "0", "boxes", gain(0, 1) > 0 ? "three more: +" + n(gain(0, 3)) : "issuing is the limit"));
-    const X = F.x, nd = Math.max(1, F.d), perDay = X / nd, needP = r.rp ? Math.ceil(perDay / (r.rp * H)) : 0, needI = r.ri ? Math.ceil((perDay * r.spb) / (r.ri * H)) : 0, have = c.boxes * nd, dd = c.boxes ? Math.ceil(X / c.boxes) : 0;
-    const cmp = (k, cur) => (k > cur ? "+" + (k - cur) + " on the " + cur + " you set" : k < cur ? "fewer than the " + cur + " you set" : "same as you set");
-    PH.text("#fc-rh", "To pack " + n(X) + " boxes in " + PH.fmt.plural(nd, "day"));
-    PH.set("#fc-rev", tile("Packers needed", needP, "people", cmp(needP, F.p) + " · " + n(perDay) + " boxes a day") + tile("Issuers needed", needI, "people", cmp(needI, F.i) + " · " + n((perDay * r.spb) / 60 / H) + " stems a minute") +
+    const X = F.x, nd = Math.max(1, F.d), perDay = X / nd, have = c.boxes * nd, dd = c.boxes ? Math.ceil(X / c.boxes) : 0;
+    const bpb = r.spbk ? r.spb / r.spbk : 0, bxP = perDay / F.p, bxI = perDay / F.i, capP = r.rp * H, capI = r.spb ? (r.ri * H) / r.spb : 0;
+    const fit = (need, cap) => (cap ? (need <= cap ? "within the " + n(cap) + " one can do" : n(need - cap) + " over the " + n(cap) + " one can do") : "no speed measured");
+    PH.text("#fc-rh", "To meet " + (F.date ? PH.fmt.date(F.date, true) + ": " : "") + n(X) + " boxes in " + PH.fmt.plural(nd, "day"));
+    PH.set("#fc-rev", tile("Each of " + F.p + " packers packs", n(bxP), "boxes a day", "about " + n(bxP * bpb) + " buckets · " + fit(bxP, capP)) + tile("Each of " + F.i + " issuers issues", n(bxI), "boxes a day", "about " + n(bxI * bpb) + " buckets · " + n(bxI * r.spb) + " stems · " + fit(bxI, capI)) +
       tile("With " + F.i + " issuing and " + F.p + " packing", dd, dd === 1 ? "day" : "days", have >= X ? "fits in " + PH.fmt.plural(nd, "day") : n(X - have) + " boxes short after " + PH.fmt.plural(nd, "day"), true));
-    F.how = "Speed from " + lbl + ": " + r.np + " people packing did " + r.bph.toFixed(1) + " boxes an hour (" + r.rp.toFixed(1) + " each), " + r.ni + " issuing did " + n(r.sph / 60) + " stems a minute (" + n(r.ri / 60) + " each). One box is " + n(r.spb) + " stems. A day is " + hh(F.st) + " to " + hh(F.en) + ", " + H.toFixed(1) + " hours. Each extra person is assumed to work at the average speed of the people in that period. Real speed drops when floor space, trolleys or stock run short.";
+    F.how = "Speed from " + lbl + ": " + r.np + " people packing did " + r.bph.toFixed(1) + " boxes an hour (" + r.rp.toFixed(1) + " each), " + r.ni + " issuing did " + n(r.sph / 60) + " stems a minute (" + n(r.ri / 60) + " each). One box is " + n(r.spb) + " stems and a bucket holds " + n(r.spbk) + " stems, so a box is " + bpb.toFixed(2) + " buckets. What each person must do is the day's boxes shared equally between the people you set; 'can do' is their measured speed over the working day. A day is " + hh(F.st) + " to " + hh(F.en) + ", " + H.toFixed(1) + " hours. Each extra person is assumed to work at the average speed of the people in that period. Real speed drops when floor space, trolleys or stock run short.";
   }
 
   bindForecast();

@@ -188,3 +188,5 @@ class TestSite(UnitTestCase):
 		self.assertTrue(r["success"])
 		self.assertIn("days", r)
 		self.assertIn("due_boxes", r)
+		for d in r["days"]:
+			self.assertIn("issue_buckets", d)

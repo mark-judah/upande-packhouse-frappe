@@ -40,7 +40,7 @@ from datetime import timedelta
 from typing import Any
 
 import frappe
-from frappe.utils import add_days, get_datetime, getdate, nowdate
+from frappe.utils import add_days, cint, get_datetime, getdate, nowdate
 
 from upande_packhouse.api.v2.core import boxes as boxes_mod
 from upande_packhouse.api.v2.core import region as region_mod
@@ -52,6 +52,8 @@ MIN_WINDOW_MIN = 30.0
 #: Rows kept per team and per cause in the drill-downs.
 DRILL_ROWS = 5
 HISTORY_DAYS = 14
+#: The most a user can extend the history to.
+MAX_HISTORY_DAYS = 120
 
 _TRANSFER = "(p.in_transit = 1 OR p.loaded_in_trolley = 1 OR p.awaiting_transfer = 1)"
 _NOT_ISSUED = "IFNULL(p.issued, 0) = 0 AND IFNULL(p.issued_offline, 0) = 0"
@@ -730,13 +732,16 @@ def get_speed_history(
 	farm: Any = None,
 	rose_type: Any = "all",
 	business_unit: Any = "Roses",
+	days: Any = None,
 ):
-	"""Packing and issuing speed per day for the last two weeks, and the boxes ordered for the
-	next delivery dates, for the what-if calculator. Follows region, farm and rose type."""
+	"""Packing and issuing speed per day for the last two weeks (or the last `days`, up to
+	MAX_HISTORY_DAYS, when the user extends it), and the boxes ordered for the next delivery
+	dates, for the what-if calculator. Follows region, farm and rose type."""
 	today = nowdate()
+	history_days = min(max(cint(days) or HISTORY_DAYS, 1), MAX_HISTORY_DAYS)
 	a = _args(today, today, region, farm, None, rose_type, business_unit)
 	where, params = _scope(a, dates=False)
-	since = str(add_days(today, -HISTORY_DAYS))
+	since = str(add_days(today, -history_days))
 	p = {**params, "ph_since": since}
 	days = {}
 
@@ -754,6 +759,7 @@ def get_speed_history(
 				"pack_stems": 0.0,
 				"issuers": 0,
 				"issue_stems": 0.0,
+				"issue_buckets": 0,
 				"issue_first": "",
 				"issue_last": "",
 				"issue_win": 0.0,
@@ -791,7 +797,7 @@ def get_speed_history(
 		x["boxes"], x["pack_stems"] = _num(r.boxes), _num(r.stems)
 	for r in frappe.db.sql(
 		f"""SELECT DATE(p.issued_at) AS d, COUNT(DISTINCT p.issued_by) AS issuers, SUM(p.stock_qty) AS stems,
-		           MIN(p.issued_at) AS first_t, MAX(p.issued_at) AS last_t
+		           COUNT(DISTINCT NULLIF(UPPER(p.bucket), '')) AS buckets, MIN(p.issued_at) AS first_t, MAX(p.issued_at) AS last_t
 		    FROM `tabPick List Item` p JOIN `tabOrder Pick List` o ON o.name = p.parent
 		    JOIN `tabSales Order` so ON so.name = o.sales_order
 		    WHERE {where} AND p.issued_at >= %(ph_since)s GROUP BY d""",
@@ -802,6 +808,7 @@ def get_speed_history(
 		x.update(
 			issuers=int(r.issuers),
 			issue_stems=_num(r.stems),
+			issue_buckets=int(r.buckets or 0),
 			issue_first=_hm(r.first_t),
 			issue_last=_hm(r.last_t),
 			issue_win=_minutes(r.first_t, r.last_t),
@@ -809,6 +816,8 @@ def get_speed_history(
 	return {
 		"success": True,
 		"today": today,
+		"history_days": history_days,
+		"since": since,
 		"days": sorted(days.values(), key=lambda x: x["d"]),
 		"due_boxes": _due_boxes(a, today),
 	}
