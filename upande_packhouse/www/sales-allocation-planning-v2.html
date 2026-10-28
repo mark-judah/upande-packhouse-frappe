@@ -3,480 +3,433 @@
 {% block page_content %}
 {% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
 
-<header class="ph-head" id="ap-head" data-default-date="{{ default_delivery_date }}">
+<header class="ph-head" id="pg-head" data-default-date="{{ default_delivery_date }}">
   <div>
     <div class="ph-head__eyebrow">Packhouse · Workflow</div>
     <h1 class="ph-head__title">Allocation Planning</h1>
-    <p class="ph-head__sub" id="sub">Farm-wise stock and partial order confirmation</p>
-  </div>
-  <div class="ph-head__tools">
-    <span class="ph-label">My farm</span>
-    <select class="ph-select" id="my-farm" title="The farm you confirm stems for"><option value="">Select your farm</option></select>
-    <button class="ph-btn" id="export" type="button"></button>
+    <p class="ph-head__sub">Decide who gets which flowers before allocation starts</p>
   </div>
 </header>
 
 <div class="ph-filters">
-  <div class="ph-pills" id="f-region"></div>
-  <select class="ph-select" id="f-farm" aria-label="Farm" title="Stock: the shelf's farm. Order lines: the order's farm."><option value="">All farms</option></select>
-  <div class="ph-pills" id="f-status">
-    <button data-value="all">All lines</button><button data-value="open">Unconfirmed</button><button data-value="partial">Partial</button><button data-value="full">Confirmed</button>
-  </div>
-  <select class="ph-select" id="f-customer" aria-label="Customer"><option value="">All customers</option></select>
-  <select class="ph-select" id="f-order" aria-label="Sales order"><option value="">All orders</option></select>
-  <select class="ph-select" id="f-variety" aria-label="Variety"><option value="">All varieties</option></select>
-  <select class="ph-select" id="f-length" aria-label="Length"><option value="">All lengths</option></select>
-  <select class="ph-select" id="f-by" aria-label="Confirmed by"><option value="">Confirmed by anyone</option></select>
-  <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Search customer, order, variety"></label>
+  <select class="ph-select" id="pg-farm" aria-label="Farm" title="The farm whose stock you confirm against"></select>
   <div class="ph-filters__spacer"></div>
-  <div class="ph-pills" id="f-preset">
-    <button data-value="today">Today</button><button data-value="tomorrow">Tomorrow</button><button data-value="7d">7 days</button><button data-value="30d">30 days</button>
-  </div>
-  <label class="ph-daterange" title="Sales Order delivery date">
-    <input type="date" id="f-from" aria-label="Delivery from"><span class="ph-daterange__sep">→</span><input type="date" id="f-to" aria-label="Delivery to">
-  </label>
+  <div class="ph-pills" id="f-preset"><button data-value="today">Today</button><button data-value="tomorrow">Tomorrow</button></div>
+  <label class="ph-daterange" title="Sales Order delivery date"><span class="pg-dl">Delivery date</span><input type="date" id="pg-date" aria-label="Delivery date"></label>
 </div>
 
-<section class="ph-kpis" id="kpis"></section>
+<section class="ph-kpis" id="pg-kpis"></section>
 
-<section class="ph-card ph-card--flush">
-  <div class="ph-card__head">
-    <h2 class="ph-card__title">Order lines <span class="ph-badge" id="line-count">0</span></h2>
-    <div class="ph-card__tools" id="chips"></div>
-  </div>
-  <div class="ap-legend ph-muted" id="legend"></div>
-  <div id="grid"></div>
-  <p class="ph-muted ap-note" id="trunc" hidden></p>
-</section>
+<div class="pg-grid">
+  <section class="ph-card">
+    <div class="ph-card__head">
+      <h2 class="ph-card__title">Varieties</h2>
+      <div class="ph-pills" id="pg-view"><button data-value="attention" class="is-on">Needs attention</button><button data-value="all">All</button><button data-value="confirmed">Confirmed</button></div>
+    </div>
+    <div id="pg-list"></div>
+  </section>
+  <section class="ph-card pg-detail" id="pg-detail"></section>
+</div>
 
 {% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
 <style>
-  /* Allocation grid: one compact row per order line. */
-  .ap-legend{padding:0 32px var(--sp-4);font-size:13px}
-  .ap-note{padding:var(--sp-3) 32px;margin:0}
-  #grid .ph-table td{vertical-align:middle}
-  #grid .ph-table td small{display:block;margin-top:2px;color:var(--ink-mute);white-space:nowrap}
-  #grid .ap-first{min-width:170px;max-width:260px}
-  #grid .ap-first small{white-space:normal;word-break:break-word}
-  #grid .ap-first .ph-strong{white-space:normal}
-  #grid .is-strong{white-space:nowrap}
-  #grid .ap-conf{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:nowrap;min-width:230px}
-  #grid .ap-conf .ph-table-input{width:76px;flex:0 0 auto}
-  #grid .ap-conf .ph-badge{flex:0 0 auto}
-  #grid a.ap-doc,.ap-drawer a.ap-doc{color:inherit;text-decoration:underline;text-decoration-color:var(--hairline);text-underline-offset:3px}
-  #grid a.ap-doc:hover,.ap-drawer a.ap-doc:hover{text-decoration-color:currentColor}
-  .ap-drawer .ph-table td,.ap-drawer .ph-table th{white-space:nowrap}
-  .ap-drawer tfoot td{font-weight:600;border-top:1px solid var(--hairline)}
-  .ap-drawer .ap-rec{margin-top:var(--sp-4)}
-  .ap-drawer .ap-rec .ph-row{display:flex;justify-content:space-between;gap:var(--sp-3);padding:4px 0}
-  @media (max-width:860px){ .ph-filters .ph-select{max-width:100%} .ap-legend{padding:0 var(--sp-5) var(--sp-4)} .ap-note{padding:var(--sp-3) var(--sp-5)} #grid .ap-conf{min-width:230px} }
+  .pg-grid{display:grid;grid-template-columns:minmax(300px,5fr) minmax(320px,6fr);gap:var(--sp-6);align-items:start}
+  /* each card scrolls on its own, so a long list never hides the variety you are working on */
+  .pg-grid>.ph-card{position:sticky;top:var(--sp-4);max-height:calc(100vh - 2 * var(--sp-4));overflow-y:auto;overscroll-behavior:contain}
+  .pg-row{display:block;width:100%;text-align:left;background:none;border:0;border-top:1px solid var(--hairline);padding:var(--sp-4) var(--sp-6);cursor:pointer;color:inherit;font:inherit}
+  .pg-row:hover{background:var(--surface-2)}
+  .pg-row.is-on{background:var(--surface-2);box-shadow:inset 3px 0 0 var(--ink)}
+  .pg-row__top{display:flex;justify-content:space-between;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-2)}
+  .pg-row__name{font-weight:600;display:flex;align-items:center;gap:var(--sp-2)}
+  .pg-row__stats{display:flex;gap:var(--sp-4);flex-wrap:wrap;font-size:13px;color:var(--ink-mute)}
+  .pg-row__stats b{color:var(--ink);font-weight:600}
+  .pg-row__note{font-size:13px;margin-top:4px}
+  .pg-chip{font-size:12px;font-weight:600;border-radius:999px;padding:3px 10px;white-space:nowrap}
+  .pg-chip--bad{background:var(--bad-soft);color:var(--bad)}.pg-chip--warn{background:var(--warn-soft);color:var(--warn)}.pg-chip--good{background:var(--good-soft);color:var(--good)}
+  .pg-load{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-7) var(--sp-6);color:var(--ink-mute)}
+  .pg-spin{width:18px;height:18px;border-radius:50%;border:2px solid var(--hairline);border-top-color:var(--ink);animation:pgspin .8s linear infinite;flex:0 0 auto}
+  @keyframes pgspin{to{transform:rotate(360deg)}}
+  .pg-detail .pg-sum{display:flex;flex-wrap:wrap;gap:var(--sp-5);padding:0 var(--sp-6) var(--sp-4);color:var(--ink-mute);font-size:13px}
+  .pg-detail .pg-sum b{display:block;color:var(--ink);font-size:18px;font-weight:600}
+  .pg-detail .pg-old{margin:0 var(--sp-6) var(--sp-4)}
+  .ph-daterange .pg-dl{font:500 12px var(--sans);color:var(--ink-mute);margin-right:2px;white-space:nowrap}
+  .pg-mv-row{display:grid;grid-template-columns:minmax(0,1fr) 90px 130px auto;gap:var(--sp-2);align-items:center;margin-bottom:var(--sp-3)}
+  .pg-mv-hint{grid-column:1 / -1;color:var(--ink-mute);font-size:12px;margin-top:-4px}
+  .pg-confirm{display:flex;align-items:center;justify-content:flex-end;gap:var(--sp-3);flex-wrap:wrap}
+  .pg-in-hint{display:block;margin-top:2px;font-size:12px}
+  .pg-team-row{display:block;margin-top:6px;max-width:150px;min-width:110px}
+  .pg-tabs{margin:0 var(--sp-6) var(--sp-3)}
+  .pg-supply{padding:0 var(--sp-6) var(--sp-3)}
+  .pg-srow{display:flex;justify-content:space-between;align-items:baseline;gap:var(--sp-4);padding:var(--sp-2) 0;border-top:1px solid var(--hairline)}
+  .pg-srow span small{display:block;color:var(--ink-mute);font-size:12px;margin-top:2px}
+  .pg-srow b{font-size:17px;font-weight:600;white-space:nowrap}
+  .pg-srow--top{border-top:0}.pg-srow--sub{border-top:0;padding-top:0}.pg-srow--sub span{color:var(--ink-mute)}
+  .pg-detail .pg-sum small{display:block;margin-top:2px;max-width:190px;line-height:1.35}
+  .pg-detail .pg-cap{margin:0 var(--sp-6) var(--sp-4);font-size:13px;line-height:1.5}
+  .pg-detail table{width:100%}
+  .pg-detail td,.pg-detail th{padding:var(--sp-3) var(--sp-4)}
+  .pg-detail td small{display:block;color:var(--ink-mute)}
+  .pg-detail .pg-in{width:96px}
+  .pg-foot{display:flex;justify-content:space-between;align-items:center;gap:var(--sp-3);padding:var(--sp-4) var(--sp-6);border-top:1px solid var(--hairline)}
+  .pg-empty{padding:var(--sp-7) var(--sp-6);color:var(--ink-mute)}
+  .pg-hu{border-radius:var(--r-md,10px);padding:var(--sp-4);margin-bottom:var(--sp-3)}
+  .pg-hu p{margin:0 0 var(--sp-2);line-height:1.5}
+  .pg-hu--red{background:var(--bad-soft)}.pg-hu--amber{background:var(--warn-soft)}
+  .pg-hu .ph-link{margin-right:var(--sp-4);font-size:13px}
+  .pg-act{font-size:12px;margin-right:var(--sp-3)}
+  .pg-uf h3{margin:var(--sp-4) 0 var(--sp-2);font-size:15px}
+  .pg-uf .pg-m{display:flex;justify-content:space-between;align-items:center;gap:var(--sp-3);padding:var(--sp-2) 0;border-top:1px solid var(--hairline);font-size:14px}
+  @media (max-width:980px){.pg-grid{grid-template-columns:1fr}.pg-grid>.ph-card{position:static;max-height:none;overflow:visible}}
 </style>
 
 {% raw %}
 <script>
 (function () {
   "use strict";
-  const DD_METHOD = "upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.default_delivery_date";
-  const FETCH = "upande_packhouse.api.v2.allocation_planning.get_allocation_planning";
-  // The v1 write endpoint, unchanged: it edits Sales Order > Confirmed Stems (custom_confirmed_stems_table).
-  const CONFIRM = "upande_packhouse.api.allocation.confimSalesOrderItem";
-  // Same key the original page used, so the user's farm carries across.
-  const LOC_KEY = "selectedLocation";
+  const API = "upande_packhouse.api.v2.allocation_playground.";
+  const GUARDS = "upande_packhouse.api.v2.allocation_guards.";
+  const $ = (id) => document.getElementById(id);
+  const n = (v) => PH.fmt.num(Math.round(v || 0));
+  // The delivery date opens on tomorrow by the server's clock, is kept in the address (?date=), and is set the same way as on every v2 page.
+  const st = PH.state({ date: $("pg-head").dataset.defaultDate });
+  const S = { date: st.get("date"), farm: "", view: "attention", pick: null, tab: "pg-t-exact", teams: [], team: (function () { try { return localStorage.getItem("pg_team") || ""; } catch (e) { return ""; } })() };
+  let board = null, pool = null, seq = 0, pseq = 0;
 
-  // Tomorrow by the server's clock (EAT), never the browser's.
-  let serverTomorrow = document.getElementById("ap-head").dataset.defaultDate || PH.date.add(PH.date.today(), 1);
-  // Old links carried a single ?date=; open them on that day.
-  const legacyDate = new URLSearchParams(location.search).get("date");
-  const st = PH.state({
-    from: serverTomorrow, to: serverTomorrow, region: "", farm: "", status: "all", cover: "",
-    customer: "", order: "", variety: "", length: "", by: "", q: "",
-  });
-  if (legacyDate && /^\d{4}-\d{2}-\d{2}$/.test(legacyDate) && !new URLSearchParams(location.search).has("from")) st.set({ from: legacyDate, to: legacyDate }, { silent: true });
-
-  let data = null;      // last server payload
-  let lines = [];       // one per order line (server-filtered)
-  let myFarm = "";
-  let seq = 0;
-  let busy = 0;
-  const drafts = {};    // line key -> typed stems not yet confirmed
-
-  try { myFarm = localStorage.getItem(LOC_KEY) || ""; } catch (e) {}
-
-  /* ── Filters: every one is applied on the server, so every KPI follows it ── */
-  PH.regionPills("#f-region", st, "region");
-  PH.pills("#f-status", st, "status");
-  ["farm", "customer", "order", "variety", "length", "by"].forEach((k) => PH.bindSelect("#f-" + k, st, k));
-  PH.bindSearch("#f-q", st, "q");
-  PH.dateRange({ pills: "#f-preset", from: "#f-from", to: "#f-to", state: st, fromKey: "from", toKey: "to" });
-  st.on((s, changed) => {
-    // A farm outside the chosen region would match nothing: drop it.
-    if (changed.includes("region") && s.farm && s.region && PH.regionOf(s.farm) !== s.region) return st.set({ farm: "" });
-    if (changed.includes("region")) fillFarmOptions();
+  PH.dateRange({ pills: "#f-preset", from: "#pg-date", state: st, fromKey: "date" });
+  st.on((s, changed) => { if (changed.includes("date")) { S.date = s.date; S.pick = null; load(); } });
+  $("pg-farm").addEventListener("change", () => { S.farm = $("pg-farm").value; S.pick = null; load(); });
+  $("pg-view").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    S.view = b.dataset.value;
+    PH.$$("#pg-view button").forEach((x) => x.classList.toggle("is-on", x === b));
     load();
   });
 
-  document.getElementById("export").innerHTML = PH.icon("download") + "<span>Export</span>";
+  const dot = (s) => '<span class="ph-dot ph-dot--' + (s === "short" ? "bad" : s === "watch" ? "warn" : "good") + '"></span>';
+  const word = (p) => p.status === "short" ? "Short by " + n(p.short) : p.status === "watch" ? (p.still_to_plan > p.on_shelf ? "Needs the expected harvest" : "Old stock to use first") : "Covered";
 
-  const farmSel = document.getElementById("my-farm");
-  farmSel.addEventListener("change", () => {
-    myFarm = farmSel.value;
-    try { myFarm ? localStorage.setItem(LOC_KEY, myFarm) : localStorage.removeItem(LOC_KEY); } catch (e) {}
-    render();
-    load(true, true); // "by my farm" figure is a server KPI
-  });
+  const loading = (what) => '<div class="pg-load"><i class="pg-spin"></i><span>' + what + "</span></div>";
 
-  /* ── Business rules (kept from the original page) ── */
-  const entries = (l) => l.entries || [];
-  const confirmedTotal = (l) => entries(l).reduce((s, e) => s + (+e.stems || 0), 0);
-  const myStems = (l) => { if (!myFarm) return 0; const e = entries(l).find((x) => x.farm === myFarm); return e ? +e.stems || 0 : 0; };
-  // confimSalesOrderItem caps a line at its stored ordered quantity; the input uses the same cap.
-  const cap = (l) => +l.confirm_cap || 0;
-  const remaining = (l) => Math.max(0, cap(l) - confirmedTotal(l));
-
-  /* ── Load ── */
-  const KPI_LABELS = ["Order lines", "Ordered stems", "Available stock", "Uncovered demand", "Confirmed"];
-  PH.kpiSkeleton("#kpis", KPI_LABELS);
-  function args() {
-    const s = st.get();
-    return {
-      from_date: s.from, to_date: s.to, region: s.region, farm: s.farm, status: s.status, cover: s.cover,
-      customer: s.customer, sales_order: s.order, variety: s.variety, length: s.length, by: s.by, q: s.q, my_farm: myFarm,
-    };
-  }
-  // background: poll (skips while the user is typing in the grid); quiet: no skeleton.
-  function load(background, quiet) {
-    if (background && !quiet && (busy || (document.activeElement && document.activeElement.closest && document.activeElement.closest("#grid")))) return Promise.resolve();
-    if (!background) { PH.loadingKpis("#kpis", true); PH.skeleton("#grid", "rows", 8); }
+  function load() {
     const my = ++seq;
-    return PH.call(FETCH, args(), { silent: background, type: "GET" })
-      .then((m) => {
-        if (my !== seq) return;
-        data = m || {};
-        lines = data.lines || [];
-        fillOptions();
-        render();
-        PH.markUpdated();
-      })
-      .catch((e) => {
-        if (my !== seq || background) return;
-        PH.loadingKpis("#kpis", false);
-        PH.error("#grid", e.message, () => load());
-      });
-  }
-
-  // Options come from the whole date range; a deep-linked value not in it stays selectable.
-  function fill(sel, items, key) {
-    const v = st.get(key);
-    const list = (items || []).slice();
-    if (v && !list.some((x) => (typeof x === "object" ? x.value : x) === v)) list.unshift(v);
-    PH.options(sel, list, v);
-  }
-  function fillFarmOptions() {
-    if (!data) return;
-    const inRegion = PH.regionFarms(st.get("region"));
-    fill("#f-farm", (data.options.farms || []).filter((f) => !inRegion || inRegion.includes(f)), "farm");
-  }
-  function fillOptions() {
-    const o = data.options || {};
-    fill("#f-customer", o.customers, "customer");
-    fill("#f-order", o.orders, "order");
-    fill("#f-variety", o.varieties, "variety");
-    fill("#f-length", o.lengths, "length");
-    fill("#f-by", o.by, "by");
-    fillFarmOptions();
-    const mine = (o.my_farms || []).slice();
-    if (myFarm && !mine.includes(myFarm)) mine.unshift(myFarm);
-    PH.options(farmSel, mine, myFarm);
-  }
-
-  function scopeLabel() {
-    const s = st.get();
-    return s.farm || s.region || "";
-  }
-
-  /* ── Render ── */
-  function render() {
-    if (!data) return;
-    const s = st.get();
-    PH.text("#sub", "Confirm order lines by farm · deliveries " + (s.from === s.to ? "on " : "") + PH.date.label(s.from, s.to));
-    PH.text("#legend", (data.available_definition || "") + " Use Per farm on a row for the farm split.");
-    renderKpis();
-    renderChips();
-    PH.text("#line-count", PH.fmt.num(data.total_lines || 0));
-    const tr = document.getElementById("trunc");
-    tr.hidden = !data.truncated;
-    if (data.truncated) tr.textContent = "Showing the first " + PH.fmt.num(lines.length) + " of " + PH.fmt.num(data.total_lines) + " lines. KPIs cover all of them; narrow the filters to see the rest.";
-    if (!lines.length) {
-      const scope = scopeLabel();
-      return PH.empty("#grid", "No lines match these filters",
-        scope ? "Only orders whose farm is " + scope + " are listed while a farm or region is chosen. Orders with no farm show under All sites."
-          : "No submitted sales orders deliver " + PH.date.label(s.from, s.to) + " with these filters.");
-    }
-    PH.keepScroll(() => PH.set("#grid", table(lines)));
-  }
-
-  // A KPI click narrows the table to the rows behind that number; clicking it again clears it.
-  function quick(patch) {
-    const s = st.get();
-    const same = Object.keys(patch).every((k) => s[k] === patch[k]);
-    st.set(same ? { status: "all", cover: "" } : Object.assign({ status: "all", cover: "" }, patch));
-  }
-
-  function renderKpis() {
-    const k = data.kpis || {};
-    const s = st.get();
-    const scope = scopeLabel();
-    const pct = k.confirmed_pct;
-    const linesUnit = PH.fmt.plural(k.customers || 0, "customer") + " · " + PH.fmt.plural(k.orders || 0, "order") + (scope ? " · orders for " + scope : "");
-    PH.kpis("#kpis", [
-      { label: "Order lines", value: k.lines || 0, unit: linesUnit, active: s.status === "all" && !s.cover,
-        title: "Click to show every line (clears the status and coverage shortcuts)", onClick: () => st.set({ status: "all", cover: "" }) },
-      { label: "Ordered stems", value: k.ordered_stems || 0, unit: PH.fmt.plural(k.ordered_boxes || 0, "box", "boxes") + " · " + PH.fmt.num(k.allocated_stems || 0) + " allocated",
-        title: "Click for ordered stems by variety and length", onClick: () => openCover("ordered") },
-      { label: "Available stock", value: k.available_stems || 0,
-        unit: "stems · of " + PH.fmt.num(k.on_shelf_stems || 0) + " on shelf" + (scope ? " at " + scope : ""),
-        title: (data.available_definition || "") + " On shelf " + PH.fmt.num(k.on_shelf_stems || 0) + " in " + PH.fmt.num(k.stock_buckets || 0) + " buckets: "
-          + PH.fmt.num(k.held_stems || 0) + " held for discard, " + PH.fmt.num(k.stock_allocated_stems || 0) + " already allocated. Click for the stock by variety and length.",
-        onClick: () => openCover("available") },
-      { label: "Uncovered demand", value: k.uncovered_stems || 0, unit: "stems · " + PH.fmt.plural(k.short_lines || 0, "line") + " short of stock",
-        title: "Ordered beyond available stock, per variety and length. Click to list the lines that are short.",
-        active: s.cover === "short", onClick: () => quick({ cover: "short" }) },
-      { label: "Confirmed", value: k.confirmed_stems || 0,
-        unit: PH.fmt.plural(k.confirmed_lines || 0, "line") + " · " + PH.fmt.pct(pct) + " of ordered" + (myFarm ? " · " + PH.fmt.num(k.my_confirmed_stems || 0) + " by " + myFarm : ""),
-        title: "Click to list the lines with any confirmed stems. Stems still to confirm: " + PH.fmt.num(k.remaining_stems || 0) + " on " + PH.fmt.plural(k.remaining_lines || 0, "line") + " (use the Unconfirmed / Partial pills)", bar: pct || 0, barClass: (pct || 0) >= 100 ? "good" : "",
-        active: s.status === "confirmed", onClick: () => quick({ status: "confirmed" }) },
-    ]);
-  }
-
-  const LABELS = { region: "Region", farm: "Farm", status: "Status", cover: "Coverage", customer: "Customer", order: "Order", variety: "Variety", length: "Length", by: "Confirmed by", q: "Search" };
-  const STATUS = { open: "Unconfirmed", partial: "Partial", full: "Confirmed", confirmed: "Has confirmed stems", remaining: "Still to confirm" };
-  const COVER = { short: "Short of stock" };
-  function renderChips() {
-    const s = st.get();
-    const act = Object.keys(LABELS).filter((k) => k === "status" ? s.status !== "all" : s[k]);
-    if (!act.length) return PH.set("#chips", "");
-    PH.set("#chips", act.map((k) => PH.html`<span class="ph-filter-chip">${LABELS[k]}: ${k === "status" ? STATUS[s.status] || s.status : k === "cover" ? COVER[s.cover] || s.cover : s[k]}<button type="button" data-clear="${k}" aria-label="Remove filter">${PH.raw(PH.icon("close", 12))}</button></span>`).join("")
-      + '<span class="ph-link" data-clear-all>Clear all</span>');
-  }
-  document.getElementById("chips").addEventListener("click", (e) => {
-    const one = e.target.closest("[data-clear]");
-    if (one) return st.set({ [one.dataset.clear]: one.dataset.clear === "status" ? "all" : "" });
-    // Clears every filter but keeps the delivery dates being looked at.
-    if (e.target.closest("[data-clear-all]")) st.set({ region: "", farm: "", status: "all", cover: "", customer: "", order: "", variety: "", length: "", by: "", q: "" });
-  });
-
-  /* ── Table: customer/order, line, variety, length, ordered, boxes, confirmation, + Per farm ── */
-  const docLink = (doctype, name, text, cls) => PH.html`<a class="ap-doc ${cls || ""}" href="${PH.docUrl(doctype, name)}" target="_blank" rel="noopener" data-doc="${doctype}">${text == null ? name : text}</a>`.__raw;
-
-  function confirmationCell(l) {
-    const ct = confirmedTotal(l), ord = +l.stems_ordered || 0;
-    const farms = entries(l).map((e) => e.farm + ": " + PH.fmt.num(e.stems)).join(" · ");
-    const state = l.state;
-    const badge = state === "full" ? '<span class="ph-badge ph-badge--good" data-state="full">Confirmed</span>'
-      : state === "partial" ? `<span class="ph-badge ph-badge--warn" data-state="partial">${PH.fmt.num(ct)} / ${PH.fmt.num(ord)}</span>`
-      : '<span class="ph-badge" data-state="open">Unconfirmed</span>';
-    return `<td><div class="ap-conf" title="${PH.esc(farms || "Not confirmed by any farm yet")}">${badge}${actionCell(l)}</div></td>`;
-  }
-
-  function actionCell(l) {
-    const c = cap(l), rem = remaining(l), mine = myStems(l);
-    if (!myFarm) return l.state === "full" ? "" : '<span class="ph-link" data-pick-farm>Select your farm to confirm</span>';
-    if (rem > 0 || mine > 0) {
-      const max = rem + mine;
-      const def = mine > 0 ? mine : Math.min(rem, c);
-      const val = drafts[l.key] != null ? drafts[l.key] : def;
-      const k = PH.esc(l.key);
-      return `<input class="ph-table-input" type="number" min="0" max="${max}" step="1" value="${PH.esc(val)}" data-input="${k}" title="Up to ${PH.fmt.num(max)} stems for ${PH.esc(myFarm)}" aria-label="Stems to confirm">
-        <button type="button" class="ph-btn ph-btn--sm ph-btn--primary" data-confirm="${k}">${mine > 0 ? "Update" : "Confirm"}</button>
-        ${mine > 0 ? `<button type="button" class="ph-iconbtn ph-iconbtn--sm" data-remove="${k}" title="Remove my confirmation" aria-label="Remove my confirmation">${PH.icon("close")}</button>` : ""}`;
-    }
-    if (c <= 0 && (+l.stems_ordered || 0) > 0) return '<small class="ph-muted" title="The line\'s stored ordered quantity is 0, so the confirmation service refuses it">Can\'t confirm (stored qty 0)</small>';
-    return "";
-  }
-
-  function table(list) {
-    const head = `<tr><th class="ph-sticky-col">Customer / order</th><th>Ln</th><th>Variety</th><th>Len</th><th class="is-num">Ordered</th><th class="is-num">Boxes</th><th>Confirmation</th><th></th></tr>`;
-    const body = list.map((l) => `<tr data-key="${PH.esc(l.key)}">
-      <td class="ph-sticky-col ap-first" title="Delivers ${PH.esc(l.delivery_date)}"><div class="ph-strong">${docLink("Customer", l.customer, l.customer_name || l.customer)}</div>
-        <small>${docLink("Sales Order", l.sales_order)}${l.order_name ? " · " + PH.esc(l.order_name) : ""}</small></td>
-      <td class="ph-muted">${PH.esc(l.line_no)}</td>
-      <td class="is-strong">${PH.esc(l.item_code || "—")}${l.kind === "mixed_bunch" ? "<small>Mixed bunch</small>" : l.kind === "mixed_box" ? "<small>Mixed box</small>" : ""}</td>
-      <td>${PH.esc(l.length || "—")}</td>
-      <td class="is-num is-strong">${PH.fmt.num(l.stems_ordered || 0)}</td>
-      <td class="is-num">${PH.fmt.qty(l.boxes || 0)}</td>
-      ${confirmationCell(l)}
-      <td><button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-farms="${PH.esc(l.key)}">Per farm</button></td>
-    </tr>`).join("");
-    return `<div class="ph-table-wrap ph-table-wrap--tall"><table class="ph-table ph-table--compact">
-      <thead>${head}</thead><tbody>${body}</tbody></table></div>`;
-  }
-
-  /* ── Per-farm breakdown drawer ── */
-  const n = (v) => PH.fmt.num(Math.round((+v || 0) * 100) / 100);
-  function openBreakdown(l) {
-    const t = l.breakdown_totals || {};
-    const bd = l.breakdown || [];
-    const rows = bd.map((f) => `<tr data-farm="${PH.esc(f.farm)}"><td class="ph-strong">${PH.esc(f.farm)}</td>
-      <td class="is-num is-strong" title="${PH.esc(data.available_definition || "")}">${n(f.available)}</td>
-      <td class="is-num">${n(f.on_shelf)}</td><td class="is-num">${n(f.held)}</td><td class="is-num">${n(f.allocated)}</td>
-      <td class="is-num is-strong">${n(f.confirmed)}</td>
-      <td class="is-num ${f.shortfall > 0 ? "ph-bad" : "ph-muted"}">${n(f.shortfall)}</td></tr>`).join("");
-    const sv = "/stock-visibility-v2?q=" + encodeURIComponent(l.item_code) + (l.length ? "&len=" + encodeURIComponent(l.length) : "")
-      + (l.delivery_date ? "&from=" + l.delivery_date + "&to=" + l.delivery_date : "");
-    const opls = (l.opls || []).map((o) => docLink("Order Pick List", o)).join(", ");
-    const body = `<div class="ap-drawer">
-      <div class="ph-stats">
-        <div class="ph-stat"><small>Ordered</small><b data-k="ordered">${n(t.ordered)}</b></div>
-        <div class="ph-stat"><small>Confirmed</small><b data-k="confirmed">${n(t.confirmed)}</b></div>
-        <div class="ph-stat"><small>Unconfirmed</small><b data-k="unconfirmed">${n(t.unconfirmed)}</b></div>
-        <div class="ph-stat"><small>Allocated to line</small><b>${n(l.allocated_stems)}</b></div>
-      </div>
-      <div class="ph-table-wrap ph-mt"><table class="ph-table ph-table--compact">
-        <thead><tr><th>Farm</th><th class="is-num" title="${PH.esc(data.available_definition || "")}">Available</th><th class="is-num" title="Stems on shelves at this farm for this variety and length">On shelf</th>
-          <th class="is-num" title="On shelf, bucket on an open discard request">Held</th><th class="is-num" title="Already allocated at this farm for this variety and length, all orders">Allocated</th>
-          <th class="is-num" title="Stems this farm has confirmed for this line">Confirmed</th><th class="is-num" title="Confirmed beyond what the farm can still allocate">Shortfall</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="7" class="ph-muted">No farm holds stock or has confirmed this line.</td></tr>'}</tbody>
-        <tfoot><tr data-total><td>Total</td><td class="is-num">${n(t.available)}</td><td class="is-num">${n(t.on_shelf)}</td><td class="is-num">${n(t.held)}</td><td class="is-num">${n(t.allocated)}</td><td class="is-num">${n(t.confirmed)}</td><td class="is-num">${n(t.shortfall)}</td></tr></tfoot>
-      </table></div>
-      <div class="ap-rec ph-muted">
-        <div class="ph-row"><span>Confirmed across farms</span><b>${n(t.confirmed)} of ${n(t.ordered)} ordered</b></div>
-        <div class="ph-row"><span>Line shortfall (ordered beyond available stock)</span><b class="${t.line_shortfall > 0 ? "ph-bad" : ""}" data-k="line_shortfall">${n(t.line_shortfall)}</b></div>
-        <p>${PH.esc(data.available_definition || "")} Stock is shared by every line of the same variety and length, so farm figures are not reserved for this line alone.</p>
-      </div>
-      <p class="ph-mt">${opls ? "Pick lists: " + opls + " · " : "No pick list yet · "}<a class="ap-doc" href="${sv}" target="_blank" rel="noopener" data-doc="stock-visibility">Stock Visibility for ${PH.esc(l.item_code)}${l.length ? " " + PH.esc(l.length) : ""}</a> · ${docLink("Sales Order", l.sales_order)}</p>
-    </div>`;
-    PH.modal({ title: "Per-farm breakdown", sub: l.sales_order + " · line " + l.line_no + " · " + (l.item_code || "") + (l.length ? " " + l.length : "") + " · " + (l.customer_name || l.customer), body, drawer: true, size: "lg" });
-  }
-
-  /* ── Stock cover modal (the numbers behind Ordered / Available / Uncovered) ── */
-  function openCover(focus) {
-    const rows = (data.cover || []).slice().sort((a, b) => focus === "available" ? b.available - a.available : b.ordered - a.ordered);
-    const sum = (k) => rows.reduce((s, r) => s + (+r[k] || 0), 0);
-    const body = `<div class="ph-table-wrap"><table class="ph-table ph-table--compact" id="ap-cover">
-      <thead><tr><th>Variety</th><th>Len</th><th class="is-num">Lines</th><th class="is-num">Ordered</th><th class="is-num" title="${PH.esc(data.available_definition || "")}">Available</th><th class="is-num">Uncovered</th><th>Available by farm</th></tr></thead>
-      <tbody>${rows.map((r) => `<tr><td class="ph-strong">${PH.esc(r.variety)}</td><td>${PH.esc(r.length || "—")}</td><td class="is-num">${n(r.lines)}</td>
-        <td class="is-num ${focus === "ordered" ? "is-strong" : ""}">${n(r.ordered)}</td><td class="is-num ${focus === "available" ? "is-strong" : ""}">${n(r.available)}</td>
-        <td class="is-num ${r.uncovered > 0 ? "ph-bad" : ""}">${n(r.uncovered)}</td>
-        <td class="ph-muted">${Object.keys(r.farms || {}).filter((f) => r.farms[f] > 0).sort().map((f) => PH.esc(f) + " " + n(r.farms[f])).join(" · ") || "—"}</td></tr>`).join("")}</tbody>
-      <tfoot><tr data-total><td>Total</td><td></td><td class="is-num">${n(sum("lines"))}</td><td class="is-num">${n(sum("ordered"))}</td><td class="is-num">${n(sum("available"))}</td><td class="is-num">${n(sum("uncovered"))}</td><td></td></tr></tfoot>
-      </table></div><p class="ph-muted ph-mt">${PH.esc(data.available_definition || "")}</p>`;
-    PH.modal({ title: focus === "available" ? "Available stock by variety and length" : "Ordered stems by variety and length", sub: "Same filters as the table. Totals equal the KPI cards.", body, size: "xl" });
-  }
-
-  /* ── Actions ── */
-  const grid = document.getElementById("grid");
-  grid.addEventListener("input", (e) => {
-    const i = e.target.closest("[data-input]");
-    if (i) drafts[i.dataset.input] = i.value;
-  });
-  grid.addEventListener("keydown", (e) => {
-    const i = e.target.closest("[data-input]");
-    if (i && e.key === "Enter") { e.preventDefault(); confirmLine(i.dataset.input); }
-  });
-  const lineByKey = (k) => lines.find((l) => l.key === k);
-  grid.addEventListener("click", (e) => {
-    const f = e.target.closest("[data-farms]");
-    if (f) { const l = lineByKey(f.dataset.farms); return l && openBreakdown(l); }
-    const c = e.target.closest("[data-confirm]");
-    if (c) return confirmLine(c.dataset.confirm, c);
-    const r = e.target.closest("[data-remove]");
-    if (r) return removeLine(r.dataset.remove, r);
-    if (e.target.closest("[data-pick-farm]")) { farmSel.focus(); if (farmSel.showPicker) try { farmSel.showPicker(); } catch (x) {} }
-  });
-
-  // Show the change at once, then re-read so the KPIs and per-farm figures (server-side) catch up.
-  function applyEntries(l, list) {
-    l.entries = list;
-    const ct = list.reduce((s, e) => s + (+e.stems || 0), 0), ord = +l.stems_ordered || 0;
-    l.state = ct <= 0 ? "open" : ord > 0 && ct >= ord ? "full" : "partial";
-    render();
-    load(true, true);
-  }
-
-  function confirmLine(k, btn) {
-    const l = lineByKey(k);
-    if (!l) return;
-    if (!myFarm) return PH.toast("Select your farm first", "warn");
-    const input = grid.querySelector(`[data-input="${CSS.escape(k)}"]`);
-    const stems = parseInt(input ? input.value : drafts[k], 10);
-    if (isNaN(stems) || stems < 0) return PH.toast("Enter a valid number of stems", "warn");
-    const max = remaining(l) + myStems(l);
-    if (stems > max) return PH.toast("Maximum " + PH.fmt.num(max) + " stems for this line", "warn");
-    const farm = myFarm;
-    busy++;
-    if (btn) btn.disabled = true;
-    return PH.call(CONFIRM, { sales_order: l.sales_order, line_no: l.line_no, processing_location: farm, action: "confirm", stems })
-      .then((m) => {
-        const server = m && m.data && m.data.confirmed_entries;
-        let list = entries(l).slice();
-        if (server) list = server.map((e) => ({ farm: e.farm, stems: +e.stems || 0 }));
-        else {
-          const i = list.findIndex((e) => e.farm === farm);
-          if (stems === 0) { if (i >= 0) list.splice(i, 1); }
-          else if (i >= 0) list[i] = Object.assign({}, list[i], { stems });
-          else list.push({ farm, stems });
-        }
-        delete drafts[k];
-        PH.toast(stems === 0 ? "Confirmation removed for " + farm : PH.fmt.num(stems) + " stems confirmed for " + farm, "good");
-        applyEntries(l, list);
-      })
-      .catch(() => { if (btn) btn.disabled = false; })
-      .finally(() => busy--);
-  }
-
-  function removeLine(k, btn) {
-    const l = lineByKey(k);
-    if (!l || !myFarm) return;
-    const farm = myFarm;
-    busy++;
-    if (btn) btn.disabled = true;
-    return PH.call(CONFIRM, { sales_order: l.sales_order, line_no: l.line_no, processing_location: farm, action: "unconfirm", stems: 0 })
-      .then(() => {
-        delete drafts[k];
-        PH.toast("Confirmation removed for " + farm, "good");
-        applyEntries(l, entries(l).filter((e) => e.farm !== farm));
-      })
-      .catch(() => { if (btn) btn.disabled = false; })
-      .finally(() => busy--);
-  }
-
-  /* ── Export: one row per listed order line x farm ── */
-  document.getElementById("export").addEventListener("click", () => {
-    const s = st.get();
-    const out = [];
-    lines.forEach((l) => {
-      const base = { customer: l.customer, transaction_date: l.transaction_date, delivery_date: l.delivery_date, sales_order: l.sales_order,
-        order_name: l.order_name, line_no: l.line_no, item_code: l.item_code, length: l.length, stems_ordered: l.stems_ordered, boxes: l.boxes,
-        allocated: l.allocated_stems, confirmed: entries(l).map((e) => e.farm + ": " + e.stems).join("; "), confirmed_total: confirmedTotal(l) };
-      const bd = l.breakdown || [];
-      if (!bd.length) out.push(base);
-      bd.forEach((c) => out.push(Object.assign({}, base, { farm: c.farm, available: c.available, on_shelf: c.on_shelf, held: c.held,
-        farm_allocated: c.allocated, farm_confirmed: c.confirmed, shortfall: c.shortfall })));
+    PH.set($("pg-list"), loading("Loading the day…"));
+    // The variety being worked on does not wait for the list: ask for both at once.
+    const started = S.pick ? JSON.stringify(S.pick) : "";
+    if (S.pick) openPool();
+    return PH.call(API + "get_board", { delivery_date: S.date, farm: S.farm, view: S.view }).then((m) => {
+      if (my !== seq || !m) return;
+      board = m; S.farm = m.farm || S.farm; S.teams = m.teams || [];
+      PH.options("#pg-farm", (m.farms || []).map((f) => ({ value: f, label: f })), S.farm);
+      drawKpis(); drawList();
+      if (S.pick && !m.pools.some((p) => p.variety === S.pick.variety && p.length === S.pick.length)) S.pick = null;
+      if (!S.pick && m.pools.length) S.pick = { variety: m.pools[0].variety, length: m.pools[0].length };
+      if (!started || JSON.stringify(S.pick) !== started) openPool();   // already on its way when the pick did not change
     });
-    if (!out.length) return PH.toast("Nothing to export", "warn");
-    PH.csv("allocation-" + s.from + (s.to !== s.from ? "_" + s.to : "") + ".csv", out, [
-      { key: "customer", label: "Customer" }, { key: "transaction_date", label: "Order Date" }, { key: "delivery_date", label: "Delivery Date" },
-      { key: "sales_order", label: "Sales Order" }, { key: "order_name", label: "Order Name" }, { key: "line_no", label: "Line" },
-      { key: "item_code", label: "Variety" }, { key: "length", label: "Length" }, { key: "stems_ordered", label: "Ordered Stems" },
-      { key: "boxes", label: "Boxes" }, { key: "allocated", label: "Allocated Stems" }, { key: "farm", label: "Stock Farm" },
-      { key: "available", label: "Available Stems" }, { key: "on_shelf", label: "On Shelf Stems" }, { key: "held", label: "Held Stems" },
-      { key: "farm_allocated", label: "Farm Allocated Stems" }, { key: "farm_confirmed", label: "Farm Confirmed Stems" }, { key: "shortfall", label: "Shortfall" },
-      { key: "confirmed", label: "Confirmed" }, { key: "confirmed_total", label: "Confirmed Total" },
+  }
+
+  function drawKpis() {
+    const k = board.kpis;
+    PH.kpis("#pg-kpis", [
+      { label: "Lines confirmed", value: k.planned_pct == null ? "—" : k.planned_pct + "%", unit: PH.fmt.plural(k.lines_planned, "line") + " of " + n(k.lines) },
+      { label: "Stems left to confirm", value: k.stems_left, unit: "for " + PH.fmt.date(board.delivery_date, true) + " delivery" },
+      { label: "Short", value: k.short, unit: k.short ? "stems we may not have" : "nothing short", dark: false },
+      { label: "Use first", value: k.use_first, unit: "stems getting old", onClick: useFirst, title: "See which orders can use the stock that is getting old" },
     ]);
+  }
+
+  function drawList() {
+    const el = $("pg-list");
+    if (!board.pools.length) {
+      PH.set(el, '<div class="pg-empty">' + (S.view === "attention" ? "Nothing needs attention for this day." : S.view === "confirmed" ? "Nothing is confirmed for this day yet." : "There are no orders for this day.") + "</div>");
+      return;
+    }
+    PH.set(el, board.pools.map((p) => {
+      const on = S.pick && S.pick.variety === p.variety && S.pick.length === p.length;
+      const chip = p.status === "short" ? "bad" : p.status === "watch" ? "warn" : "good";
+      const why = p.status === "short" ? "Short by " + n(p.short) + " stems" : p.status === "watch" ? (p.still_to_plan > p.on_shelf + p.received ? "Needs stock that has not arrived yet" : "Has stock that is getting old: use it first") : "Covered";
+      return '<button type="button" class="pg-row' + (on ? " is-on" : "") + '" data-v="' + PH.esc(p.variety) + '" data-l="' + PH.esc(p.length) + '">' +
+        '<div class="pg-row__top"><span class="pg-row__name">' + PH.esc(p.variety) + " " + PH.esc(p.length) + '</span><span class="pg-chip pg-chip--' + chip + '">' + p.covered_pct + "% covered</span></div>" +
+        '<div class="pg-row__stats"><span><b>' + n(p.ordered) + "</b> ordered</span><span><b>" + n(p.held + p.expected_plan) + "</b> confirmed</span><span><b>" + n(p.have) + "</b> available</span></div>" +
+        '<div class="pg-row__note ph-' + (chip === "bad" ? "bad" : chip === "warn" ? "warn" : "muted") + '">' + why + "</div></button>";
+    }).join(""));
+  }
+
+  $("pg-list").addEventListener("click", (e) => {
+    const b = e.target.closest(".pg-row"); if (!b) return;
+    S.pick = { variety: b.dataset.v, length: b.dataset.l };
+    PH.$$(".pg-row").forEach((x) => x.classList.toggle("is-on", x === b));
+    PH.set($("pg-detail"), loading("Opening " + b.dataset.v + " " + b.dataset.l + "…"));
+    $("pg-detail").scrollTop = 0;
+    openPool();
   });
 
-  /* ── Refresh: a page left open overnight moves on to the new tomorrow ── */
-  PH.onRefresh(() =>
-    PH.call(DD_METHOD, {}, { silent: true, type: "GET" }).catch(() => serverTomorrow).then((d) => {
-      const s = st.get();
-      const wasDefault = s.from === serverTomorrow && s.to === serverTomorrow;
-      if (d) serverTomorrow = d;
-      if (wasDefault && s.from !== serverTomorrow) st.set({ from: serverTomorrow, to: serverTomorrow }); // triggers load
-      else return load();
-    })
-  );
-  PH.ready(() => load());
-  PH.poll(() => load(true), 60000);
+  function openPool() {
+    if (!S.pick) { PH.set($("pg-detail"), '<div class="pg-empty">Choose a variety to confirm it.</div>'); return; }
+    const my = ++pseq;
+    return PH.call(API + "get_pool", { delivery_date: S.date, farm: S.farm, variety: S.pick.variety, length: S.pick.length }, { silent: true })
+      .then((m) => { if (my === pseq) { pool = m; drawPool(); } })
+      .catch(() => PH.set($("pg-detail"), '<div class="pg-empty">Could not open this variety.</div>'));
+  }
+
+  function drawPool() {
+    const p = pool.pool, el = $("pg-detail");
+    const old = p.getting_old > 0 ? '<div class="ph-notice ph-notice--warn pg-old">' + n(p.getting_old) + " stems are getting old (day " + board.amber_from_days + " or more). They are used first when you confirm.</div>" : "";
+    // One table per tab. Both stay in the page, so what you typed on one is kept while you look at the other.
+    const teamSelect = (l, value) => '<select class="ph-select pg-team-row" data-soi="' + PH.esc(l.soi) + '" data-was="' + PH.esc(l.team || "") + '"' + (l.mix_key ? ' data-mix="' + PH.esc(l.mix_key) + '"' : "") + ' aria-label="Team for ' + PH.esc(l.customer || "") + '"><option value="">Choose a team</option>' +
+      S.teams.map((t) => "<option" + (t === value ? " selected" : "") + ">" + PH.esc(t) + "</option>").join("") + "</select>";
+    const lineRows = (list, longer) => list.map((l) => {
+      const here = longer ? l.confirmed_length === p.length : true;
+      const cur = here ? l.held + l.expected : 0, who = PH.esc(l.customer || "");
+      const sub = "<small>" + PH.esc(l.sales_order) + (longer ? " · ordered " + PH.esc(l.ordered_length) : "") + (l.allocated ? " · " + n(l.allocated) + " already allocated" : "") +
+        (!longer && l.confirmed_length && l.confirmed_length !== l.ordered_length ? " · confirmed as " + PH.esc(l.confirmed_length) : "") + "</small>";
+      return "<tr><td>" + who + (l.mixed ? ' <span class="ph-badge">Mixed box</span>' : "") + sub + (l.mixed ? "<small>One team for the whole box</small>" : "") + "</td>" +
+        '<td class="is-num">' + n(l.ordered) + "</td>" +
+        '<td><input class="ph-input pg-in" type="number" min="0" max="' + Math.round(l.max_plan) + '" step="1" inputmode="numeric" data-allocated="' + Math.round(l.allocated || 0) + '" data-soi="' + PH.esc(l.soi) + '"' + (longer ? ' data-len="' + PH.esc(p.length) + '"' : "") + ' data-was="' + Math.round(cur) + '" value="' + Math.round(cur) + '" aria-label="Stems to confirm for ' + who + '">' +
+        '<small class="pg-in-hint" aria-live="polite"></small>' +
+        teamSelect(l, (l.team || S.team)) +
+        "<small>" + (here && l.held ? "held on the shelf " + n(l.held) : "") + (here && l.held && l.expected ? " · " : "") + (here && l.expected ? "expected from the farms " + n(l.expected) : "") + "</small></td></tr>";
+    }).join("");
+    const table = (id, list, longer, empty, intro) => '<div id="' + id + '"' + (S.tab === id ? "" : " hidden") + ">" + (intro ? '<p class="ph-muted pg-cap">' + intro + "</p>" : "") +
+      (list.length ? '<div class="ph-table-wrap"><table class="ph-table"><thead><tr><th>Customer</th><th class="is-num">Ordered</th><th>Confirm</th></tr></thead><tbody>' + lineRows(list, longer) + "</tbody></table></div>" : '<div class="pg-empty">' + empty + "</div>") + "</div>";
+    // What is confirmed against this variety and length, with a way to take each one out.
+    const doneRows = pool.confirmed_lines.map((c) => "<tr><td>" + PH.esc(c.customer || "") + "<small>" + PH.esc(c.sales_order) + (c.ordered_length && c.ordered_length !== p.length ? " · ordered " + PH.esc(c.ordered_length) : "") + "</small>" + (c.team ? "<small>Team " + PH.esc(c.team) + "</small>" : "") + "</td><td>" +
+      (c.held ? "<b>" + n(c.held) + "</b> held in " + PH.fmt.plural(c.buckets, "bucket") : "") + (c.held && c.expected ? "<br>" : "") + (c.expected ? "<b>" + n(c.expected) + "</b> expected from the farms" : "") +
+      (c.missing ? '<small class="ph-bad">A held bucket is missing: this needs stock.</small>' : "") + '</td><td class="is-num"><span class="pg-confirm">' +
+      (c.mixed ? '<small class="ph-muted">Mixed box: packed together</small>' : '<button class="ph-btn ph-btn--ghost ph-btn--sm" type="button" data-swap="' + PH.esc(c.soi) + '">Swap or split</button>') +
+      '<button class="ph-btn ph-btn--ghost ph-btn--sm" type="button" data-unconfirm="' + PH.esc(c.soi) + '">Unconfirm</button></span></td></tr>').join("");
+    const done = '<div id="pg-t-confirmed"' + (S.tab === "pg-t-confirmed" ? "" : " hidden") + ">" +
+      (pool.confirmed_lines.length ? '<div class="ph-table-wrap"><table class="ph-table"><thead><tr><th>Customer</th><th>Confirmed</th><th></th></tr></thead><tbody>' + doneRows + "</tbody></table></div>" : '<div class="pg-empty">Nothing is confirmed against ' + PH.esc(p.variety) + " " + PH.esc(p.length) + " yet.</div>") + "</div>";
+    const tabBtn = (id, label, count) => '<button type="button" data-tab="' + id + '"' + (S.tab === id ? ' class="is-on"' : "") + ">" + label + " (" + count + ")</button>";
+    const tabs = '<div class="ph-pills pg-tabs" id="pg-tabs">' + tabBtn("pg-t-exact", "Exact length", pool.lines.length) + tabBtn("pg-t-longer", "Longer than ordered", pool.longer_lines.length) + tabBtn("pg-t-confirmed", "Confirmed", pool.confirmed_lines.length) + "</div>";
+    const rows = tabs +
+      table("pg-t-exact", pool.lines, false, "No orders for " + PH.esc(p.variety) + " " + PH.esc(p.length) + ".", "") +
+      table("pg-t-longer", pool.longer_lines, true, "No orders for a shorter length are waiting.", "Orders for a shorter " + PH.esc(p.variety) + ". Confirming them here gives them " + PH.esc(p.length) + ", which is longer than they ordered.") +
+      done;
+    const u = pool.supply, row = (label, value, sub, cls) => '<div class="pg-srow' + (cls ? " " + cls : "") + '"><span>' + label + (sub ? "<small>" + sub + "</small>" : "") + "</span><b>" + n(value) + "</b></div>";
+    const farms = u.to_cut_by_farm.map((x) => PH.esc(x.farm) + " " + n(x.stems)).join(" · ");
+    const rooms = u.rooms.map((x) => PH.esc(x.room) + " " + n(x.stems)).join(" · ");
+    // Both numbers, and the sum that turns one into the other.
+    const cut = u.to_cut > 0
+      ? row("Still to be cut: the forecast says", u.to_cut, farms) +
+        (u.error_pct == null
+          ? row("Safe to promise", 0, "no finished weeks to judge the forecast for " + PH.esc(p.variety) + " by, so none of it is counted yet", "pg-srow--sub")
+          : row("Safe to promise", u.to_cut_sure, n(u.to_cut) + " less " + u.error_pct + "%: the forecast for " + PH.esc(p.variety) + " has been off by " + u.error_pct + "% on average this year (the revised forecast against what was actually cut)", "pg-srow--sub"))
+      : row("Still to be cut: the forecast says", 0, "no farm forecast for this day");
+    const supply = '<div class="pg-supply">' +
+      row("Ordered", p.ordered, "", "pg-srow--top") +
+      row("On the shelf", u.on_shelf, "at " + PH.esc(pool.farm)) +
+      (u.received > 0 ? row("Received, not shelved", u.received, rooms) : "") +
+      (u.on_the_way > 0 ? row("Harvested, not received yet", u.on_the_way, "the day's production on its way") : "") +
+      cut + "</div>";
+    PH.set(el, '<div class="ph-card__head"><div><h2 class="ph-card__title">' + PH.esc(p.variety) + " " + PH.esc(p.length) + '</h2><div class="ph-card__meta">Delivery ' + PH.fmt.date(pool.delivery_date, true) + "</div></div>" +
+      "</div>" + supply + old +
+      rows +
+      '<div class="pg-foot" id="pg-foot"' + (S.tab === "pg-t-confirmed" ? " hidden" : "") + '><button class="ph-link" id="pg-fill" type="button">Fill every line</button><button class="ph-btn ph-btn--primary" id="pg-plan" type="button">Confirm</button></div>');
+    $("pg-fill").onclick = () => PH.$$("#pg-t-exact:not([hidden]) .pg-in, #pg-t-longer:not([hidden]) .pg-in").forEach((i) => (i.value = i.max));
+    $("pg-plan").onclick = confirmIt;
+    // The stems box stops at what the order allows (what is ordered, less what is already allocated) and says why.
+    PH.$$("#pg-detail .pg-in").forEach((inp) => (inp.oninput = () => {
+      const max = Math.max(0, Math.round(+inp.max || 0)), hint = inp.parentElement.querySelector(".pg-in-hint");
+      const raw = +inp.value;
+      if (inp.value !== "" && raw < 0) inp.value = 0;
+      if (raw > max) {
+        inp.value = max;
+        const al = +inp.dataset.allocated;
+        hint.innerHTML = '<span class="ph-bad">' + (al > 0 ? "Only " + n(max) + " left to confirm: " + n(al) + " of this order is already allocated." : "This order is for " + n(max) + " stems, the most you can confirm.") + "</span>";
+      } else hint.textContent = "";
+    }));
+    // A team belongs to the order line. A mixed box is packed by one team, so choosing it on one line sets it on the whole box.
+    PH.$$("#pg-detail .pg-team-row").forEach((sel) => (sel.onchange = () => {
+      S.team = sel.value; try { localStorage.setItem("pg_team", S.team); } catch (e) {}
+      if (sel.dataset.mix) PH.$$("#pg-detail .pg-team-row").forEach((o) => { if (o.dataset.mix === sel.dataset.mix) o.value = sel.value; });
+    }));
+    $("pg-tabs").onclick = (e) => {
+      const b = e.target.closest("button"); if (!b) return;
+      S.tab = b.dataset.tab;
+      PH.$$("#pg-tabs button").forEach((x) => x.classList.toggle("is-on", x === b));
+      ["pg-t-exact", "pg-t-longer", "pg-t-confirmed"].forEach((id) => ($(id).hidden = id !== S.tab));
+      $("pg-foot").hidden = S.tab === "pg-t-confirmed";
+    };
+    PH.$$("#pg-detail [data-unconfirm]").forEach((b) => (b.onclick = () => unconfirm(b)));
+    PH.$$("#pg-detail [data-swap]").forEach((b) => (b.onclick = () => swapOrSplit(b.dataset.swap)));
+  }
+
+  /* ── Confirming: look first (heads-up), then save ── */
+  function typedLines() {
+    const out = [];
+    PH.$$(".pg-in").forEach((i) => {
+      const sel = i.closest("tr").querySelector(".pg-team-row"), stems = Math.min(Math.max(0, Math.round(+i.value || 0)), Math.round(+i.max || 0)), team = sel ? sel.value : "";
+      const stemsChanged = +i.value !== +i.dataset.was, teamChanged = !!sel && stems > 0 && team !== sel.dataset.was && +i.dataset.was > 0;
+      if (!stemsChanged && !teamChanged) return;
+      out.push({ sales_order_item: i.dataset.soi, stems, team, ...(i.dataset.len && stems > 0 ? { length: i.dataset.len } : {}) });
+    });
+    return out;
+  }
+  const body = (lines) => ({ delivery_date: S.date, farm: S.farm, lines: JSON.stringify(lines) });
+
+  function confirmIt() {
+    const lines = typedLines();
+    if (!lines.length) return PH.toast("Nothing changed.");
+    proceed(lines);
+  }
+
+  // Ask what confirming would do; stay quiet when it is harmless, otherwise show the heads-up.
+  function proceed(lines) {
+    const noTeam = lines.filter((l) => l.stems > 0 && !l.team);
+    if (noTeam.length) {
+      noTeam.forEach((l) => { const sel = document.querySelector('.pg-team-row[data-soi="' + l.sales_order_item + '"]'); if (sel) sel.focus(); });
+      return PH.toast("Choose a team for " + (noTeam.length === 1 ? "this line" : "each line") + " you confirm.", "bad");
+    }
+    const btn = $("pg-plan"); if (btn) btn.disabled = true;
+    const done = () => { if (btn) btn.disabled = false; };
+    return PH.call(GUARDS + "preview_confirmation", body(lines), { silent: true }).then((r) => {
+      done();
+      if (!r || !r.heads_up || !r.heads_up.length) return save(lines);
+      headsUp(r, lines, () => save(lines));
+    }).catch((e) => { done(); PH.toast((e && e.message) || "Could not check this.", "bad"); });
+  }
+
+  function save(lines) {
+    return PH.call(API + "confirm_lines", body(lines), { type: "POST" }).then((r) => {
+      if (!r || r.success === false) return false;
+      const held = r.lines.reduce((a, x) => a + x.held, 0), exp = r.lines.reduce((a, x) => a + x.expected, 0);
+      PH.toast("Confirmed. " + n(held) + " held on the shelf" + (exp ? ", " + n(exp) + " expected from the farm" : "") + ".", "good");
+      (r.quiet || []).forEach((q) => PH.toast(q));
+      load();
+    });
+  }
+
+  // The popup: what would happen, the next best step, and (for a red one) a reason to go ahead anyway.
+  function headsUp(r, lines, go, title) {
+    const el = document.createElement("div"), acts = [];
+    el.innerHTML = r.heads_up.map((h) => '<div class="pg-hu pg-hu--' + h.severity + '"><p>' + PH.esc(h.message) + "</p>" +
+      (h.actions || []).map((a) => {
+        if (a.kind === "open_order") return '<a class="ph-link" target="_blank" rel="noopener" href="/app/sales-order/' + encodeURIComponent(a.order) + '">' + PH.esc(a.label) + "</a>";
+        acts.push(a);
+        return '<button type="button" class="ph-link" data-i="' + (acts.length - 1) + '">' + PH.esc(a.label) + "</button>";
+      }).join("") + "</div>").join("") +
+      "";
+    const m = PH.modal({
+      title: title || "Before you confirm", body: el,
+      actions: [
+        { label: "Cancel" },
+        { label: "Confirm anyway", primary: true, onClick: () => go() },
+      ],
+    });
+    // A suggested step changes the lines and looks again, so the next popup (if any) is about the new numbers.
+    el.querySelectorAll("button[data-i]").forEach((b) => (b.onclick = () => {
+      const a = acts[+b.dataset.i];
+      m.close();
+      if (a.kind === "use_ordered_length") lines.forEach((l) => delete l.length);
+      proceed(lines);
+    }));
+  }
+
+  // Swap or split: give stems that are confirmed for one customer to one or several customers who still need them.
+  function swapOrSplit(soi) {
+    const c = pool.confirmed_lines.find((x) => x.soi === soi); if (!c) return;
+    const p = pool.pool, have = c.held + c.expected;
+    const targets = pool.lines.concat(pool.longer_lines).filter((l) => l.soi !== soi && l.left > 0 && (!l.confirmed_length || l.confirmed_length === p.length));
+    const el = document.createElement("div");
+    if (!targets.length) {
+      el.innerHTML = '<p class="ph-muted">No other customer needs ' + PH.esc(p.variety) + " " + PH.esc(p.length) + " right now, so there is nobody to give these stems to.</p>";
+      return PH.modal({ title: "Swap or split", body: el, actions: [{ label: "Close" }] });
+    }
+    const by = (id) => targets.find((l) => l.soi === id);
+    const parts = [{ to: targets[0].soi, n: Math.round(Math.min(have, targets[0].left)), team: targets[0].team || S.team || "", warn: "" }];
+    const given = (except) => parts.reduce((a, x) => a + (x === except ? 0 : x.n), 0);
+    // The most a recipient can take: what it still needs, and what is left of the stems being given.
+    const cap = (x) => Math.max(0, Math.round(Math.min(by(x.to).left, have - given(x))));
+    el.innerHTML = "<p>" + PH.esc(c.customer) + " has <b>" + n(have) + "</b> stems of " + PH.esc(p.variety) + " " + PH.esc(p.length) + " confirmed (" + n(c.held) + " held, " + n(c.expected) + " expected). Give some or all of them to the customers below.</p>" +
+      '<div id="pg-mv-rows"></div><button type="button" class="ph-link" id="pg-mv-add">Add another customer</button><p class="ph-muted" id="pg-mv-note" style="line-height:1.5;margin-top:var(--sp-4)"></p>';
+    const rowsEl = el.querySelector("#pg-mv-rows");
+    const note = () => {
+      const total = given(null), rest = have - total, k = parts.length;
+      el.querySelector("#pg-mv-note").textContent = total <= 0 ? "" : (k === 1 && rest <= 0.0001)
+        ? "Swap: all " + n(total) + " stems go to " + by(parts[0].to).customer + ", and " + c.customer + " goes back to still to confirm."
+        : "Split: " + n(total) + " of " + n(have) + " stems are given away" + (rest > 0.0001 ? ", and " + c.customer + " keeps " + n(rest) + "." : ", and " + c.customer + " goes back to still to confirm.");
+      const btn = m.el.querySelector(".ph-modal__foot .ph-btn--primary"); if (btn) btn.textContent = (k === 1 && rest <= 0.0001) ? "Swap" : "Split";
+      el.querySelector("#pg-mv-add").hidden = parts.length >= targets.length || rest <= 0.0001;
+    };
+    const draw = () => {
+      rowsEl.innerHTML = parts.map((x, i) => {
+        const t = by(x.to), used = parts.filter((o) => o !== x).map((o) => o.to);
+        const opts = targets.filter((l) => !used.includes(l.soi)).map((l) => '<option value="' + PH.esc(l.soi) + '"' + (l.soi === x.to ? " selected" : "") + ">" + PH.esc(l.customer) + " · " + PH.esc(l.sales_order) + " line " + l.line_no + (l.mixed ? " · mixed box" : "") + " · needs " + n(l.left) + (l.ordered_length && l.ordered_length !== p.length ? " (ordered " + PH.esc(l.ordered_length) + ")" : "") + "</option>").join("");
+        return '<div class="pg-mv-row" data-i="' + i + '"><select class="ph-select pg-mv-to" aria-label="Give to">' + opts + "</select>" +
+          '<input class="ph-input pg-mv-n" type="number" min="0" step="1" value="' + x.n + '" aria-label="Stems to give">' +
+          '<select class="ph-select pg-mv-team" aria-label="Team for ' + PH.esc(t.customer) + '"><option value="">Choose a team</option>' + S.teams.map((tm) => "<option" + (tm === x.team ? " selected" : "") + ">" + PH.esc(tm) + "</option>").join("") + "</select>" +
+          (parts.length > 1 ? '<button type="button" class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm pg-mv-x" aria-label="Remove">' + PH.icon("close") + "</button>" : "") +
+          '<small class="pg-mv-hint">' + (x.warn ? '<span class="ph-bad">' + x.warn + "</span>" : "up to " + n(cap(x))) + "</small></div>";
+      }).join("");
+      rowsEl.querySelectorAll(".pg-mv-row").forEach((row) => {
+        const x = parts[+row.dataset.i];
+        row.querySelector(".pg-mv-to").onchange = (e) => {
+          x.to = e.target.value; const t = by(x.to);
+          x.team = t.team || x.team || S.team || "";
+          // what you typed stays; it is only brought down when this customer cannot take that much, and you are told
+          const c_ = cap(x); x.warn = x.n > c_ ? t.customer + " only needs " + n(by(x.to).left) + (c_ < by(x.to).left ? ", and only " + n(c_) + " is left to give" : "") + "." : "";
+          if (x.n > c_) x.n = c_; if (x.n <= 0) x.n = Math.max(0, c_);
+          draw();
+        };
+        row.querySelector(".pg-mv-n").oninput = (e) => {
+          const want = Math.max(0, Math.round(+e.target.value || 0)), c_ = cap(x);
+          x.warn = want > c_ ? by(x.to).customer + (want > by(x.to).left ? " only needs " + n(by(x.to).left) : " has only " + n(c_) + " left to give") + "." : "";
+          x.n = Math.min(want, c_); if (want > c_) e.target.value = x.n;
+          row.querySelector(".pg-mv-hint").innerHTML = x.warn ? '<span class="ph-bad">' + x.warn + "</span>" : "up to " + n(c_);
+          note();
+        };
+        row.querySelector(".pg-mv-team").onchange = (e) => { x.team = e.target.value; if (e.target.value) { S.team = e.target.value; try { localStorage.setItem("pg_team", S.team); } catch (er) {} } };
+        const rm = row.querySelector(".pg-mv-x"); if (rm) rm.onclick = () => { parts.splice(+row.dataset.i, 1); draw(); };
+      });
+      note();
+    };
+    el.querySelector("#pg-mv-add").onclick = () => {
+      const free = targets.find((l) => !parts.some((x) => x.to === l.soi)); if (!free) return;
+      const x = { to: free.soi, n: 0, team: free.team || S.team || "", warn: "" }; x.n = cap(x); parts.push(x); draw();
+    };
+    const m = PH.modal({ title: "Swap or split", body: el, actions: [
+      { label: "Cancel" },
+      { label: "Swap", primary: true, onClick: () => {
+        const give = parts.filter((x) => x.n > 0);
+        if (!give.length) { PH.toast("Choose how many stems to give.", "bad"); return false; }
+        const bad = give.find((x) => !x.team);
+        if (bad) { PH.toast("Choose a team for " + by(bad.to).customer + ".", "bad"); return false; }
+        return PH.call(API + "split_stems", { delivery_date: S.date, farm: S.farm, from_soi: soi, parts: JSON.stringify(give.map((x) => ({ to_soi: x.to, stems: x.n, team: x.team }))) }, { type: "POST" }).then((r) => {
+          if (!r || r.success === false) return false;
+          PH.toast(n(r.moved) + " stems moved to " + PH.fmt.plural(give.length, "customer") + ".", "good"); load();
+        });
+      } },
+    ] });
+    draw();
+  }
+
+  // Take one order line out of the plan: what it held goes back to the shelf for everyone.
+  function unconfirm(btn) {
+    btn.disabled = true;
+    PH.call(API + "unconfirm_line", { sales_order_item: btn.dataset.unconfirm }, { type: "POST" }).then((r) => {
+      if (!r || r.success === false) { btn.disabled = false; return; }
+      PH.toast("Unconfirmed. The stock is free again.", "good");
+      load();
+    }).catch(() => { btn.disabled = false; });
+  }
+
+  // Stock that is getting old, matched to the orders that can use it.
+  function useFirst() {
+    PH.call(GUARDS + "get_use_first", { delivery_date: S.date, farm: S.farm }, { silent: true }).then((r) => {
+      const el = document.createElement("div"); el.className = "pg-uf";
+      el.innerHTML = r.items.length ? r.items.map((it, i) => "<h3>" + PH.esc(it.variety) + " " + PH.esc(it.length) + ' <span class="ph-muted">· ' + n(it.old_stems) + " stems getting old</span></h3>" +
+        it.matches.map((mt, j) => '<div class="pg-m"><span>' + PH.esc(mt.customer) + " · " + n(mt.take) + (mt.kind === "longer" ? " (ordered " + PH.esc(mt.ordered_length) + ", longer is fine for stock this old)" : "") + '</span><span class="pg-confirm"><select class="ph-select pg-team-use" aria-label="Team for ' + PH.esc(mt.customer) + '"><option value="">Choose a team</option>' + S.teams.map((t) => "<option" + (t === (mt.team || S.team) ? " selected" : "") + ">" + PH.esc(t) + "</option>").join("") + '</select><button class="ph-btn ph-btn--sm" data-i="' + i + '" data-j="' + j + '">Confirm</button></span></div>').join("")).join("")
+        : '<p class="ph-muted">Nothing is getting old that this day\'s orders can use.</p>';
+      const m = PH.modal({ title: "Use first", sub: "Stock from day " + r.amber_from_days + " on", body: el, drawer: true });
+      el.querySelectorAll("button[data-i]").forEach((b) => (b.onclick = () => {
+        const a = { ...r.items[+b.dataset.i].matches[+b.dataset.j].apply, team: b.parentElement.querySelector(".pg-team-use").value };
+        if (!a.team) return PH.toast("Choose a team for this line first.", "bad");
+        m.close(); proceed([a]);
+      }));
+    });
+  }
+
+  load();
 })();
 </script>
 {% endraw %}

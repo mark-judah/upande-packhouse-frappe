@@ -242,6 +242,9 @@ doc_events = {
 		]
 	},
 	"Sales Order": {
+		# A cancelled or changed line gives back what the allocation plan held for it.
+		"on_cancel": "upande_packhouse.allocation_plan.release_changed_lines",
+		"on_update_after_submit": "upande_packhouse.allocation_plan.release_changed_lines",
 		"before_validate": "upande_packhouse.sales_order_engine.sales_order_before_validate",
 		"validate": [
 			# ecommerce_integration (Floriday/Biflorica) still owns custom_farm /
@@ -288,10 +291,14 @@ doc_events = {
 scheduler_events = {
 	"daily": [
 		"upande_packhouse.spec.expire_temporary_specs",
+		# A plan for a delivery date that has passed holds nothing.
+		"upande_packhouse.allocation_plan.release_passed_days",
 	],
 	# Safety net for not-found marks written by a path with no hook (Bucket Watchlist).
 	"hourly": [
 		"upande_packhouse.api.v2.rt_watchlist.hourly_sync",
+		# A held bucket that has left the shelf is marked Broken so the plan shows it needs stock.
+		"upande_packhouse.allocation_plan.mark_missing_buckets",
 	],
 	"cron": {
 		# Midnight: every trip of the day before is ended -- none runs into the next day.
@@ -309,6 +316,8 @@ scheduler_events = {
 			"upande_packhouse.api.remote_transfer.scheduler.rank_schedules",
 			# Each transfer step's time and user on the pick rows, for steps set without an event.
 			"upande_packhouse.api.remote_transfer.transfer_steps.run",
+			# Expected stock that has reached the shelf is held for the customers it was confirmed for.
+			"upande_packhouse.allocation_plan.convert_virtual_job",
 		],
 	},
 }

@@ -19,13 +19,16 @@ parts always add up to what is on the shelf (audit ST-2):
              at the stems present. Matched on bucket AND variety AND length, so a
              reused bucket's stale allocation never hits a different variety (ST-6).
   free       the rest.
+  reserved   part of `free` the allocation plan holds for one order line (Bucket Reservation). Not
+             allocatable by anyone else; the line it is held for gets it back through
+             allocation_plan.free_for_line.
 
 Two more flags mirror the allocator (sales_allocation.get_sales_order_items_with_buckets)
 so "available" here is what allocation will actually accept (OR-A5):
   too_old    age (days since harvest, else since shelving) over the shelf farm's
              max allocation age, or at/over the discard age
   cooling    fewer hours on the shelf than the farm's cooling hours
-`allocatable` = free stems that are neither too old nor cooling.
+`allocatable` = free stems, less reserved, that are neither too old nor cooling.
 
 Location is the SHELF's farm (Shelf.farm) everywhere (ST-22). Age has one
 anchor: Shelf Item.harvest_date, else date_added -- the allocator's own (ST-8);
@@ -38,7 +41,7 @@ import frappe
 from frappe.utils import now_datetime
 
 from upande_packhouse.api.v2.core.rose import rose_sql, rose_type
-from upande_packhouse.availability import reserved_bucket_ids
+from upande_packhouse.availability import reserved_bucket_ids, reserved_by_bucket
 
 # The ONE sentence every page uses for "available stock" (tooltips, legends).
 AVAILABLE_DEFINITION = (
@@ -117,6 +120,9 @@ def bucket_rows(*, farms=None, varieties=None, lengths=None, rose=None, company=
 		alloc[(r.bucket_id, r.item_code, r.stem_length)] = float(r.allocated or 0)
 
 	held_ids = reserved_bucket_ids()
+	# Stems the allocation plan holds for an order line. They are still free stems (shelved =
+	# held + allocated + free is unchanged) but are not allocatable by anyone else.
+	planned = reserved_by_bucket(bucket_ids={r.bucket_id for r in rows})
 	cfg = _config()
 	discard_age = cfg["discard_age"]
 	fc = cfg["farm_config"]
@@ -128,6 +134,7 @@ def bucket_rows(*, farms=None, varieties=None, lengths=None, rose=None, company=
 		r.in_discard_request = r.bucket_id in held_ids
 		if r.in_discard_request:
 			r.held, r.allocated, r.free = stems, 0.0, 0.0
+			r.reserved = 0.0
 			r.allocated_in_held = min(a, stems)  # alert: an order is promised stock queued for discard
 			r.over_allocated = 0.0
 		else:
@@ -136,15 +143,16 @@ def bucket_rows(*, farms=None, varieties=None, lengths=None, rose=None, company=
 			r.free = stems - r.allocated
 			r.allocated_in_held = 0.0
 			r.over_allocated = max(0.0, a - stems)
+			r.reserved = min(planned.get(r.bucket_id, 0.0), r.free)
 		farm_cfg = fc.get(r.shelf_farm, {})
 		age = r.age_days if r.age_days is not None else 0
 		r.too_old = age > farm_cfg.get("max_allocation_age", 5) or age >= discard_age
 		r.cooling = (r.hours_on_shelf or 0) < farm_cfg.get("cooling_hours", 0)
-		r.allocatable = 0.0 if (r.too_old or r.cooling) else r.free
+		r.allocatable = 0.0 if (r.too_old or r.cooling) else r.free - r.reserved
 	return rows
 
 
-SUM_FIELDS = ("stems", "held", "allocated", "free", "allocatable", "allocated_in_held", "over_allocated")
+SUM_FIELDS = ("stems", "held", "allocated", "free", "reserved", "allocatable", "allocated_in_held", "over_allocated")
 
 
 def summarize(rows, by=("variety", "stem_length", "shelf_farm")):

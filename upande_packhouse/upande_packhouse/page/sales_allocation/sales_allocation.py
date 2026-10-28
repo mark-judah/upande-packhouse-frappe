@@ -4,7 +4,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, cint, flt, now_datetime, nowdate
 
-from upande_packhouse import stock_movement
+from upande_packhouse import allocation_plan, availability, stock_movement
 
 
 def _origin_warehouse(farm, fallback=None):
@@ -813,6 +813,9 @@ def get_sales_order_items_with_buckets(
 	for b in buckets:
 		buckets_by_item.setdefault(b["item_code"], []).append(b)
 
+	# Stems the allocation plan holds for a line are not available to any other line.
+	held_by_line = availability.reservations_by_bucket_line({b["bucket_id"] for b in buckets})
+
 	for item in items:
 		meta = metadata_map.get(item["item_code"], {})
 		item["headsize"] = meta.get("headsize", "")
@@ -852,9 +855,15 @@ def get_sales_order_items_with_buckets(
 				(b["bucket_id"], b["item_code"], b["stem_length"] or "", item["sales_order_item"]), 0
 			)
 
+			# Held in the plan for another line: not available here.
+			held_others = sum(
+				v for k, v in held_by_line.get(b["bucket_id"], {}).items() if k != item["sales_order_item"]
+			)
+			available_here = max(0.0, (b["available_qty"] or 0) - held_others)
+
 			# Fully allocated elsewhere: nothing to allocate and nothing to
 			# unallocate from this line, so keep it off the list.
-			if (b["available_qty"] or 0) <= 0 and not allocated_here:
+			if available_here <= 0 and not allocated_here:
 				continue
 
 			entry = {
@@ -862,7 +871,8 @@ def get_sales_order_items_with_buckets(
 				"stem_length": b["stem_length"],
 				"total_qty": b["total_qty"],
 				"allocated_qty": b["allocated_qty"],
-				"available_qty": b["available_qty"],
+				"available_qty": available_here,
+				"held_for_others": held_others,
 				"allocated_to_this_item": allocated_here,
 				"age_days": b["age_days"],
 				"hours_since_shelved": b["hours_since_shelved"],
@@ -1814,7 +1824,20 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 		current_available = float(bas.available_quantity or 0)
 		requested = sum(float(a.get("qty", 0)) for a in group)
 
-		if requested > current_available:
+		# Stems the plan holds for other order lines are not ours to take.
+		held_others = sum(
+			v
+			for k, v in availability.reservations_by_bucket_line([bucket_id]).get(bucket_id, {}).items()
+			if k not in {a["sales_order_item"] for a in group}
+		)
+
+		if requested > current_available - held_others:
+			if held_others and requested <= current_available:
+				frappe.throw(
+					_("Bucket {0} is held for another order in the plan: only {1} stems are free. Please refresh.").format(
+						bucket_id, max(0, current_available - held_others)
+					)
+				)
 			frappe.throw(
 				f"Over-allocation on bucket {bucket_id}: "
 				f"{current_available} available, {requested} requested. "
@@ -1872,6 +1895,9 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 			},
 			update_modified=False,
 		)
+
+	# The plan: what was held for these lines is used up, and a fully allocated line lets go of the rest.
+	allocation_plan.after_allocation(allocations)
 
 	# Capture which lines already had an OPL BEFORE this allocation (custom_opl is set
 	# during creation below). The team stamp uses this to tell a freshly-created OPL

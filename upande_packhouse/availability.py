@@ -3,7 +3,8 @@
 Truly-available stems = shelf stock (`Shelf Item.stem_qty`)
   minus what is already allocated (`Bucket Allocation Status.allocated_quantity`)
   minus buckets reserved by an open Discard Request (workflow_state != 'Rejected')
-  whose row is not yet discarded.
+  whose row is not yet discarded,
+  minus stems held by the allocation plan for another order line (`reserved_by_bucket`).
 
 Used by both the Sales Order spec-autofill popup and the allocation page, so the
 number a salesperson sees when picking varieties matches what can actually be
@@ -45,6 +46,60 @@ def reserved_bucket_ids():
 	return {r[0] for r in rows}
 
 
+def length_cm(length):
+	"""'62cm' -> 62; anything without a number -> 0."""
+	import re
+
+	m = re.match(r"\s*(\d+)", str(length or ""))
+	return int(m.group(1)) if m else 0
+
+
+def reserved_by_bucket(exclude_soi=None, bucket_ids=None):
+	"""{bucket_id: stems} held by the allocation plan for OTHER order lines.
+
+	A planned (Real) confirmation holds buckets and stems for one order line (Bucket Reservation,
+	status Active). Allocation to any other line must not take them, so every availability read
+	subtracts this. `exclude_soi` (one Sales Order Item name, or a collection) are the lines asking:
+	what is held for them is theirs to use, so it is left out of the result."""
+	if isinstance(exclude_soi, str):
+		exclude_soi = {exclude_soi}
+	exclude = tuple(exclude_soi or ()) or ("",)
+	params = {"exclude": exclude}
+	where = "status = 'Active' AND sales_order_item NOT IN %(exclude)s"
+	if bucket_ids is not None:
+		if not bucket_ids:
+			return {}
+		where += " AND bucket_id IN %(buckets)s"
+		params["buckets"] = tuple(bucket_ids)
+	try:
+		rows = frappe.db.sql(
+			f"SELECT bucket_id, SUM(stems) FROM `tabBucket Reservation` WHERE {where} GROUP BY bucket_id",
+			params,
+		)  # nosemgrep: the f-string hole is fixed SQL, values are bound
+	except frappe.db.TableMissingError:  # before the doctype is migrated
+		return {}
+	return {r[0]: float(r[1] or 0) for r in rows}
+
+
+def reservations_by_bucket_line(bucket_ids):
+	"""{bucket_id: {sales_order_item: stems}} of active holds, for the allocator to tell a line's own hold
+	from the holds of other lines."""
+	if not bucket_ids:
+		return {}
+	try:
+		rows = frappe.db.sql(
+			"""SELECT bucket_id, sales_order_item, SUM(stems) FROM `tabBucket Reservation`
+			   WHERE status = 'Active' AND bucket_id IN %(b)s GROUP BY bucket_id, sales_order_item""",
+			{"b": tuple(bucket_ids)},
+		)
+	except frappe.db.TableMissingError:
+		return {}
+	out = {}
+	for bucket_id, soi, stems in rows:
+		out.setdefault(bucket_id, {})[soi] = float(stems or 0)
+	return out
+
+
 @frappe.whitelist()
 def variety_availability(varieties: str | list | None, lengths: str | list | None = None):
 	"""Return { variety: { farm: available_stems } } for the given varieties
@@ -83,11 +138,12 @@ def variety_availability(varieties: str | list | None, lengths: str | list | Non
 	)
 
 	reserved = reserved_bucket_ids()
+	held_for_others = reserved_by_bucket()
 	agg = {}
 	for r in rows:
 		if r.bucket_id and r.bucket_id in reserved:
 			continue
-		avail = (r.stem_qty or 0) - (r.allocated or 0)
+		avail = (r.stem_qty or 0) - (r.allocated or 0) - held_for_others.get(r.bucket_id, 0)
 		if avail <= 0:
 			continue
 		farm = r.farm or "Unknown"

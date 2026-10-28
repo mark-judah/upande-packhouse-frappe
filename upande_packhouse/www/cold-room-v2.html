@@ -392,17 +392,34 @@
     PH.skeleton(body, "rows", 6);
     const args = Object.assign({}, scopeArgs());
     if (noFarm) args.shelf_farm = ""; else if (farmKey) args.shelf_farm = farmKey;
-    if (withEmpty) args.include_empty = 1;
+    args.include_empty = 1;
     PH.call(CAP_API + "get_cold_room_shelves", args, { silent: true }).then((r) => {
       if (!r || !r.success) return PH.error(body, (r && r.error) || "Could not load shelves");
-      const cut = r.truncated ? " Showing the fullest " + PH.fmt.num(r.shelves.length) + " of " + PH.fmt.num(r.occupied_shelves) + " shelves." : "";
       const lead = withEmpty
         ? PH.fmt.num(r.registered_shelves) + " shelves registered: " + PH.fmt.num(r.occupied_shelves) + " in use, " + PH.fmt.num(r.empty_shelves) + " empty."
         : (g ? PH.fmt.num(g.occupied) + " of " + PH.fmt.num(g.capacity) + " buckets (" + pctText(g) + "). " : "") + PH.fmt.num(r.over_shelves) + " shelves hold more than " + (bc.buckets_per_shelf || 2) + " buckets.";
-      PH.text(m.el.querySelector(".ph-modal__sub"), lead + cut + " Click a shelf to see its buckets.");
-      PH.set(body, "");
-      lastDrill = { name: "shelves-" + (noFarm ? "no-farm" : farmKey || "all"), rows: r.shelves, cols: shelfCols };
-      PH.table(body, { rows: r.shelves, columns: shelfCols, sort: { key: "buckets", dir: "desc" }, pageSize: 100, tall: true, onRowClick: openShelf, empty: "No buckets on shelves", emptyText: "Nothing is shelved here." });
+      PH.text(m.el.querySelector(".ph-modal__sub"), lead + " Click a shelf to see its buckets.");
+      // Full (no room left), half full (some room, some buckets) and empty: three lists of the same shelves.
+      const room = (sh) => sh.capacity || bc.buckets_per_shelf || 2;
+      const groups = {
+        full: r.shelves.filter((sh) => sh.buckets >= room(sh)),
+        half: r.shelves.filter((sh) => sh.buckets > 0 && sh.buckets < room(sh)),
+        empty: r.shelves.filter((sh) => sh.buckets === 0),
+      };
+      const tabs = [["full", "Full"], ["half", "Half full"], ["empty", "Empty"]];
+      const empties = { full: "No full shelves", half: "No half full shelves", empty: "No empty shelves" };
+      let tab = tabs.map((t) => t[0]).find((k) => groups[k].length) || "full";
+      PH.set(body, '<div class="ph-pills" id="cr-shelf-tabs" style="margin-bottom:var(--sp-4)">' + tabs.map((t) => '<button type="button" data-tab="' + t[0] + '">' + t[1] + " (" + PH.fmt.num(groups[t[0]].length) + ")</button>").join("") + '</div><div id="cr-shelf-table"></div>');
+      const show = () => {
+        PH.$$("#cr-shelf-tabs button", body).forEach((x) => x.classList.toggle("is-on", x.dataset.tab === tab));
+        lastDrill = { name: "shelves-" + (noFarm ? "no-farm" : farmKey || "all") + "-" + tab, rows: groups[tab], cols: shelfCols };
+        PH.table(body.querySelector("#cr-shelf-table"), { rows: groups[tab], columns: shelfCols, sort: { key: "buckets", dir: "desc" }, pageSize: 100, tall: true, onRowClick: openShelf, empty: empties[tab], emptyText: tab === "empty" ? "Every shelf here has something on it." : "Nothing here." });
+      };
+      body.querySelector("#cr-shelf-tabs").addEventListener("click", (e) => {
+        const b = e.target.closest("button"); if (!b) return;
+        tab = b.dataset.tab; show();
+      });
+      show();
     }).catch((e) => PH.error(body, e.message));
   }
 
