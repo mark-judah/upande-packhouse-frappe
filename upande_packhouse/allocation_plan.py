@@ -94,8 +94,14 @@ def free_for_line(farm, variety, length, soi):
 	  on the shelf            free stems, not too old, not cooling, not held for another line
 	  received, not shelved   buckets waiting for a shelf (within the discard age), with their cold room
 
-	Stems already held for THIS line count as free for it."""
+	Stems already held for THIS line count as free for it. A line with a cut stage only takes shelf buckets
+	at that stage: the ones Sales Allocation offers it."""
 	rows = stock.bucket_rows(farms=[farm], varieties=[variety], lengths=[length] if length else None)
+	stage = frappe.db.get_value("Sales Order Item", soi, "custom_cut_stage") if soi else None
+	if stage:
+		from upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2 import _norm_cut_stage
+
+		rows = [r for r in rows if _norm_cut_stage(r.cut_stage) == _norm_cut_stage(stage)]
 	recv = [
 		r
 		for r in received.received_unshelved(farms=[farm], varieties=[variety], lengths=[length] if length else None)
@@ -274,6 +280,22 @@ def teams_for_lines(sois):
 	return {r.sales_order_item: r.team for r in rows}
 
 
+def planned_teams(sois):
+	"""{sales_order_item: team} the plan gave each line, including lines it has since seen allocated: a line
+	unallocated again keeps its team."""
+	if not sois:
+		return {}
+	rows = frappe.db.sql(
+		"""SELECT sales_order_item, team FROM `tabAllocation Confirmation`
+		   WHERE sales_order_item IN %(s)s AND IFNULL(team, '') != ''
+		     AND (status IN %(kept)s OR (status = 'Released' AND release_reason = 'Allocated'))
+		   ORDER BY modified ASC""",
+		{"s": tuple(sois), "kept": (*LIVE, "Fulfilled")},
+		as_dict=True,
+	)
+	return {r.sales_order_item: r.team for r in rows}
+
+
 def group_team(mix_key):
 	"""The team already chosen for a mixed box (any of its lines), or None."""
 	if not mix_key:
@@ -294,6 +316,48 @@ def apply_team_to_group(mix_key, team):
 			   WHERE mix_key = %(k)s AND status IN %(live)s""",
 			{"t": team, "k": mix_key, "live": LIVE},
 		)
+
+
+def sequence_orders(plan, first=None):
+	"""Number the plan's orders 1..n in Sales Order.custom_allocation_sequence: the order Sales Allocation lists them in.
+
+	`first` (sales orders) goes first, in that order; the rest keep their place and an order new to the plan goes last.
+	An order planned and since allocated keeps its place; an order taken out of the plan goes back to 0."""
+	if not plan or not frappe.db.has_column("Sales Order", "custom_allocation_sequence"):
+		return []
+	rows = frappe.db.sql(
+		"""SELECT ac.sales_order, MIN(ac.creation) AS since,
+			MAX(ac.status IN %(kept)s OR (ac.status = 'Released' AND ac.release_reason = 'Allocated')) AS planned,
+			MAX(so.custom_allocation_sequence) AS seq
+		   FROM `tabAllocation Confirmation` ac
+		   INNER JOIN `tabSales Order` so ON so.name = ac.sales_order
+		   WHERE ac.plan = %(plan)s
+		   GROUP BY ac.sales_order""",
+		{"plan": plan, "kept": (*LIVE, "Fulfilled")},
+		as_dict=True,
+	)
+	pick = {so: i for i, so in enumerate(first or [])}
+	planned = sorted(
+		(r for r in rows if r.planned),
+		key=lambda r: (
+			pick.get(r.sales_order, len(pick)),
+			not cint(r.seq),
+			cint(r.seq),
+			r.since,
+			r.sales_order,
+		),
+	)
+	want = {r.sales_order: i for i, r in enumerate(planned, 1)}
+	for r in rows:
+		if cint(r.seq) != want.get(r.sales_order, 0):
+			frappe.db.set_value(
+				"Sales Order",
+				r.sales_order,
+				"custom_allocation_sequence",
+				want.get(r.sales_order, 0),
+				update_modified=False,
+			)
+	return [r.sales_order for r in planned]
 
 
 # ---------------------------------------------------------------- release
@@ -557,7 +621,7 @@ def setup_settings():
 	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 	fields = [
-		{"fieldname": "allocation_planning_tab", "fieldtype": "Tab Break", "label": "Allocation Planning"},
+		{"fieldname": "allocation_planning_section", "fieldtype": "Section Break", "label": "Planning"},
 		{
 			"fieldname": "allocation_harvest_lead_days",
 			"fieldtype": "Int",
@@ -588,6 +652,15 @@ def setup_settings():
 			"default": str(SETTING_DEFAULTS["allocation_use_first_alert_stems"]),
 		},
 	]
+	# In Production Settings' own Allocation Planning tab, after its Sales Allocation v2 section (a custom
+	# Tab Break used to stand in for the tab; it goes).
+	if frappe.db.exists("Custom Field", "Production Settings-allocation_planning_tab"):
+		frappe.delete_doc("Custom Field", "Production Settings-allocation_planning_tab", ignore_permissions=True, force=True)
+	meta = frappe.get_meta("Production Settings")
+	after = "hide_allocation_planning_team" if meta.has_field("hide_allocation_planning_team") else "release_trips_without_confirmation"
+	for field in fields:
+		field["insert_after"] = after
+		after = field["fieldname"]
 	create_custom_fields({"Production Settings": fields}, ignore_validate=True)
 	# The forecast margin is no longer a setting: it is the forecast's own average error this year.
 	if frappe.db.exists("Custom Field", "Production Settings-allocation_virtual_haircut_pct"):

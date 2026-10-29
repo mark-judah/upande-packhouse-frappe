@@ -3739,13 +3739,61 @@ def _pack_waiting_min_pct():
 def _issued_cap_error(opl_name, packed, incoming):
 	"""Why packing `incoming` more stems on `opl_name` (with `packed` already on it) is
 	refused, or None: an order sent to packing before all of it was issued (Pack While
-	Waiting, or completed short) packs no more stems than were issued."""
+	Waiting, or completed short) packs no more stems than were issued; one sent before it
+	was fully allocated (Allow Partial Packing) packs complete boxes only."""
+	boxes_error = _complete_boxes_error(opl_name, packed, incoming)
+	if boxes_error:
+		return boxes_error
 	cap = _issued_stems([opl_name]).get(opl_name)
 	if not cap or cap["issued"] >= cap["total"] or flt(packed) + flt(incoming) <= cap["issued"]:
 		return None
 	return _(
 		"Only {0}% is issued — pack the rest once more stock is issued ({1} of {2} stems packed)."
 	).format(cap["pct"], int(flt(packed)), int(cap["issued"]))
+
+
+def _complete_boxes_error(opl_name, packed, incoming):
+	"""Production Settings > Allow Partial Packing: an order packing before all of it is allocated
+	packs only the stems of its complete boxes; the cap rises as more is allocated."""
+	from upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2 import (
+		complete_boxes,
+		partial_packing_on,
+	)
+
+	if not opl_name or not partial_packing_on():
+		return None
+	opl = frappe.db.get_value(
+		"Order Pick List",
+		opl_name,
+		["sales_order", "mix_group", "bunch_group", "short_accepted"],
+		as_dict=True,
+	)
+	if not opl or opl.short_accepted:
+		return None
+	if opl.mix_group or opl.bunch_group:
+		field = "custom_mix_group" if opl.mix_group else "custom_bunch_group"
+		lines = frappe.get_all(
+			"Sales Order Item",
+			filters={"parent": opl.sales_order, field: opl.mix_group or opl.bunch_group},
+			pluck="name",
+		)
+	else:
+		lines = frappe.get_all(
+			"Pick List Item",
+			filters={"parent": opl_name, "parenttype": "Order Pick List"},
+			pluck="sales_order_item",
+			distinct=True,
+		)
+	lines = [x for x in lines if x]
+	ordered = sum(
+		flt(v) for v in frappe.get_all("Sales Order Item", filters={"name": ("in", lines)}, pluck="stock_qty")
+	)
+	boxes, stems = complete_boxes(lines, grouped=bool(opl.mix_group or opl.bunch_group))
+	if not lines or stems >= ordered - 0.001 or flt(packed) + flt(incoming) <= stems + 0.001:
+		return None
+	return _(
+		"Only {0} complete box(es) are allocated so far ({1} stems): pack the rest once more is allocated."
+	).format(boxes, int(stems))
 
 
 def _packed_pct(packed, planned):

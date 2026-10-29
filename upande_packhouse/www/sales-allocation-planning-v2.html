@@ -3,41 +3,40 @@
 {% block page_content %}
 {% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
 
-<header class="ph-head" id="pg-head" data-default-date="{{ default_delivery_date }}">
-  <div>
-    <div class="ph-head__eyebrow">Packhouse · Workflow</div>
-    <h1 class="ph-head__title">Allocation Planning</h1>
-    <p class="ph-head__sub">Decide who gets which flowers before allocation starts</p>
-  </div>
+<div class="apx" id="pg-head" data-default-date="{{ default_delivery_date }}">
+<header class="apx-bar">
+  <div class="apx-brand"><span class="apx-eyebrow">Packhouse</span><span class="apx-name">Allocation Planning</span></div>
+  <nav class="apx-nav" id="pg-modes" aria-label="Planning screens"><button type="button" data-value="unconfirmed">Plan &amp; checks</button><button type="button" data-value="sequence">Team sequence</button><button type="button" data-value="summary">Confirmation summary</button><button type="button" data-value="crops">Team crops</button></nav>
 </header>
-
-<div class="ph-filters">
-  <label class="ph-daterange pg-sf" title="The sales farm: the farm that processes the orders"><span class="pg-dl">Sales farm</span><select id="pg-farm" aria-label="Sales farm"></select></label>
-  <div class="ph-filters__spacer"></div>
-  <div class="ph-pills" id="f-preset"><button data-value="today">Today</button><button data-value="tomorrow">Tomorrow</button></div>
-  <label class="ph-daterange" title="Sales Order delivery date"><span class="pg-dl">Delivery date</span><input type="date" id="pg-date" aria-label="Delivery date"></label>
+<div class="apx-titlerow">
+  <div><h1 class="apx-h1" id="pg-title">Plan</h1><div class="apx-sub" id="pg-sub"></div></div>
+  <div class="apx-ctrls">
+    <label class="apx-pill">Sales farm<select id="pg-farm" aria-label="Sales farm"></select></label>
+    <label class="apx-pill" id="pg-crop-wrap">Crop<select id="pg-crop" aria-label="Crop"><option value="">All crops</option></select></label>
+    <div class="apx-seg" id="f-preset"><button data-value="today">Today</button><button data-value="tomorrow">Tomorrow</button></div>
+    <label class="apx-pill">Delivery<input type="date" id="pg-date" aria-label="Delivery date"></label>
+  </div>
 </div>
-
-<section class="ph-kpis" id="pg-kpis"></section>
-
-<div class="ph-pills pg-modes" id="pg-modes"><button type="button" data-value="unconfirmed">Unconfirmed</button><button type="button" data-value="confirmed">Confirmed</button><button type="button" data-value="nonmoving">Non-moving</button><button type="button" data-value="teams">Teams</button></div>
+<section class="pg-checktiles" id="pg-kpis"></section>
 
 <div id="pg-unconf">
 <div class="pg-grid">
-  <section class="ph-card">
-    <div class="ph-card__head">
-      <h2 class="ph-card__title">Varieties</h2>
-      <div class="ph-pills" id="pg-view"><button data-value="attention" class="is-on">Needs attention</button><button data-value="all">All</button></div>
-    </div>
+  <aside class="apx-card apx-aside" aria-label="Varieties">
+    <div class="apx-seg apx-seg--full" id="pg-view"><button data-value="attention" class="is-on">Needs attention</button><button data-value="all">All</button></div>
     <div id="pg-list"></div>
-  </section>
-  <section class="ph-card pg-detail" id="pg-detail"></section>
+  </aside>
+  <section class="pg-detail" id="pg-detail"></section>
 </div>
 </div>
 
 <section id="pg-conf" hidden></section>
 <section id="pg-teams" hidden></section>
 <section id="pg-old" hidden></section>
+<section id="pg-checks" hidden></section>
+<section id="pg-seq" hidden></section>
+<section id="pg-sum" hidden></section>
+<section id="pg-crops" hidden></section>
+</div>
 
 {% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
 <style>
@@ -72,6 +71,86 @@
   .pg-order{margin-bottom:var(--sp-5);padding:0}
   .pg-order__head{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--sp-4);flex-wrap:wrap;padding:var(--sp-5) var(--sp-6) var(--sp-3)}
   .pg-order__name{margin:0;font-size:16px;font-weight:600}
+  .pg-checktiles[hidden]{display:none}
+  .pg-checktiles{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin:var(--sp-4) 0}
+  .pg-ctile{text-align:left;border:0;background:var(--surface,#fff);border-radius:14px;padding:14px 16px;font:inherit;color:inherit;cursor:pointer;box-shadow:var(--shadow-card)}
+  .pg-ctile__top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .pg-ctile__top b{font-size:13px}
+  .pg-ctile small{display:block;margin-top:6px;font-size:12px;color:var(--ink-mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pg-tiles{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:0 0 var(--sp-4)}
+  .pg-tile{background:var(--tint);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:2px}
+  .pg-tile span{font-size:12px;color:var(--ink-mute)}.pg-tile b{font-size:20px}.pg-tile small{font-size:11px;color:var(--ink-mute)}
+  .pg-tile--warn{background:var(--warn-soft)}.pg-tile--warn span,.pg-tile--warn small{color:var(--warn)}
+  .pg-tile--bad{background:var(--bad-soft)}.pg-tile--bad span,.pg-tile--bad b{color:var(--bad)}
+  .pg-chip--ink{background:var(--ink);color:#fff}.pg-chip--plain{background:var(--surface,#fff);color:var(--ink-3);box-shadow:inset 0 0 0 1px var(--hairline,rgba(10,10,10,.12))}
+  .pg-sechead{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:var(--sp-4) 0}
+  .pg-alert{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;background:var(--bad-soft);color:var(--bad);border-radius:14px;padding:12px 16px;margin-bottom:var(--sp-4)}
+  .pg-alert__btn{background:var(--bad);color:#fff;border:0}
+  .pg-flow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:14px 18px;margin-bottom:var(--sp-4)}
+  .pg-board{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px;align-items:start}
+  .pg-scol{padding:14px;display:flex;flex-direction:column;gap:8px}
+  .pg-scol--none{box-shadow:inset 0 0 0 2px var(--bad)}
+
+  .pg-scol__head{display:flex;justify-content:space-between;align-items:baseline}
+  .pg-scol__crops{display:flex;flex-wrap:wrap;gap:4px}
+  .pg-loadbar{height:6px;border-radius:999px;background:var(--tint);overflow:hidden}.pg-loadbar>div{height:6px;background:var(--ink)}
+  .pg-scol__crops{display:flex;flex-wrap:wrap;gap:4px;min-height:52px;align-content:flex-start}
+  .pg-scol__nocrop{display:flex;flex-direction:column;gap:10px;align-items:flex-start;background:var(--bad-soft);color:#7A1C16;border-radius:12px;padding:12px;font-size:12px;min-height:88px;box-sizing:border-box}
+  .apx .pg-scard{height:96px;box-sizing:border-box;overflow:hidden}
+  .apx .pg-scard small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pg-scard{display:flex;gap:8px;border:1px solid var(--hairline,rgba(10,10,10,.1));border-radius:12px;padding:10px;background:var(--surface,#fff);cursor:grab}
+  .pg-scard{transition:transform .15s ease,opacity .15s ease}
+  .pg-scard.is-drag{opacity:.35}
+  .pg-sslot{border:1.5px dashed #2C6CB0;background:#E6EEF7;border-radius:12px;transition:height .15s ease}
+  .pg-scard small{display:block;font-size:11px;color:var(--ink-mute)}
+  .pg-scard__top{display:flex;gap:6px;align-items:center}.pg-scard__top b{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pg-grip svg{fill:var(--ink-mute)}
+  .pg-sempty{border:1.5px dashed var(--hairline,rgba(10,10,10,.2));border-radius:12px;padding:16px 10px;text-align:center;font-size:12px;color:var(--ink-mute)}
+  .pg-bar{display:flex;height:8px;width:110px;border-radius:999px;overflow:hidden;background:var(--tint)}.pg-bar i{background:var(--ink)}.pg-bar i.is-roll{background:#2c6cb0}
+  .pg-sumorder td{background:var(--tint)}
+  .pg-cgrid{display:grid;grid-template-columns:minmax(0,3fr) minmax(320px,2fr);gap:var(--sp-6);align-items:start}
+  .pg-cedit{padding:var(--sp-5,18px)}
+  .pg-cedit table{margin-bottom:8px}
+  tr.is-on td{background:var(--tint)}
+  @media (max-width:980px){.pg-checktiles,.pg-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.pg-cgrid{grid-template-columns:1fr}}
+  .pg-safe{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--sp-3,10px);margin:6px 0 var(--sp-4)}
+  .pg-safe__tile{display:flex;flex-direction:column;gap:3px;text-align:left;border:1px solid var(--line,rgba(10,10,10,.1));border-radius:14px;padding:12px 14px;background:var(--surface,#fff);font:inherit;color:inherit}
+  button.pg-safe__tile{cursor:pointer}
+  .pg-safe__tile.is-on{border:2px solid var(--ink);padding:11px 13px}
+  .pg-safe__tile>span:first-child{font-size:12px;color:var(--ink-mute)}
+  .pg-safe__tile b{font-size:20px}
+  .pg-safe__tile small{font-size:12px;color:var(--ink-3)}
+  .pg-safe__tile .pg-chip{align-self:flex-start;white-space:normal}
+  .pg-ltable .pg-act{text-align:right;white-space:nowrap}
+  .pg-checks-cell{display:flex;flex-wrap:wrap;gap:4px;max-width:240px}
+  .pg-subrow td{background:var(--tint);font-size:13px}
+  .pg-subrow td:first-child{padding-left:28px}
+  .pg-done{background:var(--good-soft);color:var(--good);border:1.5px solid var(--good)}
+  .pg-check-filter{margin-bottom:var(--sp-4);flex-wrap:wrap}
+  .pg-checks{padding:0}
+  .pg-check{display:flex;gap:var(--sp-4);align-items:flex-start;justify-content:space-between;padding:var(--sp-4) var(--sp-6);border-top:1px solid var(--line,rgba(10,10,10,.08));border-left:0}
+  .pg-check:first-child{border-top:0}
+  .pg-check--red,.pg-check--amber{border-left-color:transparent}
+  .pg-check__main{min-width:0;flex:1}
+  .pg-check__title{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
+  .pg-check__msg{font-size:13px;color:var(--ink-3)}
+  .pg-check__acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+  #pg-modes button.pg-has-red:not(.is-on){color:var(--bad)}
+  .pg-subx table{min-width:100%;width:max-content}
+  .pg-subx th,.pg-subx td{vertical-align:top;white-space:nowrap;padding:7px 10px;text-transform:none;letter-spacing:0}
+  .pg-subx thead th{min-width:112px;max-width:150px;white-space:normal;text-align:left;font-size:12px}
+  .pg-subx thead th b{display:block;font-size:13px;color:var(--ink)}
+  .pg-subx thead th .ph-badge{margin:3px 0 2px;display:inline-block}
+  .pg-subx thead th small,.pg-subx td small{display:block;font-weight:400;white-space:normal;max-width:140px}
+  .pg-subx tbody th{position:sticky;left:0;background:var(--surface,#fff);font-size:12px;font-weight:500;color:var(--ink-mute);text-align:left;z-index:1}
+  .pg-subx thead th:first-child{position:sticky;left:0;background:var(--surface,#fff);z-index:2}
+  .pg-subx tbody td:nth-child(2),.pg-subx thead th:nth-child(2){background:var(--tint)}
+  .pg-order__who{flex:1;min-width:0}
+  .pg-seq{display:flex;align-items:center;gap:2px;align-self:center}
+  .pg-seq__no{min-width:32px;height:32px;border-radius:999px;background:var(--tint);color:var(--ink);font-weight:700;font-size:14px;display:inline-flex;align-items:center;justify-content:center;margin-right:4px}
+  .pg-seq__mv{border:1px solid var(--line, #ddd);background:transparent;color:var(--ink-3);border-radius:6px;width:26px;height:26px;font-size:10px;cursor:pointer;line-height:1}
+  .pg-seq__mv:hover:not(:disabled){background:var(--tint);color:var(--ink)}
+  .pg-seq__mv:disabled{opacity:.35;cursor:default}
   .pg-order__nums{display:flex;align-items:center;gap:var(--sp-4);font-size:13px;color:var(--ink-mute);flex-wrap:wrap}
   .pg-order__nums b{color:var(--ink)}
   .pg-otable td,.pg-otable th{padding:var(--sp-3) var(--sp-4);vertical-align:top}
@@ -120,19 +199,175 @@
   @media (max-width:980px){.pg-grid{grid-template-columns:1fr}.pg-grid>.ph-card{position:static;max-height:none;overflow:visible}}
 </style>
 
+
+<style>
+  /* ── The artifact's design (Allocation Planning Redesign canvas) ── */
+  .apx{--ax-ground:#F3F1EC;--ax-ink:#141414;--ax-ink3:#3D3A35;--ax-mute:#6B665E;--ax-line:#EEEAE2;--ax-border:#D9D4CA;
+       --ax-red:#A1271F;--ax-red-bg:#FBE9E7;--ax-amb:#8A5300;--ax-amb-bg:#FBEFD9;--ax-blue:#1D4F86;--ax-blue-bg:#E6EEF7;--ax-grn:#276640;--ax-grn-bg:#E8F2EA;
+       font-family:Poppins,system-ui,sans-serif;color:var(--ax-ink);display:flex;flex-direction:column;gap:20px}
+  .apx-bar{background:#fff;border-radius:16px;padding:14px 22px;display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between}
+  .apx-brand{display:flex;align-items:center;gap:14px}
+  .apx-eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--ax-mute)}
+  .apx-name{font-size:20px;font-weight:600}
+  .apx-nav{display:flex;flex-wrap:wrap;gap:4px;background:var(--ax-ground);padding:4px;border-radius:999px}
+  .apx-nav button{border:0;background:transparent;padding:9px 16px;border-radius:999px;font:400 13px Poppins,sans-serif;color:var(--ax-ink3);cursor:pointer}
+  .apx-nav button.is-on{background:var(--ax-ink);color:#fff;font-weight:500}
+  .apx-titlerow{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+  .apx-h1{margin:0;font-size:30px;font-weight:600;line-height:1.2}
+  .apx-sub{font-size:14px;color:var(--ax-mute);margin-top:4px}
+  .apx-ctrls{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .apx-pill{display:flex;align-items:center;gap:8px;background:#fff;border-radius:999px;padding:0 14px;height:40px;font-size:13px;color:var(--ax-mute);margin:0}
+  .apx-pill[hidden]{display:none}
+  .sk{display:block;border-radius:8px;background:linear-gradient(90deg,#EEEAE2 25%,#F7F5F1 50%,#EEEAE2 75%);background-size:200% 100%;animation:sk-shine 1.3s ease-in-out infinite}
+  @keyframes sk-shine{0%{background-position:200% 0}100%{background-position:-200% 0}}
+  @media (prefers-reduced-motion:reduce){.sk{animation:none}}
+  .sk-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .sk-pool{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border-radius:12px;margin-bottom:6px}
+  .sk-tiles{display:grid;gap:12px;margin:16px 0}
+  .sk-table{display:flex;flex-direction:column;gap:18px}
+  .sk-table .sk-row{padding-bottom:14px;border-bottom:1px solid #EEEAE2}
+  .apx select{cursor:pointer}
+  .apx-sel-menu{position:fixed;z-index:10060;max-height:320px;overflow-y:auto;background:#fff;border-radius:14px;padding:6px;box-shadow:0 14px 34px rgba(20,20,20,.16),0 0 0 1px rgba(20,20,20,.06);font-family:Poppins,system-ui,sans-serif}
+  .apx-sel-menu{box-sizing:border-box}
+  /* thin scrollbars everywhere on the page: menus, the variety list, tables, dialogs */
+  @supports not selector(::-webkit-scrollbar){.apx *,.apx-sel-menu,.ph-overlay *{scrollbar-width:thin;scrollbar-color:#C9C4BA transparent}}
+  .apx ::-webkit-scrollbar,.apx-sel-menu::-webkit-scrollbar,.ph-overlay ::-webkit-scrollbar{width:4px;height:4px}
+  .apx ::-webkit-scrollbar-track,.apx-sel-menu::-webkit-scrollbar-track,.ph-overlay ::-webkit-scrollbar-track{background:transparent;margin:8px 0}
+  .apx ::-webkit-scrollbar-thumb,.apx-sel-menu::-webkit-scrollbar-thumb,.ph-overlay ::-webkit-scrollbar-thumb{background:#C9C4BA;border-radius:999px}
+  .apx ::-webkit-scrollbar-button,.apx-sel-menu::-webkit-scrollbar-button,.ph-overlay ::-webkit-scrollbar-button{display:none;height:0;width:0}
+  .apx-sel-opt{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 12px;border-radius:10px;font-size:13px;color:#141414;cursor:pointer}
+  .apx-sel-opt span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .apx-sel-opt svg{flex:none}
+  .apx-sel-opt:hover,.apx-sel-opt.is-active{background:#F3F1EC}
+  .apx-sel-opt.is-sel{font-weight:600}
+  .apx-sel-opt.is-ph{color:#6B665E}
+  .apx-sel-opt.is-dis{opacity:.4;cursor:default}
+  .apx-sel-opt svg{stroke:#276640;fill:none;stroke-width:2.5}
+  .apx .pg-scard>div{min-width:0;flex:1}
+  .apx-pill select,.apx-pill input{border:0;outline:0;background:transparent;font:500 13px Poppins,sans-serif;color:var(--ax-ink)}
+  .apx-pill .ph-fdate input.form-control{font:500 13px Poppins,sans-serif;width:92px;min-width:92px;padding:0;border:0;background:transparent;box-shadow:none;height:auto}
+  .apx-seg{display:flex;gap:4px;background:#fff;padding:4px;border-radius:999px}
+  .apx-seg button{border:0;background:transparent;color:var(--ax-ink3);font:500 13px Poppins,sans-serif;padding:8px 16px;border-radius:999px;cursor:pointer}
+  .apx-seg button.is-on{background:var(--ax-ink);color:#fff}
+  .apx-seg--full{background:var(--ax-ground);margin-bottom:12px}.apx-seg--full button{flex:1;font-size:12px;padding:7px 10px}
+  .apx-card{background:#fff;border-radius:16px}
+  .apx-aside{padding:16px}
+  .apx-pool{display:flex;flex-direction:column;gap:4px;width:100%;text-align:left;border:0;background:#fff;border-radius:12px;padding:12px 14px;font-family:Poppins,sans-serif;color:var(--ax-ink);cursor:pointer;margin-bottom:6px}
+  .apx-pool:hover{background:#FAF8F4}.apx-pool.is-on{background:var(--ax-ground)}
+  .apx-pool__top{display:flex;justify-content:space-between;gap:8px}.apx-pool__top b{font-size:14px;font-weight:600}
+  .apx-pool__sub{font-size:12px;color:var(--ax-mute)}
+  .apx-pool__flags{display:flex;flex-wrap:wrap;gap:4px}
+  .apx-flag{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--ax-ground);color:var(--ax-ink3)}
+  .apx .pg-grid{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
+  .apx .pg-grid>.apx-aside{flex:1 1 300px;min-width:0;position:sticky;top:16px;max-height:calc(100vh - 32px);overflow-y:auto}
+  .apx .pg-grid>.pg-detail{flex:999 1 720px;min-width:0;display:flex;flex-direction:column;gap:16px;background:transparent;box-shadow:none;padding:0;max-height:none;position:static;overflow:visible}
+  .apx-vhead{padding:24px}
+  .apx-vhead__top{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;align-items:baseline;margin-bottom:16px}
+  .apx-vhead__top h2{margin:0;font-size:22px;font-weight:600}.apx-vhead__top span{font-size:13px;color:var(--ax-mute)}
+  .apx .pg-tiles{grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin:0}
+  .apx .pg-tile{background:var(--ax-ground);border-radius:12px;padding:12px 14px}
+  .apx .pg-tile span{font-size:12px;color:var(--ax-mute)}.apx .pg-tile b{font-size:22px;font-weight:600}.apx .pg-tile small{font-size:11px;color:var(--ax-mute)}
+  .apx .pg-tile--warn{background:var(--ax-amb-bg)}.apx .pg-tile--warn span,.apx .pg-tile--warn small{color:var(--ax-amb)}
+  .apx .pg-tile--bad{background:var(--ax-red-bg)}.apx .pg-tile--bad span,.apx .pg-tile--bad b{color:var(--ax-red)}
+  .apx-cap{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ax-mute);margin:18px 0 10px}
+  .apx .pg-safe{gap:10px;margin:0}
+  .apx .pg-safe__tile{border:1px solid #E4E0D8;border-radius:14px;padding:14px 16px;gap:4px;background:#fff}
+  .apx .pg-safe__tile.is-on{border:2px solid var(--ax-ink);padding:13px 15px}
+  .apx .pg-safe__tile b{font-size:22px;font-weight:600}
+  .apx .pg-safe__tile>span:first-child{font-size:12px;color:var(--ax-mute)}.apx .pg-safe__tile small{font-size:12px;color:var(--ax-ink3)}
+  .apx-tablecard{padding:8px 0 16px}
+  .apx-table{width:100%;border-collapse:collapse;font-size:13px;min-width:1100px}
+  .apx-table thead th{color:var(--ax-mute);font-size:11px;letter-spacing:.08em;text-transform:uppercase;text-align:left;font-weight:500;padding:12px 8px;background:transparent;border:0}
+  .apx-table thead th:first-child,.apx-table tbody td:first-child{padding-left:16px}
+  .apx-table thead th:last-child,.apx-table tbody td:last-child{padding-right:16px}
+  .apx-table tbody td{border-top:1px solid var(--ax-line);padding:12px 8px;vertical-align:top}
+  .apx-table td small{display:block;font-size:12px;color:var(--ax-mute)}
+  .apx-table td b{font-weight:600}
+  .apx-table .is-num{text-align:right}
+  .apx-table .pg-farm-row{min-width:150px}
+  .apx-table .pg-in{width:72px;height:34px;box-sizing:border-box;border:1px solid var(--ax-border);border-radius:8px;padding:0 8px;font:500 13px Poppins,sans-serif;text-align:right;background:#fff}
+  .apx-table select.ph-select{height:34px;border:1px solid var(--ax-border);border-radius:8px;padding:0 6px;font:13px Poppins,sans-serif;background:#fff;box-shadow:none}
+  .apx-table .pg-subrow td{background:#FAF8F4;font-size:13px;padding-top:8px;padding-bottom:8px}
+  .apx-table .pg-subrow td:first-child{padding-left:36px}
+  .apx .pg-chip{font-size:12px;font-weight:600;padding:2px 9px;border-radius:999px;display:inline-block;white-space:nowrap}
+  .apx .pg-chip--bad{background:var(--ax-red-bg);color:var(--ax-red)}.apx .pg-chip--warn{background:var(--ax-amb-bg);color:var(--ax-amb)}
+  .apx .pg-chip--tint{background:var(--ax-blue-bg);color:var(--ax-blue)}.apx .pg-chip--good{background:var(--ax-grn-bg);color:var(--ax-grn)}
+  .apx .pg-chip--plain{background:var(--ax-ground);color:var(--ax-ink3);box-shadow:none}.apx .pg-chip--ink{background:var(--ax-ink);color:#fff}
+  .apx .pg-checks-cell .pg-chip{white-space:normal}
+  .apx .ph-btn--primary,.apx .pg-act .ph-btn{height:34px;padding:0 14px;border-radius:999px;border:0;background:var(--ax-ink);color:#fff;font:500 12px Poppins,sans-serif;white-space:nowrap}
+  .apx .pg-act .ph-btn--ghost{background:#fff;color:var(--ax-ink);border:1px solid var(--ax-ink)}
+  .apx .pg-done{background:var(--ax-grn-bg)!important;color:var(--ax-grn)!important;border:1.5px solid var(--ax-grn)!important;font-weight:600!important}
+  .apx .ph-btn{border-radius:999px;font-family:Poppins,sans-serif}
+  .apx .pg-checktiles{grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin:0}
+  .apx .pg-ctile{background:#fff;border-radius:14px;padding:14px 16px;box-shadow:none;transition:box-shadow .12s ease}
+  .apx .pg-ctile:hover{box-shadow:inset 0 0 0 1px #D9D4CA}
+  .apx .pg-ctile.is-on{box-shadow:inset 0 0 0 2px #141414}
+  .apx .pg-ctile__top b{font-size:13px;font-weight:600}.apx .pg-ctile small{font-size:12px;color:var(--ax-mute)}
+  .apx .ph-card{background:#fff;border-radius:16px;box-shadow:none}
+  .apx .pg-scol{border-radius:16px}.apx .pg-scard{border-color:var(--ax-line);border-radius:12px}
+  .apx .pg-alert{background:var(--ax-red-bg);color:#7A1C16;border-radius:14px;padding:14px 18px}
+  .apx .pg-alert__btn{background:var(--ax-red);color:#fff;height:36px;border-radius:999px}
+  .apx .pg-flow{background:#fff;border-radius:16px;padding:16px 20px;box-shadow:none}
+  .apx .pg-tiles .pg-tile{background:var(--ax-ground)}
+  .apx #pg-sum:not([hidden]),.apx #pg-seq:not([hidden]),.apx #pg-crops:not([hidden]),.apx #pg-checks:not([hidden]),.apx #pg-old:not([hidden]){display:flex;flex-direction:column;gap:16px;min-width:0}
+  .apx #pg-sum .pg-tiles{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:16px;margin:0}
+  .apx #pg-sum .pg-tiles .pg-tile{background:#fff;border-radius:16px;padding:18px 20px;gap:6px;min-width:0;box-sizing:border-box}
+  .apx #pg-sum .pg-tiles .pg-tile b{font-size:26px}
+  .apx .pg-sumorder td{background:#FAF8F4}
+  .apx .pg-sumtable td small{display:block;font-size:12px;color:var(--ax-mute)}
+  .apx .pg-sumtable td:nth-child(2){white-space:nowrap}
+  .apx #pg-sum .ph-card{padding:8px 0}
+  .apx .pg-empty{color:var(--ax-mute)}
+  @media (max-width:980px){.apx .pg-checktiles,.apx .pg-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  /* dialogs opened from this page */
+  .ph-overlay .ph-modal{border-radius:20px;font-family:Poppins,sans-serif;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px)}
+  .ph-overlay .ph-modal__body{overflow-x:auto}
+  @media (max-width:640px){.ph-overlay{padding:12px}.ph-overlay .pg-safe{grid-template-columns:1fr}}
+  .ph-overlay .ph-modal__title{font-size:20px;font-weight:600}
+  .ph-overlay .pg-safe__tile{border:1px solid #E4E0D8;border-radius:14px;padding:14px 16px;background:#fff;cursor:pointer}
+  .ph-overlay .pg-safe__tile.is-on{border:2px solid #141414;padding:13px 15px}
+  .ph-overlay .pg-safe__tile b{font-size:22px;font-weight:600}
+  /* safe tiles in three rows: what it counts on with its tag, the stems, the share of the order */
+  .apx .pg-safe__tile,.ph-overlay .pg-safe__tile{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:10px;row-gap:2px;align-items:center;padding:10px 14px}
+  .apx .pg-safe__tile.is-on,.ph-overlay .pg-safe__tile.is-on{padding:9px 13px}
+  .apx button.pg-safe__tile{cursor:pointer;font:inherit;color:inherit;text-align:left}
+  .apx button.pg-safe__tile:hover:not(.is-on){border-color:#C9C4BA}
+  .apx .pg-safe__tile>span:first-child,.ph-overlay .pg-safe__tile>span:first-child{grid-column:1;grid-row:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .apx .pg-safe__tile>.pg-chip,.ph-overlay .pg-safe__tile>.pg-chip{grid-column:2;grid-row:1;justify-self:end;white-space:nowrap;font-size:11px;padding:1px 8px}
+  .apx .pg-safe__tile>b,.ph-overlay .pg-safe__tile>b{grid-column:1/-1;font-size:20px;line-height:1.25}
+  .apx .pg-safe__tile>small,.ph-overlay .pg-safe__tile>small{grid-column:1/-1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ph-overlay .pg-cap{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#6B665E;margin:14px 0 10px}
+  .ph-overlay .pg-chip{font-size:12px;font-weight:600;padding:2px 9px;border-radius:999px}
+  .ph-overlay .pg-chip--good{background:#E8F2EA;color:#276640}.ph-overlay .pg-chip--tint{background:#E6EEF7;color:#1D4F86}
+  .ph-overlay .pg-chip--bad{background:#FBE9E7;color:#A1271F}.ph-overlay .pg-chip--warn{background:#FBEFD9;color:#8A5300}
+  .ph-overlay .pg-hu{border-radius:12px;padding:12px 14px}
+  .apx .ph-btn,.ph-overlay .ph-btn{box-shadow:none!important;border-radius:999px;font-family:Poppins,sans-serif}
+  .ph-overlay .ph-modal__foot .ph-btn{height:44px;min-width:88px;padding:0 22px;font:500 14px Poppins,sans-serif;background:#fff;color:#141414;border:1px solid #D9D4CA}
+  .ph-overlay .ph-modal__foot .ph-btn--primary{background:#141414;color:#fff;border:0}
+  .ph-overlay .ph-modal__foot .ph-btn--danger{background:#A1271F;color:#fff;border:0}
+  .ph-overlay .ph-modal__foot .ph-btn:disabled{opacity:.4;cursor:default}
+  .ph-overlay .ph-modal__head{padding-bottom:14px;border-bottom:1px solid #EEEAE2}
+  .ph-overlay .ph-modal__foot{border-top:1px solid #EEEAE2}
+  .ph-overlay .ph-modal__body>p:first-child{margin:14px 0 0;color:#6B665E;font-size:13px}
+  .ph-overlay .pg-hu{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center}
+  .ph-overlay .pg-hu p{margin:0;font-size:13px;color:#3D3A35}
+  .ph-overlay .pg-hu--red{background:#FBE9E7}.ph-overlay .pg-hu--amber{background:#FBEFD9}
+</style>
 {% raw %}
 <script>
 (function () {
   "use strict";
   const API = "upande_packhouse.api.v2.allocation_playground.";
   const GUARDS = "upande_packhouse.api.v2.allocation_guards.";
+  const TEAMS = "upande_packhouse.api.v2.allocation_teams.";
   const $ = (id) => document.getElementById(id);
   const n = (v) => PH.fmt.num(Math.round(v || 0));
   // The delivery date opens on tomorrow by the server's clock, is kept in the address (?date=), and is set the same way as on every v2 page.
   const st = PH.state({ date: $("pg-head").dataset.defaultDate, tab: "unconfirmed" });
-  const S = { mode: ["confirmed", "teams", "nonmoving"].includes(st.get("tab")) ? st.get("tab") : "unconfirmed", date: st.get("date"), farm: "", view: "attention", pick: null, tab: "pg-t-exact", teams: [], team: (function () { try { return localStorage.getItem("pg_team") || ""; } catch (e) { return ""; } })() };
+  const S = { mode: ["confirmed", "teams", "nonmoving", "checks", "sequence", "summary", "crops"].includes(st.get("tab")) ? st.get("tab") : "unconfirmed", date: st.get("date"), farm: "", view: "attention", pick: null, tab: "pg-t-exact", teams: [], team: (function () { try { return localStorage.getItem("pg_team") || ""; } catch (e) { return ""; } })() };
   let board = null, pool = null, seq = 0, pseq = 0;
 
+  PH.frappeDate("#pg-date");
   PH.dateRange({ pills: "#f-preset", from: "#pg-date", state: st, fromKey: "date" });
   st.on((s, changed) => {
     if (changed.includes("date")) { S.date = s.date; S.pick = null; load(); }
@@ -141,13 +376,19 @@
   $("pg-modes").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) st.set({ tab: b.dataset.value }); });
   // Unconfirmed: the variety workflow. Confirmed: the order view, every line of every confirmed order.
   function paintMode() {
-    S.mode = ["confirmed", "teams", "nonmoving"].includes(st.get("tab")) ? st.get("tab") : "unconfirmed";
-    $("pg-unconf").hidden = S.mode !== "unconfirmed"; $("pg-conf").hidden = S.mode !== "confirmed"; $("pg-teams").hidden = S.mode !== "teams"; $("pg-old").hidden = S.mode !== "nonmoving";
-    PH.$$("#pg-modes button").forEach((x) => x.classList.toggle("is-on", x.dataset.value === S.mode));
+    S.mode = ["confirmed", "teams", "nonmoving", "checks", "sequence", "summary", "crops"].includes(st.get("tab")) ? st.get("tab") : "unconfirmed";
+    $("pg-unconf").hidden = S.mode !== "unconfirmed"; $("pg-conf").hidden = S.mode !== "confirmed"; $("pg-teams").hidden = S.mode !== "teams"; $("pg-old").hidden = S.mode !== "nonmoving"; $("pg-checks").hidden = S.mode !== "checks";
+    $("pg-seq").hidden = S.mode !== "sequence"; $("pg-sum").hidden = S.mode !== "summary"; $("pg-crops").hidden = S.mode !== "crops";
+    $("pg-kpis").hidden = !["unconfirmed", "checks", "nonmoving"].includes(S.mode);
+    const tabOf = { checks: "unconfirmed", nonmoving: "unconfirmed", confirmed: "summary", teams: "sequence" };
+    setHead();
+    $("pg-crop-wrap").hidden = !["unconfirmed", "checks", "nonmoving"].includes(S.mode);
+    PH.$$("#pg-modes button").forEach((x) => x.classList.toggle("is-on", x.dataset.value === (tabOf[S.mode] || S.mode)));
   }
   function setMode() {
     paintMode();
-    if (S.mode === "confirmed") loadOrders(); else if (S.mode === "teams") loadTeams(); else if (S.mode === "nonmoving") loadOld(); else if (board) { if (!S.pick && board.pools.length) S.pick = { variety: board.pools[0].variety, length: board.pools[0].length }; openPool(); }
+    if (S.mode === "confirmed") loadOrders(); else if (S.mode === "teams") loadTeams(); else if (S.mode === "nonmoving") loadOld(); else if (S.mode === "checks") loadChecks();
+    else if (S.mode === "sequence") loadSeq(); else if (S.mode === "summary") loadSum(); else if (S.mode === "crops") loadCrops(); else if (board) { if (!S.pick && board.pools.length) S.pick = { variety: board.pools[0].variety, length: board.pools[0].length }; openPool(); }
   }
   $("pg-farm").addEventListener("change", () => { S.farm = $("pg-farm").value; S.pick = null; load(); });
   $("pg-view").addEventListener("click", (e) => {
@@ -157,20 +398,102 @@
     load();
   });
 
+  /* ── Option lists drawn in the page's style instead of the browser's: every select inside the page. ── */
+  (function styledSelects() {
+    let menu = null, owner = null, active = -1;
+    const close = () => { if (menu) menu.remove(); menu = null; owner = null; };
+    const choose = (i) => {
+      if (!owner || !owner.options[i] || owner.options[i].disabled) return;
+      owner.selectedIndex = i;
+      owner.dispatchEvent(new Event("change", { bubbles: true }));
+      owner.dispatchEvent(new Event("input", { bubbles: true }));
+      const o = owner; close(); o.focus();
+    };
+    const paint = () => PH.$$(".apx-sel-opt", menu).forEach((el, i) => el.classList.toggle("is-active", i === active));
+    const open = (sel) => {
+      close();
+      owner = sel; active = sel.selectedIndex;
+      menu = document.createElement("div");
+      menu.className = "apx-sel-menu"; menu.setAttribute("role", "listbox");
+      menu.innerHTML = [...sel.options].map((o, i) => '<div class="apx-sel-opt' + (i === sel.selectedIndex ? " is-sel" : "") + (o.value === "" ? " is-ph" : "") + (o.disabled ? " is-dis" : "") + '" role="option" data-i="' + i + '" aria-selected="' + (i === sel.selectedIndex) + '"><span>' + PH.esc(o.textContent) + "</span>" + (i === sel.selectedIndex ? PH.icon("check", 14) : "") + "</div>").join("");
+      document.body.appendChild(menu);
+      // as wide as the pill (or the field) it opens from, lined up with it
+      const box = sel.closest(".apx-pill") || sel;
+      const r = box.getBoundingClientRect(), w = r.width, h = Math.min(menu.scrollHeight, 320);
+      menu.style.width = w + "px";
+      menu.style.left = Math.min(r.left, window.innerWidth - w - 8) + "px";
+      menu.style.top = (r.bottom + 6 + h > window.innerHeight - 8 ? Math.max(8, r.top - h - 6) : r.bottom + 6) + "px";
+      menu.style.maxHeight = Math.max(160, Math.min(320, window.innerHeight - 16)) + "px";
+      PH.keepInView(menu);
+      menu.addEventListener("mousedown", (e) => { e.preventDefault(); const it = e.target.closest(".apx-sel-opt"); if (it) choose(+it.dataset.i); });
+      const cur = menu.querySelector(".is-sel"); if (cur) cur.scrollIntoView({ block: "nearest" });
+    };
+    document.addEventListener("mousedown", (e) => {
+      const sel = e.target.closest && e.target.closest("#pg-head select, .ph-overlay select");
+      if (sel) { e.preventDefault(); if (owner === sel) close(); else { sel.focus(); open(sel); } return; }
+      if (menu && !e.target.closest(".apx-sel-menu")) close();
+    }, true);
+    document.addEventListener("keydown", (e) => {
+      const sel = document.activeElement;
+      if (!menu) {
+        if (sel && sel.matches && sel.matches("#pg-head select, .ph-overlay select") && (e.key === "Enter" || e.key === " " || (e.altKey && e.key === "ArrowDown") || e.key === "F4")) { e.preventDefault(); open(sel); }
+        return;
+      }
+      if (e.key === "Escape") { e.preventDefault(); const o = owner; close(); if (o) o.focus(); }
+      else if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); const n_ = owner.options.length; active = (active + (e.key === "ArrowDown" ? 1 : -1) + n_) % n_; paint(); const a = menu.querySelector(".is-active"); if (a) a.scrollIntoView({ block: "nearest" }); }
+      else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(active); }
+      else if (e.key === "Tab") close();
+    }, true);
+    window.addEventListener("scroll", (e) => { if (menu && !(e.target && e.target.closest && e.target.closest(".apx-sel-menu"))) close(); }, true);
+    window.addEventListener("resize", close);
+  })();
+
+  const basis = () => { if (!S.basis) { try { S.basis = localStorage.getItem("pg_basis") || "rolling"; } catch (e) { S.basis = "rolling"; } } return S.basis; };
+
+  // The title row: what the tab is about, for the day chosen.
+  function setHead(sub) {
+    const day = S.date ? PH.fmt.date(S.date, true) : "";
+    const T = { unconfirmed: "Plan for " + day, checks: "Plan for " + day, nonmoving: "Plan for " + day, sequence: "Team sequence · " + day, summary: "Confirmation summary · " + day, crops: "Packing team crops" };
+    $("pg-title").textContent = T[S.mode] || "Plan for " + day;
+    if (sub !== undefined) S.subs = { ...(S.subs || {}), [S.mode]: sub };
+    $("pg-sub").textContent = (S.subs || {})[S.mode] || "";
+  }
+  $("pg-crop").addEventListener("change", () => { S.crop = $("pg-crop").value; if (board) drawList(); });
   const dot = (s) => '<span class="ph-dot ph-dot--' + (s === "short" ? "bad" : s === "watch" ? "warn" : "good") + '"></span>';
   const word = (p) => p.status === "short" ? "Short by " + n(p.short) : p.status === "watch" ? (p.still_to_plan > p.on_shelf ? "Needs the expected harvest" : "Old stock to use first") : "Covered";
 
-  const loading = (what) => '<div class="pg-load"><i class="pg-spin"></i><span>' + what + "</span></div>";
+  // Skeletons in the shape of what is coming, instead of a spinner.
+  const sk = (w, h, r) => '<span class="sk" style="width:' + w + ";height:" + h + "px" + (r ? ";border-radius:" + r + "px" : "") + '"></span>';
+  const skRow = (cols) => '<div class="sk-row">' + cols.map((c) => sk(c[0], c[1])).join("") + "</div>";
+  const skList = () => [1, 2, 3, 4, 5, 6].map(() => '<div class="sk-pool">' + skRow([["55%", 14], ["48px", 18]]) + sk("70%", 10) + skRow([["60px", 16], ["70px", 16]]) + "</div>").join("");
+  const skTiles = (k, h) => '<div class="sk-tiles" style="grid-template-columns:repeat(' + k + ',minmax(0,1fr))">' + Array.from({ length: k }, () => sk("100%", h || 72, 12)).join("") + "</div>";
+  const skTable = (rows) => '<div class="sk-table">' + Array.from({ length: rows }, () => skRow([["24%", 14], ["10%", 14], ["8%", 14], ["12%", 30], ["10%", 14], ["14%", 30], ["12%", 18]])).join("") + "</div>";
+  const skDetail = () => '<div class="apx-card apx-vhead">' + skRow([["32%", 22], ["26%", 12]]) + skTiles(5, 78) + sk("140px", 10) + skTiles(3, 70) + "</div>" + '<div class="apx-card apx-tablecard" style="padding:16px">' + skTable(5) + "</div>";
+  const skBoard = () => '<div class="pg-board">' + Array.from({ length: 6 }, () => '<div class="ph-card pg-scol">' + skRow([["50%", 14], ["24%", 12]]) + sk("70%", 18, 999) + sk("100%", 6) + [1, 2, 3].map(() => sk("100%", 92, 12)).join("") + "</div>").join("") + "</div>";
+  const loading = (what) => {
+    const w = String(what || "");
+    if (/^Loading the day/.test(w)) return skList();
+    if (/^Opening/.test(w)) return skDetail();
+    if (/teams/.test(w) && S.mode === "sequence") return skBoard();
+    if (/confirmations/.test(w)) return skTiles(5, 92) + '<div class="ph-card" style="padding:16px">' + skTable(8) + "</div>";
+    return '<div style="padding:16px">' + skTable(6) + "</div>";
+  };
 
   function load() {
     const my = ++seq;
     PH.set($("pg-list"), loading("Loading the day…"));
+    S.checksData = null; drawCheckTiles();
     // The variety being worked on does not wait for the list: ask for both at once.
     const started = S.pick ? JSON.stringify(S.pick) : "";
     if (S.pick && S.mode === "unconfirmed") openPool();
     if (S.mode === "confirmed") loadOrders();
     if (S.mode === "teams") loadTeams();
     if (S.mode === "nonmoving") loadOld();
+    if (S.mode === "sequence") loadSeq();
+    if (S.mode === "summary") loadSum();
+    if (S.mode === "crops") loadCrops();
+    loadChecks();
+    PH.call(TEAMS + "teams_by_crop", {}, { silent: true }).then((r) => { if (r) S.teamsByCrop = r.teams || {}; }).catch(() => {});
     return PH.call(API + "get_board", { delivery_date: S.date, farm: S.farm, view: S.view }).then((m) => {
       if (my !== seq || !m) return;
       board = m; S.farm = m.farm || S.farm; S.teams = m.teams || [];
@@ -184,16 +507,20 @@
   }
 
   function drawModes() {
+    return;
     const k = board.kpis;
     PH.$$("#pg-modes button").forEach((b) => {
       b.classList.toggle("is-on", b.dataset.value === S.mode);
       if (b.dataset.value === "teams") return;
+      if (b.dataset.value === "checks") { b.textContent = "Checks" + (S.checkCount ? " (" + S.checkCount + ")" : ""); b.classList.toggle("pg-has-red", !!S.checkRed); return; }
       if (b.dataset.value === "nonmoving") { b.textContent = "Non-moving" + (k.non_moving ? " (" + n(k.non_moving) + ")" : ""); return; }
       b.textContent = b.dataset.value === "confirmed" ? "Confirmed (" + PH.fmt.plural(k.confirmed_orders || 0, "order") + ")" : "Unconfirmed (" + PH.fmt.plural(Math.max(0, k.lines - k.lines_planned), "line") + ")";
     });
   }
 
   function drawKpis() {
+    drawCheckTiles();
+    return;
     const k = board.kpis;
     PH.kpis("#pg-kpis", [
       { label: "Lines confirmed", value: k.planned_pct == null ? "—" : k.planned_pct + "%", unit: PH.fmt.plural(k.lines_planned, "line") + " of " + n(k.lines) },
@@ -205,25 +532,47 @@
 
   function drawList() {
     const el = $("pg-list");
-    if (!board.pools.length) {
-      PH.set(el, '<div class="pg-empty">' + (S.view === "attention" ? "Nothing needs attention for this day." : S.view === "confirmed" ? "Nothing is confirmed for this day yet." : "There are no orders for this day.") + "</div>");
+    const crops = [...new Set(board.pools.map((p) => p.crop).filter(Boolean))].sort();
+    PH.options("#pg-crop", crops.map((c) => ({ value: c, label: c })), S.crop || "");
+    const k = board.kpis;
+    S.subs = { ...(S.subs || {}), unconfirmed: PH.fmt.plural(k.lines, "line") + " · " + n(k.lines_planned) + " confirmed · " + n(Math.max(0, k.lines - k.lines_planned)) + " to plan" };
+    if (["unconfirmed", "checks", "nonmoving"].includes(S.mode)) setHead();
+    // a check filter waits for the day's checks before it decides what is listed
+    if (S.tileFilter && !S.checksData) { PH.set(el, skList()); return; }
+    const pools = board.pools.filter((p) => (!S.crop || p.crop === S.crop) && (!S.tileFilter || poolHas(p, S.tileFilter)));
+    if (!pools.length) {
+      PH.set(el, '<div class="pg-empty">' + (S.tileFilter ? "No variety has this check." : S.view === "attention" ? "Nothing needs attention for this day." : "There are no orders for this day.") + "</div>");
+      // nothing listed, nothing open
+      S.pick = null; pool = null; ++pseq;
+      PH.set($("pg-detail"), '<div class="apx-card"><div class="pg-empty">' + (S.tileFilter || S.crop ? "Nothing to show for this filter." : "Choose a variety to confirm it.") + "</div></div>");
       return;
     }
-    PH.set(el, board.pools.map((p) => {
+    // nothing open, or the open variety is filtered out: open the first one listed
+    if (S.mode === "unconfirmed" && !pools.some((p) => S.pick && p.variety === S.pick.variety && p.length === S.pick.length)) {
+      S.pick = { variety: pools[0].variety, length: pools[0].length };
+      openPool();
+    }
+    const flagsOf = (p) => {
+      const out = new Set();
+      ((S.checksData || {}).checks || []).forEach((c) => { if (c.variety === p.variety && c.length === p.length && TILE_NAME[c.code]) out.add(TILE_NAME[c.code]); });
+      if (p.getting_old > 0) out.add("Non-moving");
+      return [...out];
+    };
+    PH.set(el, pools.map((p) => {
       const on = S.pick && S.pick.variety === p.variety && S.pick.length === p.length;
-      const chip = p.status === "short" ? "bad" : p.status === "watch" ? "warn" : "good";
-      const why = p.status === "short" ? "Short by " + n(p.short) + " stems" : p.status === "watch" ? (p.still_to_plan > p.on_shelf + p.received ? "Needs stock that has not arrived yet" : "Has stock that is getting old: use it first") : "Covered";
-      return '<button type="button" class="pg-row' + (on ? " is-on" : "") + '" data-v="' + PH.esc(p.variety) + '" data-l="' + PH.esc(p.length) + '">' +
-        '<div class="pg-row__top"><span class="pg-row__name">' + PH.esc(p.variety) + " " + PH.esc(p.length) + '</span><span class="pg-chip pg-chip--' + chip + '">' + p.covered_pct + "% covered</span></div>" +
-        '<div class="pg-row__stats"><span><b>' + n(p.ordered) + "</b> ordered</span><span><b>" + n(p.held + p.expected_plan) + "</b> confirmed</span><span><b>" + n(p.have) + "</b> available</span></div>" +
-        '<div class="pg-row__note ph-' + (chip === "bad" ? "bad" : chip === "warn" ? "warn" : "muted") + '">' + why + "</div></button>";
+      const st = p.status === "short" ? ["Short", "bad"] : p.status === "watch" ? ["Watch", "warn"] : ["OK", "good"];
+      const sub = n(p.ordered) + " ordered · " + (p.status === "ok" ? "covered" : n(p.on_shelf || 0) + " on shelf");
+      return '<button type="button" class="apx-pool' + (on ? " is-on" : "") + '" data-v="' + PH.esc(p.variety) + '" data-l="' + PH.esc(p.length) + '">' +
+        '<span class="apx-pool__top"><b>' + PH.esc(p.variety) + " " + PH.esc(p.length) + '</b><span class="pg-chip pg-chip--' + st[1] + '">' + st[0] + "</span></span>" +
+        '<span class="apx-pool__sub">' + sub + "</span>" +
+        '<span class="apx-pool__flags">' + flagsOf(p).map((f) => '<span class="apx-flag">' + PH.esc(f) + "</span>").join("") + "</span></button>";
     }).join(""));
   }
 
   $("pg-list").addEventListener("click", (e) => {
-    const b = e.target.closest(".pg-row"); if (!b) return;
+    const b = e.target.closest(".apx-pool"); if (!b) return;
     S.pick = { variety: b.dataset.v, length: b.dataset.l };
-    PH.$$(".pg-row").forEach((x) => x.classList.toggle("is-on", x === b));
+    PH.$$(".apx-pool").forEach((x) => x.classList.toggle("is-on", x === b));
     PH.set($("pg-detail"), loading("Opening " + b.dataset.v + " " + b.dataset.l + "…"));
     $("pg-detail").scrollTop = 0;
     openPool();
@@ -232,64 +581,72 @@
   function openPool() {
     if (!S.pick) { PH.set($("pg-detail"), '<div class="pg-empty">Choose a variety to confirm it.</div>'); return; }
     const my = ++pseq;
+    if (!pool || !$("pg-detail").querySelector(".apx-vhead")) PH.set($("pg-detail"), skDetail());
     return PH.call(API + "get_pool", { delivery_date: S.date, farm: S.farm, variety: S.pick.variety, length: S.pick.length }, { silent: true })
       .then((m) => { if (my === pseq) { pool = m; drawPool(); } })
       .catch(() => PH.set($("pg-detail"), '<div class="pg-empty">Could not open this variety.</div>'));
   }
 
   function drawPool() {
-    const p = pool.pool, el = $("pg-detail");
-    const old = p.getting_old > 0 ? '<div class="ph-notice ph-notice--warn pg-old">' + n(p.getting_old) + " stems are getting old (day " + board.amber_from_days + " or more). They are used first when you confirm.</div>" : "";
-    // One table per tab. Both stay in the page, so what you typed on one is kept while you look at the other.
+    const p = pool.pool, el = $("pg-detail"), u = pool.supply;
+    const crop = (pool.lines[0] || pool.longer_lines[0] || {}).crop || "";
+    const teamsFor = (l) => { const t = (S.teamsByCrop || {})[l.crop || crop]; return t && t.length ? t : S.teams; };
     const farmSelect = (l) => '<select class="ph-select pg-farm-row" data-was="' + PH.esc(l.stock_farm || "") + '" aria-label="Confirm from farm for ' + PH.esc(l.customer || "") + '" title="The farm whose stock this is confirmed against">' +
       pool.stock_farms.map((f) => "<option value=\"" + PH.esc(f.farm) + "\"" + (f.farm === (l.stock_farm || pool.best_farm) ? " selected" : "") + ">" + PH.esc(f.farm) + " (" + n(f.on_shelf + f.received) + ")</option>").join("") + "</select>";
     const teamSelect = (l, value) => '<select class="ph-select pg-team-row" data-soi="' + PH.esc(l.soi) + '" data-was="' + PH.esc(l.team || "") + '"' + (l.mix_key ? ' data-mix="' + PH.esc(l.mix_key) + '"' : "") + ' aria-label="Team for ' + PH.esc(l.customer || "") + '"><option value="">Choose a team</option>' +
-      S.teams.map((t) => "<option" + (t === value ? " selected" : "") + ">" + PH.esc(t) + "</option>").join("") + "</select>";
+      teamsFor(l).map((t) => "<option" + (t === value ? " selected" : "") + ">" + PH.esc(t) + "</option>").join("") + "</select>";
     const lineRows = (list, longer) => list.map((l) => {
       const here = longer ? l.confirmed_length === p.length : true;
       const cur = here ? l.held + l.expected : 0, who = PH.esc(l.customer || "");
-      const sub = "<small>" + PH.esc(l.sales_order) + (longer ? " · ordered " + PH.esc(l.ordered_length) : "") + (l.allocated ? " · " + n(l.allocated) + " already allocated" : "") +
-        (!longer && l.confirmed_length && l.confirmed_length !== l.ordered_length ? " · confirmed as " + PH.esc(l.confirmed_length) : "") + "</small>";
-      return "<tr><td>" + who + (l.mixed ? ' <span class="ph-badge">Mixed box</span>' : "") + sub + (l.mixed ? "<small>One team for the whole box</small>" : "") + "</td>" +
+      const kind = l.mixed ? (l.mix_name ? PH.esc(l.mix_name) : "mixed") : "straight";
+      const checks = (l.checks || []).map((c) => '<span class="pg-chip pg-chip--' + CHK[c.severity] + '">' + PH.esc(c.label) + "</span>").join("");
+      const mixRows = (l.mix_members || []).map((m) => '<tr class="pg-subrow"><td>' + PH.esc(m.variety) + " " + PH.esc(m.length) + "<small>same bunch · " + m.per + " stem" + (m.per === 1 ? "" : "s") + ' a bunch</small></td><td></td><td class="is-num">' + n(m.ordered) + '</td><td class="is-num">' + n(m.covered) + "</td><td></td><td>" + PH.esc(m.length) + "</td><td></td><td>" +
+        (m.short > 0.5 ? '<span class="pg-chip pg-chip--bad">Short ' + n(m.short) + "</span>" : m.left > 0.5 ? '<span class="pg-chip pg-chip--warn">' + n(m.left) + " to confirm</span>" : '<span class="pg-chip pg-chip--good">Covered</span>') + "</td><td></td></tr>").join("");
+      const subRows = (l.substitutes || []).length > 1 && !l.confirmed ? l.substitutes.map((x) => '<tr class="pg-subrow"><td colspan="7">Substitute ' + PH.esc(p.variety) + " with " + PH.esc(x.variety) + "<small>" + PH.esc(x.variety) + " · " + n(x.spare) + ' spare</small></td><td><span class="pg-chip pg-chip--warn">Substitute</span></td><td class="pg-act"><button class="ph-btn ph-btn--ghost ph-btn--sm" type="button" data-subst="' + PH.esc(l.soi) + '" data-variety="' + PH.esc(x.variety) + '">Substitute &amp; confirm</button></td></tr>').join("") : "";
+      const delivery = l.delivery_date && l.delivery_date !== pool.delivery_date;
+      return "<tr><td><b>" + who + "</b><small>" + PH.esc(l.sales_order) + " · " + kind + (l.allocated ? " · " + n(l.allocated) + " allocated" : "") + "</small></td>" +
+        '<td><span class="pg-chip pg-chip--' + (delivery ? "tint" : "plain") + '">' + PH.fmt.date(l.delivery_date || pool.delivery_date, true) + "</span></td>" +
         '<td class="is-num">' + n(l.ordered) + "</td>" +
         '<td><input class="ph-input pg-in" type="number" min="0" max="' + Math.round(l.max_plan) + '" step="1" inputmode="numeric" data-allocated="' + Math.round(l.allocated || 0) + '" data-soi="' + PH.esc(l.soi) + '"' + (longer ? ' data-len="' + PH.esc(p.length) + '"' : "") + ' data-was="' + Math.round(cur) + '" value="' + Math.round(cur) + '" aria-label="Stems to confirm for ' + who + '">' +
-        '<small class="pg-in-hint" aria-live="polite"></small>' +
-        '<button class="ph-btn ph-btn--ghost ph-btn--sm pg-subbtn" type="button" data-sub="' + PH.esc(l.soi) + '">Substitute</button>' +
-        '<div class="pg-sel">' + farmSelect(l) + teamSelect(l, (l.team || S.team)) + "</div>" +
-        "<small>" + (here && l.held ? "held on the shelf " + n(l.held) : "") + (here && l.held && l.expected ? " · " : "") + (here && l.expected ? "expected from the farms " + n(l.expected) : "") + "</small></td></tr>";
+        '<small class="pg-in-hint" aria-live="polite"></small></td>' +
+        "<td>" + (pool.stock_farms.length > 1 ? farmSelect(l) : PH.esc((pool.stock_farms[0] || {}).farm || "")) + "</td>" +
+        "<td>" + PH.esc(p.length) + (longer ? "<small>ordered " + PH.esc(l.ordered_length) + "</small>" : "") + "</td>" +
+        "<td>" + teamSelect(l, (l.team || S.team)) + "</td>" +
+        '<td><div class="pg-checks-cell">' + checks + "</div></td>" +
+        '<td class="pg-act">' + actionButton(l, longer) + "</td></tr>" + mixRows + subRows;
     }).join("");
-    const table = (id, list, longer, empty, intro) => '<div id="' + id + '"' + (S.tab === id ? "" : " hidden") + ">" + (intro ? '<p class="ph-muted pg-cap">' + intro + "</p>" : "") +
-      (list.length ? '<div class="ph-table-wrap"><table class="ph-table"><thead><tr><th>Customer</th><th class="is-num">Ordered</th><th>Confirm</th></tr></thead><tbody>' + lineRows(list, longer) + "</tbody></table></div>" : '<div class="pg-empty">' + empty + "</div>") + "</div>";
+    const table = (id, list, longer, empty) => '<div id="' + id + '"' + (S.tab === id ? "" : " hidden") + ">" +
+      (list.length ? '<div class="ph-table-wrap"><table class="ph-table pg-ltable"><thead><tr><th>Customer</th><th>Delivery</th><th class="is-num">Ordered</th><th>Confirm</th><th>Length</th><th>Team</th><th>Checks</th><th class="pg-act">Action</th></tr></thead><tbody>' + lineRows(list, longer) + "</tbody></table></div>" : '<div class="pg-empty">' + empty + "</div>") + "</div>";
     const tabBtn = (id, label, count) => '<button type="button" data-tab="' + id + '"' + (S.tab === id ? ' class="is-on"' : "") + ">" + label + " (" + count + ")</button>";
     const tabs = '<div class="ph-pills pg-tabs" id="pg-tabs">' + tabBtn("pg-t-exact", "Exact length", pool.lines.length) + tabBtn("pg-t-longer", "Longer than ordered", pool.longer_lines.length) + "</div>";
-    const rows = tabs +
-      table("pg-t-exact", pool.lines, false, "No orders for " + PH.esc(p.variety) + " " + PH.esc(p.length) + ".", "") +
-      table("pg-t-longer", pool.longer_lines, true, "No orders for a shorter length are waiting.", "Orders for a shorter " + PH.esc(p.variety) + ". Confirming them here gives them " + PH.esc(p.length) + ", which is longer than they ordered.");
     const byFarm = (list, key) => list.filter((f) => f[key] > 0).map((f) => PH.esc(f.farm) + " " + n(f[key])).join(" · ");
-    const u = pool.supply, row = (label, value, sub, cls) => '<div class="pg-srow' + (cls ? " " + cls : "") + '"><span>' + label + (sub ? "<small>" + sub + "</small>" : "") + "</span><b>" + n(value) + "</b></div>";
-    const farms = u.to_cut_by_farm.map((x) => PH.esc(x.farm) + " " + n(x.stems)).join(" · ");
-    const rooms = u.rooms.map((x) => PH.esc(x.room) + " " + n(x.stems)).join(" · ");
-    // Both numbers, and the sum that turns one into the other.
-    const cut = u.to_cut > 0
-      ? row("Still to be cut: the forecast says", u.to_cut, farms) +
-        (u.error_pct == null
-          ? row("Safe to promise", 0, "no finished weeks to judge the forecast for " + PH.esc(p.variety) + " by, so none of it is counted yet", "pg-srow--sub")
-          : row("Safe to promise", u.to_cut_sure, n(u.to_cut) + " less " + u.error_pct + "%: the forecast for " + PH.esc(p.variety) + " has been off by " + u.error_pct + "% on average this year (the revised forecast against what was actually cut)", "pg-srow--sub"))
-      : row("Still to be cut: the forecast says", 0, "no farm forecast for this day");
-    const supply = '<div class="pg-supply">' +
-      row("Ordered", p.ordered, "", "pg-srow--top") +
-      row("On the shelf", u.on_shelf, byFarm(pool.stock_farms, "on_shelf") || "none on any farm's shelves") +
-      (u.received > 0 ? row("Received, not shelved", u.received, [byFarm(pool.stock_farms, "received"), rooms].filter(Boolean).join(" · ")) : "") +
-      (u.on_the_way > 0 ? row("Harvested, not received yet", u.on_the_way, "the day's production on its way") : "") +
-      cut + "</div>";
-    PH.set(el, '<div class="ph-card__head"><div><h2 class="ph-card__title">' + PH.esc(p.variety) + " " + PH.esc(p.length) + '</h2><div class="ph-card__meta">Delivery ' + PH.fmt.date(pool.delivery_date, true) + "</div></div>" +
-      "</div>" + supply + old +
-      rows +
-      '<div class="pg-foot" id="pg-foot"><button class="ph-link" id="pg-fill" type="button">Fill every line</button><button class="ph-btn ph-btn--primary" id="pg-plan" type="button">Confirm</button></div>');
-    $("pg-fill").onclick = () => PH.$$("#pg-t-exact:not([hidden]) .pg-in, #pg-t-longer:not([hidden]) .pg-in").forEach((i) => (i.value = i.max));
-    $("pg-plan").onclick = confirmIt;
-    PH.$$("#pg-detail [data-sub]").forEach((b) => (b.onclick = () => substitute(b.dataset.sub, b)));
-    // The stems box stops at what the order allows (what is ordered, less what is already allocated) and says why.
+    const short = Math.max(0, (pool.safe && pool.safe[1] ? pool.safe[1].short : p.short) || 0);
+    const tile = (label, value, sub, cls) => '<div class="pg-tile' + (cls ? " pg-tile--" + cls : "") + '"><span>' + label + "</span><b>" + n(value) + "</b>" + (sub ? "<small>" + sub + "</small>" : "") + "</div>";
+    const tiles = '<div class="pg-tiles">' +
+      tile("Ordered", p.ordered, p.allocated ? n(p.allocated) + " allocated" : "") +
+      tile("On the shelf", u.on_shelf + u.received, byFarm(pool.stock_farms, "on_shelf") || "none on any farm's shelves") +
+      tile("Harvest " + PH.fmt.date(pool.cut_day || pool.delivery_date, true), u.rolling || 0, "rolling · " + n((u.to_cut || 0) + (u.on_the_way || 0)) + " production") +
+      tile("Past amber", p.getting_old || 0, p.getting_old ? "used first" : "", "warn") +
+      tile("Short", short, "", "bad") + "</div>";
+    const SAFE = { net: ["Net stock", "Safe · held now"], rolling: ["Net stock + rolling forecast", "Safe if the farm cuts as usual"], production: ["+ production forecast", ""] };
+    const safe = '<div class="apx-cap">How much is safe</div><div class="pg-safe">' + (pool.safe || []).map((x) => {
+      // nothing left to plan: every stem ordered is already allocated
+      if (!(x.need > 0)) return '<button type="button" class="pg-safe__tile' + (x.basis === basis() ? " is-on" : "") + '" data-basis="' + x.basis + '" aria-pressed="' + (x.basis === basis()) + '"><span>' + SAFE[x.basis][0] + "</span><b>" + n(p.allocated || p.ordered) + "</b><small>all " + n(p.ordered) + ' ordered is allocated</small><span class="pg-chip pg-chip--good">Allocated</span></button>';
+      const pct = Math.round(100 * x.stems / x.need);
+      const more = x.stems - (x.basis === "production" ? pool.safe[1].stems : pool.safe[0].stems);
+      const tag = !(x.stems > 0) ? ["Nothing available", "bad"] : x.basis === "net" ? [SAFE.net[1], "good"] : more < 0.5 ? ["Safe", "good"] : x.basis === "rolling" ? [SAFE.rolling[1], "tint"] : ["At risk · " + n(more) + " on the production forecast", "bad"];
+      return '<button type="button" class="pg-safe__tile' + (x.basis === basis() ? " is-on" : "") + '" data-basis="' + x.basis + '" aria-pressed="' + (x.basis === basis()) + '"><span>' + SAFE[x.basis][0] + "</span><b>" + n(x.stems) + "</b><small>" + pct + "% of " + n(x.need) + (x.short > 0.5 ? " · " + n(x.short) + " short" : "") + '</small><span class="pg-chip pg-chip--' + tag[1] + '">' + PH.esc(tag[0]) + "</span></button>";
+    }).join("") + "</div>";
+    const all = lineRows(pool.lines, false) + lineRows(pool.longer_lines, true);
+    PH.set(el, '<div class="apx-card apx-vhead"><div class="apx-vhead__top"><h2>' + PH.esc(p.variety) + " " + PH.esc(p.length) + "</h2><span>" + PH.esc(crop || "") + (crop ? " · " : "") + PH.fmt.plural(pool.lines.length + pool.longer_lines.length, "order") + " · delivery " + PH.fmt.date(pool.delivery_date, true) + "</span></div>" + tiles + safe + "</div>" +
+      '<div class="apx-card apx-tablecard">' + (all ? '<div class="ph-table-wrap"><table class="apx-table pg-ltable"><thead><tr><th>Customer</th><th>Delivery</th><th class="is-num">Ordered</th><th>Confirm</th><th>Farm</th><th>Length</th><th>Team</th><th>Checks</th><th class="pg-act">Action</th></tr></thead><tbody>' + all + "</tbody></table></div>" : '<div class="pg-empty">No orders for ' + PH.esc(p.variety) + " " + PH.esc(p.length) + ".</div>") + "</div>");
+    // The basis the planner confirms on: picked here, kept between visits, and the one each confirm dialog opens on.
+    PH.$$("#pg-detail [data-basis]").forEach((b) => (b.onclick = () => {
+      S.basis = b.dataset.basis; try { localStorage.setItem("pg_basis", S.basis); } catch (e) {}
+      PH.$$("#pg-detail [data-basis]").forEach((x) => { x.classList.toggle("is-on", x === b); x.setAttribute("aria-pressed", x === b); });
+    }));
+    PH.$$("#pg-detail [data-subst]").forEach((b) => (b.onclick = () => subDialog(rowOf(b.dataset.subst), b.dataset.variety)));
+    PH.$$("#pg-detail [data-act]").forEach((b) => (b.onclick = () => lineAction(b)));
     PH.$$("#pg-detail .pg-in").forEach((inp) => (inp.oninput = () => {
       const max = Math.max(0, Math.round(+inp.max || 0)), hint = inp.parentElement.querySelector(".pg-in-hint");
       const raw = +inp.value;
@@ -300,17 +657,273 @@
         hint.innerHTML = '<span class="ph-bad">' + (al > 0 ? "Only " + n(max) + " left to confirm: " + n(al) + " of this order is already allocated." : "This order is for " + n(max) + " stems, the most you can confirm.") + "</span>";
       } else hint.textContent = "";
     }));
-    // A team belongs to the order line. A mixed box is packed by one team, so choosing it on one line sets it on the whole box.
     PH.$$("#pg-detail .pg-team-row").forEach((sel) => (sel.onchange = () => {
       S.team = sel.value; try { localStorage.setItem("pg_team", S.team); } catch (e) {}
       if (sel.dataset.mix) PH.$$("#pg-detail .pg-team-row").forEach((o) => { if (o.dataset.mix === sel.dataset.mix) o.value = sel.value; });
     }));
-    $("pg-tabs").onclick = (e) => {
-      const b = e.target.closest("button"); if (!b) return;
-      S.tab = b.dataset.tab;
-      PH.$$("#pg-tabs button").forEach((x) => x.classList.toggle("is-on", x === b));
-      ["pg-t-exact", "pg-t-longer"].forEach((id) => ($(id).hidden = id !== S.tab));
+
+  }
+
+  /* ── One line's action: what the checks suggest, confirmed from a dialog that shows how much is safe. ── */
+  const CHK = { red: "bad", amber: "warn", blue: "tint", good: "good" };
+  const ACTION = { confirmed: "", mix: "Confirm the mix", substitute: "Substitute & confirm", delivery: "Confirm based on forecast", longer: "Downgrade & confirm", shortage: "Confirm part or full", part_box: "Confirm part or full" };
+  const firstCode = (l) => { for (const k of ["mix", "delivery", "longer", "substitute", "shortage", "part_box"]) if ((l.checks || []).some((c) => c.code === k)) return k; return ""; };
+  function actionButton(l, longer) {
+    if (l.confirmed) return '<button class="ph-btn ph-btn--sm pg-done" type="button" aria-pressed="true" data-act="undo" data-soi="' + PH.esc(l.soi) + '">' + PH.icon("check") + " Confirmed · Undo</button>";
+    const code = firstCode(l);
+    return '<button class="ph-btn ph-btn--primary ph-btn--sm" type="button" data-act="' + (code || "confirm") + '" data-soi="' + PH.esc(l.soi) + '"' + (longer ? ' data-len="' + PH.esc(pool.pool.length) + '"' : "") + ">" + (ACTION[code] || "Confirm") + "</button>";
+  }
+  const rowOf = (soi) => pool.lines.concat(pool.longer_lines).find((l) => l.soi === soi);
+  const rowTeam = (soi) => { const sel = document.querySelector('.pg-team-row[data-soi="' + soi + '"]'); return sel ? sel.value : ""; };
+  const rowFarm = (soi) => { const i = document.querySelector('.pg-in[data-soi="' + soi + '"]'); const f = i && i.closest("tr").querySelector(".pg-farm-row"); return f ? f.value : ""; };
+  function lineAction(b) {
+    const l = rowOf(b.dataset.soi); if (!l) return;
+    const act = b.dataset.act, team = rowTeam(l.soi);
+    if (act === "undo") return askUndo(l);
+    if (act === "substitute") return subDialog(l);
+    if ((act !== "undo") && !team) { const sel = document.querySelector('.pg-team-row[data-soi="' + l.soi + '"]'); if (sel) sel.focus(); return PH.toast("Choose a team for this line first.", "bad"); }
+    if (act === "mix") {
+      const lines = [{ sales_order_item: l.soi, stems: Math.round(l.max_plan), team, stock_farm: rowFarm(l.soi) }]
+        .concat((l.mix_members || []).map((m) => ({ sales_order_item: m.soi, stems: Math.round(m.ordered), team })));
+      return proceed(lines);
+    }
+    lineDialog(l, act, team, b.dataset.len || "");
+  }
+  function lineDialog(l, act, team, len) {
+    const forecastOnly = act === "delivery";
+    const LBL = { net: "Net stock", rolling: "Net stock + rolling forecast", production: "+ production forecast" };
+    const sc = (l.scenarios || []).map((x, i) => ({ ...x, i }));
+    let pick = forecastOnly ? 1 : Math.max(0, sc.findIndex((x) => x.basis === basis()));
+    const el = document.createElement("div");
+    const line = (x) => ({ sales_order_item: l.soi, stems: Math.round(x.stems + l.held + l.expected), team, stock_farm: rowFarm(l.soi), ...(len ? { length: len } : {}), ...(forecastOnly ? { forecast_only: 1 } : {}) });
+    const tag = (x) => {
+      if (!(x.stems > 0)) return ["Nothing available", "bad"];
+      if (forecastOnly) return x.basis === "net" ? ["Not safe · too old by delivery", "bad"] : ["Safe if the farm cuts as usual", "tint"];
+      if (x.basis === "net") return ["Safe · held now", "good"];
+      if (x.basis === "rolling") return x.stems > sc[0].stems + 0.5 ? ["Safe if the farm cuts as usual", "tint"] : ["Safe", "good"];
+      return x.stems > sc[1].stems + 0.5 ? ["At risk · " + n(x.stems - sc[1].stems) + " on the production forecast", "bad"] : ["Safe", "good"];
     };
+    const draw = () => {
+      el.innerHTML = '<p class="ph-muted">' + PH.esc(l.sales_order) + " · " + n(l.ordered) + " ordered" + (l.boxes ? " in " + l.boxes + (l.boxes === 1 ? " box" : " boxes") : "") + " · " + PH.fmt.date(l.delivery_date, true) + "</p>" +
+        '<div class="pg-cap ph-muted">How much is safe</div><div class="pg-safe">' + sc.map((x) => {
+          const t = tag(x), stems = forecastOnly && x.basis === "net" ? 0 : x.stems;
+          return '<button type="button" class="pg-safe__tile' + (x.i === pick ? " is-on" : "") + '" data-pick="' + x.i + '"><span>' + LBL[x.basis] + "</span><b>" + n(stems) + "</b><small>" + (x.boxes && x.boxes[1] ? x.boxes[0] + " of " + x.boxes[1] + " boxes" : "") + '</small><span class="pg-chip pg-chip--' + t[1] + '">' + PH.esc(t[0]) + "</span></button>";
+        }).join("") + '</div><div class="pg-cap ph-muted" id="pg-ld-hu-cap" hidden>Before you confirm</div><div id="pg-ld-hu"></div>';
+      el.querySelectorAll("[data-pick]").forEach((t) => (t.onclick = () => { pick = +t.dataset.pick; draw(); look(); }));
+      const btn = m && m.el.querySelector(".ph-modal__foot .ph-btn--primary");
+      const nothing = !(sc[pick] && sc[pick].stems > 0);
+      if (btn) { btn.textContent = forecastOnly ? "Confirm based on forecast" : act === "longer" ? "Downgrade and confirm" : "Confirm " + n(sc[pick].stems); btn.disabled = nothing; }
+      if (nothing) el.querySelector("#pg-ld-hu-cap").hidden = false, el.querySelector("#pg-ld-hu").innerHTML = '<div class="pg-hu pg-hu--red"><p>Nothing to confirm on this basis: ' + PH.esc(pool.pool.variety) + " " + PH.esc(pool.pool.length) + " has no stock " + (sc[pick] && sc[pick].basis !== "net" ? "and no forecast " : "") + "left for this line.</p></div>";
+    };
+    let lookSeq = 0;
+    const look = () => {
+      const my = ++lookSeq, x = sc[pick];
+      if (!x || !(x.stems > 0)) return;
+      PH.call(GUARDS + "preview_confirmation", body([line(x)]), { silent: true }).then((r) => {
+        if (my !== lookSeq || !r) return;
+        const hu = (r.heads_up || []).filter((h) => h.code !== "non_moving");
+        el.querySelector("#pg-ld-hu-cap").hidden = !hu.length;
+        el.querySelector("#pg-ld-hu").innerHTML = hu.map((h) => '<div class="pg-hu pg-hu--' + h.severity + '"><p>' + PH.esc(h.message) + "</p></div>").join("");
+      }).catch(() => {});
+    };
+    let m = null;
+    draw();
+    m = PH.modal({ title: (act === "longer" ? "Confirm " + PH.esc(pool.pool.variety) + " " + PH.esc(len) : "Confirm " + PH.esc(pool.pool.variety) + " " + PH.esc(pool.pool.length)) + " for " + (l.customer || ""), body: el, size: "lg", actions: [
+      { label: "Cancel" },
+      { label: "Confirm", primary: true, onClick: () => { save([line(sc[pick])]); } },
+    ] });
+    draw(); look();
+  }
+  // Substitute & confirm: the varieties the specification approves that have stock, one to pick; the order line
+  // takes the new variety and is confirmed on it in full.
+  function subDialog(l, preset) {
+    if (!l) return;
+    const team = rowTeam(l.soi);
+    if (!team) { const sel = document.querySelector('.pg-team-row[data-soi="' + l.soi + '"]'); if (sel) sel.focus(); return PH.toast("Choose a team for this line first.", "bad"); }
+    const opts = l.substitutes || [];
+    if (!opts.length) return substitute(l.soi);
+    let pick = Math.max(0, opts.findIndex((x) => x.variety === preset));
+    const el = document.createElement("div");
+    const draw = () => {
+      el.innerHTML = '<p class="ph-muted">' + PH.esc(l.sales_order) + " · " + n(l.ordered) + " ordered · " + PH.fmt.date(l.delivery_date, true) + "</p>" +
+        '<div class="pg-cap ph-muted">Varieties the specification allows</div><div class="pg-safe">' + opts.map((x, i) =>
+          '<button type="button" class="pg-safe__tile' + (i === pick ? " is-on" : "") + '" data-pick="' + i + '"><span>Substitute</span><b style="font-size:16px">' + PH.esc(x.variety) + "</b><small>" + n(x.spare) + ' spare</small><span class="pg-chip pg-chip--' + (x.spare >= l.left ? "good" : "warn") + '">' + (x.spare >= l.left ? "Covers the order" : "Not enough on its own") + "</span></button>").join("") + "</div>";
+      el.querySelectorAll("[data-pick]").forEach((t) => (t.onclick = () => { pick = +t.dataset.pick; draw(); const b = m && m.el.querySelector(".ph-modal__foot .ph-btn--primary"); if (b) b.textContent = "Substitute " + opts[pick].variety + " and confirm"; }));
+    };
+    let m = null; draw();
+    m = PH.modal({ title: "Substitute " + PH.esc(pool.pool.variety) + " for " + PH.esc(l.customer || ""), body: el, size: "lg", actions: [
+      { label: "Cancel" },
+      { label: "Substitute " + opts[pick].variety + " and confirm", primary: true, onClick: () => PH.call(TEAMS + "substitute_and_confirm", { delivery_date: S.date, farm: S.farm, sales_order_item: l.soi, variety: opts[pick].variety, team }, { type: "POST" }).then((r) => {
+        if (!r || r.success === false) return false;
+        PH.toast(pool.pool.variety + " substituted with " + opts[pick].variety + " and confirmed.", "good"); load();
+      }) },
+    ] });
+  }
+
+  /* ── Check tiles: the day's checks by kind; a tile opens that list. ── */
+  const TILE_NAME = { longer: "Longer stem", short: "Shortage", mix_incomplete: "Incomplete mix", downgrade: "Longer stem", squeeze: "Substitutes", substitute: "Substitutes", non_moving: "Non-moving", cut_stage: "Cut stage", partial_box: "Part box", forecast: "Forecast", delivery: "Delivery date" };
+  // The tiles are filters on the variety list: one on at a time, clicking it again shows every variety.
+  const TILE = [["short", "Shortage", "bad", ["short"]], ["mix_incomplete", "Incomplete mix", "bad", ["mix_incomplete"]], ["longer", "Longer stem", "warn", ["downgrade", "longer"]],
+    ["substitute", "Substitutes", "warn", ["squeeze", "substitute"]], ["non_moving", "Non-moving", "warn", ["non_moving"]], ["delivery", "Delivery date", "tint", ["delivery"]]];
+  const tileCodes = (key) => (TILE.find((t) => t[0] === key) || [, , , []])[3];
+  const poolHas = (p, key) => (key === "non_moving" && p.getting_old > 0) ||
+    ((S.checksData || {}).checks || []).some((c) => c.variety === p.variety && (c.length || "") === (p.length || "") && tileCodes(key).includes(c.code));
+  function drawCheckTiles() {
+    if (!S.checksData) { PH.set($("pg-kpis"), TILE.map(() => '<div class="pg-ctile">' + skRow([["55%", 13], ["24px", 20]]) + '<div style="height:8px"></div>' + sk("70%", 10) + "</div>").join("")); return; }
+    const checks = S.checksData.checks;
+    PH.set($("pg-kpis"), TILE.map(([key, name, kind, codes]) => {
+      const hits = checks.filter((c) => codes.includes(c.code));
+      const pools = new Set(hits.map((c) => (c.variety || "") + "|" + (c.length || "")));
+      if (key === "non_moving" && board) board.pools.filter((p) => p.getting_old > 0).forEach((p) => pools.add(p.variety + "|" + p.length));
+      const count = pools.size, on = S.tileFilter === key;
+      const sub = key === "non_moving" && !hits.length ? n(board ? board.kpis.non_moving : 0) + " stems past amber" : hits.length ? PH.esc(hits[0].title) : "none";
+      return '<button type="button" class="pg-ctile' + (on ? " is-on" : "") + '" data-code="' + key + '" aria-pressed="' + on + '"><span class="pg-ctile__top"><b>' + name + '</b><span class="pg-chip pg-chip--' + (count ? kind : "good") + '">' + count + "</span></span><small>" + sub + "</small></button>";
+    }).join(""));
+    PH.$$("#pg-kpis [data-code]").forEach((b) => (b.onclick = () => {
+      S.tileFilter = S.tileFilter === b.dataset.code ? "" : b.dataset.code;
+      if (S.tileFilter && S.view !== "all") { S.view = "all"; PH.$$("#pg-view button").forEach((x) => x.classList.toggle("is-on", x.dataset.value === "all")); drawCheckTiles(); return load(); }
+      if (S.mode !== "unconfirmed") st.set({ tab: "unconfirmed" });
+      drawCheckTiles(); drawList();
+    }));
+  }
+
+  /* ── Team sequence: one column per team, #1, #2 … per team; drag a card to reorder or move it to another team. ── */
+  let seqSeq = 0;
+  function loadSeq(quiet) {
+    const my = ++seqSeq;
+    if (!quiet) PH.set($("pg-seq"), skBoard());
+    return PH.call(TEAMS + "get_team_board", { delivery_date: S.date, farm: S.farm }, { silent: true }).then((d) => { if (my === seqSeq && d) drawSeq(d); })
+      .catch(() => PH.set($("pg-seq"), '<div class="ph-card"><div class="pg-empty">Could not load the teams.</div></div>'));
+  }
+  function drawSeq(d) {
+    const none = d.teams.filter((t) => t.no_crop);
+    const alert = "";
+    const flow = !d.flow.length ? "" : '<section class="ph-card pg-flow"><span class="ph-muted">Allocation order</span>' + d.flow.slice(0, 4).map((r) => '<span class="pg-chip pg-chip--ink">Round ' + r.round + "</span>" + r.steps.map((x) => '<span class="pg-chip pg-chip--plain">' + PH.esc(x.team) + " #" + x.n + "</span>").join("")).join("") + (d.flow.length > 4 ? '<span class="pg-chip pg-chip--ink">Round 5 …</span>' : "") + "</section>";
+    const chips = (t) => t.no_crop ? "" : '<span class="pg-chip pg-chip--ink">' + PH.esc(t.default) + " · default</span>" + t.others.map((c) => '<span class="pg-chip pg-chip--plain">' + PH.esc(c) + "</span>").join("");
+    const card = (t, o) => '<div class="pg-scard" draggable="true" data-so="' + PH.esc(o.sales_order) + '" data-team="' + PH.esc(t.team) + '" data-n="' + o.n + '"><span class="pg-grip" aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span><div><div class="pg-scard__top"><span class="pg-chip pg-chip--ink">#' + o.n + "</span><b>" + PH.esc(o.customer) + "</b></div><small>" + PH.esc(o.order_name) + "</small><small>" + n(o.stems) + " stems · " + o.boxes + " box" + (o.boxes === 1 ? "" : "es") + "</small>" + (o.flag ? '<small class="ph-warn">' + PH.esc(o.flag) + "</small>" : "") + "</div></div>";
+    const noCrop = (t) => '<div class="pg-scol__nocrop" role="alert"><span>No crop set, so no orders can be planned for ' + PH.esc(t.team) + '.</span><button type="button" class="ph-btn ph-btn--sm pg-alert__btn" data-go="crops" data-team="' + PH.esc(t.team) + '">Set crop</button></div>';
+    const col = (t) => '<div class="ph-card pg-scol' + (t.no_crop ? " pg-scol--none" : "") + '" data-team="' + PH.esc(t.team) + '"><div class="pg-scol__head"><b>' + PH.esc(t.team) + "</b><small>" + PH.fmt.plural(t.orders.length, "order") + "</small></div>" +
+      (t.no_crop ? noCrop(t) : '<div class="pg-scol__crops">' + chips(t) + '</div><div class="pg-loadbar"><div style="width:' + t.load_pct + '%"></div></div><small class="ph-muted pg-scol__load">' + n(t.stems) + " stems · " + t.boxes + " boxes</small>") +
+      t.orders.map((o) => card(t, o)).join("") + (!t.no_crop && !t.orders.length ? '<div class="pg-sempty">Drop an order here</div>' : "") + "</div>";
+    setHead("Allocation takes every team's #1, then every team's #2");
+    PH.set($("pg-seq"), '' + alert + flow + '<div class="pg-board">' + d.teams.map(col).join("") + "</div>");
+    PH.$$("#pg-seq [data-go]").forEach((b) => (b.onclick = () => { if (b.dataset.team) S.cropTeam = b.dataset.team; st.set({ tab: b.dataset.go }); }));
+    // Dragging: a slot opens where the card will land (no re-render while dragging), the card moves there on
+    // drop at once, the numbers follow, and the server is told in the background.
+    let drag = null, slot = null, raf = 0;
+    const renumber = (colEl) => colEl.querySelectorAll(".pg-scard").forEach((c, k) => { c.dataset.n = k + 1; const b = c.querySelector(".pg-scard__top .pg-chip"); if (b) b.textContent = "#" + (k + 1); });
+    const clearSlot = () => { if (slot) slot.remove(); slot = null; };
+    PH.$$("#pg-seq .pg-scard").forEach((c) => {
+      c.ondragstart = (e) => {
+        drag = c; e.dataTransfer.effectAllowed = "move";
+        try { e.dataTransfer.setData("text/plain", c.dataset.so); } catch (er) {}
+        slot = document.createElement("div"); slot.className = "pg-sslot"; slot.style.height = c.offsetHeight + "px";
+        requestAnimationFrame(() => c.classList.add("is-drag"));
+      };
+      c.ondragend = () => { c.classList.remove("is-drag"); clearSlot(); drag = null; };
+    });
+    PH.$$("#pg-seq .pg-scol").forEach((colEl) => {
+      colEl.ondragover = (e) => {
+        if (!drag || colEl.classList.contains("pg-scol--none")) return;
+        e.preventDefault(); e.dataTransfer.dropEffect = "move";
+        const y = e.clientY;
+        if (raf) return;
+        raf = requestAnimationFrame(() => {
+          raf = 0;
+          if (!drag || !slot) return;
+          const cards = [...colEl.querySelectorAll(".pg-scard:not(.is-drag)")];
+          const before = cards.find((c) => { const r = c.getBoundingClientRect(); return y < r.top + r.height / 2; });
+          const empty = colEl.querySelector(".pg-sempty");
+          if (before) { if (slot.nextSibling !== before) colEl.insertBefore(slot, before); }
+          else if (empty) { if (slot.nextSibling !== empty) colEl.insertBefore(slot, empty); }
+          else if (slot.parentNode !== colEl || slot.nextSibling) colEl.appendChild(slot);
+        });
+      };
+      colEl.ondrop = (e) => {
+        e.preventDefault();
+        if (!drag || !slot || slot.parentNode !== colEl) return;
+        const card = drag, from = card.closest(".pg-scol"), team = colEl.dataset.team;
+        colEl.insertBefore(card, slot); clearSlot(); card.classList.remove("is-drag");
+        const empty = colEl.querySelector(".pg-sempty"); if (empty) empty.remove();
+        renumber(colEl); if (from !== colEl) renumber(from);
+        const position = +card.dataset.n, so = card.dataset.so; drag = null;
+        PH.call(TEAMS + "move_order", { delivery_date: S.date, farm: S.farm, sales_order: so, team, position }, { type: "POST" })
+          .then((r) => { loadSeq(true); if (!r || r.success === false) PH.toast("Could not move the order.", "bad"); })
+          .catch(() => loadSeq(true));
+      };
+    });
+  }
+
+  /* ── Confirmation summary: every confirmed order and its lines. ── */
+  let sumSeq = 0;
+  function loadSum() {
+    const my = ++sumSeq;
+    PH.set($("pg-sum"), loading("Loading the confirmations…"));
+    return PH.call(TEAMS + "get_confirmation_summary", { delivery_date: S.date, farm: S.farm }, { silent: true }).then((d) => { if (my === sumSeq && d) drawSum(d); })
+      .catch(() => PH.set($("pg-sum"), '<div class="ph-card"><div class="pg-empty">Could not load the confirmations.</div></div>'));
+  }
+  function drawSum(d) {
+    const t = d.totals, K = { ok: "good", warn: "warn", blue: "tint", red: "bad" };
+    const tiles = '<div class="pg-tiles">' +
+      '<div class="pg-tile"><span>Confirmed</span><b>' + n(t.confirmed) + "</b><small>stems</small></div>" +
+      '<div class="pg-tile"><span>On net stock</span><b>' + n(t.net) + '</b><small>held now</small></div>' +
+      '<div class="pg-tile"><span>On rolling forecast</span><b>' + n(t.rolling) + "</b><small>expected from the farms</small></div>" +
+      '<div class="pg-tile pg-tile--warn"><span>Substituted · downgraded</span><b>' + n(t.changed) + "</b></div>" +
+      '<div class="pg-tile pg-tile--bad"><span>Left unconfirmed</span><b>' + n(t.left) + "</b><small>" + PH.fmt.plural(t.lines_left || 0, "line") + "</small></div></div>";
+    const bar = (x) => { const tot = x.held + x.expected || 1; return '<div class="pg-bar"><i style="width:' + Math.round(100 * x.held / tot) + '%"></i><i class="is-roll" style="width:' + Math.round(100 * x.expected / tot) + '%"></i></div><small>' + (x.held ? n(x.held) + " net stock" : "") + (x.held && x.expected ? " · " : "") + (x.expected ? n(x.expected) + " rolling" : "") + "</small>"; };
+    const rows = d.orders.map((o) => '<tr class="pg-sumorder"><td><b>' + PH.esc(o.customer) + "</b><small>" + PH.esc(o.order_name) + "</small></td><td>" + (o.seq ? '<span class="pg-chip pg-chip--ink">#' + o.seq + "</span> " : "") + PH.esc(o.team) + "</td><td>" + PH.fmt.date(o.delivery, true) + '</td><td class="is-num">' + n(o.ordered) + '</td><td class="is-num">' + n(o.confirmed) + '</td><td class="ph-muted">' + o.lines_done + " of " + PH.fmt.plural(o.lines_total, "line") + '</td><td></td><td><span class="pg-chip pg-chip--' + K[o.kind] + '">' + PH.esc(o.result) + "</span></td></tr>" +
+      o.items.map((x) => '<tr class="pg-subrow"><td>' + PH.esc(x.variety) + (x.note ? "<small>" + PH.esc(x.note) + "</small>" : "") + '</td><td></td><td></td><td class="is-num">' + n(x.ordered) + '</td><td class="is-num">' + n(x.confirmed) + "</td><td>" + bar(x) + "</td><td>" + x.done.map((y) => '<span class="pg-chip pg-chip--warn">' + PH.esc(y) + "</span>").join(" ") + '</td><td><span class="pg-chip pg-chip--' + K[x.kind] + '">' + PH.esc(x.result) + "</span></td></tr>").join("")).join("");
+    setHead(PH.fmt.plural(t.orders || 0, "order") + " · " + (t.lines || 0) + " of " + PH.fmt.plural(t.all_lines || 0, "line") + " confirmed");
+    PH.set($("pg-sum"), tiles +
+      (d.orders.length ? '<section class="ph-card"><div class="ph-table-wrap"><table class="ph-table pg-sumtable"><thead><tr><th>Order · line</th><th>Team</th><th>Delivery</th><th class="is-num">Ordered</th><th class="is-num">Confirmed</th><th>Counts on</th><th>Done by the system</th><th>Result</th></tr></thead><tbody>' + rows + "</tbody></table></div></section>" : '<div class="ph-card"><div class="pg-empty">Nothing is confirmed for this day yet.</div></div>'));
+  }
+
+  /* ── Team crops: the crops each Packing Team packs, one default, the others its fall-back. ── */
+  let cropSeq = 0;
+  function loadCrops() {
+    const my = ++cropSeq;
+    PH.set($("pg-crops"), '<div class="pg-cgrid"><div class="ph-card" style="padding:16px">' + skTable(7) + '</div><div class="ph-card" style="padding:16px">' + skRow([["40%", 18]]) + skTable(3) + "</div></div>");
+    return PH.call(TEAMS + "get_team_crops", { delivery_date: S.date, farm: S.farm }, { silent: true }).then((d) => { if (my === cropSeq && d) drawCrops(d); })
+      .catch(() => PH.set($("pg-crops"), '<div class="ph-card"><div class="pg-empty">Could not load the teams.</div></div>'));
+  }
+  function drawCrops(d) {
+    const edit = S.cropTeam && d.teams.find((t) => t.team === S.cropTeam) || d.teams.find((t) => t.no_crop) || d.teams[0];
+    S.cropTeam = edit ? edit.team : "";
+    const rows = d.teams.map((t) => '<tr' + (t.team === S.cropTeam ? ' class="is-on"' : "") + "><td><b>" + PH.esc(t.team) + "</b></td><td>" + (t.default ? '<span class="pg-chip pg-chip--ink">' + PH.esc(t.default) + "</span>" : '<span class="pg-chip pg-chip--bad">Not set</span>') + '</td><td class="ph-muted">' + (t.others.map(PH.esc).join(", ") || "—") + "</td><td>" +
+      (t.no_crop ? '<span class="ph-bad">Cannot be planned</span>' : t.plans_for ? (t.fallback ? '<span class="ph-warn">' + PH.esc(t.plans_for) + " · no " + PH.esc(t.default) + " orders</span>" : PH.esc(t.plans_for)) : '<span class="ph-muted">No orders for its crops</span>') +
+      '</td><td class="pg-act"><button type="button" class="ph-btn ph-btn--ghost ph-btn--sm" data-edit="' + PH.esc(t.team) + '">' + (t.team === S.cropTeam ? "Editing" : t.no_crop ? "Set crop" : "Edit") + "</button></td></tr>").join("");
+    const opts = (v) => d.crops.map((c) => "<option" + (c === v ? " selected" : "") + ">" + PH.esc(c) + "</option>").join("");
+    const er = edit ? [...(edit.default ? [{ crop: edit.default, def: 1 }] : []), ...edit.others.map((c) => ({ crop: c, def: 0 }))] : [];
+    if (edit && !er.length) er.push({ crop: "", def: 1 });
+    const editor = edit ? '<section class="ph-card pg-cedit"><div class="ph-card__head"><h2 class="ph-card__title">' + PH.esc(edit.team) + '</h2><span class="ph-muted">Packing Teams</span></div><div class="pg-cap">Crops</div><table class="ph-table" id="pg-crop-rows"><thead><tr><th>No.</th><th>Crop</th><th>Default</th><th></th></tr></thead><tbody>' +
+      er.map((r, i) => '<tr><td class="ph-muted">' + (i + 1) + '</td><td><select class="ph-select" aria-label="Crop, row ' + (i + 1) + '"><option value="">Choose a crop</option>' + opts(r.crop) + '</select></td><td><input type="checkbox" class="pg-cdef" aria-label="Default crop, row ' + (i + 1) + '"' + (r.def ? " checked" : "") + '></td><td><button type="button" class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm pg-crm" aria-label="Remove row ' + (i + 1) + '">' + PH.icon("close") + "</button></td></tr>").join("") +
+      '</tbody></table><button type="button" class="ph-btn ph-btn--ghost ph-btn--sm" id="pg-cadd">Add row</button><div class="pg-foot"><span></span><button type="button" class="ph-btn ph-btn--primary" id="pg-csave">Save</button></div></section>' : "";
+    setHead("Each team plans its default crop first, then its other crops when the default has no orders");
+    PH.set($("pg-crops"),
+      '<div class="pg-cgrid"><section class="ph-card"><div class="ph-table-wrap"><table class="ph-table"><thead><tr><th>Team</th><th>Default crop</th><th>Other crops</th><th>Plans for ' + PH.fmt.date(d.delivery_date, true) + '</th><th></th></tr></thead><tbody>' + rows + "</tbody></table></div></section>" + editor + "</div>");
+    PH.$$("#pg-crops [data-edit]").forEach((b) => (b.onclick = () => { S.cropTeam = b.dataset.edit; drawCrops(d); }));
+    if (!edit) return;
+    const tbody = $("pg-crop-rows").querySelector("tbody");
+    PH.$$("#pg-crops .pg-cdef").forEach((c) => (c.onchange = () => { if (c.checked) PH.$$("#pg-crops .pg-cdef").forEach((o) => { if (o !== c) o.checked = false; }); }));
+    PH.$$("#pg-crops .pg-crm").forEach((b) => (b.onclick = () => b.closest("tr").remove()));
+    $("pg-cadd").onclick = () => { const tr = document.createElement("tr"); tr.innerHTML = '<td class="ph-muted">' + (tbody.children.length + 1) + '</td><td><select class="ph-select" aria-label="Crop"><option value="">Choose a crop</option>' + opts("") + '</select></td><td><input type="checkbox" class="pg-cdef" aria-label="Default crop"></td><td></td>'; tbody.appendChild(tr); };
+    $("pg-csave").onclick = () => {
+      const rowsOut = [...tbody.querySelectorAll("tr")].map((tr) => ({ crop: tr.querySelector("select").value, is_default: tr.querySelector(".pg-cdef").checked ? 1 : 0 })).filter((r) => r.crop);
+      PH.call(TEAMS + "save_team_crops", { team: edit.team, rows: JSON.stringify(rowsOut) }, { type: "POST" }).then((r) => { if (r && r.success !== false) { PH.toast("Saved " + edit.team + "'s crops.", "good"); loadCrops(); } });
+    };
+  }
+
+  // Undo: the line goes back to how it was before it was confirmed.
+  function askUndo(l) {
+    const el = document.createElement("div");
+    el.innerHTML = "<p>" + PH.esc(l.customer) + " · " + PH.esc(l.sales_order) + ": " + n(l.held + l.expected) + " stems confirmed.</p><p class=\"ph-muted\">The line goes back to its original variety, length and stems, and anything held for it is released.</p>";
+    PH.modal({ title: "Are you sure you want to undo?", body: el, actions: [
+      { label: "No" },
+      { label: "Yes, undo", primary: true, danger: true, onClick: () => PH.call(API + "unconfirm_line", { sales_order_item: l.soi }, { type: "POST" }).then((r) => {
+        if (!r || r.success === false) return false;
+        PH.toast("Undone. The stock is free again.", "good"); load();
+      }) },
+    ] });
   }
 
   /* ── Confirming: look first (heads-up), then save ── */
@@ -495,24 +1108,34 @@
       if (btn) btn.disabled = false;
       if (!r) return;
       const l = r.line, o = r.ordered, el = document.createElement("div");
-      const srcs = (x) => ["<div><b>" + n(x.shelved) + "</b> shelved</div>", "<div><b>" + n(x.received) + "</b> received, not shelved</div>", "<div><b>" + n(x.harvested) + "</b> harvested, not received</div>",
-        "<div><b>" + n(x.forecast) + "</b> forecast" + (x.forecast > 0 ? ' <span class="ph-muted">(' + n(x.forecast_sure) + " safe)</span>" : "") + "</div>"].join("");
+      // One column per variety (the ordered one first), one row per fact, so every option sits side by side.
       const verdict = { covers: ["good", "Covers the order"], partly: ["warn", "Not enough on its own"], none: ["tint", "Nothing available"] };
-      const row = (x) => '<tr class="pg-sub-opt"><td><b>' + PH.esc(x.variety) + "</b>" + (x.primary ? ' <span class="ph-badge">Primary</span>' : ' <span class="ph-badge">Approved</span>') +
-        "<small>" + PH.esc(x.colour || "colour not set") + (x.same_colour === false ? " · different colour" : x.same_colour ? " · same colour" : "") + "</small>" +
-        x.warnings.map((w) => '<small class="ph-bad">' + PH.esc(w) + "</small>").join("") + "</td>" +
-        "<td>" + srcs(x) + "</td>" +
-        '<td class="is-num"><b>' + n(x.left) + "</b><small>" + n(x.taken) + " taken by others</small></td>" +
-        "<td>" + '<span class="pg-chip pg-chip--' + verdict[x.verdict][0] + '">' + verdict[x.verdict][1] + "</span>" +
-        (x.needed_by_others > 0 ? "<small>" + n(x.needed_by_others) + " still needed by other orders" + (x.strict_customers ? " (" + PH.esc(x.strict_customers) + " accept nothing else)" : "") + "</small>" : "") + "</td></tr>";
+      const cols = [Object.assign({}, o, { variety: l.variety, ordered: true })].concat(r.options);
+      const head = (x) => "<th><b>" + PH.esc(x.variety) + '</b><span class="ph-badge">' + (x.ordered ? "Ordered" : x.primary ? "Primary" : "Approved") + "</span>" +
+        "<small>" + PH.esc(x.colour || "colour not set") + (x.ordered ? "" : x.same_colour === false ? ' · <span class="ph-bad">different colour</span>' : x.same_colour ? " · same colour" : "") + "</small></th>";
+      const num = (v) => (v > 0 ? "<b>" + n(v) + "</b>" : '<span class="ph-muted">0</span>');
+      const facts = [
+        ["Shelved", (x) => num(x.shelved)],
+        ["Received, not shelved", (x) => num(x.received)],
+        ["Harvested, not received", (x) => num(x.harvested)],
+        ["Forecast", (x) => num(x.forecast) + (x.forecast > 0 ? '<small class="ph-muted">' + n(x.forecast_sure) + " safe</small>" : "")],
+        ["Taken by others", (x) => (x.ordered ? '<span class="ph-muted">—</span>' : num(x.taken))],
+        ["Left to confirm", (x) => "<b>" + n(x.left) + "</b>"],
+        ["Verdict", (x) => x.ordered
+          ? (x.short_by > 0 ? '<span class="pg-chip pg-chip--warn">Short by ' + n(x.short_by) + "</span>" : '<span class="pg-chip pg-chip--good">Covered</span>')
+          : '<span class="pg-chip pg-chip--' + verdict[x.verdict][0] + '">' + verdict[x.verdict][1] + "</span>"],
+        ["Still needed by other orders", (x) => (x.ordered ? '<span class="ph-muted">—</span>' : num(x.needed_by_others || 0) + (x.strict_customers ? '<small class="ph-bad">' + PH.esc(x.strict_customers) + " accept nothing else</small>" : ""))],
+      ];
+      const warns = cols.some((x) => (x.warnings || []).length)
+        ? "<tr><th>Heads-up</th>" + cols.map((x) => "<td>" + ((x.warnings || []).map((w) => '<small class="ph-bad">' + PH.esc(w) + "</small>").join("") || '<span class="ph-muted">—</span>') + "</td>").join("") + "</tr>" : "";
       el.innerHTML = '<p class="ph-muted">' + PH.esc(l.customer) + " · " + PH.esc(l.variety) + " " + PH.esc(l.length) + ": <b>" + n(r.need) + "</b> stems to cover. Specification <b>" + PH.esc(l.spec || "—") + "</b>.</p>" +
-        (r.has_spec ? '<div class="ph-table-wrap"><table class="ph-table pg-otable"><thead><tr><th>Variety</th><th>Where it is</th><th class="is-num">Left to confirm</th><th>Verdict</th></tr></thead><tbody>' +
-          '<tr class="pg-o-none"><td><b>' + PH.esc(l.variety) + '</b> <span class="ph-badge">Ordered</span><small>' + PH.esc(o.colour || "") + "</small></td><td>" + srcs(o) + '</td><td class="is-num"><b>' + n(o.left) + "</b></td><td>" +
-          (o.short_by > 0 ? '<span class="pg-chip pg-chip--warn">Short by ' + n(o.short_by) + "</span>" : '<span class="pg-chip pg-chip--good">Covered</span>') + "</td></tr>" +
-          (r.options.length ? r.options.map(row).join("") : '<tr><td colspan="4" class="ph-muted">The specification approves no other variety for this bunch.</td></tr>') + "</tbody></table></div>" +
+        (r.has_spec ? '<div class="ph-table-wrap pg-subx"><table class="ph-table"><thead><tr><th></th>' + cols.map(head).join("") + "</tr></thead><tbody>" +
+          facts.map(([label, f]) => "<tr><th>" + label + "</th>" + cols.map((x) => "<td>" + f(x) + "</td>").join("") + "</tr>").join("") + warns +
+          "</tbody></table></div>" +
+          (r.options.length ? "" : '<p class="ph-muted">The specification approves no other variety for this bunch.</p>') +
           '<p class="ph-muted">This is advice: the allocator packs the variety that is on the order line. To use a substitute, change the variety on the order.</p>'
           : '<div class="pg-empty">' + PH.esc(r.note || "") + "</div>");
-      PH.modal({ title: "Substitute", sub: "Approved varieties: primary first, then approved", body: el, actions: [
+      PH.modal({ title: "Substitute", sub: "Approved varieties: primary first, then approved", size: "xl", body: el, actions: [
         { label: "Close" },
         { label: "Open this order", primary: true, onClick: () => { window.open("/app/sales-order/" + encodeURIComponent(l.sales_order), "_blank"); return false; } },
       ] });
@@ -556,15 +1179,25 @@
         '<td class="is-num">' + (l.confirmed > 0 ? "<b>" + n(l.confirmed) + "</b>" : "—") + "<small>" + state(l) + "</small></td>" +
         "<td>" + src + (l.missing ? '<small class="ph-bad">A held bucket is missing</small>' : "") + "</td><td>" + stock + "</td><td>" + who + '</td><td class="pg-o-act">' + acts + "</td></tr>";
     };
-    const card = (o) => {
+    const card = (o, i) => {
       const pct = o.ordered > 0 ? Math.round(100 * (o.confirmed + o.allocated) / o.ordered) : 0, all = o.lines_confirmed === o.lines_total;
-      return '<section class="ph-card pg-order"><div class="pg-order__head"><div><h3 class="pg-order__name">' + PH.esc(o.customer) + '</h3><div class="ph-card__meta">' + PH.esc(o.sales_order) + (o.order_name ? " · " + PH.esc(o.order_name) : "") + "</div></div>" +
+      const seq = '<div class="pg-seq"><span class="pg-seq__no">' + (o.sequence || "—") + "</span>" +
+        '<button class="pg-seq__mv" type="button" data-seq-mv="' + i + '|-1" aria-label="Move ' + PH.esc(o.customer) + ' up"' + (i === 0 ? " disabled" : "") + ">&#9650;</button>" +
+        '<button class="pg-seq__mv" type="button" data-seq-mv="' + i + '|1" aria-label="Move ' + PH.esc(o.customer) + ' down"' + (i === d.orders.length - 1 ? " disabled" : "") + ">&#9660;</button></div>";
+      return '<section class="ph-card pg-order"><div class="pg-order__head">' + seq + '<div class="pg-order__who"><h3 class="pg-order__name">' + PH.esc(o.customer) + '</h3><div class="ph-card__meta">' + PH.esc(o.sales_order) + (o.order_name ? " · " + PH.esc(o.order_name) : "") + "</div></div>" +
         '<div class="pg-order__nums"><span class="pg-chip pg-chip--' + (all ? "good" : "warn") + '">' + o.lines_confirmed + " of " + PH.fmt.plural(o.lines_total, "line") + " confirmed</span><span><b>" + n(o.confirmed) + "</b> of " + n(o.ordered) + " stems · " + pct + "%</span></div></div>" +
         '<div class="ph-table-wrap"><table class="ph-table pg-otable"><thead><tr><th>Box</th><th>Variety and length</th><th class="is-num">Ordered</th><th class="is-num">Confirmed</th><th>Source</th><th>Stock for it</th><th>Team</th><th></th></tr></thead><tbody>' + o.lines.map((l, i) => line(l, i, o.lines)).join("") + "</tbody></table></div></section>";
     };
     PH.set(el, '<p class="ph-muted pg-conf-sum">' + PH.fmt.plural(t.orders, "order") + " · " + t.lines_confirmed + " of " + PH.fmt.plural(t.lines, "line") + " confirmed. Every line of each order is shown, confirmed or not.</p>" +
       '<div class="pg-legend">' + ["straight", "mixed_box", "mixed_bunch"].map((k) => '<span class="pg-k-' + k + '"><i></i>' + KIND[k] + "</span>").join("") + "</div>" + d.orders.map(card).join(""));
     PH.$$("#pg-conf [data-unconfirm]").forEach((b) => (b.onclick = () => unconfirm(b)));
+    PH.$$("#pg-conf [data-seq-mv]").forEach((b) => (b.onclick = () => {
+      const [i, step] = b.dataset.seqMv.split("|").map(Number), names = d.orders.map((o) => o.sales_order);
+      [names[i], names[i + step]] = [names[i + step], names[i]];
+      PH.$$("#pg-conf [data-seq-mv]").forEach((x) => (x.disabled = true));
+      PH.call(API + "set_order_sequence", { delivery_date: S.date, farm: S.farm, orders: JSON.stringify(names) }, { type: "POST" })
+        .then(() => loadOrders()).catch(() => loadOrders());
+    }));
     PH.$$("#pg-conf [data-oswap]").forEach((b) => (b.onclick = () => {
       const l = d.orders.flatMap((o) => o.lines).find((x) => x.soi === b.dataset.oswap); if (!l) return;
       b.disabled = true;
@@ -588,6 +1221,49 @@
       PH.toast("Unconfirmed. The stock is free again.", "good");
       load();
     }).catch(() => { btn.disabled = false; });
+  }
+
+  /* ── Checks: what Sales Allocation will stop on or regret, for the whole day's plan. ── */
+  const CHECK = { mix_incomplete: "Mix can't be completed", cut_stage: "Cut stage", missing_bucket: "Missing bucket", short: "Short",
+    downgrade: "Downgrade", squeeze: "Squeeze", partial_box: "Part box", forecast: "On the forecast", non_moving: "Non-moving" };
+  let checkSeq = 0;
+  function loadChecks() {
+    const my = ++checkSeq;
+    if (S.mode === "checks") PH.set($("pg-checks"), '<div class="ph-card">' + loading("Checking the plan…") + "</div>");
+    return PH.call(GUARDS.replace("allocation_guards", "allocation_checks") + "get_plan_checks", { delivery_date: S.date, farm: S.farm }, { silent: true }).then((r) => {
+      if (my !== checkSeq || !r) return;
+      S.checkCount = r.checks.length; S.checkRed = (r.counts || {}).red || 0; S.checksData = r;
+      if (board) { drawCheckTiles(); drawList(); }
+      if (S.checkFilter) r = { ...r, checks: r.checks.filter((c) => c.code === S.checkFilter || (S.checkFilter === "squeeze" && c.code === "substitute")) };
+      if (board) drawModes();
+      if (S.mode === "checks") drawChecks(r);
+    }).catch(() => { if (S.mode === "checks") PH.set($("pg-checks"), '<div class="ph-card"><div class="pg-empty">Could not check the plan.</div></div>'); });
+  }
+  function drawChecks(r) {
+    const el = $("pg-checks");
+    if (!r.checks.length) { PH.set(el, '<div class="ph-card"><div class="pg-empty">Nothing to fix for ' + PH.fmt.date(r.delivery_date, true) + ".</div></div>"); return; }
+    const codes = [...new Set(r.checks.map((c) => c.code))];
+    const act = (a, i, j) => '<button class="ph-btn ph-btn--ghost ph-btn--sm" type="button" data-ci="' + i + '" data-cj="' + j + '">' + PH.esc(a.label) + "</button>";
+    const row = (c, i) => '<div class="pg-check pg-check--' + c.severity + '"><div class="pg-check__main"><div class="pg-check__title"><span class="pg-chip pg-chip--' + (c.severity === "red" ? "bad" : "warn") + '">' + PH.esc(CHECK[c.code] || c.code) + "</span><b>" + PH.esc(c.title) + "</b></div>" +
+      '<div class="pg-check__msg">' + PH.esc(c.message) + "</div>" + (c.sales_order ? '<small class="ph-muted">' + PH.esc(c.sales_order) + "</small>" : "") + "</div>" +
+      '<div class="pg-check__acts">' + (c.actions || []).map((a, j) => act(a, i, j)).join("") + "</div></div>";
+    PH.set(el, '<div class="pg-check-filter ph-pills" id="pg-check-filter"><button type="button" class="is-on" data-code="">All (' + r.checks.length + ")</button>" +
+      codes.map((k) => '<button type="button" data-code="' + k + '">' + PH.esc(CHECK[k] || k) + " (" + r.checks.filter((c) => c.code === k).length + ")</button>").join("") + "</div>" +
+      '<section class="ph-card pg-checks">' + r.checks.map(row).join("") + "</section>");
+    PH.$$("#pg-check-filter button").forEach((b) => (b.onclick = () => {
+      PH.$$("#pg-check-filter button").forEach((x) => x.classList.toggle("is-on", x === b));
+      PH.$$("#pg-checks .pg-check").forEach((row, i) => (row.hidden = !!b.dataset.code && r.checks[i].code !== b.dataset.code));
+    }));
+    PH.$$("#pg-checks [data-ci]").forEach((b) => (b.onclick = () => {
+      const a = r.checks[+b.dataset.ci].actions[+b.dataset.cj];
+      if (a.kind === "open_order") window.open("/app/sales-order/" + encodeURIComponent(a.order), "_blank");
+      else if (a.kind === "nonmoving") st.set({ tab: "nonmoving" });
+      else if (a.kind === "pool") {
+        S.view = "all"; PH.$$("#pg-view button").forEach((x) => x.classList.toggle("is-on", x.dataset.value === "all"));
+        S.pick = { variety: a.variety, length: a.length }; S.tab = "pg-t-exact";
+        st.set({ tab: "unconfirmed" }); load();
+      }
+    }));
   }
 
   /* ── Non-moving: stock past the amber time, against the customers that could use it. ── */

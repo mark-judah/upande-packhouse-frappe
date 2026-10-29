@@ -151,6 +151,18 @@ def _current(model, soi):
 	return pl["real"] + pl["expected"]
 
 
+def _stage_free(model, ln, length):
+	"""Free shelf stems of the line's variety and length at its cut stage, or None when the line has no cut stage."""
+	stage = frappe.db.get_value("Sales Order Item", ln.name, "custom_cut_stage")
+	if not stage:
+		return None
+	from upande_packhouse.api.v2.core import stock
+	from upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2 import _norm_cut_stage
+
+	rows = stock.bucket_rows(farms=pg._stock_farms(model.farm), varieties=[ln.item_code], lengths=[length] if length else None)
+	return sum(r.allocatable for r in rows if _norm_cut_stage(r.cut_stage) == _norm_cut_stage(stage))
+
+
 def _item(code, severity, message, actions=None, customers=None):
 	return {"code": code, "severity": severity, "message": message, "actions": actions or [], "customers": customers or ""}
 
@@ -208,6 +220,54 @@ def check(day, farm, lines, model=None):
 			else:
 				why = _("this stock is getting old") if model.pool(v, length)["old"] >= delta else _("nobody else needs {0}").format(length)
 				add(_item("longer_length", QUIET, _("Longer than ordered, but {0}.").format(why)), ("longer", ln.name))
+			# Sales Allocation asks for a downgrade reason unless the bucket is past the amber time
+			if model.pool(v, length)["old"] < delta:
+				add(
+					_item(
+						"downgrade_reason",
+						AMBER,
+						_("{0} {1} is not past the amber time, so Sales Allocation will ask for a downgrade reason for {2}.").format(
+							v, length, ln.customer_name or ln.customer
+						),
+						[{"kind": "use_ordered_length", "label": _("Confirm {0} instead").format(ordered_len)}],
+					),
+					("reason", ln.name),
+				)
+
+		# --- the shelf stock at the cut stage this order takes (the only buckets Sales Allocation offers it)
+		stage_free = _stage_free(model, ln, length)
+		if stage_free is not None:
+			shelf = model.pool(v, length)["free"]
+			if stage_free < min(delta, shelf) - 0.5:
+				add(
+					_item(
+						"cut_stage",
+						AMBER,
+						_("Only {0} of the {1} {2} {3} stems on the shelf are cut stage {4}, the stage this order takes; the rest of these {5} stems would come from the forecast.").format(
+							_n(stage_free), _n(shelf), v, length, frappe.db.get_value("Sales Order Item", ln.name, "custom_cut_stage"), _n(delta)
+						),
+					),
+					("stage", ln.name),
+				)
+
+		# --- whole boxes only: a part box waits for more stock before it can be packed
+		from upande_packhouse.api.v2.allocation_checks import mix_key, per_box
+
+		size = per_box(ln)
+		if not mix_key(ln) and size and want < flt(ln.ordered_stems) - 0.001:
+			have = flt(ln.allocated_stems) + want
+			extra = have - int(have / size + 1e-9) * size
+			if extra >= 0.5:
+				add(
+					_item(
+						"partial_box",
+						AMBER,
+						_("{0} stems fill {1} boxes and {2} stems of the next; {3} more would complete it.").format(
+							_n(have), int(have / size + 1e-9), _n(extra), _n(size - extra)
+						),
+					),
+					("box", ln.name),
+				)
 
 		# --- another customer needs this variety
 		if not model.strict(ln):

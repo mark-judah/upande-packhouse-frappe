@@ -25,8 +25,8 @@ def execute():
 			)
 		info = opl_names.get(opl) or {}
 		so = info.get("sales_order") or box.customer_purchase_order
-		if so not in mixes:
-			mixes[so] = mix_names(so)
+		if (so, opl) not in mixes:
+			mixes[(so, opl)] = mix_names(so, opl)
 		order_name = info.get("order_name") or (
 			frappe.db.get_value("Sales Order", so, "custom_order_name") if so else ""
 		)
@@ -46,7 +46,7 @@ def execute():
 			"Box Label",
 			box.name,
 			{
-				**label_filters(order_name, [(r.variety, stems(r)) for r in rows], mixes[so]),
+				**label_filters(order_name, [(r.variety, stems(r)) for r in rows], mixes[(so, opl)]),
 				"team": info.get("team"),
 			},
 			update_modified=False,

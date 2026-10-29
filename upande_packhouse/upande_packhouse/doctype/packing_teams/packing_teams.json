@@ -6,7 +6,8 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "team"
+  "team",
+  "crops"
  ],
  "fields": [
   {
@@ -14,12 +15,18 @@
    "fieldtype": "Data",
    "label": "Team",
    "unique": 1
+  },
+  {
+   "fieldname": "crops",
+   "fieldtype": "Table",
+   "label": "Crops",
+   "options": "Packing Team Crop"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-13 15:12:10.899433",
+ "modified": "2026-10-30 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Packing Teams",
