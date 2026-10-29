@@ -1,0 +1,288 @@
+{
+ "actions": [],
+ "creation": "2026-10-28 09:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "plan",
+  "delivery_date",
+  "farm",
+  "source",
+  "status",
+  "sb_line",
+  "sales_order",
+  "sales_order_item",
+  "customer",
+  "team",
+  "mix_key",
+  "cb1",
+  "ordered_variety",
+  "ordered_length",
+  "variety",
+  "length",
+  "sb_qty",
+  "stems",
+  "fulfilled_stems",
+  "cb2",
+  "flag",
+  "forecast_basis",
+  "from_harvest",
+  "sb_rel",
+  "released_on",
+  "released_by",
+  "release_reason"
+ ],
+ "fields": [
+  {
+   "fieldname": "plan",
+   "fieldtype": "Link",
+   "label": "Plan",
+   "options": "Allocation Plan",
+   "reqd": 1,
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "delivery_date",
+   "fieldtype": "Date",
+   "label": "Delivery Date",
+   "search_index": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "farm",
+   "fieldtype": "Link",
+   "label": "Stock Farm",
+   "options": "Farm",
+   "search_index": 1
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Select",
+   "label": "Source",
+   "options": "Real\nVirtual",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Planned\nReserved\nPartly Fulfilled\nFulfilled\nReleased\nBroken",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "sb_line",
+   "fieldtype": "Section Break",
+   "label": "Order Line"
+  },
+  {
+   "fieldname": "sales_order",
+   "fieldtype": "Link",
+   "label": "Sales Order",
+   "options": "Sales Order",
+   "search_index": 1
+  },
+  {
+   "fieldname": "sales_order_item",
+   "fieldtype": "Data",
+   "label": "Sales Order Item",
+   "search_index": 1
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "team",
+   "fieldtype": "Link",
+   "label": "Team",
+   "options": "Packing Teams",
+   "search_index": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "mix_key",
+   "fieldtype": "Data",
+   "label": "Mix Key",
+   "search_index": 1
+  },
+  {
+   "fieldname": "cb1",
+   "fieldtype": "Column Break",
+   "label": "Cb1"
+  },
+  {
+   "fieldname": "ordered_variety",
+   "fieldtype": "Link",
+   "label": "Ordered Variety",
+   "options": "Item"
+  },
+  {
+   "fieldname": "ordered_length",
+   "fieldtype": "Link",
+   "label": "Ordered Length",
+   "options": "Stem Length"
+  },
+  {
+   "fieldname": "variety",
+   "fieldtype": "Link",
+   "label": "Planned Variety",
+   "options": "Item",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "length",
+   "fieldtype": "Link",
+   "label": "Planned Length",
+   "options": "Stem Length",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "sb_qty",
+   "fieldtype": "Section Break",
+   "label": "Stems"
+  },
+  {
+   "fieldname": "stems",
+   "fieldtype": "Float",
+   "label": "Stems",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "fulfilled_stems",
+   "fieldtype": "Float",
+   "label": "Allocated Stems",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb2",
+   "fieldtype": "Column Break",
+   "label": "Cb2"
+  },
+  {
+   "fieldname": "flag",
+   "fieldtype": "Select",
+   "label": "Flag",
+   "options": "\nLonger than ordered\nOther variety\nBoth"
+  },
+  {
+   "fieldname": "forecast_basis",
+   "fieldtype": "Data",
+   "label": "Forecast Used",
+   "read_only": 1
+  },
+  {
+   "fieldname": "from_harvest",
+   "fieldtype": "Float",
+   "label": "From Harvest Not Yet Received",
+   "read_only": 1,
+   "description": "For an expected confirmation: the stems that come from the day's harvest not yet received; the rest come from the forecast."
+  },
+  {
+   "fieldname": "sb_rel",
+   "fieldtype": "Section Break",
+   "label": "Released"
+  },
+  {
+   "fieldname": "released_on",
+   "fieldtype": "Datetime",
+   "label": "Released On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "released_by",
+   "fieldtype": "Link",
+   "label": "Released By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "release_reason",
+   "fieldtype": "Select",
+   "label": "Why",
+   "options": "\nAllocated\nOrder cancelled\nLine changed\nDelivery passed\nManual\nNow on the shelf",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-10-28 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Allocation Confirmation",
+ "naming_rule": "Expression",
+ "autoname": "format:ALC-{#####}",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Sales Master Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Assistant Packhouse Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Sales User",
+   "read": 1,
+   "report": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "sales_order",
+ "track_changes": 1
+}

@@ -6961,6 +6961,48 @@ def _box_label_print_formats():
 
 
 @frappe.whitelist()
+def listBoxLabelOrders():
+	"""Orders that have at least one Box Label, for a Sales Order DELIVERY date
+	(?date=YYYY-MM-DD, default today) -- the box-labels screen's order list.
+
+	Deliberately not narrowed to a station: labels are printed for the whole
+	delivery, not just the stock at the packer's own farm. `printed` is the
+	Box Label's own flag (set when its label has been printed), so
+	printed < boxes means labels still to print."""
+	requested_date = frappe.form_dict.get("date")
+	delivery_date = requested_date if requested_date else frappe.utils.today()
+	rows = frappe.db.sql(
+		"""
+		SELECT bl.order_pick_list AS opl_name, opl.order_name AS order_name,
+		       opl.customer AS customer, opl.sales_order AS sales_order,
+		       COUNT(*) AS boxes, SUM(IFNULL(bl.printed, 0)) AS printed
+		FROM `tabBox Label` bl
+		INNER JOIN `tabOrder Pick List` opl ON opl.name = bl.order_pick_list
+		INNER JOIN `tabSales Order` so ON so.name = opl.sales_order
+		WHERE so.delivery_date = %s AND opl.docstatus < 2
+		GROUP BY bl.order_pick_list, opl.order_name, opl.customer, opl.sales_order
+		ORDER BY opl.customer, bl.order_pick_list
+		LIMIT 500
+		""",
+		(delivery_date,),
+		as_dict=True,
+	)
+	frappe.response["message"] = {
+		"date": str(delivery_date),
+		"orders": [
+			{
+				"opl_name": r.opl_name,
+				"order_name": r.order_name or r.sales_order or r.opl_name,
+				"customer": r.customer or "",
+				"boxes": int(r.boxes or 0),
+				"printed": int(r.printed or 0),
+			}
+			for r in rows
+		],
+	}
+
+
+@frappe.whitelist()
 def getBoxLabelPrintFormats():
 	"""Print formats the packing screen offers for box labels, plus the
 	default to preselect."""
@@ -6977,9 +7019,7 @@ def generateBoxLabelsPdf():
 	order; frappe.get_print's own `output` param appends each box's pages
 	into the same PdfWriter instead of building N separate PDFs.
 
-	page_width_mm / page_height_mm are optional -- wkhtmltopdf options
-	overriding the print format's own default (A4). Omit either to fall
-	back to that default.
+	Page size comes from the Print Format itself, not the caller.
 
 	print_format is optional -- one of getBoxLabelPrintFormats' names; omitted
 	(or no longer enabled) falls back to that endpoint's default. preview=1
@@ -6991,8 +7031,6 @@ def generateBoxLabelsPdf():
 
 	data = frappe.request.get_json() or {}
 	opl_name = data.get("order_pick_list") or data.get("opl")
-	page_width = data.get("page_width_mm")
-	page_height = data.get("page_height_mm")
 	requested_format = data.get("print_format")
 	preview = frappe.utils.cint(data.get("preview"))
 
@@ -7022,12 +7060,6 @@ def generateBoxLabelsPdf():
 	if preview:
 		box_names = box_names[:1]
 
-	pdf_options = {}
-	if page_width:
-		pdf_options["page-width"] = f"{flt(page_width)}mm"
-	if page_height:
-		pdf_options["page-height"] = f"{flt(page_height)}mm"
-
 	writer = PdfWriter()
 	try:
 		for box_name in box_names:
@@ -7037,7 +7069,6 @@ def generateBoxLabelsPdf():
 				print_format,
 				as_pdf=True,
 				output=writer,
-				pdf_options=pdf_options,
 			)
 		pdf_bytes = get_file_data_from_writer(writer)
 	finally:
