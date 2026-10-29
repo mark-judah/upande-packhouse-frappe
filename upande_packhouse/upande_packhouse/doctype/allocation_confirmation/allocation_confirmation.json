@@ -26,6 +26,7 @@
   "cb2",
   "flag",
   "forecast_basis",
+  "from_harvest",
   "sb_rel",
   "released_on",
   "released_by",
@@ -180,6 +181,13 @@
    "fieldtype": "Data",
    "label": "Forecast Used",
    "read_only": 1
+  },
+  {
+   "fieldname": "from_harvest",
+   "fieldtype": "Float",
+   "label": "From Harvest Not Yet Received",
+   "read_only": 1,
+   "description": "For an expected confirmation: the stems that come from the day's harvest not yet received; the rest come from the forecast."
   },
   {
    "fieldname": "sb_rel",

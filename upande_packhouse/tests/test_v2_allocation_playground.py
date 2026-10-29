@@ -691,3 +691,167 @@ class TestSalesFarmAndStockFarms(unittest.TestCase):
 			pg.move_stems(self.day, sales, self.a.soi, b.soi, 4, team=tb)
 			self.assertEqual(plans.farm_for_line(b.soi), self.c.farm)
 
+
+class TestConfirmedOrders(unittest.TestCase):
+	def setUp(self):
+		self.c = _case()
+		if not self.c:
+			self.skipTest("no case")
+		self.a = self.c.lines[0]
+		self.day = str(self.a.delivery_date)
+
+	def test_the_confirmed_page_shows_every_line_of_a_confirmed_order(self):
+		from upande_packhouse.api.v2.core import pipeline
+
+		with _Rollback():
+			self.assertFalse([o for o in pg.get_confirmed_orders(self.day, self.c.farm)["orders"] if o["sales_order"] == self.a.parent])
+			team = _team()
+			pg.confirm_lines(self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 10, "team": team, "stock_farm": self.c.farm}])
+			res = pg.get_confirmed_orders(self.day, self.c.farm)
+			order = next(o for o in res["orders"] if o["sales_order"] == self.a.parent)
+			# the whole order, not just the confirmed line
+			everything = [ln for ln in pipeline.fetch_lines(sales_orders=[self.a.parent])]
+			self.assertEqual(len(order["lines"]), len(everything))
+			self.assertEqual(order["lines_total"], len(everything))
+			self.assertEqual(order["lines_confirmed"], 1)
+			self.assertAlmostEqual(order["confirmed"], 10.0)
+			line = next(x for x in order["lines"] if x["soi"] == self.a.soi)
+			self.assertIn(line["state"], ("confirmed", "part"))
+			self.assertEqual((line["confirmed"], line["team"], line["farm"]), (10.0, team, self.c.farm))
+			self.assertAlmostEqual(sum(x["stems"] for x in line["sources"]), 10.0)  # where the 10 stems come from
+			self.assertTrue({x["kind"] for x in line["sources"]} <= {"shelf", "received", "held", "harvested", "forecast"})
+			# the stock for that variety and length: what was available, what is taken, what is left
+			pool = line["pool"]
+			self.assertEqual((pool["variety"], pool["length"]), (self.c.bucket.variety, self.c.bucket.stem_length))
+			self.assertGreaterEqual(pool["taken"], 10.0)
+			self.assertGreaterEqual(pool["total"], pool["taken"] - 1e-6)
+			self.assertAlmostEqual(pool["left"], max(0.0, pool["total"] - pool["taken"]))
+			others = [x for x in order["lines"] if x["soi"] != self.a.soi]
+			self.assertTrue(all(x["state"] in ("none", "allocated", "confirmed", "part") for x in others))
+			self.assertEqual(res["totals"]["lines_confirmed"], sum(o["lines_confirmed"] for o in res["orders"]))
+			self.assertGreaterEqual(pg.get_board(self.day, self.c.farm, "all")["kpis"]["confirmed_orders"], 1)
+			# take it out: the order leaves the Confirmed page
+			pg.unconfirm_line(self.a.soi)
+			self.assertFalse([o for o in pg.get_confirmed_orders(self.day, self.c.farm)["orders"] if o["sales_order"] == self.a.parent])
+
+	def test_expected_stems_say_whether_they_rest_on_harvest_or_on_the_forecast(self):
+		if len(self.c.lines) < 2:
+			self.skipTest("needs two lines")
+		b = self.c.lines[1]
+		key = (self.c.bucket.variety, self.c.bucket.stem_length)
+		with _Rollback(), patch.object(stock, "bucket_rows", lambda **k: []), patch.object(
+			pg, "_stock_by_pool", lambda farm, varieties, day=None: {key: {**pg.SUPPLY, "on_the_way": 30.0, "harvested": 30.0}}
+		):
+			t = _team()
+			# 50 expected for the first customer: 30 rest on the harvest already cut, 20 on the forecast
+			pg.confirm_lines(self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 50, "team": t}])
+			conf = plans.live_confirmations(soi=self.a.soi)[0]
+			self.assertEqual((conf.source, conf.from_harvest), ("Virtual", 30.0))
+			# the harvest is spoken for: the next customer's expected stems all rest on the forecast
+			pg.confirm_lines(self.day, self.c.farm, [{"sales_order_item": b.soi, "stems": 20, "team": t}])
+			self.assertEqual(plans.live_confirmations(soi=b.soi)[0].from_harvest, 0.0)
+			orders = {o["sales_order"]: o for o in pg.get_confirmed_orders(self.day, self.c.farm)["orders"]}
+			line_a = next(x for x in orders[self.a.parent]["lines"] if x["soi"] == self.a.soi)
+			self.assertEqual({x["kind"]: x["stems"] for x in line_a["sources"]}, {"harvested": 30.0, "forecast": 20.0})
+			line_b = next(x for x in orders[b.parent]["lines"] if x["soi"] == b.soi)
+			self.assertEqual({x["kind"]: x["stems"] for x in line_b["sources"]}, {"forecast": 20.0})
+			# re-confirming the first customer for less gives the harvest back
+			pg.confirm_lines(self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 10, "team": t}])
+			self.assertEqual(plans.live_confirmations(soi=self.a.soi)[0].from_harvest, 10.0)
+
+	def test_lines_of_a_mixed_box_and_mixed_bunch_come_with_their_group(self):
+		with _Rollback():
+			t = _team()
+			mixed = frappe.db.sql(
+				"""SELECT soi.name, so.delivery_date, soi.parent FROM `tabSales Order Item` soi JOIN `tabSales Order` so ON so.name = soi.parent
+				   WHERE so.docstatus = 1 AND so.business_unit = 'Roses' AND soi.custom_mixed_bunch = 1 AND IFNULL(soi.custom_bunch_group, '') != ''
+				   ORDER BY so.delivery_date DESC LIMIT 1""",
+				as_dict=True,
+			)
+			if not mixed:
+				self.skipTest("no mixed bunch")
+			m = mixed[0]
+			day = str(m.delivery_date)
+			pg.confirm_lines(day, self.c.farm, [{"sales_order_item": m.name, "stems": 5, "team": t}])
+			order = next(o for o in pg.get_confirmed_orders(day, self.c.farm)["orders"] if o["sales_order"] == m.parent)
+			kinds = {x["kind"] for x in order["lines"]}
+			self.assertIn("mixed_bunch", kinds)
+			line = next(x for x in order["lines"] if x["soi"] == m.name)
+			self.assertTrue(line["group_key"].startswith("bunch|"))
+			self.assertIn("Mixed bunch", line["group_label"])
+			# lines of one group sit next to each other
+			keys = [x["group_key"] for x in order["lines"]]
+			seen, last = set(), None
+			for k in keys:
+				if k != last:
+					self.assertNotIn(k, seen, "a group is split up by another line")
+					seen.add(k)
+				last = k
+
+	def test_a_taken_pool_counts_every_customers_confirmation(self):
+		if len(self.c.lines) < 2:
+			self.skipTest("needs two lines")
+		b = self.c.lines[1]
+		with _Rollback():
+			t = _team()
+			pg.confirm_lines(self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 10, "team": t}, {"sales_order_item": b.soi, "stems": 6, "team": t}])
+			orders = {o["sales_order"]: o for o in pg.get_confirmed_orders(self.day, self.c.farm)["orders"]}
+			pa = next(x for x in orders[self.a.parent]["lines"] if x["soi"] == self.a.soi)["pool"]
+			pb = next(x for x in orders[b.parent]["lines"] if x["soi"] == b.soi)["pool"]
+			self.assertEqual(pa["taken"], pb["taken"])  # the same stock: both customers' stems are taken from it
+			self.assertGreaterEqual(pa["taken"], 16.0)
+
+
+
+class TestSubstitutes(unittest.TestCase):
+	"""Substitution options: approved varieties of the same bunch, primary first, colour as a factor."""
+
+	def test_pick_candidates_ranks_primary_then_same_colour(self):
+		from upande_packhouse.api.v2 import allocation_substitutes as sub
+
+		rows = [
+			{"bunch_id": "B1", "variety": "Athena", "is_primary": 1, "colour": "White"},
+			{"bunch_id": "B1", "variety": "Moonwalk", "is_primary": 0, "colour": "Yellow"},
+			{"bunch_id": "B1", "variety": "Polar", "is_primary": 0, "colour": "White"},
+			{"bunch_id": "B1", "variety": "Sunny", "is_primary": 1, "colour": "Yellow"},
+			{"bunch_id": "B2", "variety": "Other", "is_primary": 1, "colour": "White"},
+		]
+		colours = {r["variety"]: r["colour"] for r in rows}
+		out = sub.pick_candidates(rows, "Athena", colours)
+		self.assertEqual([c["variety"] for c in out], ["Sunny", "Polar", "Moonwalk"])
+		self.assertTrue(out[0]["primary"])
+		self.assertIs(out[1]["same_colour"], True)
+		self.assertIs(out[2]["same_colour"], False)
+
+	def test_pick_candidates_unknown_colour_is_not_flagged(self):
+		from upande_packhouse.api.v2 import allocation_substitutes as sub
+
+		rows = [{"bunch_id": "", "variety": "A", "is_primary": 1, "colour": ""}, {"bunch_id": "", "variety": "B", "is_primary": 0, "colour": ""}]
+		out = sub.pick_candidates(rows, "A", {})
+		self.assertEqual([(c["variety"], c["same_colour"]) for c in out], [("B", None)])
+
+	def test_get_substitutions_on_a_real_line(self):
+		from upande_packhouse.api.v2 import allocation_substitutes as sub
+
+		row = frappe.db.sql(
+			"""SELECT soi.name FROM `tabSales Order Item` soi
+			   JOIN `tabSpec Approved Variety` s ON s.parent = soi.custom_line
+			   WHERE soi.docstatus = 1 LIMIT 1""")
+		if not row:
+			self.skipTest("no order line with a specification here")
+		r = sub.get_substitutions(sales_order_item=row[0][0])
+		self.assertTrue(r["has_spec"])
+		self.assertIn("ordered", r)
+		for o in r["options"]:
+			for k in ("shelved", "received", "harvested", "forecast", "left", "verdict", "warnings"):
+				self.assertIn(k, o)
+
+
+class TestTeamPlan(unittest.TestCase):
+	def test_team_plan_shape_and_totals(self):
+		r = pg.get_team_plan()
+		self.assertTrue(r["success"])
+		self.assertAlmostEqual(sum(t["stems"] for t in r["teams"]), r["total"], places=3)
+		for t in r["teams"]:
+			for k in ("team", "stems", "boxes", "lines", "orders", "share", "vs_even"):
+				self.assertIn(k, t)

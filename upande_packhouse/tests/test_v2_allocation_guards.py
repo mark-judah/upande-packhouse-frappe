@@ -275,3 +275,33 @@ class TestExpectedByFarm(unittest.TestCase):
 			self.assertLessEqual(d["sure"], d["likely"] + 1e-9)
 			# farms, never greenhouses
 			self.assertTrue(set(d["by_farm"]) <= farms | {"Unknown"}, d["by_farm"])
+
+
+class TestNonMoving(unittest.TestCase):
+	def test_at_risk_is_old_stock_no_exact_line_waits_for(self):
+		from upande_packhouse.api.v2 import allocation_nonmoving as nm
+
+		a = line("A", "Moonwalk", "42cm", 300)
+		m = FakeModel([a], supply={("Moonwalk", "42cm"): {"free": 1000, "old": 800}})
+		self.assertEqual(nm.at_risk(m, "Moonwalk", "42cm"), 500)
+
+	def test_confirming_fresh_warns_when_old_stock_of_a_longer_length_is_unwanted(self):
+		a = line("A", "Moonwalk", "42cm", 100)
+		m = FakeModel([a], supply={("Moonwalk", "42cm"): {"free": 500}, ("Moonwalk", "52cm"): {"free": 400, "old": 400}})
+		r = ask(m, ("A", 100, None))
+		self.assertEqual(codes(r), [("non_moving", "amber")])
+		self.assertEqual(r["heads_up"][0]["actions"][0]["kind"], "use_length")
+		self.assertEqual(r["heads_up"][0]["actions"][0]["length"], "52cm")
+
+	def test_confirming_warns_about_old_stock_of_an_approved_substitute(self):
+		a = line("A", "Athena", "42cm", 100, spec="S1")
+		m = FakeModel([a], supply={("Athena", "42cm"): {"free": 500}, ("Polar", "42cm"): {"free": 300, "old": 300}}, specs={"S1": {"Athena", "Polar"}})
+		r = ask(m, ("A", 100, None))
+		self.assertEqual(codes(r), [("non_moving", "amber")])
+		self.assertEqual(r["heads_up"][0]["actions"][0]["kind"], "open_order")
+
+	def test_no_warning_when_another_line_is_waiting_for_the_old_stock(self):
+		a = line("A", "Moonwalk", "42cm", 100)
+		b = line("B", "Moonwalk", "52cm", 400)
+		m = FakeModel([a, b], supply={("Moonwalk", "42cm"): {"free": 500}, ("Moonwalk", "52cm"): {"free": 400, "old": 400}})
+		self.assertNotIn("non_moving", [c for c, _s in codes(ask(m, ("A", 100, None)))])

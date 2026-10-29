@@ -254,6 +254,33 @@ def check(day, farm, lines, model=None):
 						msg += " " + _("It also accepts {0}.").format(", ".join(alts[:3]))
 					add(_item("mix_incomplete", RED, msg, []), ("mix", mk, m.name))
 
+		# --- stock past the amber time that this line could use instead (it is on its way to being thrown away)
+		from upande_packhouse.api.v2 import allocation_nonmoving as nm
+
+		old_notes = []
+		for (sv, sl), sp in model.supply.items():
+			if sp["old"] < 1 or (sv, sl) == pool_key:
+				continue
+			if sv == v and _cm(sl) > _cm(length):
+				kind = "longer"
+			elif sv != v and sv in model.options(ln) and _cm(sl) >= _cm(ordered_len):
+				kind = "substitute"
+			else:
+				continue
+			risk = nm.at_risk(model, sv, sl)
+			if risk >= 1:
+				old_notes.append((risk, kind, sv, sl))
+		for risk, kind, sv, sl in sorted(old_notes, reverse=True)[:2]:
+			if kind == "longer":
+				msg = _("{0} stems of {1} {2} are past the amber time and nobody else has an order for them. This line could use them (a longer stem is fine for stock this old).").format(_n(risk), sv, sl)
+				acts = [{"kind": "use_length", "label": _("Confirm {0} instead").format(sl), "length": sl}]
+			else:
+				msg = _("{0} stems of {1} {2} are past the amber time and nobody has an order for them. {3} also accepts {1}: change the order to use it before it is thrown away.").format(
+					_n(risk), sv, sl, ln.customer_name or ln.customer
+				)
+				acts = [{"kind": "open_order", "label": _("Open this order"), "order": ln.parent}]
+			add(_item("non_moving", AMBER, msg, acts), ("old", ln.name, sv, sl))
+
 		# --- more than we have
 		p = model.pool(v, length)
 		cov = model.cover(v, length)

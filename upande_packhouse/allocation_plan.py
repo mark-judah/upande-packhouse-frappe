@@ -192,7 +192,7 @@ def reserve_real(*, plan, line, farm, variety, length, stems, user=None, team=No
 	return conf, held
 
 
-def plan_virtual(*, plan, line, farm, variety, length, stems, forecast_basis="", team=None):
+def plan_virtual(*, plan, line, farm, variety, length, stems, forecast_basis="", team=None, harvest_stems=0.0):
 	"""Plan stems from the expected harvest. Stems only, no buckets."""
 	soi = line["sales_order_item"]
 	existing = frappe.db.get_value(
@@ -205,12 +205,12 @@ def plan_virtual(*, plan, line, farm, variety, length, stems, forecast_basis="",
 	if flt(stems) <= 0:
 		refresh_mirror(line["sales_order"], soi, farm)
 		return None
-	conf = _confirmation(plan, line, "Virtual", flt(stems), farm, variety, length, forecast_basis=forecast_basis, team=team)
+	conf = _confirmation(plan, line, "Virtual", flt(stems), farm, variety, length, forecast_basis=forecast_basis, team=team, harvest=min(flt(harvest_stems), flt(stems)))
 	refresh_mirror(line["sales_order"], soi, farm)
 	return conf
 
 
-def _confirmation(plan, line, source, stems, farm, variety, length, forecast_basis="", team=None):
+def _confirmation(plan, line, source, stems, farm, variety, length, forecast_basis="", team=None, harvest=0.0):
 	doc = frappe.get_doc(
 		{
 			"doctype": "Allocation Confirmation",
@@ -230,6 +230,7 @@ def _confirmation(plan, line, source, stems, farm, variety, length, forecast_bas
 			"stems": stems,
 			"forecast_basis": forecast_basis,
 			"team": team or "",
+			"from_harvest": flt(harvest),
 		}
 	)
 	doc.insert(ignore_permissions=True)
@@ -477,7 +478,7 @@ def convert_virtual(delivery_date=None, farm=None):
 		if rest > 0.0001:
 			plan_virtual(
 				plan=plan, line=line, farm=c.farm, variety=c.variety, length=c.length, stems=rest,
-				forecast_basis=c.forecast_basis, team=c.team,
+				forecast_basis=c.forecast_basis, team=c.team, harvest_stems=min(rest, flt(c.from_harvest)),
 			)
 		refresh_mirror(c.sales_order, soi, c.farm)
 		converted += max(0.0, held - real)

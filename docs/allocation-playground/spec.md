@@ -373,6 +373,13 @@ Allocator-facing helpers live in `availability.py` (section 5), not in this modu
   it was confirmed against). The stems are held from that farm's shelves and received buckets, `Allocation Confirmation.farm` and the Confirmed Stems row
   carry that farm (so the allocator, which already lets several farms confirm parts of one line, sees it), and the plan itself belongs to the sales farm.
   Swapped or split stems keep the farm they were confirmed against. The forecast stays at location level.
+- **Unconfirmed and Confirmed (page split):** the page now has two tabs under the four numbers. **Unconfirmed** is the variety workflow (list of varieties, detail with
+  Exact length and Longer than ordered). **Confirmed** is an order view: every order with something confirmed, with ALL its lines, confirmed or not, so the whole order stays in
+  view. For each line: ordered (and allocated), confirmed (state: Confirmed, Part confirmed, Not confirmed, Allocated), the **source** (on the shelf, received, held or expected,
+  with the farm), the **stock for it** for the variety and length it is confirmed against (how much was available, how much is already taken by all customers, and what is
+  left; flagged when over-taken), and team and farm. Each order shows how many of its lines are confirmed and the share of its stems. Confirmed lines have Swap or split and
+  Unconfirm; a line that is not confirmed has Confirm, which jumps to that variety on the Unconfirmed tab. The variety detail no longer has a Confirmed tab and the varieties
+  list no longer has a Confirmed view. The tab is kept in the address (`?tab=confirmed`). Server: `allocation_playground.get_confirmed_orders`.
 - **Phase 3:** not started.
 
 ## 12. Decisions taken (defaults) and skipped
@@ -402,3 +409,15 @@ board's KPIs equal the sum of its pools.
 - Variety-level forecast error is large; the safe/expected split and the over-promise guard are the mitigation.
 - 34% of ordered stems have no spec, so guards for them are limited.
 - Adoption was 0.4%: the board must be the allocators' and planners' default start, and must be fast.
+
+## Substitution and the grouped Confirmed table (status)
+
+- **Substitute** button on every order line of the Unconfirmed detail tables. It opens a popup (`allocation_substitutes.get_substitutions`) listing the specification's approved varieties of the same bunch as the ordered variety, primary first, then approved, then same colour before another colour (colour is the specification's own, else the item's). Each option shows every source at the line's length: shelved, received not shelved, harvested not received, forecast (with the safe part), what is left to confirm, what other orders still need, and a verdict (covers / not enough on its own / nothing available). Different colour, and more colours than a mixed box allows, are flagged. It is advice only: the allocator packs the variety on the order line, so the popup links to the order to change it.
+- **Confirmed** lines show what the confirmation rests on: Shelved, Received not shelved, Harvested not received, Forecast (stored in `from_harvest` on the confirmation, so it survives until conversion).
+- The Confirmed table merges rows of the same mix group or bunch group into one coloured Box cell: straight box (grey), mixed box (teal), mixed bunch (amber), with a legend.
+
+## Non-moving stock tab (status)
+
+- Non-moving = stock at or past the amber time (Production Settings), including varieties nobody ordered. The **Use first** tile became **Non-moving** and opens the new **Non-moving** tab (`allocation_nonmoving.get_non_moving`).
+- Each old pool lists the customers who could use it: exact length, longer than ordered (fine for stock this old), and approved substitutes (colour flagged). Exact and longer matches are confirmed from the tab through the normal confirm flow (team required, heads-ups apply). A substitute is advice: the allocator packs the variety on the order line, so the row links to the order.
+- Every confirmation now carries an amber heads-up ("non_moving") when the line could use old stock that nobody else has an order for: a longer length of its variety (action: confirm that length instead) or an approved substitute (action: open the order). Stock another line is waiting for does not trigger it.
