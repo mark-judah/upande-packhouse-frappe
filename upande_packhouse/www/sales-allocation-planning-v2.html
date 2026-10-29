@@ -12,7 +12,7 @@
 </header>
 
 <div class="ph-filters">
-  <select class="ph-select" id="pg-farm" aria-label="Farm" title="The farm whose stock you confirm against"></select>
+  <label class="ph-daterange pg-sf" title="The sales farm: the farm that processes the orders"><span class="pg-dl">Sales farm</span><select id="pg-farm" aria-label="Sales farm"></select></label>
   <div class="ph-filters__spacer"></div>
   <div class="ph-pills" id="f-preset"><button data-value="today">Today</button><button data-value="tomorrow">Tomorrow</button></div>
   <label class="ph-daterange" title="Sales Order delivery date"><span class="pg-dl">Delivery date</span><input type="date" id="pg-date" aria-label="Delivery date"></label>
@@ -52,10 +52,13 @@
   .pg-detail .pg-sum{display:flex;flex-wrap:wrap;gap:var(--sp-5);padding:0 var(--sp-6) var(--sp-4);color:var(--ink-mute);font-size:13px}
   .pg-detail .pg-sum b{display:block;color:var(--ink);font-size:18px;font-weight:600}
   .pg-detail .pg-old{margin:0 var(--sp-6) var(--sp-4)}
+  .pg-sf select{border:0;background:transparent;font:500 13px var(--sans);color:var(--ink);outline:none;padding-right:6px}
   .ph-daterange .pg-dl{font:500 12px var(--sans);color:var(--ink-mute);margin-right:2px;white-space:nowrap}
   .pg-mv-row{display:grid;grid-template-columns:minmax(0,1fr) 90px 130px auto;gap:var(--sp-2);align-items:center;margin-bottom:var(--sp-3)}
   .pg-mv-hint{grid-column:1 / -1;color:var(--ink-mute);font-size:12px;margin-top:-4px}
   .pg-confirm{display:flex;align-items:center;justify-content:flex-end;gap:var(--sp-3);flex-wrap:wrap}
+  .pg-sel{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:6px}
+  .pg-sel .ph-select{margin-top:0;max-width:150px;min-width:100px}
   .pg-in-hint{display:block;margin-top:2px;font-size:12px}
   .pg-team-row{display:block;margin-top:6px;max-width:150px;min-width:110px}
   .pg-tabs{margin:0 var(--sp-6) var(--sp-3)}
@@ -175,6 +178,8 @@
     const p = pool.pool, el = $("pg-detail");
     const old = p.getting_old > 0 ? '<div class="ph-notice ph-notice--warn pg-old">' + n(p.getting_old) + " stems are getting old (day " + board.amber_from_days + " or more). They are used first when you confirm.</div>" : "";
     // One table per tab. Both stay in the page, so what you typed on one is kept while you look at the other.
+    const farmSelect = (l) => '<select class="ph-select pg-farm-row" data-was="' + PH.esc(l.stock_farm || "") + '" aria-label="Confirm from farm for ' + PH.esc(l.customer || "") + '" title="The farm whose stock this is confirmed against">' +
+      pool.stock_farms.map((f) => "<option value=\"" + PH.esc(f.farm) + "\"" + (f.farm === (l.stock_farm || pool.best_farm) ? " selected" : "") + ">" + PH.esc(f.farm) + " (" + n(f.on_shelf + f.received) + ")</option>").join("") + "</select>";
     const teamSelect = (l, value) => '<select class="ph-select pg-team-row" data-soi="' + PH.esc(l.soi) + '" data-was="' + PH.esc(l.team || "") + '"' + (l.mix_key ? ' data-mix="' + PH.esc(l.mix_key) + '"' : "") + ' aria-label="Team for ' + PH.esc(l.customer || "") + '"><option value="">Choose a team</option>' +
       S.teams.map((t) => "<option" + (t === value ? " selected" : "") + ">" + PH.esc(t) + "</option>").join("") + "</select>";
     const lineRows = (list, longer) => list.map((l) => {
@@ -186,13 +191,13 @@
         '<td class="is-num">' + n(l.ordered) + "</td>" +
         '<td><input class="ph-input pg-in" type="number" min="0" max="' + Math.round(l.max_plan) + '" step="1" inputmode="numeric" data-allocated="' + Math.round(l.allocated || 0) + '" data-soi="' + PH.esc(l.soi) + '"' + (longer ? ' data-len="' + PH.esc(p.length) + '"' : "") + ' data-was="' + Math.round(cur) + '" value="' + Math.round(cur) + '" aria-label="Stems to confirm for ' + who + '">' +
         '<small class="pg-in-hint" aria-live="polite"></small>' +
-        teamSelect(l, (l.team || S.team)) +
+        '<div class="pg-sel">' + farmSelect(l) + teamSelect(l, (l.team || S.team)) + "</div>" +
         "<small>" + (here && l.held ? "held on the shelf " + n(l.held) : "") + (here && l.held && l.expected ? " · " : "") + (here && l.expected ? "expected from the farms " + n(l.expected) : "") + "</small></td></tr>";
     }).join("");
     const table = (id, list, longer, empty, intro) => '<div id="' + id + '"' + (S.tab === id ? "" : " hidden") + ">" + (intro ? '<p class="ph-muted pg-cap">' + intro + "</p>" : "") +
       (list.length ? '<div class="ph-table-wrap"><table class="ph-table"><thead><tr><th>Customer</th><th class="is-num">Ordered</th><th>Confirm</th></tr></thead><tbody>' + lineRows(list, longer) + "</tbody></table></div>" : '<div class="pg-empty">' + empty + "</div>") + "</div>";
     // What is confirmed against this variety and length, with a way to take each one out.
-    const doneRows = pool.confirmed_lines.map((c) => "<tr><td>" + PH.esc(c.customer || "") + "<small>" + PH.esc(c.sales_order) + (c.ordered_length && c.ordered_length !== p.length ? " · ordered " + PH.esc(c.ordered_length) : "") + "</small>" + (c.team ? "<small>Team " + PH.esc(c.team) + "</small>" : "") + "</td><td>" +
+    const doneRows = pool.confirmed_lines.map((c) => "<tr><td>" + PH.esc(c.customer || "") + "<small>" + PH.esc(c.sales_order) + (c.ordered_length && c.ordered_length !== p.length ? " · ordered " + PH.esc(c.ordered_length) : "") + "</small>" + ((c.team || c.farm) ? "<small>" + (c.farm ? "From " + PH.esc(c.farm) : "") + (c.team && c.farm ? " · " : "") + (c.team ? "Team " + PH.esc(c.team) : "") + "</small>" : "") + "</td><td>" +
       (c.held ? "<b>" + n(c.held) + "</b> held in " + PH.fmt.plural(c.buckets, "bucket") : "") + (c.held && c.expected ? "<br>" : "") + (c.expected ? "<b>" + n(c.expected) + "</b> expected from the farms" : "") +
       (c.missing ? '<small class="ph-bad">A held bucket is missing: this needs stock.</small>' : "") + '</td><td class="is-num"><span class="pg-confirm">' +
       (c.mixed ? '<small class="ph-muted">Mixed box: packed together</small>' : '<button class="ph-btn ph-btn--ghost ph-btn--sm" type="button" data-swap="' + PH.esc(c.soi) + '">Swap or split</button>') +
@@ -205,6 +210,7 @@
       table("pg-t-exact", pool.lines, false, "No orders for " + PH.esc(p.variety) + " " + PH.esc(p.length) + ".", "") +
       table("pg-t-longer", pool.longer_lines, true, "No orders for a shorter length are waiting.", "Orders for a shorter " + PH.esc(p.variety) + ". Confirming them here gives them " + PH.esc(p.length) + ", which is longer than they ordered.") +
       done;
+    const byFarm = (list, key) => list.filter((f) => f[key] > 0).map((f) => PH.esc(f.farm) + " " + n(f[key])).join(" · ");
     const u = pool.supply, row = (label, value, sub, cls) => '<div class="pg-srow' + (cls ? " " + cls : "") + '"><span>' + label + (sub ? "<small>" + sub + "</small>" : "") + "</span><b>" + n(value) + "</b></div>";
     const farms = u.to_cut_by_farm.map((x) => PH.esc(x.farm) + " " + n(x.stems)).join(" · ");
     const rooms = u.rooms.map((x) => PH.esc(x.room) + " " + n(x.stems)).join(" · ");
@@ -217,8 +223,8 @@
       : row("Still to be cut: the forecast says", 0, "no farm forecast for this day");
     const supply = '<div class="pg-supply">' +
       row("Ordered", p.ordered, "", "pg-srow--top") +
-      row("On the shelf", u.on_shelf, "at " + PH.esc(pool.farm)) +
-      (u.received > 0 ? row("Received, not shelved", u.received, rooms) : "") +
+      row("On the shelf", u.on_shelf, byFarm(pool.stock_farms, "on_shelf") || "none on any farm's shelves") +
+      (u.received > 0 ? row("Received, not shelved", u.received, [byFarm(pool.stock_farms, "received"), rooms].filter(Boolean).join(" · ")) : "") +
       (u.on_the_way > 0 ? row("Harvested, not received yet", u.on_the_way, "the day's production on its way") : "") +
       cut + "</div>";
     PH.set(el, '<div class="ph-card__head"><div><h2 class="ph-card__title">' + PH.esc(p.variety) + " " + PH.esc(p.length) + '</h2><div class="ph-card__meta">Delivery ' + PH.fmt.date(pool.delivery_date, true) + "</div></div>" +
@@ -258,10 +264,11 @@
   function typedLines() {
     const out = [];
     PH.$$(".pg-in").forEach((i) => {
+      const fsel = i.closest("tr").querySelector(".pg-farm-row"), stock_farm = fsel ? fsel.value : "";
       const sel = i.closest("tr").querySelector(".pg-team-row"), stems = Math.min(Math.max(0, Math.round(+i.value || 0)), Math.round(+i.max || 0)), team = sel ? sel.value : "";
-      const stemsChanged = +i.value !== +i.dataset.was, teamChanged = !!sel && stems > 0 && team !== sel.dataset.was && +i.dataset.was > 0;
+      const stemsChanged = +i.value !== +i.dataset.was, teamChanged = !!sel && stems > 0 && +i.dataset.was > 0 && (team !== sel.dataset.was || (fsel && stock_farm !== fsel.dataset.was));
       if (!stemsChanged && !teamChanged) return;
-      out.push({ sales_order_item: i.dataset.soi, stems, team, ...(i.dataset.len && stems > 0 ? { length: i.dataset.len } : {}) });
+      out.push({ sales_order_item: i.dataset.soi, stems, team, stock_farm, ...(i.dataset.len && stems > 0 ? { length: i.dataset.len } : {}) });
     });
     return out;
   }

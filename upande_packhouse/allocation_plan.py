@@ -150,10 +150,12 @@ def reserve_real(*, plan, line, farm, variety, length, stems, user=None, team=No
 	than asked; the caller plans the rest as Virtual."""
 	soi = line["sales_order_item"]
 	existing = frappe.db.get_value(
-		"Allocation Confirmation", {"sales_order_item": soi, "source": "Real", "status": ("in", LIVE)}
+		"Allocation Confirmation", {"sales_order_item": soi, "source": "Real", "status": ("in", LIVE)}, ["name", "farm"], as_dict=True
 	)
 	if existing:
-		release_confirmation(existing, "Manual", user=user, keep_open=True)
+		release_confirmation(existing.name, "Manual", user=user, keep_open=True)
+		if existing.farm and existing.farm != farm:  # confirmed against another farm before: its mirror row must go
+			refresh_mirror(line["sales_order"], soi, existing.farm)
 
 	pool = free_for_line(farm, variety, length, soi)
 	_lock_buckets([b.bucket_id for b in pool])
@@ -194,10 +196,12 @@ def plan_virtual(*, plan, line, farm, variety, length, stems, forecast_basis="",
 	"""Plan stems from the expected harvest. Stems only, no buckets."""
 	soi = line["sales_order_item"]
 	existing = frappe.db.get_value(
-		"Allocation Confirmation", {"sales_order_item": soi, "source": "Virtual", "status": ("in", LIVE)}
+		"Allocation Confirmation", {"sales_order_item": soi, "source": "Virtual", "status": ("in", LIVE)}, ["name", "farm"], as_dict=True
 	)
 	if existing:
-		release_confirmation(existing, "Manual", keep_open=True)
+		release_confirmation(existing.name, "Manual", keep_open=True)
+		if existing.farm and existing.farm != farm:
+			refresh_mirror(line["sales_order"], soi, existing.farm)
 	if flt(stems) <= 0:
 		refresh_mirror(line["sales_order"], soi, farm)
 		return None
@@ -241,6 +245,16 @@ def team_for_line(soi):
 		"Allocation Confirmation",
 		{"sales_order_item": soi, "status": ("in", LIVE), "team": ("!=", "")},
 		"team",
+		order_by="modified desc",
+	)
+
+
+def farm_for_line(soi):
+	"""The stock farm a line is confirmed against (None when it is not confirmed)."""
+	return frappe.db.get_value(
+		"Allocation Confirmation",
+		{"sales_order_item": soi, "status": ("in", LIVE)},
+		"farm",
 		order_by="modified desc",
 	)
 
@@ -433,8 +447,8 @@ def convert_virtual(delivery_date=None, farm=None):
 	filters = {"source": "Virtual", "status": "Planned"}
 	if delivery_date:
 		filters["delivery_date"] = delivery_date
-	if farm:
-		filters["farm"] = farm
+	if farm:  # the sales farm: its plan holds every confirmation, whichever farm's stock they are against
+		filters["plan"] = ("in", frappe.get_all("Allocation Plan", filters={"farm": farm}, pluck="name") or ["-"])
 	converted = 0.0
 	for c in frappe.get_all("Allocation Confirmation", filters=filters, fields=["*"], order_by="creation asc"):
 		soi = c.sales_order_item

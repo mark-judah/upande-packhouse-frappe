@@ -366,6 +366,13 @@ Allocator-facing helpers live in `availability.py` (section 5), not in this modu
 - **The stems box stops at what the order allows:** typing more than the order is for (less what is already allocated) brings the number down to the maximum at
   once and says why ("This order is for 6,000 stems, the most you can confirm", or "Only 5,200 left to confirm: 800 of this order is already allocated"); a negative
   number becomes 0. Fill every line, Use first and Swap or split already respected the same limit; the server still refuses anything above it.
+- **Sales farm and stock farm (correction):** a plan is for a **sales farm**, the farm that processes the order, and only the farms marked as a sales shelf in
+  Production Settings (today Kapkolia and Karen) are offered in the filter at the top, labelled "Sales farm". Stock is not limited to that farm: **On the
+  shelf** and **Received, not shelved** count every farm in the sales farm's location and show them farm by farm ("Kapkolia 500 · Chepsito 1,200"). Each
+  customer row has a **From** dropdown, the farm whose stock the confirmation is against (the farm with the most stock is preselected; a line keeps the farm
+  it was confirmed against). The stems are held from that farm's shelves and received buckets, `Allocation Confirmation.farm` and the Confirmed Stems row
+  carry that farm (so the allocator, which already lets several farms confirm parts of one line, sees it), and the plan itself belongs to the sales farm.
+  Swapped or split stems keep the farm they were confirmed against. The forecast stays at location level.
 - **Phase 3:** not started.
 
 ## 12. Decisions taken (defaults) and skipped

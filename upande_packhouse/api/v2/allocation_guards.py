@@ -310,6 +310,8 @@ def get_use_first(delivery_date: str | None = None, farm: str | None = None):
 		if s["old"] < max(floor, 1):
 			continue
 		left_old = s["old"]
+		by_farm = s.get("old_by_farm") or {}
+		old_farm = max(by_farm, key=by_farm.get) if by_farm else farm  # the farm holding most of the old stock
 		matches = []
 		exact = [ln for ln in model.lines if ln.item_code == v and (ln.custom_length or "") == length and model.left[ln.name] > 0]
 		shorter = [
@@ -334,6 +336,7 @@ def get_use_first(delivery_date: str | None = None, farm: str | None = None):
 						"team": plans.team_for_line(ln.name) or plans.group_team(_mix_key(ln)) or "",
 						"apply": {
 							"sales_order_item": ln.name,
+							"stock_farm": old_farm,
 							"stems": _current(model, ln.name) + take,
 							**({"length": length} if kind == "longer" else {}),
 						},

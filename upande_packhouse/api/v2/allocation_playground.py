@@ -59,24 +59,21 @@ def _day(delivery_date):
 
 
 def _farms():
-	rows = frappe.get_all(
+	"""The sales farms: farms marked as a sales shelf in Production Settings (the ones that process orders)."""
+	return frappe.get_all(
 		"Shelf Locations",
-		filters={"parenttype": "Production Settings", "enabled": 1},
+		filters={"parenttype": "Production Settings", "enabled": 1, "sales_shelf": 1},
 		fields=["farm", "sales_shelf"],
 		order_by="idx",
 	)
-	return rows
 
 
 def _default_farm():
-	hub = frappe.db.get_single_value("Production Settings", "transfer_hub_farm")
-	if hub:
-		return hub
 	rows = _farms()
-	for r in rows:
-		if r.sales_shelf:
-			return r.farm
-	return rows[0].farm if rows else None
+	hub = frappe.db.get_single_value("Production Settings", "transfer_hub_farm")
+	if hub and any(r.farm == hub for r in rows):
+		return hub
+	return rows[0].farm if rows else hub
 
 
 def _growing_farms(farm):
@@ -88,6 +85,11 @@ def _growing_farms(farm):
 		if farm in farms:
 			return list(farms)
 	return [farm]
+
+
+def _stock_farms(sales_farm):
+	"""Every farm whose stock can be confirmed for this sales farm's orders: all the farms in its location."""
+	return _growing_farms(sales_farm) or ([sales_farm] if sales_farm else [])
 
 
 def amber_from_days():
@@ -206,11 +208,12 @@ def _planned_by_line(day, farm):
 	"""{soi: {"real": stems still held, "expected": stems planned from the harvest}}"""
 	out = {}
 	for c in plans.live_confirmations(plan=_plan_name(day, farm)) if _plan_name(day, farm) else []:
-		d = out.setdefault(c.sales_order_item, {"real": 0.0, "expected": 0.0, "status": [], "length": ""})
+		d = out.setdefault(c.sales_order_item, {"real": 0.0, "expected": 0.0, "status": [], "length": "", "farm": ""})
 		left = max(0.0, flt(c.stems) - flt(c.fulfilled_stems))
 		d["real" if c.source == "Real" else "expected"] += left
 		d["status"].append(c.status)
 		d["length"] = c.length or d["length"]
+		d["farm"] = c.farm or d["farm"]
 	return out
 
 
@@ -224,6 +227,9 @@ SUPPLY = {
 	"rooms": {},
 	"on_the_way": 0.0,
 	"harvested": 0.0,
+	"by_farm": {},
+	"rec_by_farm": {},
+	"old_by_farm": {},
 }
 
 
@@ -248,18 +254,21 @@ def _stock_by_pool(farm, varieties, day=None):
 		return out
 
 	def entry(key):
-		return out.setdefault(key, {**SUPPLY, "rooms": {}})
+		return out.setdefault(key, {**SUPPLY, "rooms": {}, "by_farm": {}, "rec_by_farm": {}, "old_by_farm": {}})
 
-	for r in stock.bucket_rows(farms=[farm], varieties=sorted(varieties)):
+	farms = _stock_farms(farm)
+	for r in stock.bucket_rows(farms=farms, varieties=sorted(varieties)):
 		p = entry((r.variety, r.stem_length or ""))
 		p["free"] += r.allocatable
 		p["held"] += r.reserved
 		if r.allocatable > 0:
 			p["buckets"] += 1
 			p["oldest"] = max(p["oldest"], r.age_days or 0)
+			p["by_farm"][r.shelf_farm] = p["by_farm"].get(r.shelf_farm, 0.0) + r.allocatable
 			if (r.age_days or 0) >= amber:
 				p["old"] += r.allocatable
-	recv = received.received_unshelved(farms=[farm], varieties=sorted(varieties))
+				p["old_by_farm"][r.shelf_farm] = p["old_by_farm"].get(r.shelf_farm, 0.0) + r.allocatable
+	recv = received.received_unshelved(farms=farms, varieties=sorted(varieties))
 	held_for_lines = availability.reserved_by_bucket(bucket_ids={r.bucket_id for r in recv})
 	for r in recv:
 		free = max(0.0, r.stems - held_for_lines.get(r.bucket_id, 0.0))
@@ -267,11 +276,13 @@ def _stock_by_pool(farm, varieties, day=None):
 			continue
 		p = entry((r.variety, r.stem_length or ""))
 		p["received"] += free
+		p["rec_by_farm"][r.farm] = p["rec_by_farm"].get(r.farm, 0.0) + free
 		room = r.cold_room or _("Cold room")
 		p["rooms"][room] = p["rooms"].get(room, 0.0) + free
 		p["oldest"] = max(p["oldest"], r.age_days or 0)
 		if r.age_days >= amber:
 			p["old"] += free
+			p["old_by_farm"][r.farm] = p["old_by_farm"].get(r.farm, 0.0) + free
 	if day:
 		cut = getdate(day) - timedelta(days=cint(plans.setting("allocation_harvest_lead_days")))
 		for key, h in received.harvested_day(cut, _growing_farms(farm), varieties).items():
@@ -368,7 +379,8 @@ def get_board(delivery_date: str | None = None, farm: str | None = None, view: s
 	day = _day(delivery_date)
 	farm = farm or _default_farm()
 	# Stock that has reached the shelf since the last visit takes over from the expected harvest.
-	if frappe.db.exists("Allocation Confirmation", {"delivery_date": day, "farm": farm, "source": "Virtual", "status": "Planned"}):
+	plan_name = _plan_name(day, farm)
+	if plan_name and frappe.db.exists("Allocation Confirmation", {"plan": plan_name, "source": "Virtual", "status": "Planned"}):
 		plans.convert_virtual(day, farm)
 	pools = _build_pools(day, farm)
 	kpis = {
@@ -390,6 +402,7 @@ def get_board(delivery_date: str | None = None, farm: str | None = None, view: s
 		"delivery_date": day,
 		"farm": farm,
 		"farms": [r.farm for r in _farms()],
+		"stock_farms": _stock_farms(farm),
 		"amber_from_days": amber_from_days(),
 		"teams": frappe.get_all("Packing Teams", pluck="name", order_by="name asc"),
 		"days_ahead": cint(plans.setting("allocation_horizon_days")),
@@ -431,6 +444,7 @@ def get_pool(delivery_date: str | None = None, farm: str | None = None, variety:
 			"mix_name": ln.custom_mix_name or "",
 			"mix_key": _mix_key(ln),
 			"line_no": ln.idx,
+			"stock_farm": pl.get("farm") or "",
 			"ordered_length": ln.custom_length or "",
 			"confirmed_length": pl["length"] or "",
 			"team": plans.team_for_line(ln.name) or plans.group_team(_mix_key(ln)) or "",
@@ -462,6 +476,11 @@ def get_pool(delivery_date: str | None = None, farm: str | None = None, variety:
 		"longer_lines": longer,
 		"confirmed_lines": confirmed,
 		# what exists for this variety and length, most certain first
+		"stock_farms": [
+			{"farm": f, "on_shelf": sup["by_farm"].get(f, 0.0), "received": sup["rec_by_farm"].get(f, 0.0)}
+			for f in _stock_farms(farm)
+		],
+		"best_farm": _best_farm(farm, sup),
 		"supply": {
 			"on_shelf": sup["free"],
 			"received": sup["received"],
@@ -476,6 +495,16 @@ def get_pool(delivery_date: str | None = None, farm: str | None = None, variety:
 			"error_weeks": detail["weeks"],
 		},
 	}
+
+
+def _best_farm(sales_farm, sup):
+	"""The farm with the most stock for a variety and length (shelf and received); the sales farm when there is none."""
+	best, most = sales_farm, 0.0
+	for f in _stock_farms(sales_farm):
+		have = sup["by_farm"].get(f, 0.0) + sup["rec_by_farm"].get(f, 0.0)
+		if have > most + 0.0001:
+			best, most = f, have
+	return best
 
 
 def _confirmed_lines(day, farm, variety, length):
@@ -502,6 +531,7 @@ def _confirmed_lines(day, farm, variety, length):
 				"expected": 0.0,
 				"missing": False,
 				"team": c.team or "",
+				"farm": c.farm or "",
 				"mixed": bool(ln.custom_mixed_box or ln.custom_mixed_bunch) if ln else bool(c.mix_key),
 			},
 		)
@@ -558,6 +588,10 @@ def confirm_lines(delivery_date: str, farm: str, lines: str | list, team: str | 
 	plan = plans.get_plan(day, farm)
 	if plan.status == "Closed":
 		frappe.throw(_("The plan for {0} is closed.").format(day))
+	stock_farms = _stock_farms(farm)
+	for f in {i.get("stock_farm") for i in lines} - {None, ""}:
+		if f not in stock_farms:
+			frappe.throw(_("{0} is not one of the farms for {1}.").format(f, farm))
 	for t in {team, *(i.get("team") for i in lines)} - {None, ""}:
 		if not frappe.db.exists("Packing Teams", t):
 			frappe.throw(_("{0} is not a team we know.").format(t))
@@ -588,6 +622,8 @@ def confirm_lines(delivery_date: str, farm: str, lines: str | list, team: str | 
 			"mix_key": guards._mix_key(ln),
 		}
 		line_team = item.get("team") or team or plans.team_for_line(soi) or plans.group_team(info["mix_key"])
+		# the farm whose stock this is confirmed against: chosen on the row, else where it was confirmed before, else the sales farm
+		stock_farm = item.get("stock_farm") or plans.farm_for_line(soi) or farm
 		if want > 0 and not line_team:
 			frappe.throw(_("Choose a team for this confirmation."))
 		held = 0.0
@@ -595,7 +631,7 @@ def confirm_lines(delivery_date: str, farm: str, lines: str | list, team: str | 
 			_conf, held = plans.reserve_real(
 				plan=plan,
 				line=info,
-				farm=farm,
+				farm=stock_farm,
 				variety=ln.item_code,
 				length=length,
 				stems=want,
@@ -608,7 +644,7 @@ def confirm_lines(delivery_date: str, farm: str, lines: str | list, team: str | 
 		plans.plan_virtual(
 			plan=plan,
 			line=info,
-			farm=farm,
+			farm=stock_farm,
 			variety=ln.item_code,
 			length=length,
 			stems=rest,
@@ -617,7 +653,7 @@ def confirm_lines(delivery_date: str, farm: str, lines: str | list, team: str | 
 		)
 		if want > 0:
 			plans.apply_team_to_group(info["mix_key"], line_team)
-		done.append({"soi": soi, "held": held, "expected": rest, "team": line_team})
+		done.append({"soi": soi, "held": held, "expected": rest, "team": line_team, "farm": stock_farm})
 	return {"success": True, "plan": plan.name, "lines": done, "quiet": result["quiet"]}
 
 
@@ -657,6 +693,7 @@ def move_stems(delivery_date: str, farm: str, from_soi: str, to_soi: str, stems:
 	if not src_confs:
 		frappe.throw(_("{0} has nothing confirmed to give.").format(src.customer_name or src.customer))
 	length = src_confs[0].length or ""
+	src_farm = src_confs[0].farm
 	have, src_team, src_here = _confirmed_at(from_soi, src.item_code, length)
 	if not src_here:
 		frappe.throw(_("{0} is confirmed at more than one length. Unconfirm it first.").format(src.customer_name or src.customer))
@@ -665,6 +702,8 @@ def move_stems(delivery_date: str, farm: str, from_soi: str, to_soi: str, stems:
 	dst_have, dst_team, dst_here = _confirmed_at(to_soi, dst.item_code, length)
 	if plans.live_confirmations(soi=to_soi) and not dst_here:
 		frappe.throw(_("{0} is already confirmed at another length. Unconfirm it first.").format(dst.customer_name or dst.customer))
+	if any(c.farm != src_farm for c in plans.live_confirmations(soi=to_soi)):
+		frappe.throw(_("{0} is already confirmed from another farm. Unconfirm it first.").format(dst.customer_name or dst.customer))
 	room = max(0.0, flt(dst.ordered_stems) - flt(dst.allocated_stems) - dst_have)
 	if stems > room + 0.0001:
 		frappe.throw(_("{0} only needs {1} more stems.").format(dst.customer_name or dst.customer, int(room)))
@@ -673,8 +712,8 @@ def move_stems(delivery_date: str, farm: str, from_soi: str, to_soi: str, stems:
 		frappe.throw(_("Choose a team for {0}.").format(dst.customer_name or dst.customer))
 	left = have - stems
 	# the giver first, so what it lets go is free for the receiver
-	confirm_lines(day, farm, [{"sales_order_item": from_soi, "stems": left, **({"team": src_team} if left > 0 and src_team else {})}])
-	item = {"sales_order_item": to_soi, "stems": dst_have + stems, "team": dst_team}
+	confirm_lines(day, farm, [{"sales_order_item": from_soi, "stems": left, "stock_farm": src_farm, **({"team": src_team} if left > 0 and src_team else {})}])
+	item = {"sales_order_item": to_soi, "stems": dst_have + stems, "team": dst_team, "stock_farm": src_farm}
 	if length and length != (dst.custom_length or ""):
 		item["length"] = length
 	confirm_lines(day, farm, [item])

@@ -37,6 +37,7 @@ class _RelaxedConfig(dict):
 
 class _Rollback:
 	def __enter__(self):
+		self.locations = stock._config().get("farms_by_location", {})  # the real ones: which farms share a sales farm
 		self.before = {t: frappe.db.count(t) for t in TABLES}
 		self.orig_rollback = frappe.db.rollback
 		frappe.db.savepoint("pg_test")
@@ -44,7 +45,9 @@ class _Rollback:
 			patch.object(frappe.db, "commit", lambda *a, **k: None),
 			patch.object(frappe.db, "rollback", lambda *a, **k: None),
 			patch.object(
-				stock, "_config", lambda: {"discard_age": 10**6, "amber_time": 3, "farm_config": _RelaxedConfig()}
+				stock,
+				"_config",
+				lambda: {"discard_age": 10**6, "amber_time": 3, "farm_config": _RelaxedConfig(), "farms_by_location": self.locations},
 			),
 			# The local Stock Entry table is huge; with the relaxed age these reads would scan a year of it.
 			patch.object(received, "received_unshelved", lambda **k: []),
@@ -602,4 +605,89 @@ class TestSwapAndSplit(unittest.TestCase):
 			pg.confirm_lines(self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 10, "team": _team()}])
 			rows = pg.get_pool(self.day, self.c.farm, self.c.bucket.variety, self.c.bucket.stem_length)["confirmed_lines"]
 			self.assertEqual([r["mixed"] for r in rows if r["soi"] == self.a.soi], [False])
+
+
+class TestSalesFarmAndStockFarms(unittest.TestCase):
+	def setUp(self):
+		self.c = _case()
+		if not self.c:
+			self.skipTest("no case")
+		self.a = self.c.lines[0]
+		self.day = str(self.a.delivery_date)
+
+	def _sales_farm(self):
+		"""The sales farm whose location holds the bucket's farm."""
+		cfg = stock._config()
+		for loc, farms in cfg["farms_by_location"].items():
+			if self.c.farm in farms:
+				for f in farms:
+					if cfg["farm_config"].get(f, {}).get("sales_shelf"):
+						return f
+		return None
+
+	def test_the_farm_filter_lists_only_the_sales_farms_of_production_settings(self):
+		expected = frappe.get_all(
+			"Shelf Locations", filters={"parenttype": "Production Settings", "enabled": 1, "sales_shelf": 1}, pluck="farm"
+		)
+		self.assertEqual(sorted(r.farm for r in pg._farms()), sorted(expected))
+		self.assertTrue(expected)
+		every = frappe.get_all("Shelf Locations", filters={"parenttype": "Production Settings", "enabled": 1}, pluck="farm")
+		self.assertGreater(len(every), len(expected))  # the other farms are stock farms, not choices at the top
+		self.assertIn(pg._default_farm(), expected)
+
+	def test_on_the_shelf_counts_every_farm_of_the_sales_farms_location(self):
+		sales = self._sales_farm()
+		if not sales:
+			self.skipTest("the bucket's farm has no sales farm")
+		with _Rollback():
+			farms = pg._stock_farms(sales)
+			self.assertIn(self.c.farm, farms)
+			sup = pg._stock_by_pool(sales, {self.c.bucket.variety}, self.day).get((self.c.bucket.variety, self.c.bucket.stem_length))
+			self.assertTrue(sup)
+			self.assertAlmostEqual(sum(sup["by_farm"].values()), sup["free"], places=3)  # the farms add up to the total
+			self.assertTrue(set(sup["by_farm"]) <= set(farms))
+			direct = sum(
+				r.allocatable for r in stock.bucket_rows(farms=farms, varieties=[self.c.bucket.variety]) if (r.stem_length or "") == self.c.bucket.stem_length
+			)
+			self.assertAlmostEqual(sup["free"], direct, places=3)
+			pool = pg.get_pool(self.day, sales, self.c.bucket.variety, self.c.bucket.stem_length)
+			self.assertEqual({x["farm"] for x in pool["stock_farms"]}, set(farms))
+			self.assertIn(pool["best_farm"], farms)
+
+	def test_each_line_is_confirmed_against_the_farm_chosen_on_its_row(self):
+		sales = self._sales_farm()
+		if not sales:
+			self.skipTest("the bucket's farm has no sales farm")
+		with _Rollback():
+			team = _team()
+			row = {"parent": self.a.parent, "sales_order_item": self.a.soi}
+			pg.confirm_lines(self.day, sales, [{"sales_order_item": self.a.soi, "stems": 10, "team": team, "stock_farm": self.c.farm}])
+			confs = plans.live_confirmations(soi=self.a.soi)
+			self.assertEqual({c.farm for c in confs}, {self.c.farm})
+			self.assertEqual(plans.farm_for_line(self.a.soi), self.c.farm)
+			self.assertEqual(plans.get_plan(self.day, sales, create=False).name, confs[0].plan)  # the plan is the sales farm's
+			self.assertEqual(frappe.db.get_value("Confirmed Stems", {**row, "farm": self.c.farm}, "stems"), 10.0)
+			# re-confirming without saying where keeps the farm; moving it to another farm clears the old row
+			pg.confirm_lines(self.day, sales, [{"sales_order_item": self.a.soi, "stems": 6}])
+			self.assertEqual(plans.farm_for_line(self.a.soi), self.c.farm)
+			other = next((f for f in pg._stock_farms(sales) if f != self.c.farm), None)
+			if other:
+				pg.confirm_lines(self.day, sales, [{"sales_order_item": self.a.soi, "stems": 6, "stock_farm": other}])
+				self.assertEqual(plans.farm_for_line(self.a.soi), other)
+				self.assertFalse(frappe.db.exists("Confirmed Stems", {**row, "farm": self.c.farm}))
+				self.assertEqual(frappe.db.get_value("Confirmed Stems", {**row, "farm": other}, "stems"), 6.0)
+			with self.assertRaises(frappe.ValidationError) as ctx:
+				pg.confirm_lines(self.day, sales, [{"sales_order_item": self.a.soi, "stems": 6, "stock_farm": "NO SUCH FARM"}])
+			self.assertIn("not one of the farms", str(ctx.exception))
+
+	def test_swapped_stems_keep_the_farm_they_were_confirmed_against(self):
+		sales = self._sales_farm()
+		if not sales or len(self.c.lines) < 2:
+			self.skipTest("needs a sales farm and two lines")
+		b = self.c.lines[1]
+		with _Rollback():
+			ta, tb = _team("ZZ TEST TEAM A"), _team("ZZ TEST TEAM B")
+			pg.confirm_lines(self.day, sales, [{"sales_order_item": self.a.soi, "stems": 10, "team": ta, "stock_farm": self.c.farm}])
+			pg.move_stems(self.day, sales, self.a.soi, b.soi, 4, team=tb)
+			self.assertEqual(plans.farm_for_line(b.soi), self.c.farm)
 
