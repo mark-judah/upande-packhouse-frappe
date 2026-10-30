@@ -1834,9 +1834,9 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 		if requested > current_available - held_others:
 			if held_others and requested <= current_available:
 				frappe.throw(
-					_("Bucket {0} is held for another order in the plan: only {1} stems are free. Please refresh.").format(
-						bucket_id, max(0, current_available - held_others)
-					)
+					_(
+						"Bucket {0} is held for another order in the plan: only {1} stems are free. Please refresh."
+					).format(bucket_id, max(0, current_available - held_others))
 				)
 			frappe.throw(
 				f"Over-allocation on bucket {bucket_id}: "

@@ -524,12 +524,17 @@
 			input.after(wrap);
 			input.type = "hidden";
 			const ctl = frappe.ui.form.make_control({
-				df: { fieldtype: "Date", fieldname: (input.id || "date").replace(/-/g, "_"), label: "" },
+				df: {
+					fieldtype: "Date",
+					fieldname: (input.id || "date").replace(/-/g, "_"),
+					label: "",
+				},
 				parent: wrap,
 				render_input: true,
 			});
 			PH.$$(".control-label, .help-box", wrap).forEach((k) => (k.style.display = "none"));
-			if (input.getAttribute("aria-label")) ctl.$input.attr("aria-label", input.getAttribute("aria-label"));
+			if (input.getAttribute("aria-label"))
+				ctl.$input.attr("aria-label", input.getAttribute("aria-label"));
 			ctl.$input.on("change", () => {
 				const v = ctl.get_value() || "";
 				if (v && v !== input.value) {
@@ -538,12 +543,14 @@
 				}
 			});
 			input._showDate = () => {
-				if ((ctl.get_value() || "") !== (input.value || "")) ctl.set_value(input.value || "");
+				if ((ctl.get_value() || "") !== (input.value || ""))
+					ctl.set_value(input.value || "");
 			};
 			input._showDate();
 			// Frappe opens the calendar above or below the field but always from its left edge, so a field near
 			// the right of the page pushes it off screen: open it from the right edge there, then keep it in view.
-			const place = ctl.update_datepicker_position && ctl.update_datepicker_position.bind(ctl);
+			const place =
+				ctl.update_datepicker_position && ctl.update_datepicker_position.bind(ctl);
 			ctl.update_datepicker_position = function () {
 				if (place) place();
 				const dp = ctl.datepicker;
@@ -558,7 +565,8 @@
 		};
 		// Page scripts run before Frappe's web bundle is loaded (it comes last in the page), so wait for it.
 		const start = (tries) => {
-			if (window.frappe && frappe.ui && frappe.ui.form && frappe.ui.form.make_control) build();
+			if (window.frappe && frappe.ui && frappe.ui.form && frappe.ui.form.make_control)
+				build();
 			else if (window.frappe && frappe.require) frappe.require("controls.bundle.js", build);
 			else if (tries > 0) setTimeout(() => start(tries - 1), 150);
 		};

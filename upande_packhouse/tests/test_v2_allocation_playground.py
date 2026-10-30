@@ -37,7 +37,9 @@ class _RelaxedConfig(dict):
 
 class _Rollback:
 	def __enter__(self):
-		self.locations = stock._config().get("farms_by_location", {})  # the real ones: which farms share a sales farm
+		self.locations = stock._config().get(
+			"farms_by_location", {}
+		)  # the real ones: which farms share a sales farm
 		self.before = {t: frappe.db.count(t) for t in TABLES}
 		self.orig_rollback = frappe.db.rollback
 		frappe.db.savepoint("pg_test")
@@ -47,7 +49,12 @@ class _Rollback:
 			patch.object(
 				stock,
 				"_config",
-				lambda: {"discard_age": 10**6, "amber_time": 3, "farm_config": _RelaxedConfig(), "farms_by_location": self.locations},
+				lambda: {
+					"discard_age": 10**6,
+					"amber_time": 3,
+					"farm_config": _RelaxedConfig(),
+					"farms_by_location": self.locations,
+				},
 			),
 			# The local Stock Entry table is huge; with the relaxed age these reads would scan a year of it.
 			patch.object(received, "received_unshelved", lambda **k: []),
@@ -105,7 +112,10 @@ class TestPlanning(unittest.TestCase):
 
 	def _plan(self, line, stems, team=None):
 		return pg.confirm_lines(
-			str(line.delivery_date), self.c.farm, [{"sales_order_item": line.soi, "stems": stems}], team=team or _team()
+			str(line.delivery_date),
+			self.c.farm,
+			[{"sales_order_item": line.soi, "stems": stems}],
+			team=team or _team(),
 		)
 
 	def test_planning_holds_buckets_and_hides_them_from_other_lines(self):
@@ -114,7 +124,11 @@ class TestPlanning(unittest.TestCase):
 			res = self._plan(a, 10)
 			held = res["lines"][0]["held"]
 			self.assertGreater(held, 0)
-			rows = frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"}, fields=["bucket_id", "stems"])
+			rows = frappe.get_all(
+				"Bucket Reservation",
+				filters={"sales_order_item": a.soi, "status": "Active"},
+				fields=["bucket_id", "stems"],
+			)
 			self.assertEqual(round(sum(r.stems for r in rows), 3), round(held, 3))
 			# held for A: hidden from B, visible to A
 			hidden = availability.reserved_by_bucket(exclude_soi=b.soi)
@@ -126,7 +140,9 @@ class TestPlanning(unittest.TestCase):
 			bucket_rows = {r.bucket_id: r for r in stock.bucket_rows(varieties=[self.c.bucket.variety])}
 			for r in rows:
 				self.assertGreaterEqual(bucket_rows[r.bucket_id].reserved, r.stems)
-				self.assertLessEqual(bucket_rows[r.bucket_id].allocatable, bucket_rows[r.bucket_id].free - r.stems + 1e-6)
+				self.assertLessEqual(
+					bucket_rows[r.bucket_id].allocatable, bucket_rows[r.bucket_id].free - r.stems + 1e-6
+				)
 			# and mirrored to the v1 Confirmed Stems table the allocator reads
 			cs = frappe.db.get_value(
 				"Confirmed Stems",
@@ -150,14 +166,24 @@ class TestPlanning(unittest.TestCase):
 			# the Confirmed view lists the variety even though nothing needs attention there
 			confirmed_view = pg.get_board(day, self.c.farm, "confirmed")["pools"]
 			self.assertIn((v, ln), {(p["variety"], p["length"]) for p in confirmed_view})
-			self.assertTrue(all(p["confirmed_lines"] or p["held"] or p["expected_plan"] for p in confirmed_view))
+			self.assertTrue(
+				all(p["confirmed_lines"] or p["held"] or p["expected_plan"] for p in confirmed_view)
+			)
 			# take it out: the stock is free again and the mirror row is gone
 			res = pg.unconfirm_line(a.soi)
 			self.assertGreaterEqual(res["released"], 1)
-			self.assertFalse(frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"}))
+			self.assertFalse(
+				frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"})
+			)
 			self.assertFalse(plans.live_confirmations(soi=a.soi))
-			self.assertFalse(frappe.db.exists("Confirmed Stems", {"parent": a.parent, "sales_order_item": a.soi, "farm": self.c.farm}))
-			self.assertFalse([x for x in pg.get_pool(day, self.c.farm, v, ln)["confirmed_lines"] if x["soi"] == a.soi])
+			self.assertFalse(
+				frappe.db.exists(
+					"Confirmed Stems", {"parent": a.parent, "sales_order_item": a.soi, "farm": self.c.farm}
+				)
+			)
+			self.assertFalse(
+				[x for x in pg.get_pool(day, self.c.farm, v, ln)["confirmed_lines"] if x["soi"] == a.soi]
+			)
 
 	def test_expected_stems_are_mirrored_into_confirmed_stems_too(self):
 		"""Allocation reads the Sales Order's Confirmed Stems table, so what is confirmed from the expected harvest has to be in it."""
@@ -166,7 +192,9 @@ class TestPlanning(unittest.TestCase):
 		row = {"parent": a.parent, "sales_order_item": a.soi, "farm": self.c.farm}
 		with _Rollback(), patch.object(stock, "bucket_rows", lambda **k: []):
 			self._plan(a, 10)  # nothing on the shelf: all expected
-			self.assertFalse(frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"}))
+			self.assertFalse(
+				frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"})
+			)
 			self.assertEqual(frappe.db.get_value("Confirmed Stems", row, "stems"), 10.0)
 			self._plan(a, 25)
 			self.assertEqual(frappe.db.get_value("Confirmed Stems", row, "stems"), 25.0)
@@ -178,13 +206,27 @@ class TestPlanning(unittest.TestCase):
 		row = {"parent": a.parent, "sales_order_item": a.soi, "farm": self.c.farm}
 		with _Rollback():
 			plan = plans.get_plan(str(a.delivery_date), self.c.farm)
-			line = {"sales_order": a.parent, "sales_order_item": a.soi, "customer": None,
-			        "ordered_variety": self.c.bucket.variety, "ordered_length": self.c.bucket.stem_length, "mix_key": ""}
-			args = dict(plan=plan, line=line, farm=self.c.farm, variety=self.c.bucket.variety, length=self.c.bucket.stem_length)
+			line = {
+				"sales_order": a.parent,
+				"sales_order_item": a.soi,
+				"customer": None,
+				"ordered_variety": self.c.bucket.variety,
+				"ordered_length": self.c.bucket.stem_length,
+				"mix_key": "",
+			}
+			args = dict(
+				plan=plan,
+				line=line,
+				farm=self.c.farm,
+				variety=self.c.bucket.variety,
+				length=self.c.bucket.stem_length,
+			)
 			_conf, held = plans.reserve_real(stems=10, **args)
 			self.assertEqual(held, 10.0)
 			plans.plan_virtual(stems=5, **args)
-			self.assertEqual(frappe.db.get_value("Confirmed Stems", row, "stems"), 15.0)  # 10 held + 5 expected
+			self.assertEqual(
+				frappe.db.get_value("Confirmed Stems", row, "stems"), 15.0
+			)  # 10 held + 5 expected
 			for c in plans.live_confirmations(soi=a.soi):
 				if c.source == "Virtual":
 					plans.release_confirmation(c.name, "Manual")
@@ -202,12 +244,18 @@ class TestPlanning(unittest.TestCase):
 		with _Rollback():
 			self._plan(a, 10)
 			self._plan(a, 5)
-			live = frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"}, pluck="stems")
+			live = frappe.get_all(
+				"Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"}, pluck="stems"
+			)
 			self.assertEqual(round(sum(live), 3), 5.0)
 			self._plan(a, 0)
-			self.assertFalse(frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"}))
 			self.assertFalse(
-				frappe.db.exists("Confirmed Stems", {"parent": a.parent, "sales_order_item": a.soi, "farm": self.c.farm})
+				frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"})
+			)
+			self.assertFalse(
+				frappe.db.exists(
+					"Confirmed Stems", {"parent": a.parent, "sales_order_item": a.soi, "farm": self.c.farm}
+				)
 			)
 			self.assertFalse(plans.live_confirmations(soi=a.soi))
 
@@ -215,11 +263,18 @@ class TestPlanning(unittest.TestCase):
 		a = self.c.lines[0]
 		with _Rollback():
 			held = self._plan(a, 10)["lines"][0]["held"]
-			res = frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"}, fields=["bucket_id", "stems"], order_by="creation asc")
+			res = frappe.get_all(
+				"Bucket Reservation",
+				filters={"sales_order_item": a.soi, "status": "Active"},
+				fields=["bucket_id", "stems"],
+				order_by="creation asc",
+			)
 			first = res[0]
 			take = min(first.stems, 4.0)
 			plans.consume(first.bucket_id, a.soi, take)
-			left = frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"}, pluck="stems")
+			left = frappe.get_all(
+				"Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"}, pluck="stems"
+			)
 			self.assertEqual(round(sum(left), 3), round(held - take, 3))
 			conf = plans.live_confirmations(soi=a.soi)[0]
 			self.assertEqual(round(conf.fulfilled_stems, 3), round(take, 3))
@@ -227,7 +282,9 @@ class TestPlanning(unittest.TestCase):
 			# the allocator marks the line fully allocated: the rest is released
 			frappe.db.set_value("Sales Order Item", a.soi, "custom_fully_allocated", 1, update_modified=False)
 			plans.after_allocation([{"bucket_id": first.bucket_id, "sales_order_item": a.soi, "qty": 0}])
-			self.assertFalse(frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"}))
+			self.assertFalse(
+				frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"})
+			)
 
 	def test_cancelled_or_changed_line_releases(self):
 		a = self.c.lines[0]
@@ -236,16 +293,24 @@ class TestPlanning(unittest.TestCase):
 			doc = frappe.get_doc("Sales Order", a.parent)
 			doc.items = [r for r in doc.items if r.name != a.soi]  # the line is gone
 			plans.release_changed_lines(doc)
-			self.assertFalse(frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"}))
-			closed = frappe.db.get_value("Allocation Confirmation", {"sales_order_item": a.soi}, "release_reason")
+			self.assertFalse(
+				frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"})
+			)
+			closed = frappe.db.get_value(
+				"Allocation Confirmation", {"sales_order_item": a.soi}, "release_reason"
+			)
 			self.assertEqual(closed, "Line changed")
 
 	def test_a_held_bucket_that_left_the_shelf_is_broken(self):
 		a = self.c.lines[0]
 		with _Rollback():
 			self._plan(a, 10)
-			name = frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"}, pluck="name")[0]
-			frappe.db.set_value("Bucket Reservation", name, "bucket_id", "NO-SUCH-BUCKET", update_modified=False)
+			name = frappe.get_all(
+				"Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"}, pluck="name"
+			)[0]
+			frappe.db.set_value(
+				"Bucket Reservation", name, "bucket_id", "NO-SUCH-BUCKET", update_modified=False
+			)
 			with patch.object(frappe.db, "set_value", wraps=frappe.db.set_value):
 				plans.mark_missing_buckets()
 			self.assertEqual(frappe.db.get_value("Bucket Reservation", name, "status"), "Broken")
@@ -257,7 +322,9 @@ class TestPlanning(unittest.TestCase):
 			plan = plans.get_plan(str(a.delivery_date), self.c.farm)
 			frappe.db.set_value("Allocation Confirmation", {"plan": plan.name}, "delivery_date", "2000-01-01")
 			plans.release_passed_days()
-			self.assertFalse(frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"}))
+			self.assertFalse(
+				frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"})
+			)
 
 	def test_cannot_plan_more_than_is_left(self):
 		a = self.c.lines[0]
@@ -269,15 +336,23 @@ class TestPlanning(unittest.TestCase):
 
 		a, b = self.c.lines[0], self.c.lines[1]
 		cfg = sa._get_production_config()
-		location = next((loc for loc, farms in cfg["farms_by_location"].items() if self.c.farm in farms), None)
+		location = next(
+			(loc for loc, farms in cfg["farms_by_location"].items() if self.c.farm in farms), None
+		)
 		if not location:
 			self.skipTest("the farm has no location in Production Settings")
 		with _Rollback():
 			held = self._plan(a, 10)["lines"][0]["held"]
 			if not held:
 				self.skipTest("nothing could be held")
-			res = frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"}, fields=["bucket_id", "stems", "item_code", "stem_length"])[0]
-			bucket_free = next(r for r in stock.bucket_rows(varieties=[res.item_code]) if r.bucket_id == res.bucket_id)
+			res = frappe.get_all(
+				"Bucket Reservation",
+				filters={"sales_order_item": a.soi, "status": "Active"},
+				fields=["bucket_id", "stems", "item_code", "stem_length"],
+			)[0]
+			bucket_free = next(
+				r for r in stock.bucket_rows(varieties=[res.item_code]) if r.bucket_id == res.bucket_id
+			)
 			# take everything that is not held: leave only the held stems, so line B asking for 1 stem must be refused
 			spare = bucket_free.free - bucket_free.reserved
 			payload = [
@@ -290,11 +365,21 @@ class TestPlanning(unittest.TestCase):
 				}
 			]
 			# the box fit would trim the quantity first; this test is about the hold, so let it through
-			with patch.object(sa, "_fit_allocations_to_boxes", lambda doc, allocs: (allocs, [])), self.assertRaises(
-				frappe.ValidationError
-			) as ctx:
+			with (
+				patch.object(sa, "_fit_allocations_to_boxes", lambda doc, allocs: (allocs, [])),
+				self.assertRaises(frappe.ValidationError) as ctx,
+			):
 				sa._allocate_stock_with_buckets_impl(b.parent, payload, location)
 			self.assertIn("held for another order", str(ctx.exception))
+
+
+def _needs_production_settings(case):
+	"""Production Settings and its Shelf Locations belong to upande_quality, which a bare test site
+	(this app's CI) does not have."""
+	if not frappe.db.exists("DocType", "Production Settings") or not frappe.db.exists(
+		"DocType", "Shelf Locations"
+	):
+		case.skipTest("upande_quality is not installed")
 
 
 class TestBoard(unittest.TestCase):
@@ -339,6 +424,7 @@ class TestBoard(unittest.TestCase):
 		self.assertEqual(pg.expected_arrivals("NO SUCH VARIETY", "52cm", day), (0.0, 0.0))
 
 	def test_the_settings_exist_and_are_read(self):
+		_needs_production_settings(self)
 		meta = frappe.get_meta("Production Settings")
 		for f in plans.SETTING_DEFAULTS:
 			self.assertTrue(meta.has_field(f), f)
@@ -351,7 +437,9 @@ class TestWhatIsNotOnAShelfYet(unittest.TestCase):
 		with patch.object(pg, "expected_arrivals", lambda *a, **k: (1000.0, 700.0)):
 			likely, sure = pg.expected_for("Aqua", "52cm", "2026-10-30", "Kapkolia", s)
 		self.assertAlmostEqual(likely, 100 + 600)  # on its way + (1,000 forecast - 400 already harvested)
-		self.assertAlmostEqual(sure, 100 + 600 * 0.7)  # the harvest in hand is certain, the forecast carries its error
+		self.assertAlmostEqual(
+			sure, 100 + 600 * 0.7
+		)  # the harvest in hand is certain, the forecast carries its error
 
 	def test_the_forecast_error_is_the_years_average_and_sure_follows_it(self):
 		row = frappe.db.sql(
@@ -369,8 +457,10 @@ class TestWhatIsNotOnAShelfYet(unittest.TestCase):
 		self.assertEqual(pg.forecast_error("NO SUCH VARIETY"), (None, 0))
 
 	def test_with_nothing_to_judge_by_none_of_the_forecast_counts_as_sure(self):
-		with patch.object(pg, "forecast_error", lambda *a, **k: (None, 0)), patch.object(
-			frappe.db, "sql", wraps=frappe.db.sql
+		_needs_production_settings(self)
+		with (
+			patch.object(pg, "forecast_error", lambda *a, **k: (None, 0)),
+			patch.object(frappe.db, "sql", wraps=frappe.db.sql),
 		):
 			d = pg.expected_detail("NO SUCH VARIETY", "52cm", "2026-10-30", "Kapkolia")
 		self.assertEqual((d["likely"], d["sure"]), (0.0, 0.0))
@@ -388,18 +478,44 @@ class TestWhatIsNotOnAShelfYet(unittest.TestCase):
 			self.skipTest("no bucket that is off the shelf")
 		bucket = spare[0][0]
 		fake = frappe._dict(
-			bucket_id=bucket, farm=c.farm, variety=c.bucket.variety, stem_length=c.bucket.stem_length, stems=50.0,
-			cold_room="Kapkolia Receiving Cold Store - KR", age_days=1, received_on="2026-10-28", harvest_date="2026-10-28",
+			bucket_id=bucket,
+			farm=c.farm,
+			variety=c.bucket.variety,
+			stem_length=c.bucket.stem_length,
+			stems=50.0,
+			cold_room="Kapkolia Receiving Cold Store - KR",
+			age_days=1,
+			received_on="2026-10-28",
+			harvest_date="2026-10-28",
 		)
-		with _Rollback(), patch.object(stock, "bucket_rows", lambda **k: []), patch.object(
-			received, "received_unshelved", lambda **k: [fake]
-		), patch.object(received, "unshelved_bucket_ids", lambda ids: {bucket}):
+		with (
+			_Rollback(),
+			patch.object(stock, "bucket_rows", lambda **k: []),
+			patch.object(received, "received_unshelved", lambda **k: [fake]),
+			patch.object(received, "unshelved_bucket_ids", lambda ids: {bucket}),
+		):
 			pool = plans.free_for_line(c.farm, c.bucket.variety, c.bucket.stem_length, a.soi)
-			self.assertEqual([(x.bucket_id, x.free, x.source, x.cold_room) for x in pool], [(bucket, 50.0, "received", fake.cold_room)])
+			self.assertEqual(
+				[(x.bucket_id, x.free, x.source, x.cold_room) for x in pool],
+				[(bucket, 50.0, "received", fake.cold_room)],
+			)
 			plan = plans.get_plan(str(a.delivery_date), c.farm)
-			line = {"sales_order": a.parent, "sales_order_item": a.soi, "customer": None,
-			        "ordered_variety": c.bucket.variety, "ordered_length": c.bucket.stem_length, "mix_key": ""}
-			conf, held = plans.reserve_real(plan=plan, line=line, farm=c.farm, variety=c.bucket.variety, length=c.bucket.stem_length, stems=20)
+			line = {
+				"sales_order": a.parent,
+				"sales_order_item": a.soi,
+				"customer": None,
+				"ordered_variety": c.bucket.variety,
+				"ordered_length": c.bucket.stem_length,
+				"mix_key": "",
+			}
+			conf, held = plans.reserve_real(
+				plan=plan,
+				line=line,
+				farm=c.farm,
+				variety=c.bucket.variety,
+				length=c.bucket.stem_length,
+				stems=20,
+			)
 			self.assertEqual(held, 20.0)
 			self.assertEqual(availability.reserved_by_bucket(exclude_soi=b.soi)[bucket], 20.0)
 			other = plans.free_for_line(c.farm, c.bucket.variety, c.bucket.stem_length, b.soi)
@@ -407,7 +523,10 @@ class TestWhatIsNotOnAShelfYet(unittest.TestCase):
 			own = plans.free_for_line(c.farm, c.bucket.variety, c.bucket.stem_length, a.soi)
 			self.assertEqual(own[0].free, 50.0)  # what is held for A is A's to use
 			plans.mark_missing_buckets()  # waiting for a shelf is not missing
-			self.assertEqual(frappe.db.get_value("Bucket Reservation", {"bucket_id": bucket, "status": "Active"}, "stems"), 20.0)
+			self.assertEqual(
+				frappe.db.get_value("Bucket Reservation", {"bucket_id": bucket, "status": "Active"}, "stems"),
+				20.0,
+			)
 
 
 class TestTeam(unittest.TestCase):
@@ -426,7 +545,9 @@ class TestTeam(unittest.TestCase):
 			self.assertTrue(confs)
 			self.assertEqual({c.team for c in confs}, {team})  # the shelf part and the expected part alike
 			self.assertEqual(plans.team_for_line(a.soi), team)
-			self.assertEqual(plans.teams_for_lines([a.soi, "NOT-A-LINE"]), {a.soi: team})  # the map allocation takes
+			self.assertEqual(
+				plans.teams_for_lines([a.soi, "NOT-A-LINE"]), {a.soi: team}
+			)  # the map allocation takes
 			pool = pg.get_pool(day, self.c.farm, self.c.bucket.variety, self.c.bucket.stem_length)
 			self.assertEqual({x["team"] for x in pool["confirmed_lines"] if x["soi"] == a.soi}, {team})
 			self.assertIn(team, pg.get_board(day, self.c.farm, "all")["teams"])
@@ -438,8 +559,12 @@ class TestTeam(unittest.TestCase):
 			ta, tb = _team("ZZ TEST TEAM A"), _team("ZZ TEST TEAM B")
 			# two lines of the same variety in one request, each with its own team
 			pg.confirm_lines(
-				day, self.c.farm,
-				[{"sales_order_item": a.soi, "stems": 10, "team": ta}, {"sales_order_item": b.soi, "stems": 10, "team": tb}],
+				day,
+				self.c.farm,
+				[
+					{"sales_order_item": a.soi, "stems": 10, "team": ta},
+					{"sales_order_item": b.soi, "stems": 10, "team": tb},
+				],
 			)
 			self.assertEqual(plans.team_for_line(a.soi), ta)
 			self.assertEqual(plans.team_for_line(b.soi), tb)
@@ -450,7 +575,12 @@ class TestTeam(unittest.TestCase):
 			self.assertEqual(plans.team_for_line(b.soi), tb)
 			pg.confirm_lines(day, self.c.farm, [{"sales_order_item": b.soi, "stems": 10, "team": ta}])
 			self.assertEqual((plans.team_for_line(a.soi), plans.team_for_line(b.soi)), (tb, ta))
-			rows = {x["soi"]: x["team"] for x in pg.get_pool(day, self.c.farm, self.c.bucket.variety, self.c.bucket.stem_length)["lines"]}
+			rows = {
+				x["soi"]: x["team"]
+				for x in pg.get_pool(day, self.c.farm, self.c.bucket.variety, self.c.bucket.stem_length)[
+					"lines"
+				]
+			}
 			self.assertEqual((rows[a.soi], rows[b.soi]), (tb, ta))
 
 	def test_a_team_is_required_and_must_exist(self):
@@ -492,7 +622,9 @@ class TestTeam(unittest.TestCase):
 			pg.confirm_lines(day, farm, [{"sales_order_item": first.name, "stems": 5}], team=a)
 			# the second variety is not confirmed yet, but the box already has its team
 			self.assertEqual(plans.group_team(pg._mix_key(pg._line(second.name))), a)
-			pg.confirm_lines(day, farm, [{"sales_order_item": second.name, "stems": 5}])  # no team given: the box's
+			pg.confirm_lines(
+				day, farm, [{"sales_order_item": second.name, "stems": 5}]
+			)  # no team given: the box's
 			self.assertEqual(plans.team_for_line(second.name), a)
 			# choosing another team for one variety moves the whole box
 			pg.confirm_lines(day, farm, [{"sales_order_item": second.name, "stems": 5}], team=b)
@@ -509,7 +641,11 @@ class TestSwapAndSplit(unittest.TestCase):
 		self.day = str(self.a.delivery_date)
 
 	def _held(self, soi):
-		return sum(frappe.get_all("Bucket Reservation", filters={"sales_order_item": soi, "status": "Active"}, pluck="stems"))
+		return sum(
+			frappe.get_all(
+				"Bucket Reservation", filters={"sales_order_item": soi, "status": "Active"}, pluck="stems"
+			)
+		)
 
 	def _total(self, soi):
 		return sum(c.stems - c.fulfilled_stems for c in plans.live_confirmations(soi=soi))
@@ -517,7 +653,9 @@ class TestSwapAndSplit(unittest.TestCase):
 	def test_split_gives_part_of_the_confirmed_stems_to_another_customer(self):
 		with _Rollback():
 			ta, tb = _team("ZZ TEST TEAM A"), _team("ZZ TEST TEAM B")
-			pg.confirm_lines(self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 10, "team": ta}])
+			pg.confirm_lines(
+				self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 10, "team": ta}]
+			)
 			held_before = self._held(self.a.soi)
 			r = pg.move_stems(self.day, self.c.farm, self.a.soi, self.b.soi, 4, team=tb)
 			self.assertEqual((r["moved"], r["kept"], r["received"]), (4.0, 6.0, 4.0))
@@ -525,18 +663,29 @@ class TestSwapAndSplit(unittest.TestCase):
 			# what was held on the shelf is shared out, not lost or doubled
 			self.assertAlmostEqual(self._held(self.a.soi) + self._held(self.b.soi), held_before, places=3)
 			self.assertEqual((plans.team_for_line(self.a.soi), plans.team_for_line(self.b.soi)), (ta, tb))
-			mirror = {x.sales_order_item: x.stems for x in frappe.get_all("Confirmed Stems", filters={"parent": ("in", [self.a.parent, self.b.parent])}, fields=["sales_order_item", "stems"])}
+			mirror = {
+				x.sales_order_item: x.stems
+				for x in frappe.get_all(
+					"Confirmed Stems",
+					filters={"parent": ("in", [self.a.parent, self.b.parent])},
+					fields=["sales_order_item", "stems"],
+				)
+			}
 			self.assertEqual((mirror[self.a.soi], mirror[self.b.soi]), (6.0, 4.0))
 
 	def test_swap_gives_all_of_it_and_the_giver_is_unconfirmed(self):
 		with _Rollback():
 			ta, tb = _team("ZZ TEST TEAM A"), _team("ZZ TEST TEAM B")
-			pg.confirm_lines(self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 10, "team": ta}])
+			pg.confirm_lines(
+				self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 10, "team": ta}]
+			)
 			r = pg.move_stems(self.day, self.c.farm, self.a.soi, self.b.soi, 10, team=tb)
 			self.assertEqual(r["kept"], 0.0)
 			self.assertFalse(plans.live_confirmations(soi=self.a.soi))
 			self.assertEqual(self._total(self.b.soi), 10.0)
-			self.assertFalse(frappe.db.exists("Confirmed Stems", {"parent": self.a.parent, "sales_order_item": self.a.soi}))
+			self.assertFalse(
+				frappe.db.exists("Confirmed Stems", {"parent": self.a.parent, "sales_order_item": self.a.soi})
+			)
 
 	def test_one_customers_stems_can_be_split_between_several_customers_at_once(self):
 		if len(self.c.lines) < 3:
@@ -544,15 +693,33 @@ class TestSwapAndSplit(unittest.TestCase):
 		c = self.c.lines[2]
 		with _Rollback():
 			ta, tb = _team("ZZ TEST TEAM A"), _team("ZZ TEST TEAM B")
-			pg.confirm_lines(self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 10, "team": ta}])
-			r = pg.split_stems(self.day, self.c.farm, self.a.soi, [
-				{"to_soi": self.b.soi, "stems": 4, "team": tb}, {"to_soi": c.soi, "stems": 3, "team": ta}])
+			pg.confirm_lines(
+				self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 10, "team": ta}]
+			)
+			r = pg.split_stems(
+				self.day,
+				self.c.farm,
+				self.a.soi,
+				[{"to_soi": self.b.soi, "stems": 4, "team": tb}, {"to_soi": c.soi, "stems": 3, "team": ta}],
+			)
 			self.assertEqual((r["moved"], r["kept"]), (7.0, 3.0))
 			self.assertEqual([self._total(x) for x in (self.a.soi, self.b.soi, c.soi)], [3.0, 4.0, 3.0])
 			self.assertEqual([plans.team_for_line(x) for x in (self.b.soi, c.soi)], [tb, ta])
 			for bad, part in (
-				([{"to_soi": self.b.soi, "stems": 1, "team": ta}, {"to_soi": self.b.soi, "stems": 1, "team": ta}], "only be chosen once"),
-				([{"to_soi": self.b.soi, "stems": 2, "team": ta}, {"to_soi": c.soi, "stems": 2, "team": ta}], "only 3"),
+				(
+					[
+						{"to_soi": self.b.soi, "stems": 1, "team": ta},
+						{"to_soi": self.b.soi, "stems": 1, "team": ta},
+					],
+					"only be chosen once",
+				),
+				(
+					[
+						{"to_soi": self.b.soi, "stems": 2, "team": ta},
+						{"to_soi": c.soi, "stems": 2, "team": ta},
+					],
+					"only 3",
+				),
 				([], "how many"),
 			):
 				with self.assertRaises(frappe.ValidationError) as ctx:
@@ -562,7 +729,9 @@ class TestSwapAndSplit(unittest.TestCase):
 	def test_what_cannot_be_moved_is_refused_in_plain_words(self):
 		with _Rollback():
 			ta = _team("ZZ TEST TEAM A")
-			pg.confirm_lines(self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 10, "team": ta}])
+			pg.confirm_lines(
+				self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 10, "team": ta}]
+			)
 			for args, part in (
 				((self.a.soi, self.a.soi, 1), "another customer"),
 				((self.a.soi, self.b.soi, 0), "how many"),
@@ -592,7 +761,9 @@ class TestSwapAndSplit(unittest.TestCase):
 		m = mixed[0]
 		with _Rollback():
 			ta, tb = _team("ZZ TEST TEAM A"), _team("ZZ TEST TEAM B")
-			pg.confirm_lines(self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 10, "team": ta}])
+			pg.confirm_lines(
+				self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 10, "team": ta}]
+			)
 			pg.move_stems(self.day, self.c.farm, self.a.soi, m.name, 4, team=tb)  # a mixed box receives
 			self.assertEqual(self._total(m.name), 4.0)
 			self.assertEqual(plans.team_for_line(m.name), tb)
@@ -602,8 +773,12 @@ class TestSwapAndSplit(unittest.TestCase):
 
 	def test_the_confirmed_tab_says_which_lines_are_mixed(self):
 		with _Rollback():
-			pg.confirm_lines(self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 10, "team": _team()}])
-			rows = pg.get_pool(self.day, self.c.farm, self.c.bucket.variety, self.c.bucket.stem_length)["confirmed_lines"]
+			pg.confirm_lines(
+				self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 10, "team": _team()}]
+			)
+			rows = pg.get_pool(self.day, self.c.farm, self.c.bucket.variety, self.c.bucket.stem_length)[
+				"confirmed_lines"
+			]
 			self.assertEqual([r["mixed"] for r in rows if r["soi"] == self.a.soi], [False])
 
 
@@ -627,12 +802,18 @@ class TestSalesFarmAndStockFarms(unittest.TestCase):
 
 	def test_the_farm_filter_lists_only_the_sales_farms_of_production_settings(self):
 		expected = frappe.get_all(
-			"Shelf Locations", filters={"parenttype": "Production Settings", "enabled": 1, "sales_shelf": 1}, pluck="farm"
+			"Shelf Locations",
+			filters={"parenttype": "Production Settings", "enabled": 1, "sales_shelf": 1},
+			pluck="farm",
 		)
 		self.assertEqual(sorted(r.farm for r in pg._farms()), sorted(expected))
 		self.assertTrue(expected)
-		every = frappe.get_all("Shelf Locations", filters={"parenttype": "Production Settings", "enabled": 1}, pluck="farm")
-		self.assertGreater(len(every), len(expected))  # the other farms are stock farms, not choices at the top
+		every = frappe.get_all(
+			"Shelf Locations", filters={"parenttype": "Production Settings", "enabled": 1}, pluck="farm"
+		)
+		self.assertGreater(
+			len(every), len(expected)
+		)  # the other farms are stock farms, not choices at the top
 		self.assertIn(pg._default_farm(), expected)
 
 	def test_on_the_shelf_counts_every_farm_of_the_sales_farms_location(self):
@@ -642,12 +823,18 @@ class TestSalesFarmAndStockFarms(unittest.TestCase):
 		with _Rollback():
 			farms = pg._stock_farms(sales)
 			self.assertIn(self.c.farm, farms)
-			sup = pg._stock_by_pool(sales, {self.c.bucket.variety}, self.day).get((self.c.bucket.variety, self.c.bucket.stem_length))
+			sup = pg._stock_by_pool(sales, {self.c.bucket.variety}, self.day).get(
+				(self.c.bucket.variety, self.c.bucket.stem_length)
+			)
 			self.assertTrue(sup)
-			self.assertAlmostEqual(sum(sup["by_farm"].values()), sup["free"], places=3)  # the farms add up to the total
+			self.assertAlmostEqual(
+				sum(sup["by_farm"].values()), sup["free"], places=3
+			)  # the farms add up to the total
 			self.assertTrue(set(sup["by_farm"]) <= set(farms))
 			direct = sum(
-				r.allocatable for r in stock.bucket_rows(farms=farms, varieties=[self.c.bucket.variety]) if (r.stem_length or "") == self.c.bucket.stem_length
+				r.allocatable
+				for r in stock.bucket_rows(farms=farms, varieties=[self.c.bucket.variety])
+				if (r.stem_length or "") == self.c.bucket.stem_length
 			)
 			self.assertAlmostEqual(sup["free"], direct, places=3)
 			pool = pg.get_pool(self.day, sales, self.c.bucket.variety, self.c.bucket.stem_length)
@@ -661,23 +848,37 @@ class TestSalesFarmAndStockFarms(unittest.TestCase):
 		with _Rollback():
 			team = _team()
 			row = {"parent": self.a.parent, "sales_order_item": self.a.soi}
-			pg.confirm_lines(self.day, sales, [{"sales_order_item": self.a.soi, "stems": 10, "team": team, "stock_farm": self.c.farm}])
+			pg.confirm_lines(
+				self.day,
+				sales,
+				[{"sales_order_item": self.a.soi, "stems": 10, "team": team, "stock_farm": self.c.farm}],
+			)
 			confs = plans.live_confirmations(soi=self.a.soi)
 			self.assertEqual({c.farm for c in confs}, {self.c.farm})
 			self.assertEqual(plans.farm_for_line(self.a.soi), self.c.farm)
-			self.assertEqual(plans.get_plan(self.day, sales, create=False).name, confs[0].plan)  # the plan is the sales farm's
-			self.assertEqual(frappe.db.get_value("Confirmed Stems", {**row, "farm": self.c.farm}, "stems"), 10.0)
+			self.assertEqual(
+				plans.get_plan(self.day, sales, create=False).name, confs[0].plan
+			)  # the plan is the sales farm's
+			self.assertEqual(
+				frappe.db.get_value("Confirmed Stems", {**row, "farm": self.c.farm}, "stems"), 10.0
+			)
 			# re-confirming without saying where keeps the farm; moving it to another farm clears the old row
 			pg.confirm_lines(self.day, sales, [{"sales_order_item": self.a.soi, "stems": 6}])
 			self.assertEqual(plans.farm_for_line(self.a.soi), self.c.farm)
 			other = next((f for f in pg._stock_farms(sales) if f != self.c.farm), None)
 			if other:
-				pg.confirm_lines(self.day, sales, [{"sales_order_item": self.a.soi, "stems": 6, "stock_farm": other}])
+				pg.confirm_lines(
+					self.day, sales, [{"sales_order_item": self.a.soi, "stems": 6, "stock_farm": other}]
+				)
 				self.assertEqual(plans.farm_for_line(self.a.soi), other)
 				self.assertFalse(frappe.db.exists("Confirmed Stems", {**row, "farm": self.c.farm}))
 				self.assertEqual(frappe.db.get_value("Confirmed Stems", {**row, "farm": other}, "stems"), 6.0)
 			with self.assertRaises(frappe.ValidationError) as ctx:
-				pg.confirm_lines(self.day, sales, [{"sales_order_item": self.a.soi, "stems": 6, "stock_farm": "NO SUCH FARM"}])
+				pg.confirm_lines(
+					self.day,
+					sales,
+					[{"sales_order_item": self.a.soi, "stems": 6, "stock_farm": "NO SUCH FARM"}],
+				)
 			self.assertIn("not one of the farms", str(ctx.exception))
 
 	def test_swapped_stems_keep_the_farm_they_were_confirmed_against(self):
@@ -687,7 +888,11 @@ class TestSalesFarmAndStockFarms(unittest.TestCase):
 		b = self.c.lines[1]
 		with _Rollback():
 			ta, tb = _team("ZZ TEST TEAM A"), _team("ZZ TEST TEAM B")
-			pg.confirm_lines(self.day, sales, [{"sales_order_item": self.a.soi, "stems": 10, "team": ta, "stock_farm": self.c.farm}])
+			pg.confirm_lines(
+				self.day,
+				sales,
+				[{"sales_order_item": self.a.soi, "stems": 10, "team": ta, "stock_farm": self.c.farm}],
+			)
 			pg.move_stems(self.day, sales, self.a.soi, b.soi, 4, team=tb)
 			self.assertEqual(plans.farm_for_line(b.soi), self.c.farm)
 
@@ -704,9 +909,19 @@ class TestConfirmedOrders(unittest.TestCase):
 		from upande_packhouse.api.v2.core import pipeline
 
 		with _Rollback():
-			self.assertFalse([o for o in pg.get_confirmed_orders(self.day, self.c.farm)["orders"] if o["sales_order"] == self.a.parent])
+			self.assertFalse(
+				[
+					o
+					for o in pg.get_confirmed_orders(self.day, self.c.farm)["orders"]
+					if o["sales_order"] == self.a.parent
+				]
+			)
 			team = _team()
-			pg.confirm_lines(self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 10, "team": team, "stock_farm": self.c.farm}])
+			pg.confirm_lines(
+				self.day,
+				self.c.farm,
+				[{"sales_order_item": self.a.soi, "stems": 10, "team": team, "stock_farm": self.c.farm}],
+			)
 			res = pg.get_confirmed_orders(self.day, self.c.farm)
 			order = next(o for o in res["orders"] if o["sales_order"] == self.a.parent)
 			# the whole order, not just the confirmed line
@@ -718,33 +933,55 @@ class TestConfirmedOrders(unittest.TestCase):
 			line = next(x for x in order["lines"] if x["soi"] == self.a.soi)
 			self.assertIn(line["state"], ("confirmed", "part"))
 			self.assertEqual((line["confirmed"], line["team"], line["farm"]), (10.0, team, self.c.farm))
-			self.assertAlmostEqual(sum(x["stems"] for x in line["sources"]), 10.0)  # where the 10 stems come from
-			self.assertTrue({x["kind"] for x in line["sources"]} <= {"shelf", "received", "held", "harvested", "forecast"})
+			self.assertAlmostEqual(
+				sum(x["stems"] for x in line["sources"]), 10.0
+			)  # where the 10 stems come from
+			self.assertTrue(
+				{x["kind"] for x in line["sources"]} <= {"shelf", "received", "held", "harvested", "forecast"}
+			)
 			# the stock for that variety and length: what was available, what is taken, what is left
 			pool = line["pool"]
-			self.assertEqual((pool["variety"], pool["length"]), (self.c.bucket.variety, self.c.bucket.stem_length))
+			self.assertEqual(
+				(pool["variety"], pool["length"]), (self.c.bucket.variety, self.c.bucket.stem_length)
+			)
 			self.assertGreaterEqual(pool["taken"], 10.0)
 			self.assertGreaterEqual(pool["total"], pool["taken"] - 1e-6)
 			self.assertAlmostEqual(pool["left"], max(0.0, pool["total"] - pool["taken"]))
 			others = [x for x in order["lines"] if x["soi"] != self.a.soi]
 			self.assertTrue(all(x["state"] in ("none", "allocated", "confirmed", "part") for x in others))
-			self.assertEqual(res["totals"]["lines_confirmed"], sum(o["lines_confirmed"] for o in res["orders"]))
+			self.assertEqual(
+				res["totals"]["lines_confirmed"], sum(o["lines_confirmed"] for o in res["orders"])
+			)
 			self.assertGreaterEqual(pg.get_board(self.day, self.c.farm, "all")["kpis"]["confirmed_orders"], 1)
 			# take it out: the order leaves the Confirmed page
 			pg.unconfirm_line(self.a.soi)
-			self.assertFalse([o for o in pg.get_confirmed_orders(self.day, self.c.farm)["orders"] if o["sales_order"] == self.a.parent])
+			self.assertFalse(
+				[
+					o
+					for o in pg.get_confirmed_orders(self.day, self.c.farm)["orders"]
+					if o["sales_order"] == self.a.parent
+				]
+			)
 
 	def test_expected_stems_say_whether_they_rest_on_harvest_or_on_the_forecast(self):
 		if len(self.c.lines) < 2:
 			self.skipTest("needs two lines")
 		b = self.c.lines[1]
 		key = (self.c.bucket.variety, self.c.bucket.stem_length)
-		with _Rollback(), patch.object(stock, "bucket_rows", lambda **k: []), patch.object(
-			pg, "_stock_by_pool", lambda farm, varieties, day=None: {key: {**pg.SUPPLY, "on_the_way": 30.0, "harvested": 30.0}}
+		with (
+			_Rollback(),
+			patch.object(stock, "bucket_rows", lambda **k: []),
+			patch.object(
+				pg,
+				"_stock_by_pool",
+				lambda farm, varieties, day=None: {key: {**pg.SUPPLY, "on_the_way": 30.0, "harvested": 30.0}},
+			),
 		):
 			t = _team()
 			# 50 expected for the first customer: 30 rest on the harvest already cut, 20 on the forecast
-			pg.confirm_lines(self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 50, "team": t}])
+			pg.confirm_lines(
+				self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 50, "team": t}]
+			)
 			conf = plans.live_confirmations(soi=self.a.soi)[0]
 			self.assertEqual((conf.source, conf.from_harvest), ("Virtual", 30.0))
 			# the harvest is spoken for: the next customer's expected stems all rest on the forecast
@@ -752,11 +989,15 @@ class TestConfirmedOrders(unittest.TestCase):
 			self.assertEqual(plans.live_confirmations(soi=b.soi)[0].from_harvest, 0.0)
 			orders = {o["sales_order"]: o for o in pg.get_confirmed_orders(self.day, self.c.farm)["orders"]}
 			line_a = next(x for x in orders[self.a.parent]["lines"] if x["soi"] == self.a.soi)
-			self.assertEqual({x["kind"]: x["stems"] for x in line_a["sources"]}, {"harvested": 30.0, "forecast": 20.0})
+			self.assertEqual(
+				{x["kind"]: x["stems"] for x in line_a["sources"]}, {"harvested": 30.0, "forecast": 20.0}
+			)
 			line_b = next(x for x in orders[b.parent]["lines"] if x["soi"] == b.soi)
 			self.assertEqual({x["kind"]: x["stems"] for x in line_b["sources"]}, {"forecast": 20.0})
 			# re-confirming the first customer for less gives the harvest back
-			pg.confirm_lines(self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 10, "team": t}])
+			pg.confirm_lines(
+				self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 10, "team": t}]
+			)
 			self.assertEqual(plans.live_confirmations(soi=self.a.soi)[0].from_harvest, 10.0)
 
 	def test_lines_of_a_mixed_box_and_mixed_bunch_come_with_their_group(self):
@@ -773,7 +1014,9 @@ class TestConfirmedOrders(unittest.TestCase):
 			m = mixed[0]
 			day = str(m.delivery_date)
 			pg.confirm_lines(day, self.c.farm, [{"sales_order_item": m.name, "stems": 5, "team": t}])
-			order = next(o for o in pg.get_confirmed_orders(day, self.c.farm)["orders"] if o["sales_order"] == m.parent)
+			order = next(
+				o for o in pg.get_confirmed_orders(day, self.c.farm)["orders"] if o["sales_order"] == m.parent
+			)
 			kinds = {x["kind"] for x in order["lines"]}
 			self.assertIn("mixed_bunch", kinds)
 			line = next(x for x in order["lines"] if x["soi"] == m.name)
@@ -794,13 +1037,21 @@ class TestConfirmedOrders(unittest.TestCase):
 		b = self.c.lines[1]
 		with _Rollback():
 			t = _team()
-			pg.confirm_lines(self.day, self.c.farm, [{"sales_order_item": self.a.soi, "stems": 10, "team": t}, {"sales_order_item": b.soi, "stems": 6, "team": t}])
+			pg.confirm_lines(
+				self.day,
+				self.c.farm,
+				[
+					{"sales_order_item": self.a.soi, "stems": 10, "team": t},
+					{"sales_order_item": b.soi, "stems": 6, "team": t},
+				],
+			)
 			orders = {o["sales_order"]: o for o in pg.get_confirmed_orders(self.day, self.c.farm)["orders"]}
 			pa = next(x for x in orders[self.a.parent]["lines"] if x["soi"] == self.a.soi)["pool"]
 			pb = next(x for x in orders[b.parent]["lines"] if x["soi"] == b.soi)["pool"]
-			self.assertEqual(pa["taken"], pb["taken"])  # the same stock: both customers' stems are taken from it
+			self.assertEqual(
+				pa["taken"], pb["taken"]
+			)  # the same stock: both customers' stems are taken from it
 			self.assertGreaterEqual(pa["taken"], 16.0)
-
 
 
 class TestSubstitutes(unittest.TestCase):
@@ -826,7 +1077,10 @@ class TestSubstitutes(unittest.TestCase):
 	def test_pick_candidates_unknown_colour_is_not_flagged(self):
 		from upande_packhouse.api.v2 import allocation_substitutes as sub
 
-		rows = [{"bunch_id": "", "variety": "A", "is_primary": 1, "colour": ""}, {"bunch_id": "", "variety": "B", "is_primary": 0, "colour": ""}]
+		rows = [
+			{"bunch_id": "", "variety": "A", "is_primary": 1, "colour": ""},
+			{"bunch_id": "", "variety": "B", "is_primary": 0, "colour": ""},
+		]
 		out = sub.pick_candidates(rows, "A", {})
 		self.assertEqual([(c["variety"], c["same_colour"]) for c in out], [("B", None)])
 
@@ -836,7 +1090,8 @@ class TestSubstitutes(unittest.TestCase):
 		row = frappe.db.sql(
 			"""SELECT soi.name FROM `tabSales Order Item` soi
 			   JOIN `tabSpec Approved Variety` s ON s.parent = soi.custom_line
-			   WHERE soi.docstatus = 1 LIMIT 1""")
+			   WHERE soi.docstatus = 1 LIMIT 1"""
+		)
 		if not row:
 			self.skipTest("no order line with a specification here")
 		r = sub.get_substitutions(sales_order_item=row[0][0])
@@ -849,6 +1104,7 @@ class TestSubstitutes(unittest.TestCase):
 
 class TestTeamPlan(unittest.TestCase):
 	def test_team_plan_shape_and_totals(self):
+		_needs_production_settings(self)
 		r = pg.get_team_plan()
 		self.assertTrue(r["success"])
 		self.assertAlmostEqual(sum(t["stems"] for t in r["teams"]), r["total"], places=3)

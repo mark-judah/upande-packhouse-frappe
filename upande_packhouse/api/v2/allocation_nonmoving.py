@@ -44,7 +44,12 @@ def _wanting(model, variety, length, mode):
 			out.append(ln)
 		elif mode == "longer" and ln.item_code == variety and 0 < _cm(ordered) < _cm(length):
 			out.append(ln)
-		elif mode == "substitute" and ln.item_code != variety and variety in (model.specs.get(ln.custom_line) or ()) and 0 < _cm(ordered) <= _cm(length):
+		elif (
+			mode == "substitute"
+			and ln.item_code != variety
+			and variety in (model.specs.get(ln.custom_line) or ())
+			and 0 < _cm(ordered) <= _cm(length)
+		):
 			out.append(ln)
 	return out
 
@@ -95,7 +100,9 @@ def get_non_moving(delivery_date: str | None = None, farm: str | None = None):
 					"mixed": bool(ln.custom_mixed_box or ln.custom_mixed_bunch),
 				}
 				if kind == "substitute":
-					m["colour_differs"] = bool(colours.get(v) and colours.get(ln.item_code) and colours[v] != colours[ln.item_code])
+					m["colour_differs"] = bool(
+						colours.get(v) and colours.get(ln.item_code) and colours[v] != colours[ln.item_code]
+					)
 					m["take"] = min(s["old"], model.left[ln.name])
 				else:
 					m["apply"] = {

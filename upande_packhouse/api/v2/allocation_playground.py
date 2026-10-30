@@ -43,7 +43,13 @@ from upande_packhouse import allocation_plan as plans
 from upande_packhouse import availability
 from upande_packhouse.api.v2.core import pipeline, received, stock
 
-PLANNERS = ("System Manager", "Sales Manager", "Sales Master Manager", "Sales User", "Assistant Packhouse Manager")
+PLANNERS = (
+	"System Manager",
+	"Sales Manager",
+	"Sales Master Manager",
+	"Sales User",
+	"Assistant Packhouse Manager",
+)
 
 
 def _memo(key, fn):
@@ -230,7 +236,9 @@ def _planned_by_line(day, farm):
 	"""{soi: {"real": stems still held, "expected": stems planned from the harvest}}"""
 	out = {}
 	for c in plans.live_confirmations(plan=_plan_name(day, farm)) if _plan_name(day, farm) else []:
-		d = out.setdefault(c.sales_order_item, {"real": 0.0, "expected": 0.0, "status": [], "length": "", "farm": ""})
+		d = out.setdefault(
+			c.sales_order_item, {"real": 0.0, "expected": 0.0, "status": [], "length": "", "farm": ""}
+		)
 		left = max(0.0, flt(c.stems) - flt(c.fulfilled_stems))
 		d["real" if c.source == "Real" else "expected"] += left
 		d["status"].append(c.status)
@@ -261,12 +269,17 @@ def _confirmed_here(day, farm):
 	name = _plan_name(day, farm)
 	out = {}
 	for c in plans.live_confirmations(plan=name) if name else []:
-		d = out.setdefault((c.variety, c.length or ""), {"lines": set(), "stems": 0.0, "real": 0.0, "expected": 0.0})
+		d = out.setdefault(
+			(c.variety, c.length or ""), {"lines": set(), "stems": 0.0, "real": 0.0, "expected": 0.0}
+		)
 		d["lines"].add(c.sales_order_item)
 		left = max(0.0, flt(c.stems) - flt(c.fulfilled_stems))
 		d["stems"] += left
 		d["real" if c.source == "Real" else "expected"] += left
-	return {k: {"lines": len(v["lines"]), "stems": v["stems"], "real": v["real"], "expected": v["expected"]} for k, v in out.items()}
+	return {
+		k: {"lines": len(v["lines"]), "stems": v["stems"], "real": v["real"], "expected": v["expected"]}
+		for k, v in out.items()
+	}
 
 
 def _stock_by_pool(farm, varieties, day=None, everything=False):
@@ -278,7 +291,9 @@ def _stock_by_pool(farm, varieties, day=None, everything=False):
 		return out
 
 	def entry(key):
-		return out.setdefault(key, {**SUPPLY, "rooms": {}, "by_farm": {}, "rec_by_farm": {}, "old_by_farm": {}})
+		return out.setdefault(
+			key, {**SUPPLY, "rooms": {}, "by_farm": {}, "rec_by_farm": {}, "old_by_farm": {}}
+		)
 
 	farms = _stock_farms(farm)
 	for r in stock.bucket_rows(farms=farms, varieties=sorted(varieties) if varieties else None):
@@ -404,7 +419,9 @@ def get_board(delivery_date: str | None = None, farm: str | None = None, view: s
 	farm = farm or _default_farm()
 	# Stock that has reached the shelf since the last visit takes over from the expected harvest.
 	plan_name = _plan_name(day, farm)
-	if plan_name and frappe.db.exists("Allocation Confirmation", {"plan": plan_name, "source": "Virtual", "status": "Planned"}):
+	if plan_name and frappe.db.exists(
+		"Allocation Confirmation", {"plan": plan_name, "source": "Virtual", "status": "Planned"}
+	):
 		plans.convert_virtual(day, farm)
 	pools = _build_pools(day, farm)
 	kpis = {
@@ -421,7 +438,11 @@ def get_board(delivery_date: str | None = None, farm: str | None = None, view: s
 	from upande_packhouse.api.v2.allocation_teams import crop_of_groups
 
 	crop_of, group_of = crop_of_groups(), {}
-	for row in frappe.get_all("Item", filters={"name": ("in", list({x["variety"] for x in pools}) or [""])}, fields=["name", "item_group"]):
+	for row in frappe.get_all(
+		"Item",
+		filters={"name": ("in", list({x["variety"] for x in pools}) or [""])},
+		fields=["name", "item_group"],
+	):
 		group_of[row.name] = row.item_group
 	for x in pools:
 		x["crop"] = crop_of.get(group_of.get(x["variety"])) or ""
@@ -452,11 +473,19 @@ def _group_of(ln):
 	every line with the same mix group; a mixed bunch is every line with the same bunch group."""
 	if ln.custom_mixed_box:
 		g = ln.custom_mix_group or ln.custom_box_id or ""
-		return {"kind": "mixed_box", "group_key": "box|%s" % g, "group_label": _("Mixed box {0}").format(g) if g else _("Mixed box")}
+		return {
+			"kind": "mixed_box",
+			"group_key": "box|%s" % g,
+			"group_label": _("Mixed box {0}").format(g) if g else _("Mixed box"),
+		}
 	if ln.custom_mixed_bunch:
 		g = ln.custom_bunch_group or ""
 		num = g.rsplit("::", 1)[-1] if "::" in g else g
-		return {"kind": "mixed_bunch", "group_key": "bunch|%s" % g, "group_label": _("Mixed bunch {0}").format(num) if num else _("Mixed bunch")}
+		return {
+			"kind": "mixed_bunch",
+			"group_key": "bunch|%s" % g,
+			"group_label": _("Mixed bunch {0}").format(num) if num else _("Mixed bunch"),
+		}
 	return {"kind": "straight", "group_key": "line|%s" % ln.name, "group_label": _("Straight box")}
 
 
@@ -552,7 +581,10 @@ def get_team_plan(delivery_date: str | None = None, farm: str | None = None):
 				"orders": len(r["orders"]),
 				"customers": len(r["customers"]),
 				"varieties": len(r["varieties"]),
-				"top": [{"variety": v, "stems": s} for v, s in sorted(r["varieties"].items(), key=lambda kv: -kv[1])[:3]],
+				"top": [
+					{"variety": v, "stems": s}
+					for v, s in sorted(r["varieties"].items(), key=lambda kv: -kv[1])[:3]
+				],
 				"share": (r["stems"] / total) if total else 0.0,
 				"vs_even": ((r["stems"] - even) / even) if even else 0.0,
 			}
@@ -560,7 +592,11 @@ def get_team_plan(delivery_date: str | None = None, farm: str | None = None):
 	stems_list = [r["stems"] for r in working]
 	spread = (max(stems_list) - min(stems_list)) / even if even and stems_list else 0.0
 	planned_lines = {soi for (_t, soi) in per_line}
-	unplanned = sum(max(0.0, flt(l.ordered_stems) - flt(l.allocated_stems)) for l in lines.values() if l.name not in planned_lines)
+	unplanned = sum(
+		max(0.0, flt(l.ordered_stems) - flt(l.allocated_stems))
+		for l in lines.values()
+		if l.name not in planned_lines
+	)
 	return {
 		"success": True,
 		"delivery_date": day,
@@ -575,7 +611,16 @@ def get_team_plan(delivery_date: str | None = None, farm: str | None = None):
 
 
 def _team_row(name):
-	return {"name": name, "stems": 0.0, "boxes": 0.0, "lines": 0, "orders": set(), "customers": set(), "varieties": {}, "boxes_of": set()}
+	return {
+		"name": name,
+		"stems": 0.0,
+		"boxes": 0.0,
+		"lines": 0,
+		"orders": set(),
+		"customers": set(),
+		"varieties": {},
+		"boxes_of": set(),
+	}
 
 
 @frappe.whitelist()
@@ -588,7 +633,13 @@ def get_confirmed_orders(delivery_date: str | None = None, farm: str | None = No
 	name = _plan_name(day, farm)
 	confs = plans.live_confirmations(plan=name) if name else []
 	if not confs:
-		return {"success": True, "delivery_date": day, "farm": farm, "orders": [], "totals": {"orders": 0, "lines": 0, "lines_confirmed": 0}}
+		return {
+			"success": True,
+			"delivery_date": day,
+			"farm": farm,
+			"orders": [],
+			"totals": {"orders": 0, "lines": 0, "lines_confirmed": 0},
+		}
 	by_soi = {}
 	for c in confs:
 		by_soi.setdefault(c.sales_order_item, []).append(c)
@@ -597,9 +648,19 @@ def get_confirmed_orders(delivery_date: str | None = None, farm: str | None = No
 	supply = _stock_by_pool(farm, {ln.item_code for ln in lines} | {c.variety for c in confs}, day)
 	ch = _confirmed_here(day, farm)
 	held = _held_sources([c.name for c in confs if c.source == "Real"])
-	names = dict(frappe.db.sql("SELECT name, custom_order_name FROM `tabSales Order` WHERE name IN %(s)s", {"s": tuple(orders_in)}))
+	names = dict(
+		frappe.db.sql(
+			"SELECT name, custom_order_name FROM `tabSales Order` WHERE name IN %(s)s",
+			{"s": tuple(orders_in)},
+		)
+	)
 	seq = (
-		dict(frappe.db.sql("SELECT name, custom_allocation_sequence FROM `tabSales Order` WHERE name IN %(s)s", {"s": tuple(orders_in)}))
+		dict(
+			frappe.db.sql(
+				"SELECT name, custom_allocation_sequence FROM `tabSales Order` WHERE name IN %(s)s",
+				{"s": tuple(orders_in)},
+			)
+		)
 		if frappe.db.has_column("Sales Order", "custom_allocation_sequence")
 		else {}
 	)
@@ -677,7 +738,8 @@ def get_confirmed_orders(delivery_date: str | None = None, farm: str | None = No
 			}
 		)
 	orders = sorted(
-		out.values(), key=lambda o: (not o["sequence"], o["sequence"], (o["customer"] or "").lower(), o["sales_order"])
+		out.values(),
+		key=lambda o: (not o["sequence"], o["sequence"], (o["customer"] or "").lower(), o["sales_order"]),
 	)
 	for o in orders:
 		# lines of one mixed box or bunch sit together; everything else stays in the order's own line order
@@ -699,13 +761,23 @@ def get_confirmed_orders(delivery_date: str | None = None, farm: str | None = No
 
 
 @frappe.whitelist()
-def get_pool(delivery_date: str | None = None, farm: str | None = None, variety: str | None = None, length: str | None = None):
+def get_pool(
+	delivery_date: str | None = None,
+	farm: str | None = None,
+	variety: str | None = None,
+	length: str | None = None,
+):
 	"""One variety and length: its customer lines with what is planned for each."""
 	day = _day(delivery_date)
 	farm = farm or _default_farm()
 	length = length or ""
 	pool = next(
-		(p for p in _build_pools(day, farm, only_variety=variety) if p["variety"] == variety and p["length"] == length), None
+		(
+			p
+			for p in _build_pools(day, farm, only_variety=variety)
+			if p["variety"] == variety and p["length"] == length
+		),
+		None,
 	)
 	if pool is None:
 		frappe.throw(_("There are no orders for {0} {1} on {2}.").format(variety, length, day))
@@ -744,7 +816,9 @@ def get_pool(delivery_date: str | None = None, farm: str | None = None, variety:
 			at_here = pl["length"] == length
 			row["held"] = pl["real"] if at_here else 0.0
 			row["expected"] = pl["expected"] if at_here else 0.0
-			row["left"] = max(0.0, ordered - allocated - pl["real"] - pl["expected"]) if not at_here else row["left"]
+			row["left"] = (
+				max(0.0, ordered - allocated - pl["real"] - pl["expected"]) if not at_here else row["left"]
+			)
 			if row["left"] > 0 or at_here:
 				longer.append(row)
 	rows.sort(key=lambda r: (-r["left"], r["customer"] or ""))
@@ -786,13 +860,17 @@ def get_pool(delivery_date: str | None = None, farm: str | None = None, variety:
 		"supply": {
 			"on_shelf": sup["free"],
 			"received": sup["received"],
-			"rooms": [{"room": r, "stems": v} for r, v in sorted(sup["rooms"].items(), key=lambda kv: -kv[1])],
+			"rooms": [
+				{"room": r, "stems": v} for r, v in sorted(sup["rooms"].items(), key=lambda kv: -kv[1])
+			],
 			"on_the_way": sup["on_the_way"],
 			"to_cut": remaining,
 			"rolling": max(0.0, rolling - sup["harvested"]),
 			"to_cut_sure": remaining * (detail["sure"] / detail["likely"]) if detail["likely"] > 0 else 0.0,
 			"to_cut_by_farm": [
-				{"farm": f, "stems": v * scale} for f, v in sorted(detail["by_farm"].items(), key=lambda kv: -kv[1]) if v * scale > 0
+				{"farm": f, "stems": v * scale}
+				for f, v in sorted(detail["by_farm"].items(), key=lambda kv: -kv[1])
+				if v * scale > 0
 			],
 			"error_pct": None if detail["error"] is None else round(100.0 * detail["error"]),
 			"error_weeks": detail["weeks"],
@@ -825,7 +903,6 @@ def _line_view(day, farm, pool, rows, longer, sup, rolling, to_cut):
 	unless the line is covered in full, and the checks Sales Allocation would otherwise trip on."""
 	from upande_packhouse.api.v2 import allocation_guards as guards
 	from upande_packhouse.api.v2.allocation_checks import mix_key, per_box
-
 	from upande_packhouse.api.v2.allocation_teams import crop_of_groups
 
 	lines = {ln.name: ln for ln in _lines(day)}
@@ -858,25 +935,44 @@ def _line_view(day, farm, pool, rows, longer, sup, rolling, to_cut):
 		roll = whole(ln, min(left, net_left + roll_left), left)
 		prod = whole(ln, min(left, net_left + prod_left), left)
 		row["scenarios"] = [
-			{"basis": "net", "stems": net, "boxes": boxes_of(ln, net + row["held"] + row["expected"] + row["allocated"])[:2]},
-			{"basis": "rolling", "stems": roll, "boxes": boxes_of(ln, roll + row["held"] + row["expected"] + row["allocated"])[:2]},
-			{"basis": "production", "stems": prod, "boxes": boxes_of(ln, prod + row["held"] + row["expected"] + row["allocated"])[:2]},
+			{
+				"basis": "net",
+				"stems": net,
+				"boxes": boxes_of(ln, net + row["held"] + row["expected"] + row["allocated"])[:2],
+			},
+			{
+				"basis": "rolling",
+				"stems": roll,
+				"boxes": boxes_of(ln, roll + row["held"] + row["expected"] + row["allocated"])[:2],
+			},
+			{
+				"basis": "production",
+				"stems": prod,
+				"boxes": boxes_of(ln, prod + row["held"] + row["expected"] + row["allocated"])[:2],
+			},
 		]
 		checks = []
 		if left > 0 and roll < left - 0.5:
-			checks.append({"code": "shortage", "severity": "red", "label": _("Shortage · {0}").format(int(left - roll))})
+			checks.append(
+				{"code": "shortage", "severity": "red", "label": _("Shortage · {0}").format(int(left - roll))}
+			)
 		covered = row["allocated"] + row["held"] + row["expected"]
 		b, nb, size = boxes_of(ln, covered)
 		if size and not mix_key(ln) and 0 < covered < row["ordered"] - 0.5 and covered - b * size > 0.5:
-			checks.append({"code": "part_box", "severity": "amber", "label": _("Part box · {0} of {1}").format(b, nb)})
+			checks.append(
+				{"code": "part_box", "severity": "amber", "label": _("Part box · {0} of {1}").format(b, nb)}
+			)
 		if is_longer:
 			old = sup["old"] >= max(left, 1)
 			checks.append(
 				{
 					"code": "longer",
 					"severity": "amber",
-					"label": _("Longer stem · {0} for {1}").format(pool["length"], row["ordered_length"])
-					+ ("" if old else _(" · needs a reason")),
+					"label": (
+						_("Longer stem · {0} for {1}")
+						if old
+						else _("Longer stem · {0} for {1} · needs a reason")
+					).format(pool["length"], row["ordered_length"]),
 				}
 			)
 		mk = mix_key(ln)
@@ -888,8 +984,11 @@ def _line_view(day, farm, pool, rows, longer, sup, rolling, to_cut):
 				key = (m.item_code, m.custom_length or "")
 				if key not in member_supply:
 					ms = {**SUPPLY, **_stock_by_pool(farm, {m.item_code}, day).get(key, {})}
-					member_supply[key] = ms["free"] + ms["received"] + ms["on_the_way"] + max(
-						0.0, rolling_forecast(m.item_code, key[1], day, farm) - ms["harvested"]
+					member_supply[key] = (
+						ms["free"]
+						+ ms["received"]
+						+ ms["on_the_way"]
+						+ max(0.0, rolling_forecast(m.item_code, key[1], day, farm) - ms["harvested"])
 					)
 				pl = planned.get(m.name, {"real": 0.0, "expected": 0.0})
 				m_cov = min(flt(m.ordered_stems), flt(m.allocated_stems) + pl["real"] + pl["expected"])
@@ -913,7 +1012,9 @@ def _line_view(day, farm, pool, rows, longer, sup, rolling, to_cut):
 					{
 						"code": "mix",
 						"severity": "red",
-						"label": _("Incomplete mix · {0} short {1}").format(worst["variety"], int(worst["short"])),
+						"label": _("Incomplete mix · {0} short {1}").format(
+							worst["variety"], int(worst["short"])
+						),
 					}
 				)
 		row["mix_members"] = members
@@ -1058,7 +1159,9 @@ def confirm_lines(delivery_date: str, farm: str, lines: str | list, team: str | 
 		if not frappe.db.exists("Packing Teams", t):
 			frappe.throw(_("{0} is not a team we know.").format(t))
 	result = guards.check(day, farm, lines)
-	basis = "revised forecast, cutting day %s" % (getdate(day) - timedelta(days=cint(plans.setting("allocation_harvest_lead_days"))))
+	basis = "revised forecast, cutting day %s" % (
+		getdate(day) - timedelta(days=cint(plans.setting("allocation_harvest_lead_days")))
+	)
 	done = []
 	for item in lines:
 		soi, want = item["sales_order_item"], flt(item.get("stems"))
@@ -1073,7 +1176,9 @@ def confirm_lines(delivery_date: str, farm: str, lines: str | list, team: str | 
 		room = max(0.0, flt(ln.ordered_stems) - flt(ln.allocated_stems))
 		if want > room + 0.0001:
 			frappe.throw(
-				_("Only {0} stems of this line are left to confirm, and you asked for {1}.").format(int(room), int(want))
+				_("Only {0} stems of this line are left to confirm, and you asked for {1}.").format(
+					int(room), int(want)
+				)
 			)
 		info = {
 			"sales_order": ln.parent,
@@ -1132,7 +1237,9 @@ def _confirmed_at(soi, variety, length):
 
 
 @frappe.whitelist()
-def move_stems(delivery_date: str, farm: str, from_soi: str, to_soi: str, stems: float, team: str | None = None):
+def move_stems(
+	delivery_date: str, farm: str, from_soi: str, to_soi: str, stems: float, team: str | None = None
+):
 	"""Give stems that are confirmed for one customer to another customer who still needs them.
 
 	Giving all of them is a swap (the first customer goes back to "still to confirm"); giving part is a split. The stems
@@ -1150,7 +1257,9 @@ def move_stems(delivery_date: str, farm: str, from_soi: str, to_soi: str, stems:
 	src, dst = _line(from_soi), _line(to_soi)
 	for ln in (src, dst):
 		if str(ln.delivery_date) != day:
-			frappe.throw(_("{0} is for {1}, not {2}.").format(ln.customer_name or ln.customer, ln.delivery_date, day))
+			frappe.throw(
+				_("{0} is for {1}, not {2}.").format(ln.customer_name or ln.customer, ln.delivery_date, day)
+			)
 	if src.custom_mixed_box or src.custom_mixed_bunch:
 		frappe.throw(_("A mixed box is packed together, so its stems cannot be given to another customer."))
 	if src.item_code != dst.item_code:
@@ -1162,14 +1271,28 @@ def move_stems(delivery_date: str, farm: str, from_soi: str, to_soi: str, stems:
 	src_farm = src_confs[0].farm
 	have, src_team, src_here = _confirmed_at(from_soi, src.item_code, length)
 	if not src_here:
-		frappe.throw(_("{0} is confirmed at more than one length. Unconfirm it first.").format(src.customer_name or src.customer))
+		frappe.throw(
+			_("{0} is confirmed at more than one length. Unconfirm it first.").format(
+				src.customer_name or src.customer
+			)
+		)
 	if stems > have + 0.0001:
-		frappe.throw(_("{0} has only {1} stems confirmed.").format(src.customer_name or src.customer, int(have)))
+		frappe.throw(
+			_("{0} has only {1} stems confirmed.").format(src.customer_name or src.customer, int(have))
+		)
 	dst_have, dst_team, dst_here = _confirmed_at(to_soi, dst.item_code, length)
 	if plans.live_confirmations(soi=to_soi) and not dst_here:
-		frappe.throw(_("{0} is already confirmed at another length. Unconfirm it first.").format(dst.customer_name or dst.customer))
+		frappe.throw(
+			_("{0} is already confirmed at another length. Unconfirm it first.").format(
+				dst.customer_name or dst.customer
+			)
+		)
 	if any(c.farm != src_farm for c in plans.live_confirmations(soi=to_soi)):
-		frappe.throw(_("{0} is already confirmed from another farm. Unconfirm it first.").format(dst.customer_name or dst.customer))
+		frappe.throw(
+			_("{0} is already confirmed from another farm. Unconfirm it first.").format(
+				dst.customer_name or dst.customer
+			)
+		)
 	room = max(0.0, flt(dst.ordered_stems) - flt(dst.allocated_stems) - dst_have)
 	if stems > room + 0.0001:
 		frappe.throw(_("{0} only needs {1} more stems.").format(dst.customer_name or dst.customer, int(room)))
@@ -1178,7 +1301,18 @@ def move_stems(delivery_date: str, farm: str, from_soi: str, to_soi: str, stems:
 		frappe.throw(_("Choose a team for {0}.").format(dst.customer_name or dst.customer))
 	left = have - stems
 	# the giver first, so what it lets go is free for the receiver
-	confirm_lines(day, farm, [{"sales_order_item": from_soi, "stems": left, "stock_farm": src_farm, **({"team": src_team} if left > 0 and src_team else {})}])
+	confirm_lines(
+		day,
+		farm,
+		[
+			{
+				"sales_order_item": from_soi,
+				"stems": left,
+				"stock_farm": src_farm,
+				**({"team": src_team} if left > 0 and src_team else {}),
+			}
+		],
+	)
 	item = {"sales_order_item": to_soi, "stems": dst_have + stems, "team": dst_team, "stock_farm": src_farm}
 	if length and length != (dst.custom_length or ""):
 		item["length"] = length

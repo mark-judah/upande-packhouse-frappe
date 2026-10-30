@@ -2887,7 +2887,7 @@ def _update_existing_pick_list(
 # UNALLOCATE
 # UPDATED: Clear in_transit when unallocating
 # ============================================================
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def unallocate_bucket_from_opl(sales_order_item: str, bucket_id: str, stem_length: str | None = None):
 	frappe.db.begin()
 
@@ -4172,7 +4172,7 @@ def get_substitute_varieties(
 	return varieties
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def substitute_variety(sales_order: str | None, sales_order_item: str | None, new_item_code: str | None):
 	"""
 	Substitutes the variety on a Sales Order Item.

@@ -39,7 +39,12 @@ def pick_candidates(rows, ordered, colours):
 			seen[v]["primary"] = seen[v]["primary"] or bool(r["is_primary"])
 			continue
 		c = colours.get(v)
-		item = {"variety": v, "primary": bool(r["is_primary"]), "colour": c or "", "same_colour": (c == ref) if (c and ref) else None}
+		item = {
+			"variety": v,
+			"primary": bool(r["is_primary"]),
+			"colour": c or "",
+			"same_colour": (c == ref) if (c and ref) else None,
+		}
 		seen[v] = item
 		out.append(item)
 	out.sort(key=lambda x: (not x["primary"], x["same_colour"] is False, x["variety"]))
@@ -52,7 +57,8 @@ def _colours(varieties, spec_rows):
 	missing = [v for v in varieties if v not in out]
 	if missing:
 		for name, colour in frappe.db.sql(
-			"SELECT name, custom_color FROM `tabItem` WHERE name IN %(v)s AND IFNULL(custom_color, '') != ''", {"v": tuple(missing)}
+			"SELECT name, custom_color FROM `tabItem` WHERE name IN %(v)s AND IFNULL(custom_color, '') != ''",
+			{"v": tuple(missing)},
 		):
 			out[name] = colour
 	return out
@@ -71,7 +77,9 @@ def _sources(model, variety, length):
 		"harvested": p["on_the_way"],
 		"forecast": max(0.0, likely - p["on_the_way"]),
 		"forecast_sure": max(0.0, sure - p["on_the_way"]),
-		"shelved_by_farm": [{"farm": f, "stems": v} for f, v in sorted(p["by_farm"].items(), key=lambda kv: -kv[1]) if v > 0],
+		"shelved_by_farm": [
+			{"farm": f, "stems": v} for f, v in sorted(p["by_farm"].items(), key=lambda kv: -kv[1]) if v > 0
+		],
 		"taken": taken_fc,
 		"left": model.cover(variety, length),
 		"left_sure": model.cover(variety, length, sure=True),
@@ -80,7 +88,9 @@ def _sources(model, variety, length):
 
 
 @frappe.whitelist()
-def get_substitutions(delivery_date: str | None = None, farm: str | None = None, sales_order_item: str | None = None):
+def get_substitutions(
+	delivery_date: str | None = None, farm: str | None = None, sales_order_item: str | None = None
+):
 	"""What an order line could be substituted with, by its specification, with every source for each option."""
 	day = pg._day(delivery_date)
 	farm = farm or pg._default_farm()
@@ -88,7 +98,12 @@ def get_substitutions(delivery_date: str | None = None, farm: str | None = None,
 	spec = ln.custom_line
 	length = ln.custom_length or ""
 	meta = (
-		frappe.db.get_value("Specifications", spec, ["box_assortment", "min_colours_per_box", "max_colours_per_box"], as_dict=True)
+		frappe.db.get_value(
+			"Specifications",
+			spec,
+			["box_assortment", "min_colours_per_box", "max_colours_per_box"],
+			as_dict=True,
+		)
 		if spec
 		else None
 	)
@@ -139,19 +154,34 @@ def get_substitutions(delivery_date: str | None = None, farm: str | None = None,
 	box_colours = set()
 	if out["line"]["mixed"]:
 		key = guards._mix_key(ln)
-		box_colours = {colours.get(m.item_code) for m in model.lines if m.name != ln.name and guards._mix_key(m) == key} - {None, ""}
+		box_colours = {
+			colours.get(m.item_code) for m in model.lines if m.name != ln.name and guards._mix_key(m) == key
+		} - {None, ""}
 	max_colours = int((meta or {}).get("max_colours_per_box") or 0)
 	for c in cands:
 		src = _sources(model, c["variety"], length)
-		others = [m for m in model.lines if m.item_code == c["variety"] and (m.custom_length or "") == length and m.name != ln.name and model.left[m.name] > 0]
+		others = [
+			m
+			for m in model.lines
+			if m.item_code == c["variety"]
+			and (m.custom_length or "") == length
+			and m.name != ln.name
+			and model.left[m.name] > 0
+		]
 		wanted = sum(model.left[m.name] for m in others)
 		strict = [m for m in others if model.strict(m)]
-		verdict = "covers" if src["left"] > 0 and src["left"] >= need else "partly" if src["left"] > 0 else "none"
+		verdict = (
+			"covers" if src["left"] > 0 and src["left"] >= need else "partly" if src["left"] > 0 else "none"
+		)
 		warn = []
 		if c["same_colour"] is False:
 			warn.append(_("A different colour from {0}.").format(ln.item_code))
 		if max_colours and c["colour"] and len(box_colours | {c["colour"]}) > max_colours:
-			warn.append(_("The box would have {0} colours; the specification allows {1}.").format(len(box_colours | {c["colour"]}), max_colours))
+			warn.append(
+				_("The box would have {0} colours; the specification allows {1}.").format(
+					len(box_colours | {c["colour"]}), max_colours
+				)
+			)
 		out["options"].append(
 			{
 				**c,
