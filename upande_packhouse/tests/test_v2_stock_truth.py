@@ -293,6 +293,46 @@ class TestRelease(IntegrationTestCase):
 		# delivered orders are never offered, they are reported as skipped
 		self.assertTrue(all(isinstance(v["stems"], float) for v in skipped.values()))
 
+	def test_a_bucket_harvested_again_is_offered_for_release(self):
+		stale = [x for x in st._allocations(set(), set()) if x.reason == "bucket_reused"]
+		if not stale:
+			self.skipTest("no allocation on a bucket that was harvested again")
+		groups, _skipped = st._release_groups(st._args({}))
+		offered = {(g["sales_order_item"], g["bucket_id"]) for g in groups}
+		blocked = st._blocked_pairs({x.sales_order_item for x in stale})
+		for x in stale:
+			if not blocked.get((x.sales_order_item, x.bucket_id.upper())):
+				self.assertIn((x.sales_order_item, x.bucket_id), offered)
+
+	def test_issued_and_delivered_past_due_rows_are_offered_and_blockers_are_only_trolleys(self):
+		allocs = st._allocations(set(), set())
+		self.assertNotIn("dispatched", {x.reason for x in allocs})
+		# an issued row only appears while it is stale
+		self.assertTrue(all(x.reason for x in allocs if x.issued))
+		groups, _s = st._release_groups(st._args({}))
+		for g in groups:
+			self.assertTrue(g["issued"] or g["open"])
+
+	def test_search_finds_the_order_holding_a_bucket(self):
+		allocs = [x for x in st._allocations(set(), set()) if x.reason]
+		if not allocs:
+			self.skipTest("no stale allocation")
+		x = allocs[0]
+		out = st.allocations(q=x.bucket_id)
+		self.assertTrue(out["success"])
+		self.assertIn(x.sales_order, {o["sales_order"] for o in out["orders"]})
+
+	def test_stale_transfers_are_listed_searchable_and_releasable(self):
+		rows = [r for r in st._transfer_rows() if r.reason]
+		if not rows:
+			self.skipTest("no stale transfer")
+		self.assertTrue(all(r.reason in st.TRANSFER_REASONS for r in rows))
+		r = rows[0]
+		out = st.transfers(q=r.bucket_id)
+		self.assertIn(r.sales_order, {o["sales_order"] for o in out["orders"]})
+		plan = st.release_plan(kind="transfers")
+		self.assertEqual(plan["lines"], len({(x.sales_order_item, x.bucket_id, x.length or "") for x in rows}))
+
 	def test_release_needs_confirmation_and_a_sales_role(self):
 		with self.assertRaises(frappe.ValidationError):
 			st.release_stale(confirm=0)

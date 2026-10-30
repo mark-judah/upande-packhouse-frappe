@@ -1166,7 +1166,7 @@
       let span = 1;
       if (first) while (i + span < all.length && all[i + span].group_key === l.group_key) span++;
       const gcell = first ? '<td class="pg-grp" rowspan="' + span + '">' + PH.esc(l.group_label || KIND[l.kind] || "") + (span > 1 ? "<small>" + span + " varieties</small>" : "") + "</td>" : "";
-      const src = l.sources.length ? l.sources.map((x) => "<div><b>" + n(x.stems) + "</b> " + (SRC[x.kind] || x.kind) + (x.farm ? " · " + PH.esc(x.farm) : "") + "</div>").join("") : '<span class="ph-muted">—</span>';
+      const src = l.sources.length ? l.sources.map((x) => "<div><b>" + n(x.stems) + "</b> " + (x.kind === "forecast" && x.basis ? x.basis + " forecast" : (SRC[x.kind] || x.kind)) + (x.farm ? " · " + PH.esc(x.farm) : "") + "</div>").join("") : '<span class="ph-muted">—</span>';
       const pool = l.pool, over = pool.taken > pool.total + 0.5;
       const stock = '<div><b>' + n(pool.total) + "</b> available</div><div class=\"" + (over ? "ph-bad" : "ph-muted") + "\">" + n(pool.taken) + " taken · " + (over ? "over by " + n(pool.taken - pool.total) : n(pool.left) + " left") + "</div>";
       const who = (l.farm || l.team) ? PH.esc(l.team || "—") + (l.farm ? "<small>from " + PH.esc(l.farm) + "</small>" : "") : '<span class="ph-muted">—</span>';
@@ -1275,16 +1275,29 @@
     return PH.call(GUARDS.replace("allocation_guards", "allocation_nonmoving") + "get_non_moving", { delivery_date: S.date, farm: S.farm }, { silent: true }).then((r) => {
       if (my !== oldSeq || !r) return;
       const teamSel = (mt) => '<select class="ph-select pg-team-use" aria-label="Team for ' + PH.esc(mt.customer) + '"><option value="">Choose a team</option>' + S.teams.map((t) => "<option" + (t === (mt.team || S.team) ? " selected" : "") + ">" + PH.esc(t) + "</option>").join("") + "</select>";
-      const match = (mt, i, j) => '<tr><td><b>' + PH.esc(mt.customer) + "</b><small>" + PH.esc(mt.order) + (mt.mixed ? " · mixed box" : "") + "</small></td>" +
-        "<td>" + (mt.kind === "substitute" ? '<span class="pg-chip pg-chip--tint">Substitute</span><small>Ordered ' + PH.esc(mt.variety) + " " + PH.esc(mt.ordered_length) + (mt.colour_differs ? ' · <span class="ph-bad">different colour</span>' : "") + "</small>"
-          : '<span class="pg-chip pg-chip--' + (mt.kind === "exact" ? "good" : "warn") + '">' + KINDS[mt.kind] + "</span>" + (mt.kind === "longer" ? "<small>Ordered " + PH.esc(mt.ordered_length) + "</small>" : "")) + "</td>" +
-        '<td class="is-num">' + n(mt.needs) + '</td><td class="is-num"><b>' + n(mt.take) + "</b></td><td>" +
-        (mt.kind === "substitute" ? '<a class="ph-link" target="_blank" rel="noopener" href="/app/sales-order/' + encodeURIComponent(mt.order) + '">Open this order</a>'
-          : '<span class="pg-confirm">' + teamSel(mt) + '<button class="ph-btn ph-btn--sm" type="button" data-i="' + i + '" data-j="' + j + '">Confirm</button></span>') + "</td></tr>";
-      const card = (it, i) => '<section class="ph-card pg-order"><div class="pg-order__head"><div><h3 class="pg-order__name">' + PH.esc(it.variety) + " " + PH.esc(it.length) + '</h3><div class="ph-card__meta">' + n(it.old_stems) + " stems · oldest " + n(it.oldest_days) + " days · " + PH.esc(it.farm) + "</div></div>" +
-        '<span class="pg-chip pg-chip--' + (it.unused > 0 ? "bad" : "good") + '">' + (it.unused > 0 ? n(it.unused) + " with no order" : "All can be used") + "</span></div>" +
-        (it.matches.length ? '<div class="ph-table-wrap"><table class="ph-table pg-otable"><thead><tr><th>Customer</th><th>How</th><th class="is-num">Still needs</th><th class="is-num">Could use</th><th></th></tr></thead><tbody>' + it.matches.map((mt, j) => match(mt, i, j)).join("") + "</tbody></table></div>"
-          : '<div class="pg-empty">No order for this day can use it, even with a longer stem or an approved substitute.</div>') + "</section>";
+      const match = (mt, i, j) => {
+        const sub = mt.kind === "substitute";
+        const ordered = "<b>" + PH.esc(mt.variety) + " " + PH.esc(mt.ordered_length) + "</b>" + (sub ? "<small>" + PH.esc(mt.ordered_colour || "colour not set") + "</small>" : "");
+        const how = sub
+          ? '<span class="pg-chip pg-chip--tint">Substitute</span><small>' + (mt.primary ? "Primary" : "Approved") + " in the specification" + (mt.spec ? " " + PH.esc(mt.spec) : "") + "</small><small>" + PH.esc(mt.colour || "colour not set") + (mt.colour_differs ? ' · <span class="ph-bad">different colour from the order</span>' : " · same colour") + "</small>"
+          : '<span class="pg-chip pg-chip--' + (mt.kind === "exact" ? "good" : "warn") + '">' + KINDS[mt.kind] + "</span>" + (mt.kind === "longer" ? "<small>Ordered " + PH.esc(mt.ordered_length) + ", longer is fine for old stock</small>" : "");
+        return "<tr><td><b>" + PH.esc(mt.customer) + "</b><small>" + PH.esc(mt.order) + " · line " + mt.line_no + (mt.mixed ? " · mixed box" : "") + "</small></td>" +
+          "<td>" + ordered + "</td><td>" + how + "</td>" +
+          '<td class="is-num">' + n(mt.needs) + '</td><td class="is-num"><b>' + n(mt.take) + "</b></td><td>" +
+          (sub ? '<a class="ph-link" target="_blank" rel="noopener" href="/app/sales-order/' + encodeURIComponent(mt.order) + '">Change the variety on the order</a>'
+            : '<span class="pg-confirm">' + teamSel(mt) + '<button class="ph-btn ph-btn--sm" type="button" data-i="' + i + '" data-j="' + j + '">Confirm</button></span>') + "</td></tr>";
+      };
+      const card = (it, i) => {
+        const farms = it.by_farm.map((f) => PH.esc(f.farm) + " " + n(f.stems)).join(" · ");
+        const subs = it.substitute_lines;
+        const flow = "<p class=\"ph-muted pg-conf-sum\" style=\"padding:0 var(--sp-6)\">" +
+          (it.to_orders > 0 ? "<b>" + n(it.to_orders) + "</b> can go to orders for the same variety (exact or longer). " : "No order for the same variety can take it. ") +
+          (subs ? "<b>" + n(it.unused) + "</b> would be left for " + PH.fmt.plural(subs, "order") + " that ordered another variety the specification approves: they need the variety changed on the order. " : (it.unused > 0 ? "<b>" + n(it.unused) + "</b> has no order that can use it." : "")) + (subs ? '<br>"Could use" on a substitute row is what that order alone could take: the same stems cannot go to two orders.' : "") + "</p>";
+        return '<section class="ph-card pg-order"><div class="pg-order__head"><div><h3 class="pg-order__name">' + PH.esc(it.variety) + " " + PH.esc(it.length) + '</h3><div class="ph-card__meta">' + n(it.old_stems) + " stems · oldest " + n(it.oldest_days) + " days · " + farms + "</div></div>" +
+          '<span class="pg-chip pg-chip--' + (it.unused > 0 ? (subs ? "warn" : "bad") : "good") + '">' + (it.unused > 0 ? n(it.unused) + (subs ? " could go to substitutes" : " with no order") : "All can be used") + "</span></div>" + flow +
+          (it.matches.length ? '<div class="ph-table-wrap"><table class="ph-table pg-otable"><thead><tr><th>Customer</th><th>Ordered</th><th>How</th><th class="is-num">Still needs</th><th class="is-num">Could use</th><th></th></tr></thead><tbody>' + it.matches.map((mt, j) => match(mt, i, j)).join("") + "</tbody></table></div>"
+            : '<div class="pg-empty">No order for this day can use it, even with a longer stem or an approved substitute.</div>') + "</section>";
+      };
       PH.set($("pg-old"), '<p class="ph-muted pg-conf-sum">Stock of ' + r.amber_from_days + " days or more (the amber time in Production Settings): " + (r.items.length ? "<b>" + n(r.total) + "</b> stems, <b>" + n(r.at_risk) + "</b> of them with no order that can take them as they are. Confirm an exact or longer match here; to use a substitute, change the variety on the order." : "nothing is non-moving for this day.") + "</p>" + r.items.map(card).join(""));
       PH.$$("#pg-old button[data-i]").forEach((b) => (b.onclick = () => {
         const a = { ...r.items[+b.dataset.i].matches[+b.dataset.j].apply, team: b.parentElement.querySelector(".pg-team-use").value };

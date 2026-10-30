@@ -134,11 +134,11 @@ STATE_META = {
 }
 STATE_ORDER = list(STATE_META)
 PHYSICAL = tuple(s for s in STATE_ORDER)  # every state is stems that exist
-RECLAIM_REASONS = ("order_cancelled", "dispatched", "delivery_passed")
+RECLAIM_REASONS = ("order_cancelled", "delivery_passed", "bucket_reused")
 STALE_LABEL = {
 	"order_cancelled": "Order cancelled",
-	"dispatched": "Order already delivered",
 	"delivery_passed": "Delivery date has passed",
+	"bucket_reused": "Bucket was harvested again",
 	"discard_held": "Bucket is on a discard request",
 	"bucket_gone": "Bucket is on no shelf",
 	"not_found": "Bucket marked not found",
@@ -276,29 +276,20 @@ def _allocations(shelf_keys, held_ids):
 		"""
 		SELECT ba.name AS ba, bas.bucket_id, bas.item_code AS variety,
 		       IFNULL(bas.stem_length, '') AS length, bas.shelf_farm AS farm, bas.in_transit,
-		       ba.sales_order, ba.sales_order_item, ba.quantity_allocated AS qty, ba.creation,
+		       ba.sales_order, ba.sales_order_item, ba.quantity_allocated AS qty, ba.creation, IFNULL(ba.issued, 0) AS issued,
 		       so.docstatus AS so_docstatus, so.status AS so_status, so.delivery_date,
-		       so.per_delivered, so.customer_name, so.customer
+		       so.per_delivered, so.customer_name, so.customer,
+		       EXISTS (SELECT 1 FROM `tabStock Entry` se WHERE se.stock_entry_type = 'Harvesting' AND se.docstatus != 2
+		               AND se.custom_bucket_id = bas.bucket_id AND se.creation > ba.creation) AS reused
 		FROM `tabBucket Allocations` ba
 		INNER JOIN `tabBucket Allocation Status` bas ON bas.name = ba.parent
 		LEFT JOIN `tabSales Order` so ON so.name = ba.sales_order
-		WHERE ba.cancelled = 0 AND IFNULL(ba.issued, 0) = 0 AND ba.quantity_allocated > 0
+		WHERE ba.cancelled = 0 AND ba.quantity_allocated > 0
 		""",
 		as_dict=True,
 	)
 	if not rows:
 		return []
-	items = tuple({r.sales_order_item for r in rows if r.sales_order_item})
-	delivered = set()
-	if items:
-		delivered = set(
-			frappe.db.sql_list(
-				"""SELECT DISTINCT dni.so_detail FROM `tabDelivery Note Item` dni
-				   INNER JOIN `tabDelivery Note` dn ON dn.name = dni.parent
-				   WHERE dn.docstatus = 1 AND IFNULL(dn.is_return, 0) = 0 AND dni.so_detail IN %(i)s""",
-				{"i": items},
-			)
-		)
 	not_found = {
 		_up(b)
 		for b in frappe.db.sql_list(
@@ -313,10 +304,12 @@ def _allocations(shelf_keys, held_ids):
 		r.key = (_up(r.bucket_id), r.variety, r.length)
 		if r.so_docstatus is None or r.so_docstatus == 2 or r.so_status == "Cancelled":
 			r.reason = "order_cancelled"
-		elif r.sales_order_item in delivered or _f(r.per_delivered) >= 100:
-			r.reason = "dispatched"
 		elif r.delivery_date and getdate(r.delivery_date) < t:
 			r.reason = "delivery_passed"
+		elif r.issued:
+			r.reason = None  # its stems have left the bucket; only a cancelled or past-due one is of interest
+		elif r.reused:
+			r.reason = "bucket_reused"  # harvested again since: the stems it held are gone
 		elif r.bucket_id in held_ids:
 			r.reason = "discard_held"
 		elif r.key not in shelf_keys:
@@ -327,7 +320,8 @@ def _allocations(shelf_keys, held_ids):
 			r.reason = None
 		r.held = r.bucket_id in held_ids
 		r.age_days = (t - getdate(r.creation)).days if r.creation else None
-	return rows
+	# an issued row has no stems left in the bucket: it only matters while it is stale
+	return [r for r in rows if not r.issued or r.reason]
 
 
 def _coldroom_rows(a):
@@ -473,7 +467,7 @@ def collect(a):
 	ledger and demand. One pass; the endpoints below only slice it."""
 	now = now_datetime()
 	rows = stock.bucket_rows(farms=a.farms, lengths=a.lengths or None, rose=a.rose)
-	rows = [r for r in rows if sv._qmatch(a.q, r.variety, r.item_name)]
+	rows = [r for r in rows if sv._qmatch(a.q, r.variety, r.item_name, r.bucket_id)]
 	cfg = stock._config()
 	fcfg = cfg["farm_config"]
 	held = _discards()
@@ -518,7 +512,7 @@ def collect(a):
 		known = farm in fcfg
 		fc = fcfg.get(farm, {})
 		key = (_up(r.bucket_id), r.variety, r.stem_length or "")
-		stale = sum(x.qty for x in by_key.get(key, []) if x.reason in RECLAIM_REASONS)
+		stale = sum(x.qty for x in by_key.get(key, []) if x.reason in RECLAIM_REASONS and not x.issued)
 		hb = held.get(r.bucket_id)
 		for state, stems, extra in classify_shelf_row(
 			r, held_by=hb, farm_cfg=fc, farm_known=known, stale_qty=stale, now=now
@@ -568,7 +562,7 @@ def collect(a):
 	# stale allocations whose bucket is on no shelf: they hold no stems, but the order still
 	# counts them as covered. (At-risk ones - bucket gone, not found - live in allocation health.)
 	for al in allocs:
-		if al.key in shelf_keys or al.reason not in RECLAIM_REASONS:
+		if al.key in shelf_keys or al.reason not in RECLAIM_REASONS or al.issued:
 			continue
 		if not (
 			sv._qmatch(a.q, al.variety)
@@ -1022,12 +1016,13 @@ def allocations(
 		reclaim_held = 0.0
 		for al in allocs:
 			if not (
-				sv._qmatch(a.q, al.variety)
+				sv._qmatch(a.q, al.variety, al.bucket_id, al.sales_order, al.customer_name, al.customer)
 				and (not a.lengths or _ln(al.length) in a.lengths)
 				and _farm_ok(a, al.farm)
 			):
 				continue
-			total_open += al.qty
+			if not al.issued:
+				total_open += al.qty
 			if not al.reason or (want and al.reason not in want):
 				continue
 			if al.reason in RECLAIM_REASONS and al.held:
@@ -1061,6 +1056,7 @@ def allocations(
 					"allocated_days": al.age_days,
 					"in_transit": bool(al.in_transit),
 					"on_discard": bool(al.held),
+					"issued": bool(al.issued),
 				}
 			)
 		order_rows = sorted(orders.values(), key=lambda o: -o["qty"])
@@ -1090,6 +1086,155 @@ def allocations(
 		return {"success": False, "error": "Could not load allocations; the error was logged."}
 
 
+# ------------------------------------------------------------------ buckets held by stale transfers
+
+TRANSFER_LABEL = {
+	"order_cancelled": "Order cancelled",
+	"delivery_passed": "Delivery date has passed",
+	"bucket_reused": "Bucket was harvested again",
+	"no_order": "In transit with nothing allocated",
+}
+TRANSFER_REASONS = tuple(TRANSFER_LABEL)
+NO_ORDER = "No order"
+
+
+def _transfer_rows():
+	"""Buckets a transfer is holding (waiting at the farm, on a trolley or truck, or on the road) whose transfer
+	will not complete: the order is cancelled or past its delivery date, the bucket was harvested again after the
+	line was made, or the bucket is marked in transit with no allocation left. One row per pick-list line."""
+	truck = "IFNULL(pli.loaded_on_truck, 0)" if frappe.db.has_column("Pick List Item", "loaded_on_truck") else "0"
+	rows = frappe.db.sql(
+		f"""
+		SELECT pli.name AS pli, pli.parent AS opl, pli.bucket AS bucket_id, pli.item_code AS variety,
+		       IFNULL(pli.stem_length, '') AS length, pli.stock_qty AS qty, NULLIF(pli.farm, '') AS farm,
+		       pli.sales_order_item, opl.sales_order, opl.docstatus AS opl_docstatus, pli.creation,
+		       IFNULL(pli.awaiting_transfer, 0) AS awaiting, IFNULL(pli.loaded_in_trolley, 0) AS trolley,
+		       {truck} AS on_truck, IFNULL(pli.in_transit, 0) AS in_transit,
+		       so.docstatus AS so_docstatus, so.status AS so_status, so.delivery_date, so.customer_name, so.customer,
+		       EXISTS (SELECT 1 FROM `tabStock Entry` se WHERE se.stock_entry_type = 'Harvesting' AND se.docstatus != 2
+		               AND se.custom_bucket_id = pli.bucket AND se.creation > pli.creation) AS reused
+		FROM `tabPick List Item` pli
+		INNER JOIN `tabOrder Pick List` opl ON opl.name = pli.parent
+		LEFT JOIN `tabSales Order` so ON so.name = opl.sales_order
+		WHERE pli.parenttype = 'Order Pick List' AND IFNULL(pli.bucket, '') != ''
+		  AND (pli.awaiting_transfer = 1 OR pli.loaded_in_trolley = 1 OR pli.in_transit = 1 OR {truck} = 1)
+		  AND IFNULL(pli.shelved, 0) = 0 AND IFNULL(pli.issued, 0) = 0 AND IFNULL(pli.custom_ready_for_packing, 0) = 0
+		""",  # nosemgrep: the f-string holes are fixed SQL, values are bound
+		as_dict=True,
+	)
+	t = getdate(today())
+	out = []
+	for r in rows:
+		r.qty = _f(r.qty)
+		r.issued = 0
+		r.held = False
+		r.so_status = r.so_status or ""
+		if r.opl_docstatus == 2 or r.so_docstatus is None or r.so_docstatus == 2 or r.so_status == "Cancelled":
+			r.reason = "order_cancelled"
+		elif r.delivery_date and getdate(r.delivery_date) < t:
+			r.reason = "delivery_passed"
+		elif r.reused:
+			r.reason = "bucket_reused"
+		else:
+			r.reason = None
+		r.state = "On the road" if r.in_transit else "On a trolley or truck" if (r.trolley or r.on_truck) else "Waiting at the farm"
+		r.age_days = (t - getdate(r.creation)).days if r.creation else None
+		out.append(r)
+	# a bucket marked in transit while no pick-list line and no allocation wants it
+	wanted = {_up(r.bucket_id) for r in rows} | {
+		_up(b)
+		for b in frappe.db.sql_list(
+			"""SELECT DISTINCT bas.bucket_id FROM `tabBucket Allocations` ba
+			   INNER JOIN `tabBucket Allocation Status` bas ON bas.name = ba.parent
+			   WHERE ba.cancelled = 0 AND IFNULL(ba.issued, 0) = 0 AND ba.quantity_allocated > 0"""
+		)
+	}
+	for b in frappe.db.sql(
+		"""SELECT bucket_id, item_code AS variety, IFNULL(stem_length, '') AS length, shelf_farm AS farm,
+		          total_quantity AS qty, modified FROM `tabBucket Allocation Status` WHERE in_transit = 1""",
+		as_dict=True,
+	):
+		if _up(b.bucket_id) in wanted:
+			continue
+		b.update(
+			sales_order=NO_ORDER, sales_order_item="", customer_name="", customer="", delivery_date=None,
+			so_status="", reason="no_order", issued=0, held=False, in_transit=1, state="On the road",
+			age_days=(t - getdate(b.modified)).days if b.modified else None, qty=_f(b.qty),
+		)
+		out.append(b)
+	return out
+
+
+@frappe.whitelist(methods=["GET"])
+def transfers(region: Any = None, farm: Any = None, length: Any = None, rose: Any = None, q: Any = None, reason: Any = None):
+	"""Buckets held by stale transfers, grouped by the order that holds them (same shape as `allocations`)."""
+	_guard()
+	try:
+		a = _args(dict(region=region, farm=farm, length=length, rose=rose, q=q))
+		want = set(sv._list(reason))
+		by_reason = defaultdict(lambda: {"qty": 0.0, "rows": 0, "orders": set()})
+		orders = defaultdict(lambda: {"qty": 0.0, "lines": []})
+		total = 0.0
+		for r in _transfer_rows():
+			if not (
+				sv._qmatch(a.q, r.variety, r.bucket_id, r.sales_order, r.customer_name, r.customer)
+				and (not a.lengths or _ln(r.length) in a.lengths)
+				and _farm_ok(a, r.farm)
+			):
+				continue
+			total += r.qty
+			if not r.reason or (want and r.reason not in want):
+				continue
+			b = by_reason[r.reason]
+			b["qty"] += r.qty
+			b["rows"] += 1
+			b["orders"].add(r.sales_order)
+			o = orders[r.sales_order]
+			o.update(
+				sales_order=r.sales_order, customer=r.customer_name or r.customer,
+				delivery_date=str(r.delivery_date or ""), so_status=r.so_status,
+			)
+			o["qty"] += r.qty
+			o["lines"].append(
+				{
+					"sales_order_item": r.sales_order_item or "",
+					"stem_length": r.length,
+					"releasable": True,
+					"release_block": "",
+					"variety": r.variety,
+					"length": _ln(r.length),
+					"bucket": r.bucket_id,
+					"farm": r.farm,
+					"qty": r.qty,
+					"reason": r.reason,
+					"reason_label": TRANSFER_LABEL[r.reason],
+					"allocated_days": r.age_days,
+					"state": r.state,
+					"in_transit": bool(r.in_transit),
+					"on_discard": False,
+					"issued": False,
+				}
+			)
+		order_rows = sorted(orders.values(), key=lambda o: -o["qty"])
+		return {
+			"success": True,
+			"total_open": total,
+			"reclaimable": sum(v["qty"] for v in by_reason.values()),
+			"reclaimable_on_discard": 0,
+			"can_release": _can_release(),
+			"at_risk": 0,
+			"by_reason": [
+				{"code": k, "label": TRANSFER_LABEL[k], "kind": "reclaim", "qty": v["qty"], "rows": v["rows"], "orders": len(v["orders"])}
+				for k, v in sorted(by_reason.items(), key=lambda kv: -kv[1]["qty"])
+			],
+			"orders": order_rows[:300],
+			"order_count": len(order_rows),
+		}
+	except Exception:
+		frappe.log_error("v2 stock_truth.transfers")
+		return {"success": False, "error": "Could not load transfers; the error was logged."}
+
+
 # ------------------------------------------------------------------ releasing stale allocations
 
 RELEASE_ROLES = (
@@ -1102,7 +1247,8 @@ RELEASE_ROLES = (
 RELEASABLE = (
 	"order_cancelled",
 	"delivery_passed",
-)  # "already delivered" is left to a person: the stems have gone out the door
+	"bucket_reused",
+)
 RELEASE_CHUNK = 10
 RELEASE_BUDGET_SECONDS = 20  # a request stops taking new lines after this long, however many it has done
 
@@ -1129,29 +1275,64 @@ def _blocked_pairs(soi_names):
 		{"i": tuple(soi_names)},
 		as_dict=True,
 	):
-		if r.issued:
-			out[(r.soi, r.b)] = "Already issued - undo the issue first"
-		elif r.moving:
+		if r.moving and not r.issued:
 			out[(r.soi, r.b)] = "On a trolley or truck - let it arrive first"
 	return out
 
 
+def _clear_in_transit(g):
+	"""A bucket is marked in transit but nothing is allocated to it: the mark is all there is to release."""
+	frappe.db.sql(
+		"""UPDATE `tabBucket Allocation Status` SET in_transit = 0 WHERE bucket_id = %(b)s AND item_code = %(i)s
+		   AND IFNULL(stem_length, '') = %(l)s""",
+		{"b": g["bucket_id"], "i": g["variety"], "l": g["stem_length"] or ""},
+	)
+	frappe.db.commit()
+
+
+def _cancel_issued(g):
+	"""Take an issued allocation out of Bucket Allocation Status. Its stems have already left the bucket, so the
+	stock ledger and the pick list are left as they are: this only stops the order being shown as holding the bucket."""
+	from upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation import recompute_bas_quantities
+
+	bas_name = frappe.db.get_value(
+		"Bucket Allocation Status",
+		{"bucket_id": g["bucket_id"], "item_code": g["variety"], "stem_length": g["stem_length"] or ""},
+		"name",
+	)
+	if not bas_name:
+		return
+	bas = frappe.get_doc("Bucket Allocation Status", bas_name, for_update=True)
+	for row in bas.bucket_allocations:
+		if row.sales_order_item == g["sales_order_item"] and not row.cancelled and row.issued:
+			row.cancelled = 1
+			row.db_update()
+	if not recompute_bas_quantities(bas):
+		bas.in_transit = 0
+	bas.flags.ignore_validate = True
+	bas.flags.ignore_mandatory = True
+	bas.save(ignore_permissions=True)
+
+
 def _release_block(al, blocked):
-	if al.reason == "dispatched":
-		return "The order was delivered - review it in Sales Allocation"
 	if al.reason not in RELEASABLE:
 		return ""
 	return blocked.get((al.sales_order_item, _up(al.bucket_id)), "")
 
 
-def _release_groups(a, sales_order=None, items=None, skip=None, sales_orders=None):
+def _release_groups(a, sales_order=None, items=None, skip=None, sales_orders=None, kind=None):
 	"""Releasable allocations grouped by (sales order item, bucket, length) + what is skipped and why."""
-	allocs = _allocations(set(), set())  # staleness of cancelled / past-due orders does not need the shelf
-	allocs = [x for x in allocs if x.reason in RECLAIM_REASONS]
+	transfers_ = kind == "transfers"
+	if transfers_:
+		allocs = [x for x in _transfer_rows() if x.reason]
+	else:
+		allocs = _allocations(set(), set())  # staleness of cancelled / past-due orders does not need the shelf
+		allocs = [x for x in allocs if x.reason in RECLAIM_REASONS]
+	releasable = TRANSFER_REASONS if transfers_ else RELEASABLE
 	allocs = [
 		x
 		for x in allocs
-		if sv._qmatch(a.q, x.variety)
+		if sv._qmatch(a.q, x.variety, x.bucket_id, x.sales_order, x.customer_name, x.customer)
 		and (not a.lengths or _ln(x.length) in a.lengths)
 		and _farm_ok(a, x.farm)
 	]
@@ -1170,12 +1351,12 @@ def _release_groups(a, sales_order=None, items=None, skip=None, sales_orders=Non
 			(i.get("sales_order_item"), _up(i.get("bucket_id")), i.get("stem_length") or "") for i in skip
 		}
 		allocs = [x for x in allocs if (x.sales_order_item, _up(x.bucket_id), x.length or "") not in gone]
-	blocked = _blocked_pairs({x.sales_order_item for x in allocs})
+	blocked = {} if transfers_ else _blocked_pairs({x.sales_order_item for x in allocs})
 	groups, skipped = {}, defaultdict(lambda: {"stems": 0.0, "orders": set()})
 	for x in allocs:
 		why = _release_block(x, blocked)
-		if x.reason not in RELEASABLE or why:
-			k = why or "The order was delivered - review it in Sales Allocation"
+		if x.reason not in releasable or why:
+			k = why or "Cannot be released"
 			skipped[k]["stems"] += x.qty
 			skipped[k]["orders"].add(x.sales_order)
 			continue
@@ -1190,9 +1371,12 @@ def _release_groups(a, sales_order=None, items=None, skip=None, sales_orders=Non
 				"variety": x.variety,
 				"qty": 0.0,
 				"reason": x.reason,
+				"issued": False,
+				"open": False,
 			},
 		)
 		g["qty"] += x.qty
+		g["issued" if x.issued else "open"] = True
 	return list(groups.values()), skipped
 
 
@@ -1233,6 +1417,7 @@ def release_plan(
 	rose: Any = None,
 	q: Any = None,
 	sales_orders: Any = None,
+	kind: Any = None,
 ):
 	"""What a release would do, without doing it (feeds the confirmation)."""
 	_guard()
@@ -1243,8 +1428,9 @@ def release_plan(
 		frappe.parse_json(items) if isinstance(items, str) else items,
 		None,
 		frappe.parse_json(sales_orders) if isinstance(sales_orders, str) else sales_orders,
+		kind,
 	)
-	soi = {g["sales_order_item"] for g in groups}
+	soi = {g["sales_order_item"] for g in groups if g["sales_order_item"]}
 	opls = (
 		sorted(
 			frappe.db.sql_list(
@@ -1283,6 +1469,7 @@ def release_stale(
 	skip: Any = None,
 	sales_orders: Any = None,
 	budget: Any = RELEASE_BUDGET_SECONDS,
+	kind: Any = None,
 ):
 	"""Release stale allocations: cancel them, put the stems back on the shelf and take the lines off their pick lists.
 
@@ -1306,6 +1493,7 @@ def release_stale(
 		frappe.parse_json(items) if isinstance(items, str) else items,
 		frappe.parse_json(skip) if isinstance(skip, str) else skip,
 		frappe.parse_json(sales_orders) if isinstance(sales_orders, str) else sales_orders,
+		kind,
 	)
 	todo = groups[: max(1, min(cint(limit) or RELEASE_CHUNK, 50))]
 	done, failed, orders = [], [], defaultdict(float)
@@ -1316,7 +1504,13 @@ def release_stale(
 			break  # out of time for this request: the caller asks again for the rest
 		handled += 1
 		try:
-			res = unallocate_bucket_from_opl(g["sales_order_item"], g["bucket_id"], g["stem_length"])
+			res = {"success": True}
+			if not g["sales_order_item"]:  # a bucket marked in transit with no order: just clear the mark
+				_clear_in_transit(g)
+			elif g["issued"]:
+				_cancel_issued(g)  # first: the allocator refuses a line that has an issued row
+			if g["sales_order_item"] and g["open"]:
+				res = unallocate_bucket_from_opl(g["sales_order_item"], g["bucket_id"], g["stem_length"])
 		except Exception as e:  # the allocator rolls its own failures back; keep going with the next line
 			res = {"success": False, "message": str(e)}
 		if res.get("success"):
@@ -1338,7 +1532,7 @@ def release_stale(
 		try:
 			frappe.get_doc("Sales Order", so).add_comment(
 				"Info",
-				f"Stale allocation released from Stock Visibility by {frappe.session.user}: {int(qty):,} stems (order cancelled or delivery date passed).",
+				f"Stale allocation released from Stock Visibility by {frappe.session.user}: {int(qty):,} stems (order cancelled, delivery date passed or bucket harvested again).",
 			)
 		except Exception:
 			frappe.log_error(frappe.get_traceback(), "Stock Visibility release comment")

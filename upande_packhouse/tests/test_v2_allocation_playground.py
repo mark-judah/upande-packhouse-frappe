@@ -1111,3 +1111,46 @@ class TestTeamPlan(unittest.TestCase):
 		for t in r["teams"]:
 			for k in ("team", "stems", "boxes", "lines", "orders", "share", "vs_even"):
 				self.assertIn(k, t)
+
+
+class TestRollingForecast(unittest.TestCase):
+	"""The rolling forecast: the actual cut one cut-to-cut cycle earlier, split by the Crop Protocol's grade mix."""
+
+	def test_week_back_crosses_the_year_end(self):
+		from upande_packhouse.api.v2 import allocation_forecast as af
+
+		self.assertEqual(af._back(2026, 45, 10), (2026, 35))
+		self.assertEqual(af._back(2026, 3, 8), (2025, 47))  # 2025 has 52 ISO weeks
+
+	def test_rolling_is_last_cycles_actual_over_seven_days_times_the_length_share(self):
+		from upande_packhouse.api.v2 import allocation_forecast as af
+
+		with patch.object(af, "protocol", lambda v: (10, {"52cm": 0.5})), patch.object(
+			af, "weekly_actuals", lambda v, f: {(2026, 35): {"Chepsito": 7000.0, "Kapkolia": 700.0}}
+		), patch.object(af, "_finished", lambda y, w: True):
+			out = af.rolling_by_farm("Moonwalk", "52cm", "2026-11-04", ["Chepsito", "Kapkolia"])  # cut week 45
+			self.assertAlmostEqual(out["Chepsito"], 500.0)
+			self.assertAlmostEqual(out["Kapkolia"], 50.0)
+			self.assertEqual(af.rolling_by_farm("Moonwalk", "42cm", "2026-11-04", ["Chepsito"]), {})  # length not in the mix
+
+	def test_no_cycle_means_no_rolling_forecast_and_revised_is_used(self):
+		from upande_packhouse.api.v2 import allocation_forecast as af
+
+		with patch.object(af, "protocol", lambda v: (None, {})):
+			self.assertIsNone(af.rolling_by_farm("Chrysanth", "52cm", "2026-11-04", None))
+			d = pg.expected_detail("Chrysanth", "52cm", "2026-11-04", "Kapkolia")
+			self.assertEqual(d["basis"], af.REVISED)
+			self.assertIsNone(d["rolling"])
+
+	def test_the_forecast_with_more_that_is_safe_covers(self):
+		from upande_packhouse.api.v2 import allocation_forecast as af
+
+		with patch.object(af, "rolling_by_farm", lambda *a, **k: {"Chepsito": 1.0}):
+			d = pg.expected_detail("Moonwalk", "42cm", "2026-11-04", "Kapkolia")
+			self.assertEqual(d["basis"], af.REVISED)  # revised has far more safe to promise than 1 stem
+			self.assertAlmostEqual(d["likely"], d["revised"]["likely"])
+		with patch.object(af, "rolling_by_farm", lambda *a, **k: {"Chepsito": 1e9}), patch.object(af, "rolling_error", lambda *a: (0.0, 10)):
+			d = pg.expected_detail("Moonwalk", "42cm", "2026-11-04", "Kapkolia")
+			self.assertEqual(d["basis"], af.ROLLING)
+			self.assertAlmostEqual(d["likely"], 1e9)
+			self.assertAlmostEqual(d["variance"], 1e9 - d["revised"]["likely"])

@@ -68,11 +68,16 @@ def get_non_moving(delivery_date: str | None = None, farm: str | None = None):
 	day, farm = pg._day(delivery_date), farm or pg._default_farm()
 	model = full_model(day, farm)
 	amber = pg.amber_from_days()
+	primary = {
+		(r[0], r[1])
+		for r in frappe.db.sql("SELECT parent, variety FROM `tabSpec Approved Variety` WHERE parenttype = 'Specifications' AND is_primary = 1")
+	}
 	items = []
 	for (v, length), s in sorted(model.supply.items(), key=lambda kv: -kv[1]["old"]):
 		if s["old"] < 1:
 			continue
 		left_old = s["old"]
+		to_exact = 0.0
 		by_farm = s.get("old_by_farm") or {}
 		old_farm = max(by_farm, key=by_farm.get) if by_farm else farm
 		matches = []
@@ -87,11 +92,13 @@ def get_non_moving(delivery_date: str | None = None, farm: str | None = None):
 					break  # the old stock is all spoken for
 				if kind != "substitute":
 					left_old -= take
+					to_exact += take
 				m = {
 					"kind": kind,
 					"soi": ln.name,
 					"customer": ln.customer_name or ln.customer,
 					"order": ln.parent,
+					"line_no": ln.idx,
 					"variety": ln.item_code,
 					"ordered_length": ln.custom_length or "",
 					"needs": model.left[ln.name],
@@ -120,6 +127,9 @@ def get_non_moving(delivery_date: str | None = None, farm: str | None = None):
 				"oldest_days": s["oldest"],
 				"farm": old_farm,
 				"unused": max(0.0, left_old),
+				"to_orders": to_exact,
+				"by_farm": [{"farm": f, "stems": x} for f, x in sorted(by_farm.items(), key=lambda kv: -kv[1])],
+				"substitute_lines": sum(1 for m in matches if m["kind"] == "substitute"),
 				"matches": matches,
 			}
 		)
