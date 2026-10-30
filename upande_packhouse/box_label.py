@@ -40,16 +40,23 @@ def label_filters(order_name, rows, mix_by_item):
 	return {"order_name": order_name or "", "variety": variety, "mix_name": ", ".join(mixes)}
 
 
-def mix_names(sales_order):
-	"""variety -> mix name of its Sales Order line (the first line of that variety)."""
+def mix_names(sales_order, order_pick_list=None):
+	"""variety -> mix name of its Sales Order line.
+
+	A variety can sit on several lines of one order under different mixes
+	(Dominica in a 60cm mix and a 70cm mix), so the lines picked on this
+	Order Pick List win; other lines only fill varieties it does not have."""
 	out = {}
 	if sales_order:
-		for r in frappe.get_all(
+		rows = frappe.get_all(
 			"Sales Order Item",
 			filters={"parent": sales_order},
-			fields=["item_code", "custom_mix_name"],
+			fields=["item_code", "custom_mix_name", "custom_opl"],
 			order_by="idx asc",
-		):
+		)
+		if order_pick_list:
+			rows.sort(key=lambda r: r.custom_opl != order_pick_list)
+		for r in rows:
 			out.setdefault(r.item_code, r.custom_mix_name or "")
 	return out
 
@@ -71,7 +78,7 @@ def sync_box_labels_for_fpl(fpl_doc, opl_doc, so_doc):
 	farm_code = frappe.db.get_value("Farm", fpl_doc.farm, "farm_code") if fpl_doc.farm else None
 
 	created, updated, skipped = [], [], []
-	mix_by_item = mix_names(so_doc.name)
+	mix_by_item = mix_names(so_doc.name, opl_doc.name)
 	order_name = opl_doc.get("order_name") or so_doc.get("custom_order_name") or ""
 
 	for box_no, rows in by_box.items():

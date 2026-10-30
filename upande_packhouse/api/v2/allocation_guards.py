@@ -97,7 +97,9 @@ class Model:
 		"""(likely, sure) stems still to come: the day's harvest not yet received plus what is still to be cut."""
 		k = (variety, length or "")
 		if k not in self._likely:
-			self._likely[k] = pg.expected_for(variety, length or "", self.day, self.farm, self.pool(variety, length))
+			self._likely[k] = pg.expected_for(
+				variety, length or "", self.day, self.farm, self.pool(variety, length)
+			)
 		return self._likely[k]
 
 	def error_pct(self, variety):
@@ -151,8 +153,28 @@ def _current(model, soi):
 	return pl["real"] + pl["expected"]
 
 
+def _stage_free(model, ln, length):
+	"""Free shelf stems of the line's variety and length at its cut stage, or None when the line has no cut stage."""
+	stage = frappe.db.get_value("Sales Order Item", ln.name, "custom_cut_stage")
+	if not stage:
+		return None
+	from upande_packhouse.api.v2.core import stock
+	from upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2 import _norm_cut_stage
+
+	rows = stock.bucket_rows(
+		farms=pg._stock_farms(model.farm), varieties=[ln.item_code], lengths=[length] if length else None
+	)
+	return sum(r.allocatable for r in rows if _norm_cut_stage(r.cut_stage) == _norm_cut_stage(stage))
+
+
 def _item(code, severity, message, actions=None, customers=None):
-	return {"code": code, "severity": severity, "message": message, "actions": actions or [], "customers": customers or ""}
+	return {
+		"code": code,
+		"severity": severity,
+		"message": message,
+		"actions": actions or [],
+		"customers": customers or "",
+	}
 
 
 def check(day, farm, lines, model=None):
@@ -185,7 +207,10 @@ def check(day, farm, lines, model=None):
 			others = [
 				o
 				for o in model.lines
-				if o.name not in asked and o.item_code == v and (o.custom_length or "") == length and model.left[o.name] > 0
+				if o.name not in asked
+				and o.item_code == v
+				and (o.custom_length or "") == length
+				and model.left[o.name] > 0
 			]
 			need = sum(model.left[o.name] for o in others)
 			short_by = max(0.0, need - max(cover_after[pool_key], 0.0))
@@ -200,21 +225,97 @@ def check(day, farm, lines, model=None):
 						"longer_length",
 						RED if strict else AMBER,
 						msg,
-						[{"kind": "use_ordered_length", "label": _("Confirm {0} instead").format(ordered_len)}],
+						[
+							{
+								"kind": "use_ordered_length",
+								"label": _("Confirm {0} instead").format(ordered_len),
+							}
+						],
 						who,
 					),
 					("longer", ln.name),
 				)
 			else:
-				why = _("this stock is getting old") if model.pool(v, length)["old"] >= delta else _("nobody else needs {0}").format(length)
-				add(_item("longer_length", QUIET, _("Longer than ordered, but {0}.").format(why)), ("longer", ln.name))
+				why = (
+					_("this stock is getting old")
+					if model.pool(v, length)["old"] >= delta
+					else _("nobody else needs {0}").format(length)
+				)
+				add(
+					_item("longer_length", QUIET, _("Longer than ordered, but {0}.").format(why)),
+					("longer", ln.name),
+				)
+			# Sales Allocation asks for a downgrade reason unless the bucket is past the amber time
+			if model.pool(v, length)["old"] < delta:
+				add(
+					_item(
+						"downgrade_reason",
+						QUIET,
+						_(
+							"{0} {1} is not past the amber time, so Sales Allocation will ask for a downgrade reason for {2}."
+						).format(v, length, ln.customer_name or ln.customer),
+						[
+							{
+								"kind": "use_ordered_length",
+								"label": _("Confirm {0} instead").format(ordered_len),
+							}
+						],
+					),
+					("reason", ln.name),
+				)
+
+		# --- the shelf stock at the cut stage this order takes (the only buckets Sales Allocation offers it)
+		stage_free = _stage_free(model, ln, length)
+		if stage_free is not None:
+			shelf = model.pool(v, length)["free"]
+			if stage_free < min(delta, shelf) - 0.5:
+				add(
+					_item(
+						"cut_stage",
+						AMBER,
+						_(
+							"Only {0} of the {1} {2} {3} stems on the shelf are cut stage {4}, the stage this order takes; the rest of these {5} stems would come from the forecast."
+						).format(
+							_n(stage_free),
+							_n(shelf),
+							v,
+							length,
+							frappe.db.get_value("Sales Order Item", ln.name, "custom_cut_stage"),
+							_n(delta),
+						),
+					),
+					("stage", ln.name),
+				)
+
+		# --- whole boxes only: a part box waits for more stock before it can be packed
+		from upande_packhouse.api.v2.allocation_checks import mix_key, per_box
+
+		size = per_box(ln)
+		if not mix_key(ln) and size and want < flt(ln.ordered_stems) - 0.001:
+			have = flt(ln.allocated_stems) + want
+			extra = have - int(have / size + 1e-9) * size
+			# only when some boxes are whole and one is left part-filled
+			if extra >= 0.5 and have >= size:
+				add(
+					_item(
+						"partial_box",
+						AMBER,
+						_(
+							"{0} stems fill {1} boxes and {2} stems of the next; {3} more would complete it."
+						).format(_n(have), int(have / size + 1e-9), _n(extra), _n(size - extra)),
+					),
+					("box", ln.name),
+				)
 
 		# --- another customer needs this variety
 		if not model.strict(ln):
 			peers = [
 				o
 				for o in model.lines
-				if o.name not in asked and o.item_code == v and (o.custom_length or "") == length and model.left[o.name] > 0
+				if o.name not in asked
+				and o.item_code == v
+				and (o.custom_length or "") == length
+				and model.left[o.name] > 0
 			]
 			strict_peers = [o for o in peers if model.strict(o)]
 			peer_need = sum(model.left[o.name] for o in peers)
@@ -247,9 +348,9 @@ def check(day, farm, lines, model=None):
 				short_by = remaining - max(covered, 0.0)
 				if short_by > 0.0001:
 					alts = sorted(model.options(m) - {m.item_code})
-					msg = _("This mixed box needs {0} {1} too, and we are short of it by {2} stems, so the box could not be completed.").format(
-						m.item_code, pool_m[1], _n(short_by)
-					)
+					msg = _(
+						"This mixed box needs {0} {1} too, and we are short of it by {2} stems, so the box could not be completed."
+					).format(m.item_code, pool_m[1], _n(short_by))
 					if alts:
 						msg += " " + _("It also accepts {0}.").format(", ".join(alts[:3]))
 					add(_item("mix_incomplete", RED, msg, []), ("mix", mk, m.name))
@@ -272,12 +373,14 @@ def check(day, farm, lines, model=None):
 				old_notes.append((risk, kind, sv, sl))
 		for risk, kind, sv, sl in sorted(old_notes, reverse=True)[:2]:
 			if kind == "longer":
-				msg = _("{0} stems of {1} {2} are past the amber time and nobody else has an order for them. This line could use them (a longer stem is fine for stock this old).").format(_n(risk), sv, sl)
+				msg = _(
+					"{0} stems of {1} {2} are past the amber time and nobody else has an order for them. This line could use them (a longer stem is fine for stock this old)."
+				).format(_n(risk), sv, sl)
 				acts = [{"kind": "use_length", "label": _("Confirm {0} instead").format(sl), "length": sl}]
 			else:
-				msg = _("{0} stems of {1} {2} are past the amber time and nobody has an order for them. {3} also accepts {1}: change the order to use it before it is thrown away.").format(
-					_n(risk), sv, sl, ln.customer_name or ln.customer
-				)
+				msg = _(
+					"{0} stems of {1} {2} are past the amber time and nobody has an order for them. {3} also accepts {1}: change the order to use it before it is thrown away."
+				).format(_n(risk), sv, sl, ln.customer_name or ln.customer)
 				acts = [{"kind": "open_order", "label": _("Open this order"), "order": ln.parent}]
 			add(_item("non_moving", AMBER, msg, acts), ("old", ln.name, sv, sl))
 
@@ -291,7 +394,9 @@ def check(day, farm, lines, model=None):
 			parts = [_("{0} on the shelf").format(_n(p["free"]))]
 			if p["received"]:
 				parts.append(_("{0} received and not shelved yet").format(_n(p["received"])))
-			parts.append(_("{0} still to come from the farms").format(_n(max(0.0, cov - p["free"] - p["received"]))))
+			parts.append(
+				_("{0} still to come from the farms").format(_n(max(0.0, cov - p["free"] - p["received"])))
+			)
 			msg = _(
 				"You are confirming {0} stems of {1} {2}, but we can only cover {3}: {4}. The other {5} would be short."
 			).format(_n(pool_take), v, length, _n(cov), ", ".join(parts), _n(over))
@@ -299,13 +404,17 @@ def check(day, farm, lines, model=None):
 		elif pool_take > cov_sure + 0.0001:
 			err = model.error_pct(v)
 			why = (
-				_("the forecast for {0} has been off by {1}% on average this year, so we count only {2} of it").format(v, err, _n(cov_sure))
+				_(
+					"the forecast for {0} has been off by {1}% on average this year, so we count only {2} of it"
+				).format(v, err, _n(cov_sure))
 				if err is not None
-				else _("there are no finished weeks to judge the forecast for {0} by, so none of it counts as sure").format(v)
+				else _(
+					"there are no finished weeks to judge the forecast for {0} by, so none of it counts as sure"
+				).format(v)
 			)
-			msg = _("You are confirming {0} stems of {1} {2}. We are sure of {3}: {4}. The other {5} depend on the forecast being right.").format(
-				_n(pool_take), v, length, _n(cov_sure), why, _n(pool_take - cov_sure)
-			)
+			msg = _(
+				"You are confirming {0} stems of {1} {2}. We are sure of {3}: {4}. The other {5} depend on the forecast being right."
+			).format(_n(pool_take), v, length, _n(cov_sure), why, _n(pool_take - cov_sure))
 			add(_item("not_enough", AMBER, msg), ("short", pool_key))
 
 	loud = [i for i in items if i["severity"] in (RED, AMBER)]
@@ -317,7 +426,9 @@ def check(day, farm, lines, model=None):
 
 
 @frappe.whitelist()
-def preview_confirmation(delivery_date: str | None = None, farm: str | None = None, lines: str | list | None = None):
+def preview_confirmation(
+	delivery_date: str | None = None, farm: str | None = None, lines: str | list | None = None
+):
 	"""What confirming these lines would do to the other customers. Writes nothing."""
 	day, farm = pg._day(delivery_date), farm or pg._default_farm()
 	if isinstance(lines, str):
@@ -338,9 +449,15 @@ def get_use_first(delivery_date: str | None = None, farm: str | None = None):
 			continue
 		left_old = s["old"]
 		by_farm = s.get("old_by_farm") or {}
-		old_farm = max(by_farm, key=by_farm.get) if by_farm else farm  # the farm holding most of the old stock
+		old_farm = (
+			max(by_farm, key=by_farm.get) if by_farm else farm
+		)  # the farm holding most of the old stock
 		matches = []
-		exact = [ln for ln in model.lines if ln.item_code == v and (ln.custom_length or "") == length and model.left[ln.name] > 0]
+		exact = [
+			ln
+			for ln in model.lines
+			if ln.item_code == v and (ln.custom_length or "") == length and model.left[ln.name] > 0
+		]
 		shorter = [
 			ln
 			for ln in model.lines
@@ -370,5 +487,19 @@ def get_use_first(delivery_date: str | None = None, farm: str | None = None):
 					}
 				)
 		if matches:
-			out.append({"variety": v, "length": length, "old_stems": s["old"], "matches": matches, "unused": left_old})
-	return {"success": True, "delivery_date": day, "farm": farm, "amber_from_days": pg.amber_from_days(), "items": out}
+			out.append(
+				{
+					"variety": v,
+					"length": length,
+					"old_stems": s["old"],
+					"matches": matches,
+					"unused": left_old,
+				}
+			)
+	return {
+		"success": True,
+		"delivery_date": day,
+		"farm": farm,
+		"amber_from_days": pg.amber_from_days(),
+		"items": out,
+	}

@@ -94,11 +94,21 @@ def free_for_line(farm, variety, length, soi):
 	  on the shelf            free stems, not too old, not cooling, not held for another line
 	  received, not shelved   buckets waiting for a shelf (within the discard age), with their cold room
 
-	Stems already held for THIS line count as free for it."""
+	Stems already held for THIS line count as free for it. A line with a cut stage only takes shelf buckets
+	at that stage: the ones Sales Allocation offers it."""
 	rows = stock.bucket_rows(farms=[farm], varieties=[variety], lengths=[length] if length else None)
+	stage = frappe.db.get_value("Sales Order Item", soi, "custom_cut_stage") if soi else None
+	if stage:
+		from upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2 import (
+			_norm_cut_stage,
+		)
+
+		rows = [r for r in rows if _norm_cut_stage(r.cut_stage) == _norm_cut_stage(stage)]
 	recv = [
 		r
-		for r in received.received_unshelved(farms=[farm], varieties=[variety], lengths=[length] if length else None)
+		for r in received.received_unshelved(
+			farms=[farm], varieties=[variety], lengths=[length] if length else None
+		)
 		if (r.stem_length or "") == (length or "")
 	]
 	own = _own_held(soi, {r.bucket_id for r in rows} | {r.bucket_id for r in recv})
@@ -108,14 +118,23 @@ def free_for_line(farm, variety, length, soi):
 			continue
 		avail = r.allocatable + min(own.get(r.bucket_id, 0.0), r.reserved)
 		if avail > 0:
-			out.append(frappe._dict(bucket_id=r.bucket_id, free=avail, age_days=r.age_days or 0, stems=r.stems, source="shelf"))
+			out.append(
+				frappe._dict(
+					bucket_id=r.bucket_id, free=avail, age_days=r.age_days or 0, stems=r.stems, source="shelf"
+				)
+			)
 	others = availability.reserved_by_bucket(exclude_soi=soi, bucket_ids={r.bucket_id for r in recv})
 	for r in recv:
 		avail = r.stems - others.get(r.bucket_id, 0.0)
 		if avail > 0:
 			out.append(
 				frappe._dict(
-					bucket_id=r.bucket_id, free=avail, age_days=r.age_days, stems=r.stems, source="received", cold_room=r.cold_room
+					bucket_id=r.bucket_id,
+					free=avail,
+					age_days=r.age_days,
+					stems=r.stems,
+					source="received",
+					cold_room=r.cold_room,
 				)
 			)
 	out.sort(key=lambda b: (-b.age_days, b.bucket_id))
@@ -150,11 +169,16 @@ def reserve_real(*, plan, line, farm, variety, length, stems, user=None, team=No
 	than asked; the caller plans the rest as Virtual."""
 	soi = line["sales_order_item"]
 	existing = frappe.db.get_value(
-		"Allocation Confirmation", {"sales_order_item": soi, "source": "Real", "status": ("in", LIVE)}, ["name", "farm"], as_dict=True
+		"Allocation Confirmation",
+		{"sales_order_item": soi, "source": "Real", "status": ("in", LIVE)},
+		["name", "farm"],
+		as_dict=True,
 	)
 	if existing:
 		release_confirmation(existing.name, "Manual", user=user, keep_open=True)
-		if existing.farm and existing.farm != farm:  # confirmed against another farm before: its mirror row must go
+		if (
+			existing.farm and existing.farm != farm
+		):  # confirmed against another farm before: its mirror row must go
 			refresh_mirror(line["sales_order"], soi, existing.farm)
 
 	pool = free_for_line(farm, variety, length, soi)
@@ -192,11 +216,16 @@ def reserve_real(*, plan, line, farm, variety, length, stems, user=None, team=No
 	return conf, held
 
 
-def plan_virtual(*, plan, line, farm, variety, length, stems, forecast_basis="", team=None, harvest_stems=0.0):
+def plan_virtual(
+	*, plan, line, farm, variety, length, stems, forecast_basis="", team=None, harvest_stems=0.0
+):
 	"""Plan stems from the expected harvest. Stems only, no buckets."""
 	soi = line["sales_order_item"]
 	existing = frappe.db.get_value(
-		"Allocation Confirmation", {"sales_order_item": soi, "source": "Virtual", "status": ("in", LIVE)}, ["name", "farm"], as_dict=True
+		"Allocation Confirmation",
+		{"sales_order_item": soi, "source": "Virtual", "status": ("in", LIVE)},
+		["name", "farm"],
+		as_dict=True,
 	)
 	if existing:
 		release_confirmation(existing.name, "Manual", keep_open=True)
@@ -205,12 +234,25 @@ def plan_virtual(*, plan, line, farm, variety, length, stems, forecast_basis="",
 	if flt(stems) <= 0:
 		refresh_mirror(line["sales_order"], soi, farm)
 		return None
-	conf = _confirmation(plan, line, "Virtual", flt(stems), farm, variety, length, forecast_basis=forecast_basis, team=team, harvest=min(flt(harvest_stems), flt(stems)))
+	conf = _confirmation(
+		plan,
+		line,
+		"Virtual",
+		flt(stems),
+		farm,
+		variety,
+		length,
+		forecast_basis=forecast_basis,
+		team=team,
+		harvest=min(flt(harvest_stems), flt(stems)),
+	)
 	refresh_mirror(line["sales_order"], soi, farm)
 	return conf
 
 
-def _confirmation(plan, line, source, stems, farm, variety, length, forecast_basis="", team=None, harvest=0.0):
+def _confirmation(
+	plan, line, source, stems, farm, variety, length, forecast_basis="", team=None, harvest=0.0
+):
 	doc = frappe.get_doc(
 		{
 			"doctype": "Allocation Confirmation",
@@ -274,6 +316,22 @@ def teams_for_lines(sois):
 	return {r.sales_order_item: r.team for r in rows}
 
 
+def planned_teams(sois):
+	"""{sales_order_item: team} the plan gave each line, including lines it has since seen allocated: a line
+	unallocated again keeps its team."""
+	if not sois:
+		return {}
+	rows = frappe.db.sql(
+		"""SELECT sales_order_item, team FROM `tabAllocation Confirmation`
+		   WHERE sales_order_item IN %(s)s AND IFNULL(team, '') != ''
+		     AND (status IN %(kept)s OR (status = 'Released' AND release_reason = 'Allocated'))
+		   ORDER BY modified ASC""",
+		{"s": tuple(sois), "kept": (*LIVE, "Fulfilled")},
+		as_dict=True,
+	)
+	return {r.sales_order_item: r.team for r in rows}
+
+
 def group_team(mix_key):
 	"""The team already chosen for a mixed box (any of its lines), or None."""
 	if not mix_key:
@@ -294,6 +352,48 @@ def apply_team_to_group(mix_key, team):
 			   WHERE mix_key = %(k)s AND status IN %(live)s""",
 			{"t": team, "k": mix_key, "live": LIVE},
 		)
+
+
+def sequence_orders(plan, first=None):
+	"""Number the plan's orders 1..n in Sales Order.custom_allocation_sequence: the order Sales Allocation lists them in.
+
+	`first` (sales orders) goes first, in that order; the rest keep their place and an order new to the plan goes last.
+	An order planned and since allocated keeps its place; an order taken out of the plan goes back to 0."""
+	if not plan or not frappe.db.has_column("Sales Order", "custom_allocation_sequence"):
+		return []
+	rows = frappe.db.sql(
+		"""SELECT ac.sales_order, MIN(ac.creation) AS since,
+			MAX(ac.status IN %(kept)s OR (ac.status = 'Released' AND ac.release_reason = 'Allocated')) AS planned,
+			MAX(so.custom_allocation_sequence) AS seq
+		   FROM `tabAllocation Confirmation` ac
+		   INNER JOIN `tabSales Order` so ON so.name = ac.sales_order
+		   WHERE ac.plan = %(plan)s
+		   GROUP BY ac.sales_order""",
+		{"plan": plan, "kept": (*LIVE, "Fulfilled")},
+		as_dict=True,
+	)
+	pick = {so: i for i, so in enumerate(first or [])}
+	planned = sorted(
+		(r for r in rows if r.planned),
+		key=lambda r: (
+			pick.get(r.sales_order, len(pick)),
+			not cint(r.seq),
+			cint(r.seq),
+			r.since,
+			r.sales_order,
+		),
+	)
+	want = {r.sales_order: i for i, r in enumerate(planned, 1)}
+	for r in rows:
+		if cint(r.seq) != want.get(r.sales_order, 0):
+			frappe.db.set_value(
+				"Sales Order",
+				r.sales_order,
+				"custom_allocation_sequence",
+				want.get(r.sales_order, 0),
+				update_modified=False,
+			)
+	return [r.sales_order for r in planned]
 
 
 # ---------------------------------------------------------------- release
@@ -342,7 +442,11 @@ def consume(bucket_id, soi, qty):
 		frappe.db.set_value(
 			"Bucket Reservation",
 			r.name,
-			{"stems": left, "status": "Active" if left > 0 else "Consumed", "released_on": None if left > 0 else now_datetime()},
+			{
+				"stems": left,
+				"status": "Active" if left > 0 else "Consumed",
+				"released_on": None if left > 0 else now_datetime(),
+			},
 		)
 		taken_by[r.confirmation] += used
 		qty -= used
@@ -355,7 +459,10 @@ def consume(bucket_id, soi, qty):
 def _set_fulfilment_status(conf):
 	stems, done = frappe.db.get_value("Allocation Confirmation", conf, ["stems", "fulfilled_stems"])
 	frappe.db.set_value(
-		"Allocation Confirmation", conf, "status", "Fulfilled" if flt(done) >= flt(stems) - 0.0001 else "Partly Fulfilled"
+		"Allocation Confirmation",
+		conf,
+		"status",
+		"Fulfilled" if flt(done) >= flt(stems) - 0.0001 else "Partly Fulfilled",
 	)
 
 
@@ -412,7 +519,9 @@ def release_passed_days():
 		pluck="name",
 	):
 		release_confirmation(c, "Delivery passed", user="Administrator")
-	for p in frappe.get_all("Allocation Plan", filters={"status": ("!=", "Closed"), "delivery_date": ("<", today())}, pluck="name"):
+	for p in frappe.get_all(
+		"Allocation Plan", filters={"status": ("!=", "Closed"), "delivery_date": ("<", today())}, pluck="name"
+	):
 		frappe.db.set_value("Allocation Plan", p, "status", "Closed")
 
 
@@ -430,11 +539,15 @@ def mark_missing_buckets():
 			{"b": tuple({h.bucket_id for h in held})},
 		)
 	}
-	waiting = received.unshelved_bucket_ids({h.bucket_id for h in held} - on_shelf)  # received, not shelved yet
+	waiting = received.unshelved_bucket_ids(
+		{h.bucket_id for h in held} - on_shelf
+	)  # received, not shelved yet
 	discarding = availability.reserved_bucket_ids()
 	for h in held:
 		if (h.bucket_id not in on_shelf and h.bucket_id not in waiting) or h.bucket_id in discarding:
-			frappe.db.set_value("Bucket Reservation", h.name, {"status": "Broken", "released_on": now_datetime()})
+			frappe.db.set_value(
+				"Bucket Reservation", h.name, {"status": "Broken", "released_on": now_datetime()}
+			)
 			frappe.db.set_value("Allocation Confirmation", h.confirmation, "status", "Broken")
 
 
@@ -449,12 +562,19 @@ def convert_virtual(delivery_date=None, farm=None):
 	if delivery_date:
 		filters["delivery_date"] = delivery_date
 	if farm:  # the sales farm: its plan holds every confirmation, whichever farm's stock they are against
-		filters["plan"] = ("in", frappe.get_all("Allocation Plan", filters={"farm": farm}, pluck="name") or ["-"])
+		filters["plan"] = (
+			"in",
+			frappe.get_all("Allocation Plan", filters={"farm": farm}, pluck="name") or ["-"],
+		)
 	converted = 0.0
-	for c in frappe.get_all("Allocation Confirmation", filters=filters, fields=["*"], order_by="creation asc"):
+	for c in frappe.get_all(
+		"Allocation Confirmation", filters=filters, fields=["*"], order_by="creation asc"
+	):
 		soi = c.sales_order_item
 		real = frappe.db.get_value(
-			"Allocation Confirmation", {"sales_order_item": soi, "source": "Real", "status": ("in", LIVE)}, "stems"
+			"Allocation Confirmation",
+			{"sales_order_item": soi, "source": "Real", "status": ("in", LIVE)},
+			"stems",
 		)
 		real = flt(real)
 		free = sum(b.free for b in free_for_line(c.farm, c.variety, c.length, soi))
@@ -477,8 +597,15 @@ def convert_virtual(delivery_date=None, farm=None):
 		rest = real + flt(c.stems) - held
 		if rest > 0.0001:
 			plan_virtual(
-				plan=plan, line=line, farm=c.farm, variety=c.variety, length=c.length, stems=rest,
-				forecast_basis=c.forecast_basis, team=c.team, harvest_stems=min(rest, flt(c.from_harvest)),
+				plan=plan,
+				line=line,
+				farm=c.farm,
+				variety=c.variety,
+				length=c.length,
+				stems=rest,
+				forecast_basis=c.forecast_basis,
+				team=c.team,
+				harvest_stems=min(rest, flt(c.from_harvest)),
 			)
 		refresh_mirror(c.sales_order, soi, c.farm)
 		converted += max(0.0, held - real)
@@ -557,7 +684,7 @@ def setup_settings():
 	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 	fields = [
-		{"fieldname": "allocation_planning_tab", "fieldtype": "Tab Break", "label": "Allocation Planning"},
+		{"fieldname": "allocation_planning_section", "fieldtype": "Section Break", "label": "Planning"},
 		{
 			"fieldname": "allocation_harvest_lead_days",
 			"fieldtype": "Int",
@@ -588,10 +715,30 @@ def setup_settings():
 			"default": str(SETTING_DEFAULTS["allocation_use_first_alert_stems"]),
 		},
 	]
+	# In Production Settings' own Allocation Planning tab, after its Sales Allocation v2 section (a custom
+	# Tab Break used to stand in for the tab; it goes).
+	if frappe.db.exists("Custom Field", "Production Settings-allocation_planning_tab"):
+		frappe.delete_doc(
+			"Custom Field", "Production Settings-allocation_planning_tab", ignore_permissions=True, force=True
+		)
+	meta = frappe.get_meta("Production Settings")
+	after = (
+		"hide_allocation_planning_team"
+		if meta.has_field("hide_allocation_planning_team")
+		else "release_trips_without_confirmation"
+	)
+	for field in fields:
+		field["insert_after"] = after
+		after = field["fieldname"]
 	create_custom_fields({"Production Settings": fields}, ignore_validate=True)
 	# The forecast margin is no longer a setting: it is the forecast's own average error this year.
 	if frappe.db.exists("Custom Field", "Production Settings-allocation_virtual_haircut_pct"):
-		frappe.delete_doc("Custom Field", "Production Settings-allocation_virtual_haircut_pct", ignore_permissions=True, force=True)
+		frappe.delete_doc(
+			"Custom Field",
+			"Production Settings-allocation_virtual_haircut_pct",
+			ignore_permissions=True,
+			force=True,
+		)
 	# Seed once. A value the business has already saved (even 0) is never touched.
 	for name, default in SETTING_DEFAULTS.items():
 		if _stored(name) is None:

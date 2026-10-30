@@ -168,6 +168,12 @@ html.ph2-root .scroll-to-top,html.ph2-root .page-footer{display:none!important}
 .ph-daterange{display:inline-flex;align-items:center;gap:6px;padding:0 14px;color:var(--ink-mute)}
 .ph-daterange input{border:0;outline:none;background:transparent;font:500 12px var(--sans);color:var(--ink);padding:0;height:100%;width:118px}
 .ph-daterange input::-webkit-calendar-picker-indicator{opacity:.45;cursor:pointer}
+.ph-fdate{display:inline-flex;align-items:center;height:100%}
+.ph-fdate .frappe-control,.ph-fdate .form-group,.ph-fdate .control-input-wrapper,.ph-fdate .control-input{margin:0;padding:0;height:100%;display:flex;align-items:center}
+.ph-daterange .ph-fdate input.form-control{border:0;outline:none;box-shadow:none;background:transparent;font:500 12px var(--sans);color:var(--ink);padding:0;height:100%;width:92px;cursor:pointer}
+.datepicker{z-index:10050}
+.ph-fdate .tooltip-content,.ph-fdate .clearfix,.ph-fdate .help-box,.ph-fdate .control-value{display:none!important}
+.ph-fdate .form-group.horizontal{display:flex;align-items:center}
 .ph-daterange__sep{color:var(--ink-faint)}
 
 /* ── Buttons ── */

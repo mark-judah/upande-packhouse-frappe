@@ -116,7 +116,13 @@ def after_migrate():
 def _run():
 	from upande_packhouse.allocation_plan import ensure_indexes, setup_settings
 
-	for step in (ensure_dashboard_links, ensure_line_bucket_index, setup_settings, ensure_indexes):
+	for step in (
+		ensure_dashboard_links,
+		ensure_line_bucket_index,
+		ensure_issued_to_index,
+		setup_settings,
+		ensure_indexes,
+	):
 		try:
 			step()
 		except Exception:

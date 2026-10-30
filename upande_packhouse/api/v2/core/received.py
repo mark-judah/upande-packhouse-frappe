@@ -23,7 +23,6 @@ from frappe.utils import add_days, getdate, today
 from upande_packhouse.api.v2.cold_room import ONWARD_TYPES, RECEIPT_TYPES
 from upande_packhouse.api.v2.core import stock
 
-
 #: These are facts about the floor, not about the plan, so a minute-old answer is as good as a fresh one and the
 #: page can reload after every confirmation without asking the huge Stock Entry table again.
 CACHE_SECONDS = 60
@@ -43,7 +42,11 @@ def received_unshelved(*, farms=None, varieties=None, lengths=None):
 	if farms is not None and not farms:
 		return []
 	cfg = stock._config()
-	key = "allocation_received:%s:%s:%s" % (tuple(sorted(farms)) if farms is not None else "*", cfg["discard_age"], today())
+	key = "allocation_received:%s:%s:%s" % (
+		tuple(sorted(farms)) if farms is not None else "*",
+		cfg["discard_age"],
+		today(),
+	)
 	rows = _cached(key, lambda: _received_unshelved(tuple(farms) if farms is not None else None, cfg))
 	vs, ls = set(varieties or ()), set(lengths or ())
 	return [r for r in rows if (not vs or r.variety in vs) and (not ls or (r.stem_length or "") in ls)]
@@ -53,8 +56,15 @@ def _received_unshelved(farms, cfg):
 	varieties = lengths = None
 	discard_age = cfg["discard_age"]
 	farm_cfg = cfg["farm_config"]
-	since = add_days(today(), -min(int(math.ceil(discard_age)), 365))  # a year is plenty: nothing waits that long
-	params = {"rt": RECEIPT_TYPES, "cycle": RECEIPT_TYPES + ("Harvesting",), "onward": ONWARD_TYPES, "since": since}
+	since = add_days(
+		today(), -min(int(math.ceil(discard_age)), 365)
+	)  # a year is plenty: nothing waits that long
+	params = {
+		"rt": RECEIPT_TYPES,
+		"cycle": RECEIPT_TYPES + ("Harvesting",),
+		"onward": ONWARD_TYPES,
+		"since": since,
+	}
 	cond = ""
 	if farms is not None:
 		cond += " AND se.farm IN %(farms)s"
@@ -154,7 +164,9 @@ def harvested_day(day, farms, varieties):
 	bucket has no Receiving entry since."""
 	if not farms or not varieties:
 		return {}
-	all_ = _cached("allocation_harvest:%s:%s" % (day, tuple(sorted(farms))), lambda: _harvested_day(day, tuple(farms)))
+	all_ = _cached(
+		"allocation_harvest:%s:%s" % (day, tuple(sorted(farms))), lambda: _harvested_day(day, tuple(farms))
+	)
 	wanted = set(varieties)
 	return {k: v for k, v in all_.items() if k[0] in wanted}
 

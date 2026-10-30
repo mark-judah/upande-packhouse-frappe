@@ -152,7 +152,16 @@ def bucket_rows(*, farms=None, varieties=None, lengths=None, rose=None, company=
 	return rows
 
 
-SUM_FIELDS = ("stems", "held", "allocated", "free", "reserved", "allocatable", "allocated_in_held", "over_allocated")
+SUM_FIELDS = (
+	"stems",
+	"held",
+	"allocated",
+	"free",
+	"reserved",
+	"allocatable",
+	"allocated_in_held",
+	"over_allocated",
+)
 
 
 def summarize(rows, by=("variety", "stem_length", "shelf_farm")):

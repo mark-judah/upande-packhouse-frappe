@@ -453,6 +453,7 @@
 			const s = st.get();
 			if (f) f.value = s[fk] || "";
 			if (t) t.value = s[tk] || "";
+			[f, t].forEach((x) => x && x._showDate && x._showDate());
 			if (pills) {
 				const keys = PH.$$("button[data-value]", pills).map((b) => b.dataset.value);
 				// Single-date pickers (no `to` input) match a preset by its start day.
@@ -489,6 +490,88 @@
 		if (t) t.addEventListener("change", onInput("to"));
 		st.on(paint);
 		paint();
+	};
+
+	/**
+	 * Frappe's date picker in place of a browser <input type="date">, so a date looks and is picked
+	 * like every other date in the system. The input stays as the value carrier (ISO, hidden) and
+	 * still fires `change`, so PH.dateRange and the page's own listeners work as before.
+	 * PH.frappeDate('#from')
+	 */
+	/** Nudge an absolutely or fixed positioned popup (calendar, menu, tooltip) back inside the window. */
+	PH.keepInView = function (el, gap) {
+		if (!el) return;
+		const g = gap == null ? 8 : gap;
+		const r = el.getBoundingClientRect();
+		const cs = getComputedStyle(el);
+		let dx = 0,
+			dy = 0;
+		if (r.right > window.innerWidth - g) dx = window.innerWidth - g - r.right;
+		if (r.left + dx < g) dx = g - r.left;
+		if (r.bottom > window.innerHeight - g) dy = window.innerHeight - g - r.bottom;
+		if (r.top + dy < g) dy = g - r.top;
+		if (dx) el.style.left = parseFloat(cs.left || 0) + dx + "px";
+		if (dy) el.style.top = parseFloat(cs.top || 0) + dy + "px";
+	};
+
+	PH.frappeDate = function (sel) {
+		const input = typeof sel === "string" ? PH.$(sel) : sel;
+		if (!input || input._fdate) return;
+		input._fdate = true;
+		const build = () => {
+			const wrap = document.createElement("span");
+			wrap.className = "ph-fdate";
+			input.after(wrap);
+			input.type = "hidden";
+			const ctl = frappe.ui.form.make_control({
+				df: {
+					fieldtype: "Date",
+					fieldname: (input.id || "date").replace(/-/g, "_"),
+					label: "",
+				},
+				parent: wrap,
+				render_input: true,
+			});
+			PH.$$(".control-label, .help-box", wrap).forEach((k) => (k.style.display = "none"));
+			if (input.getAttribute("aria-label"))
+				ctl.$input.attr("aria-label", input.getAttribute("aria-label"));
+			ctl.$input.on("change", () => {
+				const v = ctl.get_value() || "";
+				if (v && v !== input.value) {
+					input.value = v;
+					input.dispatchEvent(new Event("change", { bubbles: true }));
+				}
+			});
+			input._showDate = () => {
+				if ((ctl.get_value() || "") !== (input.value || ""))
+					ctl.set_value(input.value || "");
+			};
+			input._showDate();
+			// Frappe opens the calendar above or below the field but always from its left edge, so a field near
+			// the right of the page pushes it off screen: open it from the right edge there, then keep it in view.
+			const place =
+				ctl.update_datepicker_position && ctl.update_datepicker_position.bind(ctl);
+			ctl.update_datepicker_position = function () {
+				if (place) place();
+				const dp = ctl.datepicker;
+				if (!dp || !dp.$datepicker) return;
+				const r = ctl.$input[0].getBoundingClientRect();
+				if (r.left + r.width / 2 > window.innerWidth / 2) {
+					const pos = (dp.opts.position || "bottom left").replace("left", "right");
+					if (dp.opts.position !== pos) dp.update({ position: pos });
+				}
+				requestAnimationFrame(() => PH.keepInView(dp.$datepicker[0]));
+			};
+		};
+		// Page scripts run before Frappe's web bundle is loaded (it comes last in the page), so wait for it.
+		const start = (tries) => {
+			if (window.frappe && frappe.ui && frappe.ui.form && frappe.ui.form.make_control)
+				build();
+			else if (window.frappe && frappe.require) frappe.require("controls.bundle.js", build);
+			else if (tries > 0) setTimeout(() => start(tries - 1), 150);
+		};
+		if (document.readyState === "complete") start(40);
+		else window.addEventListener("load", () => start(40), { once: true });
 	};
 
 	/* ── Region: the universal Ravine / Karen filter ─────────────────

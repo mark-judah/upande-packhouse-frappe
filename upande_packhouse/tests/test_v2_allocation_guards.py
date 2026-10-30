@@ -68,7 +68,12 @@ def codes(result):
 
 
 def ask(model, *items):
-	return g.check("2026-10-30", "Kapkolia", [{"sales_order_item": n, "stems": s, **({"length": ln} if ln else {})} for n, s, ln in items], model)
+	return g.check(
+		"2026-10-30",
+		"Kapkolia",
+		[{"sales_order_item": n, "stems": s, **({"length": ln} if ln else {})} for n, s, ln in items],
+		model,
+	)
 
 
 class TestRules(unittest.TestCase):
@@ -85,7 +90,9 @@ class TestRules(unittest.TestCase):
 	def test_longer_length_is_amber_when_the_short_customer_accepts_other_varieties(self):
 		a = line("A", "Moonwalk", "42cm", 100)
 		b = line("B", "Moonwalk", "52cm", 500, spec="S1")
-		m = FakeModel([a, b], supply={("Moonwalk", "52cm"): {"free": 300}}, specs={"S1": {"Moonwalk", "Aqua"}})
+		m = FakeModel(
+			[a, b], supply={("Moonwalk", "52cm"): {"free": 300}}, specs={"S1": {"Moonwalk", "Aqua"}}
+		)
 		r = ask(m, ("A", 100, "52cm"))
 		self.assertEqual(codes(r), [("longer_length", "amber")])
 
@@ -157,7 +164,13 @@ class TestRules(unittest.TestCase):
 		)
 		r = ask(m, ("A", 400, None))
 		msg = r["heads_up"][0]["message"]
-		for part in ("400", "300", "100 on the shelf", "200 still to come from the farms", "The other 100 would be short"):
+		for part in (
+			"400",
+			"300",
+			"100 on the shelf",
+			"200 still to come from the farms",
+			"The other 100 would be short",
+		):
 			self.assertIn(part, msg)
 		self.assertEqual(r["heads_up"][0]["actions"], [])  # it says what is wrong; the planner decides
 
@@ -166,12 +179,19 @@ class TestRules(unittest.TestCase):
 		m = FakeModel([a], supply={("Aqua", "52cm"): {"free": 100}}, forecast={("Aqua", "52cm"): (200, 140)})
 		r = ask(m, ("A", 270, None))
 		self.assertIn("sure of 240", r["heads_up"][0]["message"])
-		self.assertIn("no finished weeks", r["heads_up"][0]["message"])  # nothing to judge the forecast by here
+		self.assertIn(
+			"no finished weeks", r["heads_up"][0]["message"]
+		)  # nothing to judge the forecast by here
 		self.assertIn("The other 30", r["heads_up"][0]["message"])
 
 	def test_not_sure_says_how_far_off_the_forecast_has_been(self):
 		a = line("A", "Aqua", "52cm", 500)
-		m = FakeModel([a], supply={("Aqua", "52cm"): {"free": 100}}, forecast={("Aqua", "52cm"): (200, 150)}, errors={"Aqua": 25})
+		m = FakeModel(
+			[a],
+			supply={("Aqua", "52cm"): {"free": 100}},
+			forecast={("Aqua", "52cm"): (200, 150)},
+			errors={"Aqua": 25},
+		)
 		r = ask(m, ("A", 270, None))
 		self.assertIn("off by 25% on average this year", r["heads_up"][0]["message"])
 
@@ -198,12 +218,16 @@ class TestWithRealData(unittest.TestCase):
 	def test_going_ahead_with_a_heads_up_needs_no_reason(self):
 		a = self.c.lines[0]
 		day = str(a.delivery_date)
-		with _Rollback(), patch.object(pg, "expected_arrivals", lambda *x, **k: (0.0, 0.0)), patch.object(
-			pg, "_stock_by_pool", lambda *x, **k: {}
+		with (
+			_Rollback(),
+			patch.object(pg, "expected_arrivals", lambda *x, **k: (0.0, 0.0)),
+			patch.object(pg, "_stock_by_pool", lambda *x, **k: {}),
 		):
 			lines = [{"sales_order_item": a.soi, "stems": 10}]
 			self.assertTrue(g.check(day, self.c.farm, lines)["heads_up"])  # there is something to say
-			pg.confirm_lines(day, self.c.farm, lines, team=_team())  # and the planner may go ahead without a reason
+			pg.confirm_lines(
+				day, self.c.farm, lines, team=_team()
+			)  # and the planner may go ahead without a reason
 			self.assertTrue(plans.live_confirmations(soi=a.soi))
 
 	def test_expected_stems_become_real_when_the_stock_reaches_the_shelf(self):
@@ -220,19 +244,39 @@ class TestWithRealData(unittest.TestCase):
 				"mix_key": "",
 			}
 			plans.plan_virtual(
-				plan=plan, line=info, farm=self.c.farm, variety=self.c.bucket.variety, length=self.c.bucket.stem_length, stems=10
+				plan=plan,
+				line=info,
+				farm=self.c.farm,
+				variety=self.c.bucket.variety,
+				length=self.c.bucket.stem_length,
+				stems=10,
 			)
-			free = sum(b.free for b in plans.free_for_line(self.c.farm, self.c.bucket.variety, self.c.bucket.stem_length, a.soi))
+			free = sum(
+				b.free
+				for b in plans.free_for_line(
+					self.c.farm, self.c.bucket.variety, self.c.bucket.stem_length, a.soi
+				)
+			)
 			moved = plans.convert_virtual(day, self.c.farm)
 			self.assertAlmostEqual(moved, min(10.0, free), places=3)
-			held = sum(frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"}, pluck="stems"))
+			held = sum(
+				frappe.get_all(
+					"Bucket Reservation",
+					filters={"sales_order_item": a.soi, "status": "Active"},
+					pluck="stems",
+				)
+			)
 			self.assertAlmostEqual(held, min(10.0, free), places=3)
 			rest = 10.0 - min(10.0, free)
 			virtual = [c for c in plans.live_confirmations(soi=a.soi) if c.source == "Virtual"]
 			self.assertAlmostEqual(sum(flt(c.stems) for c in virtual), rest, places=3)
 			if rest <= 0:
 				self.assertEqual(
-					frappe.db.get_value("Allocation Confirmation", {"sales_order_item": a.soi, "source": "Virtual"}, "release_reason"),
+					frappe.db.get_value(
+						"Allocation Confirmation",
+						{"sales_order_item": a.soi, "source": "Virtual"},
+						"release_reason",
+					),
 					"Now on the shelf",
 				)
 
@@ -242,7 +286,17 @@ class TestWithRealData(unittest.TestCase):
 		with _Rollback():
 			pool = pg._stock_by_pool(self.c.farm, {self.c.bucket.variety})
 			key = (self.c.bucket.variety, self.c.bucket.stem_length)
-			fake = {**pool, key: {**pool.get(key, {}), "free": 500.0, "old": 500.0, "held": 0.0, "oldest": 5, "buckets": 1}}
+			fake = {
+				**pool,
+				key: {
+					**pool.get(key, {}),
+					"free": 500.0,
+					"old": 500.0,
+					"held": 0.0,
+					"oldest": 5,
+					"buckets": 1,
+				},
+			}
 			with patch.object(pg, "_stock_by_pool", lambda *x, **k: fake):
 				r = g.get_use_first(day, self.c.farm)
 			item = next((i for i in r["items"] if (i["variety"], i["length"]) == key), None)
@@ -268,7 +322,12 @@ class TestExpectedByFarm(unittest.TestCase):
 		day = date.fromisocalendar(row[0].iso_year, row[0].week_number, 3) + timedelta(
 			days=int(plans.setting("allocation_harvest_lead_days"))
 		)
-		farms = {r.farm for r in frappe.get_all("Shelf Locations", filters={"parenttype": "Production Settings"}, fields=["farm"])}
+		farms = {
+			r.farm
+			for r in frappe.get_all(
+				"Shelf Locations", filters={"parenttype": "Production Settings"}, fields=["farm"]
+			)
+		}
 		for length in ("42cm", "52cm", "62cm"):
 			d = pg.expected_detail(row[0].variety, length, day, "Kapkolia")
 			self.assertAlmostEqual(sum(d["by_farm"].values()), d["likely"], places=6)
@@ -287,7 +346,9 @@ class TestNonMoving(unittest.TestCase):
 
 	def test_confirming_fresh_warns_when_old_stock_of_a_longer_length_is_unwanted(self):
 		a = line("A", "Moonwalk", "42cm", 100)
-		m = FakeModel([a], supply={("Moonwalk", "42cm"): {"free": 500}, ("Moonwalk", "52cm"): {"free": 400, "old": 400}})
+		m = FakeModel(
+			[a], supply={("Moonwalk", "42cm"): {"free": 500}, ("Moonwalk", "52cm"): {"free": 400, "old": 400}}
+		)
 		r = ask(m, ("A", 100, None))
 		self.assertEqual(codes(r), [("non_moving", "amber")])
 		self.assertEqual(r["heads_up"][0]["actions"][0]["kind"], "use_length")
@@ -295,7 +356,11 @@ class TestNonMoving(unittest.TestCase):
 
 	def test_confirming_warns_about_old_stock_of_an_approved_substitute(self):
 		a = line("A", "Athena", "42cm", 100, spec="S1")
-		m = FakeModel([a], supply={("Athena", "42cm"): {"free": 500}, ("Polar", "42cm"): {"free": 300, "old": 300}}, specs={"S1": {"Athena", "Polar"}})
+		m = FakeModel(
+			[a],
+			supply={("Athena", "42cm"): {"free": 500}, ("Polar", "42cm"): {"free": 300, "old": 300}},
+			specs={"S1": {"Athena", "Polar"}},
+		)
 		r = ask(m, ("A", 100, None))
 		self.assertEqual(codes(r), [("non_moving", "amber")])
 		self.assertEqual(r["heads_up"][0]["actions"][0]["kind"], "open_order")
@@ -303,5 +368,8 @@ class TestNonMoving(unittest.TestCase):
 	def test_no_warning_when_another_line_is_waiting_for_the_old_stock(self):
 		a = line("A", "Moonwalk", "42cm", 100)
 		b = line("B", "Moonwalk", "52cm", 400)
-		m = FakeModel([a, b], supply={("Moonwalk", "42cm"): {"free": 500}, ("Moonwalk", "52cm"): {"free": 400, "old": 400}})
+		m = FakeModel(
+			[a, b],
+			supply={("Moonwalk", "42cm"): {"free": 500}, ("Moonwalk", "52cm"): {"free": 400, "old": 400}},
+		)
 		self.assertNotIn("non_moving", [c for c, _s in codes(ask(m, ("A", 100, None)))])
