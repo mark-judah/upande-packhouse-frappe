@@ -955,7 +955,7 @@ def rolling_forecast(variety, length, day, farm):
 			   INNER JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
 			   WHERE se.stock_entry_type = 'Harvesting' AND se.docstatus = 1
 			     AND se.posting_date IN %(d)s AND sed.item_code = %(v)s
-			     AND IFNULL(sed.custom_stem_length, '') = %(l)s
+			     AND IFNULL(NULLIF(sed.custom_stem_length, ''), IFNULL(se.custom_stem_length, '')) = %(l)s
 			     AND IFNULL(se.custom_farm, se.farm) IN %(f)s""",
 			{"d": tuple(days), "v": variety, "l": length or "", "f": tuple(farms) or ("",)},
 		)[0][0]
@@ -1137,7 +1137,7 @@ def rolling_forecast(variety, length, day, farm):
 			   INNER JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
 			   WHERE se.stock_entry_type = 'Harvesting' AND se.docstatus = 1
 			     AND se.posting_date IN %(d)s AND sed.item_code = %(v)s
-			     AND IFNULL(sed.custom_stem_length, '') = %(l)s
+			     AND IFNULL(NULLIF(sed.custom_stem_length, ''), IFNULL(se.custom_stem_length, '')) = %(l)s
 			     AND IFNULL(se.custom_farm, se.farm) IN %(f)s""",
 			{"d": tuple(days), "v": variety, "l": length or "", "f": tuple(farms) or ("",)},
 		)[0][0]
@@ -1465,7 +1465,11 @@ def confirm_lines(delivery_date: str, farm: str, lines: str | list, team: str | 
 			variety=ln.item_code,
 			length=length,
 			stems=rest,
-			forecast_basis="%s, cutting day %s" % (expected_detail(ln.item_code, length, day, farm)["basis"].lower(), cut_day),
+			forecast_basis="%s, cutting day %s"
+			% (
+				expected_detail(ln.item_code, length, day, farm)["basis"].lower(),
+				getdate(day) - timedelta(days=cint(plans.setting("allocation_harvest_lead_days"))),
+			),
 			team=line_team,
 		)
 		if want > 0:
