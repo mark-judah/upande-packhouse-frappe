@@ -211,13 +211,13 @@
    "fieldname": "release_reason",
    "fieldtype": "Select",
    "label": "Why",
-   "options": "\nAllocated\nOrder cancelled\nLine changed\nDelivery passed\nManual\nNow on the shelf",
+   "options": "\nAllocated\nOrder cancelled\nLine changed\nDelivery passed\nManual\nNow on the shelf\nRevised",
    "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-28 09:00:00.000000",
+ "modified": "2026-11-01 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Allocation Confirmation",

@@ -6,12 +6,12 @@ day's plan before anyone allocates. Nothing here writes.
   mix_incomplete  red    a mixed box or bunch that cannot be packed whole: a variety of it is not covered
   cut_stage       red    held buckets at a cut stage the order does not take (Sales Allocation does not offer them)
   missing_bucket  red    a held bucket is no longer on the shelf
-  short           red    a variety and length the day's orders need more of than the shelf and forecast cover
+  short           red    a variety and length the day's orders need more of than the rolling forecast covers
   downgrade       red /  a longer length confirmed while orders for that length are short (red), or on stock
                   amber  that is not past the amber time, so allocation asks for a downgrade reason (amber)
   squeeze         amber  a customer who accepts other varieties holds stock a customer who accepts only it needs
   partial_box     amber  a line covered for some boxes and part of the next: the part box cannot be packed
-  forecast        amber  stems confirmed from the forecast beyond what we are sure of
+  forecast        amber  stems confirmed beyond the rolling forecast: they depend on the production forecast
   non_moving      amber  stock past the amber time that open orders could use (same, longer or an approved variety)
 """
 
@@ -97,6 +97,7 @@ def get_plan_checks(delivery_date: str | None = None, farm: str | None = None):
 	checks += _downgrades(model, confs)
 	checks += _cut_stages(model, confs)
 	checks += _missing(model, confs)
+	checks += _partly_planned(model, covered)
 	checks += _short_and_forecast(model)
 	checks += _squeezes(model, confs)
 	checks += _non_moving(model)
@@ -313,6 +314,36 @@ def _cut_stages(model, confs):
 	return out
 
 
+def _partly_planned(model, covered):
+	"""Orders the plan has started but not finished: every line of an order is planned, or none is."""
+	by_order = defaultdict(list)
+	for ln in model.lines:
+		by_order[ln.parent].append(ln)
+	out = []
+	for lines in by_order.values():
+		left = [
+			ln for ln in lines if covered[ln.name] <= 0 and flt(ln.ordered_stems) > flt(ln.allocated_stems)
+		]
+		if not left or len(left) == len(lines):
+			continue
+		first = left[0]
+		out.append(
+			_check(
+				"partly_planned",
+				"red",
+				_("{0} · {1} of {2} lines not planned").format(
+					first.customer_name or first.customer, len(left), len(lines)
+				),
+				_("Plan {0} too, or the order cannot be packed whole.").format(
+					", ".join("{0} {1}".format(ln.item_code, ln.custom_length or "").strip() for ln in left)
+				),
+				first,
+				[_pool(ln.item_code, ln.custom_length or "") for ln in left[:3]],
+			)
+		)
+	return out
+
+
 def _missing(model, confs):
 	out = []
 	for c in confs:
@@ -347,7 +378,7 @@ def _short_and_forecast(model):
 					"short",
 					"red",
 					_("{0} {1}: short by {2}").format(v, length, _n(want - cover)),
-					_("{0} still to confirm for {1}; the shelf and forecast cover {2}.").format(
+					_("{0} still to confirm for {1}; the rolling forecast covers {2}.").format(
 						_n(want), model.customers(strict or lines), _n(cover)
 					),
 					actions=[_pool(v, length)],
@@ -355,18 +386,18 @@ def _short_and_forecast(model):
 					length=length,
 				)
 			)
-	for (v, length), planned in model.expected_plan.items():
+	for (v, length), planned in model.counted.items():
 		if planned <= 0:
 			continue
-		_likely, sure = model.likely_sure(v, length)
-		if planned > sure + 0.5:
+		rolling = pg.cut_day_total(model.pool(v, length), model.rolling(v, length))
+		if planned > rolling + 0.5:
 			out.append(
 				_check(
 					"forecast",
 					"amber",
-					_("{0} {1}: {2} on the forecast").format(v, length, _n(planned)),
-					_("{0} stems are confirmed from the forecast and we are sure of {1}.").format(
-						_n(planned), _n(sure)
+					_("{0} {1}: {2} on the production forecast").format(v, length, _n(planned - rolling)),
+					_("{0} stems are confirmed and the rolling forecast covers {1}.").format(
+						_n(planned), _n(rolling)
 					),
 					actions=[_pool(v, length)],
 					variety=v,

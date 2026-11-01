@@ -107,6 +107,15 @@ LAST_STAGE = STAGE_NAMES[-1]
 
 
 def load_mapping(business_unit):
+	"""{source_warehouse: <SO Warehouse Mapping Item row as a dict>}, read once per request or job: a
+	release walks the route of every bucket of every order, hundreds of times."""
+	memo = frappe.flags.setdefault("so_warehouse_mapping", {})
+	if business_unit not in memo:
+		memo[business_unit] = _load_mapping(business_unit)
+	return memo[business_unit]
+
+
+def _load_mapping(business_unit):
 	"""{source_warehouse: <SO Warehouse Mapping Item row as a dict>}.
 
 	Duplicate rows for the same source are tolerated: the first row wins, and
@@ -1172,13 +1181,20 @@ def mapping_row_for_farm(farm, business_unit):
 	"""
 	if not farm:
 		return None
+	memo = frappe.flags.setdefault("so_warehouse_farm_row", {})
+	if (farm, business_unit) not in memo:
+		memo[(farm, business_unit)] = _mapping_row_for_farm(farm, business_unit)
+	return memo[(farm, business_unit)]
+
+
+def _mapping_row_for_farm(farm, business_unit):
 	name = frappe.db.get_value(MAPPING_DT, {"business_unit": business_unit})
 	if not name:
 		return None
 	for row in frappe.get_doc(MAPPING_DT, name).items:
 		if (
 			row.source_warehouse
-			and frappe.db.get_value("Warehouse", row.source_warehouse, "custom_farm") == farm
+			and frappe.get_cached_value("Warehouse", row.source_warehouse, "custom_farm") == farm
 		):
 			return row
 	return None

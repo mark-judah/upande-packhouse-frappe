@@ -2,7 +2,7 @@ from collections import defaultdict
 
 import frappe
 from frappe import _
-from frappe.utils import nowdate
+from frappe.utils import cint, nowdate
 
 from upande_packhouse.packing_guide import sync_packing_guide
 
@@ -232,10 +232,11 @@ def create_mixed_box_pick_list_for_allocated_items(sales_order_doc, allocations,
 				so_item_name = item["sales_order_item_name"]
 				existing_rows = [
 					loc for loc in order_pick_list.table_ytkc if loc.sales_order_item == so_item_name
-				]
+				] + rows_on_other_pick_lists(so_item_name, order_pick_list.name)
 				already_stems = sum(loc.stock_qty or 0 for loc in existing_rows)
+				offset = line_box_offset(item["so_item"], existing_rows)
 				existing_box_ids = {loc.custom_box_id for loc in existing_rows if loc.custom_box_id}
-				start_box_num = (max(existing_box_ids) + 1) if existing_box_ids else 1
+				start_box_num = (max(existing_box_ids) - offset + 1) if existing_box_ids else 1
 
 				box_locs = _generate_box_locations(
 					item["alloc"],
@@ -246,9 +247,9 @@ def create_mixed_box_pick_list_for_allocated_items(sales_order_doc, allocations,
 					confirmed_qty=confirmed_stems.get(so_item_name, 0),
 					already_stems=already_stems,
 					start_box_num=start_box_num,
-					placed_by_box=placed_stems_by_box(existing_rows),
+					placed_by_box=placed_stems_by_box(existing_rows, offset),
 				)
-				for loc in box_locs:
+				for loc in shift_boxes(box_locs, offset):
 					order_pick_list.append("table_ytkc", loc)
 
 			total_stems = sum(loc.stock_qty for loc in order_pick_list.table_ytkc)
@@ -315,6 +316,9 @@ def create_mixed_box_pick_list_for_allocated_items(sales_order_doc, allocations,
 			order_pick_list.custom_total_stems = total_stems
 
 			for item in box_items:
+				earlier = rows_on_other_pick_lists(item["sales_order_item_name"])
+				offset = line_box_offset(item["so_item"], earlier)
+				ids = [int(r.custom_box_id) - offset for r in earlier if r.custom_box_id]
 				box_locs = _generate_box_locations(
 					item["alloc"],
 					item["so_item"],
@@ -322,8 +326,11 @@ def create_mixed_box_pick_list_for_allocated_items(sales_order_doc, allocations,
 					item["sales_order_item_name"],
 					shelf_farm=shelf_farm,
 					confirmed_qty=confirmed_stems.get(item["sales_order_item_name"], 0),
+					already_stems=sum(r.stock_qty or 0 for r in earlier),
+					start_box_num=(max(ids) + 1) if ids else 1,
+					placed_by_box=placed_stems_by_box(earlier, offset) if earlier else None,
 				)
-				for loc in box_locs:
+				for loc in shift_boxes(box_locs, offset):
 					order_pick_list.append("table_ytkc", loc)
 
 			group_items = [
@@ -395,13 +402,81 @@ def _check_mix_group_complete(order_pick_list, all_items_in_mix, confirmed_stems
 	return True
 
 
-def placed_stems_by_box(rows):
-	"""{box_id: stems} already sitting on the OPL for one Sales Order Item."""
+def placed_stems_by_box(rows, offset=0):
+	"""{box_id: stems} already sitting on the OPL for one Sales Order Item, by the line's own box number
+	(1..its boxes): `offset` is taken off the order-wide numbers the rows carry (line_box_offset)."""
 	placed = defaultdict(float)
 	for row in rows:
 		if row.custom_box_id:
-			placed[int(row.custom_box_id)] += row.stock_qty or 0
+			placed[int(row.custom_box_id) - offset] += row.stock_qty or 0
 	return placed
+
+
+def order_box_offset(so_item):
+	"""Boxes of the order's lines before this one: box numbers run across the whole order (line 1's boxes
+	1-3, line 2's 4-5, ...) so a part allocation's next pick list carries on from the last box number
+	instead of starting at 1 again. A mixed box or bunch counts once, at its first line."""
+	parent = so_item.get("parent")
+	if not parent:
+		return 0
+	offset, start_of = 0, {}
+	for r in frappe.get_all(
+		"Sales Order Item",
+		filters={"parent": parent},
+		fields=[
+			"name",
+			"custom_number_of_boxes",
+			"custom_mixed_box",
+			"custom_mix_group",
+			"custom_mixed_bunch",
+			"custom_bunch_group",
+		],
+		order_by="idx",
+	):
+		if cint(r.custom_mixed_bunch) and r.custom_bunch_group:
+			key = ("bunch", r.custom_bunch_group)
+		elif cint(r.custom_mixed_box) and r.custom_mix_group:
+			key = ("box", r.custom_mix_group)
+		else:
+			key = ("line", r.name)
+		if key not in start_of:
+			start_of[key] = offset
+			offset += cint(r.custom_number_of_boxes) or 1
+		if r.name == so_item.get("name"):
+			return start_of[key]
+	return 0
+
+
+def rows_on_other_pick_lists(so_item_name, opl_name=None):
+	"""The line's rows on its order's other live pick lists: a part allocation's boxes, so the next pick
+	list fills the boxes after them instead of numbering from the line's first box again."""
+	return frappe.db.sql(
+		"""
+		SELECT pli.custom_box_id, pli.stock_qty
+		FROM `tabPick List Item` pli
+		INNER JOIN `tabOrder Pick List` opl ON opl.name = pli.parent
+		WHERE pli.parenttype = 'Order Pick List' AND pli.sales_order_item = %(soi)s
+			AND opl.docstatus < 2 AND opl.name != %(opl)s
+		""",
+		{"soi": so_item_name, "opl": opl_name or ""},
+		as_dict=True,
+	)
+
+
+def line_box_offset(so_item, existing_rows):
+	"""order_box_offset, except for a pick list whose rows were numbered from 1 per line before box
+	numbers ran across the order: its new rows carry on in that same numbering."""
+	offset = order_box_offset(so_item)
+	ids = [int(r.custom_box_id) for r in existing_rows if r.custom_box_id]
+	return 0 if ids and min(ids) <= offset else offset
+
+
+def shift_boxes(locs, offset):
+	if offset:
+		for loc in locs:
+			if loc.get("custom_box_id"):
+				loc["custom_box_id"] = int(loc["custom_box_id"]) + offset
+	return locs
 
 
 def open_box_slots(placed_by_box, stems_per_box, num_boxes, start_box_num=1):

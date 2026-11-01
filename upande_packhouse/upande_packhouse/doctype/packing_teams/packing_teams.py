@@ -7,6 +7,23 @@ from frappe.model.document import Document
 
 
 class PackingTeams(Document):
+	def onload(self):
+		# Today's On Leave / Off for each member, worked out on opening (not stored).
+		from frappe.utils import getdate, nowdate
+
+		from upande_packhouse.api.v2.allocation_people import _employees, _leave, _off_days
+
+		ids = [m.employee for m in self.members or [] if m.employee]
+		if not ids:
+			return
+		day = getdate(nowdate())
+		staff = [e for e in _employees(day, ids) if e.employee in ids]
+		off, leave = _off_days(staff, day), _leave(ids, day)
+		for m in self.members:
+			reason = off.get(m.employee) or leave.get(m.employee) or ""
+			m.on_leave_off = 1 if reason else 0
+			m.leave_off_reason = reason
+
 	def validate(self):
 		# One default crop: the one the team is planned for first. The others are its fall-back crops,
 		# planned when the default has no orders for the day.
@@ -20,3 +37,27 @@ class PackingTeams(Document):
 			frappe.throw(_("Only one crop can be the default."))
 		if self.crops and not defaults:
 			self.crops[0].is_default = 1
+		# The customers this team packs for: their orders go to this team first.
+		served = set()
+		for row in self.customers or []:
+			if row.customer in served:
+				frappe.throw(_("{0} is listed twice.").format(row.customer))
+			served.add(row.customer)
+		# The location is a sales location (Farm Location), not a farm.
+		from upande_packhouse.api.v2.allocation_teams import sales_locations
+
+		if self.location and self.location not in sales_locations():
+			frappe.throw(_("{0} is not a sales location.").format(self.location))
+		# A person packs in one team.
+		seen = set()
+		for row in self.members or []:
+			if row.employee in seen:
+				frappe.throw(_("{0} is listed twice.").format(row.employee_name or row.employee))
+			seen.add(row.employee)
+			other = frappe.db.get_value(
+				"Packing Team Member",
+				{"employee": row.employee, "parenttype": "Packing Teams", "parent": ("!=", self.name)},
+				"parent",
+			)
+			if other:
+				frappe.throw(_("{0} is already in {1}.").format(row.employee_name or row.employee, other))

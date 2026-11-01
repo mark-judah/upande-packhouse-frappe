@@ -9,9 +9,11 @@
   "farm",
   "farm_code",
   "customer",
+  "customer_name",
   "order_name",
   "variety",
   "mix_name",
+  "specification",
   "team",
   "length",
   "box_number",
@@ -24,6 +26,7 @@
   "pack_rate",
   "date",
   "customer_purchase_order",
+  "po_no",
   "consignee",
   "truck_details",
   "freight_agent",
@@ -57,6 +60,13 @@
    "in_standard_filter": 1,
    "label": "Customer",
    "options": "Customer"
+  },
+  {
+   "fetch_from": "customer.customer_name",
+   "fieldname": "customer_name",
+   "fieldtype": "Data",
+   "label": "Customer Name",
+   "read_only": 1
   },
   {
    "fieldname": "length",
@@ -121,6 +131,12 @@
    "fieldname": "customer_purchase_order",
    "fieldtype": "Data",
    "label": "Customer Purchase Order"
+  },
+  {
+   "fieldname": "po_no",
+   "fieldtype": "Data",
+   "label": "Customer's Purchase Order",
+   "read_only": 1
   },
   {
    "fieldname": "consignee",
@@ -272,6 +288,12 @@
    "search_index": 1
   },
   {
+   "fieldname": "specification",
+   "fieldtype": "Data",
+   "label": "Specification",
+   "read_only": 1
+  },
+  {
    "fieldname": "variety",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -306,7 +328,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-24 22:00:00.000000",
+ "modified": "2026-10-31 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Box Label",

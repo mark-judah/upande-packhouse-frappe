@@ -61,6 +61,33 @@ def mix_names(sales_order, order_pick_list=None):
 	return out
 
 
+def specification(so_items, order_pick_list, varieties, order_name):
+	"""The spec line a box prints, from its own pick list's Sales Order lines.
+
+	Mixed boxes: Specification, else mix name, else order name. Spray and
+	standard boxes: Specification, else order name."""
+	lines = [it for it in so_items if it.get("custom_opl") == order_pick_list]
+	if not lines:
+		lines = [it for it in so_items if it.get("item_code") in varieties]
+	specs, mixes = [], []
+	mixed = len(set(varieties)) > 1
+	for it in lines:
+		spec = (it.get("custom_line") or "").strip()
+		mix = (it.get("custom_mix_name") or "").strip()
+		if spec and spec not in specs:
+			specs.append(spec)
+		if mix and mix not in mixes:
+			mixes.append(mix)
+		if it.get("custom_mix_group") or it.get("custom_mixed_box"):
+			mixed = True
+	return ", ".join(specs) or (mixed and ", ".join(mixes)) or order_name or ""
+
+
+def purchase_order(so_doc):
+	po = (so_doc.get("po_no") or "").strip()
+	return "" if po.upper() in ("X", "-") else po
+
+
 def sync_box_labels_for_fpl(fpl_doc, opl_doc, so_doc):
 	"""Create (or refresh, pre-staging) one Box Label per box_number packed
 	on this Farm Pack List. Idempotent: an existing label for a box is
@@ -112,6 +139,9 @@ def sync_box_labels_for_fpl(fpl_doc, opl_doc, so_doc):
 		box.farm = fpl_doc.farm
 		box.farm_code = farm_code
 		box.customer = fpl_doc.customer
+		box.customer_name = (
+			frappe.db.get_value("Customer", fpl_doc.customer, "customer_name") if fpl_doc.customer else None
+		)
 		box.length = rows[0].stem_length
 		box.pack_rate = total_stems
 		box.farm_pack_lis = fpl_doc.name
@@ -121,6 +151,7 @@ def sync_box_labels_for_fpl(fpl_doc, opl_doc, so_doc):
 		# grouping loaded boxes into a Delivery Note -- match that, don't
 		# invent a second convention.
 		box.customer_purchase_order = so_doc.name
+		box.po_no = purchase_order(so_doc)
 		box.consignee = so_doc.get("custom_consignee")
 		box.truck_details = so_doc.get("custom_truck_details")
 		box.freight_agent = so_doc.get("custom_shipping_agent")
@@ -129,6 +160,9 @@ def sync_box_labels_for_fpl(fpl_doc, opl_doc, so_doc):
 		box.update(
 			label_filters(order_name, [(r.item_code, int(r.stock_qty or 0)) for r in rows], mix_by_item)
 		)
+		box.specification = specification(
+			so_doc.get("items") or [], opl_doc.name, [r.item_code for r in rows], box.order_name
+		)
 
 		box.set("box_item", [])
 		for r in rows:
@@ -136,6 +170,7 @@ def sync_box_labels_for_fpl(fpl_doc, opl_doc, so_doc):
 				"box_item",
 				{
 					"variety": r.item_code,
+					"item_name": frappe.db.get_value("Item", r.item_code, "item_name"),
 					"qty": r.bunch_qty,
 					"uom": r.bunch_uom,
 					"length": r.stem_length,

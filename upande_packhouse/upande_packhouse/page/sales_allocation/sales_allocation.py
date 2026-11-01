@@ -1472,19 +1472,25 @@ def _line_capacity(so_item):
 	return int(per_box or 10) * int(so_item.get("custom_number_of_boxes") or 1)
 
 
-def _box_pieces(so_item, line_rows, allocs):
+def _box_pieces(so_item, line_rows, allocs, opl_name=None):
 	"""Split `allocs` for one line into [(alloc, stems, box_id)], filling the line's
 	boxes in order from what `line_rows` (its rows already on the OPL) leave free --
 	the same rule the pick-list builders use (open_box_slots), so a top-up continues
 	the part-filled box instead of starting a new box per bucket."""
 	from upande_packhouse.server_scripts.create_mixed_box_picklist import (
+		line_box_offset,
 		open_box_slots,
 		placed_stems_by_box,
+		rows_on_other_pick_lists,
 	)
 
+	# the line's boxes on its other pick lists are taken too: a part allocation carries on after them
+	line_rows = list(line_rows) + rows_on_other_pick_lists(so_item.name, opl_name)
+
 	per_box = int(_line_capacity(so_item) / int(so_item.get("custom_number_of_boxes") or 1))
+	offset = line_box_offset(so_item, line_rows)
 	slots = open_box_slots(
-		placed_stems_by_box(line_rows), per_box, int(so_item.get("custom_number_of_boxes") or 1)
+		placed_stems_by_box(line_rows, offset), per_box, int(so_item.get("custom_number_of_boxes") or 1)
 	)
 	pieces = []
 	for alloc in allocs:
@@ -1499,7 +1505,7 @@ def _box_pieces(so_item, line_rows, allocs):
 				)
 			box_id, free = slots[0]
 			take = min(left, free)
-			pieces.append((alloc, take, box_id))
+			pieces.append((alloc, take, box_id + offset))
 			left -= take
 			if free - take > 0.001:
 				slots[0] = (box_id, free - take)
@@ -2159,7 +2165,7 @@ def _append_rows_to_existing_opls(allocations, so_doc, location):
 				fields=["bucket", "custom_box_id", "stock_qty"],
 			)
 			new = [a for a in allocs if a["sales_order_item"] == so_item_name]
-			pieces += [(so_item, *p) for p in _box_pieces(so_item, line_rows, new)]
+			pieces += [(so_item, *p) for p in _box_pieces(so_item, line_rows, new, opl_name)]
 
 		for so_item, alloc, stems, box_id in pieces:
 			so_item_name = so_item.name
@@ -2510,7 +2516,7 @@ def _update_existing_pick_list(
 			continue
 		line_rows = [loc for loc in opl.table_ytkc if loc.sales_order_item == so_item_name]
 		new = [a for a in new_allocations if a["sales_order_item"] == so_item_name]
-		pieces += [(so_item, *p) for p in _box_pieces(so_item, line_rows, new)]
+		pieces += [(so_item, *p) for p in _box_pieces(so_item, line_rows, new, opl_name)]
 
 	for so_item, alloc, stems, box_id in pieces:
 		conv = so_item.conversion_factor or 1

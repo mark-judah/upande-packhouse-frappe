@@ -5,7 +5,13 @@ from frappe import _
 from frappe.utils import nowdate
 
 from upande_packhouse.packing_guide import sync_packing_guide
-from upande_packhouse.server_scripts.create_mixed_box_picklist import _generate_box_locations
+from upande_packhouse.server_scripts.create_mixed_box_picklist import (
+	_generate_box_locations,
+	line_box_offset,
+	placed_stems_by_box,
+	rows_on_other_pick_lists,
+	shift_boxes,
+)
 from upande_packhouse.server_scripts.opl_qr_code_gen import generate_qr_code
 
 
@@ -195,6 +201,10 @@ def create_straight_box_pick_list_for_allocated_items(
 				"stem_length": allocs[0].get("stem_length") if allocs else None,
 			}
 
+			# a part allocation's next pick list carries on after the boxes the line already has
+			earlier = rows_on_other_pick_lists(sales_order_item_name)
+			offset = line_box_offset(so_item, earlier)
+			ids = [int(r.custom_box_id) - offset for r in earlier if r.custom_box_id]
 			box_locs = _generate_box_locations(
 				combined_alloc,
 				so_item,
@@ -202,8 +212,11 @@ def create_straight_box_pick_list_for_allocated_items(
 				sales_order_item_name,
 				shelf_farm=shelf_farm,
 				confirmed_qty=confirmed_stems.get(sales_order_item_name, 0),
+				already_stems=sum(r.stock_qty or 0 for r in earlier),
+				start_box_num=(max(ids) + 1) if ids else 1,
+				placed_by_box=placed_stems_by_box(earlier, offset) if earlier else None,
 			)
-			for loc in box_locs:
+			for loc in shift_boxes(box_locs, offset):
 				order_pick_list.append("table_ytkc", loc)
 
 			# One Sales Order Item = one OPL here, so it's its own group --

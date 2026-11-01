@@ -21,7 +21,7 @@ from collections import defaultdict
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, getdate, now_datetime, today
+from frappe.utils import add_days, cint, flt, getdate, now_datetime, today
 
 from upande_packhouse import availability
 from upande_packhouse.api.v2.core import received, stock
@@ -88,15 +88,18 @@ def held_buckets(conf_name):
 	)
 
 
-def free_for_line(farm, variety, length, soi):
+def free_for_line(farm, variety, length, soi, harvested_from=None):
 	"""Buckets a line can be confirmed against now, oldest first, so ageing stock is used first:
 
 	  on the shelf            free stems, not too old, not cooling, not held for another line
 	  received, not shelved   buckets waiting for a shelf (within the discard age), with their cold room
 
 	Stems already held for THIS line count as free for it. A line with a cut stage only takes shelf buckets
-	at that stage: the ones Sales Allocation offers it."""
+	at that stage: the ones Sales Allocation offers it. `harvested_from` keeps only buckets harvested on or
+	after that day."""
 	rows = stock.bucket_rows(farms=[farm], varieties=[variety], lengths=[length] if length else None)
+	if harvested_from:
+		rows = [r for r in rows if r.age_anchor and getdate(r.age_anchor) >= getdate(harvested_from)]
 	stage = frappe.db.get_value("Sales Order Item", soi, "custom_cut_stage") if soi else None
 	if stage:
 		from upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2 import (
@@ -110,6 +113,7 @@ def free_for_line(farm, variety, length, soi):
 			farms=[farm], varieties=[variety], lengths=[length] if length else None
 		)
 		if (r.stem_length or "") == (length or "")
+		and (not harvested_from or getdate(r.harvest_date or r.received_on) >= getdate(harvested_from))
 	]
 	own = _own_held(soi, {r.bucket_id for r in rows} | {r.bucket_id for r in recv})
 	out = []
@@ -161,7 +165,9 @@ def _lock_buckets(bucket_ids):
 		)
 
 
-def reserve_real(*, plan, line, farm, variety, length, stems, user=None, team=None):
+def reserve_real(
+	*, plan, line, farm, variety, length, stems, user=None, team=None, harvested_from=None, forecast_basis=""
+):
 	"""Plan up to `stems` of a line from shelf stock and hold the buckets. Returns (confirmation or None, held_stems).
 
 	`line` is a dict with sales_order, sales_order_item, customer, ordered_variety, ordered_length, mix_key.
@@ -181,9 +187,9 @@ def reserve_real(*, plan, line, farm, variety, length, stems, user=None, team=No
 		):  # confirmed against another farm before: its mirror row must go
 			refresh_mirror(line["sales_order"], soi, existing.farm)
 
-	pool = free_for_line(farm, variety, length, soi)
+	pool = free_for_line(farm, variety, length, soi, harvested_from)
 	_lock_buckets([b.bucket_id for b in pool])
-	pool = free_for_line(farm, variety, length, soi)  # re-read under the lock
+	pool = free_for_line(farm, variety, length, soi, harvested_from)  # re-read under the lock
 
 	remaining, picks = flt(stems), []
 	for b in pool:
@@ -197,7 +203,9 @@ def reserve_real(*, plan, line, farm, variety, length, stems, user=None, team=No
 		refresh_mirror(line["sales_order"], soi, farm)
 		return None, 0.0
 
-	conf = _confirmation(plan, line, "Real", held, farm, variety, length, team=team)
+	conf = _confirmation(
+		plan, line, "Real", held, farm, variety, length, forecast_basis=forecast_basis, team=team
+	)
 	for bucket_id, take in picks:
 		frappe.get_doc(
 			{
@@ -450,6 +458,13 @@ def consume(bucket_id, soi, qty):
 		)
 		taken_by[r.confirmation] += used
 		qty -= used
+	# stems from a bucket not held for the line use up what was confirmed on the forecast
+	if qty > 0.0001:
+		for c in live_confirmations(soi=soi, source="Virtual"):
+			used = min(max(0.0, flt(c.stems) - flt(c.fulfilled_stems)), qty)
+			if used > 0:
+				taken_by[c.name] += used
+				qty -= used
 	for conf, used in taken_by.items():
 		done = flt(frappe.db.get_value("Allocation Confirmation", conf, "fulfilled_stems")) + used
 		frappe.db.set_value("Allocation Confirmation", conf, "fulfilled_stems", done)
@@ -556,8 +571,9 @@ def mark_missing_buckets():
 
 def convert_virtual(delivery_date=None, farm=None):
 	"""Expected stems become real as the flowers reach the shelf: for every confirmation planned from the
-	forecast, hold buckets for as many stems as the shelf can now give that line (oldest plans first), and keep
-	only the rest as expected. Returns the stems converted."""
+	forecast, hold buckets of its cutting day's harvest (or later) for as many stems as the shelf can now give
+	that line (oldest plans first), and keep only the rest as expected. Older stock is never held for a plan.
+	Returns the stems converted."""
 	filters = {"source": "Virtual", "status": "Planned"}
 	if delivery_date:
 		filters["delivery_date"] = delivery_date
@@ -577,37 +593,55 @@ def convert_virtual(delivery_date=None, farm=None):
 			"stems",
 		)
 		real = flt(real)
-		free = sum(b.free for b in free_for_line(c.farm, c.variety, c.length, soi))
+		cut = add_days(c.delivery_date, -cint(setting("allocation_harvest_lead_days")))
+		free = sum(b.free for b in free_for_line(c.farm, c.variety, c.length, soi, cut))
 		target = min(real + flt(c.stems), free)
 		if target <= real + 0.0001:
 			continue
-		plan = frappe.get_doc("Allocation Plan", c.plan)
-		line = {
-			"sales_order": c.sales_order,
-			"sales_order_item": soi,
-			"customer": c.customer,
-			"ordered_variety": c.ordered_variety,
-			"ordered_length": c.ordered_length,
-			"mix_key": c.mix_key,
-		}
-		_conf, held = reserve_real(
-			plan=plan, line=line, farm=c.farm, variety=c.variety, length=c.length, stems=target, team=c.team
-		)
-		release_confirmation(c.name, "Now on the shelf", keep_open=True)
-		rest = real + flt(c.stems) - held
-		if rest > 0.0001:
-			plan_virtual(
+		# one line that cannot be held (a bucket record missing, a validation) must not stop the others, nor
+		# the page that converts on load
+		frappe.db.savepoint("convert_virtual")
+		try:
+			plan = frappe.get_doc("Allocation Plan", c.plan)
+			line = {
+				"sales_order": c.sales_order,
+				"sales_order_item": soi,
+				"customer": c.customer,
+				"ordered_variety": c.ordered_variety,
+				"ordered_length": c.ordered_length,
+				"mix_key": c.mix_key,
+			}
+			_conf, held = reserve_real(
 				plan=plan,
 				line=line,
 				farm=c.farm,
 				variety=c.variety,
 				length=c.length,
-				stems=rest,
-				forecast_basis=c.forecast_basis,
+				stems=target,
 				team=c.team,
-				harvest_stems=min(rest, flt(c.from_harvest)),
+				harvested_from=cut,
+				forecast_basis=c.forecast_basis,
 			)
-		refresh_mirror(c.sales_order, soi, c.farm)
+			release_confirmation(c.name, "Now on the shelf", keep_open=True)
+			rest = real + flt(c.stems) - held
+			if rest > 0.0001:
+				plan_virtual(
+					plan=plan,
+					line=line,
+					farm=c.farm,
+					variety=c.variety,
+					length=c.length,
+					stems=rest,
+					forecast_basis=c.forecast_basis,
+					team=c.team,
+					harvest_stems=min(rest, flt(c.from_harvest)),
+				)
+			refresh_mirror(c.sales_order, soi, c.farm)
+		except Exception:
+			frappe.db.rollback(save_point="convert_virtual")
+			frappe.clear_messages()
+			frappe.log_error(f"Allocation plan: could not convert {soi}", frappe.get_traceback())
+			continue
 		converted += max(0.0, held - real)
 	return converted
 
