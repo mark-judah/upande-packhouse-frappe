@@ -131,7 +131,8 @@ def _error_rows(varieties, farms):
 		cond = " AND wh.custom_farm IN %(farms)s"
 		params["farms"] = tuple(farms)
 	out = defaultdict(list)
-	for r in frappe.db.sql(
+	# the f-string hole is fixed SQL; values are bound
+	for r in frappe.db.sql(  # nosemgrep
 		f"""SELECT f.variety, w.week_number, SUM(w.revised_forecast_stems) AS revised, SUM(w.actual_stems) AS actual
 		    FROM `tabProduction Forecast Week` w
 		    INNER JOIN `tabProduction Forecast` f ON f.name = w.parent
@@ -140,7 +141,7 @@ def _error_rows(varieties, farms):
 		    GROUP BY f.variety, w.week_number HAVING SUM(w.actual_stems) > 0""",
 		params,
 		as_dict=True,
-	):  # nosemgrep: the f-string hole is fixed SQL, values are bound
+	):
 		out[r.variety].append(r)
 	return out
 
@@ -265,7 +266,8 @@ def _forecast_rows_for(varieties, year, week, farms):
 		cond = " AND wh.custom_farm IN %(farms)s"
 		params["farms"] = tuple(farms)
 	out = defaultdict(list)
-	for r in frappe.db.sql(
+	# the f-string hole is fixed SQL; values are bound
+	for r in frappe.db.sql(  # nosemgrep
 		f"""SELECT f.variety, w.grade, COALESCE(NULLIF(wh.custom_farm, ''), 'Unknown') AS farm,
 		           SUM(w.revised_forecast_stems) AS revised, SUM(w.manual_budget_stems) AS manual
 		    FROM `tabProduction Forecast Week` w
@@ -275,7 +277,7 @@ def _forecast_rows_for(varieties, year, week, farms):
 		    GROUP BY f.variety, w.grade, farm""",
 		params,
 		as_dict=True,
-	):  # nosemgrep: the f-string hole is fixed SQL, values are bound
+	):
 		out[r.variety].append(r)
 	return out
 

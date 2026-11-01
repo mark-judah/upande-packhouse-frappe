@@ -41,7 +41,8 @@ def _employees(day, ids=None):
 		if not departments:
 			return []
 		cond, params = "e.department IN %(departments)s", {"departments": tuple(departments), "day": day}
-	return frappe.db.sql(
+	# the f-string hole is one of two fixed conditions; values are bound
+	return frappe.db.sql(  # nosemgrep
 		f"""
 		SELECT e.name AS employee, e.employee_name, e.company, IFNULL(e.branch, '') AS branch,
 			IFNULL(e.designation, '') AS designation, e.department
@@ -53,7 +54,7 @@ def _employees(day, ids=None):
 		""",
 		params,
 		as_dict=True,
-	)  # nosemgrep: the f-string hole is one of two fixed conditions, values are bound
+	)
 
 
 def _off_days(employees, day):
