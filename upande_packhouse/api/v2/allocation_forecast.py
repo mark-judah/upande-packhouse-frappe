@@ -35,11 +35,15 @@ def protocol(variety):
 	"""(weeks between cuts or None, {length: share 0-1}) from the variety's Crop Protocol."""
 
 	def load():
-		row = frappe.db.get_value("Crop Protocol", {"variety_item": variety}, ["name", "weeks_between_cuts"], as_dict=True)
+		row = frappe.db.get_value(
+			"Crop Protocol", {"variety_item": variety}, ["name", "weeks_between_cuts"], as_dict=True
+		)
 		if not row or not row.weeks_between_cuts or row.weeks_between_cuts <= 0:
 			return None, {}
 		mix = {}
-		for g in frappe.get_all("Crop Protocol Grade Mix", filters={"parent": row.name}, fields=["length_cm", "pct"]):
+		for g in frappe.get_all(
+			"Crop Protocol Grade Mix", filters={"parent": row.name}, fields=["length_cm", "pct"]
+		):
 			if flt(g.pct) > 0:
 				mix["%dcm" % int(g.length_cm)] = flt(g.pct) / 100.0
 		return int(row.weeks_between_cuts), mix

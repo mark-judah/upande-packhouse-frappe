@@ -40,7 +40,9 @@ def line(name, variety, length, left, customer=None, spec=None, mix=None, alloca
 class FakeModel(g.Model):
 	"""A made-up delivery day: lines, shelf supply by (variety, length) and forecast by (variety, length)."""
 
-	def __init__(self, lines, supply=None, forecast=None, specs=None, planned=None, errors=None):
+	def __init__(
+		self, lines, supply=None, forecast=None, specs=None, planned=None, errors=None, rolling=None
+	):
 		self.day, self.farm = "2026-10-30", "Kapkolia"
 		self.errors = errors or {}
 		self.lines = lines
@@ -49,12 +51,23 @@ class FakeModel(g.Model):
 		self.supply = {k: {"free": 0.0, "old": 0.0, "held": 0.0, **v} for k, v in (supply or {}).items()}
 		self.specs = defaultdict(set, specs or {})
 		self._likely = {k: tuple(v) for k, v in (forecast or {}).items()}
+		# Confirmations count on the cutting day's forecast only: the made-up shelf and received stock stand in
+		# for what the farms are sure to bring, on top of the made-up forecast.
+		self._rolling = defaultdict(float)
+		for k, v in self._likely.items():
+			self._rolling[k] += v[0]
+		for k, v in self.supply.items():
+			self._rolling[k] += v.get("free", 0.0) + v.get("received", 0.0)
+		if rolling is not None:
+			self._rolling = defaultdict(float, rolling)
 		self.expected_plan = defaultdict(float)
+		self.counted = defaultdict(float)
 		self.left = {}
 		for ln in lines:
 			pl = self.planned.get(ln.name, {"real": 0.0, "expected": 0.0})
 			self.left[ln.name] = max(0.0, ln.ordered_stems - ln.allocated_stems - pl["real"] - pl["expected"])
 			self.expected_plan[(ln.item_code, ln.custom_length or "")] += pl["expected"]
+			self.counted[(ln.item_code, ln.custom_length or "")] += pl["real"] + pl["expected"]
 
 	def likely_sure(self, variety, length):
 		return self._likely.get((variety, length or ""), (0.0, 0.0))
@@ -145,17 +158,26 @@ class TestRules(unittest.TestCase):
 		m = FakeModel([m1, m2], supply={("Aqua", "52cm"): {"free": 500}, ("Athena", "52cm"): {"free": 500}})
 		self.assertEqual(ask(m, ("M1", 100, None), ("M2", 200, None))["heads_up"], [])
 
-	def test_more_than_we_have_is_red_and_more_than_we_are_sure_of_is_amber(self):
+	def test_more_than_the_forecasts_cover_is_red(self):
 		a = line("A", "Aqua", "52cm", 500)
 		m = FakeModel([a], supply={("Aqua", "52cm"): {"free": 100}}, forecast={("Aqua", "52cm"): (200, 140)})
-		red = ask(m, ("A", 400, None))  # cover is 300
+		red = ask(m, ("A", 400, None))  # the rolling forecast covers 300
 		self.assertEqual(codes(red), [("not_enough", "red")])
 		self.assertIn("300", red["heads_up"][0]["message"])
-		amber = ask(m, ("A", 270, None))  # sure is 240
-		self.assertEqual(codes(amber), [("not_enough", "amber")])
-		self.assertEqual(ask(m, ("A", 200, None))["heads_up"], [])
+		self.assertEqual(ask(m, ("A", 270, None))["heads_up"], [])
 
-	def test_not_enough_says_how_much_and_where_it_comes_from(self):
+	def test_more_than_the_rolling_forecast_is_amber_while_the_production_forecast_covers_it(self):
+		a = line("A", "Aqua", "52cm", 500)
+		m = FakeModel([a], forecast={("Aqua", "52cm"): (300, 240)}, rolling={("Aqua", "52cm"): 200})
+		amber = ask(m, ("A", 270, None))
+		self.assertEqual(codes(amber), [("not_enough", "amber")])
+		msg = amber["heads_up"][0]["message"]
+		self.assertIn("rolling forecast covers 200", msg)
+		self.assertIn("the other 70 depend on the production forecast", msg)
+		self.assertEqual(codes(ask(m, ("A", 350, None))), [("not_enough", "red")])
+		self.assertEqual(ask(m, ("A", 150, None))["heads_up"], [])
+
+	def test_not_enough_says_how_much_is_short(self):
 		a = line("A", "Aqua", "52cm", 500)
 		m = FakeModel(
 			[a],
@@ -164,43 +186,17 @@ class TestRules(unittest.TestCase):
 		)
 		r = ask(m, ("A", 400, None))
 		msg = r["heads_up"][0]["message"]
-		for part in (
-			"400",
-			"300",
-			"100 on the shelf",
-			"200 still to come from the farms",
-			"The other 100 would be short",
-		):
+		for part in ("400", "covers 300", "The other 100 would be short"):
 			self.assertIn(part, msg)
 		self.assertEqual(r["heads_up"][0]["actions"], [])  # it says what is wrong; the planner decides
 
-	def test_not_sure_says_what_is_sure(self):
-		a = line("A", "Aqua", "52cm", 500)
-		m = FakeModel([a], supply={("Aqua", "52cm"): {"free": 100}}, forecast={("Aqua", "52cm"): (200, 140)})
-		r = ask(m, ("A", 270, None))
-		self.assertIn("sure of 240", r["heads_up"][0]["message"])
-		self.assertIn(
-			"no finished weeks", r["heads_up"][0]["message"]
-		)  # nothing to judge the forecast by here
-		self.assertIn("The other 30", r["heads_up"][0]["message"])
-
-	def test_not_sure_says_how_far_off_the_forecast_has_been(self):
-		a = line("A", "Aqua", "52cm", 500)
-		m = FakeModel(
-			[a],
-			supply={("Aqua", "52cm"): {"free": 100}},
-			forecast={("Aqua", "52cm"): (200, 150)},
-			errors={"Aqua": 25},
-		)
-		r = ask(m, ("A", 270, None))
-		self.assertIn("off by 25% on average this year", r["heads_up"][0]["message"])
-
-	def test_received_stock_counts_towards_what_we_can_cover(self):
+	def test_what_the_farms_bring_counts_towards_what_we_can_cover(self):
 		a = line("A", "Aqua", "52cm", 500)
 		m = FakeModel([a], supply={("Aqua", "52cm"): {"free": 100, "received": 300}})
-		self.assertEqual(ask(m, ("A", 400, None))["heads_up"], [])  # 100 on the shelf + 300 received
+		self.assertEqual(ask(m, ("A", 400, None))["heads_up"], [])
 		red = ask(m, ("A", 450, None))["heads_up"][0]["message"]
-		self.assertIn("300 received and not shelved yet", red)
+		self.assertIn("covers 400", red)
+		self.assertIn("The other 50 would be short", red)
 
 	def test_confirming_the_same_or_less_says_nothing(self):
 		a = line("A", "Aqua", "52cm", 500)
@@ -222,6 +218,7 @@ class TestWithRealData(unittest.TestCase):
 			_Rollback(),
 			patch.object(pg, "expected_arrivals", lambda *x, **k: (0.0, 0.0)),
 			patch.object(pg, "_stock_by_pool", lambda *x, **k: {}),
+			patch.object(pg, "_rolling_by_pool", lambda *x, **k: {}),
 		):
 			lines = [{"sales_order_item": a.soi, "stems": 10}]
 			self.assertTrue(g.check(day, self.c.farm, lines)["heads_up"])  # there is something to say

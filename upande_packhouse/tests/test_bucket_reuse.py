@@ -28,7 +28,13 @@ class IntegrationTestBucketReuse(IntegrationTestCase):
 	def test_allocation_after_the_harvest_is_current(self):
 		r = self._pick()
 		name = r.ba
-		frappe.db.set_value("Bucket Allocations", name, "creation", frappe.utils.add_days(r.creation, 400), update_modified=False)
+		frappe.db.set_value(
+			"Bucket Allocations",
+			name,
+			"creation",
+			frappe.utils.add_days(r.creation, 400),
+			update_modified=False,
+		)
 		try:
 			self.assertNotIn(name, [x.ba for x in br.stale_allocations(r.bucket_id)])
 		finally:

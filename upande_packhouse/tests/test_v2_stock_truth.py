@@ -331,7 +331,9 @@ class TestRelease(IntegrationTestCase):
 		out = st.transfers(q=r.bucket_id)
 		self.assertIn(r.sales_order, {o["sales_order"] for o in out["orders"]})
 		plan = st.release_plan(kind="transfers")
-		self.assertEqual(plan["lines"], len({(x.sales_order_item, x.bucket_id, x.length or "") for x in rows}))
+		self.assertEqual(
+			plan["lines"], len({(x.sales_order_item, x.bucket_id, x.length or "") for x in rows})
+		)
 
 	def test_release_needs_confirmation_and_a_sales_role(self):
 		with self.assertRaises(frappe.ValidationError):
