@@ -779,7 +779,12 @@ def setup_settings():
 			frappe.db.set_single_value("Production Settings", name, default)
 	# Confirmations draw on either forecast, so there is no choice to make: remove the option an earlier build added.
 	if frappe.db.exists("Custom Field", "Production Settings-allocation_forecast_source"):
-		frappe.delete_doc("Custom Field", "Production Settings-allocation_forecast_source", ignore_permissions=True, force=True)
+		frappe.delete_doc(
+			"Custom Field",
+			"Production Settings-allocation_forecast_source",
+			ignore_permissions=True,
+			force=True,
+		)
 	frappe.db.delete("Singles", {"doctype": "Production Settings", "field": "allocation_forecast_source"})
 
 
