@@ -26,8 +26,11 @@ from upande_packhouse.server_scripts.create_mixed_box_picklist import (
 	_get_confirmed_stems_for_location,
 	_get_shelf_farm_for_location,
 	_lookup_shelf,
+	line_box_offset,
 	open_box_slots,
 	placed_stems_by_box,
+	rows_on_other_pick_lists,
+	shift_boxes,
 )
 
 
@@ -145,10 +148,11 @@ def create_mixed_bunch_pick_list_for_allocated_items(
 				so_item_name = item["sales_order_item_name"]
 				existing_rows = [
 					loc for loc in order_pick_list.table_ytkc if loc.sales_order_item == so_item_name
-				]
+				] + rows_on_other_pick_lists(so_item_name, order_pick_list.name)
 				already_stems = sum(loc.stock_qty or 0 for loc in existing_rows)
+				offset = line_box_offset(item["so_item"], existing_rows)
 				existing_box_ids = {loc.custom_box_id for loc in existing_rows if loc.custom_box_id}
-				start_box_num = (max(existing_box_ids) + 1) if existing_box_ids else 1
+				start_box_num = (max(existing_box_ids) - offset + 1) if existing_box_ids else 1
 
 				box_locs = _generate_bunch_locations(
 					item["alloc"],
@@ -159,9 +163,9 @@ def create_mixed_bunch_pick_list_for_allocated_items(
 					confirmed_qty=confirmed_stems.get(so_item_name, 0),
 					already_stems=already_stems,
 					start_box_num=start_box_num,
-					placed_by_box=placed_stems_by_box(existing_rows),
+					placed_by_box=placed_stems_by_box(existing_rows, offset),
 				)
-				for loc in box_locs:
+				for loc in shift_boxes(box_locs, offset):
 					order_pick_list.append("table_ytkc", loc)
 
 			# Every colour sharing this bunch_group -- not just this batch's
@@ -223,6 +227,9 @@ def create_mixed_bunch_pick_list_for_allocated_items(
 			order_pick_list.custom_total_stems = total_stems
 
 			for item in box_items:
+				earlier = rows_on_other_pick_lists(item["sales_order_item_name"])
+				offset = line_box_offset(item["so_item"], earlier)
+				ids = [int(r.custom_box_id) - offset for r in earlier if r.custom_box_id]
 				box_locs = _generate_bunch_locations(
 					item["alloc"],
 					item["so_item"],
@@ -230,8 +237,11 @@ def create_mixed_bunch_pick_list_for_allocated_items(
 					item["sales_order_item_name"],
 					shelf_farm=shelf_farm,
 					confirmed_qty=confirmed_stems.get(item["sales_order_item_name"], 0),
+					already_stems=sum(r.stock_qty or 0 for r in earlier),
+					start_box_num=(max(ids) + 1) if ids else 1,
+					placed_by_box=placed_stems_by_box(earlier, offset) if earlier else None,
 				)
-				for loc in box_locs:
+				for loc in shift_boxes(box_locs, offset):
 					order_pick_list.append("table_ytkc", loc)
 
 			group_items = [

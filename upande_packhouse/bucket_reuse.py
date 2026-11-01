@@ -77,18 +77,30 @@ def release_reused_bucket(bucket_id=None):
 	Left alone, and counted in `skipped`: one on a trolley or truck (it is on its way) and one whose order line was
 	already delivered (those stems went out the door; a person reviews it in Sales Allocation). Issued ones are not
 	listed at all."""
-	from upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation import unallocate_bucket_from_opl
+	from upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation import (
+		unallocate_bucket_from_opl,
+	)
 
 	rows = stale_allocations(bucket_id)
 	blocked = _blocked_pairs({r.sales_order_item for r in rows})
 	groups, skipped = {}, []
 	for r in rows:
-		if r.delivered or (r.per_delivered or 0) >= 100 or blocked.get((r.sales_order_item, str(r.bucket_id).upper())):
+		if (
+			r.delivered
+			or (r.per_delivered or 0) >= 100
+			or blocked.get((r.sales_order_item, str(r.bucket_id).upper()))
+		):
 			skipped.append(r)
 			continue
 		g = groups.setdefault(
 			(r.sales_order_item, r.bucket_id, r.length),
-			{"soi": r.sales_order_item, "bucket": r.bucket_id, "length": r.length, "order": r.sales_order, "qty": 0.0},
+			{
+				"soi": r.sales_order_item,
+				"bucket": r.bucket_id,
+				"length": r.length,
+				"order": r.sales_order,
+				"qty": 0.0,
+			},
 		)
 		g["qty"] += r.qty or 0
 	released = []
@@ -103,9 +115,9 @@ def release_reused_bucket(bucket_id=None):
 			try:
 				frappe.get_doc("Sales Order", g["order"]).add_comment(
 					"Info",
-					_("Bucket {0} was harvested again, so its {1} stems held for this order were released.").format(
-						g["bucket"], int(g["qty"])
-					),
+					_(
+						"Bucket {0} was harvested again, so its {1} stems held for this order were released."
+					).format(g["bucket"], int(g["qty"])),
 				)
 			except Exception:
 				pass
@@ -113,4 +125,3 @@ def release_reused_bucket(bucket_id=None):
 	if released or broken:
 		frappe.db.commit()
 	return {"released": released, "skipped": len(skipped), "holds_broken": broken}
-

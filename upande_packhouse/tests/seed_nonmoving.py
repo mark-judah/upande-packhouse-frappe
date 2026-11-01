@@ -152,7 +152,11 @@ def seed_pool(variety="Tropical Amazon", length="52cm", delivery_date=None, farm
 	age = int(age if age is not None else stock._config()["amber_time"])
 	farms = pg._stock_farms(farm)
 	model = nm.full_model(day, farm)
-	need = sum(model.left[ln.name] for kind in ("exact", "longer") for ln in nm._wanting(model, variety, length, kind))
+	need = sum(
+		model.left[ln.name]
+		for kind in ("exact", "longer")
+		for ln in nm._wanting(model, variety, length, kind)
+	)
 	target = need + spare - model.pool(variety, length)["old"]
 	if target <= 0:
 		print(f"{variety} {length} already has enough old stock.")
@@ -171,12 +175,27 @@ def seed_pool(variety="Tropical Amazon", length="52cm", delivery_date=None, farm
 		print("No more shelf stock to re-date.")
 		return
 	saved = {}
-	for r in frappe.db.sql("SELECT bucket_id, name, date_added, harvest_date FROM `tabShelf Item` WHERE bucket_id IN %s", (tuple(ids),), as_dict=True):
+	for r in frappe.db.sql(
+		"SELECT bucket_id, name, date_added, harvest_date FROM `tabShelf Item` WHERE bucket_id IN %s",
+		(tuple(ids),),
+		as_dict=True,
+	):
 		saved.setdefault(r.bucket_id, []).append(
-			{"name": r.name, "date_added": str(r.date_added), "harvest_date": str(r.harvest_date) if r.harvest_date else None}
+			{
+				"name": r.name,
+				"date_added": str(r.date_added),
+				"harvest_date": str(r.harvest_date) if r.harvest_date else None,
+			}
 		)
-	frappe.db.sql("UPDATE `tabShelf Item` SET date_added = %s, harvest_date = %s WHERE bucket_id IN %s", (f"{when} 08:00:00", when, tuple(ids)))
-	usable = {r.bucket_id: r.allocatable for r in stock.bucket_rows(farms=farms, varieties=[variety], lengths=[length]) if r.allocatable > 0 and (r.age_days or 0) >= age}
+	frappe.db.sql(
+		"UPDATE `tabShelf Item` SET date_added = %s, harvest_date = %s WHERE bucket_id IN %s",
+		(f"{when} 08:00:00", when, tuple(ids)),
+	)
+	usable = {
+		r.bucket_id: r.allocatable
+		for r in stock.bucket_rows(farms=farms, varieties=[variety], lengths=[length])
+		if r.allocatable > 0 and (r.age_days or 0) >= age
+	}
 	keep, got = [], 0.0
 	for b in ids:
 		if b in usable and got < target:
@@ -184,9 +203,14 @@ def seed_pool(variety="Tropical Amazon", length="52cm", delivery_date=None, farm
 			got += usable[b]
 	for b in (b for b in ids if b not in keep):  # not usable after all: put the old dates back
 		for o in saved[b]:
-			frappe.db.sql("UPDATE `tabShelf Item` SET date_added = %s, harvest_date = %s WHERE name = %s", (o["date_added"], o["harvest_date"], o["name"]))
+			frappe.db.sql(
+				"UPDATE `tabShelf Item` SET date_added = %s, harvest_date = %s WHERE name = %s",
+				(o["date_added"], o["harvest_date"], o["name"]),
+			)
 	prev = json.load(open(UNDO())) if os.path.exists(UNDO()) else []
 	json.dump(prev + [o for b in keep for o in saved[b]], open(UNDO(), "w"))
 	frappe.db.commit()
 	frappe.clear_cache()
-	print(f"{variety} {length}: {len(keep)} buckets ({int(got)} stems) now {age} days old; its orders need {int(need)}.")
+	print(
+		f"{variety} {length}: {len(keep)} buckets ({int(got)} stems) now {age} days old; its orders need {int(need)}."
+	)

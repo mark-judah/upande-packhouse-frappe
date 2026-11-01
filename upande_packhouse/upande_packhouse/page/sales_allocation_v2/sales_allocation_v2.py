@@ -418,7 +418,7 @@ def get_pending_sales_orders(
             so.name, so.customer, so.transaction_date, so.delivery_date,
             so.custom_order_name, so.grand_total AS total, so.currency,
             so.status, so.custom_priority,
-            ss.total_items, ss.submitted_items, ss.allocation_percentage, ss.item_codes,
+            ss.total_items, ss.submitted_items, ss.allocation_percentage, ss.ordered_stems, ss.item_codes,
             ss.lengths, ss.item_groups, ss.has_mixed, ss.has_straight,
             {seq_col} AS planning_sequence, {team_col} AS planning_team
         FROM `tabSales Order` so
@@ -435,7 +435,52 @@ def get_pending_sales_orders(
 	except Exception as e:
 		frappe.log_error("Pending SOs Error", frappe.get_traceback())
 		frappe.throw(_("Error loading sales orders: {0}").format(str(e)))
+	_attach_boxes(rows)
 	return _first_of_every_team(rows) if planning["sequence"] else rows
+
+
+def _attach_boxes(rows):
+	"""Each order's boxes: `boxes_required` (a straight line's own boxes, a mixed box or bunch once) and
+	`boxes_full`, the whole boxes its allocated stems fill (a mix only as many as its scarcest line fills)."""
+	if not rows:
+		return
+	lines = frappe.db.sql(
+		"""
+		SELECT soi.parent, soi.name, soi.stock_qty, soi.custom_number_of_boxes, soi.custom_packrate,
+			soi.custom_packrate_mixed_box, soi.custom_mixed_box, soi.custom_mix_group,
+			soi.custom_mixed_bunch, soi.custom_bunch_group,
+			(SELECT COALESCE(SUM(ba.quantity_allocated), 0) FROM `tabBucket Allocations` ba
+			 WHERE ba.sales_order_item = soi.name AND ba.cancelled = 0) AS allocated
+		FROM `tabSales Order Item` soi
+		WHERE soi.parent IN %(so)s
+		""",
+		{"so": tuple(r.name for r in rows)},
+		as_dict=True,
+	)
+	groups = defaultdict(list)
+	for ln in lines:
+		if cint(ln.custom_mixed_bunch) and ln.custom_bunch_group:
+			key = ("bunch", str(ln.custom_bunch_group))
+		elif cint(ln.custom_mixed_box) and ln.custom_mix_group:
+			key = ("box", str(ln.custom_mix_group))
+		else:
+			key = ("line", ln.name)
+		groups[(ln.parent, key)].append(ln)
+	required, full = defaultdict(int), defaultdict(int)
+	for (so, _key), members in groups.items():
+		boxes = max(cint(m.custom_number_of_boxes) or 1 for m in members)
+		filled = boxes
+		for m in members:
+			mixed = cint(m.custom_mixed_box) or cint(m.custom_mixed_bunch)
+			rate = flt(m.custom_packrate_mixed_box if mixed else m.custom_packrate)
+			per_box = rate or flt(m.stock_qty) / (cint(m.custom_number_of_boxes) or 1)
+			if per_box > 0:
+				filled = min(filled, int(flt(m.allocated) / per_box + 1e-9))
+		required[so] += boxes
+		full[so] += filled
+	for r in rows:
+		r.boxes_required = required.get(r.name, 0)
+		r.boxes_full = full.get(r.name, 0)
 
 
 def _first_of_every_team(rows):
@@ -658,7 +703,9 @@ def get_sales_order_items_with_buckets(
             soi.custom_number_of_boxes,
             soi.custom_packrate,
             soi.custom_packrate_mixed_box,
-            opl.team AS opl_team
+            opl.team AS opl_team,
+            soi.custom_opl AS opl_name,
+            IF(opl.docstatus = 1, 1, 0) AS opl_submitted
         FROM `tabSales Order Item` soi
         LEFT JOIN `tabOrder Pick List` opl ON opl.name = soi.custom_opl AND opl.docstatus < 2
         WHERE soi.parent = %s
@@ -684,6 +731,7 @@ def get_sales_order_items_with_buckets(
 	# match it against). No filter at all when custom_cut_stage is blank.
 
 	all_confirmed = _get_all_confirmed_stems(sales_order)
+	enforced = _v2_rules(location)["enforce_plan"]
 
 	filtered_items = []
 	for item in items:
@@ -708,6 +756,18 @@ def get_sales_order_items_with_buckets(
 			item["total_all_confirmed"] = 0
 			item["others_confirmed"] = 0
 			item["balance_available"] = ordered_qty
+			filtered_items.append(item)
+		elif total_all_confirmed <= 0:
+			# Part of the order is planned and this line is not: it still shows, so its boxes are seen. Where
+			# the plan is enforced it cannot be allocated until it is planned.
+			item["pending_stock_qty"] = ordered_qty
+			item["confirmed_stems"] = 0
+			item["confirmed_detail"] = []
+			item["total_all_confirmed"] = 0
+			item["others_confirmed"] = 0
+			item["balance_available"] = ordered_qty
+			item["not_planned"] = 1
+			item["plan_blocked"] = 1 if enforced else 0
 			filtered_items.append(item)
 
 	items = filtered_items
@@ -907,6 +967,8 @@ def get_sales_order_items_with_buckets(
 
 	# Stems the allocation plan holds for a line are not available to any other line.
 	held_by_line = availability.reservations_by_bucket_line({b["bucket_id"] for b in buckets})
+	# Stems other orders have allocated and are waiting to confirm are not free here either.
+	pending = pending_holds({b["bucket_id"] for b in buckets})
 
 	for item in items:
 		meta = metadata_map.get(item["item_code"], {})
@@ -951,11 +1013,18 @@ def get_sales_order_items_with_buckets(
 			held_others = sum(
 				v for k, v in held_by_line.get(b["bucket_id"], {}).items() if k != item["sales_order_item"]
 			)
+			held_for = [
+				(so, q)
+				for so, q in pending.get((b["bucket_id"], b["item_code"], b["stem_length"] or ""), [])
+				if so != sales_order
+			]
+			held_others += sum(q for _so, q in held_for)
 			available_here = max(0.0, (b["available_qty"] or 0) - held_others)
 
 			# Fully allocated elsewhere: nothing to allocate and nothing to
-			# unallocate from this line, so keep it off the list.
-			if available_here <= 0 and not allocated_here:
+			# unallocate from this line, so keep it off the list -- unless another
+			# order holds it waiting confirmation, which is shown with that order.
+			if available_here <= 0 and not allocated_here and not held_for:
 				continue
 
 			entry = {
@@ -979,6 +1048,8 @@ def get_sales_order_items_with_buckets(
 				# Already allocated to someone and physically on its way to the
 				# sales shelf -- allocatable, but shown as in transit.
 				"in_transit": cint(b.get("in_transit")),
+				# allocated to other orders, waiting their confirmation: [{"sales_order", "qty"}]
+				"held_for": [{"sales_order": so, "qty": q} for so, q in held_for],
 				"transit_to": transit_destination if cint(b.get("in_transit")) else "",
 				"downgrade_approval": (
 					"amber_expired" if (b["age_days"] or 0) >= amber_time else "requires_approval"
@@ -1001,13 +1072,19 @@ def get_sales_order_items_with_buckets(
 		preferred_farm = max(farm_exact_qty, key=farm_exact_qty.get) if farm_exact_qty else None
 
 		def sort_key(b):
+			# buckets held for other orders (nothing free here) go after every free one
+			held = 1 if b.get("held_for") and (b["available_qty"] or 0) <= 0 else 0
 			is_preferred = 0 if b["shelf_farm"] == preferred_farm else 1
-			return (is_preferred, b["age_days"] * -1)
+			return (held, is_preferred, b["age_days"] * -1)
 
 		exact.sort(key=sort_key)
 		downgrade.sort(key=sort_key)
 
 		compatible = exact + downgrade
+		# every free bucket first, then those held for other orders
+		compatible = [b for b in compatible if not (b.get("held_for") and (b["available_qty"] or 0) <= 0)] + [
+			b for b in compatible if b.get("held_for") and (b["available_qty"] or 0) <= 0
+		]
 
 		item["batches"] = compatible
 		item["total_available_qty"] = sum(b["available_qty"] for b in compatible)
@@ -1597,40 +1674,102 @@ def allocate_stock_with_buckets(
 		frappe.throw(_("Location parameter is required"))
 
 	# ── Team is mandatory PER LINE: every Sales Order Item being allocated must have a
-	#    valid team. It is written to custom_team on that item's OPL (see impl). ──
-	for so_item in {a["sales_order_item"] for a in allocations}:
-		t = teams.get(so_item)
+	#    valid team. It is written to custom_team on that item's OPL (see impl). A line
+	#    sent without one takes the team Allocation Planning confirmed it for. ──
+	lines = {a["sales_order_item"] for a in allocations}
+	planned = allocation_plan.planned_teams([s for s in lines if not teams.get(s)])
+	for so_item in lines:
+		t = teams.get(so_item) or planned.get(so_item)
 		if not t:
-			frappe.throw(_("A team is required for every item being allocated."))
+			frappe.throw(
+				_("Choose a packing team: {0} has no planned team.").format(
+					frappe.db.get_value("Sales Order Item", so_item, "item_code") or so_item
+				)
+			)
+		teams[so_item] = t
 		if not frappe.db.exists("Packing Teams", t):
 			frappe.throw(_("Invalid team: {0}").format(t))
 
-	rules = _v2_rules()
+	rules = _v2_rules(location)
 	if not rules["partial_allocation"]:
 		_check_whole_lines(sales_order, allocations)
 	if rules["enforce_plan"]:
 		_check_against_plan(allocations, teams)
 
 	try:
-		return _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams)
+		out = _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams)
+		close_pending(sales_order, location)
+		return out
 	except Exception:
 		frappe.db.rollback()
 		raise
 
 
-def _v2_rules():
-	"""Production Settings > Packhouse > Sales Allocation v2. Read by this page only; the original
-	Sales Allocation page never looks at them."""
+def pending_holds(bucket_ids):
+	"""{(bucket, variety, length): [(sales_order, stems)]} that Pending Allocations (allocated, waiting to be
+	confirmed) hold. Another order cannot take those stems."""
+	if not bucket_ids or not frappe.db.table_exists("Pending Allocation Row"):
+		return {}
+	out = defaultdict(list)
+	for r in frappe.db.sql(
+		"""
+		SELECT r.bucket_id, r.item_code, IFNULL(r.stem_length, '') AS stem_length, p.sales_order, SUM(r.qty) AS qty
+		FROM `tabPending Allocation Row` r
+		JOIN `tabPending Allocation` p ON p.name = r.parent AND r.parenttype = 'Pending Allocation'
+		WHERE p.status = 'Pending' AND r.bucket_id IN %(b)s
+		GROUP BY r.bucket_id, r.item_code, IFNULL(r.stem_length, ''), p.sales_order
+		""",
+		{"b": tuple(bucket_ids)},
+		as_dict=True,
+	):
+		out[(r.bucket_id, r.item_code, r.stem_length)].append((r.sales_order, flt(r.qty)))
+	return out
+
+
+def close_pending(sales_order, location):
+	"""Clear an order's Pending Allocation at a location once it is released: the allocation itself is the
+	record from then on."""
+	if not frappe.db.table_exists("Pending Allocation"):
+		return
+	for name in frappe.get_all(
+		"Pending Allocation",
+		filters={"sales_order": sales_order, "location": location, "status": "Pending"},
+		pluck="name",
+	):
+		frappe.delete_doc("Pending Allocation", name, ignore_permissions=True, force=True)
+
+
+def _v2_rules(location=None):
+	"""Production Settings > Allocation Planning > Sales Allocation v2. Read by this page only; the original
+	Sales Allocation page never looks at them. The plan is enforced at the locations listed under
+	"Enforce at", or at every location when none is listed."""
 	ps = frappe.get_cached_doc("Production Settings")
 
 	def flag(field, default):
 		value = ps.get(field)
 		return default if value is None else bool(cint(value))
 
+	enforce = flag("enforce_allocation_plan", False)
+	at = {r.location for r in ps.get("enforce_plan_locations") or [] if r.get("location")}
 	return {
 		"partial_allocation": flag("allow_partial_allocation", True),
-		"enforce_plan": flag("enforce_allocation_plan", False),
+		"enforce_plan": enforce and (not at or location in at),
 	}
+
+
+def _check_whole_bunches(so_doc, allocations):
+	"""A bunch is never split: every bucket's stems for a line are whole bunches of the line's unit."""
+	per_bunch = {i.name: flt(i.conversion_factor) or 1 for i in so_doc.items}
+	for a in allocations:
+		size = per_bunch.get(a.get("sales_order_item")) or 1
+		qty = flt(a.get("qty"))
+		if size > 1 and abs(qty / size - round(qty / size)) > 1e-6:
+			frappe.throw(
+				_("{0}: {1} stems from bucket {2} is not whole bunches of {3}.").format(
+					a.get("item_code"), int(qty) if qty == int(qty) else qty, a.get("bucket_id"), int(size)
+				),
+				title=_("Whole bunches only"),
+			)
 
 
 def _check_whole_lines(sales_order, allocations):
@@ -1735,19 +1874,25 @@ def _line_capacity(so_item):
 	return int(per_box or 10) * int(so_item.get("custom_number_of_boxes") or 1)
 
 
-def _box_pieces(so_item, line_rows, allocs):
+def _box_pieces(so_item, line_rows, allocs, opl_name=None):
 	"""Split `allocs` for one line into [(alloc, stems, box_id)], filling the line's
 	boxes in order from what `line_rows` (its rows already on the OPL) leave free --
 	the same rule the pick-list builders use (open_box_slots), so a top-up continues
 	the part-filled box instead of starting a new box per bucket."""
 	from upande_packhouse.server_scripts.create_mixed_box_picklist import (
+		line_box_offset,
 		open_box_slots,
 		placed_stems_by_box,
+		rows_on_other_pick_lists,
 	)
 
+	# the line's boxes on its other pick lists are taken too: a part allocation carries on after them
+	line_rows = list(line_rows) + rows_on_other_pick_lists(so_item.name, opl_name)
+
 	per_box = int(_line_capacity(so_item) / int(so_item.get("custom_number_of_boxes") or 1))
+	offset = line_box_offset(so_item, line_rows)
 	slots = open_box_slots(
-		placed_stems_by_box(line_rows), per_box, int(so_item.get("custom_number_of_boxes") or 1)
+		placed_stems_by_box(line_rows, offset), per_box, int(so_item.get("custom_number_of_boxes") or 1)
 	)
 	pieces = []
 	for alloc in allocs:
@@ -1762,7 +1907,7 @@ def _box_pieces(so_item, line_rows, allocs):
 				)
 			box_id, free = slots[0]
 			take = min(left, free)
-			pieces.append((alloc, take, box_id))
+			pieces.append((alloc, take, box_id + offset))
 			left -= take
 			if free - take > 0.001:
 				slots[0] = (box_id, free - take)
@@ -1874,6 +2019,7 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 	# written, instead of failing as "Overpacked" once the pick list is built.
 	allocations, fit_notes = _fit_allocations_to_boxes(so_doc, allocations)
 	business_unit = stock_movement.business_unit_of(so_doc)
+	_check_whole_bunches(so_doc, allocations)
 
 	# ── Validate against confirmed stems ──
 	confirmed_by_item = _get_confirmed_stems_for_farms(sales_order, list(location_farms))[0]
@@ -2092,6 +2238,12 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 			v
 			for k, v in availability.reservations_by_bucket_line([bucket_id]).get(bucket_id, {}).items()
 			if k not in {a["sales_order_item"] for a in group}
+		)
+		# and stems other orders have allocated, waiting to be confirmed
+		held_others += sum(
+			q
+			for so, q in pending_holds([bucket_id]).get((bucket_id, item_code, stem_length or ""), [])
+			if so != sales_order
 		)
 
 		if requested > current_available - held_others:
@@ -2429,7 +2581,7 @@ def _append_rows_to_existing_opls(allocations, so_doc, location):
 				fields=["bucket", "custom_box_id", "stock_qty"],
 			)
 			new = [a for a in allocs if a["sales_order_item"] == so_item_name]
-			pieces += [(so_item, *p) for p in _box_pieces(so_item, line_rows, new)]
+			pieces += [(so_item, *p) for p in _box_pieces(so_item, line_rows, new, opl_name)]
 
 		for so_item, alloc, stems, box_id in pieces:
 			so_item_name = so_item.name
@@ -2833,7 +2985,7 @@ def _update_existing_pick_list(
 			continue
 		line_rows = [loc for loc in opl.table_ytkc if loc.sales_order_item == so_item_name]
 		new = [a for a in new_allocations if a["sales_order_item"] == so_item_name]
-		pieces += [(so_item, *p) for p in _box_pieces(so_item, line_rows, new)]
+		pieces += [(so_item, *p) for p in _box_pieces(so_item, line_rows, new, opl_name)]
 
 	for so_item, alloc, stems, box_id in pieces:
 		conv = so_item.conversion_factor or 1

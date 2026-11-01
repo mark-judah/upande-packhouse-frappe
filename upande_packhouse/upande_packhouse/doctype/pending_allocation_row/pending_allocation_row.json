@@ -1,0 +1,107 @@
+{
+ "actions": [],
+ "creation": "2026-10-31 20:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sales_order_item",
+  "item_code",
+  "bucket_id",
+  "stem_length",
+  "qty",
+  "team",
+  "length_status",
+  "downgrade_reason",
+  "warehouse",
+  "uom",
+  "stock_uom",
+  "conversion_factor"
+ ],
+ "fields": [
+  {
+   "fieldname": "sales_order_item",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Sales Order Item",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Variety",
+   "options": "Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "bucket_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Bucket",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "stem_length",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Length"
+  },
+  {
+   "fieldname": "qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Stems",
+   "reqd": 1
+  },
+  {
+   "fieldname": "team",
+   "fieldtype": "Link",
+   "label": "Team",
+   "options": "Packing Teams"
+  },
+  {
+   "fieldname": "length_status",
+   "fieldtype": "Data",
+   "label": "Length Status"
+  },
+  {
+   "fieldname": "downgrade_reason",
+   "fieldtype": "Small Text",
+   "label": "Downgrade Reason"
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Data",
+   "label": "Warehouse"
+  },
+  {
+   "fieldname": "uom",
+   "fieldtype": "Data",
+   "label": "UOM"
+  },
+  {
+   "fieldname": "stock_uom",
+   "fieldtype": "Data",
+   "label": "Stock UOM"
+  },
+  {
+   "fieldname": "conversion_factor",
+   "fieldtype": "Float",
+   "label": "Conversion Factor"
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-31 20:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Pending Allocation Row",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

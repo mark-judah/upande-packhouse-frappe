@@ -70,7 +70,9 @@ def get_non_moving(delivery_date: str | None = None, farm: str | None = None):
 	amber = pg.amber_from_days()
 	primary = {
 		(r[0], r[1])
-		for r in frappe.db.sql("SELECT parent, variety FROM `tabSpec Approved Variety` WHERE parenttype = 'Specifications' AND is_primary = 1")
+		for r in frappe.db.sql(
+			"SELECT parent, variety FROM `tabSpec Approved Variety` WHERE parenttype = 'Specifications' AND is_primary = 1"
+		)
 	}
 	items = []
 	for (v, length), s in sorted(model.supply.items(), key=lambda kv: -kv[1]["old"]):
@@ -128,7 +130,9 @@ def get_non_moving(delivery_date: str | None = None, farm: str | None = None):
 				"farm": old_farm,
 				"unused": max(0.0, left_old),
 				"to_orders": to_exact,
-				"by_farm": [{"farm": f, "stems": x} for f, x in sorted(by_farm.items(), key=lambda kv: -kv[1])],
+				"by_farm": [
+					{"farm": f, "stems": x} for f, x in sorted(by_farm.items(), key=lambda kv: -kv[1])
+				],
 				"substitute_lines": sum(1 for m in matches if m["kind"] == "substitute"),
 				"matches": matches,
 			}

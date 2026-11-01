@@ -14,11 +14,11 @@ Heads-ups (code, severity):
                                        while a customer who accepts only that variety is not covered.
   mix_incomplete  red                  a mixed box or bunch that cannot be completed: one of its varieties and
                                        lengths is not covered.
-  not_enough      red / amber          more than the shelf and the farm forecast can cover (red), or more than
-                                       we are sure of (amber).
+  not_enough      red / amber          more than the forecast for the cutting day can cover (red), or more than
+                                       the rolling forecast covers (amber).
 
-"Covered" for a variety and length is: free stems on the shelf (allocatable, so already net of age, cooling and
-stems held for others) + the likely forecast for the cutting day, less what is already confirmed from it.
+"Covered" for a variety and length is the cutting day's rolling forecast (or what was harvested that day once that
+is more), less what is already confirmed; stock already on the shelf is not counted.
 Customers who accept only one variety are the ones whose specification approves one variety or who have no
 specification (treated as strict); the others are flexible. Ages come from Production Settings via core/stock.
 
@@ -82,6 +82,8 @@ class Model:
 		self.specs = _spec_varieties(self.lines)
 		self._likely = {}
 		self.expected_plan = defaultdict(float)  # pool -> stems already confirmed from the forecast
+		self.counted = defaultdict(float)  # pool -> every stem already confirmed
+		self._rolling = None
 		self.left = {}
 		for ln in self.lines:
 			pl = self.planned.get(ln.name, {"real": 0.0, "expected": 0.0})
@@ -89,6 +91,7 @@ class Model:
 				0.0, flt(ln.ordered_stems) - flt(ln.allocated_stems) - pl["real"] - pl["expected"]
 			)
 			self.expected_plan[(ln.item_code, ln.custom_length or "")] += pl["expected"]
+			self.counted[(ln.item_code, ln.custom_length or "")] += pl["real"] + pl["expected"]
 
 	def pool(self, variety, length):
 		return {**pg.SUPPLY, **self.supply.get((variety, length or ""), {})}
@@ -109,13 +112,21 @@ class Model:
 			self._error[variety] = None if err is None else round(100.0 * err)
 		return self._error[variety]
 
-	def cover(self, variety, length, sure=False):
-		"""Stems that can still be confirmed for the variety and length: on the shelf, received and not
-		shelved, and still to come."""
-		likely, sure_v = self.likely_sure(variety, length)
-		fc = (sure_v if sure else likely) - self.expected_plan.get((variety, length or ""), 0.0)
+	def rolling(self, variety, length):
+		if self._rolling is None:
+			self._rolling = pg._rolling_by_pool(self.day, self.farm, {ln.item_code for ln in self.lines})
+		return self._rolling.get((variety, length or ""), 0.0)
+
+	def cover(self, variety, length, sure=False, basis="rolling"):
+		"""Stems of the cutting day's forecast not confirmed yet for the variety and length: the rolling forecast,
+		or the production forecast (`sure` takes off its average error)."""
 		p = self.pool(variety, length)
-		return p["free"] + p["received"] + max(0.0, fc)
+		if sure or basis == "production":
+			likely, sure_v = self.likely_sure(variety, length)
+			total = p["harvested"] - p["on_the_way"] + (sure_v if sure else likely)
+		else:
+			total = pg.cut_day_total(p, self.rolling(variety, length))
+		return max(0.0, total - self.counted.get((variety, length or ""), 0.0))
 
 	def options(self, ln):
 		"""Varieties this line's customer accepts (at least the one ordered)."""
@@ -384,37 +395,19 @@ def check(day, farm, lines, model=None):
 				acts = [{"kind": "open_order", "label": _("Open this order"), "order": ln.parent}]
 			add(_item("non_moving", AMBER, msg, acts), ("old", ln.name, sv, sl))
 
-		# --- more than we have
-		p = model.pool(v, length)
+		# --- more than the forecast
 		cov = model.cover(v, length)
-		cov_sure = model.cover(v, length, sure=True)
+		cov_prod = model.cover(v, length, basis="production")
 		pool_take = take[pool_key]
-		if pool_take > cov + 0.0001:
-			over = pool_take - cov
-			parts = [_("{0} on the shelf").format(_n(p["free"]))]
-			if p["received"]:
-				parts.append(_("{0} received and not shelved yet").format(_n(p["received"])))
-			parts.append(
-				_("{0} still to come from the farms").format(_n(max(0.0, cov - p["free"] - p["received"])))
-			)
+		if pool_take > max(cov, cov_prod) + 0.0001:
 			msg = _(
-				"You are confirming {0} stems of {1} {2}, but we can only cover {3}: {4}. The other {5} would be short."
-			).format(_n(pool_take), v, length, _n(cov), ", ".join(parts), _n(over))
+				"You are confirming {0} stems of {1} {2}, but the forecast for the cutting day covers {3}. The other {4} would be short."
+			).format(_n(pool_take), v, length, _n(max(cov, cov_prod)), _n(pool_take - max(cov, cov_prod)))
 			add(_item("not_enough", RED, msg), ("short", pool_key))
-		elif pool_take > cov_sure + 0.0001:
-			err = model.error_pct(v)
-			why = (
-				_(
-					"the forecast for {0} has been off by {1}% on average this year, so we count only {2} of it"
-				).format(v, err, _n(cov_sure))
-				if err is not None
-				else _(
-					"there are no finished weeks to judge the forecast for {0} by, so none of it counts as sure"
-				).format(v)
-			)
+		elif pool_take > cov + 0.0001:
 			msg = _(
-				"You are confirming {0} stems of {1} {2}. We are sure of {3}: {4}. The other {5} depend on the forecast being right."
-			).format(_n(pool_take), v, length, _n(cov_sure), why, _n(pool_take - cov_sure))
+				"You are confirming {0} stems of {1} {2}. The rolling forecast covers {3}; the other {4} depend on the production forecast."
+			).format(_n(pool_take), v, length, _n(cov), _n(pool_take - cov))
 			add(_item("not_enough", AMBER, msg), ("short", pool_key))
 
 	loud = [i for i in items if i["severity"] in (RED, AMBER)]

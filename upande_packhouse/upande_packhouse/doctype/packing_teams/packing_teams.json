@@ -6,10 +6,23 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
+  "details_tab",
   "team",
-  "crops"
+  "location",
+  "start_time",
+  "crops_tab",
+  "crops",
+  "customers_tab",
+  "customers",
+  "members_tab",
+  "members"
  ],
  "fields": [
+  {
+   "fieldname": "details_tab",
+   "fieldtype": "Tab Break",
+   "label": "Team Details"
+  },
   {
    "fieldname": "team",
    "fieldtype": "Data",
@@ -17,16 +30,55 @@
    "unique": 1
   },
   {
+   "fieldname": "location",
+   "fieldtype": "Link",
+   "label": "Location",
+   "options": "Location"
+  },
+  {
+   "fieldname": "start_time",
+   "fieldtype": "Time",
+   "label": "Start Time",
+   "default": "07:00:00"
+  },
+  {
+   "fieldname": "crops_tab",
+   "fieldtype": "Tab Break",
+   "label": "Crops"
+  },
+  {
    "fieldname": "crops",
    "fieldtype": "Table",
    "label": "Crops",
    "options": "Packing Team Crop"
+  },
+  {
+   "fieldname": "customers_tab",
+   "fieldtype": "Tab Break",
+   "label": "Customers"
+  },
+  {
+   "fieldname": "customers",
+   "fieldtype": "Table",
+   "label": "Customers",
+   "options": "Packing Team Customer"
+  },
+  {
+   "fieldname": "members_tab",
+   "fieldtype": "Tab Break",
+   "label": "Team Members"
+  },
+  {
+   "fieldname": "members",
+   "fieldtype": "Table",
+   "label": "Team Members",
+   "options": "Packing Team Member"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-30 12:00:00.000000",
+ "modified": "2026-11-01 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Packing Teams",
