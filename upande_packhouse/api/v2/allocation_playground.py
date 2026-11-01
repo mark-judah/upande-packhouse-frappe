@@ -42,6 +42,7 @@ from frappe.utils import add_days, cint, flt, getdate, today
 
 from upande_packhouse import allocation_plan as plans
 from upande_packhouse import availability
+from upande_packhouse.api.v2 import allocation_forecast as forecasts
 from upande_packhouse.api.v2.core import pipeline, received, stock
 
 PLANNERS = (
@@ -111,7 +112,11 @@ def forecast_error(variety, farm=None):
 	Weighted average over the year's finished weeks of |revised - actual| / actual, using the "all lengths" rows
 	(actuals are only kept for those). None when no finished week has an actual to judge it by."""
 	farms = tuple(_growing_farms(farm) or ())
-	return _memo(("error", variety, farms, today()), lambda: _forecast_error(variety, farms))
+	# the better of the two forecasts' errors: confirmations use whichever forecast has more that is safe to promise
+	rev = _memo(("error", variety, farms, today()), lambda: _forecast_error(variety, farms))
+	roll = _memo(("rerror", variety, farms, today()), lambda: forecasts.rolling_error(variety, farms))
+	have = [x for x in (rev, roll) if x[0] is not None]
+	return min(have, key=lambda x: x[0]) if have else (None, 0)
 
 
 def _forecast_error(variety, farms):
@@ -151,7 +156,8 @@ def _error_of(rows):
 def expected_detail(variety, length, delivery_date, farm=None):
 	"""What the farms are forecast to cut for this delivery date, by growing farm.
 
-	Returns {"likely", "sure", "by_farm", "error", "weeks"}. The forecast is kept per greenhouse; a greenhouse
+	Returns {"likely", "sure", "by_farm", "error", "weeks"} for the forecast being confirmed against ("basis"), with both
+	forecasts ("revised", "rolling") and their variance. The forecast is kept per greenhouse; a greenhouse
 	belongs to a farm (Warehouse > Farm) and only the farm is shown.
 
 	Revised forecast for the cutting day's week, shared over its days, times the length's share of the variety's
@@ -172,9 +178,55 @@ def expected_detail(variety, length, delivery_date, farm=None):
 		if total > 0 and allv > 0 and mine > 0:
 			by_farm[f] = total / 7.0 * mine / allv
 	likely = sum(by_farm.values())
-	error, weeks = forecast_error(variety, farm) if likely > 0 else (None, 0)
-	sure = likely * (1 - error) if error is not None else 0.0
-	return {"likely": likely, "sure": sure, "by_farm": by_farm, "error": error, "weeks": weeks}
+	revised_error, revised_weeks = (
+		_memo(("error", variety, farms, today()), lambda: _forecast_error(variety, farms))
+		if likely > 0
+		else (None, 0)
+	)
+	revised = {
+		"likely": likely,
+		"sure": likely * (1 - revised_error) if revised_error is not None else 0.0,
+		"by_farm": by_farm,
+		"error": revised_error,
+		"weeks": revised_weeks,
+	}
+	# the rolling forecast: what was cut one cut-to-cut cycle before. Length shares fall back to the revised rows' own.
+	mine = sum(v[0] for v in share_by_farm.values())
+	allv = sum(v[1] for v in share_by_farm.values())
+	roll_farms = forecasts.rolling_by_farm(
+		variety, length, cut_day, farms, (mine / allv) if allv > 0 else None
+	)
+	rolling = None
+	if roll_farms is not None:
+		r_likely = sum(roll_farms.values())
+		r_err, r_weeks = (
+			_memo(("rerror", variety, farms, today()), lambda: forecasts.rolling_error(variety, farms))
+			if r_likely > 0
+			else (None, 0)
+		)
+		rolling = {
+			"likely": r_likely,
+			"sure": r_likely * (1 - r_err) if r_err is not None else 0.0,
+			"by_farm": roll_farms,
+			"error": r_err,
+			"weeks": r_weeks,
+		}
+	# Confirm against either: the forecast with more that is safe to promise covers (the production forecast on a tie).
+	used = (
+		forecasts.ROLLING
+		if (rolling is not None and rolling["sure"] > revised["sure"])
+		else forecasts.REVISED
+	)
+	chosen = rolling if used == forecasts.ROLLING else revised
+	diff = (rolling["likely"] - revised["likely"]) if rolling is not None else None
+	return {
+		**chosen,
+		"basis": used,
+		"revised": revised,
+		"rolling": rolling,
+		"variance": diff,
+		"variance_pct": (diff / revised["likely"]) if diff is not None and revised["likely"] > 0 else None,
+	}
 
 
 def _split_forecast(rows, length, total_by_farm, share_by_farm):
@@ -751,7 +803,14 @@ def get_confirmed_orders(delivery_date: str | None = None, farm: str | None = No
 				if hv > 0.0001:
 					sources.append({"kind": "harvested", "stems": hv, "farm": c.farm})
 				if left - hv > 0.0001:
-					sources.append({"kind": "forecast", "stems": left - hv, "farm": c.farm})
+					sources.append(
+						{
+							"kind": "forecast",
+							"stems": left - hv,
+							"farm": c.farm,
+							"basis": "Rolling" if "rolling" in (c.forecast_basis or "") else "Production",
+						}
+					)
 		key_v = cs[0].variety if cs else ln.item_code
 		key_l = (cs[0].length if cs else ln.custom_length) or ""
 		room = max(0.0, ordered - allocated)
@@ -939,6 +998,39 @@ def get_pool(
 			"error_pct": None if detail["error"] is None else round(100.0 * detail["error"]),
 			"error_weeks": detail["weeks"],
 		},
+	}
+
+
+def _forecast_view(detail, harvested):
+	"""Both forecasts for the cutting day (stems still to be cut: the forecast less what was harvested that day), the one being
+	confirmed against, and how far apart they are."""
+
+	def one(d):
+		if d is None:
+			return None
+		left = max(0.0, d["likely"] - harvested)
+		scale = (left / d["likely"]) if d["likely"] > 0 else 0.0
+		return {
+			"by_farm": [
+				{"farm": f, "stems": v * scale}
+				for f, v in sorted(d["by_farm"].items(), key=lambda kv: -kv[1])
+				if v * scale > 0
+			],
+			"day": d["likely"],
+			"to_cut": left,
+			"to_cut_sure": left * (d["sure"] / d["likely"]) if d["likely"] > 0 else 0.0,
+			"error_pct": None if d["error"] is None else round(100.0 * d["error"]),
+		}
+
+	rev, roll = one(detail["revised"]), one(detail["rolling"])
+	return {
+		"basis": detail["basis"],
+		"revised": rev,
+		"rolling": roll,
+		"variance": None if roll is None else roll["to_cut"] - rev["to_cut"],
+		"variance_pct": None
+		if roll is None or rev["to_cut"] <= 0
+		else (roll["to_cut"] - rev["to_cut"]) / rev["to_cut"],
 	}
 
 

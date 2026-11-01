@@ -137,3 +137,56 @@ def undo():
 	os.remove(UNDO())
 	frappe.clear_cache()
 	print("Dates put back.")
+
+
+def seed_pool(variety="Tropical Amazon", length="52cm", delivery_date=None, farm=None, age=None, spare=1500):
+	"""Make a variety and length non-moving by MORE than its own orders can take, so the rest is left for customers who
+	ordered another variety their specification approves (the substitute rows of the Non-moving tab).
+
+	It re-dates buckets until the old stock the allocator can really use is the exact and longer need plus `spare`
+	stems. A re-dated bucket that is still not usable (held, already allocated) gets its old dates back."""
+	from upande_packhouse.api.v2 import allocation_nonmoving as nm
+
+	day = pg._day(delivery_date)
+	farm = farm or pg._default_farm()
+	age = int(age if age is not None else stock._config()["amber_time"])
+	farms = pg._stock_farms(farm)
+	model = nm.full_model(day, farm)
+	need = sum(model.left[ln.name] for kind in ("exact", "longer") for ln in nm._wanting(model, variety, length, kind))
+	target = need + spare - model.pool(variety, length)["old"]
+	if target <= 0:
+		print(f"{variety} {length} already has enough old stock.")
+		return
+	when = add_days(today(), -age)
+	rows = frappe.db.sql(
+		"""SELECT bucket_id, SUM(stem_qty) q FROM `tabShelf Item`
+		   WHERE stem_qty > 0 AND variety = %(v)s AND stem_length = %(l)s AND farm IN %(f)s AND IFNULL(bucket_id, '') != ''
+		     AND DATE(COALESCE(harvest_date, date_added)) != %(when)s
+		   GROUP BY bucket_id ORDER BY MAX(date_added) DESC LIMIT 150""",
+		{"v": variety, "l": length, "f": tuple(farms), "when": when},
+		as_dict=True,
+	)
+	ids = [r.bucket_id for r in rows]
+	if not ids:
+		print("No more shelf stock to re-date.")
+		return
+	saved = {}
+	for r in frappe.db.sql("SELECT bucket_id, name, date_added, harvest_date FROM `tabShelf Item` WHERE bucket_id IN %s", (tuple(ids),), as_dict=True):
+		saved.setdefault(r.bucket_id, []).append(
+			{"name": r.name, "date_added": str(r.date_added), "harvest_date": str(r.harvest_date) if r.harvest_date else None}
+		)
+	frappe.db.sql("UPDATE `tabShelf Item` SET date_added = %s, harvest_date = %s WHERE bucket_id IN %s", (f"{when} 08:00:00", when, tuple(ids)))
+	usable = {r.bucket_id: r.allocatable for r in stock.bucket_rows(farms=farms, varieties=[variety], lengths=[length]) if r.allocatable > 0 and (r.age_days or 0) >= age}
+	keep, got = [], 0.0
+	for b in ids:
+		if b in usable and got < target:
+			keep.append(b)
+			got += usable[b]
+	for b in (b for b in ids if b not in keep):  # not usable after all: put the old dates back
+		for o in saved[b]:
+			frappe.db.sql("UPDATE `tabShelf Item` SET date_added = %s, harvest_date = %s WHERE name = %s", (o["date_added"], o["harvest_date"], o["name"]))
+	prev = json.load(open(UNDO())) if os.path.exists(UNDO()) else []
+	json.dump(prev + [o for b in keep for o in saved[b]], open(UNDO(), "w"))
+	frappe.db.commit()
+	frappe.clear_cache()
+	print(f"{variety} {length}: {len(keep)} buckets ({int(got)} stems) now {age} days old; its orders need {int(need)}.")

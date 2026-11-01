@@ -6365,6 +6365,14 @@ def _take_over_truck(rows, mine):
 def _shelve_update_bas(bucket_id, variety, farm, shelf_id, result):
 	result["bas_updated"] = False
 	try:
+		# Shelved again after a new harvest: what orders held in the last life of this bucket is released first,
+		# so it is not subtracted from the new flowers (see bucket_reuse).
+		from upande_packhouse.bucket_reuse import release_reused_bucket
+
+		result["reuse_released"] = len(release_reused_bucket(bucket_id)["released"])
+	except Exception:
+		frappe.log_error("Release of old allocation at shelving failed", frappe.get_traceback())
+	try:
 		bas_name = frappe.db.get_value(
 			"Bucket Allocation Status", {"bucket_id": bucket_id, "item_code": variety}, "name"
 		)
