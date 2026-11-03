@@ -6402,7 +6402,9 @@ def _shelve_check_submit_opl(bucket_id, result):
 	# colour-lines were still unallocated. See order_pick_list.py's
 	# before_submit for the doctype-level backstop this is now also covered
 	# by even if this call site were ever bypassed.
-	from upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation import (
+	# the v2 check: it is the original's plus Allow Partial Packing, so a pick list of complete boxes
+	# submits as its remote buckets are shelved
+	from upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2 import (
 		_try_submit_opl_if_complete,
 	)
 

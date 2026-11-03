@@ -49,6 +49,22 @@ def _line_stems(it):
 	return _line_packrate(it) * int(it.get("custom_number_of_boxes") or 0)
 
 
+@frappe.whitelist()
+def floriday_customer():
+	"""The customer ecommerce_integration books every Floriday order under, or None."""
+	if not frappe.db.exists("DocType", "Floriday Settings"):
+		return None
+	return frappe.db.get_single_value("Floriday Settings", "customer") or None
+
+
+def s_number_required(doc):
+	"""S_Number is required on a Roses order, except for the Floriday customer:
+	Floriday names no shipping booking for its orders."""
+	if (doc.get("business_unit") or "") != "Roses":
+		return False
+	return not doc.customer or doc.customer != floriday_customer()
+
+
 def _customer_default_pl(doc):
 	return frappe.db.get_value("Customer", doc.customer, "default_price_list") if doc.customer else None
 
@@ -194,6 +210,16 @@ def sales_order_price(doc, method=None):
 	for it in doc.items:
 		if not it.get("custom_length"):
 			continue
+		# A channel order (ecommerce_integration's Floriday/Biflorica) carries the
+		# per-stem price the buyer agreed; keep it rather than reprice from Item Price.
+		agreed = float(it.get("custom_floriday_rate") or it.get("custom_biflorica_rate") or 0)
+		if agreed > 0:
+			rate = agreed * (_uom_factor(it.uom) or 1)
+			it.price_list_rate = rate
+			it.discount_percentage = 0
+			it.discount_amount = 0
+			it.rate = rate
+			continue
 		per_stem = frappe.db.get_value(
 			"Item Price",
 			{
@@ -229,6 +255,9 @@ def sales_order_validate(doc, method=None):
 			).format(doc.customer),
 			title=_("Missing Price List"),
 		)
+
+	if not (doc.get("custom_s_number") or "").strip() and s_number_required(doc):
+		frappe.throw(_("S_Number is required."), title=_("Missing Details"))
 
 	# 2a. box type, stem length and number of boxes are required on Roses lines
 	#     (shown as mandatory in the form via mandatory_depends_on; enforced here

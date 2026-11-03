@@ -62,9 +62,10 @@ def _planning_switches():
 	Planning's order sequence and team. Both on by default and off once hidden; the
 	sequence never on while the Sales Order lacks its field."""
 	ps = frappe.get_cached_doc("Production Settings")
+	# Sales Allocation v2 allocates a delivery day's orders as they come; the planning sequence stays on
+	# the planning page.
 	return {
-		"sequence": not cint(ps.get("hide_allocation_planning_sequence"))
-		and frappe.db.has_column("Sales Order", "custom_allocation_sequence"),
+		"sequence": False,
 		"team": not cint(ps.get("hide_allocation_planning_team")),
 	}
 
@@ -731,8 +732,10 @@ def get_sales_order_items_with_buckets(
 	# match it against). No filter at all when custom_cut_stage is blank.
 
 	all_confirmed = _get_all_confirmed_stems(sales_order)
-	enforced = _v2_rules(location)["enforce_plan"]
 
+	# Allocation Planning guides, it does not limit: a line is allocated up to what was ordered (less what
+	# another location confirmed for itself), and what was confirmed here is shown alongside. A line
+	# confirmed only for another location's farms belongs to that location and is left out here.
 	filtered_items = []
 	for item in items:
 		so_item_name = item["sales_order_item"]
@@ -740,35 +743,17 @@ def get_sales_order_items_with_buckets(
 		total_all_confirmed = all_confirmed.get(so_item_name, 0)
 		others_confirmed = total_all_confirmed - my_confirmed
 		ordered_qty = item["original_ordered_qty"] or item["original_stock_qty"] or 0
-
-		if my_confirmed > 0:
-			item["pending_stock_qty"] = my_confirmed
-			item["confirmed_stems"] = my_confirmed
-			item["confirmed_detail"] = confirmed_detail.get(so_item_name, [])
-			item["total_all_confirmed"] = total_all_confirmed
-			item["others_confirmed"] = others_confirmed
-			item["balance_available"] = max(0, ordered_qty - total_all_confirmed)
-			filtered_items.append(item)
-		elif not all_confirmed:
-			item["pending_stock_qty"] = ordered_qty
-			item["confirmed_stems"] = 0
-			item["confirmed_detail"] = []
-			item["total_all_confirmed"] = 0
-			item["others_confirmed"] = 0
-			item["balance_available"] = ordered_qty
-			filtered_items.append(item)
-		elif total_all_confirmed <= 0:
-			# Part of the order is planned and this line is not: it still shows, so its boxes are seen. Where
-			# the plan is enforced it cannot be allocated until it is planned.
-			item["pending_stock_qty"] = ordered_qty
-			item["confirmed_stems"] = 0
-			item["confirmed_detail"] = []
-			item["total_all_confirmed"] = 0
-			item["others_confirmed"] = 0
-			item["balance_available"] = ordered_qty
-			item["not_planned"] = 1
-			item["plan_blocked"] = 1 if enforced else 0
-			filtered_items.append(item)
+		if my_confirmed <= 0 and total_all_confirmed > 0:
+			continue
+		item["pending_stock_qty"] = max(0, ordered_qty - others_confirmed)
+		item["confirmed_stems"] = my_confirmed
+		item["confirmed_detail"] = confirmed_detail.get(so_item_name, [])
+		item["total_all_confirmed"] = total_all_confirmed
+		item["others_confirmed"] = others_confirmed
+		item["balance_available"] = max(0, ordered_qty - total_all_confirmed)
+		item["not_planned"] = 0 if total_all_confirmed > 0 else 1
+		item["plan_blocked"] = 0
+		filtered_items.append(item)
 
 	items = filtered_items
 
@@ -1069,13 +1054,20 @@ def get_sales_order_items_with_buckets(
 				b["available_qty"] or 0
 			)
 
-		preferred_farm = max(farm_exact_qty, key=farm_exact_qty.get) if farm_exact_qty else None
+		# The sales farm's own shelves first (packed now), then the remote farms (wait for the truck); oldest
+		# first within each (FIFO).
+		sales_farms = [f for f in farm_exact_qty if farm_config.get(f, {}).get("sales_shelf")]
+		preferred_farm = (
+			sales_farms[0]
+			if sales_farms
+			else (max(farm_exact_qty, key=farm_exact_qty.get) if farm_exact_qty else None)
+		)
 
 		def sort_key(b):
 			# buckets held for other orders (nothing free here) go after every free one
 			held = 1 if b.get("held_for") and (b["available_qty"] or 0) <= 0 else 0
-			is_preferred = 0 if b["shelf_farm"] == preferred_farm else 1
-			return (held, is_preferred, b["age_days"] * -1)
+			remote = 0 if farm_config.get(b["shelf_farm"], {}).get("sales_shelf") else 1
+			return (held, remote, b["age_days"] * -1)
 
 		exact.sort(key=sort_key)
 		downgrade.sort(key=sort_key)
@@ -1751,9 +1743,12 @@ def _v2_rules(location=None):
 
 	enforce = flag("enforce_allocation_plan", False)
 	at = {r.location for r in ps.get("enforce_plan_locations") or [] if r.get("location")}
+	# Allocation Planning is a guide on this page: what was confirmed is shown, and the planned team and a
+	# planned longer length are used, but nothing is refused for not being planned.
+	del enforce, at
 	return {
 		"partial_allocation": flag("allow_partial_allocation", True),
-		"enforce_plan": enforce and (not at or location in at),
+		"enforce_plan": False,
 	}
 
 
@@ -2029,8 +2024,9 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 		so_item = a["sales_order_item"]
 		alloc_totals_by_item[so_item] = alloc_totals_by_item.get(so_item, 0) + float(a.get("qty", 0))
 
+	limits = _line_limits(so_doc, list(alloc_totals_by_item), confirmed_by_item)
 	for so_item, new_qty in alloc_totals_by_item.items():
-		confirmed = confirmed_by_item.get(so_item, 0)
+		confirmed = limits.get(so_item, 0)
 		if confirmed > 0:
 			existing_allocated = (
 				frappe.db.sql(
@@ -2049,7 +2045,7 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 			if total_after > confirmed + 0.001:
 				frappe.throw(
 					f"Cannot allocate {int(new_qty)} stems for item. "
-					f"This location confirmed {int(confirmed)} stems, "
+					f"This location can take {int(confirmed)} stems, "
 					f"already allocated {int(existing_allocated)}. "
 					f"Maximum remaining: {int(confirmed - existing_allocated)}"
 				)
@@ -2445,59 +2441,29 @@ def _create_pick_list(sales_order, allocations, so_doc, location, confirmed_by_i
 	results = []
 
 	if straight:
-		# Rule: one Sales Order Item = exactly one OPL for straight boxes.
-		# Route per-SOI based on the existing OPL's state:
-		#   - no OPL (or cancelled) → create a new one
-		#   - draft OPL              → ORM append via _update_existing_pick_list
-		#   - submitted OPL          → raw-SQL append via _append_rows_to_existing_opls
+		# A straight line has at most two live pick lists: one for the boxes the sales farm's shelves fill
+		# now (submitted, packed at once) and one for the boxes waiting for remote stock to be shelved
+		# (draft, submitted when it arrives). Each is appended to (draft or submitted) or created.
 		by_soi = {}
 		for a in straight:
 			by_soi.setdefault(a["sales_order_item"], []).append(a)
 
 		for soi, allocs in by_soi.items():
-			existing_opl = frappe.db.get_value("Sales Order Item", soi, "custom_opl")
-			parent_docstatus = None
-			if existing_opl and frappe.db.exists("Order Pick List", existing_opl):
-				parent_docstatus = frappe.db.get_value("Order Pick List", existing_opl, "docstatus")
-
-			if parent_docstatus == 0:
-				name = _update_existing_pick_list(
-					existing_opl,
-					allocs,
-					so_doc,
-					location=location,
-					confirmed_by_item=confirmed_by_item,
+			so_item = next(i for i in so_doc.items if i.name == soi)
+			ready, waiting = _split_ready(so_item, allocs)
+			ready_opl = None
+			for group, wants_waiting in ((ready, False), (waiting, True)):
+				if not group:
+					continue
+				done = _route_straight(
+					soi, group, so_doc, location, confirmed_by_item, _line_opl(soi, wants_waiting)
 				)
-				status = (
-					"submitted" if frappe.db.get_value("Order Pick List", name, "docstatus") == 1 else "draft"
-				)
-				results.append({"type": "straight", "status": status, "name": name})
-
-			elif parent_docstatus == 1:
-				for a in allocs:
-					a["_existing_opl"] = existing_opl
-				updated = _append_rows_to_existing_opls(allocs, so_doc, location)
-				for opl_name in updated:
-					results.append({"type": "straight", "status": "updated_existing", "name": opl_name})
-
-			else:
-				from upande_packhouse.server_scripts.create_straight_box_pick_list import (
-					create_straight_box_pick_list_for_allocated_items,
-				)
-
-				names = (
-					create_straight_box_pick_list_for_allocated_items(
-						so_doc, allocs, submit=True, location=location
-					)
-					or []
-				)
-				for opl_name in names:
-					status = (
-						"submitted"
-						if frappe.db.get_value("Order Pick List", opl_name, "docstatus") == 1
-						else "draft"
-					)
-					results.append({"type": "straight", "status": status, "name": opl_name})
+				results += done
+				if not wants_waiting and done:
+					ready_opl = done[0]["name"]
+			# the line points at the pick list that can be packed now
+			if ready_opl:
+				frappe.db.set_value("Sales Order Item", soi, "custom_opl", ready_opl, update_modified=False)
 
 	if mixed:
 		from upande_packhouse.server_scripts.create_mixed_box_picklist import (
@@ -2529,6 +2495,94 @@ def _create_pick_list(sales_order, allocations, so_doc, location, confirmed_by_i
 		)
 		results.append({"type": "mixed_bunch", "status": status, "name": name})
 
+	return results
+
+
+def _split_ready(so_item, allocs):
+	"""(ready, waiting) for one straight line. A bucket on the sales farm's shelves is ready; one still on a
+	remote farm waits for the truck. Ready stems go on a pick list of their own in whole boxes, so the
+	complete boxes on the sales farm are packed now; the part box they would leave waits with the remote
+	stems for the rest of its stems."""
+	ready = [a for a in allocs if cint(a.get("_is_sales_shelf", 1))]
+	waiting = [a for a in allocs if not cint(a.get("_is_sales_shelf", 1))]
+	if not waiting:
+		return ready, []
+	per_box = _line_capacity(so_item) / (cint(so_item.get("custom_number_of_boxes")) or 1)
+	if per_box <= 0:
+		return ready, waiting
+	placed = flt(
+		frappe.db.sql(
+			"""SELECT SUM(pli.stock_qty) FROM `tabPick List Item` pli
+			INNER JOIN `tabOrder Pick List` opl ON opl.name = pli.parent
+			WHERE pli.sales_order_item = %s AND opl.docstatus < 2 AND IFNULL(pli.awaiting_transfer, 0) = 0""",
+			so_item.name,
+		)[0][0]
+	)
+	keep = int((placed + sum(flt(a["qty"]) for a in ready)) / per_box + 1e-9) * per_box - placed
+	whole, rest = [], []
+	for a in ready:
+		take = max(0.0, min(flt(a["qty"]), keep))
+		keep -= take
+		if take > 0:
+			whole.append({**a, "qty": take})
+		if flt(a["qty"]) - take > 0.001:
+			rest.append({**a, "qty": flt(a["qty"]) - take})
+	return whole, rest + waiting
+
+
+def _line_opl(soi, waiting):
+	"""The line's live pick list for ready stems (one with nothing waiting for a truck), or for waiting ones
+	(a draft that has); None when there is none yet."""
+	rows = frappe.db.sql(
+		"""SELECT opl.name, opl.docstatus,
+			MAX(IFNULL(pli.awaiting_transfer, 0) = 1 AND IFNULL(pli.shelved, 0) = 0) AS waits
+		FROM `tabOrder Pick List` opl
+		INNER JOIN `tabPick List Item` pli ON pli.parent = opl.name
+		WHERE pli.sales_order_item = %s AND opl.docstatus < 2
+		GROUP BY opl.name, opl.docstatus
+		ORDER BY opl.creation DESC""",
+		soi,
+		as_dict=True,
+	)
+	for r in rows:
+		if waiting and r.waits and r.docstatus == 0:
+			return r.name
+		if not waiting and not r.waits:
+			return r.name
+	return None
+
+
+def _route_straight(soi, allocs, so_doc, location, confirmed_by_item, existing_opl):
+	"""Put a straight line's allocations on `existing_opl` (appended to a draft or a submitted one), or on a
+	new pick list when there is none. [{type, status, name}]"""
+	results = []
+	parent_docstatus = (
+		frappe.db.get_value("Order Pick List", existing_opl, "docstatus") if existing_opl else None
+	)
+	if parent_docstatus == 0:
+		name = _update_existing_pick_list(
+			existing_opl, allocs, so_doc, location=location, confirmed_by_item=confirmed_by_item
+		)
+		status = "submitted" if frappe.db.get_value("Order Pick List", name, "docstatus") == 1 else "draft"
+		results.append({"type": "straight", "status": status, "name": name})
+	elif parent_docstatus == 1:
+		for a in allocs:
+			a["_existing_opl"] = existing_opl
+		for opl_name in _append_rows_to_existing_opls(allocs, so_doc, location):
+			results.append({"type": "straight", "status": "updated_existing", "name": opl_name})
+	else:
+		from upande_packhouse.server_scripts.create_straight_box_pick_list import (
+			create_straight_box_pick_list_for_allocated_items,
+		)
+
+		for opl_name in (
+			create_straight_box_pick_list_for_allocated_items(so_doc, allocs, submit=True, location=location)
+			or []
+		):
+			status = (
+				"submitted" if frappe.db.get_value("Order Pick List", opl_name, "docstatus") == 1 else "draft"
+			)
+			results.append({"type": "straight", "status": status, "name": opl_name})
 	return results
 
 
@@ -2715,6 +2769,20 @@ def _fetch_shelf_for_buckets(bucket_ids, item_codes):
 # Single source of truth for "is this OPL ready to submit?"
 # Called from every code path that creates or modifies an OPL.
 # ============================================================
+def _line_limits(so_doc, so_items, confirmed_here):
+	"""{sales_order_item: most stems this location may allocate}: what was ordered, less what other
+	locations confirmed for themselves."""
+	all_confirmed = _get_all_confirmed_stems(so_doc.name)
+	out = {}
+	for it in so_doc.items:
+		if it.name not in so_items:
+			continue
+		ordered = flt(it.get("custom_ordered_quantity")) or flt(it.qty) * (flt(it.conversion_factor) or 1)
+		others = flt(all_confirmed.get(it.name)) - flt(confirmed_here.get(it.name))
+		out[it.name] = max(0.0, ordered - max(0.0, others))
+	return out
+
+
 def _required_stems_for_so_item(so_item_name, confirmed_qty=None):
 	"""Required stems = confirmed_qty if > 0, else custom_ordered_quantity,
 	else qty × conversion_factor."""
