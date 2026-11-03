@@ -334,3 +334,43 @@ class IntegrationTestResolveSpecRowBunches(IntegrationTestCase):
 		self.assertEqual(rows[0]["item_code"], "Test Wide Matrix Variety Red")
 		self.assertEqual(rows[0]["custom_number_of_boxes"], 4)
 		self.assertNotIn("_bunch_rate_mismatch", rows[0])
+
+	def test_a_missing_packrate_is_created_instead_of_leaving_the_line_without_one(self):
+		# 10 bunches x 5 stems = 50 stems per box. A line built while no Packrate "50" exists used to come out with no
+		# custom_packrate at all (and the save later refused it); it now creates the Packrate and links it.
+		self._make_spec(
+			"Test Wide Matrix Spec Missing Packrate",
+			[("Test Wide Matrix Red", "Test Wide Matrix Variety Red", True)],
+			bunches_per_box=10,
+			stems_per_bunch=5,
+		)
+		if frappe.db.exists("Packrate", "50"):
+			frappe.db.sql("delete from `tabPackrate` where name = '50'")
+		self.assertFalse(frappe.db.exists("Packrate", "50"))
+		item_row = {"custom_line": "Test Wide Matrix Spec Missing Packrate", "custom_number_of_boxes": 3}
+		rows, error = _resolve_spec_row(item_row, "Test Customer", {"mix_group": 1, "bunch_group": 1})
+		self.assertIsNone(error)
+		self.assertEqual(rows[0]["custom_packrate"], "50")
+		self.assertTrue(frappe.db.exists("Packrate", "50"))
+
+	def test_a_saved_row_without_a_packrate_is_healed_when_the_order_is_built(self):
+		from upande_packhouse.api.sales_order import _heal_missing_packrate
+
+		if frappe.db.exists("Packrate", "75"):
+			frappe.db.sql("delete from `tabPackrate` where name = '75'")
+		row = {
+			"item_code": "X",
+			"custom_number_of_boxes": 3,
+			"custom_ordered_quantity": 225,
+			"custom_packrate": None,
+		}
+		_heal_missing_packrate(row)
+		self.assertEqual(row["custom_packrate"], "75")
+		self.assertTrue(frappe.db.exists("Packrate", "75"))
+		# mixed rows, rows that have one, and rows whose stems do not divide are left alone
+		mixed = {"custom_mixed_box": 1, "custom_number_of_boxes": 3, "custom_ordered_quantity": 225}
+		_heal_missing_packrate(mixed)
+		self.assertNotIn("custom_packrate", mixed)
+		uneven = {"custom_number_of_boxes": 4, "custom_ordered_quantity": 225}
+		_heal_missing_packrate(uneven)
+		self.assertNotIn("custom_packrate", uneven)

@@ -62,8 +62,8 @@ class UnitTestExpandWideMatrix(UnitTestCase):
 		self.assertEqual(
 			rows,
 			[
-				["Test Mix Spec x20 STEMS", 40.0, "20", "PO-1001", "01/01/2026", "03/01/2026"],
-				["Test Single Spec x10 STEMS", 30.0, "10", "PO-1002", "02/01/2026", "04/01/2026"],
+				["Test Mix Spec x20 STEMS", 40.0, "20", "PO-1001", "01/01/2026", "03/01/2026", "MIXCODE"],
+				["Test Single Spec x10 STEMS", 30.0, "10", "PO-1002", "02/01/2026", "04/01/2026", "SINGLECODE"],
 			],
 		)
 
@@ -136,7 +136,7 @@ class UnitTestExpandWideMatrix(UnitTestCase):
 			["Total"],
 		]
 		_header, rows = expand_wide_matrix(comma_rows[0], comma_rows[1:], _layout())
-		self.assertEqual(rows, [["Big Order Spec", 1200.0, "20", "PO-9001", "01/01/2026", "03/01/2026"]])
+		self.assertEqual(rows, [["Big Order Spec", 1200.0, "20", "PO-9001", "01/01/2026", "03/01/2026", "CODE"]])
 
 	def test_pivot_matches_real_client_header_rows_split(self):
 		# Pins the real calling convention directly (see applyParsedGrid in
@@ -155,8 +155,8 @@ class UnitTestExpandWideMatrix(UnitTestCase):
 		self.assertEqual(
 			new_rows,
 			[
-				["Test Mix Spec x20 STEMS", 40.0, "20", "PO-1001", "01/01/2026", "03/01/2026"],
-				["Test Single Spec x10 STEMS", 30.0, "10", "PO-1002", "02/01/2026", "04/01/2026"],
+				["Test Mix Spec x20 STEMS", 40.0, "20", "PO-1001", "01/01/2026", "03/01/2026", "MIXCODE"],
+				["Test Single Spec x10 STEMS", 30.0, "10", "PO-1002", "02/01/2026", "04/01/2026", "SINGLECODE"],
 			],
 		)
 
