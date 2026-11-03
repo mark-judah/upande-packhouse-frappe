@@ -13,8 +13,9 @@ Which orders belong to a channel: the same test as
 ecommerce_integration.utils.channel_portal (_channel_filters /
 _belongs_to_channel):
   Biflorica  po_no LIKE 'BIFLORICA-%'  (Predeal when 'BIFLORICA-PREDEAL-%')
-  Floriday   po_no is a UUID, or custom_floriday_delivery_id /
-             custom_floriday_fulfillment_order_id is set
+  Floriday   custom_floriday_order_id / custom_floriday_fulfillment_order_id
+             is set, or (orders imported
+             before custom_floriday_order_id) po_no is a UUID
              (Fulfilled when the fulfilment id is set)
 
 Date meaning: the order date (Sales Order.transaction_date; for a Quotation
@@ -77,7 +78,10 @@ def _channel_sql(key, doctype, alias):
 	if key == "biflorica":
 		return f"{alias}.po_no LIKE 'BIFLORICA-%%'"
 	ors = [f"{alias}.po_no LIKE '{UUID_LIKE}'"]
-	for col in ("custom_floriday_delivery_id", "custom_floriday_fulfillment_order_id"):
+	for col in (
+		"custom_floriday_order_id",
+		"custom_floriday_fulfillment_order_id",
+	):
 		if frappe.db.has_column(doctype, col):
 			ors.append(f"IFNULL({alias}.{col}, '') != ''")
 	return "(" + " OR ".join(ors) + ")"
@@ -100,7 +104,7 @@ def _orders(key, doctype, params, status, q, farms=None):
 		"d.grand_total",
 		"d.currency",
 	]
-	optional = ("custom_consignee", "custom_floriday_fulfillment_order_id")
+	optional = ("custom_consignee", "custom_floriday_fulfillment_order_id", "custom_floriday_order_id")
 	for col in optional:
 		cols.append(f"d.{col}" if frappe.db.has_column(doctype, col) else f"NULL AS {col}")
 
@@ -147,7 +151,7 @@ def _orders(key, doctype, params, status, q, farms=None):
 			r.channel_ref = po.split("-")[-1]
 		else:
 			r.kind = "Fulfilled" if r.custom_floriday_fulfillment_order_id else "Order"
-			r.channel_ref = po[-8:]
+			r.channel_ref = (r.custom_floriday_order_id or po)[-8:]
 	return rows, options
 
 

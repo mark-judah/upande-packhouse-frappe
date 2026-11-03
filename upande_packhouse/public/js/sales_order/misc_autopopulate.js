@@ -55,12 +55,21 @@ frappe.ui.form.on("Sales Order", {
 		frm.refresh_field("items");
 	},
 
+	customer(frm) {
+		set_s_number_reqd(frm);
+	},
+
+	business_unit(frm) {
+		set_s_number_reqd(frm);
+	},
+
 	delivery_date(frm) {
 		if (!frm.doc.delivery_date) return;
 		frm.set_value("custom_week", so_week_number(new Date(frm.doc.delivery_date)));
 	},
 
 	refresh(frm) {
+		set_s_number_reqd(frm);
 		// Belt and braces. items_add covers the grid's own Add Row, but rows
 		// also arrive by routes that fire no grid event at all — spec_autofill's
 		// Add to Order and the mixed-box wizard both go straight onto add_child
@@ -157,4 +166,19 @@ function so_week_number(date) {
 	d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
 	let yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
 	return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+}
+
+// S_Number is required on Roses orders except the Floriday customer's (same rule
+// as sales_order_engine.s_number_required, which enforces it on save).
+let floriday_customer_promise;
+function set_s_number_reqd(frm) {
+	floriday_customer_promise =
+		floriday_customer_promise ||
+		frappe.xcall("upande_packhouse.sales_order_engine.floriday_customer").catch(() => null);
+	floriday_customer_promise.then((floriday_customer) => {
+		const reqd =
+			frm.doc.business_unit === "Roses" &&
+			!(floriday_customer && frm.doc.customer === floriday_customer);
+		frm.set_df_property("custom_s_number", "reqd", reqd ? 1 : 0);
+	});
 }

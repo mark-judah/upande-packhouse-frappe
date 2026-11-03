@@ -214,7 +214,7 @@ FOREIGN_FIELDS = {
 		("custom_business_unit", "Link", "Business Unit"),
 		("custom_farm", "Link", "Farm"),
 		("custom_order_name", "Data", None),
-		("custom_floriday_delivery_id", "Data", None),
+		("custom_floriday_order_id", "Data", None),
 		("custom_floriday_fulfillment_order_id", "Data", None),
 	],
 	"Sales Order Item": [
