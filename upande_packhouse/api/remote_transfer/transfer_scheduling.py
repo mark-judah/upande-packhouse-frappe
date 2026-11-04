@@ -2502,7 +2502,9 @@ def _carry_rows(doc, rows, date=None, report=None):
 	# Every run of the truck to that farm is full (or none is left today): it gets
 	# another run, as automatic scheduling adds one.
 	for row, n, _why in unplaced:
-		res = truck_routes.add_farm_run(doc.vehicle, row["farm"], date, enforce_room=True, while_on_road=True)
+		res = truck_routes.add_farm_run(
+			doc.vehicle, row["farm"], date, enforce_room=True, while_on_road=True, new_route=False
+		)
 		if res.get("status") == "success":
 			more, _left = _split_into_runs(doc.vehicle, date, [part(row, n)], only=(res["route"], res["run"]))
 			write(more)

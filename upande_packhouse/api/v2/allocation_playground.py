@@ -34,7 +34,7 @@ number of days is written here.
 
 import json
 from collections import defaultdict
-from datetime import timedelta
+from datetime import date, timedelta
 
 import frappe
 from frappe import _
@@ -65,6 +65,23 @@ def _memo(key, fn):
 def _day(delivery_date):
 	"""The delivery day planned: the day after tomorrow unless asked (tomorrow is already being allocated)."""
 	return str(getdate(delivery_date or add_days(today(), 2)))
+
+
+def _week(week=None):
+	"""The ISO week planned ("2026-W46"), next week unless asked: (week, [its days, Monday to Sunday])."""
+	if week:
+		year, num = str(week).upper().split("-W")
+		monday = date.fromisocalendar(int(year), int(num), 1)
+	else:
+		now = getdate(today())
+		monday = now - timedelta(days=now.weekday()) + timedelta(days=7)
+	year, num, _wd = monday.isocalendar()
+	return "%d-W%02d" % (year, num), [str(monday + timedelta(days=i)) for i in range(7)]
+
+
+def _cut_of(day):
+	"""The cutting day for a delivery day."""
+	return getdate(day) - timedelta(days=cint(plans.setting("allocation_harvest_lead_days")))
 
 
 def _farms():
@@ -324,20 +341,29 @@ def _plan_name(day, farm):
 	return frappe.db.get_value("Allocation Plan", {"delivery_date": day, "farm": farm})
 
 
-def _lines(day):
-	lines = pipeline.fetch_lines(delivery_from=day, delivery_to=day)
+def _lines(day, to=None):
+	"""The lines for a delivery day, or for every day from `day` to `to`."""
+	lines = pipeline.fetch_lines(delivery_from=day, delivery_to=to or day)
 	pipeline.attach_pipeline(lines)
 	return lines
 
 
-def _lines_for(day, farm):
+def _lines_for(day, farm, to=None):
 	"""The day's lines this sales farm plans: orders of a farm in its location, and, for the default sales
 	farm, orders whose farm is in no sales farm's location (or not set). Each order is planned by one farm only."""
 	mine = set(_stock_farms(farm))
 	if farm == _default_farm():
 		covered = {f for r in _farms() for f in _stock_farms(r.farm)}
-		return [ln for ln in _lines(day) if ln.so_farm in mine or ln.so_farm not in covered]
-	return [ln for ln in _lines(day) if ln.so_farm in mine]
+		return [ln for ln in _lines(day, to) if ln.so_farm in mine or ln.so_farm not in covered]
+	return [ln for ln in _lines(day, to) if ln.so_farm in mine]
+
+
+def _planned_week(days, farm):
+	"""_planned_by_line for every delivery day of the week (a line belongs to one day's plan)."""
+	out = {}
+	for d in days:
+		out.update(_planned_by_line(d, farm))
+	return out
 
 
 def _planned_by_line(day, farm):
@@ -531,18 +557,176 @@ def _build_pools(day, farm, overrides=None, only_variety=None):
 	return out
 
 
+def _build_pools_week(days, farm, only_variety=None):
+	"""The week's varieties and lengths, running by delivery day: the lines of each day count on the stock there is
+	now plus every cutting day's forecast up to their own, less what the lines of earlier days took. Both forecasts
+	(rolling and production) carry their own balance; `days` holds each delivery day's share."""
+	return _memo(
+		("week_pools", farm, tuple(days), only_variety), lambda: _week_pools(days, farm, only_variety)
+	)
+
+
+def _week_lines(days, farm):
+	"""The week's lines for the sales farm, read once per request."""
+	return _memo(("week_lines", farm, tuple(days)), lambda: _lines_for(days[0], farm, days[-1]))
+
+
+def _week_pools(days, farm, only_variety):
+	lines = _week_lines(days, farm)
+	if only_variety:
+		wanted = {only_variety} if isinstance(only_variety, str) else set(only_variety)
+		lines = [ln for ln in lines if ln.item_code in wanted]
+	if not lines:
+		return []
+	varieties = {ln.item_code for ln in lines}
+	planned = _planned_week(days, farm)
+	here = {}
+	for d in days:
+		for k, v in _confirmed_here(d, farm).items():
+			h = here.setdefault(k, {"lines": 0, "stems": 0.0, "real": 0.0, "expected": 0.0})
+			for f in h:
+				h[f] += v[f]
+	by_day = {}
+	for ln in lines:
+		key = (ln.item_code, ln.custom_length or "")
+		q = by_day.setdefault(str(ln.delivery_date), {}).setdefault(
+			key,
+			{
+				"lines": 0,
+				"ordered": 0.0,
+				"allocated": 0.0,
+				"held": 0.0,
+				"expected_plan": 0.0,
+				"lines_done": 0,
+			},
+		)
+		pl = planned.get(ln.name, {"real": 0.0, "expected": 0.0})
+		ordered, allocated = flt(ln.ordered_stems), flt(ln.allocated_stems)
+		q["lines"] += 1
+		q["ordered"] += ordered
+		q["allocated"] += min(allocated, ordered)
+		q["held"] += pl["real"]
+		q["expected_plan"] += pl["expected"]
+		if ordered > 0 and allocated + pl["real"] + pl["expected"] >= ordered - 0.0001:
+			q["lines_done"] += 1
+	now = _stock_by_pool(farm, varieties)
+	keys = sorted({k for d in by_day.values() for k in d})
+	sums = (
+		"lines",
+		"ordered",
+		"allocated",
+		"held",
+		"expected_plan",
+		"lines_done",
+		"still_to_plan",
+		"short",
+		"short_production",
+		"forecast",
+		"expected_likely",
+		"expected_sure",
+		"on_the_way",
+		"harvested",
+	)
+	pools, bal = {}, {}
+	for key in keys:
+		s = {**SUPPLY, **now.get(key, {})}
+		pools[key] = {"variety": key[0], "length": key[1], "days": [], **{f: 0.0 for f in sums}}
+		start = flt(s["free"]) + flt(s["received"])
+		bal[key] = {"rolling": start, "production": start, "start": start}
+	growing = _growing_farms(farm)
+	for d in days:
+		_prefetch_forecasts(sorted(varieties), d, farm)
+		harvest = received.harvested_day(_cut_of(d), growing, varieties)
+		rolling = _rolling_by_pool(d, farm, varieties)
+		for key in keys:
+			p, q, b = pools[key], by_day.get(d, {}).get(key), bal[key]
+			h = harvest.get(key) or {}
+			s = {**SUPPLY, "harvested": flt(h.get("harvested")), "on_the_way": flt(h.get("not_received"))}
+			likely, sure = expected_for(key[0], key[1], d, farm, s)
+			counted = (q["held"] + q["expected_plan"]) if q else 0.0
+			roll_in = max(0.0, cut_day_total(s, rolling.get(key, 0.0)) - counted)
+			b["rolling"] += roll_in
+			b["production"] += max(0.0, s["harvested"] - s["on_the_way"] + likely - counted)
+			p["forecast"] += roll_in
+			p["expected_likely"] += likely
+			p["expected_sure"] += sure
+			p["on_the_way"] += s["on_the_way"]
+			p["harvested"] += s["harvested"]
+			if not q:
+				continue
+			left = max(0.0, q["ordered"] - q["allocated"] - q["held"] - q["expected_plan"])
+			row = {
+				"date": d,
+				"ordered": q["ordered"],
+				"left": left,
+				"avail": b["rolling"],
+				"avail_production": b["production"],
+			}
+			for basis, short_key in (("rolling", "short"), ("production", "short_production")):
+				take = min(left, b[basis])
+				b[basis] -= take
+				row[short_key] = left - take
+				p[short_key] += left - take
+			p["days"].append(row)
+			p["still_to_plan"] += left
+			for f in ("lines", "ordered", "allocated", "held", "expected_plan", "lines_done"):
+				p[f] += q[f]
+	out = []
+	for key, p in pools.items():
+		s = {**SUPPLY, **now.get(key, {})}
+		counted = p["held"] + p["expected_plan"]
+		left, short = p["still_to_plan"], p["short"]
+		harvested_left = max(0.0, p["harvested"] - counted)
+		if short > 0:
+			status = "short"
+		elif left > 0 and (left > harvested_left + bal[key]["start"] or s["old"] > 0):
+			status = "watch"
+		else:
+			status = "ok"
+		covered = p["allocated"] + counted + left - short
+		ch = here.get(key, {"lines": 0, "stems": 0.0})
+		p.update(
+			lines=int(p["lines"]),
+			lines_done=int(p["lines_done"]),
+			confirmed_lines=ch["lines"],
+			confirmed_here=ch["stems"],
+			have=bal[key]["start"] + p["forecast"],
+			harvested_left=harvested_left,
+			covered_pct=int(round(100.0 * min(1.0, covered / p["ordered"]))) if p["ordered"] > 0 else 100,
+			on_shelf=s["free"],
+			received=s["received"],
+			getting_old=s["old"],
+			oldest_days=s["oldest"],
+			buckets=s["buckets"],
+			status=status,
+		)
+		out.append(p)
+	return out
+
+
 @frappe.whitelist()
-def get_board(delivery_date: str | None = None, farm: str | None = None, view: str = "attention"):
-	"""The four numbers and the list of varieties and lengths, most urgent first."""
-	day = _day(delivery_date)
+def get_board(
+	delivery_date: str | None = None,
+	farm: str | None = None,
+	view: str = "attention",
+	week: str | None = None,
+):
+	"""The four numbers and the list of varieties and lengths, most urgent first. With `week`, every delivery day of
+	that week (see _build_pools_week)."""
 	farm = farm or _default_farm()
+	if week:
+		week, days = _week(week)
+	else:
+		days = [_day(delivery_date)]
+	day = days[0]
 	# Stock that has reached the shelf since the last visit takes over from the expected harvest.
-	plan_name = _plan_name(day, farm)
-	if plan_name and frappe.db.exists(
-		"Allocation Confirmation", {"plan": plan_name, "source": "Virtual", "status": "Planned"}
-	):
-		plans.convert_virtual(day, farm)
-	pools = _build_pools(day, farm)
+	for d in days:
+		plan_name = _plan_name(d, farm)
+		if plan_name and frappe.db.exists(
+			"Allocation Confirmation", {"plan": plan_name, "source": "Virtual", "status": "Planned"}
+		):
+			plans.convert_virtual(d, farm)
+	pools = _build_pools_week(days, farm) if week else _build_pools(day, farm)
 	kpis = {
 		"lines": sum(p["lines"] for p in pools),
 		"lines_planned": sum(p["lines_done"] for p in pools),
@@ -551,10 +735,12 @@ def get_board(delivery_date: str | None = None, farm: str | None = None, view: s
 		"use_first": sum(p["getting_old"] for p in pools if p["still_to_plan"] > 0),
 		"non_moving": sum(p["getting_old"] for p in pools),
 	}
-	_name = _plan_name(day, farm)
-	_confs = plans.live_confirmations(plan=_name) if _name else []
+	_confs = []
+	for d in days:
+		_name = _plan_name(d, farm)
+		_confs += plans.live_confirmations(plan=_name) if _name else []
 	kpis["confirmed_orders"] = len({c.sales_order for c in _confs})
-	from upande_packhouse.api.v2.allocation_teams import crop_of_groups
+	from upande_packhouse.api.v2.allocation_teams import crop_of_groups, teams_at
 
 	crop_of, group_of = crop_of_groups(), {}
 	for row in frappe.get_all(
@@ -576,11 +762,13 @@ def get_board(delivery_date: str | None = None, farm: str | None = None, view: s
 	return {
 		"success": True,
 		"delivery_date": day,
+		"week": week or "",
+		"days": days,
 		"farm": farm,
 		"farms": [r.farm for r in _farms()],
 		"stock_farms": _stock_farms(farm),
 		"amber_from_days": amber_from_days(),
-		"teams": frappe.get_all("Packing Teams", pluck="name", order_by="name asc"),
+		"teams": teams_at(farm),
 		"days_ahead": cint(plans.setting("allocation_horizon_days")),
 		"kpis": kpis,
 		"pools": pools,
@@ -663,7 +851,9 @@ def get_team_plan(delivery_date: str | None = None, farm: str | None = None):
 	name = _plan_name(day, farm)
 	confs = plans.live_confirmations(plan=name) if name else []
 	lines = {ln.name: ln for ln in _lines(day)}
-	rows = {t: _team_row(t) for t in frappe.get_all("Packing Teams", pluck="name", order_by="name asc")}
+	from upande_packhouse.api.v2.allocation_teams import teams_at
+
+	rows = {t: _team_row(t) for t in teams_at(farm)}
 	per_line = {}
 	for c in confs:
 		per_line.setdefault((c.team or "", c.sales_order_item), 0.0)
@@ -743,10 +933,29 @@ def _team_row(name):
 
 
 @frappe.whitelist()
-def get_confirmed_orders(delivery_date: str | None = None, farm: str | None = None):
+def get_confirmed_orders(delivery_date: str | None = None, farm: str | None = None, week: str | None = None):
 	"""The Confirmed page: every order with something confirmed, with ALL its lines (confirmed or not), so the whole order stays in
 	view. For each line: what was ordered and confirmed, where the stems come from, and, for the variety and length it is
-	confirmed against, how much was available and how much is already taken."""
+	confirmed against, how much was available and how much is already taken. With `week`, every delivery day of it."""
+	if week:
+		week, days = _week(week)
+		out = {
+			"success": True,
+			"delivery_date": days[0],
+			"week": week,
+			"days": days,
+			"orders": [],
+			"totals": {},
+		}
+		for d in days:
+			r = get_confirmed_orders(d, farm)
+			out["farm"] = r["farm"]
+			for o in r["orders"]:
+				o.setdefault("delivery_date", d)
+			out["orders"] += r["orders"]
+			for k, v in r["totals"].items():
+				out["totals"][k] = out["totals"].get(k, 0) + v
+		return out
 	day = _day(delivery_date)
 	farm = farm or _default_farm()
 	name = _plan_name(day, farm)
@@ -893,11 +1102,15 @@ def get_pool(
 	farm: str | None = None,
 	variety: str | None = None,
 	length: str | None = None,
+	week: str | None = None,
 ):
-	"""One variety and length: its customer lines with what is planned for each."""
-	day = _day(delivery_date)
+	"""One variety and length: its customer lines with what is planned for each. With `week`, the lines of every
+	delivery day of that week, each counting on the week's running balance (see _build_pools_week)."""
 	farm = farm or _default_farm()
 	length = length or ""
+	if week:
+		return _week_pool(week, farm, variety, length)
+	day = _day(delivery_date)
 	pool = next(
 		(
 			p
@@ -909,9 +1122,156 @@ def get_pool(
 	if pool is None:
 		frappe.throw(_("There are no orders for {0} {1} on {2}.").format(variety, length, day))
 	planned = _planned_by_line(day, farm)
+	rows, longer = _pool_rows(_lines_for(day, farm), planned, variety, length)
+	confirmed = _confirmed_lines(day, farm, variety, length)
+	detail = expected_detail(variety, length, day, farm)
+	sup = {**SUPPLY, **_stock_by_pool(farm, {variety}, day).get((variety, length), {})}
+	remaining = max(0.0, detail["likely"] - sup["harvested"])
+	scale = (remaining / detail["likely"]) if detail["likely"] > 0 else 0.0
+	rolling = rolling_forecast(variety, length, day, farm)
+	_line_view(day, farm, pool, rows, longer, sup, rolling, remaining)
+	need = max(0.0, pool["ordered"] - pool["allocated"])
+	held = pool["held"]
+	safe = [
+		{"basis": "rolling", "stems": min(need, max(held, cut_day_total(sup, rolling)))},
+		{"basis": "production", "stems": min(need, max(held, sup["harvested"] + remaining))},
+	]
+	for x in safe:
+		x["need"], x["short"] = need, max(0.0, need - x["stems"])
+	return {
+		"cut_day": str(_cut_of(day)),
+		"safe": safe,
+		"success": True,
+		"delivery_date": day,
+		"farm": farm,
+		"pool": pool,
+		"lines": rows,
+		"longer_lines": longer,
+		"confirmed_lines": confirmed,
+		# what exists for this variety and length, most certain first
+		"stock_farms": [
+			{"farm": f, "on_shelf": sup["by_farm"].get(f, 0.0), "received": sup["rec_by_farm"].get(f, 0.0)}
+			for f in _stock_farms(farm)
+		],
+		"best_farm": _best_farm(farm, sup),
+		"supply": {
+			"on_shelf": sup["free"],
+			"received": sup["received"],
+			"rooms": [
+				{"room": r, "stems": v} for r, v in sorted(sup["rooms"].items(), key=lambda kv: -kv[1])
+			],
+			"on_the_way": sup["on_the_way"],
+			"to_cut": remaining,
+			"rolling": max(0.0, rolling - sup["harvested"]),
+			"to_cut_sure": remaining * (detail["sure"] / detail["likely"]) if detail["likely"] > 0 else 0.0,
+			"to_cut_by_farm": [
+				{"farm": f, "stems": v * scale}
+				for f, v in sorted(detail["by_farm"].items(), key=lambda kv: -kv[1])
+				if v * scale > 0
+			],
+			"error_pct": None if detail["error"] is None else round(100.0 * detail["error"]),
+			"error_weeks": detail["weeks"],
+		},
+	}
+
+
+def _week_pool(week, farm, variety, length):
+	"""get_pool for a whole week."""
+	from upande_packhouse.api.v2.allocation_checks import mix_key
+
+	week, days = _week(week)
+	lines = _week_lines(days, farm)
+	# the variety and every variety sharing a mix with it, in one go
+	mixes = {mix_key(ln) for ln in lines if ln.item_code == variety} - {None, ""}
+	varieties = frozenset({variety} | {ln.item_code for ln in lines if mixes and mix_key(ln) in mixes})
+	pools = {(p["variety"], p["length"]): p for p in _build_pools_week(days, farm, only_variety=varieties)}
+	pool = pools.get((variety, length))
+	if pool is None:
+		frappe.throw(_("There are no orders for {0} {1} in week {2}.").format(variety, length, week))
+	planned = _planned_week(days, farm)
+	rows, longer = _pool_rows(lines, planned, variety, length)
+	confirmed = []
+	for d in days:
+		confirmed += _confirmed_lines(d, farm, variety, length)
+	sup = {**SUPPLY, **_stock_by_pool(farm, {variety}).get((variety, length), {})}
+	likely = sure = to_cut = roll = 0.0
+	by_farm = defaultdict(float)
+	detail = None
+	for d in days:
+		detail = expected_detail(variety, length, d, farm)
+		h = received.harvested_day(_cut_of(d), _growing_farms(farm), {variety}).get((variety, length)) or {}
+		harvested = flt(h.get("harvested"))
+		left = max(0.0, detail["likely"] - harvested)
+		scale = (left / detail["likely"]) if detail["likely"] > 0 else 0.0
+		likely += detail["likely"]
+		sure += detail["sure"]
+		to_cut += left
+		roll += max(0.0, rolling_forecast(variety, length, d, farm) - harvested)
+		for f, v in detail["by_farm"].items():
+			by_farm[f] += v * scale
+	avail = {r["date"]: (r["avail"], r["avail_production"]) for r in pool["days"]}
+	_line_view(
+		days[0],
+		farm,
+		pool,
+		rows,
+		longer,
+		sup,
+		0.0,
+		0.0,
+		week={"lines": {ln.name: ln for ln in lines}, "planned": planned, "avail": avail, "pools": pools},
+	)
+	rows.sort(key=lambda r: (r["delivery_date"], -r["left"], r["customer"] or ""))
+	longer.sort(key=lambda r: (r["delivery_date"], -r["left"], r["customer"] or ""))
+	need = max(0.0, pool["ordered"] - pool["allocated"])
+	safe = [
+		{"basis": "rolling", "stems": max(0.0, need - pool["short"])},
+		{"basis": "production", "stems": max(0.0, need - pool["short_production"])},
+	]
+	for x in safe:
+		x["need"], x["short"] = need, max(0.0, need - x["stems"])
+	return {
+		"cut_day": str(_cut_of(days[0])),
+		"cut_to": str(_cut_of(days[-1])),
+		"safe": safe,
+		"success": True,
+		"delivery_date": days[0],
+		"week": week,
+		"days": days,
+		"farm": farm,
+		"pool": pool,
+		"lines": rows,
+		"longer_lines": longer,
+		"confirmed_lines": confirmed,
+		"stock_farms": [
+			{"farm": f, "on_shelf": sup["by_farm"].get(f, 0.0), "received": sup["rec_by_farm"].get(f, 0.0)}
+			for f in _stock_farms(farm)
+		],
+		"best_farm": _best_farm(farm, sup),
+		"supply": {
+			"on_shelf": sup["free"],
+			"received": sup["received"],
+			"rooms": [
+				{"room": r, "stems": v} for r, v in sorted(sup["rooms"].items(), key=lambda kv: -kv[1])
+			],
+			"on_the_way": pool["on_the_way"],
+			"to_cut": to_cut,
+			"rolling": roll,
+			"to_cut_sure": to_cut * (sure / likely) if likely > 0 else 0.0,
+			"to_cut_by_farm": [
+				{"farm": f, "stems": v} for f, v in sorted(by_farm.items(), key=lambda kv: -kv[1]) if v > 0
+			],
+			"error_pct": None if not detail or detail["error"] is None else round(100.0 * detail["error"]),
+			"error_weeks": detail["weeks"] if detail else 0,
+		},
+	}
+
+
+def _pool_rows(lines, planned, variety, length):
+	"""The order lines of a variety and length (`rows`) and those that ordered it shorter (`longer`)."""
 	rows, longer = [], []
 	pool_cm = availability.length_cm(length)
-	for ln in _lines_for(day, farm):
+	for ln in lines:
 		if ln.item_code != variety:
 			continue
 		pl = planned.get(ln.name, {"real": 0.0, "expected": 0.0, "length": ""})
@@ -951,56 +1311,7 @@ def get_pool(
 				longer.append(row)
 	rows.sort(key=lambda r: (-r["left"], r["customer"] or ""))
 	longer.sort(key=lambda r: (-r["left"], r["customer"] or ""))
-	confirmed = _confirmed_lines(day, farm, variety, length)
-	detail = expected_detail(variety, length, day, farm)
-	sup = {**SUPPLY, **_stock_by_pool(farm, {variety}, day).get((variety, length), {})}
-	remaining = max(0.0, detail["likely"] - sup["harvested"])
-	scale = (remaining / detail["likely"]) if detail["likely"] > 0 else 0.0
-	rolling = rolling_forecast(variety, length, day, farm)
-	_line_view(day, farm, pool, rows, longer, sup, rolling, remaining)
-	need = max(0.0, pool["ordered"] - pool["allocated"])
-	held = pool["held"]
-	safe = [
-		{"basis": "rolling", "stems": min(need, max(held, cut_day_total(sup, rolling)))},
-		{"basis": "production", "stems": min(need, max(held, sup["harvested"] + remaining))},
-	]
-	for x in safe:
-		x["need"], x["short"] = need, max(0.0, need - x["stems"])
-	return {
-		"cut_day": str(getdate(day) - timedelta(days=cint(plans.setting("allocation_harvest_lead_days")))),
-		"safe": safe,
-		"success": True,
-		"delivery_date": day,
-		"farm": farm,
-		"pool": pool,
-		"lines": rows,
-		"longer_lines": longer,
-		"confirmed_lines": confirmed,
-		# what exists for this variety and length, most certain first
-		"stock_farms": [
-			{"farm": f, "on_shelf": sup["by_farm"].get(f, 0.0), "received": sup["rec_by_farm"].get(f, 0.0)}
-			for f in _stock_farms(farm)
-		],
-		"best_farm": _best_farm(farm, sup),
-		"supply": {
-			"on_shelf": sup["free"],
-			"received": sup["received"],
-			"rooms": [
-				{"room": r, "stems": v} for r, v in sorted(sup["rooms"].items(), key=lambda kv: -kv[1])
-			],
-			"on_the_way": sup["on_the_way"],
-			"to_cut": remaining,
-			"rolling": max(0.0, rolling - sup["harvested"]),
-			"to_cut_sure": remaining * (detail["sure"] / detail["likely"]) if detail["likely"] > 0 else 0.0,
-			"to_cut_by_farm": [
-				{"farm": f, "stems": v * scale}
-				for f, v in sorted(detail["by_farm"].items(), key=lambda kv: -kv[1])
-				if v * scale > 0
-			],
-			"error_pct": None if detail["error"] is None else round(100.0 * detail["error"]),
-			"error_weeks": detail["weeks"],
-		},
-	}
+	return rows, longer
 
 
 def _forecast_view(detail, harvested):
@@ -1067,21 +1378,31 @@ def _rolling_by_pool(day, farm, varieties):
 	return _memo(("rolling", str(cut), farms, tuple(sorted(varieties))), load)
 
 
-def _line_view(day, farm, pool, rows, longer, sup, rolling, to_cut):
+def _line_view(day, farm, pool, rows, longer, sup, rolling, to_cut, week=None):
 	"""Per line: the safe amounts on the rolling and on the production forecast, whole boxes only
-	unless the line is covered in full, and the checks Sales Allocation would otherwise trip on."""
+	unless the line is covered in full, and the checks Sales Allocation would otherwise trip on. With `week`
+	({lines, planned, avail, pools}), each line counts on the week's balance on its own delivery day."""
 	from upande_packhouse.api.v2 import allocation_guards as guards
 	from upande_packhouse.api.v2.allocation_checks import mix_key, per_box
 	from upande_packhouse.api.v2.allocation_teams import crop_of_groups
 
-	lines = {ln.name: ln for ln in _lines(day)}
+	lines = week["lines"] if week else {ln.name: ln for ln in _lines(day)}
 	crop_of = crop_of_groups()
-	planned = _planned_by_line(day, farm)
+	planned = week["planned"] if week else _planned_by_line(day, farm)
 	discard = cint(stock._config()["discard_age"])
-	days_out = (getdate(day) - getdate(today())).days
 	counted = pool["held"] + pool["expected_plan"]
 	roll_left = max(0.0, cut_day_total(sup, rolling) - counted)
 	prod_left = max(0.0, sup["harvested"] + to_cut - counted)
+
+	def member_cover(m, key):
+		"""What the mix member's variety and length has for it: on its delivery day's balance for a week."""
+		if not week:
+			ms = {**SUPPLY, **_stock_by_pool(farm, {m.item_code}, day).get(key, {})}
+			return cut_day_total(ms, rolling_forecast(m.item_code, key[1], day, farm))
+		mp = week["pools"].get(key) or {}
+		row = next((r for r in mp.get("days", []) if r["date"] == str(m.delivery_date)), None)
+		return row["avail"] if row else 0.0
+
 	specs = guards._spec_varieties(list(lines.values()))
 	spec_rank = _spec_rank({ln.custom_line for ln in lines.values() if ln.custom_line})
 	member_supply = {}
@@ -1101,6 +1422,10 @@ def _line_view(day, farm, pool, rows, longer, sup, rolling, to_cut):
 		if not ln:
 			continue
 		left = row["left"]
+		line_day = str(ln.delivery_date)
+		days_out = (getdate(line_day) - getdate(today())).days
+		if week:
+			roll_left, prod_left = week["avail"].get(line_day, (0.0, 0.0))
 		roll = whole(ln, min(left, roll_left), left)
 		prod = whole(ln, min(left, prod_left), left)
 		row["per_box"] = 0 if mix_key(ln) else (per_box(ln) or 0)
@@ -1147,19 +1472,20 @@ def _line_view(day, farm, pool, rows, longer, sup, rolling, to_cut):
 				if m.name == ln.name or mix_key(m) != mk:
 					continue
 				key = (m.item_code, m.custom_length or "")
-				if key not in member_supply:
-					ms = {**SUPPLY, **_stock_by_pool(farm, {m.item_code}, day).get(key, {})}
-					member_supply[key] = cut_day_total(ms, rolling_forecast(m.item_code, key[1], day, farm))
+				at = (key, str(m.delivery_date))
+				if at not in member_supply:
+					member_supply[at] = member_cover(m, key)
 				pl = planned.get(m.name, {"real": 0.0, "expected": 0.0})
 				m_cov = min(flt(m.ordered_stems), flt(m.allocated_stems) + pl["real"] + pl["expected"])
 				m_left = max(0.0, flt(m.ordered_stems) - m_cov)
-				short = max(0.0, m_left - member_supply[key])
+				short = max(0.0, m_left - member_supply[at])
 				members.append(
 					{
 						"soi": m.name,
 						"variety": m.item_code,
 						"length": key[1],
 						"ordered": flt(m.ordered_stems),
+						"allocated": min(flt(m.allocated_stems), flt(m.ordered_stems)),
 						"covered": m_cov,
 						"left": m_left,
 						"short": short,
@@ -1213,7 +1539,7 @@ def _line_view(day, farm, pool, rows, longer, sup, rolling, to_cut):
 					"code": "delivery",
 					"severity": "blue",
 					"label": _("Delivery date · {0} days old by {1}").format(
-						cint(sup["oldest"]) + days_out, frappe.utils.formatdate(day, "d MMM")
+						cint(sup["oldest"]) + days_out, frappe.utils.formatdate(line_day, "d MMM")
 					),
 				}
 			)
@@ -1251,6 +1577,7 @@ def _confirmed_lines(day, farm, variety, length):
 			{
 				"soi": c.sales_order_item,
 				"sales_order": c.sales_order,
+				"delivery_date": day,
 				"customer": (ln.customer_name or ln.customer) if ln else (c.customer or ""),
 				"ordered": flt(ln.ordered_stems) if ln else 0.0,
 				"ordered_length": c.ordered_length or "",
@@ -1292,8 +1619,24 @@ def _line(soi):
 	return ln
 
 
+def lines_by_day(lines):
+	"""{delivery day: [items]} for confirmation items ({"sales_order_item": ...}), each under its line's own day."""
+	if isinstance(lines, str):
+		lines = json.loads(lines or "[]")
+	out = defaultdict(list)
+	for item in lines or []:
+		out[str(_line(item["sales_order_item"]).delivery_date)].append(item)
+	return dict(sorted(out.items()))
+
+
 @frappe.whitelist()
-def confirm_lines(delivery_date: str, farm: str, lines: str | list, team: str | None = None):
+def confirm_lines(
+	delivery_date: str | None = None,
+	farm: str | None = None,
+	lines: str | list | None = None,
+	team: str | None = None,
+	week: str | None = None,
+):
 	"""Confirm stems for order lines: `lines` = [{"sales_order_item": ..., "stems": ..., "length": ...}], the TOTAL
 	confirmed for each line (0 takes the line out of the plan; `length` is optional and only ever a longer one than
 	ordered). Everything is confirmed on the cutting day's forecast, never on stock already on the shelf: `basis` is
@@ -1309,6 +1652,16 @@ def confirm_lines(delivery_date: str, farm: str, lines: str | list, team: str | 
 	frappe.only_for(PLANNERS)
 	from upande_packhouse.api.v2 import allocation_guards as guards
 
+	if week:
+		# a week's lines go to the plan of their own delivery day
+		out = {"success": True, "plans": [], "lines": [], "quiet": []}
+		for d, items in lines_by_day(lines).items():
+			r = confirm_lines(d, farm, items, team)
+			out["plans"].append(r["plan"])
+			out["lines"] += r["lines"]
+			out["quiet"] += r["quiet"]
+		out["plan"] = out["plans"][0] if out["plans"] else None
+		return out
 	day = _day(delivery_date)
 	if not farm:
 		frappe.throw(_("Choose a farm."))
@@ -1371,7 +1724,7 @@ def confirm_lines(delivery_date: str, farm: str, lines: str | list, team: str | 
 			variety=ln.item_code,
 			length=length,
 			stems=rest,
-			forecast_basis="%s forecast, cutting day %s"
+			forecast_basis="%s forecast, harvest day %s"
 			% ("production" if item.get("basis") == "production" else "rolling", cut_day),
 			team=line_team,
 		)

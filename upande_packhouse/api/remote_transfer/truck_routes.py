@@ -358,30 +358,81 @@ def saveTransferTruck():
 
 @frappe.whitelist(methods=["POST"])
 def deleteBucketLogisticsRoute():
-	# Remove a truck's route for a day. The truck is then not used by ⚡ Distribute
-	# for that day until it is routed again; trips already planned are untouched.
+	# Remove a truck's route for a day, with the trips planned on it: those trips are
+	# deleted and every order on them is unscheduled (off its team's Packhouse Schedule),
+	# so nothing is left waiting on a truck that is not going. A trip that has buckets on
+	# the truck or has left keeps the route: its record is the only one of what it carries.
+	from upande_packhouse.api.remote_transfer import transfer_scheduling as ts
+
 	name = frappe.form_dict.get("name")
 	if not name or not frappe.db.exists("Bucket Logistics Route", name):
 		frappe.response["message"] = {"status": "error", "message": "Route not found."}
 		return
-	live = frappe.get_all(
+	trips = frappe.get_all(
 		"Bucket Request Trip",
 		filters={"route": name, "status": ["!=", "Received"]},
 		fields=["name", "run", "status"],
 		order_by="run asc",
 	)
-	if live:
+	moving = [
+		t for t in trips if t.status not in ts.ACTIVE_TRIP_STATUSES or ts._loaded_trip_refusal(t.name, "")
+	]
+	if moving:
 		frappe.response["message"] = {
 			"status": "error",
-			"message": "Route {0} still has trips: {1} — delete or finish them first.".format(
-				name, ", ".join("trip {0} {1} ({2})".format(t.run, t.name, t.status) for t in live)
+			"message": "Route {0} has trips with buckets on the truck: {1} — dispatch or finish them first.".format(
+				name, ", ".join("trip {0} {1} ({2})".format(t.run, t.name, t.status) for t in moving)
 			),
 		}
 		return
+	opls = sorted(
+		set(
+			frappe.get_all(
+				"Bucket Request Trip Order",
+				filters={
+					"parent": ("in", [t.name for t in trips] or [""]),
+					"parenttype": "Bucket Request Trip",
+				},
+				pluck="order_pick_list",
+			)
+		)
+		- {None, ""}
+	)
+	for t in trips:
+		frappe.delete_doc("Bucket Request Trip", t.name, ignore_permissions=True, force=1)
+	unscheduled = unschedule_orders(opls)
 	# Finished trips keep their record; only the link check is skipped.
 	frappe.delete_doc("Bucket Logistics Route", name, ignore_permissions=True, force=1)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
-	frappe.response["message"] = {"status": "success", "name": name}
+	frappe.response["message"] = {
+		"status": "success",
+		"name": name,
+		"trips": [t.name for t in trips],
+		"unscheduled": unscheduled,
+	}
+
+
+def unschedule_orders(opls):
+	"""Take these Order Pick Lists off every team's Packhouse Schedule (any day), the rest of each
+	schedule keeping its order (renumbered 1..N). Returns the ones taken off."""
+	if not opls:
+		return []
+	out = set()
+	for ps in frappe.get_all(
+		"Packhouse Schedule Order",
+		filters={"parenttype": "Packhouse Schedule", "order_pick_list": ("in", list(opls))},
+		pluck="parent",
+		distinct=True,
+	):
+		doc = frappe.get_doc("Packhouse Schedule", ps)
+		keep = [r for r in doc.orders if r.order_pick_list not in opls]
+		out.update(r.order_pick_list for r in doc.orders if r.order_pick_list in opls)
+		doc.set("orders", keep)
+		for i, r in enumerate(doc.orders, 1):
+			r.idx = i
+			r.sequence = i
+		doc.save(ignore_permissions=True)
+	return sorted(out)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -398,7 +449,14 @@ def addFarmTrip():
 	frappe.response["message"] = res
 
 
-def add_farm_run(vehicle, farm, date=None, enforce_room: bool = False, while_on_road: bool = False):
+def add_farm_run(
+	vehicle,
+	farm,
+	date=None,
+	enforce_room: bool = False,
+	while_on_road: bool = False,
+	new_route: bool = True,
+):
 	"""A new trip (packhouse → farm → packhouse) at the end of the truck's latest route
 	on `date` (a new all-day route if it has none). Returns {status, route, run} or why not.
 	One farm per trip, and a farm's second trip only once its first is full or has left:
@@ -406,7 +464,9 @@ def add_farm_run(vehicle, farm, date=None, enforce_room: bool = False, while_on_
 	that trip). enforce_room (automatic scheduling): also refused while one of the truck's
 	runs to the farm with no trip yet is open. while_on_road (automatic scheduling):
 	added even while the truck is out -- only appended after its runs, so the one on the
-	road is untouched."""
+	road is untouched. new_route=False (Distribute and automatic scheduling): only on a
+	route the truck already has that day -- a truck with no route that day is not working
+	and is refused (reason "no_route")."""
 	date = str(frappe.utils.getdate(date or frappe.utils.today()))
 	if not vehicle or not farm:
 		return {"status": "error", "message": "A truck and a farm are required."}
@@ -452,6 +512,14 @@ def add_farm_run(vehicle, farm, date=None, enforce_room: bool = False, while_on_
 		order_by="from_datetime desc",
 		limit=1,
 	)
+	if not latest and not new_route:
+		return {
+			"status": "error",
+			"reason": "no_route",
+			"message": "{0} has no truck route on {1} — create it on Truck Routes first.".format(
+				vehicle, date
+			),
+		}
 	if latest:
 		legs = frappe.get_all(
 			"Bucket Logistics Route Leg",

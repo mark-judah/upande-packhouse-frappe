@@ -224,6 +224,7 @@ def _lock(location, phase="propose"):
 	if frappe.cache.get_value(lock):
 		frappe.throw(_("Orders at {0} are already being allocated.").format(location))
 	frappe.cache.set_value(lock, frappe.session.user, expires_in_sec=1800)
+	frappe.cache.delete_value(f"sa2_day_done:{location}")
 	# not started yet: the bar shows from the start, also after a refresh
 	_set_state(location, {"phase": phase, "progress": 0, "total": 1, "order": ""})
 
@@ -466,15 +467,22 @@ def _publish(user, location, **msg):
 	key = f"sa2_day_state:{location}"
 	if msg.get("done"):
 		frappe.cache.delete_value(key)
+		# the page also asks (get_day_state) instead of waiting on realtime, which a web page may not have
+		frappe.cache.set_value(f"sa2_day_done:{location}", dict(msg), expires_in_sec=600)
 	else:
 		_set_state(location, {k: msg.get(k) for k in ("phase", "stage", "progress", "total", "order")})
 	frappe.publish_realtime("sa2_day_allocation", msg, user=user)
 
 
 @frappe.whitelist()
-def get_day_state(location: str):
-	"""Where a running Allocate all or Release at this location is ({phase, progress, total, order}), or None."""
+def get_day_state(location: str, since: str | None = None):
+	"""Where a running Allocate all or Release at this location is ({phase, progress, total, order}), or None.
+	With `since` (the page's own run), a run that has finished answers {done, ...counts} instead."""
 	if not frappe.cache.get_value(f"sa2_day_allocation:{location}"):
+		if since:
+			done = frappe.cache.get_value(f"sa2_day_done:{location}")
+			if done and str(done.get("run") or "") == since:
+				return done
 		return None
 	state = frappe.cache.get_value(f"sa2_day_state:{location}") or {"progress": 0, "total": 1, "order": ""}
 	if state.get("job_id"):
@@ -493,8 +501,8 @@ def _queue_place(job_id):
 		return {}
 	if job.get_status() != "queued":
 		return {}
-	# the worker finishes the job it is on first
-	return {"queued": True, "ahead": (job.get_position() or 0) + 1}
+	# jobs before it in the queue (0: it is next)
+	return {"queued": True, "ahead": job.get_position() or 0}
 
 
 def _run_day(location, delivery_start, delivery_end, farms, user):
@@ -525,6 +533,7 @@ def _run_day(location, delivery_start, delivery_end, farms, user):
 		)
 
 	try:
+		_publish(user, location, phase="propose", stage="prepare", progress=0, total=1, order="")
 		# a new run replaces the last Allocate all proposal; hand-picked orders keep theirs and are skipped
 		stale = frappe.get_all(
 			PENDING,
@@ -540,8 +549,18 @@ def _run_day(location, delivery_start, delivery_end, farms, user):
 			# nothing links to a proposal: its rows and itself go in two statements
 			frappe.db.delete("Pending Allocation Row", {"parent": ("in", stale), "parenttype": PENDING})
 			frappe.db.delete(PENDING, {"name": ("in", stale)})
-		kept = _proposal(location, delivery_start, delivery_end)
-		skip = {o["sales_order"] for o in (kept or {}).get("orders", [])}
+		# the orders still holding a proposal (picked by hand) -- names only, no need to read them whole
+		skip = set(
+			frappe.get_all(
+				PENDING,
+				filters={
+					"status": "Pending",
+					"location": location,
+					"delivery_date": ("between", _window(delivery_start, delivery_end)),
+				},
+				pluck="sales_order",
+			)
+		)
 		window_orders = _orders(location, delivery_start, delivery_end)
 		orders, errors, lines, taken = _plan_day(
 			location, delivery_start, delivery_end, farms, plan_progress, skip, window_orders
@@ -722,11 +741,11 @@ def confirm_day_allocation(
 	"""Save the proposal of these orders (all of it when none are named), each order on its own, as a
 	background job reporting over `sa2_day_allocation`."""
 	farms = _farms(selected_farms)
-	if not _proposal(location, delivery_start, delivery_end):
+	p = _proposal(location, delivery_start, delivery_end)
+	if not p:
 		frappe.throw(_("Nothing to release."))
 	if isinstance(sales_orders, str):
 		sales_orders = json.loads(sales_orders or "[]")
-	p = _proposal(location, delivery_start, delivery_end) or {"orders": []}
 	count = len([o for o in p["orders"] if not sales_orders or o["sales_order"] in sales_orders])
 	_lock(location, "confirm")
 	args = {
@@ -749,12 +768,13 @@ def confirm_day_allocation(
 		timeout=1800,
 		enqueue_after_commit=True,
 		job_id=job_id,
+		run=job_id,
 		**args,
 	)
-	return {"queued": True}
+	return {"queued": True, "run": job_id}
 
 
-def _run_confirm(location, delivery_start, delivery_end, farms, sales_orders, user):
+def _run_confirm(location, delivery_start, delivery_end, farms, sales_orders, user, run=None):
 	try:
 		p = _proposal(location, delivery_start, delivery_end) or {"orders": []}
 		chosen = [o for o in p["orders"] if not sales_orders or o["sales_order"] in sales_orders]
@@ -802,7 +822,7 @@ def _run_confirm(location, delivery_start, delivery_end, farms, sales_orders, us
 		result = {"error": str(e)}
 	finally:
 		frappe.cache.delete_value(f"sa2_day_allocation:{location}")
-	_publish(user, location, phase="confirm", done=True, **_light(result))
+	_publish(user, location, phase="confirm", done=True, run=run or "", **_light(result))
 	return {"phase": "confirm", "done": True, **result}
 
 
@@ -1390,6 +1410,9 @@ def set_pending_team(location: str, sales_order: str, team: str):
 	from the planned one. One order is packed by one team."""
 	if not frappe.db.exists("Packing Teams", team):
 		frappe.throw(_("{0} is not a packing team.").format(team))
+	home = frappe.db.get_value("Packing Teams", team, "location")
+	if home and location and home != location:
+		frappe.throw(_("{0} packs at {1}, not {2}.").format(team, home, location))
 	names = frappe.get_all(
 		PENDING, filters={"status": "Pending", "location": location, "sales_order": sales_order}, pluck="name"
 	)

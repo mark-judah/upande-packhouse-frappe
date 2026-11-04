@@ -1,11 +1,11 @@
 # Copyright (c) 2026, Upande and contributors
 # For license information, please see license.txt
-"""Allocation Planning v2: revise the day's confirmations to what is really there.
+"""Allocation Planning v2: revise the confirmations to what is really there.
 
-Each variety and length's confirmed lines are given, in the day's sequence (Sales Order allocation sequence,
-then line), what net stock -- free on the shelf, received, and what the plan already holds for these lines --
-plus the rolling forecast of the cutting day can cover, in whole boxes (a line's last part box only when it
-completes the line). Teams stay as they are; a line the stock cannot reach at all leaves the plan.
+Each confirmed line is suggested on its own: what it still needs, as far as the stock of its variety and length
+goes (on the shelf, received, in quarantine, harvested and not received yet). No forecast.
+Whole boxes (a line's last part box only when it completes the line). Teams stay as they are; a line the
+stock cannot reach at all leaves the plan.
 """
 
 import json
@@ -107,10 +107,12 @@ def stock_stages(farm, varieties, places=None):
 	return out
 
 
-def _changes(day, farm, keep=None):
-	"""Lines whose confirmation the revision would change; `keep(line)` also lists lines that stay the same."""
-	planned = pg._planned_by_line(day, farm)
-	lines = [ln for ln in pg._lines_for(day, farm) if ln.name in planned]
+def _changes(day, farm, keep=None, days=None):
+	"""Lines whose confirmation the revision would change; `keep(line)` also lists lines that stay the same.
+	`days`: every delivery day of a week, sharing one stock."""
+	days = days or [day]
+	planned = pg._planned_week(days, farm)
+	lines = [ln for ln in pg._lines_for(days[0], farm, days[-1]) if ln.name in planned]
 	if not lines:
 		return []
 	seq, names = {}, {}
@@ -124,31 +126,29 @@ def _changes(day, farm, keep=None):
 	for ln in lines:
 		length = planned[ln.name].get("length") or ln.custom_length or ""
 		pools[(ln.item_code, length)].append(ln)
-	stock = pg._stock_by_pool(farm, {v for v, _l in pools}, day)
-	rolling = pg._rolling_by_pool(day, farm, {v for v, _l in pools})
 	stages = stock_stages(farm, {v for v, _l in pools})
 	out = []
 	for (variety, length), pool_lines in pools.items():
-		sup = {**pg.SUPPLY, **stock.get((variety, length), {})}
-		held_here = sum(flt(planned[ln.name]["real"]) for ln in pool_lines)
-		budget = (
-			flt(sup["free"])
-			+ flt(sup["received"])
-			+ held_here
-			+ pg.cut_day_total(sup, rolling.get((variety, length), 0.0))
-		)
+		st = stages[(variety, length)]
+		# each line is suggested on its own: what it still needs, as far as the stock there is now goes
+		total = flt(st["shelf"]) + flt(st["received"]) + flt(st["quarantine"]) + flt(st["harvested"])
 		pool_lines.sort(
-			key=lambda ln: (not cint(seq.get(ln.parent)), cint(seq.get(ln.parent)), ln.parent, ln.idx)
+			key=lambda ln: (
+				str(ln.delivery_date),
+				not cint(seq.get(ln.parent)),
+				cint(seq.get(ln.parent)),
+				ln.parent,
+				ln.idx,
+			)
 		)
 		for ln in pool_lines:
 			p = planned[ln.name]
 			was = flt(p["real"]) + flt(p["expected"])
 			want = max(0.0, flt(ln.ordered_stems) - flt(ln.allocated_stems))
-			give = min(want, max(0.0, budget))
+			give = min(want, max(0.0, total))
 			size = per_box(ln)
 			if give < want - 0.5 and size:
 				give = int(give / size + 1e-9) * size
-			budget -= give
 			if abs(give - was) > 0.5 or (keep and keep(ln)):
 				out.append(
 					{
@@ -164,21 +164,30 @@ def _changes(day, farm, keep=None):
 						"now": give,
 						"max": want,
 						"team": plans.team_for_line(ln.name) or "",
-						"stock": stages[(variety, length)],
+						"delivery_date": str(ln.delivery_date),
+						"stock": st,
 					}
 				)
-	out.sort(key=lambda r: (not r["sequence"], r["sequence"], r["sales_order"], r["variety"]))
+	out.sort(
+		key=lambda r: (r["delivery_date"], not r["sequence"], r["sequence"], r["sales_order"], r["variety"])
+	)
 	return out
 
 
 @frappe.whitelist()
 def preview_revision(
-	delivery_date: str | None = None, farm: str | None = None, sales_order: str | None = None
+	delivery_date: str | None = None,
+	farm: str | None = None,
+	sales_order: str | None = None,
+	week: str | None = None,
 ):
 	"""What revising would change: [{sales_order, variety, length, was, now (suggested), max, ...}]. For one
-	order, every one of its confirmed lines, changed or not."""
+	order, every one of its confirmed lines, changed or not. With `week`, every delivery day of it."""
 	day, farm = pg._day(delivery_date), farm or pg._default_farm()
-	changes = _changes(day, farm, (lambda ln: ln.parent == sales_order) if sales_order else None)
+	days = pg._week(week)[1] if week else None
+	if days:
+		day = days[0]
+	changes = _changes(day, farm, (lambda ln: ln.parent == sales_order) if sales_order else None, days)
 	if sales_order:
 		changes = [c for c in changes if c["sales_order"] == sales_order]
 	return {"success": True, "delivery_date": day, "farm": farm, "changes": changes}
@@ -190,17 +199,20 @@ def revise_confirmations(
 	farm: str,
 	sales_order_items: str | list | None = None,
 	lines: str | list | None = None,
+	week: str | None = None,
 ):
 	"""Apply the revision (only these lines when given), then re-number the teams' sequence. `lines`
-	([{sales_order_item, stems}]) confirms the planner's own amounts instead of the suggestion."""
+	([{sales_order_item, stems}]) confirms the planner's own amounts instead of the suggestion. With `week`, every
+	delivery day of it; each line stays in its own day's plan."""
 	frappe.only_for(pg.PLANNERS)
-	day = pg._day(delivery_date)
+	days = pg._week(week)[1] if week else [pg._day(delivery_date)]
+	day = days[0]
 	if isinstance(sales_order_items, str):
 		sales_order_items = json.loads(sales_order_items or "[]")
 	if isinstance(lines, str):
 		lines = json.loads(lines or "[]")
 	if lines:
-		planned = pg._planned_by_line(day, farm)
+		planned = pg._planned_week(days, farm)
 		changes = []
 		for row in lines:
 			soi = row["sales_order_item"]
@@ -216,13 +228,13 @@ def revise_confirmations(
 	else:
 		changes = [
 			c
-			for c in _changes(day, farm)
+			for c in _changes(day, farm, days=days)
 			if not sales_order_items or c["sales_order_item"] in sales_order_items
 		]
 	if not changes:
 		return {"success": True, "lines": 0}
 	pg.confirm_lines(
-		day,
+		None if week else day,
 		farm,
 		json.dumps(
 			[
@@ -236,12 +248,14 @@ def revise_confirmations(
 				for c in changes
 			]
 		),
+		week=week,
 	)
-	plan = pg._plan_name(day, farm)
-	if plan:
-		from upande_packhouse.api.v2.allocation_teams import _queues, _write_rounds
+	from upande_packhouse.api.v2.allocation_teams import _queues, _write_rounds
 
-		_write_rounds(plan, _queues(plan))
+	for d in days:
+		plan = pg._plan_name(d, farm)
+		if plan:
+			_write_rounds(plan, _queues(plan))
 	return {
 		"success": True,
 		"lines": len(changes),

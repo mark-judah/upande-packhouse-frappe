@@ -72,11 +72,14 @@ def _spec_varieties(lines):
 class Model:
 	"""One delivery day and farm: every line with what is left to confirm, and what covers each pool."""
 
-	def __init__(self, day, farm, overrides=None):
+	def __init__(self, day, farm, overrides=None, days=None):
 		self.day, self.farm = day, farm
-		self.lines = pg._lines(day)
+		self.lines = pg._lines(days[0], days[-1]) if days else pg._lines(day)
 		self.by_soi = {ln.name: ln for ln in self.lines}
-		self.planned = overrides if overrides is not None else pg._planned_by_line(day, farm)
+		if overrides is not None:
+			self.planned = overrides
+		else:
+			self.planned = pg._planned_week(days, farm) if days else pg._planned_by_line(day, farm)
 		self.supply = pg._stock_by_pool(farm, {ln.item_code for ln in self.lines}, day)
 		self._error = {}
 		self.specs = _spec_varieties(self.lines)
@@ -401,7 +404,7 @@ def check(day, farm, lines, model=None):
 		pool_take = take[pool_key]
 		if pool_take > max(cov, cov_prod) + 0.0001:
 			msg = _(
-				"You are confirming {0} stems of {1} {2}, but the forecast for the cutting day covers {3}. The other {4} would be short."
+				"You are confirming {0} stems of {1} {2}, but the forecast for the harvest day covers {3}. The other {4} would be short."
 			).format(_n(pool_take), v, length, _n(max(cov, cov_prod)), _n(pool_take - max(cov, cov_prod)))
 			add(_item("not_enough", RED, msg), ("short", pool_key))
 		elif pool_take > cov + 0.0001:
@@ -420,12 +423,24 @@ def check(day, farm, lines, model=None):
 
 @frappe.whitelist()
 def preview_confirmation(
-	delivery_date: str | None = None, farm: str | None = None, lines: str | list | None = None
+	delivery_date: str | None = None,
+	farm: str | None = None,
+	lines: str | list | None = None,
+	week: str | None = None,
 ):
-	"""What confirming these lines would do to the other customers. Writes nothing."""
+	"""What confirming these lines would do to the other customers. Writes nothing. With `week`, each line is
+	checked on its own delivery day."""
 	day, farm = pg._day(delivery_date), farm or pg._default_farm()
 	if isinstance(lines, str):
 		lines = json.loads(lines or "[]")
+	if week:
+		out = {"ok": True, "heads_up": [], "quiet": []}
+		for d, items in pg.lines_by_day(lines).items():
+			r = check(d, farm, items)
+			out["ok"] = out["ok"] and r["ok"]
+			out["heads_up"] += r["heads_up"]
+			out["quiet"] += r["quiet"]
+		return {"success": True, **out}
 	return {"success": True, **check(day, farm, lines or [])}
 
 

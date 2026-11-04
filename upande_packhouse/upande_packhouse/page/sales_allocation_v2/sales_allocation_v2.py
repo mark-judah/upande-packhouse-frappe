@@ -604,9 +604,16 @@ def get_order_filter_options():
 	# separate frappe.call racing against the operator's first click) makes
 	# it structurally impossible for a team <select> to render before the
 	# real list has arrived.
-	teams = frappe.get_all("Packing Teams", pluck="name", order_by="name asc")
+	rows = frappe.get_all("Packing Teams", fields=["name", "location"], order_by="name asc")
+	teams = [r.name for r in rows]
 
-	return {"lengths": lengths, "item_groups": item_groups, "teams": teams}
+	return {
+		"lengths": lengths,
+		"item_groups": item_groups,
+		"teams": teams,
+		# where each team packs: the board offers a location only its own teams
+		"team_locations": {r.name: r.location or "" for r in rows},
+	}
 
 
 # ============================================================

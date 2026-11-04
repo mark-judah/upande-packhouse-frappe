@@ -41,7 +41,7 @@ NAV = [
 			(
 				"remote-transfer",
 				"Remote Transfers",
-				"/packhouse-dashboard-v2/remote-transfer-v2?tab=transfer",
+				"/packhouse-dashboard-v2/remote-transfer-v2?tab=logistics",
 				"truck",
 			),
 		],
