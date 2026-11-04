@@ -170,7 +170,7 @@ class UnitTestDispatchPerTruck(UnitTestCase):
 		self.assertEqual([(t["vehicle"], t["boxes_loaded"]) for t in trucks], [("KAA 1A", 1)])
 
 
-def _soi(name, item, length, qty, delivered=0):
+def _soi(name, item, length, qty, delivered=0, mix="", idx=0):
 	return frappe._dict(
 		name=name,
 		item_code=item,
@@ -178,6 +178,9 @@ def _soi(name, item, length, qty, delivered=0):
 		qty=qty,
 		delivered_qty=delivered,
 		conversion_factor=10,
+		custom_mix_name=mix,
+		custom_mixed_box=1 if mix else 0,
+		idx=idx,
 	)
 
 
@@ -218,3 +221,29 @@ class UnitTestDeliveryNoteOrderLines(UnitTestCase):
 		items = [_soi("a1", "Ariya", "52cm", 10, delivered=10), _soi("a2", "Ariya", "52cm", 10)]
 		var = {("SO-1", "Ariya", "52cm"): _loaded(100, 1, "52cm")}
 		self.assertEqual(self._split(items, var), [("a2", 100, 1)])
+
+	def test_a_variety_in_a_mix_and_a_straight_line_keeps_each_lines_real_box_count(self):
+		# Hypericum: 4 mix boxes x 40 stems and 2 straight boxes x 200 stems, one length.
+		items = [
+			_soi("mix", "Hypericum", "52cm", 16, mix="FILLERS", idx=1),
+			_soi("str", "Hypericum", "52cm", 40, idx=2),
+		]
+		var = {
+			("SO-1", "Hypericum", "52cm", "FILLERS"): _loaded(160, 4, "52cm"),
+			("SO-1", "Hypericum", "52cm", ""): _loaded(400, 2, "52cm"),
+		}
+		self.assertEqual(self._split(items, var), [("mix", 160, 4), ("str", 400, 2)])
+
+	def test_the_same_variety_in_two_mixes_stays_in_each_mix(self):
+		items = [
+			_soi("a1", "Green Dragon", "52cm", 20, mix="MIX A", idx=1),
+			_soi("b1", "Moonwalk", "52cm", 140, mix="MIX B", idx=2),
+			_soi("b2", "Green Dragon", "52cm", 20, mix="MIX B", idx=3),
+		]
+		var = {
+			("SO-1", "Green Dragon", "52cm", "MIX A"): _loaded(200, 10, "52cm"),
+			("SO-1", "Green Dragon", "52cm", "MIX B"): _loaded(200, 10, "52cm"),
+			("SO-1", "Moonwalk", "52cm", "MIX B"): _loaded(1400, 10, "52cm"),
+		}
+		# rows follow the order's lines, so MIX B is headed by Moonwalk, not by its Green Dragon
+		self.assertEqual(self._split(items, var), [("a1", 200, 10), ("b1", 1400, 10), ("b2", 200, 10)])
