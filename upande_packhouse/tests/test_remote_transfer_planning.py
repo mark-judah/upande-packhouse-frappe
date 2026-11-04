@@ -61,7 +61,7 @@ class _Fleet:
 	def open_run_room(self, vehicle, date, farm):
 		return list(zip(self.runs(), self.rooms, strict=True))
 
-	def add_farm_run(self, vehicle, farm, date, enforce_room=False, while_on_road=False):
+	def add_farm_run(self, vehicle, farm, date, enforce_room=False, while_on_road=False, new_route=True):
 		if enforce_room and any(self.rooms):
 			return {"status": "error", "reason": "has_room"}
 		self.rooms.append(10)
@@ -96,6 +96,7 @@ class UnitTestPlacingScheduledOrders(UnitTestCase):
 			patch.object(at.frappe.db, "savepoint"),
 			patch.object(at.frappe.db, "commit"),
 			patch.object(at, "_trucks", return_value=[truck]),
+			patch.object(at, "routed_vehicles", return_value={"KDA 001A"}),
 			patch.object(at, "_run_candidates", return_value=[truck]),
 			patch.object(tc, "transfer_hub", return_value="Kapkolia"),
 			patch.object(tc, "farm_holders", return_value={}),
@@ -147,11 +148,38 @@ class UnitTestPlacingScheduledOrders(UnitTestCase):
 		self.assertEqual((saved["route"], saved["run"], saved["status"]), ("R1", 1, "Draft"))
 		self.assertEqual(str(saved["trip_date"]), str(self.today))
 
+	def test_distribute_without_todays_routes_plans_nothing(self):
+		with (
+			patch.object(at, "routed_vehicles", return_value=set()),
+			patch.object(at, "plan") as plan,
+			patch.object(at.truck_routes, "add_farm_run") as add,
+		):
+			out = at.distributeTrips()
+		self.assertEqual((out["status"], out["reason"]), ("error", "no_routes"))
+		plan.assert_not_called()
+		add.assert_not_called()
+
+	def test_a_run_is_never_added_to_a_truck_without_a_route_today(self):
+		from upande_packhouse.api.remote_transfer import truck_routes as tr
+
+		with (
+			patch.object(tr, "open_trip_to_farm", return_value=None),
+			patch.object(tr, "transfer_hub", return_value="Kapkolia"),
+			patch.object(tr, "_farm_distance_between", return_value="ROAD-1"),
+			patch.object(tr.frappe, "get_all", return_value=[]),
+			patch.object(tr, "_save_route") as save,
+		):
+			res = tr.add_farm_run("KDA 001A", FARM, str(self.today), new_route=False)
+		self.assertEqual(res.get("reason"), "no_route")
+		save.assert_not_called()
+
 	def test_full_run_gets_a_second_run_for_the_leftover(self):
 		fleet = _Fleet([15])
 		orders = [_order("OPL-BIG", self.tomorrow, buckets=25)]
 		out, add = self._run(fleet, orders, {("OPL-BIG", FARM): 25})
-		add.assert_called_once_with("KDA 001A", FARM, str(self.today), enforce_room=True, while_on_road=True)
+		add.assert_called_once_with(
+			"KDA 001A", FARM, str(self.today), enforce_room=True, while_on_road=True, new_route=False
+		)
 		self.assertEqual([(kw["run"], kw["rows"][0]["buckets"]) for kw in fleet.saved], [(1, 15), (2, 10)])
 		self.assertEqual(out["runs_added"], [{"vehicle": "KDA 001A", "farm": FARM, "run": 2}])
 
@@ -430,7 +458,9 @@ class UnitTestTripLeavesAFarm(UnitTestCase):
 			) as add,
 		):
 			tc.carry_left_behind(doc, tc.trim_left_farms(doc))
-		add.assert_called_once_with("KDG 076V", self.FARM, self.today, enforce_room=True, while_on_road=True)
+		add.assert_called_once_with(
+			"KDG 076V", self.FARM, self.today, enforce_room=True, while_on_road=True, new_route=False
+		)
 		self.assertEqual([r["buckets"] for r in write.call_args[0][0]["rows"]], [3])
 
 

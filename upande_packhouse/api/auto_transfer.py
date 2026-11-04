@@ -74,6 +74,9 @@ def run():
 		if elapsed + TICK_SLACK_SECONDS < frequency_minutes() * 60:
 			return
 	_auto_schedule()
+	# Nothing is put on a trip until today's truck routes are made.
+	if not routed_vehicles():
+		return
 	summary = plan()
 	if summary.get("status") == "success":
 		_plan_waiting(summary)
@@ -192,10 +195,36 @@ def _scheduled_portions(today):
 	return out
 
 
+def routed_vehicles(today=None):
+	"""The trucks working `today`: those with a truck route made for the day on the Truck Routes
+	tab. Distribute and automatic scheduling only ever use these, and never make a route."""
+	return set(
+		frappe.get_all(
+			"Bucket Logistics Route",
+			filters={"route_date": today or frappe.utils.today(), "auto_planned": 0},
+			pluck="vehicle",
+		)
+	)
+
+
+NO_ROUTES = "There are no truck routes for today. Create them on Truck Routes before distributing."
+
+
+@frappe.whitelist()
+def routes_ready():
+	"""Whether today has truck routes to distribute onto."""
+	today = frappe.utils.today()
+	trucks = sorted(routed_vehicles(today))
+	return {"ready": bool(trucks), "date": today, "trucks": trucks, "message": "" if trucks else NO_ROUTES}
+
+
 def _trucks(today):
-	"""The internal logistics trucks with a capacity, shaped for _run_candidates."""
+	"""The internal logistics trucks with a capacity and a route today, shaped for _run_candidates."""
 	out = []
+	working = routed_vehicles(today)
 	for name in frappe.get_all("Vehicle", filters={"custom_is_internal_logistics_truck": 1}, pluck="name"):
+		if name not in working:
+			continue
 		cap = tc._vehicle_capacity(name)
 		if cap > 0:
 			out.append({"name": name, "capacity_buckets": cap, "runs": tc._day_runs(name, today)})
@@ -211,8 +240,7 @@ def _farm_trucks(farm, today):
 	holding = [v for v, _trip, _w in holders.get(farm, [])]
 	if holding:
 		return [v for v in trucks if v["name"] in holding]
-	routed = [v for v in trucks if v["runs"]] or trucks
-	return _run_candidates(routed, farm, holders) if routed else []
+	return _run_candidates(trucks, farm, holders) if trucks else []
 
 
 def _place_on_open_run(farm, rows, today):
@@ -272,7 +300,9 @@ def _add_run_for(farm, today):
 		return None
 	for pick in _farm_trucks(farm, today):
 		frappe.db.savepoint("add_farm_run")
-		res = truck_routes.add_farm_run(pick["name"], farm, today, enforce_room=True, while_on_road=True)
+		res = truck_routes.add_farm_run(
+			pick["name"], farm, today, enforce_room=True, while_on_road=True, new_route=False
+		)
 		if res.get("status") == "success":
 			frappe.db.commit()  # nosemgrep: frappe-manual-commit
 			return {"vehicle": pick["name"], "farm": farm, "run": res.get("run")}
@@ -302,6 +332,8 @@ def distributeTrips(date: str | None = None):
 	today's trips, each filled as full as it can be (whether or not automatic
 	scheduling is on). Buckets left with no trip get one: a new run to their farm is
 	added to a truck's route for today, and the orders are planned again."""
+	if not routed_vehicles():
+		return {"status": "error", "reason": "no_routes", "message": NO_ROUTES}
 	summary = plan(window=date or None)
 	# Busy (another run is planning) or failed: change nothing more -- adding runs here
 	# committed route changes the page then reported as a failure.
@@ -342,10 +374,9 @@ def _add_runs_for_waiting(window=None):
 				waiting[f["farm"]] = waiting.get(f["farm"], 0) + left
 	if not waiting:
 		return []
-	trucks = [v for v in data["vehicles"] if int(v.get("capacity_buckets") or 0) > 0]
-	# Trucks with a route today go first; with none yet (early morning, before the
-	# day's routes are drawn) any truck takes the run -- add_farm_run gives it a route.
-	routed = [v for v in trucks if v.get("runs")] or trucks
+	# Only trucks with a route made for today: one with none is not working today.
+	working = routed_vehicles(today)
+	routed = [v for v in data["vehicles"] if int(v.get("capacity_buckets") or 0) > 0 and v["name"] in working]
 	if not routed:
 		return []
 	holders = tc.farm_holders(today)
@@ -358,7 +389,9 @@ def _add_runs_for_waiting(window=None):
 			continue
 		for pick in _run_candidates(routed, farm, holders):
 			frappe.db.savepoint("add_farm_run")
-			res = truck_routes.add_farm_run(pick["name"], farm, today, enforce_room=True, while_on_road=True)
+			res = truck_routes.add_farm_run(
+				pick["name"], farm, today, enforce_room=True, while_on_road=True, new_route=False
+			)
 			if res.get("status") == "success":
 				added.append({"vehicle": pick["name"], "farm": farm, "run": res.get("run")})
 				frappe.db.commit()  # nosemgrep: frappe-manual-commit
@@ -425,6 +458,8 @@ def runNow():
 	if not enabled():
 		return {"status": "error", "message": "Automatic remote transfer scheduling is switched off."}
 	_auto_schedule()
+	if not routed_vehicles():
+		return {"status": "error", "reason": "no_routes", "message": NO_ROUTES}
 	summary = plan()
 	if summary.get("status") == "success":
 		_place_scheduled(summary)
@@ -434,6 +469,8 @@ def runNow():
 def replan():
 	"""replan_soon's background job: plan, then every scheduled bucket still waiting gets
 	a trip (_place_scheduled) -- the same as a timed run."""
+	if not routed_vehicles():
+		return {"status": "error", "reason": "no_routes", "message": NO_ROUTES}
 	summary = plan()
 	if summary.get("status") == "success":
 		_place_scheduled(summary)

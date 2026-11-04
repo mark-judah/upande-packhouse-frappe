@@ -213,6 +213,8 @@ frappe.pages["sales-allocation-v2"].add_styles = function () {
             transition: all 0.15s;
         }
         .ufd-sa2 .location-btn:hover { color: var(--ink); }
+        .ufd-sa2 .location-btn:disabled { cursor: not-allowed; opacity: .45; }
+        .ufd-sa2 .location-btn.active:disabled { opacity: 1; }
         .ufd-sa2 .location-btn.active { background: var(--grad-ink); color: #fafaf6; }
         .ufd-sa2 .location-btn .lb-sub { display: none; }
         .ufd-sa2 .location-info {
@@ -671,6 +673,10 @@ frappe.pages["sales-allocation-v2"].add_styles = function () {
         .ufd-sa2 .sa-day-run__bar { height: 10px; border-radius: 999px; background: rgba(10,10,10,0.08); overflow: hidden; }
         .ufd-sa2 .sa-day-run__bar i { display: block; height: 100%; width: 0; border-radius: 999px; background: var(--grad-ink); transition: width .4s ease; }
         .ufd-sa2 .sa-day-run.done .sa-day-run__bar i { background: var(--good); }
+        /* getting ready: a moving bar until the first order is counted */
+        .ufd-sa2 .sa-day-run.prep .sa-day-run__bar i { width: 30% !important; transition: none; animation: saPrep 1.1s ease-in-out infinite; }
+        .ufd-sa2 .sa-day-run.prep .pct { display: none; }
+        @keyframes saPrep { 0% { transform: translateX(-100%); } 100% { transform: translateX(340%); } }
         .ufd-sa2 .sa-day-run__meta { display: flex; gap: 12px; align-items: baseline; font-size: 12px; color: var(--ink-mute); min-width: 0; }
         .ufd-sa2 .sa-day-run__meta .pct { font: 600 13px var(--sans); color: var(--ink); flex: none; }
         .ufd-sa2 .sa-day-run__meta .what { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1296,6 +1302,8 @@ frappe.pages["sales-allocation-v2"].render_location_selector = function () {
 		.join("");
 	$("#locationButtonsV2").html(html);
 	$(".location-btn").on("click", function () {
+		// the location stays put while Allocate all or Release runs there
+		if (frappe.pages["sales-allocation-v2"]._day_busy) return;
 		frappe.pages["sales-allocation-v2"].select_location($(this).data("location"));
 	});
 	// Open on the location used last.
@@ -1337,13 +1345,21 @@ frappe.pages["sales-allocation-v2"]._resume_day_progress = function () {
 	const P = frappe.pages["sales-allocation-v2"];
 	const location = P.selected_location;
 	if (!location) return;
+	clearTimeout(P._day_poll);
 	frappe.call({
 		method: "upande_packhouse.upande_packhouse.page.sales_allocation_v2.day_allocation.get_day_state",
-		args: { location },
+		args: { location, since: P._day_run || "" },
 		callback: (r) => {
 			const s = r.message;
-			if (!s || P.selected_location !== location) {
-				if (!s && !P._day_running) $("#dayProgV2").hide();
+			if (P.selected_location !== location) return;
+			// finished: the run's own answer, so the page never waits on a realtime message
+			if (s && s.done) {
+				P._day_run = "";
+				P._day_done(s);
+				return;
+			}
+			if (!s) {
+				if (!P._day_running) $("#dayProgV2").hide();
 				return;
 			}
 			P._listen_day_allocation();
@@ -1352,13 +1368,12 @@ frappe.pages["sales-allocation-v2"]._resume_day_progress = function () {
 			P._day_progress(
 				s.progress || 0,
 				s.total || 1,
-				s.queued ? __("{0} ahead", [s.ahead]) : s.order || "",
+				s.queued ? (s.ahead ? __("{0} ahead", [s.ahead]) : "") : s.order || "",
 				undefined,
 				s.queued ? "queued" : s.stage || (s.phase === "confirm" ? "release" : "allocate")
 			);
-			// still waiting for the worker: look again until it starts, then realtime takes over
-			clearTimeout(P._day_poll);
-			if (s.queued) P._day_poll = setTimeout(() => P._resume_day_progress(), 3000);
+			// asked again until it is done: realtime, when the page has it, only makes it quicker
+			P._day_poll = setTimeout(() => P._resume_day_progress(), 1500);
 		},
 	});
 };
@@ -1482,6 +1497,7 @@ frappe.pages["sales-allocation-v2"]._populate_filter_options = function () {
 			// this call already gates real interaction with the page, so by
 			// the time an operator can select an order, this has landed.
 			P.available_teams = [""].concat(o.teams || []);
+			P.team_locations = o.team_locations || {};
 			P.render_allocation_grid();
 		},
 	});
@@ -3466,7 +3482,8 @@ frappe.pages["sales-allocation-v2"].auto_allocate_day = function () {
 	P._listen_day_allocation();
 	// the open order's picks are held first, so Allocate all leaves them (and their buckets) alone
 	P._day_finished = false;
-	P._day_progress(0, 1, "", undefined, "allocate");
+	// moving at once: the orders are read before the first one is counted
+	P._day_progress(0, 1, "", undefined, "prepare");
 	// a pick that cannot be held (already held elsewhere) must not stop Allocate all
 	P._hold_session()
 		.catch(() => {})
@@ -3477,7 +3494,7 @@ frappe.pages["sales-allocation-v2"].auto_allocate_day = function () {
 				callback: (r) =>
 					r.message &&
 					(r.message.queued
-						? P._resume_day_progress()
+						? ((P._day_run = r.message.run || ""), P._resume_day_progress())
 						: r.message.done && P._day_done(r.message)),
 				error: () => P._day_progress_reset(),
 			})
@@ -3506,6 +3523,7 @@ frappe.pages["sales-allocation-v2"]._listen_day_allocation = function () {
 // first; the other is ignored.
 frappe.pages["sales-allocation-v2"]._day_done = function (m) {
 	const P = frappe.pages["sales-allocation-v2"];
+	clearTimeout(P._day_poll);
 	if (P._day_finished) return;
 	P._day_finished = true;
 	P._day_running = false;
@@ -3638,6 +3656,8 @@ frappe.pages["sales-allocation-v2"]._day_progress_reset = function () {
 	$("#dayLoadV2").hide();
 	$(frappe.pages["sales-allocation-v2"].short_mode ? "#shortViewV2" : "#mainShellV2").show();
 	$("#autoAllocateDayV2").prop("disabled", false);
+	frappe.pages["sales-allocation-v2"]._day_busy = false;
+	$(".location-btn").prop("disabled", false);
 	frappe.pages["sales-allocation-v2"]._set_proposal(
 		frappe.pages["sales-allocation-v2"].proposal
 	);
@@ -3838,7 +3858,7 @@ frappe.pages["sales-allocation-v2"]._open_confirm_dialog = function () {
 				callback: (r) =>
 					r.message &&
 					(r.message.queued
-						? P._resume_day_progress()
+						? ((P._day_run = r.message.run || ""), P._resume_day_progress())
 						: r.message.done && P._day_done(r.message)),
 				error: () => P._day_progress_reset(),
 			});
@@ -3877,7 +3897,7 @@ frappe.pages["sales-allocation-v2"]._open_confirm_dialog = function () {
 		.map(
 			(o, i) => `<tr>
 				<td><input type="checkbox" data-i="${i}" checked></td>
-				<td><strong>${esc(o.order_name || o.sales_order)}</strong>${
+				<td><strong>${esc(P._order_label(o.order_name) || o.sales_order)}</strong>${
 				o.order_name ? `<div class="ds-so">${esc(o.sales_order)}</div>` : ""
 			}</td>
 				<td>${esc(o.customer)}</td>
@@ -3947,7 +3967,15 @@ frappe.pages["sales-allocation-v2"]._open_confirm_dialog = function () {
 		const esc = frappe.utils.escape_html;
 		const named = (o.team_names || []).filter(Boolean);
 		const current = !P._needs_team(o) && named.length === 1 ? named[0] : "";
-		const teams = [...new Set([...(P.available_teams || []).filter(Boolean), ...named])];
+		// only the teams that pack at this location (a team with no location can pack anywhere)
+		const here = (t) =>
+			!(P.team_locations || {})[t] || P.team_locations[t] === P.selected_location;
+		const teams = [
+			...new Set([
+				...(P.available_teams || []).filter((t) => t && here(t)),
+				...(current ? [current] : []),
+			]),
+		];
 		const r = $cell[0].getBoundingClientRect();
 		const $menu = $(
 			`<div class="ca-team-menu" role="listbox" aria-label="${__("Packing team")}">${teams
@@ -4009,6 +4037,12 @@ frappe.pages["sales-allocation-v2"]._open_confirm_dialog = function () {
 };
 // While Allocate all or Release runs, the page shows how far it is: the step, the share done and the order
 // it is on. The orders come back when the job is done.
+// The order name without the sales order's number at its end ("SQ SHARBATLY - RIYADH 44526-03584" ->
+// "SQ SHARBATLY - RIYADH 44526"), as the box label prints it.
+frappe.pages["sales-allocation-v2"]._order_label = function (name) {
+	const s = String(name || "");
+	return s.replace(/\s*-\s*\d{5}$/, "").trim() || s;
+};
 frappe.pages["sales-allocation-v2"]._day_progress = function (
 	done,
 	total,
@@ -4019,6 +4053,8 @@ frappe.pages["sales-allocation-v2"]._day_progress = function (
 	const P = frappe.pages["sales-allocation-v2"];
 	$("#dayProgV2").hide();
 	$("#autoAllocateDayV2, #confirmDayV2").prop("disabled", finished === undefined);
+	P._day_busy = finished === undefined;
+	$(".location-btn").prop("disabled", P._day_busy);
 	if (finished !== undefined) {
 		$("#dayLoadV2").hide().removeClass("done");
 		$("#shortViewV2").toggle(!!P.short_mode);
@@ -4028,6 +4064,7 @@ frappe.pages["sales-allocation-v2"]._day_progress = function (
 	if (stage) P._day_stage = stage;
 	const TITLE = {
 		queued: __("Waiting to start"),
+		prepare: __("Getting the orders"),
 		allocate: __("Allocating orders"),
 		save: __("Saving the allocation"),
 		shortages: __("Checking shortages"),
@@ -4051,6 +4088,7 @@ frappe.pages["sales-allocation-v2"]._day_progress = function (
 	$run.find(".sa-day-run__bar i").css("width", pct + "%");
 	$run.find(".pct").text(pct + "%");
 	$run.find(".what").text(what);
+	$run.toggleClass("prep", st === "prepare");
 	$("#mainShellV2, #shortViewV2").hide();
 	$run.css("display", "flex");
 };
@@ -4544,7 +4582,11 @@ frappe.pages["sales-allocation-v2"]._donor_groups = function (line) {
 frappe.pages["sales-allocation-v2"]._move_cells = function (m, result, suggested, esc) {
 	const r = result(m);
 	return `<td>${m.to_before} → ${m.to_after}${m.to_open ? " +" : ""}</td>
-		<td>${m.from_before} → ${m.from_after}${m.from_open ? " +" : ""}</td>
+		<td>${Math.round(m.from_have)} → ${Math.round(m.from_have - m.qty)}${
+		m.from_after < m.from_before
+			? ` · ${__("{0} full box(es) opened", [m.from_before - m.from_after])}`
+			: ""
+	}</td>
 		<td><span class="ds-why${r[1] === "ok" ? " ds-why--ok" : ""}">${esc(r[0])}</span>${
 		suggested ? ` <span class="ds-why ds-why--ok">${__("Suggested")}</span>` : ""
 	}</td>`;
@@ -4784,7 +4826,7 @@ frappe.pages["sales-allocation-v2"]._move_from_order = function (line, group) {
 			<thead><tr><th></th><th>${__("Move to")}</th><th>${__("Customer")}</th>
 			<th>${__("Length")}</th><th class="num">${__("Short")}</th><th class="num">${__(
 		"Moves"
-	)}</th><th>${__("Boxes")}</th><th>${__("From boxes")}</th><th></th></tr></thead>
+	)}</th><th>${__("Boxes")}</th><th>${__("From stems")}</th><th></th></tr></thead>
 			<tbody>${targets
 				.map(
 					(x, i) => `<tr>

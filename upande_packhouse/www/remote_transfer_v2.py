@@ -1,70 +1,34 @@
 # Copyright (c) 2026, Upande and contributors
 # For license information, please see license.txt
 #
-# Remote Transfers v2 (www/remote-transfer-v2.html?tab=<tab>). Rebuild of
-# /remote-transfer/<tab> on the packhouse v2 design system. One page; the tab
-# is picked by ?tab= and each tab is a self-contained template in
-# templates/remote_transfer_v2/<tab>.html. Switching tabs is a normal page
-# load (no iframes); the shared delivery date travels in ?date=.
-
-import os
+# Remote Transfers in the packhouse v2 shell (www/remote-transfer-v2.html,
+# /packhouse-dashboard-v2/remote-transfer-v2?tab=<tab>). The screens are the Remote
+# Transfers pages (templates/remote_transfer/, the same ones /remote-transfer/<tab>
+# shows), rendered straight into the v2 page: no frames. The tab is picked by ?tab=.
 
 import frappe
 
 from upande_packhouse.packhouse_v2 import page_context
+from upande_packhouse.remote_transfer_routes import GROUPS, template_paths
 
 no_cache = 1
 
-#: tab key -> (label, hint, template). Order = order of the tab strip.
-TABS = {
-	"routes": ("Truck Routes", "Set today's farms for each transfer truck", "truck_routes"),
-	"scheduler": ("Scheduler", "Sequence each team's orders", "scheduler"),
-	"transfer": (
-		"Transfer Scheduling",
-		"Distribute across teams, plan trucks, dispatch trips",
-		"transfer_scheduling",
-	),
-	"logistics": ("Bucket Logistics", "Track buckets to the sales farm", "bucket_logistics"),
-	"journey": ("Bucket Journey", "Trace a bucket end to end", "bucket_journey"),
-}
-
-#: Old /remote-transfer/<slug> paths, for the eventual swap-over.
-SLUGS = {
-	"routes": "truck-routes",
-	"scheduler": "scheduler",
-	"transfer": "transfer-scheduling",
-	"logistics": "bucket-logistics",
-	"journey": "bucket-journey",
-}
-
-
-def _tab_version():
-	"""Cache-buster for the tab scripts and styles: changes whenever any of them changes."""
-	public = os.path.join(os.path.dirname(os.path.dirname(__file__)), "public")
-	newest = 0
-	for kind, ext in (("js", ".js"), ("css", ".css")):
-		folder = os.path.join(public, kind)
-		try:
-			for f in os.listdir(folder):
-				if f.startswith("rt-") and f.endswith(ext):
-					newest = max(newest, os.path.getmtime(os.path.join(folder, f)))
-		except OSError:
-			pass
-	return str(int(newest)) or "1"
+BASE = "/packhouse-dashboard-v2/remote-transfer-v2"
+#: tab key -> its address on the v2 page (the tabs the section shows).
+PATHS = {k: BASE + "?tab=" + k for k in ("routes", "scheduler", "logistics", "journey")}
 
 
 def get_context(context):
-	tab = frappe.form_dict.get("tab") or "transfer"
-	if tab not in TABS:
-		tab = "transfer"
+	tab = frappe.form_dict.get("tab") or "logistics"
+	# No Transfer Scheduling tab any more: its address opens Bucket Logistics.
+	if tab not in PATHS:
+		tab = "logistics"
 	page_context(context, "remote-transfer", "Remote Transfers", section="Workflow")
 	context.rt_tab = tab
-	context.rt_tabs = [(k, v[0], v[1]) for k, v in TABS.items()]
-	context.rt_template = "upande_packhouse/templates/remote_transfer_v2/{0}.html".format(TABS[tab][2])
+	context.rt_group = GROUPS[tab]
+	context.rt_templates = template_paths(tab)
+	context.rt_v2_paths = PATHS
 	context.ph_wide = 1
-	# Tab scripts change independently of the shared css/js that ph_v tracks, so a browser kept
-	# serving a stale tab script (e.g. an old Bucket Journey script against the new API).
-	context.rt_v = _tab_version()
 	# The Bucket Journey's "Transfer" stage names where remote buckets are trucked to.
 	from upande_packhouse.api.remote_transfer.transfer_scheduling import transfer_hub
 

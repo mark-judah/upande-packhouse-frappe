@@ -25,16 +25,31 @@ def _days(ar, a, b):
 class TestSchedule(IntegrationTestCase):
 	def test_first_order_appears_on_the_start_date(self):
 		ar = _ar(frequency="Weekly", start_date="2026-03-02")
-		self.assertEqual(_days(ar, "2026-03-01", "2026-03-31"), ["2026-03-02", "2026-03-09", "2026-03-16", "2026-03-23", "2026-03-30"])
+		self.assertEqual(
+			_days(ar, "2026-03-01", "2026-03-31"),
+			["2026-03-02", "2026-03-09", "2026-03-16", "2026-03-23", "2026-03-30"],
+		)
 
 	def test_daily_and_fortnightly(self):
-		self.assertEqual(_days(_ar(frequency="Daily", start_date="2026-03-01"), "2026-03-01", "2026-03-03"), ["2026-03-01", "2026-03-02", "2026-03-03"])
-		self.assertEqual(_days(_ar(frequency="Fortnightly", start_date="2026-03-02"), "2026-03-01", "2026-03-31"), ["2026-03-02", "2026-03-16", "2026-03-30"])
+		self.assertEqual(
+			_days(_ar(frequency="Daily", start_date="2026-03-01"), "2026-03-01", "2026-03-03"),
+			["2026-03-01", "2026-03-02", "2026-03-03"],
+		)
+		self.assertEqual(
+			_days(_ar(frequency="Fortnightly", start_date="2026-03-02"), "2026-03-01", "2026-03-31"),
+			["2026-03-02", "2026-03-16", "2026-03-30"],
+		)
 
 	def test_weekly_on_days_moves_a_start_date_that_is_not_one(self):
 		# 2026-03-03 is a Tuesday; the repeat days are Monday and Thursday
-		ar = _ar(frequency="Weekly", start_date="2026-03-03", repeat_on_days=[{"day": "Monday"}, {"day": "Thursday"}])
-		self.assertEqual(_days(ar, "2026-03-01", "2026-03-16"), ["2026-03-05", "2026-03-09", "2026-03-12", "2026-03-16"])
+		ar = _ar(
+			frequency="Weekly",
+			start_date="2026-03-03",
+			repeat_on_days=[{"day": "Monday"}, {"day": "Thursday"}],
+		)
+		self.assertEqual(
+			_days(ar, "2026-03-01", "2026-03-16"), ["2026-03-05", "2026-03-09", "2026-03-12", "2026-03-16"]
+		)
 
 	def test_monthly_on_a_day(self):
 		ar = _ar(frequency="Monthly", start_date="2026-03-01", repeat_on_day=15)
@@ -47,7 +62,10 @@ class TestSchedule(IntegrationTestCase):
 	def test_delivery_is_days_after_the_appearance(self):
 		ar = _ar(frequency="Weekly", start_date="2026-11-01", custom_delivery_days_after=3)
 		s = so.schedule(ar, count=2, window_from="2026-11-01")
-		self.assertEqual([(str(x["appears"]), str(x["delivers"])) for x in s], [("2026-11-01", "2026-11-04"), ("2026-11-08", "2026-11-11")])
+		self.assertEqual(
+			[(str(x["appears"]), str(x["delivers"])) for x in s],
+			[("2026-11-01", "2026-11-04"), ("2026-11-08", "2026-11-11")],
+		)
 
 	def test_no_days_after_means_delivery_on_the_appearance(self):
 		ar = _ar(frequency="Daily", start_date="2026-11-01")
@@ -60,7 +78,15 @@ class TestRepeatedOrder(IntegrationTestCase):
 		ar.next_schedule_date = "2026-11-08"
 		doc = frappe.new_doc("Sales Order")
 		doc.delivery_date = "2026-11-08"  # what stock Auto Repeat would have stamped
-		doc.append("items", {"item_code": "x", "custom_opl": None, "custom_fully_allocated": 1, "delivery_date": "2026-11-08"})
+		doc.append(
+			"items",
+			{
+				"item_code": "x",
+				"custom_opl": None,
+				"custom_fully_allocated": 1,
+				"delivery_date": "2026-11-08",
+			},
+		)
 		doc.append("custom_confirmed_stems_table", {"farm": "F", "stems": 10})
 		doc.custom_truck_details = "KAA 123"
 		doc.po_no = "588211"
@@ -84,9 +110,14 @@ class TestRepeatedOrder(IntegrationTestCase):
 
 class TestApi(IntegrationTestCase):
 	def test_preview_schedule(self):
-		r = api.preview_schedule(frequency="Weekly", start_date="2026-11-02", days_after=3, count=2, weekdays="[]")
+		r = api.preview_schedule(
+			frequency="Weekly", start_date="2026-11-02", days_after=3, count=2, weekdays="[]"
+		)
 		self.assertTrue(r["success"], r)
-		self.assertEqual([(str(x["appears"]), str(x["delivers"])) for x in r["schedule"]], [("2026-11-02", "2026-11-05"), ("2026-11-09", "2026-11-12")])
+		self.assertEqual(
+			[(str(x["appears"]), str(x["delivers"])) for x in r["schedule"]],
+			[("2026-11-02", "2026-11-05"), ("2026-11-09", "2026-11-12")],
+		)
 
 	def test_preview_schedule_rejects_a_bad_frequency(self):
 		self.assertFalse(api.preview_schedule(frequency="Sometimes", start_date="2026-11-02")["success"])
@@ -99,12 +130,22 @@ class TestApi(IntegrationTestCase):
 
 	def test_email_template_renders_from_the_order(self):
 		"""The Notification tab's message, rendered with doc only, reads the figures through standing_summary(doc)."""
-		src = frappe.get_all("Sales Order", filters={"docstatus": ["<", 2], "business_unit": "Roses"}, pluck="name", limit=1)
+		src = frappe.get_all(
+			"Sales Order", filters={"docstatus": ["<", 2], "business_unit": "Roses"}, pluck="name", limit=1
+		)
 		if not src:
 			self.skipTest("no Roses Sales Order on this site")
 		order = frappe.get_doc("Sales Order", src[0])
-		ar = frappe.get_doc({"doctype": "Auto Repeat", "reference_doctype": "Sales Order", "reference_document": order.name,
-			"frequency": "Weekly", "start_date": nowdate(), "custom_delivery_days_after": 3}).insert(ignore_permissions=True, ignore_mandatory=True)
+		ar = frappe.get_doc(
+			{
+				"doctype": "Auto Repeat",
+				"reference_doctype": "Sales Order",
+				"reference_document": order.name,
+				"frequency": "Weekly",
+				"start_date": nowdate(),
+				"custom_delivery_days_after": 3,
+			}
+		).insert(ignore_permissions=True, ignore_mandatory=True)
 		order.db_set("auto_repeat", ar.name)
 		order.auto_repeat = ar.name
 		tpl = frappe.get_doc("Email Template", so.DEFAULT_TEMPLATE)

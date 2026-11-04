@@ -82,7 +82,31 @@ def _pool(variety, length):
 
 
 @frappe.whitelist()
-def get_plan_checks(delivery_date: str | None = None, farm: str | None = None):
+def get_plan_checks(delivery_date: str | None = None, farm: str | None = None, week: str | None = None):
+	if week:
+		# a week: every delivery day's checks, each on its own day
+		week, days = pg._week(week)
+		checks, counts = [], defaultdict(int)
+		for d in days:
+			r = get_plan_checks(d, farm)
+			farm = r["farm"]
+			for c in r["checks"]:
+				c["delivery_date"] = d
+			checks += r["checks"]
+			for k, v in r["counts"].items():
+				counts[k] += v
+		checks.sort(
+			key=lambda c: (RANK[c["severity"]], c.get("customer") or "", c["title"], c["delivery_date"])
+		)
+		return {
+			"success": True,
+			"delivery_date": days[0],
+			"week": week,
+			"days": days,
+			"farm": farm,
+			"checks": checks,
+			"counts": dict(counts),
+		}
 	day, farm = pg._day(delivery_date), farm or pg._default_farm()
 	model = nm.full_model(day, farm)
 	mine = {ln.name for ln in pg._lines_for(day, farm)}

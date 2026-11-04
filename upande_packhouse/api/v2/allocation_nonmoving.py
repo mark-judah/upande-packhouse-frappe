@@ -25,9 +25,9 @@ from upande_packhouse.api.v2.allocation_substitutes import _colours
 _cm = guards._cm
 
 
-def full_model(day, farm):
+def full_model(day, farm, days=None):
 	"""The planning model, with stock of varieties nobody ordered added: those are the likeliest to be thrown away."""
-	model = guards.Model(day, farm)
+	model = guards.Model(day, farm, days=days)
 	for k, v in pg._stock_by_pool(farm, None, None, everything=True).items():
 		model.supply.setdefault(k, v)
 	return model
@@ -64,9 +64,12 @@ def at_risk(model, variety, length):
 
 
 @frappe.whitelist()
-def get_non_moving(delivery_date: str | None = None, farm: str | None = None):
+def get_non_moving(delivery_date: str | None = None, farm: str | None = None, week: str | None = None):
 	day, farm = pg._day(delivery_date), farm or pg._default_farm()
-	model = full_model(day, farm)
+	days = pg._week(week)[1] if week else None
+	if days:
+		day = days[0]
+	model = full_model(day, farm, days)
 	amber = pg.amber_from_days()
 	primary = {
 		(r[0], r[1])

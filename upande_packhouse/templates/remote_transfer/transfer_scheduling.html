@@ -768,6 +768,8 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 var S={ from:window.rtDate.get(), to:window.rtDate.get(), tab:(function(){ try{
   var p=location.pathname.replace(/\/+$/,'');
   if(/\/truck-routes$/.test(p)) return 'routes';
+  /* the packhouse v2 page picks its tab with ?tab= */
+  if(new URLSearchParams(location.search).get('tab')==='routes') return 'routes';
   if(/\/bucket-logistics$/.test(p)) return 'logistics';
   return 'logistics'; }catch(e){ return 'logistics'; } })(), sel:[], broken:{}, offRoutes:{}, offRuns:{} };
 function tripVehMap(){ var m={}; DATA.trips.forEach(function(t){ m[t.name]=t.vehicle||''; }); return m; }
@@ -1112,10 +1114,10 @@ function confirmModal(title,msg,okLabel,danger,cancelLabel){
 function deleteRoute(name){
   if(!name) return;
   var r0=(S.rv.routes||[]).filter(function(x){ return x.name===name; })[0];
-  confirmModal('Delete route','Delete '+(r0?r0.vehicle+'’s '+timeRange(r0)+' route':'this route')+' for '+dayLabel(S.rv.date).toLowerCase()+'? The truck isn’t planned that day until it gets a route again.','Delete',true).then(function(ok){ if(!ok) return;
+  confirmModal('Delete route','Delete '+(r0?r0.vehicle+'’s '+timeRange(r0)+' route':'this route')+' for '+dayLabel(S.rv.date).toLowerCase()+'? Its trips are deleted and their orders unscheduled.','Delete',true).then(function(ok){ if(!ok) return;
   call('deleteBucketLogisticsRoute',{name:name}).then(function(r){
-    var m=r.message||{};
-    toast(m.status==='success'?'Route deleted':(m.message||'Could not delete the route'));
+    var m=r.message||{}, nt=(m.trips||[]).length, nu=(m.unscheduled||[]).length;
+    toast(m.status==='success'?'Route deleted'+(nt?' · '+nt+' trip'+(nt===1?'':'s')+' deleted':'')+(nu?' · '+nu+' order'+(nu===1?'':'s')+' unscheduled':''):(m.message||'Could not delete the route'));
     if(m.status==='success'){ routesStale(); renderRoutes(); loadData(); }
   }).catch(function(err){ toast('Failed: '+((err&&err.message)||'')); });
   });
@@ -1462,6 +1464,7 @@ function autoReplan(btn){
   btn.disabled=true; btn.textContent='Planning…';
   call('upande_packhouse.api.auto_transfer.runNow',{}).then(function(r){
     var m=r.message||{};
+    if(m.reason==='no_routes'){ toast(m.message,'red'); S.tab='routes'; render(); return; }
     toast(m.status==='success'?(m.unchanged?'Plan unchanged':(m.trips||[]).length+' trip'+((m.trips||[]).length===1?'':'s')+' planned'):(m.message||'Re-plan failed'));
   }).catch(function(err){ toast('Failed: '+((err&&err.message)||'')); })
     .then(function(){ S.replanning=false; loadData(); });
@@ -1706,6 +1709,8 @@ function distributeAction(){
   call('upande_packhouse.api.auto_transfer.distributeTrips',{date:S.from}).then(function(r){
     var m=(r&&r.message)||{};
     S.distLoading=false;
+    // Trips only go on trucks with a route made for today: with none, Truck Routes opens.
+    if(m.reason==='no_routes'){ toast(m.message,'red'); S.tab='routes'; render(); return; }
     if(m.status==='error'||m.status==='busy'){ toast(m.message||'Distribute failed','red'); render(); return; }
     var trips=(m.trips||[]).length, filling=(m.filling||[]).length;
     toast(m.unchanged?'No new schedules to distribute':(trips+' trip'+(trips===1?'':'s')+' planned · '+(trips-filling)+' full'),'green');

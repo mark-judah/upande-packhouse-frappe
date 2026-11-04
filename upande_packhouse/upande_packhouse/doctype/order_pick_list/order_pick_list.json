@@ -8,6 +8,7 @@
  "field_order": [
   "section_break_4j6i",
   "sales_order",
+  "delivery_date",
   "customer",
   "farm",
   "custom_business_unit",
@@ -17,6 +18,7 @@
   "naming_series",
   "schedule_number",
   "custom_total_stems",
+  "total_boxes",
   "custom_allocated_pick_list",
   "custom_qr_code",
   "consumables_requested",
@@ -58,6 +60,16 @@
    "fieldtype": "Link",
    "label": "Sales Order",
    "options": "Sales Order"
+  },
+  {
+   "fetch_from": "sales_order.delivery_date",
+   "fieldname": "delivery_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Delivery Date",
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "fieldname": "date_created",
@@ -183,7 +195,15 @@
   {
    "fieldname": "custom_total_stems",
    "fieldtype": "Data",
-   "label": "Total Stems"
+   "label": "Total Stems",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "total_boxes",
+   "fieldtype": "Int",
+   "label": "Total Boxes",
+   "read_only": 1,
+   "in_list_view": 1
   },
   {
    "fieldname": "custom_allocated_pick_list",
@@ -221,7 +241,7 @@
    "link_fieldname": "order_pick_list"
   }
  ],
- "modified": "2026-10-15 16:00:00.000000",
+ "modified": "2026-11-04 13:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Order Pick List",

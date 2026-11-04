@@ -7,6 +7,9 @@ from frappe.model.document import Document
 
 
 class OrderPickList(Document):
+	def validate(self):
+		self.total_boxes = count_boxes(self)
+
 	def before_submit(self):
 		# Doctype-level backstop: every programmatic path that submits an OPL
 		# (allocation-time, shelving-time) already checks opl_submit_blockers
@@ -50,3 +53,23 @@ class OrderPickList(Document):
 				).format(self.name, "; ".join(blockers)),
 				title=_("Pick List In Transfer"),
 			)
+
+
+def sync_delivery_date(doc, method=None):
+	"""A Sales Order's new delivery date carries onto its pick lists."""
+	if doc.has_value_changed("delivery_date"):
+		frappe.db.set_value(
+			"Order Pick List",
+			{"sales_order": doc.name},
+			"delivery_date",
+			doc.delivery_date,
+			update_modified=False,
+		)
+
+
+def count_boxes(opl):
+	"""The boxes this pick list packs: the packing guide's box numbers, else the pick rows' box ids."""
+	boxes = {r.box_number for r in opl.get("table_nade") or [] if r.box_number}
+	if not boxes:
+		boxes = {r.custom_box_id for r in opl.get("table_ytkc") or [] if r.custom_box_id}
+	return len(boxes)

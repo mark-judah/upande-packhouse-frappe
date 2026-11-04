@@ -1,45 +1,89 @@
 {% extends "templates/web.html" %}
 {% block title %}Remote Transfers · Packhouse{% endblock %}
 {% block page_content %}
+{#- Remote Transfers in the packhouse v2 shell. Each tab is the Remote Transfers screen itself
+    (templates/remote_transfer/<tab>.html, the same one /remote-transfer/<tab> shows), included
+    once per part (head, right, body, after, tail) straight into this page: no frames. The
+    section's tabs, date, filters and Refresh come from remote_transfers_tabs.html; the
+    script below points their addresses at this page. -#}
 {% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
-
-<header class="ph-head">
-  <div>
-    <div class="ph-head__eyebrow">Packhouse · Remote Transfers</div>
-    <h1 class="ph-head__title">Remote Transfers</h1>
-    <p class="ph-head__sub">{% for k, label, hint in rt_tabs %}{% if k == rt_tab %}{{ hint }}{% endif %}{% endfor %}</p>
+{% set rt_part = 'head' %}{% for t in rt_templates %}{% include t %}
+{% endfor %}
+<style>
+/* The Remote Transfers screens are a full-screen layer of their own; here they sit in the page. */
+html.ph2-root,html.ph2-root body{overflow-y:visible!important;overflow-x:clip!important}
+.aph.rt-v2,.aph.rt-v2.collapsed{position:static!important;inset:auto!important;z-index:auto!important;display:block!important;
+  grid-template-columns:1fr!important;height:auto!important;min-height:0!important;width:auto!important;background:transparent!important;overflow:visible!important}
+.aph.rt-v2 .aph-side{display:none!important}
+.aph.rt-v2 .aph-main{height:auto!important;min-height:0!important;overflow:visible!important;background:transparent!important}
+.aph.rt-v2 .aph-content{padding:0!important;max-width:none!important}
+.aph.rt-v2 .aph-topbar{position:static!important;background:transparent!important;border:0!important;box-shadow:none!important;
+  padding:0 0 var(--sp-4)!important;margin:0!important;display:flex;align-items:center;flex-wrap:wrap;gap:10px}
+/* The view's own controls sit just before Refresh, at the right. */
+.aph.rt-v2 .aph-topbar .right{order:98;margin-left:auto;display:flex;align-items:center;gap:10px}
+.aph.rt-v2 .aph-topbar>.rt-refresh{order:99;margin-left:0}
+/* A closed side panel waits off the right edge: no shadow showing there. */
+.aph.rt-v2 #tm-root .bp-panel:not(.is-open),.aph.rt-v2 .bs-drawer:not(.on){box-shadow:none}
+</style>
+<div class="aph rt-embed rt-v2">
+  <div class="aph-main">
+    <div class="aph-topbar">
+      {% set rt_active = rt_tab %}{% include "upande_packhouse/templates/includes/remote_transfers_tabs.html" %}
+      <div class="right">{% set rt_part = 'right' %}{% for t in rt_templates %}{% include t %}{% endfor %}</div>
+    </div>
+    <div class="aph-content">
+{% set rt_part = 'body' %}{% for t in rt_templates %}{% include t %}
+{% endfor %}
+    </div>
   </div>
-</header>
-
-<nav class="ph-tabs" id="rt-tabs" aria-label="Remote Transfers sections">
-  {%- for k, label, hint in rt_tabs %}
-  <a class="ph-tab{% if k == rt_tab %} is-on{% endif %}" href="/packhouse-dashboard-v2/remote-transfer-v2?tab={{ k }}" data-tab="{{ k }}" title="{{ hint }}"{% if k == rt_tab %} aria-current="page"{% endif %}>{{ label }}</a>
-  {%- endfor %}
-</nav>
-
-<script>
-  /* Shared by every tab template: the tab key, the transfer hub, and the
-     delivery date that carries across tabs (?date=, default tomorrow). */
-  window.RT = { tab: {{ rt_tab|tojson }}, transferHub: {{ transfer_hub|tojson }} };
-</script>
-
-{#- Each tab template is included twice: rt_part 'body' (markup, inside the page)
-    and rt_part 'script' (after shell_end, so window.PH exists). -#}
-{% set rt_part = 'body' %}{% include rt_template %}
-
+{% set rt_part = 'after' %}{% for t in rt_templates %}{% include t %}{% endfor %}
+</div>
 {% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
 <script>
+/* The section's tabs open on this page (?tab=); a view that reports its address
+   (/remote-transfer/<tab>?…) keeps this page's address in step. */
 (function () {
-  // Tab links carry the shared delivery date across tabs.
-  document.getElementById("rt-tabs").addEventListener("click", function (e) {
-    var a = e.target.closest("a[data-tab]");
-    if (!a) return;
-    // The delivery date (a single day, or the end of a range) and the region carry across tabs.
-    var q = new URLSearchParams(location.search), d = q.get("date") || q.get("to"), r = q.get("region");
-    if (d || r) { e.preventDefault(); location.href = a.getAttribute("href") + (d ? "&date=" + encodeURIComponent(d) : "") + (r ? "&region=" + encodeURIComponent(r) : ""); }
+  var PATHS = {{ rt_v2_paths|tojson }}, TAB = {{ rt_tab|tojson }}, GROUP = {{ rt_group|tojson }};
+  var SLUG = { "truck-routes": "routes", "scheduler": "scheduler", "transfer-scheduling": "logistics", "bucket-logistics": "logistics", "bucket-journey": "journey" };
+  function href(tab, query) {
+    var q = new URLSearchParams(query || "");
+    q.delete("embed"); q.delete("tab");
+    q.set("tab", tab);
+    if (window.rtDate && tab !== "journey") q.set("date", window.rtDate.get());
+    return PATHS[tab].split("?")[0] + "?" + q.toString();
+  }
+  document.querySelectorAll(".aph.rt-v2 .rt-tabs a[data-rt]").forEach(function (a) {
+    var k = a.getAttribute("data-rt");
+    if (PATHS[k]) a.setAttribute("href", PATHS[k]);
   });
-  RT.defaultDate = PH.date.add(PH.date.today(), 1);
+  window.rtGoTab = function (tab) { if (PATHS[tab]) location.href = href(tab); };
+  window.rtSwitch = window.rtGoTab;
+  window.rtSetUrl = function (pathAndQuery) {
+    var p = String(pathAndQuery || "").split("?"), slug = p[0].replace(/\/+$/, "").split("/").pop();
+    var tab = SLUG[slug] || TAB;
+    try { history.replaceState(history.state, "", href(tab, p[1])); } catch (e) {}
+  };
+  // A view on another tab: open it there and run `fn` once it is in (?run=).
+  window.rtOpenTab = function (tab, fn) {
+    if (!PATHS[tab]) tab = "logistics";
+    location.href = href(tab) + (fn ? "&run=" + encodeURIComponent(fn) : "");
+  };
+  window.rtGroup = GROUP;
 })();
 </script>
-{% set rt_part = 'script' %}{% include rt_template %}
+{% set rt_part = 'tail' %}{% for t in rt_templates %}{% include t %}
+{% endfor %}
+<script>
+(function () {
+  // Truck Routes and Bucket Logistics are one screen: it switches between them in place;
+  // every other tab is its own page.
+  var inPlace = window.rtGroup === "planner" ? window.rtSwitch : null;
+  window.rtSwitch = function (tab) {
+    if (inPlace && inPlace !== window.rtGoTab && (tab === "routes" || tab === "logistics")) return inPlace(tab);
+    window.rtGoTab(tab);
+  };
+  var run = new URLSearchParams(location.search).get("run");
+  if (run && /^rt[A-Za-z]+$/.test(run) && typeof window[run] === "function") setTimeout(function () { window[run](); }, 0);
+})();
+</script>
 {% endblock %}

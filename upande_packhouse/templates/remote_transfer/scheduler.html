@@ -1209,7 +1209,18 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     var todo=distTodo();
     return needsTrips(todo.length?todo:viewScheduled())?'trips':'teams';
   }
+  // Trips only go on trucks with a route made for today: with none, the routes are made first.
+  function openRoutes(){ if(window.rtOpenTab) window.rtOpenTab('routes'); else location.href='/remote-transfer/truck-routes'; }
+  function askRoutes(msg){
+    pageDialog('No truck routes for today',esc(msg||'Create today’s truck routes before distributing.'),'Create truck routes').then(function(ok){ if(ok) openRoutes(); });
+  }
   function distributeToTrips(){
+    if(distTarget()!=='trips') return distributeNow();
+    frp('upande_packhouse.api.auto_transfer.routes_ready',{}).then(function(r){
+      if(r&&r.ready) distributeNow(); else askRoutes(r&&r.message);
+    });
+  }
+  function distributeNow(){
     // Plans the scheduled orders onto the day's trips right here (the server's
     // distributeTrips); the trips show on Bucket Logistics -- no separate Trips page.
     var openTrips=function(){
@@ -1217,6 +1228,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       if(btn){ btn.disabled=true; btn.textContent='Distributing…'; }
       frp('upande_packhouse.api.auto_transfer.distributeTrips',{date:STATE.date||window.rtDate.get()}).then(function(m){
         if(btn){ btn.disabled=false; btn.textContent=label; }
+        if(m&&m.reason==='no_routes'){ askRoutes(m.message); return; }
         if(!m||m.status==='error'||m.status==='busy'||!m.status){ notify((m&&m.message)||'Distribute failed','red'); return; }
         var trips=(m.trips||[]).length, filling=(m.filling||[]).length, failed=m.failed||[];
         var un=(m.unreachable||[]).length, waiting=m.waiting||[];

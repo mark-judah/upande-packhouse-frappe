@@ -109,7 +109,9 @@ def plans_for(tc, demand):
 def get_team_crops(delivery_date: str | None = None, farm: str | None = None):
 	day, farm = pg._day(delivery_date), farm or pg._default_farm()
 	demand = _crop_demand(day, farm)
-	tc = team_crops()
+	location = location_of(farm)
+	# only the teams that work at the sales farm's location
+	tc = {t: c for t, c in team_crops().items() if works_at(c, location)}
 	rows = []
 	for team, c in tc.items():
 		today_crop = plans_for(c, demand)
@@ -164,6 +166,16 @@ def location_of(farm):
 def works_at(c, location):
 	"""A team with no location set works at every location; one with a location only there."""
 	return not location or not c["locations"] or location in c["locations"]
+
+
+def teams_at(farm):
+	"""The Packing Teams working at the sales farm's location (a team with no location works everywhere)."""
+	location = location_of(farm)
+	return [
+		r.name
+		for r in frappe.get_all("Packing Teams", fields=["name", "location"], order_by="name asc")
+		if not location or not r.location or r.location == location
+	]
 
 
 def flower_customers(keep=()):
@@ -586,8 +598,28 @@ def balance_teams(delivery_date: str, farm: str):
 
 
 @frappe.whitelist()
-def get_confirmation_summary(delivery_date: str | None = None, farm: str | None = None):
-	"""Every confirmed order with its lines: what each counts on, what the system did, and the result."""
+def get_confirmation_summary(
+	delivery_date: str | None = None, farm: str | None = None, week: str | None = None
+):
+	"""Every confirmed order with its lines: what each counts on, what the system did, and the result. With
+	`week`, every delivery day of it, day by day."""
+	if week:
+		week, days = pg._week(week)
+		out = {
+			"success": True,
+			"delivery_date": days[0],
+			"week": week,
+			"days": days,
+			"orders": [],
+			"totals": {},
+		}
+		for d in days:
+			r = get_confirmation_summary(d, farm)
+			out["farm"] = r["farm"]
+			out["orders"] += r["orders"]
+			for k, v in r["totals"].items():
+				out["totals"][k] = out["totals"].get(k, 0) + v
+		return out
 	day, farm = pg._day(delivery_date), farm or pg._default_farm()
 	plan = pg._plan_name(day, farm)
 	lines = {ln.name: ln for ln in pg._lines_for(day, farm)}

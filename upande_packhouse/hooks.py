@@ -282,7 +282,11 @@ doc_events = {
 	"Sales Order": {
 		# A cancelled or changed line gives back what the allocation plan held for it.
 		"on_cancel": "upande_packhouse.allocation_plan.release_changed_lines",
-		"on_update_after_submit": "upande_packhouse.allocation_plan.release_changed_lines",
+		"on_update_after_submit": [
+			"upande_packhouse.allocation_plan.release_changed_lines",
+			"upande_packhouse.upande_packhouse.doctype.order_pick_list.order_pick_list.sync_delivery_date",
+		],
+		"on_update": "upande_packhouse.upande_packhouse.doctype.order_pick_list.order_pick_list.sync_delivery_date",
 		"before_validate": "upande_packhouse.sales_order_engine.sales_order_before_validate",
 		"validate": [
 			# ecommerce_integration (Floriday/Biflorica) still owns custom_farm /

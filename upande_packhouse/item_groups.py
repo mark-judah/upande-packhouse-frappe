@@ -113,7 +113,9 @@ def hs_code(item_code, item_group=None):
 	own = frappe.get_cached_value("Item", item_code, "customs_tariff_number") if item_code else ""
 	if own:
 		return own
-	return default_hs_code(item_group or (frappe.get_cached_value("Item", item_code, "item_group") if item_code else ""))
+	return default_hs_code(
+		item_group or (frappe.get_cached_value("Item", item_code, "item_group") if item_code else "")
+	)
 
 
 def crop_name(item_group):
