@@ -1,5 +1,6 @@
 // Opens on tomorrow's deliveries; a Delivery Date the user picked is kept.
-const opl_list = (frappe.listview_settings["Order Pick List"] = frappe.listview_settings["Order Pick List"] || {});
+const opl_list = (frappe.listview_settings["Order Pick List"] =
+	frappe.listview_settings["Order Pick List"] || {});
 const opl_prev_onload = opl_list.onload;
 opl_list.onload = function (listview) {
 	if (opl_prev_onload) opl_prev_onload(listview);
