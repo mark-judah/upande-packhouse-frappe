@@ -562,6 +562,15 @@ def _spec_fill_data_by_bunch(doc, bunches):
 	}
 
 
+def _packrate_for(stems_per_box):
+	"""The Packrate a straight-box line links to. A Packrate is named by its stems-per-box number, and a line built
+	without one is later refused ("No packrate set on line(s)..."), so a missing one is created here, the same as
+	the manual order editor and a Specification save already do, instead of silently leaving the line without."""
+	from upande_packhouse.spec import _ensure_packrate
+
+	return _ensure_packrate(stems_per_box)
+
+
 def _build_spec_rows_by_bunch(doc, bunches, selections, next_mix_group, detail, source_warehouse):
 	"""build_spec_rows's bunch-aware branch. `selections` here is
 	[{bunch_id, boxes, picks}] -- `picks` maps a slot's colour to the
@@ -687,8 +696,8 @@ def _build_spec_rows_by_bunch(doc, bunches, selections, next_mix_group, detail, 
 			if mixed_box or mixed_bunch:
 				row["custom_packrate_mixed_box"] = stems_per_box
 			else:
-				pr = str(stems_per_box)
-				if frappe.db.exists("Packrate", pr):
+				pr = _packrate_for(stems_per_box)
+				if pr:
 					row["custom_packrate"] = pr
 
 			if source_warehouse:
@@ -825,8 +834,8 @@ def build_spec_rows(
 		if mixed_box or mixed_bunch:
 			row["custom_packrate_mixed_box"] = stems_per_box
 		else:
-			pr = str(stems_per_box)
-			if frappe.db.exists("Packrate", pr):
+			pr = _packrate_for(stems_per_box)
+			if pr:
 				row["custom_packrate"] = pr
 
 		if source_warehouse:

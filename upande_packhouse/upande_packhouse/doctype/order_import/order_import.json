@@ -1,0 +1,215 @@
+{
+ "actions": [],
+ "autoname": "format:IMP-{YYYY}-{#####}",
+ "creation": "2026-11-03 14:56:15.814186",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "file_name",
+  "source",
+  "customer",
+  "kind",
+  "update_of",
+  "status",
+  "column_break_1",
+  "total_orders",
+  "created_orders",
+  "existing_orders",
+  "progress",
+  "section_files",
+  "uploaded_file",
+  "section_orders",
+  "orders",
+  "section_data",
+  "file_data",
+  "queue_data"
+ ],
+ "fields": [
+  {
+   "description": "The file that was uploaded.",
+   "fieldname": "file_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "File",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Source",
+   "options": "Order Import Platform",
+   "read_only": 1
+  },
+  {
+   "description": "Set when the file belongs to one customer.",
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer",
+   "read_only": 1
+  },
+  {
+   "fieldname": "kind",
+   "fieldtype": "Select",
+   "label": "Kind",
+   "options": "Import\nUpdate",
+   "default": "Import",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "read_only": 1,
+   "description": "An Update re-reads a newer file for orders that were already imported and changes them."
+  },
+  {
+   "fieldname": "update_of",
+   "fieldtype": "Link",
+   "label": "Update Of",
+   "options": "Order Import",
+   "read_only": 1,
+   "depends_on": "eval:doc.kind=='Update'",
+   "description": "The earlier import whose orders this file updates."
+  },
+  {
+   "default": "In Progress",
+   "description": "Completed once every order in the file is created or already existed.",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "In Progress\nCompleted\nDiscarded\nRolled Back"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_orders",
+   "fieldtype": "Int",
+   "label": "Orders In File",
+   "read_only": 1
+  },
+  {
+   "fieldname": "created_orders",
+   "fieldtype": "Int",
+   "label": "Created",
+   "read_only": 1
+  },
+  {
+   "fieldname": "existing_orders",
+   "fieldtype": "Int",
+   "label": "Already Existed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "progress",
+   "fieldtype": "Percent",
+   "in_list_view": 1,
+   "label": "Progress",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_files",
+   "fieldtype": "Section Break",
+   "label": "Uploaded File"
+  },
+  {
+   "fieldname": "uploaded_file",
+   "fieldtype": "Attach",
+   "label": "Uploaded File",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_orders",
+   "fieldtype": "Section Break",
+   "label": "Orders"
+  },
+  {
+   "fieldname": "orders",
+   "fieldtype": "Table",
+   "label": "Orders",
+   "options": "Order Import Order",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "description": "What lets the import be resumed without uploading the file again.",
+   "fieldname": "section_data",
+   "fieldtype": "Section Break",
+   "label": "Saved State"
+  },
+  {
+   "fieldname": "file_data",
+   "fieldtype": "Long Text",
+   "hidden": 1,
+   "label": "File Contents (JSON)",
+   "no_copy": 1,
+   "print_hide": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "queue_data",
+   "fieldtype": "Long Text",
+   "hidden": 1,
+   "label": "Import State (JSON)",
+   "no_copy": 1,
+   "print_hide": 1,
+   "read_only": 1
+  }
+ ],
+ "links": [
+  {
+   "link_doctype": "Sales Order",
+   "link_fieldname": "custom_order_import"
+  }
+ ],
+ "modified": "2026-11-03 20:00:00.000000",
+ "modified_by": "judah@upande.com",
+ "module": "Upande Packhouse",
+ "name": "Order Import",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "select": 1,
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "select": 1,
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales User",
+   "select": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "file_name",
+ "track_changes": 1
+}

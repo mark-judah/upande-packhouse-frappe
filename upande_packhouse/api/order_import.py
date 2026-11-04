@@ -35,6 +35,11 @@ VIRTUAL_ITEM_FIELDS = [
 		"fieldtype": "Int",
 	},
 	{
+		"fieldname": "_line_code",
+		"label": "Line / Article Code (helps find the Specification)",
+		"fieldtype": "Data",
+	},
+	{
 		"fieldname": "_bunch_rate",
 		"label": "Bunch Rate (stems/bunch, cross-checked against the Specification)",
 		"fieldtype": "Int",
@@ -55,6 +60,7 @@ WIDE_MATRIX_SYNTHETIC_HEADER = [
 	"PO Number",
 	"Order Date",
 	"Delivery Date",
+	"Line Code",
 ]
 
 
@@ -151,10 +157,126 @@ def expand_wide_matrix(header, rows, platform_doc):
 					g["po_number"],
 					g["order_date"],
 					g["delivery_date"],
+					code,
 				]
 			)
 
 	return WIDE_MATRIX_SYNTHETIC_HEADER, new_rows
+
+
+def parse_import_date(raw, day_first=True):
+	"""A file's date cell as a date. 09/10/2026 is read day first (9 October) unless the platform says
+	otherwise - Frappe's own getdate follows the site's mm/dd setting, which turned Flamingo's
+	09/10/2026 into 10 September. ISO dates and anything unambiguous are read as they are."""
+	import re
+
+	if raw is None or raw == "":
+		raise ValueError("empty date")
+	text = str(raw).strip()
+	m = re.match(r"^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2}|\d{4})(?:\s.*)?$", text)
+	if m:
+		a, b, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+		if y < 100:
+			y += 2000
+		day, month = (a, b) if day_first else (b, a)
+		if month > 12 and day <= 12:  # clearly the other way round
+			day, month = month, day
+		import datetime
+
+		return datetime.date(y, month, day)
+	return frappe.utils.getdate(text)
+
+
+def fill_po_number(template, header_vals):
+	"""The PO number for a file that has none, from the platform's template, e.g. 'XPOL {delivery_date}'."""
+	if not template:
+		return None
+	out = str(template)
+	for key in ("delivery_date", "transaction_date"):
+		out = out.replace("{" + key + "}", str(header_vals.get(key) or ""))
+	return out.strip() or None
+
+
+MATRIX_FIELDS = (
+	"matrix_group_label_row",
+	"matrix_order_date_row",
+	"matrix_delivery_date_row",
+	"matrix_po_row",
+	"matrix_items_start_row",
+	"matrix_code_column",
+	"matrix_description_column",
+	"matrix_bunch_rate_column",
+	"matrix_first_group_column",
+	"matrix_group_column_width",
+)
+
+
+def matrix_payload(platform_doc):
+	"""A Wide Matrix platform's layout positions (0-indexed rows and columns) and stop word, as the wizard edits them."""
+	out = {f: int(platform_doc.get(f) or 0) for f in MATRIX_FIELDS}
+	out["matrix_stop_value"] = platform_doc.get("matrix_stop_value") or "Total"
+	return out
+
+
+def apply_matrix_payload(platform_doc, matrix):
+	if platform_doc.get("layout_type") != "Wide Matrix" or not isinstance(matrix, dict):
+		return
+	for f in MATRIX_FIELDS:
+		if f in matrix and matrix[f] not in (None, ""):
+			platform_doc.set(f, int(matrix[f]))
+	if matrix.get("matrix_stop_value"):
+		platform_doc.set("matrix_stop_value", str(matrix["matrix_stop_value"]).strip())
+
+
+def customer_account_currency(customer):
+	"""The currency a customer can be billed in: the currency of its receivable (party) account for the
+	default company when it has one, else the customer's own default currency. None when neither is set."""
+	company = frappe.defaults.get_global_default("company")
+	row = frappe.db.sql(
+		"""select a.account_currency from `tabParty Account` pa
+		join `tabAccount` a on a.name = pa.account
+		where pa.parent = %s and pa.parenttype = 'Customer' and (pa.company = %s or %s is null)
+		limit 1""",
+		(customer, company, company),
+	)
+	if row and row[0][0]:
+		return row[0][0]
+	return frappe.db.get_value("Customer", customer, "default_currency") or None
+
+
+def skip_rule(platform_doc):
+	"""(column, {lowercased values}) when the platform leaves some rows out of the import
+	(e.g. Status = CANCELLED), else (None, set()). A file such as XPOL Cloud's lists
+	cancelled lines next to live ones; they must never become Sales Order rows."""
+	column = (platform_doc.get("skip_rows_column") or "").strip()
+	values = {
+		v.strip().lower()
+		for v in (platform_doc.get("skip_rows_values") or "").replace(",", "\n").splitlines()
+		if v.strip()
+	}
+	return (column, values) if column and values else (None, set())
+
+
+def row_is_skipped(value, skip_values):
+	"""True when a row's value in the platform's skip column is one of its skip values."""
+	if value is None:
+		return False
+	return str(value).strip().lower() in skip_values
+
+
+_RULE_FIELDS = ("skip_rows_column", "skip_rows_values", "date_format", "po_no_template")
+
+
+def _skip_payload(platform_doc):
+	"""The platform's file rules (skip rows, date format, PO template) as the wizard shows and edits them."""
+	return {f: platform_doc.get(f) or "" for f in _RULE_FIELDS}
+
+
+def _apply_skip_payload(platform_doc, data):
+	for f in _RULE_FIELDS:
+		if f in data:
+			v = data.get(f) or ""
+			platform_doc.set(f, v.strip() if f in ("skip_rows_column", "po_no_template") else v)
 
 
 IGNORED_FIELDTYPES = {
@@ -269,15 +391,33 @@ def listPlatforms():
 				"multi_order_column",
 				"layout_type",
 				"customer_differentiator_column",
+				"skip_rows_column",
+				"skip_rows_values",
+				"date_format",
+				"po_no_template",
+				"matrix_group_label_row",
+				"matrix_items_start_row",
+				"matrix_code_column",
+				"matrix_first_group_column",
+				"matrix_stop_value",
 			],
 			order_by="platform_name asc",
 		)
+		mapped_columns = {}
+		for m in frappe.get_all(
+			"Order Import Field Mapping",
+			filters={"parenttype": "Order Import Platform"},
+			fields=["parent", "source_column"],
+		):
+			mapped_columns.setdefault(m.parent, []).append(m.source_column)
 		customers_by_platform = {}
 		for m in frappe.get_all("Customer Order Mapping", fields=["platform", "customer"]):
 			customers_by_platform.setdefault(m.platform, set()).add(m.customer)
 		for row in rows:
 			owners = customers_by_platform.get(row["name"])
 			row["customer"] = next(iter(owners)) if owners and len(owners) == 1 else None
+			# What the wizard compares an uploaded file against to suggest the source.
+			row["columns"] = mapped_columns.get(row["name"], [])
 		frappe.response["message"] = {"success": True, "platforms": rows}
 	except Exception as e:
 		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
@@ -302,6 +442,7 @@ def getPlatform():
 				"layout_type": doc.layout_type,
 				"header_row": doc.header_row,
 				"multi_order_column": doc.multi_order_column,
+				**_skip_payload(doc),
 				"notes": doc.notes,
 				"default_field_mappings": [
 					{
@@ -332,6 +473,7 @@ def savePlatform():
 		for f in ("platform_name", "file_type", "header_row", "multi_order_column", "notes"):
 			if f in data:
 				doc.set(f, data.get(f))
+		_apply_skip_payload(doc, data)
 		doc.set("default_field_mappings", [])
 		for m in data.get("default_field_mappings") or []:
 			doc.append(
@@ -556,7 +698,7 @@ def getCustomerImportSetup():
 		if not frappe.db.exists("Order Import Platform", platform):
 			frappe.response["message"] = {"success": True, "exists": False}
 			return
-		platform_doc, cust_doc, mapping, item_code_map, spec_map, defaults = _resolve_mapping(
+		platform_doc, _cust_doc, mapping, item_code_map, spec_map, defaults = _resolve_mapping(
 			customer, platform
 		)
 		frappe.response["message"] = {
@@ -565,6 +707,11 @@ def getCustomerImportSetup():
 			"platform": platform_doc.name,
 			"layout_type": platform_doc.layout_type,
 			"multi_order_column": platform_doc.multi_order_column,
+			**_skip_payload(platform_doc),
+			"matrix": matrix_payload(platform_doc) if platform_doc.layout_type == "Wide Matrix" else None,
+			"synthetic_columns": WIDE_MATRIX_SYNTHETIC_HEADER
+			if platform_doc.layout_type == "Wide Matrix"
+			else None,
 			"field_mappings": [{"source_column": col, **target} for col, target in mapping.items()],
 			"item_code_mapping": [{"source_item_code": k, "item": v} for k, v in item_code_map.items()],
 			"spec_mapping": [{"source_spec_name": k, "spec": v} for k, v in spec_map.items()],
@@ -602,6 +749,8 @@ def saveCustomerImportSetup():
 			platform_doc.file_type = "CSV"
 			platform_doc.header_row = 1
 		platform_doc.multi_order_column = data.get("multi_order_column") or ""
+		_apply_skip_payload(platform_doc, data)
+		apply_matrix_payload(platform_doc, data.get("matrix"))
 		platform_doc.set("default_field_mappings", [])
 		for m in data.get("field_mappings") or []:
 			if not m.get("source_column") or not m.get("target_fieldname"):
@@ -742,6 +891,7 @@ def getSharedPlatformSetup():
 			"success": True,
 			"multi_order_column": platform_doc.multi_order_column,
 			"customer_differentiator_column": platform_doc.customer_differentiator_column,
+			**_skip_payload(platform_doc),
 			"field_mappings": [{"source_column": col, **target} for col, target in base_mapping.items()],
 			"customers": customers,
 		}
@@ -784,6 +934,7 @@ def saveSharedPlatformSetup():
 			platform_doc.header_row = 1
 		platform_doc.multi_order_column = data.get("multi_order_column") or ""
 		platform_doc.customer_differentiator_column = differentiator_column
+		_apply_skip_payload(platform_doc, data)
 		platform_doc.set("default_field_mappings", [])
 		for m in data.get("field_mappings") or []:
 			if not m.get("source_column") or not m.get("target_fieldname"):
@@ -1132,6 +1283,85 @@ def _boxes_from_bunches(bi, bunches_ordered):
 	return boxes, None
 
 
+_GENERIC_WORDS = {
+	"rosa",
+	"rose",
+	"roses",
+	"spray",
+	"service",
+	"for",
+	"the",
+	"and",
+	"with",
+	"mix",
+	"pk",
+	"cm",
+	"ft",
+	"bqt",
+	"x",
+}
+
+
+def _norm_code(text):
+	"""A product code with its punctuation and the O/0 and case differences removed, so
+	SAWTMXRMXD0107 (file) and SAWTMXRMXDO107 (Specification) read as the same code."""
+	import re
+
+	return re.sub(r"[^A-Z0-9]", "", str(text or "").upper()).replace("O", "0")
+
+
+def _words(text):
+	import re
+
+	return {w for w in re.findall(r"[a-z]{3,}", str(text or "").lower()) if w not in _GENERIC_WORDS}
+
+
+def guess_spec_by_code(code, description, specs):
+	"""The one Specification a file line most likely means, or None when it is not clear.
+
+	`specs` is a list of names. A Specification is a candidate when its name contains the line's
+	code (compared ignoring punctuation, case and O/0). One candidate wins outright. With several,
+	the description's words (colours, mostly) pick the one that contains the most of them, and only
+	when exactly one does - a tie is left for the person to decide in the import queue."""
+	needle = _norm_code(code)
+	if len(needle) < 5:
+		return None
+	candidates = [n for n in specs if needle in _norm_code(n)]
+	if len(candidates) == 1:
+		return candidates[0]
+	if not candidates:
+		return None
+	want = _words(description)
+	if not want:
+		return None
+	scored = sorted(((len(want & _words(n)), n) for n in candidates), reverse=True)
+	best, runner_up = scored[0][0], (scored[1][0] if len(scored) > 1 else -1)
+	return scored[0][1] if best > 0 and best > runner_up else None
+
+
+def spec_candidates_by_code(code, description, specs, limit=6):
+	"""Every Specification whose name contains the line's code (ignoring punctuation, case and O/0), best first:
+	the ones sharing the most words with the line's description lead. Shown to the person as the equivalents of the
+	file's line, to pick from, when the importer could not settle on one by itself."""
+	needle = _norm_code(code)
+	if len(needle) < 5:
+		return []
+	want = _words(description)
+	found = [n for n in specs if needle in _norm_code(n)]
+	found.sort(key=lambda n: (-len(want & _words(n)), n))
+	return found[:limit]
+
+
+def _active_spec_names():
+	cache = getattr(frappe.local, "_import_spec_names", None)
+	if cache is None:
+		cache = frappe.get_all(
+			"Specifications", filters={"status": ["!=", "Inactive"]}, pluck="name", limit=0
+		)
+		frappe.local._import_spec_names = cache
+	return cache
+
+
 def _resolve_spec_row(item_row, group_customer, counters, spec_map=None):
 	"""item_row's custom_line names a Specification. Returns (rows, error):
 	rows is build_spec_rows's own output - one or more fully shaped Sales
@@ -1164,7 +1394,13 @@ def _resolve_spec_row(item_row, group_customer, counters, spec_map=None):
 	if boxes <= 0 and not bunches_ordered:
 		return None, "needs Number of Boxes set on this row"
 	if not frappe.db.exists("Specifications", spec_name):
-		return None, "not found"
+		# The file's own wording is not a Specification and nothing remembered covers it: try the line code.
+		guessed = guess_spec_by_code(item_row.get("_line_code"), spec_name, _active_spec_names())
+		if not guessed:
+			return None, "not found"
+		item_row["_matched_from"] = spec_name
+		spec_name = guessed
+		item_row["custom_line"] = spec_name
 	spec_doc = frappe.get_doc("Specifications", spec_name)
 
 	issues = spec_autofill._spec_issues(spec_doc)
@@ -1278,6 +1514,9 @@ def _resolve_spec_row(item_row, group_customer, counters, spec_map=None):
 	if bunch_rate_warning:
 		for r in rows:
 			r["_bunch_rate_mismatch"] = bunch_rate_warning
+	if item_row.get("_matched_from"):
+		for r in rows:
+			r["_matched_from"] = item_row["_matched_from"]
 	# Bumped only once this spec-fill actually produced rows - the next one
 	# in the SAME order (another file row, another Specification) needs a
 	# value neither it nor any earlier fill on this order already used.
@@ -1369,7 +1608,7 @@ def buildPreview():
 			if not df or df.fieldtype not in ("Date", "Datetime"):
 				return raw
 			try:
-				return str(frappe.utils.getdate(raw))
+				return str(parse_import_date(raw, day_first))
 			except Exception:
 				return raw
 
@@ -1379,10 +1618,16 @@ def buildPreview():
 		# header-row setting). Carried through grouping so an unresolved item
 		# can be reported as "Row 7", not just a value with no way to find it
 		# back in the source file.
+		skip_col, skip_values = skip_rule(platform_doc)
+		day_first = "Month" not in (platform_doc.get("date_format") or "")
+		skipped_rows = 0
 		groups = []
 		group_index = {}
 		for file_row_num, row in enumerate(rows, start=1):
 			if not any((c is not None and c != "") for c in row):
+				continue
+			if skip_col and row_is_skipped(cell(row, skip_col), skip_values):
+				skipped_rows += 1
 				continue
 			key = cell(row, split_col) if split_col else "__all__"
 			if key not in group_index:
@@ -1458,19 +1703,22 @@ def buildPreview():
 						item_rows.extend(spec_rows)
 					else:
 						item_row["_unresolved_item"] = True
-						# "not found" means the name itself didn't match anything -
-						# the common case being the customer's own file names a real
-						# spec differently than it's recorded here (e.g. "XPOL
-						# TOSCA_02720_10" on the file vs "TOSCA_02720_10" on this
-						# bench). That's a renaming problem the user can resolve by
-						# picking which existing Specification it really is - flagged
-						# separately so the wizard can offer that dropdown instead of
-						# just a dead-end error message. The other spec_err reasons
-						# (incomplete, bunch mismatch) name a spec that WAS found
-						# correctly but has its own data problem, which a rename
-						# picker can't fix, so they stay plain-text only.
-						if spec_err == "not found":
-							item_row["_unresolved_spec_name"] = spec_name
+						# Whatever the reason - not found, incomplete, a bunch count that does not
+						# divide - the person can point the line at a different Specification, so the
+						# file's own wording is always kept for the wizard's "this is actually..." picker
+						# (and is what gets remembered for the next file).
+						item_row["_unresolved_spec_name"] = spec_name
+						# A Specification that was found but cannot make whole boxes from this row: the page asks for the
+						# number of boxes (with the Specification already chosen) instead of asking which Specification.
+						if spec_err and ("Number of Boxes" in spec_err or "divide evenly" in spec_err):
+							item_row["_needs_boxes"] = True
+							item_row["_resolve_spec"] = item_row.get("custom_line")
+							item_row["_resolve_error"] = (
+								f'Specification "{item_row.get("custom_line")}" {spec_err}'
+							)
+						item_row["_code_suggestions"] = spec_candidates_by_code(
+							item_row.get("_line_code"), spec_name, _active_spec_names()
+						)
 						unresolved_items.append(
 							f'Row {file_row_num}: Specification "{spec_name}" {spec_err}{_row_fingerprint(item_row)}'
 						)
@@ -1500,6 +1748,10 @@ def buildPreview():
 					_apply_spec_match(item_row, group_customer)
 					item_rows.append(item_row)
 
+			currency_from_file = header_vals.get("currency")
+			file_fields = list(
+				header_vals.keys()
+			)  # what the file itself carries, before any default or derived value
 			for f, v in group_defaults.items():
 				target_field = _HEADER_DEFAULT_TARGETS.get(f)
 				if target_field and not header_vals.get(target_field):
@@ -1526,6 +1778,20 @@ def buildPreview():
 			# order to it before this app's hooks ever run, so a file that
 			# genuinely never carries a price list column would otherwise
 			# look "already set" and skip the customer's real default.
+			# ERPNext only accepts an order for a customer in the currency of that customer's receivable
+			# account ("Accounting Entry for Customer X can only be made in currency Y"). A currency that
+			# came from a saved default is corrected to the customer's own; one the file itself carried is
+			# kept but flagged, so the person sees the problem before the save is refused.
+			expected_currency = customer_account_currency(group_customer)
+			currency_warning = None
+			if expected_currency and header_vals.get("currency") != expected_currency:
+				if currency_from_file:
+					currency_warning = (
+						f"The file's currency is {header_vals.get('currency')} but {group_customer} can only "
+						f"be billed in {expected_currency}."
+					)
+				else:
+					header_vals["currency"] = expected_currency
 			if header_vals.get("selling_price_list") in (None, "", "Standard Selling"):
 				cust_price_list = frappe.db.get_value("Customer", group_customer, "default_price_list")
 				if cust_price_list:
@@ -1546,7 +1812,9 @@ def buildPreview():
 				delivery = header_vals.get("delivery_date")
 				if delivery:
 					try:
-						header_vals["transaction_date"] = str(min(frappe.utils.getdate(delivery), today))
+						header_vals["transaction_date"] = str(
+							min(parse_import_date(delivery, day_first), today)
+						)
 					except Exception:
 						header_vals["transaction_date"] = str(today)
 				else:
@@ -1559,6 +1827,10 @@ def buildPreview():
 			# the save rejected. Respects the same Selling Settings toggle:
 			# when multiple orders against one PO are explicitly allowed,
 			# this isn't a duplicate at all, so it's never flagged as one.
+			if not header_vals.get("po_no"):
+				generated_po = fill_po_number(platform_doc.get("po_no_template"), header_vals)
+				if generated_po:
+					header_vals["po_no"] = generated_po
 			existing_order = None
 			po_no = header_vals.get("po_no")
 			if po_no and not frappe.db.get_single_value(
@@ -1577,6 +1849,8 @@ def buildPreview():
 					"unresolved_items": sorted(set(unresolved_items)),
 					"default_warehouse": group_defaults.get("default_warehouse"),
 					"existing_order": existing_order,
+					"file_fields": file_fields,
+					"currency_warning": currency_warning,
 				}
 			)
 
@@ -1590,6 +1864,7 @@ def buildPreview():
 			"orders": previews,
 			"unmapped_columns": [c for c in header if c not in mapped_cols],
 			"unresolved_customers": sorted(unresolved_customers),
+			"skipped_rows": skipped_rows,
 		}
 	except Exception as e:
 		frappe.clear_messages()  # discard any frappe.throw() message_log entry the caught exception left behind
@@ -1754,6 +2029,777 @@ def searchMasterValue():
 		frappe.response["message"] = {"success": False, "error": str(e)}
 
 
+# What the wizard's "Order-level defaults" can be searched against: the Link each default points at, plus
+# the filters that keep disabled or group records out of the list.
+DEFAULT_VALUE_DOCTYPES = {
+	"Currency": {"enabled": 1},
+	"Price List": {"enabled": 1, "selling": 1},
+	"Warehouse": {"disabled": 0, "is_group": 0},
+	"Consignee": {},
+	"Delivery Point": {},
+	"Shipping Agent": {},
+}
+
+
+@frappe.whitelist()
+def searchDefaultValue():
+	"""doctype, query -> up to 30 matching names, for the searchable dropdowns on the mapping page's
+	defaults (currency, price list, warehouse, consignee, delivery point, shipping agent)."""
+	try:
+		data = _json_payload()
+		doctype = data.get("doctype")
+		query = (data.get("query") or "").strip()
+		if doctype not in DEFAULT_VALUE_DOCTYPES:
+			frappe.response["message"] = {"success": False, "error": "Not allowed."}
+			return
+		filters = dict(DEFAULT_VALUE_DOCTYPES[doctype])
+		if query:
+			filters["name"] = ["like", f"%{query}%"]
+		names = frappe.get_all(
+			doctype, filters=filters, pluck="name", order_by="name asc", limit_page_length=30
+		)
+		frappe.response["message"] = {"success": True, "options": names}
+	except Exception as e:
+		frappe.clear_messages()
+		frappe.log_error(title="searchDefaultValue error", message=str(e))
+		frappe.response["message"] = {"success": False, "error": str(e), "options": []}
+
+
+# ------------------- saving an import so it can be resumed -------------------
+#
+# Every import is stored as an "Order Import" record: the parsed file, the orders found in it with their
+# state, and how far it has got. The wizard saves it as the person works, so an import can be picked up
+# again from the upload page without uploading the file again, and each Sales Order it creates links back to it
+# (Sales Order.custom_order_import).
+
+_IMPORT_ORDER_STATUS = {
+	"created": "Created",
+	"updated": "Updated",
+	"rolledback": "Rolled Back",
+	"duplicate": "Already Exists",
+	"failed": "Failed",
+}
+
+
+def import_counts(orders):
+	"""(total, created, existing, finished) for a wizard queue. Finished means nothing is left to do: created, updated or
+	already existing. An order that was passed over during a run is still waiting, so it is not finished."""
+	total = len(orders)
+	created = sum(1 for o in orders if o.get("status") in ("created", "updated"))
+	existing = sum(1 for o in orders if o.get("status") == "duplicate")
+	return total, created, existing, created + existing
+
+
+@frappe.whitelist()
+def saveImport():
+	"""Create or update the Order Import record for the wizard's current import.
+
+	data: name (omit to create), file_name, source, customer, header + rows (the parsed file; only stored when
+	creating), orders (the wizard's queue, with each order's status and rows). Returns the record's name and counts."""
+	try:
+		data = _json_payload()
+		name = data.get("name")
+		orders = data.get("orders") or []
+		if name and frappe.db.exists("Order Import", name):
+			doc = frappe.get_doc("Order Import", name)
+		else:
+			# One unfinished import per source: starting another would leave two to resume. The caller must say
+			# which earlier ones this replaces (they are discarded, their orders stay), or resume one of them.
+			clash = unfinished_imports(
+				data.get("kind") or "Import", data.get("source"), data.get("customer"), data.get("update_of")
+			)
+			replaces = set(data.get("replaces") or [])
+			still = [c for c in clash if c["name"] not in replaces]
+			if still:
+				frappe.response["message"] = {
+					"success": False,
+					"code": "unfinished_exists",
+					"existing": still,
+				}
+				return
+			for c in clash:
+				frappe.db.set_value("Order Import", c["name"], "status", "Discarded")
+			doc = frappe.new_doc("Order Import")
+			doc.file_name = data.get("file_name") or "Order file"
+			doc.source = (
+				data.get("source")
+				if data.get("source") and frappe.db.exists("Order Import Platform", data.get("source"))
+				else None
+			)
+			doc.customer = (
+				data.get("customer")
+				if data.get("customer") and frappe.db.exists("Customer", data.get("customer"))
+				else None
+			)
+			doc.file_data = json.dumps({"header": data.get("header") or [], "rows": data.get("rows") or []})
+			if data.get("kind") == "Update":
+				doc.kind = "Update"
+				if data.get("update_of") and frappe.db.exists("Order Import", data.get("update_of")):
+					doc.update_of = data.get("update_of")
+		total, created, existing, finished = import_counts(orders)
+		doc.total_orders = total
+		doc.created_orders = created
+		doc.existing_orders = existing
+		doc.progress = round(100.0 * finished / total, 1) if total else 0
+		if doc.status != "Discarded":
+			doc.status = "Completed" if total and finished == total else "In Progress"
+		doc.queue_data = json.dumps(orders)
+		doc.set("orders", [])
+		for o in orders:
+			header = o.get("header") or {}
+			doc.append(
+				"orders",
+				{
+					"po_no": header.get("po_no") or header.get("custom_order_name") or "",
+					"customer": header.get("customer")
+					if header.get("customer") and frappe.db.exists("Customer", header.get("customer"))
+					else None,
+					"delivery_date": header.get("delivery_date") or None,
+					"lines": len(o.get("rows") or []),
+					"status": _IMPORT_ORDER_STATUS.get(o.get("status"), "Pending"),
+					"sales_order": o.get("order_name")
+					if o.get("order_name") and frappe.db.exists("Sales Order", o.get("order_name"))
+					else None,
+					"error": plain_error(o.get("error")),
+				},
+			)
+		doc.flags.ignore_links = True
+		if doc.is_new():
+			doc.insert()
+		else:
+			doc.save()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+		frappe.response["message"] = {
+			"success": True,
+			"name": doc.name,
+			"status": doc.status,
+			"total": total,
+			"created": created,
+			"existing": existing,
+		}
+	except Exception as e:
+		frappe.clear_messages()
+		frappe.db.rollback()
+		frappe.log_error(title="saveImport error", message=str(e))
+		frappe.response["message"] = {"success": False, "error": str(e)}
+
+
+def unfinished_imports(kind, source, customer=None, update_of=None):
+	"""The unfinished (In Progress) imports that a new one for this source would duplicate. An update clashes only with
+	another unfinished update of the same import."""
+	if not source:
+		return []
+	filters = {"status": "In Progress", "kind": kind or "Import", "source": source}
+	if kind == "Update" and update_of:
+		filters["update_of"] = update_of
+	rows = frappe.get_list(
+		"Order Import",
+		filters=filters,
+		fields=[
+			"name",
+			"file_name",
+			"customer",
+			"total_orders",
+			"created_orders",
+			"existing_orders",
+			"modified",
+		],
+		order_by="modified desc",
+		limit_page_length=20,
+	)
+	if customer:
+		rows = [r for r in rows if not r.customer or r.customer == customer]
+	return rows
+
+
+def plain_error(message):
+	import re
+
+	return re.sub(r"<[^>]+>", "", message or "")[:500] or None
+
+
+@frappe.whitelist()
+def listImports():
+	"""The imports that can still be resumed (In Progress), newest first. With all=1, every import (the History tab)."""
+	try:
+		everything = str(frappe.form_dict.get("all") or "") in ("1", "true", "True")
+		rows = frappe.get_list(
+			"Order Import",
+			filters={} if everything else {"status": "In Progress"},
+			fields=[
+				"name",
+				"file_name",
+				"source",
+				"customer",
+				"total_orders",
+				"created_orders",
+				"existing_orders",
+				"progress",
+				"status",
+				"kind",
+				"update_of",
+				"creation",
+				"modified",
+				"owner",
+			],
+			order_by="modified desc",
+			limit_page_length=100 if everything else 20,
+		)
+		frappe.response["message"] = {"success": True, "imports": rows}
+	except Exception as e:
+		frappe.clear_messages()
+		frappe.log_error(title="listImports error", message=str(e))
+		frappe.response["message"] = {"success": False, "error": str(e), "imports": []}
+
+
+@frappe.whitelist()
+def getImport():
+	"""name -> everything the wizard needs to carry on: the parsed file and the saved queue."""
+	try:
+		name = frappe.form_dict.get("name")
+		doc = frappe.get_doc("Order Import", name)
+		doc.check_permission("read")
+		file_data = json.loads(doc.file_data or "{}")
+		frappe.response["message"] = {
+			"success": True,
+			"name": doc.name,
+			"file_name": doc.file_name,
+			"source": doc.source,
+			"customer": doc.customer,
+			"status": doc.status,
+			"kind": doc.kind,
+			"update_of": doc.update_of,
+			"header": file_data.get("header") or [],
+			"rows": file_data.get("rows") or [],
+			"orders": json.loads(doc.queue_data or "[]"),
+		}
+	except Exception as e:
+		frappe.clear_messages()
+		frappe.log_error(title="getImport error", message=str(e))
+		frappe.response["message"] = {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def getImportDetails():
+	"""name -> one import's record and its orders (what the History tab shows when a row is opened)."""
+	try:
+		name = frappe.form_dict.get("name")
+		doc = frappe.get_doc("Order Import", name)
+		doc.check_permission("read")
+		orders = [
+			{
+				"po_no": r.po_no,
+				"customer": r.customer,
+				"delivery_date": str(r.delivery_date) if r.delivery_date else None,
+				"lines": r.lines,
+				"status": r.status,
+				"sales_order": r.sales_order,
+				"docstatus": frappe.db.get_value("Sales Order", r.sales_order, "docstatus")
+				if r.sales_order
+				else None,
+				"error": r.error,
+			}
+			for r in doc.orders
+		]
+		counts = {}
+		for o in orders:
+			counts[o["status"]] = counts.get(o["status"], 0) + 1
+		frappe.response["message"] = {
+			"success": True,
+			"import": {
+				"name": doc.name,
+				"file_name": doc.file_name,
+				"source": doc.source,
+				"customer": doc.customer,
+				"kind": doc.kind,
+				"update_of": doc.update_of,
+				"status": doc.status,
+				"total_orders": doc.total_orders,
+				"created_orders": doc.created_orders,
+				"existing_orders": doc.existing_orders,
+				"progress": doc.progress,
+				"owner": doc.owner,
+				"creation": str(doc.creation),
+				"modified": str(doc.modified),
+			},
+			"orders": orders,
+			"counts": counts,
+		}
+	except Exception as e:
+		frappe.clear_messages()
+		frappe.log_error(title="getImportDetails error", message=str(e))
+		frappe.response["message"] = {"success": False, "error": str(e)}
+
+
+def rollback_orders(import_doc, only=None):
+	"""Delete the draft Sales Orders an import created and mark them Rolled Back on the import. Submitted or cancelled
+	orders are never touched. `only`: restrict to these Sales Order names. Returns {"deleted": [...], "kept": [{name,
+	reason}]}. Does not commit."""
+	deleted, kept = [], []
+	for row in import_doc.orders:
+		so = row.sales_order
+		if not so or row.status not in ("Created",):
+			continue
+		if only and so not in only:
+			continue
+		if not frappe.db.exists("Sales Order", so):
+			row.status, row.sales_order = "Rolled Back", None
+			continue
+		docstatus = frappe.db.get_value("Sales Order", so, "docstatus")
+		if docstatus != 0:
+			kept.append({"name": so, "reason": "submitted" if docstatus == 1 else "cancelled"})
+			continue
+		# The import's own row links to the order and would block the delete; any other link still does.
+		frappe.db.set_value("Order Import Order", row.name, "sales_order", None, update_modified=False)
+		try:
+			frappe.delete_doc("Sales Order", so)
+		except Exception as e:
+			frappe.clear_messages()
+			frappe.db.set_value("Order Import Order", row.name, "sales_order", so, update_modified=False)
+			kept.append({"name": so, "reason": plain_error(str(e)) or "could not be deleted"})
+			continue
+		deleted.append(so)
+		row.status, row.sales_order, row.error = "Rolled Back", None, None
+	# keep the saved queue in step, so a later resume or comparison does not see the deleted orders
+	try:
+		queue = json.loads(import_doc.queue_data or "[]")
+		for o in queue:
+			if o.get("order_name") in deleted and not o.get("update_of"):
+				o["status"], o["order_name"] = "rolledback", None
+		import_doc.queue_data = json.dumps(queue)
+	except Exception:
+		pass
+	remaining = [r for r in import_doc.orders if r.status == "Created" and r.sales_order]
+	if deleted and not remaining and import_doc.kind == "Import":
+		import_doc.status = "Rolled Back"
+	import_doc.created_orders = len(remaining)
+	return {"deleted": deleted, "kept": kept}
+
+
+@frappe.whitelist()
+def rollbackImport():
+	"""name, [sales_order] -> undo the import: delete the draft Sales Orders it created (all of them, or just the one
+	named) and mark them Rolled Back. Submitted orders stay and are reported. Updates cannot be rolled back."""
+	try:
+		data = _json_payload()
+		doc = frappe.get_doc("Order Import", data.get("name"))
+		doc.check_permission("write")
+		if doc.kind == "Update":
+			frappe.response["message"] = {
+				"success": False,
+				"error": "An update changes orders another import created, so it cannot be rolled back here.",
+			}
+			return
+		only = [data["sales_order"]] if data.get("sales_order") else None
+		result = rollback_orders(doc, only)
+		doc.flags.ignore_links = True
+		doc.save()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+		frappe.response["message"] = {"success": True, "status": doc.status, **result}
+	except Exception as e:
+		frappe.clear_messages()
+		frappe.db.rollback()
+		frappe.log_error(title="rollbackImport error", message=str(e))
+		frappe.response["message"] = {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def discardImport():
+	"""name -> take an import off the resume list. The record and the orders it created are kept."""
+	try:
+		name = frappe.form_dict.get("name")
+		doc = frappe.get_doc("Order Import", name)
+		doc.check_permission("write")
+		doc.status = "Discarded"
+		doc.save()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+		frappe.response["message"] = {"success": True}
+	except Exception as e:
+		frappe.clear_messages()
+		frappe.db.rollback()
+		frappe.log_error(title="discardImport error", message=str(e))
+		frappe.response["message"] = {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def suggestSpecsByCode():
+	"""items [{code, description}] -> for each, the Specifications that share its line code (see
+	spec_candidates_by_code). Lets the wizard offer equivalents for lines it was holding without them, such as a
+	resumed import saved before this existed."""
+	try:
+		data = _json_payload()
+		specs = _active_spec_names()
+		frappe.response["message"] = {
+			"success": True,
+			"suggestions": [
+				spec_candidates_by_code(i.get("code"), i.get("description"), specs)
+				for i in data.get("items") or []
+			],
+		}
+	except Exception as e:
+		frappe.clear_messages()
+		frappe.log_error(title="suggestSpecsByCode error", message=str(e))
+		frappe.response["message"] = {"success": False, "error": str(e)}
+
+
+# ------------------- updating orders that were imported before -------------------
+#
+# A source's orders change (a quantity moves, a line is cancelled, a new order appears). The wizard's Update flow
+# reads the newer file the same way as an import, matches each order to the Sales Order it created (same PO number
+# and customer) and shows what would change before anything is touched.
+
+LINE_COMPARE_FIELDS = (
+	("custom_number_of_boxes", "Boxes"),
+	("custom_packrate", "Packrate"),
+	("custom_packrate_mixed_box", "Packrate (mixed)"),
+	("uom", "Unit"),
+)
+# Header fields that are derived or are what the order is matched on, so a difference is not a change in the file.
+HEADER_COMPARE_SKIP = {
+	"name",
+	"customer",
+	"po_no",
+	"transaction_date",
+	"currency",
+	"selling_price_list",
+	"price_list_currency",
+	"custom_order_import",
+	"company",
+	"business_unit",
+	"manual_rows",
+	"spec_rows",
+	"row_refs",
+}
+
+
+def mapped_row_to_manual(r, default_warehouse):
+	"""A previewed row that is not a Specification row, as saveSalesOrder's manual row (mirrors the wizard)."""
+
+	def truthy(v):
+		return bool(v) and v != "0"
+
+	return {
+		"item_code": r.get("item_code"),
+		"stems_per_bunch": r.get("_stems_per_bunch"),
+		"bunches_per_box": r.get("_bunches_per_box"),
+		"boxes": r.get("custom_number_of_boxes"),
+		"length": r.get("custom_length"),
+		"box_type": r.get("custom_box_type"),
+		"mixed_box": truthy(r.get("custom_mixed_box")),
+		"mixed_bunch": truthy(r.get("custom_mixed_bunch")),
+		"mix_group": r.get("custom_mix_group") or "import",
+		"bunch_group": r.get("custom_bunch_group") or "import",
+		"warehouse": r.get("warehouse") or default_warehouse,
+	}
+
+
+def order_payload(order):
+	"""A previewed order as the payload saveSalesOrder takes: its header, the Specification rows as built, the rest as
+	manual rows, and row_refs (each line's index in the order's rows)."""
+	rows = order.get("rows") or []
+	spec_idx = [i for i, r in enumerate(rows) if r.get("_is_spec_row")]
+	manual_idx = [i for i, r in enumerate(rows) if not r.get("_is_spec_row")]
+	payload = dict(order.get("header") or {})
+	payload["spec_rows"] = [{k: v for k, v in rows[i].items() if not k.startswith("_")} for i in spec_idx]
+	payload["manual_rows"] = [
+		mapped_row_to_manual(rows[i], order.get("default_warehouse")) for i in manual_idx
+	]
+	payload["row_refs"] = spec_idx + manual_idx
+	return payload
+
+
+def _line_key(it):
+	return (
+		it.get("custom_line") or "",
+		it.get("item_code") or "",
+		str(it.get("custom_length") or ""),
+		str(it.get("custom_box_type") or ""),
+		1 if it.get("custom_mixed_box") else 0,
+		1 if it.get("custom_mixed_bunch") else 0,
+	)
+
+
+def _norm(v):
+	"""A value as text for comparing; empty and zero count as the same 'nothing'."""
+	if v in (None, "", 0, 0.0, "0", "0.0"):
+		return ""
+	if isinstance(v, float) and v.is_integer():
+		return str(int(v))
+	return str(v)
+
+
+def diff_orders(old_doc, new_doc, header_keys):
+	"""What changes if `new_doc` (built from the new file) replaces `old_doc`. header_keys: the fields the new file
+	actually carries. Returns {"header": [{field, label, old, new}], "lines": [{type, item_code, length, line, fields}]}."""
+	meta = frappe.get_meta("Sales Order")
+	header = []
+	for f in header_keys:
+		if f in HEADER_COMPARE_SKIP or not meta.has_field(f):
+			continue
+		new_v, old_v = _norm(new_doc.get(f)), _norm(old_doc.get(f))
+		if new_v and new_v != old_v:
+			header.append({"field": f, "label": meta.get_label(f), "old": old_v, "new": new_v})
+
+	def bucket(items):
+		out = {}
+		for it in items:
+			if not it.get("item_code"):
+				continue
+			out.setdefault(_line_key(it), []).append(it)
+		return out
+
+	old_b, new_b = bucket(old_doc.items), bucket(new_doc.items)
+	lines = []
+	for key in list(old_b) + [k for k in new_b if k not in old_b]:
+		olds, news = old_b.get(key, []), new_b.get(key, [])
+		for k in range(max(len(olds), len(news))):
+			o = olds[k] if k < len(olds) else None
+			n = news[k] if k < len(news) else None
+			ref = n or o
+			base = {
+				"item_code": ref.get("item_code"),
+				"length": ref.get("custom_length"),
+				"spec": ref.get("custom_line"),
+			}
+			if o is None:
+				lines.append(
+					{
+						**base,
+						"type": "added",
+						"fields": [
+							{
+								"field": "custom_number_of_boxes",
+								"label": "Boxes",
+								"old": "",
+								"new": _norm(n.get("custom_number_of_boxes")),
+							}
+						],
+					}
+				)
+			elif n is None:
+				lines.append(
+					{
+						**base,
+						"type": "removed",
+						"fields": [
+							{
+								"field": "custom_number_of_boxes",
+								"label": "Boxes",
+								"old": _norm(o.get("custom_number_of_boxes")),
+								"new": "",
+							}
+						],
+					}
+				)
+			else:
+				changed = [
+					{"field": f, "label": label, "old": _norm(o.get(f)), "new": _norm(n.get(f))}
+					for f, label in LINE_COMPARE_FIELDS
+					if _norm(o.get(f)) != _norm(n.get(f))
+				]
+				if changed:
+					lines.append({**base, "type": "changed", "fields": changed})
+	return {"header": header, "lines": lines}
+
+
+def update_header(order):
+	"""The header fields an update may change: only what the new file carries, and never the ones the order is matched
+	on or that are derived (the order date would otherwise be reset to the delivery date)."""
+	header = order.get("header") or {}
+	keys = order.get("file_fields") or list(header.keys())
+	return {
+		k: header[k]
+		for k in keys
+		if k in header and k not in HEADER_COMPARE_SKIP and header[k] not in (None, "")
+	}
+
+
+def compare_order(order, imported=None):
+	"""One previewed order against the Sales Order it matches (order["existing_order"]). Never writes.
+
+	Only orders an import created are compared. `imported` is the set of Sales Order names that came from the import
+	being updated; an order is also imported when its Order Import link is filled in. Anything else is "new" (no order
+	yet) or "not_imported" (an order with that PO exists but no import created it) and is left alone."""
+	from upande_packhouse.api.sales_order import build_sales_order_doc
+
+	existing = order.get("existing_order")
+	if not existing:
+		return {"state": "new"}
+	old = frappe.get_doc("Sales Order", existing)
+	if not (old.get("custom_order_import") or existing in (imported or set())):
+		return {"state": "not_imported", "existing": existing}
+	if old.docstatus != 0:
+		state = "cancelled" if old.docstatus == 2 else "submitted"
+		return {"state": state, "existing": existing}
+	header = update_header(order)
+	rows = order.get("rows") or []
+	held = [r for r in rows if r.get("_unresolved_item")]
+	payload = order_payload(
+		{**order, "header": header, "rows": [r for r in rows if not r.get("_unresolved_item")]}
+	)
+	payload["name"] = existing
+	new = build_sales_order_doc(payload)
+	diff = diff_orders(frappe.get_doc("Sales Order", existing), new, list(header.keys()))
+	if held:
+		# Lines still waiting for a Specification cannot be compared, so their old lines must not read as removed.
+		diff["lines"] = [x for x in diff["lines"] if x["type"] != "removed"]
+	changed = bool(diff["header"] or diff["lines"])
+	return {
+		"state": "changed" if changed else "unchanged",
+		"existing": existing,
+		"update_header": header,
+		"unresolved_count": len(held),
+		**diff,
+	}
+
+
+@frappe.whitelist()
+def compareImportOrders():
+	"""orders (as buildPreview returns them), previous_import (optional Order Import name) -> for each order whether it is
+	new, unchanged, changed (with the header and line differences) or cannot be updated (submitted or cancelled), and the
+	orders of the previous import that the new file no longer contains."""
+	try:
+		data = _json_payload()
+		orders = data.get("orders") or []
+		previous = data.get("previous_import")
+		previous_orders = []
+		if previous and frappe.db.exists("Order Import", previous):
+			previous_orders = [r for r in frappe.get_doc("Order Import", previous).orders if r.sales_order]
+		imported = {r.sales_order for r in previous_orders}
+		results = [compare_order(o, imported) for o in orders]
+		matched = {r.get("existing") for r in results if r.get("existing")}
+		missing = [
+			{"sales_order": r.sales_order, "po_no": r.po_no, "status": r.status}
+			for r in previous_orders
+			if r.sales_order not in matched
+		]
+		frappe.response["message"] = {"success": True, "results": results, "missing": missing}
+	except Exception as e:
+		frappe.clear_messages()
+		frappe.log_error(title="compareImportOrders error", message=str(e))
+		frappe.response["message"] = {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def noteOrderUpdated():
+	"""name, import_name -> a note on the Sales Order that an import updated it."""
+	try:
+		data = _json_payload()
+		name, import_name = data.get("name"), data.get("import_name")
+		if name and frappe.db.exists("Sales Order", name):
+			doc = frappe.get_doc("Sales Order", name)
+			doc.add_comment("Info", f"Updated from a newer file by import {import_name}.")
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit
+		frappe.response["message"] = {"success": True}
+	except Exception as e:
+		frappe.clear_messages()
+		frappe.db.rollback()
+		frappe.log_error(title="noteOrderUpdated error", message=str(e))
+		frappe.response["message"] = {"success": False, "error": str(e)}
+
+
+# ------------------- checking an order before it is saved -------------------
+
+
+@frappe.whitelist()
+def checkImportOrder():
+	"""The order exactly as the wizard would save it (same payload as saveSalesOrder, plus row_refs: the wizard's
+	own index for each line, spec rows first then manual ones) -> every problem that would stop the save, in one
+	list (see order_import_checks). Nothing is written."""
+	try:
+		from upande_packhouse import order_import_checks as checks
+		from upande_packhouse.api.sales_order import build_sales_order_doc
+
+		data = _json_payload()
+		doc = build_sales_order_doc(data)
+		issues = checks.collect_issues(doc, data.get("row_refs"))
+		frappe.response["message"] = {
+			"success": True,
+			"issues": issues,
+			"summary": checks.price_list_summary(doc),
+		}
+	except Exception as e:
+		frappe.clear_messages()
+		frappe.log_error(title="checkImportOrder error", message=str(e))
+		frappe.response["message"] = {"success": False, "error": str(e), "issues": []}
+
+
+@frappe.whitelist()
+def setCustomerPriceList():
+	"""customer, price_list -> the customer's Default Price List (what the order is priced from)."""
+	try:
+		data = _json_payload()
+		customer = data.get("customer")
+		price_list = data.get("price_list")
+		if not (customer and price_list):
+			frappe.response["message"] = {"success": False, "error": "Customer and Price List are required."}
+			return
+		if not frappe.db.exists("Price List", {"name": price_list, "enabled": 1, "selling": 1}):
+			frappe.response["message"] = {
+				"success": False,
+				"error": f"{price_list} is not an enabled selling price list.",
+			}
+			return
+		if not frappe.has_permission("Customer", "write", customer):
+			frappe.response["message"] = {"success": False, "error": "You cannot change this customer."}
+			return
+		frappe.db.set_value("Customer", customer, "default_price_list", price_list)
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+		frappe.response["message"] = {"success": True}
+	except Exception as e:
+		frappe.clear_messages()
+		frappe.db.rollback()
+		frappe.log_error(title="setCustomerPriceList error", message=str(e))
+		frappe.response["message"] = {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def setItemEnabled():
+	"""item_code -> switch the item back on (an order cannot use a disabled variety)."""
+	try:
+		data = _json_payload()
+		item_code = data.get("item_code")
+		if not item_code or not frappe.db.exists("Item", item_code):
+			frappe.response["message"] = {"success": False, "error": "Item not found."}
+			return
+		if not frappe.has_permission("Item", "write", item_code):
+			frappe.response["message"] = {"success": False, "error": "You cannot change this item."}
+			return
+		frappe.db.set_value("Item", item_code, "disabled", 0)
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+		frappe.response["message"] = {"success": True}
+	except Exception as e:
+		frappe.clear_messages()
+		frappe.db.rollback()
+		frappe.log_error(title="setItemEnabled error", message=str(e))
+		frappe.response["message"] = {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def searchLinkValue():
+	"""doctype, query -> up to 30 record names the person may read, for the dialog's searchable fields."""
+	try:
+		data = _json_payload()
+		doctype = data.get("doctype")
+		query = (data.get("query") or "").strip()
+		if (
+			not doctype
+			or not frappe.db.exists("DocType", doctype)
+			or not frappe.has_permission(doctype, "read")
+		):
+			frappe.response["message"] = {"success": False, "error": "Not allowed.", "options": []}
+			return
+		filters = {"name": ["like", f"%{query}%"]} if query else {}
+		names = frappe.get_list(
+			doctype, filters=filters, pluck="name", order_by="name asc", limit_page_length=30
+		)
+		frappe.response["message"] = {"success": True, "options": names}
+	except Exception as e:
+		frappe.clear_messages()
+		frappe.log_error(title="searchLinkValue error", message=str(e))
+		frappe.response["message"] = {"success": False, "error": str(e), "options": []}
+
+
 # ------------------- fixing a Specification name the file got "wrong" -------------------
 # A row identified by Specification (custom_line) can fail to match purely on
 # naming - the customer's own file calls it one thing, this bench recorded
@@ -1778,12 +2824,28 @@ def searchSpecification():
 		data = _json_payload()
 		query = (data.get("query") or "").strip()
 		customer = data.get("customer")
-		filters = {"name": ["like", f"%{query}%"]} if query else {}
+		base = {"name": ["like", f"%{query}%"]} if query else {}
+		names = []
 		if customer:
-			filters["customer"] = customer
-		names = frappe.get_all(
-			"Specifications", filters=filters, pluck="name", order_by="name asc", limit_page_length=20
-		)
+			names = frappe.get_all(
+				"Specifications",
+				filters={**base, "customer": customer},
+				pluck="name",
+				order_by="name asc",
+				limit_page_length=20,
+			)
+		# A source's Specifications are not always filed under the order's own customer (an XPOL
+		# file's TOSCA lines belong to another customer, and a customer can exist twice), so
+		# the customer's own come first and every other Specification can still be picked.
+		if len(names) < 20:
+			others = frappe.get_all(
+				"Specifications",
+				filters={**base, "status": ["!=", "Inactive"]},
+				pluck="name",
+				order_by="name asc",
+				limit_page_length=30,
+			)
+			names += [n for n in others if n not in names][: 30 - len(names)]
 		frappe.response["message"] = {"success": True, "options": names}
 	except Exception as e:
 		frappe.clear_messages()

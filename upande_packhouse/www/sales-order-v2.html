@@ -128,6 +128,34 @@
   .ph2 .so-search{display:flex;width:100%;min-width:0}
   .ph2 .so-rmv{display:flex;flex-direction:column;gap:var(--sp-2);padding:var(--sp-3) 0;border-top:1px dashed var(--hairline-2)}
   .ph2 .so-rmv .ph-ac{flex:1 1 220px;min-width:0}
+  .ph2 .so-rmv > .ph-ac{flex:0 0 auto}
+  /* the "Fill in what's missing" dialog: sections with room to breathe, two columns where there is space */
+  .ph2 .fx{display:flex;flex-direction:column;gap:0}
+  .ph2 .fx-top{display:flex;flex-direction:column;gap:12px;padding-bottom:20px}
+  .ph2 .fx-sum{display:flex;flex-wrap:wrap;gap:8px}
+  .ph2 .fx-err{padding:14px 16px;border-radius:var(--r-md);background:var(--bad-soft);color:var(--bad);font:500 13px/1.5 var(--sans)}
+  .ph2 .fx-sec{display:flex;flex-direction:column;gap:16px;padding:24px 0;border-top:1px solid var(--hairline)}
+  .ph2 .fx-sec__head h3{margin:0;font:600 15px/1.3 var(--sans);color:var(--ink);letter-spacing:-.2px}
+  .ph2 .fx-sec__head p{margin:4px 0 0;font:400 12.5px/1.55 var(--sans);color:var(--ink-mute);max-width:62ch}
+  .ph2 .fx-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:20px 24px}
+  .ph2 .fx-field{display:flex;flex-direction:column;gap:7px;min-width:0}
+  .ph2 .fx-field>label{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:1.1px;color:var(--ink-mute)}
+  .ph2 .fx-hint{font:400 12px/1.5 var(--sans);color:var(--ink-mute)}
+  .ph2 .fx-full{grid-column:1/-1}
+  .ph2 .fx-sub{display:flex;flex-direction:column;gap:16px;padding:18px 20px;border-radius:var(--r-md);background:var(--tint-2);border:1px solid var(--hairline)}
+  .ph2 .fx-sub__title{font:600 13px var(--sans);color:var(--ink)}
+  .ph2 .fx-sub__title small{font:400 12px var(--sans);color:var(--ink-mute);margin-left:8px}
+  .ph2 .fx-choice{display:flex;flex-wrap:wrap;gap:10px}
+  .ph2 .fx-opt{display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--hairline-2);border-radius:12px;cursor:pointer;font:500 13px var(--sans);color:var(--ink-3);background:var(--surface-2)}
+  .ph2 .fx-opt:has(input:checked){border-color:var(--ink);color:var(--ink)}
+  .ph2 .fx-opt input{accent-color:var(--ink);margin:0}
+  .ph2 .fx-plist{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:12px 16px;border-radius:var(--r-md);background:var(--tint);font:500 13px var(--sans);color:var(--ink-3)}
+  .ph2 .fx-plist b{color:var(--ink)}
+  .ph2 .fx-price{display:grid;grid-template-columns:minmax(150px,1.6fr) minmax(70px,.7fr) minmax(170px,1fr);gap:12px 16px;align-items:center}
+  .ph2 .fx-price--head{font:500 11px var(--sans);text-transform:uppercase;letter-spacing:1.1px;color:var(--ink-mute)}
+  .ph2 .fx-price__item{font:600 13px var(--sans);color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ph2 .fx-note{padding:12px 16px;border-radius:var(--r-md);background:var(--warn-soft);color:var(--warn);font:500 13px/1.5 var(--sans)}
+  @media (max-width:640px){.ph2 .fx-price{grid-template-columns:1fr 1fr}.ph2 .fx-price--head{display:none}} /* in a column the 220px basis would be a tall empty box, and the list opened below it */
   @media (max-width:760px){
     .ph2 .so-line__grid{grid-template-columns:minmax(0,1fr)}
     .ph2 .so-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 32px}
@@ -198,6 +226,20 @@
   let IMPORT_SINGLE_PLATFORMS = []; // single mode: listPlatforms' result, minus shared ones - for the "which source is this" picker
   let IMPORT_SINGLE_PLATFORM_NAME = null; // single mode: an existing platform explicitly picked, or null for "+ New source" (falls back to this customer's default platform)
   let IMPORT_SINGLE_NEW_SOURCE_NAME = ""; // single mode: user-typed name when not reusing an existing platform and not using the default
+  let IMPORT_ALL_SOURCES = []; // listPlatforms' full result: every source, shared or not - the one "which source is this" picker lists these
+  let IMPORT_SUGGESTED = null; // the source whose mapped columns/layout match the chosen file, if any
+  let IMPORT_RULES = { skip_rows_column: "", skip_rows_values: "", date_format: "Day First (dd/mm/yyyy)", po_no_template: "" }; // the source's file rules (skip rows, date format, PO template)
+  let IMPORT_PLATFORM_NAME = null; // the source the current preview was built from (a remembered Specification fix belongs to it)
+  let IMPORT_ID = null; // the saved Order Import record of this import (set once the preview exists)
+  let IMPORT_FILE_OBJ = null; // the uploaded file, kept so it can be attached to that record
+  let IMPORT_FILE_NAME = "";
+  let IMPORT_RESUMABLE = null; // imports that can be resumed (listImports), or null until loaded
+  let IMPORT_RESUMED = false; // this queue was loaded from a saved import, not built from a file this session
+  let IMPORT_UPDATE = null; // set when a past import is being updated from a newer file: {from, source, customer}
+  let IMPORT_COMPARE = null; // the comparison of the new file against the orders already created
+  let IMPORT_HISTORY = null; // every past import (the History tab), or null until loaded
+  let IMPORT_MATRIX = null; // a wide-matrix source's layout positions (0-indexed rows and columns), editable on the mapping page
+  let IMPORT_SKIPPED = null; // after a preview: how many rows the skip rule left out
   let IMPORT_SHARED_PLATFORMS = []; // shared mode: listSharedPlatforms' result, for the "which source is this" picker
   let IMPORT_SHARED_PLATFORM_NAME = null; // shared mode: an existing platform picked, or null for "+ New source"
   let IMPORT_NEW_SOURCE_NAME = ""; // shared mode: user-typed name when not reusing an existing platform
@@ -1430,7 +1472,7 @@
       if (REVIEW_MODAL) REVIEW_MODAL.close();
       IMPORT_SUBVIEW = "queue";
       renderImport();
-      runImportQueue();
+      preflightQueue();
       return;
     }
     goEditor(r.name);
@@ -1549,6 +1591,7 @@
       // one failed order) -- resume the existing queue, don't discard it.
       IMPORT_SUBVIEW = "queue";
       renderImport();
+      preflightQueue();
       return;
     }
     IMPORT_SUBVIEW = "file";
@@ -1562,6 +1605,20 @@
     IMPORT_SINGLE_PLATFORMS = [];
     IMPORT_SINGLE_PLATFORM_NAME = null;
     IMPORT_SINGLE_NEW_SOURCE_NAME = "";
+    IMPORT_ALL_SOURCES = [];
+    IMPORT_SUGGESTED = null;
+    IMPORT_RULES = { skip_rows_column: "", skip_rows_values: "", date_format: "Day First (dd/mm/yyyy)", po_no_template: "" };
+    IMPORT_SKIPPED = null;
+    IMPORT_MATRIX = null;
+    IMPORT_UPDATE = null;
+    IMPORT_COMPARE = null;
+    IMPORT_HISTORY = null;
+    IMPORT_ID = null;
+    IMPORT_FILE_OBJ = null;
+    IMPORT_FILE_NAME = "";
+    IMPORT_RESUMABLE = null;
+    IMPORT_RESUMED = false;
+    IMPORT_PLATFORM_NAME = null;
     IMPORT_SHARED_PLATFORMS = [];
     IMPORT_SHARED_PLATFORM_NAME = null;
     IMPORT_NEW_SOURCE_NAME = "";
@@ -1577,10 +1634,17 @@
     renderImport();
   }
   function importStepHeader(stepNum) {
-    return `<div class="ph-flex ph-flex--wrap ph-mb">${["File", "Who", "Mapping"].map((s, i) =>
-      `<span class="ph-badge ${stepNum >= i + 1 ? "ph-badge--ink" : "ph-badge--outline"}">${i + 1} · ${s}</span>`).join("")}</div>`;
+    // History comes first. A new import goes File, Source, Mapping, Import (the same for every source);
+    // updating an earlier import from a newer file goes File, Compare, Import.
+    const steps = IMPORT_UPDATE ? ["File", "Compare", "Import"] : ["File", "Source", "Mapping", "Import"];
+    return `<div class="ph-flex ph-flex--wrap ph-mb" style="align-items:center">
+      <button type="button" class="ph-badge ${IMPORT_SUBVIEW === "history" ? "ph-badge--ink" : "ph-badge--outline"}" data-act="imp-history" style="cursor:pointer">History</button>
+      ${IMPORT_UPDATE ? `<span class="ph-badge ph-badge--signal">Updating ${esc(IMPORT_UPDATE.from)}</span>` : ""}
+      ${steps.map((st, i) => `<span class="ph-badge ${IMPORT_SUBVIEW !== "history" && stepNum >= i + 1 ? "ph-badge--ink" : "ph-badge--outline"}">${i + 1} · ${st}</span>`).join("")}</div>`;
   }
   function renderImport() {
+    if (IMPORT_SUBVIEW === "history") return renderImportHistory();
+    if (IMPORT_SUBVIEW === "compare") return renderImportCompare();
     if (IMPORT_SUBVIEW === "queue") return renderImportQueueView();
     if (IMPORT_SUBVIEW === "who") return renderImportStepWho();
     if (IMPORT_SUBVIEW === "mapping") return renderImportStepMapping();
@@ -1596,7 +1660,7 @@
     PH.set(vImport, `
       ${importStepHeader(1)}
       <section class="ph-card">
-        ${cardHead("Upload the order file", "CSV or Excel — one file may contain several orders. The first row must be the real column headers.")}
+        ${IMPORT_UPDATE ? cardHead("Upload the new file", `The newer file for <b>${esc(IMPORT_UPDATE.source || "this source")}</b>. It is read with the same mapping, matched to the orders already created, and you see what changes before anything is touched.`) : cardHead("Upload the order file", "CSV or Excel (XPOL Cloud, Flamingo Cloud, DFG Cloud or any other source) — one file may contain several orders.")}
         <div class="ph-flex ph-flex--wrap">
           <input type="file" data-imp-file accept=".csv,.xlsx,.xls" hidden>
           <button type="button" class="ph-btn ph-btn--primary" data-act="imp-choose">${PH.icon("upload")} Choose file…</button>
@@ -1604,8 +1668,239 @@
         </div>
       </section>
       <div class="so-actions"><span></span>
-        <button type="button" class="ph-btn ph-btn--primary" data-act="imp-to-who" ${!IMPORT_FILE_HEADER ? "disabled" : ""}>Next: who is this for →</button>
-      </div>`);
+        <button type="button" class="ph-btn ph-btn--primary" data-next-file data-act="${IMPORT_UPDATE ? "imp-to-compare" : "imp-to-who"}" ${!IMPORT_FILE_HEADER ? "disabled" : ""}>${IMPORT_UPDATE ? "Next: compare with the current orders →" : "Next: choose the source →"}</button>
+      </div>
+      ${IMPORT_UPDATE ? "" : renderResumeCard()}`);
+    if (IMPORT_RESUMABLE === null) loadResumableImports();
+  }
+  /* ---------- History tab ---------- */
+  async function loadImportHistory() {
+    const m = await call(IMPORT_API + "listImports", { all: 1 }, true);
+    IMPORT_HISTORY = m.success ? (m.imports || []) : [];
+    if (IMPORT_SUBVIEW === "history") renderImport();
+  }
+  const HISTORY_BADGE = { "In Progress": "ph-badge--signal", Completed: "ph-badge--good", Discarded: "ph-badge--outline", "Rolled Back": "ph-badge--warn" };
+  function progressBarHtml(pct) {
+    const p = Math.max(0, Math.min(100, Number(pct) || 0));
+    return `<div style="height:6px;border-radius:3px;background:var(--hairline-2,#e5e5e5);overflow:hidden;min-width:120px"><div style="height:6px;width:${p}%;background:var(--accent,#171717)"></div></div>`;
+  }
+  function renderImportHistory() {
+    const list = IMPORT_HISTORY;
+    PH.set(vImport, `
+      ${importStepHeader(0)}
+      <section class="ph-card">
+        ${cardHead("Past imports", "Every file imported so far, with how far each one got. Open one for its orders, resume an unfinished one, or update one from a newer file.")}
+        <div class="ph-flex ph-flex--wrap ph-mb">
+          <button type="button" class="ph-btn ph-btn--sm ph-btn--primary" data-act="imp-new">New import</button>
+        </div>
+        ${list === null ? '<div class="ph-muted">Loading…</div>' : !list.length ? '<div class="ph-muted">No imports yet.</div>' : `<div class="ph-stack">${list.map((r) => {
+          const done = (r.created_orders || 0) + (r.existing_orders || 0);
+          const total = r.total_orders || 0;
+          const left = Math.max(0, total - done);
+          return `<div data-act="imp-history-open" data-name="${esc(r.name)}" style="cursor:pointer;padding:var(--sp-3) 0;border-top:1px dashed var(--hairline-2)">
+            <div class="ph-flex ph-flex--wrap" style="justify-content:space-between;align-items:center;gap:var(--sp-3)">
+              <div style="min-width:0"><div class="ph-strong ph-truncate">${esc(r.file_name || r.name)} <span class="ph-badge ${HISTORY_BADGE[r.status] || ""}">${esc(r.status)}</span> ${r.kind === "Update" ? '<span class="ph-badge ph-badge--outline">Update</span>' : ""}</div>
+                <div class="ph-muted">${esc(r.source || "")}${r.customer ? " · " + esc(r.customer) : ""} · ${esc(String(r.creation || "").slice(0, 16))} · ${esc(r.name)}${r.update_of ? " · updates " + esc(r.update_of) : ""}</div></div>
+              <div class="ph-flex">
+                ${r.status === "In Progress" ? `<button type="button" class="ph-btn ph-btn--sm ph-btn--primary" data-act="imp-resume" data-name="${esc(r.name)}">Resume</button>` : ""}
+                ${r.source && r.status !== "Discarded" ? `<button type="button" class="ph-btn ph-btn--sm" data-act="imp-start-update" data-name="${esc(r.name)}">Update</button>` : ""}
+              </div>
+            </div>
+            <div class="ph-flex" style="align-items:center;gap:var(--sp-3);margin-top:var(--sp-2)">${progressBarHtml(r.progress)}<span class="ph-muted" data-progress>${Math.round(r.progress || 0)}% · ${done} of ${total} orders${left && r.status === "In Progress" ? ` · ${left} left` : ""}</span></div>
+          </div>`;
+        }).join("")}</div>`}
+      </section>`);
+    if (IMPORT_HISTORY === null) loadImportHistory();
+  }
+  const ORDER_STATUS_BADGE = { "Rolled Back": "ph-badge--warn", Created: "ph-badge--good", Updated: "ph-badge--good", "Already Exists": "ph-badge--outline", Failed: "ph-badge--bad", Pending: "ph-badge--signal" };
+  async function openImportDetails(name) {
+    const m = await call(IMPORT_API + "getImportDetails", { name }, true);
+    if (!m.success) { PH.toast(m.error || "Could not open that import.", "bad"); return; }
+    const i = m.import;
+    const done = (i.created_orders || 0) + (i.existing_orders || 0);
+    const canRollback = i.kind === "Import";
+    const rollbackable = (m.orders || []).filter((o) => o.sales_order && o.status === "Created" && o.docstatus === 0).length;
+    const chips = Object.keys(m.counts || {}).map((k) => `<span class="ph-badge ${ORDER_STATUS_BADGE[k] || ""}">${esc(k)} · ${m.counts[k]}</span>`).join(" ");
+    const rows = (m.orders || []).map((o) => `<tr><td>${esc(o.po_no || "")}</td><td>${esc(o.customer || "")}</td><td>${esc(o.delivery_date || "")}</td><td>${o.lines || 0}</td>
+      <td><span class="ph-badge ${ORDER_STATUS_BADGE[o.status] || ""}">${esc(o.status)}</span></td>
+      <td>${o.sales_order ? `<a class="ph-link" href="/app/sales-order/${encodeURIComponent(o.sales_order)}" target="_blank" rel="noopener">${esc(o.sales_order)}</a>` : "—"}</td>
+      <td class="ph-muted">${o.sales_order && o.status === "Created" && o.docstatus !== 0 ? "submitted — can't roll back" : esc(o.error || "")}
+        ${canRollback && o.sales_order && o.status === "Created" && o.docstatus === 0 ? `<button type="button" class="ph-btn ph-btn--sm" data-rb-one="${esc(o.sales_order)}">Roll back</button>` : ""}</td></tr>`).join("");
+    const detailsModal = PH.modal({
+      title: i.file_name || i.name,
+      sub: `${i.name} · ${i.kind}${i.update_of ? " of " + i.update_of : ""} · ${i.status}`,
+      size: "xl",
+      body: `<div class="ph-stack">
+        <div class="ph-muted">${esc(i.source || "")}${i.customer ? " · " + esc(i.customer) : ""} · started ${esc(String(i.creation).slice(0, 16))} by ${esc(i.owner)} · last worked on ${esc(String(i.modified).slice(0, 16))}</div>
+        <div class="ph-flex" style="align-items:center;gap:var(--sp-3)">${progressBarHtml(i.progress)}<b>${Math.round(i.progress || 0)}%</b><span class="ph-muted">${done} of ${i.total_orders || 0} orders done</span></div>
+        <div class="ph-flex ph-flex--wrap">${chips || '<span class="ph-muted">No orders recorded.</span>'}</div>
+        <div style="overflow:auto;max-height:55vh"><table class="ph-table"><thead><tr><th>Order / PO</th><th>Customer</th><th>Delivery</th><th>Lines</th><th>Status</th><th>Sales Order</th><th>Note</th></tr></thead><tbody>${rows}</tbody></table></div>
+      </div>`,
+      actions: [
+        { label: "Open in Desk", onClick: () => { window.open("/app/order-import/" + encodeURIComponent(i.name), "_blank"); return false; } },
+        ...(canRollback && rollbackable ? [{ label: `Roll back import (${rollbackable})`, danger: true, onClick: async () => { await rollbackImportUi(i.name, null, rollbackable); detailsModal.close(); openImportDetails(i.name); return false; } }] : []),
+        { label: "Close", primary: true, onClick: () => true },
+      ],
+    });
+    PH.$$("[data-rb-one]", detailsModal.body).forEach((b) => b.addEventListener("click", async () => {
+      await rollbackImportUi(i.name, b.dataset.rbOne, 1);
+      detailsModal.close();
+      openImportDetails(i.name);
+    }));
+  }
+  // Undo an import: delete its draft Sales Orders (all, or the one named). Submitted orders are never touched.
+  async function rollbackImportUi(name, salesOrder, count) {
+    const ok = await PH.confirm(
+      salesOrder ? `Roll back ${salesOrder}?` : "Roll back this import?",
+      salesOrder ? "The draft Sales Order is deleted and this import's record of it is marked Rolled Back." : `${count} draft Sales Order${count === 1 ? "" : "s"} created by this import will be deleted. Submitted orders stay as they are. This cannot be undone.`,
+      { ok: "Roll back", danger: true },
+    );
+    if (!ok) return null;
+    const m = await call(IMPORT_API + "rollbackImport", { data: JSON.stringify({ name, sales_order: salesOrder || undefined }) });
+    if (!m.success) { PH.toast(m.error || "Could not roll back.", "bad"); return null; }
+    PH.toast(`${(m.deleted || []).length} order${(m.deleted || []).length === 1 ? "" : "s"} deleted${(m.kept || []).length ? `, ${(m.kept || []).length} kept (${m.kept.map((k) => k.name + ": " + k.reason).join("; ")})` : ""}.`, (m.kept || []).length ? "warn" : "good");
+    IMPORT_HISTORY = null;
+    IMPORT_RESUMABLE = null;
+    return m;
+  }
+  function startUpdate(name) {
+    const r = (IMPORT_HISTORY || []).find((x) => x.name === name);
+    if (!r) return;
+    IMPORT_UPDATE = { from: r.name, source: r.source, customer: r.customer };
+    IMPORT_FILE_HEADER = null; IMPORT_FILE_ROWS = null; IMPORT_FILE_OBJ = null; IMPORT_FILE_NAME = "";
+    IMPORT_ID = null; IMPORT_RESUMED = false; IMPORT_QUEUE = []; IMPORT_COMPARE = null;
+    IMPORT_SUBVIEW = "file";
+    renderImport();
+  }
+  function startNewImport() {
+    IMPORT_UPDATE = null; IMPORT_COMPARE = null;
+    IMPORT_FILE_HEADER = null; IMPORT_FILE_ROWS = null; IMPORT_FILE_OBJ = null; IMPORT_FILE_NAME = "";
+    IMPORT_ID = null; IMPORT_RESUMED = false; IMPORT_QUEUE = [];
+    IMPORT_SUBVIEW = "file";
+    renderImport();
+  }
+
+  /* ---------- Update: the new file against the orders already created ---------- */
+  async function goToCompare() {
+    if (!IMPORT_FILE_HEADER) { showErr("Choose the new file first."); return; }
+    showErr("");
+    let customer = IMPORT_UPDATE.customer;
+    if (!customer) {
+      // A shared source has no single customer; a single one may predate the record carrying it.
+      const all = await call(IMPORT_API + "listPlatforms", {}, true);
+      const p = (all.platforms || []).find((x) => x.name === IMPORT_UPDATE.source);
+      customer = p && !p.customer_differentiator_column ? p.customer : null;
+    }
+    const args = { platform: IMPORT_UPDATE.source, header: IMPORT_FILE_HEADER, rows: IMPORT_FILE_ROWS };
+    if (customer) args.customer = customer;
+    const pv = await call(IMPORT_API + "buildPreview", { data: JSON.stringify(args) });
+    if (!pv.success) { showErr(pv.error || "Could not read the new file with this source's mapping."); return; }
+    IMPORT_PLATFORM_NAME = IMPORT_UPDATE.source;
+    const orders = pv.orders || [];
+    const cmp = await call(IMPORT_API + "compareImportOrders", { data: JSON.stringify({
+      previous_import: IMPORT_UPDATE.from,
+      orders: orders.map((o) => ({ header: o.header, rows: o.rows, existing_order: o.existing_order, file_fields: o.file_fields, default_warehouse: o.default_warehouse })),
+    }) });
+    if (!cmp.success) { showErr(cmp.error || "Could not compare the orders."); return; }
+    IMPORT_COMPARE = { orders, results: cmp.results || [], missing: cmp.missing || [], skipped: pv.skipped_rows || 0, apply: (cmp.results || []).map((r) => r.state === "changed") };
+    IMPORT_SUBVIEW = "compare";
+    renderImport();
+  }
+  const COMPARE_BADGE = { changed: "ph-badge--warn", unchanged: "ph-badge--good", submitted: "ph-badge--outline", cancelled: "ph-badge--outline" };
+  const COMPARE_TEXT = { changed: "changed", unchanged: "same", submitted: "submitted — can't update here", cancelled: "cancelled" };
+  const isImportedState = (st) => st === "changed" || st === "unchanged" || st === "submitted" || st === "cancelled";
+  const LINE_TYPE_BADGE = { added: "ph-badge--good", removed: "ph-badge--bad", changed: "ph-badge--warn" };
+  // An order an import created, against the new file: just whether it changed or is the same (and what changed).
+  function compareCardHtml(o, r, i, apply) {
+    const label = o.header.custom_order_name || o.header.po_no || o.header.customer || ("Order " + (i + 1));
+    const hdr = (r.header || []).map((h) => `<div>${esc(h.label)}: <span class="ph-muted">${esc(h.old || "—")}</span> → <b>${esc(h.new)}</b></div>`).join("");
+    const lines = (r.lines || []).map((l) => `<tr><td><span class="ph-badge ${LINE_TYPE_BADGE[l.type] || ""}">${esc(l.type)}</span></td><td>${esc(l.item_code || "")} <span class="ph-muted">${esc(l.length || "")}</span></td>
+      <td>${(l.fields || []).map((f) => `${esc(f.label)}: <span class="ph-muted">${esc(f.old || "—")}</span> → <b>${esc(f.new || "—")}</b>`).join("<br>")}</td></tr>`).join("");
+    return `<article class="ph-tile" data-cmp="${i}">
+      <div class="ph-tile__head">
+        <div style="min-width:0"><div class="ph-tile__name">${esc(label)}${r.existing ? ` → <a href="#" class="ph-link" data-act="imp-open-order" data-name="${esc(r.existing)}">${esc(r.existing)}</a>` : ""}</div>
+          <div class="ph-tile__sub">${esc(o.header.customer || "")} · ${PH.fmt.plural((o.rows || []).length, "line")} in the file</div></div>
+        <div class="ph-flex"><span class="ph-badge ${COMPARE_BADGE[r.state] || ""}">${esc(COMPARE_TEXT[r.state] || r.state)}</span>
+          ${r.state === "changed" ? `<label class="ph-check"><input type="checkbox" data-cmp-apply="${i}"${apply ? " checked" : ""}> Update</label>` : ""}</div>
+      </div>
+      ${r.state === "unchanged" ? `<div class="ph-field__hint">The same as the new file — nothing to update.</div>` : ""}
+      ${r.unresolved_count ? warnLine(`⚠ ${PH.fmt.plural(r.unresolved_count, "line")} still need a Specification; they are not compared. You pick them on the Import page.`) : ""}
+      ${hdr ? `<div class="ph-stack"><div class="ph-strong">Order details</div>${hdr}</div>` : ""}
+      ${lines ? `<div style="overflow:auto"><table class="ph-table"><thead><tr><th></th><th>Line</th><th>Change</th></tr></thead><tbody>${lines}</tbody></table></div>` : ""}
+    </article>`;
+  }
+  function renderImportCompare() {
+    const c = IMPORT_COMPARE;
+    const idx = c.results.map((r, i) => i);
+    const imported = idx.filter((i) => isImportedState(c.results[i].state));
+    const unimported = idx.filter((i) => !isImportedState(c.results[i].state));
+    const count = (st) => c.results.filter((r) => r.state === st).length;
+    const chosen = imported.filter((i) => c.results[i].state === "changed" && c.apply[i]).length;
+    const rank = { changed: 0, unchanged: 1, submitted: 2, cancelled: 2 };
+    imported.sort((a, b) => (rank[c.results[a].state] - rank[c.results[b].state]) || (a - b));
+    PH.set(vImport, `
+      ${importStepHeader(2)}
+      <section class="ph-kpis" data-ckpis></section>
+      <div class="so-actions ph-mb">
+        <button type="button" class="ph-btn ph-btn--ghost" data-act="imp-step" data-step="file">← Back</button>
+        <button type="button" class="ph-btn ph-btn--primary" data-act="imp-apply-updates"${chosen ? "" : " disabled"}>Update ${chosen} order${chosen === 1 ? "" : "s"}</button>
+      </div>
+      ${c.skipped ? `<div class="ph-notice ph-mb">${PH.fmt.plural(c.skipped, "row")} in the new file are left out by this source's skip rule.</div>` : ""}
+      <section class="ph-card">
+        ${cardHead("Orders already imported", "An update only changes orders this import created. Each shows whether the new file changes it.")}
+        ${imported.length ? `<div class="ph-stack">${imported.map((i) => compareCardHtml(c.orders[i], c.results[i], i, c.apply[i])).join("")}</div>` : '<div class="ph-muted">None of the orders in the new file were imported before.</div>'}
+      </section>
+      <section class="ph-card ph-mt">
+        ${cardHead("Not imported", "In the new file but not created by an import. An update does not touch them: bring them in with a normal import.")}
+        ${unimported.length ? `<table class="ph-table"><thead><tr><th>Order / PO</th><th>Customer</th><th>Delivery</th><th>Lines</th><th></th></tr></thead><tbody>${unimported.map((i) => {
+          const o = c.orders[i], r = c.results[i];
+          return `<tr><td>${esc(o.header.po_no || o.header.custom_order_name || "")}</td><td>${esc(o.header.customer || "")}</td><td>${esc(o.header.delivery_date || "")}</td><td>${(o.rows || []).length}</td>
+            <td class="ph-muted">${r.state === "not_imported" ? `A Sales Order with this PO exists (<a href="#" class="ph-link" data-act="imp-open-order" data-name="${esc(r.existing)}">${esc(r.existing)}</a>) but no import created it` : "Not imported yet"}</td></tr>`;
+        }).join("")}</tbody></table>` : '<div class="ph-muted">Everything in the new file was imported before.</div>'}
+      </section>
+      ${c.missing.length ? `<section class="ph-card ph-mt">${cardHead("No longer in the new file", "These orders came from the earlier import but are not in the new file. They are left as they are.")}
+        ${c.missing.map((m) => `<div><a href="#" class="ph-link" data-act="imp-open-order" data-name="${esc(m.sales_order)}">${esc(m.sales_order)}</a> <span class="ph-muted">${esc(m.po_no || "")}</span></div>`).join("")}</section>` : ""}`);
+    PH.kpis(vImport.querySelector("[data-ckpis]"), [
+      { label: "Orders in the new file", value: c.orders.length },
+      { label: "Imported · changed", value: count("changed") },
+      { label: "Imported · same", value: count("unchanged") },
+      { label: "Can't update", value: count("submitted") + count("cancelled") },
+      { label: "Not imported", value: unimported.length },
+    ]);
+  }
+  // The orders ticked on the compare page become the import queue: updates carry the Sales Order they replace.
+  async function applyUpdates() {
+    const c = IMPORT_COMPARE;
+    const queue = [];
+    c.results.forEach((r, i) => {
+      if (!c.apply[i]) return;
+      const o = c.orders[i];
+      if (r.state === "changed") queue.push(Object.assign({}, o, { status: "pending", update_of: r.existing, update_header: r.update_header, order_name: r.existing, error: null, existing_order: null }));
+    });
+    if (!queue.length) return;
+    IMPORT_QUEUE = queue;
+    IMPORT_ID = null;
+    IMPORT_SKIPPED = null;
+    IMPORT_SUBVIEW = "queue";
+    renderImport();
+    preflightQueue();
+  }
+
+  // Imports started earlier and not finished: carry on from where they stopped, no need to upload again.
+  function renderResumeCard() {
+    const list = IMPORT_RESUMABLE || [];
+    if (IMPORT_RESUMABLE === null) return `<section class="ph-card">${cardHead("Resume an import", "Checking for imports in progress…")}</section>`;
+    if (!list.length) return "";
+    return `<section class="ph-card">
+      ${cardHead("Resume an import", "These were started and not finished. Carry on where you stopped — the file does not need to be uploaded again.")}
+      <div class="ph-stack">${list.map((r) => `<div class="ph-flex ph-flex--wrap" style="justify-content:space-between;align-items:center;gap:var(--sp-3)">
+        <div style="min-width:0"><div class="ph-strong ph-truncate">${esc(r.file_name || r.name)}${r.kind === "Update" ? ' <span class="ph-badge ph-badge--outline">Update</span>' : ""}</div>
+          <div class="ph-muted">${esc(r.source || "")}${r.customer ? " · " + esc(r.customer) : ""} · ${(r.created_orders || 0) + (r.existing_orders || 0)} of ${r.total_orders || 0} orders done · ${esc(String(r.modified || "").slice(0, 16))} · ${esc(r.name)}</div></div>
+        <div class="ph-flex">
+          <button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-act="imp-discard" data-name="${esc(r.name)}">Remove</button>
+          <button type="button" class="ph-btn ph-btn--sm ph-btn--primary" data-act="imp-resume" data-name="${esc(r.name)}">Resume</button>
+        </div></div>`).join("")}</div>
+    </section>`;
   }
   function goToImportWhoStep() {
     if (!IMPORT_FILE_HEADER) { showErr("Choose a file first."); return; }
@@ -1615,18 +1910,45 @@
       call(IMPORT_API + "listPlatforms", {}, true),
     ]).then(([shared, all]) => {
       IMPORT_SHARED_PLATFORMS = shared.platforms || [];
-      // Single mode's picker only offers sources that aren't already a shared
-      // platform (told apart by a differentiator column) - those belong to the
-      // "multiple customers in this file" picker instead.
-      IMPORT_SINGLE_PLATFORMS = (all.platforms || []).filter((p) => !p.customer_differentiator_column);
+      IMPORT_ALL_SOURCES = all.platforms || [];
+      IMPORT_SINGLE_PLATFORMS = IMPORT_ALL_SOURCES.filter((p) => !p.customer_differentiator_column);
       IMPORT_SUBVIEW = "who";
-      renderImport();
+      IMPORT_SUGGESTED = suggestSource();
+      // Nothing chosen yet and the file clearly belongs to a known source: start from that one.
+      if (IMPORT_SUGGESTED && !IMPORT_SINGLE_PLATFORM_NAME && !IMPORT_SHARED_PLATFORM_NAME) onSourcePicked(IMPORT_SUGGESTED);
+      else renderImport();
     });
+  }
+  // Which known source does this file look like? A standard source matches when (nearly) every column it
+  // maps is in the file's header; a wide-matrix one when its group-label cell and its "Total" row are where
+  // its layout says. Returns the best match's name, or null when nothing fits.
+  function suggestSource() {
+    const header = IMPORT_FILE_HEADER || [];
+    const grid = [header].concat(IMPORT_FILE_ROWS || []);
+    let best = null, bestScore = 0;
+    IMPORT_ALL_SOURCES.forEach((p) => {
+      let score = 0;
+      if (p.layout_type === "Wide Matrix") {
+        const label = (grid[p.matrix_group_label_row] || [])[p.matrix_first_group_column];
+        const stop = String(p.matrix_stop_value || "Total").trim().toLowerCase();
+        const hasStop = grid.some((r, i) => i >= (p.matrix_items_start_row || 0) && String((r || [])[p.matrix_code_column] || "").trim().toLowerCase() === stop);
+        score = (String(label || "").trim() && hasStop) ? 1 : 0;
+      } else {
+        const cols = p.columns || [];
+        score = cols.length ? cols.filter((c) => header.includes(c)).length / cols.length : 0;
+      }
+      if (score >= 0.8 && score > bestScore) { best = p.name; bestScore = score; }
+    });
+    return best;
   }
 
   // ---------- file parsing ----------
   function onImportFileChosen(file) {
     if (!file) return;
+    IMPORT_FILE_OBJ = file;
+    IMPORT_FILE_NAME = file.name;
+    IMPORT_ID = null; // a new file is a new import
+    IMPORT_RESUMED = false;
     PH.text(vImport.querySelector("[data-imp-filename]"), "Reading " + file.name + "…");
     const isExcel = /\.(xlsx|xls)$/i.test(file.name);
     if (isExcel) {
@@ -1683,25 +2005,47 @@
     IMPORT_FILE_HEADER = (grid[0] || []).map((h) => String(h || "").trim());
     IMPORT_FILE_ROWS = grid.slice(1);
     PH.text(vImport.querySelector("[data-imp-filename]"), filename + " — " + IMPORT_FILE_HEADER.length + " columns, " + IMPORT_FILE_ROWS.length + " rows");
-    const btn = vImport.querySelector('[data-act="imp-to-who"]');
+    const btn = vImport.querySelector("[data-next-file]");
     if (btn) btn.disabled = false;
   }
 
-  // ---------- step 2: who this file is for ----------
+  // ---------- step 2: which source (and so which customer) this file is for ----------
+  // One picker lists every source - single-customer, several-customer and wide-matrix alike. Picking an
+  // existing one decides everything else (its customer, or its buyer-code table); "+ New source" asks
+  // whether the file is one customer's or several.
+  function currentSourceName() { return IMPORT_MODE === "shared" ? IMPORT_SHARED_PLATFORM_NAME : IMPORT_SINGLE_PLATFORM_NAME; }
+  function sourceLabel(p) {
+    const tags = [p.layout_type === "Wide Matrix" ? "wide matrix" : p.file_type, p.customer_differentiator_column ? "several customers" : null].filter(Boolean);
+    return `${p.platform_name} · ${tags.join(" · ")}`;
+  }
+  function renderSourcePicker() {
+    const picked = currentSourceName() || "";
+    const suggestion = IMPORT_SUGGESTED ? IMPORT_ALL_SOURCES.find((p) => p.name === IMPORT_SUGGESTED) : null;
+    return `<div class="ph-form">
+      <div class="ph-field"><label>Which source is this file from?</label>
+        <select class="ph-control" data-imp-source>
+          <option value="">+ New source</option>
+          ${IMPORT_ALL_SOURCES.map((p) => `<option value="${esc(p.name)}"${picked === p.name ? " selected" : ""}>${esc(sourceLabel(p))}</option>`).join("")}
+        </select></div>
+    </div>
+    ${suggestion && picked === suggestion.name ? `<div class="ph-notice ph-mt ph-mb-0">This file looks like <b>${esc(suggestion.platform_name)}</b> — change the source above if that is wrong.</div>` : ""}`;
+  }
   function renderImportStepWho() {
+    const isNew = !currentSourceName();
     PH.set(vImport, `
       ${importStepHeader(2)}
       <section class="ph-card">
-        ${cardHead("Who is this file for?", "Most files belong to one customer — pick “multiple” only when this file genuinely mixes several customers' orders together, told apart by one of its own columns")}
-        <div class="ph-pills ph-mb">
+        ${cardHead("Which source and customer?", "Pick the source this file came from. A new source is set up once and remembered, so next time it is picked for you.")}
+        ${renderSourcePicker()}
+        ${isNew ? `<div class="ph-pills ph-mt ph-mb">
           <button type="button" data-act="imp-mode" data-value="single" class="${IMPORT_MODE === "single" ? "is-on" : ""}">One customer</button>
-          <button type="button" data-act="imp-mode" data-value="shared" class="${IMPORT_MODE === "shared" ? "is-on" : ""}">Multiple customers in this file</button>
-        </div>
+          <button type="button" data-act="imp-mode" data-value="shared" class="${IMPORT_MODE === "shared" ? "is-on" : ""}">Several customers in this file</button>
+        </div>` : '<div class="ph-mt"></div>'}
         ${IMPORT_MODE === "shared" ? renderSharedWhoBody() : renderSingleWhoBody()}
       </section>
       <div class="so-actions">
         <button type="button" class="ph-btn ph-btn--ghost" data-act="imp-step" data-step="file">← Back</button>
-        <button type="button" class="ph-btn ph-btn--primary" data-act="imp-to-mapping" disabled>Next: map columns →</button>
+        <button type="button" class="ph-btn ph-btn--primary" data-act="imp-to-mapping" disabled>Next: check the mapping →</button>
       </div>`);
     if (IMPORT_MODE === "shared") wireCustomerMapInputs();
     else {
@@ -1717,23 +2061,27 @@
     }
     updateImportWhoNextBtn();
   }
-  // Source first, customer second: each single-customer platform belongs to
-  // exactly one customer (see listPlatforms' `customer` field), so picking an
-  // existing source resolves the customer automatically - same relationship
-  // the shared flow already has, just 1:1 instead of 1:many. The customer
-  // field only needs asking when it isn't already known: a brand new source
-  // ("+ New source"), or an existing source nobody has imported into yet.
+  function onSourcePicked(value) {
+    IMPORT_SHARED_PLATFORM_NAME = null;
+    IMPORT_SINGLE_PLATFORM_NAME = null;
+    IMPORT_EXISTING = null;
+    IMPORT_LAYOUT_TYPE = "Standard Rows";
+    IMPORT_DIFFERENTIATOR_COLUMN = null;
+    IMPORT_CUSTOMER_MAP = [];
+    if (!value) { IMPORT_CUSTOMER = null; renderImport(); return; }
+    const p = IMPORT_ALL_SOURCES.find((x) => x.name === value);
+    if (!p) { renderImport(); return; }
+    if (p.customer_differentiator_column) { IMPORT_MODE = "shared"; onSharedPlatformPicked(value); }
+    else { IMPORT_MODE = "single"; onSinglePlatformPicked(value); }
+  }
+  // The customer a single-customer source belongs to is known once it is picked; the field only needs
+  // filling for a new source, or an existing one nobody has imported into yet.
   function renderSingleWhoBody() {
     const picked = IMPORT_SINGLE_PLATFORM_NAME ? IMPORT_SINGLE_PLATFORMS.find((p) => p.name === IMPORT_SINGLE_PLATFORM_NAME) : null;
     const customerKnown = !!(picked && picked.customer);
     return `<div class="ph-form">
-      <div class="ph-field"><label>Which source is this?</label>
-        <select class="ph-control" data-imp-single-platform>
-          <option value="">+ New source</option>
-          ${IMPORT_SINGLE_PLATFORMS.map((p) => `<option value="${esc(p.name)}"${IMPORT_SINGLE_PLATFORM_NAME === p.name ? " selected" : ""}>${esc(p.platform_name)}${p.layout_type === "Wide Matrix" ? " (Wide Matrix)" : ""}</option>`).join("")}
-        </select></div>
-      ${!IMPORT_SINGLE_PLATFORM_NAME ? `<div class="ph-field"><label>Name this source (optional)</label>
-        <input class="ph-control" data-imp-single-newsource placeholder="e.g. Flamingo UK (Sandy)" value="${esc(IMPORT_SINGLE_NEW_SOURCE_NAME || "")}"></div>` : ""}
+      ${!IMPORT_SINGLE_PLATFORM_NAME ? `<div class="ph-field"><label>Name this source</label>
+        <input class="ph-control" data-imp-single-newsource placeholder="e.g. XPOL Cloud, Flamingo Cloud" value="${esc(IMPORT_SINGLE_NEW_SOURCE_NAME || "")}"></div>` : ""}
       <div class="ph-field"><label>Customer</label>
         ${customerKnown
           ? `<input class="ph-control" value="${esc(IMPORT_CUSTOMER ? IMPORT_CUSTOMER.label : picked.customer)}" disabled>`
@@ -1750,9 +2098,8 @@
     if (IMPORT_CUSTOMER) fetchSingleCustomerSetup();
     else { renderImport(); updateImportWhoNextBtn(); }
   }
-  // Re-fetches this (customer, platform) pair's setup - mirrors
-  // onSharedPlatformPicked's eager-fetch, so the layout_type (and therefore
-  // the Next button's label/behaviour) is known before step 3.
+  // Re-fetches this (customer, platform) pair's setup, so the layout_type (and therefore the mapping
+  // page that follows) is known before step 3.
   function fetchSingleCustomerSetup() {
     const args = { customer: IMPORT_CUSTOMER.name };
     if (IMPORT_SINGLE_PLATFORM_NAME) args.platform = IMPORT_SINGLE_PLATFORM_NAME;
@@ -1766,13 +2113,8 @@
   // ---------- step 2, shared mode: which source + which column + value->customer table ----------
   function renderSharedWhoBody() {
     return `<div class="ph-form">
-        <div class="ph-field"><label>Which source is this?</label>
-          <select class="ph-control" data-imp-platform>
-            <option value="">+ New source</option>
-            ${IMPORT_SHARED_PLATFORMS.map((p) => `<option value="${esc(p.name)}"${IMPORT_SHARED_PLATFORM_NAME === p.name ? " selected" : ""}>${esc(p.platform_name)}</option>`).join("")}
-          </select></div>
         ${!IMPORT_SHARED_PLATFORM_NAME ? `<div class="ph-field"><label>Name this source</label>
-          <input class="ph-control" data-imp-newsource placeholder="e.g. DFG, XPOL Cloud" value="${esc(IMPORT_NEW_SOURCE_NAME || "")}"></div>` : ""}
+          <input class="ph-control" data-imp-newsource placeholder="e.g. DFG Cloud" value="${esc(IMPORT_NEW_SOURCE_NAME || "")}"></div>` : ""}
         <div class="ph-field"><label>Which column tells customers apart?</label>
           <select class="ph-control" data-imp-diffcol>
             <option value="">— pick a column —</option>
@@ -1856,7 +2198,9 @@
   function buildMappingRowsFromFile() {
     const existingByCol = {};
     ((IMPORT_EXISTING && IMPORT_EXISTING.field_mappings) || []).forEach((m) => { existingByCol[m.source_column] = m; });
-    IMPORT_MAPPING_ROWS = IMPORT_FILE_HEADER.map((col) => {
+    const wide = IMPORT_LAYOUT_TYPE === "Wide Matrix" && IMPORT_EXISTING && IMPORT_EXISTING.synthetic_columns;
+    IMPORT_MATRIX = wide ? Object.assign({}, IMPORT_EXISTING.matrix || {}) : null;
+    IMPORT_MAPPING_ROWS = (wide ? IMPORT_EXISTING.synthetic_columns : IMPORT_FILE_HEADER).map((col) => {
       const ex = existingByCol[col];
       return {
         source_column: col,
@@ -1866,6 +2210,13 @@
       };
     });
     IMPORT_SPLIT_COLUMN = (IMPORT_EXISTING && IMPORT_EXISTING.multi_order_column) || null;
+    const ex0 = IMPORT_EXISTING || {};
+    IMPORT_RULES = {
+      skip_rows_column: ex0.skip_rows_column || "",
+      skip_rows_values: ex0.skip_rows_values || "",
+      date_format: ex0.date_format || "Day First (dd/mm/yyyy)",
+      po_no_template: ex0.po_no_template || "",
+    };
     if (IMPORT_MODE !== "shared") {
       // Shared mode keeps defaults/item codes per customer, already sitting on each
       // IMPORT_CUSTOMER_MAP row from rebuildCustomerMapFromFile - nothing to copy here.
@@ -1902,11 +2253,14 @@
   }
   async function buildPreviewForExistingPlatform(platformName) {
     showErr("");
+    IMPORT_PLATFORM_NAME = platformName;
     const m2 = await call(IMPORT_API + "buildPreview", { data: JSON.stringify({ customer: IMPORT_CUSTOMER.name, platform: platformName, header: IMPORT_FILE_HEADER, rows: IMPORT_FILE_ROWS }) });
     if (!m2.success) { showErr(m2.error || "Could not build a preview from this file."); return; }
-    IMPORT_QUEUE = (m2.orders || []).map((o) => Object.assign({}, o, { status: "pending", order_name: null, error: null }));
+    IMPORT_QUEUE = (m2.orders || []).map(queueItemFromPreview);
+      IMPORT_SKIPPED = { count: m2.skipped_rows || 0, column: IMPORT_RULES.skip_rows_column, values: (IMPORT_RULES.skip_rows_values || "").split(/\r?\n|,/).map((v) => v.trim()).filter(Boolean).join(", ") };
     IMPORT_SUBVIEW = "queue";
     renderImport();
+    preflightQueue();
   }
   function importSampleValue(colIndex) {
     for (const row of (IMPORT_FILE_ROWS || [])) {
@@ -1931,17 +2285,37 @@
     (CATALOG.sales_order_item_fields || []).filter(match).forEach((f) => out.push({ value: f.label, label: f.label + (f.computed ? " (auto)" : ""), description: "Line item · once per row", dt: "Sales Order Item", fieldname: f.fieldname }));
     return Promise.resolve(out);
   }
+  // Each default is a searchable dropdown over its own records (type to filter, pick from the list), not free text.
+  const DEFAULT_FIELDS = [
+    ["default_currency", "Default Currency", "Currency", "Search currency…"],
+    ["default_price_list", "Default Price List", "Price List", "Search price list…"],
+    ["default_warehouse", "Default Warehouse", "Warehouse", "Search warehouse…"],
+    ["default_consignee", "Default Consignee", "Consignee", "Search consignee…"],
+    ["default_delivery_point", "Default Delivery Point", "Delivery Point", "Search delivery point…"],
+    ["default_shipping_agent", "Default Shipping Agent", "Shipping Agent", "Search shipping agent…"],
+  ];
   function defaultsFormHtml(scope, d) {
-    const cur = '<option value="">—</option>' + OPTIONS.currencies.map((c) => `<option value="${esc(c)}"${d.default_currency === c ? " selected" : ""}>${esc(c)}</option>`).join("");
-    const f = (label, ctl) => `<div class="ph-field"><label>${label}</label>${ctl}</div>`;
     return `<div class="ph-form" data-defaults="${scope}">
-      ${f("Default Currency", `<select class="ph-control" data-def="default_currency">${cur}</select>`)}
-      ${f("Default Price List", `<input class="ph-control" data-def="default_price_list" value="${esc(d.default_price_list || "")}" placeholder="Price List name">`)}
-      ${f("Default Warehouse", `<select class="ph-control" data-def="default_warehouse">${selOpts(OPTIONS.warehouses, d.default_warehouse || "")}</select>`)}
-      ${f("Default Consignee", `<input class="ph-control" data-def="default_consignee" value="${esc(d.default_consignee || "")}" placeholder="Consignee name">`)}
-      ${f("Default Delivery Point", `<input class="ph-control" data-def="default_delivery_point" value="${esc(d.default_delivery_point || "")}" placeholder="Delivery Point name">`)}
-      ${f("Default Shipping Agent", `<input class="ph-control" data-def="default_shipping_agent" value="${esc(d.default_shipping_agent || "")}" placeholder="Shipping Agent name">`)}
+      ${DEFAULT_FIELDS.map(([key, label, doctype, ph]) => `<div class="ph-field"><label>${label}</label>
+        <input class="ph-control" data-def="${key}" data-def-doctype="${doctype}" placeholder="${ph}" value="${esc(d[key] || "")}"></div>`).join("")}
     </div>`;
+  }
+  // Wires every default box on the page. Only a value picked from the list (or the one already saved) is kept:
+  // text typed and left unpicked reverts when the box loses focus, and an emptied box means "no default".
+  function wireDefaultInputs(root) {
+    PH.$$("[data-def]", root).forEach((input) => {
+      if (input.closest(".ph-ac")) return;
+      const doctype = input.dataset.defDoctype;
+      let accepted = input.value;
+      PH.autocomplete(input, {
+        source: (q) => call(IMPORT_API + "searchDefaultValue", { data: JSON.stringify({ doctype, query: q }) })
+          .then((m) => ((m.success ? m.options : []) || []).map((o) => ({ value: o, label: o }))),
+        onSelect: (it) => { accepted = it.value; },
+      });
+      input.addEventListener("blur", () => setTimeout(() => {
+        if (input.value.trim() === "") { accepted = ""; input.value = ""; } else input.value = accepted;
+      }, 200));
+    });
   }
   function itemMappingRowHtml(src, item) {
     return `<div class="so-map so-imap">
@@ -1960,50 +2334,90 @@
       PH.autocomplete(inp, { source: searchVarieties });
     });
   }
-  // A Wide Matrix platform's column mapping is fixed in Desk (it maps the
-  // pivot's synthetic columns - "Specification", "Bunches Ordered", etc. -
-  // onto real fields), not something this screen lets you edit per file.
-  // Shown read-only instead of skipped entirely, so the user still sees what
-  // it resolves to before any order gets built from it.
-  function renderImportStepMappingReadOnly() {
-    const mappings = (IMPORT_EXISTING && IMPORT_EXISTING.field_mappings) || [];
-    PH.set(vImport, `
-      ${importStepHeader(3)}
-      <section class="ph-card">
-        ${cardHead("How this source is mapped", "This platform's layout and column mapping are configured once in Desk (Order Import Platform), not per file — there's nothing to change here.")}
-        <div class="so-map so-map--head"><span class="ph-label">Column</span><span class="ph-label">Maps to</span></div>
-        ${mappings.map((m) => `<div class="so-map">
-          <div class="ph-strong ph-truncate" title="${esc(m.source_column)}">${esc(m.source_column)}</div>
-          <div class="so-map__wide">${esc(importTargetLabel(m.target_doctype, m.target_fieldname) || "— Don't import —")}</div>
-        </div>`).join("")}
-        <div class="ph-muted ph-mt">Splits into one order per <b>${esc((IMPORT_EXISTING && IMPORT_EXISTING.multi_order_column) || "—")}</b>.</div>
-      </section>
-      <div class="so-actions">
-        <button type="button" class="ph-btn ph-btn--ghost" data-act="imp-step" data-step="who">← Back</button>
-        <button type="button" class="ph-btn ph-btn--primary" data-act="imp-build-preview-readonly">Build preview →</button>
-      </div>`);
+  const DATE_FORMATS = ["Day First (dd/mm/yyyy)", "Month First (mm/dd/yyyy)"];
+  function rulesCardHtml(readOnly) {
+    const r = IMPORT_RULES;
+    const skipText = r.skip_rows_column && (r.skip_rows_values || "").trim()
+      ? `Rows where <b>${esc(r.skip_rows_column)}</b> is <b>${esc((r.skip_rows_values || "").split(/\r?\n|,/).map((v) => v.trim()).filter(Boolean).join(", "))}</b> are left out.` : "No rows are skipped.";
+    if (readOnly) {
+      return `<section class="ph-card">
+        ${cardHead("File rules", "Set once for this source in Desk (Order Import Platform).")}
+        <div class="ph-muted">${skipText}</div>
+        <div class="ph-muted">Dates are read ${esc((r.date_format || DATE_FORMATS[0]).toLowerCase())}.</div>
+        ${r.po_no_template ? `<div class="ph-muted">PO number when the file has none: <b>${esc(r.po_no_template)}</b></div>` : ""}
+      </section>`;
+    }
+    return `<section class="ph-card">
+      ${cardHead("File rules (optional)", "Leave rows out, say how dates are written, or give orders a reference when the file has no PO number.")}
+      <div class="ph-form">
+        <div class="ph-field"><label>Skip rows where this column…</label>
+          <select class="ph-control" data-rule="skip_rows_column"><option value="">— don't skip any —</option>
+            ${IMPORT_FILE_HEADER.filter(Boolean).map((c) => `<option value="${esc(c)}"${r.skip_rows_column === c ? " selected" : ""}>${esc(c)}</option>`).join("")}</select></div>
+        <div class="ph-field"><label>…is one of (one per line)</label>
+          <textarea class="ph-control" rows="2" data-rule="skip_rows_values" placeholder="CANCELLED">${esc(r.skip_rows_values || "")}</textarea></div>
+        <div class="ph-field"><label>Dates in this file are written</label>
+          <select class="ph-control" data-rule="date_format">${DATE_FORMATS.map((f) => `<option${(r.date_format || DATE_FORMATS[0]) === f ? " selected" : ""}>${esc(f)}</option>`).join("")}</select></div>
+        <div class="ph-field"><label>PO number when the file has none</label>
+          <input class="ph-control" data-rule="po_no_template" placeholder="e.g. XPOL {delivery_date}" value="${esc(r.po_no_template || "")}"></div>
+      </div>
+    </section>`;
+  }
+  function mappingRowHtml(m, i) {
+    const sample = IMPORT_LAYOUT_TYPE === "Wide Matrix" && IMPORT_MODE === "single" ? "" : importSampleValue(i);
+    return `<div class="so-map" data-i="${i}">
+      <div class="ph-strong ph-truncate" title="${esc(m.source_column)}">${esc(m.source_column)}</div>
+      <div class="ph-muted ph-truncate" title="${esc(sample)}">${esc(sample || "—")}</div>
+      <div class="so-map__wide"><input class="ph-control" data-tgt placeholder="— Don't import —" value="${esc(importTargetLabel(m.target_doctype, m.target_fieldname))}"></div>
+      <input class="ph-control" data-dflt placeholder="Default" value="${esc(m.default_value || "")}">
+      <label class="ph-check"><input type="radio" name="so_imp_split" data-split${IMPORT_SPLIT_COLUMN === m.source_column ? " checked" : ""}> Split</label>
+    </div>`;
+  }
+  const MATRIX_ROWS = [
+    ["matrix_group_label_row", "Group label row", "the row naming each group of columns (a colour, a PO)"],
+    ["matrix_order_date_row", "Order date row", "each group's order date"],
+    ["matrix_delivery_date_row", "Delivery date row", "each group's delivery date"],
+    ["matrix_po_row", "PO number row", "each group's PO number"],
+    ["matrix_items_start_row", "First item row", "where the item lines begin"],
+  ];
+  const MATRIX_COLS = [
+    ["matrix_code_column", "Item code column", "the line code (not used to match)"],
+    ["matrix_description_column", "Description column", "the text matched to a Specification"],
+    ["matrix_bunch_rate_column", "Bunch rate column", "stems per bunch, cross-checked"],
+    ["matrix_first_group_column", "First group's column", "where the first ordered quantity sits"],
+    ["matrix_group_column_width", "Columns per group", "e.g. 2 for ordered + confirmed"],
+  ];
+  // The raw top-left of the file with row and column numbers (0-based, as the layout counts), to read positions off.
+  function matrixGridHtml() {
+    const grid = [IMPORT_FILE_HEADER || []].concat(IMPORT_FILE_ROWS || []).slice(0, 12);
+    const cols = Math.min(10, Math.max(...grid.map((r) => r.length), 0));
+    return `<div style="overflow:auto;max-height:260px"><table class="ph-table" style="font-size:.78rem"><thead><tr><th>row \\ col</th>${Array.from({ length: cols }, (_, c) => `<th>${c}</th>`).join("")}</tr></thead>
+      <tbody>${grid.map((r, ri) => `<tr><th>${ri}</th>${Array.from({ length: cols }, (_, c) => `<td class="ph-truncate" style="max-width:130px" title="${esc(String(r[c] ?? ""))}">${esc(String(r[c] ?? ""))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  }
+  function matrixCardHtml() {
+    const m = IMPORT_MATRIX || {};
+    const field = ([key, label, hint]) => `<div class="ph-field"><label>${label}</label><input class="ph-control" type="number" min="0" step="1" data-matrix="${key}" value="${esc(String(m[key] ?? 0))}"><div class="ph-field__hint">${hint}</div></div>`;
+    return `<section class="ph-card">
+      ${cardHead("Layout of this file", "Where things are in the file. Rows and columns count from 0, as in the table below. Change them if this file is laid out differently.")}
+      <div class="ph-form">${MATRIX_ROWS.map(field).join("")}</div>
+      <div class="ph-form">${MATRIX_COLS.map(field).join("")}
+        <div class="ph-field"><label>Last item row is followed by</label><input class="ph-control" data-matrix="matrix_stop_value" value="${esc(m.matrix_stop_value || "Total")}"><div class="ph-field__hint">the word in the item code column that ends the items</div></div></div>
+      <details class="ph-mt" open><summary class="ph-strong">The file (first rows)</summary>${matrixGridHtml()}</details>
+    </section>`;
   }
   function renderImportStepMapping() {
-    if (IMPORT_MODE === "single" && IMPORT_LAYOUT_TYPE === "Wide Matrix") { renderImportStepMappingReadOnly(); return; }
     const shared = IMPORT_MODE === "shared";
+    const wideLayout = IMPORT_MODE === "single" && IMPORT_LAYOUT_TYPE === "Wide Matrix";
     const sharedMappedRows = shared ? IMPORT_CUSTOMER_MAP.filter((r) => r.customer) : [];
+    const head = '<div class="so-map so-map--head"><span class="ph-label">Column in file</span><span class="ph-label">Sample</span><span class="ph-label">Maps to</span><span class="ph-label">Default</span><span class="ph-label">Split</span></div>';
     PH.set(vImport, `
       ${importStepHeader(3)}
+      ${wideLayout ? matrixCardHtml() : ""}
       <section class="ph-card">
-        ${cardHead("Map each column", "Pulled straight from your file — pick where each one goes, or leave it as “Don't import”." + (shared ? " This mapping is shared by every customer on this source." : "") + " Pick exactly one column that separates one order from the next.")}
-        <div class="so-map so-map--head"><span class="ph-label">Column in file</span><span class="ph-label">Sample</span><span class="ph-label">Maps to</span><span class="ph-label">Default</span><span class="ph-label">Split</span></div>
-        ${IMPORT_MAPPING_ROWS.map((m, i) => {
-          const sample = importSampleValue(i);
-          return `<div class="so-map" data-i="${i}">
-            <div class="ph-strong ph-truncate" title="${esc(m.source_column)}">${esc(m.source_column)}</div>
-            <div class="ph-muted ph-truncate" title="${esc(sample)}">${esc(sample || "—")}</div>
-            <div class="so-map__wide"><input class="ph-control" data-tgt placeholder="— Don't import —" value="${esc(importTargetLabel(m.target_doctype, m.target_fieldname))}"></div>
-            <input class="ph-control" data-dflt placeholder="Default" value="${esc(m.default_value || "")}">
-            <label class="ph-check"><input type="radio" name="so_imp_split" data-split${IMPORT_SPLIT_COLUMN === m.source_column ? " checked" : ""}> Split</label>
-          </div>`;
-        }).join("")}
+        ${cardHead(wideLayout ? "Map the columns this layout produces" : "Map each column", wideLayout ? "The layout above turns the file into these columns (one row per item and order). Pick where each one goes, or leave it as “Don't import”. Pick exactly one that separates one order from the next." : "Every column in your file is listed — pick where each one goes, or leave it as “Don't import”." + (shared ? " This mapping is shared by every customer on this source." : "") + " Pick exactly one column that separates one order from the next.")}
+        ${head}${IMPORT_MAPPING_ROWS.map((m, i) => mappingRowHtml(m, i)).join("")}
         ${!IMPORT_SPLIT_COLUMN ? '<div class="ph-notice ph-notice--warn ph-mt ph-mb-0" data-nosplit>⚠ No split column picked yet — the whole file will be treated as one order.</div>' : ""}
       </section>
+      ${rulesCardHtml(false)}
       ${shared ? sharedMappedRows.map((r, gi) => `<section class="ph-card">
           ${cardHead(esc(r.customer.label) + " — defaults &amp; item codes (optional)", "“" + esc(r.differentiator_value) + "” in the file")}
           ${defaultsFormHtml(String(gi), r.defaults || {})}
@@ -2020,7 +2434,7 @@
         </section>`}
       <div class="so-actions">
         <button type="button" class="ph-btn ph-btn--ghost" data-act="imp-step" data-step="who">← Back</button>
-        <button type="button" class="ph-btn ph-btn--primary" data-act="imp-save-mapping">Save &amp; build preview</button>
+        <button type="button" class="ph-btn ph-btn--primary" data-act="imp-save-mapping">Build preview →</button>
       </div>`);
     PH.$$("[data-tgt]", vImport).forEach((inp) => {
       const i = +inp.closest("[data-i]").dataset.i;
@@ -2033,6 +2447,7 @@
       inp.addEventListener("change", () => { if (!inp.value.trim()) { IMPORT_MAPPING_ROWS[i].target_doctype = ""; IMPORT_MAPPING_ROWS[i].target_fieldname = ""; } });
     });
     wireItemTargets(vImport);
+    wireDefaultInputs(vImport);
   }
   function readItemCodeRows(scope) {
     const out = [];
@@ -2065,7 +2480,7 @@
     }));
     showErr("");
     const btn = vImport.querySelector('[data-act="imp-save-mapping"]');
-    const resetBtn = () => { if (btn) { btn.disabled = false; btn.textContent = "Save & build preview"; } };
+    const resetBtn = () => { if (btn) { btn.disabled = false; btn.textContent = "Build preview →"; } };
     if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
 
     if (IMPORT_MODE === "shared") {
@@ -2081,16 +2496,20 @@
         platform_name,
         multi_order_column: IMPORT_SPLIT_COLUMN || "",
         customer_differentiator_column: IMPORT_DIFFERENTIATOR_COLUMN,
+        ...IMPORT_RULES,
         field_mappings,
         customers,
       }) });
       if (!m.success) { resetBtn(); showErr(m.error || "Could not save this mapping."); return; }
+      IMPORT_PLATFORM_NAME = m.platform;
       const m2 = await call(IMPORT_API + "buildPreview", { data: JSON.stringify({ platform: m.platform, header: IMPORT_FILE_HEADER, rows: IMPORT_FILE_ROWS }) });
       resetBtn();
       if (!m2.success) { showErr(m2.error || "Could not build a preview from this file."); return; }
-      IMPORT_QUEUE = (m2.orders || []).map((o) => Object.assign({}, o, { status: "pending", order_name: null, error: null }));
+      IMPORT_QUEUE = (m2.orders || []).map(queueItemFromPreview);
+      IMPORT_SKIPPED = { count: m2.skipped_rows || 0, column: IMPORT_RULES.skip_rows_column, values: (IMPORT_RULES.skip_rows_values || "").split(/\r?\n|,/).map((v) => v.trim()).filter(Boolean).join(", ") };
       IMPORT_SUBVIEW = "queue";
       renderImport();
+      preflightQueue();
       if ((m2.unresolved_customers || []).length) {
         showErr("No customer mapped for: " + m2.unresolved_customers.join(", ") + " — those orders were skipped. Go back to step 2 to map them.");
       }
@@ -2100,16 +2519,20 @@
     const m = await call(IMPORT_API + "saveCustomerImportSetup", { data: JSON.stringify({
       customer: IMPORT_CUSTOMER.name,
       platform_name: IMPORT_SINGLE_PLATFORM_NAME || IMPORT_SINGLE_NEW_SOURCE_NAME.trim(),
-      multi_order_column: IMPORT_SPLIT_COLUMN || "", field_mappings,
+      multi_order_column: IMPORT_SPLIT_COLUMN || "", ...IMPORT_RULES, field_mappings,
+      matrix: IMPORT_LAYOUT_TYPE === "Wide Matrix" ? IMPORT_MATRIX : undefined,
       item_code_mapping: readItemCodeRows("single"), defaults: readDefaults("single"),
     }) });
     if (!m.success) { resetBtn(); showErr(m.error || "Could not save this mapping."); return; }
+    IMPORT_PLATFORM_NAME = m.platform;
     const m2 = await call(IMPORT_API + "buildPreview", { data: JSON.stringify({ customer: IMPORT_CUSTOMER.name, platform: m.platform, header: IMPORT_FILE_HEADER, rows: IMPORT_FILE_ROWS }) });
     resetBtn();
     if (!m2.success) { showErr(m2.error || "Could not build a preview from this file."); return; }
-    IMPORT_QUEUE = (m2.orders || []).map((o) => Object.assign({}, o, { status: "pending", order_name: null, error: null }));
+    IMPORT_QUEUE = (m2.orders || []).map(queueItemFromPreview);
+      IMPORT_SKIPPED = { count: m2.skipped_rows || 0, column: IMPORT_RULES.skip_rows_column, values: (IMPORT_RULES.skip_rows_values || "").split(/\r?\n|,/).map((v) => v.trim()).filter(Boolean).join(", ") };
     IMPORT_SUBVIEW = "queue";
     renderImport();
+    preflightQueue();
   }
 
   // ---------- import queue ----------
@@ -2253,7 +2676,329 @@
     renderImport();
     continueQueueSoon();
   }
-  const QUEUE_BADGE = { pending: "", creating: "ph-badge--signal", created: "ph-badge--good", failed: "ph-badge--bad", needs_review: "ph-badge--warn" };
+  const QUEUE_BADGE = { pending: "", ready: "ph-badge--signal", creating: "ph-badge--signal", created: "ph-badge--good", updated: "ph-badge--good", failed: "ph-badge--bad", needs_review: "ph-badge--warn", attention: "ph-badge--warn", duplicate: "ph-badge--outline" };
+  // buildPreview already says when an order's PO matches an existing Sales Order: shown as "already exists" up front.
+  function queueItemFromPreview(o) {
+    if (o.existing_order) return Object.assign({}, o, { status: "duplicate", order_name: o.existing_order, error: null });
+    return Object.assign({}, o, { status: "pending", order_name: null, error: null });
+  }
+  // The same check ERPNext runs on save, parsed out of the error text, so a duplicate is "already exists", not a failure.
+  function parseDuplicatePoError(message) {
+    const plain = (message || "").replace(/<[^>]+>/g, "");
+    const m = /Sales Order\s+(\S+)\s+already exists against Customer's Purchase Order\s+(\S+)/.exec(plain);
+    return m ? { order_name: m[1], po_no: m[2] } : null;
+  }
+  // An order can be imported when nothing in it is unresolved: every line is matched to a Specification
+  // (by name, by what was remembered, or by the person's own pick) and no Specification conflict is waiting.
+  function orderBlocked(q) {
+    return allIssues(q).length > 0 || (specConflictsFor(q).length > 0 && !q._specResolved);
+  }
+  // Ready = pre-checked and nothing at all to fill in or fix.
+  const orderReady = (q) => q.status === "pending" && !!q._checked && !q._checking && !orderBlocked(q);
+  // What is still unresolved that the browser already knows about (the server pre-check adds the rest).
+  function clientIssues(q) {
+    const out = [];
+    specMismatchRowsFor(q).forEach((m) => out.push({
+      id: "spec-" + m.rowIndex, kind: "spec", rowIndex: m.rowIndex, name: m.row._unresolved_spec_name, row: m.row,
+      message: `Which Specification is “${m.row._unresolved_spec_name}”?`,
+    }));
+    const specRows = new Set(specMismatchRowsFor(q).map((m) => m.row._source_row));
+    (q.unresolved_items || []).forEach((u) => {
+      const m = /^Row (\d+):/.exec(u);
+      if (!(m && specRows.has(+m[1]))) out.push({ id: "unres-" + out.length, kind: "info", message: u });
+    });
+    if (q.currency_warning) out.push({ id: "cur", kind: "info", message: q.currency_warning });
+    return out;
+  }
+  const allIssues = (q) => clientIssues(q).concat(q._issues || []);
+  // The order as it would be saved (same shape saveSalesOrder takes), plus the wizard's own index for each line.
+  function buildOrderPayload(q) {
+    const rows = q.rows || [];
+    const specIdx = [], manIdx = [];
+    rows.forEach((r, ri) => (r._is_spec_row ? specIdx : manIdx).push(ri));
+    const spec_rows = specIdx.map((ri) => {
+      const clean = Object.assign({}, rows[ri]);
+      Object.keys(clean).forEach((k) => { if (k.startsWith("_")) delete clean[k]; });
+      return clean;
+    });
+    const manual_rows = manIdx.map((ri) => mappedRowToManual(rows[ri], q.default_warehouse));
+    if (q.update_of) {
+      // An update replaces the lines of the order it came from and changes only what the new file carries.
+      return Object.assign({}, q.update_header || {}, { name: q.update_of, customer: q.header.customer, manual_rows, spec_rows, row_refs: specIdx.concat(manIdx) });
+    }
+    return Object.assign({}, q.header, IMPORT_ID ? { custom_order_import: IMPORT_ID } : {}, { manual_rows, spec_rows, row_refs: specIdx.concat(manIdx) });
+  }
+  // Asks the server for everything that would stop this order saving. Never throws.
+  // Lines held for a Specification may not carry their equivalents yet (an import saved earlier, or a server that
+  // was older when the preview was built): ask for them now.
+  // Rows held for a Specification in an import saved before the page knew why: work out the Specification they named and
+  // whether it was only the number of boxes that was missing, from the saved messages.
+  function normalizeHeldRows(q) {
+    (q.rows || []).forEach((r) => {
+      if (!r._unresolved_item || !r.custom_line || r._is_spec_row) return;
+      if (!r._unresolved_spec_name) r._unresolved_spec_name = r.custom_line;
+      if (r._needs_boxes === undefined) {
+        const msg = (q.unresolved_items || []).find((u) => new RegExp("^Row " + r._source_row + ":").test(u)) || "";
+        // The reason only: the message ends with the row's own fingerprint "(Specification: X, Number of Boxes: 2)",
+        // which names Number of Boxes on every line and must not be mistaken for the reason.
+        const reason = msg.replace(/^Row \d+:\s*/, "").replace(/\s*\(Specification:.*$/, "");
+        if (/needs Number of Boxes|divide evenly/.test(reason)) {
+          r._needs_boxes = true;
+          r._resolve_spec = r.custom_line;
+          r._resolve_error = reason;
+        } else {
+          r._needs_boxes = false;
+        }
+      }
+    });
+  }
+  async function ensureCodeSuggestions(q) {
+    normalizeHeldRows(q);
+    const need = [];
+    (q.rows || []).forEach((r, ri) => { if (r._unresolved_spec_name && r._line_code && r._code_suggestions === undefined) need.push(ri); });
+    if (!need.length) return;
+    try {
+      const m = await call(IMPORT_API + "suggestSpecsByCode", { data: JSON.stringify({ items: need.map((ri) => ({ code: q.rows[ri]._line_code, description: q.rows[ri]._unresolved_spec_name })) }) });
+      if (m.success) need.forEach((ri, k) => { q.rows[ri]._code_suggestions = (m.suggestions || [])[k] || []; });
+    } catch (e) { /* the search box still works */ }
+  }
+  async function checkOrder(q) {
+    await ensureCodeSuggestions(q);
+    q._checking = true;
+    try {
+      const m = await call(IMPORT_API + "checkImportOrder", { data: JSON.stringify(buildOrderPayload(q)) });
+      q._issues = m.success ? (m.issues || []) : [];
+      q._summary = m.success ? m.summary : null;
+      q._checkError = m.success ? null : (m.error || "Could not check this order.");
+    } catch (e) {
+      q._issues = [];
+      q._checkError = "Could not check this order.";
+    }
+    q._checking = false;
+    q._checked = true;
+    return allIssues(q);
+  }
+  // ---------- the saved import: create it with the preview, keep it up to date, resume it later ----------
+  const transientKeys = new Set(["_checking", "_summary", "_open", "_whChoice"]);
+  function queueForSave() {
+    return IMPORT_QUEUE.map((q) => {
+      const o = {};
+      Object.keys(q).forEach((k) => { if (!transientKeys.has(k)) o[k] = q[k]; });
+      if (o.status === "creating") o.status = "pending";
+      return o;
+    });
+  }
+  async function uploadImportFile(name) {
+    // Best effort: the parsed file is already stored on the record, so a failed attach loses nothing.
+    try {
+      if (!IMPORT_FILE_OBJ) return;
+      const fd = new FormData();
+      fd.append("file", IMPORT_FILE_OBJ, IMPORT_FILE_NAME || "order-file");
+      fd.append("is_private", "1");
+      fd.append("doctype", "Order Import");
+      fd.append("docname", name);
+      fd.append("fieldname", "uploaded_file");
+      await fetch("/api/method/upload_file", { method: "POST", headers: { "X-Frappe-CSRF-Token": (window.frappe && frappe.csrf_token) || "" }, body: fd, credentials: "same-origin" });
+    } catch (e) { /* ignore */ }
+  }
+  // Creates the saved import. Only one unfinished import per source is kept: when one already exists the person
+  // chooses to resume it or to replace it with this file, so two never pile up under Resume.
+  // Resolves "created" or "resumed" (the earlier one was opened instead).
+  async function createImportRecord(replaces) {
+    const m = await call(IMPORT_API + "saveImport", { data: JSON.stringify({
+      file_name: IMPORT_FILE_NAME || "Order file",
+      source: IMPORT_PLATFORM_NAME,
+      customer: IMPORT_UPDATE ? IMPORT_UPDATE.customer : (IMPORT_MODE === "single" && IMPORT_CUSTOMER ? IMPORT_CUSTOMER.name : null),
+      header: IMPORT_FILE_HEADER || [], rows: IMPORT_FILE_ROWS || [],
+      kind: IMPORT_UPDATE ? "Update" : "Import", update_of: IMPORT_UPDATE ? IMPORT_UPDATE.from : null,
+      replaces: replaces || [],
+      orders: queueForSave(),
+    }) });
+    if (m.success) { IMPORT_ID = m.name; uploadImportFile(m.name); return "created"; }
+    if (m.code === "unfinished_exists") {
+      const choice = await askResumeOrReplace(m.existing || []);
+      if (choice === "replace") return createImportRecord((m.existing || []).map((x) => x.name));
+      await resumeImport(choice);
+      return "resumed";
+    }
+    showErr(m.error || "Could not save this import.");
+    return "created";
+  }
+  // Resolves "replace" or the name of the unfinished import to resume. Closing the window resumes the latest one.
+  function askResumeOrReplace(existing) {
+    const what = IMPORT_UPDATE ? "update" : "import";
+    return new Promise((resolve) => {
+      let choice = existing.length ? existing[0].name : "replace";
+      const body = document.createElement("div");
+      PH.set(body, `<p>There is already an unfinished ${what} for <b>${esc(IMPORT_PLATFORM_NAME || "this source")}</b>. Only one is kept at a time, so two never wait to be resumed.</p>
+        <div class="ph-stack">${existing.map((x) => {
+          const done = (x.created_orders || 0) + (x.existing_orders || 0);
+          return `<div class="ph-flex ph-flex--wrap" style="justify-content:space-between;align-items:center;gap:var(--sp-3);border-top:1px dashed var(--hairline-2);padding-top:var(--sp-2)">
+            <div style="min-width:0"><div class="ph-strong ph-truncate">${esc(x.file_name || x.name)}</div><div class="ph-muted">${esc(x.name)} · ${done} of ${x.total_orders || 0} orders done</div></div>
+            <button type="button" class="ph-btn ph-btn--sm ph-btn--primary" data-resume="${esc(x.name)}">Resume this one</button></div>`;
+        }).join("")}</div>
+        <p class="ph-muted ph-mt">Or use the file you just chose instead: the earlier ${what}${existing.length > 1 ? "s are" : " is"} taken off the list (orders already created stay).</p>`);
+      const modal = PH.modal({
+        title: `Resume or replace the earlier ${what}?`, body,
+        actions: [{ label: "Replace with this file", primary: true, onClick: () => { choice = "replace"; return true; } }],
+        onClose: () => resolve(choice),
+      });
+      PH.$$("[data-resume]", body).forEach((b) => b.addEventListener("click", () => { choice = b.dataset.resume; modal.close(); }));
+    });
+  }
+  let importSaveTimer = null;
+  let importSaveBusy = false;
+  // Called after every change to the queue (each render of the Import page); saves a moment later, one at a time.
+  function saveImportState() {
+    if (!IMPORT_ID) return;
+    clearTimeout(importSaveTimer);
+    importSaveTimer = setTimeout(async () => {
+      if (importSaveBusy) return saveImportState();
+      importSaveBusy = true;
+      try { await call(IMPORT_API + "saveImport", { data: JSON.stringify({ name: IMPORT_ID, orders: queueForSave() }) }); }
+      finally { importSaveBusy = false; }
+    }, 500);
+  }
+  async function loadResumableImports() {
+    const m = await call(IMPORT_API + "listImports", {}, true);
+    IMPORT_RESUMABLE = m.success ? (m.imports || []) : [];
+    if (IMPORT_SUBVIEW === "file") renderImport();
+  }
+  async function resumeImport(name) {
+    showErr("");
+    const m = await call(IMPORT_API + "getImport", { name }, true);
+    if (!m.success) { showErr(m.error || "Could not open that import."); return; }
+    IMPORT_FILE_HEADER = m.header;
+    IMPORT_FILE_ROWS = m.rows;
+    IMPORT_FILE_NAME = m.file_name;
+    IMPORT_FILE_OBJ = null;
+    IMPORT_PLATFORM_NAME = m.source;
+    IMPORT_ID = m.name;
+    IMPORT_UPDATE = m.kind === "Update" ? { from: m.update_of, source: m.source, customer: m.customer } : null;
+    IMPORT_RESUMED = true;
+    IMPORT_SKIPPED = null;
+    IMPORT_QUEUE = (m.orders || []).map((o) => Object.assign({}, o, { _checked: false, _checking: false, status: (o.status === "creating" || o.status === "skipped") ? "pending" : o.status }));
+    IMPORT_SUBVIEW = "queue";
+    renderImport();
+    preflightQueue();
+  }
+  async function discardSavedImport(name) {
+    const ok = await PH.confirm("Take this import off the list?", "The orders it already created stay as they are. You can still open it from Desk.", { ok: "Remove" });
+    if (!ok) return;
+    await call(IMPORT_API + "discardImport", { name });
+    loadResumableImports();
+  }
+  async function preflightQueue() {
+    if (!IMPORT_ID && IMPORT_QUEUE.length && IMPORT_FILE_HEADER) {
+      const made = await createImportRecord();
+      if (made === "resumed") return; // an earlier unfinished import was opened instead; it checks itself
+    }
+    await Promise.all(IMPORT_QUEUE.map((q) => (q.status === "pending" ? checkOrder(q) : null)));
+    renderImport();
+  }
+  // Lines whose Specification the person can re-point: the file's own wording is kept on the row.
+  function specMismatchRowsFor(q) {
+    const out = [];
+    (q.rows || []).forEach((r, ri) => { if (r._unresolved_spec_name) out.push({ rowIndex: ri, row: r }); });
+    return out;
+  }
+  // The Specifications that share the line's code: shown as the equivalents to pick from.
+  // Says plainly what the import file contained and what is needed from the person.
+  function boxesNotice(row) {
+    const src = row._source_row ? ` (file row ${esc(String(row._source_row))})` : "";
+    const spec = esc(row._resolve_spec || row.custom_line || "");
+    if (/divide evenly/.test(row._resolve_error || "")) {
+      return `The import file orders <b>${esc(String(row._bunches_ordered ?? "?"))} bunches</b> of <b>${spec}</b>${src}, which does not make whole boxes. <b>Fill in the number of boxes</b> to use.`;
+    }
+    const n = row.custom_number_of_boxes;
+    return `The import file has <b>${n === undefined || n === null || n === "" ? "no value" : esc(String(n))} for Number of Boxes</b> on this line${src}, so <b>${spec}</b> can't be built. <b>Fill in the number of boxes</b> to use.`;
+  }
+  function codeSuggestionsHtml(row, attrs, boxesButton) {
+    const code = row._line_code;
+    // A Specification that matched but needs a box count: no suggestions, just the reason and the boxes to fill in.
+    if (row._needs_boxes) {
+      const boxesOnly = `<div class="ph-field__hint ph-warn">⚠ ${boxesNotice(row)}</div>
+        <div class="ph-flex ph-flex--wrap" style="align-items:center;gap:var(--sp-2)">
+          <span class="ph-muted">Number of boxes for this line:</span>
+          <input class="ph-control" style="max-width:110px" type="number" min="1" step="1" data-k="boxes" data-boxes placeholder="Boxes"${Number(row.custom_number_of_boxes) > 0 ? ` value="${esc(String(row.custom_number_of_boxes))}"` : ""}>
+          ${boxesButton ? boxesButton(row._resolve_spec) : ""}
+        </div>`;
+      return boxesOnly;
+    }
+    // The Specification the importer already matched by the code comes first, as the one to confirm.
+    const tried = row.custom_line && row.custom_line !== row._unresolved_spec_name ? row.custom_line : null;
+    const list = (row._code_suggestions || []).filter((n) => n !== tried);
+    if (tried) list.unshift(tried);
+    if (!code && !tried) return "";
+    const boxes = row._needs_boxes ? `<div class="ph-flex ph-flex--wrap" style="align-items:center;gap:var(--sp-2)">
+        <span class="ph-muted">Number of boxes for this line:</span>
+        <input class="ph-control" style="max-width:110px" type="number" min="1" step="1" data-k="boxes" data-boxes placeholder="Boxes"${row.custom_number_of_boxes ? ` value="${esc(String(row.custom_number_of_boxes))}"` : ""}>
+        ${boxesButton ? boxesButton(row._resolve_spec) : ""}
+      </div>` : "";
+    const err = row._resolve_error ? `<div class="ph-field__hint ph-warn">⚠ ${esc(row._resolve_error)}</div>${boxes}` : "";
+    if (!list.length) {
+      return row._code_suggestions === undefined ? "" : `<div class="ph-field__hint">No Specification here matches the line code <b>${esc(code || "")}</b>. Search for the right one below.</div>${err}`;
+    }
+    return `<div class="ph-field__hint">${tried ? "Matched by line code" : "Specifications with the line code"} <b>${esc(code || "")}</b> — ${tried ? "confirm it, or pick another" : "pick the equivalent"}:</div>
+      <div class="ph-flex ph-flex--wrap" style="gap:var(--sp-2)">${list.map((n, k) => `<button type="button" class="ph-btn ph-btn--sm${tried && k === 0 ? " ph-btn--primary" : ""}" ${attrs(n)}>${tried && k === 0 ? "Use " : ""}${esc(n)}</button>`).join("")}</div>${err}`;
+  }
+  function renderSpecMismatchFixes(i, mismatches) {
+    return `<div class="ph-stack">${mismatches.map((m) => `<div class="so-rmv" data-i="${i}" data-row="${m.rowIndex}">
+      <div>${m.row._needs_boxes ? `<b class="ph-strong">${esc(m.row._resolve_spec || m.row._unresolved_spec_name || "")}</b> matched — the file's box count is missing.` : `Which Specification is <b class="ph-strong">${esc(m.row._unresolved_spec_name || "")}</b>?`} <span class="ph-muted">(file row ${esc(String(m.row._source_row || ""))}${m.row.custom_line && m.row.custom_line !== m.row._unresolved_spec_name ? " · tried " + esc(m.row.custom_line) : ""})</span></div>
+      ${codeSuggestionsHtml(m.row, (n) => `data-act="imp-spec-suggest" data-i="${i}" data-row="${m.rowIndex}" data-spec="${esc(n)}"`, (spec) => `<button type="button" class="ph-btn ph-btn--sm ph-btn--primary" data-act="imp-spec-boxes" data-i="${i}" data-row="${m.rowIndex}" data-spec="${esc(spec || "")}">Use with these boxes</button>`)}
+      <input class="ph-control" data-specmm-input placeholder="${m.row._line_code ? "…or search another Specification" : "Search Specifications…"}" autocomplete="off">
+    </div>`).join("")}</div>`;
+  }
+  // The next mix/bunch group number free in this order, so a fix applied after other lines already resolved can't collide.
+  function nextSpecGroupNumber(q) {
+    let max = 0;
+    (q.rows || []).forEach((r) => {
+      const mg = parseInt(r.custom_mix_group, 10), bg = parseInt(r.custom_bunch_group, 10);
+      if (!isNaN(mg)) max = Math.max(max, mg);
+      if (!isNaN(bg)) max = Math.max(max, bg);
+    });
+    return max + 1;
+  }
+  function recomputeUnresolved(q) {
+    const still = new Set((q.rows || []).filter((r) => r._unresolved_item).map((r) => r._source_row));
+    q.unresolved_items = (q.unresolved_items || []).filter((u) => {
+      const m = /^Row (\d+):/.exec(u);
+      return m ? still.has(+m[1]) : true;
+    });
+  }
+  async function resolveSpecMismatchRow(i, rowIndex, specName, quiet) {
+    const q = IMPORT_QUEUE[i];
+    const row = q.rows[rowIndex];
+    const sourceName = row._unresolved_spec_name || row.custom_line;
+    const sourceRow = row._source_row;
+    const next = nextSpecGroupNumber(q);
+    const m = await call(IMPORT_API + "resolveImportSpecRow", { data: JSON.stringify({
+      item_row: row, spec_name: specName, customer: q.header.customer,
+      platform: IMPORT_PLATFORM_NAME, source_spec_name: sourceName,
+      next_mix_group: next, next_bunch_group: next,
+    }) });
+    if (!m.success) {
+      const msg = m.error || `Could not use “${specName}” for this line.`;
+      row._resolve_error = msg;
+      // The Specification itself is fine; the file's quantity just does not make whole boxes: ask for the boxes.
+      row._needs_boxes = /divide evenly|needs Number of Boxes/i.test(msg);
+      row._resolve_spec = specName;
+      if (quiet) return msg;
+      PH.toast(msg, "bad");
+      renderImport();
+      return;
+    }
+    q.rows.splice(rowIndex, 1, ...(m.rows || []));
+    recomputeUnresolved(q);
+    if (!(q.unresolved_items || []).length && q.status === "failed") { q.status = "pending"; q.error = null; }
+    q._resolvedSpecNotes = q._resolvedSpecNotes || [];
+    q._resolvedSpecNotes.push({ source_row: sourceRow, spec_name: specName });
+    if (quiet) return null;
+    PH.toast(`Mapped to “${specName}” — remembered for next time.`, "good");
+    await checkOrder(q);
+    renderImport();
+    return null;
+  }
   function renderResolveMissing(i, quickAdds) {
     return quickAdds.map((qa) => {
       const willBecome = (qa.doctype === "Stem Length" && /^\d+$/.test(qa.value)) ? `${qa.value}cm` : null;
@@ -2270,22 +3015,69 @@
       </div>`;
     }).join("");
   }
+  // What the import holds for one order: the header (marking what came from the file) and every line, with the
+  // Specification, item, boxes, packrate and any reason a line is held. Shown under the card's Details button.
+  function orderDetailsHtml(q) {
+    const fromFile = new Set(q.file_fields || []);
+    const hdrKeys = Object.keys(q.header || {}).filter((k) => !k.startsWith("_") && q.header[k] !== null && q.header[k] !== "");
+    const hdr = hdrKeys.map((k) => `<tr><td>${esc(importTargetLabel("Sales Order", k) || k)}</td><td><b>${esc(String(q.header[k]))}</b></td><td class="ph-muted">${fromFile.has(k) ? "from the file" : "set by the importer"}</td></tr>`).join("");
+    const lines = (q.rows || []).map((r) => {
+      const held = r._unresolved_item && !r._is_spec_row;
+      const boxes = r.custom_number_of_boxes;
+      const boxesBad = boxes === undefined || boxes === null || boxes === "" || Number(boxes) === 0;
+      const packrate = r.custom_packrate || r.custom_packrate_mixed_box || "";
+      const specCell = held
+        ? `<span class="ph-muted">file:</span> ${esc(r._unresolved_spec_name || r.custom_line || "")}<br><span class="ph-badge ph-badge--warn">held</span> ${esc(r._resolve_error || "needs a Specification")}`
+        : `${esc(r.custom_line || "—")}${r._matched_from ? `<br><span class="ph-muted">file: ${esc(r._matched_from)}</span>` : ""}`;
+      return `<tr><td>${esc(String(r._source_row ?? ""))}</td><td>${specCell}</td><td>${esc(r.item_code || "—")}</td><td>${esc(String(r.custom_length || "—"))}</td>
+        <td>${boxesBad ? `<span class="ph-badge ph-badge--warn">${boxes === undefined || boxes === null || boxes === "" ? "none" : esc(String(boxes))}${held ? " in file" : ""}</span>` : esc(String(boxes))}</td>
+        <td>${packrate ? esc(String(packrate)) : '<span class="ph-muted">—</span>'}</td><td>${esc(r.uom || "—")}</td><td class="ph-muted">${esc(r._line_code || "")}</td></tr>`;
+    }).join("");
+    return `<div class="ph-stack" style="border-top:1px solid var(--hairline);padding-top:var(--sp-3)" data-details="${esc(String(q.header.po_no || ""))}">
+      <div class="ph-strong">Order</div>
+      <table class="ph-table"><tbody>${hdr || '<tr><td class="ph-muted">No header values.</td></tr>'}</tbody></table>
+      <div class="ph-strong">Lines (${(q.rows || []).length})</div>
+      <div style="overflow:auto"><table class="ph-table"><thead><tr><th>File row</th><th>Specification</th><th>Item</th><th>Length</th><th>Boxes</th><th>Packrate</th><th>Unit</th><th>Line code</th></tr></thead><tbody>${lines || '<tr><td colspan="8" class="ph-muted">No lines.</td></tr>'}</tbody></table></div>
+    </div>`;
+  }
   function renderQueueCard(q, i) {
-    const label = q.header.custom_order_name || q.header.customer || ("Order " + (i + 1));
+    const label = q.header.custom_order_name || q.header.po_no || q.header.customer || ("Order " + (i + 1));
     const quickAdds = q.status === "failed" ? parseLinkValidationError(q.error) : [];
     const specConflicts = q.status === "needs_review" ? specConflictsFor(q) : [];
     const notes = specStatusNotesFor(q);
+    const mismatches = ["created", "updated", "duplicate"].includes(q.status) ? [] : specMismatchRowsFor(q);
+    const mismatchRows = new Set(mismatches.map((m) => m.row._source_row));
+    const plainUnresolved = (q.unresolved_items || []).filter((u) => {
+      const m = /^Row (\d+):/.exec(u);
+      return !(m && mismatchRows.has(+m[1]));
+    });
+    const blocked = q.status === "pending" && orderBlocked(q);
+    const checking = q.status === "pending" && (!q._checked || q._checking);
+    const statusKey = q.status === "pending" ? (checking ? "pending" : blocked ? "attention" : "ready") : q.status;
+    const statusText = { updated: "updated", pending: "checking…", attention: "needs info", ready: "ready", needs_review: "needs review", duplicate: "already exists" }[statusKey] || statusKey;
+    const issueList = q.status === "pending" && !checking ? allIssues(q).filter((x) => x.kind !== "spec") : [];
     return `<article class="ph-tile">
       <div class="ph-tile__head">
-        <div style="min-width:0"><div class="ph-tile__name">${esc(label)}${q.order_name ? ` → <a href="#" class="ph-link" data-act="imp-open-order" data-name="${esc(q.order_name)}">${esc(q.order_name)}</a>` : ""}</div>
-          <div class="ph-tile__sub">${PH.fmt.plural((q.rows || []).length, "line")} · delivery ${esc(q.header.delivery_date || "—")} · price list ${esc(q.header.selling_price_list || "—")}</div></div>
-        <span class="ph-badge ${QUEUE_BADGE[q.status] || ""}">${q.status === "needs_review" ? "needs review" : esc(q.status)}</span>
+        <div style="min-width:0"><div class="ph-tile__name">${q.update_of && q.status !== "updated" ? "Update · " : ""}${esc(label)}${q.order_name ? ` → <a href="#" class="ph-link" data-act="imp-open-order" data-name="${esc(q.order_name)}">${esc(q.order_name)}</a>` : ""}</div>
+          <div class="ph-tile__sub">${esc(q.header.customer || "")} · ${PH.fmt.plural((q.rows || []).length, "line")} · delivery ${esc(q.header.delivery_date || "—")} · price list ${esc(q.header.selling_price_list || "—")}</div></div>
+        <span class="ph-badge ${QUEUE_BADGE[statusKey] || ""}">${esc(statusText)}</span>
       </div>
-      ${(q.unresolved_items || []).length ? (q.unresolved_items || []).map((u) => warnLine("⚠ " + esc(u))).join("") + warnLine("Use Review &amp; fix below to pick the right variety for each row.") : ""}
+      <div><button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-act="imp-details" data-i="${i}" aria-expanded="${q._open ? "true" : "false"}">Details ${q._open ? "▴" : "▾"}</button></div>
+      ${q._open ? orderDetailsHtml(q) : ""}
+      ${q.status === "duplicate" ? `<div class="ph-field__hint">Already imported — an order with this PO number already exists for this customer, so it won't be created again.</div>` : ""}
+      ${issueList.length ? `<div class="ph-field__hint ph-warn"><b>${PH.fmt.plural(issueList.length, "thing")} to fill in before this can be imported:</b></div>` + issueList.slice(0, 5).map((x) => warnLine("• " + esc(x.message))).join("") + (issueList.length > 5 ? warnLine(`… and ${issueList.length - 5} more`) : "") : ""}
+      ${q._checkError ? warnLine("⚠ " + esc(q._checkError)) : ""}
+      ${(q._resolvedSpecNotes || []).map((n) => `<div class="ph-field__hint">✓ Row ${esc(String(n.source_row))}: mapped to Specification “${esc(n.spec_name)}”.</div>`).join("")}
+      ${mismatches.length ? renderSpecMismatchFixes(i, mismatches) : ""}
       ${renderSpecStatusNotes(notes)}
       ${specConflicts.length ? renderSpecConflicts(i, specConflicts) : ""}
       ${q.error ? `<div class="ph-notice ph-notice--bad ph-mb-0">${esc(q.error)}</div>` : ""}
       ${quickAdds.length ? `<div>${renderResolveMissing(i, quickAdds)}</div>` : ""}
+      ${q.status === "created" && IMPORT_ID && !q.update_of ? `<div class="ph-flex"><button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-act="imp-rollback-order" data-i="${i}">Roll back</button></div>` : ""}
+      ${q.status === "pending" ? `<div class="ph-flex ph-flex--wrap">
+        <button type="button" class="ph-btn ph-btn--sm" data-act="imp-review" data-i="${i}">Review &amp; fix</button>
+        <button type="button" class="ph-btn ph-btn--sm ph-btn--primary" data-act="imp-one" data-i="${i}"${checking || IMPORT_RUNNING ? " disabled" : ""}>${q.update_of ? (blocked ? "Fill in &amp; update" : "Update this order") : (blocked ? "Fill in &amp; import" : "Import this order")}</button>
+      </div>` : ""}
       ${q.status === "failed" ? `<div class="ph-flex ph-flex--wrap">
         <button type="button" class="ph-btn ph-btn--sm" data-act="imp-retry" data-i="${i}">Retry</button>
         <button type="button" class="ph-btn ph-btn--sm ph-btn--primary" data-act="imp-review" data-i="${i}">Review &amp; fix</button>
@@ -2294,24 +3086,42 @@
   }
   function renderImportQueueView() {
     const created = IMPORT_QUEUE.filter((q) => q.status === "created").length;
-    const failed = IMPORT_QUEUE.filter((q) => q.status === "failed" || q.status === "needs_review").length;
+    const updated = IMPORT_QUEUE.filter((q) => q.status === "updated").length;
+    const existing = IMPORT_QUEUE.filter((q) => q.status === "duplicate").length;
+    const ready = IMPORT_QUEUE.filter(orderReady).length;
+    const pendingCount = IMPORT_QUEUE.filter((q) => q.status === "pending").length;
+    const failed = IMPORT_QUEUE.filter((q) => q.status === "failed" || q.status === "needs_review" || (q.status === "pending" && q._checked && orderBlocked(q))).length;
     PH.set(vImport, `
+      ${importStepHeader(IMPORT_UPDATE ? 3 : 4)}
+      ${IMPORT_ID ? `<div class="ph-notice ph-mb">Saved as <a class="ph-link" href="/app/order-import/${encodeURIComponent(IMPORT_ID)}" target="_blank" rel="noopener">${esc(IMPORT_ID)}</a> — you can leave and resume it from the upload page. Orders created here link back to it.</div>` : ""}
+      ${IMPORT_SKIPPED && IMPORT_SKIPPED.count ? `<div class="ph-notice ph-mb">${PH.fmt.plural(IMPORT_SKIPPED.count, "row")} left out because ${esc(IMPORT_SKIPPED.column)} is ${esc(IMPORT_SKIPPED.values)}.</div>` : ""}
       <section class="ph-kpis" data-qkpis></section>
       <div class="so-actions ph-mb">
-        <button type="button" class="ph-btn ph-btn--ghost" data-act="imp-step" data-step="file">← Back to file pick</button>
-        <button type="button" class="ph-btn ph-btn--primary" data-act="imp-run">Start / continue import</button>
+        <button type="button" class="ph-btn ph-btn--ghost" data-act="imp-step" data-step="${IMPORT_UPDATE ? "compare" : IMPORT_RESUMED ? "file" : "mapping"}">← ${IMPORT_UPDATE ? "Back to the comparison" : IMPORT_RESUMED ? "Back to upload" : "Back to mapping"}</button>
+        <button type="button" class="ph-btn ph-btn--primary" data-act="imp-run"${pendingCount && !IMPORT_RUNNING ? "" : " disabled"}>Import all orders${pendingCount ? " (" + pendingCount + ")" : ""}</button>
       </div>
-      <div class="ph-stack">${IMPORT_QUEUE.length ? IMPORT_QUEUE.map(renderQueueCard).join("") : ""}</div>`);
+      <div class="ph-stack">${IMPORT_QUEUE.length ? queueDisplayOrder().map((i) => renderQueueCard(IMPORT_QUEUE[i], i)).join("") : ""}</div>`);
     PH.kpis(vImport.querySelector("[data-qkpis]"), [
       { label: "Orders detected", value: IMPORT_QUEUE.length },
       { label: "Created", value: created },
-      { label: "Remaining", value: IMPORT_QUEUE.length - created },
+      ...(updated || IMPORT_UPDATE ? [{ label: "Updated", value: updated }] : []),
+      { label: "Already existed", value: existing },
+      { label: "Ready", value: ready },
       { label: "Need attention", value: failed },
     ]);
     if (!IMPORT_QUEUE.length) {
       const holder = vImport.querySelector(".ph-stack");
       PH.empty(holder, "No orders found in this file", "Check the column mapping and the split column, then build the preview again.");
     }
+    saveImportState();
+    PH.$$("[data-specmm-input]", vImport).forEach((input) => {
+      const item = input.closest(".so-rmv");
+      const i = +item.dataset.i, rowIndex = +item.dataset.row;
+      PH.autocomplete(input, {
+        source: (q) => call(IMPORT_API + "searchSpecification", { data: JSON.stringify({ query: q, customer: IMPORT_QUEUE[i].header.customer }) }).then((m) => ((m.success ? m.options : []) || []).map((o) => ({ value: o, label: o }))),
+        onSelect: (it) => resolveSpecMismatchRow(i, rowIndex, it.value),
+      });
+    });
     PH.$$("[data-rmv-input]", vImport).forEach((input) => {
       const item = input.closest(".so-rmv");
       const doctype = item.dataset.doctype, oldValue = item.dataset.value;
@@ -2347,71 +3157,325 @@
       warehouse: r.warehouse || defaultWarehouse,
     };
   }
-  function runImportQueue() {
-    const next = IMPORT_QUEUE.findIndex((q) => q.status === "pending");
-    if (next === -1) return;
-    processQueueItem(next);
+  // The order the cards are shown in: orders already created (or that already existed) at the top, then ready
+  // ones, then the ones that still need something. Imports run top to bottom over what is still pending. The indexes stay the queue's own.
+  function queueRank(q) {
+    if (q.status === "created" || q.status === "updated") return 0;
+    if (q.status === "duplicate") return 1;
+    if (q.status === "creating") return 2;
+    if (q.status === "pending") return orderReady(q) ? 2 : 3;
+    return 3; // failed / needs review
   }
-  // Resolving one order's last blocker (a missing item code, a spec conflict)
-  // flips that SAME order back to "pending", and it's usually the very first
-  // pending one - calling runImportQueue() straight away would re-enter
-  // processQueueItem on it in the same tick, so the card the user just fixed
-  // jumps straight to "creating"/"created" before the resolved, pending state
-  // (and its success toast) ever gets a chance to paint. This is for those
-  // same-order re-entry points only - the queue's own internal chaining
-  // between genuinely different orders (inside processQueueItem) stays instant.
-  function continueQueueSoon() {
-    setTimeout(runImportQueue, 900);
+  function queueDisplayOrder() {
+    return IMPORT_QUEUE.map((q, i) => i).sort((a, b) => (queueRank(IMPORT_QUEUE[a]) - queueRank(IMPORT_QUEUE[b])) || (a - b));
   }
-  function processQueueItem(i) {
+  let IMPORT_RUNNING = false;
+  // A fixed order waits for its own button; only "Import all" carries on by itself.
+  function continueQueueSoon() { renderImport(); }
+
+  // Imports one order. Everything that would stop the save is found first and asked for in one dialog; the
+  // person fills it in, presses Next, and the order is checked again. A save the server still refuses shows its
+  // message in a dialog with Try again. Resolves "created", "duplicate" or "paused" (the person stopped).
+  async function importOrder(i) {
     const q = IMPORT_QUEUE[i];
-    // A blocked order (unresolved item codes, or an unresolved spec conflict)
-    // must never stall the rest of the batch - without this, runImportQueue()
-    // would stop dead at the first one and every order after it would sit
-    // untouched until "Start/continue" was clicked again just for it.
-    if ((q.unresolved_items || []).length) {
-      q.status = "failed";
-      q.error = "Unrecognised item code(s) need fixing before this order can be created.";
+    for (let round = 0; round < 15; round += 1) {
+      await checkOrder(q);
       renderImport();
-      runImportQueue();
-      return;
-    }
-    if (specConflictsFor(q).length && !q._specResolved) {
-      q.status = "needs_review";
-      renderImport();
-      runImportQueue();
-      return;
-    }
-    q.status = "creating";
-    renderImport();
-    // A spec-identified row (_is_spec_row - see _resolve_spec_row in
-    // api/order_import.py) already arrived fully shaped by build_spec_rows
-    // itself, exactly like "+ Add from Spec" would have produced it -
-    // sending it through mappedRowToManual's manual-line shaping would
-    // discard custom_line/custom_mix_name/the spec's detail payload and
-    // re-derive packrate/UOM a second, different way. It goes in as-is,
-    // same as saveOrder()'s own spec_rows handling (and saveSalesOrder
-    // itself: spec_rows are appended to the order untouched).
-    const manual_rows = (q.rows || []).filter((r) => !r._is_spec_row).map((r) => mappedRowToManual(r, q.default_warehouse));
-    const spec_rows = (q.rows || []).filter((r) => r._is_spec_row).map((r) => {
-      const clean = Object.assign({}, r);
-      Object.keys(clean).forEach((k) => { if (k.startsWith("_")) delete clean[k]; });
-      return clean;
-    });
-    const payload = Object.assign({}, q.header, { manual_rows, spec_rows });
-    call(API + "saveSalesOrder", { data: JSON.stringify(payload) }).then((r) => {
-      if (!r.success) {
-        q.status = "failed";
-        q.error = r.error || "Could not create this order.";
-        renderImport();
-        return;
+      if (specConflictsFor(q).length && !q._specResolved) { q.status = "needs_review"; renderImport(); return "paused"; }
+      if (allIssues(q).length) {
+        const fixed = await openFixDialog(i);
+        if (fixed === "skip") return "skipped"; // passed over for now: it stays waiting, the run moves on
+        if (!fixed) return "paused";
+        continue;
       }
-      q.status = "created";
-      q.order_name = r.name;
+      q.status = "creating";
+      q.error = null;
       renderImport();
-      runImportQueue(); // continue with the next pending one
+      const r = await call(API + "saveSalesOrder", { data: JSON.stringify(buildOrderPayload(q)) });
+      if (r.success) {
+        q.status = q.update_of ? "updated" : "created";
+        q.order_name = r.name;
+        renderImport();
+        if (q.update_of && IMPORT_ID) call(IMPORT_API + "noteOrderUpdated", { data: JSON.stringify({ name: r.name, import_name: IMPORT_ID }) });
+        return "created";
+      }
+      const dup = parseDuplicatePoError(r.error);
+      if (dup) {
+        q.status = "duplicate";
+        q.order_name = dup.order_name;
+        q.error = null;
+        renderImport();
+        return "duplicate";
+      }
+      q.status = "pending";
+      q.error = null;
+      renderImport();
+      const choice = await openSaveErrorDialog(i, r.error || "Could not create this order.");
+      if (choice === "retry") continue;
+      if (choice === "skip") { q.error = null; renderImport(); return "skipped"; }
+      if (choice === "review") { openOrderReviewModal(i); return "paused"; }
+      q.status = "failed";
+      q.error = r.error || "Could not create this order.";
+      renderImport();
+      return "paused";
+    }
+    return "paused";
+  }
+  // "Import all orders": one after another in the order shown. It stops at the first order the person
+  // cancels out of, and carries on past orders that already exist.
+  async function runImportQueue() {
+    if (IMPORT_RUNNING) return;
+    IMPORT_RUNNING = true;
+    renderImport();
+    const passedOver = [];
+    try {
+      for (const i of queueDisplayOrder()) {
+        if (IMPORT_QUEUE[i].status !== "pending") continue;
+        const result = await importOrder(i);
+        if (result === "skipped") { passedOver.push(i); continue; } // not now: the next order goes ahead, this one still has to be imported
+        if (result === "paused") break;
+      }
+      if (passedOver.length) PH.toast(`${passedOver.length} order${passedOver.length === 1 ? " was" : "s were"} passed over and still need${passedOver.length === 1 ? "s" : ""} importing.`, "warn");
+    } finally {
+      IMPORT_RUNNING = false;
+      renderImport();
+    }
+  }
+  async function processQueueItem(i) {
+    if (IMPORT_RUNNING) return;
+    IMPORT_RUNNING = true;
+    renderImport();
+    try {
+      if (IMPORT_QUEUE[i].status === "failed") IMPORT_QUEUE[i].status = "pending";
+      await importOrder(i);
+    } finally {
+      IMPORT_RUNNING = false;
+      renderImport();
+    }
+  }
+  /* ---------- "fill these in" dialog ---------- */
+  const lcLabel = (t) => String(t || "").toLowerCase();
+  const escPlain = (t) => String(t || "").replace(/</g, "&lt;");
+  function fixInputHtml(attrs, field) {
+    // field: {fieldtype, options}; Link fields are searchable over their own records.
+    const t = field.fieldtype;
+    if (t === "Date") return `<input class="ph-control" type="date" ${attrs}>`;
+    if (t === "Int") return `<input class="ph-control" type="number" min="0" step="1" ${attrs}>`;
+    if (t === "Link") return `<input class="ph-control" data-link="${esc(field.options)}" placeholder="Search ${esc(field.options)}…" autocomplete="off" ${attrs}>`;
+    return `<input class="ph-control" ${attrs}>`;
+  }
+  function fixFieldRow(label, controlHtml, hint, extraClass) {
+    return `<div class="fx-field${extraClass ? " " + extraClass : ""}"><label>${label}</label>${controlHtml}${hint ? `<div class="fx-hint">${hint}</div>` : ""}</div>`;
+  }
+  function fixSection(title, blurb, inner) {
+    return inner ? `<section class="fx-sec"><div class="fx-sec__head"><h3>${title}</h3>${blurb ? `<p>${blurb}</p>` : ""}</div>${inner}</section>` : "";
+  }
+  function fixDialogHtml(q, issues) {
+    const sum = q._summary || {};
+    const by = (k) => issues.filter((x) => x.kind === k);
+    const grid = (inner) => (inner ? `<div class="fx-grid">${inner}</div>` : "");
+    const one = (inner) => (inner ? `<div class="fx-grid" style="grid-template-columns:1fr">${inner}</div>` : "");
+    // Blank on purpose: the person chooses it each time (a value typed before a failed Next is kept).
+    const currentWarehouse = q._whChoice || "";
+    const warehouse = `<div data-iid="wh">${fixFieldRow("Set Warehouse", fixInputHtml(`data-k="warehouse" value="${esc(currentWarehouse)}"`, { fieldtype: "Link", options: "Warehouse" }), "Every line in this order is filled from it.")}</div>`;
+    const fields = by("field").filter((x) => x.fieldname !== "set_warehouse").map((x) => `<div data-iid="${x.id}">${fixFieldRow(esc(x.label), fixInputHtml('data-k="value"', x))}</div>`).join("");
+    const links = by("missing_link").map((x) => `<div class="fx-sub" data-iid="${x.id}">
+      <div class="fx-sub__title">${esc(x.label)} “${esc(x.value)}” does not exist${x.rows && x.rows.length ? `<small>${PH.fmt.plural(x.rows.length, "line")}</small>` : ""}</div>
+      <div class="fx-choice">
+        ${x.can_create ? `<label class="fx-opt"><input type="radio" name="mode-${x.id}" value="create" data-k="mode" checked> Create “${esc(x.value)}”</label>` : ""}
+        <label class="fx-opt"><input type="radio" name="mode-${x.id}" value="existing" data-k="mode"${x.can_create ? "" : " checked"}> Use an existing ${esc(x.doctype)}</label>
+      </div>
+      ${fixFieldRow(`Existing ${esc(x.doctype)}`, `<input class="ph-control" data-k="existing" data-link="${esc(x.doctype)}" placeholder="Search ${esc(x.doctype)}…" autocomplete="off">`, x.can_create ? "Only needed when you choose an existing one." : "")}
+    </div>`).join("");
+    const cpl = by("customer_price_list").map((x) => `<div data-iid="${x.id}">${grid(fixFieldRow("Default Price List for " + esc(x.customer), fixInputHtml('data-k="value"', { fieldtype: "Link", options: "Price List" }), "Saved on the customer, so its orders are priced from it from now on."))}</div>`).join("");
+    const priceIssues = by("price");
+    const prices = priceIssues.length ? `<div class="fx-plist"><span>Active price list</span><b>${esc(priceIssues[0].price_list)}</b>${priceIssues[0].currency ? `<span>${esc(priceIssues[0].currency)}</span>` : ""}<span class="fx-hint">the Default Price List of ${esc(sum.customer || q.header.customer || "the customer")}</span></div>
+      <div class="fx-price fx-price--head"><span>Variety</span><span>Length</span><span>Price per stem${priceIssues[0].currency ? " (" + esc(priceIssues[0].currency) + ")" : ""}</span></div>` +
+      priceIssues.map((x) => `<div class="fx-price" data-iid="${x.id}"><span class="fx-price__item" title="${esc(x.item_code)}">${esc(x.item_code)}</span><span class="fx-hint">${esc(x.length)}</span>
+        <input class="ph-control" type="number" min="0" step="any" data-k="rate" placeholder="0.00"></div>`).join("") : "";
+    const lines = by("line_field").map((x) => `<div class="fx-sub" data-iid="${x.id}"><div class="fx-sub__title">Line ${x.line}<small>${esc(x.item_code)}</small></div>${grid(x.fields.map((f) => fixFieldRow(esc(f.label), fixInputHtml(`data-k="f:${f.fieldname}"`, f))).join(""))}</div>`).join("");
+    const uoms = by("sales_uom").map((x) => `<div data-iid="${x.id}">${fixFieldRow("Sales UOM for " + esc(x.item_code), fixInputHtml('data-k="value"', { fieldtype: "Link", options: "UOM" }), "Saved on the item.")}</div>`).join("");
+    const disabled = by("disabled_item").map((x) => `<div class="fx-full" data-iid="${x.id}"><label class="fx-opt" style="display:inline-flex"><input type="checkbox" data-k="enable"> Switch item <b>${esc(x.item_code)}</b> back on (it is disabled)</label></div>`).join("");
+    const specs = by("spec").map((x) => `<div class="fx-sub" data-iid="${x.id}">${codeSuggestionsHtml(x.row || {}, (n) => `data-suggest="${esc(n)}"`)}${fixFieldRow(x.row && x.row._needs_boxes ? `Specification for <b>${esc(x.name)}</b>` : `Which Specification is <b>${esc(x.name)}</b>?`, fixInputHtml(`data-k="spec"${x.row && x.row._needs_boxes ? ` value="${esc(x.row._resolve_spec || "")}"` : ""}`, { fieldtype: "Link", options: "Specifications" }), x.row && x.row._needs_boxes ? "Found by name. Fill in the boxes above." : "Remembered for the next file.")}</div>`).join("");
+    const info = by("info").map((x) => `<div class="fx-note">⚠ ${esc(x.message)}</div>`).join("");
+    const parts = [
+      ["Warehouse", warehouse],
+      ["Order details", fields],
+      ["Records that do not exist", links],
+      ["Customer", cpl],
+      ["Line details", lines],
+      ["Prices", prices],
+      ["Items", uoms + disabled],
+      ["Specifications", specs],
+    ].filter((x) => x[1]);
+    const counts = parts.map((x) => `<span class="ph-badge ph-badge--outline">${esc(x[0])}</span>`).join("");
+    return `<div class="fx">
+      <div class="fx-top">
+        <div class="fx-hint">Fill in everything below, then press <b>Next</b>. The order is checked again and created when nothing is left.</div>
+        <div class="fx-sum">${counts}</div>
+        <div class="fx-err" data-fix-error hidden></div>
+      </div>
+      ${fixSection("Warehouse", "Where this order's stock is picked from. Vital: it is written onto every line of the order.", grid(warehouse))}
+      ${fixSection("Order details", "Needed on every order, and not in the file.", grid(fields))}
+      ${fixSection("Records that do not exist", "The file names these but they are not set up yet. Create them, or point to one that exists.", one(links))}
+      ${fixSection("Customer", "", cpl)}
+      ${fixSection("Line details", "These lines are missing details the order needs.", one(lines))}
+      ${fixSection("Prices", "No price is set for these in the price list below. Add one per stem.", prices ? `<div style="display:flex;flex-direction:column;gap:12px">${prices}</div>` : "")}
+      ${fixSection("Items", "", grid(uoms + disabled))}
+      ${fixSection("Specifications", "", one(specs))}
+      ${info ? fixSection("Needs the order editor", "These cannot be filled in here. Close this and use Review &amp; fix on the order.", `<div style="display:flex;flex-direction:column;gap:10px">${info}</div>`) : ""}
+    </div>`;
+  }
+  function wireFixInputs(root) {
+    PH.$$("[data-suggest]", root).forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const box = btn.closest("[data-iid]");
+        const input = box && box.querySelector('[data-k="spec"]');
+        if (input) input.value = btn.dataset.suggest;
+        PH.$$("[data-suggest]", box).forEach((b) => b.classList.toggle("ph-btn--primary", b === btn));
+      });
+    });
+    PH.$$("[data-link]", root).forEach((input) => {
+      if (input.closest(".ph-ac")) return;
+      const doctype = input.dataset.link;
+      PH.autocomplete(input, {
+        source: (qs) => (doctype === "Specifications"
+          ? call(IMPORT_API + "searchSpecification", { data: JSON.stringify({ query: qs, customer: root.dataset.customer || null }) })
+          : call(IMPORT_API + "searchLinkValue", { data: JSON.stringify({ doctype, query: qs }) }))
+          .then((m) => ((m.success ? m.options : []) || []).map((o) => ({ value: o, label: o }))),
+      });
     });
   }
+  // Reads the dialog and applies it: records first, then values on the order, then the Specification picks
+  // (last and from the bottom up, because each one swaps a file row for the rows its Specification expands into).
+  // Returns the list of things that could not be applied.
+  async function applyFixes(q, issues, root) {
+    const get = (id, k) => { const el = root.querySelector(`[data-iid="${id}"] [data-k="${k}"]`); return el ? el.value.trim() : ""; };
+    const checked = (id, k) => { const el = root.querySelector(`[data-iid="${id}"] [data-k="${k}"]`); return !!(el && el.checked); };
+    const mode = (id) => { const el = root.querySelector(`[data-iid="${id}"] [data-k="mode"]:checked`); return el ? el.value : "existing"; };
+    const errors = [];
+    const fail = (m) => errors.push(m);
+    // Set Warehouse always comes first: it goes on the order and onto every line.
+    const wh = get("wh", "warehouse");
+    q._whChoice = wh;
+    if (!wh) fail("Set Warehouse is required.");
+    else {
+      q.header.set_warehouse = wh;
+      q.default_warehouse = wh;
+      (q.rows || []).forEach((r) => { r.warehouse = wh; });
+    }
+    const rowsOf = (x) => (x.rows || []).filter((ri) => q.rows[ri]);
+    for (const x of issues) {
+      if (x.kind === "price") {
+        const rate = parseFloat(get(x.id, "rate"));
+        if (!(rate > 0)) { fail(`Enter a price for ${x.item_code} ${x.length}.`); continue; }
+        const m = await call(API + "createItemPrice", { data: JSON.stringify({ item_code: x.item_code, price_list: x.price_list, length: x.length, rate }) });
+        if (!m.success) fail(`${x.item_code} ${x.length}: ${m.error || "could not add the price"}`);
+      } else if (x.kind === "sales_uom") {
+        const uom = get(x.id, "value");
+        if (!uom) { fail(`Pick a Sales UOM for ${x.item_code}.`); continue; }
+        const m = await call(API + "setItemSalesUom", { data: JSON.stringify({ item_code: x.item_code, uom }) });
+        if (!m.success) fail(`${x.item_code}: ${m.error || "could not set the Sales UOM"}`);
+      } else if (x.kind === "disabled_item") {
+        if (!checked(x.id, "enable")) { fail(`Switch ${x.item_code} back on, or use Review & fix to change the line.`); continue; }
+        const m = await call(IMPORT_API + "setItemEnabled", { data: JSON.stringify({ item_code: x.item_code }) });
+        if (!m.success) fail(`${x.item_code}: ${m.error || "could not enable the item"}`);
+      } else if (x.kind === "customer_price_list") {
+        const pl = get(x.id, "value");
+        if (!pl) { fail("Pick the customer's Default Price List."); continue; }
+        const m = await call(IMPORT_API + "setCustomerPriceList", { data: JSON.stringify({ customer: x.customer, price_list: pl }) });
+        if (!m.success) fail(m.error || "Could not set the price list.");
+        else q.header.selling_price_list = pl;
+      } else if (x.kind === "missing_link") {
+        let value = get(x.id, "existing");
+        if (mode(x.id) === "create") {
+          const m = await call(IMPORT_API + "quickAddMasterValue", { data: JSON.stringify({ doctype: x.doctype, value: x.value, customer: q.header.customer, extra: {} }) });
+          if (!m.success) { fail(`${x.doctype} “${x.value}”: ${m.error || "could not create it"}`); continue; }
+          value = m.name;
+        } else if (!value) { fail(`Pick an existing ${x.doctype} for “${x.value}”.`); continue; }
+        if (x.scope === "header") q.header[x.fieldname] = value;
+        else rowsOf(x).forEach((ri) => { if (q.rows[ri][x.fieldname] === x.value) q.rows[ri][x.fieldname] = value; });
+      }
+    }
+    issues.forEach((x) => {
+      if (x.kind === "field") {
+        const v = get(x.id, "value");
+        if (!v) fail(`${x.label} is required.`); else q.header[x.fieldname] = v;
+      } else if (x.kind === "line_field") {
+        (x.fields || []).forEach((f) => {
+          const v = get(x.id, "f:" + f.fieldname);
+          if (!v) { fail(`Line ${x.line}: ${lcLabel(f.label)} is required.`); return; }
+          if (q.rows[x.row]) q.rows[x.row][f.fieldname] = f.fieldtype === "Int" ? parseInt(v, 10) : v;
+        });
+      }
+    });
+    const specs = issues.filter((x) => x.kind === "spec").sort((a, b) => b.rowIndex - a.rowIndex);
+    for (const x of specs) {
+      const pick = get(x.id, "spec") || (x.row && x.row._needs_boxes ? x.row._resolve_spec : "");
+      if (!pick) { fail(`Pick the Specification for “${x.name}”.`); continue; }
+      const boxes = parseInt(get(x.id, "boxes"), 10);
+      if (boxes > 0 && q.rows[x.rowIndex]) q.rows[x.rowIndex].custom_number_of_boxes = boxes;
+      const err = await resolveSpecMismatchRow(IMPORT_QUEUE.indexOf(q), x.rowIndex, pick, true);
+      if (err) fail(err);
+    }
+    return errors;
+  }
+  // Resolves true once the person has filled everything in and the order checks clean; false when they close it.
+  function openFixDialog(i) {
+    const q = IMPORT_QUEUE[i];
+    return new Promise((resolve) => {
+      let outcome = false;
+      const body = document.createElement("div");
+      const label = q.header.custom_order_name || q.header.po_no || q.header.customer || ("Order " + (i + 1));
+      const paint = (note) => {
+        body.dataset.customer = q.header.customer || "";
+        PH.set(body, fixDialogHtml(q, allIssues(q)));
+        wireFixInputs(body);
+        const box = body.querySelector("[data-fix-error]");
+        if (note && box) { box.hidden = false; PH.set(box, note); }
+      };
+      paint();
+      PH.modal({
+        title: `Fill in what's missing — ${label}`,
+        sub: `${escPlain(q.header.customer)} · everything this order needs before it can be created. Press Next to try again.`,
+        body, size: "lg",
+        actions: [
+          { label: "Cancel", onClick: () => true },
+          { label: "Skip this order", onClick: () => { outcome = "skip"; return true; } },
+          { label: "Next", primary: true, onClick: async () => {
+            const errors = await applyFixes(q, allIssues(q), body);
+            await checkOrder(q);
+            renderImport();
+            if (!errors.length && !allIssues(q).length) { outcome = "next"; return true; }
+            paint(errors.length ? errors.map((e) => "• " + esc(e)).join("<br>") : `Still needed: ${PH.fmt.plural(allIssues(q).length, "item")}.`);
+            return false;
+          } },
+        ],
+        onClose: () => resolve(outcome),
+      });
+    });
+  }
+  // The server refused the save for a reason the pre-check did not know about: show its message.
+  function openSaveErrorDialog(i, message) {
+    const q = IMPORT_QUEUE[i];
+    const plain = String(message || "").replace(/<[^>]+>/g, "");
+    return new Promise((resolve) => {
+      let choice = "close";
+      PH.modal({
+        title: "This order could not be created",
+        sub: q.header.custom_order_name || q.header.po_no || q.header.customer || "",
+        body: `<div class="ph-notice ph-notice--bad">${esc(plain)}</div><p class="ph-muted ph-mt">Fix it in Review &amp; fix, or try again if you have fixed it elsewhere.</p>`,
+        actions: [
+          { label: "Close", onClick: () => true },
+          { label: "Skip this order", onClick: () => { choice = "skip"; return true; } },
+          { label: "Review & fix", onClick: () => { choice = "review"; return true; } },
+          { label: "Try again", primary: true, onClick: () => { choice = "retry"; return true; } },
+        ],
+        onClose: () => resolve(choice),
+      });
+    });
+  }
+
   // Opens the real order-editing UI (same header fields, ledger, + Add from
   // Spec as a normal order) in a modal on top of the wizard, instead of
   // navigating away from it - fixing one failed order should never cost you
@@ -2488,11 +3552,35 @@
     const a = b.dataset.act;
     if (a === "imp-choose") vImport.querySelector("[data-imp-file]").click();
     else if (a === "imp-to-who") goToImportWhoStep();
+    else if (a === "imp-spec-suggest") resolveSpecMismatchRow(+b.dataset.i, +b.dataset.row, b.dataset.spec);
+    else if (a === "imp-spec-boxes") {
+      const boxes = parseInt((b.parentElement.querySelector("[data-boxes]") || {}).value, 10);
+      if (!(boxes > 0)) { PH.toast("Enter the number of boxes first.", "bad"); return; }
+      const q = IMPORT_QUEUE[+b.dataset.i];
+      q.rows[+b.dataset.row].custom_number_of_boxes = boxes;
+      resolveSpecMismatchRow(+b.dataset.i, +b.dataset.row, b.dataset.spec);
+    }
+    else if (a === "imp-resume") resumeImport(b.dataset.name);
+    else if (a === "imp-history") { IMPORT_SUBVIEW = "history"; IMPORT_HISTORY = null; showErr(""); renderImport(); }
+    else if (a === "imp-details") { const q = IMPORT_QUEUE[+b.dataset.i]; q._open = !q._open; renderImport(); }
+    else if (a === "imp-rollback-order") {
+      const q = IMPORT_QUEUE[+b.dataset.i];
+      rollbackImportUi(IMPORT_ID, q.order_name, 1).then((m) => {
+        if (!m || !(m.deleted || []).includes(q.order_name)) return;
+        q.status = "pending"; q.order_name = null; q._checked = false;
+        renderImport(); checkOrder(q).then(renderImport);
+      });
+    }
+    else if (a === "imp-history-open") openImportDetails(b.dataset.name);
+    else if (a === "imp-new") startNewImport();
+    else if (a === "imp-start-update") startUpdate(b.dataset.name);
+    else if (a === "imp-to-compare") goToCompare();
+    else if (a === "imp-apply-updates") applyUpdates();
+    else if (a === "imp-discard") discardSavedImport(b.dataset.name);
     else if (a === "imp-to-mapping") goToImportMappingStep();
-    else if (a === "imp-step") { IMPORT_SUBVIEW = b.dataset.step; showErr(""); renderImport(); }
+    else if (a === "imp-step") { IMPORT_SUBVIEW = b.dataset.step; showErr(""); if (IMPORT_SUBVIEW === "file") IMPORT_RESUMABLE = null; renderImport(); }
     else if (a === "imp-mode") { IMPORT_MODE = b.dataset.value; renderImport(); }
     else if (a === "imp-save-mapping") saveMappingAndBuildPreview();
-    else if (a === "imp-build-preview-readonly") buildPreviewForExistingPlatform(IMPORT_EXISTING.platform);
     else if (a === "imp-item-add") {
       const box = vImport.querySelector(`[data-items="${b.dataset.scope}"]`);
       box.insertAdjacentHTML("beforeend", itemMappingRowHtml("", ""));
@@ -2502,7 +3590,8 @@
     }
     else if (a === "imp-item-remove") b.closest(".so-imap").remove();
     else if (a === "imp-run") runImportQueue();
-    else if (a === "imp-retry") processQueueItem(+b.dataset.i);
+    else if (a === "imp-one") processQueueItem(+b.dataset.i, false);
+    else if (a === "imp-retry") processQueueItem(+b.dataset.i, false);
     else if (a === "imp-review") openOrderReviewModal(+b.dataset.i);
     else if (a === "imp-spec") resolveSpecConflicts(+b.dataset.i, b.dataset.choice);
     else if (a === "imp-qa-toggle") { const f = b.closest(".so-rmv").querySelector("[data-qa-form]"); f.hidden = !f.hidden; }
@@ -2512,8 +3601,9 @@
   vImport.addEventListener("change", (e) => {
     const t = e.target;
     if (t.matches("[data-imp-file]")) onImportFileChosen(t.files[0]);
-    else if (t.matches("[data-imp-platform]")) onSharedPlatformPicked(t.value);
-    else if (t.matches("[data-imp-single-platform]")) onSinglePlatformPicked(t.value);
+    else if (t.matches("[data-imp-source]")) onSourcePicked(t.value);
+    else if (t.matches("[data-rule]")) IMPORT_RULES[t.dataset.rule] = t.value;
+    else if (t.matches("[data-cmp-apply]")) { IMPORT_COMPARE.apply[+t.dataset.cmpApply] = t.checked; renderImport(); }
     else if (t.matches("[data-imp-diffcol]")) { IMPORT_DIFFERENTIATOR_COLUMN = t.value || null; rebuildCustomerMapFromFile(); renderImport(); }
     else if (t.matches("[data-split]")) {
       IMPORT_SPLIT_COLUMN = IMPORT_MAPPING_ROWS[+t.closest("[data-i]").dataset.i].source_column;
@@ -2526,6 +3616,11 @@
     if (t.matches("[data-imp-newsource]")) { IMPORT_NEW_SOURCE_NAME = t.value; updateImportWhoNextBtn(); }
     else if (t.matches("[data-imp-single-newsource]")) { IMPORT_SINGLE_NEW_SOURCE_NAME = t.value; updateImportWhoNextBtn(); }
     else if (t.matches("[data-dflt]")) IMPORT_MAPPING_ROWS[+t.closest("[data-i]").dataset.i].default_value = t.value;
+    else if (t.matches("[data-rule]")) IMPORT_RULES[t.dataset.rule] = t.value;
+    else if (t.matches("[data-matrix]")) {
+      IMPORT_MATRIX = IMPORT_MATRIX || {};
+      IMPORT_MATRIX[t.dataset.matrix] = t.dataset.matrix === "matrix_stop_value" ? t.value : (t.value === "" ? "" : parseInt(t.value, 10));
+    }
   });
 
   /* ---------- keyboard: Escape ----------

@@ -13,6 +13,10 @@
   "header_row",
   "multi_order_column",
   "customer_differentiator_column",
+  "skip_rows_column",
+  "skip_rows_values",
+  "date_format",
+  "po_no_template",
   "section_break_matrix",
   "matrix_group_label_row",
   "matrix_order_date_row",
@@ -76,6 +80,32 @@
    "fieldname": "customer_differentiator_column",
    "fieldtype": "Data",
    "label": "Customer Differentiator Column"
+  },
+  {
+   "fieldname": "skip_rows_column",
+   "fieldtype": "Data",
+   "label": "Skip Rows Where Column",
+   "description": "Optional. A column of the file (e.g. Status) used with Skip Values to leave rows out of the import."
+  },
+  {
+   "fieldname": "skip_rows_values",
+   "fieldtype": "Small Text",
+   "label": "Skip Values",
+   "description": "Rows whose value in the column above is one of these are skipped, one per line (e.g. CANCELLED). Not case sensitive."
+  },
+  {
+   "fieldname": "date_format",
+   "fieldtype": "Select",
+   "label": "File Date Format",
+   "options": "Day First (dd/mm/yyyy)\nMonth First (mm/dd/yyyy)",
+   "default": "Day First (dd/mm/yyyy)",
+   "description": "How dates such as 09/10/2026 in this source's files are written. ISO dates (2026-10-09) are always read correctly."
+  },
+  {
+   "fieldname": "po_no_template",
+   "fieldtype": "Data",
+   "label": "PO Number When The File Has None",
+   "description": "Optional. For a source whose files carry no PO number, e.g. XPOL {delivery_date}. Gives each order a reference and lets a re-imported file be recognised. {delivery_date} and {transaction_date} are filled in."
   },
   {
    "depends_on": "eval:doc.layout_type=='Wide Matrix'",
@@ -178,7 +208,7 @@
   }
  ],
  "links": [],
- "modified": "2026-09-22 09:00:00.000000",
+ "modified": "2026-11-03 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Order Import Platform",

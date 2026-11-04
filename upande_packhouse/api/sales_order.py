@@ -451,65 +451,91 @@ def _shape_manual_row(r, default_warehouse):
 	return row
 
 
+class NotADraft(frappe.ValidationError):
+	pass
+
+
+def _heal_missing_packrate(row):
+	"""A straight-box Specification row built while its Packrate record did not exist came out with no custom_packrate
+	(and an import saved at that time still carries it that way). The stems per box are still known -- the line's stems
+	over its boxes -- so the Packrate is created and linked now, instead of the save refusing the line."""
+	if row.get("custom_packrate") or row.get("custom_mixed_box") or row.get("custom_mixed_bunch"):
+		return
+	boxes = int(row.get("custom_number_of_boxes") or 0)
+	stems = float(row.get("custom_ordered_quantity") or 0)
+	if boxes > 0 and stems > 0:
+		per_box = stems / boxes
+		if per_box == int(per_box):
+			row["custom_packrate"] = _ensure_packrate(int(per_box))
+
+
+def build_sales_order_doc(data):
+	"""The Sales Order doc a saveSalesOrder payload describes, not yet inserted or saved. Shared with the
+	import wizard's pre-check, so what it checks is exactly the order that would be saved."""
+	name = data.get("name")
+
+	if name and frappe.db.exists("Sales Order", name):
+		doc = frappe.get_doc("Sales Order", name)
+		if doc.docstatus != 0:
+			raise NotADraft("Only a draft order can be edited here.")
+	else:
+		doc = frappe.new_doc("Sales Order")
+		doc.business_unit = "Roses"
+		doc.company = "Karen Roses"  # every real Roses Sales Order uses this company
+
+	# Any real Sales Order field present in the payload gets copied onto
+	# the doc - not a fixed whitelist. The import wizard's own mapping
+	# step already lets a file column target ANY field getFieldCatalog
+	# returns (e.g. po_no, "Customer's Purchase Order") - a hardcoded
+	# list here silently dropped anything outside its own dozen names,
+	# even though the mapping step had already promised "map to any
+	# field". meta.has_field() naturally excludes structural keys that
+	# aren't real DocFields (name, docstatus, owner...), so manual_rows/
+	# spec_rows need no special-casing either, but are named explicitly
+	# for clarity since they're never meant to land here regardless.
+	reserved_keys = {"name", "manual_rows", "spec_rows", "row_refs"}
+	so_meta = frappe.get_meta("Sales Order")
+	for f, v in data.items():
+		if f in reserved_keys:
+			continue
+		if so_meta.has_field(f):
+			doc.set(f, v)
+
+	# Sales Settings' Default Warehouse (api/sales_settings.py) auto-fills
+	# Set Warehouse whenever it's not already set on this order -- and,
+	# same as the Desk form's own "Set Source Warehouse" convenience,
+	# cascades from there to any item row that doesn't carry its own
+	# warehouse. Only applied when the setting is actually configured
+	# ("if its not null"); otherwise this is a no-op and rows keep
+	# whatever warehouse they already had (or none).
+	if not doc.set_warehouse:
+		settings_default = frappe.db.get_single_value("Sales Settings", "default_warehouse")
+		if settings_default:
+			doc.set_warehouse = settings_default
+	default_warehouse = doc.set_warehouse
+
+	doc.set("items", [])
+	for r in data.get("spec_rows") or []:
+		# Already fully shaped by upande_packhouse.spec_autofill.build_spec_rows
+		# on the client -- appended as-is, except the warehouse fallback below.
+		if not r.get("warehouse") and default_warehouse:
+			r["warehouse"] = default_warehouse
+		_heal_missing_packrate(r)
+		doc.append("items", r)
+	for r in data.get("manual_rows") or []:
+		doc.append("items", _shape_manual_row(r, default_warehouse))
+	return doc
+
+
 @frappe.whitelist()
 def saveSalesOrder():
 	try:
 		data = _json_payload()
-		name = data.get("name")
-
-		if name and frappe.db.exists("Sales Order", name):
-			doc = frappe.get_doc("Sales Order", name)
-			if doc.docstatus != 0:
-				frappe.response["message"] = {
-					"success": False,
-					"error": "Only a draft order can be edited here.",
-				}
-				return
-		else:
-			doc = frappe.new_doc("Sales Order")
-			doc.business_unit = "Roses"
-			doc.company = "Karen Roses"  # every real Roses Sales Order uses this company
-
-		# Any real Sales Order field present in the payload gets copied onto
-		# the doc - not a fixed whitelist. The import wizard's own mapping
-		# step already lets a file column target ANY field getFieldCatalog
-		# returns (e.g. po_no, "Customer's Purchase Order") - a hardcoded
-		# list here silently dropped anything outside its own dozen names,
-		# even though the mapping step had already promised "map to any
-		# field". meta.has_field() naturally excludes structural keys that
-		# aren't real DocFields (name, docstatus, owner...), so manual_rows/
-		# spec_rows need no special-casing either, but are named explicitly
-		# for clarity since they're never meant to land here regardless.
-		reserved_keys = {"name", "manual_rows", "spec_rows"}
-		so_meta = frappe.get_meta("Sales Order")
-		for f, v in data.items():
-			if f in reserved_keys:
-				continue
-			if so_meta.has_field(f):
-				doc.set(f, v)
-
-		# Sales Settings' Default Warehouse (api/sales_settings.py) auto-fills
-		# Set Warehouse whenever it's not already set on this order -- and,
-		# same as the Desk form's own "Set Source Warehouse" convenience,
-		# cascades from there to any item row that doesn't carry its own
-		# warehouse. Only applied when the setting is actually configured
-		# ("if its not null"); otherwise this is a no-op and rows keep
-		# whatever warehouse they already had (or none).
-		if not doc.set_warehouse:
-			settings_default = frappe.db.get_single_value("Sales Settings", "default_warehouse")
-			if settings_default:
-				doc.set_warehouse = settings_default
-		default_warehouse = doc.set_warehouse
-
-		doc.set("items", [])
-		for r in data.get("spec_rows") or []:
-			# Already fully shaped by upande_packhouse.spec_autofill.build_spec_rows
-			# on the client -- appended as-is, except the warehouse fallback below.
-			if not r.get("warehouse") and default_warehouse:
-				r["warehouse"] = default_warehouse
-			doc.append("items", r)
-		for r in data.get("manual_rows") or []:
-			doc.append("items", _shape_manual_row(r, default_warehouse))
+		try:
+			doc = build_sales_order_doc(data)
+		except NotADraft as e:
+			frappe.response["message"] = {"success": False, "error": str(e)}
+			return
 
 		if doc.is_new():
 			doc.insert()

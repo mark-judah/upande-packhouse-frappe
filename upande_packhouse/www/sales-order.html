@@ -1724,7 +1724,7 @@ function renderSingleWhoBody(){
         </select>
       </div>
       ${!IMPORT_SINGLE_PLATFORM_NAME ? `<div class="spec-field"><label>Name this source (optional)</label>
-        <input id="imp_single_new_source" placeholder="e.g. Flamingo UK (Sandy)" value="${escHtml(IMPORT_SINGLE_NEW_SOURCE_NAME||'')}" oninput="IMPORT_SINGLE_NEW_SOURCE_NAME=this.value; updateImportWhoNextBtn();"></div>` : ''}
+        <input id="imp_single_new_source" placeholder="e.g. Flamingo Cloud" value="${escHtml(IMPORT_SINGLE_NEW_SOURCE_NAME||'')}" oninput="IMPORT_SINGLE_NEW_SOURCE_NAME=this.value; updateImportWhoNextBtn();"></div>` : ''}
       <div class="spec-field typeahead-wrap"><label>Customer</label>
         ${customerKnown
           ? `<input value="${escHtml(IMPORT_CUSTOMER?IMPORT_CUSTOMER.label:picked.customer)}" disabled>`
