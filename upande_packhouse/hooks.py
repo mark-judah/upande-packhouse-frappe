@@ -53,6 +53,9 @@ required_apps = ["upande_core"]
 
 # include js in doctype views
 doctype_js = {
+	# Roses Packhouse tab (Sales Order repeats only): the full schedule against the
+	# delivery date, and the reminder email preview / test.
+	"Auto Repeat": "public/js/auto_repeat.js",
 	# Sales Order client-side automation — the manual-entry business_unit/farm
 	# -> accounting-dimension sync, box math (packrate x boxes -> qty/UOM), the
 	# Total Boxes/Total Stems order summary, the mixed-box wizard, spec
@@ -167,10 +170,10 @@ website_route_rules = [
 # ----------
 
 # add methods and filters to jinja environment
-# jinja = {
-# 	"methods": "upande_packhouse.utils.jinja_methods",
-# 	"filters": "upande_packhouse.utils.jinja_filters"
-# }
+# standing_summary(doc): the figures and dates the standing-order email prints.
+jinja = {
+	"methods": "upande_packhouse.jinja_methods",
+}
 
 # Installation
 # ------------
@@ -244,6 +247,11 @@ override_doctype_class = {  # nosemgrep: override-doctype-class
 	# rows for the same item/price list/UOM/dates -- core's own duplicate
 	# check has no idea it exists. See overrides/item_price.py.
 	"Item Price": "upande_packhouse.overrides.item_price.CustomItemPrice",
+	# Standing orders: a Sales Order repeat appears in advance of its delivery
+	# instead of on it, and sends a reminder email. Auto Repeat is a global
+	# doctype, so every other document type repeats exactly as in core. See
+	# overrides/auto_repeat.py and standing_orders.py.
+	"Auto Repeat": "upande_packhouse.overrides.auto_repeat.PackhouseAutoRepeat",
 }
 
 # Document Events
@@ -482,6 +490,8 @@ fixtures = [
 	# bunch (damaged/missing QR, or ungraded) and needs to log it instead --
 	# exported so a fresh deploy has them too.
 	{"dt": "Packing Bypass Reason"},
+	# The standing-order reminder email (Auto Repeat > Roses Packhouse > Email template).
+	{"dt": "Email Template", "filters": [["name", "=", "Standing Order Reminder"]]},
 ]
 
 # Automatically update python controller files with type annotations for this app.

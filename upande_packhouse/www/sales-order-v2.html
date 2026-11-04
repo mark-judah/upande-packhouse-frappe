@@ -23,10 +23,11 @@
 
 <!-- ── List view ── -->
 <div id="v-list">
+  <nav class="ph-tabs" id="so-tabs" aria-label="Sales orders">
+    <button type="button" class="ph-tab" data-value="list">Orders</button>
+    <button type="button" class="ph-tab" data-value="standing" title="Orders that repeat on a schedule (Auto Repeat)">Standing orders <span class="ph-tab__count" id="tab-standing-count">0</span></button>
+  </nav>
   <div class="ph-filters">
-    <div class="ph-pills" id="f-layout" aria-label="View">
-      <button data-value="list">List</button><button data-value="calendar" title="Standing orders (Auto Repeat) on a calendar">Calendar</button>
-    </div>
     <div class="ph-pills" id="f-region" title="Order farm"></div>
     <div class="ph-pills so-lonly" id="f-status">
       <button data-value="all" title="Draft + submitted (cancelled orders excluded)">All</button><button data-value="draft">Draft</button><button data-value="submitted">Submitted</button><button data-value="cancelled">Cancelled</button>
@@ -36,7 +37,7 @@
     </div>
     <select class="so-lonly ph-select" id="f-team" aria-label="Team" title="Team on the order's pick list"><option value="">All teams</option></select>
     <input class="ph-input" id="f-customer" type="search" placeholder="Any customer" aria-label="Customer">
-    <label class="so-lonly ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Order, customer or PO"></label>
+    <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Order, customer or PO"></label>
     <div class="ph-filters__spacer"></div>
     <div class="so-lonly ph-pills" id="f-preset">
       <button data-value="all">All dates</button><button data-value="30d">30 days</button><button data-value="7d">7 days</button><button data-value="today">Today</button><button data-value="next7">Next 7 days</button>
@@ -45,13 +46,7 @@
       <span>Delivery</span><input type="date" id="f-from" aria-label="Delivery from"><span class="ph-daterange__sep">→</span><input type="date" id="f-to" aria-label="Delivery to">
     </label>
     <div class="ph-pills so-conly" id="f-sstate" hidden title="Standing order state">
-      <button data-value="all">All</button><button data-value="active">Active</button><button data-value="disabled">Disabled</button>
-    </div>
-    <div class="ph-pills so-conly" id="f-cmode" hidden><button data-value="month">Month</button><button data-value="week">Week</button></div>
-    <div class="ph-flex so-conly" id="cal-nav" hidden>
-      <button type="button" class="ph-btn ph-btn--sm" id="cal-prev" aria-label="Previous">&larr;</button>
-      <button type="button" class="ph-btn ph-btn--sm" id="cal-today">Today</button>
-      <button type="button" class="ph-btn ph-btn--sm" id="cal-next" aria-label="Next">&rarr;</button>
+      <button data-value="all">All</button><button data-value="active">Active</button><button data-value="paused">Paused</button>
     </div>
   </div>
   <section class="ph-kpis" id="kpis"></section>
@@ -65,14 +60,21 @@
     </div>
     <div id="so-table"></div>
   </section>
-  <section class="ph-card so-conly" id="so-calcard" hidden>
-    <div class="ph-card__head">
-      <h2 class="ph-card__title" id="cal-title">Standing orders</h2>
-      <div class="ph-card__tools"><span class="ph-card__meta" id="cal-meta"></span>
-        <span class="ph-legend"><i class="is-bar so-k-generated"></i> Generated <i class="is-bar so-k-scheduled"></i> Scheduled <i class="is-bar so-k-source"></i> Source order</span></div>
-    </div>
-    <div id="so-cal"></div>
-  </section>
+  <div class="so-conly" id="so-standing" hidden>
+    <section class="ph-card ph-card--flush">
+      <div class="ph-card__head">
+        <h2 class="ph-card__title">Standing orders <span class="ph-badge" id="stand-count">0</span></h2>
+        <div class="ph-card__tools"><span class="ph-card__meta">Click one to see its schedule and make changes</span>
+          <button type="button" class="ph-btn ph-btn--sm ph-btn--primary" data-sact="new">New standing order</button></div>
+      </div>
+      <div id="so-standing-table"></div>
+    </section>
+    <section class="ph-card ph-card--flush ph-mt">
+      <div class="ph-card__head"><h2 class="ph-card__title">Boxes by delivery day</h2>
+        <div class="ph-card__tools"><span class="ph-card__meta">Next 14 days · created orders and those still to appear</span></div></div>
+      <div id="so-deliveries"></div>
+    </section>
+  </div>
 </div>
 
 <!-- ── Editor view (the same editor body also renders inside the import
@@ -88,24 +90,7 @@
      left, its variety rows on the right) + the import wizard's mapping grids.
      Grids instead of tables so the variety/field pickers' dropdowns are never
      clipped by a scrolling table wrapper. */
-  /* Standing-order calendar (so-cal-*) */
   .ph2 .so-lonly[hidden],.ph2 .so-conly[hidden]{display:none!important}
-  .ph2 .so-cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:1px;background:var(--hairline);border:1px solid var(--hairline);border-radius:var(--r-lg);overflow:hidden}
-  .ph2 .so-cal__dow{background:var(--tint);padding:var(--sp-2) var(--sp-3);font-size:var(--fs-xs,12px);color:var(--ink-4);font-weight:600}
-  .ph2 .so-cal__day{background:var(--surface-2);min-height:112px;padding:var(--sp-2);display:flex;flex-direction:column;gap:var(--sp-1);text-align:left;border:0;cursor:pointer;color:inherit;font:inherit;min-width:0}
-  .ph2 .so-cal--week .so-cal__day{min-height:260px}
-  .ph2 .so-cal__day:hover,.ph2 .so-cal__day:focus-visible{background:var(--tint)}
-  .ph2 .so-cal__day.is-out{opacity:.5}
-  .ph2 .so-cal__day.is-today .so-cal__n{background:var(--signal);color:var(--on-signal,#fff);border-radius:var(--r-pill);padding:0 var(--sp-2)}
-  .ph2 .so-cal__top{display:flex;justify-content:space-between;align-items:center;gap:var(--sp-1)}
-  .ph2 .so-cal__n{font-weight:600;font-variant-numeric:tabular-nums}
-  .ph2 .so-chip{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;padding:1px var(--sp-2);border-radius:var(--r-sm,4px);border-left:3px solid var(--ink-4);background:var(--tint)}
-  .ph2 .so-chip.so-k-generated,.ph2 i.so-k-generated{border-left-color:var(--good,var(--signal))}
-  .ph2 .so-chip.so-k-scheduled,.ph2 i.so-k-scheduled{border-left-color:var(--signal);border-left-style:dashed}
-  .ph2 .so-chip.so-k-source{border-left-color:var(--ink)}
-  .ph2 i.so-k-generated{background:var(--good,var(--signal))}.ph2 i.so-k-scheduled{background:var(--signal);opacity:.55}.ph2 i.so-k-source{background:var(--ink)}
-  .ph2 .so-cal__sum{font-size:11px;color:var(--ink-4);margin-top:auto;font-variant-numeric:tabular-nums}
-  @media (max-width:760px){.ph2 .so-cal__day{min-height:76px}.ph2 .so-chip{font-size:10px}}
   .ph2 .so-lines{display:flex;flex-direction:column;gap:var(--sp-4)}
   .ph2 .so-line__grid{display:grid;grid-template-columns:minmax(240px,300px) minmax(0,1fr);gap:var(--sp-6);align-items:start}
   .ph2 .so-line__side{display:flex;flex-direction:column;gap:var(--sp-3);min-width:0}
@@ -185,7 +170,8 @@
      q, delivery from/to) goes to api/v2/sales_order.get_sales_orders, which
      returns the rows AND the KPIs for the full filtered set. */
   const st = PH.state({ view: "list", name: "", q: "", status: "all", customer: "", region: "", rose: "all", team: "", from: "", to: "",
-    layout: "list", cmode: "month", cday: "", sstate: "all" });
+    layout: "list", sstate: "all" });
+  if (st.get("layout") === "calendar") st.set({ layout: "standing" }, { silent: true }); // old links
 
   /** Server call that never rejects: resolves with r.message, or with
    *  {success:false, error} on a transport/server failure -- the same
@@ -357,7 +343,7 @@
     EDIT_HOST = null;
     if (fCustomer.value !== st.get("customer")) fCustomer.value = st.get("customer");
     applyLayout();
-    if (st.get("layout") === "calendar") return enterCalendar();
+    if (st.get("layout") === "standing") return enterStanding();
     return loadList();
   }
   function listArgs() {
@@ -429,11 +415,11 @@
     if (changed.includes("view") || changed.includes("name")) return route();
     if (currentView() !== "list") return;
     if (changed.includes("layout")) { applyLayout(); return enterList(); }
-    if (s.layout === "calendar") {
-      if (changed.some((c) => ["customer", "region", "sstate", "cmode", "cday"].includes(c))) {
+    if (s.layout === "standing") {
+      if (changed.some((c) => ["customer", "region", "sstate"].includes(c))) {
         if (fCustomer.value !== s.customer) fCustomer.value = s.customer;
-        loadCal();
-      }
+        loadStanding();
+      } else if (changed.includes("q")) renderStanding();
       return;
     }
     if (changed.some((c) => LIST_KEYS.includes(c))) {
@@ -443,138 +429,262 @@
   });
 
 
-  /* =================== STANDING ORDERS CALENDAR ===================
-     Standing orders are Frappe Auto Repeat records on Sales Orders. The server
-     (api/v2/sales_order.get_standing_orders) returns one event per generated
-     order, source order and FUTURE scheduled occurrence (Frappe's own schedule
-     rule), plus KPIs that follow customer / region / state. The browser only
-     lays the events out on a grid. */
-  let calSeq = 0;
-  let CAL = { events: [], kpis: {}, today: "" };
-  const KINDS = { generated: "Generated", scheduled: "Scheduled", source: "Source order" };
-  const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const dateOf = (iso) => { const [y, m, d] = String(iso).slice(0, 10).split("-").map(Number); return new Date(y, m - 1, d); };
-  const addDaysD = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
-  const mondayOf = (d) => addDaysD(d, -((d.getDay() + 6) % 7));
-  const anchorDate = () => dateOf(st.get("cday") || isoOf(new Date()));
-  /** Grid range (whole Monday-first weeks) and the month that the KPI covers. */
-  function calRange() {
-    const a = anchorDate();
-    if (st.get("cmode") === "week") {
-      const m = mondayOf(a);
-      return { from: m, to: addDaysD(m, 6), kFrom: m, kTo: addDaysD(m, 6), title: `${PH.fmt.date(isoOf(m))} – ${PH.fmt.date(isoOf(addDaysD(m, 6)))}` };
-    }
-    const first = new Date(a.getFullYear(), a.getMonth(), 1);
-    const last = new Date(a.getFullYear(), a.getMonth() + 1, 0);
-    return { from: mondayOf(first), to: addDaysD(mondayOf(last), 6), kFrom: first, kTo: last,
-      title: first.toLocaleDateString("en-GB", { month: "long", year: "numeric" }) };
-  }
-  PH.pills("#f-layout", st, "layout");
+  /* =================== STANDING ORDERS TAB ===================
+     A standing order is an Auto Repeat on a Sales Order. Each repeat APPEARS on
+     the schedule and is delivered a set number of days later (the server,
+     standing_orders.py, owns that rule; this tab only shows and edits it).
+     api/v2/standing_orders: list + KPIs + deliveries by day, one standing order,
+     live schedule preview, save / pause / delete, reminder preview and test. */
+  const SO_API = "upande_packhouse.api.v2.standing_orders.";
+  const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const FREQS = ["Daily", "Weekly", "Fortnightly", "Monthly", "Quarterly", "Half-yearly", "Yearly"];
+  let standSeq = 0;
+  let STAND = { standing: [], deliveries: [], kpis: {}, today: "", user_email: "" };
+  const dayLabel = (iso) => {
+    const d = PH.date.parse(iso);
+    return d ? d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }) : "—";
+  };
+  const longDay = (iso) => {
+    const d = PH.date.parse(iso);
+    return d ? d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" }) : "—";
+  };
+  const statusBadgeSO = (s) => `<span class="ph-badge${s === "Active" ? " ph-badge--good" : s === "Paused" ? " ph-badge--warn" : ""}">${esc(s)}</span>`;
+  PH.pills("#so-tabs", st, "layout");
   PH.pills("#f-sstate", st, "sstate");
-  PH.pills("#f-cmode", st, "cmode");
   function applyLayout() {
-    const cal = st.get("layout") === "calendar";
-    document.querySelectorAll(".so-lonly").forEach((el) => { el.hidden = cal; });
-    document.querySelectorAll(".so-conly").forEach((el) => { el.hidden = !cal; });
+    const standing = st.get("layout") === "standing";
+    document.querySelectorAll(".so-lonly").forEach((el) => { el.hidden = standing; });
+    document.querySelectorAll(".so-conly").forEach((el) => { el.hidden = !standing; });
   }
-  function enterCalendar() {
-    setHead("Sales Order", "Standing orders — repeating orders from Auto Repeat, past and upcoming.");
-    setTools(`<button type="button" class="ph-btn" data-act="import">Import orders…</button>
-      <button type="button" class="ph-btn" data-act="paste">Paste order…</button>
-      <button type="button" class="ph-btn ph-btn--primary" data-act="new">${PH.icon("plus")} New order</button>`);
+  function standingTools() {
+    return `<button type="button" class="ph-btn" data-act="new">New order</button>
+      <button type="button" class="ph-btn ph-btn--primary" data-act="stand-new">${PH.icon("plus")} New standing order</button>`;
+  }
+  function enterStanding() {
+    setHead("Sales Order", "Standing orders — orders that repeat on a schedule and appear before they are due.");
+    setTools(standingTools());
     EDIT_HOST = null;
     if (fCustomer.value !== st.get("customer")) fCustomer.value = st.get("customer");
-    return loadCal();
+    return loadStanding();
   }
-  function loadCal(background) {
-    const my = ++calSeq;
+  function loadStanding(background) {
+    const my = ++standSeq;
     const s = st.get();
-    const rg = calRange();
-    PH.text("#cal-title", rg.title);
-    if (!background) { PH.kpiSkeleton("#kpis", ["Active standing orders", "Due next 7 days", "Generated", "Disabled"]); PH.loadingKpis("#kpis", true); PH.skeleton("#so-cal", "block", 8); }
-    return call("upande_packhouse.api.v2.sales_order.get_standing_orders", {
-      from_date: isoOf(rg.from), to_date: isoOf(rg.to), kpi_from: isoOf(rg.kFrom), kpi_to: isoOf(rg.kTo),
-      customer: s.customer, region: s.region, state: s.sstate,
-    }, true).then((r) => {
-      if (my !== calSeq) return;
+    if (!background) { PH.kpiSkeleton("#kpis", ["Standing orders", "Appearing this week", "Delivering this week", "Paused"]); PH.loadingKpis("#kpis", true); PH.skeleton("#so-standing-table", "rows", 5); }
+    return call(SO_API + "get_standing_orders", { customer: s.customer, region: s.region, state: s.sstate }, true).then((r) => {
+      if (my !== standSeq) return;
       if (!r.success) {
         PH.loadingKpis("#kpis", false);
-        PH.error("#so-cal", r.error || "Could not load standing orders.", () => loadCal());
+        PH.error("#so-standing-table", r.error || "Could not load standing orders.", () => loadStanding());
         return;
       }
-      CAL = { events: r.events || [], standing: r.standing || [], kpis: r.kpis || {}, today: String(r.today || "").slice(0, 10) };
-      renderCal();
+      STAND = { standing: r.standing || [], deliveries: r.deliveries || [], kpis: r.kpis || {}, today: String(r.today || "").slice(0, 10), user_email: r.user_email || "", window_days: r.window_days || 14 };
+      renderStanding();
       PH.markUpdated();
     });
   }
-  function renderCal() {
+  let standTable = null;
+  const STAND_COLS = [
+    { key: "customer_name", label: "Customer", html: (v, r) => `<span class="is-strong">${esc(v || r.customer || "")}</span><br><span class="ph-muted">${esc(r.source)}${r.po_no ? " · PO " + esc(r.po_no) : ""}</span>` },
+    { key: "rule", label: "Repeats", html: (v, r) => `${esc(v)}<br><span class="ph-muted">${r.end_date ? "until " + esc(PH.fmt.date(r.end_date)) : "no end date"}</span>` },
+    { key: "next_appears", label: "Next order appears", html: (v) => (v ? esc(dayLabel(v)) : '<span class="ph-muted">—</span>') },
+    { key: "next_delivers", label: "Delivery", html: (v, r) => (v ? `<span class="ph-badge ph-badge--signal">${esc(dayLabel(v))}</span><br><span class="ph-muted">${r.days_after} day${r.days_after === 1 ? "" : "s"} later</span>` : '<span class="ph-muted">—</span>') },
+    { key: "boxes", label: "Boxes", num: true },
+    { key: "stems", label: "Stems", num: true },
+    { key: "send_reminder", label: "Reminder", html: (v, r) => (v ? `<span class="ph-muted">${esc((r.recipients || "").split(/[,\s;]+/).filter(Boolean).slice(0, 1).join("") || "—")}${(r.recipients || "").split(/[,\s;]+/).filter(Boolean).length > 1 ? " +" + ((r.recipients || "").split(/[,\s;]+/).filter(Boolean).length - 1) : ""}</span>` : '<span class="ph-muted">Off</span>') },
+    { key: "status", label: "Status", html: (v) => statusBadgeSO(v) },
+  ];
+  function renderStanding() {
     const s = st.get();
-    const k = CAL.kpis;
-    const rg = calRange();
-    const scope = [s.customer, s.region].filter(Boolean).join(" · ");
+    const k = STAND.kpis;
+    const scope = [s.customer, s.region].filter(Boolean).join(" · ") || "all customers";
     PH.kpis("#kpis", [
-      { label: "Active standing orders", value: k.active || 0, unit: scope || "all customers", onClick: () => st.set({ sstate: s.sstate === "active" ? "all" : "active" }), active: s.sstate === "active" },
-      { label: "Due next 7 days", value: k.due_week || 0, unit: "scheduled occurrences" },
-      { label: "Generated", value: k.generated || 0, unit: (st.get("cmode") === "week" ? "this week" : "this month") + " · " + PH.fmt.num(k.generated_boxes || 0) + " boxes · " + PH.fmt.num(k.generated_stems || 0) + " stems" },
-      { label: "Disabled", value: k.disabled || 0, unit: "paused", onClick: () => st.set({ sstate: s.sstate === "disabled" ? "all" : "disabled" }), active: s.sstate === "disabled" },
+      { label: "Standing orders", value: k.active || 0, unit: "active · " + scope, onClick: () => st.set({ sstate: s.sstate === "active" ? "all" : "active" }), active: s.sstate === "active" },
+      { label: "Appearing this week", value: k.appear_week || 0, unit: "orders to process, next 7 days" },
+      { label: "Delivering this week", value: k.deliver_week_boxes || 0, unit: "boxes, next 7 days" },
+      { label: "Paused", value: k.paused || 0, unit: "not repeating", onClick: () => st.set({ sstate: s.sstate === "paused" ? "all" : "paused" }), active: s.sstate === "paused" },
     ]);
-    PH.text("#cal-meta", `${PH.fmt.num(k.total || 0)} standing order${k.total === 1 ? "" : "s"}`);
-    const byDay = {};
-    CAL.events.forEach((e) => { (byDay[String(e.date).slice(0, 10)] = byDay[String(e.date).slice(0, 10)] || []).push(e); });
-    const dows = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    let h = `<div class="so-cal${st.get("cmode") === "week" ? " so-cal--week" : ""}">` + dows.map((d) => `<div class="so-cal__dow">${d}</div>`).join("");
-    const month = anchorDate().getMonth();
-    const maxChips = st.get("cmode") === "week" ? 12 : 3;
-    for (let d = rg.from; d <= rg.to; d = addDaysD(d, 1)) {
-      const iso = isoOf(d);
-      const ev = byDay[iso] || [];
-      const stems = ev.reduce((a, e) => a + (e.stems || 0), 0);
-      const boxes = ev.reduce((a, e) => a + (e.boxes || 0), 0);
-      const cls = ["so-cal__day", st.get("cmode") === "month" && d.getMonth() !== month ? "is-out" : "", iso === CAL.today ? "is-today" : ""].join(" ");
-      h += `<button type="button" class="${cls}" data-day="${iso}" aria-label="${esc(iso)}: ${ev.length} standing order events">
-        <span class="so-cal__top"><span class="so-cal__n">${d.getDate()}</span>${ev.length ? `<span class="ph-badge">${ev.length}</span>` : ""}</span>
-        ${ev.slice(0, maxChips).map((e) => `<span class="so-chip so-k-${e.kind}" title="${esc(KINDS[e.kind])}">${esc(e.customer_name || e.customer || "")}</span>`).join("")}
-        ${ev.length > maxChips ? `<span class="ph-muted">+${ev.length - maxChips} more</span>` : ""}
-        ${ev.length ? `<span class="so-cal__sum">${PH.fmt.num(boxes)} bx · ${PH.fmt.num(stems)} st</span>` : ""}
-      </button>`;
-    }
-    h += "</div>";
-    if (!CAL.events.length) h += `<div class="ph-notice ph-notice--signal ph-mt"><span>${(k.total || 0) ? "No standing order falls in this range." : "No standing orders match these filters. Standing orders are Auto Repeat records on a Sales Order."}</span></div>`;
-    PH.set("#so-cal", h);
+    PH.text("#tab-standing-count", PH.fmt.num((k.active || 0) + (k.paused || 0)));
+    PH.text("#stand-count", PH.fmt.num(STAND.standing.length));
+    const q = (s.q || "").toLowerCase();
+    const rows = q ? STAND.standing.filter((r) => [r.name, r.source, r.customer_name, r.customer, r.po_no].some((x) => String(x || "").toLowerCase().includes(q))) : STAND.standing;
+    const cfg = { columns: STAND_COLS, rows, pageSize: 25, emptyText: "", onRowClick: (r) => openStanding(r.name),
+      empty: STAND.standing.length ? "No standing orders match these filters" : "No standing orders yet" };
+    if (!STAND.standing.length) cfg.emptyText = "Choose “New standing order”, pick an order to repeat and set when it should appear.";
+    if (!standTable) standTable = PH.table("#so-standing-table", cfg);
+    else { standTable.update(rows); }
+    // Boxes by delivery day
+    const days = STAND.deliveries;
+    let h = days.length
+      ? `<div class="ph-table-wrap"><table class="ph-table"><thead><tr><th>Delivery</th><th class="is-num">Orders</th><th class="is-num">Boxes</th><th class="is-num">Stems</th><th>Customers</th></tr></thead><tbody>${days.map((d) => `<tr>
+          <td class="is-strong">${esc(dayLabel(d.date))}${String(d.date).slice(0, 10) === STAND.today ? ' <span class="ph-badge ph-badge--signal">Today</span>' : ""}</td>
+          <td class="is-num">${PH.fmt.num(d.orders)}${d.planned ? ` <span class="ph-muted" title="${d.planned} not created yet">(${d.planned} due)</span>` : ""}</td>
+          <td class="is-num">${PH.fmt.num(d.boxes)}</td><td class="is-num">${PH.fmt.num(d.stems)}</td>
+          <td class="ph-muted">${esc(d.customers.join(", "))}</td></tr>`).join("")}</tbody></table></div>`
+      : `<div class="ph-empty"><div class="ph-empty__title">Nothing delivering in the next ${STAND.window_days || 14} days</div><div class="ph-empty__text">Deliveries appear here as standing orders are created and scheduled.</div></div>`;
+    PH.set("#so-deliveries", h);
   }
-  document.getElementById("so-cal").addEventListener("click", (e) => {
-    const b = e.target.closest("[data-day]");
-    if (b) openDay(b.dataset.day);
-  });
-  function openDay(iso) {
-    const ev = CAL.events.filter((e) => String(e.date).slice(0, 10) === iso);
-    const stems = ev.reduce((a, e) => a + (e.stems || 0), 0);
-    const boxes = ev.reduce((a, e) => a + (e.boxes || 0), 0);
-    const rows = ev.map((e, i) => `<tr>
-        <td class="is-strong">${esc(e.customer_name || e.customer || "")}</td>
-        <td><span class="ph-badge${e.kind === "generated" ? " ph-badge--good" : e.kind === "scheduled" ? " ph-badge--signal" : ""}">${esc(KINDS[e.kind])}</span>${e.docstatus === 0 ? ' <span class="ph-badge ph-badge--warn">Draft</span>' : ""}</td>
-        <td>${esc(e.frequency || "")}</td><td>${e.next_date ? esc(PH.fmt.date(e.next_date)) : "—"}</td>
-        <td><span class="ph-badge${e.status === "Active" ? " ph-badge--good" : ""}">${esc(e.status)}</span></td>
-        <td class="is-num">${PH.fmt.num(e.boxes || 0)}</td><td class="is-num">${PH.fmt.num(e.stems || 0)}</td>
-        <td>${e.order ? `<a href="#" data-open="${esc(e.order)}">${esc(e.order)}</a><br>` : ""}<a href="#" class="ph-muted" data-open="${esc(e.source)}">${e.kind === "source" ? "" : "Source "}${e.kind === "source" ? "" : esc(e.source)}</a></td></tr>`).join("");
-    const body = `<div class="ph-table-wrap"><table class="ph-table"><thead><tr><th>Customer</th><th>Type</th><th>Frequency</th><th>Next date</th><th>Status</th><th class="is-num">Boxes</th><th class="is-num">Stems</th><th>Order</th></tr></thead><tbody>${rows || '<tr><td colspan="8" class="ph-muted">No standing orders on this day.</td></tr>'}</tbody></table></div>
-      <p class="ph-muted ph-mt">Scheduled occurrences show the source order's boxes and stems (what Auto Repeat will copy).</p>`;
-    const m = PH.modal({ title: PH.fmt.date(iso), sub: `${ev.length} event${ev.length === 1 ? "" : "s"} · ${PH.fmt.num(boxes)} boxes · ${PH.fmt.num(stems)} stems`, body, size: "xl", drawer: true });
-    m.body.addEventListener("click", (e) => {
-      const a = e.target.closest("[data-open]");
-      if (!a) return;
-      e.preventDefault();
-      m.close();
-      goEditor(a.dataset.open);
+
+  /* ---- one standing order (drawer) ---- */
+  function openStanding(name) {
+    const m = PH.modal({ title: "Standing order", sub: name, body: '<div id="so-sd-body"></div>', size: "xl", drawer: true });
+    const host = m.body.querySelector("#so-sd-body");
+    PH.skeleton(host, "block", 6);
+    call(SO_API + "get_standing_order", { name }, true).then((d) => {
+      if (!d.success) return PH.error(host, d.error || "Could not load this standing order.");
+      const sched = (d.schedule || []).map((x, i) => `<tr><td class="is-strong">${esc(longDay(x.appears))}${i === 0 ? ' <span class="ph-badge ph-badge--signal">Next</span>' : ""}</td><td>${esc(longDay(x.delivers))}</td><td class="is-num">${PH.fmt.num(x.boxes)}</td><td class="is-num">${PH.fmt.num(x.stems)}</td></tr>`).join("");
+      const made = (d.made || []).map((x) => `<tr><td><a href="#" data-open="${esc(x.name)}">${esc(x.name)}</a></td><td>${esc(longDay(x.appeared))}</td><td>${esc(longDay(x.delivers))}</td><td class="is-num">${PH.fmt.num(x.boxes)}</td><td>${x.docstatus === 0 ? '<span class="ph-badge ph-badge--warn">Draft</span>' : '<span class="ph-badge ph-badge--good">Submitted</span>'}</td></tr>`).join("");
+      const mails = String(d.recipients || "").split(/[,\s;]+/).filter(Boolean);
+      PH.set(host, `
+        <div class="ph-flex ph-flex--between ph-flex--wrap ph-mb">
+          <div><div class="ph-modal__title">${esc(d.customer_name || d.customer || "")}</div>
+            <div class="ph-muted">Repeats <a href="#" data-open="${esc(d.source)}">${esc(d.source)}</a>${d.po_no ? " · PO " + esc(d.po_no) : ""} · ${PH.fmt.num(d.boxes)} boxes · ${PH.fmt.num(d.stems)} stems</div></div>
+          ${statusBadgeSO(d.status)}
+        </div>
+        <div class="ph-kv ph-mb">
+          <div><span class="ph-label">Repeats</span><div>${esc(d.rule)}</div></div>
+          <div><span class="ph-label">Delivery</span><div>${d.days_after} day${d.days_after === 1 ? "" : "s"} after the order appears</div></div>
+          <div><span class="ph-label">Ends</span><div>${d.end_date ? esc(PH.fmt.date(d.end_date)) : "No end date"}</div></div>
+          <div><span class="ph-label">Reminder email</span><div>${d.send_reminder ? esc(mails.join(", ") || "No address") : "Off"}</div></div>
+        </div>
+        <h3 class="ph-section-title">Schedule</h3>
+        ${d.status === "Paused" ? '<div class="ph-notice ph-notice--warn"><span>This standing order is paused, so no orders are created and no emails are sent.</span></div>' : ""}
+        <div class="ph-table-wrap ph-mb"><table class="ph-table"><thead><tr><th>Order appears</th><th>Delivered</th><th class="is-num">Boxes</th><th class="is-num">Stems</th></tr></thead><tbody>${sched || '<tr><td colspan="4" class="ph-muted">Nothing scheduled.</td></tr>'}</tbody></table></div>
+        <h3 class="ph-section-title">Orders made so far</h3>
+        <div class="ph-table-wrap"><table class="ph-table"><thead><tr><th>Order</th><th>Appeared</th><th>Delivered</th><th class="is-num">Boxes</th><th>Status</th></tr></thead><tbody>${made || '<tr><td colspan="5" class="ph-muted">No orders made yet.</td></tr>'}</tbody></table></div>
+        <div class="ph-flex ph-flex--wrap ph-mt">
+          <button type="button" class="ph-btn ph-btn--primary" data-sd="edit">Change schedule</button>
+          <button type="button" class="ph-btn" data-sd="mail">Preview email</button>
+          <button type="button" class="ph-btn" data-sd="pause">${d.disabled ? "Resume" : "Pause"}</button>
+          <button type="button" class="ph-btn ph-btn--danger ph-btn--ghost" data-sd="delete">Delete</button>
+        </div>`);
+      host.onclick = async (e) => {
+        const a = e.target.closest("[data-open]");
+        if (a) { e.preventDefault(); m.close(); return goEditor(a.dataset.open); }
+        const b = e.target.closest("[data-sd]");
+        if (!b) return;
+        const act = b.dataset.sd;
+        if (act === "edit") { m.close(); return openStandingForm(d); }
+        if (act === "mail") return previewMail(name);
+        if (act === "pause") {
+          const r = await call(SO_API + "set_standing_order_state", { name, paused: d.disabled ? 0 : 1 });
+          if (!r.success) return PH.toast(r.error || "Could not change it.", "bad");
+          PH.toast(d.disabled ? "Resumed" : "Paused", "good");
+          m.close(); loadStanding(true);
+        }
+        if (act === "delete") {
+          const ok = await PH.confirm("Delete this standing order?", "No more orders will be created. Orders already made are kept.", { ok: "Delete", danger: true });
+          if (!ok) return;
+          const r = await call(SO_API + "delete_standing_order", { name });
+          if (!r.success) return PH.toast(r.error || "Could not delete it.", "bad");
+          PH.toast("Standing order deleted", "good");
+          m.close(); loadStanding(true);
+        }
+      };
     });
   }
-  function calShift(dir) {
-    const a = anchorDate();
-    st.set({ cday: isoOf(st.get("cmode") === "week" ? addDaysD(a, 7 * dir) : new Date(a.getFullYear(), a.getMonth() + dir, 1)) });
+  function previewMail(name) {
+    call(SO_API + "preview_reminder", { name }, true).then((r) => {
+      if (!r.success) return PH.toast(r.error || "Could not build the email.", "bad");
+      const body = document.createElement("div");
+      body.innerHTML = `<div class="ph-muted ph-mb">To: ${esc((r.to || []).join(", ") || "no address set")}<br>Subject: <strong>${esc(r.subject)}</strong></div><iframe title="Email preview" style="width:100%;height:62vh;border:1px solid var(--hairline);border-radius:var(--r-md);background:#f4f3ef"></iframe>`;
+      PH.modal({ title: "Reminder email", sub: "As it will arrive, using the next order's dates", body, size: "lg" });
+      body.querySelector("iframe").srcdoc = r.html;
+    });
   }
-  document.getElementById("cal-prev").addEventListener("click", () => calShift(-1));
-  document.getElementById("cal-next").addEventListener("click", () => calShift(1));
-  document.getElementById("cal-today").addEventListener("click", () => st.set({ cday: isoOf(new Date()) }));
+
+  /* ---- create / change ---- */
+  function openStandingForm(d) {
+    const edit = !!(d && d.name);
+    const v = Object.assign({ source: "", source_label: "", frequency: "Weekly", weekdays: [], start_date: PH.date.today(), end_date: "", days_after: 3,
+      repeat_on_day: 0, repeat_on_last_day: 0, send_reminder: 1, recipients: STAND.user_email || "" }, edit ? { source: d.source, source_label: d.source + " · " + (d.customer_name || ""), frequency: d.frequency, weekdays: d.weekdays || [], start_date: String(d.start_date || "").slice(0, 10), end_date: String(d.end_date || "").slice(0, 10), days_after: d.days_after, repeat_on_day: d.repeat_on_day, repeat_on_last_day: d.repeat_on_last_day, send_reminder: d.send_reminder, recipients: d.recipients } : {});
+    const body = document.createElement("div");
+    body.innerHTML = `
+      <div class="ph-form ph-form--2">
+        <div class="ph-field ph-field--full"><label for="sf-source">Order to repeat</label>
+          <input class="ph-input" id="sf-source" placeholder="Search order, customer or PO" value="${esc(v.source_label)}" ${edit ? "disabled" : ""}>
+          <span class="ph-field__hint" id="sf-source-hint">${edit ? "To repeat a different order, delete this standing order and make a new one." : "Every repeat is a copy of this order."}</span></div>
+        <div class="ph-field"><label for="sf-freq">Repeats</label>
+          <select class="ph-select" id="sf-freq">${FREQS.map((f) => `<option${f === v.frequency ? " selected" : ""}>${f}</option>`).join("")}</select></div>
+        <div class="ph-field" id="sf-days-wrap"><label>On these days</label>
+          <div class="ph-pills" id="sf-days">${WEEKDAYS.map((w) => `<button type="button" data-value="${w}" class="${v.weekdays.includes(w) ? "is-on" : ""}">${w.slice(0, 3)}</button>`).join("")}</div>
+          <span class="ph-field__hint">Leave empty to repeat on the same weekday as the first order.</span></div>
+        <div class="ph-field" id="sf-month-wrap"><label for="sf-mday">Day of the month</label>
+          <input class="ph-input" id="sf-mday" type="number" min="1" max="31" value="${v.repeat_on_day || ""}" placeholder="Same day as the first order">
+          <label class="ph-check"><input type="checkbox" id="sf-mlast" ${v.repeat_on_last_day ? "checked" : ""}> Last day of the month</label></div>
+        <div class="ph-field"><label for="sf-start">First order appears</label><input class="ph-input" id="sf-start" type="date" value="${esc(v.start_date)}" ${edit ? "" : `min="${esc(PH.date.today())}"`}></div>
+        <div class="ph-field"><label for="sf-end">Stop after (optional)</label><input class="ph-input" id="sf-end" type="date" value="${esc(v.end_date)}"></div>
+        <div class="ph-field"><label for="sf-after">Delivery is this many days after the order appears</label>
+          <input class="ph-input" id="sf-after" type="number" min="0" max="60" value="${esc(v.days_after)}">
+          <span class="ph-field__hint" id="sf-after-hint"></span></div>
+        <div class="ph-field"><label class="ph-label">Reminder email</label>
+          <label class="ph-switch"><input type="checkbox" id="sf-remind" ${v.send_reminder ? "checked" : ""}><i></i><span>Email when the order appears</span></label></div>
+        <div class="ph-field ph-field--full" id="sf-mail-wrap"><label for="sf-mail">Send the reminder to</label>
+          <input class="ph-input" id="sf-mail" value="${esc(v.recipients)}" placeholder="name@company.com, another@company.com">
+          <span class="ph-field__hint">Separate several addresses with commas. The email text comes from the Email Template on the Auto Repeat\u2019s Notification tab.</span></div>
+      </div>
+      <h3 class="ph-section-title ph-mt">Schedule</h3>
+      <div id="sf-sched" class="ph-table-wrap"></div>`;
+    const $ = (sel) => body.querySelector(sel);
+    const modal = PH.modal({
+      title: edit ? "Change standing order" : "New standing order", sub: edit ? d.name : "Set when it appears and when it is delivered", body, size: "xl",
+      actions: [
+        { label: "Cancel" },
+        { label: edit ? "Save changes" : "Create standing order", primary: true, onClick: async () => {
+          const r = await call(SO_API + "save_standing_order", Object.assign({ name: edit ? d.name : "" }, collect()));
+          if (!r.success) { PH.toast(r.error || "Could not save.", "bad"); return false; }
+          PH.toast(edit ? "Saved" : "Standing order created", "good");
+          loadStanding(true);
+        } },
+      ],
+    });
+    let source = v.source;
+    const days = new Set(v.weekdays);
+    const collect = () => ({
+      source, frequency: $("#sf-freq").value, weekdays: JSON.stringify(Array.from(days)), start_date: $("#sf-start").value, end_date: $("#sf-end").value,
+      repeat_on_day: $("#sf-mday").value || 0, repeat_on_last_day: $("#sf-mlast").checked ? 1 : 0, days_after: $("#sf-after").value || 0,
+      send_reminder: $("#sf-remind").checked ? 1 : 0, recipients: $("#sf-mail").value.trim(),
+    });
+    let prevSeq = 0;
+    const refresh = PH.debounce(() => {
+      const f = $("#sf-freq").value;
+      $("#sf-days-wrap").hidden = f !== "Weekly";
+      $("#sf-month-wrap").hidden = !["Monthly", "Quarterly", "Half-yearly", "Yearly"].includes(f);
+      $("#sf-mail-wrap").hidden = !$("#sf-remind").checked;
+      const my = ++prevSeq;
+      call(SO_API + "preview_schedule", Object.assign({ count: 8 }, collect()), true).then((r) => {
+        if (my !== prevSeq) return;
+        if (!r.success) { $("#sf-sched").innerHTML = `<div class="ph-notice ph-notice--warn"><span>${esc(r.error || "Check the dates.")}</span></div>`; return; }
+        const rows = (r.schedule || []).map((x, i) => `<tr><td class="is-strong">${esc(longDay(x.appears))}${i === 0 ? ' <span class="ph-badge ph-badge--signal">First</span>' : ""}</td><td>${esc(longDay(x.delivers))}</td><td class="ph-muted">${x.days_after} day${x.days_after === 1 ? "" : "s"} later</td></tr>`).join("");
+        $("#sf-sched").innerHTML = `<table class="ph-table"><thead><tr><th>Order appears</th><th>Delivered</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="3" class="ph-muted">No dates yet — check the start and end dates.</td></tr>'}</tbody></table>`;
+        const first = (r.schedule || [])[0];
+        $("#sf-after-hint").textContent = first ? `e.g. appears ${dayLabel(first.appears)}, delivered ${dayLabel(first.delivers)}` : "";
+      });
+    }, 250);
+    body.addEventListener("input", refresh);
+    body.addEventListener("change", refresh);
+    $("#sf-days").addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-value]");
+      if (!b) return;
+      b.classList.toggle("is-on");
+      if (days.has(b.dataset.value)) days.delete(b.dataset.value); else days.add(b.dataset.value);
+      refresh();
+    });
+    if (!edit) {
+      PH.autocomplete($("#sf-source"), {
+        minChars: 0,
+        source: (q) => call(SO_API + "find_orders", { q }, true).then((r) => (Array.isArray(r) ? r : [])),
+        display: (it) => it.label,
+        onSelect: (it) => { source = it.value; $("#sf-source-hint").textContent = it.description || ""; },
+      });
+      $("#sf-source").addEventListener("input", () => { source = ""; });
+    }
+    refresh();
+  }
+  document.getElementById("so-standing").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-sact]");
+    if (b && b.dataset.sact === "new") openStandingForm(null);
+  });
   applyLayout();
 
   /* head tools + back button */
@@ -583,6 +693,7 @@
     if (!b) return;
     const a = b.dataset.act;
     if (a === "new") goEditor(null);
+    else if (a === "stand-new") openStandingForm(null);
     else if (a === "import") st.set({ view: "import", name: "" });
     else if (a === "paste") openRestoreModal();
     else if (a === "desk" && CURRENT && CURRENT.name) PH.openDoc("Sales Order", CURRENT.name);

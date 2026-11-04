@@ -15,7 +15,7 @@ from frappe import _
 from frappe.utils import flt
 
 from upande_packhouse import stock_movement
-from upande_packhouse.item_groups import resolve_rose_item_groups
+from upande_packhouse.item_groups import crop_name, hs_code, resolve_rose_item_groups
 from upande_packhouse.packing_guide import _group_key as _packing_guide_group_key
 
 
@@ -149,19 +149,32 @@ def location_sales_orders(delivery_date, location):
 
 def split_over_order_lines(var, so_cache):
 	"""(so, variety, {stems, boxes, length, source_farm}, Sales Order Item) per
-	Delivery Note row: each (order, variety, length) of loaded stems goes to the
-	order's lines of that variety and length -- else of that variety -- filling each
-	up to what it still has to deliver, any surplus on the last. Matching on the
-	variety alone put every length's stems on the first line, over its quantity:
-	"This document is over limit by Qty ... Are you making another Delivery Note
-	against the same Sales Order Item?"."""
+	Delivery Note row: each (order, variety, length[, mix]) of loaded stems goes to the
+	order's line of that variety, length and mix -- else of that variety and length, else
+	of that variety -- filling each up to what it still has to deliver, any surplus on
+	the last. Matching on the variety alone put every length's stems on the first line,
+	over its quantity: "This document is over limit by Qty ... Are you making another
+	Delivery Note against the same Sales Order Item?".
+
+	A key may carry the mix name of the boxes it came from as a 4th part. The same
+	variety and length in a mix AND in a straight line (or in two mixes) then each find
+	their own line, and a line's boxes are the real box count: sharing one total over the
+	lines by stems gave a 4-box mix 2 boxes and a 2-box straight line 4. Rows come out in
+	the order of the order's lines, so a mix is always headed by its first line."""
 	left = {}
 	out = []
-	for (so_name, v, length), d in var.items():
+	order = {}
+	for key, d in var.items():
+		so_name, v, length = key[0], key[1], key[2]
+		mix = key[3] if len(key) > 3 else ""
+		order.setdefault(so_name, len(order))
 		items = so_cache[so_name].items
-		lines = [i for i in items if i.item_code == v and (i.get("custom_length") or "") == length] or [
-			i for i in items if i.item_code == v
-		]
+		same = [i for i in items if i.item_code == v and (i.get("custom_length") or "") == length]
+		if mix:
+			exact = [i for i in same if (i.get("custom_mix_name") or "") == mix]
+		else:
+			exact = [i for i in same if not i.get("custom_mixed_box")]
+		lines = exact or same or [i for i in items if i.item_code == v]
 		if not lines:
 			out.append((so_name, v, d, None))
 			continue
@@ -183,6 +196,7 @@ def split_over_order_lines(var, so_cache):
 			out.append((so_name, v, dict(d, stems=part, boxes=boxes, length=length or d["length"]), soi))
 			if stems <= 0:
 				break
+	out.sort(key=lambda r: (order[r[0]], r[3].get("idx") or 0 if r[3] is not None else 10**9))
 	return out
 
 
@@ -884,7 +898,10 @@ def createOrUpdateDispatch():
 						stems = (bi.qty or 0) * bunch_size
 						# By length too: an order asks for one variety at several
 						# lengths, each its own Sales Order line.
-						key = (so.name, v, bi.length or "")
+						# And by mix: one variety can sit in two mixes and again in a
+						# straight box of the same order, each its own order line with
+						# its own real box count.
+						key = (so.name, v, bi.length or "", box.get("mix_name") or "")
 						d = var.setdefault(
 							key,
 							{
@@ -958,6 +975,7 @@ def createOrUpdateDispatch():
 				dn.farm = first_so.get("farm")
 				dn.po_no = first_so.get("po_no")
 
+				farm_codes = {}
 				for so_name, v, d, soi in split_over_order_lines(var, so_cache):
 					so = so_cache[so_name]
 					rate = soi.rate if soi else 0
@@ -1008,17 +1026,24 @@ def createOrUpdateDispatch():
 						or frappe.get_cached_value("Company", so.company, "default_expense_account")
 					)
 					cost_center = frappe.db.get_value("Warehouse", warehouse, "custom_cost_center")
-					if ig == "Gypsophila":
-						hsc = "060319"
-						crop = "Gypsophilla"
-					else:
-						hsc = "060311"
-						crop = "Std Rose"
+					# HS code is the item's own Customs Tariff Number (dried / dyed stems share an
+					# Item Group with fresh ones); crop is Std Rose / Spr Rose, else the parent group.
+					hsc = hs_code(v, ig)
+					crop = crop_name(ig)
 					stems = d["stems"]
 					boxes_ct = d["boxes"]
-					farm_code = (
-						frappe.db.get_value("Farm", so.get("farm"), "farm_code") if so.get("farm") else ""
-					)
+					# The farm code is the one of the farm these stems came from (a mix or an order
+					# can be packed from several), "X_TRACE" when that farm has none; the order's
+					# own farm only when no source farm was recorded.
+					src_farm = d.get("source_farm")
+					if src_farm:
+						if src_farm not in farm_codes:
+							farm_codes[src_farm] = frappe.db.get_value("Farm", src_farm, "farm_code") or "X_TRACE"
+						farm_code = farm_codes[src_farm]
+					else:
+						farm_code = (
+							frappe.db.get_value("Farm", so.get("farm"), "farm_code") if so.get("farm") else ""
+						)
 					# uom/conversion_factor must match the referenced Sales
 					# Order Item's OWN values exactly -- now that so_detail
 					# is a real link (see below), ERPNext's own

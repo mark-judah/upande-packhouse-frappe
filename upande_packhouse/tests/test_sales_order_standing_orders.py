@@ -1,185 +1,116 @@
-"""Standing orders calendar endpoint (api/v2/sales_order.get_standing_orders).
-
-The local site has no Auto Repeat records, so the endpoint tests build
-synthetic ones inside the test transaction and roll everything back; the
-real Sales Orders are only tagged (auto_repeat) and untagged by the rollback.
+"""Standing orders: orders that repeat through Auto Repeat and APPEAR in advance
+of their delivery (standing_orders.py, overrides/auto_repeat.py,
+api/v2/standing_orders.py). Schedule maths needs no database, so those tests
+build unsaved Auto Repeat documents; the rest run inside the test transaction.
 """
 
 import frappe
 from frappe.tests import IntegrationTestCase
-from frappe.utils import add_days, add_months, getdate, nowdate
+from frappe.utils import add_days, getdate, nowdate
 
-from upande_packhouse.api.v2 import sales_order as so_api
+from upande_packhouse import standing_orders as so
+from upande_packhouse.api.v2 import standing_orders as api
 
 
-def _ar_doc(**kw):
-	"""Unsaved Auto Repeat -- the schedule maths needs no database."""
+def _ar(**kw):
 	d = {"doctype": "Auto Repeat", "reference_doctype": "Sales Order", "reference_document": "X"}
 	d.update(kw)
 	return frappe.get_doc(d)
 
 
-class TestOccurrenceDates(IntegrationTestCase):
-	def test_daily(self):
-		ar = _ar_doc(frequency="Daily", start_date="2026-03-01")
-		got = so_api.occurrence_dates(ar, "2026-03-01", "2026-03-05")
-		self.assertEqual([str(d) for d in got], ["2026-03-02", "2026-03-03", "2026-03-04", "2026-03-05"])
-
-	def test_weekly_and_fortnightly(self):
-		ar = _ar_doc(frequency="Weekly", start_date="2026-03-02")
-		self.assertEqual(
-			[str(d) for d in so_api.occurrence_dates(ar, "2026-03-01", "2026-03-31")],
-			["2026-03-09", "2026-03-16", "2026-03-23", "2026-03-30"],
-		)
-		ar = _ar_doc(frequency="Fortnightly", start_date="2026-03-02")
-		self.assertEqual(
-			[str(d) for d in so_api.occurrence_dates(ar, "2026-03-01", "2026-03-31")],
-			["2026-03-16", "2026-03-30"],
-		)
-
-	def test_weekly_on_days(self):
-		ar = _ar_doc(
-			frequency="Weekly",
-			start_date="2026-03-02",  # a Monday
-			repeat_on_days=[{"day": "Monday"}, {"day": "Thursday"}],
-		)
-		self.assertEqual(
-			[str(d) for d in so_api.occurrence_dates(ar, "2026-03-01", "2026-03-16")],
-			["2026-03-05", "2026-03-09", "2026-03-12", "2026-03-16"],
-		)
-
-	def test_monthly_quarterly_halfyearly_yearly(self):
-		for freq, step in (("Monthly", 1), ("Quarterly", 3), ("Half-yearly", 6), ("Yearly", 12)):
-			ar = _ar_doc(frequency=freq, start_date="2026-01-15")
-			got = so_api.occurrence_dates(ar, "2026-01-01", "2028-12-31")
-			want = [
-				str(getdate(add_months("2026-01-15", step * i)))
-				for i in range(1, 40)
-				if getdate(add_months("2026-01-15", step * i)) <= getdate("2028-12-31")
-			]
-			self.assertEqual([str(d) for d in got], want, freq)
-
-	def test_monthly_last_day_and_end_date(self):
-		ar = _ar_doc(
-			frequency="Monthly", start_date="2026-01-31", repeat_on_last_day=1, end_date="2026-04-15"
-		)
-		self.assertEqual(
-			[str(d) for d in so_api.occurrence_dates(ar, "2026-01-01", "2026-12-31")],
-			["2026-02-28", "2026-03-31"],
-		)  # nothing after end_date
-
-	def test_window_lower_bound(self):
-		ar = _ar_doc(frequency="Daily", start_date="2026-03-01")
-		self.assertEqual(str(so_api.occurrence_dates(ar, "2026-03-04", "2026-03-04")[0]), "2026-03-04")
+def _days(ar, a, b):
+	return [str(d) for d in so.appearance_dates(ar, a, b)]
 
 
-class TestStandingOrdersEndpoint(IntegrationTestCase):
-	def setUp(self):
-		self._commit = frappe.db.commit
-		frappe.db.commit = lambda *a, **k: None
-		frappe.set_user("Administrator")
-		self.before = frappe.db.count("Auto Repeat"), frappe.db.count("Sales Order")
-		rows = frappe.db.sql(
-			"""SELECT name, customer, delivery_date FROM `tabSales Order`
-			   WHERE business_unit = 'Roses' AND docstatus = 1 AND IFNULL(auto_repeat, '') = ''
-			   ORDER BY modified DESC LIMIT 6""",
-			as_dict=True,
-		)
-		if len(rows) < 3:
-			self.skipTest("needs 3 submitted Roses sales orders")
-		self.src, self.gen1, self.gen2 = rows[0], rows[1], rows[2]
-		frappe.db.savepoint("so_standing")
+class TestSchedule(IntegrationTestCase):
+	def test_first_order_appears_on_the_start_date(self):
+		ar = _ar(frequency="Weekly", start_date="2026-03-02")
+		self.assertEqual(_days(ar, "2026-03-01", "2026-03-31"), ["2026-03-02", "2026-03-09", "2026-03-16", "2026-03-23", "2026-03-30"])
 
-	def tearDown(self):
-		frappe.db.rollback()
-		frappe.db.commit = self._commit
-		self.assertEqual(self.before, (frappe.db.count("Auto Repeat"), frappe.db.count("Sales Order")))
+	def test_daily_and_fortnightly(self):
+		self.assertEqual(_days(_ar(frequency="Daily", start_date="2026-03-01"), "2026-03-01", "2026-03-03"), ["2026-03-01", "2026-03-02", "2026-03-03"])
+		self.assertEqual(_days(_ar(frequency="Fortnightly", start_date="2026-03-02"), "2026-03-01", "2026-03-31"), ["2026-03-02", "2026-03-16", "2026-03-30"])
 
-	def _ar(self, **kw):
-		today = getdate(nowdate())
-		d = {
-			"doctype": "Auto Repeat",
-			"reference_doctype": "Sales Order",
-			"reference_document": self.src.name,
-			"frequency": "Weekly",
-			"start_date": add_days(today, -30),
-		}
-		d.update(kw)
-		return frappe.get_doc(d).insert(ignore_permissions=True)
+	def test_weekly_on_days_moves_a_start_date_that_is_not_one(self):
+		# 2026-03-03 is a Tuesday; the repeat days are Monday and Thursday
+		ar = _ar(frequency="Weekly", start_date="2026-03-03", repeat_on_days=[{"day": "Monday"}, {"day": "Thursday"}])
+		self.assertEqual(_days(ar, "2026-03-01", "2026-03-16"), ["2026-03-05", "2026-03-09", "2026-03-12", "2026-03-16"])
 
-	def _tag(self, ar, so, date):
-		frappe.db.set_value(
-			"Sales Order", so, {"auto_repeat": ar.name, "delivery_date": date}, update_modified=False
-		)
+	def test_monthly_on_a_day(self):
+		ar = _ar(frequency="Monthly", start_date="2026-03-01", repeat_on_day=15)
+		self.assertEqual(_days(ar, "2026-03-01", "2026-05-31"), ["2026-03-15", "2026-04-15", "2026-05-15"])
 
-	def _call(self, **kw):
-		today = getdate(nowdate())
-		kw.setdefault("from_date", str(add_days(today, -35)))
-		kw.setdefault("to_date", str(add_days(today, 35)))
-		return so_api.get_standing_orders(**kw)
+	def test_end_date_stops_it(self):
+		ar = _ar(frequency="Daily", start_date="2026-03-01", end_date="2026-03-03")
+		self.assertEqual(_days(ar, "2026-03-01", "2026-03-31"), ["2026-03-01", "2026-03-02", "2026-03-03"])
 
-	def test_generated_and_future(self):
-		today = getdate(nowdate())
-		ar = self._ar()
-		self._tag(ar, self.gen1.name, add_days(today, -7))
-		self._tag(ar, self.gen2.name, add_days(today, -14))
-		r = self._call(customer=self.src.customer)
+	def test_delivery_is_days_after_the_appearance(self):
+		ar = _ar(frequency="Weekly", start_date="2026-11-01", custom_delivery_days_after=3)
+		s = so.schedule(ar, count=2, window_from="2026-11-01")
+		self.assertEqual([(str(x["appears"]), str(x["delivers"])) for x in s], [("2026-11-01", "2026-11-04"), ("2026-11-08", "2026-11-11")])
+
+	def test_no_days_after_means_delivery_on_the_appearance(self):
+		ar = _ar(frequency="Daily", start_date="2026-11-01")
+		self.assertEqual(str(so.delivery_for(ar, "2026-11-01")), "2026-11-01")
+
+
+class TestRepeatedOrder(IntegrationTestCase):
+	def test_copy_is_stamped_and_cleaned(self):
+		ar = _ar(frequency="Weekly", start_date="2026-11-01", custom_delivery_days_after=3)
+		ar.next_schedule_date = "2026-11-08"
+		doc = frappe.new_doc("Sales Order")
+		doc.delivery_date = "2026-11-08"  # what stock Auto Repeat would have stamped
+		doc.append("items", {"item_code": "x", "custom_opl": None, "custom_fully_allocated": 1, "delivery_date": "2026-11-08"})
+		doc.append("custom_confirmed_stems_table", {"farm": "F", "stems": 10})
+		doc.custom_truck_details = "KAA 123"
+		doc.po_no = "588211"
+		so.apply_standing_dates(ar, doc)
+		self.assertEqual(str(doc.transaction_date), "2026-11-08")
+		self.assertEqual(str(doc.delivery_date), "2026-11-11")
+		self.assertEqual(str(doc.items[0].delivery_date), "2026-11-11")
+		self.assertEqual(doc.items[0].custom_fully_allocated, 0)
+		self.assertEqual(len(doc.custom_confirmed_stems_table), 0)
+		self.assertFalse(doc.custom_truck_details)
+		self.assertFalse(doc.po_no)
+		self.assertEqual(doc.custom_week, str(getdate("2026-11-11").isocalendar()[1]))
+
+	def test_other_doctypes_are_untouched(self):
+		self.assertFalse(so.is_standing(_ar(reference_doctype="Sales Invoice")))
+
+	def test_days_after_is_bounded(self):
+		with self.assertRaises(frappe.ValidationError):
+			so.validate_standing(_ar(custom_delivery_days_after=99))
+
+
+class TestApi(IntegrationTestCase):
+	def test_preview_schedule(self):
+		r = api.preview_schedule(frequency="Weekly", start_date="2026-11-02", days_after=3, count=2, weekdays="[]")
 		self.assertTrue(r["success"], r)
-		gen = [e for e in r["events"] if e["kind"] == "generated"]
-		sched = [e for e in r["events"] if e["kind"] == "scheduled"]
-		self.assertEqual({e["order"] for e in gen}, {self.gen1.name, self.gen2.name})
-		self.assertTrue(sched)
-		self.assertTrue(all(getdate(e["date"]) >= today for e in sched))
-		self.assertTrue(all((getdate(e["date"]) - getdate(ar.start_date)).days % 7 == 0 for e in sched))
-		self.assertEqual(r["kpis"]["active"], 1)
-		self.assertEqual(r["kpis"]["generated"], 2)
-		self.assertEqual(
-			r["kpis"]["due_week"], sum(1 for e in sched if getdate(e["date"]) <= add_days(today, 6))
-		)
-		# boxes / stems on the generated rows are the core figures of that order
-		self.assertEqual(
-			sum(e["stems"] for e in gen),
-			sum(
-				so_api._order_figures([self.gen1.name, self.gen2.name])[n][1]
-				for n in (self.gen1.name, self.gen2.name)
-			),
-		)
+		self.assertEqual([(str(x["appears"]), str(x["delivers"])) for x in r["schedule"]], [("2026-11-02", "2026-11-05"), ("2026-11-09", "2026-11-12")])
 
-	def test_kpi_range_independent_of_grid(self):
-		today = getdate(nowdate())
-		ar = self._ar()
-		self._tag(ar, self.gen1.name, add_days(today, -7))
-		r = self._call(kpi_from=str(add_days(today, -3)), kpi_to=str(today))
-		self.assertEqual(r["kpis"]["generated"], 0)
-		self.assertTrue(any(e["kind"] == "generated" for e in r["events"]))
+	def test_preview_schedule_rejects_a_bad_frequency(self):
+		self.assertFalse(api.preview_schedule(frequency="Sometimes", start_date="2026-11-02")["success"])
 
-	def test_disabled_has_no_future_and_filters(self):
-		ar = self._ar(disabled=1)
-		r = self._call()
-		self.assertEqual([e for e in r["events"] if e["kind"] == "scheduled"], [])
-		self.assertEqual((r["kpis"]["active"], r["kpis"]["disabled"]), (0, 1))
-		self.assertEqual(len(self._call(state="active")["standing"]), 0)
-		self.assertEqual(len(self._call(state="disabled")["standing"]), 1)
-		self.assertEqual(self._call(customer="no such customer")["standing"], [])
+	def test_list_runs_and_reports_kpis(self):
+		r = api.get_standing_orders()
+		self.assertTrue(r["success"], r)
+		for k in ("active", "paused", "total", "appear_week", "deliver_week_boxes"):
+			self.assertIn(k, r["kpis"])
 
-	def test_end_date_stops_schedule(self):
-		today = getdate(nowdate())
-		self._ar(end_date=add_days(today, 10))
-		sched = [e for e in self._call()["events"] if e["kind"] == "scheduled"]
-		self.assertTrue(sched)
-		self.assertTrue(all(getdate(e["date"]) <= add_days(today, 10) for e in sched))
-
-	def test_region_filter(self):
-		self._ar()
-		from upande_packhouse.api.v2.core import region
-
-		mine = frappe.db.sql(
-			"SELECT COALESCE(NULLIF(farm,''), NULLIF(custom_farm,'')) FROM `tabSales Order` WHERE name=%s",
-			self.src.name,
-		)[0][0]
-		reg = region.region_of(mine)
-		if not reg:
-			self.skipTest("source order farm has no region")
-		other = "Karen" if reg == "Ravine" else "Ravine"
-		self.assertEqual(len(self._call(region=reg)["standing"]), 1)
-		self.assertEqual(len(self._call(region=other)["standing"]), 0)
+	def test_email_template_renders_from_the_order(self):
+		"""The Notification tab's message, rendered with doc only, reads the figures through standing_summary(doc)."""
+		src = frappe.get_all("Sales Order", filters={"docstatus": ["<", 2], "business_unit": "Roses"}, pluck="name", limit=1)
+		if not src:
+			self.skipTest("no Roses Sales Order on this site")
+		order = frappe.get_doc("Sales Order", src[0])
+		ar = frappe.get_doc({"doctype": "Auto Repeat", "reference_doctype": "Sales Order", "reference_document": order.name,
+			"frequency": "Weekly", "start_date": nowdate(), "custom_delivery_days_after": 3}).insert(ignore_permissions=True, ignore_mandatory=True)
+		order.db_set("auto_repeat", ar.name)
+		order.auto_repeat = ar.name
+		tpl = frappe.get_doc("Email Template", so.DEFAULT_TEMPLATE)
+		subject = frappe.render_template(tpl.subject, {"doc": order})
+		html = frappe.render_template(tpl.response_html, {"doc": order})
+		self.assertIn("delivery", subject)
+		for needle in ("Open the order", order.name, "Boxes", "Delivery"):
+			self.assertIn(needle, html)
+		self.assertNotIn("{{", html)
