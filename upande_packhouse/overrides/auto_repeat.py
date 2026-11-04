@@ -64,13 +64,15 @@ class PackhouseAutoRepeat(AutoRepeat):
 		if not so.is_standing(self) or self.print_format:
 			return super().send_notification(new_doc)
 		ctx = {"doc": new_doc}
+		# The subject and message are the Auto Repeat's own Notification tab, set by its owner -- the same
+		# templates core Auto Repeat renders in send_notification.
 		subject = (
-			frappe.render_template(self.subject, ctx)
+			frappe.render_template(self.subject, ctx)  # nosemgrep: frappe-ssti
 			if self.subject
 			else _("New {0}: {1}").format(new_doc.doctype, new_doc.name)
 		)
 		message = (
-			frappe.render_template(self.message or "", ctx)
+			frappe.render_template(self.message or "", ctx)  # nosemgrep: frappe-ssti
 			if self.message
 			else _("A recurring {0} {1} has been created for you.").format(new_doc.doctype, new_doc.name)
 		)

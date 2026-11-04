@@ -232,7 +232,7 @@ def get_standing_orders(**kwargs):
 
 
 @frappe.whitelist()
-def get_standing_order(name):
+def get_standing_order(name: str):
 	"""One standing order: every setting, its upcoming schedule, and the orders it has made."""
 	try:
 		frappe.has_permission("Auto Repeat", "read", throw=True)
@@ -467,7 +467,7 @@ def delete_standing_order(name):
 
 
 @frappe.whitelist()
-def preview_reminder(name):
+def preview_reminder(name: str):
 	"""The email as it will arrive: the Notification tab's subject and message, with the order
 	being repeated standing in for the next copy."""
 	try:
