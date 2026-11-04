@@ -1038,7 +1038,9 @@ def createOrUpdateDispatch():
 					src_farm = d.get("source_farm")
 					if src_farm:
 						if src_farm not in farm_codes:
-							farm_codes[src_farm] = frappe.db.get_value("Farm", src_farm, "farm_code") or "X_TRACE"
+							farm_codes[src_farm] = (
+								frappe.db.get_value("Farm", src_farm, "farm_code") or "X_TRACE"
+							)
 						farm_code = farm_codes[src_farm]
 					else:
 						farm_code = (

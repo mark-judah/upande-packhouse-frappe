@@ -24,7 +24,9 @@ class TestInvoiceCropHs(IntegrationTestCase):
 		self.assertEqual(default_hs_code("Fillers - Aster"), "")  # not in the list: left blank, not guessed
 
 	def test_item_code_overrides_the_group_default(self):
-		item = frappe.get_all("Item", filters={"item_group": "Gypsophilla - Regular", "disabled": 0}, pluck="name", limit=1)
+		item = frappe.get_all(
+			"Item", filters={"item_group": "Gypsophilla - Regular", "disabled": 0}, pluck="name", limit=1
+		)
 		if not item:
 			self.skipTest("no Gypsophila item on this site")
 		frappe.db.set_value("Item", item[0], "customs_tariff_number", "060390")

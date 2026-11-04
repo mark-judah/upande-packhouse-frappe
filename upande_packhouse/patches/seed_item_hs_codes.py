@@ -14,14 +14,16 @@ from upande_packhouse.item_groups import HS_DEFAULT_BY_GROUP, HS_DESCRIPTIONS
 def execute():
 	for number, description in HS_DESCRIPTIONS.items():
 		if not frappe.db.exists("Customs Tariff Number", number):
-			frappe.get_doc({"doctype": "Customs Tariff Number", "tariff_number": number, "description": description}).insert(
-				ignore_permissions=True
-			)
+			frappe.get_doc(
+				{"doctype": "Customs Tariff Number", "tariff_number": number, "description": description}
+			).insert(ignore_permissions=True)
 	for group, code in HS_DEFAULT_BY_GROUP.items():
 		if not frappe.db.exists("Item Group", group):
 			continue
 		g = frappe.db.get_value("Item Group", group, ["lft", "rgt"], as_dict=True)
-		groups = frappe.get_all("Item Group", filters={"lft": [">=", g.lft], "rgt": ["<=", g.rgt]}, pluck="name")
+		groups = frappe.get_all(
+			"Item Group", filters={"lft": [">=", g.lft], "rgt": ["<=", g.rgt]}, pluck="name"
+		)
 		frappe.db.sql(
 			"""UPDATE `tabItem` SET customs_tariff_number = %s
 			   WHERE item_group IN %s AND IFNULL(customs_tariff_number, '') = ''""",

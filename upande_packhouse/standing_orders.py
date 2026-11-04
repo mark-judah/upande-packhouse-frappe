@@ -167,7 +167,13 @@ def apply_standing_dates(ar, new_doc, reference_doc=None):
 	if meta.get_field("custom_confirmed_stems_table"):
 		new_doc.set("custom_confirmed_stems_table", [])
 	# Each repeat is a new delivery with its own customer PO; ERPNext refuses a second order on the same PO.
-	for f in ("po_no", "po_date", "custom_truck_details", "custom_order_import", "custom_allocation_sequence"):
+	for f in (
+		"po_no",
+		"po_date",
+		"custom_truck_details",
+		"custom_order_import",
+		"custom_allocation_sequence",
+	):
 		if meta.get_field(f):
 			new_doc.set(f, None)
 	if meta.get_field("custom_expected_delivery_date"):
@@ -180,7 +186,9 @@ def validate_standing(ar):
 	"""Rules for the Roses Packhouse tab (Sales Order repeats only)."""
 	n = cint(ar.get(DAYS_FIELD))
 	if n < 0 or n > MAX_DAYS_AFTER:
-		frappe.throw(_("Delivery must be between 0 and {0} days after the order appears.").format(MAX_DAYS_AFTER))
+		frappe.throw(
+			_("Delivery must be between 0 and {0} days after the order appears.").format(MAX_DAYS_AFTER)
+		)
 
 
 def recipients(ar):

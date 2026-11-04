@@ -73,7 +73,10 @@ def _weekdays_of(ar_name):
 	return [
 		r.day
 		for r in frappe.get_all(
-			"Auto Repeat Day", filters={"parent": ar_name, "parenttype": "Auto Repeat"}, fields=["day"], order_by="idx"
+			"Auto Repeat Day",
+			filters={"parent": ar_name, "parenttype": "Auto Repeat"},
+			fields=["day"],
+			order_by="idx",
 		)
 	]
 
@@ -128,7 +131,8 @@ def get_standing_orders(**kwargs):
 				made[o.auto_repeat].append(o)
 		src_of = {r.name: r.source for r in rows}
 		fig = so.order_figures(
-			{r.source for r in rows} | {o.name for v in made.values() for o in v if o.name != src_of.get(o.auto_repeat)}
+			{r.source for r in rows}
+			| {o.name for v in made.values() for o in v if o.name != src_of.get(o.auto_repeat)}
 		)
 
 		horizon = add_days(today, DELIVERY_WINDOW_DAYS - 1)
@@ -208,7 +212,9 @@ def get_standing_orders(**kwargs):
 			"paused": sum(1 for o in out if o["status"] == "Paused"),
 			"total": len(out),
 			"appear_week": appear_week,
-			"deliver_week_boxes": sum(d["boxes"] for d in deliveries if getdate(d["date"]) <= add_days(today, 6)),
+			"deliver_week_boxes": sum(
+				d["boxes"] for d in deliveries if getdate(d["date"]) <= add_days(today, 6)
+			),
 		}
 		return {
 			"success": True,
@@ -237,7 +243,11 @@ def get_standing_order(name):
 		weekdays = _weekdays_of(name)
 		made = frappe.get_all(
 			"Sales Order",
-			filters={"auto_repeat": name, "docstatus": ["in", [0, 1]], "name": ["!=", doc.reference_document]},
+			filters={
+				"auto_repeat": name,
+				"docstatus": ["in", [0, 1]],
+				"name": ["!=", doc.reference_document],
+			},
 			fields=["name", "transaction_date", "delivery_date", "docstatus", "status"],
 			order_by="transaction_date desc, name desc",
 			limit=HISTORY_LIMIT,
@@ -268,7 +278,11 @@ def get_standing_order(name):
 			"boxes": fig.get(src.name, {}).get("boxes", 0),
 			"stems": fig.get(src.name, {}).get("stems", 0),
 			"schedule": [
-				dict(s, boxes=fig.get(src.name, {}).get("boxes", 0), stems=fig.get(src.name, {}).get("stems", 0))
+				dict(
+					s,
+					boxes=fig.get(src.name, {}).get("boxes", 0),
+					stems=fig.get(src.name, {}).get("stems", 0),
+				)
 				for s in sched
 			],
 			"made": [
@@ -321,7 +335,10 @@ def preview_schedule(**kwargs):
 	try:
 		frappe.has_permission("Auto Repeat", "read", throw=True)
 		doc = _draft_repeat(frappe._dict(kwargs))
-		return {"success": True, "schedule": so.schedule(doc, count=cint(kwargs.get("count")) or 8, window_from=doc.start_date)}
+		return {
+			"success": True,
+			"schedule": so.schedule(doc, count=cint(kwargs.get("count")) or 8, window_from=doc.start_date),
+		}
 	except Exception as e:
 		frappe.clear_messages()
 		return {"success": False, "error": str(e)}
@@ -384,7 +401,9 @@ def save_standing_order(**kwargs):
 			source = _arg(f, "source")
 			if not source:
 				frappe.throw(_("Choose the order to repeat."))
-			status = frappe.db.get_value("Sales Order", source, ["docstatus", "business_unit", "auto_repeat"], as_dict=True)
+			status = frappe.db.get_value(
+				"Sales Order", source, ["docstatus", "business_unit", "auto_repeat"], as_dict=True
+			)
 			if not status:
 				frappe.throw(_("{0} does not exist.").format(source))
 			if status.docstatus == 2:
@@ -392,7 +411,14 @@ def save_standing_order(**kwargs):
 			if status.auto_repeat:
 				frappe.throw(_("{0} is already a standing order ({1}).").format(source, status.auto_repeat))
 			doc = frappe.new_doc("Auto Repeat")
-			doc.update({"reference_doctype": "Sales Order", "reference_document": source, "notify_by_email": 0, "submit_on_creation": 0})
+			doc.update(
+				{
+					"reference_doctype": "Sales Order",
+					"reference_document": source,
+					"notify_by_email": 0,
+					"submit_on_creation": 0,
+				}
+			)
 		doc.frequency = draft.frequency
 		doc.start_date = draft.start_date
 		doc.end_date = draft.end_date
@@ -450,7 +476,9 @@ def preview_reminder(name):
 		if not so.is_standing(doc):
 			frappe.throw(_("{0} is not a Sales Order repeat.").format(name))
 		if not doc.message:
-			frappe.throw(_("This standing order has no email message yet. Pick a template on its Notification tab."))
+			frappe.throw(
+				_("This standing order has no email message yet. Pick a template on its Notification tab.")
+			)
 		order = frappe.get_doc("Sales Order", doc.reference_document)
 		ctx = {"doc": order}
 		return {

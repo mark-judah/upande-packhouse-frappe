@@ -40,14 +40,13 @@ function render_schedule(frm) {
 		.then((r) => {
 			const m = r.message || {};
 			if (!m.success) {
-				wrap.$wrapper.html(`<p class="text-muted">${frappe.utils.escape_html(m.error || "")}</p>`);
+				wrap.$wrapper.html(
+					`<p class="text-muted">${frappe.utils.escape_html(m.error || "")}</p>`
+				);
 				return;
 			}
 			const rows = (m.schedule || [])
-				.map(
-					(s) =>
-						`<tr><td>${so_day(s.appears)}</td><td>${so_day(s.delivers)}</td></tr>`
-				)
+				.map((s) => `<tr><td>${so_day(s.appears)}</td><td>${so_day(s.delivers)}</td></tr>`)
 				.join("");
 			wrap.$wrapper.html(
 				`<table class="table table-bordered" style="max-width:520px">
@@ -68,7 +67,14 @@ frappe.ui.form.on("Auto Repeat", {
 });
 
 // anything that moves the schedule redraws it
-["start_date", "end_date", "frequency", "repeat_on_day", "repeat_on_last_day", "custom_delivery_days_after"].forEach((f) => {
+[
+	"start_date",
+	"end_date",
+	"frequency",
+	"repeat_on_day",
+	"repeat_on_last_day",
+	"custom_delivery_days_after",
+].forEach((f) => {
 	frappe.ui.form.on("Auto Repeat", f, (frm) => render_schedule(frm));
 });
 frappe.ui.form.on("Auto Repeat Day", {
