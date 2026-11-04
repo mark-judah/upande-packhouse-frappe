@@ -28,6 +28,8 @@
 		else go();
 	};
 	const frappeReady = new Promise((res) => PH.ready(res));
+	/** Which page of this tab is showing: goes up each time the sidebar swaps the page in place. */
+	let pageGen = 0;
 
 	/**
 	 * Call a whitelisted method. Resolves with r.message.
@@ -37,46 +39,56 @@
 	 */
 	PH.call = function (method, args, opts) {
 		opts = opts || {};
-		return frappeReady.then(
-			() =>
-				new Promise((resolve, reject) => {
-					let settled = false;
-					const fail = (r) => {
-						if (settled) return;
-						settled = true;
-						const msg =
-							PH.serverError(r) ||
-							(r && r.status === 403
-								? "You don't have permission for this"
-								: "Could not reach the server");
-						if (!opts.silent) PH.toast(msg, "bad");
-						reject(new Error(msg));
-					};
-					const req = frappe.call({
-						method,
-						args: args || {},
-						type: opts.type || "POST",
-						freeze: !!opts.freeze,
-						callback: (r) => {
+		const page = pageGen;
+		// a page left meanwhile never hears back: its answer must not paint the page shown now
+		const stale = () => new Promise(() => {});
+		return frappeReady
+			.then(
+				() =>
+					new Promise((resolve, reject) => {
+						let settled = false;
+						const fail = (r) => {
 							if (settled) return;
 							settled = true;
-							const m = r ? r.message : undefined;
-							if (m && typeof m === "object" && m.success === false) {
-								const err = new Error(m.error || m.message || "Request failed");
-								err.response = m;
-								if (!opts.silent) PH.toast(err.message, "bad");
-								return reject(err);
-							}
-							resolve(m);
-						},
-						error: fail,
-					});
-					// Website-side frappe.call doesn't always invoke `error` (e.g. 403); the
-					// returned jqXHR always settles, so it is the safety net.
-					if (req && typeof req.fail === "function")
-						req.fail((xhr) => fail((xhr && xhr.responseJSON) || xhr));
-				})
-		);
+							const msg =
+								PH.serverError(r) ||
+								(r && r.status === 403
+									? "You don't have permission for this"
+									: "Could not reach the server");
+							if (!opts.silent) PH.toast(msg, "bad");
+							reject(new Error(msg));
+						};
+						const req = frappe.call({
+							method,
+							args: args || {},
+							type: opts.type || "POST",
+							freeze: !!opts.freeze,
+							callback: (r) => {
+								if (settled) return;
+								settled = true;
+								const m = r ? r.message : undefined;
+								if (m && typeof m === "object" && m.success === false) {
+									const err = new Error(
+										m.error || m.message || "Request failed"
+									);
+									err.response = m;
+									if (!opts.silent) PH.toast(err.message, "bad");
+									return reject(err);
+								}
+								resolve(m);
+							},
+							error: fail,
+						});
+						// Website-side frappe.call doesn't always invoke `error` (e.g. 403); the
+						// returned jqXHR always settles, so it is the safety net.
+						if (req && typeof req.fail === "function")
+							req.fail((xhr) => fail((xhr && xhr.responseJSON) || xhr));
+					})
+			)
+			.then(
+				(v) => (page === pageGen ? v : stale()),
+				(e) => (page === pageGen ? Promise.reject(e) : stale())
+			);
 	};
 
 	/** Best-effort human message out of a Frappe error response. */
@@ -722,10 +734,12 @@
 			t = setInterval(() => !document.hidden && fn(true), ms);
 		};
 		const stop = () => t && clearInterval(t);
+		const page = pageGen;
 		document.addEventListener("visibilitychange", () => {
-			if (!document.hidden) fn(true);
+			if (!document.hidden && page === pageGen) fn(true);
 		});
 		start();
+		owned.push({ page, undo: stop });
 		return { stop, start };
 	};
 
@@ -1535,24 +1549,10 @@
 		const root = document.querySelector(".ph2");
 		if (!root) return;
 		document.documentElement.classList.add("ph2-root");
-		const collapse = document.getElementById("ph-collapse");
-		if (collapse)
-			collapse.addEventListener("click", () => {
-				root.classList.toggle("is-collapsed");
-				try {
-					localStorage.setItem(
-						"ph2SideCollapsed",
-						root.classList.contains("is-collapsed") ? "1" : "0"
-					);
-				} catch (e) {
-					// not available: carry on without it
-				}
-			});
-		const menuBtn = document.getElementById("ph-menu-btn");
-		const scrim = root.querySelector(".ph-scrim");
-		if (menuBtn) menuBtn.addEventListener("click", () => root.classList.add("is-drawer-open"));
-		if (scrim) scrim.addEventListener("click", () => root.classList.remove("is-drawer-open"));
+		bindTopbar(root);
 		const main = root.querySelector(".ph-main");
+		const scrim = root.querySelector(".ph-scrim");
+		if (scrim) scrim.addEventListener("click", () => root.classList.remove("is-drawer-open"));
 		if (main)
 			main.addEventListener(
 				"scroll",
@@ -1576,6 +1576,202 @@
 			});
 		}
 	}
+	/** The topbar's buttons: bound on load and again each time the page is swapped in place. */
+	function bindTopbar(root) {
+		const collapse = document.getElementById("ph-collapse");
+		if (collapse)
+			collapse.addEventListener("click", () => {
+				root.classList.toggle("is-collapsed");
+				try {
+					localStorage.setItem(
+						"ph2SideCollapsed",
+						root.classList.contains("is-collapsed") ? "1" : "0"
+					);
+				} catch (e) {
+					// not available: carry on without it
+				}
+			});
+		const menuBtn = document.getElementById("ph-menu-btn");
+		if (menuBtn) menuBtn.addEventListener("click", () => root.classList.add("is-drawer-open"));
+	}
+
+	/* ── Moving between the sidebar's pages in place ──────────────────
+	 * The sidebar is never replaced: a click on one of its pages fetches that page, swaps the
+	 * topbar and page under it and runs the page's scripts. What the page left behind (its
+	 * timers, its window and document listeners, its polls) is undone first, and answers to
+	 * its server calls still on the way are dropped. Anything unexpected falls back to a
+	 * normal page load. */
+	const owned = [];
+	const BASE = "/packhouse-dashboard-v2";
+	// a page's own scripts: inline, or this app's page files (not this runtime, not Frappe's or another app's)
+	const byPage = () => {
+		const cs = document.currentScript;
+		if (!cs) return false;
+		const src = cs.src || "";
+		return (
+			!src || (src.includes("/assets/upande_packhouse/") && !/\/packhouse-v2\.js/.test(src))
+		);
+	};
+	const nativeInterval = window.setInterval;
+	window.setInterval = function (...a) {
+		const id = nativeInterval.apply(window, a);
+		if (byPage()) owned.push({ page: pageGen, undo: () => clearInterval(id) });
+		return id;
+	};
+	[window, document].forEach((target) => {
+		const add = target.addEventListener;
+		target.addEventListener = function (type, fn, opts) {
+			if (byPage() && type !== "beforeunload")
+				owned.push({
+					page: pageGen,
+					undo: () => target.removeEventListener(type, fn, opts),
+				});
+			return add.call(this, type, fn, opts);
+		};
+	});
+	let here = location.pathname;
+	function leavePage() {
+		pageGen++;
+		owned.splice(0).forEach((o) => {
+			try {
+				o.undo();
+			} catch (e) {
+				// already gone
+			}
+		});
+		lastUpdated = null;
+	}
+	// a page with unsaved changes asks first, as it does on a normal page load
+	function mayLeave() {
+		const e = new Event("beforeunload", { cancelable: true });
+		window.dispatchEvent(e);
+		return (
+			!e.defaultPrevented ||
+			window.confirm("Leave this page? Changes you made may not be saved.")
+		);
+	}
+	function markSidebar(path) {
+		document.querySelectorAll(".ph-side__item").forEach((a) => {
+			const on = new URL(a.href, location.href).pathname === path;
+			a.classList.toggle("is-on", on);
+			if (on) a.setAttribute("aria-current", "page");
+			else a.removeAttribute("aria-current");
+		});
+	}
+	function runScript(old) {
+		return new Promise((done) => {
+			const type = (old.getAttribute("type") || "").toLowerCase();
+			const src = old.getAttribute("src");
+			if (
+				(type && !/javascript|module/.test(type)) ||
+				(src && /\/packhouse-v2\.js/.test(src))
+			) {
+				old.remove();
+				return done();
+			}
+			const s = document.createElement("script");
+			Array.from(old.attributes).forEach((a) => s.setAttribute(a.name, a.value));
+			if (src) s.onload = s.onerror = done;
+			else s.textContent = old.textContent;
+			old.replaceWith(s);
+			if (!src) done();
+		});
+	}
+	async function goTo(url, push) {
+		const to = new URL(url, location.href);
+		if (!mayLeave()) return;
+		let doc;
+		try {
+			const r = await fetch(to.href, { credentials: "same-origin" });
+			if (!r.ok || new URL(r.url).pathname !== to.pathname) throw new Error("moved");
+			doc = new DOMParser().parseFromString(await r.text(), "text/html");
+		} catch (e) {
+			window.location.href = to.href;
+			return;
+		}
+		const root = document.querySelector(".ph2");
+		const main = root && root.querySelector(".ph-main");
+		const next = doc.querySelector(".ph2 .ph-main");
+		const nextRoot = doc.querySelector(".ph2");
+		if (!main || !next) {
+			window.location.href = to.href;
+			return;
+		}
+		// what the page puts after the shell (its styles, scripts, dialogs) comes along too; its
+		// stylesheets are loaded before the swap so the page never shows unstyled
+		const tail = [];
+		for (let n = nextRoot.nextSibling; n; n = n.nextSibling)
+			tail.push(document.importNode(n, true));
+		await Promise.all(
+			tail
+				.filter((n) => n.tagName === "LINK" && /stylesheet/i.test(n.rel || ""))
+				.map(
+					(l) =>
+						new Promise((done) => {
+							const pre = document.createElement("link");
+							pre.rel = "preload";
+							pre.as = "style";
+							pre.href = l.href;
+							pre.onload = pre.onerror = () => {
+								pre.remove();
+								done();
+							};
+							document.head.appendChild(pre);
+						})
+				)
+		);
+		leavePage();
+		if (push) history.pushState({ ph2: 1 }, "", to.href);
+		here = to.pathname;
+		const swap = () => {
+			while (root.nextSibling) root.nextSibling.remove();
+			root.after(...tail);
+			main.replaceChildren(
+				...Array.from(next.childNodes).map((n) => document.importNode(n, true))
+			);
+			main.scrollTop = 0;
+			main.classList.remove("is-scrolled");
+			document.title = doc.title;
+			markSidebar(to.pathname);
+			root.classList.remove("is-drawer-open");
+			bindTopbar(root);
+		};
+		const calm = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+		if (document.startViewTransition && !calm)
+			await document.startViewTransition(swap).updateCallbackDone;
+		else swap();
+		// the page's own scripts: the ones inside it, then the ones after the shell
+		for (const s of Array.from(main.querySelectorAll("script"))) await runScript(s);
+		for (const n of tail) {
+			if (n.tagName === "SCRIPT") await runScript(n);
+			else if (n.querySelectorAll)
+				for (const s of Array.from(n.querySelectorAll("script"))) await runScript(s);
+		}
+	}
+	document.addEventListener("click", (e) => {
+		const a = e.target.closest && e.target.closest("a.ph-side__item, a.ph-side__brand");
+		if (
+			!a ||
+			e.defaultPrevented ||
+			e.button ||
+			e.metaKey ||
+			e.ctrlKey ||
+			e.shiftKey ||
+			e.altKey
+		)
+			return;
+		const to = new URL(a.href, location.href);
+		if (to.origin !== location.origin || !to.pathname.startsWith(BASE)) return;
+		e.preventDefault();
+		if (to.pathname === location.pathname && to.search === location.search) return;
+		goTo(to.href, true);
+	});
+	window.addEventListener("popstate", () => {
+		// a page's own history steps (tabs, filters) stay with the page
+		if (location.pathname !== here && location.pathname.startsWith(BASE))
+			goTo(location.href, false);
+	});
+
 	if (document.readyState === "loading")
 		document.addEventListener("DOMContentLoaded", initShell);
 	else initShell();

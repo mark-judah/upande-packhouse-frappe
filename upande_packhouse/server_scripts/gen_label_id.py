@@ -110,10 +110,12 @@ def generate_id(
 			frappe.db.commit()  # nosemgrep: frappe-manual-commit
 
 	if action == "Bunch Label":
-		base_number = get_next_sequence(action, increment_by=no_of_labels_int)
+		# The counter can trail BUNCH- names already on the site (imports,
+		# other flows), and a plain base+i run then dies on a duplicate key
+		# with nothing printed. Take numbers that are actually free.
+		from upande_packhouse.api.v2.label_print.codes import take_bunch_numbers
 
-		for i in range(1, no_of_labels_int + 1):
-			bunch_number = base_number + i
+		for i, bunch_number in enumerate(take_bunch_numbers(no_of_labels_int), start=1):
 			bunch_id = f"BUNCH-{bunch_number}"
 
 			qr_data = {

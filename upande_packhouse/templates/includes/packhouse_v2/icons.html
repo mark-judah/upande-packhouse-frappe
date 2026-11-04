@@ -2,6 +2,8 @@
 {%- macro icon(name) -%}
 <svg class="ph-ic" viewBox="0 0 24 24" aria-hidden="true">
 {%- if name == 'layout' -%}<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>
+{%- elif name == 'split' -%}<path d="M3 12h7l4-6h6"/><path d="M10 12l4 6h6"/><path d="M17 3l3 3-3 3"/><path d="M17 15l3 3-3 3"/>
+{%- elif name == 'house' -%}<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
 {%- elif name == 'eye' -%}<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
 {%- elif name == 'grid' -%}<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>
 {%- elif name == 'home' -%}<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>

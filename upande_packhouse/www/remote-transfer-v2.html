@@ -13,7 +13,7 @@
 
 <nav class="ph-tabs" id="rt-tabs" aria-label="Remote Transfers sections">
   {%- for k, label, hint in rt_tabs %}
-  <a class="ph-tab{% if k == rt_tab %} is-on{% endif %}" href="/remote-transfer-v2?tab={{ k }}" data-tab="{{ k }}" title="{{ hint }}"{% if k == rt_tab %} aria-current="page"{% endif %}>{{ label }}</a>
+  <a class="ph-tab{% if k == rt_tab %} is-on{% endif %}" href="/packhouse-dashboard-v2/remote-transfer-v2?tab={{ k }}" data-tab="{{ k }}" title="{{ hint }}"{% if k == rt_tab %} aria-current="page"{% endif %}>{{ label }}</a>
   {%- endfor %}
 </nav>
 

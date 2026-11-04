@@ -89,7 +89,11 @@ def _get_confirmed_stems_for_location(sales_order, location):
 	return {r["sales_order_item"]: r["total_stems"] or 0 for r in rows}
 
 
-def create_mixed_box_pick_list_for_allocated_items(sales_order_doc, allocations, submit=True, location=None):
+def create_mixed_box_pick_list_for_allocated_items(
+	sales_order_doc, allocations, submit=True, location=None, return_all=False
+):
+	# One OPL per mix group: return_all gives every OPL's name instead of the first's (see the
+	# mixed-bunch builder).
 	"""
 	Create OPL(s) for allocated MIXED BOX items.
 	- Derives shelf farm dynamically from Production Settings + Farm location
@@ -375,6 +379,8 @@ def create_mixed_box_pick_list_for_allocated_items(sales_order_doc, allocations,
 
 			order_pick_list_names.append(order_pick_list.name)
 
+	if return_all:
+		return order_pick_list_names
 	return order_pick_list_names[0] if order_pick_list_names else None
 
 

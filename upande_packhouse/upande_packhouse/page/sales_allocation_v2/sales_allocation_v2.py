@@ -2399,7 +2399,11 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 		# First-allocation-wins: if this line already had THIS OPL before the current
 		# allocation, keep its team. Otherwise it is a freshly-created OPL, so write the
 		# chosen team (overwriting the Select field's auto first-option value "Team A").
-		if opl_name == prior_opl_by_soi.get(opl_soi):
+		# An OPL that never got a team (e.g. a second mix group, before every group was returned)
+		# takes this one: first-allocation-wins only protects a team already chosen.
+		if opl_name == prior_opl_by_soi.get(opl_soi) and frappe.db.get_value(
+			"Order Pick List", opl_name, "team"
+		):
 			continue
 		frappe.db.set_value("Order Pick List", opl_name, "team", opl_team, update_modified=False)
 
@@ -2470,30 +2474,28 @@ def _create_pick_list(sales_order, allocations, so_doc, location, confirmed_by_i
 			create_mixed_box_pick_list_for_allocated_items,
 		)
 
-		name = create_mixed_box_pick_list_for_allocated_items(
-			sales_order_doc=so_doc, allocations=mixed, submit=True, location=location
-		)
-		status = (
-			"submitted"
-			if name and frappe.db.get_value("Order Pick List", name, "docstatus") == 1
-			else "draft"
-		)
-		results.append({"type": "mixed", "status": status, "name": name})
+		# one OPL per group: every one of them is a result, so each gets its team stamped
+		for name in create_mixed_box_pick_list_for_allocated_items(
+			sales_order_doc=so_doc, allocations=mixed, submit=True, location=location, return_all=True
+		):
+			status = (
+				"submitted" if frappe.db.get_value("Order Pick List", name, "docstatus") == 1 else "draft"
+			)
+			results.append({"type": "mixed", "status": status, "name": name})
 
 	if mixed_bunch:
 		from upande_packhouse.server_scripts.create_mixed_bunch_picklist import (
 			create_mixed_bunch_pick_list_for_allocated_items,
 		)
 
-		name = create_mixed_bunch_pick_list_for_allocated_items(
-			sales_order_doc=so_doc, allocations=mixed_bunch, submit=True, location=location
-		)
-		status = (
-			"submitted"
-			if name and frappe.db.get_value("Order Pick List", name, "docstatus") == 1
-			else "draft"
-		)
-		results.append({"type": "mixed_bunch", "status": status, "name": name})
+		# one OPL per group: every one of them is a result, so each gets its team stamped
+		for name in create_mixed_bunch_pick_list_for_allocated_items(
+			sales_order_doc=so_doc, allocations=mixed_bunch, submit=True, location=location, return_all=True
+		):
+			status = (
+				"submitted" if frappe.db.get_value("Order Pick List", name, "docstatus") == 1 else "draft"
+			)
+			results.append({"type": "mixed_bunch", "status": status, "name": name})
 
 	return results
 
@@ -4282,29 +4284,48 @@ def get_substitute_varieties(
 	headsize: str | int | float | None = None,
 ):
 	"""
-	Returns available varieties that can substitute the current item.
-	When color/headsize are provided, filters to matching varieties (recommended).
-	When not provided, returns all varieties in the same item group with available stock.
+	Varieties the line may be changed to: the ones its specification approves (when it names any) and
+	the ones of the same colour in the same crop, with the stems free for them on this location's
+	shelves. `color` / `headsize` are no longer used: the colour is the line's own.
 
-	Returns: list of { item_code, item_name, color, headsize, available_qty }
+	Returns: list of { item_code, item_name, color, headsize, available_qty, spec, primary, same_color }
 	"""
 	if not sales_order or not sales_order_item:
 		return []
+	from upande_packhouse.api.v2.allocation_teams import crop_of_groups
 
 	config = _get_production_config()
 	farms_by_location = config["farms_by_location"]
 	farm_config = config["farm_config"]
 	discard_age = config["discard_age"]
 
-	# Get the item group of the current item so we only suggest same-group varieties
 	current_item = frappe.db.get_value(
 		"Item", item_code, ["item_group", "custom_headsize_cm", "custom_color"], as_dict=True
 	)
-
 	if not current_item:
 		return []
-
 	item_group = current_item.get("item_group") or ""
+	color = current_item.get("custom_color") or ""
+
+	# the specification's options, its primary first
+	spec = frappe.db.get_value("Sales Order Item", sales_order_item, "custom_line")
+	approved = (
+		frappe.db.sql(
+			"""SELECT variety, IFNULL(is_primary, 0) AS is_primary FROM `tabSpec Approved Variety`
+			WHERE parenttype = 'Specifications' AND parent = %s AND IFNULL(variety, '') != ''
+			ORDER BY is_primary DESC, idx""",
+			spec,
+			as_dict=True,
+		)
+		if spec
+		else []
+	)
+	spec_rank = {r.variety: n for n, r in enumerate(approved)}
+	primary = {r.variety for r in approved if cint(r.is_primary)}
+	# the same colour counts within the line's crop (Standard / Spray roses ...), else its own group
+	groups = crop_of_groups()
+	crop = groups.get(item_group)
+	crop_groups = [g for g, c in groups.items() if c == crop] if crop else [item_group]
 
 	# Get active farms for this location
 	location_farms = farms_by_location.get(location, []) if location else []
@@ -4313,19 +4334,18 @@ def get_substitute_varieties(
 
 	farm_placeholders = ", ".join(["%s"] * len(location_farms))
 
-	# Build conditions for color/headsize filtering
-	item_conditions = ["i.item_group = %s", "i.disabled = 0"]
-	item_params = [item_group]
-
+	# the line itself, its spec's options, and the same colour in its crop
+	wanted = ["i.name = %s"]
+	item_params = [item_code]
+	if approved:
+		wanted.append("i.name IN ({0})".format(", ".join(["%s"] * len(approved))))
+		item_params += [r.variety for r in approved]
 	if color:
-		item_conditions.append("i.custom_color = %s")
-		item_params.append(color)
-
-	if headsize:
-		item_conditions.append("i.custom_headsize_cm = %s")
-		item_params.append(headsize)
-
-	item_where = " AND ".join(item_conditions)
+		wanted.append(
+			"(i.custom_color = %s AND i.item_group IN ({0}))".format(", ".join(["%s"] * len(crop_groups)))
+		)
+		item_params += [color, *crop_groups]
+	item_where = "i.disabled = 0 AND ({0})".format(" OR ".join(wanted))
 
 	# Find varieties that have stock on shelves at this location. In-transit
 	# buckets count: they are allocatable (see get_sales_order_items_with_buckets),
@@ -4370,25 +4390,23 @@ def get_substitute_varieties(
         ) stock ON stock.item_code = i.name
         WHERE {item_where}
         HAVING available_qty > 0 OR i.name = %s
-        ORDER BY
-            CASE WHEN i.name = %s THEN 0 ELSE 1 END,
-            CASE WHEN i.custom_color = %s THEN 0 ELSE 1 END,
-            CASE WHEN i.custom_headsize_cm = %s THEN 0 ELSE 1 END,
-            available_qty DESC
-        LIMIT 50
+        LIMIT 200
     """,
-		location_farms
-		+ [discard_age]
-		+ item_params
-		+ [
-			item_code,
-			item_code,
-			current_item.get("custom_color") or "",
-			current_item.get("custom_headsize_cm") or "",
-		],
+		location_farms + [discard_age] + item_params + [item_code],
 		as_dict=True,
 	)
-
+	for v in varieties:
+		v.spec = v.item_code in spec_rank
+		v.primary = v.item_code in primary
+		v.same_color = bool(color) and v.color == color
+	# the line first, then the spec's options in its order, then the same colour, most stems first
+	varieties.sort(
+		key=lambda v: (
+			v.item_code != item_code,
+			spec_rank.get(v.item_code, len(spec_rank)),
+			-flt(v.available_qty),
+		)
+	)
 	return varieties
 
 

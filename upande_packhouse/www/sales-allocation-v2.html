@@ -1,0 +1,46 @@
+{% extends "templates/web.html" %}
+{% block title %}Sales Allocation · Packhouse{% endblock %}
+{% block page_content %}
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
+
+<style>
+/* The allocation board fills the space under the topbar. */
+.ph-page:has(#sa-root){padding:var(--sp-4) var(--page-pad) var(--sp-4)}
+#sa-root .ufd-sa2{background:transparent}
+#sa-skel{display:flex;flex-direction:column;gap:var(--sp-3)}
+</style>
+<div id="sa-root">
+  <div id="sa-skel" aria-busy="true" aria-label="Loading">
+    <div class="ph-sk" style="height:52px"></div>
+    <div class="ph-sk" style="height:520px"></div>
+  </div>
+</div>
+
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
+<link rel="preload" as="script" href="/assets/upande_packhouse/js/sales-allocation-v2.js?v={{ sa_v }}">
+<script>
+(function () {
+  // Start as soon as Frappe's web runtime is there (it comes last on the page), not after every font and
+  // image has loaded: then the date controls and dialogs the board uses, then the board (already fetching).
+  const SRC = "/assets/upande_packhouse/js/sales-allocation-v2.js?v={{ sa_v }}";
+  function start() {
+    frappe.require(["controls.bundle.js", "dialog.bundle.js"], () => {
+      const s = document.createElement("script");
+      s.src = SRC;
+      s.onload = () => {
+        const root = document.getElementById("sa-root");
+        root.innerHTML = "";
+        frappe.pages["sales-allocation-v2"].boot(root);
+      };
+      document.body.appendChild(s);
+    });
+  }
+  function wait(tries) {
+    if (window.frappe && frappe.require && window.jQuery) start();
+    else if (tries > 0) setTimeout(() => wait(tries - 1), 30);
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => wait(400), { once: true });
+  else wait(400);
+})();
+</script>
+{% endblock %}
