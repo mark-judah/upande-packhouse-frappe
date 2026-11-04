@@ -30,10 +30,19 @@ CYCLE = (
 )
 
 
-def stock_stages(farm, varieties):
+def stock_stages(farm, varieties, places=None):
 	"""{(variety, length): {shelf, received, quarantine, harvested}} in stems that no pick list uses: free on
 	the shelf (plan holds included), received and not shelved, received into quarantine and not released, and
-	harvested with no receiving since (graded or not), within the discard age."""
+	harvested with no receiving since (graded or not), within the discard age. `places`, a dict, also gets
+	where the stock not on the shelf is: {(variety, length): {(stage, farm, warehouse): [stems, {buckets}]}}."""
+
+	def place(key, stage, farm_, warehouse, stems, bucket):
+		if places is None:
+			return
+		p = places.setdefault(key, {}).setdefault((stage, farm_ or "", warehouse or ""), [0.0, set()])
+		p[0] += flt(stems)
+		p[1].add(bucket)
+
 	out = defaultdict(lambda: {"shelf": 0.0, "received": 0.0, "quarantine": 0.0, "harvested": 0.0})
 	if not varieties:
 		return out
@@ -43,11 +52,12 @@ def stock_stages(farm, varieties):
 		out[(r.variety, r.stem_length or "")]["shelf"] += flt(r.allocatable) + flt(r.reserved)
 	for r in received.received_unshelved(farms=farms, varieties=vs):
 		out[(r.variety, r.stem_length or "")]["received"] += flt(r.stems)
+		place((r.variety, r.stem_length or ""), "received", r.farm, r.cold_room, r.stems, r.bucket_id)
 	since = add_days(today(), -min(cint(stock._config()["discard_age"]) or 7, 14))
 	rows = frappe.db.sql(
 		"""
 		SELECT se.custom_bucket_id AS bucket_id, se.stock_entry_type, se.posting_date, se.creation,
-			sed.item_code AS variety, SUM(sed.qty) AS stems,
+			se.farm, MAX(sed.t_warehouse) AS warehouse, sed.item_code AS variety, SUM(sed.qty) AS stems,
 			COALESCE(NULLIF(sed.custom_stem_length, ''), se.custom_stem_length, '') AS stem_length
 		FROM `tabStock Entry` se FORCE INDEX (stock_entry_type_docstatus_posting_date_index)
 		INNER JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
@@ -93,6 +103,7 @@ def stock_stages(farm, varieties):
 		for r in entries:
 			if r.variety in wanted:
 				out[(r.variety, r.stem_length)][stage] += flt(r.stems)
+				place((r.variety, r.stem_length), stage, r.farm, r.warehouse, r.stems, bucket)
 	return out
 
 

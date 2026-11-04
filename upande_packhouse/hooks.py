@@ -117,6 +117,36 @@ website_route_rules = [
 	{"from_route": "/remote-transfers/transfer-scheduling", "to_route": "remote-transfer"},
 	{"from_route": "/remote-transfers/bucket-logistics", "to_route": "remote-transfer"},
 	{"from_route": "/remote-transfers/bucket-journey", "to_route": "remote-transfer"},
+	# The packhouse v2 pages live under Orders & Workflow: /packhouse-dashboard-v2/<page>.
+	{"from_route": "/packhouse-dashboard-v2/packing-insights-v2", "to_route": "packing-insights-v2"},
+	{
+		"from_route": "/packhouse-dashboard-v2/sales-allocation-planning-v2",
+		"to_route": "sales-allocation-planning-v2",
+	},
+	{"from_route": "/packhouse-dashboard-v2/sales-allocation-v2", "to_route": "sales-allocation-v2"},
+	{"from_route": "/packhouse-dashboard-v2/packhouse-production-v2", "to_route": "packhouse-production-v2"},
+	{"from_route": "/packhouse-dashboard-v2/remote-transfer-v2", "to_route": "remote-transfer-v2"},
+	{"from_route": "/packhouse-dashboard-v2/cold-room-v2", "to_route": "cold-room-v2"},
+	{"from_route": "/packhouse-dashboard-v2/packhouse-discards-v2", "to_route": "packhouse-discards-v2"},
+	{"from_route": "/packhouse-dashboard-v2/packhouse-downgrades-v2", "to_route": "packhouse-downgrades-v2"},
+	{"from_route": "/packhouse-dashboard-v2/stock-take-v2", "to_route": "stock-take-v2"},
+	{"from_route": "/packhouse-dashboard-v2/bucket-count-v2", "to_route": "bucket-count-v2"},
+	{"from_route": "/packhouse-dashboard-v2/stock-visibility-v2", "to_route": "stock-visibility-v2"},
+	{"from_route": "/packhouse-dashboard-v2/avails-v2", "to_route": "avails-v2"},
+	{"from_route": "/packhouse-dashboard-v2/stem-movement-v2", "to_route": "stem-movement-v2"},
+	{"from_route": "/packhouse-dashboard-v2/order-fulfilment-v2", "to_route": "order-fulfilment-v2"},
+	{"from_route": "/packhouse-dashboard-v2/biflorica-orders-v2", "to_route": "biflorica-orders-v2"},
+	{"from_route": "/packhouse-dashboard-v2/floriday-orders-v2", "to_route": "floriday-orders-v2"},
+	{"from_route": "/packhouse-dashboard-v2/sales-order-v2", "to_route": "sales-order-v2"},
+	{"from_route": "/packhouse-dashboard-v2/sales-settings-v2", "to_route": "sales-settings-v2"},
+	{"from_route": "/packhouse-dashboard-v2/label-print-manager-v2", "to_route": "label-print-manager-v2"},
+	{"from_route": "/packhouse-dashboard-v2/variety-tree-v2", "to_route": "variety-tree-v2"},
+	{"from_route": "/packhouse-dashboard-v2/price-lists-v2", "to_route": "price-lists-v2"},
+	{
+		"from_route": "/packhouse-dashboard-v2/new-customer-price-list-v2",
+		"to_route": "new-customer-price-list-v2",
+	},
+	{"from_route": "/packhouse-dashboard-v2/specifications-v2", "to_route": "specifications-v2"},
 ]
 
 # application home page (will override Website Settings)

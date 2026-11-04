@@ -5,16 +5,26 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/upande_packhouse/css/packhouse-v2.css?v={{ ph_v }}">
+<style>
+  /* Moving between the sidebar's pages cross-fades the page while the sidebar stays put. */
+  @view-transition{navigation:auto}
+  .ph-side{view-transition-name:ph-side}
+  ::view-transition-old(ph-side),::view-transition-new(ph-side){animation:none}
+  ::view-transition-old(root),::view-transition-new(root){animation-duration:.15s}
+  @media (prefers-reduced-motion:reduce){::view-transition-old(root),::view-transition-new(root){animation:none}}
+</style>
 <script>document.documentElement.classList.add('ph2-root');</script>
 <div class="ph2" id="ph2">
   <script>try{if(localStorage.getItem('ph2SideCollapsed')==='1')document.getElementById('ph2').classList.add('is-collapsed')}catch(e){}</script>
   <aside class="ph-side" aria-label="Packhouse navigation">
-    <a class="ph-side__brand" href="/app/packhouse" title="Back to Desk">
-      <img class="ph-side__logo" src="/assets/upande_packhouse/images/upande-logo-v2.png" alt="Upande">
-      <div class="ph-side__name">{{ ph_company }}<small>Packhouse</small></div>
-    </a>
+    <div class="ph-side__head">
+      <a class="ph-side__brand" href="/packhouse-dashboard-v2" title="Orders &amp; Workflow">
+        <img class="ph-side__logo" src="/assets/upande_packhouse/images/upande-logo-v2.png" alt="Upande">
+        <div class="ph-side__name">{{ ph_company }}<small>Packhouse</small></div>
+      </a>
+      <a class="ph-side__desk" href="/app/packhouse" title="Back to Desk" aria-label="Back to Desk">{{ icon('house') }}</a>
+    </div>
     <nav class="ph-side__nav">
-      <a class="ph-side__item ph-side__item--home" href="/app/packhouse" title="Back to Desk">{{ icon('back') }}<span>Back to Desk</span></a>
       {%- for group, items in ph_nav %}
       <div class="ph-side__group">{{ group }}</div>
       {%- for key, label, href, ic in items %}

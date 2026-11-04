@@ -22,59 +22,76 @@ from frappe.sessions import get_csrf_token
 _PUBLIC = os.path.join(os.path.dirname(__file__), "public")
 
 #: Sidebar, in order: (group, [(page key, label, href, icon), ...]).
-#: Page key == the www page name without "-v2"; it marks the active entry.
+#: Page key == the www page name without "-v2"; it marks the active entry. Every page sits under
+#: /packhouse-dashboard-v2/ (hooks.website_route_rules map those addresses to the pages).
 NAV = [
 	(
 		"Workflow",
 		[
 			("packhouse-dashboard", "Orders & Workflow", "/packhouse-dashboard-v2", "layout"),
-			("packing-insights", "Packing Insights", "/packing-insights-v2", "eye"),
-			("sales-allocation-planning", "Allocation Planning", "/sales-allocation-planning-v2", "grid"),
-			("packhouse-production", "Production", "/packhouse-production-v2", "home"),
-			("remote-transfer", "Remote Transfers", "/remote-transfer-v2?tab=transfer", "truck"),
+			("packing-insights", "Packing Insights", "/packhouse-dashboard-v2/packing-insights-v2", "eye"),
+			(
+				"sales-allocation-planning",
+				"Allocation Planning",
+				"/packhouse-dashboard-v2/sales-allocation-planning-v2",
+				"grid",
+			),
+			("sales-allocation", "Sales Allocation", "/packhouse-dashboard-v2/sales-allocation-v2", "split"),
+			("packhouse-production", "Production", "/packhouse-dashboard-v2/packhouse-production-v2", "home"),
+			(
+				"remote-transfer",
+				"Remote Transfers",
+				"/packhouse-dashboard-v2/remote-transfer-v2?tab=transfer",
+				"truck",
+			),
 		],
 	),
 	(
 		"Tracking",
 		[
-			("cold-room", "Cold Room", "/cold-room-v2", "snow"),
-			("packhouse-discards", "Discards", "/packhouse-discards-v2", "trash"),
-			("packhouse-downgrades", "Downgrades", "/packhouse-downgrades-v2", "down"),
-			("stock-take", "Stock Take", "/stock-take-v2", "clipboard"),
-			("bucket-count", "Bucket Count", "/bucket-count-v2", "cube"),
+			("cold-room", "Cold Room", "/packhouse-dashboard-v2/cold-room-v2", "snow"),
+			("packhouse-discards", "Discards", "/packhouse-dashboard-v2/packhouse-discards-v2", "trash"),
+			("packhouse-downgrades", "Downgrades", "/packhouse-dashboard-v2/packhouse-downgrades-v2", "down"),
+			("stock-take", "Stock Take", "/packhouse-dashboard-v2/stock-take-v2", "clipboard"),
+			("bucket-count", "Bucket Count", "/packhouse-dashboard-v2/bucket-count-v2", "cube"),
 		],
 	),
 	(
 		"Stock & Orders",
 		[
-			("stock-visibility", "Stock Visibility", "/stock-visibility-v2", "cube"),
-			("avails", "Avails", "/avails-v2", "layers"),
-			("stem-movement", "Stem Movement", "/stem-movement-v2", "chart"),
-			("order-fulfilment", "Order Fulfilment", "/order-fulfilment-v2", "check"),
-			("biflorica-orders", "Biflorica Orders", "/biflorica-orders-v2", "bag"),
-			("floriday-orders", "Floriday Orders", "/floriday-orders-v2", "flower"),
-			("sales-order", "Sales Order", "/sales-order-v2", "clipboard"),
-			("sales-settings", "Sales Settings", "/sales-settings-v2", "gear"),
+			("stock-visibility", "Stock Visibility", "/packhouse-dashboard-v2/stock-visibility-v2", "cube"),
+			("avails", "Avails", "/packhouse-dashboard-v2/avails-v2", "layers"),
+			("stem-movement", "Stem Movement", "/packhouse-dashboard-v2/stem-movement-v2", "chart"),
+			("order-fulfilment", "Order Fulfilment", "/packhouse-dashboard-v2/order-fulfilment-v2", "check"),
+			("biflorica-orders", "Biflorica Orders", "/packhouse-dashboard-v2/biflorica-orders-v2", "bag"),
+			("floriday-orders", "Floriday Orders", "/packhouse-dashboard-v2/floriday-orders-v2", "flower"),
+			("sales-order", "Sales Order", "/packhouse-dashboard-v2/sales-order-v2", "clipboard"),
+			("sales-settings", "Sales Settings", "/packhouse-dashboard-v2/sales-settings-v2", "gear"),
 		],
 	),
 	(
 		"Tools",
 		[
-			("label-print-manager", "Label Print Manager", "/label-print-manager-v2", "doc"),
+			(
+				"label-print-manager",
+				"Label Print Manager",
+				"/packhouse-dashboard-v2/label-print-manager-v2",
+				"doc",
+			),
 		],
 	),
 	(
 		"Reference",
 		[
-			("variety-tree", "Variety Tree", "/variety-tree-v2", "tree"),
-			("price-lists", "Price Lists", "/price-lists-v2", "dollar"),
+			("variety-tree", "Variety Tree", "/packhouse-dashboard-v2/variety-tree-v2", "tree"),
+			("price-lists", "Price Lists", "/packhouse-dashboard-v2/price-lists-v2", "dollar"),
 			(
 				"new-customer-price-list",
 				"New Customer Price List",
-				"/new-customer-price-list-v2",
+				"/packhouse-dashboard-v2/new-customer-price-list-v2",
 				"user-plus",
 			),
-			("specifications", "Specifications", "/specifications-v2", "doc"),
+			("specifications", "Specifications", "/packhouse-dashboard-v2/specifications-v2", "doc"),
 		],
 	),
 ]

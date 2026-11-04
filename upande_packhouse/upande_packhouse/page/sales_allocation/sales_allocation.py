@@ -1994,7 +1994,11 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 		# First-allocation-wins: if this line already had THIS OPL before the current
 		# allocation, keep its team. Otherwise it is a freshly-created OPL, so write the
 		# chosen team (overwriting the Select field's auto first-option value "Team A").
-		if opl_name == prior_opl_by_soi.get(opl_soi):
+		# An OPL that never got a team (e.g. a second mix group, before every group was returned)
+		# takes this one: first-allocation-wins only protects a team already chosen.
+		if opl_name == prior_opl_by_soi.get(opl_soi) and frappe.db.get_value(
+			"Order Pick List", opl_name, "team"
+		):
 			continue
 		frappe.db.set_value("Order Pick List", opl_name, "team", opl_team, update_modified=False)
 
@@ -2088,30 +2092,28 @@ def _create_pick_list(sales_order, allocations, so_doc, location, confirmed_by_i
 			create_mixed_box_pick_list_for_allocated_items,
 		)
 
-		name = create_mixed_box_pick_list_for_allocated_items(
-			sales_order_doc=so_doc, allocations=mixed, submit=True, location=location
-		)
-		status = (
-			"submitted"
-			if name and frappe.db.get_value("Order Pick List", name, "docstatus") == 1
-			else "draft"
-		)
-		results.append({"type": "mixed", "status": status, "name": name})
+		# one OPL per group: every one of them is a result, so each gets its team stamped
+		for name in create_mixed_box_pick_list_for_allocated_items(
+			sales_order_doc=so_doc, allocations=mixed, submit=True, location=location, return_all=True
+		):
+			status = (
+				"submitted" if frappe.db.get_value("Order Pick List", name, "docstatus") == 1 else "draft"
+			)
+			results.append({"type": "mixed", "status": status, "name": name})
 
 	if mixed_bunch:
 		from upande_packhouse.server_scripts.create_mixed_bunch_picklist import (
 			create_mixed_bunch_pick_list_for_allocated_items,
 		)
 
-		name = create_mixed_bunch_pick_list_for_allocated_items(
-			sales_order_doc=so_doc, allocations=mixed_bunch, submit=True, location=location
-		)
-		status = (
-			"submitted"
-			if name and frappe.db.get_value("Order Pick List", name, "docstatus") == 1
-			else "draft"
-		)
-		results.append({"type": "mixed_bunch", "status": status, "name": name})
+		# one OPL per group: every one of them is a result, so each gets its team stamped
+		for name in create_mixed_bunch_pick_list_for_allocated_items(
+			sales_order_doc=so_doc, allocations=mixed_bunch, submit=True, location=location, return_all=True
+		):
+			status = (
+				"submitted" if frappe.db.get_value("Order Pick List", name, "docstatus") == 1 else "draft"
+			)
+			results.append({"type": "mixed_bunch", "status": status, "name": name})
 
 	return results
 

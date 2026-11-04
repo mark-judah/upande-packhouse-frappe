@@ -524,7 +524,7 @@
   function openTrips() {
     const q = new URLSearchParams({ tab: "transfer", date: st.get("date"), distribute: "1" });
     const r = st.get("region"); if (r) q.set("region", r);
-    location.href = "/remote-transfer-v2?" + q.toString();
+    location.href = "/packhouse-dashboard-v2/remote-transfer-v2?" + q.toString();
   }
   document.getElementById("rts-trips-btn").addEventListener("click", () => {
     const todo = distTodo();

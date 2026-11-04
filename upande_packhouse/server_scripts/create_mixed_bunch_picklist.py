@@ -35,9 +35,12 @@ from upande_packhouse.server_scripts.create_mixed_box_picklist import (
 
 
 def create_mixed_bunch_pick_list_for_allocated_items(
-	sales_order_doc, allocations, submit=True, location=None
+	sales_order_doc, allocations, submit=True, location=None, return_all=False
 ):
-	"""Create OPL(s) for allocated MIXED BUNCH items (grouped by custom_bunch_group)."""
+	"""Create OPL(s) for allocated MIXED BUNCH items (grouped by custom_bunch_group).
+
+	One OPL per bunch group. Returns the first OPL's name, or with return_all every OPL's name
+	(callers that stamp each OPL, e.g. its team, need them all)."""
 
 	if not allocations:
 		frappe.throw(_("No allocations provided to create Pick List"))
@@ -285,6 +288,8 @@ def create_mixed_bunch_pick_list_for_allocated_items(
 
 			order_pick_list_names.append(order_pick_list.name)
 
+	if return_all:
+		return order_pick_list_names
 	return order_pick_list_names[0] if order_pick_list_names else None
 
 
