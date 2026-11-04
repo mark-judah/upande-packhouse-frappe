@@ -1680,6 +1680,10 @@ frappe.pages["sales-allocation-v2"]._hold_session = function () {
 		const o = (P.current_sales_orders || []).find((r) => r.name === so) || {};
 		orders.push({
 			sales_order: so,
+			order_name: o.custom_order_name || (existing && existing.order_name) || "",
+			order_boxes: (existing && existing.order_boxes) || o.boxes_required || 0,
+			full_after: (existing && existing.full_after) || boxes,
+			team_names: [...new Set(Object.values(teams).filter(Boolean))],
 			customer: o.customer || "",
 			delivery_date: o.delivery_date || "",
 			sequence: o.planning_sequence || 0,
@@ -3728,16 +3732,20 @@ frappe.pages["sales-allocation-v2"]._load_proposal = function () {
 	const P = frappe.pages["sales-allocation-v2"];
 	if (!P.selected_location || !P.filters.delivery_start) {
 		P._set_proposal(null);
-		return;
+		return Promise.resolve();
 	}
 	const key = P._short_key();
-	frappe.call({
-		method: "upande_packhouse.upande_packhouse.page.sales_allocation_v2.day_allocation.get_day_proposal",
-		args: P._day_args(),
-		callback: (r) => {
-			if (key === P._short_key()) P._set_proposal(r.message);
-		},
-	});
+	// a promise: what waits on it (the release dialog) opens on the server's full proposal
+	return new Promise((done) =>
+		frappe.call({
+			method: "upande_packhouse.upande_packhouse.page.sales_allocation_v2.day_allocation.get_day_proposal",
+			args: P._day_args(),
+			callback: (r) => {
+				if (key === P._short_key()) P._set_proposal(r.message);
+			},
+			always: () => done(),
+		})
+	);
 };
 frappe.pages["sales-allocation-v2"]._update_confirm_btn = function () {
 	const P = frappe.pages["sales-allocation-v2"];
