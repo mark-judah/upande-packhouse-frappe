@@ -7,6 +7,11 @@ from upande_packhouse.item_groups import crop_name, default_hs_code, hs_code
 
 
 class TestInvoiceCropHs(IntegrationTestCase):
+	def setUp(self):
+		# the crop trees are the site's own Item Groups; a fresh test site has none of them
+		if not frappe.db.exists("Item Group", "Standard Roses - Premium"):
+			self.skipTest("the site has no crop Item Groups")
+
 	def test_crop_names(self):
 		self.assertEqual(crop_name("Standard Roses - Premium"), "Std Rose")
 		self.assertEqual(crop_name("Spray Roses - The Classics"), "Spr Rose")
