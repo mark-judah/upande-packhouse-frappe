@@ -1743,19 +1743,15 @@ def close_pending(sales_order, location):
 
 def _v2_rules(location=None):
 	"""Production Settings > Allocation Planning > Sales Allocation v2. Read by this page only; the original
-	Sales Allocation page never looks at them. The plan is enforced at the locations listed under
-	"Enforce at", or at every location when none is listed."""
+	Sales Allocation page never looks at them. Allocation Planning is a guide on this page: what was confirmed
+	is shown, and the planned team, length and sequence are used, but nothing is refused for not being
+	planned."""
 	ps = frappe.get_cached_doc("Production Settings")
 
 	def flag(field, default):
 		value = ps.get(field)
 		return default if value is None else bool(cint(value))
 
-	enforce = flag("enforce_allocation_plan", False)
-	at = {r.location for r in ps.get("enforce_plan_locations") or [] if r.get("location")}
-	# Allocation Planning is a guide on this page: what was confirmed is shown, and the planned team and a
-	# planned longer length are used, but nothing is refused for not being planned.
-	del enforce, at
 	return {
 		"partial_allocation": flag("allow_partial_allocation", True),
 		"enforce_plan": False,
