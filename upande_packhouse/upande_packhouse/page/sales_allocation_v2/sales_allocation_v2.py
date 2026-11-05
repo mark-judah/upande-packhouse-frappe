@@ -63,10 +63,10 @@ def _planning_switches():
 	Planning's order sequence and team. Both on by default and off once hidden; the
 	sequence never on while the Sales Order lacks its field."""
 	ps = frappe.get_cached_doc("Production Settings")
-	# Sales Allocation v2 allocates a delivery day's orders as they come; the planning sequence stays on
-	# the planning page.
 	return {
-		"sequence": False,
+		# Allocation Planning's team sequence: shown on the order cards (#n) and followed by Allocate all
+		"sequence": not cint(ps.get("hide_allocation_planning_sequence"))
+		and frappe.db.has_column("Sales Order", "custom_allocation_sequence"),
 		"team": not cint(ps.get("hide_allocation_planning_team")),
 	}
 
