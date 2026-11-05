@@ -28,11 +28,11 @@ def getDashboardData():
 		date_filter = None
 
 		if period == "today":
-			date_filter = ["date_created", "=", today]
+			date_filter = ["delivery_date", "=", today]
 		elif period == "yesterday":
-			date_filter = ["date_created", "=", frappe.utils.add_days(today, -1)]
+			date_filter = ["delivery_date", "=", frappe.utils.add_days(today, -1)]
 		elif period == "last_7_days":
-			date_filter = ["date_created", ">=", frappe.utils.add_days(today, -7)]
+			date_filter = ["delivery_date", ">=", frappe.utils.add_days(today, -7)]
 		elif period == "custom":
 			if from_date and to_date:
 				from_d = frappe.utils.getdate(from_date)
@@ -41,11 +41,11 @@ def getDashboardData():
 					tmp = from_d
 					from_d = to_d
 					to_d = tmp
-				date_filter = ["date_created", "between", [str(from_d), str(to_d)]]
+				date_filter = ["delivery_date", "between", [str(from_d), str(to_d)]]
 			else:
-				date_filter = ["date_created", "=", today]
+				date_filter = ["delivery_date", "=", today]
 		else:
-			date_filter = ["date_created", "=", today]
+			date_filter = ["delivery_date", "=", today]
 
 		base_filters = []
 		if date_filter is not None:
@@ -54,6 +54,10 @@ def getDashboardData():
 			team_list = [t.strip() for t in str(team_filter).split(",") if t.strip()]
 			if team_list:
 				base_filters = base_filters + [["team", "in", team_list]]
+		# location and farm: the pick list's farm (where it is packed)
+		farms = _farms_for(frappe.form_dict.get("location"), frappe.form_dict.get("farm"))
+		if farms is not None:
+			base_filters = base_filters + [["farm", "in", farms or [""]]]
 
 		# Get all OPLs with schedule number field
 		all_opls_raw = frappe.get_all(
@@ -410,17 +414,8 @@ def getDashboardData():
 		boxes_printed_count = 0
 
 		if len(opl_names) > 0:
+			# the pick lists are already those delivering in the window: their labels, whenever printed
 			bf = [["order_pick_list", "in", opl_names]]
-			if date_filter is not None:
-				bdf = date_filter[:]
-				if bdf[0] == "date_created":
-					bdf[0] = "creation"
-				if bdf[1] == "between":
-					if isinstance(bdf[2], list) and len(bdf[2]) == 2:
-						start_date = str(bdf[2][0])
-						end_date = str(bdf[2][1])
-						bdf[2] = [start_date, end_date]
-				bf = bf + [bdf]
 
 			box_labels = frappe.get_all(
 				"Box Label",
@@ -637,6 +632,26 @@ def getDashboardData():
 		frappe.response["message"] = {"success": False, "error": "Internal server error"}
 
 
+def _farms_for(location=None, farm=None):
+	"""The farms a pick list may be packed at for the location and farm chosen, or None for any."""
+	if farm:
+		return [farm]
+	if location:
+		return frappe.get_all("Farm", filters={"farm_location": location}, pluck="name")
+	return None
+
+
+@frappe.whitelist()
+def getFilters():
+	"""The Workflow page's location and farm choices: {locations, farms: {location: [farm, ...]}}."""
+	farms = {}
+	for f in frappe.get_all(
+		"Farm", filters={"farm_location": ("is", "set")}, fields=["name", "farm_location"], order_by="name"
+	):
+		farms.setdefault(f.farm_location, []).append(f.name)
+	frappe.response["message"] = {"success": True, "locations": sorted(farms), "farms": farms}
+
+
 @frappe.whitelist()
 def getTeams():
 	"""Canonical team list for this dashboard's team filter -- the Workflow
@@ -648,7 +663,13 @@ def getTeams():
 	queries Order Pick List.team correctly -- only the OPTIONS were static.
 	"""
 	try:
-		teams = frappe.get_all("Packing Teams", fields=["name"], order_by="name asc", pluck="name")
+		# with a location, the teams working there (a team with no location works everywhere)
+		location = frappe.form_dict.get("location")
+		teams = [
+			r.name
+			for r in frappe.get_all("Packing Teams", fields=["name", "location"], order_by="name asc")
+			if not location or not r.location or r.location == location
+		]
 		frappe.response["message"] = {"success": True, "teams": teams}
 	except Exception as e:
 		frappe.response["message"] = {"success": False, "error": str(e), "teams": []}

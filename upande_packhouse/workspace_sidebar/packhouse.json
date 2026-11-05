@@ -381,7 +381,7 @@
    "child": 0,
    "collapsible": 1,
    "indent": 0,
-   "keep_closed": 1,
+   "keep_closed": 0,
    "label": "Version 1 & Dashboards",
    "link_type": "DocType",
    "open_in_new_tab": 1,
@@ -610,7 +610,7 @@
    "url": "/floriday-orders"
   }
  ],
- "modified": "2026-11-06 00:18:26.249039",
+ "modified": "2026-11-06 00:22:15.038401",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Packhouse",

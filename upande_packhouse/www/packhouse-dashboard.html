@@ -100,7 +100,7 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph-topbar .presets .p.active{background:var(--grad-ink);color:#fafaf6;box-shadow:0 2px 8px rgba(10,10,10,0.18)}
 /* Joined date range pill */
 .aph-topbar .date-pill{display:inline-flex;align-items:center;background:var(--surface-2);border-radius:999px;padding:2px 8px;box-shadow:var(--shadow-card);height:38px}
-.aph-topbar .date-pill input{border:0;padding:0 8px;font:500 12px var(--sans);font-feature-settings:'tnum';background:transparent;outline:0;width:112px;color:var(--ink)}
+.aph-topbar .date-pill input{border:0;padding:0 8px;font:500 12px var(--sans);font-feature-settings:'tnum';background:transparent;outline:0;width:124px;color:var(--ink)}
 .aph-topbar .date-pill .sep{padding:0 2px;color:var(--ink-mute);font-size:12px}
 .aph-topbar .date-pill .clear{padding:0 8px;color:var(--ink-mute);font-size:15px;cursor:pointer}
 .aph-topbar .btn{padding:0 16px;height:38px;border:0;background:var(--surface-2);color:var(--ink);border-radius:999px;font:500 12px var(--sans);cursor:pointer;display:inline-flex;align-items:center;gap:7px;box-shadow:var(--shadow-card);transition:transform .18s ease}
@@ -257,6 +257,14 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .aph .label-default{background:rgba(10,10,10,0.04);color:var(--ink-4)}
 .aph .label-info{background:var(--signal-soft);color:var(--signal)}
 .aph .label-primary{background:rgba(10,10,10,0.05);color:var(--ink)}
+.aph .team-multi{position:relative}
+.aph .team-multi > summary{list-style:none;cursor:pointer;user-select:none;padding-right:32px !important;position:relative;white-space:nowrap}
+.aph .team-multi > summary::-webkit-details-marker{display:none}
+.aph .team-multi > summary::after{content:"";position:absolute;right:11px;top:50%;width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:translateY(-70%) rotate(45deg)}
+.aph .team-menu{position:fixed;z-index:1000;min-width:190px;max-height:320px;overflow:auto;background:#fff;border:1px solid rgba(10,10,10,0.1);border-radius:12px;box-shadow:0 10px 30px rgba(10,10,10,0.12);padding:6px}
+.aph .team-menu label{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;font:500 12px var(--sans);cursor:pointer;white-space:nowrap}
+.aph .team-menu label:hover{background:rgba(10,10,10,0.04)}
+.aph .team-menu .team-all{border-bottom:1px solid rgba(10,10,10,0.06);margin-bottom:4px;padding-bottom:9px}
 .aph .team-badge{display:inline-block;padding:3px 10px;font:600 11px var(--sans);border-radius:999px;background:rgba(10,10,10,0.04);color:var(--ink-4)}
 .aph .rose-badge{display:inline-block;margin-left:6px;padding:3px 10px;font:600 11px var(--sans);border-radius:999px}
 .aph .rose-badge.rose-spray{background:var(--violet-soft);color:var(--violet)}
@@ -340,9 +348,18 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
              overlap / click-delegation / render-timing bugs the previous
              custom multi-select div had. Options come from the Packing
              Teams doctype (see loadTeamOptions()). -->
-        <select class="btn" id="teamSelect" style="padding-right:10px;">
-          <option value="">All Teams</option>
+        <select class="btn" id="locationSelect" style="padding-right:10px;" aria-label="Location">
+          <option value="">All locations</option>
         </select>
+        <select class="btn" id="farmSelect" style="padding-right:10px;" aria-label="Farm">
+          <option value="">All farms</option>
+        </select>
+        <!-- Teams: several at once. A native <details> opens and closes itself; the boxes inside are plain
+             checkboxes. -->
+        <details class="team-multi" id="teamMulti">
+          <summary class="btn" id="teamSummary">All teams</summary>
+          <div class="team-menu" id="teamMenu"></div>
+        </details>
         <div class="presets" id="rosePreset">
           <span class="p active" data-rose="all">All</span>
           <span class="p" data-rose="standard">Standards</span>
@@ -350,10 +367,8 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         </div>
         <div class="presets" id="presets">
           <span class="p active" data-range="today">Today</span>
-          <span class="p" data-range="7d">7d</span>
-          <span class="p" data-range="30d">30d</span>
         </div>
-        <div class="date-pill"><input type="date" id="dateFrom"><span class="sep">→</span><input type="date" id="dateTo"></div>
+        <div class="date-pill" title="Delivery date"><span class="sep">Delivery</span><input type="date" id="dateFrom"><span class="sep">→</span><input type="date" id="dateTo"></div>
         <button class="live-badge" id="refreshBtn">
           <span class="live-dot"></span>LIVE
         </button>
@@ -455,15 +470,15 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     })();
 
     let teams = [], roseType = 'all', dateRange = 'today', customFrom = '', customTo = '';
+    let selLocation = '', farm = '', FARMS = {};
     let VARIETY_MAP = {};
 
     function isoNDaysAgo(n){ const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0,10); }
     function todayIso(){ return new Date().toISOString().slice(0,10); }
+    // the dates are delivery dates: Today is what delivers today
     function applyPreset(p){
         dateRange = p;
         if (p === 'today')    { customFrom = todayIso();      customTo = todayIso(); }
-        else if (p === '7d')  { customFrom = isoNDaysAgo(7);  customTo = todayIso(); }
-        else if (p === '30d') { customFrom = isoNDaysAgo(30); customTo = todayIso(); }
         const f = document.getElementById('dateFrom'), t = document.getElementById('dateTo');
         if (f) f.value = customFrom;
         if (t) t.value = customTo;
@@ -482,37 +497,104 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     // The team list is remembered between visits (it rarely changes) so the
     // dropdown fills at once; the server copy then refreshes it in the background.
     const TEAMS_KEY = 'phDashTeams';
+    // Teams: a checkbox each; none ticked is every team. Only the teams of the chosen location are offered.
+    function teamLabel() {
+        const s = document.getElementById('teamSummary');
+        if (s) s.textContent = !teams.length ? 'All teams' : teams.length === 1 ? teams[0] : teams.length + ' teams';
+    }
     function fillTeams(list) {
-        const sel = document.getElementById('teamSelect');
-        if (!sel) return;
-        const keep = sel.value;
-        while (sel.options.length > 1) sel.remove(1);
-        list.forEach(t => {
-            const opt = document.createElement('option');
-            opt.value = t;
-            opt.textContent = t;
-            sel.appendChild(opt);
+        const menu = document.getElementById('teamMenu');
+        if (!menu) return;
+        teams = teams.filter(t => list.includes(t));
+        menu.textContent = '';
+        const row = (value, text, checked, cls) => {
+            const lab = document.createElement('label');
+            if (cls) lab.className = cls;
+            const box = document.createElement('input');
+            box.type = 'checkbox'; box.value = value; box.checked = checked;
+            lab.appendChild(box);
+            lab.appendChild(document.createTextNode(text));
+            menu.appendChild(lab);
+            return box;
+        };
+        const all = row('', 'All teams', !teams.length, 'team-all');
+        const boxes = list.map(t => row(t, t, teams.includes(t)));
+        all.addEventListener('change', () => {
+            teams = [];
+            boxes.forEach(b => (b.checked = false));
+            all.checked = true;
+            teamLabel(); load();
         });
-        if (keep && list.includes(keep)) sel.value = keep;
+        boxes.forEach(b => b.addEventListener('change', () => {
+            teams = boxes.filter(x => x.checked).map(x => x.value);
+            all.checked = !teams.length;
+            teamLabel(); load();
+        }));
+        teamLabel();
     }
     function loadTeamOptions() {
-        try { const cached = JSON.parse(localStorage.getItem(TEAMS_KEY) || 'null'); if (Array.isArray(cached)) fillTeams(cached); } catch (e) {}
+        const key = TEAMS_KEY + ':' + selLocation;
+        try { const cached = JSON.parse(localStorage.getItem(key) || 'null'); if (Array.isArray(cached)) fillTeams(cached); } catch (e) {}
         whenFrappe(() => frappe.call({
             method: 'upande_packhouse.api.dashboard.getTeams',
+            args: { location: selLocation },
             callback: r => {
                 if (!(r.message && r.message.success)) return;
                 const list = r.message.teams || [];
                 fillTeams(list);
-                try { localStorage.setItem(TEAMS_KEY, JSON.stringify(list)); } catch (e) {}
+                try { localStorage.setItem(key, JSON.stringify(list)); } catch (e) {}
+            },
+        }));
+    }
+    // Location and farm: the farms of the chosen location
+    function fillFarms() {
+        const sel = document.getElementById('farmSelect');
+        if (!sel) return;
+        const list = selLocation ? (FARMS[selLocation] || []) : [].concat(...Object.values(FARMS));
+        while (sel.options.length > 1) sel.remove(1);
+        list.forEach(f => { const o = document.createElement('option'); o.value = f; o.textContent = f; sel.appendChild(o); });
+        if (!list.includes(farm)) farm = '';
+        sel.value = farm;
+    }
+    function loadFilters() {
+        whenFrappe(() => frappe.call({
+            method: 'upande_packhouse.api.dashboard.getFilters',
+            callback: r => {
+                if (!(r.message && r.message.success)) return;
+                FARMS = r.message.farms || {};
+                const sel = document.getElementById('locationSelect');
+                (r.message.locations || []).forEach(l => { const o = document.createElement('option'); o.value = l; o.textContent = l; sel.appendChild(o); });
+                fillFarms();
             },
         }));
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-        document.getElementById('teamSelect').addEventListener('change', function () {
-            teams = this.value ? [this.value] : [];
+        document.getElementById('locationSelect').addEventListener('change', function () {
+            selLocation = this.value;
+            fillFarms();
+            loadTeamOptions();
             load();
         });
+        document.getElementById('farmSelect').addEventListener('change', function () {
+            farm = this.value;
+            load();
+        });
+        // the top bar's controls scroll sideways: the team list is placed over the page, under its button
+        document.getElementById('teamMulti').addEventListener('toggle', function () {
+            if (!this.open) return;
+            const r = document.getElementById('teamSummary').getBoundingClientRect();
+            const menu = document.getElementById('teamMenu');
+            menu.style.top = (r.bottom + 6) + 'px';
+            menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)) + 'px';
+        });
+        window.addEventListener('scroll', () => { const d = document.getElementById('teamMulti'); if (d) d.open = false; }, true);
+        // the team list closes on a click anywhere else
+        document.addEventListener('click', (e) => {
+            const d = document.getElementById('teamMulti');
+            if (d && d.open && !d.contains(e.target)) d.open = false;
+        });
+        loadFilters();
         loadTeamOptions();
 
         // ── Date presets + joined date-pill ──
@@ -582,7 +664,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
             const el = document.getElementById('issueGrid'); if (el) el.innerHTML = skCards(6);
         }
         // One request: the "Boxes to deliver" figures come back with the dashboard data.
-        const args = { team_filter: teams.length ? teams.join(',') : 'all', rose_type: roseType, ...getDateArgs() };
+        const args = { team_filter: teams.length ? teams.join(',') : 'all', rose_type: roseType, location: selLocation, farm, ...getDateArgs() };
         if (customFrom && customTo) { args.boxes_from = customFrom; args.boxes_to = customTo; }
         whenFrappe(() => frappe.call({
             method: 'upande_packhouse.api.dashboard.getDashboardData',
