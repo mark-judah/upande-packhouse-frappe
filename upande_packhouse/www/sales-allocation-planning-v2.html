@@ -767,7 +767,8 @@
       const cur = here ? l.held + l.expected : 0, who = PH.esc(l.customer || "");
       const shown = cur || (longer ? 0 : fill[l.soi] || 0);
       const kind = l.mixed ? (l.mix_name ? PH.esc(l.mix_name) : "mixed") : "straight";
-      const checks = (l.checks || []).map((c) => '<span class="pg-chip pg-chip--' + CHK[c.severity] + '">' + PH.esc(c.label) + "</span>").join("");
+      // downgrades and substitutes are Sales Allocation's: planning shows what the forecast covers
+      const checks = (l.checks || []).filter((c) => !["longer", "downgrade", "substitute", "squeeze"].includes(c.code)).map((c) => '<span class="pg-chip pg-chip--' + CHK[c.severity] + '">' + PH.esc(c.label) + "</span>").join("");
       const mixRows = (l.mix_members || []).map((m) => '<tr class="pg-subrow" data-mixof="' + PH.esc(l.soi) + '" hidden><td>' + PH.esc(m.variety) + " " + PH.esc(m.length) + "<small>same bunch · " + m.per + " stem" + (m.per === 1 ? "" : "s") + ' a bunch</small></td><td></td><td class="is-num">' + n(m.ordered) + '</td><td class="is-num">' + n(m.covered) + "</td><td></td><td>" + PH.esc(m.length) + "</td><td></td><td>" +
         (m.short > 0.5 ? '<span class="pg-chip pg-chip--bad">Short ' + n(m.short) + "</span>" : m.left > 0.5 ? '<span class="pg-chip pg-chip--warn">' + n(m.left) + " to confirm</span>" : '<span class="pg-chip pg-chip--good">Covered</span>') + "</td><td></td></tr>").join("");
       // substitutes are chosen in Sales Allocation, where the stock is
@@ -807,8 +808,10 @@
       const tag = !(x.stems > 0) ? ["Nothing available", "bad"] : more < 0.5 ? [SAFE.rolling[1], "tint"] : ["At risk · " + n(more) + " on the production forecast", "bad"];
       return '<button type="button" class="pg-safe__tile' + (x.basis === basis() ? " is-on" : "") + '" data-basis="' + x.basis + '" aria-pressed="' + (x.basis === basis()) + '"><span>' + SAFE[x.basis][0] + "</span><b>" + n(x.stems) + "</b><small>" + pct + "% of " + n(x.need) + (x.short > 0.5 ? " · " + n(x.short) + " short" : "") + '</small><span class="pg-chip pg-chip--' + tag[1] + '">' + PH.esc(tag[0]) + "</span></button>";
     }).join("") + "</div>";
-    const all = lineRows(pool.lines, false) + lineRows(pool.longer_lines, true);
-    PH.set(el, '<div class="apx-card apx-vhead"><div class="apx-vhead__top"><h2>' + PH.esc(p.variety) + " " + PH.esc(p.length) + "</h2><span>" + PH.esc(crop || "") + (crop ? " · " : "") + PH.fmt.plural(pool.lines.length + pool.longer_lines.length, "order") + " · " + (pool.week ? weekLabel(pool.week) : "delivery " + PH.fmt.date(pool.delivery_date, true)) + "</span></div>" + tiles + safe + "</div>" +
+    // only the lines ordered at this length: planning confirms on the forecast, never a downgrade (a longer
+    // length is chosen in Sales Allocation's downgrades, with its reason)
+    const all = lineRows(pool.lines, false);
+    PH.set(el, '<div class="apx-card apx-vhead"><div class="apx-vhead__top"><h2>' + PH.esc(p.variety) + " " + PH.esc(p.length) + "</h2><span>" + PH.esc(crop || "") + (crop ? " · " : "") + PH.fmt.plural(pool.lines.length, "order") + " · " + (pool.week ? weekLabel(pool.week) : "delivery " + PH.fmt.date(pool.delivery_date, true)) + "</span></div>" + tiles + safe + "</div>" +
       '<div class="apx-card apx-tablecard">' + (all ? '<div class="ph-table-wrap"><table class="apx-table pg-ltable"><thead><tr><th>Customer</th><th>Delivery</th><th class="is-num">Ordered</th><th>Confirm</th><th>Farm</th><th>Length</th><th>Team</th><th>Checks</th><th class="pg-act">Action</th></tr></thead><tbody>' + all + "</tbody></table></div>" : '<div class="pg-empty">No orders for ' + PH.esc(p.variety) + " " + PH.esc(p.length) + ".</div>") + "</div>");
     // The basis the planner confirms on: picked here, kept between visits, and the one each confirm dialog opens on.
     PH.$$("#pg-detail [data-basis]").forEach((b) => (b.onclick = () => {
@@ -849,7 +852,7 @@
     // one action: confirm on the forecast. Substitutes, added varieties and downgrades are done in Sales
     // Allocation, where the stock is; a longer length is left to its downgrade step there.
     if (longer) return '<span class="ph-muted">—</span>';
-    return '<button class="ph-btn ph-btn--primary ph-btn--sm" type="button" data-act="delivery" data-soi="' + PH.esc(l.soi) + '">Confirm based on forecast</button>';
+    return '<button class="ph-btn ph-btn--primary ph-btn--sm" type="button" data-act="delivery" data-soi="' + PH.esc(l.soi) + '">Confirm</button>';
   }
   const rowOf = (soi) => pool.lines.concat(pool.longer_lines).find((l) => l.soi === soi);
   const rowTeam = (soi) => { const sel = document.querySelector('.pg-team-row[data-soi="' + soi + '"]'); return sel ? sel.value : ""; };
