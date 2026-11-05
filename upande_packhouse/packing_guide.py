@@ -84,6 +84,36 @@ def _rows_per_item(it):
 	}, num_boxes
 
 
+def _carried_boxes(order_pick_list, items, num_boxes):
+	"""The group's box numbers (1..num_boxes) this pick list's rows fill, or None when it has no rows yet.
+
+	A line or mix whose boxes are released over several pick lists (complete mixed boxes released as their
+	stock comes in, a straight line's ready and waiting boxes) lists on each pick list only its own boxes:
+	packing carries on from where the earlier pick lists stopped (boxes 18-21 after 1-17), the same on every
+	device, instead of every pick list starting again at box 1. Pick rows number boxes across the whole order;
+	the line's offset takes them back to the group's own numbering."""
+	from upande_packhouse.server_scripts.create_mixed_box_picklist import line_box_offset
+
+	names = {it.get("name") for it in items}
+	out = set()
+	for it in items:
+		rows = [
+			r
+			for r in order_pick_list.get("table_ytkc") or []
+			if (r.get("sales_order_item") or r.get("custom_sale_order_item")) == it.get("name")
+		]
+		if not rows:
+			continue
+		offset = line_box_offset(it, rows)
+		for r in rows:
+			box = int(r.get("custom_box_id") or 0) - offset
+			if 1 <= box <= num_boxes:
+				out.add(box)
+	if not names or not out:
+		return None
+	return out
+
+
 def sync_packing_guide(order_pick_list, so_items):
 	"""(Re)build every Packing Guide row this OPL should have for `so_items`
 	(a list of Sales Order Item docs/dicts, all belonging to the same OPL --
@@ -105,9 +135,13 @@ def sync_packing_guide(order_pick_list, so_items):
 	if not so_items:
 		return
 
+	# a spec's mono and mixed bunches are one box and share one box_number sequence (box_groups)
+	from upande_packhouse.box_groups import box_keys
+
+	keys = box_keys(so_items)
 	groups = {}
 	for it in so_items:
-		key = _group_key(it)
+		key = keys.get(it.get("name")) or _group_key(it)
 		groups.setdefault(key, []).append(it)
 
 	rows = []
@@ -136,9 +170,11 @@ def sync_packing_guide(order_pick_list, so_items):
 			)
 
 		num_boxes = box_counts.pop()
+		carried = _carried_boxes(order_pick_list, items, num_boxes)
 		for row in per_item_rows:
 			for box_number in range(1, num_boxes + 1):
-				rows.append({**row, "box_number": box_number})
+				if carried is None or box_number in carried:
+					rows.append({**row, "box_number": box_number})
 
 	order_pick_list.set("table_nade", [])
 	for row in rows:

@@ -101,7 +101,16 @@ def sync_box_labels_for_fpl(fpl_doc, opl_doc, so_doc):
 		box_no = int(row.box_id or 0) or 1
 		by_box.setdefault(box_no, []).append(row)
 
-	total_boxes = len(by_box)
+	# "BOX n OF total": the boxes the line or mix booked, so a pick list carrying boxes 18-21 of a 21-box mix
+	# prints "BOX 18 OF 21", not "BOX 18 OF 4"
+	on_opl = {
+		r.get("sales_order_item") or r.get("custom_sale_order_item") for r in opl_doc.get("table_ytkc") or []
+	}
+	booked = max(
+		(int(i.get("custom_number_of_boxes") or 0) for i in so_doc.get("items") or [] if i.name in on_opl),
+		default=0,
+	)
+	total_boxes = max(len(by_box), max(by_box) if by_box else 0, booked)
 	farm_code = frappe.db.get_value("Farm", fpl_doc.farm, "farm_code") if fpl_doc.farm else None
 
 	created, updated, skipped = [], [], []

@@ -6,6 +6,7 @@ from frappe import _
 from frappe.utils import add_days, cint, flt, now_datetime, nowdate
 
 from upande_packhouse import allocation_plan, availability, stock_movement
+from upande_packhouse.box_groups import box_keys
 
 
 def _origin_warehouse(farm, fallback=None):
@@ -398,13 +399,17 @@ def get_pending_sales_orders(
                 ) AS allocation_percentage,
                 GROUP_CONCAT(soi.item_code ORDER BY soi.idx SEPARATOR ', ') AS item_codes,
                 GROUP_CONCAT(DISTINCT NULLIF(TRIM(soi.custom_length), '') ORDER BY soi.custom_length SEPARATOR ', ') AS lengths,
-                GROUP_CONCAT(DISTINCT NULLIF(TRIM(it.item_group), '') SEPARATOR ', ') AS item_groups,
+                GROUP_CONCAT(DISTINCT NULLIF(TRIM(
+                    CASE WHEN IFNULL(ig.parent_item_group, '') IN ('', 'All Item Groups')
+                        THEN it.item_group ELSE ig.parent_item_group END
+                ), '') SEPARATOR ', ') AS item_groups,
                 MAX(CASE WHEN soi.custom_mixed_box = 1 THEN 1 ELSE 0 END) AS has_mixed,
                 MAX(CASE WHEN (soi.custom_mixed_box = 0 OR soi.custom_mixed_box IS NULL) THEN 1 ELSE 0 END) AS has_straight
             FROM `tabSales Order` so
             INNER JOIN `tabSales Order Item` soi ON so.name = soi.parent
             LEFT JOIN `tabOrder Pick List` opl ON soi.custom_opl = opl.name
             LEFT JOIN `tabItem` it ON it.name = soi.item_code
+            LEFT JOIN `tabItem Group` ig ON ig.name = it.item_group
             LEFT JOIN (
                 SELECT soi2.parent AS so_name, SUM(ba.quantity_allocated) AS allocated
                 FROM `tabBucket Allocations` ba
@@ -449,7 +454,7 @@ def _attach_boxes(rows):
 		"""
 		SELECT soi.parent, soi.name, soi.stock_qty, soi.custom_number_of_boxes, soi.custom_packrate,
 			soi.custom_packrate_mixed_box, soi.custom_mixed_box, soi.custom_mix_group,
-			soi.custom_mixed_bunch, soi.custom_bunch_group,
+			soi.custom_mixed_bunch, soi.custom_bunch_group, soi.custom_mix_name,
 			(SELECT COALESCE(SUM(ba.quantity_allocated), 0) FROM `tabBucket Allocations` ba
 			 WHERE ba.sales_order_item = soi.name AND ba.cancelled = 0) AS allocated
 		FROM `tabSales Order Item` soi
@@ -458,15 +463,11 @@ def _attach_boxes(rows):
 		{"so": tuple(r.name for r in rows)},
 		as_dict=True,
 	)
+	# a spec's mono and mixed bunches are one box (box_groups)
+	keys = box_keys(lines)
 	groups = defaultdict(list)
 	for ln in lines:
-		if cint(ln.custom_mixed_bunch) and ln.custom_bunch_group:
-			key = ("bunch", str(ln.custom_bunch_group))
-		elif cint(ln.custom_mixed_box) and ln.custom_mix_group:
-			key = ("box", str(ln.custom_mix_group))
-		else:
-			key = ("line", ln.name)
-		groups[(ln.parent, key)].append(ln)
+		groups[(ln.parent, keys[ln.name])].append(ln)
 	required, full = defaultdict(int), defaultdict(int)
 	for (so, _key), members in groups.items():
 		boxes = max(cint(m.custom_number_of_boxes) or 1 for m in members)
@@ -582,17 +583,19 @@ def get_order_filter_options():
 		)
 	]
 
-	# Item groups of every item that has ever been ordered (keeps the list complete
+	# Parent item groups of every item that has ever been ordered (keeps the list complete
 	# but relevant — no Consumable / Chemical-Mix noise from unrelated groups).
 	item_groups = [
 		r["item_group"]
 		for r in frappe.db.sql(
 			"""
-        SELECT DISTINCT it.item_group
+        SELECT DISTINCT CASE WHEN IFNULL(ig.parent_item_group, '') IN ('', 'All Item Groups')
+            THEN it.item_group ELSE ig.parent_item_group END AS item_group
         FROM `tabItem` it
         INNER JOIN `tabSales Order Item` soi ON soi.item_code = it.name
+        LEFT JOIN `tabItem Group` ig ON ig.name = it.item_group
         WHERE it.item_group IS NOT NULL AND TRIM(it.item_group) <> ''
-        ORDER BY it.item_group
+        ORDER BY 1
     """,
 			as_dict=True,
 		)
@@ -1992,6 +1995,90 @@ def _fit_allocations_to_boxes(so_doc, allocations):
 	return fitted, notes
 
 
+def _placed_stems(soi):
+	"""Stems of a line already on its pick rows (any pick list not cancelled)."""
+	return flt(
+		frappe.db.sql(
+			"""
+			SELECT COALESCE(SUM(pli.stock_qty), 0)
+			FROM `tabPick List Item` pli
+			JOIN `tabOrder Pick List` opl ON opl.name = pli.parent
+			WHERE pli.parenttype = 'Order Pick List' AND opl.docstatus < 2
+			  AND %(soi)s IN (COALESCE(pli.custom_sale_order_item, ''), COALESCE(pli.sales_order_item, ''))
+			""",
+			{"soi": soi},
+		)[0][0]
+	)
+
+
+def _whole_mix_boxes(so_doc, allocations):
+	"""A mixed box or bunch is allocated in complete boxes only: every variety of the mix is floored to the
+	boxes its scarcest variety fills (counting what is already on pick lists), and the rest of each bucket
+	stays free on its shelf for the next allocation. Straight lines are untouched. Returns (allocations, notes)."""
+	asked = defaultdict(float)
+	for a in allocations:
+		asked[a["sales_order_item"]] += flt(a.get("qty"))
+	# a spec's mono and mixed bunches are one box: floored together (box_groups)
+	keys = box_keys(so_doc.items)
+	groups = defaultdict(list)
+	for it in so_doc.items:
+		if keys[it.name][0] != "line":
+			groups[keys[it.name]].append(it)
+	keep, notes = {}, []
+	for (_kind, group), lines in groups.items():
+		if not any(asked.get(ln.name) for ln in lines):
+			continue
+		per, placed = {}, {}
+		for ln in lines:
+			n = cint(ln.get("custom_number_of_boxes")) or 1
+			per[ln.name] = _line_capacity(ln) / n
+			placed[ln.name] = _placed_stems(ln.name)
+		boxes = min(
+			min(
+				cint(ln.get("custom_number_of_boxes")) or 1,
+				int((placed[ln.name] + asked.get(ln.name, 0)) / per[ln.name] + 1e-9) if per[ln.name] else 0,
+			)
+			for ln in lines
+		)
+		scarce = min(
+			lines,
+			key=lambda ln: (placed[ln.name] + asked.get(ln.name, 0)) / per[ln.name] if per[ln.name] else 0,
+		)
+		for ln in lines:
+			if asked.get(ln.name):
+				keep[ln.name] = max(0.0, boxes * per[ln.name] - placed[ln.name])
+		done = min(int(placed[ln.name] / per[ln.name] + 1e-9) if per[ln.name] else 0 for ln in lines)
+		if any(keep.get(ln.name, 0) < asked.get(ln.name, 0) - 0.5 for ln in lines):
+			notes.append(
+				_(
+					"Mix {0}: no new complete box, {1} has stock for {2} box(es) and they are already on pick lists."
+				).format(group, scarce.item_code, boxes)
+				if boxes <= done
+				else _(
+					"Mix {0}: {1} complete box(es) added, as far as {2} goes; the rest stays on the shelf."
+				).format(group, boxes - done, scarce.item_code)
+			)
+	if not keep:
+		return allocations, notes
+	out = []
+	for a in allocations:
+		soi = a["sales_order_item"]
+		if soi not in keep:
+			out.append(a)
+			continue
+		take = min(flt(a.get("qty")), keep[soi])
+		if take <= 0.5:
+			continue
+		keep[soi] -= take
+		out.append({**a, "qty": take} if take < flt(a.get("qty")) else a)
+	if not out:
+		frappe.throw(
+			"<br>".join(notes) or _("Not one complete mixed box can be made from this allocation."),
+			title=_("No complete mixed box"),
+		)
+	return out, notes
+
+
 def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=None, target_opl=None):
 	"""`target_opl` (packing_quality's replacement): put the new rows on that
 	Order Pick List -- the one being packed -- whatever box type the line is,
@@ -2020,6 +2107,10 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 	# Never allocate more than a line's boxes hold: fit it here, before anything is
 	# written, instead of failing as "Overpacked" once the pick list is built.
 	allocations, fit_notes = _fit_allocations_to_boxes(so_doc, allocations)
+	# a mix goes on a pick list in complete boxes only (target_opl: a replacement into the box being packed)
+	if not target_opl:
+		allocations, mix_notes = _whole_mix_boxes(so_doc, allocations)
+		fit_notes += mix_notes
 	business_unit = stock_movement.business_unit_of(so_doc)
 	_check_whole_bunches(so_doc, allocations)
 
@@ -2476,33 +2567,53 @@ def _create_pick_list(sales_order, allocations, so_doc, location, confirmed_by_i
 			if ready_opl:
 				frappe.db.set_value("Sales Order Item", soi, "custom_opl", ready_opl, update_modified=False)
 
+	# A spec's mono bunches and mixed bunches are one box (box_groups): the box's mono bunches make its pick
+	# list, its mixed bunches are added to that same pick list, and only then is it submitted, so a box is
+	# never released in two halves.
+	made = []
+	into = {}
 	if mixed:
 		from upande_packhouse.server_scripts.create_mixed_box_picklist import (
 			create_mixed_box_pick_list_for_allocated_items,
 		)
 
-		# one OPL per group: every one of them is a result, so each gets its team stamped
+		# each release of a mix gets its own pick list: its complete boxes go on as soon as their stock is
+		# on the sales farm's shelves, without waiting for boxes still coming from a remote farm
 		for name in create_mixed_box_pick_list_for_allocated_items(
-			sales_order_doc=so_doc, allocations=mixed, submit=True, location=location, return_all=True
+			sales_order_doc=so_doc,
+			allocations=mixed,
+			submit=True,
+			location=location,
+			return_all=True,
+			new_opl=True,
+			defer_submit=True,
 		):
-			status = (
-				"submitted" if frappe.db.get_value("Order Pick List", name, "docstatus") == 1 else "draft"
-			)
-			results.append({"type": "mixed", "status": status, "name": name})
+			made.append(("mixed", name))
+			into["box:{0}".format(frappe.db.get_value("Order Pick List", name, "mix_group"))] = name
 
 	if mixed_bunch:
 		from upande_packhouse.server_scripts.create_mixed_bunch_picklist import (
 			create_mixed_bunch_pick_list_for_allocated_items,
 		)
 
-		# one OPL per group: every one of them is a result, so each gets its team stamped
 		for name in create_mixed_bunch_pick_list_for_allocated_items(
-			sales_order_doc=so_doc, allocations=mixed_bunch, submit=True, location=location, return_all=True
+			sales_order_doc=so_doc,
+			allocations=mixed_bunch,
+			submit=True,
+			location=location,
+			return_all=True,
+			new_opl=True,
+			into_opl=into,
+			defer_submit=True,
 		):
-			status = (
-				"submitted" if frappe.db.get_value("Order Pick List", name, "docstatus") == 1 else "draft"
-			)
-			results.append({"type": "mixed_bunch", "status": status, "name": name})
+			if name not in {n for _t, n in made}:
+				made.append(("mixed_bunch", name))
+
+	# one OPL per box: every one of them is a result, so each gets its team stamped
+	for kind, name in made:
+		_try_submit_opl_if_complete(name)
+		status = "submitted" if frappe.db.get_value("Order Pick List", name, "docstatus") == 1 else "draft"
+		results.append({"type": kind, "status": status, "name": name})
 
 	return results
 
@@ -2893,7 +3004,11 @@ def opl_submit_blockers(opl):
 	# unreadable through this same wrong name) while testing this fix.
 	opl_mix_group = opl.get("mix_group")
 	opl_bunch_group = opl.get("bunch_group")
-	if opl_mix_group:
+	box_lines = _box_lines_of(opl) if (opl_mix_group or opl_bunch_group) else None
+	if box_lines:
+		# every line of the box: its mono bunches and the mixed bunches of its spec (box_groups)
+		required_so_items = box_lines
+	elif opl_mix_group:
 		required_so_items = set(
 			frappe.get_all(
 				"Sales Order Item",
@@ -2941,6 +3056,31 @@ def opl_submit_blockers(opl):
 		blockers.append("{0} line(s) not yet fully allocated: {1}".format(len(short), "; ".join(short)))
 
 	return blockers
+
+
+def _box_lines_of(opl):
+	"""Every order line packed in the boxes this pick list carries: the boxes of its rows' lines, each with
+	all its lines (mono and mixed bunches of one spec are one box)."""
+	lines = frappe.get_all(
+		"Sales Order Item",
+		filters={"parent": opl.sales_order},
+		fields=[
+			"name",
+			"parent",
+			"custom_number_of_boxes",
+			"custom_mixed_box",
+			"custom_mix_group",
+			"custom_mix_name",
+			"custom_line",
+			"custom_length",
+			"custom_mixed_bunch",
+			"custom_bunch_group",
+		],
+	)
+	keys = box_keys(lines)
+	mine = {keys.get(loc.sales_order_item) for loc in opl.table_ytkc if loc.sales_order_item}
+	mine.discard(None)
+	return {n for n, k in keys.items() if k in mine and k[0] != "line"}
 
 
 def partial_packing_on():

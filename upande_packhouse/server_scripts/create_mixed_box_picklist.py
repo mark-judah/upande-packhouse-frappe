@@ -90,7 +90,13 @@ def _get_confirmed_stems_for_location(sales_order, location):
 
 
 def create_mixed_box_pick_list_for_allocated_items(
-	sales_order_doc, allocations, submit=True, location=None, return_all=False
+	sales_order_doc,
+	allocations,
+	submit=True,
+	location=None,
+	return_all=False,
+	new_opl=False,
+	defer_submit=False,
 ):
 	# One OPL per mix group: return_all gives every OPL's name instead of the first's (see the
 	# mixed-bunch builder).
@@ -211,6 +217,10 @@ def create_mixed_box_pick_list_for_allocated_items(
 			order_by="creation desc",
 			limit=1,
 		)
+		# new_opl (Sales Allocation v2): every release is its own pick list, its boxes continuing the
+		# numbering of the ones before it
+		if new_opl:
+			existing_opl = []
 
 		if existing_opl:
 			opl_name = existing_opl[0]["name"]
@@ -263,11 +273,7 @@ def create_mixed_box_pick_list_for_allocated_items(
 			# so the guide always reflects the WHOLE group, box numbers lining
 			# up across colours, regardless of which colour's stock happened
 			# to get allocated in this particular call.
-			group_items = [
-				it
-				for it in sales_order_doc.items
-				if it.get("custom_mix_group") == mix_group and it.get("custom_mixed_box")
-			]
+			group_items = _box_items(sales_order_doc, mix_group)
 			sync_packing_guide(order_pick_list, group_items)
 
 			order_pick_list.flags.ignore_permissions = True
@@ -294,7 +300,9 @@ def create_mixed_box_pick_list_for_allocated_items(
 				for item in box_items
 				if confirmed_stems.get(item["sales_order_item_name"])
 			}
-			submitted = _try_submit_opl_if_complete(opl_name, confirmed_by_item=confirmed_map or None)
+			submitted = not defer_submit and _try_submit_opl_if_complete(
+				opl_name, confirmed_by_item=confirmed_map or None
+			)
 
 			if submitted:
 				frappe.msgprint(f"OPL {opl_name} submitted (fully allocated)", indicator="green")
@@ -337,11 +345,7 @@ def create_mixed_box_pick_list_for_allocated_items(
 				for loc in shift_boxes(box_locs, offset):
 					order_pick_list.append("table_ytkc", loc)
 
-			group_items = [
-				it
-				for it in sales_order_doc.items
-				if it.get("custom_mix_group") == mix_group and it.get("custom_mixed_box")
-			]
+			group_items = _box_items(sales_order_doc, mix_group)
 			sync_packing_guide(order_pick_list, group_items)
 
 			order_pick_list.flags.ignore_permissions = True
@@ -367,7 +371,7 @@ def create_mixed_box_pick_list_for_allocated_items(
 				for item in box_items
 				if confirmed_stems.get(item["sales_order_item_name"])
 			}
-			submitted = _try_submit_opl_if_complete(
+			submitted = not defer_submit and _try_submit_opl_if_complete(
 				order_pick_list.name, confirmed_by_item=confirmed_map or None
 			)
 
@@ -418,6 +422,15 @@ def placed_stems_by_box(rows, offset=0):
 	return placed
 
 
+def _box_items(sales_order_doc, mix_group):
+	"""Every line packed in this mix group's box: its mono bunches and the mixed bunches of its spec
+	(box_groups), so the packing guide lists the whole box."""
+	from upande_packhouse.box_groups import box_keys
+
+	keys = box_keys(sales_order_doc.items)
+	return [it for it in sales_order_doc.items if keys[it.name] == ("box", str(mix_group))]
+
+
 def order_box_offset(so_item):
 	"""Boxes of the order's lines before this one: box numbers run across the whole order (line 1's boxes
 	1-3, line 2's 4-5, ...) so a part allocation's next pick list carries on from the last box number
@@ -425,26 +438,28 @@ def order_box_offset(so_item):
 	parent = so_item.get("parent")
 	if not parent:
 		return 0
+	from upande_packhouse.box_groups import box_keys
+
 	offset, start_of = 0, {}
-	for r in frappe.get_all(
+	lines = frappe.get_all(
 		"Sales Order Item",
 		filters={"parent": parent},
 		fields=[
 			"name",
+			"parent",
 			"custom_number_of_boxes",
 			"custom_mixed_box",
 			"custom_mix_group",
+			"custom_mix_name",
 			"custom_mixed_bunch",
 			"custom_bunch_group",
 		],
 		order_by="idx",
-	):
-		if cint(r.custom_mixed_bunch) and r.custom_bunch_group:
-			key = ("bunch", r.custom_bunch_group)
-		elif cint(r.custom_mixed_box) and r.custom_mix_group:
-			key = ("box", r.custom_mix_group)
-		else:
-			key = ("line", r.name)
+	)
+	# a spec's mono and mixed bunches are one box: counted once, at its first line
+	keys = box_keys(lines)
+	for r in lines:
+		key = keys[r.name]
 		if key not in start_of:
 			start_of[key] = offset
 			offset += cint(r.custom_number_of_boxes) or 1

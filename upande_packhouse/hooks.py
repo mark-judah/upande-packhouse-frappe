@@ -490,6 +490,7 @@ fixtures = [
 	# Common underpack reasons, selected on a Farm Packlist Item's
 	# under_pack_reason field -- exported so a fresh deploy has them too.
 	{"dt": "Under Pack Reason"},
+	{"dt": "Downgrade Reason"},
 	# Common packing-bypass reasons, selected when an operator can't scan a
 	# bunch (damaged/missing QR, or ungraded) and needs to log it instead --
 	# exported so a fresh deploy has them too.
