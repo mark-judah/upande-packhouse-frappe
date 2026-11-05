@@ -579,8 +579,8 @@ def get_orders_workflow(
 	params = {}
 	extra = rose_mod.rose_sql("soi.item_group", rose_type, params)
 	if item_group:
-		extra += " AND soi.item_group = %(ow_ig)s"
-		params["ow_ig"] = item_group
+		extra += " AND soi.item_group IN %(ow_ig)s"
+		params["ow_ig"] = tuple(_groups_under(item_group)) or (item_group,)
 	if customer:
 		extra += " AND so.customer = %(ow_cust)s"
 		params["ow_cust"] = customer
@@ -936,6 +936,18 @@ def get_opl_detail(opl: Any):
 	}
 
 
+def _parent_groups():
+	"""Item group -> the parent group the filter shows it under (a group that is itself a parent stays as is)."""
+	return {
+		r.name: r.name if r.is_group or not r.parent_item_group else r.parent_item_group
+		for r in frappe.get_all("Item Group", fields=["name", "parent_item_group", "is_group"])
+	}
+
+
+def _groups_under(parent):
+	return [g for g, p in _parent_groups().items() if p == parent]
+
+
 @frappe.whitelist()
 def get_filter_options():
 	"""Teams (Packing Teams + any team on a pick list), farms and item groups."""
@@ -944,10 +956,12 @@ def get_filter_options():
 		frappe.db.sql_list("SELECT DISTINCT team FROM `tabOrder Pick List` WHERE IFNULL(team, '') != ''")
 	)
 	farms = frappe.get_all("Farm", pluck="name", order_by="name asc")
-	groups = frappe.db.sql_list(
+	used = frappe.db.sql_list(
 		"""SELECT DISTINCT item_group FROM `tabSales Order Item`
-		   WHERE IFNULL(TRIM(item_group), '') != '' ORDER BY item_group"""
+		   WHERE IFNULL(TRIM(item_group), '') != ''"""
 	)
+	parent = _parent_groups()
+	groups = sorted({parent.get(g, g) for g in used})
 	return {"success": True, "teams": sorted(teams), "farms": farms, "item_groups": groups}
 
 

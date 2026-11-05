@@ -165,7 +165,18 @@ html.ph2-root .scroll-to-top,html.ph2-root .page-footer{display:none!important}
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235a5a52' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat:no-repeat;background-position:right 14px center}
 .ph-input{padding:0 16px}
-.ph-select:focus,.ph-input:focus,.ph-search:focus-within,.ph-daterange:focus-within{box-shadow:0 0 0 2px var(--ink),var(--shadow-card)}
+.ph-select{white-space:nowrap}
+@supports (appearance:base-select){
+  .ph-select,.ph-select::picker(select){appearance:base-select}
+  .ph-select{display:inline-flex;align-items:center;overflow:hidden}
+  .ph-select::picker-icon{display:none}
+  .ph-select::picker(select){border:0;border-radius:var(--r-md);background:var(--surface-2);box-shadow:var(--shadow-pop);padding:6px;margin-top:6px;max-height:340px;overflow:auto;min-width:anchor-size(width);scrollbar-width:thin}
+  .ph-select option{padding:8px 12px;border-radius:10px;font:500 13px var(--sans);color:var(--ink-3);cursor:pointer;white-space:nowrap}
+  .ph-select option::checkmark{display:none}
+  .ph-select option:hover,.ph-select option:focus-visible{background:var(--tint);color:var(--ink);outline:none}
+  .ph-select option:checked{background:var(--ink);color:#fafaf6;font-weight:600}
+}
+.ph-select:focus,.ph-input:focus,.ph-search:focus-within{box-shadow:0 0 0 2px var(--ink),var(--shadow-card)}
 .ph-search{display:inline-flex;align-items:center;gap:var(--sp-2);padding:0 14px;min-width:220px;color:var(--ink-mute)}
 .ph-search input{border:0;outline:none;background:transparent;font:500 12px var(--sans);color:var(--ink);width:100%;min-width:0;height:100%;padding:0}
 .ph-search input::placeholder{color:var(--ink-mute)}
@@ -174,7 +185,12 @@ html.ph2-root .scroll-to-top,html.ph2-root .page-footer{display:none!important}
 .ph-daterange input::-webkit-calendar-picker-indicator{opacity:.45;cursor:pointer}
 .ph-fdate{display:inline-flex;align-items:center;height:100%}
 .ph-fdate .frappe-control,.ph-fdate .form-group,.ph-fdate .control-input-wrapper,.ph-fdate .control-input{margin:0;padding:0;height:100%;display:flex;align-items:center}
-.ph-daterange .ph-fdate input.form-control{border:0;outline:none;box-shadow:none;background:transparent;font:500 12px var(--sans);color:var(--ink);padding:0;height:100%;width:92px;cursor:pointer}
+.ph-daterange .ph-fdate input.form-control{border:1px solid rgba(10,10,10,.22);border-radius:0;outline:none;box-shadow:none;background:transparent;font:500 12px var(--sans);color:var(--ink);padding:0 8px;height:28px;width:104px;cursor:pointer}
+.ph-daterange__f{position:relative;display:inline-flex;align-items:center;height:28px;border:1px solid rgba(10,10,10,.22)}
+.ph-daterange__f:focus-within{border-color:var(--ink)}
+.ph-daterange__lbl{position:absolute;top:0;left:50%;transform:translate(-50%,-50%);padding:0 5px;background:var(--surface-2);font-size:9px;line-height:1;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-mute);pointer-events:none;white-space:nowrap}
+.ph-daterange__f .ph-fdate{height:100%}
+.ph-daterange .ph-daterange__f .ph-fdate input.form-control{border:0;height:26px;text-align:center}
 .datepicker{z-index:10050}
 .ph-fdate .tooltip-content,.ph-fdate .clearfix,.ph-fdate .help-box,.ph-fdate .control-value{display:none!important}
 .ph-fdate .form-group.horizontal{display:flex;align-items:center}
