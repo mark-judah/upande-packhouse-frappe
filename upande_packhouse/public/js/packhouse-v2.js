@@ -500,6 +500,7 @@
 		};
 		if (f) f.addEventListener("change", onInput("from"));
 		if (t) t.addEventListener("change", onInput("to"));
+		[f, t].forEach((x) => x && x.type === "date" && PH.frappeDate(x));
 		st.on(paint);
 		paint();
 	};

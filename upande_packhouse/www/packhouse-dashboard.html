@@ -99,16 +99,18 @@ html,body{margin:0!important;padding:0!important;overflow:hidden!important;heigh
 .aph-topbar .presets .p:hover,.aph-filters .presets .p:hover{color:var(--ink)}
 .aph-topbar .presets .p.active,.aph-filters .presets .p.active{background:var(--grad-ink);color:#fafaf6;box-shadow:0 2px 8px rgba(10,10,10,0.18)}
 /* Joined date range pill */
-.aph-topbar .date-pill,.aph-filters .date-pill{display:inline-flex;align-items:center;background:var(--surface-2);border-radius:999px;padding:2px 8px;box-shadow:var(--shadow-card);height:38px}
+.aph-topbar .date-pill,.aph-filters .date-pill{display:inline-flex;align-items:center;background:var(--surface-2);border-radius:0;padding:2px 8px;box-shadow:var(--shadow-card);height:38px}
 .aph-topbar .date-pill input,.aph-filters .date-pill input{border:0;padding:0 8px;font:500 12px var(--sans);font-feature-settings:'tnum';background:transparent;outline:0;width:124px;color:var(--ink)}
 .aph-topbar .date-pill .sep,.aph-filters .date-pill .sep{padding:0 2px;color:var(--ink-mute);font-size:12px}
+.aph-filters .date-pill .dfield{position:relative;display:inline-flex;align-items:center;height:28px;border:1px solid rgba(10,10,10,.22);margin-left:8px}
+.aph-filters .date-pill .dlbl{position:absolute;top:0;left:50%;transform:translate(-50%,-50%);padding:0 5px;background:var(--surface-2);font-size:9px;line-height:1;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-mute);pointer-events:none;white-space:nowrap}
 .aph-topbar .date-pill .clear,.aph-filters .date-pill .clear{padding:0 8px;color:var(--ink-mute);font-size:15px;cursor:pointer}
 .aph-topbar .btn,.aph-filters .btn{padding:0 16px;height:38px;border:0;background:var(--surface-2);color:var(--ink);border-radius:999px;font:500 12px var(--sans);cursor:pointer;display:inline-flex;align-items:center;gap:7px;box-shadow:var(--shadow-card);transition:transform .18s ease}
 .aph-topbar .btn:hover,.aph-filters .btn:hover{transform:translateY(-1px)}
 .aph-topbar .btn svg,.aph-filters .btn svg{width:14px;height:14px}
 
 /* The filters, above the tiles */
-.aph-filters{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:-12px 0 22px}
+.aph-filters{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;margin:-12px 0 22px}
 
 /* Page head */
 .aph-page-hd{margin-bottom:30px}
@@ -269,7 +271,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 *::-webkit-scrollbar-thumb{background:rgba(120,120,120,.45);border-radius:6px}
 *::-webkit-scrollbar-button{display:none;width:0;height:0}
 .aph .date-pill .ph-fdate .form-group,.aph .date-pill .ph-fdate .frappe-control{margin:0}
-.aph .date-pill .ph-fdate input{border:0;box-shadow:none;background:transparent;font:500 12px var(--sans);width:104px;height:30px;padding:0 6px;color:var(--ink)}
+.aph .aph-content .date-pill .ph-fdate input.form-control{border:0 !important;box-shadow:none !important;background:transparent !important;border-radius:0 !important;font:500 12px var(--sans);width:104px;height:26px;padding:0 8px !important;text-align:center;color:var(--ink)}
 .aph .team-multi > summary{list-style:none;cursor:pointer;user-select:none;padding-right:32px !important;position:relative;white-space:nowrap}
 .aph .team-multi > summary::-webkit-details-marker{display:none}
 .aph .team-multi > summary::after{content:"";position:absolute;right:11px;top:50%;width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:translateY(-70%) rotate(45deg)}
@@ -392,10 +394,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
           <span class="p" data-rose="standard">Standards</span>
           <span class="p" data-rose="spray">Sprays</span>
         </div>
-        <div class="presets" id="presets">
-          <span class="p active" data-range="today">Today</span>
-        </div>
-        <div class="date-pill" title="Delivery date"><span class="sep">Delivery</span><input type="date" id="dateFrom"><span class="sep">→</span><input type="date" id="dateTo"></div>
+        <div class="date-pill" title="Delivery date"><span class="sep">Delivery</span><span class="dfield"><span class="dlbl">From</span><input type="date" id="dateFrom"></span><span class="dfield"><span class="dlbl">To</span><input type="date" id="dateTo"></span></div>
       </div>
 
       <!-- KPI Row -->
@@ -484,17 +483,16 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         });
     })();
 
-    let teams = [], roseType = 'all', dateRange = 'today', customFrom = '', customTo = '';
+    let teams = [], roseType = 'all', dateRange = 'tomorrow', customFrom = '', customTo = '';
     let selLocation = '', farm = '', FARMS = {};
     let VARIETY_MAP = {};
 
     function isoNDaysAgo(n){ const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0,10); }
-    // today in the browser's own time zone (toISOString is UTC: the day before until 3am in Kenya)
-    function todayIso(){ const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
-    // the dates are delivery dates: Today is what delivers today
+    // tomorrow in the browser's own time zone (toISOString is UTC: the day before until 3am in Kenya)
+    function tomorrowIso(){ const d = new Date(); d.setDate(d.getDate() + 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
     function applyPreset(p){
         dateRange = p;
-        if (p === 'today')    { customFrom = todayIso();      customTo = todayIso(); }
+        if (p === 'tomorrow') { customFrom = tomorrowIso();   customTo = tomorrowIso(); }
         const f = document.getElementById('dateFrom'), t = document.getElementById('dateTo');
         if (f) { f.value = customFrom; if (f._showDate) f._showDate(); }
         if (t) { t.value = customTo; if (t._showDate) t._showDate(); }
@@ -514,6 +512,9 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
                 parent: wrap,
                 render_input: true,
             });
+            // the pill sits at the right edge: open the calendar leftwards so it stays on screen
+            // (Frappe resets it to bottom left on every open)
+            ctl.update_datepicker_position = function () { if (this.datepicker) this.datepicker.update('position', 'bottom right'); };
             wrap.querySelectorAll('.control-label, label, .help-box, .clearfix, .control-value').forEach(k => { if (!k.querySelector('input')) k.style.display = 'none'; });
             ctl.$input.on('change', () => {
                 const v = ctl.get_value() || '';
@@ -682,20 +683,11 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         loadFilters();
         loadTeamOptions();
 
-        // ── Date presets + joined date-pill ──
-        document.querySelectorAll('#presets .p').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('#presets .p').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                applyPreset(btn.dataset.range);
-                load();
-            });
-        });
+        // ── Delivery date pill ──
         ['dateFrom','dateTo'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', () => {
                 customFrom = document.getElementById('dateFrom').value;
                 customTo   = document.getElementById('dateTo').value;
-                document.querySelectorAll('#presets .p').forEach(b => b.classList.remove('active'));
                 dateRange = 'custom';
                 if (customFrom && customTo) load();
             });
@@ -711,7 +703,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
             });
         });
 
-        applyPreset('today');
+        applyPreset('tomorrow');
         frappeDate(document.getElementById('dateFrom'));
         frappeDate(document.getElementById('dateTo'));
 
