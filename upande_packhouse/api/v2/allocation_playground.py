@@ -1362,20 +1362,31 @@ def _rolling_by_pool(day, farm, varieties):
 	farms = tuple(_stock_farms(farm)) or ("",)
 
 	def load():
-		rows = frappe.db.sql(
-			"""SELECT sed.item_code, COALESCE(NULLIF(sed.custom_stem_length, ''), se.custom_stem_length, '') AS len,
-			          SUM(sed.transfer_qty)
-			   FROM `tabStock Entry` se
-			   INNER JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
-			   WHERE se.stock_entry_type = 'Harvesting' AND se.docstatus = 1
-			     AND se.posting_date IN %(d)s AND sed.item_code IN %(v)s
-			     AND IFNULL(se.custom_farm, se.farm) IN %(f)s
-			   GROUP BY sed.item_code, len""",
-			{"d": tuple(days), "v": tuple(sorted(varieties)), "f": farms},
-		)
-		return {(v, ln): flt(t) / len(days) for v, ln, t in rows}
+		# every variety of those past cutting days at once, kept a while: they are past days, so switching
+		# from one variety to another reads them from the cache instead of the stock ledger again
+		key = "sa2_rolling:{0}:{1}".format(cut, ",".join(farms))
+		kept = frappe.cache.get_value(key)
+		if kept is None:
+			rows = frappe.db.sql(
+				"""SELECT sed.item_code, COALESCE(NULLIF(sed.custom_stem_length, ''), se.custom_stem_length, '') AS len,
+				          SUM(sed.transfer_qty)
+				   FROM `tabStock Entry` se
+				   INNER JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
+				   WHERE se.stock_entry_type = 'Harvesting' AND se.docstatus = 1
+				     AND se.posting_date IN %(d)s
+				     AND IFNULL(se.custom_farm, se.farm) IN %(f)s
+				   GROUP BY sed.item_code, len""",
+				{"d": tuple(days), "f": farms},
+			)
+			kept = [[v, ln, flt(t)] for v, ln, t in rows]
+			frappe.cache.set_value(key, kept, expires_in_sec=ROLLING_KEPT)
+		return {(v, ln): t / len(days) for v, ln, t in kept if v in varieties}
 
 	return _memo(("rolling", str(cut), farms, tuple(sorted(varieties))), load)
+
+
+#: Seconds the past cutting days' harvests are kept for the rolling forecast.
+ROLLING_KEPT = 900
 
 
 def _line_view(day, farm, pool, rows, longer, sup, rolling, to_cut, week=None):

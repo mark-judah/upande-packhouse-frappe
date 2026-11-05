@@ -1,0 +1,42 @@
+[
+ {
+  "description": "Nothing free at the ordered length for the delivery.",
+  "docstatus": 0,
+  "doctype": "Downgrade Reason",
+  "modified": "2026-11-05 20:00:00.000000",
+  "name": "No stock at the ordered length",
+  "reason": "No stock at the ordered length"
+ },
+ {
+  "description": "The longer stems are past the amber time and must move.",
+  "docstatus": 0,
+  "doctype": "Downgrade Reason",
+  "modified": "2026-11-05 20:00:00.000000",
+  "name": "Amber time expired",
+  "reason": "Amber time expired"
+ },
+ {
+  "description": "The customer agreed to take longer stems on this order.",
+  "docstatus": 0,
+  "doctype": "Downgrade Reason",
+  "modified": "2026-11-05 20:00:00.000000",
+  "name": "Customer accepts longer stems",
+  "reason": "Customer accepts longer stems"
+ },
+ {
+  "description": "Allocation Planning confirmed the line at the longer length.",
+  "docstatus": 0,
+  "doctype": "Downgrade Reason",
+  "modified": "2026-11-05 20:00:00.000000",
+  "name": "Planned at the longer length",
+  "reason": "Planned at the longer length"
+ },
+ {
+  "description": "A few longer stems finish a box that is otherwise packed.",
+  "docstatus": 0,
+  "doctype": "Downgrade Reason",
+  "modified": "2026-11-05 20:00:00.000000",
+  "name": "Completes the box",
+  "reason": "Completes the box"
+ }
+]

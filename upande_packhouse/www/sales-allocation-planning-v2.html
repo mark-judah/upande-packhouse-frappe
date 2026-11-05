@@ -312,6 +312,11 @@
   .apx-table td b{font-weight:600}
   .apx-table .is-num{text-align:right}
   .apx-table .pg-farm-row{min-width:150px}
+  tr.pg-hasmix{cursor:pointer}
+  tr.pg-hasmix > td:first-child b::before{content:"";display:inline-block;width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);margin:0 8px 2px 0;transition:transform .15s}
+  tr.pg-hasmix[aria-expanded="true"] > td:first-child b::before{transform:rotate(45deg)}
+  .pg-ld-stems{display:flex;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-4)}
+  .pg-ld-stems .ph-input{width:140px}
   .apx-table .pg-in{width:72px;height:34px;box-sizing:border-box;border:1px solid var(--ax-border);border-radius:8px;padding:0 8px;font:500 13px Poppins,sans-serif;text-align:right;background:#fff}
   .apx-table select.ph-select{height:34px;border:1px solid var(--ax-border);border-radius:8px;padding:0 6px;font:13px Poppins,sans-serif;background:#fff;box-shadow:none}
   .apx-table .pg-subrow td{background:#FAF8F4;font-size:13px;padding-top:8px;padding-bottom:8px}
@@ -456,7 +461,8 @@
   const scopeLabel = () => (weekScope() ? weekLabel(S.week) : PH.fmt.date(S.date, true));
   // what a planning call is for: the week, or the delivery day
   const when = () => (WEEK_MODES.includes(S.mode) ? plan() : { delivery_date: S.date });
-  let board = null, pool = null, seq = 0, pseq = 0;
+  let board = null, pool = null, seq = 0, pseq = 0, poolCache = {};
+  const poolKey = () => JSON.stringify([plan(), S.farm, S.pick && S.pick.variety, S.pick && S.pick.length]);
 
   PH.frappeDate("#pg-date");
   PH.dateRange({ pills: "#f-preset", from: "#pg-date", state: st, fromKey: "date" });
@@ -593,6 +599,8 @@
   };
 
   function load() {
+    // the board is read again (another day or week, a confirmation): what was opened before is read again too
+    poolCache = {};
     const my = ++seq;
     PH.set($("pg-list"), loading("Loading the day…"));
     S.checksData = null; drawCheckTiles();
@@ -694,18 +702,41 @@
     const b = e.target.closest(".apx-pool"); if (!b) return;
     S.pick = { variety: b.dataset.v, length: b.dataset.l };
     PH.$$(".apx-pool").forEach((x) => x.classList.toggle("is-on", x === b));
-    PH.set($("pg-detail"), loading("Opening " + b.dataset.v + " " + b.dataset.l + "…"));
+    if (!poolCache[poolKey()]) PH.set($("pg-detail"), loading("Opening " + b.dataset.v + " " + b.dataset.l + "…"));
     $("pg-detail").scrollTop = 0;
     openPool();
   });
 
+  // the variety below the open one is read in the background, so moving down the list opens it at once
+  function prefetchNext() {
+    const on = document.querySelector(".apx-pool.is-on");
+    let nx = on && on.nextElementSibling;
+    while (nx && !nx.classList.contains("apx-pool")) nx = nx.nextElementSibling;
+    if (!nx) return;
+    const pick = { variety: nx.dataset.v, length: nx.dataset.l };
+    const key = JSON.stringify([plan(), S.farm, pick.variety, pick.length]);
+    if (poolCache[key]) return;
+    PH.call(API + "get_pool", { ...plan(), farm: S.farm, ...pick }, { silent: true })
+      .then((m) => { if (!poolCache[key]) poolCache[key] = { pool: m, json: JSON.stringify(m) }; })
+      .catch(() => {});
+  }
+
   function openPool() {
     if (!S.pick) { PH.set($("pg-detail"), '<div class="pg-empty">Choose a variety to confirm it.</div>'); return; }
-    const my = ++pseq;
-    if (!pool || !$("pg-detail").querySelector(".apx-vhead")) PH.set($("pg-detail"), skDetail());
+    const my = ++pseq, key = poolKey();
+    // a variety opened before shows at once from what was read then; the fresh read replaces it if it changed
+    const kept = poolCache[key];
+    if (kept) { pool = kept.pool; drawPool(); }
+    else if (!pool || !$("pg-detail").querySelector(".apx-vhead")) PH.set($("pg-detail"), skDetail());
     return PH.call(API + "get_pool", { ...plan(), farm: S.farm, variety: S.pick.variety, length: S.pick.length }, { silent: true })
-      .then((m) => { if (my === pseq) { pool = m; drawPool(); } })
-      .catch(() => PH.set($("pg-detail"), '<div class="pg-empty">Could not open this variety.</div>'));
+      .then((m) => {
+        const json = JSON.stringify(m);
+        const same = kept && kept.json === json;
+        poolCache[key] = { pool: m, json };
+        if (my === pseq && !same) { pool = m; drawPool(); }
+        if (my === pseq) prefetchNext();
+      })
+      .catch(() => { if (!kept) PH.set($("pg-detail"), '<div class="pg-empty">Could not open this variety.</div>'); });
   }
 
   function drawPool() {
@@ -716,7 +747,7 @@
     const custTeams = (l) => ((S.customerTeams || {})[l.customer_id] || []).filter((t) => cropTeams(l).includes(t));
     const teamsFor = (l) => { const mine = custTeams(l); return [...mine, ...cropTeams(l).filter((x) => !mine.includes(x))]; };
     const farmSelect = (l) => '<select class="ph-select pg-farm-row" data-was="' + PH.esc(l.stock_farm || "") + '" aria-label="Confirm from farm for ' + PH.esc(l.customer || "") + '" title="The farm whose stock this is confirmed against">' +
-      pool.stock_farms.map((f) => "<option value=\"" + PH.esc(f.farm) + "\"" + (f.farm === (l.stock_farm || pool.best_farm) ? " selected" : "") + ">" + PH.esc(f.farm) + " (" + n(f.on_shelf + f.received) + ")</option>").join("") + "</select>";
+      pool.stock_farms.map((f) => "<option value=\"" + PH.esc(f.farm) + "\"" + (f.farm === (l.stock_farm || pool.best_farm) ? " selected" : "") + ">" + PH.esc(f.farm) + " · " + n(f.on_shelf + f.received) + " in stock</option>").join("") + "</select>";
     const teamSelect = (l, value) => '<select class="ph-select pg-team-row" data-soi="' + PH.esc(l.soi) + '" data-was="' + PH.esc(l.team || "") + '"' + (l.mix_key ? ' data-mix="' + PH.esc(l.mix_key) + '"' : "") + ' aria-label="Team for ' + PH.esc(l.customer || "") + '"><option value="">Choose a team</option>' +
       teamsFor(l).map((t) => "<option" + (t === value ? " selected" : "") + ">" + PH.esc(t) + "</option>").join("") + "</select>";
     // What the chosen forecast covers, shared over the unconfirmed lines in their order, in whole boxes (a line's
@@ -736,12 +767,15 @@
       const cur = here ? l.held + l.expected : 0, who = PH.esc(l.customer || "");
       const shown = cur || (longer ? 0 : fill[l.soi] || 0);
       const kind = l.mixed ? (l.mix_name ? PH.esc(l.mix_name) : "mixed") : "straight";
-      const checks = (l.checks || []).map((c) => '<span class="pg-chip pg-chip--' + CHK[c.severity] + '">' + PH.esc(c.label) + "</span>").join("");
-      const mixRows = (l.mix_members || []).map((m) => '<tr class="pg-subrow"><td>' + PH.esc(m.variety) + " " + PH.esc(m.length) + "<small>same bunch · " + m.per + " stem" + (m.per === 1 ? "" : "s") + ' a bunch</small></td><td></td><td class="is-num">' + n(m.ordered) + '</td><td class="is-num">' + n(m.covered) + "</td><td></td><td>" + PH.esc(m.length) + "</td><td></td><td>" +
+      // downgrades and substitutes are Sales Allocation's: planning shows what the forecast covers
+      const checks = (l.checks || []).filter((c) => !["longer", "downgrade", "substitute", "squeeze"].includes(c.code)).map((c) => '<span class="pg-chip pg-chip--' + CHK[c.severity] + '">' + PH.esc(c.label) + "</span>").join("");
+      const mixRows = (l.mix_members || []).map((m) => '<tr class="pg-subrow" data-mixof="' + PH.esc(l.soi) + '" hidden><td>' + PH.esc(m.variety) + " " + PH.esc(m.length) + "<small>same bunch · " + m.per + " stem" + (m.per === 1 ? "" : "s") + ' a bunch</small></td><td></td><td class="is-num">' + n(m.ordered) + '</td><td class="is-num">' + n(m.covered) + "</td><td></td><td>" + PH.esc(m.length) + "</td><td></td><td>" +
         (m.short > 0.5 ? '<span class="pg-chip pg-chip--bad">Short ' + n(m.short) + "</span>" : m.left > 0.5 ? '<span class="pg-chip pg-chip--warn">' + n(m.left) + " to confirm</span>" : '<span class="pg-chip pg-chip--good">Covered</span>') + "</td><td></td></tr>").join("");
-      const subRows = (l.substitutes || []).length > 1 && !l.confirmed ? l.substitutes.map((x) => '<tr class="pg-subrow"><td colspan="7">Substitute ' + PH.esc(p.variety) + " with " + PH.esc(x.variety) + "<small>" + PH.esc(x.variety) + " · " + n(x.spare) + ' spare</small></td><td><span class="pg-chip pg-chip--' + (x.in_mix ? "bad" : "warn") + '">' + (x.in_mix ? "Already in this mix" : "Substitute") + '</span></td><td class="pg-act"><button class="ph-btn ph-btn--ghost ph-btn--sm" type="button" data-subst="' + PH.esc(l.soi) + '" data-variety="' + PH.esc(x.variety) + '">Substitute &amp; confirm</button></td></tr>').join("") : "";
+      // substitutes are chosen in Sales Allocation, where the stock is
+      const subRows = "";
       const delivery = !pool.week && l.delivery_date && l.delivery_date !== pool.delivery_date;
-      return "<tr><td><b>" + who + "</b><small>" + PH.esc(l.sales_order) + " · " + kind + (l.allocated ? " · " + n(l.allocated) + " allocated" : "") + "</small></td>" +
+      const opener = (l.mix_members || []).length ? ' class="pg-hasmix" data-mixrow="' + PH.esc(l.soi) + '" aria-expanded="false"' : "";
+      return "<tr" + opener + "><td><b>" + who + "</b><small>" + PH.esc(l.sales_order) + " · " + kind + (l.allocated ? " · " + n(l.allocated) + " allocated" : "") + "</small></td>" +
         '<td><span class="pg-chip pg-chip--' + (delivery ? "tint" : "plain") + '">' + PH.fmt.date(l.delivery_date || pool.delivery_date, true) + "</span></td>" +
         '<td class="is-num">' + n(l.ordered) + "</td>" +
         '<td><input class="ph-input pg-in" type="number" min="0" max="' + Math.round(l.max_plan) + '" step="1" inputmode="numeric" data-allocated="' + Math.round(l.allocated || 0) + '" data-soi="' + PH.esc(l.soi) + '"' + (longer ? ' data-len="' + PH.esc(p.length) + '"' : "") + ' data-was="' + Math.round(cur) + '" value="' + Math.round(shown) + '" aria-label="Stems to confirm for ' + who + '">' +
@@ -774,8 +808,10 @@
       const tag = !(x.stems > 0) ? ["Nothing available", "bad"] : more < 0.5 ? [SAFE.rolling[1], "tint"] : ["At risk · " + n(more) + " on the production forecast", "bad"];
       return '<button type="button" class="pg-safe__tile' + (x.basis === basis() ? " is-on" : "") + '" data-basis="' + x.basis + '" aria-pressed="' + (x.basis === basis()) + '"><span>' + SAFE[x.basis][0] + "</span><b>" + n(x.stems) + "</b><small>" + pct + "% of " + n(x.need) + (x.short > 0.5 ? " · " + n(x.short) + " short" : "") + '</small><span class="pg-chip pg-chip--' + tag[1] + '">' + PH.esc(tag[0]) + "</span></button>";
     }).join("") + "</div>";
-    const all = lineRows(pool.lines, false) + lineRows(pool.longer_lines, true);
-    PH.set(el, '<div class="apx-card apx-vhead"><div class="apx-vhead__top"><h2>' + PH.esc(p.variety) + " " + PH.esc(p.length) + "</h2><span>" + PH.esc(crop || "") + (crop ? " · " : "") + PH.fmt.plural(pool.lines.length + pool.longer_lines.length, "order") + " · " + (pool.week ? weekLabel(pool.week) : "delivery " + PH.fmt.date(pool.delivery_date, true)) + "</span></div>" + tiles + safe + "</div>" +
+    // only the lines ordered at this length: planning confirms on the forecast, never a downgrade (a longer
+    // length is chosen in Sales Allocation's downgrades, with its reason)
+    const all = lineRows(pool.lines, false);
+    PH.set(el, '<div class="apx-card apx-vhead"><div class="apx-vhead__top"><h2>' + PH.esc(p.variety) + " " + PH.esc(p.length) + "</h2><span>" + PH.esc(crop || "") + (crop ? " · " : "") + PH.fmt.plural(pool.lines.length, "order") + " · " + (pool.week ? weekLabel(pool.week) : "delivery " + PH.fmt.date(pool.delivery_date, true)) + "</span></div>" + tiles + safe + "</div>" +
       '<div class="apx-card apx-tablecard">' + (all ? '<div class="ph-table-wrap"><table class="apx-table pg-ltable"><thead><tr><th>Customer</th><th>Delivery</th><th class="is-num">Ordered</th><th>Confirm</th><th>Farm</th><th>Length</th><th>Team</th><th>Checks</th><th class="pg-act">Action</th></tr></thead><tbody>' + all + "</tbody></table></div>" : '<div class="pg-empty">No orders for ' + PH.esc(p.variety) + " " + PH.esc(p.length) + ".</div>") + "</div>");
     // The basis the planner confirms on: picked here, kept between visits, and the one each confirm dialog opens on.
     PH.$$("#pg-detail [data-basis]").forEach((b) => (b.onclick = () => {
@@ -784,7 +820,14 @@
     }));
     PH.$$("#pg-detail [data-subst]").forEach((b) => (b.onclick = () => subDialog(rowOf(b.dataset.subst), b.dataset.variety)));
     PH.$$("#pg-detail [data-act]").forEach((b) => (b.onclick = () => lineAction(b)));
-    PH.$$("#pg-detail .pg-in").forEach((inp) => (inp.oninput = () => {
+    // a mix opens to its varieties on a click anywhere on its row, but not on the row's own fields and buttons
+    PH.$$("#pg-detail tr.pg-hasmix").forEach((tr) => (tr.onclick = (e) => {
+      if (e.target.closest("input, select, button, a, label")) return;
+      const open = tr.getAttribute("aria-expanded") !== "true";
+      tr.setAttribute("aria-expanded", open);
+      PH.$$('#pg-detail tr.pg-subrow[data-mixof="' + tr.dataset.mixrow + '"]').forEach((x) => (x.hidden = !open));
+    }));
+    PH.$$("#pg-detail .pg-in").forEach((inp) => (inp.oninput = inp.onchange = () => {
       const max = Math.max(0, Math.round(+inp.max || 0)), hint = inp.parentElement.querySelector(".pg-in-hint");
       const raw = +inp.value;
       if (inp.value !== "" && raw < 0) inp.value = 0;
@@ -802,14 +845,14 @@
 
   /* ── One line's action: what the checks suggest, confirmed from a dialog that shows how much is safe. ── */
   const CHK = { red: "bad", amber: "warn", blue: "tint", good: "good" };
-  const ACTION = { confirmed: "", mix: "Confirm the mix", substitute: "Substitute & confirm", delivery: "Confirm based on forecast", longer: "Downgrade & confirm", shortage: "Confirm part or full", part_box: "Confirm part or full" };
-  const firstCode = (l) => { for (const k of ["mix", "delivery", "longer", "substitute", "shortage", "part_box"]) if ((l.checks || []).some((c) => c.code === k)) return k; return ""; };
   function actionButton(l, longer) {
     // already allocated in full: nothing left to confirm
     if (!(l.max_plan > 0.5)) return '<span class="pg-chip pg-chip--good">Allocated</span>';
     if (l.confirmed) return '<button class="ph-btn ph-btn--sm pg-done" type="button" aria-pressed="true" data-act="undo" data-soi="' + PH.esc(l.soi) + '">' + PH.icon("check") + " Confirmed · Undo</button>";
-    const code = firstCode(l);
-    return '<button class="ph-btn ph-btn--primary ph-btn--sm" type="button" data-act="' + (code || "confirm") + '" data-soi="' + PH.esc(l.soi) + '"' + (longer ? ' data-len="' + PH.esc(pool.pool.length) + '"' : "") + ">" + (ACTION[code] || "Confirm") + "</button>";
+    // one action: confirm on the forecast. Substitutes, added varieties and downgrades are done in Sales
+    // Allocation, where the stock is; a longer length is left to its downgrade step there.
+    if (longer) return '<span class="ph-muted">—</span>';
+    return '<button class="ph-btn ph-btn--primary ph-btn--sm" type="button" data-act="delivery" data-soi="' + PH.esc(l.soi) + '">Confirm</button>';
   }
   const rowOf = (soi) => pool.lines.concat(pool.longer_lines).find((l) => l.soi === soi);
   const rowTeam = (soi) => { const sel = document.querySelector('.pg-team-row[data-soi="' + soi + '"]'); return sel ? sel.value : ""; };
@@ -823,12 +866,15 @@
     lineDialog(l, act, team, b.dataset.len || "");
   }
   function lineDialog(l, act, team, len) {
-    const forecastOnly = act === "delivery";
     const LBL = { rolling: "Rolling forecast", production: "Production forecast" };
     const sc = (l.scenarios || []).map((x, i) => ({ ...x, i }));
     let pick = Math.max(0, sc.findIndex((x) => x.basis === basis()));
     const el = document.createElement("div");
-    const line = (x) => ({ sales_order_item: l.soi, stems: Math.round(x.stems + l.held + l.expected), team, stock_farm: rowFarm(l.soi), ...(len ? { length: len } : {}), basis: x.basis });
+    // the stems to confirm: the chosen forecast's, or what the planner types, never more than the order has left
+    const cap = Math.max(0, Math.round(l.ordered - (l.allocated || 0) - l.held - l.expected));
+    let typed = null;
+    const toConfirm = () => Math.max(0, Math.min(cap, typed != null ? typed : Math.round((sc[pick] || {}).stems || 0)));
+    const line = (x) => ({ sales_order_item: l.soi, stems: Math.round(Math.min(l.ordered, toConfirm() + l.held + l.expected)), team, stock_farm: rowFarm(l.soi), ...(len ? { length: len } : {}), basis: x.basis });
     // a mixed box or bunch is confirmed whole: this line and every other variety in it
     const members = l.mix_members || [];
     const lines = (x) => [line(x)].concat(members.map((mm) => ({ sales_order_item: mm.soi, stems: Math.round(mm.ordered - (mm.allocated || 0)), team, basis: x.basis })));
@@ -844,12 +890,25 @@
         '<div class="pg-cap ph-muted">How much is safe</div><div class="pg-safe">' + sc.map((x) => {
           const t = tag(x), stems = x.stems;
           return '<button type="button" class="pg-safe__tile' + (x.i === pick ? " is-on" : "") + '" data-pick="' + x.i + '"><span>' + LBL[x.basis] + "</span><b>" + n(stems) + "</b><small>" + (x.boxes && x.boxes[1] ? x.boxes[0] + " of " + x.boxes[1] + " boxes" : "") + '</small><span class="pg-chip pg-chip--' + t[1] + '">' + PH.esc(t[0]) + "</span></button>";
-        }).join("") + "</div>" + mixTable() + '<div id="pg-ld-hu"></div>';
-      el.querySelectorAll("[data-pick]").forEach((t) => (t.onclick = () => { pick = +t.dataset.pick; draw(); }));
+        }).join("") + "</div>" +
+        '<label class="pg-cap ph-muted" for="pg-ld-stems">Stems to confirm</label><div class="pg-ld-stems"><input id="pg-ld-stems" class="ph-input" type="number" min="0" max="' + cap + '" step="1" inputmode="numeric" value="' + toConfirm() + '"><span class="ph-muted">of ' + n(cap) + " left on the order</span></div>" +
+        mixTable() + '<div id="pg-ld-hu"></div>';
+      el.querySelectorAll("[data-pick]").forEach((t) => (t.onclick = () => { pick = +t.dataset.pick; typed = null; draw(); }));
+      const inp = el.querySelector("#pg-ld-stems");
+      inp.oninput = inp.onchange = () => {
+        const v = inp.value === "" ? 0 : Math.round(+inp.value);
+        typed = Math.max(0, Math.min(cap, v));
+        if (v > cap || v < 0) inp.value = typed;
+        button();
+      };
+      button();
+    };
+    const button = () => {
       const btn = m && m.el.querySelector(".ph-modal__foot .ph-btn--primary");
-      const nothing = !(sc[pick] && sc[pick].stems > 0);
-      if (btn) { btn.textContent = forecastOnly ? "Confirm based on forecast" : act === "longer" ? "Downgrade and confirm" : members.length ? "Confirm the mix" : "Confirm " + n(sc[pick].stems); btn.disabled = nothing; }
-      if (nothing) el.querySelector("#pg-ld-hu").innerHTML = '<div class="pg-hu pg-hu--red"><p>Nothing to confirm on this basis: ' + PH.esc(pool.pool.variety) + " " + PH.esc(pool.pool.length) + " has no forecast left for this line.</p></div>";
+      const nothing = !(toConfirm() > 0);
+      if (btn) { btn.textContent = members.length ? "Confirm the mix" : "Confirm " + n(toConfirm()); btn.disabled = nothing; }
+      const hu = el.querySelector("#pg-ld-hu");
+      if (hu) hu.innerHTML = nothing && typed == null ? '<div class="pg-hu pg-hu--red"><p>Nothing to confirm on this basis: ' + PH.esc(pool.pool.variety) + " " + PH.esc(pool.pool.length) + " has no forecast left for this line.</p></div>" : "";
     };
     let m = null;
     draw();

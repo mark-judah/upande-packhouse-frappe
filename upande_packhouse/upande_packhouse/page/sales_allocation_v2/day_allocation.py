@@ -3,6 +3,7 @@ by moving buckets between orders of the same variety."""
 
 import json
 import math
+import time
 from collections import defaultdict
 
 import frappe
@@ -11,6 +12,7 @@ from frappe.utils import cint, flt
 
 from upande_packhouse import allocation_plan
 from upande_packhouse.api.v2.allocation_teams import team_for, teams_by_crop
+from upande_packhouse.box_groups import box_keys, mark_boxes
 from upande_packhouse.upande_packhouse.page.sales_allocation_v2 import sales_allocation_v2 as sa
 
 
@@ -39,6 +41,8 @@ def _hold_to_plan(items):
 				lengths.setdefault((c.sales_order_item, c.variety), set()).add(c.length)
 	for item in items:
 		item["plan_lengths"] = lengths.get((item["sales_order_item"], item["item_code"])) or None
+	# a spec's mono and mixed bunches are one box
+	mark_boxes(items)
 
 
 def _rules(location):
@@ -62,7 +66,10 @@ def _per_box(item):
 
 
 def _box_key(item):
-	"""Lines packed in the same box: a mixed bunch's group, a mixed box's group, or the line on its own."""
+	"""Lines packed in the same box (box_groups): the key set on the line from its order's lines, else a
+	mixed bunch's group, a mixed box's group, or the line on its own."""
+	if item.get("_box"):
+		return tuple(item["_box"])
 	if cint(item.get("custom_mixed_bunch")) and item.get("custom_bunch_group"):
 		return ("bunch", str(item["custom_bunch_group"]))
 	if cint(item.get("custom_mixed_box")) and item.get("custom_mix_group"):
@@ -113,6 +120,20 @@ def _whole_boxes(members, taken, ok):
 		if target - have > 1e-9:
 			out[item["sales_order_item"]] = target - have
 	return out
+
+
+def _new_boxes(members, picked):
+	"""Complete boxes the picks add to a box group: every line of a mix as far as its scarcest line goes."""
+
+	def boxes(extra):
+		counts = [
+			int((flt(m.get("total_allocated_qty")) + extra(m)) / _per_box(m) + 1e-9)
+			for m in members
+			if _per_box(m) > 0
+		]
+		return min(counts) if counts else 0
+
+	return max(0, boxes(lambda m: picked.get(m["sales_order_item"], 0)) - boxes(lambda m: 0))
 
 
 def _planned(item):
@@ -200,6 +221,7 @@ def auto_allocate_day(
 	delivery_start: str,
 	delivery_end: str | None = None,
 	selected_farms: str | list | None = None,
+	bypass_orders: str | list | None = None,
 ):
 	"""Propose an allocation for every open order delivering in the window, FIFO, in whole boxes, in
 	Allocation Planning's sequence. Nothing is saved: the proposal is kept for this user until it is
@@ -211,7 +233,16 @@ def auto_allocate_day(
 	# Proposing is quick (no stock moves): it runs now, in this request, so it never waits behind the
 	# background worker. Progress still reaches the page over realtime while it runs.
 	# the result also comes back with the request, so the page finishes even if a realtime message is missed
-	return _run_day(location, delivery_start, delivery_end, _farms(selected_farms), frappe.session.user)
+	if isinstance(bypass_orders, str):
+		bypass_orders = json.loads(bypass_orders or "[]")
+	return _run_day(
+		location,
+		delivery_start,
+		delivery_end,
+		_farms(selected_farms),
+		frappe.session.user,
+		set(bypass_orders or ()),
+	)
 
 
 #: A release of up to this many orders runs at once, in the request; a bigger one goes to the background
@@ -219,9 +250,26 @@ def auto_allocate_day(
 RELEASE_NOW = 5
 
 
+#: A run that has reported nothing for this long is taken as dead (its request was killed, or the server
+#: restarted under it): its lock no longer holds the location.
+RUN_SILENT_SEC = 300
+
+
+def _run_dead(location):
+	"""The location's run stopped reporting: clear its lock and state so the page and a new run go on."""
+	state = frappe.cache.get_value(f"sa2_day_state:{location}") or {}
+	if state.get("job_id"):
+		return False
+	if state.get("at") and time.time() - flt(state["at"]) < RUN_SILENT_SEC:
+		return False
+	frappe.cache.delete_value(f"sa2_day_allocation:{location}")
+	frappe.cache.delete_value(f"sa2_day_state:{location}")
+	return True
+
+
 def _lock(location, phase="propose"):
 	lock = f"sa2_day_allocation:{location}"
-	if frappe.cache.get_value(lock):
+	if frappe.cache.get_value(lock) and not _run_dead(location):
 		frappe.throw(_("Orders at {0} are already being allocated.").format(location))
 	frappe.cache.set_value(lock, frappe.session.user, expires_in_sec=1800)
 	frappe.cache.delete_value(f"sa2_day_done:{location}")
@@ -230,7 +278,7 @@ def _lock(location, phase="propose"):
 
 
 def _set_state(location, state):
-	frappe.cache.set_value(f"sa2_day_state:{location}", state, expires_in_sec=1800)
+	frappe.cache.set_value(f"sa2_day_state:{location}", {**state, "at": time.time()}, expires_in_sec=1800)
 
 
 PENDING = "Pending Allocation"
@@ -399,14 +447,160 @@ def _summary(p):
 	sa._attach_boxes(rows)
 	for o, r in zip(orders, rows, strict=True):
 		o["order_boxes"] = cint(r.boxes_required)
+		o["full_before"] = min(cint(r.boxes_required), cint(r.boxes_full))
 		o["full_after"] = min(cint(r.boxes_required), cint(r.boxes_full) + cint(o["boxes"]))
 	return {
 		"orders": [
-			{**o, "lines": _line_stems(o["allocations"]), "team_names": _team_names(o)} for o in orders
+			{
+				**o,
+				"lines": _line_stems(o["allocations"]),
+				"team_names": _team_names(o),
+				"groups": _release_groups(o),
+			}
+			for o in orders
 		],
 		"boxes": sum(o["boxes"] for o in orders),
 		"stems": sum(o["stems"] for o in orders),
 	}
+
+
+def _split_release(sales_order, allocations):
+	"""(release, keep): the allocation rows that complete boxes -- a straight line's own boxes, a mixed box
+	(its mono and mixed bunches, box_groups) only as many as its scarcest line completes, counting what is
+	already on pick lists -- and the rest, which stays allocated waiting for the stock that completes them."""
+	items = frappe.get_all(
+		"Sales Order Item",
+		filters={"parent": sales_order},
+		fields=[
+			"name",
+			"parent",
+			"stock_qty",
+			"qty",
+			"conversion_factor",
+			"custom_ordered_quantity",
+			"custom_number_of_boxes",
+			"custom_packrate",
+			"custom_packrate_mixed_box",
+			"custom_mixed_box",
+			"custom_mix_group",
+			"custom_mix_name",
+			"custom_line",
+			"custom_length",
+			"custom_mixed_bunch",
+			"custom_bunch_group",
+		],
+	)
+	keys = box_keys(items)
+	asked = defaultdict(float)
+	for a in allocations:
+		asked[a["sales_order_item"]] += flt(a.get("qty"))
+	per, placed, boxes_of = {}, {}, {}
+	for it in items:
+		n = cint(it.custom_number_of_boxes) or 1
+		per[it.name] = sa._line_capacity(it) / n
+		placed[it.name] = sa._placed_stems(it.name) if asked.get(it.name) or keys[it.name][0] != "line" else 0
+		boxes_of[it.name] = n
+	groups = defaultdict(list)
+	for it in items:
+		groups[keys[it.name]].append(it.name)
+	room = {}
+	for _key, names in groups.items():
+		if not any(asked.get(n) for n in names):
+			continue
+		full = min(
+			min(boxes_of[n], int((placed[n] + asked.get(n, 0)) / per[n] + 1e-9))
+			if per[n] > 0
+			else boxes_of[n]
+			for n in names
+		)
+		for n in names:
+			room[n] = max(0.0, full * per[n] - placed[n]) if per[n] > 0 else asked.get(n, 0)
+	release, keep = [], []
+	for a in allocations:
+		soi = a["sales_order_item"]
+		qty = flt(a.get("qty"))
+		size = flt(a.get("conversion_factor")) or 1
+		take = math.floor(min(qty, room.get(soi, 0)) / size + 1e-9) * size
+		if take > 0:
+			release.append({**a, "qty": take})
+			room[soi] = room.get(soi, 0) - take
+		if qty - take > 1e-9:
+			keep.append({**a, "qty": qty - take})
+	return release, keep
+
+
+def _release_groups(order):
+	"""What the order releases, as it is packed: one entry per mixed box or bunch (its varieties together,
+	in the complete boxes its scarcest variety fills) and one per straight line. Each: {kind, label, boxes,
+	stems, lines: [{variety, length, stems, boxes}]}."""
+	stems = _line_stems(order["allocations"])
+	if not stems:
+		return []
+	lines = frappe.get_all(
+		"Sales Order Item",
+		filters={"parent": order["sales_order"]},
+		fields=[
+			"name",
+			"parent",
+			"idx",
+			"item_code",
+			"custom_length",
+			"stock_qty",
+			"custom_number_of_boxes",
+			"custom_packrate",
+			"custom_packrate_mixed_box",
+			"custom_mixed_box",
+			"custom_mix_group",
+			"custom_mix_name",
+			"custom_mixed_bunch",
+			"custom_bunch_group",
+		],
+		order_by="idx",
+	)
+	keys = box_keys(lines)
+	lines = [ln for ln in lines if ln.name in stems]
+	groups = {}
+	for ln in lines:
+		key = keys[ln.name]
+		per = _per_box({**ln, "original_stock_qty": ln.stock_qty}) or 0
+		if key[0] == "line":
+			label = "{0} {1}".format(ln.item_code, ln.custom_length or "").strip()
+		elif key[0] == "box":
+			label = ln.custom_mix_name or _("Mixed box {0}").format(key[1])
+		else:
+			label = ln.custom_mix_name or _("Mixed bunch {0}").format(str(key[1]).rsplit("::", 1)[-1])
+		g = groups.setdefault(
+			key,
+			{
+				"kind": key[0],
+				"label": label,
+				"stems": 0.0,
+				"lines": [],
+				"sois": [],
+				"idx": ln.idx,
+				"_fills": [],
+			},
+		)
+		g["sois"].append(ln.name)
+		s = flt(stems.get(ln.name))
+		# boxes as the proposal counts them: a part box that completes the line counts
+		fills = math.ceil(s / per - 1e-9) if per > 0 else 0
+		g["stems"] += s
+		g["_fills"].append(fills)
+		g["lines"].append(
+			{"variety": ln.item_code, "length": ln.custom_length or "", "stems": s, "boxes": fills}
+		)
+	out = []
+	for g in sorted(groups.values(), key=lambda x: x["idx"]):
+		fills = g.pop("_fills")
+		g.pop("idx")
+		# every variety of a mix shares the same boxes
+		g["boxes"] = max(fills) if fills else 0
+		# the group's team: the one its lines go to ("" while any of them has none)
+		teams = {(order.get("teams") or {}).get(x) or "" for x in g["sois"]}
+		g["team"] = teams.pop() if len(teams) == 1 else ""
+		out.append(g)
+	return out
 
 
 def _fill_teams(order):
@@ -454,7 +648,7 @@ def _pending(p):
 
 #: What the realtime "done" message carries: the counts. The proposal and the shortages (hundreds of
 #: kilobytes on a busy day) come back with the request, or the page reloads them.
-LIGHT = ("error", "errors", "saved", "boxes", "stems", "new_orders", "new_boxes", "new_stems")
+LIGHT = ("error", "errors", "saved", "boxes", "stems", "new_orders", "new_boxes", "new_stems", "waiting")
 
 
 def _light(result):
@@ -470,7 +664,9 @@ def _publish(user, location, **msg):
 		# the page also asks (get_day_state) instead of waiting on realtime, which a web page may not have
 		frappe.cache.set_value(f"sa2_day_done:{location}", dict(msg), expires_in_sec=600)
 	else:
-		_set_state(location, {k: msg.get(k) for k in ("phase", "stage", "progress", "total", "order")})
+		_set_state(
+			location, {k: msg.get(k) for k in ("phase", "stage", "progress", "total", "order", "planned")}
+		)
 	frappe.publish_realtime("sa2_day_allocation", msg, user=user)
 
 
@@ -478,7 +674,7 @@ def _publish(user, location, **msg):
 def get_day_state(location: str, since: str | None = None):
 	"""Where a running Allocate all or Release at this location is ({phase, progress, total, order}), or None.
 	With `since` (the page's own run), a run that has finished answers {done, ...counts} instead."""
-	if not frappe.cache.get_value(f"sa2_day_allocation:{location}"):
+	if not frappe.cache.get_value(f"sa2_day_allocation:{location}") or _run_dead(location):
 		if since:
 			done = frappe.cache.get_value(f"sa2_day_done:{location}")
 			if done and str(done.get("run") or "") == since:
@@ -505,11 +701,11 @@ def _queue_place(job_id):
 	return {"queued": True, "ahead": job.get_position() or 0}
 
 
-def _run_day(location, delivery_start, delivery_end, farms, user):
+def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=()):
 	steps = {"total": 1}
 
 	# allocating is the first half of the bar, the shortages check the second
-	def plan_progress(done, total, order):
+	def plan_progress(done, total, order, planned=None):
 		steps["total"] = 2 * total + 1
 		_publish(
 			user,
@@ -519,6 +715,7 @@ def _run_day(location, delivery_start, delivery_end, farms, user):
 			progress=done,
 			total=steps["total"],
 			order=order,
+			planned=planned or {},
 		)
 
 	def short_progress(done, total, order):
@@ -562,8 +759,16 @@ def _run_day(location, delivery_start, delivery_end, farms, user):
 			)
 		)
 		window_orders = _orders(location, delivery_start, delivery_end)
+		# the orders the planner confirmed take buckets of any cut stage; the rest only their own
 		orders, errors, lines, taken = _plan_day(
-			location, delivery_start, delivery_end, farms, plan_progress, skip, window_orders
+			location,
+			delivery_start,
+			delivery_end,
+			farms,
+			plan_progress,
+			skip,
+			window_orders,
+			bypass_orders=bypass_orders,
 		)
 		_publish(
 			user,
@@ -600,6 +805,17 @@ def _run_day(location, delivery_start, delivery_end, farms, user):
 			),
 		}
 		_keep_shortages(location, delivery_start, delivery_end, farms, result["shortages"])
+		# the steps that follow (cut stage, substitutes, downgrades) are read in the background, so this
+		# request ends as soon as the allocation is saved and the steps open at once when they are ready
+		frappe.enqueue(
+			f"{__name__}._precompute_job",
+			queue="short",
+			enqueue_after_commit=True,
+			location=location,
+			delivery_start=delivery_start,
+			delivery_end=delivery_end,
+			farms=farms,
+		)
 	except Exception as e:
 		frappe.log_error("Sales Allocation v2: auto-allocate all failed", frappe.get_traceback())
 		result = {"error": str(e)}
@@ -609,7 +825,661 @@ def _run_day(location, delivery_start, delivery_end, farms, user):
 	return {"phase": "propose", "done": True, **result}
 
 
-def _plan_day(location, delivery_start, delivery_end, farms, progress=None, skip=(), orders=None):
+def _downgrade_options(lines, proposed, taken):
+	"""Every line still short after both passes that longer stems on the shelves could fill: [{sales_order,
+	order_name, customer, sales_order_item, variety, ordered_length, length, stems, buckets: [{bucket_id,
+	qty}], shorts: [{order_name, stems}]}]. `shorts`: the orders that ordered that longer length themselves
+	and would be left short if it went to this line (what the longer length has beyond their own need is
+	given first)."""
+	free, need_at = {}, defaultdict(float)
+	for _so, (order, items) in lines.items():
+		for item in items:
+			left = _left(item) - proposed.get(item["sales_order_item"], 0)
+			if left > 1e-9:
+				need_at[(item["item_code"], item.get("required_length") or "")] += left
+			for b in item.get("batches") or []:
+				key = (b["bucket_id"], item["item_code"], b.get("stem_length") or "")
+				if key not in free:
+					free[key] = max(0.0, flt(b.get("available_qty")) - taken.get(key, 0))
+	# what each longer length has left once the orders that ordered it are covered
+	stock_at = defaultdict(float)
+	for (_b, v, length), q in free.items():
+		stock_at[(v, length)] += q
+	spare = {k: max(0.0, q - need_at.get(k, 0)) for k, q in stock_at.items()}
+	who_at = defaultdict(list)
+	for _so, (order, items) in lines.items():
+		for item in items:
+			left = _left(item) - proposed.get(item["sales_order_item"], 0)
+			if left > 1e-9:
+				who_at[(item["item_code"], item.get("required_length") or "")].append(
+					(order.get("custom_order_name") or order.name, left)
+				)
+	out, used = [], defaultdict(float)
+	for _so, (order, items) in lines.items():
+		for item in items:
+			left = _left(item) - proposed.get(item["sales_order_item"], 0)
+			if left <= 1e-9:
+				continue
+			per_bunch = flt(item.get("conversion_factor")) or 1
+			lengths = sorted(
+				{
+					b.get("stem_length") or ""
+					for b in item.get("batches") or []
+					if b.get("length_status") == "downgrade"
+					and b.get("downgrade_approval") != "amber_expired"
+				},
+				key=lambda x: sa._parse_cm(x) or 0,
+			)
+			for length in lengths:
+				if left <= 1e-9:
+					break
+				buckets, got = [], 0.0
+				for b in item.get("batches") or []:
+					if b.get("length_status") != "downgrade" or (b.get("stem_length") or "") != length:
+						continue
+					key = (b["bucket_id"], item["item_code"], length)
+					avail = free.get(key, 0) - used[key]
+					take = min(avail, left - got)
+					if take <= 0:
+						continue
+					buckets.append({"bucket_id": b["bucket_id"], "qty": take, "_key": key})
+					got += take
+					if got >= left - 1e-9:
+						break
+				stems = math.floor(got / per_bunch + 1e-9) * per_bunch
+				if stems <= 0:
+					continue
+				# trim the buckets to whole bunches
+				over = got - stems
+				while over > 1e-9 and buckets:
+					cut = min(over, buckets[-1]["qty"])
+					buckets[-1]["qty"] -= cut
+					over -= cut
+					if buckets[-1]["qty"] <= 1e-9:
+						buckets.pop()
+				for x in buckets:
+					used[x.pop("_key")] += x["qty"]
+				k = (item["item_code"], length)
+				short_by = max(0.0, stems - spare.get(k, 0))
+				spare[k] = max(0.0, spare.get(k, 0) - stems)
+				shorts = []
+				if short_by > 0:
+					rest = short_by
+					for name, n in who_at.get(k, []):
+						if rest <= 0:
+							break
+						shorts.append({"order_name": name, "stems": min(n, rest)})
+						rest -= min(n, rest)
+				out.append(
+					{
+						"sales_order": order.name,
+						"order_name": order.get("custom_order_name") or order.name,
+						"customer": order.customer,
+						"sales_order_item": item["sales_order_item"],
+						"variety": item["item_code"],
+						"ordered_length": item.get("required_length") or "",
+						"length": length,
+						"stems": stems,
+						"buckets": buckets,
+						"shorts": shorts,
+					}
+				)
+				left -= stems
+	return out
+
+
+def _cut_stage_options(more, lines):
+	"""The orders the cut-stage pass could fill, each line with the stems it would take and the cut stages
+	of those buckets against the one its specification asks for: [{sales_order, order_name, customer, boxes,
+	stems, lines: [{variety, length, cut_stage, stages, stems}], allocations}]."""
+	stage_of = {}
+	for _so, (_order, items) in lines.items():
+		for item in items:
+			for b in item.get("batches") or []:
+				stage_of[b["bucket_id"]] = b.get("cut_stage") or ""
+	out = []
+	for o in more:
+		order, items = lines.get(o["sales_order"], (None, []))
+		by_line = {i["sales_order_item"]: i for i in items}
+		per = defaultdict(lambda: {"stems": 0.0, "stages": set()})
+		for a in o["allocations"]:
+			x = per[a["sales_order_item"]]
+			x["stems"] += flt(a["qty"])
+			if stage_of.get(a["bucket_id"]):
+				x["stages"].add(stage_of[a["bucket_id"]])
+		out.append(
+			{
+				"sales_order": o["sales_order"],
+				"order_name": (order or {}).get("custom_order_name") or o["sales_order"],
+				"customer": o["customer"],
+				"boxes": o["boxes"],
+				"stems": o["stems"],
+				"lines": [
+					{
+						"sales_order_item": soi,
+						"variety": (by_line.get(soi) or {}).get("item_code") or "",
+						"length": (by_line.get(soi) or {}).get("required_length") or "",
+						"cut_stage": (by_line.get(soi) or {}).get("custom_cut_stage") or "",
+						"stages": sorted(x["stages"]),
+						"stems": x["stems"],
+					}
+					for soi, x in per.items()
+				],
+				"allocations": o["allocations"],
+			}
+		)
+	return out
+
+
+def _free_for(location, sales_order, bypass=True):
+	"""{(bucket, variety, length): stems still free for this order's lines} as allocation reads it now."""
+	return {
+		(b["bucket_id"], i["item_code"], b.get("stem_length") or ""): flt(b.get("available_qty"))
+		for i in sa.get_sales_order_items_with_buckets(
+			sales_order, location, bypass_cut_stage=1 if bypass else 0
+		)
+		or []
+		for b in i.get("batches") or []
+	}
+
+
+def _add_checked(location, sales_order, rows):
+	"""Add allocation rows to an order's Allocate all proposal, each cut to what its bucket still has free
+	(something taken since is not taken twice). Returns the stems added."""
+	free, keep = _free_for(location, sales_order), []
+	for r in rows:
+		key = (r["bucket_id"], r["item_code"], r.get("stem_length") or "")
+		size = flt(r.get("conversion_factor")) or 1
+		qty = math.floor(min(flt(r.get("qty")), free.get(key, 0)) / size + 1e-9) * size
+		if qty <= 0:
+			continue
+		free[key] -= qty
+		keep.append({**r, "qty": qty})
+	if keep:
+		_add_pending(location, sales_order, keep, {}, source="Allocate all")
+	return sum(flt(r["qty"]) for r in keep)
+
+
+def _bypass_plan(location, delivery_start, delivery_end, farms, only=None):
+	"""After Allocate all is saved: what buckets of any cut stage add to the window's orders on top of their
+	proposal (`only`: just these orders). Orders holding picks are left alone."""
+	skip = set(
+		frappe.get_all(
+			PENDING,
+			filters={
+				"status": "Pending",
+				"location": location,
+				"source": "Picked",
+				"delivery_date": ("between", _window(delivery_start, delivery_end)),
+			},
+			pluck="sales_order",
+		)
+	)
+	orders = [
+		o
+		for o in _orders(location, delivery_start, delivery_end)
+		if o.name not in skip and (only is None or o.name in only)
+	]
+	prior = defaultdict(float)
+	for o in orders:
+		for soi in frappe.get_all("Sales Order Item", filters={"parent": o.name}, pluck="name"):
+			prior[soi] = _pending_stems(soi)
+	out, _errors, lines, _taken = _plan_day(
+		location, delivery_start, delivery_end, farms, None, (), orders, bypass=True, prior=prior
+	)
+	# only buckets of another cut stage than the line asks for: stock at the right cut stage is the normal
+	# allocation's, never something to bypass for
+	stage_of, want = {}, {}
+	for _so, (_order, items) in lines.items():
+		for item in items:
+			want[item["sales_order_item"]] = sa._norm_cut_stage(item.get("custom_cut_stage") or "")
+			for b in item.get("batches") or []:
+				stage_of[b["bucket_id"]] = sa._norm_cut_stage(b.get("cut_stage") or "")
+	kept = []
+	for o in out:
+		o["allocations"] = [
+			a
+			for a in o["allocations"]
+			if want.get(a["sales_order_item"])
+			and stage_of.get(a["bucket_id"], want[a["sales_order_item"]]) != want[a["sales_order_item"]]
+		]
+		if o["allocations"]:
+			o["stems"] = sum(flt(a["qty"]) for a in o["allocations"])
+			kept.append(o)
+	return kept, lines
+
+
+@frappe.whitelist()
+def get_cut_stage_candidates(
+	location: str,
+	delivery_start: str,
+	delivery_end: str | None = None,
+	selected_farms: str | list | None = None,
+	sales_orders: str | list | None = None,
+):
+	"""After Allocate all: the orders still short that buckets of another cut stage would fill, for the
+	planner to confirm. Nothing is saved. `sales_orders`: just these (Auto-allocate order)."""
+	farms = _farms(selected_farms)
+	only = _only(sales_orders)
+	if only:
+		return _cut_stage_candidates(location, delivery_start, delivery_end, farms, only)
+	return _kept_step(
+		"cutstage",
+		location,
+		delivery_start,
+		delivery_end,
+		farms,
+		lambda: _cut_stage_candidates(location, delivery_start, delivery_end, farms),
+	)
+
+
+def _kept_step(step, location, delivery_start, delivery_end, farms, compute):
+	"""A step of Allocate all, read by the Allocate all job itself once it has saved and kept until anything
+	it reads changes (the same stamp as the shortages): the step opens at once."""
+	key = _shortages_key(location, delivery_start, delivery_end, farms).replace(
+		"sa2_shortages:", f"sa2_step_{step}:", 1
+	)
+	kept = frappe.cache.get_value(key)
+	if kept is not None:
+		return kept
+	out = compute()
+	frappe.cache.set_value(key, out, expires_in_sec=SHORTAGES_KEPT)
+	return out
+
+
+def _precompute_job(location, delivery_start, delivery_end, farms=None):
+	_precompute_steps(location, delivery_start, delivery_end, farms, lambda _stage: None)
+
+
+def _precompute_steps(location, delivery_start, delivery_end, farms, publish):
+	"""Read the steps that follow Allocate all (cut stage, substitutes, downgrades) while its job still
+	runs, so each opens at once. A step that cannot be read here is read when it opens."""
+	try:
+		_read_steps(location, delivery_start, delivery_end, farms, publish)
+	except Exception:
+		frappe.log_error("Sales Allocation v2: reading the Allocate all steps failed", frappe.get_traceback())
+
+
+def _read_steps(location, delivery_start, delivery_end, farms, publish):
+	publish("cutcheck")
+	_kept_step(
+		"cutstage",
+		location,
+		delivery_start,
+		delivery_end,
+		farms,
+		lambda: _cut_stage_candidates(location, delivery_start, delivery_end, farms),
+	)
+	publish("substitutes")
+	lines = _window_lines(location, delivery_start, delivery_end)
+	_kept_step(
+		"substitutes",
+		location,
+		delivery_start,
+		delivery_end,
+		None,
+		lambda: _substitute_candidates(location, lines),
+	)
+	publish("downgrades")
+	_kept_step(
+		"downgrades",
+		location,
+		delivery_start,
+		delivery_end,
+		None,
+		lambda: _downgrade_options(lines, {}, {}),
+	)
+
+
+def _only(sales_orders):
+	"""The orders a step is scoped to, or None for the whole window."""
+	if isinstance(sales_orders, str):
+		sales_orders = json.loads(sales_orders or "[]")
+	return set(sales_orders) if sales_orders else None
+
+
+def _cut_stage_candidates(location, delivery_start, delivery_end, farms, only=None):
+	more, lines = _bypass_plan(location, delivery_start, delivery_end, farms, only)
+
+	def other_stage(line):
+		want = line["cut_stage"] and sa._norm_cut_stage(line["cut_stage"])
+		return want and any(sa._norm_cut_stage(st) != want for st in line["stages"])
+
+	return [
+		{k: v for k, v in o.items() if k != "allocations"}
+		for o in _cut_stage_options(more, lines)
+		if any(other_stage(line) for line in o["lines"])
+	]
+
+
+@frappe.whitelist(methods=["POST"])
+def apply_cut_stage(
+	location: str,
+	delivery_start: str,
+	delivery_end: str | None = None,
+	sales_orders: str | list | None = None,
+	selected_farms: str | list | None = None,
+):
+	"""Allocate buckets of any cut stage to the orders the planner confirmed, on top of their Allocate all
+	proposal."""
+	if isinstance(sales_orders, str):
+		sales_orders = json.loads(sales_orders or "[]")
+	want = set(sales_orders or [])
+	if not want:
+		return {"stems": 0, "orders": 0}
+	more, _lines = _bypass_plan(location, delivery_start, delivery_end, _farms(selected_farms), want)
+	added, n = 0.0, 0
+	for o in more:
+		got = _add_checked(location, o["sales_order"], o["allocations"])
+		added += got
+		n += 1 if got else 0
+	frappe.db.commit()  # nosemgrep
+	return {"stems": added, "orders": n}
+
+
+def _window_lines(location, delivery_start, delivery_end, bypass=True):
+	"""{sales_order: (order, its lines)} of the window with what is waiting release counted as allocated:
+	the state after Allocate all, for the steps that follow it."""
+	skip = set(
+		frappe.get_all(
+			PENDING,
+			filters={
+				"status": "Pending",
+				"location": location,
+				"source": "Picked",
+				"delivery_date": ("between", _window(delivery_start, delivery_end)),
+			},
+			pluck="sales_order",
+		)
+	)
+	out = {}
+	for order in _orders(location, delivery_start, delivery_end):
+		if order.name in skip:
+			continue
+		items = (
+			sa.get_sales_order_items_with_buckets(order.name, location, bypass_cut_stage=1 if bypass else 0)
+			or []
+		)
+		for item in items:
+			item["customer"] = order.customer
+			item["total_allocated_qty"] = flt(item.get("total_allocated_qty")) + _pending_stems(
+				item["sales_order_item"]
+			)
+		_hold_to_plan(items)
+		out[order.name] = (order, items)
+	return out
+
+
+@frappe.whitelist()
+def get_substitute_candidates(location: str, delivery_start: str, delivery_end: str | None = None):
+	"""Every line of the window still short once Allocate all's proposal is counted, that another variety
+	(the specification's, or the same colour) has free stock for: [{sales_order, order_name, sales_order_item,
+	variety, length, short, mixed, options: [{variety, free, color}], ...the line's numbers}]."""
+	return _kept_step(
+		"substitutes",
+		location,
+		delivery_start,
+		delivery_end,
+		None,
+		lambda: _substitute_candidates(location, _window_lines(location, delivery_start, delivery_end)),
+	)
+
+
+@frappe.whitelist()
+def get_order_substitute_candidates(location: str, sales_order: str):
+	"""The substitutes step for one order, read again after one of its lines changed."""
+	order = frappe.db.get_value(
+		"Sales Order", sales_order, ["name", "customer", "custom_order_name"], as_dict=True
+	)
+	if not order:
+		return []
+	items = sa.get_sales_order_items_with_buckets(sales_order, location, bypass_cut_stage=1) or []
+	for item in items:
+		item["customer"] = order.customer
+		item["total_allocated_qty"] = flt(item.get("total_allocated_qty")) + _pending_stems(
+			item["sales_order_item"]
+		)
+	_hold_to_plan(items)
+	return _substitute_candidates(location, {sales_order: (order, items)})
+
+
+def _sub_memo():
+	"""What reading many lines' substitutes at once reads only once (stock, crops, allocated stems), or None
+	outside such a read."""
+	return getattr(frappe.local, "sa2_sub_memo", None)
+
+
+def _stock_of(farms, varieties):
+	"""Stock rows of these varieties on these farms: once per farm set while a memo is open."""
+	from upande_packhouse.api.v2.core import stock
+
+	memo = _sub_memo()
+	if memo is None:
+		return stock.bucket_rows(farms=farms, varieties=varieties) if varieties else []
+	key = ("stock", tuple(sorted(farms or [])))
+	if key not in memo:
+		by = defaultdict(list)
+		for row in stock.bucket_rows(farms=farms):
+			by[row.variety].append(row)
+		memo[key] = by
+	return [row for v in varieties or [] for row in memo[key].get(v, [])]
+
+
+def _crops():
+	from upande_packhouse.api.v2.allocation_teams import crop_of_groups
+
+	memo = _sub_memo()
+	if memo is None:
+		return crop_of_groups()
+	if "crops" not in memo:
+		memo["crops"] = crop_of_groups()
+	return memo["crops"]
+
+
+def _held_stems(soi):
+	"""Released plus waiting release for a line."""
+	memo = _sub_memo()
+	if memo is not None and ("held", soi) in memo:
+		return memo[("held", soi)]
+	v = flt(sa._cumulative_allocated_stems(soi)) + _pending_stems(soi)
+	if memo is not None:
+		memo[("held", soi)] = v
+	return v
+
+
+def _substitute_candidates(location, lines):
+	frappe.local.sa2_sub_memo = {}
+	try:
+		return _substitute_candidates_now(location, lines)
+	finally:
+		frappe.local.sa2_sub_memo = None
+
+
+def _substitute_candidates_now(location, lines):
+	out = []
+	for so, (order, items) in lines.items():
+		for item in items:
+			short = _left(item)
+			if short <= 1e-9:
+				continue
+			sub = get_shortage_substitutes(item["sales_order_item"], location)
+			opts = [o for o in sub["options"] if o["free"] > 0]
+			if not opts:
+				continue
+			out.append(
+				{
+					"sales_order": so,
+					"order_name": order.get("custom_order_name") or so,
+					"customer": order.customer,
+					"sales_order_item": item["sales_order_item"],
+					"short": short,
+					# a line in a mix: which mix and how many boxes it has, so two mixes of one order read apart
+					"mix": (item.get("custom_mix_name") or _("Mix {0}").format(item.get("custom_mix_group")))
+					if cint(item.get("custom_mixed_box")) and item.get("custom_mix_group")
+					else (
+						_("Bunch mix {0}").format(item.get("custom_bunch_group"))
+						if cint(item.get("custom_mixed_bunch")) and item.get("custom_bunch_group")
+						else ""
+					),
+					"boxes": cint(item.get("custom_number_of_boxes")),
+					"mix_group": (
+						f"box:{item.get('custom_mix_group')}"
+						if cint(item.get("custom_mixed_box")) and item.get("custom_mix_group")
+						else f"bunch:{item.get('custom_bunch_group')}"
+						if cint(item.get("custom_mixed_bunch")) and item.get("custom_bunch_group")
+						else ""
+					),
+					**{
+						k: sub[k]
+						for k in (
+							"variety",
+							"length",
+							"needed",
+							"allocated",
+							"held",
+							"own_free",
+							"per_box",
+							"splittable",
+						)
+					},
+					"options": opts,
+					"add_stems": sub["add_stems"],
+				}
+			)
+	return out
+
+
+@frappe.whitelist(methods=["POST"])
+def allocate_orders(
+	location: str,
+	delivery_start: str,
+	delivery_end: str | None = None,
+	sales_orders: str | list | None = None,
+):
+	"""Allocate these orders again (after their varieties changed), adding to their Allocate all proposal."""
+	if isinstance(sales_orders, str):
+		sales_orders = json.loads(sales_orders or "[]")
+	want = set(sales_orders or [])
+	orders = [o for o in _orders(location, delivery_start, delivery_end) if o.name in want]
+	# an order opened from outside the dates shown: read on its own delivery day
+	for so in want - {o.name for o in orders}:
+		day = str(frappe.db.get_value("Sales Order", so, "delivery_date") or "")
+		orders += [o for o in _orders(location, day, day) if o.name == so]
+	prior = defaultdict(float)
+	for o in orders:
+		for soi in frappe.get_all("Sales Order Item", filters={"parent": o.name}, pluck="name"):
+			prior[soi] = _pending_stems(soi)
+	out, _errors, _lines, _taken = _plan_day(
+		location, delivery_start, delivery_end, _farms(None), None, (), orders, prior=prior
+	)
+	added = 0.0
+	for o in out:
+		added += _add_checked(location, o["sales_order"], o["allocations"])
+	frappe.db.commit()  # nosemgrep
+	return {"stems": added, "orders": len(out)}
+
+
+@frappe.whitelist()
+def get_downgrade_options(
+	location: str,
+	delivery_start: str,
+	delivery_end: str | None = None,
+	sales_orders: str | list | None = None,
+):
+	"""The downgrade step, on the proposal as it stands now (after the cut stage and substitutes).
+	`sales_orders`: just these (Auto-allocate order)."""
+	only = _only(sales_orders)
+	if only:
+		lines = {k: v for k, v in _window_lines(location, delivery_start, delivery_end).items() if k in only}
+		return {
+			"options": _downgrade_options(lines, {}, {}),
+			"reasons": frappe.get_all("Downgrade Reason", pluck="name", order_by="reason asc"),
+		}
+	return {
+		"options": _kept_step(
+			"downgrades",
+			location,
+			delivery_start,
+			delivery_end,
+			None,
+			lambda: _downgrade_options(_window_lines(location, delivery_start, delivery_end), {}, {}),
+		),
+		"reasons": frappe.get_all("Downgrade Reason", pluck="name", order_by="reason asc"),
+	}
+
+
+@frappe.whitelist(methods=["POST"])
+def apply_downgrades(
+	location: str, delivery_start: str, delivery_end: str | None = None, picks: str | list | None = None
+):
+	"""Add the downgrades the planner chose ([{sales_order_item, bucket_id, length, qty}]) to their orders'
+	allocations waiting release, as longer stems with their reason. A bucket another line has taken since is
+	given only what it still has free."""
+	if isinstance(picks, str):
+		picks = json.loads(picks or "[]")
+	by_order, added = defaultdict(list), 0.0
+	free = {}
+	reasons = set(frappe.get_all("Downgrade Reason", pluck="name"))
+	for pk in picks or []:
+		if pk.get("reason") and pk["reason"] not in reasons:
+			frappe.throw(_("{0} is not a downgrade reason.").format(pk["reason"]))
+		line = frappe.db.get_value(
+			"Sales Order Item",
+			pk["sales_order_item"],
+			["parent", "item_code", "uom", "stock_uom", "conversion_factor"],
+			as_dict=True,
+		)
+		if not line:
+			continue
+		if line.parent not in free:
+			free[line.parent] = {
+				(b["bucket_id"], i["item_code"], b.get("stem_length") or ""): flt(b.get("available_qty"))
+				for i in sa.get_sales_order_items_with_buckets(line.parent, location) or []
+				for b in i.get("batches") or []
+			}
+		key = (pk["bucket_id"], line.item_code, pk.get("length") or "")
+		size = flt(line.conversion_factor) or 1
+		qty = math.floor(min(flt(pk.get("qty")), free[line.parent].get(key, 0)) / size + 1e-9) * size
+		if qty <= 0:
+			continue
+		free[line.parent][key] -= qty
+		by_order[line.parent].append(
+			{
+				"item_code": line.item_code,
+				"bucket_id": pk["bucket_id"],
+				"qty": qty,
+				"sales_order_item": pk["sales_order_item"],
+				"stem_length": pk.get("length") or "",
+				"warehouse": "",
+				"uom": line.uom,
+				"stock_uom": line.stock_uom,
+				"conversion_factor": size,
+				"length_status": "downgrade",
+				"downgrade_reason": pk.get("reason") or _("Downgraded at Allocate all"),
+				"available_exact_stems": 0,
+			}
+		)
+		added += qty
+	for so, rows in by_order.items():
+		_add_pending(location, so, rows, {}, source="Allocate all")
+	frappe.db.commit()  # nosemgrep
+	p = _proposal(location, delivery_start, delivery_end)
+	return {"stems": added, "orders": len(by_order), "proposal": _summary(p)}
+
+
+def _plan_day(
+	location,
+	delivery_start,
+	delivery_end,
+	farms,
+	progress=None,
+	skip=(),
+	orders=None,
+	bypass=False,
+	prior=None,
+	taken=None,
+	bypass_orders=(),
+):
 	"""([{sales_order, ..., allocations, teams, boxes, stems}] for every order that can take whole boxes,
 	{sales_order_item: why} for lines whose box the plan refuses, {sales_order: (order, its lines)} as read,
 	{(bucket, variety, length): stems} taken). Buckets taken for one order are not offered to the next. A line
@@ -617,16 +1487,37 @@ def _plan_day(location, delivery_start, delivery_end, farms, progress=None, skip
 	rules = _rules(location)
 	if orders is None:
 		orders = _orders(location, delivery_start, delivery_end)
-	taken, out, errors, lines = {}, [], {}, {}
+	# `bypass`: a second pass that takes buckets of any cut stage, on top of the first pass's picks (`prior`
+	# {sales_order_item: stems}, its buckets in `taken`)
+	taken, out, errors, lines = dict(taken or {}), [], {}, {}
+	prior = prior or {}
 
 	for n, order in enumerate(orders, 1):
 		if progress:
-			progress(n - 1, len(orders), order.get("custom_order_name") or order.name)
+			# the boxes planned so far, so the page's order cards fill as the run goes
+			progress(
+				n - 1,
+				len(orders),
+				order.get("custom_order_name") or order.name,
+				{o["sales_order"]: o["boxes"] for o in out},
+			)
 		if order.name in skip:
 			continue
-		items = sa.get_sales_order_items_with_buckets(order.name, location, selected_farms=farms) or []
+		items = (
+			sa.get_sales_order_items_with_buckets(
+				order.name,
+				location,
+				selected_farms=farms,
+				bypass_cut_stage=1 if bypass or order.name in bypass_orders else 0,
+			)
+			or []
+		)
 		for item in items:
 			item["customer"] = order.customer
+			if prior.get(item["sales_order_item"]):
+				item["total_allocated_qty"] = (
+					flt(item.get("total_allocated_qty")) + prior[item["sales_order_item"]]
+				)
 		_hold_to_plan(items)
 		lines[order.name] = (order, items)
 		planned = allocation_plan.planned_teams([i["sales_order_item"] for i in items]) if items else {}
@@ -643,12 +1534,16 @@ def _plan_day(location, delivery_start, delivery_end, farms, progress=None, skip
 		for item in items:
 			groups.setdefault(_box_key(item), []).append(item)
 		for members in groups.values():
-			adds = _whole_boxes(members, mine, ok)
-			if not rules["partial_allocation"] and any(
-				adds.get(it["sales_order_item"], 0) < _left(it) - 1e-9 for it in members if ok(it)
-			):
-				continue
+			if rules["partial_allocation"]:
+				# everything the shelves have for each line, complete box or not: it waits release, and the
+				# release takes only the complete boxes (the rest stays allocated for the next one)
+				adds = {it["sales_order_item"]: _left(it) for it in members if ok(it)}
+			else:
+				adds = _whole_boxes(members, mine, ok)
+				if any(adds.get(it["sales_order_item"], 0) < _left(it) - 1e-9 for it in members if ok(it)):
+					continue
 			group_boxes, group_taken, group_picks, group_teams = 0, dict(mine), [], {}
+			picked = defaultdict(float)
 			for item in members:
 				add = adds.get(item["sales_order_item"], 0)
 				if add <= 0:
@@ -656,15 +1551,14 @@ def _plan_day(location, delivery_start, delivery_end, farms, progress=None, skip
 				picks, _short = _fifo_pick(item, add, group_taken)
 				if picks:
 					group_picks += picks
+					picked[item["sales_order_item"]] += sum(flt(p["qty"]) for p in picks)
 					# no team is guessed: it is chosen when the order is released (the plan's, when it is enforced)
 					team = _team(item, planned, rules) if rules["enforce_plan"] else None
 					if team:
 						group_teams[item["sales_order_item"]] = team
-					per_box = _per_box(item)
-					if per_box > 0:
-						group_boxes = max(group_boxes, math.ceil(add / per_box - 1e-9))
 			if not group_picks:
 				continue
+			group_boxes = _new_boxes(members, picked)
 			# the plan's checks run per box: a box the plan refuses stays out, the rest of the order goes on
 			if rules["enforce_plan"]:
 				try:
@@ -694,7 +1588,7 @@ def _plan_day(location, delivery_start, delivery_end, farms, progress=None, skip
 		)
 
 	if progress:
-		progress(len(orders), len(orders), "")
+		progress(len(orders), len(orders), "", {o["sales_order"]: o["boxes"] for o in out})
 	return out, errors, lines, taken
 
 
@@ -779,7 +1673,7 @@ def _run_confirm(location, delivery_start, delivery_end, farms, sales_orders, us
 		p = _proposal(location, delivery_start, delivery_end) or {"orders": []}
 		chosen = [o for o in p["orders"] if not sales_orders or o["sales_order"] in sales_orders]
 		rules = sa._v2_rules(location)
-		saved, errors = [], {}
+		saved, errors, waiting = [], {}, []
 		for n, o in enumerate(chosen):
 			_publish(
 				user,
@@ -795,13 +1689,23 @@ def _run_confirm(location, delivery_start, delivery_end, farms, sales_orders, us
 				if rules["enforce_plan"]:
 					sa._check_against_plan(o["allocations"], o["teams"])
 				o["teams"] = _fill_teams(o)
-				sa._allocate_stock_with_buckets_impl(o["sales_order"], o["allocations"], location, o["teams"])
+				# only complete boxes go out; what does not complete a box yet stays allocated, waiting release
+				release, keep = _split_release(o["sales_order"], o["allocations"])
+				if not release:
+					frappe.db.rollback(save_point="confirm_day_order")
+					waiting.append(o["sales_order"])
+					continue
+				sa._allocate_stock_with_buckets_impl(o["sales_order"], release, location, o["teams"])
 			except Exception as e:
 				frappe.db.rollback(save_point="confirm_day_order")
 				frappe.clear_messages()
 				errors[o["sales_order"]] = str(e)
 				continue
 			sa.close_pending(o["sales_order"], location)
+			if keep:
+				_add_pending(
+					location, o["sales_order"], keep, o["teams"], source=o.get("source") or "Allocate all"
+				)
 			# each order stands on its own: a later failure must not roll back the ones already saved
 			frappe.db.commit()  # nosemgrep
 			saved.append(o)
@@ -812,6 +1716,7 @@ def _run_confirm(location, delivery_start, delivery_end, farms, sales_orders, us
 			"boxes": sum(o["boxes"] for o in saved),
 			"stems": sum(o["stems"] for o in saved),
 			"errors": errors,
+			"waiting": waiting,
 			"proposal": _summary(p),
 			"shortages": _shortages(location, delivery_start, delivery_end, farms, errors, _pending(p)),
 		}
@@ -1028,7 +1933,7 @@ def _shortages(
 							**_line_boxes(r.sales_order_item, box_memo),
 							"longer": r.longer and not _planned_longer(item, r),
 						}
-						for r in _donors(item, order.name, location_farms)
+						for r in _donors(item, order.name, location_farms, location)
 					],
 				}
 			)
@@ -1084,7 +1989,8 @@ def _line_boxes(soi, memo):
 			or {}
 		)
 		memo[soi] = {
-			"line_allocated": flt(sa._cumulative_allocated_stems(soi)),
+			# released plus waiting release: a move takes from what waits release
+			"line_allocated": flt(sa._cumulative_allocated_stems(soi)) + _pending_stems(soi),
 			"line_per_box": _per_box(row) if row else 0,
 			"line_boxes": cint(row.get("custom_number_of_boxes")),
 			# a mixed box or bunch: the line fills only its own share of each box
@@ -1093,35 +1999,35 @@ def _line_boxes(soi, memo):
 	return memo[soi]
 
 
-def _donors(item, sales_order, location_farms):
-	"""Buckets of this variety allocated to another order's line, not issued yet, on this location's
-	shelves, at the line's length or longer (and its cut stage when the spec names one). Latest delivery
-	and last in the sequence first: those are the ones to take from."""
+def _donors(item, sales_order, location_farms, location=None):
+	"""Buckets of this variety allocated to another order's line and still waiting release (no pick list
+	yet), on this location's shelves, at the line's length or longer (and its cut stage when the spec names
+	one). A bucket already on a pick list, submitted or waiting transfer, is never taken. Latest delivery and
+	last in the sequence first: those are the ones to take from."""
 	if not location_farms:
 		return []
 	rows = frappe.db.sql(
 		"""
-		SELECT ba.sales_order_item, soi.parent AS sales_order, IFNULL(so.custom_order_name, '') AS order_name,
+		SELECT r.sales_order_item, pa.sales_order, IFNULL(so.custom_order_name, '') AS order_name,
 			so.customer, so.delivery_date,
 			0 AS sequence,
-			bas.bucket_id, IFNULL(bas.stem_length, '') AS stem_length,
-			SUM(ba.quantity_allocated) AS qty,
+			r.bucket_id, IFNULL(r.stem_length, '') AS stem_length,
+			SUM(r.qty) AS qty,
 			(SELECT MIN(si.cut_stage) FROM `tabShelf Item` si
-				WHERE si.bucket_id = bas.bucket_id AND si.variety = bas.item_code) AS cut_stage
-		FROM `tabBucket Allocations` ba
-		INNER JOIN `tabBucket Allocation Status` bas ON bas.name = ba.parent
-		INNER JOIN `tabSales Order Item` soi ON soi.name = ba.sales_order_item
-		INNER JOIN `tabSales Order` so ON so.name = soi.parent
-		WHERE bas.item_code = %(item)s
-		  AND soi.parent != %(so)s
-		  AND ba.cancelled = 0 AND IFNULL(ba.issued, 0) = 0
+				WHERE si.bucket_id = r.bucket_id AND si.variety = r.item_code) AS cut_stage
+		FROM `tabPending Allocation Row` r
+		INNER JOIN `tabPending Allocation` pa ON pa.name = r.parent AND r.parenttype = 'Pending Allocation'
+		INNER JOIN `tabSales Order` so ON so.name = pa.sales_order
+		WHERE r.item_code = %(item)s
+		  AND pa.status = 'Pending' AND pa.sales_order != %(so)s
+		  AND (%(loc)s = '' OR pa.location = %(loc)s)
 		  AND so.docstatus = 1 AND so.status NOT IN ('Completed', 'Closed', 'Cancelled')
 		  AND EXISTS (SELECT 1 FROM `tabShelf Item` si INNER JOIN `tabShelf` s ON s.name = si.parent
-			WHERE si.bucket_id = bas.bucket_id AND si.variety = bas.item_code AND s.farm IN %(farms)s)
-		GROUP BY ba.sales_order_item, bas.bucket_id, IFNULL(bas.stem_length, '')
+			WHERE si.bucket_id = r.bucket_id AND si.variety = r.item_code AND s.farm IN %(farms)s)
+		GROUP BY r.sales_order_item, r.bucket_id, IFNULL(r.stem_length, '')
 		HAVING qty > 0
 		""",
-		{"item": item["item_code"], "so": sales_order, "farms": tuple(location_farms)},
+		{"item": item["item_code"], "so": sales_order, "farms": tuple(location_farms), "loc": location or ""},
 		as_dict=True,
 	)
 	want_cm = sa._parse_cm(item.get("required_length"))
@@ -1161,17 +2067,23 @@ def move_bucket(
 	if src.item_code != dst.item_code:
 		frappe.throw(_("Only a bucket of the same variety can be moved."))
 
-	held = flt(
-		frappe.db.sql(
-			"""SELECT SUM(ba.quantity_allocated) FROM `tabBucket Allocations` ba
-			INNER JOIN `tabBucket Allocation Status` bas ON bas.name = ba.parent
-			WHERE ba.sales_order_item = %s AND bas.bucket_id = %s AND IFNULL(bas.stem_length, '') = %s
-			  AND ba.cancelled = 0 AND IFNULL(ba.issued, 0) = 0""",
-			(from_item, bucket_id, stem_length or ""),
-		)[0][0]
+	# only an allocation still waiting release is moved: a bucket on a pick list (submitted, or a draft
+	# waiting transfer) stays where it is
+	src_rows = frappe.db.sql(
+		"""SELECT r.name, r.qty FROM `tabPending Allocation Row` r
+		INNER JOIN `tabPending Allocation` pa ON pa.name = r.parent AND r.parenttype = 'Pending Allocation'
+		WHERE pa.status = 'Pending' AND pa.location = %s AND r.sales_order_item = %s AND r.bucket_id = %s
+		  AND IFNULL(r.stem_length, '') = %s""",
+		(location, from_item, bucket_id, stem_length or ""),
+		as_dict=True,
 	)
+	held = sum(flt(r.qty) for r in src_rows)
 	if held <= 0:
-		frappe.throw(_("{0} is no longer allocated to {1}.").format(bucket_id, src.parent))
+		frappe.throw(
+			_("{0} is not waiting release on {1}: a bucket on a pick list is not moved.").format(
+				bucket_id, src.parent
+			)
+		)
 
 	# up to what was ordered (less what is already waiting release for it): the plan does not limit a move
 	need = (
@@ -1231,9 +2143,8 @@ def move_bucket(
 	if rules["enforce_plan"]:
 		sa._check_against_plan(target, {to_item: team})
 
-	out = sa.unallocate_bucket_from_opl(from_item, bucket_id, stem_length)
-	if not out.get("success"):
-		frappe.throw(out.get("message") or _("Could not unallocate {0}.").format(bucket_id))
+	# off the order it came from (it was never on a pick list): what is not moved goes back on below
+	_drop_pending_rows(src.parent, location, [r.name for r in src_rows])
 
 	# both sides wait to be released: the moved stems on the order they go to, the rest (in whole bunches of
 	# its line) on the order they came from
@@ -1255,12 +2166,9 @@ def move_bucket(
 			_add_pending(location, src.parent, back, {from_item: src_team} if src_team else {})
 		frappe.db.commit()  # nosemgrep
 	except Exception as e:
+		# nothing was committed: the rollback leaves the bucket on the order it came from
 		frappe.db.rollback()
 		frappe.clear_messages()
-		# the bucket goes back to the line it came from, waiting release there
-		back[0]["qty"] = math.floor(held / src_size + 1e-9) * src_size
-		_add_pending(location, src.parent, back, {from_item: src_team} if src_team else {})
-		frappe.db.commit()  # nosemgrep
 		frappe.throw(_("Could not move {0} to {1}: {2}").format(bucket_id, dst.parent, str(e)))
 
 	names = dict(
@@ -1274,6 +2182,28 @@ def move_bucket(
 		"from": names.get(src.parent) or src.parent,
 		"to": names.get(dst.parent) or dst.parent,
 	}
+
+
+def _drop_pending_rows(sales_order, location, rows):
+	"""Take these rows off an order's allocation waiting release, its boxes and stems recounted; an
+	allocation left with no rows goes."""
+	frappe.db.delete("Pending Allocation Row", {"name": ("in", rows)})
+	name = frappe.db.get_value(
+		PENDING, {"sales_order": sales_order, "location": location, "status": "Pending"}, "name"
+	)
+	if not name:
+		return
+	doc = frappe.get_doc(PENDING, name)
+	if not doc.allocations:
+		frappe.delete_doc(PENDING, name, ignore_permissions=True, force=True)
+		return
+	allocs = [{"sales_order_item": r.sales_order_item, "qty": flt(r.qty)} for r in doc.allocations]
+	frappe.db.set_value(
+		PENDING,
+		name,
+		{"boxes": _pending_boxes(allocs), "stems": sum(flt(r.qty) for r in doc.allocations)},
+		update_modified=False,
+	)
 
 
 def _pending_stems(sales_order_item):
@@ -1298,9 +2228,22 @@ def _pending_boxes(allocations):
 		return 0
 	lines = frappe.get_all(
 		"Sales Order Item",
-		filters={"name": ("in", list(stems))},
+		filters={
+			"parent": (
+				"in",
+				list(
+					set(
+						frappe.get_all(
+							"Sales Order Item", filters={"name": ("in", list(stems))}, pluck="parent"
+						)
+					)
+				),
+			)
+		},
 		fields=[
 			"name AS sales_order_item",
+			"parent",
+			"custom_mix_name",
 			"stock_qty AS original_stock_qty",
 			"custom_number_of_boxes",
 			"custom_mixed_box",
@@ -1311,14 +2254,18 @@ def _pending_boxes(allocations):
 			"custom_bunch_group",
 		],
 	)
+	keys = box_keys(lines)
 	groups = defaultdict(list)
 	for ln in lines:
+		if ln.sales_order_item not in stems:
+			continue
+		ln["_box"] = keys[ln.sales_order_item]
 		pb = _per_box(ln)
 		groups[_box_key(ln)].append(int(stems[ln.sales_order_item] / pb + 1e-9) if pb > 0 else 0)
 	return sum(min(v) for v in groups.values())
 
 
-def _add_pending(location, sales_order, rows, teams):
+def _add_pending(location, sales_order, rows, teams, source="Picked"):
 	"""Add allocation rows to an order's allocation waiting release at the location (made if it has none),
 	the same bucket and line adding up. Kept by Allocate all: it is the planner's own pick now."""
 	name = frappe.db.get_value(
@@ -1354,7 +2301,7 @@ def _add_pending(location, sales_order, rows, teams):
 		else:
 			merged[key] = dict(a)
 	allocations = list(merged.values())
-	return _save_pending(location, sales_order, allocations, all_teams, _pending_boxes(allocations), "Picked")
+	return _save_pending(location, sales_order, allocations, all_teams, _pending_boxes(allocations), source)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1381,7 +2328,9 @@ def move_from_order(
 		"required_length": dst.custom_length,
 		"custom_cut_stage": dst.custom_cut_stage,
 	}
-	buckets = [r for r in _donors(line, dst.parent, location_farms) if r.sales_order_item == from_item]
+	buckets = [
+		r for r in _donors(line, dst.parent, location_farms, location) if r.sales_order_item == from_item
+	]
 	if not buckets:
 		frappe.throw(_("That order holds no bucket that fits this line any more."))
 	left = flt(stems) or None
@@ -1405,9 +2354,11 @@ def move_from_order(
 
 
 @frappe.whitelist(methods=["POST"])
-def set_pending_team(location: str, sales_order: str, team: str):
-	"""Give every line of an order waiting release this team: chosen for an order never planned, or changed
-	from the planned one. One order is packed by one team."""
+def set_pending_team(location: str, sales_order: str, team: str, lines: str | list | None = None):
+	"""Give the lines of an order waiting release this team: every line, or only `lines` (one mix or one
+	straight line), so one order can be packed by several teams."""
+	if isinstance(lines, str):
+		lines = json.loads(lines or "[]")
 	if not frappe.db.exists("Packing Teams", team):
 		frappe.throw(_("{0} is not a packing team.").format(team))
 	home = frappe.db.get_value("Packing Teams", team, "location")
@@ -1418,10 +2369,12 @@ def set_pending_team(location: str, sales_order: str, team: str):
 	)
 	if not names:
 		frappe.throw(_("{0} has nothing waiting to be released.").format(sales_order))
-	frappe.db.sql(
-		"""UPDATE `tabPending Allocation Row` SET team = %(team)s
-		WHERE parent IN %(p)s AND parenttype = %(dt)s""",
-		{"team": team, "p": tuple(names), "dt": PENDING},
+	only = " AND sales_order_item IN %(l)s" if lines else ""
+	# the f-string hole is fixed SQL; values are bound
+	frappe.db.sql(  # nosemgrep
+		f"""UPDATE `tabPending Allocation Row` SET team = %(team)s
+		WHERE parent IN %(p)s AND parenttype = %(dt)s{only}""",
+		{"team": team, "p": tuple(names), "dt": PENDING, "l": tuple(lines or ("",))},
 	)
 	return {"success": True}
 
@@ -1433,13 +2386,22 @@ def get_shortage_substitutes(sales_order_item: str, location: str):
 	its primary first. A line without one: varieties of the same colour in the same crop. Free stock counts
 	whether it is moving or not; non-moving stock (past the amber time) is shown apart and goes first."""
 	from upande_packhouse.api.v2 import allocation_playground as pg
-	from upande_packhouse.api.v2.allocation_teams import crop_of_groups
-	from upande_packhouse.api.v2.core import stock
 
 	ln = frappe.db.get_value(
 		"Sales Order Item",
 		sales_order_item,
-		["parent", "item_code", "custom_length", "custom_line", "item_group", "stock_qty"],
+		[
+			"parent",
+			"item_code",
+			"custom_length",
+			"custom_line",
+			"item_group",
+			"stock_qty",
+			"custom_number_of_boxes",
+			"conversion_factor",
+			"custom_mixed_box",
+			"custom_mixed_bunch",
+		],
 		as_dict=True,
 	)
 	if not ln:
@@ -1462,7 +2424,7 @@ def get_shortage_substitutes(sales_order_item: str, location: str):
 		varieties = [r.variety for r in approved if r.variety != ln.item_code]
 	else:
 		source = "colour"
-		groups = crop_of_groups()
+		groups = _crops()
 		crop = groups.get(ln.item_group)
 		same_crop = [g for g, c in groups.items() if c == crop] if crop else [ln.item_group]
 		varieties = (
@@ -1481,7 +2443,7 @@ def get_shortage_substitutes(sales_order_item: str, location: str):
 		)
 	amber = pg.amber_from_days()
 	agg = defaultdict(lambda: {"free": 0.0, "exact": 0.0, "longer": 0.0, "non_moving": 0.0, "oldest": 0})
-	for r in stock.bucket_rows(farms=farms, varieties=varieties) if varieties else []:
+	for r in _stock_of(farms, varieties):
 		cm = sa._parse_cm(r.stem_length) or 0
 		free = flt(r.allocatable)
 		if cm < want or free <= 0:
@@ -1505,10 +2467,50 @@ def get_shortage_substitutes(sales_order_item: str, location: str):
 	]
 	# the spec's own order; without a spec, non-moving stock first, then the most stems
 	options.sort(
-		key=lambda o: (rank.get(o["variety"], 0), -o["free"])
-		if source == "spec"
-		else (-o["non_moving"], -o["free"])
+		key=lambda o: (
+			(rank.get(o["variety"], 0), -o["free"]) if source == "spec" else (-o["non_moving"], -o["free"])
+		)
 	)
+	# Add variety takes no more than the variety has free, in whole boxes of the line: the rest stays on the
+	# line's own variety
+	box = flt(ln.stock_qty) / (cint(ln.custom_number_of_boxes) or 1) or 1
+	# the line's own variety: what it holds and what is free for it, for splitting the line across varieties
+	own_free = sum(
+		flt(r.allocatable)
+		for r in _stock_of(farms, [ln.item_code])
+		if (sa._parse_cm(r.stem_length) or 0) >= want
+	)
+	add_stems = _add_stems(sales_order_item, ln, allocated, own_free)
+	add_mode, step = "boxes", box
+	held = allocated + _pending_stems(sales_order_item)
+	gap = flt(ln.stock_qty) - held - own_free
+	# a line of a mix can also take another variety in the same boxes, beside it, for as many stems as that
+	# variety has (whole bunches in every box) -- only while none of its boxes is on a pick list yet, so no
+	# packed box changes. Each variety takes the way that uses more of its stems: whole later boxes, or a
+	# share of every box.
+	share_step = 0
+	if (
+		(cint(ln.custom_mixed_box) or cint(ln.custom_mixed_bunch))
+		and gap > 1e-9
+		and not sa._placed_stems(sales_order_item)
+	):
+		# whole bunches: spread over the boxes as evenly as they go (box_groups keeps each box whole)
+		share_step = flt(ln.conversion_factor) or 1
+	share_room = (
+		math.floor(max(0, flt(ln.stock_qty) - held) / share_step + 1e-9) * share_step if share_step else 0
+	)
+	for o in options:
+		by_boxes = min(add_stems, math.floor(o["free"] / box + 1e-9) * box)
+		by_share = (
+			math.floor(min(o["free"], gap, share_room) / share_step + 1e-9) * share_step if share_step else 0
+		)
+		if by_share > by_boxes:
+			o["adds"], o["mode"] = by_share, "share"
+		else:
+			o["adds"], o["mode"] = by_boxes, "boxes"
+	if share_step:
+		add_stems = max(add_stems, min(gap, share_room))
+		add_mode, step = "share", share_step
 	return {
 		"source": source,
 		"color": color,
@@ -1516,5 +2518,451 @@ def get_shortage_substitutes(sales_order_item: str, location: str):
 		"length": ln.custom_length,
 		"needed": flt(ln.stock_qty),
 		"allocated": allocated,
+		"held": allocated + _pending_stems(sales_order_item),
+		"own_free": own_free,
+		"per_box": flt(ln.stock_qty) / (cint(ln.custom_number_of_boxes) or 1),
+		"per_bunch": flt(ln.conversion_factor) or 1,
+		"add_mode": add_mode,
+		"add_step": step,
+		"splittable": not (cint(ln.custom_mixed_box) or cint(ln.custom_mixed_bunch)),
+		"add_stems": add_stems,
 		"options": options,
 	}
+
+
+def _mix_members(row):
+	"""The lines packed in the same mixed box or bunch as this one, in order, with the group's field."""
+	field = "custom_bunch_group" if cint(row.get("custom_mixed_bunch")) else "custom_mix_group"
+	return (
+		field,
+		frappe.db.sql(  # nosemgrep: frappe-sql-format-injection -- the columns are the table's own, values are bound
+			f"SELECT * FROM `tabSales Order Item` WHERE parent = %s AND `{field}` = %s ORDER BY idx",  # nosemgrep
+			(row["parent"], row[field]),
+			as_dict=True,
+		),
+	)
+
+
+def _mix_keep_boxes(sales_order_item, row, allocated, own_free):
+	"""(boxes the mix keeps as ordered, its boxes): the most boxes any variety of the mix already holds, or
+	this line can fill with its own variety. The rest of the mix's boxes can take another variety."""
+	_field, members = _mix_members(row)
+	boxes = cint(row.get("custom_number_of_boxes")) or 1
+	keep = 0
+	for m in members:
+		share = flt(m.stock_qty) / (cint(m.custom_number_of_boxes) or 1)
+		held = _held_stems(m.name)
+		if share:
+			keep = max(keep, math.ceil(held / share - 1e-9))
+	share = flt(row.get("stock_qty")) / boxes
+	if share:
+		keep = max(keep, math.floor((allocated + own_free) / share + 1e-9))
+	return min(keep, boxes), boxes
+
+
+def _add_stems(sales_order_item, ln, allocated, own_free):
+	"""Stems another variety takes when added to this line: the boxes the line cannot fill itself."""
+	stems = flt(ln.stock_qty)
+	boxes = cint(ln.custom_number_of_boxes) or 1
+	box = stems / boxes or 1
+	if cint(ln.custom_mixed_box) or cint(ln.custom_mixed_bunch):
+		row = frappe.db.sql(
+			"SELECT * FROM `tabSales Order Item` WHERE name = %s", sales_order_item, as_dict=True
+		)
+		keep, boxes = _mix_keep_boxes(sales_order_item, row[0], allocated, own_free)
+		return (boxes - keep) * box
+	held = allocated + _pending_stems(sales_order_item)
+	keep = min(
+		stems,
+		max(math.ceil(held / box - 1e-9) * box, math.floor((allocated + own_free) / box + 1e-9) * box),
+	)
+	return stems - keep
+
+
+@frappe.whitelist(methods=["POST"])
+def add_variety(sales_order_item: str, location: str, variety: str):
+	"""Fill what a short line cannot fill itself with another variety. A straight line: the variety takes the
+	line's remaining boxes as a line of its own. A line in a mix: the mix keeps the boxes its varieties
+	already hold or can fill as ordered, and its later boxes become a mix of their own with this variety in
+	the line's place."""
+	sub = get_shortage_substitutes(sales_order_item, location)
+	opt = next((o for o in sub["options"] if o["variety"] == variety), None)
+	if not opt:
+		frappe.throw(_("{0} is not a substitute for {1} here.").format(variety, sub["variety"]))
+	if sub["add_stems"] <= 1e-9:
+		frappe.throw(_("{0} can fill this line itself.").format(sub["variety"]))
+	# only what the variety has on the shelves, in whole boxes: the rest stays on the line's own variety
+	give = opt["adds"]
+	if give <= 1e-9:
+		frappe.throw(
+			_("{0} has {1} stems free, less than the {2} it needs.").format(
+				variety, int(opt["free"]), int(sub.get("add_step") or sub["per_box"])
+			)
+		)
+	if opt.get("mode") == "share":
+		return _share_spread(sales_order_item, location, variety, give)
+	if sub["splittable"]:
+		return split_substitute(sales_order_item, location, [{"variety": variety, "stems": give}])
+	return _split_mix(sales_order_item, location, variety, round(give / (sub["per_box"] or 1)))
+
+
+def _share_spread(sales_order_item, location, variety, give):
+	"""Put `give` stems of another variety beside a line of a mix, spread over its boxes in whole bunches: an
+	even share in every box, and when the bunches do not divide evenly, the first boxes take one bunch more
+	(the mix is split into those boxes and the rest, each with its own share)."""
+	row = frappe.db.get_value(
+		"Sales Order Item",
+		sales_order_item,
+		["parent", "custom_number_of_boxes", "conversion_factor"],
+		as_dict=True,
+	)
+	boxes = cint(row.custom_number_of_boxes) or 1
+	bunch = flt(row.conversion_factor) or 1
+	q, rem = divmod(int(give / bunch + 1e-9), boxes)
+	if not rem:
+		return _share_split(sales_order_item, variety, q * boxes * bunch)
+	# a spec's mixed bunches share this box: it is not split by boxes, so every box takes the even share
+	lines = frappe.get_all(
+		"Sales Order Item",
+		filters={"parent": row.parent},
+		fields=[
+			"name",
+			"parent",
+			"custom_number_of_boxes",
+			"custom_mixed_box",
+			"custom_mix_group",
+			"custom_mix_name",
+			"custom_line",
+			"custom_length",
+			"custom_mixed_bunch",
+			"custom_bunch_group",
+		],
+	)
+	keys = box_keys(lines)
+	if any(keys[ln.name] == keys[sales_order_item] and cint(ln.custom_mixed_bunch) for ln in lines):
+		if not q:
+			frappe.throw(
+				_("{0} stems do not reach one bunch in each of the {1} boxes.").format(int(give), boxes)
+			)
+		return _share_split(sales_order_item, variety, q * boxes * bunch)
+	# the first `rem` boxes take q + 1 bunches, the other boxes q
+	split = _split_mix(sales_order_item, location, None, boxes - rem, plain=True)
+	later = next(p["sales_order_item"] for p in split["parts"] if p["from"] == sales_order_item)
+	parts = _share_split(sales_order_item, variety, (q + 1) * rem * bunch)["parts"]
+	if q:
+		parts += _share_split(later, variety, q * (boxes - rem) * bunch)["parts"]
+	return {
+		"kept": flt(frappe.db.get_value("Sales Order Item", sales_order_item, "stock_qty")),
+		"parts": parts,
+	}
+
+
+def _share_split(sales_order_item, variety, give):
+	"""A line of a mix gives `give` stems of its share of every box to another variety: a new line of the
+	same mix, the same boxes, beside it in each box. The box still holds what it was ordered to."""
+	row = frappe.db.sql("SELECT * FROM `tabSales Order Item` WHERE name = %s", sales_order_item, as_dict=True)
+	if not row:
+		frappe.throw(_("Order line not found."))
+	row = row[0]
+	if frappe.db.get_value("Sales Order", row.parent, "docstatus") != 1:
+		frappe.throw(_("The order is not submitted."))
+	stems = flt(row.stock_qty)
+	boxes = cint(row.custom_number_of_boxes) or 1
+	held = flt(sa._cumulative_allocated_stems(sales_order_item)) + _pending_stems(sales_order_item)
+	if give <= 0 or stems - give < held - 1e-6:
+		frappe.throw(
+			_("{0} already has {1} stems allocated; it can give no more than {2}.").format(
+				row.item_code, int(held), int(max(0, stems - held))
+			)
+		)
+	share = give / stems
+	cols = set(frappe.db.get_table_columns("Sales Order Item"))
+	item = frappe.db.get_value("Item", variety, ["item_name", "description"], as_dict=True)
+	new = dict(row)
+	for f in SPLIT_SCALED:
+		if f in new and new[f] is not None:
+			new[f] = flt(flt(row[f]) * share, 6)
+	new.update(
+		name=frappe.generate_hash(length=10),
+		idx=cint(row.idx) + 1,
+		item_code=variety,
+		item_name=item.item_name,
+		description=item.description or item.item_name,
+		custom_number_of_boxes=boxes,
+		custom_packrate_mixed_box=give / boxes,
+		custom_packrate=str(int(give / boxes)) if row.get("custom_packrate") else row.get("custom_packrate"),
+		custom_opl=None,
+		custom_fully_allocated=0,
+		delivered_qty=0,
+		picked_qty=0,
+		creation=frappe.utils.now(),
+		modified=frappe.utils.now(),
+	)
+	# the new line sits right after the one it shares the box with
+	frappe.db.sql(
+		"UPDATE `tabSales Order Item` SET idx = idx + 1 WHERE parent = %s AND idx > %s", (row.parent, row.idx)
+	)
+	keep_cols = {k: v for k, v in new.items() if k in cols}
+	frappe.db.sql(  # nosemgrep: frappe-sql-format-injection -- the columns are the table's own, values are bound
+		"INSERT INTO `tabSales Order Item` ({0}) VALUES ({1})".format(  # nosemgrep
+			", ".join(f"`{k}`" for k in keep_cols), ", ".join(["%s"] * len(keep_cols))
+		),
+		list(keep_cols.values()),
+	)
+	sets = {
+		f: flt(flt(row[f]) * (1 - share), 6) for f in SPLIT_SCALED if f in cols and row.get(f) is not None
+	}
+	sets["custom_packrate_mixed_box"] = (stems - give) / boxes
+	if row.get("custom_packrate"):
+		sets["custom_packrate"] = str(int((stems - give) / boxes))
+	frappe.db.sql(  # nosemgrep: frappe-sql-format-injection -- the columns are the table's own, values are bound
+		"UPDATE `tabSales Order Item` SET {0}, modified = NOW() WHERE name = %(name)s".format(  # nosemgrep
+			", ".join(f"`{k}` = %({k})s" for k in sets)
+		),
+		{**sets, "name": sales_order_item},
+	)
+	frappe.db.sql("UPDATE `tabSales Order` SET modified = NOW() WHERE name = %s", row.parent)
+	frappe.db.commit()  # nosemgrep
+	frappe.log_error(
+		title="Variety split",
+		message="{0} {1}: {2} gives {3} stems of each box's share to {4} ({5} boxes)".format(
+			row.parent, sales_order_item, row.item_code, int(give), variety, boxes
+		),
+	)
+	return {
+		"kept": stems - give,
+		"parts": [{"variety": variety, "stems": give, "sales_order_item": new["name"]}],
+	}
+
+
+def _split_mix(sales_order_item, location, variety, new_boxes=None, plain=False):
+	"""Split a mix by boxes: its first boxes stay as they are, the rest become a mix of their own (the same
+	varieties; with `variety` in this line's place unless `plain`)."""
+	row = frappe.db.sql("SELECT * FROM `tabSales Order Item` WHERE name = %s", sales_order_item, as_dict=True)
+	if not row:
+		frappe.throw(_("Order line not found."))
+	row = row[0]
+	so = row.parent
+	if frappe.db.get_value("Sales Order", so, "docstatus") != 1:
+		frappe.throw(_("The order is not submitted."))
+	if plain:
+		boxes = cint(row.custom_number_of_boxes) or 1
+		keep = boxes - cint(new_boxes)
+		if not 0 < keep < boxes:
+			frappe.throw(_("A mix of {0} boxes cannot keep {1}.").format(boxes, keep))
+	else:
+		sub = get_shortage_substitutes(sales_order_item, location)
+		keep, boxes = _mix_keep_boxes(sales_order_item, row, sub["allocated"], sub["own_free"])
+		# the new variety takes only the boxes its free stems fill; the mix keeps the rest as ordered
+		if new_boxes is not None:
+			keep = max(keep, boxes - max(0, cint(new_boxes)))
+		if keep >= boxes:
+			frappe.throw(_("{0} can fill this line itself.").format(row.item_code))
+		# nothing of the mix held yet: the line's variety is simply replaced
+		if keep <= 0:
+			return sa.substitute_variety(so, sales_order_item, variety)
+	field, members = _mix_members(row)
+	cols = set(frappe.db.get_table_columns("Sales Order Item"))
+	used = [
+		cint(v)
+		for v in frappe.get_all("Sales Order Item", filters={"parent": so}, pluck=field, distinct=True)
+		if str(v or "").isdigit()
+	]
+	group = str(max(used or [0]) + 1)
+	last = max(cint(m.idx) for m in members)
+	later = len(members)
+	# the new mix's boxes come straight after the mix's own: every later box keeps its number
+	frappe.db.sql(
+		"UPDATE `tabSales Order Item` SET idx = idx + %s WHERE parent = %s AND idx > %s", (later, so, last)
+	)
+	item = (
+		frappe.db.get_value("Item", variety, ["item_name", "description"], as_dict=True)
+		if not plain
+		else None
+	)
+	made = []
+	for i, m in enumerate(members, 1):
+		n = cint(m.custom_number_of_boxes) or boxes
+		share = keep / n
+		new = dict(m)
+		for f in SPLIT_SCALED:
+			if f in new and new[f] is not None:
+				new[f] = flt(flt(m[f]) * (1 - share), 6)
+		new.update(
+			name=frappe.generate_hash(length=10),
+			idx=last + i,
+			custom_number_of_boxes=n - keep,
+			custom_opl=None,
+			custom_fully_allocated=0,
+			delivered_qty=0,
+			picked_qty=0,
+			creation=frappe.utils.now(),
+			modified=frappe.utils.now(),
+		)
+		new[field] = group
+		if m.name == sales_order_item and not plain:
+			new.update(
+				item_code=variety,
+				item_name=item.item_name,
+				description=item.description or item.item_name,
+			)
+		keep_cols = {k: v for k, v in new.items() if k in cols}
+		frappe.db.sql(  # nosemgrep: frappe-sql-format-injection -- the columns are the table's own, values are bound
+			"INSERT INTO `tabSales Order Item` ({0}) VALUES ({1})".format(  # nosemgrep
+				", ".join(f"`{k}`" for k in keep_cols), ", ".join(["%s"] * len(keep_cols))
+			),
+			list(keep_cols.values()),
+		)
+		sets = {f: flt(flt(m[f]) * share, 6) for f in SPLIT_SCALED if f in cols and m.get(f) is not None}
+		sets["custom_number_of_boxes"] = keep
+		frappe.db.sql(  # nosemgrep: frappe-sql-format-injection -- the columns are the table's own, values are bound
+			"UPDATE `tabSales Order Item` SET {0}, modified = NOW() WHERE name = %(name)s".format(  # nosemgrep
+				", ".join(f"`{k}` = %({k})s" for k in sets)
+			),
+			{**sets, "name": m.name},
+		)
+		made.append(
+			{
+				"variety": new["item_code"],
+				"stems": flt(new.get("stock_qty")),
+				"sales_order_item": new["name"],
+				"from": m.name,
+			}
+		)
+	frappe.db.sql("UPDATE `tabSales Order` SET modified = NOW() WHERE name = %s", so)
+	frappe.db.commit()  # nosemgrep
+	frappe.log_error(
+		title="Variety split",
+		message="{0} {1}: mix {2} keeps {3} of {4} boxes; boxes after take {5} for {6} as mix {7}".format(
+			so, sales_order_item, row[field], keep, boxes, variety, row.item_code, group
+		),
+	)
+	return {"kept": flt(row.stock_qty) * keep / boxes, "boxes": keep, "parts": made}
+
+
+#: Sales Order Item amounts that follow the stems when a line is split.
+SPLIT_SCALED = (
+	"qty",
+	"stock_qty",
+	"amount",
+	"base_amount",
+	"net_amount",
+	"base_net_amount",
+	"custom_ordered_quantity",
+)
+
+
+@frappe.whitelist(methods=["POST"])
+def split_substitute(sales_order_item: str, location: str, parts: str | list):
+	"""Fill a short straight line with more than one variety of the same colour (or that its specification
+	approves): `parts` [{variety, stems}] are the stems other varieties take, in whole boxes; the line keeps
+	its own variety for the rest. Each part becomes a line of its own on the order, the same length, box,
+	rate and specification, its boxes and amounts in proportion."""
+	if isinstance(parts, str):
+		parts = json.loads(parts or "[]")
+	row = frappe.db.sql("SELECT * FROM `tabSales Order Item` WHERE name = %s", sales_order_item, as_dict=True)
+	if not row:
+		frappe.throw(_("Order line not found."))
+	row = row[0]
+	if cint(row.custom_mixed_box) or cint(row.custom_mixed_bunch):
+		frappe.throw(_("A line in a mix is substituted whole, not split."))
+	if frappe.db.get_value("Sales Order", row.parent, "docstatus") != 1:
+		frappe.throw(_("The order is not submitted."))
+	opts = {o["variety"] for o in get_shortage_substitutes(sales_order_item, location)["options"]}
+	stems = flt(row.stock_qty)
+	boxes = cint(row.custom_number_of_boxes) or 1
+	per_box = stems / boxes
+	per_bunch = flt(row.conversion_factor) or 1
+	parts = [p for p in parts or [] if flt(p.get("stems")) > 0]
+	if not parts:
+		frappe.throw(_("Give stems to at least one other variety."))
+	for p in parts:
+		if p["variety"] not in opts:
+			frappe.throw(_("{0} is not a substitute for {1} here.").format(p["variety"], row.item_code))
+		n = flt(p["stems"]) / per_box
+		if abs(n - round(n)) > 1e-6:
+			frappe.throw(_("{0}: give whole boxes of {1} stems.").format(p["variety"], int(per_box)))
+	moved = sum(flt(p["stems"]) for p in parts)
+	keep = stems - moved
+	held = flt(sa._cumulative_allocated_stems(sales_order_item)) + _pending_stems(sales_order_item)
+	if keep < held - 1e-6:
+		frappe.throw(
+			_("{0} already has {1} stems allocated; it can keep no less than that.").format(
+				row.item_code, int(held)
+			)
+		)
+	if keep < 0:
+		frappe.throw(_("More stems were given away than the line has."))
+	cols = set(frappe.db.get_table_columns("Sales Order Item"))
+
+	def scaled(base, share):
+		out = dict(base)
+		for f in SPLIT_SCALED:
+			if f in out and out[f] is not None:
+				out[f] = flt(base[f]) * share
+		out["custom_number_of_boxes"] = round(boxes * share)
+		return out
+
+	last_idx = cint(
+		frappe.db.sql("SELECT MAX(idx) FROM `tabSales Order Item` WHERE parent = %s", row.parent)[0][0]
+	)
+	made = []
+	# nothing left for the line's own variety: the line itself becomes the first substitute
+	first = None
+	if keep <= 1e-6:
+		first, parts = parts[0], parts[1:]
+		keep = flt(first["stems"])
+	for i, p in enumerate(parts, 1):
+		item = frappe.db.get_value("Item", p["variety"], ["item_name", "description"], as_dict=True)
+		new = scaled(row, flt(p["stems"]) / stems)
+		new.update(
+			name=frappe.generate_hash(length=10),
+			idx=last_idx + i,
+			item_code=p["variety"],
+			item_name=item.item_name,
+			description=item.description or item.item_name,
+			custom_opl=None,
+			custom_fully_allocated=0,
+			delivered_qty=0,
+			picked_qty=0,
+			creation=frappe.utils.now(),
+			modified=frappe.utils.now(),
+		)
+		keep_cols = {k: v for k, v in new.items() if k in cols}
+		names = ", ".join(f"`{k}`" for k in keep_cols)
+		frappe.db.sql(  # nosemgrep: frappe-sql-format-injection -- the columns are the table's own, values are bound
+			f"INSERT INTO `tabSales Order Item` ({names}) VALUES ({', '.join(['%s'] * len(keep_cols))})",  # nosemgrep
+			list(keep_cols.values()),
+		)
+		made.append({"variety": p["variety"], "stems": flt(p["stems"]), "sales_order_item": new["name"]})
+	# the line keeps its own variety for the rest
+	mine = scaled(row, keep / stems)
+	sets = {f: mine[f] for f in (*SPLIT_SCALED, "custom_number_of_boxes") if f in cols}
+	if first:
+		item = frappe.db.get_value("Item", first["variety"], ["item_name", "description"], as_dict=True)
+		sets.update(
+			item_code=first["variety"],
+			item_name=item.item_name,
+			description=item.description or item.item_name,
+		)
+		made.insert(0, {"variety": first["variety"], "stems": keep, "sales_order_item": sales_order_item})
+		keep = 0.0
+	frappe.db.sql(  # nosemgrep: frappe-sql-format-injection -- the columns are the table's own, values are bound
+		"UPDATE `tabSales Order Item` SET {0}, modified = NOW() WHERE name = %(name)s".format(  # nosemgrep
+			", ".join(f"`{k}` = %({k})s" for k in sets)
+		),
+		{**sets, "name": sales_order_item},
+	)
+	frappe.db.sql("UPDATE `tabSales Order` SET modified = NOW() WHERE name = %s", row.parent)
+	frappe.db.commit()  # nosemgrep
+	frappe.log_error(
+		title="Variety split",
+		message="{0} {1}: {2} keeps {3} stems; {4}".format(
+			row.parent,
+			sales_order_item,
+			row.item_code,
+			int(keep),
+			", ".join("{0} {1}".format(m["variety"], int(m["stems"])) for m in made),
+		),
+	)
+	return {"kept": keep, "parts": made}

@@ -35,7 +35,14 @@ from upande_packhouse.server_scripts.create_mixed_box_picklist import (
 
 
 def create_mixed_bunch_pick_list_for_allocated_items(
-	sales_order_doc, allocations, submit=True, location=None, return_all=False
+	sales_order_doc,
+	allocations,
+	submit=True,
+	location=None,
+	return_all=False,
+	new_opl=False,
+	into_opl=None,
+	defer_submit=False,
 ):
 	"""Create OPL(s) for allocated MIXED BUNCH items (grouped by custom_bunch_group).
 
@@ -63,8 +70,16 @@ def create_mixed_bunch_pick_list_for_allocated_items(
 	for alloc in allocations:
 		allocations_by_so_item[alloc["sales_order_item"]].append(alloc)
 
-	# ── Group by bunch_group, mixed bunches only ──
+	# ── Group by the physical box, mixed bunches only ──
+	# A spec's mixed bunches are packed in one box together, with its mono bunches when it has them
+	# (box_groups): they share a pick list. `into_opl` {box key: pick list} names the pick list this release
+	# already made for the box's mono bunches, which the bunches are added to.
+	from upande_packhouse.box_groups import box_keys
+
+	keys = box_keys(sales_order_doc.items)
+	into_opl = into_opl or {}
 	bunch_allocations = defaultdict(list)
+	group_of_box = {}
 
 	for so_item_name, alloc_list in allocations_by_so_item.items():
 		so_item = frappe.get_doc("Sales Order Item", so_item_name)
@@ -75,6 +90,8 @@ def create_mixed_bunch_pick_list_for_allocated_items(
 		bunch_group = so_item.get("custom_bunch_group") or so_item.get("custom_line")
 		if not bunch_group:
 			frappe.throw(f"Mixed bunch item {so_item.item_code} is missing bunch_group")
+		box = "{0}:{1}".format(*keys[so_item_name])
+		bunch_group = group_of_box.setdefault(box, bunch_group)
 
 		total_qty = sum(a["qty"] for a in alloc_list)
 
@@ -118,7 +135,9 @@ def create_mixed_bunch_pick_list_for_allocated_items(
 
 	order_pick_list_names = []
 
+	box_of_group = {g: b for b, g in group_of_box.items()}
 	for bunch_group, box_items in bunch_allocations.items():
+		box = box_of_group.get(bunch_group)
 		any_awaiting = any(
 			not alloc_entry.get("_is_sales_shelf", 1)
 			for item in box_items
@@ -131,6 +150,12 @@ def create_mixed_bunch_pick_list_for_allocated_items(
 			order_by="creation desc",
 			limit=1,
 		)
+		# new_opl (Sales Allocation v2): every release is its own pick list, its boxes continuing the
+		# numbering of the ones before it
+		if new_opl:
+			existing_opl = []
+		if into_opl.get(box):
+			existing_opl = [{"name": into_opl[box]}]
 
 		if existing_opl:
 			opl_name = existing_opl[0]["name"]
@@ -174,12 +199,7 @@ def create_mixed_bunch_pick_list_for_allocated_items(
 			# Every colour sharing this bunch_group -- not just this batch's
 			# -- so the guide reflects the whole group and box numbers line
 			# up across colours no matter which colour got allocated now.
-			group_items = [
-				it
-				for it in sales_order_doc.items
-				if (it.get("custom_bunch_group") or it.get("custom_line")) == bunch_group
-				and it.get("custom_mixed_bunch")
-			]
+			group_items = [it for it in sales_order_doc.items if "{0}:{1}".format(*keys[it.name]) == box]
 			sync_packing_guide(order_pick_list, group_items)
 
 			total_stems = sum(loc.stock_qty for loc in order_pick_list.table_ytkc)
@@ -205,7 +225,9 @@ def create_mixed_bunch_pick_list_for_allocated_items(
 				for item in box_items
 				if confirmed_stems.get(item["sales_order_item_name"])
 			}
-			submitted = _try_submit_opl_if_complete(opl_name, confirmed_by_item=confirmed_map or None)
+			submitted = not defer_submit and _try_submit_opl_if_complete(
+				opl_name, confirmed_by_item=confirmed_map or None
+			)
 
 			if submitted:
 				frappe.msgprint(f"OPL {opl_name} submitted (fully allocated)", indicator="green")
@@ -247,12 +269,7 @@ def create_mixed_bunch_pick_list_for_allocated_items(
 				for loc in shift_boxes(box_locs, offset):
 					order_pick_list.append("table_ytkc", loc)
 
-			group_items = [
-				it
-				for it in sales_order_doc.items
-				if (it.get("custom_bunch_group") or it.get("custom_line")) == bunch_group
-				and it.get("custom_mixed_bunch")
-			]
+			group_items = [it for it in sales_order_doc.items if "{0}:{1}".format(*keys[it.name]) == box]
 			sync_packing_guide(order_pick_list, group_items)
 
 			order_pick_list.flags.ignore_permissions = True
@@ -276,7 +293,7 @@ def create_mixed_bunch_pick_list_for_allocated_items(
 				for item in box_items
 				if confirmed_stems.get(item["sales_order_item_name"])
 			}
-			submitted = _try_submit_opl_if_complete(
+			submitted = not defer_submit and _try_submit_opl_if_complete(
 				order_pick_list.name, confirmed_by_item=confirmed_map or None
 			)
 
