@@ -7764,10 +7764,11 @@ def open_transfer_opls(bucket):
 
 def opl_delete_blockers(opl):
 	"""Why this Order Pick List must not be deleted while its buckets move: rows loaded on
-	a trolley or truck, in transit, or awaiting transfer at a farm, and active trips it
-	is planned on. Deleting it then drops the request from the farm app and its trips
-	for good. [] when it can go: a cancelled pick list, or one whose delivery date has
-	passed (its rows are stale, as in shared_buckets) on no current trip."""
+	a trolley or truck or in transit, and active trips that carry or loaded its buckets.
+	Rows only awaiting transfer at a farm don't block: deleting releases them
+	(opl_release.release_on_delete). [] when it can go: a cancelled pick list, or one
+	whose delivery date has passed (its rows are stale, as in shared_buckets) on no
+	current trip."""
 	head = frappe.db.sql(
 		"""SELECT opl.docstatus, so.delivery_date FROM `tabOrder Pick List` opl
 		LEFT JOIN `tabSales Order` so ON so.name = opl.sales_order WHERE opl.name = %s""",
@@ -7784,9 +7785,9 @@ def opl_delete_blockers(opl):
 		"""SELECT DISTINCT t.name FROM `tabBucket Request Trip Order` o
 		JOIN `tabBucket Request Trip` t ON t.name = o.parent
 		WHERE o.order_pick_list = %(opl)s AND o.parenttype = 'Bucket Request Trip'
-		  AND t.status IN ('Draft', 'Requested', 'Scheduled', 'Dispatched')
 		  AND t.trip_date >= %(since)s
-		  AND (IFNULL(o.buckets, 0) > 0 OR IFNULL(o.loaded_buckets, 0) > 0)""",
+		  AND ((t.status = 'Dispatched' AND (IFNULL(o.buckets, 0) > 0 OR IFNULL(o.loaded_buckets, 0) > 0))
+		    OR (t.status IN ('Draft', 'Requested', 'Scheduled') AND IFNULL(o.loaded_buckets, 0) > 0))""",
 		{"opl": opl, "since": frappe.utils.add_days(today, -TRIP_LOOKBACK_DAYS)},
 	)
 	if trips:
@@ -7795,7 +7796,7 @@ def opl_delete_blockers(opl):
 
 
 def _opl_moving_rows(opl):
-	"""opl_delete_blockers' row counts: loaded, in transit, awaiting transfer."""
+	"""opl_delete_blockers' row counts: loaded, in transit."""
 	loaded = "pli.loaded_in_trolley = 1"
 	if frappe.db.has_column("Pick List Item", "loaded_on_truck"):
 		loaded += " OR pli.loaded_on_truck = 1"
@@ -7803,10 +7804,7 @@ def _opl_moving_rows(opl):
 		"SELECT SUM(CASE WHEN ("
 		+ loaded
 		+ """) AND IFNULL(pli.in_transit, 0) = 0 THEN 1 ELSE 0 END),
-		     SUM(CASE WHEN pli.in_transit = 1 THEN 1 ELSE 0 END),
-		     SUM(CASE WHEN pli.awaiting_transfer = 1 AND IFNULL(pli.in_transit, 0) = 0 AND NOT ("""
-		+ loaded
-		+ """) THEN 1 ELSE 0 END)
+		     SUM(CASE WHEN pli.in_transit = 1 THEN 1 ELSE 0 END)
 		FROM `tabPick List Item` pli
 		WHERE pli.parent = %s AND pli.parenttype = 'Order Pick List'
 		  AND IFNULL(pli.bucket, '') != '' AND IFNULL(pli.shelved, 0) = 0 AND IFNULL(pli.issued, 0) = 0""",
@@ -7818,7 +7816,6 @@ def _opl_moving_rows(opl):
 		(
 			_("{0} row(s) loaded on a truck"),
 			_("{0} row(s) in transit"),
-			_("{0} row(s) awaiting transfer at a farm"),
 		),
 		strict=True,
 	):
