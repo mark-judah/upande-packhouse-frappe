@@ -37,9 +37,10 @@ class OrderPickList(Document):
 			)
 
 	def on_trash(self):
-		# A pick list whose buckets are moving (awaiting transfer at a farm, on a truck,
-		# in transit, or planned on a trip) disappears from the farm's Bucket Requests and
-		# its trips for good when deleted. Paths that release it on purpose delete with
+		# A pick list whose buckets are on a truck or in transit (or loaded for a trip)
+		# can't be deleted. Otherwise deleting releases its buckets: the lines can be
+		# allocated again, and buckets still waiting at a farm come off that shelf as
+		# anomalies (opl_release). Paths that release it on purpose delete with
 		# ignore_on_trash, or set flags.ignore_transfer_check.
 		if self.flags.get("ignore_transfer_check") or frappe.flags.get("ignore_opl_transfer_check"):
 			return
@@ -53,6 +54,11 @@ class OrderPickList(Document):
 				).format(self.name, "; ".join(blockers)),
 				title=_("Pick List In Transfer"),
 			)
+		from upande_packhouse.api import auto_transfer
+		from upande_packhouse.api.remote_transfer.opl_release import release_on_delete
+
+		release_on_delete(self)
+		auto_transfer.replan_soon()
 
 
 def sync_delivery_date(doc, method=None):

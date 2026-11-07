@@ -1057,7 +1057,7 @@ class TestConfirmedOrders(unittest.TestCase):
 class TestSubstitutes(unittest.TestCase):
 	"""Substitution options: approved varieties of the same bunch, primary first, colour as a factor."""
 
-	def test_pick_candidates_ranks_primary_then_same_colour(self):
+	def test_pick_candidates_same_colour_only(self):
 		from upande_packhouse.api.v2 import allocation_substitutes as sub
 
 		rows = [
@@ -1069,10 +1069,8 @@ class TestSubstitutes(unittest.TestCase):
 		]
 		colours = {r["variety"]: r["colour"] for r in rows}
 		out = sub.pick_candidates(rows, "Athena", colours)
-		self.assertEqual([c["variety"] for c in out], ["Sunny", "Polar", "Moonwalk"])
-		self.assertTrue(out[0]["primary"])
-		self.assertIs(out[1]["same_colour"], True)
-		self.assertIs(out[2]["same_colour"], False)
+		self.assertEqual([c["variety"] for c in out], ["Polar"])
+		self.assertIs(out[0]["same_colour"], True)
 
 	def test_pick_candidates_unknown_colour_is_not_flagged(self):
 		from upande_packhouse.api.v2 import allocation_substitutes as sub

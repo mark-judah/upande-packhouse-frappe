@@ -383,6 +383,16 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .aph .pd-body ul{margin:8px 0 8px 18px}
 .aph .sch-distbtn{float:right;margin:3px 0 0 10px;border:0;border-radius:8px;padding:9px 16px;background:var(--accent);color:#fff;font-size:13px;font-weight:600;cursor:pointer}
 .aph .sch-distbtn:disabled{opacity:.45;cursor:default}
+.aph .sch-trkbtn{background:var(--bg-card);color:var(--text-1);border:1px solid var(--border)}
+.aph .sch-modal-card.trk{width:640px}
+.aph .trk-t{width:100%;border-collapse:collapse;font-size:12.5px}
+.aph .trk-t th{text-align:left;font-weight:600;color:var(--text-2);padding:6px 8px;border-bottom:1px solid var(--border)}
+.aph .trk-t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:middle}
+.aph .trk-t td.n{text-align:right;font-variant-numeric:tabular-nums}
+.aph .trk-t .trk-go{color:var(--text-2);font-size:11.5px}
+.aph .trk-t select{height:30px;border:1px solid var(--border);border-radius:0;padding:0 6px;background:var(--bg-card);color:var(--text-1);font-size:12px;max-width:170px}
+.aph .trk-t .trk-add{margin-left:8px;border:0;border-radius:8px;padding:7px 14px;background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer}
+.aph .trk-t .trk-add:disabled{opacity:.5;cursor:default}
 .aph .sch-mv{margin-left:auto;display:inline-flex;flex-direction:column;gap:2px;flex:none}
 .aph .sch-mv button{border:1px solid var(--border);background:var(--bg-card);color:var(--text-2);border-radius:5px;width:26px;height:20px;font-size:10px;line-height:1;cursor:pointer;padding:0}
 .aph .sch-mv button:hover{border-color:var(--accent);color:var(--accent)}
@@ -829,6 +839,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       <div class="sch-varnote" id="varNote" style="display:none"></div>
       <div class="aph-kpis sch-kpis-sm" id="kpis"></div>
       <button type="button" class="sch-distbtn" id="distTeams" >Distribute to trips</button>
+      <button type="button" class="sch-distbtn sch-trkbtn" id="farmTrucks">Trucks</button>
       <div id="panelUnsched" class="sch-panel" style="display:none">
         <div class="sch-varbar" id="varBar"></div>
         <div class="sch-selbar" id="readySelBar"></div>
@@ -1209,15 +1220,50 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     var todo=distTodo();
     return needsTrips(todo.length?todo:viewScheduled())?'trips':'teams';
   }
-  // Trips only go on trucks with a route made for today: with none, the routes are made first.
-  function openRoutes(){ if(window.rtOpenTab) window.rtOpenTab('routes'); else location.href='/remote-transfer/truck-routes'; }
-  function askRoutes(msg){
-    pageDialog('No truck routes for today',esc(msg||'Create today’s truck routes before distributing.'),'Create truck routes').then(function(ok){ if(ok) openRoutes(); });
+  // Schedule first, trucks after: Distribute plans onto the trucks already going; the farms whose
+  // scheduled buckets have no truck yet are listed to send one.
+  function distributeToTrips(){ distributeNow(); }
+  function trucksDialog(needs){
+    var wrap=document.querySelector('.sch-modal.trk-wrap');
+    if(!wrap){
+      wrap=document.createElement('div'); wrap.className='sch-modal open trk-wrap';
+      (document.querySelector('.aph')||document.body).appendChild(wrap);
+      wrap.addEventListener('click',function(e){ if(e.target===wrap||e.target.closest('[data-trk-x]')) wrap.remove(); });
+    }
+    var trucks=(needs&&needs.trucks)||[], farms=((needs&&needs.farms)||[]);
+    var opts=function(n){
+      // the truck that takes the farm's buckets in fewest trips first
+      var list=trucks.slice().sort(function(a,b){ return Math.abs(a.capacity-n)-Math.abs(b.capacity-n)||b.capacity-a.capacity; });
+      return list.map(function(t){ return '<option value="'+esc(t.name)+'">'+esc(t.name)+' · '+t.capacity+'</option>'; }).join('');
+    };
+    var rows=farms.map(function(f){
+      var going=(f.going||[]).map(function(g){ return esc(g.vehicle)+(g.room!=null?' ('+g.room+' free)':''); }).join(', ');
+      return '<tr><td><strong>'+esc(f.farm)+'</strong>'+(going?'<div class="trk-go">'+going+'</div>':'')+'</td>'+
+        '<td class="n">'+f.buckets+'</td>'+
+        '<td>'+(f.buckets>0&&trucks.length?'<select data-trk-v="'+esc(f.farm)+'">'+opts(f.buckets)+'</select><button type="button" class="trk-add" data-trk-add="'+esc(f.farm)+'">Add truck</button>':'')+'</td></tr>';
+    }).join('');
+    wrap.innerHTML='<div class="sch-modal-card trk"><div class="smh"><div><div class="smt">Trucks · '+esc(needs&&needs.date||'')+'</div></div>'+
+      '<button class="sch-x" data-trk-x title="Close">&times;</button></div><div class="smb">'+
+      (rows?'<table class="trk-t"><thead><tr><th>Farm</th><th class="n" style="text-align:right">Buckets</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>':'<div class="sml">No remote buckets to collect</div>')+
+      '</div></div>';
+    wrap.querySelectorAll('[data-trk-add]').forEach(function(b){
+      b.onclick=function(){
+        var farm=b.getAttribute('data-trk-add'), sel=wrap.querySelector('select[data-trk-v="'+CSS.escape(farm)+'"]');
+        b.disabled=true; b.textContent='Adding…';
+        frp('upande_packhouse.api.auto_transfer.addTruckForFarm',{farm:farm,vehicle:sel&&sel.value,date:STATE.date||window.rtDate.get()}).then(function(m){
+          if(!m||m.status==='error'||m.status==='busy'){ notify((m&&m.message)||'Could not add the truck','red'); b.disabled=false; b.textContent='Add truck'; return; }
+          var a=m.added||{}, n=(m.trips||[]).length;
+          notify(a.vehicle+' → '+a.farm+(n?' · '+n+' trip'+(n===1?'':'s')+' planned':''),'green');
+          trucksDialog(m.needs);
+          load();
+        });
+      };
+    });
   }
-  function distributeToTrips(){
-    if(distTarget()!=='trips') return distributeNow();
-    frp('upande_packhouse.api.auto_transfer.routes_ready',{}).then(function(r){
-      if(r&&r.ready) distributeNow(); else askRoutes(r&&r.message);
+  function openTrucks(){
+    frp('upande_packhouse.api.auto_transfer.getFarmNeeds',{date:STATE.date||window.rtDate.get()}).then(function(m){
+      if(m&&m.status==='error'){ notify(m.message||'Could not read the farms','red'); return; }
+      trucksDialog(m);
     });
   }
   function distributeNow(){
@@ -1228,7 +1274,6 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       if(btn){ btn.disabled=true; btn.textContent='Distributing…'; }
       frp('upande_packhouse.api.auto_transfer.distributeTrips',{date:STATE.date||window.rtDate.get()}).then(function(m){
         if(btn){ btn.disabled=false; btn.textContent=label; }
-        if(m&&m.reason==='no_routes'){ askRoutes(m.message); return; }
         if(!m||m.status==='error'||m.status==='busy'||!m.status){ notify((m&&m.message)||'Distribute failed','red'); return; }
         var trips=(m.trips||[]).length, filling=(m.filling||[]).length, failed=m.failed||[];
         var un=(m.unreachable||[]).length, waiting=m.waiting||[];
@@ -1238,16 +1283,18 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         var ords=function(n){ return n+' order'+(n===1?'':'s'); };
         if(m.unchanged&&!waiting.length&&!held) notify('No new schedules to distribute','blue');
         else if(trips) notify(trips+' trip'+(trips===1?'':'s')+' planned · '+(trips-filling)+' full','green');
-        else if(!m.unchanged&&!failed.length&&!un&&!waiting.length&&!held) notify('Nothing to put on a trip','blue');
+        else if(!m.unchanged&&!failed.length&&!un&&!waiting.length&&!held&&!(m.needs&&(m.needs.farms||[]).some(function(f){ return f.buckets>0; }))) notify('Nothing to put on a trip','blue');
         (m.runs_added||[]).forEach(function(a){ notify('Added trip '+(a.run||'')+' on '+a.vehicle+' to '+a.farm,'green'); });
         if(disp) notify(disp+' trip'+(disp===1?'':'s')+' dispatched','green');
         failed.forEach(function(x){ notify(x.message||String(x),'red'); });
-        if(un) notify(un+' order'+(un===1?' has':'s have')+' no truck going to '+(un===1?'its':'their')+' farm today — add a run to a truck route','red');
+        if(un&&!(m.needs&&m.needs.farms||[]).some(function(f){ return f.buckets>0; })) notify(un+' order'+(un===1?' has':'s have')+' no truck going to '+(un===1?'its':'their')+' farm today','red');
         if(waiting.length) notify(ords(waiting.length)+' waiting: '+(waiting[0].why||'no room on a trip'),'orange');
         if(held) notify(ords(held)+' held: no truck room','orange');
         if(part) notify(ords(part)+' partly planned','orange');
         // The plan changed the orders' trips: read the feed again.
         load();
+        // farms whose scheduled buckets still have no truck: send one
+        if(m.needs&&(m.needs.farms||[]).some(function(f){ return f.buckets>0; })) trucksDialog(m.needs);
       });
     };
     var todo=distTodo();
@@ -1538,6 +1585,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   if(el('smCancel'))el('smCancel').onclick=closeSchedModal;
   if(el('smSave'))el('smSave').onclick=saveSchedModal;
   if(el('distTeams'))el('distTeams').onclick=distributeToTrips;
+  if(el('farmTrucks'))el('farmTrucks').onclick=openTrucks;
   if(el('schModal'))el('schModal').addEventListener('click',function(e){if(e.target===el('schModal'))closeSchedModal();});
   if(el('smNum'))el('smNum').addEventListener('keydown',function(e){if(e.key==='Enter')saveSchedModal();});
   function boot(){if(window.frappe&&frappe.call){load();setInterval(load,60000);}else if(boot._n++<80){setTimeout(boot,100);}}

@@ -3891,16 +3891,22 @@ frappe.pages["sales-allocation-v2"]._load_proposal = function () {
 		})
 	);
 };
+// the orders a release would make a pick list for: at least one complete box
+frappe.pages["sales-allocation-v2"]._releasable = function () {
+	const P = frappe.pages["sales-allocation-v2"];
+	return ((P.proposal && P.proposal.orders) || []).filter((o) => (o.boxes || 0) > 0);
+};
 frappe.pages["sales-allocation-v2"]._update_confirm_btn = function () {
 	const P = frappe.pages["sales-allocation-v2"];
 	const orders = (P.proposal && P.proposal.orders) || [];
+	const releasable = P._releasable();
 	const unsaved =
 		P.selected_order &&
 		(P.allocations || []).length &&
 		!orders.some((o) => o.sales_order === P.selected_order)
 			? 1
 			: 0;
-	const count = orders.length + unsaved;
+	const count = releasable.length + unsaved;
 	$("#confirmDayV2").prop("disabled", !count);
 	$("#confirmDayV2 .cnt")
 		.text(count)
@@ -4203,57 +4209,16 @@ frappe.pages["sales-allocation-v2"]._substitute_step = function (list, call, nex
 	const handled = {};
 	let place_of = null;
 	let lines = list.slice();
-	// each line's shortage when the step opened (a line made here: when it first showed)
-	const first_short = {};
-	const note_first = () =>
-		lines.forEach((x) => {
-			if (!(x.sales_order_item in first_short)) first_short[x.sales_order_item] = x.short;
-		});
-	note_first();
 	// what the best of Substitute (the line on the variety with the most free stems) or Add variety (that
-	// variety for the stems the line cannot fill itself) leaves short: {left, how}
-	const most_adds = (x) => Math.max(0, ...(x.options || []).map((o) => o.adds || 0));
+	// variety for the stems the line cannot fill itself) leaves short, to put the fillable orders first
 	const best = (x) => {
 		const most = Math.max(0, ...(x.options || []).map((o) => o.free || 0));
 		const by_sub = Math.max(0, (x.needed || x.short) - most);
 		const adds = Math.max(0, ...(x.options || []).map((o) => o.adds || 0));
 		const by_add = adds > 0 ? Math.max(0, x.short - adds) : x.short;
-		return by_add <= by_sub
-			? { left: by_add, how: __("Add variety") }
-			: { left: by_sub, how: __("Substitute") };
+		return { left: Math.min(by_add, by_sub) };
 	};
-	// a line in a mix whose own variety has the stock: it is short only because another variety of its mix
-	// is; that variety is the one to add to or substitute
-	const waits_on = (x) =>
-		lines
-			.filter(
-				(y) =>
-					x.mix_group &&
-					y.sales_order === x.sales_order &&
-					y.mix_group === x.mix_group &&
-					y.sales_order_item !== x.sales_order_item &&
-					y.add_stems > 0
-			)
-			.map((y) => y.variety);
-	const cover_cell = (x) => {
-		if (handled[x.sales_order_item]) return "<td></td>";
-		if (!(x.add_stems > 0)) {
-			const w = waits_on(x);
-			return `<td><span class="ds-why ds-why--ok">${
-				w.length
-					? __("Own stock · waiting on {0}", [esc(w.join(", "))])
-					: __("Own stock fills it")
-			}</span></td>`;
-		}
-		const b = best(x);
-		return `<td>${
-			b.left <= 0.5
-				? `<span class="ds-why ds-why--ok">${__("{0} fills it", [b.how])}</span>`
-				: b.left < x.short - 0.5
-				? `<span class="ds-why">${__("{0} leaves {1}", [b.how, n(b.left)])}</span>`
-				: `<span class="ds-why">${__("Not enough stock")}</span>`
-		}</td>`;
-	};
+	const most_adds = (x) => Math.max(0, ...(x.options || []).map((o) => o.adds || 0));
 	const line = (x, i) => `<tr class="ss-line" data-of="${esc(x.sales_order)}" ${
 		open.has(x.sales_order) ? "" : "hidden"
 	}>
@@ -4267,9 +4232,7 @@ frappe.pages["sales-allocation-v2"]._substitute_step = function (list, call, nex
 				<td></td>
 				<td class="num">${n(x.needed)}</td>
 				<td class="num">${n(x.held)}</td>
-				<td class="num ds-so">${n(first_short[x.sales_order_item])}</td>
 				<td class="num"><strong>${n(x.short)}</strong></td>
-				${cover_cell(x)}
 				${
 					handled[x.sales_order_item]
 						? `<td class="ss-acts" colspan="2"><span class="ss-handled">${esc(
@@ -4343,24 +4306,7 @@ frappe.pages["sales-allocation-v2"]._substitute_step = function (list, call, nex
 				<td class="ds-so ss-cust">${esc(o.customer)}</td>
 				<td class="num">${n(o.lines.reduce((t, i) => t + (lines[i].needed || 0), 0))}</td>
 				<td class="num">${n(o.lines.reduce((t, i) => t + (lines[i].held || 0), 0))}</td>
-				<td class="num ds-so">${n(
-					o.lines.reduce((t, i) => t + (first_short[lines[i].sales_order_item] || 0), 0)
-				)}</td>
 				<td class="num"><strong>${n(o.lines.reduce((t, i) => t + (lines[i].short || 0), 0))}</strong></td>
-				<td>${(() => {
-					// the order's short stems left once each line takes its best option
-					const left = o.lines.reduce(
-						(t, i) =>
-							t +
-							(handled[lines[i].sales_order_item]
-								? lines[i].short
-								: best(lines[i]).left),
-						0
-					);
-					return left <= 0.5
-						? `<span class="ds-why ds-why--ok">${__("Can be filled")}</span>`
-						: `<span class="ds-why">${__("{0} left at best", [n(left)])}</span>`;
-				})()}</td>
 				<td colspan="2">${(done[o.sales_order] ? done[o.sales_order].notes : [])
 					.map((t) => `<span class="ds-why ds-why--ok">${esc(t)}</span>`)
 					.join(" ")}</td>
@@ -4371,9 +4317,7 @@ frappe.pages["sales-allocation-v2"]._substitute_step = function (list, call, nex
 			"Order · variety"
 		)}</th><th>${__("Customer")}</th><th class="num">${__(
 			"Required"
-		)}</th><th class="num">${__("Allocated")}</th><th class="num">${__(
-			"Short at start"
-		)}</th><th class="num">${__("Short now")}</th><th>${__("Can cover")}</th><th>${__(
+		)}</th><th class="num">${__("Allocated")}</th><th class="num">${__("Short")}</th><th>${__(
 			"Substitute"
 		)}</th><th>${__("Add variety")}</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 	};
@@ -4464,7 +4408,6 @@ frappe.pages["sales-allocation-v2"]._substitute_step = function (list, call, nex
 					lines = lines
 						.filter((y) => y.sales_order !== x.sales_order)
 						.concat(fresh || []);
-					note_first();
 					open.clear();
 					open.add(x.sales_order);
 					render();
@@ -4652,7 +4595,7 @@ frappe.pages["sales-allocation-v2"]._needs_team = function (o) {
 };
 frappe.pages["sales-allocation-v2"]._open_confirm_dialog = function () {
 	const P = frappe.pages["sales-allocation-v2"];
-	const all = (P.proposal && P.proposal.orders) || [];
+	const all = P._releasable();
 	if (!all.length) return;
 	const esc = (v) => frappe.utils.escape_html(String(v == null ? "" : v));
 	const n = (v) => Math.round(v || 0).toLocaleString();
@@ -5446,10 +5389,16 @@ frappe.pages["sales-allocation-v2"]._substitute_short = function (line, add, pic
 			// nothing to offer: say why in the board's own dialog, not Frappe's message box
 			if (!opts.length) {
 				const why = spec
-					? __("The specification approves no other variety for {0} {1}.", [
-							s.variety,
-							s.length,
-					  ])
+					? s.color
+						? __("The specification approves no other {0} variety for {1} {2}.", [
+								s.color,
+								s.variety,
+								s.length,
+						  ])
+						: __("The specification approves no other variety for {0} {1}.", [
+								s.variety,
+								s.length,
+						  ])
 					: s.color
 					? __("No free {0} stock at {1} or longer.", [s.color, s.length])
 					: __("{0} has no colour set and no specification: nothing to match it with.", [
@@ -5509,13 +5458,17 @@ frappe.pages["sales-allocation-v2"]._substitute_short = function (line, add, pic
 				${
 					add
 						? `<div class="sub-sum">
-					<div class="sub-own"><span>${esc(s.variety)}</span><b>${n(s.needed - s.add_stems)}</b></div>
+					<div class="sub-own"><span>${esc(s.variety)}${s.color ? ` · ${esc(s.color)}` : ""}</span><b>${n(
+								s.needed - s.add_stems
+						  )}</b></div>
 					<div><span>${__("Required")}</span><b>${n(s.needed)}</b></div>
 					<div class="sub-pick"><span></span><b></b></div>
 					<div class="sub-left"><span>${__("Still short")}</span><b></b></div>
 				</div>`
 						: `<div class="sub-sum">
-					<div><span>${__("{0} now", [esc(s.variety)])}</span><b>${n(s.held)}</b></div>
+					<div><span>${__("{0} now", [esc(s.variety)])}${s.color ? ` · ${esc(s.color)}` : ""}</span><b>${n(
+								s.held
+						  )}</b></div>
 					<div><span>${__("Required")}</span><b>${n(s.needed)}</b></div>
 					<div class="sub-pick"><span></span><b></b></div>
 					<div class="sub-left"><span>${__("Still short")}</span><b></b></div>
@@ -5543,11 +5496,7 @@ frappe.pages["sales-allocation-v2"]._substitute_short = function (line, add, pic
 								o.primary
 									? ` <span class="ds-why ds-why--ok">${__("Primary")}</span>`
 									: ""
-							}${
-								!spec && o.color
-									? ` <span class="ds-so">${esc(o.color)}</span>`
-									: ""
-							}</td>
+							}${o.color ? ` <span class="ds-why">${esc(o.color)}</span>` : ""}</td>
 							<td class="num">${o.exact ? n(o.exact) : "—"}</td>
 							<td class="num">${o.longer ? n(o.longer) : "—"}</td>
 							<td class="num">${o.non_moving ? n(o.non_moving) : "—"}</td>

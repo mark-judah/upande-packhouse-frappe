@@ -108,7 +108,7 @@ def _plan_waiting(summary, window=None):
 PLACE_ROUNDS = 20
 
 
-def _place_scheduled(summary=None):
+def _place_scheduled(summary=None, add_runs=True):
 	"""Every scheduled order's buckets still waiting at a remote farm get a trip, in
 	every sequence step -- the steps _distribute holds back included. Each farm's open
 	portions go on the open run to it with room (the run's own trip is topped up, also
@@ -132,7 +132,7 @@ def _place_scheduled(summary=None):
 					placed += done
 					progress = True
 					continue
-				run = _add_run_for(farm, today)
+				run = _add_run_for(farm, today) if add_runs else None
 				if run:
 					added.append(run)
 					progress = True
@@ -328,20 +328,65 @@ def _auto_schedule():
 
 @frappe.whitelist(methods=["POST"])
 def distributeTrips(date: str | None = None):
-	"""The page's Distribute: plan the scheduled orders delivering on `date` onto
-	today's trips, each filled as full as it can be (whether or not automatic
-	scheduling is on). Buckets left with no trip get one: a new run to their farm is
-	added to a truck's route for today, and the orders are planned again."""
+	"""The page's Distribute: plan the scheduled orders delivering on `date` onto the trips of the trucks
+	sent today, each filled as full as it can be (whether or not automatic scheduling is on). Trucks are
+	sent to a farm on the page (addTruckForFarm): buckets no truck is going for come back in `needs`, by
+	farm, and no truck is sent anywhere by itself."""
 	if not routed_vehicles():
-		return {"status": "error", "reason": "no_routes", "message": NO_ROUTES}
+		# scheduled first, trucks after: with no truck working today the page asks for trucks per farm
+		return {"status": "success", "trips": [], "needs": farm_needs(date)}
 	summary = plan(window=date or None)
 	# Busy (another run is planning) or failed: change nothing more -- adding runs here
 	# committed route changes the page then reported as a failure.
 	if summary.get("status") != "success":
 		return summary
-	_plan_waiting(summary, date or None)
-	_place_scheduled(summary)
+	_place_scheduled(summary, add_runs=False)
+	summary["needs"] = farm_needs(date)
 	return summary
+
+
+def farm_needs(date=None):
+	"""What the scheduled orders delivering on `date` need from each remote farm, and the trucks to fetch it:
+	{farms: [{farm, buckets (no trip yet), going: [{vehicle, trip, room}]}], trucks: [{name, capacity, routed}]}."""
+	today = frappe.utils.today()
+	_data, waiting = _waiting_by_farm(date or None)
+	working = routed_vehicles(today)
+	trucks = [
+		{"name": v, "capacity": tc._vehicle_capacity(v), "routed": v in working}
+		for v in frappe.get_all(
+			"Vehicle", filters={"custom_is_internal_logistics_truck": 1}, pluck="name", order_by="name"
+		)
+	]
+	trucks = [t for t in trucks if t["capacity"] > 0]
+	holders = tc.farm_holders(today)
+	farms = []
+	for farm in sorted(set(waiting) | set(holders)):
+		going = []
+		for vehicle, trip, _w in holders.get(farm, []):
+			room = tc.trip_room(trip)
+			going.append({"vehicle": vehicle, "trip": trip, "room": None if room is None else max(0, room)})
+		if waiting.get(farm) or going:
+			farms.append({"farm": farm, "buckets": int(waiting.get(farm) or 0), "going": going})
+	return {"date": date or frappe.utils.add_days(today, 1), "farms": farms, "trucks": trucks}
+
+
+@frappe.whitelist()
+def getFarmNeeds(date: str | None = None):
+	"""The page's Trucks view: buckets each remote farm still has to send for `date`'s scheduled orders."""
+	return farm_needs(date)
+
+
+@frappe.whitelist(methods=["POST"])
+def addTruckForFarm(farm: str, vehicle: str, date: str | None = None):
+	"""Send `vehicle` to `farm` today for `date`'s scheduled buckets: a trip (packhouse → farm → packhouse) on
+	its route for today (made when it has none), then the scheduled orders are planned onto it."""
+	res = truck_routes.add_farm_run(vehicle, farm, frappe.utils.today())
+	if res.get("status") != "success":
+		return res
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
+	out = distributeTrips(date)
+	out["added"] = {"vehicle": vehicle, "farm": farm, "run": res.get("run"), "route": res.get("route")}
+	return out
 
 
 def _add_runs_for_waiting(window=None):
@@ -350,6 +395,21 @@ def _add_runs_for_waiting(window=None):
 	already going there today, else the biggest truck with a route today. A truck out on
 	the road gets the run after its last one; one that can't take it hands it to the
 	next truck serving the farm. Returns [{vehicle, farm, run}]."""
+	today = frappe.utils.today()
+	data, waiting = _waiting_by_farm(window)
+	if not waiting:
+		return []
+	# Only trucks with a route made for today: one with none is not working today.
+	working = routed_vehicles(today)
+	routed = [v for v in data["vehicles"] if int(v.get("capacity_buckets") or 0) > 0 and v["name"] in working]
+	if not routed:
+		return []
+	return _add_runs(routed, waiting, today)
+
+
+def _waiting_by_farm(window=None):
+	"""(the transfer schedule payload, {farm: buckets}) -- the scheduled orders' buckets at each remote
+	farm that no trip (planned, requested, released, or gone with them) covers yet."""
 	today = frappe.utils.today()
 	window = window or frappe.utils.add_days(today, 1)
 	data = tc._transfer_schedule_payload(window, window)
@@ -372,13 +432,10 @@ def _add_runs_for_waiting(window=None):
 			left = int(f["buckets"] or 0) - covered.get((o["opl"], f["farm"]), 0)
 			if left > 0:
 				waiting[f["farm"]] = waiting.get(f["farm"], 0) + left
-	if not waiting:
-		return []
-	# Only trucks with a route made for today: one with none is not working today.
-	working = routed_vehicles(today)
-	routed = [v for v in data["vehicles"] if int(v.get("capacity_buckets") or 0) > 0 and v["name"] in working]
-	if not routed:
-		return []
+	return data, waiting
+
+
+def _add_runs(routed, waiting, today):
 	holders = tc.farm_holders(today)
 	added = []
 	for farm in sorted(waiting):
