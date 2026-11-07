@@ -5458,13 +5458,17 @@ frappe.pages["sales-allocation-v2"]._substitute_short = function (line, add, pic
 				${
 					add
 						? `<div class="sub-sum">
-					<div class="sub-own"><span>${esc(s.variety)}${s.color ? ` · ${esc(s.color)}` : ""}</span><b>${n(s.needed - s.add_stems)}</b></div>
+					<div class="sub-own"><span>${esc(s.variety)}${s.color ? ` · ${esc(s.color)}` : ""}</span><b>${n(
+								s.needed - s.add_stems
+						  )}</b></div>
 					<div><span>${__("Required")}</span><b>${n(s.needed)}</b></div>
 					<div class="sub-pick"><span></span><b></b></div>
 					<div class="sub-left"><span>${__("Still short")}</span><b></b></div>
 				</div>`
 						: `<div class="sub-sum">
-					<div><span>${__("{0} now", [esc(s.variety)])}${s.color ? ` · ${esc(s.color)}` : ""}</span><b>${n(s.held)}</b></div>
+					<div><span>${__("{0} now", [esc(s.variety)])}${s.color ? ` · ${esc(s.color)}` : ""}</span><b>${n(
+								s.held
+						  )}</b></div>
 					<div><span>${__("Required")}</span><b>${n(s.needed)}</b></div>
 					<div class="sub-pick"><span></span><b></b></div>
 					<div class="sub-left"><span>${__("Still short")}</span><b></b></div>
@@ -5492,11 +5496,7 @@ frappe.pages["sales-allocation-v2"]._substitute_short = function (line, add, pic
 								o.primary
 									? ` <span class="ds-why ds-why--ok">${__("Primary")}</span>`
 									: ""
-							}${
-								o.color
-									? ` <span class="ds-why">${esc(o.color)}</span>`
-									: ""
-							}</td>
+							}${o.color ? ` <span class="ds-why">${esc(o.color)}</span>` : ""}</td>
 							<td class="num">${o.exact ? n(o.exact) : "—"}</td>
 							<td class="num">${o.longer ? n(o.longer) : "—"}</td>
 							<td class="num">${o.non_moving ? n(o.non_moving) : "—"}</td>

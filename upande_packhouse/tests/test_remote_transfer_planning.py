@@ -138,24 +138,27 @@ class UnitTestPlacingScheduledOrders(UnitTestCase):
 		orders = [_order("OPL-STEP3", self.tomorrow, schedule=3)]
 		with (
 			patch.object(at, "plan", return_value={"status": "success"}),
-			patch.object(at, "_plan_waiting"),
+			patch.object(at, "farm_needs", return_value={"farms": []}),
 		):
-			summary, _add = self._run(fleet, orders, {("OPL-STEP3", FARM): 5}, call=at.distributeTrips)
+			summary, add = self._run(fleet, orders, {("OPL-STEP3", FARM): 5}, call=at.distributeTrips)
 		self.assertEqual(summary["status"], "success")
+		add.assert_not_called()
 		self.assertEqual(len(fleet.saved), 1)
 		saved = fleet.saved[0]
 		self.assertEqual([(r["order_pick_list"], r["buckets"]) for r in saved["rows"]], [("OPL-STEP3", 5)])
 		self.assertEqual((saved["route"], saved["run"], saved["status"]), ("R1", 1, "Draft"))
 		self.assertEqual(str(saved["trip_date"]), str(self.today))
 
-	def test_distribute_without_todays_routes_plans_nothing(self):
+	def test_distribute_without_todays_routes_asks_for_trucks_per_farm(self):
+		needs = {"farms": [{"farm": FARM, "buckets": 5, "going": []}], "trucks": []}
 		with (
 			patch.object(at, "routed_vehicles", return_value=set()),
+			patch.object(at, "farm_needs", return_value=needs),
 			patch.object(at, "plan") as plan,
 			patch.object(at.truck_routes, "add_farm_run") as add,
 		):
 			out = at.distributeTrips()
-		self.assertEqual((out["status"], out["reason"]), ("error", "no_routes"))
+		self.assertEqual((out["status"], out["trips"], out["needs"]), ("success", [], needs))
 		plan.assert_not_called()
 		add.assert_not_called()
 
