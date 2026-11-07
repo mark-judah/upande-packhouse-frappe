@@ -382,6 +382,19 @@ def _save_pending(location, sales_order, allocations, teams, boxes, source, orde
 	return doc.name
 
 
+def _order_location(sales_order):
+	"""The location an order belongs to (its farm's), or "" when its farm has none."""
+	farm = frappe.db.get_value("Sales Order", sales_order, "custom_farm")
+	return (frappe.db.get_value("Farm", farm, "farm_location") if farm else "") or ""
+
+
+def _check_location(sales_order, location):
+	"""Locations stand alone: an order is allocated only at its own location."""
+	own = _order_location(sales_order)
+	if own and location and own != location:
+		frappe.throw(_("{0} belongs to {1}, not {2}.").format(sales_order, own, location))
+
+
 def _row_key(r):
 	return (r["sales_order_item"], r["bucket_id"], r.get("stem_length") or "", round(flt(r["qty"]), 3))
 
@@ -400,6 +413,8 @@ def save_pending(
 		allocations = json.loads(allocations or "[]")
 	if isinstance(teams, str):
 		teams = json.loads(teams or "{}")
+	if allocations:
+		_check_location(sales_order, location)
 	# stems another order holds or has been allocated since must not be held twice
 	if allocations:
 		holds = sa.pending_holds({a["bucket_id"] for a in allocations})
@@ -442,20 +457,23 @@ def save_pending(
 
 def _summary(p):
 	orders = p["orders"] if p else []
-	# each order's boxes: how many it needs, and how many will be full once this is released
+	# each order's boxes: how many it needs, and how many will be full once this is released -- counted
+	# exactly as the release counts them, so a box it would hold back never shows as full
 	rows = [frappe._dict(name=o["sales_order"]) for o in orders]
 	sa._attach_boxes(rows)
 	for o, r in zip(orders, rows, strict=True):
+		_release, _keep, o["_box_groups"] = _split_release(o["sales_order"], o["allocations"])
+		o["boxes"] = sum(o["_box_groups"].values())
 		o["order_boxes"] = cint(r.boxes_required)
 		o["full_before"] = min(cint(r.boxes_required), cint(r.boxes_full))
 		o["full_after"] = min(cint(r.boxes_required), cint(r.boxes_full) + cint(o["boxes"]))
 	return {
 		"orders": [
 			{
-				**o,
+				**{k: v for k, v in o.items() if k != "_box_groups"},
 				"lines": _line_stems(o["allocations"]),
 				"team_names": _team_names(o),
-				"groups": _release_groups(o),
+				"groups": _release_groups(o, o["_box_groups"]),
 			}
 			for o in orders
 		],
@@ -465,9 +483,11 @@ def _summary(p):
 
 
 def _split_release(sales_order, allocations):
-	"""(release, keep): the allocation rows that complete boxes -- a straight line's own boxes, a mixed box
-	(its mono and mixed bunches, box_groups) only as many as its scarcest line completes, counting what is
-	already on pick lists -- and the rest, which stays allocated waiting for the stock that completes them."""
+	"""(release, keep, boxes): the allocation rows that complete boxes -- a straight line's own boxes, a mixed
+	box (its mono and mixed bunches, box_groups) only as many as its scarcest line completes, counting what is
+	already on pick lists -- the rest, which stays allocated waiting for the stock that completes them, and
+	{box group key: boxes the release completes}. Stems a line no longer needs (already on its pick lists)
+	are in neither."""
 	items = frappe.get_all(
 		"Sales Order Item",
 		filters={"parent": sales_order},
@@ -494,25 +514,30 @@ def _split_release(sales_order, allocations):
 	asked = defaultdict(float)
 	for a in allocations:
 		asked[a["sales_order_item"]] += flt(a.get("qty"))
-	per, placed, boxes_of = {}, {}, {}
+	per, placed, boxes_of, still = {}, {}, {}, {}
 	for it in items:
 		n = cint(it.custom_number_of_boxes) or 1
 		per[it.name] = sa._line_capacity(it) / n
 		placed[it.name] = sa._placed_stems(it.name) if asked.get(it.name) or keys[it.name][0] != "line" else 0
 		boxes_of[it.name] = n
+		# what the line can still take: its boxes (or what was ordered, when that is more) less its pick lists
+		still[it.name] = max(0.0, max(sa._line_capacity(it), flt(it.stock_qty)) - placed[it.name])
 	groups = defaultdict(list)
 	for it in items:
 		groups[keys[it.name]].append(it.name)
-	room = {}
-	for _key, names in groups.items():
-		if not any(asked.get(n) for n in names):
-			continue
-		full = min(
-			min(boxes_of[n], int((placed[n] + asked.get(n, 0)) / per[n] + 1e-9))
-			if per[n] > 0
-			else boxes_of[n]
+
+	def filled(names, extra):
+		return min(
+			min(boxes_of[n], int((placed[n] + extra(n)) / per[n] + 1e-9)) if per[n] > 0 else boxes_of[n]
 			for n in names
 		)
+
+	room, boxes = {}, {}
+	for key, names in groups.items():
+		if not any(asked.get(n) for n in names):
+			continue
+		full = filled(names, lambda n: min(asked.get(n, 0), still[n]))
+		boxes[key] = max(0, full - filled(names, lambda n: 0))
 		for n in names:
 			room[n] = max(0.0, full * per[n] - placed[n]) if per[n] > 0 else asked.get(n, 0)
 	release, keep = [], []
@@ -524,15 +549,19 @@ def _split_release(sales_order, allocations):
 		if take > 0:
 			release.append({**a, "qty": take})
 			room[soi] = room.get(soi, 0) - take
-		if qty - take > 1e-9:
-			keep.append({**a, "qty": qty - take})
-	return release, keep
+			still[soi] = still.get(soi, 0) - take
+		rest = min(qty - take, max(0.0, still.get(soi, 0)))
+		if rest > 1e-9:
+			keep.append({**a, "qty": rest})
+			still[soi] = still.get(soi, 0) - rest
+	return release, keep, boxes
 
 
-def _release_groups(order):
+def _release_groups(order, boxes=None):
 	"""What the order releases, as it is packed: one entry per mixed box or bunch (its varieties together,
 	in the complete boxes its scarcest variety fills) and one per straight line. Each: {kind, label, boxes,
-	stems, lines: [{variety, length, stems, boxes}]}."""
+	stems, lines: [{variety, length, stems, boxes}]}. `boxes` ({box group key: boxes}, from _split_release)
+	are the boxes the release completes."""
 	stems = _line_stems(order["allocations"])
 	if not stems:
 		return []
@@ -577,6 +606,7 @@ def _release_groups(order):
 				"stems": 0.0,
 				"lines": [],
 				"sois": [],
+				"key": key,
 				"idx": ln.idx,
 				"_fills": [],
 			},
@@ -595,7 +625,8 @@ def _release_groups(order):
 		fills = g.pop("_fills")
 		g.pop("idx")
 		# every variety of a mix shares the same boxes
-		g["boxes"] = max(fills) if fills else 0
+		key = g.pop("key")
+		g["boxes"] = (boxes or {}).get(key, 0) if boxes is not None else (max(fills) if fills else 0)
 		# the group's team: the one its lines go to ("" while any of them has none)
 		teams = {(order.get("teams") or {}).get(x) or "" for x in g["sois"]}
 		g["team"] = teams.pop() if len(teams) == 1 else ""
@@ -1265,6 +1296,34 @@ def _stock_of(farms, varieties):
 	return [row for v in varieties or [] for row in memo[key].get(v, [])]
 
 
+def _waiting_release():
+	"""{(bucket, variety, length): stems} that allocations waiting release hold: still free on the shelf, but
+	no other line can take them."""
+	memo = _sub_memo()
+	if memo is not None and "waiting" in memo:
+		return memo["waiting"]
+	out = defaultdict(float)
+	for bucket, variety, length, qty in frappe.db.sql(
+		"""SELECT r.bucket_id, r.item_code, IFNULL(r.stem_length, ''), SUM(r.qty)
+		FROM `tabPending Allocation Row` r
+		JOIN `tabPending Allocation` p ON p.name = r.parent AND r.parenttype = 'Pending Allocation'
+		WHERE p.status = 'Pending'
+		GROUP BY r.bucket_id, r.item_code, IFNULL(r.stem_length, '')"""
+	):
+		out[(bucket, variety, length)] += flt(qty)
+	if memo is not None:
+		memo["waiting"] = out
+	return out
+
+
+def _free_now(row):
+	"""A stock row's allocatable stems less what allocations waiting release hold of it."""
+	return max(
+		0.0,
+		flt(row.allocatable) - _waiting_release().get((row.bucket_id, row.variety, row.stem_length or ""), 0),
+	)
+
+
 def _crops():
 	from upande_packhouse.api.v2.allocation_teams import crop_of_groups
 
@@ -1686,13 +1745,24 @@ def _run_confirm(location, delivery_start, delivery_end, farms, sales_orders, us
 			)
 			frappe.db.savepoint("confirm_day_order")
 			try:
+				_check_location(o["sales_order"], location)
 				if rules["enforce_plan"]:
 					sa._check_against_plan(o["allocations"], o["teams"])
 				o["teams"] = _fill_teams(o)
 				# only complete boxes go out; what does not complete a box yet stays allocated, waiting release
-				release, keep = _split_release(o["sales_order"], o["allocations"])
+				release, keep, boxes = _split_release(o["sales_order"], o["allocations"])
+				o["boxes"] = sum(boxes.values())
 				if not release:
 					frappe.db.rollback(save_point="confirm_day_order")
+					# stems the order no longer needs (its pick lists already hold them) stop being held
+					if (
+						sum(flt(a.get("qty")) for a in keep)
+						< sum(flt(a.get("qty")) for a in o["allocations"]) - 1e-9
+					):
+						_save_pending(
+							location, o["sales_order"], keep, o["teams"], 0, o.get("source") or "Allocate all"
+						)
+						frappe.db.commit()  # nosemgrep
 					waiting.append(o["sales_order"])
 					continue
 				sa._allocate_stock_with_buckets_impl(o["sales_order"], release, location, o["teams"])
@@ -2382,8 +2452,9 @@ def set_pending_team(location: str, sales_order: str, team: str, lines: str | li
 @frappe.whitelist()
 def get_shortage_substitutes(sales_order_item: str, location: str):
 	"""Varieties a short line could be changed to, with the stems free for it on this location's shelves at
-	its length (exact) or longer (a downgrade). A line with a specification: only the varieties it approves,
-	its primary first. A line without one: varieties of the same colour in the same crop. Free stock counts
+	its length (exact) or longer (a downgrade), always of the ordered variety's colour. A line with a
+	specification: only the varieties it approves, its primary first. A line without one: varieties of the
+	same colour in the same crop. Free stock counts
 	whether it is moving or not; non-moving stock (past the amber time) is shown apart and goes first."""
 	from upande_packhouse.api.v2 import allocation_playground as pg
 
@@ -2422,6 +2493,14 @@ def get_shortage_substitutes(sales_order_item: str, location: str):
 	if approved:
 		source = "spec"
 		varieties = [r.variety for r in approved if r.variety != ln.item_code]
+		# the specification's varieties of the ordered variety's colour only
+		if color and varieties:
+			same = set(
+				frappe.get_all(
+					"Item", filters={"name": ("in", varieties), "custom_color": color}, pluck="name"
+				)
+			)
+			varieties = [v for v in varieties if v in same]
 	else:
 		source = "colour"
 		groups = _crops()
@@ -2445,7 +2524,7 @@ def get_shortage_substitutes(sales_order_item: str, location: str):
 	agg = defaultdict(lambda: {"free": 0.0, "exact": 0.0, "longer": 0.0, "non_moving": 0.0, "oldest": 0})
 	for r in _stock_of(farms, varieties):
 		cm = sa._parse_cm(r.stem_length) or 0
-		free = flt(r.allocatable)
+		free = _free_now(r)
 		if cm < want or free <= 0:
 			continue
 		a = agg[r.variety]
@@ -2476,9 +2555,7 @@ def get_shortage_substitutes(sales_order_item: str, location: str):
 	box = flt(ln.stock_qty) / (cint(ln.custom_number_of_boxes) or 1) or 1
 	# the line's own variety: what it holds and what is free for it, for splitting the line across varieties
 	own_free = sum(
-		flt(r.allocatable)
-		for r in _stock_of(farms, [ln.item_code])
-		if (sa._parse_cm(r.stem_length) or 0) >= want
+		_free_now(r) for r in _stock_of(farms, [ln.item_code]) if (sa._parse_cm(r.stem_length) or 0) >= want
 	)
 	add_stems = _add_stems(sales_order_item, ln, allocated, own_free)
 	add_mode, step = "boxes", box

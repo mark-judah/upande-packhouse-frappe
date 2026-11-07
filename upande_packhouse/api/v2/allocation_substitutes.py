@@ -3,8 +3,8 @@
 """Substitution options for an order line (the Substitute button on Allocation Planning v2).
 
 A customer's specification lists the varieties it approves, per bunch: one is the PRIMARY (what the customer is
-normally sent) and the others are APPROVED alternatives. Colour is a factor too: an alternative of another colour is
-flagged, and in a mixed box it is checked against the specification's most colours per box.
+normally sent) and the others are APPROVED alternatives. Only alternatives of the ordered
+variety's colour are offered, and in a mixed box the colours are checked against the specification's most per box.
 
 For one order line this reads the specification and returns, for every approved alternative in the same bunch as the
 ordered variety, what exists at the line's length from every source the page confirms against: on the shelf, received and
@@ -26,9 +26,9 @@ def pick_candidates(rows, ordered, colours):
 
 	`rows` are the specification's approved varieties ({bunch_id, variety, is_primary, colour}); `colours` maps a variety to its
 	colour (the specification's own, else the item's). Only varieties in the same bunch as the ordered variety are offered
-	(every approved variety when the ordered one is not in the list). Order: primary before approved, then the colour of the
-	ordered variety before another colour. Each comes back as {variety, primary, colour, same_colour (True / False / None
-	when a colour is not known)}."""
+	(every approved variety when the ordered one is not in the list), and only of the ordered variety's colour (a variety
+	whose colour is not known stays). Order: primary before approved. Each comes back as {variety, primary, colour,
+	same_colour (True / None when a colour is not known)}."""
 	bunches = {r["bunch_id"] or "" for r in rows if r["variety"] == ordered}
 	pool = [r for r in rows if r["variety"] != ordered and (not bunches or (r["bunch_id"] or "") in bunches)]
 	ref = colours.get(ordered)
@@ -39,6 +39,8 @@ def pick_candidates(rows, ordered, colours):
 			seen[v]["primary"] = seen[v]["primary"] or bool(r["is_primary"])
 			continue
 		c = colours.get(v)
+		if c and ref and c != ref:
+			continue
 		item = {
 			"variety": v,
 			"primary": bool(r["is_primary"]),
@@ -47,7 +49,7 @@ def pick_candidates(rows, ordered, colours):
 		}
 		seen[v] = item
 		out.append(item)
-	out.sort(key=lambda x: (not x["primary"], x["same_colour"] is False, x["variety"]))
+	out.sort(key=lambda x: (not x["primary"], x["variety"]))
 	return out
 
 
@@ -174,8 +176,6 @@ def get_substitutions(
 			"covers" if src["left"] > 0 and src["left"] >= need else "partly" if src["left"] > 0 else "none"
 		)
 		warn = []
-		if c["same_colour"] is False:
-			warn.append(_("A different colour from {0}.").format(ln.item_code))
 		if max_colours and c["colour"] and len(box_colours | {c["colour"]}) > max_colours:
 			warn.append(
 				_("The box would have {0} colours; the specification allows {1}.").format(

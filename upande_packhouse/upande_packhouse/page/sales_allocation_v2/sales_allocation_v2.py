@@ -365,21 +365,27 @@ def get_pending_sales_orders(
 				OR (ac.status = 'Released' AND ac.release_reason = 'Allocated')))"""
 		params["planned_confirmations"] = (*allocation_plan.LIVE, "Fulfilled")
 
-	# An order confirmed (Allocation Planning) only against another location's farms has nothing to
-	# allocate here; one not confirmed anywhere can be allocated from any location.
+	# Locations stand alone: an order whose farm belongs to a location is allocated there and nowhere
+	# else. An order with no such farm goes by Allocation Planning: one confirmed only against another
+	# location's farms has nothing to allocate here; one not confirmed anywhere can be allocated anywhere.
 	location_clause = "1 = 1"
 	location_farms = _get_production_config()["farms_by_location"].get(location) if location else None
-	if location_farms:
-		params["location_farms"] = tuple(location_farms)
-		location_clause = """(NOT EXISTS (
+	if location:
+		params["order_location"] = location
+		params["location_farms"] = tuple(location_farms or ["\x00"])
+		location_clause = """(EXISTS (
+                SELECT 1 FROM `tabFarm` f WHERE f.name = so.custom_farm AND f.farm_location = %(order_location)s)
+            OR (NOT EXISTS (
+                SELECT 1 FROM `tabFarm` f WHERE f.name = so.custom_farm AND IFNULL(f.farm_location, '') != '')
+              AND (NOT EXISTS (
                 SELECT 1 FROM `tabConfirmed Stems` cs
                 WHERE cs.parent = so.name AND cs.parenttype = 'Sales Order'
                   AND cs.parentfield = 'custom_confirmed_stems_table' AND cs.stems > 0)
-            OR EXISTS (
+              OR EXISTS (
                 SELECT 1 FROM `tabConfirmed Stems` cs
                 WHERE cs.parent = so.name AND cs.parenttype = 'Sales Order'
                   AND cs.parentfield = 'custom_confirmed_stems_table' AND cs.stems > 0
-                  AND cs.farm IN %(location_farms)s))"""
+                  AND cs.farm IN %(location_farms)s))))"""
 
 	# nosemgrep: frappe-sql-format-injection -- interpolates a module-level constant, never request data
 	sql = f"""
