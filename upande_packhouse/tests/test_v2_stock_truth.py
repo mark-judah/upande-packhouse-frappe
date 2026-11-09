@@ -323,6 +323,8 @@ class TestRelease(IntegrationTestCase):
 		self.assertIn(x.sales_order, {o["sales_order"] for o in out["orders"]})
 
 	def test_stale_transfers_are_listed_searchable_and_releasable(self):
+		if not frappe.db.has_index("tabStock Entry", "stock_entry_type_docstatus_posting_date_index"):
+			self.skipTest("Stock Entry index missing on this site")
 		rows = [r for r in st._transfer_rows() if r.reason]
 		if not rows:
 			self.skipTest("no stale transfer")

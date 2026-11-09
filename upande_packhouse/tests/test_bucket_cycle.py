@@ -205,6 +205,11 @@ class TestFilterOutReharvested(IntegrationTestCase):
 			patch.object(st, "_transit_rows", lambda: []),
 			patch.object(st, "_quarantine_rows", lambda: quarantine),
 			patch.object(st.bucket_cycle, "index", lambda: idx),
+			patch.object(
+				st.stock,
+				"_config",
+				lambda: {"discard_age": 5, "amber_time": 3, "farm_config": {}, "farms_by_location": {}},
+			),
 		):
 			return st.collect(st._args(dict(**kw)))
 
