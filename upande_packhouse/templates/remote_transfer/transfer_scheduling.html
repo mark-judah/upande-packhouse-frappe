@@ -1013,15 +1013,15 @@ function renderRoutes(){
   if(!$('rl-shell')){
     p.innerHTML='<div id="rl-shell"><div class="rl-bar"><b>Truck routes</b>'+
       '<span class="rl-day"><button class="tbtn ghost" data-act="rv-day" data-d="-1" title="Day before">‹</button><span id="rv-day-lbl"></span><button class="tbtn ghost" data-act="rv-day" data-d="1" title="Day after">›</button></span><span class="sp"></span>'+
-      '<button class="tbtn ghost" data-act="rv-roads" id="rv-roads-btn">Road network</button>'+
-      '<button class="tbtn ghost" data-act="tk-open">+ Add truck</button>'+
-      '<button class="tbtn key" data-act="rv-new">+ New route</button></div><div id="rl-list"></div></div><div id="rl-roads"></div>';
+      '<button class="tbtn ghost" data-act="rv-roads" id="rv-roads-btn">Routes</button>'+
+      '<button class="tbtn ghost" data-act="dt-open">+ Add truck</button>'+
+      '</div><div id="rl-list"></div></div><div id="rl-roads"></div>';
   }
   var dl=$('rv-day-lbl'); if(dl) dl.textContent=dayLabel(S.rv.date);
   // One view at a time: the truck routes, or (button) the road network in their place.
   $('rl-roads').innerHTML=S.rv.roads?roadNetworkHtml():'';
   if($('rl-list')) $('rl-list').style.display=S.rv.roads?'none':'';
-  var rb=$('rv-roads-btn'); if(rb){ rb.classList.toggle('on',!!S.rv.roads); rb.textContent=S.rv.roads?'Routes':'Road network'; }
+  var rb=$('rv-roads-btn'); if(rb){ rb.classList.toggle('on',!!S.rv.roads); rb.textContent=S.rv.roads?'Trucks':'Routes'; }
   if(S.rv.routes===null) loadRoutes(); else drawRouteList();
 }
 /* Routes are made for each day: only the trucks working that day get one. Nothing is
@@ -1032,6 +1032,7 @@ function routesDay(){ return addDaysISO(window.rtDate.get(),-1); }
 /* The routes changed (save, delete, a new day): the next load asks again -- a reply
    still out from before is never reused, and is dropped when it comes in. */
 function routesStale(){ if(!S.rv) return; S.rv.routes=null; S.rv.pending=null; S.rv.gen=(S.rv.gen||0)+1; }
+window.rtRoutesStale=function(){ routesStale(); if(S.tab==='routes') renderRoutes(); };
 /* Move the routes day: through the section date, so the top bar, the address and ‹ ›
    always agree. */
 function setRoutesDay(d){ if(!d) return; if(S.rv&&S.rv.date!==d){ S.rv.date=d; routesStale(); } window.rtDate.set(addDaysISO(d,1)); }
@@ -1079,12 +1080,13 @@ function drawRouteList(){
   var box=$('rl-list'); if(!box) return;
   var rs=S.rv.routes||[];
   var html=rs.length?rs.map(function(r){
-    return '<div class="rl-card"><span class="rl-veh">'+esc(r.vehicle)+'</span><span class="rl-chain">'+runsHtml(runsOf(r))+'</span>'+
+    return '<div class="rl-card"><span class="rl-veh">'+esc(r.vehicle)+'</span><span class="rl-chain">'+(runsOf(r).length?runsHtml(runsOf(r)):'<span class="rl-meta">No trips</span>')+'</span>'+
       '<span class="rl-km">'+Number(r.total_km||0).toFixed(1)+' km</span>'+truckCapHtml(r.vehicle)+'<span class="rl-meta">'+runsOf(r).length+' trip'+(runsOf(r).length===1?'':'s')+'</span>'+
       truckStateHtml(r.vehicle, S.rv.date)+
+      (S.rv.date===todayISO()&&window.rtTrucks?'<button class="tbtn ghost trip-del" data-act="tk-send" data-name="'+esc(r.vehicle)+'">Send to farms</button>':'')+
       '<button class="tbtn ghost trip-del" data-act="rv-edit" data-name="'+esc(r.name)+'">Edit</button>'+
-      '<button class="tbtn ghost trip-del" data-act="rv-del" data-name="'+esc(r.name)+'">Delete</button></div>';
-  }).join(''):'<div class="rl-empty">No truck routes for '+esc(dayLabel(S.rv.date).toLowerCase())+'.</div>';
+      '<button class="tbtn ghost trip-del" data-act="rv-del" data-name="'+esc(r.name)+'">Remove</button></div>';
+  }).join(''):'<div class="rl-empty">No trucks for '+esc(dayLabel(S.rv.date).toLowerCase())+'.</div>';
   box.innerHTML=html;
 }
 /* Today only: is the route's truck out (dispatched trip not yet received) or available? */
@@ -1111,13 +1113,153 @@ function confirmModal(title,msg,okLabel,danger,cancelLabel){
     var ok=m.querySelector('[data-cf="1"]'); if(ok) ok.focus();
   });
 }
+/* The day's trucks: a truck is added for the day (a route with no trips yet), sent to farms after
+   scheduling, and removed with its route. */
+function openDayTruck(){
+  var on={}; (S.rv.routes||[]).forEach(function(r){ on[r.vehicle]=1; });
+  var free=(DATA.vehicles||[]).filter(function(v){ return !on[v.name]; });
+  var rows=free.map(function(v){ return '<div class="rl-card"><span class="rl-veh">'+esc(v.name)+'</span><span class="sp"></span>'+truckCapHtml(v.name)+
+    '<button class="tbtn key" data-act="dt-add" data-name="'+esc(v.name)+'">Add</button></div>'; }).join('')||'<div class="rl-empty">Every truck is on '+esc(dayLabel(S.rv.date).toLowerCase())+'.</div>';
+  var m=$('dt-modal');
+  if(!m){ m=document.createElement('div'); m.id='dt-modal'; m.className='dm-overlay rn-modal'; (document.querySelector('.aph')||document.body).appendChild(m);
+    m.addEventListener('click',function(e){ if(e.target===m) m.remove(); }); }
+  m.innerHTML='<div class="dm-card"><div class="dm-hd"><h3>Add truck · '+esc(dayLabel(S.rv.date))+'</h3><button class="sch-x" data-act="dt-cancel" title="Close">×</button></div>'+
+    '<div class="rn-form">'+rows+'</div><div class="dm-foot"><button class="tbtn" data-act="dt-new">New truck</button><button class="tbtn" data-act="dt-cancel">Close</button></div></div>';
+}
+/* Add to truck (Bucket Logistics) and Send to farms (Truck Routes): one truck, the farms it goes to --
+   a trip per farm, the scheduled buckets planned onto them. */
+function openTrucks(vehicle){
+  call('upande_packhouse.api.auto_transfer.getFarmNeeds',{date:window.rtDate.get()}).then(function(r){
+    var m=r.message||{};
+    if(m.status==='error'){ toast(m.message||'Could not read the farms'); return; }
+    trucksDialog(m, typeof vehicle==='string'?vehicle:'');
+  }).catch(function(err){ toast('Failed: '+((err&&err.message)||'')); });
+}
+window.rtTrucks=openTrucks;
+function trucksDialog(needs, vehicle){
+  var all=(needs&&needs.trucks)||[], day=all.filter(function(t){ return t.routed; });
+  var trucks=(day.length?day:all).slice().sort(function(a,b){ return String(a.name).localeCompare(String(b.name)); });
+  var farms=(needs&&needs.farms)||[];
+  var pick=vehicle&&trucks.some(function(t){ return t.name===vehicle; })?vehicle:(trucks[0]&&trucks[0].name)||'';
+  // written every time (not only once): a page left open keeps the newest styles
+  var st=document.getElementById('trk-style');
+  if(!st){ st=document.createElement('style'); st.id='trk-style'; document.head.appendChild(st); }
+  {
+    st.textContent='#trk-modal .trk-card{width:560px;max-width:calc(100vw - 32px)}#trk-modal .trk-body{padding:6px 24px 6px!important;display:block}#trk-modal .trk-sec{font:600 10.5px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-4,#8a8a80);margin:2px 0 8px}'+
+      '#trk-modal .trk-farm{display:grid;grid-template-columns:18px minmax(0,1fr) auto 150px;align-items:center;column-gap:12px;padding:10px 12px;border:1px solid var(--hairline,#e6e4dc);border-radius:12px;background:var(--surface-2,#fff);margin-bottom:8px;cursor:default}#trk-modal .trk-farm input{cursor:pointer}'+
+      '#trk-modal .trk-farm{position:relative}#trk-modal .trk-farm.on{border-color:#9a9a90;background:#fff}#trk-modal .trk-farm:not(.on) b,#trk-modal .trk-farm:not(.on) .bk{color:var(--ink-4,#9a9a90)}#trk-modal .trk-farm.open{z-index:40}#trk-modal .trk-farm b{font-size:14px}#trk-modal .trk-farm .go{color:var(--ink-4,#8a8a80);font-size:11.5px}'+
+      '#trk-modal .trk-farm input{margin:0;width:16px;height:16px}#trk-modal .trk-farm .bk{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}#trk-modal .trk-farm .bk b{font-size:15px;font-weight:800}'+
+      '#trk-modal .trk-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:8px}'+
+      '#trk-modal .trk-opt{display:flex;flex-direction:column;gap:3px;padding:10px 14px;border:1px solid var(--hairline,#e6e4dc);border-radius:12px;background:var(--surface-2,#fff);cursor:pointer;text-align:left;font:inherit}'+
+      '#trk-modal .trk-opt .nm{font:600 13px var(--mono,ui-monospace,monospace)}#trk-modal .trk-opt .cp{color:var(--ink-4,#8a8a80);font-size:11.5px}'+
+      '#trk-modal .trk-opt.on{background:#0a0a0a;border-color:#0a0a0a;color:#fafaf6}#trk-modal .trk-opt.on .cp{color:#c9c9bf}'+
+      '#trk-modal .trk-dd{position:relative}'+
+      '#trk-modal .trk-ddb{width:100%;height:32px;display:flex;align-items:center;justify-content:space-between;gap:6px;border:1px solid var(--hairline,#e6e4dc);border-radius:9px;background:var(--surface-2,#fff);color:inherit;font:500 12px var(--sans);padding:0 10px;cursor:pointer}'+
+      '#trk-modal .trk-ddb i{font-style:normal;color:var(--ink-4,#8a8a80);font-size:10px}'+
+      '#trk-modal .trk-dd.set .trk-ddb{border-color:#0a0a0a;font-weight:600}'+
+      '#trk-modal .trk-ddm{position:absolute;right:0;top:calc(100% + 6px);z-index:50;opacity:1;min-width:100%;background:#fff;border:1px solid var(--hairline,#e6e4dc);border-radius:12px;box-shadow:0 12px 32px rgba(10,10,10,.14);padding:5px}'+
+      '#trk-modal .trk-ddm[hidden]{display:none}#trk-modal .trk-ddo{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;margin:0 0 2px;border:0;background:transparent;box-shadow:none;text-align:left;padding:8px 10px;border-radius:8px;font:500 12px var(--sans);color:#0a0a0a;cursor:pointer;white-space:nowrap}'+
+      '#trk-modal .trk-ddo b{font:600 12.5px var(--mono,ui-monospace,monospace)}#trk-modal .trk-ddo span{color:var(--ink-4,#8a8a80);font-size:11px}'+
+      '#trk-modal .trk-ddo:hover{background:rgba(10,10,10,.05)}#trk-modal .trk-ddo.on{background:#0a0a0a;color:#fafaf6}#trk-modal .trk-ddo.on span{color:#c9c9bf}';
+  }
+  var farmRows=farms.map(function(f){
+    var going=(f.going||[]).map(function(g){ return esc(g.vehicle)+(g.room!=null?' · '+g.room+' free':''); }).join(', ');
+    var on=f.buckets>0;
+    return '<div class="trk-farm'+(on?' on':'')+'"><input type="checkbox" data-tk-f="'+esc(f.farm)+'"'+(on?' checked':'')+'>'+
+      '<span><b>'+esc(f.farm)+'</b>'+(going?'<div class="go">'+going+'</div>':'')+'</span>'+
+      '<span class="bk"><b>'+n(f.buckets)+'</b> bucket'+(Number(f.buckets)===1?'':'s')+'</span>'+
+      (trucks.length?'<div class="trk-dd" data-tk-fv="'+esc(f.farm)+'" data-v=""><button type="button" class="trk-ddb"><span>All-farms truck</span><i>▾</i></button>'+
+        '<div class="trk-ddm" hidden><button type="button" class="trk-ddo on" data-o="">All-farms truck</button>'+
+        trucks.map(function(t){ return '<button type="button" class="trk-ddo" data-o="'+esc(t.name)+'"><b>'+esc(t.name)+'</b><span>'+n(t.capacity)+' buckets a trip</span></button>'; }).join('')+
+        '</div></div>':'')+
+      '</div>';
+  }).join('')||'<div class="rl-empty">No remote buckets to collect.</div>';
+  var truckOpts=trucks.map(function(t){
+    return '<button type="button" class="trk-opt'+(t.name===pick?' on':'')+'" data-tk-v="'+esc(t.name)+'"><span class="nm">'+esc(t.name)+'</span><span class="cp">'+n(t.capacity)+' buckets a trip</span></button>';
+  }).join('');
+  var m=$('trk-modal');
+  if(!m){ m=document.createElement('div'); m.id='trk-modal'; m.className='dm-overlay rn-modal'; (document.querySelector('.aph')||document.body).appendChild(m);
+    m.addEventListener('click',function(e){ if(e.target===m||e.target.closest('[data-tk-x]')) m.remove(); }); }
+  m.innerHTML='<div class="dm-card trk-card"><div class="dm-hd"><h3>Add to truck · '+esc(needs&&needs.date||'')+'</h3><button class="sch-x" data-tk-x title="Close">×</button></div>'+
+    '<div class="trk-body"><div class="trk-sec">Farms</div>'+farmRows+
+    (trucks.length&&farms.length?'<div class="trk-sec" style="margin-top:14px">Truck for all farms</div><div class="trk-list">'+truckOpts+'</div>'+
+      '<div class="trk-farm on" style="grid-template-columns:18px minmax(0,1fr);margin-top:6px"><input type="checkbox" id="trk-combine">'+
+      '<span><b>One trip via all its farms, back to '+esc(pack())+'</b></span></div>':'')+'</div>'+
+    (trucks.length&&farms.length?'<div class="dm-foot"><button class="tbtn" data-tk-x>Cancel</button><button class="tbtn key" id="trk-send">Send truck</button></div>':'')+'</div>';
+  m.querySelectorAll('[data-tk-f]').forEach(function(c){ c.addEventListener('change',function(){ c.closest('.trk-farm').classList.toggle('on',c.checked); }); });
+  // each farm's truck: a small menu (inside the farm's label, so a click there is never a tick)
+  var closeMenus=function(except){ m.querySelectorAll('.trk-ddm').forEach(function(x){ if(x!==except){ x.hidden=true; x.closest('.trk-farm').classList.remove('open'); } }); };
+  m.querySelectorAll('.trk-dd').forEach(function(dd){
+    var menu=dd.querySelector('.trk-ddm');
+    dd.addEventListener('click',function(e){ e.preventDefault(); e.stopPropagation(); });
+    dd.querySelector('.trk-ddb').addEventListener('click',function(){ closeMenus(menu); menu.hidden=!menu.hidden; dd.closest('.trk-farm').classList.toggle('open',!menu.hidden); });
+    dd.querySelectorAll('.trk-ddo').forEach(function(o){ o.addEventListener('click',function(){
+      var v=o.getAttribute('data-o'); dd.setAttribute('data-v',v); dd.classList.toggle('set',!!v);
+      dd.querySelector('.trk-ddb span').textContent=v||'All-farms truck';
+      dd.querySelectorAll('.trk-ddo').forEach(function(x){ x.classList.toggle('on',x===o); });
+      menu.hidden=true; dd.closest('.trk-farm').classList.remove('open');
+    }); });
+  });
+  m.addEventListener('click',function(e){ if(!e.target.closest('.trk-dd')) closeMenus(null); });
+  m.querySelectorAll('[data-tk-v]').forEach(function(b){ b.addEventListener('click',function(){
+    pick=b.getAttribute('data-tk-v'); m.querySelectorAll('[data-tk-v]').forEach(function(x){ x.classList.toggle('on',x===b); }); }); });
+  var send=$('trk-send');
+  if(send) send.onclick=function(){
+    var picked=Array.prototype.map.call(m.querySelectorAll('[data-tk-f]:checked'),function(c){ return c.getAttribute('data-tk-f'); });
+    if(!picked.length){ toast('Tick the farms the truck goes to'); return; }
+    var byTruck={}, order=[];
+    picked.forEach(function(f){
+      var sel=m.querySelector('[data-tk-fv="'+CSS.escape(f)+'"]'), v=(sel&&sel.getAttribute('data-v'))||pick;
+      if(!byTruck[v]){ byTruck[v]=[]; order.push(v); } byTruck[v].push(f);
+    });
+    var combineOn=!!($('trk-combine')||{}).checked;
+    var plan=order.map(function(v){
+      var fs=byTruck[v];
+      return v+' → '+(combineOn&&fs.length>1?fs.join(' → ')+' (one trip)':fs.join(', ')+(fs.length>1?' ('+fs.length+' trips)':''));
+    }).join('; ');
+    confirmModal('Send truck'+(order.length>1?'s':''), plan+'?', 'Send', false).then(function(ok){
+    if(!ok) return;
+    send.disabled=true; send.textContent='Sending…';
+    var last=null, sent=[];
+    order.reduce(function(p,v){
+      return p.then(function(){
+        var combine=($('trk-combine')||{}).checked&&byTruck[v].length>1?1:0;
+        return call('upande_packhouse.api.auto_transfer.addTruckForFarms',{farms:JSON.stringify(byTruck[v]),vehicle:v,date:window.rtDate.get(),combine:combine}).then(function(r){
+          var res=r.message||{};
+          if(res.status==='error'||res.status==='busy'){ toast(v+': '+(res.message||'Could not send the truck')); return; }
+          last=res; sent.push(v+' → '+(res.added_runs||[]).map(function(x){ return x.farm; }).join(', '));
+          (res.refused||[]).forEach(function(x){ toast(x.farm+': '+x.message); });
+        });
+      });
+    }, Promise.resolve()).then(function(){
+      send.disabled=false; send.textContent='Send truck';
+      if(!last) return;
+      var trips=(last.trips||[]).length;
+      toast(sent.join(' · ')+(trips?' · '+trips+' trip'+(trips===1?'':'s')+' planned':''));
+      trucksDialog(last.needs, pick);
+      routesStale(); if(S.tab==='routes') renderRoutes();
+      if(window.rtLogisticsLoad) window.rtLogisticsLoad();
+      loadData();
+    }).catch(function(err){ toast('Failed: '+((err&&err.message)||'')); send.disabled=false; send.textContent='Send truck'; });
+    });
+  };
+}
+function addDayTruck(vehicle, btn){
+  if(!vehicle) return; if(btn){ btn.disabled=true; btn.textContent='Adding…'; }
+  call('upande_packhouse.api.remote_transfer.truck_routes.addDayTruck',{vehicle:vehicle,date:S.rv.date}).then(function(r){
+    var m=r.message||{};
+    if(m.status!=='success'){ toast(m.message||'Could not add the truck'); if(btn){ btn.disabled=false; btn.textContent='Add'; } return; }
+    toast(vehicle+' added for '+dayLabel(S.rv.date).toLowerCase());
+    routesStale(); loadRoutes().then(function(){ if($('dt-modal')) openDayTruck(); }); loadData();
+  }).catch(function(err){ toast('Failed: '+((err&&err.message)||'')); if(btn){ btn.disabled=false; btn.textContent='Add'; } });
+}
 function deleteRoute(name){
   if(!name) return;
   var r0=(S.rv.routes||[]).filter(function(x){ return x.name===name; })[0];
-  confirmModal('Delete route','Delete '+(r0?r0.vehicle+'’s '+timeRange(r0)+' route':'this route')+' for '+dayLabel(S.rv.date).toLowerCase()+'? Its trips are deleted and their orders unscheduled.','Delete',true).then(function(ok){ if(!ok) return;
+  confirmModal('Remove truck','Remove '+(r0?r0.vehicle:'this truck')+' from '+dayLabel(S.rv.date).toLowerCase()+'? Its trips are deleted and their orders unscheduled.','Remove',true).then(function(ok){ if(!ok) return;
   call('deleteBucketLogisticsRoute',{name:name}).then(function(r){
     var m=r.message||{}, nt=(m.trips||[]).length, nu=(m.unscheduled||[]).length;
-    toast(m.status==='success'?'Route deleted'+(nt?' · '+nt+' trip'+(nt===1?'':'s')+' deleted':'')+(nu?' · '+nu+' order'+(nu===1?'':'s')+' unscheduled':''):(m.message||'Could not delete the route'));
+    toast(m.status==='success'?'Truck removed'+(nt?' · '+nt+' trip'+(nt===1?'':'s')+' deleted':'')+(nu?' · '+nu+' order'+(nu===1?'':'s')+' unscheduled':''):(m.message||'Could not delete the route'));
     if(m.status==='success'){ routesStale(); renderRoutes(); loadData(); }
   }).catch(function(err){ toast('Failed: '+((err&&err.message)||'')); });
   });
@@ -1277,7 +1419,7 @@ function updateRouteBuilder(){
   var emptyRun=b.runs.length>1&&b.runs.some(function(r){ return !r.length; });
   var multi=-1; b.runs.forEach(function(r,i){ if(multi<0&&r.length>1) multi=i; });
   var msg='', cls='';
-  if(L.gaps.length){ msg='No road for '+L.gaps.join(', ')+' — add it under Road network first.'; cls='err'; }
+  if(L.gaps.length){ msg='No route for '+L.gaps.join(', ')+' — add it under Routes first.'; cls='err'; }
   else if(emptyRun){ msg='A trip has no farm — add one or remove the trip.'; cls='err'; }
   else if(multi>=0){ msg='Trip '+(multi+1)+': one farm per trip — split it into separate trips.'; cls='err'; }
   var clash=b.vehicle&&routedOnDate[b.vehicle];
@@ -1316,7 +1458,8 @@ function roadNetworkHtml(){
       '<td style="text-align:right;white-space:nowrap"><button class="tbtn ghost trip-del" data-act="rn-edit" data-name="'+esc(d.name)+'" title="Change distance / kind">Edit</button> '+
       '<button class="tbtn ghost trip-del" data-act="rn-del" data-name="'+esc(d.name)+'" title="Remove this road">Remove</button></td></tr>';
   }).join(''):'<tr><td colspan="6" style="color:var(--ink-mute);font-style:italic">No roads yet — add the first one below.</td></tr>';
-  return '<div class="rn-card"><div class="rn-hd"><b>Road network</b><span>'+roads.length+' road'+(roads.length===1?'':'s')+'</span><button class="tbtn key" data-act="rn-open">+ Add road</button></div>'+
+  // the routes, made once: each farm's road from the packhouse; a truck sent to farms drives them
+  return '<div class="rn-card"><div class="rn-hd"><b>Routes</b><span>'+roads.length+' route'+(roads.length===1?'':'s')+'</span><button class="tbtn key" data-act="rn-open">+ Add route</button></div>'+
     '<table class="rn-tbl"><thead><tr><th>From</th><th>To</th><th>Distance</th><th>Kind</th><th>Via</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>'+
     '</div>';
 }
@@ -1340,7 +1483,7 @@ function renderRoadModal(){
       note=via.length?'A truck between these farms drives via '+via.join(', ')+'.':'No real road connects these farms yet — add the road legs too, or trucks can’t drive this pair.'; cls=via.length?'':' warn'; }
     else note='A truck can drive directly between '+f.from+' and '+f.to+'.';
   }
-  var html='<div class="dm-card"><div class="dm-hd"><h3>'+(f.edit?'Edit road':'Add road')+'</h3><button class="sch-x" data-act="rn-cancel" title="Close">×</button></div>'+
+  var html='<div class="dm-card"><div class="dm-hd"><h3>'+(f.edit?'Edit route':'Add route')+'</h3><button class="sch-x" data-act="rn-cancel" title="Close">×</button></div>'+
     '<div class="rn-form">'+
       '<div class="rn-field"><span>From farm</span>'+farmPicker('from',farms,!!f.edit)+'</div>'+
       '<div class="rn-field"><span>To farm</span>'+farmPicker('to',farms,!!f.edit)+'</div>'+
@@ -1351,7 +1494,7 @@ function renderRoadModal(){
       '</div></div>'+
       (note?'<div class="rn-note'+cls+'">'+esc(note)+'</div>':'')+
     '</div>'+
-    '<div class="dm-foot"><button class="tbtn" data-act="rn-cancel">Cancel</button><button class="tbtn key" data-act="rn-save"'+(S.rnBusy?' disabled':'')+'>'+(S.rnBusy?'Saving…':(f.edit?'Save changes':'Add road'))+'</button></div></div>';
+    '<div class="dm-foot"><button class="tbtn" data-act="rn-cancel">Cancel</button><button class="tbtn key" data-act="rn-save"'+(S.rnBusy?' disabled':'')+'>'+(S.rnBusy?'Saving…':(f.edit?'Save changes':'Add route'))+'</button></div></div>';
   var m=$('rn-modal');
   if(!m){ m=document.createElement('div'); m.id='rn-modal'; m.className='dm-overlay rn-modal'; (document.querySelector('.aph')||document.body).appendChild(m);
     m.addEventListener('click',function(e){ if(e.target===m) closeRoadModal(); }); }
@@ -2665,6 +2808,11 @@ document.addEventListener('click',function(ev){
   else if(a==='rv-day'){ setRoutesDay(addDaysISO(routesDay(),+el.dataset.d)); }
   else if(a==='rv-roads'){ S.rv.roads=!S.rv.roads; renderRoutes(); }
   else if(a==='tk-open'){ openTruckModal(el.dataset.veh); }
+  else if(a==='tk-send'){ if(window.rtTrucks) window.rtTrucks(el.dataset.name); }
+  else if(a==='dt-open'){ openDayTruck(); }
+  else if(a==='dt-cancel'){ var dm=$('dt-modal'); if(dm) dm.remove(); }
+  else if(a==='dt-add'){ addDayTruck(el.dataset.name, el); }
+  else if(a==='dt-new'){ var dm2=$('dt-modal'); if(dm2) dm2.remove(); openTruckModal(); }
   else if(a==='tk-cancel'){ closeTruckModal(); }
   else if(a==='tk-save'){ saveTruckModal(); }
 

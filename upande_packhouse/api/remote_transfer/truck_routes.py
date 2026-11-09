@@ -7,6 +7,8 @@
 # road network routes are built on (Farm Distance). Split out of transfer_scheduling (formerly api/transfer_control);
 # the old upande_packhouse.api.transfer_control.<name> paths still reach these.
 
+import itertools
+
 import frappe
 from frappe.utils import cint
 
@@ -78,7 +80,7 @@ def _route_to_update(date, vehicle, name=None, new=0, auto_planned=0):
 	return None, None
 
 
-def _route_path(leg_names, old_legs=None):
+def _route_path(leg_names, old_legs=None, allow_multi=False):
 	"""Farm Distance names in driving order -> (path, error). The path is one continuous
 	round trip from the packhouse back to it, each leg stored in the direction driven
 	(roads are undirected) and numbered with its run (trip). One farm per trip: a run
@@ -123,7 +125,7 @@ def _route_path(leg_names, old_legs=None):
 		return None, "Route ends at {0} — it must return to {1}.".format(here, hub)
 	kept = {r["run"]: r["stops"] for r in route_runs(old_legs or [], hub)}
 	for r in route_runs(path, hub):
-		if len(r["stops"]) > 1 and kept.get(r["run"]) != r["stops"]:
+		if not allow_multi and len(r["stops"]) > 1 and kept.get(r["run"]) != r["stops"]:
 			return None, "Trip {0} ({1}): one farm per trip — split it into separate trips.".format(
 				r["run"], ", ".join(r["stops"])
 			)
@@ -143,6 +145,7 @@ def _save_route(
 	check_on_road=True,
 	commit=True,
 	append_only=False,
+	allow_multi=False,
 ):
 	"""Validate and save a truck's Bucket Logistics Route; returns the response message.
 	A route saved by hand (auto_planned=0) is never re-routed by automatic scheduling.
@@ -155,7 +158,10 @@ def _save_route(
 	doc, err = _route_to_update(date, vehicle, name=name, new=new, auto_planned=auto_planned)
 	if err:
 		return {"status": "error", "message": err}
-	path, err = _route_path(leg_names, old_legs=_route_legs(doc.name) if doc is not None else None)
+	# allow_multi: a trip chosen on purpose to go via several farms (add_farms_run)
+	path, err = _route_path(
+		leg_names, old_legs=_route_legs(doc.name) if doc is not None else None, allow_multi=allow_multi
+	)
 	if err:
 		return {"status": "error", "message": err}
 	hub = transfer_hub()
@@ -357,6 +363,24 @@ def saveTransferTruck():
 
 
 @frappe.whitelist(methods=["POST"])
+def addDayTruck(vehicle: str, date: str | None = None):
+	"""Put a truck on the day's list: it works that day (a route with no trips yet). Farms are sent to it
+	after scheduling; its trips are added to this route."""
+	date = str(frappe.utils.getdate(date or frappe.utils.today()))
+	if not vehicle or not frappe.db.exists("Vehicle", vehicle):
+		return {"status": "error", "message": "Choose a truck."}
+	have = frappe.get_all(
+		"Bucket Logistics Route", filters={"vehicle": vehicle, "route_date": date}, pluck="name"
+	)
+	if have:
+		return {"status": "success", "name": have[0], "existing": 1}
+	res = _save_route(date=date, vehicle=vehicle, leg_names=[], new=1)
+	if res.get("status") == "success":
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+	return res
+
+
+@frappe.whitelist(methods=["POST"])
 def deleteBucketLogisticsRoute():
 	# Remove a truck's route for a day, with the trips planned on it: those trips are
 	# deleted and every order on them is unscheduled (off its team's Packhouse Schedule),
@@ -501,7 +525,7 @@ def add_farm_run(
 	if not road:
 		return {
 			"status": "error",
-			"message": "No road between {0} and {1} — add it under Road network on the Truck routes tab.".format(
+			"message": "No road between {0} and {1} — add it under Routes on the Truck Routes tab.".format(
 				hub, farm
 			),
 		}
@@ -541,6 +565,66 @@ def add_farm_run(
 	if res.get("status") == "success":
 		res["route"] = res["name"]
 		res["run"] = len(_route_runs_by_name(res["name"]))
+	return res
+
+
+def add_farms_run(vehicle, farms, date=None):
+	"""One trip collecting at several farms, chosen on purpose: packhouse → each farm in turn →
+	packhouse, at the end of the truck's latest route on `date` (a new all-day route if it has
+	none). Every leg is a road in the Routes (farm distances), farm to farm included. A farm whose
+	open trip still has room is refused (its buckets go on that trip first). Returns {status,
+	route, run, farms} or why not."""
+	date = str(frappe.utils.getdate(date or frappe.utils.today()))
+	farms = [f for i, f in enumerate(farms or []) if f and f not in farms[:i]]
+	if not vehicle or len(farms) < 2:
+		return {"status": "error", "message": "A truck and at least two farms are required."}
+	for farm in farms:
+		held = open_trip_to_farm(farm, date)
+		if held:
+			return {
+				"status": "error",
+				"reason": "open_trip",
+				"message": "{0}'s trip {1} to {2} still has room for {3} bucket(s) — put the buckets on it.".format(
+					held["vehicle"], held["trip"], farm, held["room"]
+				),
+			}
+	hub = transfer_hub()
+	stops = [hub] + farms + [hub]
+	legs, missing = [], []
+	for a, b in itertools.pairwise(stops):
+		road = _farm_distance_between(a, b)
+		if road:
+			legs.append(road)
+		else:
+			missing.append("{0} – {1}".format(a, b))
+	if missing:
+		return {
+			"status": "error",
+			"message": "No route for {0} — add it under Routes on the Truck Routes tab.".format(
+				", ".join(missing)
+			),
+		}
+	latest = frappe.get_all(
+		"Bucket Logistics Route",
+		filters={"vehicle": vehicle, "route_date": date},
+		pluck="name",
+		order_by="from_datetime desc",
+		limit=1,
+	)
+	if latest:
+		old = frappe.get_all(
+			"Bucket Logistics Route Leg",
+			filters={"parent": latest[0], "parenttype": "Bucket Logistics Route"},
+			pluck="leg",
+			order_by="idx asc",
+		)
+		res = _save_route(date=date, vehicle=vehicle, leg_names=old + legs, name=latest[0], allow_multi=True)
+	else:
+		res = _save_route(date=date, vehicle=vehicle, leg_names=legs, new=1, allow_multi=True)
+	if res.get("status") == "success":
+		res["route"] = res["name"]
+		res["run"] = len(_route_runs_by_name(res["name"]))
+		res["farms"] = farms
 	return res
 
 

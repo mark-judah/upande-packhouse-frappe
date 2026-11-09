@@ -389,6 +389,51 @@ def addTruckForFarm(farm: str, vehicle: str, date: str | None = None):
 	return out
 
 
+@frappe.whitelist(methods=["POST"])
+def addTruckForFarms(farms: str | list, vehicle: str, date: str | None = None, combine: int | str = 0):
+	"""Send `vehicle` to several farms today for `date`'s scheduled buckets: one trip per farm, in the order
+	given, each made on the truck's route for today (made when it has none), then the scheduled orders are
+	planned onto them. A farm refused (an open trip there still has room, no road) is reported and the rest
+	still go."""
+	if isinstance(farms, str):
+		farms = frappe.parse_json(farms) if farms.strip().startswith("[") else [farms]
+	added, refused = [], []
+	farms = [f for f in farms or [] if f]
+	# combine: one trip via every farm, back to the sales farm, instead of a trip per farm
+	if frappe.utils.cint(combine) and len(farms) > 1:
+		res = truck_routes.add_farms_run(vehicle, farms, frappe.utils.today())
+		if res.get("status") != "success":
+			return {
+				"status": "error",
+				"message": res.get("message") or "Could not plan the trip.",
+				"refused": [],
+			}
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+		out = distributeTrips(date)
+		out["added_runs"] = [
+			{"vehicle": vehicle, "farm": " → ".join(farms), "run": res.get("run"), "route": res.get("route")}
+		]
+		out["refused"] = []
+		return out
+	for farm in farms:
+		res = truck_routes.add_farm_run(vehicle, farm, frappe.utils.today())
+		if res.get("status") == "success":
+			added.append({"vehicle": vehicle, "farm": farm, "run": res.get("run"), "route": res.get("route")})
+		else:
+			refused.append({"farm": farm, "message": res.get("message") or res.get("reason") or ""})
+	if not added:
+		return {
+			"status": "error",
+			"message": "; ".join(r["message"] for r in refused) or "No farm chosen.",
+			"refused": refused,
+		}
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
+	out = distributeTrips(date)
+	out["added_runs"] = added
+	out["refused"] = refused
+	return out
+
+
 def _add_runs_for_waiting(window=None):
 	"""A new run (packhouse → farm → packhouse) for every farm whose scheduled buckets
 	no open trip has room for -- on a truck
@@ -1021,7 +1066,11 @@ def _fill(trucks, farm, amount, graph, row=None, only=None):
 
 
 def _one_farm(truck, farm):
-	"""The trip may collect at `farm`: nothing on it yet, or only that farm's buckets."""
+	"""The trip may collect at `farm`: nothing on it yet, or only that farm's buckets -- unless its run
+	was made to go via several farms (Add to truck, one trip), which collects at each of them."""
+	fixed = set(truck.get("fixed") or ())
+	if len(fixed) > 1 and farm in fixed:
+		return True
 	return set(truck["stops"]) <= {farm} and set(truck.get("kept_farms") or ()) <= {farm}
 
 

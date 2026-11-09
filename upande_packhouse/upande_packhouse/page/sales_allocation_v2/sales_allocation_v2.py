@@ -970,6 +970,10 @@ def get_sales_order_items_with_buckets(
 	held_by_line = availability.reservations_by_bucket_line({b["bucket_id"] for b in buckets})
 	# Stems other orders have allocated and are waiting to confirm are not free here either.
 	pending = pending_holds({b["bucket_id"] for b in buckets})
+	# A remote farm's bucket is requested whole: one order holding it takes the whole bucket off the farm
+	owners = remote_bucket_owners(
+		{b["bucket_id"] for b in buckets if not farm_config.get(b["shelf_farm"], {}).get("sales_shelf")}
+	)
 
 	for item in items:
 		meta = metadata_map.get(item["item_code"], {})
@@ -1021,6 +1025,8 @@ def get_sales_order_items_with_buckets(
 			]
 			held_others += sum(q for _so, q in held_for)
 			available_here = max(0.0, (b["available_qty"] or 0) - held_others)
+			if not is_sales_shelf and owners.get(b["bucket_id"], set()) - {sales_order}:
+				available_here = 0.0
 
 			# Fully allocated elsewhere: nothing to allocate and nothing to
 			# unallocate from this line, so keep it off the list -- unless another
@@ -1713,6 +1719,39 @@ def allocate_stock_with_buckets(
 		raise
 
 
+def remote_bucket_owners(bucket_ids):
+	"""{bucket_id: {sales_order}} holding stems of each bucket's current harvest (since it was shelved):
+	outstanding allocations (not cancelled, not issued) and allocations waiting release. A bucket on a remote farm is requested whole, so while it is
+	there it belongs to the order holding it; the stems that order does not take arrive at the hub free."""
+	bucket_ids = tuple({b for b in bucket_ids or () if b})
+	if not bucket_ids:
+		return {}
+	out = defaultdict(set)
+	for bucket, so in frappe.db.sql(
+		"""SELECT DISTINCT bas.bucket_id, soi.parent
+		FROM `tabBucket Allocations` ba
+		JOIN `tabBucket Allocation Status` bas ON bas.name = ba.parent AND ba.parenttype = 'Bucket Allocation Status'
+		JOIN `tabSales Order Item` soi ON soi.name = ba.sales_order_item
+		JOIN (SELECT bucket_id, MIN(date_added) AS since FROM `tabShelf Item`
+		      WHERE parenttype = 'Shelf' AND bucket_id IN %(b)s GROUP BY bucket_id) si ON si.bucket_id = bas.bucket_id
+		WHERE bas.bucket_id IN %(b)s AND ba.cancelled = 0 AND IFNULL(ba.issued, 0) = 0 AND ba.creation >= si.since""",
+		{"b": bucket_ids},
+	):
+		out[bucket].add(so)
+	if frappe.db.table_exists("Pending Allocation Row"):
+		for bucket, so in frappe.db.sql(
+			"""SELECT DISTINCT r.bucket_id, p.sales_order
+			FROM `tabPending Allocation Row` r
+			JOIN `tabPending Allocation` p ON p.name = r.parent AND r.parenttype = 'Pending Allocation'
+			JOIN (SELECT bucket_id, MIN(date_added) AS since FROM `tabShelf Item`
+			      WHERE parenttype = 'Shelf' AND bucket_id IN %(b)s GROUP BY bucket_id) si ON si.bucket_id = r.bucket_id
+			WHERE p.status = 'Pending' AND r.bucket_id IN %(b)s AND r.creation >= si.since""",
+			{"b": bucket_ids},
+		):
+			out[bucket].add(so)
+	return out
+
+
 def pending_holds(bucket_ids):
 	"""{(bucket, variety, length): [(sales_order, stems)]} that Pending Allocations (allocated, waiting to be
 	confirmed) hold. Another order cannot take those stems."""
@@ -2301,6 +2340,14 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 
 		# ── TRANSIT CHECK: Is this bucket on a remote farm? ──
 		needs_transfer = sales_shelf_farm and shelf["farm"] != sales_shelf_farm
+		if needs_transfer:
+			others = remote_bucket_owners([bucket_id]).get(bucket_id, set()) - {sales_order}
+			if others:
+				frappe.throw(
+					_(
+						"Bucket {0} at {1} is requested whole for {2}: it can be allocated again once it is shelved at the hub."
+					).format(bucket_id, shelf["farm"], ", ".join(sorted(others)))
+				)
 
 		bas_key = (bucket_id, item_code, stem_length)
 

@@ -1230,10 +1230,13 @@ class UnitTestOneFarmPerTrip(UnitTestCase):
 		for t in loads:
 			self.assertEqual(len({r["farm"] for r in t["rows"]}), 1)
 
-	def test_b_a_run_drawn_with_two_farms_still_carries_one(self):
+	def test_b_a_run_made_via_two_farms_collects_at_both(self):
+		# Add to truck's "one trip via all its farms": the run's route goes via both farms
 		loads = self._plan([at._truck("KDP 283L", 20, {"Chepsito", "Torongo"}, route="R1", run=1)])
 		self.assertEqual(len(loads), 1)
-		self.assertEqual(len({r["farm"] for r in loads[0]["rows"]}), 1)
+		self.assertEqual(
+			sorted((r["farm"], r["buckets"]) for r in loads[0]["rows"]), [("Chepsito", 2), ("Torongo", 6)]
+		)
 
 	def _sql(self, trips):
 		"""farm_holders' query: one row per trip order row."""
@@ -1392,3 +1395,35 @@ class UnitTestOneFarmPerTrip(UnitTestCase):
 		self.assertEqual([(t, r["buckets"]) for t, r in placed], [("BRT-9", 3)])
 		write.assert_not_called()
 		add_run.assert_not_called()
+
+
+class UnitTestOneTruckSeveralFarms(UnitTestCase):
+	def test_a_truck_gets_one_trip_per_farm_and_a_refused_farm_does_not_stop_the_rest(self):
+		def add(vehicle, farm, date):
+			if farm == "Simotwo":
+				return {"status": "error", "reason": "open_trip", "message": "Simotwo still has room"}
+			return {"status": "success", "route": "R1", "run": ["Chepsito", "Kaptumbo"].index(farm) + 1}
+
+		with (
+			patch.object(at.truck_routes, "add_farm_run", side_effect=add) as run,
+			patch.object(at, "distributeTrips", return_value={"status": "success", "trips": []}) as dist,
+			patch.object(at.frappe.db, "commit"),
+		):
+			out = at.addTruckForFarms('["Chepsito", "Simotwo", "Kaptumbo"]', "KAS 866Q", "2026-11-11")
+		self.assertEqual([c.args[1] for c in run.call_args_list], ["Chepsito", "Simotwo", "Kaptumbo"])
+		self.assertEqual(
+			[(a["farm"], a["run"]) for a in out["added_runs"]], [("Chepsito", 1), ("Kaptumbo", 2)]
+		)
+		self.assertEqual([r["farm"] for r in out["refused"]], ["Simotwo"])
+		dist.assert_called_once_with("2026-11-11")
+
+	def test_nothing_is_planned_when_every_farm_is_refused(self):
+		with (
+			patch.object(
+				at.truck_routes, "add_farm_run", return_value={"status": "error", "message": "No road"}
+			),
+			patch.object(at, "distributeTrips") as dist,
+		):
+			out = at.addTruckForFarms(["Torongo"], "KAS 866Q")
+		self.assertEqual((out["status"], out["message"]), ("error", "No road"))
+		dist.assert_not_called()
