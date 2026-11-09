@@ -144,9 +144,19 @@ html,body{overflow:clip!important}
     cur={tab:tab, group:g};
     // A frame still loading: the page's skeleton covers it. A tab already open reloads
     // its data with its own skeleton (its Refresh), so a switch never shows stale data.
-    if(loaded[g]) skel.classList.add('off');
-    else { skel.style.transition='none'; skel.classList.remove('off'); void skel.offsetWidth; skel.style.transition=''; }   // in at once, fades out
-    if(kept && loaded[g]) (refresh[g]||[]).forEach(function(fn){ try{ fn(); }catch(e){} });
+    // Every switch shows the skeleton: a frame still loading keeps it until its data is in; a tab
+    // already open keeps it while it reloads (its Refresh), so a switch never shows stale data.
+    // a tab never seen yet: skeleton at once; a tab already open: the skeleton fades in over it
+    // (no flash), stays while it reloads, then fades out onto the fresh data
+    if(!loaded[g]){ skel.style.transition='none'; skel.classList.remove('off'); void skel.offsetWidth; skel.style.transition=''; }
+    else skel.classList.remove('off');
+    if(loaded[g]){
+      var t0=Date.now(), fns=kept?(refresh[g]||[]):[];
+      var ps=fns.map(function(fn){ try{ return fn(); }catch(e){ return null; } });
+      Promise.all(ps.map(function(p){ return Promise.resolve(p).catch(function(){}); })).then(function(){
+        setTimeout(function(){ if(cur && cur.group===g) skel.classList.add('off'); }, Math.max(0, 350-(Date.now()-t0)));
+      });
+    }
     highlight(tab);
     var url=withDate(PATHS[tab], g==='planner' && view[g]===tab && view.url ? view.url.split('?')[1] : '');
     if(push) history.pushState({tab:tab}, '', url); else history.replaceState({tab:tab}, '', url);

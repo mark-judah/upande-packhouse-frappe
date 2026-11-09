@@ -22,7 +22,7 @@ harvested again; that lag is at most REBUILD_SECONDS.
 """
 
 import frappe
-from frappe.utils import add_to_date, add_days, get_datetime, now_datetime, today
+from frappe.utils import add_days, add_to_date, get_datetime, now_datetime, today
 
 # a bucket's cycle: cut, received, and every way it can leave the cold room afterwards (cold_room.ONWARD_TYPES)
 TYPES = (
@@ -42,8 +42,12 @@ OVERLAP_MINUTES = 10  # a top-up re-reads this much, for entries committed after
 REFRESH_SECONDS = 30
 REBUILD_SECONDS = 6 * 3600
 KEY = "bucket_cycle_index_v2"  # v2: more entry types and a posting date per type
-POSTED = "posted:"  # "posted:<type>": the latest posting date of that type, for rules written in posting dates
-HARVEST_DATE = "harvest_date"  # alongside the entry types in a bucket's record: posting date of its latest harvest
+POSTED = (
+	"posted:"  # "posted:<type>": the latest posting date of that type, for rules written in posting dates
+)
+HARVEST_DATE = (
+	"harvest_date"  # alongside the entry types in a bucket's record: posting date of its latest harvest
+)
 
 
 def _read(where, params):

@@ -652,7 +652,9 @@ def collect(a):
 	for r in _quarantine_rows():
 		if keep(r):
 			if a.hide_reharvested and bucket_cycle.harvested_after(cycles, r.bucket_id, r.last_in):
-				hide("quarantine", _f(r.stems), r.bucket_id)  # the bucket was refilled: nothing is still in quarantine
+				hide(
+					"quarantine", _f(r.stems), r.bucket_id
+				)  # the bucket was refilled: nothing is still in quarantine
 				continue
 			add(
 				"quarantine",

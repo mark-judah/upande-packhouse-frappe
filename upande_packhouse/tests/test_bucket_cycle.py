@@ -71,7 +71,9 @@ class TestHarvestDate(UnitTestCase):
 class TestPostedSince(UnitTestCase):
 	def test_an_onward_move_on_or_after_the_day_counts(self):
 		data = {}
-		bc._merge(data, [("X", "Discard", at(5), date(2026, 11, 3)), ("X", "Packing", at(1), date(2026, 10, 30))])
+		bc._merge(
+			data, [("X", "Discard", at(5), date(2026, 11, 3)), ("X", "Packing", at(1), date(2026, 10, 30))]
+		)
 		self.assertTrue(bc.posted_since(data, "x", ("Discard",), date(2026, 11, 3)), "the same day counts")
 		self.assertTrue(bc.posted_since(data, "X", ("Discard",), date(2026, 11, 1)))
 		self.assertFalse(bc.posted_since(data, "X", ("Discard",), date(2026, 11, 4)))
@@ -121,7 +123,9 @@ class TestIndexKeepsFresh(IntegrationTestCase):
 		self.assertEqual(len(self.reads), 2)
 		self.assertIn("creation", self.reads[1][0])
 		self.assertEqual(
-			self.reads[1][1]["since"], at(40) - timedelta(minutes=bc.OVERLAP_MINUTES), "re-reads a short overlap"
+			self.reads[1][1]["since"],
+			at(40) - timedelta(minutes=bc.OVERLAP_MINUTES),
+			"re-reads a short overlap",
 		)
 		self.assertIn("NEW111", data)
 
@@ -201,6 +205,11 @@ class TestFilterOutReharvested(IntegrationTestCase):
 			patch.object(st, "_transit_rows", lambda: []),
 			patch.object(st, "_quarantine_rows", lambda: quarantine),
 			patch.object(st.bucket_cycle, "index", lambda: idx),
+			patch.object(
+				st.stock,
+				"_config",
+				lambda: {"discard_age": 5, "amber_time": 3, "farm_config": {}, "farms_by_location": {}},
+			),
 		):
 			return st.collect(st._args(dict(**kw)))
 
@@ -296,7 +305,9 @@ class TestColdRoomFloor(IntegrationTestCase):
 			"CCC333": {"Harvesting": at(1), "Receiving": at(5), "Late Receipt": at(9)},
 		}
 		out = self._floor(rows, idx)
-		self.assertEqual([r.bucket_id for r in out], ["AAA111"], "BBB222 was refilled, CCC333 was received again")
+		self.assertEqual(
+			[r.bucket_id for r in out], ["AAA111"], "BBB222 was refilled, CCC333 was received again"
+		)
 		self.assertEqual(out[0].harvest_date, date(2026, 11, 1))
 		self.assertEqual(out[0].stems, 100.0)
 		self.assertEqual(out[0].days_on_floor, out[0].age_days)
@@ -305,7 +316,10 @@ class TestColdRoomFloor(IntegrationTestCase):
 		rows = [self._row("AAA111", at(5), date(2026, 11, 1)), self._row("BBB222", at(5), date(2026, 11, 1))]
 		idx = {
 			"AAA111": {"Harvesting": at(1), "posted:Discard": date(2026, 11, 1)},
-			"BBB222": {"Harvesting": at(1), "posted:Packing": date(2026, 10, 30)},  # earlier cycle: not this one
+			"BBB222": {
+				"Harvesting": at(1),
+				"posted:Packing": date(2026, 10, 30),
+			},  # earlier cycle: not this one
 		}
 		self.assertEqual([r.bucket_id for r in self._floor(rows, idx)], ["BBB222"])
 

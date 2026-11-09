@@ -107,7 +107,8 @@ class BucketRequestTrip(Document):
 		"""One farm per trip (packhouse → farm → packhouse): buckets are planned at one farm
 		only. Riders (0 buckets) ride with their lead at its farm, and a load nobody planned
 		is recorded where it was loaded. A trip planned at several farms before this rule
-		can still be saved, as long as no farm is added to it. Fills the trip's farm."""
+		can still be saved, as long as no farm is added to it, and so can a trip whose run
+		was made via several farms. Fills the trip's farm."""
 		from upande_packhouse.api import transfer_control as tc
 
 		hub = tc.transfer_hub(required=False)
@@ -121,7 +122,10 @@ class BucketRequestTrip(Document):
 				for o in (before.orders if before else [])
 				if o.farm and o.farm != hub and int(o.buckets or 0) > 0
 			}
-			if not planned <= was:
+			# a run the planner made via several farms (Add to truck, one trip) collects at each
+			run = tc._run_of(self.route, self.run) if self.route and self.run else None
+			via = set(run["stops"]) if run and len(run["stops"]) > 1 else set()
+			if not planned <= was and not planned <= via:
 				frappe.throw(
 					_(
 						"One farm per trip: {0} has buckets planned at {1}. Plan each farm on its own trip."

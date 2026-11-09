@@ -327,16 +327,6 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .aph .sch-r1{display:flex;align-items:flex-start;gap:8px}
 .aph .sch-cwrap{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start}
 .aph .sch-cmain{flex:1 1 200px;min-width:0}
-.aph .sch-sugg{font-family:var(--sans,"Poppins",sans-serif);flex:0 1 220px;min-width:170px;display:flex;flex-direction:column;gap:6px;padding-left:12px;border-left:1px solid var(--border)}
-.aph .sch-sugg .sg-h{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2)}
-.aph .sch-sugg .sg-row{display:flex;flex-direction:column;gap:2px;padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);line-height:1.35}
-.aph .sch-sugg .sg-row.on{background:var(--good-bg,#e2f2e8);border-color:transparent}
-.aph .sch-sugg .sg-row.miss{border-style:dashed}
-.aph .sch-sugg .sg-f{font-size:12px;font-weight:500;color:var(--text-2)}
-.aph .sch-sugg .sg-v{font-size:14px;font-weight:700;color:var(--text)}
-.aph .sch-sugg .sg-r{font-size:12px;color:var(--text-2)}
-.aph .sch-sugg .sg-s{font-size:12px;font-weight:600;color:var(--good,#1f7a32)}
-.aph .sch-sugg .sg-none{font-size:12px;color:var(--text-2)}
 .aph .sch-seq{flex:0 0 auto;width:26px;height:26px;border-radius:7px;background:var(--accent);color:#fff;font-family:var(--mono);font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
 .aph .sch-seq.none{background:var(--bg-muted);color:var(--text-3)}
 .aph .sch-seq.done{background:var(--good)}
@@ -383,16 +373,6 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .aph .pd-body ul{margin:8px 0 8px 18px}
 .aph .sch-distbtn{float:right;margin:3px 0 0 10px;border:0;border-radius:8px;padding:9px 16px;background:var(--accent);color:#fff;font-size:13px;font-weight:600;cursor:pointer}
 .aph .sch-distbtn:disabled{opacity:.45;cursor:default}
-.aph .sch-trkbtn{background:var(--bg-card);color:var(--text-1);border:1px solid var(--border)}
-.aph .sch-modal-card.trk{width:640px}
-.aph .trk-t{width:100%;border-collapse:collapse;font-size:12.5px}
-.aph .trk-t th{text-align:left;font-weight:600;color:var(--text-2);padding:6px 8px;border-bottom:1px solid var(--border)}
-.aph .trk-t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:middle}
-.aph .trk-t td.n{text-align:right;font-variant-numeric:tabular-nums}
-.aph .trk-t .trk-go{color:var(--text-2);font-size:11.5px}
-.aph .trk-t select{height:30px;border:1px solid var(--border);border-radius:0;padding:0 6px;background:var(--bg-card);color:var(--text-1);font-size:12px;max-width:170px}
-.aph .trk-t .trk-add{margin-left:8px;border:0;border-radius:8px;padding:7px 14px;background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer}
-.aph .trk-t .trk-add:disabled{opacity:.5;cursor:default}
 .aph .sch-mv{margin-left:auto;display:inline-flex;flex-direction:column;gap:2px;flex:none}
 .aph .sch-mv button{border:1px solid var(--border);background:var(--bg-card);color:var(--text-2);border-radius:5px;width:26px;height:20px;font-size:10px;line-height:1;cursor:pointer;padding:0}
 .aph .sch-mv button:hover{border-color:var(--accent);color:var(--accent)}
@@ -839,7 +819,6 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       <div class="sch-varnote" id="varNote" style="display:none"></div>
       <div class="aph-kpis sch-kpis-sm" id="kpis"></div>
       <button type="button" class="sch-distbtn" id="distTeams" >Distribute to trips</button>
-      <button type="button" class="sch-distbtn sch-trkbtn" id="farmTrucks">Trucks</button>
       <div id="panelUnsched" class="sch-panel" style="display:none">
         <div class="sch-varbar" id="varBar"></div>
         <div class="sch-selbar" id="readySelBar"></div>
@@ -944,8 +923,8 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     if(lane==='sched'){
       seqHtml='<div class="sch-seq'+(opts.isNext?' next':'')+'">'+prio+'</div>';
     } else {
-      var vi=o.variation==='draft_plain'?'D':(o.variation==='draft_transfer'?'⇄':'S');
-      seqHtml='<div class="sch-seq draft" title="'+esc(varLabel(o.variation))+'">'+vi+'</div>';
+      // no letter badge (S / D / ⇄) on an unscheduled card: its status chip says the same
+      seqHtml='';
     }
     var chips=[], packed=lane==='sched'&&!!o.packed;
     // Where the order is: At Kapkolia until it is 100% issued (with the issuing progress
@@ -975,33 +954,13 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     var meta='<div class="sch-meta">'+metaParts+'</div>';
     var farmsLine=(o.has_transfer&&o.farms&&o.farms.length)?'<div class="sch-farms">'+o.farms.map(function(f){return '<span class="sch-chip farm">'+esc(f)+'</span>';}).join('')+'</div>':'';
     var draggable=(lane==='sched'&&canDrag&&!packed)?' draggable="true"':'';
-    var sugg=suggestHtml(o.farm_trips||[]);
     return '<div class="sch-card'+(opts.isSel?' sel':'')+(packed?' packed':'')+'" data-opl="'+esc(o.name)+'"'+draggable+'>'+
       '<div class="sch-cwrap"><div class="sch-cmain">'+
       '<div class="sch-r1">'+(packed?'':chk)+seqHtml+'<div class="sch-cnm"><div class="o">'+nm+'</div><div class="sub">'+sub+'</div></div>'+
       // Move within the team's sequence — works on touch screens, where dragging doesn't.
       (lane==='sched'&&!packed?'<span class="sch-mv"><button type="button" data-mv="up" title="Earlier in the sequence">▲</button><button type="button" data-mv="down" title="Later in the sequence">▼</button></span>':'')+
       '</div>'+
-      chipsHtml+farmsLine+meta+'</div>'+(packed?'':sugg)+'</div></div>';
-  }
-  // The trip to suggest per waiting farm: the one already carrying this order's buckets
-  // from that farm, else the first one going there (the feed sends only available trips).
-  function suggestTrip(f){
-    var ts=f.trips||[], on=null;
-    ts.forEach(function(t){ if(!on&&t.on_trip)on=t; });
-    return on||ts[0]||null;
-  }
-  function suggestHtml(fts){
-    if(!fts.length)return '';
-    return '<div class="sch-sugg"><div class="sg-h">Suggested trip</div>'+fts.map(function(f){
-      var t=suggestTrip(f);
-      var tl=t?('<span class="sg-v">'+esc(t.vehicle||'—')+(t.run?(' · trip '+t.run):'')+'</span>'+
-        (t.route?'<span class="sg-r">'+esc(t.route)+'</span>':'')+
-        (t.on_trip?'<span class="sg-s">'+num(t.on_trip)+' on it</span>':''))
-        :'<span class="sg-none">no trip yet</span>';
-      return '<div class="sg-row'+(t?(t.on_trip?' on':''):' miss')+'" title="'+esc(t?t.trip:'No trip to '+f.farm+' yet')+'">'+
-        '<span class="sg-f">'+esc(f.farm)+' · '+num(f.buckets)+' bucket'+(num(f.buckets)===1?'':'s')+'</span>'+tl+'</div>';
-    }).join('')+'</div>';
+      chipsHtml+farmsLine+meta+'</div>'+'</div></div>';
   }
 
   // Per-team NEXT-to-issue set: lowest-numbered Ready line per team still below the
@@ -1103,16 +1062,19 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       var ra=VR[a[0].variation], rb=VR[b[0].variation];
       return ((ra!=null?ra:3)-(rb!=null?rb:3))||(a[1]-b[1]);
     }).map(function(x){return x[0];});
-    var pages=Math.max(1,Math.ceil(list.length/PAGE));
-    if(G.readyPage>pages)G.readyPage=pages; if(G.readyPage<1)G.readyPage=1;
-    var start=(G.readyPage-1)*PAGE, end=Math.min(list.length,start+PAGE);
-    var view=list.slice(start,end);
     var body=el('bUnsched'); if(!body) return;
-    body.innerHTML=view.length
-      ? view.map(function(o){return card(o,'unsched',0,false,{isSel:G.sel.has(o.name)});}).join('')
-      : '<div class="sch-empty">Nothing unscheduled here</div>';
-    renderPager(list.length,pages,start,end);
-    wireList(body,false);
+    if(!list.length){ body.innerHTML='<div class="sch-empty">Nothing unscheduled here</div>'; renderPager(0,1,0,0); return; }
+    // one column per team, side by side, as By team shows the scheduled ones
+    var groups=[], gmap={};
+    list.forEach(function(o){var tm=o.custom_team||'-';if(!gmap[tm]){gmap[tm]={team:tm,items:[]};groups.push(gmap[tm]);}gmap[tm].items.push(o);});
+    groups.sort(function(a,b){ return a.team==='-'?1:b.team==='-'?-1:String(a.team).localeCompare(String(b.team)); });
+    body.innerHTML='<div class="sch-teamcols">'+groups.map(function(g){
+      var tb=0,bk=0; g.items.forEach(function(o){tb=tb+num(o.total_stems);bk=bk+cardBuckets(o);});
+      return '<div class="sch-teamcol"><div class="sch-teamh"><span class="tn">'+esc(g.team==='-'?'No team':g.team)+' ('+g.items.length+')</span><span class="tn">'+fmt(bk)+' buckets</span><span class="ts ts-full">'+fmt(tb)+' stems</span></div>'+
+        '<div class="sch-list" data-team="'+esc(g.team)+'">'+g.items.map(function(o){return card(o,'unsched',0,false,{isSel:G.sel.has(o.name)});}).join('')+'</div></div>';
+    }).join('')+'</div>';
+    renderPager(0,1,0,0);   // every order shows in its column: no pages
+    body.querySelectorAll('.sch-list').forEach(function(listEl){wireList(listEl,false);});
   }
 
   // ---- Schedule tab: scheduled items grouped by team, in priority order ----
@@ -1223,49 +1185,6 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   // Schedule first, trucks after: Distribute plans onto the trucks already going; the farms whose
   // scheduled buckets have no truck yet are listed to send one.
   function distributeToTrips(){ distributeNow(); }
-  function trucksDialog(needs){
-    var wrap=document.querySelector('.sch-modal.trk-wrap');
-    if(!wrap){
-      wrap=document.createElement('div'); wrap.className='sch-modal open trk-wrap';
-      (document.querySelector('.aph')||document.body).appendChild(wrap);
-      wrap.addEventListener('click',function(e){ if(e.target===wrap||e.target.closest('[data-trk-x]')) wrap.remove(); });
-    }
-    var trucks=(needs&&needs.trucks)||[], farms=((needs&&needs.farms)||[]);
-    var opts=function(n){
-      // the truck that takes the farm's buckets in fewest trips first
-      var list=trucks.slice().sort(function(a,b){ return Math.abs(a.capacity-n)-Math.abs(b.capacity-n)||b.capacity-a.capacity; });
-      return list.map(function(t){ return '<option value="'+esc(t.name)+'">'+esc(t.name)+' · '+t.capacity+'</option>'; }).join('');
-    };
-    var rows=farms.map(function(f){
-      var going=(f.going||[]).map(function(g){ return esc(g.vehicle)+(g.room!=null?' ('+g.room+' free)':''); }).join(', ');
-      return '<tr><td><strong>'+esc(f.farm)+'</strong>'+(going?'<div class="trk-go">'+going+'</div>':'')+'</td>'+
-        '<td class="n">'+f.buckets+'</td>'+
-        '<td>'+(f.buckets>0&&trucks.length?'<select data-trk-v="'+esc(f.farm)+'">'+opts(f.buckets)+'</select><button type="button" class="trk-add" data-trk-add="'+esc(f.farm)+'">Add truck</button>':'')+'</td></tr>';
-    }).join('');
-    wrap.innerHTML='<div class="sch-modal-card trk"><div class="smh"><div><div class="smt">Trucks · '+esc(needs&&needs.date||'')+'</div></div>'+
-      '<button class="sch-x" data-trk-x title="Close">&times;</button></div><div class="smb">'+
-      (rows?'<table class="trk-t"><thead><tr><th>Farm</th><th class="n" style="text-align:right">Buckets</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>':'<div class="sml">No remote buckets to collect</div>')+
-      '</div></div>';
-    wrap.querySelectorAll('[data-trk-add]').forEach(function(b){
-      b.onclick=function(){
-        var farm=b.getAttribute('data-trk-add'), sel=wrap.querySelector('select[data-trk-v="'+CSS.escape(farm)+'"]');
-        b.disabled=true; b.textContent='Adding…';
-        frp('upande_packhouse.api.auto_transfer.addTruckForFarm',{farm:farm,vehicle:sel&&sel.value,date:STATE.date||window.rtDate.get()}).then(function(m){
-          if(!m||m.status==='error'||m.status==='busy'){ notify((m&&m.message)||'Could not add the truck','red'); b.disabled=false; b.textContent='Add truck'; return; }
-          var a=m.added||{}, n=(m.trips||[]).length;
-          notify(a.vehicle+' → '+a.farm+(n?' · '+n+' trip'+(n===1?'':'s')+' planned':''),'green');
-          trucksDialog(m.needs);
-          load();
-        });
-      };
-    });
-  }
-  function openTrucks(){
-    frp('upande_packhouse.api.auto_transfer.getFarmNeeds',{date:STATE.date||window.rtDate.get()}).then(function(m){
-      if(m&&m.status==='error'){ notify(m.message||'Could not read the farms','red'); return; }
-      trucksDialog(m);
-    });
-  }
   function distributeNow(){
     // Plans the scheduled orders onto the day's trips right here (the server's
     // distributeTrips); the trips show on Bucket Logistics -- no separate Trips page.
@@ -1293,8 +1212,6 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         if(part) notify(ords(part)+' partly planned','orange');
         // The plan changed the orders' trips: read the feed again.
         load();
-        // farms whose scheduled buckets still have no truck: send one
-        if(m.needs&&(m.needs.farms||[]).some(function(f){ return f.buckets>0; })) trucksDialog(m.needs);
       });
     };
     var todo=distTodo();
@@ -1532,7 +1449,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     var SKEL=new Array(4).join('<div class="sk-card"><span class="sk" style="width:30%;height:14px"></span><div style="height:10px"></div><span class="sk" style="width:90%;height:12px"></span><div style="height:8px"></div><span class="sk" style="width:62%;height:12px"></span></div>');
     if(el('bUnsched'))el('bUnsched').innerHTML=SKEL;
     if(el('bSched'))el('bSched').innerHTML=SKEL;
-    frp('upande_packhouse.api.scheduler.getSchedulerFeed',{date:dd}).then(function(r){
+    return frp('upande_packhouse.api.scheduler.getSchedulerFeed',{date:dd}).then(function(r){
       if(r&&(r.success===false||r.status==='error')){
         var msg='<div class="sch-empty" style="color:var(--bad)">Couldn’t load: '+esc(r.error||r.message||'server error')+'</div>';
         if(el('bUnsched'))el('bUnsched').innerHTML=msg;
@@ -1585,7 +1502,6 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   if(el('smCancel'))el('smCancel').onclick=closeSchedModal;
   if(el('smSave'))el('smSave').onclick=saveSchedModal;
   if(el('distTeams'))el('distTeams').onclick=distributeToTrips;
-  if(el('farmTrucks'))el('farmTrucks').onclick=openTrucks;
   if(el('schModal'))el('schModal').addEventListener('click',function(e){if(e.target===el('schModal'))closeSchedModal();});
   if(el('smNum'))el('smNum').addEventListener('keydown',function(e){if(e.key==='Enter')saveSchedModal();});
   function boot(){if(window.frappe&&frappe.call){load();setInterval(load,60000);}else if(boot._n++<80){setTimeout(boot,100);}}

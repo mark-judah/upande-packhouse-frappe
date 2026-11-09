@@ -4865,7 +4865,13 @@ def _save_trip(
 	hub = transfer_hub(required=False)
 	if existing:
 		farms = sorted(_farms_of_rows(rows, hub))
-		if len(farms) > 1:
+		# a trip whose run goes via several farms (Add to truck, one trip) keeps them all
+		route, run = frappe.db.get_value("Bucket Request Trip", name, ["route", "run"]) or (None, None)
+		via = next(
+			(set(r["stops"]) for r in (_route_runs_by_name(route) if route else []) if r.get("run") == run),
+			set(),
+		)
+		if len(farms) > 1 and not (len(via) > 1 and set(farms) <= via):
 			return {
 				"status": "error",
 				"reason": "one_farm",
@@ -5141,10 +5147,12 @@ def _split_into_runs(vehicle, date, rows, skip_full=False, only=None):
 		visits = [sl for sl in slots if row["farm"] in sl["stops"] and row["farm"] not in sl["departed"]]
 		for sl in visits:
 			take = min(left, sl["room"])
-			# One farm per trip: a run already collecting at another farm takes none.
-			if take <= 0 or not sl["farms"] <= {row["farm"]}:
+			# One farm per trip: a run already collecting at another farm takes none -- unless the run
+			# was made to go via several farms (Add to truck, one trip), which collects at each.
+			multi = len(set(sl.get("stops") or ())) > 1
+			if take <= 0 or (not multi and not sl["farms"] <= {row["farm"]}):
 				continue
-			sl["farms"] = {row["farm"]}
+			sl["farms"] = set(sl["farms"]) | {row["farm"]} if multi else {row["farm"]}
 			per = (row["stems"] / row["buckets"]) if row["buckets"] else 0
 			sl["rows"].append(
 				{

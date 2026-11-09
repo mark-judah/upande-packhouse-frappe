@@ -1782,6 +1782,11 @@ frappe.pages["sales-allocation-v2"]._hold_session = function () {
 	if (!allocations.length && !existing) return Promise.resolve();
 	const teams = { ...(P.item_teams || {}) };
 	const boxes = P._session_boxes();
+	// allocating by hand is a new round: its complete boxes and the shortages count again
+	if (allocations.length && P._is_released()) {
+		P._set_released(false);
+		P._load_shortages();
+	}
 	// the card keeps its progress at once; the server answer refreshes it
 	const orders = ((P.proposal && P.proposal.orders) || []).filter((o) => o.sales_order !== so);
 	if (allocations.length) {
@@ -3650,6 +3655,8 @@ frappe.pages["sales-allocation-v2"]._day_done = function (m) {
 	if (P._day_finished) return;
 	P._day_finished = true;
 	P._day_running = false;
+	// a release empties the release list until the next allocation; a new Allocate all fills it again
+	if (!m.error) P._set_released(m.phase === "confirm");
 	// Allocate all goes straight on in the panel: the cut stage, then substitutes, then downgrades
 	if (m.phase !== "confirm" && !m.error) P._steps_after_allocate(null, m.new_stems || 0);
 	else P._day_progress(1, 1, "", !m.error);
@@ -3674,6 +3681,20 @@ frappe.pages["sales-allocation-v2"]._day_done = function (m) {
 						]),
 						indicator: Object.keys(m.errors || {}).length ? "orange" : "green",
 					});
+					const failed = Object.entries(m.errors || {});
+					if (failed.length)
+						frappe.msgprint({
+							title: __("Not saved"),
+							message: failed
+								.map(
+									([so, why]) =>
+										`<strong>${frappe.utils.escape_html(
+											so
+										)}</strong>: ${frappe.utils.escape_html(why)}`
+								)
+								.join("<br>"),
+							indicator: "orange",
+						});
 					// what has no complete box yet stays allocated, waiting release
 					if ((m.waiting || []).length)
 						frappe.show_alert({
@@ -3911,7 +3932,36 @@ frappe.pages["sales-allocation-v2"]._load_proposal = function () {
 // the orders a release would make a pick list for: at least one complete box
 frappe.pages["sales-allocation-v2"]._releasable = function () {
 	const P = frappe.pages["sales-allocation-v2"];
-	return ((P.proposal && P.proposal.orders) || []).filter((o) => (o.boxes || 0) > 0);
+	return ((P.proposal && P.proposal.orders) || []).filter(
+		(o) => (o.boxes || 0) > 0 && (o.releasable == null || o.releasable)
+	);
+};
+// A release clears the release and shortage counts until the next round of allocation, for this location
+// and delivery window -- kept in the browser, so a reload does not bring them back.
+frappe.pages["sales-allocation-v2"]._released_key = function () {
+	const P = frappe.pages["sales-allocation-v2"];
+	return `sa2_released:${P.selected_location || ""}:${P.filters.delivery_start || ""}:${
+		P.filters.delivery_end || ""
+	}`;
+};
+frappe.pages["sales-allocation-v2"]._set_released = function (on) {
+	const P = frappe.pages["sales-allocation-v2"];
+	P._released = !!on;
+	try {
+		if (on) localStorage.setItem(P._released_key(), "1");
+		else localStorage.removeItem(P._released_key());
+	} catch (e) {
+		// no storage: the flag lasts this visit only
+	}
+};
+frappe.pages["sales-allocation-v2"]._is_released = function () {
+	const P = frappe.pages["sales-allocation-v2"];
+	if (P._released) return true;
+	try {
+		return localStorage.getItem(P._released_key()) === "1";
+	} catch (e) {
+		return false;
+	}
 };
 frappe.pages["sales-allocation-v2"]._update_confirm_btn = function () {
 	const P = frappe.pages["sales-allocation-v2"];
@@ -3923,7 +3973,7 @@ frappe.pages["sales-allocation-v2"]._update_confirm_btn = function () {
 		!orders.some((o) => o.sales_order === P.selected_order)
 			? 1
 			: 0;
-	const count = releasable.length + unsaved;
+	const count = (P._is_released() ? 0 : releasable.length) + unsaved;
 	$("#confirmDayV2").prop("disabled", !count);
 	$("#confirmDayV2 .cnt")
 		.text(count)
@@ -4722,7 +4772,7 @@ frappe.pages["sales-allocation-v2"]._open_confirm_dialog = function () {
 						  }${n(o.full_after)}/${n(o.order_boxes)} ${__("boxes")}</span>`
 						: ""
 				}</td>
-				<td class="num">${n(o.stems)}</td>
+				<td class="num">${n(o.release_stems != null ? o.release_stems : o.stems)}</td>
 			</tr>${(o.groups || [])
 				.map(
 					(g, gi) => `<tr class="ca-group" data-of="${i}" hidden>
@@ -4787,7 +4837,16 @@ frappe.pages["sales-allocation-v2"]._open_confirm_dialog = function () {
 		const chosen = ticked();
 		d.$wrapper.find(".ca-count").text(__("{0} orders", [chosen.length]));
 		d.$wrapper.find(".ca-boxes").text(n(chosen.reduce((s, o) => s + (o.boxes || 0), 0)));
-		d.$wrapper.find(".ca-stems").text(n(chosen.reduce((s, o) => s + (o.stems || 0), 0)));
+		d.$wrapper
+			.find(".ca-stems")
+			.text(
+				n(
+					chosen.reduce(
+						(s, o) => s + (o.release_stems != null ? o.release_stems : o.stems || 0),
+						0
+					)
+				)
+			);
 	};
 	d.$wrapper.find(".ca-all").on("change", function () {
 		d.$wrapper.find("input[data-i]").prop("checked", this.checked);
@@ -5093,8 +5152,9 @@ frappe.pages["sales-allocation-v2"]._load_shortages = function () {
 };
 frappe.pages["sales-allocation-v2"]._set_shortages = function (shortages) {
 	const P = frappe.pages["sales-allocation-v2"];
-	// Only lines really short: boxes the free buckets cannot reach, or stems no bucket has.
-	P.shortages = (shortages || []).filter((x) => {
+	// Only lines really short: boxes the free buckets cannot reach, or stems no bucket has. None after a
+	// release, until the next round of allocation.
+	P.shortages = (P._is_released() ? [] : shortages || []).filter((x) => {
 		const gb = x.group_boxes || {};
 		return (
 			gb.needed > (gb.coverable || gb.covered || 0) || (x.short || 0) - (x.usable || 0) > 0.5
