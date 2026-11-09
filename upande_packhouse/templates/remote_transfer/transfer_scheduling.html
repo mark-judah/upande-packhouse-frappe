@@ -1146,7 +1146,7 @@ function trucksDialog(needs, vehicle){
   if(!st){ st=document.createElement('style'); st.id='trk-style'; document.head.appendChild(st); }
   {
     st.textContent='#trk-modal .trk-card{width:560px;max-width:calc(100vw - 32px)}#trk-modal .trk-body{padding:6px 24px 6px!important;display:block}#trk-modal .trk-sec{font:600 10.5px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-4,#8a8a80);margin:2px 0 8px}'+
-      '#trk-modal .trk-farm{display:grid;grid-template-columns:18px minmax(0,1fr) auto 150px;align-items:center;column-gap:12px;padding:10px 12px;border:1px solid var(--hairline,#e6e4dc);border-radius:12px;background:var(--surface-2,#fff);margin-bottom:8px;cursor:default}#trk-modal .trk-farm input{cursor:pointer}'+
+      '#trk-modal .trk-farm{display:grid;grid-template-columns:18px minmax(0,1fr) auto 140px auto;align-items:center;column-gap:12px;padding:10px 12px;border:1px solid var(--hairline,#e6e4dc);border-radius:12px;background:var(--surface-2,#fff);margin-bottom:8px;cursor:default}#trk-modal .trk-farm input{cursor:pointer}'+
       '#trk-modal .trk-farm{position:relative}#trk-modal .trk-farm.on{border-color:#9a9a90;background:#fff}#trk-modal .trk-farm:not(.on) b,#trk-modal .trk-farm:not(.on) .bk{color:var(--ink-4,#9a9a90)}#trk-modal .trk-farm.open{z-index:40}#trk-modal .trk-farm b{font-size:14px}#trk-modal .trk-farm .go{color:var(--ink-4,#8a8a80);font-size:11.5px}'+
       '#trk-modal .trk-farm input{margin:0;width:16px;height:16px}#trk-modal .trk-farm .bk{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}#trk-modal .trk-farm .bk b{font-size:15px;font-weight:800}'+
       '#trk-modal .trk-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:8px}'+
@@ -1154,6 +1154,9 @@ function trucksDialog(needs, vehicle){
       '#trk-modal .trk-opt .nm{font:600 13px var(--mono,ui-monospace,monospace)}#trk-modal .trk-opt .cp{color:var(--ink-4,#8a8a80);font-size:11.5px}'+
       '#trk-modal .trk-opt.on{background:#0a0a0a;border-color:#0a0a0a;color:#fafaf6}#trk-modal .trk-opt.on .cp{color:#c9c9bf}'+
       '#trk-modal .trk-dd{position:relative}'+
+      '#trk-modal .trk-comb{height:32px;border:1px solid var(--hairline,#e6e4dc);border-radius:9px;background:var(--surface-2,#fff);color:var(--ink-4,#8a8a80);font:600 12px var(--sans);padding:0 10px;cursor:pointer;white-space:nowrap}'+
+      '#trk-modal .trk-comb.on{background:#0a0a0a;border-color:#0a0a0a;color:#fafaf6}'+
+      '#trk-modal .trk-card{width:640px}'+
       '#trk-modal .trk-ddb{width:100%;height:32px;display:flex;align-items:center;justify-content:space-between;gap:6px;border:1px solid var(--hairline,#e6e4dc);border-radius:9px;background:var(--surface-2,#fff);color:inherit;font:500 12px var(--sans);padding:0 10px;cursor:pointer}'+
       '#trk-modal .trk-ddb i{font-style:normal;color:var(--ink-4,#8a8a80);font-size:10px}'+
       '#trk-modal .trk-dd.set .trk-ddb{border-color:#0a0a0a;font-weight:600}'+
@@ -1172,6 +1175,7 @@ function trucksDialog(needs, vehicle){
         '<div class="trk-ddm" hidden><button type="button" class="trk-ddo on" data-o="">All-farms truck</button>'+
         trucks.map(function(t){ return '<button type="button" class="trk-ddo" data-o="'+esc(t.name)+'"><b>'+esc(t.name)+'</b><span>'+n(t.capacity)+' buckets a trip</span></button>'; }).join('')+
         '</div></div>':'')+
+      '<button type="button" class="trk-comb" data-tk-c="'+esc(f.farm)+'" aria-pressed="false">One trip</button>'+
       '</div>';
   }).join('')||'<div class="rl-empty">No remote buckets to collect.</div>';
   var truckOpts=trucks.map(function(t){
@@ -1182,11 +1186,12 @@ function trucksDialog(needs, vehicle){
     m.addEventListener('click',function(e){ if(e.target===m||e.target.closest('[data-tk-x]')) m.remove(); }); }
   m.innerHTML='<div class="dm-card trk-card"><div class="dm-hd"><h3>Add to truck · '+esc(needs&&needs.date||'')+'</h3><button class="sch-x" data-tk-x title="Close">×</button></div>'+
     '<div class="trk-body"><div class="trk-sec">Farms</div>'+farmRows+
-    (trucks.length&&farms.length?'<div class="trk-sec" style="margin-top:14px">Truck for all farms</div><div class="trk-list">'+truckOpts+'</div>'+
-      '<div class="trk-farm on" style="grid-template-columns:18px minmax(0,1fr);margin-top:6px"><input type="checkbox" id="trk-combine">'+
-      '<span><b>One trip via all its farms, back to '+esc(pack())+'</b></span></div>':'')+'</div>'+
+    (trucks.length&&farms.length?'<div class="trk-sec" style="margin-top:14px">Truck for all farms</div><div class="trk-list">'+truckOpts+'</div>':'')+'</div>'+
     (trucks.length&&farms.length?'<div class="dm-foot"><button class="tbtn" data-tk-x>Cancel</button><button class="tbtn key" id="trk-send">Send truck</button></div>':'')+'</div>';
   m.querySelectorAll('[data-tk-f]').forEach(function(c){ c.addEventListener('change',function(){ c.closest('.trk-farm').classList.toggle('on',c.checked); }); });
+  // "One trip": the farms marked with the same truck go on one trip via them all; the rest one trip each
+  m.querySelectorAll('[data-tk-c]').forEach(function(c){ c.addEventListener('click',function(){
+    var on=!c.classList.contains('on'); c.classList.toggle('on',on); c.setAttribute('aria-pressed',on?'true':'false'); }); });
   // each farm's truck: a small menu (inside the farm's label, so a click there is never a tick)
   var closeMenus=function(except){ m.querySelectorAll('.trk-ddm').forEach(function(x){ if(x!==except){ x.hidden=true; x.closest('.trk-farm').classList.remove('open'); } }); };
   m.querySelectorAll('.trk-dd').forEach(function(dd){
@@ -1212,19 +1217,24 @@ function trucksDialog(needs, vehicle){
       var sel=m.querySelector('[data-tk-fv="'+CSS.escape(f)+'"]'), v=(sel&&sel.getAttribute('data-v'))||pick;
       if(!byTruck[v]){ byTruck[v]=[]; order.push(v); } byTruck[v].push(f);
     });
-    var combineOn=!!($('trk-combine')||{}).checked;
-    var plan=order.map(function(v){
-      var fs=byTruck[v];
-      return v+' → '+(combineOn&&fs.length>1?fs.join(' → ')+' (one trip)':fs.join(', ')+(fs.length>1?' ('+fs.length+' trips)':''));
+    var isComb=function(f){ var c=m.querySelector('[data-tk-c="'+CSS.escape(f)+'"]'); return !!(c&&c.classList.contains('on')); };
+    var jobs=[];
+    order.forEach(function(v){
+      var together=byTruck[v].filter(isComb), apart=byTruck[v].filter(function(f){ return !isComb(f); });
+      if(together.length>1) jobs.push({v:v, farms:together, combine:1}); else apart=together.concat(apart);
+      if(apart.length) jobs.push({v:v, farms:apart, combine:0});
+    });
+    var plan=jobs.map(function(j){
+      return j.v+' → '+(j.combine?j.farms.join(' → ')+' (one trip)':j.farms.join(', ')+(j.farms.length>1?' ('+j.farms.length+' trips)':''));
     }).join('; ');
     confirmModal('Send truck'+(order.length>1?'s':''), plan+'?', 'Send', false).then(function(ok){
     if(!ok) return;
     send.disabled=true; send.textContent='Sending…';
     var last=null, sent=[];
-    order.reduce(function(p,v){
+    jobs.reduce(function(p,j){
       return p.then(function(){
-        var combine=($('trk-combine')||{}).checked&&byTruck[v].length>1?1:0;
-        return call('upande_packhouse.api.auto_transfer.addTruckForFarms',{farms:JSON.stringify(byTruck[v]),vehicle:v,date:window.rtDate.get(),combine:combine}).then(function(r){
+        var v=j.v;
+        return call('upande_packhouse.api.auto_transfer.addTruckForFarms',{farms:JSON.stringify(j.farms),vehicle:v,date:window.rtDate.get(),combine:j.combine}).then(function(r){
           var res=r.message||{};
           if(res.status==='error'||res.status==='busy'){ toast(v+': '+(res.message||'Could not send the truck')); return; }
           last=res; sent.push(v+' → '+(res.added_runs||[]).map(function(x){ return x.farm; }).join(', '));

@@ -673,6 +673,21 @@ def _fill_teams(order):
 	chosen = {k: v for k, v in (order.get("teams") or {}).items() if v}
 	planned = allocation_plan.planned_teams([x for x in lines if not chosen.get(x)])
 	teams = {x: chosen.get(x) or planned.get(x) for x in lines if chosen.get(x) or planned.get(x)}
+	if not teams and order.get("sales_order"):
+		# nothing chosen or planned: the team already packing the order's other pick lists
+		from collections import Counter
+
+		had = Counter(
+			t
+			for t in frappe.get_all(
+				"Order Pick List",
+				filters={"sales_order": order["sales_order"], "docstatus": ["<", 2]},
+				pluck="team",
+			)
+			if t
+		)
+		if had:
+			teams = {x: had.most_common(1)[0][0] for x in lines}
 	if teams and len(teams) < len(lines):
 		from collections import Counter
 
@@ -1824,6 +1839,12 @@ def _run_confirm(location, delivery_start, delivery_end, farms, sales_orders, us
 				if rules["enforce_plan"]:
 					sa._check_against_plan(o["allocations"], o["teams"])
 				o["teams"] = _fill_teams(o)
+				# a pick list with no packing team can't be scheduled, so its buckets never get a trip:
+				# such an order waits until its team is chosen (the page asks for it)
+				if not o["teams"]:
+					frappe.db.rollback(save_point="confirm_day_order")
+					waiting.append(o["sales_order"])
+					continue
 				# only complete boxes go out; what does not complete a box yet stays allocated, waiting release
 				release, keep, boxes = _split_release(o["sales_order"], o["allocations"])
 				o["boxes"] = sum(boxes.values())

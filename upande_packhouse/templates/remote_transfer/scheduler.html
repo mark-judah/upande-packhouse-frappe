@@ -327,16 +327,6 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .aph .sch-r1{display:flex;align-items:flex-start;gap:8px}
 .aph .sch-cwrap{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start}
 .aph .sch-cmain{flex:1 1 200px;min-width:0}
-.aph .sch-sugg{font-family:var(--sans,"Poppins",sans-serif);flex:0 1 220px;min-width:170px;display:flex;flex-direction:column;gap:6px;padding-left:12px;border-left:1px solid var(--border)}
-.aph .sch-sugg .sg-h{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2)}
-.aph .sch-sugg .sg-row{display:flex;flex-direction:column;gap:2px;padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);line-height:1.35}
-.aph .sch-sugg .sg-row.on{background:var(--good-bg,#e2f2e8);border-color:transparent}
-.aph .sch-sugg .sg-row.miss{border-style:dashed}
-.aph .sch-sugg .sg-f{font-size:12px;font-weight:500;color:var(--text-2)}
-.aph .sch-sugg .sg-v{font-size:14px;font-weight:700;color:var(--text)}
-.aph .sch-sugg .sg-r{font-size:12px;color:var(--text-2)}
-.aph .sch-sugg .sg-s{font-size:12px;font-weight:600;color:var(--good,#1f7a32)}
-.aph .sch-sugg .sg-none{font-size:12px;color:var(--text-2)}
 .aph .sch-seq{flex:0 0 auto;width:26px;height:26px;border-radius:7px;background:var(--accent);color:#fff;font-family:var(--mono);font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
 .aph .sch-seq.none{background:var(--bg-muted);color:var(--text-3)}
 .aph .sch-seq.done{background:var(--good)}
@@ -964,33 +954,13 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     var meta='<div class="sch-meta">'+metaParts+'</div>';
     var farmsLine=(o.has_transfer&&o.farms&&o.farms.length)?'<div class="sch-farms">'+o.farms.map(function(f){return '<span class="sch-chip farm">'+esc(f)+'</span>';}).join('')+'</div>':'';
     var draggable=(lane==='sched'&&canDrag&&!packed)?' draggable="true"':'';
-    var sugg=suggestHtml(o.farm_trips||[]);
     return '<div class="sch-card'+(opts.isSel?' sel':'')+(packed?' packed':'')+'" data-opl="'+esc(o.name)+'"'+draggable+'>'+
       '<div class="sch-cwrap"><div class="sch-cmain">'+
       '<div class="sch-r1">'+(packed?'':chk)+seqHtml+'<div class="sch-cnm"><div class="o">'+nm+'</div><div class="sub">'+sub+'</div></div>'+
       // Move within the team's sequence — works on touch screens, where dragging doesn't.
       (lane==='sched'&&!packed?'<span class="sch-mv"><button type="button" data-mv="up" title="Earlier in the sequence">▲</button><button type="button" data-mv="down" title="Later in the sequence">▼</button></span>':'')+
       '</div>'+
-      chipsHtml+farmsLine+meta+'</div>'+(packed?'':sugg)+'</div></div>';
-  }
-  // The trip to suggest per waiting farm: the one already carrying this order's buckets
-  // from that farm, else the first one going there (the feed sends only available trips).
-  function suggestTrip(f){
-    var ts=f.trips||[], on=null;
-    ts.forEach(function(t){ if(!on&&t.on_trip)on=t; });
-    return on||ts[0]||null;
-  }
-  function suggestHtml(fts){
-    if(!fts.length)return '';
-    return '<div class="sch-sugg"><div class="sg-h">Suggested trip</div>'+fts.map(function(f){
-      var t=suggestTrip(f);
-      var tl=t?('<span class="sg-v">'+esc(t.vehicle||'—')+(t.run?(' · trip '+t.run):'')+'</span>'+
-        (t.route?'<span class="sg-r">'+esc(t.route)+'</span>':'')+
-        (t.on_trip?'<span class="sg-s">'+num(t.on_trip)+' on it</span>':''))
-        :'<span class="sg-none">no trip yet</span>';
-      return '<div class="sg-row'+(t?(t.on_trip?' on':''):' miss')+'" title="'+esc(t?t.trip:'No trip to '+f.farm+' yet')+'">'+
-        '<span class="sg-f">'+esc(f.farm)+' · '+num(f.buckets)+' bucket'+(num(f.buckets)===1?'':'s')+'</span>'+tl+'</div>';
-    }).join('')+'</div>';
+      chipsHtml+farmsLine+meta+'</div>'+'</div></div>';
   }
 
   // Per-team NEXT-to-issue set: lowest-numbered Ready line per team still below the
