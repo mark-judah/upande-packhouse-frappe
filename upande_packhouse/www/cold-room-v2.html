@@ -196,7 +196,7 @@
     const range = sc.from_date || sc.to_date ? PH.date.label(sc.from_date, sc.to_date || sc.from_date) : "all dates";
     let t = "Stock on shelf is the live shelf position, " + (sc.from_date || sc.to_date ? "limited to stems harvested (else shelved) " + range : "all dates") + ".";
     if (sc.from_date || sc.to_date) t += " " + PH.fmt.num(o.stems || 0) + " more stems on the shelves in these farms were harvested outside this range.";
-    t += " Shelf capacity is always live (dates do not apply). " + (sc.flow_defaulted ? "Received, not shelved covers the last 3 days (pick a range to change)." : "Received, not shelved uses the same range, by receipt date.");
+    t += " Shelf capacity is always live (dates do not apply). " + (sc.flow_defaulted ? "Received, not shelved covers the last " + (sc.flow_days || 5) + " days (pick a range to change)." : "Received, not shelved uses the same range, by receipt date.");
     PH.text("#scope", t);
   }
 
@@ -247,8 +247,8 @@
       { label: "Average age", value: t.avg_age_days == null ? "—" : PH.fmt.qty(t.avg_age_days, 1), suffix: t.avg_age_days == null ? "" : "d",
         unit: t.oldest_days != null ? "oldest " + PH.fmt.num(t.oldest_days) + " days" : "no stock",
         onClick: openAgeModal, title: "Average age of stems on shelf, in days since harvest (shelving date when no harvest date). Stem-weighted: a bucket of 500 stems counts five times a bucket of 100. Click for every bucket by age." },
-      { label: "Received, not shelved", value: ns.buckets || 0, unit: PH.fmt.num(ns.stems || 0) + " stems" + (sc.flow_defaulted ? " · last 3 days" : ""),
-        onClick: openNotShelvedModal, title: "Buckets received and not yet put on a shelf" + (sc.flow_defaulted ? " (last 3 days; pick a date range to change)" : " in the date range") + ". Same list as Buckets > Received, not shelved." },
+      { label: "Received, not shelved", value: ns.buckets || 0, unit: PH.fmt.num(ns.stems || 0) + " stems" + (sc.flow_defaulted ? " · last " + (sc.flow_days || 5) + " days" : ""),
+        onClick: openNotShelvedModal, title: "Buckets received and not yet put on a shelf" + (sc.flow_defaulted ? " (last " + (sc.flow_days || 5) + " days; pick a date range to change)" : " in the date range") + ". Same list as Buckets > Received, not shelved." },
     ]);
   }
 
@@ -283,8 +283,33 @@
     numCol("stems", "Stems"),
     { key: "age_days", label: "Age", num: true, html: ageHtml, csv: (v) => (v == null ? "" : v) },
   ];
-  const RECV_COLS = [{ key: "farm", label: "Farm", format: (v) => v || "Unknown" }, { key: "bucket_id", label: "Bucket", cls: "ph-mono is-strong" }, { key: "variety", label: "Variety" }, { key: "stem_length", label: "Length", format: (v) => v || "N/A" },
-    { key: "received_on", label: "Received", format: (v) => (v ? PH.fmt.date(v) : "—") }, numCol("stems", "Stems")];
+  /* Received, not shelved = what is on the floor of the receiving cold room: received, not shelved, not issued and not
+     harvested again, so a receipt is the last place the bucket was seen. Day by day, oldest are the ones to chase. */
+  const FLOOR_COLS = [{ key: "bucket_id", label: "Bucket", cls: "ph-mono is-strong" }, { key: "farm", label: "Farm", format: (v) => v || "Unknown" }, { key: "variety", label: "Variety" },
+    { key: "stem_length", label: "Length", format: (v) => v || "N/A" }, numCol("stems", "Stems"),
+    { key: "received_on", label: "Received", format: (v) => (v ? PH.fmt.date(v) : "—") },
+    { key: "harvest_date", label: "Harvested", format: (v) => (v ? PH.fmt.date(v) : "—") },
+    { key: "days_on_floor", label: "Days on floor", num: true, html: ageHtml, csv: (v) => (v == null ? "" : v) }];
+  function floorView(host, rows, name) {
+    if (!rows.length) { lastDrill = null; return PH.empty(host, "Nothing on the floor", "Every bucket received in this period is on a shelf."); }
+    const byDay = new Map();
+    rows.forEach((r) => { const k = r.received_on || ""; const e = byDay.get(k) || { day: k, buckets: new Set(), stems: 0 }; e.buckets.add(r.bucket_id); e.stems += r.stems || 0; byDay.set(k, e); });
+    const days = [...byDay.values()].sort((a, b) => (a.day < b.day ? 1 : -1));
+    const total = { buckets: new Set(rows.map((r) => r.bucket_id)).size, stems: rows.reduce((t, r) => t + (r.stems || 0), 0) };
+    const lab = (e) => (e.day === PH.date.today() ? "Today" : e.day ? PH.fmt.date(e.day) : "No date");
+    host.innerHTML = '<div class="ph-pills" data-floor-days style="margin-bottom:var(--sp-4)"><button type="button" data-day="*">All · ' + PH.fmt.num(total.buckets) + " · " + PH.fmt.num(total.stems) + " stems</button>"
+      + days.map((e) => '<button type="button" data-day="' + PH.esc(e.day) + '">' + PH.esc(lab(e)) + " · " + PH.fmt.num(e.buckets.size) + " · " + PH.fmt.num(e.stems) + "</button>").join("")
+      + '</div><div data-floor-table></div>';
+    let pick = "*";
+    const show = () => {
+      host.querySelectorAll("[data-floor-days] button").forEach((b) => b.classList.toggle("is-on", b.dataset.day === pick));
+      const shown = pick === "*" ? rows : rows.filter((r) => (r.received_on || "") === pick);
+      lastDrill = { name: name + (pick === "*" ? "" : "-" + pick), rows: shown, cols: FLOOR_COLS };
+      PH.table(host.querySelector("[data-floor-table]"), { rows: shown, columns: FLOOR_COLS, sort: { key: "days_on_floor", dir: "desc" }, pageSize: 100, tall: true });
+    };
+    host.querySelector("[data-floor-days]").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; pick = b.dataset.day; show(); });
+    show();
+  }
   /* Stock rows (one per bucket / variety / length) behind a number, filtered by `pick` */
   function openStockRows(title, sub, pick, name) {
     const d = drill(title, sub);
@@ -313,13 +338,12 @@
   }
   function openNotShelvedModal() {
     const ns = (dash.flows || {}).not_shelved || {};
-    const d = drill("Received, not shelved", PH.fmt.plural(ns.buckets || 0, "bucket") + " · " + PH.fmt.num(ns.stems || 0) + " stems waiting for a shelf" + ((dash.scope || {}).flow_defaulted ? " · received in the last 3 days" : ""));
+    const d = drill("Received, not shelved", PH.fmt.plural(ns.buckets || 0, "bucket") + " · " + PH.fmt.num(ns.stems || 0) + " stems waiting for a shelf" + ((dash.scope || {}).flow_defaulted ? " · received in the last " + ((dash.scope || {}).flow_days || 5) + " days" : ""));
     PH.skeleton(d.body, "rows", 4);
     ensureBuckets().then((b) => {
       if (!b) return PH.error(d.body, "Could not load buckets");
-      const rows = b.received_not_shelved || [];
-      if (!rows.length) return PH.empty(d.body, "Nothing waiting to be shelved", "Every bucket received in this period is on a shelf.");
-      drillTable(d, "received-not-shelved", rows, { sort: { key: "farm", dir: "asc" }, columns: RECV_COLS });
+      PH.set(d.body, "");
+      floorView(d.body, b.received_not_shelved || [], "received-not-shelved");
     }).catch((e) => PH.error(d.body, e.message));
   }
   /* chart bars */
@@ -393,8 +417,10 @@
     const args = Object.assign({}, scopeArgs());
     if (noFarm) args.shelf_farm = ""; else if (farmKey) args.shelf_farm = farmKey;
     args.include_empty = 1;
-    PH.call(CAP_API + "get_cold_room_shelves", args, { silent: true }).then((r) => {
+    // the floor of this store (received, not shelved) loads beside its shelves; the shelves still show if it fails
+    Promise.all([PH.call(CAP_API + "get_cold_room_shelves", args, { silent: true }), ensureBuckets().catch(() => null)]).then(([r, b]) => {
       if (!r || !r.success) return PH.error(body, (r && r.error) || "Could not load shelves");
+      const floorRows = ((b && b.received_not_shelved) || []).filter((x) => (noFarm ? !x.farm : farmKey ? x.farm === farmKey : true));
       const lead = withEmpty
         ? PH.fmt.num(r.registered_shelves) + " shelves registered: " + PH.fmt.num(r.occupied_shelves) + " in use, " + PH.fmt.num(r.empty_shelves) + " empty."
         : (g ? PH.fmt.num(g.occupied) + " of " + PH.fmt.num(g.capacity) + " buckets (" + pctText(g) + "). " : "") + PH.fmt.num(r.over_shelves) + " shelves hold more than " + (bc.buckets_per_shelf || 2) + " buckets.";
@@ -406,12 +432,15 @@
         half: r.shelves.filter((sh) => sh.buckets > 0 && sh.buckets < room(sh)),
         empty: r.shelves.filter((sh) => sh.buckets === 0),
       };
-      const tabs = [["full", "Full"], ["half", "Half full"], ["empty", "Empty"]];
+      const floorBuckets = new Set(floorRows.map((x) => x.bucket_id)).size;
+      const tabs = [["full", "Full"], ["half", "Half full"], ["empty", "Empty"], ["floor", "Floor"]];
+      const counts = { full: groups.full.length, half: groups.half.length, empty: groups.empty.length, floor: floorBuckets };
       const empties = { full: "No full shelves", half: "No half full shelves", empty: "No empty shelves" };
-      let tab = tabs.map((t) => t[0]).find((k) => groups[k].length) || "full";
-      PH.set(body, '<div class="ph-pills" id="cr-shelf-tabs" style="margin-bottom:var(--sp-4)">' + tabs.map((t) => '<button type="button" data-tab="' + t[0] + '">' + t[1] + " (" + PH.fmt.num(groups[t[0]].length) + ")</button>").join("") + '</div><div id="cr-shelf-table"></div>');
+      let tab = tabs.map((t) => t[0]).find((k) => k !== "floor" && counts[k]) || "full";
+      PH.set(body, '<div class="ph-pills" id="cr-shelf-tabs" style="margin-bottom:var(--sp-4)">' + tabs.map((t) => '<button type="button" data-tab="' + t[0] + '" title="' + (t[0] === "floor" ? "Buckets received here and not yet on a shelf, not issued and not harvested again: the receiving cold room floor" : "") + '">' + t[1] + " (" + PH.fmt.num(counts[t[0]]) + (t[0] === "floor" ? " buckets" : "") + ")</button>").join("") + '</div><div id="cr-shelf-table"></div>');
       const show = () => {
         PH.$$("#cr-shelf-tabs button", body).forEach((x) => x.classList.toggle("is-on", x.dataset.tab === tab));
+        if (tab === "floor") { floorView(body.querySelector("#cr-shelf-table"), floorRows, "floor-" + (noFarm ? "no-farm" : farmKey || "all")); return; }
         lastDrill = { name: "shelves-" + (noFarm ? "no-farm" : farmKey || "all") + "-" + tab, rows: groups[tab], cols: shelfCols };
         PH.table(body.querySelector("#cr-shelf-table"), { rows: groups[tab], columns: shelfCols, sort: { key: "buckets", dir: "desc" }, pageSize: 100, tall: true, onRowClick: openShelf, empty: empties[tab], emptyText: tab === "empty" ? "Every shelf here has something on it." : "Nothing here." });
       };

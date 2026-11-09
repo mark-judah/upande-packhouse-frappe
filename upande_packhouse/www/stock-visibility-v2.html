@@ -264,6 +264,8 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
 .sv-pop__foot{display:flex;justify-content:space-between;align-items:center}
 .sv-pop .sv-ms{width:100%;max-width:none;box-shadow:inset 0 0 0 1px var(--hairline-2)}
 .sv-fchips{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center}
+.sv-hidnote{white-space:nowrap}
+.sv-hidnote[hidden]{display:none}
 .sv-fchip{display:inline-flex;align-items:center;gap:var(--sp-1);padding:2px var(--sp-1) 2px var(--sp-3);border-radius:var(--r-pill);background:var(--tint);color:var(--ink-3)}
 .sv-fchip button{border:0;background:transparent;color:inherit;cursor:pointer;padding:0 var(--sp-2);line-height:1;opacity:.7}
 .sv-fchip button:hover,.sv-fchip button:focus-visible{opacity:1}
@@ -474,6 +476,8 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
     </div>
   </div>
   <label class="ph-search" for="f-q"><span id="f-q-ic"></span><input id="f-q" type="search" placeholder="Search variety or bucket" autocomplete="off" aria-label="Search variety or bucket"></label>
+  <label class="ph-switch" for="f-hide" title="Stock held against a bucket that was harvested again is gone: the bucket was emptied and refilled. Quarantine and allocations are the places it piles up."><input type="checkbox" id="f-hide" checked><i></i><span>Filter out reharvested</span></label>
+  <span class="sv-hidnote ph-muted" id="f-hidden" aria-live="polite" hidden></span>
   <div class="sv-fchips" id="f-chips" aria-label="Active filters"></div>
 </div>
 </div>
@@ -570,7 +574,7 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
   const POST = (m, a) => PH.call(API + m, a || {}, { type: "POST", silent: true });
   const esc = PH.esc, N = PH.fmt.num;
   const today = PH.date.today();
-  const st = PH.state({ tab: "outlook", region: "", farm: "", length: "", rose: "all", q: "", through: PH.date.add(today, 1), sort: "attn", focus: "", reason: "", treason: "", ofrom: PH.date.add(today, 1), oto: PH.date.add(today, 1), ocust: "", osrc: "", os: "", ochg: false, oseg: "attn", oview: "order", vall: false });
+  const st = PH.state({ tab: "outlook", region: "", farm: "", length: "", rose: "all", q: "", through: PH.date.add(today, 1), sort: "attn", focus: "", reason: "", treason: "", ofrom: PH.date.add(today, 1), oto: PH.date.add(today, 1), ocust: "", osrc: "", os: "", ochg: false, oseg: "attn", oview: "order", vall: false, hide: "1" });
 
   const TABS = ["outlook", "board", "health", "transfers"];
   const GROUPS = { sellable: "Sellable now", soon: "Ready soon", committed: "Committed", withheld: "Withheld" };
@@ -596,7 +600,8 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
   const meta = (s) => ((ov && ov.states && ov.states[s]) || { label: s, group: "withheld", why: "", who: "" });
   const lbl = (s) => meta(s).label;
   const sumOf = (states, keys) => keys.reduce((t, k) => t + (+(states || {})[k] || 0), 0);
-  const filterParams = () => ({ region: st.get("region"), farm: st.get("farm"), length: st.get("length"), rose: st.get("rose"), q: st.get("q") });
+  const hideOn = () => st.get("hide") !== "0";
+  const filterParams = () => ({ region: st.get("region"), farm: st.get("farm"), length: st.get("length"), rose: st.get("rose"), q: st.get("q"), hide_reharvested: hideOn() ? 1 : 0 });
   const dayLabel = (iso) => { const d = PH.date.parse(iso); return d ? d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }) : iso; };
   const dot = (s) => `<span class="sv-dot sv-c-${esc(s)}" aria-hidden="true"></span>`;
   const sc = (s) => `<span class="sv-pillst">${dot(s)}${esc(lbl(s))}</span>`;
@@ -618,6 +623,18 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
   /* ════════════ filters ════════════ */
   PH.regionPills("#f-region", st, "region");
   PH.pills("#f-rose", st, "rose");
+  /* Filter out reharvested: on by default. Off shows the books as the system holds them. */
+  const hideBox = PH.$("#f-hide");
+  hideBox.checked = hideOn();
+  hideBox.addEventListener("change", () => st.set({ hide: hideBox.checked ? "1" : "0" }));
+  function paintHidden() {
+    const el = PH.$("#f-hidden"), h = (ov && ov.hidden) || {};
+    const stems = (+(h.quarantine || {}).stems || 0) + (+(h.reclaimable || {}).stems || 0);
+    const on = hideOn();
+    el.hidden = !stems;
+    el.textContent = stems ? (on ? N(stems) + " stems hidden: buckets harvested again" : N(stems) + " stems on the books are in buckets harvested again") : "";
+    el.title = stems ? "In quarantine " + N((h.quarantine || {}).stems || 0) + " · allocated to orders " + N((h.reclaimable || {}).stems || 0) : "";
+  }
   PH.bindSearch("#f-q", st, "q", 300);
   PH.$("#f-q").value = st.get("q");
   PH.pills("#f-sort", st, "sort");
@@ -718,7 +735,7 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
     if (!silent) { PH.kpiSkeleton("#kpis", ["Sellable now", "Ready soon", "Committed", "Withheld", "Free to promise"]); PH.skeleton("#hero", "block", 2); PH.skeleton("#why", "rows", 4); PH.skeleton("#vt", "rows", 8); }
     return GET("overview", Object.assign({ through: st.get("through") }, filterParams())).then((r) => {
       if (my !== ovSeq) return;
-      ov = r; paintFarms(); paintLen(); paintChips(); renderBoard(); PH.markUpdated();
+      ov = r; paintFarms(); paintLen(); paintChips(); renderBoard(); paintHidden(); PH.markUpdated();
       loadNextReady(my);
     }).catch((e) => {
       if (my !== ovSeq) return;
@@ -1549,7 +1566,8 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
   }
   st.on((s, changedKeys) => {
     const has = (ks) => changedKeys.some((k) => ks.indexOf(k) >= 0);
-    const srv = has(["region", "farm", "length", "rose", "q"]);
+    const srv = has(["region", "farm", "length", "rose", "q", "hide"]);
+    if (has(["hide"])) hideBox.checked = hideOn();
     if (has(["farm"]) && !srv) paintFarms();
     if (has(["length"])) paintLen();
     if (srv) { paintChips(); tabLoaded.health = false; tabLoaded.transfers = false; tabLoaded.outlook = false; loadOverview(); applyTab(true); }

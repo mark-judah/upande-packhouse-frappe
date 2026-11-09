@@ -19,9 +19,11 @@ Filters (every endpoint, every number):
 Stock numbers come only from core/stock.py (bucket_rows -> summarize/totals), so
 shelved = held + allocated + free everywhere and buckets are counted distinct.
 
-"Received, not shelved" has one definition (audit ST-7 / ST-23): the bucket's
-latest receipt in the range whose journey is still open -- no later receipt or
-harvest of the same bucket id (reuse), no live Shelf Item or Shelving Log row
+"Received, not shelved" (the floor of the receiving cold room) has one definition,
+shared with Stock Visibility's "Coldroom floor" (audit ST-7 / ST-23): the bucket's
+latest receipt in the range (default: the last FLOW_DAYS days) whose journey is still
+open -- no later receipt or harvest of the same bucket id (it was emptied and refilled;
+read from core/bucket_cycle, newest entry by creation time), no live Shelf Item or Shelving Log row
 shelved on/after the receipt, no Discard, issue or onward movement on/after it,
 no issued pick-list line on a pick list created on/after it.
 """
@@ -33,6 +35,7 @@ import frappe
 from frappe.utils import add_days, getdate
 
 from upande_packhouse.api.v2 import cold_room_capacity as capacity_mod
+from upande_packhouse.api.v2.core import bucket_cycle
 from upande_packhouse.api.v2.core import region as region_mod
 from upande_packhouse.api.v2.core import stock
 
@@ -49,7 +52,7 @@ ONWARD_TYPES = (
 	"Dispatch",
 )
 AGE_EDGES = (1, 2, 3, 5, 7, 14, 30)
-FLOW_DAYS = 3  # flow window when the page has no date range
+FLOW_DAYS = 5  # "received, not shelved" window when the page has no date range (Stock Visibility's too)
 
 
 # ── argument handling ──────────────────────────────────────────────────
@@ -89,9 +92,9 @@ def _date_cond(col, sc, params):
 
 
 def _flow_scope(sc):
-	"""Flows (received / not shelved / requested / discarded) are about recent
-	events; with no date range set they cover the last FLOW_DAYS days instead of
-	all history (an all-time "not shelved" would list every old receipt)."""
+	"""Received, not shelved is about recent events; with no date range set it covers
+	the last FLOW_DAYS days instead of all history (an all-time "not shelved" would
+	list every old receipt)."""
 	fs = frappe._dict(sc)
 	if not fs.from_date and not fs.to_date:
 		fs.from_date = add_days(getdate(), -FLOW_DAYS)
@@ -143,24 +146,17 @@ def _not_shelved(sc):
 	bucket / variety / length of its latest receipt)."""
 	if sc.farms == []:
 		return []
-	params = {"rt": RECEIPT_TYPES, "cycle": RECEIPT_TYPES + ("Harvesting",), "onward": ONWARD_TYPES}
+	params = {"rt": RECEIPT_TYPES}
 	cond = _farm_cond("se.farm", sc, params) + _date_cond("se.posting_date", sc, params)
 	rows = frappe.db.sql(
 		f"""
 		SELECT se.custom_bucket_id AS bucket_id, se.farm, sed.item_code AS variety,
-		       se.custom_stem_length AS stem_length, se.posting_date AS received_on,
+		       se.custom_stem_length AS stem_length, se.posting_date AS received_on, se.creation AS received_at,
 		       se.name AS stock_entry, SUM(sed.qty) AS stems
 		FROM `tabStock Entry` se
 		INNER JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
 		WHERE se.docstatus = 1 AND se.stock_entry_type IN %(rt)s
 		  AND IFNULL(se.custom_bucket_id, '') != ''{cond}
-		  AND NOT EXISTS (
-		      SELECT 1 FROM `tabStock Entry` n
-		      WHERE n.custom_bucket_id = se.custom_bucket_id AND n.docstatus = 1
-		        AND n.stock_entry_type IN %(cycle)s AND n.name != se.name
-		        AND (n.posting_date > se.posting_date
-		             OR (n.posting_date = se.posting_date AND n.stock_entry_type != 'Harvesting'
-		                 AND n.creation > se.creation)))
 		  AND NOT EXISTS (
 		      SELECT 1 FROM `tabShelf Item` si
 		      WHERE si.bucket_id = se.custom_bucket_id AND si.stem_qty > 0
@@ -169,23 +165,33 @@ def _not_shelved(sc):
 		      SELECT 1 FROM `tabShelving Log` sl
 		      WHERE sl.bucket_id = se.custom_bucket_id AND DATE(sl.shelved_on) >= se.posting_date)
 		  AND NOT EXISTS (
-		      SELECT 1 FROM `tabStock Entry` d
-		      WHERE d.custom_bucket_id = se.custom_bucket_id AND d.docstatus = 1
-		        AND d.stock_entry_type IN %(onward)s AND d.posting_date >= se.posting_date)
-		  AND NOT EXISTS (
 		      SELECT 1 FROM `tabPick List Item` p
 		      INNER JOIN `tabOrder Pick List` o ON o.name = p.parent
 		      WHERE p.bucket = se.custom_bucket_id AND p.issued = 1 AND o.docstatus < 2
 		        AND o.date_created >= se.posting_date)
-		GROUP BY se.custom_bucket_id, se.farm, sed.item_code, se.custom_stem_length, se.posting_date, se.name
+		GROUP BY se.custom_bucket_id, se.farm, sed.item_code, se.custom_stem_length, se.posting_date, se.creation, se.name
 		ORDER BY se.farm, sed.item_code
 		""",
 		params,
 		as_dict=True,
 	)  # nosemgrep: fixed SQL fragments, bound values
+	# A later receipt or harvest of the same bucket means this receipt is not its last place: the bucket was emptied
+	# and refilled. Read from the cached bucket index (core/bucket_cycle), not a subquery per receipt.
+	cycles = bucket_cycle.index()
+	rows = [
+		r
+		for r in rows
+		if not bucket_cycle.later_entry(cycles, r.bucket_id, RECEIPT_TYPES + ("Harvesting",), r.received_at)
+		# ...and a discard, issue or onward move on or after the receipt day means it left the floor some other way
+		and not bucket_cycle.posted_since(cycles, r.bucket_id, ONWARD_TYPES, getdate(r.received_on))
+	]
 	for r in rows:
 		r.stems = float(r.stems or 0)
 		r.age_days = (getdate() - getdate(r.received_on)).days if r.received_on else None
+		r.days_on_floor = r.age_days
+		hd = bucket_cycle.harvest_date(cycles, r.bucket_id)
+		r.harvest_date = hd if hd and r.received_on and getdate(hd) <= getdate(r.received_on) else None
+		r.pop("received_at", None)
 	return rows
 
 
@@ -349,6 +355,7 @@ def get_cold_room(region: Any = None, farm: Any = None, from_date: Any = None, t
 			"success": True,
 			"scope": dict(
 				_meta(sc),
+				flow_days=FLOW_DAYS,
 				flow_from=str(fs.from_date),
 				flow_to=str(fs.to_date) if fs.to_date else None,
 				flow_defaulted=bool(fs.get("defaulted")),
