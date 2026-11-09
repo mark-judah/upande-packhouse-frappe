@@ -688,9 +688,10 @@
         trips.forEach(function (t) { combos.push(Object.assign({}, base, { trip: t })); });
         // Still at the farm with no truck coming for it there (left behind by a trip that
         // went, or never planned): one Not scheduled row, as the farm app lists it. An
-        // order on no trip at all is listed there too, unless every bucket was not found.
-        var allNotFound = base.total > 0 && (base.not_found || 0) >= base.total;
-        if (ovUnschedAt(o, f.total != null ? f : base) > 0 || (!trips.length && !allNotFound)) combos.push(Object.assign({}, base, { trip: null, section: Number(o.scheduled) ? 'No truck yet' : 'Not scheduled' }));
+        // order on no trip at all is listed there too, unless every bucket has left the
+        // farm or was not found.
+        var noneLeft = base.total > 0 && (base.transit || 0) + (base.not_found || 0) >= base.total;
+        if (ovUnschedAt(o, f.total != null ? f : base) > 0 || (!trips.length && !noneLeft)) combos.push(Object.assign({}, base, { trip: null, section: Number(o.scheduled) ? 'No truck yet' : 'Not scheduled' }));
       });
     });
     return combos;
@@ -1166,6 +1167,8 @@
       if (!steps.some(function (x) { return x.stage === 'Received'; }) && first.receiving_date) steps.push({ t: String(first.receiving_date), stage: 'Received', c: '#0f766e', detail: [first.variety, first.warehouse].filter(Boolean).join(' · '), who: '' });
     }
     (m.opl_rows || []).forEach(function (o) {
+      // this variety's allocations only: a reused bucket's earlier contents are another journey
+      if (item && o.item_code && o.item_code !== item) return;
       if (after(String(o.creation || ''))) steps.push({ t: String(o.creation || ''), stage: 'Allocated', c: '#d97706', detail: [o.parent, o.item_code, o.stem_length, o.stock_qty ? o.stock_qty + ' stems' : '', o.farm, o.shelf].filter(Boolean).join(' · '), who: o.owner || '' });
     });
     // Remote transfer, per order the bucket goes to: awaiting transfer -> on a trolley ->
@@ -1217,9 +1220,9 @@
  harvested: hv.length > 0 || logs.some(function (l) { return l.harvest_date; }) };
   }
   // The bucket's journey as fixed steps, one after the other, never mixed: harvest, grading,
-  // receiving, shelved at its farm, transferred from that farm, shelved at the sales farm, issued
-  // to the packhouse. Each step shows what happened there (or that it hasn't yet); anything else
-  // (allocation, not found, replaced, discards) is listed after them.
+  // receiving, shelved at its farm, allocated and requested by an order, transferred from that farm,
+  // shelved at the sales farm, issued to the packhouse. Each step shows what happened there (or that it
+  // hasn't yet); every event belongs to one of them.
   function trStepper(events) {
     var hub = ((OV.orders || []).map(function (o) { return o.hub; }).filter(Boolean)[0]) || 'Kapkolia';
     var remoteShelf = events.filter(function (e) { return /^Shelved on /.test(e.stage) && e.farm && e.farm !== hub; });
@@ -1227,10 +1230,11 @@
     var STEPS = [
       ['harvest', 'Harvested'], ['grade', 'Graded'], ['receive', 'Received'],
       ['shelf', 'Shelved' + (farm ? ' at ' + farm : '')],
+      ['request', 'Allocated and requested'],
       ['transfer', 'Transferred' + (farm ? ' from ' + farm : '')],
       ['hub', 'Shelved at ' + hub], ['issue', 'Issued to packhouse'],
     ];
-    var by = {}, other = [];
+    var by = {};
     STEPS.forEach(function (x) { by[x[0]] = []; });
     events.forEach(function (e) {
       var st = e.stage || '', k = null;
@@ -1241,7 +1245,12 @@
       else if (/^Shelved at /.test(st)) k = 'hub';
       else if (/^(Loaded in trolley|Loaded on truck|In transit|Arrived at |Transferred)/.test(st)) k = 'transfer';
       else if (/^(Issued|Offline Issuing)/.test(st)) k = 'issue';
-      if (k) by[k].push(e); else other.push(e);
+      // the order asking for it: allocated, awaiting transfer, not found or replaced at the farm
+      else if (/^(Allocated|Awaiting transfer|Not found|Replaced)/.test(st)) k = 'request';
+      // anything else happened to it on its shelf (taken off, cleared, discarded, rejected): the farm's
+      // shelf, or the sales farm's for a bucket that never travelled
+      else k = remoteShelf.length ? 'shelf' : 'hub';
+      by[k].push(e);
     });
     // a bucket shelved straight at the sales farm never travels
     var local = !remoteShelf.length && by.hub.length;
@@ -1249,21 +1258,25 @@
       var evs = by[x[0]], done = evs.length > 0, skip = local && (x[0] === 'shelf' || x[0] === 'transfer');
       var first = evs.filter(function (e) { return !e.noTime && e.t; })[0] || evs[0];
       var dot = skip ? '#cbd5e1' : done ? '#16a34a' : '#e2e8f0';
-      var detail = done ? evs.map(function (e) { return esc(e.stage === x[1] ? (e.detail || '') : [e.stage, e.detail].filter(Boolean).join(' · ')); }).filter(Boolean).join('<br>') : '';
+      evs.sort(function (p, q) { return String(p.t || '') < String(q.t || '') ? -1 : 1; });
+      // each event with who did it
+      var byName = function (w) { return w ? (w.indexOf('@') < 0 ? w : (OV.users[w] || w)) : ''; };
+      var detail = done ? evs.map(function (e) {
+        var txt = e.stage === x[1] ? (e.detail || '') : [e.stage, e.detail].filter(Boolean).join(' · ');
+        var who = byName(e.who);
+        var line = (evs.length > 1 && e.t && !e.noTime ? esc(ovFmtDT(e.t)) + ' · ' : '') + esc(txt);
+        return line + (who ? ' <span style="color:#0a0a0a;font-weight:600">· by ' + esc(who) + '</span>' : '');
+      }).filter(Boolean).join('<br>') : '';
       return '<div style="display:grid;grid-template-columns:28px 1fr;gap:10px;position:relative;padding-bottom:14px">' +
         (i < STEPS.length - 1 ? '<span style="position:absolute;left:13px;top:24px;bottom:0;width:2px;background:' + (done ? '#bbf7d0' : '#e2e8f0') + '"></span>' : '') +
         '<span style="width:26px;height:26px;border-radius:50%;background:' + dot + ';color:' + (done ? '#fff' : '#64748b') + ';display:flex;align-items:center;justify-content:center;font:700 12px var(--sans,system-ui)">' + (done ? '✓' : (i + 1)) + '</span>' +
         '<div><div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><b style="font-size:13.5px;color:' + (done ? '#0a0a0a' : '#94a3b8') + '">' + esc(x[1]) + '</b>' +
         '<span class="ov-sub">' + (skip ? 'Not needed: shelved at ' + esc(hub) : done ? (first && !first.noTime && first.t ? esc(ovFmtDT(first.t)) : '') : 'Not yet') + '</span></div>' +
         (detail ? '<div class="ov-sub" style="margin-top:3px;line-height:1.5">' + detail + '</div>' : '') +
-        (done && first && first.who ? '<div style="margin-top:3px;font-size:12px">' + trWho(first.who) + '</div>' : '') +
+
         '</div></div>';
     }).join('');
-    var extra = other.length ? '<div class="ov-sub" style="margin:8px 0 6px;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Other events</div>' +
-      '<table class="bp-table"><tbody>' + other.map(function (e) {
-        return '<tr><td class="bp-nw">' + (e.noTime ? '<span class="bp-dash">—</span>' : esc(ovFmtDT(e.t))) + '</td><td class="bp-nw"><span class="ov-pill" style="background:' + e.c + '">' + esc(e.stage) + '</span></td><td>' + esc(e.detail || '') + '</td><td>' + trWho(e.who) + '</td></tr>';
-      }).join('') + '</tbody></table>' : '';
-    return '<div style="padding:4px 2px">' + rows + '</div>' + extra;
+    return '<div style="padding:4px 2px">' + rows + '</div>';
   }
   function trWho(who) {
     if (!who) return '';

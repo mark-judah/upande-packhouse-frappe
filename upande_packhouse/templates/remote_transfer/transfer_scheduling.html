@@ -1116,6 +1116,9 @@ function confirmModal(title,msg,okLabel,danger,cancelLabel){
 /* The day's trucks: a truck is added for the day (a route with no trips yet), sent to farms after
    scheduling, and removed with its route. */
 function openDayTruck(){
+  // opened from Add to truck too, before Truck Routes has been shown
+  S.rv=S.rv||{view:'list',routes:null,date:routesDay()};
+  if(S.rv.routes===null){ var lp=loadRoutes(); if(lp&&lp.then){ lp.then(openDayTruck); return; } }
   var on={}; (S.rv.routes||[]).forEach(function(r){ on[r.vehicle]=1; });
   var free=(DATA.vehicles||[]).filter(function(v){ return !on[v.name]; });
   var rows=free.map(function(v){ return '<div class="rl-card"><span class="rl-veh">'+esc(v.name)+'</span><span class="sp"></span>'+truckCapHtml(v.name)+
@@ -1137,8 +1140,9 @@ function openTrucks(vehicle){
 }
 window.rtTrucks=openTrucks;
 function trucksDialog(needs, vehicle){
-  var all=(needs&&needs.trucks)||[], day=all.filter(function(t){ return t.routed; });
-  var trucks=(day.length?day:all).slice().sort(function(a,b){ return String(a.name).localeCompare(String(b.name)); });
+  // only the trucks added for the day (Truck Routes > + Add truck)
+  var all=(needs&&needs.trucks)||[];
+  var trucks=all.filter(function(t){ return t.routed; }).sort(function(a,b){ return String(a.name).localeCompare(String(b.name)); });
   var farms=(needs&&needs.farms)||[];
   var pick=vehicle&&trucks.some(function(t){ return t.name===vehicle; })?vehicle:(trucks[0]&&trucks[0].name)||'';
   // written every time (not only once): a page left open keeps the newest styles
@@ -1186,7 +1190,8 @@ function trucksDialog(needs, vehicle){
     m.addEventListener('click',function(e){ if(e.target===m||e.target.closest('[data-tk-x]')) m.remove(); }); }
   m.innerHTML='<div class="dm-card trk-card"><div class="dm-hd"><h3>Add to truck · '+esc(needs&&needs.date||'')+'</h3><button class="sch-x" data-tk-x title="Close">×</button></div>'+
     '<div class="trk-body"><div class="trk-sec">Farms</div>'+farmRows+
-    (trucks.length&&farms.length?'<div class="trk-sec" style="margin-top:14px">Truck for all farms</div><div class="trk-list">'+truckOpts+'</div>':'')+'</div>'+
+    (farms.length?'<div class="trk-sec" style="margin-top:14px">Truck for all farms</div>'+
+      (trucks.length?'<div class="trk-list">'+truckOpts+'</div>':'<button type="button" class="tbtn key" data-act="dt-open">+ Add truck</button>'):'')+'</div>'+
     (trucks.length&&farms.length?'<div class="dm-foot"><button class="tbtn" data-tk-x>Cancel</button><button class="tbtn key" id="trk-send">Send truck</button></div>':'')+'</div>';
   m.querySelectorAll('[data-tk-f]').forEach(function(c){ c.addEventListener('change',function(){ c.closest('.trk-farm').classList.toggle('on',c.checked); }); });
   // "One trip": the farms marked with the same truck go on one trip via them all; the rest one trip each
@@ -1261,6 +1266,7 @@ function addDayTruck(vehicle, btn){
     if(m.status!=='success'){ toast(m.message||'Could not add the truck'); if(btn){ btn.disabled=false; btn.textContent='Add'; } return; }
     toast(vehicle+' added for '+dayLabel(S.rv.date).toLowerCase());
     routesStale(); loadRoutes().then(function(){ if($('dt-modal')) openDayTruck(); }); loadData();
+    if($('trk-modal')) openTrucks();
   }).catch(function(err){ toast('Failed: '+((err&&err.message)||'')); if(btn){ btn.disabled=false; btn.textContent='Add'; } });
 }
 function deleteRoute(name){

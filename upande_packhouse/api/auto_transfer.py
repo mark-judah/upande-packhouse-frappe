@@ -397,6 +397,13 @@ def addTruckForFarms(farms: str | list, vehicle: str, date: str | None = None, c
 	still go."""
 	if isinstance(farms, str):
 		farms = frappe.parse_json(farms) if farms.strip().startswith("[") else [farms]
+	# only a truck added for the day (Truck Routes > + Add truck) is sent
+	if vehicle not in routed_vehicles(frappe.utils.today()):
+		return {
+			"status": "error",
+			"message": "Add {0} for today on Truck Routes first.".format(vehicle),
+			"refused": [],
+		}
 	added, refused = [], []
 	farms = [f for f in farms or [] if f]
 	# combine: one trip via every farm, back to the sales farm, instead of a trip per farm

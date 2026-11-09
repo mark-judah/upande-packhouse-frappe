@@ -1311,6 +1311,20 @@ class UnitTestOneFarmPerTrip(UnitTestCase):
 			before = frappe._dict(orders=self._trip([("Chepsito", 3), ("Torongo", 2)]).orders)
 			self._trip([("Chepsito", 1), ("Torongo", 2)], before=before).validate_one_farm()
 
+	def test_e_validate_allows_the_farms_of_a_run_made_via_several_farms(self):
+		run = {"run": 1, "stops": ["Chepsito", "Torongo"]}
+		with (
+			patch.object(tc, "transfer_hub", return_value=self.HUB),
+			patch.object(tc, "_run_of", return_value=run),
+		):
+			doc = self._trip([("Chepsito", 3), ("Torongo", 2)])
+			doc.route, doc.run = "R1", 1
+			doc.validate_one_farm()
+			doc = self._trip([("Chepsito", 3), ("Simotwo", 2)])
+			doc.route, doc.run = "R1", 1
+			with self.assertRaises(frappe.ValidationError):
+				doc.validate_one_farm()
+
 	def test_f_merge_never_mixes_farms(self):
 		trips = [
 			frappe._dict(name="BRT-C", vehicle="KDP 283L", route=None, run=0),
@@ -1405,6 +1419,7 @@ class UnitTestOneTruckSeveralFarms(UnitTestCase):
 			return {"status": "success", "route": "R1", "run": ["Chepsito", "Kaptumbo"].index(farm) + 1}
 
 		with (
+			patch.object(at, "routed_vehicles", return_value={"KAS 866Q"}),
 			patch.object(at.truck_routes, "add_farm_run", side_effect=add) as run,
 			patch.object(at, "distributeTrips", return_value={"status": "success", "trips": []}) as dist,
 			patch.object(at.frappe.db, "commit"),
@@ -1417,8 +1432,18 @@ class UnitTestOneTruckSeveralFarms(UnitTestCase):
 		self.assertEqual([r["farm"] for r in out["refused"]], ["Simotwo"])
 		dist.assert_called_once_with("2026-11-11")
 
+	def test_a_truck_not_added_for_the_day_is_refused(self):
+		with (
+			patch.object(at, "routed_vehicles", return_value=set()),
+			patch.object(at.truck_routes, "add_farm_run") as run,
+		):
+			out = at.addTruckForFarms(["Chepsito"], "KAS 866Q")
+		self.assertEqual(out["status"], "error")
+		run.assert_not_called()
+
 	def test_nothing_is_planned_when_every_farm_is_refused(self):
 		with (
+			patch.object(at, "routed_vehicles", return_value={"KAS 866Q"}),
 			patch.object(
 				at.truck_routes, "add_farm_run", return_value={"status": "error", "message": "No road"}
 			),

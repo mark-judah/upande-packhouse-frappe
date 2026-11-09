@@ -1212,8 +1212,6 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         if(part) notify(ords(part)+' partly planned','orange');
         // The plan changed the orders' trips: read the feed again.
         load();
-        var wait=((m.needs&&m.needs.farms)||[]).filter(function(f){ return f.buckets>0; });
-        if(wait.length) notify(wait.reduce(function(t,f){ return t+f.buckets; },0)+' buckets have no truck · '+wait.map(function(f){ return f.farm+' '+f.buckets; }).join(', '),'orange');
       });
     };
     var todo=distTodo();
