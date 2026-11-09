@@ -35,9 +35,8 @@ import frappe
 from frappe.utils import add_days, getdate
 
 from upande_packhouse.api.v2 import cold_room_capacity as capacity_mod
-from upande_packhouse.api.v2.core import bucket_cycle
+from upande_packhouse.api.v2.core import bucket_cycle, stock
 from upande_packhouse.api.v2.core import region as region_mod
-from upande_packhouse.api.v2.core import stock
 
 RECEIPT_TYPES = ("Receiving", "Late Receipt")
 # Stock Entry types that move a bucket on after receipt (it left the cold room
