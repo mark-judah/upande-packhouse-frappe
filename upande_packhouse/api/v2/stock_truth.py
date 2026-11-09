@@ -47,12 +47,13 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, cint, flt, get_datetime, getdate, now_datetime, today
 
+from upande_packhouse.api.v2 import cold_room as cold_room_mod
 from upande_packhouse.api.v2 import stock_visibility as sv
-from upande_packhouse.api.v2.core import pipeline, stock
+from upande_packhouse.api.v2.core import bucket_cycle, pipeline, stock
 from upande_packhouse.api.v2.core import region as region_core
 from upande_packhouse.api.v2.core.rose import rose_sql, rose_type
 
-COLDROOM_DAYS = 5
+COLDROOM_DAYS = cold_room_mod.FLOW_DAYS  # the same window as the Cold Room page's "received, not shelved"
 AWAITING_HOURS = 36  # harvested but not received: normal in-transit window
 AWAITING_DAYS = 7  # older unclaimed harvests are shown as "never received" up to here
 TRANSIT_DAYS = 5
@@ -134,6 +135,9 @@ STATE_META = {
 }
 STATE_ORDER = list(STATE_META)
 PHYSICAL = tuple(s for s in STATE_ORDER)  # every state is stems that exist
+# entries that end a receipt's / harvest's own cycle when the same bucket gets one later (bucket ids are reused)
+RECEIPT_CYCLE = ("Receiving", "Late Receipt", "Harvesting")
+HARVEST_CYCLE = ("Receiving", "Late Receipt", "Harvesting", "Discard")
 RECLAIM_REASONS = ("order_cancelled", "delivery_passed", "bucket_reused")
 STALE_LABEL = {
 	"order_cancelled": "Order cancelled",
@@ -244,7 +248,18 @@ def _args(kw):
 	a.through = getdate(a.through) if a.through else getdate(add_days(t, 7))
 	if a.through < t:
 		a.through = t
+	a.hide_reharvested = _hide_reharvested(a.get("hide_reharvested"))
 	return a
+
+
+def _hide_reharvested(v):
+	"""The page's "Filter out reharvested" switch. On unless the page says otherwise: it arrives as
+	hide_reharvested in the request (read here so every endpoint honours it without a new argument)."""
+	if v is None:
+		v = frappe.form_dict.get("hide_reharvested")
+	if v is None or v == "":
+		return True
+	return str(v).strip().lower() not in ("0", "false", "no", "off")
 
 
 def _farm_ok(a, farm):
@@ -278,9 +293,7 @@ def _allocations(shelf_keys, held_ids):
 		       IFNULL(bas.stem_length, '') AS length, bas.shelf_farm AS farm, bas.in_transit,
 		       ba.sales_order, ba.sales_order_item, ba.quantity_allocated AS qty, ba.creation, IFNULL(ba.issued, 0) AS issued,
 		       so.docstatus AS so_docstatus, so.status AS so_status, so.delivery_date,
-		       so.per_delivered, so.customer_name, so.customer,
-		       EXISTS (SELECT 1 FROM `tabStock Entry` se WHERE se.stock_entry_type = 'Harvesting' AND se.docstatus != 2
-		               AND se.custom_bucket_id = bas.bucket_id AND se.creation > ba.creation) AS reused
+		       so.per_delivered, so.customer_name, so.customer
 		FROM `tabBucket Allocations` ba
 		INNER JOIN `tabBucket Allocation Status` bas ON bas.name = ba.parent
 		LEFT JOIN `tabSales Order` so ON so.name = ba.sales_order
@@ -299,9 +312,11 @@ def _allocations(shelf_keys, held_ids):
 		)
 	}
 	t = getdate(today())
+	cycles = bucket_cycle.index()
 	for r in rows:
 		r.qty = _f(r.qty)
 		r.key = (_up(r.bucket_id), r.variety, r.length)
+		r.reused = bucket_cycle.harvested_after(cycles, r.bucket_id, r.creation)  # harvested again since
 		if r.so_docstatus is None or r.so_docstatus == 2 or r.so_status == "Cancelled":
 			r.reason = "order_cancelled"
 		elif r.delivery_date and getdate(r.delivery_date) < t:
@@ -330,38 +345,39 @@ def _coldroom_rows(a):
 		"""
 		SELECT se.custom_bucket_id AS bucket_id, se.farm, sed.item_code AS variety, i.item_name, i.item_group,
 		       IFNULL(NULLIF(TRIM(se.custom_stem_length), ''), '') AS length,
-		       se.creation AS since, se.name AS ref, SUM(sed.qty) AS stems
+		       se.creation AS since, se.posting_date AS posted, se.name AS ref, SUM(sed.qty) AS stems
 		FROM `tabStock Entry` se FORCE INDEX (stock_entry_type_docstatus_posting_date_index)
 		INNER JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
 		LEFT JOIN `tabItem` i ON i.name = sed.item_code
 		WHERE se.docstatus = 1 AND se.stock_entry_type IN ('Receiving', 'Late Receipt')
 		  AND se.posting_date >= %(since)s AND IFNULL(se.custom_bucket_id, '') != ''
-		  AND NOT EXISTS (SELECT 1 FROM `tabStock Entry` n
-		        WHERE n.custom_bucket_id = se.custom_bucket_id AND n.docstatus = 1 AND n.name != se.name
-		          AND n.stock_entry_type IN ('Receiving', 'Late Receipt', 'Harvesting') AND n.creation > se.creation)
 		  AND NOT EXISTS (SELECT 1 FROM `tabShelf Item` si WHERE si.bucket_id = se.custom_bucket_id
 		        AND si.stem_qty > 0 AND DATE(si.date_added) >= se.posting_date)
 		  AND NOT EXISTS (SELECT 1 FROM `tabShelving Log` sl WHERE sl.bucket_id = se.custom_bucket_id
 		        AND DATE(sl.shelved_on) >= se.posting_date)
-		  AND NOT EXISTS (SELECT 1 FROM `tabStock Entry` d WHERE d.custom_bucket_id = se.custom_bucket_id
-		        AND d.docstatus = 1 AND d.posting_date >= se.posting_date
-		        AND d.stock_entry_type IN ('Discard', 'Issuing From Cold Store', 'Issue From The Cold Store',
-		            'Offline Issuing', 'Move To Graded Sold', 'Packing', 'Dispatch'))
 		  AND NOT EXISTS (SELECT 1 FROM `tabPick List Item` p INNER JOIN `tabOrder Pick List` o ON o.name = p.parent
 		        WHERE p.bucket = se.custom_bucket_id AND p.issued = 1 AND o.docstatus < 2
 		          AND o.date_created >= se.posting_date)
-		GROUP BY se.custom_bucket_id, se.farm, sed.item_code, se.custom_stem_length, se.name, se.creation
+		GROUP BY se.custom_bucket_id, se.farm, sed.item_code, se.custom_stem_length, se.name, se.creation, se.posting_date
 		""",
 		{"since": since},
 		as_dict=True,
 	)
-	return rows
+	# a later receipt or harvest of the same bucket means this receipt is not its last place (bucket ids are reused);
+	# nor is it if the bucket was discarded, issued or moved on, on or after the receipt day
+	cycles = bucket_cycle.index()
+	return [
+		r
+		for r in rows
+		if not bucket_cycle.later_entry(cycles, r.bucket_id, RECEIPT_CYCLE, r.since)
+		and not bucket_cycle.posted_since(cycles, r.bucket_id, cold_room_mod.ONWARD_TYPES, r.posted)
+	]
 
 
 def _harvest_rows(a):
 	"""Harvested stems nobody has booked in yet (latest cycle of the bucket only)."""
 	since = add_days(a.today, -AWAITING_DAYS)
-	return frappe.db.sql(
+	rows = frappe.db.sql(
 		"""
 		SELECT se.custom_bucket_id AS bucket_id, se.farm, sed.item_code AS variety, i.item_name, i.item_group,
 		       IFNULL(NULLIF(TRIM(COALESCE(NULLIF(sed.custom_stem_length, ''), se.custom_stem_length)), ''), '') AS length,
@@ -371,10 +387,6 @@ def _harvest_rows(a):
 		LEFT JOIN `tabItem` i ON i.name = sed.item_code
 		WHERE se.docstatus = 1 AND se.stock_entry_type = 'Harvesting' AND se.posting_date >= %(since)s
 		  AND IFNULL(se.custom_receiving_entry, '') = '' AND IFNULL(se.custom_bucket_id, '') != ''
-		  AND NOT EXISTS (SELECT 1 FROM `tabStock Entry` n
-		        WHERE n.custom_bucket_id = se.custom_bucket_id AND n.docstatus = 1 AND n.name != se.name
-		          AND n.stock_entry_type IN ('Receiving', 'Late Receipt', 'Harvesting', 'Discard')
-		          AND n.creation > se.creation)
 		  AND NOT EXISTS (SELECT 1 FROM `tabShelf Item` si WHERE si.bucket_id = se.custom_bucket_id
 		        AND si.stem_qty > 0 AND si.date_added >= se.creation)
 		GROUP BY se.custom_bucket_id, se.farm, sed.item_code, sed.custom_stem_length, se.custom_stem_length, se.name, se.creation
@@ -382,6 +394,8 @@ def _harvest_rows(a):
 		{"since": since},
 		as_dict=True,
 	)
+	cycles = bucket_cycle.index()
+	return [r for r in rows if not bucket_cycle.later_entry(cycles, r.bucket_id, HARVEST_CYCLE, r.since)]
 
 
 def _quarantine_rows():
@@ -392,6 +406,7 @@ def _quarantine_rows():
 		       IFNULL(NULLIF(TRIM(COALESCE(NULLIF(sed.custom_stem_length, ''), se.custom_stem_length)), ''), '') AS length,
 		       SUM(CASE WHEN se.stock_entry_type = 'Receiving Quarantined' THEN sed.qty ELSE -sed.qty END) AS stems,
 		       MIN(se.creation) AS since,
+		       MAX(CASE WHEN se.stock_entry_type = 'Receiving Quarantined' THEN se.creation END) AS last_in,
 		       IFNULL(NULLIF(MAX(se.farm), ''),
 		              REPLACE(MAX(CASE WHEN se.stock_entry_type = 'Receiving Quarantined' THEN sed.t_warehouse END),
 		                      ' Receiving Quarantined - KR', '')) AS farm,
@@ -478,6 +493,13 @@ def collect(a):
 		full = stock.bucket_rows()
 		shelf_keys = {(_up(r.bucket_id), r.variety, r.stem_length or "") for r in full}
 	allocs = _allocations(shelf_keys, held_ids)
+	cycles = bucket_cycle.index()
+	hidden = {k: {"stems": 0.0, "buckets": set()} for k in ("reclaimable", "quarantine")}
+
+	def hide(kind, stems, bucket):
+		hidden[kind]["stems"] += stems
+		hidden[kind]["buckets"].add(_up(bucket))
+
 	by_key = defaultdict(list)
 	for al in allocs:
 		by_key[al.key].append(al)
@@ -570,6 +592,11 @@ def collect(a):
 			and _farm_ok(a, al.farm)
 		):
 			continue
+		if al.reused:
+			# the bucket was harvested again after this was allocated: the stems it held are gone
+			if a.hide_reharvested:
+				hide("reclaimable", al.qty, al.bucket_id)
+				continue
 		add(
 			"reclaimable",
 			{"variety": al.variety, "length": al.length, "farm": al.farm, "bucket_id": al.bucket_id},
@@ -624,6 +651,9 @@ def collect(a):
 			)
 	for r in _quarantine_rows():
 		if keep(r):
+			if a.hide_reharvested and bucket_cycle.harvested_after(cycles, r.bucket_id, r.last_in):
+				hide("quarantine", _f(r.stems), r.bucket_id)  # the bucket was refilled: nothing is still in quarantine
+				continue
 			add(
 				"quarantine",
 				r,
@@ -645,7 +675,8 @@ def collect(a):
 
 	for it in items:
 		it["rose_type"] = rose_type(it["item_group"])
-	return {"items": items, "allocs": allocs, "now": now}
+	hidden = {k: {"stems": v["stems"], "buckets": len(v["buckets"])} for k, v in hidden.items()}
+	return {"items": items, "allocs": allocs, "now": now, "hidden": hidden}
 
 
 def _rose_groups(a):
@@ -852,6 +883,9 @@ def overview(
 			"success": True,
 			"through": str(a.through),
 			"today": str(a.today),
+			"hide_reharvested": a.hide_reharvested,
+			# what the switch is holding back: stems still on the books against buckets that were harvested again
+			"hidden": c["hidden"],
 			"kpis": kpis,
 			"reasons": reason_rows,
 			"rows": rows,
@@ -1014,12 +1048,16 @@ def allocations(
 		orders = defaultdict(lambda: {"qty": 0.0, "lines": []})
 		total_open = 0.0
 		reclaim_held = 0.0
+		hidden = 0.0
 		for al in allocs:
 			if not (
 				sv._qmatch(a.q, al.variety, al.bucket_id, al.sales_order, al.customer_name, al.customer)
 				and (not a.lengths or _ln(al.length) in a.lengths)
 				and _farm_ok(a, al.farm)
 			):
+				continue
+			if a.hide_reharvested and al.reused and not al.issued:
+				hidden += al.qty  # bucket harvested again since: the stems it held are gone
 				continue
 			if not al.issued:
 				total_open += al.qty
@@ -1062,6 +1100,7 @@ def allocations(
 		order_rows = sorted(orders.values(), key=lambda o: -o["qty"])
 		return {
 			"success": True,
+			"hidden_reharvested": hidden,
 			"total_open": total_open,
 			"reclaimable": sum(v["qty"] for k, v in by_reason.items() if k in RECLAIM_REASONS),
 			"reclaimable_on_discard": reclaim_held,
@@ -1112,9 +1151,7 @@ def _transfer_rows():
 		       pli.sales_order_item, opl.sales_order, opl.docstatus AS opl_docstatus, pli.creation,
 		       IFNULL(pli.awaiting_transfer, 0) AS awaiting, IFNULL(pli.loaded_in_trolley, 0) AS trolley,
 		       {truck} AS on_truck, IFNULL(pli.in_transit, 0) AS in_transit,
-		       so.docstatus AS so_docstatus, so.status AS so_status, so.delivery_date, so.customer_name, so.customer,
-		       EXISTS (SELECT 1 FROM `tabStock Entry` se WHERE se.stock_entry_type = 'Harvesting' AND se.docstatus != 2
-		               AND se.custom_bucket_id = pli.bucket AND se.creation > pli.creation) AS reused
+		       so.docstatus AS so_docstatus, so.status AS so_status, so.delivery_date, so.customer_name, so.customer
 		FROM `tabPick List Item` pli
 		INNER JOIN `tabOrder Pick List` opl ON opl.name = pli.parent
 		LEFT JOIN `tabSales Order` so ON so.name = opl.sales_order
@@ -1126,10 +1163,12 @@ def _transfer_rows():
 	)
 	t = getdate(today())
 	out = []
+	cycles = bucket_cycle.index()
 	for r in rows:
 		r.qty = _f(r.qty)
 		r.issued = 0
 		r.held = False
+		r.reused = bucket_cycle.harvested_after(cycles, r.bucket_id, r.creation)  # harvested again since
 		r.so_status = r.so_status or ""
 		if (
 			r.opl_docstatus == 2
@@ -1205,12 +1244,16 @@ def transfers(
 		by_reason = defaultdict(lambda: {"qty": 0.0, "rows": 0, "orders": set()})
 		orders = defaultdict(lambda: {"qty": 0.0, "lines": []})
 		total = 0.0
+		hidden = 0.0
 		for r in _transfer_rows():
 			if not (
 				sv._qmatch(a.q, r.variety, r.bucket_id, r.sales_order, r.customer_name, r.customer)
 				and (not a.lengths or _ln(r.length) in a.lengths)
 				and _farm_ok(a, r.farm)
 			):
+				continue
+			if a.hide_reharvested and r.reused:
+				hidden += r.qty  # bucket harvested again since: it is not on this transfer
 				continue
 			total += r.qty
 			if not r.reason or (want and r.reason not in want):
@@ -1250,6 +1293,7 @@ def transfers(
 		order_rows = sorted(orders.values(), key=lambda o: -o["qty"])
 		return {
 			"success": True,
+			"hidden_reharvested": hidden,
 			"total_open": total,
 			"reclaimable": sum(v["qty"] for v in by_reason.values()),
 			"reclaimable_on_discard": 0,
@@ -1923,7 +1967,7 @@ def outlook(
 	does that, and stock that is not allocated is available. Read-only."""
 	_guard()
 	key = "stock_truth_outlook2:" + frappe.as_json(
-		[from_date, to_date, region, farm, length, rose, q, customer], indent=None
+		[from_date, to_date, region, farm, length, rose, q, customer, _hide_reharvested(None)], indent=None
 	)
 	if not cint(force):
 		hit = frappe.cache.get_value(key)
