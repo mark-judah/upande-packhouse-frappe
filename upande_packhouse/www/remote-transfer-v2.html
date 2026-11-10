@@ -73,6 +73,14 @@ html.ph2-root,html.ph2-root body{overflow-y:visible!important;overflow-x:clip!im
 </script>
 {% set rt_part = 'tail' %}{% for t in rt_templates %}{% include t %}
 {% endfor %}
+{% if rt_tab == 'journey' %}
+<script>
+  /* The v2 Bucket Journey reads the tab key and the transfer hub from here. */
+  window.RT = { tab: {{ rt_tab|tojson }}, transferHub: {{ transfer_hub|tojson }} };
+  window.RT.defaultDate = PH.date.add(PH.date.today(), 1);
+</script>
+{% set rt_part = 'script' %}{% for t in rt_templates %}{% include t %}{% endfor %}
+{% endif %}
 <script>
 (function () {
   // Truck Routes and Bucket Logistics are one screen: it switches between them in place;
