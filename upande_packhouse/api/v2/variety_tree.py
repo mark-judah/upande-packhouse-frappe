@@ -27,7 +27,7 @@ which this module does not change.
 """
 
 import frappe
-from frappe.utils import add_days, date_diff, getdate, nowdate
+from frappe.utils import add_days, date_diff, flt, getdate, nowdate
 
 from upande_packhouse.api.v2.core import harvest as core_harvest
 from upande_packhouse.api.v2.core import pipeline
@@ -39,6 +39,35 @@ CACHE_TTL = 600  # seconds; demand/production aggregates per (range, farms)
 
 
 # ------------------------------------------------------------ catalogue
+
+
+def default_discard_age():
+	"""Production Settings > Discard Age: what a variety without its own age uses."""
+	try:
+		return flt(frappe.db.get_single_value("Production Settings", "discard_age")) or 5.0
+	except Exception:
+		return 5.0
+
+
+@frappe.whitelist(methods=["POST"])
+def set_discard_age(item=None, days=None):
+	"""Set (or clear, with an empty value) a variety's discard age (Item > Roses Packhouse > Discard Age). The automatic
+	Discard Request reads it."""
+	if not frappe.has_permission("Item", "write"):
+		frappe.throw(frappe._("You do not have permission to change varieties."), frappe.PermissionError)
+	if not item or not frappe.db.exists("Item", item):
+		frappe.throw(frappe._("Unknown variety."), frappe.DoesNotExistError)
+	value = None
+	if days not in (None, ""):
+		value = flt(days)
+		if value <= 0:
+			value = None
+		elif value < 0.5 or value > 365:
+			frappe.throw(frappe._("A discard age is between 0.5 and 365 days."))
+		else:
+			value = round(value, 1)
+	frappe.db.set_value("Item", item, "custom_discard_age", value)
+	return {"success": True, "item": item, "age": value, "effective": value or default_discard_age()}
 
 
 def _catalogue():
@@ -68,7 +97,8 @@ def _catalogue():
 		for it in frappe.get_all(
 			"Item",
 			filters={"item_group": ["in", groups]},
-			fields=["name", "item_name", "image", "custom_color", "stock_uom", "disabled", "item_group"],
+			fields=["name", "item_name", "image", "custom_color", "stock_uom", "disabled", "item_group"]
+			+ (["custom_discard_age"] if frappe.db.has_column("Item", "custom_discard_age") else []),
 			order_by="item_name",
 		):
 			items_by_group.setdefault(it.item_group, []).append(it)
@@ -92,6 +122,8 @@ def _catalogue():
 							"colour": it.custom_color or "",
 							"hex": (colours.get(it.custom_color) or "") if it.custom_color else "",
 							"uom": it.stock_uom or "",
+							# empty = the default in Production Settings
+							"discard_age": flt(it.get("custom_discard_age")) or None,
 						}
 						for it in items
 					],
@@ -273,6 +305,7 @@ def get_variety_tree(
 			"lines": out,
 			"all_lines": [ln["name"] for ln in catalogue],
 			"catalogue_total": sum(len(c["items"]) for ln in catalogue for c in ln["cats"]),
+			"default_discard_age": default_discard_age(),
 			"kpis": k,
 		}
 	except Exception as e:
