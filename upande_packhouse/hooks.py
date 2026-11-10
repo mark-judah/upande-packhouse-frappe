@@ -134,6 +134,7 @@ website_route_rules = [
 	{"from_route": "/packhouse-dashboard-v2/packhouse-downgrades-v2", "to_route": "packhouse-downgrades-v2"},
 	{"from_route": "/packhouse-dashboard-v2/stock-take-v2", "to_route": "stock-take-v2"},
 	{"from_route": "/packhouse-dashboard-v2/bucket-count-v2", "to_route": "bucket-count-v2"},
+	{"from_route": "/packhouse-dashboard-v2/shelving-performance-v2", "to_route": "shelving-performance-v2"},
 	{"from_route": "/packhouse-dashboard-v2/stock-visibility-v2", "to_route": "stock-visibility-v2"},
 	{"from_route": "/packhouse-dashboard-v2/avails-v2", "to_route": "avails-v2"},
 	{"from_route": "/packhouse-dashboard-v2/stem-movement-v2", "to_route": "stem-movement-v2"},

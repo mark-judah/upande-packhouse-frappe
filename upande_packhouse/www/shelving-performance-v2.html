@@ -1,0 +1,285 @@
+{% extends "templates/web.html" %}
+{% block title %}Shelving Performance · Packhouse{% endblock %}
+{% block page_content %}
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
+
+<header class="ph-head">
+  <div>
+    <div class="ph-head__eyebrow">Packhouse · Tracking</div>
+    <h1 class="ph-head__title">Shelving Performance</h1>
+    <p class="ph-head__sub" id="sub">Shelving per cold room, time to shelve, who shelved and missing buckets</p>
+  </div>
+  <div class="ph-head__tools">
+    <button class="ph-btn" id="export" type="button" disabled>Export CSV</button>
+  </div>
+</header>
+
+<div class="ph-filters">
+  <div class="ph-pills" id="f-region" aria-label="Region"></div>
+  <select class="ph-select" id="f-farm" aria-label="Cold room"><option value="">All cold rooms</option></select>
+  <div class="ph-pills" id="f-target" aria-label="Shelve within">
+    <button data-value="60">1 h</button><button data-value="120">2 h</button><button data-value="240">4 h</button>
+  </div>
+  <div class="ph-filters__spacer"></div>
+  <div class="ph-pills" id="f-preset">
+    <button data-value="today">Today</button><button data-value="7d">7 days</button><button data-value="30d">30 days</button>
+  </div>
+  <label class="ph-daterange" title="Receiving date">
+    <input type="date" id="f-from" aria-label="From"><span class="ph-daterange__sep">→</span><input type="date" id="f-to" aria-label="To">
+  </label>
+</div>
+
+<style>
+.sp-score{display:inline-flex;align-items:center;gap:8px;min-width:120px}
+.sp-score .ph-progress{flex:1;min-width:50px}
+.sp-score b{font-variant-numeric:tabular-nums;min-width:44px;text-align:right}
+.ph-card--flush [id^="t-"] > div:has(> .ph-sk){margin-inline:32px}
+.sp-score small{font-variant-numeric:tabular-nums;color:var(--ink-mute);min-width:44px;text-align:right}
+</style>
+
+<section class="ph-kpis" id="kpis"></section>
+
+<nav class="ph-tabs" id="tabs" role="tablist">
+  <button class="ph-tab" data-view="rooms" role="tab">Cold rooms</button>
+  <button class="ph-tab" data-view="shelvers" role="tab">Who shelved <span class="ph-tab__count" id="tc-shelvers">—</span></button>
+  <button class="ph-tab" data-view="waiting" role="tab">Not shelved <span class="ph-tab__count" id="tc-waiting">—</span></button>
+  <button class="ph-tab" data-view="missing" role="tab">Missing buckets <span class="ph-tab__count" id="tc-missing">—</span></button>
+</nav>
+
+<div id="view-rooms" hidden>
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head"><h2 class="ph-card__title">By cold room</h2><span class="ph-card__meta" id="rooms-meta"></span></div>
+    <div id="t-rooms"></div>
+  </section>
+  <div class="ph-row ph-row--2">
+    <section class="ph-card">
+      <div class="ph-card__head"><h2 class="ph-card__title">Shelved on time per day</h2><span class="ph-card__meta">% of the day's receipts</span></div>
+      <div class="ph-chart" id="c-trend"></div>
+    </section>
+    <section class="ph-card">
+      <div class="ph-card__head"><h2 class="ph-card__title">Missing buckets by farm</h2><span class="ph-card__meta">% of buckets called from its shelves</span></div>
+      <div class="ph-chart" id="c-missing"></div>
+    </section>
+  </div>
+</div>
+
+<div id="view-shelvers" hidden>
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head"><h2 class="ph-card__title">Who shelved</h2></div>
+    <div id="t-shelvers"></div>
+  </section>
+</div>
+
+<div id="view-waiting" hidden>
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head"><h2 class="ph-card__title">Received, not shelved <span class="ph-badge" id="n-waiting">0</span></h2><span class="ph-card__meta" id="waiting-meta"></span></div>
+    <div id="t-waiting"></div>
+  </section>
+</div>
+
+<div id="view-missing" hidden>
+  <section class="ph-card ph-card--flush">
+    <div class="ph-card__head"><h2 class="ph-card__title">Missing buckets <span class="ph-badge" id="n-missing">0</span></h2><span class="ph-card__meta">not on their shelf when called</span></div>
+    <div id="t-missing"></div>
+  </section>
+</div>
+
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  const API = "upande_packhouse.api.v2.shelving_performance.get_shelving_performance";
+  const d7 = PH.date.preset("7d");
+  const VIEWS = ["rooms", "shelvers", "waiting", "missing"];
+  const st = PH.state({ view: "rooms", from: d7[0], to: d7[1], region: "", farm: "", target: "120" });
+  let data = null, seq = 0, allFarms = [].concat(...Object.values(PH.REGIONS)).sort();
+
+  PH.regionPills("#f-region", st, "region");
+  PH.bindSelect("#f-farm", st, "farm");
+  PH.pills("#f-target", st, "target");
+  PH.dateRange({ pills: "#f-preset", from: "#f-from", to: "#f-to", state: st });
+  PH.$("#tabs").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-view]");
+    if (b) st.set({ view: b.dataset.view });
+  });
+
+  const PANES = { rooms: ["#t-rooms", "#c-trend", "#c-missing"], shelvers: ["#t-shelvers"], waiting: ["#t-waiting"], missing: ["#t-missing"] };
+  let tick = 0;
+  function skeleton(v) {
+    PANES[v].forEach((sel) => (sel.startsWith("#c-") ? PH.skeleton(sel, "block", 7) : PH.skeleton(sel, "rows", 8)));
+  }
+  function switchView() {
+    paintView();
+    const v = PH.$("#tabs .ph-tab.is-on").dataset.view, my = ++tick;
+    if (!data) return;
+    skeleton(v);
+    setTimeout(() => { if (my === tick && data) renderView(v); }, 180);
+  }
+
+  function paintFarms() {
+    const only = PH.regionFarms(st.get("region"));
+    const list = only ? allFarms.filter((f) => only.includes(f)) : allFarms;
+    const cur = st.get("farm");
+    PH.options("#f-farm", cur && !list.includes(cur) ? list.concat([cur]) : list, cur);
+  }
+  function paintView() {
+    let v = st.get("view");
+    if (!VIEWS.includes(v)) v = "rooms";
+    PH.$$("#tabs .ph-tab").forEach((b) => b.classList.toggle("is-on", b.dataset.view === v));
+    VIEWS.forEach((n) => { PH.$("#view-" + n).hidden = n !== v; });
+    document.getElementById("export").disabled = !data;
+  }
+  st.on((s, changed) => {
+    const only = PH.regionFarms(s.region);
+    if (changed.includes("region") && s.farm && only && !only.includes(s.farm)) return st.set({ farm: "" });
+    paintFarms();
+    paintView();
+    if (changed.length === 1 && changed[0] === "view") return switchView();
+    load();
+  });
+
+  PH.kpiSkeleton("#kpis", ["Received", "Shelved", "On time", "Time to shelve", "Not shelved", "Missing"]);
+
+  const mins = (v) => {
+    if (v == null) return "—";
+    if (v < 60) return v + " min";
+    const h = Math.floor(v / 60), m = v % 60;
+    return h < 48 ? h + " h" + (m ? " " + m + " min" : "") : PH.fmt.num(v / 1440, 1) + " d";
+  };
+  const level = (v, good, warn, high) => (v == null ? "" : high ? (v >= good ? "good" : v >= warn ? "warn" : "bad") : (v <= good ? "good" : v <= warn ? "warn" : "bad"));
+  const score = (v, cls, n) => (v == null ? "—" : { __raw: `<span class="sp-score"><span class="ph-progress"><i class="${cls}" style="width:${Math.min(100, v)}%"></i></span><b>${PH.fmt.pct(v, 1)}</b><small>${n == null ? "" : PH.fmt.num(n)}</small></span>` });
+  const both = (n, total, pct) => PH.fmt.num(n) + " of " + PH.fmt.num(total) + " (" + PH.fmt.pct(pct, 1) + ")";
+  const badge = (text, cls) => ({ __raw: `<span class="ph-badge ph-badge--${cls}">${PH.esc(text)}</span>` });
+
+  const tRooms = PH.table("#t-rooms", { pageSize: 0, empty: "Nothing received in this range", rows: [], sort: { key: "on_time_pct", dir: "asc" }, columns: [
+    { key: "farm", label: "Cold room", cls: "is-strong" },
+    { key: "received", label: "Received", num: true, total: true },
+    { key: "from_farms", label: "From other farms", num: true, total: true },
+    { key: "shelved_pct", label: "Shelved", html: (v, r) => score(v, level(v, 95, 80, true), r.shelved) },
+    { key: "on_time_pct", label: "On time", html: (v, r) => score(v, level(v, 90, 70, true), r.on_time) },
+    { key: "median_minutes", label: "Median time", format: mins },
+    { key: "p90_minutes", label: "Slowest 10% over", format: mins },
+    { key: "waiting", label: "Not shelved", num: true, total: true },
+    { key: "called", label: "Called from shelf", num: true, total: true },
+    { key: "missing", label: "Missing", num: true, total: true },
+    { key: "missing_pct", label: "Missing %", html: (v, r) => (v == null ? "—" : badge(PH.fmt.pct(v, 1) + " · " + PH.fmt.num(r.missing), level(v, 1, 3))) },
+  ] });
+  const tShelvers = PH.table("#t-shelvers", { pageSize: 50, empty: "Nobody shelved in this range", rows: [], sort: { key: "buckets", dir: "desc" }, columns: [
+    { key: "name", label: "Shelved by", cls: "is-strong" },
+    { key: "farms", label: "Cold room" },
+    { key: "buckets", label: "Buckets", num: true, total: true },
+    { key: "stems", label: "Stems", num: true, total: true },
+    { key: "timed", label: "From receipts", num: true },
+    { key: "median_minutes", label: "Median time", format: mins },
+    { key: "on_time_pct", label: "On time", html: (v, r) => score(v, level(v, 90, 70, true), r.on_time) },
+  ] });
+  const tWaiting = PH.table("#t-waiting", { pageSize: 50, empty: "Everything received has been shelved", rows: [], sort: { key: "hours", dir: "desc" }, columns: [
+    { key: "bucket", label: "Bucket", cls: "ph-mono is-strong" },
+    { key: "farm", label: "Cold room" },
+    { key: "variety", label: "Variety" },
+    { key: "stems", label: "Stems", num: true },
+    { key: "source", label: "Came" },
+    { key: "received_at", label: "Received", format: (v) => PH.fmt.datetime(v) },
+    { key: "received_by", label: "Received by" },
+    { key: "hours", label: "Waiting", html: (v) => badge(mins(Math.round(v * 60)), v > 24 ? "bad" : "warn") },
+  ] });
+  const tMissing = PH.table("#t-missing", { pageSize: 50, empty: "No missing buckets in this range", rows: [], columns: [
+    { key: "bucket", label: "Bucket", cls: "ph-mono is-strong" },
+    { key: "farm", label: "Farm" },
+    { key: "shelf", label: "Expected shelf", cls: "ph-mono" },
+    { key: "variety", label: "Variety" },
+    { key: "stems", label: "Stems", num: true },
+    { key: "reported_by", label: "Reported by" },
+    { key: "reported_at", label: "Reported", format: (v) => PH.fmt.datetime(v) },
+    { key: "status", label: "Status", html: (v) => badge(v, v === "Found" ? "good" : v === "Open" ? "bad" : "warn") },
+  ] });
+
+  function load() {
+    const s = st.get(), my = ++seq;
+    tick++;
+    PH.kpiSkeleton("#kpis", ["Received", "Shelved", "On time", "Time to shelve", "Not shelved", "Missing"]);
+    VIEWS.forEach(skeleton);
+    ["#tc-shelvers", "#tc-waiting", "#tc-missing"].forEach((x) => PH.text(x, "—"));
+    document.getElementById("export").disabled = true;
+    const args = { from_date: s.from, to_date: s.to, region: s.region, farm: s.farm, target_minutes: s.target };
+    return PH.call(API, args)
+      .then((m) => { if (my !== seq) return; data = m; render(); PH.markUpdated(); })
+      .catch((e) => {
+        if (my !== seq) return;
+        PH.loadingKpis("#kpis", false);
+        ["#t-rooms", "#c-trend", "#c-missing", "#t-shelvers", "#t-waiting", "#t-missing"].forEach((x) => PH.error(x, e.message, () => load()));
+        paintView();
+      });
+  }
+
+  function render() {
+    const d = data, s = st.get(), t = d.totals, target = mins(d.target_minutes);
+    allFarms = [...new Set([].concat(...Object.values(PH.REGIONS), allFarms, d.farms || []))].sort();
+    paintFarms();
+    const scope = [s.region, s.farm].filter(Boolean);
+    PH.text("#sub", PH.date.label(s.from, s.to) + (scope.length ? " · " + scope.join(" · ") : ""));
+    PH.text("#rooms-meta", "on time = within " + target);
+    PH.text("#waiting-meta", "received over " + target + " ago");
+
+    PH.kpis("#kpis", [
+      { label: "Received", value: t.received, unit: "buckets into cold rooms", dark: true },
+      { label: "Shelved", value: t.shelved_pct == null ? "—" : PH.fmt.pct(t.shelved_pct, 1), unit: PH.fmt.plural(t.shelved, "bucket"), bar: t.shelved_pct, barClass: level(t.shelved_pct, 95, 80, true) },
+      { label: "On time", value: t.on_time_pct == null ? "—" : PH.fmt.pct(t.on_time_pct, 1), unit: "within " + target, bar: t.on_time_pct, barClass: level(t.on_time_pct, 90, 70, true) },
+      { label: "Time to shelve", value: mins(t.median_minutes), unit: "median · slowest 10% over " + mins(t.p90_minutes) },
+      { label: "Not shelved", value: t.waiting, unit: "received over " + target + " ago", onClick: () => st.set({ view: "waiting" }) },
+      { label: "Missing", value: t.missing_pct == null ? "—" : PH.fmt.pct(t.missing_pct, 1), unit: PH.fmt.plural(t.missing, "bucket") + " of " + PH.fmt.num(t.called) + " called", onClick: () => st.set({ view: "missing" }) },
+    ]);
+
+    PH.text("#tc-shelvers", PH.fmt.num(t.shelvers));
+    PH.text("#tc-waiting", PH.fmt.num(t.waiting));
+    PH.text("#tc-missing", PH.fmt.num(t.missing));
+    PH.text("#n-waiting", PH.fmt.num(t.waiting));
+    PH.text("#n-missing", PH.fmt.num(t.missing));
+    VIEWS.forEach(renderView);
+    paintView();
+  }
+
+  function renderView(v) {
+    const d = data;
+    if (v === "shelvers") return tShelvers.update(d.shelvers || []);
+    if (v === "waiting") return tWaiting.update(d.waiting || []);
+    if (v === "missing") return tMissing.update(d.missing || []);
+    tRooms.update(d.rooms || []);
+    const rooms = (d.rooms || []).filter((r) => r.received).map((r) => r.farm);
+    PH.chart("#c-trend", {
+      type: "line", labels: (d.trend || []).map((x) => PH.fmt.date(x.date, true)),
+      series: rooms.map((f, i) => ({ label: f, data: (d.trend || []).map((x) => (x.rooms[f] ? x.rooms[f].on_time_pct : null)), color: PH.palette[i % PH.palette.length] })),
+      yFormat: (v) => v + "%",
+      options: { plugins: { tooltip: { callbacks: { label: (c) => {
+        const x = (d.trend[c.dataIndex].rooms || {})[c.dataset.label];
+        return x ? " " + c.dataset.label + ": " + both(x.on_time, x.received, x.on_time_pct) + " on time" : "";
+      } } } } },
+    });
+    const miss = (d.rooms || []).filter((r) => r.called);
+    PH.chart("#c-missing", {
+      type: "bar", horizontal: true, labels: miss.map((r) => r.farm + " · " + PH.fmt.num(r.missing) + " (" + PH.fmt.pct(r.missing_pct, 1) + ")"),
+      series: [{ label: "Missing %", data: miss.map((r) => r.missing_pct || 0), color: PH.statusColor.bad }],
+      yFormat: (v) => v + "%",
+      options: { plugins: { tooltip: { callbacks: { label: (c) => " " + both(miss[c.dataIndex].missing, miss[c.dataIndex].called, miss[c.dataIndex].missing_pct) + " called were missing" } } } },
+    });
+  }
+
+  const CSV = {
+    rooms: ["farm", "received", "from_harvest", "from_farms", "shelved", "shelved_pct", "on_time", "on_time_pct", "median_minutes", "p90_minutes", "waiting", "called", "missing", "missing_pct"],
+    shelvers: ["name", "user", "farms", "buckets", "stems", "timed", "median_minutes", "on_time_pct"],
+    waiting: ["bucket", "farm", "variety", "stems", "source", "received_at", "received_by", "hours"],
+    missing: ["bucket", "farm", "shelf", "variety", "stems", "reported_by", "reported_at", "status"],
+  };
+  document.getElementById("export").addEventListener("click", () => {
+    if (!data) return;
+    const s = st.get(), v = VIEWS.includes(s.view) ? s.view : "rooms";
+    PH.csv("shelving_" + v + "_" + s.from + "_" + s.to + ".csv", data[v] || [], CSV[v].map((key) => ({ key, label: key })));
+  });
+
+  PH.onRefresh(() => load());
+  PH.ready(() => { paintFarms(); paintView(); load(); });
+})();
+</script>
+{% endraw %}
+{% endblock %}
