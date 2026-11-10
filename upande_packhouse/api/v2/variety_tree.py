@@ -66,7 +66,8 @@ def set_discard_age(item=None, days=None):
 			frappe.throw(frappe._("A discard age is between 0.5 and 365 days."))
 		else:
 			value = round(value, 1)
-	frappe.db.set_value("Item", item, "custom_discard_age", value)
+	# The column cannot be NULL: 0 means "none of its own, use the default".
+	frappe.db.set_value("Item", item, "custom_discard_age", value or 0)
 	return {"success": True, "item": item, "age": value, "effective": value or default_discard_age()}
 
 
