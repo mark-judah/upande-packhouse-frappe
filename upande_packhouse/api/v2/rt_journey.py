@@ -202,6 +202,18 @@ def _has(doctype, column):
 	return frappe.db.has_column(doctype, column)
 
 
+_DT_EXISTS = {}
+
+
+def _dt_exists(doctype):
+	"""frappe.db.exists("DocType", x), remembered for the life of the worker: a doctype appears or goes only with a deploy,
+	and the journey reader asked this seven times for every bucket it read."""
+	key = (frappe.local.site, doctype)
+	if key not in _DT_EXISTS:
+		_DT_EXISTS[key] = bool(frappe.db.exists("DocType", doctype))
+	return _DT_EXISTS[key]
+
+
 def _variants(b):
 	return tuple({b, b.upper(), b.lower()})
 
@@ -317,7 +329,7 @@ def read_bucket(bucket_id, trace=True):
 			{"ids": ids},
 			as_dict=True,
 		)
-		if frappe.db.exists("DocType", "Discard Request Bucket")
+		if _dt_exists("Discard Request Bucket")
 		else []
 	)
 	opl_hdr = {
@@ -377,7 +389,7 @@ def read_bucket(bucket_id, trace=True):
 			{"ids": ids},
 			as_dict=True,
 		)
-		if frappe.db.exists("DocType", "Bucket Reuse Anomaly")
+		if _dt_exists("Bucket Reuse Anomaly")
 		else []
 	)
 	R["tevents"] = (
@@ -387,7 +399,7 @@ def read_bucket(bucket_id, trace=True):
 			{"ids": ids},
 			as_dict=True,
 		)
-		if frappe.db.exists("DocType", "Bucket Transfer Event")
+		if _dt_exists("Bucket Transfer Event")
 		else []
 	)
 	R["stem_repl"] = (
@@ -397,7 +409,7 @@ def read_bucket(bucket_id, trace=True):
 			{"ids": ids},
 			as_dict=True,
 		)
-		if frappe.db.exists("DocType", "Stem Replacement Log")
+		if _dt_exists("Stem Replacement Log")
 		else []
 	)
 	R["pack_reject"] = (
@@ -407,7 +419,7 @@ def read_bucket(bucket_id, trace=True):
 			{"ids": ids},
 			as_dict=True,
 		)
-		if frappe.db.exists("DocType", "Packing Reject Log")
+		if _dt_exists("Packing Reject Log")
 		else []
 	)
 	R["stock_take"] = (
@@ -416,7 +428,7 @@ def read_bucket(bucket_id, trace=True):
 			{"ids": ids},
 			as_dict=True,
 		)
-		if frappe.db.exists("DocType", "Cold Store Stock Take Bucket")
+		if _dt_exists("Cold Store Stock Take Bucket")
 		else []
 	)
 	R["bucket_count"] = (
@@ -425,7 +437,7 @@ def read_bucket(bucket_id, trace=True):
 			{"ids": ids},
 			as_dict=True,
 		)
-		if frappe.db.exists("DocType", "Bucket Count Bucket")
+		if _dt_exists("Bucket Count Bucket")
 		else []
 	)
 	R["trace"] = []
