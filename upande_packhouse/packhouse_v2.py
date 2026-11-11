@@ -54,6 +54,12 @@ NAV = [
 			("packhouse-downgrades", "Downgrades", "/packhouse-dashboard-v2/packhouse-downgrades-v2", "down"),
 			("stock-take", "Stock Take", "/packhouse-dashboard-v2/stock-take-v2", "clipboard"),
 			("bucket-count", "Bucket Count", "/packhouse-dashboard-v2/bucket-count-v2", "cube"),
+			(
+				"shelving-performance",
+				"Shelving Performance",
+				"/packhouse-dashboard-v2/shelving-performance-v2",
+				"snow",
+			),
 			("bucket-journey", "Bucket Journey", "/packhouse-dashboard-v2/bucket-journey-v2", "route"),
 		],
 	),

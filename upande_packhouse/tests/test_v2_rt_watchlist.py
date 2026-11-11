@@ -571,8 +571,13 @@ class TestBatchedLookups(Base):
 		ins("Shelving Log", bucket_id="TWATCH-F1", farm="Farm One", shelved_on=ago(days=2), shelf="S1")
 		ins("Shelving Log", bucket_id="TWATCH-F2", farm="Farm Two", shelved_on=ago(days=1), shelf="S2")
 		few = self._count(lambda: W.known_farms(["TWATCH-F1"]))
-		self.assertEqual(W.known_farms(["twatch-f1", "TWATCH-F2", "NOSUCH"]), {"TWATCH-F1": "Farm One", "TWATCH-F2": "Farm Two"})
-		many = self._count(lambda: W.known_farms(["TWATCH-F1", "TWATCH-F2"] + ["NOSUCH-%d" % i for i in range(200)]))
+		self.assertEqual(
+			W.known_farms(["twatch-f1", "TWATCH-F2", "NOSUCH"]),
+			{"TWATCH-F1": "Farm One", "TWATCH-F2": "Farm Two"},
+		)
+		many = self._count(
+			lambda: W.known_farms(["TWATCH-F1", "TWATCH-F2"] + ["NOSUCH-%d" % i for i in range(200)])
+		)
 		self.assertLessEqual(many, 2)
 		self.assertEqual(few, many)
 
@@ -584,7 +589,11 @@ class TestBatchedLookups(Base):
 		self.assertEqual(frappe.db.get_value("Bucket Watch", {"bucket_id": "TWATCH-A1"}, "farm"), "Farm One")
 		again = W.add_watches(["TWATCH-A1", "TWATCH-A2"], "again")
 		self.assertEqual((again["added"], again["already"]), (0, 2))
-		W.close_watch(frappe.db.get_value("Bucket Watch", {"bucket_id": "TWATCH-A1"}, "name"), "Resolved", "found")
+		W.close_watch(
+			frappe.db.get_value("Bucket Watch", {"bucket_id": "TWATCH-A1"}, "name"), "Resolved", "found"
+		)
 		reopened = W.add_watches(["TWATCH-A1"])
 		self.assertEqual(reopened["added"], 1)
-		self.assertEqual(frappe.db.get_value("Bucket Watch", {"bucket_id": "TWATCH-A1"}, "status"), "Watching")
+		self.assertEqual(
+			frappe.db.get_value("Bucket Watch", {"bucket_id": "TWATCH-A1"}, "status"), "Watching"
+		)

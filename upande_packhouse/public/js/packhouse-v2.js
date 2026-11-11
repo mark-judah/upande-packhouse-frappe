@@ -397,11 +397,15 @@
 				else p.set(k, typeof v === "boolean" ? (v ? "1" : "0") : v);
 			});
 			const q = p.toString();
-			history.replaceState(
-				history.state,
-				"",
-				location.pathname + (q ? "?" + q : "") + location.hash
-			);
+			try {
+				history.replaceState(
+					history.state,
+					"",
+					location.pathname.replace(/^\/+/, "/") + (q ? "?" + q : "") + location.hash
+				);
+			} catch (e) {
+				console.error(e);
+			}
 		}
 		return {
 			get: (k) => (k ? s[k] : Object.assign({}, s)),
@@ -411,7 +415,13 @@
 				changed.forEach((k) => (s[k] = patch[k]));
 				writeUrl();
 				if (!(opts && opts.silent))
-					subs.forEach((fn) => fn(Object.assign({}, s), changed));
+					subs.forEach((fn) => {
+						try {
+							fn(Object.assign({}, s), changed);
+						} catch (e) {
+							console.error(e);
+						}
+					});
 			},
 			reset() {
 				this.set(Object.assign({}, defaults));
@@ -1492,7 +1502,11 @@
 				data: { labels: o.labels, datasets },
 				options: {
 					indexAxis: o.horizontal ? "y" : "x",
-					interaction: { mode: isDough ? "nearest" : "index", intersect: isDough },
+					interaction: {
+						mode: isDough ? "nearest" : "index",
+						intersect: isDough,
+						axis: o.horizontal ? "y" : "x",
+					},
 					animation: { duration: 400 },
 					plugins: {
 						legend: {
