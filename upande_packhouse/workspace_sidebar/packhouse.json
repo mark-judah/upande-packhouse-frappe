@@ -106,7 +106,7 @@
    "open_in_new_tab": 1,
    "show_arrow": 0,
    "type": "Link",
-   "url": "/packhouse-dashboard-v2/remote-transfer-v2?tab=journey"
+   "url": "/packhouse-dashboard-v2/bucket-journey-v2"
   },
   {
    "child": 1,
@@ -610,7 +610,7 @@
    "url": "/floriday-orders"
   }
  ],
- "modified": "2026-11-06 00:22:15.038401",
+ "modified": "2026-11-12 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Packhouse",

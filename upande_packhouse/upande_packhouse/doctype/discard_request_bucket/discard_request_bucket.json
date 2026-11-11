@@ -17,6 +17,7 @@
   "col2",
   "age_days",
   "age_hours",
+  "discard_age",
   "variety",
   "stem_qty",
   "stem_length",
@@ -76,6 +77,14 @@
    "label": "Age Hours"
   },
   {
+   "fieldname": "discard_age",
+   "fieldtype": "Float",
+   "label": "Discard Age (days)",
+   "read_only": 1,
+   "precision": "1",
+   "description": "The variety's discard age when this bucket was listed"
+  },
+  {
    "fieldname": "variety",
    "fieldtype": "Data",
    "label": "Variety"
@@ -100,7 +109,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-08-28 10:54:30.303388",
+ "modified": "2026-11-12 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Discard Request Bucket",

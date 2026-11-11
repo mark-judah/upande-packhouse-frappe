@@ -62,6 +62,44 @@ def _hub():
 		return ""
 
 
+def known_farms(buckets):
+	"""{BUCKET: farm} for many buckets in two queries (its shelf's farm, else its latest shelving row)."""
+	buckets = tuple({act.up(b) for b in buckets if b})
+	if not buckets:
+		return {}
+	out = {}
+	for b, farm in frappe.db.sql(
+		"""SELECT UPPER(si.bucket_id), COALESCE(NULLIF(si.farm, ''), sh.farm)
+		FROM `tabShelf Item` si LEFT JOIN `tabShelf` sh ON sh.name = si.parent
+		WHERE si.bucket_id IN %(b)s ORDER BY si.date_added ASC""",
+		{"b": buckets},
+	):
+		if farm:
+			out[b] = farm  # ascending, so the newest row wins
+	missing = tuple(b for b in buckets if b not in out)
+	if missing:
+		for b, farm in frappe.db.sql(
+			"""SELECT UPPER(bucket_id), farm FROM `tabShelving Log`
+			WHERE bucket_id IN %(b)s AND IFNULL(farm, '') != '' ORDER BY shelved_on ASC""",
+			{"b": missing},
+		):
+			out[b] = farm
+	return out
+
+
+def _watches_by_bucket(buckets):
+	"""{BUCKET: watch row} for many buckets in one query."""
+	buckets = tuple({act.up(b) for b in buckets if b})
+	if not buckets:
+		return {}
+	rows = frappe.db.sql(
+		"SELECT name, bucket_id, status, watching_since, closed_on, reference_name FROM `tabBucket Watch` WHERE bucket_id IN %(b)s",
+		{"b": buckets},
+		as_dict=True,
+	)
+	return {act.up(r.bucket_id): r for r in rows}
+
+
 def known_farm(bucket):
 	"""Where the bucket was last known: its shelf's farm, else its latest shelving row."""
 	r = frappe.db.sql(
@@ -101,17 +139,23 @@ def _safe(fn):
 
 
 # ── adding ─────────────────────────────────────────────────────────────────────
-def add_auto(bucket, when, source, farm="", reason="", ref_doctype="", ref_name="", opl=""):
+def add_auto(bucket, when, source, farm="", reason="", ref_doctype="", ref_name="", opl="", _known=None):
 	"""Add (or update) the watch for a not-found event. Idempotent: an event no newer than the
 	watch's start is ignored; a newer one reopens/refreshes it. Returns 'added'|'updated'|'reopened'|'same'."""
 	bucket = act.up(bucket).strip()
 	when = act._dt(when) or now_datetime()
 	if not bucket:
 		return "same"
-	name = frappe.db.get_value(DT, {"bucket_id": bucket}, "name")
+	# A caller with many events passes `_known` = ({BUCKET: watch row}, {BUCKET: farm}) read in one go, so this does no lookups.
+	watches, farms = _known if _known is not None else ({}, {})
+	if _known is None:
+		row = frappe.db.get_value(DT, {"bucket_id": bucket}, ["name", "status", "watching_since", "closed_on", "reference_name"], as_dict=True)
+		watches = {bucket: row} if row else {}
+	prior = watches.get(bucket)
+	name = prior.name if prior else None
 	vals = {
 		"source": source,
-		"farm": farm or known_farm(bucket),
+		"farm": farm or (farms.get(bucket) if _known is not None else known_farm(bucket)) or "",
 		"reason": reason or "",
 		"watching_since": when,
 		"order_pick_list": opl or "",
@@ -131,9 +175,7 @@ def add_auto(bucket, when, source, farm="", reason="", ref_doctype="", ref_name=
 		)
 		doc.insert(ignore_permissions=True)
 		return "added"
-	w = frappe.db.get_value(
-		DT, name, ["status", "watching_since", "closed_on", "reference_name"], as_dict=True
-	)
+	w = prior
 	same_event = ref_name and w.reference_name == ref_name
 	if same_event or (w.watching_since and when <= act._dt(w.watching_since)):
 		return "same"
@@ -264,8 +306,14 @@ def sync_not_found(since=None):
 		)
 		out["transfers"] += 1
 	events.sort(key=lambda e: e[0] or datetime.min)  # oldest first: the newest event wins
+	buckets = [e[1] for e in events]
+	watches = _watches_by_bucket(buckets)
+	farms = known_farms([e[1] for e in events if not e[3] and act.up(e[1]) not in watches])
 	for when, bucket, src, farm, reason, rd, rn, opl in events:
-		res = add_auto(bucket, when, src, farm or "", reason, rd, rn, opl)
+		res = add_auto(bucket, when, src, farm or "", reason, rd, rn, opl, _known=(watches, farms))
+		if res in ("added", "reopened", "updated"):
+			# a later event for the same bucket in this batch must see the watch this one just wrote
+			watches.update(_watches_by_bucket([bucket]))
 		if res in ("added", "reopened"):
 			out["added"] += 1
 		elif res == "updated":
@@ -538,13 +586,76 @@ def add_watches(bucket_ids: str | list | None = None, note: str | None = None):
 		else (bucket_ids if isinstance(bucket_ids, list) else str(bucket_ids or "").split(","))
 	)
 	res = {"added": 0, "already": 0, "failed": []}
-	for b in [i for i in dict.fromkeys(act.up(x).strip() for x in ids) if i][:500]:
-		r = add_watch(b, note)
-		if r.get("success"):
-			res["already" if r.get("action") == "already watching" else "added"] += 1
+	wanted = [i for i in dict.fromkeys(act.up(x).strip() for x in ids) if i][:500]
+	# Everything the loop needs is read up front, in a handful of queries, whatever the number of buckets.
+	watches = _watches_by_bucket(wanted)
+	fresh = [b for b in wanted if b not in watches]
+	on_record = _buckets_on_record(fresh)
+	farms = known_farms([b for b in fresh if b in on_record])
+	now = now_datetime()
+	for b in wanted:
+		prior = watches.get(b)
+		if prior and prior.status in OPEN:
+			if note:
+				frappe.db.set_value(DT, prior.name, "reason", note)
+			res["already"] += 1
+		elif prior:
+			doc = frappe.get_doc(DT, prior.name)
+			doc.update(_reopen_values(note, doc.reason, now))
+			doc.save()
+			res["added"] += 1
+		elif b in on_record:
+			frappe.get_doc(
+				{
+					"doctype": DT,
+					"bucket_id": b,
+					"status": "Watching",
+					"source": SRC_MANUAL,
+					"reason": note or "",
+					"farm": farms.get(b, ""),
+					"watching_since": now,
+					"added_by": frappe.session.user,
+					"added_on": now,
+				}
+			).insert()
+			res["added"] += 1
 		else:
 			res["failed"].append(b)
 	return {"success": True, **res}
+
+
+def _reopen_values(note, reason, now):
+	return {
+		"status": "Watching",
+		"source": SRC_MANUAL,
+		"reason": note or reason,
+		"watching_since": now,
+		"added_by": frappe.session.user,
+		"added_on": now,
+		"last_seen_at": None,
+		"last_seen_event": "",
+		"last_seen_journey": 0,
+		"last_seen_location": "",
+		"last_seen_stage": "",
+		"closed_by": None,
+		"closed_on": None,
+		"close_note": "",
+	}
+
+
+def _buckets_on_record(buckets):
+	"""The subset of `buckets` (upper-case) that exists as a QR code, a shelving row or a stock entry: three queries."""
+	buckets = tuple({act.up(b) for b in buckets if b})
+	if not buckets:
+		return set()
+	found = {act.up(r[0]) for r in frappe.db.sql("SELECT name FROM `tabBucket QR Code` WHERE name IN %(b)s", {"b": buckets})}
+	rest = tuple(b for b in buckets if b not in found)
+	if rest:
+		found |= {act.up(r[0]) for r in frappe.db.sql("SELECT DISTINCT bucket_id FROM `tabShelving Log` WHERE bucket_id IN %(b)s", {"b": rest})}
+		rest = tuple(b for b in rest if b not in found)
+	if rest:
+		found |= {act.up(r[0]) for r in frappe.db.sql("SELECT DISTINCT custom_bucket_id FROM `tabStock Entry` WHERE custom_bucket_id IN %(b)s", {"b": rest})}
+	return found
 
 
 @frappe.whitelist(methods=["POST"])
@@ -630,11 +741,20 @@ def run_watchlist(search: str | None = None, farm: str | None = None, region: st
 	now = now_datetime()
 	changed, journeys, skipped = 0, 0, 0
 	by = {w["name"]: w for w in allrows}
+	# Watches with nothing new only need their checked-at stamp: one UPDATE for all of them, not one per watch.
+	quiet = [w["name"] for w in allrows if w["status"] in OPEN and not ev.get(act.up(w["bucket_id"]))]
+	for i in range(0, len(quiet), 1000):
+		frappe.db.sql(
+			"UPDATE `tabBucket Watch` SET last_checked_at = %(now)s WHERE name IN %(n)s",
+			{"now": now, "n": tuple(quiet[i : i + 1000])},
+		)
 	for r in rows:
 		w = by[r["name"]]
 		if w["status"] not in OPEN:
 			continue
 		e = ev.get(act.up(w["bucket_id"]))
+		if not e:
+			continue
 		vals = {"last_checked_at": now}
 		if e:
 			new = _s(e["ts"]) != _s(w["last_seen_at"])
