@@ -149,7 +149,12 @@ def add_auto(bucket, when, source, farm="", reason="", ref_doctype="", ref_name=
 	# A caller with many events passes `_known` = ({BUCKET: watch row}, {BUCKET: farm}) read in one go, so this does no lookups.
 	watches, farms = _known if _known is not None else ({}, {})
 	if _known is None:
-		row = frappe.db.get_value(DT, {"bucket_id": bucket}, ["name", "status", "watching_since", "closed_on", "reference_name"], as_dict=True)
+		row = frappe.db.get_value(
+			DT,
+			{"bucket_id": bucket},
+			["name", "status", "watching_since", "closed_on", "reference_name"],
+			as_dict=True,
+		)
 		watches = {bucket: row} if row else {}
 	prior = watches.get(bucket)
 	name = prior.name if prior else None
@@ -648,13 +653,27 @@ def _buckets_on_record(buckets):
 	buckets = tuple({act.up(b) for b in buckets if b})
 	if not buckets:
 		return set()
-	found = {act.up(r[0]) for r in frappe.db.sql("SELECT name FROM `tabBucket QR Code` WHERE name IN %(b)s", {"b": buckets})}
+	found = {
+		act.up(r[0])
+		for r in frappe.db.sql("SELECT name FROM `tabBucket QR Code` WHERE name IN %(b)s", {"b": buckets})
+	}
 	rest = tuple(b for b in buckets if b not in found)
 	if rest:
-		found |= {act.up(r[0]) for r in frappe.db.sql("SELECT DISTINCT bucket_id FROM `tabShelving Log` WHERE bucket_id IN %(b)s", {"b": rest})}
+		found |= {
+			act.up(r[0])
+			for r in frappe.db.sql(
+				"SELECT DISTINCT bucket_id FROM `tabShelving Log` WHERE bucket_id IN %(b)s", {"b": rest}
+			)
+		}
 		rest = tuple(b for b in rest if b not in found)
 	if rest:
-		found |= {act.up(r[0]) for r in frappe.db.sql("SELECT DISTINCT custom_bucket_id FROM `tabStock Entry` WHERE custom_bucket_id IN %(b)s", {"b": rest})}
+		found |= {
+			act.up(r[0])
+			for r in frappe.db.sql(
+				"SELECT DISTINCT custom_bucket_id FROM `tabStock Entry` WHERE custom_bucket_id IN %(b)s",
+				{"b": rest},
+			)
+		}
 	return found
 
 

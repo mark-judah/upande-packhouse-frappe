@@ -819,5 +819,6 @@ def ensure_bucket_activity_index():
 		return
 	cols = [c for c in BUCKET_ACTIVITY_COLUMNS if frappe.db.has_column("Stock Entry", c)]
 	frappe.db.sql_ddl(
-		"ALTER TABLE `tabStock Entry` ADD INDEX `%s` (%s)" % (BUCKET_ACTIVITY_INDEX, ", ".join("`%s`" % c for c in cols))
+		"ALTER TABLE `tabStock Entry` ADD INDEX `%s` (%s)"
+		% (BUCKET_ACTIVITY_INDEX, ", ".join("`%s`" % c for c in cols))
 	)
