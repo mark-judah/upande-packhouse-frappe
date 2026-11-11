@@ -60,6 +60,7 @@ NAV = [
 				"/packhouse-dashboard-v2/shelving-performance-v2",
 				"snow",
 			),
+			("bucket-journey", "Bucket Journey", "/packhouse-dashboard-v2/bucket-journey-v2", "route"),
 		],
 	),
 	(

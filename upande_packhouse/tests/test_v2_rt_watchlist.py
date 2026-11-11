@@ -550,3 +550,41 @@ class TestReconcileAndSpeed(Base):
 		took = time.time() - t0
 		self.assertGreaterEqual(r["kpi"]["total"], len(ids))
 		self.assertLess(took, 5, "get_watchlist for %d watches took %.1fs" % (r["kpi"]["total"], took))
+
+
+class TestBatchedLookups(Base):
+	"""The watchlist reads what it needs for many buckets in a few queries, never one set per bucket."""
+
+	def _count(self, fn):
+		n = [0]
+		real = frappe.db.sql
+
+		def counting(*a, **k):
+			n[0] += 1
+			return real(*a, **k)
+
+		with patch.object(frappe.db, "sql", counting):
+			fn()
+		return n[0]
+
+	def test_known_farms_is_two_queries_whatever_the_number_of_buckets(self):
+		ins("Shelving Log", bucket_id="TWATCH-F1", farm="Farm One", shelved_on=ago(days=2), shelf="S1")
+		ins("Shelving Log", bucket_id="TWATCH-F2", farm="Farm Two", shelved_on=ago(days=1), shelf="S2")
+		few = self._count(lambda: W.known_farms(["TWATCH-F1"]))
+		self.assertEqual(W.known_farms(["twatch-f1", "TWATCH-F2", "NOSUCH"]), {"TWATCH-F1": "Farm One", "TWATCH-F2": "Farm Two"})
+		many = self._count(lambda: W.known_farms(["TWATCH-F1", "TWATCH-F2"] + ["NOSUCH-%d" % i for i in range(200)]))
+		self.assertLessEqual(many, 2)
+		self.assertEqual(few, many)
+
+	def test_add_watches_adds_reopens_and_refuses_in_a_fixed_number_of_queries(self):
+		ins("Shelving Log", bucket_id="TWATCH-A1", farm="Farm One", shelved_on=ago(days=2), shelf="S1")
+		ins("Shelving Log", bucket_id="TWATCH-A2", farm="Farm One", shelved_on=ago(days=2), shelf="S1")
+		r = W.add_watches(["TWATCH-A1", "TWATCH-A2", "TWATCH-NOPE"], "bulk")
+		self.assertEqual((r["added"], r["already"], r["failed"]), (2, 0, ["TWATCH-NOPE"]))
+		self.assertEqual(frappe.db.get_value("Bucket Watch", {"bucket_id": "TWATCH-A1"}, "farm"), "Farm One")
+		again = W.add_watches(["TWATCH-A1", "TWATCH-A2"], "again")
+		self.assertEqual((again["added"], again["already"]), (0, 2))
+		W.close_watch(frappe.db.get_value("Bucket Watch", {"bucket_id": "TWATCH-A1"}, "name"), "Resolved", "found")
+		reopened = W.add_watches(["TWATCH-A1"])
+		self.assertEqual(reopened["added"], 1)
+		self.assertEqual(frappe.db.get_value("Bucket Watch", {"bucket_id": "TWATCH-A1"}, "status"), "Watching")

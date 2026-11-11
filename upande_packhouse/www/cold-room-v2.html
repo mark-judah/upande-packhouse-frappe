@@ -375,13 +375,18 @@
         <div class="cr-note"><span><b>${n(g.occupied)}</b> / ${n(cap)} buckets</span><span><b>${pctText(g)}</b></span>${free}</div></div>
       <div class="cr-shelves">${shelvesCol}</div>${inc}</button>`;
   }
+  /* The total row is not a cold store: with a site chosen it says "All Karen Coldstores", never just "Karen". */
+  function allStoresLabel() {
+    const site = st.get("farm") || st.get("region");
+    return site ? "All " + site + " Coldstores" : "All Coldstores";
+  }
   function renderCapacity() {
     const c = dash.bucket_capacity;
     const stores = ((c && c.stores) || []).filter((s) => s.capacity > 0 || s.occupied > 0).sort((a, b) => (b.pct == null ? -1 : b.pct) - (a.pct == null ? -1 : a.pct) || a.farm.localeCompare(b.farm));
     if (!c || !c.total || !stores.length) return PH.empty("#cap", "No cold stores in these filters", "No shelves are registered for the selected farms.");
     const lv = c.levels.slice().sort((a, b) => a.from_pct - b.from_pct).map((l) => l.from_pct).join(" / ");
     PH.text("#cap-meta", "buckets on shelves vs shelf capacity · live, dates do not apply");
-    const total = stores.length > 1 ? rowHtml(Object.assign({ farm_key: "" }, c.total), { total: true, title: st.get("farm") || st.get("region") || "All cold stores" }) : "";
+    const total = stores.length > 1 ? rowHtml(Object.assign({ farm_key: "" }, c.total), { total: true, title: allStoresLabel() }) : "";
     const note = c.total.shared_buckets > 0 ? ` ${PH.fmt.plural(c.total.shared_buckets, "bucket")} sit${c.total.shared_buckets === 1 ? "s" : ""} in more than one store (reused bucket ids); the total counts each once.` : "";
     PH.set("#cap", `<div class="cr-cols"><span>Cold store</span><span>Buckets used / capacity</span><span>Shelves: full · half · empty</span></div>` + total + stores.map((s) => rowHtml(s)).join("") +
       `<p class="cr-foot">Capacity = ${c.buckets_per_shelf} buckets per shelf${stores.some((s) => s.capacity_source !== "Registered shelves") ? ", or the figure set in Cold Store Capacity where one exists" : ""}. Ticks mark ${lv}% (getting full, almost full, capacity). Pressure is how full the shelves are; "waiting for a shelf" is received stock without a shelf yet.${note}</p>`);
@@ -412,7 +417,7 @@
     const g = noFarm ? (bc.stores || []).find((s) => !s.farm_key) : farmKey ? (bc.stores || []).find((s) => s.farm_key === farmKey) : bc.total;
     const body = document.createElement("div");
     lastDrill = null;
-    const m = PH.modal({ title: withEmpty ? "Total shelves available" : (noFarm ? "No farm" : farmKey || "All cold stores") + " · shelves", size: "xl", sub: g ? PH.fmt.num(g.occupied) + " of " + PH.fmt.num(g.capacity) + " buckets (" + pctText(g) + ")" : "", body });
+    const m = PH.modal({ title: withEmpty ? "Total shelves available" : (noFarm ? "No farm" : farmKey || allStoresLabel()) + " · shelves", size: "xl", sub: g ? PH.fmt.num(g.occupied) + " of " + PH.fmt.num(g.capacity) + " buckets (" + pctText(g) + ")" : "", body });
     PH.skeleton(body, "rows", 6);
     const args = Object.assign({}, scopeArgs());
     if (noFarm) args.shelf_farm = ""; else if (farmKey) args.shelf_farm = farmKey;
@@ -531,7 +536,7 @@
     const tag = [st.get("region") || st.get("farm") || "all-farms", st.get("from") || "all", st.get("to") || ""].filter(Boolean).join("_");
     if (lastDrill && document.querySelector(".ph-modal")) return PH.csv("cold-room-" + lastDrill.name + "_" + tag + ".csv", lastDrill.rows, lastDrill.cols);
     const c = (dash && dash.bucket_capacity) || {};
-    if (c.total) PH.csv("cold-room-capacity_" + tag + ".csv", [Object.assign({ farm: "All cold stores" }, c.total)].concat(c.stores || []), CAP_EXPORT);
+    if (c.total) PH.csv("cold-room-capacity_" + tag + ".csv", [Object.assign({ farm: allStoresLabel() }, c.total)].concat(c.stores || []), CAP_EXPORT);
   });
 
   PH.onRefresh(() => load());

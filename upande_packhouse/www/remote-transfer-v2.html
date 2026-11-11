@@ -54,6 +54,8 @@ html.ph2-root,html.ph2-root body{overflow-y:visible!important;overflow-x:clip!im
   }
   document.querySelectorAll(".aph.rt-v2 .rt-tabs a[data-rt]").forEach(function (a) {
     var k = a.getAttribute("data-rt");
+    // Bucket Journey is its own page now, in the sidebar under Tracking.
+    if (k === "journey") { a.hidden = true; return; }
     if (PATHS[k]) a.setAttribute("href", PATHS[k]);
   });
   window.rtGoTab = function (tab) { if (PATHS[tab]) location.href = href(tab); };

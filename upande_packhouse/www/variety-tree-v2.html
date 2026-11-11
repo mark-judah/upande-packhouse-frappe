@@ -100,6 +100,8 @@ button.vt-thumb{cursor:zoom-in}
   const ROOT = "Cut Flowers";
   const API = "upande_packhouse.api.v2.variety_tree.get_variety_tree";
   const V1 = "upande_packhouse.api.variety_tree."; // colour writes stay on v1 (unchanged)
+  const AGE_API = "upande_packhouse.api.v2.variety_tree.set_discard_age";
+  let defaultAge = 5;
   const [d0, d1] = PH.date.preset("30d");
   // Every key is sent to the server; the server filters and computes the KPIs.
   // region/farm/from/to scope demand (order farm, delivery date) and
@@ -147,6 +149,7 @@ button.vt-thumb{cursor:zoom-in}
         const first = !data;
         data = m || {};
         lines = data.lines || [];
+        defaultAge = data.default_discard_age || defaultAge;
         if (first) expandAll();
         PH.options("#f-line", data.all_lines || [], st.get("line"));
         render();
@@ -228,12 +231,14 @@ button.vt-thumb{cursor:zoom-in}
     const chip = it.colour
       ? PH.html`<button class="vt-chip" data-color="${it.code}" title="Change colour"><span class="vt-sw" style="background:${it.hex || "transparent"}"></span><span>${it.colour}</span>${PH.raw(it.hex ? `<span class="ph-mono ph-muted">${PH.esc(it.hex)}</span>` : "")}</button>`.__raw
       : PH.html`<button class="vt-chip is-none" data-color="${it.code}" title="Set colour"><span class="vt-sw"></span><span>Set colour</span></button>`.__raw;
+    const age = PH.html`<button class="vt-chip vt-age${PH.raw(it.discard_age ? "" : " is-none")}" data-age="${it.code}" title="Days after harvest when a bucket of this variety goes on an automatic Discard Request. Click to change."><span>Discard</span><b class="ph-strong">${PH.raw(it.discard_age ? it.discard_age + " d" : defaultAge + " d")}</b>${PH.raw(it.discard_age ? "" : '<span class="ph-muted">default</span>')}</button>`.__raw;
     const metric = (label, v, wk, title) => `<span class="vt-metric ph-num${v ? "" : " is-zero"}" title="${PH.esc(title + " · ≈ " + PH.fmt.num(wk || 0) + " stems/wk")}">${label} <b class="ph-strong">${PH.fmt.num(v || 0)}</b></span>`;
     return `<div class="vt-row vt-row--var${off ? " is-off" : ""}">
       ${thumb}
       <span class="vt-name" title="${PH.esc(it.code)}">${hi(it.n)}</span>
       ${off ? '<span class="ph-badge">Inactive</span>' : ""}
       ${chip}
+      ${age}
       ${metric("D", it.demand_stems, it.demand_per_week, "Demand stems — Sales Orders delivering in the range")}
       ${metric("P", it.production_stems, it.production_per_week, "Harvested stems — Harvesting stock entries in the range")}
       <span class="vt-acts">
@@ -274,6 +279,8 @@ button.vt-thumb{cursor:zoom-in}
     if (p) return showPhoto(findItem(p.dataset.photo));
     const c = e.target.closest("[data-color]");
     if (c) return pickColour(findItem(c.dataset.color));
+    const a = e.target.closest("[data-age]");
+    if (a) return pickAge(findItem(a.dataset.age));
     const u = e.target.closest("[data-upload]");
     if (u) return chooseFile(u.dataset.upload);
   });
@@ -326,6 +333,38 @@ button.vt-thumb{cursor:zoom-in}
       render();
       load(true); // server recounts "Missing colour" and re-applies the data-gap filter
     });
+  }
+
+  /* Discard age — Item.custom_discard_age; empty means the default in Production Settings */
+  function pickAge(it) {
+    if (!it) return;
+    const body = document.createElement("div");
+    PH.set(body, `<div class="ph-stack"><label class="ph-field"><span class="ph-label">Discard age (days after harvest)</span>
+      <input class="ph-control" id="vt-age-in" type="number" min="0.5" max="365" step="0.5" value="${it.discard_age || ""}" placeholder="${defaultAge}"></label>
+      <p class="ph-muted" style="margin:0">Buckets of ${PH.esc(it.n)} are put on the nightly automatic Discard Request once they are this old. Leave empty to use the default (${defaultAge} days, Production Settings).</p></div>`);
+    const save = (value) => {
+      m.busy(true);
+      PH.call(AGE_API, { item: it.code, days: value }).then((r) => {
+        it.discard_age = (r && r.age) || null;
+        PH.toast(it.discard_age ? it.n + ": discard after " + it.discard_age + " days" : it.n + " uses the default age", "good");
+        m.close();
+        render();
+      }, () => m.busy(false));
+    };
+    const m = PH.modal({
+      title: "Discard age · " + it.n,
+      sub: "When a bucket of this variety is discarded automatically",
+      size: "sm",
+      body,
+      actions: [
+        { label: "Cancel" },
+        { label: "Use default", onClick: () => save("") },
+        { label: "Save", primary: true, onClick: () => save(body.querySelector("#vt-age-in").value) },
+      ],
+    });
+    const input = body.querySelector("#vt-age-in");
+    input.focus();
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") save(input.value); });
   }
 
   /* Photo upload — Frappe's upload_file, attached to the Item's `image` field.

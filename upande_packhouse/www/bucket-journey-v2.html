@@ -1,0 +1,18 @@
+{% extends "templates/web.html" %}
+{% block title %}Bucket Journey · Packhouse{% endblock %}
+{% block page_content %}
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
+
+<header class="ph-head">
+  <div>
+    <div class="ph-head__eyebrow">Packhouse · Tracking</div>
+    <h1 class="ph-head__title">Bucket Journey</h1>
+    <p class="ph-head__sub">Trace one bucket end to end, or watch the ones that need a look</p>
+  </div>
+</header>
+
+{% set rt_part = 'body' %}{% include "upande_packhouse/templates/remote_transfer_v2/bucket_journey.html" %}
+
+{% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
+{% set rt_part = 'script' %}{% include "upande_packhouse/templates/remote_transfer_v2/bucket_journey.html" %}
+{% endblock %}

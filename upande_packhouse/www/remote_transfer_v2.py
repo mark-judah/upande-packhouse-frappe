@@ -15,11 +15,16 @@ no_cache = 1
 
 BASE = "/packhouse-dashboard-v2/remote-transfer-v2"
 #: tab key -> its address on the v2 page (the tabs the section shows).
-PATHS = {k: BASE + "?tab=" + k for k in ("routes", "scheduler", "logistics", "journey")}
+PATHS = {k: BASE + "?tab=" + k for k in ("routes", "scheduler", "logistics")}
+#: Bucket Journey is its own page now; its old tab address lands there.
+JOURNEY = "/packhouse-dashboard-v2/bucket-journey-v2"
 
 
 def get_context(context):
 	tab = frappe.form_dict.get("tab") or "logistics"
+	if tab == "journey":
+		frappe.local.flags.redirect_location = JOURNEY
+		raise frappe.Redirect(302)  # not 301: browsers cache permanent redirects for good
 	# No Transfer Scheduling tab any more: its address opens Bucket Logistics.
 	if tab not in PATHS:
 		tab = "logistics"
