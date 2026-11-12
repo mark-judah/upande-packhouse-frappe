@@ -84,6 +84,8 @@ _JOINS = """FROM `tabBox Label` b
 
 
 def _boxes(where, values, order_by):
+	"""`where` / `order_by` are fixed SQL fragments written in this module; every value is bound."""
+	# nosemgrep: frappe-sql-format-injection -- interpolates module constants and code-written fragments, never request data
 	return frappe.db.sql(f"SELECT {_FIELDS} {_JOINS} WHERE {where} ORDER BY {order_by}", values, as_dict=True)
 
 
