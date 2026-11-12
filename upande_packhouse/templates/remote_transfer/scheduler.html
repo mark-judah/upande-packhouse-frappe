@@ -934,7 +934,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       if(ws.k==='packed') chips.push('<span class="sch-chip packed">Packed</span>');
       else if(ws.k==='done') chips.push('<span class="sch-chip hub">Issued</span>');
       else if(ws.k==='ready'||ws.k==='issuing'){
-        chips.push('<span class="sch-chip hub">At Kapkolia</span>');
+        chips.push('<span class="sch-chip hub">At '+esc(o.sales_farm||'the sales farm')+'</span>');
         if(ws.k==='issuing') chips.push('<span class="sch-chip">'+esc(ws.t)+'</span>');
       }
     };
@@ -970,10 +970,12 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   function curFarm(){return (window.rtFarm&&window.rtFarm.get())||'';}
   function curTeam(){return (window.rtTeam&&window.rtTeam.get())||'';}
   function curLocation(){return (window.rtLocation&&window.rtLocation.get())||'';}
+  // A farm picked: the orders packed at that sales farm, and those with buckets coming from it.
+  function onFarm(o,f){return o.sales_farm===f||(o.farms||[]).indexOf(f)>=0;}
   function applyFilters(arr){
     var t=curTeam(), l=curLocation();
     var f=curFarm();
-    return arr.filter(function(o){return (!t||o.custom_team===t)&&(!l||o.location===l)&&(!f||(o.farms||[]).indexOf(f)>=0);});
+    return arr.filter(function(o){return (!t||o.custom_team===t)&&(!l||o.location===l)&&(!f||onFarm(o,f));});
   }
 
   // Status filter over every tab: Draft · Draft waiting transfer · Submitted, counted
@@ -990,7 +992,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     renderTeamBar();
     var note=el('varNote');
     if(note){
-      var msg=vv==='draft_plain'?'These OPLs have stock at Kapkolia and have been allocated, but they have not been submitted.'
+      var msg=vv==='draft_plain'?'These OPLs have stock at their sales farm and have been allocated, but they have not been submitted.'
         :vv==='draft_transfer'?'Schedule these OPLs so that the remote QC can start preparing them for transfer.':'';
       note.textContent=msg; note.style.display=msg?'':'none';
     }
@@ -1001,7 +1003,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   function renderTeamBar(){
     var box=el('teamBar'); if(!box) return;
     var l=curLocation(), f=curFarm(), vv=G.var||'all', t=curTeam();
-    var list=STATE.ready.filter(function(o){return (!l||o.location===l)&&(!f||(o.farms||[]).indexOf(f)>=0)&&(vv==='all'||o.variation===vv);});
+    var list=STATE.ready.filter(function(o){return (!l||o.location===l)&&(!f||onFarm(o,f))&&(vv==='all'||o.variation===vv);});
     var c={}; list.forEach(function(o){ if(o.custom_team) c[o.custom_team]=(c[o.custom_team]||0)+1; });
     var teams=Object.keys(c).sort();
     if(t&&teams.indexOf(t)<0) teams.push(t);
@@ -1115,7 +1117,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
     if(o.issued_lines>0) return {k:'issuing',t:'Issuing '+o.issued_lines+'/'+o.lines};
     if(waiting>0) return {k:'farm',t:waiting+' bkt at farm'+((o.farm_trips||[]).length>1?'s':'')};
     if(o.has_transfer) return {k:'road',t:'Coming in'};
-    return {k:'ready',t:'Ready at Kapkolia'};
+    return {k:'ready',t:'Ready at '+(o.sales_farm||'the sales farm')};
   }
   function renderSelBar(){
     var mt=G.mtab||'unsched';
@@ -1264,7 +1266,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
       var noTeam=(r&&r.no_team)||[];
       var notSub=(r&&r.not_submitted)||[];
       if(notSub.length){
-        notify(notSub.length+' draft order'+(notSub.length===1?'':'s')+' at Kapkolia left off — submit '+(notSub.length===1?'it':'them')+' first','orange');
+        notify(notSub.length+' draft order'+(notSub.length===1?'':'s')+' at their sales farm left off — submit '+(notSub.length===1?'it':'them')+' first','orange');
       }
       if(ok&&cnt>0) notify('✓ Schedule saved — '+cnt+' order'+(cnt===1?'':'s')+' sequenced','green');
       else if(ok&&!noTeam.length) notify('Schedule cleared','blue');
@@ -1436,7 +1438,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
 
   // ---- load ----
   function populateFilters(){
-    if(window.rtFarm){var fm={};STATE.ready.forEach(function(o){(o.farms||[]).forEach(function(f){fm[f]=1;});});window.rtFarm.options(Object.keys(fm));}
+    if(window.rtFarm){var fm={};STATE.ready.forEach(function(o){if(o.sales_farm)fm[o.sales_farm]=1;(o.farms||[]).forEach(function(f){fm[f]=1;});});window.rtFarm.options(Object.keys(fm));}
     if(window.rtTeam){var tm={};STATE.ready.forEach(function(o){if(o.custom_team)tm[o.custom_team]=1;});window.rtTeam.options(Object.keys(tm));}
     if(window.rtLocation){var lc={};STATE.ready.forEach(function(o){if(o.location)lc[o.location]=1;});window.rtLocation.options(Object.keys(lc));}
   }
@@ -1462,7 +1464,7 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
         return {name:o.opl,custom_order_name:o.order_name,customer:o.customer,custom_team:o.team,
                 total_stems:o.total_stems,n_buckets:o.n_buckets,remote_buckets:o.remote_buckets||0,remote_by_farm:o.remote_by_farm||{},buckets_by_farm:o.buckets_by_farm||{},count_by_farm:o.count_by_farm||null,n_farms:o.n_farms,farms:o.farms||[],farm_trips:o.farm_trips||[],
                 n_varieties:o.n_varieties,has_transfer:o.has_transfer,mixed_type:o.mixed_type,
-                docstatus:o.docstatus,variation:o.variation,location:o.location||'',issued_lines:o.issued_lines||0,lines:o.lines||0,packed:o.packed||0,packed_stems:o.packed_stems||0};
+                docstatus:o.docstatus,variation:o.variation,location:o.location||'',sales_farm:o.sales_farm||'',issued_lines:o.issued_lines||0,lines:o.lines||0,packed:o.packed||0,packed_stems:o.packed_stems||0};
       });
       reloadScheduled().then(function(){
         sortReady();

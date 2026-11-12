@@ -81,6 +81,7 @@
 <div id="tx-body"></div>
 
 {% elif rt_part == 'script' %}
+<script>window.RT = Object.assign(window.RT || {}, { transferHub: {{ (transfer_hub or '') | tojson }} });</script>
 {% raw %}
 <script>
 (function () {
@@ -203,45 +204,48 @@
     return { legs, km: dist[to] };
   }
   const pairKm = (a, b) => { if (a === b) return 0; const rp = roadPath(a, b); return rp.legs.length ? rp.km : distKm(a, b); };
-  function routeKm(order) {
-    const q = [pack()].concat(order).concat([pack()]);
+  // A trip's sales farm: where its buckets go (Kapkolia, Chepsito ...), never one fixed hub.
+  const hubOf = (t) => (t && t.sales_farm) || pack();
+  function routeKm(order, hub) {
+    hub = hub || pack();
+    const q = [hub].concat(order).concat([hub]);
     let tot = 0;
     for (let i = 0; i < q.length - 1; i++) { const dk = pairKm(q[i], q[i + 1]); if (dk == null) return null; tot += dk; }
     return tot;
   }
-  function bestRoute(farms) {
+  function bestRoute(farms, hub) {
     const u = PH.uniq(farms);
-    if (u.length <= 1 || u.length > 7) return { order: u.slice(), km: routeKm(u) };
+    if (u.length <= 1 || u.length > 7) return { order: u.slice(), km: routeKm(u, hub) };
     let best = null;
     const used = [], cur = [];
     (function rec() {
-      if (cur.length === u.length) { const km = routeKm(cur); if (km != null && (best == null || km < best.km)) best = { order: cur.slice(), km }; return; }
+      if (cur.length === u.length) { const km = routeKm(cur, hub); if (km != null && (best == null || km < best.km)) best = { order: cur.slice(), km }; return; }
       for (let i = 0; i < u.length; i++) { if (used[i]) continue; used[i] = 1; cur.push(u[i]); rec(); cur.pop(); used[i] = 0; }
     })();
-    return best || { order: u.slice(), km: routeKm(u) };
+    return best || { order: u.slice(), km: routeKm(u, hub) };
   }
-  const chainHtml = (stops) => '<span class="tx-chain">' + (stops || []).map((f) => (f === pack() ? `<span>${esc(f)}</span>` : `<b>${esc(f)}</b>`)).join("<i>→</i>") + "</span>";
+  const chainHtml = (stops, hub) => '<span class="tx-chain">' + (stops || []).map((f) => (f === (hub || pack()) ? `<span>${esc(f)}</span>` : `<b>${esc(f)}</b>`)).join("<i>→</i>") + "</span>";
   /* "Kapkolia → Chepsito → Kapkolia" reads as "Chepsito → Kapkolia": farms to the packhouse. */
-  function farmsToHub(chain) {
+  function farmsToHub(chain, hub) {
     const p = String(chain || "").split(/\s*→\s*/).filter(Boolean);
-    if (p.length > 1 && p[0] === pack()) p.shift();
+    if (p.length > 1 && p[0] === (hub || pack())) p.shift();
     return p;
   }
   function routeHtml(t) {
-    if (t.run_chain) return `<div class="ph-tile__sub">Route ${chainHtml(farmsToHub(t.run_chain))}</div>`;
+    if (t.run_chain) return `<div class="ph-tile__sub">Route ${chainHtml(farmsToHub(t.run_chain, hubOf(t)), hubOf(t))}</div>`;
     const u = PH.uniq((t.orders || []).map((r) => r.farm));
     if (!u.length) return "";
-    const best = bestRoute(u);
+    const best = bestRoute(u, hubOf(t));
     if (best.km == null) return "";
-    return `<div class="ph-tile__sub">Route ${chainHtml(best.order.concat([pack()]))} · ${best.km.toFixed(2)} km</div>`;
+    return `<div class="ph-tile__sub">Route ${chainHtml(best.order.concat([hubOf(t)]), hubOf(t))} · ${best.km.toFixed(2)} km</div>`;
   }
 
   function tripRouteBox(t) {
     const u = PH.uniq((t.orders || []).map((r) => r.farm));
     if (!u.length) return "";
-    const best = bestRoute(u);
+    const best = bestRoute(u, hubOf(t));
     if (best.km == null) return "";
-    return `<div class="tx-route"><small>Route</small><span class="tx-grow">${chainHtml(best.order.concat([pack()]))}</span><b>${best.km.toFixed(2)} km</b></div>`;
+    return `<div class="tx-route"><small>Route</small><span class="tx-grow">${chainHtml(best.order.concat([hubOf(t)]), hubOf(t))}</span><b>${best.km.toFixed(2)} km</b></div>`;
   }
   /* ── Open buckets: what the planned trips already cover (v1) ── */
   const pkey = (opl, farm) => opl + "||" + farm;
@@ -278,7 +282,7 @@
   const tripFull = (t) => { const cap = t.capacity_buckets || 0; return cap > 0 && (t.total_buckets || 0) >= cap; };
   /* The farms a trip collects from (its route stops, else its orders' farms), hub left out. */
   function tripFrom(t) {
-    const hub = pack(), src = (t.stops || []).length ? t.stops : (t.orders || []).map((r) => r.farm);
+    const hub = hubOf(t), src = (t.stops || []).length ? t.stops : (t.orders || []).map((r) => r.farm);
     return PH.uniq(src.filter((f) => f !== hub));
   }
   /* This trip now carries buckets a truck left behind at that farm earlier. */
@@ -487,7 +491,7 @@
     const dep = t.departed_stops || [];
     if (!((t.stops || []).length > 1 || dep.length)) return "";
     const parts = (t.stops || []).map((f) => (dep.indexOf(f) >= 0 ? `<span class="ph-badge ph-badge--good">${PH.icon("check", 12)}${esc(f)}</span>` : f === t.heading_to ? `<span class="ph-badge ph-badge--signal">${esc(f)} · next</span>` : `<span class="ph-badge ph-badge--outline">${esc(f)}</span>`));
-    parts.push(`<span class="ph-badge ${t.status === "Dispatched" ? "ph-badge--signal" : "ph-badge--outline"}">${esc(pack())}${t.status === "Dispatched" ? " · heading there" : ""}</span>`);
+    parts.push(`<span class="ph-badge ${t.status === "Dispatched" ? "ph-badge--signal" : "ph-badge--outline"}">${esc(hubOf(t))}${t.status === "Dispatched" ? " · heading there" : ""}</span>`);
     return `<div class="ph-tile__tags">${parts.join("")}</div>`;
   }
   function tripLines(t, sm, link) {
@@ -512,7 +516,7 @@
     // A request the farm turned down: back here with the reason, to fix and request again.
     const rejected = t.status === "Draft" && t.reject_reason ? `<div class="ph-notice ph-notice--bad ph-mb-0"><div><b>Request rejected</b>${t.rejected_by ? " by " + esc(t.rejected_by) : ""}${t.rejected_at ? " · " + esc(String(t.rejected_at).slice(11, 16)) : ""}: ${esc(t.reject_reason)}</div></div>` : "";
     const req = t.status === "Draft" && !t.stale ? `<button class="ph-btn ph-btn--sm ph-btn--primary" data-act="trip-request" data-trip="${esc(t.name)}"${S.dispatching === t.name ? " disabled" : ""}>${PH.icon("truck", 14)}Request truck</button>` : "";
-    const stopsLine = stopsHtml(t), routeLine = t.run_chain ? `<div class="tx-route"><small>Route</small><span class="tx-grow">${chainHtml(farmsToHub(t.run_chain))}</span></div>` : tripRouteBox(t);
+    const stopsLine = stopsHtml(t), routeLine = t.run_chain ? `<div class="tx-route"><small>Route</small><span class="tx-grow">${chainHtml(farmsToHub(t.run_chain, hubOf(t)), hubOf(t))}</span></div>` : tripRouteBox(t);
     return `<article class="ph-tile tx-trip${t.stale ? " is-stale" : ""}">
       <div class="ph-tile__name" title="${esc(t.name)}">${esc(tripFrom(t).join(", ") || t.vehicle || "—")}</div>
       <div class="tx-trip__head">${t.run ? `<span class="ph-badge ph-badge--signal" title="${esc(t.route)}${t.window ? " · " + esc(t.window) : ""}">Trip ${t.run}${t.runs > 1 ? " of " + t.runs : ""}</span>` : ""}${t.trip_date ? `<span class="ph-muted ph-mono">${esc(t.trip_date)}</span>` : ""}${statusBadges(t)}${t.dispatched_at ? `<span class="ph-muted ph-mono">left ${esc(String(t.dispatched_at).slice(11, 16))}</span>` : ""}${req}</div>${rejected}

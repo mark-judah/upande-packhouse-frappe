@@ -317,7 +317,7 @@ class TestExpectedByFarm(unittest.TestCase):
 		from datetime import date, timedelta
 
 		day = date.fromisocalendar(row[0].iso_year, row[0].week_number, 3) + timedelta(
-			days=int(plans.setting("allocation_harvest_lead_days"))
+			days=plans.HARVEST_LEAD_DAYS
 		)
 		farms = {
 			r.farm

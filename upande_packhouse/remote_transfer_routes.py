@@ -5,7 +5,7 @@
 # /remote-transfer/<tab>; each tab's screen is its own template under
 # templates/remote_transfer/ and its own API module under api/remote_transfer/.
 # Old addresses — /remote-transfers/<tab>, /transfer-control, /packhouse-scheduler,
-# /bucket-tracker, /bucket-logistics — redirect here with their query string, so
+# /bucket-tracker, /bucket-logistics — redirect to the packhouse v2 pages with their query string, so
 # bookmarks and deep links keep working.
 
 from urllib.parse import parse_qsl, urlencode
@@ -22,6 +22,16 @@ PATHS = {
 	"transfer": BASE + "/transfer-scheduling",
 	"logistics": BASE + "/bucket-logistics",
 	"journey": BASE + "/bucket-journey",
+}
+#: tab key -> its v2 address, where old addresses now land. v2 has no Transfer
+#: Scheduling tab (it opens Bucket Logistics) and Bucket Journey is its own page.
+V2_BASE = "/packhouse-dashboard-v2/remote-transfer-v2"
+V2_PATHS = {
+	"routes": (V2_BASE, "routes"),
+	"scheduler": (V2_BASE, "scheduler"),
+	"transfer": (V2_BASE, "logistics"),
+	"logistics": (V2_BASE, "logistics"),
+	"journey": ("/packhouse-dashboard-v2/bucket-journey-v2", None),
 }
 #: tab key -> the templates the page renders for it (templates/remote_transfer/).
 #: Truck Routes, Transfer Scheduling and Bucket Logistics share one planner script
@@ -54,10 +64,9 @@ def template_paths(tab):
 
 
 def redirect_old_route(key, tab_from_query=False):
-	"""Send a request for an old address to /remote-transfer/<tab>, keeping its query.
+	"""Send a request for an old address to its packhouse v2 page, keeping its query.
 	transfer-control picked its view with ?tab=; routes/logistics became their own
-	paths and the planning sub-tabs (build, triplist) stay as ?tab=. A request already
-	under /remote-transfer is left alone."""
+	tabs. A request already under /remote-transfer is left alone."""
 	path = (frappe.request.path if frappe.request else "") or ""
 	if path == BASE or path.startswith(BASE + "/"):
 		return
@@ -68,7 +77,9 @@ def redirect_old_route(key, tab_from_query=False):
 		tab = next((v for k, v in query if k == "tab"), "")
 		if tab in ("routes", "logistics"):
 			key = tab
-		if key != "transfer" or tab not in ("build", "triplist"):
-			query = [(k, v) for k, v in query if k != "tab"]
-	frappe.local.flags.redirect_location = PATHS[key] + ("?" + urlencode(query) if query else "")
+	target, tab = V2_PATHS[key]
+	query = [(k, v) for k, v in query if k != "tab"]
+	if tab:
+		query = [("tab", tab), *query]
+	frappe.local.flags.redirect_location = target + ("?" + urlencode(query) if query else "")
 	raise frappe.Redirect(302)  # not 301: browsers cache permanent redirects for good

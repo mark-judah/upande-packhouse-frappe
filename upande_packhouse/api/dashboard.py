@@ -667,8 +667,10 @@ def getTeams():
 		location = frappe.form_dict.get("location")
 		teams = [
 			r.name
-			for r in frappe.get_all("Packing Teams", fields=["name", "location"], order_by="name asc")
-			if not location or not r.location or r.location == location
+			for r in frappe.get_all(
+				"Packing Teams", fields=["name", "sales_farm", "location"], order_by="name asc"
+			)
+			if not location or not (r.sales_farm or r.location) or location in (r.sales_farm, r.location)
 		]
 		frappe.response["message"] = {"success": True, "teams": teams}
 	except Exception as e:

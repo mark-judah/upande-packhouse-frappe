@@ -7,49 +7,13 @@ from frappe.utils import nowdate
 from upande_packhouse.packing_guide import sync_packing_guide
 from upande_packhouse.server_scripts.create_mixed_box_picklist import (
 	_generate_box_locations,
+	_get_shelf_farm_for_location,
 	line_box_offset,
 	placed_stems_by_box,
 	rows_on_other_pick_lists,
 	shift_boxes,
 )
 from upande_packhouse.server_scripts.opl_qr_code_gen import generate_qr_code
-
-
-def _get_shelf_farm_for_location(location):
-	"""
-	Derive the sales-shelf farm for a given location name
-	by reading Production Settings shelf_locations.
-	Returns the first enabled sales_shelf farm found for that location.
-	Falls back to querying Farm doctype if needed.
-	"""
-	if not location:
-		return None
-
-	# Get all enabled farms from Production Settings
-	ps = frappe.get_cached_doc("Production Settings")
-	enabled_sales_farms = [row.farm for row in (ps.shelf_locations or []) if row.enabled and row.sales_shelf]
-
-	if not enabled_sales_farms:
-		return None
-
-	# Find which of those farms belongs to this location
-	placeholders = ", ".join(["%s"] * len(enabled_sales_farms))
-	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
-	result = frappe.db.sql(
-		f"""
-        SELECT name FROM `tabFarm`
-        WHERE name IN ({placeholders})
-          AND location = %s
-        LIMIT 1
-    """,
-		enabled_sales_farms + [location],
-		as_dict=True,
-	)
-
-	# v16 topology: remote locations have no local sales farm. All packing happens
-	# at the global sales-shelf farm, so fall back to it (Timau) rather than None —
-	# remote buckets are then flagged awaiting_transfer against that farm's shelves.
-	return result[0]["name"] if result else enabled_sales_farms[0]
 
 
 def _get_confirmed_stems_for_location(sales_order, location):
@@ -121,7 +85,7 @@ def create_straight_box_pick_list_for_allocated_items(
 		frappe.throw(_("An Order Pick List can only be created for submitted Sales Orders."))
 
 	# Derive shelf farm from location via Production Settings
-	shelf_farm = _get_shelf_farm_for_location(location)
+	shelf_farm = _get_shelf_farm_for_location(location, sales_order_doc)
 	if not shelf_farm:
 		shelf_farm = sales_order_doc.farm or "Karen"
 

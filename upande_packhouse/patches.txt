@@ -23,3 +23,4 @@ upande_packhouse.patches.backfill_opl_delivery_date
 upande_packhouse.patches.backfill_opl_total_boxes
 upande_packhouse.patches.opl_list_view_columns
 upande_packhouse.patches.box_label_v2_order_name_without_so_number #2026-11-04 label order name
+upande_packhouse.patches.packing_teams_sales_farm

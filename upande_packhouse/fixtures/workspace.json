@@ -327,7 +327,7 @@
     "type": "Link"
    }
   ],
-  "modified": "2026-08-24 12:28:48.938967",
+  "modified": "2026-11-12 14:00:00.000000",
   "module": "Upande Packhouse",
   "name": "Packhouse",
   "number_cards": [],
@@ -360,7 +360,7 @@
     "restrict_to_domain": null,
     "stats_filter": null,
     "type": "URL",
-    "url": "/packhouse-dashboard"
+    "url": "/packhouse-dashboard-v2"
    },
    {
     "color": "Grey",
@@ -374,7 +374,7 @@
     "restrict_to_domain": null,
     "stats_filter": null,
     "type": "URL",
-    "url": "/remote-transfer/scheduler"
+    "url": "/packhouse-dashboard-v2/remote-transfer-v2?tab=scheduler"
    },
    {
     "color": "Grey",
@@ -388,7 +388,7 @@
     "restrict_to_domain": null,
     "stats_filter": null,
     "type": "URL",
-    "url": "/sales-allocation-planning"
+    "url": "/packhouse-dashboard-v2/sales-allocation-planning-v2"
    },
    {
     "color": "Grey",
@@ -402,7 +402,7 @@
     "restrict_to_domain": null,
     "stats_filter": null,
     "type": "URL",
-    "url": "/packhouse-production"
+    "url": "/packhouse-dashboard-v2/packhouse-production-v2"
    },
    {
     "color": "Grey",
@@ -416,7 +416,7 @@
     "restrict_to_domain": null,
     "stats_filter": null,
     "type": "URL",
-    "url": "/remote-transfer/bucket-journey"
+    "url": "/packhouse-dashboard-v2/bucket-journey-v2"
    },
    {
     "color": "Grey",
@@ -430,7 +430,7 @@
     "restrict_to_domain": null,
     "stats_filter": null,
     "type": "URL",
-    "url": "/remote-transfer/bucket-logistics"
+    "url": "/packhouse-dashboard-v2/remote-transfer-v2?tab=logistics"
    },
    {
     "color": "Grey",
@@ -444,7 +444,7 @@
     "restrict_to_domain": null,
     "stats_filter": null,
     "type": "URL",
-    "url": "/cold-room"
+    "url": "/packhouse-dashboard-v2/cold-room-v2"
    },
    {
     "color": "Grey",
@@ -458,7 +458,7 @@
     "restrict_to_domain": null,
     "stats_filter": null,
     "type": "URL",
-    "url": "/packhouse-discards"
+    "url": "/packhouse-dashboard-v2/packhouse-discards-v2"
    },
    {
     "color": "Grey",
@@ -472,7 +472,7 @@
     "restrict_to_domain": null,
     "stats_filter": null,
     "type": "URL",
-    "url": "/packhouse-downgrades"
+    "url": "/packhouse-dashboard-v2/packhouse-downgrades-v2"
    },
    {
     "color": "Grey",
@@ -486,7 +486,7 @@
     "restrict_to_domain": null,
     "stats_filter": null,
     "type": "URL",
-    "url": "/stock-visibility"
+    "url": "/packhouse-dashboard-v2/stock-visibility-v2"
    },
    {
     "color": "Grey",
@@ -500,7 +500,7 @@
     "restrict_to_domain": null,
     "stats_filter": null,
     "type": "URL",
-    "url": "/avails"
+    "url": "/packhouse-dashboard-v2/avails-v2"
    },
    {
     "color": "Grey",
@@ -514,21 +514,7 @@
     "restrict_to_domain": null,
     "stats_filter": null,
     "type": "URL",
-    "url": "/stem-movement"
-   },
-   {
-    "color": "Grey",
-    "doc_view": "",
-    "format": null,
-    "icon": null,
-    "kanban_board": null,
-    "label": "Order Summary",
-    "link_to": null,
-    "report_ref_doctype": null,
-    "restrict_to_domain": null,
-    "stats_filter": null,
-    "type": "URL",
-    "url": "/order-summary"
+    "url": "/packhouse-dashboard-v2/stem-movement-v2"
    },
    {
     "color": "Grey",
@@ -542,7 +528,7 @@
     "restrict_to_domain": null,
     "stats_filter": null,
     "type": "URL",
-    "url": "/order-fulfilment"
+    "url": "/packhouse-dashboard-v2/order-fulfilment-v2"
    }
   ],
   "title": "Packhouse",

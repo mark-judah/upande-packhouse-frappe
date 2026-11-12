@@ -8,16 +8,19 @@ import frappe
 
 
 def _own_packing_farms():
-	"""Sales farms other than the transfer hub (e.g. Karen): they pack their own
-	orders with no remote transfers, so the scheduler leaves those orders alone."""
-	from upande_packhouse.api.remote_transfer.transfer_scheduling import transfer_hub
+	"""Sales farms that are not Remote Transfer Sales Farms (e.g. Karen while it isn't
+	listed): they pack their own orders with no remote transfers, so the scheduler leaves
+	those orders alone."""
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import sales_farms
 
-	hub = transfer_hub(required=False)
-	if not hub:
+	hubs = {f.lower() for f in sales_farms()}
+	if not hubs:
 		return []
 	ps = frappe.get_cached_doc("Production Settings")
 	return [
-		r.farm for r in (ps.shelf_locations or []) if r.enabled and r.sales_shelf and r.farm and r.farm != hub
+		r.farm
+		for r in (ps.shelf_locations or [])
+		if r.enabled and r.sales_shelf and r.farm and r.farm.lower() not in hubs
 	]
 
 
@@ -161,6 +164,8 @@ def rank_schedules(sdate=None, replan=True):
 	"""Scheduler job (every 5 minutes): keep today's Packhouse Schedules in _tiers
 	order as orders finish issuing and their buckets reach the hub. Karen-type orders
 	(packed at their own sales farm) keep their places after the others."""
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import order_hub_sql
+
 	sdate = sdate or frappe.utils.today()
 	own_farms = _own_packing_farms()
 	changed = []
@@ -174,7 +179,9 @@ def rank_schedules(sdate=None, replan=True):
 				frappe.db.sql_list(
 					"""SELECT o.name FROM `tabOrder Pick List` o
 					JOIN `tabSales Order` so ON so.name = o.sales_order
-					WHERE o.name IN %(o)s AND so.farm IN %(f)s""",
+					WHERE o.name IN %(o)s AND """
+					+ order_hub_sql("so")
+					+ " IN %(f)s",
 					{"o": tuple(opls), "f": tuple(own_farms)},
 				)
 			)
@@ -252,6 +259,8 @@ def getSchedulerFeed():
 	# Payload: { date: "YYYY-MM-DD" }
 	# safe_exec: no import / no += / no def / no f-strings. for-loops + .append + .get ok.
 
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import order_hub_sql
+
 	frappe.response["message"] = {"success": False, "error": "Script failed"}
 
 	try:
@@ -272,7 +281,9 @@ def getSchedulerFeed():
             FROM `tabOrder Pick List` o
             JOIN `tabSales Order` so ON so.name = o.sales_order
             WHERE so.delivery_date = %(dd)s AND o.docstatus < 2
-              AND IFNULL(so.farm, '') NOT IN %(own)s
+              AND """
+			+ order_hub_sql("so")
+			+ """ NOT IN %(own)s
             ORDER BY o.creation ASC
         """,
 			{"dd": dd, "own": tuple(_own_packing_farms()) or ("",)},
@@ -288,8 +299,9 @@ def getSchedulerFeed():
 		# ---- per-OPL line stats (buckets, farms, transfer, issued) ----
 		stats = {}
 		# Buckets requested from the remote farms: not the hub, not a farm packing its own.
-		not_remote = set(_own_packing_farms())
-		not_remote.add(frappe.get_cached_doc("Production Settings").get("transfer_hub_farm") or "")
+		from upande_packhouse.api.remote_transfer.transfer_scheduling import sales_farms
+
+		not_remote = set(_own_packing_farms()) | set(sales_farms())
 		if len(names) > 0:
 			plis = frappe.get_all(
 				"Pick List Item",
@@ -452,9 +464,13 @@ def getSchedulerFeed():
 		# date, and today's -- Distribute plans onto today's trips, whichever day the
 		# orders deliver. A trip goes to every farm on its collection order (falling back
 		# to its order rows' farms). on_trip = this order's buckets on it.
-		from upande_packhouse.api.remote_transfer.transfer_scheduling import ACTIVE_TRIP_STATUSES
+		from upande_packhouse.api.remote_transfer.transfer_scheduling import (
+			ACTIVE_TRIP_STATUSES,
+			opl_hubs,
+			trip_hubs,
+		)
 
-		hub = frappe.get_cached_doc("Production Settings").get("transfer_hub_farm") or ""
+		hubs = opl_hubs(names)
 		carrying = set()
 		if names:
 			carrying = set(
@@ -487,13 +503,16 @@ def getSchedulerFeed():
 			):
 				trip_rows.setdefault(tr.parent, []).append(tr)
 		farm_trips = {}
+		to_hub = trip_hubs([t.name for t in trips])
 		for t in trips:
 			stops = [x.strip() for x in (t.collection_order or "").split("→") if x.strip()]
 			for tr in trip_rows.get(t.name) or []:
 				if tr.farm and tr.farm not in stops:
 					stops.append(tr.farm)
+			# Every stop but the sales farm the trip delivers to (another sales farm can be a stop).
+			to = to_hub.get(t.name)
 			for fm in stops:
-				if fm != hub:
+				if fm != to:
 					farm_trips.setdefault(fm, []).append(t)
 
 		from upande_packhouse.api.remote_transfer.transfer_scheduling import order_locations
@@ -555,7 +574,7 @@ def getSchedulerFeed():
 				to_move[fm] = to_move.get(fm, 0) + 1
 			waiting = []
 			for fm in sorted(to_move):
-				if fm == hub:
+				if fm == hubs.get(op):
 					continue
 				ft = []
 				for t in farm_trips.get(fm) or []:
@@ -581,6 +600,8 @@ def getSchedulerFeed():
 			row = {
 				"opl": op,
 				"location": where.get(op, ""),
+				# the sales farm the order is packed at (its buckets go there)
+				"sales_farm": hubs.get(op) or "",
 				"order_name": o.get("custom_order_name") or op,
 				"customer": o.get("customer") or "",
 				"team": o.get("custom_team") or "",
@@ -636,6 +657,8 @@ def saveDaySchedule():
 	# Reorder IS the schedule: takes the global ordered ready list and rebuilds each
 	# team's Packhouse Schedule doc (orders in the global order, resequenced 1..N per team).
 	# Params: { date?, order }  order = "|~|"-joined OPL names in global order.
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import order_hub_sql
+
 	fd = frappe.form_dict
 	sdate = fd.get("date") or frappe.utils.today()
 	order_raw = fd.get("order") or ""
@@ -659,7 +682,9 @@ def saveDaySchedule():
 				JOIN `tabPackhouse Schedule` ps ON ps.name = pso.parent
 				JOIN `tabOrder Pick List` o ON o.name = pso.order_pick_list
 				JOIN `tabSales Order` so ON so.name = o.sales_order
-				WHERE ps.schedule_date = %(d)s AND so.farm IN %(f)s""",
+				WHERE ps.schedule_date = %(d)s AND """
+				+ order_hub_sql("so")
+				+ " IN %(f)s",
 				{"d": sdate, "f": tuple(own_farms)},
 			)
 		)
@@ -668,7 +693,9 @@ def saveDaySchedule():
 				frappe.db.sql_list(
 					"""SELECT o.name FROM `tabOrder Pick List` o
 					JOIN `tabSales Order` so ON so.name = o.sales_order
-					WHERE o.name IN %(o)s AND so.farm IN %(f)s""",
+					WHERE o.name IN %(o)s AND """
+					+ order_hub_sql("so")
+					+ " IN %(f)s",
 					{"o": tuple(opls), "f": tuple(own_farms)},
 				)
 			)

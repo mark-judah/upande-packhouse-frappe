@@ -45,12 +45,13 @@ frappe.ui.form.on("Sales Order", {
 					frm.add_custom_button(
 						label,
 						() => {
-							frappe.route_options = {
+							const q = new URLSearchParams({
 								sales_order: frm.doc.name,
 								farm: frm.doc.farm || frm.doc.custom_farm || "",
 								delivery_date: frm.doc.delivery_date || "",
-							};
-							frappe.set_route("sales-allocation");
+							});
+							window.location.href =
+								"/packhouse-dashboard-v2/sales-allocation-v2?" + q.toString();
 						},
 						__("Actions")
 					);

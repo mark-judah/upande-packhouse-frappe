@@ -8,6 +8,7 @@
  "field_order": [
   "details_tab",
   "team",
+  "sales_farm",
   "location",
   "start_time",
   "crops_tab",
@@ -30,10 +31,21 @@
    "unique": 1
   },
   {
+   "fieldname": "sales_farm",
+   "fieldtype": "Link",
+   "options": "Farm",
+   "label": "Sales Farm",
+   "reqd": 0,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
    "fieldname": "location",
    "fieldtype": "Link",
    "label": "Location",
-   "options": "Location"
+   "options": "Location",
+   "fetch_from": "sales_farm.farm_location",
+   "read_only": 1
   },
   {
    "fieldname": "start_time",
@@ -78,7 +90,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-01 12:00:00.000000",
+ "modified": "2026-11-13 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Packing Teams",

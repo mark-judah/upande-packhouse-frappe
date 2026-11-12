@@ -7,36 +7,53 @@ from frappe.utils import cint, nowdate
 from upande_packhouse.packing_guide import sync_packing_guide
 
 
-def _get_shelf_farm_for_location(location):
-	"""
+def _get_shelf_farm_for_location(location, sales_order_doc=None):
+	"""The farm a pick list is for: the Sales Order's own farm when it is an enabled Sales Shelf farm
+	(a Chepsito order's pick list is Chepsito's, whatever location it was allocated from), else the
+	location's sales farm.
+
 	Derive the sales-shelf farm for a given location name
 	by reading Production Settings shelf_locations.
 	Returns the first enabled sales_shelf farm found for that location.
+	Falls back to querying Farm doctype if needed.
 	"""
-	if not location:
+	if not location and sales_order_doc is None:
 		return None
 
+	# Get all enabled farms from Production Settings
 	ps = frappe.get_cached_doc("Production Settings")
 	enabled_sales_farms = [row.farm for row in (ps.shelf_locations or []) if row.enabled and row.sales_shelf]
 
 	if not enabled_sales_farms:
 		return None
 
+	if sales_order_doc is not None:
+		own = sales_order_doc.get("custom_farm") or sales_order_doc.get("farm")
+		if own in enabled_sales_farms:
+			return own
+
+	# Sales Allocation's locations are the Sales Shelf farms themselves (Chepsito, Kapkolia, Karen):
+	# the pick list is that farm's.
+	if location in enabled_sales_farms:
+		return location
+
+	# Else the sales farm whose Farm Location is this location
 	placeholders = ", ".join(["%s"] * len(enabled_sales_farms))
 	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	result = frappe.db.sql(
 		f"""
         SELECT name FROM `tabFarm`
         WHERE name IN ({placeholders})
-          AND location = %s
+          AND farm_location = %s
         LIMIT 1
     """,
 		enabled_sales_farms + [location],
 		as_dict=True,
 	)
 
-	# v16 topology: remote locations have no local sales farm — fall back to the
-	# global sales-shelf farm so remote allocations still route to its shelves.
+	# v16 topology: remote locations have no local sales farm. All packing happens
+	# at the global sales-shelf farm, so fall back to it (Timau) rather than None —
+	# remote buckets are then flagged awaiting_transfer against that farm's shelves.
 	return result[0]["name"] if result else enabled_sales_farms[0]
 
 
@@ -116,7 +133,7 @@ def create_mixed_box_pick_list_for_allocated_items(
 		frappe.throw(_("An Order Pick List can only be created for submitted Sales Orders."))
 
 	# Derive shelf farm from location via Production Settings
-	shelf_farm = _get_shelf_farm_for_location(location)
+	shelf_farm = _get_shelf_farm_for_location(location, sales_order_doc)
 	if not shelf_farm:
 		shelf_farm = sales_order_doc.farm or "Karen"
 

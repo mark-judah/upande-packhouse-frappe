@@ -49,12 +49,13 @@ frappe.ui.form.on("Order Pick List", {
 				frappe.db
 					.get_value("Sales Order", frm.doc.sales_order, "delivery_date")
 					.then((r) => {
-						frappe.route_options = {
+						const q = new URLSearchParams({
 							sales_order: frm.doc.sales_order,
-							farm: frm.doc.farm,
+							farm: frm.doc.farm || "",
 							delivery_date: (r.message && r.message.delivery_date) || "",
-						};
-						frappe.set_route("sales-allocation");
+						});
+						window.location.href =
+							"/packhouse-dashboard-v2/sales-allocation-v2?" + q.toString();
 					});
 			},
 			__("Actions")

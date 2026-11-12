@@ -37,6 +37,18 @@ DISCARD_EXCLUSION = """
           )"""
 
 
+def _cut_stage_applies(item_code) -> bool:
+	"""A line's cut stage is enforced only on Standard Roses (the variety's group is Standard Roses or
+	under it): sprays and the other crops are graded without a cut stage on their buckets."""
+	memo = frappe.flags.setdefault("sa2_cut_stage_applies", {})
+	if item_code not in memo:
+		group = frappe.get_cached_value("Item", item_code, "item_group") if item_code else None
+		root = frappe.get_cached_value("Item Group", "Standard Roses", ["lft", "rgt"]) if group else None
+		at = frappe.get_cached_value("Item Group", group, ["lft", "rgt"]) if group and root else None
+		memo[item_code] = bool(at and root and root[0] <= at[0] and at[1] <= root[1])
+	return memo[item_code]
+
+
 def _norm_cut_stage(value) -> str:
 	"""Cut stage as a comparable key: "1.5-2.0" and "1.5-2" are the same stage,
 	as are "1.0" and "1". Each number loses its trailing ".0"; spaces go."""
@@ -133,16 +145,81 @@ def _get_production_config():
 		as_dict=True,
 	)
 
+	# One allocation location per Sales Shelf farm (Production Settings > Shelf Locations), in the
+	# table's order: the sales farm, then the remote (not sales-shelf) farms of its Farm Location.
+	# Ticking Sales Shelf on a farm gives it its own location; unticking takes it away.
+	by_farm_location = {}
+	loc_of = {}
 	for f in farm_rows:
-		loc = f.location
-		farms_by_location.setdefault(loc, []).append(f.farm)
+		by_farm_location.setdefault(f.location, []).append(f.farm)
+		loc_of[f.farm] = f.location
+	is_sales = lambda f: farm_config.get(f, {}).get("sales_shelf")  # noqa: E731
+	sales_shelf_farms = [f for f in enabled_farms if is_sales(f)]
+	own_by_location = {}
+	# Orders listed under each location: its sales farm's, and those of its remote farms --
+	# under the first sales farm of their Farm Location only, so no order is listed twice.
+	order_farms_by_location = {}
+	# Every other farm of a Farm Location (one not in Shelf Locations, or disabled there) lists under
+	# the first sales farm of that Farm Location: {farm location: sales farm}.
+	location_by_farm_location = {}
+	claimed = set()
+	for sf in sales_shelf_farms:
+		remotes = [f for f in by_farm_location.get(loc_of.get(sf), []) if not is_sales(f)]
+		own_by_location[sf] = [sf, *remotes]
+		order_farms_by_location[sf] = [sf] + [f for f in remotes if f not in claimed]
+		claimed.update(remotes)
+		if loc_of.get(sf):
+			location_by_farm_location.setdefault(loc_of[sf], sf)
+	farms_by_location = {loc: list(farms) for loc, farms in own_by_location.items()}
+
+	# Remote Transfer Sales Farms share their farms: a sales farm in that list gets, after its own
+	# farms, the other listed sales farms and their remote farms -- Chepsito orders draw on
+	# Kapkolia, Simotwo, Torongo and Kaptumbo, trucked to Chepsito, as Kapkolia's do on Chepsito.
+	# In another location a sales farm is a remote farm (_config_for).
+	hubs = {r.farm for r in ps.get("sales_farms") or [] if r.farm and is_sales(r.farm)}
+	pool = [f for hub in hubs for f in own_by_location.get(hub, [])]
+	for hub in hubs:
+		if hub in farms_by_location:
+			farms_by_location[hub] = farms_by_location[hub] + [
+				f for f in dict.fromkeys(pool) if f not in farms_by_location[hub]
+			]
 
 	return {
 		"discard_age": discard_age,
 		"amber_time": amber_time,
 		"farm_config": farm_config,
 		"farms_by_location": farms_by_location,
+		"own_by_location": own_by_location,
+		"order_farms_by_location": order_farms_by_location,
+		"location_by_farm_location": location_by_farm_location,
 	}
+
+
+def _order_farm_location(farm):
+	"""The allocation location (sales farm) an order of `farm` is listed under, as get_pending_sales_orders
+	lists it: the location whose order farms hold it, else the first sales farm of its Farm Location;
+	"" when it has none (such an order can be allocated anywhere)."""
+	if not farm:
+		return ""
+	config = _get_production_config()
+	for loc, farms in (config.get("order_farms_by_location") or {}).items():
+		if farm in farms:
+			return loc
+	farm_location = frappe.db.get_value("Farm", farm, "farm_location")
+	return (config.get("location_by_farm_location") or {}).get(farm_location) or ""
+
+
+def _config_for(location):
+	"""_get_production_config as `location` sees it: a sales farm of another location that it
+	draws on (Remote Transfer Sales Farms) is a remote farm here -- its buckets are trucked over."""
+	config = _get_production_config()
+	own = set(config.get("own_by_location", {}).get(location) or [])
+	if not location or not own:
+		return config
+	farm_config = {
+		f: ({**c, "sales_shelf": 0} if f not in own else c) for f, c in config["farm_config"].items()
+	}
+	return {**config, "farm_config": farm_config}
 
 
 def _order_sales_farm(opl):
@@ -170,10 +247,15 @@ def _remote_farms_of(farm):
 	"""The remote farms trucked to `farm`: same location, not a sales-shelf farm.
 	Another location's farms are never offered -- a line allocated across
 	locations fails every later allocation's location check."""
-	config = _get_production_config()
-	for farms in config["farms_by_location"].values():
-		if farm in farms:
-			return [f for f in farms if f != farm and not config["farm_config"].get(f, {}).get("sales_shelf")]
+	base = _get_production_config()
+	for loc, own in (base.get("own_by_location") or {}).items():
+		if farm in own:
+			config = _config_for(loc)
+			return [
+				f
+				for f in config["farms_by_location"].get(loc, [])
+				if f != farm and not config["farm_config"].get(f, {}).get("sales_shelf")
+			]
 	return []
 
 
@@ -192,15 +274,18 @@ def default_delivery_date() -> str:
 # ============================================================
 @frappe.whitelist()
 def get_location_config():
-	config = _get_production_config()
-	farms_by_location = config["farms_by_location"]
-	farm_config = config["farm_config"]
+	farms_by_location = _get_production_config()["farms_by_location"]
 
 	locations = []
 	for loc_name, farms in farms_by_location.items():
+		farm_config = _config_for(loc_name)["farm_config"]
 		# The sales shelf farm for this location
 		sales_farms = [f for f in farms if farm_config.get(f, {}).get("sales_shelf")]
 		remote_farms = [f for f in farms if not farm_config.get(f, {}).get("sales_shelf")]
+		# A location sells only through a Sales Shelf farm: with none (unticked or disabled in
+		# Production Settings > Shelf Locations) it is not offered.
+		if not sales_farms:
+			continue
 
 		locations.append(
 			{
@@ -373,10 +458,24 @@ def get_pending_sales_orders(
 	if location:
 		params["order_location"] = location
 		params["location_farms"] = tuple(location_farms or ["\x00"])
-		location_clause = """(EXISTS (
-                SELECT 1 FROM `tabFarm` f WHERE f.name = so.custom_farm AND f.farm_location = %(order_location)s)
+		config = _get_production_config()
+		params["order_farms"] = tuple(config.get("order_farms_by_location", {}).get(location) or ["\x00"])
+		# a farm not in Shelf Locations (or disabled there) lists under the first sales farm of its Farm Location
+		params["listed_farms"] = tuple(
+			{f for farms in (config.get("order_farms_by_location") or {}).values() for f in farms} or ["\x00"]
+		)
+		params["order_farm_locations"] = tuple(
+			[fl for fl, sf in (config.get("location_by_farm_location") or {}).items() if sf == location]
+			or ["\x00"]
+		)
+		from upande_packhouse.api.remote_transfer.transfer_scheduling import _so_farm_expr
+
+		so_farm = _so_farm_expr("so")
+		location_clause = """({so_farm} IN %(order_farms)s
+            OR ({so_farm} NOT IN %(listed_farms)s AND EXISTS (
+                SELECT 1 FROM `tabFarm` f WHERE f.name = {so_farm} AND f.farm_location IN %(order_farm_locations)s))
             OR (NOT EXISTS (
-                SELECT 1 FROM `tabFarm` f WHERE f.name = so.custom_farm AND IFNULL(f.farm_location, '') != '')
+                SELECT 1 FROM `tabFarm` f WHERE f.name = {so_farm} AND IFNULL(f.farm_location, '') != '')
               AND (NOT EXISTS (
                 SELECT 1 FROM `tabConfirmed Stems` cs
                 WHERE cs.parent = so.name AND cs.parenttype = 'Sales Order'
@@ -385,7 +484,7 @@ def get_pending_sales_orders(
                 SELECT 1 FROM `tabConfirmed Stems` cs
                 WHERE cs.parent = so.name AND cs.parenttype = 'Sales Order'
                   AND cs.parentfield = 'custom_confirmed_stems_table' AND cs.stems > 0
-                  AND cs.farm IN %(location_farms)s))))"""
+                  AND cs.farm IN %(location_farms)s))))""".replace("{so_farm}", so_farm)
 
 	# nosemgrep: frappe-sql-format-injection -- interpolates a module-level constant, never request data
 	sql = f"""
@@ -613,7 +712,7 @@ def get_order_filter_options():
 	# separate frappe.call racing against the operator's first click) makes
 	# it structurally impossible for a team <select> to render before the
 	# real list has arrived.
-	rows = frappe.get_all("Packing Teams", fields=["name", "location"], order_by="name asc")
+	rows = frappe.get_all("Packing Teams", fields=["name", "sales_farm", "location"], order_by="name asc")
 	teams = [r.name for r in rows]
 
 	return {
@@ -621,7 +720,7 @@ def get_order_filter_options():
 		"item_groups": item_groups,
 		"teams": teams,
 		# where each team packs: the board offers a location only its own teams
-		"team_locations": {r.name: r.location or "" for r in rows},
+		"team_locations": {r.name: r.sales_farm or r.location or "" for r in rows},
 	}
 
 
@@ -668,7 +767,7 @@ def get_sales_order_items_with_buckets(
 		elif isinstance(filter_cut_stage, list):
 			cut_stage_list = filter_cut_stage
 
-	config = _get_production_config()
+	config = _config_for(location)
 	discard_age = config["discard_age"]
 	amber_time = config["amber_time"]
 	farm_config = config["farm_config"]
@@ -864,6 +963,10 @@ def get_sales_order_items_with_buckets(
                    MIN(warehouse) AS warehouse,
                    MIN(cut_stage) AS cut_stage
             FROM `tabShelf Item`
+            -- only this order's varieties at the farms in view: grouping the whole table for every
+            -- order was most of Allocate all's time
+            WHERE variety IN ({ic_placeholders})
+              AND parent IN (SELECT name FROM `tabShelf` WHERE farm IN ({farm_placeholders}))
             GROUP BY bucket_id, variety, stem_length, parent
         ) si
         INNER JOIN `tabShelf` s ON s.name = si.parent
@@ -878,7 +981,9 @@ def get_sales_order_items_with_buckets(
         LEFT JOIN (
             SELECT ba.parent, SUM(ba.quantity_allocated) AS qty
             FROM `tabBucket Allocations` ba
+            JOIN `tabBucket Allocation Status` bas2 ON bas2.name = ba.parent
             WHERE ba.parenttype = 'Bucket Allocation Status' AND ba.cancelled = 0 AND IFNULL(ba.issued, 0) = 0
+              AND bas2.item_code IN ({ic_placeholders})
             GROUP BY ba.parent
         ) ba_out ON ba_out.parent = bas.name
         WHERE s.farm IN ({farm_placeholders})
@@ -886,7 +991,7 @@ def get_sales_order_items_with_buckets(
           AND DATEDIFF(CURDATE(), COALESCE(si.harvest_date, si.date_added)) < %s
           {DISCARD_EXCLUSION}
     """,
-		[now_datetime()] + active_farms + item_codes + [discard_age],
+		[now_datetime(), *item_codes, *active_farms, *item_codes, *active_farms, *item_codes, discard_age],
 		as_dict=True,
 	)
 
@@ -979,7 +1084,10 @@ def get_sales_order_items_with_buckets(
 		meta = metadata_map.get(item["item_code"], {})
 		item["headsize"] = meta.get("headsize", "")
 		item["color"] = meta.get("color", "")
-		item["spec_cut_stage"] = item.get("custom_cut_stage") or None
+		# the line's cut stage is enforced on Standard Roses only
+		item["spec_cut_stage"] = (
+			(item.get("custom_cut_stage") or None) if _cut_stage_applies(item["item_code"]) else None
+		)
 
 		item_buckets = buckets_by_item.get(item["item_code"], [])
 		req_cm = _parse_cm(item["required_length"])
@@ -1107,7 +1215,9 @@ def get_sales_order_items_with_buckets(
 		item["preferred_farm"] = preferred_farm
 		item["amber_time"] = amber_time
 
-	if items and location and active_farms:
+	# Allocate all (frappe.flags.sa2_planning) plans from the shelves only: what is still arriving and whose
+	# order a downgrade would short are for the page's own view, not the plan.
+	if items and location and active_farms and not frappe.flags.sa2_planning:
 		_attach_incoming_stems(items, location, active_farms)
 	else:
 		for item in items:
@@ -1121,6 +1231,8 @@ def _attach_downgrade_conflicts(items, sales_order):
 	"""For each length a line could be downgraded from: the other orders delivering the same day that ordered
 	that variety at that length and still need stems, and what is on the shelf for them -- so the page can say
 	whose order a downgrade would short. item["downgrade_conflicts"] = {length: {available, needed, orders}}."""
+	if frappe.flags.sa2_planning:
+		return
 	wanted = {}
 	for item in items:
 		for b in item.get("batches") or []:
@@ -1228,13 +1340,13 @@ def get_bucket_visibility_diagnostics(
 	# get_sales_order_items_with_buckets. No filter at all when it's blank
 	# (e.g. most Spray Roses lines, which have no cut-stage concept on the
 	# packhouse side even when the spec happens to carry one).
-	spec_cut_stage = soi.custom_cut_stage or None
+	spec_cut_stage = (soi.custom_cut_stage or None) if _cut_stage_applies(item_code) else None
 	if spec_cut_stage and not bypass_cut_stage:
 		cut_stage_list = [spec_cut_stage]
 	if bypass_cut_stage:
 		cut_stage_list = []
 
-	config = _get_production_config()
+	config = _config_for(location)
 	discard_age = config["discard_age"]
 	amber_time = config["amber_time"]
 	farm_config = config["farm_config"]
@@ -1567,7 +1679,7 @@ def get_available_filters(
 	if isinstance(selected_farms, str):
 		selected_farms = json.loads(selected_farms)
 
-	config = _get_production_config()
+	config = _config_for(location)
 	farms_by_location = config["farms_by_location"]
 	location_farms = farms_by_location.get(location, [])
 
@@ -2124,9 +2236,18 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 	"""`target_opl` (packing_quality's replacement): put the new rows on that
 	Order Pick List -- the one being packed -- whatever box type the line is,
 	instead of the per-type OPL creators (the mixed ones skip a submitted OPL)."""
-	config = _get_production_config()
+	# every team packs at the order's own sales farm
+	from upande_packhouse.api.v2.allocation_teams import check_team_farm
+
+	for t in set((teams or {}).values()):
+		check_team_farm(t, sales_order, location)
+	config = _config_for(location)
 	farm_config = config["farm_config"]
 	farms_by_location = config["farms_by_location"]
+	# the sales farm this order's buckets go to: a bucket held anywhere else waits to be transferred there
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import order_hub
+
+	to_hub = order_hub(sales_order, location) or None
 
 	location_farms = set(farms_by_location.get(location, []))
 	if not location_farms:
@@ -2360,7 +2481,8 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 			bas.total_quantity = float(shelf["stem_qty"] or 0)
 			bas.stem_length = shelf["stem_length"] or ""
 			bas.warehouse = (
-				stock_movement.holding_warehouse(shelf["warehouse"], shelf["farm"], business_unit) or ""
+				stock_movement.holding_warehouse(shelf["warehouse"], shelf["farm"], business_unit, to_hub)
+				or ""
 			)
 			bas.harvest_date = shelf.get("harvest_date") or shelf["date_added"]
 			bas.shelf_location = shelf["shelf_location"]
@@ -2474,7 +2596,7 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 		# long they are; the client sends both, so overwrite rather than default.
 		# A remote farm's bucket stays on its farm's store until shelved at the hub.
 		a["warehouse"] = stock_movement.holding_warehouse(
-			shelf.get("warehouse") or a.get("warehouse"), a["_shelf_farm"], business_unit
+			shelf.get("warehouse") or a.get("warehouse"), a["_shelf_farm"], business_unit, to_hub
 		)
 		a["stem_length"] = shelf.get("stem_length") or a.get("stem_length")
 
@@ -3964,11 +4086,14 @@ def _in_stock(anchor, farm, candidates, needed):
 	if not sales_order:
 		return candidates
 	business_unit = stock_movement.business_unit_of(frappe.get_doc("Sales Order", sales_order))
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import order_hub
+
+	to_hub = order_hub(sales_order) or None
 	held, _sold = _bucket_ledger([c.bucket_id for c in candidates], anchor.item_code)
 	out = []
 	for c in candidates:
-		warehouse = stock_movement.holding_warehouse(c.warehouse, farm, business_unit)
-		route = stock_movement.resolve_route(warehouse, business_unit) if warehouse else []
+		warehouse = stock_movement.holding_warehouse(c.warehouse, farm, business_unit, to_hub)
+		route = stock_movement.resolve_route(warehouse, business_unit, to_farm=to_hub) if warehouse else []
 		positions = [warehouse] + [hop["to"] for hop in route if not hop["terminal"]]
 		if any(held.get((c.bucket_id, wh), 0) + stock_movement.QTY_TOLERANCE >= needed for wh in positions):
 			out.append(c)
@@ -4122,12 +4247,19 @@ def _replace_requested_bucket(
 		sales_order = frappe.db.get_value("Order Pick List", opl_name, "sales_order")
 		so_doc = frappe.get_doc("Sales Order", sales_order)
 		business_unit = stock_movement.business_unit_of(so_doc)
+		from upande_packhouse.api.remote_transfer.transfer_scheduling import order_hub
+
+		to_hub = order_hub(sales_order) or None
 		# A replacement from a remote shelf waits in its farm's store, like any allocation.
-		new.warehouse = stock_movement.holding_warehouse(new.warehouse, farm, business_unit)
+		new.warehouse = stock_movement.holding_warehouse(new.warehouse, farm, business_unit, to_hub)
 
 		# ── Stock: where each bucket's stems sit now ──
 		held, sold = _bucket_ledger([old_bucket, new.bucket_id], anchor.item_code)
-		route = stock_movement.resolve_route(new.warehouse, business_unit) if new.warehouse else []
+		route = (
+			stock_movement.resolve_route(new.warehouse, business_unit, to_farm=to_hub)
+			if new.warehouse
+			else []
+		)
 		sold_warehouse = next((hop["to"] for hop in route if hop["terminal"]), None)
 		if not sold_warehouse:
 			frappe.throw(_("No Sold warehouse is mapped for {0}.").format(new.warehouse or new.shelf))
@@ -4152,13 +4284,17 @@ def _replace_requested_bucket(
 		# the arrival warehouse (Kapkolia Receiving), not its farm's cold store — sending
 		# them back there would put Kapkolia's stems on the farm's books.
 		old_return = next(
-			(hop["from"] for hop in stock_movement.resolve_route(old_home, business_unit) if hop["terminal"]),
+			(
+				hop["from"]
+				for hop in stock_movement.resolve_route(old_home, business_unit, to_farm=to_hub)
+				if hop["terminal"]
+			),
 			old_home,
 		)
 		# A remote replacement still at its farm is sold when it is shelved at the sales
 		# farm (post_sale_on_arrival), like any remote allocation — not now.
 		defer_new = new_source == new.warehouse and stock_movement.needs_transfer(
-			new.warehouse, business_unit
+			new.warehouse, business_unit, to_hub
 		)
 
 		# ── BAS: release the old bucket ──
@@ -4454,7 +4590,7 @@ def _reindex_opl_rows(opl_name):
 # ============================================================
 @frappe.whitelist()
 def get_farms_for_location(location: str | None):
-	config = _get_production_config()
+	config = _config_for(location)
 	farm_config = config["farm_config"]
 	farms = config["farms_by_location"].get(location, [])
 	return [
@@ -4465,6 +4601,63 @@ def get_farms_for_location(location: str | None):
 		}
 		for f in farms
 	]
+
+
+def approved_varieties_for(spec, customer, item_code, color=None, crop_groups=None):
+	"""(source, [{variety, is_primary}]) the varieties a line may be given instead of / beside `item_code`:
+	  spec      -- its own specification's approved varieties, its primary first;
+	  customer  -- with none there, those every active specification of the customer approves;
+	  approved  -- the customer has none either: every active specification's approved varieties.
+	The customer's and everyone's lists keep to the line's colour and crop when that leaves any, else to its
+	crop, else all of them. The line's own variety is never one of them."""
+
+	def rows(where, params):
+		return frappe.db.sql(
+			"""SELECT sav.variety, MAX(IFNULL(sav.is_primary, 0)) AS is_primary, MIN(sav.idx) AS idx
+			FROM `tabSpec Approved Variety` sav
+			JOIN `tabSpecifications` sp ON sp.name = sav.parent
+			WHERE sav.parenttype = 'Specifications' AND IFNULL(sav.variety, '') != '' AND sav.variety != %(item)s
+			  AND """
+			+ where
+			+ """
+			GROUP BY sav.variety ORDER BY is_primary DESC, idx""",
+			{"item": item_code or "", **params},
+			as_dict=True,
+		)
+
+	def fit(found):
+		# the line's colour in its crop, else its crop, else all of them
+		if not found:
+			return found
+		names = [r.variety for r in found]
+		for filters in (
+			{"custom_color": color, "item_group": ("in", list(crop_groups or []))}
+			if color and crop_groups
+			else None,
+			{"item_group": ("in", list(crop_groups))} if crop_groups else None,
+			{},
+		):
+			if filters is None:
+				continue
+			keep = set(
+				frappe.get_all(
+					"Item", filters={"name": ("in", names), "disabled": 0, **filters}, pluck="name"
+				)
+			)
+			if keep:
+				return [r for r in found if r.variety in keep]
+		return []
+
+	if spec:
+		found = rows("sp.name = %(spec)s", {"spec": spec})
+		if found:
+			return "spec", found
+	active = "IFNULL(sp.status, 'Active') != 'Inactive'"
+	if customer:
+		found = fit(rows(active + " AND sp.customer = %(customer)s", {"customer": customer}))
+		if found:
+			return "customer", found
+	return "approved", fit(rows(active, {}))
 
 
 # ============================================================
@@ -4503,25 +4696,16 @@ def get_substitute_varieties(
 	item_group = current_item.get("item_group") or ""
 	color = current_item.get("custom_color") or ""
 
-	# the specification's options, its primary first
-	spec = frappe.db.get_value("Sales Order Item", sales_order_item, "custom_line")
-	approved = (
-		frappe.db.sql(
-			"""SELECT variety, IFNULL(is_primary, 0) AS is_primary FROM `tabSpec Approved Variety`
-			WHERE parenttype = 'Specifications' AND parent = %s AND IFNULL(variety, '') != ''
-			ORDER BY is_primary DESC, idx""",
-			spec,
-			as_dict=True,
-		)
-		if spec
-		else []
-	)
-	spec_rank = {r.variety: n for n, r in enumerate(approved)}
-	primary = {r.variety for r in approved if cint(r.is_primary)}
 	# the same colour counts within the line's crop (Standard / Spray roses ...), else its own group
 	groups = crop_of_groups()
 	crop = groups.get(item_group)
 	crop_groups = [g for g, c in groups.items() if c == crop] if crop else [item_group]
+	# the approved varieties: the line's specification's, else the customer's, else every specification's
+	spec = frappe.db.get_value("Sales Order Item", sales_order_item, "custom_line")
+	customer = frappe.db.get_value("Sales Order", sales_order, "customer")
+	_source, approved = approved_varieties_for(spec, customer, item_code, color, crop_groups)
+	spec_rank = {r.variety: n for n, r in enumerate(approved)}
+	primary = {r.variety for r in approved if cint(r.is_primary)}
 
 	# Get active farms for this location
 	location_farms = farms_by_location.get(location, []) if location else []
@@ -4536,11 +4720,6 @@ def get_substitute_varieties(
 	if approved:
 		wanted.append("i.name IN ({0})".format(", ".join(["%s"] * len(approved))))
 		item_params += [r.variety for r in approved]
-	if color:
-		wanted.append(
-			"(i.custom_color = %s AND i.item_group IN ({0}))".format(", ".join(["%s"] * len(crop_groups)))
-		)
-		item_params += [color, *crop_groups]
 	item_where = "i.disabled = 0 AND ({0})".format(" OR ".join(wanted))
 
 	# Find varieties that have stock on shelves at this location. In-transit

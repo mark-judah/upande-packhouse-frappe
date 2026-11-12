@@ -43,11 +43,14 @@ class PackingTeams(Document):
 			if row.customer in served:
 				frappe.throw(_("{0} is listed twice.").format(row.customer))
 			served.add(row.customer)
-		# The location is a sales location (Farm Location), not a farm.
-		from upande_packhouse.api.v2.allocation_teams import sales_locations
+		# The team packs at one sales farm (Production Settings > Shelf Locations, Sales Shelf); its
+		# location is that farm's.
+		from upande_packhouse.api.v2.allocation_teams import sales_farm_names
 
-		if self.location and self.location not in sales_locations():
-			frappe.throw(_("{0} is not a sales location.").format(self.location))
+		if self.sales_farm and self.sales_farm not in sales_farm_names():
+			frappe.throw(_("{0} is not a sales farm.").format(self.sales_farm))
+		if self.sales_farm:
+			self.location = frappe.db.get_value("Farm", self.sales_farm, "farm_location") or self.location
 		# A person packs in one team.
 		seen = set()
 		for row in self.members or []:
@@ -61,3 +64,10 @@ class PackingTeams(Document):
 			)
 			if other:
 				frappe.throw(_("{0} is already in {1}.").format(row.employee_name or row.employee, other))
+
+	def on_update(self):
+		# team_sales_farms() is read once per request
+		frappe.local._team_sales_farms = None
+
+	def on_trash(self):
+		frappe.local._team_sales_farms = None

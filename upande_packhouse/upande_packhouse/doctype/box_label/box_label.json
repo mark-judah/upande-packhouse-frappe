@@ -43,6 +43,13 @@
   "printed_at",
   "loaded",
   "loaded_internal_transfer",
+  "transfer_loaded_at",
+  "transfer_status",
+  "transfer_vehicle",
+  "transfer_to",
+  "transfer_sent_at",
+  "arrived_at_main_farm",
+  "transfer_received_at",
   "delivered",
   "section_break_hads",
   "box_item"
@@ -223,6 +230,52 @@
    "read_only": 1
   },
   {
+   "fieldname": "transfer_loaded_at",
+   "fieldtype": "Datetime",
+   "label": "Loaded for Internal Transfer At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "transfer_status",
+   "fieldtype": "Select",
+   "label": "Transfer Status",
+   "options": "\nLoaded\nIn Transit\nReceived",
+   "read_only": 1
+  },
+  {
+   "fieldname": "transfer_vehicle",
+   "fieldtype": "Link",
+   "label": "Transfer Vehicle",
+   "options": "Vehicle",
+   "read_only": 1
+  },
+  {
+   "fieldname": "transfer_to",
+   "fieldtype": "Link",
+   "label": "Transfer To",
+   "options": "Farm",
+   "read_only": 1
+  },
+  {
+   "fieldname": "transfer_sent_at",
+   "fieldtype": "Datetime",
+   "label": "Transfer Sent At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "arrived_at_main_farm",
+   "fieldtype": "Check",
+   "label": "Arrived at Main Sales Farm",
+   "default": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "transfer_received_at",
+   "fieldtype": "Datetime",
+   "label": "Arrived at Main Sales Farm At",
+   "read_only": 1
+  },
+  {
    "default": "0",
    "fieldname": "delivered",
    "fieldtype": "Check",
@@ -328,7 +381,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-31 09:00:00.000000",
+ "modified": "2026-11-13 14:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Box Label",

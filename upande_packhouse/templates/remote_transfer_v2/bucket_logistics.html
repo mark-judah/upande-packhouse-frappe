@@ -92,13 +92,14 @@
 </section>
 
 {% elif rt_part == 'script' %}
+<script>window.RT = Object.assign(window.RT || {}, { transferHub: {{ (transfer_hub or '') | tojson }} });</script>
 {% raw %}
 <script>
 (function () {
   "use strict";
   const esc = PH.esc;
   const n = (v) => PH.fmt.num(Math.round(Number(v) || 0));
-  const HUB = RT.transferHub || "Kapkolia";
+  const HUB = (window.RT && RT.transferHub) || "the hub";
   const API = "upande_packhouse.api.v2.rt_logistics.";
   const ST = (v) => (v === 1 ? "" : "s");
 
@@ -112,6 +113,9 @@
   const ALWAYS = { awaiting: 1, trolley: 1, on_truck: 1, transit: 1, arrived_hub: 1, shelved: 1, ready: 1, issued: 1 };
   const KIND = {}; FLAGS.forEach((f) => (KIND[f[0]] = f[2]));
   const LABEL = {}; FLAGS.forEach((f) => (LABEL[f[0]] = f[1]));
+  // Each order's buckets arrive at its own sales farm (Kapkolia, Chepsito ...), never one fixed hub.
+  const hubOf = (opl) => ((DATA && (DATA.orders || []).find((o) => o.opl === opl)) || {}).hub || "";
+  const flagLabel = (k, hub) => (k === "arrived_hub" ? "Arrived at " + (hub || HUB) : LABEL[k]);
 
   const st = PH.state({ from: RT.defaultDate, to: RT.defaultDate, region: "", farm: "", team: "", q: "" });
   // Old/shared ?date= link: a single delivery day.
@@ -267,12 +271,12 @@
 
   /* ── Cells ── */
   // A bucket count out of a total, v1's stage chip: lit in the stage's colour when it has any.
-  function stagePills(o) {
+  function stagePills(o, hub) {
     const tot = o.total || 0;
     return `<span class="ph-badge ph-badge--outline">Requested <b>${tot}</b></span>` + FLAGS.map((f) => {
       const x = o[f[0]] || 0;
       if (!x && !ALWAYS[f[0]]) return "";
-      return `<span class="ph-badge ${x ? "ph-badge--" + f[2] : "ph-badge--outline ph-muted"}">${f[1]} ${x}/${tot}</span>`;
+      return `<span class="ph-badge ${x ? "ph-badge--" + f[2] : "ph-badge--outline ph-muted"}">${esc(flagLabel(f[0], hub))} ${x}/${tot}</span>`;
     }).join("");
   }
   function teamTag(o) {
@@ -328,7 +332,7 @@
     let h = "Left " + (left ? clk(left) : "—");
     if (arr) h += " · Arrived " + clk(arr, left) + (src.transit_minutes != null ? " · " + fmtDur(src.transit_minutes) : "");
     else h += " · on the road" + (src.transit_minutes != null ? " " + fmtDur(src.transit_minutes) : "");
-    return `<span class="bl-times" title="Truck left the remote farm / arrived at ${esc(HUB)}">${esc(h)}</span>`;
+    return `<span class="bl-times" title="Truck left the remote farm / arrived at ${esc(((g.rows || []).find((x) => x.hub) || {}).hub || HUB)}">${esc(h)}</span>`;
   }
   const runOf = (g) => (DATA.runs || []).find((r) => r.name === g.trip.trip) || {};
   // A trip's planned buckets per farm (the header's farm chips).
@@ -416,7 +420,7 @@
     const ok = "o:" + g.key + "||" + farm + "||" + o.opl, open = !!OPEN[ok];
     let h = `<div class="bl-order"><div class="bl-order-h bl-tgl" data-tgl="${esc(ok)}">${car(open)}<span class="bl-oname"><b class="ph-strong">${esc(o.order_name)}</b>${teamTag(o)}<span class="bl-sub">${esc(o.customer || "")}</span></span>${orderQty(o)}${onThisTrip(o.trip)}</div>`;
     if (open) {
-      h += `<div class="bl-status"><div class="bl-pills">${stagePills(tripStages(o))}</div>` +
+      h += `<div class="bl-status"><div class="bl-pills">${stagePills(tripStages(o), o.hub || hubOf(o.opl))}</div>` +
         `<button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-bp-opl="${esc(o.opl)}" data-bp-farm="${esc(o.farm || "")}" data-bp-name="${esc(o.order_name)}">Bucket status →</button></div>`;
     }
     return h + "</div>";
@@ -521,6 +525,12 @@
     const at = f[1] ? x[f[1]] : null;
     return `<div class="bl-ev bl-k-${kind}">` + (at ? `<b>${esc(fmtDT(at))}</b><small>${esc(x[f[2]] || "")}</small>` : '<span class="bl-tick">✓</span>') + "</div>";
   }
+  // the drawer's sales farm: its order's (several orders: theirs when they share one)
+  function bpHub() {
+    if (!BP.multi) return hubOf(BP.opl);
+    const hubs = new Set((BP.buckets || []).map((x) => hubOf(x._opl)));
+    return hubs.size === 1 ? [...hubs][0] : "";
+  }
   function bpPaint() {
     if (!BP.api) return;
     const el = BP.api.body.querySelector("[data-bp]");
@@ -532,7 +542,7 @@
     const picked = COLS.filter((f) => BP.on[f[0]]);
     const toggles = '<div class="bl-flags">' + COLS.map((f) => {
       const cnt = BP.buckets.filter((x) => Number(x[f[0]])).length, on = !!BP.on[f[0]];
-      return `<button type="button" class="ph-badge ${on ? "ph-badge--" + KIND[f[0]] : "ph-badge--outline ph-muted"}" data-bp-flag="${f[0]}" title="${esc(LABEL[f[0]])}"><span class="bl-fl">${esc(LABEL[f[0]])}</span><b>${cnt}</b></button>`;
+      return `<button type="button" class="ph-badge ${on ? "ph-badge--" + KIND[f[0]] : "ph-badge--outline ph-muted"}" data-bp-flag="${f[0]}" title="${esc(flagLabel(f[0], bpHub()))}"><span class="bl-fl">${esc(flagLabel(f[0], bpHub()))}</span><b>${cnt}</b></button>`;
     }).join("") + "</div>";
     const shown = picked.length ? BP.buckets.filter((x) => picked.some((f) => Number(x[f[0]]))) : BP.buckets;
     const anyNf = shown.some((x) => Number(x.not_found));
@@ -542,9 +552,9 @@
     const cols = (nfOnly ? COLS.filter((f) => f[0] === "awaiting" || f[0] === "not_found") : COLS).filter((f) => shown.some((x) => Number(x[f[0]])));
     const has = (k) => shown.some((x) => x[k]);
     const oneFarm = PH.uniq(shown.map((x) => x.farm || "")).length <= 1;
-    const head = `<tr><th>#</th>${BP.multi ? "<th>Order</th>" : ""}<th class="bl-nw">Bucket</th><th>Variety</th><th>Status</th>${anyNf ? "<th>Replace with</th>" : ""}${cols.map((f) => `<th>${esc(LABEL[f[0]])}</th>`).join("")}<th>Boxes</th><th class="is-num">Stems</th>${oneFarm ? "" : "<th>Farm</th>"}${has("shelf") ? "<th>Shelf</th>" : ""}${has("truck") ? "<th>Truck</th>" : ""}</tr>`;
+    const head = `<tr><th>#</th>${BP.multi ? "<th>Order</th>" : ""}<th class="bl-nw">Bucket</th><th>Variety</th><th>Status</th>${anyNf ? "<th>Replace with</th>" : ""}${cols.map((f) => `<th>${esc(flagLabel(f[0], bpHub()))}</th>`).join("")}<th>Boxes</th><th class="is-num">Stems</th>${oneFarm ? "" : "<th>Farm</th>"}${has("shelf") ? "<th>Shelf</th>" : ""}${has("truck") ? "<th>Truck</th>" : ""}</tr>`;
     const body = shown.map((x, j) => {
-      const s = bpStage(x), label = s === "not_found" ? "Not found · no replacement" : s ? LABEL[s] : "—";
+      const s = bpStage(x), label = s === "not_found" ? "Not found · no replacement" : s ? flagLabel(s, hubOf(x._opl)) : "—";
       const rp = (DATA.repl || []).find((r) => r.order_pick_list === (x._opl || BP.opl) && r.new_bucket === x.bucket);
       return `<tr class="${s ? "bl-row bl-k-" + KIND[s] : ""}"><td>${j + 1}</td>${BP.multi ? `<td><b class="ph-strong">${esc(x._order || "")}</b></td>` : ""}<td class="is-strong bl-nw">${x.bucket ? `<a href="#" class="ph-link" data-trail="${BP.buckets.indexOf(x)}" title="Transfer trail of this bucket">${esc(x.bucket)}</a>` : "<b>—</b>"}</td><td>${esc(x.variety || "—")}${x.length ? " (" + esc(x.length) + ")" : ""}</td>
         <td class="bl-nw">${s ? `<span class="ph-badge ph-badge--${KIND[s]}" title="${esc(label)}">${esc(label)}</span>` : "—"}${rp ? `<div class="ph-mt"><span class="ph-badge ph-badge--ink" title="${esc((rp.reason || "") + (rp.reported_by ? " · " + rp.reported_by : ""))}">Replaced ${esc(rp.old_bucket)}</span></div>` : ""}</td>
@@ -558,7 +568,7 @@
     const r = e.target.closest("[data-bp-replace]");
     if (r) return bpReplace(r.dataset.bpReplace, r.dataset.bpNew);
     const t = e.target.closest("[data-trail]");
-    if (t) { e.preventDefault(); const x = BP.buckets[+t.dataset.trail]; if (x) trOpen(x.bucket, x.variety, x.stems); }
+    if (t) { e.preventDefault(); const x = BP.buckets[+t.dataset.trail]; if (x) { TR.hub = hubOf(x._opl); trOpen(x.bucket, x.variety, x.stems); } }
   }
 
   /* ═════════ Bucket traceability (from the bucket id): harvest -> allocation -> transfer ═════════ */
@@ -631,7 +641,7 @@
     });
     // Remote transfer, per order the bucket goes to: awaiting -> trolley -> truck -> in transit -> arrived at the hub
     // -> shelved -> issued. From the pick rows' own stamps; a stage reached with no stamp keeps its place.
-    const hubName = DATA.hub || HUB;
+    const hubName = TR.hub || DATA.hub || HUB;
     const RTS = [
       ["trolley", "Loaded in trolley", "ink", "trolley_at", "trolley_by"], ["on_truck", "Loaded on truck", "signal", "on_truck_at", "on_truck_by"], ["transit", "In transit", "signal", "transit_at", "transit_by"],
       ["arrived_hub", "Arrived at " + hubName, "signal", "arrived_hub_at", "arrived_hub_by"], ["shelved", "Shelved at " + hubName, "good", "shelved_at", "shelved_by"],

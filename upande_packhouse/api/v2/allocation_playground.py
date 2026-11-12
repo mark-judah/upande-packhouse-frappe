@@ -81,7 +81,7 @@ def _week(week=None):
 
 def _cut_of(day):
 	"""The cutting day for a delivery day."""
-	return getdate(day) - timedelta(days=cint(plans.setting("allocation_harvest_lead_days")))
+	return getdate(day) - timedelta(days=plans.HARVEST_LEAD_DAYS)
 
 
 def _farms():
@@ -96,7 +96,9 @@ def _farms():
 
 def _default_farm():
 	rows = _farms()
-	hub = frappe.db.get_single_value("Production Settings", "transfer_hub_farm")
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import transfer_hub
+
+	hub = transfer_hub(required=False)
 	if hub and any(r.farm == hub for r in rows):
 		return hub
 	return rows[0].farm if rows else hub
@@ -182,7 +184,7 @@ def expected_detail(variety, length, delivery_date, farm=None):
 	lengths (revised length rows, else the manual budget; the length rows do not sum to the total so only their
 	shares are used). `sure` takes off the variety's average forecast error this year (forecast_error); with no
 	finished week to judge by, none of it is counted as sure."""
-	lead = cint(plans.setting("allocation_harvest_lead_days"))
+	lead = plans.HARVEST_LEAD_DAYS
 	cut_day = getdate(delivery_date) - timedelta(days=lead)
 	year, week, _wd = cut_day.isocalendar()
 	farms = tuple(_growing_farms(farm) or ())
@@ -304,7 +306,7 @@ def _prefetch_forecasts(varieties, delivery_date, farm):
 	expected_detail and forecast_error read, instead of two queries per variety."""
 	if not varieties:
 		return
-	cut_day = getdate(delivery_date) - timedelta(days=cint(plans.setting("allocation_harvest_lead_days")))
+	cut_day = getdate(delivery_date) - timedelta(days=plans.HARVEST_LEAD_DAYS)
 	year, week, _wd = cut_day.isocalendar()
 	farms = tuple(_growing_farms(farm) or ())
 	memo = frappe.flags.setdefault("allocation_planning_memo", {})
@@ -457,7 +459,7 @@ def _stock_by_pool(farm, varieties, day=None, everything=False):
 			p["old"] += free
 			p["old_by_farm"][r.farm] = p["old_by_farm"].get(r.farm, 0.0) + free
 	if day and varieties:
-		cut = getdate(day) - timedelta(days=cint(plans.setting("allocation_harvest_lead_days")))
+		cut = getdate(day) - timedelta(days=plans.HARVEST_LEAD_DAYS)
 		for key, h in received.harvested_day(cut, _growing_farms(farm), varieties).items():
 			p = entry(key)
 			p["harvested"] = h["harvested"]
@@ -1357,7 +1359,7 @@ def _rolling_by_pool(day, farm, varieties):
 	"""{(variety, length): rolling forecast} for the varieties, in one query (see rolling_forecast)."""
 	if not varieties:
 		return {}
-	cut = getdate(day) - timedelta(days=cint(plans.setting("allocation_harvest_lead_days")))
+	cut = getdate(day) - timedelta(days=plans.HARVEST_LEAD_DAYS)
 	days = [cut - timedelta(weeks=w) for w in range(1, 5)]
 	farms = tuple(_stock_farms(farm)) or ("",)
 
@@ -1689,7 +1691,7 @@ def confirm_lines(
 		if not frappe.db.exists("Packing Teams", t):
 			frappe.throw(_("{0} is not a team we know.").format(t))
 	result = guards.check(day, farm, lines)
-	cut_day = getdate(day) - timedelta(days=cint(plans.setting("allocation_harvest_lead_days")))
+	cut_day = getdate(day) - timedelta(days=plans.HARVEST_LEAD_DAYS)
 	done = []
 	for item in lines:
 		soi, want = item["sales_order_item"], flt(item.get("stems"))

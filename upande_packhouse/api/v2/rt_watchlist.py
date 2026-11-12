@@ -53,15 +53,6 @@ def _need(ptype):
 	frappe.has_permission(DT, ptype, throw=True)
 
 
-def _hub():
-	try:
-		from upande_packhouse.api.remote_transfer.transfer_scheduling import transfer_hub
-
-		return transfer_hub(required=False) or ""
-	except Exception:
-		return ""
-
-
 def known_farms(buckets):
 	"""{BUCKET: farm} for many buckets in two queries (its shelf's farm, else its latest shelving row)."""
 	buckets = tuple({act.up(b) for b in buckets if b})
@@ -207,10 +198,9 @@ def add_auto(bucket, when, source, farm="", reason="", ref_doctype="", ref_name=
 
 
 def _replacement_source(farm, trip, vehicle):
-	hub = _hub()
-	return (
-		SRC_TRANSFER if (trip or vehicle or (hub and farm and act.up(farm) != act.up(hub))) else SRC_ISSUING
-	)
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import is_sales_farm
+
+	return SRC_TRANSFER if (trip or vehicle or (farm and not is_sales_farm(farm))) else SRC_ISSUING
 
 
 @_safe

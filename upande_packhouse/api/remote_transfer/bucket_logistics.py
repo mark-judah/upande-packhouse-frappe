@@ -99,10 +99,11 @@ def getBucketLogistics():
 	fd = frappe.form_dict
 	delivery_date = fd.get("delivery_date") or frappe.utils.add_days(frappe.utils.today(), 1)
 
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import sales_farms as _sales_farms
 	from upande_packhouse.api.remote_transfer.transfer_scheduling import transfer_hub
 
-	# Transfers are from the remote farms only: a bucket whose stock is already at the
-	# packhouse (hub) is not coming from anywhere, whatever its flags say.
+	# Transfers are from the remote farms only: a bucket whose stock is already at a
+	# Remote Transfer Sales Farm is not coming from anywhere, whatever its flags say.
 	hub = transfer_hub(required=False) or ""
 	# Nor from any other sales farm (Production Settings > Shelf Locations, Sales Shelf):
 	# Karen packs and issues its own orders, which never transfer, and their issued
@@ -114,8 +115,11 @@ def getBucketLogistics():
 			pluck="farm",
 		)
 	)
-	sales_farms.add(hub)
-	NOT_HUB = "COALESCE(" + FARM_EXPR + ", '') NOT IN %(sales_farms)s"
+	sales_farms |= set(_sales_farms())
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import not_at_hub_sql
+
+	# Not at the sales farm its order goes to (another sales farm's bucket is a transfer too).
+	NOT_HUB = not_at_hub_sql(FARM_EXPR)
 	params = {"d": delivery_date, "hub": hub, "sales_farms": tuple(f for f in sales_farms if f) or ("",)}
 	# onward=1: every order delivering on delivery_date or later (the page's default view:
 	# tomorrow onwards), not that one day only.
@@ -393,8 +397,11 @@ def getBucketLogistics():
 			as_dict=True,
 		):
 			at_hub[(x.opl, x.src or "")] = int(x.n or 0)
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import opl_hubs
+
+	hubs = opl_hubs([r["opl"] for r in rows])
 	for r in rows:
-		r["hub"] = hub
+		r["hub"] = hubs.get(r["opl"]) or hub
 		# Reached the hub = on an arrived truck (not shelved yet) + already shelved,
 		# which counts ready / issued too.
 		r["arrived_hub"] = sum(n for (o, _f), n in at_hub.items() if o == r["opl"]) + r["shelved"]
@@ -910,9 +917,9 @@ def getBucketLogisticsDetail():
 		frappe.response["buckets"] = []
 	else:
 		FARM_EXPR = "COALESCE(NULLIF(pli.farm, ''), NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''))"
-		from upande_packhouse.api.remote_transfer.transfer_scheduling import transfer_hub
+		from upande_packhouse.api.remote_transfer.transfer_scheduling import opl_hub
 
-		params = {"opl": opl, "hub": transfer_hub(required=False) or ""}
+		params = {"opl": opl, "hub": opl_hub(opl) or ""}
 		extra = ""
 		if fd.get("farm"):
 			extra = " AND " + FARM_EXPR + " = %(farm)s"

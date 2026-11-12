@@ -39,7 +39,7 @@ class BucketRequestTrip(Document):
 
 		if self.status not in tc.ACTIVE_TRIP_STATUSES + ("Dispatched",):
 			return
-		hub = tc.transfer_hub(required=False)
+		hub = tc.trip_hub(self)
 		planned = {
 			(o.order_pick_list, o.farm or "")
 			for o in self.get("orders") or []
@@ -100,8 +100,41 @@ class BucketRequestTrip(Document):
 				)
 
 	def validate(self):
+		self.validate_sales_farm()
 		self.validate_one_farm()
 		self.validate_no_double_booking()
+
+	def validate_sales_farm(self):
+		"""One sales farm per trip: the truck delivers every bucket it collects to the sales
+		farm of the order it is for (Production Settings > Remote Transfer Sales Farms), so
+		orders for different sales farms ride different trips. Fills the trip's sales farm."""
+		from upande_packhouse.api import transfer_control as tc
+
+		planned = [
+			o.order_pick_list
+			for o in self.get("orders") or []
+			if o.order_pick_list and int(o.buckets or 0) > 0
+		]
+		hubs = {h for h in tc.opl_hubs(planned).values() if h}
+		if len(hubs) > 1:
+			frappe.throw(
+				_(
+					"One sales farm per trip: {0} has orders for {1}. Plan each sales farm's orders on its own trip."
+				).format(self.name or _("this trip"), ", ".join(sorted(hubs))),
+				title=_("One sales farm per trip"),
+			)
+		if hubs:
+			hub = next(iter(hubs))
+			if self.sales_farm and self.sales_farm != hub and self.status not in tc.ACTIVE_TRIP_STATUSES:
+				frappe.throw(
+					_("Trip {0} delivers to {1}: it can't take orders for {2}.").format(
+						self.name, self.sales_farm, hub
+					),
+					title=_("One sales farm per trip"),
+				)
+			self.sales_farm = hub
+		elif not self.sales_farm:
+			self.sales_farm = tc.route_hub_of(self.route) if self.route else tc.transfer_hub(required=False)
 
 	def validate_one_farm(self):
 		"""One farm per trip (packhouse → farm → packhouse): buckets are planned at one farm
@@ -111,7 +144,7 @@ class BucketRequestTrip(Document):
 		was made via several farms. Fills the trip's farm."""
 		from upande_packhouse.api import transfer_control as tc
 
-		hub = tc.transfer_hub(required=False)
+		hub = tc.trip_hub(self)
 		planned = {
 			o.farm for o in self.get("orders") or [] if o.farm and o.farm != hub and int(o.buckets or 0) > 0
 		}

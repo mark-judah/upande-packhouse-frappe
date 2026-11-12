@@ -51,14 +51,22 @@ def team_crops():
 	"""{team: {"default": crop | None, "others": [crop, ...], "customers": [customer, ...]}} for every
 	Packing Team."""
 	out = {
-		t: {"default": None, "others": [], "customers": [], "locations": [], "start_time": "07:00"}
+		t: {
+			"default": None,
+			"others": [],
+			"customers": [],
+			"locations": [],
+			"sales_farm": "",
+			"start_time": "07:00",
+		}
 		for t in frappe.get_all("Packing Teams", pluck="name", order_by="name")
 	}
-	for t, loc, start in frappe.get_all(
-		"Packing Teams", fields=["name", "location", "start_time"], as_list=True
+	for t, loc, start, sales_farm in frappe.get_all(
+		"Packing Teams", fields=["name", "location", "start_time", "sales_farm"], as_list=True
 	):
 		if t not in out:
 			continue
+		out[t]["sales_farm"] = sales_farm or ""
 		if loc:
 			out[t]["locations"] = [loc]
 		if start:
@@ -122,6 +130,7 @@ def get_team_crops(delivery_date: str | None = None, farm: str | None = None):
 				"others": c["others"],
 				"customers": c["customers"],
 				"locations": c["locations"],
+				"sales_farm": c["sales_farm"],
 				"start_time": c["start_time"],
 				"plans_for": today_crop,
 				"fallback": bool(today_crop and today_crop != c["default"]),
@@ -135,6 +144,7 @@ def get_team_crops(delivery_date: str | None = None, farm: str | None = None):
 		"crops": crops(),
 		"customers": flower_customers({x for c in tc.values() for x in c["customers"]}),
 		"locations": sales_locations(),
+		"sales_farms": sales_farm_names(),
 		"teams": rows,
 		"demand": demand,
 		"rates": rates(),
@@ -159,6 +169,62 @@ def sales_location_query(
 	return [[n] for n in names[cint(start) : cint(start) + cint(page_len)]]
 
 
+def sales_farm_names():
+	"""The enabled Sales Shelf farms (Production Settings > Shelf Locations): the farms teams pack at."""
+	ps = frappe.get_cached_doc("Production Settings")
+	return sorted({r.farm for r in ps.get("shelf_locations") or [] if r.enabled and r.sales_shelf and r.farm})
+
+
+def sales_farm_for_location(location):
+	"""The sales farm of a Farm Location: the sales farm whose Farm Location it is (the one named like the
+	location first), or None."""
+	if not location:
+		return None
+	names = sales_farm_names()
+	if location in names:
+		return location
+	at = set(
+		frappe.get_all("Farm", filters={"name": ("in", names), "farm_location": location}, pluck="name")
+		if names
+		else []
+	)
+	return next((f for f in names if f in at), None)
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def sales_farm_query(
+	doctype: str, txt: str, searchfield: str, start: int, page_len: int, filters: dict | None = None
+):
+	"""Link search for a team's Sales Farm: the Sales Shelf farms only."""
+	txt = (txt or "").lower()
+	names = [n for n in sales_farm_names() if txt in n.lower()]
+	return [[n] for n in names[cint(start) : cint(start) + cint(page_len)]]
+
+
+def team_sales_farms():
+	"""{team: its sales farm} (a team with none: its location's farm), read once per request."""
+	cached = getattr(frappe.local, "_team_sales_farms", None)
+	if cached is None:
+		cached = {
+			r.name: r.sales_farm or r.location or ""
+			for r in frappe.get_all("Packing Teams", fields=["name", "sales_farm", "location"])
+		}
+		frappe.local._team_sales_farms = cached
+	return dict(cached)
+
+
+def check_team_farm(team, sales_order, location=None):
+	"""Refuse a team of another sales farm than the order's: an order is packed by its own farm's teams.
+	`location`: the sales farm allocating the order now (an order with no farm of its own goes there)."""
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import order_hub
+
+	home = team_sales_farms().get(team) if team else None
+	farm = order_hub(sales_order, location) if sales_order else None
+	if home and farm and home != farm:
+		frappe.throw(_("{0} packs at {1}, not at {2}.").format(team, home, farm))
+
+
 def location_of(farm):
 	return frappe.db.get_value("Farm", farm, "farm_location") if farm else None
 
@@ -169,12 +235,19 @@ def works_at(c, location):
 
 
 def teams_at(farm):
-	"""The Packing Teams working at the sales farm's location (a team with no location works everywhere)."""
+	"""The Packing Teams of this sales farm (a team with no sales farm or location works everywhere)."""
 	location = location_of(farm)
 	return [
 		r.name
-		for r in frappe.get_all("Packing Teams", fields=["name", "location"], order_by="name asc")
-		if not location or not r.location or r.location == location
+		for r in frappe.get_all(
+			"Packing Teams", fields=["name", "sales_farm", "location"], order_by="name asc"
+		)
+		if not farm
+		or (
+			r.sales_farm == farm
+			if r.sales_farm
+			else (not location or not r.location or r.location == location)
+		)
 	]
 
 
@@ -210,9 +283,11 @@ def save_team_crops(
 	customers: str | list | None = None,
 	location: str | None = None,
 	start_time: str | None = None,
+	sales_farm: str | None = None,
 ):
 	"""Replace a team's crops: [{"crop": ..., "is_default": 0|1}], in fall-back order, and the customers it
-	packs for, the location it works at ("" for every location) and the time it starts when those are sent."""
+	packs for, the sales farm it packs at ("" for every sales farm; `location`: a Farm Location, taken as its
+	sales farm) and the time it starts when those are sent."""
 	frappe.only_for(pg.PLANNERS)
 	if isinstance(rows, str):
 		rows = json.loads(rows or "[]")
@@ -233,10 +308,17 @@ def save_team_crops(
 			if not frappe.db.exists("Customer", c):
 				frappe.throw(_("{0} is not a customer.").format(c))
 			doc.append("customers", {"customer": c})
-	if location is not None:
-		if location and location not in sales_locations():
-			frappe.throw(_("{0} is not a sales location.").format(location))
-		doc.location = location or None
+	if sales_farm is None and location is not None:
+		sales_farm = sales_farm_for_location(location) if location else ""
+		if location and not sales_farm:
+			frappe.throw(_("{0} has no sales farm.").format(location))
+	if sales_farm is not None:
+		if sales_farm and sales_farm not in sales_farm_names():
+			frappe.throw(_("{0} is not a sales farm.").format(sales_farm))
+		doc.sales_farm = sales_farm or None
+		# the location follows the sales farm (validate); no sales farm: every location
+		if not sales_farm:
+			doc.location = None
 	if start_time:
 		doc.start_time = start_time
 	doc.save()

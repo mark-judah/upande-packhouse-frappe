@@ -2238,9 +2238,11 @@ def get_bucket_journeys(
 		return {"success": True, "found": False, "bucket": {"id": bucket_id.upper()}}
 	hub = ""
 	try:
-		from upande_packhouse.api.remote_transfer.transfer_scheduling import transfer_hub
+		from upande_packhouse.api.remote_transfer.transfer_scheduling import opl_hub, transfer_hub
 
-		hub = transfer_hub(required=False) or ""
+		# The sales farm its latest order sends it to (Remote Transfer Sales Farms).
+		latest = next((p.get("opl") for p in reversed(R.get("pli") or []) if p.get("opl")), None)
+		hub = (opl_hub(latest) if latest else None) or transfer_hub(required=False) or ""
 	except Exception:
 		pass
 	now_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

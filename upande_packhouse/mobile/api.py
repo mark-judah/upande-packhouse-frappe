@@ -604,6 +604,12 @@ def createLoadingEntry():
 						"status": "error",
 						"message": "Box already loaded: " + box_label_name,
 					}
+				elif _box_transfer_refusal(box_doc):
+					# packed at a sales farm that dispatches through the main one: received there first
+					frappe.response["message"] = {
+						"status": "error",
+						"message": _box_transfer_refusal(box_doc),
+					}
 				elif box_doc.staged != 1:
 					# Enforce the pipeline order: Pack -> Precool -> Stage -> Load -> Dispatch.
 					# A box that skipped staging must not be loadable straight from
@@ -728,12 +734,15 @@ def createLoadingEntry():
 								stems_by_variety.get(row.variety, 0) + (row.qty or 0) * factor
 							)
 						for variety, stems in stems_by_variety.items():
+							from upande_packhouse.api.box_transfer import dispatch_farm
+
 							result = stock_movement.post_load_to_truck(
 								box_label=box_doc.name,
 								item_code=variety,
 								qty=stems,
 								business_unit="Roses",
-								farm=box_doc.farm,
+								# a box received from another sales farm loads from the main one's cold room
+								farm=dispatch_farm(box_doc),
 							)
 							if not result.get("moved") and result.get("reason"):
 								frappe.log_error(
@@ -2139,7 +2148,12 @@ def createStagingEntry():
 				# buckets' stems have already been combined into this one box.
 				from upande_packhouse import stock_movement
 
-				_post_box_leg(box, stock_movement.post_stage_to_dispatch, "Stage -> Dispatch: nothing moved")
+				# A box received from another sales farm is in the main one's dispatch cold room
+				# already (its receipt moved it there): staged here, nothing more to move.
+				if box.get("transfer_status") != "Received":
+					_post_box_leg(
+						box, stock_movement.post_stage_to_dispatch, "Stage -> Dispatch: nothing moved"
+					)
 				# Committed explicitly: this endpoint is whitelisted without `methods`, so it
 				# is reachable over GET, and frappe rolls back writes made during a GET
 				# request -- without this the caller gets a success response and no change.
@@ -2365,6 +2379,51 @@ def _loading_location(farm):
 		if farm == loc or farm in farms:
 			return ("Karen", "Karen") if loc == "Karen" else ("Ravine", loc)
 	return ("Karen", "Karen") if farm == "Karen" else ("Ravine", "Kapkolia")
+
+
+def _remember_station(station):
+	"""The station this user's app last sent: for its requests that come without one (older app builds
+	ask for the teams without it)."""
+	if not station or frappe.session.user == "Guest":
+		return
+	if frappe.cache.hget("packhouse_app_station", frappe.session.user) != station:
+		frappe.cache.hset("packhouse_app_station", frappe.session.user, station)
+
+
+def _caller_station():
+	"""?station=<farm>, else the station this user's app last sent -- for getPackingTeams only (older app
+	builds ask for the teams without it); one login on several devices shares the remembered one."""
+	station = (frappe.form_dict.get("station") or "").strip()
+	if station:
+		_remember_station(station)
+		return station
+	return (frappe.cache.hget("packhouse_app_station", frappe.session.user) or "").strip()
+
+
+def _station_sales_farm():
+	"""The sales farm the caller's station is (?station=<farm>, a Sales Shelf farm), else None: a
+	remote farm's station, or none."""
+	station = (frappe.form_dict.get("station") or "").strip()
+	_remember_station(station)
+	if not station:
+		return None
+	ps = frappe.get_cached_doc("Production Settings")
+	sales = {r.farm for r in ps.get("shelf_locations") or [] if r.enabled and r.sales_shelf and r.farm}
+	return station if station in sales else None
+
+
+def _for_station_farm(opl_names):
+	"""The pick lists of `opl_names` a sales farm's station works: its own orders only (the order's
+	sales farm, Remote Transfer Sales Farms) -- a Chepsito station never lists Kapkolia's orders.
+	Every one when the station is not a sales farm."""
+	farm = _station_sales_farm()
+	opl_names = [o for o in opl_names or [] if o]
+	if not farm or not opl_names:
+		return set(opl_names)
+	from upande_packhouse.api.transfer_control import opl_hubs
+
+	hubs = opl_hubs(opl_names)
+	return {o for o in opl_names if (hubs.get(o) or "") == farm}
 
 
 def _station_location():
@@ -3211,13 +3270,11 @@ def refreshLoadingPlan(plan: str):
 	}
 
 
-def _listed_opls(opl_names, sched, setting):
+def _listed_opls(opl_names, sched):
 	"""The OPLs a station lists for issuing / packing: those on a Packhouse Schedule
-	(`sched`), plus the rest when Production Settings `setting` is on. A sales farm's
-	own orders (Karen) are never on the Scheduler, so they are always listed."""
+	(`sched`). A sales farm's own orders (Karen) are never on the Scheduler, so they
+	are always listed."""
 	opl_names = list(opl_names)
-	if frappe.utils.cint(frappe.get_cached_doc("Production Settings").get(setting)):
-		return set(opl_names)
 	from upande_packhouse.api.remote_transfer.scheduler import _own_packing_farms
 
 	own_farms = tuple(_own_packing_farms())
@@ -3266,6 +3323,9 @@ def fetchPicklists():
 		if location:
 			here = _stock_here([r[0] for r in result], location)
 			result = [r for r in result if r[0] in here]
+		# a sales farm's station: its own orders only
+		mine = _for_station_farm([r[0] for r in result])
+		result = [r for r in result if r[0] in mine]
 
 		# NOTE: this used to hide an OPL once it was "fully packed" (packed >=
 		# planned stems from the latest Farm Pack List), so a submitted/finished
@@ -3360,9 +3420,8 @@ def fetchPicklists():
 			frappe.get_cached_doc("Production Settings").get(SEQUENCE_BYPASS["pack"])
 		)
 
-		# Only scheduled orders are packed here (Production Settings > Show Unscheduled
-		# OPLs in Packing lists the others too, after them).
-		listed = _listed_opls([r[0] for r in result], sched, "show_unscheduled_in_packing")
+		# Only scheduled orders are packed here.
+		listed = _listed_opls([r[0] for r in result], sched)
 		opl_list = []
 		for r in result:
 			if r[0] not in listed:
@@ -3828,10 +3887,12 @@ def _packed_pct(packed, planned):
 	return min(100, round(100.0 * packed / planned)) if planned > 0 else 0
 
 
-def _issue_hub():
-	from upande_packhouse.api.transfer_control import transfer_hub
+def _issue_hub(opl=None):
+	"""Where an order's buckets are issued: its sales farm (Remote Transfer Sales Farms),
+	else the first one."""
+	from upande_packhouse.api.transfer_control import opl_hub, transfer_hub
 
-	return transfer_hub(required=False)
+	return (opl_hub(opl) if opl else None) or transfer_hub(required=False)
 
 
 def _row_farm(row):
@@ -3904,6 +3965,9 @@ def getReadySaleOrderItems():
 			)
 			ready_orders = [o for o in ready_orders if o.docstatus or o.name not in moving]
 
+		# a sales farm's station: its own orders only
+		mine = _for_station_farm([o.name for o in ready_orders])
+		ready_orders = [o for o in ready_orders if o.name in mine]
 		opl_names = [o.name for o in ready_orders]
 		opls_with_unissued = set()
 		varieties_by_opl = {}
@@ -3927,8 +3991,11 @@ def getReadySaleOrderItems():
 					"source_warehouse",
 				],
 			)
-			hub = sales_farm or _issue_hub()
+			from upande_packhouse.api.transfer_control import opl_hubs
+
+			hubs = {} if sales_farm else opl_hubs([r.parent for r in unissued_rows])
 			for r in unissued_rows:
+				hub = sales_farm or hubs.get(r.parent) or _issue_hub()
 				# Listed once it has a bucket here to issue: one still at a remote farm
 				# or on the truck can't be scanned yet -- and, with a station, one at this
 				# station's farms (Karen's buckets are never issued at Kapkolia).
@@ -4062,9 +4129,8 @@ def getReadySaleOrderItems():
 				if int(lo.done or 0) < int(lo.total or 0) and int(lo.sequence or 0) < nxt.get(k, 10**9):
 					nxt[k] = int(lo.sequence or 0)
 		bypass = frappe.utils.cint(frappe.get_cached_doc("Production Settings").get(SEQUENCE_BYPASS["issue"]))
-		# Only scheduled orders are issued here (Production Settings > Show Unscheduled
-		# OPLs in Issuing lists the others too, after them).
-		listed = _listed_opls([o["opl_name"] for o in orders], sched, "show_unscheduled_in_issuing")
+		# Only scheduled orders are issued here.
+		listed = _listed_opls([o["opl_name"] for o in orders], sched)
 		orders = [o for o in orders if o["opl_name"] in listed]
 		for o in orders:
 			sc = sched.get(o["opl_name"])
@@ -4184,7 +4250,9 @@ def getReadySaleOrderItemsData():
 				# "Here" is the station's sales farm (?station=): at Karen a bucket picked
 				# from Kapkolia's shelves is not here. Without a station, the transfer hub.
 				st_loc, st_farm = _loading_location((frappe.form_dict.get("station") or "").strip())
-				hub = st_farm or _issue_hub()
+				hub = st_farm or _issue_hub(
+					next((p.get("opl_name") for p in pick_list_items if p.get("opl_name")), None)
+				)
 				st_farms = location_farms(st_loc) if st_loc else None
 
 				for pli in pick_list_items:
@@ -4310,8 +4378,10 @@ def getSchedulerData():
 		if location:
 			where = _opl_locations([o["name"] for o in opls])
 			opls = [o for o in opls if where.get(o["name"]) == location]
-		# Only scheduled orders, as in issuing and packing (Production Settings > Show
-		# Unscheduled OPLs in the App Scheduler lists the others too).
+		# a sales farm's station: its own orders only
+		mine = _for_station_farm([o["name"] for o in opls])
+		opls = [o for o in opls if o["name"] in mine]
+		# Only scheduled orders, as in issuing and packing.
 		if opls:
 			on_schedule = set(
 				frappe.db.sql_list(
@@ -4320,7 +4390,7 @@ def getSchedulerData():
 					{"o": tuple(o["name"] for o in opls)},
 				)
 			)
-			listed = _listed_opls([o["name"] for o in opls], on_schedule, "show_unscheduled_in_scheduler")
+			listed = _listed_opls([o["name"] for o in opls], on_schedule)
 			opls = [o for o in opls if o["name"] in listed]
 
 		opl_names = [o["name"] for o in opls]
@@ -4426,6 +4496,12 @@ def getSchedulerData():
 				ts = 0
 			opl["packrate"] = int(round(ts / boxes_total)) if boxes_total > 0 else 0
 
+		# each order's sales farm: where its stock is packed (At Chepsito, At Kapkolia ...)
+		from upande_packhouse.api.transfer_control import opl_hubs
+
+		hubs = opl_hubs([o["name"] for o in opls])
+		for o in opls:
+			o["sales_farm"] = hubs.get(o["name"]) or ""
 		frappe.response["message"] = {"success": True, "data": opls, "date": delivery_date}
 	except Exception as e:
 		frappe.log_error("getSchedulerData error: " + str(e))
@@ -4527,6 +4603,91 @@ def getSchedulerMeta():
 		frappe.response["message"] = {"success": False, "error": str(e)}
 
 
+def _box_transfer_refusal(box):
+	from upande_packhouse.api.box_transfer import load_refusal
+
+	return load_refusal(box)
+
+
+# ── Box transfer: a sales farm's packed boxes to the main sales farm for dispatch ──
+@frappe.whitelist()
+def getBoxTransferData(station: str | None = None, delivery_date: str | None = None):
+	"""The Box Transfer screen: what this station sends (a sales farm) or receives (the main one)."""
+	from upande_packhouse.api import box_transfer
+
+	try:
+		frappe.response["message"] = box_transfer.transfer_data(_box_transfer_station(station), delivery_date)
+	except frappe.ValidationError as e:
+		frappe.clear_messages()
+		frappe.response["message"] = {"status": "error", "message": str(e), "role": "none"}
+
+
+def _box_transfer_station(station):
+	"""The station the app sent: box transfer never falls back to a remembered one (one login can be on
+	devices at both farms)."""
+	station = (station or "").strip()
+	if not station:
+		frappe.throw(_("Set this device's station first."))
+	_remember_station(station)
+	return station
+
+
+def _box_transfer_call(fn, *args, station=None):
+	try:
+		frappe.response["message"] = fn(*args, _box_transfer_station(station))
+		frappe.db.commit()  # nosemgrep
+	except frappe.ValidationError as e:
+		frappe.db.rollback()
+		frappe.clear_messages()
+		frappe.response["message"] = {"status": "error", "message": str(e)}
+
+
+@frappe.whitelist(methods=["POST"])
+def loadBoxForTransfer(box_label: str | None = None, vehicle: str | None = None, station: str | None = None):
+	"""Scan a staged box onto an internal transfer truck at its own sales farm."""
+	from upande_packhouse.api import box_transfer
+
+	_box_transfer_call(box_transfer.load_box, box_label, vehicle, station=station)
+
+
+@frappe.whitelist(methods=["POST"])
+def sendBoxTransfer(vehicle: str | None = None, station: str | None = None):
+	"""The transfer truck leaves for the main sales farm with every box loaded on it here."""
+	from upande_packhouse.api import box_transfer
+
+	_box_transfer_call(box_transfer.send_truck, vehicle, station=station)
+
+
+@frappe.whitelist(methods=["POST"])
+def receiveTransferTrip(
+	vehicle: str | None = None,
+	sent_at: str | None = None,
+	count: str | int | None = None,
+	station: str | None = None,
+):
+	"""Receive every box of a transfer trip at once, on the count of boxes taken off the truck."""
+	from upande_packhouse.api import box_transfer
+
+	_box_transfer_call(box_transfer.receive_trip, vehicle, sent_at, count, station=station)
+
+
+@frappe.whitelist(methods=["POST"])
+def receiveTransferBox(box_label: str | None = None, station: str | None = None):
+	"""Scan a transferred box in at the main sales farm."""
+	from upande_packhouse.api import box_transfer
+
+	_box_transfer_call(box_transfer.receive_box, box_label, station=station)
+
+
+@frappe.whitelist()
+def getSalesFarms():
+	"""The sales farms (Production Settings > Shelf Locations, Sales Shelf): the farms a packhouse
+	station can be."""
+	from upande_packhouse.api.v2.allocation_teams import sales_farm_names
+
+	frappe.response["message"] = {"success": True, "farms": sales_farm_names()}
+
+
 @frappe.whitelist()
 def getPackingTeams():
 	"""Canonical team list for the mobile app's team filters (Scheduler,
@@ -4538,8 +4699,19 @@ def getPackingTeams():
 	was no single source of truth. This reads Packing Teams directly instead.
 	"""
 	try:
-		teams = frappe.get_all("Packing Teams", fields=["name"], order_by="name asc", pluck="name")
-		frappe.response["message"] = {"success": True, "teams": teams}
+		# a sales farm's station (?station=Chepsito): only the teams of that farm
+		from upande_packhouse.api.v2.allocation_teams import sales_farm_names, team_sales_farms
+
+		# the station sent, else the one this user's app last sent (an older build asks without it)
+		station = _caller_station()
+		station_farm = station if station in sales_farm_names() else None
+		if station and not station_farm:
+			# a farm that is not a sales farm itself: the sales farm of its location (Simotwo -> Kapkolia)
+			loc = frappe.db.get_value("Farm", station, "farm_location")
+			station_farm = loc if loc in sales_farm_names() else None
+
+		teams = sorted(t for t, f in team_sales_farms().items() if not station_farm or f == station_farm)
+		frappe.response["message"] = {"success": True, "teams": teams, "sales_farm": station_farm or ""}
 	except Exception as e:
 		frappe.log_error("getPackingTeams error: " + str(e))
 		frappe.response["message"] = {"success": False, "error": str(e), "teams": []}
@@ -5319,7 +5491,7 @@ def issueBucketToSaleOrderItem():
 				"bucket": bucket_id,
 				"soi": sale_order_item,
 				"opl": opl_name or None,
-				"hub": _issue_hub(),
+				"hub": _issue_hub(opl_name),
 			},
 		):
 			# Replaced at issuing from a remote farm and not here yet: it is issued once
@@ -6274,7 +6446,7 @@ def _shelve_update_transit_status(bucket_id, shelf_id, farm, result):
 	same order and farm is still flagged on a truck, that truck carried THIS one: it
 	takes over the truck and the other goes back to waiting. Otherwise the truck
 	would show a bucket in transit forever and its trip would never auto-receive."""
-	from upande_packhouse.api.transfer_control import transfer_hub
+	from upande_packhouse.api.transfer_control import opl_hub, transfer_hub
 
 	result["transit_updated"] = False
 	opl_names = frappe.get_all(
@@ -6316,7 +6488,7 @@ def _shelve_update_transit_status(bucket_id, shelf_id, farm, result):
 			continue
 		# No sales farm resolvable (OPL farm blank, hub unset and ambiguous): arrive
 		# wherever it is shelved, as before, rather than block shelving.
-		sales_farm = opl.get("farm") or transfer_hub(required=False)
+		sales_farm = opl_hub(opl.name) or opl.get("farm") or transfer_hub(required=False)
 		if sales_farm and (farm or "").lower() != sales_farm.lower():
 			skipped.append({"opl": opl.name, "sales_farm": sales_farm})
 			continue
@@ -6815,6 +6987,13 @@ def getPackhouseDashboardData():
 		if location:
 			farms = location_farms(location)
 			sales_orders = [so for so in sales_orders if (so.farm or "") in farms]
+		# a sales farm's station: its own orders only
+		station_farm = _station_sales_farm()
+		if station_farm:
+			from upande_packhouse.api.transfer_control import order_hubs
+
+			hubs = order_hubs([so.name for so in sales_orders])
+			sales_orders = [so for so in sales_orders if hubs.get(so.name) == station_farm]
 
 		orders_out = []
 		total_required = 0

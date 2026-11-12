@@ -72,7 +72,9 @@
 
 <div id="rts-body"></div>
 
-{% elif rt_part == 'script' %}{% raw %}
+{% elif rt_part == 'script' %}
+<script>window.RT = Object.assign(window.RT || {}, { transferHub: {{ (transfer_hub or '') | tojson }} });</script>
+{% raw %}
 <script>
 (function () {
   "use strict";
@@ -124,13 +126,13 @@
   function applyFilters(arr, skipStatus) {
     const s = st.get();
     const rf = PH.regionFarms(s.region);
-    return arr.filter((o) => (!s.team || o.custom_team === s.team) && (!s.loc || o.location === s.loc) && (skipStatus || !s.status || o.variation === s.status) && (!s.farm || (o.farms || []).indexOf(s.farm) >= 0) &&
+    return arr.filter((o) => (!s.team || o.custom_team === s.team) && (!s.loc || o.location === s.loc) && (skipStatus || !s.status || o.variation === s.status) && (!s.farm || o.sales_farm === s.farm || (o.farms || []).indexOf(s.farm) >= 0) &&
       (!rf || (o.farms || []).some((f) => rf.indexOf(f) >= 0)) && PH.match({ h: hay(o) }, s.q));
   }
 
   function fillFilterOptions() {
     const rf = PH.regionFarms(st.get("region"));
-    const farms = PH.uniq([].concat(...S.ready.map((o) => o.farms || []))).filter((f) => !rf || rf.indexOf(f) >= 0).sort();
+    const farms = PH.uniq([].concat(...S.ready.map((o) => (o.farms || []).concat(o.sales_farm ? [o.sales_farm] : [])))).filter((f) => !rf || rf.indexOf(f) >= 0).sort();
     const teams = PH.uniq(S.ready.map((o) => o.custom_team)).sort();
     // A farm / team from the URL that isn't in today's feed still shows as chosen.
     const f = st.get("farm"), t = st.get("team");
@@ -192,7 +194,7 @@
           name: o.opl, custom_order_name: o.order_name, customer: o.customer, custom_team: o.team,
           total_stems: num(o.total_stems), n_buckets: o.n_buckets, n_farms: o.n_farms, farms: o.farms || [], farm_trips: o.farm_trips || [],
           n_varieties: o.n_varieties, has_transfer: o.has_transfer, mixed_type: o.mixed_type,
-          location: o.location || "", packed: o.packed || 0, remote_by_farm: o.remote_by_farm || {}, buckets_by_farm: o.buckets_by_farm || {},
+          location: o.location || "", sales_farm: o.sales_farm || "", packed: o.packed || 0, remote_by_farm: o.remote_by_farm || {}, buckets_by_farm: o.buckets_by_farm || {},
           docstatus: o.docstatus, variation: o.variation, issued_lines: o.issued_lines || 0, lines: o.lines || 0,
         }));
         sortReady();
@@ -314,7 +316,7 @@
     if (!o.packed && (lane === "sched" || o.variation !== "draft_transfer")) {
       if (ws.k === "done") out.push('<span class="ph-badge ph-badge--outline">Issued</span>');
       else if (ws.k === "ready" || ws.k === "issuing") {
-        out.push(`<span class="ph-badge ph-badge--outline">At ${PH.esc(HUB)}</span>`);
+        out.push(`<span class="ph-badge ph-badge--outline">At ${PH.esc(o.sales_farm || HUB)}</span>`);
         if (ws.k === "issuing") out.push(`<span class="ph-badge">${PH.esc(ws.t)}</span>`);
       }
     }
@@ -425,7 +427,7 @@
     if (o.issued_lines > 0) return { k: "issuing", t: "Issuing " + o.issued_lines + "/" + o.lines, c: "signal" };
     if (waiting > 0) return { k: "farm", t: waiting + " bkt at farm" + (fts.length > 1 ? "s" : ""), c: "warn" };
     if (o.has_transfer) return { k: "road", t: "Coming in", c: "signal" };
-    return { k: "ready", t: "Ready at " + HUB, c: "ink" };
+    return { k: "ready", t: "Ready at " + (o.sales_farm || HUB), c: "ink" };
   }
 
   function renderSelBar() {
