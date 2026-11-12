@@ -159,6 +159,41 @@ def sales_location_query(
 	return [[n] for n in names[cint(start) : cint(start) + cint(page_len)]]
 
 
+def sales_farm_names():
+	"""The enabled Sales Shelf farms (Production Settings > Shelf Locations): the farms teams pack at."""
+	ps = frappe.get_cached_doc("Production Settings")
+	return sorted({r.farm for r in ps.get("shelf_locations") or [] if r.enabled and r.sales_shelf and r.farm})
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def sales_farm_query(
+	doctype: str, txt: str, searchfield: str, start: int, page_len: int, filters: dict | None = None
+):
+	"""Link search for a team's Sales Farm: the Sales Shelf farms only."""
+	txt = (txt or "").lower()
+	names = [n for n in sales_farm_names() if txt in n.lower()]
+	return [[n] for n in names[cint(start) : cint(start) + cint(page_len)]]
+
+
+def team_sales_farms():
+	"""{team: its sales farm} (a team with none: its location's farm)."""
+	out = {}
+	for r in frappe.get_all("Packing Teams", fields=["name", "sales_farm", "location"]):
+		out[r.name] = r.sales_farm or r.location or ""
+	return out
+
+
+def check_team_farm(team, sales_order):
+	"""Refuse a team of another sales farm than the order's: an order is packed by its own farm's teams."""
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import order_hub
+
+	home = team_sales_farms().get(team) if team else None
+	farm = order_hub(sales_order) if sales_order else None
+	if home and farm and home != farm:
+		frappe.throw(_("{0} packs at {1}, not at {2}.").format(team, home, farm))
+
+
 def location_of(farm):
 	return frappe.db.get_value("Farm", farm, "farm_location") if farm else None
 
@@ -169,12 +204,13 @@ def works_at(c, location):
 
 
 def teams_at(farm):
-	"""The Packing Teams working at the sales farm's location (a team with no location works everywhere)."""
+	"""The Packing Teams of this sales farm (a team with no sales farm or location works everywhere)."""
 	location = location_of(farm)
 	return [
 		r.name
-		for r in frappe.get_all("Packing Teams", fields=["name", "location"], order_by="name asc")
-		if not location or not r.location or r.location == location
+		for r in frappe.get_all("Packing Teams", fields=["name", "sales_farm", "location"], order_by="name asc")
+		if not farm
+		or (r.sales_farm == farm if r.sales_farm else (not location or not r.location or r.location == location))
 	]
 
 

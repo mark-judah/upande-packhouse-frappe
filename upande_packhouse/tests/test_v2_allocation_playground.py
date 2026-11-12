@@ -77,7 +77,11 @@ class _Rollback:
 def _team(name="ZZ TEST TEAM A"):
 	"""A packing team for the test (created inside the rolled-back savepoint when the site has none by that name)."""
 	if not frappe.db.exists("Packing Teams", name):
-		frappe.get_doc({"doctype": "Packing Teams", "team": name}).insert(ignore_permissions=True)
+		from upande_packhouse.api.remote_transfer.transfer_scheduling import transfer_hub
+		from upande_packhouse.api.v2.allocation_teams import sales_farm_names
+
+		farm = transfer_hub(required=False) or (sales_farm_names() or [None])[0]
+		frappe.get_doc({"doctype": "Packing Teams", "team": name, "sales_farm": farm}).insert(ignore_permissions=True)
 	return name
 
 
@@ -416,7 +420,7 @@ class TestBoard(unittest.TestCase):
 		from datetime import date, timedelta
 
 		day = date.fromisocalendar(row[0].iso_year, row[0].week_number, 3) + timedelta(
-			days=int(plans.setting("allocation_harvest_lead_days"))
+			days=plans.HARVEST_LEAD_DAYS
 		)
 		likely, sure = pg.expected_arrivals(row[0].variety, "52cm", day)
 		self.assertGreaterEqual(likely, 0)

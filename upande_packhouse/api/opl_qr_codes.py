@@ -285,9 +285,9 @@ def _plan(opl):
 	# ---- shelves: where each bucket is, or -- still to come from a remote farm -- a free
 	# shelf at the sales farm to shelve it on when it arrives. The remote farm's own shelf
 	# is no use here: the bucket leaves it and is shelved at the hub.
-	from upande_packhouse.api.remote_transfer.transfer_scheduling import transfer_hub
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import opl_hub
 
-	hub = transfer_hub(required=False)
+	hub = opl_hub(opl.name)
 	buckets_on_shelf = {}
 	incoming = []
 	for name in sorted(buckets):

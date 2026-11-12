@@ -690,6 +690,10 @@
 			"input",
 			PH.debounce(() => st.set({ [key]: el.value.trim() }), ms || 250)
 		);
+		// Cleared or set elsewhere (Clear filters, a deep link): show it, unless being typed in.
+		st.on((s) => {
+			if (document.activeElement !== el && el.value.trim() !== (s[key] || "")) el.value = s[key] || "";
+		});
 		return el;
 	};
 

@@ -186,6 +186,10 @@ def get_location_config():
 		# The sales shelf farm for this location
 		sales_farms = [f for f in farms if farm_config.get(f, {}).get("sales_shelf")]
 		remote_farms = [f for f in farms if not farm_config.get(f, {}).get("sales_shelf")]
+		# A location sells only through a Sales Shelf farm: with none (unticked or disabled in
+		# Production Settings > Shelf Locations) it is not offered.
+		if not sales_farms:
+			continue
 
 		locations.append(
 			{

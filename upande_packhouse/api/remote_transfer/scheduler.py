@@ -8,16 +8,19 @@ import frappe
 
 
 def _own_packing_farms():
-	"""Sales farms other than the transfer hub (e.g. Karen): they pack their own
-	orders with no remote transfers, so the scheduler leaves those orders alone."""
-	from upande_packhouse.api.remote_transfer.transfer_scheduling import transfer_hub
+	"""Sales farms that are not Remote Transfer Sales Farms (e.g. Karen while it isn't
+	listed): they pack their own orders with no remote transfers, so the scheduler leaves
+	those orders alone."""
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import sales_farms
 
-	hub = transfer_hub(required=False)
-	if not hub:
+	hubs = {f.lower() for f in sales_farms()}
+	if not hubs:
 		return []
 	ps = frappe.get_cached_doc("Production Settings")
 	return [
-		r.farm for r in (ps.shelf_locations or []) if r.enabled and r.sales_shelf and r.farm and r.farm != hub
+		r.farm
+		for r in (ps.shelf_locations or [])
+		if r.enabled and r.sales_shelf and r.farm and r.farm.lower() not in hubs
 	]
 
 
@@ -288,8 +291,9 @@ def getSchedulerFeed():
 		# ---- per-OPL line stats (buckets, farms, transfer, issued) ----
 		stats = {}
 		# Buckets requested from the remote farms: not the hub, not a farm packing its own.
-		not_remote = set(_own_packing_farms())
-		not_remote.add(frappe.get_cached_doc("Production Settings").get("transfer_hub_farm") or "")
+		from upande_packhouse.api.remote_transfer.transfer_scheduling import sales_farms
+
+		not_remote = set(_own_packing_farms()) | set(sales_farms())
 		if len(names) > 0:
 			plis = frappe.get_all(
 				"Pick List Item",
@@ -452,9 +456,13 @@ def getSchedulerFeed():
 		# date, and today's -- Distribute plans onto today's trips, whichever day the
 		# orders deliver. A trip goes to every farm on its collection order (falling back
 		# to its order rows' farms). on_trip = this order's buckets on it.
-		from upande_packhouse.api.remote_transfer.transfer_scheduling import ACTIVE_TRIP_STATUSES
+		from upande_packhouse.api.remote_transfer.transfer_scheduling import (
+			ACTIVE_TRIP_STATUSES,
+			opl_hubs,
+			trip_hub_of,
+		)
 
-		hub = frappe.get_cached_doc("Production Settings").get("transfer_hub_farm") or ""
+		hubs = opl_hubs(names)
 		carrying = set()
 		if names:
 			carrying = set(
@@ -492,8 +500,10 @@ def getSchedulerFeed():
 			for tr in trip_rows.get(t.name) or []:
 				if tr.farm and tr.farm not in stops:
 					stops.append(tr.farm)
+			# Every stop but the sales farm the trip delivers to (another sales farm can be a stop).
+			to = trip_hub_of(t.name)
 			for fm in stops:
-				if fm != hub:
+				if fm != to:
 					farm_trips.setdefault(fm, []).append(t)
 
 		from upande_packhouse.api.remote_transfer.transfer_scheduling import order_locations
@@ -555,7 +565,7 @@ def getSchedulerFeed():
 				to_move[fm] = to_move.get(fm, 0) + 1
 			waiting = []
 			for fm in sorted(to_move):
-				if fm == hub:
+				if fm == hubs.get(op):
 					continue
 				ft = []
 				for t in farm_trips.get(fm) or []:
@@ -581,6 +591,8 @@ def getSchedulerFeed():
 			row = {
 				"opl": op,
 				"location": where.get(op, ""),
+				# the sales farm the order is packed at (its buckets go there)
+				"sales_farm": hubs.get(op) or "",
 				"order_name": o.get("custom_order_name") or op,
 				"customer": o.get("customer") or "",
 				"team": o.get("custom_team") or "",

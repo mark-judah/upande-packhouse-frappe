@@ -9,6 +9,27 @@ from upande_packhouse.api.remote_transfer import bucket_logistics as bl
 from upande_packhouse.api.remote_transfer import transfer_scheduling as tc
 from upande_packhouse.api.remote_transfer import truck_routes as tr
 
+# One sales farm (Kapkolia) throughout: every order's buckets go there, as the tests'
+# mocked transfer_hub says. Production Settings > Remote Transfer Sales Farms is not read.
+_ONE_HUB = [
+	patch.object(tc, "sales_farms", return_value=["Kapkolia"]),
+	patch.object(tc, "opl_hubs", side_effect=lambda opls: {o: "Kapkolia" for o in opls or [] if o}),
+	patch.object(tc, "trip_hub_of", return_value="Kapkolia"),
+	patch.object(tc, "route_hub_of", return_value="Kapkolia"),
+	patch.object(tr, "route_hub_of", return_value="Kapkolia"),
+]
+
+
+def setUpModule():
+	for p in _ONE_HUB:
+		p.start()
+
+
+def tearDownModule():
+	for p in reversed(_ONE_HUB):
+		p.stop()
+
+
 # Remote Transfers planning rules: a trip carries only orders delivering tomorrow or the
 # day after; every scheduled order's waiting buckets end up on a trip (a full run gets
 # the truck's next run); a shared bucket is planned once; Bucket Logistics lists orders
@@ -58,10 +79,12 @@ class _Fleet:
 	def runs(self):
 		return [{"route": "R1", "run": i + 1, "stops": [FARM]} for i in range(len(self.rooms))]
 
-	def open_run_room(self, vehicle, date, farm):
+	def open_run_room(self, vehicle, date, farm, hub=None):
 		return list(zip(self.runs(), self.rooms, strict=True))
 
-	def add_farm_run(self, vehicle, farm, date, enforce_room=False, while_on_road=False, new_route=True):
+	def add_farm_run(
+		self, vehicle, farm, date, enforce_room=False, while_on_road=False, new_route=True, hub=None
+	):
 		if enforce_room and any(self.rooms):
 			return {"status": "error", "reason": "has_room"}
 		self.rooms.append(10)
@@ -118,7 +141,7 @@ class UnitTestPlacingScheduledOrders(UnitTestCase):
 			patch.object(tc, "_bucket_claims", return_value={}),
 		):
 			portions = at._scheduled_portions(str(self.today))
-		self.assertEqual([r["order_pick_list"] for r in portions[FARM]], ["OPL-TMRW"])
+		self.assertEqual([r["order_pick_list"] for r in portions[(FARM, "Kapkolia")]], ["OPL-TMRW"])
 		# The overdue path is gone: nothing plans an order delivering today or earlier.
 		self.assertFalse(hasattr(at, "_overdue_orders"))
 
@@ -181,10 +204,18 @@ class UnitTestPlacingScheduledOrders(UnitTestCase):
 		orders = [_order("OPL-BIG", self.tomorrow, buckets=25)]
 		out, add = self._run(fleet, orders, {("OPL-BIG", FARM): 25})
 		add.assert_called_once_with(
-			"KDA 001A", FARM, str(self.today), enforce_room=True, while_on_road=True, new_route=False
+			"KDA 001A",
+			FARM,
+			str(self.today),
+			enforce_room=True,
+			while_on_road=True,
+			new_route=False,
+			hub="Kapkolia",
 		)
 		self.assertEqual([(kw["run"], kw["rows"][0]["buckets"]) for kw in fleet.saved], [(1, 15), (2, 10)])
-		self.assertEqual(out["runs_added"], [{"vehicle": "KDA 001A", "farm": FARM, "run": 2}])
+		self.assertEqual(
+			out["runs_added"], [{"vehicle": "KDA 001A", "farm": FARM, "sales_farm": "Kapkolia", "run": 2}]
+		)
 
 	def test_no_second_run_while_the_first_has_room(self):
 		fleet = _Fleet([15])
@@ -462,7 +493,13 @@ class UnitTestTripLeavesAFarm(UnitTestCase):
 		):
 			tc.carry_left_behind(doc, tc.trim_left_farms(doc))
 		add.assert_called_once_with(
-			"KDG 076V", self.FARM, self.today, enforce_room=True, while_on_road=True, new_route=False
+			"KDG 076V",
+			self.FARM,
+			self.today,
+			enforce_room=True,
+			while_on_road=True,
+			new_route=False,
+			hub="Kapkolia",
 		)
 		self.assertEqual([r["buckets"] for r in write.call_args[0][0]["rows"]], [3])
 
@@ -509,14 +546,9 @@ class UnitTestMinimumTruckLoad(UnitTestCase):
 		doc.reload = MagicMock()
 		return doc
 
-	def _settings(self, partial=0):
-		values = {"allow_partial_truck_load": partial}
-		return patch.object(tc, "_production_setting", side_effect=lambda f: values.get(f))
-
-	def _common(self, stack, doc, stops, partial=0, skip=()):
+	def _common(self, stack, doc, stops, skip=()):
 		"""Patch the trip's world (the database mocked) onto `stack`, but those in skip."""
 		patches = {
-			"settings": self._settings(partial),
 			"transfer_hub": patch.object(tc, "transfer_hub", return_value="Kapkolia"),
 			"_vehicle_capacity": patch.object(tc, "_vehicle_capacity", return_value=self.CAP),
 			"_trip_stops": patch.object(tc, "_trip_stops", return_value=list(stops)),
@@ -534,14 +566,14 @@ class UnitTestMinimumTruckLoad(UnitTestCase):
 			if key not in skip:
 				stack.enter_context(p)
 
-	def _call(self, fn, doc, form, stops=("Torongo",), partial=0, skip=()):
+	def _call(self, fn, doc, form, stops=("Torongo",), skip=()):
 		"""Call a whitelisted method with this form; returns its response message."""
 		saved_form, saved_resp = frappe.local.form_dict, getattr(frappe.local, "response", None)
 		frappe.local.form_dict = frappe._dict(form)
 		frappe.local.response = frappe._dict()
 		try:
 			with ExitStack() as stack:
-				self._common(stack, doc, stops, partial, skip)
+				self._common(stack, doc, stops, skip)
 				fn()
 			return frappe.local.response.get("message")
 		finally:
@@ -559,19 +591,9 @@ class UnitTestMinimumTruckLoad(UnitTestCase):
 
 	def test_threshold_numbers(self):
 		with patch.object(tc, "_vehicle_capacity", return_value=self.CAP):
-			with self._settings(0):
-				self.assertEqual(tc.min_load_needed("KDG 076V"), (144, 144, 100))
-			with self._settings(1):
-				self.assertEqual(tc.min_load_needed("KDG 076V"), (1, 144, 0))
-		with patch.object(tc, "_vehicle_capacity", return_value=0), self._settings(0):
-			self.assertEqual(tc.min_load_needed("KDG 076V"), (0, 0, 0))
-
-	def test_settings_fields_missing_means_full_load(self):
-		with (
-			patch.object(tc, "_vehicle_capacity", return_value=self.CAP),
-			patch.object(tc.frappe.db, "get_single_value", side_effect=frappe.ValidationError("no field")),
-		):
 			self.assertEqual(tc.min_load_needed("KDG 076V"), (144, 144, 100))
+		with patch.object(tc, "_vehicle_capacity", return_value=0):
+			self.assertEqual(tc.min_load_needed("KDG 076V"), (0, 0, 0))
 
 	def test_a_checkbox_off_one_short_of_full_is_refused(self):
 		doc = self._trip(143)
@@ -590,15 +612,6 @@ class UnitTestMinimumTruckLoad(UnitTestCase):
 		self.assertEqual(res["trip_status"], "Dispatched")
 		self.assertEqual(res["below_minimum"], 0)
 
-	def test_c_checkbox_on_sends_any_load(self):
-		res = self._close(self._trip(1), partial=1)
-		self.assertEqual(res["status"], "success")
-		self.assertEqual(res["trip_status"], "Dispatched")
-		self.assertEqual(self._close(self._trip(0), partial=1)["status"], "error")
-		res = self._call(tc.dispatchBucketTrip, self._trip(0), {"name": "BRT-MIN"}, partial=1)
-		self.assertEqual((res["reason"], res["loaded"], res["needed"]), ("below_minimum", 0, 1))
-		self.assertIn("KDG 076V has no buckets loaded", res["message"])
-
 	def test_d_reason_does_not_override_the_minimum(self):
 		# The minimum load is a hard block (#56): a reason no longer sends the truck.
 		doc = self._trip(12)
@@ -607,6 +620,16 @@ class UnitTestMinimumTruckLoad(UnitTestCase):
 		self.assertEqual(res["reason"], "below_minimum")
 		self.assertEqual(doc.status, "Scheduled")
 		doc.save.assert_not_called()
+
+	def test_confirmed_send_short_sends_the_truck_under_its_minimum(self):
+		doc = self._trip(12)
+		res = self._call(
+			tc.closeTripStop, doc, {"name": doc.name, "farm": "Torongo", "complete": 1, "send_short": 1}
+		)
+		self.assertEqual(res["status"], "success")
+		self.assertEqual(res["trip_status"], "Dispatched")
+		self.assertEqual(res["below_minimum"], 1)
+		self.assertTrue(any("12 of 144" in c for c in self._comments(doc)))
 
 	def test_d_refused_truck_records_no_bucket_events(self):
 		doc = self._trip(12)
@@ -667,7 +690,6 @@ class UnitTestMinimumTruckLoad(UnitTestCase):
 	def test_f_arrival_at_kapkolia_below_the_minimum_still_dispatches(self):
 		doc = self._trip(12)
 		with (
-			self._settings(0),
 			patch.object(tc, "transfer_hub", return_value="Kapkolia"),
 			patch.object(tc, "_vehicle_capacity", return_value=self.CAP),
 			patch.object(tc, "_trip_stops", return_value=["Torongo"]),
@@ -1404,7 +1426,7 @@ class UnitTestOneFarmPerTrip(UnitTestCase):
 			patch.object(tc.truck_routes, "add_farm_run") as add_run,
 		):
 			placed = tc._carry_rows(doc, [row])
-		holders.assert_called_once_with("Torongo", self.today, exclude_trip="BRT-1")
+		holders.assert_called_once_with("Torongo", self.today, exclude_trip="BRT-1", hub="Kapkolia")
 		self.assertEqual(add.call_args[0][0], "BRT-9")
 		self.assertEqual([(t, r["buckets"]) for t, r in placed], [("BRT-9", 3)])
 		write.assert_not_called()
@@ -1413,7 +1435,7 @@ class UnitTestOneFarmPerTrip(UnitTestCase):
 
 class UnitTestOneTruckSeveralFarms(UnitTestCase):
 	def test_a_truck_gets_one_trip_per_farm_and_a_refused_farm_does_not_stop_the_rest(self):
-		def add(vehicle, farm, date):
+		def add(vehicle, farm, date, hub=None):
 			if farm == "Simotwo":
 				return {"status": "error", "reason": "open_trip", "message": "Simotwo still has room"}
 			return {"status": "success", "route": "R1", "run": ["Chepsito", "Kaptumbo"].index(farm) + 1}

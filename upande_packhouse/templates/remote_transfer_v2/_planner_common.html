@@ -241,8 +241,9 @@
     return Object.keys(s).sort();
   };
   /** Kapkolia → A → B → Kapkolia, hub muted. */
+  // the chain's ends are its sales farm (the first stop), whichever one that is
   RTP.chainHtml = (stops) =>
-    '<span class="rt-chain">' + (stops || []).map((f) => (f === pack() ? `<span class="rt-chain__hub">${esc(f)}</span>` : `<b>${esc(f)}</b>`)).join('<span class="rt-chain__sep">→</span>') + "</span>";
+    '<span class="rt-chain">' + (stops || []).map((f, i, all) => (f === all[0] && (i === 0 || i === all.length - 1) ? `<span class="rt-chain__hub">${esc(f)}</span>` : `<b>${esc(f)}</b>`)).join('<span class="rt-chain__sep">→</span>') + "</span>";
 
   /* ── Open buckets: what today's planned trips already cover ─────────── */
   const pkey = (RTP.pkey = (opl, farm) => opl + "||" + farm);
@@ -388,6 +389,8 @@
   };
   function paintAddTrip(a) {
     if (a.loading) return PH.skeleton(a.m.body, "rows", 3);
+    // the order's own sales farm: where these buckets go
+    const ordOf = (DATA.orders || []).find((x) => x.opl === a.opl), hub = (ordOf && ordOf.sales_farm) || pack();
     let h = `<p class="ph-muted ph-mb">${esc(a.order_name)} · ${esc(a.farm)}${a.portion ? ` · <b class="ph-strong">${PH.fmt.num(a.open)}</b> bucket${a.open === 1 ? "" : "s"} to move` : ""}${a.busy ? " · saving…" : ""}</p>`;
     if (a.err && !a.portion) return PH.set(a.m.body, h + `<div class="ph-notice ph-notice--bad ph-mb-0">${esc(a.err)}</div>`);
     const ok = a.choices.filter((c) => !c.why);
@@ -396,7 +399,7 @@
       ? '<div class="rt-picks">' +
         ok.map((c) => {
           const take = Math.min(a.open, c.rem);
-          return `<button type="button" class="rt-pick" data-at="${a.choices.indexOf(c)}"${a.busy ? " disabled" : ""}><span class="ph-strong">${esc(c.vehicle)}</span><span class="ph-muted">${esc(runLabel(c))}</span>${RTP.chainHtml([pack()].concat(c.stops).concat([pack()]))}<span class="ph-badge ph-badge--signal">${take < a.open ? "fits " + take + " of " + a.open : c.rem + " bkt free"}</span></button>`;
+          return `<button type="button" class="rt-pick" data-at="${a.choices.indexOf(c)}"${a.busy ? " disabled" : ""}><span class="ph-strong">${esc(c.vehicle)}</span><span class="ph-muted">${esc(runLabel(c))}</span>${RTP.chainHtml([hub].concat(c.stops).concat([hub]))}<span class="ph-badge ph-badge--signal">${take < a.open ? "fits " + take + " of " + a.open : c.rem + " bkt free"}</span></button>`;
         }).join("") + "</div>"
       : `<div class="ph-notice ph-mb-0">No trip goes to ${esc(a.farm)} today.</div>`;
     h += "</div>";
@@ -404,7 +407,7 @@
     h += `<div class="rt-sec"><span class="ph-label">${ok.length ? "Or add" : "Add"} a trip to ${esc(a.farm)}</span>`;
     h += trucks.length
       ? '<div class="rt-picks">' +
-        trucks.map((t) => `<button type="button" class="rt-pick" data-at-new="${esc(t.vehicle)}"${a.busy ? " disabled" : ""}><span class="ph-strong">+ ${esc(t.vehicle)}</span><span class="ph-muted">${t.routed ? "Trip " + t.next + " on its route today" : "New route today"}</span>${RTP.chainHtml([pack(), a.farm, pack()])}<span class="ph-badge">${t.cap} bkt</span></button>`).join("") +
+        trucks.map((t) => `<button type="button" class="rt-pick" data-at-new="${esc(t.vehicle)}"${a.busy ? " disabled" : ""}><span class="ph-strong">+ ${esc(t.vehicle)}</span><span class="ph-muted">${t.routed ? "Trip " + t.next + " on its route today" : "New route today"}</span>${RTP.chainHtml([hub, a.farm, hub])}<span class="ph-badge">${t.cap} bkt</span></button>`).join("") +
         "</div>"
       : '<div class="ph-notice ph-mb-0">No truck free — add one on the Truck Routes tab.</div>';
     h += "</div>";
@@ -435,7 +438,8 @@
     if (!a || a.busy) return;
     const v = DATA.vehicles.find((x) => x.name === vehicle);
     a.busy = true; a.err = ""; paintAddTrip(a);
-    RTP.write("addFarmTrip", { vehicle, farm: a.farm, date: RTP.today() }, "Could not add the trip")
+    const ord = (DATA.orders || []).find((x) => x.opl === a.opl);
+    RTP.write("addFarmTrip", { vehicle, farm: a.farm, date: RTP.today(), sales_farm: (ord && ord.sales_farm) || "" }, "Could not add the trip")
       .then((m) => {
         if (AT !== a) return;
         a.busy = false;

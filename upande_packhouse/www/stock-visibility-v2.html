@@ -606,7 +606,7 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
   const dot = (s) => `<span class="sv-dot sv-c-${esc(s)}" aria-hidden="true"></span>`;
   const sc = (s) => `<span class="sv-pillst">${dot(s)}${esc(lbl(s))}</span>`;
   const docBtn = (dt, name) => (name ? `<button type="button" class="sv-link" data-doc="${esc(dt)}" data-name="${esc(name)}">${esc(name)}</button>` : "");
-  const soLink = (so) => `/desk/sales-allocation?sales_order=${encodeURIComponent(so)}`;
+  const soLink = (so) => `/packhouse-dashboard-v2/sales-allocation-v2?sales_order=${encodeURIComponent(so)}`;
   const copy = (text) => {
     const done = () => PH.toast("Copied", "good");
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, () => fallback());

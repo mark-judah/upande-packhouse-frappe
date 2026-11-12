@@ -29,7 +29,7 @@ NAV = [
 		"Workflow",
 		[
 			("packhouse-dashboard", "Orders & Workflow", "/packhouse-dashboard-v2", "layout"),
-			("packing-insights", "Packing Insights", "/packhouse-dashboard-v2/packing-insights-v2", "eye"),
+			("packhouse-production", "Production", "/packhouse-dashboard-v2/packhouse-production-v2", "home"),
 			(
 				"sales-allocation-planning",
 				"Allocation Planning",
@@ -37,13 +37,13 @@ NAV = [
 				"grid",
 			),
 			("sales-allocation", "Sales Allocation", "/packhouse-dashboard-v2/sales-allocation-v2", "split"),
-			("packhouse-production", "Production", "/packhouse-dashboard-v2/packhouse-production-v2", "home"),
 			(
 				"remote-transfer",
 				"Remote Transfers",
 				"/packhouse-dashboard-v2/remote-transfer-v2?tab=logistics",
 				"truck",
 			),
+			("packing-insights", "Packing Insights", "/packhouse-dashboard-v2/packing-insights-v2", "eye"),
 		],
 	),
 	(

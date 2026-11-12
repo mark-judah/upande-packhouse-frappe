@@ -28,10 +28,12 @@ from upande_packhouse.api.v2.core import received, stock
 
 LIVE = ("Planned", "Reserved", "Partly Fulfilled", "Broken")
 
-# Production Settings > Allocation Planning (fields added by setup_settings). The numbers are only the
+# Production Settings > Allocation Planning > Planning (upande_quality's fields). The numbers are only the
 # starting values a fresh site is seeded with; the business owns them from then on.
+#: Days from cutting to delivery: what a farm supplies for a delivery day is cut this many days before it.
+HARVEST_LEAD_DAYS = 1
+
 SETTING_DEFAULTS = {
-	"allocation_harvest_lead_days": 1,
 	"allocation_horizon_days": 3,
 	"allocation_conversion_minutes": 15,
 	"allocation_use_first_alert_stems": 500,
@@ -593,7 +595,7 @@ def convert_virtual(delivery_date=None, farm=None):
 			"stems",
 		)
 		real = flt(real)
-		cut = add_days(c.delivery_date, -cint(setting("allocation_harvest_lead_days")))
+		cut = add_days(c.delivery_date, -HARVEST_LEAD_DAYS)
 		free = sum(b.free for b in free_for_line(c.farm, c.variety, c.length, soi, cut))
 		target = min(real + flt(c.stems), free)
 		if target <= real + 0.0001:
@@ -714,78 +716,20 @@ def _sync_confirmed_stems(sales_order, soi, farm, stems):
 
 
 def setup_settings():
-	"""Add the Production Settings > Allocation Planning fields (idempotent; Production Settings belongs to upande_quality)."""
-	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
-
-	fields = [
-		{"fieldname": "allocation_planning_section", "fieldtype": "Section Break", "label": "Planning"},
-		{
-			"fieldname": "allocation_harvest_lead_days",
-			"fieldtype": "Int",
-			"label": "Days from cutting to delivery",
-			"description": "How many days before delivery the flowers are cut. Used to work out what the farm will supply.",
-			"default": str(SETTING_DEFAULTS["allocation_harvest_lead_days"]),
-		},
-		{
-			"fieldname": "allocation_horizon_days",
-			"fieldtype": "Int",
-			"label": "Days ahead people can plan",
-			"description": "How many delivery days ahead the planning page lets you plan.",
-			"default": str(SETTING_DEFAULTS["allocation_horizon_days"]),
-		},
-		{"fieldname": "allocation_planning_col", "fieldtype": "Column Break"},
-		{
-			"fieldname": "allocation_conversion_minutes",
-			"fieldtype": "Int",
-			"label": "Check for new stock every (minutes)",
-			"description": "How often expected stock is matched to flowers that reach the shelf.",
-			"default": str(SETTING_DEFAULTS["allocation_conversion_minutes"]),
-		},
-		{
-			"fieldname": "allocation_use_first_alert_stems",
-			"fieldtype": "Int",
-			"label": "Tell me when old stock is at least (stems)",
-			"description": 'Smallest amount of getting-old stock that is worth a "use first" suggestion.',
-			"default": str(SETTING_DEFAULTS["allocation_use_first_alert_stems"]),
-		},
-	]
-	# In Production Settings' own Allocation Planning tab, after its Sales Allocation v2 section (a custom
-	# Tab Break used to stand in for the tab; it goes).
-	if frappe.db.exists("Custom Field", "Production Settings-allocation_planning_tab"):
-		frappe.delete_doc(
-			"Custom Field", "Production Settings-allocation_planning_tab", ignore_permissions=True, force=True
-		)
-	meta = frappe.get_meta("Production Settings")
-	after = (
-		"hide_allocation_planning_team"
-		if meta.has_field("hide_allocation_planning_team")
-		else "release_trips_without_confirmation"
-	)
-	for field in fields:
-		field["insert_after"] = after
-		after = field["fieldname"]
-	create_custom_fields({"Production Settings": fields}, ignore_validate=True)
-	# The forecast margin is no longer a setting: it is the forecast's own average error this year.
-	if frappe.db.exists("Custom Field", "Production Settings-allocation_virtual_haircut_pct"):
-		frappe.delete_doc(
-			"Custom Field",
-			"Production Settings-allocation_virtual_haircut_pct",
-			ignore_permissions=True,
-			force=True,
-		)
-	# Seed once. A value the business has already saved (even 0) is never touched.
+	"""Seed Production Settings > Allocation Planning > Planning (upande_quality's fields) once. A value the
+	business has already saved (even 0) is never touched."""
+	if not frappe.db.exists("DocType", "Production Settings"):
+		return
 	for name, default in SETTING_DEFAULTS.items():
 		if _stored(name) is None:
 			frappe.db.set_single_value("Production Settings", name, default)
-	# Confirmations draw on either forecast, so there is no choice to make: remove the option an earlier build added.
-	if frappe.db.exists("Custom Field", "Production Settings-allocation_forecast_source"):
-		frappe.delete_doc(
-			"Custom Field",
-			"Production Settings-allocation_forecast_source",
-			ignore_permissions=True,
-			force=True,
-		)
-	frappe.db.delete("Singles", {"doctype": "Production Settings", "field": "allocation_forecast_source"})
+	frappe.db.delete(
+		"Singles",
+		{
+			"doctype": "Production Settings",
+			"field": ["in", ["allocation_forecast_source", "allocation_harvest_lead_days"]],
+		},
+	)
 
 
 def ensure_indexes():

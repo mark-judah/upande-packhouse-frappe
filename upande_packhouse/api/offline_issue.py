@@ -345,7 +345,9 @@ def _send_in_transit(bucket, opl_name):
 		refused = _load_on_truck(waiting[0].name, truck)
 		if refused:
 			frappe.throw(_("{0} can't go on the truck: {1}").format(bucket, refused))
-	return {"farm": farm, "truck": truck}
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import opl_hub
+
+	return {"farm": farm, "truck": truck, "sales_farm": opl_hub(opl_name)}
 
 
 def _issue_remote_aware(bucket, opl_name):
@@ -363,7 +365,7 @@ def _issue_remote_aware(bucket, opl_name):
 
 
 def _transit_note(bucket, sent, line):
-	hub = frappe.db.get_single_value("Production Settings", "transfer_hub_farm") or _("the packhouse")
+	hub = sent.get("sales_farm") or _("the packhouse")
 	return _(
 		"{0} is coming from {1}{2}: in transit to {3}, not issued yet. Shelve it at {3} when it arrives, then issue it to {4}."
 	).format(
@@ -450,11 +452,10 @@ def offline_issue_opls(
 	`farm` is the station's farm. A remote farm sees only the OPLs with buckets
 	coming from it (its remote transfers), counted on those buckets alone; the
 	sales farm (the transfer hub) — or no farm — sees every OPL."""
-	from upande_packhouse.api.transfer_control import FARM_EXPR, transfer_hub
+	from upande_packhouse.api.transfer_control import FARM_EXPR, is_sales_farm
 
-	hub = transfer_hub(required=False) or ""
 	farm_cond = ""
-	if farm and farm != hub:
+	if farm and not is_sales_farm(farm):
 		farm_cond = "AND " + FARM_EXPR + " = %(farm)s"
 	if delivery_date:
 		since = until = getdate(delivery_date)
@@ -532,10 +533,9 @@ def offline_issue_issued(opl_name: str):
 def offline_issue_buckets(opl_name: str, farm: str | None = None):
 	"""The buckets `opl_name` is still waiting on, one entry per bucket. A remote
 	`farm` (not the transfer hub) gets only the buckets coming from it."""
-	from upande_packhouse.api.transfer_control import transfer_hub
+	from upande_packhouse.api.transfer_control import is_sales_farm
 
-	hub = transfer_hub(required=False) or ""
-	only_farm = farm if farm and farm != hub else None
+	only_farm = farm if farm and not is_sales_farm(farm) else None
 	rows = frappe.get_all(
 		"Pick List Item",
 		filters={"parent": opl_name, "parenttype": "Order Pick List", "bucket": ["is", "set"]},

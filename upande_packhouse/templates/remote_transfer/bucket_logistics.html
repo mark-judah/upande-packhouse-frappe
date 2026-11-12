@@ -257,12 +257,14 @@
   // ======================================================================
   var OV = { date: tomorrowISO(), orders: [], runs: [], loading: false, error: null, open: {}, details: {}, owners: {}, users: {}, transit: {}, repl: [] };
   // The stages and colours of the original Bucket Logistics page, kept as they were.
+  // the transfer hub: only for a row whose order has no sales farm of its own
+  var OV_HUB = (window.RT && window.RT.transferHub) || '';
   var OV_FLAGS = [
     ['awaiting', 'Awaiting Transfer', '#d97706'],
     ['trolley', 'Loaded in Trolley', '#7c3aed'],
     ['on_truck', 'Loaded on Truck', '#2563eb'],
     ['transit', 'In Transit', '#2563eb'],
-    ['arrived_hub', 'Arrived at Kapkolia', '#0e7490'],
+    ['arrived_hub', 'Arrived at sales farm', '#0e7490'],
     ['shelved', 'Shelved', '#16a34a'],
     ['ready', 'Ready for Packing', '#0891b2'],
     ['issued', 'Issued', '#dc2626'],
@@ -316,7 +318,7 @@
   function ovTransitBadge(o) {
     if (!o.initiated) return '—';
     if (!o.arrived) {
-      if (o.arrived_hub) return '<span class="ov-transit-badge" style="background:#0e7490">arrived at ' + esc(o.hub || 'Kapkolia') + '</span>';
+      if (o.arrived_hub) return '<span class="ov-transit-badge" style="background:#0e7490">arrived at ' + esc(o.hub || ovHubOf(o.opl) || OV_HUB) + '</span>';
       if (o.transit) return '<span class="ov-transit-badge" style="background:#7a4fb0">in transit</span>' + ovTransitLine(o);
       if (o.trolley) return '<span class="ov-transit-badge" style="background:#b4530a">in trolley</span>';
       if (o.awaiting) return '<span class="ov-transit-badge" style="background:#5b7a99">at farm</span>';
@@ -355,12 +357,26 @@
     if (!t.length) return o.truck ? ('<span class="ov-trip-chip">' + esc(o.truck) + '</span>') : ('<span class="ov-sub">' + (ovUnschedBuckets(o) > 0 ? 'Not scheduled' : '—') + '</span>');
     return t.map(ovTripLineHtml).join('');
   }
-  function ovStagePills(o) {
-    var n = o.total || 0;
+  // Each order's buckets arrive at its own sales farm (Kapkolia, Chepsito ...).
+  function ovHubOf(opl) {
+    var o = (OV.orders || []).filter(function (x) { return x.opl === opl; })[0];
+    return (o && o.hub) || '';
+  }
+  // the sales farms of these rows' orders, one label for them all
+  function ovHubsOf(rows) {
+    var seen = {};
+    (rows || []).forEach(function (r) { var h = r.hub || ovHubOf(r.opl); if (h) seen[h] = 1; });
+    return Object.keys(seen).sort().join(' / ');
+  }
+  function ovFlagLabel(f, hub) {
+    return f[0] === 'arrived_hub' ? 'Arrived at ' + (hub || OV_HUB) : f[1];
+  }
+  function ovStagePills(o, hubOverride) {
+    var n = o.total || 0, hub = hubOverride || o.hub || ovHubOf(o.opl);
     return '<span class="ov-pill ov-req">Requested <b>' + n + '</b></span>' + OV_FLAGS.map(function (f) {
       var x = o[f[0]] || 0;
       if (!x && !OV_ALWAYS[f[0]]) return '';
-      return '<span class="ov-pill' + (x ? '' : ' zero') + '" style="' + (x ? 'background:' + f[2] : '') + '">' + f[1] + ' ' + x + '/' + n + '</span>';
+      return '<span class="ov-pill' + (x ? '' : ' zero') + '" style="' + (x ? 'background:' + f[2] : '') + '">' + esc(ovFlagLabel(f, hub)) + ' ' + x + '/' + n + '</span>';
     }).join('');
   }
   function ovKpiCard(lbl, val, sub) {
@@ -487,7 +503,7 @@
     if (!b.length) return '<div class="tm-empty" style="padding:14px 0;">No transferring buckets.</div>';
     var chk = function (v) { return Number(v) ? '<span class="ov-chk-y">✓</span>' : '<span class="ov-chk-n">·</span>'; };
     var head = '<tr><th>#</th><th>Bucket</th><th>Variety</th><th>Len</th><th>Boxes</th><th>Stems</th><th>Farm</th><th>Shelf</th><th>Truck</th>' +
-      OV_FLAGS.map(function (f) { return '<th class="c">' + esc(f[1]) + '</th>'; }).join('') + '</tr>';
+      OV_FLAGS.map(function (f) { return '<th class="c">' + esc(ovFlagLabel(f, ovHubsOf(OV.orders))) + '</th>'; }).join('') + '</tr>';
     var body = b.map(function (x, j) {
       return '<tr><td>' + (j + 1) + '</td><td><b>' + esc(x.bucket || '—') + '</b></td><td>' + esc(x.variety) + '</td><td>' + esc(x.length || '—') + '</td><td>' + esc(x.box_id || String(x.boxes || 1)) + '</td><td>' + (Number(x.stems) || 0).toLocaleString() + '</td><td>' + esc(x.farm || '—') + '</td><td>' + esc(x.shelf || '—') + '</td><td>' + esc(x.truck || '—') + '</td>' +
         OV_FLAGS.map(function (f) { return '<td class="c">' + chk(x[f[0]]) + '</td>'; }).join('') + '</tr>';
@@ -716,7 +732,7 @@
     farms.forEach(function (farm) {
       var rows = byFarm[farm], shut = !!OV_SHUT[farm], tot = {};
       OV_FLAGS.forEach(function (f) { tot[f[0]] = ovSum(rows, f[0]); }); tot.total = ovSum(rows, 'total');
-      out += '<div class="ov-farm-h" data-ovfg="' + esc(farm) + '"><span class="ov-caret">' + (shut ? '▸' : '▾') + '</span><b>' + esc(farm) + '</b><span class="ov-count">' + rows.length + ' order' + (rows.length === 1 ? '' : 's') + '</span><div class="ov-pills">' + ovStagePills(tot) + '</div></div>';
+      out += '<div class="ov-farm-h" data-ovfg="' + esc(farm) + '"><span class="ov-caret">' + (shut ? '▸' : '▾') + '</span><b>' + esc(farm) + '</b><span class="ov-count">' + rows.length + ' order' + (rows.length === 1 ? '' : 's') + '</span><div class="ov-pills">' + ovStagePills(tot, ovHubsOf(rows)) + '</div></div>';
       if (shut) return;
       out += '<div class="ov-cards">';
       rows.forEach(function (o) {
@@ -998,7 +1014,7 @@
               var statusHtml = '';
               if (!oShut) {
                 statusHtml = '<div class="tt-status">' +
-                  '<div class="ov-pill-row">' + ovStagePills(ttTripStages(o)) + '</div>' +
+                  '<div class="ov-pill-row">' + ovStagePills(ttTripStages(o), o.hub || ovHubOf(o.opl)) + '</div>' +
                   '<button class="ov-more" style="margin-top:8px;" data-bp-opl="' + esc(o.opl) + '" data-bp-farm="' + esc(o.farm || '') + '" data-bp-name="' + esc(o.order_name) + '">Bucket status →</button>' +
                 '</div>';
               }
@@ -1036,7 +1052,7 @@
     ['trolley', 'Loaded in Trolley', 'trolley_at', 'trolley_by'],
     ['on_truck', 'Loaded on Truck', 'on_truck_at', 'on_truck_by'],
     ['transit', 'In Transit', 'transit_at', 'transit_by'],
-    ['arrived_hub', 'Arrived at Kapkolia', 'arrived_hub_at', 'arrived_hub_by'],
+    ['arrived_hub', 'Arrived at sales farm', 'arrived_hub_at', 'arrived_hub_by'],
     ['shelved', 'Shelved', 'shelved_at', 'shelved_by'],
     ['ready', 'Ready for Packing', null, null],
     ['issued', 'Issued', 'issued_at', 'issued_by'],
@@ -1174,7 +1190,7 @@
     // Remote transfer, per order the bucket goes to: awaiting transfer -> on a trolley ->
     // on the truck -> in transit -> arrived at the sales hub -> shelved -> issued (to the
     // OPL). From the pick rows' own stamps; a stage reached with no stamp keeps its place.
-    var hubName = ((OV.orders || []).map(function (o) { return o.hub; }).filter(Boolean)[0]) || 'Kapkolia';
+    var hubName = ovHubOf(BP.opl) || OV_HUB;
     var RT = [
       ['trolley', 'Loaded in trolley', '#7c3aed', 'trolley_at', 'trolley_by'],
       ['on_truck', 'Loaded on truck', '#2563eb', 'on_truck_at', 'on_truck_by'],
@@ -1224,7 +1240,7 @@
   // shelved at the sales farm, issued to the packhouse. Each step shows what happened there (or that it
   // hasn't yet); every event belongs to one of them.
   function trStepper(events) {
-    var hub = ((OV.orders || []).map(function (o) { return o.hub; }).filter(Boolean)[0]) || 'Kapkolia';
+    var hub = ovHubOf(BP.opl) || ((OV.orders || []).map(function (o) { return o.hub; }).filter(Boolean)[0]) || '';
     var remoteShelf = events.filter(function (e) { return /^Shelved on /.test(e.stage) && e.farm && e.farm !== hub; });
     var farm = (remoteShelf[0] && remoteShelf[0].farm) || '';
     var STEPS = [
@@ -1376,7 +1392,7 @@
       var toggles = '<div class="ov-pill-row bp-flags" style="margin-bottom:12px;">' + BP_FLAGS.map(function (f, i) {
         var n = BP.buckets.filter(function (x) { return Number(x[f[0]]); }).length;
         var on = !!BP.on[f[0]], color = BP_COLOR[f[0]] || '#495057';
-        return '<button type="button" class="ov-pill' + (on ? '' : ' zero') + '" data-bp-flag="' + f[0] + '" title="' + esc(f[1]) + '" style="border:0;cursor:pointer;' + (on ? 'background:' + color : '') + '"><span class="bp-flag-l">' + esc(f[1]) + '</span><b>' + n + '</b></button>';
+        return '<button type="button" class="ov-pill' + (on ? '' : ' zero') + '" data-bp-flag="' + f[0] + '" title="' + esc(ovFlagLabel(f, ovHubOf(BP.opl))) + '" style="border:0;cursor:pointer;' + (on ? 'background:' + color : '') + '"><span class="bp-flag-l">' + esc(ovFlagLabel(f, ovHubOf(BP.opl))) + '</span><b>' + n + '</b></button>';
       }).join('') + '</div>';
       var shown = picked.length ? BP.buckets.filter(function (x) { return picked.some(function (f) { return Number(x[f[0]]); }); }) : BP.buckets;
       // Bucket, Variety (stem length) and its current status first; then every stage; then where it is.
@@ -1395,11 +1411,11 @@
       // times gets room, an empty one or a tick stays narrow.
       var wide = function (f) { return f[0] === 'awaiting' || (f[2] && shown.some(function (x) { return x[f[2]]; })); };
       var thead = '<tr><th class="bp-w-n">#</th>' + (BP.multi ? '<th class="bp-w-o">Order</th>' : '') + '<th class="bp-nw bp-w-b">Bucket</th><th class="bp-w-v">Variety</th><th class="bp-w-s">Status</th>' + (anyNf ? '<th class="bp-w-r">Replace with</th>' : '') +
-        cols.map(function (f) { return '<th class="' + (wide(f) ? 'bp-w-t' : 'bp-w-x') + '">' + esc(f[1]) + '</th>'; }).join('') +
+        cols.map(function (f) { return '<th class="' + (wide(f) ? 'bp-w-t' : 'bp-w-x') + '">' + esc(ovFlagLabel(f, ovHubOf(BP.opl))) + '</th>'; }).join('') +
         extra.filter(function (e) { return e[1]; }).map(function (e) { return '<th class="bp-w-' + (e[0] === 'Boxes' || e[0] === 'Stems' ? 'x' : 'f') + '">' + e[0] + '</th>'; }).join('') + '</tr>';
       var tbody = shown.map(function (x, j) {
         var st = bpStage(x), c = BP_COLOR[st];
-        var label = st ? (BP_FLAGS.filter(function (f) { return f[0] === st; })[0] || [0, st])[1] : '—';
+        var label = st ? ovFlagLabel(BP_FLAGS.filter(function (f) { return f[0] === st; })[0] || [0, st], ovHubOf(BP.opl)) : '—';
         if (st === 'not_found') label = 'Not found · no replacement';
         var rp = ovReplacedBy(x._opl || BP.opl, x.bucket);
         return '<tr' + (c ? ' style="background:' + c + '14;box-shadow:inset 3px 0 0 ' + c + '"' : '') + '><td>' + (j + 1) + '</td>' +

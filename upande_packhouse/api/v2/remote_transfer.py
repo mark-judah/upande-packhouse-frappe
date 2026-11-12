@@ -41,6 +41,9 @@ from upande_packhouse.api.remote_transfer.transfer_scheduling import (
 	TRIP_LOOKBACK_DAYS,
 	_schedule_map,
 	_trip_dict,
+	not_at_hub_sql,
+	opl_hubs,
+	sales_farms,
 	transfer_hub,
 	trip_numbers,
 	trip_order_numbers,
@@ -78,7 +81,7 @@ def _sales_farms():
 			pluck="farm",
 		)
 	)
-	farms.add(hub)
+	farms |= set(sales_farms())
 	return hub, {f for f in farms if f}
 
 
@@ -156,7 +159,7 @@ def get_logistics(
 		"pli.parenttype = 'Order Pick List'",
 		"so.delivery_date BETWEEN %(f)s AND %(t)s",
 		TRANSFER,
-		"COALESCE(" + ORIGIN + ", '') NOT IN %(sales_farms)s",
+		not_at_hub_sql(ORIGIN),
 	]
 	params = dict(base)
 	if region_farms is not None:
@@ -316,13 +319,14 @@ def get_logistics(
 
 	# Each trip's numbers as every surface shows them (trip_numbers).
 	numbers = trip_numbers({tr["trip"] for ts in trips.values() for tr in ts})
+	hubs = opl_hubs([o["opl"] for o in orders])
 	for o in orders:
 		sc = sched.get(o["opl"]) or {}
 		o["team"] = sc.get("team") or o["opl_team"] or ""
 		o["schedule"] = sc.get("schedule")
 		o["scheduled"] = 1 if sc else 0
 		o["no_team"] = 0 if o["team"] else 1
-		o["hub"] = hub
+		o["hub"] = hubs.get(o["opl"]) or hub
 		o["trips"] = trips.get(o["opl"], [])
 		for b in o["by_farm"]:
 			b["arrived_hub"] = at_hub.get((o["opl"], b["farm"]), 0) + b["shelved"]

@@ -121,11 +121,6 @@
   </label>
 </div>
 <div class="ph-filters">
-  <input class="ph-input" id="f-customer" type="search" placeholder="Customer" aria-label="Customer" style="width:200px">
-  <input class="ph-input" id="f-so" type="search" placeholder="Sales order" aria-label="Sales order" style="width:160px">
-  <input class="ph-input" id="f-dn" type="search" placeholder="Delivery note" aria-label="Delivery note" style="width:160px">
-  <input class="ph-input" id="f-si" type="search" placeholder="Sales invoice" aria-label="Sales invoice" style="width:160px">
-  <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Search OPL, order, variety"></label>
   <div class="ph-filters__spacer"></div>
   <button class="ph-btn ph-btn--ghost ph-btn--sm" id="clear" type="button" hidden>Clear filters</button>
   <button class="ph-btn ph-btn--ghost ph-btn--sm" id="expand-all" type="button">Expand teams</button>
@@ -146,7 +141,7 @@
   const API = "upande_packhouse.api.v2.orders_workflow.";
   const today = PH.date.today();
   const tomorrow = PH.date.add(today, 1);
-  const st = PH.state({ from: tomorrow, to: tomorrow, pt: "", region: "", rose: "all", team: "", farm: "", group: "", customer: "", so: "", dn: "", si: "", q: "", stage: "all", view: "team" });
+  const st = PH.state({ from: tomorrow, to: tomorrow, pt: "", region: "", rose: "all", team: "", farm: "", group: "", stage: "all", view: "team" });
   let data = null;
   let seq = 0;
   const openSec = new Set();
@@ -156,7 +151,7 @@
   const masters = { teams: [], farms: [], groups: [] };
 
   const KPI_LABELS = ["Order lines", "Stems to deliver", "Issued of picked", "Packed of planned", "Boxes packed", "Dispatched", "Needs attention"];
-  const FILTER_KEYS = ["pt", "region", "team", "farm", "group", "customer", "so", "dn", "si", "q"];
+  const FILTER_KEYS = ["pt", "region", "team", "farm", "group"];
 
   /* ── Filters ── */
   PH.pills("#f-view", st, "view");
@@ -173,6 +168,10 @@
     if (on) document.querySelectorAll("#f-preset button").forEach((b) => b.classList.remove("is-on"));
   };
   ptBtn.addEventListener("click", () => st.set({ pt: st.get("pt") === "1" ? "" : "1" }));
+  // A preset picks delivery dates: Packed today goes off even when the range is already that preset's.
+  document.getElementById("f-preset").addEventListener("click", (e) => {
+    if (e.target.closest("button[data-value]") && st.get("pt") === "1") { st.set({ pt: "" }); paintPt(); }
+  });
   st.on((s, changed) => {
     if (s.pt === "1" && (changed.includes("from") || changed.includes("to"))) st.set({ pt: "" });
     else if (changed.includes("pt") || changed.includes("from") || changed.includes("to")) paintPt();
@@ -181,31 +180,7 @@
   PH.bindSelect("#f-team", st, "team");
   PH.bindSelect("#f-farm", st, "farm");
   PH.bindSelect("#f-group", st, "group");
-  PH.bindSearch("#f-q", st, "q");
 
-  // Document / customer boxes: autocomplete, apply on pick, clear when emptied.
-  function docBox(id, key, doctype, extra) {
-    const el = document.getElementById(id);
-    el.value = st.get(key) || "";
-    PH.autocomplete(el, {
-      source: PH.linkSource(doctype, { filters: extra || null }),
-      onSelect: (it) => {
-        if (doctype === "Customer") return st.set({ [key]: it.value });
-        PH.call(API + "get_document_dates", { doctype, name: it.value }, { silent: true }).then((m) => {
-          const p = { [key]: it.value };
-          if (m && m.from_date) { p.from = m.from_date; p.to = m.to_date; }
-          st.set(p);
-        }).catch(() => st.set({ [key]: it.value }));
-      },
-    });
-    el.addEventListener("keydown", (e) => { if (e.key === "Enter" && el.value.trim() && !document.querySelector(".ph-ac__item.is-active")) st.set({ [key]: el.value.trim() }); });
-    el.addEventListener("input", () => { if (!el.value.trim() && st.get(key)) st.set({ [key]: "" }); });
-    st.on((s) => { if ((s[key] || "") !== el.value.trim() && document.activeElement !== el) el.value = s[key] || ""; });
-  }
-  docBox("f-customer", "customer", "Customer");
-  docBox("f-so", "so", "Sales Order", { docstatus: 1 });
-  docBox("f-dn", "dn", "Delivery Note", { docstatus: 1 });
-  docBox("f-si", "si", "Sales Invoice", { docstatus: 1 });
 
   function fillSelects() {
     const s = st.get();
@@ -222,7 +197,13 @@
 
   st.on((s, changed) => {
     if (changed.length === 1 && changed[0] === "stage") return load();
-    if (changed.includes("region")) fillSelects();
+    if (changed.includes("region")) {
+      // A farm outside the new site would leave nothing to show: drop it.
+      const farms = PH.regionFarms(s.region);
+      const drop = s.farm && farms && !farms.includes(s.farm);
+      if (drop) st.set({ farm: "" }, { silent: true });
+      fillSelects();
+    }
     autoOpen = true;
     load();
   });
@@ -242,7 +223,7 @@
     }
     return PH.call(API + "get_orders_workflow", {
       from_date: s.from, to_date: s.to, region: s.region, farm: s.farm, team: s.team, rose_type: s.rose, item_group: s.group,
-      customer: s.customer, sales_order: s.so, delivery_note: s.dn, sales_invoice: s.si, q: s.q, stage: s.stage, view: s.view, packed_today: s.pt === "1" ? 1 : 0,
+      stage: s.stage, view: s.view, packed_today: s.pt === "1" ? 1 : 0,
     }, { silent: background }).then((m) => {
       if (my !== seq) return;
       if (!m || m.success === false) throw new Error((m && m.error) || "Could not load");
@@ -402,7 +383,7 @@
     });
   }
   // Sales Allocation (the Desk page): opens on the order and on this variety's line.
-  const allocUrl = (r) => "/desk/sales-allocation?sales_order=" + encodeURIComponent(r.sales_order) + "&sales_order_item=" + encodeURIComponent(r.soi) + (r.delivery_date ? "&delivery_date=" + r.delivery_date : "") + (r.farm ? "&farm=" + encodeURIComponent(r.farm) : "");
+  const allocUrl = (r) => "/packhouse-dashboard-v2/sales-allocation-v2?sales_order=" + encodeURIComponent(r.sales_order) + "&sales_order_item=" + encodeURIComponent(r.soi) + (r.delivery_date ? "&delivery_date=" + r.delivery_date : "") + (r.farm ? "&farm=" + encodeURIComponent(r.farm) : "");
   const allocBtn = (r, label) => `<a class="ph-btn ph-btn--sm ph-btn--primary" href="${PH.esc(allocUrl(r))}" target="_blank" rel="noopener" title="${PH.esc(label || "Allocate")} ${PH.esc(r.variety)} on ${PH.esc(r.sales_order)} in Sales Allocation">${PH.esc(label || "Allocate")}</a>`;
 
   /* One block per order, like the old Order Summary: numbered title, a line table with the

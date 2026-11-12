@@ -777,6 +777,8 @@ var DATA={orders:[],unscheduled:[],vehicles:[],trips:[],distances:[],truck_statu
 
 /* ---- farm road distances + collection-route optimisation (Farm Distance doctype) ---- */
 function pack(){ return DATA.packhouse||''; }
+// A trip's own sales farm: where its buckets go (Kapkolia, Chepsito ...).
+function tripHub(t){ return (t&&t.sales_farm)||pack(); }
 function distKm(a,b){ if(a===b) return 0; for(var i=0;i<DATA.distances.length;i++){ var d=DATA.distances[i]; if((d.a===a&&d.b===b)||(d.a===b&&d.b===a)) return d.km; } return null; }
 /* Km between two stops: the shortest drive over real road legs, else a direct-distance record. */
 function pairKm(a,b){ if(a===b) return 0; var rp=roadPath(a,b); if(rp.legs.length) return rp.km; return distKm(a,b); }
@@ -850,17 +852,17 @@ function saveRoute(vehicle){
 /* recommended collection route + distance (round trip from the packhouse). */
 /* "Kapkolia → Chepsito → Kaptumbo → Kapkolia" reads as "Chepsito → Kaptumbo → Kapkolia":
    the route from the farms to the packhouse, without the empty drive out. */
-function farmsToHub(chain){
+function farmsToHub(chain,hub){
   var p=String(chain||'').split(/\s*→\s*/).filter(Boolean);
-  if(p.length>1 && p[0]===pack()) p.shift();
+  if(p.length>1 && p[0]===(hub||pack())) p.shift();
   return p.join(' → ');
 }
-function routeHtml(farms){
+function routeHtml(farms,hub){
   var u=[]; (farms||[]).forEach(function(f){ if(f&&u.indexOf(f)<0)u.push(f); });
   if(!u.length) return '';
   var best=bestRoute(u);
   if(best.km==null) return '';   // distances missing for these farms
-  var chain=best.order.join(' → ')+' → '+pack();   // farms → packhouse (the drive out isn't shown)
+  var chain=best.order.join(' → ')+' → '+(hub||pack());   // farms → packhouse (the drive out isn't shown)
   return '<div class="route-box"><div class="route-row"><span class="rl">Route</span><span class="rp">'+esc(chain)+'</span><span class="rk">'+best.km.toFixed(2)+' km</span></div></div>';
 }
 
@@ -1169,17 +1171,20 @@ function trucksDialog(needs, vehicle){
       '#trk-modal .trk-ddo b{font:600 12.5px var(--mono,ui-monospace,monospace)}#trk-modal .trk-ddo span{color:var(--ink-4,#8a8a80);font-size:11px}'+
       '#trk-modal .trk-ddo:hover{background:rgba(10,10,10,.05)}#trk-modal .trk-ddo.on{background:#0a0a0a;color:#fafaf6}#trk-modal .trk-ddo.on span{color:#c9c9bf}';
   }
+  // a farm sends buckets to each sales farm on its own trips: one row per farm and sales farm
+  var manyHubs=((needs&&needs.sales_farms)||[]).length>1;
+  var fkey=function(f){ return f.farm+'||'+(f.sales_farm||''); };
   var farmRows=farms.map(function(f){
     var going=(f.going||[]).map(function(g){ return esc(g.vehicle)+(g.room!=null?' · '+g.room+' free':''); }).join(', ');
-    var on=f.buckets>0;
-    return '<div class="trk-farm'+(on?' on':'')+'"><input type="checkbox" data-tk-f="'+esc(f.farm)+'"'+(on?' checked':'')+'>'+
-      '<span><b>'+esc(f.farm)+'</b>'+(going?'<div class="go">'+going+'</div>':'')+'</span>'+
+    var on=f.buckets>0, k=fkey(f);
+    return '<div class="trk-farm'+(on?' on':'')+'"><input type="checkbox" data-tk-f="'+esc(k)+'"'+(on?' checked':'')+'>'+
+      '<span><b>'+esc(f.farm)+(manyHubs&&f.sales_farm?' → '+esc(f.sales_farm):'')+'</b>'+(going?'<div class="go">'+going+'</div>':'')+'</span>'+
       '<span class="bk"><b>'+n(f.buckets)+'</b> bucket'+(Number(f.buckets)===1?'':'s')+'</span>'+
-      (trucks.length?'<div class="trk-dd" data-tk-fv="'+esc(f.farm)+'" data-v=""><button type="button" class="trk-ddb"><span>All-farms truck</span><i>▾</i></button>'+
+      (trucks.length?'<div class="trk-dd" data-tk-fv="'+esc(k)+'" data-v=""><button type="button" class="trk-ddb"><span>All-farms truck</span><i>▾</i></button>'+
         '<div class="trk-ddm" hidden><button type="button" class="trk-ddo on" data-o="">All-farms truck</button>'+
         trucks.map(function(t){ return '<button type="button" class="trk-ddo" data-o="'+esc(t.name)+'"><b>'+esc(t.name)+'</b><span>'+n(t.capacity)+' buckets a trip</span></button>'; }).join('')+
         '</div></div>':'')+
-      '<button type="button" class="trk-comb" data-tk-c="'+esc(f.farm)+'" aria-pressed="false">One trip</button>'+
+      '<button type="button" class="trk-comb" data-tk-c="'+esc(k)+'" aria-pressed="false">One trip</button>'+
       '</div>';
   }).join('')||'<div class="rl-empty">No remote buckets to collect.</div>';
   var truckOpts=trucks.map(function(t){
@@ -1217,20 +1222,26 @@ function trucksDialog(needs, vehicle){
   if(send) send.onclick=function(){
     var picked=Array.prototype.map.call(m.querySelectorAll('[data-tk-f]:checked'),function(c){ return c.getAttribute('data-tk-f'); });
     if(!picked.length){ toast('Tick the farms the truck goes to'); return; }
+    // a truck's farms, per sales farm: each sales farm's buckets go on trips of their own
     var byTruck={}, order=[];
-    picked.forEach(function(f){
-      var sel=m.querySelector('[data-tk-fv="'+CSS.escape(f)+'"]'), v=(sel&&sel.getAttribute('data-v'))||pick;
-      if(!byTruck[v]){ byTruck[v]=[]; order.push(v); } byTruck[v].push(f);
+    picked.forEach(function(k){
+      var sel=m.querySelector('[data-tk-fv="'+CSS.escape(k)+'"]'), v=(sel&&sel.getAttribute('data-v'))||pick;
+      var sf=k.split('||')[1]||'', tk=v+'||'+sf;
+      if(!byTruck[tk]){ byTruck[tk]=[]; order.push(tk); } byTruck[tk].push(k);
     });
-    var isComb=function(f){ var c=m.querySelector('[data-tk-c="'+CSS.escape(f)+'"]'); return !!(c&&c.classList.contains('on')); };
+    var isComb=function(k){ var c=m.querySelector('[data-tk-c="'+CSS.escape(k)+'"]'); return !!(c&&c.classList.contains('on')); };
+    var farmOf=function(k){ return k.split('||')[0]; };
     var jobs=[];
-    order.forEach(function(v){
-      var together=byTruck[v].filter(isComb), apart=byTruck[v].filter(function(f){ return !isComb(f); });
-      if(together.length>1) jobs.push({v:v, farms:together, combine:1}); else apart=together.concat(apart);
-      if(apart.length) jobs.push({v:v, farms:apart, combine:0});
+    order.forEach(function(tk){
+      var v=tk.split('||')[0], sf=tk.split('||')[1]||'';
+      var together=byTruck[tk].filter(isComb), apart=byTruck[tk].filter(function(k){ return !isComb(k); });
+      if(together.length>1) jobs.push({v:v, sf:sf, farms:together.map(farmOf), combine:1}); else apart=together.concat(apart);
+      if(apart.length) jobs.push({v:v, sf:sf, farms:apart.map(farmOf), combine:0});
     });
     var plan=jobs.map(function(j){
-      return j.v+' → '+(j.combine?j.farms.join(' → ')+' (one trip)':j.farms.join(', ')+(j.farms.length>1?' ('+j.farms.length+' trips)':''));
+      // the truck, then where it collects and the sales farm it brings the buckets to: "KAX 254U: Simotwo → Chepsito"
+      var to=j.sf||(needs&&needs.sales_farms&&needs.sales_farms[0])||'';
+      return j.v+': '+(j.combine?j.farms.join(' → ')+(to?' → '+to:'')+' (one trip)':j.farms.join(', ')+(to?' → '+to:'')+(j.farms.length>1?' ('+j.farms.length+' trips)':''));
     }).join('; ');
     confirmModal('Send truck'+(order.length>1?'s':''), plan+'?', 'Send', false).then(function(ok){
     if(!ok) return;
@@ -1239,7 +1250,7 @@ function trucksDialog(needs, vehicle){
     jobs.reduce(function(p,j){
       return p.then(function(){
         var v=j.v;
-        return call('upande_packhouse.api.auto_transfer.addTruckForFarms',{farms:JSON.stringify(j.farms),vehicle:v,date:window.rtDate.get(),combine:j.combine}).then(function(r){
+        return call('upande_packhouse.api.auto_transfer.addTruckForFarms',{farms:JSON.stringify(j.farms),vehicle:v,date:window.rtDate.get(),combine:j.combine,sales_farm:j.sf}).then(function(r){
           var res=r.message||{};
           if(res.status==='error'||res.status==='busy'){ toast(v+': '+(res.message||'Could not send the truck')); return; }
           last=res; sent.push(v+' → '+(res.added_runs||[]).map(function(x){ return x.farm; }).join(', '));
@@ -2453,7 +2464,8 @@ function addNewFarmTrip(vehicle){
   var a=S.at; if(!a||a.busy) return;
   var v=DATA.vehicles.filter(function(x){ return x.name===vehicle; })[0];
   a.busy=true; a.err=''; renderAddTrip();
-  call('addFarmTrip',{vehicle:vehicle,farm:a.farm,date:todayISO()}).then(function(r){
+  var ord=(DATA.orders||[]).filter(function(x){ return x.opl===a.opl; })[0];
+  call('addFarmTrip',{vehicle:vehicle,farm:a.farm,date:todayISO(),sales_farm:(ord&&ord.sales_farm)||''}).then(function(r){
     var m=r.message||{};
     if(S.at!==a) return;
     if(m.status!=='success'){ a.busy=false; a.err=m.message||'Could not add the trip'; renderAddTrip(); return; }
@@ -2613,7 +2625,7 @@ function tripAge(since,until){
 }
 /* The farms a trip collects from (its route stops, else its orders' farms), hub left out. */
 function tripFrom(t){
-  var hub=pack(), src=(t.stops||[]).length?t.stops:(t.orders||[]).map(function(r){ return r.farm; }), seen={}, out=[];
+  var hub=tripHub(t), src=(t.stops||[]).length?t.stops:(t.orders||[]).map(function(r){ return r.farm; }), seen={}, out=[];
   src.forEach(function(f){ if(f && f!==hub && !seen[f]){ seen[f]=1; out.push(f); } });
   return out;
 }
@@ -2677,7 +2689,7 @@ function tripCardHtml(t){
       if(f===t.heading_to) return '<span class="tstop next">'+esc(f)+' · next</span>';
       return '<span class="tstop">'+esc(f)+'</span>';
     });
-    parts.push('<span class="tstop'+(t.status==='Dispatched'?' next':'')+'">'+esc(pack())+(t.status==='Dispatched'?' · heading there':'')+'</span>');
+    parts.push('<span class="tstop'+(t.status==='Dispatched'?' next':'')+'">'+esc(tripHub(t))+(t.status==='Dispatched'?' · heading there':'')+'</span>');
     stopsLine='<div class="tstops">'+parts.join('<span class="tarrow">→</span>')+'</div>';
   }
   // Trip 1, 2, 3 … each its own colour on every truck (repeats after six).
@@ -2697,7 +2709,7 @@ function tripCardHtml(t){
     '<div style="font:500 10px var(--mono);color:var(--ink-mute);margin-top:4px">'+used+' / '+(cap||'—')+' buckets'+(shown?' loaded':'')+(shown&&!t.unscheduled?' · '+(t.total_buckets||0)+' planned':'')+(shown?'':' · '+n(t.total_stems||0)+' stems')+(t.tracked_buckets?' · '+(t.shelved_buckets||0)+' / '+t.tracked_buckets+' shelved'+(t.off_truck_buckets?' · '+t.off_truck_buckets+' off the truck':''):'')+(t.received_at?' · ended '+esc(String(t.received_at).slice(11,16)):'')+'</div>'+
     stopsLine+
     statusPillsHtml(t)+
-    (t.run_chain?'<div class="route-box"><div class="route-row"><span class="rl">Route</span><span class="rp">'+esc(farmsToHub(t.run_chain))+'</span></div></div>':routeHtml(tripFarms2(t.orders)))+
+    (t.run_chain?'<div class="route-box"><div class="route-row"><span class="rl">Route</span><span class="rp">'+esc(farmsToHub(t.run_chain,tripHub(t)))+'</span></div></div>':routeHtml(tripFarms2(t.orders),tripHub(t)))+
     '<div class="trip-orders">'+rows+'</div></div>';
 }
 /* Why a farm's buckets have no trip, and the step that gets them one: no truck goes

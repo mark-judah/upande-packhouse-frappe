@@ -142,12 +142,31 @@ def _load_mapping(business_unit):
 	return table
 
 
-def resolve_route(source, business_unit, upto=SALE_STAGE):
+def _farm_home_source(table, farm):
+	"""The mapping source warehouse a sales farm packs from: its own row, the one with no
+	transfer (its Receiving Cold Store), else None."""
+	if not farm:
+		return None
+	for src, row in table.items():
+		if row.get("transfer_to"):
+			continue
+		wh_farm = frappe.db.get_value("Warehouse", src, "custom_farm") or src.split(" ", 1)[0]
+		if (wh_farm or "").lower() == farm.lower():
+			return src
+	return None
+
+
+def resolve_route(source, business_unit, upto=SALE_STAGE, to_farm=None):
 	"""The legs from `source` up to and including stage `upto`.
 
 	Returns [{"from", "to", "stage", "type", "terminal"}, ...] — empty when the
 	mapping has no row for `source`. `terminal` marks the sale leg, the one
 	stamped with the Sales Order Item.
+
+	to_farm: the sales farm a bucket goes to (its order's -- Production Settings > Remote
+	Transfer Sales Farms). A bucket at another farm -- a remote farm, or another sales farm --
+	gets an Arrival leg into that farm's own store, and the rest follows that farm's row,
+	whatever farm the mapping row transfers to.
 	"""
 	if upto not in STAGE_NAMES:
 		frappe.throw(f"Unknown stage '{upto}' — expected one of {', '.join(STAGE_NAMES)}")
@@ -156,6 +175,39 @@ def resolve_route(source, business_unit, upto=SALE_STAGE):
 	row = table.get(source)
 	if not row:
 		return []
+
+	home = _farm_home_source(table, to_farm) if to_farm else None
+	if home and home != source and home != row.get("transfer_to"):
+		hops = [
+			{
+				"from": source,
+				"to": home,
+				"stage": ARRIVAL_STAGE,
+				"type": TYPE_REMOTE_TRANSFER,
+				"terminal": False,
+			}
+		]
+		if upto == ARRIVAL_STAGE:
+			return hops
+		current, row = home, table[home]
+		for field, stage, entry_type in STAGES:
+			if stage == ARRIVAL_STAGE:
+				continue
+			target = row.get(field)
+			if target and target != current:
+				hops.append(
+					{
+						"from": current,
+						"to": target,
+						"stage": stage,
+						"type": entry_type,
+						"terminal": stage == SALE_STAGE,
+					}
+				)
+				current = target
+			if stage == upto:
+				break
+		return hops
 
 	# Legacy shape: before `transfer_to` existed, an outlying farm's row pointed
 	# its delivery_warehouse at the packhouse cold store, which was itself a
@@ -612,7 +664,9 @@ def plan_moves(rows, business_unit, upto=SALE_STAGE, only_stage=None):
 		if qty <= 0 or not bucket_id or not item_code:
 			continue
 
-		for depth, hop in enumerate(resolve_route(row["source"], business_unit, upto=upto)):
+		for depth, hop in enumerate(
+			resolve_route(row["source"], business_unit, upto=upto, to_farm=row.get("to_farm"))
+		):
 			if only_stage and hop["stage"] != only_stage:
 				continue
 
@@ -751,7 +805,10 @@ def post_arrival(
 	if not frappe.has_permission("Stock Entry", "submit"):
 		frappe.throw(_("Not permitted to move stock between warehouses"), frappe.PermissionError)
 
-	route = resolve_route(source_warehouse, business_unit, upto=ARRIVAL_STAGE)
+	# Shelved at a sales farm: the bucket arrives in that farm's own store (a bucket goes to
+	# its order's sales farm -- Production Settings > Remote Transfer Sales Farms).
+	to_farm = farm if farm and _farm_home_source(load_mapping(business_unit), farm) else None
+	route = resolve_route(source_warehouse, business_unit, upto=ARRIVAL_STAGE, to_farm=to_farm)
 	# Shelving at the remote farm itself (Chepsito shelving its own harvest) is not
 	# an arrival: the stems stay in that farm's cold store until the truck brings
 	# them and they are shelved at the farm the route lands on (Kapkolia).
@@ -770,6 +827,7 @@ def post_arrival(
 		"source": source_warehouse,
 		"stem_length": stem_length,
 		"farm": farm,
+		"to_farm": to_farm,
 		"remarks": f"Arrived {farm} packhouse" if farm else "Arrived packhouse",
 	}
 	plans, skipped = plan_moves([row], business_unit, upto=ARRIVAL_STAGE)
@@ -797,13 +855,14 @@ def shelved_at_arrival(route, farm):
 	return not dest_farm or dest_farm.lower() == farm.lower()
 
 
-def needs_transfer(source, business_unit):
-	"""The source warehouse is a remote farm's: its route starts with an Arrival leg."""
-	route = resolve_route(source, business_unit, upto=SALE_STAGE) if source else []
+def needs_transfer(source, business_unit, to_farm=None):
+	"""The source warehouse is a remote farm's -- or another sales farm's than `to_farm`, the
+	one the bucket goes to: its route starts with an Arrival leg."""
+	route = resolve_route(source, business_unit, upto=SALE_STAGE, to_farm=to_farm) if source else []
 	return bool(route) and route[0]["stage"] == ARRIVAL_STAGE
 
 
-def holding_warehouse(warehouse, farm, business_unit):
+def holding_warehouse(warehouse, farm, business_unit, to_farm=None):
 	"""Where an allocated bucket's stems wait until it is shelved at the sales farm.
 
 	A bucket on a remote farm (Chepsito, Torongo...) stays in that farm's receiving
@@ -812,13 +871,14 @@ def holding_warehouse(warehouse, farm, business_unit):
 	or pick row naming the hub for such a bucket -- left by an older transfer leg, or
 	a pick row already flipped to the hub on shelving -- would sell the stems from a
 	store they never reached, or skip the sale on arrival, so the farm's own store
-	wins then. Buckets shelved at the sales farm keep their warehouse.
+	wins then. Buckets shelved at the sales farm keep their warehouse. `to_farm`: the sales farm
+	the bucket goes to -- another sales farm's bucket waits in its own store too.
 	"""
-	if warehouse and needs_transfer(warehouse, business_unit):
+	if warehouse and needs_transfer(warehouse, business_unit, to_farm):
 		return warehouse
 	row = mapping_row_for_farm(farm, business_unit) if farm else None
 	home = row.source_warehouse if row else None
-	if home and needs_transfer(home, business_unit):
+	if home and needs_transfer(home, business_unit, to_farm):
 		return home
 	return warehouse or home
 
@@ -832,9 +892,8 @@ def ensure_arrival(bucket_id: str | None, business_unit: str | None = None, name
 	the farm store holds none of this harvest."""
 	if not bucket_id:
 		return []
-	from upande_packhouse.api.remote_transfer.transfer_scheduling import transfer_hub
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import opl_hub
 
-	hub = transfer_hub(required=False)
 	posted, done = [], set()
 	# `names`: only these pick rows (the line being issued) -- never another order's
 	# rows of a reused bucket ID, whose new harvest may still be at its farm.
@@ -867,8 +926,13 @@ def ensure_arrival(bucket_id: str | None, business_unit: str | None = None, name
 			or receiving_warehouse(bucket_id, row.item_code),
 			row.farm,
 			bu,
+			opl_hub(row.parent),
 		)
-		if not source or not needs_transfer(source, bu) or (row.item_code, source) in done:
+		if (
+			not source
+			or not needs_transfer(source, bu, opl_hub(row.parent))
+			or (row.item_code, source) in done
+		):
 			continue
 		done.add((row.item_code, source))
 		here = bucket_balance(bucket_id, row.item_code, source, current_cycle=True)
@@ -880,7 +944,7 @@ def ensure_arrival(bucket_id: str | None, business_unit: str | None = None, name
 			qty=here,
 			source_warehouse=source,
 			business_unit=bu,
-			farm=hub,
+			farm=opl_hub(row.parent),
 			stem_length=row.stem_length,
 		).get("posted", [])
 	return posted
@@ -908,6 +972,9 @@ def post_sale_on_arrival(bucket_id: str | None, business_unit: str | None = None
 		pluck="parent",
 		distinct=True,
 	)
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import opl_hubs
+
+	hubs = opl_hubs(names)
 	plans_by_bu, skipped = {}, []
 	left = {}  # (item, warehouse) -> this bucket's stems still there to sell
 	for opl_name in names:
@@ -926,10 +993,18 @@ def post_sale_on_arrival(bucket_id: str | None, business_unit: str | None = None
 				or receiving_warehouse(bucket_id, row.item_code),
 				row.get("farm"),
 				bu,
+				hubs.get(opl_name),
 			)
-			if not source or not needs_transfer(source, bu):
+			if not source or not needs_transfer(source, bu, hubs.get(opl_name)):
 				continue  # local bucket: sold at allocation
-			sale = next((h for h in resolve_route(source, bu, upto=SALE_STAGE) if h["terminal"]), None)
+			sale = next(
+				(
+					h
+					for h in resolve_route(source, bu, upto=SALE_STAGE, to_farm=hubs.get(opl_name))
+					if h["terminal"]
+				),
+				None,
+			)
 			if not sale:
 				continue
 			so_item = _row_so_item(row)
@@ -981,6 +1056,9 @@ def move_allocation_to_sold(allocations, business_unit, sales_order=None, opl=No
 	the caller allocates inside a transaction, so a sale we cannot back with
 	stock must roll the whole allocation back.
 	"""
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import order_hub
+
+	hub = order_hub(sales_order) if sales_order else None
 	rows, deferred = [], []
 	for a in allocations:
 		bucket_id = a.get("bucket_id")
@@ -993,6 +1071,7 @@ def move_allocation_to_sold(allocations, business_unit, sales_order=None, opl=No
 			a.get("warehouse") or receiving_warehouse(bucket_id, item_code),
 			a.get("_shelf_farm") or a.get("shelf_farm"),
 			business_unit,
+			hub,
 		)
 		if not source:
 			frappe.throw(
@@ -1003,7 +1082,7 @@ def move_allocation_to_sold(allocations, business_unit, sales_order=None, opl=No
 		# A remote farm's bucket is sold where it is, but its stems only move when it
 		# is shelved at the sales farm (post_sale_on_arrival) — not now, while it is
 		# still in the farm's cold store waiting for the truck.
-		if needs_transfer(source, business_unit):
+		if needs_transfer(source, business_unit, hub):
 			deferred.append({"bucket_id": bucket_id, "item_code": item_code, "source": source})
 			continue
 

@@ -29,7 +29,8 @@ import frappe
 from frappe.utils import add_days, get_datetime, getdate, now
 
 from upande_packhouse.api.remote_transfer import bucket_logistics as v1
-from upande_packhouse.api.remote_transfer.transfer_scheduling import transfer_hub
+from upande_packhouse.api.remote_transfer.transfer_scheduling import not_at_hub_sql, transfer_hub
+from upande_packhouse.api.remote_transfer.transfer_scheduling import sales_farms as _sales_farms
 
 MAX_DAYS = 62
 
@@ -187,7 +188,7 @@ def get_logistics_view(
 				pluck="farm",
 			)
 		)
-		sales_farms.add(hub)
+		sales_farms |= set(_sales_farms())
 		p = {"opls": opls, "sales_farms": tuple(f for f in sales_farms if f) or ("",)}
 		extra = ""
 		if keep_farms is not None:
@@ -210,9 +211,8 @@ def get_logistics_view(
 			)
 			+ " FROM `tabPick List Item` pli WHERE pli.parent IN %(opls)s AND pli.parenttype = 'Order Pick List' AND "
 			+ TRANSFER
-			+ " AND COALESCE("
-			+ FARM_EXPR
-			+ ", '') NOT IN %(sales_farms)s"
+			+ " AND "
+			+ not_at_hub_sql(FARM_EXPR)
 			+ extra,
 			p,
 			as_dict=True,

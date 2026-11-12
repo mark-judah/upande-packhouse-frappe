@@ -345,10 +345,6 @@ scheduler_events = {
 		"upande_packhouse.allocation_plan.mark_missing_buckets",
 	],
 	"cron": {
-		# Midnight: every trip of the day before is ended -- none runs into the next day.
-		"0 0 * * *": [
-			"upande_packhouse.api.remote_transfer.transfer_scheduling.close_previous_day_trips",
-		],
 		# No-op unless Production Settings > Enable Automatic Remote Transfers Scheduling.
 		# Fires every 5 minutes; auto_transfer.run() re-plans at the frequency set on
 		# Production Settings > Remote Transfers (5-60 minutes).

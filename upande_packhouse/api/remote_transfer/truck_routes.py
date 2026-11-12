@@ -21,7 +21,9 @@ from upande_packhouse.api.remote_transfer.transfer_scheduling import (
 	_route_legs,
 	_route_runs_by_name,
 	_vehicle_on_road,
+	is_sales_farm,
 	open_trip_to_farm,
+	route_hub_of,
 	route_runs,
 	transfer_hub,
 )
@@ -80,7 +82,7 @@ def _route_to_update(date, vehicle, name=None, new=0, auto_planned=0):
 	return None, None
 
 
-def _route_path(leg_names, old_legs=None, allow_multi=False):
+def _route_path(leg_names, old_legs=None, allow_multi=False, hub=None):
 	"""Farm Distance names in driving order -> (path, error). The path is one continuous
 	round trip from the packhouse back to it, each leg stored in the direction driven
 	(roads are undirected) and numbered with its run (trip). One farm per trip: a run
@@ -100,7 +102,17 @@ def _route_path(leg_names, old_legs=None, allow_multi=False):
 	if unknown:
 		return None, "Unknown road leg(s): {0}. Refresh the page and try again.".format(", ".join(unknown))
 
-	hub = transfer_hub()
+	# The route starts and ends at a sales farm: `hub` when given, else where the route being
+	# saved over starts, else the first leg's end that is one (its from_farm first), else the
+	# first Remote Transfer Sales Farm.
+	first = by_name[leg_names[0]] if leg_names else None
+	old_start = (old_legs[0].get("from_farm") if old_legs else None) or None
+	hub = (
+		hub
+		or (old_start if is_sales_farm(old_start) else None)
+		or (next((f for f in (first.from_farm, first.to_farm) if is_sales_farm(f)), None) if first else None)
+		or transfer_hub()
+	)
 	path, here = [], hub
 	for ln in leg_names:
 		d = by_name[ln]
@@ -146,6 +158,7 @@ def _save_route(
 	commit=True,
 	append_only=False,
 	allow_multi=False,
+	hub=None,
 ):
 	"""Validate and save a truck's Bucket Logistics Route; returns the response message.
 	A route saved by hand (auto_planned=0) is never re-routed by automatic scheduling.
@@ -160,11 +173,14 @@ def _save_route(
 		return {"status": "error", "message": err}
 	# allow_multi: a trip chosen on purpose to go via several farms (add_farms_run)
 	path, err = _route_path(
-		leg_names, old_legs=_route_legs(doc.name) if doc is not None else None, allow_multi=allow_multi
+		leg_names,
+		old_legs=_route_legs(doc.name) if doc is not None else None,
+		allow_multi=allow_multi,
+		hub=hub,
 	)
 	if err:
 		return {"status": "error", "message": err}
-	hub = transfer_hub()
+	hub = path[0]["from_farm"] if path else transfer_hub()
 
 	busy = _vehicle_on_road(vehicle) if check_on_road else None
 	if busy and str(date) == str(frappe.utils.today()) and not (append_only and _appends_only(doc, path)):
@@ -467,7 +483,7 @@ def addFarmTrip():
 	# Refused (reason "open_trip", with that trip, its truck and room) while any truck's
 	# trip to the farm has room and hasn't left it: the buckets go on that trip.
 	fd = frappe.form_dict
-	res = add_farm_run(fd.get("vehicle"), fd.get("farm"), fd.get("date"))
+	res = add_farm_run(fd.get("vehicle"), fd.get("farm"), fd.get("date"), hub=fd.get("sales_farm") or None)
 	if res.get("status") == "success":
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	frappe.response["message"] = res
@@ -480,6 +496,7 @@ def add_farm_run(
 	enforce_room: bool = False,
 	while_on_road: bool = False,
 	new_route: bool = True,
+	hub=None,
 ):
 	"""A new trip (packhouse → farm → packhouse) at the end of the truck's latest route
 	on `date` (a new all-day route if it has none). Returns {status, route, run} or why not.
@@ -490,11 +507,14 @@ def add_farm_run(
 	added even while the truck is out -- only appended after its runs, so the one on the
 	road is untouched. new_route=False (Distribute and automatic scheduling): only on a
 	route the truck already has that day -- a truck with no route that day is not working
-	and is refused (reason "no_route")."""
+	and is refused (reason "no_route"). hub: the sales farm the run delivers to (default the
+	first Remote Transfer Sales Farm); a run is added to the truck's latest route only when that
+	route starts there, else on a new route of its own."""
 	date = str(frappe.utils.getdate(date or frappe.utils.today()))
 	if not vehicle or not farm:
 		return {"status": "error", "message": "A truck and a farm are required."}
-	held = open_trip_to_farm(farm, date)
+	hub = hub or transfer_hub()
+	held = open_trip_to_farm(farm, date, hub=hub)
 	if held:
 		return {
 			"status": "error",
@@ -508,7 +528,7 @@ def add_farm_run(
 				held["vehicle"], held["trip"], farm, held["room"]
 			),
 		}
-	roomy = enforce_room and [(r, n) for r, n in _open_run_room(vehicle, date, farm) if n > 0]
+	roomy = enforce_room and [(r, n) for r, n in _open_run_room(vehicle, date, farm, hub=hub) if n > 0]
 	if roomy:
 		run, room = roomy[0]
 		return {
@@ -520,8 +540,7 @@ def add_farm_run(
 				vehicle, run["run"], farm, room
 			),
 		}
-	hub = transfer_hub()
-	road = _farm_distance_between(hub, farm)
+	road = _road_between(hub, farm)
 	if not road:
 		return {
 			"status": "error",
@@ -536,6 +555,18 @@ def add_farm_run(
 		order_by="from_datetime desc",
 		limit=1,
 	)
+	# A route with no trips yet (+ Add truck) starts wherever its first trip does.
+	other_hub = bool(latest) and bool(_route_legs(latest[0])) and route_hub_of(latest[0]) != hub
+	if other_hub and not new_route:
+		return {
+			"status": "error",
+			"reason": "no_route",
+			"message": "{0}'s route on {1} runs from {2}, not {3} — make it a route from {3} on Truck Routes first.".format(
+				vehicle, date, route_hub_of(latest[0]), hub
+			),
+		}
+	if other_hub:
+		latest = []
 	if not latest and not new_route:
 		return {
 			"status": "error",
@@ -554,13 +585,19 @@ def add_farm_run(
 		res = _save_route(
 			date=date,
 			vehicle=vehicle,
-			leg_names=legs + [road, road],
+			leg_names=legs + road + road[::-1],
 			name=latest[0],
 			append_only=while_on_road,
+			hub=hub,
 		)
 	else:
 		res = _save_route(
-			date=date, vehicle=vehicle, leg_names=[road, road], new=1, append_only=while_on_road
+			date=date,
+			vehicle=vehicle,
+			leg_names=road + road[::-1],
+			new=1,
+			append_only=while_on_road,
+			hub=hub,
 		)
 	if res.get("status") == "success":
 		res["route"] = res["name"]
@@ -568,7 +605,7 @@ def add_farm_run(
 	return res
 
 
-def add_farms_run(vehicle, farms, date=None):
+def add_farms_run(vehicle, farms, date=None, hub=None):
 	"""One trip collecting at several farms, chosen on purpose: packhouse → each farm in turn →
 	packhouse, at the end of the truck's latest route on `date` (a new all-day route if it has
 	none). Every leg is a road in the Routes (farm distances), farm to farm included. A farm whose
@@ -578,8 +615,9 @@ def add_farms_run(vehicle, farms, date=None):
 	farms = [f for i, f in enumerate(farms or []) if f and f not in farms[:i]]
 	if not vehicle or len(farms) < 2:
 		return {"status": "error", "message": "A truck and at least two farms are required."}
+	hub = hub or transfer_hub()
 	for farm in farms:
-		held = open_trip_to_farm(farm, date)
+		held = open_trip_to_farm(farm, date, hub=hub)
 		if held:
 			return {
 				"status": "error",
@@ -588,13 +626,12 @@ def add_farms_run(vehicle, farms, date=None):
 					held["vehicle"], held["trip"], farm, held["room"]
 				),
 			}
-	hub = transfer_hub()
 	stops = [hub] + farms + [hub]
 	legs, missing = [], []
 	for a, b in itertools.pairwise(stops):
-		road = _farm_distance_between(a, b)
+		road = _road_between(a, b)
 		if road:
-			legs.append(road)
+			legs += road
 		else:
 			missing.append("{0} – {1}".format(a, b))
 	if missing:
@@ -611,6 +648,8 @@ def add_farms_run(vehicle, farms, date=None):
 		order_by="from_datetime desc",
 		limit=1,
 	)
+	if latest and _route_legs(latest[0]) and route_hub_of(latest[0]) != hub:
+		latest = []
 	if latest:
 		old = frappe.get_all(
 			"Bucket Logistics Route Leg",
@@ -618,9 +657,11 @@ def add_farms_run(vehicle, farms, date=None):
 			pluck="leg",
 			order_by="idx asc",
 		)
-		res = _save_route(date=date, vehicle=vehicle, leg_names=old + legs, name=latest[0], allow_multi=True)
+		res = _save_route(
+			date=date, vehicle=vehicle, leg_names=old + legs, name=latest[0], allow_multi=True, hub=hub
+		)
 	else:
-		res = _save_route(date=date, vehicle=vehicle, leg_names=legs, new=1, allow_multi=True)
+		res = _save_route(date=date, vehicle=vehicle, leg_names=legs, new=1, allow_multi=True, hub=hub)
 	if res.get("status") == "success":
 		res["route"] = res["name"]
 		res["run"] = len(_route_runs_by_name(res["name"]))
@@ -782,6 +823,32 @@ def _farm_distance_between(a, b):
 	return frappe.db.get_value("Farm Distance", {"from_farm": a, "to_farm": b}) or frappe.db.get_value(
 		"Farm Distance", {"from_farm": b, "to_farm": a}
 	)
+
+
+def _road_between(a, b):
+	"""[Farm Distance names] driven from `a` to `b`: the direct record when there is one, else the
+	shortest chain of road legs (is_road_leg) through other farms -- Chepsito to Simotwo goes via
+	Kapkolia. [] when no road joins them."""
+	direct = _farm_distance_between(a, b)
+	if direct:
+		return [direct]
+	adj = {}
+	for d in frappe.get_all(
+		"Farm Distance", filters={"is_road_leg": 1}, fields=["name", "from_farm", "to_farm"]
+	):
+		adj.setdefault(d.from_farm, []).append((d.to_farm, d.name))
+		adj.setdefault(d.to_farm, []).append((d.from_farm, d.name))
+	seen, queue = {a}, [(a, [])]
+	while queue:
+		node, path = queue.pop(0)
+		for nxt, leg in adj.get(node, []):
+			if nxt in seen:
+				continue
+			if nxt == b:
+				return path + [leg]
+			seen.add(nxt)
+			queue.append((nxt, path + [leg]))
+	return []
 
 
 @frappe.whitelist(methods=["POST"])

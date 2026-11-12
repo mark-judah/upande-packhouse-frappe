@@ -55,7 +55,7 @@ def create_mixed_bunch_pick_list_for_allocated_items(
 	if sales_order_doc.docstatus != 1:
 		frappe.throw(_("An Order Pick List can only be created for submitted Sales Orders."))
 
-	shelf_farm = _get_shelf_farm_for_location(location)
+	shelf_farm = _get_shelf_farm_for_location(location, sales_order_doc)
 	if not shelf_farm:
 		shelf_farm = sales_order_doc.farm or "Karen"
 

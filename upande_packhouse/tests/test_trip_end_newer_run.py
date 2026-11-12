@@ -45,28 +45,12 @@ class UnitTestTripEndNewerRun(UnitTestCase):
 		# B2 is still in transit: loading the truck's next run does not end this one.
 		doc = _trip()
 		with (
-			patch.object(ts, "_carry_over_unshelved", return_value=False),
 			patch.object(ts, "_newer_run_started", return_value="BRT-NEW"),
 			patch.object(ts, "_receive_trip") as receive,
 		):
 			self.assertFalse(ts._end_trip_for_newer_run(doc))
 		receive.assert_not_called()
 		doc.add_comment.assert_not_called()
-
-	def test_carry_setting_moves_the_stragglers_onto_the_later_trip(self):
-		# Production Settings > Carry Unshelved Buckets to the Truck's Next Trip: B2 rides
-		# the later trip and this one ends.
-		doc = _trip()
-		with (
-			patch.object(ts, "_carry_over_unshelved", return_value=True),
-			patch.object(ts, "_newer_run_started", return_value="BRT-NEW"),
-			patch.object(ts, "_receive_trip") as receive,
-			patch.object(ts, "_carry_unshelved") as carry,
-		):
-			self.assertTrue(ts._end_trip_for_newer_run(doc))
-		receive.assert_called_once_with("BRT-OLD")
-		carry.assert_called_once()
-		self.assertEqual([b.bucket for b in carry.call_args.args[2]], ["B2"])
 
 	def test_trip_stays_open_without_a_later_run(self):
 		doc = _trip(straggler=False)
