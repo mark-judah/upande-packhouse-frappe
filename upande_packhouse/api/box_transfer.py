@@ -71,17 +71,23 @@ def _box(box_label):
 	return frappe.get_doc("Box Label", name)
 
 
-def _delivery_dates(opls):
-	return dict(
-		frappe.db.sql(
-			"""SELECT o.name, so.delivery_date FROM `tabOrder Pick List` o
-			JOIN `tabSales Order` so ON so.name = o.sales_order WHERE o.name IN %(o)s""",
-			{"o": tuple(opls) or ("",)},
-		)
-	)
+RECENT_DAYS = 7
+
+_FIELDS = """b.name, b.box_number, b.customer, b.customer_name, b.order_name, b.order_pick_list, b.variety,
+	b.length, b.farm, b.staged, b.loaded, b.transfer_status, b.transfer_vehicle, b.transfer_to,
+	b.transfer_sent_at, b.transfer_received_at, b.transfer_loaded_at, b.arrived_at_main_farm,
+	so.delivery_date"""
+
+_JOINS = """FROM `tabBox Label` b
+	LEFT JOIN `tabOrder Pick List` o ON o.name = b.order_pick_list
+	LEFT JOIN `tabSales Order` so ON so.name = o.sales_order"""
 
 
-def _row(b, dates):
+def _boxes(where, values, order_by):
+	return frappe.db.sql(f"SELECT {_FIELDS} {_JOINS} WHERE {where} ORDER BY {order_by}", values, as_dict=True)
+
+
+def _row(b):
 	return {
 		"box_label": b.name,
 		"box_number": b.box_number,
@@ -91,7 +97,7 @@ def _row(b, dates):
 		"variety": b.variety or "",
 		"length": b.length or "",
 		"farm": b.farm or "",
-		"delivery_date": str(dates.get(b.order_pick_list) or ""),
+		"delivery_date": str(b.get("delivery_date") or ""),
 		"status": b.transfer_status or "",
 		"staged": cint(b.get("staged")),
 		"vehicle": b.transfer_vehicle or "",
@@ -107,54 +113,49 @@ def transfer_data(station, delivery_date=None):
 
 	send (a sales farm sending to the main one): its staged boxes still to load, the ones on each truck and
 	the ones on their way; receive (the main sales farm): the boxes on their way to it and the ones received.
-	Only orders delivering on `delivery_date` when given."""
+	Only orders delivering on `delivery_date` when given, else the ones still moving and the last days'."""
+	from frappe.utils import add_days, getdate, today
+
 	from upande_packhouse.api.remote_transfer.transfer_scheduling import sales_farms
 
 	main = main_sales_farm()
 	station = (station or "").strip()
 	senders = [f for f in sales_farms() if f != main]
 	role = "receive" if station and station == main else ("send" if station in senders else "none")
-	fields = [
-		"name",
-		"box_number",
-		"customer",
-		"customer_name",
-		"order_name",
-		"order_pick_list",
-		"variety",
-		"length",
-		"farm",
-		"staged",
-		"loaded",
-		"transfer_status",
-		"transfer_vehicle",
-		"transfer_to",
-		"transfer_sent_at",
-		"transfer_received_at",
-		"transfer_loaded_at",
-		"arrived_at_main_farm",
-	]
+	values = {
+		"station": station,
+		"main": main,
+		"loaded": LOADED,
+		"in_transit": IN_TRANSIT,
+		"received": RECEIVED,
+		"since": add_days(today(), -RECENT_DAYS),
+	}
+	if delivery_date:
+		values["date"] = getdate(delivery_date)
+		when = "so.delivery_date = %(date)s"
+	elif role == "send":
+		# still here (recent orders), on a truck or on the way, or received in the last days
+		when = """((IFNULL(b.transfer_status, '') = '' AND IFNULL(b.loaded, 0) = 0
+				AND so.delivery_date >= %(since)s)
+			OR b.transfer_status IN (%(loaded)s, %(in_transit)s)
+			OR (b.transfer_status = %(received)s AND b.transfer_received_at >= %(since)s))"""
+	else:
+		when = """(b.transfer_status = %(in_transit)s
+			OR (b.transfer_status = %(received)s AND b.transfer_received_at >= %(since)s))"""
 	if role == "send":
-		boxes = frappe.get_all(
-			"Box Label",
-			# its boxes still here, and the ones it sent (their trips, received or not)
-			filters={"farm": station},
-			fields=fields,
-			order_by="customer asc, order_name asc, box_number asc",
+		boxes = _boxes(
+			f"b.farm = %(station)s AND {when}", values, "b.customer asc, b.order_name asc, b.box_number asc"
 		)
 	elif role == "receive":
-		boxes = frappe.get_all(
-			"Box Label",
-			filters={"transfer_to": main, "transfer_status": ["in", [LOADED, IN_TRANSIT, RECEIVED]]},
-			fields=fields,
-			order_by="transfer_sent_at desc, name asc",
+		# a truck still loading at its farm has not left: nothing to receive yet
+		boxes = _boxes(
+			f"b.transfer_to = %(main)s AND b.transfer_status IN (%(in_transit)s, %(received)s) AND {when}",
+			values,
+			"b.transfer_sent_at desc, b.name asc",
 		)
 	else:
 		boxes = []
-	dates = _delivery_dates({b.order_pick_list for b in boxes if b.order_pick_list})
-	if delivery_date:
-		boxes = [b for b in boxes if str(dates.get(b.order_pick_list) or "") == str(delivery_date)]
-	rows = [_row(b, dates) for b in boxes]
+	rows = [_row(b) for b in boxes]
 	out = {
 		"role": role,
 		"main": main,
@@ -162,17 +163,47 @@ def transfer_data(station, delivery_date=None):
 		"trucks": transfer_trucks() if role == "send" else [],
 	}
 	if role == "send":
-		staged = {b.name for b in boxes if cint(b.staged)}
-		waiting = {b.name for b in boxes if not cint(b.loaded) and not b.transfer_status}
-		out["to_load"] = [r for r in rows if r["box_label"] in waiting and r["box_label"] in staged]
-		out["not_staged"] = [r for r in rows if r["box_label"] in waiting and r["box_label"] not in staged]
+		on_dispatch = {b.name for b in boxes if cint(b.loaded)}
+		waiting = [r for r in rows if not r["status"] and r["box_label"] not in on_dispatch]
+		out["to_load"] = [r for r in waiting if r["staged"]]
+		out["not_staged"] = [r for r in waiting if not r["staged"]]
 		out["loaded"] = [r for r in rows if r["status"] == LOADED]
 		out["in_transit"] = [r for r in rows if r["status"] == IN_TRANSIT]
 	elif role == "receive":
-		out["in_transit"] = [r for r in rows if r["status"] in (LOADED, IN_TRANSIT)]
+		out["in_transit"] = [r for r in rows if r["status"] == IN_TRANSIT]
 		out["received"] = [r for r in rows if r["status"] == RECEIVED]
-	out["trips"] = _trips([r for r in rows if r["status"]])
+	out["trips"] = _trips(_trip_rows([r for r in rows if r["status"]], station if role == "send" else None))
 	return out
+
+
+def _trip_rows(rows, farm):
+	"""Every box of the trips `rows` belong to, whatever their delivery date: a trip's count is the truck's."""
+	keys = {(r["vehicle"], r["sent_at"] if r["status"] != LOADED else "") for r in rows if r["vehicle"]}
+	if not keys:
+		return rows
+	out = {r["box_label"]: r for r in rows}
+	sent = {k for k in keys if k[1]}
+	loading = {k[0] for k in keys if not k[1]}
+	if sent:
+		conds = " OR ".join(
+			f"(b.transfer_vehicle = %(v{i})s AND b.transfer_sent_at = %(s{i})s)" for i in range(len(sent))
+		)
+		values = {"in_transit": IN_TRANSIT, "received": RECEIVED}
+		for i, (v, s) in enumerate(sent):
+			values[f"v{i}"], values[f"s{i}"] = v, s
+		for b in _boxes(
+			f"b.transfer_status IN (%(in_transit)s, %(received)s) AND ({conds})", values, "b.name asc"
+		):
+			out.setdefault(b.name, _row(b))
+	if loading:
+		for b in _boxes(
+			"b.transfer_status = %(loaded)s AND b.transfer_vehicle IN %(vehicles)s"
+			+ (" AND b.farm = %(farm)s" if farm else ""),
+			{"loaded": LOADED, "vehicles": tuple(loading), "farm": farm},
+			"b.name asc",
+		):
+			out.setdefault(b.name, _row(b))
+	return list(out.values())
 
 
 def _trips(rows):
@@ -261,9 +292,15 @@ def load_box(box_label, vehicle, station):
 
 def send_truck(vehicle, station):
 	"""The truck leaves: every box loaded on it at this farm is on its way to the main sales farm."""
+	station = (station or "").strip()
+	vehicle = (vehicle or "").strip()
+	if not station:
+		frappe.throw(_("Set this device's station (the farm the truck leaves from) first."))
+	if not vehicle or not frappe.db.exists("Vehicle", vehicle):
+		frappe.throw(_("Truck {0} not found.").format(vehicle or "—"))
 	names = frappe.get_all(
 		"Box Label",
-		filters={"transfer_vehicle": vehicle, "transfer_status": LOADED, **({"farm": station} if station else {})},
+		filters={"transfer_vehicle": vehicle, "transfer_status": LOADED, "farm": station},
 		pluck="name",
 	)
 	if not names:
@@ -290,8 +327,16 @@ def receive_box(box_label, station):
 		frappe.throw(_("Boxes are received at {0}.").format(main))
 	if box.transfer_status == RECEIVED:
 		return {"status": "duplicate", "message": _("Box {0} was already received.").format(box.name)}
-	if box.transfer_status not in (LOADED, IN_TRANSIT):
-		frappe.throw(_("Box {0} was not sent here: load it on a transfer truck at {1}.").format(box.name, box.farm))
+	if box.transfer_status == LOADED:
+		frappe.throw(
+			_("Box {0} is still on {1} at {2} — send the truck first.").format(
+				box.name, box.transfer_vehicle or "", box.farm
+			)
+		)
+	if box.transfer_status != IN_TRANSIT:
+		frappe.throw(
+			_("Box {0} was not sent here: load it on a transfer truck at {1}.").format(box.name, box.farm)
+		)
 	src = stock_movement.mapping_row_for_farm(box.farm, "Roses")
 	dst = stock_movement.mapping_row_for_farm(main, "Roses")
 	if not (src and src.dispatch_cold_store and dst and dst.dispatch_cold_store):
@@ -344,22 +389,29 @@ def receive_trip(vehicle, sent_at, count, station):
 	main = main_sales_farm()
 	if station and station != main:
 		frappe.throw(_("Boxes are received at {0}.").format(main))
-	filters = {
-		"transfer_vehicle": vehicle,
-		"transfer_to": main,
-		"transfer_status": ["in", [LOADED, IN_TRANSIT]],
-	}
-	if sent_at:
-		filters["transfer_sent_at"] = sent_at
-	names = frappe.get_all("Box Label", filters=filters, pluck="name", order_by="name asc")
+	if not vehicle or not sent_at:
+		frappe.throw(_("Pick a trip that has left its farm."))
+	# every box of the trip, whatever its delivery date: the count is the truck's
+	trip = frappe.get_all(
+		"Box Label",
+		filters={
+			"transfer_vehicle": vehicle,
+			"transfer_to": main,
+			"transfer_sent_at": sent_at,
+			"transfer_status": ["in", [IN_TRANSIT, RECEIVED]],
+		},
+		fields=["name", "transfer_status"],
+		order_by="name asc",
+	)
+	names = [b.name for b in trip if b.transfer_status == IN_TRANSIT]
 	if not names:
 		frappe.throw(_("Nothing on {0} is waiting to be received.").format(vehicle))
 	counted = cint(count)
 	if counted != len(names):
 		frappe.throw(
-			_("You counted {0} boxes but {1} are on {2} — scan each box instead.").format(
-				counted, len(names), vehicle
-			)
+			_(
+				"You counted {0} boxes but {1} are on {2} ({3} of the trip's {4} already received) — scan each box instead."
+			).format(counted, len(names), vehicle, len(trip) - len(names), len(trip))
 		)
 	for n in names:
 		receive_box(n, station)

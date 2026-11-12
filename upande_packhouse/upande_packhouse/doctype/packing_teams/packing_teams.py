@@ -64,3 +64,10 @@ class PackingTeams(Document):
 			)
 			if other:
 				frappe.throw(_("{0} is already in {1}.").format(row.employee_name or row.employee, other))
+
+	def on_update(self):
+		# team_sales_farms() is read once per request
+		frappe.local._team_sales_farms = None
+
+	def on_trash(self):
+		frappe.local._team_sales_farms = None

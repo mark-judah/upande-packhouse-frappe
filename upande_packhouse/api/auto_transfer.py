@@ -172,6 +172,8 @@ def _scheduled_portions(today):
 	out = {}
 	for o in orders:
 		hub = o.get("sales_farm") or default
+		if not tc.is_sales_farm(hub):
+			continue  # packed at its own sales farm (e.g. Karen unlisted): no remote transfer trips
 		for f in o["farms"]:
 			if not f.get("farm") or f["farm"] == hub:
 				continue
@@ -502,7 +504,11 @@ def _waiting_by_farm(window=None):
 		if not o.get("schedule"):
 			continue
 		hub = o.get("sales_farm") or default
+		if not tc.is_sales_farm(hub):
+			continue  # packed at its own sales farm (e.g. Karen unlisted): no remote transfer trips
 		for f in o["farms"]:
+			if not f.get("farm") or f["farm"] == hub:
+				continue
 			left = int(f["buckets"] or 0) - covered.get((o["opl"], f["farm"]), 0)
 			if left > 0:
 				waiting[(f["farm"], hub)] = waiting.get((f["farm"], hub), 0) + left

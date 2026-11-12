@@ -2368,17 +2368,19 @@ function distWhen(v){
 /* One truck per farm at a time (server rule: transfer_control._farm_taken). Trips of
    today, not ended, that collect from `farm` — [{vehicle, trip, from, to}]. A trip on a
    route is out in the route's From–To; one without a route, all day. */
-function farmHolders(farm){
+function farmHolders(farm,hub){
   var win={}; DATA.vehicles.forEach(function(v){ (v.runs||[]).forEach(function(r){ if(r.trip) win[r.trip]={from:r.from_datetime,to:r.to_datetime}; }); });
   var today=todayISO();
+  // A farm sends one truck per sales farm: only trips to the same sales farm hold it.
   return (DATA.trips||[]).filter(function(t){
-    return t.trip_date===today && t.status!=='Received' && (t.departed_stops||[]).indexOf(farm)<0 &&
+    return t.trip_date===today && t.status!=='Received' && (!hub || tripHub(t)===hub) && (t.departed_stops||[]).indexOf(farm)<0 &&
       (t.orders||[]).some(function(o){ return o.farm===farm; });
   }).map(function(t){ var w=win[t.name]||{}; return {vehicle:t.vehicle,trip:t.name,from:w.from||today+' 00:00:00',to:w.to||today+' 23:59:59'}; });
 }
 function overlaps(a0,a1,b0,b1){ return String(a0)<String(b1) && String(b0)<String(a1); }
-function tripChoices(farm){
-  var out=[], holders=farmHolders(farm), today=todayISO();
+function tripChoices(farm,hub){
+  hub=hub||pack();
+  var out=[], holders=farmHolders(farm,hub), today=todayISO();
   DATA.vehicles.forEach(function(v){
     (v.runs||[]).forEach(function(r){
       var t=r.trip?(DATA.trips||[]).filter(function(x){ return x.name===r.trip; })[0]:null;
@@ -2386,13 +2388,14 @@ function tripChoices(farm){
       var why=!(r.stops||[]).length?'no farms'
         :r.trip&&r.trip_status!=='Draft'&&r.trip_status!=='Scheduled'?'already '+(r.trip_status==='Received'?'back':String(r.trip_status||'').toLowerCase())
         :r.stops.indexOf(farm)<0?'doesn’t visit '+farm
+        :r.hub&&r.hub!==hub?'goes to '+r.hub+', not '+hub
         :!v.capacity_buckets?'no capacity set'
         :rem<=0?'full':'';
       // Another truck already collecting from this farm at an overlapping time: it takes all the farm's orders.
       var clash=holders.filter(function(h){ return h.vehicle!==v.name && overlaps(r.from_datetime||today+' 00:00:00',r.to_datetime||today+' 23:59:59',h.from,h.to); })[0];
       if(!why && clash) why=clash.vehicle+' is collecting from '+farm+' then — use it';
       var holds=holders.some(function(h){ return h.vehicle===v.name; });
-      out.push({vehicle:v.name,route:r.route,run:r.run,runs:r.runs,stops:r.stops||[],from:r.from_datetime,to:r.to_datetime,trip:r.trip,rem:rem,why:why,holds:holds});
+      out.push({vehicle:v.name,route:r.route,run:r.run,runs:r.runs,stops:r.stops||[],hub:r.hub||hub,from:r.from_datetime,to:r.to_datetime,trip:r.trip,rem:rem,why:why,holds:holds});
     });
   });
   // The truck already at this farm first: it picks up all the farm's orders.
@@ -2417,7 +2420,7 @@ function renderAddTrip(){
       ? '<div class="rn-field wide"><span>Trips going to '+esc(a.farm)+'</span><div class="nr-list">'+ok.map(function(c){ var take=Math.min(a.open,c.rem);
           return '<button type="button" class="rl-card nr-pick" data-at="'+a.choices.indexOf(c)+'"'+(a.busy?' disabled':'')+'>'+
             '<span class="rl-veh">'+esc(c.vehicle)+'</span><span class="rl-meta">Trip '+c.run+(c.runs>1?'/'+c.runs:'')+(c.from?' · '+esc(String(c.from).slice(11,16)):'')+'</span>'+
-            '<span class="rl-chain">'+chainHtml([pack()].concat(c.stops).concat([pack()]))+'</span>'+
+            '<span class="rl-chain">'+chainHtml([c.hub||pack()].concat(c.stops).concat([c.hub||pack()]))+'</span>'+
             '<span class="rl-km">'+(take<a.open?'fits '+take+' of '+a.open:c.rem+' bkt free')+'</span></button>'; }).join('')+'</div></div>'
       : '<div class="rn-note">No trip goes to '+esc(a.farm)+' today.</div>';
     var trucks=newTripTrucks();
@@ -2425,7 +2428,7 @@ function renderAddTrip(){
       (trucks.length?trucks.map(function(t){
         return '<button type="button" class="rl-card nr-pick" data-at-new="'+esc(t.vehicle)+'"'+(a.busy?' disabled':'')+'>'+
           '<span class="rl-veh">+ '+esc(t.vehicle)+'</span><span class="rl-meta">'+(t.routed?'Trip '+t.next+' on its route':'New route')+'</span>'+
-          '<span class="rl-chain">'+chainHtml([pack(),a.farm,pack()])+'</span><span class="rl-km">'+t.cap+' bkt</span></button>'; }).join('')
+          '<span class="rl-chain">'+chainHtml([a.hub||pack(),a.farm,a.hub||pack()])+'</span><span class="rl-km">'+t.cap+' bkt</span></button>'; }).join('')
         :'<div class="rl-empty">No truck free — add one on the Truck routes tab.</div>')+'</div></div>';
     if(a.err) body+='<div class="rn-note err">'+esc(a.err)+'</div>';
   }
@@ -2493,7 +2496,7 @@ window.rtAddToTrip=function(opl,farm,orderName){
     var f=o&&openFarms(o).filter(function(x){ return x.farm===farm; })[0];
     if(!o){ a.err='This order isn’t on a team schedule for today, so it can’t go on a trip yet.'; renderAddTrip(); return; }
     if(!f){ a.err='Nothing left to plan at '+farm+' — its buckets are already on a trip.'; renderAddTrip(); return; }
-    a.order_name=o.order_name||opl; a.customer=o.customer||''; a.portion=f; a.open=f.buckets; a.choices=tripChoices(farm);
+    a.order_name=o.order_name||opl; a.customer=o.customer||''; a.portion=f; a.open=f.buckets; a.hub=o.sales_farm||pack(); a.choices=tripChoices(farm,a.hub);
     renderAddTrip();
   });
 };

@@ -253,8 +253,9 @@ def auto_allocate_day(
 
 
 #: Release starts at once, in the request, and goes on there for up to this many seconds (each order posts
-#: stock entries and a pick list, a few seconds each); the orders left after that go to the background worker.
-RELEASE_BUDGET = 90
+#: stock entries and a pick list, a few seconds each); the orders left after that go to the background worker,
+#: and so do the closing shortages when the orders alone used the budget up (the request must end in time).
+RELEASE_BUDGET = 60
 
 
 #: A run that has reported nothing for this long is taken as dead (its request was killed, or the server
@@ -326,6 +327,7 @@ def _proposal(location, delivery_start=None, delivery_end=None, farms=None, user
 			{
 				"name": doc.name,
 				"sales_order": doc.sales_order,
+				"location": location,
 				"order_name": frappe.db.get_value("Sales Order", doc.sales_order, "custom_order_name") or "",
 				"customer": doc.customer,
 				"delivery_date": str(doc.delivery_date or ""),
@@ -390,9 +392,14 @@ def _save_pending(location, sales_order, allocations, teams, boxes, source, orde
 
 
 def _order_location(sales_order):
-	"""The location an order belongs to (its farm's), or "" when its farm has none."""
-	farm = frappe.db.get_value("Sales Order", sales_order, "custom_farm")
-	return (frappe.db.get_value("Farm", farm, "farm_location") if farm else "") or ""
+	"""The location (sales farm) an order is listed under, as the order list puts it (its farm's, else the
+	first sales farm of its farm's Farm Location), or "" when its farm has none."""
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import _so_farm_expr
+
+	farm = frappe.db.sql(
+		"SELECT " + _so_farm_expr("so") + " FROM `tabSales Order` so WHERE so.name = %s", sales_order
+	)
+	return sa._order_farm_location(farm[0][0] if farm else None)
 
 
 def _check_location(sales_order, location):
@@ -665,7 +672,7 @@ def _release_groups(order, boxes=None):
 	return out
 
 
-def _fill_teams(order):
+def _fill_teams(order, location=None):
 	"""{sales_order_item: team} for every line the order releases: the one chosen for the line, else its
 	planned team, else the team most of the order's other lines go to (one order is packed by one team),
 	else the team packing its other pick lists, else its sales farm's packing team when it has just one.
@@ -694,7 +701,7 @@ def _fill_teams(order):
 		from upande_packhouse.api.remote_transfer.transfer_scheduling import order_hub
 		from upande_packhouse.api.v2.allocation_teams import team_sales_farms
 
-		farm = order_hub(order["sales_order"])
+		farm = order_hub(order["sales_order"], location or order.get("location"))
 		here = [t for t, f in team_sales_farms().items() if farm and f == farm]
 		if len(here) == 1:
 			teams = {x: here[0] for x in lines}
@@ -1318,7 +1325,9 @@ def _window_lines(location, delivery_start, delivery_end, bypass=True):
 	try:
 		orders = [o for o in _orders(location, delivery_start, delivery_end) if o.name not in skip]
 		read = {
-			o.name: sa.get_sales_order_items_with_buckets(o.name, location, bypass_cut_stage=1 if bypass else 0)
+			o.name: sa.get_sales_order_items_with_buckets(
+				o.name, location, bypass_cut_stage=1 if bypass else 0
+			)
 			or []
 			for o in orders
 		}
@@ -1423,7 +1432,9 @@ def _free_now(row, owned=(), waiting=None):
 		return 0.0
 	if waiting is None:
 		waiting = _waiting_release()
-	return max(0.0, flt(row.allocatable) - waiting.get((row.bucket_id, row.variety, row.stem_length or ""), 0))
+	return max(
+		0.0, flt(row.allocatable) - waiting.get((row.bucket_id, row.variety, row.stem_length or ""), 0)
+	)
 
 
 def _owned_elsewhere(rows, sales_order):
@@ -1881,6 +1892,8 @@ def _continue_release(args, chosen, n, offset, total, carried):
 		offset=offset + n,
 		total=total,
 		carried=carried,
+		# every order released: the job only reads the shortages and reports the run done
+		finish_only=n >= len(chosen),
 		**{**args, "sales_orders": [o["sales_order"] for o in chosen[n:]]},
 	)
 	return {"queued": True, "run": job_id}
@@ -1898,42 +1911,54 @@ def _run_confirm(
 	offset=0,
 	total=None,
 	carried=None,
+	finish_only=False,
 ):
 	import time
 
 	started = time.monotonic()
 	handed_on = None
 	carried = carried or {}
+	args = {
+		"location": location,
+		"delivery_start": delivery_start,
+		"delivery_end": delivery_end,
+		"farms": farms,
+		"sales_orders": sales_orders,
+		"user": user,
+	}
+
+	def hand_on(chosen, n):
+		queued = _continue_release(
+			args,
+			chosen,
+			n,
+			offset,
+			total,
+			{
+				"saved": cint(carried.get("saved")) + len(saved),
+				"boxes": flt(carried.get("boxes")) + sum(x["boxes"] for x in saved),
+				"stems": flt(carried.get("stems")) + sum(x["stems"] for x in saved),
+				"errors": errors,
+				"waiting": waiting,
+			},
+		)
+		frappe.db.commit()  # nosemgrep -- the job is queued after commit
+		# only once queued: a failed commit leaves the lock to be cleared below
+		return queued
+
 	try:
 		p = _proposal(location, delivery_start, delivery_end) or {"orders": []}
-		chosen = [o for o in p["orders"] if not sales_orders or o["sales_order"] in sales_orders]
+		chosen = (
+			[]
+			if finish_only
+			else [o for o in p["orders"] if not sales_orders or o["sales_order"] in sales_orders]
+		)
 		total = total or len(chosen)
 		rules = sa._v2_rules(location)
 		saved, errors, waiting = [], dict(carried.get("errors") or {}), list(carried.get("waiting") or [])
 		for n, o in enumerate(chosen):
 			if budget and n and time.monotonic() - started > budget:
-				handed_on = _continue_release(
-					{
-						"location": location,
-						"delivery_start": delivery_start,
-						"delivery_end": delivery_end,
-						"farms": farms,
-						"sales_orders": sales_orders,
-						"user": user,
-					},
-					chosen,
-					n,
-					offset,
-					total,
-					{
-						"saved": cint(carried.get("saved")) + len(saved),
-						"boxes": flt(carried.get("boxes")) + sum(x["boxes"] for x in saved),
-						"stems": flt(carried.get("stems")) + sum(x["stems"] for x in saved),
-						"errors": errors,
-						"waiting": waiting,
-					},
-				)
-				frappe.db.commit()  # nosemgrep -- the job is queued after commit
+				handed_on = hand_on(chosen, n)
 				return handed_on
 			_publish(
 				user,
@@ -1949,7 +1974,7 @@ def _run_confirm(
 				_check_location(o["sales_order"], location)
 				if rules["enforce_plan"]:
 					sa._check_against_plan(o["allocations"], o["teams"])
-				o["teams"] = _fill_teams(o)
+				o["teams"] = _fill_teams(o, location)
 				# a pick list with no packing team can't be scheduled, so its buckets never get a trip:
 				# such an order waits until its team is chosen (the page asks for it)
 				if not o["teams"]:
@@ -1990,6 +2015,10 @@ def _run_confirm(
 			# each order stands on its own: a later failure must not roll back the ones already saved
 			frappe.db.commit()  # nosemgrep
 			saved.append(o)
+		# the orders used the budget up: the shortages (seconds more) are read in the background
+		if budget and chosen and time.monotonic() - started > budget:
+			handed_on = hand_on(chosen, len(chosen))
+			return handed_on
 		_publish(user, location, phase="confirm", progress=total, total=total, order="")
 		p = _proposal(location, delivery_start, delivery_end)
 		result = {
@@ -2664,7 +2693,7 @@ def set_pending_team(location: str, sales_order: str, team: str, lines: str | li
 		frappe.throw(_("{0} is not a packing team.").format(team))
 	from upande_packhouse.api.v2.allocation_teams import check_team_farm
 
-	check_team_farm(team, sales_order)
+	check_team_farm(team, sales_order, location)
 	names = frappe.get_all(
 		PENDING, filters={"status": "Pending", "location": location, "sales_order": sales_order}, pluck="name"
 	)

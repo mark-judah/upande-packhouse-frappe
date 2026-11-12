@@ -1414,7 +1414,10 @@ frappe.pages["sales-allocation-v2"].render_location_selector = function () {
 			last = null;
 		}
 		// Never a blank page: the one used last, else the first.
-		const pick = last && config.locations.some((l) => l.name === last) ? last : config.locations[0]?.name;
+		const pick =
+			last && config.locations.some((l) => l.name === last)
+				? last
+				: config.locations[0]?.name;
 		if (pick) frappe.pages["sales-allocation-v2"].select_location(pick);
 	}
 };
@@ -1430,7 +1433,9 @@ frappe.pages["sales-allocation-v2"].select_location = function (location) {
 	P.selected_farms = loc_config ? [...loc_config.farms] : [];
 	// The farms last picked at this location, as far as they are still its farms.
 	try {
-		const saved = JSON.parse(localStorage.getItem("sales_allocation_v2_farms:" + location) || "null");
+		const saved = JSON.parse(
+			localStorage.getItem("sales_allocation_v2_farms:" + location) || "null"
+		);
 		const keep = (saved || []).filter((f) => P.selected_farms.includes(f));
 		if (keep.length) P.selected_farms = keep;
 	} catch (e) {
@@ -1967,7 +1972,9 @@ frappe.pages["sales-allocation-v2"]._render_farm_filter = function () {
 			const badge_text = f.sales_shelf ? "Sales" : "Remote";
 			const only = checked && P.selected_farms.length === 1;
 			return `
-            <div class="farm-checkbox-item ${checked ? "checked" : ""}${only ? " only" : ""}" data-farm="${f.farm}" role="checkbox" tabindex="0" aria-checked="${checked}">
+            <div class="farm-checkbox-item ${checked ? "checked" : ""}${
+				only ? " only" : ""
+			}" data-farm="${f.farm}" role="checkbox" tabindex="0" aria-checked="${checked}">
                 <span>${f.farm}</span>
                 <span class="farm-badge ${badge_class}">${badge_text}</span>
             </div>`;
@@ -2000,7 +2007,10 @@ frappe.pages["sales-allocation-v2"]._bind_farm_filter = function () {
 			P.selected_farms.push(farm);
 		}
 		// Show the new state at once; the buckets follow when the server answers.
-		$chip.toggleClass("checked", idx === -1).attr("aria-checked", idx === -1).addClass("pending");
+		$chip
+			.toggleClass("checked", idx === -1)
+			.attr("aria-checked", idx === -1)
+			.addClass("pending");
 		group.find(".farm-checkbox-item").each(function () {
 			const on = P.selected_farms.includes($(this).data("farm"));
 			$(this).toggleClass("only", on && P.selected_farms.length === 1);
@@ -2552,9 +2562,11 @@ frappe.pages["sales-allocation-v2"]._show_substitute_dialog = function (so_item)
 			args: args,
 			callback: function (r) {
 				if (P.selected_order === sales_order) render_sub_content(r.message || []);
+				else sub_dialog.hide();
 			},
 			error: function () {
 				if (P.selected_order === sales_order) render_sub_content([]);
+				else sub_dialog.hide();
 			},
 		});
 	};
@@ -3768,7 +3780,10 @@ frappe.pages["sales-allocation-v2"]._listen_day_allocation = function () {
 			// the ones still to go as Release works through them
 			P._live_count =
 				m.phase === "confirm"
-					? Math.max(0, Math.max(P._releasable().length, m.total || 0) - (m.progress || 0))
+					? Math.max(
+							0,
+							Math.max(P._releasable().length, m.total || 0) - (m.progress || 0)
+					  )
 					: m.planned
 					? new Set([
 							...P._releasable().map((o) => o.sales_order),
@@ -4445,7 +4460,9 @@ frappe.pages["sales-allocation-v2"]._substitute_step = function (list, call, nex
 				<td class="ss-spec">${(x.specs || [])
 					.map(
 						(sp, k) =>
-							`<a class="sub-spec-link" href="#" data-a="${i}" data-spec="${k}">${esc(sp.name)}</a>`
+							`<a class="sub-spec-link" href="#" data-a="${i}" data-spec="${k}">${esc(
+								sp.name
+							)}</a>`
 					)
 					.join(", ")}</td>
 				<td class="num">${n(x.needed)}</td>
@@ -5658,17 +5675,20 @@ frappe.pages["sales-allocation-v2"]._substitute_short = function (line, add, pic
 								s.variety,
 								s.length,
 						  ])
-						: __("No approved variety for {0} {1} has free stock here.", [s.variety, s.length])
-					: s.color
-						? __("The specification approves no other {0} variety for {1} {2}.", [
-								s.color,
+						: __("No approved variety for {0} {1} has free stock here.", [
 								s.variety,
 								s.length,
 						  ])
-						: __("The specification approves no other variety for {0} {1}.", [
-								s.variety,
-								s.length,
-						  ]);
+					: s.color
+					? __("The specification approves no other {0} variety for {1} {2}.", [
+							s.color,
+							s.variety,
+							s.length,
+					  ])
+					: __("The specification approves no other variety for {0} {1}.", [
+							s.variety,
+							s.length,
+					  ]);
 				const e = new frappe.ui.Dialog({
 					title: __(
 						add ? "Add a variety to {0} {1} on {2}" : "Substitute {0} {1} on {2}",
@@ -5724,12 +5744,17 @@ frappe.pages["sales-allocation-v2"]._substitute_short = function (line, add, pic
 				<div class="sub-spec">${
 					(s.specs || []).length
 						? `${__("Specification")} ${(s.specs || [])
-								.map((sp, k) => `<a class="sub-spec-link" href="#" data-spec="${k}">${esc(sp.name)}</a>`)
+								.map(
+									(sp, k) =>
+										`<a class="sub-spec-link" href="#" data-spec="${k}">${esc(
+											sp.name
+										)}</a>`
+								)
 								.join(", ")} · `
 						: `${__("No specification on this line")} · `
 				}${__("From")} <b>${esc(s.variety)} ${esc(s.length || "")}</b>${
-					s.color ? ` <span class="ds-why">${esc(s.color)}</span>` : ""
-				}</div>
+				s.color ? ` <span class="ds-why">${esc(s.color)}</span>` : ""
+			}</div>
 				${
 					add
 						? `<div class="sub-sum">
@@ -5811,7 +5836,11 @@ frappe.pages["sales-allocation-v2"]._substitute_short = function (line, add, pic
 			d.$wrapper.find(".sub-spec-link").on("click", function (e) {
 				e.preventDefault();
 				const sp = (s.specs || [])[+$(this).data("spec")];
-				if (sp) P._show_spec_varieties({ ...s, spec: sp.name, spec_varieties: sp.varieties }, opts);
+				if (sp)
+					P._show_spec_varieties(
+						{ ...s, spec: sp.name, spec_varieties: sp.varieties },
+						opts
+					);
 			});
 			d.$wrapper.find(".mv-to tbody tr").on("click", function () {
 				$(this).find("input").prop("checked", true);
@@ -5836,7 +5865,9 @@ frappe.pages["sales-allocation-v2"]._show_spec_varieties = function (s, opts) {
 			(v) => `<tr${v.variety === s.variety ? ' class="is-current"' : ""}>
 			<td><strong>${esc(v.variety)}</strong>${
 				v.primary ? ` <span class="ds-why ds-why--ok">${__("Primary")}</span>` : ""
-			}${v.variety === s.variety ? ` <span class="ds-why">${__("On the line")}</span>` : ""}</td>
+			}${
+				v.variety === s.variety ? ` <span class="ds-why">${__("On the line")}</span>` : ""
+			}</td>
 			<td>${v.color ? `<span class="ds-why">${esc(v.color)}</span>` : "—"}</td>
 			<td class="num">${free[v.variety] != null ? n(free[v.variety]) : "—"}</td>
 		</tr>`
@@ -5848,10 +5879,14 @@ frappe.pages["sales-allocation-v2"]._show_spec_varieties = function (s, opts) {
 	});
 	d.fields_dict.body.$wrapper.html(
 		rows
-			? `<div class="mv-wrap"><table class="ds-donors"><thead><tr><th>${__("Variety")}</th><th>${__(
-					"Colour"
-			  )}</th><th class="num">${__("Free stems at {0}", [esc(s.length || "")])}</th></tr></thead><tbody>${rows}</tbody></table></div>`
-			: `<div class="empty-state"><p>${__("No approved varieties on this specification.")}</p></div>`
+			? `<div class="mv-wrap"><table class="ds-donors"><thead><tr><th>${__(
+					"Variety"
+			  )}</th><th>${__("Colour")}</th><th class="num">${__("Free stems at {0}", [
+					esc(s.length || ""),
+			  ])}</th></tr></thead><tbody>${rows}</tbody></table></div>`
+			: `<div class="empty-state"><p>${__(
+					"No approved varieties on this specification."
+			  )}</p></div>`
 	);
 	d.$wrapper.addClass("ufd-sa2");
 	d.$wrapper.find(".modal-dialog").addClass("ufd-sa2-modal mv-modal");

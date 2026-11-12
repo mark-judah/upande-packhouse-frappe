@@ -81,7 +81,9 @@ def _team(name="ZZ TEST TEAM A"):
 		from upande_packhouse.api.v2.allocation_teams import sales_farm_names
 
 		farm = transfer_hub(required=False) or (sales_farm_names() or [None])[0]
-		frappe.get_doc({"doctype": "Packing Teams", "team": name, "sales_farm": farm}).insert(ignore_permissions=True)
+		frappe.get_doc({"doctype": "Packing Teams", "team": name, "sales_farm": farm}).insert(
+			ignore_permissions=True
+		)
 	return name
 
 

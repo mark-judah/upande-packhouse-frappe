@@ -43,7 +43,9 @@
     .rt-te-row{grid-template-columns:minmax(0,1fr) auto}
   }
 </style>
-{% elif rt_part == 'script' %}{% raw %}
+{% elif rt_part == 'script' %}
+<script>window.RT = Object.assign(window.RT || {}, { transferHub: {{ (transfer_hub or '') | tojson }} });</script>
+{% raw %}
 <script>
 (function () {
   "use strict";
@@ -305,18 +307,20 @@
   /* One truck per farm at a time (server rule: transfer_control._farm_taken). Trips of
      today, not ended, that collect from `farm` — [{vehicle, trip, from, to}]. A trip on a
      route is out in the route's From–To; one without a route, all day. */
-  function farmHolders(farm) {
+  function farmHolders(farm, hub) {
     const win = {};
     DATA.vehicles.forEach((v) => (v.runs || []).forEach((r) => { if (r.trip) win[r.trip] = { from: r.from_datetime, to: r.to_datetime }; }));
     const today = RTP.today();
+    // A farm sends one truck per sales farm: only trips to the same sales farm hold it.
     return (DATA.trips || [])
-      .filter((t) => t.trip_date === today && t.status !== "Received" && (t.departed_stops || []).indexOf(farm) < 0 && (t.orders || []).some((o) => o.farm === farm))
+      .filter((t) => t.trip_date === today && t.status !== "Received" && (!hub || (t.sales_farm || pack()) === hub) && (t.departed_stops || []).indexOf(farm) < 0 && (t.orders || []).some((o) => o.farm === farm))
       .map((t) => { const w = win[t.name] || {}; return { vehicle: t.vehicle, trip: t.name, from: w.from || today + " 00:00:00", to: w.to || today + " 23:59:59" }; });
   }
   const overlaps = (a0, a1, b0, b1) => String(a0) < String(b1) && String(b0) < String(a1);
-  /** Every run on today's routes, with why it can't take `farm` (why == '' when it can). */
-  RTP.tripChoices = function (farm) {
-    const out = [], holders = farmHolders(farm), today = RTP.today();
+  /** Every run on today's routes, with why it can't take `farm` for sales farm `hub` (why == '' when it can). */
+  RTP.tripChoices = function (farm, hub) {
+    hub = hub || pack();
+    const out = [], holders = farmHolders(farm, hub), today = RTP.today();
     DATA.vehicles.forEach((v) => {
       (v.runs || []).forEach((r) => {
         const t = r.trip ? RTP.tripByName(r.trip) : null;
@@ -324,13 +328,14 @@
         let why = !(r.stops || []).length ? "no farms"
           : r.trip && r.trip_status !== "Draft" && r.trip_status !== "Scheduled" ? "already " + (r.trip_status === "Received" ? "back" : String(r.trip_status || "").toLowerCase())
           : r.stops.indexOf(farm) < 0 ? "doesn’t visit " + farm
+          : r.hub && r.hub !== hub ? "goes to " + r.hub + ", not " + hub
           : !v.capacity_buckets ? "no capacity set"
           : rem <= 0 ? "full" : "";
         // Another truck already collecting from this farm at an overlapping time: it takes all the farm's orders.
         const clash = holders.find((h) => h.vehicle !== v.name && overlaps(r.from_datetime || today + " 00:00:00", r.to_datetime || today + " 23:59:59", h.from, h.to));
         if (!why && clash) why = clash.vehicle + " is collecting from " + farm + " then — use it";
         const holds = holders.some((h) => h.vehicle === v.name);
-        out.push({ vehicle: v.name, route: r.route, run: r.run, runs: r.runs, stops: r.stops || [], from: r.from_datetime, to: r.to_datetime, trip: r.trip, rem, why, holds });
+        out.push({ vehicle: v.name, route: r.route, run: r.run, runs: r.runs, stops: r.stops || [], hub: r.hub || hub, from: r.from_datetime, to: r.to_datetime, trip: r.trip, rem, why, holds });
       });
     });
     // The truck already at this farm first: it picks up all the farm's orders.
@@ -377,7 +382,7 @@
         const f = o && openFarms(o).find((x) => x.farm === farm);
         if (!o) a.err = "This order isn’t on a team schedule for today, so it can’t go on a trip yet.";
         else if (!f) a.err = "Nothing left to plan at " + farm + " — its buckets are already on a trip.";
-        else Object.assign(a, { order_name: o.order_name || opl, customer: o.customer || "", portion: f, open: f.buckets, choices: RTP.tripChoices(farm) });
+        else Object.assign(a, { order_name: o.order_name || opl, customer: o.customer || "", portion: f, open: f.buckets, choices: RTP.tripChoices(farm, o.sales_farm || pack()) });
         paintAddTrip(a);
       })
       .catch((e) => {
@@ -399,7 +404,7 @@
       ? '<div class="rt-picks">' +
         ok.map((c) => {
           const take = Math.min(a.open, c.rem);
-          return `<button type="button" class="rt-pick" data-at="${a.choices.indexOf(c)}"${a.busy ? " disabled" : ""}><span class="ph-strong">${esc(c.vehicle)}</span><span class="ph-muted">${esc(runLabel(c))}</span>${RTP.chainHtml([hub].concat(c.stops).concat([hub]))}<span class="ph-badge ph-badge--signal">${take < a.open ? "fits " + take + " of " + a.open : c.rem + " bkt free"}</span></button>`;
+          return `<button type="button" class="rt-pick" data-at="${a.choices.indexOf(c)}"${a.busy ? " disabled" : ""}><span class="ph-strong">${esc(c.vehicle)}</span><span class="ph-muted">${esc(runLabel(c))}</span>${RTP.chainHtml([c.hub || hub].concat(c.stops).concat([c.hub || hub]))}<span class="ph-badge ph-badge--signal">${take < a.open ? "fits " + take + " of " + a.open : c.rem + " bkt free"}</span></button>`;
         }).join("") + "</div>"
       : `<div class="ph-notice ph-mb-0">No trip goes to ${esc(a.farm)} today.</div>`;
     h += "</div>";

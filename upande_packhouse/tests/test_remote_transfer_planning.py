@@ -15,6 +15,11 @@ _ONE_HUB = [
 	patch.object(tc, "sales_farms", return_value=["Kapkolia"]),
 	patch.object(tc, "opl_hubs", side_effect=lambda opls: {o: "Kapkolia" for o in opls or [] if o}),
 	patch.object(tc, "trip_hub_of", return_value="Kapkolia"),
+	patch.object(
+		tc,
+		"trip_hubs",
+		side_effect=lambda names, sales_farms_of=None: {n: "Kapkolia" for n in names or [] if n},
+	),
 	patch.object(tc, "route_hub_of", return_value="Kapkolia"),
 	patch.object(tr, "route_hub_of", return_value="Kapkolia"),
 ]

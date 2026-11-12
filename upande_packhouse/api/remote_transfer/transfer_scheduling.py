@@ -126,49 +126,93 @@ def transfer_hub(required=True):
 	)
 
 
-def order_hubs(sales_orders):
-	"""{sales order: the sales farm its buckets go to} -- the order's own farm (Sales Order
-	farm, else custom_farm) when it is a Remote Transfer Sales Farm or a sales farm packing its
-	own orders (e.g. Karen), else the first Remote Transfer Sales Farm."""
+def _so_farm_expr(alias="so"):
+	"""SQL for a Sales Order's own farm: `farm`, else `custom_farm` -- from the columns this site has
+	(a site may lack either)."""
+	cols = getattr(frappe.local, "_so_farm_cols", None)
+	if cols is None:
+		cols = [c for c in ("farm", "custom_farm") if frappe.db.has_column("Sales Order", c)]
+		frappe.local._so_farm_cols = cols
+	if not cols:
+		return "NULL"
+	return "COALESCE({0})".format(", ".join("NULLIF({0}.{1}, '')".format(alias, c) for c in cols))
+
+
+def _hub_farms():
+	"""{lower name: farm} the farms an order can be packed at: the Remote Transfer Sales Farms and the
+	sales farms packing their own orders (e.g. Karen)."""
 	from upande_packhouse.api.remote_transfer.scheduler import _own_packing_farms
 
+	return {f.lower(): f for f in [*sales_farms(), *_own_packing_farms()]}
+
+
+def order_hubs(sales_orders, location=None):
+	"""{sales order: the sales farm its buckets go to}. One rule everywhere (see opl_hubs too):
+	1. the order's own farm (Sales Order farm, else custom_farm) when it is a sales farm;
+	2. else the sales farm its pick lists were allocated at;
+	3. else `location` (the sales farm allocating it now) when it is one;
+	4. else the first Remote Transfer Sales Farm."""
 	sales_orders = [s for s in set(sales_orders or []) if s]
 	default = transfer_hub(required=False)
 	if not sales_orders:
 		return {}
-	farms = {f.lower(): f for f in [*sales_farms(), *_own_packing_farms()]}
+	farms = _hub_farms()
 	out = {}
 	for r in frappe.db.sql(
-		"""SELECT name, COALESCE(NULLIF(farm, ''), NULLIF(custom_farm, '')) AS farm
-		FROM `tabSales Order` WHERE name IN %(s)s""",
+		"SELECT name, " + _so_farm_expr("so") + " AS farm FROM `tabSales Order` so WHERE name IN %(s)s",
 		{"s": tuple(sales_orders)},
 		as_dict=True,
 	):
-		out[r.name] = farms.get((r.farm or "").lower()) or default
-	return {so: out.get(so) or default for so in sales_orders}
+		out[r.name] = farms.get((r.farm or "").lower())
+	missing = [so for so in sales_orders if not out.get(so)]
+	if missing:
+		for so, farm in frappe.db.sql(
+			"""SELECT sales_order, farm FROM `tabOrder Pick List`
+			WHERE sales_order IN %(s)s AND docstatus < 2 AND IFNULL(farm, '') != ''
+			ORDER BY creation ASC""",
+			{"s": tuple(missing)},
+		):
+			if not out.get(so) and farms.get((farm or "").lower()):
+				out[so] = farms[farm.lower()]
+	at = farms.get((location or "").lower())
+	return {so: out.get(so) or at or default for so in sales_orders}
+
+
+def _listed_sql(expr, listed):
+	return "(CASE WHEN {0} IN ({1}) THEN {0} END)".format(expr, listed)
 
 
 def order_hub_sql(so_alias="so"):
-	"""SQL for the sales farm a Sales Order's remote buckets go to (see order_hubs); the
-	farms are escaped literals, so it can sit in any query."""
-	from upande_packhouse.api.remote_transfer.scheduler import _own_packing_farms
-
+	"""SQL for the sales farm a Sales Order's buckets go to (the order_hubs rule); the farms are
+	escaped literals, so it can sit in any query."""
 	farms = sales_farms()
 	default = frappe.db.escape(farms[0]) if farms else "''"
 	if not farms:
 		return default
-	farms = [*farms, *_own_packing_farms()]
-	own = "COALESCE(NULLIF({0}.farm, ''), NULLIF({0}.custom_farm, ''))".format(so_alias)
-	listed = ", ".join(frappe.db.escape(f) for f in farms)
-	return "(CASE WHEN {0} IN ({1}) THEN {0} ELSE {2} END)".format(own, listed, default)
+	listed = ", ".join(frappe.db.escape(f) for f in _hub_farms().values())
+	opl_farm = (
+		"(SELECT MIN(_o2.farm) FROM `tabOrder Pick List` _o2 WHERE _o2.sales_order = {0}.name"
+		" AND _o2.docstatus < 2 AND _o2.farm IN ({1}))"
+	).format(so_alias, listed)
+	return "COALESCE({0}, {1}, {2})".format(_listed_sql(_so_farm_expr(so_alias), listed), opl_farm, default)
 
 
 def opl_hub_sql(parent="pli.parent"):
-	"""SQL for the sales farm the pick list `parent` (an SQL expression) sends its buckets to."""
+	"""SQL for the sales farm the pick list `parent` (an SQL expression) sends its buckets to: its
+	order's own farm, else the farm the pick list was allocated at, else the first sales farm."""
+	farms = sales_farms()
+	default = frappe.db.escape(farms[0]) if farms else "''"
+	if not farms:
+		return default
+	listed = ", ".join(frappe.db.escape(f) for f in _hub_farms().values())
 	return (
-		"(SELECT "
-		+ order_hub_sql("_hso")
-		+ " FROM `tabOrder Pick List` _hopl JOIN `tabSales Order` _hso ON _hso.name = _hopl.sales_order"
+		"(SELECT COALESCE("
+		+ _listed_sql(_so_farm_expr("_hso"), listed)
+		+ ", "
+		+ _listed_sql("_hopl.farm", listed)
+		+ ", "
+		+ default
+		+ ") FROM `tabOrder Pick List` _hopl LEFT JOIN `tabSales Order` _hso ON _hso.name = _hopl.sales_order"
 		+ " WHERE _hopl.name = "
 		+ parent
 		+ ")"
@@ -186,34 +230,38 @@ def not_at_hub_sql(farm_expr, parent="pli.parent"):
 	)
 
 
-def order_hub(sales_order):
-	return order_hubs([sales_order]).get(sales_order) or transfer_hub(required=False)
+def order_hub(sales_order, location=None):
+	return order_hubs([sales_order], location).get(sales_order) or transfer_hub(required=False)
 
 
 def opl_hubs(opls):
-	"""{order pick list: the sales farm its remote buckets go to} (see order_hubs)."""
+	"""{order pick list: the sales farm its remote buckets go to}: its order's own farm, else the farm
+	the pick list was allocated at, else the order_hubs rule."""
 	opls = [o for o in set(opls or []) if o]
 	if not opls:
 		return {}
 	rows = frappe.db.sql(
-		"""SELECT o.name, o.sales_order, o.farm,
-			COALESCE(NULLIF(so.farm, ''), NULLIF(so.custom_farm, '')) AS so_farm
+		"SELECT o.name, o.sales_order, o.farm, "
+		+ _so_farm_expr("so")
+		+ """ AS so_farm
 		FROM `tabOrder Pick List` o LEFT JOIN `tabSales Order` so ON so.name = o.sales_order
 		WHERE o.name IN %(o)s""",
 		{"o": tuple(opls)},
 		as_dict=True,
 	)
-	hubs = order_hubs([r.sales_order for r in rows])
+	farms = _hub_farms()
 	default = transfer_hub(required=False)
-	# An order with no farm of its own: the sales farm its pick list was allocated at.
-	own = {f.lower(): f for f in sales_farms()}
-	from upande_packhouse.api.remote_transfer.scheduler import _own_packing_farms
-
-	own.update({f.lower(): f for f in _own_packing_farms()})
-	out = {}
+	out, rest = {}, []
 	for r in rows:
-		pl = own.get((r.farm or "").lower()) if not r.so_farm else None
-		out[r.name] = pl or hubs.get(r.sales_order) or default
+		hub = farms.get((r.so_farm or "").lower()) or farms.get((r.farm or "").lower())
+		if hub:
+			out[r.name] = hub
+		else:
+			rest.append(r)
+	if rest:
+		hubs = order_hubs([r.sales_order for r in rest])
+		for r in rest:
+			out[r.name] = hubs.get(r.sales_order) or default
 	return {o: out.get(o) or default for o in opls}
 
 
@@ -252,6 +300,39 @@ def trip_hub_of(name):
 	if not name or not frappe.db.exists("Bucket Request Trip", name):
 		return transfer_hub(required=False)
 	return trip_hub(frappe.get_doc("Bucket Request Trip", name))
+
+
+def trip_hubs(names, sales_farms_of=None):
+	"""{trip: trip_hub} for many trips in two queries. `sales_farms_of`: {trip: its sales_farm}
+	when the caller already read it."""
+	names = [n for n in dict.fromkeys(names or []) if n]
+	default = transfer_hub(required=False)
+	if not names:
+		return {}
+	if sales_farms_of is None:
+		sales_farms_of = dict(
+			frappe.db.sql(
+				"SELECT name, sales_farm FROM `tabBucket Request Trip` WHERE name IN %(t)s",
+				{"t": tuple(names)},
+			)
+		)
+	out = {n: sales_farms_of.get(n) for n in names if sales_farms_of.get(n)}
+	rest = [n for n in names if n not in out]
+	if rest:
+		rows = frappe.db.sql(
+			"""SELECT parent, order_pick_list FROM `tabBucket Request Trip Order`
+			WHERE parenttype = 'Bucket Request Trip' AND parent IN %(t)s
+			  AND IFNULL(order_pick_list, '') != ''""",
+			{"t": tuple(rest)},
+		)
+		hubs = opl_hubs([o for _p, o in rows])
+		per_trip = {}
+		for parent, opl in rows:
+			if hubs.get(opl):
+				per_trip.setdefault(parent, set()).add(hubs[opl])
+		for n in rest:
+			out[n] = next(iter(sorted(per_trip.get(n) or [])), None) or default
+	return out
 
 
 def _dt(value):
@@ -336,7 +417,9 @@ def order_locations(opl_names):
 	farms = {loc: location_farms(loc) for loc in locations}
 	out = {}
 	for r in frappe.db.sql(
-		"""SELECT o.name, so.farm FROM `tabOrder Pick List` o
+		"SELECT o.name, "
+		+ _so_farm_expr("so")
+		+ """ AS farm FROM `tabOrder Pick List` o
 		LEFT JOIN `tabSales Order` so ON so.name = o.sales_order WHERE o.name IN %(o)s""",
 		{"o": tuple(opl_names)},
 		as_dict=True,
@@ -1746,7 +1829,7 @@ def _settle_held_trip(doc, how, estimate=False):
 	shelved (it ends once every bucket it carried is), as for a dispatched trip -- so the
 	hub's shelving, auto-arrive / auto-receive, End Trip and the truck's next run all
 	carry on instead of the trip staying "loading" for good (and its loads going back to
-	the farm at midnight). estimate: the trip is settled late (scheduler sweep), so it
+	the farm when the day is closed). estimate: the trip is settled late (scheduler sweep), so it
 	left after its last load (or its last stop), not now. Returns True when settled."""
 	if doc.status not in ACTIVE_TRIP_STATUSES or not doc.vehicle:
 		return False
@@ -1907,7 +1990,7 @@ def _end_trip_for_newer_run(doc):
 	it carried is still on the truck: every one of its buckets is shelved or has left the
 	truck. A later run alone never ends it -- the farm loads the truck's next run while
 	the truck is still unloading this one at the hub; its stragglers wait for their
-	shelving scan, End Trip, or the midnight close. Returns True when it ended the trip."""
+	shelving scan or End Trip. Returns True when it ended the trip."""
 	if doc.status != "Dispatched":
 		return False
 	if any(not b.shelved and not b.off_truck for b in doc.get("trip_buckets") or []):
@@ -1982,8 +2065,7 @@ def end_shelved_trips():
 
 def close_previous_day_trips(before=None):
 	"""End every trip planned for a day before `before` (default today) that is still
-	open, so no trip runs into the next day (scheduler: every midnight; also the
-	Production Settings button).
+	open, so no trip runs into the next day (the Production Settings button).
 
 	  * Dispatched: ended (Received) like End Trip; buckets it carried that were never
 	    shelved stay recorded on it as not shelved.
@@ -2045,7 +2127,7 @@ def close_previous_day_trips(before=None):
 
 
 def clear_left_trolleys(before=None):
-	"""The rest of the midnight clean slate (close_previous_day_trips): every bucket still
+	"""The rest of the day's clean slate (close_previous_day_trips): every bucket still
 	in a trolley or flagged on a truck from before `before` (default today) -- scanned
 	into a trolley but never loaded, or loaded on a truck that never left -- is kept as
 	an anomaly (keep_as_anomaly): its trolley and truck flags are cleared, so the farm
@@ -3346,8 +3428,8 @@ def trip_bucket_shares(opls):
 		+ """) AND """
 		+ TRANSFER_TRUCK_OK
 		+ """, 1, 0)) AS on_truck,
-		       -- In a trolley since today only: an earlier day's trolley is gone at
-		       -- midnight (clear_left_trolleys), never counted on today's trips.
+		       -- In a trolley since today only: an earlier day's trolley is never
+		       -- counted on today's trips.
 		       MAX(IF(IFNULL(pli.loaded_in_trolley, 0) = 1 AND pli.modified >= %(today)s, 1, 0)) AS trolley,
 		       MAX(IF(IFNULL(pli.in_transit, 0) = 1 OR IFNULL(pli.loaded_in_trolley, 0) = 1 OR """
 		+ lot
@@ -4613,7 +4695,7 @@ def farm_holders(
 	trips = {}
 	for r in frappe.db.sql(
 		"""SELECT t.name, t.vehicle, t.route, t.status, t.auto_planned, t.departed_stops, t.creation,
-			o.farm, o.buckets
+			t.sales_farm, o.farm, o.buckets
 		FROM `tabBucket Request Trip` t
 		JOIN `tabBucket Request Trip Order` o ON o.parent = t.name AND o.parenttype = 'Bucket Request Trip'
 		WHERE t.trip_date = %(d)s AND t.status != 'Received' AND IFNULL(o.farm, '') != ''
@@ -4622,21 +4704,26 @@ def farm_holders(
 		as_dict=True,
 	):
 		trips.setdefault(r.name, []).append(r)
+	live = {}
 	for name, rows in trips.items():
 		r = rows[0]
-		hub = trip_hub_of(name)
-		if want_hub and hub != want_hub:
-			continue
-		farms = _farms_of_rows(rows, hub)
-		if len(farms) != 1:
-			continue
-		farm = next(iter(farms))
 		if r.vehicle == exclude_vehicle or name == exclude_trip:
 			continue
 		if skip_auto_drafts and r.auto_planned and r.status == "Draft":
 			continue  # the automatic scheduler replaces its own drafts
 		if r.status == "Dispatched":
 			continue  # the truck has left every farm and is heading to the hub
+		live[name] = rows
+	hubs = trip_hubs(list(live), {n: rows[0].sales_farm for n, rows in live.items()})
+	for name, rows in live.items():
+		r = rows[0]
+		hub = hubs.get(name)
+		if want_hub and hub != want_hub:
+			continue
+		farms = _farms_of_rows(rows, hub)
+		if len(farms) != 1:
+			continue
+		farm = next(iter(farms))
 		if farm in [f for f in (r.departed_stops or "").split(",") if f]:
 			continue
 		if with_room:
@@ -6234,7 +6321,9 @@ def closeTripStop():
 				details="Truck leaving {0}{1}".format(
 					farm,
 					" — below minimum load ({0} of {1}, min {2}){3}".format(
-						short_load["loaded"], short_load["capacity"], short_load["needed"],
+						short_load["loaded"],
+						short_load["capacity"],
+						short_load["needed"],
 						": {0}".format(reason) if reason else "",
 					)
 					if short_load

@@ -159,12 +159,17 @@ def _get_production_config():
 	# Orders listed under each location: its sales farm's, and those of its remote farms --
 	# under the first sales farm of their Farm Location only, so no order is listed twice.
 	order_farms_by_location = {}
+	# Every other farm of a Farm Location (one not in Shelf Locations, or disabled there) lists under
+	# the first sales farm of that Farm Location: {farm location: sales farm}.
+	location_by_farm_location = {}
 	claimed = set()
 	for sf in sales_shelf_farms:
 		remotes = [f for f in by_farm_location.get(loc_of.get(sf), []) if not is_sales(f)]
 		own_by_location[sf] = [sf, *remotes]
 		order_farms_by_location[sf] = [sf] + [f for f in remotes if f not in claimed]
 		claimed.update(remotes)
+		if loc_of.get(sf):
+			location_by_farm_location.setdefault(loc_of[sf], sf)
 	farms_by_location = {loc: list(farms) for loc, farms in own_by_location.items()}
 
 	# Remote Transfer Sales Farms share their farms: a sales farm in that list gets, after its own
@@ -186,7 +191,22 @@ def _get_production_config():
 		"farms_by_location": farms_by_location,
 		"own_by_location": own_by_location,
 		"order_farms_by_location": order_farms_by_location,
+		"location_by_farm_location": location_by_farm_location,
 	}
+
+
+def _order_farm_location(farm):
+	"""The allocation location (sales farm) an order of `farm` is listed under, as get_pending_sales_orders
+	lists it: the location whose order farms hold it, else the first sales farm of its Farm Location;
+	"" when it has none (such an order can be allocated anywhere)."""
+	if not farm:
+		return ""
+	config = _get_production_config()
+	for loc, farms in (config.get("order_farms_by_location") or {}).items():
+		if farm in farms:
+			return loc
+	farm_location = frappe.db.get_value("Farm", farm, "farm_location")
+	return (config.get("location_by_farm_location") or {}).get(farm_location) or ""
 
 
 def _config_for(location):
@@ -438,12 +458,24 @@ def get_pending_sales_orders(
 	if location:
 		params["order_location"] = location
 		params["location_farms"] = tuple(location_farms or ["\x00"])
-		params["order_farms"] = tuple(
-			_get_production_config().get("order_farms_by_location", {}).get(location) or ["\x00"]
+		config = _get_production_config()
+		params["order_farms"] = tuple(config.get("order_farms_by_location", {}).get(location) or ["\x00"])
+		# a farm not in Shelf Locations (or disabled there) lists under the first sales farm of its Farm Location
+		params["listed_farms"] = tuple(
+			{f for farms in (config.get("order_farms_by_location") or {}).values() for f in farms} or ["\x00"]
 		)
-		location_clause = """(so.custom_farm IN %(order_farms)s
+		params["order_farm_locations"] = tuple(
+			[fl for fl, sf in (config.get("location_by_farm_location") or {}).items() if sf == location]
+			or ["\x00"]
+		)
+		from upande_packhouse.api.remote_transfer.transfer_scheduling import _so_farm_expr
+
+		so_farm = _so_farm_expr("so")
+		location_clause = """({so_farm} IN %(order_farms)s
+            OR ({so_farm} NOT IN %(listed_farms)s AND EXISTS (
+                SELECT 1 FROM `tabFarm` f WHERE f.name = {so_farm} AND f.farm_location IN %(order_farm_locations)s))
             OR (NOT EXISTS (
-                SELECT 1 FROM `tabFarm` f WHERE f.name = so.custom_farm AND IFNULL(f.farm_location, '') != '')
+                SELECT 1 FROM `tabFarm` f WHERE f.name = {so_farm} AND IFNULL(f.farm_location, '') != '')
               AND (NOT EXISTS (
                 SELECT 1 FROM `tabConfirmed Stems` cs
                 WHERE cs.parent = so.name AND cs.parenttype = 'Sales Order'
@@ -452,7 +484,7 @@ def get_pending_sales_orders(
                 SELECT 1 FROM `tabConfirmed Stems` cs
                 WHERE cs.parent = so.name AND cs.parenttype = 'Sales Order'
                   AND cs.parentfield = 'custom_confirmed_stems_table' AND cs.stems > 0
-                  AND cs.farm IN %(location_farms)s))))"""
+                  AND cs.farm IN %(location_farms)s))))""".replace("{so_farm}", so_farm)
 
 	# nosemgrep: frappe-sql-format-injection -- interpolates a module-level constant, never request data
 	sql = f"""
@@ -2208,14 +2240,14 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 	from upande_packhouse.api.v2.allocation_teams import check_team_farm
 
 	for t in set((teams or {}).values()):
-		check_team_farm(t, sales_order)
+		check_team_farm(t, sales_order, location)
 	config = _config_for(location)
 	farm_config = config["farm_config"]
 	farms_by_location = config["farms_by_location"]
 	# the sales farm this order's buckets go to: a bucket held anywhere else waits to be transferred there
 	from upande_packhouse.api.remote_transfer.transfer_scheduling import order_hub
 
-	to_hub = order_hub(sales_order) or None
+	to_hub = order_hub(sales_order, location) or None
 
 	location_farms = set(farms_by_location.get(location, []))
 	if not location_farms:
@@ -2449,7 +2481,8 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 			bas.total_quantity = float(shelf["stem_qty"] or 0)
 			bas.stem_length = shelf["stem_length"] or ""
 			bas.warehouse = (
-				stock_movement.holding_warehouse(shelf["warehouse"], shelf["farm"], business_unit, to_hub) or ""
+				stock_movement.holding_warehouse(shelf["warehouse"], shelf["farm"], business_unit, to_hub)
+				or ""
 			)
 			bas.harvest_date = shelf.get("harvest_date") or shelf["date_added"]
 			bas.shelf_location = shelf["shelf_location"]
@@ -4223,7 +4256,9 @@ def _replace_requested_bucket(
 		# ── Stock: where each bucket's stems sit now ──
 		held, sold = _bucket_ledger([old_bucket, new.bucket_id], anchor.item_code)
 		route = (
-			stock_movement.resolve_route(new.warehouse, business_unit, to_farm=to_hub) if new.warehouse else []
+			stock_movement.resolve_route(new.warehouse, business_unit, to_farm=to_hub)
+			if new.warehouse
+			else []
 		)
 		sold_warehouse = next((hop["to"] for hop in route if hop["terminal"]), None)
 		if not sold_warehouse:

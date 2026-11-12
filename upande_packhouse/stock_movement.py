@@ -142,15 +142,31 @@ def _load_mapping(business_unit):
 	return table
 
 
+def _warehouse_farms(warehouses):
+	"""{warehouse: its farm}, cached for the request (resolve_route asks per mapping row)."""
+	cached = getattr(frappe.local, "_sm_warehouse_farms", None)
+	if cached is None:
+		cached = frappe.local._sm_warehouse_farms = {}
+	missing = [w for w in warehouses if w not in cached]
+	if missing:
+		cached.update(dict.fromkeys(missing))
+		for name, farm in frappe.db.sql(
+			"SELECT name, custom_farm FROM `tabWarehouse` WHERE name IN %(w)s", {"w": tuple(missing)}
+		):
+			cached[name] = farm
+	return cached
+
+
 def _farm_home_source(table, farm):
 	"""The mapping source warehouse a sales farm packs from: its own row, the one with no
 	transfer (its Receiving Cold Store), else None."""
 	if not farm:
 		return None
+	farms = _warehouse_farms(list(table))
 	for src, row in table.items():
 		if row.get("transfer_to"):
 			continue
-		wh_farm = frappe.db.get_value("Warehouse", src, "custom_farm") or src.split(" ", 1)[0]
+		wh_farm = farms.get(src) or src.split(" ", 1)[0]
 		if (wh_farm or "").lower() == farm.lower():
 			return src
 	return None
@@ -892,7 +908,7 @@ def ensure_arrival(bucket_id: str | None, business_unit: str | None = None, name
 	the farm store holds none of this harvest."""
 	if not bucket_id:
 		return []
-	from upande_packhouse.api.remote_transfer.transfer_scheduling import opl_hub
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import opl_hubs
 
 	posted, done = [], set()
 	# `names`: only these pick rows (the line being issued) -- never another order's
@@ -915,9 +931,11 @@ def ensure_arrival(bucket_id: str | None, business_unit: str | None = None, name
 			"stem_length",
 		],
 	)
+	hubs = opl_hubs([row.parent for row in rows])
 	for row in rows:
 		if frappe.db.get_value("Order Pick List", row.parent, "docstatus") == 2:
 			continue
+		hub = hubs.get(row.parent)
 		bu = business_unit or opl_business_unit(frappe.get_doc("Order Pick List", row.parent))
 		source = holding_warehouse(
 			row.origin_warehouse
@@ -926,13 +944,9 @@ def ensure_arrival(bucket_id: str | None, business_unit: str | None = None, name
 			or receiving_warehouse(bucket_id, row.item_code),
 			row.farm,
 			bu,
-			opl_hub(row.parent),
+			hub,
 		)
-		if (
-			not source
-			or not needs_transfer(source, bu, opl_hub(row.parent))
-			or (row.item_code, source) in done
-		):
+		if not source or not needs_transfer(source, bu, hub) or (row.item_code, source) in done:
 			continue
 		done.add((row.item_code, source))
 		here = bucket_balance(bucket_id, row.item_code, source, current_cycle=True)
@@ -944,7 +958,7 @@ def ensure_arrival(bucket_id: str | None, business_unit: str | None = None, name
 			qty=here,
 			source_warehouse=source,
 			business_unit=bu,
-			farm=opl_hub(row.parent),
+			farm=hub,
 			stem_length=row.stem_length,
 		).get("posted", [])
 	return posted
@@ -1056,9 +1070,10 @@ def move_allocation_to_sold(allocations, business_unit, sales_order=None, opl=No
 	the caller allocates inside a transaction, so a sale we cannot back with
 	stock must roll the whole allocation back.
 	"""
-	from upande_packhouse.api.remote_transfer.transfer_scheduling import order_hub
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import opl_hub, order_hub
 
-	hub = order_hub(sales_order) if sales_order else None
+	# The same sales farm post_sale_on_arrival lands the deferred buckets at (opl_hubs).
+	hub = opl_hub(opl) if opl else (order_hub(sales_order) if sales_order else None)
 	rows, deferred = [], []
 	for a in allocations:
 		bucket_id = a.get("bucket_id")

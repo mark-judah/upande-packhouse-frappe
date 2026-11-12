@@ -606,7 +606,10 @@ def createLoadingEntry():
 					}
 				elif _box_transfer_refusal(box_doc):
 					# packed at a sales farm that dispatches through the main one: received there first
-					frappe.response["message"] = {"status": "error", "message": _box_transfer_refusal(box_doc)}
+					frappe.response["message"] = {
+						"status": "error",
+						"message": _box_transfer_refusal(box_doc),
+					}
 				elif box_doc.staged != 1:
 					# Enforce the pipeline order: Pack -> Precool -> Stage -> Load -> Dispatch.
 					# A box that skipped staging must not be loadable straight from
@@ -2148,7 +2151,9 @@ def createStagingEntry():
 				# A box received from another sales farm is in the main one's dispatch cold room
 				# already (its receipt moved it there): staged here, nothing more to move.
 				if box.get("transfer_status") != "Received":
-					_post_box_leg(box, stock_movement.post_stage_to_dispatch, "Stage -> Dispatch: nothing moved")
+					_post_box_leg(
+						box, stock_movement.post_stage_to_dispatch, "Stage -> Dispatch: nothing moved"
+					)
 				# Committed explicitly: this endpoint is whitelisted without `methods`, so it
 				# is reachable over GET, and frappe rolls back writes made during a GET
 				# request -- without this the caller gets a success response and no change.
@@ -2379,12 +2384,15 @@ def _loading_location(farm):
 def _remember_station(station):
 	"""The station this user's app last sent: for its requests that come without one (older app builds
 	ask for the teams without it)."""
-	if station and frappe.session.user != "Guest":
+	if not station or frappe.session.user == "Guest":
+		return
+	if frappe.cache.hget("packhouse_app_station", frappe.session.user) != station:
 		frappe.cache.hset("packhouse_app_station", frappe.session.user, station)
 
 
 def _caller_station():
-	"""?station=<farm>, else the station this user's app last sent."""
+	"""?station=<farm>, else the station this user's app last sent -- for getPackingTeams only (older app
+	builds ask for the teams without it); one login on several devices shares the remembered one."""
 	station = (frappe.form_dict.get("station") or "").strip()
 	if station:
 		_remember_station(station)
@@ -4607,12 +4615,26 @@ def getBoxTransferData(station: str | None = None, delivery_date: str | None = N
 	"""The Box Transfer screen: what this station sends (a sales farm) or receives (the main one)."""
 	from upande_packhouse.api import box_transfer
 
-	frappe.response["message"] = box_transfer.transfer_data(station or _caller_station(), delivery_date)
-
-
-def _box_transfer_call(fn, *args):
 	try:
-		frappe.response["message"] = fn(*args)
+		frappe.response["message"] = box_transfer.transfer_data(_box_transfer_station(station), delivery_date)
+	except frappe.ValidationError as e:
+		frappe.clear_messages()
+		frappe.response["message"] = {"status": "error", "message": str(e), "role": "none"}
+
+
+def _box_transfer_station(station):
+	"""The station the app sent: box transfer never falls back to a remembered one (one login can be on
+	devices at both farms)."""
+	station = (station or "").strip()
+	if not station:
+		frappe.throw(_("Set this device's station first."))
+	_remember_station(station)
+	return station
+
+
+def _box_transfer_call(fn, *args, station=None):
+	try:
+		frappe.response["message"] = fn(*args, _box_transfer_station(station))
 		frappe.db.commit()  # nosemgrep
 	except frappe.ValidationError as e:
 		frappe.db.rollback()
@@ -4625,7 +4647,7 @@ def loadBoxForTransfer(box_label: str | None = None, vehicle: str | None = None,
 	"""Scan a staged box onto an internal transfer truck at its own sales farm."""
 	from upande_packhouse.api import box_transfer
 
-	_box_transfer_call(box_transfer.load_box, box_label, vehicle, station or _caller_station())
+	_box_transfer_call(box_transfer.load_box, box_label, vehicle, station=station)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -4633,7 +4655,7 @@ def sendBoxTransfer(vehicle: str | None = None, station: str | None = None):
 	"""The transfer truck leaves for the main sales farm with every box loaded on it here."""
 	from upande_packhouse.api import box_transfer
 
-	_box_transfer_call(box_transfer.send_truck, vehicle, station or _caller_station())
+	_box_transfer_call(box_transfer.send_truck, vehicle, station=station)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -4646,7 +4668,7 @@ def receiveTransferTrip(
 	"""Receive every box of a transfer trip at once, on the count of boxes taken off the truck."""
 	from upande_packhouse.api import box_transfer
 
-	_box_transfer_call(box_transfer.receive_trip, vehicle, sent_at, count, station or _caller_station())
+	_box_transfer_call(box_transfer.receive_trip, vehicle, sent_at, count, station=station)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -4654,7 +4676,7 @@ def receiveTransferBox(box_label: str | None = None, station: str | None = None)
 	"""Scan a transferred box in at the main sales farm."""
 	from upande_packhouse.api import box_transfer
 
-	_box_transfer_call(box_transfer.receive_box, box_label, station or _caller_station())
+	_box_transfer_call(box_transfer.receive_box, box_label, station=station)
 
 
 @frappe.whitelist()

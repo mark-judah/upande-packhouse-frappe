@@ -72,7 +72,9 @@
 
 <div id="rts-body"></div>
 
-{% elif rt_part == 'script' %}{% raw %}
+{% elif rt_part == 'script' %}
+<script>window.RT = Object.assign(window.RT || {}, { transferHub: {{ (transfer_hub or '') | tojson }} });</script>
+{% raw %}
 <script>
 (function () {
   "use strict";

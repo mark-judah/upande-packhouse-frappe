@@ -92,13 +92,14 @@
 </section>
 
 {% elif rt_part == 'script' %}
+<script>window.RT = Object.assign(window.RT || {}, { transferHub: {{ (transfer_hub or '') | tojson }} });</script>
 {% raw %}
 <script>
 (function () {
   "use strict";
   const esc = PH.esc;
   const n = (v) => PH.fmt.num(Math.round(Number(v) || 0));
-  const HUB = RT.transferHub || "Kapkolia";
+  const HUB = (window.RT && RT.transferHub) || "the hub";
   const API = "upande_packhouse.api.v2.rt_logistics.";
   const ST = (v) => (v === 1 ? "" : "s");
 

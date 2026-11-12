@@ -2,7 +2,9 @@
     "transfer-mockup-prototype", judah@upande.com), in place of the old Logistics tab.
     The shell (www/remote-transfer.html) includes this file once per part; the mockup is
     self-contained (its own styles and script), so it all goes in the body part. -#}
-{% if rt_part == 'body' %}{% raw %}
+{% if rt_part == 'body' %}
+<script>window.RT = Object.assign(window.RT || {}, { transferHub: {{ (transfer_hub or '') | tojson }} });</script>
+{% raw %}
       <div id="panel-logistics" class="ts-panel" style="display:none">
 <div id="tm-root" style="width:100%;max-width:none;margin:0;padding:20px 28px 100px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1a1a1a;">
   <style>
@@ -1114,8 +1116,10 @@
     }
     return { o: o, p: p };
   }
-  function trOpen(bucket, item, stems) {
+  function trOpen(bucket, item, stems, opl) {
     TR.open = true; TR.bucket = bucket; TR.item = item; TR.stems = Number(stems) || 0; TR.data = null; TR.loading = true; TR.error = null;
+    // The sales farm the bucket goes to: its own order's, not whichever order the panel opened on.
+    TR.opl = opl || BP.opl || null; TR.hub = ovHubOf(TR.opl) || '';
     // The bucket's rows in the status panel: its remote-transfer stamps per order.
     TR.rows = (BP.buckets || []).filter(function (x) { return String(x.bucket || '').toUpperCase() === String(bucket || '').toUpperCase(); });
     renderTr();
@@ -1190,19 +1194,20 @@
     // Remote transfer, per order the bucket goes to: awaiting transfer -> on a trolley ->
     // on the truck -> in transit -> arrived at the sales hub -> shelved -> issued (to the
     // OPL). From the pick rows' own stamps; a stage reached with no stamp keeps its place.
-    var hubName = ovHubOf(BP.opl) || OV_HUB;
+    var hubName = TR.hub || OV_HUB;
     var RT = [
       ['trolley', 'Loaded in trolley', '#7c3aed', 'trolley_at', 'trolley_by'],
       ['on_truck', 'Loaded on truck', '#2563eb', 'on_truck_at', 'on_truck_by'],
       ['transit', 'In transit', '#1d4ed8', 'transit_at', 'transit_by'],
-      ['arrived_hub', 'Arrived at ' + hubName, '#0e7490', 'arrived_hub_at', 'arrived_hub_by'],
-      ['shelved', 'Shelved at ' + hubName, '#16a34a', 'shelved_at', 'shelved_by'],
+      ['arrived_hub', 'Arrived at ', '#0e7490', 'arrived_hub_at', 'arrived_hub_by'],
+      ['shelved', 'Shelved at ', '#16a34a', 'shelved_at', 'shelved_by'],
       ['issued', 'Issued', '#dc2626', 'issued_at', 'issued_by'],
       ['issued_offline', 'Issued offline', '#7c3aed', null, null],
       ['not_found', 'Not found', '#c4302b', 'not_found_at', 'not_found_by'],
     ];
     (TR.rows || []).forEach(function (x) {
       var opl = x._opl || BP.opl, order = x._order || BP.name || opl;
+      var rowHub = ovHubOf(opl) || hubName;
       var meta = OV.owners[opl];
       var prev = meta ? String(meta.creation || '') : '';
       steps.push({ t: prev, stage: 'Awaiting transfer', c: '#d97706', detail: [order, opl, x.farm].filter(Boolean).join(' · '), who: meta ? meta.owner : '' });
@@ -1214,7 +1219,8 @@
           : f[0] === 'shelved' ? (x.shelf || '')
           : f[0] === 'issued' || f[0] === 'issued_offline' ? 'to ' + [order, opl].filter(Boolean).join(' · ')
           : '';
-        steps.push({ t: at || prev, stage: f[1], c: f[2], detail: detail, who: f[4] ? (x[f[4]] || '') : '', noTime: !at });
+        var stage = f[0] === 'arrived_hub' || f[0] === 'shelved' ? f[1] + rowHub : f[1];
+        steps.push({ t: at || prev, stage: stage, c: f[2], detail: detail, who: f[4] ? (x[f[4]] || '') : '', noTime: !at });
         if (at) prev = at;
       });
     });
@@ -1240,7 +1246,7 @@
   // shelved at the sales farm, issued to the packhouse. Each step shows what happened there (or that it
   // hasn't yet); every event belongs to one of them.
   function trStepper(events) {
-    var hub = ovHubOf(BP.opl) || ((OV.orders || []).map(function (o) { return o.hub; }).filter(Boolean)[0]) || '';
+    var hub = TR.hub || ((OV.orders || []).map(function (o) { return o.hub; }).filter(Boolean)[0]) || OV_HUB;
     var remoteShelf = events.filter(function (e) { return /^Shelved on /.test(e.stage) && e.farm && e.farm !== hub; });
     var farm = (remoteShelf[0] && remoteShelf[0].farm) || '';
     var STEPS = [
@@ -1383,6 +1389,8 @@
     var head = '<div class="bp-head"><div><div class="bp-title">Bucket status</div><div class="ov-sub">' + esc(BP.name || BP.opl || '') + (BP.farm ? ' · ' + esc(BP.farm) : '') + '</div></div><button class="bp-close" id="bp-close-btn">✕</button></div>';
     var body;
     if (BP.warn && !BP.loading) head += '<div class="tm-empty" style="padding:8px 0;color:#b42318;">' + esc(BP.warn) + '</div>';
+    // The sales farm(s) the panel's buckets go to: its order's, or each order's in the Not-found drawer.
+    var bpHub = BP.opl ? ovHubOf(BP.opl) : ovHubsOf((BP.buckets || []).map(function (x) { return { opl: x._opl }; }));
     if (BP.loading) body = '<div class="tm-loading">Loading…</div>';
     else if (BP.error) body = '<div class="tm-empty">Failed: ' + esc(BP.error) + '</div>';
     else if (!BP.buckets.length) body = '<div class="tm-empty">No transferring buckets.</div>';
@@ -1392,7 +1400,7 @@
       var toggles = '<div class="ov-pill-row bp-flags" style="margin-bottom:12px;">' + BP_FLAGS.map(function (f, i) {
         var n = BP.buckets.filter(function (x) { return Number(x[f[0]]); }).length;
         var on = !!BP.on[f[0]], color = BP_COLOR[f[0]] || '#495057';
-        return '<button type="button" class="ov-pill' + (on ? '' : ' zero') + '" data-bp-flag="' + f[0] + '" title="' + esc(ovFlagLabel(f, ovHubOf(BP.opl))) + '" style="border:0;cursor:pointer;' + (on ? 'background:' + color : '') + '"><span class="bp-flag-l">' + esc(ovFlagLabel(f, ovHubOf(BP.opl))) + '</span><b>' + n + '</b></button>';
+        return '<button type="button" class="ov-pill' + (on ? '' : ' zero') + '" data-bp-flag="' + f[0] + '" title="' + esc(ovFlagLabel(f, bpHub)) + '" style="border:0;cursor:pointer;' + (on ? 'background:' + color : '') + '"><span class="bp-flag-l">' + esc(ovFlagLabel(f, bpHub)) + '</span><b>' + n + '</b></button>';
       }).join('') + '</div>';
       var shown = picked.length ? BP.buckets.filter(function (x) { return picked.some(function (f) { return Number(x[f[0]]); }); }) : BP.buckets;
       // Bucket, Variety (stem length) and its current status first; then every stage; then where it is.
@@ -1411,16 +1419,16 @@
       // times gets room, an empty one or a tick stays narrow.
       var wide = function (f) { return f[0] === 'awaiting' || (f[2] && shown.some(function (x) { return x[f[2]]; })); };
       var thead = '<tr><th class="bp-w-n">#</th>' + (BP.multi ? '<th class="bp-w-o">Order</th>' : '') + '<th class="bp-nw bp-w-b">Bucket</th><th class="bp-w-v">Variety</th><th class="bp-w-s">Status</th>' + (anyNf ? '<th class="bp-w-r">Replace with</th>' : '') +
-        cols.map(function (f) { return '<th class="' + (wide(f) ? 'bp-w-t' : 'bp-w-x') + '">' + esc(ovFlagLabel(f, ovHubOf(BP.opl))) + '</th>'; }).join('') +
+        cols.map(function (f) { return '<th class="' + (wide(f) ? 'bp-w-t' : 'bp-w-x') + '">' + esc(ovFlagLabel(f, bpHub)) + '</th>'; }).join('') +
         extra.filter(function (e) { return e[1]; }).map(function (e) { return '<th class="bp-w-' + (e[0] === 'Boxes' || e[0] === 'Stems' ? 'x' : 'f') + '">' + e[0] + '</th>'; }).join('') + '</tr>';
       var tbody = shown.map(function (x, j) {
         var st = bpStage(x), c = BP_COLOR[st];
-        var label = st ? ovFlagLabel(BP_FLAGS.filter(function (f) { return f[0] === st; })[0] || [0, st], ovHubOf(BP.opl)) : '—';
+        var label = st ? ovFlagLabel(BP_FLAGS.filter(function (f) { return f[0] === st; })[0] || [0, st], ovHubOf(x._opl || BP.opl)) : '—';
         if (st === 'not_found') label = 'Not found · no replacement';
         var rp = ovReplacedBy(x._opl || BP.opl, x.bucket);
         return '<tr' + (c ? ' style="background:' + c + '14;box-shadow:inset 3px 0 0 ' + c + '"' : '') + '><td>' + (j + 1) + '</td>' +
           (BP.multi ? '<td><b>' + esc(x._order || '') + '</b></td>' : '') +
-          '<td class="bp-nw">' + (x.bucket ? '<a href="#" data-tr-bucket="' + esc(x.bucket) + '" data-tr-stems="' + esc(x.stems || 0) + '" data-tr-item="' + esc(x.variety || '') + '" style="font-weight:700;color:inherit;text-decoration:underline dotted;">' + esc(x.bucket) + '</a>' : '<b>—</b>') + '</td>' +
+          '<td class="bp-nw">' + (x.bucket ? '<a href="#" data-tr-bucket="' + esc(x.bucket) + '" data-tr-opl="' + esc(x._opl || BP.opl || '') + '" data-tr-stems="' + esc(x.stems || 0) + '" data-tr-item="' + esc(x.variety || '') + '" style="font-weight:700;color:inherit;text-decoration:underline dotted;">' + esc(x.bucket) + '</a>' : '<b>—</b>') + '</td>' +
           '<td>' + esc(x.variety || '—') + (x.length ? ' (' + esc(x.length) + ')' : '') + '</td>' +
           '<td class="bp-nw">' + (c ? '<span class="ov-pill" title="' + esc(label) + '" style="background:' + c + '">' + esc(label) + '</span>' : '—') +
             (rp ? '<div style="margin-top:3px;"><span class="ov-pill" style="background:#7c3aed" title="' + esc((rp.reason || '') + (rp.reported_by ? ' · ' + rp.reported_by : '')) + '">Replaced ' + esc(rp.old_bucket) + '</span></div>' : '') + '</td>' +
@@ -1436,7 +1444,7 @@
     var tbl = panel.querySelector('table.bp-table');
     if (tbl && tbl.scrollWidth > tbl.parentNode.clientWidth + 1) tbl.classList.add('bp-fit');
     panel.querySelectorAll('[data-tr-bucket]').forEach(function (a) {
-      a.addEventListener('click', function (e) { e.preventDefault(); trOpen(a.getAttribute('data-tr-bucket'), a.getAttribute('data-tr-item'), a.getAttribute('data-tr-stems')); });
+      a.addEventListener('click', function (e) { e.preventDefault(); trOpen(a.getAttribute('data-tr-bucket'), a.getAttribute('data-tr-item'), a.getAttribute('data-tr-stems'), a.getAttribute('data-tr-opl')); });
     });
     panel.querySelectorAll('[data-bp-replace]').forEach(function (b) {
       b.addEventListener('click', function () { bpReplace(b.getAttribute('data-bp-replace'), b.getAttribute('data-bp-new')); });
