@@ -1970,6 +1970,14 @@ def _box_or_error(box_label_id):
 	return frappe.get_doc("Box Label", box_label_id)
 
 
+def _stages_for_transfer(box):
+	"""The box was packed at a sales farm that sends its boxes to the main one, and has not been received there
+	yet: it is staged for the internal transfer, never precooled at its own farm."""
+	from upande_packhouse.api.box_transfer import RECEIVED, needs_transfer
+
+	return needs_transfer(box) and box.get("transfer_status") != RECEIVED
+
+
 @frappe.whitelist()
 def createPrecoolingEntry():
 	"""Pack -> Precooling -> Stage -> Load. `action` "in" puts a packed box
@@ -1990,6 +1998,23 @@ def createPrecoolingEntry():
 		frappe.response.update({"status": "error", "message": "Box %s has already been loaded" % box.name})
 	elif box.staged:
 		frappe.response.update({"status": "error", "message": "Box %s has already been staged" % box.name})
+	elif action == "in" and _stages_for_transfer(box):
+		# A sales farm that sends its boxes to the main one does not precool: staging marks the box packed and
+		# ready to go on the internal transfer; it is precooled at the main sales farm after it is received.
+		from upande_packhouse import stock_movement
+		from upande_packhouse.api.box_transfer import main_sales_farm
+
+		box.staged = 1
+		box.staged_at = frappe.utils.now_datetime()
+		box.save(ignore_permissions=True)
+		_post_box_leg(box, stock_movement.post_stage_to_dispatch, "Stage -> Dispatch: nothing moved")
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+		frappe.response.update(
+			{
+				"status": "success",
+				"message": "Box %s staged, ready for transfer to %s" % (box.name, main_sales_farm()),
+			}
+		)
 	elif action == "in":
 		if box.precooling:
 			frappe.response.update(
@@ -2118,6 +2143,16 @@ def createStagingEntry():
 			if box.staged == 1:
 				frappe.response.update(
 					{"status": "duplicate", "message": "Box %s has already been staged" % box.name}
+				)
+			elif _stages_for_transfer(box):
+				from upande_packhouse.api.box_transfer import main_sales_farm
+
+				frappe.response.update(
+					{
+						"status": "error",
+						"message": "Box %s is precooled at %s: stage it and send it on the internal transfer"
+						% (box.name, main_sales_farm()),
+					}
 				)
 			elif not box.precooling:
 				# Enforce the pipeline order: Pack -> Precool -> Stage -> Load.
@@ -4698,9 +4733,18 @@ def receiveTransferBox(box_label: str | None = None, station: str | None = None)
 def getSalesFarms():
 	"""The sales farms (Production Settings > Shelf Locations, Sales Shelf): the farms a packhouse
 	station can be."""
+	from upande_packhouse.api.box_transfer import main_sales_farm
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import sales_farms
 	from upande_packhouse.api.v2.allocation_teams import sales_farm_names
 
-	frappe.response["message"] = {"success": True, "farms": sales_farm_names()}
+	# main: where the senders send their boxes on the internal transfer (they stage, it precools)
+	main = main_sales_farm()
+	frappe.response["message"] = {
+		"success": True,
+		"farms": sales_farm_names(),
+		"main": main,
+		"senders": [f for f in sales_farms() if main and f != main],
+	}
 
 
 @frappe.whitelist()
