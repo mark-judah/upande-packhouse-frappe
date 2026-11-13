@@ -85,7 +85,17 @@ def bootstrap():
 		}
 		for k, v in lp_types.TYPES.items()
 	}
-	farms = frappe.get_all("Farm", fields=["name", "farm_code"], order_by="name asc")
+	from upande_packhouse.api.opl_qr_codes import _shelf_prefix
+
+	farms = frappe.get_all("Farm", fields=["name", "farm_code", "abbreviation"], order_by="name asc")
+	shelved = set(frappe.db.sql_list("select distinct farm from `tabShelf` where name like '%%-%%'"))
+	for f in farms:
+		# the farm's series prefix: the one its shelves and OPL trolley labels already use, else its abbreviation
+		f["prefix"] = (
+			_shelf_prefix(f["name"])
+			if f["name"] in shelved or not f.get("abbreviation")
+			else re.sub(r"[^A-Z0-9]", "", f["abbreviation"].upper())[:6]
+		)
 	return {
 		"types": types,
 		"templates": _template_rows(),
@@ -95,7 +105,14 @@ def bootstrap():
 		"max_batch": lp_codes.MAX_BATCH,
 		"inline_reprint_max": lp_batch.INLINE_REPRINT_MAX,
 		"can_write": bool(frappe.has_permission("Label Batch", "create")),
+		"trolley_last": lp_codes.trolley_last(),
 	}
+
+
+@frappe.whitelist()
+def trolley_last():
+	_check()
+	return lp_codes.trolley_last()
 
 
 # ------------------------------------------------------------- bunch table
@@ -192,6 +209,34 @@ def preview(label_type: str, design=None, layout=None, spec=None):
 	}
 
 
+@frappe.whitelist()
+def preview_all(label_type: str, design=None, spec=None, start: int = 0, limit: int = 48):
+	"""Every label the form will print, one image each (a page of `limit` at a time), drawn by the printer's renderer."""
+	import base64
+
+	import pymupdf
+
+	_check()
+	if label_type not in lp_types.TYPES:
+		frappe.throw(_("Unknown label type."))
+	design = render.normalize_design(_loads(design, None), label_type)
+	ctxs = lp_batch.sample_ctxs(label_type, _loads(spec, {}))
+	start, limit = max(0, cint(start)), min(max(1, cint(limit)), 96)
+	part = ctxs[start : start + limit]
+	out = []
+	if part:
+		# solved over every label, so text sizes match the real print
+		geo = render.solve(design, ctxs, label_type)
+		doc = pymupdf.open(
+			stream=render.render_pdf(design, {"mode": "single"}, part, label_type, geo), filetype="pdf"
+		)
+		for i, page in enumerate(doc):
+			png = base64.b64encode(page.get_pixmap(dpi=110).tobytes("png")).decode()
+			out.append({"code": part[i].get("code") or "", "image": "data:image/png;base64," + png})
+		doc.close()
+	return {"total": len(ctxs), "start": start, "labels": out}
+
+
 # ------------------------------------------------------------- batches
 
 
@@ -207,6 +252,11 @@ def create(
 	return lp_batch.create_batch(
 		label_type, _loads(spec, {}), _loads(design, None), _loads(layout, {}), template, request_key
 	)
+
+
+@frappe.whitelist(methods=["POST"])
+def step(name: str):
+	return lp_batch.step(name)
 
 
 @frappe.whitelist()

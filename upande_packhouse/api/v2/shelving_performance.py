@@ -199,12 +199,14 @@ def get_shelving_performance(**kw):
 	for m in missing:
 		miss_by_farm[m.farm] += 1
 	rooms = []
-	for farm in sorted(set(by_room) | set(miss_by_farm) | set(called)):
+	# a receipt or bucket with no farm sorts last (None cannot be compared with a farm name)
+	for farm in sorted(set(by_room) | set(miss_by_farm) | set(called), key=lambda f: (f is None, f or "")):
 		rs = by_room.get(farm, [])
 		calls = called.get(farm, 0) + miss_by_farm.get(farm, 0)
 		rooms.append(
 			{
-				"farm": farm,
+				# receipts recorded without a farm are kept, under a name of their own
+				"farm": farm or "No farm",
 				**_summary(rs, target),
 				"from_harvest": sum(1 for r in rs if r["source"] == "Receiving"),
 				"from_farms": sum(1 for r in rs if r["source"] == "Remote Transfers"),
@@ -296,7 +298,9 @@ def get_shelving_performance(**kw):
 			}
 			for m in missing[:ROW_LIMIT]
 		],
-		"farms": sorted({r["farm"] for r in receipts} | set(called) | {m.farm for m in missing}),
+		"farms": sorted(
+			f for f in {r["farm"] for r in receipts} | set(called) | {m.farm for m in missing} if f
+		),
 	}
 
 

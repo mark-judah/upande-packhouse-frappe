@@ -573,6 +573,8 @@ def get_orders_workflow(
 		from_date, to_date = to_date, from_date
 	today_d = getdate(today())
 	farm, team, customer = _s(farm), _s(team), _s(customer)
+	# one team or several, comma-separated ("Bravo,Chepsito A")
+	teams = {t.strip() for t in (team or "").split(",") if t.strip()}
 	item_group, q, stage = _s(item_group), _s(q).lower(), _s(stage) or "all"
 	view = "customer" if _s(view) == "customer" else "team"
 
@@ -671,12 +673,12 @@ def get_orders_workflow(
 		in_scope = sorted(
 			o
 			for o in ln.opls
-			if (not team or (opls[o].get("team") or "") == team)
+			if (not teams or (opls[o].get("team") or "") in teams)
 			and farm_ok(ln.parent, o)
 			and (packed_opls is None or o in packed_opls)
 		)
 		if not ln.opls:
-			if team or packed_opls is not None or not farm_ok(ln.parent):
+			if teams or packed_opls is not None or not farm_ok(ln.parent):
 				continue
 			in_scope = [None]
 		# Picked on every pick list of the line: below the ordered stems it is allocated partially.
@@ -962,7 +964,21 @@ def get_filter_options():
 	)
 	parent = _parent_groups()
 	groups = sorted({parent.get(g, g) for g in used})
-	return {"success": True, "teams": sorted(teams), "farms": farms, "item_groups": groups}
+	# each team's sales farm (Packing Teams > Sales Farm), so the team list follows the site picked
+	team_farm = {}
+	if frappe.db.has_column("Packing Teams", "sales_farm"):
+		team_farm = {
+			r.name: r.sales_farm
+			for r in frappe.get_all("Packing Teams", fields=["name", "sales_farm"])
+			if r.sales_farm
+		}
+	return {
+		"success": True,
+		"teams": sorted(teams),
+		"team_farm": team_farm,
+		"farms": farms,
+		"item_groups": groups,
+	}
 
 
 @frappe.whitelist()
@@ -985,3 +1001,29 @@ def get_document_dates(doctype: Any, name: Any):
 		"to_date": str(hi) if hi else None,
 		"sales_orders": sorted(sos),
 	}
+
+
+@frappe.whitelist()
+def get_orders(sales_orders: Any = None):
+	"""The orders the dashboard is showing (`sales_orders`, a JSON list of Sales Order names): each with its
+	customer, order name, delivery date and when it was created, oldest delivery first."""
+	names = frappe.parse_json(sales_orders) if isinstance(sales_orders, str) else (sales_orders or [])
+	names = [n for n in names if n]
+	if not names:
+		return []
+	return frappe.get_all(
+		"Sales Order",
+		filters={"name": ["in", names]},
+		fields=[
+			"name",
+			"customer",
+			"customer_name",
+			"custom_order_name as order_name",
+			"delivery_date",
+			"creation",
+			"owner",
+			"status",
+		],
+		order_by="delivery_date asc, creation asc",
+		limit_page_length=0,
+	)

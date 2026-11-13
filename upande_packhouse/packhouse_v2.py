@@ -92,12 +92,6 @@ NAV = [
 		[
 			("variety-tree", "Variety Tree", "/packhouse-dashboard-v2/variety-tree-v2", "tree"),
 			("price-lists", "Price Lists", "/packhouse-dashboard-v2/price-lists-v2", "dollar"),
-			(
-				"new-customer-price-list",
-				"New Customer Price List",
-				"/packhouse-dashboard-v2/new-customer-price-list-v2",
-				"user-plus",
-			),
 			("specifications", "Specifications", "/packhouse-dashboard-v2/specifications-v2", "doc"),
 		],
 	),
@@ -135,6 +129,10 @@ def page_context(context, active_page, title, section=None):
 		(group, [i for i in items if REQUIRES_APP.get(i[0]) in (None, *installed)]) for group, items in NAV
 	]
 	context.ph_v = _asset_version()
+	# the site filter's sites: the sales farms of Production Settings and their farms (PH.REGIONS)
+	from upande_packhouse.api.v2.core import region
+
+	context.ph_regions = region.sites()
 	return context
 
 

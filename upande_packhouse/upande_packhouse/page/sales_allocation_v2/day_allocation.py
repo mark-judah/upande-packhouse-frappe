@@ -229,6 +229,7 @@ def auto_allocate_day(
 	delivery_end: str | None = None,
 	selected_farms: str | list | None = None,
 	bypass_orders: str | list | None = None,
+	box_type: str | None = None,
 ):
 	"""Propose an allocation for every open order delivering in the window, FIFO, in whole boxes, in
 	Allocation Planning's sequence. Nothing is saved: the proposal is kept for this user until it is
@@ -249,6 +250,7 @@ def auto_allocate_day(
 		_farms(selected_farms),
 		frappe.session.user,
 		set(bypass_orders or ()),
+		box_type if box_type in ("straight", "mixed") else None,
 	)
 
 
@@ -343,11 +345,17 @@ def _proposal(location, delivery_start=None, delivery_end=None, farms=None, user
 
 
 def _save_pending(location, sales_order, allocations, teams, boxes, source, order=None):
-	"""Write (or replace) an order's open Pending Allocation at the location; none left when it has no rows.
-	`order` ({customer, delivery_date}, already read) spares looking the links up again."""
+	"""Write (or replace) an order's open Pending Allocation at the location, holding only the rows that complete
+	boxes; none left when no box is complete. `order` ({customer, delivery_date}, already read) spares looking the
+	links up again."""
 	name = frappe.db.get_value(
 		PENDING, {"sales_order": sales_order, "location": location, "status": "Pending"}, "name"
 	)
+	# only complete boxes are held: a straight line's full boxes, a mixed box or bunch once every variety in
+	# it fills it. Stems short of a box stay with the planner's page, not on the buckets.
+	if allocations:
+		allocations, _short, by_box = _split_release(sales_order, allocations)
+		boxes = sum(by_box.values())
 	if not allocations:
 		if name:
 			frappe.delete_doc(PENDING, name, ignore_permissions=True, force=True)
@@ -486,6 +494,68 @@ def _release_ok(boxes, full_before, required):
 	return after * 100.0 >= flt(ps.get("partial_allocation_release_percent")) * required - 1e-9
 
 
+def _drop_gone_buckets(o, location):
+	"""Take off an order's allocation the rows whose bucket is no longer on a shelf with that variety and length
+	(issued to another pick list, cleared, or the label reused since): the order's other rows still release.
+	Saves the trimmed allocation waiting release and returns the buckets taken off."""
+	rows = o.get("allocations") or []
+	buckets = list({a.get("bucket_id") for a in rows if a.get("bucket_id")})
+	if not buckets:
+		return []
+	on_shelf = {
+		(r.bucket_id, r.variety, r.stem_length or "")
+		for r in frappe.db.sql(
+			"""SELECT si.bucket_id, si.variety, IFNULL(si.stem_length, '') AS stem_length
+			   FROM `tabShelf Item` si WHERE si.bucket_id IN %(b)s AND IFNULL(si.stem_qty, 0) > 0""",
+			{"b": tuple(buckets)},
+			as_dict=True,
+		)
+	}
+	gone = [
+		a
+		for a in rows
+		if (a.get("bucket_id"), a.get("item_code"), a.get("stem_length") or "") not in on_shelf
+	]
+	if not gone:
+		return []
+	o["allocations"] = [a for a in rows if a not in gone]
+	if o["allocations"]:
+		_save_pending(
+			location,
+			o["sales_order"],
+			o["allocations"],
+			o.get("teams") or {},
+			_pending_boxes(o["allocations"]),
+			o.get("source") or "Picked",
+		)
+	else:
+		sa.close_pending(o["sales_order"], location)
+	frappe.db.commit()  # nosemgrep -- the trimmed allocation stands whatever the release does next
+	return sorted({a["bucket_id"] for a in gone})
+
+
+def _gate_release(release, keep, boxes, full_before, required):
+	"""(release, keep, boxes) as the release sends it out. With partial allocation on (Production Settings), a
+	straight line is one variety: its complete boxes always go out, each straight line a pick list of its own.
+	The release percentage holds back only the mixed boxes and bunches, until the order reaches it. With partial
+	allocation off the order goes out only once every box is complete."""
+	if not release or _release_ok(sum(boxes.values()), full_before, required):
+		return release, keep, boxes
+	# partial allocation off: the order goes out only whole
+	allow = frappe.get_cached_doc("Production Settings").get("allow_partial_allocation")
+	if allow is not None and not cint(allow):
+		return [], keep + release, {}
+	straight = {k[1] for k in boxes if k[0] == "line" and boxes[k] > 0}
+	out = [a for a in release if a["sales_order_item"] in straight]
+	if not out:
+		return [], keep + release, {}
+	return (
+		out,
+		keep + [a for a in release if a["sales_order_item"] not in straight],
+		{k: v for k, v in boxes.items() if k[0] == "line" and k[1] in straight},
+	)
+
+
 def _summary(p):
 	orders = p["orders"] if p else []
 	# each order's boxes: how many it needs, and how many will be full once this is released -- counted
@@ -493,12 +563,16 @@ def _summary(p):
 	rows = [frappe._dict(name=o["sales_order"]) for o in orders]
 	sa._attach_boxes(rows)
 	for o, r in zip(orders, rows, strict=True):
-		o["_release"], _keep, o["_box_groups"] = _split_release(o["sales_order"], o["allocations"])
+		o["_release"], _keep, o["_box_groups"] = _gate_release(
+			*_split_release(o["sales_order"], o["allocations"]), r.boxes_full, r.boxes_required
+		)
 		o["boxes"] = sum(o["_box_groups"].values())
 		o["order_boxes"] = cint(r.boxes_required)
 		o["full_before"] = min(cint(r.boxes_required), cint(r.boxes_full))
 		o["full_after"] = min(cint(r.boxes_required), cint(r.boxes_full) + cint(o["boxes"]))
-		o["releasable"] = 1 if _release_ok(o["boxes"], r.boxes_full, r.boxes_required) else 0
+		o["releasable"] = 1 if o["_release"] else 0
+		# the order lines (a straight line, a mixed box or bunch) whose complete boxes this release sends
+		o["release_lines"] = sum(1 for v in o["_box_groups"].values() if v > 0)
 		# the release shows only what goes out: the complete boxes and their stems
 		o["release_stems"] = sum(flt(a.get("qty")) for a in o["_release"])
 	return {
@@ -507,9 +581,13 @@ def _summary(p):
 				**{k: v for k, v in o.items() if k not in ("_box_groups", "_release")},
 				"lines": _line_stems(o["_release"]),
 				"team_names": _team_names(o),
+				# each line shows the team release gives it: chosen, planned, the order's other pick lists,
+				# else the sales farm's only team -- nobody has to add a team where there is just one
 				"groups": [
 					g
-					for g in _release_groups({**o, "allocations": o["_release"]}, o["_box_groups"])
+					for g in _release_groups(
+						{**o, "allocations": o["_release"], "teams": _fill_teams(o)}, o["_box_groups"]
+					)
 					if g.get("boxes")
 				],
 			}
@@ -795,7 +873,13 @@ def _queue_place(job_id):
 	return {"queued": True, "ahead": job.get_position() or 0}
 
 
-def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=()):
+def _is_mixed_line(it):
+	return bool(cint(it.get("custom_mixed_box")) or cint(it.get("custom_mixed_bunch")))
+
+
+def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=(), box_type=None):
+	"""`box_type` "straight" or "mixed": only those lines are allocated; the other type's rows of earlier
+	Allocate all proposals are kept as they were (their buckets stay theirs)."""
 	steps = {"total": 1}
 
 	# allocating is the first half of the bar, the shortages check the second
@@ -836,6 +920,43 @@ def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=
 			},
 			pluck="name",
 		)
+		# one box type only: the other type's rows of those proposals are kept, and their buckets are not offered
+		kept, kept_taken = defaultdict(list), {}
+		if box_type and stale:
+			rows = frappe.get_all(
+				"Pending Allocation Row",
+				filters={"parent": ("in", stale), "parenttype": PENDING},
+				fields=[
+					"parent",
+					"sales_order_item",
+					"item_code",
+					"bucket_id",
+					"stem_length",
+					"qty",
+					"team",
+					"length_status",
+					"downgrade_reason",
+					"warehouse",
+					"uom",
+					"stock_uom",
+					"conversion_factor",
+				],
+			)
+			flags = {
+				r.name: r
+				for r in frappe.get_all(
+					"Sales Order Item",
+					filters={"name": ("in", list({r.sales_order_item for r in rows}) or [""])},
+					fields=["name", "parent", "custom_mixed_box", "custom_mixed_bunch"],
+				)
+			}
+			for r in rows:
+				line = flags.get(r.sales_order_item)
+				if not line or (_is_mixed_line(line) == (box_type == "mixed")):
+					continue
+				kept[line.parent].append(dict(r))
+				k = (r.bucket_id, r.item_code, r.stem_length or "")
+				kept_taken[k] = kept_taken.get(k, 0.0) + flt(r.qty)
 		if stale:
 			# nothing links to a proposal: its rows and itself go in two statements
 			frappe.db.delete("Pending Allocation Row", {"parent": ("in", stale), "parenttype": PENDING})
@@ -854,16 +975,21 @@ def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=
 		)
 		window_orders = _orders(location, delivery_start, delivery_end)
 		# the orders the planner confirmed take buckets of any cut stage; the rest only their own
-		orders, errors, lines, taken = _plan_day(
-			location,
-			delivery_start,
-			delivery_end,
-			farms,
-			plan_progress,
-			skip,
-			window_orders,
-			bypass_orders=bypass_orders,
-		)
+		was_type, frappe.flags.sa2_box_type = frappe.flags.sa2_box_type, box_type
+		try:
+			orders, errors, lines, taken = _plan_day(
+				location,
+				delivery_start,
+				delivery_end,
+				farms,
+				plan_progress,
+				skip,
+				window_orders,
+				taken=kept_taken,
+				bypass_orders=bypass_orders,
+			)
+		finally:
+			frappe.flags.sa2_box_type = was_type
 		_publish(
 			user,
 			location,
@@ -874,8 +1000,28 @@ def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=
 			order="",
 		)
 		for o in orders:
+			other = kept.pop(o["sales_order"], [])
 			_save_pending(
-				location, o["sales_order"], o["allocations"], o["teams"], o["boxes"], "Allocate all", order=o
+				location,
+				o["sales_order"],
+				o["allocations"] + other,
+				{
+					**{r["sales_order_item"]: r.get("team") for r in other if r.get("team")},
+					**(o["teams"] or {}),
+				},
+				o["boxes"],
+				"Allocate all",
+				order=o,
+			)
+		# the other type's boxes of orders this run gave nothing to
+		for so, rows in kept.items():
+			_save_pending(
+				location,
+				so,
+				rows,
+				{r["sales_order_item"]: r.get("team") for r in rows if r.get("team")},
+				0,
+				"Allocate all",
 			)
 		# the proposal is what the planner reviews next: it must outlive the job
 		frappe.db.commit()  # nosemgrep
@@ -1731,6 +1877,9 @@ def _plan_orders(location, farms, progress, skip, orders, bypass, prior, taken, 
 			)
 			or []
 		)
+		# Allocate all for one box type: the other type's lines are left as they are
+		if frappe.flags.sa2_box_type:
+			items = [i for i in items if _is_mixed_line(i) == (frappe.flags.sa2_box_type == "mixed")]
 		for item in items:
 			item["customer"] = order.customer
 			item["sales_order"] = order.name
@@ -1940,6 +2089,8 @@ def _run_confirm(
 				"stems": flt(carried.get("stems")) + sum(x["stems"] for x in saved),
 				"errors": errors,
 				"waiting": waiting,
+				"taken_off": taken_off,
+				"freed": freed,
 			},
 		)
 		frappe.db.commit()  # nosemgrep -- the job is queued after commit
@@ -1956,6 +2107,17 @@ def _run_confirm(
 		total = total or len(chosen)
 		rules = sa._v2_rules(location)
 		saved, errors, waiting = [], dict(carried.get("errors") or {}), list(carried.get("waiting") or [])
+		taken_off = dict(carried.get("taken_off") or {})
+		freed = dict(carried.get("freed") or {})
+
+		def clear(o, stems):
+			"""A release leaves nothing waiting: the order's allocation waiting release is closed whatever went
+			out, and the stems that did not go out are free on the shelf again."""
+			sa.close_pending(o["sales_order"], location)
+			frappe.db.commit()  # nosemgrep -- each order stands on its own
+			if stems > 1e-9:
+				freed[o["sales_order"]] = flt(freed.get(o["sales_order"])) + stems
+
 		for n, o in enumerate(chosen):
 			if budget and n and time.monotonic() - started > budget:
 				handed_on = hand_on(chosen, n)
@@ -1969,6 +2131,15 @@ def _run_confirm(
 				total=total,
 				order=o.get("order_name") or o["sales_order"],
 			)
+			# a bucket gone from the shelves since it was allocated comes off; the rest of the order goes on
+			gone = _drop_gone_buckets(o, location)
+			if gone:
+				taken_off[o["sales_order"]] = gone
+				if not o["allocations"]:
+					clear(o, 0)
+					waiting.append(o["sales_order"])
+					continue
+			held = sum(flt(a.get("qty")) for a in o["allocations"])
 			frappe.db.savepoint("confirm_day_order")
 			try:
 				_check_location(o["sales_order"], location)
@@ -1979,26 +2150,20 @@ def _run_confirm(
 				# such an order waits until its team is chosen (the page asks for it)
 				if not o["teams"]:
 					frappe.db.rollback(save_point="confirm_day_order")
+					clear(o, held)
 					waiting.append(o["sales_order"])
 					continue
-				# only complete boxes go out; what does not complete a box yet stays allocated, waiting release
-				release, keep, boxes = _split_release(o["sales_order"], o["allocations"])
-				o["boxes"] = sum(boxes.values())
+				# only complete boxes go out; what does not complete a box goes back to the shelf
 				row = frappe._dict(name=o["sales_order"])
 				sa._attach_boxes([row])
-				if release and not _release_ok(o["boxes"], row.boxes_full, row.boxes_required):
-					release, keep = [], o["allocations"]
+				# below the release percentage only the straight lines' complete boxes go out
+				release, keep, boxes = _gate_release(
+					*_split_release(o["sales_order"], o["allocations"]), row.boxes_full, row.boxes_required
+				)
+				o["boxes"] = sum(boxes.values())
 				if not release:
 					frappe.db.rollback(save_point="confirm_day_order")
-					# stems the order no longer needs (its pick lists already hold them) stop being held
-					if (
-						sum(flt(a.get("qty")) for a in keep)
-						< sum(flt(a.get("qty")) for a in o["allocations"]) - 1e-9
-					):
-						_save_pending(
-							location, o["sales_order"], keep, o["teams"], 0, o.get("source") or "Allocate all"
-						)
-						frappe.db.commit()  # nosemgrep
+					clear(o, held)
 					waiting.append(o["sales_order"])
 					continue
 				sa._allocate_stock_with_buckets_impl(o["sales_order"], release, location, o["teams"])
@@ -2006,14 +2171,10 @@ def _run_confirm(
 				frappe.db.rollback(save_point="confirm_day_order")
 				frappe.clear_messages()
 				errors[o["sales_order"]] = str(e)
+				clear(o, held)
 				continue
-			sa.close_pending(o["sales_order"], location)
-			if keep:
-				_add_pending(
-					location, o["sales_order"], keep, o["teams"], source=o.get("source") or "Allocate all"
-				)
 			# each order stands on its own: a later failure must not roll back the ones already saved
-			frappe.db.commit()  # nosemgrep
+			clear(o, sum(flt(a.get("qty")) for a in keep))
 			saved.append(o)
 		# the orders used the budget up: the shortages (seconds more) are read in the background
 		if budget and chosen and time.monotonic() - started > budget:
@@ -2027,6 +2188,8 @@ def _run_confirm(
 			"stems": flt(carried.get("stems")) + sum(o["stems"] for o in saved),
 			"errors": errors,
 			"waiting": waiting,
+			"taken_off": taken_off,
+			"freed": freed,
 			"proposal": _summary(p),
 			"shortages": _shortages(location, delivery_start, delivery_end, farms, errors, _pending(p)),
 		}

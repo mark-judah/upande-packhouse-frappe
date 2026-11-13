@@ -20,6 +20,8 @@ frappe.require("/assets/upande_packhouse/css/so-dialogs.css");
 frappe.ui.form.on("Sales Order", {
 	onload(frm) {
 		set_delivery_point_query(frm);
+		// a disabled price list is not offered
+		frm.set_query("selling_price_list", () => ({ filters: { selling: 1, enabled: 1 } }));
 	},
 	refresh(frm) {
 		set_delivery_point_query(frm);

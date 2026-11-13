@@ -59,6 +59,10 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 .ll-pv__img{background:var(--tint);border-radius:var(--r-md);padding:var(--sp-4);display:grid;place-items:center;min-height:160px;transition:opacity .15s}
 .ll-pv__img img{display:block;max-width:100%;max-height:340px;height:auto;width:auto;background:var(--surface-2);box-shadow:var(--shadow-card);border-radius:2px}
 .ll-pv__img.is-busy{opacity:.55}
+.ll-all{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:var(--sp-4)}
+.ll-all__it{margin:0;display:flex;flex-direction:column;gap:6px;padding:var(--sp-3);border:1px solid var(--hairline-2);border-radius:var(--r-md);background:var(--surface-2)}
+.ll-all__it img{display:block;width:100%;height:auto;box-shadow:var(--shadow-card);border-radius:2px;background:#fff}
+.ll-all__it figcaption{font-size:12px;display:flex;gap:6px;align-items:baseline}
 .ll-pv__notes .ph-notice{margin-bottom:var(--sp-2);padding:var(--sp-3) var(--sp-4)}
 .ll-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-2) var(--sp-4);margin:0}
 .ll-facts div{min-width:0}
@@ -185,7 +189,8 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
     <div class="ph-pills" id="bx-pre" role="group" aria-label="Delivery days"><button data-a="0" data-b="1">Today &amp; tomorrow</button><button data-a="0" data-b="0">Today</button><button data-a="1" data-b="1">Tomorrow</button><button data-a="0" data-b="6">Next 7 days</button></div>
     <label class="ph-daterange"><span class="ph-muted">Delivery</span><input type="date" id="bx-from" aria-label="Delivery from"><span class="ph-daterange__sep">→</span><input type="date" id="bx-to" aria-label="Delivery to"></label>
     <select class="ph-select" id="bx-cust" aria-label="Customer"><option value="">All customers</option></select>
-    <label class="ph-search"><span id="bx-q-ic"></span><input id="bx-q" type="search" placeholder="Search order, PO or box" autocomplete="off" aria-label="Search orders"></label>
+    <select class="ph-select" id="bx-var" aria-label="Variety"><option value="">All varieties</option></select>
+    <label class="ph-search"><span id="bx-q-ic"></span><input id="bx-q" type="search" placeholder="Search order, order name, PO or box" autocomplete="off" aria-label="Search orders"></label>
     <div class="ph-pills" id="bx-st" role="group" aria-label="Printed"><button data-value="">All</button><button data-value="todo">To print</button><button data-value="done">Printed</button></div>
   </div>
   <section class="ph-card ph-card--flush">
@@ -257,7 +262,7 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
   const TYPES = ["bunch", "bucket", "shelf", "sf_shelf", "trolley", "staging"];
   const VIEWS = ["print", "reprint", "history"];
   const isBox = () => st.get("t") === "box";
-  const st = PH.state({ t: "bunch", tab: "print", farm: "", hs: "", all: false, bfrom: PH.date.today(), bto: PH.date.add(PH.date.today(), 1), bcust: "", bq: "", bst: "" });
+  const st = PH.state({ t: "bunch", tab: "print", farm: "", hs: "", all: false, bfrom: PH.date.today(), bto: PH.date.add(PH.date.today(), 1), bcust: "", bvar: "", bq: "", bst: "" });
   const clone = (o) => JSON.parse(JSON.stringify(o));
   const uuid = () => (window.crypto && crypto.randomUUID ? crypto.randomUUID() : "k" + Date.now().toString(36) + Math.random().toString(36).slice(2, 12));
   const ls = {
@@ -280,9 +285,22 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
     bucket: { qty: "" },
     shelf: { rows: [{ prefix: "", row: "", from: 1, to: "" }], levels: { T: true, M: true, B: true } },
     sf_shelf: { rows: [{ row: "", from: 1, to: "" }], levels: { T: true, M: true, B: true } },
-    trolley: { rows: [{ prefix: "", from: 1, to: "" }] },
+    trolley: { rows: [{ farm: "", prefix: "", qty: "", from: "", to: "", auto: true }] },
     staging: { text: "" },
   };
+  // Trolley rows on a farm's series start after the highest number already made, each row after the one above.
+  function trolleyFill() {
+    const next = {};
+    F.trolley.rows.forEach((r) => {
+      if (!r.auto || !r.prefix) return;
+      const from = next[r.prefix] || ((boot && boot.trolley_last && boot.trolley_last[r.prefix]) || 0) + 1;
+      const q = Math.max(1, toInt(r.qty));
+      r.from = from;
+      r.to = from + q - 1;
+      next[r.prefix] = r.to + 1;
+    });
+  }
+  const farmOf = (name) => ((boot && boot.farms) || []).find((x) => x.name === name);
   TYPES.forEach((t) => { INT[t] = { sig: null, key: null }; RP[t] = { items: [], missing: [], sugg: [], total: 0, reason: "Damaged", note: "", busy: false, blob: null, intent: { sig: null, key: null } }; });
 
   const keyFor = (obj, sig) => { if (obj.sig !== sig || !obj.key) { obj.sig = sig; obj.key = uuid(); } return obj.key; };
@@ -310,11 +328,14 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
   const RE_PREFIX = /^[A-Z0-9]{1,6}$/, RE_ROW = /^[A-Z0-9]{1,3}$/;
   const levelsOf = (f) => ["T", "M", "B"].filter((l) => f.levels[l]);
 
+  // a blank To prints just the From position
+  const toOf = (r) => (String(r.to == null ? "" : r.to).trim() === "" ? toInt(r.from) : toInt(r.to));
   function rowCheck(t, r) {
     if (t !== "sf_shelf" && t !== "staging" && !RE_PREFIX.test(r.prefix || "")) return "Farm prefix: 1 to 6 letters or numbers";
     if ((t === "shelf" || t === "sf_shelf") && !RE_ROW.test(r.row || "")) return "Row letter: 1 to 3 letters or numbers";
-    const a = toInt(r.from), b = toInt(r.to);
-    if (a < 1 || b < a || b > 1000) return "Positions run from 1 up, for example 1 to 21";
+    const a = toInt(r.from), b = toOf(r);
+    if (t === "trolley" && !r.prefix) return "Choose a farm";
+    if (a < 1 || b < a || b > (t === "trolley" ? 100000 : 1000)) return "Positions run from 1 up, for example 1 to 21";
     return "";
   }
   function fixedCodes(t) {
@@ -344,7 +365,7 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
       const e = rowCheck(t, r);
       if (e) { out.err = e; continue; }
       const prefix = t === "sf_shelf" ? "SF" : (r.prefix || "").toUpperCase();
-      for (let n = toInt(r.from); n <= toInt(r.to); n++) {
+      for (let n = toInt(r.from); n <= toOf(r); n++) {
         for (const l of lv) {
           const code = t === "trolley" ? prefix + "-TROLLEY-" + n : prefix + "-" + (r.row || "").toUpperCase() + n + l;
           if (seen.has(code)) continue;
@@ -360,7 +381,7 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
   }
   function rowCount(t, r) {
     if (rowCheck(t, r)) return 0;
-    return (toInt(r.to) - toInt(r.from) + 1) * (t === "trolley" ? 1 : levelsOf(F[t]).length);
+    return (toOf(r) - toInt(r.from) + 1) * (t === "trolley" ? 1 : levelsOf(F[t]).length);
   }
   const bunchRows = () => F.bunch.rows.filter((r) => toInt(r.qty) > 0);
   const hiddenUsed = () => (F.bunch.vsel.length ? F.bunch.rows.filter((r) => toInt(r.qty) > 0 && !F.bunch.vsel.includes(r.variety)).length : 0);
@@ -388,8 +409,9 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
     if (t === "bunch") return { rows: bunchRows().map((r) => ({ farm: F.bunch.farm, variety: r.variety, bunch_size: r.bunch_size, stem_length: r.stem_length, qty: toInt(r.qty) })) };
     if (t === "bucket") return { qty: toInt(F.bucket.qty) };
     if (t === "staging") return { names: F.staging.text.split(/\r?\n/) };
-    const f = F[t], rows = f.rows.filter((r) => !rowCheck(t, r)).map((r) => ({ prefix: (r.prefix || "").toUpperCase(), row: (r.row || "").toUpperCase(), from: toInt(r.from), to: toInt(r.to) }));
-    return t === "trolley" ? { rows } : { rows, levels: levelsOf(f) };
+    const f = F[t], rows = f.rows.filter((r) => !rowCheck(t, r)).map((r) => ({ prefix: (r.prefix || "").toUpperCase(), row: (r.row || "").toUpperCase(), from: toInt(r.from), to: toOf(r) }));
+    if (t === "trolley") return { rows: f.rows.filter((r) => !rowCheck(t, r)).map((r) => ({ prefix: (r.prefix || "").toUpperCase(), from: toInt(r.from), to: toOf(r), auto: !!r.auto, qty: toOf(r) - toInt(r.from) + 1 })) };
+    return { rows, levels: levelsOf(f) };
   }
   const previewSpec = (t) => {
     if (curTab() === "reprint") return rpSpec(t);
@@ -438,7 +460,43 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
         (r.unknown_fields || []).map((f) => `<div class="ph-notice ph-notice--bad">${PH.icon("alert")}<span>Unknown field {${esc(f)}} in the design</span></div>`).join("") +
         (r.warnings || []).map((w) => `<div class="ph-notice ph-notice--warn">${PH.icon("alert")}<span>${esc(w)}</span></div>`).join("");
       h.querySelector(".ll-facts").innerHTML = facts.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${v}</dd></div>`).join("");
+      let all = h.querySelector("[data-pvall]");
+      if (!all) {
+        all = document.createElement("button");
+        all.type = "button"; all.className = "ph-btn ph-btn--sm"; all.dataset.pvall = "1";
+        all.addEventListener("click", previewAll);
+        img.after(all);
+      }
+      all.hidden = !(r.sample_count > 1);
+      all.innerHTML = PH.icon("eye", 14) + " View all " + N(r.sample_count) + " labels";
     });
+  }
+
+  /* every label of the current form, one image each, loaded a page at a time */
+  function previewAll() {
+    const t = curType(), spec = previewSpec(t), design = D[t].design;
+    let next = 0, total = 0, busy = false;
+    const body = document.createElement("div");
+    body.innerHTML = '<div class="ll-all"></div><div class="ll-mt ll-all__more"></div>';
+    const grid = body.querySelector(".ll-all"), more = body.querySelector(".ll-all__more");
+    const m = PH.modal({ drawer: true, size: "xl", title: tLabel(t) + " labels", body });
+    function load() {
+      if (busy) return;
+      busy = true;
+      more.innerHTML = '<span class="ph-sk" style="height:120px;display:block"></span>';
+      call("preview_all", { label_type: t, design, spec, start: next, limit: 48 }, { silent: true })
+        .then((r) => {
+          total = r.total;
+          next = r.start + r.labels.length;
+          grid.insertAdjacentHTML("beforeend", r.labels.map((x, i) => `<figure class="ll-all__it"><img src="${esc(x.image)}" alt="${esc(x.code)}" loading="lazy"><figcaption><span class="ph-muted">${N(r.start + i + 1)}</span> <span class="ph-mono">${esc(x.code)}</span></figcaption></figure>`).join(""));
+          m.el.querySelector(".ph-modal__title").textContent = tLabel(t) + " labels · " + N(total);
+          more.innerHTML = next < total ? `<button type="button" class="ph-btn" data-more>Show ${N(Math.min(48, total - next))} more · ${N(next)} of ${N(total)}</button>` : "";
+        })
+        .catch((e) => { more.innerHTML = `<div class="ph-notice ph-notice--bad">${esc(e.message)}</div>`; })
+        .finally(() => { busy = false; });
+    }
+    more.addEventListener("click", (e) => { if (e.target.closest("[data-more]")) load(); });
+    load();
   }
 
   /* the template + layout controls under each preview */
@@ -684,16 +742,21 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
   function formShelf(el, t) {
     const f = F[t], sf = t === "sf_shelf", tr = t === "trolley", hasPrefix = !sf;
     el.innerHTML = `
-      <table class="ph-table ph-table--compact" id="x-rows"><thead><tr>${hasPrefix ? "<th>Farm prefix</th>" : ""}${tr ? "" : "<th>Row letter</th>"}<th>From position</th><th>To position</th><th class="is-num">Labels</th><th><span class="ll-sr">Remove</span></th></tr></thead><tbody></tbody></table>
+      <table class="ph-table ph-table--compact" id="x-rows"><thead><tr>${tr ? "<th>Farm</th><th>How many</th>" : hasPrefix ? "<th>Farm prefix</th>" : ""}${tr ? "" : "<th>Row letter</th>"}<th>From ${tr ? "number" : "position"}</th><th>To ${tr ? "number" : "position"}</th><th class="is-num">Labels</th><th><span class="ll-sr">Remove</span></th></tr></thead><tbody></tbody></table>
       <div class="ll-mt"><button type="button" class="ph-btn ph-btn--sm" data-addrow>${PH.icon("plus", 14)} Add ${tr ? "range" : "row"}</button></div>
       ${tr ? "" : `<div class="ll-mt"><label class="ph-label">Levels</label><div class="ll-gap">${["T", "M", "B"].map((l) => `<label class="ph-check"><input type="checkbox" data-lv="${l}"${f.levels[l] ? " checked" : ""}> ${{ T: "Top", M: "Middle", B: "Bottom" }[l]} (${l})</label>`).join("")}</div></div>`}
       <div id="x-sum" class="ll-mt" aria-live="polite"></div>
       <div class="ph-notice ph-notice--signal ll-mt">${PH.icon("info")}<span>${sf ? "Sea freight shelves always use the SF prefix, as in SF-A1T. " : ""}A code that already exists is printed again as a reprint - it is never created twice.</span></div>`;
+    if (tr) {
+      const r0 = f.rows[0], want = farmOf(ls.get("ll_trolley_farm"));
+      if (!r0.farm && !r0.prefix && want) Object.assign(r0, { farm: want.name, prefix: want.prefix, auto: true });
+      trolleyFill();
+    }
     paintShelfRows(t); paintShelfSum(t);
   }
   function paintShelfRows(t) {
     const f = F[t], tr = t === "trolley", hasPrefix = t !== "sf_shelf", body = PH.$("#x-rows tbody");
-    body.innerHTML = f.rows.map((r, i) => `<tr data-ri="${i}">${hasPrefix ? `<td><input class="ph-table-input ll-txt" data-k="prefix" maxlength="6" value="${esc(r.prefix)}" placeholder="KPK" aria-label="Farm prefix"></td>` : ""}${tr ? "" : `<td><input class="ph-table-input ll-txt" data-k="row" maxlength="3" value="${esc(r.row)}" placeholder="A" aria-label="Row letter"></td>`}<td><input class="ph-table-input" type="number" min="1" max="1000" data-k="from" value="${esc(r.from)}" aria-label="From position"></td><td><input class="ph-table-input" type="number" min="1" max="1000" data-k="to" value="${esc(r.to)}" aria-label="To position"></td><td class="is-num" data-rc>${rowCount(t, r) ? N(rowCount(t, r)) : '<span class="ph-muted">-</span>'}</td><td><button type="button" class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-delrow="${i}" aria-label="Remove row ${i + 1}"${f.rows.length < 2 ? " disabled" : ""}>${PH.icon("trash", 14)}</button></td></tr>`).join("");
+    body.innerHTML = f.rows.map((r, i) => `<tr data-ri="${i}">${tr ? `<td><select class="ph-table-input ll-txt" data-k="farm" aria-label="Farm"><option value="">Choose a farm…</option>${boot.farms.map((x) => `<option value="${esc(x.name)}"${x.name === r.farm ? " selected" : ""}>${esc(x.name)} · ${esc(x.prefix)}</option>`).join("")}</select></td><td><input class="ph-table-input" type="number" min="1" max="1000" data-k="qty" value="${esc(r.qty)}" placeholder="1" aria-label="How many"></td>` : hasPrefix ? `<td><input class="ph-table-input ll-txt" data-k="prefix" maxlength="6" value="${esc(r.prefix)}" placeholder="KPK" aria-label="Farm prefix"></td>` : ""}${tr ? "" : `<td><input class="ph-table-input ll-txt" data-k="row" maxlength="3" value="${esc(r.row)}" placeholder="A" aria-label="Row letter"></td>`}<td><input class="ph-table-input" type="number" min="1" max="1000" data-k="from" value="${esc(r.from)}" aria-label="From position"></td><td><input class="ph-table-input" type="number" min="1" max="1000" data-k="to" value="${esc(r.to)}" aria-label="To position"></td><td class="is-num" data-rc>${rowCount(t, r) ? N(rowCount(t, r)) : '<span class="ph-muted">-</span>'}</td><td><button type="button" class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" data-delrow="${i}" aria-label="Remove row ${i + 1}"${f.rows.length < 2 ? " disabled" : ""}>${PH.icon("trash", 14)}</button></td></tr>`).join("");
   }
   function paintShelfSum(t) {
     const s = PH.$("#x-sum");
@@ -704,6 +767,23 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
   }
   function shelfEvents(e, t) {
     const f = F[t], el = e.target;
+    if (t === "trolley" && e.type === "input" && el.dataset.k) {
+      const r = f.rows[+el.closest("tr").dataset.ri], k = el.dataset.k;
+      if (k === "farm") {
+        const fm = farmOf(el.value);
+        Object.assign(r, { farm: el.value, prefix: fm ? fm.prefix : "", auto: true });
+        if (fm) ls.set("ll_trolley_farm", fm.name);
+      } else if (k === "qty") { r.qty = el.value; r.auto = true; }
+      else { r[k] = el.value; r.auto = false; r.qty = ""; }
+      trolleyFill();
+      PH.$$("#x-rows tbody tr").forEach((tr, i) => {
+        const x = f.rows[i], n = rowCount(t, x);
+        tr.querySelectorAll("[data-k=from],[data-k=to],[data-k=qty]").forEach((inp) => { if (inp !== el) inp.value = x[inp.dataset.k]; });
+        tr.querySelector("[data-rc]").innerHTML = n ? N(n) : '<span class="ph-muted">-</span>';
+      });
+      paintShelfSum(t); paintBar(); schedulePreview(400);
+      return;
+    }
     if (e.type === "input" && el.dataset.k) {
       const r = f.rows[+el.closest("tr").dataset.ri], k = el.dataset.k;
       if (k === "prefix" || k === "row") { const v = el.value.toUpperCase().replace(/[^A-Z0-9]/g, ""); if (v !== el.value) el.value = v; r[k] = v; }
@@ -713,9 +793,9 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
       paintShelfSum(t); paintBar(); schedulePreview(400);
     } else if (e.type === "change" && el.dataset.lv) { f.levels[el.dataset.lv] = el.checked; paintShelfRows(t); paintShelfSum(t); paintBar(); schedulePreview(); }
     else if (e.type === "click") {
-      if (el.closest("[data-addrow]")) { const last = f.rows[f.rows.length - 1]; f.rows.push(Object.assign({ from: 1, to: "" }, t !== "sf_shelf" ? { prefix: last.prefix } : {}, t !== "trolley" ? { row: "" } : {})); paintShelfRows(t); const ins = PH.$$("#x-rows tbody tr:last-child input"); if (ins[0]) ins[0].focus(); paintShelfSum(t); paintBar(); }
+      if (el.closest("[data-addrow]")) { const last = f.rows[f.rows.length - 1]; f.rows.push(t === "trolley" ? { farm: last.farm, prefix: last.prefix, qty: "", from: "", to: "", auto: true } : Object.assign({ from: 1, to: "" }, t !== "sf_shelf" ? { prefix: last.prefix } : {}, { row: "" })); if (t === "trolley") trolleyFill(); paintShelfRows(t); const ins = PH.$$("#x-rows tbody tr:last-child input"); if (ins[0]) ins[0].focus(); paintShelfSum(t); paintBar(); }
       const del = el.closest("[data-delrow]");
-      if (del && f.rows.length > 1) { f.rows.splice(+del.dataset.delrow, 1); paintShelfRows(t); paintShelfSum(t); paintBar(); schedulePreview(); }
+      if (del && f.rows.length > 1) { f.rows.splice(+del.dataset.delrow, 1); if (t === "trolley") trolleyFill(); paintShelfRows(t); paintShelfSum(t); paintBar(); schedulePreview(); }
     }
   }
   /* — staging — */
@@ -835,13 +915,25 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
       call("create", { label_type: t, spec, design: D[t].design, layout: LAY[t], template: D[t].name, request_key: key })
         .then((b) => {
           F.bunch.created = true;
+          if (t === "trolley") call("trolley_last", {}, { silent: true }).then((m) => { boot.trolley_last = m || {}; trolleyFill(); if (curType() === "trolley") { paintShelfRows("trolley"); paintShelfSum("trolley"); paintBar(); } });
           resPrint.show(b, b.duplicate ? "This request was already submitted, so this is the existing batch. Its design was fixed when it was first created." : "");
           PH.toast(b.duplicate ? "Existing batch shown - nothing new was created" : "Batch created", "good");
           PH.$("#result").scrollIntoView({ behavior: "smooth", block: "start" });
+          if (b.drive) drive(b.name);
         })
         .catch(() => { /* PH.call already toasted; the key is kept so a retry cannot double-reserve */ })
         .finally(() => { creating = false; paintBar(); });
     });
+  }
+  // a small batch is drawn slice by slice from here, so the progress bar follows it
+  function drive(name, tries) {
+    call("step", { name }, { silent: true })
+      .then((r) => {
+        const cur = resPrint.active;
+        if (cur && cur.name === name) resPrint.show(r);
+        if (!TERMINAL.includes(r.status)) drive(name);
+      })
+      .catch(() => { if ((tries || 0) < 3) setTimeout(() => drive(name, (tries || 0) + 1), 1500); });
   }
   function startAnother() {
     const t = curType();
@@ -1183,7 +1275,7 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
   const bxPost = (m, a) => PH.call("upande_packhouse.api.v2.box_labels." + m, a || {}, { type: "POST", silent: true });
   PH.$("#bx-q-ic").innerHTML = PH.icon("search", 16);
   const bxRange = () => { const a = st.get("bfrom"), b = st.get("bto"); return a <= b ? [a, b] : [b, a]; };
-  function bxParams() { const [a, b] = bxRange(); return { from_date: a, to_date: b, customer: st.get("bcust"), q: st.get("bq"), printed: st.get("bst") }; }
+  function bxParams() { const [a, b] = bxRange(); return { from_date: a, to_date: b, customer: st.get("bcust"), variety: st.get("bvar"), q: st.get("bq"), printed: st.get("bst") }; }
   function bxLoad(silent) {
     const my = ++BX.seq;
     if (!silent) PH.skeleton("#bx-list", "rows", 6);
@@ -1200,6 +1292,8 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
     const cur = st.get("bcust"), list = (r && r.customers) || [];
     PH.$("#bx-cust").innerHTML = '<option value="">All customers</option>' + list.map((c) => `<option value="${esc(c.customer)}"${c.customer === cur ? " selected" : ""}>${esc(c.name)}</option>`).join("") + (cur && !list.some((c) => c.customer === cur) ? `<option value="${esc(cur)}" selected>${esc(cur)}</option>` : "");
     PH.$("#bx-cust").classList.toggle("is-set", !!cur);
+    const cv = st.get("bvar"), vl = (r && r.varieties) || [];
+    PH.$("#bx-var").innerHTML = '<option value="">All varieties</option>' + vl.concat(cv && !vl.includes(cv) ? [cv] : []).map((v) => `<option value="${esc(v)}"${v === cv ? " selected" : ""}>${esc(v)}</option>`).join("");
     PH.$("#bx-q").value = st.get("bq");
   }
   const bxDate = (d) => { const x = PH.date.parse(d); return x ? x.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }) : d; };
@@ -1218,7 +1312,7 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
     const open = BX.open.has(o.sales_order);
     return `<div class="bx-o${open ? " is-open" : ""}"><div class="bx-row" data-bxx="${esc(o.sales_order)}" tabindex="0" role="button" aria-expanded="${open}" aria-label="Show the boxes of ${esc(o.sales_order)}">
       <span aria-hidden="true" style="display:inline-flex;transform:rotate(${open ? 90 : 0}deg)">${PH.icon("chevronRight", 14)}</span>
-      <div class="bx-who"><strong title="${esc(o.customer_name || o.customer)}">${esc(o.customer_name || o.customer)}</strong><small>${esc(o.sales_order)}${o.po_no ? " · PO " + esc(o.po_no) : ""}</small></div>
+      <div class="bx-who"><strong title="${esc(o.customer_name || o.customer)}">${esc(o.customer_name || o.customer)}</strong><small>${o.order_name ? `<b class="ph-strong">${esc(o.order_name)}</b> · ` : ""}${esc(o.sales_order)}${o.po_no ? " · PO " + esc(o.po_no) : ""}</small></div>
       <div><strong>${esc(bxDate(o.delivery_date))}</strong><br><small class="ph-muted">${esc(o.delivery_point || "")}</small></div>
       <div><strong>${PH.fmt.num(o.printed)} of ${PH.fmt.num(o.boxes)}</strong><br><small class="ph-muted">printed</small></div>
       <div class="bx-acts">${bxState(o)}<button type="button" class="ph-btn ph-btn--sm ph-btn--primary" data-bxprev="${esc(o.sales_order)}">Preview</button></div></div>${open ? bxBody(o) : ""}</div>`;
@@ -1265,6 +1359,9 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
     PH.$("#bx-from").addEventListener("change", (e) => { if (!e.target.value) return; const f = e.target.value; st.set({ bfrom: f, bto: st.get("bto") < f ? f : st.get("bto") }); });
     PH.$("#bx-to").addEventListener("change", (e) => { if (!e.target.value) return; const t2 = e.target.value; st.set({ bto: t2, bfrom: st.get("bfrom") > t2 ? t2 : st.get("bfrom") }); });
     PH.$("#bx-cust").addEventListener("change", (e) => st.set({ bcust: e.target.value }));
+    PH.$("#bx-var").addEventListener("change", (e) => st.set({ bvar: e.target.value }));
+    PH.searchSelect("#bx-cust", { placeholder: "Search customers" });
+    PH.searchSelect("#bx-var", { placeholder: "Search varieties" });
     PH.$("#bx-st").addEventListener("click", (e) => { const x = e.target.closest("button[data-value]"); if (x) st.set({ bst: x.dataset.value }); });
     let t = null; PH.$("#bx-q").addEventListener("input", (e) => { clearTimeout(t); const v = e.target.value; t = setTimeout(() => st.set({ bq: v }), 300); });
     const list = PH.$("#bx-list");
@@ -1297,7 +1394,7 @@ button.ll-chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
   }
   function paintAll(changed) {
     paintTabs(); paintSub();
-    if (isBox()) { if (!changed || changed.some((k) => ["t", "bfrom", "bto", "bcust", "bq", "bst"].includes(k))) { BX.open.clear(); bxLoad(); } return; }
+    if (isBox()) { if (!changed || changed.some((k) => ["t", "bfrom", "bto", "bcust", "bvar", "bq", "bst"].includes(k))) { BX.open.clear(); bxLoad(); } return; }
     if (!boot) return;
     const typeChanged = !changed || changed.includes("t");
     if (typeChanged) { lastPrev = null; paintForm(); paintCtl(); rpPaint(); }

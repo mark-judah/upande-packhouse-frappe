@@ -203,6 +203,11 @@ def create_batch(label_type, spec, design, layout, template, request_key):
 		geo = render.solve(design, ctxs, label_type)
 		doc = _new_batch_doc("New", label_type, request_key, template, design, layout, spec, items, geo)
 		doc.chunk_size = _chunk_size(design, layout)
+		small = len(items) <= INLINE_REPRINT_MAX
+		if small:
+			# drawn by the page itself, a slice per call, so its progress bar moves as it goes
+			per = render.labels_per_page(design, layout)
+			doc.chunk_size = per * max(1, math.ceil(math.ceil(len(items) / per) / 20))
 		doc.insert(ignore_permissions=True)
 		lp_codes.persist(label_type, items, doc.name, frappe.session.user)
 	except frappe.UniqueValidationError:
@@ -211,8 +216,19 @@ def create_batch(label_type, spec, design, layout, template, request_key):
 		if name := _find_batch(request_key):
 			return summary(name, duplicate=True)
 		raise
+	if small:
+		# not left waiting behind other background jobs: the page calls step() until it is done
+		_set(doc.name, heartbeat=now_datetime())
+		return dict(summary(doc.name), drive=True)
 	_enqueue(doc.name)
 	return summary(doc.name)
+
+
+def step(name):
+	"""Draw the next slice of a small batch (see create_batch) and say how far it has got."""
+	frappe.has_permission("Label Batch", "create", throw=True)
+	run_batch(name, max_chunks=1)
+	return summary(name)
 
 
 def _enqueue(name):
@@ -258,9 +274,10 @@ def _set(name, **vals):
 	frappe.db.set_value("Label Batch", name, vals, update_modified=False)
 
 
-def run_batch(batch):
+def run_batch(batch, max_chunks=None):
 	"""Background job. Safe to run again at any time: continues at the first
-	unfinished chunk, and does nothing for a batch that is Done/Cancelled."""
+	unfinished chunk, and does nothing for a batch that is Done/Cancelled.
+	`max_chunks` draws only that many chunks and leaves the rest for the next call."""
 	b = frappe.get_doc("Label Batch", batch)
 	if b.status in ("Done", "Cancelled"):
 		return
@@ -273,7 +290,8 @@ def run_batch(batch):
 		size = cint(b.chunk_size) or _chunk_size(design, layout)
 		n_chunks = math.ceil(b.total / size)
 		os.makedirs(_chunk_dir(batch), exist_ok=True)
-		for idx in range(cint(b.chunks_done), n_chunks):
+		stop = n_chunks if not max_chunks else min(n_chunks, cint(b.chunks_done) + max_chunks)
+		for idx in range(cint(b.chunks_done), stop):
 			start, end = idx * size + 1, min((idx + 1) * size, b.total)
 			ctxs = _labels_for(b, start, end)
 			if len(ctxs) != end - start + 1:
@@ -287,6 +305,8 @@ def run_batch(batch):
 			os.replace(path + ".tmp", path)
 			_set(batch, chunks_done=idx + 1, rendered=end, heartbeat=now_datetime())
 			frappe.db.commit()  # nosemgrep: frappe-manual-commit
+		if stop < n_chunks:
+			return
 		_finalize(b, design, layout)
 	except Exception:
 		frappe.db.rollback()

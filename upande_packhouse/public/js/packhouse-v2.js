@@ -597,17 +597,22 @@
 		else window.addEventListener("load", () => start(40), { once: true });
 	};
 
-	/* ── Region: the universal Ravine / Karen filter ─────────────────
-	 * Mirror of api/v2/core/region.py REGIONS — keep the two in step.
+	/* ── Site: the universal sales-farm filter ─────────────────
+	 * The sites come from the page (api/v2/core/region.py sites(), from Production Settings).
 	 * Markup:  <div class="ph-pills" id="f-region"></div>
 	 * Bind:    PH.regionPills('#f-region', st, 'region')   (state default "")
 	 * Send `region` to the server as-is; the server narrows by farm via
 	 * region.farms_for(). Use PH.regionFarms() only to narrow a farm <select>.
 	 */
-	PH.REGIONS = {
-		Karen: ["Karen"],
-		Ravine: ["Kapkolia", "Torongo", "Simotwo", "Chepsito", "Kaptumbo"],
-	};
+	// the sales farms of Production Settings and their farms, from the page (packhouse_v2.page_context)
+	PH.REGIONS =
+		window.PH_REGIONS && Object.keys(window.PH_REGIONS).length
+			? window.PH_REGIONS
+			: {
+					Kapkolia: ["Kapkolia", "Torongo", "Simotwo", "Kaptumbo"],
+					Chepsito: ["Chepsito"],
+					Karen: ["Karen"],
+			  };
 	PH.regionFarms = function (region) {
 		return region && PH.REGIONS[region] ? PH.REGIONS[region].slice() : null;
 	};
@@ -626,7 +631,6 @@
 			el.innerHTML =
 				'<button data-value="">All sites</button>' +
 				Object.keys(PH.REGIONS)
-					.sort((a, b) => (a === "Ravine" ? -1 : b === "Ravine" ? 1 : 0))
 					.map(
 						(r) =>
 							'<button data-value="' +
@@ -652,6 +656,129 @@
 			if (el.value !== (s[key] || "")) el.value = s[key] || "";
 		});
 		return el;
+	};
+
+	/* ── Tooltip: any element with data-tip="…" shows a styled tip under it on hover or focus ── */
+	(function () {
+		let tip = null,
+			owner = null;
+		const hide = () => {
+			if (tip) tip.remove();
+			tip = owner = null;
+		};
+		const show = (el) => {
+			if (owner === el) return;
+			hide();
+			owner = el;
+			tip = document.createElement("div");
+			tip.className = "ph-tip";
+			tip.textContent = el.getAttribute("data-tip");
+			document.body.appendChild(tip);
+			const r = el.getBoundingClientRect(),
+				w = tip.offsetWidth,
+				h = tip.offsetHeight;
+			const left = Math.min(
+				window.innerWidth - w - 8,
+				Math.max(8, r.left + r.width / 2 - w / 2)
+			);
+			// above the element, its arrow pointing down at it; below only when there is no room above
+			let top = r.top - h - 10;
+			const below = top < 8;
+			if (below) top = r.bottom + 10;
+			tip.classList.toggle("ph-tip--below", below);
+			tip.style.left = left + "px";
+			tip.style.top = top + "px";
+			// the arrow points at the element's middle, wherever the tip had to sit
+			tip.style.setProperty(
+				"--ax",
+				Math.min(w - 14, Math.max(14, r.left + r.width / 2 - left)) + "px"
+			);
+		};
+		document.addEventListener("mouseover", (e) => {
+			const el = e.target.closest && e.target.closest("[data-tip]");
+			if (el) show(el);
+			else if (owner) hide();
+		});
+		document.addEventListener("focusin", (e) => {
+			const el = e.target.closest && e.target.closest("[data-tip]");
+			if (el) show(el);
+		});
+		document.addEventListener("focusout", hide);
+		window.addEventListener("scroll", hide, true);
+		document.addEventListener("mousedown", hide);
+	})();
+
+	/**
+	 * A multi-select: a button that opens a checkbox list. The state key holds the picks comma-separated
+	 * ("" = all of them).
+	 *   const m = PH.multiSelect('#f-team', st, 'team', { all: 'All teams', plural: 'teams' });
+	 *   m.setItems(['Bravo', 'Jamafa', ...]);
+	 */
+	PH.multiSelect = function (sel, st, key, o) {
+		const el = PH.$(sel);
+		if (!el) return { setItems() {} };
+		o = o || {};
+		el.classList.add("ph-ms");
+		el.innerHTML =
+			'<button type="button" class="ph-select ph-ms__btn" aria-haspopup="listbox" aria-expanded="false"></button>' +
+			'<div class="ph-ms__menu" role="listbox" aria-multiselectable="true" hidden></div>';
+		const btn = el.firstElementChild,
+			menu = el.lastElementChild;
+		let items = [];
+		const picked = () =>
+			String(st.get(key) || "")
+				.split(",")
+				.map((x) => x.trim())
+				.filter(Boolean);
+		const paint = () => {
+			const p = picked();
+			btn.textContent = !p.length
+				? o.all || "All"
+				: p.length === 1
+				? p[0]
+				: p.length + " " + (o.plural || "selected");
+			btn.classList.toggle("is-on", p.length > 0);
+			const on = new Set(p);
+			menu.innerHTML =
+				`<label class="ph-ms__opt ph-ms__all"><input type="checkbox" data-all${
+					on.size ? "" : " checked"
+				}><span>${PH.esc(o.all || "All")}</span></label>` +
+				PH.uniq(items.concat(p))
+					.map(
+						(v) =>
+							`<label class="ph-ms__opt"><input type="checkbox" value="${PH.esc(
+								v
+							)}"${on.has(v) ? " checked" : ""}><span>${PH.esc(v)}</span></label>`
+					)
+					.join("");
+		};
+		const open = (yes) => {
+			menu.hidden = !yes;
+			btn.setAttribute("aria-expanded", yes ? "true" : "false");
+		};
+		btn.addEventListener("click", () => open(menu.hidden));
+		document.addEventListener("mousedown", (e) => {
+			if (!menu.hidden && !el.contains(e.target)) open(false);
+		});
+		document.addEventListener("keydown", (e) => {
+			if (e.key === "Escape" && !menu.hidden) open(false);
+		});
+		menu.addEventListener("change", (e) => {
+			const box = e.target;
+			if (box.hasAttribute("data-all")) return st.set({ [key]: "" });
+			const vals = [...menu.querySelectorAll("input[value]:checked")].map((x) => x.value);
+			st.set({ [key]: vals.join(",") });
+		});
+		st.on((s, changed) => {
+			if (!changed || changed.includes(key)) paint();
+		});
+		paint();
+		return {
+			setItems(list) {
+				items = list || [];
+				paint();
+			},
+		};
 	};
 
 	/**
@@ -867,7 +994,7 @@
 					(k, i) => `<div class="ph-kpi${k.dark ? " ph-kpi--dark" : ""}${
 						k.onClick ? " is-link" : ""
 					}${k.active ? " is-on" : ""}" data-i="${i}"${
-						k.title ? ` title="${PH.esc(k.title)}"` : ""
+						k.title ? ` data-tip="${PH.esc(k.title)}"` : ""
 					}>
 				<div class="ph-kpi__label">${PH.esc(k.label)}</div>
 				<div class="ph-kpi__value">${
@@ -1335,13 +1462,100 @@
 		});
 		return { close };
 	};
+	/**
+	 * Turn a <select> into a type-to-search box over its own options. The <select> stays the source of truth:
+	 * its value, options and change event keep working, so existing page code needs no change.
+	 *   PH.searchSelect('#f-pl', { placeholder: 'Search price lists' });
+	 */
+	PH.searchSelect = function (sel, o) {
+		const el = PH.$(sel);
+		if (!el || el._phSearch) return;
+		o = o || {};
+		const input = document.createElement("input");
+		input.type = "text";
+		input.className = (el.className || "ph-select") + " ph-ss";
+		input.setAttribute("aria-label", el.getAttribute("aria-label") || "");
+		el.parentNode.insertBefore(input, el);
+		el.hidden = true;
+		const label = () => {
+			const op = el.options[el.selectedIndex];
+			return op ? op.textContent : "";
+		};
+		// as wide as its longest option, so no name is cut off
+		let canvas = null;
+		const fit = () => {
+			const cs = getComputedStyle(input);
+			canvas = canvas || document.createElement("canvas");
+			const ctx = canvas.getContext("2d");
+			ctx.font = cs.fontWeight + " " + cs.fontSize + " " + cs.fontFamily;
+			let w = ctx.measureText(o.placeholder || "").width;
+			for (const op of el.options) w = Math.max(w, ctx.measureText(op.textContent).width);
+			const pad =
+				parseFloat(cs.paddingLeft) +
+				parseFloat(cs.paddingRight) +
+				parseFloat(cs.borderLeftWidth) +
+				parseFloat(cs.borderRightWidth);
+			input.style.width = Math.ceil(w + pad + 4) + "px";
+		};
+		const show = () => {
+			if (document.activeElement !== input) input.value = label();
+			input.placeholder = label() || o.placeholder || "Search…";
+			fit();
+		};
+		const desc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
+		Object.defineProperty(el, "value", {
+			configurable: true,
+			get: () => desc.get.call(el),
+			set: (v) => {
+				desc.set.call(el, v);
+				show();
+			},
+		});
+		new MutationObserver(show).observe(el, {
+			childList: true,
+			subtree: true,
+			characterData: true,
+		});
+		el.addEventListener("change", show);
+		PH.autocomplete(input, {
+			source: (q) => {
+				const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+				return Promise.resolve(
+					[...el.options]
+						.filter((op) => !op.disabled)
+						.map((op) => ({ value: op.value, label: op.textContent }))
+						.filter((it) => words.every((w) => it.label.toLowerCase().includes(w)))
+						.slice(0, 300)
+				);
+			},
+			display: (it) => it.label,
+			onSelect: (it) => {
+				if (desc.get.call(el) === it.value) return;
+				desc.set.call(el, it.value);
+				el.dispatchEvent(new Event("change", { bubbles: true }));
+			},
+		});
+		input.addEventListener("focus", () => {
+			input.value = "";
+			input.dispatchEvent(new Event("input"));
+		});
+		input.addEventListener("blur", () => setTimeout(show, 150));
+		el._phSearch = input;
+		show();
+		if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+		return input;
+	};
 	/** Doctype search source for PH.autocomplete (uses frappe.desk.search.search_link). */
 	PH.linkSource = function (doctype, opts) {
 		opts = opts || {};
 		return (q) =>
 			PH.call(
 				"frappe.desk.search.search_link",
-				{ doctype, txt: q, filters: opts.filters || null, page_length: opts.limit || 20 },
+				// an empty filters arg reaches search_link as "" and fails to parse: send it only when set
+				Object.assign(
+					{ doctype, txt: q, page_length: opts.limit || 20 },
+					opts.filters ? { filters: opts.filters } : {}
+				),
 				{ silent: true, type: "GET" }
 			).then((r) =>
 				(r || []).map((x) => ({

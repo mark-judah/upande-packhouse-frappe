@@ -170,9 +170,9 @@ def _id(v, what, maxlen=8):
 	return v
 
 
-def _range(r):
+def _range(r, top=1000):
 	a, b = cint(r.get("from")), cint(r.get("to"))
-	if a < 1 or b < a or b > 1000:
+	if a < 1 or b < a or b > top:
 		frappe.throw(_("Positions must run from 1 up, for example 1 to 21 (got {0} to {1}).").format(a, b))
 	return a, b
 
@@ -212,11 +212,31 @@ def _shelf_items(spec, label_type):
 	return items
 
 
+def trolley_last(prefixes=None):
+	"""{prefix: highest trolley number already made} -- where each farm's series carries on from."""
+	rows = frappe.db.sql(
+		"""select substring_index(code, '-TROLLEY-', 1) p,
+			max(cast(substring_index(code, '-TROLLEY-', -1) as unsigned)) n
+		from `tabLabel Code` where label_type = 'trolley' and code like '%%-TROLLEY-%%' group by p"""
+	)
+	out = {p: cint(n) for p, n in rows}
+	return {p: out.get(p, 0) for p in prefixes} if prefixes is not None else out
+
+
 def _trolley_items(spec):
 	items, seen = [], set()
 	for r in spec.get("rows") or []:
 		prefix = _id(r.get("prefix"), _("Farm prefix"), 6)
-		a, b = _range(r)
+		if r.get("auto") and cint(r.get("qty")) > 0:
+			# a farm's series: the next numbers after the highest one already made, read now so two
+			# people printing at once can never both take the same numbers
+			qty = cint(r.get("qty"))
+			if qty > 1000:
+				frappe.throw(_("Up to 1,000 trolley labels per farm at a time."))
+			a = trolley_last([prefix])[prefix] + 1
+			b = a + qty - 1
+		else:
+			a, b = _range(r, 100_000)
 		for n in range(a, b + 1):
 			code = f"{prefix}-TROLLEY-{n}"
 			if code not in seen:

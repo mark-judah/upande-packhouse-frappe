@@ -281,9 +281,10 @@
 			r.expected_shelf && "shelf " + r.expected_shelf,
 			r.vehicle && "truck " + r.vehicle,
 			r.reported_at && String(r.reported_at).slice(0, 16),
-			r.status !== "Open"
-				? r.status + (r.resolution ? " · " + r.resolution : "")
-				: "still missing",
+			(asOld ? "" : (r.old_bucket || "?") + " ") +
+				(r.status !== "Open"
+					? r.status.toLowerCase() + (r.resolution ? " · " + r.resolution : "")
+					: "still missing"),
 		]
 			.filter(Boolean)
 			.join(" · ");

@@ -83,6 +83,13 @@
   #grid .ncp-cell.is-error{background:var(--bad-soft);color:var(--bad)}
   #grid .ncp-cell.is-saving{opacity:.5}
   #grid .ncp-cell.is-editing{padding-top:var(--sp-1);padding-bottom:var(--sp-1)}
+  #grid .ncp-cell{width:96px}
+  #grid .ncp-cell .ph-table-input{width:88px;min-width:0}
+  #grid .ncp-box{display:block;height:32px;line-height:30px;border:1px solid var(--hairline-2);border-radius:8px;padding:0 10px;background:var(--surface-2);text-align:right;transition:border-color .15s}
+  #grid .ncp-cell:hover .ncp-box{border-color:var(--ink-mute)}
+  #grid .ncp-cell.is-missing .ncp-box{color:var(--ink-faint)}
+  #grid .ncp-cell.is-dirty .ncp-box,#grid .ncp-cell.is-error .ncp-box{background:transparent;border-color:currentColor}
+  #grid .ncp-cell.is-readonly .ncp-box{border-color:transparent;background:transparent}
   #grid .ncp-name{min-width:220px}
   #grid .ncp-name small{display:block;color:var(--ink-mute)}
   .ncp-savebar{position:sticky;bottom:var(--sp-5);z-index:6;display:flex;align-items:center;gap:var(--sp-3);width:max-content;max-width:100%;margin:var(--sp-5) auto 0;
@@ -118,7 +125,7 @@
     PH.text("#preview", customer && p ? p + " " + customer : "—");
     createBtn.disabled = !(customer && p && curEl.value);
   }
-  PH.autocomplete(custEl, { source: PH.linkSource("Customer"), onSelect: (it) => { customer = it.value; preview(); } });
+  PH.autocomplete(custEl, { source: PH.linkSource("Customer", { filters: { custom_business_unit: "Roses" } }), onSelect: (it) => { customer = it.value; preview(); } });
   custEl.addEventListener("input", () => { customer = null; preview(); });
   prefixEl.addEventListener("input", preview);
   curEl.addEventListener("change", preview);
@@ -257,7 +264,7 @@
     } else if (saved == null) { cls += " is-missing"; txt = "—"; }
     else txt = PH.fmt.num(saved, 2);
     const title = p && p.error ? "Not saved: " + p.error : p ? "Unsaved" : len;
-    return `<td class="${cls}" data-code="${PH.esc(it.code)}" data-len="${PH.esc(len)}" title="${PH.esc(title)}">${PH.esc(txt)}</td>`;
+    return `<td class="${cls}" data-code="${PH.esc(it.code)}" data-len="${PH.esc(len)}" title="${PH.esc(title)}"><span class="ncp-box">${PH.esc(txt)}</span></td>`;
   }
 
   function table(v) {
@@ -271,7 +278,7 @@
         if (cat.name && cat.name !== line.name) body += `<tr class="ncp-cat"><td colspan="${span}">${PH.esc(cat.name)}</td></tr>`;
         cat.items.forEach((it) => {
           const miss = missing(it);
-          body += `<tr><td class="ncp-name"><span class="${it.s === "Inactive" ? "ph-muted" : "ph-strong"}">${PH.esc(it.n)}</span>${it.s === "Inactive" ? ' <span class="ph-badge">Inactive</span>' : ""}<small class="ph-mono">${PH.esc(it.code)}</small></td>
+          body += `<tr><td class="ncp-name"><span class="${it.s === "Inactive" ? "ph-muted" : "ph-strong"}">${PH.esc(it.code)}</span>${it.s === "Inactive" ? ' <span class="ph-badge">Inactive</span>' : ""}</td>
             ${L.map((len) => cellHtml(it, len)).join("")}
             <td class="is-num">${miss ? `<span class="ph-badge ph-badge--warn">${miss} missing</span>` : '<span class="ph-badge ph-badge--good">Complete</span>'}</td></tr>`;
         });

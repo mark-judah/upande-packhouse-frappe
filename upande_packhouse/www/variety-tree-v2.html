@@ -116,7 +116,7 @@ button.vt-thumb{cursor:zoom-in}
   /* ── Filters ── */
   PH.regionPills("#f-region", st, "region");
   function fillFarms() {
-    const list = PH.regionFarms(st.get("region")) || [].concat(PH.REGIONS.Ravine, PH.REGIONS.Karen);
+    const list = PH.regionFarms(st.get("region")) || [].concat(...Object.values(PH.REGIONS));
     PH.options("#f-farm", list, st.get("farm"));
     if (st.get("farm") && !list.includes(st.get("farm"))) st.set({ farm: "" }); // keep the select and the state in step
   }

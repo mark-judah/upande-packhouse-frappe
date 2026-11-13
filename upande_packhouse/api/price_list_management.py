@@ -216,6 +216,8 @@ def createCustomerPriceList(customer: str | None, prefix: str | None, currency: 
 	try:
 		if not customer or not frappe.db.exists("Customer", customer):
 			return _err("Unknown customer: " + str(customer))
+		if frappe.db.get_value("Customer", customer, "custom_business_unit") != "Roses":
+			return _err(customer + " is not a Roses customer")
 		prefix = (prefix or "").strip()
 		if not prefix:
 			return _err("Prefix is required")
