@@ -358,6 +358,8 @@ scheduler_events = {
 			"upande_packhouse.api.remote_transfer.transfer_steps.run",
 			# Expected stock that has reached the shelf is held for the customers it was confirmed for.
 			"upande_packhouse.allocation_plan.convert_virtual_job",
+			# Holds whose stems were already issued stop counting, or allocating refuses the bucket.
+			"upande_packhouse.api.v2.core.issued_holds.settle",
 		],
 	},
 }

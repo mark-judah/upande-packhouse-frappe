@@ -263,6 +263,11 @@ def _remote_farms_of(farm):
 # HELPER: Default delivery day
 # ============================================================
 @frappe.whitelist()
+def downgrade_reasons() -> list:
+	return frappe.get_all("Downgrade Reason", pluck="name", order_by="reason asc")
+
+
+@frappe.whitelist()
 def default_delivery_date() -> str:
 	"""Tomorrow on the server's clock, in the site's time zone (EAT), not the
 	browser's -- orders are allocated the day before they ship."""
@@ -743,6 +748,26 @@ LIVE_HOLD_SQL = """NOT EXISTS (
 		WHERE lh_s.bucket_id = bas2.bucket_id AND lh_s.variety = bas2.item_code
 	  )
 ) AND NOT EXISTS (SELECT 1 FROM `tabSales Order` lh_so WHERE lh_so.name = ba.sales_order AND lh_so.docstatus = 2)"""
+
+
+def _settle_issued_rows(bas):
+	"""Mark issued the outstanding rows of `bas` that LIVE_HOLD_SQL does not count as held: their pick list
+	issued the bucket before it was shelved again, but the issue did not settle the row (a downgraded pick,
+	or a save that lost a race)."""
+	if bas.is_new():
+		return
+	# nosemgrep: frappe-sql-format-injection -- LIVE_HOLD_SQL is a constant; every value is bound
+	held = set(
+		frappe.db.sql_list(
+			f"""SELECT ba.name FROM `tabBucket Allocations` ba
+			    JOIN `tabBucket Allocation Status` bas2 ON bas2.name = ba.parent
+			    WHERE ba.parent = %(p)s AND ba.cancelled = 0 AND IFNULL(ba.issued, 0) = 0 AND {LIVE_HOLD_SQL}""",
+			{"p": bas.name},
+		)
+	)
+	for row in bas.bucket_allocations:
+		if not row.cancelled and not row.issued and row.name not in held:
+			row.issued = 1
 
 
 def released_holders(bucket_ids):
@@ -2551,6 +2576,9 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 			bas.allocated_quantity = 0
 			bas.available_quantity = bas.total_quantity
 
+		# Rows whose pick list already issued this bucket before it was shelved again hold nothing: the
+		# bucket list offers their stems (LIVE_HOLD_SQL), so the check below must not count them either.
+		_settle_issued_rows(bas)
 		# Re-sync against the live shelf before checking: the stored figure is only
 		# as fresh as the last write, and the shelf may have changed since.
 		recompute_bas_quantities(bas, shelf_qty=shelf["stem_qty"])

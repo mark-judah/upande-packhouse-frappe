@@ -3743,7 +3743,7 @@ frappe.pages["sales-allocation-v2"]._auto_allocate_order = function () {
 	const so = P.selected_order;
 	if (!so || P._day_busy) return;
 	// as Sales Allocation v1: every line takes from the buckets listed for it, oldest first, in whole bunches;
-	// no steps follow. A downgrade that needs a reason is left to the line's own Auto-allocate or Allocate.
+	// a downgrade that needs a reason is then confirmed in one modal, a reason per line.
 	let stems = 0;
 	const type = P.filters.box_type;
 	(P.order_items || []).forEach((it) => {
@@ -3753,6 +3753,8 @@ frappe.pages["sales-allocation-v2"]._auto_allocate_order = function () {
 		stems += P._execute_fifo(it.sales_order_item, null, true) || 0;
 	});
 	P.render_allocation_grid();
+	const dg = P._order_downgrades();
+	if (dg.length) return P._order_downgrade_dialog(dg, stems);
 	frappe.show_alert({
 		message: stems
 			? __("Allocated {0} stems to the order, waiting release", [
@@ -3761,6 +3763,138 @@ frappe.pages["sales-allocation-v2"]._auto_allocate_order = function () {
 			: __("No free buckets for this order's lines."),
 		indicator: stems ? "green" : "orange",
 	});
+};
+// Lines of the open order still short that longer stems needing a reason could fill.
+frappe.pages["sales-allocation-v2"]._order_downgrades = function () {
+	const P = frappe.pages["sales-allocation-v2"];
+	const type = P.filters.box_type;
+	const out = [];
+	(P.order_items || []).forEach((it) => {
+		if (it.plan_blocked) return;
+		const mixed = !!(it.custom_mixed_box || it.custom_mixed_bunch);
+		if ((type === "mixed" && !mixed) || (type === "straight" && mixed)) return;
+		let left = P._line_left(it);
+		if (left <= 0) return;
+		const per_bunch = parseFloat(it.conversion_factor) || 1;
+		const by_len = {};
+		(it.batches || []).forEach((b) => {
+			if (
+				left <= 0 ||
+				b.length_status !== "downgrade" ||
+				b.downgrade_approval === "amber_expired"
+			)
+				return;
+			const q =
+				Math.floor(Math.min(b.available_qty || 0, left) / per_bunch + 1e-9) * per_bunch;
+			if (q <= 0) return;
+			left -= q;
+			const k = b.stem_length || "";
+			by_len[k] = (by_len[k] || 0) + q;
+		});
+		const stems = Object.values(by_len).reduce((s, v) => s + v, 0);
+		if (!stems) return;
+		const shorts = Object.keys(by_len)
+			.map((k) => (it.downgrade_conflicts || {})[k])
+			.filter((c) => c && c.orders && c.orders.length);
+		out.push({
+			item: it,
+			lengths: Object.keys(by_len),
+			stems,
+			shorts: shorts.flatMap((c) => c.orders),
+		});
+	});
+	return out;
+};
+frappe.pages["sales-allocation-v2"]._order_downgrade_dialog = function (list, normal) {
+	const P = frappe.pages["sales-allocation-v2"];
+	const esc = (v) => frappe.utils.escape_html(String(v == null ? "" : v));
+	const n = (v) => Math.round(v || 0).toLocaleString();
+	frappe
+		.xcall(
+			"upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2.downgrade_reasons"
+		)
+		.then((reasons) => {
+			const opts = `<option value=""></option>${(reasons || [])
+				.map((r) => `<option>${esc(r)}</option>`)
+				.join("")}`;
+			const rows = list
+				.map(
+					(x, i) => `<tr>
+				<td><input type="checkbox" data-d="${i}" ${x.shorts.length ? "" : "checked"}></td>
+				<td>${esc(x.item.item_name || x.item.item_code)}</td>
+				<td>${esc(x.item.required_length || "")} → <strong>${esc(x.lengths.join(", "))}</strong></td>
+				<td class="num">${n(x.stems)}</td>
+				<td><select class="dg-reason" data-r="${i}">${opts}</select></td>
+				<td>${
+					x.shorts.length
+						? `<span class="ds-why">${__("Shorts")}</span> ${x.shorts
+								.map(
+									(o) =>
+										`<span class="ds-so">${esc(
+											o.order_name || o.sales_order
+										)} · ${n(o.stems)}</span>`
+								)
+								.join(" ")}`
+						: `<span class="ds-why ds-why--ok">${__("Shorts nobody")}</span>`
+				}</td>
+			</tr>`
+				)
+				.join("");
+			const d = new frappe.ui.Dialog({
+				title: __("Downgrades"),
+				size: "extra-large",
+				fields: [
+					{
+						fieldtype: "HTML",
+						fieldname: "t",
+						options: `<div class="mv-wrap"><table class="ds-donors mv-to dg-table">
+					<thead><tr><th><input type="checkbox" class="dg-all"></th><th>${__("Variety")}</th><th>${__(
+							"Ordered → Downgrade"
+						)}</th><th class="num">${__("Stems")}</th><th>${__(
+							"Reason"
+						)} <select class="dg-reason dg-all-r">${opts}</select></th><th>${__(
+							"Shorts another order"
+						)}</th></tr></thead><tbody>${rows}</tbody></table></div>`,
+					},
+				],
+				primary_action_label: __("Allocate downgrades"),
+				primary_action: () => {
+					const picked = [];
+					d.$wrapper.find("input[data-d]:checked").each(function () {
+						const i = $(this).data("d");
+						picked.push([list[i], d.$wrapper.find(`select[data-r="${i}"]`).val()]);
+					});
+					if (picked.some((x) => !x[1]))
+						return frappe.show_alert({
+							message: __("Choose a downgrade reason for each line ticked."),
+							indicator: "orange",
+						});
+					d.hide();
+					let dg = 0;
+					picked.forEach(([x, reason]) => {
+						dg += P._execute_fifo(x.item.sales_order_item, reason, true) || 0;
+					});
+					P.render_allocation_grid();
+					frappe.show_alert({
+						message: __("Allocated {0} stems to the order, waiting release", [
+							n(normal + dg),
+						]),
+						indicator: normal + dg ? "green" : "orange",
+					});
+				},
+				secondary_action_label: __("Skip"),
+				secondary_action: () => d.hide(),
+			});
+			d.$wrapper.addClass("ufd-sa2");
+			d.$wrapper.find(".modal-dialog").addClass("ufd-sa2-modal");
+			d.$wrapper.find(".dg-all").on("change", function () {
+				d.$wrapper.find("input[data-d]").prop("checked", this.checked);
+			});
+			d.$wrapper.find(".dg-all-r").on("change", function () {
+				d.$wrapper.find("select[data-r]").val(this.value);
+			});
+			d.show();
+		});
 };
 frappe.pages["sales-allocation-v2"]._line_left = function (item) {
 	const P = frappe.pages["sales-allocation-v2"];
