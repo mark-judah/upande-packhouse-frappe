@@ -12,7 +12,7 @@ import math
 
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 from upande_packhouse import stock_movement
 from upande_packhouse.item_groups import crop_name, hs_code, resolve_rose_item_groups
@@ -1472,24 +1472,37 @@ def createOrUpdateFarmPackList():
 			if pr and guard_key not in packrate_by_item:
 				packrate_by_item[guard_key] = pr
 
-		# Stems already packed on the pack list we will append to.
+		# A Packing Guide packs whole boxes of its group: a mixed box or bunch spec released over
+		# several pick lists lists every line of the box on each of them, so the caps come from the
+		# guide's boxes and from what is packed on every pick list sharing those lines.
+		guide_plan = _pack_guide_plan(order_pick_list, sale_order_id)
+		box_cap_by_item = {}
+		guard_opls = [order_pick_list_id]
+		if guide_plan:
+			ordered_by_item, packrate_by_item, box_cap_by_item, guard_opls = guide_plan
+
+		# Stems already packed.
 		existing_total_by_item = {}
 		existing_by_item_box = {}
-		guard_existing = frappe.get_all(
-			"Farm Pack List",
+		for r in frappe.get_all(
+			"Farm Packlist Item",
 			filters={
-				"order_pick_list": order_pick_list_id
-			},  # one Farm Pack List per OPL (name is per-OPL); farm/SO can differ across buckets
-			limit=1,
-		)
-		if guard_existing:
-			gdoc = frappe.get_doc("Farm Pack List", guard_existing[0].name)
-			for r in gdoc.pack_list_item:
-				st = r.stock_qty or 0
-				guard_key = (r.item_code, r.stem_length or "")
-				existing_total_by_item[guard_key] = existing_total_by_item.get(guard_key, 0) + st
-				bx = str(r.box_id or "1")
-				existing_by_item_box[(guard_key, bx)] = existing_by_item_box.get((guard_key, bx), 0) + st
+				"parenttype": "Farm Pack List",
+				"parent": (
+					"in",
+					frappe.get_all(
+						"Farm Pack List", filters={"order_pick_list": ("in", guard_opls)}, pluck="name"
+					)
+					or [""],
+				),
+			},
+			fields=["item_code", "stem_length", "box_id", "stock_qty"],
+		):
+			st = r.stock_qty or 0
+			guard_key = (r.item_code, r.stem_length or "")
+			existing_total_by_item[guard_key] = existing_total_by_item.get(guard_key, 0) + st
+			bx = str(r.box_id or "1")
+			existing_by_item_box[(guard_key, bx)] = existing_by_item_box.get((guard_key, bx), 0) + st
 
 		# Stems arriving in this request.
 		incoming_total_by_item = {}
@@ -1520,7 +1533,7 @@ def createOrUpdateFarmPackList():
 		# (b) Box-capacity cap per variety+length per box (where a packrate is set).
 		for (guard_key, bx), inc in incoming_by_item_box.items():
 			ic, length = guard_key
-			cap = packrate_by_item.get(guard_key)
+			cap = box_cap_by_item.get((guard_key, bx)) or packrate_by_item.get(guard_key)
 			if not cap:
 				continue
 			already = existing_by_item_box.get((guard_key, bx), 0)
@@ -1537,7 +1550,14 @@ def createOrUpdateFarmPackList():
 		# more stems than were issued; the cap rises as replacements are issued.
 		issued_cap_error = _issued_cap_error(
 			order_pick_list_id,
-			sum(existing_total_by_item.values()),
+			flt(
+				frappe.db.sql(
+					"""SELECT SUM(i.stock_qty) FROM `tabFarm Packlist Item` i
+					JOIN `tabFarm Pack List` f ON f.name = i.parent
+					WHERE f.order_pick_list = %s""",
+					order_pick_list_id,
+				)[0][0]
+			),
 			sum(incoming_total_by_item.values()),
 		)
 		if issued_cap_error:
@@ -3880,6 +3900,60 @@ def _pack_waiting_min_pct():
 	return flt(frappe.get_cached_doc("Production Settings").get("pack_waiting_replacement_pct")) or 50.0
 
 
+def _pack_guide_plan(order_pick_list, sales_order):
+	"""(ordered, packrate, box cap, pick lists) for the over-pack guard from the pick list's Packing
+	Guide, or None without one. Keyed by (variety, length): ordered stems of the guide's lines, the
+	largest box's stems, stems per box number, and every live pick list of the order whose guide
+	shares a line with this one (they pack the same boxes)."""
+	rows = order_pick_list.get("table_nade") or []
+	lines = {r.get("sales_order_item") for r in rows if r.get("sales_order_item")}
+	if not rows or not lines:
+		return None
+
+	box_cap = {}
+	for r in rows:
+		if not r.get("variety") or not r.get("box_number"):
+			continue
+		key = ((r.get("variety"), r.get("length") or ""), str(cint(r.get("box_number"))))
+		box_cap[key] = box_cap.get(key, 0) + cint(r.get("stems"))
+	packrate = {}
+	for (item_key, _box), stems in box_cap.items():
+		packrate[item_key] = max(packrate.get(item_key, 0), stems)
+
+	ordered = {}
+	for soi in frappe.get_all(
+		"Sales Order Item",
+		filters={"name": ("in", list(lines))},
+		fields=["item_code", "custom_length", "custom_ordered_quantity", "qty", "conversion_factor"],
+	):
+		key = (soi.item_code, soi.custom_length or "")
+		ordered[key] = ordered.get(key, 0) + (
+			flt(soi.custom_ordered_quantity) or flt(soi.qty) * (flt(soi.conversion_factor) or 1)
+		)
+
+	opls = set(
+		frappe.get_all(
+			"Packing Guide",
+			filters={
+				"parenttype": "Order Pick List",
+				"parentfield": "table_nade",
+				"sales_order_item": ("in", list(lines)),
+			},
+			pluck="parent",
+			distinct=True,
+		)
+	)
+	opls = set(
+		frappe.get_all(
+			"Order Pick List",
+			filters={"name": ("in", list(opls) or [""]), "sales_order": sales_order, "docstatus": ("!=", 2)},
+			pluck="name",
+		)
+	)
+	opls.add(order_pick_list.name)
+	return ordered, packrate, box_cap, sorted(opls)
+
+
 def _issued_cap_error(opl_name, packed, incoming):
 	"""Why packing `incoming` more stems on `opl_name` (with `packed` already on it) is
 	refused, or None: an order sent to packing before all of it was issued (Pack While
@@ -5896,7 +5970,9 @@ def issueBucketToSaleOrderItem():
 						]
 						try:
 							for bas_name in named + others:
-								bas = frappe.get_doc("Bucket Allocation Status", bas_name)
+								# locked: a concurrent allocation saving the same status made this save
+								# fail (TimestampMismatchError) and left the issued row holding stems
+								bas = frappe.get_doc("Bucket Allocation Status", bas_name, for_update=True)
 								mine = [
 									row
 									for row in bas.bucket_allocations

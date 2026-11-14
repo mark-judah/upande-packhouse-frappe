@@ -221,13 +221,19 @@ def opl_hub_sql(parent="pli.parent"):
 
 def not_at_hub_sql(farm_expr, parent="pli.parent"):
 	"""SQL: the pick row's bucket (at `farm_expr`) is not at the sales farm its order goes to,
-	nor at a sales farm that packs its own orders without transfers (e.g. Karen unlisted)."""
+	nor at a sales farm that packs its own orders without transfers (e.g. Karen unlisted), and
+	its order does not go to such a farm either: those orders never transfer."""
 	from upande_packhouse.api.remote_transfer.scheduler import _own_packing_farms
 
 	own = ", ".join(frappe.db.escape(f) for f in ["", *_own_packing_farms()])
-	return "(COALESCE({0}, '') NOT IN ({1}) AND COALESCE({0}, '') != {2})".format(
+	sql = "(COALESCE({0}, '') NOT IN ({1}) AND COALESCE({0}, '') != {2}".format(
 		farm_expr, own, opl_hub_sql(parent)
 	)
+	if _own_packing_farms():
+		sql += " AND COALESCE({0}, '') NOT IN ({1})".format(
+			opl_hub_sql(parent), ", ".join(frappe.db.escape(f) for f in _own_packing_farms())
+		)
+	return sql + ")"
 
 
 def order_hub(sales_order, location=None):
