@@ -483,7 +483,9 @@ select.ph-control{appearance:none;-webkit-appearance:none;padding-right:36px;cur
 .ph-modal__foot{display:flex;justify-content:flex-end;gap:10px;padding:var(--sp-4) 28px var(--sp-6);border-top:1px solid var(--hairline)}
 .ph-overlay--drawer{justify-content:flex-end;padding:0}
 .ph-overlay--drawer .ph-modal{height:100%;max-height:none;border-radius:var(--r-xl) 0 0 var(--r-xl);width:min(560px,100%);animation:ph-drawer .25s cubic-bezier(.4,0,.2,1)}
+.ph-overlay--drawer .ph-modal__body{flex:1 1 auto}
 .ph-overlay--drawer .ph-modal--lg{width:min(860px,100%)}
+.ph-overlay--drawer .ph-modal--xl{width:min(1180px,100%)}
 @keyframes ph-drawer{from{transform:translateX(40px);opacity:0}to{transform:none;opacity:1}}
 
 .ph-menu{position:fixed;z-index:1020;background:var(--surface-2);border-radius:var(--r-md);box-shadow:var(--shadow-pop);padding:6px;min-width:180px;animation:ph-in .15s ease;font-family:var(--sans)}
@@ -582,3 +584,26 @@ select.ph-control{appearance:none;-webkit-appearance:none;padding-right:36px;cur
   .ph-main{overflow:visible}
   .ph-card,.ph-kpi,.ph-tile{box-shadow:none;border:1px solid #ddd}
 }
+
+/* multi-select (PH.multiSelect): a button and a checkbox list with a thin scrollbar */
+.ph-ms{position:relative;display:inline-block}
+.ph-ms__btn{text-align:left;min-width:140px}
+.ph-ms__menu{position:absolute;z-index:60;top:calc(100% + 6px);left:0;min-width:100%;max-height:340px;overflow:auto;background:var(--surface-2);border-radius:var(--r-md);box-shadow:var(--shadow-pop);padding:6px;scrollbar-width:thin;scrollbar-color:rgba(10,10,10,.22) transparent}
+.ph-ms__menu::-webkit-scrollbar{width:4px}
+.ph-ms__menu::-webkit-scrollbar-thumb{background:rgba(10,10,10,.22);border-radius:4px}
+.ph-ms__menu::-webkit-scrollbar-track{background:transparent}
+.ph-ms__opt{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;font:500 13px var(--sans);color:var(--ink-3);cursor:pointer;white-space:nowrap}
+.ph-ms__opt:hover{background:rgba(10,10,10,.05)}
+.ph-ms__opt input{accent-color:var(--ink);width:15px;height:15px;margin:0;cursor:pointer}
+.ph-ms__all{font-weight:600;color:var(--ink)}
+/* the native selects' lists get the same thin scrollbar */
+@supports (appearance:base-select){.ph-select::picker(select){scrollbar-color:rgba(10,10,10,.22) transparent}}
+
+/* styled tooltip (data-tip, packhouse-v2.js): a dark rounded card, small and readable */
+.ph-tip{position:fixed;z-index:3000;max-width:280px;padding:8px 12px;border-radius:10px;background:var(--ink,#111);color:#fafaf6;font:500 12px/1.45 var(--sans);letter-spacing:.01em;box-shadow:0 10px 28px rgba(10,10,10,.22);pointer-events:none;animation:ph-tip-in .14s ease-out}
+@keyframes ph-tip-in{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+.ph-tip::after{content:"";position:absolute;left:var(--ax,50%);top:100%;transform:translateX(-50%);border:6px solid transparent;border-top-color:var(--ink,#111)}
+.ph-tip--below::after{top:auto;bottom:100%;border-top-color:transparent;border-bottom-color:var(--ink,#111)}
+
+.ph-ss{min-width:180px;max-width:100%;cursor:text;text-overflow:ellipsis}
+.ph-ss:focus{cursor:text}

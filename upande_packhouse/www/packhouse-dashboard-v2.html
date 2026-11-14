@@ -4,6 +4,31 @@
 {% include "upande_packhouse/templates/includes/packhouse_v2/shell_start.html" %}
 
 <style>
+.ow-an{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.ow-an-card{display:flex;flex-direction:column;min-height:168px;padding:18px 20px;background:#fff;border:1.5px solid var(--ink,#111);box-shadow:none;transition:background-color .18s ease}
+.ow-an-card:hover{background:#fbf7ee}
+.ow-an-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;min-height:34px}
+.ow-an-top .ph-kpi__label{color:var(--ink);font-weight:700}
+.ow-an-pct{font:700 20px var(--sans);color:var(--ink);text-align:right;line-height:1}
+.ow-an-pct small{display:block;margin-top:3px;font:500 11px var(--sans);color:var(--ink-mute)}
+.ow-an-big{margin-top:6px;font:600 38px var(--sans);color:var(--ink);line-height:1}
+.ow-an-big small{font-size:20px;font-weight:600;color:var(--ink)}
+.ow-an-sub{margin-top:6px;font-size:12px;color:var(--ink-mute)}
+.ow-an-foot{margin-top:auto;padding-top:12px}
+.ow-an-bar{margin-top:auto;height:6px;border-radius:3px;background:rgba(10,10,10,.08);overflow:hidden}
+.ow-an-bar>div{height:100%;border-radius:3px;background:var(--ink)}
+.ow-an-grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;margin-top:2px}
+.ow-an-stat span{display:block;font:500 10px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-mute)}
+.ow-an-stat b{display:block;margin-top:2px;font:600 22px var(--sans);color:var(--ink);white-space:nowrap}
+.ow-an-total .ow-an-sub{margin-top:auto;padding-top:10px}
+@media (max-width:760px){.ow-an{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.ow-dr-tabs{margin-bottom:12px}
+
+/* the stage bar: square ends, so the first and last tab are not cut off */
+#stages{border-radius:0}
+#stages .ph-tab{border-radius:0}
+
 /* Orders & Workflow — one collapsible section per packing team; one compact row
    per pick list. Layout only; colours come from the shared tokens. */
 .ow-sec{padding:0;overflow:hidden;margin-bottom:var(--sp-4)}
@@ -108,23 +133,12 @@
   <div class="ph-pills" id="f-rose">
     <button data-value="all">All roses</button><button data-value="standard">Standards</button><button data-value="spray">Sprays</button>
   </div>
-  <select class="ph-select" id="f-team" aria-label="Team"><option value="">All teams</option></select>
-  <select class="ph-select" id="f-farm" aria-label="Farm"><option value="">All farms</option></select>
+  <div id="f-team" aria-label="Teams"></div>
   <select class="ph-select" id="f-group" aria-label="Item group"><option value="">All item groups</option></select>
   <div class="ph-filters__spacer"></div>
-  <div class="ph-pills" id="f-preset">
-    <button data-value="today">Today</button><button data-value="tomorrow">Tomorrow</button><button data-value="7d">7 days</button><button data-value="30d">30 days</button>
-  </div>
-  <button class="ph-btn ph-btn--sm" id="f-pt" type="button" aria-pressed="false" title="Only the pick lists packed today, whatever their delivery date">Packed today</button>
   <label class="ph-daterange" id="f-dates" title="Filters by the Sales Order delivery date">
     <span class="ph-card__meta" style="margin-right:6px">Delivery date</span><span class="ph-daterange__f"><span class="ph-daterange__lbl">From</span><input type="date" id="f-from" aria-label="Delivery date from"></span><span class="ph-daterange__f"><span class="ph-daterange__lbl">To</span><input type="date" id="f-to" aria-label="Delivery date to"></span>
   </label>
-</div>
-<div class="ph-filters">
-  <div class="ph-filters__spacer"></div>
-  <button class="ph-btn ph-btn--ghost ph-btn--sm" id="clear" type="button" hidden>Clear filters</button>
-  <button class="ph-btn ph-btn--ghost ph-btn--sm" id="expand-all" type="button">Expand teams</button>
-  <button class="ph-btn ph-btn--ghost ph-btn--sm" id="collapse-all" type="button">Collapse teams</button>
 </div>
 
 <section class="ph-kpis" id="kpis"></section>
@@ -148,68 +162,47 @@
   const openRow = new Set();
   const detail = {}; // opl -> {shelves, packing_issues}
   let autoOpen = true;
-  const masters = { teams: [], farms: [], groups: [] };
+  const masters = { teams: [], team_farm: {}, farms: [], groups: [] };
 
-  const KPI_LABELS = ["Order lines", "Stems to deliver", "Issued of picked", "Packed of planned", "Boxes packed", "Dispatched", "Needs attention"];
-  const FILTER_KEYS = ["pt", "region", "team", "farm", "group"];
+  const KPI_LABELS = ["Orders", "Allocated order lines", "Issued of picked", "Boxes packed", "Dispatched", "Analysis"];
+  const FILTER_KEYS = ["region", "team", "group"];
 
   /* ── Filters ── */
   PH.pills("#f-view", st, "view");
   PH.regionPills("#f-region", st, "region");
   PH.pills("#f-rose", st, "rose");
-  PH.dateRange({ pills: "#f-preset", from: "#f-from", to: "#f-to", state: st });
-  // Packed today: every delivery date, only pick lists packed today. Picking any date turns it off.
-  const ptBtn = document.getElementById("f-pt");
-  const paintPt = () => {
-    const on = st.get("pt") === "1";
-    ptBtn.classList.toggle("ph-btn--primary", on);
-    ptBtn.setAttribute("aria-pressed", on ? "true" : "false");
-    document.getElementById("f-dates").classList.toggle("is-off", on);
-    if (on) document.querySelectorAll("#f-preset button").forEach((b) => b.classList.remove("is-on"));
-  };
-  ptBtn.addEventListener("click", () => st.set({ pt: st.get("pt") === "1" ? "" : "1" }));
-  // A preset picks delivery dates: Packed today goes off even when the range is already that preset's.
-  document.getElementById("f-preset").addEventListener("click", (e) => {
-    if (e.target.closest("button[data-value]") && st.get("pt") === "1") { st.set({ pt: "" }); paintPt(); }
-  });
-  st.on((s, changed) => {
-    if (s.pt === "1" && (changed.includes("from") || changed.includes("to"))) st.set({ pt: "" });
-    else if (changed.includes("pt") || changed.includes("from") || changed.includes("to")) paintPt();
-  });
-  paintPt();
-  PH.bindSelect("#f-team", st, "team");
-  PH.bindSelect("#f-farm", st, "farm");
+  // One date filter: the Sales Order delivery date, from and to.
+  PH.dateRange({ from: "#f-from", to: "#f-to", state: st });
+  // a link from before kept "Packed today" on: the delivery dates are the filter now
+  if (st.get("pt") || st.get("farm")) st.set({ pt: "", farm: "" });
+  // teams: one or several at once
+  const teamPick = PH.multiSelect("#f-team", st, "team", { all: "All teams", plural: "teams" });
   PH.bindSelect("#f-group", st, "group");
 
 
+  const siteTeams = (site) => site ? masters.teams.filter((t) => masters.team_farm[t] === site) : masters.teams;
   function fillSelects() {
     const s = st.get();
-    const farms = PH.regionFarms(s.region);
-    const fl = farms ? masters.farms.filter((f) => farms.includes(f)) : masters.farms;
-    PH.options("#f-team", PH.uniq(masters.teams.concat(s.team ? [s.team] : [])), s.team);
-    PH.options("#f-farm", PH.uniq(fl.concat(s.farm ? [s.farm] : [])), s.farm);
+    // the teams of the site picked (their Sales Farm); every team with no site picked
+    teamPick.setItems(siteTeams(s.region));
     PH.options("#f-group", PH.uniq(masters.groups.concat(s.group ? [s.group] : [])), s.group);
   }
   PH.call(API + "get_filter_options", {}, { silent: true }).then((m) => {
-    masters.teams = (m && m.teams) || []; masters.farms = (m && m.farms) || []; masters.groups = (m && m.item_groups) || [];
+    masters.teams = (m && m.teams) || []; masters.team_farm = (m && m.team_farm) || {}; masters.farms = (m && m.farms) || []; masters.groups = (m && m.item_groups) || [];
     fillSelects();
   }).catch(() => {});
 
   st.on((s, changed) => {
-    if (changed.length === 1 && changed[0] === "stage") return load();
+    // another stage tab: its sections start collapsed too
+    if (changed.length === 1 && changed[0] === "stage") { autoOpen = true; return load(); }
     if (changed.includes("region")) {
-      // A farm outside the new site would leave nothing to show: drop it.
-      const farms = PH.regionFarms(s.region);
-      const drop = s.farm && farms && !farms.includes(s.farm);
-      if (drop) st.set({ farm: "" }, { silent: true });
+      // teams of another site go when the site changes: they would leave nothing to show
+      const keep = String(s.team || "").split(",").filter((t) => t && siteTeams(s.region).includes(t));
+      if (keep.join(",") !== String(s.team || "")) st.set({ team: keep.join(",") }, { silent: true });
       fillSelects();
     }
     autoOpen = true;
     load();
-  });
-  document.getElementById("clear").addEventListener("click", () => {
-    const p = {}; FILTER_KEYS.forEach((k) => (p[k] = "")); p.stage = "all"; p.rose = "all";
-    st.set(p);
   });
 
   /* ── Load ── */
@@ -222,7 +215,7 @@
       PH.skeleton("#sections", "rows", 6);
     }
     return PH.call(API + "get_orders_workflow", {
-      from_date: s.from, to_date: s.to, region: s.region, farm: s.farm, team: s.team, rose_type: s.rose, item_group: s.group,
+      from_date: s.from, to_date: s.to, region: s.region, team: s.team, rose_type: s.rose, item_group: s.group,
       stage: s.stage, view: s.view, packed_today: s.pt === "1" ? 1 : 0,
     }, { silent: background }).then((m) => {
       if (my !== seq) return;
@@ -245,23 +238,149 @@
   function render() {
     if (!data) return;
     const s = st.get(), k = data.kpis;
-    PH.text("#sub", (s.pt === "1" ? "Packed today · any delivery date" : PH.date.label(s.from, s.to)) + " · " + PH.fmt.plural(k.lines, "line") + " · " + PH.fmt.plural(k.orders, "order") + " · " + PH.fmt.plural(k.opls, "pick list"));
-    document.getElementById("clear").hidden = !(FILTER_KEYS.some((x) => s[x]) || s.stage !== "all" || s.rose !== "all");
+    PH.text("#sub", PH.date.label(s.from, s.to) + " · " + PH.fmt.plural(k.lines, "line") + " · " + PH.fmt.plural(k.orders, "order") + " · " + PH.fmt.plural(k.opls, "pick list"));
     renderKpis(k);
     renderStages();
     renderSections();
   }
 
   function renderKpis(k) {
+    const funnel = funnelOf(allRows());
+    // allocated: a line on a pick list; an order full when every line is, partly when some are
+    const alloc = (() => {
+      const lines = allRows().filter((r) => r.sales_order && r.primary !== false);
+      const per = {};
+      lines.forEach((r) => { const o = (per[r.sales_order] = per[r.sales_order] || { n: 0, on: 0 }); o.n += 1; if (r.opl) o.on += 1; });
+      const os = Object.values(per);
+      return { lines: lines.filter((r) => r.opl).length, allLines: lines.length, orders: os.length, full: os.filter((o) => o.on === o.n).length, part: os.filter((o) => o.on && o.on < o.n).length };
+    })();
+    // orders per delivery date in the range shown
+    const perDay = {};
+    allRows().forEach((r) => { if (r.sales_order && r.delivery_date) (perDay[r.delivery_date] = perDay[r.delivery_date] || new Set()).add(r.sales_order); });
+    const days = Object.keys(perDay).sort();
+    const dayUnit = days.length > 1
+      ? days.map((d) => PH.fmt.date(d, true) + " " + perDay[d].size).join(" · ")
+      : (days.length ? "delivery " + PH.fmt.date(days[0], true) : "no orders");
     PH.kpis("#kpis", [
-      { label: "Order lines", value: k.lines, unit: PH.fmt.plural(k.orders, "order") + " · " + PH.fmt.plural(k.customers, "customer") + " · " + n(k.unallocated_lines) + " unallocated", title: "Sales Order lines in view (Roses business unit). Click to list them", onClick: () => drill("lines") },
-      { label: "Stems to deliver", value: k.to_deliver_stems, unit: n(k.ordered_stems) + " ordered · " + n(k.boxes) + " boxes", title: "Per order line: ordered stems less dispatched stems (never below 0), added up. Mixed-bunch and mixed-box lines are counted per variety. Click for the lines", onClick: () => drill("deliver") },
-      { label: "Issued of picked", value: k.issuing_pct == null ? "—" : Math.round(k.issuing_pct), suffix: k.issuing_pct == null ? "" : "%", unit: n(k.issued_stems) + " / " + n(k.picked_stems) + " stems", title: "Issued stems ÷ picked stems. Picked = stems the allocator put on the pick lists (Pick List Item rows). Click for the rows", bar: k.issuing_pct || 0, barClass: k.issuing_pct >= 100 ? "good" : "", onClick: () => drill("issuing") },
-      { label: "Packed of planned", value: k.packing_pct == null ? "—" : Math.round(k.packing_pct), suffix: k.packing_pct == null ? "" : "%", unit: n(k.packed_stems) + " / " + n(k.planned_stems) + " stems", title: "Packed stems ÷ planned stems. Planned = every stem in the pick lists' Packing Guide (the full box plan), which can be more than is picked while stock is short. Click for the rows", bar: k.packing_pct || 0, barClass: k.packing_pct >= 100 ? "good" : "", onClick: () => drill("packing") },
-      { label: "Boxes packed", value: n(k.complete_boxes) + " / " + n(k.planned_boxes), unit: "complete / planned · " + n(k.staged_boxes) + " staged · " + n(k.loaded_boxes) + " loaded", title: "Click for the pick lists", onClick: () => drill("boxes") },
-      { label: "Dispatched", value: k.dispatched_pct == null ? "—" : PH.fmt.pct(k.dispatched_pct, 1), unit: n(k.dispatched_stems) + " / " + n(k.ordered_stems) + " stems", title: "Dispatched stems ÷ ordered stems. Click for the lines", bar: k.dispatched_pct || 0, barClass: k.dispatched_pct >= 100 ? "good" : "", onClick: () => drill("dispatched") },
-      { label: "Needs attention", value: k.bad + k.warn, unit: k.bad + " urgent · " + k.warn + " to check · " + k.packing_issues + " pack issues", title: "Click for the lines", onClick: () => drill("attention") },
+      { label: "Orders", value: k.orders, unit: n(k.boxes) + " boxes (" + n(k.ordered_stems) + " stems)", title: "Orders delivering in these dates.", onClick: () => showOrders("orders") },
+      { label: "Allocated order lines", value: n(alloc.lines) + " / " + n(alloc.allLines), unit: "", title: "Order lines on a pick list.", onClick: () => showOrders("lines", true) },
+      { label: "Issued of picked", value: k.issuing_pct == null ? "—" : Math.round(k.issuing_pct), suffix: k.issuing_pct == null ? "" : "%", unit: "", title: "Stems issued of those picked.", bar: k.issuing_pct || 0, barClass: k.issuing_pct >= 100 ? "good" : "", onClick: () => drill("issuing") },
+      { label: "Boxes packed", value: n(k.complete_boxes) + " / " + n(k.planned_boxes), unit: "", title: "Boxes packed of those planned.", onClick: () => drill("boxes") },
+      { label: "Dispatched", value: k.dispatched_pct == null ? "—" : PH.fmt.pct(k.dispatched_pct, 1), unit: "", title: "Stems dispatched of those ordered.", bar: k.dispatched_pct || 0, barClass: k.dispatched_pct >= 100 ? "good" : "", onClick: () => drill("dispatched") },
+      { label: "Analysis", value: funnel.demand ? Math.round((100 * funnel.staged) / funnel.demand) : "—", suffix: funnel.demand ? "%" : "", unit: "", title: "Demand to staged, stage by stage.", bar: funnel.demand ? (100 * funnel.staged) / funnel.demand : 0, onClick: showAnalysis },
     ]);
+  }
+
+  /* ── Orders: every order in view, in a drawer from the right ── */
+  /* ── Analysis: demand → allocated → issued → packed → staged, each step against the one before ── */
+  const STEPS = [["demand", "Demand", "ordered stems"], ["allocated", "Allocated", "on pick lists"], ["issued", "Issued", "scanned out to packing"], ["packed", "Packed", "in boxes"], ["precooled", "Precooled", "boxes through precooling"], ["staged", "Staged", "boxes staged for dispatch"], ["loaded", "Loaded", "boxes on the truck"], ["dispatched", "Dispatched", "sent to the customer"]];
+  function funnelOf(rows) {
+    const f = { demand: 0, allocated: 0, issued: 0, packed: 0, precooled: 0, staged: 0, loaded: 0, dispatched: 0 };
+    (rows || []).forEach((r) => {
+      if (r.primary !== false) f.demand += r.ordered_stems || 0;
+      f.allocated += r.picked_stems || 0;
+      f.issued += r.issued_stems || 0;
+      f.packed += r.packed_stems || 0;
+      f.precooled += r.precooled_stems || 0;
+      f.staged += r.staged_stems || 0;
+      f.loaded += r.loaded_stems || 0;
+      f.dispatched += r.dispatched_stems || 0;
+    });
+    return f;
+  }
+  const pctOf = (a, b) => (b ? Math.round((100 * a) / b) : null);
+  // Per stage: stems, boxes, and the orders and order lines that reached it. A line's figures add up over its
+  // pick lists; a mixed box or bunch counts its boxes once, as many as its scarcest variety fills.
+  function stageFigures(rows) {
+    const STEM = { demand: "ordered_stems", allocated: "picked_stems", issued: "issued_stems", packed: "packed_stems", precooled: "precooled_stems", staged: "staged_stems", loaded: "loaded_stems", dispatched: "dispatched_stems" };
+    const lines = {};
+    (rows || []).forEach((r) => {
+      if (!r.soi) return;
+      const l = (lines[r.soi] = lines[r.soi] || { so: r.sales_order, customer: r.customer, mix: r.mix_name ? r.sales_order + "|" + r.mix_name : null, boxes: 0, ordered: 0, demand: 0, allocated: 0, issued: 0, packed: 0, precooled: 0, staged: 0, loaded: 0, dispatched: 0 });
+      if (r.primary !== false) { l.demand += r.ordered_stems || 0; l.ordered = r.ordered_stems || 0; l.boxes = r.line_boxes || 0; }
+      ["allocated", "issued", "packed", "precooled", "staged", "loaded", "dispatched"].forEach((k) => (l[k] += r[STEM[k]] || 0));
+    });
+    const all = Object.values(lines);
+    const out = {};
+    STEPS.forEach(([k]) => {
+      const reached = all.filter((l) => l[k] > 0);
+      // boxes: a straight line its own, a mix once (its scarcest variety)
+      const units = {};
+      Object.entries(lines).forEach(([soi, l]) => {
+        const full = k === "demand" ? l.boxes : l.ordered ? Math.floor(l.boxes * Math.min(1, l[k] / l.ordered) + 1e-9) : 0;
+        const key = l.mix || "line|" + soi;
+        units[key] = key in units ? Math.min(units[key], full) : full;
+      });
+      out[k] = {
+        stems: all.reduce((t, l) => t + l[k], 0),
+        boxes: Object.values(units).reduce((t, b) => t + b, 0),
+        orders: new Set(reached.map((l) => l.so)).size,
+        lines: reached.length,
+      };
+    });
+    out.total = { orders: new Set(all.map((l) => l.so)).size, customers: new Set(all.map((l) => l.customer)).size, lines: all.length };
+    return out;
+  }
+  function showAnalysis() {
+    if (!data) return;
+    const f = stageFigures(allRows());
+    const stat = (label, v) => `<div class="ow-an-stat"><span>${label}</span><b>${v}</b></div>`;
+    const total = `<div class="ph-kpi ow-an-card ow-an-total">
+        <div class="ow-an-top"><span class="ph-kpi__label">Total orders</span></div>
+        <div class="ow-an-grid2">${stat("Orders", n(f.total.orders))}${stat("Customers", n(f.total.customers))}${stat("Order lines", n(f.total.lines))}${stat("Boxes", n(f.demand.boxes))}</div>
+        <div class="ow-an-sub">${n(f.demand.stems)} stems ordered</div>
+      </div>`;
+    // one card per stage: name and its share of the stage before on top, its boxes large, stems under them,
+    // the bar along the bottom
+    const tiles = STEPS.map(([k, label], i) => {
+      const prevK = i ? STEPS[i - 1][0] : null;
+      const p = i ? pctOf(f[k].stems, f[prevK].stems) : null;
+      const totalBoxes = k === "demand" ? "" : `<small> / ${n(f.demand.boxes)}</small>`;
+      const stems = k === "demand" ? n(f[k].stems) : n(f[k].stems) + " / " + n(f.demand.stems);
+      return `<div class="ph-kpi ow-an-card">
+        <div class="ow-an-top"><span class="ph-kpi__label">${label}</span>${i ? `<span class="ow-an-pct">${p == null ? "—" : p + "%"}<small>of ${STEPS[i - 1][1].toLowerCase()}</small></span>` : ""}</div>
+        <div class="ow-an-big">${n(f[k].boxes)}${totalBoxes}</div>
+        <div class="ow-an-sub">boxes · ${stems} stems</div>
+        ${i ? `<div class="ow-an-bar"><div style="width:${Math.min(100, p || 0)}%"></div></div>` : `<div class="ow-an-sub ow-an-foot">${n(f.total.orders)} orders · ${n(f.total.lines)} order lines</div>`}
+      </div>`;
+    }).join("");
+    const box = document.createElement("div");
+    PH.set(box, `<div class="ow-an">${total}${tiles}</div>`);
+    PH.modal({ title: "Analysis", sub: PH.date.label(st.get("from"), st.get("to")), size: "lg", drawer: true, body: box });
+  }
+
+  // Orders and Order lines: one drawer from the right with a tab each, both flat lists
+  function showOrders(tab, allocatedOnly) {
+    if (!data) return;
+    // each order line once (its first pick list's row carries the line's figures); from the Allocated tile only
+    // the lines on a pick list, and the orders that have one
+    const lines = allRows().filter((r) => r.sales_order && r.primary !== false && (!allocatedOnly || r.opl));
+    const names = [...new Set(lines.map((r) => r.sales_order))];
+    const box = document.createElement("div");
+    PH.modal({ title: allocatedOnly ? "Allocated order lines" : "Orders", sub: PH.date.label(st.get("from"), st.get("to")), size: "lg", drawer: true, body: box });
+    const time = (v) => { const d = new Date(String(v).replace(" ", "T")); return isNaN(d) ? String(v || "") : d.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
+    const link = (so, label) => `<a href="/app/sales-order/${encodeURIComponent(so)}" target="_blank" rel="noopener"><b>${PH.esc(label || so)}</b></a>`;
+    let orders = null;
+    const tabs = () => `<nav class="ph-tabs ow-dr-tabs">${[["orders", "Orders", names.length], ["lines", "Order lines", lines.length]].map(([k, l, c]) =>
+      `<button type="button" class="ph-tab${tab === k ? " is-on" : ""}" data-tab="${k}">${l}<span class="ph-tab__count">${n(c)}</span></button>`).join("")}</nav>`;
+    const ordersTable = () => !orders ? '<div class="ph-muted" style="padding:16px 0">Loading the orders…</div>'
+      : !orders.length ? '<div class="ph-muted" style="padding:16px 0">No orders.</div>'
+      : `<div class="ph-table-wrap"><table class="ph-table"><thead><tr><th class="is-num">#</th><th>Order</th><th>Customer</th><th>Delivery</th><th class="is-num">Lines</th><th>Created</th></tr></thead><tbody>${
+        orders.map((o, i) => `<tr><td class="is-num">${i + 1}</td><td>${link(o.name, o.order_name)}<div class="ph-muted" style="font-size:11px">${PH.esc(o.name)}</div></td><td>${PH.esc(o.customer_name || o.customer || "")}</td><td>${PH.esc(PH.fmt.date(o.delivery_date, true))}</td><td class="is-num">${n(lines.filter((x) => x.sales_order === o.name).length)}</td><td>${PH.esc(time(o.creation))}</td></tr>`).join("")
+      }</tbody></table></div>`;
+    const linesTable = () => !lines.length ? '<div class="ph-muted" style="padding:16px 0">No order lines.</div>'
+      : `<div class="ph-table-wrap"><table class="ph-table"><thead><tr><th class="is-num">#</th><th>Order</th><th>Variety</th><th>Customer</th><th>Delivery</th><th class="is-num">Stems</th><th>Stage</th></tr></thead><tbody>${
+        lines.map((x, i) => `<tr><td class="is-num">${i + 1}</td><td>${link(x.sales_order, x.order_name)}</td><td>${PH.esc([x.variety, x.length].filter(Boolean).join(" "))}</td><td>${PH.esc(x.customer_name || "")}</td><td>${PH.esc(PH.fmt.date(x.delivery_date, true))}</td><td class="is-num">${n(x.ordered_stems)}</td><td><span class="ph-badge ph-badge--${stageCls(x)}">${PH.esc(x.stage_label || "")}</span></td></tr>`).join("")
+      }</tbody></table></div>`;
+    const paint = () => PH.set(box, tabs() + (tab === "lines" ? linesTable() : ordersTable()));
+    box.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-tab]");
+      if (b && b.dataset.tab !== tab) { tab = b.dataset.tab; paint(); }
+    });
+    paint();
+    PH.call(API + "get_orders", { sales_orders: JSON.stringify(names) }, { silent: true })
+      .then((list) => { orders = list || []; paint(); })
+      .catch(() => { orders = []; paint(); });
   }
 
   /* ── KPI drill-downs: the rows behind each figure (values come from the server; the
@@ -283,9 +402,10 @@
       attention: { title: "Needs attention", note: "Lines with a flag; urgent first.", cols: [lineName, { key: "flags", label: "Flags", cls: "is-wrap", format: (v) => (v || []).map((f) => f.label).join("; ") }, stage], rows: rows.filter((r) => (r.flags || []).length) },
     }[kind];
     const box = document.createElement("div");
-    box.innerHTML = '<p class="ph-muted ow-note" style="margin:0 0 var(--sp-3)"></p><div></div>';
-    box.firstChild.textContent = cfg.note;
-    PH.modal({ title: cfg.title, sub: (st.get("pt") === "1" ? "Packed today" : PH.date.label(st.get("from"), st.get("to"))) + " · " + PH.fmt.plural(cfg.rows.length, "row"), size: "xl", body: box });
+    // the list only: no description above it
+    box.innerHTML = '<p class="ph-muted ow-note" hidden></p><div></div>';
+    // every tile's list opens as a drawer from the right, as the Orders tile's does
+    PH.modal({ title: cfg.title, sub: PH.date.label(st.get("from"), st.get("to")) + " · " + PH.fmt.plural(cfg.rows.length, "row"), size: "xl", drawer: true, body: box });
     PH.table(box.lastChild, { columns: cfg.cols, rows: cfg.rows, compact: true, pageSize: 15, empty: "Nothing here" });
   }
   function uniqueOpls(rows) {
@@ -321,14 +441,10 @@
       return PH.empty("#sections", filtered ? "No orders match these filters" : "No orders for " + PH.date.label(s.from, s.to),
         filtered ? "Clear a filter or widen the date range." : "Pick another delivery date range.");
     }
+    // every section starts collapsed; a click on its row opens it
     if (autoOpen) {
       autoOpen = false;
       openSec.clear();
-      if (data.view === "customer") { if (secs.length === 1) openSec.add(secs[0].key); }
-      else {
-        secs.forEach((x) => { if (x.kind === "team" && (x.totals.bad || x.totals.warn)) openSec.add(x.key); });
-        if (!openSec.size && secs[0]) openSec.add(secs[0].key);
-      }
     }
     PH.set("#sections", secs.map(sectionHtml).join(""));
   }
@@ -532,7 +648,25 @@
     const ib = e.target.closest("[data-issues]");
     if (ib) return showIssues(ib.dataset.issues);
     const sh = e.target.closest("[data-toggle-sec]");
-    if (sh) { const k = sh.dataset.toggleSec; openSec.has(k) ? openSec.delete(k) : openSec.add(k); return PH.keepScroll(render); }
+    if (sh) {
+      // a section opens whole: every order in it and every line of each order, their details read once
+      const k = sh.dataset.toggleSec;
+      const sec = (data.sections || []).find((x) => x.key === k);
+      const keys = sec ? groupRows(sec.rows).flatMap((g) => [g.key].concat(g.rows.map((x) => x.key))) : [];
+      if (openSec.has(k)) {
+        openSec.delete(k);
+        keys.forEach((x) => openRow.delete(x));
+      } else {
+        // one section open at a time: opening this one closes the others, with everything in them
+        openSec.clear();
+        openRow.clear();
+        openSec.add(k);
+        keys.forEach((x) => openRow.add(x));
+        const opls = new Set((sec ? sec.rows : []).map((x) => x.opl).filter((o) => o && !detail[o]));
+        opls.forEach((o) => loadDetail(o));
+      }
+      return PH.keepScroll(render);
+    }
     if (e.target.closest(".ow-detail")) return;
     const rw = e.target.closest("[data-row]");
     if (rw) {
@@ -563,8 +697,6 @@
     if (detail[opl]) return open(detail[opl]);
     loadDetail(opl).then(() => detail[opl] && open(detail[opl]));
   }
-  document.getElementById("expand-all").addEventListener("click", () => { (data.sections || []).forEach((s) => openSec.add(s.key)); PH.keepScroll(render); });
-  document.getElementById("collapse-all").addEventListener("click", () => { openSec.clear(); PH.keepScroll(render); });
 
   const exportBtn = document.getElementById("export");
   exportBtn.innerHTML = PH.icon("download") + "<span>Export CSV</span>";

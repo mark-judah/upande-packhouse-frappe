@@ -10,34 +10,26 @@
     <p class="ph-head__sub" id="sub">Selling rates per variety and stem length</p>
   </div>
   <div class="ph-head__tools">
-    <a class="ph-btn" href="/new-customer-price-list-v2" id="new-list"></a>
+    <button class="ph-btn" type="button" id="new-list"></button>
     <button class="ph-btn" type="button" id="export"></button>
   </div>
 </header>
 
 <div class="ph-filters">
+  <select class="ph-select" id="f-cust" aria-label="Customer"><option value="">All customers</option></select>
   <select class="ph-select" id="f-pl" aria-label="Price list"><option value="">Loading price lists…</option></select>
   <div class="ph-pills" id="f-asat-pills"><button data-value="today">Today</button></div>
   <label class="ph-daterange" title="Show the prices valid on this date (Item Price valid from / valid upto). Editing is only available on today's view.">
     <span>As at</span><input type="date" id="f-asat" aria-label="Prices as at">
   </label>
-  <div class="ph-pills" id="f-show">
-    <button data-value="all">All varieties</button><button data-value="gaps">With gaps</button><button data-value="complete">Fully priced</button>
-  </div>
-  <select class="ph-select" id="f-line" aria-label="Line"><option value="">All lines</option></select>
-  <select class="ph-select" id="f-cat" aria-label="Category"><option value="">All categories</option></select>
-  <select class="ph-select" id="f-len" aria-label="Length"><option value="">All lengths</option></select>
-  <select class="ph-select" id="f-status" aria-label="Variety status"><option value="">Active &amp; inactive</option><option value="active">Active only</option><option value="inactive">Inactive only</option></select>
-  <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Search variety, code, category or line"></label>
 </div>
 
-<section class="ph-kpis" id="kpis"></section>
 
 <section class="ph-card ph-card--flush">
   <div class="ph-card__head">
     <h2 class="ph-card__title">Variety × length <span class="ph-badge" id="count">0</span></h2>
-    <div class="ph-card__meta" id="grid-meta">Click a cell to set a rate · Enter moves to the next length · clear a cell to remove its price</div>
   </div>
+  <div class="pl-lines"><div class="ph-pills" id="f-line" role="group" aria-label="Line"></div><select class="ph-select" id="f-var" aria-label="Variety"><option value="">All varieties</option></select></div>
   <div id="grid"></div>
 </section>
 
@@ -62,6 +54,18 @@
   #grid .pl-cell.is-error{background:var(--bad-soft);color:var(--bad)}
   #grid .pl-cell.is-saving{opacity:.5}
   #grid .pl-cell.is-editing{padding-top:var(--sp-1);padding-bottom:var(--sp-1)}
+  #grid .pl-cell{width:96px}
+  .pl-lines{padding:0 32px var(--sp-4);display:flex;align-items:center;justify-content:space-between;gap:var(--sp-4);flex-wrap:wrap}
+  .pl-lines .ph-ss{border:1px solid var(--hairline-2)}
+  .pl-lines .ph-ss:focus{border-color:var(--ink)}
+  .pl-lines .ph-pills{flex-wrap:nowrap;width:max-content;max-width:100%;overflow-x:auto}
+  @media (max-width:860px){ .pl-lines{padding:0 var(--sp-5) var(--sp-4)} }
+  #grid .pl-cell .ph-table-input{width:88px;min-width:0}
+  #grid .pl-box{display:block;height:32px;line-height:30px;border:1px solid var(--hairline-2);border-radius:8px;padding:0 10px;background:var(--surface-2);text-align:right;transition:border-color .15s}
+  #grid .pl-cell:hover .pl-box{border-color:var(--ink-mute)}
+  #grid .pl-cell.is-missing .pl-box{color:var(--ink-faint)}
+  #grid .pl-cell.is-dirty .pl-box,#grid .pl-cell.is-error .pl-box{background:transparent;border-color:currentColor}
+  #grid .pl-cell.is-readonly .pl-box{border-color:transparent;background:transparent}
   #grid .pl-name{min-width:220px}
   #grid .pl-name small{display:block;color:var(--ink-mute)}
   .pl-savebar{position:sticky;bottom:var(--sp-5);z-index:6;display:flex;align-items:center;gap:var(--sp-3);width:max-content;max-width:100%;margin:var(--sp-5) auto 0;
@@ -88,19 +92,145 @@
   const nPending = () => Object.keys(pending).length;
 
   document.getElementById("new-list").innerHTML = PH.icon("plus") + "<span>New customer list</span>";
+  document.getElementById("new-list").addEventListener("click", newList);
+
+  /* ── New customer list: named "<prefix> <customer>", set as the customer's default, then opened here ── */
+  let currencies = null;
+  function newList() {
+    let customer = null;
+    const body = document.createElement("div");
+    body.innerHTML = `<div class="ph-form pl-new">
+        <div class="ph-field ph-field--full"><label for="nl-cust">Customer</label><input class="ph-control" id="nl-cust" type="text" placeholder="Start typing a customer…" autocomplete="off"></div>
+        <div class="ph-field"><label for="nl-prefix">Prefix</label><input class="ph-control" id="nl-prefix" type="text" placeholder="e.g. May" maxlength="40"></div>
+        <div class="ph-field"><label for="nl-cur">Currency</label><select class="ph-control" id="nl-cur"><option value="">Loading…</option></select></div>
+      </div>
+      <div class="ph-muted ph-mt">Will create: <span class="ph-strong" id="nl-preview">—</span></div>
+      <div id="nl-err" class="ph-mt" hidden></div>`;
+    const custEl = body.querySelector("#nl-cust"), prefixEl = body.querySelector("#nl-prefix"), curEl = body.querySelector("#nl-cur");
+    const m = PH.modal({
+      drawer: true,
+      title: "New customer price list",
+      body,
+      actions: [
+        { label: "Cancel" },
+        { label: "Create price list", primary: true, onClick: create },
+      ],
+    });
+    const createBtn = m.el.querySelector(".ph-modal__foot .ph-btn--primary");
+    function preview() {
+      const p = prefixEl.value.trim();
+      body.querySelector("#nl-preview").textContent = customer && p ? p + " " + customer : "—";
+      createBtn.disabled = !(customer && p && curEl.value);
+    }
+    function showErr(msg) {
+      const el = body.querySelector("#nl-err");
+      el.hidden = !msg;
+      PH.set(el, msg ? PH.html`<div class="ph-notice ph-notice--bad ph-mb-0">${msg}</div>` : "");
+    }
+    PH.autocomplete(custEl, { source: PH.linkSource("Customer", { filters: { custom_business_unit: "Roses" } }), onSelect: (it) => { customer = it.value; preview(); } });
+    custEl.addEventListener("input", () => { customer = null; preview(); });
+    prefixEl.addEventListener("input", preview);
+    curEl.addEventListener("change", preview);
+    (currencies ? Promise.resolve(currencies) : PH.getList("Currency", { filters: { enabled: 1 }, fields: ["name"], order_by: "name asc" }).then((rows) => (currencies = (rows || []).map((r) => r.name))))
+      .then((names) => {
+        curEl.innerHTML = "";
+        PH.options(curEl, names, names.includes("USD") ? "USD" : names[0] || "");
+        preview();
+      })
+      .catch(() => { curEl.innerHTML = '<option value="">Could not load currencies</option>'; });
+    preview();
+
+    async function create() {
+      showErr("");
+      if (nPending() && !(await PH.confirm("Discard unsaved changes?", PH.fmt.plural(nPending(), "price") + " on " + current + " have not been saved.", { danger: true, ok: "Discard" }))) return false;
+      try {
+        const r = await PH.call(V1 + "createCustomerPriceList", { customer, prefix: prefixEl.value.trim(), currency: curEl.value }, { silent: true });
+        pending = {};
+        PH.toast("Created " + r.price_list, "good");
+        // open the new list straight away, ready for its rates: picked in the customer and price list filters
+        const m2 = await PH.call(V1 + "getPriceLists", {}, { silent: true }).catch(() => null);
+        if (m2 && m2.price_lists) lists = m2.price_lists;
+        if (!lists.some((p) => p.name === r.price_list)) lists.push({ name: r.price_list, currency: curEl.value });
+        if ([...custSel.options].some((o) => o.value === customer)) custSel.value = customer;
+        else custSel.value = "";
+        mem.set("pl_cust", custSel.value);
+        const c = customers.find((x) => x.name === customer);
+        if (c) c.default_price_list = r.price_list;
+        fillLists(r.price_list);
+        st.set({ pl: r.price_list, asat: TODAY, show: "all", q: "" });
+        current = null;
+        loadGrid(r.price_list);
+      } catch (e) {
+        showErr(e.message || "Could not create the price list");
+        setTimeout(preview);
+        return false;
+      }
+    }
+  }
   document.getElementById("export").innerHTML = PH.icon("download") + "<span>Export</span>";
   document.getElementById("save").innerHTML = PH.icon("check") + "<span>Save changes</span>";
 
   /* ── Filters ── every one reloads the grid + KPIs from the server ── */
-  PH.pills("#f-show", st, "show");
   PH.dateRange({ pills: "#f-asat-pills", from: "#f-asat", state: st, fromKey: "asat", toKey: "asat" });
-  PH.bindSelect("#f-line", st, "line");
-  PH.bindSelect("#f-cat", st, "cat");
-  PH.bindSelect("#f-len", st, "len");
-  PH.bindSelect("#f-status", st, "status");
-  PH.bindSearch("#f-q", st, "q");
+  const linePills = PH.pills("#f-line", st, "line");
+  // one variety of the picked line (filters the table on screen)
+  const varSel = document.getElementById("f-var");
+  let vpick = "";
+  PH.searchSelect(varSel, { placeholder: "Search varieties" });
+  varSel.addEventListener("change", () => { vpick = varSel.value; render(); });
+  function fillVarieties() {
+    const codes = [];
+    // in the table's own order (category by category), only the picked line's varieties
+    (tree.lines || []).filter((l) => !st.get("line") || l.name === st.get("line"))
+      .forEach((l) => l.cats.forEach((c) => c.items.forEach((it) => codes.push({ value: it.code, label: it.code + (c.name && c.name !== l.name ? " · " + c.name : "") }))));
+    if (!codes.some((c) => c.value === vpick)) vpick = "";
+    varSel.innerHTML = '<option value="">All varieties</option>';
+    PH.options(varSel, codes, vpick);
+  }
   const plSel = document.getElementById("f-pl");
   plSel.addEventListener("change", () => switchTo(plSel.value));
+  PH.searchSelect(plSel, { placeholder: "Search price lists" });
+
+  /* ── Customer filter: narrows the price list picker to that customer's lists ── */
+  const custSel = document.getElementById("f-cust");
+  // the last customer and price list come back after a reload (this browser only)
+  const mem = {
+    get(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } },
+    set(k, v) { try { localStorage.setItem(k, v || ""); } catch (e) { /* storage unavailable */ } },
+  };
+  let customers = [];
+  PH.searchSelect(custSel, { placeholder: "Search customers" });
+  PH.getList("Customer", { filters: { custom_business_unit: "Roses" }, fields: ["name", "default_price_list"], order_by: "name asc", silent: true })
+    .then((rows) => {
+      customers = rows || [];
+      const saved = mem.get("pl_cust");
+      PH.options(custSel, customers.map((c) => c.name), customers.some((c) => c.name === saved) ? saved : "");
+      if (custSel.value && lists.length) fillLists(current);
+    })
+    .catch(() => {});
+  const listsOf = (cust) => {
+    if (!cust) return lists;
+    const c = customers.find((x) => x.name === cust), low = cust.toLowerCase();
+    return lists.filter((p) => (c && p.name === c.default_price_list) || p.name.toLowerCase().includes(low));
+  };
+  function fillLists(want) {
+    const shown = listsOf(custSel.value);
+    const items = shown.map((p) => ({ value: p.name, label: p.name + (p.currency ? " (" + p.currency + ")" : "") }));
+    if (want && !items.some((x) => x.value === want)) items.unshift({ value: want, label: want });
+    plSel.innerHTML = "";
+    PH.options(plSel, items, want || "");
+    return shown;
+  }
+  custSel.addEventListener("change", () => {
+    mem.set("pl_cust", custSel.value);
+    const cust = custSel.value, shown = fillLists(null);
+    if (!cust) { fillLists(current); return; }
+    if (!shown.length) { fillLists(current); PH.toast(cust + " has no price list yet", "warn"); return; }
+    const c = customers.find((x) => x.name === cust);
+    const pick = shown.find((p) => c && p.name === c.default_price_list) || shown[0];
+    fillLists(pick.name);
+    if (pick.name !== current) switchTo(pick.name);
+  });
 
   let lastAsat = st.get("asat");
   st.on(async (s, changed) => {
@@ -139,26 +269,19 @@
   });
 
   /* ── Load ── */
-  const KPI_LABELS = ["Coverage", "Priced", "Missing", "Varieties", "Rate range"];
-  PH.kpiSkeleton("#kpis", KPI_LABELS);
   PH.skeleton("#grid", "rows", 10);
 
   function loadLists() {
     return PH.call(V1 + "getPriceLists", {}).then((m) => {
       lists = (m && m.price_lists) || [];
-      const items = lists.map((p) => ({ value: p.name, label: p.name + (p.currency ? " (" + p.currency + ")" : "") }));
-      const want = st.get("pl");
-      if (want && !lists.some((p) => p.name === want)) items.unshift({ value: want, label: want });
-      plSel.innerHTML = "";
-      PH.options(plSel, items, want || (lists[0] && lists[0].name) || "");
-      if (!items.length) {
-        PH.loadingKpis("#kpis", false);
+      const want = st.get("pl") || (lists.some((p) => p.name === mem.get("pl_last")) ? mem.get("pl_last") : "");
+      fillLists(want || (lists[0] && lists[0].name) || "");
+      if (!lists.length && !want) {
         return PH.empty("#grid", "No selling price lists", "Create one for a customer to start pricing varieties.");
       }
       return loadGrid(want || lists[0].name);
     }).catch((e) => {
       plSel.innerHTML = '<option value="">Price lists unavailable</option>';
-      PH.loadingKpis("#kpis", false);
       PH.error("#grid", e.message, () => { PH.skeleton("#grid", "rows", 10); loadLists(); });
     });
   }
@@ -166,25 +289,26 @@
   function loadGrid(name, background) {
     if (!name) return;
     current = name;
+    mem.set("pl_last", name);
     plSel.value = name;
     const s = st.get();
-    if (!background) { PH.loadingKpis("#kpis", true); if (!tree) PH.skeleton("#grid", "rows", 10); }
+    if (!background && !tree) PH.skeleton("#grid", "rows", 10);
     // A slow response for an earlier filter set must never overwrite the current one.
     const my = ++seq;
-    return PH.call(GRID, { price_list: name, as_at: s.asat, line: s.line, category: s.cat, length: s.len, status: s.status, show: s.show, q: s.q }, { silent: background })
+    return PH.call(GRID, { price_list: name, as_at: s.asat, line: s.line, category: "", length: "", status: "active", show: "all", q: "" }, { silent: background })
       .then((m) => {
         if (my !== seq) return;
         tree = m || {};
-        PH.options("#f-line", tree.line_options || [], st.get("line"));
-        PH.options("#f-cat", (tree.category_options || []).map((c) => ({ value: c.value, label: c.label })), st.get("cat"));
-        PH.options("#f-len", tree.all_lengths || [], st.get("len"));
+        PH.set("#f-line", [{ value: "", label: "All" }].concat((tree.line_options || []).map((o) => (typeof o === "object" ? o : { value: o, label: o })))
+          .map((o) => PH.html`<button type="button" data-value="${o.value}">${o.label}</button>`).join(""));
+        linePills.paint(st.get("line"));
+        fillVarieties();
         render();
         PH.markUpdated();
       })
       .catch((e) => {
         if (my !== seq || background) return;
         tree = null;
-        PH.loadingKpis("#kpis", false);
         PH.error("#grid", e.message, () => loadGrid(name));
       });
   }
@@ -204,24 +328,12 @@
   /* ── Render ── (numbers come from the server; the browser only formats) */
   function render() {
     if (!tree) return;
-    const k = tree.kpis || {};
     const lt = tree.list_totals || {};
     const cur = tree.currency || "";
     const asatTxt = tree.editable ? "" : " · as at " + PH.fmt.date(tree.as_at);
-    const pct = +k.coverage_pct || 0;
     PH.text("#sub", current + (cur ? " · " + cur : "") + asatTxt + " · " + PH.fmt.num(lt.priced_cells || 0) + " of " + PH.fmt.num(lt.total_cells || 0) + " variety × length rates set on the whole list");
-    PH.kpis("#kpis", [
-      { label: "Coverage", value: PH.fmt.pct(pct, pct > 0 && pct < 1 ? 1 : 0), unit: "of " + PH.fmt.num(k.total_cells || 0) + " variety × length cells", bar: pct, barClass: pct >= 100 ? "good" : "" },
-      { label: "Priced", value: k.priced_cells || 0, unit: "rates set" + (cur ? " in " + cur : "") },
-      { label: "Missing", value: k.missing_cells || 0, unit: "cells with no rate", onClick: () => st.set({ show: st.get("show") === "gaps" ? "all" : "gaps" }), active: st.get("show") === "gaps" },
-      { label: "Varieties", value: k.varieties || 0, unit: PH.fmt.num(k.complete_varieties || 0) + " fully priced · " + PH.fmt.plural(k.lines || 0, "line") + (k.inactive_varieties ? " · " + k.inactive_varieties + " inactive" : "") },
-      { label: "Rate range", value: k.min_rate == null ? "—" : money(k.min_rate) + "–" + money(k.max_rate), unit: k.median_rate == null ? "no rates in view" : "per stem" + (cur ? " " + cur : "") + " · median " + money(k.median_rate) },
-    ]);
     const items = flat();
     PH.text("#count", PH.fmt.num(items.length));
-    PH.text("#grid-meta", editable()
-      ? "Click a cell to set a rate · Enter moves to the next length · clear a cell to remove its price"
-      : "Read-only: prices valid on " + PH.fmt.date(tree.as_at) + " at their current rate · switch to Today to edit");
     paintBar();
     if (!tree.has_taxonomy) return PH.empty("#grid", "No varieties found", "There are no items under the Cut Flowers item group.");
     if (!items.length) return PH.empty("#grid", "No varieties match these filters", "Clear the filters or switch the view to All varieties.");
@@ -238,21 +350,25 @@
     } else if (saved == null) { cls += " is-missing"; txt = "—"; }
     else txt = PH.fmt.num(saved, 2);
     const title = p && p.error ? "Not saved: " + p.error : p ? "Unsaved" : len;
-    return `<td class="${cls}" data-code="${PH.esc(it.code)}" data-len="${PH.esc(len)}" title="${PH.esc(title)}">${PH.esc(txt)}</td>`;
+    return `<td class="${cls}" data-code="${PH.esc(it.code)}" data-len="${PH.esc(len)}" title="${PH.esc(title)}"><span class="pl-box">${PH.esc(txt)}</span></td>`;
   }
 
   function table() {
     const L = lengths();
     const span = L.length + 2;
     let body = "";
+    const keep = (it) => !vpick || it.code === vpick;
     tree.lines.forEach((line) => {
-      const n = line.cats.reduce((a, c) => a + c.items.length, 0);
-      body += `<tr class="pl-group"><td colspan="${span}">${PH.esc(line.name)}<small>${PH.fmt.plural(n, "variety", "varieties")}</small></td></tr>`;
+      const n = line.cats.reduce((a, c) => a + c.items.filter(keep).length, 0);
+      if (!n) return;
+      // a picked line is already named by its tab; the All view keeps the line rows to tell the lines apart
+      if (!st.get("line")) body += `<tr class="pl-group"><td colspan="${span}">${PH.esc(line.name)}<small>${PH.fmt.plural(n, "variety", "varieties")}</small></td></tr>`;
       line.cats.forEach((cat) => {
+        if (!cat.items.some(keep)) return;
         if (cat.name && cat.name !== line.name) body += `<tr class="pl-cat"><td colspan="${span}">${PH.esc(cat.name)}</td></tr>`;
-        cat.items.forEach((it) => {
+        cat.items.filter(keep).forEach((it) => {
           const miss = missing(it);
-          body += `<tr><td class="pl-name"><span class="${it.s === "Inactive" ? "ph-muted" : "ph-strong"}">${PH.esc(it.n)}</span>${it.s === "Inactive" ? ' <span class="ph-badge">Inactive</span>' : ""}<small class="ph-mono">${PH.esc(it.code)}</small></td>
+          body += `<tr><td class="pl-name"><span class="${it.s === "Inactive" ? "ph-muted" : "ph-strong"}">${PH.esc(it.code)}</span>${it.s === "Inactive" ? ' <span class="ph-badge">Inactive</span>' : ""}</td>
             ${L.map((len) => cellHtml(it, len)).join("")}
             <td class="is-num">${miss ? `<span class="ph-badge ph-badge--warn">${miss} missing</span>` : '<span class="ph-badge ph-badge--good">Complete</span>'}</td></tr>`;
         });

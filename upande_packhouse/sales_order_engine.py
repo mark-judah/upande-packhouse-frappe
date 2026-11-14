@@ -256,6 +256,18 @@ def sales_order_validate(doc, method=None):
 			title=_("Missing Price List"),
 		)
 
+	# 1b. a disabled price list can't be picked (an order already on one keeps saving)
+	spl = doc.get("selling_price_list")
+	if (
+		spl
+		and (doc.is_new() or doc.has_value_changed("selling_price_list"))
+		and not frappe.db.get_value("Price List", spl, "enabled")
+	):
+		frappe.throw(
+			_("Price List <b>{0}</b> is disabled. Pick an enabled price list.").format(spl),
+			title=_("Disabled Price List"),
+		)
+
 	if not (doc.get("custom_s_number") or "").strip() and s_number_required(doc):
 		frappe.throw(_("S_Number is required."), title=_("Missing Details"))
 
@@ -292,6 +304,16 @@ def sales_order_validate(doc, method=None):
 				"No packrate set on line(s) {0}. Set a Packrate (and number of boxes) so the "
 				"box math and packing capacity are defined."
 			).format(", ".join(missing))
+		)
+
+	# 2b. every line's boxes x packrate must be whole bunches, or packing can't plan it
+	from upande_packhouse.packing_guide import box_math_problem
+
+	bad_math = [m for m in (box_math_problem(it) for it in doc.items if it.item_code) if m]
+	if bad_math:
+		frappe.throw(
+			_("Fix the packrate, number of boxes or bunch size on: {0}.").format("; ".join(bad_math)),
+			title=_("Packrate / Bunch Size Mismatch"),
 		)
 
 	# 3. every line must be priced. sales_order_price zeroes the rate when there

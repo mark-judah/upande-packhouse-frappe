@@ -507,6 +507,7 @@ def _build_pools(day, farm, overrides=None, only_variety=None):
 				"held": 0.0,
 				"expected_plan": 0.0,
 				"lines_done": 0,
+				"lines_planned": 0,
 			},
 		)
 		pl = planned.get(ln.name, {"real": 0.0, "expected": 0.0})
@@ -518,6 +519,9 @@ def _build_pools(day, farm, overrides=None, only_variety=None):
 		p["expected_plan"] += pl["expected"]
 		if ordered > 0 and allocated + pl["real"] + pl["expected"] >= ordered - 0.0001:
 			p["lines_done"] += 1
+		# planned: anything allocated or confirmed for it, even short of what was ordered
+		if allocated + pl["real"] + pl["expected"] > 0.0001:
+			p["lines_planned"] += 1
 	out = []
 	for key, p in pools.items():
 		s = {**SUPPLY, **supply.get(key, {})}
@@ -600,6 +604,7 @@ def _week_pools(days, farm, only_variety):
 				"held": 0.0,
 				"expected_plan": 0.0,
 				"lines_done": 0,
+				"lines_planned": 0,
 			},
 		)
 		pl = planned.get(ln.name, {"real": 0.0, "expected": 0.0})
@@ -611,6 +616,9 @@ def _week_pools(days, farm, only_variety):
 		q["expected_plan"] += pl["expected"]
 		if ordered > 0 and allocated + pl["real"] + pl["expected"] >= ordered - 0.0001:
 			q["lines_done"] += 1
+		# planned: anything allocated or confirmed for it, even short of what was ordered
+		if allocated + pl["real"] + pl["expected"] > 0.0001:
+			q["lines_planned"] += 1
 	now = _stock_by_pool(farm, varieties)
 	keys = sorted({k for d in by_day.values() for k in d})
 	sums = (
@@ -620,6 +628,7 @@ def _week_pools(days, farm, only_variety):
 		"held",
 		"expected_plan",
 		"lines_done",
+		"lines_planned",
 		"still_to_plan",
 		"short",
 		"short_production",
@@ -671,7 +680,15 @@ def _week_pools(days, farm, only_variety):
 				p[short_key] += left - take
 			p["days"].append(row)
 			p["still_to_plan"] += left
-			for f in ("lines", "ordered", "allocated", "held", "expected_plan", "lines_done"):
+			for f in (
+				"lines",
+				"ordered",
+				"allocated",
+				"held",
+				"expected_plan",
+				"lines_done",
+				"lines_planned",
+			):
 				p[f] += q[f]
 	out = []
 	for key, p in pools.items():
@@ -690,6 +707,7 @@ def _week_pools(days, farm, only_variety):
 		p.update(
 			lines=int(p["lines"]),
 			lines_done=int(p["lines_done"]),
+			lines_planned=int(p["lines_planned"]),
 			confirmed_lines=ch["lines"],
 			confirmed_here=ch["stems"],
 			have=bal[key]["start"] + p["forecast"],
@@ -731,7 +749,7 @@ def get_board(
 	pools = _build_pools_week(days, farm) if week else _build_pools(day, farm)
 	kpis = {
 		"lines": sum(p["lines"] for p in pools),
-		"lines_planned": sum(p["lines_done"] for p in pools),
+		"lines_planned": sum(p["lines_planned"] for p in pools),
 		"stems_left": sum(p["still_to_plan"] for p in pools),
 		"short": sum(p["short"] for p in pools),
 		"use_first": sum(p["getting_old"] for p in pools if p["still_to_plan"] > 0),
@@ -759,8 +777,11 @@ def get_board(
 	pools.sort(key=lambda p: (rank[p["status"]], -p["short"], -p["still_to_plan"], p["variety"], p["length"]))
 	if view == "confirmed":
 		pools = [p for p in pools if p["confirmed_lines"] or p["held"] or p["expected_plan"]]
-	elif view != "all":
-		pools = [p for p in pools if p["status"] != "ok"]
+	else:
+		# a variety whose every line is planned is done: it leaves the list
+		pools = [p for p in pools if p["lines_planned"] < p["lines"]]
+		if view != "all":
+			pools = [p for p in pools if p["status"] != "ok"]
 	return {
 		"success": True,
 		"delivery_date": day,

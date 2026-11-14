@@ -5,7 +5,7 @@
 # (sales_allocation._replace_requested_bucket). It says which bucket was replaced,
 # why, by whom, where it should have been, the order and truck it was meant for and
 # the stock entries that traded the two. The replaced bucket stays "Open" (missing)
-# until it is shelved again (Found), or someone marks it Discarded / Written Off.
+# until it is shelved again or issued (Found), or someone marks it Discarded / Written Off.
 
 import frappe
 from frappe import _
@@ -69,8 +69,9 @@ def record(
 	return doc.name
 
 
-def mark_found(bucket_id, shelf=None, farm=None):
-	"""The replaced bucket was shelved again: close its open records as Found."""
+def mark_found(bucket_id, shelf=None, farm=None, resolution=None):
+	"""The replaced bucket turned up (shelved again, or issued on another pick list):
+	close its open records as Found. `resolution` says where; default the shelf."""
 	found = []
 	for name in frappe.get_all(
 		"Bucket Replacement", filters={"old_bucket": bucket_id, "status": "Open"}, pluck="name"
@@ -82,7 +83,8 @@ def mark_found(bucket_id, shelf=None, farm=None):
 				"status": "Found",
 				"resolved_by": frappe.session.user,
 				"resolved_at": frappe.utils.now(),
-				"resolution": _("Shelved on {0}{1}").format(shelf or "?", f" ({farm})" if farm else ""),
+				"resolution": resolution
+				or _("Shelved on {0}{1}").format(shelf or "?", f" ({farm})" if farm else ""),
 			},
 		)
 		found.append(name)

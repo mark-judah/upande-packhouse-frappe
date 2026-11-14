@@ -1970,6 +1970,14 @@ def _box_or_error(box_label_id):
 	return frappe.get_doc("Box Label", box_label_id)
 
 
+def _stages_for_transfer(box):
+	"""The box was packed at a sales farm that sends its boxes to the main one, and has not been received there
+	yet: it is staged for the internal transfer, never precooled at its own farm."""
+	from upande_packhouse.api.box_transfer import RECEIVED, needs_transfer
+
+	return needs_transfer(box) and box.get("transfer_status") != RECEIVED
+
+
 @frappe.whitelist()
 def createPrecoolingEntry():
 	"""Pack -> Precooling -> Stage -> Load. `action` "in" puts a packed box
@@ -1990,6 +1998,23 @@ def createPrecoolingEntry():
 		frappe.response.update({"status": "error", "message": "Box %s has already been loaded" % box.name})
 	elif box.staged:
 		frappe.response.update({"status": "error", "message": "Box %s has already been staged" % box.name})
+	elif action == "in" and _stages_for_transfer(box):
+		# A sales farm that sends its boxes to the main one does not precool: staging marks the box packed and
+		# ready to go on the internal transfer; it is precooled at the main sales farm after it is received.
+		from upande_packhouse import stock_movement
+		from upande_packhouse.api.box_transfer import main_sales_farm
+
+		box.staged = 1
+		box.staged_at = frappe.utils.now_datetime()
+		box.save(ignore_permissions=True)
+		_post_box_leg(box, stock_movement.post_stage_to_dispatch, "Stage -> Dispatch: nothing moved")
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
+		frappe.response.update(
+			{
+				"status": "success",
+				"message": "Box %s staged, ready for transfer to %s" % (box.name, main_sales_farm()),
+			}
+		)
 	elif action == "in":
 		if box.precooling:
 			frappe.response.update(
@@ -2118,6 +2143,16 @@ def createStagingEntry():
 			if box.staged == 1:
 				frappe.response.update(
 					{"status": "duplicate", "message": "Box %s has already been staged" % box.name}
+				)
+			elif _stages_for_transfer(box):
+				from upande_packhouse.api.box_transfer import main_sales_farm
+
+				frappe.response.update(
+					{
+						"status": "error",
+						"message": "Box %s is precooled at %s: stage it and send it on the internal transfer"
+						% (box.name, main_sales_farm()),
+					}
 				)
 			elif not box.precooling:
 				# Enforce the pipeline order: Pack -> Precool -> Stage -> Load.
@@ -2409,7 +2444,19 @@ def _station_sales_farm():
 		return None
 	ps = frappe.get_cached_doc("Production Settings")
 	sales = {r.farm for r in ps.get("shelf_locations") or [] if r.enabled and r.sales_shelf and r.farm}
-	return station if station in sales else None
+	if station in sales:
+		return station
+	# a growing farm: the sales farm of its Farm Location
+	from upande_packhouse.api.v2.allocation_teams import sales_farm_for_location
+
+	farm = sales_farm_for_location(frappe.db.get_value("Farm", station, "farm_location"))
+	return farm if farm in sales else None
+
+
+def _list_location():
+	"""The location a station's order lists are filtered on: none when the station's farm has a sales
+	farm (the lists then hold that sales farm's orders, see _for_station_farm), else _station_location()."""
+	return None if _station_sales_farm() else _station_location()
 
 
 def _for_station_farm(opl_names):
@@ -3273,8 +3320,19 @@ def refreshLoadingPlan(plan: str):
 def _listed_opls(opl_names, sched):
 	"""The OPLs a station lists for issuing / packing: those on a Packhouse Schedule
 	(`sched`). A sales farm's own orders (Karen) are never on the Scheduler, so they
-	are always listed."""
+	are always listed, and so are sea freight orders: their pick lists are made when
+	the packhouse receives the order (api/sea_freight.receive), not by scheduling."""
 	opl_names = list(opl_names)
+	sea_freight = set()
+	if opl_names:
+		sea_freight = set(
+			frappe.db.sql_list(
+				"""SELECT o.name FROM `tabOrder Pick List` o
+				JOIN `tabSales Order` so ON so.name = o.sales_order
+				WHERE o.name IN %(o)s AND so.custom_mode_of_transport = 'Sea Freight'""",
+				{"o": tuple(opl_names)},
+			)
+		)
 	from upande_packhouse.api.remote_transfer.scheduler import _own_packing_farms
 
 	own_farms = tuple(_own_packing_farms())
@@ -3289,7 +3347,7 @@ def _listed_opls(opl_names, sched):
 				{"o": tuple(rest), "f": own_farms},
 			)
 		)
-	return {o for o in opl_names if o in sched or o in own}
+	return {o for o in opl_names if o in sched or o in own or o in sea_freight}
 
 
 @frappe.whitelist()
@@ -3301,7 +3359,7 @@ def fetchPicklists():
 		# With a station, the orders whose stock is at its farms -- packing happens where
 		# the stock was issued. This used to filter on opl.farm, which is Kapkolia on
 		# every order (and by the Employee group, "Ravine" for most staff at both sites).
-		location = _station_location()
+		location = _list_location()
 
 		# Filter by the Sales Order's DELIVERY date (pack today for tomorrow's
 		# shipments), not the pick list creation date. `opl.sales_order` is the real
@@ -3924,6 +3982,9 @@ def getReadySaleOrderItems():
 		# Every order of the day: a station lists those with stock at its farms (below),
 		# whichever location the order is for.
 		so_names = frappe.get_all("Sales Order", filters={"delivery_date": day}, pluck="name")
+		# the station's farm is the filter: a sales farm's orders (below), not its location's
+		if _station_sales_farm():
+			location = None
 		farms = location_farms(location) if location else None
 		ready_orders = (
 			frappe.get_all(
@@ -4374,7 +4435,7 @@ def getSchedulerData():
 			as_dict=True,
 		)
 		# The station's location only (Karen and Ravine share teams, not orders).
-		location = _station_location()
+		location = _list_location()
 		if location:
 			where = _opl_locations([o["name"] for o in opls])
 			opls = [o for o in opls if where.get(o["name"]) == location]
@@ -4683,9 +4744,18 @@ def receiveTransferBox(box_label: str | None = None, station: str | None = None)
 def getSalesFarms():
 	"""The sales farms (Production Settings > Shelf Locations, Sales Shelf): the farms a packhouse
 	station can be."""
+	from upande_packhouse.api.box_transfer import main_sales_farm
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import sales_farms
 	from upande_packhouse.api.v2.allocation_teams import sales_farm_names
 
-	frappe.response["message"] = {"success": True, "farms": sales_farm_names()}
+	# main: where the senders send their boxes on the internal transfer (they stage, it precools)
+	main = main_sales_farm()
+	frappe.response["message"] = {
+		"success": True,
+		"farms": sales_farm_names(),
+		"main": main,
+		"senders": [f for f in sales_farms() if main and f != main],
+	}
 
 
 @frappe.whitelist()
@@ -5710,6 +5780,34 @@ def issueBucketToSaleOrderItem():
 						left_to_take[key] -= row_take
 						taken_by_row[item.name] = row_take
 
+					# A downgraded pick names the line's length (52cm) while the bucket is shelved at its own,
+					# longer one (72cm): what no row of the picked length gave comes off the same variety's
+					# longer rows, shortest first -- else the issued stems stay on the shelf as if never taken.
+					def _cm(length):
+						digits = "".join(ch for ch in str(length or "") if ch.isdigit())
+						return int(digits) if digits else 0
+
+					for (variety, length), left in list(left_to_take.items()):
+						if left <= 0 or not length:
+							continue
+						longer = sorted(
+							(
+								it
+								for it in shelf_items
+								if it.get("variety") == variety
+								and _cm(it.get("stem_length")) > _cm(length)
+								and flt(it.get("stem_qty")) - taken_by_row.get(it.name, 0) > 0
+							),
+							key=lambda it: _cm(it.get("stem_length")),
+						)
+						for it in longer:
+							if left <= 0:
+								break
+							take = min(flt(it.get("stem_qty")) - taken_by_row.get(it.name, 0), left)
+							taken_by_row[it.name] = taken_by_row.get(it.name, 0) + take
+							left -= take
+						left_to_take[(variety, length)] = left
+
 					removed_from_shelf = []
 					kept_on_shelf = []
 					for item in shelf_items:
@@ -5783,28 +5881,49 @@ def issueBucketToSaleOrderItem():
 						bas_filters = {"bucket_id": bucket_id, "item_code": variety}
 						if length:
 							bas_filters["stem_length"] = length
-						bas_name = frappe.db.get_value("Bucket Allocation Status", bas_filters, "name")
-						if not bas_name:
-							continue
+						# the picked length's status first, then every other length of the bucket that
+						# holds this line: a downgraded pick (a 72cm bucket issued to a 52cm line) holds
+						# its stems on the shelf length's status
+						named = frappe.get_all("Bucket Allocation Status", filters=bas_filters, pluck="name")
+						others = [
+							n
+							for n in frappe.get_all(
+								"Bucket Allocation Status",
+								filters={"bucket_id": bucket_id, "item_code": variety},
+								pluck="name",
+							)
+							if n not in named
+						]
 						try:
-							bas = frappe.get_doc("Bucket Allocation Status", bas_name)
-							for row in bas.bucket_allocations:
-								if row.sales_order_item == sale_order_item and not row.cancelled:
+							for bas_name in named + others:
+								bas = frappe.get_doc("Bucket Allocation Status", bas_name)
+								mine = [
+									row
+									for row in bas.bucket_allocations
+									if row.sales_order_item == sale_order_item
+									and not row.cancelled
+									and not row.issued
+								]
+								if bas_name in others and not mine:
+									continue
+								for row in mine:
 									row.issued = 1
 									row.db_update()
-							# Sum every row still on the shelf for this length -- a
-							# single get_value read one arbitrary row.
-							shelf_filters = {"bucket_id": bucket_id, "variety": variety}
-							if bas.stem_length:
-								shelf_filters["stem_length"] = bas.stem_length
-							shelf_left = sum(
-								flt(q)
-								for q in frappe.get_all("Shelf Item", filters=shelf_filters, pluck="stem_qty")
-							)
-							recompute_bas_quantities(bas, shelf_qty=shelf_left)
-							bas.flags.ignore_validate = True
-							bas.flags.ignore_mandatory = True
-							bas.save(ignore_permissions=True)
+								# Sum every row still on the shelf for this length -- a
+								# single get_value read one arbitrary row.
+								shelf_filters = {"bucket_id": bucket_id, "variety": variety}
+								if bas.stem_length:
+									shelf_filters["stem_length"] = bas.stem_length
+								shelf_left = sum(
+									flt(q)
+									for q in frappe.get_all(
+										"Shelf Item", filters=shelf_filters, pluck="stem_qty"
+									)
+								)
+								recompute_bas_quantities(bas, shelf_qty=shelf_left)
+								bas.flags.ignore_validate = True
+								bas.flags.ignore_mandatory = True
+								bas.save(ignore_permissions=True)
 						except Exception:
 							frappe.log_error(
 								title="Issue: settling Bucket Allocation Status failed",
@@ -5861,6 +5980,23 @@ def issueBucketToSaleOrderItem():
 								title="Issue -> Packhouse: nothing moved",
 								message=f"bucket={bucket_id} farm={farm} -- {result.get('reason')}",
 							)
+
+					# The bucket turned up: a replacement that reported it missing (on this or
+					# another pick list) is closed as Found.
+					try:
+						from upande_packhouse.api.bucket_replacement import mark_found
+
+						mark_found(
+							bucket_id,
+							resolution=_("Issued on {0}").format(
+								", ".join(sorted(updated_opls)) or opl_name or "?"
+							),
+						)
+					except Exception:
+						frappe.log_error(
+							title="Issue: closing the bucket's replacement failed",
+							message=f"bucket={bucket_id}\n{frappe.get_traceback()}",
+						)
 
 					# -------------------------------
 					# Commit all changes
@@ -6983,7 +7119,7 @@ def getPackhouseDashboardData():
 			fields=["name", "customer", "custom_order_name", "custom_delivery_point", "farm"],
 		)
 		# The station's location only (Karen and Ravine share teams, not orders).
-		location = _station_location()
+		location = _list_location()
 		if location:
 			farms = location_farms(location)
 			sales_orders = [so for so in sales_orders if (so.farm or "") in farms]

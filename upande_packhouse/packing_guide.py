@@ -36,6 +36,25 @@ def _group_key(it):
 	return it.name  # straight: each line is its own group, never shared
 
 
+def box_math_problem(it):
+	"""Why a line cannot be packed, or None. Its boxes x packrate must come to whole bunches of its UOM: those
+	bunches are then spread over the boxes (sync_packing_guide). Lines missing the packrate, bunch size or number
+	of boxes are left to the Sales Order's own checks."""
+	pack_rate = _line_packrate(it)
+	stems_per_bunch = _uom_factor(it.get("uom")) or 0
+	num_boxes = int(it.get("custom_number_of_boxes") or 0)
+	if not pack_rate or not stems_per_bunch or not num_boxes:
+		return None
+	total = int(pack_rate * num_boxes)
+	if total % stems_per_bunch:
+		return frappe._(
+			"{0} {1}: {2} boxes of {3} stems is {4} stems, not a whole number of {5}-stem bunches"
+		).format(
+			it.get("item_code"), it.get("custom_length") or "", num_boxes, pack_rate, total, stems_per_bunch
+		)
+	return None
+
+
 def _rows_per_item(it):
 	"""One Packing Guide row's worth of numbers for this Sales Order Item --
 	everything EXCEPT which box_number it lands on (that's assigned by the
@@ -53,7 +72,15 @@ def _rows_per_item(it):
 			title=frappe._("Incomplete Line"),
 		)
 
+	# a packrate that is not whole bunches still packs when the line's total is: its bunches are spread over
+	# its boxes, the first boxes taking one bunch more (329 bunches in 5 boxes: 66, 66, 66, 66, 65)
+	per_box = None
 	if pack_rate % stems_per_bunch != 0:
+		total = int(pack_rate * num_boxes)
+		if total % stems_per_bunch == 0:
+			whole, extra = divmod(total // stems_per_bunch, num_boxes)
+			per_box = [whole + (1 if b <= extra else 0) for b in range(1, num_boxes + 1)]
+	if pack_rate % stems_per_bunch != 0 and per_box is None:
 		frappe.throw(
 			frappe._(
 				"{0}'s Packrate ({1} stems/box) is not a whole number of {2}-stem bunches -- "
@@ -81,6 +108,8 @@ def _rows_per_item(it):
 		"length": it.get("custom_length"),
 		"pack_rate": pack_rate,
 		"box_type": it.get("custom_box_type"),
+		# {box number: bunches} when the bunches are spread unevenly over the boxes
+		"_per_box": per_box,
 	}, num_boxes
 
 
@@ -172,9 +201,16 @@ def sync_packing_guide(order_pick_list, so_items):
 		num_boxes = box_counts.pop()
 		carried = _carried_boxes(order_pick_list, items, num_boxes)
 		for row in per_item_rows:
+			per_box = row.pop("_per_box", None)
 			for box_number in range(1, num_boxes + 1):
 				if carried is None or box_number in carried:
-					rows.append({**row, "box_number": box_number})
+					box_row = {**row, "box_number": box_number}
+					if per_box:
+						box_row["bunches"] = per_box[box_number - 1]
+						box_row["stems"] = box_row["bunches"] * row["stems_per_bunch"]
+						# packing reads a guide row's pack_rate as the box's capacity
+						box_row["pack_rate"] = box_row["stems"]
+					rows.append(box_row)
 
 	order_pick_list.set("table_nade", [])
 	for row in rows:

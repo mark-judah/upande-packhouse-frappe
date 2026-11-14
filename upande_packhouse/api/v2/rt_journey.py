@@ -1538,7 +1538,7 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 				y
 				for y in (
 					order,
-					x.get("reason"),
+					("reported %s" % x["reason"].lower()) if x.get("reason") else "",
 					(
 						"still missing"
 						if x.get("status") == "Open"
@@ -1549,7 +1549,16 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 			)
 		else:
 			title = "Used as the replacement for %s %s" % (x.get("old_bucket") or "?", during)
-			line = " · ".join(y for y in (order, x.get("reason")) if y)
+			line = " · ".join(
+				y
+				for y in (
+					order,
+					("%s reported %s" % (x.get("old_bucket") or "?", x["reason"].lower()))
+					if x.get("reason")
+					else "",
+				)
+				if y
+			)
 		ev = _e(
 			"replace",
 			x.get("reported_at"),

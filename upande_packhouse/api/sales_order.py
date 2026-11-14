@@ -207,6 +207,8 @@ def resolvePriceList():
 				currency = defaults[0].currency
 		if not price_list and customer:
 			price_list = frappe.db.get_value("Customer", customer, "default_price_list")
+		if price_list and not frappe.db.get_value("Price List", price_list, "enabled"):
+			price_list = None  # a disabled list is never filled in
 		if price_list and not currency:
 			currency = frappe.db.get_value("Price List", price_list, "currency")
 		frappe.response["message"] = {"success": True, "price_list": price_list, "currency": currency}

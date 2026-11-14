@@ -625,6 +625,23 @@ def _offline_history(bucket):
 	]
 
 
+def _also_on(bucket, opl_name):
+	"""Other pick lists that still have `bucket` to issue (a bucket split across an order's lines
+	can be in use there): [{opl, order_name}]."""
+	return [
+		{"opl": r.name, "order_name": r.order_name or r.name}
+		for r in frappe.db.sql(
+			"""SELECT DISTINCT o.name, o.order_name FROM `tabPick List Item` p
+			JOIN `tabOrder Pick List` o ON o.name = p.parent
+			WHERE p.parenttype = 'Order Pick List' AND p.bucket = %s AND p.parent != %s
+			  AND IFNULL(p.issued, 0) = 0 AND o.docstatus < 2
+			ORDER BY o.name""",
+			(bucket, opl_name),
+			as_dict=True,
+		)
+	]
+
+
 @frappe.whitelist()
 def replacement_options(
 	opl_name: str, bucket: str, sale_order_item: str | None = None, limit: int = 20, farm: str | None = None
@@ -633,11 +650,12 @@ def replacement_options(
 	rules (same variety, same or longer length, enough stems, unallocated, at the
 	farm the bucket is shelved at), best match first."""
 	history = _offline_history(bucket)
+	also_on = _also_on(bucket, opl_name)
 	try:
 		pli = _anchor_row(opl_name, bucket, sale_order_item)
 		anchor, farm, needed, found = _candidates(pli, max(1, min(cint(limit) or 20, 100)), farm=farm)
 	except frappe.ValidationError as e:
-		return {"found": False, "message": str(e), "candidates": [], "history": history}
+		return {"found": False, "message": str(e), "candidates": [], "history": history, "also_on": also_on}
 	# Only from the station issuing it (or, without one, the farm the bucket is
 	# shelved at) -- never another farm's bucket.
 	source = "local"
@@ -648,9 +666,11 @@ def replacement_options(
 			"message": sa._no_replacement_message(anchor, farm, needed),
 			"candidates": [],
 			"history": history,
+			"also_on": also_on,
 		}
 	return {
 		"found": True,
+		"also_on": also_on,
 		"source": source,
 		"message": _("No matching bucket at {0}; available at remote farms.").format(farm)
 		if source == "remote"

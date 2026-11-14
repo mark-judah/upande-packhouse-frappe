@@ -64,6 +64,7 @@ def orders(
 	customer: Any = None,
 	q: Any = None,
 	printed: Any = None,
+	variety: Any = None,
 ):
 	"""Sales orders delivering in the window that have box labels, with how many are printed."""
 	_check()
@@ -73,9 +74,15 @@ def orders(
 	if customer:
 		where.append("(so.customer = %(c)s OR so.customer_name = %(c)s)")
 		params["c"] = customer
+	if variety:
+		where.append(
+			"EXISTS (SELECT 1 FROM `tabBox Label Item` bi WHERE bi.parent = bl.name AND bi.variety = %(v)s)"
+		)
+		params["v"] = variety
 	if (q or "").strip():
 		where.append(
-			"(so.name LIKE %(q)s OR so.customer_name LIKE %(q)s OR IFNULL(so.po_no, '') LIKE %(q)s OR bl.name LIKE %(q)s)"
+			"(so.name LIKE %(q)s OR so.customer_name LIKE %(q)s OR IFNULL(so.po_no, '') LIKE %(q)s"
+			" OR IFNULL(so.custom_order_name, '') LIKE %(q)s OR bl.name LIKE %(q)s)"
 		)
 		params["q"] = f"%{q.strip()}%"
 	having = ""
@@ -87,13 +94,14 @@ def orders(
 	rows = frappe.db.sql(
 		f"""
 		SELECT so.name AS sales_order, so.customer, so.customer_name, so.delivery_date,
-		       so.custom_delivery_point AS delivery_point, so.po_no,
+		       so.custom_delivery_point AS delivery_point, so.po_no, so.custom_order_name AS order_name,
 		       COUNT(bl.name) AS boxes, SUM(IFNULL(bl.printed, 0)) AS printed,
 		       GROUP_CONCAT(DISTINCT bl.order_pick_list ORDER BY bl.order_pick_list) AS opls,
 		       MAX(bl.printed_at) AS last_printed
 		{_FROM}
 		WHERE {" AND ".join(where)}
-		GROUP BY so.name, so.customer, so.customer_name, so.delivery_date, so.custom_delivery_point, so.po_no
+		GROUP BY so.name, so.customer, so.customer_name, so.delivery_date, so.custom_delivery_point, so.po_no,
+		         so.custom_order_name
 		{having}
 		ORDER BY so.delivery_date, so.customer_name, so.name
 		LIMIT 600
@@ -125,6 +133,14 @@ def orders(
 			"printed": sum(r["printed"] for r in rows),
 		},
 		"customers": [{"customer": c.customer, "name": c.customer_name or c.customer} for c in customers],
+		# nosemgrep: frappe-sql-format-injection -- the interpolated parts are fixed SQL fragments; every value is a bound parameter
+		"varieties": frappe.db.sql_list(
+			f"""SELECT DISTINCT bi.variety {_FROM}
+			    INNER JOIN `tabBox Label Item` bi ON bi.parent = bl.name
+			    WHERE so.delivery_date BETWEEN %(f)s AND %(t)s AND IFNULL(bi.variety, '') != ''
+			    ORDER BY bi.variety""",
+			{"f": f, "t": t},
+		),
 		"formats": formats(),
 		"can_mark": bool(frappe.has_permission("Box Label", "write")),
 	}

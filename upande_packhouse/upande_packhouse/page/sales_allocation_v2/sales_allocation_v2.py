@@ -728,6 +728,56 @@ def get_order_filter_options():
 # GET SO ITEMS + AVAILABLE BUCKETS
 # UPDATED: Exclude in_transit buckets from availability
 # ============================================================
+# A Bucket Allocations row (alias ba, its status bas2) still holds stems: its order is not cancelled, and the
+# order's pick list has not issued that bucket before the stems now on the shelf were shelved -- a bucket label
+# reused for a new harvest after an issue that left its old hold outstanding (a downgraded line was settled on
+# the picked length's status only). Shelved before the issue, the stems on the shelf are the ones issued: the
+# hold stays.
+LIVE_HOLD_SQL = """NOT EXISTS (
+	SELECT 1 FROM `tabPick List Item` lh_p
+	JOIN `tabOrder Pick List` lh_o ON lh_o.name = lh_p.parent AND lh_o.docstatus < 2
+	WHERE lh_p.sales_order_item = ba.sales_order_item AND lh_p.bucket = bas2.bucket_id
+	  AND (IFNULL(lh_p.issued, 0) = 1 OR IFNULL(lh_p.issued_offline, 0) = 1)
+	  AND COALESCE(lh_p.issued_at, lh_p.modified) < (
+		SELECT MAX(lh_s.date_added) FROM `tabShelf Item` lh_s
+		WHERE lh_s.bucket_id = bas2.bucket_id AND lh_s.variety = bas2.item_code
+	  )
+) AND NOT EXISTS (SELECT 1 FROM `tabSales Order` lh_so WHERE lh_so.name = ba.sales_order AND lh_so.docstatus = 2)"""
+
+
+def released_holders(bucket_ids):
+	"""(bucket, variety, length) -> [{sales_order, order_name, customer, qty}]: the orders whose outstanding
+	allocation holds stems of the bucket."""
+	bucket_ids = [b for b in bucket_ids or [] if b]
+	if not bucket_ids:
+		return {}
+	out = {}
+	# nosemgrep: frappe-sql-format-injection -- LIVE_HOLD_SQL is a constant; every value is bound
+	for r in frappe.db.sql(
+		f"""SELECT bas2.bucket_id, bas2.item_code, IFNULL(bas2.stem_length, '') AS stem_length,
+		           ba.sales_order, so.custom_order_name AS order_name, so.customer,
+		           SUM(ba.quantity_allocated) AS qty
+		    FROM `tabBucket Allocations` ba
+		    JOIN `tabBucket Allocation Status` bas2 ON bas2.name = ba.parent
+		    LEFT JOIN `tabSales Order` so ON so.name = ba.sales_order
+		    WHERE ba.parenttype = 'Bucket Allocation Status' AND ba.cancelled = 0 AND IFNULL(ba.issued, 0) = 0
+		      AND bas2.bucket_id IN %(b)s AND {LIVE_HOLD_SQL}
+		    GROUP BY bas2.bucket_id, bas2.item_code, bas2.stem_length, ba.sales_order
+		    HAVING qty > 0""",
+		{"b": tuple(bucket_ids)},
+		as_dict=True,
+	):
+		out.setdefault((r.bucket_id, r.item_code, r.stem_length), []).append(
+			{
+				"sales_order": r.sales_order,
+				"order_name": r.order_name or r.sales_order,
+				"customer": r.customer or "",
+				"qty": flt(r.qty),
+			}
+		)
+	return out
+
+
 @frappe.whitelist()
 def get_sales_order_items_with_buckets(
 	sales_order: str | None,
@@ -984,6 +1034,7 @@ def get_sales_order_items_with_buckets(
             JOIN `tabBucket Allocation Status` bas2 ON bas2.name = ba.parent
             WHERE ba.parenttype = 'Bucket Allocation Status' AND ba.cancelled = 0 AND IFNULL(ba.issued, 0) = 0
               AND bas2.item_code IN ({ic_placeholders})
+              AND {LIVE_HOLD_SQL}
             GROUP BY ba.parent
         ) ba_out ON ba_out.parent = bas.name
         WHERE s.farm IN ({farm_placeholders})
@@ -1075,6 +1126,8 @@ def get_sales_order_items_with_buckets(
 	held_by_line = availability.reservations_by_bucket_line({b["bucket_id"] for b in buckets})
 	# Stems other orders have allocated and are waiting to confirm are not free here either.
 	pending = pending_holds({b["bucket_id"] for b in buckets})
+	# Stems released orders hold: shown with the order that holds them
+	released = released_holders({b["bucket_id"] for b in buckets})
 	# A remote farm's bucket is requested whole: one order holding it takes the whole bucket off the farm
 	owners = remote_bucket_owners(
 		{b["bucket_id"] for b in buckets if not farm_config.get(b["shelf_farm"], {}).get("sales_shelf")}
@@ -1165,6 +1218,12 @@ def get_sales_order_items_with_buckets(
 				"in_transit": cint(b.get("in_transit")),
 				# allocated to other orders, waiting their confirmation: [{"sales_order", "qty"}]
 				"held_for": [{"sales_order": so, "qty": q} for so, q in held_for],
+				# released orders holding stems of it (already taken off available_qty)
+				"held_by": [
+					h
+					for h in released.get((b["bucket_id"], b["item_code"], b["stem_length"] or ""), [])
+					if h["sales_order"] != sales_order
+				],
 				"transit_to": transit_destination if cint(b.get("in_transit")) else "",
 				"downgrade_approval": (
 					"amber_expired" if (b["age_days"] or 0) >= amber_time else "requires_approval"
@@ -2561,6 +2620,9 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 				f"Destination: {sales_shelf_farm}, Allocated: {bas.allocated_quantity}",
 			)
 
+		# the bucket's earlier rows name other orders: one of those gone (deleted, or not on this site) must not
+		# stop this order's allocation
+		bas.flags.ignore_links = True
 		bas.save(ignore_permissions=True)
 
 	# ── Update SO item flags based on actual cumulative coverage ──
@@ -4336,6 +4398,7 @@ def _replace_requested_bucket(
 				old_bas.in_transit = 0
 			old_bas.flags.ignore_validate = True
 			old_bas.flags.ignore_mandatory = True
+			old_bas.flags.ignore_links = True
 			old_bas.save(ignore_permissions=True)
 
 		# ── Shelf: the missing bucket's row goes once nothing else is allocated from it ──
@@ -4400,6 +4463,7 @@ def _replace_requested_bucket(
 		recompute_bas_quantities(new_bas, shelf_qty=new.stem_qty)
 		if was_in_transit or to_remote:
 			new_bas.in_transit = 1
+		new_bas.flags.ignore_links = True
 		new_bas.save(ignore_permissions=True)
 
 		# ── OPL: point every row of the old bucket at the new one ──

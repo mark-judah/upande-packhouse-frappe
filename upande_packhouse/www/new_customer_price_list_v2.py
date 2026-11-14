@@ -5,10 +5,12 @@
 # /new-customer-price-list on the shared packhouse v2 design system. Same API
 # as the original page.
 
-from upande_packhouse.packhouse_v2 import page_context
+import frappe
 
 no_cache = 1
 
 
 def get_context(context):
-	return page_context(context, "new-customer-price-list", "New Customer Price List")
+	# creating a customer list now lives on Price Lists ("New customer list")
+	frappe.local.flags.redirect_location = "/packhouse-dashboard-v2/price-lists-v2"
+	raise frappe.Redirect

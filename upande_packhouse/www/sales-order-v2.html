@@ -856,7 +856,7 @@
     link("consignee", "custom_consignee", (q) => call(API + "searchConsignees", { query: q, customer: CURRENT.customer || "" }, true).then((r) => (r.consignees || []).map((c) => ({ value: c.name, label: c.consignee || c.name }))));
     link("delivery_point", "custom_delivery_point", (q) => call(API + "searchDeliveryPoints", { query: q, customer: CURRENT.customer || "" }, true).then((r) => (r.delivery_points || []).map((c) => ({ value: c.name, label: c.name, description: c.description || "" }))));
     link("shipping_agent", "custom_shipping_agent", (q) => call(API + "searchShippingAgents", { query: q }, true).then((r) => (r.shipping_agents || []).map((c) => ({ value: c.name, label: c.name, description: c.description || "" }))));
-    link("price_list", "selling_price_list", PH.linkSource("Price List", { filters: { selling: 1 } }), refetchRates);
+    link("price_list", "selling_price_list", PH.linkSource("Price List", { filters: { selling: 1, enabled: 1 } }), refetchRates);
   }
   function setHeaderInput(field, value) {
     if (!EDIT_HOST) return;
