@@ -96,7 +96,11 @@ def _pick_lists(orders):
 def orders():
 	"""Open sea freight orders, soonest delivery first: per line ordered / harvested / received stems, the buckets
 	harvested for the order, whether harvesting is done and the order received, and its pick lists."""
-	extra = [f for f in ("custom_sea_freight_harvested", "custom_sea_freight_received") if _has(f)]
+	extra = [
+		f
+		for f in ("custom_sea_freight_harvested", "custom_sea_freight_received", "custom_order_name")
+		if _has(f)
+	]
 	sos = frappe.get_all(
 		"Sales Order",
 		filters={
@@ -168,6 +172,7 @@ def orders():
 		out.append(
 			{
 				"name": so.name,
+				"order_name": so.get("custom_order_name") or "",
 				"customer": so.customer_name or so.customer,
 				"delivery_date": str(so.delivery_date or ""),
 				"status": so.status,

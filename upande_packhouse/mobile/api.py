@@ -3320,8 +3320,19 @@ def refreshLoadingPlan(plan: str):
 def _listed_opls(opl_names, sched):
 	"""The OPLs a station lists for issuing / packing: those on a Packhouse Schedule
 	(`sched`). A sales farm's own orders (Karen) are never on the Scheduler, so they
-	are always listed."""
+	are always listed, and so are sea freight orders: their pick lists are made when
+	the packhouse receives the order (api/sea_freight.receive), not by scheduling."""
 	opl_names = list(opl_names)
+	sea_freight = set()
+	if opl_names:
+		sea_freight = set(
+			frappe.db.sql_list(
+				"""SELECT o.name FROM `tabOrder Pick List` o
+				JOIN `tabSales Order` so ON so.name = o.sales_order
+				WHERE o.name IN %(o)s AND so.custom_mode_of_transport = 'Sea Freight'""",
+				{"o": tuple(opl_names)},
+			)
+		)
 	from upande_packhouse.api.remote_transfer.scheduler import _own_packing_farms
 
 	own_farms = tuple(_own_packing_farms())
@@ -3336,7 +3347,7 @@ def _listed_opls(opl_names, sched):
 				{"o": tuple(rest), "f": own_farms},
 			)
 		)
-	return {o for o in opl_names if o in sched or o in own}
+	return {o for o in opl_names if o in sched or o in own or o in sea_freight}
 
 
 @frappe.whitelist()
