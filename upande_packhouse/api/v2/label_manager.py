@@ -210,7 +210,13 @@ def preview(label_type: str, design=None, layout=None, spec=None):
 
 
 @frappe.whitelist()
-def preview_all(label_type: str, design=None, spec=None, start: int = 0, limit: int = 48):
+def preview_all(
+	label_type: str,
+	design: str | dict | None = None,
+	spec: str | dict | None = None,
+	start: int = 0,
+	limit: int = 48,
+):
 	"""Every label the form will print, one image each (a page of `limit` at a time), drawn by the printer's renderer."""
 	import base64
 

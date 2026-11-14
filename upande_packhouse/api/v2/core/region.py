@@ -38,7 +38,11 @@ def _groups():
 	cached = getattr(frappe.local, "ph_site_groups", None)
 	if cached is not None:
 		return cached
-	ps = frappe.get_cached_doc("Production Settings")
+	try:
+		ps = frappe.get_cached_doc("Production Settings")
+	except (ImportError, frappe.DoesNotExistError):
+		# A site without Production Settings (it ships with upande_quality): the built-in grouping.
+		ps = frappe._dict()
 	rows = [r for r in ps.get("shelf_locations") or [] if r.enabled and r.farm]
 	sales = [r.farm for r in rows if r.sales_shelf]
 	if not sales:

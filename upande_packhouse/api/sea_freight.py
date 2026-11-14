@@ -42,33 +42,36 @@ def _has(field):
 	return frappe.db.has_column("Sales Order", field)
 
 
+_TAGGED_SQL = """
+	SELECT se.custom_sea_freight_order AS sales_order, se.custom_sea_freight_item AS so_item,
+	       se.custom_bucket_id AS bucket, sed.item_code, SUM(sed.qty) AS stems,
+	       MAX(COALESCE(NULLIF(sed.t_warehouse, ''), se.to_warehouse)) AS warehouse,
+	       MAX(se.custom_greenhouse) AS greenhouse,
+	       {received} AS received_by_entry
+	FROM `tabStock Entry` se
+	JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
+	WHERE se.docstatus = 1 AND se.stock_entry_type = 'Harvesting'
+	  AND se.custom_sea_freight_order IN %(orders)s
+	GROUP BY se.custom_sea_freight_order, se.custom_sea_freight_item, se.custom_bucket_id, sed.item_code
+	ORDER BY se.custom_sea_freight_order, se.custom_bucket_id
+"""
+_TAGGED_WITH_RECEIVING = _TAGGED_SQL.replace(
+	"{received}", "MAX(IF(IFNULL(se.custom_receiving_entry, '') != '', 1, 0))"
+)
+_TAGGED_WITHOUT_RECEIVING = _TAGGED_SQL.replace("{received}", "0")
+
+
 def _tagged_buckets(sales_orders):
 	"""Harvesting entries tagged to these orders, one row per bucket and line: {sales_order, so_item, bucket,
 	item_code, stems, warehouse, greenhouse, received_by_entry}."""
 	if not sales_orders or not frappe.db.has_column("Stock Entry", "custom_sea_freight_order"):
 		return []
-	received_col = (
-		"se.custom_receiving_entry"
+	query = (
+		_TAGGED_WITH_RECEIVING
 		if frappe.db.has_column("Stock Entry", "custom_receiving_entry")
-		else "NULL"
+		else _TAGGED_WITHOUT_RECEIVING
 	)
-	return frappe.db.sql(
-		f"""
-		SELECT se.custom_sea_freight_order AS sales_order, se.custom_sea_freight_item AS so_item,
-		       se.custom_bucket_id AS bucket, sed.item_code, SUM(sed.qty) AS stems,
-		       MAX(COALESCE(NULLIF(sed.t_warehouse, ''), se.to_warehouse)) AS warehouse,
-		       MAX(se.custom_greenhouse) AS greenhouse,
-		       MAX(IF(IFNULL({received_col}, '') != '', 1, 0)) AS received_by_entry
-		FROM `tabStock Entry` se
-		JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
-		WHERE se.docstatus = 1 AND se.stock_entry_type = 'Harvesting'
-		  AND se.custom_sea_freight_order IN %(orders)s
-		GROUP BY se.custom_sea_freight_order, se.custom_sea_freight_item, se.custom_bucket_id, sed.item_code
-		ORDER BY se.custom_sea_freight_order, se.custom_bucket_id
-		""",
-		{"orders": tuple(sales_orders)},
-		as_dict=True,
-	)
+	return frappe.db.sql(query, {"orders": tuple(sales_orders)}, as_dict=True)
 
 
 def _pick_lists(orders):
@@ -192,7 +195,7 @@ def orders():
 
 
 @frappe.whitelist(methods=["POST"])
-def receive(sales_order=None, buckets=None):
+def receive(sales_order: str, buckets: str | list | None = None):
 	"""Take a harvested sea freight order into the packhouse from its scanned buckets.
 
 	Every bucket harvested for the order must be scanned. Builds the order's pick lists from them (one per line,
@@ -272,7 +275,6 @@ def receive(sales_order=None, buckets=None):
 			"custom_sea_freight_received_by": user,
 		},
 	)
-	frappe.db.commit()
 	return {"sales_order": sales_order, "pick_lists": created}
 
 
