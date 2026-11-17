@@ -59,6 +59,14 @@ def resolve_rose_item_groups(leaf_group_names):
 	return resolved
 
 
+def packing_groups(leaf_group_names):
+	"""Item Group -> how its bunches are packed: "Spray Roses" (bunch QR scanned) or "Standard
+	Roses" (typed in). Only spray roses carry bunch QR labels; every other crop -- standard
+	roses, Gypsophilla, Lepidium, fillers -- is packed the way standard roses are."""
+	resolved = resolve_rose_item_groups(leaf_group_names)
+	return {g: "Spray Roses" if resolved.get(g) == "Spray Roses" else "Standard Roses" for g in resolved}
+
+
 # ---------------------------------------------------------------------------
 # HS codes and crop names for the Roses sales invoice
 # ---------------------------------------------------------------------------

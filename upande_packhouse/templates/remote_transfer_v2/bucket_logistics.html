@@ -152,10 +152,6 @@
     return out.join(" ");
   }
   const ts = (v) => { const d = new Date(String(v || "").replace(" ", "T")); return isNaN(d.getTime()) ? null : d.getTime(); };
-  function arrivalMins(o) {
-    const a = ts(o.initiated), b = ts(o.arrived);
-    return !o.initiated || !o.arrived || a == null || b == null ? null : Math.max(0, (b - a) / 60000);
-  }
   const rangeLabel = () => fmtD(st.get("from")) + (st.get("to") !== st.get("from") ? " → " + fmtD(st.get("to")) : "");
 
   /* ── Load ── */
@@ -165,7 +161,7 @@
   function load(skeleton) {
     const my = ++seq, s = st.get();
     if (skeleton || !DATA) {
-      PH.kpiSkeleton("#bl-kpis", ["Orders", "Buckets", "At farm", "In trolley", "In transit", "Shelved", "Issued", "Not found", "Replaced buckets", "Not scheduled", "Avg truck transit"]);
+      PH.kpiSkeleton("#bl-kpis", ["Orders", "Buckets", "At farm", "In trolley", "In transit", "Shelved", "Issued", "Not found", "Replaced buckets", "Not scheduled"]);
       PH.skeleton("#bl-rows", "rows", 8);
     }
     return PH.call(API + "get_logistics_view", { from_date: s.from, to_date: s.to, region: s.region, farm: s.farm, team: s.team, q: s.q }, { silent: true })
@@ -198,21 +194,6 @@
   const noTripSection = (o) => (o.no_trip_section !== undefined ? o.no_trip_section || null : o.scheduled ? null : "Not scheduled");
   // On a trip still out: its own, or its shared buckets ride with another order's.
   const onTrip = (o) => (Number(o.riding) || 0) > 0 || (o.trips || []).some((t) => t.status !== "Received");
-  // Average truck transit: each trip the orders rode, from leaving the farm (dispatched) to arriving at
-  // the hub. With no trip timed both ways yet: order made -> first arrival.
-  function avgTransit(orders) {
-    const seen = {}, mins = [];
-    orders.forEach((o) => (o.trips || []).forEach((t) => {
-      if (seen[t.trip]) return;
-      seen[t.trip] = 1;
-      const a = ts(t.dispatched_at), b = ts(t.arrived_at);
-      if (a != null && b != null && b >= a) mins.push((b - a) / 60000);
-    }));
-    if (mins.length) return { label: "Avg truck transit", val: fmtDur(mins.reduce((x, y) => x + y, 0) / mins.length) };
-    const durs = [];
-    orders.forEach((o) => { if (o.arrived) { const m = arrivalMins(o); if (m != null) durs.push(m); } });
-    return { label: "Avg order → first arrival", val: fmtDur(durs.length ? durs.reduce((x, y) => x + y, 0) / durs.length : null) };
-  }
   // Buckets replaced on these orders: one per (order, bucket), however many records.
   function replacedCount() {
     const seen = {};
@@ -229,7 +210,7 @@
     // Bucket tiles once per physical bucket (a bucket split over two orders is one).
     const tt = DATA.totals;
     if (tt && tt.total != null) Object.assign(s, { buckets: tt.total, shelved: tt.shelved, transit: tt.transit, trolley: tt.trolley, awaiting: tt.awaiting, issued: tt.issued, notFound: tt.not_found });
-    const pct = s.buckets ? Math.round((s.shelved / s.buckets) * 100) : 0, avg = avgTransit(orders), nRepl = replacedCount();
+    const pct = s.buckets ? Math.round((s.shelved / s.buckets) * 100) : 0, nRepl = replacedCount();
     PH.kpis("#bl-kpis", [
       { label: "Orders", value: orders.length },
       { label: "Buckets", value: s.buckets },
@@ -241,7 +222,6 @@
       { label: "Not found", value: s.notFound, onClick: () => openNotFound(), title: "Click for the buckets" },
       { label: "Replaced buckets", value: nRepl },
       { label: "Not scheduled", value: s.unsched },
-      { label: avg.label, value: avg.val },
     ]);
     const cards = PH.$$("#bl-kpis .ph-kpi");
     if (s.notFound && cards[7]) cards[7].classList.add("bl-kpi-bad");

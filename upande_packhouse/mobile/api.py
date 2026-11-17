@@ -15,7 +15,7 @@ from frappe import _
 from frappe.utils import cint, flt
 
 from upande_packhouse import stock_movement
-from upande_packhouse.item_groups import crop_name, hs_code, resolve_rose_item_groups
+from upande_packhouse.item_groups import crop_name, hs_code, packing_groups
 from upande_packhouse.packing_guide import _group_key as _packing_guide_group_key
 
 
@@ -5049,13 +5049,12 @@ def get_pick_list_with_farm_pack_list():
 				"Item", filters={"name": ["in", variety_codes]}, fields=["name", "item_group"]
 			):
 				item_groups[it.get("name")] = it.get("item_group")
-		# Resolve each variety's leaf Item Group up to "Spray Roses" /
-		# "Standard Roses" via the tree, not a flat string match — see
-		# resolve_rose_item_groups's docstring.
-		rose_category = resolve_rose_item_groups(item_groups.values())
+		# The packing mode of each variety: "Spray Roses" are scanned, everything else is typed in
+		# like standard roses (packing_groups).
+		rose_category = packing_groups(item_groups.values())
 		for location in order_pick_list["table_ytkc"]:
 			raw_group = item_groups.get(location.get("item_code"), "")
-			location["item_group"] = rose_category.get(raw_group, raw_group)
+			location["item_group"] = rose_category.get(raw_group, "Standard Roses")
 			location["warehouse"] = location.get("source_warehouse")
 			location["custom_stem_length"] = location.get("stem_length")
 		order_pick_list["locations"] = order_pick_list["table_ytkc"]
@@ -5417,11 +5416,9 @@ def get_pick_list_with_farm_pack_list():
 				)
 				if _fv:
 					_opl_group = frappe.db.get_value("Item", _fv, "item_group") or ""
-			# Whichever leaf group we ended up with, resolve it up to "Spray
-			# Roses" / "Standard Roses" via the tree — same reasoning as the
-			# table_ytkc loop above.
+			# Only spray roses are scanned: every other crop packs as standard roses do.
 			if _opl_group:
-				_opl_group = resolve_rose_item_groups([_opl_group]).get(_opl_group, _opl_group)
+				_opl_group = packing_groups([_opl_group]).get(_opl_group, "Standard Roses")
 
 			packing_guide = {
 				"pick_list": opl_doc.name,
