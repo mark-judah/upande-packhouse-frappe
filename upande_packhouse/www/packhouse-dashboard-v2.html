@@ -288,7 +288,6 @@
     });
     return f;
   }
-  const pctOf = (a, b) => (b ? Math.round((100 * a) / b) : null);
   // Per stage: stems, boxes, and the orders and order lines that reached it. A line's figures add up over its
   // pick lists; a mixed box or bunch counts its boxes once, as many as its scarcest variety fills.
   function stageFigures(rows) {
@@ -298,7 +297,10 @@
       if (!r.soi) return;
       const l = (lines[r.soi] = lines[r.soi] || { so: r.sales_order, customer: r.customer, mix: r.mix_name ? r.sales_order + "|" + r.mix_name : null, boxes: 0, ordered: 0, demand: 0, allocated: 0, issued: 0, packed: 0, precooled: 0, staged: 0, loaded: 0, dispatched: 0 });
       if (r.primary !== false) { l.demand += r.ordered_stems || 0; l.ordered = r.ordered_stems || 0; l.boxes = r.line_boxes || 0; }
-      ["allocated", "issued", "packed", "precooled", "staged", "loaded", "dispatched"].forEach((k) => (l[k] += r[STEM[k]] || 0));
+      ["allocated", "issued", "precooled", "staged", "loaded", "dispatched"].forEach((k) => (l[k] += r[STEM[k]] || 0));
+      // packed: full boxes only -- a box still being packed counts once it is complete
+      const full = r.opl_boxes && r.stems_per_box ? (r.opl_boxes.complete || 0) * r.stems_per_box : null;
+      l.packed += full == null ? r.packed_stems || 0 : Math.min(r.packed_stems || 0, full);
     });
     const all = Object.values(lines);
     const out = {};
@@ -332,11 +334,14 @@
       </div>`;
     // one card per stage: name and its share of the stage before on top, its boxes large, stems under them,
     // the bar along the bottom
+    // each stage against the one before it: its boxes and stems out of that stage's, the share by boxes
+    // (by stems while the stage before has no whole box), never shown as 100% until all of it is there
+    const share = (a, b) => (b ? (a >= b ? Math.round((100 * a) / b) : Math.min(99, Math.floor((100 * a) / b))) : null);
     const tiles = STEPS.map(([k, label], i) => {
       const prevK = i ? STEPS[i - 1][0] : null;
-      const p = i ? pctOf(f[k].stems, f[prevK].stems) : null;
-      const totalBoxes = k === "demand" ? "" : `<small> / ${n(f.demand.boxes)}</small>`;
-      const stems = k === "demand" ? n(f[k].stems) : n(f[k].stems) + " / " + n(f.demand.stems);
+      const p = i ? (f[prevK].boxes ? share(f[k].boxes, f[prevK].boxes) : share(f[k].stems, f[prevK].stems)) : null;
+      const totalBoxes = k === "demand" ? "" : `<small> / ${n(f[prevK].boxes)}</small>`;
+      const stems = k === "demand" ? n(f[k].stems) : n(f[k].stems) + " / " + n(f[prevK].stems);
       return `<div class="ph-kpi ow-an-card">
         <div class="ow-an-top"><span class="ph-kpi__label">${label}</span>${i ? `<span class="ow-an-pct">${p == null ? "—" : p + "%"}<small>of ${STEPS[i - 1][1].toLowerCase()}</small></span>` : ""}</div>
         <div class="ow-an-big">${n(f[k].boxes)}${totalBoxes}</div>

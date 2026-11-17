@@ -173,13 +173,21 @@
     /* ===== Bucket status side panel (deepest drill-down, from Trip Drill Down) ===== */
     #tm-root .bp-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.35); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 1000; }
     #tm-root .bp-overlay.is-open { opacity: 1; pointer-events: auto; }
-    #tm-root .bp-panel { position: fixed; top: 0; right: 0; height: 100%; width: 98vw; background: #fff; box-shadow: -8px 0 24px rgba(0,0,0,.18); transform: translateX(100%); transition: transform .25s ease; z-index: 1001; display: flex; flex-direction: column; }
+    #tm-root .bp-panel { position: fixed; top: 0; right: 0; height: 100%; width: max(50vw, min(100vw, 560px)); background: #fff; box-shadow: -8px 0 24px rgba(0,0,0,.18); transform: translateX(100%); transition: transform .25s ease; z-index: 1001; display: flex; flex-direction: column; }
     #tm-root .bp-panel.is-open { transform: translateX(0); }
     #tm-root .bp-head { display: flex; justify-content: space-between; align-items: flex-start; padding: 16px 18px; border-bottom: 1px solid #eee; flex: 0 0 auto; }
     #tm-root .bp-title { font-weight: 700; font-size: 15px; }
     #tm-root .bp-close { border: none; background: #f1f1f1; border-radius: 6px; width: 28px; height: 28px; cursor: pointer; font-size: 14px; color: #555; }
     #tm-root .bp-close:hover { background: #e4e4e4; }
-    #tm-root .bp-body { padding: 12px 14px; overflow-y: auto; overflow-x: hidden; flex: 1 1 auto; }
+    #tm-root .bp-body { padding: 12px 14px; overflow-y: auto; overflow-x: auto; flex: 1 1 auto; }
+    /* Half the screen wide: the table keeps its columns and scrolls sideways. */
+    #tm-root #bp-panel .bp-body { scrollbar-width: auto; scrollbar-color: #9a9a90 #f1f1ec; }
+    #tm-root #bp-panel .bp-body::-webkit-scrollbar { height: 16px; width: 12px; }
+    #tm-root #bp-panel .bp-body::-webkit-scrollbar-track { background: #f1f1ec; border-radius: 8px; }
+    #tm-root #bp-panel .bp-body::-webkit-scrollbar-thumb { background: #9a9a90; border-radius: 8px; border: 3px solid #f1f1ec; }
+    #tm-root #bp-panel .bp-body::-webkit-scrollbar-thumb:hover { background: #6a6a62; }
+    #tm-root #bp-panel table.bp-table { width: max-content; min-width: 100%; }
+    #tm-root #bp-panel table.bp-table td { white-space: nowrap; word-break: normal; }
     #tm-root table.bp-table { border-collapse: collapse; font-size: 11px; width: 100%; table-layout: auto; }
     #tm-root table.bp-table th { text-align: left; font-size: 9.5px; text-transform: uppercase; letter-spacing: .02em; color: #999; font-weight: 600; padding: 5px 5px; border-bottom: 1px solid #eee; white-space: normal; vertical-align: bottom; line-height: 1.2; }
     #tm-root table.bp-table td { padding: 5px 5px; border-bottom: 1px solid #f5f5f5; vertical-align: top; white-space: normal; word-break: break-word; }
@@ -390,23 +398,6 @@
   function ovAtFarm(o) {
     return Math.max(0, (o.awaiting || 0) - (o.trolley || 0));
   }
-  // Average truck transit: each trip the orders rode, from leaving the farm (dispatched)
-  // to arriving at the hub. With no trip timed both ways yet: order made -> first arrival.
-  function ovAvgTransit(orders) {
-    var seen = {}, mins = [];
-    var ts = function (v) { var d = new Date(String(v || '').replace(' ', 'T')); return isNaN(d.getTime()) ? null : d.getTime(); };
-    orders.forEach(function (o) {
-      (o.trips || []).forEach(function (t) {
-        if (seen[t.trip]) return; seen[t.trip] = 1;
-        var a = ts(t.dispatched_at), b = ts(t.arrived_at);
-        if (a != null && b != null && b >= a) mins.push((b - a) / 60000);
-      });
-    });
-    if (mins.length) return { label: 'Avg truck transit', val: ovFmtDur(mins.reduce(function (x, y) { return x + y; }, 0) / mins.length) };
-    var durs = [];
-    orders.forEach(function (o) { if (o.arrived) { var m = ovArrivalMins(o); if (m != null) durs.push(m); } });
-    return { label: 'Avg order → first arrival', val: ovFmtDur(durs.length ? durs.reduce(function (x, y) { return x + y; }, 0) / durs.length : null) };
-  }
   // Buckets replaced on these orders: one per (order, bucket), however many records.
   function ovReplacedCount() {
     var seen = {};
@@ -416,12 +407,13 @@
   // A trip still to collect from a farm: the farm app lists an order's buckets there as
   // requests only while one is planned (an order riding with another's bucket too).
   var OV_OPEN_TRIP = { Draft: 1, Requested: 1, Scheduled: 1 };
-  // Buckets of an order still at a farm with no truck coming for them there: the farm
-  // app's Not Scheduled.
+  // Buckets of an order still at a farm with no truck coming for them there -- on the shelf
+  // or in a trolley, not yet on a truck: the farm app's Not Scheduled, and what Add to truck
+  // collects.
   function ovUnschedAt(o, f) {
     var trips = (o.trips || []).filter(function (t) { return !t.farm || !f.farm || t.farm === f.farm; });
     if ((Number(o.riding) || 0) > 0 || trips.some(function (t) { return OV_OPEN_TRIP[t.status]; })) return 0;
-    return ovAtFarm(f);
+    return Math.max(0, (f.awaiting || 0) - (f.on_truck || 0));
   }
   function ovUnschedBuckets(o) {
     var fs = (o.by_farm && o.by_farm.length) ? o.by_farm : [o];
@@ -436,7 +428,6 @@
       if (Number(o.scheduled)) s.notruck += ovUnschedBuckets(o); else s.unsched += ovUnschedBuckets(o);
     });
     var pct = s.buckets ? Math.round(s.shelved / s.buckets * 100) : 0;
-    var avg = ovAvgTransit(orders);
     return [
       ovKpiCard('Orders', orders.length),
       ovKpiCard('Buckets', s.buckets.toLocaleString()),
@@ -447,7 +438,6 @@
       ovKpiCard('Issued', s.issued.toLocaleString()),
       ovKpiCard('Not scheduled', s.unsched.toLocaleString()),
       ovKpiCard('No truck yet', s.notruck.toLocaleString()),
-      ovKpiCard(avg.label, avg.val),
     ].join('');
   }
   // The original Bucket Logistics KPI tiles and truck cards, as they were (page's
@@ -467,7 +457,7 @@
       s.awaiting = tt.awaiting; s.issued = tt.issued; s.notFound = tt.not_found;
     }
     var pct = s.buckets ? Math.round(s.shelved / s.buckets * 100) : 0;
-    var avg = ovAvgTransit(orders), nRepl = ovReplacedCount();
+    var nRepl = ovReplacedCount();
     var of = function (v, n) { return v.toLocaleString() + ' <span style="font-size:16px;color:var(--text-3)">/ ' + n.toLocaleString() + '</span>'; };
     var tiles = [
       card('Orders', orders.length),
@@ -481,7 +471,6 @@
       card('Replaced', '<span style="color:' + (nRepl ? '#7c3aed' : 'inherit') + '">' + nRepl.toLocaleString() + '</span>'),
       card('Not scheduled', s.unsched.toLocaleString()),
       card('No truck yet', s.notruck.toLocaleString()),
-      card({ 'Avg order → first arrival': 'Avg to arrival', 'Avg truck transit': 'Avg transit' }[avg.label] || avg.label, avg.val),
     ];
     var runs = (OV.runs || []).filter(function (r) { return r.current; }), byV = {};
     runs.forEach(function (r) { (byV[r.vehicle] = byV[r.vehicle] || []).push(r); });
@@ -704,12 +693,11 @@
           var k = fl[0]; base[k] = f[k] != null ? f[k] : o[k];
         });
         trips.forEach(function (t) { combos.push(Object.assign({}, base, { trip: t })); });
-        // Still at the farm with no truck coming for it there (left behind by a trip that
-        // went, or never planned): one Not scheduled row, as the farm app lists it. An
-        // order on no trip at all is listed there too, unless every bucket has left the
-        // farm or was not found.
-        var noneLeft = base.total > 0 && (base.transit || 0) + (base.not_found || 0) >= base.total;
-        if (ovUnschedAt(o, f.total != null ? f : base) > 0 || (!trips.length && !noneLeft)) combos.push(Object.assign({}, base, { trip: null, section: Number(o.scheduled) ? 'No truck yet' : 'Not scheduled' }));
+        // Buckets still at the farm with no truck coming for them there (left behind by a
+        // trip that went, or never planned): one No truck yet / Not scheduled row with just
+        // those buckets, as the farm app lists it.
+        var waiting = ovUnschedAt(o, f.total != null ? f : base);
+        if (waiting > 0) combos.push(Object.assign({}, base, { trip: null, waiting: waiting, section: Number(o.scheduled) ? 'No truck yet' : 'Not scheduled' }));
       });
     });
     return combos;
@@ -948,16 +936,23 @@
       (Number(t.shelved) ? '<span style="color:#16a34a"><b>' + Number(t.shelved) + '</b> arrived</span>' : '') + '</span>';
   }
   // Under a trip: the order's stages over its buckets on that trip, out of its count there.
+  // An order's stages on one trip, out of the buckets it carries for the order: what it was planned
+  // to take, or more when the farm loaded more of the order onto it (buckets planned on a later trip,
+  // a replacement next to the bucket it replaced) -- never "5/4".
   function ttTripStages(o) {
     var t = o.trip, n = t ? (Number(t.buckets) || Number(t.loaded_buckets) || 0) : 0;
-    if (!n || !t.stages) return o;
+    if (!t || !t.stages) return o;
+    Object.keys(t.stages).forEach(function (k) { if (k !== 'not_found') n = Math.max(n, Number(t.stages[k]) || 0); });
+    if (!n) return o;
     return Object.assign({}, t.stages, { total: n });
   }
   // An order's buckets and stems from this farm.
   function ttOrderQty(o) {
     var n = function (v) { return (Math.round(Number(v) || 0)).toLocaleString(); };
-    return '<span class="tt-qty"><span><b>' + n(o.total) + '</b> bucket' + (Number(o.total) === 1 ? '' : 's') + '</span>' +
-      '<span><b>' + n(o.stems) + '</b> stems</span></span>';
+    // with no trip: the buckets still waiting at the farm, their stems pro rata
+    var b = o.trip ? o.total : o.waiting, st = o.trip || !o.total ? o.stems : (Number(o.stems) || 0) * (Number(b) || 0) / Number(o.total);
+    return '<span class="tt-qty"><span><b>' + n(b) + '</b> bucket' + (Number(b) === 1 ? '' : 's') + '</span>' +
+      '<span><b>' + n(st) + '</b> stems</span></span>';
   }
   function renderTripTree(combos) {
     var byTrip = {}, order = [];
@@ -988,7 +983,7 @@
       // Not scheduled: the buckets waiting, in all and per farm (one row per order and farm)
       var bkts = function (rows) {
         var seen = {};
-        return rows.reduce(function (t, r) { var k = r.opl + '||' + r.farm; if (seen[k]) return t; seen[k] = 1; return t + (Number(r.total) || 0); }, 0);
+        return rows.reduce(function (t, r) { var k = r.opl + '||' + r.farm; if (seen[k]) return t; seen[k] = 1; return t + (Number(r.waiting) || 0); }, 0);
       };
       var bktLbl = function (n) { return '<b style="font-weight:800;color:inherit">' + n.toLocaleString() + ' bucket' + (n === 1 ? '' : 's') + '</b> · '; };
       var tFarms = g.trip ? ttTripFarms(g) : {};
@@ -1048,7 +1043,7 @@
   // have no event trail, so their cell stays blank even when the flag is true —
   // matching the real page exactly rather than inventing a fake timestamp.
   // No separate "Ready for Packing" column: Issued already implies ready-for-packing.
-  var BP = { open: false, opl: null, farm: null, name: null, loading: false, error: null, buckets: [], on: {}, sugg: {}, busy: null };
+  var BP = { open: false, opl: null, farm: null, name: null, loading: false, error: null, buckets: [], on: {} };
   var BP_FLAGS = [
     ['awaiting', 'Awaiting Transfer', null, null],
     ['trolley', 'Loaded in Trolley', 'trolley_at', 'trolley_by'],
@@ -1071,10 +1066,10 @@
     return cur;
   }
   function bpOpen(opl, farm, name) {
-    BP.sugg = {}; BP.open = true; BP.multi = false; BP.opl = opl; BP.farm = farm; BP.name = name; BP.loading = true; BP.error = null; BP.warn = null; BP.buckets = []; BP.on = {};
+    BP.open = true; BP.multi = false; BP.opl = opl; BP.farm = farm; BP.name = name; BP.loading = true; BP.error = null; BP.warn = null; BP.buckets = []; BP.on = {};
     renderBp();
     ovApi('upande_packhouse.api.bucket_logistics.getBucketLogisticsDetail', { opl: opl, farm: farm || '' }).then(function (d) {
-      BP.buckets = ((d && d.buckets) || []).map(function (x) { x._opl = opl; x._order = name; return x; }); BP.loading = false; renderBp(); bpSuggest();
+      BP.buckets = ((d && d.buckets) || []).map(function (x) { x._opl = opl; x._order = name; return x; }); BP.loading = false; renderBp();
     }).catch(function (e) {
       BP.loading = false; BP.error = e.message || String(e); renderBp();
     });
@@ -1087,7 +1082,7 @@
       var fs = (o.by_farm && o.by_farm.length) ? o.by_farm : [{ farm: o.farm || '', not_found: o.not_found }];
       fs.forEach(function (f) { if (f.not_found) parts.push({ opl: o.opl, farm: f.farm || '', name: o.order_name || o.opl }); });
     });
-    BP.sugg = {}; BP.open = true; BP.multi = true; BP.opl = null; BP.farm = null; BP.name = 'Not found · ' + parts.length + ' order' + (parts.length === 1 ? '' : 's');
+    BP.open = true; BP.multi = true; BP.opl = null; BP.farm = null; BP.name = 'Not found · ' + parts.length + ' order' + (parts.length === 1 ? '' : 's');
     BP.loading = true; BP.error = null; BP.warn = null; BP.buckets = []; BP.on = { not_found: 1 };
     renderBp();
     var bp = BP.name;
@@ -1101,7 +1096,7 @@
       var ok = res.filter(function (r) { return r.status === 'fulfilled'; }), bad = res.length - ok.length;
       BP.buckets = [].concat.apply([], ok.map(function (r) { return r.value; })); BP.loading = false;
       BP.warn = bad ? (bad + ' of ' + res.length + ' orders did not load') : null;
-      renderBp(); bpSuggest();
+      renderBp();
     });
   }
   function bpClose() { BP.open = false; BP.multi = false; trClose(); renderBp(); }
@@ -1323,46 +1318,14 @@
     var c = document.getElementById('tr-close-btn');
  if (c) c.addEventListener('click', trClose);
   }
-  // A not-found bucket: the best bucket at its farm that can stand in for it (same
-  // variety, same or longer stem, enough stems, unallocated), and a Replace that swaps it.
-  function bpKey(x) {
- return (x._opl || BP.opl) + '||' + x.bucket; }
-  function bpSuggest() {
-    BP.buckets.filter(function (x) { return Number(x.not_found) && x.bucket; }).forEach(function (x) {
-      var k = bpKey(x);
-      if (BP.sugg[k]) return;
-      BP.sugg[k] = { loading: true };
-      ovApi('upande_packhouse.api.offline_issue.replacement_options', { opl_name: x._opl || BP.opl, bucket: x.bucket, farm: x.farm || '' }).then(function (d) {
-        BP.sugg[k] = { candidates: (d && d.candidates) || [], message: d && d.message };
-        renderBp();
-      }).catch(function (e) { BP.sugg[k] = { candidates: [], message: e.message || String(e) }; renderBp(); });
-    });
-  }
-  function bpSuggCell(x) {
+  // A not-found bucket: the bucket the app replaced it with on this order (Bucket Replacement), if any.
+  function bpReplacedCell(x) {
     if (!Number(x.not_found)) return '';
-    var g = BP.sugg[bpKey(x)];
-    if (!g || g.loading) return '<span class="ov-sub">…</span>';
-    var c = (g.candidates || [])[0];
-    if (!c) return '<span class="ov-sub">' + esc(g.message || 'No bucket to replace it') + '</span>';
-    var busy = BP.busy === bpKey(x);
-    return '<div><b>' + esc(c.new_bucket || c.bucket) + '</b> <span class="ov-sub">' + esc([c.shelf, c.stem_length, c.available_qty != null ? c.available_qty + ' stems' : ''].filter(Boolean).join(' · ')) + '</span></div>' +
-      '<button type="button" class="ov-more" style="margin-top:4px;" data-bp-replace="' + esc(bpKey(x)) + '" data-bp-new="' + esc(c.new_bucket || c.bucket) + '"' + (busy ? ' disabled' : '') + '>' + (busy ? 'Replacing…' : 'Replace') + '</button>';
-  }
-  function bpReplace(k, newBucket) {
-    var x = BP.buckets.filter(function (b) { return bpKey(b) === k; })[0];
-    if (!x || !window.frappe || !frappe.call) return;
-    BP.busy = k; renderBp();
-    frappe.call({
-      method: 'upande_packhouse.api.offline_issue.replace_for_issuing',
-      args: { opl_name: x._opl || BP.opl, bucket: x.bucket, new_bucket_id: newBucket, reason: 'Missing', farm: x.farm || '' },
-      callback: function (r) {
-        var m = (r && r.message) || {};
-        BP.busy = null;
-        if (frappe.show_alert) frappe.show_alert({ message: m.message || (m.success ? 'Replaced' : 'Not replaced'), indicator: m.success ? 'green' : 'red' });
-        if (m.success) { BP.sugg = {}; if (BP.multi) bpOpenNotFound(); else bpOpen(BP.opl, BP.farm, BP.name); ovLoad(); } else renderBp();
-      },
-      error: function () { BP.busy = null; renderBp(); },
-    });
+    var opl = x._opl || BP.opl, b = String(x.bucket || '').toUpperCase();
+    var r = (OV.repl || []).filter(function (y) { return y.order_pick_list === opl && String(y.old_bucket || '').toUpperCase() === b; })[0];
+    if (!r) return '<span class="bp-dash">—</span>';
+    return '<div><b>' + esc(r.new_bucket || '') + '</b></div><div class="ov-sub">' +
+      esc([r.reason, ovFmtDT(r.reported_at || r.creation), r.reported_by ? ovPersonLabel(r.reported_by) : ''].filter(Boolean).join(' · ')) + '</div>';
   }
   function bpCellHtml(x, f) {
     // Awaiting Transfer has no per-bucket event: every bucket on this OPL started
@@ -1418,7 +1381,7 @@
       // Column widths for when the table has to fit the panel (bp-fit): a stage with
       // times gets room, an empty one or a tick stays narrow.
       var wide = function (f) { return f[0] === 'awaiting' || (f[2] && shown.some(function (x) { return x[f[2]]; })); };
-      var thead = '<tr><th class="bp-w-n">#</th>' + (BP.multi ? '<th class="bp-w-o">Order</th>' : '') + '<th class="bp-nw bp-w-b">Bucket</th><th class="bp-w-v">Variety</th><th class="bp-w-s">Status</th>' + (anyNf ? '<th class="bp-w-r">Replace with</th>' : '') +
+      var thead = '<tr><th class="bp-w-n">#</th>' + (BP.multi ? '<th class="bp-w-o">Order</th>' : '') + '<th class="bp-nw bp-w-b">Bucket</th><th class="bp-w-v">Variety</th><th class="bp-w-s">Status</th>' + (anyNf ? '<th class="bp-w-r">Replaced by</th>' : '') +
         cols.map(function (f) { return '<th class="' + (wide(f) ? 'bp-w-t' : 'bp-w-x') + '">' + esc(ovFlagLabel(f, bpHub)) + '</th>'; }).join('') +
         extra.filter(function (e) { return e[1]; }).map(function (e) { return '<th class="bp-w-' + (e[0] === 'Boxes' || e[0] === 'Stems' ? 'x' : 'f') + '">' + e[0] + '</th>'; }).join('') + '</tr>';
       var tbody = shown.map(function (x, j) {
@@ -1432,7 +1395,7 @@
           '<td>' + esc(x.variety || '—') + (x.length ? ' (' + esc(x.length) + ')' : '') + '</td>' +
           '<td class="bp-nw">' + (c ? '<span class="ov-pill" title="' + esc(label) + '" style="background:' + c + '">' + esc(label) + '</span>' : '—') +
             (rp ? '<div style="margin-top:3px;"><span class="ov-pill" style="background:#7c3aed" title="' + esc((rp.reason || '') + (rp.reported_by ? ' · ' + rp.reported_by : '')) + '">Replaced ' + esc(rp.old_bucket) + '</span></div>' : '') + '</td>' +
-          (anyNf ? '<td>' + bpSuggCell(x) + '</td>' : '') +
+          (anyNf ? '<td>' + bpReplacedCell(x) + '</td>' : '') +
           cols.map(function (f) { return '<td>' + bpCellHtml(x, f) + '</td>'; }).join('') +
           '<td>' + esc(x.box_id || String(x.boxes || 1)) + '</td><td>' + (Number(x.stems) || 0).toLocaleString() + '</td>' +
           (xOn.Farm ? '<td class="bp-nw">' + esc(x.farm || '—') + '</td>' : '') + (xOn.Shelf ? '<td>' + esc(x.shelf || '—') + '</td>' : '') + (xOn.Truck ? '<td>' + esc(x.truck || '—') + '</td>' : '') + '</tr>';
@@ -1440,14 +1403,8 @@
       body = toggles + (shown.length ? '<div><table class="bp-table"><thead>' + thead + '</thead><tbody>' + tbody + '</tbody></table></div>' : '<div class="tm-empty">No buckets.</div>');
     }
     panel.innerHTML = head + '<div class="bp-body">' + body + '</div>';
-    // Too wide for the screen: the columns share the panel's width and their text wraps.
-    var tbl = panel.querySelector('table.bp-table');
-    if (tbl && tbl.scrollWidth > tbl.parentNode.clientWidth + 1) tbl.classList.add('bp-fit');
     panel.querySelectorAll('[data-tr-bucket]').forEach(function (a) {
       a.addEventListener('click', function (e) { e.preventDefault(); trOpen(a.getAttribute('data-tr-bucket'), a.getAttribute('data-tr-item'), a.getAttribute('data-tr-stems'), a.getAttribute('data-tr-opl')); });
-    });
-    panel.querySelectorAll('[data-bp-replace]').forEach(function (b) {
-      b.addEventListener('click', function () { bpReplace(b.getAttribute('data-bp-replace'), b.getAttribute('data-bp-new')); });
     });
     panel.querySelectorAll('[data-bp-flag]').forEach(function (b) {
       b.addEventListener('click', function () {

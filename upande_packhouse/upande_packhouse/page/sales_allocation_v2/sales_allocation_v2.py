@@ -177,7 +177,13 @@ def _get_production_config():
 	# Kapkolia, Simotwo, Torongo and Kaptumbo, trucked to Chepsito, as Kapkolia's do on Chepsito.
 	# In another location a sales farm is a remote farm (_config_for).
 	hubs = {r.farm for r in ps.get("sales_farms") or [] if r.farm and is_sales(r.farm)}
-	pool = [f for hub in hubs for f in own_by_location.get(hub, [])]
+	# A remote farm (enabled, not a sales shelf) whose Farm Location has no sales farm -- e.g. after a
+	# sales farm's own Farm Location was changed -- still sends its buckets: it is drawn on by the Remote
+	# Transfer Sales Farms (else by the first sales farm), so its stock never drops out of allocation.
+	orphans = [f for f in enabled_farms if not is_sales(f) and f not in claimed]
+	if orphans and not hubs and sales_shelf_farms:
+		farms_by_location[sales_shelf_farms[0]] += orphans
+	pool = [f for hub in hubs for f in own_by_location.get(hub, [])] + orphans
 	for hub in hubs:
 		if hub in farms_by_location:
 			farms_by_location[hub] = farms_by_location[hub] + [
@@ -310,7 +316,9 @@ def get_location_config():
 			}
 		)
 
-	return {"locations": locations}
+	# Production Settings > Show Shortages in Sales Allocation: the Shortages tab shows only when ticked
+	show_shortages = cint(frappe.get_cached_doc("Production Settings").get("show_allocation_shortages"))
+	return {"locations": locations, "show_shortages": show_shortages}
 
 
 # ============================================================

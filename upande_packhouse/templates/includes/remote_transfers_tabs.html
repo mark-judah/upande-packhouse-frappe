@@ -6,8 +6,7 @@
     Truck Routes, Transfer Scheduling and Bucket Logistics are views of
     transfer-control, which switches between them in place (window.rtSwitch);
     everywhere else the tabs are plain links.
-    The Date next to the tabs is the working day; window.rtDate is the DELIVERY date,
-    the day after it, and is the whole section's date:
+    The Delivery date next to the tabs is window.rtDate, the whole section's date:
     every page and tab reads it, it follows you between pages (sessionStorage and
     ?date=) and a change fires a 'rt-date' event on document.
     The Farm, Location and Team filters beside it (window.rtFarm, rtLocation, rtTeam)
@@ -109,7 +108,7 @@
   <a href="/remote-transfer/bucket-logistics" data-rt="logistics" title="Track buckets to the sales farm"{% if rt_active == 'logistics' %} class="on" aria-current="page"{% endif %}>Bucket Logistics</a>
   <a href="/remote-transfer/bucket-journey" data-rt="journey" title="Trace a bucket end to end"{% if rt_active == 'journey' %} class="on" aria-current="page"{% endif %}>Bucket Journey</a>
 </nav>
-<label class="rt-date"{% if rt_active == 'journey' %} hidden{% endif %}>Date <input type="date" id="rt-date"></label>
+<label class="rt-date"{% if rt_active == 'journey' %} hidden{% endif %}>Delivery date <input type="date" id="rt-date"></label>
 <label class="rt-farm"{% if rt_active != 'scheduler' %} hidden{% endif %}>Farm <select id="rt-farm"><option value="">All farms</option></select></label>
 <label class="rt-farm rt-location"{% if rt_active not in ('scheduler', 'transfer') %} hidden{% endif %}>Location <select id="rt-location"><option value="">All locations</option></select></label>
 <label class="rt-farm rt-team"{% if rt_active != 'transfer' %} hidden{% endif %}>Team <select id="rt-team"><option value="">All teams</option></select></label>
@@ -141,15 +140,13 @@
   })();
 </script>
 <script>
-  // The section-wide date. The picker holds the working day; the tabs get the orders of
-  // the day after (window.rtDate = the DELIVERY date): pick the 8th, see the 9th's orders.
+  // The section-wide delivery date (window.rtDate): the picker shows it and every tab reads it.
   (function(){
     var KEY = 'rtDeliveryDate', input = document.getElementById('rt-date');
     function iso(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
-    function shift(s, n){ var p = String(s || '').split('-').map(Number); if (p.length !== 3 || !p[0]) return ''; return iso(new Date(p[0], p[1]-1, p[2]+n)); }
     var t = new Date(); t.setDate(t.getDate()+1);
     var v = iso(t);
-    // Opens on tomorrow's deliveries (the picker shows today, the working day): a date
+    // Opens on tomorrow's deliveries: a date
     // picked earlier is kept while moving between tabs, but only on the day it was
     // picked -- the next day starts from tomorrow's deliveries again.
     // The address keeps the date with the day it was set (?date=…&on=…): a page left open
@@ -174,14 +171,14 @@
       get: function(){ return v; },
       set: function(nv){
         if (!nv || nv === v) return;
-        v = nv; persist(); window.rtSetDate(input, shift(v, -1));
+        v = nv; persist(); window.rtSetDate(input, v);
         document.dispatchEvent(new CustomEvent('rt-date', {detail: v}));
       },
       // A listener may belong to a tab frame that has reloaded since: never let it break the rest.
       on: function(fn){ document.addEventListener('rt-date', function(e){ try { fn(e.detail); } catch (err) {} }); }
     };
-    input.value = shift(v, -1); persist();
-    input.addEventListener('change', function(){ window.rtDate.set(shift(input.value, 1)); });
+    input.value = v; persist();
+    input.addEventListener('change', function(){ window.rtDate.set(input.value); });
     function mount(){ window.rtMountDate(input); }
     if (document.readyState === 'complete') mount(); else window.addEventListener('load', mount);
   })();

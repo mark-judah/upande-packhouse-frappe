@@ -338,10 +338,11 @@ def distributeTrips(date: str | None = None):
 	sent today, each filled as full as it can be (whether or not automatic scheduling is on). Trucks are
 	sent to a farm on the page (addTruckForFarm): buckets no truck is going for come back in `needs`, by
 	farm, and no truck is sent anywhere by itself."""
+	date = trip_delivery_date(date)
 	if not routed_vehicles():
 		# scheduled first, trucks after: with no truck working today the page asks for trucks per farm
 		return {"status": "success", "trips": [], "needs": farm_needs(date)}
-	summary = plan(window=date or None)
+	summary = plan(window=date)
 	# Busy (another run is planning) or failed: change nothing more -- adding runs here
 	# committed route changes the page then reported as a failure.
 	if summary.get("status") != "success":
@@ -351,11 +352,27 @@ def distributeTrips(date: str | None = None):
 	return summary
 
 
+def trip_delivery_date(date=None):
+	"""The delivery day trips are planned for: `date` when it is tomorrow or the day after (the only
+	orders a trip may carry), else tomorrow."""
+	today = frappe.utils.today()
+	allowed = [str(frappe.utils.add_days(today, 1)), str(frappe.utils.add_days(today, 2))]
+	date = str(frappe.utils.getdate(date)) if date else ""
+	return date if date in allowed else allowed[0]
+
+
 def farm_needs(date=None):
 	"""What the scheduled orders delivering on `date` need from each remote farm, and the trucks to fetch it:
-	{farms: [{farm, buckets (no trip yet), going: [{vehicle, trip, room}]}], trucks: [{name, capacity, routed}]}."""
+	{farms: [{farm, buckets (no trip yet), going: [{vehicle, trip, room}]}], trucks: [{name, capacity, routed}]}.
+	`date` is a day trips may carry (trip_delivery_date); for tomorrow the day after's buckets count too,
+	as Distribute tops the trucks up with them."""
 	today = frappe.utils.today()
-	_data, waiting = _waiting_by_farm(date or None)
+	date = trip_delivery_date(date)
+	after = str(frappe.utils.add_days(today, 2))
+	waiting = {}
+	for day in dict.fromkeys([date, after]):
+		for k, n in _waiting_by_farm(day)[1].items():
+			waiting[k] = waiting.get(k, 0) + n
 	working = routed_vehicles(today)
 	trucks = [
 		{"name": v, "capacity": tc._vehicle_capacity(v), "routed": v in working}
@@ -378,7 +395,7 @@ def farm_needs(date=None):
 			if n or going:
 				farms.append({"farm": farm, "sales_farm": hub, "buckets": n, "going": going})
 	return {
-		"date": date or frappe.utils.add_days(today, 1),
+		"date": date,
 		"farms": farms,
 		"trucks": trucks,
 		"sales_farms": tc.sales_farms(),
@@ -427,9 +444,32 @@ def addTruckForFarms(
 		}
 	added, refused = [], []
 	farms = [f for f in farms or [] if f]
+	today = frappe.utils.today()
+	# A farm this truck already has an open trip to (not left the farm, room left) needs no new trip:
+	# Distribute tops that trip up.
+	going = []
+	for farm in farms:
+		held = tc.open_trip_to_farm(farm, today, hub=sales_farm or None)
+		if held and held["vehicle"] == vehicle:
+			going.append(farm)
+			added.append(
+				{
+					"vehicle": vehicle,
+					"farm": farm,
+					"run": held.get("run"),
+					"route": held.get("route"),
+					"trip": held["trip"],
+				}
+			)
+	farms = [f for f in farms if f not in going]
+	if not farms:
+		out = distributeTrips(date)
+		out["added_runs"] = added
+		out["refused"] = []
+		return out
 	# combine: one trip via every farm, back to the sales farm, instead of a trip per farm
 	if frappe.utils.cint(combine) and len(farms) > 1:
-		res = truck_routes.add_farms_run(vehicle, farms, frappe.utils.today(), hub=sales_farm or None)
+		res = truck_routes.add_farms_run(vehicle, farms, today, hub=sales_farm or None)
 		if res.get("status") != "success":
 			return {
 				"status": "error",
@@ -438,13 +478,13 @@ def addTruckForFarms(
 			}
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		out = distributeTrips(date)
-		out["added_runs"] = [
+		out["added_runs"] = added + [
 			{"vehicle": vehicle, "farm": " → ".join(farms), "run": res.get("run"), "route": res.get("route")}
 		]
 		out["refused"] = []
 		return out
 	for farm in farms:
-		res = truck_routes.add_farm_run(vehicle, farm, frappe.utils.today(), hub=sales_farm or None)
+		res = truck_routes.add_farm_run(vehicle, farm, today, hub=sales_farm or None)
 		if res.get("status") == "success":
 			added.append({"vehicle": vehicle, "farm": farm, "run": res.get("run"), "route": res.get("route")})
 		else:
@@ -498,6 +538,11 @@ def _waiting_by_farm(window=None):
 				left = gone or r["farm"] in (t.get("departed_stops") or [])
 				n = int(r.get("loaded_buckets") or 0) if left else int(r["buckets"] or 0)
 				covered[k] = covered.get(k, 0) + n
+	# A shared bucket a trip carries under another of its orders is covered for its lead too
+	# (as _open_orders counts it): listed again here, it read as a bucket waiting for a truck.
+	scheduled = [o["opl"] for o in data["orders"] if o.get("schedule")]
+	for k, n in tc._shared_covered(scheduled, claims_of=lambda _opls: covered).items():
+		covered[k] = covered.get(k, 0) + n
 	waiting = {}
 	default = tc.transfer_hub(required=False)
 	for o in data["orders"]:
