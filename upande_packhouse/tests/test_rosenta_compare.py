@@ -1,0 +1,237 @@
+"""Rosenta comparison (api/v2/rosenta_compare.py). TEMPORARY: delete with the module.
+
+The helper and session tests need no Rosenta and no data. The last class runs the whole call on the
+local site with the Rosenta side mocked; the ERPNext side is Packhouse v2 itself.
+"""
+
+from unittest.mock import MagicMock, patch
+
+import frappe
+from frappe.tests import IntegrationTestCase
+
+from upande_packhouse.api.v2 import rosenta_compare as rc
+
+
+class DictStore:
+	def __init__(self, value=None):
+		self.value = value
+		self.sets = 0
+
+	def get(self):
+		return self.value
+
+	def set(self, value):
+		self.value = value
+		self.sets += 1
+
+
+DATA = {"Eldama": {}}
+
+
+def _reply(payload):
+	r = MagicMock()
+	if payload is None:
+		r.json.side_effect = ValueError("not json")  # "not allowed" followed by the sign-in page
+	else:
+		r.json.return_value = payload
+	return r
+
+
+class TestHelpers(IntegrationTestCase):
+	def test_name_tokens_drop_date_codes_and_order_numbers(self):
+		self.assertEqual(rc._name_tokens("SANDY  34726-04809"), {"SANDY"})
+		self.assertEqual(rc._name_tokens("IGO 2711 24726"), {"IGO", "2711"})
+
+	def test_key_ignores_case_and_punctuation(self):
+		self.assertEqual(rc._key("Flamingo Flowers Ltd,"), "FLAMINGO FLOWERS LTD")
+
+	def test_status_words(self):
+		w = rc._status_word
+		self.assertEqual(w(False, False, 0, 0, 0), "-")
+		self.assertEqual(w(False, True, 0, 5, 0), "Only in ERPNext")
+		self.assertEqual(w(True, False, 5, 0, 0), "Only in Rosenta")
+		self.assertEqual(w(True, True, 5, 5, 0), "Matches")
+		self.assertEqual(w(True, True, 6, 5, 0), "ERPNext lower")
+		self.assertEqual(w(True, True, 4, 5, 0), "Rosenta lower")
+		self.assertEqual(w(True, True, 6, 5, 1), "Matches")
+
+	def test_customer_mapping(self):
+		c = rc._Customers(["FLAMINGO UK", "AOA VENTURES LTD-KAZ", "Oasis", "FLOWER AXIS LIMITED"])
+		self.assertEqual(c.map("Oasis"), "Oasis")  # same name
+		self.assertEqual(c.map("Flamingo Flowers Ltd,"), "FLAMINGO UK")  # override
+		self.assertEqual(c.map("AOA VENTURES LTD-KAZAKHSTAN"), "AOA VENTURES LTD-KAZ")  # override
+		self.assertIsNone(c.map("Zami BV"))  # never guessed
+
+	def test_pairing_by_name_then_boxes(self):
+		r_list = [
+			{"name": "SANDY 34726", "boxes": 20, "stems": 5000, "status": "Dispatched"},
+			{"name": "OASIS 34726", "boxes": 5, "stems": 1000, "status": "Dispatched"},
+		]
+		e_list = [
+			{"name": "SAL-ORD-1", "boxes": 5, "stems": 1000, "status": "To Deliver and Bill"},
+			{"name": "SAL-ORD-2", "boxes": 20, "stems": 5000, "status": "To Deliver and Bill"},
+			{"name": "SAL-ORD-3", "boxes": 9, "stems": 900, "status": "To Deliver and Bill"},
+		]
+		label = {"SAL-ORD-1": "OASIS-04701", "SAL-ORD-2": "SANDY-04809", "SAL-ORD-3": "OTHER-04999"}
+		pairs = rc._pair_orders(r_list, e_list, label)
+		by_r = {p["r_name"]: p for p in pairs if p["r_name"]}
+		self.assertEqual(by_r["SANDY 34726"]["e_so"], "SAL-ORD-2")
+		self.assertEqual(by_r["OASIS 34726"]["e_so"], "SAL-ORD-1")
+		lone = [p for p in pairs if not p["r_name"]]
+		self.assertEqual([p["e_so"] for p in lone], ["SAL-ORD-3"])
+
+	def test_rosenta_teams_sum_the_day_and_take_last_packed_from_both_days(self):
+		line = lambda **k: {  # noqa: E731
+			"boxes_assigned": 2, "boxes_packed": 1, "boxes_staged": 1, "boxes_loaded": 0, "last_box_packed": 100, **k
+		}  # fmt: skip
+		day = {"Eldama": {"o1": {"s1": line(), "s2": line(boxes_packed=0, last_box_packed=999)}}}
+		nxt = {
+			"Eldama": {"o2": {"s1": line(last_box_packed=300)}},
+			"JMF": {"o3": {"s1": line(last_box_packed=50)}},
+		}
+		t = rc._rosenta_teams(day, nxt)
+		self.assertEqual(t["Eldama"]["assigned"], 4)  # next day's boxes are not counted
+		self.assertEqual(t["Eldama"]["packed"], 1)
+		self.assertEqual(t["Eldama"]["last_packed"], 300)  # an unpacked line never sets the time
+		self.assertEqual(t["JMF"]["assigned"], 0)
+		self.assertEqual(t["JMF"]["last_packed"], 50)
+
+	def test_erp_team_totals_use_the_latest_pack_list_of_mapped_teams(self):
+		ins = {
+			"Eldama A": {"exp_boxes": 10, "packed_boxes": 4, "pack_last": "18:31"},
+			"Eldama B": {"exp_boxes": 5, "packed_boxes": 1, "pack_last": "19:02"},
+		}
+		t = rc._erp_team_totals(ins, ("Eldama A", "Eldama B", "Missing"), "2026-11-18")
+		self.assertEqual((t["exp"], t["packed"], t["last"]), (15, 5, "2026-11-18 19:02:00"))
+		self.assertIsNone(rc._erp_team_totals(ins, ("Nobody",), "2026-11-18")["last"])
+
+
+class TestRosentaSession(IntegrationTestCase):
+	def _session_returning(self, cookie):
+		s = MagicMock()
+		s.cookies.get.return_value = cookie
+		return s
+
+	def test_signs_in_when_the_session_is_expired_stores_it_and_reuses_it(self):
+		store = DictStore("expired")
+		ops = rc.RosentaOps("a@b.c", "pw", store)
+
+		# refused with the old cookie, accepted with the new one
+		def post(url, **kw):
+			if "get_packhouse_operations" in url:
+				return _reply(DATA if kw["cookies"]["ci_session"] == "fresh" else None)
+			return MagicMock()
+
+		with (
+			patch.object(rc.requests, "post", side_effect=post) as p,
+			patch.object(rc.requests, "Session", return_value=self._session_returning("fresh")) as sess,
+		):
+			self.assertEqual(ops.operations("L1", "18/11/2026"), DATA)
+			self.assertEqual(sess.return_value.post.call_count, 1)  # one sign-in
+			self.assertEqual(store.value, "fresh")
+			self.assertEqual(ops.operations("L1", "19/11/2026"), DATA)
+			self.assertEqual(sess.return_value.post.call_count, 1)  # the stored session was reused
+			self.assertEqual(p.call_count, 3)
+
+	def test_a_date_with_nothing_assigned_is_no_teams_not_a_refusal(self):
+		ops = rc.RosentaOps("a@b.c", "pw", DictStore("good"))
+		with (
+			patch.object(rc.requests, "post", return_value=_reply([])),
+			patch.object(rc.requests, "Session") as sess,
+		):
+			self.assertEqual(ops.operations("L1", "20/11/2026"), {})
+			sess.assert_not_called()  # an empty answer is not a refused session
+
+	def test_a_valid_stored_session_never_signs_in(self):
+		store = DictStore("good")
+		ops = rc.RosentaOps("a@b.c", "pw", store)
+		with (
+			patch.object(rc.requests, "post", return_value=_reply(DATA)),
+			patch.object(rc.requests, "Session") as sess,
+		):
+			ops.operations("L1", "18/11/2026")
+			sess.assert_not_called()
+		self.assertEqual(store.sets, 0)
+
+	def test_refused_after_signing_in_is_an_error(self):
+		ops = rc.RosentaOps("a@b.c", "pw", DictStore(""))
+		with (
+			patch.object(rc.requests, "post", return_value=_reply(None)),
+			patch.object(rc.requests, "Session", return_value=self._session_returning("c")),
+		):
+			self.assertRaises(frappe.ValidationError, ops.operations, "L1", "18/11/2026")
+
+	def test_a_login_that_gives_no_session_is_an_error(self):
+		ops = rc.RosentaOps("a@b.c", "wrong", DictStore(""))
+		with (
+			patch.object(rc.requests, "post", return_value=_reply(None)),
+			patch.object(rc.requests, "Session", return_value=self._session_returning(None)),
+		):
+			self.assertRaises(frappe.ValidationError, ops.operations, "L1", "18/11/2026")
+
+	def test_no_login_stored_is_an_error_not_a_blind_call(self):
+		ops = rc.RosentaOps("", "", DictStore(""))
+		with patch.object(rc.requests, "post", return_value=_reply(None)):
+			self.assertRaises(frappe.ValidationError, ops.operations, "L1", "18/11/2026")
+
+	def test_operations_merges_locations_and_repeats_a_call_refused_meanwhile(self):
+		class Fake:
+			def __init__(self):
+				self.refuse_once = {("B", "19/11/2026")}
+				self.signed = []
+
+			def operations(self, loc, dmy):
+				self.signed.append((loc, dmy))
+				return {f"team-{loc}-{dmy}": {}}
+
+			def fetch(self, loc, dmy):
+				if (loc, dmy) in self.refuse_once:
+					self.refuse_once.discard((loc, dmy))
+					return None
+				return {f"team-{loc}-{dmy}": {}}
+
+		with patch.object(rc, "LOCATIONS", {"Ravine": "A", "Karen": "B"}):
+			fake = Fake()
+			out = rc._operations(fake, ["18/11/2026", "19/11/2026"])
+		self.assertEqual(set(out), {"18/11/2026", "19/11/2026"})
+		self.assertEqual(set(out["18/11/2026"]), {"team-A-18/11/2026", "team-B-18/11/2026"})
+		self.assertEqual(set(out["19/11/2026"]), {"team-A-19/11/2026", "team-B-19/11/2026"})
+		self.assertEqual(fake.signed[0], ("A", "18/11/2026"))  # the first call goes alone
+		self.assertIn(("B", "19/11/2026"), fake.signed)  # the refused one was repeated
+
+
+class TestComparisonCall(IntegrationTestCase):
+	def tearDown(self):
+		frappe.set_user("Administrator")
+
+	def test_only_a_system_manager_may_call_it(self):
+		frappe.set_user("Guest")
+		self.assertRaises(frappe.PermissionError, rc.get_rosenta_comparison, "2026-11-18")
+
+	def test_whole_call_on_the_local_site_matches_orders_and_workflow(self):
+		frappe.set_user("Administrator")
+		fake_ops = MagicMock()
+		fake_ops.operations.return_value = {}
+		fake_ops.fetch.return_value = {}
+		with (
+			patch.object(rc, "_settings", return_value={"token": "t", "email": "e", "password": "p"}),
+			patch.object(rc, "_orders_summary", return_value=[]),
+			patch.object(rc, "RosentaOps", return_value=fake_ops),
+		):
+			out = rc.get_rosenta_comparison("2026-11-18")
+		self.assertTrue(out["success"], out.get("error"))
+		self.assertEqual(out["check"], [], "ERPNext totals must equal Orders & Workflow")
+		self.assertEqual(out["date"], "2026-11-18")
+		for key in ("totals", "customers", "teams", "cancel_rosenta", "cancel_erpnext", "drafts"):
+			self.assertIn(key, out)
+
+	def test_rosenta_operations_failing_still_returns_everything_else(self):
+		frappe.set_user("Administrator")
+		with (
+			patch.object(rc, "_settings", return_value={"token": "t", "email": "", "password": ""}),
+			patch.object(rc, "_orders_summary", return_value=[]),
+		):
+			out = rc.get_rosenta_comparison("2026-11-18")
+		self.assertTrue(out["success"], out.get("error"))
+		self.assertIn("login", (out["ops_error"] or "").lower())
+		self.assertTrue(all(t["r_packed"] is None for t in out["teams"] if t["team"] in dict(rc.TEAM_MAP)))

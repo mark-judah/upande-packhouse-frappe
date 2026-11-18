@@ -1,0 +1,361 @@
+{% extends "templates/web.html" %}
+{% block title %}Rosenta comparison{% endblock %}
+{% block page_content %}
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/upande_packhouse/css/packhouse-v2.css?v={{ ph_v }}">
+<style>
+/* Layout only, from the shared tokens. The page has no sidebar. */
+/* Layout only, v2 tokens only. */
+.rc-bad td:first-child{box-shadow:inset 3px 0 0 var(--bad)}
+.rc-warn td:first-child{box-shadow:inset 3px 0 0 #f59e0b}
+.rc-when b{display:block;font:600 15px var(--mono)}
+.rc-when small{display:block;font-size:12px;color:var(--ink-mute);margin-top:2px}
+.rc-sub{font-size:12px;color:var(--ink-mute);margin-top:2px;font-weight:400;display:block}
+.rc-card-gap{margin-bottom:var(--sp-6)}
+.rc-detail{min-width:560px}
+#rc-kpis .ph-kpi__label,#rc-kpis .ph-kpi__unit{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.35;overflow-wrap:anywhere}
+.ph2.rc-solo{grid-template-columns:minmax(0,1fr)}
+</style>
+<script>document.documentElement.classList.add('ph2-root');</script>
+<div class="ph2 rc-solo" id="ph2">
+  <main class="ph-main" id="ph-main">
+    <div class="ph-topbar">
+      <div class="ph-topbar__crumb"><b>Rosenta comparison</b></div>
+      <div class="ph-topbar__right">
+        <span class="ph-updated" id="ph-updated" hidden></span>
+        <button class="ph-iconbtn ph-iconbtn--sm" id="ph-refresh" title="Refresh" aria-label="Refresh" hidden><svg class="ph-ic" viewBox="0 0 24 24" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
+      </div>
+    </div>
+    <div class="ph-page">
+<header class="ph-head">
+  <div>
+    <div class="ph-head__eyebrow">Rosenta · ERPNext</div>
+    <h1 class="ph-head__title">Rosenta comparison</h1>
+    <p class="ph-head__sub" id="rc-sub">Rosenta and ERPNext side by side for one delivery date.</p>
+  </div>
+  <div class="ph-head__tools"><button class="ph-btn ph-btn--sm" id="rc-csv" type="button">Download CSV</button></div>
+</header>
+
+<div class="ph-filters">
+  <div class="ph-pills" id="rc-presets"><button type="button" data-value="yesterday">Yesterday</button><button type="button" data-value="today">Today</button><button type="button" data-value="tomorrow">Tomorrow</button></div>
+  <div class="ph-daterange"><input type="date" id="rc-date" aria-label="Delivery date"></div>
+</div>
+
+<div class="ph-tabs" id="rc-tabs" role="tablist">
+  <button class="ph-tab" type="button" data-tab="orders">Orders<span class="ph-tab__count" id="rc-n-orders" hidden></span></button>
+  <button class="ph-tab" type="button" data-tab="packing">Packing<span class="ph-tab__count" id="rc-n-packing" hidden></span></button>
+  <button class="ph-tab" type="button" data-tab="teams">Teams</button>
+  <button class="ph-tab" type="button" data-tab="cancel">Cancellations<span class="ph-tab__count" id="rc-n-cancel" hidden></span></button>
+</div>
+
+<div id="rc-warn"></div>
+<section class="ph-kpis" id="rc-kpis"></section>
+<div id="rc-content"></div>
+    </div>
+  </main>
+</div>
+<script src="/assets/upande_packhouse/js/packhouse-v2.js?v={{ ph_v }}"></script>
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  var LAG_RED_MIN = 60; // minutes behind before a team is flagged
+  var POLL_MS = 120000;
+
+  function boot() {
+    if (!(window.PH && PH.table && PH.state && PH.kpis)) return setTimeout(boot, 30);
+    start();
+  }
+
+  function start() {
+    var st = PH.state({ date: PH.date.today(), tab: "orders" });
+    var data = null, seq = 0, tables = {};
+    var $ = function (id) { return document.getElementById(id); };
+
+    // ---- helpers
+    var n = function (x) { return PH.fmt.num(x); };
+    function signed(x) { x = Number(x || 0); return (x > 0 ? "+" : x < 0 ? "−" : "") + PH.fmt.num(Math.abs(x)); }
+    function ts(epoch) { return epoch ? new Date(epoch * 1000) : null; }
+    function erpTs(s) { return s && s !== "None" ? new Date(String(s).replace(" ", "T").slice(0, 19) + "+03:00") : null; }
+    function clock(d) { return d.toLocaleTimeString("en-GB", { timeZone: "Africa/Nairobi", hour: "2-digit", minute: "2-digit", hour12: false }); }
+    function dayLabel(d, now) {
+      var f = function (x) { return x.toLocaleDateString("en-CA", { timeZone: "Africa/Nairobi" }); };
+      if (f(d) === f(now)) return "Today";
+      if (f(d) === f(new Date(now.getTime() - 86400000))) return "Yesterday";
+      return d.toLocaleDateString("en-GB", { timeZone: "Africa/Nairobi", day: "2-digit", month: "short" });
+    }
+    function span(mins) {
+      var a = Math.abs(Math.round(mins));
+      return a >= 60 ? Math.floor(a / 60) + " h " + (a % 60) + " m" : a + " m";
+    }
+    function ago(d, now) { return span((now - d) / 60000) + " ago"; }
+    function when(d, now) {
+      if (!d) return '<span class="ph-muted">no entry</span>';
+      return '<div class="rc-when"><b>' + clock(d) + "</b><small>" + dayLabel(d, now) + " · " + ago(d, now) + "</small></div>";
+    }
+    function badge(status, diff, a, b) {
+      var cls = "ph-badge--outline";
+      if (status === "Matches") cls = "ph-badge--good";
+      else if (status.indexOf("Only") === 0) cls = "ph-badge--bad";
+      else if (status !== "-") cls = Math.abs(diff) / (Math.max(Math.abs(a), Math.abs(b)) || 1) > 0.1 ? "ph-badge--bad" : "ph-badge--warn";
+      return PH.raw('<span class="ph-badge ' + cls + '">' + PH.esc(status) + "</span>");
+    }
+    function rowTone(status, diff, a, b) {
+      if (status === "Matches" || status === "-") return "";
+      if (status.indexOf("Only") === 0) return "rc-bad";
+      return Math.abs(diff) / (Math.max(Math.abs(a), Math.abs(b)) || 1) > 0.1 ? "rc-bad" : "rc-warn";
+    }
+    // ---- KPIs (always visible)
+    function kpis() {
+      var t = data.totals;
+      var rows = [
+        ["Orders", t.r_orders, t.e_orders, "orders"],
+        ["Boxes ordered", t.r_boxes, t.e_boxes, "orders"],
+        ["Stems ordered", t.r_stems, t.e_stems, "orders"],
+        ["Stems packed", t.r_staged, t.e_packed, "packing"],
+        ["Stems loaded", t.r_loaded, t.e_loaded, "packing"]
+      ];
+      PH.kpis("#rc-kpis", rows.map(function (r) {
+        var d = r[1] - r[2];
+        return {
+          label: r[0],
+          value: signed(d),
+          unit: "Rosenta " + n(r[1]) + " · ERPNext " + n(r[2]),
+          trend: { dir: "flat", text: d === 0 ? "Matches" : d > 0 ? "ERPNext lower" : "Rosenta lower" },
+          onClick: function () { st.set({ tab: r[3] }); }
+        };
+      }));
+      var warn = data.check && data.check.length
+        ? '<div class="ph-notice ph-notice--bad ph-mb">Does not match Orders &amp; Workflow: ' + PH.esc(data.check.join("; ")) + "</div>" : "";
+      $("rc-warn").innerHTML = warn;
+      var dr = data.drafts;
+      $("rc-sub").textContent = "Rosenta and ERPNext side by side for " + PH.fmt.date(data.date) +
+        (dr && dr.orders ? ". ERPNext drafts not counted: " + dr.orders + " (" + n(dr.boxes) + " boxes)." : ".");
+    }
+
+    // ---- tabs
+    function paintTabs() {
+      Array.prototype.forEach.call(document.querySelectorAll("#rc-tabs .ph-tab"), function (b) {
+        b.classList.toggle("is-on", b.getAttribute("data-tab") === st.get("tab"));
+      });
+      if (!data) return;
+      var cnt = {
+        orders: data.customers.filter(function (c) { return c.orders_status !== "Matches" && c.orders_status !== "-"; }).length,
+        packing: data.customers.filter(function (c) { return c.pack_status !== "Matches" && c.pack_status !== "-"; }).length,
+        cancel: data.cancel_rosenta.length + data.cancel_erpnext.length
+      };
+      Object.keys(cnt).forEach(function (k) {
+        var el = $("rc-n-" + k);
+        el.textContent = n(cnt[k]);
+        el.hidden = !cnt[k];
+      });
+    }
+    $("rc-tabs").addEventListener("click", function (e) {
+      var b = e.target.closest(".ph-tab");
+      if (b) st.set({ tab: b.getAttribute("data-tab") });
+    });
+
+    // ---- orders
+    function ordersView() {
+      $("rc-content").innerHTML = '<section class="ph-card ph-card--flush"><div id="rc-t1"></div></section>' +
+        '<p class="ph-muted ph-mt">Boxes R: Rosenta team box counts; where a line has no team, stems divided by pack rate. Click a row for its orders.</p>';
+      var rows = data.customers.map(function (c) { return Object.assign({ absdiff: Math.abs(c.orders_diff) }, c); });
+      PH.table("#rc-t1", {
+        rows: rows, sort: { key: "absdiff", dir: "desc" }, compact: true, empty: "No orders",
+        emptyText: "Neither system has orders for this date.",
+        rowClass: function (r) { return rowTone(r.orders_status, r.orders_diff, r.r_boxes, r.e_boxes); },
+        onRowClick: orderDetail,
+        columns: [
+          { key: "customer", label: "Customer", cls: "is-strong", total: function () { return "Total"; } },
+          { key: "r_orders", label: "Orders R", num: true, total: true },
+          { key: "e_orders", label: "Orders E", num: true, total: true },
+          { key: "r_boxes", label: "Boxes R", num: true, total: true },
+          { key: "e_boxes", label: "Boxes E", num: true, total: true },
+          { key: "absdiff", label: "Difference", num: true, format: function (v, r) { return signed(r.orders_diff); },
+            total: function (all) { return signed(PH.sum(all, "r_boxes") - PH.sum(all, "e_boxes")); } },
+          { key: "orders_status", label: "Status", html: function (v, r) { return badge(v, r.orders_diff, r.r_boxes, r.e_boxes); }, total: function () { return ""; } }
+        ]
+      });
+    }
+    function orderDetail(c) {
+      var h = '<div class="ph-table-wrap"><table class="ph-table ph-table--compact rc-detail"><thead><tr><th>Rosenta order</th><th class="is-num">Boxes</th><th class="is-num">Stems</th><th>Status</th><th>ERPNext order</th><th class="is-num">Boxes</th><th class="is-num">Stems</th><th>Sales Order</th></tr></thead><tbody>';
+      c.pairs.forEach(function (p) {
+        h += "<tr><td>" + PH.esc(p.r_name || "—") + '</td><td class="is-num">' + (p.r_name ? n(p.r_boxes) : "") + '</td><td class="is-num">' + (p.r_name ? n(p.r_stems) : "") +
+          "</td><td>" + PH.esc(p.r_status) + "</td><td>" + PH.esc(p.e_name || "—") + '</td><td class="is-num">' + (p.e_name ? n(p.e_boxes) : "") +
+          '</td><td class="is-num">' + (p.e_name ? n(p.e_stems) : "") + "</td><td>" + PH.esc(p.e_so) + "</td></tr>";
+      });
+      h += "</tbody></table></div>";
+      PH.modal({ title: c.customer, sub: "Orders on " + PH.fmt.date(data.date), size: "xl", body: h });
+    }
+
+    // ---- packing
+    function packingView() {
+      $("rc-content").innerHTML = '<section class="ph-card ph-card--flush"><div id="rc-t1"></div></section>' +
+        '<p class="ph-muted ph-mt">Rosenta staged stems are compared with ERPNext packed stems, as Rosenta stages boxes right after packing.</p>';
+      var rows = data.customers.filter(function (c) { return c.pack_status !== "-"; })
+        .map(function (c) { return Object.assign({ absdiff: Math.abs(c.pack_diff) }, c); });
+      PH.table("#rc-t1", {
+        rows: rows, sort: { key: "absdiff", dir: "desc" }, compact: true, empty: "No packing",
+        emptyText: "Nothing was staged or packed for this date.",
+        rowClass: function (r) { return rowTone(r.pack_status, r.pack_diff, r.r_staged, r.e_packed); },
+        columns: [
+          { key: "customer", label: "Customer", cls: "is-strong", total: function () { return "Total"; } },
+          { key: "r_staged", label: "Staged R", num: true, total: true },
+          { key: "r_loaded", label: "Loaded R", num: true, total: true },
+          { key: "e_packed", label: "Packed E", num: true, total: true },
+          { key: "e_staged", label: "Staged E", num: true, total: true },
+          { key: "e_loaded", label: "Loaded E", num: true, total: true },
+          { key: "absdiff", label: "Difference", num: true, format: function (v, r) { return signed(r.pack_diff); },
+            total: function (all) { return signed(PH.sum(all, "r_staged") - PH.sum(all, "e_packed")); } },
+          { key: "pack_status", label: "Status", html: function (v, r) { return badge(v, r.pack_diff, r.r_staged, r.e_packed); }, total: function () { return ""; } }
+        ]
+      });
+    }
+
+    // ---- teams
+    function teamsView() {
+      var now = erpTs(data.fetched) || new Date();
+      var mapped = [], loose = [];
+      data.teams.forEach(function (t) {
+        var r = ts(t.r_last_packed), e = erpTs(t.e_last_pack);
+        var o = Object.assign({ _r: r, _e: e, behind: r && e ? Math.round((r - e) / 60000) : null }, t);
+        o.sortBehind = o.behind == null ? -1e9 : o.behind;
+        (t.erp_teams === "(not mapped)" || t.team === "(not mapped)" ? loose : mapped).push(o);
+      });
+      var late = mapped.filter(function (o) { return o.behind != null && o.behind >= LAG_RED_MIN; }).length;
+      var h = "";
+      if (data.ops_error) h += '<div class="ph-notice ph-notice--bad ph-mb">Rosenta Packhouse Operations could not be read, so boxes packed, staged and loaded by team are not shown: ' + PH.esc(data.ops_error) + "</div>";
+      h += '<div class="ph-notice ph-notice--' + (late ? "warn" : "good") + ' ph-mb">Now ' + clock(now) + ". " + late + " of " + mapped.length + " teams are more than 1 hour behind.</div>" +
+        '<section class="ph-card ph-card--flush rc-card-gap"><div id="rc-t1"></div></section>';
+      if (loose.length) h += '<section class="ph-card ph-card--flush"><div class="ph-card__head"><div class="ph-card__title">Not mapped</div></div><div id="rc-t2"></div></section>';
+      h += '<p class="ph-muted ph-mt">Boxes. R is Rosenta, E is ERPNext. Assigned, packed, staged and loaded are for this delivery date; the last box time covers this date and the next.</p>';
+      $("rc-content").innerHTML = h;
+      var nullable = function (v) { return v == null ? "—" : n(v); };
+      PH.table("#rc-t1", {
+        rows: mapped, sort: { key: "sortBehind", dir: "desc" }, empty: "No teams",
+        rowClass: function (r) { return r.behind != null && r.behind >= LAG_RED_MIN ? "rc-bad" : ""; },
+        columns: [
+          { key: "team", label: "Team", html: function (v, r) { return "<b>" + PH.esc(v) + '</b><span class="rc-sub">ERPNext: ' + PH.esc(r.erp_teams) + "</span>"; } },
+          { key: "r_assigned", label: "Assigned R", num: true, format: nullable },
+          { key: "r_packed", label: "Packed R", num: true, format: nullable },
+          { key: "r_staged", label: "Staged R", num: true, format: nullable },
+          { key: "r_loaded", label: "Loaded R", num: true, format: nullable },
+          { key: "e_exp_boxes", label: "Expected E", num: true },
+          { key: "e_packed_boxes", label: "Packed E", num: true },
+          { key: "r_last_packed", label: "Last box R", html: function (v, r) { return when(r._r, now); }, sortValue: function (r) { return r.r_last_packed; } },
+          { key: "e_last_pack", label: "Last pack list E", html: function (v, r) { return when(r._e, now); }, sortValue: function (r) { return r._e ? r._e.getTime() : 0; } },
+          { key: "sortBehind", label: "Behind", html: function (v, r) {
+              if (r.behind == null) return '<span class="ph-muted">—</span>';
+              if (r.behind > 0) return '<span class="ph-badge ' + (r.behind >= LAG_RED_MIN ? "ph-badge--bad" : "ph-badge--warn") + '">' + span(r.behind) + " behind</span>";
+              if (r.behind < 0) return '<span class="ph-badge ph-badge--outline">' + span(r.behind) + " ahead</span>";
+              return '<span class="ph-badge ph-badge--good">Level</span>';
+            } }
+        ]
+      });
+      if (loose.length) {
+        PH.table("#rc-t2", {
+          rows: loose, compact: true,
+          columns: [
+            { key: "team", label: "Team", html: function (v, r) { var isR = r.team !== "(not mapped)"; return "<b>" + PH.esc(isR ? r.team : r.erp_teams) + '</b><span class="rc-sub">' + (isR ? "Rosenta" : "ERPNext") + "</span>"; } },
+            { key: "r_packed", label: "Boxes packed", num: true, format: function (v, r) { return r.team !== "(not mapped)" ? nullable(r.r_packed) : n(r.e_packed_boxes); } },
+            { key: "r_last_packed", label: "Last entry", html: function (v, r) { return when(r.team !== "(not mapped)" ? r._r : r._e, now); }, sortable: false }
+          ]
+        });
+      }
+    }
+
+    // ---- cancellations
+    function cancelView() {
+      var h = '<section class="ph-card ph-card--flush rc-card-gap"><div class="ph-card__head"><div class="ph-card__title">Cancelled in Rosenta</div></div><div id="rc-t1"></div></section>' +
+        '<section class="ph-card ph-card--flush"><div class="ph-card__head"><div class="ph-card__title">Cancelled in ERPNext</div></div><div id="rc-t2"></div></section>';
+      $("rc-content").innerHTML = h;
+      PH.table("#rc-t1", {
+        rows: data.cancel_rosenta, compact: true, empty: "None", emptyText: "No orders were cancelled in Rosenta for this date.",
+        rowClass: function (r) { return r.activity || String(r.erpnext).indexOf("Open") === 0 ? "rc-bad" : ""; },
+        columns: [
+          { key: "customer", label: "Customer", cls: "is-strong" },
+          { key: "name", label: "Order" },
+          { key: "boxes", label: "Boxes", num: true },
+          { key: "stems", label: "Stems", num: true },
+          { key: "staged", label: "Staged", num: true },
+          { key: "loaded", label: "Loaded", num: true },
+          { key: "reason", label: "Reason", format: function (v) { return String(v || "").replace(/_/g, " "); } },
+          { key: "erpnext", label: "In ERPNext" }
+        ]
+      });
+      PH.table("#rc-t2", {
+        rows: data.cancel_erpnext, compact: true, empty: "None", emptyText: "No orders were cancelled in ERPNext for this date.",
+        rowClass: function (r) { return !r.replaced_by && r.rosenta !== "Cancelled" ? "rc-bad" : ""; },
+        columns: [
+          { key: "customer", label: "Customer", cls: "is-strong" },
+          { key: "so", label: "Sales Order" },
+          { key: "name", label: "Order name" },
+          { key: "boxes", label: "Boxes", num: true },
+          { key: "stems", label: "Stems", num: true },
+          { key: "replaced_by", label: "Replaced by" },
+          { key: "rosenta", label: "In Rosenta" }
+        ]
+      });
+    }
+
+    var VIEWS = { orders: ordersView, packing: packingView, teams: teamsView, cancel: cancelView };
+    function draw() {
+      paintTabs();
+      if (!data) return;
+      kpis();
+      (VIEWS[st.get("tab")] || ordersView)();
+    }
+
+    // ---- load
+    function load(silent) {
+      var my = ++seq;
+      if (!silent) {
+        PH.kpiSkeleton("#rc-kpis", ["Orders", "Boxes ordered", "Stems ordered", "Stems packed", "Stems loaded"]);
+        PH.skeleton("#rc-content", "rows", 8);
+      }
+      PH.call("upande_packhouse.api.v2.rosenta_compare.get_rosenta_comparison", { date: st.get("date") }, { silent: true })
+        .then(function (d) {
+          if (my !== seq) return;
+          data = d;
+          draw();
+          PH.markUpdated();
+        })
+        .catch(function (e) {
+          if (my !== seq || silent) return;
+          PH.loadingKpis("#rc-kpis", false);
+          $("rc-kpis").innerHTML = "";
+          PH.error("#rc-content", e && e.message, function () { load(); });
+        });
+    }
+
+    // ---- wiring
+    PH.dateRange({ pills: "#rc-presets", from: "#rc-date", state: st, fromKey: "date", toKey: "to" });
+    st.on(function (s, changed) {
+      if (changed.indexOf("date") >= 0) { data = null; load(); }
+      else if (changed.indexOf("tab") >= 0) draw();
+    });
+    PH.onRefresh(function () { load(); return Promise.resolve(); });
+    PH.poll(function () { load(true); }, POLL_MS);
+    $("rc-csv").addEventListener("click", function () {
+      if (!data) return;
+      var rows = [];
+      data.customers.forEach(function (c) { rows.push({ section: "Orders (boxes)", customer: c.customer, rosenta: c.r_boxes, erpnext: c.e_boxes, difference: c.orders_diff, status: c.orders_status }); });
+      data.customers.forEach(function (c) { if (c.pack_status !== "-") rows.push({ section: "Packing (Rosenta staged vs ERPNext packed stems)", customer: c.customer, rosenta: c.r_staged, erpnext: c.e_packed, difference: c.pack_diff, status: c.pack_status }); });
+      PH.csv("rosenta-comparison-" + data.date + ".csv", rows, [
+        { key: "section", label: "Section" }, { key: "customer", label: "Customer" }, { key: "rosenta", label: "Rosenta" },
+        { key: "erpnext", label: "ERPNext" }, { key: "difference", label: "Difference" }, { key: "status", label: "Status" }]);
+    });
+
+    paintTabs();
+    load();
+    window.__rcTest = { draw: function (d, tab) { data = d; st.set({ tab: tab }, { silent: true }); draw(); } };
+  }
+
+  boot();
+})();
+
+</script>
+{% endraw %}
+{% endblock %}
