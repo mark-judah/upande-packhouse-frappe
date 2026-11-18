@@ -334,7 +334,9 @@ def _allocations(shelf_keys, held_ids):
 		r.issued = 1 if r.issued or (r.sales_order_item, _up(r.bucket_id)) in issued_pairs else 0
 		r.reused = bucket_cycle.harvested_after(cycles, r.bucket_id, r.creation)  # harvested again since
 		if r.issued:
-			r.reason = None  # its stems have left the bucket (issued, then packed): nothing is held, so never stale
+			r.reason = (
+				None  # its stems have left the bucket (issued, then packed): nothing is held, so never stale
+			)
 		elif r.so_docstatus is None:
 			r.reason = "no_order"
 		elif r.so_docstatus == 2 or r.so_status == "Cancelled":

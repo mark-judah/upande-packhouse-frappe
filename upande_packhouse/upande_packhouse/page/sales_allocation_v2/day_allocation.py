@@ -3371,9 +3371,7 @@ def add_variety(sales_order_item: str, location: str, variety: str):
 	already hold or can fill as ordered, and its later boxes become a mix of their own with this variety in
 	the line's place."""
 	sub = get_shortage_substitutes(sales_order_item, location)
-	opt = next(
-		(o for o in sub["options"] + sub.get("color_options", []) if o["variety"] == variety), None
-	)
+	opt = next((o for o in sub["options"] + sub.get("color_options", []) if o["variety"] == variety), None)
 	if not opt:
 		frappe.throw(_("{0} is not a substitute for {1} here.").format(variety, sub["variety"]))
 	if sub["add_stems"] <= 1e-9:

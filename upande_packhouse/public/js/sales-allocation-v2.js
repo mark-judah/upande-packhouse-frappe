@@ -1437,7 +1437,8 @@ frappe.pages["sales-allocation-v2"].load_location_config = function () {
 				$("#shortTabV2").toggle(!!r.message.show_shortages);
 				// Production Settings > Bypass Cut Stage by Default: every order opens with it on
 				frappe.pages["sales-allocation-v2"]._bypass_default = !!r.message.bypass_cut_stage;
-				frappe.pages["sales-allocation-v2"].bypass_cut_stage = !!r.message.bypass_cut_stage;
+				frappe.pages["sales-allocation-v2"].bypass_cut_stage =
+					!!r.message.bypass_cut_stage;
 				frappe.pages["sales-allocation-v2"].render_location_selector();
 			} else {
 				$("#locationButtonsV2").html(
@@ -2534,15 +2535,43 @@ frappe.pages["sales-allocation-v2"]._apply_item_batch_visibility = function (so_
 // takes what the line cannot fill itself). on_pick(option, kind, dialog) acts on the choice.
 // A variety colour as the flower looks: "Pink", "Red Bi", "Hot Pink"... to a CSS colour (null when unknown).
 frappe.pages["sales-allocation-v2"]._flower_color = function (name) {
-	const k = String(name || "").toLowerCase().replace(/\s*(bi|bicolou?r|bi-colou?r)\s*$/, "").trim();
+	const k = String(name || "")
+		.toLowerCase()
+		.replace(/\s*(bi|bicolou?r|bi-colou?r)\s*$/, "")
+		.trim();
 	const MAP = {
-		pink: "#f4a6c1", "hot pink": "#e83e8c", "light pink": "#f9cfdc", "dark pink": "#d63384",
-		"soft pink": "#f7c6d4", cerise: "#de3163", red: "#d62828", "dark red": "#8b0000", burgundy: "#800020",
-		white: "#f5f3ee", cream: "#f3e9c6", ivory: "#f6f1de", yellow: "#f6c90e", "light yellow": "#f9e27d",
-		orange: "#f08a24", peach: "#ffb38a", salmon: "#fa8072", coral: "#ff7f50", apricot: "#fbceb1",
-		purple: "#7b3fa0", lilac: "#c8a2c8", lavender: "#b497d6", mauve: "#c08497", violet: "#8f5cc2",
-		green: "#7cb342", "lime green": "#a4d65e", blue: "#4f7cc8", bronze: "#b0773c", brown: "#8b5a2b",
-		champagne: "#f1ddb8", mix: null, mixed: null,
+		pink: "#f4a6c1",
+		"hot pink": "#e83e8c",
+		"light pink": "#f9cfdc",
+		"dark pink": "#d63384",
+		"soft pink": "#f7c6d4",
+		cerise: "#de3163",
+		red: "#d62828",
+		"dark red": "#8b0000",
+		burgundy: "#800020",
+		white: "#f5f3ee",
+		cream: "#f3e9c6",
+		ivory: "#f6f1de",
+		yellow: "#f6c90e",
+		"light yellow": "#f9e27d",
+		orange: "#f08a24",
+		peach: "#ffb38a",
+		salmon: "#fa8072",
+		coral: "#ff7f50",
+		apricot: "#fbceb1",
+		purple: "#7b3fa0",
+		lilac: "#c8a2c8",
+		lavender: "#b497d6",
+		mauve: "#c08497",
+		violet: "#8f5cc2",
+		green: "#7cb342",
+		"lime green": "#a4d65e",
+		blue: "#4f7cc8",
+		bronze: "#b0773c",
+		brown: "#8b5a2b",
+		champagne: "#f1ddb8",
+		mix: null,
+		mixed: null,
 	};
 	if (k in MAP) return MAP[k];
 	return k && window.CSS && CSS.supports("color", k) ? k : null;
@@ -2647,27 +2676,52 @@ frappe.pages["sales-allocation-v2"]._variety_cards = function (line, on_pick) {
 								// can its free stems fill the line's boxes: all of them, some, or not one
 								const per_box = parseFloat(s.per_box) || 0;
 								if (per_box > 0) {
-									const need = Math.max(1, Math.round((parseFloat(s.needed) || 0) / per_box));
-									const fills = Math.min(need, Math.floor((o.free || 0) / per_box + 1e-9));
+									const need = Math.max(
+										1,
+										Math.round((parseFloat(s.needed) || 0) / per_box)
+									);
+									const fills = Math.min(
+										need,
+										Math.floor((o.free || 0) / per_box + 1e-9)
+									);
 									const [bg, fg, txt] =
 										fills >= need
-											? ["var(--good-soft)", "var(--good)", __("Fills all {0} boxes", [need])]
+											? [
+													"var(--good-soft)",
+													"var(--good)",
+													__("Fills all {0} boxes", [need]),
+											  ]
 											: fills > 0
-											? ["var(--warn-soft)", "var(--warn)", __("Fills {0} of {1} boxes", [fills, need])]
-											: ["var(--bad-soft)", "var(--bad)", __("Not one full box")];
+											? [
+													"var(--warn-soft)",
+													"var(--warn)",
+													__("Fills {0} of {1} boxes", [fills, need]),
+											  ]
+											: [
+													"var(--bad-soft)",
+													"var(--bad)",
+													__("Not one full box"),
+											  ];
 									badges.push(
 										`<span class="sub-badge" style="background:${bg};color:${fg};" title="${esc(
-											__("{0} stems free · {1} stems a box", [n(o.free), n(per_box)])
+											__("{0} stems free · {1} stems a box", [
+												n(o.free),
+												n(per_box),
+											])
 										)}">${txt}</span>`
 									);
 								}
 								// the card wears the variety's own colour
 								const hue = P._flower_color(o.color);
 								const dot = hue
-									? `<span class="vc-swatch" style="background:${hue}" title="${esc(o.color)}"></span>`
+									? `<span class="vc-swatch" style="background:${hue}" title="${esc(
+											o.color
+									  )}"></span>`
 									: "";
 								return `<div class="sub-variety-card recommended"${
-									hue ? ` style="box-shadow:inset 4px 0 0 ${hue};background:color-mix(in srgb, ${hue} 12%, #ffffff);"` : ""
+									hue
+										? ` style="box-shadow:inset 4px 0 0 ${hue};background:color-mix(in srgb, ${hue} 12%, #ffffff);"`
+										: ""
 								}>
 								<div><div class="sub-name">${dot}${esc(o.variety)}</div><div class="sub-meta">${esc(
 									meta(o.color, o.free, tab === "color" ? o.group : "")
@@ -2688,7 +2742,9 @@ frappe.pages["sales-allocation-v2"]._variety_cards = function (line, on_pick) {
 							.join("")
 					: `<div class="empty-state"><p>${empty(tab)}</p></div>`;
 				// the list keeps one height whichever tab is open, so the dialog never jumps
-				d.fields_dict.body.$wrapper.html(current + tabs + `<div class="vc-list">${cards}</div>`);
+				d.fields_dict.body.$wrapper.html(
+					current + tabs + `<div class="vc-list">${cards}</div>`
+				);
 				d.$wrapper
 					.find(".vc-tabs [data-tab]")
 					.each(function () {
@@ -3316,7 +3372,9 @@ frappe.pages["sales-allocation-v2"]._render_item_block = function (item) {
 				.filter((h) => h.sales_order_item);
 			P._holds = P._holds || {};
 			P._init_hold_cards();
-			const hold_key = `${batch.bucket_id}|${batch.stem_length || ""}|${item.sales_order_item}`;
+			const hold_key = `${batch.bucket_id}|${batch.stem_length || ""}|${
+				item.sales_order_item
+			}`;
 			P._holds[hold_key] = holds.map((h) => ({
 				...h,
 				bucket_id: batch.bucket_id,
@@ -3330,9 +3388,10 @@ frappe.pages["sales-allocation-v2"]._render_item_block = function (item) {
 			const held_note = held_qty
 				? ` <span class="sa-hold" data-hold="${frappe.utils.escape_html(
 						hold_key
-				  )}" style="color:var(--warn);font-size:11px;white-space:nowrap;">(${__("{0} held", [
-						Math.round(held_qty).toLocaleString(),
-				  ])})</span>`
+				  )}" style="color:var(--warn);font-size:11px;white-space:nowrap;">(${__(
+						"{0} held",
+						[Math.round(held_qty).toLocaleString()]
+				  )})</span>`
 				: "";
 			html += `
                 <tr class="${row_class}" data-bucket-id="${batch.bucket_id || ""}">
@@ -3344,12 +3403,12 @@ frappe.pages["sales-allocation-v2"]._render_item_block = function (item) {
                     <td style="color:${
 						(batch.available_qty || 0) > 0 ? "var(--good)" : "var(--bad)"
 					}"><span style="white-space:nowrap;">${batch.available_qty || 0}${
-						held_qty && batch.total_qty
-							? ` <span style="color:var(--ink-mute);font-size:11px;">${__("of {0}", [
-									Math.round(batch.total_qty).toLocaleString(),
-							  ])}</span>`
-							: ""
-					}${held_note}</span></td>
+				held_qty && batch.total_qty
+					? ` <span style="color:var(--ink-mute);font-size:11px;">${__("of {0}", [
+							Math.round(batch.total_qty).toLocaleString(),
+					  ])}</span>`
+					: ""
+			}${held_note}</span></td>
                     <td>${allocated_here > 0 ? `<strong>${allocated_here}</strong>` : "-"}</td>
                     <td>${
 						session_alloc > 0
@@ -3520,7 +3579,9 @@ frappe.pages["sales-allocation-v2"].allocate_from_bucket = function (
 		);
 		return;
 	}
-	const qty = remote ? whole : Math.floor(Math.min(max_from_bucket, remaining) / per_bunch + 1e-9) * per_bunch;
+	const qty = remote
+		? whole
+		: Math.floor(Math.min(max_from_bucket, remaining) / per_bunch + 1e-9) * per_bunch;
 	if (qty <= 0) {
 		frappe.msgprint(__("Less than one bunch of {0} left to allocate here.", [per_bunch]));
 		return;
@@ -3707,7 +3768,8 @@ frappe.pages["sales-allocation-v2"]._take_from_bucket = function (
 // or a draft waiting its transfer) stay there; an allocation still waiting release can be taken for this line.
 frappe.pages["sales-allocation-v2"]._hold_card = function (list, key) {
 	const esc = (v) => frappe.utils.escape_html(String(v == null ? "" : v));
-	const row = (k, v) => (v ? `<div class="hc-k">${esc(k)}</div><div class="hc-v">${v}</div>` : "");
+	const row = (k, v) =>
+		v ? `<div class="hc-k">${esc(k)}</div><div class="hc-v">${v}</div>` : "";
 	return (list || [])
 		.map((h, i) => {
 			const pending = h.kind === "pending";
@@ -3725,9 +3787,9 @@ frappe.pages["sales-allocation-v2"]._hold_card = function (list, key) {
 				pending ? __("Allocated, waiting release") : __("On its pick list, not issued")
 			)}</span>${
 				h.can_take
-					? `<button type="button" class="hc-take" data-key="${esc(key)}" data-i="${i}">${esc(
-							__("Take")
-					  )}</button>`
+					? `<button type="button" class="hc-take" data-key="${esc(
+							key
+					  )}" data-i="${i}">${esc(__("Take"))}</button>`
 					: ""
 			}</div></div>`;
 		})
@@ -3778,7 +3840,9 @@ frappe.pages["sales-allocation-v2"]._init_hold_cards = function () {
 			const list = (P._holds || {})[key];
 			if (!list || !list.length) return;
 			hide();
-			$card = $(`<div class="sa-hold-card">${P._hold_card(list, key)}</div>`).appendTo("body");
+			$card = $(`<div class="sa-hold-card">${P._hold_card(list, key)}</div>`).appendTo(
+				"body"
+			);
 			$card.on("mouseenter", () => clearTimeout(timer)).on("mouseleave", later);
 			$card.find(".hc-take").on("click", function () {
 				const h = ((P._holds || {})[$(this).data("key")] || [])[+$(this).data("i")];
@@ -4299,7 +4363,9 @@ frappe.pages["sales-allocation-v2"]._execute_fifo = function (so_item, downgrade
 		const remote = batch.awaiting_transfer === 1;
 		const whole = Math.floor(available / per_bunch + 1e-9) * per_bunch;
 		if (remote && whole > remaining + 1e-9) continue;
-		const qty = remote ? whole : Math.floor(Math.min(available, remaining) / per_bunch + 1e-9) * per_bunch;
+		const qty = remote
+			? whole
+			: Math.floor(Math.min(available, remaining) / per_bunch + 1e-9) * per_bunch;
 		if (qty <= 0) continue;
 		const is_downgrade = batch.length_status === "downgrade";
 		// a downgrade that needs approval is only taken with a reason (the order-wide fill gives none)
@@ -5131,7 +5197,9 @@ frappe.pages["sales-allocation-v2"]._release_farms = function (farms) {
 	return names
 		.map(
 			(f) =>
-				`<div>${esc(f)} <span class="ds-so">${Math.round(farms[f]).toLocaleString()}</span></div>`
+				`<div>${esc(f)} <span class="ds-so">${Math.round(
+					farms[f]
+				).toLocaleString()}</span></div>`
 		)
 		.join("");
 };
@@ -5761,17 +5829,19 @@ frappe.pages["sales-allocation-v2"]._open_confirm_dialog = function () {
 			P._day_finished = false;
 			P._day_progress(0, chosen.length, "", undefined, "release");
 			// the open order's picks reach the server before anything is released
-			Promise.resolve(P._hold_pending).then(() => frappe.call({
-				method: "upande_packhouse.upande_packhouse.page.sales_allocation_v2.day_allocation.confirm_day_allocation",
-				args: { ...P._day_args(), sales_orders: JSON.stringify(chosen) },
-				callback: (r) =>
-					r.message &&
-					(r.message.queued
-						? ((P._day_run = r.message.run || ""), P._resume_day_progress())
-						: r.message.done && P._day_done(r.message)),
-				error: () => P._day_progress_reset(),
-				always: () => (P._releasing = false),
-			}));
+			Promise.resolve(P._hold_pending).then(() =>
+				frappe.call({
+					method: "upande_packhouse.upande_packhouse.page.sales_allocation_v2.day_allocation.confirm_day_allocation",
+					args: { ...P._day_args(), sales_orders: JSON.stringify(chosen) },
+					callback: (r) =>
+						r.message &&
+						(r.message.queued
+							? ((P._day_run = r.message.run || ""), P._resume_day_progress())
+							: r.message.done && P._day_done(r.message)),
+					error: () => P._day_progress_reset(),
+					always: () => (P._releasing = false),
+				})
+			);
 		},
 		secondary_action_label: __("Discard"),
 		secondary_action: () => {

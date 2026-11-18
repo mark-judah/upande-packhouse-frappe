@@ -7251,9 +7251,7 @@ def _full_boxes_packed(opl_name, fpl_names):
 		have[(cint(r.box_id) or 1, r.item_code)] += flt(r.stems)
 	boxes = {b for b, _v in need}
 	return sum(
-		1
-		for b in boxes
-		if all(have.get(k, 0) >= stems - 0.001 for k, stems in need.items() if k[0] == b)
+		1 for b in boxes if all(have.get(k, 0) >= stems - 0.001 for k, stems in need.items() if k[0] == b)
 	)
 
 

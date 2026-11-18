@@ -229,7 +229,9 @@ def get_shelving_performance(**kw):
 				"harvested": harvested.get(farm, 0),
 				"from_harvest": sum(1 for r in rs if r["source"] == "Receiving"),
 				"from_farms": sum(1 for r in rs if r["source"] == "Remote Transfers"),
-				"from_farms_shelved": sum(1 for r in rs if r["source"] == "Remote Transfers" and r["shelving"]),
+				"from_farms_shelved": sum(
+					1 for r in rs if r["source"] == "Remote Transfers" and r["shelving"]
+				),
 				"waiting": sum(1 for r in waiting if r["farm"] == farm),
 				"called": calls,
 				"missing": miss_by_farm.get(farm, 0),
@@ -246,7 +248,8 @@ def get_shelving_performance(**kw):
 		if not sh:
 			continue
 		p = people.setdefault(
-			sh.shelved_by or "", {"user": sh.shelved_by or "", "farms": set(), "buckets": 0, "stems": 0.0, "timed": []}
+			sh.shelved_by or "",
+			{"user": sh.shelved_by or "", "farms": set(), "buckets": 0, "stems": 0.0, "timed": []},
 		)
 		p["farms"].add(r["farm"])
 		p["buckets"] += 1
