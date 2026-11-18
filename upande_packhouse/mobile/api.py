@@ -2063,51 +2063,72 @@ def createPrecoolingEntry():
 
 
 @frappe.whitelist()
-def fetchPrecoolingSummary(delivery_date: str | None = None):
+def fetchPrecoolingSummary(delivery_date: str | None = None, station: str | None = None):
 	"""Box counts for one delivery date (default tomorrow, like the loading
 	screens), per Sales Order and in total: packed = every Box Label;
 	awaiting = packed, not yet in precooling; in_precooling = in the room now;
-	precooled = out of precooling, not yet staged; staged = staged or later."""
+	precooled = out of precooling, not yet staged; staged = staged or later.
+	`station` (the device's farm) keeps it to the boxes at its sales farm: packed
+	there, or received there from another sales farm."""
 	delivery_date = delivery_date or frappe.utils.add_days(frappe.utils.nowdate(), 1)
-	rows = frappe.db.sql(
+	station = (station or "").strip()
+	farm = (_station_sales_farm() or station) if station else ""
+	boxes = frappe.db.sql(
 		"""
-		SELECT
-			so.name AS sales_order,
-			so.customer,
-			so.custom_delivery_point AS delivery_point,
-			COUNT(bl.name) AS packed,
-			SUM(IFNULL(bl.precooling, 0) = 0 AND IFNULL(bl.staged, 0) = 0
-				AND IFNULL(bl.loaded, 0) = 0) AS awaiting,
-			SUM(bl.precooling = 1 AND IFNULL(bl.precooled, 0) = 0
-				AND IFNULL(bl.staged, 0) = 0) AS in_precooling,
-			SUM(bl.precooled = 1 AND IFNULL(bl.staged, 0) = 0) AS precooled,
-			SUM(IFNULL(bl.staged, 0) = 1 OR IFNULL(bl.loaded, 0) = 1) AS staged
+		SELECT bl.farm, bl.transfer_status, bl.transfer_to,
+			so.name AS sales_order, so.customer, so.custom_delivery_point AS delivery_point,
+			IFNULL(bl.precooling, 0) AS precooling, IFNULL(bl.precooled, 0) AS precooled,
+			IFNULL(bl.staged, 0) AS staged, IFNULL(bl.loaded, 0) AS loaded
 		FROM `tabBox Label` bl
 		JOIN `tabSales Order` so ON so.name = bl.customer_purchase_order
 		WHERE so.delivery_date = %(d)s AND so.docstatus = 1
-		GROUP BY so.name, so.customer, so.custom_delivery_point
 		ORDER BY so.customer, so.name
 		""",
 		{"d": delivery_date},
 		as_dict=True,
 	)
 	keys = ("packed", "awaiting", "in_precooling", "precooled", "staged")
-	orders = [{**r, **{k: int(r[k] or 0) for k in keys}} for r in rows]
+	by_order = {}
+	for b in boxes:
+		if farm and _box_station(b) != farm:
+			continue
+		o = by_order.setdefault(
+			b.sales_order,
+			{
+				"sales_order": b.sales_order,
+				"customer": b.customer,
+				"delivery_point": b.delivery_point,
+				**{k: 0 for k in keys},
+			},
+		)
+		o["packed"] += 1
+		if b.staged or b.loaded:
+			o["staged"] += 1
+		elif b.precooled:
+			o["precooled"] += 1
+		elif b.precooling:
+			o["in_precooling"] += 1
+		else:
+			o["awaiting"] += 1
+	orders = list(by_order.values())
 	totals = {k: sum(o[k] for o in orders) for k in keys}
-	return {"delivery_date": delivery_date, "totals": totals, "orders": orders}
+	return {"delivery_date": delivery_date, "station": farm, "totals": totals, "orders": orders}
 
 
 @frappe.whitelist()
-def fetchColdstoreBoxes(location: str | None = None):
+def fetchColdstoreBoxes(location: str | None = None, station: str | None = None):
 	"""Boxes staged in the dispatch coldstore and not yet loaded, for orders delivering
 	today or later, grouped by drop-off (delivery) point: each box with the spot it was
 	scanned to and when it got there. `location` (Ravine / Karen, else the caller's
-	station) keeps it to that location's own orders."""
+	station) keeps it to that location's own orders; `station` (the device's sales farm)
+	to the boxes at that farm: packed there, or received there from another sales farm."""
+	station = (station or "").strip()
 	location = (location or "").strip() or (_station_location() or "")
 	today = frappe.utils.nowdate()
 	rows = frappe.db.sql(
 		"""
 		SELECT bl.name, bl.box_number, bl.customer, bl.staging_location, bl.delivery_point,
+			bl.farm, bl.transfer_status, bl.transfer_to,
 			bl.customer_purchase_order AS sales_order, so.delivery_date,
 			COALESCE(bl.staged_at, bl.precooled_at, bl.modified) AS since
 		FROM `tabBox Label` bl
@@ -2124,6 +2145,9 @@ def fetchColdstoreBoxes(location: str | None = None):
 		for d in {r.delivery_date for r in rows}:
 			mine |= location_sales_orders(d, location)
 		rows = [r for r in rows if r.sales_order in mine]
+	if station:
+		station = _sales_farm_of(station) or station
+		rows = [r for r in rows if _box_station(r) == station]
 	groups = {}
 	for r in rows:
 		dp = r.delivery_point or ""
@@ -2140,6 +2164,7 @@ def fetchColdstoreBoxes(location: str | None = None):
 		)
 	return {
 		"location": location,
+		"station": station,
 		"now": str(frappe.utils.now_datetime()),
 		"total": len(rows),
 		"delivery_points": [
@@ -2460,17 +2485,37 @@ def _station_sales_farm():
 	remote farm's station, or none."""
 	station = (frappe.form_dict.get("station") or "").strip()
 	_remember_station(station)
-	if not station:
-		return None
-	ps = frappe.get_cached_doc("Production Settings")
-	sales = {r.farm for r in ps.get("shelf_locations") or [] if r.enabled and r.sales_shelf and r.farm}
-	if station in sales:
-		return station
-	# a growing farm: the sales farm of its Farm Location
-	from upande_packhouse.api.v2.allocation_teams import sales_farm_for_location
+	return _sales_farm_of(station)
 
-	farm = sales_farm_for_location(frappe.db.get_value("Farm", station, "farm_location"))
-	return farm if farm in sales else None
+
+def _sales_farm_of(farm):
+	"""The sales farm `farm` belongs to: itself when it is a Sales Shelf farm, else the sales farm of its
+	Farm Location (a growing farm); None when it has none."""
+	if not farm:
+		return None
+	cache = getattr(frappe.local, "_sales_farm_of", None)
+	if cache is None:
+		cache = frappe.local._sales_farm_of = {}
+	if farm not in cache:
+		ps = frappe.get_cached_doc("Production Settings")
+		sales = {r.farm for r in ps.get("shelf_locations") or [] if r.enabled and r.sales_shelf and r.farm}
+		if farm in sales:
+			cache[farm] = farm
+		else:
+			from upande_packhouse.api.v2.allocation_teams import sales_farm_for_location
+
+			found = sales_farm_for_location(frappe.db.get_value("Farm", farm, "farm_location"))
+			cache[farm] = found if found in sales else None
+	return cache[farm]
+
+
+def _box_station(box):
+	"""The sales farm a box is counted at: where it is dispatched from (the main sales farm once received
+	there), a growing farm's box at that farm's sales farm."""
+	from upande_packhouse.api.box_transfer import dispatch_farm
+
+	farm = dispatch_farm(box) or ""
+	return _sales_farm_of(farm) or farm
 
 
 def _list_location():

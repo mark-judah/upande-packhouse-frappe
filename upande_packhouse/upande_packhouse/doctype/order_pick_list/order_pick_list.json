@@ -104,6 +104,7 @@
    "options": "Packing Guide"
   },
   {
+   "allow_on_submit": 1,
    "fieldname": "farm",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -241,7 +242,7 @@
    "link_fieldname": "order_pick_list"
   }
  ],
- "modified": "2026-11-04 13:00:00.000000",
+ "modified": "2026-11-14 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Order Pick List",

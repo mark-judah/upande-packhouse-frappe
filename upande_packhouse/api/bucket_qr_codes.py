@@ -10,8 +10,7 @@
 import json
 
 import frappe
-from frappe import _
-from frappe.utils import scrub
+from frappe import _, scrub
 
 from upande_packhouse.api.opl_qr_codes import _draw
 
