@@ -11,4 +11,5 @@ no_cache = 1
 
 
 def get_context(context):
+	context.ph_wide = 1  # the stage tabs and the OPL cards use the full width
 	return page_context(context, "packhouse-dashboard", "Orders & Workflow")

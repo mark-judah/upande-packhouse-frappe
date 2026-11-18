@@ -2,8 +2,8 @@ from frappe.tests import UnitTestCase
 
 from upande_packhouse.upande_packhouse.page.sales_allocation_v2 import day_allocation as da
 
-# Remote transfers request whole buckets: a bucket on a remote farm goes to one order, the stems that order
-# does not take arrive at the hub free. A bucket on the sales farm's own shelf can still be shared.
+# Remote transfers request whole buckets: a bucket on a remote farm is allocated whole to one order line, never
+# part of it. A bucket on the sales farm's own shelf can still be shared.
 
 
 def _item(sales_order, soi, batches):
@@ -27,19 +27,21 @@ def _bucket(bucket_id, stems, sales_shelf):
 
 
 class UnitTestRemoteWholeBucket(UnitTestCase):
-	def test_a_remote_bucket_goes_to_one_order_only(self):
+	def test_a_remote_bucket_goes_whole_to_one_order_only(self):
 		taken = {}
-		first, _ = da._fifo_pick(_item("SO-1", "L1", [_bucket("RB", 100, 0)]), 20, taken)
-		second, left = da._fifo_pick(_item("SO-2", "L2", [_bucket("RB", 100, 0)]), 20, taken)
-		self.assertEqual([p["qty"] for p in first], [20])
+		first, _ = da._fifo_pick(_item("SO-1", "L1", [_bucket("RB", 100, 0)]), 100, taken)
+		second, left = da._fifo_pick(_item("SO-2", "L2", [_bucket("RB", 100, 0)]), 100, taken)
+		self.assertEqual([p["qty"] for p in first], [100])
 		self.assertEqual(second, [])
-		self.assertEqual(left, 20)
+		self.assertEqual(left, 100)
 
-	def test_the_same_order_can_take_more_of_its_remote_bucket(self):
+	def test_a_remote_bucket_bigger_than_the_need_is_left(self):
 		taken = {}
-		da._fifo_pick(_item("SO-1", "L1", [_bucket("RB", 100, 0)]), 20, taken)
-		more, _ = da._fifo_pick(_item("SO-1", "L3", [_bucket("RB", 100, 0)]), 30, taken)
-		self.assertEqual([p["qty"] for p in more], [30])
+		picks, left = da._fifo_pick(
+			_item("SO-1", "L1", [_bucket("BIG", 100, 0), _bucket("SMALL", 20, 0)]), 30, taken
+		)
+		self.assertEqual([(p["bucket_id"], p["qty"]) for p in picks], [("SMALL", 20)])
+		self.assertEqual(left, 10)
 
 	def test_a_bucket_on_the_sales_farm_is_still_shared(self):
 		taken = {}

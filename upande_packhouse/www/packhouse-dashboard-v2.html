@@ -112,6 +112,32 @@
 .ow-act{display:inline-flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap}
 .ph-daterange.is-off{opacity:.45}
 @media (max-width:860px){.ow-detail{position:sticky;left:0;max-width:calc(100vw - 80px);box-sizing:border-box}.ow-panel{padding:var(--sp-4)}.ow-panel__right{margin-left:0}.ow-sec__head,.ow-hrow,.ow-row,.ow-detail{padding-left:var(--sp-5);padding-right:var(--sp-5)}.ow-sec__head{grid-template-columns:20px 1fr auto}.ow-sec__bar{display:none}}
+.ow-oc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+.ow-oc{display:flex;flex-direction:column;gap:10px;padding:18px;color:inherit;text-decoration:none}
+.ow-oc__head{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.ow-oc__name{font-weight:600;font-size:14px;line-height:1.3}
+.ow-oc__opl{font-family:var(--mono,ui-monospace,monospace);font-size:11px;color:var(--ink-mute);text-decoration:none;align-self:flex-start}
+.ow-oc__opl:hover{color:var(--ink);text-decoration:underline}
+.ow-oc__chips{display:flex;flex-wrap:wrap;gap:6px}
+.ow-oc__chip{font-size:11px;font-weight:500;padding:3px 9px;border-radius:999px;background:var(--surface,#f4f3ef);color:var(--ink-2,#2a2a26)}
+.ow-oc__chip--grp{background:rgba(124,58,237,.10);color:#6d28d9}
+.ow-oc__var{font-weight:600;font-size:13px}
+.ow-oc__cust{font-size:11px;color:var(--ink-mute);text-transform:uppercase;letter-spacing:.04em}
+.ow-oc__tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ow-oc__tile{background:var(--surface,#f4f3ef);border-radius:12px;padding:10px;text-align:center}
+.ow-oc__tile span{display:block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-mute)}
+.ow-oc__tile b{font-size:18px}
+.ow-oc__bar .ph-progress-row{font-size:11px;color:var(--ink-mute)}
+.ow-oc__head{min-height:38px}
+.ow-oc__issues{cursor:help}
+.ow-issue-card{position:fixed;z-index:1060;min-width:240px;max-width:340px;padding:10px 14px;border-radius:12px;background:#fff;
+  border:1px solid rgba(10,10,10,.08);box-shadow:0 1px 0 rgba(10,10,10,.06),0 24px 48px -24px rgba(10,10,10,.28);font-size:12px;pointer-events:none}
+.ow-issue-card__row{display:flex;gap:10px;padding:6px 0}
+.ow-issue-card__row + .ow-issue-card__row{border-top:1px solid rgba(10,10,10,.06)}
+.ow-issue-card__dot{flex:none;width:8px;height:8px;border-radius:50%;margin-top:5px;background:#f59e0b}
+.ow-issue-card__dot.is-bad{background:var(--bad,#c4302b)}
+.ow-issue-card__lines{color:var(--ink-mute);font-size:11px;margin-top:2px}
+.ow-oc__foot{margin-top:auto;display:flex;flex-direction:column;gap:10px;padding-top:4px}
 </style>
 
 <header class="ph-head">
@@ -127,7 +153,7 @@
 
 <div class="ph-filters">
   <div class="ph-pills" id="f-view" title="Group the lines by packing team or by customer">
-    <button data-value="team">By team</button><button data-value="customer">By customer</button>
+    <button data-value="team">By team</button><button data-value="customer">By customer</button><button data-value="opl">By OPL</button>
   </div>
   <div class="ph-pills" id="f-region"></div>
   <div class="ph-pills" id="f-rose">
@@ -135,6 +161,7 @@
   </div>
   <div id="f-team" aria-label="Teams"></div>
   <select class="ph-select" id="f-group" aria-label="Item group"><option value="">All item groups</option></select>
+  <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="f-q" type="search" placeholder="Search order, sales order, pick list"></label>
   <div class="ph-filters__spacer"></div>
   <label class="ph-daterange" id="f-dates" title="Filters by the Sales Order delivery date">
     <span class="ph-card__meta" style="margin-right:6px">Delivery date</span><span class="ph-daterange__f"><span class="ph-daterange__lbl">From</span><input type="date" id="f-from" aria-label="Delivery date from"></span><span class="ph-daterange__f"><span class="ph-daterange__lbl">To</span><input type="date" id="f-to" aria-label="Delivery date to"></span>
@@ -155,7 +182,7 @@
   const API = "upande_packhouse.api.v2.orders_workflow.";
   const today = PH.date.today();
   const tomorrow = PH.date.add(today, 1);
-  const st = PH.state({ from: tomorrow, to: tomorrow, pt: "", region: "", rose: "all", team: "", farm: "", group: "", stage: "all", view: "team" });
+  const st = PH.state({ from: tomorrow, to: tomorrow, pt: "", region: "", rose: "all", team: "", farm: "", group: "", stage: "all", view: "team", q: "" });
   let data = null;
   let seq = 0;
   const openSec = new Set();
@@ -169,7 +196,7 @@
 
   /* ── Filters ── */
   PH.pills("#f-view", st, "view");
-  PH.regionPills("#f-region", st, "region");
+  PH.regionPills("#f-region", st, "region", { all: "All" });
   PH.pills("#f-rose", st, "rose");
   // One date filter: the Sales Order delivery date, from and to.
   PH.dateRange({ from: "#f-from", to: "#f-to", state: st });
@@ -178,6 +205,7 @@
   // teams: one or several at once
   const teamPick = PH.multiSelect("#f-team", st, "team", { all: "All teams", plural: "teams" });
   PH.bindSelect("#f-group", st, "group");
+  PH.bindSearch("#f-q", st, "q");
 
 
   const siteTeams = (site) => site ? masters.teams.filter((t) => masters.team_farm[t] === site) : masters.teams;
@@ -193,6 +221,10 @@
   }).catch(() => {});
 
   st.on((s, changed) => {
+    // By OPL shows the same lines as By team, as cards: no reload between the two
+    if (changed.length === 1 && changed[0] === "view" && data && data.view === "team" && (s.view === "opl" || s.view === "team")) return renderSections();
+    // the search only narrows what is loaded: no reload
+    if (changed.length === 1 && changed[0] === "q") return renderSections();
     // another stage tab: its sections start collapsed too
     if (changed.length === 1 && changed[0] === "stage") { autoOpen = true; return load(); }
     if (changed.includes("region")) {
@@ -216,7 +248,7 @@
     }
     return PH.call(API + "get_orders_workflow", {
       from_date: s.from, to_date: s.to, region: s.region, team: s.team, rose_type: s.rose, item_group: s.group,
-      stage: s.stage, view: s.view, packed_today: s.pt === "1" ? 1 : 0,
+      stage: s.stage, view: s.view === "opl" ? "team" : s.view, packed_today: s.pt === "1" ? 1 : 0,
     }, { silent: background }).then((m) => {
       if (my !== seq) return;
       if (!m || m.success === false) throw new Error((m && m.error) || "Could not load");
@@ -265,7 +297,7 @@
       { label: "Orders", value: k.orders, unit: n(k.boxes) + " boxes (" + n(k.ordered_stems) + " stems)", title: "Orders delivering in these dates.", onClick: () => showOrders("orders") },
       { label: "Allocated order lines", value: n(alloc.lines) + " / " + n(alloc.allLines), unit: "", title: "Order lines on a pick list.", onClick: () => showOrders("lines", true) },
       { label: "Issued of picked", value: k.issuing_pct == null ? "—" : Math.round(k.issuing_pct), suffix: k.issuing_pct == null ? "" : "%", unit: "", title: "Stems issued of those picked.", bar: k.issuing_pct || 0, barClass: k.issuing_pct >= 100 ? "good" : "", onClick: () => drill("issuing") },
-      { label: "Boxes packed", value: n(k.complete_boxes) + " / " + n(k.planned_boxes), unit: "", title: "Boxes packed of those planned.", onClick: () => drill("boxes") },
+      { label: "Boxes packed", value: n(k.complete_boxes) + " / " + n(k.planned_boxes), unit: "", title: "Boxes packed to 100% of those planned.", onClick: () => drill("boxes") },
       { label: "Dispatched", value: k.dispatched_pct == null ? "—" : PH.fmt.pct(k.dispatched_pct, 1), unit: "", title: "Stems dispatched of those ordered.", bar: k.dispatched_pct || 0, barClass: k.dispatched_pct >= 100 ? "good" : "", onClick: () => drill("dispatched") },
       { label: "Analysis", value: funnel.demand ? Math.round((100 * funnel.staged) / funnel.demand) : "—", suffix: funnel.demand ? "%" : "", unit: "", title: "Demand to staged, stage by stage.", bar: funnel.demand ? (100 * funnel.staged) / funnel.demand : 0, onClick: showAnalysis },
     ]);
@@ -438,28 +470,147 @@
     return `<div class="ow-sec__bar"><div class="ph-progress-row"><span>${label} · ${n(done)} / ${n(total)}</span><b>${Math.round(p)}%</b></div><div class="ph-progress"><i class="${done >= total - 0.5 ? "good" : ""}" style="width:${p.toFixed(1)}%"></i></div></div>`;
   }
 
+  // The search box: the order lines whose order name, sales order or pick list holds what is typed; each
+  // section keeps only those, with its counts and bars over them, and opens.
+  const SUMS = ["ordered_stems", "picked_stems", "issued_stems", "planned_stems", "packed_stems", "staged_stems", "loaded_stems"];
+  function searched(secs) {
+    const q = String(st.get("q") || "").trim().toLowerCase();
+    if (!q) return secs;
+    const hit = (r) => [r.order_name, r.sales_order, r.opl].some((v) => String(v || "").toLowerCase().includes(q));
+    return secs
+      .map((sec) => {
+        const rows = sec.rows.filter(hit);
+        if (!rows.length) return null;
+        const t = Object.assign({}, sec.totals);
+        t.lines = rows.length;
+        t.orders = new Set(rows.map((r) => r.sales_order)).size;
+        t.opls = new Set(rows.filter((r) => r.opl).map((r) => r.opl)).size;
+        t.bad = rows.filter((r) => r.severity === "bad").length;
+        t.warn = rows.filter((r) => r.severity === "warn").length;
+        SUMS.forEach((k) => { if (k in t) t[k] = rows.reduce((a, r) => a + (r[k] || 0), 0); });
+        return Object.assign({}, sec, { rows, totals: t });
+      })
+      .filter(Boolean);
+  }
+
+  // By OPL: one card per pick list -- order, team, item group, varieties, stems, boxes, shelves, packing issues,
+  // issuing and packing -- for the lines in view
+  function oplCards(secs) {
+    const by = new Map();
+    secs.forEach((sec) => sec.rows.forEach((r) => {
+      if (!r.opl) return;
+      const c = by.get(r.opl) || { opl: r.opl, rows: [], picked: 0, issued: 0, planned: 0, packed: 0, flags: 0, varieties: {} };
+      c.rows.push(r);
+      c.picked += r.picked_stems || 0; c.issued += r.issued_stems || 0;
+      c.planned += r.planned_stems || 0; c.packed += r.packed_stems || 0;
+      c.flags += (r.flags || []).length;
+      (r.flags || []).forEach((f) => {
+        const line = [r.variety, r.length].filter(Boolean).join(" ");
+        const x = (c.issues = c.issues || {})[f.label] || (c.issues[f.label] = { label: f.label, sev: f.sev, lines: [] });
+        if (!x.lines.includes(line)) x.lines.push(line);
+      });
+      const v = [r.variety, r.length].filter(Boolean).join(" ");
+      c.varieties[v] = (c.varieties[v] || 0) + (r.picked_stems || 0);
+      by.set(r.opl, c);
+    }));
+    const cards = [...by.values()];
+    issuesOf = {};
+    cards.forEach((c) => (issuesOf[c.opl] = Object.values(c.issues || {}).sort((a, b) => (a.sev === "bad" ? 0 : 1) - (b.sev === "bad" ? 0 : 1))));
+    if (!cards.length) return PH.empty("#sections", "No pick list in view", "Orders with no pick list show By team.");
+    const tile = (k, v) => `<div class="ow-oc__tile"><span>${PH.esc(k)}</span><b>${v}</b></div>`;
+    const bar = (label, done, total) => {
+      const p = total ? pct(done, total) : 0;
+      return `<div class="ow-oc__bar"><div class="ph-progress-row"><span>${label}</span><b>${total ? Math.round(p) + "%" : "—"}</b></div><div class="ph-progress"><i class="${total && done >= total - 0.5 ? "good" : ""}" style="width:${p.toFixed(1)}%"></i></div></div>`;
+    };
+    PH.set("#sections", `<div class="ow-oc-grid">${cards.map((c) => {
+      const r = c.rows[0], b = r.opl_boxes || {};
+      const vs = Object.entries(c.varieties);
+      const what = vs.length > 1
+        ? `<div class="ow-oc__var">Mixed · ${vs.length} varieties</div><div class="ow-oc__chips" title="${PH.esc(vs.map(([v, q]) => v + " · " + n(q)).join("\n"))}">${vs.slice(0, 3).map(([v, q]) => `<span class="ow-oc__chip">${PH.esc(v)} · ${n(q)}</span>`).join("")}${vs.length > 3 ? `<span class="ow-oc__chip">+${vs.length - 3}</span>` : ""}</div>`
+        : `<div class="ow-oc__var">${PH.esc(vs[0] ? vs[0][0] : "")}</div>`;
+      return `<div class="ph-card ow-oc">
+        <div class="ow-oc__head"><div class="ow-oc__name">${PH.esc(r.order_name || r.sales_order)}</div><span class="ph-badge ph-badge--${stageCls(r)}">${PH.esc(r.stage_label || "")}</span></div>
+        <a class="ow-oc__opl" href="${PH.esc(PH.docUrl("Order Pick List", c.opl))}" target="_blank" rel="noopener" title="Open ${PH.esc(c.opl)}">${PH.esc(c.opl)}</a>
+        <div class="ow-oc__chips">${r.team ? `<span class="ow-oc__chip">${PH.esc(r.team)}</span>` : ""}${r.item_group ? `<span class="ow-oc__chip ow-oc__chip--grp">${PH.esc(r.item_group)}</span>` : ""}${c.flags ? `<span class="ph-badge ph-badge--warn ow-oc__issues" data-flags="${PH.esc(c.opl)}">${PH.fmt.plural(c.flags, "issue")}</span>` : ""}</div>
+        ${what}
+        <div class="ow-oc__cust">${PH.esc(r.customer_name || r.customer || "")}</div>
+        <div class="ow-oc__foot">
+          <div class="ow-oc__tiles">${tile("Stems", n(c.picked))}${tile("Boxes", n(b.complete || 0) + "/" + n(b.planned || 0))}</div>
+          ${bar("Issuing", c.issued, c.picked)}${bar("Packing", c.packed, c.planned || c.picked)}
+        </div>
+      </div>`;
+    }).join("")}</div>`);
+  }
+
+  // The issues of an OPL card, on hover or tap of its "N issues": each kind, with the lines it is on
+  let issuesOf = {};
+  let $issueCard = null;
+  const hideIssues = () => { if ($issueCard) $issueCard.remove(); $issueCard = null; };
+  function showFlagCard(el) {
+    hideIssues();
+    const list = issuesOf[el.getAttribute("data-flags")] || [];
+    if (!list.length) return;
+    $issueCard = document.createElement("div");
+    $issueCard.className = "ow-issue-card";
+    $issueCard.innerHTML = list.map((x) => `<div class="ow-issue-card__row"><span class="ow-issue-card__dot ${x.sev === "bad" ? "is-bad" : ""}"></span><div><b>${PH.esc(x.label)}</b><div class="ow-issue-card__lines">${PH.esc(x.lines.join(" · "))}</div></div></div>`).join("");
+    document.body.appendChild($issueCard);
+    const r = el.getBoundingClientRect(), w = $issueCard.offsetWidth, h = $issueCard.offsetHeight;
+    let top = r.bottom + 6;
+    if (top + h > window.innerHeight - 12) top = r.top - h - 6;
+    $issueCard.style.left = Math.max(12, Math.min(r.left, window.innerWidth - w - 12)) + "px";
+    $issueCard.style.top = Math.max(12, top) + "px";
+  }
+  // on hover only
+  document.addEventListener("mouseover", (e) => { const el = e.target.closest && e.target.closest(".ow-oc__issues"); if (el) showFlagCard(el); });
+  document.addEventListener("mouseout", (e) => { if (e.target.closest && e.target.closest(".ow-oc__issues")) hideIssues(); });
+  window.addEventListener("scroll", hideIssues, true);
+
   function renderSections() {
-    const secs = data.sections || [];
+    if (!data) return;
+    const q = String(st.get("q") || "").trim();
+    const secs = searched(data.sections || []);
+    if (st.get("view") === "opl") return oplCards(secs);
+    if (q && !secs.length) return PH.empty("#sections", "No order matches “" + q + "”", "Search by order name, sales order or pick list.");
     if (!secs.length) {
       const s = st.get();
       const filtered = FILTER_KEYS.some((x) => s[x]) || s.stage !== "all" || s.rose !== "all";
       return PH.empty("#sections", filtered ? "No orders match these filters" : "No orders for " + PH.date.label(s.from, s.to),
         filtered ? "Clear a filter or widen the date range." : "Pick another delivery date range.");
     }
-    // every section starts collapsed; a click on its row opens it
+    // every section starts collapsed; a click on its row opens it -- while searching, every section found opens
     if (autoOpen) {
       autoOpen = false;
       openSec.clear();
     }
+    if (q) secs.forEach((sec) => openSec.add(sec.key));
     PH.set("#sections", secs.map(sectionHtml).join(""));
   }
 
+  // A line's steps as its workflow shows them (lines on a second pick list stop at Packed), and the one it is on:
+  // the furthest step any of its stems reached ("Ready to pack", "Packing"...), or Not allocated.
+  const PICK_STEPS = ["allocated", "ready_issue", "issued", "ready_pack", "packed"];
+  const stepsOf = (r) => (r.progress || []).filter((x) => r.primary || PICK_STEPS.includes(x.stage));
+  const currentStep = (r) => stepsOf(r).filter((x) => x.done > 0).pop() || null;
+  const stepCls = (x) => (!x ? "bad" : x.state === "done" ? "good" : "signal");
   function sectionHtml(sec) {
     const t = sec.totals, open = openSec.has(sec.key);
     const unalloc = sec.kind === "unallocated";
     const meta = PH.fmt.plural(t.lines, "line") + " · " + PH.fmt.plural(t.orders, "order") +
       (sec.kind === "customer" ? " · " + n(t.ordered_stems) + " stems ordered" : unalloc ? " · " + n(t.ordered_stems) + " stems waiting for a pick list" : sec.kind === "partial" ? " · on a pick list, but short of what was ordered" : " · " + PH.fmt.plural(t.opls, "pick list"));
-    const flags = (t.bad ? `<span class="ph-badge ph-badge--bad">${t.bad} urgent</span>` : "") + (t.warn ? `<span class="ph-badge ph-badge--warn">${t.warn} to check</span>` : "") + (!t.bad && !t.warn ? '<span class="ph-badge ph-badge--good">On track</span>' : "");
+    // where its lines are now: one badge per current step (as the line's workflow names it), in workflow
+    // order, with how many lines are there
+    const at = {};
+    sec.rows.forEach((r) => {
+      const x = currentStep(r);
+      const word = x ? x.word : "Not allocated";
+      const k = (x ? x.stage : "none") + "|" + word;
+      const rank = x ? (r.progress || []).findIndex((p) => p.stage === x.stage) : -1;
+      (at[k] = at[k] || { word, x, rank, n: 0 }).n++;
+    });
+    const flags = Object.values(at)
+      .sort((a, b) => a.rank - b.rank || (a.x && a.x.state === "done") - (b.x && b.x.state === "done"))
+      .map((v) => `<span class="ph-badge ph-badge--${stepCls(v.x)}">${PH.esc(v.word)} · ${n(v.n)}</span>`)
+      .join(" ");
     let h = `<section class="ph-card ow-sec${open ? " is-open" : ""}" data-sec="${PH.esc(sec.key)}">
       <button class="ow-sec__head" type="button" data-toggle-sec="${PH.esc(sec.key)}">
         <span class="ow-chev">${PH.icon("chevronRight", 14)}</span>
@@ -481,10 +632,10 @@
     const lbl = PH.fmt.date(r.delivery_date, true);
     return done ? lbl : d < 0 ? lbl + " · " + -d + "d late" : d === 0 ? lbl + " · today" : lbl;
   };
-  const stageCls = (r) => ({ notalloc: "bad", allocating: "", to_issue: "outline", issuing: "signal", to_pack: "warn", packing: "signal", packed: "good", precooling: "signal", precooled: "good", staging: "signal", staged: "good", loading: "signal", loaded: "good", dispatching: "signal", dispatched: "good", invoiced: "good" }[r.stage] || "");
+  const stageCls = (r) => ({ notalloc: "bad", awaiting: "warn", allocating: "", to_issue: "outline", issuing: "signal", to_pack: "warn", packing: "signal", packed: "good", precooling: "signal", precooled: "good", staging: "signal", staged: "good", loading: "signal", loaded: "good", dispatching: "signal", dispatched: "good", invoiced: "good" }[r.stage] || "");
 
   /* One row per order on a pick list ("COOP-2600"); its varieties nest underneath. */
-  const STAGE_RANK = ["notalloc", "allocating", "to_issue", "issuing", "to_pack", "packing", "packed", "precooling", "precooled", "staging", "staged", "loading", "loaded", "dispatching", "dispatched", "invoiced"];
+  const STAGE_RANK = ["notalloc", "allocating", "awaiting", "to_issue", "issuing", "to_pack", "packing", "packed", "precooling", "precooled", "staging", "staged", "loading", "loaded", "dispatching", "dispatched", "invoiced"];
   const grpIndex = {};
   function groupRows(rows) {
     const map = new Map();
@@ -510,7 +661,8 @@
   /* One block per order, like the old Order Summary: numbered title, a line table with the
      boxes at each step, and the order's completion ring. Boxes per step are the line's boxes
      scaled by the share of its stems that reached the step. */
-  const boxesAt = (r, stems) => (r.line_boxes && r.ordered_stems ? Math.round(r.line_boxes * Math.min(1, (stems || 0) / r.ordered_stems)) : 0);
+  // whole boxes only: a box counts once all its stems are there, never while it is being packed
+  const boxesAt = (r, stems) => (r.line_boxes && r.ordered_stems ? Math.floor(r.line_boxes * Math.min(1, (stems || 0) / r.ordered_stems) + 1e-9) : 0);
   const boxCell = (done, total) => !total ? '<span class="ph-muted">—</span>' : `<span class="ph-badge ph-badge--${done >= total ? "good" : done > 0 ? "warn" : "bad"}">${done} ${done === 1 ? "box" : "boxes"}</span>`;
   function lineTakt(g, r, packed) {
     const t = g.first.takt || {};
@@ -521,7 +673,6 @@
   function groupHtml(g, byCust, num) {
     const r = g.first, open = openRow.has(g.key), un = !g.opl, part = st.get("stage") === "partial";
     const title = [r.customer_name, "Order " + (r.order_name || r.sales_order), g.opl].filter(Boolean).join(" | ");
-    const pctDone = g.ordered_stems ? Math.min(100, Math.round((100 * g.staged_stems) / g.ordered_stems)) : 0;
     const COLS = 11;
     const rows = g.rows.map((x) => {
       const name = [x.variety, x.length].filter(Boolean).join(" ");
@@ -541,9 +692,7 @@
       return tr + (o ? `<tr class="ow-ln-detail"><td colspan="${COLS}">${detailHtml(x)}</td></tr>` : "");
     }).join("");
     const head = part ? '<th>Variety</th><th class="is-num">Ordered</th><th class="is-num">On pick list</th><th class="is-num">Still to allocate</th><th>Team · pick list</th><th></th>' : un ? '<th>Variety</th><th class="is-num">Ordered</th><th></th>' : '<th></th><th>Line</th><th>Assigned</th><th title="Issued / picked on the pick list">Issuing (stems)</th><th title="Packed / planned in the Packing Guide">Packing (stems)</th><th>Packed</th><th>Staged</th><th>Loaded</th><th>Takt time</th><th>Stage</th><th>Attention</th>';
-    const side = un || part
-      ? ""
-      : `<div class="ow-ring-wrap"><div class="ow-ring${pctDone >= 100 ? " is-full" : ""}" style="--p:${pctDone}%" title="Order completion: staged stems ÷ ordered stems (${n(g.staged_stems)} / ${n(g.ordered_stems)})"><div><b>${pctDone}%</b><span>${pctDone >= 100 ? "Complete" : PH.esc(g.stage.stage_label)}</span></div></div></div>`;
+    const side = "";
     return `<div class="ow-ord${g.severity ? " is-" + g.severity : ""}">
       <div class="ow-ord__head">${side}<h3 class="ow-ord__title"><span class="ow-num">${num}</span>${PH.esc(title)}</h3>
         <div class="ow-ord__meta">${un ? `<span class="ph-muted">${PH.fmt.plural(g.rows.length, "variety", "varieties")} · ${n(g.ordered_stems)} stems · no pick list</span> <span class="ph-badge ph-badge--bad">${PH.esc(dueText(r))}</span>` : `<span class="ph-badge ph-badge--${stageCls(g.stage)}">${PH.esc(g.stage.stage_label)}</span> <span class="ph-muted">${PH.esc(dueText(r))}</span>`}
@@ -589,10 +738,14 @@
     const sp = (r.progress || []).find((x) => x.stage === "staged");
     return r.primary && sp ? n(sp.done) + " / " + n(sp.total) + " stems staged" : n(t.staged_boxes) + " / " + n(t.boxes) + " boxes staged";
   }
+  // The ring: the line's current step (the furthest step any of its stems reached) and how far along it is
   function ringHtml(r) {
-    if (r.completion_pct == null || !r.primary) return "";
-    const p = r.completion_pct, full = p >= 100;
-    return `<div class="ow-ring${full ? " is-full" : ""}" style="--p:${p}%" title="Order completion = staged stems ÷ ordered stems, issue to staged (${n(r.staged_stems)} / ${n(r.ordered_stems)}). Only 100% is Complete; before that the word is the current stage."><div><b>${Math.round(p)}%</b><span>${full ? "Complete" : PH.esc(r.stage_label)}</span></div></div>`;
+    const prog = stepsOf(r);
+    const cur = currentStep(r);
+    if (!cur) return "";
+    const p = cur.total ? Math.min(100, (100 * cur.done) / cur.total) : 0;
+    const last = cur === prog[prog.length - 1] && p >= 100;
+    return `<div class="ow-ring${p >= 100 ? " is-full" : ""}" style="--p:${p}%" title="${PH.esc(cur.word)}: ${n(cur.done)} / ${n(cur.total)} stems"><div><b>${Math.round(p)}%</b><span>${last ? "Complete" : PH.esc(cur.word)}</span></div></div>`;
   }
   function taktHtml(r) {
     const t = r.takt || { state: "none" };
@@ -606,7 +759,7 @@
     const flags = (r.flags || []).map((f) => `<span class="ow-flagline ow-flagline--${f.sev === "bad" ? "bad" : "warn"}">${PH.icon("alert", 14)}${PH.esc(f.label)}</span>`).join("");
     const prog = r.progress || [];
     const stepper = prog.map((x, i) => {
-      const na = !(x.stage === "issued" || x.stage === "packed") && !own;   // later stages sit on the line's first pick list
+      const na = !["allocated", "ready_issue", "issued", "ready_pack", "packed"].includes(x.stage) && !own;   // later stages sit on the line's first pick list
       const f = na || !x.total ? 0 : Math.min(1, x.done / x.total);
       const done = !na && x.state === "done", part = !na && x.state === "partial";
       const label = x.state === "none" || na ? PH.esc(x.word.replace(/^Not /, "").replace(/^./, (c) => c.toUpperCase())) : PH.esc(x.word);

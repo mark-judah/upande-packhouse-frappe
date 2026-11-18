@@ -624,12 +624,14 @@
 			) || null
 		);
 	};
-	PH.regionPills = function (sel, st, key) {
+	PH.regionPills = function (sel, st, key, opts) {
 		const el = PH.$(sel);
 		if (!el) return;
 		if (!el.querySelector("button[data-value]")) {
 			el.innerHTML =
-				'<button data-value="">All sites</button>' +
+				'<button data-value="">' +
+				PH.esc((opts && opts.all) || "All sites") +
+				"</button>" +
 				Object.keys(PH.REGIONS)
 					.map(
 						(r) =>
@@ -1838,7 +1840,11 @@
 	const owned = [];
 	const BASE = "/packhouse-dashboard-v2";
 	// a page's own scripts: inline, or this app's page files (not this runtime, not Frappe's or another app's)
+	// the page whose timer callback is running now: what a page's script starts later, from its own
+	// timers, belongs to that page too
+	let inPage = null;
 	const byPage = () => {
+		if (inPage !== null) return true;
 		const cs = document.currentScript;
 		if (!cs) return false;
 		const src = cs.src || "";
@@ -1846,10 +1852,55 @@
 			!src || (src.includes("/assets/upande_packhouse/") && !/\/packhouse-v2\.js/.test(src))
 		);
 	};
+	const pageOf = () => (inPage !== null ? inPage : pageGen);
+	const own = (gen, undo) => {
+		if (gen !== pageGen) return undo();
+		const o = { page: gen, undo };
+		owned.push(o);
+		return o;
+	};
+	const disown = (o) => {
+		const i = o ? owned.indexOf(o) : -1;
+		if (i >= 0) owned.splice(i, 1);
+	};
+	const asPage = (gen, fn) =>
+		typeof fn !== "function"
+			? fn
+			: function (...args) {
+					if (gen !== pageGen) return;
+					const was = inPage;
+					inPage = gen;
+					try {
+						return fn.apply(this, args);
+					} finally {
+						inPage = was;
+					}
+			  };
 	const nativeInterval = window.setInterval;
-	window.setInterval = function (...a) {
-		const id = nativeInterval.apply(window, a);
-		if (byPage()) owned.push({ page: pageGen, undo: () => clearInterval(id) });
+	window.setInterval = function (fn, ...rest) {
+		if (!byPage()) return nativeInterval.call(window, fn, ...rest);
+		const gen = pageOf();
+		const id = nativeInterval.call(window, asPage(gen, fn), ...rest);
+		own(gen, () => clearInterval(id));
+		return id;
+	};
+	const nativeTimeout = window.setTimeout;
+	window.setTimeout = function (fn, ...rest) {
+		if (!byPage()) return nativeTimeout.call(window, fn, ...rest);
+		const gen = pageOf();
+		const run = asPage(gen, fn);
+		let o = null;
+		const id = nativeTimeout.call(
+			window,
+			typeof run === "function"
+				? function (...args) {
+						disown(o);
+						return run.apply(this, args);
+				  }
+				: run,
+			...rest
+		);
+		o = own(gen, () => clearTimeout(id));
 		return id;
 	};
 	[window, document].forEach((target) => {

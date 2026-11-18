@@ -293,25 +293,21 @@ class TestRelease(IntegrationTestCase):
 		# delivered orders are never offered, they are reported as skipped
 		self.assertTrue(all(isinstance(v["stems"], float) for v in skipped.values()))
 
-	def test_a_bucket_harvested_again_is_offered_for_release(self):
-		stale = [x for x in st._allocations(set(), set()) if x.reason == "bucket_reused"]
-		if not stale:
-			self.skipTest("no allocation on a bucket that was harvested again")
+	def test_a_bucket_harvested_again_is_never_released_on_its_own(self):
+		self.assertNotIn("bucket_reused", st.RELEASABLE)
+		self.assertNotIn("bucket_reused", st.TRANSFER_REASONS)
 		groups, _skipped = st._release_groups(st._args({}))
-		offered = {(g["sales_order_item"], g["bucket_id"]) for g in groups}
-		blocked = st._blocked_pairs({x.sales_order_item for x in stale})
-		for x in stale:
-			if not blocked.get((x.sales_order_item, x.bucket_id.upper())):
-				self.assertIn((x.sales_order_item, x.bucket_id), offered)
+		self.assertFalse([g for g in groups if g["reason"] == "bucket_reused"])
 
-	def test_issued_and_delivered_past_due_rows_are_offered_and_blockers_are_only_trolleys(self):
+	def test_issued_rows_are_never_stale_and_releases_are_only_open_lines(self):
 		allocs = st._allocations(set(), set())
 		self.assertNotIn("dispatched", {x.reason for x in allocs})
-		# an issued row only appears while it is stale
-		self.assertTrue(all(x.reason for x in allocs if x.issued))
+		# an issued (and so packed) row holds nothing in the bucket: it is never listed
+		self.assertFalse([x for x in allocs if x.issued])
 		groups, _s = st._release_groups(st._args({}))
 		for g in groups:
-			self.assertTrue(g["issued"] or g["open"])
+			self.assertTrue(g["open"])
+			self.assertFalse(g["issued"])
 
 	def test_search_finds_the_order_holding_a_bucket(self):
 		allocs = [x for x in st._allocations(set(), set()) if x.reason]

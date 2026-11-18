@@ -3648,7 +3648,16 @@ def trip_numbers(trips, shares=None, ids=False):
 		for h in frappe.get_all(
 			"Bucket Request Trip",
 			filters={"name": ["in", names]},
-			fields=["name", "vehicle", "status", "trip_date", "run", "capacity_buckets"],
+			fields=[
+				"name",
+				"vehicle",
+				"status",
+				"trip_date",
+				"run",
+				"capacity_buckets",
+				"sales_farm",
+				"heading_to",
+			],
 		)
 	}
 	if not heads:
@@ -3731,6 +3740,8 @@ def trip_numbers(trips, shares=None, ids=False):
 			"trip": name,
 			"vehicle": h.vehicle,
 			"status": h.status,
+			# where the trip delivers: its truck is on the way there once it is Dispatched
+			"heading_to": h.get("heading_to") or h.get("sales_farm") or "",
 			"trip_date": str(h.trip_date or ""),
 			"run": int(h.run or 0),
 			"capacity": cap,

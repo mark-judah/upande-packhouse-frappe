@@ -479,7 +479,11 @@ select.ph-control{appearance:none;-webkit-appearance:none;padding-right:36px;cur
 .ph-modal__head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--sp-4);padding:var(--sp-6) 28px var(--sp-4)}
 .ph-modal__title{font:600 18px/1.3 var(--sans);color:var(--ink);letter-spacing:-.4px}
 .ph-modal__sub{font:400 13px var(--sans);color:var(--ink-mute);margin-top:2px}
-.ph-modal__body{padding:var(--sp-1) 28px var(--sp-6);overflow-y:auto;min-height:0}
+.ph-modal__body{padding:var(--sp-1) 28px var(--sp-6);overflow-y:auto;min-height:0;overscroll-behavior:contain}
+/* while a modal or drawer is open the page behind it stays put */
+body:has(.ph-overlay){overflow:hidden}
+.ph2:has(.ph-overlay) .ph-main{overflow-y:hidden}
+.ph-overlay{overscroll-behavior:contain}
 .ph-modal__foot{display:flex;justify-content:flex-end;gap:10px;padding:var(--sp-4) 28px var(--sp-6);border-top:1px solid var(--hairline)}
 .ph-overlay--drawer{justify-content:flex-end;padding:0}
 .ph-overlay--drawer .ph-modal{height:100%;max-height:none;border-radius:var(--r-xl) 0 0 var(--r-xl);width:min(560px,100%);animation:ph-drawer .25s cubic-bezier(.4,0,.2,1)}

@@ -9,6 +9,7 @@
 import base64
 import json
 import math
+from collections import defaultdict
 
 import frappe
 from frappe import _
@@ -4004,11 +4005,20 @@ def _issued_cap_error(opl_name, packed, incoming):
 	refused, or None: an order sent to packing before all of it was issued (Pack While
 	Waiting, or completed short) packs no more stems than were issued; one sent before it
 	was fully allocated (Allow Partial Packing) packs complete boxes only."""
+	cap = _issued_stems([opl_name]).get(opl_name)
+	# a straight pick list with every stem issued is in the packer's hands, whatever the allocation rows
+	# say (a mixed box or bunch still waits for its other lines)
+	if (
+		cap
+		and cap["total"]
+		and cap["issued"] >= cap["total"]
+		and not any(frappe.db.get_value("Order Pick List", opl_name, ["mix_group", "bunch_group"]) or [])
+	):
+		return None
 	boxes_error = _complete_boxes_error(opl_name, packed, incoming)
 	if boxes_error:
 		return boxes_error
-	cap = _issued_stems([opl_name]).get(opl_name)
-	if not cap or cap["issued"] >= cap["total"] or flt(packed) + flt(incoming) <= cap["issued"]:
+	if not cap or flt(packed) + flt(incoming) <= cap["issued"]:
 		return None
 	return _(
 		"Only {0}% is issued — pack the rest once more stock is issued ({1} of {2} stems packed)."
@@ -4019,7 +4029,9 @@ def _complete_boxes_error(opl_name, packed, incoming):
 	"""Production Settings > Allow Partial Packing: an order packing before all of it is allocated
 	packs only the stems of its complete boxes; the cap rises as more is allocated."""
 	from upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2 import (
+		_cumulative_allocated_stems,
 		complete_boxes,
+		part_boxes_on,
 		partial_packing_on,
 	)
 
@@ -4052,6 +4064,9 @@ def _complete_boxes_error(opl_name, packed, incoming):
 		flt(v) for v in frappe.get_all("Sales Order Item", filters={"name": ("in", lines)}, pluck="stock_qty")
 	)
 	boxes, stems = complete_boxes(lines, grouped=bool(opl.mix_group or opl.bunch_group))
+	if part_boxes_on():
+		# part boxes are packed too: as far as the stems allocated go
+		stems = sum(flt(_cumulative_allocated_stems(x)) for x in lines)
 	if not lines or stems >= ordered - 0.001 or flt(packed) + flt(incoming) <= stems + 0.001:
 		return None
 	return _(
@@ -7207,6 +7222,39 @@ def getBucketReconciliation():
 		frappe.response["message"] = {"status": "error", "message": str(e), "farms": []}
 
 
+def _dashboard_sales_farms():
+	"""The sales farms (Sales Shelf farms of Production Settings > Shelf Locations), in the table's order."""
+	ps = frappe.get_cached_doc("Production Settings")
+	return [r.farm for r in ps.get("shelf_locations") or [] if r.enabled and cint(r.sales_shelf) and r.farm]
+
+
+def _full_boxes_packed(opl_name, fpl_names):
+	"""Boxes of a pick list packed to 100%: every (variety, stems) its Packing Guide puts in the box is packed.
+	A box started, or closed short, does not count."""
+	need = defaultdict(float)
+	for r in frappe.db.sql(
+		"""SELECT box_number, variety, SUM(stems) AS stems FROM `tabPacking Guide`
+		WHERE parenttype = 'Order Pick List' AND parent = %s GROUP BY box_number, variety""",
+		opl_name,
+		as_dict=True,
+	):
+		need[(cint(r.box_number) or 1, r.variety)] += flt(r.stems)
+	if not need:
+		return 0
+	have = defaultdict(float)
+	for r in frappe.db.sql(
+		"""SELECT box_id, item_code, SUM(stock_qty) AS stems FROM `tabFarm Packlist Item`
+		WHERE parent IN %(f)s GROUP BY box_id, item_code""",
+		{"f": tuple(fpl_names)},
+		as_dict=True,
+	):
+		have[(cint(r.box_id) or 1, r.item_code)] += flt(r.stems)
+	boxes = {b for b, _v in need}
+	return sum(
+		1 for b in boxes if all(have.get(k, 0) >= stems - 0.001 for k, stems in need.items() if k[0] == b)
+	)
+
+
 @frappe.whitelist()
 def getPackhouseDashboardData():
 	"""Packhouse home-tab dashboard: boxes REQUIRED vs boxes PACKED for one
@@ -7236,18 +7284,25 @@ def getPackhouseDashboardData():
 			filters={"delivery_date": delivery_date, "docstatus": 1},
 			fields=["name", "customer", "custom_order_name", "custom_delivery_point", "farm"],
 		)
-		# The station's location only (Karen and Ravine share teams, not orders).
-		location = _list_location()
-		if location:
-			farms = location_farms(location)
-			sales_orders = [so for so in sales_orders if (so.farm or "") in farms]
-		# a sales farm's station: its own orders only
-		station_farm = _station_sales_farm()
-		if station_farm:
+		# The farm picked on the home screen: a sales farm's own orders, or every farm (""). Without one, the
+		# station's: its sales farm's orders, else its location's.
+		sales_farm_list = _dashboard_sales_farms()
+		picked = frappe.form_dict.get("farm")
+		if picked is not None:
+			picked = str(picked).strip()
+			if picked and picked not in sales_farm_list:
+				picked = None
+		if picked is None:
+			location = _list_location()
+			if location:
+				farms = location_farms(location)
+				sales_orders = [so for so in sales_orders if (so.farm or "") in farms]
+			picked = _station_sales_farm() or ""
+		if picked:
 			from upande_packhouse.api.transfer_control import order_hubs
 
 			hubs = order_hubs([so.name for so in sales_orders])
-			sales_orders = [so for so in sales_orders if hubs.get(so.name) == station_farm]
+			sales_orders = [so for so in sales_orders if hubs.get(so.name) == picked]
 
 		orders_out = []
 		total_required = 0
@@ -7302,16 +7357,8 @@ def getPackhouseDashboardData():
 					"Farm Pack List", filters={"order_pick_list": o.name}, pluck="name"
 				)
 				if fpl_names:
-					box_row = frappe.db.sql(
-						"""
-						SELECT COUNT(DISTINCT box_id) AS n
-						FROM `tabFarm Packlist Item`
-						WHERE parent IN %(fpls)s AND bunch_qty > 0
-						""",
-						{"fpls": fpl_names},
-						as_dict=True,
-					)
-					opl_packed_boxes = int(box_row[0].n or 0) if box_row else 0
+					# fully packed boxes only: every variety its Packing Guide puts in the box is in
+					opl_packed_boxes = _full_boxes_packed(o.name, fpl_names)
 
 					item_rows = frappe.get_all(
 						"Farm Packlist Item",
@@ -7436,6 +7483,10 @@ def getPackhouseDashboardData():
 
 		frappe.response["message"] = {
 			"delivery_date": str(delivery_date),
+			# the home screen's farm picker: every sales farm, and All farms ("")
+			"farm": picked,
+			"sales_farms": sales_farm_list,
+			"all_farms": True,
 			"kpi": {
 				"boxes_required": total_required,
 				"boxes_packed": total_packed,

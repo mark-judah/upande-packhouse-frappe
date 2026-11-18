@@ -138,8 +138,10 @@ PHYSICAL = tuple(s for s in STATE_ORDER)  # every state is stems that exist
 # entries that end a receipt's / harvest's own cycle when the same bucket gets one later (bucket ids are reused)
 RECEIPT_CYCLE = ("Receiving", "Late Receipt", "Harvesting")
 HARVEST_CYCLE = ("Receiving", "Late Receipt", "Harvesting", "Discard")
-RECLAIM_REASONS = ("order_cancelled", "delivery_passed", "bucket_reused")
+# stale: an allocation not issued (nor packed) whose order is gone, cancelled or past its delivery date
+RECLAIM_REASONS = ("no_order", "order_cancelled", "delivery_passed")
 STALE_LABEL = {
+	"no_order": "No order",
 	"order_cancelled": "Order cancelled",
 	"delivery_passed": "Delivery date has passed",
 	"bucket_reused": "Bucket was harvested again",
@@ -147,7 +149,7 @@ STALE_LABEL = {
 	"bucket_gone": "Bucket is on no shelf",
 	"not_found": "Bucket marked not found",
 }
-RISK_REASONS = ("discard_held", "bucket_gone", "not_found")
+RISK_REASONS = ("bucket_reused", "discard_held", "bucket_gone", "not_found")
 
 
 def _guard():
@@ -311,20 +313,38 @@ def _allocations(shelf_keys, held_ids):
 			   WHERE p.not_found = 1 AND IFNULL(p.issued, 0) = 0 AND IFNULL(p.bucket, '') != ''"""
 		)
 	}
+	# a pick-list line issued (on the app or offline) has taken its stems out of the bucket, even where the
+	# allocation row itself was never marked
+	issued_pairs = {
+		(r.soi, _up(r.b))
+		for r in frappe.db.sql(
+			"""SELECT DISTINCT p.sales_order_item AS soi, p.bucket AS b FROM `tabPick List Item` p
+			   INNER JOIN `tabOrder Pick List` o ON o.name = p.parent AND o.docstatus < 2
+			   WHERE (IFNULL(p.issued, 0) = 1 OR IFNULL(p.issued_offline, 0) = 1)
+			     AND IFNULL(p.bucket, '') != '' AND p.sales_order_item IN %(i)s""",
+			{"i": tuple({r.sales_order_item for r in rows if r.sales_order_item}) or ("",)},
+			as_dict=True,
+		)
+	}
 	t = getdate(today())
 	cycles = bucket_cycle.index()
 	for r in rows:
 		r.qty = _f(r.qty)
 		r.key = (_up(r.bucket_id), r.variety, r.length)
+		r.issued = 1 if r.issued or (r.sales_order_item, _up(r.bucket_id)) in issued_pairs else 0
 		r.reused = bucket_cycle.harvested_after(cycles, r.bucket_id, r.creation)  # harvested again since
-		if r.so_docstatus is None or r.so_docstatus == 2 or r.so_status == "Cancelled":
+		if r.issued:
+			r.reason = (
+				None  # its stems have left the bucket (issued, then packed): nothing is held, so never stale
+			)
+		elif r.so_docstatus is None:
+			r.reason = "no_order"
+		elif r.so_docstatus == 2 or r.so_status == "Cancelled":
 			r.reason = "order_cancelled"
 		elif r.delivery_date and getdate(r.delivery_date) < t:
 			r.reason = "delivery_passed"
-		elif r.issued:
-			r.reason = None  # its stems have left the bucket; only a cancelled or past-due one is of interest
 		elif r.reused:
-			r.reason = "bucket_reused"  # harvested again since: the stems it held are gone
+			r.reason = "bucket_reused"  # harvested again since: a risk to look at, never released on its own
 		elif r.bucket_id in held_ids:
 			r.reason = "discard_held"
 		elif r.key not in shelf_keys:
@@ -335,8 +355,8 @@ def _allocations(shelf_keys, held_ids):
 			r.reason = None
 		r.held = r.bucket_id in held_ids
 		r.age_days = (t - getdate(r.creation)).days if r.creation else None
-	# an issued row has no stems left in the bucket: it only matters while it is stale
-	return [r for r in rows if not r.issued or r.reason]
+	# an issued row has no stems left in the bucket: it is never stale
+	return [r for r in rows if not r.issued]
 
 
 def _coldroom_rows(a):
@@ -1129,11 +1149,12 @@ def allocations(
 
 # ------------------------------------------------------------------ buckets held by stale transfers
 
+# stale transfers: a bucket held for an order that is gone, cancelled or past its delivery date, or marked in
+# transit with nothing allocated (issued ones never are: _transfer_rows reads unissued lines only)
 TRANSFER_LABEL = {
 	"order_cancelled": "Order cancelled",
 	"delivery_passed": "Delivery date has passed",
-	"bucket_reused": "Bucket was harvested again",
-	"no_order": "In transit with nothing allocated",
+	"no_order": "No order",
 }
 TRANSFER_REASONS = tuple(TRANSFER_LABEL)
 NO_ORDER = "No order"
@@ -1172,17 +1193,12 @@ def _transfer_rows():
 		r.held = False
 		r.reused = bucket_cycle.harvested_after(cycles, r.bucket_id, r.creation)  # harvested again since
 		r.so_status = r.so_status or ""
-		if (
-			r.opl_docstatus == 2
-			or r.so_docstatus is None
-			or r.so_docstatus == 2
-			or r.so_status == "Cancelled"
-		):
+		if r.so_docstatus is None:
+			r.reason = "no_order"
+		elif r.opl_docstatus == 2 or r.so_docstatus == 2 or r.so_status == "Cancelled":
 			r.reason = "order_cancelled"
 		elif r.delivery_date and getdate(r.delivery_date) < t:
 			r.reason = "delivery_passed"
-		elif r.reused:
-			r.reason = "bucket_reused"
 		else:
 			r.reason = None
 		r.state = (
@@ -1329,11 +1345,7 @@ RELEASE_ROLES = (
 	"Sales Representative",
 	"Sales User",
 )  # the Sales Allocation page's own roles
-RELEASABLE = (
-	"order_cancelled",
-	"delivery_passed",
-	"bucket_reused",
-)
+RELEASABLE = RECLAIM_REASONS
 RELEASE_CHUNK = 10
 RELEASE_BUDGET_SECONDS = 20  # a request stops taking new lines after this long, however many it has done
 
@@ -1598,11 +1610,14 @@ def release_stale(
 				_clear_in_transit(g)
 			elif g["issued"]:
 				_cancel_issued(g)  # first: the allocator refuses a line that has an issued row
+				# the allocator opens its own transaction, which refuses to start over unsaved writes
+				frappe.db.commit()  # nosemgrep: frappe-manual-commit
 			if g["sales_order_item"] and g["open"]:
 				res = unallocate_bucket_from_opl(g["sales_order_item"], g["bucket_id"], g["stem_length"])
 		except Exception as e:  # the allocator rolls its own failures back; keep going with the next line
 			res = {"success": False, "message": str(e)}
 		if res.get("success"):
+			frappe.db.commit()  # nosemgrep: frappe-manual-commit
 			done.append({k: g[k] for k in ("sales_order", "sales_order_item", "bucket_id", "variety", "qty")})
 			orders[g["sales_order"]] += g["qty"]
 		else:

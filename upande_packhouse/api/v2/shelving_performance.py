@@ -19,7 +19,7 @@ Numbers
                      bucket's next receipt there, at most 3 days later.
     On time %        receipts shelved within the target (default 2 hours).
     Time to shelve   receipt -> first shelving, in minutes (median and 90th percentile).
-    Waiting          receipts older than the target with no shelving yet.
+    Waiting          receipts of the dates picked with no shelving yet.
     Missing %        missing reports / buckets called from that farm's shelves (issued, issued
                      offline, loaded on a trolley or truck, plus the missing ones).
 
@@ -81,6 +81,22 @@ def _receipts(a, farms):
 			continue
 		out[key] = {**r, "bucket": r.bucket, "stems": flt(r.stems)}
 	return list(out.values())
+
+
+def _harvested(a, farms):
+	"""{farm: buckets harvested} in the dates picked: each bucket once a day, its farm the greenhouse's."""
+	rows = frappe.db.sql(
+		"""SELECT TRIM(SUBSTRING_INDEX(se.custom_greenhouse, ' GH', 1)) AS gh_farm,
+		          COUNT(DISTINCT CONCAT(UPPER(se.custom_bucket_id), '|', se.posting_date)) AS n
+		FROM `tabStock Entry` se
+		WHERE se.docstatus = 1 AND se.stock_entry_type = 'Harvesting'
+		  AND se.posting_date BETWEEN %(f)s AND %(t)s AND IFNULL(se.custom_bucket_id, '') != ''
+		GROUP BY gh_farm""",
+		{"f": a["from_date"], "t": a["to_date"]},
+		as_dict=True,
+	)
+	# (Stock Entry has a farm column of its own: the greenhouse's farm goes under another name)
+	return {r.gh_farm: cint(r.n) for r in rows if r.gh_farm and (farms is None or r.gh_farm in farms)}
 
 
 def _shelvings(a, farms):
@@ -189,8 +205,10 @@ def get_shelving_performance(**kw):
 	_match(receipts, shelvings)
 	missing = _missing(a, farms)
 	called = _called(a, farms)
+	harvested = _harvested(a, farms)
 
-	waiting = [r for r in receipts if not r["shelving"] and (now - r["at"]).total_seconds() > target * 60]
+	# every receipt of the dates picked with no shelving yet, however recent
+	waiting = [r for r in receipts if not r["shelving"]]
 
 	by_room = defaultdict(list)
 	for r in receipts:
@@ -208,8 +226,12 @@ def get_shelving_performance(**kw):
 				# receipts recorded without a farm are kept, under a name of their own
 				"farm": farm or "No farm",
 				**_summary(rs, target),
+				"harvested": harvested.get(farm, 0),
 				"from_harvest": sum(1 for r in rs if r["source"] == "Receiving"),
 				"from_farms": sum(1 for r in rs if r["source"] == "Remote Transfers"),
+				"from_farms_shelved": sum(
+					1 for r in rs if r["source"] == "Remote Transfers" and r["shelving"]
+				),
 				"waiting": sum(1 for r in waiting if r["farm"] == farm),
 				"called": calls,
 				"missing": miss_by_farm.get(farm, 0),
@@ -217,28 +239,35 @@ def get_shelving_performance(**kw):
 			}
 		)
 
-	in_range = [s for s in shelvings if a["from_date"] <= s.shelved_on.date() <= a["to_date"]]
+	# who shelved what was received: each receipt of the dates picked counts once, for the person who shelved it
+	# (its first shelving in that cold room) -- never more than was received. Moves between shelves, re-shelving
+	# and the extra rows of a bucket carrying several varieties are not shelving what came in.
 	people = {}
-	for s in in_range:
-		p = people.setdefault(
-			s.shelved_by or "",
-			{"user": s.shelved_by or "", "farms": set(), "buckets": 0, "stems": 0, "timed": []},
-		)
-		p["farms"].add(s.farm)
-		p["buckets"] += 1
-		p["stems"] += cint(s.stem_qty)
 	for r in receipts:
-		if r["shelving"] and r["shelving"].shelved_by in people:
-			people[r["shelving"].shelved_by]["timed"].append(r["minutes"])
+		sh = r["shelving"]
+		if not sh:
+			continue
+		p = people.setdefault(
+			sh.shelved_by or "",
+			{"user": sh.shelved_by or "", "farms": set(), "buckets": 0, "stems": 0.0, "timed": []},
+		)
+		p["farms"].add(r["farm"])
+		p["buckets"] += 1
+		p["stems"] += flt(r["stems"])
+		p["timed"].append(r["minutes"])
 	names = _names(
 		{u for u in people} | {r["received_by"] for r in waiting} | {m.reported_by for m in missing}
 	)
+	total_harvested = sum(harvested.values())
+	total_shelved = sum(p["buckets"] for p in people.values())
 	shelvers = sorted(
 		(
 			{
 				"user": u,
 				"name": names.get(u) or u or "Unknown",
 				"farms": ", ".join(sorted(f for f in p["farms"] if f)),
+				# received into their cold rooms, and how many of those they shelved
+				"received": sum(len(by_room.get(f, [])) for f in p["farms"] if f),
 				"buckets": p["buckets"],
 				"stems": p["stems"],
 				"timed": len(p["timed"]),
@@ -258,12 +287,32 @@ def get_shelving_performance(**kw):
 		for d, v in sorted(days.items())
 	]
 
+	by_variety = defaultdict(list)
+	for r in receipts:
+		by_variety[r["variety"] or ""].append(r)
+	waiting_ids = {id(r) for r in waiting}
+	varieties = sorted(
+		(
+			{
+				"variety": v or "No variety",
+				**_summary(rs, target),
+				"stems": sum(r["stems"] for r in rs),
+				"waiting": sum(1 for r in rs if id(r) in waiting_ids),
+			}
+			for v, rs in by_variety.items()
+		),
+		key=lambda x: -x["received"],
+	)
+
 	return {
 		"success": True,
 		"target_minutes": target,
+		"varieties": varieties,
 		"totals": {
 			**_summary(receipts, target),
 			"waiting": len(waiting),
+			"harvested": total_harvested,
+			"shelved_buckets": total_shelved,
 			"called": sum(x["called"] for x in rooms),
 			"missing": len(missing),
 			"missing_pct": _pct(len(missing), sum(x["called"] for x in rooms)),
