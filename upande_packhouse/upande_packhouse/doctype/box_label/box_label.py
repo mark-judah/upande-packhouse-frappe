@@ -34,6 +34,14 @@ class BoxLabel(Document):
 	def autoname(self):
 		self.name = new_box_code()
 
+	def validate(self):
+		# the order's delivery date, so the list filters by it (customer_purchase_order is the Sales Order)
+		if self.customer_purchase_order:
+			self.delivery_date = (
+				frappe.db.get_value("Sales Order", self.customer_purchase_order, "delivery_date")
+				or self.delivery_date
+			)
+
 
 @frappe.whitelist()
 def qr_codes(names: str | list | None = None, name: str | None = None):

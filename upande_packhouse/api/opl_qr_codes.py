@@ -36,8 +36,8 @@ from io import BytesIO
 
 import frappe
 import qrcode
-from frappe import _
-from frappe.utils import cint, scrub
+from frappe import _, scrub
+from frappe.utils import cint
 
 LABEL_DOCTYPES = ("Bucket QR Code", "Bunch QR Code", "Shelf QR Code")
 
