@@ -317,8 +317,19 @@ def get_location_config():
 		)
 
 	# Production Settings > Show Shortages in Sales Allocation: the Shortages tab shows only when ticked
-	show_shortages = cint(frappe.get_cached_doc("Production Settings").get("show_allocation_shortages"))
-	return {"locations": locations, "show_shortages": show_shortages}
+	ps = frappe.get_cached_doc("Production Settings")
+	show_shortages = cint(ps.get("show_allocation_shortages"))
+	return {
+		"locations": locations,
+		"show_shortages": show_shortages,
+		"bypass_cut_stage": bypass_cut_stage_default(),
+	}
+
+
+def bypass_cut_stage_default():
+	"""Production Settings > Bypass Cut Stage by Default (off until ticked): every order takes buckets of any
+	cut stage, on the page and in Allocate."""
+	return cint(frappe.get_cached_doc("Production Settings").get("bypass_cut_stage_by_default"))
 
 
 # ============================================================
@@ -788,14 +799,15 @@ def released_holders(bucket_ids):
 	# nosemgrep: frappe-sql-format-injection -- LIVE_HOLD_SQL is a constant; every value is bound
 	for r in frappe.db.sql(
 		f"""SELECT bas2.bucket_id, bas2.item_code, IFNULL(bas2.stem_length, '') AS stem_length,
-		           ba.sales_order, so.custom_order_name AS order_name, so.customer,
-		           SUM(ba.quantity_allocated) AS qty
+		           ba.sales_order, ba.sales_order_item, so.custom_order_name AS order_name, so.customer,
+		           so.delivery_date, soi.custom_length AS line_length, SUM(ba.quantity_allocated) AS qty
 		    FROM `tabBucket Allocations` ba
 		    JOIN `tabBucket Allocation Status` bas2 ON bas2.name = ba.parent
 		    LEFT JOIN `tabSales Order` so ON so.name = ba.sales_order
+		    LEFT JOIN `tabSales Order Item` soi ON soi.name = ba.sales_order_item
 		    WHERE ba.parenttype = 'Bucket Allocation Status' AND ba.cancelled = 0 AND IFNULL(ba.issued, 0) = 0
 		      AND bas2.bucket_id IN %(b)s AND {LIVE_HOLD_SQL}
-		    GROUP BY bas2.bucket_id, bas2.item_code, bas2.stem_length, ba.sales_order
+		    GROUP BY bas2.bucket_id, bas2.item_code, bas2.stem_length, ba.sales_order, ba.sales_order_item
 		    HAVING qty > 0""",
 		{"b": tuple(bucket_ids)},
 		as_dict=True,
@@ -803,9 +815,53 @@ def released_holders(bucket_ids):
 		out.setdefault((r.bucket_id, r.item_code, r.stem_length), []).append(
 			{
 				"sales_order": r.sales_order,
+				"sales_order_item": r.sales_order_item,
 				"order_name": r.order_name or r.sales_order,
 				"customer": r.customer or "",
+				"delivery_date": str(r.delivery_date or ""),
+				"variety": r.item_code,
+				"length": r.line_length or r.stem_length,
 				"qty": flt(r.qty),
+				# released: on the order's allocation (and its pick list), not waiting release
+				"kind": "released",
+			}
+		)
+	return out
+
+
+def pending_hold_lines(bucket_ids):
+	"""{(bucket, variety, length): [{sales_order, sales_order_item, order_name, customer, delivery_date,
+	variety, length, qty, kind}]}: the order lines whose allocation waiting release holds stems of the bucket."""
+	bucket_ids = [b for b in bucket_ids or [] if b]
+	if not bucket_ids or not frappe.db.table_exists("Pending Allocation Row"):
+		return {}
+	out = {}
+	for r in frappe.db.sql(
+		"""SELECT r.bucket_id, r.item_code, IFNULL(r.stem_length, '') AS stem_length, p.sales_order,
+		          r.sales_order_item, so.custom_order_name AS order_name, so.customer, so.delivery_date,
+		          soi.custom_length AS line_length, SUM(r.qty) AS qty
+		FROM `tabPending Allocation Row` r
+		JOIN `tabPending Allocation` p ON p.name = r.parent AND r.parenttype = 'Pending Allocation'
+		LEFT JOIN `tabSales Order` so ON so.name = p.sales_order
+		LEFT JOIN `tabSales Order Item` soi ON soi.name = r.sales_order_item
+		WHERE p.status = 'Pending' AND r.bucket_id IN %(b)s
+		GROUP BY r.bucket_id, r.item_code, IFNULL(r.stem_length, ''), p.sales_order, r.sales_order_item
+		HAVING qty > 0""",
+		{"b": tuple(bucket_ids)},
+		as_dict=True,
+	):
+		out.setdefault((r.bucket_id, r.item_code, r.stem_length), []).append(
+			{
+				"sales_order": r.sales_order,
+				"sales_order_item": r.sales_order_item,
+				"order_name": r.order_name or r.sales_order,
+				"customer": r.customer or "",
+				"delivery_date": str(r.delivery_date or ""),
+				"variety": r.item_code,
+				"length": r.line_length or r.stem_length,
+				"qty": flt(r.qty),
+				# allocated, waiting release
+				"kind": "pending",
 			}
 		)
 	return out
@@ -1161,6 +1217,7 @@ def get_sales_order_items_with_buckets(
 	pending = pending_holds({b["bucket_id"] for b in buckets})
 	# Stems released orders hold: shown with the order that holds them
 	released = released_holders({b["bucket_id"] for b in buckets})
+	pending_lines = pending_hold_lines({b["bucket_id"] for b in buckets})
 	# A remote farm's bucket is requested whole: one order holding it takes the whole bucket off the farm
 	owners = remote_bucket_owners(
 		{b["bucket_id"] for b in buckets if not farm_config.get(b["shelf_farm"], {}).get("sales_shelf")}
@@ -1222,10 +1279,8 @@ def get_sales_order_items_with_buckets(
 			if not is_sales_shelf and owners.get(b["bucket_id"], set()) - {sales_order}:
 				available_here = 0.0
 
-			# Fully allocated elsewhere: nothing to allocate and nothing to
-			# unallocate from this line, so keep it off the list -- unless another
-			# order holds it waiting confirmation, which is shown with that order.
-			if available_here <= 0 and not allocated_here and not held_for:
+			# Nothing free here and nothing of it on this line: kept off the list, whoever holds it
+			if available_here <= 0 and not allocated_here:
 				continue
 
 			entry = {
@@ -1251,6 +1306,12 @@ def get_sales_order_items_with_buckets(
 				"in_transit": cint(b.get("in_transit")),
 				# allocated to other orders, waiting their confirmation: [{"sales_order", "qty"}]
 				"held_for": [{"sales_order": so, "qty": q} for so, q in held_for],
+				# the same, line by line, for the page to show and take the bucket back from
+				"held_for_lines": [
+					h
+					for h in pending_lines.get((b["bucket_id"], b["item_code"], b["stem_length"] or ""), [])
+					if h["sales_order"] != sales_order
+				],
 				# released orders holding stems of it (already taken off available_qty)
 				"held_by": [
 					h
@@ -1285,9 +1346,13 @@ def get_sales_order_items_with_buckets(
 			else (max(farm_exact_qty, key=farm_exact_qty.get) if farm_exact_qty else None)
 		)
 
+		def full_held(b):
+			"""Nothing free here: every stem held by other orders (waiting release or on their pick lists)."""
+			return bool(b.get("held_for") or b.get("held_by")) and (b["available_qty"] or 0) <= 0
+
 		def sort_key(b):
 			# buckets held for other orders (nothing free here) go after every free one
-			held = 1 if b.get("held_for") and (b["available_qty"] or 0) <= 0 else 0
+			held = 1 if full_held(b) else 0
 			remote = 0 if farm_config.get(b["shelf_farm"], {}).get("sales_shelf") else 1
 			return (held, remote, b["age_days"] * -1)
 
@@ -1296,9 +1361,7 @@ def get_sales_order_items_with_buckets(
 
 		compatible = exact + downgrade
 		# every free bucket first, then those held for other orders
-		compatible = [b for b in compatible if not (b.get("held_for") and (b["available_qty"] or 0) <= 0)] + [
-			b for b in compatible if b.get("held_for") and (b["available_qty"] or 0) <= 0
-		]
+		compatible = [b for b in compatible if not full_held(b)] + [b for b in compatible if full_held(b)]
 
 		item["batches"] = compatible
 		item["total_available_qty"] = sum(b["available_qty"] for b in compatible)
@@ -2362,7 +2425,7 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 	# written, instead of failing as "Overpacked" once the pick list is built.
 	allocations, fit_notes = _fit_allocations_to_boxes(so_doc, allocations)
 	# a mix goes on a pick list in complete boxes only (target_opl: a replacement into the box being packed)
-	if not target_opl:
+	if not target_opl and not part_boxes_on():
 		allocations, mix_notes = _whole_mix_boxes(so_doc, allocations)
 		fit_notes += mix_notes
 	business_unit = stock_movement.business_unit_of(so_doc)
@@ -3308,9 +3371,9 @@ def opl_submit_blockers(opl):
 
 	# Production Settings > Allow Partial Packing: packing starts on the complete boxes allocated so
 	# far; what is allocated later is added to the same pick list and packed as it completes boxes.
-	if (
-		partial_packing_on()
-		and complete_boxes(required_so_items, grouped=bool(opl_mix_group or opl_bunch_group))[0]
+	if partial_packing_on() and (
+		(part_boxes_on() and any(_cumulative_allocated_stems(s) > 0 for s in required_so_items))
+		or complete_boxes(required_so_items, grouped=bool(opl_mix_group or opl_bunch_group))[0]
 	):
 		return blockers
 
@@ -3354,6 +3417,13 @@ def _box_lines_of(opl):
 
 def partial_packing_on():
 	return bool(cint(frappe.get_cached_doc("Production Settings").get("allow_partial_packing")))
+
+
+def part_boxes_on():
+	"""Allow Partial Allocation and Allow Partial Packing both on (Production Settings): whatever is on the
+	shelves is allocated, released and packed, part boxes included, instead of only the boxes it completes."""
+	ps = frappe.get_cached_doc("Production Settings")
+	return bool(cint(ps.get("allow_partial_allocation")) and cint(ps.get("allow_partial_packing")))
 
 
 def complete_boxes(so_items, grouped=False):

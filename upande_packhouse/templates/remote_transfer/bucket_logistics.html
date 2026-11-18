@@ -351,8 +351,14 @@
     return '<div class="ov-varieties">' + show + (v.length > 3 ? '<div class="ov-sub">+' + (v.length - 3) + ' more</div>' : '') + '</div>';
   }
   var OV_TRIP_CLASS = { Dispatched: 'is-dispatched', Received: 'is-received' };
+  // a Dispatched trip has left its last farm: it is on the road to the sales farm it delivers to
+  function tripStatus(t) {
+    if (!t) return '';
+    if (t.status === 'Dispatched') return 'In transit to ' + (t.heading_to || t.sales_farm || 'the sales farm');
+    return t.status || '';
+  }
   function ovTripLineHtml(t) {
-    var st = t.status === 'Received' ? 'ended' : (t.arrived_at ? 'arrived' : (t.loaded_buckets && (t.status === 'Draft' || t.status === 'Scheduled') ? 'loading' : String(t.status || '').toLowerCase()));
+    var st = t.status === 'Received' ? 'ended' : (t.arrived_at ? 'arrived' : (t.loaded_buckets && (t.status === 'Draft' || t.status === 'Scheduled') ? 'loading' : (t.status === 'Dispatched' ? tripStatus(t) : String(t.status || '').toLowerCase())));
     var qty = ovTripQty(t);
     return '<div class="ov-trip"><span class="ov-trip-chip ' + (OV_TRIP_CLASS[t.status] || '') + '" title="' + esc(t.trip) + ' · ' + esc(t.trip_date) + '">' + esc(t.vehicle || t.trip) + (t.run ? ' · Trip ' + t.run : '') + (t.farm ? ' · ' + esc(t.farm) : '') + ' · ' + esc(st) + '</span><div class="ov-trip-qty">' + esc(qty) + '</div></div>';
   }
@@ -757,7 +763,7 @@
       var trips = Object.keys(tripMap).map(function (k) { return tripMap[k]; }).sort(function (a, b) { return (a.run || 0) - (b.run || 0); });
       var orderMap = {}; rows.forEach(function (r) { orderMap[r.opl] = orderMap[r.opl] || r; });
       var orders = Object.keys(orderMap).map(function (k) { return orderMap[k]; }).sort(function (a, b) { return (a.order_name || '').localeCompare(b.order_name || ''); });
-      var head = '<th>Order</th>' + trips.map(function (t) { return '<th>' + esc((t.vehicle || t.trip) + (t.run ? ' · Trip ' + t.run : '')) + '<div class="pv-th-sub">' + esc(t.status) + '</div></th>'; }).join('') + '<th>Not scheduled</th><th>Stage</th>';
+      var head = '<th>Order</th>' + trips.map(function (t) { return '<th>' + esc((t.vehicle || t.trip) + (t.run ? ' · Trip ' + t.run : '')) + '<div class="pv-th-sub">' + esc(tripStatus(t)) + '</div></th>'; }).join('') + '<th>Not scheduled</th><th>Stage</th>';
       var body = orders.map(function (o) {
         var mine = rows.filter(function (r) { return r.opl === o.opl; });
         var cells = trips.map(function (t) {
@@ -793,7 +799,7 @@
     var cols = keys.map(function (k) {
       var g = byTrip[k];
       var head = g.trip
-        ? (esc((g.trip.vehicle || g.trip.trip) + (g.trip.run ? ' · Trip ' + g.trip.run : '')) + '<div class="bd-sub">' + esc(g.farm) + ' · ' + esc(g.trip.status) + '</div>')
+        ? (esc((g.trip.vehicle || g.trip.trip) + (g.trip.run ? ' · Trip ' + g.trip.run : '')) + '<div class="bd-sub">' + esc(g.farm) + ' · ' + esc(tripStatus(g.trip)) + '</div>')
         : ('<i>Not scheduled</i><div class="bd-sub">' + esc(g.farm) + '</div>');
       var cards = g.rows.map(function (r) {
         return '<div class="bd-card"><b>' + esc(r.order_name) + '</b>' + ovTeamTag(r) + '<div class="ov-sub">' + esc(r.customer || '') + '</div><div class="bd-pills">' + ovStagePills(r) + '</div></div>';
@@ -865,7 +871,7 @@
             tripsHtml = byOrder[opl].map(function (r) {
               if (!r.trip) return '<div class="tr-trip-row"><span class="ov-sub">' + esc(r.section || 'Not scheduled') + '</span></div>';
               var t = r.trip, qty = ovTripQty(t);
-              return '<div class="tr-trip-row"><span class="ov-trip-chip">' + esc((t.vehicle || t.trip) + (t.run ? ' · Trip ' + t.run : '')) + ' · ' + esc(t.status) + '</span><span class="ov-sub">' + esc(qty) + '</span></div>';
+              return '<div class="tr-trip-row"><span class="ov-trip-chip">' + esc((t.vehicle || t.trip) + (t.run ? ' · Trip ' + t.run : '')) + ' · ' + esc(tripStatus(t)) + '</span><span class="ov-sub">' + esc(qty) + '</span></div>';
             }).join('');
           }
           return '<div class="tr-order">' +
@@ -989,7 +995,7 @@
       var tFarms = g.trip ? ttTripFarms(g) : {};
       var farmsChips = '<span class="tt-trip-farms">' + Object.keys(tFarms).sort().map(function (f) { return '<span class="tt-trip-farm">' + esc(f) + ' <b>' + tFarms[f] + '</b></span>'; }).join('') + '</span>';
       var tLabel = g.trip
-        ? (esc((g.trip.vehicle || g.trip.trip) + (g.trip.run ? ' · Trip ' + g.trip.run : '')) + ' <span class="ov-sub">· ' + esc(g.trip.status) + (g.trip.trip_date ? ' · ' + esc(g.trip.trip_date) : '') + '</span>')
+        ? (esc((g.trip.vehicle || g.trip.trip) + (g.trip.run ? ' · Trip ' + g.trip.run : '')) + ' <span class="ov-sub">· ' + esc(tripStatus(g.trip)) + (g.trip.trip_date ? ' · ' + esc(g.trip.trip_date) : '') + '</span>')
         : (tkey === 'NOTRUCK' ? '<i>No truck yet</i>' : '<i>Not scheduled</i>');
       var farmsHtml = '';
       if (!tShut) {

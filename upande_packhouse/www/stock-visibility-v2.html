@@ -586,13 +586,13 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
   };
   const ORDER = [].concat(GROUP_STATES.sellable, GROUP_STATES.soon, GROUP_STATES.committed, GROUP_STATES.withheld);
   const SHELF = ["sellable", "cooling", "committed_live", "reclaimable", "too_old", "discard", "farm_disabled"];
-  const STALE = { order_cancelled: "Order cancelled", delivery_passed: "Delivery date has passed", bucket_reused: "Bucket was harvested again", discard_held: "Bucket is on a discard request", bucket_gone: "Bucket is on no shelf", not_found: "Bucket marked not found" };
-  const RISK = ["discard_held", "bucket_gone", "not_found"];
-  const TSTALE = { order_cancelled: "Order cancelled", delivery_passed: "Delivery date has passed", bucket_reused: "Bucket was harvested again", no_order: "In transit with nothing allocated" };
+  const STALE = { no_order: "No order", order_cancelled: "Order cancelled", delivery_passed: "Delivery date has passed", bucket_reused: "Bucket was harvested again", discard_held: "Bucket is on a discard request", bucket_gone: "Bucket is on no shelf", not_found: "Bucket marked not found" };
+  const RISK = ["bucket_reused", "discard_held", "bucket_gone", "not_found"];
+  const TSTALE = { order_cancelled: "Order cancelled", delivery_passed: "Delivery date has passed", no_order: "No order" };
   /* the two to-do lists: stale allocations, and buckets held by stale transfers. Same layout, search and release. */
   const KIND = {
-    health: { p: "h", api: "allocations", arg: null, key: "reason", labels: STALE, data: null, seq: 0, sel: new Set(), what: "allocation", kpis: ["Stale stems", "Orders", "Allocated in total", "Also on a discard request"], rel: "Release stale allocations…", all: "Every stale allocation that can be released", none: "No allocations are held by cancelled or past-due orders, or by buckets harvested again." },
-    transfers: { p: "t", api: "transfers", arg: "transfers", key: "treason", labels: TSTALE, data: null, seq: 0, sel: new Set(), what: "transfer", kpis: ["Stale stems", "Orders", "In transfers in total", ""], rel: "Release stale transfers…", all: "Every stale transfer that can be released", none: "No bucket is held by a transfer for a cancelled or past-due order, or for a bucket harvested again." },
+    health: { p: "h", api: "allocations", arg: null, key: "reason", labels: STALE, data: null, seq: 0, sel: new Set(), what: "allocation", kpis: ["Stale stems", "Orders", "Allocated in total", "Also on a discard request"], rel: "Release stale allocations…", all: "Every stale allocation that can be released", none: "No allocations are held by missing, cancelled or past-due orders." },
+    transfers: { p: "t", api: "transfers", arg: "transfers", key: "treason", labels: TSTALE, data: null, seq: 0, sel: new Set(), what: "transfer", kpis: ["Stale stems", "Orders", "In transfers in total", ""], rel: "Release stale transfers…", all: "Every stale transfer that can be released", none: "No bucket is held by a transfer for a missing, cancelled or past-due order." },
   };
   const REFDOC = { discard: "Discard Request", reclaimable: "Sales Order", committed_live: "Sales Order", committed_transit: "Order Pick List", coldroom: "Stock Entry", awaiting: "Stock Entry", unreceived: "Stock Entry" };
 

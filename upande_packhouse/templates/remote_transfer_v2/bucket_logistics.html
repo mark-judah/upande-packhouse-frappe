@@ -378,7 +378,7 @@
     const farmCount = PH.uniq(g.rows.map((r) => r.farm)).length, orderCount = PH.uniq(g.rows.map((r) => r.opl)).length;
     const tf = t ? tripFarms(g) : {};
     const chips = '<span class="bl-trip-farms">' + Object.keys(tf).sort().map((f) => `<span class="bl-chip">${esc(f)} <b>${tf[f]}</b></span>`).join("") + "</span>";
-    const label = t ? `${esc((t.vehicle || t.trip) + (t.run ? " · Trip " + t.run : ""))} <span class="bl-sub">· ${esc(t.status)}${t.trip_date ? " · " + esc(t.trip_date) : ""}</span>` : "<i>Not scheduled</i>";
+    const label = t ? `${esc((t.vehicle || t.trip) + (t.run ? " · Trip " + t.run : ""))} <span class="bl-sub">· ${esc(t.status === "Dispatched" ? "In transit to " + (t.heading_to || t.sales_farm || "the sales farm") : t.status)}${t.trip_date ? " · " + esc(t.trip_date) : ""}</span>` : "<i>Not scheduled</i>";
     let h = `<div class="bl-trip"><div class="bl-trip-h bl-tgl" data-tgl="t:${esc(tk)}">${car(open)}<span>${label}</span>${t ? tripTimes(g) : ""}${chips}<span class="bl-count">${farmCount} farm${ST(farmCount)} · ${orderCount} order${ST(orderCount)}</span>` +
       `<button type="button" class="bl-exp" data-tripall="${esc(tk)}">${tripAllOpen(tk) ? "Collapse" : "Expand"}</button></div>` + (t ? tripLoad(g) : "");
     if (open) {

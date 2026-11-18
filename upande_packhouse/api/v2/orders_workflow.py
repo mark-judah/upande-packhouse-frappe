@@ -64,8 +64,10 @@ STEM_MEASURES = (
 # the furthest stage with any stems, plus whether that stage is complete.
 STAGE_LABEL = {
 	"notalloc": "Not allocated",
-	"allocating": "Allocating",
-	"to_issue": "To issue",
+	# a draft pick list: its buckets still coming from a remote farm, or not every box allocated yet
+	"awaiting": "Waiting transfer",
+	"allocating": "Part allocated",
+	"to_issue": "Ready to issue",
 	"issuing": pipeline.stage_word("issued", "partial"),
 	"to_pack": "To pack",  # fully issued, nothing packed yet
 	"packing": pipeline.stage_word("packed", "partial"),
@@ -83,7 +85,7 @@ STAGE_LABEL = {
 # Stage tabs on the page (Order Summary's buckets) -> the row stages they hold.
 BUCKETS = {
 	"notalloc": ("notalloc",),
-	"issue": ("allocating", "to_issue", "issuing"),
+	"issue": ("awaiting", "allocating", "to_issue", "issuing"),
 	"pack": ("to_pack", "packing"),
 	"packed": ("packed",),
 	"precooling": ("precooling", "precooled"),
@@ -178,21 +180,48 @@ def _opl_farms(opls):
 
 def _pairs(opl_names):
 	"""{(opl, soi): {picked, issued, planned}} -- pipeline steps 4/5 kept per pair."""
-	out = defaultdict(lambda: {"picked_stems": 0.0, "issued_stems": 0.0, "planned_stems": 0.0, "buckets": 0})
+	out = defaultdict(
+		lambda: {
+			"picked_stems": 0.0,
+			"ready_issue_stems": 0.0,
+			"issued_stems": 0.0,
+			"ready_pack_stems": 0.0,
+			"waiting_stems": 0.0,
+			"planned_stems": 0.0,
+			"buckets": 0,
+		}
+	)
 	if not opl_names:
 		return out
+	# ready to issue: the bucket is at the sales farm (shelved there, or never needed a transfer), or already
+	# issued; ready to pack: issued on a pick list released to packing (submitted)
 	for r in frappe.db.sql(
-		"""SELECT parent AS opl, sales_order_item AS soi, SUM(stock_qty) AS picked,
-		          SUM(CASE WHEN issued = 1 OR issued_offline = 1 THEN stock_qty ELSE 0 END) AS issued,
-		          COUNT(DISTINCT UPPER(bucket)) AS buckets
-		   FROM `tabPick List Item` WHERE parent IN %(o)s
-		   GROUP BY parent, sales_order_item""",
+		"""SELECT p.parent AS opl, p.sales_order_item AS soi, SUM(p.stock_qty) AS picked,
+		          SUM(CASE WHEN p.issued = 1 OR p.issued_offline = 1 THEN p.stock_qty ELSE 0 END) AS issued,
+		          SUM(CASE WHEN p.issued = 1 OR p.issued_offline = 1 OR IFNULL(p.custom_ready_for_packing, 0) = 1
+		                   OR (IFNULL(p.awaiting_transfer, 0) = 0 AND IFNULL(p.in_transit, 0) = 0
+		                       AND IFNULL(p.loaded_in_trolley, 0) = 0 AND IFNULL(p.not_found, 0) = 0)
+		              THEN p.stock_qty ELSE 0 END) AS ready_issue,
+		          SUM(CASE WHEN (p.issued = 1 OR p.issued_offline = 1) AND o.docstatus = 1
+		              THEN p.stock_qty ELSE 0 END) AS ready_pack,
+		          SUM(CASE WHEN IFNULL(p.issued, 0) = 0 AND IFNULL(p.issued_offline, 0) = 0
+		                   AND IFNULL(p.not_found, 0) = 0 AND IFNULL(p.custom_ready_for_packing, 0) = 0
+		                   AND (IFNULL(p.awaiting_transfer, 0) = 1 OR IFNULL(p.in_transit, 0) = 1
+		                        OR IFNULL(p.loaded_in_trolley, 0) = 1)
+		              THEN p.stock_qty ELSE 0 END) AS waiting,
+		          COUNT(DISTINCT UPPER(p.bucket)) AS buckets
+		   FROM `tabPick List Item` p JOIN `tabOrder Pick List` o ON o.name = p.parent
+		   WHERE p.parent IN %(o)s
+		   GROUP BY p.parent, p.sales_order_item""",
 		{"o": tuple(opl_names)},
 		as_dict=True,
 	):
 		c = out[(r.opl, r.soi)]
 		c["picked_stems"] += _num(r.picked)
+		c["ready_issue_stems"] += _num(r.ready_issue)
 		c["issued_stems"] += _num(r.issued)
+		c["ready_pack_stems"] += _num(r.ready_pack)
+		c["waiting_stems"] += _num(r.waiting)
 		c["buckets"] += int(r.buckets or 0)
 	for r in frappe.db.sql(
 		"""SELECT parent AS opl, sales_order_item AS soi, SUM(stems) AS stems
@@ -419,6 +448,12 @@ def _documents(sos):
 # are counted once per distinct pick list.
 
 
+def _full_boxes(o):
+	"""A pick list's boxes packed to 100%: every variety of the Packing Guide in it. A box closed short on purpose
+	(an under-pack reason) is finished, but not counted as packed."""
+	return len(set(o.get("complete_boxes") or ()) - set(o.get("under_packed_boxes") or ()))
+
+
 def _ladder(it):
 	"""[(core stage, stems done, stems expected)] for an item. Issuing is against
 	what is picked on the pick list, packing against the Packing Guide plan, every
@@ -440,7 +475,8 @@ def _stage(it):
 	if not it["opl"]:
 		return "notalloc"
 	if it["docstatus"] == 0:
-		return "allocating"
+		# a draft waits for its remote buckets, else for the rest of its allocation
+		return "awaiting" if it.get("opl_waiting") else "allocating"
 	far = None
 	for stage, done, total in _ladder(it):
 		if done > 0:
@@ -463,11 +499,49 @@ def _stage(it):
 	return word[1] if whole else word[0]
 
 
+#: the steps before and between issuing and packing the order card shows: (stage, in progress, done)
+READY_WORDS = {
+	"allocated": ("Allocating", "Allocated"),
+	"ready_issue": ("Ready to issue", "Ready to issue"),
+	"ready_pack": ("Ready to pack", "Ready to pack"),
+}
+
+
 def _progress(it):
-	"""Per-stage bars for the order card: [{stage, word, done, total, state}].
-	`word` follows the one rule (Loaded only when complete, else Loading)."""
+	"""Per-stage bars for the order card: [{stage, word, done, total, state}]: allocated (on the pick list of the
+	ordered stems), ready to issue (at the sales farm), issued, ready to pack (issued on a pick list released to
+	packing), then packed onwards. `word` follows the one rule (Loaded only when complete, else Loading)."""
+	ladder = {stage: (stage, done, total) for stage, done, total in _ladder(it)}
+	picked = it["picked_stems"]
+	# the order the packhouse works in: packed, staged, then precooled
+	steps = [
+		("allocated", picked, it["ordered_stems"] or picked),
+		("ready_issue", it.get("ready_issue_stems", 0.0), picked),
+		ladder["issued"],
+		("ready_pack", it.get("ready_pack_stems", 0.0), picked),
+		ladder["packed"],
+		ladder["staged"],
+		ladder["precooling"],
+		ladder["loaded"],
+		ladder["dispatched"],
+	]
 	out = []
-	for stage, done, total in _ladder(it):
+	for stage, done, total in steps:
+		if stage in READY_WORDS:
+			state = pipeline.stage_state(done, total)
+			doing, whole = READY_WORDS[stage]
+			out.append(
+				{
+					"stage": stage,
+					"word": ("Not " + whole[0].lower() + whole[1:])
+					if state == "none"
+					else (whole if state == "done" else doing),
+					"done": done,
+					"total": total,
+					"state": state,
+				}
+			)
+			continue
 		state = pipeline.stage_state(done, total)
 		out.append(
 			{
@@ -528,7 +602,7 @@ def _sum_items(items, opls):
 	t = {m: float(sum(i[m] for i in items)) for m in STEM_MEASURES}
 	names = {i["opl"] for i in items if i["opl"]}
 	t["planned_boxes"] = sum(opls[o].planned_box_count for o in names)
-	t["complete_boxes"] = sum(opls[o].complete_box_count for o in names)
+	t["complete_boxes"] = sum(_full_boxes(opls[o]) for o in names)
 	t["precooled_boxes"] = sum(opls[o].precooled_boxes for o in names)
 	t["staged_boxes"] = sum(opls[o].staged_boxes for o in names)
 	t["loaded_boxes"] = sum(opls[o].loaded_boxes for o in names)
@@ -650,6 +724,10 @@ def get_orders_workflow(
 		return farms is None or order_farm(so, opl) in farms
 
 	cells = _pairs(list(opls))
+	# pick lists with buckets still coming from a remote farm
+	opl_waiting = defaultdict(float)
+	for (o_, _soi), c_ in cells.items():
+		opl_waiting[o_] += c_["waiting_stems"]
 	order_names = {
 		r.name: r.custom_order_name
 		for r in frappe.get_all(
@@ -712,7 +790,9 @@ def get_orders_workflow(
 				"line_boxes": ln.boxes if primary else 0,
 				"stems_per_box": ln.stems_per_box,
 				"picked_stems": cell["picked_stems"] if cell else 0.0,
+				"ready_issue_stems": cell["ready_issue_stems"] if cell else 0.0,
 				"issued_stems": cell["issued_stems"] if cell else 0.0,
+				"ready_pack_stems": cell["ready_pack_stems"] if cell else 0.0,
 				"planned_stems": cell["planned_stems"] if cell else 0.0,
 				"delivery_notes": dns.get(ln.parent, []),
 				"sales_invoices": sis.get(ln.parent, []),
@@ -743,6 +823,7 @@ def get_orders_workflow(
 			)  # allocated partially: some stems on a pick list, not all
 			it["short_stems"] = max(0.0, ordered_here - line_picked) if it["partial"] else 0.0
 			it["name"] = " · ".join([oname, ln.item_code or "", ln.custom_length or "", o or "No pick list"])
+			it["opl_waiting"] = opl_waiting.get(o, 0.0) if o else 0.0
 			it["stage"] = _stage(it)
 			it["stage_label"] = STAGE_LABEL[it["stage"]]
 			it["progress"] = _progress(it)
@@ -783,7 +864,7 @@ def get_orders_workflow(
 		i["opl_boxes"] = (
 			{
 				"planned": o.planned_box_count,
-				"complete": o.complete_box_count,
+				"complete": _full_boxes(o),
 				"precooled": o.precooled_boxes,
 				"staged": o.staged_boxes,
 				"loaded": o.loaded_boxes,
