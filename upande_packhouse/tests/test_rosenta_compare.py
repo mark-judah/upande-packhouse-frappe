@@ -64,8 +64,8 @@ class TestHelpers(IntegrationTestCase):
 
 	def test_pairing_by_name_then_boxes(self):
 		r_list = [
-			{"name": "SANDY 34726", "boxes": 20, "stems": 5000, "status": "Dispatched"},
-			{"name": "OASIS 34726", "boxes": 5, "stems": 1000, "status": "Dispatched"},
+			{"name": "SANDY 34726", "boxes": 20, "stems": 5000, "status": "Dispatched", "lines": []},
+			{"name": "OASIS 34726", "boxes": 5, "stems": 1000, "status": "Dispatched", "lines": []},
 		]
 		e_list = [
 			{"name": "SAL-ORD-1", "boxes": 5, "stems": 1000, "status": "To Deliver and Bill"},
@@ -73,12 +73,106 @@ class TestHelpers(IntegrationTestCase):
 			{"name": "SAL-ORD-3", "boxes": 9, "stems": 900, "status": "To Deliver and Bill"},
 		]
 		label = {"SAL-ORD-1": "OASIS-04701", "SAL-ORD-2": "SANDY-04809", "SAL-ORD-3": "OTHER-04999"}
-		pairs = rc._pair_orders(r_list, e_list, label)
-		by_r = {p["r_name"]: p for p in pairs if p["r_name"]}
-		self.assertEqual(by_r["SANDY 34726"]["e_so"], "SAL-ORD-2")
-		self.assertEqual(by_r["OASIS 34726"]["e_so"], "SAL-ORD-1")
-		lone = [p for p in pairs if not p["r_name"]]
-		self.assertEqual([p["e_so"] for p in lone], ["SAL-ORD-3"])
+		pairs = rc._pair_orders(r_list, e_list, label, {})
+		by_r = {p["rosenta"]["name"]: p for p in pairs if p["rosenta"]}
+		self.assertEqual(by_r["SANDY 34726"]["erpnext"]["so"], "SAL-ORD-2")
+		self.assertEqual(by_r["OASIS 34726"]["erpnext"]["so"], "SAL-ORD-1")
+		lone = [p for p in pairs if not p["rosenta"]]
+		self.assertEqual([p["erpnext"]["so"] for p in lone], ["SAL-ORD-3"])
+
+	def test_lines_pair_on_variety_and_pack_rate(self):
+		r_lines = [
+			{
+				"line": "AGT 926 YELLOWEEN 340",
+				"pack_rate": 340,
+				"boxes": 1,
+				"stems": 340,
+				"length": 60,
+				"box_type": "X",
+			},
+			{
+				"line": "AGT 926 PINK 380",
+				"pack_rate": 380,
+				"boxes": 1,
+				"stems": 380,
+				"length": 60,
+				"box_type": "X",
+			},
+			{
+				"line": "AGT SAMPLE 100",
+				"pack_rate": 100,
+				"boxes": 1,
+				"stems": 100,
+				"length": 60,
+				"box_type": "X",
+			},
+		]
+		e_lines = [
+			{"variety": "Wham", "length": "62cm", "mix_name": "AGT 926 PINK 62CM", "pack_rate": 380, "boxes": 2, "stems": 760},
+			{"variety": "Yelloween", "length": "62cm", "mix_name": "", "pack_rate": 340, "boxes": 1, "stems": 340},
+			{"variety": "Rare", "length": "50cm", "mix_name": "", "pack_rate": 999, "boxes": 1, "stems": 999},
+		]  # fmt: skip
+		pairs = rc._pair_lines(r_lines, e_lines)
+		both = {p["label"]: p for p in pairs if p["rosenta"] and p["erpnext"]}
+		self.assertEqual(both["AGT 926 YELLOWEEN 340"]["erpnext"]["variety"], "Yelloween")  # by variety
+		self.assertEqual(both["AGT 926 PINK 380"]["erpnext"]["variety"], "Wham")  # by pack rate and spec name
+		self.assertEqual(both["AGT 926 PINK 380"]["erpnext"]["boxes"], 2)  # the real difference stays visible
+		self.assertEqual([p["label"] for p in pairs if not p["erpnext"]], ["AGT SAMPLE 100"])
+		self.assertEqual([p["label"] for p in pairs if not p["rosenta"]], ["Rare 50cm"])
+
+	def test_rosenta_orders_keep_the_lines_with_pack_rate_and_boxes(self):
+		rows = [
+			{
+				"order_delivery_date": "18/11/2026", "order_id": "o1", "order_name": " AGT  34726 ", "customer": "Agrotropic",
+				"order_status": "Dispatched", "line": "AGT 926 PINK 380", "grade": 60, "pack_rate": 380,
+				"box_type": "Cargolite", "stems_confirmed": 760, "stems_staged": 380, "stems_loaded": 0,
+				"teams": '[{"team_name":"JMF","box_count":"2"}]',
+			},
+			{"order_delivery_date": "19/11/2026", "order_id": "o2", "customer": "Other"},
+		]  # fmt: skip
+		out = rc._rosenta_orders(rows, "18/11/2026")
+		self.assertEqual(list(out), ["o1"])
+		o = out["o1"]
+		self.assertEqual((o["name"], o["boxes"], o["stems"], o["staged"]), ("AGT  34726", 2, 760, 380))
+		self.assertEqual(
+			o["lines"],
+			[
+				{
+					"line": "AGT 926 PINK 380",
+					"length": 60,
+					"box_type": "Cargolite",
+					"boxes": 2,
+					"pack_rate": 380,
+					"stems": 760,
+				}
+			],
+		)
+
+	def test_rosenta_customer_boxes_sum_the_teams(self):
+		ops = {
+			"Eldama": {"o1": {"s1": {"customer": "Oasis", "boxes_packed": 3, "boxes_staged": 3, "boxes_loaded": 1}}},
+			"JMF": {"o1": {"s1": {"customer": "Oasis", "boxes_packed": 2, "boxes_staged": 1, "boxes_loaded": 0}}},
+		}  # fmt: skip
+		self.assertEqual(rc._rosenta_customer_boxes(ops), {"Oasis": {"packed": 5, "staged": 4, "loaded": 1}})
+		self.assertEqual(rc._rosenta_customer_boxes(None), {})
+
+	def test_erp_lines_use_primary_items_only(self):
+		wf = {
+			"sections": [
+				{
+					"rows": [
+						{"sales_order": "SO1", "primary": True, "variety": "Wham", "length": "62cm", "box_type": "Pro",
+						 "mix_name": None, "line_boxes": 2, "stems_per_box": 380, "ordered_stems": 760},
+						{"sales_order": "SO1", "primary": False, "variety": "Wham", "line_boxes": 0, "stems_per_box": 380, "ordered_stems": 0},
+					]
+				}
+			]
+		}  # fmt: skip
+		out = rc._erp_lines(wf)
+		self.assertEqual(len(out["SO1"]), 1)
+		self.assertEqual(
+			(out["SO1"][0]["boxes"], out["SO1"][0]["pack_rate"], out["SO1"][0]["stems"]), (2, 380, 760)
+		)
 
 	def test_rosenta_teams_sum_the_day_and_take_last_packed_from_both_days(self):
 		line = lambda **k: {  # noqa: E731
@@ -224,6 +318,11 @@ class TestComparisonCall(IntegrationTestCase):
 		self.assertEqual(out["date"], "2026-11-18")
 		for key in ("totals", "customers", "teams", "cancel_rosenta", "cancel_erpnext", "drafts"):
 			self.assertIn(key, out)
+		self.assertEqual(set(out["totals"]), {"rosenta", "erpnext"})
+		self.assertEqual(set(out["totals"]["rosenta"]), set(rc._SIDE_KEYS))
+		for c in out["customers"]:
+			self.assertEqual(set(c["rosenta"]), set(rc._SIDE_KEYS))
+			self.assertEqual(set(c["erpnext"]), set(rc._SIDE_KEYS))
 
 	def test_rosenta_operations_failing_still_returns_everything_else(self):
 		frappe.set_user("Administrator")
@@ -234,4 +333,5 @@ class TestComparisonCall(IntegrationTestCase):
 			out = rc.get_rosenta_comparison("2026-11-18")
 		self.assertTrue(out["success"], out.get("error"))
 		self.assertIn("login", (out["ops_error"] or "").lower())
-		self.assertTrue(all(t["r_packed"] is None for t in out["teams"] if t["team"] in dict(rc.TEAM_MAP)))
+		self.assertTrue(all(t["rosenta"] is None for t in out["teams"] if t["team"] in dict(rc.TEAM_MAP)))
+		self.assertIsNone(out["totals"]["rosenta"]["boxes_packed"])  # unknown, not zero
