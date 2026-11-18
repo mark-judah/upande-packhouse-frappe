@@ -87,7 +87,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
 .rc-row.go{cursor:pointer}
 .rc-row.go:hover{background:rgba(10,10,10,.025);border-radius:12px}
 .rc-row.total{border-top:0}
-.rc-row.total>div{padding-top:14px;padding-bottom:14px}
+.rc-row.total>div{padding-top:12px;padding-bottom:12px}.rc-row.total{background:rgba(10,10,10,.03);border-radius:12px;border-top:0;margin-top:4px}.rc-row.total .rc-name{font-weight:600}
 .rc-name{font:600 14px 'Poppins',sans-serif;color:var(--ink);overflow-wrap:anywhere}
 .rc-name small{display:block;font:400 12px 'Poppins',sans-serif;color:var(--ink-mute);margin-top:1px}
 .rc-arrow{color:var(--ink-faint);margin-left:6px;font-weight:400}
@@ -121,18 +121,17 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
 .rc-x{width:38px;height:38px;border:0;border-radius:50%;background:rgba(10,10,10,.05);color:var(--ink-4);font-size:20px;line-height:1;cursor:pointer;flex:none}
 .rc-x:hover{background:var(--ink);color:#fafaf6}
 .rc-panel__body{overflow-y:auto;padding:22px 30px 40px;flex:1}
-.rc-pair{background:var(--card);border-radius:20px;box-shadow:var(--shadow);margin-bottom:16px;padding:6px 6px 10px}
-.rc-pair__heads{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:14px 16px 6px}
-.rc-pair__who{border-radius:14px;padding:12px 16px;background:rgba(10,10,10,.035)}
-.rc-pair__who.e{background:var(--avo-100)}
-.rc-pair__who small{display:block;font:600 10.5px 'Poppins',sans-serif;text-transform:uppercase;letter-spacing:1.4px;color:var(--ink-mute);margin-bottom:2px}
-.rc-pair__who.e small{color:var(--avo-700)}
-.rc-pair__who b{display:block;font:600 13px 'Poppins',sans-serif;color:var(--ink);overflow-wrap:anywhere}
-.rc-pair__who span{display:block;font-size:12px;color:var(--ink-4);margin-top:2px}
+.rc-orderhead{border-top:1px solid var(--hair);margin-top:10px}
+.rc-orderhead>div{padding:14px 10px 4px!important}
+.rc-whos{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.rc-who small{display:inline-block;font:600 10.5px 'Poppins',sans-serif;text-transform:uppercase;letter-spacing:1.2px;padding:2px 10px;border-radius:999px;background:var(--ink);color:#fafaf6;margin-bottom:4px}
+.rc-who.e small{background:var(--avo-600)}
+.rc-who b{display:block;font:600 13px 'Poppins',sans-serif;color:var(--ink);overflow-wrap:anywhere}
+.rc-who span{display:block;font-size:12px;color:var(--ink-mute)}
 .rc-mixed{display:block;font:400 11.5px 'Poppins',sans-serif;color:var(--ink-mute);margin-top:3px}
 .rc-lenrow{display:block;font:400 11.5px 'Poppins',sans-serif;color:var(--ink-mute);margin-top:2px}
 
-@media (max-width:760px){.rc-top{padding:12px 16px}.rc-page{padding:24px 16px 60px}.rc-title{font-size:30px}.rc-pair__heads{grid-template-columns:1fr}.rc-panel__body{padding:18px 16px 32px}.rc-panel__head{padding:20px 16px 14px}}
+@media (max-width:760px){.rc-top{padding:12px 16px}.rc-page{padding:24px 16px 60px}.rc-title{font-size:30px}.rc-panel__body{padding:18px 16px 32px}.rc-panel__head{padding:20px 16px 14px}}
 </style>
 <script>document.documentElement.classList.add('rc-root');</script>
 <div class="rc" id="rc">
@@ -242,6 +241,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
         '<div class="rc-g rc-gh" style="--cols:' + tpl + ";--minw:" + minw + 'px"><div>' + esc(o.first || "") + "</div>" +
         cols.map(function (c, i) { var sep = i === 0 || gk(cols[i - 1]) !== gk(c); return '<div class="' + (c.text || c.html ? "" : "n") + (sep ? " sep" : "") + (c.grp ? " sub-" + c.side : "") + '">' + esc(subHead(c)) + "</div>"; }).join("") + "</div>";
       o.rows.forEach(function (r) {
+        if (r.full) { h += '<div class="rc-g rc-row rc-orderhead" style="--cols:' + tpl + ";--minw:" + minw + 'px"><div style="grid-column:1/-1">' + r.full + "</div></div>"; return; }
         h += '<div class="rc-g rc-row' + (r.go ? " go" : "") + (r.total ? " total" : "") + '" style="--cols:' + tpl + ";--minw:" + minw + 'px"' + (r.i != null ? ' data-i="' + r.i + '"' : "") + ">" +
           '<div class="rc-name">' + (r.nameHtml || esc(r.name)) + (r.go ? '<span class="rc-arrow">›</span>' : "") + (r.sub ? "<small>" + r.sub + "</small>" : "") + "</div>" +
           cols.map(function (c, i) {
@@ -313,17 +313,20 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       { h: "Stems", side: "s", w: "minmax(185px,1.2fr)", text: true, html: function (r) { return gapChip(r.r && r.r.stems, r.e && r.e.stems, "stems"); } }
     ]);
     function orderDetail(c) {
-      var h = "";
+      var sum = function (k, who) { return c.pairs.reduce(function (n, p) { return n + (p[who] ? p[who][k] : 0); }, 0); };
+      var who = function (label, cls, o, extra) {
+        return '<div class="rc-who ' + cls + '"><small>' + label + "</small>" + (o ? "<b>" + esc(o.name) + "</b><span>" + esc(extra) + "</span>" : '<b class="rc-none">No order</b>') + "</div>";
+      };
+      var rows = [{ name: "All orders of the customer", total: true,
+        r: { boxes: sum("boxes", "rosenta"), rate: null, stems: sum("stems", "rosenta") }, e: { boxes: sum("boxes", "erpnext"), rate: null, stems: sum("stems", "erpnext") } }];
       c.pairs.forEach(function (p) {
         var r = p.rosenta, e = p.erpnext;
-        h += '<section class="rc-pair"><div class="rc-pair__heads">' +
-          '<div class="rc-pair__who"><small>Rosenta</small>' + (r ? "<b>" + esc(r.name) + "</b><span>" + esc(r.status) + "</span>" : "<b>No order</b>") + "</div>" +
-          '<div class="rc-pair__who e"><small>ERPNext</small>' + (e ? "<b>" + esc(e.name) + "</b><span>" + esc(e.so) + " · " + esc(e.status) + "</span>" : "<b>No order</b>") + "</div></div>";
-        var rows = [{ name: "Order total", total: true, r: r && { boxes: r.boxes, rate: null, stems: r.stems }, e: e && { boxes: e.boxes, rate: null, stems: e.stems } }];
+        rows.push({ full: '<div class="rc-whos">' + who("Rosenta", "r", r, r ? r.status : "") + who("ERPNext", "e", e, e ? e.so + " · " + e.status : "") + "</div>" });
+        rows.push({ name: "Order total", total: true, r: r && { boxes: r.boxes, rate: null, stems: r.stems }, e: e && { boxes: e.boxes, rate: null, stems: e.stems } });
         p.lines.forEach(function (l) { rows.push({ nameHtml: lineName(l), r: lineSide(l.rosenta), e: lineSide(l.erpnext) }); });
-        h += grid({ first: "Line", cols: LINE_COLS, rows: rows, minw: 880 }) + "</section>";
       });
-      h += '<p class="rc-hint">ERPNext often splits one Rosenta order over several Sales Orders, so a line shown as missing may be in another ERPNext order of this customer. In ERPNext each variety of a mixed box is its own line; here they are added up into one box line so they compare with Rosenta.</p>';
+      var h = '<section class="rc-card">' + grid({ first: "Line", cols: LINE_COLS, rows: rows, minw: 880 }) + "</section>" +
+        '<p class="rc-hint">ERPNext often splits one Rosenta order over several Sales Orders, so a line shown as missing may be in another ERPNext order of this customer. In ERPNext each variety of a mixed box is its own line; here they are added up into one box line so they compare with Rosenta.</p>';
       openPanel(c.customer, "Orders for " + longDate(data.date) + ". Differences are ERPNext against Rosenta.", h);
     }
     // ---- packing
