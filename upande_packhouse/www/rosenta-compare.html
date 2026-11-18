@@ -81,6 +81,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
 .rc-grp span{display:inline-block;font:600 11px 'Poppins',sans-serif;letter-spacing:.6px;text-transform:none;padding:4px 12px;border-radius:999px}
 .rc-grp .r{background:var(--ink);color:#fafaf6}
 .rc-grp .e{background:var(--avo-600);color:#fff}
+.rc-gh .sub-r{color:var(--ink)}.rc-gh .sub-e{color:var(--avo-600)}
 .rc-grp .s{background:rgba(10,10,10,.05);color:var(--ink-4)}
 .rc-row{border-top:1px solid var(--hair);transition:background .15s}
 .rc-row.go{cursor:pointer}
@@ -92,7 +93,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
 .rc-arrow{color:var(--ink-faint);margin-left:6px;font-weight:400}
 .rc-row.go:hover .rc-arrow{color:var(--ink)}
 .rc-time b{display:block;font:600 14px 'Poppins',sans-serif;color:var(--ink);font-variant-numeric:tabular-nums}
-.rc-time small{display:block;font:400 11px 'Poppins',sans-serif;color:var(--ink-mute)}
+.rc-time small{display:block;white-space:nowrap;font:400 11px 'Poppins',sans-serif;color:var(--ink-mute)}
 .rc-none{color:var(--ink-faint)}
 
 .rc-chip{display:inline-block;padding:3px 11px;font:500 11.5px 'Poppins',sans-serif;border-radius:999px;white-space:nowrap;background:rgba(10,10,10,.05);color:var(--ink-4)}
@@ -232,17 +233,19 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       var tpl = (o.firstW || "minmax(210px,1.8fr)") + " " + cols.map(function (c) { return c.w || "minmax(78px,1fr)"; }).join(" ");
       var minw = o.minw || 0;
       var groups = [], last = null;
-      cols.forEach(function (c) { if (last && last.side === c.side) last.n++; else { last = { side: c.side, n: 1, label: c.side === "r" ? "Rosenta" : c.side === "e" ? "ERPNext" : (o.statusLabel || "Status") }; groups.push(last); } });
+      var gk = function (c) { return c.grp || c.side; };
+      cols.forEach(function (c) { if (last && last.key === gk(c)) last.n++; else { last = { key: gk(c), side: c.grp ? "s" : c.side, n: 1, label: c.grp || (c.side === "r" ? "Rosenta" : c.side === "e" ? "ERPNext" : (o.statusLabel || "Status")) }; groups.push(last); } });
+      var subHead = function (c) { return c.grp ? (c.side === "r" ? "Rosenta" : "ERPNext") : c.h; };
       var h = '<div class="rc-g rc-gh" style="--cols:' + tpl + ";--minw:" + minw + 'px"><div class="rc-grp"></div>' +
         groups.map(function (g) { return '<div class="rc-grp sep" style="grid-column:span ' + g.n + '"><span class="' + g.side + '">' + g.label + "</span></div>"; }).join("") +
         "</div>" +
         '<div class="rc-g rc-gh" style="--cols:' + tpl + ";--minw:" + minw + 'px"><div>' + esc(o.first || "") + "</div>" +
-        cols.map(function (c, i) { var sep = i === 0 || cols[i - 1].side !== c.side; return '<div class="' + (c.text || c.html ? "" : "n") + (sep ? " sep" : "") + '">' + esc(c.h) + "</div>"; }).join("") + "</div>";
+        cols.map(function (c, i) { var sep = i === 0 || gk(cols[i - 1]) !== gk(c); return '<div class="' + (c.text || c.html ? "" : "n") + (sep ? " sep" : "") + (c.grp ? " sub-" + c.side : "") + '">' + esc(subHead(c)) + "</div>"; }).join("") + "</div>";
       o.rows.forEach(function (r) {
         h += '<div class="rc-g rc-row' + (r.go ? " go" : "") + (r.total ? " total" : "") + '" style="--cols:' + tpl + ";--minw:" + minw + 'px"' + (r.i != null ? ' data-i="' + r.i + '"' : "") + ">" +
           '<div class="rc-name">' + (r.nameHtml || esc(r.name)) + (r.go ? '<span class="rc-arrow">›</span>' : "") + (r.sub ? "<small>" + r.sub + "</small>" : "") + "</div>" +
           cols.map(function (c, i) {
-            var sep = i === 0 || cols[i - 1].side !== c.side;
+            var sep = i === 0 || gk(cols[i - 1]) !== gk(c);
             var side = c.side === "r" ? r.r : c.side === "e" ? r.e : null;
             var inner;
             if (c.side === "s") inner = c.html ? c.html(r) : "";
@@ -271,11 +274,15 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
         '<button type="button" data-v="all"' + (st.show === "all" ? ' class="on"' : "") + ">All customers</button></div>";
     }
 
+    // two columns per measure, Rosenta then ERPNext, under one heading for the measure
+    function pair(k, h, o) {
+      o = o || {};
+      return [{ k: k, h: h, side: "r", grp: h, w: o.w, text: o.text, html: o.html, val: o.val }, { k: o.ek || k, h: h, side: "e", grp: h, w: o.w, text: o.text, html: o.html, val: o.val }];
+    }
+    function cat() { return Array.prototype.concat.apply([], arguments); }
+
     // ---- orders
-    var ORDER_COLS = [
-      { k: "orders", h: "Orders", side: "r" }, { k: "boxes", h: "Boxes", side: "r" }, { k: "stems", h: "Stems", side: "r" },
-      { k: "orders", h: "Orders", side: "e" }, { k: "boxes", h: "Boxes", side: "e" }, { k: "stems", h: "Stems", side: "e" }
-    ];
+    var ORDER_COLS = cat(pair("orders", "Orders"), pair("boxes", "Boxes"), pair("stems", "Stems"));
     function ordersView() {
       var t = data.totals;
       var cols = ORDER_COLS.concat([{ h: "Boxes", side: "s", w: "minmax(150px,1.2fr)", text: true, html: function (r) { return gapChip(r.r.boxes, r.e.boxes, "boxes"); } }]);
@@ -286,7 +293,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       $("rc-content").innerHTML =
         '<div class="rc-kpis">' + kpi("Orders", t.rosenta.orders, t.erpnext.orders, "orders") + kpi("Boxes ordered", t.rosenta.boxes, t.erpnext.boxes, "boxes") + kpi("Stems ordered", t.rosenta.stems, t.erpnext.stems, "stems") + "</div>" +
         showSwitch() +
-        card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 900, statusLabel: "Difference" }) : empty("No differences", "Every customer matches for this date.")) +
+        card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 920, statusLabel: "Difference" }) : empty("No differences", "Every customer matches for this date.")) +
         '<p class="rc-hint">Open a customer to see its orders line by line. Boxes are boxes ordered. Each difference is ERPNext measured against Rosenta.</p>';
     }
 
@@ -302,11 +309,9 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       var mixed = e && e.mixed ? '<span class="rc-mixed">Mixed box in ERPNext: ' + e.varieties.map(function (v) { return esc(v.name) + " " + num(v.per_box); }).join(" · ") + "</span>" : "";
       return esc(l.label) + (len ? '<span class="rc-lenrow">Stem length: ' + esc(len) + "</span>" : "") + (box ? '<span class="rc-lenrow">' + esc(String(box).replace(/\s+\d+mm.*$/, "")) + "</span>" : "") + mixed;
     }
-    var LINE_COLS = [
-      { k: "boxes", h: "Boxes", side: "r" }, { k: "rate", h: "Stems per box", side: "r", w: "minmax(96px,1fr)" }, { k: "stems", h: "Stems", side: "r" },
-      { k: "boxes", h: "Boxes", side: "e" }, { k: "rate", h: "Stems per box", side: "e", w: "minmax(96px,1fr)" }, { k: "stems", h: "Stems", side: "e" },
+    var LINE_COLS = cat(pair("boxes", "Boxes"), pair("rate", "Stems per box", { w: "minmax(84px,1fr)" }), pair("stems", "Stems"), [
       { h: "Stems", side: "s", w: "minmax(185px,1.2fr)", text: true, html: function (r) { return gapChip(r.r && r.r.stems, r.e && r.e.stems, "stems"); } }
-    ];
+    ]);
     function orderDetail(c) {
       var h = "";
       c.pairs.forEach(function (p) {
@@ -316,16 +321,13 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
           '<div class="rc-pair__who e"><small>ERPNext</small>' + (e ? "<b>" + esc(e.name) + "</b><span>" + esc(e.so) + " · " + esc(e.status) + "</span>" : "<b>No order</b>") + "</div></div>";
         var rows = [{ name: "Order total", total: true, r: r && { boxes: r.boxes, rate: null, stems: r.stems }, e: e && { boxes: e.boxes, rate: null, stems: e.stems } }];
         p.lines.forEach(function (l) { rows.push({ nameHtml: lineName(l), r: lineSide(l.rosenta), e: lineSide(l.erpnext) }); });
-        h += grid({ first: "Line", cols: LINE_COLS, rows: rows, minw: 760 }) + "</section>";
+        h += grid({ first: "Line", cols: LINE_COLS, rows: rows, minw: 880 }) + "</section>";
       });
       h += '<p class="rc-hint">ERPNext often splits one Rosenta order over several Sales Orders, so a line shown as missing may be in another ERPNext order of this customer. In ERPNext each variety of a mixed box is its own line; here they are added up into one box line so they compare with Rosenta.</p>';
       openPanel(c.customer, "Orders for " + longDate(data.date) + ". Differences are ERPNext against Rosenta.", h);
     }
     // ---- packing
-    var PACK_COLS = [
-      { k: "boxes_packed", h: "Packed", side: "r" }, { k: "boxes_staged", h: "Staged", side: "r" }, { k: "boxes_loaded", h: "Loaded", side: "r" }, { k: "stems_packed", h: "Stems packed", side: "r", w: "minmax(96px,1fr)" },
-      { k: "boxes_packed", h: "Packed", side: "e" }, { k: "boxes_staged", h: "Staged", side: "e" }, { k: "boxes_loaded", h: "Loaded", side: "e" }, { k: "stems_packed", h: "Stems packed", side: "e", w: "minmax(96px,1fr)" }
-    ];
+    var PACK_COLS = cat(pair("boxes_packed", "Packed"), pair("boxes_staged", "Staged"), pair("boxes_loaded", "Loaded"), pair("stems_packed", "Stems packed"));
     function packingView() {
       var t = data.totals;
       var cols = PACK_COLS.concat([{ h: "Stems packed", side: "s", w: "minmax(150px,1.2fr)", text: true, html: function (r) { return statusChip(r.status, r.r.stems_packed, r.e.stems_packed); } }]);
@@ -338,17 +340,13 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       $("rc-content").innerHTML = warn +
         '<div class="rc-kpis">' + kpi("Boxes packed", t.rosenta.boxes_packed, t.erpnext.boxes_packed, "boxes") + kpi("Boxes staged", t.rosenta.boxes_staged, t.erpnext.boxes_staged, "boxes") + kpi("Boxes loaded", t.rosenta.boxes_loaded, t.erpnext.boxes_loaded, "boxes") + "</div>" +
         showSwitch() +
-        card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 1080, statusLabel: "Difference" }) : empty("Nothing to show", "No packing differences for this date.")) +
+        card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 1180, statusLabel: "Difference" }) : empty("Nothing to show", "No packing differences for this date.")) +
         '<p class="rc-hint">Rosenta reports staged stems, and boxes are staged straight after packing, so its staged stems stand for stems packed. The difference compares stems packed. ERPNext records staging and loading only for Bravo, so its staged and loaded figures are 0 for the other teams.</p>';
     }
 
     // ---- teams
-    var TEAM_COLS = [
-      { k: "assigned", h: "To pack", side: "r" }, { k: "packed", h: "Packed", side: "r" }, { k: "staged", h: "Staged", side: "r" }, { k: "loaded", h: "Loaded", side: "r" },
-      { h: "Last box", side: "r", w: "minmax(150px,1.2fr)", text: true, html: function (s) { return s.last_html; } },
-      { k: "assigned", h: "To pack", side: "e" }, { k: "packed", h: "Packed", side: "e" },
-      { h: "Last box", side: "e", w: "minmax(150px,1.2fr)", text: true, html: function (s) { return s.last_html; } }
-    ];
+    var lastBox = { text: true, w: "minmax(170px,1.3fr)", html: function (s) { return s.last_html; } };
+    var TEAM_COLS = cat(pair("assigned", "To pack"), pair("packed", "Packed"), pair("staged", "Staged"), pair("loaded", "Loaded"), pair("last", "Last box", lastBox));
     function teamsView() {
       var now = erpTs(data.fetched) || new Date();
       var mapped = [], loose = [];
@@ -372,7 +370,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
         var r = o.t.rosenta, e = o.t.erpnext;
         return {
           r: r && { assigned: r.assigned, packed: r.packed, staged: r.staged, loaded: r.loaded, last_html: timeCell(o.rt, now) },
-          e: e && { assigned: e.expected, packed: e.packed, last_html: timeCell(o.et, now) }
+          e: e && { assigned: e.expected, packed: e.packed, staged: e.staged, loaded: e.loaded, last_html: timeCell(o.et, now) }
         };
       }
       function row(o, name, sub, only) {
@@ -381,9 +379,9 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       }
       var warn = data.ops_error ? '<div class="rc-note bad">Rosenta Packhouse Operations could not be read, so Rosenta boxes by team are not shown: ' + esc(data.ops_error) + "</div>" : "";
       var h = warn + '<div class="rc-note ' + (late ? "warn" : "good") + '">Now ' + clock(now) + ". " + late + " of " + mapped.length + " teams are more than 1 hour behind.</div>" +
-        card("Teams", "", grid({ first: "Team", cols: cols, minw: 1280, statusLabel: "Behind", rows: mapped.map(function (o) { return row(o, o.t.team, "ERPNext team: " + esc(o.t.erp_teams)); }) }));
+        card("Teams", "", grid({ first: "Team", cols: cols, minw: 1340, statusLabel: "Behind", rows: mapped.map(function (o) { return row(o, o.t.team, "ERPNext team: " + esc(o.t.erp_teams)); }) }));
       if (loose.length) {
-        h += card("Not mapped", "", grid({ first: "Team", cols: cols, minw: 1280, statusLabel: "Behind", rows: loose.map(function (o) {
+        h += card("Not mapped", "", grid({ first: "Team", cols: cols, minw: 1340, statusLabel: "Behind", rows: loose.map(function (o) {
           var isR = o.t.team !== "(not mapped)";
           return row(o, isR ? o.t.team : o.t.erp_teams, isR ? "Rosenta only" : "ERPNext only", isR ? "r" : "e");
         }) }));

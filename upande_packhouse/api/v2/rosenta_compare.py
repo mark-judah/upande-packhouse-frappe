@@ -285,10 +285,16 @@ def _v2(out, what):
 	return out
 
 
-def _erp_team_totals(ins_teams, names, work_day):
-	exp = packed = 0
+def _erp_team_totals(ins_teams, names, work_day, wf_teams=None):
+	"""A team's boxes in ERPNext. Expected / packed / last pack come from Packing Insights; staged and loaded
+	are the Box Label counts Orders & Workflow shows for the team (a staged box counts once it is staged,
+	loaded or delivered)."""
+	exp = packed = staged = loaded = 0
 	last = None
 	for n in names:
+		w = (wf_teams or {}).get(n) or {}
+		staged += _num(w.get("staged_boxes"))
+		loaded += _num(w.get("loaded_boxes"))
 		t = ins_teams.get(n)
 		if not t:
 			continue
@@ -296,7 +302,13 @@ def _erp_team_totals(ins_teams, names, work_day):
 		packed += _num(t.get("packed_boxes"))
 		if t.get("pack_last") and (last is None or t["pack_last"] > last):
 			last = t["pack_last"]
-	return {"exp": exp, "packed": packed, "last": f"{work_day} {last}:00" if last else None}
+	return {
+		"exp": exp,
+		"packed": packed,
+		"staged": staged,
+		"loaded": loaded,
+		"last": f"{work_day} {last}:00" if last else None,
+	}
 
 
 # ---------------------------------------------------------------- the comparison
@@ -545,6 +557,7 @@ def _compare(d):
 	so_dr = _v2(sales_order.get_sales_orders(status="draft", **args), "Sales Order list")
 	so_ca = _v2(sales_order.get_sales_orders(status="cancelled", **args), "Sales Order list")
 	wf = _v2(orders_workflow.get_orders_workflow(view="customer", **args), "Orders & Workflow")
+	wf_team = _v2(orders_workflow.get_orders_workflow(view="team", **args), "Orders & Workflow by team")
 	ins = _v2(packing_insights.get_packing_insights(**args), "Packing Insights")
 	e_orders = so_sub.get("orders") or []
 	e_cancel = so_ca.get("orders") or []
@@ -660,6 +673,7 @@ def _compare(d):
 	# ---- teams
 	work_day = ins.get("work_day")
 	ins_teams = {t.get("team"): t for t in ins.get("teams") or []}
+	wf_teams = {sec.get("name"): sec.get("totals") or {} for sec in wf_team.get("sections") or []}
 
 	def team_row(name, erp_names, r, e_t):
 		return {
@@ -676,19 +690,29 @@ def _compare(d):
 			},
 			"erpnext": None
 			if e_t is None
-			else {"expected": e_t["exp"], "packed": e_t["packed"], "last_pack": e_t["last"]},
+			else {
+				"expected": e_t["exp"],
+				"packed": e_t["packed"],
+				"staged": e_t["staged"],
+				"loaded": e_t["loaded"],
+				"last_pack": e_t["last"],
+			},
 		}
 
 	teams, mapped = [], set()
 	for rn, en in TEAM_MAP:
 		mapped.update(en)
-		teams.append(team_row(rn, ", ".join(en), teams_r.get(rn), _erp_team_totals(ins_teams, en, work_day)))
+		teams.append(
+			team_row(rn, ", ".join(en), teams_r.get(rn), _erp_team_totals(ins_teams, en, work_day, wf_teams))
+		)
 	for rn, r in teams_r.items():
 		if rn not in {m[0] for m in TEAM_MAP}:
 			teams.append(team_row(rn, "(not mapped)", r, None))
 	for en, t in ins_teams.items():
 		if en not in mapped:
-			teams.append(team_row("(not mapped)", en, None, _erp_team_totals(ins_teams, (en,), work_day)))
+			teams.append(
+				team_row("(not mapped)", en, None, _erp_team_totals(ins_teams, (en,), work_day, wf_teams))
+			)
 
 	# ---- cancellations
 	def find_erp(order, pool):

@@ -211,6 +211,19 @@ class TestHelpers(IntegrationTestCase):
 		self.assertEqual((t["exp"], t["packed"], t["last"]), (15, 5, "2026-11-18 19:02:00"))
 		self.assertIsNone(rc._erp_team_totals(ins, ("Nobody",), "2026-11-18")["last"])
 
+	def test_erp_team_totals_add_staged_and_loaded_boxes_from_orders_workflow(self):
+		ins = {
+			"Eldama A": {"exp_boxes": 10, "packed_boxes": 4},
+			"Eldama B": {"exp_boxes": 5, "packed_boxes": 1},
+		}
+		wf = {
+			"Eldama A": {"staged_boxes": 3, "loaded_boxes": 2},
+			"Eldama B": {"staged_boxes": 1, "loaded_boxes": 1},
+		}
+		t = rc._erp_team_totals(ins, ("Eldama A", "Eldama B"), "2026-11-18", wf)
+		self.assertEqual((t["staged"], t["loaded"]), (4, 3))
+		self.assertEqual(rc._erp_team_totals(ins, ("Eldama A",), "2026-11-18")["staged"], 0)
+
 
 class TestRosentaSession(IntegrationTestCase):
 	def _session_returning(self, cookie):
