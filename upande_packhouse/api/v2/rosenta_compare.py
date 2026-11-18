@@ -465,22 +465,40 @@ def _rosenta_customer_boxes(ops_day):
 
 
 def _erp_lines(wf):
-	"""{sales order: [line]} from Orders & Workflow: one line per primary item (a line on several pick
-	lists carries its numbers on the first one only)."""
-	out = {}
+	"""{sales order: [line]} from Orders & Workflow, one line per box line as Rosenta shows it. In ERPNext
+	each variety of a mixed box is its own Sales Order Item (same mix name, same box count, its own stems
+	per box), so those are folded into one line: the boxes once, the pack rate and stems summed, and the
+	varieties kept for display. A line on several pick lists carries its numbers on the first one only."""
+	items = {}
 	for sec in wf.get("sections") or []:
 		for it in sec.get("rows") or []:
-			if not it.get("primary"):
-				continue
-			out.setdefault(it.get("sales_order"), []).append(
+			if it.get("primary"):
+				items.setdefault(it.get("sales_order"), []).append(it)
+	out = {}
+	for so, rows in items.items():
+		groups = {}
+		for it in rows:
+			mix = _key(it.get("mix_name"))
+			k = (mix, _num(it.get("line_boxes")), it.get("box_type") or "") if mix else ("", id(it), "")
+			groups.setdefault(k, []).append(it)
+		for grp in groups.values():
+			first = grp[0]
+			mixed = len(grp) > 1
+			out.setdefault(so, []).append(
 				{
-					"variety": it.get("variety") or "",
-					"length": it.get("length") or "",
-					"box_type": it.get("box_type") or "",
-					"mix_name": it.get("mix_name") or "",
-					"boxes": _num(it.get("line_boxes")),
-					"pack_rate": _num(it.get("stems_per_box")),
-					"stems": _num(it.get("ordered_stems")),
+					"variety": first.get("variety") or "",
+					"varieties": [
+						{"name": g.get("variety") or "", "per_box": _num(g.get("stems_per_box"))} for g in grp
+					]
+					if mixed
+					else [],
+					"mixed": mixed,
+					"length": first.get("length") or "",
+					"box_type": first.get("box_type") or "",
+					"mix_name": first.get("mix_name") or "",
+					"boxes": _num(first.get("line_boxes")),
+					"pack_rate": sum(_num(g.get("stems_per_box")) for g in grp),
+					"stems": sum(_num(g.get("ordered_stems")) for g in grp),
 				}
 			)
 	return out

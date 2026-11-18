@@ -174,6 +174,18 @@ class TestHelpers(IntegrationTestCase):
 			(out["SO1"][0]["boxes"], out["SO1"][0]["pack_rate"], out["SO1"][0]["stems"]), (2, 380, 760)
 		)
 
+	def test_erp_mixed_box_is_one_line_with_summed_pack_rate(self):
+		row = lambda v, **k: {  # noqa: E731
+			"sales_order": "SO1", "primary": True, "variety": v, "length": "62cm", "box_type": "Pro",
+			"mix_name": "ETHAM MIX 1 L6 240", "line_boxes": 2, "stems_per_box": 60, "ordered_stems": 120, **k
+		}  # fmt: skip
+		wf = {"sections": [{"rows": [row("A"), row("B"), row("C"), row("D")]}]}
+		out = rc._erp_lines(wf)["SO1"]
+		self.assertEqual(len(out), 1)
+		self.assertEqual((out[0]["boxes"], out[0]["pack_rate"], out[0]["stems"]), (2, 240, 480))
+		self.assertTrue(out[0]["mixed"])
+		self.assertEqual([v["name"] for v in out[0]["varieties"]], ["A", "B", "C", "D"])
+
 	def test_rosenta_teams_sum_the_day_and_take_last_packed_from_both_days(self):
 		line = lambda **k: {  # noqa: E731
 			"boxes_assigned": 2, "boxes_packed": 1, "boxes_staged": 1, "boxes_loaded": 0, "last_box_packed": 100, **k
