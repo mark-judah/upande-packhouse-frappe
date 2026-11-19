@@ -62,6 +62,13 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
 .rc-kpi__side b{font:600 34px/1 'Poppins',sans-serif;color:var(--ink);letter-spacing:-1px;font-variant-numeric:tabular-nums}
 .rc-kpi__side.is-e b{color:var(--avo-700)}
 .rc-kpi__foot{margin-top:16px}
+.rc-kpi--wide{grid-column:1/-1}
+.rc-kpi--wide .rc-kpi__pair{grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px 40px}
+.rc-kpi__sub{margin-top:6px;font:500 12px 'Poppins',sans-serif;color:var(--ink-mute)}
+.rc-amts{display:flex;flex-wrap:wrap;gap:6px 24px}
+.rc-amts b{font:600 26px/1.15 'Poppins',sans-serif;letter-spacing:-.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.rc-amts b i{font:500 12px 'Poppins',sans-serif;font-style:normal;color:var(--ink-mute);letter-spacing:.4px;margin-right:6px}
+.rc-kpi--wide .rc-kpi__side.is-e .rc-amts b{color:var(--avo-700)}
 
 .rc-card{background:var(--card);border-radius:24px;padding:8px 8px 12px;box-shadow:var(--shadow);margin-bottom:18px}
 .rc-card__head{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:18px 22px 6px}
@@ -302,10 +309,15 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       if (d === 0) return '<span class="rc-chip good">Same price</span>';
       return '<span class="rc-chip ' + (Math.abs(d) / (Math.max(a, b) || 1) > 0.1 ? "bad" : "warn") + '">ERPNext ' + money(Math.abs(d), 3) + (d < 0 ? " lower" : " higher") + " per stem</span>";
     }
+    function amounts(side) {
+      var cur = Object.keys(side.by_currency || {}).sort();
+      if (!cur.length) return '<span class="rc-none">—</span>';
+      return '<div class="rc-amts">' + cur.map(function (c) { return "<b><i>" + esc(c) + "</i>" + money(side.by_currency[c], 0) + "</b>"; }).join("") + "</div>";
+    }
     function kpiValue(t) {
-      var one = function (s) { return s.value == null ? (listed(s).replace(/<[^>]*>/g, "") || "—") : s.currency + " " + money(s.value, 0); };
-      return '<div class="rc-kpi"><div class="rc-kpi__label">Order value</div><div class="rc-kpi__pair">' +
-        '<div class="rc-kpi__side"><small>Rosenta</small><b>' + esc(one(t.rosenta)) + '</b></div><div class="rc-kpi__side is-e"><small>ERPNext</small><b>' + esc(one(t.erpnext)) + "</b></div></div>" +
+      var price = function (s) { return s.price == null ? "" : '<div class="rc-kpi__sub">' + esc(s.currency) + " " + money(s.price, 3) + " per stem</div>"; };
+      return '<div class="rc-kpi rc-kpi--wide"><div class="rc-kpi__label">Order value</div><div class="rc-kpi__pair">' +
+        '<div class="rc-kpi__side"><small>Rosenta</small>' + amounts(t.rosenta) + price(t.rosenta) + '</div><div class="rc-kpi__side is-e"><small>ERPNext</small>' + amounts(t.erpnext) + price(t.erpnext) + "</div></div>" +
         '<div class="rc-kpi__foot">' + priceChip({ r: t.rosenta, e: t.erpnext }) + "</div></div>";
     }
     function ordersView() {
