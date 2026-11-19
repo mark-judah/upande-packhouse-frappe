@@ -164,6 +164,7 @@ def slim_spec(r):
 	return {
 		"i": r.get("spec_id"), "n": r.get("spec_name"), "a": r.get("account_name"), "ft": r.get("spec_fairtrade"),
 		"s": r.get("spec_sku"), "pr": box.get("pack_rate"), "g": box.get("grade"), "b": bunches, "c": items,
+		"cp": r.get("cons_pricing"), "rf": r.get("spec_reference"),
 	}  # fmt: skip
 
 

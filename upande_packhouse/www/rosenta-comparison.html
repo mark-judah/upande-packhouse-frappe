@@ -64,6 +64,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
 .rc-kpi__foot{margin-top:16px}
 .rc-kpi--wide{grid-column:1/-1}
 .rc-kpi--wide .rc-kpi__pair{grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px 40px}
+.rc-specrow{cursor:pointer}.rc-specrow:hover td{background:rgba(10,10,10,.03)}.rc-spectable tr.rc-diffrow td{background:rgba(150,101,15,.08)}.rc-missing{color:var(--neg);font-weight:500}
 .rc-warnnum{color:#96650f}.rc-badnum{color:var(--neg)}
 .rc-spectable{width:100%;border-collapse:collapse;font-size:13px}.rc-spectable th{text-align:left;padding:10px 14px;color:var(--ink-mute);font:500 11px 'Poppins',sans-serif;text-transform:uppercase;letter-spacing:1px}.rc-spectable td{padding:10px 14px;border-top:1px solid rgba(10,10,10,.06);vertical-align:top}.rc-spectable td b{font-weight:600}
 .rc-cur{white-space:nowrap}.rc-cur i{font-style:normal;font-size:11px;color:var(--ink-mute);margin-right:4px}
@@ -172,7 +173,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       <button class="rc-tab" type="button" data-tab="money">Money</button>
       <button class="rc-tab" type="button" data-tab="greenhouse">Greenhouses</button>
       <button class="rc-tab" type="button" data-tab="fill">Fill rate</button>
-      <button class="rc-tab" type="button" data-tab="teams">Teams</button>
+      <button class="rc-tab" type="button" data-tab="teams">Live packing</button>
       <button class="rc-tab" type="button" data-tab="cancel">Cancellations<i id="rc-n-cancel" hidden></i></button>
     </div>
     <div id="rc-warn"></div>
@@ -502,9 +503,43 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       var h = '<section class="rc-card"><div class="rc-scroll"><table class="rc-spectable"><thead><tr><th>Rosenta</th><th>ERPNext</th><th>Difference</th></tr></thead><tbody>' +
         items.map(function (p) {
           var diffs = p.diffs.length ? p.diffs.map(function (x) { return "<div><b>" + esc(x.field) + ":</b> " + esc(String(x.rosenta)) + " <span class=\"rc-none\">in Rosenta,</span> " + esc(String(x.erpnext)) + ' <span class="rc-none">in ERPNext</span></div>'; }).join("") : chipFor(p.state);
-          return "<tr><td>" + def(p.rosenta) + (p.rosenta && p.rosenta.lines ? '<span class="rc-lenrow">' + num(p.rosenta.stems) + " stems on " + p.rosenta.lines + " lines</span>" : "") + "</td><td>" + def(p.erpnext) + "</td><td>" + diffs + "</td></tr>";
+          return '<tr class="rc-specrow" data-p="' + c.specs.indexOf(p) + '"><td>' + def(p.rosenta) + (p.rosenta && p.rosenta.lines ? '<span class="rc-lenrow">' + num(p.rosenta.stems) + " stems on " + p.rosenta.lines + " lines</span>" : "") + "</td><td>" + def(p.erpnext) + (p.matched_by && p.matched_by !== "name" ? '<span class="rc-lenrow">paired by ' + esc(p.matched_by) + "</span>" : "") + "</td><td>" + diffs + "</td></tr>";
         }).join("") + "</tbody></table></div></section>";
-      openPanel(c.customer, "Specifications for " + d_text() + ". Rosenta ones are those on its orders of the period.", h);
+      openPanel(c.customer, "Specifications for " + d_text() + ". Rosenta ones are those on its orders of the period. Open one to see all of it.", h);
+      $("rc-p-body").onclick = function (e) {
+        var tr = e.target.closest("tr.rc-specrow"); if (!tr) return;
+        var p = c.specs[+tr.getAttribute("data-p")]; if (p) specFull(c, p);
+      };
+    }
+    // one pair in full, side by side: header, bunches, varieties, consumables
+    function specFull(c, p) {
+      var title = (p.rosenta && p.rosenta.name) || (p.erpnext && p.erpnext.name) || "Specification";
+      openPanel(title, c.customer, '<div class="rc-skel"></div><div class="rc-skel"></div><div class="rc-skel"></div>');
+      $("rc-p-body").onclick = null;
+      PH.call("upande_packhouse.api.v2.rosenta_specs.get_rosenta_spec_detail", { rosenta_id: (p.rosenta && p.rosenta.spec_id) || "", erpnext_name: (p.erpnext && p.erpnext.id) || "" }, { silent: true })
+        .then(function (d) {
+          if (d.success === false) { $("rc-p-body").innerHTML = '<div class="rc-note bad">' + esc(d.error) + "</div>"; return; }
+          var none = function (who) { return '<span class="rc-missing">Not in ' + who + "</span>"; };
+          var cellR = function (x, f) { return x ? f(x) : none("Rosenta"); }, cellE = function (x, f) { return x ? f(x) : none("ERPNext"); };
+          var tbl = function (head, rows) { return '<section class="rc-card"><div class="rc-card__head"><h3>' + head[0] + '</h3></div><div class="rc-scroll"><table class="rc-spectable"><thead><tr><th>' + head[1] + "</th><th>Rosenta</th><th>ERPNext</th></tr></thead><tbody>" + rows + "</tbody></table></div></section>"; };
+          var h = '<p><button type="button" class="rc-btn" id="rc-spec-back">← All specifications of ' + esc(c.customer) + "</button></p>";
+          h += tbl(["Specification", "Field"], d.header.map(function (x) { return '<tr class="' + (x.differs ? "rc-diffrow" : "") + '"><td><b>' + esc(x.label) + "</b></td><td>" + (x.rosenta ? esc(x.rosenta) : '<span class="rc-none">—</span>') + "</td><td>" + (x.erpnext ? esc(x.erpnext) : '<span class="rc-none">—</span>') + "</td></tr>"; }).join(""));
+          var bu = function (b) { return num(b.bunches) + " bunches × " + num(b.stems) + " stems = " + num(b.pack_rate || b.bunches * b.stems) + " stems" + (b.length ? " · " + b.length + " cm" : "") + (b.kind ? " · " + esc(b.kind) : ""); };
+          h += tbl(["Bunches", "Bunch"], d.bunches.map(function (x) { return "<tr><td><b>" + x.n + "</b></td><td>" + cellR(x.rosenta, bu) + "</td><td>" + cellE(x.erpnext, bu) + "</td></tr>"; }).join(""));
+          h += tbl(["Varieties", "Variety"], d.varieties.map(function (x) {
+            return '<tr class="' + (x.rosenta && x.erpnext ? "" : "rc-diffrow") + '"><td><b>' + esc(x.name) + "</b></td><td>" +
+              cellR(x.rosenta, function (v) { return "bunch " + esc(String(v.bunch)) + " · " + num(v.stems) + " stems" + (v.length ? " · " + v.length + " cm" : "") + (v.cut ? " · " + esc(v.cut) : ""); }) + "</td><td>" +
+              cellE(x.erpnext, function (v) { return "bunch " + esc(String(v.bunch)) + (v.primary ? " · primary" : "") + (v.colour ? " · " + esc(v.colour) : "") + (v.head ? " · head " + esc(String(v.head)) : "") + (v.buds ? " · buds " + esc(String(v.buds)) : ""); }) + "</td></tr>";
+          }).join("") || '<tr><td colspan="3" class="rc-none">No varieties listed</td></tr>');
+          h += tbl(["Consumables", "Item"], d.consumables.map(function (x) {
+            return '<tr class="' + (x.rosenta && x.erpnext ? "" : "rc-diffrow") + '"><td><b>' + esc(x.name) + "</b></td><td>" +
+              cellR(x.rosenta, function (v) { return esc(v.type || "") + (v.qty ? " · qty " + esc(String(v.qty)) : ""); }) + "</td><td>" +
+              cellE(x.erpnext, function (v) { return esc(v.type || "") + (v.level ? " · per " + esc(v.level.toLowerCase()) : "") + (v.qty ? " · qty " + esc(String(v.qty)) : ""); }) + "</td></tr>";
+          }).join("") || '<tr><td colspan="3" class="rc-none">No consumables listed</td></tr>');
+          $("rc-p-body").innerHTML = h;
+          $("rc-spec-back").onclick = function () { specDetail(c); };
+        })
+        .catch(function (e) { $("rc-p-body").innerHTML = '<div class="rc-note bad">' + esc((e && e.message) || "Could not load") + "</div>"; });
     }
 
     var MONEY_COLS = cat(

@@ -540,3 +540,34 @@ class TestSpecs(IntegrationTestCase):
 			self.assertRaises(frappe.PermissionError, rs.get_rosenta_specs, "2026-11-18")
 		finally:
 			frappe.set_user("Administrator")
+
+	def test_samish_variety_at_the_same_length_pairs_under_different_names(self):
+		from upande_packhouse.api.v2 import rosenta_specs as rs
+
+		mk = lambda name, varieties, lengths, rate=250: {  # noqa: E731
+			"name": name, "ft": False, "pack_rate": rate, "bunches": 25, "stems_per_bunch": [10], "lengths": lengths,
+			"varieties": varieties, "any_colours": [], "box": "", "consumables": [],
+		}  # fmt: skip
+		r = [mk("SFR ROYAL ATHENA L4X10", ["ROYAL ATHENA"], [40], 0)]
+		e = [mk("Rose Athena Royal 40 - SFR", ["ATHENA ROYALE"], [42], 0), mk("Rose Other 40", ["OTHER"], [42], 0)]
+		pairs = rs.pair_specs(r, e)
+		hit = next(p for p in pairs if p["rosenta"])
+		self.assertEqual((hit["erpnext"]["name"], hit["matched_by"]), ("Rose Athena Royal 40 - SFR", "variety and length"))
+		self.assertEqual([x["field"] for x in hit["diffs"]], [])  # ATHENA ROYAL and ATHENA ROYALE count as one variety; 40 and 42 as one length
+		self.assertEqual(sum(1 for p in pairs if p["state"] == "Only in ERPNext"), 1)
+
+	def test_full_view_lines_up_varieties_and_consumables_from_both_sides(self):
+		from upande_packhouse.api.v2 import rosenta_specs as rs
+
+		out = rs._align(
+			[{"name": "Athena Royal"}, {"name": "Only Rosenta"}], [{"name": "ATHENA ROYALE"}, {"name": "Only ERPNext"}]
+		)
+		by = {x["name"]: (bool(x["rosenta"]), bool(x["erpnext"])) for x in out}
+		self.assertEqual(by["Athena Royal"], (True, True))
+		self.assertEqual((by["Only Rosenta"], by["Only ERPNext"]), ((True, False), (False, True)))
+		bunches, varieties, cons = rs._rosenta_full(
+			{"b": [["25;25", [["A", "50", "6", "Tight"], ["B", "50", "4", "Open"]]]], "c": [["Box", "box", "1"]], "g": "50"}
+		)
+		self.assertEqual((bunches[0]["bunches"], bunches[0]["stems"], bunches[0]["pack_rate"]), (25, 10, 250))
+		self.assertEqual([v["name"] for v in varieties], ["A", "B"])
+		self.assertEqual(cons[0]["type"], "box")
