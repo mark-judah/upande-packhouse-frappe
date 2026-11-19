@@ -1443,6 +1443,37 @@ def post_issue_to_packhouse(
 	return _hop_reply(hop, source, row.packhouse)
 
 
+def post_leftover_to_packhouse(
+	bucket_id, item_code, qty, business_unit, farm, stem_length=None, so_item=None
+):
+	"""A bucket issued with fewer stems left than one bunch leaves the shelf whole: the leftover goes to the
+	packhouse with the issue, out of whichever cold store still holds the bucket's stems, for the
+	packhouse's end-of-day rejects and balances."""
+	row = mapping_row_for_farm(farm, business_unit)
+	if not row or not row.packhouse:
+		return {"moved": False, "reason": f"no packhouse mapped for farm {farm}"}
+	for source in dict.fromkeys(
+		w for w in (row.source_warehouse, receiving_warehouse(bucket_id, item_code)) if w
+	):
+		if _ledger_balance(item_code, source, bucket_id=bucket_id) <= QTY_TOLERANCE:
+			continue
+		hop = post_single_hop(
+			item_code=item_code,
+			qty=qty,
+			source=source,
+			target=row.packhouse,
+			business_unit=business_unit,
+			entry_type=TYPE_ISSUING,
+			bucket_id=bucket_id,
+			farm=farm,
+			stem_length=stem_length,
+			so_item=so_item,
+			remarks=f"Bucket {bucket_id}: {flt(qty):g} stems left, less than a bunch, issued with it",
+		)
+		return _hop_reply(hop, source, row.packhouse)
+	return {"moved": False, "reason": f"{item_code}: nothing of {bucket_id} left in a cold store"}
+
+
 @frappe.whitelist()
 def post_stage_to_dispatch(
 	box_label: str | None,

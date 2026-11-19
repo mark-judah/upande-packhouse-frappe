@@ -79,7 +79,7 @@
 (function () {
   "use strict";
   const API = "upande_packhouse.api.scheduler.";
-  const HUB = (window.RT && RT.transferHub) || "the hub";
+  const HUB = (window.RT && RT.transferHub) || "the sales farm";
   const PAGE = 25;
   const VIEWS = ["unsched", "sched", "byteam"];
 
@@ -122,7 +122,7 @@
     return [o.name, o.custom_order_name, o.customer, o.custom_team, o.mixed_type].concat(o.farms || []).filter(Boolean).join("  ");
   }
   const STATUS = [["draft_plain", "Draft"], ["draft_transfer", "Draft waiting transfer"], ["submitted", "Submitted"]];
-  const STATUS_NOTE = { draft_plain: "These OPLs have stock at the hub and have been allocated, but they have not been submitted.", draft_transfer: "Schedule these OPLs so that the remote QC can start preparing them for transfer." };
+  const STATUS_NOTE = { draft_plain: "These OPLs have stock at " + HUB + " and have been allocated, but they have not been submitted.", draft_transfer: "Schedule these OPLs so that the remote QC can start preparing them for transfer." };
   function applyFilters(arr, skipStatus) {
     const s = st.get();
     const rf = PH.regionFarms(s.region);
@@ -470,7 +470,7 @@
           const cnt = Object.values((r && r.saved) || {}).reduce((a, b) => a + num(b), 0);
           const noTeam = (r && r.no_team) || [];
           const notSub = (r && r.not_submitted) || [];
-          if (notSub.length) PH.toast(notSub.length + " draft order" + (notSub.length === 1 ? "" : "s") + " at the hub left off — submit " + (notSub.length === 1 ? "it" : "them") + " first", "warn");
+          if (notSub.length) PH.toast(notSub.length + " draft order" + (notSub.length === 1 ? "" : "s") + " at " + HUB + " left off — submit " + (notSub.length === 1 ? "it" : "them") + " first", "warn");
           if (ok && cnt > 0) PH.toast("Schedule saved — " + PH.fmt.plural(cnt, "order") + " sequenced", "good");
           else if (ok && !noTeam.length) PH.toast("Schedule cleared");
           else if (!ok) PH.toast("Save failed — please try again", "bad");

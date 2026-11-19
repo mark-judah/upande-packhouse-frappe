@@ -1,3 +1,4 @@
+import math
 import json
 from collections import defaultdict
 
@@ -345,6 +346,19 @@ def _get_confirmed_stems_for_farms(sales_order, farm_names):
 	"""
 	if not farm_names:
 		return {}, {}
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import order_hub
+
+	if order_hub(sales_order) in set(farm_names):
+		farm_names = list(
+			{
+				*farm_names,
+				*frappe.db.sql_list(
+					"""SELECT DISTINCT farm FROM `tabConfirmed Stems` WHERE parent = %s AND parenttype = 'Sales Order'
+					AND parentfield = 'custom_confirmed_stems_table' AND IFNULL(farm, '') != ''""",
+					sales_order,
+				),
+			}
+		)
 
 	farm_placeholders = ", ".join(["%s"] * len(farm_names))
 
@@ -496,6 +510,13 @@ def get_pending_sales_orders(
 
 		so_farm = _so_farm_expr("so")
 		location_clause = """({so_farm} IN %(order_farms)s
+            OR EXISTS (
+                SELECT 1 FROM `tabAllocation Confirmation` _lac
+                JOIN `tabPacking Teams` _lpt ON _lpt.name = _lac.team
+                WHERE _lac.sales_order = so.name
+                  AND (_lac.status IN ('Planned', 'Reserved', 'Partly Fulfilled', 'Broken', 'Fulfilled')
+                       OR (_lac.status = 'Released' AND _lac.release_reason = 'Allocated'))
+                  AND COALESCE(NULLIF(_lpt.sales_farm, ''), NULLIF(_lpt.location, '')) = %(order_location)s)
             OR ({so_farm} NOT IN %(listed_farms)s AND EXISTS (
                 SELECT 1 FROM `tabFarm` f WHERE f.name = {so_farm} AND f.farm_location IN %(order_farm_locations)s))
             OR (NOT EXISTS (
@@ -621,7 +642,7 @@ def _first_of_every_team(rows):
 	planned = [r.name for r in rows if cint(r.planning_sequence)]
 	if not planned:
 		return rows
-	team_of = {}
+	team_of, teams_of = {}, defaultdict(list)
 	for so, team, _stems in frappe.db.sql(
 		"""SELECT sales_order, team, SUM(stems) AS stems FROM `tabAllocation Confirmation`
 		   WHERE sales_order IN %(s)s AND IFNULL(team, '') != ''
@@ -630,13 +651,20 @@ def _first_of_every_team(rows):
 		{"s": tuple(planned)},
 	):
 		team_of.setdefault(so, team)
+		teams_of[so].append(team)
 	queue = defaultdict(int)
+	team_queue = defaultdict(int)
 	for r in sorted(
 		(r for r in rows if cint(r.planning_sequence)), key=lambda r: (r.delivery_date, r.planning_sequence)
 	):
 		key = (r.delivery_date, team_of.get(r.name) or r.name)
 		queue[key] += 1
 		r.planning_position = queue[key]
+		# an order shared by several teams has a place in each of their queues: its lines show their team's
+		r.team_positions = {}
+		for team in teams_of.get(r.name) or []:
+			team_queue[(r.delivery_date, team)] += 1
+			r.team_positions[team] = team_queue[(r.delivery_date, team)]
 	# stable: orders not in the plan keep the query's order, after the planned ones of their day
 	return sorted(
 		rows,
@@ -986,10 +1014,15 @@ def get_sales_order_items_with_buckets(
 	# match it against). No filter at all when custom_cut_stage is blank.
 
 	all_confirmed = _get_all_confirmed_stems(sales_order)
+	planned_total = planned_stems([i["sales_order_item"] for i in items])
+	line_farm = processing_farms(sales_order, [i["sales_order_item"] for i in items], location)
+	from upande_packhouse.api.v2.allocation_teams import sales_farm_for_location
 
-	# Allocation Planning guides, it does not limit: a line is allocated up to what was ordered (less what
-	# another location confirmed for itself), and what was confirmed here is shown alongside. A line
-	# confirmed only for another location's farms belongs to that location and is left out here.
+	here_farm = sales_farm_for_location(location) if location else None
+
+	# A line planned in Allocation Planning is allocated up to the stems confirmed for it; one not planned up
+	# to what was ordered (less what another location confirmed for itself). A line confirmed only for another
+	# location's farms belongs to that location and is left out here.
 	filtered_items = []
 	for item in items:
 		so_item_name = item["sales_order_item"]
@@ -997,9 +1030,16 @@ def get_sales_order_items_with_buckets(
 		total_all_confirmed = all_confirmed.get(so_item_name, 0)
 		others_confirmed = total_all_confirmed - my_confirmed
 		ordered_qty = item["original_ordered_qty"] or item["original_stock_qty"] or 0
-		if my_confirmed <= 0 and total_all_confirmed > 0:
+		if here_farm and line_farm.get(so_item_name) and line_farm[so_item_name] != here_farm:
+			continue  # processed at another sales farm: its team's
+		if my_confirmed <= 0 and total_all_confirmed > 0 and not here_farm:
 			continue
-		item["pending_stock_qty"] = max(0, ordered_qty - others_confirmed)
+		# planned: what Allocation Planning confirmed for it here; not planned: what was ordered, less what
+		# another sales farm confirmed for itself
+		# planned here (or planned and already allocated in full, so nothing is left on its confirmations)
+		target = planned_total.get(so_item_name, 0) if my_confirmed > 0 or others_confirmed <= 0 else 0
+		item["pending_stock_qty"] = target if target > 0 else max(0, ordered_qty - others_confirmed)
+		item["planned_stems"] = target
 		item["confirmed_stems"] = my_confirmed
 		item["confirmed_detail"] = confirmed_detail.get(so_item_name, [])
 		item["total_all_confirmed"] = total_all_confirmed
@@ -1085,6 +1125,7 @@ def get_sales_order_items_with_buckets(
             s.farm AS shelf_farm,
             DATEDIFF(CURDATE(), COALESCE(si.harvest_date, si.date_added)) AS age_days,
             TIMESTAMPDIFF(HOUR, si.date_added, %s) AS hours_since_shelved,
+            si.date_added AS date_added,
             COALESCE(ba_out.qty, 0) AS allocated_qty,
             GREATEST(0, COALESCE(si.stem_qty, 0) - COALESCE(ba_out.qty, 0)) AS available_qty,
             COALESCE(si.cut_stage, '') AS cut_stage,
@@ -1137,17 +1178,15 @@ def get_sales_order_items_with_buckets(
 
 	buckets = [b for b in buckets if b["age_days"] <= farm_max_age.get(b["shelf_farm"], 5)]
 
-	# ── Exclude buckets still cooling: fewer hours on the shelf than this
-	# farm's configured cooling_hours (Shelf Locations, Production Settings).
-	# Measured from Shelf Item.date_added (when it was scanned onto the
-	# shelf) specifically -- NOT harvest_date/age_days, which the ceiling
-	# check above already uses for a different purpose (how long it's been
-	# since harvest, not how long it's been in the cold store). 0 hours
+	# ── Exclude buckets still cooling: fewer hours in the cold store than this farm's cooling_hours
+	# (Shelf Locations, Production Settings), counted from when the bucket was received into a cold store,
+	# at whichever farm -- not from its shelving, which for a remote bucket comes after the truck. 0 hours
 	# (the default) means this farm has no cooling requirement configured.
+	_attach_hours_cooled(buckets)
 	buckets = [
 		b
 		for b in buckets
-		if (b["hours_since_shelved"] or 0) >= farm_config.get(b["shelf_farm"], {}).get("cooling_hours", 0)
+		if (b["hours_cooled"] or 0) >= farm_config.get(b["shelf_farm"], {}).get("cooling_hours", 0)
 	]
 
 	# ── Apply cut_stage filter to buckets ──
@@ -1279,8 +1318,8 @@ def get_sales_order_items_with_buckets(
 			if not is_sales_shelf and owners.get(b["bucket_id"], set()) - {sales_order}:
 				available_here = 0.0
 
-			# Nothing free here and nothing of it on this line: kept off the list, whoever holds it
-			if available_here <= 0 and not allocated_here:
+			# Less free here than one bunch of the line and nothing of it on this line: kept off the list
+			if available_here < (flt(item.get("conversion_factor")) or 1) - 1e-9 and not allocated_here:
 				continue
 
 			entry = {
@@ -1293,6 +1332,7 @@ def get_sales_order_items_with_buckets(
 				"allocated_to_this_item": allocated_here,
 				"age_days": b["age_days"],
 				"hours_since_shelved": b["hours_since_shelved"],
+				"hours_cooled": b.get("hours_cooled"),
 				"shelf_location": b["shelf_location"],
 				"shelf_farm": b["shelf_farm"],
 				"harvest_date": b["harvest_date"],
@@ -1555,6 +1595,7 @@ def get_bucket_visibility_diagnostics(
             s.name AS shelf_location,
             DATEDIFF(CURDATE(), COALESCE(si.harvest_date, si.date_added)) AS age_days,
             TIMESTAMPDIFF(HOUR, si.date_added, %s) AS hours_since_shelved,
+            si.date_added AS date_added,
             COALESCE(si.cut_stage, '') AS cut_stage,
             COALESCE(bas.allocated_quantity, 0) AS allocated_qty,
             COALESCE(bas.in_transit, 0) AS in_transit,
@@ -1598,7 +1639,7 @@ def get_bucket_visibility_diagnostics(
 	REASON_META = [
 		("pending_discard", "Pending discard request"),
 		("remote_farm", "On a farm not currently selected"),
-		("cooling", "Still cooling since shelving"),
+		("cooling", "Still cooling since it was received"),
 		("past_discard_age", "Past the discard-age threshold"),
 		("past_max_age", "Past this farm's allocation-age limit"),
 		("too_short", "Shorter than the order needs"),
@@ -1609,6 +1650,7 @@ def get_bucket_visibility_diagnostics(
 	buckets_by_reason = {code: [] for code, _l in REASON_META}
 
 	wanted_stages = {_norm_cut_stage(s) for s in cut_stage_list}
+	_attach_hours_cooled(rows)
 	for b in rows:
 		b_cm = _parse_cm(b["stem_length"])
 		is_sales_shelf = farm_config.get(b["shelf_farm"], {}).get("sales_shelf", 0)
@@ -1629,13 +1671,13 @@ def get_bucket_visibility_diagnostics(
 				b["shelf_farm"] or "?"
 			)
 		elif farm_config.get(b["shelf_farm"], {}).get("cooling_hours", 0) and (
-			b["hours_since_shelved"] or 0
+			b["hours_cooled"] or 0
 		) < farm_config.get(b["shelf_farm"], {}).get("cooling_hours", 0):
 			reason = "cooling"
 			cooling_hours = farm_config.get(b["shelf_farm"], {}).get("cooling_hours", 0)
-			hours_left = cooling_hours - (b["hours_since_shelved"] or 0)
-			detail = _("Shelved {0}h ago — {1} requires {2}h cooling, {3}h left").format(
-				b["hours_since_shelved"] or 0, b["shelf_farm"] or "this farm", cooling_hours, hours_left
+			hours_left = cooling_hours - (b["hours_cooled"] or 0)
+			detail = _("Received {0}h ago — {1} requires {2}h cooling, {3}h left").format(
+				b["hours_cooled"] or 0, b["shelf_farm"] or "this farm", cooling_hours, hours_left
 			)
 		elif age_days >= discard_age:
 			reason = "past_discard_age"
@@ -1675,6 +1717,7 @@ def get_bucket_visibility_diagnostics(
 				"shelf": b["shelf_location"],
 				"age_days": b["age_days"],
 				"hours_since_shelved": b["hours_since_shelved"],
+				"hours_cooled": b.get("hours_cooled"),
 				"cut_stage": b["cut_stage"],
 				"discard_request": b["discard_request"],
 				"detail": detail,
@@ -1743,7 +1786,11 @@ def _attach_incoming_stems(items, location, active_farms):
             se.custom_bucket_id AS bucket_id,
             sei.item_code,
             se.custom_stem_length AS stem_length,
-            sei.qty
+            sei.qty,
+            se.farm,
+            sei.t_warehouse AS cold_room,
+            sei.s_warehouse AS greenhouse,
+            TIMESTAMP(se.posting_date, se.posting_time) AS received_on
         FROM `tabStock Entry` se
         INNER JOIN `tabStock Entry Detail` sei ON se.name = sei.parent
         WHERE se.stock_entry_type IN ('Receiving', 'Late Receipt')
@@ -1775,7 +1822,7 @@ def _attach_incoming_stems(items, location, active_farms):
 		as_dict=True,
 	)
 
-	incoming_map = {}
+	incoming_map, incoming_detail = {}, {}
 	if unshelved:
 		bucket_ids = list({r["bucket_id"] for r in unshelved})
 		bid_placeholders = ", ".join(["%s"] * len(bucket_ids))
@@ -1805,15 +1852,43 @@ def _attach_incoming_stems(items, location, active_farms):
 		)
 
 		issued_set = {r[0] for r in issued_rows}
+		# where each bucket was harvested: its Harvesting entry's farm and day
+		harvested = {}
+		# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
+		for bid, farm, day in frappe.db.sql(
+			f"""SELECT se.custom_bucket_id, se.farm, se.posting_date FROM `tabStock Entry` se
+			WHERE se.docstatus = 1 AND se.stock_entry_type = 'Harvesting'
+			  AND se.custom_bucket_id IN ({bid_placeholders})
+			ORDER BY se.posting_date DESC""",
+			bucket_ids,
+		):
+			harvested.setdefault(bid, (farm, day))
 
+		seen = set()
 		for r in unshelved:
-			if r["bucket_id"] not in issued_set:
+			if r["bucket_id"] not in issued_set and (r["bucket_id"], r["item_code"]) not in seen:
+				seen.add((r["bucket_id"], r["item_code"]))
 				key = (r["item_code"], r["stem_length"])
 				incoming_map[key] = incoming_map.get(key, 0) + (r["qty"] or 0)
+				h_farm, h_day = harvested.get(r["bucket_id"], (None, None))
+				incoming_detail.setdefault(key, []).append(
+					{
+						"bucket_id": r["bucket_id"],
+						"stems": r["qty"] or 0,
+						# the harvest's farm, else the farm that received it from its greenhouse
+						"harvest_farm": h_farm or r["farm"] or "",
+						"greenhouse": r["greenhouse"] or "",
+						"harvest_date": h_day,
+						"received_farm": r["farm"] or "",
+						"cold_room": r["cold_room"] or "",
+						"received_on": r["received_on"],
+					}
+				)
 
 	for item in items:
 		key = (item.get("item_code"), item.get("required_length"))
 		item["incoming_exact_stems"] = incoming_map.get(key, 0)
+		item["incoming_detail"] = sorted(incoming_detail.get(key, []), key=lambda x: str(x["received_on"]))
 
 
 # ============================================================
@@ -1984,6 +2059,52 @@ def allocate_stock_with_buckets(
 	except Exception:
 		frappe.db.rollback()
 		raise
+
+
+def _drop_owned_remote(sales_order, allocations, sales_shelf_farm):
+	"""(allocations, notes): `allocations` less the rows on a remote farm's bucket another order holds.
+	Nothing left: the first such bucket's message."""
+	if not sales_shelf_farm or not allocations:
+		return allocations, []
+	farm_of = dict(
+		frappe.db.sql(
+			"""SELECT si.bucket_id, s.farm FROM `tabShelf Item` si INNER JOIN `tabShelf` s ON s.name = si.parent
+			WHERE si.bucket_id IN %(b)s""",
+			{"b": tuple({a["bucket_id"] for a in allocations})},
+		)
+	)
+	remote = {b for b, farm in farm_of.items() if farm and farm != sales_shelf_farm}
+	owners = remote_bucket_owners(remote)
+	owned = {b: sos - {sales_order} for b, sos in owners.items() if sos - {sales_order}}
+	if not owned:
+		return allocations, []
+	notes = [
+		_(
+			"Bucket {0} at {1} is requested whole for {2}: it can be allocated again once it is shelved at {3}."
+		).format(b, farm_of[b], ", ".join(sorted(sos)), sales_shelf_farm)
+		for b, sos in sorted(owned.items())
+	]
+	kept = [a for a in allocations if a["bucket_id"] not in owned]
+	if not kept:
+		frappe.throw(notes[0])
+	return kept, notes
+
+
+def _attach_hours_cooled(buckets):
+	"""Each bucket's `hours_cooled`: hours since it was received into a cold store (its shelving when it has
+	no receipt)."""
+	from upande_packhouse.api.v2.core.stock import hours_since_received
+
+	shelved = {}
+	for b in buckets:
+		# the earliest shelving of the bucket's rows: its receipt came before that
+		if b.get("date_added") and (
+			b["bucket_id"] not in shelved or b["date_added"] < shelved[b["bucket_id"]]
+		):
+			shelved[b["bucket_id"]] = b["date_added"]
+	got = hours_since_received(shelved)
+	for b in buckets:
+		b["hours_cooled"] = got.get(b["bucket_id"], b.get("hours_since_shelved") or 0)
 
 
 def remote_bucket_owners(bucket_ids):
@@ -2415,6 +2536,14 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 			sales_shelf_farm = farm
 			break
 
+	# the buckets go to the sales farm allocating them: an order whose lines are planned at two sales farms
+	# (teams of both) is allocated at each for its own lines, and each sales farm's buckets travel there
+	if sales_shelf_farm:
+		to_hub = sales_shelf_farm
+
+	# a remote farm's bucket another order holds is requested whole for it: left out, the rest goes on
+	allocations, fit_notes = _drop_owned_remote(sales_order, allocations, sales_shelf_farm)
+
 	frappe.log_error(
 		title="Incoming Allocation Request",
 		message=f"SO: {sales_order}, Location: {location}\nSales Shelf Farm: {sales_shelf_farm}\nPayload: {json.dumps(allocations, indent=2)}",
@@ -2423,9 +2552,10 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 	so_doc = frappe.get_doc("Sales Order", sales_order)
 	# Never allocate more than a line's boxes hold: fit it here, before anything is
 	# written, instead of failing as "Overpacked" once the pick list is built.
-	allocations, fit_notes = _fit_allocations_to_boxes(so_doc, allocations)
+	allocations, box_notes = _fit_allocations_to_boxes(so_doc, allocations)
+	fit_notes += box_notes
 	# a mix goes on a pick list in complete boxes only (target_opl: a replacement into the box being packed)
-	if not target_opl and not part_boxes_on():
+	if not target_opl:
 		allocations, mix_notes = _whole_mix_boxes(so_doc, allocations)
 		fit_notes += mix_notes
 	business_unit = stock_movement.business_unit_of(so_doc)
@@ -2621,8 +2751,8 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 			if others:
 				frappe.throw(
 					_(
-						"Bucket {0} at {1} is requested whole for {2}: it can be allocated again once it is shelved at the hub."
-					).format(bucket_id, shelf["farm"], ", ".join(sorted(others)))
+						"Bucket {0} at {1} is requested whole for {2}: it can be allocated again once it is shelved at {3}."
+					).format(bucket_id, shelf["farm"], ", ".join(sorted(others)), sales_shelf_farm)
 				)
 
 		bas_key = (bucket_id, item_code, stem_length)
@@ -3221,16 +3351,90 @@ def _fetch_shelf_for_buckets(bucket_ids, item_codes):
 # Single source of truth for "is this OPL ready to submit?"
 # Called from every code path that creates or modifies an OPL.
 # ============================================================
+def processing_farms(sales_order, sois, location=None):
+	"""{sales_order_item: the sales farm that processes it}: its planned team's sales farm (Packing Teams > Sales
+	Farm), else the order's own sales farm. One order can have lines at two sales farms."""
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import order_hub
+	from upande_packhouse.api.v2.allocation_teams import team_sales_farms
+
+	home = team_sales_farms()
+	own = order_hub(sales_order)
+	teams = {
+		soi: team
+		for soi, team in frappe.db.sql(
+			"""SELECT sales_order_item, team FROM `tabAllocation Confirmation`
+			WHERE sales_order_item IN %(s)s AND IFNULL(team, '') != ''
+			  AND (status IN %(kept)s OR (status = 'Released' AND release_reason = 'Allocated'))
+			ORDER BY modified ASC""",
+			{"s": tuple(sois) or ("",), "kept": (*allocation_plan.LIVE, "Fulfilled")},
+		)
+	}
+	return {soi: home.get(teams.get(soi)) or own for soi in sois}
+
+
+def planned_stems(sois):
+	"""{sales_order_item: stems Allocation Planning confirmed for it}: its live confirmations and the ones
+	already allocated (fulfilled, or released as allocated) -- so a line allocated part of the way still aims at
+	what was planned, not at what was ordered. Lines never planned are left out."""
+	sois = [s for s in sois or [] if s]
+	if not sois:
+		return {}
+	raw = {
+		soi: flt(stems)
+		for soi, stems in frappe.db.sql(
+			"""SELECT sales_order_item, SUM(stems) FROM `tabAllocation Confirmation`
+			WHERE sales_order_item IN %(s)s
+			  AND (status IN %(kept)s OR (status = 'Released' AND release_reason = 'Allocated'))
+			GROUP BY sales_order_item""",
+			{"s": tuple(sois), "kept": (*allocation_plan.LIVE, "Fulfilled")},
+		)
+		if flt(stems) > 0
+	}
+	if not raw:
+		return raw
+	# only complete boxes are released: a plan short of a box (48 of a 300-stem box) aims at the whole box, so
+	# the line can be filled and released from the stock that is there; never more than was ordered
+	lines = frappe.get_all(
+		"Sales Order Item",
+		filters={"name": ("in", list(raw))},
+		fields=[
+			"name",
+			"qty",
+			"conversion_factor",
+			"custom_ordered_quantity",
+			"custom_number_of_boxes",
+			"custom_packrate",
+			"custom_packrate_mixed_box",
+			"custom_mixed_box",
+			"custom_mixed_bunch",
+		],
+	)
+	for it in lines:
+		boxes = cint(it.custom_number_of_boxes) or 1
+		per_box = _line_capacity(it) / boxes
+		ordered = flt(it.custom_ordered_quantity) or flt(it.qty) * (flt(it.conversion_factor) or 1)
+		if per_box > 0:
+			whole = min(boxes, math.ceil(raw[it.name] / per_box - 1e-9)) * per_box
+			raw[it.name] = min(max(raw[it.name], whole), max(ordered, raw[it.name]))
+	return raw
+
+
 def _line_limits(so_doc, so_items, confirmed_here):
-	"""{sales_order_item: most stems this location may allocate}: what was ordered, less what other
-	locations confirmed for themselves."""
+	"""{sales_order_item: most stems this location may allocate}: what Allocation Planning confirmed for it
+	here, else what was ordered less what other locations confirmed for themselves."""
 	all_confirmed = _get_all_confirmed_stems(so_doc.name)
+	planned = planned_stems(list(so_items))
 	out = {}
 	for it in so_doc.items:
 		if it.name not in so_items:
 			continue
 		ordered = flt(it.get("custom_ordered_quantity")) or flt(it.qty) * (flt(it.conversion_factor) or 1)
-		others = flt(all_confirmed.get(it.name)) - flt(confirmed_here.get(it.name))
+		here = flt(confirmed_here.get(it.name))
+		if here > 0 and flt(planned.get(it.name)) > 0:
+			# planned here: what Allocation Planning confirmed for it
+			out[it.name] = flt(planned[it.name])
+			continue
+		others = flt(all_confirmed.get(it.name)) - here
 		out[it.name] = max(0.0, ordered - max(0.0, others))
 	return out
 
@@ -3371,9 +3575,9 @@ def opl_submit_blockers(opl):
 
 	# Production Settings > Allow Partial Packing: packing starts on the complete boxes allocated so
 	# far; what is allocated later is added to the same pick list and packed as it completes boxes.
-	if partial_packing_on() and (
-		(part_boxes_on() and any(_cumulative_allocated_stems(s) > 0 for s in required_so_items))
-		or complete_boxes(required_so_items, grouped=bool(opl_mix_group or opl_bunch_group))[0]
+	if (
+		partial_packing_on()
+		and complete_boxes(required_so_items, grouped=bool(opl_mix_group or opl_bunch_group))[0]
 	):
 		return blockers
 
@@ -3417,13 +3621,6 @@ def _box_lines_of(opl):
 
 def partial_packing_on():
 	return bool(cint(frappe.get_cached_doc("Production Settings").get("allow_partial_packing")))
-
-
-def part_boxes_on():
-	"""Allow Partial Allocation and Allow Partial Packing both on (Production Settings): whatever is on the
-	shelves is allocated, released and packed, part boxes included, instead of only the boxes it completes."""
-	ps = frappe.get_cached_doc("Production Settings")
-	return bool(cint(ps.get("allow_partial_allocation")) and cint(ps.get("allow_partial_packing")))
 
 
 def complete_boxes(so_items, grouped=False):

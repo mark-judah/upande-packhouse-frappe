@@ -10,10 +10,11 @@ stock cannot reach at all leaves the plan.
 
 import json
 from collections import defaultdict
+from datetime import timedelta
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, cint, flt, today
+from frappe.utils import add_days, cint, flt, getdate, today
 
 from upande_packhouse import allocation_plan as plans
 from upande_packhouse.api.v2 import allocation_playground as pg
@@ -30,11 +31,13 @@ CYCLE = (
 )
 
 
-def stock_stages(farm, varieties, places=None):
+def stock_stages(farm, varieties, places=None, process_day=None):
 	"""{(variety, length): {shelf, received, quarantine, harvested}} in stems that no pick list uses: free on
 	the shelf (plan holds included), received and not shelved, received into quarantine and not released, and
 	harvested with no receiving since (graded or not), within the discard age. `places`, a dict, also gets
-	where the stock not on the shelf is: {(variety, length): {(stage, farm, warehouse): [stems, {buckets}]}}."""
+	where the stock not on the shelf is: {(variety, length): {(stage, farm, warehouse): [stems, {buckets}]}}.
+	`process_day`: count the shelf and the received stock that will still be under its variety's discard age on that
+	day (a bucket still cooling now will have cooled), instead of what is allocatable today."""
 
 	def place(key, stage, farm_, warehouse, stems, bucket):
 		if places is None:
@@ -48,9 +51,16 @@ def stock_stages(farm, varieties, places=None):
 		return out
 	farms = pg._stock_farms(farm)
 	vs = sorted(varieties)
+	ahead = max(0, (getdate(process_day) - getdate(today())).days) if process_day else None
+	age_of = pg._discard_ages() if process_day else None
 	for r in stock.bucket_rows(farms=farms, varieties=vs):
-		out[(r.variety, r.stem_length or "")]["shelf"] += flt(r.allocatable) + flt(r.reserved)
+		if ahead is None:
+			out[(r.variety, r.stem_length or "")]["shelf"] += flt(r.allocatable) + flt(r.reserved)
+		elif not r.in_discard_request and (r.age_days or 0) + ahead < age_of(r.variety):
+			out[(r.variety, r.stem_length or "")]["shelf"] += max(0.0, flt(r.free))
 	for r in received.received_unshelved(farms=farms, varieties=vs):
+		if ahead is not None and (r.age_days or 0) + ahead >= age_of(r.variety):
+			continue
 		out[(r.variety, r.stem_length or "")]["received"] += flt(r.stems)
 		place((r.variety, r.stem_length or ""), "received", r.farm, r.cold_room, r.stems, r.bucket_id)
 	since = add_days(today(), -min(cint(stock._config()["discard_age"]) or 7, 14))
@@ -126,7 +136,9 @@ def _changes(day, farm, keep=None, days=None):
 	for ln in lines:
 		length = planned[ln.name].get("length") or ln.custom_length or ""
 		pools[(ln.item_code, length)].append(ln)
-	stages = stock_stages(farm, {v for v, _l in pools})
+	# the stock as it will be on the processing day: the last delivery day less the harvest lead
+	process_day = getdate(days[-1]) - timedelta(days=plans.HARVEST_LEAD_DAYS)
+	stages = stock_stages(farm, {v for v, _l in pools}, process_day=process_day)
 	out = []
 	for (variety, length), pool_lines in pools.items():
 		st = stages[(variety, length)]
@@ -190,6 +202,10 @@ def preview_revision(
 	changes = _changes(day, farm, (lambda ln: ln.parent == sales_order) if sales_order else None, days)
 	if sales_order:
 		changes = [c for c in changes if c["sales_order"] == sales_order]
+	# what the planner can count on: the shelf now and the forecast up to each line's delivery day less one
+	got = pg.available_by_day(farm, {(c["delivery_date"], c["variety"], c["length"]) for c in changes})
+	for c in changes:
+		c["available"] = got.get((c["delivery_date"], c["variety"], c["length"]))
 	return {"success": True, "delivery_date": day, "farm": farm, "changes": changes}
 
 
@@ -205,6 +221,7 @@ def revise_confirmations(
 	([{sales_order_item, stems}]) confirms the planner's own amounts instead of the suggestion. With `week`, every
 	delivery day of it; each line stays in its own day's plan."""
 	frappe.only_for(pg.PLANNERS)
+	pg._changed()
 	days = pg._week(week)[1] if week else [pg._day(delivery_date)]
 	day = days[0]
 	if isinstance(sales_order_items, str):

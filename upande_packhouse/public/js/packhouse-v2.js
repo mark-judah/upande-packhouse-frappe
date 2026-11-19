@@ -570,6 +570,13 @@
 					ctl.set_value(input.value || "");
 			};
 			input._showDate();
+			// The days that can be picked: `min`/`max` as YYYY-MM-DD, "" for no limit.
+			const day = (v) => (v ? new Date(+v.slice(0, 4), +v.slice(5, 7) - 1, +v.slice(8, 10)) : "");
+			input._limit = (min, max) => {
+				input._range = [min || "", max || ""];
+				if (ctl.datepicker) ctl.datepicker.update({ minDate: day(input._range[0]), maxDate: day(input._range[1]) });
+			};
+			if (input._range) input._limit(input._range[0], input._range[1]);
 			// Frappe opens the calendar above or below the field but always from its left edge, so a field near
 			// the right of the page pushes it off screen: open it from the right edge there, then keep it in view.
 			const place =
@@ -577,6 +584,7 @@
 			ctl.update_datepicker_position = function () {
 				if (place) place();
 				const dp = ctl.datepicker;
+				if (dp && input._range) dp.update({ minDate: day(input._range[0]), maxDate: day(input._range[1]) });
 				if (!dp || !dp.$datepicker) return;
 				const r = ctl.$input[0].getBoundingClientRect();
 				if (r.left + r.width / 2 > window.innerWidth / 2) {

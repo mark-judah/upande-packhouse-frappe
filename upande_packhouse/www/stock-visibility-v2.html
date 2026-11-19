@@ -990,7 +990,7 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
     const possibleNote = l.soon > 0 ? `<p class="ph-notice ph-notice--warn" style="margin:var(--sp-3) 0 0">${PH.icon("alert", 16)}<span><b>Not guaranteed:</b> ${N(l.soon)} stems are still cooling, on the coldroom floor or just harvested.</span></p>` : "";
     const why = `<details class="sv-means"><summary>Why - the numbers behind it</summary>
       <div class="sv-parts">
-        <div class="sv-part"><small>Safe now</small><b>${N(l.safe)}</b>${l.remote > 0 ? `<small>${N(l.remote)} at a remote farm - moved to the hub</small>` : ""}</div>
+        <div class="sv-part"><small>Safe now</small><b>${N(l.safe)}</b>${l.remote > 0 ? `<small>${N(l.remote)} at a remote farm - moved to ${esc(st.get("region") || "the sales farm")}</small>` : ""}</div>
         <div class="sv-part"><small>Ready by ${esc(dayLabel(date))} (not guaranteed)</small><b>${N(l.soon)}</b></div>
         <div class="sv-part"><small>As longer stems</small><b>${N(l.downgrade)}</b></div>
         <div class="sv-part${l.short > 0 ? " is-short" : ""}"><small>Short by</small><b>${N(l.short)}</b></div>

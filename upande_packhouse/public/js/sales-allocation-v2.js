@@ -112,6 +112,12 @@ frappe.pages["sales-allocation-v2"]._run_deeplink = function (deeplink) {
 
 frappe.pages["sales-allocation-v2"].add_styles = function () {
 	if (document.getElementById("sales-allocation-v2-styles")) return;
+	// received, not shelved: a click shows each bucket, where it was harvested and where it waits
+	$(document).on("click keydown", ".sa-incoming", function (e) {
+		if (e.type === "keydown" && e.key !== "Enter" && e.key !== " ") return;
+		e.preventDefault();
+		frappe.pages["sales-allocation-v2"]._show_incoming($(this).data("so-item"));
+	});
 	// ufd-modern font stack (Poppins + JetBrains Mono) — matches every other
 	// Upande dashboard. Loaded once, applied only inside .ufd-sa2 so the rest
 	// of the Frappe Desk chrome (sidebar/topbar/other pages) is untouched.
@@ -628,6 +634,7 @@ frappe.pages["sales-allocation-v2"].add_styles = function () {
         .ufd-sa2 .sub-spec b { color: var(--ink); font-weight: 600; }
         .ufd-sa2 .sub-spec-link { color: var(--ink); font-weight: 600; text-decoration: underline; cursor: pointer; }
         .ufd-sa2 tr.is-current td { background: var(--surface); }
+        .ufd-sa2 .sa-incoming { cursor:pointer; }
         .ufd-sa2 .substitute-btn, .ufd-sa2 .sa-mini-btn {
             padding: 4px 12px; border: 1px solid var(--hairline); border-radius: 999px;
             background: var(--surface-2); color: var(--ink-4); cursor: pointer;
@@ -1564,6 +1571,31 @@ frappe.pages["sales-allocation-v2"]._resume_day_progress = function () {
 	});
 };
 // ─── SALES ORDERS ───
+// The order list's figures (boxes full, allocated share) read again in place: no loading state, the
+// selection and the open order kept.
+frappe.pages["sales-allocation-v2"]._refresh_cards = function () {
+	const P = frappe.pages["sales-allocation-v2"];
+	if (!P.selected_location) return;
+	const request_id = P._orders_request_id || 0;
+	frappe.call({
+		method: "upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2.get_pending_sales_orders",
+		args: {
+			delivery_start: P.filters.delivery_start || null,
+			delivery_end: P.filters.delivery_end || null,
+			location: P.selected_location || null,
+		},
+		callback: function (r) {
+			// a full reload started meanwhile paints the list itself
+			if (request_id !== (P._orders_request_id || 0) || !Array.isArray(r.message)) return;
+			const fresh = {};
+			r.message.forEach((o) => (fresh[o.name] = o));
+			(P.current_sales_orders || []).forEach((o) => {
+				if (fresh[o.name]) Object.assign(o, fresh[o.name]);
+			});
+			P.apply_filters();
+		},
+	});
+};
 frappe.pages["sales-allocation-v2"].load_sales_orders = function () {
 	const P = frappe.pages["sales-allocation-v2"];
 	if (!P.short_mode && P._shortages_key !== P._short_key()) $("#shortTabV2 .cnt").hide();
@@ -2002,6 +2034,8 @@ frappe.pages["sales-allocation-v2"]._fetch_items_and_open_dialog = function () {
 				P._apply_held();
 				P._items_for = P.selected_order;
 				P.show_allocation_panel();
+				// the cards are read once with the list: the open order's card is read again with its lines
+				P._refresh_cards();
 			} else {
 				P.order_items = [];
 				P.selected_item = null;
@@ -2930,6 +2964,12 @@ frappe.pages["sales-allocation-v2"]._render_lines_rail = function (items) {
 		return `<div class="sa-lines-title">Order lines</div>
                 <div style="font-size:11px;color:var(--ink-mute);padding:4px 2px;">Nothing to show.</div>`;
 	}
+	// an order shared by several teams: each line shows its place in its own team's queue
+	const team_seq = (team) => {
+		const o = (P.current_sales_orders || []).find((x) => x.name === P.selected_order) || {};
+		const pos = o.team_positions || {};
+		return Object.keys(pos).length > 1 && pos[team] ? `#${pos[team]} ` : "";
+	};
 	const card = (item) => {
 		const required = item.pending_stock_qty || 0;
 		const grand = (item.total_allocated_qty || 0) + P._session_qty(item.sales_order_item);
@@ -2971,7 +3011,15 @@ frappe.pages["sales-allocation-v2"]._render_lines_rail = function (items) {
 				  )
 				: "");
 		const boxes = P._boxes_possible(item);
-		const plan_flag = "";
+		// the team this line is packed by: its pick list's, else the one Allocation Planning confirmed
+		const line_team = item.opl_team || item.planning_team;
+		const plan_flag = line_team
+			? `<span class="lc-tag" style="background:var(--signal-soft);color:var(--signal);margin-left:4px;">${team_seq(
+					line_team
+			  )}${esc(
+					line_team
+			  )}</span>`
+			: "";
 		const short_flag =
 			left > 0 && !(item.batches || []).some((b) => (b.available_qty || 0) > 0)
 				? `<span class="lc-tag" style="background:var(--warn-soft);color:var(--warn);margin-left:4px;">Short ${left}</span>` +
@@ -3074,7 +3122,15 @@ frappe.pages["sales-allocation-v2"]._render_lines_rail = function (items) {
 			.join("");
 		done = Math.max(0, Math.min(done, total_boxes));
 		reach = Math.max(done, Math.min(reach, total_boxes));
-		const not_planned = "";
+		const mix_team = (lines.find((it) => it.opl_team || it.planning_team) || {});
+		const not_planned =
+			mix_team.opl_team || mix_team.planning_team
+				? `<span class="lc-tag" style="background:var(--signal-soft);color:var(--signal);margin-left:4px;">${team_seq(
+						mix_team.opl_team || mix_team.planning_team
+				  )}${esc(
+						mix_team.opl_team || mix_team.planning_team
+				  )}</span>`
+				: "";
 		// one of its varieties open: the whole mix is outlined, as a straight line's card is
 		const open = lines.some((it) => it.sales_order_item === P.selected_item) ? " active" : "";
 		return `<div class="lc-mix${open}">
@@ -3213,7 +3269,9 @@ frappe.pages["sales-allocation-v2"]._render_item_block = function (item) {
 	}
 	const incomingBanner =
 		(item.incoming_exact_stems || 0) > 0
-			? `<div class="note-band note-good">
+			? `<div class="note-band note-good sa-incoming" role="button" tabindex="0" data-so-item="${
+					item.sales_order_item
+			  }">
                <strong>${item.incoming_exact_stems} exact-length stems</strong>
                <span>(${item.required_length || "?"}) received but not yet shelved.</span>
            </div>`
@@ -3646,7 +3704,9 @@ frappe.pages["sales-allocation-v2"].allocate_from_bucket = function (
 		const incoming = item.incoming_exact_stems || 0;
 		let incoming_html = "";
 		if (incoming > 0) {
-			incoming_html = `<div style="background:var(--good-soft);border-radius:10px;padding:9px 12px;margin-top:10px;font-size:12px;color:var(--good);">
+			incoming_html = `<div class="sa-incoming" role="button" tabindex="0" data-so-item="${
+				item.sales_order_item
+			}" style="cursor:pointer;background:var(--good-soft);border-radius:10px;padding:9px 12px;margin-top:10px;font-size:12px;color:var(--good);">
                 <strong>${incoming} exact-length stems</strong> (${
 				item.required_length || "?"
 			}) received but not yet shelved.
@@ -4988,13 +5048,13 @@ frappe.pages["sales-allocation-v2"]._update_confirm_btn = function () {
 	const P = frappe.pages["sales-allocation-v2"];
 	const orders = (P.proposal && P.proposal.orders) || [];
 	const releasable = P._releasable();
-	// what the button counts is what the release dialog lists: each order line with complete boxes saved
+	// what the button counts is what the release dialog lists: the orders with complete boxes saved
 	// for release (picks are saved as they are made, and only complete boxes are kept)
 	const unsaved = 0;
 	const count =
 		P._live_count != null && !P._day_finished
 			? P._live_count
-			: (P._is_released() ? 0 : releasable.reduce((t, o) => t + (o.release_lines || 1), 0)) +
+			: (P._is_released() ? 0 : releasable.length) +
 			  unsaved;
 	// allocations with no complete box yet still open the button: it offers to discard them
 	$("#confirmDayV2").prop("disabled", !count && !orders.length);
@@ -5014,19 +5074,20 @@ frappe.pages["sales-allocation-v2"].confirm_day_allocation = function () {
 	P._hold_saved = false;
 	const hold = Promise.resolve(P._hold_session());
 	P._hold_pending = hold;
-	try {
-		P._open_confirm_dialog();
-	} finally {
-		P._confirm_opening = false;
-		P._update_confirm_btn();
-	}
-	hold.then(() => {
-		if (!P._hold_saved || P._releasing) return;
-		if (P._confirm_dialog && P._confirm_dialog.display) {
-			P._confirm_dialog.hide();
+	const open = () => {
+		try {
 			P._open_confirm_dialog();
+		} finally {
+			P._confirm_opening = false;
+			P._update_confirm_btn();
 		}
-	});
+	};
+	// the open order's picks are only on the page until the server has them (no lines, mixes or teams to
+	// show yet): the dialog opens on the server's proposal once they are saved
+	if (P._releasable().some((o) => !o.groups)) hold.then(open, open);
+	else open();
+	// the dialog already shows the open order's picks (the page holds them before they are saved); Release
+	// waits for the save, and the server reads them again then -- the dialog is not closed and opened again
 };
 // An order waiting release that has a line with no team (never planned, none chosen).
 // The order's team in the release dialog: its team (one for the whole order), changeable; "Choose a
@@ -7047,4 +7108,46 @@ frappe.pages["sales-allocation-v2"]._move_from_order = function (line, group) {
 	d.$wrapper.find(".modal-dialog").addClass("ufd-sa2-modal mv-modal");
 	d.show();
 	sync();
+};
+
+// Received, not shelved: every bucket, the farm that harvested it and where it was received, so it can be found and shelved
+frappe.pages["sales-allocation-v2"]._show_incoming = function (so_item) {
+	const P = frappe.pages["sales-allocation-v2"];
+	const item = (P.order_items || []).find((i) => i.sales_order_item === so_item);
+	if (!item) return;
+	const esc = (v) => frappe.utils.escape_html(String(v == null ? "" : v));
+	const n = (v) => Math.round(v || 0).toLocaleString();
+	const when = (v) => (v ? frappe.datetime.str_to_user(String(v)) : "");
+	const rows = (item.incoming_detail || [])
+		.map(
+			(r) => `<tr><td>${esc(r.bucket_id)}</td><td>${esc(r.harvest_farm)}${r.greenhouse ? `<div class="ds-so">${esc(r.greenhouse)}</div>` : ""}</td><td>${when(
+				r.harvest_date
+			)}</td><td>${esc(r.received_farm)}</td><td>${esc(r.cold_room)}</td><td>${when(
+				r.received_on
+			)}</td><td class="num">${n(r.stems)}</td></tr>`
+		)
+		.join("");
+	const d = new frappe.ui.Dialog({
+		title: __("{0} {1}: received, not shelved", [item.item_name || item.item_code, item.required_length || ""]),
+		size: "large",
+		fields: [
+			{
+				fieldtype: "HTML",
+				fieldname: "body",
+				options: `<div class="ds-line"><div class="mv-wrap"><table class="ds-donors mv-to"><thead><tr><th>${__(
+					"Bucket"
+				)}</th><th>${__("Harvested at")}</th><th>${__("Harvested")}</th><th>${__(
+					"Received at"
+				)}</th><th>${__("Cold room")}</th><th>${__("Received")}</th><th class="num">${__(
+					"Stems"
+				)}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th colspan="6">${__(
+					"{0} buckets",
+					[(item.incoming_detail || []).length]
+				)}</th><th class="num">${n(item.incoming_exact_stems)}</th></tr></tfoot></table></div></div>`,
+			},
+		],
+	});
+	d.$wrapper.addClass("ufd-sa2");
+	d.$wrapper.find(".modal-dialog").addClass("ufd-sa2-modal mv-modal");
+	d.show();
 };

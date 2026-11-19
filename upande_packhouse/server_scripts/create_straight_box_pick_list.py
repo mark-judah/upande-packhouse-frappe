@@ -256,7 +256,10 @@ def create_straight_box_pick_list_for_allocated_items(
 		frappe.msgprint(
 			f"Created {len(order_pick_list_names)} Pick List(s) for {sales_order_doc.name}", indicator="green"
 		)
+		# only where the Sales Order has the field (the pick list is on each line's custom_opl already)
 		try:
+			if not frappe.db.has_column("Sales Order", "custom_opl"):
+				return order_pick_list_names
 			frappe.db.set_value(
 				"Sales Order",
 				sales_order_doc.name,

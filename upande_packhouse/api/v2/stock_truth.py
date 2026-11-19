@@ -181,6 +181,16 @@ def _ts(v):
 # ------------------------------------------------------------------ pure classification
 
 
+def _sales_farm_of(farm):
+	"""The sales farm a remote farm's stems go to: its Farm Location's sales farm (named, never "the hub")."""
+	from upande_packhouse.api.v2.allocation_teams import location_of, sales_farm_for_location
+
+	cache = frappe.local.__dict__.setdefault("_st_sales_farm_of", {})
+	if farm not in cache:
+		cache[farm] = sales_farm_for_location(location_of(farm)) or "its sales farm"
+	return cache[farm]
+
+
 def classify_shelf_row(r, *, held_by, farm_cfg, farm_known, stale_qty, now=None):
 	"""One bucket/variety/length shelf row -> [(state, stems, extra)].
 
@@ -577,7 +587,7 @@ def collect(a):
 				ords = sorted({x.sales_order for x in by_key.get(key, []) if x.sales_order})
 				detail = "Orders: " + ", ".join(ords[:4]) + ("..." if len(ords) > 4 else "")
 			elif state == "sellable" and extra.get("remote"):
-				detail = f"At {farm}: moved to the hub when allocated"
+				detail = f"At {farm}: moved to {_sales_farm_of(farm)} when allocated"
 			add(
 				state,
 				r,
@@ -1363,7 +1373,8 @@ def _blocked_pairs(soi_names):
 		"""
 		SELECT p.sales_order_item AS soi, UPPER(p.bucket) AS b,
 		       MAX(IFNULL(p.issued, 0) = 1 OR IFNULL(p.issued_offline, 0) = 1) AS issued,
-		       MAX(IFNULL(p.loaded_in_trolley, 0) = 1 OR IFNULL(p.loaded_on_truck, 0) = 1) AS moving
+		       MAX((IFNULL(p.loaded_in_trolley, 0) = 1 OR IFNULL(p.loaded_on_truck, 0) = 1)
+		           AND IFNULL(p.shelved, 0) = 0 AND p.arrived_at IS NULL) AS moving
 		FROM `tabPick List Item` p
 		INNER JOIN `tabOrder Pick List` o ON o.name = p.parent AND o.docstatus < 2
 		WHERE p.sales_order_item IN %(i)s AND IFNULL(p.bucket, '') != ''
@@ -1799,7 +1810,7 @@ SOURCES = (
 	(
 		"remote",
 		"At remote farms",
-		"Free stems at a farm that is not a sales shelf; they move to the hub when allocated.",
+		"Free stems at a farm that is not a sales shelf; they move to its sales farm when allocated.",
 	),
 	("floor", "Coldroom floor", "Received but not shelved yet."),
 	("cooling", "Still cooling", "On a shelf, ready before the delivery date."),

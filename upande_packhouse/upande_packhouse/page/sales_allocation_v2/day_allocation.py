@@ -399,15 +399,30 @@ def _save_pending(location, sales_order, allocations, teams, boxes, source, orde
 	# only complete boxes are held: a straight line's full boxes, a mixed box or bunch once every variety in
 	# it fills it. Stems short of a box stay with the planner's page, not on the buckets.
 	if allocations:
-		allocations, rest, by_box = _split_release(sales_order, allocations)
+		allocations, _rest, by_box = _split_release(sales_order, allocations)
 		boxes = sum(by_box.values())
-		if sa.part_boxes_on():
-			# part boxes are held too: whatever the shelves have goes out
-			allocations = allocations + rest
 	if not allocations:
 		if name:
 			frappe.delete_doc(PENDING, name, ignore_permissions=True, force=True)
 		return None
+	# each line's team: the one chosen, else the team Allocation Planning assigned it, else the order's other
+	# lines' (_fill_teams) -- the release, its pick lists and the packing app then carry that team
+	teams = {k: v for k, v in (teams or {}).items() if v}
+	teams.update(
+		{
+			k: v
+			for k, v in _fill_teams(
+				{
+					"sales_order": sales_order,
+					"allocations": allocations,
+					"teams": teams,
+					"location": location,
+				},
+				location,
+			).items()
+			if not teams.get(k)
+		}
+	)
 	doc = frappe.get_doc(PENDING, name) if name else frappe.new_doc(PENDING)
 	doc.update(
 		{
@@ -586,10 +601,7 @@ def _gate_release(release, keep, boxes, full_before, required):
 	"""(release, keep, boxes) as the release sends it out. With partial allocation on (Production Settings), a
 	straight line is one variety: its complete boxes always go out, each straight line a pick list of its own.
 	The release percentage holds back only the mixed boxes and bunches, until the order reaches it. With partial
-	allocation off the order goes out only once every box is complete. With part boxes on (sa.part_boxes_on)
-	everything allocated goes out."""
-	if sa.part_boxes_on():
-		return release + keep, [], boxes
+	allocation off the order goes out only once every box is complete. A part box never goes out."""
 	if not release or _release_ok(sum(boxes.values()), full_before, required):
 		return release, keep, boxes
 	# partial allocation off: the order goes out only whole
@@ -1198,6 +1210,8 @@ def _downgrade_options(lines, proposed, taken):
 					(order.get("custom_order_name") or order.name, left)
 				)
 	out, used = [], defaultdict(float)
+	# a remote farm's bucket is requested whole: it goes to one order only
+	remote_owner = {k[1]: v for k, v in taken.items() if isinstance(k, tuple) and k[0] == "remote_owner"}
 	for _so, (order, items) in lines.items():
 		for item in items:
 			left = _left(item) - proposed.get(item["sales_order_item"], 0)
@@ -1220,12 +1234,15 @@ def _downgrade_options(lines, proposed, taken):
 				for b in item.get("batches") or []:
 					if b.get("length_status") != "downgrade" or (b.get("stem_length") or "") != length:
 						continue
+					remote = not cint(b.get("is_sales_shelf"))
+					if remote and remote_owner.get(b["bucket_id"], order.name) != order.name:
+						continue
 					key = (b["bucket_id"], item["item_code"], length)
 					avail = free.get(key, 0) - used[key]
 					take = min(avail, left - got)
 					if take <= 0:
 						continue
-					buckets.append({"bucket_id": b["bucket_id"], "qty": take, "_key": key})
+					buckets.append({"bucket_id": b["bucket_id"], "qty": take, "_key": key, "_remote": remote})
 					got += take
 					if got >= left - 1e-9:
 						break
@@ -1242,6 +1259,8 @@ def _downgrade_options(lines, proposed, taken):
 						buckets.pop()
 				for x in buckets:
 					used[x.pop("_key")] += x["qty"]
+					if x.pop("_remote"):
+						remote_owner[x["bucket_id"]] = order.name
 				k = (item["item_code"], length)
 				short_by = max(0.0, stems - spare.get(k, 0))
 				spare[k] = max(0.0, spare.get(k, 0) - stems)
@@ -1914,7 +1933,7 @@ def apply_downgrades(
 	if isinstance(picks, str):
 		picks = json.loads(picks or "[]")
 	by_order, added = defaultdict(list), 0.0
-	free = {}
+	free, remote, remote_owner = {}, {}, {}
 	farms = _farms(selected_farms)
 	reasons = set(frappe.get_all("Downgrade Reason", pluck="name"))
 	for pk in picks or []:
@@ -1929,14 +1948,22 @@ def apply_downgrades(
 		if not line:
 			continue
 		if line.parent not in free:
-			view = {
-				(b["bucket_id"], i["item_code"], b.get("stem_length") or ""): flt(b.get("available_qty"))
-				for i in sa.get_sales_order_items_with_buckets(line.parent, location, selected_farms=farms)
-				or []
-				for b in i.get("batches") or []
-			}
+			view = {}
+			for i in sa.get_sales_order_items_with_buckets(line.parent, location, selected_farms=farms) or []:
+				for b in i.get("batches") or []:
+					view[(b["bucket_id"], i["item_code"], b.get("stem_length") or "")] = flt(
+						b.get("available_qty")
+					)
+					if not cint(b.get("is_sales_shelf")):
+						remote[b["bucket_id"]] = True
 			left = _left_on_buckets(view.keys())
 			free[line.parent] = {k: min(v, left.get(k, 0)) for k, v in view.items()}
+		# a remote farm's bucket is requested whole: one order only
+		if (
+			remote.get(pk["bucket_id"])
+			and remote_owner.setdefault(pk["bucket_id"], line.parent) != line.parent
+		):
+			continue
 		key = (pk["bucket_id"], line.item_code, pk.get("length") or "")
 		size = flt(line.conversion_factor) or 1
 		qty = math.floor(min(flt(pk.get("qty")), free[line.parent].get(key, 0)) / size + 1e-9) * size
@@ -2305,6 +2332,9 @@ def _run_confirm(
 					waiting.append(o["sales_order"])
 					continue
 			held = sum(flt(a.get("qty")) for a in o["allocations"])
+			if frappe.db.get_value("Sales Order", o["sales_order"], "docstatus") != 1:
+				clear(o, held)
+				continue
 			frappe.db.savepoint("confirm_day_order")
 			try:
 				_check_location(o["sales_order"], location)

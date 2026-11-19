@@ -131,11 +131,28 @@ def _so_farm_expr(alias="so"):
 	(a site may lack either)."""
 	cols = getattr(frappe.local, "_so_farm_cols", None)
 	if cols is None:
-		cols = [c for c in ("farm", "custom_farm") if frappe.db.has_column("Sales Order", c)]
+		# the sales farm Allocation Planning chose (its confirmed team's) first, then the order's own
+		cols = [
+			c
+			for c in ("custom_processing_sales_farm", "farm", "custom_farm")
+			if frappe.db.has_column("Sales Order", c)
+		]
 		frappe.local._so_farm_cols = cols
+	# first of all, the sales farm of the team Allocation Planning confirmed the order for (Packing Teams > Sales
+	# Farm, else its location): that team's sales farm processes it, whatever farm the order was entered for
+	planned = (
+		"(SELECT CASE WHEN COUNT(DISTINCT COALESCE(NULLIF(_pt.sales_farm, ''), NULLIF(_pt.location, ''))) = 1"
+		" THEN MIN(COALESCE(NULLIF(_pt.sales_farm, ''), NULLIF(_pt.location, ''))) END"
+		" FROM `tabAllocation Confirmation` _ac JOIN `tabPacking Teams` _pt ON _pt.name = _ac.team"
+		" WHERE _ac.sales_order = {0}.name AND IFNULL(_ac.team, '') != ''"
+		" AND (_ac.status IN ('Planned', 'Reserved', 'Partly Fulfilled', 'Broken', 'Fulfilled')"
+		" OR (_ac.status = 'Released' AND _ac.release_reason = 'Allocated')))"
+	).format(alias)
 	if not cols:
-		return "NULL"
-	return "COALESCE({0})".format(", ".join("NULLIF({0}.{1}, '')".format(alias, c) for c in cols))
+		return planned
+	return "COALESCE({0}, {1})".format(
+		planned, ", ".join("NULLIF({0}.{1}, '')".format(alias, c) for c in cols)
+	)
 
 
 def _hub_farms():

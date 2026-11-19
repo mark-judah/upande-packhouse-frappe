@@ -220,7 +220,9 @@ def check_team_farm(team, sales_order, location=None):
 	from upande_packhouse.api.remote_transfer.transfer_scheduling import order_hub
 
 	home = team_sales_farms().get(team) if team else None
-	farm = order_hub(sales_order, location) if sales_order else None
+	# the sales farm allocating the lines now: one order can have lines packed at two sales farms
+	farm = sales_farm_for_location(location) if location else None
+	farm = farm or (order_hub(sales_order, location) if sales_order else None)
 	if home and farm and home != farm:
 		frappe.throw(_("{0} packs at {1}, not at {2}.").format(team, home, farm))
 
@@ -289,6 +291,7 @@ def save_team_crops(
 	packs for, the sales farm it packs at ("" for every sales farm; `location`: a Farm Location, taken as its
 	sales farm) and the time it starts when those are sent."""
 	frappe.only_for(pg.PLANNERS)
+	pg._changed()
 	if isinstance(rows, str):
 		rows = json.loads(rows or "[]")
 	if isinstance(customers, str):
@@ -615,6 +618,7 @@ def get_rates():
 def save_rates(rows: str | list):
 	"""Set the crops' processing rates: [{crop, rate}]; a rate of 0 removes it."""
 	frappe.only_for(pg.PLANNERS)
+	pg._changed()
 	if isinstance(rows, str):
 		rows = json.loads(rows or "[]")
 	allowed = set(crops())
@@ -640,6 +644,7 @@ def move_order(delivery_date: str, farm: str, sales_order: str, team: str, posit
 	"""Drag on the team board: put an order at `position` (1-based) in `team`'s queue. Moving it to another team
 	gives every line of the order that team."""
 	frappe.only_for(pg.PLANNERS)
+	pg._changed()
 	day = pg._day(delivery_date)
 	plan = pg._plan_name(day, farm)
 	if not plan:
@@ -670,6 +675,7 @@ def move_order(delivery_date: str, farm: str, sales_order: str, team: str, posit
 def balance_teams(delivery_date: str, farm: str):
 	"""Re-sequence in rounds without moving any order between teams (after a confirm or undo)."""
 	frappe.only_for(pg.PLANNERS)
+	pg._changed()
 	plan = pg._plan_name(pg._day(delivery_date), farm)
 	if plan:
 		_write_rounds(plan, _queues(plan))
@@ -944,6 +950,7 @@ def substitute_and_confirm(
 	on the new variety. The line itself changes (as Sales Allocation's Substitute does), so allocation follows.
 	A variety already in the line's mix is refused unless the planner said to go ahead (`same_as_mix`)."""
 	frappe.only_for(pg.PLANNERS)
+	pg._changed()
 	from upande_packhouse.api.v2 import allocation_guards as guards
 	from upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2 import (
 		substitute_variety,
