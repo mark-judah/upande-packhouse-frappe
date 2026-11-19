@@ -144,6 +144,8 @@ class TestHelpers(IntegrationTestCase):
 					"boxes": 2,
 					"pack_rate": 380,
 					"stems": 760,
+					"price": None,
+					"value": None,
 				}
 			],
 		)
@@ -185,6 +187,37 @@ class TestHelpers(IntegrationTestCase):
 		self.assertEqual((out[0]["boxes"], out[0]["pack_rate"], out[0]["stems"]), (2, 240, 480))
 		self.assertTrue(out[0]["mixed"])
 		self.assertEqual([v["name"] for v in out[0]["varieties"]], ["A", "B", "C", "D"])
+
+	def test_erp_line_value_and_price_per_stem(self):
+		row = lambda soi, amount_key=None: {  # noqa: E731
+			"soi": soi, "sales_order": "SO1", "primary": True, "variety": "Wham", "length": "62cm",
+			"box_type": "Pro", "mix_name": None, "line_boxes": 2, "stems_per_box": 100, "ordered_stems": 200,
+		}  # fmt: skip
+		wf = {"sections": [{"rows": [row("i1")]}]}
+		out = rc._erp_lines(wf, {"i1": 50.0})["SO1"][0]
+		self.assertEqual((out["value"], out["price"]), (50.0, 0.25))
+		self.assertEqual(rc._erp_lines(wf)["SO1"][0]["value"], 0)  # no amounts: no value, no price crash
+
+	def test_rosenta_order_gets_its_stem_prices_from_the_order_summary_call(self):
+		row = lambda line, stems: {  # noqa: E731
+			"order_id": "o1", "order_name": "X", "customer": "C", "order_status": "Processing", "line": line,
+			"order_delivery_date": "20/11/2026", "stems_confirmed": stems, "pack_rate": 100, "teams": "[]",
+		}  # fmt: skip
+		rows = [row("A L6 100", 200), row("B L6 100", 100)]
+		prices = {("o1", "A L6 100"): [(0.5, "USD")], ("o1", "B L6 100"): [(0.2, "USD")]}
+		o = rc._rosenta_orders(rows, "20/11/2026", prices)["o1"]
+		self.assertEqual([(l["price"], l["value"]) for l in o["lines"]], [(0.5, 100.0), (0.2, 20.0)])
+		self.assertEqual(rc._money(o["value"], o["stems"]), {"value": 120.0, "price": 0.4, "currency": "USD", "by_currency": {"USD": 120.0}})
+		no = rc._rosenta_orders(rows, "20/11/2026")["o1"]  # no prices: nothing shown, nothing invented
+		self.assertEqual((no["lines"][0]["price"], rc._money(no["value"], 300)["value"]), (None, None))
+
+	def test_add_value_lists_currencies_instead_of_adding_them(self):
+		one = {"stems": 200}
+		rc._add_value(one, {"USD": 50.0}, 2)
+		self.assertEqual((one["value"], one["price"], one["currency"], one["delivery_notes"]), (50.0, 0.25, "USD", 2))
+		many = {"stems": 200}
+		rc._add_value(many, {"USD": 50.0, "EUR": 40.0}, 0)
+		self.assertEqual((many["value"], many["price"], many["currency"]), (None, None, "EUR + USD"))
 
 	def test_rosenta_teams_sum_the_day_and_take_last_packed_from_both_days(self):
 		line = lambda **k: {  # noqa: E731
@@ -319,13 +352,29 @@ class TestRosentaSession(IntegrationTestCase):
 		self.assertIn(("B", "19/11/2026"), fake.signed)  # the refused one was repeated
 
 
+MONEY_KEYS = {"value", "price", "currency", "by_currency"}
+
+
 class TestComparisonCall(IntegrationTestCase):
 	def tearDown(self):
 		frappe.set_user("Administrator")
 
-	def test_only_a_system_manager_may_call_it(self):
+	def test_a_guest_may_not_call_it(self):
 		frappe.set_user("Guest")
 		self.assertRaises(frappe.PermissionError, rc.get_rosenta_comparison, "2026-11-18")
+
+	def test_any_signed_in_user_may_call_it(self):
+		user = "Guest"
+		for u in frappe.get_all("User", filters={"enabled": 1, "name": ["not in", ["Administrator", "Guest"]]}, pluck="name"):
+			if "System Manager" not in frappe.get_roles(u):
+				user = u
+				break
+		if user == "Guest":
+			self.skipTest("no enabled user without the System Manager role on this site")
+		frappe.set_user(user)
+		with patch.object(rc, "_compare", return_value={"success": True}) as comp:
+			self.assertEqual(rc.get_rosenta_comparison("2026-11-18"), {"success": True})
+		comp.assert_called_once()
 
 	def test_whole_call_on_the_local_site_matches_orders_and_workflow(self):
 		frappe.set_user("Administrator")
@@ -344,10 +393,10 @@ class TestComparisonCall(IntegrationTestCase):
 		for key in ("totals", "customers", "teams", "cancel_rosenta", "cancel_erpnext", "drafts"):
 			self.assertIn(key, out)
 		self.assertEqual(set(out["totals"]), {"rosenta", "erpnext"})
-		self.assertEqual(set(out["totals"]["rosenta"]), set(rc._SIDE_KEYS))
+		self.assertEqual(set(out["totals"]["rosenta"]), set(rc._SIDE_KEYS) | MONEY_KEYS)
 		for c in out["customers"]:
-			self.assertEqual(set(c["rosenta"]), set(rc._SIDE_KEYS))
-			self.assertEqual(set(c["erpnext"]), set(rc._SIDE_KEYS))
+			self.assertEqual(set(c["rosenta"]), set(rc._SIDE_KEYS) | MONEY_KEYS)
+			self.assertEqual(set(c["erpnext"]), set(rc._SIDE_KEYS) | MONEY_KEYS | {"delivery_notes"})
 
 	def test_rosenta_operations_failing_still_returns_everything_else(self):
 		frappe.set_user("Administrator")
