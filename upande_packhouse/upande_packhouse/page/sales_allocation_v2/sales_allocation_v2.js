@@ -2875,9 +2875,7 @@ frappe.pages["sales-allocation-v2"]._render_lines_rail = function (items) {
 		const plan_flag = line_team
 			? `<span class="lc-tag" style="background:var(--signal-soft);color:var(--signal);margin-left:4px;">${team_seq(
 					line_team
-			  )}${frappe.utils.escape_html(
-					line_team
-			  )}</span>`
+			  )}${frappe.utils.escape_html(line_team)}</span>`
 			: "";
 		const short_flag =
 			left > 0 && !(item.batches || []).some((b) => (b.available_qty || 0) > 0)
@@ -6888,15 +6886,19 @@ frappe.pages["sales-allocation-v2"]._show_incoming = function (so_item) {
 	const when = (v) => (v ? frappe.datetime.str_to_user(String(v)) : "");
 	const rows = (item.incoming_detail || [])
 		.map(
-			(r) => `<tr><td>${esc(r.bucket_id)}</td><td>${esc(r.harvest_farm)}${r.greenhouse ? `<div class="ds-so">${esc(r.greenhouse)}</div>` : ""}</td><td>${when(
-				r.harvest_date
-			)}</td><td>${esc(r.received_farm)}</td><td>${esc(r.cold_room)}</td><td>${when(
-				r.received_on
-			)}</td><td class="num">${n(r.stems)}</td></tr>`
+			(r) =>
+				`<tr><td>${esc(r.bucket_id)}</td><td>${esc(r.harvest_farm)}${
+					r.greenhouse ? `<div class="ds-so">${esc(r.greenhouse)}</div>` : ""
+				}</td><td>${when(r.harvest_date)}</td><td>${esc(r.received_farm)}</td><td>${esc(
+					r.cold_room
+				)}</td><td>${when(r.received_on)}</td><td class="num">${n(r.stems)}</td></tr>`
 		)
 		.join("");
 	const d = new frappe.ui.Dialog({
-		title: __("{0} {1}: received, not shelved", [item.item_name || item.item_code, item.required_length || ""]),
+		title: __("{0} {1}: received, not shelved", [
+			item.item_name || item.item_code,
+			item.required_length || "",
+		]),
 		size: "large",
 		fields: [
 			{
@@ -6911,7 +6913,9 @@ frappe.pages["sales-allocation-v2"]._show_incoming = function (so_item) {
 				)}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th colspan="6">${__(
 					"{0} buckets",
 					[(item.incoming_detail || []).length]
-				)}</th><th class="num">${n(item.incoming_exact_stems)}</th></tr></tfoot></table></div></div>`,
+				)}</th><th class="num">${n(
+					item.incoming_exact_stems
+				)}</th></tr></tfoot></table></div></div>`,
 			},
 		],
 	});

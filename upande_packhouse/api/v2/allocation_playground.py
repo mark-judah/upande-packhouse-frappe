@@ -2428,7 +2428,10 @@ def set_processing_farm(sales_order):
 			to = plans.get_plan(c.delivery_date, farm)
 			old_farm = c.farm
 			frappe.db.set_value(
-				"Allocation Confirmation", c.name, {"plan": to.name, "farm": stock_farm}, update_modified=False
+				"Allocation Confirmation",
+				c.name,
+				{"plan": to.name, "farm": stock_farm},
+				update_modified=False,
 			)
 			# what Sales Allocation shows each sales farm follows the line
 			if old_farm and old_farm != stock_farm:

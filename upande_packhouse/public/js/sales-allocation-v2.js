@@ -3016,9 +3016,7 @@ frappe.pages["sales-allocation-v2"]._render_lines_rail = function (items) {
 		const plan_flag = line_team
 			? `<span class="lc-tag" style="background:var(--signal-soft);color:var(--signal);margin-left:4px;">${team_seq(
 					line_team
-			  )}${esc(
-					line_team
-			  )}</span>`
+			  )}${esc(line_team)}</span>`
 			: "";
 		const short_flag =
 			left > 0 && !(item.batches || []).some((b) => (b.available_qty || 0) > 0)
@@ -3122,14 +3120,12 @@ frappe.pages["sales-allocation-v2"]._render_lines_rail = function (items) {
 			.join("");
 		done = Math.max(0, Math.min(done, total_boxes));
 		reach = Math.max(done, Math.min(reach, total_boxes));
-		const mix_team = (lines.find((it) => it.opl_team || it.planning_team) || {});
+		const mix_team = lines.find((it) => it.opl_team || it.planning_team) || {};
 		const not_planned =
 			mix_team.opl_team || mix_team.planning_team
 				? `<span class="lc-tag" style="background:var(--signal-soft);color:var(--signal);margin-left:4px;">${team_seq(
 						mix_team.opl_team || mix_team.planning_team
-				  )}${esc(
-						mix_team.opl_team || mix_team.planning_team
-				  )}</span>`
+				  )}${esc(mix_team.opl_team || mix_team.planning_team)}</span>`
 				: "";
 		// one of its varieties open: the whole mix is outlined, as a straight line's card is
 		const open = lines.some((it) => it.sales_order_item === P.selected_item) ? " active" : "";
@@ -5054,8 +5050,7 @@ frappe.pages["sales-allocation-v2"]._update_confirm_btn = function () {
 	const count =
 		P._live_count != null && !P._day_finished
 			? P._live_count
-			: (P._is_released() ? 0 : releasable.length) +
-			  unsaved;
+			: (P._is_released() ? 0 : releasable.length) + unsaved;
 	// allocations with no complete box yet still open the button: it offers to discard them
 	$("#confirmDayV2").prop("disabled", !count && !orders.length);
 	$("#confirmDayV2 .cnt")
@@ -7120,15 +7115,19 @@ frappe.pages["sales-allocation-v2"]._show_incoming = function (so_item) {
 	const when = (v) => (v ? frappe.datetime.str_to_user(String(v)) : "");
 	const rows = (item.incoming_detail || [])
 		.map(
-			(r) => `<tr><td>${esc(r.bucket_id)}</td><td>${esc(r.harvest_farm)}${r.greenhouse ? `<div class="ds-so">${esc(r.greenhouse)}</div>` : ""}</td><td>${when(
-				r.harvest_date
-			)}</td><td>${esc(r.received_farm)}</td><td>${esc(r.cold_room)}</td><td>${when(
-				r.received_on
-			)}</td><td class="num">${n(r.stems)}</td></tr>`
+			(r) =>
+				`<tr><td>${esc(r.bucket_id)}</td><td>${esc(r.harvest_farm)}${
+					r.greenhouse ? `<div class="ds-so">${esc(r.greenhouse)}</div>` : ""
+				}</td><td>${when(r.harvest_date)}</td><td>${esc(r.received_farm)}</td><td>${esc(
+					r.cold_room
+				)}</td><td>${when(r.received_on)}</td><td class="num">${n(r.stems)}</td></tr>`
 		)
 		.join("");
 	const d = new frappe.ui.Dialog({
-		title: __("{0} {1}: received, not shelved", [item.item_name || item.item_code, item.required_length || ""]),
+		title: __("{0} {1}: received, not shelved", [
+			item.item_name || item.item_code,
+			item.required_length || "",
+		]),
 		size: "large",
 		fields: [
 			{
@@ -7143,7 +7142,9 @@ frappe.pages["sales-allocation-v2"]._show_incoming = function (so_item) {
 				)}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th colspan="6">${__(
 					"{0} buckets",
 					[(item.incoming_detail || []).length]
-				)}</th><th class="num">${n(item.incoming_exact_stems)}</th></tr></tfoot></table></div></div>`,
+				)}</th><th class="num">${n(
+					item.incoming_exact_stems
+				)}</th></tr></tfoot></table></div></div>`,
 			},
 		],
 	});
