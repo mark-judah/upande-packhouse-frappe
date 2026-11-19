@@ -211,6 +211,21 @@ class TestHelpers(IntegrationTestCase):
 		no = rc._rosenta_orders(rows, "20/11/2026")["o1"]  # no prices: nothing shown, nothing invented
 		self.assertEqual((no["lines"][0]["price"], rc._money(no["value"], 300)["value"]), (None, None))
 
+	def test_allocations_and_team_dispatch_from_the_order_lines(self):
+		row = lambda **k: {  # noqa: E731
+			"order_id": "o1", "order_delivery_date": "20/11/2026", "order_status": "Partially Dispatched",
+			"pack_rate": 100, "stems_confirmed": 400, "stems_loaded": 200, **k
+		}  # fmt: skip
+		rows = [
+			row(teams='[{"team_name":"Eldama","box_count":"3"},{"team_name":"JMF","box_count":"1"}]'),
+			row(order_id="o2", teams="[]", order_status="Processing", stems_loaded=0),
+			row(order_id="o3", teams='[{"team_name":"JMF","box_count":"2"}]', order_status="Cancelled"),
+		]
+		a = rc._rosenta_allocations(rows, "20/11/2026")
+		self.assertEqual((a["Eldama"]["boxes"], a["Eldama"]["stems"], a["JMF"]["stems"]), (3, 300, 100))
+		self.assertEqual((a[rc.NOT_ALLOCATED]["stems"], a[rc.NOT_ALLOCATED]["boxes"]), (400, 4))  # o3 cancelled: not counted
+		self.assertEqual(rc._rosenta_team_dispatch(rows, "20/11/2026"), {"Eldama": 150, "JMF": 50})
+
 	def test_add_value_lists_currencies_instead_of_adding_them(self):
 		one = {"stems": 200}
 		rc._add_value(one, {"USD": 50.0}, 2)
@@ -385,6 +400,8 @@ class TestComparisonCall(IntegrationTestCase):
 			patch.object(rc, "_settings", return_value={"token": "t", "email": "e", "password": "p"}),
 			patch.object(rc, "_orders_summary", return_value=[]),
 			patch.object(rc, "RosentaOps", return_value=fake_ops),
+			patch.object(rc, "_rosenta_invoices", return_value={}),
+			patch.object(rc, "_line_prices", return_value={}),
 		):
 			out = rc.get_rosenta_comparison("2026-11-18")
 		self.assertTrue(out["success"], out.get("error"))
@@ -393,10 +410,10 @@ class TestComparisonCall(IntegrationTestCase):
 		for key in ("totals", "customers", "teams", "cancel_rosenta", "cancel_erpnext", "drafts"):
 			self.assertIn(key, out)
 		self.assertEqual(set(out["totals"]), {"rosenta", "erpnext"})
-		self.assertEqual(set(out["totals"]["rosenta"]), set(rc._SIDE_KEYS) | MONEY_KEYS)
+		self.assertEqual(set(out["totals"]["rosenta"]), set(rc._SIDE_KEYS) | MONEY_KEYS | {"invoiced"})
 		for c in out["customers"]:
-			self.assertEqual(set(c["rosenta"]), set(rc._SIDE_KEYS) | MONEY_KEYS)
-			self.assertEqual(set(c["erpnext"]), set(rc._SIDE_KEYS) | MONEY_KEYS | {"delivery_notes"})
+			self.assertEqual(set(c["rosenta"]), set(rc._SIDE_KEYS) | MONEY_KEYS | {"invoiced"})
+			self.assertEqual(set(c["erpnext"]), set(rc._SIDE_KEYS) | MONEY_KEYS | {"delivery_notes", "invoiced"})
 
 	def test_rosenta_operations_failing_still_returns_everything_else(self):
 		frappe.set_user("Administrator")

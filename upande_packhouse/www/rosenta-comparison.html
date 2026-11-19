@@ -163,7 +163,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
     <div class="rc-tabs" id="rc-tabs" role="tablist">
       <button class="rc-tab" type="button" data-tab="orders">Orders<i id="rc-n-orders" hidden></i></button>
       <button class="rc-tab" type="button" data-tab="packing">Packing<i id="rc-n-packing" hidden></i></button>
-      <button class="rc-tab" type="button" data-tab="dispatch">Dispatch<i id="rc-n-dispatch" hidden></i></button>
+      <button class="rc-tab" type="button" data-tab="allocations">Allocations<i id="rc-n-allocations" hidden></i></button>
       <button class="rc-tab" type="button" data-tab="teams">Teams</button>
       <button class="rc-tab" type="button" data-tab="cancel">Cancellations<i id="rc-n-cancel" hidden></i></button>
     </div>
@@ -373,46 +373,53 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       openPanel(c.customer, "Orders for " + longDate(data.date) + ". Differences are ERPNext against Rosenta.", h);
     }
     // ---- packing
-    var PACK_COLS = cat(pair("boxes_packed", "Packed"), pair("boxes_staged", "Staged"), pair("boxes_loaded", "Loaded"), pair("stems_packed", "Stems packed"));
+    // packing, then dispatch (ERPNext: submitted Delivery Notes), then invoicing, for each customer
+    var PACK_COLS = cat(pair("boxes_packed", "Packed"), pair("boxes_staged", "Staged"), pair("boxes_loaded", "Loaded"), pair("stems_packed", "Stems packed"),
+      pair("stems_dispatched", "Stems dispatched"), pair("orders_invoiced", "Orders invoiced"), pair("invoiced", "Invoiced", { w: "minmax(150px,1.3fr)", html: function (side) { return side.invoiced == null ? '<span class="rc-none">—</span>' : amounts(side.invoiced); } }));
+    function packingDiff(c) { return [c.pack_status, c.dispatch_status, c.invoice_status].some(function (x) { return x !== "Matches" && x !== "-"; }); }
     function packingView() {
       var t = data.totals;
-      var cols = PACK_COLS.concat([{ h: "Stems packed", side: "s", w: "minmax(150px,1.2fr)", text: true, html: function (r) { return statusChip(r.status, r.r.stems_packed, r.e.stems_packed); } }]);
-      var list = data.customers.filter(function (c) { return c.pack_status !== "-"; })
-        .map(function (c) { return { c: c, gap: Math.abs(c.erpnext.stems_packed - c.rosenta.stems_packed) }; })
+      var cols = PACK_COLS.concat([
+        { h: "Packed", side: "s", w: "minmax(150px,1.1fr)", text: true, html: function (r) { return r.c.pack_status === "-" ? '<span class="rc-none">—</span>' : statusChip(r.c.pack_status, r.r.stems_packed, r.e.stems_packed); } },
+        { h: "Dispatched", side: "s", w: "minmax(150px,1.1fr)", text: true, html: function (r) { return r.c.dispatch_status === "-" ? '<span class="rc-none">—</span>' : statusChip(r.c.dispatch_status, r.r.stems_dispatched, r.e.stems_dispatched); } },
+        { h: "Invoiced", side: "s", w: "minmax(150px,1.1fr)", text: true, html: function (r) { return r.c.invoice_status === "-" ? '<span class="rc-none">—</span>' : statusChip(r.c.invoice_status, r.r.orders_invoiced, r.e.orders_invoiced); } }
+      ]);
+      var list = data.customers.filter(function (c) { return c.pack_status !== "-" || c.dispatch_status !== "-" || c.invoice_status !== "-"; })
+        .map(function (c) { return { c: c, gap: Math.abs(c.erpnext.stems_packed - c.rosenta.stems_packed) + Math.abs(c.erpnext.stems_dispatched - c.rosenta.stems_dispatched) }; })
         .sort(function (a, b) { return b.gap - a.gap; })
-        .filter(function (x) { return st.show === "all" || x.c.pack_status !== "Matches"; });
-      var rows = list.map(function (x) { return { name: x.c.customer, r: x.c.rosenta, e: x.c.erpnext, status: x.c.pack_status }; });
-      var warn = data.ops_error ? '<div class="rc-note bad">Rosenta Packhouse Operations could not be read, so Rosenta boxes are not shown: ' + esc(data.ops_error) + "</div>" : "";
+        .filter(function (x) { return st.show === "all" || packingDiff(x.c); });
+      var rows = list.map(function (x) { return { name: x.c.customer, r: x.c.rosenta, e: x.c.erpnext, c: x.c }; });
+      var warn = (data.ops_error ? '<div class="rc-note bad">Rosenta Packhouse Operations could not be read, so Rosenta boxes are not shown: ' + esc(data.ops_error) + "</div>" : "") +
+        (data.invoice_error ? '<div class="rc-note bad">Rosenta invoices could not be read: ' + esc(data.invoice_error) + "</div>" : "");
+      var inv = '<div class="rc-kpi rc-kpi--wide"><div class="rc-kpi__label">Invoiced</div><div class="rc-kpi__pair"><div class="rc-kpi__side"><small>Rosenta</small>' + (t.rosenta.invoiced ? amounts(t.rosenta.invoiced) : '<span class="rc-none">—</span>') +
+        '</div><div class="rc-kpi__side is-e"><small>ERPNext</small>' + amounts(t.erpnext.invoiced) + "</div></div></div>";
       $("rc-content").innerHTML = warn +
-        '<div class="rc-kpis">' + kpi("Boxes packed", t.rosenta.boxes_packed, t.erpnext.boxes_packed, "boxes") + kpi("Boxes staged", t.rosenta.boxes_staged, t.erpnext.boxes_staged, "boxes") + kpi("Boxes loaded", t.rosenta.boxes_loaded, t.erpnext.boxes_loaded, "boxes") + "</div>" +
+        '<div class="rc-kpis">' + kpi("Boxes packed", t.rosenta.boxes_packed, t.erpnext.boxes_packed, "boxes") + kpi("Boxes loaded", t.rosenta.boxes_loaded, t.erpnext.boxes_loaded, "boxes") + kpi("Stems dispatched", t.rosenta.stems_dispatched, t.erpnext.stems_dispatched, "stems") + kpi("Orders invoiced", t.rosenta.orders_invoiced, t.erpnext.orders_invoiced, "orders") + inv + "</div>" +
         showSwitch() +
-        card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 1180, statusLabel: "Difference" }) : empty("Nothing to show", "No packing differences for this date.")) +
-        '<p class="rc-hint">Rosenta reports staged stems, and boxes are staged straight after packing, so its staged stems stand for stems packed. The difference compares stems packed. ERPNext records staging and loading only for Bravo, so its staged and loaded figures are 0 for the other teams.</p>';
+        card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 2100, statusLabel: "Difference" }) : empty("Nothing to show", "No differences for this date.")) +
+        '<p class="rc-hint">The process from packing to invoicing. Rosenta reports staged stems, and boxes are staged straight after packing, so its staged stems stand for stems packed. ERPNext dispatch is the stems on submitted Delivery Notes against the order; Rosenta gives no dispatch figure per line, so its dispatched stems are the stems loaded on orders it marks Dispatched or Partially Dispatched. An order counts as dispatched when ERPNext delivery notes cover all its stems, or Rosenta marks it Dispatched. Invoiced orders are those on a submitted Sales Invoice in ERPNext and on an issued invoice in Rosenta; the amount is the invoice total in its currency. ERPNext records staging and loading only for Bravo, so its staged and loaded figures are 0 for the other teams.</p>';
     }
 
-    // ---- dispatch (ERPNext: a submitted Delivery Note is the dispatch)
-    var DISPATCH_COLS = cat(pair("orders_dispatched", "Orders dispatched"), pair("stems_loaded", "Stems loaded"), pair("stems_dispatched", "Stems dispatched"), [
-      { k: "delivery_notes", h: "Delivery notes", side: "e", w: "minmax(100px,1fr)" }
-    ]);
-    function dispatchView() {
-      var t = data.totals;
-      var cols = DISPATCH_COLS.concat([{ h: "Stems dispatched", side: "s", w: "minmax(150px,1.2fr)", text: true, html: function (r) { return statusChip(r.status, r.r.stems_dispatched, r.e.stems_dispatched); } }]);
-      var list = data.customers.filter(function (c) { return c.dispatch_status !== "-"; })
-        .map(function (c) { return { c: c, gap: Math.abs(c.erpnext.stems_dispatched - c.rosenta.stems_dispatched) }; })
-        .sort(function (a, b) { return b.gap - a.gap; })
-        .filter(function (x) { return st.show === "all" || x.c.dispatch_status !== "Matches"; });
-      var rows = list.map(function (x) { return { name: x.c.customer, r: x.c.rosenta, e: x.c.erpnext, status: x.c.dispatch_status }; });
-      $("rc-content").innerHTML =
-        '<div class="rc-kpis">' + kpi("Orders dispatched", t.rosenta.orders_dispatched, t.erpnext.orders_dispatched, "orders") + kpi("Stems dispatched", t.rosenta.stems_dispatched, t.erpnext.stems_dispatched, "stems") +
-        '<div class="rc-kpi"><div class="rc-kpi__label">Delivery notes</div><div class="rc-kpi__pair"><div class="rc-kpi__side is-e"><small>ERPNext</small><b>' + num(t.erpnext.delivery_notes) + "</b></div></div></div></div>" +
-        showSwitch() +
-        card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 1180, statusLabel: "Difference" }) : empty("Nothing to show", "No dispatch differences for this date.")) +
-        '<p class="rc-hint">In ERPNext, dispatch is the stems on submitted Delivery Notes against the order, and an order counts as dispatched when its delivery notes cover all its stems. Rosenta gives no dispatch figure per line, so its dispatched stems are the stems loaded on orders it marks Dispatched or Partially Dispatched, and an order counts as dispatched when Rosenta marks it Dispatched.</p>';
+    // ---- allocations by team
+    var ALLOC_COLS = cat(pair("orders", "Orders"), pair("lines", "Lines"), pair("boxes", "Boxes"), pair("stems", "Stems"));
+    function allocGap(a) { return Math.abs(((a.erpnext && a.erpnext.stems) || 0) - ((a.rosenta && a.rosenta.stems) || 0)); }
+    function allocView() {
+      var list = data.allocations.filter(function (a) { return a.rosenta || a.erpnext; });
+      var cols = ALLOC_COLS.concat([{ h: "Stems allocated", side: "s", w: "minmax(170px,1.2fr)", text: true, html: function (r) { return gapChip(r.r && r.r.stems, r.e && r.e.stems, "stems"); } }]);
+      var shown = list.filter(function (a) { return st.show === "all" || allocGap(a) > 0 || !a.rosenta || !a.erpnext; });
+      var sum = function (k, who) { return list.reduce(function (n, a) { return n + ((a[who] && a[who][k]) || 0); }, 0); };
+      var rows = [{ name: "All teams", total: true,
+        r: { orders: null, lines: sum("lines", "rosenta"), boxes: sum("boxes", "rosenta"), stems: sum("stems", "rosenta") },
+        e: { orders: null, lines: sum("lines", "erpnext"), boxes: sum("boxes", "erpnext"), stems: sum("stems", "erpnext") } }]
+        .concat(shown.map(function (a) { return { name: a.team === "(not mapped)" ? a.erp_teams : a.team, sub: a.erp_teams === a.team ? "" : "ERPNext team: " + esc(a.erp_teams), r: a.rosenta, e: a.erpnext }; }));
+      $("rc-content").innerHTML = showSwitch() +
+        card("Teams", shown.length + " shown", grid({ first: "Team", cols: cols, rows: rows, minw: 1180, statusLabel: "Difference" })) +
+        '<p class="rc-hint">What each team has been given to pack on this delivery date. Rosenta: the team split of each order line, with stems as boxes times stems per box. ERPNext: the stems on the team\'s pick lists, from Orders &amp; Workflow by team. Not allocated is what has no team yet: in ERPNext the stems ordered without a pick list. Orders is not added up over teams, since one order can be split between several.</p>';
     }
 
     // ---- teams
     var lastBox = { text: true, w: "minmax(170px,1.3fr)", html: function (s) { return s.last_html; } };
-    var TEAM_COLS = cat(pair("assigned", "To pack"), pair("packed", "Packed"), pair("staged", "Staged"), pair("loaded", "Loaded"), pair("last", "Last box", lastBox));
+    var TEAM_COLS = cat(pair("assigned", "To pack"), pair("packed", "Packed"), pair("staged", "Staged"), pair("loaded", "Loaded"), pair("dispatched", "Dispatched (stems)", { w: "minmax(104px,1fr)" }), pair("last", "Last box", lastBox));
     function teamsView() {
       var now = erpTs(data.fetched) || new Date();
       var mapped = [], loose = [];
@@ -435,8 +442,8 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       function sides(o) {
         var r = o.t.rosenta, e = o.t.erpnext;
         return {
-          r: r && { assigned: r.assigned, packed: r.packed, staged: r.staged, loaded: r.loaded, last_html: timeCell(o.rt, now) },
-          e: e && { assigned: e.expected, packed: e.packed, staged: e.staged, loaded: e.loaded, last_html: timeCell(o.et, now) }
+          r: r && { assigned: r.assigned, packed: r.packed, staged: r.staged, loaded: r.loaded, dispatched: r.dispatched, last_html: timeCell(o.rt, now) },
+          e: e && { assigned: e.expected, packed: e.packed, staged: e.staged, loaded: e.loaded, dispatched: e.dispatched, last_html: timeCell(o.et, now) }
         };
       }
       function row(o, name, sub, only) {
@@ -452,7 +459,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
           return row(o, isR ? o.t.team : o.t.erp_teams, isR ? "Rosenta only" : "ERPNext only", isR ? "r" : "e");
         }) }));
       }
-      $("rc-content").innerHTML = h + '<p class="rc-hint">To pack: boxes assigned to the team in Rosenta, boxes expected on the team\'s pick lists in ERPNext. ERPNext does not record staged or loaded boxes per team. The last column says how long before Rosenta\'s last packed box ERPNext\'s last pack list was entered.</p>';
+      $("rc-content").innerHTML = h + '<p class="rc-hint">To pack: boxes assigned to the team in Rosenta, boxes expected on the team\'s pick lists in ERPNext. ERPNext does not record staged or loaded boxes per team. Dispatched is in stems: in ERPNext the stems on submitted Delivery Notes for the team\'s pick lists, in Rosenta the stems loaded on its Dispatched and Partially Dispatched orders, shared over the line\'s teams by boxes. Invoicing is per customer in both systems, so it is on the Packing tab. The last column says how long before Rosenta\'s last packed box ERPNext\'s last pack list was entered.</p>';
     }
 
     // ---- cancellations
@@ -487,7 +494,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
     document.addEventListener("keydown", function (e) { if (e.key === "Escape") closePanel(); });
 
     // ---- tabs, drawing, loading
-    var VIEWS = { orders: ordersView, packing: packingView, dispatch: dispatchView, teams: teamsView, cancel: cancelView };
+    var VIEWS = { orders: ordersView, packing: packingView, allocations: allocView, teams: teamsView, cancel: cancelView };
     function paintTabs() {
       Array.prototype.forEach.call(document.querySelectorAll("#rc-tabs .rc-tab"), function (b) { b.classList.toggle("on", b.getAttribute("data-tab") === st.tab); });
       Array.prototype.forEach.call(document.querySelectorAll("#rc-presets button"), function (b) { b.classList.toggle("on", presetDate(b.getAttribute("data-v")) === st.date); });
@@ -495,8 +502,8 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       if (!data) return;
       var cnt = {
         orders: data.customers.filter(function (c) { return c.orders_status !== "Matches" && c.orders_status !== "-"; }).length,
-        packing: data.customers.filter(function (c) { return c.pack_status !== "Matches" && c.pack_status !== "-"; }).length,
-        dispatch: data.customers.filter(function (c) { return c.dispatch_status !== "Matches" && c.dispatch_status !== "-"; }).length,
+        packing: data.customers.filter(packingDiff).length,
+        allocations: data.allocations.filter(function (a) { return allocGap(a) > 0; }).length,
         cancel: data.cancel_rosenta.length + data.cancel_erpnext.length
       };
       Object.keys(cnt).forEach(function (k) { var el = $("rc-n-" + k); el.textContent = num(cnt[k]); el.hidden = !cnt[k]; });
@@ -540,6 +547,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
         [["value", "Order value"], ["price", "Price per stem"]].forEach(function (k) { add("Prices (" + (c.erpnext.currency || c.rosenta.currency || "") + ")", c, k[0], k[1], ""); });
         rows.push({ section: "Dispatch", customer: c.customer, measure: "Delivery notes", rosenta: "", erpnext: c.erpnext.delivery_notes, difference: "", status: "" });
         if (c.dispatch_status !== "-") [["orders_dispatched", "Orders dispatched"], ["stems_dispatched", "Stems dispatched"]].forEach(function (k) { add("Dispatch", c, k[0], k[1], c.dispatch_status); });
+        if (c.invoice_status !== "-") [["orders_invoiced", "Orders invoiced"], ["invoices", "Invoices"]].forEach(function (k) { add("Invoicing", c, k[0], k[1], c.invoice_status); });
         if (c.pack_status !== "-") [["boxes_packed", "Boxes packed"], ["boxes_staged", "Boxes staged"], ["boxes_loaded", "Boxes loaded"], ["stems_packed", "Stems packed"], ["stems_loaded", "Stems loaded"]].forEach(function (k) { add("Packing", c, k[0], k[1], c.pack_status); });
       });
       PH.csv("rosenta-comparison-" + data.date + ".csv", rows, [
