@@ -4029,7 +4029,9 @@ def _complete_boxes_error(opl_name, packed, incoming):
 	"""Production Settings > Allow Partial Packing: an order packing before all of it is allocated
 	packs only the stems of its complete boxes; the cap rises as more is allocated."""
 	from upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2 import (
+		_cumulative_allocated_stems,
 		complete_boxes,
+		part_boxes_on,
 		partial_packing_on,
 	)
 
@@ -4062,6 +4064,9 @@ def _complete_boxes_error(opl_name, packed, incoming):
 		flt(v) for v in frappe.get_all("Sales Order Item", filters={"name": ("in", lines)}, pluck="stock_qty")
 	)
 	boxes, stems = complete_boxes(lines, grouped=bool(opl.mix_group or opl.bunch_group))
+	if part_boxes_on():
+		# part boxes are packed too: as far as the stems allocated go
+		stems = sum(flt(_cumulative_allocated_stems(x)) for x in lines)
 	if not lines or stems >= ordered - 0.001 or flt(packed) + flt(incoming) <= stems + 0.001:
 		return None
 	return _(

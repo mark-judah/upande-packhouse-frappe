@@ -285,10 +285,16 @@ def _v2(out, what):
 	return out
 
 
-def _erp_team_totals(ins_teams, names, work_day):
-	exp = packed = 0
+def _erp_team_totals(ins_teams, names, work_day, wf_teams=None):
+	"""A team's boxes in ERPNext. Expected / packed / last pack come from Packing Insights; staged and loaded
+	are the Box Label counts Orders & Workflow shows for the team (a staged box counts once it is staged,
+	loaded or delivered)."""
+	exp = packed = staged = loaded = 0
 	last = None
 	for n in names:
+		w = (wf_teams or {}).get(n) or {}
+		staged += _num(w.get("staged_boxes"))
+		loaded += _num(w.get("loaded_boxes"))
 		t = ins_teams.get(n)
 		if not t:
 			continue
@@ -296,7 +302,13 @@ def _erp_team_totals(ins_teams, names, work_day):
 		packed += _num(t.get("packed_boxes"))
 		if t.get("pack_last") and (last is None or t["pack_last"] > last):
 			last = t["pack_last"]
-	return {"exp": exp, "packed": packed, "last": f"{work_day} {last}:00" if last else None}
+	return {
+		"exp": exp,
+		"packed": packed,
+		"staged": staged,
+		"loaded": loaded,
+		"last": f"{work_day} {last}:00" if last else None,
+	}
 
 
 # ---------------------------------------------------------------- the comparison
@@ -465,22 +477,40 @@ def _rosenta_customer_boxes(ops_day):
 
 
 def _erp_lines(wf):
-	"""{sales order: [line]} from Orders & Workflow: one line per primary item (a line on several pick
-	lists carries its numbers on the first one only)."""
-	out = {}
+	"""{sales order: [line]} from Orders & Workflow, one line per box line as Rosenta shows it. In ERPNext
+	each variety of a mixed box is its own Sales Order Item (same mix name, same box count, its own stems
+	per box), so those are folded into one line: the boxes once, the pack rate and stems summed, and the
+	varieties kept for display. A line on several pick lists carries its numbers on the first one only."""
+	items = {}
 	for sec in wf.get("sections") or []:
 		for it in sec.get("rows") or []:
-			if not it.get("primary"):
-				continue
-			out.setdefault(it.get("sales_order"), []).append(
+			if it.get("primary"):
+				items.setdefault(it.get("sales_order"), []).append(it)
+	out = {}
+	for so, rows in items.items():
+		groups = {}
+		for it in rows:
+			mix = _key(it.get("mix_name"))
+			k = (mix, _num(it.get("line_boxes")), it.get("box_type") or "") if mix else ("", id(it), "")
+			groups.setdefault(k, []).append(it)
+		for grp in groups.values():
+			first = grp[0]
+			mixed = len(grp) > 1
+			out.setdefault(so, []).append(
 				{
-					"variety": it.get("variety") or "",
-					"length": it.get("length") or "",
-					"box_type": it.get("box_type") or "",
-					"mix_name": it.get("mix_name") or "",
-					"boxes": _num(it.get("line_boxes")),
-					"pack_rate": _num(it.get("stems_per_box")),
-					"stems": _num(it.get("ordered_stems")),
+					"variety": first.get("variety") or "",
+					"varieties": [
+						{"name": g.get("variety") or "", "per_box": _num(g.get("stems_per_box"))} for g in grp
+					]
+					if mixed
+					else [],
+					"mixed": mixed,
+					"length": first.get("length") or "",
+					"box_type": first.get("box_type") or "",
+					"mix_name": first.get("mix_name") or "",
+					"boxes": _num(first.get("line_boxes")),
+					"pack_rate": sum(_num(g.get("stems_per_box")) for g in grp),
+					"stems": sum(_num(g.get("ordered_stems")) for g in grp),
 				}
 			)
 	return out
@@ -527,6 +557,7 @@ def _compare(d):
 	so_dr = _v2(sales_order.get_sales_orders(status="draft", **args), "Sales Order list")
 	so_ca = _v2(sales_order.get_sales_orders(status="cancelled", **args), "Sales Order list")
 	wf = _v2(orders_workflow.get_orders_workflow(view="customer", **args), "Orders & Workflow")
+	wf_team = _v2(orders_workflow.get_orders_workflow(view="team", **args), "Orders & Workflow by team")
 	ins = _v2(packing_insights.get_packing_insights(**args), "Packing Insights")
 	e_orders = so_sub.get("orders") or []
 	e_cancel = so_ca.get("orders") or []
@@ -642,6 +673,7 @@ def _compare(d):
 	# ---- teams
 	work_day = ins.get("work_day")
 	ins_teams = {t.get("team"): t for t in ins.get("teams") or []}
+	wf_teams = {sec.get("name"): sec.get("totals") or {} for sec in wf_team.get("sections") or []}
 
 	def team_row(name, erp_names, r, e_t):
 		return {
@@ -658,19 +690,29 @@ def _compare(d):
 			},
 			"erpnext": None
 			if e_t is None
-			else {"expected": e_t["exp"], "packed": e_t["packed"], "last_pack": e_t["last"]},
+			else {
+				"expected": e_t["exp"],
+				"packed": e_t["packed"],
+				"staged": e_t["staged"],
+				"loaded": e_t["loaded"],
+				"last_pack": e_t["last"],
+			},
 		}
 
 	teams, mapped = [], set()
 	for rn, en in TEAM_MAP:
 		mapped.update(en)
-		teams.append(team_row(rn, ", ".join(en), teams_r.get(rn), _erp_team_totals(ins_teams, en, work_day)))
+		teams.append(
+			team_row(rn, ", ".join(en), teams_r.get(rn), _erp_team_totals(ins_teams, en, work_day, wf_teams))
+		)
 	for rn, r in teams_r.items():
 		if rn not in {m[0] for m in TEAM_MAP}:
 			teams.append(team_row(rn, "(not mapped)", r, None))
 	for en, t in ins_teams.items():
 		if en not in mapped:
-			teams.append(team_row("(not mapped)", en, None, _erp_team_totals(ins_teams, (en,), work_day)))
+			teams.append(
+				team_row("(not mapped)", en, None, _erp_team_totals(ins_teams, (en,), work_day, wf_teams))
+			)
 
 	# ---- cancellations
 	def find_erp(order, pool):

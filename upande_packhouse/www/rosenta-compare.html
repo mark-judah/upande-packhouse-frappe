@@ -3,83 +3,170 @@
 {% block page_content %}
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/upande_packhouse/css/packhouse-v2.css?v={{ ph_v }}">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-/* Layout only, from the shared tokens. The page has no sidebar. */
-/* Layout only, v2 tokens only. */
-tr.rc-bad td:first-child{box-shadow:inset 3px 0 0 var(--bad)}
-tr.rc-warn td:first-child{box-shadow:inset 3px 0 0 #f59e0b}
-.rc-when b{display:block;font:600 15px var(--mono)}
-.rc-when small{display:block;font-size:12px;color:var(--ink-mute);margin-top:2px}
-.rc-sub{font-size:12px;color:var(--ink-mute);margin-top:2px;font-weight:400;display:block}
-.rc-card-gap{margin-bottom:var(--sp-6)}
-.rc-detail{min-width:560px}
-.ph2.rc-solo{grid-template-columns:minmax(0,1fr)}
+/* Rosenta comparison: stand-alone page in the Upande avocado design. TEMPORARY, see rosenta_compare.py. */
+html.rc-root,html.rc-root body{margin:0!important;padding:0!important;background:#f4f3ef!important}
+html.rc-root .navbar,html.rc-root .web-footer,html.rc-root footer.web-footer,html.rc-root .page-breadcrumbs,
+html.rc-root .page-header-wrapper,html.rc-root .website-banner,html.rc-root .btn-edit-page,
+html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
+.rc{
+  --ink:#0a0a0a;--ink-1:#1a1a18;--ink-3:#3a3a34;--ink-4:#5a5a52;--ink-mute:#8a8780;--ink-faint:#b8b6ae;
+  --bg:#f4f3ef;--surface:#fafaf6;--card:#fff;--hair:rgba(10,10,10,.07);
+  --avo-100:#eef3dd;--avo-500:#7aa23f;--avo-600:#5d8230;--avo-700:#44631f;
+  --warn:#d9962e;--neg:#c4302b;--pit-deep:#8a6a3b;
+  --shadow:0 1px 0 rgba(10,10,10,.04),0 8px 32px -16px rgba(10,10,10,.10);
+  --grad-ink:linear-gradient(135deg,#0a0a0a 0%,#3a3a34 100%);
+  --grad-avo:linear-gradient(135deg,#44631f 0%,#7aa23f 100%);
+  font:14px/1.55 'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--ink-3);
+  background:var(--bg);min-height:100vh;-webkit-font-smoothing:antialiased}
+.rc *{box-sizing:border-box}
+.rc button{font-family:inherit}
+.rc :where(button,input):focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){.rc *{transition:none!important;animation:none!important}}
 
-/* Stacked comparison: every item is a block of three rows (Rosenta, ERPNext, Difference) under one set of headings. */
-.rc-cmp tbody.rc-block{border-bottom:1px solid var(--hairline-2)}
-.rc-cmp tbody.rc-block td{border-bottom:0;padding-top:var(--sp-2);padding-bottom:var(--sp-2)}
-.rc-cmp tbody.rc-block.is-link{cursor:pointer}
-.rc-cmp tbody.rc-block.is-link:hover td{background:var(--tint-2)}
-.rc-cmp tbody.rc-block.is-link:hover tr.rc-diffrow td{background:var(--tint)}
-.rc-cmp .rc-title{vertical-align:top;min-width:220px;padding-top:var(--sp-3)}
-.rc-cmp .rc-title b{font-weight:600}
-.rc-cmp .rc-title small{display:block;margin-top:2px;font-weight:400;color:var(--ink-mute)}
-.rc-cmp .rc-sys{color:var(--ink-4);white-space:nowrap}
-.rc-cmp .rc-status{vertical-align:middle;white-space:nowrap}
-.rc-cmp tr.rc-diffrow td{background:var(--tint);font-weight:600}
-.rc-cmp tr.rc-diffrow .rc-sys{color:var(--ink)}
-.rc-cmp .rc-zero{color:var(--good)}
-.rc-cmp .rc-small{color:var(--warn)}
-.rc-cmp .rc-big{color:var(--bad)}
-.rc-cmp tbody.rc-bad td.rc-title{box-shadow:inset 3px 0 0 var(--bad)}
-.rc-cmp tbody.rc-warn td.rc-title{box-shadow:inset 3px 0 0 #f59e0b}
-.rc-cmp tbody.rc-orderhead td{background:var(--surface-2);padding:var(--sp-4) var(--sp-4) var(--sp-2);border-top:1px solid var(--hairline-3);border-bottom:0;white-space:normal}
-.rc-cmp tbody.rc-orderhead b{font-weight:600}
-.rc-cmp td.rc-text{text-align:left;white-space:normal;color:var(--ink-4);font-size:12px;max-width:190px}
-.rc-pills-row{display:flex;align-items:center;gap:var(--sp-3);margin:var(--sp-5) 0 var(--sp-3)}
-.rc-hint{margin:var(--sp-2) 0 var(--sp-4);color:var(--ink-mute);font-size:12px}
-.rc-cmp tbody.rc-block td.rc-sys{padding-left:var(--sp-4)}
-.rc-cmp tbody.rc-block td.rc-title{padding-left:var(--sp-6)}
-.rc-cmp td.rc-last{max-width:none;font-size:inherit;color:var(--ink);white-space:nowrap}
+.rc-top{background:var(--card);padding:14px 40px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:20;border-bottom:1px solid var(--hair)}
+.rc-top__mark{width:30px;height:30px;border-radius:9px;background:var(--grad-ink);color:#fafaf6;display:grid;place-items:center;font:700 14px 'Poppins',sans-serif}
+.rc-top__name{font:600 14px 'Poppins',sans-serif;color:var(--ink);letter-spacing:-.2px}
+.rc-top__name small{display:block;font:500 10px 'Poppins',sans-serif;text-transform:uppercase;letter-spacing:1.6px;color:var(--ink-mute)}
+.rc-top__right{margin-left:auto;display:flex;align-items:center;gap:14px;font-size:12px;color:var(--ink-mute)}
+
+.rc-page{max-width:1480px;margin:0 auto;padding:40px 40px 80px}
+.rc-head{display:flex;justify-content:space-between;align-items:flex-end;gap:32px;flex-wrap:wrap;margin-bottom:28px}
+.rc-eyebrow{font:500 11px 'Poppins',sans-serif;text-transform:uppercase;letter-spacing:2.2px;color:var(--ink-mute);margin-bottom:10px;display:inline-flex;align-items:center;gap:10px}
+.rc-eyebrow::before{content:"";width:18px;height:1px;background:var(--ink-3)}
+.rc-title{font:600 40px/1.05 'Poppins',sans-serif;color:var(--ink);letter-spacing:-1.2px;margin:0}
+.rc-sub{margin:8px 0 0;font-size:14px;color:var(--ink-4)}
+.rc-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+
+.rc-pills{display:inline-flex;background:rgba(10,10,10,.04);border-radius:999px;padding:4px;gap:2px;max-width:100%;overflow-x:auto}
+.rc-pills button{border:0;background:transparent;font:500 12px 'Poppins',sans-serif;color:var(--ink-4);padding:8px 16px;cursor:pointer;border-radius:999px;white-space:nowrap;transition:all .2s}
+.rc-pills button:hover{color:var(--ink)}
+.rc-pills button.on{background:var(--ink);color:#fafaf6;box-shadow:0 2px 8px rgba(10,10,10,.15)}
+.rc-date{background:var(--card);border:0;border-radius:999px;padding:10px 16px;font:500 12px 'Poppins',sans-serif;color:var(--ink);box-shadow:var(--shadow)}
+.rc-btn{border:0;background:var(--card);color:var(--ink);border-radius:999px;padding:10px 18px;font:500 12px 'Poppins',sans-serif;cursor:pointer;box-shadow:var(--shadow);transition:all .2s}
+.rc-btn:hover{transform:translateY(-1px)}
+
+.rc-tabs{display:inline-flex;gap:4px;margin-bottom:28px;background:rgba(10,10,10,.04);padding:5px;border-radius:999px;max-width:100%;overflow-x:auto}
+.rc-tab{background:transparent;border:0;font:500 13px 'Poppins',sans-serif;color:var(--ink-4);padding:10px 18px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;transition:all .2s}
+.rc-tab:hover{color:var(--ink)}
+.rc-tab.on{background:var(--grad-ink);color:#fafaf6;box-shadow:0 4px 14px rgba(10,10,10,.20)}
+.rc-tab i{font:600 11px 'Poppins',sans-serif;font-style:normal;background:var(--neg);color:#fff;border-radius:999px;padding:1px 8px}
+
+/* summary cards: the two systems side by side, in words */
+.rc-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px;margin-bottom:24px}
+.rc-kpi{background:var(--card);border-radius:20px;padding:24px 28px;box-shadow:var(--shadow)}
+.rc-kpi__label{font:500 11px 'Poppins',sans-serif;text-transform:uppercase;letter-spacing:1.8px;color:var(--ink-mute);margin-bottom:16px}
+.rc-kpi__pair{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.rc-kpi__side small{display:block;font:500 11px 'Poppins',sans-serif;color:var(--ink-mute);margin-bottom:2px}
+.rc-kpi__side b{font:600 34px/1 'Poppins',sans-serif;color:var(--ink);letter-spacing:-1px;font-variant-numeric:tabular-nums}
+.rc-kpi__side.is-e b{color:var(--avo-700)}
+.rc-kpi__foot{margin-top:16px}
+
+.rc-card{background:var(--card);border-radius:24px;padding:8px 8px 12px;box-shadow:var(--shadow);margin-bottom:18px}
+.rc-card__head{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:18px 22px 6px}
+.rc-card__head h3{margin:0;font:600 17px 'Poppins',sans-serif;color:var(--ink);letter-spacing:-.3px}
+.rc-card__head span{font:500 12px 'Poppins',sans-serif;color:var(--ink-mute)}
+
+/* the comparison grid: Rosenta on the left, ERPNext on the right, one status at the end */
+.rc-scroll{overflow-x:auto;padding:0 14px}
+.rc-g{display:grid;grid-template-columns:var(--cols);align-items:center;min-width:var(--minw,0)}
+.rc-g>div{padding:11px 10px;min-width:0}
+.rc-g .n{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink);font-weight:500}
+.rc-g .n.dim{color:var(--ink-faint);font-weight:400}
+.rc-g .sep{border-left:1px solid var(--hair)}
+.rc-gh{font:500 10.5px 'Poppins',sans-serif;text-transform:uppercase;letter-spacing:1.2px;color:var(--ink-mute)}
+.rc-gh>div{padding-top:6px;padding-bottom:10px}
+.rc-grp{padding-bottom:0!important}
+.rc-grp span{display:inline-block;font:600 11px 'Poppins',sans-serif;letter-spacing:.6px;text-transform:none;padding:4px 12px;border-radius:999px}
+.rc-grp .r{background:var(--ink);color:#fafaf6}
+.rc-grp .e{background:var(--avo-600);color:#fff}
+.rc-gh .sub-r{color:var(--ink)}.rc-gh .sub-e{color:var(--avo-600)}
+.rc-grp .s{background:rgba(10,10,10,.05);color:var(--ink-4)}
+.rc-row{border-top:1px solid var(--hair);transition:background .15s}
+.rc-row.go{cursor:pointer}
+.rc-row.go:hover{background:rgba(10,10,10,.025);border-radius:12px}
+.rc-row.total{border-top:0}
+.rc-row.total>div{padding-top:12px;padding-bottom:12px}.rc-row.total{background:rgba(10,10,10,.03);border-radius:12px;border-top:0;margin-top:4px}.rc-row.total .rc-name{font-weight:600}
+.rc-name{font:600 14px 'Poppins',sans-serif;color:var(--ink);overflow-wrap:anywhere}
+.rc-name small{display:block;font:400 12px 'Poppins',sans-serif;color:var(--ink-mute);margin-top:1px}
+.rc-arrow{color:var(--ink-faint);margin-left:6px;font-weight:400}
+.rc-row.go:hover .rc-arrow{color:var(--ink)}
+.rc-time b{display:block;font:600 14px 'Poppins',sans-serif;color:var(--ink);font-variant-numeric:tabular-nums}
+.rc-time small{display:block;white-space:nowrap;font:400 11px 'Poppins',sans-serif;color:var(--ink-mute)}
+.rc-none{color:var(--ink-faint)}
+
+.rc-chip{display:inline-block;padding:3px 11px;font:500 11.5px 'Poppins',sans-serif;border-radius:999px;white-space:nowrap;background:rgba(10,10,10,.05);color:var(--ink-4)}
+.rc-chip.good{background:rgba(122,162,63,.14);color:var(--avo-700)}
+.rc-chip.warn{background:rgba(217,150,46,.14);color:#96650f}
+.rc-chip.bad{background:rgba(196,48,43,.10);color:var(--neg)}
+.rc-diff.good{color:var(--avo-600)}.rc-diff.warn{color:#96650f}.rc-diff.bad{color:var(--neg)}
+
+.rc-switch{margin:4px 0 16px}
+.rc-hint{margin:6px 4px 0;color:var(--ink-mute);font-size:12px;max-width:900px}
+.rc-note{background:var(--card);border-radius:16px;padding:14px 20px;box-shadow:var(--shadow);margin-bottom:18px;font-size:13px}
+.rc-note.bad{color:var(--neg)}.rc-note.good{color:var(--avo-700)}.rc-note.warn{color:#96650f}
+.rc-empty{padding:44px 20px;text-align:center;color:var(--ink-mute)}
+.rc-empty b{display:block;color:var(--ink);font:600 15px 'Poppins',sans-serif;margin-bottom:4px}
+.rc-skel{height:56px;border-radius:14px;background:linear-gradient(90deg,rgba(10,10,10,.04),rgba(10,10,10,.08),rgba(10,10,10,.04));margin:8px 14px}
+
+/* the side panel */
+.rc-veil{position:fixed;inset:0;background:rgba(10,10,10,.28);opacity:0;pointer-events:none;transition:opacity .2s;z-index:40}
+.rc-veil.on{opacity:1;pointer-events:auto}
+.rc-panel{position:fixed;top:0;right:0;bottom:0;width:min(980px,94vw);background:var(--bg);z-index:41;transform:translateX(102%);transition:transform .25s ease;display:flex;flex-direction:column;box-shadow:-24px 0 48px -24px rgba(10,10,10,.25)}
+.rc-panel.on{transform:none}
+.rc-panel__head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:26px 30px 18px;background:var(--card);border-bottom:1px solid var(--hair)}
+.rc-panel__head h2{margin:0;font:600 24px/1.15 'Poppins',sans-serif;color:var(--ink);letter-spacing:-.6px}
+.rc-panel__head p{margin:4px 0 0;font-size:13px;color:var(--ink-mute)}
+.rc-x{width:38px;height:38px;border:0;border-radius:50%;background:rgba(10,10,10,.05);color:var(--ink-4);font-size:20px;line-height:1;cursor:pointer;flex:none}
+.rc-x:hover{background:var(--ink);color:#fafaf6}
+.rc-panel__body{overflow-y:auto;padding:22px 30px 40px;flex:1}
+.rc-orderhead{border-top:1px solid var(--hair);margin-top:10px}
+.rc-orderhead>div{padding:14px 10px 4px!important}
+.rc-whos{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.rc-who small{display:inline-block;font:600 10.5px 'Poppins',sans-serif;text-transform:uppercase;letter-spacing:1.2px;padding:2px 10px;border-radius:999px;background:var(--ink);color:#fafaf6;margin-bottom:4px}
+.rc-who.e small{background:var(--avo-600)}
+.rc-who b{display:block;font:600 13px 'Poppins',sans-serif;color:var(--ink);overflow-wrap:anywhere}
+.rc-who span{display:block;font-size:12px;color:var(--ink-mute)}
+.rc-mixed{display:block;font:400 11.5px 'Poppins',sans-serif;color:var(--ink-mute);margin-top:3px}
+.rc-lenrow{display:block;font:400 11.5px 'Poppins',sans-serif;color:var(--ink-mute);margin-top:2px}
+
+@media (max-width:760px){.rc-top{padding:12px 16px}.rc-page{padding:24px 16px 60px}.rc-title{font-size:30px}.rc-panel__body{padding:18px 16px 32px}.rc-panel__head{padding:20px 16px 14px}}
 </style>
-<script>document.documentElement.classList.add('ph2-root');</script>
-<div class="ph2 rc-solo" id="ph2">
-  <main class="ph-main" id="ph-main">
-    <div class="ph-topbar">
-      <div class="ph-topbar__crumb"><b>Rosenta comparison</b></div>
-      <div class="ph-topbar__right">
-        <span class="ph-updated" id="ph-updated" hidden></span>
-        <button class="ph-iconbtn ph-iconbtn--sm" id="ph-refresh" title="Refresh" aria-label="Refresh" hidden><svg class="ph-ic" viewBox="0 0 24 24" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
-      </div>
-    </div>
-    <div class="ph-page">
-<header class="ph-head">
-  <div>
-    <div class="ph-head__eyebrow">Rosenta · ERPNext</div>
-    <h1 class="ph-head__title">Rosenta comparison</h1>
-    <p class="ph-head__sub" id="rc-sub">Rosenta compared with ERPNext for one delivery date.</p>
+<script>document.documentElement.classList.add('rc-root');</script>
+<div class="rc" id="rc">
+  <div class="rc-top">
+    <div class="rc-top__mark">U</div>
+    <div class="rc-top__name">Upande<small>Rosenta comparison</small></div>
+    <div class="rc-top__right"><span id="rc-updated"></span><button class="rc-btn" id="rc-refresh" type="button">Refresh</button></div>
   </div>
-  <div class="ph-head__tools"><button class="ph-btn ph-btn--sm" id="rc-csv" type="button">Download CSV</button></div>
-</header>
-
-<div class="ph-filters">
-  <div class="ph-pills" id="rc-presets"><button type="button" data-value="yesterday">Yesterday</button><button type="button" data-value="today">Today</button><button type="button" data-value="tomorrow">Tomorrow</button></div>
-  <div class="ph-daterange"><input type="date" id="rc-date" aria-label="Delivery date"></div>
-</div>
-
-<div class="ph-tabs" id="rc-tabs" role="tablist">
-  <button class="ph-tab" type="button" data-tab="orders">Orders<span class="ph-tab__count" id="rc-n-orders" hidden></span></button>
-  <button class="ph-tab" type="button" data-tab="packing">Packing<span class="ph-tab__count" id="rc-n-packing" hidden></span></button>
-  <button class="ph-tab" type="button" data-tab="teams">Teams</button>
-  <button class="ph-tab" type="button" data-tab="cancel">Cancellations<span class="ph-tab__count" id="rc-n-cancel" hidden></span></button>
-</div>
-
-<div id="rc-warn"></div>
-<div id="rc-content"></div>
+  <div class="rc-page">
+    <header class="rc-head">
+      <div>
+        <div class="rc-eyebrow">Rosenta · ERPNext</div>
+        <h1 class="rc-title">Rosenta comparison</h1>
+        <p class="rc-sub" id="rc-sub">Rosenta compared with ERPNext for one delivery date.</p>
+      </div>
+      <div class="rc-tools">
+        <div class="rc-pills" id="rc-presets"><button type="button" data-v="yesterday">Yesterday</button><button type="button" data-v="today">Today</button><button type="button" data-v="tomorrow">Tomorrow</button></div>
+        <input class="rc-date" type="date" id="rc-date" aria-label="Delivery date">
+        <button class="rc-btn" id="rc-csv" type="button">Download CSV</button>
+      </div>
+    </header>
+    <div class="rc-tabs" id="rc-tabs" role="tablist">
+      <button class="rc-tab" type="button" data-tab="orders">Orders<i id="rc-n-orders" hidden></i></button>
+      <button class="rc-tab" type="button" data-tab="packing">Packing<i id="rc-n-packing" hidden></i></button>
+      <button class="rc-tab" type="button" data-tab="teams">Teams</button>
+      <button class="rc-tab" type="button" data-tab="cancel">Cancellations<i id="rc-n-cancel" hidden></i></button>
     </div>
-  </main>
+    <div id="rc-warn"></div>
+    <div id="rc-content"></div>
+  </div>
+<div class="rc-veil" id="rc-veil"></div>
+<aside class="rc-panel" id="rc-panel" aria-hidden="true">
+  <div class="rc-panel__head"><div><h2 id="rc-p-title"></h2><p id="rc-p-sub"></p></div><button class="rc-x" id="rc-p-close" type="button" aria-label="Close">&times;</button></div>
+  <div class="rc-panel__body" id="rc-p-body"></div>
+</aside>
 </div>
 <script src="/assets/upande_packhouse/js/packhouse-v2.js?v={{ ph_v }}"></script>
 {% raw %}
@@ -88,181 +175,181 @@ tr.rc-warn td:first-child{box-shadow:inset 3px 0 0 #f59e0b}
   "use strict";
   var LAG_RED_MIN = 60; // a team this many minutes behind is flagged
   var POLL_MS = 120000;
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
 
   function boot() {
-    if (!(window.PH && PH.table && PH.state && PH.modal)) return setTimeout(boot, 30);
+    if (!(window.PH && PH.call && PH.csv)) return setTimeout(boot, 30);
     start();
   }
 
   function start() {
-    var st = PH.state({ date: PH.date.today(), tab: "orders", show: "diff" });
+    var iso = function (d) { return d.toLocaleDateString("en-CA", { timeZone: "Africa/Nairobi" }); };
+    var today = new Date();
+    var st = { date: iso(today), tab: "orders", show: "diff" };
     var data = null, seq = 0;
-    var $ = function (id) { return document.getElementById(id); };
-    var esc = PH.esc;
 
-    // ---- numbers and times
-    function num(x, dp) { return x == null ? "—" : dp ? PH.fmt.qty(x, dp) : PH.fmt.num(x); }
-    function signed(x) { x = Number(x || 0); return (x > 0 ? "+" : x < 0 ? "−" : "") + PH.fmt.qty(Math.abs(x), 1); }
+    // ---- numbers and times (whole numbers everywhere; a pack rate is stems in one box)
+    function num(x) { return x == null ? "—" : Math.round(x).toLocaleString("en-US"); }
     function ts(epoch) { return epoch ? new Date(epoch * 1000) : null; }
     function erpTs(s) { return s && s !== "None" ? new Date(String(s).replace(" ", "T").slice(0, 19) + "+03:00") : null; }
     function clock(d) { return d.toLocaleTimeString("en-GB", { timeZone: "Africa/Nairobi", hour: "2-digit", minute: "2-digit", hour12: false }); }
     function dayLabel(d, now) {
-      var f = function (x) { return x.toLocaleDateString("en-CA", { timeZone: "Africa/Nairobi" }); };
-      if (f(d) === f(now)) return "Today";
-      if (f(d) === f(new Date(now.getTime() - 86400000))) return "Yesterday";
+      if (iso(d) === iso(now)) return "Today";
+      if (iso(d) === iso(new Date(now.getTime() - 86400000))) return "Yesterday";
       return d.toLocaleDateString("en-GB", { timeZone: "Africa/Nairobi", day: "2-digit", month: "short" });
     }
-    function span(mins) {
-      var a = Math.abs(Math.round(mins));
-      return a >= 60 ? Math.floor(a / 60) + " h " + (a % 60) + " m" : a + " m";
-    }
-    function when(d, now) {
-      if (!d) return '<span class="ph-muted">no entry</span>';
-      return '<div class="rc-when"><b>' + clock(d) + "</b><small>" + dayLabel(d, now) + " · " + span((now - d) / 60000) + " ago</small></div>";
+    function span(mins) { var a = Math.abs(Math.round(mins)); return a >= 60 ? Math.floor(a / 60) + " h " + (a % 60) + " m" : a + " m"; }
+    function longDate(s) { var p = String(s).split("-"); return new Date(+p[0], +p[1] - 1, +p[2]).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" }); }
+    function timeCell(d, now) {
+      return d ? '<div class="rc-time"><b>' + clock(d) + "</b><small>" + dayLabel(d, now) + " · " + span((now - d) / 60000) + " ago</small></div>" : '<span class="rc-none">no entry</span>';
     }
 
-    // ---- the one comparison pattern: a block of three rows (Rosenta, ERPNext, Difference)
-    function tone(a, b) { // how far apart two numbers are
+    // ---- difference, always ERPNext against Rosenta, in words
+    function tone(a, b) {
       if (a == null || b == null) return "";
       var d = b - a;
-      if (d === 0) return "rc-zero";
-      return Math.abs(d) / (Math.max(Math.abs(a), Math.abs(b)) || 1) > 0.1 ? "rc-big" : "rc-small";
+      if (d === 0) return "good";
+      return Math.abs(d) / (Math.max(Math.abs(a), Math.abs(b)) || 1) > 0.1 ? "bad" : "warn";
     }
-    function statusFor(a, b) { return a === b ? "Matches" : b < a ? "ERPNext lower" : "Rosenta lower"; }
-    function badge(status, a, b) {
-      var cls = "ph-badge--outline";
-      if (status === "Matches") cls = "ph-badge--good";
-      else if (status.indexOf("Only") === 0) cls = "ph-badge--bad";
-      else if (status !== "-") cls = tone(a, b) === "rc-big" ? "ph-badge--bad" : "ph-badge--warn";
-      return '<span class="ph-badge ' + cls + '">' + esc(status) + "</span>";
+    function gapChip(a, b, unit) {
+      if (a == null && b == null) return '<span class="rc-none">—</span>';
+      if (a == null) return '<span class="rc-chip bad">Only in ERPNext</span>';
+      if (b == null) return '<span class="rc-chip bad">Only in Rosenta</span>';
+      var d = b - a;
+      if (d === 0) return '<span class="rc-chip good">Matches</span>';
+      return '<span class="rc-chip ' + tone(a, b) + '">ERPNext ' + num(Math.abs(d)) + (unit ? " " + unit : "") + (d < 0 ? " less" : " more") + "</span>";
     }
-    function blockTone(status, a, b) {
-      if (status === "Matches" || status === "-") return "";
-      if (status.indexOf("Only") === 0) return "rc-bad";
-      return tone(a, b) === "rc-big" ? "rc-bad" : "rc-warn";
+    function statusChip(status, a, b) {
+      if (status === "Matches") return '<span class="rc-chip good">Matches</span>';
+      if (String(status).indexOf("Only") === 0) return '<span class="rc-chip bad">' + esc(status) + "</span>";
+      return '<span class="rc-chip ' + (tone(a, b) || "warn") + '">' + esc(status) + "</span>";
     }
-    // a column is [key, heading, kind]; kind "text" shows the value as it is and has no difference
-    function cell(col, side) {
-      if (!side) return '<td class="is-num ph-muted">—</td>';
-      var v = col.value ? col.value(side) : side[col.key];
-      if (col.html) return '<td class="rc-text rc-last">' + (v || '<span class="ph-muted">—</span>') + "</td>";
-      if (col.text) return '<td class="rc-text">' + esc(v == null || v === "" ? "—" : v) + "</td>";
-      return '<td class="is-num">' + num(v, col.dp) + "</td>";
-    }
-    function diffCell(col, r, e) {
-      if (col.diff) return '<td class="rc-text rc-last">' + (col.diff(r, e) || "") + "</td>";
-      if (col.text) return "<td></td>";
-      var a = r && (col.value ? col.value(r) : r[col.key]), b = e && (col.value ? col.value(e) : e[col.key]);
-      if (!r || !e || a == null || b == null) return '<td class="is-num ph-muted">—</td>';
-      return '<td class="is-num ' + tone(a, b) + '">' + signed(Math.round((b - a) * 10) / 10) + "</td>";
-    }
-    function block(o) { // {index, title, sub, rosenta, erpnext, cols, statusHtml, tone, link}
-      var c = o.cols;
-      return '<tbody class="rc-block ' + (o.tone || "") + (o.link ? " is-link" : "") + '" data-i="' + (o.index == null ? "" : o.index) + '">' +
-        '<tr><td class="rc-title" rowspan="3"><b>' + esc(o.title) + "</b>" + (o.sub ? "<small>" + esc(o.sub) + "</small>" : "") + '</td><td class="rc-sys">Rosenta</td>' +
-        c.map(function (k) { return cell(k, o.rosenta); }).join("") + (o.statusHtml != null ? '<td class="rc-status" rowspan="3">' + o.statusHtml + "</td>" : "") + "</tr>" +
-        '<tr><td class="rc-sys">ERPNext</td>' + c.map(function (k) { return cell(k, o.erpnext); }).join("") + "</tr>" +
-        '<tr class="rc-diffrow"><td class="rc-sys">Difference</td>' + c.map(function (k) { return diffCell(k, o.rosenta, o.erpnext); }).join("") + "</tr></tbody>";
-    }
-    function table(firstHeading, cols, bodies, withStatus) {
-      return '<div class="ph-table-wrap"><table class="ph-table rc-cmp"><thead><tr><th>' + esc(firstHeading) + "</th><th></th>" +
-        cols.map(function (c) { return '<th class="' + (c.text ? "" : "is-num") + '">' + esc(c.heading) + "</th>"; }).join("") +
-        (withStatus === false ? "" : "<th>Status</th>") + "</tr></thead>" + bodies + "</table></div>";
-    }
-    function rate(side) { return side.boxes ? Math.round((side.stems / side.boxes) * 10) / 10 : null; }
 
-    var ORDER_COLS = [
-      { key: "orders", heading: "Orders" },
-      { key: "boxes", heading: "Boxes" },
-      { key: "stems", heading: "Stems" },
-      { key: "rate", heading: "Pack rate", value: rate, dp: 1 }
-    ];
-    var PACK_COLS = [
-      { key: "boxes_packed", heading: "Boxes packed" },
-      { key: "boxes_staged", heading: "Boxes staged" },
-      { key: "boxes_loaded", heading: "Boxes loaded" },
-      { key: "stems_packed", heading: "Stems packed" },
-      { key: "stems_loaded", heading: "Stems loaded" }
-    ];
-
-    function showPills() {
-      var on = st.get("show");
-      return '<div class="rc-pills-row"><div class="ph-pills" id="rc-show">' +
-        '<button type="button" data-value="diff"' + (on === "diff" ? ' class="is-on"' : "") + ">Differences only</button>" +
-        '<button type="button" data-value="all"' + (on === "all" ? ' class="is-on"' : "") + ">All customers</button></div></div>";
+    // ---- the grid. cols: [{k, h, side:'r'|'e'|'s', w, html, text}], rows: [{name, sub, r, e, status, go, i}]
+    function grid(o) {
+      var cols = o.cols;
+      var tpl = (o.firstW || "minmax(210px,1.8fr)") + " " + cols.map(function (c) { return c.w || "minmax(78px,1fr)"; }).join(" ");
+      var minw = o.minw || 0;
+      var groups = [], last = null;
+      var gk = function (c) { return c.grp || c.side; };
+      cols.forEach(function (c) { if (last && last.key === gk(c)) last.n++; else { last = { key: gk(c), side: c.grp ? "s" : c.side, n: 1, label: c.grp || (c.side === "r" ? "Rosenta" : c.side === "e" ? "ERPNext" : (o.statusLabel || "Status")) }; groups.push(last); } });
+      var subHead = function (c) { return c.grp ? (c.side === "r" ? "Rosenta" : "ERPNext") : c.h; };
+      var h = '<div class="rc-g rc-gh" style="--cols:' + tpl + ";--minw:" + minw + 'px"><div class="rc-grp"></div>' +
+        groups.map(function (g) { return '<div class="rc-grp sep" style="grid-column:span ' + g.n + '"><span class="' + g.side + '">' + g.label + "</span></div>"; }).join("") +
+        "</div>" +
+        '<div class="rc-g rc-gh" style="--cols:' + tpl + ";--minw:" + minw + 'px"><div>' + esc(o.first || "") + "</div>" +
+        cols.map(function (c, i) { var sep = i === 0 || gk(cols[i - 1]) !== gk(c); return '<div class="' + (c.text || c.html ? "" : "n") + (sep ? " sep" : "") + (c.grp ? " sub-" + c.side : "") + '">' + esc(subHead(c)) + "</div>"; }).join("") + "</div>";
+      o.rows.forEach(function (r) {
+        if (r.full) { h += '<div class="rc-g rc-row rc-orderhead" style="--cols:' + tpl + ";--minw:" + minw + 'px"><div style="grid-column:1/-1">' + r.full + "</div></div>"; return; }
+        h += '<div class="rc-g rc-row' + (r.go ? " go" : "") + (r.total ? " total" : "") + '" style="--cols:' + tpl + ";--minw:" + minw + 'px"' + (r.i != null ? ' data-i="' + r.i + '"' : "") + ">" +
+          '<div class="rc-name">' + (r.nameHtml || esc(r.name)) + (r.go ? '<span class="rc-arrow">›</span>' : "") + (r.sub ? "<small>" + r.sub + "</small>" : "") + "</div>" +
+          cols.map(function (c, i) {
+            var sep = i === 0 || gk(cols[i - 1]) !== gk(c);
+            var side = c.side === "r" ? r.r : c.side === "e" ? r.e : null;
+            var inner;
+            if (c.side === "s") inner = c.html ? c.html(r) : "";
+            else if (!side) inner = '<span class="rc-none">—</span>';
+            else {
+              var v = c.val ? c.val(side) : side[c.k];
+              inner = c.html ? c.html(side) : (c.text ? esc(v == null || v === "" ? "—" : v) : num(v));
+            }
+            var cls = c.text || c.html || c.side === "s" ? "" : "n" + (side && (c.val ? c.val(side) : side[c.k]) === 0 ? " dim" : "");
+            return '<div class="' + cls + (sep ? " sep" : "") + '">' + inner + "</div>";
+          }).join("") + "</div>";
+      });
+      return '<div class="rc-scroll">' + h + "</div>";
     }
-    function card(inner, extra) { return '<section class="ph-card ph-card--flush ' + (extra || "") + '">' + inner + "</section>"; }
-    function cardTitle(t) { return '<div class="ph-card__head"><div class="ph-card__title">' + esc(t) + "</div></div>"; }
+    function card(title, meta, inner) {
+      return '<section class="rc-card">' + (title ? '<div class="rc-card__head"><h3>' + esc(title) + "</h3>" + (meta ? "<span>" + esc(meta) + "</span>" : "") + "</div>" : "") + inner + "</section>";
+    }
+    function empty(t, x) { return '<div class="rc-empty"><b>' + esc(t) + "</b>" + esc(x) + "</div>"; }
+    function kpi(label, r, e, unit) {
+      return '<div class="rc-kpi"><div class="rc-kpi__label">' + esc(label) + '</div><div class="rc-kpi__pair">' +
+        '<div class="rc-kpi__side"><small>Rosenta</small><b>' + num(r) + '</b></div><div class="rc-kpi__side is-e"><small>ERPNext</small><b>' + num(e) + "</b></div></div>" +
+        '<div class="rc-kpi__foot">' + gapChip(r, e, unit) + "</div></div>";
+    }
+    function showSwitch() {
+      return '<div class="rc-pills rc-switch" id="rc-show"><button type="button" data-v="diff"' + (st.show === "diff" ? ' class="on"' : "") + ">Differences only</button>" +
+        '<button type="button" data-v="all"' + (st.show === "all" ? ' class="on"' : "") + ">All customers</button></div>";
+    }
+
+    // two columns per measure, Rosenta then ERPNext, under one heading for the measure
+    function pair(k, h, o) {
+      o = o || {};
+      return [{ k: k, h: h, side: "r", grp: h, w: o.w, text: o.text, html: o.html, val: o.val }, { k: o.ek || k, h: h, side: "e", grp: h, w: o.w, text: o.text, html: o.html, val: o.val }];
+    }
+    function cat() { return Array.prototype.concat.apply([], arguments); }
 
     // ---- orders
+    var ORDER_COLS = cat(pair("orders", "Orders"), pair("boxes", "Boxes"), pair("stems", "Stems"));
     function ordersView() {
       var t = data.totals;
-      var all = block({ title: "All customers", rosenta: t.rosenta, erpnext: t.erpnext, cols: ORDER_COLS,
-        statusHtml: badge(statusFor(t.rosenta.boxes, t.erpnext.boxes), t.rosenta.boxes, t.erpnext.boxes) });
+      var cols = ORDER_COLS.concat([{ h: "Boxes", side: "s", w: "minmax(150px,1.2fr)", text: true, html: function (r) { return gapChip(r.r.boxes, r.e.boxes, "boxes"); } }]);
       var list = data.customers.map(function (c, i) { return { c: c, i: i, gap: Math.abs(c.erpnext.boxes - c.rosenta.boxes) }; })
         .sort(function (a, b) { return b.gap - a.gap; })
-        .filter(function (x) { return st.get("show") === "all" || (x.c.orders_status !== "Matches" && x.c.orders_status !== "-"); });
-      var bodies = list.map(function (x) {
-        var c = x.c;
-        return block({ index: x.i, title: c.customer, rosenta: c.rosenta, erpnext: c.erpnext, cols: ORDER_COLS, link: true,
-          statusHtml: badge(c.orders_status, c.rosenta.boxes, c.erpnext.boxes), tone: blockTone(c.orders_status, c.rosenta.boxes, c.erpnext.boxes) });
-      }).join("");
-      $("rc-content").innerHTML = card(table("", ORDER_COLS, all), "rc-card-gap") + showPills() +
-        (list.length ? card(table("Customer", ORDER_COLS, bodies)) : card('<div class="ph-empty"><div class="ph-empty__title">No differences</div><div class="ph-empty__text">Every customer matches for this date.</div></div>')) +
-        '<p class="rc-hint">Click a customer to see its orders, line by line. Boxes are boxes ordered. Pack rate is stems per box. Difference is ERPNext minus Rosenta, so a minus means ERPNext has less.</p>';
+        .filter(function (x) { return st.show === "all" || (x.c.orders_status !== "Matches" && x.c.orders_status !== "-"); });
+      var rows = list.map(function (x) { return { name: x.c.customer, r: x.c.rosenta, e: x.c.erpnext, go: true, i: x.i }; });
+      $("rc-content").innerHTML =
+        '<div class="rc-kpis">' + kpi("Orders", t.rosenta.orders, t.erpnext.orders, "orders") + kpi("Boxes ordered", t.rosenta.boxes, t.erpnext.boxes, "boxes") + kpi("Stems ordered", t.rosenta.stems, t.erpnext.stems, "stems") + "</div>" +
+        showSwitch() +
+        card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 920, statusLabel: "Difference" }) : empty("No differences", "Every customer matches for this date.")) +
+        '<p class="rc-hint">Open a customer to see its orders line by line. Boxes are boxes ordered. Each difference is ERPNext measured against Rosenta.</p>';
     }
 
-    var LINE_COLS = [
-      { key: "boxes", heading: "Boxes" },
-      { key: "pack_rate", heading: "Pack rate" },
-      { key: "stems", heading: "Stems" },
-      { key: "length", heading: "Length", text: true, value: function (s) { return typeof s.length === "number" ? (s.length ? s.length + " cm" : "") : s.length; } },
-      { key: "box_type", heading: "Box type", text: true }
-    ];
+    // an order's lines: one line is one kind of box, with what goes in it
+    function lenText(l) { return typeof l === "number" ? (l ? l + " cm" : "") : (l || ""); }
+    function lineSide(s, which) {
+      return s && { boxes: s.boxes, rate: s.pack_rate, stems: s.stems };
+    }
+    function lineName(l) {
+      var r = l.rosenta, e = l.erpnext;
+      var len = [r && lenText(r.length) ? "Rosenta " + lenText(r.length) : "", e && lenText(e.length) ? "ERPNext " + lenText(e.length) : ""].filter(Boolean).join(" · ");
+      var box = (e && e.box_type) || (r && r.box_type) || "";
+      var mixed = e && e.mixed ? '<span class="rc-mixed">Mixed box in ERPNext: ' + e.varieties.map(function (v) { return esc(v.name) + " " + num(v.per_box); }).join(" · ") + "</span>" : "";
+      return esc(l.label) + (len ? '<span class="rc-lenrow">Stem length: ' + esc(len) + "</span>" : "") + (box ? '<span class="rc-lenrow">' + esc(String(box).replace(/\s+\d+mm.*$/, "")) + "</span>" : "") + mixed;
+    }
+    var LINE_COLS = cat(pair("boxes", "Boxes"), pair("rate", "Stems per box", { w: "minmax(84px,1fr)" }), pair("stems", "Stems"), [
+      { h: "Stems", side: "s", w: "minmax(185px,1.2fr)", text: true, html: function (r) { return gapChip(r.r && r.r.stems, r.e && r.e.stems, "stems"); } }
+    ]);
     function orderDetail(c) {
-      var h = '<div class="ph-table-wrap"><table class="ph-table rc-cmp"><thead><tr><th>Line</th><th></th>' +
-        LINE_COLS.map(function (k) { return '<th class="' + (k.text ? "" : "is-num") + '">' + esc(k.heading) + "</th>"; }).join("") + "</tr></thead>";
+      var sum = function (k, who) { return c.pairs.reduce(function (n, p) { return n + (p[who] ? p[who][k] : 0); }, 0); };
+      var who = function (label, cls, o, extra) {
+        return '<div class="rc-who ' + cls + '"><small>' + label + "</small>" + (o ? "<b>" + esc(o.name) + "</b><span>" + esc(extra) + "</span>" : '<b class="rc-none">No order</b>') + "</div>";
+      };
+      var rows = [{ name: "All orders of the customer", total: true,
+        r: { boxes: sum("boxes", "rosenta"), rate: null, stems: sum("stems", "rosenta") }, e: { boxes: sum("boxes", "erpnext"), rate: null, stems: sum("stems", "erpnext") } }];
       c.pairs.forEach(function (p) {
         var r = p.rosenta, e = p.erpnext;
-        var head = (r ? "<b>Rosenta</b> " + esc(r.name) + " · " + esc(r.status) : "<b>Rosenta</b> not found") + " &nbsp;&nbsp;|&nbsp;&nbsp; " +
-          (e ? "<b>ERPNext</b> " + esc(e.name) + " · " + esc(e.so) + " · " + esc(e.status) : "<b>ERPNext</b> not found");
-        h += '<tbody class="rc-orderhead"><tr><td colspan="' + (LINE_COLS.length + 2) + '">' + head + "</td></tr></tbody>";
-        var tot = function (s) { return s && { boxes: s.boxes, stems: s.stems, pack_rate: s.boxes ? Math.round((s.stems / s.boxes) * 10) / 10 : null, length: "", box_type: "" }; };
-        h += block({ title: "Whole order", rosenta: tot(r), erpnext: tot(e), cols: LINE_COLS });
-        p.lines.forEach(function (l) { h += block({ title: l.label, rosenta: l.rosenta, erpnext: l.erpnext, cols: LINE_COLS }); });
+        rows.push({ full: '<div class="rc-whos">' + who("Rosenta", "r", r, r ? r.status : "") + who("ERPNext", "e", e, e ? e.so + " · " + e.status : "") + "</div>" });
+        rows.push({ name: "Order total", total: true, r: r && { boxes: r.boxes, rate: null, stems: r.stems }, e: e && { boxes: e.boxes, rate: null, stems: e.stems } });
+        p.lines.forEach(function (l) { rows.push({ nameHtml: lineName(l), r: lineSide(l.rosenta), e: lineSide(l.erpnext) }); });
       });
-      h += "</table></div>";
-      h += '<p class="rc-hint">ERPNext often splits one Rosenta order over several Sales Orders, so a line shown as missing may be in another ERPNext order further down. In ERPNext a mixed box repeats its box count on each colour line.</p>';
-      PH.modal({ title: c.customer, sub: "Orders for " + PH.fmt.date(data.date) + ". Difference is ERPNext minus Rosenta.", size: "xl", body: h });
+      var h = '<section class="rc-card">' + grid({ first: "Line", cols: LINE_COLS, rows: rows, minw: 880 }) + "</section>" +
+        '<p class="rc-hint">ERPNext often splits one Rosenta order over several Sales Orders, so a line shown as missing may be in another ERPNext order of this customer. In ERPNext each variety of a mixed box is its own line; here they are added up into one box line so they compare with Rosenta.</p>';
+      openPanel(c.customer, "Orders for " + longDate(data.date) + ". Differences are ERPNext against Rosenta.", h);
     }
-
     // ---- packing
+    var PACK_COLS = cat(pair("boxes_packed", "Packed"), pair("boxes_staged", "Staged"), pair("boxes_loaded", "Loaded"), pair("stems_packed", "Stems packed"));
     function packingView() {
       var t = data.totals;
-      var rows = data.customers.map(function (c, i) { return { c: c, i: i, gap: Math.abs(c.erpnext.stems_packed - c.rosenta.stems_packed) }; })
-        .filter(function (x) { return x.c.pack_status !== "-"; })
+      var cols = PACK_COLS.concat([{ h: "Stems packed", side: "s", w: "minmax(150px,1.2fr)", text: true, html: function (r) { return statusChip(r.status, r.r.stems_packed, r.e.stems_packed); } }]);
+      var list = data.customers.filter(function (c) { return c.pack_status !== "-"; })
+        .map(function (c) { return { c: c, gap: Math.abs(c.erpnext.stems_packed - c.rosenta.stems_packed) }; })
         .sort(function (a, b) { return b.gap - a.gap; })
-        .filter(function (x) { return st.get("show") === "all" || x.c.pack_status !== "Matches"; });
-      var all = block({ title: "All customers", rosenta: t.rosenta, erpnext: t.erpnext, cols: PACK_COLS,
-        statusHtml: badge(statusFor(t.rosenta.stems_packed, t.erpnext.stems_packed), t.rosenta.stems_packed, t.erpnext.stems_packed) });
-      var bodies = rows.map(function (x) {
-        var c = x.c;
-        return block({ title: c.customer, rosenta: c.rosenta, erpnext: c.erpnext, cols: PACK_COLS,
-          statusHtml: badge(c.pack_status, c.rosenta.stems_packed, c.erpnext.stems_packed), tone: blockTone(c.pack_status, c.rosenta.stems_packed, c.erpnext.stems_packed) });
-      }).join("");
-      var warn = data.ops_error ? '<div class="ph-notice ph-notice--bad ph-mb">Rosenta Packhouse Operations could not be read, so Rosenta boxes are not shown: ' + esc(data.ops_error) + "</div>" : "";
-      $("rc-content").innerHTML = warn + card(table("", PACK_COLS, all), "rc-card-gap") + showPills() +
-        (rows.length ? card(table("Customer", PACK_COLS, bodies)) : card('<div class="ph-empty"><div class="ph-empty__title">Nothing to show</div><div class="ph-empty__text">No packing differences for this date.</div></div>')) +
-        '<p class="rc-hint">Rosenta reports staged stems, and boxes are staged straight after packing, so its staged stems stand for stems packed. Status compares stems packed. ERPNext records staging and loading only for Bravo, so its staged and loaded figures are 0 for the other teams. Difference is ERPNext minus Rosenta.</p>';
+        .filter(function (x) { return st.show === "all" || x.c.pack_status !== "Matches"; });
+      var rows = list.map(function (x) { return { name: x.c.customer, r: x.c.rosenta, e: x.c.erpnext, status: x.c.pack_status }; });
+      var warn = data.ops_error ? '<div class="rc-note bad">Rosenta Packhouse Operations could not be read, so Rosenta boxes are not shown: ' + esc(data.ops_error) + "</div>" : "";
+      $("rc-content").innerHTML = warn +
+        '<div class="rc-kpis">' + kpi("Boxes packed", t.rosenta.boxes_packed, t.erpnext.boxes_packed, "boxes") + kpi("Boxes staged", t.rosenta.boxes_staged, t.erpnext.boxes_staged, "boxes") + kpi("Boxes loaded", t.rosenta.boxes_loaded, t.erpnext.boxes_loaded, "boxes") + "</div>" +
+        showSwitch() +
+        card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 1180, statusLabel: "Difference" }) : empty("Nothing to show", "No packing differences for this date.")) +
+        '<p class="rc-hint">Rosenta reports staged stems, and boxes are staged straight after packing, so its staged stems stand for stems packed. The difference compares stems packed. ERPNext records staging and loading only for Bravo, so its staged and loaded figures are 0 for the other teams.</p>';
     }
 
     // ---- teams
-    var TEAM_COLS = [
-      { key: "assigned", heading: "Boxes to pack" },
-      { key: "packed", heading: "Boxes packed" },
-      { key: "staged", heading: "Boxes staged" },
-      { key: "loaded", heading: "Boxes loaded" }
-    ];
+    var lastBox = { text: true, w: "minmax(170px,1.3fr)", html: function (s) { return s.last_html; } };
+    var TEAM_COLS = cat(pair("assigned", "To pack"), pair("packed", "Packed"), pair("staged", "Staged"), pair("loaded", "Loaded"), pair("last", "Last box", lastBox));
     function teamsView() {
       var now = erpTs(data.fetched) || new Date();
       var mapped = [], loose = [];
@@ -274,130 +361,119 @@ tr.rc-warn td:first-child{box-shadow:inset 3px 0 0 #f59e0b}
       });
       mapped.sort(function (x, y) { return (y.behind == null ? -1e9 : y.behind) - (x.behind == null ? -1e9 : x.behind); });
       var late = mapped.filter(function (o) { return o.behind != null && o.behind >= LAG_RED_MIN; }).length;
-      function lastBox(d) {
-        return d ? '<div class="rc-when"><b>' + clock(d) + "</b><small>" + dayLabel(d, now) + " · " + span((now - d) / 60000) + " ago</small></div>" : "";
+      function behind(o) {
+        if (o.behind == null) return "";
+        var m = o.behind;
+        if (m > 0) return '<span class="rc-chip ' + (m >= LAG_RED_MIN ? "bad" : "warn") + '">ERPNext ' + span(m) + " behind</span>";
+        if (m < 0) return '<span class="rc-chip">ERPNext ' + span(m) + " ahead</span>";
+        return '<span class="rc-chip good">Level</span>';
       }
-      function behindHtml(r, e) {
-        if (!r || !e || r.rt == null || e.et == null) return "";
-        var m = Math.round((r.rt - e.et) / 60000);
-        if (m > 0) return '<span class="ph-badge ' + (m >= LAG_RED_MIN ? "ph-badge--bad" : "ph-badge--warn") + '">ERPNext is ' + span(m) + " behind</span>";
-        if (m < 0) return '<span class="ph-badge ph-badge--outline">ERPNext is ' + span(m) + " ahead</span>";
-        return '<span class="ph-badge ph-badge--good">Level</span>';
-      }
-      var cols = TEAM_COLS.concat([{ key: "last", heading: "Last box packed", html: true, value: function (s) { return s.last_html; }, diff: behindHtml }]);
+      var cols = TEAM_COLS.concat([{ h: "Last box", side: "s", w: "minmax(170px,1.2fr)", text: true, html: function (r) { return r.status || ""; } }]);
       function sides(o) {
         var r = o.t.rosenta, e = o.t.erpnext;
         return {
-          rosenta: r && { assigned: r.assigned, packed: r.packed, staged: r.staged, loaded: r.loaded, rt: o.rt, last_html: lastBox(o.rt) },
-          erpnext: e && { assigned: e.expected, packed: e.packed, staged: null, loaded: null, et: o.et, last_html: lastBox(o.et) }
+          r: r && { assigned: r.assigned, packed: r.packed, staged: r.staged, loaded: r.loaded, last_html: timeCell(o.rt, now) },
+          e: e && { assigned: e.expected, packed: e.packed, staged: e.staged, loaded: e.loaded, last_html: timeCell(o.et, now) }
         };
       }
-      function teamBlock(o) {
+      function row(o, name, sub, only) {
         var s = sides(o);
-        return block({ title: o.t.team, sub: "ERPNext team: " + o.t.erp_teams, rosenta: s.rosenta, erpnext: s.erpnext, cols: cols,
-          tone: o.behind != null && o.behind >= LAG_RED_MIN ? "rc-bad" : "" });
+        return { name: name, sub: sub, r: only === "e" ? null : s.r, e: only === "r" ? null : s.e, status: behind(o) };
       }
-      var warn = data.ops_error ? '<div class="ph-notice ph-notice--bad ph-mb">Rosenta Packhouse Operations could not be read, so Rosenta boxes by team are not shown: ' + esc(data.ops_error) + "</div>" : "";
-      var h = warn + '<div class="ph-notice ph-notice--' + (late ? "warn" : "good") + ' ph-mb">Now ' + clock(now) + ". " + late + " of " + mapped.length + " teams are more than 1 hour behind.</div>" +
-        card(table("Team", cols, mapped.map(teamBlock).join(""), false), "rc-card-gap");
+      var warn = data.ops_error ? '<div class="rc-note bad">Rosenta Packhouse Operations could not be read, so Rosenta boxes by team are not shown: ' + esc(data.ops_error) + "</div>" : "";
+      var h = warn + '<div class="rc-note ' + (late ? "warn" : "good") + '">Now ' + clock(now) + ". " + late + " of " + mapped.length + " teams are more than 1 hour behind.</div>" +
+        card("Teams", "", grid({ first: "Team", cols: cols, minw: 1340, statusLabel: "Behind", rows: mapped.map(function (o) { return row(o, o.t.team, "ERPNext team: " + esc(o.t.erp_teams)); }) }));
       if (loose.length) {
-        h += card(cardTitle("Not mapped") + table("Team", cols, loose.map(function (o) {
-          var isR = o.t.team !== "(not mapped)", s = sides(o);
-          return block({ title: isR ? o.t.team : o.t.erp_teams, sub: isR ? "Rosenta only" : "ERPNext only", rosenta: isR ? s.rosenta : null, erpnext: isR ? null : s.erpnext, cols: cols });
-        }).join(""), false));
+        h += card("Not mapped", "", grid({ first: "Team", cols: cols, minw: 1340, statusLabel: "Behind", rows: loose.map(function (o) {
+          var isR = o.t.team !== "(not mapped)";
+          return row(o, isR ? o.t.team : o.t.erp_teams, isR ? "Rosenta only" : "ERPNext only", isR ? "r" : "e");
+        }) }));
       }
-      $("rc-content").innerHTML = h + '<p class="rc-hint">Boxes to pack: boxes assigned to the team in Rosenta, boxes expected on the team\'s pick lists in ERPNext. ERPNext does not record staged or loaded boxes per team. Difference is ERPNext minus Rosenta. For the last box, it says how long before Rosenta\'s last packed box ERPNext\'s last pack list was entered.</p>';
+      $("rc-content").innerHTML = h + '<p class="rc-hint">To pack: boxes assigned to the team in Rosenta, boxes expected on the team\'s pick lists in ERPNext. ERPNext does not record staged or loaded boxes per team. The last column says how long before Rosenta\'s last packed box ERPNext\'s last pack list was entered.</p>';
     }
 
     // ---- cancellations
     function cancelView() {
+      var r1 = data.cancel_rosenta.map(function (r) { return { name: r.customer, sub: esc(r.name), r: r, status: String(r.reason || "").replace(/_/g, " ") }; });
+      var c1 = [
+        { k: "boxes", h: "Boxes", side: "r" }, { k: "stems", h: "Stems", side: "r" },
+        { k: "staged", h: "Staged before", side: "r", w: "minmax(100px,1fr)" }, { k: "loaded", h: "Loaded before", side: "r", w: "minmax(100px,1fr)" },
+        { h: "Reason", side: "s", w: "minmax(130px,1fr)", text: true, html: function (r) { return r.status ? '<span class="rc-chip">' + esc(r.status) + "</span>" : ""; } },
+        { h: "What ERPNext shows", side: "e", w: "minmax(180px,1.4fr)", text: true, html: function (s) { return esc(s.erpnext || ""); } }
+      ];
+      var r2 = data.cancel_erpnext.map(function (r) { return { name: r.customer, sub: esc(r.so) + " · " + esc(r.name), e: r }; });
+      var c2 = [
+        { k: "boxes", h: "Boxes", side: "e" }, { k: "stems", h: "Stems", side: "e" },
+        { h: "Replaced by", side: "e", w: "minmax(140px,1fr)", text: true, html: function (s) { return esc(s.replaced_by || "—"); } },
+        { h: "What Rosenta shows", side: "r", w: "minmax(160px,1.2fr)", text: true, html: function (s) { return esc(s.rosenta || ""); } }
+      ];
+      // the first table lists Rosenta's cancellations (Rosenta columns first); the second lists ERPNext's
       $("rc-content").innerHTML =
-        card(cardTitle("Cancelled in Rosenta") + '<div id="rc-t1"></div>', "rc-card-gap") +
-        card(cardTitle("Cancelled in ERPNext") + '<div id="rc-t2"></div>');
-      PH.table("#rc-t1", {
-        rows: data.cancel_rosenta, compact: true, empty: "None", emptyText: "No orders were cancelled in Rosenta for this date.",
-        rowClass: function (r) { return r.activity || String(r.erpnext).indexOf("Open") === 0 ? "rc-bad" : ""; },
-        columns: [
-          { key: "customer", label: "Customer", cls: "is-strong" },
-          { key: "name", label: "Rosenta order" },
-          { key: "boxes", label: "Boxes", num: true },
-          { key: "stems", label: "Stems", num: true },
-          { key: "staged", label: "Stems staged before cancelling", num: true },
-          { key: "loaded", label: "Stems loaded before cancelling", num: true },
-          { key: "reason", label: "Reason", format: function (v) { return String(v || "").replace(/_/g, " "); } },
-          { key: "erpnext", label: "What ERPNext shows" }
-        ]
-      });
-      PH.table("#rc-t2", {
-        rows: data.cancel_erpnext, compact: true, empty: "None", emptyText: "No orders were cancelled in ERPNext for this date.",
-        rowClass: function (r) { return !r.replaced_by && r.rosenta !== "Cancelled" ? "rc-bad" : ""; },
-        columns: [
-          { key: "customer", label: "Customer", cls: "is-strong" },
-          { key: "so", label: "Sales Order" },
-          { key: "name", label: "ERPNext order name" },
-          { key: "boxes", label: "Boxes", num: true },
-          { key: "stems", label: "Stems", num: true },
-          { key: "replaced_by", label: "Replaced by" },
-          { key: "rosenta", label: "What Rosenta shows" }
-        ]
-      });
+        card("Cancelled in Rosenta", r1.length + " orders", r1.length ? grid({ first: "Customer", cols: c1, rows: r1.map(function (x) { x.e = x.r; return x; }), minw: 980, statusLabel: "Difference" }) : empty("None", "No orders were cancelled in Rosenta for this date.")) +
+        card("Cancelled in ERPNext", r2.length + " orders", r2.length ? grid({ first: "Customer", cols: c2, rows: r2.map(function (x) { x.r = x.e; return x; }), minw: 860 }) : empty("None", "No orders were cancelled in ERPNext for this date."));
     }
+
+    // ---- side panel
+    function openPanel(title, sub, body) {
+      $("rc-p-title").textContent = title; $("rc-p-sub").textContent = sub; $("rc-p-body").innerHTML = body; $("rc-p-body").scrollTop = 0;
+      $("rc-panel").classList.add("on"); $("rc-veil").classList.add("on"); $("rc-panel").setAttribute("aria-hidden", "false");
+    }
+    function closePanel() { $("rc-panel").classList.remove("on"); $("rc-veil").classList.remove("on"); $("rc-panel").setAttribute("aria-hidden", "true"); }
+    $("rc-veil").addEventListener("click", closePanel);
+    $("rc-p-close").addEventListener("click", closePanel);
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape") closePanel(); });
 
     // ---- tabs, drawing, loading
     var VIEWS = { orders: ordersView, packing: packingView, teams: teamsView, cancel: cancelView };
     function paintTabs() {
-      Array.prototype.forEach.call(document.querySelectorAll("#rc-tabs .ph-tab"), function (b) {
-        b.classList.toggle("is-on", b.getAttribute("data-tab") === st.get("tab"));
-      });
+      Array.prototype.forEach.call(document.querySelectorAll("#rc-tabs .rc-tab"), function (b) { b.classList.toggle("on", b.getAttribute("data-tab") === st.tab); });
+      Array.prototype.forEach.call(document.querySelectorAll("#rc-presets button"), function (b) { b.classList.toggle("on", presetDate(b.getAttribute("data-v")) === st.date); });
+      $("rc-date").value = st.date;
       if (!data) return;
       var cnt = {
         orders: data.customers.filter(function (c) { return c.orders_status !== "Matches" && c.orders_status !== "-"; }).length,
         packing: data.customers.filter(function (c) { return c.pack_status !== "Matches" && c.pack_status !== "-"; }).length,
         cancel: data.cancel_rosenta.length + data.cancel_erpnext.length
       };
-      Object.keys(cnt).forEach(function (k) { var el = $("rc-n-" + k); el.textContent = PH.fmt.num(cnt[k]); el.hidden = !cnt[k]; });
+      Object.keys(cnt).forEach(function (k) { var el = $("rc-n-" + k); el.textContent = num(cnt[k]); el.hidden = !cnt[k]; });
     }
+    function presetDate(v) { var d = new Date(); d.setDate(d.getDate() + (v === "yesterday" ? -1 : v === "tomorrow" ? 1 : 0)); return iso(d); }
     function draw() {
       paintTabs();
       if (!data) return;
-      $("rc-warn").innerHTML = data.check && data.check.length
-        ? '<div class="ph-notice ph-notice--bad ph-mb">Does not match Orders &amp; Workflow: ' + esc(data.check.join("; ")) + "</div>" : "";
+      $("rc-warn").innerHTML = data.check && data.check.length ? '<div class="rc-note bad">Does not match Orders &amp; Workflow: ' + esc(data.check.join("; ")) + "</div>" : "";
       var dr = data.drafts;
-      $("rc-sub").textContent = "Rosenta compared with ERPNext for " + PH.fmt.date(data.date) +
-        (dr && dr.orders ? ". ERPNext drafts are not counted: " + dr.orders + " (" + PH.fmt.num(dr.boxes) + " boxes)." : ".");
-      (VIEWS[st.get("tab")] || ordersView)();
+      $("rc-sub").textContent = longDate(data.date) + (dr && dr.orders ? ". ERPNext drafts are not counted: " + dr.orders + " (" + num(dr.boxes) + " boxes)." : ".");
+      (VIEWS[st.tab] || ordersView)();
     }
-
     function load(silent) {
       var my = ++seq;
-      if (!silent) PH.skeleton("#rc-content", "rows", 8);
-      PH.call("upande_packhouse.api.v2.rosenta_compare.get_rosenta_comparison", { date: st.get("date") }, { silent: true })
-        .then(function (d) { if (my !== seq) return; data = d; draw(); PH.markUpdated(); })
-        .catch(function (e) { if (my !== seq || silent) return; PH.error("#rc-content", e && e.message, function () { load(); }); });
+      if (!silent) $("rc-content").innerHTML = '<div class="rc-card"><div class="rc-skel"></div><div class="rc-skel"></div><div class="rc-skel"></div><div class="rc-skel"></div></div>';
+      PH.call("upande_packhouse.api.v2.rosenta_compare.get_rosenta_comparison", { date: st.date }, { silent: true })
+        .then(function (d) { if (my !== seq) return; data = d; draw(); $("rc-updated").textContent = "Updated " + clock(new Date()); })
+        .catch(function (e) { if (my !== seq || silent) return; $("rc-content").innerHTML = '<div class="rc-note bad">' + esc((e && e.message) || "Could not load") + ' <button class="rc-btn" id="rc-retry" type="button">Try again</button></div>'; $("rc-retry").onclick = function () { load(); }; });
     }
 
     // ---- wiring
-    PH.dateRange({ pills: "#rc-presets", from: "#rc-date", state: st, fromKey: "date", toKey: "to" });
-    st.on(function (s, changed) {
-      if (changed.indexOf("date") >= 0) { data = null; load(); }
-      else if (changed.indexOf("tab") >= 0 || changed.indexOf("show") >= 0) draw();
-    });
-    $("rc-tabs").addEventListener("click", function (e) { var b = e.target.closest(".ph-tab"); if (b) st.set({ tab: b.getAttribute("data-tab") }); });
+    function setDate(d) { st.date = d; data = null; paintTabs(); load(); }
+    $("rc-presets").addEventListener("click", function (e) { var b = e.target.closest("button[data-v]"); if (b) setDate(presetDate(b.getAttribute("data-v"))); });
+    $("rc-date").addEventListener("change", function (e) { if (e.target.value) setDate(e.target.value); });
+    $("rc-refresh").addEventListener("click", function () { load(); });
+    $("rc-tabs").addEventListener("click", function (e) { var b = e.target.closest(".rc-tab"); if (b) { st.tab = b.getAttribute("data-tab"); draw(); } });
     $("rc-content").addEventListener("click", function (e) {
-      var p = e.target.closest("#rc-show button[data-value]");
-      if (p) return st.set({ show: p.getAttribute("data-value") });
-      var b = e.target.closest("tbody.rc-block.is-link");
-      if (b && data) { var c = data.customers[+b.getAttribute("data-i")]; if (c) orderDetail(c); }
+      var p = e.target.closest("#rc-show button[data-v]");
+      if (p) { st.show = p.getAttribute("data-v"); return draw(); }
+      var row = e.target.closest(".rc-row.go");
+      if (row && data) { var c = data.customers[+row.getAttribute("data-i")]; if (c) orderDetail(c); }
     });
-    PH.onRefresh(function () { load(); return Promise.resolve(); });
-    PH.poll(function () { load(true); }, POLL_MS);
+    setInterval(function () { if (!document.hidden) load(true); }, POLL_MS);
     $("rc-csv").addEventListener("click", function () {
       if (!data) return;
       var rows = [];
-      var add = function (section, c, k, label) { rows.push({ section: section, customer: c.customer, measure: label, rosenta: c.rosenta[k], erpnext: c.erpnext[k], difference: c.rosenta[k] == null ? "" : c.erpnext[k] - c.rosenta[k], status: section === "Orders" ? c.orders_status : c.pack_status }); };
+      var add = function (section, c, k, label, status) { rows.push({ section: section, customer: c.customer, measure: label, rosenta: c.rosenta[k], erpnext: c.erpnext[k], difference: c.erpnext[k] - c.rosenta[k], status: status }); };
       data.customers.forEach(function (c) {
-        ORDER_COLS.filter(function (k) { return !k.value; }).forEach(function (k) { add("Orders", c, k.key, k.heading); });
-        if (c.pack_status !== "-") PACK_COLS.forEach(function (k) { add("Packing", c, k.key, k.heading); });
+        [["orders", "Orders"], ["boxes", "Boxes"], ["stems", "Stems"]].forEach(function (k) { add("Orders", c, k[0], k[1], c.orders_status); });
+        if (c.pack_status !== "-") [["boxes_packed", "Boxes packed"], ["boxes_staged", "Boxes staged"], ["boxes_loaded", "Boxes loaded"], ["stems_packed", "Stems packed"], ["stems_loaded", "Stems loaded"]].forEach(function (k) { add("Packing", c, k[0], k[1], c.pack_status); });
       });
       PH.csv("rosenta-comparison-" + data.date + ".csv", rows, [
         { key: "section", label: "Section" }, { key: "customer", label: "Customer" }, { key: "measure", label: "Measure" },
@@ -410,7 +486,6 @@ tr.rc-warn td:first-child{box-shadow:inset 3px 0 0 #f59e0b}
 
   boot();
 })();
-
 </script>
 {% endraw %}
 {% endblock %}

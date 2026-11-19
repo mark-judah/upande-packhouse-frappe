@@ -174,6 +174,18 @@ class TestHelpers(IntegrationTestCase):
 			(out["SO1"][0]["boxes"], out["SO1"][0]["pack_rate"], out["SO1"][0]["stems"]), (2, 380, 760)
 		)
 
+	def test_erp_mixed_box_is_one_line_with_summed_pack_rate(self):
+		row = lambda v, **k: {  # noqa: E731
+			"sales_order": "SO1", "primary": True, "variety": v, "length": "62cm", "box_type": "Pro",
+			"mix_name": "ETHAM MIX 1 L6 240", "line_boxes": 2, "stems_per_box": 60, "ordered_stems": 120, **k
+		}  # fmt: skip
+		wf = {"sections": [{"rows": [row("A"), row("B"), row("C"), row("D")]}]}
+		out = rc._erp_lines(wf)["SO1"]
+		self.assertEqual(len(out), 1)
+		self.assertEqual((out[0]["boxes"], out[0]["pack_rate"], out[0]["stems"]), (2, 240, 480))
+		self.assertTrue(out[0]["mixed"])
+		self.assertEqual([v["name"] for v in out[0]["varieties"]], ["A", "B", "C", "D"])
+
 	def test_rosenta_teams_sum_the_day_and_take_last_packed_from_both_days(self):
 		line = lambda **k: {  # noqa: E731
 			"boxes_assigned": 2, "boxes_packed": 1, "boxes_staged": 1, "boxes_loaded": 0, "last_box_packed": 100, **k
@@ -198,6 +210,19 @@ class TestHelpers(IntegrationTestCase):
 		t = rc._erp_team_totals(ins, ("Eldama A", "Eldama B", "Missing"), "2026-11-18")
 		self.assertEqual((t["exp"], t["packed"], t["last"]), (15, 5, "2026-11-18 19:02:00"))
 		self.assertIsNone(rc._erp_team_totals(ins, ("Nobody",), "2026-11-18")["last"])
+
+	def test_erp_team_totals_add_staged_and_loaded_boxes_from_orders_workflow(self):
+		ins = {
+			"Eldama A": {"exp_boxes": 10, "packed_boxes": 4},
+			"Eldama B": {"exp_boxes": 5, "packed_boxes": 1},
+		}
+		wf = {
+			"Eldama A": {"staged_boxes": 3, "loaded_boxes": 2},
+			"Eldama B": {"staged_boxes": 1, "loaded_boxes": 1},
+		}
+		t = rc._erp_team_totals(ins, ("Eldama A", "Eldama B"), "2026-11-18", wf)
+		self.assertEqual((t["staged"], t["loaded"]), (4, 3))
+		self.assertEqual(rc._erp_team_totals(ins, ("Eldama A",), "2026-11-18")["staged"], 0)
 
 
 class TestRosentaSession(IntegrationTestCase):
