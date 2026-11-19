@@ -77,6 +77,7 @@ def _received_unshelved(farms, cfg):
 		params["lengths"] = tuple(lengths)
 	# the cheapest, most selective conditions first: shelved since (Shelving Log) leaves few rows for the others.
 	# The harvest date is read afterwards, for the buckets still waiting only.
+	# nosemgrep: frappe-sql-format-injection -- the only hole, `cond`, is built from fixed SQL; every value is bound
 	rows = frappe.db.sql(
 		f"""
 		SELECT se.custom_bucket_id AS bucket_id, se.farm, sed.item_code AS variety,

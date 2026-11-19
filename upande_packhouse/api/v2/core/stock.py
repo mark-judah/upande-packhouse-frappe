@@ -84,6 +84,7 @@ def bucket_rows(*, farms=None, varieties=None, lengths=None, rose=None, company=
 		having.append("MIN(s.farm) IN (SELECT name FROM `tabFarm` WHERE company = %(company)s)")
 		params["company"] = company
 	rose_cond = rose_sql("i.item_group", rose, params)
+	# nosemgrep: frappe-sql-format-injection -- the f-string holes are fixed SQL fragments; every value is bound
 	rows = frappe.db.sql(
 		f"""
 		SELECT si.bucket_id, si.variety, si.stem_length,
