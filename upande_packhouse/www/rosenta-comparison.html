@@ -64,6 +64,9 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
 .rc-kpi__foot{margin-top:16px}
 .rc-kpi--wide{grid-column:1/-1}
 .rc-kpi--wide .rc-kpi__pair{grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px 40px}
+.rc-warnnum{color:#96650f}.rc-badnum{color:var(--neg)}
+.rc-spectable{width:100%;border-collapse:collapse;font-size:13px}.rc-spectable th{text-align:left;padding:10px 14px;color:var(--ink-mute);font:500 11px 'Poppins',sans-serif;text-transform:uppercase;letter-spacing:1px}.rc-spectable td{padding:10px 14px;border-top:1px solid rgba(10,10,10,.06);vertical-align:top}.rc-spectable td b{font-weight:600}
+.rc-cur{white-space:nowrap}.rc-cur i{font-style:normal;font-size:11px;color:var(--ink-mute);margin-right:4px}
 .rc-kpi__sub{margin-top:6px;font:500 12px 'Poppins',sans-serif;color:var(--ink-mute)}
 .rc-amts{display:flex;flex-wrap:wrap;gap:6px 24px}
 .rc-amts b{font:600 26px/1.15 'Poppins',sans-serif;letter-spacing:-.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -157,6 +160,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       <div class="rc-tools">
         <div class="rc-pills" id="rc-presets"><button type="button" data-v="yesterday">Yesterday</button><button type="button" data-v="today">Today</button><button type="button" data-v="tomorrow">Tomorrow</button></div>
         <input class="rc-date" type="date" id="rc-date" aria-label="Delivery date">
+        <div class="rc-pills" id="rc-span" title="Period for Money, Greenhouses and Fill rate, ending on the date"><button type="button" data-v="1">Day</button><button type="button" data-v="7">7 days</button><button type="button" data-v="30">30 days</button></div>
         <button class="rc-btn" id="rc-csv" type="button">Download CSV</button>
       </div>
     </header>
@@ -164,6 +168,10 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       <button class="rc-tab" type="button" data-tab="orders">Orders<i id="rc-n-orders" hidden></i></button>
       <button class="rc-tab" type="button" data-tab="packing">Packing<i id="rc-n-packing" hidden></i></button>
       <button class="rc-tab" type="button" data-tab="allocations">Allocations<i id="rc-n-allocations" hidden></i></button>
+      <button class="rc-tab" type="button" data-tab="specs">Specifications</button>
+      <button class="rc-tab" type="button" data-tab="money">Money</button>
+      <button class="rc-tab" type="button" data-tab="greenhouse">Greenhouses</button>
+      <button class="rc-tab" type="button" data-tab="fill">Fill rate</button>
       <button class="rc-tab" type="button" data-tab="teams">Teams</button>
       <button class="rc-tab" type="button" data-tab="cancel">Cancellations<i id="rc-n-cancel" hidden></i></button>
     </div>
@@ -194,7 +202,8 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
   function start() {
     var iso = function (d) { return d.toLocaleDateString("en-CA", { timeZone: "Africa/Nairobi" }); };
     var today = new Date();
-    var st = { date: iso(today), tab: "orders", show: "diff" };
+    var st = { date: iso(today), tab: "orders", show: "diff", span: "1" };
+    var rdata = {}, rkey = {}, rseq = 0; // Money, Greenhouses and Fill rate: their own period and data
     var data = null, seq = 0;
 
     // ---- numbers and times (whole numbers everywhere; a pack rate is stems in one box)
@@ -417,6 +426,146 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
         '<p class="rc-hint">What each team has been given to pack on this delivery date. Rosenta: the team split of each order line, with stems as boxes times stems per box. ERPNext: the stems on the team\'s pick lists, from Orders &amp; Workflow by team. Not allocated is what has no team yet: in ERPNext the stems ordered without a pick list. Orders is not added up over teams, since one order can be split between several.</p>';
     }
 
+    // ---- Money, Greenhouses, Fill rate: read from Rosenta snapshots, over a period ending on the date
+    var RANGE_TABS = { specs: "get_rosenta_specs", money: "get_rosenta_money", greenhouse: "get_rosenta_greenhouse", fill: "get_rosenta_fill" };
+    function rangeOf() {
+      var to = new Date(st.date + "T00:00:00"), from = new Date(to.getTime() - (+st.span - 1) * 86400000);
+      return { from: iso(from), to: st.date };
+    }
+    function cash(c) { // amounts per currency, one line each
+      var cur = Object.keys((c && c.by_currency) || {}).sort();
+      return cur.length ? cur.map(function (k) { return '<span class="rc-cur"><i>' + esc(k) + "</i> " + money(c.by_currency[k], 0) + "</span>"; }).join("<br>") : '<span class="rc-none">—</span>';
+    }
+    function cashCol(key) { return function (side) { return side[key] ? cash(side[key]) : '<span class="rc-none">—</span>'; }; }
+    function rangeNote(d) {
+      var gaps = (d.missing || []).length, asOf = d.rosenta_as_of ? "Rosenta as of " + clock(erpTs(d.rosenta_as_of) || new Date()) + ". " : "";
+      return gaps ? '<div class="rc-note warn">' + asOf + "Some Rosenta days are still being pulled (" + gaps + " reports). Refresh in a minute for the full period.</div>" : (asOf ? '<p class="rc-hint">' + asOf + "</p>" : "");
+    }
+    function chipFor(status) {
+      if (status === "-" || status == null) return '<span class="rc-none">—</span>';
+      return '<span class="rc-chip ' + (status === "Matches" ? "good" : status.indexOf("Only") === 0 ? "bad" : "warn") + '">' + esc(status) + "</span>";
+    }
+    function loadRange(tab, silent) {
+      var r = rangeOf(), key = tab + r.from + r.to, my = ++rseq;
+      rkey[tab] = key;
+      if (!silent) $("rc-content").innerHTML = '<div class="rc-card"><div class="rc-skel"></div><div class="rc-skel"></div><div class="rc-skel"></div><div class="rc-skel"></div></div>';
+      PH.call("upande_packhouse.api.v2." + (tab === "specs" ? "rosenta_specs." : "rosenta_insights.") + RANGE_TABS[tab], { date_from: r.from, date_to: r.to }, { silent: true })
+        .then(function (d) { if (my !== rseq) return; rdata[tab] = d; rdata[tab + "_key"] = key; if (st.tab === tab) draw(); })
+        .catch(function (e) { if (my !== rseq || silent) return; $("rc-content").innerHTML = '<div class="rc-note bad">' + esc((e && e.message) || "Could not load") + "</div>"; });
+    }
+    function rangeData(tab) { // the data for the current period, or start loading it
+      var r = rangeOf(), key = tab + r.from + r.to;
+      if (rdata[tab + "_key"] === key) return rdata[tab];
+      if (rkey[tab] !== key) loadRange(tab);
+      return null;
+    }
+    function rangeFail(d) { return d && d.success === false ? '<div class="rc-note bad">' + esc(d.error || "Could not load") + "</div>" : null; }
+    function bigCash(label, r, e, extra) {
+      return '<div class="rc-kpi"><div class="rc-kpi__label">' + esc(label) + '</div><div class="rc-kpi__pair"><div class="rc-kpi__side"><small>Rosenta</small>' + (r ? amounts(r) : "—") + '</div><div class="rc-kpi__side is-e"><small>ERPNext</small>' + (e ? amounts(e) : "—") + "</div></div>" + (extra ? '<div class="rc-kpi__foot">' + extra + "</div>" : "") + "</div>";
+    }
+
+    // ---- specifications: what each order line asks for, in both systems
+    var SPEC_COLS = [
+      { k: "rosenta", h: "Used in Rosenta", side: "s", w: "minmax(100px,0.8fr)", html: function (x) { return num(x.c.rosenta); } },
+      { k: "erpnext", h: "In ERPNext", side: "s", w: "minmax(100px,0.8fr)", html: function (x) { return num(x.c.erpnext); } },
+      { k: "matches", h: "Match", side: "s", w: "minmax(80px,0.6fr)", html: function (x) { return num(x.c.matches); } },
+      { k: "differs", h: "Differ", side: "s", w: "minmax(80px,0.6fr)", html: function (x) { return x.c.differs ? '<b class="rc-warnnum">' + num(x.c.differs) + "</b>" : "0"; } },
+      { k: "only_rosenta", h: "Missing in ERPNext", side: "s", w: "minmax(120px,0.9fr)", html: function (x) { return x.c.only_rosenta ? '<b class="rc-badnum">' + num(x.c.only_rosenta) + "</b>" : "0"; } },
+      { k: "only_erpnext", h: "Not used in Rosenta", side: "s", w: "minmax(120px,0.9fr)", html: function (x) { return num(x.c.only_erpnext); } },
+      { h: "Stems ordered", side: "s", w: "minmax(100px,0.8fr)", html: function (x) { return num(x.c.stems); } },
+      { h: "Specifications", side: "s", w: "minmax(140px,1fr)", text: true, html: function (x) { return chipFor(x.c.status); } }
+    ];
+    function specsView() {
+      var d = rangeData("specs"); if (!d) return;
+      var bad = rangeFail(d); if (bad) { $("rc-content").innerHTML = bad; return; }
+      var t = d.totals;
+      var list = d.customers.filter(function (c) { return (c.rosenta || c.erpnext) && (st.show === "all" || c.status !== "Matches"); });
+      var rows = list.map(function (c) { return { name: c.customer, c: c, go: true, i: d.customers.indexOf(c) }; });
+      var fields = Object.keys(d.by_field || {}).sort(function (a, b) { return d.by_field[b] - d.by_field[a]; }).map(function (k) { return '<span class="rc-chip warn">' + esc(k) + " " + num(d.by_field[k]) + "</span>"; }).join(" ");
+      var sub = function (label, v, foot) { return '<div class="rc-kpi"><div class="rc-kpi__label">' + esc(label) + '</div><div class="rc-kpi__pair"><div class="rc-kpi__side is-e"><b>' + num(v) + "</b></div></div>" + (foot ? '<div class="rc-kpi__foot">' + foot + "</div>" : "") + "</div>"; };
+      var asOf = d.specs_as_of ? "Rosenta specifications as of " + esc(String(d.specs_as_of).slice(0, 16)) + ". " : "Rosenta specifications are still being pulled, refresh in a minute. ";
+      $("rc-content").innerHTML = rangeNote(d) + '<p class="rc-hint">' + asOf + (t.unknown ? t.unknown + " used specifications are not in that pull yet." : "") + "</p>" +
+        '<div class="rc-kpis">' + sub("Used in Rosenta", t.rosenta_used, "specifications on orders of the period") + sub("Active in ERPNext", t.erpnext_active) + sub("Match", t.matched) + sub("Differ", t.differ, fields) +
+        sub("Missing in ERPNext", t.only_rosenta, '<span class="rc-chip ' + (t.only_rosenta ? "bad" : "good") + '">' + (t.only_rosenta ? "orders that cannot be made the same way" : "none") + "</span>") + "</div>" +
+        showSwitch() + card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: SPEC_COLS, rows: rows, minw: 1250 }) : empty("No differences", "Every specification used in Rosenta is in ERPNext and the same.")) +
+        '<p class="rc-hint">A specification is what an order line asks for: the box, the stems, the bunches and what is in them, the stem length, Fairtrade, the consumables. Open a customer to see each one. Specifications are paired by name, and by what they contain where the names differ. Stem length counts as the same when ERPNext is 2 cm above Rosenta\'s grade (Rosenta 50, ERPNext 52). Rosenta tracks few consumables, so a consumable only in ERPNext is common and shown as a difference.</p>';
+    }
+    function specDetail(c) {
+      var def = function (s) {
+        if (!s) return '<span class="rc-none">—</span>';
+        if (s.unknown) return "<b>" + esc(s.name) + '</b><span class="rc-lenrow">Definition not pulled from Rosenta yet</span>';
+        return "<b>" + esc(s.name) + '</b><span class="rc-lenrow">' + num(s.pack_rate) + " stems · " + num(s.bunches) + " bunches" + (s.lengths.length ? " · " + s.lengths.join(", ") + " cm" : "") + (s.ft ? " · FT" : "") + "</span>" +
+          (s.varieties.length ? '<span class="rc-lenrow">' + esc(s.varieties.slice(0, 5).join(", ")) + (s.varieties.length > 5 ? " +" + (s.varieties.length - 5) : "") + "</span>" : "");
+      };
+      var order = { "Only in Rosenta": 0, "Differs": 1, "Only in ERPNext": 2, "Matches": 3 };
+      var items = c.specs.slice().sort(function (a, b) { return order[a.state] - order[b.state]; });
+      var h = '<section class="rc-card"><div class="rc-scroll"><table class="rc-spectable"><thead><tr><th>Rosenta</th><th>ERPNext</th><th>Difference</th></tr></thead><tbody>' +
+        items.map(function (p) {
+          var diffs = p.diffs.length ? p.diffs.map(function (x) { return "<div><b>" + esc(x.field) + ":</b> " + esc(String(x.rosenta)) + " <span class=\"rc-none\">in Rosenta,</span> " + esc(String(x.erpnext)) + ' <span class="rc-none">in ERPNext</span></div>'; }).join("") : chipFor(p.state);
+          return "<tr><td>" + def(p.rosenta) + (p.rosenta && p.rosenta.lines ? '<span class="rc-lenrow">' + num(p.rosenta.stems) + " stems on " + p.rosenta.lines + " lines</span>" : "") + "</td><td>" + def(p.erpnext) + "</td><td>" + diffs + "</td></tr>";
+        }).join("") + "</tbody></table></div></section>";
+      openPanel(c.customer, "Specifications for " + d_text() + ". Rosenta ones are those on its orders of the period.", h);
+    }
+
+    var MONEY_COLS = cat(
+      pair("booked", "Booked", { w: "minmax(110px,1fr)", html: cashCol("booked") }), pair("dispatched", "Dispatched", { w: "minmax(110px,1fr)", html: cashCol("dispatched") }),
+      pair("invoiced", "Invoiced", { w: "minmax(110px,1fr)", html: cashCol("invoiced") }), pair("paid", "Paid", { w: "minmax(110px,1fr)", html: cashCol("paid") }),
+      pair("unbilled", "Dispatched, not invoiced", { w: "minmax(120px,1fr)", html: cashCol("unbilled") }),
+      pair("invoices", "Invoices", { w: "minmax(70px,0.6fr)" }));
+    function moneyView() {
+      var d = rangeData("money"); if (!d) return;
+      var bad = rangeFail(d); if (bad) { $("rc-content").innerHTML = bad; return; }
+      var t = d.totals, r = t.rosenta, e = t.erpnext;
+      var cols = MONEY_COLS.concat([
+        { h: "Booked", side: "s", w: "minmax(130px,1fr)", text: true, html: function (x) { return chipFor(x.c.booked_status); } },
+        { h: "Invoiced", side: "s", w: "minmax(130px,1fr)", text: true, html: function (x) { return chipFor(x.c.invoiced_status); } },
+        { h: "Paid", side: "s", w: "minmax(130px,1fr)", text: true, html: function (x) { return chipFor(x.c.paid_status); } }
+      ]);
+      var diff = function (c) { return [c.booked_status, c.invoiced_status, c.paid_status].some(function (x) { return x !== "Matches" && x !== "-"; }); };
+      var list = d.customers.filter(function (c) { return st.show === "all" || diff(c); });
+      var rows = list.map(function (c) { return { name: c.customer, r: c.rosenta, e: c.erpnext, c: c }; });
+      $("rc-content").innerHTML = rangeNote(d) +
+        '<div class="rc-kpis">' + bigCash("Booked", r.booked, e.booked) + bigCash("Dispatched", r.dispatched, e.dispatched) + bigCash("Invoiced", r.invoiced, e.invoiced, num(r.invoices) + " invoices in Rosenta, " + num(e.invoices) + " in ERPNext") +
+        bigCash("Paid", r.paid, e.paid, num(r.unpaid) + " unpaid in Rosenta, " + num(e.unpaid) + " in ERPNext") + bigCash("Dispatched, not yet invoiced", r.unbilled, e.unbilled, "Delivery notes in ERPNext: " + num(e.delivery_notes)) + "</div>" +
+        showSwitch() + card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 2300, statusLabel: "Difference" }) : empty("No differences", "Rosenta and ERPNext agree for this period.")) +
+        '<p class="rc-hint">Booked is the order value at its stem price (ERPNext: Sales Order net total, Rosenta: confirmed stems times stem price). Dispatched is the value that left: ERPNext Delivery Notes against the orders, Rosenta stems loaded on Dispatched and Partially Dispatched orders. Invoiced and paid are invoices for the orders of the period: ERPNext Sales Invoices against them (paid is the share of each invoice that is paid), Rosenta invoices issued for the delivery dates. ERPNext is counted for the flower business only. Amounts are never added across currencies.</p>';
+    }
+
+    var GH_COLS = cat(pair("stems", "Stems issued"), pair("value", "Revenue", { w: "minmax(120px,1fr)", html: function (s) { return s.by_currency ? cash(s) : '<span class="rc-none">—</span>'; } }),
+      pair("price", "Price per stem", { w: "minmax(90px,1fr)", html: function (s) { return s.price == null ? '<span class="rc-none">—</span>' : esc(s.currency) + " " + money(s.price, 3); } }));
+    function greenhouseView() {
+      var d = rangeData("greenhouse"); if (!d) return;
+      var bad = rangeFail(d); if (bad) { $("rc-content").innerHTML = bad; return; }
+      var cols = GH_COLS.concat([{ h: "Revenue", side: "s", w: "minmax(130px,1fr)", text: true, html: function (x) { return chipFor(x.f.status); } }]);
+      var rows = d.farms.map(function (f, i) { return { name: f.farm, r: f.rosenta, e: f.erpnext, f: f, go: true, i: i, sub: f.greenhouses.length ? f.greenhouses.length + " greenhouses in Rosenta" : "" }; });
+      $("rc-content").innerHTML = rangeNote(d) + card("Farms", rows.length + " shown", rows.length ? grid({ first: "Farm", cols: cols, rows: rows, minw: 1500, statusLabel: "Difference" }) : empty("Nothing to show", "No stems issued in this period.")) +
+        '<p class="rc-hint">Revenue of the stems issued, by farm. Open a farm to see its greenhouses and varieties from Rosenta. Rosenta only records revenue for stems that were scanned out of a coldroom, so where it shows less than ERPNext, the gap is mostly issuing not recorded in Rosenta. ERPNext knows the farm of each pick, not the greenhouse, so greenhouses are Rosenta only.</p>';
+    }
+    function farmDetail(f) {
+      var rows = f.greenhouses.map(function (g) { return { name: g.greenhouse || "(none)", r: g, e: null }; });
+      var cols = GH_COLS.filter(function (c) { return c.side === "r"; }).map(function (c) { return Object.assign({}, c, { grp: null }); });
+      openPanel(f.farm, "Greenhouses in Rosenta for " + d_text(), '<section class="rc-card">' + grid({ first: "Greenhouse", cols: cols, rows: rows, minw: 600 }) + "</section>");
+    }
+    function d_text() { var r = rangeOf(); return r.from === r.to ? longDate(r.to) : longDate(r.from) + " to " + longDate(r.to); }
+
+    var FILL_COLS = cat(pair("ordered", "Ordered"), pair("allocated", "Allocated"), pair("issued", "Issued"), pair("packed", "Packed"), pair("loaded", "Loaded"), pair("dispatched", "Dispatched"),
+      pair("fill", "Fill %", { w: "minmax(70px,0.7fr)", html: function (s) { return s.fill == null ? '<span class="rc-none">—</span>' : esc(String(s.fill)) + "%"; } }));
+    function fillView() {
+      var d = rangeData("fill"); if (!d) return;
+      var bad = rangeFail(d); if (bad) { $("rc-content").innerHTML = bad; return; }
+      var t = d.totals;
+      var cols = FILL_COLS.concat([{ h: "Dispatched", side: "s", w: "minmax(150px,1.1fr)", text: true, html: function (x) { return statusChip(x.status, x.r.dispatched, x.e.dispatched); } }]);
+      var withFill = function (side, p) { return Object.assign({}, side, { fill: p }); };
+      var list = d.customers.filter(function (c) { return st.show === "all" || (c.status !== "Matches" && c.status !== "-"); });
+      var rows = list.map(function (c) { return { name: c.customer, r: withFill(c.rosenta, c.fill_rosenta), e: withFill(c.erpnext, c.fill_erpnext), status: c.status }; });
+      var pct = function (x) { return x == null ? "—" : x + "%"; };
+      $("rc-content").innerHTML = rangeNote(d) +
+        '<div class="rc-kpis">' + kpi("Stems ordered", t.rosenta.ordered, t.erpnext.ordered, "stems") + kpi("Stems dispatched", t.rosenta.dispatched, t.erpnext.dispatched, "stems") +
+        '<div class="rc-kpi"><div class="rc-kpi__label">Fill rate (dispatched of ordered)</div><div class="rc-kpi__pair"><div class="rc-kpi__side"><small>Rosenta</small><b>' + pct(t.rosenta.fill) + '</b></div><div class="rc-kpi__side is-e"><small>ERPNext</small><b>' + pct(t.erpnext.fill) + "</b></div></div></div></div>" +
+        showSwitch() + card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 2300, statusLabel: "Difference" }) : empty("No differences", "Rosenta and ERPNext agree for this period.")) +
+        '<p class="rc-hint">Stems at every stage from the order to the truck. Ordered, allocated, packed and loaded for Rosenta are from its Order Summary (packed is staged, since boxes are staged straight after packing); issued and dispatched are from its Dispatch Analysis, line by line. Rosenta records issuing for only some stems, so its issued figure is low. ERPNext is from Orders &amp; Workflow, allocated being the stems on pick lists. Fill rate is dispatched over ordered.</p>';
+    }
+
     // ---- teams
     var lastBox = { text: true, w: "minmax(170px,1.3fr)", html: function (s) { return s.last_html; } };
     var TEAM_COLS = cat(pair("assigned", "To pack"), pair("packed", "Packed"), pair("staged", "Staged"), pair("loaded", "Loaded"), pair("dispatched", "Dispatched (stems)", { w: "minmax(104px,1fr)" }), pair("last", "Last box", lastBox));
@@ -494,11 +643,13 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
     document.addEventListener("keydown", function (e) { if (e.key === "Escape") closePanel(); });
 
     // ---- tabs, drawing, loading
-    var VIEWS = { orders: ordersView, packing: packingView, allocations: allocView, teams: teamsView, cancel: cancelView };
+    var VIEWS = { orders: ordersView, packing: packingView, allocations: allocView, specs: specsView, money: moneyView, greenhouse: greenhouseView, fill: fillView, teams: teamsView, cancel: cancelView };
     function paintTabs() {
       Array.prototype.forEach.call(document.querySelectorAll("#rc-tabs .rc-tab"), function (b) { b.classList.toggle("on", b.getAttribute("data-tab") === st.tab); });
       Array.prototype.forEach.call(document.querySelectorAll("#rc-presets button"), function (b) { b.classList.toggle("on", presetDate(b.getAttribute("data-v")) === st.date); });
       $("rc-date").value = st.date;
+      Array.prototype.forEach.call(document.querySelectorAll("#rc-span button"), function (b) { b.classList.toggle("on", b.getAttribute("data-v") === st.span); });
+      $("rc-span").style.display = RANGE_TABS[st.tab] ? "" : "none";
       if (!data) return;
       var cnt = {
         orders: data.customers.filter(function (c) { return c.orders_status !== "Matches" && c.orders_status !== "-"; }).length,
@@ -511,6 +662,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
     function presetDate(v) { var d = new Date(); d.setDate(d.getDate() + (v === "yesterday" ? -1 : v === "tomorrow" ? 1 : 0)); return iso(d); }
     function draw() {
       paintTabs();
+      if (RANGE_TABS[st.tab]) { $("rc-warn").innerHTML = ""; return VIEWS[st.tab](); }
       if (!data) return;
       $("rc-warn").innerHTML = (data.price_error ? '<div class="rc-note bad">Rosenta prices could not be read: ' + esc(data.price_error) + "</div>" : "") + (data.check && data.check.length ? '<div class="rc-note bad">Does not match Orders &amp; Workflow: ' + esc(data.check.join("; ")) + "</div>" : "");
       var dr = data.drafts;
@@ -526,18 +678,21 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
     }
 
     // ---- wiring
-    function setDate(d) { st.date = d; data = null; paintTabs(); load(); }
+    function setDate(d) { st.date = d; data = null; paintTabs(); if (RANGE_TABS[st.tab]) draw(); load(); }
     $("rc-presets").addEventListener("click", function (e) { var b = e.target.closest("button[data-v]"); if (b) setDate(presetDate(b.getAttribute("data-v"))); });
     $("rc-date").addEventListener("change", function (e) { if (e.target.value) setDate(e.target.value); });
-    $("rc-refresh").addEventListener("click", function () { load(); });
+    $("rc-refresh").addEventListener("click", function () { if (RANGE_TABS[st.tab]) loadRange(st.tab); else load(); });
+    $("rc-span").addEventListener("click", function (e) { var b = e.target.closest("button[data-v]"); if (b) { st.span = b.getAttribute("data-v"); draw(); } });
     $("rc-tabs").addEventListener("click", function (e) { var b = e.target.closest(".rc-tab"); if (b) { st.tab = b.getAttribute("data-tab"); draw(); } });
     $("rc-content").addEventListener("click", function (e) {
       var p = e.target.closest("#rc-show button[data-v]");
       if (p) { st.show = p.getAttribute("data-v"); return draw(); }
       var row = e.target.closest(".rc-row.go");
-      if (row && data) { var c = data.customers[+row.getAttribute("data-i")]; if (c) orderDetail(c); }
+      if (row && st.tab === "specs" && rdata.specs) { var sc = rdata.specs.customers[+row.getAttribute("data-i")]; if (sc) specDetail(sc); }
+      else if (row && st.tab === "greenhouse" && rdata.greenhouse) { var f = rdata.greenhouse.farms[+row.getAttribute("data-i")]; if (f) farmDetail(f); }
+      else if (row && data) { var c = data.customers[+row.getAttribute("data-i")]; if (c) orderDetail(c); }
     });
-    setInterval(function () { if (!document.hidden) load(true); }, POLL_MS);
+    setInterval(function () { if (document.hidden) return; if (RANGE_TABS[st.tab]) loadRange(st.tab, true); else load(true); }, POLL_MS);
     $("rc-csv").addEventListener("click", function () {
       if (!data) return;
       var rows = [];

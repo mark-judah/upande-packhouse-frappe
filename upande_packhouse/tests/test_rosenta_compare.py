@@ -371,7 +371,11 @@ MONEY_KEYS = {"value", "price", "currency", "by_currency"}
 
 
 class TestComparisonCall(IntegrationTestCase):
+	def setUp(self):
+		frappe.cache.delete_value("rosenta_compare:2026-11-18")  # a shared answer from another test must not leak in
+
 	def tearDown(self):
+		frappe.cache.delete_value("rosenta_compare:2026-11-18")
 		frappe.set_user("Administrator")
 
 	def test_a_guest_may_not_call_it(self):
@@ -426,3 +430,113 @@ class TestComparisonCall(IntegrationTestCase):
 		self.assertIn("login", (out["ops_error"] or "").lower())
 		self.assertTrue(all(t["rosenta"] is None for t in out["teams"] if t["team"] in dict(rc.TEAM_MAP)))
 		self.assertIsNone(out["totals"]["rosenta"]["boxes_packed"])  # unknown, not zero
+
+
+class TestInsights(IntegrationTestCase):
+	def test_same_compares_per_currency(self):
+		from upande_packhouse.api.v2 import rosenta_insights as ri
+
+		self.assertEqual(ri._same({"USD": 100}, {"USD": 100.5}), "Matches")
+		self.assertEqual(ri._same({"USD": 100}, {"USD": 60}), "ERPNext lower")
+		self.assertEqual(ri._same({"USD": 100}, {"USD": 160}), "ERPNext higher")
+		self.assertEqual(ri._same({"USD": 100, "EUR": 50}, {"USD": 160, "EUR": 10}), "Differs")
+		self.assertEqual(ri._same({"USD": 100}, {}), "Only in Rosenta")
+		self.assertEqual(ri._same({}, {"EUR": 5}), "Only in ERPNext")
+		self.assertEqual(ri._same({}, {}), "-")
+
+	def test_rosenta_money_booked_dispatched_and_invoiced_once(self):
+		from upande_packhouse.api.v2 import rosenta_insights as ri
+
+		order = lambda **k: {  # noqa: E731
+			"order_status": "Dispatched", "account_name": "Xpol", "pack_rate": "100", "boxes_confirmed": "2",
+			"boxes_loaded": "2", "stem_price": "0.5", "currency": "eur", **k
+		}  # fmt: skip
+		inv = lambda **k: {  # noqa: E731
+			"invoice_name": "i1", "account_name": "Xpol", "invoice_currency": "eur", "invoice_amount": "90",
+			"paid_amount": "0", "invoice_paid": "not_paid", "invoice_status": "issued", **k
+		}  # fmt: skip
+		have = {
+			"orders": {"d1": [order(), order(order_status="Cancelled"), order(order_status="Processing", boxes_loaded="0")]},
+			"billing": {"d1": [inv()], "d2": [inv(), inv(invoice_name="i2", invoice_status="cancelled")]},
+		}
+		x = ri._rosenta_money(have)["Xpol"]
+		self.assertEqual(x["booked"], {"EUR": 200.0})  # the cancelled order is left out
+		self.assertEqual(x["dispatched"], {"EUR": 100.0})  # only the dispatched order, at what was loaded
+		self.assertEqual((x["invoiced"], x["invoices"], x["unpaid"]), ({"EUR": 90.0}, 1, 1))  # i1 once, i2 cancelled
+
+	def test_snapshot_is_saved_once_and_only_touched_when_unchanged(self):
+		from upande_packhouse.api.v2 import rosenta_sync as sync
+
+		frappe.set_user("Administrator")
+		name = "billing-2020-01-02"
+		frappe.db.delete("Rosenta Snapshot", {"name": name})
+		self.assertTrue(sync.save("billing", "2020-01-02", [{"a": 1}]))
+		self.assertFalse(sync.save("billing", "2020-01-02", [{"a": 1}]))  # same report: nothing rewritten
+		self.assertTrue(sync.save("billing", "2020-01-02", [{"a": 2}]))
+		out, _when = sync.load("billing", ["2020-01-02", "2020-01-03"])
+		self.assertEqual(out, {"2020-01-02": [{"a": 2}]})
+		self.assertEqual(sync.missing(("billing",), ["2020-01-02", "2020-01-03"]), [("billing", "2020-01-03")])
+		frappe.db.delete("Rosenta Snapshot", {"name": name})
+
+	def test_days_between_is_inclusive_and_capped(self):
+		from upande_packhouse.api.v2 import rosenta_sync as sync
+
+		self.assertEqual(sync.days_between("2026-11-18", "2026-11-20"), ["2026-11-18", "2026-11-19", "2026-11-20"])
+		self.assertEqual(len(sync.days_between("2026-01-01", "2026-12-31")), 45)
+
+	def test_a_guest_may_not_read_the_comparisons(self):
+		from upande_packhouse.api.v2 import rosenta_insights as ri
+
+		frappe.set_user("Guest")
+		try:
+			for fn in (ri.get_rosenta_money, ri.get_rosenta_greenhouse, ri.get_rosenta_fill):
+				self.assertRaises(frappe.PermissionError, fn, "2026-11-18")
+		finally:
+			frappe.set_user("Administrator")
+
+
+class TestSpecs(IntegrationTestCase):
+	def test_rosenta_definition_from_its_slim_row(self):
+		from upande_packhouse.api.v2 import rosenta_specs as rs
+
+		d = rs.rosenta_def(
+			{
+				"n": "COOP 1", "ft": "true", "pr": "75", "g": "50",
+				"b": [["25;25", [["Altaj", "50", "3", "Tight"]]], ["10;10", [["Any white variety", "50", "3", "Tight"]]]],
+				"c": [["Standard Box (L 1000)", "box", "1"], ["Rubber Band", "rubber_band", "1"]],
+			}
+		)  # fmt: skip
+		self.assertEqual((d["ft"], d["pack_rate"], d["bunches"], d["lengths"], d["stems_per_bunch"]), (True, 75, 35, [50], [3]))
+		self.assertEqual((d["varieties"], d["any_colours"], d["box"], d["consumables"]), (["ALTAJ"], ["WHITE"], "Standard Box (L 1000)", ["RUBBER BAND"]))
+
+	def test_length_offset_is_not_a_difference_but_a_real_gap_is(self):
+		from upande_packhouse.api.v2 import rosenta_specs as rs
+
+		base = {"ft": False, "pack_rate": 100, "bunches": 10, "stems_per_bunch": [10], "lengths": [50], "varieties": ["A"], "any_colours": [], "box": "Standard", "consumables": []}
+		self.assertEqual(rs.diff(base, {**base, "lengths": [52]}), [])
+		self.assertEqual([x["field"] for x in rs.diff(base, {**base, "lengths": [60]})], ["Stem length"])
+		self.assertEqual([x["field"] for x in rs.diff(base, {**base, "ft": True, "pack_rate": 120})], ["Fairtrade", "Stems per box"])
+		self.assertEqual(rs.diff(base, {**base, "box": "Standard Box (L 1000mm)"}), [])  # one name inside the other
+
+	def test_pairs_by_name_then_by_content_one_to_one(self):
+		from upande_packhouse.api.v2 import rosenta_specs as rs
+
+		mk = lambda name, rate=100, **k: {  # noqa: E731
+			"name": name, "ft": False, "pack_rate": rate, "bunches": 10, "stems_per_bunch": [10], "lengths": [50],
+			"varieties": [], "any_colours": [], "box": "", "consumables": [], **k
+		}  # fmt: skip
+		r = [mk("ROSE PINK ATHENA L5"), mk("TOTALLY OTHER", 777)]
+		e = [mk("Rose Pink Athena L5"), mk("Nothing alike", 5)]
+		out = {(p["rosenta"] or {}).get("name"): p["state"] for p in rs.pair_specs(r, e)}
+		self.assertEqual(out["ROSE PINK ATHENA L5"], "Matches")
+		self.assertEqual(out["TOTALLY OTHER"], "Only in Rosenta")
+		self.assertEqual(out[None], "Only in ERPNext")
+
+	def test_a_guest_may_not_read_specs(self):
+		from upande_packhouse.api.v2 import rosenta_specs as rs
+
+		frappe.set_user("Guest")
+		try:
+			self.assertRaises(frappe.PermissionError, rs.get_rosenta_specs, "2026-11-18")
+		finally:
+			frappe.set_user("Administrator")

@@ -348,6 +348,9 @@ scheduler_events = {
 		# No-op unless Production Settings > Enable Automatic Remote Transfers Scheduling.
 		# Fires every 5 minutes; auto_transfer.run() re-plans at the frequency set on
 		# Production Settings > Remote Transfers (5-60 minutes).
+		# The Rosenta comparison reads snapshots; this is the only thing that calls Rosenta (temporary).
+		"*/10 * * * *": ["upande_packhouse.api.v2.rosenta_sync.sync_recent"],
+		"15 2 * * *": ["upande_packhouse.api.v2.rosenta_sync.sync_nightly"],
 		"*/5 * * * *": [
 			"upande_packhouse.api.auto_transfer.run",
 			# A trip ends once what it carried is shelved at the hub — no End trip button.

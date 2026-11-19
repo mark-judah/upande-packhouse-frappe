@@ -44,6 +44,7 @@ SPEC_PATH = "/api/insights/get_allocations_summary_by_order_spec"
 #: Invoices issued for a delivery date, one row per invoice (a consolidated one covers several orders).
 BILLING_PATH = "/api/financials/get_billing_by_delivery"
 SESSION_KEY = "rosenta_compare_session"
+CACHE_SECONDS = 60  # how long one comparison is shared between viewers
 SESSION_TTL = 100 * 60  # Rosenta ends a session after two hours
 
 #: Rosenta team -> ERPNext team names (Packing Team).
@@ -224,6 +225,22 @@ class RosentaOps:
 			frappe.throw(_("Rosenta did not accept the login."))
 		self.cookie = cookie
 		self.store.set(cookie)
+
+	def call(self, path, data):
+		"""POST to a Rosenta report endpoint and return its parsed JSON (a list or a dict). Rosenta answers a
+		refused call with its sign-in page, so the client signs in again once and repeats the call."""
+		if self.cookie is None:
+			self.cookie = self.store.get() or ""
+		for attempt in (0, 1):
+			r = requests.post(
+				ROSENTA + path, data=data, cookies={"ci_session": self.cookie or ""}, timeout=TIMEOUT
+			)
+			try:
+				return r.json()
+			except ValueError:
+				if attempt == 0:
+					self._sign_in()
+		frappe.throw(_("Rosenta refused the call to {0} after signing in.").format(path))
 
 	def operations(self, location_id, delivery_date):
 		"""{team: {order_id: {spec_id: line}}}. Signs in again once if the session is missing or expired."""
@@ -718,8 +735,15 @@ def get_rosenta_comparison(date=None):
 	"""Rosenta and ERPNext side by side for one delivery date. Any signed-in user; reads only."""
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Please log in"), frappe.PermissionError)
+	key = f"rosenta_compare:{getdate(date or today())}"
+	cached = frappe.cache.get_value(key)  # whoever asks within a minute gets the same answer, Rosenta is not asked again
+	if cached:
+		return cached
 	try:
-		return _compare(getdate(date or today()))
+		out = _compare(getdate(date or today()))
+		if out.get("success"):
+			frappe.cache.set_value(key, out, expires_in_sec=CACHE_SECONDS)
+		return out
 	except frappe.PermissionError:
 		raise
 	except Exception as e:
