@@ -5628,6 +5628,47 @@ def get_pick_list_with_farm_pack_list():
 		frappe.response["http_status_code"] = 500
 
 
+QTY_TOLERANCE_ISSUE = 0.001
+
+
+def _smallest_open_bunch(variety, length, sale_order_item):
+	"""Stems in the smallest bunch an open order packs `variety` at `length` in (the issuing line's own when
+	none does)."""
+	own = flt(frappe.db.get_value("Sales Order Item", sale_order_item, "conversion_factor")) or 1
+	smallest = frappe.db.sql(
+		"""SELECT MIN(soi.conversion_factor) FROM `tabSales Order Item` soi
+		JOIN `tabSales Order` so ON so.name = soi.parent
+		WHERE so.docstatus = 1 AND so.status NOT IN ('Closed', 'Completed', 'On Hold')
+		  AND so.delivery_date >= CURDATE() AND soi.item_code = %(v)s
+		  AND (%(l)s = '' OR IFNULL(soi.custom_length, '') IN ('', %(l)s))
+		  AND soi.delivered_qty < soi.qty AND soi.conversion_factor > 0""",
+		{"v": variety, "l": length or ""},
+	)[0][0]
+	return min(own, flt(smallest)) if smallest else own
+
+
+def _bucket_held_elsewhere(bucket_id, variety, sale_order_item):
+	"""Another order line still holds stems of this bucket's variety (allocated, or waiting release)."""
+	if frappe.db.sql(
+		"""SELECT 1 FROM `tabBucket Allocations` ba
+		JOIN `tabBucket Allocation Status` bas ON bas.name = ba.parent
+		WHERE bas.bucket_id = %(b)s AND bas.item_code = %(v)s AND ba.cancelled = 0 AND IFNULL(ba.issued, 0) = 0
+		  AND ba.quantity_allocated > 0 AND ba.sales_order_item != %(soi)s LIMIT 1""",
+		{"b": bucket_id, "v": variety, "soi": sale_order_item or ""},
+	):
+		return True
+	return bool(
+		frappe.db.table_exists("Pending Allocation Row")
+		and frappe.db.sql(
+			"""SELECT 1 FROM `tabPending Allocation Row` r
+			JOIN `tabPending Allocation` p ON p.name = r.parent
+			WHERE p.status = 'Pending' AND r.bucket_id = %(b)s AND r.item_code = %(v)s
+			  AND r.sales_order_item != %(soi)s LIMIT 1""",
+			{"b": bucket_id, "v": variety, "soi": sale_order_item or ""},
+		)
+	)
+
+
 @frappe.whitelist()
 def issueBucketToSaleOrderItem():
 	try:
@@ -5939,6 +5980,30 @@ def issueBucketToSaleOrderItem():
 							left -= take
 						left_to_take[(variety, length)] = left
 
+					# A bucket left with less than one bunch of what it holds -- the smallest bunch any open
+					# order packs that variety at that length in -- comes off the shelf whole: the leftover
+					# goes to the packhouse with this issue. Not while another line still holds stems of it.
+					leftovers = []
+					if pick_list_items:
+						for item in shelf_items:
+							rest = flt(item.get("stem_qty")) - taken_by_row.get(item.name, 0)
+							if taken_by_row.get(item.name, 0) <= 0 or rest <= QTY_TOLERANCE_ISSUE:
+								continue
+							if rest >= _smallest_open_bunch(
+								item.get("variety"), item.get("stem_length"), sale_order_item
+							):
+								continue
+							if _bucket_held_elsewhere(bucket_id, item.get("variety"), sale_order_item):
+								continue
+							taken_by_row[item.name] = flt(item.get("stem_qty"))
+							leftovers.append(
+								{
+									"variety": item.get("variety"),
+									"length": item.get("stem_length"),
+									"qty": rest,
+								}
+							)
+
 					removed_from_shelf = []
 					kept_on_shelf = []
 					for item in shelf_items:
@@ -6112,6 +6177,28 @@ def issueBucketToSaleOrderItem():
 							frappe.log_error(
 								title="Issue -> Packhouse: nothing moved",
 								message=f"bucket={bucket_id} farm={farm} -- {result.get('reason')}",
+							)
+
+					for left in leftovers:
+						try:
+							res = stock_movement.post_leftover_to_packhouse(
+								bucket_id,
+								left["variety"],
+								left["qty"],
+								"Roses",
+								farm or frappe.db.get_value("Stock Entry", stock_entry_name, "farm"),
+								stem_length=left["length"],
+								so_item=sale_order_item,
+							)
+							if not res.get("moved") and res.get("reason"):
+								frappe.log_error(
+									title="Issue: bucket leftover not moved",
+									message=f"bucket={bucket_id} -- {res.get('reason')}",
+								)
+						except Exception:
+							frappe.log_error(
+								title="Issue: bucket leftover failed",
+								message=f"bucket={bucket_id}\n{frappe.get_traceback()}",
 							)
 
 					# The bucket turned up: a replacement that reported it missing (on this or

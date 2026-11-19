@@ -14,16 +14,16 @@
     <label class="apx-pill">Sales farm<select id="pg-farm" aria-label="Sales farm">{% for f in sales_farms %}<option value="{{ f }}"{% if f == default_farm %} selected{% endif %}>{{ f }}</option>{% endfor %}</select></label>
     <label class="apx-pill" id="pg-crop-wrap">Crop<select id="pg-crop" aria-label="Crop"><option value="">All crops</option></select></label>
     <label class="apx-pill" id="pg-week-wrap">Week<select id="pg-week" aria-label="Week"></select></label>
-    <div class="apx-seg" id="f-preset"><button data-value="today">Today</button><button data-value="tomorrow">Tomorrow</button></div>
     <label class="apx-pill" id="pg-date-wrap">Delivery<input type="date" id="pg-date" aria-label="Delivery date"></label>
   </div>
 </div>
-<section class="pg-checktiles" id="pg-kpis"></section>
+<section class="pg-checktiles" id="pg-kpis" hidden></section>
 
 <div id="pg-unconf">
 <div class="pg-grid">
   <aside class="apx-card apx-aside" aria-label="Varieties">
-    <div class="apx-seg apx-seg--full" id="pg-view"><button data-value="attention" class="is-on">Needs attention</button><button data-value="all">All</button></div>
+    <div class="apx-seg apx-seg--full" id="pg-group" style="margin-bottom:8px"><button data-value="order" class="is-on">By order</button><button data-value="variety">By variety</button></div>
+    <div class="apx-seg apx-seg--full" id="pg-view"><button data-value="" class="is-on">All</button><button data-value="straight">Straight</button><button data-value="mixed">Mixes</button></div>
     <div id="pg-list"></div>
   </aside>
   <section class="pg-detail" id="pg-detail"></section>
@@ -243,8 +243,7 @@
   .apx-pill{display:flex;align-items:center;gap:8px;background:#fff;border-radius:999px;padding:0 14px;height:40px;font-size:13px;color:var(--ax-mute);margin:0}
   .apx-pill[hidden]{display:none}
   /* A week is planned: the day controls stand back (and the other way round). */
-  #pg-head.is-week #f-preset button.is-on{background:transparent;color:var(--ax-ink3)}
-  #pg-head.is-week #pg-date-wrap,#pg-head:not(.is-week) #pg-week-wrap{opacity:.55}
+  #pg-head.is-week #pg-date-wrap{opacity:.55}
   .sk{display:block;border-radius:8px;background:linear-gradient(90deg,#EEEAE2 25%,#F7F5F1 50%,#EEEAE2 75%);background-size:200% 100%;animation:sk-shine 1.3s ease-in-out infinite}
   @keyframes sk-shine{0%{background-position:200% 0}100%{background-position:-200% 0}}
   @media (prefers-reduced-motion:reduce){.sk{animation:none}}
@@ -267,6 +266,9 @@
   .apx-sel-opt svg{flex:none}
   .apx-sel-opt:hover,.apx-sel-opt.is-active{background:#F3F1EC}
   .apx-sel-opt.is-sel{font-weight:600}
+  .apx-sel-grp{padding:8px 10px 4px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#8a857c}
+  .apx-sel-opt span{white-space:normal}
+  #pg-detail select.pg-o-team,#pg-mix-team,#pg-o-allteam{min-width:170px}
   .apx-sel-opt.is-ph{color:#6B665E}
   .apx-sel-opt.is-dis{opacity:.4;cursor:default}
   .apx-sel-opt svg{stroke:#276640;fill:none;stroke-width:2.5}
@@ -292,6 +294,12 @@
   .apx-vhead__top{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;align-items:baseline;margin-bottom:16px}
   .apx-vhead__top h2{margin:0;font-size:22px;font-weight:600}.apx-vhead__top span{font-size:13px;color:var(--ax-mute)}
   .apx .pg-tiles{grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin:0}
+  .apx .pg-tiles.pg-tiles--3{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .pg-mixfoot{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:flex-end;padding:14px 16px}
+  .pg-mixfoot label{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ax-mute)}
+  .pg-mixfoot .pg-in{width:90px}
+  .pg-ltable tr.pg-mixhead td{background:var(--ax-bg,#F3F1EC)}
+  .pg-ltable td small{display:block;font-size:12px;color:var(--ax-mute)}
   .apx .pg-tile{background:var(--ax-ground);border-radius:12px;padding:12px 14px}
   .apx .pg-tile span{font-size:12px;color:var(--ax-mute)}.apx .pg-tile b{font-size:22px;font-weight:600}.apx .pg-tile small{font-size:11px;color:var(--ax-mute)}
   .apx .pg-tile--warn{background:var(--ax-amb-bg)}.apx .pg-tile--warn span,.apx .pg-tile--warn small{color:var(--ax-amb)}
@@ -365,8 +373,15 @@
   .pg-revtable{max-height:60vh;overflow:auto;scrollbar-width:thin}
   .pg-revtable th{position:sticky;top:0;background:#fff;z-index:1}
   .pg-revtable td small{display:block;font-size:12px;color:var(--ink-mute)}
+  .pg-revtable tr.pg-revday td{background:var(--ax-bg,#F3F1EC);font-size:13px;padding-top:10px;padding-bottom:10px}
   .pg-revtable .pg-rev-in{width:96px;height:34px;box-sizing:border-box;border:1px solid rgba(10,10,10,.18);border-radius:8px;padding:0 8px;font:500 13px Poppins,sans-serif;text-align:right;background:#fff}
   .pg-revtable .pg-rev-in:focus{outline:none;border-color:#0A0A0A}
+  .pg-revtable tr.pg-revorder{cursor:pointer}
+  .pg-revtable tr.pg-revorder td{font-weight:500}
+  .pg-revtable tr.pg-revline td{background:#fafaf8}
+  .pg-revtable tr.pg-revline td:nth-child(5){padding-left:20px}
+  .pg-rev-exp{border:0;background:transparent;width:22px;height:22px;margin:0 6px 0 -4px;border-radius:6px;cursor:pointer;font:600 16px/1 Poppins,sans-serif;color:#6b6b6b;transition:transform .15s;vertical-align:middle}
+  .pg-rev-exp[aria-expanded="true"]{transform:rotate(90deg)}
   .pg-revtable .pg-revtot{font-weight:600;background:#F7F6F2}
   .ph-modal--xl:has(.pg-revtable){width:min(1600px,calc(100vw - 32px))}
   .pg-revtable th,.pg-revtable td{white-space:nowrap}
@@ -452,10 +467,18 @@
   const nextWeek = (() => { const d = new Date(); d.setDate(d.getDate() + 7); return isoWeek(d); })();
   const weekLabel = (wk) => { const a = mondayOf(wk), b = new Date(a); b.setDate(a.getDate() + 6); return "Week " + Number(wk.split("-W")[1]) + " · " + PH.fmt.date(ymd(a), true) + " – " + PH.fmt.date(ymd(b), true); };
   const WEEK_MODES = ["unconfirmed", "checks", "nonmoving", "summary", "confirmed"];
-  const st = PH.state({ date: $("pg-head").dataset.defaultDate, tab: "unconfirmed", week: nextWeek });
-  const S = { mode: ["confirmed", "teams", "nonmoving", "checks", "sequence", "summary", "crops", "people", "workforce"].includes(st.get("tab")) ? st.get("tab") : "unconfirmed", date: st.get("date"), farm: document.getElementById("pg-farm").value || "", view: "attention", pick: null, tab: "pg-t-exact", teams: [], week: /^(\d{4}-W\d{2}|day)$/.test(st.get("week") || "") ? st.get("week") : nextWeek };
-  // Plan & checks and the summary plan the week chosen, or one day (Today, Tomorrow or a date: week "day").
-  const weekScope = () => S.week !== "day";
+  const parseYmd = (v) => { const [y, m, d] = String(v).split("-").map(Number); return new Date(y, m - 1, d); };
+  const realDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v || "") && +String(v).slice(0, 4) >= 1900;
+  // the week opens on the default delivery date's week (tomorrow's), not on next week
+  const defaultDate = $("pg-head").dataset.defaultDate;
+  const st = PH.state({ date: defaultDate, tab: "unconfirmed", week: realDate(defaultDate) ? isoWeek(parseYmd(defaultDate)) : nextWeek, day: "" });
+  // a link from before: ?week=day was one delivery day
+  const oldDay = st.get("week") === "day";
+  // the week always holds the delivery date shown beside it
+  const firstWeek = realDate(st.get("date")) ? isoWeek(parseYmd(st.get("date"))) : /^\d{4}-W\d{2}$/.test(st.get("week") || "") ? st.get("week") : nextWeek;
+  const S = { mode: ["confirmed", "teams", "nonmoving", "checks", "sequence", "summary", "crops", "people", "workforce"].includes(st.get("tab")) ? st.get("tab") : "unconfirmed", date: st.get("date"), farm: document.getElementById("pg-farm").value || "", view: "all", group: "order", pick: null, tab: "pg-t-exact", teams: [], week: firstWeek, day: oldDay || st.get("day") === "1" };
+  // Plan & checks and the summary plan the week chosen, or one delivery day of it once a date is picked.
+  const weekScope = () => !S.day;
   const inWeek = () => WEEK_MODES.includes(S.mode) && weekScope();
   const plan = () => (weekScope() ? { week: S.week } : { delivery_date: S.date });
   const scopeLabel = () => (weekScope() ? weekLabel(S.week) : PH.fmt.date(S.date, true));
@@ -465,42 +488,61 @@
   const poolKey = () => JSON.stringify([plan(), S.farm, S.pick && S.pick.variety, S.pick && S.pick.length]);
 
   PH.frappeDate("#pg-date");
-  PH.dateRange({ pills: "#f-preset", from: "#pg-date", state: st, fromKey: "date" });
   st.on((s, changed) => {
-    if (changed.includes("week")) { S.week = s.week; S.pick = null; paintWeek(); setHead(); load(); return; }
-    if (changed.includes("date")) { S.date = s.date; S.pick = null; setHead(); if (WEEK_MODES.includes(S.mode) && weekScope()) dayScope(); else load(); }
+    if (changed.includes("date")) S.date = s.date;
+    if (changed.includes("week") || changed.includes("day")) { S.week = s.week; S.day = s.day === "1"; }
+    if (["week", "day", "date"].some((k) => changed.includes(k))) { S.pick = null; paintWeek(); paintDate(); setHead(); load(); }
     if (changed.includes("tab")) setMode();
   });
   // The weeks to choose from: four back to eight ahead; picking one plans its seven days.
   function paintWeek() {
     const now = isoWeek(new Date()), weeks = [];
     for (let k = -4; k <= 8; k++) weeks.push(shiftWeek(now, k));
-    if (weekScope() && !weeks.includes(S.week)) weeks.push(S.week);
+    if (!weeks.includes(S.week)) weeks.push(S.week);
     weeks.sort();
-    const sel = $("pg-week");
-    sel.innerHTML = (weekScope() ? "" : '<option value="day">Choose a week</option>') + weeks.map((w) => '<option value="' + w + '"' + (w === S.week ? " selected" : "") + ">" + PH.esc(weekLabel(w)) + "</option>").join("");
+    $("pg-week").innerHTML = weeks.map((w) => '<option value="' + w + '"' + (w === S.week ? " selected" : "") + ">" + PH.esc(weekLabel(w)) + "</option>").join("");
     $("pg-head").classList.toggle("is-week", WEEK_MODES.includes(S.mode) && weekScope());
   }
+  // The delivery date: on the week's pages it is one of the chosen week's days.
+  function paintDate() {
+    const inp = $("pg-date");
+    // a whole week is planned: the box stays empty, so picking any day -- the one it held too -- plans that day
+    inp.value = WEEK_MODES.includes(S.mode) && weekScope() ? "" : S.date || "";
+    if (inp._showDate) inp._showDate();
+    const a = mondayOf(S.week), b = new Date(a);
+    b.setDate(a.getDate() + 6);
+    if (inp._limit) WEEK_MODES.includes(S.mode) ? inp._limit(ymd(a), ymd(b)) : inp._limit("", "");
+  }
   paintWeek();
-  $("pg-week").addEventListener("change", () => { if ($("pg-week").value !== "day") st.set({ week: $("pg-week").value }); });
-  // Today, Tomorrow or a date: that one day is planned instead of a week.
-  function dayScope() { if (weekScope()) st.set({ week: "day" }); }
-  $("f-preset").addEventListener("click", (e) => { if (e.target.closest("button") && WEEK_MODES.includes(S.mode)) dayScope(); });
-  $("pg-date").addEventListener("change", () => { if (WEEK_MODES.includes(S.mode)) dayScope(); });
+  paintDate();
+  // A week: its seven days are planned, and the delivery date moves into it.
+  $("pg-week").addEventListener("change", () => {
+    const w = $("pg-week").value, a = mondayOf(w), b = new Date(a);
+    b.setDate(a.getDate() + 6);
+    const keep = realDate(S.date) && S.date >= ymd(a) && S.date <= ymd(b);
+    st.set({ week: w, day: "", date: keep ? S.date : ymd(a) });
+  });
+  // A delivery date: that one day is planned, and its week is picked.
+  $("pg-date").addEventListener("change", () => {
+    const v = $("pg-date").value;
+    if (!realDate(v)) return;
+    st.set({ date: v, week: isoWeek(parseYmd(v)), day: WEEK_MODES.includes(S.mode) ? "1" : "" });
+  });
   $("pg-modes").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) st.set({ tab: b.dataset.value }); });
   // Unconfirmed: the variety workflow. Confirmed: the order view, every line of every confirmed order.
   function paintMode() {
     S.mode = ["confirmed", "teams", "nonmoving", "checks", "sequence", "summary", "crops", "people", "workforce"].includes(st.get("tab")) ? st.get("tab") : "unconfirmed";
     $("pg-unconf").hidden = S.mode !== "unconfirmed"; $("pg-conf").hidden = S.mode !== "confirmed"; $("pg-teams").hidden = S.mode !== "teams"; $("pg-old").hidden = S.mode !== "nonmoving"; $("pg-checks").hidden = S.mode !== "checks";
     $("pg-seq").hidden = S.mode !== "sequence"; $("pg-sum").hidden = S.mode !== "summary"; $("pg-crops").hidden = S.mode !== "crops"; $("pg-people").hidden = S.mode !== "people"; $("pg-work").hidden = S.mode !== "workforce";
-    $("pg-kpis").hidden = !["unconfirmed", "checks", "nonmoving"].includes(S.mode);
+    $("pg-kpis").hidden = true;
     const tabOf = { checks: "unconfirmed", nonmoving: "unconfirmed", confirmed: "summary", teams: "sequence", workforce: "people" };
     setHead();
     $("pg-crop-wrap").hidden = !["unconfirmed", "checks", "nonmoving"].includes(S.mode);
     $("pg-week-wrap").hidden = !WEEK_MODES.includes(S.mode);
-    $("pg-date-wrap").hidden = $("f-preset").hidden = S.mode === "crops";
+    $("pg-date-wrap").hidden = S.mode === "crops";
     paintWeek();
-    $("pg-farm").closest("label").hidden = S.mode === "people";
+    paintDate();
+    $("pg-farm").closest("label").hidden = ["people", "unconfirmed", "checks", "nonmoving"].includes(S.mode);
     PH.$$("#pg-modes button").forEach((x) => x.classList.toggle("is-on", x.dataset.value === (tabOf[S.mode] || S.mode)));
   }
   function setMode() {
@@ -509,11 +551,17 @@
     else if (S.mode === "sequence") loadSeq(); else if (S.mode === "summary") loadSum(); else if (S.mode === "crops") loadCrops(); else if (S.mode === "people") loadPeople(); else if (S.mode === "workforce") loadWork(); else if (board) { if (!S.pick && board.pools.length) S.pick = { variety: board.pools[0].variety, length: board.pools[0].length }; openPool(); }
   }
   $("pg-farm").addEventListener("change", () => { S.farm = $("pg-farm").value; S.pick = null; load(); });
+  $("pg-group").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    S.group = b.dataset.value; S.pick = null;
+    PH.$$("#pg-group button").forEach((x) => x.classList.toggle("is-on", x === b));
+    if (board) drawList();
+  });
   $("pg-view").addEventListener("click", (e) => {
     const b = e.target.closest("button"); if (!b) return;
-    S.view = b.dataset.value;
+    S.kind = b.dataset.value;
     PH.$$("#pg-view button").forEach((x) => x.classList.toggle("is-on", x === b));
-    load();
+    if (board) drawList();
   });
 
   /* ── Option lists drawn in the page's style instead of the browser's: every select inside the page. ── */
@@ -534,11 +582,14 @@
       owner = sel; active = sel.selectedIndex;
       menu = document.createElement("div");
       menu.className = "apx-sel-menu"; menu.setAttribute("role", "listbox");
-      menu.innerHTML = [...sel.options].map((o, i) => '<div class="apx-sel-opt' + (i === sel.selectedIndex ? " is-sel" : "") + (o.value === "" ? " is-ph" : "") + (o.disabled ? " is-dis" : "") + '" role="option" data-i="' + i + '" aria-selected="' + (i === sel.selectedIndex) + '"><span>' + PH.esc(o.textContent) + "</span>" + (i === sel.selectedIndex ? PH.icon("check", 14) : "") + "</div>").join("");
+      const all = [...sel.options];
+      const item = (o) => { const i = all.indexOf(o); return '<div class="apx-sel-opt' + (i === sel.selectedIndex ? " is-sel" : "") + (o.value === "" ? " is-ph" : "") + (o.disabled ? " is-dis" : "") + '" role="option" data-i="' + i + '" aria-selected="' + (i === sel.selectedIndex) + '"><span>' + PH.esc(o.dataset.short || o.textContent) + "</span>" + (i === sel.selectedIndex ? PH.icon("check", 14) : "") + "</div>"; };
+      // option groups keep their heading (the teams of another sales farm)
+      menu.innerHTML = [...sel.children].map((c) => c.tagName === "OPTGROUP" ? '<div class="apx-sel-grp">' + PH.esc(c.label) + "</div>" + [...c.children].map(item).join("") : item(c)).join("");
       document.body.appendChild(menu);
       // as wide as the pill (or the field) it opens from, lined up with it
       const box = sel.closest(".apx-pill") || sel;
-      const r = box.getBoundingClientRect(), w = r.width, h = Math.min(menu.scrollHeight, 320);
+      const r = box.getBoundingClientRect(), w = Math.max(r.width, 220), h = Math.min(menu.scrollHeight, 320);
       menu.style.width = w + "px";
       menu.style.left = Math.min(r.left, window.innerWidth - w - 8) + "px";
       menu.style.top = (r.bottom + 6 + h > window.innerHeight - 8 ? Math.max(8, r.top - h - 6) : r.bottom + 6) + "px";
@@ -623,6 +674,8 @@
       PH.options("#pg-farm", (m.farms || []).map((f) => ({ value: f, label: f })), S.farm);
       drawKpis(); drawList(); drawModes();
       if (S.mode !== "unconfirmed") return;
+      if (S.pick && S.pick.mix) { drawMix(); return; }
+      if (S.pick && S.pick.order) { drawOrder(); return; }
       if (S.pick && !m.pools.some((p) => p.variety === S.pick.variety && p.length === S.pick.length)) S.pick = null;
       if (!S.pick && m.pools.length) S.pick = { variety: m.pools[0].variety, length: m.pools[0].length };
       if (!started || JSON.stringify(S.pick) !== started) openPool();   // already on its way when the pick did not change
@@ -633,6 +686,32 @@
       if (S.mode === "unconfirmed" && !pool) PH.set($("pg-detail"), '<div class="apx-card">' + failed + "</div>");
       PH.$$("[data-retry]").forEach((b) => (b.onclick = () => load()));
     });
+  }
+
+  // One variety's forecast for each day of the week (or the one day), in a drawer from the right: its harvest
+  // day, the rolling and production forecast, what is cut so far, what is ordered for that delivery, and the
+  // running balance from the shelf now.
+  function forecastByDay() {
+    if (!pool) return;
+    const v = pool.pool.variety, len = pool.pool.length;
+    const body = document.createElement("div");
+    PH.set(body, skTable(7));
+    const m = PH.modal({ title: v + " " + len, sub: (weekScope() ? weekLabel(S.week) : PH.fmt.date(S.date, true)) + " · forecast by day", body, size: "lg", drawer: true });
+    PH.call(API + "get_forecast_by_day", { ...plan(), farm: S.farm, variety: v, length: len }, { silent: true }).then((r) => {
+      if (!r || !r.days) { PH.set(body, '<div class="pg-empty">Could not read the forecast.</div>'); return; }
+      const ordered = {};
+      pool.lines.concat(pool.longer_lines || []).forEach((l) => { const d = l.delivery_date || pool.delivery_date; ordered[d] = (ordered[d] || 0) + (l.left || 0); });
+      let bal = r.on_shelf || 0, balP = r.on_shelf || 0;
+      const rows = r.days.map((d) => {
+        const o = ordered[d.delivery_date] || 0;
+        bal += d.rolling - o; balP += d.production - o;
+        return "<tr><td><b>" + PH.fmt.date(d.delivery_date, true) + "</b><small>harvest " + PH.fmt.date(d.harvest_day, true) + '</small></td><td class="is-num">' + n(d.rolling) + '</td><td class="is-num">' + n(d.production) + '</td><td class="is-num">' + (d.harvested ? n(d.harvested) : "—") + '</td><td class="is-num">' + (o ? n(o) : "—") +
+          '</td><td class="is-num' + (bal < 0 ? " ph-bad" : "") + '"><b>' + n(bal) + '</b></td><td class="is-num' + (balP < 0 ? " ph-bad" : "") + '">' + n(balP) + "</td></tr>";
+      }).join("");
+      PH.set(body, '<p class="ph-muted">On the shelf now: <b>' + n(r.on_shelf || 0) + "</b></p>" +
+        '<div class="ph-table-wrap"><table class="ph-table"><thead><tr><th>Delivery</th><th class="is-num">Rolling forecast</th><th class="is-num">Production forecast</th><th class="is-num">Cut so far</th><th class="is-num">Ordered</th><th class="is-num">Balance · rolling</th><th class="is-num">Balance · production</th></tr></thead><tbody>' + rows + "</tbody></table></div>");
+    }).catch(() => PH.set(body, '<div class="pg-empty">Could not read the forecast.</div>'));
+    return m;
   }
 
   function drawModes() {
@@ -661,25 +740,30 @@
 
   function drawList() {
     const el = $("pg-list");
-    const crops = [...new Set(board.pools.map((p) => p.crop).filter(Boolean))].sort();
+    const crops = [...new Set(board.pools.concat(board.forecast || []).map((p) => p.crop).filter(Boolean))].sort();
     PH.options("#pg-crop", crops.map((c) => ({ value: c, label: c })), S.crop || "");
     const k = board.kpis;
     S.subs = { ...(S.subs || {}), unconfirmed: PH.fmt.plural(k.lines, "line") + " · " + n(k.lines_planned) + " confirmed · " + n(Math.max(0, k.lines - k.lines_planned)) + " to plan" };
     if (["unconfirmed", "checks", "nonmoving"].includes(S.mode)) setHead();
     // a check filter waits for the day's checks before it decides what is listed
     if (S.tileFilter && !S.checksData) { PH.set(el, skList()); return; }
-    const pools = board.pools.filter((p) => (!S.crop || p.crop === S.crop) && (!S.tileFilter || poolHas(p, S.tileFilter)));
-    if (!pools.length) {
-      PH.set(el, '<div class="pg-empty">' + (S.tileFilter ? "No variety has this check." : S.view === "attention" ? "Nothing needs attention." : "There are no orders.") + "</div>");
+    if (S.group === "order") return drawOrderList(el);
+    // varieties hold the straight lines; a mix is confirmed as one, all its varieties together (as Sales
+    // Allocation packs it), so it is listed on its own
+    const pools = S.kind === "mixed" ? [] : board.pools.filter((p) => (!S.crop || p.crop === S.crop) && (p.kinds || ["straight"]).includes("straight") && (!S.tileFilter || poolHas(p, S.tileFilter)));
+    const mixes = S.kind === "straight" ? [] : (board.mixes || []).filter((g) => !g.confirmed);
+    if (!pools.length && !mixes.length) {
+      PH.set(el, '<div class="pg-empty">' + (S.tileFilter ? "No variety has this check." : "There are no orders.") + "</div>");
       // nothing listed, nothing open
       S.pick = null; pool = null; ++pseq;
       PH.set($("pg-detail"), '<div class="apx-card"><div class="pg-empty">' + (S.tileFilter || S.crop ? "Nothing to show for this filter." : "Choose a variety to confirm it.") + "</div></div>");
       return;
     }
-    // nothing open, or the open variety is filtered out: open the first one listed
-    if (S.mode === "unconfirmed" && !pools.some((p) => S.pick && p.variety === S.pick.variety && p.length === S.pick.length)) {
-      S.pick = { variety: pools[0].variety, length: pools[0].length };
-      openPool();
+    // nothing open, or the open variety or mix is filtered out: open the first one listed
+    const pickOn = S.pick && (S.pick.mix ? mixes.some((g) => g.key === S.pick.mix) : pools.some((p) => p.variety === S.pick.variety && p.length === S.pick.length));
+    if (S.mode === "unconfirmed" && !pickOn) {
+      S.pick = pools.length ? { variety: pools[0].variety, length: pools[0].length } : { mix: mixes[0].key };
+      if (S.pick.mix) drawMix(); else openPool();
     }
     const flagsOf = (p) => {
       const out = new Set();
@@ -695,11 +779,157 @@
         '<span class="apx-pool__top"><b>' + PH.esc(p.variety) + " " + PH.esc(p.length) + '</b><span class="pg-chip pg-chip--' + st[1] + '">' + st[0] + "</span></span>" +
         '<span class="apx-pool__sub">' + sub + "</span>" +
         '<span class="apx-pool__flags">' + flagsOf(p).map((f) => '<span class="apx-flag">' + PH.esc(f) + "</span>").join("") + "</span></button>";
+    }).join("") + (mixes.length ? '<div class="pg-cap ph-muted" style="margin:14px 4px 6px">Mixes · ' + mixes.length + "</div>" + mixes.map((g) => {
+      const on = S.pick && S.pick.mix === g.key;
+      return '<button type="button" class="apx-pool' + (on ? " is-on" : "") + '" data-mix="' + PH.esc(g.key) + '">' +
+        '<span class="apx-pool__top"><b>' + PH.esc(g.mix_name || "Mix") + '</b><span class="pg-chip pg-chip--tint">' + g.boxes + (g.boxes === 1 ? " box" : " boxes") + "</span></span>" +
+        '<span class="apx-pool__sub">' + PH.esc(g.customer || "") + " · " + g.lines.length + " varieties · " + PH.fmt.date(g.delivery_date, true) + "</span></button>";
+    }).join("") : ""));
+  }
+
+  // ── By order: every order with lines still to confirm; its straight lines and its mixes, each for a team ──
+  const openLine = (x) => x.planned <= 0.5 && x.left > 0.5;
+  const kindOk = (x) => !S.kind || (S.kind === "mixed") === !!x.mixed;
+  const cropOk = (x) => !S.crop || x.crop === S.crop;
+  function drawOrderList(el) {
+    const orders = (board.orders || []).filter((o) => o.lines.some((x) => openLine(x) && kindOk(x) && cropOk(x)));
+    if (!orders.length) {
+      PH.set(el, '<div class="pg-empty">Every order is confirmed.</div>');
+      S.pick = null;
+      PH.set($("pg-detail"), '<div class="apx-card"><div class="pg-empty">Every order is confirmed. See the Confirmation summary.</div></div>');
+      return;
+    }
+    if (S.mode === "unconfirmed" && !(S.pick && S.pick.order && orders.some((o) => o.sales_order === S.pick.order))) {
+      S.pick = { order: orders[0].sales_order };
+      drawOrder();
+    }
+    PH.set(el, orders.map((o) => {
+      const on = S.pick && S.pick.order === o.sales_order;
+      const left = o.lines.filter((x) => openLine(x) && kindOk(x) && cropOk(x));
+      return '<button type="button" class="apx-pool' + (on ? " is-on" : "") + '" data-order="' + PH.esc(o.sales_order) + '">' +
+        '<span class="apx-pool__top"><b>' + PH.esc(o.customer || o.sales_order) + '</b><span class="pg-chip pg-chip--tint">' + PH.fmt.date(o.delivery_date, true) + "</span></span>" +
+        '<span class="apx-pool__sub">' + PH.esc(o.order_name || o.sales_order) + "</span>" +
+        '<span class="apx-pool__sub">' + left.length + " of " + o.lines.length + " lines to confirm · " + n(o.boxes) + " boxes</span></button>";
     }).join(""));
   }
 
+  function teamOptions(value) {
+    const others = (board.all_teams || []).filter((t) => t.sales_farm && t.sales_farm !== S.farm);
+    return '<option value="">Choose a team</option>' + (S.teams || []).map((t) => "<option" + (t === value ? " selected" : "") + ">" + PH.esc(t) + "</option>").join("") +
+      [...new Set(others.map((t) => t.sales_farm))].sort().map((f) => '<optgroup label="Packed at ' + PH.esc(f) + '">' + others.filter((t) => t.sales_farm === f).map((t) => "<option" + (t.team === value ? " selected" : "") + ' value="' + PH.esc(t.team) + '" data-short="' + PH.esc(t.team) + '">' + PH.esc(t.team) + " · " + PH.esc(f) + "</option>").join("") + "</optgroup>").join("");
+  }
+
+  // One order: its straight lines one by one and its mixes as one each, every one with its own team; a team for
+  // the whole order fills them all. Confirm a line, a mix, or the whole order at once.
+  function drawOrder() {
+    const o = (board.orders || []).find((x) => S.pick && x.sales_order === S.pick.order);
+    if (!o) { PH.set($("pg-detail"), '<div class="apx-card"><div class="pg-empty">Choose an order to confirm it.</div></div>'); return; }
+    pool = null; ++pseq;
+    const fc = (v, l) => (board.forecast || []).find((f) => f.variety === v && f.length === l) || { rolling: 0, production: 0 };
+    const lines = o.lines.filter((x) => openLine(x) && kindOk(x) && cropOk(x));
+    const straight = lines.filter((x) => !x.mixed);
+    const mixes = {};
+    lines.filter((x) => x.mixed).forEach((x) => (mixes[x.group] = mixes[x.group] || []).push(x));
+    const done = o.lines.filter((x) => !openLine(x)).length;
+    const head = '<thead><tr><th>Variety</th><th class="is-num">Ordered</th><th class="is-num">Rolling forecast</th><th class="is-num">Production forecast</th><th>Confirm</th><th>Team</th><th class="pg-act"></th></tr></thead>';
+    const fcCells = (x) => '<td class="is-num">' + n(x.ordered) + '</td><td class="is-num">' + n(fc(x.variety, x.length).rolling) + '</td><td class="is-num">' + n(fc(x.variety, x.length).production) + "</td>";
+    const sRows = straight.map((x) => '<tr data-soi="' + PH.esc(x.soi) + '"><td><b>' + PH.esc(x.variety) + "</b> " + PH.esc(x.length) + "<small>straight · " + x.boxes + (x.boxes === 1 ? " box" : " boxes") + "</small></td>" + fcCells(x) +
+      '<td><input class="ph-input pg-in pg-o-stems" type="number" min="0" max="' + Math.round(x.left) + '" step="' + (Math.round(x.per_box) || 1) + '" value="' + Math.round(x.left) + '" aria-label="Stems to confirm for ' + PH.esc(x.variety) + '"><small>' + n(x.per_box || 0) + " a box</small></td>" +
+      '<td><select class="ph-select pg-o-team" aria-label="Team for ' + PH.esc(x.variety) + '">' + teamOptions(x.team) + "</select></td>" +
+      '<td class="pg-act"><button type="button" class="ph-btn ph-btn--primary ph-btn--sm" data-o-line="' + PH.esc(x.soi) + '">Confirm</button></td></tr>').join("");
+    const mRows = Object.keys(mixes).map((k) => {
+      const m = mixes[k], boxes = Math.max(...m.map((x) => x.boxes || 0));
+      return '<tr class="pg-mixhead" data-group="' + PH.esc(k) + '"><td><b>' + PH.esc(m[0].group_name || "Mix") + "</b><small>mix · " + m.length + " varieties</small></td><td></td><td></td><td></td>" +
+        '<td><input class="ph-input pg-in pg-o-boxes" type="number" min="0" max="' + boxes + '" step="1" value="' + boxes + '" aria-label="Boxes of the mix to confirm"><small>of ' + boxes + " boxes</small></td>" +
+        '<td><select class="ph-select pg-o-team" aria-label="Team for the mix">' + teamOptions(m[0].team) + "</select></td>" +
+        '<td class="pg-act"><button type="button" class="ph-btn ph-btn--primary ph-btn--sm" data-o-group="' + PH.esc(k) + '">Confirm the mix</button></td></tr>' +
+        m.map((x) => '<tr class="pg-subrow"><td>' + PH.esc(x.variety) + " " + PH.esc(x.length) + "<small>" + n(x.per_box) + " a box</small></td>" + fcCells(x) + "<td></td><td></td><td></td></tr>").join("");
+    }).join("");
+    PH.set($("pg-detail"), '<div class="apx-card apx-vhead"><div class="apx-vhead__top"><h2>' + PH.esc(o.customer || "") + "</h2><span>" + PH.esc(o.order_name || "") + " · " + PH.esc(o.sales_order) + " · delivery " + PH.fmt.date(o.delivery_date, true) + "</span></div>" +
+      '<div class="pg-mixfoot" style="justify-content:flex-start;padding:4px 0 0"><label>Team for the whole order <select id="pg-o-allteam" class="ph-select">' + teamOptions("") + "</select></label>" +
+      '<button type="button" class="ph-btn ph-btn--primary" id="pg-o-all">Confirm the order</button>' + (done ? '<span class="ph-muted">' + PH.fmt.plural(done, "line") + " already confirmed · on the Confirmation summary</span>" : "") + "</div></div>" +
+      '<div class="apx-card apx-tablecard"><div class="ph-table-wrap"><table class="apx-table pg-ltable">' + head + "<tbody>" + sRows + mRows + "</tbody></table></div></div>");
+    // a team for the whole order: every line and mix takes it
+    $("pg-o-allteam").onchange = (e) => { if (e.target.value) PH.$$("#pg-detail .pg-o-team").forEach((sel) => (sel.value = e.target.value)); };
+    const lineOf = (tr) => {
+      const x = o.lines.find((y) => y.soi === tr.dataset.soi), team = tr.querySelector(".pg-o-team").value;
+      const typed = Math.max(0, Math.round(+tr.querySelector(".pg-o-stems").value || 0));
+      const whole = x.per_box > 0 && typed > 0 ? Math.ceil(typed / x.per_box - 1e-9) * x.per_box : typed;
+      return { sales_order_item: x.soi, stems: Math.min(x.left, whole), team, stock_farm: S.farm };
+    };
+    const mixOf = (tr) => {
+      const m = mixes[tr.dataset.group], team = tr.querySelector(".pg-o-team").value;
+      const boxes = Math.max(0, Math.round(+tr.querySelector(".pg-o-boxes").value || 0));
+      return m.map((x) => ({ sales_order_item: x.soi, stems: Math.round(Math.min(x.ordered - x.allocated, boxes * (x.per_box || 0) || x.left)), team, stock_farm: S.farm }));
+    };
+    const go = (items) => {
+      const missing = items.find((x) => x.stems > 0 && !x.team);
+      if (missing) return PH.toast("Choose a team for every line first.", "bad");
+      const send = items.filter((x) => x.stems > 0);
+      if (!send.length) return PH.toast("Nothing to confirm.", "bad");
+      save(send);
+    };
+    PH.$$("#pg-detail [data-o-line]").forEach((b) => (b.onclick = () => go([lineOf(b.closest("tr"))])));
+    PH.$$("#pg-detail [data-o-group]").forEach((b) => (b.onclick = () => go(mixOf(b.closest("tr")))));
+    $("pg-o-all").onclick = () => go([
+      ...PH.$$("#pg-detail tr[data-soi]").map(lineOf),
+      ...PH.$$("#pg-detail tr.pg-mixhead").flatMap(mixOf),
+    ]);
+  }
+
+  // One mix, confirmed as one: every variety of it, for the boxes the forecast fills (or the boxes typed).
+  function drawMix() {
+    const g = (board.mixes || []).find((x) => S.pick && x.key === S.pick.mix);
+    if (!g) { PH.set($("pg-detail"), '<div class="apx-card"><div class="pg-empty">Choose a variety or a mix to confirm it.</div></div>'); return; }
+    pool = null; ++pseq;
+    const fc = (v, l) => (board.forecast || []).find((f) => f.variety === v && f.length === l) || { rolling: 0, production: 0 };
+    const on = (x) => (basis() === "production" ? fc(x.variety, x.length).production : fc(x.variety, x.length).rolling);
+    const boxesOf = (x) => (x.per_box > 0 ? Math.floor(Math.min(x.left, on(x)) / x.per_box + 1e-9) : g.boxes);
+    const covered = Math.min(g.boxes, ...g.lines.map(boxesOf));
+    const others = (board.all_teams || []).filter((t) => t.sales_farm && t.sales_farm !== S.farm);
+    const teamOpts = '<option value="">Choose a team</option>' + (S.teams || []).map((t) => "<option" + (t === g.team ? " selected" : "") + ">" + PH.esc(t) + "</option>").join("") +
+      [...new Set(others.map((t) => t.sales_farm))].sort().map((f) => '<optgroup label="Packed at ' + PH.esc(f) + '">' + others.filter((t) => t.sales_farm === f).map((t) => "<option" + (t.team === g.team ? " selected" : "") + ' value="' + PH.esc(t.team) + '" data-short="' + PH.esc(t.team) + '">' + PH.esc(t.team) + " · " + PH.esc(f) + "</option>").join("") + "</optgroup>").join("");
+    const rows = g.lines.map((x) => {
+      const f = fc(x.variety, x.length), b = boxesOf(x);
+      return "<tr><td><b>" + PH.esc(x.variety) + "</b> " + PH.esc(x.length) + '</td><td class="is-num">' + n(x.ordered) + '</td><td class="is-num">' + n(x.per_box) + '</td><td class="is-num">' + n(f.rolling) + '</td><td class="is-num">' + n(f.production) + '</td><td class="is-num' + (b < g.boxes ? " ph-bad" : "") + '">' + b + " of " + g.boxes + "</td></tr>";
+    }).join("");
+    PH.set($("pg-detail"), '<div class="apx-card apx-vhead"><div class="apx-vhead__top"><h2>' + PH.esc(g.mix_name || "Mix") + "</h2><span>" + PH.esc(g.customer || "") + " · " + PH.esc(g.order_name || g.sales_order) + " · delivery " + PH.fmt.date(g.delivery_date, true) + "</span></div>" +
+      '<div class="pg-tiles pg-tiles--3"><div class="pg-tile"><span>Boxes</span><b>' + g.boxes + '</b></div><div class="pg-tile"><span>Varieties</span><b>' + g.lines.length + '</b></div><div class="pg-tile' + (covered < g.boxes ? " pg-tile--bad" : "") + '"><span>Boxes the ' + (basis() === "production" ? "production" : "rolling") + " forecast fills</span><b>" + covered + "</b></div></div></div>" +
+      '<div class="apx-card apx-tablecard"><div class="ph-table-wrap"><table class="apx-table pg-ltable"><thead><tr><th>Variety</th><th class="is-num">Ordered</th><th class="is-num">Per box</th><th class="is-num">Rolling forecast</th><th class="is-num">Production forecast</th><th class="is-num">Boxes it fills</th></tr></thead><tbody>' + rows + "</tbody></table></div>" +
+      '<div class="pg-mixfoot"><label>Boxes to confirm <input id="pg-mix-boxes" class="ph-input pg-in" type="number" min="0" max="' + g.boxes + '" step="1" value="' + covered + '"></label>' +
+      '<label>Team <select id="pg-mix-team" class="ph-select">' + teamOpts + "</select></label>" +
+      '<button type="button" class="ph-btn ph-btn--primary" id="pg-mix-confirm">Confirm the mix</button></div></div>');
+    $("pg-mix-confirm").onclick = () => {
+      const team = $("pg-mix-team").value, boxes = Math.max(0, Math.min(g.boxes, Math.round(+$("pg-mix-boxes").value || 0)));
+      if (!team) { $("pg-mix-team").focus(); return PH.toast("Choose a team for this mix first.", "bad"); }
+      if (!boxes) return PH.toast("Choose how many boxes to confirm.", "bad");
+      // every variety of the mix for the same boxes: a mix is packed whole
+      const lines = g.lines.map((x) => ({ sales_order_item: x.soi, stems: Math.round(Math.min(x.ordered - x.allocated, boxes * (x.per_box || 0) || x.left)), team, stock_farm: S.farm }));
+      save(lines);
+    };
+  }
+
+  // nothing can be confirmed above what the order has: every box and stem input stops at its max
+  document.addEventListener("input", (e) => {
+    const i = e.target;
+    if (!i.matches || !i.matches('input[type="number"][max]') || i.max === "") return;
+    const max = +i.max, v = +i.value;
+    if (Number.isFinite(max) && v > max) i.value = Math.round(max);
+    if (v < 0) i.value = 0;
+  });
+
   $("pg-list").addEventListener("click", (e) => {
     const b = e.target.closest(".apx-pool"); if (!b) return;
+    if (b.dataset.order) {
+      S.pick = { order: b.dataset.order };
+      PH.$$(".apx-pool").forEach((x) => x.classList.toggle("is-on", x === b));
+      return drawOrder();
+    }
+    if (b.dataset.mix) {
+      S.pick = { mix: b.dataset.mix };
+      PH.$$(".apx-pool").forEach((x) => x.classList.toggle("is-on", x === b));
+      return drawMix();
+    }
     S.pick = { variety: b.dataset.v, length: b.dataset.l };
     PH.$$(".apx-pool").forEach((x) => x.classList.toggle("is-on", x === b));
     if (!poolCache[poolKey()]) PH.set($("pg-detail"), loading("Opening " + b.dataset.v + " " + b.dataset.l + "…"));
@@ -712,7 +942,7 @@
     const on = document.querySelector(".apx-pool.is-on");
     let nx = on && on.nextElementSibling;
     while (nx && !nx.classList.contains("apx-pool")) nx = nx.nextElementSibling;
-    if (!nx) return;
+    if (!nx || !nx.dataset.v) return;
     const pick = { variety: nx.dataset.v, length: nx.dataset.l };
     const key = JSON.stringify([plan(), S.farm, pick.variety, pick.length]);
     if (poolCache[key]) return;
@@ -722,6 +952,9 @@
   }
 
   function openPool() {
+    // a mix is drawn from the board, which has every mix of the day
+    if (S.pick && S.pick.mix) { if (board) drawMix(); return; }
+    if (S.pick && S.pick.order) { if (board) drawOrder(); return; }
     if (!S.pick) { PH.set($("pg-detail"), '<div class="pg-empty">Choose a variety to confirm it.</div>'); return; }
     const my = ++pseq, key = poolKey();
     // a variety opened before shows at once from what was read then; the fresh read replaces it if it changed
@@ -730,6 +963,10 @@
     else if (!pool || !$("pg-detail").querySelector(".apx-vhead")) PH.set($("pg-detail"), skDetail());
     return PH.call(API + "get_pool", { ...plan(), farm: S.farm, variety: S.pick.variety, length: S.pick.length }, { silent: true })
       .then((m) => {
+        if (m && m.success === false) {
+          if (my === pseq) { S.pick = null; pool = null; PH.set($("pg-detail"), '<div class="apx-card"><div class="pg-empty">Choose a variety to confirm it.</div></div>'); }
+          return;
+        }
         const json = JSON.stringify(m);
         const same = kept && kept.json === json;
         poolCache[key] = { pool: m, json };
@@ -746,10 +983,17 @@
     const cropTeams = (l) => { const t = (S.teamsByCrop || {})[l.crop || crop]; return t && t.length ? t : S.teams; };
     const custTeams = (l) => ((S.customerTeams || {})[l.customer_id] || []).filter((t) => cropTeams(l).includes(t));
     const teamsFor = (l) => { const mine = custTeams(l); return [...mine, ...cropTeams(l).filter((x) => !mine.includes(x))]; };
-    const farmSelect = (l) => '<select class="ph-select pg-farm-row" data-was="' + PH.esc(l.stock_farm || "") + '" aria-label="Confirm from farm for ' + PH.esc(l.customer || "") + '" title="The farm whose stock this is confirmed against">' +
-      pool.stock_farms.map((f) => "<option value=\"" + PH.esc(f.farm) + "\"" + (f.farm === (l.stock_farm || pool.best_farm) ? " selected" : "") + ">" + PH.esc(f.farm) + " · " + n(f.on_shelf + f.received) + " in stock</option>").join("") + "</select>";
+    const otherFarmTeams = (shown, value) => {
+      const by = {};
+      (board.all_teams || []).forEach((t) => { if (t.sales_farm && t.sales_farm !== S.farm && !shown.includes(t.team)) (by[t.sales_farm] = by[t.sales_farm] || []).push(t.team); });
+      return Object.keys(by).sort().map((f) => '<optgroup label="Packed at ' + PH.esc(f) + '">' + by[f].map((t) => "<option" + (t === value ? " selected" : "") + ' value="' + PH.esc(t) + '">' + PH.esc(t) + " · " + PH.esc(f) + "</option>").join("") + "</optgroup>").join("");
+    };
+    // the forecast is the sales farm's as a whole: every farm of its location together, not one farm
+    const farmSelect = () => '<span class="pg-allfarms">All farms</span>';
     const teamSelect = (l, value) => '<select class="ph-select pg-team-row" data-soi="' + PH.esc(l.soi) + '" data-was="' + PH.esc(l.team || "") + '"' + (l.mix_key ? ' data-mix="' + PH.esc(l.mix_key) + '"' : "") + ' aria-label="Team for ' + PH.esc(l.customer || "") + '"><option value="">Choose a team</option>' +
-      teamsFor(l).map((t) => "<option" + (t === value ? " selected" : "") + ">" + PH.esc(t) + "</option>").join("") + "</select>";
+      teamsFor(l).map((t) => "<option" + (t === value ? " selected" : "") + ">" + PH.esc(t) + "</option>").join("") +
+      // the team chosen decides the sales farm that processes the order: other sales farms' teams send it there
+      otherFarmTeams(teamsFor(l), value) + "</select>";
     // What the chosen forecast covers, shared over the unconfirmed lines in their order, in whole boxes (a line's
     // last part box only when it completes the line; a mix only when all of it is covered).
     const fill = {};
@@ -768,9 +1012,7 @@
       const shown = cur || (longer ? 0 : fill[l.soi] || 0);
       const kind = l.mixed ? (l.mix_name ? PH.esc(l.mix_name) : "mixed") : "straight";
       // downgrades and substitutes are Sales Allocation's: planning shows what the forecast covers
-      const checks = (l.checks || []).filter((c) => !["longer", "downgrade", "substitute", "squeeze"].includes(c.code)).map((c) => '<span class="pg-chip pg-chip--' + CHK[c.severity] + '">' + PH.esc(c.label) + "</span>").join("");
-      const mixRows = (l.mix_members || []).map((m) => '<tr class="pg-subrow" data-mixof="' + PH.esc(l.soi) + '" hidden><td>' + PH.esc(m.variety) + " " + PH.esc(m.length) + "<small>same bunch · " + m.per + " stem" + (m.per === 1 ? "" : "s") + ' a bunch</small></td><td></td><td class="is-num">' + n(m.ordered) + '</td><td class="is-num">' + n(m.covered) + "</td><td></td><td>" + PH.esc(m.length) + "</td><td></td><td>" +
-        (m.short > 0.5 ? '<span class="pg-chip pg-chip--bad">Short ' + n(m.short) + "</span>" : m.left > 0.5 ? '<span class="pg-chip pg-chip--warn">' + n(m.left) + " to confirm</span>" : '<span class="pg-chip pg-chip--good">Covered</span>') + "</td><td></td></tr>").join("");
+      const mixRows = (l.mix_members || []).map((m) => '<tr class="pg-subrow" data-mixof="' + PH.esc(l.soi) + '" hidden><td>' + PH.esc(m.variety) + " " + PH.esc(m.length) + "<small>same bunch · " + m.per + " stem" + (m.per === 1 ? "" : "s") + ' a bunch</small></td><td></td><td class="is-num">' + n(m.ordered) + '</td><td class="is-num">' + n(m.covered) + (m.ordered - m.covered > 0.5 ? '<small class="ph-bad">' + n(m.ordered - m.covered) + " more needed</small>" : "") + "</td><td></td><td>" + PH.esc(m.length) + "</td><td></td><td></td></tr>").join("");
       // substitutes are chosen in Sales Allocation, where the stock is
       const subRows = "";
       const delivery = !pool.week && l.delivery_date && l.delivery_date !== pool.delivery_date;
@@ -780,24 +1022,21 @@
         '<td class="is-num">' + n(l.ordered) + "</td>" +
         '<td><input class="ph-input pg-in" type="number" min="0" max="' + Math.round(l.max_plan) + '" step="1" inputmode="numeric" data-allocated="' + Math.round(l.allocated || 0) + '" data-soi="' + PH.esc(l.soi) + '"' + (longer ? ' data-len="' + PH.esc(p.length) + '"' : "") + ' data-was="' + Math.round(cur) + '" value="' + Math.round(shown) + '" aria-label="Stems to confirm for ' + who + '">' +
         '<small class="pg-in-hint" aria-live="polite"></small></td>' +
-        "<td>" + (pool.stock_farms.length > 1 ? farmSelect(l) : PH.esc((pool.stock_farms[0] || {}).farm || "")) + "</td>" +
+        "<td>" + farmSelect() + "</td>" +
         "<td>" + PH.esc(p.length) + (longer ? "<small>ordered " + PH.esc(l.ordered_length) + "</small>" : "") + "</td>" +
         "<td>" + teamSelect(l, (l.team || custTeams(l)[0] || "")) + "</td>" +
-        '<td><div class="pg-checks-cell">' + checks + "</div></td>" +
         '<td class="pg-act">' + actionButton(l, longer) + "</td></tr>" + mixRows + subRows;
     }).join("");
     const table = (id, list, longer, empty) => '<div id="' + id + '"' + (S.tab === id ? "" : " hidden") + ">" +
-      (list.length ? '<div class="ph-table-wrap"><table class="ph-table pg-ltable"><thead><tr><th>Customer</th><th>Delivery</th><th class="is-num">Ordered</th><th>Confirm</th><th>Length</th><th>Team</th><th>Checks</th><th class="pg-act">Action</th></tr></thead><tbody>' + lineRows(list, longer) + "</tbody></table></div>" : '<div class="pg-empty">' + empty + "</div>") + "</div>";
+      (list.length ? '<div class="ph-table-wrap"><table class="ph-table pg-ltable"><thead><tr><th>Customer</th><th>Delivery</th><th class="is-num">Ordered</th><th>Confirm</th><th>Length</th><th>Team</th><th class="pg-act">Action</th></tr></thead><tbody>' + lineRows(list, longer) + "</tbody></table></div>" : '<div class="pg-empty">' + empty + "</div>") + "</div>";
     const tabBtn = (id, label, count) => '<button type="button" data-tab="' + id + '"' + (S.tab === id ? ' class="is-on"' : "") + ">" + label + " (" + count + ")</button>";
     const tabs = '<div class="ph-pills pg-tabs" id="pg-tabs">' + tabBtn("pg-t-exact", "Exact length", pool.lines.length) + tabBtn("pg-t-longer", "Longer than ordered", pool.longer_lines.length) + "</div>";
-    const byFarm = (list, key) => list.filter((f) => f[key] > 0).map((f) => PH.esc(f.farm) + " " + n(f[key])).join(" · ");
     const short = Math.max(0, (pool.safe && pool.safe[0] ? pool.safe[0].short : p.short) || 0);
     const tile = (label, value, sub, cls) => '<div class="pg-tile' + (cls ? " pg-tile--" + cls : "") + '"><span>' + label + "</span><b>" + n(value) + "</b>" + (sub ? "<small>" + sub + "</small>" : "") + "</div>";
-    const tiles = '<div class="pg-tiles">' +
+    // a plan is on the forecast only: the shelf is the revision's
+    const tiles = '<div class="pg-tiles pg-tiles--3">' +
       tile("Ordered", p.ordered, p.allocated ? n(p.allocated) + " allocated" : "") +
-      tile("On the shelf", u.on_shelf + u.received, byFarm(pool.stock_farms, "on_shelf") || "none on any farm's shelves") +
       tile("Harvest " + PH.fmt.date(pool.cut_day || pool.delivery_date, true) + (pool.cut_to ? " – " + PH.fmt.date(pool.cut_to, true) : ""), u.rolling || 0, "rolling · " + n((u.to_cut || 0) + (u.on_the_way || 0)) + " production") +
-      tile("Past amber", p.getting_old || 0, p.getting_old ? "used first" : "", "warn") +
       tile("Short", short, "", "bad") + "</div>";
     const SAFE = { rolling: ["Rolling forecast", "Safe if the farm harvests as usual"], production: ["Production forecast", ""] };
     const safe = '<div class="apx-cap">How much is safe</div><div class="pg-safe">' + (pool.safe || []).map((x) => {
@@ -810,16 +1049,22 @@
     }).join("") + "</div>";
     // only the lines ordered at this length: planning confirms on the forecast, never a downgrade (a longer
     // length is chosen in Sales Allocation's downgrades, with its reason)
-    const all = lineRows(pool.lines, false);
+    // a confirmed line leaves the plan: it is on the Confirmation summary from then on
+    const open = (l) => !((l.held || 0) + (l.expected || 0) > 0.5);
+    const all = lineRows(pool.lines.filter((l) => open(l) && !l.mixed), false);
     PH.set(el, '<div class="apx-card apx-vhead"><div class="apx-vhead__top"><h2>' + PH.esc(p.variety) + " " + PH.esc(p.length) + "</h2><span>" + PH.esc(crop || "") + (crop ? " · " : "") + PH.fmt.plural(pool.lines.length, "order") + " · " + (pool.week ? weekLabel(pool.week) : "delivery " + PH.fmt.date(pool.delivery_date, true)) + "</span></div>" + tiles + safe + "</div>" +
-      '<div class="apx-card apx-tablecard">' + (all ? '<div class="ph-table-wrap"><table class="apx-table pg-ltable"><thead><tr><th>Customer</th><th>Delivery</th><th class="is-num">Ordered</th><th>Confirm</th><th>Farm</th><th>Length</th><th>Team</th><th>Checks</th><th class="pg-act">Action</th></tr></thead><tbody>' + all + "</tbody></table></div>" : '<div class="pg-empty">No orders for ' + PH.esc(p.variety) + " " + PH.esc(p.length) + ".</div>") + "</div>");
+      '<div class="apx-card apx-tablecard">' + (all ? '<div class="ph-table-wrap"><table class="apx-table pg-ltable"><thead><tr><th>Customer</th><th>Delivery</th><th class="is-num">Ordered</th><th>Confirm</th><th>Farm</th><th>Length</th><th>Team</th><th class="pg-act">Action</th></tr></thead><tbody>' + all + "</tbody></table></div>" : '<div class="pg-empty">No orders for ' + PH.esc(p.variety) + " " + PH.esc(p.length) + ".</div>") + "</div>");
     // The basis the planner confirms on: picked here, kept between visits, and the one each confirm dialog opens on.
     PH.$$("#pg-detail [data-basis]").forEach((b) => (b.onclick = () => {
       S.basis = b.dataset.basis; try { localStorage.setItem("pg_basis", S.basis); } catch (e) {}
       drawPool();
+      // and its forecast, day by day, in a drawer from the right
+      forecastByDay();
     }));
     PH.$$("#pg-detail [data-subst]").forEach((b) => (b.onclick = () => subDialog(rowOf(b.dataset.subst), b.dataset.variety)));
     PH.$$("#pg-detail [data-act]").forEach((b) => (b.onclick = () => lineAction(b)));
+    const byDay = $("pg-byday");
+    if (byDay) byDay.onclick = () => forecastByDay();
     // a mix opens to its varieties on a click anywhere on its row, but not on the row's own fields and buttons
     PH.$$("#pg-detail tr.pg-hasmix").forEach((tr) => (tr.onclick = (e) => {
       if (e.target.closest("input, select, button, a, label")) return;
@@ -849,14 +1094,15 @@
     // already allocated in full: nothing left to confirm
     if (!(l.max_plan > 0.5)) return '<span class="pg-chip pg-chip--good">Allocated</span>';
     if (l.confirmed) return '<button class="ph-btn ph-btn--sm pg-done" type="button" aria-pressed="true" data-act="undo" data-soi="' + PH.esc(l.soi) + '">' + PH.icon("check") + " Confirmed · Undo</button>";
-    // one action: confirm on the forecast. Substitutes, added varieties and downgrades are done in Sales
-    // Allocation, where the stock is; a longer length is left to its downgrade step there.
-    if (longer) return '<span class="ph-muted">—</span>';
+    // one action: confirm on the harvest day's forecast. The checks are information only: a line ordered shorter
+    // than this length is confirmed on this length's forecast too.
+    if (longer) return '<button class="ph-btn ph-btn--primary ph-btn--sm" type="button" data-act="longer" data-len="' + PH.esc(pool.pool.length) + '" data-soi="' + PH.esc(l.soi) + '">Confirm</button>';
     return '<button class="ph-btn ph-btn--primary ph-btn--sm" type="button" data-act="delivery" data-soi="' + PH.esc(l.soi) + '">Confirm</button>';
   }
   const rowOf = (soi) => pool.lines.concat(pool.longer_lines).find((l) => l.soi === soi);
   const rowTeam = (soi) => { const sel = document.querySelector('.pg-team-row[data-soi="' + soi + '"]'); return sel ? sel.value : ""; };
-  const rowFarm = (soi) => { const i = document.querySelector('.pg-in[data-soi="' + soi + '"]'); const f = i && i.closest("tr").querySelector(".pg-farm-row"); return f ? f.value : ""; };
+  // confirmed against the sales farm as a whole (all its farms), never one farm
+  const rowFarm = () => S.farm || "";
   function lineAction(b) {
     const l = rowOf(b.dataset.soi); if (!l) return;
     const act = b.dataset.act, team = rowTeam(l.soi);
@@ -867,29 +1113,46 @@
   }
   function lineDialog(l, act, team, len) {
     const LBL = { rolling: "Rolling forecast", production: "Production forecast" };
-    const sc = (l.scenarios || []).map((x, i) => ({ ...x, i }));
+    // a mixed box or bunch is confirmed whole: this line and every other variety in it
+    const members = l.mix_members || [];
+    // the same figures as the Shelf and harvest forecast table, for the stock this line is confirmed from
+    const fr = (board.forecast || []).find((f) => f.variety === pool.pool.variety && f.length === (len || pool.pool.length)) || null;
+    const cap0 = Math.max(0, Math.round(l.ordered - (l.allocated || 0) - l.held - l.expected));
+    // a plan counts on the forecast only (every harvest day to the delivery day less one); the stock on the shelf
+    // is for the revision
+    const sc = [
+      { basis: "rolling", label: "Rolling forecast", total: fr ? fr.rolling : 0 },
+      { basis: "production", label: "Production forecast", total: fr ? fr.production : 0 },
+    ].map((x, i) => ({ ...x, stems: Math.min(cap0, Math.round(x.total || 0)), i }));
     let pick = Math.max(0, sc.findIndex((x) => x.basis === basis()));
+    const left = (v) => '<td class="is-num' + (v < 0 ? " ph-bad" : "") + '">' + n(v) + "</td>";
+    const fcTable = () => '<div class="ph-table-wrap"><table class="ph-table"><thead><tr><th class="is-num">Rolling forecast</th><th class="is-num">Production forecast</th><th class="is-num">Ordered</th><th class="is-num">Left · rolling</th><th class="is-num">Left · production</th></tr></thead><tbody>' +
+      (fr ? '<tr><td class="is-num"><b>' + n(fr.rolling) + '</b></td><td class="is-num">' + n(fr.production) + '</td><td class="is-num">' + (fr.ordered ? n(fr.ordered) : "—") + "</td>" + left(fr.rolling - (fr.ordered || 0)) + left(fr.production - (fr.ordered || 0)) + "</tr>"
+        : '<tr><td colspan="5" class="ph-muted">Nothing forecast.</td></tr>') + "</tbody></table></div>";
     const el = document.createElement("div");
     // the stems to confirm: the chosen forecast's, or what the planner types, never more than the order has left
     const cap = Math.max(0, Math.round(l.ordered - (l.allocated || 0) - l.held - l.expected));
     let typed = null;
     const toConfirm = () => Math.max(0, Math.min(cap, typed != null ? typed : Math.round((sc[pick] || {}).stems || 0)));
     const line = (x) => ({ sales_order_item: l.soi, stems: Math.round(Math.min(l.ordered, toConfirm() + l.held + l.expected)), team, stock_farm: rowFarm(l.soi), ...(len ? { length: len } : {}), basis: x.basis });
-    // a mixed box or bunch is confirmed whole: this line and every other variety in it
-    const members = l.mix_members || [];
     const lines = (x) => [line(x)].concat(members.map((mm) => ({ sales_order_item: mm.soi, stems: Math.round(mm.ordered - (mm.allocated || 0)), team, basis: x.basis })));
     const mixTable = () => !members.length ? "" : '<div class="pg-cap ph-muted">In the same ' + (l.mixed ? "mix" : "box") + '</div><div class="ph-table-wrap"><table class="ph-table"><thead><tr><th>Variety</th><th class="is-num">Ordered</th><th class="is-num">To confirm</th><th></th></tr></thead><tbody>' +
       members.map((mm) => "<tr><td>" + PH.esc(mm.variety) + " " + PH.esc(mm.length) + '</td><td class="is-num">' + n(mm.ordered) + '</td><td class="is-num">' + n(mm.left) + "</td><td>" +
         (mm.short > 0.5 ? '<span class="pg-chip pg-chip--bad">Short ' + n(mm.short) + "</span>" : mm.left > 0.5 ? '<span class="pg-chip pg-chip--tint">Available</span>' : '<span class="pg-chip pg-chip--good">Covered</span>') + "</td></tr>").join("") + "</tbody></table></div>";
+    const before = (l.allocated || 0) + l.held + l.expected;
+    const fills = (stems) => (l.per_box > 0 ? Math.floor((before + stems) / l.per_box + 1e-9) - Math.floor(before / l.per_box + 1e-9) : 1);
     const tag = (x) => {
       if (!(x.stems > 0)) return ["Nothing available", "bad"];
-      return x.stems > sc[0].stems + 0.5 ? ["At risk · " + n(x.stems - sc[0].stems) + " on the production forecast", "bad"] : ["Safe if the farm harvests as usual", "tint"];
+      if (!members.length && fills(x.stems) < 1) return ["Fills no box", "bad"];
+      if (x.total > cap0 + 0.5) return [n(x.total) + " available · " + n(cap0) + " left on the order", "tint"];
+      return x.basis === "production" ? ["On the production forecast", "warn"] : ["Safe if the farm harvests as usual", "tint"];
     };
     const draw = () => {
       el.innerHTML = '<p class="ph-muted">' + PH.esc(l.sales_order) + " · " + n(l.ordered) + " ordered" + (l.boxes ? " in " + l.boxes + (l.boxes === 1 ? " box" : " boxes") : "") + " · " + PH.fmt.date(l.delivery_date, true) + "</p>" +
-        '<div class="pg-cap ph-muted">How much is safe</div><div class="pg-safe">' + sc.map((x) => {
-          const t = tag(x), stems = x.stems;
-          return '<button type="button" class="pg-safe__tile' + (x.i === pick ? " is-on" : "") + '" data-pick="' + x.i + '"><span>' + LBL[x.basis] + "</span><b>" + n(stems) + "</b><small>" + (x.boxes && x.boxes[1] ? x.boxes[0] + " of " + x.boxes[1] + " boxes" : "") + '</small><span class="pg-chip pg-chip--' + t[1] + '">' + PH.esc(t[0]) + "</span></button>";
+        '<div class="pg-cap ph-muted">' + PH.esc(pool.pool.variety) + " " + PH.esc(len || pool.pool.length) + " · forecast" + ((board.harvest_days || []).length ? " · harvest " + PH.fmt.date(board.harvest_days[0], true) + " – " + PH.fmt.date(board.harvest_days[board.harvest_days.length - 1], true) : "") + "</div>" + fcTable() +
+        '<div class="pg-cap ph-muted">How much to confirm</div><div class="pg-safe">' + sc.map((x) => {
+          const t = tag(x), b = l.per_box > 0 && !members.length ? Math.floor((before + x.stems) / l.per_box + 1e-9) : 0;
+          return '<button type="button" class="pg-safe__tile' + (x.i === pick ? " is-on" : "") + '" data-pick="' + x.i + '"><span>' + x.label + "</span><b>" + n(x.stems) + "</b><small>" + (l.per_box > 0 && !members.length ? b + " of " + (l.boxes || "?") + " boxes" : "") + '</small><span class="pg-chip pg-chip--' + t[1] + '">' + PH.esc(t[0]) + "</span></button>";
         }).join("") + "</div>" +
         '<label class="pg-cap ph-muted" for="pg-ld-stems">Stems to confirm</label><div class="pg-ld-stems"><input id="pg-ld-stems" class="ph-input" type="number" min="0" max="' + cap + '" step="1" inputmode="numeric" value="' + toConfirm() + '"><span class="ph-muted">of ' + n(cap) + " left on the order</span></div>" +
         mixTable() + '<div id="pg-ld-hu"></div>';
@@ -908,7 +1171,10 @@
       const nothing = !(toConfirm() > 0);
       if (btn) { btn.textContent = members.length ? "Confirm the mix" : "Confirm " + n(toConfirm()); btn.disabled = nothing; }
       const hu = el.querySelector("#pg-ld-hu");
-      if (hu) hu.innerHTML = nothing && typed == null ? '<div class="pg-hu pg-hu--red"><p>Nothing to confirm on this basis: ' + PH.esc(pool.pool.variety) + " " + PH.esc(pool.pool.length) + " has no forecast left for this line.</p></div>" : "";
+      const why = PH.esc(pool.pool.variety) + " " + PH.esc(len || pool.pool.length) + " has nothing forecast for this line.";
+      const noBox = !nothing && !members.length && l.per_box > 0 && fills(toConfirm()) < 1;
+      if (hu) hu.innerHTML = nothing && typed == null ? '<div class="pg-hu pg-hu--red"><p>Nothing to confirm on this basis: ' + why + "</p></div>"
+        : noBox ? '<div class="pg-hu pg-hu--red"><p>This confirmation is not going to fill any box: ' + n(toConfirm()) + " stems of a box of " + n(l.per_box) + ".</p></div>" : "";
     };
     let m = null;
     draw();
@@ -977,7 +1243,7 @@
     }).join(""));
     PH.$$("#pg-kpis [data-code]").forEach((b) => (b.onclick = () => {
       S.tileFilter = S.tileFilter === b.dataset.code ? "" : b.dataset.code;
-      if (S.tileFilter && S.view !== "all") { S.view = "all"; PH.$$("#pg-view button").forEach((x) => x.classList.toggle("is-on", x.dataset.value === "all")); drawCheckTiles(); return load(); }
+      if (S.tileFilter && S.view !== "all") { S.view = "all"; S.kind = ""; PH.$$("#pg-view button").forEach((x) => x.classList.toggle("is-on", x.dataset.value === "")); drawCheckTiles(); return load(); }
       if (S.mode !== "unconfirmed") st.set({ tab: "unconfirmed" });
       drawCheckTiles(); drawList();
     }));
@@ -1085,7 +1351,7 @@
     if ($("pg-revise")) $("pg-revise").onclick = () => reviseDialog();
     PH.$$("#pg-sum [data-revise]").forEach((b) => (b.onclick = () => reviseDialog(b.dataset.revise)));
     PH.$$("#pg-sum [data-plan-v]").forEach((b) => (b.onclick = () => {
-      S.view = "all"; PH.$$("#pg-view button").forEach((x) => x.classList.toggle("is-on", x.dataset.value === "all"));
+      S.view = "all"; S.kind = ""; PH.$$("#pg-view button").forEach((x) => x.classList.toggle("is-on", x.dataset.value === ""));
       S.pick = { variety: b.dataset.planV, length: b.dataset.planL }; S.tab = "pg-t-exact";
       st.set({ tab: "unconfirmed" }); load();
     }));
@@ -1120,14 +1386,47 @@
     PH.call(REVISE + "preview_revision", { ...plan(), farm: S.farm, sales_order: so || "" }, { silent: true }).then((r) => {
       const ch = ((r && r.changes) || []).filter((c) => !so || c.sales_order === so);
       if (!ch.length) { PH.set(el, '<div class="pg-empty">Every confirmation already matches the stock.</div>'); return; }
-      const rows = ch.map((c) => '<tr><td><input type="checkbox" data-soi="' + PH.esc(c.sales_order_item) + '"' + (Math.abs(c.now - c.was) > 0.5 ? " checked" : "") + ' aria-label="Revise ' + PH.esc(c.variety) + '"></td><td>' + (c.order_name ? "<b>" + PH.esc(c.order_name) + "</b>" : "") + "<small>" + PH.esc(c.customer) + "</small><small>" + PH.esc(c.sales_order) + "</small></td><td>" + (c.sequence ? '<span class="pg-chip pg-chip--ink">#' + c.sequence + "</span> " : "") + PH.esc(c.team) + "</td><td>" + PH.esc(c.variety) + " " + PH.esc(c.length) +
-        '</td><td class="is-num">' + n(c.ordered) + '</td><td class="is-num">' + n(c.was) + "</td>" + revStock(c.stock) + '<td class="is-num"><input class="ph-input pg-in pg-rev-in" type="number" min="0" max="' + Math.round(c.max) + '" step="1" inputmode="numeric" data-soi="' + PH.esc(c.sales_order_item) + '" value="' + Math.round(c.now) + '" aria-label="Revised stems for ' + PH.esc(c.variety) + '"><small class="' + (c.now < c.was ? "ph-bad" : c.now > c.was ? "ph-good" : "ph-muted") + '">' + n(c.now) + " suggested</small></td></tr>").join("");
+      const rowOfRev = (c) => ('<tr class="pg-revline" data-of="' + PH.esc(c.delivery_date + "|" + c.sales_order) + '" hidden><td><input type="checkbox" data-soi="' + PH.esc(c.sales_order_item) + '" data-so="' + PH.esc(c.delivery_date + "|" + c.sales_order) + '"' + (Math.abs(c.now - c.was) > 0.5 ? " checked" : "") + ' aria-label="Revise ' + PH.esc(c.variety) + '"></td><td></td><td></td><td>' + (c.sequence ? '<span class="pg-chip pg-chip--ink">#' + c.sequence + "</span> " : "") + PH.esc(c.team) + "</td><td>" + PH.esc(c.variety) + " " + PH.esc(c.length) +
+        '</td><td class="is-num">' + n(c.ordered) + '</td><td class="is-num">' + n(c.was) + "</td>" + revStock(c.stock) + '<td class="is-num"><input class="ph-input pg-in pg-rev-in" type="number" min="0" max="' + Math.round(c.max) + '" step="1" inputmode="numeric" data-soi="' + PH.esc(c.sales_order_item) + '" value="' + Math.round(c.now) + '" aria-label="Revised stems for ' + PH.esc(c.variety) + '"><small class="' + (c.now < c.was ? "ph-bad" : c.now > c.was ? "ph-good" : "ph-muted") + '">' + n(c.now) + " suggested</small></td></tr>");
+      // per delivery date: each date's lines under its own heading, earliest first
+      const dates = [...new Set(ch.map((c) => c.delivery_date))].sort();
+      const cols = 9 + STAGES.length;
+      const rows = dates.map((d) => {
+        const mine = ch.filter((c) => c.delivery_date === d);
+        // each order once, its lines under it: closed until it is clicked
+        const orders = [...new Set(mine.map((c) => c.sales_order))];
+        return '<tr class="pg-revday"><td colspan="' + cols + '"><b>' + PH.fmt.date(d, true) + "</b> · " + PH.fmt.plural(orders.length, "order") + " · " + PH.fmt.plural(mine.length, "line") + " · " + n(mine.reduce((t, c) => t + (c.ordered || 0), 0)) + " ordered</td></tr>" + orders.map((so_) => {
+          const ls = mine.filter((c) => c.sales_order === so_), c0 = ls[0], key = PH.esc(d + "|" + so_);
+          const sum = (f) => ls.reduce((t, c) => t + (f(c) || 0), 0);
+          const stock = {}; STAGES.forEach(([k]) => (stock[k] = sum((c) => (c.stock || {})[k])));
+          const teams = [...new Set(ls.map((c) => (c.sequence ? "#" + c.sequence + " " : "") + (c.team || "")).filter((t) => t.trim()))];
+          return '<tr class="pg-revorder" data-key="' + key + '"><td><input type="checkbox" class="pg-rev-so" data-key="' + key + '"' + (ls.some((c) => Math.abs(c.now - c.was) > 0.5) ? " checked" : "") + ' aria-label="Revise the order"></td><td><button type="button" class="pg-rev-exp" aria-expanded="false" aria-label="Show the lines">›</button>' + (c0.order_name ? "<b>" + PH.esc(c0.order_name) + "</b>" : "") + "<small>" + PH.esc(c0.customer) + "</small><small>" + PH.esc(so_) + "</small></td><td>" + PH.fmt.date(d, true) + "</td><td>" + PH.esc(teams.join(", ")) + "</td><td>" + PH.fmt.plural(ls.length, "line") + '</td><td class="is-num">' + n(sum((c) => c.ordered)) + '</td><td class="is-num">' + n(sum((c) => c.was)) + "</td>" + revStock(stock) + '<td class="is-num"><b class="pg-rev-sum" data-key="' + key + '">' + n(sum((c) => c.now)) + "</b><small>" + n(sum((c) => c.now)) + " suggested</small></td></tr>" + ls.map(rowOfRev).join("");
+        }).join("");
+      }).join("");
       const down = ch.reduce((t, c) => t + Math.max(0, c.was - c.now), 0), up = ch.reduce((t, c) => t + Math.max(0, c.now - c.was), 0);
       PH.set(el, '<div class="pg-ptiles"><div><span>Lines</span><b>' + n(ch.length) + "</b></div><div><span>Stems less</span><b>" + n(down) + "</b></div><div><span>Stems more</span><b>" + n(up) + '</b></div><div><span>Out of the plan</span><b>' + n(ch.filter((c) => !c.now).length) + "</b></div></div>" +
-        '<div class="ph-table-wrap pg-revtable"><table class="ph-table"><thead><tr><th><input type="checkbox" id="pg-rev-all" aria-label="All"></th><th>Order</th><th>Team</th><th>Variety</th><th class="is-num">Ordered</th><th class="is-num">Confirmed</th>' + STAGES.map(([, label]) => '<th class="is-num">' + label + "</th>").join("") + '<th class="is-num">Total stock</th><th class="is-num">Revised</th></tr></thead><tbody>' + rows + "</tbody></table></div>");
-      el.querySelector("#pg-rev-all").onchange = (e) => el.querySelectorAll("input[type=checkbox][data-soi]").forEach((x) => (x.checked = e.target.checked));
+        '<div class="ph-table-wrap pg-revtable"><table class="ph-table"><thead><tr><th><input type="checkbox" id="pg-rev-all" aria-label="All"></th><th>Order</th><th>Delivery</th><th>Team</th><th>Variety</th><th class="is-num">Ordered</th><th class="is-num">Confirmed</th>' + STAGES.map(([, label]) => '<th class="is-num">' + label + "</th>").join("") + '<th class="is-num">Total stock</th><th class="is-num">Revised</th></tr></thead><tbody>' + rows + "</tbody></table></div>");
+      el.querySelector("#pg-rev-all").onchange = (e) => el.querySelectorAll("input[type=checkbox][data-soi], .pg-rev-so").forEach((x) => (x.checked = e.target.checked));
+      const linesOf = (key) => [...el.querySelectorAll("tr.pg-revline")].filter((r) => r.dataset.of === key);
+      const syncOrder = (key) => {
+        const boxes = linesOf(key).map((r) => r.querySelector("input[type=checkbox]"));
+        const so_ = [...el.querySelectorAll(".pg-rev-so")].find((x) => x.dataset.key === key);
+        if (so_) { so_.checked = boxes.some((b) => b.checked); so_.indeterminate = so_.checked && !boxes.every((b) => b.checked); }
+        const total = [...el.querySelectorAll(".pg-rev-sum")].find((x) => x.dataset.key === key);
+        if (total) total.textContent = n(linesOf(key).reduce((t, r) => t + Math.max(0, +r.querySelector(".pg-rev-in").value || 0), 0));
+      };
+      // an order opens to its lines when its row is clicked; its tick box ticks all of them
+      el.querySelectorAll("tr.pg-revorder").forEach((tr) => (tr.onclick = (e) => {
+        if (e.target.closest("input")) return;
+        const b = tr.querySelector(".pg-rev-exp"), open = b.getAttribute("aria-expanded") !== "true";
+        b.setAttribute("aria-expanded", open);
+        linesOf(tr.dataset.key).forEach((r) => (r.hidden = !open));
+      }));
+      el.querySelectorAll(".pg-rev-so").forEach((x) => (x.onchange = () => { linesOf(x.dataset.key).forEach((r) => (r.querySelector("input[type=checkbox]").checked = x.checked)); x.indeterminate = false; }));
+      el.querySelectorAll("tr.pg-revline input[type=checkbox]").forEach((x) => (x.onchange = () => syncOrder(x.dataset.so)));
       // a line is revised when it is ticked: typing a new amount ticks it
-      el.querySelectorAll(".pg-rev-in").forEach((i) => (i.oninput = () => { const cb = el.querySelector('input[type=checkbox][data-soi="' + i.dataset.soi + '"]'); if (cb) cb.checked = true; }));
+      el.querySelectorAll(".pg-rev-in").forEach((i) => (i.oninput = () => { const cb = el.querySelector('input[type=checkbox][data-soi="' + i.dataset.soi + '"]'); if (cb) { cb.checked = true; syncOrder(cb.dataset.so); } }));
+      [...new Set([...el.querySelectorAll(".pg-rev-so")].map((x) => x.dataset.key))].forEach(syncOrder);
     });
   }
 
@@ -1357,7 +1656,7 @@
       { label: "No" },
       { label: "Yes, undo", primary: true, danger: true, onClick: () => PH.call(API + "unconfirm_line", { sales_order_item: l.soi }, { type: "POST" }).then((r) => {
         if (!r || r.success === false) return false;
-        PH.toast("Undone. The stock is free again.", "good"); load();
+        PH.toast("Undone. The stock is free again.", "good"); refresh();
       }) },
     ] });
   }
@@ -1366,7 +1665,7 @@
   function typedLines() {
     const out = [];
     PH.$$(".pg-in").forEach((i) => {
-      const fsel = i.closest("tr").querySelector(".pg-farm-row"), stock_farm = fsel ? fsel.value : "";
+      const fsel = null, stock_farm = S.farm || "";
       const sel = i.closest("tr").querySelector(".pg-team-row"), stems = Math.min(Math.max(0, Math.round(+i.value || 0)), Math.round(+i.max || 0)), team = sel ? sel.value : "";
       const stemsChanged = +i.value !== +i.dataset.was, teamChanged = !!sel && stems > 0 && +i.dataset.was > 0 && (team !== sel.dataset.was || (fsel && stock_farm !== fsel.dataset.was));
       if (!stemsChanged && !teamChanged) return;
@@ -1396,8 +1695,35 @@
       if (!r || r.success === false) return false;
       const exp = r.lines.reduce((a, x) => a + x.held + x.expected, 0);
       PH.toast("Confirmed " + n(exp) + " stems.", "good");
-      load();
+      // the confirmed lines leave the page at once; the board is read again quietly behind it
+      const done = new Set(r.lines.map((x) => x.soi));
+      if (pool) {
+        pool.lines.concat(pool.longer_lines || []).forEach((l) => {
+          if (done.has(l.soi)) { const x = r.lines.find((y) => y.soi === l.soi); l.held = x.held; l.expected = x.expected; l.confirmed = 1; }
+        });
+        drawPool();
+      }
+      (board && board.mixes || []).forEach((g) => { if (g.lines.some((x) => done.has(x.soi))) g.confirmed = true; });
+      (board && board.orders || []).forEach((o) => o.lines.forEach((x) => { if (done.has(x.soi)) { const y = r.lines.find((z) => z.soi === x.soi); x.planned = y.held + y.expected; } }));
+      if (S.pick && S.pick.order) drawOrder();
+      if (board) drawList();
+      refresh();
     });
+  }
+
+  // Read the board, and what is open, again without clearing the page: after a confirmation or an undo
+  function refresh() {
+    const my = ++seq;
+    poolCache = {};
+    return PH.call(API + "get_board", { ...plan(), farm: S.farm, view: S.view }, { silent: true }).then((m) => {
+      if (my !== seq || !m) return;
+      board = m;
+      drawList();
+      if (S.mode !== "unconfirmed") return;
+      if (S.pick && S.pick.mix) return drawMix();
+      if (S.pick && S.pick.order) return drawOrder();
+      if (S.pick) openPool();
+    }).catch(() => {});
   }
 
 
@@ -1611,7 +1937,7 @@
     // Confirm: straight to that variety and length on the Unconfirmed tab
     PH.$$("#pg-conf [data-oconfirm]").forEach((b) => (b.onclick = () => {
       const [v, len] = b.dataset.oconfirm.split("|");
-      S.view = "all"; PH.$$("#pg-view button").forEach((x) => x.classList.toggle("is-on", x.dataset.value === "all"));
+      S.view = "all"; S.kind = ""; PH.$$("#pg-view button").forEach((x) => x.classList.toggle("is-on", x.dataset.value === ""));
       S.pick = { variety: v, length: len }; S.tab = "pg-t-exact";
       st.set({ tab: "unconfirmed" }); load();
     }));
@@ -1663,7 +1989,7 @@
       if (a.kind === "open_order") window.open("/app/sales-order/" + encodeURIComponent(a.order), "_blank");
       else if (a.kind === "nonmoving") st.set({ tab: "nonmoving" });
       else if (a.kind === "pool") {
-        S.view = "all"; PH.$$("#pg-view button").forEach((x) => x.classList.toggle("is-on", x.dataset.value === "all"));
+        S.view = "all"; S.kind = ""; PH.$$("#pg-view button").forEach((x) => x.classList.toggle("is-on", x.dataset.value === ""));
         S.pick = { variety: a.variety, length: a.length }; S.tab = "pg-t-exact";
         st.set({ tab: "unconfirmed" }); load();
       }

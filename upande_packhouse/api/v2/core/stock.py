@@ -27,7 +27,7 @@ Two more flags mirror the allocator (sales_allocation.get_sales_order_items_with
 so "available" here is what allocation will actually accept (OR-A5):
   too_old    age (days since harvest, else since shelving) over the shelf farm's
              max allocation age, or at/over the discard age
-  cooling    fewer hours on the shelf than the farm's cooling hours
+  cooling    fewer hours since it was received into a cold store than the farm's cooling hours
 `allocatable` = free stems, less reserved, that are neither too old nor cooling.
 
 Location is the SHELF's farm (Shelf.farm) everywhere (ST-22). Age has one
@@ -36,9 +36,10 @@ never the latest harvest of a reused bucket id (ST-19).
 """
 
 from collections import defaultdict
+from datetime import timedelta
 
 import frappe
-from frappe.utils import now_datetime
+from frappe.utils import get_datetime, now_datetime
 
 from upande_packhouse.api.v2.core.rose import rose_sql, rose_type
 from upande_packhouse.availability import reserved_bucket_ids, reserved_by_bucket
@@ -83,6 +84,7 @@ def bucket_rows(*, farms=None, varieties=None, lengths=None, rose=None, company=
 		having.append("MIN(s.farm) IN (SELECT name FROM `tabFarm` WHERE company = %(company)s)")
 		params["company"] = company
 	rose_cond = rose_sql("i.item_group", rose, params)
+	# nosemgrep: frappe-sql-format-injection -- the f-string holes are fixed SQL fragments; every value is bound
 	rows = frappe.db.sql(
 		f"""
 		SELECT si.bucket_id, si.variety, si.stem_length,
@@ -92,6 +94,7 @@ def bucket_rows(*, farms=None, varieties=None, lengths=None, rose=None, company=
 		       MIN(COALESCE(si.harvest_date, DATE(si.date_added))) AS age_anchor,
 		       DATEDIFF(CURDATE(), MIN(COALESCE(si.harvest_date, DATE(si.date_added)))) AS age_days,
 		       TIMESTAMPDIFF(HOUR, MIN(si.date_added), %(now)s) AS hours_on_shelf,
+		       MIN(si.date_added) AS shelved_at,
 		       MIN(si.cut_stage) AS cut_stage, MIN(si.greenhouse) AS greenhouse,
 		       i.item_name, i.item_group
 		FROM `tabShelf Item` si
@@ -126,6 +129,8 @@ def bucket_rows(*, farms=None, varieties=None, lengths=None, rose=None, company=
 	cfg = _config()
 	discard_age = cfg["discard_age"]
 	fc = cfg["farm_config"]
+	# cooling counts from when the bucket reached a cold store, at whichever farm, not from its shelving
+	cooled = hours_since_received({r.bucket_id: r.shelved_at for r in rows}, params["now"])
 	for r in rows:
 		stems = float(r.stems or 0)
 		a = alloc.get((r.bucket_id, r.variety, r.stem_length or ""), 0.0)
@@ -147,9 +152,38 @@ def bucket_rows(*, farms=None, varieties=None, lengths=None, rose=None, company=
 		farm_cfg = fc.get(r.shelf_farm, {})
 		age = r.age_days if r.age_days is not None else 0
 		r.too_old = age > farm_cfg.get("max_allocation_age", 5) or age >= discard_age
-		r.cooling = (r.hours_on_shelf or 0) < farm_cfg.get("cooling_hours", 0)
+		r.hours_cooled = cooled.get(r.bucket_id, r.hours_on_shelf or 0)
+		r.cooling = (r.hours_cooled or 0) < farm_cfg.get("cooling_hours", 0)
 		r.allocatable = 0.0 if (r.too_old or r.cooling) else r.free - r.reserved
 	return rows
+
+
+def hours_since_received(shelved_at, now=None):
+	"""{bucket_id: whole hours since the receipt its shelf stems came from}, for `shelved_at` {bucket_id:
+	when it was shelved}: the bucket's latest Receiving / Late Receipt entry on or before that, wherever it was
+	received (a remote farm's bucket keeps cooling on the truck and at the hub). A receipt after the shelving
+	is a later harvest and does not count. A bucket with no such receipt is left out (the caller falls back to
+	its time on the shelf)."""
+	shelved_at = {b: t for b, t in (shelved_at or {}).items() if b}
+	if not shelved_at:
+		return {}
+	now = get_datetime(now or now_datetime())
+	latest = {}
+	# the receipts of the last weeks only: a bucket on the shelf was received well within them
+	oldest = min((get_datetime(t) for t in shelved_at.values() if t), default=now)
+	for b, at in frappe.db.sql(
+		"""SELECT custom_bucket_id, TIMESTAMP(posting_date, posting_time) FROM `tabStock Entry`
+		   WHERE custom_bucket_id IN %(b)s AND docstatus = 1 AND stock_entry_type IN ('Receiving', 'Late Receipt')
+		     AND posting_date >= %(since)s""",
+		{"b": tuple(shelved_at), "since": (oldest - timedelta(days=30)).date()},
+	):
+		at = get_datetime(at)
+		limit = shelved_at.get(b)
+		if limit and at > get_datetime(limit):
+			continue
+		if b not in latest or at > latest[b]:
+			latest[b] = at
+	return {b: max(0, int((now - at).total_seconds() // 3600)) for b, at in latest.items()}
 
 
 SUM_FIELDS = (

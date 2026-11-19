@@ -53,7 +53,7 @@ LINE_FIELDS = """
 	soi.custom_bunch_group, soi.custom_line, soi.custom_mix_name,
 	soi.custom_processing_location,
 	so.customer, so.customer_name, so.delivery_date, so.transaction_date,
-	so.docstatus AS so_docstatus, so.status AS so_status, so.farm AS so_farm,
+	so.docstatus AS so_docstatus, so.status AS so_status, {so_farm} AS so_farm,
 	so.currency, so.order_type, so.po_no, so.custom_consignee,
 	so.custom_delivery_point, so.custom_shipping_agent
 """
@@ -99,6 +99,12 @@ def business_unit_sql(business_unit, params, so="so", soi="soi"):
 	return "(" + cond + ")"
 
 
+def _so_farm_sql():
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import _so_farm_expr
+
+	return _so_farm_expr("so")
+
+
 def fetch_lines(
 	*,
 	delivery_from=None,
@@ -133,7 +139,7 @@ def fetch_lines(
 		params["ph2_sos"] = tuple(sales_orders)
 	# nosemgrep: frappe-sql-format-injection -- the f-string holes are fixed SQL, values are bound
 	sql = f"""
-		SELECT {LINE_FIELDS}
+		SELECT {LINE_FIELDS.format(so_farm=_so_farm_sql())}
 		FROM `tabSales Order Item` soi
 		INNER JOIN `tabSales Order` so ON so.name = soi.parent
 		WHERE {" AND ".join(where)} {extra_where}

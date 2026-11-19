@@ -75,19 +75,26 @@ def _received_unshelved(farms, cfg):
 	if lengths:
 		cond += " AND COALESCE(NULLIF(sed.custom_stem_length, ''), se.custom_stem_length) IN %(lengths)s"
 		params["lengths"] = tuple(lengths)
+	# the cheapest, most selective conditions first: shelved since (Shelving Log) leaves few rows for the others.
+	# The harvest date is read afterwards, for the buckets still waiting only.
+	# nosemgrep: frappe-sql-format-injection -- the only hole, `cond`, is built from fixed SQL; every value is bound
 	rows = frappe.db.sql(
 		f"""
 		SELECT se.custom_bucket_id AS bucket_id, se.farm, sed.item_code AS variety,
 		       COALESCE(NULLIF(sed.custom_stem_length, ''), se.custom_stem_length) AS stem_length,
 		       se.posting_date AS received_on, se.name AS stock_entry,
-		       MIN(sed.t_warehouse) AS cold_room, SUM(sed.qty) AS stems,
-		       (SELECT MAX(h.posting_date) FROM `tabStock Entry` h
-		         WHERE h.custom_bucket_id = se.custom_bucket_id AND h.docstatus = 1
-		           AND h.stock_entry_type = 'Harvesting' AND h.posting_date <= se.posting_date) AS harvest_date
+		       MIN(sed.t_warehouse) AS cold_room, SUM(sed.qty) AS stems
 		FROM `tabStock Entry` se FORCE INDEX (stock_entry_type_docstatus_posting_date_index)
 		INNER JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
 		WHERE se.docstatus = 1 AND se.stock_entry_type IN %(rt)s AND se.posting_date >= %(since)s
 		  AND IFNULL(se.custom_bucket_id, '') != ''{cond}
+		  AND NOT EXISTS (
+		      SELECT 1 FROM `tabShelving Log` sl
+		      WHERE sl.bucket_id = se.custom_bucket_id AND DATE(sl.shelved_on) >= se.posting_date)
+		  AND NOT EXISTS (
+		      SELECT 1 FROM `tabShelf Item` si
+		      WHERE si.bucket_id = se.custom_bucket_id AND si.stem_qty > 0
+		        AND DATE(si.date_added) >= se.posting_date)
 		  AND NOT EXISTS (
 		      SELECT 1 FROM `tabStock Entry` n
 		      WHERE n.custom_bucket_id = se.custom_bucket_id AND n.docstatus = 1
@@ -95,13 +102,6 @@ def _received_unshelved(farms, cfg):
 		        AND (n.posting_date > se.posting_date
 		             OR (n.posting_date = se.posting_date AND n.stock_entry_type != 'Harvesting'
 		                 AND n.creation > se.creation)))
-		  AND NOT EXISTS (
-		      SELECT 1 FROM `tabShelf Item` si
-		      WHERE si.bucket_id = se.custom_bucket_id AND si.stem_qty > 0
-		        AND DATE(si.date_added) >= se.posting_date)
-		  AND NOT EXISTS (
-		      SELECT 1 FROM `tabShelving Log` sl
-		      WHERE sl.bucket_id = se.custom_bucket_id AND DATE(sl.shelved_on) >= se.posting_date)
 		  AND NOT EXISTS (
 		      SELECT 1 FROM `tabStock Entry` d
 		      WHERE d.custom_bucket_id = se.custom_bucket_id AND d.docstatus = 1
@@ -117,6 +117,18 @@ def _received_unshelved(farms, cfg):
 		params,
 		as_dict=True,
 	)  # nosemgrep: the f-string holes are fixed SQL, values are bound
+	if rows:
+		# each bucket's harvest: its latest Harvesting entry on or before the receipt
+		harvests = {}
+		for b, d in frappe.db.sql(
+			"""SELECT custom_bucket_id, posting_date FROM `tabStock Entry`
+			   WHERE custom_bucket_id IN %(b)s AND docstatus = 1 AND stock_entry_type = 'Harvesting'""",
+			{"b": tuple({r.bucket_id for r in rows})},
+		):
+			harvests.setdefault(b, []).append(getdate(d))
+		for r in rows:
+			got = getdate(r.received_on)
+			r.harvest_date = max((d for d in harvests.get(r.bucket_id, []) if d <= got), default=None)
 	if not rows:
 		return []
 	allocated = {

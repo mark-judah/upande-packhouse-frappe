@@ -7,28 +7,20 @@ from upande_packhouse.upande_packhouse.page.sales_allocation_v2 import day_alloc
 
 
 class UnitTestPartBoxes(UnitTestCase):
-	def test_part_boxes_on_releases_everything_allocated(self):
-		release = [{"sales_order_item": "a", "qty": 100}]
+	def test_a_part_box_never_goes_out(self):
 		keep = [{"sales_order_item": "b", "qty": 40}]
-		with patch.object(da.sa, "part_boxes_on", return_value=True):
-			out, rest, boxes = da._gate_release(release, keep, {("line", "a"): 1}, 0, 4)
-		self.assertEqual(out, release + keep)
-		self.assertEqual(rest, [])
-		self.assertEqual(boxes, {("line", "a"): 1})
-
-	def test_part_box_alone_goes_out_when_on(self):
-		keep = [{"sales_order_item": "b", "qty": 40}]
-		with patch.object(da.sa, "part_boxes_on", return_value=True):
-			out, rest, _boxes = da._gate_release([], keep, {}, 0, 4)
-		self.assertEqual(out, keep)
-		self.assertEqual(rest, [])
-
-	def test_off_keeps_part_boxes_back(self):
-		keep = [{"sales_order_item": "b", "qty": 40}]
-		with patch.object(da.sa, "part_boxes_on", return_value=False):
-			out, rest, _boxes = da._gate_release([], keep, {}, 0, 4)
+		out, rest, _boxes = da._gate_release([], keep, {}, 0, 4)
 		self.assertEqual(out, [])
 		self.assertEqual(rest, keep)
+
+	def test_complete_boxes_go_out_and_the_part_box_waits(self):
+		release = [{"sales_order_item": "a", "qty": 600}]
+		keep = [{"sales_order_item": "a", "qty": 200}]
+		with patch.object(da, "_release_ok", return_value=True):
+			out, rest, boxes = da._gate_release(release, keep, {("line", "a"): 1}, 0, 4)
+		self.assertEqual(out, release)
+		self.assertEqual(rest, keep)
+		self.assertEqual(boxes, {("line", "a"): 1})
 
 
 class UnitTestReleaseParts(UnitTestCase):

@@ -162,7 +162,7 @@
       { label: "Routes", value: ds.length, unit: dayLabel(d0).toLowerCase() + " · " + km.toFixed(1) + " km · " + PH.uniq(ds.map((r) => r.vehicle)).length + " trucks", onClick: () => st.set({ view: "day", route: "" }), active: st.get("view") === "day" && !st.get("route") },
       { label: "Trucks", onClick: () => drillTrucks(vs), value: vs.length, unit: vs.filter((v) => !v.on_road).length + " available · " + vs.filter((v) => v.on_road).length + " on the road" + (rv ? " · on routes in this region" : "") },
       { label: "Roads", value: roads, unit: roadsAll.length - roads + " direct distances", onClick: () => st.set({ view: "roads", route: "" }), active: st.get("view") === "roads" && !st.get("route") },
-      { label: "Farms reachable", onClick: () => drillFarms(farms), value: reach, unit: "of " + farms.length + " farms by road from " + (pack() || "the hub"), bar: farms.length ? (100 * reach) / farms.length : 0 },
+      { label: "Farms reachable", onClick: () => drillFarms(farms), value: reach, unit: "of " + farms.length + " farms by road from " + (pack() || "the sales farm"), bar: farms.length ? (100 * reach) / farms.length : 0 },
     ]);
   }
 
@@ -517,7 +517,7 @@
     m.body.addEventListener("click", (e) => { const b = e.target.closest('[data-act="tk-open"]'); if (b) { m.close(); openTruckModal(b.dataset.veh); } });
   }
   function drillFarms(farms) {
-    const m = PH.modal({ title: "Farms reachable", sub: "by road from " + (pack() || "the hub"), size: "lg", actions: [{ label: "Close" }] });
+    const m = PH.modal({ title: "Farms reachable", sub: "by road from " + (pack() || "the sales farm"), size: "lg", actions: [{ label: "Close" }] });
     PH.set(m.body, '<div id="dr-farms"></div>');
     PH.table("#dr-farms", { columns: [
       { key: "farm", label: "Farm", cls: "is-strong" },
@@ -583,7 +583,7 @@
     D().distances.forEach((d) => { if (d.leg) { linked[d.a] = 1; linked[d.b] = 1; } });
     const other = f[k === "from" ? "to" : "from"];
     return '<option value="">Select farm…</option>' + farmsOf().map((x) => {
-      const hub = x === pack(), same = x === other, tag = same ? "other side" : hub ? "hub" : linked[x] ? "connected" : "no roads yet";
+      const hub = x === pack(), same = x === other, tag = same ? "other side" : hub ? "sales farm" : linked[x] ? "connected" : "no roads yet";
       return `<option value="${esc(x)}"${x === f[k] ? " selected" : ""}${same ? " disabled" : ""}>${esc(x)} — ${tag}</option>`;
     }).join("");
   }

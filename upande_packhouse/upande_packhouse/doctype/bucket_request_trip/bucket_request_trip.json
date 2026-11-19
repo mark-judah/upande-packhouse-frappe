@@ -188,7 +188,7 @@
   {
    "fieldname": "released_at",
    "fieldtype": "Datetime",
-   "label": "Left Hub At",
+   "label": "Left Sales Farm At",
    "read_only": 1
   },
   {
@@ -302,7 +302,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 0,
  "links": [],
- "modified": "2026-11-13 09:00:00.000000",
+ "modified": "2026-11-19 21:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Bucket Request Trip",

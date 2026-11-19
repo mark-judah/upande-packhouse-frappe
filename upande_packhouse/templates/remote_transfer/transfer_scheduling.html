@@ -1621,7 +1621,7 @@ function farmPicker(k,farms,locked){
   var tick='<svg class="tick" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>';
   var items=farms.map(function(x){
     var hub=x===pack(), con=!!linked[x], same=x===other;
-    var dot=hub?'hub':(con?'con':''), tag=same?'other side':(hub?'hub':(con?'connected':'no roads yet'));
+    var dot=hub?'hub':(con?'con':''), tag=same?'other side':(hub?'sales farm':(con?'connected':'no roads yet'));
     return '<button type="button" class="rn-dd-opt'+(x===val?' sel':'')+'" data-act="rn-dd-pick" data-k="'+k+'" data-v="'+esc(x)+'" data-q="'+esc(x.toLowerCase())+'"'+(same?' disabled':'')+'>'+
       '<span class="dot '+dot+'"></span>'+esc(x)+'<span class="tag">'+tag+'</span>'+(x===val?tick:'')+'</button>';
   }).join('');

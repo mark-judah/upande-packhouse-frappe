@@ -2620,6 +2620,17 @@ def unallocate_bucket_from_opl(sales_order_item: str, bucket_id: str, stem_lengt
 				).format(bucket_id)
 			)
 
+		# a substitute: the bucket holds another variety than the line's own
+		held_variety = frappe.db.sql(
+			"""SELECT bas.item_code FROM `tabBucket Allocations` ba
+			   INNER JOIN `tabBucket Allocation Status` bas ON bas.name = ba.parent
+			   WHERE bas.bucket_id = %(bucket)s AND ba.sales_order_item = %(soi)s AND ba.cancelled = 0
+			   ORDER BY bas.item_code = %(item)s DESC LIMIT 1""",
+			{"bucket": bucket_id, "soi": sales_order_item, "item": item_code},
+		)
+		if held_variety:
+			item_code = held_variety[0][0]
+
 		# ── Put the stems back on the shelf ledger-wise: cancel the transfers
 		#    that moved them into the Sold warehouse for this line. ──
 		reversed_entries = stock_movement.reverse_allocation_movement(

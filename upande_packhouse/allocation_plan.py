@@ -394,7 +394,23 @@ def sequence_orders(plan, first=None):
 		),
 	)
 	want = {r.sales_order: i for i, r in enumerate(planned, 1)}
+	# an order taken out of this plan but planned on another (its team moved it to another sales farm) keeps the
+	# number that plan gave it
+	elsewhere = set(
+		frappe.db.sql_list(
+			"""SELECT DISTINCT sales_order FROM `tabAllocation Confirmation`
+			   WHERE sales_order IN %(s)s AND plan != %(plan)s
+			     AND (status IN %(kept)s OR (status = 'Released' AND release_reason = 'Allocated'))""",
+			{
+				"s": tuple(r.sales_order for r in rows if r.sales_order not in want) or ("",),
+				"plan": plan,
+				"kept": (*LIVE, "Fulfilled"),
+			},
+		)
+	)
 	for r in rows:
+		if r.sales_order in elsewhere:
+			continue
 		if cint(r.seq) != want.get(r.sales_order, 0):
 			frappe.db.set_value(
 				"Sales Order",
