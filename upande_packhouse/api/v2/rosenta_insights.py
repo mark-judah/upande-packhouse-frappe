@@ -15,11 +15,14 @@ Fill       ordered -> allocated -> issued -> packed -> loaded -> dispatched, per
 Any amount is kept per currency and never added across currencies.
 """
 
+import re
+
 import frappe
 from frappe import _
 
 from upande_packhouse.api.v2 import orders_workflow
 from upande_packhouse.api.v2 import rosenta_compare as rc
+from upande_packhouse.api.v2 import rosenta_specs
 from upande_packhouse.api.v2 import rosenta_sync as sync
 
 BUSINESS_UNIT = "Roses"
@@ -268,9 +271,34 @@ def get_rosenta_money(date_from=None, date_to=None):
 # ---------------------------------------------------------------- greenhouse revenue
 
 
+def _norm_gh(name):
+	"""A greenhouse name without spacing or case (SIMOTWO GH6 / Simotwo GH 6)."""
+	return re.sub(r"[^A-Z0-9]", "", str(name or "").upper())
+
+
 def _farm_key(name):
 	k = rc._key(name)
 	return k[:-5].strip() if k.endswith(" FARM") else k
+
+
+def _canon(names):
+	"""{name: canonical name} so that a farm written a little differently in the two systems (or twice in one)
+	is one farm: equal once Farm is dropped, near-equal, or one a prefix of the other. The first spelling wins."""
+	reps, out = [], {}
+	for n in names:
+		k = _farm_key(n)
+		hit = next(
+			(
+				r for r in reps
+				if r == k or rosenta_specs._close(k, r) or (min(len(k), len(r)) >= 4 and (r.startswith(k) or k.startswith(r)))
+			),
+			None,
+		)  # fmt: skip
+		if hit is None:
+			reps.append(k)
+			hit = k
+		out[n] = hit
+	return out
 
 
 def _erp_farm_revenue(date_from, date_to):
@@ -289,7 +317,7 @@ def _erp_farm_revenue(date_from, date_to):
 	)
 	out = {}
 	for r in rows:
-		f = out.setdefault(_farm_key(r.farm), {"farm": r.farm or "(no farm)", "stems": 0, "value": {}})
+		f = out.setdefault(r.farm or "", {"farm": r.farm or "(no farm)", "stems": 0, "value": {}})
 		f["stems"] += float(r.stems or 0)
 		_add(f["value"], _cur(r.currency), float(r.revenue or 0))
 	return out
@@ -302,21 +330,29 @@ def get_rosenta_greenhouse(date_from=None, date_to=None):
 	try:
 		days = sync.days_between(date_from or frappe.utils.today(), date_to or date_from or frappe.utils.today())
 		have, meta = _meta(("greenhouse",), days)
-		farms, houses = {}, {}
-		for rows in have["greenhouse"].values():
-			for r in rows:
-				k, cur = _farm_key(r.get("farm_name")), _cur(r.get("currency"))
-				stems, revenue = rc._num(r.get("stems_issued")), rc._dec(r.get("revenue"))
-				f = farms.setdefault(k, {"farm": r.get("farm_name"), "stems": 0, "value": {}})
-				f["stems"] += stems
-				_add(f["value"], cur, revenue)
-				g = houses.setdefault(
-					(k, r.get("greenhouse_name")),
-					{"farm": r.get("farm_name"), "greenhouse": r.get("greenhouse_name"), "stems": 0, "value": {}},
-				)
-				g["stems"] += stems
-				_add(g["value"], cur, revenue)
 		erp = _erp_farm_revenue(days[0], days[-1])
+		rows_ = [r for rows in have["greenhouse"].values() for r in rows]
+		canon = _canon([r.get("farm_name") for r in rows_] + list(erp))
+		farms, houses = {}, {}
+		for r in rows_:
+			k, cur = canon[r.get("farm_name")], _cur(r.get("currency"))
+			stems, revenue = rc._num(r.get("stems_issued")), rc._dec(r.get("revenue"))
+			f = farms.setdefault(k, {"farm": r.get("farm_name"), "stems": 0, "value": {}})
+			f["stems"] += stems
+			_add(f["value"], cur, revenue)
+			g = houses.setdefault(
+				(k, _norm_gh(r.get("greenhouse_name"))),
+				{"farm": r.get("farm_name"), "greenhouse": r.get("greenhouse_name"), "stems": 0, "value": {}},
+			)
+			g["stems"] += stems
+			_add(g["value"], cur, revenue)
+		erp_c = {}
+		for name, x in erp.items():  # ERPNext farms under the same canonical name as Rosenta's
+			e = erp_c.setdefault(canon[name], {"farm": x["farm"], "stems": 0, "value": {}})
+			e["stems"] += x["stems"]
+			for c, v in x["value"].items():
+				_add(e["value"], c, v)
+		erp = erp_c
 
 		def side(x):
 			if x is None:

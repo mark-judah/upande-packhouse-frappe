@@ -343,8 +343,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       $("rc-content").innerHTML =
         '<div class="rc-kpis">' + kpi("Orders", t.rosenta.orders, t.erpnext.orders, "orders") + kpi("Boxes ordered", t.rosenta.boxes, t.erpnext.boxes, "boxes") + kpi("Stems ordered", t.rosenta.stems, t.erpnext.stems, "stems") + kpiValue(t) + "</div>" +
         showSwitch() +
-        card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 1560, statusLabel: "Difference" }) : empty("No differences", "Every customer matches for this date.")) +
-        '<p class="rc-hint">Open a customer to see its orders line by line. Boxes are boxes ordered. Each difference is ERPNext measured against Rosenta. Order value is the stems ordered at the stem price of each line, in the currency of the order. For Rosenta the price is the Stem Price on its Order Summary, for ERPNext the Sales Order line amount. The price per stem is the value over the stems ordered.</p>';
+        card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 1560, statusLabel: "Difference" }) : empty("No differences", "Every customer matches for this date."));
     }
 
     // an order's lines: one line is one kind of box, with what goes in it
@@ -378,8 +377,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
         rows.push({ name: "Order total", total: true, r: r && { boxes: r.boxes, rate: null, stems: r.stems, value: r.value, price: r.price }, e: e && { boxes: e.boxes, rate: null, stems: e.stems, value: e.value, price: e.price } });
         p.lines.forEach(function (l) { rows.push({ nameHtml: lineName(l), r: lineSide(l.rosenta), e: lineSide(l.erpnext) }); });
       });
-      var h = '<section class="rc-card">' + grid({ first: "Line", cols: LINE_COLS, rows: rows, minw: 1240 }) + "</section>" +
-        '<p class="rc-hint">ERPNext often splits one Rosenta order over several Sales Orders, so a line shown as missing may be in another ERPNext order of this customer. In ERPNext each variety of a mixed box is its own line; here they are added up into one box line so they compare with Rosenta.</p>';
+      var h = '<section class="rc-card">' + grid({ first: "Line", cols: LINE_COLS, rows: rows, minw: 1240 }) + "</section>";
       openPanel(c.customer, "Orders for " + longDate(data.date) + ". Differences are ERPNext against Rosenta.", h);
     }
     // ---- packing
@@ -406,8 +404,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       $("rc-content").innerHTML = warn +
         '<div class="rc-kpis">' + kpi("Boxes packed", t.rosenta.boxes_packed, t.erpnext.boxes_packed, "boxes") + kpi("Boxes loaded", t.rosenta.boxes_loaded, t.erpnext.boxes_loaded, "boxes") + kpi("Stems dispatched", t.rosenta.stems_dispatched, t.erpnext.stems_dispatched, "stems") + kpi("Orders invoiced", t.rosenta.orders_invoiced, t.erpnext.orders_invoiced, "orders") + inv + "</div>" +
         showSwitch() +
-        card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 2100, statusLabel: "Difference" }) : empty("Nothing to show", "No differences for this date.")) +
-        '<p class="rc-hint">The process from packing to invoicing. Rosenta reports staged stems, and boxes are staged straight after packing, so its staged stems stand for stems packed. ERPNext dispatch is the stems on submitted Delivery Notes against the order; Rosenta gives no dispatch figure per line, so its dispatched stems are the stems loaded on orders it marks Dispatched or Partially Dispatched. An order counts as dispatched when ERPNext delivery notes cover all its stems, or Rosenta marks it Dispatched. Invoiced orders are those on a submitted Sales Invoice in ERPNext and on an issued invoice in Rosenta; the amount is the invoice total in its currency. ERPNext records staging and loading only for Bravo, so its staged and loaded figures are 0 for the other teams.</p>';
+        card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 2100, statusLabel: "Difference" }) : empty("Nothing to show", "No differences for this date."));
     }
 
     // ---- allocations by team
@@ -423,8 +420,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
         e: { orders: null, lines: sum("lines", "erpnext"), boxes: sum("boxes", "erpnext"), stems: sum("stems", "erpnext") } }]
         .concat(shown.map(function (a) { return { name: a.team === "(not mapped)" ? a.erp_teams : a.team, sub: a.erp_teams === a.team ? "" : "ERPNext team: " + esc(a.erp_teams), r: a.rosenta, e: a.erpnext }; }));
       $("rc-content").innerHTML = showSwitch() +
-        card("Teams", shown.length + " shown", grid({ first: "Team", cols: cols, rows: rows, minw: 1180, statusLabel: "Difference" })) +
-        '<p class="rc-hint">What each team has been given to pack on this delivery date. Rosenta: the team split of each order line, with stems as boxes times stems per box. ERPNext: the stems on the team\'s pick lists, from Orders &amp; Workflow by team. Not allocated is what has no team yet: in ERPNext the stems ordered without a pick list. Orders is not added up over teams, since one order can be split between several.</p>';
+        card("Teams", shown.length + " shown", grid({ first: "Team", cols: cols, rows: rows, minw: 1180, statusLabel: "Difference" }));
     }
 
     // ---- Money, Greenhouses, Fill rate: read from Rosenta snapshots, over a period ending on the date
@@ -488,8 +484,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       $("rc-content").innerHTML = rangeNote(d) + '<p class="rc-hint">' + asOf + (t.unknown ? t.unknown + " used specifications are not in that pull yet." : "") + "</p>" +
         '<div class="rc-kpis">' + sub("Used in Rosenta", t.rosenta_used, "specifications on orders of the period") + sub("Active in ERPNext", t.erpnext_active) + sub("Match", t.matched) + sub("Differ", t.differ, fields) +
         sub("Missing in ERPNext", t.only_rosenta, '<span class="rc-chip ' + (t.only_rosenta ? "bad" : "good") + '">' + (t.only_rosenta ? "orders that cannot be made the same way" : "none") + "</span>") + "</div>" +
-        showSwitch() + card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: SPEC_COLS, rows: rows, minw: 1250 }) : empty("No differences", "Every specification used in Rosenta is in ERPNext and the same.")) +
-        '<p class="rc-hint">A specification is what an order line asks for: the box, the stems, the bunches and what is in them, the stem length, Fairtrade, the consumables. Open a customer to see each one. Specifications are paired by name, and by what they contain where the names differ. Stem length counts as the same when ERPNext is 2 cm above Rosenta\'s grade (Rosenta 50, ERPNext 52). Rosenta tracks few consumables, so a consumable only in ERPNext is common and shown as a difference.</p>';
+        showSwitch() + card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: SPEC_COLS, rows: rows, minw: 1250 }) : empty("No differences", "Every specification used in Rosenta is in ERPNext and the same."));
     }
     function specDetail(c) {
       var def = function (s) {
@@ -562,8 +557,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       $("rc-content").innerHTML = rangeNote(d) +
         '<div class="rc-kpis">' + bigCash("Booked", r.booked, e.booked) + bigCash("Dispatched", r.dispatched, e.dispatched) + bigCash("Invoiced", r.invoiced, e.invoiced, num(r.invoices) + " invoices in Rosenta, " + num(e.invoices) + " in ERPNext") +
         bigCash("Paid", r.paid, e.paid, num(r.unpaid) + " unpaid in Rosenta, " + num(e.unpaid) + " in ERPNext") + bigCash("Dispatched, not yet invoiced", r.unbilled, e.unbilled, "Delivery notes in ERPNext: " + num(e.delivery_notes)) + "</div>" +
-        showSwitch() + card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 2300, statusLabel: "Difference" }) : empty("No differences", "Rosenta and ERPNext agree for this period.")) +
-        '<p class="rc-hint">Booked is the order value at its stem price (ERPNext: Sales Order net total, Rosenta: confirmed stems times stem price). Dispatched is the value that left: ERPNext Delivery Notes against the orders, Rosenta stems loaded on Dispatched and Partially Dispatched orders. Invoiced and paid are invoices for the orders of the period: ERPNext Sales Invoices against them (paid is the share of each invoice that is paid), Rosenta invoices issued for the delivery dates. ERPNext is counted for the flower business only. Amounts are never added across currencies.</p>';
+        showSwitch() + card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 2300, statusLabel: "Difference" }) : empty("No differences", "Rosenta and ERPNext agree for this period."));
     }
 
     var GH_COLS = cat(pair("stems", "Stems issued"), pair("value", "Revenue", { w: "minmax(120px,1fr)", html: function (s) { return s.by_currency ? cash(s) : '<span class="rc-none">—</span>'; } }),
@@ -573,8 +567,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       var bad = rangeFail(d); if (bad) { $("rc-content").innerHTML = bad; return; }
       var cols = GH_COLS.concat([{ h: "Revenue", side: "s", w: "minmax(130px,1fr)", text: true, html: function (x) { return chipFor(x.f.status); } }]);
       var rows = d.farms.map(function (f, i) { return { name: f.farm, r: f.rosenta, e: f.erpnext, f: f, go: true, i: i, sub: f.greenhouses.length ? f.greenhouses.length + " greenhouses in Rosenta" : "" }; });
-      $("rc-content").innerHTML = rangeNote(d) + card("Farms", rows.length + " shown", rows.length ? grid({ first: "Farm", cols: cols, rows: rows, minw: 1500, statusLabel: "Difference" }) : empty("Nothing to show", "No stems issued in this period.")) +
-        '<p class="rc-hint">Revenue of the stems issued, by farm. Open a farm to see its greenhouses and varieties from Rosenta. Rosenta only records revenue for stems that were scanned out of a coldroom, so where it shows less than ERPNext, the gap is mostly issuing not recorded in Rosenta. ERPNext knows the farm of each pick, not the greenhouse, so greenhouses are Rosenta only.</p>';
+      $("rc-content").innerHTML = rangeNote(d) + card("Farms", rows.length + " shown", rows.length ? grid({ first: "Farm", cols: cols, rows: rows, minw: 1500, statusLabel: "Difference" }) : empty("Nothing to show", "No stems issued in this period."));
     }
     function farmDetail(f) {
       var rows = f.greenhouses.map(function (g) { return { name: g.greenhouse || "(none)", r: g, e: null }; });
@@ -597,8 +590,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       $("rc-content").innerHTML = rangeNote(d) +
         '<div class="rc-kpis">' + kpi("Stems ordered", t.rosenta.ordered, t.erpnext.ordered, "stems") + kpi("Stems dispatched", t.rosenta.dispatched, t.erpnext.dispatched, "stems") +
         '<div class="rc-kpi"><div class="rc-kpi__label">Fill rate (dispatched of ordered)</div><div class="rc-kpi__pair"><div class="rc-kpi__side"><small>Rosenta</small><b>' + pct(t.rosenta.fill) + '</b></div><div class="rc-kpi__side is-e"><small>ERPNext</small><b>' + pct(t.erpnext.fill) + "</b></div></div></div></div>" +
-        showSwitch() + card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 2300, statusLabel: "Difference" }) : empty("No differences", "Rosenta and ERPNext agree for this period.")) +
-        '<p class="rc-hint">Stems at every stage from the order to the truck. Ordered, allocated, packed and loaded for Rosenta are from its Order Summary (packed is staged, since boxes are staged straight after packing); issued and dispatched are from its Dispatch Analysis, line by line. Rosenta records issuing for only some stems, so its issued figure is low. ERPNext is from Orders &amp; Workflow, allocated being the stems on pick lists. Fill rate is dispatched over ordered.</p>';
+        showSwitch() + card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 2300, statusLabel: "Difference" }) : empty("No differences", "Rosenta and ERPNext agree for this period."));
     }
 
     // ---- teams
@@ -643,7 +635,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
           return row(o, isR ? o.t.team : o.t.erp_teams, isR ? "Rosenta only" : "ERPNext only", isR ? "r" : "e");
         }) }));
       }
-      $("rc-content").innerHTML = h + '<p class="rc-hint">To pack: boxes assigned to the team in Rosenta, boxes expected on the team\'s pick lists in ERPNext. ERPNext does not record staged or loaded boxes per team. Dispatched is in stems: in ERPNext the stems on submitted Delivery Notes for the team\'s pick lists, in Rosenta the stems loaded on its Dispatched and Partially Dispatched orders, shared over the line\'s teams by boxes. Invoicing is per customer in both systems, so it is on the Packing tab. The last column says how long before Rosenta\'s last packed box ERPNext\'s last pack list was entered.</p>';
+      $("rc-content").innerHTML = h;
     }
 
     // ---- cancellations

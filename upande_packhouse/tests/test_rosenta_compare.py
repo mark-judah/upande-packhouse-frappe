@@ -571,3 +571,12 @@ class TestSpecs(IntegrationTestCase):
 		self.assertEqual((bunches[0]["bunches"], bunches[0]["stems"], bunches[0]["pack_rate"]), (25, 10, 250))
 		self.assertEqual([v["name"] for v in varieties], ["A", "B"])
 		self.assertEqual(cons[0]["type"], "box")
+
+	def test_farms_written_differently_are_one_farm(self):
+		from upande_packhouse.api.v2 import rosenta_insights as ri
+
+		c = ri._canon(["Kapkolia Farm", "KAPKOLIA", "Kapkolia Farms", "Kapkolya", "Karen Farm", "Karen", "Eldama Farm"])
+		self.assertEqual(len({c[n] for n in ("Kapkolia Farm", "KAPKOLIA", "Kapkolia Farms", "Kapkolya")}), 1)
+		self.assertEqual(c["Karen Farm"], c["Karen"])
+		self.assertNotEqual(c["Karen"], c["Eldama Farm"])
+		self.assertEqual(ri._norm_gh("Simotwo GH 6"), ri._norm_gh("SIMOTWO GH6"))
