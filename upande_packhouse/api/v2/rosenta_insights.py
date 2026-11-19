@@ -274,9 +274,9 @@ def _farm_key(name):
 
 
 def _erp_farm_revenue(date_from, date_to):
-	"""Revenue of the stems issued by farm in ERPNext: issued pick rows at the rate of their Sales Order line."""
+	"""Revenue of the stems issued by farm in ERPNext: issued pick rows at the price per stem of their Sales Order line (its amount over its stems: the rate is per bunch)."""
 	rows = frappe.db.sql(
-		"""SELECT pli.farm, so.currency, SUM(pli.stock_qty) stems, SUM(pli.stock_qty * soi.rate) revenue
+		"""SELECT pli.farm, so.currency, SUM(pli.stock_qty) stems, SUM(pli.stock_qty * soi.net_amount / NULLIF(soi.stock_qty, 0)) revenue
 		   FROM `tabPick List Item` pli
 		   JOIN `tabOrder Pick List` opl ON opl.name = pli.parent
 		   JOIN `tabSales Order Item` soi ON soi.name = pli.sales_order_item
