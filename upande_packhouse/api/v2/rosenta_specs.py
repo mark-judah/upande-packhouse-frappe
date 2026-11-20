@@ -50,7 +50,13 @@ def _close(a, b):
 	if a == b:
 		return True
 	words = lambda x: " ".join(sorted(x.split()))  # noqa: E731  (Royal Athena / Athena Royal)
-	return max(difflib.SequenceMatcher(None, a, b).ratio(), difflib.SequenceMatcher(None, words(a), words(b)).ratio()) >= SIMILAR
+	return (
+		max(
+			difflib.SequenceMatcher(None, a, b).ratio(),
+			difflib.SequenceMatcher(None, words(a), words(b)).ratio(),
+		)
+		>= SIMILAR
+	)
 
 
 def _vsim(a, b):
@@ -106,7 +112,11 @@ def erp_specs():
 	names = [s.name for s in specs]
 	child = {"box_items": {}, "approved_varieties": {}, "consumables": {}}
 	for table, dt, fields in (
-		("box_items", "Spec Box Item", ["parent", "stems_per_bunch", "length", "bunches_per_box", "pack_rate"]),
+		(
+			"box_items",
+			"Spec Box Item",
+			["parent", "stems_per_bunch", "length", "bunches_per_box", "pack_rate"],
+		),
 		("approved_varieties", "Spec Approved Variety", ["parent", "variety", "colour"]),
 		("consumables", "Spec Consumable", ["parent", "item_name"]),
 	):
@@ -120,7 +130,11 @@ def erp_specs():
 				child[table].setdefault(r.parent, []).append(r)
 	out = {}
 	for s in specs:
-		rows, vars_, cons = child["box_items"].get(s.name, []), child["approved_varieties"].get(s.name, []), child["consumables"].get(s.name, [])
+		rows, vars_, cons = (
+			child["box_items"].get(s.name, []),
+			child["approved_varieties"].get(s.name, []),
+			child["consumables"].get(s.name, []),
+		)
 		out.setdefault(s.customer, []).append(
 			{
 				"id": s.name, "name": (s.spec_name or s.name).strip(), "ft": s.ftnft == "FT",
@@ -147,7 +161,9 @@ def _chunks(seq, n=800):
 
 
 def _shown(names):
-	return ", ".join(names[:SHOW_NAMES]) + (f" and {len(names) - SHOW_NAMES} more" if len(names) > SHOW_NAMES else "")
+	return ", ".join(names[:SHOW_NAMES]) + (
+		f" and {len(names) - SHOW_NAMES} more" if len(names) > SHOW_NAMES else ""
+	)
 
 
 def _same_lengths(r, e):
@@ -169,21 +185,40 @@ def diff(r, e):
 	if r["bunches"] != e["bunches"] and r["bunches"] and e["bunches"]:
 		add("Bunches per box", r["bunches"], e["bunches"])
 	if r["stems_per_bunch"] != e["stems_per_bunch"] and r["stems_per_bunch"] and e["stems_per_bunch"]:
-		add("Stems per bunch", ", ".join(map(str, r["stems_per_bunch"])), ", ".join(map(str, e["stems_per_bunch"])))
+		add(
+			"Stems per bunch",
+			", ".join(map(str, r["stems_per_bunch"])),
+			", ".join(map(str, e["stems_per_bunch"])),
+		)
 	if r["lengths"] and e["lengths"] and not _same_lengths(r["lengths"], e["lengths"]):
-		add("Stem length", ", ".join(f"{x} cm" for x in r["lengths"]), ", ".join(f"{x} cm" for x in e["lengths"]))
+		add(
+			"Stem length",
+			", ".join(f"{x} cm" for x in r["lengths"]),
+			", ".join(f"{x} cm" for x in e["lengths"]),
+		)
 	rb, eb = _norm(r["box"]), _norm(e["box"])
 	if rb and eb and rb not in eb and eb not in rb:
 		add("Box", r["box"], e["box"])
 	only_r = [v for v in r["varieties"] if not any(_close(v, w) for w in e["varieties"])]
 	only_e = [v for v in e["varieties"] if not any(_close(v, w) for w in r["varieties"])]
 	if r["varieties"] and e["varieties"] and (only_r or only_e):
-		add("Varieties", ("only here: " + _shown(only_r)) if only_r else "", ("only here: " + _shown(only_e)) if only_e else "")
+		add(
+			"Varieties",
+			("only here: " + _shown(only_r)) if only_r else "",
+			("only here: " + _shown(only_e)) if only_e else "",
+		)
 	if r["any_colours"] and e["any_colours"] and set(r["any_colours"]) != set(e["any_colours"]):
 		add("Colours", ", ".join(r["any_colours"]), ", ".join(e["any_colours"]))
-	cr, ce = [c for c in r["consumables"] if c not in e["consumables"]], [c for c in e["consumables"] if c not in r["consumables"]]
+	cr, ce = (
+		[c for c in r["consumables"] if c not in e["consumables"]],
+		[c for c in e["consumables"] if c not in r["consumables"]],
+	)
 	if r["consumables"] and (cr or ce):  # Rosenta lists no consumables on most specs: not a difference then
-		add("Consumables", ("only here: " + _shown(cr)) if cr else "", ("only here: " + _shown(ce)) if ce else "")
+		add(
+			"Consumables",
+			("only here: " + _shown(cr)) if cr else "",
+			("only here: " + _shown(ce)) if ce else "",
+		)
 	return out
 
 
@@ -206,7 +241,8 @@ def _score(r, e):
 def pair_specs(r_list, e_list):
 	"""Pair the Rosenta and ERPNext specs of one customer, best match first, one to one."""
 	cand = sorted(
-		((_score(r, e), i, j) for i, r in enumerate(r_list) for j, e in enumerate(e_list)), key=lambda c: -c[0]
+		((_score(r, e), i, j) for i, r in enumerate(r_list) for j, e in enumerate(e_list)),
+		key=lambda c: -c[0],
 	)
 	used_r, used_e, out = set(), set(), []
 	for sc, i, j in cand:
@@ -215,8 +251,15 @@ def pair_specs(r_list, e_list):
 		used_r.add(i)
 		used_e.add(j)
 		d = diff(r_list[i], e_list[j])
-		by = "name" if _norm(r_list[i]["name"]) == _norm(e_list[j]["name"]) else (
-			"variety and length" if _vsim(r_list[i]["varieties"], e_list[j]["varieties"]) >= 0.5 else "name")
+		by = (
+			"name"
+			if _norm(r_list[i]["name"]) == _norm(e_list[j]["name"])
+			else (
+				"variety and length"
+				if _vsim(r_list[i]["varieties"], e_list[j]["varieties"]) >= 0.5
+				else "name"
+			)
+		)
 		out.append(
 			{
 				"rosenta": r_list[i], "erpnext": e_list[j], "state": "Differs" if d else "Matches", "diffs": d,
@@ -244,7 +287,13 @@ def _rosenta_used(orders_by_day, all_specs):
 				continue
 			u = used.setdefault(
 				r.get("spec_id"),
-				{"account": r.get("account_name"), "spec_name": (r.get("spec_name") or "").strip(), "lines": 0, "stems": 0, "last": day},
+				{
+					"account": r.get("account_name"),
+					"spec_name": (r.get("spec_name") or "").strip(),
+					"lines": 0,
+					"stems": 0,
+					"last": day,
+				},
 			)
 			u["lines"] += 1
 			u["stems"] += rc._num(r.get("boxes_confirmed")) * rc._num(r.get("pack_rate"))
@@ -267,7 +316,9 @@ def get_rosenta_specs(date_from=None, date_to=None):
 	Any signed-in user; reads only."""
 	_gate()
 	try:
-		days = sync.days_between(date_from or frappe.utils.today(), date_to or date_from or frappe.utils.today())
+		days = sync.days_between(
+			date_from or frappe.utils.today(), date_to or date_from or frappe.utils.today()
+		)
 		orders, meta = {}, {}
 		have, meta = _orders(days)
 		all_specs, specs_at = sync.load_specs()
@@ -279,13 +330,29 @@ def get_rosenta_specs(date_from=None, date_to=None):
 		rows = {}
 		for account, specs in r_used.items():
 			ec = customers.map(account)
-			rows.setdefault(ec or "?" + str(account), {"customer": ec or account, "r": [], "e": e_all.get(ec, [])})["r"] += specs
+			rows.setdefault(
+				ec or "?" + str(account), {"customer": ec or account, "r": [], "e": e_all.get(ec, [])}
+			)["r"] += specs
 		for ec, specs in e_all.items():
 			rows.setdefault(ec, {"customer": ec, "r": [], "e": specs})
-		out, totals = [], {"rosenta_used": 0, "erpnext_active": 0, "matched": 0, "differ": 0, "only_rosenta": 0, "only_erpnext": 0, "unknown": 0}
+		out, totals = (
+			[],
+			{
+				"rosenta_used": 0,
+				"erpnext_active": 0,
+				"matched": 0,
+				"differ": 0,
+				"only_rosenta": 0,
+				"only_erpnext": 0,
+				"unknown": 0,
+			},
+		)
 		for r in rows.values():
 			pairs = pair_specs(r["r"], r["e"])
-			n = {s: sum(1 for p in pairs if p["state"] == s) for s in ("Matches", "Differs", "Only in Rosenta", "Only in ERPNext")}
+			n = {
+				s: sum(1 for p in pairs if p["state"] == s)
+				for s in ("Matches", "Differs", "Only in Rosenta", "Only in ERPNext")
+			}
 			totals["rosenta_used"] += len(r["r"])
 			totals["erpnext_active"] += len(r["e"])
 			totals["matched"] += n["Matches"]
@@ -347,10 +414,18 @@ def _rosenta_full(sp):
 		stems = sum(_int(v[2]) for v in vs)
 		per = _int(str(count).split(";")[0])
 		bunches.append(
-			{"n": n, "bunches": per, "stems": stems, "length": (_int(vs[0][1]) if vs else 0) or _int(sp.get("g")), "pack_rate": per * stems}
+			{
+				"n": n,
+				"bunches": per,
+				"stems": stems,
+				"length": (_int(vs[0][1]) if vs else 0) or _int(sp.get("g")),
+				"pack_rate": per * stems,
+			}
 		)
 		for v in vs:
-			varieties.append({"name": v[0], "bunch": n, "stems": _int(v[2]), "length": _int(v[1]), "cut": v[3] or ""})
+			varieties.append(
+				{"name": v[0], "bunch": n, "stems": _int(v[2]), "length": _int(v[1]), "cut": v[3] or ""}
+			)
 	cons = [{"name": i[0], "type": i[1] or "", "qty": i[2] or ""} for i in sp.get("c") or []]
 	return bunches, varieties, cons
 
@@ -378,7 +453,10 @@ def _align(r_items, e_items, key="name"):
 	for r in r_items:
 		j = next((j for j, e in enumerate(e_items) if j not in used and _norm(e[key]) == _norm(r[key])), None)
 		if j is None:
-			j = next((j for j, e in enumerate(e_items) if j not in used and _close(_norm(e[key]), _norm(r[key]))), None)
+			j = next(
+				(j for j, e in enumerate(e_items) if j not in used and _close(_norm(e[key]), _norm(r[key]))),
+				None,
+			)
 		if j is not None:
 			used.add(j)
 		out.append({"name": r[key], "rosenta": r, "erpnext": e_items[j] if j is not None else None})
@@ -393,16 +471,30 @@ def get_rosenta_spec_detail(rosenta_id=None, erpnext_name=None):
 	_gate()
 	try:
 		sp = next((s for s in sync.load_specs()[0] if s["i"] == rosenta_id), None) if rosenta_id else None
-		doc = frappe.get_doc("Specifications", erpnext_name) if erpnext_name and frappe.db.exists("Specifications", erpnext_name) else None
+		doc = (
+			frappe.get_doc("Specifications", erpnext_name)
+			if erpnext_name and frappe.db.exists("Specifications", erpnext_name)
+			else None
+		)
 		rd = rosenta_def(sp) if sp else None
-		ed = next(
-			(x for lst in erp_specs().values() for x in lst if x["id"] == erpnext_name), None
-		) if doc else None
+		ed = (
+			next((x for lst in erp_specs().values() for x in lst if x["id"] == erpnext_name), None)
+			if doc
+			else None
+		)
 		flagged = {x["field"] for x in diff(rd, ed)} if rd and ed else set()
 		rb, rv, rc_ = _rosenta_full(sp) if sp else ([], [], [])
 		eb, ev, ec = _erp_full(doc.as_dict()) if doc else ([], [], [])
-		colours_per_box = f"{_fmt(doc.min_colours_per_box)} to {_fmt(doc.max_colours_per_box)}" if doc and (doc.min_colours_per_box or doc.max_colours_per_box) else ""
-		validity = " to ".join(x for x in (str(doc.valid_from or ""), str(doc.expiry_date or "")) if x) if doc else ""
+		colours_per_box = (
+			f"{_fmt(doc.min_colours_per_box)} to {_fmt(doc.max_colours_per_box)}"
+			if doc and (doc.min_colours_per_box or doc.max_colours_per_box)
+			else ""
+		)
+		validity = (
+			" to ".join(x for x in (str(doc.valid_from or ""), str(doc.expiry_date or "")) if x)
+			if doc
+			else ""
+		)
 		rows = [
 			("Specification", sp and sp["n"], doc and doc.spec_name, None),
 			("Customer", sp and sp["a"], doc and doc.customer, None),

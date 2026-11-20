@@ -20,9 +20,8 @@ import re
 import frappe
 from frappe import _
 
-from upande_packhouse.api.v2 import orders_workflow
+from upande_packhouse.api.v2 import orders_workflow, rosenta_specs
 from upande_packhouse.api.v2 import rosenta_compare as rc
-from upande_packhouse.api.v2 import rosenta_specs
 from upande_packhouse.api.v2 import rosenta_sync as sync
 
 BUSINESS_UNIT = "Roses"
@@ -44,7 +43,9 @@ def _cash(by_currency):
 
 
 def _unbilled(dispatched, invoiced):
-	return {c: max(0.0, v - invoiced.get(c, 0)) for c, v in dispatched.items() if v - invoiced.get(c, 0) > 0.5}
+	return {
+		c: max(0.0, v - invoiced.get(c, 0)) for c, v in dispatched.items() if v - invoiced.get(c, 0) > 0.5
+	}
 
 
 def _same(a, b, tol=1.0):
@@ -216,7 +217,9 @@ def get_rosenta_money(date_from=None, date_to=None):
 	in the range. Any signed-in user; reads only."""
 	_gate()
 	try:
-		days = sync.days_between(date_from or frappe.utils.today(), date_to or date_from or frappe.utils.today())
+		days = sync.days_between(
+			date_from or frappe.utils.today(), date_to or date_from or frappe.utils.today()
+		)
 		have, meta = _meta(("orders", "billing"), days)
 		r_per, e_per = _rosenta_money(have), _erp_money(days[0], days[-1])
 		customers = rc._Customers(frappe.get_all("Customer", pluck="name"))
@@ -226,7 +229,14 @@ def get_rosenta_money(date_from=None, date_to=None):
 			k = ec or "?" + str(name)
 			r = rows.setdefault(k, {"customer": ec or name, "r": None, "e": None})
 			if r["r"] is None:
-				r["r"] = {"booked": {}, "dispatched": {}, "invoiced": {}, "paid": {}, "invoices": 0, "unpaid": 0}
+				r["r"] = {
+					"booked": {},
+					"dispatched": {},
+					"invoiced": {},
+					"paid": {},
+					"invoices": 0,
+					"unpaid": 0,
+				}
 			_merge(r["r"], x)
 		for c, x in e_per.items():
 			r = rows.setdefault(c, {"customer": x["name"], "r": None, "e": None})
@@ -328,7 +338,9 @@ def get_rosenta_greenhouse(date_from=None, date_to=None):
 	"""Revenue of the stems issued, by farm (Rosenta also by greenhouse and variety) against ERPNext by farm."""
 	_gate()
 	try:
-		days = sync.days_between(date_from or frappe.utils.today(), date_to or date_from or frappe.utils.today())
+		days = sync.days_between(
+			date_from or frappe.utils.today(), date_to or date_from or frappe.utils.today()
+		)
 		have, meta = _meta(("greenhouse",), days)
 		erp = _erp_farm_revenue(days[0], days[-1])
 		rows_ = [r for rows in have["greenhouse"].values() for r in rows]
@@ -404,7 +416,9 @@ def get_rosenta_fill(date_from=None, date_to=None):
 	"""Stems at every stage from ordered to dispatched, per customer, Rosenta against ERPNext."""
 	_gate()
 	try:
-		days = sync.days_between(date_from or frappe.utils.today(), date_to or date_from or frappe.utils.today())
+		days = sync.days_between(
+			date_from or frappe.utils.today(), date_to or date_from or frappe.utils.today()
+		)
 		have, meta = _meta(("fill", "orders"), days)
 		customers = rc._Customers(frappe.get_all("Customer", pluck="name"))
 		rows = {}
@@ -453,8 +467,12 @@ def get_rosenta_fill(date_from=None, date_to=None):
 					"status": rc._status_word(
 						ro["ordered"] > 0, er["ordered"] > 0, ro["dispatched"], er["dispatched"], 0
 					),
-					"fill_rosenta": round(100 * ro["dispatched"] / ro["ordered"], 1) if ro["ordered"] else None,
-					"fill_erpnext": round(100 * er["dispatched"] / er["ordered"], 1) if er["ordered"] else None,
+					"fill_rosenta": round(100 * ro["dispatched"] / ro["ordered"], 1)
+					if ro["ordered"]
+					else None,
+					"fill_erpnext": round(100 * er["dispatched"] / er["ordered"], 1)
+					if er["ordered"]
+					else None,
 				}
 			)
 		for who in tot:
