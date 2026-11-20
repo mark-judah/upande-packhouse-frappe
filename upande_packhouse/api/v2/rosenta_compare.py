@@ -1,6 +1,6 @@
 # Copyright (c) 2026, Upande and contributors
 # For license information, please see license.txt
-"""Rosenta comparison (www/rosenta-compare.html).
+"""Rosenta comparison (www/rosenta-comparison.html).
 
 TEMPORARY. Remove this file, the page, the Rosenta Connection doctype and
 tests/test_rosenta_compare.py when the parallel run on Rosenta stops.
@@ -38,7 +38,13 @@ from upande_packhouse.api.v2 import orders_workflow, packing_insights, sales_ord
 ROSENTA = "https://karen.rosenta.com"
 LOCATIONS = {"Ravine": "b183d745332a", "Karen": "7c45b7f280cf"}
 TIMEOUT = 90
+OPERATIONS_PATH = "/api/operations/get_packhouse_operations"
+#: The Order Summary page's own call: per order and line, the stem price and its currency.
+SPEC_PATH = "/api/insights/get_allocations_summary_by_order_spec"
+#: Invoices issued for a delivery date, one row per invoice (a consolidated one covers several orders).
+BILLING_PATH = "/api/financials/get_billing_by_delivery"
 SESSION_KEY = "rosenta_compare_session"
+CACHE_SECONDS = 60  # how long one comparison is shared between viewers
 SESSION_TTL = 100 * 60  # Rosenta ends a session after two hours
 
 #: Rosenta team -> ERPNext team names (Packing Team).
@@ -71,6 +77,14 @@ def _num(x):
 		return int(float(x or 0))
 	except (TypeError, ValueError):
 		return 0
+
+
+def _dec(x):
+	"""A number with its decimals (money). _num is for counts and drops them."""
+	try:
+		return float(x or 0)
+	except (TypeError, ValueError):
+		return 0.0
 
 
 def _words(s):
@@ -181,10 +195,10 @@ class RosentaOps:
 		self.store = store or _CacheStore()
 		self.cookie = None
 
-	def fetch(self, location_id, delivery_date):
+	def fetch(self, location_id, delivery_date, path=OPERATIONS_PATH):
 		"""One call with the current session; None when Rosenta refuses it."""
 		r = requests.post(
-			ROSENTA + "/api/operations/get_packhouse_operations",
+			ROSENTA + path,
 			data={"location_id": location_id, "delivery_date": delivery_date},
 			cookies={"ci_session": self.cookie or ""},
 			timeout=TIMEOUT,
@@ -212,6 +226,22 @@ class RosentaOps:
 		self.cookie = cookie
 		self.store.set(cookie)
 
+	def call(self, path, data):
+		"""POST to a Rosenta report endpoint and return its parsed JSON (a list or a dict). Rosenta answers a
+		refused call with its sign-in page, so the client signs in again once and repeats the call."""
+		if self.cookie is None:
+			self.cookie = self.store.get() or ""
+		for attempt in (0, 1):
+			r = requests.post(
+				ROSENTA + path, data=data, cookies={"ci_session": self.cookie or ""}, timeout=TIMEOUT
+			)
+			try:
+				return r.json()
+			except ValueError:
+				if attempt == 0:
+					self._sign_in()
+		frappe.throw(_("Rosenta refused the call to {0} after signing in.").format(path))
+
 	def operations(self, location_id, delivery_date):
 		"""{team: {order_id: {spec_id: line}}}. Signs in again once if the session is missing or expired."""
 		if self.cookie is None:
@@ -223,6 +253,65 @@ class RosentaOps:
 		if out is None:
 			frappe.throw(_("Rosenta refused the Packhouse Operations call after signing in."))
 		return out
+
+
+def _rosenta_invoices(ops, dmy):
+	"""{Rosenta customer: {invoices, orders, boxes, by_currency}} for the delivery date, from Rosenta billing.
+	Rosenta invoices per customer, so there is no invoicing by team."""
+
+	def call():
+		r = requests.post(
+			ROSENTA + BILLING_PATH,
+			data={"delivery_date": dmy},
+			cookies={"ci_session": ops.cookie or ""},
+			timeout=TIMEOUT,
+		)
+		try:
+			out = r.json()
+		except ValueError:
+			return None
+		return out if isinstance(out, list) else None
+
+	ops.operations(next(iter(LOCATIONS.values())), dmy)  # makes sure there is a live session
+	rows = call()
+	if rows is None:
+		ops._sign_in()
+		rows = call()
+	if rows is None:
+		frappe.throw(_("Rosenta refused the billing call."))
+	out = {}
+	for inv in rows:
+		if inv.get("invoice_status") in ("cancelled", "void"):
+			continue
+		c = out.setdefault(inv.get("account_name"), {"invoices": 0, "orders": set(), "boxes": 0, "by_currency": {}})
+		c["invoices"] += 1
+		try:
+			c["orders"].update(frappe.parse_json(inv.get("order_ids") or "[]"))
+		except Exception:
+			pass
+		c["boxes"] += _num(inv.get("total_boxes"))
+		cur = str(inv.get("invoice_currency") or "").upper()
+		c["by_currency"][cur] = c["by_currency"].get(cur, 0) + _dec(inv.get("invoice_amount"))
+	return {k: {**v, "orders": len(v["orders"])} for k, v in out.items()}
+
+
+def _line_prices(ops, dmy):
+	"""{(order id, line name): [(stem price, currency), ...]} for one delivery date at every location, from
+	the Order Summary call. Two lines of one order with the same name are taken in the order Rosenta lists them."""
+	out = {}
+	for loc in LOCATIONS.values():
+		data = ops.fetch(loc, dmy, SPEC_PATH)
+		if data is None:
+			ops.operations(loc, dmy)  # signs in again if the session ended
+			data = ops.fetch(loc, dmy, SPEC_PATH)
+		if data is None:
+			frappe.throw(_("Rosenta refused the Order Summary call."))
+		for order_id, specs in data.items():
+			for sp in specs.values():
+				out.setdefault((order_id, str(sp.get("spec_name") or "").strip()), []).append(
+					(_dec(sp.get("stem_price")), sp.get("currency") or "")
+				)
+	return out
 
 
 def _operations(ops, dmy_list):
@@ -243,6 +332,24 @@ def _operations(ops, dmy_list):
 	for (_loc, dmy), data in results.items():
 		merged.setdefault(dmy, {}).update(data or {})
 	return merged
+
+
+def _rosenta_team_dispatch(rows, dmy):
+	"""Stems dispatched per Rosenta team: the stems loaded on lines of orders it marks Dispatched or Partially
+	Dispatched, shared over the teams of the line by their boxes. Same rule as the customer figure."""
+	out = {}
+	for r in rows:
+		if r.get("order_delivery_date") != dmy or r.get("order_status") not in (R_DISPATCHED, R_PARTLY):
+			continue
+		try:
+			teams = [t for t in frappe.parse_json(r.get("teams") or "[]") if _num(t.get("box_count")) > 0]
+		except Exception:
+			teams = []
+		total = sum(_num(t.get("box_count")) for t in teams)
+		for t in teams:
+			share = _num(r.get("stems_loaded")) * _num(t.get("box_count")) / total
+			out[t.get("team_name")] = out.get(t.get("team_name"), 0) + share
+	return {k: round(v) for k, v in out.items()}
 
 
 def _rosenta_teams(ops_day, ops_next):
@@ -289,10 +396,11 @@ def _erp_team_totals(ins_teams, names, work_day, wf_teams=None):
 	"""A team's boxes in ERPNext. Expected / packed / last pack come from Packing Insights; staged and loaded
 	are the Box Label counts Orders & Workflow shows for the team (a staged box counts once it is staged,
 	loaded or delivered)."""
-	exp = packed = staged = loaded = 0
+	exp = packed = staged = loaded = dispatched = 0
 	last = None
 	for n in names:
 		w = (wf_teams or {}).get(n) or {}
+		dispatched += _num(w.get("dispatched_stems"))
 		staged += _num(w.get("staged_boxes"))
 		loaded += _num(w.get("loaded_boxes"))
 		t = ins_teams.get(n)
@@ -307,6 +415,7 @@ def _erp_team_totals(ins_teams, names, work_day, wf_teams=None):
 		"packed": packed,
 		"staged": staged,
 		"loaded": loaded,
+		"dispatched": dispatched,
 		"last": f"{work_day} {last}:00" if last else None,
 	}
 
@@ -323,11 +432,40 @@ _SIDE_KEYS = (
 	"boxes_loaded",
 	"stems_packed",
 	"stems_loaded",
+	"orders_dispatched",
+	"stems_dispatched",
+	"orders_invoiced",
+	"invoices",
 )
+
+#: Rosenta order statuses that mean stems have left: "Dispatched" is the whole order, "Partially Dispatched"
+#: an order with some lines gone. Rosenta gives no dispatch figure per line, so its stems loaded on such an
+#: order stand for stems dispatched.
+R_DISPATCHED = "Dispatched"
+R_PARTLY = "Partially Dispatched"
 
 
 def _side():
 	return {k: 0 for k in _SIDE_KEYS}
+
+
+def _money(by_currency, stems):
+	"""{value, price, currency, by_currency} from amounts by currency. Over several currencies the value and
+	the price are not added up: the currencies are listed and each amount kept in `by_currency`."""
+	by_currency = {c: round(v, 2) for c, v in by_currency.items() if v}
+	if not by_currency:
+		return {"value": None, "price": None, "currency": "", "by_currency": {}}
+	if len(by_currency) > 1:
+		return {"value": None, "price": None, "currency": " + ".join(sorted(by_currency)), "by_currency": by_currency}
+	cur, v = next(iter(by_currency.items()))
+	return {"value": v, "price": _price(v, stems), "currency": cur, "by_currency": by_currency}
+
+
+def _add_value(side, by_currency, delivery_notes=None):
+	"""Add the value of the orders, the price per stem and, for ERPNext, the delivery notes to a side."""
+	side.update(_money(by_currency, side["stems"]))
+	if delivery_notes is not None:
+		side["delivery_notes"] = delivery_notes
 
 
 def _erp_line_label(el):
@@ -383,7 +521,13 @@ def _pair_orders(r_list, e_list, label, e_lines):
 	used_r, used_e, out = set(), set(), []
 
 	def ros(ro):
-		return {"name": ro["name"], "status": ro["status"], "boxes": ro["boxes"], "stems": ro["stems"]}
+		return {
+			"name": ro["name"],
+			"status": ro["status"],
+			"boxes": ro["boxes"],
+			"stems": ro["stems"],
+			**_money(ro.get("value") or {}, ro["stems"]),
+		}
 
 	def erp(eo):
 		return {
@@ -392,6 +536,9 @@ def _pair_orders(r_list, e_list, label, e_lines):
 			"status": eo.get("status"),
 			"boxes": _num(eo.get("boxes")),
 			"stems": _num(eo.get("stems")),
+			"value": _dec(eo.get("value")),
+			"price": _price(_dec(eo.get("value")), _num(eo.get("stems"))),
+			"currency": eo.get("currency") or "",
 		}
 
 	for sc, i, j in cand:
@@ -412,7 +559,7 @@ def _pair_orders(r_list, e_list, label, e_lines):
 	return out
 
 
-def _rosenta_orders(rows, dmy):
+def _rosenta_orders(rows, dmy, prices=None):
 	"""One entry per Rosenta order of the delivery date, summed over its lines (and the lines themselves)."""
 	orders = {}
 	for r in rows:
@@ -432,6 +579,7 @@ def _rosenta_orders(rows, dmy):
 				"reason": r.get("cancellation_reason") or "",
 				"activity": False,
 				"lines": [],
+				"value": {},
 			},
 		)
 		stems = _num(r.get("stems_confirmed"))
@@ -448,6 +596,11 @@ def _rosenta_orders(rows, dmy):
 		o["stems"] += stems
 		o["staged"] += _num(r.get("stems_staged"))
 		o["loaded"] += _num(r.get("stems_loaded"))
+		line_name = str(r.get("line") or "").strip()
+		given = (prices or {}).get((r.get("order_id"), line_name)) or []
+		price, cur = given.pop(0) if given else (None, "")
+		if price is not None:
+			o["value"][cur] = o["value"].get(cur, 0) + price * stems
 		o["lines"].append(
 			{
 				"line": str(r.get("line") or "").strip(),
@@ -456,11 +609,61 @@ def _rosenta_orders(rows, dmy):
 				"boxes": boxes,
 				"pack_rate": _num(r.get("pack_rate")),
 				"stems": stems,
+				"price": price,
+				"value": None if price is None else round(price * stems, 2),
 			}
 		)
 		if _num(r.get("first_box_packed")) > 0 or _num(r.get("stems_staged")) > 0:
 			o["activity"] = True
 	return orders
+
+
+NOT_ALLOCATED = "Not allocated"
+
+
+def _alloc_row():
+	return {"orders": set(), "lines": 0, "boxes": 0, "stems": 0}
+
+
+def _rosenta_allocations(rows, dmy):
+	"""What Rosenta has allocated to each team for the delivery date, from the order lines' team split:
+	{team: {orders, lines, boxes, stems}}. A line with no team is "Not allocated" at its confirmed stems."""
+	out = {}
+	for r in rows:
+		if r.get("order_delivery_date") != dmy or r.get("order_status") == "Cancelled":
+			continue
+		rate = _num(r.get("pack_rate"))
+		try:
+			teams = [t for t in frappe.parse_json(r.get("teams") or "[]") if _num(t.get("box_count")) > 0]
+		except Exception:
+			teams = []
+		if not teams:
+			parts = [(NOT_ALLOCATED, -(-_num(r.get("stems_confirmed")) // rate) if rate else 0, _num(r.get("stems_confirmed")))]
+		else:
+			parts = [(t.get("team_name"), _num(t.get("box_count")), _num(t.get("box_count")) * rate) for t in teams]
+		for name, boxes, stems in parts:
+			a = out.setdefault(name, _alloc_row())
+			a["orders"].add(r.get("order_id"))
+			a["lines"] += 1
+			a["boxes"] += boxes
+			a["stems"] += stems
+	return {k: {**v, "orders": len(v["orders"])} for k, v in out.items()}
+
+
+def _erp_allocations(wf_team, names, unallocated=False):
+	"""ERPNext's allocation to the given Packing Teams: stems on their pick lists, from Orders & Workflow
+	by team. For the "Not allocated" group it is the stems still ordered with no pick list, and no boxes.
+	None when none of the teams has anything."""
+	secs = {sec.get("name"): sec.get("totals") or {} for sec in wf_team.get("sections") or []}
+	have = [secs[n] for n in names if n in secs]
+	if not have:
+		return None
+	return {
+		"orders": sum(_num(t.get("orders")) for t in have),
+		"lines": sum(_num(t.get("lines")) for t in have),
+		"boxes": None if unallocated else sum(_num(t.get("planned_boxes")) for t in have),
+		"stems": sum(_num(t.get("ordered_stems" if unallocated else "picked_stems")) for t in have),
+	}
 
 
 def _rosenta_customer_boxes(ops_day):
@@ -476,11 +679,17 @@ def _rosenta_customer_boxes(ops_day):
 	return out
 
 
-def _erp_lines(wf):
+def _price(value, stems):
+	return round(value / stems, 4) if stems else None
+
+
+def _erp_lines(wf, amounts=None):
 	"""{sales order: [line]} from Orders & Workflow, one line per box line as Rosenta shows it. In ERPNext
 	each variety of a mixed box is its own Sales Order Item (same mix name, same box count, its own stems
 	per box), so those are folded into one line: the boxes once, the pack rate and stems summed, and the
-	varieties kept for display. A line on several pick lists carries its numbers on the first one only."""
+	varieties kept for display. A line on several pick lists carries its numbers on the first one only.
+	`amounts` is {Sales Order Item: amount}, for the value and the price per stem of each line."""
+	amounts = amounts or {}
 	items = {}
 	for sec in wf.get("sections") or []:
 		for it in sec.get("rows") or []:
@@ -511,6 +720,11 @@ def _erp_lines(wf):
 					"boxes": _num(first.get("line_boxes")),
 					"pack_rate": sum(_num(g.get("stems_per_box")) for g in grp),
 					"stems": sum(_num(g.get("ordered_stems")) for g in grp),
+					"value": sum(_dec(amounts.get(g.get("soi"))) for g in grp),
+					"price": _price(
+						sum(_dec(amounts.get(g.get("soi"))) for g in grp),
+						sum(_num(g.get("ordered_stems")) for g in grp),
+					),
 				}
 			)
 	return out
@@ -518,10 +732,18 @@ def _erp_lines(wf):
 
 @frappe.whitelist()
 def get_rosenta_comparison(date=None):
-	"""Rosenta and ERPNext side by side for one delivery date. System Manager only; reads only."""
-	frappe.only_for("System Manager")
+	"""Rosenta and ERPNext side by side for one delivery date. Any signed-in user; reads only."""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Please log in"), frappe.PermissionError)
+	key = f"rosenta_compare:{getdate(date or today())}"
+	cached = frappe.cache.get_value(key)  # whoever asks within a minute gets the same answer, Rosenta is not asked again
+	if cached:
+		return cached
 	try:
-		return _compare(getdate(date or today()))
+		out = _compare(getdate(date or today()))
+		if out.get("success"):
+			frappe.cache.set_value(key, out, expires_in_sec=CACHE_SECONDS)
+		return out
 	except frappe.PermissionError:
 		raise
 	except Exception as e:
@@ -539,10 +761,10 @@ def _compare(d):
 
 	# ---- Rosenta
 	summary = _orders_summary(cfg["token"], iso)
-	orders = _rosenta_orders(summary, dmy)
-	ops_error, teams_r, cust_boxes = None, {}, None
+	client = RosentaOps(cfg["email"], cfg["password"])
+	ops_error, price_error, teams_r, cust_boxes = None, None, {}, None
 	try:
-		ops = _operations(RosentaOps(cfg["email"], cfg["password"]), [dmy, next_dmy])
+		ops = _operations(client, [dmy, next_dmy])
 		teams_r = _rosenta_teams(ops.get(dmy), ops.get(next_dmy))
 		cust_boxes = _rosenta_customer_boxes(ops.get(dmy))
 	except frappe.PermissionError:
@@ -550,6 +772,22 @@ def _compare(d):
 	except Exception as e:
 		frappe.clear_messages()
 		ops_error = str(e)
+	try:  # the same sign-in; a failure here only leaves the Rosenta prices out
+		prices = _line_prices(client, dmy)
+	except frappe.PermissionError:
+		raise
+	except Exception as e:
+		frappe.clear_messages()
+		prices, price_error = None, str(e)
+	orders = _rosenta_orders(summary, dmy, prices)
+	invoice_error = None
+	try:
+		r_invoices = _rosenta_invoices(client, dmy)
+	except frappe.PermissionError:
+		raise
+	except Exception as e:
+		frappe.clear_messages()
+		r_invoices, invoice_error = None, str(e)
 
 	# ---- ERPNext, as Packhouse v2 shows it
 	args = {"from_date": iso, "to_date": iso}
@@ -562,7 +800,16 @@ def _compare(d):
 	e_orders = so_sub.get("orders") or []
 	e_cancel = so_ca.get("orders") or []
 	wk = wf.get("kpis") or {}
-	e_lines = _erp_lines(wf)
+	soi = [it.get("soi") for sec in wf.get("sections") or [] for it in sec.get("rows") or [] if it.get("soi")]
+	amounts = (
+		{
+			x.name: x.amount
+			for x in frappe.get_all("Sales Order Item", filters={"name": ["in", soi]}, fields=["name", "amount"])
+		}
+		if soi
+		else {}
+	)  # the line's value only; every other number comes from the Packhouse pages
+	e_lines = _erp_lines(wf, amounts)
 
 	names = [s["name"] for s in e_orders + e_cancel]
 	label, replaced = {}, {}
@@ -583,7 +830,20 @@ def _compare(d):
 
 	def row_for(k, name):
 		return rows.setdefault(
-			k, {"customer": name, "rosenta": _side(), "erpnext": _side(), "r_list": [], "e_list": []}
+			k,
+			{
+				"customer": name,
+				"rosenta": _side(),
+				"erpnext": _side(),
+				"r_list": [],
+				"e_list": [],
+				"r_value": {},
+				"e_value": {},
+				"dns": set(),
+				"sis": set(),
+				"r_inv": {},
+				"e_inv": {},
+			},
 		)
 
 	for o in orders.values():
@@ -598,7 +858,20 @@ def _compare(d):
 		# Rosenta counts staged stems; boxes are staged straight after packing, so they stand for packed
 		side["stems_packed"] += o["staged"]
 		side["stems_loaded"] += o["loaded"]
+		for cur, v in o["value"].items():
+			r["r_value"][cur] = r["r_value"].get(cur, 0) + v
+		if o["status"] in (R_DISPATCHED, R_PARTLY):
+			side["stems_dispatched"] += o["loaded"]
+		if o["status"] == R_DISPATCHED:
+			side["orders_dispatched"] += 1
 		r["r_list"].append(o)
+	for cname, inv in (r_invoices or {}).items():
+		ec = customers.map(cname)
+		rr = row_for(ec or "?" + str(cname), ec or cname)
+		rr["rosenta"]["orders_invoiced"] += inv["orders"]
+		rr["rosenta"]["invoices"] += inv["invoices"]
+		for cur, v in inv["by_currency"].items():
+			rr["r_inv"][cur] = rr["r_inv"].get(cur, 0) + v
 	for cname, b in (cust_boxes or {}).items():
 		ec = customers.map(cname)
 		side = row_for(ec or "?" + str(cname), ec or cname)["rosenta"]
@@ -610,6 +883,8 @@ def _compare(d):
 		r["erpnext"]["orders"] += 1
 		r["erpnext"]["boxes"] += _num(s.get("boxes"))
 		r["erpnext"]["stems"] += _num(s.get("stems"))
+		cur = s.get("currency") or ""
+		r["e_value"][cur] = r["e_value"].get(cur, 0) + _dec(s.get("value"))
 		r["e_list"].append(s)
 	for sec in wf.get("sections") or []:
 		t = sec.get("totals") or {}
@@ -619,14 +894,64 @@ def _compare(d):
 		side["boxes_packed"] += _num(t.get("complete_boxes"))
 		side["boxes_staged"] += _num(t.get("staged_boxes"))
 		side["boxes_loaded"] += _num(t.get("loaded_boxes"))
+		side["stems_dispatched"] += _num(t.get("dispatched_stems"))
+		sent, ordered = {}, {}
+		for it in sec.get("rows") or []:
+			if not it.get("primary"):
+				continue
+			so = it.get("sales_order")
+			ordered[so] = ordered.get(so, 0) + _num(it.get("ordered_stems"))
+			sent[so] = sent.get(so, 0) + _num(it.get("dispatched_stems"))
+			rows[sec.get("key")]["dns"].update(it.get("delivery_notes") or [])
+		side["orders_dispatched"] += sum(1 for so, n in ordered.items() if n and sent[so] >= n - 0.5)
+		side["orders_invoiced"] += len(
+			{it.get("sales_order") for it in sec.get("rows") or [] if it.get("primary") and it.get("sales_invoices")}
+		)
+		for it in sec.get("rows") or []:
+			rows[sec.get("key")]["sis"].update(it.get("sales_invoices") or [])
+
+	all_sis = sorted({n for r in rows.values() for n in r["sis"]})
+	si_amount = {
+		x.name: (x.currency, _dec(x.grand_total))
+		for x in (
+			frappe.get_all(
+				"Sales Invoice",
+				filters={"name": ["in", all_sis], "docstatus": 1},
+				fields=["name", "grand_total", "currency"],
+			)
+			if all_sis
+			else []
+		)
+	}
+	for r in rows.values():
+		r["e_invoices"] = [n for n in r["sis"] if n in si_amount]
+		for n in r["e_invoices"]:
+			cur, v = si_amount[n]
+			r["e_inv"][cur] = r["e_inv"].get(cur, 0) + v
+		r["erpnext"]["invoices"] = len(r["e_invoices"])
 
 	totals = {"rosenta": _side(), "erpnext": _side()}
+	r_all, e_all, dns_all = {}, {}, set()
+	ri_all, ei_all = {}, {}
 	out_customers = []
 	for r in rows.values():
 		for who in totals:
 			for k in _SIDE_KEYS:
 				totals[who][k] += r[who][k]
 		ro, er = r["rosenta"], r["erpnext"]
+		_add_value(er, r["e_value"], len(r["dns"]))
+		_add_value(ro, r["r_value"])
+		er["invoiced"] = _money(r["e_inv"], 0)
+		ro["invoiced"] = _money(r["r_inv"], 0)
+		for cur, v in r["e_inv"].items():
+			ei_all[cur] = ei_all.get(cur, 0) + v
+		for cur, v in r["r_inv"].items():
+			ri_all[cur] = ri_all.get(cur, 0) + v
+		dns_all |= r["dns"]
+		for cur, v in r["e_value"].items():
+			e_all[cur] = e_all.get(cur, 0) + v
+		for cur, v in r["r_value"].items():
+			r_all[cur] = r_all.get(cur, 0) + v
 		boxes_known = cust_boxes is not None
 		out_customers.append(
 			{
@@ -650,15 +975,38 @@ def _compare(d):
 					er["stems_packed"],
 					STEM_TOLERANCE,
 				),
+				"dispatch_status": _status_word(
+					ro["stems_dispatched"] > 0,
+					er["stems_dispatched"] > 0,
+					ro["stems_dispatched"],
+					er["stems_dispatched"],
+					STEM_TOLERANCE,
+				),
+				"invoice_status": _status_word(
+					ro["orders_invoiced"] > 0,
+					er["orders_invoiced"] > 0,
+					ro["orders_invoiced"],
+					er["orders_invoiced"],
+					0,
+				),
 				"pairs": _pair_orders(r["r_list"], r["e_list"], label, e_lines),
 			}
 		)
 	if cust_boxes is None:
 		for who_key in ("boxes_packed", "boxes_staged", "boxes_loaded"):
 			totals["rosenta"][who_key] = None
+	if r_invoices is None:  # Rosenta billing could not be read: show nothing rather than zero
+		for side in [totals["rosenta"]] + [c["rosenta"] for c in out_customers]:
+			side.update({"orders_invoiced": None, "invoices": None, "invoiced": None})
+		for c in out_customers:
+			c["invoice_status"] = "-"
 
-	# The ERPNext side must equal what Orders & Workflow shows.
 	te = totals["erpnext"]
+	_add_value(te, e_all, len(dns_all))
+	_add_value(totals["rosenta"], r_all)
+	totals["erpnext"]["invoiced"] = _money(ei_all, 0)
+	totals["rosenta"]["invoiced"] = _money(ri_all, 0)
+	# The ERPNext side must equal what Orders & Workflow shows.
 	check = [
 		f"{what} {mine} vs {_num(theirs)}"
 		for what, mine, theirs in (
@@ -675,6 +1023,8 @@ def _compare(d):
 	ins_teams = {t.get("team"): t for t in ins.get("teams") or []}
 	wf_teams = {sec.get("name"): sec.get("totals") or {} for sec in wf_team.get("sections") or []}
 
+	r_disp = _rosenta_team_dispatch(summary, dmy)
+
 	def team_row(name, erp_names, r, e_t):
 		return {
 			"team": name,
@@ -686,6 +1036,7 @@ def _compare(d):
 				"packed": r["packed"],
 				"staged": r["staged"],
 				"loaded": r["loaded"],
+				"dispatched": r_disp.get(name, 0),
 				"last_packed": r["last_packed"],
 			},
 			"erpnext": None
@@ -695,6 +1046,7 @@ def _compare(d):
 				"packed": e_t["packed"],
 				"staged": e_t["staged"],
 				"loaded": e_t["loaded"],
+				"dispatched": e_t["dispatched"],
 				"last_pack": e_t["last"],
 			},
 		}
@@ -713,6 +1065,21 @@ def _compare(d):
 			teams.append(
 				team_row("(not mapped)", en, None, _erp_team_totals(ins_teams, (en,), work_day, wf_teams))
 			)
+
+	# ---- allocations by team
+	r_alloc = _rosenta_allocations(summary, dmy)
+	mapped_r = {m[0] for m in TEAM_MAP}
+	allocations = []
+	for rn, en in TEAM_MAP:
+		allocations.append({"team": rn, "erp_teams": ", ".join(en), "rosenta": r_alloc.get(rn), "erpnext": _erp_allocations(wf_team, en)})
+	allocations.append({"team": NOT_ALLOCATED, "erp_teams": NOT_ALLOCATED, "rosenta": r_alloc.get(NOT_ALLOCATED), "erpnext": _erp_allocations(wf_team, (NOT_ALLOCATED,), True)})
+	for rn, a in r_alloc.items():
+		if rn not in mapped_r and rn != NOT_ALLOCATED:
+			allocations.append({"team": rn, "erp_teams": "(not mapped)", "rosenta": a, "erpnext": None})
+	for sec in wf_team.get("sections") or []:
+		n = sec.get("name")
+		if n not in mapped and n != NOT_ALLOCATED:
+			allocations.append({"team": "(not mapped)", "erp_teams": n, "rosenta": None, "erpnext": _erp_allocations(wf_team, (n,))})
 
 	# ---- cancellations
 	def find_erp(order, pool):
@@ -772,9 +1139,12 @@ def _compare(d):
 		},
 		"check": check,
 		"ops_error": ops_error,
+		"price_error": price_error,
+		"invoice_error": invoice_error,
 		"work_day": work_day,
 		"customers": out_customers,
 		"teams": teams,
+		"allocations": allocations,
 		"cancel_rosenta": cancel_r,
 		"cancel_erpnext": cancel_e,
 	}

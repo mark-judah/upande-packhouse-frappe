@@ -1,0 +1,789 @@
+{% extends "templates/web.html" %}
+{% block title %}Rosenta comparison{% endblock %}
+{% block page_content %}
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Rosenta comparison: stand-alone page in the Upande avocado design. TEMPORARY, see rosenta_compare.py. */
+html.rc-root,html.rc-root body{margin:0!important;padding:0!important;background:#f4f3ef!important}
+html.rc-root .navbar,html.rc-root .web-footer,html.rc-root footer.web-footer,html.rc-root .page-breadcrumbs,
+html.rc-root .page-header-wrapper,html.rc-root .website-banner,html.rc-root .btn-edit-page,
+html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
+.rc{
+  --ink:#0a0a0a;--ink-1:#1a1a18;--ink-3:#3a3a34;--ink-4:#5a5a52;--ink-mute:#8a8780;--ink-faint:#b8b6ae;
+  --bg:#f4f3ef;--surface:#fafaf6;--card:#fff;--hair:rgba(10,10,10,.07);
+  --avo-100:#eef3dd;--avo-500:#7aa23f;--avo-600:#5d8230;--avo-700:#44631f;
+  --warn:#d9962e;--neg:#c4302b;--pit-deep:#8a6a3b;
+  --shadow:0 1px 0 rgba(10,10,10,.04),0 8px 32px -16px rgba(10,10,10,.10);
+  --grad-ink:linear-gradient(135deg,#0a0a0a 0%,#3a3a34 100%);
+  --grad-avo:linear-gradient(135deg,#44631f 0%,#7aa23f 100%);
+  font:14px/1.55 'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--ink-3);
+  background:var(--bg);min-height:100vh;-webkit-font-smoothing:antialiased}
+.rc *{box-sizing:border-box}
+.rc button{font-family:inherit}
+.rc :where(button,input):focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){.rc *{transition:none!important;animation:none!important}}
+
+.rc-top{background:var(--card);padding:14px clamp(16px,2.2vw,44px);display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:20;border-bottom:1px solid var(--hair)}
+.rc-top__mark{width:30px;height:30px;border-radius:9px;background:var(--grad-ink);color:#fafaf6;display:grid;place-items:center;font:700 14px 'Poppins',sans-serif}
+.rc-top__name{font:600 14px 'Poppins',sans-serif;color:var(--ink);letter-spacing:-.2px}
+.rc-top__name small{display:block;font:500 10px 'Poppins',sans-serif;text-transform:uppercase;letter-spacing:1.6px;color:var(--ink-mute)}
+.rc-top__right{margin-left:auto;display:flex;align-items:center;gap:14px;font-size:12px;color:var(--ink-mute)}
+
+.rc-page{max-width:none;margin:0;padding:36px clamp(16px,2.2vw,44px) 80px}
+.rc-head{display:flex;justify-content:space-between;align-items:flex-end;gap:32px;flex-wrap:wrap;margin-bottom:28px}
+.rc-eyebrow{font:500 11px 'Poppins',sans-serif;text-transform:uppercase;letter-spacing:2.2px;color:var(--ink-mute);margin-bottom:10px;display:inline-flex;align-items:center;gap:10px}
+.rc-eyebrow::before{content:"";width:18px;height:1px;background:var(--ink-3)}
+.rc-title{font:600 40px/1.05 'Poppins',sans-serif;color:var(--ink);letter-spacing:-1.2px;margin:0}
+.rc-sub{margin:8px 0 0;font-size:14px;color:var(--ink-4)}
+.rc-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+
+.rc-pills{display:inline-flex;background:rgba(10,10,10,.04);border-radius:999px;padding:4px;gap:2px;max-width:100%;overflow-x:auto}
+.rc-pills button{border:0;background:transparent;font:500 12px 'Poppins',sans-serif;color:var(--ink-4);padding:8px 16px;cursor:pointer;border-radius:999px;white-space:nowrap;transition:all .2s}
+.rc-pills button:hover{color:var(--ink)}
+.rc-pills button.on{background:var(--ink);color:#fafaf6;box-shadow:0 2px 8px rgba(10,10,10,.15)}
+.rc-datelabel{font:500 12px 'Poppins',sans-serif;color:var(--ink-mute);margin-right:-4px;white-space:nowrap}
+.rc-date{background:var(--card);border:0;border-radius:999px;padding:10px 16px;font:500 12px 'Poppins',sans-serif;color:var(--ink);box-shadow:var(--shadow)}
+.rc-btn{border:0;background:var(--card);color:var(--ink);border-radius:999px;padding:10px 18px;font:500 12px 'Poppins',sans-serif;cursor:pointer;box-shadow:var(--shadow);transition:all .2s}
+.rc-btn:hover{transform:translateY(-1px)}
+
+.rc-tabs{display:inline-flex;gap:4px;margin-bottom:28px;background:rgba(10,10,10,.04);padding:5px;border-radius:999px;max-width:100%;overflow-x:auto}
+.rc-tab{background:transparent;border:0;font:500 13px 'Poppins',sans-serif;color:var(--ink-4);padding:10px 18px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;transition:all .2s}
+.rc-tab:hover{color:var(--ink)}
+.rc-tab.on{background:var(--grad-ink);color:#fafaf6;box-shadow:0 4px 14px rgba(10,10,10,.20)}
+.rc-tab i{font:600 11px 'Poppins',sans-serif;font-style:normal;background:var(--neg);color:#fff;border-radius:999px;padding:1px 8px}
+
+/* summary cards: the two systems side by side, in words */
+.rc-kpis{display:grid;grid-template-columns:repeat(var(--n,3),minmax(0,1fr));gap:18px;margin-bottom:24px}
+@media (max-width:900px){.rc-kpis{grid-template-columns:1fr}}
+.rc-kpi{background:var(--card);border-radius:20px;padding:24px 28px;box-shadow:var(--shadow);text-align:center}
+.rc-kpi__label{font:500 11px 'Poppins',sans-serif;text-transform:uppercase;letter-spacing:1.8px;color:var(--ink-mute);margin-bottom:16px}
+.rc-kpi__pair{display:grid;grid-template-columns:1fr 1fr;gap:16px;justify-items:center}
+.rc-kpi__side small{display:block;font:500 11px 'Poppins',sans-serif;color:var(--ink-mute);margin-bottom:2px}
+.rc-kpi__side b{font:600 34px/1 'Poppins',sans-serif;color:var(--ink);letter-spacing:-1px;font-variant-numeric:tabular-nums}
+.rc-kpi__side.is-e b{color:var(--avo-700)}
+.rc-kpi__foot{margin-top:16px;display:flex;justify-content:center;flex-wrap:wrap;gap:6px}
+.rc-kpi__foot{font-size:12px;color:var(--ink-mute)}
+.rc-kpi__pair:has(.rc-kpi__side:only-child){grid-template-columns:1fr}
+.rc-kpi--wide{grid-column:1/-1}
+.rc-kpi--wide .rc-kpi__pair{grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px 40px}
+.rc-specrow{cursor:pointer}.rc-specrow:hover td{background:rgba(10,10,10,.03)}.rc-spectable tr.rc-diffrow td{background:rgba(150,101,15,.08)}.rc-missing{color:var(--neg);font-weight:500}
+.rc-warnnum{color:#96650f}.rc-badnum{color:var(--neg)}
+.rc-spectable{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}.rc-spectable th{position:sticky;top:0;z-index:5;background:var(--card);text-align:left;padding:10px 14px;color:var(--ink-mute);font:500 11px 'Poppins',sans-serif;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(10,10,10,.14)}.rc-spectable th:nth-child(even),.rc-spectable td:nth-child(even){background:rgba(10,10,10,.055)}.rc-spectable td+td,.rc-spectable th+th{border-left:1px solid rgba(10,10,10,.12)}.rc-spectable td{padding:10px 14px;border-top:1px solid rgba(10,10,10,.06);vertical-align:top}.rc-spectable td b{font-weight:600}
+.rc-cur{white-space:nowrap}.rc-cur i{font-style:normal;font-size:11px;color:var(--ink-mute);margin-right:4px}
+.rc-kpi__sub{margin-top:6px;font:500 12px 'Poppins',sans-serif;color:var(--ink-mute)}
+.rc-amts{display:flex;flex-wrap:wrap;gap:6px 24px;justify-content:center}
+.rc-amts b{font:600 26px/1.15 'Poppins',sans-serif;letter-spacing:-.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.rc-amts b i{font:500 12px 'Poppins',sans-serif;font-style:normal;color:var(--ink-mute);letter-spacing:.4px;margin-right:6px}
+.rc-kpi--wide .rc-kpi__side.is-e .rc-amts b{color:var(--avo-700)}
+
+.rc-card{background:var(--card);border-radius:24px;padding:8px 8px 12px;box-shadow:var(--shadow);margin-bottom:18px}
+.rc-card__head{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:18px 22px 6px}
+.rc-card__head h3{margin:0;font:600 17px 'Poppins',sans-serif;color:var(--ink);letter-spacing:-.3px}
+.rc-card__head span{font:500 12px 'Poppins',sans-serif;color:var(--ink-mute)}
+
+/* the comparison grid: Rosenta on the left, ERPNext on the right, one status at the end */
+.rc-scroll{overflow:auto;padding:0 14px;max-height:calc(100vh - 150px);position:relative}
+/* Frappe's page container is capped at 1290px; this page uses the whole screen */
+.page-content-wrapper .container,.page-content-wrapper>.container,main .container{max-width:none!important;width:100%;padding-left:0;padding-right:0}
+.rc-ghead{position:sticky;top:0;z-index:6;background:var(--card);min-width:var(--minw,0);box-shadow:0 1px 0 var(--hair-2,rgba(10,10,10,.12))}
+.rc-ghead .rc-g{min-width:0}
+/* columns: one band per measure, alternating grey, so it is clear where Boxes stops and Stems per box starts */
+.rc-g .sub{border-left:1px dashed rgba(10,10,10,.13)}
+.rc-g .sep{border-left:1px solid rgba(10,10,10,.16)}
+.rc-ghead .rc-g>div:first-child{z-index:7}
+.rc-gh2>div{border-bottom:2px solid rgba(10,10,10,.14);padding-top:0!important;align-items:flex-end}
+.rc-gh .n{justify-content:flex-end}.rc-gh .rc-grp{align-items:center}
+/* one solid grey per band, so nothing stacks or turns patchy: bands, hover and total rows each have their own fixed shade */
+.rc-g>div.cg1,.rc-grp.cg1{background:#f4f4f0}
+.rc-grp.cg1 .s,.rc-grp.cg1 .r,.rc-grp.cg1 .e{box-shadow:none}
+.rc-grp.cg1 .s{background:#e7e7e1}
+.rc-g>div:first-child{position:sticky;left:0;z-index:2;background:var(--card)}
+.rc-row.go:hover>div{background:#f8f8f5}.rc-row.go:hover>div.cg1{background:#ecece7}
+.rc-row.total>div{background:#efefea}.rc-row.total>div.cg1{background:#e4e4de}.rc-gh .rc-grp{padding-top:10px!important}.rc-chip{white-space:nowrap}
+.rc-g{display:grid;grid-template-columns:var(--cols);align-items:stretch;min-width:var(--minw,0)}
+.rc-g>div{padding:11px 10px;min-width:0;display:flex;align-items:center}
+.rc-c{width:100%;min-width:0}
+.rc-g .n{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink);font-weight:500}
+.rc-g .n.dim{color:var(--ink-faint);font-weight:400}
+.rc-g .sep{border-left:1px solid var(--hair)}
+.rc-gh{font:500 10.5px 'Poppins',sans-serif;text-transform:uppercase;letter-spacing:1.2px;color:var(--ink-mute)}
+.rc-gh>div{padding-top:6px;padding-bottom:10px}
+.rc-grp{padding-bottom:0!important}
+.rc-grp span{display:inline-block;font:600 11px 'Poppins',sans-serif;letter-spacing:.6px;text-transform:none;padding:4px 12px;border-radius:999px}
+.rc-grp .r{background:var(--ink);color:#fafaf6}
+.rc-grp .e{background:var(--avo-600);color:#fff}
+.rc-gh .sub-r{color:var(--ink)}.rc-gh .sub-e{color:var(--avo-600)}
+.rc-grp .s{background:rgba(10,10,10,.05);color:var(--ink-4)}
+.rc-row{border-top:1px solid var(--hair);transition:background .15s;background:var(--card)}
+.rc-row.go{cursor:pointer}
+
+.rc-row.total{border-top:0}
+.rc-row.total>div{padding-top:12px;padding-bottom:12px}.rc-row.total{border-top:0;margin-top:4px}.rc-row.total .rc-name{font-weight:600}
+.rc-name{font:600 14px 'Poppins',sans-serif;color:var(--ink);overflow-wrap:anywhere}
+.rc-name small{display:block;font:400 12px 'Poppins',sans-serif;color:var(--ink-mute);margin-top:1px}
+.rc-arrow{color:var(--ink-faint);margin-left:6px;font-weight:400}
+.rc-row.go:hover .rc-arrow{color:var(--ink)}
+.rc-time b{display:block;font:600 14px 'Poppins',sans-serif;color:var(--ink);font-variant-numeric:tabular-nums}
+.rc-time small{display:block;white-space:nowrap;font:400 11px 'Poppins',sans-serif;color:var(--ink-mute)}
+.rc-none{color:var(--ink-faint)}
+
+.rc-chip{display:inline-block;padding:3px 11px;font:500 11.5px 'Poppins',sans-serif;border-radius:999px;white-space:nowrap;background:rgba(10,10,10,.05);color:var(--ink-4)}
+.rc-chip.good{background:rgba(122,162,63,.14);color:var(--avo-700)}
+.rc-chip.warn{background:rgba(217,150,46,.14);color:#96650f}
+.rc-chip.bad{background:rgba(196,48,43,.10);color:var(--neg)}
+.rc-diff.good{color:var(--avo-600)}.rc-diff.warn{color:#96650f}.rc-diff.bad{color:var(--neg)}
+
+.rc-switch{margin:4px 0 16px}
+.rc-hint{margin:6px 4px 0;color:var(--ink-mute);font-size:12px;max-width:900px}
+.rc-note{background:var(--card);border-radius:16px;padding:14px 20px;box-shadow:var(--shadow);margin-bottom:18px;font-size:13px}
+.rc-note.bad{color:var(--neg)}.rc-note.good{color:var(--avo-700)}.rc-note.warn{color:#96650f}
+.rc-empty{padding:44px 20px;text-align:center;color:var(--ink-mute)}
+.rc-empty b{display:block;color:var(--ink);font:600 15px 'Poppins',sans-serif;margin-bottom:4px}
+.rc-skel{height:56px;border-radius:14px;background:linear-gradient(90deg,rgba(10,10,10,.04),rgba(10,10,10,.08),rgba(10,10,10,.04));margin:8px 14px}
+
+/* the side panel */
+.rc-veil{position:fixed;inset:0;background:rgba(10,10,10,.28);opacity:0;pointer-events:none;transition:opacity .2s;z-index:40}
+.rc-veil.on{opacity:1;pointer-events:auto}
+.rc-panel{position:fixed;top:0;right:0;bottom:0;width:70vw;min-width:min(760px,100vw);max-width:100vw;background:var(--bg);z-index:41;transform:translateX(102%);transition:transform .25s ease;display:flex;flex-direction:column;box-shadow:-24px 0 48px -24px rgba(10,10,10,.25)}
+.rc-panel.on{transform:none}
+.rc-panel__head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:26px 30px 18px;background:var(--card);border-bottom:1px solid var(--hair)}
+.rc-panel__head h2{margin:0;font:600 24px/1.15 'Poppins',sans-serif;color:var(--ink);letter-spacing:-.6px}
+.rc-panel__head p{margin:4px 0 0;font-size:13px;color:var(--ink-mute)}
+.rc-x{width:38px;height:38px;border:0;border-radius:50%;background:rgba(10,10,10,.05);color:var(--ink-4);font-size:20px;line-height:1;cursor:pointer;flex:none}
+.rc-x:hover{background:var(--ink);color:#fafaf6}
+.rc-panel .rc-scroll{overflow:visible;max-height:none;padding:0}
+/* in the popup the panel body is the scroller: no padding above a sticky header, or rows scroll through the gap */
+.rc-panel .rc-panel__body{padding-top:0}
+.rc-panel .rc-panel__body>*:first-child{margin-top:22px}
+.rc-panel .rc-card{padding-top:0;overflow:visible}
+.rc-panel .rc-ghead{padding-top:6px;top:0}
+.rc-panel .rc-spectable th{top:0}.rc-panel__body{overflow:auto;padding:22px 30px 40px;flex:1}
+.rc-orderhead{border-top:1px solid var(--hair);margin-top:10px}
+.rc-orderhead>div{padding:14px 10px 4px!important}
+.rc-whos{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.rc-who small{display:inline-block;font:600 10.5px 'Poppins',sans-serif;text-transform:uppercase;letter-spacing:1.2px;padding:2px 10px;border-radius:999px;background:var(--ink);color:#fafaf6;margin-bottom:4px}
+.rc-who.e small{background:var(--avo-600)}
+.rc-who b{display:block;font:600 13px 'Poppins',sans-serif;color:var(--ink);overflow-wrap:anywhere}
+.rc-who span{display:block;font-size:12px;color:var(--ink-mute)}
+.rc-mixed{display:block;font:400 11.5px 'Poppins',sans-serif;color:var(--ink-mute);margin-top:3px}
+.rc-lenrow{display:block;font:400 11.5px 'Poppins',sans-serif;color:var(--ink-mute);margin-top:2px}
+
+@media (max-width:760px){.rc-top{padding:12px 16px}.rc-page{padding:24px 16px 60px}.rc-title{font-size:30px}.rc-panel__body{padding:18px 16px 32px}.rc-panel__head{padding:20px 16px 14px}}
+</style>
+<script>document.documentElement.classList.add('rc-root');</script>
+<div class="rc" id="rc">
+  <div class="rc-top">
+    <div class="rc-top__mark">U</div>
+    <div class="rc-top__name">Upande<small>Rosenta comparison</small></div>
+    <div class="rc-top__right"><span id="rc-updated"></span><button class="rc-btn" id="rc-refresh" type="button">Refresh</button></div>
+  </div>
+  <div class="rc-page">
+    <header class="rc-head">
+      <div>
+        <div class="rc-eyebrow">Rosenta · ERPNext</div>
+        <h1 class="rc-title">Rosenta comparison</h1>
+        <p class="rc-sub" id="rc-sub">Rosenta compared with ERPNext for one delivery date.</p>
+      </div>
+      <div class="rc-tools">
+        <div class="rc-pills" id="rc-presets"><button type="button" data-v="yesterday">Yesterday</button><button type="button" data-v="today">Today</button><button type="button" data-v="tomorrow">Tomorrow</button></div>
+        <label class="rc-datelabel" for="rc-date">Delivery date</label>
+        <input class="rc-date" type="date" id="rc-date" title="Delivery date">
+        <div class="rc-pills" id="rc-span" title="Period for Sales and payments, Farm revenue, Specifications and Order fulfilment, ending on the delivery date"><button type="button" data-v="1">Day</button><button type="button" data-v="7">7 days</button><button type="button" data-v="30">30 days</button></div>
+        <button class="rc-btn" id="rc-csv" type="button">Download CSV</button>
+      </div>
+    </header>
+    <div class="rc-tabs" id="rc-tabs" role="tablist">
+      <button class="rc-tab" type="button" data-tab="orders">Orders<i id="rc-n-orders" hidden></i></button>
+      <button class="rc-tab" type="button" data-tab="packing">Packing<i id="rc-n-packing" hidden></i></button>
+      <button class="rc-tab" type="button" data-tab="allocations">Allocations<i id="rc-n-allocations" hidden></i></button>
+      <button class="rc-tab" type="button" data-tab="specs">Specifications</button>
+      <button class="rc-tab" type="button" data-tab="money">Sales &amp; payments</button>
+      <button class="rc-tab" type="button" data-tab="greenhouse">Farm revenue</button>
+      <button class="rc-tab" type="button" data-tab="fill">Order fulfilment</button>
+      <button class="rc-tab" type="button" data-tab="teams">Live packing</button>
+      <button class="rc-tab" type="button" data-tab="cancel">Cancellations<i id="rc-n-cancel" hidden></i></button>
+    </div>
+    <div id="rc-warn"></div>
+    <div id="rc-content"></div>
+  </div>
+<div class="rc-veil" id="rc-veil"></div>
+<aside class="rc-panel" id="rc-panel" aria-hidden="true">
+  <div class="rc-panel__head"><div><h2 id="rc-p-title"></h2><p id="rc-p-sub"></p></div><button class="rc-x" id="rc-p-close" type="button" aria-label="Close">&times;</button></div>
+  <div class="rc-panel__body" id="rc-p-body"></div>
+</aside>
+</div>
+<script src="/assets/upande_packhouse/js/packhouse-v2.js?v={{ ph_v }}"></script>
+{% raw %}
+<script>
+(function () {
+  "use strict";
+  var LAG_RED_MIN = 60; // a team this many minutes behind is flagged
+  var POLL_MS = 120000;
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
+
+  function boot() {
+    if (!(window.PH && PH.call && PH.csv)) return setTimeout(boot, 30);
+    start();
+  }
+
+  function start() {
+    var iso = function (d) { return d.toLocaleDateString("en-CA", { timeZone: "Africa/Nairobi" }); };
+    var today = new Date();
+    var st = { date: iso(today), tab: "orders", show: "diff", span: "1" };
+    var rdata = {}, rkey = {}, rseq = 0; // Sales & payments, Farm revenue, Specifications and Order fulfilment: their own period and data
+    var data = null, seq = 0;
+
+    // ---- numbers and times (whole numbers everywhere; a pack rate is stems in one box)
+    function num(x) { return x == null ? "—" : Math.round(x).toLocaleString("en-US"); }
+    function money(x, dp) { return x == null ? "—" : Number(x).toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp }); }
+    var m2 = function (v) { return money(v, 2); }, m3 = function (v) { return money(v, 3); };
+    function ts(epoch) { return epoch ? new Date(epoch * 1000) : null; }
+    function erpTs(s) { return s && s !== "None" ? new Date(String(s).replace(" ", "T").slice(0, 19) + "+03:00") : null; }
+    function clock(d) { return d.toLocaleTimeString("en-GB", { timeZone: "Africa/Nairobi", hour: "2-digit", minute: "2-digit", hour12: false }); }
+    function dayLabel(d, now) {
+      if (iso(d) === iso(now)) return "Today";
+      if (iso(d) === iso(new Date(now.getTime() - 86400000))) return "Yesterday";
+      return d.toLocaleDateString("en-GB", { timeZone: "Africa/Nairobi", day: "2-digit", month: "short" });
+    }
+    function span(mins) { var a = Math.abs(Math.round(mins)); return a >= 60 ? Math.floor(a / 60) + " h " + (a % 60) + " m" : a + " m"; }
+    function longDate(s) { var p = String(s).split("-"); return new Date(+p[0], +p[1] - 1, +p[2]).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" }); }
+    function timeCell(d, now) {
+      return d ? '<div class="rc-time"><b>' + clock(d) + "</b><small>" + dayLabel(d, now) + " · " + span((now - d) / 60000) + " ago</small></div>" : '<span class="rc-none">no entry</span>';
+    }
+
+    // ---- difference, always ERPNext against Rosenta, in words
+    function tone(a, b) {
+      if (a == null || b == null) return "";
+      var d = b - a;
+      if (d === 0) return "good";
+      return Math.abs(d) / (Math.max(Math.abs(a), Math.abs(b)) || 1) > 0.1 ? "bad" : "warn";
+    }
+    function gapChip(a, b, unit) {
+      if (a == null && b == null) return '<span class="rc-none">—</span>';
+      if (a == null) return '<span class="rc-chip bad">Only in ERPNext</span>';
+      if (b == null) return '<span class="rc-chip bad">Only in Rosenta</span>';
+      var d = b - a;
+      if (d === 0) return '<span class="rc-chip good">Matches</span>';
+      return '<span class="rc-chip ' + tone(a, b) + '">ERPNext ' + num(Math.abs(d)) + (unit ? " " + unit : "") + (d < 0 ? " less" : " more") + "</span>";
+    }
+    function statusChip(status, a, b) {
+      if (status === "Matches") return '<span class="rc-chip good">Matches</span>';
+      if (String(status).indexOf("Only") === 0) return '<span class="rc-chip bad">' + esc(status) + "</span>";
+      return '<span class="rc-chip ' + (tone(a, b) || "warn") + '">' + esc(status) + "</span>";
+    }
+
+    // ---- the grid. cols: [{k, h, side:'r'|'e'|'s', w, html, text}], rows: [{name, sub, r, e, status, go, i}]
+    function grid(o) {
+      var cols = o.cols;
+      var tpl = (o.firstW || "minmax(210px,1.8fr)") + " " + cols.map(function (c) { return c.w || "minmax(78px,1fr)"; }).join(" ");
+      var minw = o.minw || 0;
+      var groups = [], last = null, gi = [];
+      var gk = function (c) { return c.grp || c.side; };
+      cols.forEach(function (c) { if (last && last.key === gk(c)) last.n++; else { last = { key: gk(c), side: c.grp ? "s" : c.side, n: 1, label: c.grp || (c.side === "r" ? "Rosenta" : c.side === "e" ? "ERPNext" : (o.statusLabel || "Status")) }; groups.push(last); } gi.push(groups.length - 1); });
+      // each measure is one band; bands alternate between white and grey so the eye can tell where one ends
+      var band = function (i) { return gi[i] % 2 ? " cg1" : ""; };
+      var subc = function (i) { return i > 0 && gi[i - 1] === gi[i] ? " sub" : ""; };
+      var subHead = function (c) { return c.grp ? (c.side === "r" ? "Rosenta" : "ERPNext") : c.h; };
+      var h = '<div class="rc-ghead" style="--minw:' + minw + 'px"><div class="rc-g rc-gh" style="--cols:' + tpl + ";--minw:" + minw + 'px"><div class="rc-grp"></div>' +
+        groups.map(function (g, k) { return '<div class="rc-grp sep' + (k % 2 ? " cg1" : "") + '" style="grid-column:span ' + g.n + '"><span class="' + g.side + '">' + g.label + "</span></div>"; }).join("") +
+        "</div>" +
+        '<div class="rc-g rc-gh rc-gh2" style="--cols:' + tpl + ";--minw:" + minw + 'px"><div>' + esc(o.first || "") + "</div>" +
+        cols.map(function (c, i) { var sep = i === 0 || gk(cols[i - 1]) !== gk(c); return '<div class="' + (c.text || c.html ? "" : "n") + (sep ? " sep" : "") + subc(i) + band(i) + (c.grp ? " sub-" + c.side : "") + '">' + esc(subHead(c)) + "</div>"; }).join("") + "</div></div>";
+      o.rows.forEach(function (r) {
+        if (r.full) { h += '<div class="rc-g rc-row rc-orderhead" style="--cols:' + tpl + ";--minw:" + minw + 'px"><div style="grid-column:1/-1">' + r.full + "</div></div>"; return; }
+        h += '<div class="rc-g rc-row' + (r.go ? " go" : "") + (r.total ? " total" : "") + '" style="--cols:' + tpl + ";--minw:" + minw + 'px"' + (r.i != null ? ' data-i="' + r.i + '"' : "") + ">" +
+          '<div class="rc-name"><div class="rc-c">' + (r.nameHtml || esc(r.name)) + (r.go ? '<span class="rc-arrow">›</span>' : "") + (r.sub ? "<small>" + r.sub + "</small>" : "") + "</div></div>" +
+          cols.map(function (c, i) {
+            var sep = i === 0 || gk(cols[i - 1]) !== gk(c);
+            var side = c.side === "r" ? r.r : c.side === "e" ? r.e : null;
+            var inner;
+            if (c.side === "s") inner = c.html ? c.html(r) : "";
+            else if (!side) inner = '<span class="rc-none">—</span>';
+            else {
+              var v = c.val ? c.val(side) : side[c.k];
+              inner = c.html ? c.html(side) : (c.text ? esc(v == null || v === "" ? "—" : v) : (c.fmt ? c.fmt(v) : num(v)));
+            }
+            var cls = c.text || c.html || c.side === "s" ? "" : "n" + (side && (c.val ? c.val(side) : side[c.k]) === 0 ? " dim" : "");
+            return '<div class="' + cls + (sep ? " sep" : "") + subc(i) + band(i) + '"><div class="rc-c">' + inner + "</div></div>";
+          }).join("") + "</div>";
+      });
+      return '<div class="rc-scroll">' + h + "</div>";
+    }
+    function card(title, meta, inner) {
+      return '<section class="rc-card">' + (title ? '<div class="rc-card__head"><h3>' + esc(title) + "</h3>" + (meta ? "<span>" + esc(meta) + "</span>" : "") + "</div>" : "") + inner + "</section>";
+    }
+    function empty(t, x) { return '<div class="rc-empty"><b>' + esc(t) + "</b>" + esc(x) + "</div>"; }
+    function kpi(label, r, e, unit) {
+      return '<div class="rc-kpi"><div class="rc-kpi__label">' + esc(label) + '</div><div class="rc-kpi__pair">' +
+        '<div class="rc-kpi__side"><small>Rosenta</small><b>' + num(r) + '</b></div><div class="rc-kpi__side is-e"><small>ERPNext</small><b>' + num(e) + "</b></div></div>" +
+        '<div class="rc-kpi__foot">' + gapChip(r, e, unit) + "</div></div>";
+    }
+    function showSwitch() {
+      return '<div class="rc-pills rc-switch" id="rc-show"><button type="button" data-v="diff"' + (st.show === "diff" ? ' class="on"' : "") + ">Differences only</button>" +
+        '<button type="button" data-v="all"' + (st.show === "all" ? ' class="on"' : "") + ">All customers</button></div>";
+    }
+
+    // two columns per measure, Rosenta then ERPNext, under one heading for the measure
+    function pair(k, h, o) {
+      o = o || {};
+      return [{ k: k, h: h, side: "r", grp: h, w: o.w, text: o.text, html: o.html, val: o.val, fmt: o.fmt }, { k: o.ek || k, h: h, side: "e", grp: h, w: o.w, text: o.text, html: o.html, val: o.val, fmt: o.fmt }];
+    }
+    function cat() { return Array.prototype.concat.apply([], arguments); }
+
+    // ---- orders
+    var ORDER_COLS = cat(pair("orders", "Orders"), pair("boxes", "Boxes"), pair("stems", "Stems"));
+    // prices: Rosenta's Order Summary and ERPNext's Sales Orders. A price is shown with its currency.
+    function listed(side) { return Object.keys(side.by_currency || {}).sort().map(function (c) { return esc(c) + " " + money(side.by_currency[c], 0); }).join(" · "); }
+    function withCur(fmt, many) { return function (side) { return side.value == null && side.price == null ? (many && side.by_currency && side.currency ? many(side) : '<span class="rc-none">—</span>') : (side.currency ? esc(side.currency) + " " : "") + fmt(side); }; }
+    var PRICE_COLS = cat(
+      pair("value", "Order value", { w: "minmax(120px,1.1fr)", html: withCur(function (s) { return s.value == null ? "—" : money(s.value, 0); }, listed) }),
+      pair("price", "Price per stem", { w: "minmax(110px,1fr)", html: withCur(function (s) { return s.price == null ? "—" : money(s.price, 3); }) })
+    );
+    function priceChip(r) {
+      var a = r.r.price, b = r.e.price;
+      if (a == null && b == null) return '<span class="rc-none">—</span>';
+      if (a == null || b == null) return '<span class="rc-chip warn">' + (a == null ? "No Rosenta price" : "No ERPNext price") + "</span>";
+      if (r.r.currency !== r.e.currency) return '<span class="rc-chip bad">Currency differs</span>';
+      var d = Math.round((b - a) * 10000) / 10000;
+      if (d === 0) return '<span class="rc-chip good">Same price</span>';
+      return '<span class="rc-chip ' + (Math.abs(d) / (Math.max(a, b) || 1) > 0.1 ? "bad" : "warn") + '">ERPNext ' + money(Math.abs(d), 3) + (d < 0 ? " lower" : " higher") + " per stem</span>";
+    }
+    function amounts(side) {
+      var cur = Object.keys(side.by_currency || {}).sort();
+      if (!cur.length) return '<span class="rc-none">—</span>';
+      return '<div class="rc-amts">' + cur.map(function (c) { return "<b><i>" + esc(c) + "</i>" + money(side.by_currency[c], 0) + "</b>"; }).join("") + "</div>";
+    }
+    function kpiValue(t) {
+      var price = function (s) { return s.price == null ? "" : '<div class="rc-kpi__sub">' + esc(s.currency) + " " + money(s.price, 3) + " per stem</div>"; };
+      return '<div class="rc-kpi rc-kpi--wide"><div class="rc-kpi__label">Order value</div><div class="rc-kpi__pair">' +
+        '<div class="rc-kpi__side"><small>Rosenta</small>' + amounts(t.rosenta) + price(t.rosenta) + '</div><div class="rc-kpi__side is-e"><small>ERPNext</small>' + amounts(t.erpnext) + price(t.erpnext) + "</div></div>" +
+        (function (c) { return c.indexOf("rc-none") >= 0 ? "" : '<div class="rc-kpi__foot">' + c + "</div>"; })(priceChip({ r: t.rosenta, e: t.erpnext })) + "</div>";
+    }
+    function ordersView() {
+      var t = data.totals;
+      var cols = ORDER_COLS.concat(PRICE_COLS, [
+        { h: "Boxes", side: "s", w: "minmax(200px,1.2fr)", text: true, html: function (r) { return gapChip(r.r.boxes, r.e.boxes, "boxes"); } },
+        { h: "Price", side: "s", w: "minmax(250px,1.4fr)", text: true, html: priceChip }
+      ]);
+      var list = data.customers.map(function (c, i) { return { c: c, i: i, gap: Math.abs(c.erpnext.boxes - c.rosenta.boxes) }; })
+        .sort(function (a, b) { return b.gap - a.gap; })
+        .filter(function (x) { return st.show === "all" || (x.c.orders_status !== "Matches" && x.c.orders_status !== "-"); });
+      var rows = list.map(function (x) { return { name: x.c.customer, r: x.c.rosenta, e: x.c.erpnext, go: true, i: x.i }; });
+      $("rc-content").innerHTML =
+        '<div class="rc-kpis">' + kpi("Orders", t.rosenta.orders, t.erpnext.orders, "orders") + kpi("Boxes ordered", t.rosenta.boxes, t.erpnext.boxes, "boxes") + kpi("Stems ordered", t.rosenta.stems, t.erpnext.stems, "stems") + kpiValue(t) + "</div>" +
+        showSwitch() +
+        card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 1560, statusLabel: "Difference" }) : empty("No differences", "Every customer matches for this date."));
+    }
+
+    // an order's lines: one line is one kind of box, with what goes in it
+    function lenText(l) { return typeof l === "number" ? (l ? l + " cm" : "") : (l || ""); }
+    function lineSide(s, which) {
+      return s && { boxes: s.boxes, rate: s.pack_rate, stems: s.stems, value: s.value, price: s.price, currency: s.currency };
+    }
+    function lineName(l) {
+      var r = l.rosenta, e = l.erpnext;
+      var len = [r && lenText(r.length) ? "Rosenta " + lenText(r.length) : "", e && lenText(e.length) ? "ERPNext " + lenText(e.length) : ""].filter(Boolean).join(" · ");
+      var box = (e && e.box_type) || (r && r.box_type) || "";
+      var mixed = e && e.mixed ? '<span class="rc-mixed">Mixed box in ERPNext: ' + e.varieties.map(function (v) { return esc(v.name) + " " + num(v.per_box); }).join(" · ") + "</span>" : "";
+      return esc(l.label) + (len ? '<span class="rc-lenrow">Stem length: ' + esc(len) + "</span>" : "") + (box ? '<span class="rc-lenrow">' + esc(String(box).replace(/\s+\d+mm.*$/, "")) + "</span>" : "") + mixed;
+    }
+    var LINE_COLS = cat(pair("boxes", "Boxes"), pair("rate", "Stems per box", { w: "minmax(84px,1fr)" }), pair("stems", "Stems"), [
+      { k: "value", h: "Value", side: "r", grp: "Value", w: "minmax(78px,1fr)", fmt: m2 }, { k: "value", h: "Value", side: "e", grp: "Value", w: "minmax(78px,1fr)", fmt: m2 },
+      { k: "price", h: "Price per stem", side: "r", grp: "Price per stem", w: "minmax(70px,1fr)", fmt: m3 }, { k: "price", h: "Price per stem", side: "e", grp: "Price per stem", w: "minmax(70px,1fr)", fmt: m3 },
+      { h: "Stems", side: "s", w: "minmax(175px,1.1fr)", text: true, html: function (r) { return gapChip(r.r && r.r.stems, r.e && r.e.stems, "stems"); } }
+    ]);
+    function orderDetail(c) {
+      var sum = function (k, who) { return c.pairs.reduce(function (n, p) { return n + (p[who] ? p[who][k] : 0); }, 0); };
+      var who = function (label, cls, o, extra) {
+        return '<div class="rc-who ' + cls + '"><small>' + label + "</small>" + (o ? "<b>" + esc(o.name) + "</b><span>" + esc(extra) + "</span>" : '<b class="rc-none">No order</b>') + "</div>";
+      };
+      var rows = [{ name: "All orders of the customer", total: true,
+        r: { boxes: sum("boxes", "rosenta"), rate: null, stems: sum("stems", "rosenta"), value: sum("value", "rosenta"), price: sum("stems", "rosenta") ? sum("value", "rosenta") / sum("stems", "rosenta") : null },
+        e: { boxes: sum("boxes", "erpnext"), rate: null, stems: sum("stems", "erpnext"), value: sum("value", "erpnext"), price: sum("stems", "erpnext") ? sum("value", "erpnext") / sum("stems", "erpnext") : null } }];
+      c.pairs.forEach(function (p) {
+        var r = p.rosenta, e = p.erpnext;
+        rows.push({ full: '<div class="rc-whos">' + who("Rosenta", "r", r, r ? r.status + (r.currency ? " · " + r.currency : "") : "") + who("ERPNext", "e", e, e ? e.so + " · " + e.status + (e.currency ? " · " + e.currency : "") : "") + "</div>" });
+        rows.push({ name: "Order total", total: true, r: r && { boxes: r.boxes, rate: null, stems: r.stems, value: r.value, price: r.price }, e: e && { boxes: e.boxes, rate: null, stems: e.stems, value: e.value, price: e.price } });
+        p.lines.forEach(function (l) { rows.push({ nameHtml: lineName(l), r: lineSide(l.rosenta), e: lineSide(l.erpnext) }); });
+      });
+      var h = '<section class="rc-card">' + grid({ first: "Line", cols: LINE_COLS, rows: rows, minw: 0, firstW: "minmax(170px,1.3fr)" }) + "</section>";
+      openPanel(c.customer, "Orders for " + longDate(data.date) + ". Differences are ERPNext against Rosenta.", h);
+    }
+    // ---- packing
+    // packing, then dispatch (ERPNext: submitted Delivery Notes), then invoicing, for each customer
+    var PACK_COLS = cat(pair("boxes_packed", "Packed"), pair("boxes_staged", "Staged"), pair("boxes_loaded", "Loaded"), pair("stems_packed", "Stems packed"),
+      pair("stems_dispatched", "Stems dispatched"), pair("orders_invoiced", "Orders invoiced"), pair("invoiced", "Invoiced", { w: "minmax(150px,1.3fr)", html: function (side) { return side.invoiced == null ? '<span class="rc-none">—</span>' : cash(side.invoiced); } }));
+    function packingDiff(c) { return [c.pack_status, c.dispatch_status, c.invoice_status].some(function (x) { return x !== "Matches" && x !== "-"; }); }
+    function packingView() {
+      var t = data.totals;
+      var cols = PACK_COLS.concat([
+        { h: "Packed", side: "s", w: "minmax(150px,1.1fr)", text: true, html: function (r) { return r.c.pack_status === "-" ? '<span class="rc-none">—</span>' : statusChip(r.c.pack_status, r.r.stems_packed, r.e.stems_packed); } },
+        { h: "Dispatched", side: "s", w: "minmax(150px,1.1fr)", text: true, html: function (r) { return r.c.dispatch_status === "-" ? '<span class="rc-none">—</span>' : statusChip(r.c.dispatch_status, r.r.stems_dispatched, r.e.stems_dispatched); } },
+        { h: "Invoiced", side: "s", w: "minmax(150px,1.1fr)", text: true, html: function (r) { return r.c.invoice_status === "-" ? '<span class="rc-none">—</span>' : statusChip(r.c.invoice_status, r.r.orders_invoiced, r.e.orders_invoiced); } }
+      ]);
+      var list = data.customers.filter(function (c) { return c.pack_status !== "-" || c.dispatch_status !== "-" || c.invoice_status !== "-"; })
+        .map(function (c) { return { c: c, gap: Math.abs(c.erpnext.stems_packed - c.rosenta.stems_packed) + Math.abs(c.erpnext.stems_dispatched - c.rosenta.stems_dispatched) }; })
+        .sort(function (a, b) { return b.gap - a.gap; })
+        .filter(function (x) { return st.show === "all" || packingDiff(x.c); });
+      var rows = list.map(function (x) { return { name: x.c.customer, r: x.c.rosenta, e: x.c.erpnext, c: x.c }; });
+      var warn = (data.ops_error ? '<div class="rc-note bad">Rosenta Packhouse Operations could not be read, so Rosenta boxes are not shown: ' + esc(data.ops_error) + "</div>" : "") +
+        (data.invoice_error ? '<div class="rc-note bad">Rosenta invoices could not be read: ' + esc(data.invoice_error) + "</div>" : "");
+      var inv = '<div class="rc-kpi rc-kpi--wide"><div class="rc-kpi__label">Invoiced</div><div class="rc-kpi__pair"><div class="rc-kpi__side"><small>Rosenta</small>' + (t.rosenta.invoiced ? amounts(t.rosenta.invoiced) : '<span class="rc-none">—</span>') +
+        '</div><div class="rc-kpi__side is-e"><small>ERPNext</small>' + amounts(t.erpnext.invoiced) + "</div></div></div>";
+      $("rc-content").innerHTML = warn +
+        '<div class="rc-kpis">' + kpi("Boxes packed", t.rosenta.boxes_packed, t.erpnext.boxes_packed, "boxes") + kpi("Boxes loaded", t.rosenta.boxes_loaded, t.erpnext.boxes_loaded, "boxes") + kpi("Stems dispatched", t.rosenta.stems_dispatched, t.erpnext.stems_dispatched, "stems") + kpi("Orders invoiced", t.rosenta.orders_invoiced, t.erpnext.orders_invoiced, "orders") + inv + "</div>" +
+        showSwitch() +
+        card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 2100, statusLabel: "Difference" }) : empty("Nothing to show", "No differences for this date."));
+    }
+
+    // ---- allocations by team
+    var ALLOC_COLS = cat(pair("orders", "Orders"), pair("lines", "Lines"), pair("boxes", "Boxes"), pair("stems", "Stems"));
+    function allocGap(a) { return Math.abs(((a.erpnext && a.erpnext.stems) || 0) - ((a.rosenta && a.rosenta.stems) || 0)); }
+    function allocView() {
+      var list = data.allocations.filter(function (a) { return a.rosenta || a.erpnext; });
+      var cols = ALLOC_COLS.concat([{ h: "Stems allocated", side: "s", w: "minmax(170px,1.2fr)", text: true, html: function (r) { return gapChip(r.r && r.r.stems, r.e && r.e.stems, "stems"); } }]);
+      var shown = list.filter(function (a) { return st.show === "all" || allocGap(a) > 0 || !a.rosenta || !a.erpnext; });
+      var sum = function (k, who) { return list.reduce(function (n, a) { return n + ((a[who] && a[who][k]) || 0); }, 0); };
+      var rows = [{ name: "All teams", total: true,
+        r: { orders: null, lines: sum("lines", "rosenta"), boxes: sum("boxes", "rosenta"), stems: sum("stems", "rosenta") },
+        e: { orders: null, lines: sum("lines", "erpnext"), boxes: sum("boxes", "erpnext"), stems: sum("stems", "erpnext") } }]
+        .concat(shown.map(function (a) { return { name: a.team === "(not mapped)" ? a.erp_teams : a.team, sub: a.erp_teams === a.team ? "" : "ERPNext team: " + esc(a.erp_teams), r: a.rosenta, e: a.erpnext }; }));
+      $("rc-content").innerHTML = showSwitch() +
+        card("Teams", shown.length + " shown", grid({ first: "Team", cols: cols, rows: rows, minw: 1180, statusLabel: "Difference" }));
+    }
+
+    // ---- Sales & payments, Farm revenue, Order fulfilment, Specifications: read from Rosenta snapshots, over a period ending on the date
+    var RANGE_TABS = { specs: "get_rosenta_specs", money: "get_rosenta_money", greenhouse: "get_rosenta_greenhouse", fill: "get_rosenta_fill" };
+    function rangeOf() {
+      var to = new Date(st.date + "T00:00:00"), from = new Date(to.getTime() - (+st.span - 1) * 86400000);
+      return { from: iso(from), to: st.date };
+    }
+    function cash(c) { // amounts per currency, one line each
+      var cur = Object.keys((c && c.by_currency) || {}).sort();
+      return cur.length ? cur.map(function (k) { return '<span class="rc-cur"><i>' + esc(k) + "</i> " + money(c.by_currency[k], 0) + "</span>"; }).join("<br>") : '<span class="rc-none">—</span>';
+    }
+    function cashCol(key) { return function (side) { return side[key] ? cash(side[key]) : '<span class="rc-none">—</span>'; }; }
+    function rangeNote(d) {
+      var gaps = (d.missing || []).length, asOf = d.rosenta_as_of ? "Rosenta as of " + clock(erpTs(d.rosenta_as_of) || new Date()) + ". " : "";
+      return gaps ? '<div class="rc-note warn">' + asOf + "Some Rosenta days are still being pulled (" + gaps + " reports). Refresh in a minute for the full period.</div>" : (asOf ? '<p class="rc-hint">' + asOf + "</p>" : "");
+    }
+    function chipFor(status) {
+      if (status === "-" || status == null) return '<span class="rc-none">—</span>';
+      return '<span class="rc-chip ' + (status === "Matches" ? "good" : status.indexOf("Only") === 0 ? "bad" : "warn") + '">' + esc(status) + "</span>";
+    }
+    function loadRange(tab, silent) {
+      var r = rangeOf(), key = tab + r.from + r.to, my = ++rseq;
+      rkey[tab] = key;
+      if (!silent) $("rc-content").innerHTML = '<div class="rc-card"><div class="rc-skel"></div><div class="rc-skel"></div><div class="rc-skel"></div><div class="rc-skel"></div></div>';
+      PH.call("upande_packhouse.api.v2." + (tab === "specs" ? "rosenta_specs." : "rosenta_insights.") + RANGE_TABS[tab], { date_from: r.from, date_to: r.to }, { silent: true })
+        .then(function (d) { if (my !== rseq) return; rdata[tab] = d; rdata[tab + "_key"] = key; if (st.tab === tab) draw(); })
+        .catch(function (e) { if (my !== rseq || silent) return; $("rc-content").innerHTML = '<div class="rc-note bad">' + esc((e && e.message) || "Could not load") + "</div>"; });
+    }
+    function rangeData(tab) { // the data for the current period, or start loading it
+      var r = rangeOf(), key = tab + r.from + r.to;
+      if (rdata[tab + "_key"] === key) return rdata[tab];
+      if (rkey[tab] !== key) loadRange(tab);
+      return null;
+    }
+    function rangeFail(d) { return d && d.success === false ? '<div class="rc-note bad">' + esc(d.error || "Could not load") + "</div>" : null; }
+    function bigCash(label, r, e, extra) {
+      return '<div class="rc-kpi"><div class="rc-kpi__label">' + esc(label) + '</div><div class="rc-kpi__pair"><div class="rc-kpi__side"><small>Rosenta</small>' + (r ? amounts(r) : "—") + '</div><div class="rc-kpi__side is-e"><small>ERPNext</small>' + (e ? amounts(e) : "—") + "</div></div>" + (extra ? '<div class="rc-kpi__foot">' + extra + "</div>" : "") + "</div>";
+    }
+
+    // ---- specifications: what each order line asks for, in both systems
+    var SPEC_COLS = [
+      { k: "rosenta", h: "Used in Rosenta", side: "s", w: "minmax(100px,0.8fr)", html: function (x) { return num(x.c.rosenta); } },
+      { k: "erpnext", h: "In ERPNext", side: "s", w: "minmax(100px,0.8fr)", html: function (x) { return num(x.c.erpnext); } },
+      { k: "matches", h: "Match", side: "s", w: "minmax(80px,0.6fr)", html: function (x) { return num(x.c.matches); } },
+      { k: "differs", h: "Differ", side: "s", w: "minmax(80px,0.6fr)", html: function (x) { return x.c.differs ? '<b class="rc-warnnum">' + num(x.c.differs) + "</b>" : "0"; } },
+      { k: "only_rosenta", h: "Missing in ERPNext", side: "s", w: "minmax(120px,0.9fr)", html: function (x) { return x.c.only_rosenta ? '<b class="rc-badnum">' + num(x.c.only_rosenta) + "</b>" : "0"; } },
+      { k: "only_erpnext", h: "Not used in Rosenta", side: "s", w: "minmax(120px,0.9fr)", html: function (x) { return num(x.c.only_erpnext); } },
+      { h: "Stems ordered", side: "s", w: "minmax(100px,0.8fr)", html: function (x) { return num(x.c.stems); } },
+      { h: "Specifications", side: "s", w: "minmax(140px,1fr)", text: true, html: function (x) { return chipFor(x.c.status); } }
+    ];
+    function specsView() {
+      var d = rangeData("specs"); if (!d) return;
+      var bad = rangeFail(d); if (bad) { $("rc-content").innerHTML = bad; return; }
+      var t = d.totals;
+      var list = d.customers.filter(function (c) { return (c.rosenta || c.erpnext) && (st.show === "all" || c.status !== "Matches"); });
+      var rows = list.map(function (c) { return { name: c.customer, c: c, go: true, i: d.customers.indexOf(c) }; });
+      var fields = Object.keys(d.by_field || {}).sort(function (a, b) { return d.by_field[b] - d.by_field[a]; }).map(function (k) { return '<span class="rc-chip warn">' + esc(k) + " " + num(d.by_field[k]) + "</span>"; }).join(" ");
+      var sub = function (label, v, foot) { return '<div class="rc-kpi"><div class="rc-kpi__label">' + esc(label) + '</div><div class="rc-kpi__pair"><div class="rc-kpi__side is-e"><b>' + num(v) + "</b></div></div>" + (foot ? '<div class="rc-kpi__foot">' + foot + "</div>" : "") + "</div>"; };
+      var asOf = d.specs_as_of ? "Rosenta specifications as of " + esc(String(d.specs_as_of).slice(0, 16)) + ". " : "Rosenta specifications are still being pulled, refresh in a minute. ";
+      $("rc-content").innerHTML = rangeNote(d) + '<p class="rc-hint">' + asOf + (t.unknown ? t.unknown + " used specifications are not in that pull yet." : "") + "</p>" +
+        '<div class="rc-kpis">' + sub("Used in Rosenta", t.rosenta_used, "specifications on orders of the period") + sub("Active in ERPNext", t.erpnext_active) + sub("Match", t.matched) + sub("Differ", t.differ, fields) +
+        sub("Missing in ERPNext", t.only_rosenta, '<span class="rc-chip ' + (t.only_rosenta ? "bad" : "good") + '">' + (t.only_rosenta ? "orders that cannot be made the same way" : "none") + "</span>") + "</div>" +
+        showSwitch() + card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: SPEC_COLS, rows: rows, minw: 1250 }) : empty("No differences", "Every specification used in Rosenta is in ERPNext and the same."));
+    }
+    function specDetail(c) {
+      var def = function (s) {
+        if (!s) return '<span class="rc-none">—</span>';
+        if (s.unknown) return "<b>" + esc(s.name) + '</b><span class="rc-lenrow">Definition not pulled from Rosenta yet</span>';
+        return "<b>" + esc(s.name) + '</b><span class="rc-lenrow">' + num(s.pack_rate) + " stems · " + num(s.bunches) + " bunches" + (s.lengths.length ? " · " + s.lengths.join(", ") + " cm" : "") + (s.ft ? " · FT" : "") + "</span>" +
+          (s.varieties.length ? '<span class="rc-lenrow">' + esc(s.varieties.slice(0, 5).join(", ")) + (s.varieties.length > 5 ? " +" + (s.varieties.length - 5) : "") + "</span>" : "");
+      };
+      var order = { "Only in Rosenta": 0, "Differs": 1, "Only in ERPNext": 2, "Matches": 3 };
+      var items = c.specs.slice().sort(function (a, b) { return order[a.state] - order[b.state]; });
+      var h = '<section class="rc-card"><div class="rc-scroll"><table class="rc-spectable"><thead><tr><th>Rosenta</th><th>ERPNext</th><th>Difference</th></tr></thead><tbody>' +
+        items.map(function (p) {
+          var diffs = p.diffs.length ? p.diffs.map(function (x) { return "<div><b>" + esc(x.field) + ":</b> " + esc(String(x.rosenta)) + " <span class=\"rc-none\">in Rosenta,</span> " + esc(String(x.erpnext)) + ' <span class="rc-none">in ERPNext</span></div>'; }).join("") : chipFor(p.state);
+          return '<tr class="rc-specrow" data-p="' + c.specs.indexOf(p) + '"><td>' + def(p.rosenta) + (p.rosenta && p.rosenta.lines ? '<span class="rc-lenrow">' + num(p.rosenta.stems) + " stems on " + p.rosenta.lines + " lines</span>" : "") + "</td><td>" + def(p.erpnext) + (p.matched_by && p.matched_by !== "name" ? '<span class="rc-lenrow">paired by ' + esc(p.matched_by) + "</span>" : "") + "</td><td>" + diffs + "</td></tr>";
+        }).join("") + "</tbody></table></div></section>";
+      openPanel(c.customer, "Specifications for " + d_text() + ". Rosenta ones are those on its orders of the period. Open one to see all of it.", h);
+      $("rc-p-body").onclick = function (e) {
+        var tr = e.target.closest("tr.rc-specrow"); if (!tr) return;
+        var p = c.specs[+tr.getAttribute("data-p")]; if (p) specFull(c, p);
+      };
+    }
+    // one pair in full, side by side: header, bunches, varieties, consumables
+    function specFull(c, p) {
+      var title = (p.rosenta && p.rosenta.name) || (p.erpnext && p.erpnext.name) || "Specification";
+      openPanel(title, c.customer, '<div class="rc-skel"></div><div class="rc-skel"></div><div class="rc-skel"></div>');
+      $("rc-p-body").onclick = null;
+      PH.call("upande_packhouse.api.v2.rosenta_specs.get_rosenta_spec_detail", { rosenta_id: (p.rosenta && p.rosenta.spec_id) || "", erpnext_name: (p.erpnext && p.erpnext.id) || "" }, { silent: true })
+        .then(function (d) {
+          if (d.success === false) { $("rc-p-body").innerHTML = '<div class="rc-note bad">' + esc(d.error) + "</div>"; return; }
+          var none = function (who) { return '<span class="rc-missing">Not in ' + who + "</span>"; };
+          var cellR = function (x, f) { return x ? f(x) : none("Rosenta"); }, cellE = function (x, f) { return x ? f(x) : none("ERPNext"); };
+          var tbl = function (head, rows) { return '<section class="rc-card"><div class="rc-card__head"><h3>' + head[0] + '</h3></div><div class="rc-scroll"><table class="rc-spectable"><thead><tr><th>' + head[1] + "</th><th>Rosenta</th><th>ERPNext</th></tr></thead><tbody>" + rows + "</tbody></table></div></section>"; };
+          var h = '<p><button type="button" class="rc-btn" id="rc-spec-back">← All specifications of ' + esc(c.customer) + "</button></p>";
+          h += tbl(["Specification", "Field"], d.header.map(function (x) { return '<tr class="' + (x.differs ? "rc-diffrow" : "") + '"><td><b>' + esc(x.label) + "</b></td><td>" + (x.rosenta ? esc(x.rosenta) : '<span class="rc-none">—</span>') + "</td><td>" + (x.erpnext ? esc(x.erpnext) : '<span class="rc-none">—</span>') + "</td></tr>"; }).join(""));
+          var bu = function (b) { return num(b.bunches) + " bunches × " + num(b.stems) + " stems = " + num(b.pack_rate || b.bunches * b.stems) + " stems" + (b.length ? " · " + b.length + " cm" : "") + (b.kind ? " · " + esc(b.kind) : ""); };
+          h += tbl(["Bunches", "Bunch"], d.bunches.map(function (x) { return "<tr><td><b>" + x.n + "</b></td><td>" + cellR(x.rosenta, bu) + "</td><td>" + cellE(x.erpnext, bu) + "</td></tr>"; }).join(""));
+          h += tbl(["Varieties", "Variety"], d.varieties.map(function (x) {
+            return '<tr class="' + (x.rosenta && x.erpnext ? "" : "rc-diffrow") + '"><td><b>' + esc(x.name) + "</b></td><td>" +
+              cellR(x.rosenta, function (v) { return "bunch " + esc(String(v.bunch)) + " · " + num(v.stems) + " stems" + (v.length ? " · " + v.length + " cm" : "") + (v.cut ? " · " + esc(v.cut) : ""); }) + "</td><td>" +
+              cellE(x.erpnext, function (v) { return "bunch " + esc(String(v.bunch)) + (v.primary ? " · primary" : "") + (v.colour ? " · " + esc(v.colour) : "") + (v.head ? " · head " + esc(String(v.head)) : "") + (v.buds ? " · buds " + esc(String(v.buds)) : ""); }) + "</td></tr>";
+          }).join("") || '<tr><td colspan="3" class="rc-none">No varieties listed</td></tr>');
+          h += tbl(["Consumables", "Item"], d.consumables.map(function (x) {
+            return '<tr class="' + (x.rosenta && x.erpnext ? "" : "rc-diffrow") + '"><td><b>' + esc(x.name) + "</b></td><td>" +
+              cellR(x.rosenta, function (v) { return esc(v.type || "") + (v.qty ? " · qty " + esc(String(v.qty)) : ""); }) + "</td><td>" +
+              cellE(x.erpnext, function (v) { return esc(v.type || "") + (v.level ? " · per " + esc(v.level.toLowerCase()) : "") + (v.qty ? " · qty " + esc(String(v.qty)) : ""); }) + "</td></tr>";
+          }).join("") || '<tr><td colspan="3" class="rc-none">No consumables listed</td></tr>');
+          $("rc-p-body").innerHTML = h;
+          $("rc-spec-back").onclick = function () { specDetail(c); };
+        })
+        .catch(function (e) { $("rc-p-body").innerHTML = '<div class="rc-note bad">' + esc((e && e.message) || "Could not load") + "</div>"; });
+    }
+
+    var MONEY_COLS = cat(
+      pair("booked", "Booked", { w: "minmax(110px,1fr)", html: cashCol("booked") }), pair("dispatched", "Dispatched", { w: "minmax(110px,1fr)", html: cashCol("dispatched") }),
+      pair("invoiced", "Invoiced", { w: "minmax(110px,1fr)", html: cashCol("invoiced") }), pair("paid", "Paid", { w: "minmax(110px,1fr)", html: cashCol("paid") }),
+      pair("unbilled", "Dispatched, not invoiced", { w: "minmax(120px,1fr)", html: cashCol("unbilled") }),
+      pair("invoices", "Invoices", { w: "minmax(70px,0.6fr)" }));
+    function moneyView() {
+      var d = rangeData("money"); if (!d) return;
+      var bad = rangeFail(d); if (bad) { $("rc-content").innerHTML = bad; return; }
+      var t = d.totals, r = t.rosenta, e = t.erpnext;
+      var cols = MONEY_COLS.concat([
+        { h: "Booked", side: "s", w: "minmax(130px,1fr)", text: true, html: function (x) { return chipFor(x.c.booked_status); } },
+        { h: "Invoiced", side: "s", w: "minmax(130px,1fr)", text: true, html: function (x) { return chipFor(x.c.invoiced_status); } },
+        { h: "Paid", side: "s", w: "minmax(130px,1fr)", text: true, html: function (x) { return chipFor(x.c.paid_status); } }
+      ]);
+      var diff = function (c) { return [c.booked_status, c.invoiced_status, c.paid_status].some(function (x) { return x !== "Matches" && x !== "-"; }); };
+      var list = d.customers.filter(function (c) { return st.show === "all" || diff(c); });
+      var rows = list.map(function (c) { return { name: c.customer, r: c.rosenta, e: c.erpnext, c: c }; });
+      $("rc-content").innerHTML = rangeNote(d) +
+        '<div class="rc-kpis">' + bigCash("Booked", r.booked, e.booked) + bigCash("Dispatched", r.dispatched, e.dispatched) + bigCash("Invoiced", r.invoiced, e.invoiced, num(r.invoices) + " invoices in Rosenta, " + num(e.invoices) + " in ERPNext") +
+        bigCash("Paid", r.paid, e.paid, num(r.unpaid) + " unpaid in Rosenta, " + num(e.unpaid) + " in ERPNext") + bigCash("Dispatched, not yet invoiced", r.unbilled, e.unbilled, "Delivery notes in ERPNext: " + num(e.delivery_notes)) + "</div>" +
+        showSwitch() + card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 2300, statusLabel: "Difference" }) : empty("No differences", "Rosenta and ERPNext agree for this period."));
+    }
+
+    var GH_COLS = cat(pair("stems", "Stems issued"), pair("value", "Revenue", { w: "minmax(120px,1fr)", html: function (s) { return s.by_currency ? cash(s) : '<span class="rc-none">—</span>'; } }),
+      pair("price", "Price per stem", { w: "minmax(90px,1fr)", html: function (s) { return s.price == null ? '<span class="rc-none">—</span>' : esc(s.currency) + " " + money(s.price, 3); } }));
+    function greenhouseView() {
+      var d = rangeData("greenhouse"); if (!d) return;
+      var bad = rangeFail(d); if (bad) { $("rc-content").innerHTML = bad; return; }
+      var cols = GH_COLS.concat([{ h: "Revenue", side: "s", w: "minmax(130px,1fr)", text: true, html: function (x) { return chipFor(x.f.status); } }]);
+      var rows = d.farms.map(function (f, i) { return { name: f.farm, r: f.rosenta, e: f.erpnext, f: f, go: true, i: i, sub: f.greenhouses.length ? f.greenhouses.length + " greenhouses in Rosenta" : "" }; });
+      $("rc-content").innerHTML = rangeNote(d) + card("Farms", rows.length + " shown", rows.length ? grid({ first: "Farm", cols: cols, rows: rows, minw: 1500, statusLabel: "Difference" }) : empty("Nothing to show", "No stems issued in this period."));
+    }
+    function farmDetail(f) {
+      var rows = f.greenhouses.map(function (g) { return { name: g.greenhouse || "(none)", r: g, e: null }; });
+      var cols = GH_COLS.filter(function (c) { return c.side === "r"; }).map(function (c) { return Object.assign({}, c, { grp: null }); });
+      openPanel(f.farm, "Greenhouses in Rosenta for " + d_text(), '<section class="rc-card">' + grid({ first: "Greenhouse", cols: cols, rows: rows, minw: 600 }) + "</section>");
+    }
+    function d_text() { var r = rangeOf(); return r.from === r.to ? longDate(r.to) : longDate(r.from) + " to " + longDate(r.to); }
+
+    var FILL_COLS = cat(pair("ordered", "Ordered"), pair("allocated", "Allocated"), pair("issued", "Issued"), pair("packed", "Packed"), pair("loaded", "Loaded"), pair("dispatched", "Dispatched"),
+      pair("fill", "% dispatched", { w: "minmax(70px,0.7fr)", html: function (s) { return s.fill == null ? '<span class="rc-none">—</span>' : esc(String(s.fill)) + "%"; } }));
+    function fillView() {
+      var d = rangeData("fill"); if (!d) return;
+      var bad = rangeFail(d); if (bad) { $("rc-content").innerHTML = bad; return; }
+      var t = d.totals;
+      var cols = FILL_COLS.concat([{ h: "Dispatched", side: "s", w: "minmax(150px,1.1fr)", text: true, html: function (x) { return statusChip(x.status, x.r.dispatched, x.e.dispatched); } }]);
+      var withFill = function (side, p) { return Object.assign({}, side, { fill: p }); };
+      var list = d.customers.filter(function (c) { return st.show === "all" || (c.status !== "Matches" && c.status !== "-"); });
+      var rows = list.map(function (c) { return { name: c.customer, r: withFill(c.rosenta, c.fill_rosenta), e: withFill(c.erpnext, c.fill_erpnext), status: c.status }; });
+      var pct = function (x) { return x == null ? "—" : x + "%"; };
+      $("rc-content").innerHTML = rangeNote(d) +
+        '<div class="rc-kpis">' + kpi("Stems ordered", t.rosenta.ordered, t.erpnext.ordered, "stems") + kpi("Stems dispatched", t.rosenta.dispatched, t.erpnext.dispatched, "stems") +
+        '<div class="rc-kpi"><div class="rc-kpi__label">Share of the order dispatched</div><div class="rc-kpi__pair"><div class="rc-kpi__side"><small>Rosenta</small><b>' + pct(t.rosenta.fill) + '</b></div><div class="rc-kpi__side is-e"><small>ERPNext</small><b>' + pct(t.erpnext.fill) + "</b></div></div></div></div>" +
+        showSwitch() + card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 2300, statusLabel: "Difference" }) : empty("No differences", "Rosenta and ERPNext agree for this period."));
+    }
+
+    // ---- teams
+    var lastBox = { text: true, w: "minmax(170px,1.3fr)", html: function (s) { return s.last_html; } };
+    var TEAM_COLS = cat(pair("assigned", "To pack"), pair("packed", "Packed"), pair("staged", "Staged"), pair("loaded", "Loaded"), pair("dispatched", "Dispatched (stems)", { w: "minmax(104px,1fr)" }), pair("last", "Last box", lastBox));
+    function teamsView() {
+      var now = erpTs(data.fetched) || new Date();
+      var mapped = [], loose = [];
+      data.teams.forEach(function (t) {
+        var r = t.rosenta, e = t.erpnext;
+        var rt = r ? ts(r.last_packed) : null, et = e ? erpTs(e.last_pack) : null;
+        var o = { t: t, rt: rt, et: et, behind: rt && et ? Math.round((rt - et) / 60000) : null };
+        (t.erp_teams === "(not mapped)" || t.team === "(not mapped)" ? loose : mapped).push(o);
+      });
+      mapped.sort(function (x, y) { return (y.behind == null ? -1e9 : y.behind) - (x.behind == null ? -1e9 : x.behind); });
+      var late = mapped.filter(function (o) { return o.behind != null && o.behind >= LAG_RED_MIN; }).length;
+      function behind(o) {
+        if (o.behind == null) return "";
+        var m = o.behind;
+        if (m > 0) return '<span class="rc-chip ' + (m >= LAG_RED_MIN ? "bad" : "warn") + '">ERPNext ' + span(m) + " behind</span>";
+        if (m < 0) return '<span class="rc-chip">ERPNext ' + span(m) + " ahead</span>";
+        return '<span class="rc-chip good">Level</span>';
+      }
+      var cols = TEAM_COLS.concat([{ h: "Last box", side: "s", w: "minmax(170px,1.2fr)", text: true, html: function (r) { return r.status || ""; } }]);
+      function sides(o) {
+        var r = o.t.rosenta, e = o.t.erpnext;
+        return {
+          r: r && { assigned: r.assigned, packed: r.packed, staged: r.staged, loaded: r.loaded, dispatched: r.dispatched, last_html: timeCell(o.rt, now) },
+          e: e && { assigned: e.expected, packed: e.packed, staged: e.staged, loaded: e.loaded, dispatched: e.dispatched, last_html: timeCell(o.et, now) }
+        };
+      }
+      function row(o, name, sub, only) {
+        var s = sides(o);
+        return { name: name, sub: sub, r: only === "e" ? null : s.r, e: only === "r" ? null : s.e, status: behind(o) };
+      }
+      var warn = data.ops_error ? '<div class="rc-note bad">Rosenta Packhouse Operations could not be read, so Rosenta boxes by team are not shown: ' + esc(data.ops_error) + "</div>" : "";
+      var h = warn + '<div class="rc-note ' + (late ? "warn" : "good") + '">Now ' + clock(now) + ". " + late + " of " + mapped.length + " teams are more than 1 hour behind.</div>" +
+        card("Teams", "", grid({ first: "Team", cols: cols, minw: 1340, statusLabel: "Behind", rows: mapped.map(function (o) { return row(o, o.t.team, "ERPNext team: " + esc(o.t.erp_teams)); }) }));
+      if (loose.length) {
+        h += card("Not mapped", "", grid({ first: "Team", cols: cols, minw: 1340, statusLabel: "Behind", rows: loose.map(function (o) {
+          var isR = o.t.team !== "(not mapped)";
+          return row(o, isR ? o.t.team : o.t.erp_teams, isR ? "Rosenta only" : "ERPNext only", isR ? "r" : "e");
+        }) }));
+      }
+      $("rc-content").innerHTML = h;
+    }
+
+    // ---- cancellations
+    function cancelView() {
+      var r1 = data.cancel_rosenta.map(function (r) { return { name: r.customer, sub: esc(r.name), r: r, status: String(r.reason || "").replace(/_/g, " ") }; });
+      var c1 = [
+        { k: "boxes", h: "Boxes", side: "r" }, { k: "stems", h: "Stems", side: "r" },
+        { k: "staged", h: "Staged before", side: "r", w: "minmax(100px,1fr)" }, { k: "loaded", h: "Loaded before", side: "r", w: "minmax(100px,1fr)" },
+        { h: "Reason", side: "s", w: "minmax(130px,1fr)", text: true, html: function (r) { return r.status ? '<span class="rc-chip">' + esc(r.status) + "</span>" : ""; } },
+        { h: "What ERPNext shows", side: "e", w: "minmax(180px,1.4fr)", text: true, html: function (s) { return esc(s.erpnext || ""); } }
+      ];
+      var r2 = data.cancel_erpnext.map(function (r) { return { name: r.customer, sub: esc(r.so) + " · " + esc(r.name), e: r }; });
+      var c2 = [
+        { k: "boxes", h: "Boxes", side: "e" }, { k: "stems", h: "Stems", side: "e" },
+        { h: "Replaced by", side: "e", w: "minmax(140px,1fr)", text: true, html: function (s) { return esc(s.replaced_by || "—"); } },
+        { h: "What Rosenta shows", side: "r", w: "minmax(160px,1.2fr)", text: true, html: function (s) { return esc(s.rosenta || ""); } }
+      ];
+      // the first table lists Rosenta's cancellations (Rosenta columns first); the second lists ERPNext's
+      $("rc-content").innerHTML =
+        card("Cancelled in Rosenta", r1.length + " orders", r1.length ? grid({ first: "Customer", cols: c1, rows: r1.map(function (x) { x.e = x.r; return x; }), minw: 980, statusLabel: "Difference" }) : empty("None", "No orders were cancelled in Rosenta for this date.")) +
+        card("Cancelled in ERPNext", r2.length + " orders", r2.length ? grid({ first: "Customer", cols: c2, rows: r2.map(function (x) { x.r = x.e; return x; }), minw: 860 }) : empty("None", "No orders were cancelled in ERPNext for this date."));
+    }
+
+    // ---- side panel
+    function openPanel(title, sub, body) {
+      $("rc-p-title").textContent = title; $("rc-p-sub").textContent = sub; $("rc-p-body").innerHTML = body; $("rc-p-body").scrollTop = 0;
+      $("rc-panel").classList.add("on"); $("rc-veil").classList.add("on"); $("rc-panel").setAttribute("aria-hidden", "false");
+    }
+    function closePanel() { $("rc-panel").classList.remove("on"); $("rc-veil").classList.remove("on"); $("rc-panel").setAttribute("aria-hidden", "true"); }
+    $("rc-veil").addEventListener("click", closePanel);
+    $("rc-p-close").addEventListener("click", closePanel);
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape") closePanel(); });
+
+    // a row of KPI cards shares the width equally; a wide card spans the row
+    function fitKpis() {
+      Array.prototype.forEach.call(document.querySelectorAll(".rc-kpis"), function (k) {
+        var n = k.querySelectorAll(".rc-kpi:not(.rc-kpi--wide)").length;
+        k.style.setProperty("--n", Math.max(1, Math.min(n || 1, 5)));
+      });
+    }
+    new MutationObserver(fitKpis).observe($("rc-content"), { childList: true });
+
+    // ---- tabs, drawing, loading
+    var VIEWS = { orders: ordersView, packing: packingView, allocations: allocView, specs: specsView, money: moneyView, greenhouse: greenhouseView, fill: fillView, teams: teamsView, cancel: cancelView };
+    function paintTabs() {
+      Array.prototype.forEach.call(document.querySelectorAll("#rc-tabs .rc-tab"), function (b) { b.classList.toggle("on", b.getAttribute("data-tab") === st.tab); });
+      Array.prototype.forEach.call(document.querySelectorAll("#rc-presets button"), function (b) { b.classList.toggle("on", presetDate(b.getAttribute("data-v")) === st.date); });
+      $("rc-date").value = st.date;
+      Array.prototype.forEach.call(document.querySelectorAll("#rc-span button"), function (b) { b.classList.toggle("on", b.getAttribute("data-v") === st.span); });
+      $("rc-span").style.display = RANGE_TABS[st.tab] ? "" : "none";
+      if (!data) return;
+      var cnt = {
+        orders: data.customers.filter(function (c) { return c.orders_status !== "Matches" && c.orders_status !== "-"; }).length,
+        packing: data.customers.filter(packingDiff).length,
+        allocations: data.allocations.filter(function (a) { return allocGap(a) > 0; }).length,
+        cancel: data.cancel_rosenta.length + data.cancel_erpnext.length
+      };
+      Object.keys(cnt).forEach(function (k) { var el = $("rc-n-" + k); el.textContent = num(cnt[k]); el.hidden = !cnt[k]; });
+    }
+    function presetDate(v) { var d = new Date(); d.setDate(d.getDate() + (v === "yesterday" ? -1 : v === "tomorrow" ? 1 : 0)); return iso(d); }
+    function draw() {
+      paintTabs();
+      if (RANGE_TABS[st.tab]) { $("rc-warn").innerHTML = ""; $("rc-sub").textContent = d_text(); return VIEWS[st.tab](); }
+      if (!data) return;
+      $("rc-warn").innerHTML = (data.price_error ? '<div class="rc-note bad">Rosenta prices could not be read: ' + esc(data.price_error) + "</div>" : "") + (data.check && data.check.length ? '<div class="rc-note bad">Does not match Orders &amp; Workflow: ' + esc(data.check.join("; ")) + "</div>" : "");
+      var dr = data.drafts;
+      $("rc-sub").textContent = longDate(data.date) + (dr && dr.orders ? ". ERPNext drafts are not counted: " + dr.orders + " (" + num(dr.boxes) + " boxes)." : ".");
+      (VIEWS[st.tab] || ordersView)();
+    }
+    function load(silent) {
+      var my = ++seq;
+      if (!silent) $("rc-content").innerHTML = '<div class="rc-card"><div class="rc-skel"></div><div class="rc-skel"></div><div class="rc-skel"></div><div class="rc-skel"></div></div>';
+      PH.call("upande_packhouse.api.v2.rosenta_compare.get_rosenta_comparison", { date: st.date }, { silent: true })
+        .then(function (d) { if (my !== seq) return; data = d; draw(); $("rc-updated").textContent = "Updated " + clock(new Date()); })
+        .catch(function (e) { if (my !== seq || silent) return; $("rc-content").innerHTML = '<div class="rc-note bad">' + esc((e && e.message) || "Could not load") + ' <button class="rc-btn" id="rc-retry" type="button">Try again</button></div>'; $("rc-retry").onclick = function () { load(); }; });
+    }
+
+    // ---- wiring
+    function setDate(d) { st.date = d; data = null; paintTabs(); if (RANGE_TABS[st.tab]) draw(); load(); }
+    $("rc-presets").addEventListener("click", function (e) { var b = e.target.closest("button[data-v]"); if (b) setDate(presetDate(b.getAttribute("data-v"))); });
+    $("rc-date").addEventListener("change", function (e) { if (e.target.value) setDate(e.target.value); });
+    $("rc-refresh").addEventListener("click", function () { if (RANGE_TABS[st.tab]) loadRange(st.tab); else load(); });
+    $("rc-span").addEventListener("click", function (e) { var b = e.target.closest("button[data-v]"); if (b) { st.span = b.getAttribute("data-v"); draw(); } });
+    $("rc-tabs").addEventListener("click", function (e) { var b = e.target.closest(".rc-tab"); if (b) { st.tab = b.getAttribute("data-tab"); draw(); } });
+    $("rc-content").addEventListener("click", function (e) {
+      var p = e.target.closest("#rc-show button[data-v]");
+      if (p) { st.show = p.getAttribute("data-v"); return draw(); }
+      var row = e.target.closest(".rc-row.go");
+      if (row && st.tab === "specs" && rdata.specs) { var sc = rdata.specs.customers[+row.getAttribute("data-i")]; if (sc) specDetail(sc); }
+      else if (row && st.tab === "greenhouse" && rdata.greenhouse) { var f = rdata.greenhouse.farms[+row.getAttribute("data-i")]; if (f) farmDetail(f); }
+      else if (row && data) { var c = data.customers[+row.getAttribute("data-i")]; if (c) orderDetail(c); }
+    });
+    setInterval(function () { if (document.hidden) return; if (RANGE_TABS[st.tab]) loadRange(st.tab, true); else load(true); }, POLL_MS);
+    $("rc-csv").addEventListener("click", function () {
+      if (!data) return;
+      var rows = [];
+      var add = function (section, c, k, label, status) { rows.push({ section: section, customer: c.customer, measure: label, rosenta: c.rosenta[k], erpnext: c.erpnext[k], difference: c.rosenta[k] == null || c.erpnext[k] == null ? "" : c.erpnext[k] - c.rosenta[k], status: status }); };
+      data.customers.forEach(function (c) {
+        [["orders", "Orders"], ["boxes", "Boxes"], ["stems", "Stems"]].forEach(function (k) { add("Orders", c, k[0], k[1], c.orders_status); });
+        [["value", "Order value"], ["price", "Price per stem"]].forEach(function (k) { add("Prices (" + (c.erpnext.currency || c.rosenta.currency || "") + ")", c, k[0], k[1], ""); });
+        rows.push({ section: "Dispatch", customer: c.customer, measure: "Delivery notes", rosenta: "", erpnext: c.erpnext.delivery_notes, difference: "", status: "" });
+        if (c.dispatch_status !== "-") [["orders_dispatched", "Orders dispatched"], ["stems_dispatched", "Stems dispatched"]].forEach(function (k) { add("Dispatch", c, k[0], k[1], c.dispatch_status); });
+        if (c.invoice_status !== "-") [["orders_invoiced", "Orders invoiced"], ["invoices", "Invoices"]].forEach(function (k) { add("Invoicing", c, k[0], k[1], c.invoice_status); });
+        if (c.pack_status !== "-") [["boxes_packed", "Boxes packed"], ["boxes_staged", "Boxes staged"], ["boxes_loaded", "Boxes loaded"], ["stems_packed", "Stems packed"], ["stems_loaded", "Stems loaded"]].forEach(function (k) { add("Packing", c, k[0], k[1], c.pack_status); });
+      });
+      PH.csv("rosenta-comparison-" + data.date + ".csv", rows, [
+        { key: "section", label: "Section" }, { key: "customer", label: "Customer" }, { key: "measure", label: "Measure" },
+        { key: "rosenta", label: "Rosenta" }, { key: "erpnext", label: "ERPNext" }, { key: "difference", label: "Difference (ERPNext minus Rosenta)" }, { key: "status", label: "Status" }]);
+    });
+
+    paintTabs();
+    load();
+  }
+
+  boot();
+})();
+</script>
+{% endraw %}
+{% endblock %}
