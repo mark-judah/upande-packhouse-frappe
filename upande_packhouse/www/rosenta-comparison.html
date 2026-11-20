@@ -84,14 +84,14 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
 .rc-scroll{overflow:auto;padding:0 14px;max-height:calc(100vh - 150px);position:relative}
 /* Frappe's page container is capped at 1290px; this page uses the whole screen */
 .page-content-wrapper .container,.page-content-wrapper>.container,main .container{max-width:none!important;width:100%;padding-left:0;padding-right:0}
-.rc-head{position:sticky;top:0;z-index:6;background:var(--card);min-width:var(--minw,0);box-shadow:0 1px 0 var(--hair-2,rgba(10,10,10,.12))}
-.rc-head .rc-g{min-width:0}
+.rc-ghead{position:sticky;top:0;z-index:6;background:var(--card);min-width:var(--minw,0);box-shadow:0 1px 0 var(--hair-2,rgba(10,10,10,.12))}
+.rc-ghead .rc-g{min-width:0}
 /* columns: one band per measure, alternating grey, so it is clear where Boxes stops and Stems per box starts */
 .rc-g>div.cg1,.rc-grp.cg1{background:rgba(10,10,10,.055)}
 .rc-g .sub{border-left:1px dashed rgba(10,10,10,.13)}
 .rc-g .sep{border-left:1px solid rgba(10,10,10,.16)}
 .rc-g>div:first-child{position:sticky;left:0;z-index:2;background:var(--card);box-shadow:1px 0 0 rgba(10,10,10,.1)}
-.rc-head .rc-g>div:first-child{z-index:7}
+.rc-ghead .rc-g>div:first-child{z-index:7}
 .rc-gh2>div{border-bottom:2px solid rgba(10,10,10,.14);padding-top:0!important}.rc-gh .rc-grp{padding-top:10px!important}.rc-chip{white-space:nowrap}
 .rc-g{display:grid;grid-template-columns:var(--cols);align-items:center;min-width:var(--minw,0)}
 .rc-g>div{padding:11px 10px;min-width:0}
@@ -271,7 +271,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       var band = function (i) { return gi[i] % 2 ? " cg1" : ""; };
       var subc = function (i) { return i > 0 && gi[i - 1] === gi[i] ? " sub" : ""; };
       var subHead = function (c) { return c.grp ? (c.side === "r" ? "Rosenta" : "ERPNext") : c.h; };
-      var h = '<div class="rc-head" style="--minw:' + minw + 'px"><div class="rc-g rc-gh" style="--cols:' + tpl + ";--minw:" + minw + 'px"><div class="rc-grp"></div>' +
+      var h = '<div class="rc-ghead" style="--minw:' + minw + 'px"><div class="rc-g rc-gh" style="--cols:' + tpl + ";--minw:" + minw + 'px"><div class="rc-grp"></div>' +
         groups.map(function (g, k) { return '<div class="rc-grp sep' + (k % 2 ? " cg1" : "") + '" style="grid-column:span ' + g.n + '"><span class="' + g.side + '">' + g.label + "</span></div>"; }).join("") +
         "</div>" +
         '<div class="rc-g rc-gh rc-gh2" style="--cols:' + tpl + ";--minw:" + minw + 'px"><div>' + esc(o.first || "") + "</div>" +
