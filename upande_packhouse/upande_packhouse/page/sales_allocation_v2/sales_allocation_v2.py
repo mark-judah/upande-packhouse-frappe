@@ -8,6 +8,7 @@ from frappe.utils import add_days, cint, flt, now_datetime, nowdate
 
 from upande_packhouse import allocation_plan, availability, stock_movement
 from upande_packhouse.box_groups import box_keys
+from upande_packhouse.packing_guide import resync_submitted_guide
 
 
 def _origin_warehouse(farm, fallback=None):
@@ -3307,6 +3308,13 @@ def _append_rows_to_existing_opls(allocations, so_doc, location):
 			"UPDATE `tabOrder Pick List` SET custom_total_stems = %s, modified = NOW() WHERE name = %s",
 			[new_total, opl_name],
 		)
+		try:
+			resync_submitted_guide(opl_name, so_doc)
+		except Exception:
+			frappe.log_error(
+				title="Packing Guide resync (append path)",
+				message=f"OPL: {opl_name}\n{frappe.get_traceback()}",
+			)
 
 		updated_opls.append(opl_name)
 

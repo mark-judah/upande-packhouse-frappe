@@ -215,3 +215,67 @@ def sync_packing_guide(order_pick_list, so_items):
 	order_pick_list.set("table_nade", [])
 	for row in rows:
 		order_pick_list.append("table_nade", row)
+
+
+def resync_submitted_guide(opl_name, so_doc=None):
+	"""Rebuild a submitted pick list's Packing Guide and box count after rows were added straight to it.
+
+	Allocation tops up a submitted pick list by writing its rows directly, which never re-ran
+	sync_packing_guide: the guide kept the boxes of the first allocation (1 box of a 7-box line) and packing
+	offered only those. A pack list already submitted for the old, shorter guide goes back to draft so the
+	new boxes can be packed; it submits again once they are."""
+	from frappe.utils import cint, now_datetime
+
+	from upande_packhouse.box_groups import box_keys
+	from upande_packhouse.upande_packhouse.doctype.order_pick_list.order_pick_list import count_boxes
+
+	opl = frappe.get_doc("Order Pick List", opl_name)
+	if opl.docstatus != 1 or not opl.sales_order:
+		return False
+	so_doc = so_doc or frappe.get_doc("Sales Order", opl.sales_order)
+	keys = box_keys(so_doc.items)
+	used = {keys.get(r.sales_order_item or r.custom_sale_order_item) for r in opl.table_ytkc}
+	items = [it for it in so_doc.items if keys.get(it.name) in used]
+	before = {(r.sales_order_item, cint(r.box_number)) for r in opl.table_nade}
+	sync_packing_guide(opl, items)
+	after = {(r.sales_order_item, cint(r.box_number)) for r in opl.table_nade}
+	if not opl.table_nade or after == before:
+		return False
+
+	frappe.db.delete("Packing Guide", {"parent": opl.name, "parenttype": "Order Pick List"})
+	now = now_datetime()
+	for idx, row in enumerate(opl.table_nade, 1):
+		row.name = frappe.generate_hash(length=10)
+		row.parent, row.parenttype, row.parentfield = opl.name, "Order Pick List", "table_nade"
+		row.idx, row.docstatus = idx, 1
+		row.owner = row.modified_by = frappe.session.user
+		row.creation = row.modified = now
+		row.db_insert()
+	frappe.db.set_value("Order Pick List", opl.name, "total_boxes", count_boxes(opl), update_modified=False)
+
+	if after - before:
+		_reopen_pack_list(opl.name)
+	return True
+
+
+def _reopen_pack_list(opl_name):
+	for fpl in frappe.get_all(
+		"Farm Pack List", filters={"order_pick_list": opl_name, "docstatus": 1}, pluck="name"
+	):
+		frappe.db.set_value(
+			"Farm Packlist Item",
+			{"parent": fpl, "parenttype": "Farm Pack List"},
+			"docstatus",
+			0,
+			update_modified=False,
+		)
+		frappe.db.set_value("Farm Pack List", fpl, "docstatus", 0, update_modified=False)
+		frappe.get_doc(
+			{
+				"doctype": "Comment",
+				"comment_type": "Comment",
+				"reference_doctype": "Farm Pack List",
+				"reference_name": fpl,
+				"content": frappe._("Reopened: {0} gained boxes after this was submitted.").format(opl_name),
+			}
+		).insert(ignore_permissions=True)
