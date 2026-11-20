@@ -4018,11 +4018,64 @@ def _issued_cap_error(opl_name, packed, incoming):
 	boxes_error = _complete_boxes_error(opl_name, packed, incoming)
 	if boxes_error:
 		return boxes_error
-	if not cap or flt(packed) + flt(incoming) <= cap["issued"]:
+	if not cap:
+		return None
+	# packed in full boxes only: what is issued so far packs as the boxes it fills
+	boxes, stems = _issued_full_boxes(opl_name)
+	if flt(packed) + flt(incoming) <= min(stems, cap["issued"]) + 0.001:
 		return None
 	return _(
-		"Only {0}% is issued — pack the rest once more stock is issued ({1} of {2} stems packed)."
-	).format(cap["pct"], int(flt(packed)), int(cap["issued"]))
+		"Only {0} full box(es) are issued so far ({1} stems): pack the rest once more stock is issued."
+	).format(boxes, int(stems))
+
+
+def _issued_full_boxes(opl_name):
+	"""(boxes, stems) the issued buckets of `opl_name` fill whole. A line's box holds its pack rate; a
+	mixed box or bunch needs every line, so it fills as many boxes as its scarcest line. A pick list
+	completed short packs what was issued, its last box part-filled."""
+	opl = frappe.db.get_value(
+		"Order Pick List", opl_name, ["mix_group", "bunch_group", "short_accepted"], as_dict=True
+	)
+	issued_by_line = {}
+	for r in frappe.get_all(
+		"Pick List Item",
+		filters={"parent": opl_name, "parenttype": "Order Pick List", "issued": 1, "bucket": ["is", "set"]},
+		fields=["sales_order_item", "stock_qty"],
+	):
+		if r.sales_order_item:
+			issued_by_line[r.sales_order_item] = issued_by_line.get(r.sales_order_item, 0) + flt(r.stock_qty)
+	total = sum(issued_by_line.values())
+	if not opl or opl.short_accepted or not issued_by_line:
+		return 0, total
+	per_line = []
+	for so in frappe.get_all(
+		"Sales Order Item",
+		filters={"name": ("in", list(issued_by_line))},
+		fields=[
+			"name",
+			"stock_qty",
+			"custom_number_of_boxes",
+			"custom_packrate",
+			"custom_packrate_mixed_box",
+			"custom_mixed_box",
+			"custom_mixed_bunch",
+		],
+	):
+		rate = flt(
+			so.custom_packrate_mixed_box
+			if cint(so.custom_mixed_box) or cint(so.custom_mixed_bunch)
+			else so.custom_packrate
+		)
+		per_box = rate or flt(so.stock_qty) / (cint(so.custom_number_of_boxes) or 1)
+		if per_box <= 0:
+			return 0, total
+		per_line.append((int(issued_by_line[so.name] / per_box + 1e-9), per_box))
+	if not per_line:
+		return 0, total
+	if opl.mix_group or opl.bunch_group:
+		boxes = min(b for b, _ in per_line)
+		return boxes, boxes * sum(p for _, p in per_line)
+	return sum(b for b, _ in per_line), sum(b * p for b, p in per_line)
 
 
 def _complete_boxes_error(opl_name, packed, incoming):

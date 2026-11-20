@@ -35,13 +35,13 @@ class UnitTestRemoteWholeBucket(UnitTestCase):
 		self.assertEqual(second, [])
 		self.assertEqual(left, 100)
 
-	def test_a_remote_bucket_bigger_than_the_need_is_left(self):
+	def test_a_remote_bucket_gives_what_the_line_needs(self):
 		taken = {}
 		picks, left = da._fifo_pick(
 			_item("SO-1", "L1", [_bucket("BIG", 100, 0), _bucket("SMALL", 20, 0)]), 30, taken
 		)
-		self.assertEqual([(p["bucket_id"], p["qty"]) for p in picks], [("SMALL", 20)])
-		self.assertEqual(left, 10)
+		self.assertEqual([(p["bucket_id"], p["qty"]) for p in picks], [("BIG", 30)])
+		self.assertEqual(left, 0)
 
 	def test_a_bucket_on_the_sales_farm_is_still_shared(self):
 		taken = {}
