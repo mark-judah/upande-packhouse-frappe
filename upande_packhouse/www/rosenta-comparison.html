@@ -55,14 +55,17 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
 .rc-tab i{font:600 11px 'Poppins',sans-serif;font-style:normal;background:var(--neg);color:#fff;border-radius:999px;padding:1px 8px}
 
 /* summary cards: the two systems side by side, in words */
-.rc-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px;margin-bottom:24px}
-.rc-kpi{background:var(--card);border-radius:20px;padding:24px 28px;box-shadow:var(--shadow)}
+.rc-kpis{display:grid;grid-template-columns:repeat(var(--n,3),minmax(0,1fr));gap:18px;margin-bottom:24px}
+@media (max-width:900px){.rc-kpis{grid-template-columns:1fr}}
+.rc-kpi{background:var(--card);border-radius:20px;padding:24px 28px;box-shadow:var(--shadow);text-align:center}
 .rc-kpi__label{font:500 11px 'Poppins',sans-serif;text-transform:uppercase;letter-spacing:1.8px;color:var(--ink-mute);margin-bottom:16px}
-.rc-kpi__pair{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.rc-kpi__pair{display:grid;grid-template-columns:1fr 1fr;gap:16px;justify-items:center}
 .rc-kpi__side small{display:block;font:500 11px 'Poppins',sans-serif;color:var(--ink-mute);margin-bottom:2px}
 .rc-kpi__side b{font:600 34px/1 'Poppins',sans-serif;color:var(--ink);letter-spacing:-1px;font-variant-numeric:tabular-nums}
 .rc-kpi__side.is-e b{color:var(--avo-700)}
-.rc-kpi__foot{margin-top:16px}
+.rc-kpi__foot{margin-top:16px;display:flex;justify-content:center;flex-wrap:wrap;gap:6px}
+.rc-kpi__foot{font-size:12px;color:var(--ink-mute)}
+.rc-kpi__pair:has(.rc-kpi__side:only-child){grid-template-columns:1fr}
 .rc-kpi--wide{grid-column:1/-1}
 .rc-kpi--wide .rc-kpi__pair{grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px 40px}
 .rc-specrow{cursor:pointer}.rc-specrow:hover td{background:rgba(10,10,10,.03)}.rc-spectable tr.rc-diffrow td{background:rgba(150,101,15,.08)}.rc-missing{color:var(--neg);font-weight:500}
@@ -70,7 +73,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
 .rc-spectable{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}.rc-spectable th{position:sticky;top:0;z-index:5;background:var(--card);text-align:left;padding:10px 14px;color:var(--ink-mute);font:500 11px 'Poppins',sans-serif;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid rgba(10,10,10,.14)}.rc-spectable th:nth-child(even),.rc-spectable td:nth-child(even){background:rgba(10,10,10,.055)}.rc-spectable td+td,.rc-spectable th+th{border-left:1px solid rgba(10,10,10,.12)}.rc-spectable td{padding:10px 14px;border-top:1px solid rgba(10,10,10,.06);vertical-align:top}.rc-spectable td b{font-weight:600}
 .rc-cur{white-space:nowrap}.rc-cur i{font-style:normal;font-size:11px;color:var(--ink-mute);margin-right:4px}
 .rc-kpi__sub{margin-top:6px;font:500 12px 'Poppins',sans-serif;color:var(--ink-mute)}
-.rc-amts{display:flex;flex-wrap:wrap;gap:6px 24px}
+.rc-amts{display:flex;flex-wrap:wrap;gap:6px 24px;justify-content:center}
 .rc-amts b{font:600 26px/1.15 'Poppins',sans-serif;letter-spacing:-.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .rc-amts b i{font:500 12px 'Poppins',sans-serif;font-style:normal;color:var(--ink-mute);letter-spacing:.4px;margin-right:6px}
 .rc-kpi--wide .rc-kpi__side.is-e .rc-amts b{color:var(--avo-700)}
@@ -87,14 +90,21 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
 .rc-ghead{position:sticky;top:0;z-index:6;background:var(--card);min-width:var(--minw,0);box-shadow:0 1px 0 var(--hair-2,rgba(10,10,10,.12))}
 .rc-ghead .rc-g{min-width:0}
 /* columns: one band per measure, alternating grey, so it is clear where Boxes stops and Stems per box starts */
-.rc-g>div.cg1,.rc-grp.cg1{background:rgba(10,10,10,.055)}
 .rc-g .sub{border-left:1px dashed rgba(10,10,10,.13)}
 .rc-g .sep{border-left:1px solid rgba(10,10,10,.16)}
-.rc-g>div:first-child{position:sticky;left:0;z-index:2;background:var(--card);box-shadow:1px 0 0 rgba(10,10,10,.1)}
 .rc-ghead .rc-g>div:first-child{z-index:7}
-.rc-gh2>div{border-bottom:2px solid rgba(10,10,10,.14);padding-top:0!important}.rc-gh .rc-grp{padding-top:10px!important}.rc-chip{white-space:nowrap}
-.rc-g{display:grid;grid-template-columns:var(--cols);align-items:center;min-width:var(--minw,0)}
-.rc-g>div{padding:11px 10px;min-width:0}
+.rc-gh2>div{border-bottom:2px solid rgba(10,10,10,.14);padding-top:0!important;align-items:flex-end}
+.rc-gh .n{justify-content:flex-end}.rc-gh .rc-grp{align-items:center}
+/* one solid grey per band, so nothing stacks or turns patchy: bands, hover and total rows each have their own fixed shade */
+.rc-g>div.cg1,.rc-grp.cg1{background:#f4f4f0}
+.rc-grp.cg1 .s,.rc-grp.cg1 .r,.rc-grp.cg1 .e{box-shadow:none}
+.rc-grp.cg1 .s{background:#e7e7e1}
+.rc-g>div:first-child{position:sticky;left:0;z-index:2;background:var(--card)}
+.rc-row.go:hover>div{background:#f8f8f5}.rc-row.go:hover>div.cg1{background:#ecece7}
+.rc-row.total>div{background:#efefea}.rc-row.total>div.cg1{background:#e4e4de}.rc-gh .rc-grp{padding-top:10px!important}.rc-chip{white-space:nowrap}
+.rc-g{display:grid;grid-template-columns:var(--cols);align-items:stretch;min-width:var(--minw,0)}
+.rc-g>div{padding:11px 10px;min-width:0;display:flex;align-items:center}
+.rc-c{width:100%;min-width:0}
 .rc-g .n{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink);font-weight:500}
 .rc-g .n.dim{color:var(--ink-faint);font-weight:400}
 .rc-g .sep{border-left:1px solid var(--hair)}
@@ -108,9 +118,9 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
 .rc-grp .s{background:rgba(10,10,10,.05);color:var(--ink-4)}
 .rc-row{border-top:1px solid var(--hair);transition:background .15s;background:var(--card)}
 .rc-row.go{cursor:pointer}
-.rc-row.go:hover,.rc-row.go:hover>div:first-child{background:#f1f1ec}.rc-row.go:hover>div.cg1{background:rgba(10,10,10,.09)}
+
 .rc-row.total{border-top:0}
-.rc-row.total>div{padding-top:12px;padding-bottom:12px}.rc-row.total,.rc-row.total>div:first-child{background:#f1f1ec}.rc-row.total>div.cg1{background:rgba(10,10,10,.09)}.rc-row.total{border-top:0;margin-top:4px}.rc-row.total .rc-name{font-weight:600}
+.rc-row.total>div{padding-top:12px;padding-bottom:12px}.rc-row.total{border-top:0;margin-top:4px}.rc-row.total .rc-name{font-weight:600}
 .rc-name{font:600 14px 'Poppins',sans-serif;color:var(--ink);overflow-wrap:anywhere}
 .rc-name small{display:block;font:400 12px 'Poppins',sans-serif;color:var(--ink-mute);margin-top:1px}
 .rc-arrow{color:var(--ink-faint);margin-left:6px;font-weight:400}
@@ -143,7 +153,13 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
 .rc-panel__head p{margin:4px 0 0;font-size:13px;color:var(--ink-mute)}
 .rc-x{width:38px;height:38px;border:0;border-radius:50%;background:rgba(10,10,10,.05);color:var(--ink-4);font-size:20px;line-height:1;cursor:pointer;flex:none}
 .rc-x:hover{background:var(--ink);color:#fafaf6}
-.rc-panel .rc-scroll{overflow:visible;max-height:none;padding:0}.rc-panel__body{overflow:auto;padding:22px 30px 40px;flex:1}
+.rc-panel .rc-scroll{overflow:visible;max-height:none;padding:0}
+/* in the popup the panel body is the scroller: no padding above a sticky header, or rows scroll through the gap */
+.rc-panel .rc-panel__body{padding-top:0}
+.rc-panel .rc-panel__body>*:first-child{margin-top:22px}
+.rc-panel .rc-card{padding-top:0;overflow:visible}
+.rc-panel .rc-ghead{padding-top:6px;top:0}
+.rc-panel .rc-spectable th{top:0}.rc-panel__body{overflow:auto;padding:22px 30px 40px;flex:1}
 .rc-orderhead{border-top:1px solid var(--hair);margin-top:10px}
 .rc-orderhead>div{padding:14px 10px 4px!important}
 .rc-whos{display:grid;grid-template-columns:1fr 1fr;gap:24px}
@@ -174,7 +190,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
         <div class="rc-pills" id="rc-presets"><button type="button" data-v="yesterday">Yesterday</button><button type="button" data-v="today">Today</button><button type="button" data-v="tomorrow">Tomorrow</button></div>
         <label class="rc-datelabel" for="rc-date">Delivery date</label>
         <input class="rc-date" type="date" id="rc-date" title="Delivery date">
-        <div class="rc-pills" id="rc-span" title="Period for Money, Greenhouses and Fill rate, ending on the date"><button type="button" data-v="1">Day</button><button type="button" data-v="7">7 days</button><button type="button" data-v="30">30 days</button></div>
+        <div class="rc-pills" id="rc-span" title="Period for Sales and payments, Farm revenue, Specifications and Order fulfilment, ending on the delivery date"><button type="button" data-v="1">Day</button><button type="button" data-v="7">7 days</button><button type="button" data-v="30">30 days</button></div>
         <button class="rc-btn" id="rc-csv" type="button">Download CSV</button>
       </div>
     </header>
@@ -183,9 +199,9 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       <button class="rc-tab" type="button" data-tab="packing">Packing<i id="rc-n-packing" hidden></i></button>
       <button class="rc-tab" type="button" data-tab="allocations">Allocations<i id="rc-n-allocations" hidden></i></button>
       <button class="rc-tab" type="button" data-tab="specs">Specifications</button>
-      <button class="rc-tab" type="button" data-tab="money">Money</button>
-      <button class="rc-tab" type="button" data-tab="greenhouse">Greenhouses</button>
-      <button class="rc-tab" type="button" data-tab="fill">Fill rate</button>
+      <button class="rc-tab" type="button" data-tab="money">Sales &amp; payments</button>
+      <button class="rc-tab" type="button" data-tab="greenhouse">Farm revenue</button>
+      <button class="rc-tab" type="button" data-tab="fill">Order fulfilment</button>
       <button class="rc-tab" type="button" data-tab="teams">Live packing</button>
       <button class="rc-tab" type="button" data-tab="cancel">Cancellations<i id="rc-n-cancel" hidden></i></button>
     </div>
@@ -217,7 +233,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
     var iso = function (d) { return d.toLocaleDateString("en-CA", { timeZone: "Africa/Nairobi" }); };
     var today = new Date();
     var st = { date: iso(today), tab: "orders", show: "diff", span: "1" };
-    var rdata = {}, rkey = {}, rseq = 0; // Money, Greenhouses and Fill rate: their own period and data
+    var rdata = {}, rkey = {}, rseq = 0; // Sales & payments, Farm revenue, Specifications and Order fulfilment: their own period and data
     var data = null, seq = 0;
 
     // ---- numbers and times (whole numbers everywhere; a pack rate is stems in one box)
@@ -279,7 +295,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       o.rows.forEach(function (r) {
         if (r.full) { h += '<div class="rc-g rc-row rc-orderhead" style="--cols:' + tpl + ";--minw:" + minw + 'px"><div style="grid-column:1/-1">' + r.full + "</div></div>"; return; }
         h += '<div class="rc-g rc-row' + (r.go ? " go" : "") + (r.total ? " total" : "") + '" style="--cols:' + tpl + ";--minw:" + minw + 'px"' + (r.i != null ? ' data-i="' + r.i + '"' : "") + ">" +
-          '<div class="rc-name">' + (r.nameHtml || esc(r.name)) + (r.go ? '<span class="rc-arrow">›</span>' : "") + (r.sub ? "<small>" + r.sub + "</small>" : "") + "</div>" +
+          '<div class="rc-name"><div class="rc-c">' + (r.nameHtml || esc(r.name)) + (r.go ? '<span class="rc-arrow">›</span>' : "") + (r.sub ? "<small>" + r.sub + "</small>" : "") + "</div></div>" +
           cols.map(function (c, i) {
             var sep = i === 0 || gk(cols[i - 1]) !== gk(c);
             var side = c.side === "r" ? r.r : c.side === "e" ? r.e : null;
@@ -291,7 +307,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
               inner = c.html ? c.html(side) : (c.text ? esc(v == null || v === "" ? "—" : v) : (c.fmt ? c.fmt(v) : num(v)));
             }
             var cls = c.text || c.html || c.side === "s" ? "" : "n" + (side && (c.val ? c.val(side) : side[c.k]) === 0 ? " dim" : "");
-            return '<div class="' + cls + (sep ? " sep" : "") + subc(i) + band(i) + '">' + inner + "</div>";
+            return '<div class="' + cls + (sep ? " sep" : "") + subc(i) + band(i) + '"><div class="rc-c">' + inner + "</div></div>";
           }).join("") + "</div>";
       });
       return '<div class="rc-scroll">' + h + "</div>";
@@ -344,7 +360,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       var price = function (s) { return s.price == null ? "" : '<div class="rc-kpi__sub">' + esc(s.currency) + " " + money(s.price, 3) + " per stem</div>"; };
       return '<div class="rc-kpi rc-kpi--wide"><div class="rc-kpi__label">Order value</div><div class="rc-kpi__pair">' +
         '<div class="rc-kpi__side"><small>Rosenta</small>' + amounts(t.rosenta) + price(t.rosenta) + '</div><div class="rc-kpi__side is-e"><small>ERPNext</small>' + amounts(t.erpnext) + price(t.erpnext) + "</div></div>" +
-        '<div class="rc-kpi__foot">' + priceChip({ r: t.rosenta, e: t.erpnext }) + "</div></div>";
+        (function (c) { return c.indexOf("rc-none") >= 0 ? "" : '<div class="rc-kpi__foot">' + c + "</div>"; })(priceChip({ r: t.rosenta, e: t.erpnext })) + "</div>";
     }
     function ordersView() {
       var t = data.totals;
@@ -439,7 +455,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
         card("Teams", shown.length + " shown", grid({ first: "Team", cols: cols, rows: rows, minw: 1180, statusLabel: "Difference" }));
     }
 
-    // ---- Money, Greenhouses, Fill rate: read from Rosenta snapshots, over a period ending on the date
+    // ---- Sales & payments, Farm revenue, Order fulfilment, Specifications: read from Rosenta snapshots, over a period ending on the date
     var RANGE_TABS = { specs: "get_rosenta_specs", money: "get_rosenta_money", greenhouse: "get_rosenta_greenhouse", fill: "get_rosenta_fill" };
     function rangeOf() {
       var to = new Date(st.date + "T00:00:00"), from = new Date(to.getTime() - (+st.span - 1) * 86400000);
@@ -593,7 +609,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
     function d_text() { var r = rangeOf(); return r.from === r.to ? longDate(r.to) : longDate(r.from) + " to " + longDate(r.to); }
 
     var FILL_COLS = cat(pair("ordered", "Ordered"), pair("allocated", "Allocated"), pair("issued", "Issued"), pair("packed", "Packed"), pair("loaded", "Loaded"), pair("dispatched", "Dispatched"),
-      pair("fill", "Fill %", { w: "minmax(70px,0.7fr)", html: function (s) { return s.fill == null ? '<span class="rc-none">—</span>' : esc(String(s.fill)) + "%"; } }));
+      pair("fill", "% dispatched", { w: "minmax(70px,0.7fr)", html: function (s) { return s.fill == null ? '<span class="rc-none">—</span>' : esc(String(s.fill)) + "%"; } }));
     function fillView() {
       var d = rangeData("fill"); if (!d) return;
       var bad = rangeFail(d); if (bad) { $("rc-content").innerHTML = bad; return; }
@@ -605,7 +621,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       var pct = function (x) { return x == null ? "—" : x + "%"; };
       $("rc-content").innerHTML = rangeNote(d) +
         '<div class="rc-kpis">' + kpi("Stems ordered", t.rosenta.ordered, t.erpnext.ordered, "stems") + kpi("Stems dispatched", t.rosenta.dispatched, t.erpnext.dispatched, "stems") +
-        '<div class="rc-kpi"><div class="rc-kpi__label">Fill rate (dispatched of ordered)</div><div class="rc-kpi__pair"><div class="rc-kpi__side"><small>Rosenta</small><b>' + pct(t.rosenta.fill) + '</b></div><div class="rc-kpi__side is-e"><small>ERPNext</small><b>' + pct(t.erpnext.fill) + "</b></div></div></div></div>" +
+        '<div class="rc-kpi"><div class="rc-kpi__label">Share of the order dispatched</div><div class="rc-kpi__pair"><div class="rc-kpi__side"><small>Rosenta</small><b>' + pct(t.rosenta.fill) + '</b></div><div class="rc-kpi__side is-e"><small>ERPNext</small><b>' + pct(t.erpnext.fill) + "</b></div></div></div></div>" +
         showSwitch() + card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 2300, statusLabel: "Difference" }) : empty("No differences", "Rosenta and ERPNext agree for this period."));
     }
 
@@ -685,6 +701,15 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
     $("rc-p-close").addEventListener("click", closePanel);
     document.addEventListener("keydown", function (e) { if (e.key === "Escape") closePanel(); });
 
+    // a row of KPI cards shares the width equally; a wide card spans the row
+    function fitKpis() {
+      Array.prototype.forEach.call(document.querySelectorAll(".rc-kpis"), function (k) {
+        var n = k.querySelectorAll(".rc-kpi:not(.rc-kpi--wide)").length;
+        k.style.setProperty("--n", Math.max(1, Math.min(n || 1, 5)));
+      });
+    }
+    new MutationObserver(fitKpis).observe($("rc-content"), { childList: true });
+
     // ---- tabs, drawing, loading
     var VIEWS = { orders: ordersView, packing: packingView, allocations: allocView, specs: specsView, money: moneyView, greenhouse: greenhouseView, fill: fillView, teams: teamsView, cancel: cancelView };
     function paintTabs() {
@@ -705,7 +730,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
     function presetDate(v) { var d = new Date(); d.setDate(d.getDate() + (v === "yesterday" ? -1 : v === "tomorrow" ? 1 : 0)); return iso(d); }
     function draw() {
       paintTabs();
-      if (RANGE_TABS[st.tab]) { $("rc-warn").innerHTML = ""; return VIEWS[st.tab](); }
+      if (RANGE_TABS[st.tab]) { $("rc-warn").innerHTML = ""; $("rc-sub").textContent = d_text(); return VIEWS[st.tab](); }
       if (!data) return;
       $("rc-warn").innerHTML = (data.price_error ? '<div class="rc-note bad">Rosenta prices could not be read: ' + esc(data.price_error) + "</div>" : "") + (data.check && data.check.length ? '<div class="rc-note bad">Does not match Orders &amp; Workflow: ' + esc(data.check.join("; ")) + "</div>" : "");
       var dr = data.drafts;
