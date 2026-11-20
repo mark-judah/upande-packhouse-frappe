@@ -2,8 +2,9 @@
 # For license information, please see license.txt
 """Allocation Planning v2: revise the confirmations to what is really there.
 
-Each confirmed line is suggested on its own: what it still needs, as far as the stock of its variety and length
-goes (on the shelf, received, in quarantine, harvested and not received yet). No forecast.
+The confirmed lines share the stock of their variety and length in sequence (on the shelf, received, in
+quarantine, harvested and not received yet): each is suggested what it still needs, as far as what the lines
+before it left goes. No forecast.
 Whole boxes (a line's last part box only when it completes the line). Teams stay as they are; a line the
 stock cannot reach at all leaves the plan.
 """
@@ -64,20 +65,11 @@ def stock_stages(farm, varieties, places=None, process_day=None):
 		out[(r.variety, r.stem_length or "")]["received"] += flt(r.stems)
 		place((r.variety, r.stem_length or ""), "received", r.farm, r.cold_room, r.stems, r.bucket_id)
 	since = add_days(today(), -min(cint(stock._config()["discard_age"]) or 7, 14))
-	rows = frappe.db.sql(
-		"""
-		SELECT se.custom_bucket_id AS bucket_id, se.stock_entry_type, se.posting_date, se.creation,
-			se.farm, MAX(sed.t_warehouse) AS warehouse, sed.item_code AS variety, SUM(sed.qty) AS stems,
-			COALESCE(NULLIF(sed.custom_stem_length, ''), se.custom_stem_length, '') AS stem_length
-		FROM `tabStock Entry` se FORCE INDEX (stock_entry_type_docstatus_posting_date_index)
-		INNER JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
-		WHERE se.docstatus = 1 AND se.stock_entry_type IN %(types)s AND se.posting_date >= %(since)s
-			AND IFNULL(se.custom_bucket_id, '') != '' AND se.farm IN %(farms)s
-		GROUP BY se.name, sed.item_code, stem_length
-		""",
-		{"types": CYCLE, "since": since, "farms": tuple(farms)},
-		as_dict=True,
+	# the planning page's revise reads it for one order after another: a minute old is near enough there
+	rows = (
+		_cycle_rows(tuple(farms), since) if places is None else _cycle_rows(tuple(farms), since, fresh=True)
 	)
+	rows = [r for r in rows if r.variety in set(vs)]
 	by_bucket = defaultdict(list)
 	for r in rows:
 		by_bucket[r.bucket_id].append(r)
@@ -117,12 +109,42 @@ def stock_stages(farm, varieties, places=None, process_day=None):
 	return out
 
 
-def _changes(day, farm, keep=None, days=None):
+def _cycle_rows(farms, since, fresh=False):
+	"""Every bucket's harvest-to-shelf entries at these farms since `since`, kept for a minute."""
+	key = "upande_revise_cycle:{0}:{1}".format(",".join(farms), since)
+	if not fresh:
+		got = frappe.cache().get_value(key)
+		if got is not None:
+			return [frappe._dict(r) for r in got]
+	rows = frappe.db.sql(
+		"""
+		SELECT se.custom_bucket_id AS bucket_id, se.stock_entry_type, se.posting_date, se.creation,
+			se.farm, MAX(sed.t_warehouse) AS warehouse, sed.item_code AS variety, SUM(sed.qty) AS stems,
+			COALESCE(NULLIF(sed.custom_stem_length, ''), se.custom_stem_length, '') AS stem_length
+		FROM `tabStock Entry` se FORCE INDEX (stock_entry_type_docstatus_posting_date_index)
+		INNER JOIN `tabStock Entry Detail` sed ON sed.parent = se.name
+		WHERE se.docstatus = 1 AND se.stock_entry_type IN %(types)s AND se.posting_date >= %(since)s
+			AND IFNULL(se.custom_bucket_id, '') != '' AND se.farm IN %(farms)s
+		GROUP BY se.name, sed.item_code, stem_length
+		""",
+		{"types": CYCLE, "since": since, "farms": farms},
+		as_dict=True,
+	)
+	frappe.cache().set_value(key, [dict(r) for r in rows], expires_in_sec=60)
+	return rows
+
+
+def _changes(day, farm, keep=None, days=None, only=None):
 	"""Lines whose confirmation the revision would change; `keep(line)` also lists lines that stay the same.
-	`days`: every delivery day of a week, sharing one stock."""
+	`days`: every delivery day of a week, sharing one stock. `only(line)`: list those lines alone -- the lines
+	before them in the sequence, at the same variety and length, still take their share of the stock first."""
 	days = days or [day]
 	planned = pg._planned_week(days, farm)
 	lines = [ln for ln in pg._lines_for(days[0], farm, days[-1]) if ln.name in planned]
+	if only is not None:
+		key = lambda ln: (ln.item_code, planned[ln.name].get("length") or ln.custom_length or "")  # noqa: E731
+		wanted = {key(ln) for ln in lines if only(ln)}
+		lines = [ln for ln in lines if key(ln) in wanted]
 	if not lines:
 		return []
 	seq, names = {}, {}
@@ -142,7 +164,8 @@ def _changes(day, farm, keep=None, days=None):
 	out = []
 	for (variety, length), pool_lines in pools.items():
 		st = stages[(variety, length)]
-		# each line is suggested on its own: what it still needs, as far as the stock there is now goes
+		# the lines share the stock in sequence: each takes what it still needs from what the lines before it
+		# left, so the same stems are never suggested to two lines
 		total = flt(st["shelf"]) + flt(st["received"]) + flt(st["quarantine"]) + flt(st["harvested"])
 		pool_lines.sort(
 			key=lambda ln: (
@@ -161,6 +184,9 @@ def _changes(day, farm, keep=None, days=None):
 			size = per_box(ln)
 			if give < want - 0.5 and size:
 				give = int(give / size + 1e-9) * size
+			total -= give
+			if only is not None and not only(ln):
+				continue
 			if abs(give - was) > 0.5 or (keep and keep(ln)):
 				out.append(
 					{
@@ -178,6 +204,8 @@ def _changes(day, farm, keep=None, days=None):
 						"team": plans.team_for_line(ln.name) or "",
 						"delivery_date": str(ln.delivery_date),
 						"stock": st,
+						# what the lines before it in the sequence left of that stock
+						"left_for_it": max(0.0, total + give),
 					}
 				)
 	out.sort(
@@ -192,20 +220,21 @@ def preview_revision(
 	farm: str | None = None,
 	sales_order: str | None = None,
 	week: str | None = None,
+	sales_order_item: str | None = None,
 ):
 	"""What revising would change: [{sales_order, variety, length, was, now (suggested), max, ...}]. For one
-	order, every one of its confirmed lines, changed or not. With `week`, every delivery day of it."""
+	order (or one of its lines), every one of its confirmed lines, changed or not. With `week`, every delivery
+	day of it."""
 	day, farm = pg._day(delivery_date), farm or pg._default_farm()
 	days = pg._week(week)[1] if week else None
 	if days:
 		day = days[0]
-	changes = _changes(day, farm, (lambda ln: ln.parent == sales_order) if sales_order else None, days)
-	if sales_order:
-		changes = [c for c in changes if c["sales_order"] == sales_order]
-	# what the planner can count on: the shelf now and the forecast up to each line's delivery day less one
-	got = pg.available_by_day(farm, {(c["delivery_date"], c["variety"], c["length"]) for c in changes})
-	for c in changes:
-		c["available"] = got.get((c["delivery_date"], c["variety"], c["length"]))
+	mine = None
+	if sales_order_item:
+		mine = lambda ln: ln.name == sales_order_item  # noqa: E731
+	elif sales_order:
+		mine = lambda ln: ln.parent == sales_order  # noqa: E731
+	changes = _changes(day, farm, mine, days, only=mine)
 	return {"success": True, "delivery_date": day, "farm": farm, "changes": changes}
 
 

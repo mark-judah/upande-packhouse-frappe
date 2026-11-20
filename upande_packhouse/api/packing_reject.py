@@ -22,6 +22,7 @@ from frappe import _
 from frappe.utils import cint, flt, now_datetime
 
 from upande_packhouse import stock_movement
+from upande_packhouse.permissions import STAFF, guard
 from upande_packhouse.upande_packhouse.page.sales_allocation import sales_allocation as sa
 
 REJECTS_WAREHOUSE = "Rejects - KR"
@@ -45,6 +46,29 @@ def _opl(opl_name):
 	if not opl:
 		frappe.throw(_("Order Pick List {0} not found.").format(opl_name))
 	return opl
+
+
+def _same_reject(opl_name, box_id, variety, stem_length, stems, bunch_id):
+	"""A reject already recorded that this one repeats (the app resent it): the same bunch, else the same box,
+	variety, length and stems by the same person within the app's retry window -- the same reject again a minute
+	later is a second reject."""
+	if bunch_id:
+		return frappe.db.get_value(
+			"Packing Reject Log", {"order_pick_list": opl_name, "bunch_id": bunch_id}, "name"
+		)
+	return frappe.db.get_value(
+		"Packing Reject Log",
+		{
+			"order_pick_list": opl_name,
+			"box_id": str(box_id),
+			"variety": variety,
+			"stem_length": stem_length or "",
+			"stems_rejected": stems,
+			"recorded_by": frappe.session.user,
+			"creation": (">", frappe.utils.add_to_date(frappe.utils.now_datetime(), seconds=-45)),
+		},
+		"name",
+	)
 
 
 def _line(opl_name, variety, stem_length=None, bucket=None):
@@ -258,6 +282,7 @@ def get_reject_form(order_pick_list: str):
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=STAFF)
 def record_reject(
 	order_pick_list: str,
 	box_id: str,
@@ -300,6 +325,40 @@ def record_reject(
 	line = _line(order_pick_list, variety, stem_length, bucket)
 	bucket = bucket or line.bucket
 	so_item = line.custom_sale_order_item or line.sales_order_item
+
+	# One reject of a pick list at a time: a resend waits for the first, then finds it recorded below.
+	frappe.db.sql("SELECT name FROM `tabOrder Pick List` WHERE name = %s FOR UPDATE", order_pick_list)
+	same = _same_reject(
+		order_pick_list, box_id, variety, stem_length or line.stem_length or "", stems, bunch_id
+	)
+	if same:
+		log = frappe.get_doc("Packing Reject Log", same)
+		return {
+			"success": True,
+			"reject": _describe(log),
+			"message": _("This reject was already recorded for box {0}.").format(box_id),
+		}
+	# never more rejected than was issued for the variety on this pick list
+	issued = flt(
+		frappe.db.sql(
+			"""SELECT SUM(stock_qty) FROM `tabPick List Item` WHERE parent = %s AND parenttype = 'Order Pick List'
+			AND item_code = %s AND (IFNULL(issued, 0) = 1 OR IFNULL(issued_offline, 0) = 1)""",
+			(order_pick_list, variety),
+		)[0][0]
+	)
+	rejected = flt(
+		frappe.db.sql(
+			"""SELECT SUM(stems_rejected) FROM `tabPacking Reject Log`
+			WHERE order_pick_list = %s AND variety = %s""",
+			(order_pick_list, variety),
+		)[0][0]
+	)
+	if rejected + stems > issued + 0.001:
+		frappe.throw(
+			_(
+				"Only {0} stems of {1} were issued to {2} and {3} are already rejected: {4} more cannot be."
+			).format(int(issued), variety, order_pick_list, int(rejected), stems)
+		)
 
 	log = frappe.get_doc(
 		{

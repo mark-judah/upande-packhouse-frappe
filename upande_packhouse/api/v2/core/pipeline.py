@@ -42,7 +42,8 @@ from upande_packhouse.api.v2.core import boxes as bx
 from upande_packhouse.api.v2.core import units
 from upande_packhouse.api.v2.core.rose import rose_groups, rose_type
 
-STAGES = ("ordered", "allocated", "issued", "packed", "precooling", "staged", "loaded", "dispatched")
+# the order the packhouse works in: packed, staged, then precooled
+STAGES = ("ordered", "allocated", "issued", "packed", "staged", "precooling", "loaded", "dispatched")
 
 LINE_FIELDS = """
 	soi.name, soi.parent, soi.idx, soi.item_code, soi.item_name, soi.item_group,
@@ -387,8 +388,8 @@ def attach_pipeline(lines):
 		o.labels += 1
 		delivered = bool(r.delivered)
 		loaded = bool(r.loaded) or delivered
-		staged = bool(r.staged) or loaded
-		precooled = bool(r.precooling) or bool(r.precooled) or staged  # entered precooling (cumulative)
+		precooled = bool(r.precooling) or bool(r.precooled)  # entered precooling
+		staged = bool(r.staged) or precooled or loaded  # staging comes before precooling (cumulative)
 		parts = box_stems.get((r.fpl, _box_no(r.box_number) or 1), {})
 		total = sum(parts.values())
 		for flag, box_attr, stem_attr in (

@@ -327,6 +327,11 @@ def receive_box(box_label, station):
 	main = main_sales_farm()
 	if station and station != main:
 		frappe.throw(_("Boxes are received at {0}.").format(main))
+	# One receipt of a box at a time: a double tap (or a scan racing the truck's receipt) waits for the first,
+	# then reads the box as received -- a locking read, never an older snapshot -- and posts nothing again.
+	box.transfer_status = frappe.db.sql(
+		"SELECT transfer_status FROM `tabBox Label` WHERE name = %s FOR UPDATE", box.name
+	)[0][0]
 	if box.transfer_status == RECEIVED:
 		return {"status": "duplicate", "message": _("Box {0} was already received.").format(box.name)}
 	if box.transfer_status == LOADED:

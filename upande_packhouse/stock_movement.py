@@ -49,6 +49,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, nowdate, nowtime
 
+from upande_packhouse.permissions import STAFF, guard
+
 MAPPING_DT = "SO Warehouse Mapping"
 
 # Every leg posts with `purpose = "Material Transfer"` (set on each Stock Entry
@@ -104,6 +106,18 @@ STAGE_NAMES = tuple(stage for _f, stage, _t in STAGES)
 ARRIVAL_STAGE = "Arrival"
 SALE_STAGE = "Sold"  # allocation stops here — this leg is the sale
 LAST_STAGE = STAGE_NAMES[-1]
+
+
+def lock_bucket(bucket_id):
+	"""Hold one bucket for this transaction: a second scan of it (a resend, a second scanner) waits here until this
+	one commits, then reads what this one did. Locks the bucket's first stock entry row -- the same row for every
+	caller -- so issuing, shelving and releasing a bucket never run side by side."""
+	if bucket_id:
+		frappe.db.sql(
+			"""SELECT name FROM `tabStock Entry` WHERE custom_bucket_id = %s
+			ORDER BY name LIMIT 1 FOR UPDATE""",
+			bucket_id,
+		)
 
 
 def load_mapping(business_unit):
@@ -430,13 +444,35 @@ def bucket_balance(bucket_id, item_code, warehouse, current_cycle=False):
 		return 0.0
 	if not current_cycle:
 		return _ledger_balance(item_code, warehouse, bucket_id=bucket_id)
-	here = _ledger_balance(item_code, warehouse, bucket_id=bucket_id, since=cycle_start(bucket_id))
+	since = cycle_start(bucket_id)
+	here = _ledger_balance(item_code, warehouse, bucket_id=bucket_id, since=since)
 	if here > QTY_TOLERANCE:
 		return here
 	# Re-harvested while the stems of an earlier harvest still wait here (the ID was
 	# reused before they moved): this harvest has nothing here, the bucket's history does.
+	# Only while this harvest has not reached here at all: once it came in and moved on,
+	# a balance from an earlier harvest is not this bucket's to move again (a re-run
+	# arrival or issue would carry the old harvest's stems along).
+	if since and _ledger_in(item_code, warehouse, bucket_id, since) > QTY_TOLERANCE:
+		return here
 	full = _ledger_balance(item_code, warehouse, bucket_id=bucket_id)
 	return full if full > QTY_TOLERANCE else here
+
+
+def _ledger_in(item_code, warehouse, bucket_id, since):
+	"""Stems of this bucket's harvest since `since` that came INTO `warehouse` (gross, before anything left)."""
+	return flt(
+		# nosemgrep: frappe-sql-format-injection -- the f-string carries no request-derived value
+		frappe.db.sql(
+			f"""
+            SELECT COALESCE(SUM(sed.qty), 0)
+            {_bucket_lines()}
+              AND sed.item_code = %(item)s AND se.docstatus = 1 AND se.posting_date >= %(since)s
+              AND sed.t_warehouse = %(wh)s
+            """,
+			{"wh": warehouse, "item": item_code, "bucket": bucket_id, "since": since},
+		)[0][0]
+	)
 
 
 def cycle_start(bucket_id):
@@ -965,6 +1001,7 @@ def ensure_arrival(bucket_id: str | None, business_unit: str | None = None, name
 
 
 @frappe.whitelist()
+@guard(roles=STAFF)
 def post_sale_on_arrival(bucket_id: str | None, business_unit: str | None = None):
 	"""Post the sale leg for a remote bucket's allocations once it has arrived.
 
@@ -991,6 +1028,9 @@ def post_sale_on_arrival(bucket_id: str | None, business_unit: str | None = None
 	hubs = opl_hubs(names)
 	plans_by_bu, skipped = {}, []
 	left = {}  # (item, warehouse) -> this bucket's stems still there to sell
+	# (item, line, sold warehouse) -> stems already sold in for the line, not yet matched to a row: two rows of
+	# one line share what was sold once, so a capped first arrival leaves only the unsold rest to sell later
+	already = {}
 	for opl_name in names:
 		opl = frappe.get_doc("Order Pick List", opl_name)
 		if opl.docstatus == 2:
@@ -1023,7 +1063,12 @@ def post_sale_on_arrival(bucket_id: str | None, business_unit: str | None = None
 				continue
 			so_item = _row_so_item(row)
 			qty = flt(row.stock_qty) or flt(row.qty)
-			move = qty - sold_in_qty(bucket_id, row.item_code, so_item, sale["to"])
+			sold_key = (row.item_code, so_item, sale["to"])
+			if sold_key not in already:
+				already[sold_key] = sold_in_qty(bucket_id, row.item_code, so_item, sale["to"])
+			covered = min(qty, already[sold_key])
+			already[sold_key] -= covered
+			move = qty - covered
 			if move <= QTY_TOLERANCE:
 				skipped.append({"bucket_id": bucket_id, "opl": opl_name, "reason": "already sold"})
 				continue
@@ -1412,6 +1457,7 @@ def _hop_reply(hop, source, target):
 
 
 @frappe.whitelist()
+@guard(roles=STAFF)
 def post_issue_to_packhouse(
 	bucket_id: str | None,
 	item_code: str | None,
@@ -1475,6 +1521,7 @@ def post_leftover_to_packhouse(
 
 
 @frappe.whitelist()
+@guard(roles=STAFF)
 def post_stage_to_dispatch(
 	box_label: str | None,
 	item_code: str | None,
@@ -1504,6 +1551,7 @@ def post_stage_to_dispatch(
 
 
 @frappe.whitelist()
+@guard(roles=STAFF)
 def post_load_to_truck(
 	box_label: str | None,
 	item_code: str | None,

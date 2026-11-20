@@ -571,6 +571,7 @@ def createBunchHandover():
 
 @frappe.whitelist()
 def createLoadingEntry():
+	_no_cross_site_get()
 	# Record Loading Scan
 	# API: record_loading_scan
 	# Params: box_label_name, vehicle, temperature, delivery_date
@@ -632,7 +633,10 @@ def createLoadingEntry():
 					ls_name = "LS-" + str(ls_date)
 
 					if frappe.db.exists("Loading Sheet", ls_name):
-						ls_doc = frappe.get_doc("Loading Sheet", ls_name)
+						# one loader writes the day's sheet at a time: the next waits, then reads it (its boxes too)
+						# as it is now -- a fresh transaction, so nothing is read from before the wait
+						frappe.db.commit()  # nosemgrep: frappe-manual-commit -- nothing of this scan written yet
+						ls_doc = frappe.get_doc("Loading Sheet", ls_name, for_update=True)
 					else:
 						ls_doc = frappe.new_doc("Loading Sheet")
 						ls_doc.date = ls_date
@@ -768,6 +772,9 @@ def createLoadingEntry():
 						}
 
 	except Exception as e:
+		# nothing of a failed scan stays: a box half-written onto the sheet would read "already on loading
+		# sheet" on every retry and never load
+		frappe.db.rollback()
 		frappe.log_error("record_loading_scan error: " + str(e))
 		frappe.response["message"] = {"status": "error", "message": str(e)}
 
@@ -1269,16 +1276,51 @@ def createOrUpdateFarmPackList():
 		if not items or not isinstance(items, list):
 			frappe.throw(_("Invalid or missing item list"))
 
+		# One pack of a pick list at a time: a resend or a second packer waits here for the first to finish, and
+		# what is read below (packed so far, the pack list) is read after it, never from an older snapshot.
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit -- nothing of this request written yet
+		frappe.db.sql("SELECT name FROM `tabOrder Pick List` WHERE name = %s FOR UPDATE", order_pick_list_id)
+		# A scan resent after it was recorded (the app retries when it hears nothing back) is answered with
+		# what was recorded, not packed again: the same pick list and the same items within the app's retry
+		# window (a packer packing the same bunches again a minute later packs them), or the same request id
+		# when the app sends one.
+		import hashlib
+		import json as _json
+
+		scan_key = (
+			"upande_pack_scan:"
+			+ hashlib.sha1(
+				(
+					str(data.get("client_request_id") or "")
+					or _json.dumps({"opl": order_pick_list_id, "items": items}, sort_keys=True, default=str)
+				).encode()
+			).hexdigest()
+		)
+		recorded = frappe.cache().get_value(scan_key)
+		if recorded:
+			frappe.response["data"] = {
+				**recorded,
+				"status": "already_recorded",
+				"message": _("This scan was already recorded: nothing was packed twice."),
+			}
+			return
+
 		# Get the Order Pick List to fetch correct warehouse
 		order_pick_list = frappe.get_doc("Order Pick List", order_pick_list_id)
 
 		processed_items = []
 		already_packed_bunches = []
+		seen_bunches = set()
 
 		for idx, entry in enumerate(items):
 			item_code = entry.get("item_code")
 			bunch_uom = entry.get("bunch_uom")
 			bunch_id = entry.get("bunch_id")  # Will be None for standard roses
+			# a spray bunch scanned twice in one send is packed once
+			if bunch_id:
+				if bunch_id.lower() in seen_bunches:
+					continue
+				seen_bunches.add(bunch_id.lower())
 			stem_length = entry.get("custom_stem_length")
 			box_id = entry.get("box_id") or "1"
 			bunch_qty = entry.get("bunch_qty") or 1
@@ -1570,8 +1612,17 @@ def createOrUpdateFarmPackList():
 			filters={
 				"order_pick_list": order_pick_list_id
 			},  # one Farm Pack List per OPL (name is per-OPL); farm/SO can differ across buckets
+			fields=["name", "docstatus"],
+			order_by="docstatus asc",
 			limit=1,
 		)
+		if existing_doc and existing_doc[0].docstatus == 1:
+			frappe.throw(
+				_(
+					"{0} is fully packed: its pack list {1} is submitted. Nothing more can be packed on it."
+				).format(order_pick_list_id, existing_doc[0].name),
+				title=_("Already packed"),
+			)
 
 		if existing_doc:
 			doc = frappe.get_doc("Farm Pack List", existing_doc[0].name)
@@ -1748,6 +1799,11 @@ def createOrUpdateFarmPackList():
 				"fpl_submitted": fpl_submitted,
 				"box_labels": fpl_box_labels,
 			}
+
+		# recorded: a resend of this scan is answered with this, not packed again
+		frappe.cache().set_value(
+			scan_key, frappe.response.get("data"), expires_in_sec=600 if data.get("client_request_id") else 45
+		)
 
 	except IssuedCapError:
 		raise
@@ -1974,6 +2030,27 @@ def _post_box_leg(box, leg, title):
 			)
 
 
+def _undo_to(save_point):
+	"""Roll a failed best-effort step back to before it, so nothing of it is saved half done. A step that already
+	committed has no savepoint left: what it committed stands."""
+	try:
+		frappe.db.rollback(save_point=save_point)
+	except Exception:
+		pass
+
+
+def _no_cross_site_get():
+	"""A box scan changes stock: refuse one a browser makes from another site (a link or image elsewhere, opened by
+	someone logged in here). The scanner apps send no Sec-Fetch-Site and go through as before."""
+	request = getattr(frappe.local, "request", None)
+	if (
+		request is not None
+		and request.method == "GET"
+		and (request.headers.get("Sec-Fetch-Site") or "").lower() in ("cross-site", "same-site")
+	):
+		frappe.throw(_("Scans are sent from the app."), frappe.PermissionError)
+
+
 def _scan_payload():
 	payload = frappe.request.get_json(silent=True) or {}
 	if not payload:
@@ -2001,11 +2078,9 @@ def _stages_for_transfer(box):
 
 @frappe.whitelist()
 def createPrecoolingEntry():
-	"""Pack -> Precooling -> Stage -> Load. `action` "in" puts a packed box
-	into the precooling room. Staging (location scan, then box scan) is what
-	takes it out: createStagingEntry marks it precooled and staged together.
-	"out" is kept for older app builds that still send it. Flags only -- the stems stay in the packhouse store on the
-	ledger until staging moves them. Same top-level
+	_no_cross_site_get()
+	"""Pack -> Stage -> Precool -> Load. `action` "in" puts a staged box into the precooling room, "out" marks it
+	precooled. Flags only -- staging already moved its stems to the dispatch cold store on the ledger. Same top-level
 	{status: success|duplicate|error, message} shape as createStagingEntry."""
 	payload = _scan_payload()
 	action = (payload.get("action") or "in").strip().lower()
@@ -2017,8 +2092,10 @@ def createPrecoolingEntry():
 		frappe.response.update({"status": "error", "message": "Unknown precooling action '%s'" % action})
 	elif box.loaded or box.delivered:
 		frappe.response.update({"status": "error", "message": "Box %s has already been loaded" % box.name})
-	elif box.staged:
-		frappe.response.update({"status": "error", "message": "Box %s has already been staged" % box.name})
+	elif action == "in" and _stages_for_transfer(box) and box.staged:
+		frappe.response.update(
+			{"status": "duplicate", "message": "Box %s has already been staged" % box.name}
+		)
 	elif action == "in" and _stages_for_transfer(box):
 		# A sales farm that sends its boxes to the main one does not precool: staging marks the box packed and
 		# ready to go on the internal transfer; it is precooled at the main sales farm after it is received.
@@ -2035,6 +2112,11 @@ def createPrecoolingEntry():
 				"status": "success",
 				"message": "Box %s staged, ready for transfer to %s" % (box.name, main_sales_farm()),
 			}
+		)
+	elif not box.staged:
+		# Enforce the pipeline order: Pack -> Stage -> Precool -> Load.
+		frappe.response.update(
+			{"status": "error", "message": "Box %s must be staged before it goes into precooling" % box.name}
 		)
 	elif action == "in":
 		if box.precooling:
@@ -2067,8 +2149,8 @@ def createPrecoolingEntry():
 def fetchPrecoolingSummary(delivery_date: str | None = None, station: str | None = None):
 	"""Box counts for one delivery date (default tomorrow, like the loading
 	screens), per Sales Order and in total: packed = every Box Label;
-	awaiting = packed, not yet in precooling; in_precooling = in the room now;
-	precooled = out of precooling, not yet staged; staged = staged or later.
+	awaiting = packed, not yet staged; staged = staged, not yet in precooling;
+	in_precooling = in the room now; precooled = out of precooling (or loaded).
 	`station` (the device's farm) keeps it to the boxes at its sales farm: packed
 	there, or received there from another sales farm."""
 	delivery_date = delivery_date or frappe.utils.add_days(frappe.utils.nowdate(), 1)
@@ -2103,12 +2185,12 @@ def fetchPrecoolingSummary(delivery_date: str | None = None, station: str | None
 			},
 		)
 		o["packed"] += 1
-		if b.staged or b.loaded:
-			o["staged"] += 1
-		elif b.precooled:
+		if b.precooled or b.loaded:
 			o["precooled"] += 1
 		elif b.precooling:
 			o["in_precooling"] += 1
+		elif b.staged:
+			o["staged"] += 1
 		else:
 			o["awaiting"] += 1
 	orders = list(by_order.values())
@@ -2177,6 +2259,7 @@ def fetchColdstoreBoxes(location: str | None = None, station: str | None = None)
 
 @frappe.whitelist()
 def createStagingEntry():
+	_no_cross_site_get()
 	payload = frappe.request.get_json()
 	frappe.log_error("Staging Payload", payload)
 	if not payload:
@@ -2200,21 +2283,9 @@ def createStagingEntry():
 						% (box.name, main_sales_farm()),
 					}
 				)
-			elif not box.precooling:
-				# Enforce the pipeline order: Pack -> Precool -> Stage -> Load.
-				frappe.response.update(
-					{
-						"status": "error",
-						"message": "Box %s must go into precooling before it can be staged" % box.name,
-					}
-				)
 			else:
-				# Scanning the staging location then the box is the moment the
-				# box leaves the precooling room: it is precooled and staged in
-				# one step, so there is no separate "precooled" scan.
-				if not box.precooled:
-					box.precooled = 1
-					box.precooled_at = frappe.utils.now_datetime()
+				# Pack -> Stage -> Precool -> Load: a packed box is staged (location scan, then box scan), then
+				# goes into precooling (createPrecoolingEntry).
 				box.staged = 1
 				# When it reached the spot: the coldstore list counts its time there from this.
 				box.staged_at = frappe.utils.now_datetime()
@@ -2224,7 +2295,7 @@ def createStagingEntry():
 					box.staging_location = location
 				box.save(ignore_permissions=True)
 
-				# Precooling (or Packhouse) -> Dispatch Cold Store. Box-level
+				# Packhouse -> Dispatch Cold Store. Box-level
 				# (custom_box_label), not bucket-level -- by this point several
 				# buckets' stems have already been combined into this one box.
 				from upande_packhouse import stock_movement
@@ -5918,7 +5989,11 @@ def issueBucketToSaleOrderItem():
 					# -------------------------------
 					# Issue bucket (update Stock Entry)
 					# -------------------------------
-					frappe.db.set_value("Stock Entry", stock_entry_name, "custom_issued_to", sale_order_item)
+					# a shared bucket's entry stays stamped with the line it was issued to first
+					if not current_issued_to:
+						frappe.db.set_value(
+							"Stock Entry", stock_entry_name, "custom_issued_to", sale_order_item
+						)
 
 					# -------------------------------
 					# UPDATE ONLY THE TARGET OPL'S CHILD ROW (Pick List Item)
@@ -5935,6 +6010,9 @@ def issueBucketToSaleOrderItem():
 					# sibling's stems gone but unscannable. `opl_name` narrows further
 					# when the caller sends it; rows carry the line on either
 					# custom_sale_order_item or sales_order_item.
+					# One scan of a bucket at a time: a resent or second scan waits for this one, then reads
+					# its rows as issued (locking read, never an older snapshot) and takes nothing again.
+					stock_movement.lock_bucket(bucket_id)
 					pick_list_items = frappe.db.sql(
 						"""
 						SELECT name, parent, source_warehouse, item_code, stock_qty, issued, farm,
@@ -5946,6 +6024,7 @@ def issueBucketToSaleOrderItem():
 								COALESCE(custom_sale_order_item, ''), COALESCE(sales_order_item, '')
 							)
 						  AND (%(opl)s IS NULL OR parent = %(opl)s)
+						FOR UPDATE
 						""",
 						{"bucket": bucket_id, "soi": sale_order_item, "opl": opl_name or None},
 						as_dict=True,
@@ -5954,12 +6033,14 @@ def issueBucketToSaleOrderItem():
 					# Never shelved at the hub (issued straight off the truck): bring the whole
 					# bucket over from its farm and post this line's sale now, while its rows
 					# are still unissued (both skip issued rows), as shelving would have.
+					frappe.db.savepoint("issue_arrival")
 					try:
 						stock_movement.ensure_arrival(
 							bucket_id, "Roses", names=[i.name for i in pick_list_items if not i.issued]
 						)
 						stock_movement.post_sale_on_arrival(bucket_id, "Roses")
 					except Exception:
+						_undo_to("issue_arrival")
 						frappe.log_error(
 							title="Issue: arrival of an unshelved remote bucket failed",
 							message=f"bucket={bucket_id}\n{frappe.get_traceback()}",
@@ -6000,11 +6081,12 @@ def issueBucketToSaleOrderItem():
 							key = (pli["item_code"], pli.get("stem_length") or "")
 							issued_by_variety[key] = issued_by_variety.get(key, 0) + flt(pli.get("stock_qty"))
 
-					shelf_items = frappe.db.get_all(
-						"Shelf Item",
-						filters={"bucket_id": bucket_id},
-						fields=["name", "parent", "variety", "stem_qty", "stem_length"],
-						order_by="idx asc",
+					# the shelf as it is now (locking read): an earlier scan of the bucket may have just drawn on it
+					shelf_items = frappe.db.sql(
+						"""SELECT name, parent, variety, stem_qty, stem_length FROM `tabShelf Item`
+						WHERE bucket_id = %s ORDER BY idx ASC FOR UPDATE""",
+						bucket_id,
+						as_dict=True,
 					)
 
 					# Draw each key's stems across its rows in turn. Taking the full
@@ -6203,10 +6285,13 @@ def issueBucketToSaleOrderItem():
 								bas.flags.ignore_mandatory = True
 								bas.save(ignore_permissions=True)
 						except Exception:
+							# the scan fails whole (the outer handler rolls it all back): a pick row marked issued
+							# and a shelf drawn down over allocation records left as they were never stays
 							frappe.log_error(
 								title="Issue: settling Bucket Allocation Status failed",
 								message=f"bucket={bucket_id} variety={variety}\n{frappe.get_traceback()}",
 							)
+							raise
 
 					# -------------------------------
 					# ISSUE -> PACKHOUSE (Graded Sold -> Packhouse)
@@ -6226,33 +6311,32 @@ def issueBucketToSaleOrderItem():
 					# If that never posted (shelving skipped, or its post failed), post it
 					# now so the issue moves this order's stems instead of nothing. Capped
 					# by the bucket's own stems at the arrival warehouse, idempotent.
+					frappe.db.savepoint("issue_deferred_sale")
 					try:
 						stock_movement.post_sale_on_arrival(bucket_id, "Roses")
 					except Exception:
+						_undo_to("issue_deferred_sale")
 						frappe.log_error(
 							title="Issue: deferred sale failed",
 							message=f"bucket={bucket_id}\n{frappe.get_traceback()}",
 						)
-					se_detail = frappe.db.get_all(
-						"Stock Entry Detail",
-						filters={"parent": stock_entry_name},
-						fields=["item_code", "qty", "uom"],
-						limit=1,
-					)
 					farm = next((p.farm for p in pick_list_items if p.farm), None) or frappe.db.get_value(
 						"Stock Entry", stock_entry_name, "farm"
 					)
-					if se_detail and farm:
-						det = se_detail[0]
+					# Only the stems this scan issues to this pick list move to the packhouse: a shared
+					# bucket keeps the other orders' stems, and a resent scan (nothing newly issued) moves nothing.
+					for (variety, _length), qty in issued_by_variety.items() if farm else []:
+						if qty <= 0:
+							continue
 						result = stock_movement.post_issue_to_packhouse(
 							bucket_id=bucket_id,
-							item_code=det.item_code,
-							qty=det.qty,
+							item_code=variety,
+							qty=qty,
 							business_unit="Roses",
 							farm=farm,
 							so_item=sale_order_item,
 						)
-						issue_transfer = result.get("entry")
+						issue_transfer = result.get("entry") or issue_transfer
 						if not result.get("moved") and result.get("reason"):
 							frappe.log_error(
 								title="Issue -> Packhouse: nothing moved",
@@ -6544,6 +6628,11 @@ def shelveBucket():
 		_fail("farm_not_null", "Farm is missing.")
 		return
 
+	# One shelving of a bucket at a time: a second scanner (or a resend to another shelf) waits for this one,
+	# then finds the bucket already shelved below instead of posting its arrival and sale again.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- nothing of this request written yet
+	stock_movement.lock_bucket(bucket_id)
+
 	# load / create the shelf
 	if frappe.db.exists("Shelf", shelf_id):
 		shelf_doc = frappe.get_doc("Shelf", shelf_id)
@@ -6561,8 +6650,10 @@ def shelveBucket():
 			return
 
 	# duplicate on ANOTHER shelf (transfer buckets self-heal, otherwise block)
-	other_shelves = frappe.get_all(
-		"Shelf Item", filters={"bucket_id": bucket_id, "parent": ["!=", shelf_id]}, fields=["name", "parent"]
+	other_shelves = frappe.db.sql(
+		"""SELECT name, parent FROM `tabShelf Item` WHERE bucket_id = %s AND parent != %s FOR UPDATE""",
+		(bucket_id, shelf_id),
+		as_dict=True,
 	)
 	if other_shelves:
 		transfer_rows = frappe.db.sql(
@@ -6746,9 +6837,11 @@ def shelveBucket():
 	_tc.return_to_farm(bucket_id, farm)
 	# At the hub: a bucket whose truck load never reached the server goes on the trip
 	# that planned it first, so that trip records it and ends as it is shelved.
+	frappe.db.savepoint("shelve_planned_load")
 	try:
 		result["load_recorded_on_arrival"] = _tc.record_planned_load_on_arrival(bucket_id, farm)
 	except Exception:
+		_undo_to("shelve_planned_load")
 		frappe.log_error("Record planned load on arrival failed", frappe.get_traceback())
 	_shelve_update_transit_status(bucket_id, shelf_id, farm, result)
 
@@ -6842,11 +6935,13 @@ def shelveBucket():
 		frappe.log_error("Mark replaced bucket found failed", frappe.get_traceback())
 
 	result["trips_received"] = []
+	frappe.db.savepoint("shelve_receive_trips")
 	try:
 		from upande_packhouse.api.transfer_control import auto_receive_trucks_for_bucket
 
 		result["trips_received"] = auto_receive_trucks_for_bucket(bucket_id)
 	except Exception:
+		_undo_to("shelve_receive_trips")
 		frappe.log_error("Auto-receive trip on shelving failed", frappe.get_traceback())
 
 	# Committed explicitly: this endpoint is whitelisted without `methods`, so it
