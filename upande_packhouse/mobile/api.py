@@ -3812,7 +3812,7 @@ def _schedule_blockers(opl_name, kind):
 		done_sql = """SELECT pso.sequence, pso.order_pick_list,
 		       SUM(IFNULL(pli.not_found, 0) = 0 AND IFNULL(pli.issued, 0) = 0) = 0 AS done
 		FROM `tabPackhouse Schedule Order` pso
-		JOIN `tabOrder Pick List` opl ON opl.name = pso.order_pick_list AND opl.docstatus < 2
+		JOIN `tabOrder Pick List` opl ON opl.name = pso.order_pick_list AND opl.docstatus = 1
 		LEFT JOIN `tabPick List Item` pli ON pli.parent = pso.order_pick_list
 		     AND pli.parenttype = 'Order Pick List' AND COALESCE(pli.bucket, '') != ''
 		WHERE pso.parent = %s AND pso.sequence < %s
@@ -4202,7 +4202,7 @@ def getReadySaleOrderItems():
 				"Order Pick List",
 				# Submitted, plus drafts with nothing still coming by truck (below): a draft
 				# normally waits on a remote transfer the farms work (getFarmPlannedTrips).
-				filters={"docstatus": ["<", 2], "sales_order": ["in", so_names]},
+				filters={"docstatus": 1, "sales_order": ["in", so_names]},
 				fields=[
 					"name",
 					"order_name",
@@ -4387,7 +4387,7 @@ def getReadySaleOrderItems():
 				       SUM(IFNULL(pli.not_found, 0) = 0) AS total,
 				       SUM(IFNULL(pli.not_found, 0) = 0 AND IFNULL(pli.issued, 0) = 1) AS done
 				FROM `tabPackhouse Schedule Order` pso
-				JOIN `tabOrder Pick List` opl ON opl.name = pso.order_pick_list AND opl.docstatus < 2
+				JOIN `tabOrder Pick List` opl ON opl.name = pso.order_pick_list AND opl.docstatus = 1
 				LEFT JOIN `tabPick List Item` pli ON pli.parent = pso.order_pick_list
 				     AND pli.parenttype = 'Order Pick List' AND COALESCE(pli.bucket, '') != ''
 				WHERE pso.parent IN %(p)s
@@ -4449,9 +4449,7 @@ def getReadySaleOrderItemsData():
 			# several OPLs sharing the same order_name, and they must stay separate
 			# so issuing one never pulls in another OPL's buckets.
 			matching_opls = (
-				[opl_name]
-				if frappe.db.exists("Order Pick List", {"name": opl_name, "docstatus": ["<", 2]})
-				else []
+				[opl_name] if frappe.db.exists("Order Pick List", {"name": opl_name, "docstatus": 1}) else []
 			)
 		else:
 			# Legacy fallback: match by the free-text order_name field. Kept only for
@@ -5790,6 +5788,11 @@ def issueBucketToSaleOrderItem():
 		# -------------------------------
 		if schedule_blocked:
 			pass
+		elif opl_name and frappe.db.get_value("Order Pick List", opl_name, "docstatus") != 1:
+			frappe.response.message = (
+				f"Pick list {opl_name} is not submitted yet: issue it once it is submitted."
+			)
+			frappe.response.http_status_code = 409
 		elif not bucket_id:
 			frappe.response.message = "Error: Bucket ID is required"
 			frappe.response.http_status_code = 400
