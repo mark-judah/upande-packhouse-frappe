@@ -283,7 +283,9 @@ def _rosenta_invoices(ops, dmy):
 	for inv in rows:
 		if inv.get("invoice_status") in ("cancelled", "void"):
 			continue
-		c = out.setdefault(inv.get("account_name"), {"invoices": 0, "orders": set(), "boxes": 0, "by_currency": {}})
+		c = out.setdefault(
+			inv.get("account_name"), {"invoices": 0, "orders": set(), "boxes": 0, "by_currency": {}}
+		)
 		c["invoices"] += 1
 		try:
 			c["orders"].update(frappe.parse_json(inv.get("order_ids") or "[]"))
@@ -456,7 +458,12 @@ def _money(by_currency, stems):
 	if not by_currency:
 		return {"value": None, "price": None, "currency": "", "by_currency": {}}
 	if len(by_currency) > 1:
-		return {"value": None, "price": None, "currency": " + ".join(sorted(by_currency)), "by_currency": by_currency}
+		return {
+			"value": None,
+			"price": None,
+			"currency": " + ".join(sorted(by_currency)),
+			"by_currency": by_currency,
+		}
 	cur, v = next(iter(by_currency.items()))
 	return {"value": v, "price": _price(v, stems), "currency": cur, "by_currency": by_currency}
 
@@ -638,9 +645,17 @@ def _rosenta_allocations(rows, dmy):
 		except Exception:
 			teams = []
 		if not teams:
-			parts = [(NOT_ALLOCATED, -(-_num(r.get("stems_confirmed")) // rate) if rate else 0, _num(r.get("stems_confirmed")))]
+			parts = [
+				(
+					NOT_ALLOCATED,
+					-(-_num(r.get("stems_confirmed")) // rate) if rate else 0,
+					_num(r.get("stems_confirmed")),
+				)
+			]
 		else:
-			parts = [(t.get("team_name"), _num(t.get("box_count")), _num(t.get("box_count")) * rate) for t in teams]
+			parts = [
+				(t.get("team_name"), _num(t.get("box_count")), _num(t.get("box_count")) * rate) for t in teams
+			]
 		for name, boxes, stems in parts:
 			a = out.setdefault(name, _alloc_row())
 			a["orders"].add(r.get("order_id"))
@@ -731,12 +746,14 @@ def _erp_lines(wf, amounts=None):
 
 
 @frappe.whitelist()
-def get_rosenta_comparison(date=None):
+def get_rosenta_comparison(date: str | None = None):
 	"""Rosenta and ERPNext side by side for one delivery date. Any signed-in user; reads only."""
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Please log in"), frappe.PermissionError)
 	key = f"rosenta_compare:{getdate(date or today())}"
-	cached = frappe.cache.get_value(key)  # whoever asks within a minute gets the same answer, Rosenta is not asked again
+	cached = frappe.cache.get_value(
+		key
+	)  # whoever asks within a minute gets the same answer, Rosenta is not asked again
 	if cached:
 		return cached
 	try:
@@ -804,7 +821,9 @@ def _compare(d):
 	amounts = (
 		{
 			x.name: x.amount
-			for x in frappe.get_all("Sales Order Item", filters={"name": ["in", soi]}, fields=["name", "amount"])
+			for x in frappe.get_all(
+				"Sales Order Item", filters={"name": ["in", soi]}, fields=["name", "amount"]
+			)
 		}
 		if soi
 		else {}
@@ -905,7 +924,11 @@ def _compare(d):
 			rows[sec.get("key")]["dns"].update(it.get("delivery_notes") or [])
 		side["orders_dispatched"] += sum(1 for so, n in ordered.items() if n and sent[so] >= n - 0.5)
 		side["orders_invoiced"] += len(
-			{it.get("sales_order") for it in sec.get("rows") or [] if it.get("primary") and it.get("sales_invoices")}
+			{
+				it.get("sales_order")
+				for it in sec.get("rows") or []
+				if it.get("primary") and it.get("sales_invoices")
+			}
 		)
 		for it in sec.get("rows") or []:
 			rows[sec.get("key")]["sis"].update(it.get("sales_invoices") or [])
@@ -1071,15 +1094,36 @@ def _compare(d):
 	mapped_r = {m[0] for m in TEAM_MAP}
 	allocations = []
 	for rn, en in TEAM_MAP:
-		allocations.append({"team": rn, "erp_teams": ", ".join(en), "rosenta": r_alloc.get(rn), "erpnext": _erp_allocations(wf_team, en)})
-	allocations.append({"team": NOT_ALLOCATED, "erp_teams": NOT_ALLOCATED, "rosenta": r_alloc.get(NOT_ALLOCATED), "erpnext": _erp_allocations(wf_team, (NOT_ALLOCATED,), True)})
+		allocations.append(
+			{
+				"team": rn,
+				"erp_teams": ", ".join(en),
+				"rosenta": r_alloc.get(rn),
+				"erpnext": _erp_allocations(wf_team, en),
+			}
+		)
+	allocations.append(
+		{
+			"team": NOT_ALLOCATED,
+			"erp_teams": NOT_ALLOCATED,
+			"rosenta": r_alloc.get(NOT_ALLOCATED),
+			"erpnext": _erp_allocations(wf_team, (NOT_ALLOCATED,), True),
+		}
+	)
 	for rn, a in r_alloc.items():
 		if rn not in mapped_r and rn != NOT_ALLOCATED:
 			allocations.append({"team": rn, "erp_teams": "(not mapped)", "rosenta": a, "erpnext": None})
 	for sec in wf_team.get("sections") or []:
 		n = sec.get("name")
 		if n not in mapped and n != NOT_ALLOCATED:
-			allocations.append({"team": "(not mapped)", "erp_teams": n, "rosenta": None, "erpnext": _erp_allocations(wf_team, (n,))})
+			allocations.append(
+				{
+					"team": "(not mapped)",
+					"erp_teams": n,
+					"rosenta": None,
+					"erpnext": _erp_allocations(wf_team, (n,)),
+				}
+			)
 
 	# ---- cancellations
 	def find_erp(order, pool):

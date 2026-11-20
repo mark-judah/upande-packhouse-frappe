@@ -3479,24 +3479,8 @@ frappe.pages["sales-allocation-v2"].allocate_from_bucket = function (
 	if (!item) return;
 	// whole bunches only
 	const per_bunch = parseFloat(item.conversion_factor) || 1;
-	const src = (item.batches || []).find(
-		(b) => b.bucket_id === bucket_id && (b.stem_length || "") === (stem_length || "")
-	);
-	// a remote farm's bucket is taken whole, never part of it
-	const remote = src && src.awaiting_transfer === 1;
-	const whole = Math.floor(max_from_bucket / per_bunch + 1e-9) * per_bunch;
-	if (remote && whole > remaining + 1e-9) {
-		frappe.msgprint(
-			__(
-				"{0} is on a remote farm and goes whole: it has {1} stems, this line needs {2}. Pick a smaller bucket.",
-				[bucket_id, Math.round(whole), Math.round(remaining)]
-			)
-		);
-		return;
-	}
-	const qty = remote
-		? whole
-		: Math.floor(Math.min(max_from_bucket, remaining) / per_bunch + 1e-9) * per_bunch;
+	// a remote farm's bucket gives what the line needs: the truck carries the whole bucket to the sales farm
+	const qty = Math.floor(Math.min(max_from_bucket, remaining) / per_bunch + 1e-9) * per_bunch;
 	if (qty <= 0) {
 		frappe.msgprint(__("Less than one bunch of {0} left to allocate here.", [per_bunch]));
 		return;
@@ -4274,15 +4258,9 @@ frappe.pages["sales-allocation-v2"]._execute_fifo = function (so_item, downgrade
 		if (remaining <= 0) break;
 		const available = batch.available_qty || 0;
 		if (available <= 0) continue;
-		// whole bunches only: a bucket gives what fills whole bunches; a remote farm's bucket goes whole, and
-		// one bigger than what the line still needs is left
+		// whole bunches only; a remote farm's bucket gives what the line needs too (the truck carries it whole)
 		const per_bunch = parseFloat(item.conversion_factor) || 1;
-		const remote = batch.awaiting_transfer === 1;
-		const whole = Math.floor(available / per_bunch + 1e-9) * per_bunch;
-		if (remote && whole > remaining + 1e-9) continue;
-		const qty = remote
-			? whole
-			: Math.floor(Math.min(available, remaining) / per_bunch + 1e-9) * per_bunch;
+		const qty = Math.floor(Math.min(available, remaining) / per_bunch + 1e-9) * per_bunch;
 		if (qty <= 0) continue;
 		const is_downgrade = batch.length_status === "downgrade";
 		// a downgrade that needs approval is only taken with a reason (the order-wide fill gives none)

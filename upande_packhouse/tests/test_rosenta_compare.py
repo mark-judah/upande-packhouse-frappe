@@ -207,7 +207,10 @@ class TestHelpers(IntegrationTestCase):
 		prices = {("o1", "A L6 100"): [(0.5, "USD")], ("o1", "B L6 100"): [(0.2, "USD")]}
 		o = rc._rosenta_orders(rows, "20/11/2026", prices)["o1"]
 		self.assertEqual([(l["price"], l["value"]) for l in o["lines"]], [(0.5, 100.0), (0.2, 20.0)])
-		self.assertEqual(rc._money(o["value"], o["stems"]), {"value": 120.0, "price": 0.4, "currency": "USD", "by_currency": {"USD": 120.0}})
+		self.assertEqual(
+			rc._money(o["value"], o["stems"]),
+			{"value": 120.0, "price": 0.4, "currency": "USD", "by_currency": {"USD": 120.0}},
+		)
 		no = rc._rosenta_orders(rows, "20/11/2026")["o1"]  # no prices: nothing shown, nothing invented
 		self.assertEqual((no["lines"][0]["price"], rc._money(no["value"], 300)["value"]), (None, None))
 
@@ -223,13 +226,17 @@ class TestHelpers(IntegrationTestCase):
 		]
 		a = rc._rosenta_allocations(rows, "20/11/2026")
 		self.assertEqual((a["Eldama"]["boxes"], a["Eldama"]["stems"], a["JMF"]["stems"]), (3, 300, 100))
-		self.assertEqual((a[rc.NOT_ALLOCATED]["stems"], a[rc.NOT_ALLOCATED]["boxes"]), (400, 4))  # o3 cancelled: not counted
+		self.assertEqual(
+			(a[rc.NOT_ALLOCATED]["stems"], a[rc.NOT_ALLOCATED]["boxes"]), (400, 4)
+		)  # o3 cancelled: not counted
 		self.assertEqual(rc._rosenta_team_dispatch(rows, "20/11/2026"), {"Eldama": 150, "JMF": 50})
 
 	def test_add_value_lists_currencies_instead_of_adding_them(self):
 		one = {"stems": 200}
 		rc._add_value(one, {"USD": 50.0}, 2)
-		self.assertEqual((one["value"], one["price"], one["currency"], one["delivery_notes"]), (50.0, 0.25, "USD", 2))
+		self.assertEqual(
+			(one["value"], one["price"], one["currency"], one["delivery_notes"]), (50.0, 0.25, "USD", 2)
+		)
 		many = {"stems": 200}
 		rc._add_value(many, {"USD": 50.0, "EUR": 40.0}, 0)
 		self.assertEqual((many["value"], many["price"], many["currency"]), (None, None, "EUR + USD"))
@@ -372,7 +379,9 @@ MONEY_KEYS = {"value", "price", "currency", "by_currency"}
 
 class TestComparisonCall(IntegrationTestCase):
 	def setUp(self):
-		frappe.cache.delete_value("rosenta_compare:2026-11-18")  # a shared answer from another test must not leak in
+		frappe.cache.delete_value(
+			"rosenta_compare:2026-11-18"
+		)  # a shared answer from another test must not leak in
 
 	def tearDown(self):
 		frappe.cache.delete_value("rosenta_compare:2026-11-18")
@@ -384,7 +393,9 @@ class TestComparisonCall(IntegrationTestCase):
 
 	def test_any_signed_in_user_may_call_it(self):
 		user = "Guest"
-		for u in frappe.get_all("User", filters={"enabled": 1, "name": ["not in", ["Administrator", "Guest"]]}, pluck="name"):
+		for u in frappe.get_all(
+			"User", filters={"enabled": 1, "name": ["not in", ["Administrator", "Guest"]]}, pluck="name"
+		):
 			if "System Manager" not in frappe.get_roles(u):
 				user = u
 				break
@@ -417,7 +428,9 @@ class TestComparisonCall(IntegrationTestCase):
 		self.assertEqual(set(out["totals"]["rosenta"]), set(rc._SIDE_KEYS) | MONEY_KEYS | {"invoiced"})
 		for c in out["customers"]:
 			self.assertEqual(set(c["rosenta"]), set(rc._SIDE_KEYS) | MONEY_KEYS | {"invoiced"})
-			self.assertEqual(set(c["erpnext"]), set(rc._SIDE_KEYS) | MONEY_KEYS | {"delivery_notes", "invoiced"})
+			self.assertEqual(
+				set(c["erpnext"]), set(rc._SIDE_KEYS) | MONEY_KEYS | {"delivery_notes", "invoiced"}
+			)
 
 	def test_rosenta_operations_failing_still_returns_everything_else(self):
 		frappe.set_user("Administrator")
@@ -456,13 +469,21 @@ class TestInsights(IntegrationTestCase):
 			"paid_amount": "0", "invoice_paid": "not_paid", "invoice_status": "issued", **k
 		}  # fmt: skip
 		have = {
-			"orders": {"d1": [order(), order(order_status="Cancelled"), order(order_status="Processing", boxes_loaded="0")]},
+			"orders": {
+				"d1": [
+					order(),
+					order(order_status="Cancelled"),
+					order(order_status="Processing", boxes_loaded="0"),
+				]
+			},
 			"billing": {"d1": [inv()], "d2": [inv(), inv(invoice_name="i2", invoice_status="cancelled")]},
 		}
 		x = ri._rosenta_money(have)["Xpol"]
 		self.assertEqual(x["booked"], {"EUR": 200.0})  # the cancelled order is left out
 		self.assertEqual(x["dispatched"], {"EUR": 100.0})  # only the dispatched order, at what was loaded
-		self.assertEqual((x["invoiced"], x["invoices"], x["unpaid"]), ({"EUR": 90.0}, 1, 1))  # i1 once, i2 cancelled
+		self.assertEqual(
+			(x["invoiced"], x["invoices"], x["unpaid"]), ({"EUR": 90.0}, 1, 1)
+		)  # i1 once, i2 cancelled
 
 	def test_snapshot_is_saved_once_and_only_touched_when_unchanged(self):
 		from upande_packhouse.api.v2 import rosenta_sync as sync
@@ -475,13 +496,17 @@ class TestInsights(IntegrationTestCase):
 		self.assertTrue(sync.save("billing", "2020-01-02", [{"a": 2}]))
 		out, _when = sync.load("billing", ["2020-01-02", "2020-01-03"])
 		self.assertEqual(out, {"2020-01-02": [{"a": 2}]})
-		self.assertEqual(sync.missing(("billing",), ["2020-01-02", "2020-01-03"]), [("billing", "2020-01-03")])
+		self.assertEqual(
+			sync.missing(("billing",), ["2020-01-02", "2020-01-03"]), [("billing", "2020-01-03")]
+		)
 		frappe.db.delete("Rosenta Snapshot", {"name": name})
 
 	def test_days_between_is_inclusive_and_capped(self):
 		from upande_packhouse.api.v2 import rosenta_sync as sync
 
-		self.assertEqual(sync.days_between("2026-11-18", "2026-11-20"), ["2026-11-18", "2026-11-19", "2026-11-20"])
+		self.assertEqual(
+			sync.days_between("2026-11-18", "2026-11-20"), ["2026-11-18", "2026-11-19", "2026-11-20"]
+		)
 		self.assertEqual(len(sync.days_between("2026-01-01", "2026-12-31")), 45)
 
 	def test_a_guest_may_not_read_the_comparisons(self):
@@ -506,17 +531,38 @@ class TestSpecs(IntegrationTestCase):
 				"c": [["Standard Box (L 1000)", "box", "1"], ["Rubber Band", "rubber_band", "1"]],
 			}
 		)  # fmt: skip
-		self.assertEqual((d["ft"], d["pack_rate"], d["bunches"], d["lengths"], d["stems_per_bunch"]), (True, 75, 35, [50], [3]))
-		self.assertEqual((d["varieties"], d["any_colours"], d["box"], d["consumables"]), (["ALTAJ"], ["WHITE"], "Standard Box (L 1000)", ["RUBBER BAND"]))
+		self.assertEqual(
+			(d["ft"], d["pack_rate"], d["bunches"], d["lengths"], d["stems_per_bunch"]),
+			(True, 75, 35, [50], [3]),
+		)
+		self.assertEqual(
+			(d["varieties"], d["any_colours"], d["box"], d["consumables"]),
+			(["ALTAJ"], ["WHITE"], "Standard Box (L 1000)", ["RUBBER BAND"]),
+		)
 
 	def test_length_offset_is_not_a_difference_but_a_real_gap_is(self):
 		from upande_packhouse.api.v2 import rosenta_specs as rs
 
-		base = {"ft": False, "pack_rate": 100, "bunches": 10, "stems_per_bunch": [10], "lengths": [50], "varieties": ["A"], "any_colours": [], "box": "Standard", "consumables": []}
+		base = {
+			"ft": False,
+			"pack_rate": 100,
+			"bunches": 10,
+			"stems_per_bunch": [10],
+			"lengths": [50],
+			"varieties": ["A"],
+			"any_colours": [],
+			"box": "Standard",
+			"consumables": [],
+		}
 		self.assertEqual(rs.diff(base, {**base, "lengths": [52]}), [])
 		self.assertEqual([x["field"] for x in rs.diff(base, {**base, "lengths": [60]})], ["Stem length"])
-		self.assertEqual([x["field"] for x in rs.diff(base, {**base, "ft": True, "pack_rate": 120})], ["Fairtrade", "Stems per box"])
-		self.assertEqual(rs.diff(base, {**base, "box": "Standard Box (L 1000mm)"}), [])  # one name inside the other
+		self.assertEqual(
+			[x["field"] for x in rs.diff(base, {**base, "ft": True, "pack_rate": 120})],
+			["Fairtrade", "Stems per box"],
+		)
+		self.assertEqual(
+			rs.diff(base, {**base, "box": "Standard Box (L 1000mm)"}), []
+		)  # one name inside the other
 
 	def test_pairs_by_name_then_by_content_one_to_one(self):
 		from upande_packhouse.api.v2 import rosenta_specs as rs
@@ -549,24 +595,36 @@ class TestSpecs(IntegrationTestCase):
 			"varieties": varieties, "any_colours": [], "box": "", "consumables": [],
 		}  # fmt: skip
 		r = [mk("SFR ROYAL ATHENA L4X10", ["ROYAL ATHENA"], [40], 0)]
-		e = [mk("Rose Athena Royal 40 - SFR", ["ATHENA ROYALE"], [42], 0), mk("Rose Other 40", ["OTHER"], [42], 0)]
+		e = [
+			mk("Rose Athena Royal 40 - SFR", ["ATHENA ROYALE"], [42], 0),
+			mk("Rose Other 40", ["OTHER"], [42], 0),
+		]
 		pairs = rs.pair_specs(r, e)
 		hit = next(p for p in pairs if p["rosenta"])
-		self.assertEqual((hit["erpnext"]["name"], hit["matched_by"]), ("Rose Athena Royal 40 - SFR", "variety and length"))
-		self.assertEqual([x["field"] for x in hit["diffs"]], [])  # ATHENA ROYAL and ATHENA ROYALE count as one variety; 40 and 42 as one length
+		self.assertEqual(
+			(hit["erpnext"]["name"], hit["matched_by"]), ("Rose Athena Royal 40 - SFR", "variety and length")
+		)
+		self.assertEqual(
+			[x["field"] for x in hit["diffs"]], []
+		)  # ATHENA ROYAL and ATHENA ROYALE count as one variety; 40 and 42 as one length
 		self.assertEqual(sum(1 for p in pairs if p["state"] == "Only in ERPNext"), 1)
 
 	def test_full_view_lines_up_varieties_and_consumables_from_both_sides(self):
 		from upande_packhouse.api.v2 import rosenta_specs as rs
 
 		out = rs._align(
-			[{"name": "Athena Royal"}, {"name": "Only Rosenta"}], [{"name": "ATHENA ROYALE"}, {"name": "Only ERPNext"}]
+			[{"name": "Athena Royal"}, {"name": "Only Rosenta"}],
+			[{"name": "ATHENA ROYALE"}, {"name": "Only ERPNext"}],
 		)
 		by = {x["name"]: (bool(x["rosenta"]), bool(x["erpnext"])) for x in out}
 		self.assertEqual(by["Athena Royal"], (True, True))
 		self.assertEqual((by["Only Rosenta"], by["Only ERPNext"]), ((True, False), (False, True)))
 		bunches, varieties, cons = rs._rosenta_full(
-			{"b": [["25;25", [["A", "50", "6", "Tight"], ["B", "50", "4", "Open"]]]], "c": [["Box", "box", "1"]], "g": "50"}
+			{
+				"b": [["25;25", [["A", "50", "6", "Tight"], ["B", "50", "4", "Open"]]]],
+				"c": [["Box", "box", "1"]],
+				"g": "50",
+			}
 		)
 		self.assertEqual((bunches[0]["bunches"], bunches[0]["stems"], bunches[0]["pack_rate"]), (25, 10, 250))
 		self.assertEqual([v["name"] for v in varieties], ["A", "B"])
@@ -575,7 +633,9 @@ class TestSpecs(IntegrationTestCase):
 	def test_farms_written_differently_are_one_farm(self):
 		from upande_packhouse.api.v2 import rosenta_insights as ri
 
-		c = ri._canon(["Kapkolia Farm", "KAPKOLIA", "Kapkolia Farms", "Kapkolya", "Karen Farm", "Karen", "Eldama Farm"])
+		c = ri._canon(
+			["Kapkolia Farm", "KAPKOLIA", "Kapkolia Farms", "Kapkolya", "Karen Farm", "Karen", "Eldama Farm"]
+		)
 		self.assertEqual(len({c[n] for n in ("Kapkolia Farm", "KAPKOLIA", "Kapkolia Farms", "Kapkolya")}), 1)
 		self.assertEqual(c["Karen Farm"], c["Karen"])
 		self.assertNotEqual(c["Karen"], c["Eldama Farm"])

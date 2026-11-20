@@ -229,14 +229,8 @@ def _fifo_pick(item, left, taken):
 			continue
 		# whole bunches only: a bunch is never split, so a bucket gives what fills whole bunches
 		per_bunch = flt(item.get("conversion_factor")) or 1
-		if remote:
-			# a remote bucket is taken whole (in whole bunches), never part of it: one bigger than what the
-			# line still needs is left for a line that takes it all
-			qty = math.floor(free / per_bunch + 1e-9) * per_bunch
-			if qty > left + 1e-9:
-				continue
-		else:
-			qty = math.floor(min(free, left) / per_bunch + 1e-9) * per_bunch
+		# a remote bucket gives what the line needs too: the truck carries the whole bucket to the sales farm
+		qty = math.floor(min(free, left) / per_bunch + 1e-9) * per_bunch
 		if qty <= 0:
 			continue
 		taken[key] = taken.get(key, 0) + qty

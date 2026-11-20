@@ -43,24 +43,75 @@ SPECS_PATH = "/api/financials/get_specs"  # every specification, one call (about
 
 KEEP = {
 	"orders": (
-		"order_id", "spec_id", "account_name", "order_name", "order_status", "spec_name", "boxes_confirmed",
-		"boxes_allocated", "boxes_staged", "boxes_loaded", "pack_rate", "stem_price", "currency",
-		"location_name", "status", "order_delivery_date",
+		"order_id",
+		"spec_id",
+		"account_name",
+		"order_name",
+		"order_status",
+		"spec_name",
+		"boxes_confirmed",
+		"boxes_allocated",
+		"boxes_staged",
+		"boxes_loaded",
+		"pack_rate",
+		"stem_price",
+		"currency",
+		"location_name",
+		"status",
+		"order_delivery_date",
 	),
 	"billing": (
-		"invoice_name", "invoice_id", "account_name", "account_no", "invoice_status", "invoice_paid",
-		"invoice_currency", "invoice_amount", "paid_amount", "paid_date", "invoice_issued", "invoice_type",
-		"order_ids", "total_boxes", "delivery_date", "invoice_due", "service_fees",
+		"invoice_name",
+		"invoice_id",
+		"account_name",
+		"account_no",
+		"invoice_status",
+		"invoice_paid",
+		"invoice_currency",
+		"invoice_amount",
+		"paid_amount",
+		"paid_date",
+		"invoice_issued",
+		"invoice_type",
+		"order_ids",
+		"total_boxes",
+		"delivery_date",
+		"invoice_due",
+		"service_fees",
 	),
 	"sales": (
-		"delivery_date", "invoice_date", "customer", "invoice_name", "line", "variety", "crop", "grade",
-		"pack_rate", "unit_price", "boxes_loaded", "boxes_invoiced", "currency", "payment_status",
-		"order_id", "location_name", "rejects", "shipping_country",
+		"delivery_date",
+		"invoice_date",
+		"customer",
+		"invoice_name",
+		"line",
+		"variety",
+		"crop",
+		"grade",
+		"pack_rate",
+		"unit_price",
+		"boxes_loaded",
+		"boxes_invoiced",
+		"currency",
+		"payment_status",
+		"order_id",
+		"location_name",
+		"rejects",
+		"shipping_country",
 	),
 	"fill": None,  # all of it, it is small
 	"greenhouse": (
-		"account_name", "order_id", "product_name", "stem_length", "currency", "stem_price", "stems_issued",
-		"farm_name", "greenhouse_name", "revenue", "delivery_date",
+		"account_name",
+		"order_id",
+		"product_name",
+		"stem_length",
+		"currency",
+		"stem_price",
+		"stems_issued",
+		"farm_name",
+		"greenhouse_name",
+		"revenue",
+		"delivery_date",
 	),
 }
 #: Every dataset, in the order they are pulled; `fast` ones are cheap enough to refresh every few minutes.
@@ -121,7 +172,7 @@ def fetch(client, dataset, day):
 def save(dataset, day, rows):
 	"""Store one snapshot. A report that came back unchanged only gets a new fetched_at."""
 	payload = json.dumps(rows, sort_keys=True, default=str)
-	digest = hashlib.md5(payload.encode()).hexdigest()  # noqa: S324 (a change check, not security)
+	digest = hashlib.md5(payload.encode()).hexdigest()
 	name = f"{dataset}-{day}"
 	now = now_datetime()
 	if frappe.db.exists("Rosenta Snapshot", name):
@@ -134,8 +185,13 @@ def save(dataset, day, rows):
 		return True
 	frappe.get_doc(
 		{
-			"doctype": "Rosenta Snapshot", "dataset": dataset, "day": day, "rows": len(rows),
-			"fetched_at": now, "data_hash": digest, "payload": payload,
+			"doctype": "Rosenta Snapshot",
+			"dataset": dataset,
+			"day": day,
+			"rows": len(rows),
+			"fetched_at": now,
+			"data_hash": digest,
+			"payload": payload,
 		}
 	).insert(ignore_permissions=True)
 	return True
@@ -159,7 +215,8 @@ def slim_spec(r):
 		]
 		bunches.append([bn.get("bunch_count"), vs])
 	items = [
-		[i.get("item_name"), i.get("item_type"), i.get("item_quantity")] for i in (cons.get("items") or {}).values()
+		[i.get("item_name"), i.get("item_type"), i.get("item_quantity")]
+		for i in (cons.get("items") or {}).values()
 	]
 	return {
 		"i": r.get("spec_id"), "n": r.get("spec_name"), "a": r.get("account_name"), "ft": r.get("spec_fairtrade"),
@@ -180,7 +237,9 @@ def sync_specs(client=None):
 	rows = [slim_spec(r) for r in out if r.get("status") == "active"]
 	day = getdate(today())
 	changed = save("specs", day, rows)
-	for old in frappe.get_all("Rosenta Snapshot", filters={"dataset": "specs", "day": ["<", day]}, pluck="name"):
+	for old in frappe.get_all(
+		"Rosenta Snapshot", filters={"dataset": "specs", "day": ["<", day]}, pluck="name"
+	):
 		frappe.delete_doc("Rosenta Snapshot", old, ignore_permissions=True, force=True)
 	frappe.db.commit()
 	return changed
@@ -223,7 +282,8 @@ def sync_day(day, datasets=DATASETS, client=None):
 			frappe.clear_messages()
 			frappe.log_error(title=f"Rosenta sync {ds} {day}", message=frappe.get_traceback())
 			done[ds] = None
-	frappe.db.commit()  # noqa: E501 (keep what was pulled even if a later day fails)
+	# keep what was pulled even if a later day fails
+	frappe.db.commit()  # nosemgrep
 	return done
 
 
