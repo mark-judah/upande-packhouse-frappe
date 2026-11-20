@@ -5815,7 +5815,8 @@ def _bucket_held_elsewhere(bucket_id, variety, sale_order_item):
 	)
 
 
-@frappe.whitelist()
+# the apps send a JSON body: POST only
+@frappe.whitelist(methods=["POST"])
 def issueBucketToSaleOrderItem():
 	try:
 		# Get payload from request
@@ -6587,7 +6588,8 @@ def _write_shelved_log(shelf_item_row, shelf_id, farm):
 	).insert(ignore_permissions=True)
 
 
-@frappe.whitelist()
+# the apps send a JSON body: POST only
+@frappe.whitelist(methods=["POST"])
 def shelveBucket():
 	"""Shelve a received bucket onto a Shelf (adapted from the v15 shelving server
 	script to the v16 schema). A bucket may now carry SEVERAL varieties (multi-item

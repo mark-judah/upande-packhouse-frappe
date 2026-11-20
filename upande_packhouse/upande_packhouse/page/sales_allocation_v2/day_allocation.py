@@ -1223,7 +1223,7 @@ def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=
 		# proposals come back with it); after it, the proposals this run saved go (their buckets are free again)
 		frappe.db.rollback()
 		if ran["committed"]:
-			for name in filter(None, ran["saved"]):
+			for name in [n for n in ran["saved"] if n]:
 				if frappe.db.exists(PENDING, name):
 					frappe.delete_doc(PENDING, name, ignore_permissions=True, force=True)
 			frappe.db.commit()  # nosemgrep -- the undo must outlive the request
