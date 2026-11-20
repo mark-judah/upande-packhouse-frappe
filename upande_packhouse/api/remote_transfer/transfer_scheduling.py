@@ -2586,6 +2586,17 @@ def _plan_lock():
 		frappe.throw(_("Trip planning is busy — try again in a moment."))
 
 
+def _trip_opls(name):
+	"""The pick lists a trip already carries."""
+	return set(
+		frappe.get_all(
+			"Bucket Request Trip Order",
+			filters={"parent": name, "parenttype": "Bucket Request Trip"},
+			pluck="order_pick_list",
+		)
+	)
+
+
 def _plan_unlock():
 	"""Let other planners and truck loads in again once what the lock guarded is written: commits, then releases
 	the planning lock (_plan_lock). For long jobs (the scheduler's placement rounds), so a truck-load scan is not
@@ -5056,17 +5067,7 @@ def _save_trip(
 	# window _carry_rows and the automatic planning keep to). A trip planned earlier keeps the orders it already
 	# carries when edited; an order added to it is held to the window like any other.
 	first, last = str(frappe.utils.today()), str(frappe.utils.add_days(frappe.utils.today(), 2))
-	carried = (
-		set(
-			frappe.get_all(
-				"Bucket Request Trip Order",
-				filters={"parent": name, "parenttype": "Bucket Request Trip"},
-				pluck="order_pick_list",
-			)
-		)
-		if existing
-		else set()
-	)
+	carried = _trip_opls(name) if existing else set()
 	dds = _opl_delivery_dates(
 		{
 			r["order_pick_list"]
