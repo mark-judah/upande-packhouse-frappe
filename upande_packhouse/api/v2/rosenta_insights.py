@@ -212,7 +212,7 @@ def _merge(into, x):
 
 
 @frappe.whitelist()
-def get_rosenta_money(date_from=None, date_to=None):
+def get_rosenta_money(date_from: str | None = None, date_to: str | None = None):
 	"""Booked, dispatched, invoiced and paid per customer, Rosenta against ERPNext, for the delivery dates
 	in the range. Any signed-in user; reads only."""
 	_gate()
@@ -334,7 +334,7 @@ def _erp_farm_revenue(date_from, date_to):
 
 
 @frappe.whitelist()
-def get_rosenta_greenhouse(date_from=None, date_to=None):
+def get_rosenta_greenhouse(date_from: str | None = None, date_to: str | None = None):
 	"""Revenue of the stems issued, by farm (Rosenta also by greenhouse and variety) against ERPNext by farm."""
 	_gate()
 	try:
@@ -412,7 +412,7 @@ def _fill_side():
 
 
 @frappe.whitelist()
-def get_rosenta_fill(date_from=None, date_to=None):
+def get_rosenta_fill(date_from: str | None = None, date_to: str | None = None):
 	"""Stems at every stage from ordered to dispatched, per customer, Rosenta against ERPNext."""
 	_gate()
 	try:

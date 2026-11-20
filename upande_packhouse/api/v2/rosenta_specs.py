@@ -187,8 +187,8 @@ def diff(r, e):
 	if r["stems_per_bunch"] != e["stems_per_bunch"] and r["stems_per_bunch"] and e["stems_per_bunch"]:
 		add(
 			"Stems per bunch",
-			", ".join(map(str, r["stems_per_bunch"])),
-			", ".join(map(str, e["stems_per_bunch"])),
+			", ".join(str(x) for x in r["stems_per_bunch"]),
+			", ".join(str(x) for x in e["stems_per_bunch"]),
 		)
 	if r["lengths"] and e["lengths"] and not _same_lengths(r["lengths"], e["lengths"]):
 		add(
@@ -311,7 +311,7 @@ def _rosenta_used(orders_by_day, all_specs):
 
 
 @frappe.whitelist()
-def get_rosenta_specs(date_from=None, date_to=None):
+def get_rosenta_specs(date_from: str | None = None, date_to: str | None = None):
 	"""The specifications of the orders of the period, Rosenta against ERPNext, with what differs.
 	Any signed-in user; reads only."""
 	_gate()
@@ -465,7 +465,7 @@ def _align(r_items, e_items, key="name"):
 
 
 @frappe.whitelist()
-def get_rosenta_spec_detail(rosenta_id=None, erpnext_name=None):
+def get_rosenta_spec_detail(rosenta_id: str | None = None, erpnext_name: str | None = None):
 	"""A Rosenta specification and an ERPNext one in full, side by side: header, bunches, varieties and
 	consumables. Either may be empty. Any signed-in user; reads only."""
 	_gate()

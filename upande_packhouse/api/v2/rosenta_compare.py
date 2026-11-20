@@ -746,7 +746,7 @@ def _erp_lines(wf, amounts=None):
 
 
 @frappe.whitelist()
-def get_rosenta_comparison(date=None):
+def get_rosenta_comparison(date: str | None = None):
 	"""Rosenta and ERPNext side by side for one delivery date. Any signed-in user; reads only."""
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Please log in"), frappe.PermissionError)

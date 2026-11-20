@@ -282,7 +282,8 @@ def sync_day(day, datasets=DATASETS, client=None):
 			frappe.clear_messages()
 			frappe.log_error(title=f"Rosenta sync {ds} {day}", message=frappe.get_traceback())
 			done[ds] = None
-	frappe.db.commit()
+	# keep what was pulled even if a later day fails
+	frappe.db.commit()  # nosemgrep
 	return done
 
 
