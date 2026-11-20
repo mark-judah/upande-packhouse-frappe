@@ -25,7 +25,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
 .rc :where(button,input):focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 @media (prefers-reduced-motion:reduce){.rc *{transition:none!important;animation:none!important}}
 
-.rc-top{background:var(--card);padding:14px 40px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:20;border-bottom:1px solid var(--hair)}
+.rc-top{background:var(--card);padding:14px clamp(16px,2.2vw,44px);display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:20;border-bottom:1px solid var(--hair)}
 .rc-top__mark{width:30px;height:30px;border-radius:9px;background:var(--grad-ink);color:#fafaf6;display:grid;place-items:center;font:700 14px 'Poppins',sans-serif}
 .rc-top__name{font:600 14px 'Poppins',sans-serif;color:var(--ink);letter-spacing:-.2px}
 .rc-top__name small{display:block;font:500 10px 'Poppins',sans-serif;text-transform:uppercase;letter-spacing:1.6px;color:var(--ink-mute)}
