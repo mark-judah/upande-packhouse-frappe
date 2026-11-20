@@ -19,7 +19,7 @@ frappe.ui.form.on("Sales Order", {
 		// also what the allocation page's own order list requires.
 		if (frm.doc.docstatus === 1) {
 			frappe.call({
-				method: "upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation.get_order_allocation_status",
+				method: "upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2.get_order_allocation_status",
 				args: { sales_order: frm.doc.name },
 				callback: (r) => {
 					const status = (r.message && r.message.status) || "none";

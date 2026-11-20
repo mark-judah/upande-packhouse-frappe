@@ -167,6 +167,18 @@ def _lock_buckets(bucket_ids):
 		)
 
 
+def _live_of_line(soi, source):
+	"""The line's live confirmations of `source`, read under a lock on the line: a second planner confirming the
+	same line waits here for the first, then sees (and replaces) what the first made, never adding a second."""
+	frappe.db.sql("SELECT name FROM `tabSales Order Item` WHERE name = %s FOR UPDATE", soi)
+	return frappe.db.sql(
+		"""SELECT name, farm FROM `tabAllocation Confirmation`
+		WHERE sales_order_item = %s AND source = %s AND status IN %s FOR UPDATE""",
+		(soi, source, tuple(LIVE)),
+		as_dict=True,
+	)
+
+
 def reserve_real(
 	*, plan, line, farm, variety, length, stems, user=None, team=None, harvested_from=None, forecast_basis=""
 ):
@@ -176,13 +188,7 @@ def reserve_real(
 	Replaces any earlier Real plan of the same line. Holds only what is free, so held_stems can be less
 	than asked; the caller plans the rest as Virtual."""
 	soi = line["sales_order_item"]
-	existing = frappe.db.get_value(
-		"Allocation Confirmation",
-		{"sales_order_item": soi, "source": "Real", "status": ("in", LIVE)},
-		["name", "farm"],
-		as_dict=True,
-	)
-	if existing:
+	for existing in _live_of_line(soi, "Real"):
 		release_confirmation(existing.name, "Manual", user=user, keep_open=True)
 		if (
 			existing.farm and existing.farm != farm
@@ -231,13 +237,7 @@ def plan_virtual(
 ):
 	"""Plan stems from the expected harvest. Stems only, no buckets."""
 	soi = line["sales_order_item"]
-	existing = frappe.db.get_value(
-		"Allocation Confirmation",
-		{"sales_order_item": soi, "source": "Virtual", "status": ("in", LIVE)},
-		["name", "farm"],
-		as_dict=True,
-	)
-	if existing:
+	for existing in _live_of_line(soi, "Virtual"):
 		release_confirmation(existing.name, "Manual", keep_open=True)
 		if existing.farm and existing.farm != farm:
 			refresh_mirror(line["sales_order"], soi, existing.farm)
@@ -605,12 +605,15 @@ def convert_virtual(delivery_date=None, farm=None):
 		"Allocation Confirmation", filters=filters, fields=["*"], order_by="creation asc"
 	):
 		soi = c.sales_order_item
-		real = frappe.db.get_value(
+		# held now: a held confirmation's stems less what of them is already allocated (fulfilled) -- those are
+		# the line's allocation, not stems still to hold, so they never make the line hold more than it needs
+		held_now = frappe.db.get_value(
 			"Allocation Confirmation",
 			{"sales_order_item": soi, "source": "Real", "status": ("in", LIVE)},
-			"stems",
+			["stems", "fulfilled_stems"],
+			as_dict=True,
 		)
-		real = flt(real)
+		real = max(0.0, flt(held_now.stems) - flt(held_now.fulfilled_stems)) if held_now else 0.0
 		cut = add_days(c.delivery_date, -HARVEST_LEAD_DAYS)
 		free = sum(b.free for b in free_for_line(c.farm, c.variety, c.length, soi, cut))
 		target = min(real + flt(c.stems), free)

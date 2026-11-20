@@ -686,11 +686,70 @@ def balance_teams(delivery_date: str, farm: str):
 
 
 @frappe.whitelist()
-def get_confirmation_summary(
+def get_real_stock_shortages(
 	delivery_date: str | None = None, farm: str | None = None, week: str | None = None
 ):
+	"""The confirmed varieties against the real stock: per variety and length, the confirmed stems still to come
+	from the harvest (not holding buckets yet), what is free on the sales farm's shelves now, how much of it that
+	stock can fill and how much it is short. Short varieties first."""
+	farm = farm or pg._default_farm()
+	days = pg._week(week)[1] if week else [pg._day(delivery_date)]
+	plan_names = [p for p in (pg._plan_name(d, farm) for d in days) if p]
+	need, orders = defaultdict(float), defaultdict(set)
+	if plan_names:
+		for c in frappe.get_all(
+			"Allocation Confirmation",
+			filters={"plan": ("in", plan_names), "status": ("in", plans.LIVE), "source": ("!=", "Real")},
+			fields=["variety", "length", "stems", "fulfilled_stems", "sales_order"],
+		):
+			left = max(0.0, flt(c.stems) - flt(c.fulfilled_stems))
+			if left > 0.5:
+				key = (c.variety, c.length or "")
+				need[key] += left
+				orders[key].add(c.sales_order)
+	shelf = (
+		{
+			(f["variety"], f["length"]): flt(f["on_shelf"])
+			for f in pg._forecast_supply(days, farm, only=set(need))[0]
+		}
+		if need
+		else {}
+	)
+	rows = []
+	for (variety, length), stems in need.items():
+		have = shelf.get((variety, length), 0.0)
+		can = min(stems, have)
+		rows.append(
+			{
+				"variety": variety,
+				"length": length,
+				"needed": round(stems),
+				"on_shelf": round(have),
+				"can_fill": round(can),
+				"short": round(stems - can),
+				"orders": len(orders[(variety, length)]),
+			}
+		)
+	rows.sort(key=lambda r: (-r["short"], -r["needed"], r["variety"], r["length"]))
+	return {
+		"success": True,
+		"rows": rows,
+		"short": sum(r["short"] for r in rows),
+		"short_varieties": sum(1 for r in rows if r["short"] > 0),
+		"needed": sum(r["needed"] for r in rows),
+		"can_fill": sum(r["can_fill"] for r in rows),
+	}
+
+
+@frappe.whitelist()
+def get_confirmation_summary(
+	delivery_date: str | None = None,
+	farm: str | None = None,
+	week: str | None = None,
+	team: str | None = None,
+):
 	"""Every confirmed order with its lines: what each counts on, what the system did, and the result. With
-	`week`, every delivery day of it, day by day."""
+	`week`, every delivery day of it, day by day. With `team`, that team's orders only (`teams` lists them all)."""
 	if week:
 		week, days = pg._week(week)
 		out = {
@@ -700,11 +759,13 @@ def get_confirmation_summary(
 			"days": days,
 			"orders": [],
 			"totals": {},
+			"teams": [],
 		}
 		for d in days:
-			r = get_confirmation_summary(d, farm)
+			r = get_confirmation_summary(d, farm, team=team)
 			out["farm"] = r["farm"]
 			out["orders"] += r["orders"]
+			out["teams"] = sorted(set(out["teams"]) | set(r.get("teams") or []))
 			for k, v in r["totals"].items():
 				out["totals"][k] = out["totals"].get(k, 0) + v
 		return out
@@ -713,7 +774,14 @@ def get_confirmation_summary(
 	lines = {ln.name: ln for ln in pg._lines_for(day, farm)}
 	empty = {"confirmed": 0, "rolling": 0, "production": 0, "changed": 0, "left": 0, "lines_left": 0}
 	if not plan:
-		return {"success": True, "delivery_date": day, "farm": farm, "orders": [], "totals": empty}
+		return {
+			"success": True,
+			"delivery_date": day,
+			"farm": farm,
+			"orders": [],
+			"totals": empty,
+			"teams": [],
+		}
 	confs = frappe.get_all(
 		"Allocation Confirmation",
 		filters={"plan": plan, "status": ("in", KEPT)},
@@ -745,9 +813,15 @@ def get_confirmation_summary(
 	pos = {so: i for q in queues.values() for i, so in enumerate(q, 1)}
 	orders = {}
 	totals = dict(empty)
+	teams = set()
 	for soi, cs in by_line.items():
 		ln = lines.get(soi)
 		if not ln:
+			continue
+		order_team = team_of.get(ln.parent) or cs[0].team or ""
+		if order_team:
+			teams.add(order_team)
+		if team and order_team != team:
 			continue
 		ordered = flt(ln.ordered_stems)
 		held = sum(flt(c.stems) for c in cs if c.source == "Real")
@@ -756,7 +830,10 @@ def get_confirmation_summary(
 		revised = soi in first
 		before = sum(flt(c.stems) for c in first[soi]) if revised else confirmed
 		production = sum(flt(c.stems) for c in cs if (c.forecast_basis or "").startswith("production"))
-		left = max(0.0, ordered - flt(ln.allocated_stems) - confirmed)
+		# open: what is neither allocated nor still confirmed -- a confirmation's fulfilled stems are allocated
+		# already, so they count once (in allocated_stems), never twice
+		still_confirmed = sum(max(0.0, flt(c.stems) - flt(c.fulfilled_stems)) for c in cs)
+		left = max(0.0, ordered - flt(ln.allocated_stems) - still_confirmed)
 		c0 = cs[0]
 		done = []
 		if c0.ordered_variety and c0.variety != c0.ordered_variety:
@@ -881,8 +958,15 @@ def get_confirmation_summary(
 	out = sorted(orders.values(), key=lambda o: (not o["seq"], o["seq"], o["team"], o["customer"] or ""))
 	totals["orders"] = len(out)
 	totals["lines"] = sum(len(o["items"]) for o in out)
-	totals["all_lines"] = len(lines)
-	return {"success": True, "delivery_date": day, "farm": farm, "orders": out, "totals": totals}
+	totals["all_lines"] = sum(1 for ln in lines.values() if ln.parent in orders) if team else len(lines)
+	return {
+		"success": True,
+		"delivery_date": day,
+		"farm": farm,
+		"orders": out,
+		"totals": totals,
+		"teams": sorted(teams),
+	}
 
 
 def _first_confirmed(plan):

@@ -551,6 +551,9 @@ def _build_pools(day, farm, overrides=None, only_variety=None):
 	rolling = _rolling_by_pool(day, farm, {ln.item_code for ln in lines})
 	confirmed_here = _confirmed_here(day, farm)
 	pools = {}
+	# stems confirmed, by the variety and length they were confirmed at: a 50cm line confirmed at 60cm takes
+	# from the 60cm harvest, never from the 50cm one
+	counted_at = defaultdict(float)
 	for ln in lines:
 		key = (ln.item_code, ln.custom_length or "")
 		p = pools.setdefault(
@@ -574,6 +577,7 @@ def _build_pools(day, farm, overrides=None, only_variety=None):
 		p["allocated"] += min(allocated, ordered)
 		p["held"] += pl["real"]
 		p["expected_plan"] += pl["expected"]
+		counted_at[(ln.item_code, pl.get("length") or key[1])] += pl["real"] + pl["expected"]
 		if ordered > 0 and allocated + pl["real"] + pl["expected"] >= ordered - 0.0001:
 			p["lines_done"] += 1
 		# planned: anything allocated or confirmed for it, even short of what was ordered
@@ -585,7 +589,7 @@ def _build_pools(day, farm, overrides=None, only_variety=None):
 		likely, sure = expected_for(key[0], key[1], day, farm, s)
 		left = max(0.0, p["ordered"] - p["allocated"] - p["held"] - p["expected_plan"])
 		# what the rolling forecast for the cutting day still has for lines not confirmed yet
-		counted = p["held"] + p["expected_plan"]
+		counted = counted_at.get(key, 0.0)
 		have = max(0.0, cut_day_total(s, rolling.get(key, 0.0)) - counted)
 		harvested_left = max(0.0, s["harvested"] - counted)
 		short = max(0.0, left - have)
@@ -650,6 +654,8 @@ def _week_pools(days, farm, only_variety):
 			for f in h:
 				h[f] += v[f]
 	by_day = {}
+	# per delivery day, stems confirmed at the variety and length they were confirmed at (see _build_pools)
+	counted_at = defaultdict(lambda: defaultdict(float))
 	for ln in lines:
 		key = (ln.item_code, ln.custom_length or "")
 		q = by_day.setdefault(str(ln.delivery_date), {}).setdefault(
@@ -671,6 +677,9 @@ def _week_pools(days, farm, only_variety):
 		q["allocated"] += min(allocated, ordered)
 		q["held"] += pl["real"]
 		q["expected_plan"] += pl["expected"]
+		counted_at[str(ln.delivery_date)][(ln.item_code, pl.get("length") or key[1])] += (
+			pl["real"] + pl["expected"]
+		)
 		if ordered > 0 and allocated + pl["real"] + pl["expected"] >= ordered - 0.0001:
 			q["lines_done"] += 1
 		# planned: anything allocated or confirmed for it, even short of what was ordered
@@ -706,15 +715,19 @@ def _week_pools(days, farm, only_variety):
 		_prefetch_forecasts(sorted(varieties), d, farm)
 		harvest = received.harvested_day(_cut_of(d), growing, varieties)
 		rolling = _rolling_by_pool(d, farm, varieties)
+		# a cutting day of today (or before): what it cut and was already received is in the stock the week
+		# starts from, so it is not counted again with the day's cut
+		cut_done = _cut_of(d) <= getdate(today())
 		for key in keys:
 			p, q, b = pools[key], by_day.get(d, {}).get(key), bal[key]
 			h = harvest.get(key) or {}
 			s = {**SUPPLY, "harvested": flt(h.get("harvested")), "on_the_way": flt(h.get("not_received"))}
 			likely, sure = expected_for(key[0], key[1], d, farm, s)
-			counted = (q["held"] + q["expected_plan"]) if q else 0.0
-			roll_in = max(0.0, cut_day_total(s, rolling.get(key, 0.0)) - counted)
+			counted = counted_at.get(d, {}).get(key, 0.0)
+			in_stock = max(0.0, s["harvested"] - s["on_the_way"]) if cut_done else 0.0
+			roll_in = max(0.0, cut_day_total(s, rolling.get(key, 0.0)) - in_stock - counted)
 			b["rolling"] += roll_in
-			b["production"] += max(0.0, s["harvested"] - s["on_the_way"] + likely - counted)
+			b["production"] += max(0.0, s["harvested"] - s["on_the_way"] - in_stock + likely - counted)
 			p["forecast"] += roll_in
 			p["expected_likely"] += likely
 			p["expected_sure"] += sure
@@ -795,9 +808,15 @@ def get_board(
 		week, days = _week(week)
 	else:
 		days = [_day(delivery_date)]
+	# a passed or closed delivery day takes no more confirmations: its orders and lines leave the lists
+	closed = _closed_days(days, farm)
+	all_days = days
+	days = [d for d in days if d not in closed] or days
+	nothing_open = all(d in closed for d in days)
 	day = days[0]
-	# Stock that has reached the shelf since the last visit takes over from the expected harvest.
-	for d in days:
+	# Stock that has reached the shelf since the last visit takes over from the expected harvest -- held for the
+	# lines, so only when a planner opens the board, never for anyone else who can read it.
+	for d in days if set(PLANNERS) & set(frappe.get_roles()) else []:
 		plan_name = _plan_name(d, farm)
 		if plan_name and frappe.db.exists(
 			"Allocation Confirmation", {"plan": plan_name, "source": "Virtual", "status": "Planned"}
@@ -838,6 +857,20 @@ def get_board(
 	kpis["confirmed_lines"] = len({c.sales_order_item for c in _confs})
 	ordered = {(x["variety"], x["length"]): x for x in pools}
 	forecast, harvest_days = _forecast_supply(days, farm)
+	# stems already confirmed on the harvest are taken off the forecast: the next order of the variety sees what is left
+	promised = _expected_confirmed(farm, max(days))
+	for f in forecast:
+		took = promised.get((f["variety"], f["length"]), 0.0)
+		if took:
+			# promised from the harvest; what the harvest left to come cannot cover (it was cut and is on the
+			# shelf already) comes off the shelf
+			shelf = f["on_shelf"]
+			f["on_shelf"] = round(max(0.0, shelf - max(0.0, took - f["rolling"])))
+			shelf_production = round(max(0.0, shelf - max(0.0, took - f["production"])))
+			f["rolling"] = round(max(0.0, f["rolling"] - took))
+			f["production"] = round(max(0.0, f["production"] - took))
+			f["total"] = f["on_shelf"] + f["rolling"]
+			f["total_production"] = shelf_production + f["production"]
 	for row in frappe.get_all(
 		"Item",
 		filters={"name": ("in", list({f["variety"] for f in forecast} - set(group_of)) or [""])},
@@ -859,11 +892,18 @@ def get_board(
 		pools = [p for p in pools if p["lines_planned"] < p["lines"]]
 		if view != "all":
 			pools = [p for p in pools if p["status"] != "ok"]
+	if nothing_open:
+		pools = []
+		kpis.update(
+			{k: 0 for k in ("lines", "lines_planned", "stems_left", "short", "use_first", "non_moving")}
+		)
+	lines_now = [] if nothing_open else (_week_lines(days, farm) if week else _lines_for(day, farm))
 	return {
 		"success": True,
 		"delivery_date": day,
 		"week": week or "",
-		"days": days,
+		"days": all_days,
+		"closed_days": sorted(closed),
 		"farm": farm,
 		"farms": [r.farm for r in _farms()],
 		"stock_farms": _stock_farms(farm),
@@ -875,11 +915,23 @@ def get_board(
 		"kpis": kpis,
 		"pools": pools,
 		"forecast": forecast,
-		"mixes": _mixes(_week_lines(days, farm) if week else _lines_for(day, farm), days, farm),
-		"orders": _orders_view(
-			_week_lines(days, farm) if week else _lines_for(day, farm), days, farm, crop_of
-		),
+		"mixes": _mixes(lines_now, days, farm),
+		"orders": _orders_view(lines_now, days, farm, crop_of),
 		"harvest_days": harvest_days,
+	}
+
+
+def _closed_days(days, farm):
+	"""The days among `days` that take no more confirmations: a delivery day already passed, or one whose
+	Allocation Plan for `farm` is closed."""
+	now = getdate(today())
+	return {str(d) for d in days if getdate(d) < now} | {
+		str(d)
+		for d in frappe.get_all(
+			"Allocation Plan",
+			filters={"farm": farm, "delivery_date": ("in", list(days)), "status": "Closed"},
+			pluck="delivery_date",
+		)
 	}
 
 
@@ -939,6 +991,8 @@ def _orders_view(lines, days, farm, crop_of):
 				"group_name": (ln.custom_mix_name or ln.custom_line or "") if key[0] != "line" else "",
 				"team": teams.get(ln.name) or "",
 				"crop": crop_of.get(groups.get(ln.item_code)) or "",
+				# the farm whose stock it is confirmed against: confirming it again keeps it there
+				"stock_farm": pl.get("farm") or "",
 			}
 		)
 	out = []
@@ -1029,6 +1083,23 @@ def _discard_ages():
 			return lambda _item=None: default
 
 	return _memo(("discard_ages",), build)
+
+
+def _expected_confirmed(farm, last_day):
+	"""{(variety, length): stems} confirmed on the harvest (not holding buckets) for deliveries cut from today on, up to
+	`last_day`, still to be fulfilled: the forecast _forecast_supply reads is already promised to them."""
+	out = defaultdict(float)
+	for v, ln, q in frappe.db.sql(
+		"""SELECT c.variety, IFNULL(c.length, ''), SUM(GREATEST(0, c.stems - IFNULL(c.fulfilled_stems, 0)))
+		   FROM `tabAllocation Confirmation` c
+		   JOIN `tabAllocation Plan` p ON p.name = c.plan
+		   WHERE p.farm = %s AND c.source != 'Real' AND c.status IN %s
+		     AND c.delivery_date BETWEEN %s AND %s
+		   GROUP BY c.variety, IFNULL(c.length, '')""",
+		(farm, tuple(plans.LIVE), add_days(today(), plans.HARVEST_LEAD_DAYS), getdate(last_day)),
+	):
+		out[(v, ln)] += flt(q)
+	return out
 
 
 def _forecast_supply(days, farm, only=None):
@@ -2093,11 +2164,16 @@ def _whole_boxes(soi, stems, room):
 		"Sales Order Item",
 		soi,
 		[
+			"name",
 			"custom_number_of_boxes",
 			"custom_packrate",
 			"custom_packrate_mixed_box",
 			"custom_mixed_box",
 			"custom_mixed_bunch",
+			"stock_qty",
+			"custom_ordered_quantity",
+			"qty",
+			"conversion_factor",
 		],
 		as_dict=True,
 	)
@@ -2159,6 +2235,10 @@ def confirm_lines(
 		frappe.throw(_("Choose a farm."))
 	if isinstance(lines, str):
 		lines = json.loads(lines)
+	# a delivery day that has passed is not planned any more (a page left open overnight, a direct call);
+	# taking stems off its lines (0) still goes through
+	if getdate(day) < getdate(today()) and any(flt(i.get("stems")) > 0 for i in lines or []):
+		frappe.throw(_("{0} has passed: its lines can no longer be confirmed.").format(day))
 	plan = plans.get_plan(day, farm)
 	if plan.status == "Closed":
 		frappe.throw(_("The plan for {0} is closed.").format(day))
@@ -2188,8 +2268,10 @@ def confirm_lines(
 			frappe.throw(_("That order line is for {0}, not {1}.").format(ln.delivery_date, day))
 		room = max(0.0, flt(ln.ordered_stems) - flt(ln.allocated_stems))
 		# only complete boxes are confirmed: what is asked goes up to the line's next full box (its packrate),
-		# never past what the line has left
-		want = _whole_boxes(soi, want, room)
+		# never past what the line has left -- except stems given from one line to another (swap or split): they
+		# are moved as they are, so the two lines together keep exactly what was confirmed
+		if not frappe.flags.get("pg_exact_confirm"):
+			want = _whole_boxes(soi, want, room)
 		if want > room + 0.0001:
 			frappe.throw(
 				_("Only {0} stems of this line are left to confirm, and you asked for {1}.").format(
@@ -2322,7 +2404,20 @@ def move_stems(
 	if not dst_team:
 		frappe.throw(_("Choose a team for {0}.").format(dst.customer_name or dst.customer))
 	left = have - stems
-	# the giver first, so what it lets go is free for the receiver
+	# the stems move as they are (never rounded up to whole boxes on either side): see confirm_lines
+	was_exact, frappe.flags.pg_exact_confirm = frappe.flags.get("pg_exact_confirm"), True
+	try:
+		return _move_confirmed(
+			day, farm, from_soi, to_soi, stems, left, src_farm, src_team, dst_have, dst_team, dst, length
+		)
+	finally:
+		frappe.flags.pg_exact_confirm = was_exact
+
+
+def _move_confirmed(
+	day, farm, from_soi, to_soi, stems, left, src_farm, src_team, dst_have, dst_team, dst, length
+):
+	"""move_stems' two confirmations: the giver first, so what it lets go is free for the receiver."""
 	confirm_lines(
 		day,
 		farm,
@@ -2335,7 +2430,12 @@ def move_stems(
 			}
 		],
 	)
-	item = {"sales_order_item": to_soi, "stems": dst_have + stems, "team": dst_team, "stock_farm": src_farm}
+	item = {
+		"sales_order_item": to_soi,
+		"stems": dst_have + stems,
+		"team": dst_team,
+		"stock_farm": src_farm,
+	}
 	if length and length != (dst.custom_length or ""):
 		item["length"] = length
 	confirm_lines(day, farm, [item])
@@ -2455,6 +2555,10 @@ def unconfirm(confirmation: str):
 	_changed()
 	if not frappe.db.exists("Allocation Confirmation", confirmation):
 		frappe.throw(_("That confirmation no longer exists."))
+	# only a live one: a fulfilled confirmation is the line's allocation, a released one is gone already
+	status = frappe.db.get_value("Allocation Confirmation", confirmation, "status")
+	if status not in plans.LIVE:
+		frappe.throw(_("That confirmation is {0}: there is nothing to take out.").format(_(status).lower()))
 	plans.release_confirmation(confirmation, "Manual")
 	plans.sequence_orders(frappe.db.get_value("Allocation Confirmation", confirmation, "plan"))
 	so = frappe.db.get_value("Allocation Confirmation", confirmation, "sales_order")

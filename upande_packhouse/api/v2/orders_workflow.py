@@ -88,15 +88,15 @@ BUCKETS = {
 	"issue": ("awaiting", "allocating", "to_issue", "issuing"),
 	"pack": ("to_pack", "packing"),
 	"packed": ("packed",),
-	"precooling": ("precooling", "precooled"),
 	"staged": ("staging", "staged"),
+	"precooling": ("precooling", "precooled"),
 	"loaded": ("loading", "loaded"),
 	"dispatched": ("dispatching", "dispatched"),
 	"invoiced": ("invoiced",),
 }
 # Stages from "packed" onward: the stems have been packed (used by the late flags).
 PACKED_OR_BEYOND = (
-	"packed", "precooling", "precooled", "staging", "staged", "loading", "loaded",
+	"packed", "staging", "staged", "precooling", "precooled", "loading", "loaded",
 	"dispatching", "dispatched", "invoiced",
 )  # fmt: skip
 
@@ -261,8 +261,8 @@ def _first_issue(opl_names):
 
 def _staged_times(opl_names):
 	"""{opl: {boxes, staged_boxes, last_staged}} over Box Labels that came from a Farm
-	Pack List. A box is staged at `precooled_at` (the staging scan takes it out of
-	precooling and stamps it), else the label's `modified`; the pick list is fully
+	Pack List. A box is staged at `staged_at` (the staging scan stamps it; before that field was kept, at
+	`precooled_at`), else the label's `modified`; the pick list is fully
 	staged when every one of its labelled boxes is."""
 	out = {}
 	if not opl_names:
@@ -271,7 +271,7 @@ def _staged_times(opl_names):
 		"""SELECT order_pick_list AS opl, COUNT(*) AS boxes,
 		          SUM(IFNULL(staged, 0) OR IFNULL(loaded, 0) OR IFNULL(delivered, 0)) AS staged,
 		          MAX(CASE WHEN IFNULL(staged, 0) OR IFNULL(loaded, 0) OR IFNULL(delivered, 0)
-		                   THEN COALESCE(precooled_at, modified) END) AS last_staged
+		                   THEN COALESCE(staged_at, precooled_at, modified) END) AS last_staged
 		   FROM `tabBox Label`
 		   WHERE order_pick_list IN %(o)s AND IFNULL(farm_pack_lis, '') != ''
 		   GROUP BY order_pick_list""",
@@ -343,7 +343,7 @@ def _flow_times(opl):
 	'YYYY-MM-DD HH:MM:SS' strings or None."""
 	first = _first_issue([opl]).get(opl)
 	rows = frappe.db.sql(
-		"""SELECT bl.name, bl.box_number, bl.creation, bl.precooling_in_at, bl.precooled_at,
+		"""SELECT bl.name, bl.box_number, bl.creation, bl.precooling_in_at, bl.precooled_at, bl.staged_at,
 		          bl.staged, bl.loaded, bl.delivered, bl.modified, bl.delivery_note,
 		          (SELECT MIN(lsi.creation) FROM `tabLoading Sheet Item` lsi WHERE lsi.box_label = bl.name) AS load_at,
 		          (SELECT TIMESTAMP(dn.posting_date, dn.posting_time) FROM `tabDelivery Note` dn
@@ -357,7 +357,7 @@ def _flow_times(opl):
 	boxes = []
 	for r in rows:
 		in_stage = bool(r.staged or r.loaded or r.delivered)
-		staged_at = (r.precooled_at or r.modified) if in_stage else None
+		staged_at = (r.staged_at or r.precooled_at or r.modified) if in_stage else None
 		loaded_at = r.load_at or (r.modified if (r.loaded or r.delivered) else None)
 		boxes.append(
 			{
@@ -744,6 +744,10 @@ def get_orders_workflow(
 	}
 
 	dns, sis = _documents({ln.parent for ln in lines})
+	# stems Allocation Planning set for each line, in whole boxes (never past what was ordered)
+	from upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2 import planned_stems
+
+	plan = planned_stems([ln.name for ln in lines])
 
 	# One item per (line, pick list); a line with none is one item of its own.
 	items = []
@@ -794,6 +798,7 @@ def get_orders_workflow(
 				"issued_stems": cell["issued_stems"] if cell else 0.0,
 				"ready_pack_stems": cell["ready_pack_stems"] if cell else 0.0,
 				"planned_stems": cell["planned_stems"] if cell else 0.0,
+				"plan_stems": float(plan.get(ln.name) or 0) if primary else 0.0,
 				"delivery_notes": dns.get(ln.parent, []),
 				"sales_invoices": sis.get(ln.parent, []),
 			}

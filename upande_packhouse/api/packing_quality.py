@@ -342,6 +342,31 @@ def report_packing_quality_issue(
 	except frappe.ValidationError as e:
 		return _fail(e)
 
+	# One report on a pick list at a time; a resend of one just recorded (within the app's retry window) is
+	# answered, not applied again (the line's stems would be rejected and shrunk twice).
+	frappe.db.sql("SELECT name FROM `tabOrder Pick List` WHERE name = %s FOR UPDATE", opl_name)
+	rows = _line_rows(opl_name, bucket, sale_order_item)
+	same = frappe.db.get_value(
+		"Bucket Replacement",
+		{
+			"order_pick_list": opl_name,
+			"old_bucket": bucket,
+			"reason": "Quality issue",
+			"defect": defect,
+			"owner": frappe.session.user,
+			"creation": (">", frappe.utils.add_to_date(now_datetime(), seconds=-45)),
+		},
+		["name", "stems"],
+		as_dict=True,
+	)
+	if same and (scope == "bucket" or abs(flt(same.stems) - flt(stems)) < 0.5):
+		return {
+			"success": True,
+			"replacement": same.name,
+			"rejected_stems": flt(same.stems),
+			"message": _("This quality issue was already reported for {0}.").format(bucket),
+		}
+
 	on_line = sum(flt(r.stock_qty) for r in rows)
 	bad = on_line if scope == "bucket" else flt(stems)
 	if bad <= 0 or bad > on_line + stock_movement.QTY_TOLERANCE:

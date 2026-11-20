@@ -765,6 +765,7 @@ class UnitTestLoadedBucketClaimedByItsTrip(UnitTestCase):
 	def setUp(self):
 		self.today = str(frappe.utils.today())
 		self.tomorrow = str(frappe.utils.add_days(self.today, 1))
+		self.delivery = None
 		self.world = _Trips(
 			{"BRT-6": {"status": "Draft", "plan": {("OPL-G", FARM): 1}, "loaded_buckets": 1}},
 			{"BRT-6": {("OPL-G", FARM): 1}},
@@ -785,6 +786,12 @@ class UnitTestLoadedBucketClaimedByItsTrip(UnitTestCase):
 			stack.enter_context(patch.object(tc, "_day_runs", return_value=list(runs)))
 			stack.enter_context(patch.object(tc, "_vehicle_on_road", return_value=None))
 			stack.enter_context(patch.object(tc, "_loaded_trip_refusal", return_value=None))
+			stack.enter_context(patch.object(tc, "_trip_opls", return_value={"OPL-G"} if name else set()))
+			stack.enter_context(
+				patch.object(
+					tc, "_opl_delivery_dates", return_value={"OPL-G": self.delivery or self.tomorrow}
+				)
+			)
 			stack.enter_context(patch.object(tc.frappe.db, "exists", return_value=bool(name)))
 			stack.enter_context(patch.object(tc.frappe.db, "get_value", return_value="Draft"))
 			return tc._save_trip(
@@ -831,6 +838,13 @@ class UnitTestLoadedBucketClaimedByItsTrip(UnitTestCase):
 		runs = [{"route": "R1", "run": 6, "trip": "BRT-6", "stops": [FARM]}]
 		res = self._save(runs=runs, route="R1", run=6)
 		self.assertEqual(res["reason"], "over_claimed")
+
+	def test_1b_save_trip_refuses_an_order_delivering_today(self):
+		# trips only carry orders delivering tomorrow or the day after: never today's or an overdue one
+		self.delivery = self.today
+		res = self._save()
+		self.assertEqual(res["status"], "error")
+		self.assertIn("tomorrow or the day after", res["message"])
 
 	def test_1b_save_trip_refuses_raising_its_own_plan_beyond_the_bucket(self):
 		res = self._save(name="BRT-6", buckets=2)

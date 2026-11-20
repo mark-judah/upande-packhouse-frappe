@@ -304,12 +304,13 @@
   }
 
   /* ── Orders: every order in view, in a drawer from the right ── */
-  /* ── Analysis: demand → allocated → issued → packed → staged, each step against the one before ── */
-  const STEPS = [["demand", "Demand", "ordered stems"], ["allocated", "Allocated", "on pick lists"], ["issued", "Issued", "scanned out to packing"], ["packed", "Packed", "in boxes"], ["precooled", "Precooled", "boxes through precooling"], ["staged", "Staged", "boxes staged for dispatch"], ["loaded", "Loaded", "boxes on the truck"], ["dispatched", "Dispatched", "sent to the customer"]];
+  /* ── Analysis: demand → planned → allocated → issued → packed → staged → precooled, each step against the one before ── */
+  const STEPS = [["demand", "Demand", "ordered stems"], ["planned", "Planned", "set by allocation planning"], ["allocated", "Allocated", "on pick lists"], ["issued", "Issued", "scanned out to packing"], ["packed", "Packed", "in boxes"], ["staged", "Staged", "boxes staged for dispatch"], ["precooled", "Precooled", "boxes through precooling"], ["loaded", "Loaded", "boxes on the truck"], ["dispatched", "Dispatched", "sent to the customer"]];
   function funnelOf(rows) {
-    const f = { demand: 0, allocated: 0, issued: 0, packed: 0, precooled: 0, staged: 0, loaded: 0, dispatched: 0 };
+    const f = { demand: 0, planned: 0, allocated: 0, issued: 0, packed: 0, precooled: 0, staged: 0, loaded: 0, dispatched: 0 };
     (rows || []).forEach((r) => {
       if (r.primary !== false) f.demand += r.ordered_stems || 0;
+      f.planned += r.plan_stems || 0;
       f.allocated += r.picked_stems || 0;
       f.issued += r.issued_stems || 0;
       f.packed += r.packed_stems || 0;
@@ -323,13 +324,13 @@
   // Per stage: stems, boxes, and the orders and order lines that reached it. A line's figures add up over its
   // pick lists; a mixed box or bunch counts its boxes once, as many as its scarcest variety fills.
   function stageFigures(rows) {
-    const STEM = { demand: "ordered_stems", allocated: "picked_stems", issued: "issued_stems", packed: "packed_stems", precooled: "precooled_stems", staged: "staged_stems", loaded: "loaded_stems", dispatched: "dispatched_stems" };
+    const STEM = { demand: "ordered_stems", planned: "plan_stems", allocated: "picked_stems", issued: "issued_stems", packed: "packed_stems", precooled: "precooled_stems", staged: "staged_stems", loaded: "loaded_stems", dispatched: "dispatched_stems" };
     const lines = {};
     (rows || []).forEach((r) => {
       if (!r.soi) return;
-      const l = (lines[r.soi] = lines[r.soi] || { so: r.sales_order, customer: r.customer, mix: r.mix_name ? r.sales_order + "|" + r.mix_name : null, boxes: 0, ordered: 0, demand: 0, allocated: 0, issued: 0, packed: 0, precooled: 0, staged: 0, loaded: 0, dispatched: 0 });
+      const l = (lines[r.soi] = lines[r.soi] || { so: r.sales_order, customer: r.customer, mix: r.mix_name ? r.sales_order + "|" + r.mix_name : null, boxes: 0, ordered: 0, demand: 0, planned: 0, allocated: 0, issued: 0, packed: 0, precooled: 0, staged: 0, loaded: 0, dispatched: 0 });
       if (r.primary !== false) { l.demand += r.ordered_stems || 0; l.ordered = r.ordered_stems || 0; l.boxes = r.line_boxes || 0; }
-      ["allocated", "issued", "precooled", "staged", "loaded", "dispatched"].forEach((k) => (l[k] += r[STEM[k]] || 0));
+      ["planned", "allocated", "issued", "precooled", "staged", "loaded", "dispatched"].forEach((k) => (l[k] += r[STEM[k]] || 0));
       // packed: full boxes only -- a box still being packed counts once it is complete
       const full = r.opl_boxes && r.stems_per_box ? (r.opl_boxes.complete || 0) * r.stems_per_box : null;
       l.packed += full == null ? r.packed_stems || 0 : Math.min(r.packed_stems || 0, full);
@@ -451,7 +452,7 @@
     return out;
   }
 
-  const STAGES = [["all", "All"], ["notalloc", "Not allocated"], ["partial", "Part allocated"], ["issue", "Issuing"], ["pack", "Packing"], ["packed", "Packed"], ["precooling", "Precooling"], ["staged", "Staged"], ["loaded", "Loaded"], ["dispatched", "Dispatched"], ["invoiced", "Invoiced"]];
+  const STAGES = [["all", "All"], ["notalloc", "Not allocated"], ["partial", "Part allocated"], ["issue", "Issuing"], ["pack", "Packing"], ["packed", "Packed"], ["staged", "Staged"], ["precooling", "Precooling"], ["loaded", "Loaded"], ["dispatched", "Dispatched"], ["invoiced", "Invoiced"]];
   function renderStages() {
     const el = document.getElementById("stages"), cur = st.get("stage"), c = data.stage_counts || {};
     el.hidden = false;
@@ -635,7 +636,7 @@
   const stageCls = (r) => ({ notalloc: "bad", awaiting: "warn", allocating: "", to_issue: "outline", issuing: "signal", to_pack: "warn", packing: "signal", packed: "good", precooling: "signal", precooled: "good", staging: "signal", staged: "good", loading: "signal", loaded: "good", dispatching: "signal", dispatched: "good", invoiced: "good" }[r.stage] || "");
 
   /* One row per order on a pick list ("COOP-2600"); its varieties nest underneath. */
-  const STAGE_RANK = ["notalloc", "allocating", "awaiting", "to_issue", "issuing", "to_pack", "packing", "packed", "precooling", "precooled", "staging", "staged", "loading", "loaded", "dispatching", "dispatched", "invoiced"];
+  const STAGE_RANK = ["notalloc", "allocating", "awaiting", "to_issue", "issuing", "to_pack", "packing", "packed", "staging", "staged", "precooling", "precooled", "loading", "loaded", "dispatching", "dispatched", "invoiced"];
   const grpIndex = {};
   function groupRows(rows) {
     const map = new Map();

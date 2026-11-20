@@ -78,10 +78,11 @@ def sync_header_fields(fpl_doc, opl_doc, so_doc):
 
 
 def _packed_stems_by_box_variety(fpl_doc):
+	"""{(box, variety, length): stems packed}."""
 	packed = {}
 	for row in fpl_doc.pack_list_item:
 		box_no = int(row.box_id or 0) or 1
-		key = (box_no, row.item_code)
+		key = (box_no, row.item_code, row.stem_length or "")
 		packed[key] = packed.get(key, 0) + (row.stock_qty or 0)
 	return packed
 
@@ -103,16 +104,39 @@ def fpl_pack_blockers(fpl_doc, opl_doc):
 
 	packed = _packed_stems_by_box_variety(fpl_doc)
 	under_packed_boxes = {int(r.box_id or 0) or 1 for r in fpl_doc.pack_list_item if r.under_pack_reason}
-	short = []
-	for row in guide_rows:
-		box_no = int(row.box_number or 0)
-		if box_no in under_packed_boxes:
+	# Each guide row is filled by what was packed for it: its box, its variety AT ITS LENGTH. Two rows of one
+	# variety at different lengths in a box are two needs -- packing the 50cm never completes the 60cm row.
+	# Stems packed at another length of the variety in that box (a downgraded bucket packed at its own length)
+	# fill what a row still lacks only after every row has taken its own length.
+	rows = [r for r in guide_rows if int(r.box_number or 0) not in under_packed_boxes]
+	left = dict(packed)
+	have = {}
+	for i, row in enumerate(rows):
+		key = (int(row.box_number or 0), row.variety, row.length or "")
+		take = min(left.get(key, 0), row.stems or 0)
+		left[key] = left.get(key, 0) - take
+		have[i] = take
+	for i, row in enumerate(rows):
+		need = (row.stems or 0) - have[i]
+		if need <= 0.001:
 			continue
-		key = (box_no, row.variety)
-		have = packed.get(key, 0)
+		box_no = int(row.box_number or 0)
+		for key in sorted(k for k in left if k[0] == box_no and k[1] == row.variety and left[k] > 0):
+			take = min(left[key], need)
+			left[key] -= take
+			have[i] += take
+			need -= take
+			if need <= 0.001:
+				break
+	short = []
+	for i, row in enumerate(rows):
 		need = row.stems or 0
-		if have < need - 0.001:
-			short.append("Box {0} {1}: {2:g}/{3:g} stems".format(row.box_number, row.variety, have, need))
+		if have[i] < need - 0.001:
+			short.append(
+				"Box {0} {1} {2}: {3:g}/{4:g} stems".format(
+					row.box_number, row.variety, row.length or "", have[i], need
+				)
+			)
 	return short
 
 

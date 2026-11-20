@@ -9,6 +9,7 @@ from frappe.utils import add_days, cint, flt, now_datetime, nowdate
 from upande_packhouse import allocation_plan, availability, stock_movement
 from upande_packhouse.box_groups import box_keys
 from upande_packhouse.packing_guide import resync_submitted_guide
+from upande_packhouse.permissions import ALLOCATORS, guard
 
 
 def _origin_warehouse(farm, fallback=None):
@@ -637,13 +638,13 @@ def _attach_boxes(rows):
 
 
 def _first_of_every_team(rows):
-	"""Within a delivery day, every team's first planned order, then every team's second, and so on: each team
-	follows Allocation Planning's sequence, and no team waits for another's queue. An order's team is the one
-	planned for most of its stems; `planning_position` is its place in that team's queue."""
+	"""Within a delivery day, Allocation Planning's sequence from the first to the last: allocation (and Allocate
+	all) works down it in that order. `planning_position` is the order's place in the day's sequence;
+	`team_positions` its place in each of its teams' queues (its lines show their team's)."""
 	planned = [r.name for r in rows if cint(r.planning_sequence)]
 	if not planned:
 		return rows
-	team_of, teams_of = {}, defaultdict(list)
+	teams_of = defaultdict(list)
 	for so, team, _stems in frappe.db.sql(
 		"""SELECT sales_order, team, SUM(stems) AS stems FROM `tabAllocation Confirmation`
 		   WHERE sales_order IN %(s)s AND IFNULL(team, '') != ''
@@ -651,16 +652,14 @@ def _first_of_every_team(rows):
 		   GROUP BY sales_order, team ORDER BY stems DESC, team""",
 		{"s": tuple(planned)},
 	):
-		team_of.setdefault(so, team)
 		teams_of[so].append(team)
 	queue = defaultdict(int)
 	team_queue = defaultdict(int)
 	for r in sorted(
 		(r for r in rows if cint(r.planning_sequence)), key=lambda r: (r.delivery_date, r.planning_sequence)
 	):
-		key = (r.delivery_date, team_of.get(r.name) or r.name)
-		queue[key] += 1
-		r.planning_position = queue[key]
+		queue[r.delivery_date] += 1
+		r.planning_position = queue[r.delivery_date]
 		# an order shared by several teams has a place in each of their queues: its lines show their team's
 		r.team_positions = {}
 		for team in teams_of.get(r.name) or []:
@@ -2011,6 +2010,7 @@ ALLOWED_ALLOCATION_TEAMS = {"Team A", "Team B", "Jamafa", "Eldama", "Bravo"}
 
 
 @frappe.whitelist()
+@guard(roles=ALLOCATORS)
 def allocate_stock_with_buckets(
 	sales_order: str | None,
 	allocations: str | list | dict | None,
@@ -2306,7 +2306,31 @@ def _line_capacity(so_item):
 		if so_item.get("custom_mixed_box") == 1 or so_item.get("custom_mixed_bunch")
 		else so_item.get("custom_packrate")
 	)
-	return int(per_box or 10) * int(so_item.get("custom_number_of_boxes") or 1)
+	boxes = cint(so_item.get("custom_number_of_boxes")) or 1
+	# the pack rate is a Packrate name ("840"): its number, else the Packrate's stems per box
+	rate = flt(per_box)
+	if not rate and per_box and frappe.db.exists("Packrate", per_box):
+		rate = flt(frappe.db.get_value("Packrate", per_box, "stems_per_box"))
+	if rate:
+		return rate * boxes
+	# no pack rate: the line's boxes hold what was ordered -- the rule the planner splits boxes by
+	# (_per_box: its stems over its boxes), never a made-up 10 stems a box
+	return _ordered_stems_of(so_item)
+
+
+def _ordered_stems_of(so_item):
+	"""Stems a Sales Order line ordered."""
+	fields = ("stock_qty", "custom_ordered_quantity", "qty", "conversion_factor")
+	# a row read with only some fields (frappe.get_all) is read again; a full document has them all
+	if isinstance(so_item, dict) and not all(f in so_item for f in fields) and so_item.get("name"):
+		so_item = (
+			frappe.db.get_value("Sales Order Item", so_item.get("name"), list(fields), as_dict=True) or {}
+		)
+	return (
+		flt(so_item.get("custom_ordered_quantity"))
+		or flt(so_item.get("stock_qty"))
+		or flt(so_item.get("qty")) * (flt(so_item.get("conversion_factor")) or 1)
+	)
 
 
 def _box_pieces(so_item, line_rows, allocs, opl_name=None):
@@ -2572,7 +2596,17 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 
 	limits = _line_limits(so_doc, list(alloc_totals_by_item), confirmed_by_item)
 	for so_item, new_qty in alloc_totals_by_item.items():
-		confirmed = limits.get(so_item, 0)
+		# a line of another order never comes in here, and a limit of 0 means nothing more can be allocated
+		# (the line is confirmed in full at other locations): it is a limit, not "no limit"
+		if so_item not in limits:
+			frappe.throw(_("Line {0} is not on {1}.").format(so_item, sales_order))
+		confirmed = limits[so_item]
+		if confirmed <= 0.001 and new_qty > 0.001:
+			frappe.throw(
+				_(
+					"Cannot allocate {0} stems: this line is already confirmed in full at other locations."
+				).format(int(new_qty))
+			)
 		if confirmed > 0:
 			existing_allocated = (
 				frappe.db.sql(
@@ -2741,6 +2775,11 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 	for a in allocations:
 		alloc_by_bucket.setdefault((a["bucket_id"], a["item_code"], a.get("stem_length") or ""), []).append(a)
 
+	# every bucket of this release held up front, in one order for everyone: two releases sharing buckets wait
+	# for each other instead of each holding one the other needs
+	for b in sorted({k[0] for k in alloc_by_bucket}):
+		stock_movement.lock_bucket(b)
+
 	for (bucket_id, item_code, stem_length), group in alloc_by_bucket.items():
 		shelf = shelf_map[(bucket_id, item_code, stem_length)]
 		is_sales_shelf = farm_config.get(shelf["farm"], {}).get("sales_shelf", 0)
@@ -2758,6 +2797,17 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 
 		bas_key = (bucket_id, item_code, stem_length)
 
+		# One release of a bucket at a time (held above): a second planner releasing the same fresh bucket waits,
+		# then finds the status record the first one made (a locking read) instead of making a second one.
+		if bas_key not in bas_map:
+			made = frappe.db.sql(
+				"""SELECT name FROM `tabBucket Allocation Status`
+				WHERE bucket_id = %s AND item_code = %s AND IFNULL(stem_length, '') = %s
+				ORDER BY creation LIMIT 1 FOR UPDATE""",
+				(bucket_id, item_code, stem_length),
+			)
+			if made:
+				bas_map[bas_key] = {"name": made[0][0]}
 		if bas_key in bas_map:
 			bas = frappe.get_doc("Bucket Allocation Status", bas_map[bas_key]["name"], for_update=True)
 		else:
@@ -4020,7 +4070,9 @@ def unallocate_bucket_from_opl(sales_order_item: str, bucket_id: str, stem_lengt
 			except Exception:
 				frappe.log_error("Could not clear Sales Order.custom_stock_allocated", frappe.get_traceback())
 
-		frappe.db.commit()
+		# one of several buckets a substitution releases together: saved with the others, not on its own
+		if not frappe.flags.get("sa2_one_commit"):
+			frappe.db.commit()
 
 		return {
 			"success": True,
@@ -5161,6 +5213,7 @@ def get_substitute_varieties(
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=ALLOCATORS)
 def substitute_variety(sales_order: str | None, sales_order_item: str | None, new_item_code: str | None):
 	"""
 	Substitutes the variety on a Sales Order Item.
@@ -5231,17 +5284,41 @@ def substitute_variety(sales_order: str | None, sales_order_item: str | None, ne
 		{"soi": sales_order_item},
 		as_dict=True,
 	)
+	# every bucket is released, or none: a failure part way leaves the line as it was
 	released = []
-	for h in held:
-		res = unallocate_bucket_from_opl(sales_order_item, h.bucket_id, h.stem_length) or {}
-		if not res.get("success"):
-			return {
-				"success": False,
-				"message": "Cannot substitute: releasing bucket {0} failed ({1}). Released so far: {2}".format(
-					h.bucket_id, res.get("message"), ", ".join(released) or "none"
-				),
-			}
-		released.append(h.bucket_id)
+	was, frappe.flags.sa2_one_commit = frappe.flags.get("sa2_one_commit"), True
+	try:
+		for h in held:
+			res = unallocate_bucket_from_opl(sales_order_item, h.bucket_id, h.stem_length) or {}
+			if not res.get("success"):
+				frappe.db.rollback()
+				return {
+					"success": False,
+					"message": "Cannot substitute: releasing bucket {0} failed ({1}). Nothing was changed.".format(
+						h.bucket_id, res.get("message")
+					),
+				}
+			released.append(h.bucket_id)
+	finally:
+		frappe.flags.sa2_one_commit = was
+
+	# Stems held for the line but not released yet go too: the old variety's buckets are free for other orders
+	# again, and the next release never puts them on a pick list for a line that is now another variety.
+	from upande_packhouse.upande_packhouse.page.sales_allocation_v2.day_allocation import _drop_pending_rows
+
+	waiting = frappe.db.sql(
+		"""SELECT r.name, p.location
+		FROM `tabPending Allocation Row` r
+		JOIN `tabPending Allocation` p ON p.name = r.parent AND r.parenttype = 'Pending Allocation'
+		WHERE p.status = 'Pending' AND r.sales_order_item = %s""",
+		sales_order_item,
+		as_dict=True,
+	)
+	by_location = {}
+	for w in waiting:
+		by_location.setdefault(w.location, []).append(w.name)
+	for location, rows in by_location.items():
+		_drop_pending_rows(sales_order, location, rows)
 
 	# Fetch new item details
 	new_item = frappe.db.get_value(
@@ -5249,6 +5326,7 @@ def substitute_variety(sales_order: str | None, sales_order_item: str | None, ne
 	)
 
 	if not new_item:
+		frappe.db.rollback()  # the buckets released above stay with the line
 		return {"success": False, "message": f"Item {new_item_code} not found"}
 
 	# Update the Sales Order Item via direct SQL (since SO is submitted)

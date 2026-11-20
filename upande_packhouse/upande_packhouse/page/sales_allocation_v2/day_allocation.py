@@ -13,6 +13,7 @@ from frappe.utils import cint, flt
 from upande_packhouse import allocation_plan
 from upande_packhouse.api.v2.allocation_teams import team_for, teams_by_crop
 from upande_packhouse.box_groups import box_keys, mark_boxes
+from upande_packhouse.permissions import ALLOCATORS, guard
 from upande_packhouse.upande_packhouse.page.sales_allocation_v2 import sales_allocation_v2 as sa
 
 
@@ -257,6 +258,7 @@ def _fifo_pick(item, left, taken):
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=ALLOCATORS)
 def auto_allocate_day(
 	location: str,
 	delivery_start: str,
@@ -313,12 +315,38 @@ def _run_dead(location):
 	return True
 
 
+class RunCancelled(BaseException):
+	"""The planner cancelled the run: it stops where it is (a BaseException, so no `except Exception` on the way
+	swallows it)."""
+
+
+def _cancelled(location):
+	return bool(frappe.cache.get_value(f"sa2_day_cancel:{location}"))
+
+
+def _stop_if_cancelled(location):
+	if _cancelled(location):
+		raise RunCancelled
+
+
+@frappe.whitelist(methods=["POST"])
+@guard(roles=ALLOCATORS)
+def cancel_day_run(location: str):
+	"""Stop the Allocate all or Release running at this location. Allocate all is undone (nothing it proposed
+	is kept); a release stops after the order it is on (the orders already released stay released)."""
+	if not location:
+		frappe.throw(_("Location is required."))
+	frappe.cache.set_value(f"sa2_day_cancel:{location}", frappe.session.user, expires_in_sec=1800)
+	return {"cancelling": True}
+
+
 def _lock(location, phase="propose"):
 	lock = f"sa2_day_allocation:{location}"
 	if frappe.cache.get_value(lock) and not _run_dead(location):
 		frappe.throw(_("Orders at {0} are already being allocated.").format(location))
 	frappe.cache.set_value(lock, frappe.session.user, expires_in_sec=1800)
 	frappe.cache.delete_value(f"sa2_day_done:{location}")
+	frappe.cache.delete_value(f"sa2_day_cancel:{location}")
 	# not started yet: the bar shows from the start, also after a refresh
 	_set_state(location, {"phase": phase, "progress": 0, "total": 1, "order": ""})
 
@@ -479,6 +507,7 @@ def _row_key(r):
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=ALLOCATORS)
 def save_pending(
 	location: str,
 	sales_order: str,
@@ -494,27 +523,23 @@ def save_pending(
 		teams = json.loads(teams or "{}")
 	if allocations:
 		_check_location(sales_order, location)
-	# stems another order holds or has been allocated since must not be held twice
+	# stems another order holds or has been allocated since must not be held twice: every row of a bucket
+	# together, against what its shelf has less what is allocated and waiting release elsewhere (this order's
+	# own waiting rows are what this save replaces, so they stay free for it)
 	if allocations:
-		holds = sa.pending_holds({a["bucket_id"] for a in allocations})
+		asked = defaultdict(float)
 		for a in allocations:
-			other = sum(
-				q
-				for so, q in holds.get((a["bucket_id"], a["item_code"], a.get("stem_length") or ""), [])
-				if so != sales_order
-			)
-			if other:
-				free = flt(
-					frappe.db.sql(
-						"""SELECT GREATEST(0, COALESCE(SUM(si.stem_qty), 0)) FROM `tabShelf Item` si
-						   WHERE si.bucket_id = %s AND si.variety = %s AND IFNULL(si.stem_length, '') = %s""",
-						(a["bucket_id"], a["item_code"], a.get("stem_length") or ""),
-					)[0][0]
-				)
-				if flt(a.get("qty")) > free - other + 1e-6:
-					frappe.throw(
-						_("Bucket {0} is held for another order. Please refresh.").format(a["bucket_id"])
+			asked[(a["bucket_id"], a["item_code"], a.get("stem_length") or "")] += flt(a.get("qty"))
+		left = _left_on_buckets(asked.keys())
+		holds = sa.pending_holds({k[0] for k in asked})
+		for key, qty in asked.items():
+			mine = sum(flt(q) for so, q in holds.get(key, []) if so == sales_order)
+			if qty > left.get(key, 0) + mine + 1e-6:
+				frappe.throw(
+					_("Bucket {0} has {1} stems free for this order, not {2}. Please refresh.").format(
+						key[0], int(left.get(key, 0) + mine), int(qty)
 					)
+				)
 	# an Allocate all proposal reopened and saved unchanged stays Allocate all; any change makes it Picked
 	source = "Picked"
 	name = frappe.db.get_value(
@@ -730,11 +755,19 @@ def _split_release(sales_order, allocations):
 	for it in items:
 		groups[keys[it.name]].append(it.name)
 
+	ordered = {it.name: flt(it.stock_qty) for it in items}
+
+	def boxes_for(n, have):
+		if per[n] <= 0:
+			return boxes_of[n]
+		# the last part box goes when it completes the line: 95 stems in 5 boxes of 20 is 4 full boxes and a
+		# fifth of 15, and the line is done -- counting whole boxes only left those 15 waiting forever
+		if ordered[n] > 0 and have >= ordered[n] - 1e-6:
+			return boxes_of[n]
+		return min(boxes_of[n], int(have / per[n] + 1e-9))
+
 	def filled(names, extra):
-		return min(
-			min(boxes_of[n], int((placed[n] + extra(n)) / per[n] + 1e-9)) if per[n] > 0 else boxes_of[n]
-			for n in names
-		)
+		return min(boxes_for(n, placed[n] + extra(n)) for n in names)
 
 	room, boxes = {}, {}
 	for key, names in groups.items():
@@ -937,7 +970,8 @@ def get_day_state(location: str, since: str | None = None):
 	if not frappe.cache.get_value(f"sa2_day_allocation:{location}") or _run_dead(location):
 		if since:
 			done = frappe.cache.get_value(f"sa2_day_done:{location}")
-			if done and str(done.get("run") or "") == since:
+			# "*": the page that sent the run follows it, whatever run id it had (one in the request has none)
+			if done and (since == "*" or str(done.get("run") or "") == since):
 				return done
 		return None
 	state = frappe.cache.get_value(f"sa2_day_state:{location}") or {"progress": 0, "total": 1, "order": ""}
@@ -988,6 +1022,7 @@ def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=
 
 	# allocating is the first half of the bar, the shortages check the second
 	def plan_progress(done, total, order, planned=None):
+		_stop_if_cancelled(location)
 		steps["total"] = 2 * total + 1
 		_publish(
 			user,
@@ -1001,6 +1036,7 @@ def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=
 		)
 
 	def short_progress(done, total, order):
+		_stop_if_cancelled(location)
 		_publish(
 			user,
 			location,
@@ -1011,6 +1047,8 @@ def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=
 			order=order,
 		)
 
+	# a cancel undoes only this run: what it saved (and committed) goes, the rest the rollback restores
+	ran = {"saved": [], "committed": False}
 	try:
 		_publish(user, location, phase="propose", stage="prepare", progress=0, total=1, order="")
 		# a new run replaces the last Allocate all proposal; hand-picked orders keep theirs and are skipped
@@ -1107,32 +1145,47 @@ def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=
 			total=steps["total"],
 			order="",
 		)
-		for o in orders:
-			other = kept.pop(o["sales_order"], [])
-			_save_pending(
+		for k, o in enumerate(orders, 1):
+			_stop_if_cancelled(location)
+			_publish(
+				user,
 				location,
-				o["sales_order"],
-				o["allocations"] + other,
-				{
-					**{r["sales_order_item"]: r.get("team") for r in other if r.get("team")},
-					**(o["teams"] or {}),
-				},
-				o["boxes"],
-				"Allocate all",
-				order=o,
+				phase="propose",
+				stage="save",
+				progress=len(window_orders),
+				total=steps["total"],
+				order="{0}/{1} · {2}".format(k, len(orders), o.get("order_name") or o["sales_order"]),
+			)
+			other = kept.pop(o["sales_order"], [])
+			ran["saved"].append(
+				_save_pending(
+					location,
+					o["sales_order"],
+					o["allocations"] + other,
+					{
+						**{r["sales_order_item"]: r.get("team") for r in other if r.get("team")},
+						**(o["teams"] or {}),
+					},
+					o["boxes"],
+					"Allocate all",
+					order=o,
+				)
 			)
 		# the other type's boxes of orders this run gave nothing to
 		for so, rows in kept.items():
-			_save_pending(
-				location,
-				so,
-				rows,
-				{r["sales_order_item"]: r.get("team") for r in rows if r.get("team")},
-				0,
-				"Allocate all",
+			ran["saved"].append(
+				_save_pending(
+					location,
+					so,
+					rows,
+					{r["sales_order_item"]: r.get("team") for r in rows if r.get("team")},
+					0,
+					"Allocate all",
+				)
 			)
 		# the proposal is what the planner reviews next: it must outlive the job
 		frappe.db.commit()  # nosemgrep
+		ran["committed"] = True
 		p = _proposal(location, delivery_start, delivery_end)
 		result = {
 			**_summary(p),
@@ -1165,11 +1218,22 @@ def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=
 			farms=farms,
 			item_group=_group(),
 		)
+	except RunCancelled:
+		# undone: nothing this run wrote is kept. Before its save is committed the rollback is enough (the earlier
+		# proposals come back with it); after it, the proposals this run saved go (their buckets are free again)
+		frappe.db.rollback()
+		if ran["committed"]:
+			for name in [n for n in ran["saved"] if n]:
+				if frappe.db.exists(PENDING, name):
+					frappe.delete_doc(PENDING, name, ignore_permissions=True, force=True)
+			frappe.db.commit()  # nosemgrep -- the undo must outlive the request
+		result = {"cancelled": True}
 	except Exception as e:
 		frappe.log_error("Sales Allocation v2: auto-allocate all failed", frappe.get_traceback())
 		result = {"error": str(e)}
 	finally:
 		frappe.cache.delete_value(f"sa2_day_allocation:{location}")
+		frappe.cache.delete_value(f"sa2_day_cancel:{location}")
 	_publish(user, location, phase="propose", done=True, **_light(result))
 	return {"phase": "propose", "done": True, **result}
 
@@ -1546,6 +1610,7 @@ def _cut_stage_candidates(location, delivery_start, delivery_end, farms, only=No
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=ALLOCATORS)
 def apply_cut_stage(
 	location: str,
 	delivery_start: str,
@@ -1832,6 +1897,7 @@ def _substitute_candidates_now(location, lines):
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=ALLOCATORS)
 def allocate_orders(
 	location: str,
 	delivery_start: str,
@@ -1914,6 +1980,7 @@ def get_downgrade_options(
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=ALLOCATORS)
 def apply_downgrades(
 	location: str,
 	delivery_start: str,
@@ -1922,12 +1989,17 @@ def apply_downgrades(
 	selected_farms: str | list | None = None,
 ):
 	"""Add the downgrades the planner chose ([{sales_order_item, bucket_id, length, qty}]) to their orders'
-	allocations waiting release, as longer stems with their reason. A bucket another line has taken since is
-	given only what it still has free."""
+	allocations waiting release, as longer stems with their reason. Only the stems a line still needs are
+	downgraded, never the whole bucket; a bucket gives its free stems once, whichever orders it is picked for,
+	and one another line has taken since gives only what it still has free."""
 	if isinstance(picks, str):
 		picks = json.loads(picks or "[]")
 	by_order, added = defaultdict(list), 0.0
 	free, remote, remote_owner = {}, {}, {}
+	# stems of each (bucket, variety, length) given in this run, across every order
+	used = defaultdict(float)
+	# stems each line can still take: ordered, less released and waiting release, less what this run gave it
+	need = {}
 	farms = _farms(selected_farms)
 	reasons = set(frappe.get_all("Downgrade Reason", pluck="name"))
 	for pk in picks or []:
@@ -1960,10 +2032,15 @@ def apply_downgrades(
 			continue
 		key = (pk["bucket_id"], line.item_code, pk.get("length") or "")
 		size = flt(line.conversion_factor) or 1
-		qty = math.floor(min(flt(pk.get("qty")), free[line.parent].get(key, 0)) / size + 1e-9) * size
+		soi = pk["sales_order_item"]
+		if soi not in need:
+			need[soi] = max(0.0, sa._required_stems_for_so_item(soi) - _held_stems(soi))
+		room = max(0.0, free[line.parent].get(key, 0) - used[key])
+		qty = math.floor(min(flt(pk.get("qty")), room, need[soi]) / size + 1e-9) * size
 		if qty <= 0:
 			continue
-		free[line.parent][key] -= qty
+		used[key] += qty
+		need[soi] -= qty
 		by_order[line.parent].append(
 			{
 				"item_code": line.item_code,
@@ -2143,6 +2220,7 @@ def get_day_proposal(
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=ALLOCATORS)
 def discard_day_proposal(
 	location: str,
 	delivery_start: str | None = None,
@@ -2172,6 +2250,7 @@ def discard_day_proposal(
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=ALLOCATORS)
 def confirm_day_allocation(
 	location: str,
 	delivery_start: str,
@@ -2305,6 +2384,10 @@ def _run_confirm(
 				freed[o["sales_order"]] = flt(freed.get(o["sales_order"])) + stems
 
 		for n, o in enumerate(chosen):
+			# cancelled: the orders already released stay; the rest wait for the next release
+			if _cancelled(location):
+				waiting += [x["sales_order"] for x in chosen[n:]]
+				break
 			if budget and n and time.monotonic() - started > budget:
 				handed_on = hand_on(chosen, n)
 				return handed_on
@@ -2411,6 +2494,7 @@ def _run_confirm(
 		# handed on: the lock stays with the run, which goes on in the background
 		if not handed_on:
 			frappe.cache.delete_value(f"sa2_day_allocation:{location}")
+			frappe.cache.delete_value(f"sa2_day_cancel:{location}")
 	_publish(user, location, phase="confirm", done=True, run=run or "", **_light(result))
 	return {"phase": "confirm", "done": True, **result}
 
@@ -2740,6 +2824,7 @@ def _donors(item, sales_order, location_farms, location=None):
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=ALLOCATORS)
 def move_bucket(
 	from_item: str,
 	bucket_id: str,
@@ -3014,6 +3099,7 @@ def _add_pending(location, sales_order, rows, teams, source="Picked"):
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=ALLOCATORS)
 def move_from_order(
 	from_item: str,
 	to_item: str,
@@ -3063,6 +3149,7 @@ def move_from_order(
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=ALLOCATORS)
 def take_hold(
 	location: str,
 	from_item: str,
@@ -3081,6 +3168,7 @@ def take_hold(
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=ALLOCATORS)
 def set_pending_team(location: str, sales_order: str, team: str, lines: str | list | None = None):
 	"""Give the lines of an order waiting release this team: every line, or only `lines` (one mix or one
 	straight line), so one order can be packed by several teams."""
@@ -3389,6 +3477,7 @@ def _add_stems(sales_order_item, ln, allocated, own_free):
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=ALLOCATORS)
 def add_variety(sales_order_item: str, location: str, variety: str):
 	"""Fill what a short line cannot fill itself with another variety. A straight line: the variety takes the
 	line's remaining boxes as a line of its own. A line in a mix: the mix keeps the boxes its varieties
@@ -3413,6 +3502,12 @@ def add_variety(sales_order_item: str, location: str, variety: str):
 	if sub["splittable"]:
 		return split_substitute(sales_order_item, location, [{"variety": variety, "stems": give}])
 	return _split_mix(sales_order_item, location, variety, round(give / (sub["per_box"] or 1)))
+
+
+def _split_commit():
+	"""Save a variety split -- unless it is one step of a split saved as one (_share_spread)."""
+	if not frappe.flags.get("sa2_one_commit"):
+		frappe.db.commit()  # nosemgrep
 
 
 def _share_spread(sales_order_item, location, variety, give):
@@ -3454,12 +3549,21 @@ def _share_spread(sales_order_item, location, variety, give):
 				_("{0} stems do not reach one bunch in each of the {1} boxes.").format(int(give), boxes)
 			)
 		return _share_split(sales_order_item, variety, q * boxes * bunch)
-	# the first `rem` boxes take q + 1 bunches, the other boxes q
-	split = _split_mix(sales_order_item, location, None, boxes - rem, plain=True)
-	later = next(p["sales_order_item"] for p in split["parts"] if p["from"] == sales_order_item)
-	parts = _share_split(sales_order_item, variety, (q + 1) * rem * bunch)["parts"]
-	if q:
-		parts += _share_split(later, variety, q * (boxes - rem) * bunch)["parts"]
+	# the first `rem` boxes take q + 1 bunches, the other boxes q -- three steps saved as one: a step that fails
+	# leaves the order as it was, never split half way
+	was, frappe.flags.sa2_one_commit = frappe.flags.get("sa2_one_commit"), True
+	try:
+		split = _split_mix(sales_order_item, location, None, boxes - rem, plain=True)
+		later = next(p["sales_order_item"] for p in split["parts"] if p["from"] == sales_order_item)
+		parts = _share_split(sales_order_item, variety, (q + 1) * rem * bunch)["parts"]
+		if q:
+			parts += _share_split(later, variety, q * (boxes - rem) * bunch)["parts"]
+	except Exception:
+		frappe.db.rollback()
+		raise
+	finally:
+		frappe.flags.sa2_one_commit = was
+	_split_commit()
 	return {
 		"kept": flt(frappe.db.get_value("Sales Order Item", sales_order_item, "stock_qty")),
 		"parts": parts,
@@ -3531,7 +3635,7 @@ def _share_split(sales_order_item, variety, give):
 		{**sets, "name": sales_order_item},
 	)
 	frappe.db.sql("UPDATE `tabSales Order` SET modified = NOW() WHERE name = %s", row.parent)
-	frappe.db.commit()  # nosemgrep
+	_split_commit()
 	frappe.log_error(
 		title="Variety split",
 		message="{0} {1}: {2} gives {3} stems of each box's share to {4} ({5} boxes)".format(
@@ -3639,7 +3743,7 @@ def _split_mix(sales_order_item, location, variety, new_boxes=None, plain=False)
 			}
 		)
 	frappe.db.sql("UPDATE `tabSales Order` SET modified = NOW() WHERE name = %s", so)
-	frappe.db.commit()  # nosemgrep
+	_split_commit()
 	frappe.log_error(
 		title="Variety split",
 		message="{0} {1}: mix {2} keeps {3} of {4} boxes; boxes after take {5} for {6} as mix {7}".format(
@@ -3662,6 +3766,7 @@ SPLIT_SCALED = (
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=ALLOCATORS)
 def split_substitute(sales_order_item: str, location: str, parts: str | list):
 	"""Fill a short straight line with more than one variety of the same colour (or that its specification
 	approves): `parts` [{variety, stems}] are the stems other varieties take, in whole boxes; the line keeps
@@ -3763,7 +3868,7 @@ def split_substitute(sales_order_item: str, location: str, parts: str | list):
 		{**sets, "name": sales_order_item},
 	)
 	frappe.db.sql("UPDATE `tabSales Order` SET modified = NOW() WHERE name = %s", row.parent)
-	frappe.db.commit()  # nosemgrep
+	_split_commit()
 	frappe.log_error(
 		title="Variety split",
 		message="{0} {1}: {2} keeps {3} stems; {4}".format(

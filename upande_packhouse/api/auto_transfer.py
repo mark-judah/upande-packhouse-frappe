@@ -30,6 +30,7 @@ import frappe
 
 from upande_packhouse.api.remote_transfer import transfer_scheduling as tc
 from upande_packhouse.api.remote_transfer import truck_routes
+from upande_packhouse.permissions import STAFF, guard
 
 SETTING = "auto_remote_transfer_scheduling"
 FREQUENCY = "auto_transfer_frequency"
@@ -77,8 +78,11 @@ def run():
 	if not routed_vehicles():
 		return
 	summary = plan()
+	# each step lets truck loads in before the next (the planning lock is not held for the whole job)
+	tc._plan_unlock()
 	if summary.get("status") == "success":
 		_plan_waiting(summary)
+		tc._plan_unlock()
 		_place_scheduled(summary)
 
 
@@ -130,11 +134,13 @@ def _place_scheduled(summary=None, add_runs=True):
 				if done:
 					placed += done
 					progress = True
+					tc._plan_unlock()
 					continue
 				run = _add_run_for(farm, today, hub=hub) if add_runs else None
 				if run:
 					added.append(run)
 					progress = True
+				tc._plan_unlock()
 			if not progress:
 				break
 	except Exception:
@@ -257,8 +263,12 @@ def _place_on_open_run(farm, rows, today, hub=None):
 				continue
 			take = _take(rows, room)
 			if not run.get("route"):
-				# A trip to the farm with no route: topped up as it is.
+				# A trip to the farm with no route: topped up as it is -- with what is still open and unclaimed
+				# once the lock is held (the portions were read before it: a save in between may have taken some)
 				tc._plan_lock()
+				take = _still_unclaimed(take)
+				if not take:
+					continue
 				added, _left = tc._add_rows_to_trip(run["trip"], take)
 				if added:
 					frappe.db.commit()  # nosemgrep: frappe-manual-commit
@@ -280,6 +290,23 @@ def _place_on_open_run(farm, rows, today, hub=None):
 				return [{**r, "vehicle": v["name"], "run": run["run"]} for r in take]
 			frappe.clear_last_message()
 	return []
+
+
+def _still_unclaimed(rows):
+	"""`rows` cut to the buckets of each (pick list, farm) still open and on no trip (as _carry_rows counts them)."""
+	opls = list({r["order_pick_list"] for r in rows})
+	if not opls:
+		return []
+	open_counts, claims = tc._open_counts(opls), tc._bucket_claims(opls)
+	out = []
+	for r in rows:
+		key = (r["order_pick_list"], r["farm"] or "")
+		n = min(r["buckets"], max(0, open_counts.get(key, 0) - claims.get(key, 0)))
+		claims[key] = claims.get(key, 0) + n
+		if n > 0:
+			per = (r["stems"] / r["buckets"]) if r["buckets"] else 0
+			out.append({**r, "buckets": n, "stems": round(per * n), "full_farm_buckets": n})
+	return out
 
 
 def _take(rows, room):
@@ -333,6 +360,7 @@ def _auto_schedule():
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=STAFF)
 def distributeTrips(date: str | None = None):
 	"""The page's Distribute: plan the scheduled orders delivering on `date` onto the trips of the trucks
 	sent today, each filled as full as it can be (whether or not automatic scheduling is on). Trucks are
@@ -409,6 +437,7 @@ def getFarmNeeds(date: str | None = None):
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=STAFF)
 def addTruckForFarm(farm: str, vehicle: str, date: str | None = None, sales_farm: str | None = None):
 	"""Send `vehicle` to `farm` today for `date`'s scheduled buckets: a trip (sales farm → farm → sales
 	farm) on its route for today (made when it has none), then the scheduled orders are planned onto it."""
@@ -750,9 +779,15 @@ def _plan(window=None):
 	# Only orders delivering in the window or later: one already due is never carried
 	# into a new day's trips.
 	all_orders = _open_orders(data)
-	# The day after's orders only: its trips are today's, already in `data`.
+	# The day after's orders only: its trips are today's, already in `data`. Never past the day after tomorrow:
+	# trips are only for orders delivering tomorrow or the day after.
 	day_after = frappe.utils.add_days(window, 1)
-	all_later = _open_orders({**data, "orders": tc.schedule_orders(day_after, day_after)})
+	last_day = frappe.utils.add_days(today, 2)
+	all_later = (
+		_open_orders({**data, "orders": tc.schedule_orders(day_after, day_after)})
+		if frappe.utils.getdate(day_after) <= frappe.utils.getdate(last_day)
+		else []
+	)
 	moving = _moving(data)
 
 	# Each sales farm is planned on its own: its orders go on the runs of routes from it.

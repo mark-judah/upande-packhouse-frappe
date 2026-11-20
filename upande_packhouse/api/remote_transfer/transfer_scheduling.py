@@ -49,6 +49,8 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt, getdate
 
+from upande_packhouse.permissions import STAFF, guard
+
 # A transfer bucket's farm is where its stock is: the farm of its source warehouse
 # (kept as the remote farm's cold store until the bucket is shelved at the packhouse),
 # else the row's farm. The shelf's farm can disagree (a mislabelled shelf, an old row)
@@ -1329,7 +1331,10 @@ def _settle_finished_trip(name):
 		)
 		if ended:
 			_receive_trip(name)
-	if ended:
+	# a read (GET) is never committed by Frappe, so it commits the fix itself; a write or a job commits with the
+	# rest of its work, never half way through it
+	request = getattr(frappe.local, "request", None)
+	if ended and request is not None and request.method == "GET":
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit -- read paths (GET) must keep the fix
 	return ended
 
@@ -2579,6 +2584,28 @@ def _plan_lock():
 	got = frappe.db.sql("SELECT GET_LOCK('upande_bucket_trip_plan', 30)")[0][0]
 	if not got:
 		frappe.throw(_("Trip planning is busy — try again in a moment."))
+
+
+def _trip_opls(name):
+	"""The pick lists a trip already carries."""
+	return set(
+		frappe.get_all(
+			"Bucket Request Trip Order",
+			filters={"parent": name, "parenttype": "Bucket Request Trip"},
+			pluck="order_pick_list",
+		)
+	)
+
+
+def _plan_unlock():
+	"""Let other planners and truck loads in again once what the lock guarded is written: commits, then releases
+	the planning lock (_plan_lock). For long jobs (the scheduler's placement rounds), so a truck-load scan is not
+	kept waiting for the whole job."""
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- the guarded write is complete
+	# taken again in the same session it counts up: released as often as it was taken
+	for _round in range(100):
+		if frappe.db.sql("SELECT RELEASE_LOCK('upande_bucket_trip_plan')")[0][0] != 1:
+			break
 
 
 def _carry_over(doc, farm=None, date=None, report=None):
@@ -4626,6 +4653,7 @@ def _distributions(from_date, to_date):
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=STAFF)
 def saveBucketTrip():
 	# Upsert a Bucket Request Trip. orders = rows joined by \x1e, fields within a row
 	# by \x1f: [order_pick_list, order_name, customer, farm, varieties, buckets, stems,
@@ -5035,6 +5063,32 @@ def _save_trip(
 
 	if not rows:
 		return {"status": "error", "message": "The trip has no buckets on it."}
+	# Trips only carry orders delivering tomorrow or the day after -- never today's or an overdue one (the same
+	# window _carry_rows and the automatic planning keep to). A trip planned earlier keeps the orders it already
+	# carries when edited; an order added to it is held to the window like any other.
+	first, last = str(frappe.utils.today()), str(frappe.utils.add_days(frappe.utils.today(), 2))
+	carried = _trip_opls(name) if existing else set()
+	dds = _opl_delivery_dates(
+		{
+			r["order_pick_list"]
+			for r in rows
+			if r.get("order_pick_list") and r["order_pick_list"] not in carried
+		}
+	)
+	outside = sorted(
+		{
+			r.get("order_name") or r["order_pick_list"]
+			for r in rows
+			if dds.get(r.get("order_pick_list")) and not (first < str(dds[r["order_pick_list"]]) <= last)
+		}
+	)
+	if outside:
+		return {
+			"status": "error",
+			"message": "Trips only carry orders delivering tomorrow or the day after: {0}.".format(
+				", ".join(outside)
+			),
+		}
 	rows = with_hubs(rows)
 	# Claim check, whatever the trip's date: claims span every active trip, so the same
 	# buckets can't be planned on two trips or two trucks (tomorrow's included).
@@ -5471,6 +5525,7 @@ def _write_run_trip(slot, vehicle, date, status, notes, auto_planned):
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=STAFF)
 def deleteBucketTrip():
 	fd = frappe.form_dict
 	name = fd.get("name")
@@ -5552,6 +5607,7 @@ def _mark_trip_in_transit(doc):
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=STAFF)
 def changeTripVehicle():
 	# Swap the truck on a planned trip — the farm loading app's "Change truck" when the
 	# planned pick-up truck isn't the one that came. Only before anything is loaded
@@ -6125,6 +6181,7 @@ def _transfer_stock_entry(bucket_id, source_warehouse, since):
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=STAFF)
 def markRequestedBucketNotFound():
 	# Farm app: a requested bucket isn't in the cold room and there is no bucket to
 	# replace it with. It is left out of the transfer (not_found, no longer awaiting),
@@ -6260,6 +6317,7 @@ def _plan_one_fewer(opl, farm, bucket):
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=STAFF)
 def closeTripStop():
 	# Farm app: "Truck leaving" — the farm is done loading this trip, whatever is still
 	# missing. The truck heads to the next stop of its run, or (last stop) is dispatched
@@ -6442,6 +6500,7 @@ def duplicate_trips(date=None):
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=STAFF)
 def mergeTruckTrips():
 	# Fold a truck's duplicate trips for one run (same day, not dispatched) into its
 	# earliest trip: each (order, farm) becomes one row with plan and loads added up,
@@ -6560,6 +6619,7 @@ def merge_truck_trips(vehicle, date=None):
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=STAFF)
 def dispatchBucketTrip():
 	# Dispatch = the truck is loaded and leaves for the sales farm. When the buckets were
 	# loaded through the mobile app (loadTrolleyInTruck -> record_truck_load) they are
@@ -6746,6 +6806,7 @@ def _rank_after_dispatch():
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=STAFF)
 def requestBucketTrip():
 	# The dashboard's Request truck: ask for the truck to go to the trip's farms.
 	name = frappe.form_dict.get("name")
@@ -6762,6 +6823,7 @@ def requestBucketTrip():
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=STAFF)
 def rejectBucketTrip():
 	# The app's Reject on a truck request: back to the scheduler with the reason.
 	name = frappe.form_dict.get("name")
@@ -6777,6 +6839,7 @@ def rejectBucketTrip():
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=STAFF)
 def releaseBucketTrip():
 	# The dashboard's Confirm release: the requested truck has left the hub for its farms.
 	name = frappe.form_dict.get("name")
@@ -6793,6 +6856,7 @@ def releaseBucketTrip():
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=STAFF)
 def receiveBucketTrip():
 	# Receive = the truck is back. The buckets themselves only count as arrived once
 	# they are SHELVED at the sales farm (mobile shelveBucket clears in_transit and
@@ -7383,6 +7447,7 @@ def getFarmCompletedTrips(farm: str | None = None, days: int = 3):
 
 
 @frappe.whitelist(methods=["POST"])
+@guard(roles=STAFF)
 def reopenTripStop(name: str | None = None, farm: str | None = None):
 	"""Farm app: the truck left this farm (stop closed / trip dispatched) before every
 	planned bucket was loaded. While the trip is still on its run the stop reopens — the
