@@ -1,17 +1,19 @@
 """Delivery Note -> Sales Invoice for the Roses packhouse flow.
 
-Replaces the old Dispatch-Form-builds-invoice path. A Delivery Note now
-consolidates every Sales Order for one customer's whole delivery day into a
-single document (see mobile/api.py's createOrUpdateDispatch), so the
-per-order packhouse/dispatch data (which order, its consignee/delivery
-point/freight/transport mode/BRN/truck) lives on each Delivery Note ITEM row
-now, not the header -- a header field can't represent "which order" once a
-document can span several. On submit we generate the Sales Invoice with
-ERPNext's native mapper (which already carries the native
-sales_order/so_detail linkage per row on its own), then fill the same-named
-ITEM custom fields from each matching DN item so nothing is lost; only the
-genuinely document-wide fields (farm, business_unit, the manually-filled FLO
-IDs) still copy at header level.
+Replaces the old Dispatch-Form-builds-invoice path. Dispatch builds one
+Delivery Note per Sales Order (mobile/api.py's createOrUpdateDispatch); the
+per-order packhouse/dispatch data (consignee/delivery point/freight/transport
+mode/BRN/truck) lives on the Delivery Note ITEM rows.
+
+Whether a Sales Invoice is made on submit is a Production Settings choice
+(Dispatch and Invoicing > Create Sales Invoice When a Delivery Note Is
+Submitted). Ticked: each submitted Roses Delivery Note gets its own draft
+invoice, built with ERPNext's native mapper, then the same-named ITEM custom
+fields are filled from each matching DN item; only the genuinely
+document-wide fields (farm, business_unit, the manually-filled FLO IDs) copy
+at header level. Unticked: nothing is created, and users pick the submitted
+Delivery Notes they want billed together (Sales Invoice > Get Items From >
+Delivery Note), which is how a customer's orders are consolidated.
 """
 
 import frappe
@@ -72,6 +74,10 @@ def sync_sales_order_accounting_dimensions(doc, method=None):
 def delivery_note_on_submit(doc, method=None):
 	# Only Roses-business-unit deliveries generate a packhouse Sales Invoice.
 	if (doc.get("business_unit") or "") != "Roses":
+		return
+
+	# Opt-in: left off, users select the Delivery Notes to consolidate themselves.
+	if not frappe.db.get_single_value("Production Settings", "auto_invoice_on_delivery_note"):
 		return
 
 	# Idempotent: skip if a Sales Invoice already references this Delivery Note.

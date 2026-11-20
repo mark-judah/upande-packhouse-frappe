@@ -860,16 +860,12 @@ def createOrUpdateDispatch():
 		else:
 			ls = frappe.get_doc("Loading Sheet", ls_name)
 
-			# Group loaded boxes by CUSTOMER, not by Sales Order: one
-			# Delivery Note consolidates every order for one customer's
-			# whole delivery day (a customer's boxes routinely come from
-			# more than one order on the same day). Which order each row
-			# came from now lives on the Delivery Note ITEM (native
-			# against_sales_order/so_detail, plus the per-order
-			# consignee/delivery-point/freight/etc. custom fields) -- see
-			# roses_invoice.py's docstring for why the header can no longer
-			# carry that.
-			by_customer = {}
+			# Group loaded boxes by SALES ORDER: one Delivery Note per order.
+			# A customer's orders for the same day are NOT merged here --
+			# they are billed together later, by selecting the submitted
+			# Delivery Notes to consolidate (see roses_invoice.py), so the
+			# invoice never mixes orders the user did not choose to combine.
+			by_order = {}
 			so_cache = {}
 			skipped_unstaged = []
 			for it in ls.items:
@@ -895,13 +891,12 @@ def createOrUpdateDispatch():
 				if so_name not in so_cache:
 					so_cache[so_name] = frappe.get_doc("Sales Order", so_name)
 				so = so_cache[so_name]
-				by_customer.setdefault(so.customer, []).append((box, so))
+				by_order.setdefault(so.name, []).append((box, so))
 
 			results = []
-			for customer, box_so_pairs in by_customer.items():
-				# Aggregate box contents by (Sales Order, variety) -- rows
-				# from different orders are never merged even for the same
-				# variety, since each row now carries its own order linkage.
+			for _order_name, box_so_pairs in by_order.items():
+				customer = box_so_pairs[0][1].customer
+				# Aggregate box contents by (Sales Order, variety, length, mix).
 				var = {}
 				total_boxes = 0
 				orders_seen = set()
@@ -931,28 +926,10 @@ def createOrUpdateDispatch():
 						d["stems"] = d["stems"] + stems
 						d["boxes"] = d["boxes"] + 1
 
-				# Header-level values: every order consolidated here is
-				# expected to share company/currency/price list (they're all
-				# the same customer) -- take the first order's, and log
-				# (rather than silently pick) if any genuinely disagree.
 				first_so = box_so_pairs[0][1]
-				mismatched = sorted(
-					{
-						so.name
-						for _box, so in box_so_pairs
-						if (so.company, so.currency) != (first_so.company, first_so.currency)
-					}
-				)
-				if mismatched:
-					frappe.log_error(
-						title="createOrUpdateDispatch: mixed company/currency for one customer/day",
-						message="customer={0} delivery_date={1} orders={2} mismatched={3}".format(
-							customer, delivery_date, sorted(orders_seen), mismatched
-						),
-					)
 
-				# One draft Delivery Note per (customer, delivery date) --
-				# NOT per Sales Order any more. Scoped by custom_delivery_date
+				# One draft Delivery Note per (Sales Order, delivery date).
+				# Scoped by custom_delivery_date
 				# (the Loading Sheet's planned delivery day), NOT
 				# posting_date: posting_date is when stock actually left
 				# (today, when this dispatch is built/submitted) -- setting
@@ -971,7 +948,20 @@ def createOrUpdateDispatch():
 				if vehicle:
 					# Per truck: a customer split over two trucks gets one from each.
 					dn_filters["vehicle_no"] = vehicle
-				existing = frappe.get_all("Delivery Note", filters=dn_filters, pluck="name")
+				# The order itself: only a draft already built for THIS order is
+				# rebuilt, never another order's of the same customer.
+				drafts_of_order = frappe.get_all(
+					"Delivery Note Item",
+					filters={"against_sales_order": first_so.name, "parenttype": "Delivery Note", "docstatus": 0},
+					pluck="parent",
+				)
+				existing = (
+					frappe.get_all(
+						"Delivery Note", filters=dict(dn_filters, name=["in", drafts_of_order]), pluck="name"
+					)
+					if drafts_of_order
+					else []
+				)
 				if existing:
 					dn = frappe.get_doc("Delivery Note", existing[0])
 					dn.set("items", [])
