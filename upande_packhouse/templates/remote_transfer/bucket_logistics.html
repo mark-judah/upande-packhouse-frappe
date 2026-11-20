@@ -352,6 +352,48 @@
   }
   var OV_TRIP_CLASS = { Dispatched: 'is-dispatched', Received: 'is-received' };
   // a Dispatched trip has left its last farm: it is on the road to the sales farm it delivers to
+  // A trip not loaded or sent yet: its truck can be changed to any transfer truck, or taken off.
+  var TRUCK_CHANGEABLE = { Draft: 1, Requested: 1, Scheduled: 1 };
+  var RT_TS = 'upande_packhouse.api.remote_transfer.transfer_scheduling.';
+  function ttTripCall(method, args, ok) {
+    frappe.call({ method: RT_TS + method, args: args, freeze: true, callback: function (r) {
+      var m = (r && r.message) || {};
+      if (m.status === 'error') { frappe.msgprint(m.message || 'Could not change the trip'); return; }
+      frappe.show_alert({ message: ok, indicator: 'green' });
+      if (window.rtLogisticsLoad) window.rtLogisticsLoad();
+    } });
+  }
+  function ttTruckMenu(btn) {
+    var trip = btn.getAttribute('data-tt-truck'), now = btn.getAttribute('data-tt-truck-now');
+    frappe.call({ method: 'frappe.client.get_list', type: 'GET', args: { doctype: 'Vehicle', fields: ['name'], filters: { custom_dispatch_truck: ['!=', 1] }, order_by: 'name asc', limit_page_length: 0 }, callback: function (r) {
+      var old = document.getElementById('tt-truck-menu'); if (old) old.remove();
+      var m = document.createElement('div');
+      m.id = 'tt-truck-menu';
+      m.style.cssText = 'position:fixed;z-index:1050;background:#fff;border:1px solid #ddd;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);padding:6px;min-width:200px;max-height:60vh;overflow:auto;font:500 13px var(--sans,"Poppins",system-ui,sans-serif)';
+      var item = function (label, danger, fn) {
+        var b = document.createElement('button');
+        b.type = 'button'; b.textContent = label;
+        b.style.cssText = 'display:block;width:100%;text-align:left;border:0;background:none;padding:8px 10px;border-radius:6px;cursor:pointer;color:' + (danger ? '#c0392b' : '#111');
+        b.onmouseenter = function () { b.style.background = '#f2f2f2'; }; b.onmouseleave = function () { b.style.background = 'none'; };
+        b.onclick = function () { m.remove(); fn(); };
+        m.appendChild(b);
+      };
+      ((r && r.message) || []).filter(function (v) { return v.name !== now; }).forEach(function (v) {
+        item(v.name, false, function () { ttTripCall('changeTripVehicle', { name: trip, vehicle: v.name, planning: 1 }, 'Trip ' + trip + ' is now on ' + v.name); });
+      });
+      item('Remove truck', true, function () {
+        frappe.confirm('Take ' + (now || 'the truck') + ' off trip ' + trip + '?', function () { ttTripCall('deleteBucketTrip', { name: trip }, 'Trip ' + trip + ' removed from ' + now); });
+      });
+      document.body.appendChild(m);
+      var rc = btn.getBoundingClientRect();
+      m.style.left = Math.max(8, Math.min(window.innerWidth - m.offsetWidth - 8, rc.right - m.offsetWidth)) + 'px';
+      m.style.top = (rc.bottom + m.offsetHeight + 8 > window.innerHeight ? rc.top - m.offsetHeight - 6 : rc.bottom + 6) + 'px';
+      setTimeout(function () {
+        var off = function (e) { if (!m.contains(e.target)) { m.remove(); document.removeEventListener('mousedown', off); } };
+        document.addEventListener('mousedown', off);
+      });
+    } });
+  }
   function tripStatus(t) {
     if (!t) return '';
     if (t.status === 'Dispatched') return 'In transit to ' + (t.heading_to || t.sales_farm || 'the sales farm');
@@ -1035,6 +1077,7 @@
       }
       return '<div class="tt-trip">' +
         '<div class="tt-trip-h" data-tt-toggle="t:' + esc(tkey) + '"><span class="ov-caret">' + (tShut ? '▸' : '▾') + '</span><span>' + tLabel + '</span>' + farmsChips + '<span class="ov-count">' + (g.trip ? '' : bktLbl(bkts(g.rows))) + farmCount + ' farm' + (farmCount === 1 ? '' : 's') + ' · ' + orderCount + ' order' + (orderCount === 1 ? '' : 's') + '</span>' +
+          (g.trip && TRUCK_CHANGEABLE[g.trip.status] && !(g.trip.loaded_buckets > 0) ? '<button type="button" class="tt-exp" data-tt-truck="' + esc(g.trip.trip) + '" data-tt-truck-now="' + esc(g.trip.vehicle || '') + '">Change truck</button>' : '') +
           '<button type="button" class="tt-exp" data-tt-exp="' + esc(tkey) + '">' + (ttTripAllOpen(tkey) ? 'Collapse' : 'Expand') + '</button></div>' +
         (g.trip ? ttTripLoad(g) : '') +
         (tShut ? '' : '<div class="tt-farms">' + farmsHtml + '</div>') +
@@ -1490,6 +1533,9 @@
         if (TREE_SHUT[k]) delete TREE_SHUT[k]; else TREE_SHUT[k] = 1;
         saveLS('tm-tree-shut', TREE_SHUT); renderActive();
       });
+    });
+    body.querySelectorAll('[data-tt-truck]').forEach(function (b) {
+      b.addEventListener('click', function (e) { e.stopPropagation(); ttTruckMenu(b); });
     });
     body.querySelectorAll('[data-tt-exp]').forEach(function (b) {
       b.addEventListener('click', function (e) { e.stopPropagation(); ttSetTrip(b.getAttribute('data-tt-exp')); });

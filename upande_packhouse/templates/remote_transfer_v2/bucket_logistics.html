@@ -373,6 +373,30 @@
     }
     PH.set(el, list.map(tripBlock).join(""));
   }
+  // A trip still being planned (nothing loaded or sent yet) can take another transfer truck.
+  const TRUCK_CHANGEABLE = { Draft: 1, Requested: 1, Scheduled: 1 };
+  const RT = "upande_packhouse.api.remote_transfer.transfer_scheduling.";
+  const tripDone = (m, ok) => {
+    if (m && m.status === "error") return PH.toast(m.message || "Could not change the trip", "bad");
+    PH.toast(ok, "good");
+    load(false);
+  };
+  function changeTruck(btn) {
+    const trip = btn.dataset.truckTrip, now = btn.dataset.truckNow;
+    PH.getList("Vehicle", { fields: ["name"], filters: { custom_dispatch_truck: ["!=", 1] }, order_by: "name asc" })
+      .then((vs) => {
+        const items = (vs || []).filter((v) => v.name !== now).map((v) => ({
+          label: v.name,
+          onClick: () => PH.call(RT + "changeTripVehicle", { name: trip, vehicle: v.name, planning: 1 }).then((m) => tripDone(m, "Trip " + trip + " is now on " + v.name)),
+        }));
+        items.push({
+          label: "Remove truck",
+          danger: true,
+          onClick: () => PH.call(RT + "deleteBucketTrip", { name: trip }).then((m) => tripDone(m, "Trip " + trip + " removed from " + now)),
+        });
+        PH.menu(btn, items);
+      });
+  }
   function tripBlock(g) {
     const tk = g.key, open = !!OPEN["t:" + tk], t = g.trip;
     const farmCount = PH.uniq(g.rows.map((r) => r.farm)).length, orderCount = PH.uniq(g.rows.map((r) => r.opl)).length;
@@ -380,6 +404,7 @@
     const chips = '<span class="bl-trip-farms">' + Object.keys(tf).sort().map((f) => `<span class="bl-chip">${esc(f)} <b>${tf[f]}</b></span>`).join("") + "</span>";
     const label = t ? `${esc((t.vehicle || t.trip) + (t.run ? " · Trip " + t.run : ""))} <span class="bl-sub">· ${esc(t.status === "Dispatched" ? "In transit to " + (t.heading_to || t.sales_farm || "the sales farm") : t.status)}${t.trip_date ? " · " + esc(t.trip_date) : ""}</span>` : "<i>Not scheduled</i>";
     let h = `<div class="bl-trip"><div class="bl-trip-h bl-tgl" data-tgl="t:${esc(tk)}">${car(open)}<span>${label}</span>${t ? tripTimes(g) : ""}${chips}<span class="bl-count">${farmCount} farm${ST(farmCount)} · ${orderCount} order${ST(orderCount)}</span>` +
+      (t && TRUCK_CHANGEABLE[t.status] ? `<button type="button" class="bl-exp" data-truck-trip="${esc(t.trip)}" data-truck-now="${esc(t.vehicle || "")}">Change truck</button>` : "") +
       `<button type="button" class="bl-exp" data-tripall="${esc(tk)}">${tripAllOpen(tk) ? "Collapse" : "Expand"}</button></div>` + (t ? tripLoad(g) : "");
     if (open) {
       const byFarm = PH.groupBy(g.rows, "farm");
@@ -680,6 +705,8 @@
   document.getElementById("bl-rows").addEventListener("click", (e) => {
     const bp = e.target.closest("[data-bp-opl]");
     if (bp) return bpOpen(bp.dataset.bpOpl, bp.dataset.bpFarm, bp.dataset.bpName);
+    const tc = e.target.closest("[data-truck-trip]");
+    if (tc) { e.stopPropagation(); return changeTruck(tc); }
     const all = e.target.closest("[data-tripall]");
     if (all) { e.stopPropagation(); const g = buildTrips().find((x) => x.key === all.dataset.tripall); if (g) { setTripOpen(g, !tripAllOpen(g.key)); render(); } return; }
     const tg = e.target.closest("[data-tgl]");

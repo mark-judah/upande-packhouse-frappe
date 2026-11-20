@@ -5591,7 +5591,8 @@ def changeTripVehicle():
 			),
 		}
 		return
-	busy = _vehicle_on_road(vehicle)
+	# Bucket Logistics plans ahead (planning=1): a truck out on the road now can take a later trip.
+	busy = None if cint(fd.get("planning")) else _vehicle_on_road(vehicle)
 	if busy:
 		frappe.response["message"] = {
 			"status": "error",
@@ -5641,7 +5642,12 @@ def changeTripVehicle():
 	# would keep topping up this trip, now on another truck.
 	doc.route = None
 	doc.run = None
-	doc.add_comment("Info", "Truck changed from {0} to {1} at loading".format(previous, vehicle))
+	doc.add_comment(
+		"Info",
+		"Truck changed from {0} to {1} {2}".format(
+			previous, vehicle, "in Bucket Logistics" if cint(fd.get("planning")) else "at loading"
+		),
+	)
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	frappe.response["message"] = {"status": "success", "name": name, "vehicle": vehicle, "previous": previous}
