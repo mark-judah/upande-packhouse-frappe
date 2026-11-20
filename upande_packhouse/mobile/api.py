@@ -1547,15 +1547,15 @@ def createOrUpdateFarmPackList():
 					)
 				)
 
-		# (c) Issued cap: an order sent to packing before all of it was issued packs no
-		# more stems than were issued; the cap rises as replacements are issued.
+		# (c) Issued cap: an order sent to packing before all of it was issued packs the full
+		# boxes its issued buckets fill; more opens up as replacements are issued.
 		issued_cap_error = _issued_cap_error(
 			order_pick_list_id,
 			flt(
 				frappe.db.sql(
 					"""SELECT SUM(i.stock_qty) FROM `tabFarm Packlist Item` i
 					JOIN `tabFarm Pack List` f ON f.name = i.parent
-					WHERE f.order_pick_list = %s""",
+					WHERE f.order_pick_list = %s AND f.docstatus < 2""",
 					order_pick_list_id,
 				)[0][0]
 			),
@@ -3812,7 +3812,7 @@ def _schedule_blockers(opl_name, kind):
 		done_sql = """SELECT pso.sequence, pso.order_pick_list,
 		       SUM(IFNULL(pli.not_found, 0) = 0 AND IFNULL(pli.issued, 0) = 0) = 0 AS done
 		FROM `tabPackhouse Schedule Order` pso
-		JOIN `tabOrder Pick List` opl ON opl.name = pso.order_pick_list AND opl.docstatus < 2
+		JOIN `tabOrder Pick List` opl ON opl.name = pso.order_pick_list AND opl.docstatus = 1
 		LEFT JOIN `tabPick List Item` pli ON pli.parent = pso.order_pick_list
 		     AND pli.parenttype = 'Order Pick List' AND COALESCE(pli.bucket, '') != ''
 		WHERE pso.parent = %s AND pso.sequence < %s
@@ -4003,8 +4003,8 @@ def _pack_guide_plan(order_pick_list, sales_order):
 def _issued_cap_error(opl_name, packed, incoming):
 	"""Why packing `incoming` more stems on `opl_name` (with `packed` already on it) is
 	refused, or None: an order sent to packing before all of it was issued (Pack While
-	Waiting, or completed short) packs no more stems than were issued; one sent before it
-	was fully allocated (Allow Partial Packing) packs complete boxes only."""
+	Waiting) packs only the full boxes its issued buckets fill (_issued_full_boxes); one
+	sent before it was fully allocated (Allow Partial Packing) packs complete boxes only."""
 	cap = _issued_stems([opl_name]).get(opl_name)
 	# a straight pick list with every stem issued is in the packer's hands, whatever the allocation rows
 	# say (a mixed box or bunch still waits for its other lines)
@@ -4025,32 +4025,56 @@ def _issued_cap_error(opl_name, packed, incoming):
 	if flt(packed) + flt(incoming) <= min(stems, cap["issued"]) + 0.001:
 		return None
 	return _(
-		"Only {0} full box(es) are issued so far ({1} stems): pack the rest once more stock is issued."
-	).format(boxes, int(stems))
+		"Full boxes only: {0} stems ({1} box(es)) are issued so far. Pack the rest once more stock is issued."
+	).format(int(min(stems, cap["issued"])), boxes)
 
 
 def _issued_full_boxes(opl_name):
-	"""(boxes, stems) the issued buckets of `opl_name` fill whole. A line's box holds its pack rate; a
-	mixed box or bunch needs every line, so it fills as many boxes as its scarcest line. A pick list
-	completed short packs what was issued, its last box part-filled."""
+	"""(boxes, stems) of `opl_name` that may be packed from what is issued: per order line, the full
+	boxes (its pack rate) its issued stems fill, and all of it once the line's buckets on this pick list
+	are all issued (its last box may be the order's own part box). A mixed box or bunch takes every line
+	of its group and packs as many boxes as its scarcest line fills; all of it once every line is fully
+	issued. A pick list completed short packs what was issued."""
 	opl = frappe.db.get_value(
-		"Order Pick List", opl_name, ["mix_group", "bunch_group", "short_accepted"], as_dict=True
+		"Order Pick List",
+		opl_name,
+		["sales_order", "mix_group", "bunch_group", "short_accepted"],
+		as_dict=True,
 	)
-	issued_by_line = {}
+	if not opl:
+		return 0, 0.0
+	on_pick = {}
 	for r in frappe.get_all(
 		"Pick List Item",
-		filters={"parent": opl_name, "parenttype": "Order Pick List", "issued": 1, "bucket": ["is", "set"]},
-		fields=["sales_order_item", "stock_qty"],
+		filters={"parent": opl_name, "parenttype": "Order Pick List", "bucket": ["is", "set"]},
+		fields=["sales_order_item", "stock_qty", "issued", "not_found"],
 	):
-		if r.sales_order_item:
-			issued_by_line[r.sales_order_item] = issued_by_line.get(r.sales_order_item, 0) + flt(r.stock_qty)
-	total = sum(issued_by_line.values())
-	if not opl or opl.short_accepted or not issued_by_line:
-		return 0, total
-	per_line = []
+		if not r.sales_order_item or cint(r.not_found):
+			continue
+		line = on_pick.setdefault(r.sales_order_item, {"total": 0.0, "issued": 0.0})
+		line["total"] += flt(r.stock_qty)
+		if cint(r.issued):
+			line["issued"] += flt(r.stock_qty)
+	issued = sum(x["issued"] for x in on_pick.values())
+	if opl.short_accepted:
+		return 0, issued
+	grouped = bool(opl.mix_group or opl.bunch_group)
+	lines = set(on_pick)
+	if grouped:
+		field = "custom_mix_group" if opl.mix_group else "custom_bunch_group"
+		lines |= set(
+			frappe.get_all(
+				"Sales Order Item",
+				filters={"parent": opl.sales_order, field: opl.mix_group or opl.bunch_group},
+				pluck="name",
+			)
+		)
+	if not lines:
+		return 0, 0.0
+	per_line = []  # (full boxes, stems per box, issued, fully issued)
 	for so in frappe.get_all(
 		"Sales Order Item",
-		filters={"name": ("in", list(issued_by_line))},
+		filters={"name": ("in", list(lines))},
 		fields=[
 			"name",
 			"stock_qty",
@@ -4061,21 +4085,26 @@ def _issued_full_boxes(opl_name):
 			"custom_mixed_bunch",
 		],
 	):
+		line = on_pick.get(so.name) or {"total": 0.0, "issued": 0.0}
+		done = line["total"] > 0 and line["issued"] >= line["total"] - 0.001
 		rate = flt(
 			so.custom_packrate_mixed_box
 			if cint(so.custom_mixed_box) or cint(so.custom_mixed_bunch)
 			else so.custom_packrate
 		)
 		per_box = rate or flt(so.stock_qty) / (cint(so.custom_number_of_boxes) or 1)
-		if per_box <= 0:
-			return 0, total
-		per_line.append((int(issued_by_line[so.name] / per_box + 1e-9), per_box))
-	if not per_line:
-		return 0, total
-	if opl.mix_group or opl.bunch_group:
-		boxes = min(b for b, _ in per_line)
-		return boxes, boxes * sum(p for _, p in per_line)
-	return sum(b for b, _ in per_line), sum(b * p for b, p in per_line)
+		boxes = int(line["issued"] / per_box + 1e-9) if per_box > 0 else 0
+		if per_box > 0 and cint(so.custom_number_of_boxes):
+			boxes = min(boxes, cint(so.custom_number_of_boxes))
+		per_line.append((boxes, per_box, line["issued"], done))
+	if grouped:
+		if all(d for _, _, _, d in per_line):
+			return min(b for b, _, _, _ in per_line), issued
+		boxes = min(b for b, _, _, _ in per_line)
+		return boxes, boxes * sum(p for _, p, _, _ in per_line)
+	boxes = sum(b for b, _, _, _ in per_line)
+	stems = sum(i if (d or p <= 0) else b * p for b, p, i, d in per_line)
+	return boxes, stems
 
 
 def _complete_boxes_error(opl_name, packed, incoming):
@@ -4173,7 +4202,7 @@ def getReadySaleOrderItems():
 				"Order Pick List",
 				# Submitted, plus drafts with nothing still coming by truck (below): a draft
 				# normally waits on a remote transfer the farms work (getFarmPlannedTrips).
-				filters={"docstatus": ["<", 2], "sales_order": ["in", so_names]},
+				filters={"docstatus": 1, "sales_order": ["in", so_names]},
 				fields=[
 					"name",
 					"order_name",
@@ -4358,7 +4387,7 @@ def getReadySaleOrderItems():
 				       SUM(IFNULL(pli.not_found, 0) = 0) AS total,
 				       SUM(IFNULL(pli.not_found, 0) = 0 AND IFNULL(pli.issued, 0) = 1) AS done
 				FROM `tabPackhouse Schedule Order` pso
-				JOIN `tabOrder Pick List` opl ON opl.name = pso.order_pick_list AND opl.docstatus < 2
+				JOIN `tabOrder Pick List` opl ON opl.name = pso.order_pick_list AND opl.docstatus = 1
 				LEFT JOIN `tabPick List Item` pli ON pli.parent = pso.order_pick_list
 				     AND pli.parenttype = 'Order Pick List' AND COALESCE(pli.bucket, '') != ''
 				WHERE pso.parent IN %(p)s
@@ -4420,9 +4449,7 @@ def getReadySaleOrderItemsData():
 			# several OPLs sharing the same order_name, and they must stay separate
 			# so issuing one never pulls in another OPL's buckets.
 			matching_opls = (
-				[opl_name]
-				if frappe.db.exists("Order Pick List", {"name": opl_name, "docstatus": ["<", 2]})
-				else []
+				[opl_name] if frappe.db.exists("Order Pick List", {"name": opl_name, "docstatus": 1}) else []
 			)
 		else:
 			# Legacy fallback: match by the free-text order_name field. Kept only for
@@ -5761,6 +5788,11 @@ def issueBucketToSaleOrderItem():
 		# -------------------------------
 		if schedule_blocked:
 			pass
+		elif opl_name and frappe.db.get_value("Order Pick List", opl_name, "docstatus") != 1:
+			frappe.response.message = (
+				f"Pick list {opl_name} is not submitted yet: issue it once it is submitted."
+			)
+			frappe.response.http_status_code = 409
 		elif not bucket_id:
 			frappe.response.message = "Error: Bucket ID is required"
 			frappe.response.http_status_code = 400

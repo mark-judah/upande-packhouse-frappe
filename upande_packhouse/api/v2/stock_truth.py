@@ -185,7 +185,7 @@ def _sales_farm_of(farm):
 	"""The sales farm a remote farm's stems go to: its Farm Location's sales farm (named, never "the hub")."""
 	from upande_packhouse.api.v2.allocation_teams import location_of, sales_farm_for_location
 
-	cache = frappe.local.__dict__.setdefault("_st_sales_farm_of", {})
+	cache = frappe.flags.setdefault("st_sales_farm_of", {})
 	if farm not in cache:
 		cache[farm] = sales_farm_for_location(location_of(farm)) or "its sales farm"
 	return cache[farm]
