@@ -43,6 +43,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
 .rc-pills button{border:0;background:transparent;font:500 12px 'Poppins',sans-serif;color:var(--ink-4);padding:8px 16px;cursor:pointer;border-radius:999px;white-space:nowrap;transition:all .2s}
 .rc-pills button:hover{color:var(--ink)}
 .rc-pills button.on{background:var(--ink);color:#fafaf6;box-shadow:0 2px 8px rgba(10,10,10,.15)}
+.rc-datelabel{font:500 12px 'Poppins',sans-serif;color:var(--ink-mute);margin-right:-4px;white-space:nowrap}
 .rc-date{background:var(--card);border:0;border-radius:999px;padding:10px 16px;font:500 12px 'Poppins',sans-serif;color:var(--ink);box-shadow:var(--shadow)}
 .rc-btn{border:0;background:var(--card);color:var(--ink);border-radius:999px;padding:10px 18px;font:500 12px 'Poppins',sans-serif;cursor:pointer;box-shadow:var(--shadow);transition:all .2s}
 .rc-btn:hover{transform:translateY(-1px)}
@@ -160,7 +161,8 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
       </div>
       <div class="rc-tools">
         <div class="rc-pills" id="rc-presets"><button type="button" data-v="yesterday">Yesterday</button><button type="button" data-v="today">Today</button><button type="button" data-v="tomorrow">Tomorrow</button></div>
-        <input class="rc-date" type="date" id="rc-date" aria-label="Delivery date">
+        <label class="rc-datelabel" for="rc-date">Delivery date</label>
+        <input class="rc-date" type="date" id="rc-date" title="Delivery date">
         <div class="rc-pills" id="rc-span" title="Period for Money, Greenhouses and Fill rate, ending on the date"><button type="button" data-v="1">Day</button><button type="button" data-v="7">7 days</button><button type="button" data-v="30">30 days</button></div>
         <button class="rc-btn" id="rc-csv" type="button">Download CSV</button>
       </div>
