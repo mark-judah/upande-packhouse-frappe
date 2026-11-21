@@ -76,13 +76,21 @@ def _norm_cut_stage(value) -> str:
 def _planning_switches():
 	"""Production Settings > Packhouse: whether Sales Allocation follows Allocation
 	Planning's order sequence and team. Both on by default and off once hidden; the
-	sequence never on while the Sales Order lacks its field."""
+	sequence never on while the Sales Order lacks its field. `unplanned`: the sales farms whose
+	Sales Allocation also lists orders Allocation Planning has not planned (Production Settings >
+	Allocation Planning > Show Unplanned Orders in Sales Allocation, a row per sales farm); every
+	other sales farm lists only planned orders."""
 	ps = frappe.get_cached_doc("Production Settings")
 	return {
 		# Allocation Planning's team sequence: shown on the order cards (#n) and followed by Allocate all
 		"sequence": not cint(ps.get("hide_allocation_planning_sequence"))
 		and frappe.db.has_column("Sales Order", "custom_allocation_sequence"),
 		"team": not cint(ps.get("hide_allocation_planning_team")),
+		"unplanned": {
+			r.sales_farm
+			for r in ps.get("unplanned_orders_by_sales_farm") or []
+			if r.sales_farm and cint(r.show_unplanned_orders)
+		},
 	}
 
 
@@ -490,6 +498,19 @@ def get_pending_sales_orders(
 				OR (ac.status = 'Released' AND ac.release_reason = 'Allocated')))"""
 		params["planned_confirmations"] = (*allocation_plan.LIVE, "Fulfilled")
 
+	# Only orders Allocation Planning planned (a team confirmed for them), unless the location's sales farm
+	# lists the unplanned ones too. An order opened from its own button (`sales_order`) is always listed.
+	planned_clause = "1 = 1"
+	if location not in planning["unplanned"]:
+		planned_clause = """(EXISTS (
+                SELECT 1 FROM `tabAllocation Confirmation` _pac
+                WHERE _pac.sales_order = so.name AND IFNULL(_pac.team, '') != ''
+                  AND (_pac.status IN ('Planned', 'Reserved', 'Partly Fulfilled', 'Broken', 'Fulfilled')
+                       OR (_pac.status = 'Released' AND _pac.release_reason = 'Allocated')))"""
+		if sales_order:
+			planned_clause += " OR so.name = %(sales_order)s"
+		planned_clause += ")"
+
 	# Locations stand alone: an order whose farm belongs to a location is allocated there and nowhere
 	# else. An order with no such farm goes by Allocation Planning: one confirmed only against another
 	# location's farms has nothing to allocate here; one not confirmed anywhere can be allocated anywhere.
@@ -581,7 +602,7 @@ def get_pending_sales_orders(
             {seq_col} AS planning_sequence, {team_col} AS planning_team
         FROM `tabSales Order` so
         INNER JOIN so_stats ss ON so.name = ss.so_name
-        WHERE {location_clause}
+        WHERE {location_clause} AND {planned_clause}
         ORDER BY {order_by}
     """
 
