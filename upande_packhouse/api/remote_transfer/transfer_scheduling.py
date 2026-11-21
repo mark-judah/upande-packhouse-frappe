@@ -4751,9 +4751,8 @@ def farm_holders(
 	at several farms, holds none of them.
 	with_room: only trips that still have room (trip_room). One that is full no longer
 	holds its farm: a second truck (or run) may collect there once the first is full --
-	never while it still has room. hub: only trips delivering to that sales farm (a farm
-	sends one truck per sales farm)."""
-	want_hub = hub
+	never while it still has room. hub: kept for callers; a trip collects every sales farm's buckets at its farm,
+	so any trip there holds it."""
 	out = {}
 	trips = {}
 	for r in frappe.db.sql(
@@ -4781,8 +4780,6 @@ def farm_holders(
 	for name, rows in live.items():
 		r = rows[0]
 		hub = hubs.get(name)
-		if want_hub and hub != want_hub:
-			continue
 		farms = _farms_of_rows(rows, hub)
 		if len(farms) != 1:
 			continue
@@ -4888,7 +4885,7 @@ def _add_rows_to_trip(name, rows):
 	hub = trip_hub(doc)
 	added, left = [], []
 	for row in with_hubs(rows):
-		if (have and have != {row["farm"]}) or (hub and row["sales_farm"] != hub):
+		if (have and have != {row["farm"]}) or row["farm"] == hub:
 			left.append((row, int(row["buckets"])))
 			continue
 		take = max(0, min(int(row["buckets"]), room))
@@ -4985,7 +4982,7 @@ def _top_up_open_trip(vehicle, date, rows):
 		fit = [
 			r
 			for r in rows
-			if len(have) == 1 and r["farm"] in have and r["farm"] not in gone and row_hub(r) == hub
+			if len(have) == 1 and r["farm"] in have and r["farm"] not in gone and r["farm"] != hub
 		]
 		if not fit:
 			continue
@@ -5173,15 +5170,6 @@ def _save_trip(
 	# One farm per trip: a trip edited by name keeps rows of one farm.
 	if existing:
 		hub = trip_hub_of(name)
-		other = sorted({r["sales_farm"] for r in rows if r["sales_farm"] and r["sales_farm"] != hub})
-		if other:
-			return {
-				"status": "error",
-				"reason": "one_sales_farm",
-				"message": "Trip {0} delivers to {1} — orders for {2} go on a trip of their own.".format(
-					name, hub, " and ".join(other)
-				),
-			}
 		farms = sorted(_farms_of_rows(rows, hub))
 		# a trip whose run goes via several farms (Add to truck, one trip) keeps them all
 		route, run = frappe.db.get_value("Bucket Request Trip", name, ["route", "run"]) or (None, None)
@@ -5398,7 +5386,7 @@ def _open_run_room(vehicle, date, farm, hub=None):
 	still collect there (no trip yet, or its trip -- that farm's -- hasn't left it), in
 	driving order, then its trips to the farm with no route (run = {"route": None, ...}).
 	room = what trip_room says the trip can still take; a run with no trip, the truck.
-	hub: only runs from that sales farm (and trips delivering there)."""
+	hub: kept for callers; a run or trip at the farm takes every sales farm's buckets there."""
 	cap = _vehicle_capacity(vehicle)
 
 	def room_of(trip):
@@ -5407,7 +5395,7 @@ def _open_run_room(vehicle, date, farm, hub=None):
 
 	out = []
 	for run in _day_runs(vehicle, date):
-		if not _run_open(run) or farm not in run["stops"] or (hub and run.get("hub") != hub):
+		if not _run_open(run) or farm not in run["stops"]:
 			continue
 		room = cap if cap else 10**9
 		if run["trip"]:
@@ -5428,7 +5416,7 @@ def _open_run_room(vehicle, date, farm, hub=None):
 		order_by="creation asc",
 	):
 		t = frappe.get_doc("Bucket Request Trip", name)
-		if farm in _departed(t) or trip_farms(t) != {farm} or (hub and trip_hub(t) != hub):
+		if farm in _departed(t) or trip_farms(t) != {farm}:
 			continue
 		out.append(
 			(
