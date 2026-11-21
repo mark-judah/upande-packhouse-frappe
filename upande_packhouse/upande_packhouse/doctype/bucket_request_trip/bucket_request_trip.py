@@ -115,7 +115,19 @@ class BucketRequestTrip(Document):
 			for o in self.get("orders") or []
 			if o.order_pick_list and int(o.buckets or 0) > 0
 		]
-		hubs = {h for h in tc.opl_hubs(planned).values() if h}
+		by_opl = tc.opl_hubs(planned)
+		hubs = {h for h in by_opl.values() if h}
+		if len(hubs) > 1 and not self.is_new():
+			self.move_off_other_sales_farms(by_opl)
+			planned = [
+				o.order_pick_list
+				for o in self.get("orders") or []
+				if o.order_pick_list and int(o.buckets or 0) > 0
+			]
+			hubs = {by_opl.get(o) for o in planned if by_opl.get(o)}
+		riders = self.flags.get("sales_farm_riders") or set()
+		if riders:
+			hubs = {by_opl.get(o) for o in planned if by_opl.get(o) and o not in riders} or hubs
 		if len(hubs) > 1:
 			frappe.throw(
 				_(
@@ -135,6 +147,49 @@ class BucketRequestTrip(Document):
 			self.sales_farm = hub
 		elif not self.sales_farm:
 			self.sales_farm = tc.route_hub_of(self.route) if self.route else tc.transfer_hub(required=False)
+
+	def move_off_other_sales_farms(self, by_opl):
+		"""An order planned on this trip whose sales farm has since changed (Allocation Planning moved it to a team
+		of another sales farm): its buckets already loaded (trolley or truck) stay on this trip as they are, the
+		rest come off -- planned again on a trip to its own sales farm. A trip that has left keeps everything. An
+		order of another sales farm newly added to the trip is still refused (validate_sales_farm)."""
+		from upande_packhouse.api import transfer_control as tc
+
+		before = self.get_doc_before_save()
+		had = {o.order_pick_list for o in (before.orders if before else []) if o.order_pick_list}
+		own = self.sales_farm or (tc.trip_hub(before) if before else None)
+		if not own:
+			return
+		moved = []
+		for o in self.get("orders") or []:
+			hub = by_opl.get(o.order_pick_list)
+			if not hub or hub == own or o.order_pick_list not in had:
+				continue
+			loaded = int(o.loaded_buckets or 0)
+			if self.status not in tc.ACTIVE_TRIP_STATUSES:
+				o.buckets = max(int(o.buckets or 0), loaded)
+			elif int(o.buckets or 0) > loaded:
+				per = (int(o.stems or 0) / int(o.buckets)) if int(o.buckets or 0) else 0
+				moved.append(
+					"{0} {1} to {2}".format(int(o.buckets) - loaded, o.order_name or o.order_pick_list, hub)
+				)
+				o.buckets = loaded
+				o.stems = round(per * loaded)
+				o.is_partial = 1 if loaded < int(o.full_farm_buckets or 0) else 0
+		self.set(
+			"orders", [o for o in self.orders if int(o.buckets or 0) > 0 or int(o.loaded_buckets or 0) > 0]
+		)
+		for i, r in enumerate(self.orders, 1):
+			r.idx = i
+		self.total_buckets = sum(int(o.buckets or 0) for o in self.orders)
+		self.total_stems = sum(int(o.stems or 0) for o in self.orders)
+		# only orders already on the trip ride on: one newly added for another sales farm is refused
+		self.flags.sales_farm_riders = {o for o, h in by_opl.items() if h and h != own and o in had}
+		self.sales_farm = own
+		if moved:
+			self.add_comment(
+				"Info", "Moved off (now processed at another sales farm): {0}".format("; ".join(moved))
+			)
 
 	def validate_one_farm(self):
 		"""One farm per trip (packhouse → farm → packhouse): buckets are planned at one farm
