@@ -74,10 +74,8 @@ def run():
 		if elapsed + TICK_SLACK_SECONDS < frequency_minutes() * 60:
 			return
 	_auto_schedule()
-	# Nothing new is planned until today's truck routes are made; trips still at a farm from yesterday are
-	# topped up meanwhile (no new trip or run is made for them)
+	# Nothing is put on a trip until today's truck routes are made.
 	if not routed_vehicles():
-		_place_scheduled(add_runs=False)
 		return
 	summary = plan()
 	# each step lets truck loads in before the next (the planning lock is not held for the whole job)
@@ -235,8 +233,7 @@ def _trucks(today):
 	out = []
 	working = routed_vehicles(today)
 	for name in frappe.get_all("Vehicle", filters={"custom_is_internal_logistics_truck": 1}, pluck="name"):
-		# a truck with no route today still takes buckets on yesterday's trip it has not left with
-		if name not in working and not tc.carried_trips(name, today):
+		if name not in working:
 			continue
 		cap = tc._vehicle_capacity(name)
 		if cap > 0:

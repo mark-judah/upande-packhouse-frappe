@@ -4760,10 +4760,9 @@ def farm_holders(
 			t.sales_farm, o.farm, o.buckets
 		FROM `tabBucket Request Trip` t
 		JOIN `tabBucket Request Trip Order` o ON o.parent = t.name AND o.parenttype = 'Bucket Request Trip'
-		WHERE (t.trip_date = %(d)s OR (t.trip_date = %(y)s AND t.status IN %(open)s))
-		  AND t.status != 'Received' AND IFNULL(o.farm, '') != ''
+		WHERE t.trip_date = %(d)s AND t.status != 'Received' AND IFNULL(o.farm, '') != ''
 		ORDER BY t.creation ASC""",
-		{"d": str(date), "y": str(frappe.utils.add_days(date, -1)), "open": ACTIVE_TRIP_STATUSES},
+		{"d": str(date)},
 		as_dict=True,
 	):
 		trips.setdefault(r.name, []).append(r)
@@ -5396,34 +5395,7 @@ def _open_run_room(vehicle, date, farm, hub=None):
 				room_of(name),
 			)
 		)
-	# a trip from yesterday still at the farm (the truck has not left with it) keeps collecting there: more
-	# buckets go on it, and a new trip is made only once it has left or is full
-	for name in carried_trips(vehicle, date):
-		t = frappe.get_doc("Bucket Request Trip", name)
-		if farm in _departed(t) or trip_farms(t) != {farm} or (hub and trip_hub(t) != hub):
-			continue
-		out.append(
-			(
-				{"route": None, "run": None, "stops": [farm], "trip": name, "trip_status": t.status},
-				room_of(name),
-			)
-		)
 	return out
-
-
-def carried_trips(vehicle, date):
-	"""The truck's trips from the day before `date` that are still open (not dispatched): its last run of the
-	day may still be loading the next morning."""
-	return frappe.get_all(
-		"Bucket Request Trip",
-		filters={
-			"vehicle": vehicle,
-			"trip_date": frappe.utils.add_days(date, -1),
-			"status": ["in", ACTIVE_TRIP_STATUSES],
-		},
-		pluck="name",
-		order_by="creation asc",
-	)
 
 
 def _split_into_runs(vehicle, date, rows, skip_full=False, only=None):
