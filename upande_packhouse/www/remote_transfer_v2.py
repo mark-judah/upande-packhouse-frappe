@@ -29,6 +29,11 @@ def get_context(context):
 	if tab not in PATHS:
 		tab = "logistics"
 	page_context(context, "remote-transfer", "Remote Transfers", section="Workflow")
+	return fill(context, tab)
+
+
+def fill(context, tab):
+	"""The Remote Transfers screen `tab` on a v2 page (this one, or the Scheduler page's copy)."""
 	context.rt_tab = tab
 	context.rt_group = GROUPS[tab]
 	context.rt_templates = template_paths(tab)
