@@ -40,6 +40,18 @@ class Specifications(Document):
 			frappe.throw(_("Valid From and Expiry Date are required for a Temporary spec"))
 		if self.valid_from > self.expiry_date:
 			frappe.throw(_("Valid From cannot be after Expiry Date"))
+		if self.status != "Active" or str(self.expiry_date) >= frappe.utils.nowdate():
+			return
+		# Active only until the Expiry Date (expire_temporary_specs flips it nightly). Switching an expired spec
+		# back to Active needs a later Expiry Date; an already-Active one that has lapsed just goes Inactive.
+		before = self.get_doc_before_save()
+		if before and before.status == "Inactive":
+			frappe.throw(
+				_("This spec expired on {0}. Set a later Expiry Date to make it Active.").format(
+					frappe.utils.formatdate(self.expiry_date)
+				)
+			)
+		self.status = "Inactive"
 
 	def validate_approved_varieties(self):
 		"""A Colour is a (bunch_id, colour) group of Approved Variety rows --
