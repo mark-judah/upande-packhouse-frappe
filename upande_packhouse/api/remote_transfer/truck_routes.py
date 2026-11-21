@@ -569,6 +569,7 @@ def add_farm_run(
 	while_on_road: bool = False,
 	new_route: bool = True,
 	hub=None,
+	exclude_trip=None,
 ):
 	"""A new trip (packhouse → farm → packhouse) at the end of the truck's latest route
 	on `date` (a new all-day route if it has none). Returns {status, route, run} or why not.
@@ -581,7 +582,8 @@ def add_farm_run(
 	route the truck already has that day -- a truck with no route that day is not working
 	and is refused (reason "no_route"). hub: the sales farm the run delivers to (default the
 	first Remote Transfer Sales Farm); a run is added to the truck's latest route only when that
-	route starts there, else on a new route of its own."""
+	route starts there, else on a new route of its own. exclude_trip: a trip moving onto this
+	run (Change truck) -- its own room doesn't hold the farm."""
 	date = str(frappe.utils.getdate(date or frappe.utils.today()))
 	if not vehicle or not farm:
 		return {"status": "error", "message": "A truck and a farm are required."}
@@ -592,7 +594,7 @@ def add_farm_run(
 			"reason": "not_sales_farm",
 			"message": "{0} is not a Remote Transfer Sales Farm — its orders need no trips.".format(hub),
 		}
-	held = open_trip_to_farm(farm, date, hub=hub)
+	held = open_trip_to_farm(farm, date, hub=hub, exclude_trip=exclude_trip)
 	if held:
 		return {
 			"status": "error",
@@ -681,7 +683,7 @@ def add_farm_run(
 	return res
 
 
-def add_farms_run(vehicle, farms, date=None, hub=None):
+def add_farms_run(vehicle, farms, date=None, hub=None, exclude_trip=None):
 	"""One trip collecting at several farms, chosen on purpose: packhouse → each farm in turn →
 	packhouse, at the end of the truck's latest route on `date` (a new all-day route if it has
 	none). Every leg is a road in the Routes (farm distances), farm to farm included. A farm whose
@@ -699,7 +701,7 @@ def add_farms_run(vehicle, farms, date=None, hub=None):
 			"message": "{0} is not a Remote Transfer Sales Farm — its orders need no trips.".format(hub),
 		}
 	for farm in farms:
-		held = open_trip_to_farm(farm, date, hub=hub)
+		held = open_trip_to_farm(farm, date, hub=hub, exclude_trip=exclude_trip)
 		if held:
 			return {
 				"status": "error",

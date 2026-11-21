@@ -114,12 +114,13 @@ def _keep_own_slots(others, own):
 	return [s if s is not None else next(fill) for s in slots]
 
 
-def auto_schedule(delivery_dates):
+def auto_schedule(delivery_dates, only=None):
 	"""Automatic scheduling: every schedulable order delivering on these dates -- submitted,
 	or a draft still waiting on a transfer -- joins its team's Packhouse Schedule, saved
 	the way the page saves it (saveDaySchedule ranks each team: submitted, then drafts
 	at the hub, then remote orders by when their truck comes). Orders with no team are
-	left for the scheduler. Returns {processing day: orders added}."""
+	left for the scheduler. `only(row)`: when given, only the feed rows it accepts join.
+	Returns {processing day: orders added}."""
 	added = {}
 	for dd in delivery_dates:
 		sdate = str(frappe.utils.add_days(dd, -1))
@@ -143,7 +144,10 @@ def auto_schedule(delivery_dates):
 		new = [
 			o["opl"]
 			for o in feed
-			if o["opl"] not in on and o.get("team") and o.get("variation") != "draft_plain"
+			if o["opl"] not in on
+			and o.get("team")
+			and o.get("variation") != "draft_plain"
+			and (only is None or only(o))
 		]
 		if not new:
 			continue

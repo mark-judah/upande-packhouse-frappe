@@ -81,8 +81,6 @@ def run():
 	# each step lets truck loads in before the next (the planning lock is not held for the whole job)
 	tc._plan_unlock()
 	if summary.get("status") == "success":
-		_plan_waiting(summary)
-		tc._plan_unlock()
 		_place_scheduled(summary)
 
 
@@ -111,13 +109,14 @@ def _plan_waiting(summary, window=None):
 PLACE_ROUNDS = 20
 
 
-def _place_scheduled(summary=None, add_runs=True):
+def _place_scheduled(summary=None, add_runs=False):
 	"""Every scheduled order's buckets still waiting at a remote farm get a trip, in
 	every sequence step -- the steps _distribute holds back included. Each farm's open
 	portions go on the open run to it with room (the run's own trip is topped up, also
-	while it is loading); with none, the truck serving the farm gets its next run there
-	(only once every run to it is full) and they go on that. Repeats until nothing is
-	open or a round changes nothing. Only orders delivering tomorrow or the day after."""
+	while it is loading). No run or route is ever added here: runs are made by a person
+	(Truck Routes, or Add to truck on Bucket Logistics); what no run has room for waits
+	under No truck yet. Repeats until nothing is open or a round changes nothing. Only
+	orders delivering tomorrow or the day after."""
 	cache = frappe.cache()
 	if not cache.set(cache.make_key(LOCK_KEY), 1, ex=600, nx=True):
 		return {}
@@ -362,11 +361,13 @@ def _auto_schedule():
 @frappe.whitelist(methods=["POST"])
 @guard(roles=STAFF)
 def distributeTrips(date: str | None = None):
-	"""The page's Distribute: plan the scheduled orders delivering on `date` onto the trips of the trucks
-	sent today, each filled as full as it can be (whether or not automatic scheduling is on). Trucks are
-	sent to a farm on the page (addTruckForFarm): buckets no truck is going for come back in `needs`, by
-	farm, and no truck is sent anywhere by itself."""
+	"""The page's Distribute: plan the scheduled orders delivering on `date` onto the runs people made for
+	today's trucks (Truck Routes, or Add to truck), each filled as full as it can be (whether or not
+	automatic scheduling is on). No run or route is ever added here. Orders delivering the day after whose
+	buckets wait at a remote farm and were allocated today go with them: they are scheduled too and ride
+	the same trucks. What no run has room for comes back in `needs`, by farm, for a truck to be added."""
 	date = trip_delivery_date(date)
+	_schedule_allocated_with(date)
 	if not routed_vehicles():
 		# scheduled first, trucks after: with no truck working today the page asks for trucks per farm
 		return {"status": "success", "trips": [], "needs": farm_needs(date)}
@@ -375,9 +376,42 @@ def distributeTrips(date: str | None = None):
 	# committed route changes the page then reported as a failure.
 	if summary.get("status") != "success":
 		return summary
-	_place_scheduled(summary, add_runs=False)
+	tc._plan_unlock()
+	_place_scheduled(summary)
 	summary["needs"] = farm_needs(date)
 	return summary
+
+
+def _trip_days_from(date):
+	"""The delivery days a trip planned for `date` carries: `date`, and the day after when that is
+	a trip day too (tomorrow's trucks also take the day after's buckets)."""
+	after = str(frappe.utils.add_days(frappe.utils.today(), 2))
+	return [date] + ([after] if str(date) < after else [])
+
+
+def _schedule_allocated_with(date):
+	"""Orders of the trip days after `date` that wait on a remote transfer and were allocated today
+	(their pick list made today) join their team's schedule, so their buckets go on the same trucks
+	as `date`'s instead of being left behind for another trip. Returns {processing day: added}."""
+	from upande_packhouse.api.remote_transfer import scheduler
+
+	later = [d for d in _trip_days_from(date) if d != date]
+	if not later:
+		return {}
+	today = str(frappe.utils.today())
+
+	def allocated_today(row):
+		if row.get("variation") != "draft_transfer" or not int(row.get("remote_buckets") or 0):
+			return False
+		made = frappe.db.get_value("Order Pick List", row["opl"], "creation")
+		return bool(made) and str(made)[:10] == today
+
+	try:
+		return scheduler.auto_schedule(later, only=allocated_today)
+	except Exception:
+		frappe.db.rollback()
+		frappe.log_error("Distribute: scheduling the day after's orders failed", frappe.get_traceback())
+		return {}
 
 
 def trip_delivery_date(date=None):
@@ -645,10 +679,11 @@ def _undo_to_savepoint(name):
 
 
 def _run_candidates(routed, farm, holders, hub=None):
-	"""The trucks that may take a new run to `farm`, in the order they are tried: those
-	whose route today goes there, then those collecting there now (farm_holders), then
-	those with an active saved route (template) to it -- biggest first in each. With
-	none, every routed truck, biggest first."""
+	"""The trucks that may take a new run to `farm` for sales farm `hub`, in the order they are tried:
+	those whose route today already goes there for that sales farm, then those collecting there now
+	(farm_holders) -- biggest first in each -- then every other routed truck, biggest first. A run is
+	made from the farm and the sales farm the buckets were requested for: earlier routes and saved
+	routes (templates) never decide it."""
 	by_cap = sorted(routed, key=lambda v: -int(v.get("capacity_buckets") or 0))
 	on_route = [
 		v
@@ -658,19 +693,9 @@ def _run_candidates(routed, farm, holders, hub=None):
 		)
 	]
 	holding = {v for v, _trip, _w in holders.get(farm, [])}
-	templated = set(
-		frappe.db.sql_list(
-			"""SELECT DISTINCT t.vehicle FROM `tabBucket Logistics Route Template` t
-			JOIN `tabBucket Logistics Route Leg` l ON l.parent = t.name
-			  AND l.parenttype = 'Bucket Logistics Route Template'
-			WHERE t.active = 1 AND (l.to_farm = %(f)s OR l.from_farm = %(f)s)""",
-			{"f": farm},
-		)
-	)
 	out = list(on_route)
-	for group in (holding, templated):
-		out += [v for v in by_cap if v["name"] in group and v not in out]
-	return out or by_cap
+	out += [v for v in by_cap if v["name"] in holding and v not in out]
+	return out + [v for v in by_cap if v not in out]
 
 
 @frappe.whitelist(methods=["POST"])

@@ -2649,7 +2649,7 @@ def _carry_row(o, buckets, stems):
 def _carry_rows(doc, rows, date=None, report=None):
 	"""Put plan rows a trip left behind on the open trip to their farm, on any truck (a
 	farm gets a second trip only once its first is full or has left), else the truck's
-	next open run there (its trip made on the route's run), else a new run. Only orders
+	next open run there (its trip made on the route's run) -- never a new run. Only orders
 	delivering the day after `date` or the day after that (drop_due_orders), and only what is still
 	open and unclaimed: a next trip that already has them is never topped up twice.
 	Returns [(trip, row placed)]."""
@@ -2701,23 +2701,10 @@ def _carry_rows(doc, rows, date=None, report=None):
 				break
 		if n:
 			rest.append(part(row, n))
-	plan, unplaced = _split_into_runs(doc.vehicle, date, rest)
+	plan, _unplaced = _split_into_runs(doc.vehicle, date, rest)
 	write(plan)
-	# Every run of the truck to that farm is full (or none is left today): it gets
-	# another run, as automatic scheduling adds one.
-	for row, n, _why in unplaced:
-		res = truck_routes.add_farm_run(
-			doc.vehicle,
-			row["farm"],
-			date,
-			enforce_room=True,
-			while_on_road=True,
-			new_route=False,
-			hub=row_hub(row),
-		)
-		if res.get("status") == "success":
-			more, _left = _split_into_runs(doc.vehicle, date, [part(row, n)], only=(res["route"], res["run"]))
-			write(more)
+	# No run is added for what no run has room for: it waits under No truck yet until a
+	# person sends a truck (Truck Routes, or Add to truck).
 	return placed
 
 
@@ -5651,8 +5638,11 @@ def _mark_trip_in_transit(doc):
 @guard(roles=STAFF)
 def changeTripVehicle():
 	# Swap the truck on a planned trip — the farm loading app's "Change truck" when the
-	# planned pick-up truck isn't the one that came. Only before anything is loaded
-	# onto the planned truck, and only to a free transfer truck with room.
+	# planned pick-up truck isn't the one that came, or Bucket Logistics. Only before
+	# anything is loaded onto the planned truck, and only to a free transfer truck with
+	# room. Every bucket of the trip goes to the new truck: onto its open trip to the same
+	# farm for the same sales farm that day when it has one, else onto a new run on its
+	# route for the trip's day (a new route when it has none -- as Add to truck does).
 	fd = frappe.form_dict
 	name, vehicle = fd.get("name"), (fd.get("vehicle") or "").strip()
 	if not name or not frappe.db.exists("Bucket Request Trip", name):
@@ -5708,6 +5698,10 @@ def changeTripVehicle():
 		}
 		return
 	_plan_lock()
+	joined = _join_truck_trip(doc, vehicle)
+	if joined:
+		frappe.response["message"] = joined
+		return
 	# The new truck must not already carry the same order from the same farm on
 	# another open trip — that would put the same buckets on two trucks.
 	mine = {(o.order_pick_list, o.farm or "") for o in doc.orders if int(o.buckets or 0) > 0}
@@ -5733,12 +5727,16 @@ def changeTripVehicle():
 		}
 		return
 	previous = doc.vehicle
+	run = _run_on_new_truck(doc, vehicle)
+	if run.get("status") != "success":
+		frappe.db.rollback()
+		frappe.response["message"] = run
+		return
 	doc.vehicle = vehicle
 	doc.capacity_buckets = cap
-	# The route/run belonged to the old truck: keep it and that truck's later plans
-	# would keep topping up this trip, now on another truck.
-	doc.route = None
-	doc.run = None
+	# The old truck's route/run is left: the trip now rides the new truck's run.
+	doc.route = run["route"]
+	doc.run = run["run"]
 	doc.add_comment(
 		"Info",
 		"Truck changed from {0} to {1} {2}".format(
@@ -5747,7 +5745,91 @@ def changeTripVehicle():
 	)
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
-	frappe.response["message"] = {"status": "success", "name": name, "vehicle": vehicle, "previous": previous}
+	frappe.response["message"] = {
+		"status": "success",
+		"name": name,
+		"vehicle": vehicle,
+		"previous": previous,
+		"route": doc.route,
+		"run": doc.run,
+	}
+
+
+def _run_on_new_truck(doc, vehicle):
+	"""A run for trip `doc` on `vehicle`'s route for the trip's day -- added as Add to truck does
+	(a new all-day route when the truck has none). Returns {status, route, run} or why not."""
+	farms = sorted(trip_farms(doc))
+	hub = trip_hub(doc)
+	date = str(doc.trip_date or frappe.utils.today())
+	if not farms:
+		return {"status": "error", "message": "Trip {0} has no farm to collect from.".format(doc.name)}
+	if len(farms) == 1:
+		return truck_routes.add_farm_run(vehicle, farms[0], date, hub=hub, exclude_trip=doc.name)
+	return truck_routes.add_farms_run(vehicle, farms, date, hub=hub, exclude_trip=doc.name)
+
+
+def _join_truck_trip(doc, vehicle):
+	"""`vehicle` already has an open trip that day to the same farm for the same sales farm: every
+	bucket of trip `doc` goes onto it and `doc` is removed. Returns the response, else None (no
+	such trip). Refused when that trip hasn't the room."""
+	farms = trip_farms(doc)
+	hub = trip_hub(doc)
+	if len(farms) != 1:
+		return None
+	farm = next(iter(farms))
+	target = next(
+		(
+			t
+			for t in open_trips_to_farm(farm, doc.trip_date, exclude_trip=doc.name, hub=hub)
+			if t["vehicle"] == vehicle
+		),
+		None,
+	)
+	if not target:
+		return None
+	planned = sum(int(o.buckets or 0) for o in doc.orders)
+	if planned > int(target["room"]):
+		return {
+			"status": "error",
+			"reason": "over_capacity",
+			"message": "{0}'s trip {1} to {2} has room for {3} bucket(s) — trip {4} has {5}.".format(
+				vehicle, target["trip"], farm, target["room"], doc.name, planned
+			),
+		}
+	rows = []
+	for o in doc.orders:
+		if int(o.buckets or 0) <= 0:
+			continue
+		r = o.as_dict()
+		for k in ("name", "parent", "parentfield", "parenttype", "idx", "creation", "modified", "doctype"):
+			r.pop(k, None)
+		rows.append(r)
+	previous, name = doc.vehicle, doc.name
+	# Remove the trip first: while it exists its claims would make the target look double-booked.
+	frappe.delete_doc("Bucket Request Trip", name, ignore_permissions=True, force=1)
+	added, left = _add_rows_to_trip(target["trip"], rows)
+	if left:
+		frappe.db.rollback()
+		return {
+			"status": "error",
+			"reason": "over_capacity",
+			"message": "{0}'s trip {1} couldn't take every bucket of trip {2}.".format(
+				vehicle, target["trip"], name
+			),
+		}
+	frappe.get_doc("Bucket Request Trip", target["trip"]).add_comment(
+		"Info", "Truck changed from {0} to {1}: trip {2} moved onto this trip".format(previous, vehicle, name)
+	)
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
+	return {
+		"status": "success",
+		"name": target["trip"],
+		"merged": name,
+		"vehicle": vehicle,
+		"previous": previous,
+		"route": target["route"],
+		"run": target["run"],
+	}
 
 
 def _pli_flag_times(opl, row_names, bucket_id=""):

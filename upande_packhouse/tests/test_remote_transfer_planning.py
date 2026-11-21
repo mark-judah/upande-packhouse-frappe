@@ -167,15 +167,59 @@ class UnitTestPlacingScheduledOrders(UnitTestCase):
 		with (
 			patch.object(at, "plan", return_value={"status": "success"}),
 			patch.object(at, "farm_needs", return_value={"farms": []}),
+			patch.object(at, "_plan_waiting", return_value=[]) as waiting,
+			patch.object(at, "_schedule_allocated_with", return_value={}) as with_day_after,
 		):
 			summary, add = self._run(fleet, orders, {("OPL-STEP3", FARM): 5}, call=at.distributeTrips)
 		self.assertEqual(summary["status"], "success")
+		with_day_after.assert_called_once_with(at.trip_delivery_date(None))
+		waiting.assert_not_called()
 		add.assert_not_called()
 		self.assertEqual(len(fleet.saved), 1)
 		saved = fleet.saved[0]
 		self.assertEqual([(r["order_pick_list"], r["buckets"]) for r in saved["rows"]], [("OPL-STEP3", 5)])
 		self.assertEqual((saved["route"], saved["run"], saved["status"]), ("R1", 1, "Draft"))
 		self.assertEqual(str(saved["trip_date"]), str(self.today))
+
+	def test_day_after_orders_allocated_today_are_scheduled_with_tomorrows(self):
+		from upande_packhouse.api.remote_transfer import scheduler
+
+		today = str(frappe.utils.today())
+		made = {"OPL-TODAY": today + " 09:00:00", "OPL-OLD": "2020-01-01 09:00:00"}
+		rows = [
+			{"opl": "OPL-TODAY", "variation": "draft_transfer", "remote_buckets": 3},
+			{"opl": "OPL-OLD", "variation": "draft_transfer", "remote_buckets": 2},
+			{"opl": "OPL-HOME", "variation": "draft_transfer", "remote_buckets": 0},
+			{"opl": "OPL-SUB", "variation": "submitted", "remote_buckets": 4},
+		]
+		seen = {}
+
+		def fake(days, only=None):
+			seen["days"] = days
+			seen["picked"] = [r["opl"] for r in rows if only(r)]
+			return {}
+
+		with (
+			patch.object(scheduler, "auto_schedule", side_effect=fake),
+			patch.object(at.frappe.db, "get_value", side_effect=lambda dt, n, f: made.get(n, today)),
+		):
+			at._schedule_allocated_with(at.trip_delivery_date(None))
+		self.assertEqual(seen["days"], [str(frappe.utils.add_days(frappe.utils.today(), 2))])
+		self.assertEqual(seen["picked"], ["OPL-TODAY"])
+
+	def test_the_day_after_alone_schedules_nothing_more(self):
+		after = str(frappe.utils.add_days(frappe.utils.today(), 2))
+		self.assertEqual(at._trip_days_from(after), [after])
+		self.assertEqual(at._schedule_allocated_with(after), {})
+
+	def test_a_runs_truck_is_never_chosen_by_a_saved_route(self):
+		small = {"name": "KAS 866Q", "capacity_buckets": 105, "runs": []}
+		big = {"name": "KAX 254U", "capacity_buckets": 204, "runs": []}
+		going = {"name": "KDG 076V", "capacity_buckets": 108, "runs": [{"stops": [FARM], "hub": "Kapkolia"}]}
+		with patch.object(at.frappe.db, "sql_list", return_value=["KAS 866Q"]) as templates:
+			out = at._run_candidates([small, big, going], FARM, {}, hub="Kapkolia")
+		self.assertEqual([v["name"] for v in out], ["KDG 076V", "KAX 254U", "KAS 866Q"])
+		templates.assert_not_called()
 
 	def test_distribute_without_todays_routes_asks_for_trucks_per_farm(self):
 		needs = {"farms": [{"farm": FARM, "buckets": 5, "going": []}], "trucks": []}
@@ -204,23 +248,13 @@ class UnitTestPlacingScheduledOrders(UnitTestCase):
 		self.assertEqual(res.get("reason"), "no_route")
 		save.assert_not_called()
 
-	def test_full_run_gets_a_second_run_for_the_leftover(self):
+	def test_leftover_of_a_full_run_waits_for_a_truck_never_a_new_run(self):
 		fleet = _Fleet([15])
 		orders = [_order("OPL-BIG", self.tomorrow, buckets=25)]
 		out, add = self._run(fleet, orders, {("OPL-BIG", FARM): 25})
-		add.assert_called_once_with(
-			"KDA 001A",
-			FARM,
-			str(self.today),
-			enforce_room=True,
-			while_on_road=True,
-			new_route=False,
-			hub="Kapkolia",
-		)
-		self.assertEqual([(kw["run"], kw["rows"][0]["buckets"]) for kw in fleet.saved], [(1, 15), (2, 10)])
-		self.assertEqual(
-			out["runs_added"], [{"vehicle": "KDA 001A", "farm": FARM, "sales_farm": "Kapkolia", "run": 2}]
-		)
+		add.assert_not_called()
+		self.assertEqual([(kw["run"], kw["rows"][0]["buckets"]) for kw in fleet.saved], [(1, 15)])
+		self.assertEqual(out["runs_added"], [])
 
 	def test_no_second_run_while_the_first_has_room(self):
 		fleet = _Fleet([15])
@@ -476,7 +510,7 @@ class UnitTestTripLeavesAFarm(UnitTestCase):
 			self.assertEqual(tc._carry_over(doc), [])
 		carry.assert_called_once_with(doc, [], None, None)
 
-	def test_full_next_run_gets_another_run(self):
+	def test_left_behind_with_no_open_run_gets_no_new_run(self):
 		doc = self._trip()
 		self._row(doc, "OPL-SANDY", 10, 7)
 		runs = [{"route": "R1", "run": 1, "stops": [self.FARM], "trip": "BRT-1", "trip_status": "Dispatched"}]
@@ -498,16 +532,8 @@ class UnitTestTripLeavesAFarm(UnitTestCase):
 			) as add,
 		):
 			tc.carry_left_behind(doc, tc.trim_left_farms(doc))
-		add.assert_called_once_with(
-			"KDG 076V",
-			self.FARM,
-			self.today,
-			enforce_room=True,
-			while_on_road=True,
-			new_route=False,
-			hub="Kapkolia",
-		)
-		self.assertEqual([r["buckets"] for r in write.call_args[0][0]["rows"]], [3])
+		add.assert_not_called()
+		write.assert_not_called()
 
 
 class UnitTestMinimumTruckLoad(UnitTestCase):
