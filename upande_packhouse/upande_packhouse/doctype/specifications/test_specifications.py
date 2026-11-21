@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from frappe.tests import UnitTestCase
 from frappe.utils import add_days, nowdate
 
 from upande_packhouse.upande_packhouse.doctype.specifications.specifications import Specifications
@@ -21,7 +21,7 @@ def _spec(status, expiry, before_status=None):
 	return doc, before
 
 
-class TestSpecifications(FrappeTestCase):
+class UnitTestSpecificationStatus(UnitTestCase):
 	def _run(self, doc, before):
 		with patch.object(Specifications, "get_doc_before_save", return_value=before):
 			doc.validate_temporary_dates()

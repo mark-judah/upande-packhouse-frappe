@@ -952,7 +952,11 @@ def createOrUpdateDispatch():
 				# rebuilt, never another order's of the same customer.
 				drafts_of_order = frappe.get_all(
 					"Delivery Note Item",
-					filters={"against_sales_order": first_so.name, "parenttype": "Delivery Note", "docstatus": 0},
+					filters={
+						"against_sales_order": first_so.name,
+						"parenttype": "Delivery Note",
+						"docstatus": 0,
+					},
 					pluck="parent",
 				)
 				existing = (
