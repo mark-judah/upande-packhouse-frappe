@@ -4941,6 +4941,12 @@ frappe.pages["sales-allocation-v2"]._set_proposal = function (p) {
 	const P = frappe.pages["sales-allocation-v2"];
 	P.proposal = p && (p.orders || []).length ? p : null;
 	P._proposal_key = P._short_key();
+	const released = P._released_orders();
+	if (released && P._releasable().some((o) => !released.includes(o.sales_order))) {
+		// orders the last release did not take: a new round
+		P._set_released(false);
+		P._load_shortages();
+	}
 	P._update_confirm_btn();
 	if ((P.current_sales_orders || []).length) P.apply_filters();
 };
@@ -5060,24 +5066,33 @@ frappe.pages["sales-allocation-v2"]._released_key = function () {
 		P.filters.delivery_end || ""
 	}`;
 };
+// The release remembers the orders it took: a proposal with any other order (a new Allocate all, here or
+// in another browser) is a new round, and its count and shortages show again.
 frappe.pages["sales-allocation-v2"]._set_released = function (on) {
 	const P = frappe.pages["sales-allocation-v2"];
-	P._released = !!on;
+	P._released = on ? P._releasable().map((o) => o.sales_order) : null;
 	try {
-		if (on) localStorage.setItem(P._released_key(), "1");
+		if (on) localStorage.setItem(P._released_key(), JSON.stringify(P._released));
 		else localStorage.removeItem(P._released_key());
 	} catch (e) {
 		// no storage: the flag lasts this visit only
 	}
 };
+frappe.pages["sales-allocation-v2"]._released_orders = function () {
+	const P = frappe.pages["sales-allocation-v2"];
+	if (P._released) return P._released;
+	try {
+		const v = localStorage.getItem(P._released_key());
+		if (!v) return null;
+		const list = JSON.parse(v);
+		return Array.isArray(list) ? list : [];
+	} catch (e) {
+		return null;
+	}
+};
 frappe.pages["sales-allocation-v2"]._is_released = function () {
 	const P = frappe.pages["sales-allocation-v2"];
-	if (P._released) return true;
-	try {
-		return localStorage.getItem(P._released_key()) === "1";
-	} catch (e) {
-		return false;
-	}
+	return !!P._released_orders();
 };
 frappe.pages["sales-allocation-v2"]._update_confirm_btn = function () {
 	const P = frappe.pages["sales-allocation-v2"];
