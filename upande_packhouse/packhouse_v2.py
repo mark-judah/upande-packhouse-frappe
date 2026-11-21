@@ -37,6 +37,7 @@ NAV = [
 				"grid",
 			),
 			("sales-allocation", "Sales Allocation", "/packhouse-dashboard-v2/sales-allocation-v2", "split"),
+			("scheduler", "Scheduler", "/packhouse-dashboard-v2/scheduler-v2", "calendar"),
 			(
 				"remote-transfer",
 				"Remote Transfers",

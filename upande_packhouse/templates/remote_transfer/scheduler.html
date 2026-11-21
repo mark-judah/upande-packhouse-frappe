@@ -1497,9 +1497,11 @@ table.aph-tbl{width:100%;border-collapse:collapse;font-size:13px}
   if(el('teamBar'))el('teamBar').onclick=function(e){var b=e.target.closest('[data-team]');if(!b||!window.rtTeam)return;var v=b.getAttribute('data-team');window.rtTeam.set(curTeam()===v?'':v);};
   if(window.rtLocation) window.rtLocation.on(filterChanged);
   if(window.rtFarm) window.rtFarm.on(filterChanged);
-  G.mtab='unsched'; G.var='all';
+  // The Scheduler page's copy (window.SCH_TEAMS_ONLY): every team's submitted orders, By team, only.
+  var TEAMS_ONLY=!!window.SCH_TEAMS_ONLY;
+  G.mtab=TEAMS_ONLY?'byteam':'unsched'; G.var=TEAMS_ONLY?'submitted':'all';
   document.querySelectorAll('.sch-maintab').forEach(function(b){b.onclick=function(){G.mtab=b.getAttribute('data-mtab');G.sel.clear();G.readyPage=1;render();};});
-  if(el('statusBar'))el('statusBar').onclick=function(e){var b=e.target.closest('[data-var]');if(!b)return;var v=b.getAttribute('data-var');G.var=(G.var===v)?'all':v;G.readyPage=1;render();};
+  if(el('statusBar'))el('statusBar').onclick=function(e){var b=e.target.closest('[data-var]');if(!b||TEAMS_ONLY)return;var v=b.getAttribute('data-var');G.var=(G.var===v)?'all':v;G.readyPage=1;render();};
   if(el('smClose'))el('smClose').onclick=closeSchedModal;
   if(el('smCancel'))el('smCancel').onclick=closeSchedModal;
   if(el('smSave'))el('smSave').onclick=saveSchedModal;

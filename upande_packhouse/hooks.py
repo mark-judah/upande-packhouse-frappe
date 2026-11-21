@@ -129,6 +129,7 @@ website_route_rules = [
 	{"from_route": "/packhouse-dashboard-v2/sales-allocation-v2", "to_route": "sales-allocation-v2"},
 	{"from_route": "/packhouse-dashboard-v2/packhouse-production-v2", "to_route": "packhouse-production-v2"},
 	{"from_route": "/packhouse-dashboard-v2/remote-transfer-v2", "to_route": "remote-transfer-v2"},
+	{"from_route": "/packhouse-dashboard-v2/scheduler-v2", "to_route": "scheduler-v2"},
 	{"from_route": "/packhouse-dashboard-v2/cold-room-v2", "to_route": "cold-room-v2"},
 	{"from_route": "/packhouse-dashboard-v2/packhouse-discards-v2", "to_route": "packhouse-discards-v2"},
 	{"from_route": "/packhouse-dashboard-v2/packhouse-downgrades-v2", "to_route": "packhouse-downgrades-v2"},

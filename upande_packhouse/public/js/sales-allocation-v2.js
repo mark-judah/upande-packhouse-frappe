@@ -1813,9 +1813,11 @@ frappe.pages["sales-allocation-v2"].apply_filters = function () {
 			.text(counts[st]);
 	});
 	orders = orders.filter((o) => shown[stage(o)]);
+	const unseq = (o) => ((+o.planning_sequence || 0) > 0 ? 0 : 1);
 	orders = orders
 		.map((o, i) => [o, i])
-		.sort((a, b) => stage(a[0]) - stage(b[0]) || a[1] - b[1])
+		// orders Allocation Planning sequenced always come first, then the ones without a sequence: never mixed
+		.sort((a, b) => unseq(a[0]) - unseq(b[0]) || stage(a[0]) - stage(b[0]) || a[1] - b[1])
 		.map((x) => x[0]);
 	const total = (P.current_sales_orders || []).length;
 	$("#resultsCountV2").text(
@@ -2062,7 +2064,6 @@ frappe.pages["sales-allocation-v2"]._fetch_items_and_open_dialog = function () {
 				P.order_items = [];
 				P.selected_item = null;
 				P.render_allocation_grid();
-				frappe.msgprint(__("No items with confirmed stems for this location."));
 			}
 		},
 		error: function () {
@@ -3558,9 +3559,7 @@ frappe.pages["sales-allocation-v2"].render_allocation_grid = function () {
 			'<div class="empty-state"><p>No items in the selected mix.</p></div>'
 		);
 	} else {
-		$("#allocationWorkspaceV2").html(
-			'<div class="empty-state"><p>No items with confirmed stems for this location.</p></div>'
-		);
+		$("#allocationWorkspaceV2").html('<div class="empty-state"></div>');
 	}
 	P._bind_farm_filter();
 	P._bind_cutstage_bypass();

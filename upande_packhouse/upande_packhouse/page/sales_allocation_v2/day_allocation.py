@@ -484,22 +484,47 @@ def _save_pending(location, sales_order, allocations, teams, boxes, source, orde
 	return doc.name
 
 
-def _order_location(sales_order):
-	"""The location (sales farm) an order is listed under, as the order list puts it (its farm's, else the
-	first sales farm of its farm's Farm Location), or "" when its farm has none."""
-	from upande_packhouse.api.remote_transfer.transfer_scheduling import _so_farm_expr
-
-	farm = frappe.db.sql(
-		"SELECT " + _so_farm_expr("so") + " FROM `tabSales Order` so WHERE so.name = %s", sales_order
-	)
-	return sa._order_farm_location(farm[0][0] if farm else None)
+def _line_locations(sales_order):
+	"""{order line: the sales farm that processes it}: its planned team's sales farm (Packing Teams > Sales Farm),
+	else the order's own -- as the order's lines are listed (sa.processing_farms). One order can have lines, or a
+	mix, at two sales farms: each is allocated at its own."""
+	lines = frappe.get_all("Sales Order Item", filters={"parent": sales_order}, pluck="name")
+	return sa.processing_farms(sales_order, lines)
 
 
-def _check_location(sales_order, location):
-	"""Locations stand alone: an order is allocated only at its own location."""
-	own = _order_location(sales_order)
-	if own and location and own != location:
-		frappe.throw(_("{0} belongs to {1}, not {2}.").format(sales_order, own, location))
+def _check_location(sales_order, location, allocations=None):
+	"""Locations stand alone: a line is allocated only at the sales farm that processes it (its team's,
+	_line_locations). With `allocations`, every line they allocate must be this location's; without, the order
+	needs a line here."""
+	from upande_packhouse.api.v2.allocation_teams import sales_farm_for_location
+
+	here = sales_farm_for_location(location) if location else None
+	if not here:
+		return
+	where = _line_locations(sales_order)
+	lines = {a.get("sales_order_item") for a in allocations or [] if a.get("sales_order_item")}
+	if lines:
+		other = {n for n in lines if where.get(n) and where[n] != here}
+		if other:
+			items = sorted(
+				{
+					a.get("item_code") or a["sales_order_item"]
+					for a in allocations
+					if a.get("sales_order_item") in other
+				}
+			)
+			frappe.throw(
+				_("{0}: {1} is processed at {2}, not {3}.").format(
+					sales_order, ", ".join(items), ", ".join(sorted({where[n] for n in other})), here
+				)
+			)
+		return
+	if where and all(v and v != here for v in where.values()):
+		frappe.throw(
+			_("{0} belongs to {1}, not {2}.").format(
+				sales_order, ", ".join(sorted(set(where.values()))), here
+			)
+		)
 
 
 def _row_key(r):
@@ -522,7 +547,7 @@ def save_pending(
 	if isinstance(teams, str):
 		teams = json.loads(teams or "{}")
 	if allocations:
-		_check_location(sales_order, location)
+		_check_location(sales_order, location, allocations)
 	# stems another order holds or has been allocated since must not be held twice: every row of a bucket
 	# together, against what its shelf has less what is allocated and waiting release elsewhere (this order's
 	# own waiting rows are what this save replaces, so they stay free for it)
@@ -873,13 +898,23 @@ def _release_groups(order, boxes=None):
 
 def _fill_teams(order, location=None):
 	"""{sales_order_item: team} for every line the order releases: the one chosen for the line, else its
-	planned team, else the team most of the order's other lines go to (one order is packed by one team),
-	else the team packing its other pick lists, else its sales farm's packing team when it has just one.
+	planned team, else the team most of the order's other lines go to (one order is packed by one team) --
+	among these lines, else among every line Allocation Planning planned -- else the team packing its other
+	pick lists, else its sales farm's packing team when it has just one.
 	A line is left out only when no line of the order has a team."""
 	lines = list(dict.fromkeys(a["sales_order_item"] for a in order["allocations"]))
 	chosen = {k: v for k, v in (order.get("teams") or {}).items() if v}
 	planned = allocation_plan.planned_teams([x for x in lines if not chosen.get(x)])
 	teams = {x: chosen.get(x) or planned.get(x) for x in lines if chosen.get(x) or planned.get(x)}
+	if not teams and order.get("sales_order"):
+		# none of these lines planned: the team Allocation Planning planned the order's other lines for (one
+		# order is packed by one team) -- the most stems first
+		from collections import Counter
+
+		others = frappe.get_all("Sales Order Item", filters={"parent": order["sales_order"]}, pluck="name")
+		by_team = Counter(t for t in allocation_plan.planned_teams(others).values() if t)
+		if by_team:
+			teams = {x: by_team.most_common(1)[0][0] for x in lines}
 	if not teams and order.get("sales_order"):
 		# nothing chosen or planned: the team already packing the order's other pick lists
 		from collections import Counter
@@ -2414,7 +2449,7 @@ def _run_confirm(
 				continue
 			frappe.db.savepoint("confirm_day_order")
 			try:
-				_check_location(o["sales_order"], location)
+				_check_location(o["sales_order"], location, o["allocations"])
 				if rules["enforce_plan"]:
 					sa._check_against_plan(o["allocations"], o["teams"])
 				o["teams"] = _fill_teams(o, location)

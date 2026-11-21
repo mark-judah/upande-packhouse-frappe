@@ -1976,18 +1976,47 @@
 			if (!src) done();
 		});
 	}
+	// Each sidebar move is numbered: a click made while the previous page is still loading wins, and the
+	// earlier one stops before it swaps or runs its scripts.
+	let navSeq = 0;
+	// A page swap animated with a view transition: when the browser cuts the animation short (another
+	// click, a hidden tab), only the animation is dropped -- the page is still swapped, and the rejected
+	// promises are handled so they never surface as uncaught errors.
+	async function swapWithTransition(swap) {
+		let swapped = false;
+		const once = () => {
+			if (!swapped) {
+				swapped = true;
+				swap();
+			}
+		};
+		const calm = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+		if (document.startViewTransition && !calm && !document.hidden) {
+			try {
+				const t = document.startViewTransition(once);
+				t.ready.catch(() => {});
+				t.finished.catch(() => {});
+				await t.updateCallbackDone.catch(() => {});
+			} catch (e) {
+				// no transition: swapped below
+			}
+		}
+		once();
+	}
 	async function goTo(url, push) {
 		const to = new URL(url, location.href);
 		if (!mayLeave()) return;
+		const seq = ++navSeq;
 		let doc;
 		try {
 			const r = await fetch(to.href, { credentials: "same-origin" });
 			if (!r.ok || new URL(r.url).pathname !== to.pathname) throw new Error("moved");
 			doc = new DOMParser().parseFromString(await r.text(), "text/html");
 		} catch (e) {
-			window.location.href = to.href;
+			if (seq === navSeq) window.location.href = to.href;
 			return;
 		}
+		if (seq !== navSeq) return;
 		const root = document.querySelector(".ph2");
 		const main = root && root.querySelector(".ph-main");
 		const next = doc.querySelector(".ph2 .ph-main");
@@ -2019,6 +2048,7 @@
 						})
 				)
 		);
+		if (seq !== navSeq) return;
 		leavePage();
 		if (push) history.pushState({ ph2: 1 }, "", to.href);
 		here = to.pathname;
@@ -2035,10 +2065,8 @@
 			root.classList.remove("is-drawer-open");
 			bindTopbar(root);
 		};
-		const calm = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
-		if (document.startViewTransition && !calm)
-			await document.startViewTransition(swap).updateCallbackDone;
-		else swap();
+		await swapWithTransition(swap);
+		if (seq !== navSeq) return;
 		// the page's own scripts: the ones inside it, then the ones after the shell
 		for (const s of Array.from(main.querySelectorAll("script"))) await runScript(s);
 		for (const n of tail) {
@@ -2070,6 +2098,18 @@
 		if (location.pathname !== here && location.pathname.startsWith(BASE))
 			goTo(location.href, false);
 	});
+
+	// Page-to-page transitions (@view-transition in the shell): one the browser cuts short (a page
+	// without the opt-in, a redirect, a reload) only loses its animation -- its rejected promises are handled.
+	const quietTransition = (e) => {
+		const t = e && e.viewTransition;
+		if (!t) return;
+		if (t.ready) t.ready.catch(() => {});
+		if (t.finished) t.finished.catch(() => {});
+		if (t.updateCallbackDone) t.updateCallbackDone.catch(() => {});
+	};
+	window.addEventListener("pagereveal", quietTransition);
+	window.addEventListener("pageswap", quietTransition);
 
 	if (document.readyState === "loading")
 		document.addEventListener("DOMContentLoaded", initShell);

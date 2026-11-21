@@ -1,5 +1,5 @@
 {% extends "templates/web.html" %}
-{% block title %}Remote Transfers · Packhouse{% endblock %}
+{% block title %}{{ rt_title or "Remote Transfers" }} · Packhouse{% endblock %}
 {% block page_content %}
 {#- Remote Transfers in the packhouse v2 shell. Each tab is the Remote Transfers screen itself
     (templates/remote_transfer/<tab>.html, the same one /remote-transfer/<tab> shows), included
@@ -22,10 +22,16 @@ html.ph2-root,html.ph2-root body{overflow-y:visible!important;overflow-x:clip!im
 /* The view's own controls sit just before Refresh, at the right. */
 .aph.rt-v2 .aph-topbar .right{order:98;margin-left:auto;display:flex;align-items:center;gap:10px}
 .aph.rt-v2 .aph-topbar>.rt-refresh{order:99;margin-left:0}
+/* The Scheduler page's copy (scheduler_v2.py): the Scheduler alone -- no section tabs -- showing every
+   team's submitted orders (By team); the other views, the Draft / Submitted filter and Distribute stay
+   on the Remote Transfers Scheduler tab. */
+.aph.rt-v2.rt-teams .rt-tabs,.aph.rt-v2.rt-teams .sch-maintabs,.aph.rt-v2.rt-teams #statusBar,
+.aph.rt-v2.rt-teams #distTeams,.aph.rt-v2.rt-teams #panelUnsched{display:none!important}
 /* A closed side panel waits off the right edge: no shadow showing there. */
 .aph.rt-v2 #tm-root .bp-panel:not(.is-open),.aph.rt-v2 .bs-drawer:not(.on){box-shadow:none}
 </style>
-<div class="aph rt-embed rt-v2">
+{% if rt_sched_teams %}<script>window.SCH_TEAMS_ONLY = 1;</script>{% endif %}
+<div class="aph rt-embed rt-v2{% if rt_sched_teams %} rt-teams{% endif %}">
   <div class="aph-main">
     <div class="aph-topbar">
       {% set rt_active = rt_tab %}{% include "upande_packhouse/templates/includes/remote_transfers_tabs.html" %}
