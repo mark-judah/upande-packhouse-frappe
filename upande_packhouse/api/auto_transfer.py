@@ -84,6 +84,21 @@ def run():
 		_plan_waiting(summary)
 		tc._plan_unlock()
 		_place_scheduled(summary)
+	tc._plan_unlock()
+	_combine_farm_trips()
+
+
+def _combine_farm_trips(date=None):
+	"""A truck's trips at one farm that it hasn't left become one trip (whichever sales farm each order is packed
+	at): the later ones fold into the first, loaded buckets with them, as far as the truck holds them."""
+	out = {}
+	for vehicle in sorted(tc.duplicate_trips(date)):
+		try:
+			out[vehicle] = tc.merge_truck_trips(vehicle, date)
+		except Exception:
+			frappe.db.rollback()
+			frappe.log_error(title="Combining a truck's trips failed: {0}".format(vehicle))
+	return out
 
 
 def _plan_waiting(summary, window=None):
