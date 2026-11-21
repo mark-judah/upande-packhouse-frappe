@@ -1077,6 +1077,7 @@ def _trip_dict(doc, today, numbers=None):
 		"status": doc.status,
 		# A Draft/Scheduled trip from an earlier day never left: it claims nothing
 		# any more and should be deleted or re-planned.
+		"earlier_day": 1 if str(doc.trip_date) < str(today) and doc.status in ACTIVE_TRIP_STATUSES else 0,
 		"stale": 1
 		if (
 			str(doc.trip_date) < str(today)
@@ -4840,12 +4841,47 @@ def _farm_taken(vehicle, date, farms, exclude_trip=None, hub=None):
 	return None
 
 
+def _trip_day_refusal(trip, vehicle, trip_date):
+	"""Why a trip can't take buckets for `trip_date`, or None: an existing trip from an earlier day, or a new
+	trip on a truck with no truck route for its date (each day plans its own trucks)."""
+	today = str(frappe.utils.today())
+	if trip:
+		day = str(frappe.db.get_value("Bucket Request Trip", trip, "trip_date") or "")
+		if day and day < today:
+			return {
+				"status": "error",
+				"reason": "earlier_day",
+				"message": "Trip {0} is for {1}: today's buckets go on a truck planned for today.".format(
+					trip, day
+				),
+			}
+		return None
+	day = str(trip_date or today)
+	if day < today:
+		return {
+			"status": "error",
+			"reason": "earlier_day",
+			"message": "No trips can be planned for {0}.".format(day),
+		}
+	if not frappe.db.exists("Bucket Logistics Route", {"vehicle": vehicle, "route_date": day}):
+		return {
+			"status": "error",
+			"reason": "no_route",
+			"message": "{0} has no truck route for {1}: make its route on Truck Routes first.".format(
+				vehicle, day
+			),
+		}
+	return None
+
+
 def _add_rows_to_trip(name, rows):
 	"""Put plan rows on an existing trip (planned, loading or on its way — the truck is
 	still collecting from their farm): merged into its row for the same order and farm,
 	as far as the truck has room. Rows of another farm are never added (one farm per
-	trip). Returns (added rows, [(row, buckets not added)])."""
+	trip). A trip from an earlier day takes nothing. Returns (added rows, [(row, buckets not added)])."""
 	doc = frappe.get_doc("Bucket Request Trip", name)
+	if str(doc.trip_date or "") < str(frappe.utils.today()):
+		return [], [(row, int(row.get("buckets") or 0)) for row in rows]
 	room = trip_room(name)
 	room = 10**9 if room is None else max(0, room)
 	have = trip_farms(doc)
@@ -5031,6 +5067,11 @@ def _save_trip(
 	if not vehicle:
 		return {"status": "error", "message": "A vehicle is required."}
 	existing = name and frappe.db.exists("Bucket Request Trip", name)
+	# each day plans its own trucks: a trip from an earlier day takes nothing more, and a new trip goes on a
+	# truck with a route for its date
+	refusal = _trip_day_refusal(name if existing else None, vehicle, trip_date)
+	if refusal:
+		return refusal
 	# A routed truck is planned run by run: a run already on the road is skipped, the
 	# truck isn't blocked. Only an unrouted truck waits until it is back.
 	runs = [] if existing else _day_runs(vehicle, trip_date)
