@@ -61,6 +61,7 @@ class UnitTestTripTakesEverySalesFarm(UnitTestCase):
 			patch.object(tc, "trip_room", return_value=50),
 			patch.object(tc, "trip_farms", return_value={"Torongo"}),
 			patch.object(tc, "trip_hub", return_value="Kapkolia"),
+			patch.object(tc, "with_hubs", side_effect=lambda rows: list(rows)),
 		):
 			added, left = tc._add_rows_to_trip("BRT-1", [row])
 		self.assertEqual([a["buckets"] for a in added], [6])
@@ -81,6 +82,7 @@ class UnitTestTripTakesEverySalesFarm(UnitTestCase):
 			patch.object(tc, "trip_room", return_value=50),
 			patch.object(tc, "trip_farms", return_value={"Torongo"}),
 			patch.object(tc, "trip_hub", return_value="Kapkolia"),
+			patch.object(tc, "with_hubs", side_effect=lambda rows: list(rows)),
 		):
 			added, left = tc._add_rows_to_trip("BRT-1", [row])
 		self.assertEqual(added, [])
