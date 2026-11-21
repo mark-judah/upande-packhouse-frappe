@@ -105,23 +105,34 @@ class BucketRequestTrip(Document):
 		self.validate_no_double_booking()
 
 	def validate_sales_farm(self):
-		"""The sales farm the trip heads to. One trip collects everything at its farm, whichever sales farm each
-		order is packed at: every bucket is still received and shelved at its own order's sales farm (Production
-		Settings > Remote Transfer Sales Farms), so the truck drops each order's buckets where it is packed. The
-		trip's sales farm is the one most of its buckets go to (kept when it is one of them)."""
+		"""One sales farm per trip: the truck delivers every bucket it collects to the sales
+		farm of the order it is for (Production Settings > Remote Transfer Sales Farms), so
+		orders for different sales farms ride different trips. Fills the trip's sales farm."""
 		from upande_packhouse.api import transfer_control as tc
 
-		buckets = {}
-		for o in self.get("orders") or []:
-			if o.order_pick_list and int(o.buckets or 0) > 0:
-				buckets[o.order_pick_list] = buckets.get(o.order_pick_list, 0) + int(o.buckets or 0)
-		per_hub = {}
-		for opl, hub in tc.opl_hubs(list(buckets)).items():
-			if hub:
-				per_hub[hub] = per_hub.get(hub, 0) + buckets.get(opl, 0)
-		if per_hub:
-			if self.sales_farm not in per_hub:
-				self.sales_farm = max(sorted(per_hub), key=lambda h: per_hub[h])
+		planned = [
+			o.order_pick_list
+			for o in self.get("orders") or []
+			if o.order_pick_list and int(o.buckets or 0) > 0
+		]
+		hubs = {h for h in tc.opl_hubs(planned).values() if h}
+		if len(hubs) > 1:
+			frappe.throw(
+				_(
+					"One sales farm per trip: {0} has orders for {1}. Plan each sales farm's orders on its own trip."
+				).format(self.name or _("this trip"), ", ".join(sorted(hubs))),
+				title=_("One sales farm per trip"),
+			)
+		if hubs:
+			hub = next(iter(hubs))
+			if self.sales_farm and self.sales_farm != hub and self.status not in tc.ACTIVE_TRIP_STATUSES:
+				frappe.throw(
+					_("Trip {0} delivers to {1}: it can't take orders for {2}.").format(
+						self.name, self.sales_farm, hub
+					),
+					title=_("One sales farm per trip"),
+				)
+			self.sales_farm = hub
 		elif not self.sales_farm:
 			self.sales_farm = tc.route_hub_of(self.route) if self.route else tc.transfer_hub(required=False)
 
