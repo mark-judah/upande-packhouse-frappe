@@ -1922,15 +1922,15 @@
       const exp = r.lines.reduce((a, x) => a + x.held + x.expected, 0);
       PH.toast("Confirmed " + n(exp) + " stems.", "good");
       // the confirmed lines leave the page at once; the board is read again quietly behind it
-      const done = new Set(r.lines.map((x) => x.soi));
+      const got = new Set(r.lines.map((x) => x.soi));
       if (pool) {
         pool.lines.concat(pool.longer_lines || []).forEach((l) => {
-          if (done.has(l.soi)) { const x = r.lines.find((y) => y.soi === l.soi); l.held = x.held; l.expected = x.expected; l.confirmed = 1; }
+          if (got.has(l.soi)) { const x = r.lines.find((y) => y.soi === l.soi); l.held = x.held; l.expected = x.expected; l.confirmed = 1; }
         });
         drawPool();
       }
-      (board && board.mixes || []).forEach((g) => { if (g.lines.some((x) => done.has(x.soi))) g.confirmed = true; });
-      (board && board.orders || []).forEach((o) => o.lines.forEach((x) => { if (done.has(x.soi)) { const y = r.lines.find((z) => z.soi === x.soi); x.planned = y.held + y.expected; } }));
+      (board && board.mixes || []).forEach((g) => { if (g.lines.some((x) => got.has(x.soi))) g.confirmed = true; });
+      (board && board.orders || []).forEach((o) => o.lines.forEach((x) => { if (got.has(x.soi)) { const y = r.lines.find((z) => z.soi === x.soi); x.planned = y.held + y.expected; } }));
       if (S.pick && S.pick.order) drawOrder();
       if (board) drawList();
       refresh();

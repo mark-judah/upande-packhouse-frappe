@@ -125,6 +125,7 @@
     #tm-root .tt-trip-farms { flex: 1 1 auto; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; min-width: 0; }
     #tm-root .tt-trip-farm { background: #2b2b2b; border: 1px solid #555; color: #fff; border-radius: 12px; padding: 1px 9px; font-size: 12px; font-weight: 600; white-space: nowrap; }
     #tm-root .tt-trip-farm b { color: #fff; }
+    #tm-root .tt-earlier { flex: none; font-size: 11px; font-weight: 600; color: #f2b8b5; border: 1px solid #8a4b47; border-radius: 6px; padding: 2px 8px; margin-right: 6px; }
     #tm-root .tt-exp { flex: none; border: 1px solid #555; background: #2b2b2b; color: #fff; border-radius: 6px; padding: 3px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
     #tm-root .tt-exp:hover { background: #3a3a3a; border-color: #777; }
     #tm-root .tt-cap { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 6px 10px; margin: 2px 0 6px; background: #f6f7f9; border-radius: 6px; font-size: 12px; color: #333; }
@@ -725,6 +726,12 @@
   // Every (order, farm) split into (order, farm, trip) rows — the unit every
   // tab below renders. An unscheduled order+farm with no trip gets one row
   // (trip: null, section "Not scheduled"); a scheduled order is always on a trip.
+  // A trip still open from an earlier day: each day plans its own trucks, so it takes nothing more.
+  function ttEarlierDay(t) {
+    var d = new Date(), today = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    return !!t && TRUCK_CHANGEABLE[t.status] && String(t.trip_date || '') < today;
+  }
+
   function buildCombos(orders) {
     var combos = [];
     (orders || []).forEach(function (o) {
@@ -1077,7 +1084,8 @@
       }
       return '<div class="tt-trip">' +
         '<div class="tt-trip-h" data-tt-toggle="t:' + esc(tkey) + '"><span class="ov-caret">' + (tShut ? '▸' : '▾') + '</span><span>' + tLabel + '</span>' + farmsChips + '<span class="ov-count">' + (g.trip ? '' : bktLbl(bkts(g.rows))) + farmCount + ' farm' + (farmCount === 1 ? '' : 's') + ' · ' + orderCount + ' order' + (orderCount === 1 ? '' : 's') + '</span>' +
-          (g.trip && TRUCK_CHANGEABLE[g.trip.status] && !(g.trip.loaded_buckets > 0) ? '<button type="button" class="tt-exp" data-tt-truck="' + esc(g.trip.trip) + '" data-tt-truck-now="' + esc(g.trip.vehicle || '') + '">Change truck</button>' : '') +
+          (g.trip && ttEarlierDay(g.trip) ? '<span class="tt-earlier">Earlier day</span>' : '') +
+          (g.trip && TRUCK_CHANGEABLE[g.trip.status] && !(g.trip.loaded_buckets > 0) && !ttEarlierDay(g.trip) ? '<button type="button" class="tt-exp" data-tt-truck="' + esc(g.trip.trip) + '" data-tt-truck-now="' + esc(g.trip.vehicle || '') + '">Change truck</button>' : '') +
           '<button type="button" class="tt-exp" data-tt-exp="' + esc(tkey) + '">' + (ttTripAllOpen(tkey) ? 'Collapse' : 'Expand') + '</button></div>' +
         (g.trip ? ttTripLoad(g) : '') +
         (tShut ? '' : '<div class="tt-farms">' + farmsHtml + '</div>') +

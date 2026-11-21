@@ -286,6 +286,7 @@ class UnitTestSharedBucketCountedOnce(UnitTestCase):
 			patch.object(tc, "_plan_lock"),
 			patch.object(tc, "_day_runs", return_value=[]),
 			patch.object(tc, "_vehicle_on_road", return_value=None),
+			patch.object(tc, "_trip_day_refusal", return_value=None),
 		):
 			res = tc._save_trip(
 				name=None,
@@ -786,6 +787,8 @@ class UnitTestLoadedBucketClaimedByItsTrip(UnitTestCase):
 			stack.enter_context(patch.object(tc, "_day_runs", return_value=list(runs)))
 			stack.enter_context(patch.object(tc, "_vehicle_on_road", return_value=None))
 			stack.enter_context(patch.object(tc, "_loaded_trip_refusal", return_value=None))
+			# the truck is planned for the day (its route is not what these tests are about)
+			stack.enter_context(patch.object(tc, "_trip_day_refusal", return_value=None))
 			stack.enter_context(patch.object(tc, "_trip_opls", return_value={"OPL-G"} if name else set()))
 			stack.enter_context(
 				patch.object(
@@ -1493,3 +1496,28 @@ class UnitTestOneTruckSeveralFarms(UnitTestCase):
 			out = at.addTruckForFarms(["Torongo"], "KAS 866Q")
 		self.assertEqual((out["status"], out["message"]), ("error", "No road"))
 		dist.assert_not_called()
+
+
+class UnitTestTripsBelongToTheirDay(UnitTestCase):
+	"""Each day plans its own trucks: an earlier day's open trip takes nothing more, and a new trip needs a truck
+	with a route for its date."""
+
+	def test_earlier_day_trip_is_refused(self):
+		yesterday = str(frappe.utils.add_days(frappe.utils.today(), -1))
+		with patch.object(frappe.db, "get_value", return_value=yesterday):
+			res = tc._trip_day_refusal("BRT-OLD", "KDA 001A", frappe.utils.today())
+		self.assertEqual(res["reason"], "earlier_day")
+
+	def test_new_trip_needs_a_route_for_its_date(self):
+		with patch.object(frappe.db, "exists", return_value=False):
+			res = tc._trip_day_refusal(None, "KDA 001A", frappe.utils.today())
+		self.assertEqual(res["reason"], "no_route")
+		with patch.object(frappe.db, "exists", return_value=True):
+			self.assertIsNone(tc._trip_day_refusal(None, "KDA 001A", frappe.utils.today()))
+
+	def test_earlier_day_trip_is_not_topped_up(self):
+		doc = MagicMock(trip_date=frappe.utils.add_days(frappe.utils.today(), -1))
+		with patch.object(frappe, "get_doc", return_value=doc):
+			added, left = tc._add_rows_to_trip("BRT-OLD", [{"farm": "Ravine", "buckets": 3}])
+		self.assertEqual(added, [])
+		self.assertEqual(left[0][1], 3)
