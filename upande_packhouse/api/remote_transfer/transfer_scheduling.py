@@ -6555,15 +6555,39 @@ def mark_bucket_not_found(pick_list_item, notes=None):
 			departed += gone
 	trip = trips[0] if trips else None
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
+	submitted = _submit_without_not_found(list(orders))
 	return {
 		"status": "success",
 		"message": "{0} marked not found.".format(row.bucket or "Bucket"),
+		"opl_submitted": submitted,
 		"bucket": row.bucket,
 		"orders": list(orders),
 		"trip": trip,
 		"trips": trips,
 		"departed": departed,
 	}
+
+
+def _submit_without_not_found(opls):
+	"""The rest of an order may already be shelved: submit the drafts the not-found bucket was
+	holding, when the submit check lets them go on without it. Never fails the mark."""
+	from upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2 import (
+		_try_submit_opl_if_complete,
+	)
+
+	submitted = []
+	for opl in opls:
+		if frappe.db.get_value("Order Pick List", opl, "docstatus") != 0:
+			continue
+		try:
+			if _try_submit_opl_if_complete(opl):
+				frappe.db.commit()  # nosemgrep: frappe-manual-commit -- the issuing list reads it next
+				submitted.append(opl)
+		except Exception:
+			frappe.db.rollback()
+			frappe.clear_last_message()
+			frappe.log_error(title="Not found: submit failed", message=f"opl={opl}\n{frappe.get_traceback()}")
+	return submitted
 
 
 def _plan_one_fewer(opl, farm, bucket):

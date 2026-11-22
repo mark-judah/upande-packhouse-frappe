@@ -3626,6 +3626,10 @@ def opl_submit_blockers(opl):
 	if opl.get("short_accepted"):
 		return blockers
 
+	blockers += not_found_blockers(opl)
+	if blockers:
+		return blockers
+
 	global_confirmed = _get_all_confirmed_stems(opl.sales_order)
 
 	# NOTE: Order Pick List's own fields are "mix_group"/"bunch_group" (no
@@ -3690,6 +3694,56 @@ def opl_submit_blockers(opl):
 		blockers.append("{0} line(s) not yet fully allocated: {1}".format(len(short), "; ".join(short)))
 
 	return blockers
+
+
+def not_found_blockers(opl):
+	"""A pick list with buckets marked not found (no replacement yet): a mixed box waits for the
+	replacement; a single straight box goes on without them; more than one straight box goes on
+	once the buckets still here fill at least one whole box."""
+	missing = [r for r in opl.table_ytkc if r.get("not_found") and not r.get("issued")]
+	if not missing:
+		return []
+	label = ", ".join(sorted({r.bucket for r in missing if r.bucket})) or opl.name
+	items = sorted({r.sales_order_item for r in opl.table_ytkc if r.sales_order_item})
+	lines = (
+		frappe.get_all(
+			"Sales Order Item",
+			filters={"name": ("in", items)},
+			fields=[
+				"name",
+				"stock_qty",
+				"custom_number_of_boxes",
+				"custom_packrate",
+				"custom_mixed_box",
+				"custom_mixed_bunch",
+			],
+		)
+		if items
+		else []
+	)
+	if (
+		opl.get("mix_group")
+		or opl.get("bunch_group")
+		or any(cint(x.custom_mixed_box) or cint(x.custom_mixed_bunch) for x in lines)
+	):
+		return [_("Bucket(s) {0} not found: a mixed box waits for a replacement").format(label)]
+	if sum(cint(x.custom_number_of_boxes) or 1 for x in lines) <= 1:
+		return []
+	gone = defaultdict(float)
+	for soi, stems in frappe.db.sql(
+		"""SELECT sales_order_item, SUM(IFNULL(stock_qty, 0)) FROM `tabPick List Item`
+		WHERE parenttype = 'Order Pick List' AND sales_order_item IN %(s)s
+		  AND IFNULL(not_found, 0) = 1 AND IFNULL(issued, 0) = 0
+		GROUP BY sales_order_item""",
+		{"s": tuple(items)},
+	):
+		gone[soi] = flt(stems)
+	for x in lines:
+		n = cint(x.custom_number_of_boxes) or 1
+		per_box = flt(x.custom_packrate) or flt(x.stock_qty) / n
+		if per_box > 0 and _cumulative_allocated_stems(x.name) - gone[x.name] >= per_box - 1e-9:
+			return []
+	return [_("Bucket(s) {0} not found: no whole box can be packed without them").format(label)]
 
 
 def _box_lines_of(opl):
