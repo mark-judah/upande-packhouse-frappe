@@ -2654,6 +2654,9 @@ def _submit_for_packing(opl_names):
 	from upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation import (
 		opl_submit_blockers,
 	)
+	from upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2 import (
+		not_found_blockers,
+	)
 
 	drafts = [o for o in opl_names or [] if frappe.db.get_value("Order Pick List", o, "docstatus") == 0]
 	if not drafts:
@@ -2670,7 +2673,7 @@ def _submit_for_packing(opl_names):
 			continue
 		try:
 			opl = frappe.get_doc("Order Pick List", name)
-			if opl_submit_blockers(opl):
+			if opl_submit_blockers(opl) or not_found_blockers(opl):
 				continue
 			opl.flags.ignore_permissions = True
 			# The rows are as allocated: a shelf emptied or removed since must not stop it.
@@ -6639,38 +6642,21 @@ def shelveBucket():
 		shelf_doc.insert(ignore_permissions=True)
 	result["shelf_doc"] = shelf_doc
 
-	# duplicate on THIS shelf
+	# already on THIS shelf: refused, saying so (a bucket on ANOTHER shelf moves, below)
 	for item in shelf_doc.items or []:
 		if (item.bucket_id or "").lower() == bucket_id.lower():
-			_fail("duplicate_entry", "The bucket has already been shelved.")
+			_fail("duplicate_entry", "The bucket is already shelved on this shelf ({0}).".format(shelf_id))
 			return
 
-	# duplicate on ANOTHER shelf (transfer buckets self-heal, otherwise block)
+	# on ANOTHER shelf: the bucket has physically come here (its trolley / truck scan was skipped, or it is
+	# reshelved), so it moves -- taken off the old shelf once shelved here, never refused
 	other_shelves = frappe.db.sql(
 		"""SELECT name, parent FROM `tabShelf Item` WHERE bucket_id = %s AND parent != %s FOR UPDATE""",
 		(bucket_id, shelf_id),
 		as_dict=True,
 	)
 	if other_shelves:
-		transfer_rows = frappe.db.sql(
-			"""
-            SELECT pli.name FROM `tabPick List Item` pli
-            JOIN `tabOrder Pick List` opl ON opl.name = pli.parent AND opl.docstatus = 0
-            WHERE pli.parenttype = 'Order Pick List' AND pli.bucket = %s
-              AND (pli.awaiting_transfer = 1 OR pli.in_transit = 1
-                   OR pli.loaded_in_trolley = 1)
-              AND NOT (IFNULL(pli.custom_ready_for_packing, 0) = 1 OR IFNULL(pli.issued, 0) = 1) LIMIT 1""",
-			bucket_id,
-			as_dict=True,
-		)
-		if transfer_rows:
-			result["stale_transfer_shelves"] = other_shelves
-		else:
-			_fail(
-				"duplicate_entry",
-				"The bucket has already been shelved on shelf {0}.".format(other_shelves[0].parent),
-			)
-			return
+		result["stale_transfer_shelves"] = other_shelves
 
 	# capacity — count DISTINCT buckets on the shelf, not rows (a bucket spans
 	# several Shelf Item rows when it carries several varieties).
@@ -6831,6 +6817,10 @@ def shelveBucket():
 	from upande_packhouse.api import transfer_control as _tc
 
 	_tc.return_to_farm(bucket_id, farm)
+	# Shelved at a third farm on its way to the sales farm (the truck dropped it there): it waits there now.
+	from upande_packhouse.api.remote_transfer.third_farm import wait_at_third_farm
+
+	wait_at_third_farm(bucket_id, farm, shelf_id)
 	# At the hub: a bucket whose truck load never reached the server goes on the trip
 	# that planned it first, so that trip records it and ends as it is shelved.
 	frappe.db.savepoint("shelve_planned_load")

@@ -142,7 +142,10 @@ def _planned(item):
 
 
 def _team(item, planned, rules):
-	team = item.get("opl_team") or item.get("planning_team") or planned.get(item["sales_order_item"])
+	# the team Allocation Planning gave the line comes first: a pick list made earlier for another team (a
+	# release that went to the wrong team) must not carry its team on, so an order planned for several teams
+	# stays split from allocation to release
+	team = item.get("planning_team") or planned.get(item["sales_order_item"]) or item.get("opl_team")
 	if team or rules["enforce_plan"]:
 		return team
 	groups = rules.setdefault("item_groups", {})
@@ -1050,9 +1053,26 @@ def _release_parts(release):
 	return [part for part in (straight, mixed) if part]
 
 
-def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=(), box_type=None):
+def _planned_orders(sales_orders):
+	"""The orders among these that Allocation Planning confirmed (a live, fulfilled or allocated plan)."""
+	if not sales_orders:
+		return set()
+	return set(
+		frappe.db.sql_list(
+			"""SELECT DISTINCT sales_order FROM `tabAllocation Confirmation`
+			WHERE sales_order IN %(s)s
+			  AND (status IN %(kept)s OR (status = 'Released' AND release_reason = 'Allocated'))""",
+			{"s": tuple(sales_orders), "kept": (*allocation_plan.LIVE, "Fulfilled")},
+		)
+	)
+
+
+def _run_day(
+	location, delivery_start, delivery_end, farms, user, bypass_orders=(), box_type=None, only_planned=False
+):
 	"""`box_type` "straight" or "mixed": only those lines are allocated; the other type's rows of earlier
-	Allocate all proposals are kept as they were (their buckets stay theirs)."""
+	Allocate all proposals are kept as they were (their buckets stay theirs). `only_planned`: only orders
+	Allocation Planning confirmed (the automatic runs)."""
 	steps = {"total": 1}
 
 	# allocating is the first half of the bar, the shortages check the second
@@ -1086,11 +1106,11 @@ def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=
 	ran = {"saved": [], "committed": False}
 	try:
 		_publish(user, location, phase="propose", stage="prepare", progress=0, total=1, order="")
-		# a new run replaces the last Allocate all proposal; hand-picked orders keep theirs and are skipped
+		# Allocate is a fresh allocation: it replaces every proposal of the window waiting release, hand picks
+		# included, and plans every order from what is saved (never skipping one that held picks)
 		stale_filters = {
 			"status": "Pending",
 			"location": location,
-			"source": "Allocate all",
 			"delivery_date": ("between", _window(delivery_start, delivery_end)),
 		}
 		if _group():
@@ -1142,19 +1162,10 @@ def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=
 			# nothing links to a proposal: its rows and itself go in two statements
 			frappe.db.delete("Pending Allocation Row", {"parent": ("in", stale), "parenttype": PENDING})
 			frappe.db.delete(PENDING, {"name": ("in", stale)})
-		# the orders still holding a proposal (picked by hand) -- names only, no need to read them whole
-		skip = set(
-			frappe.get_all(
-				PENDING,
-				filters={
-					"status": "Pending",
-					"location": location,
-					"delivery_date": ("between", _window(delivery_start, delivery_end)),
-				},
-				pluck="sales_order",
-			)
-		)
 		window_orders = _orders(location, delivery_start, delivery_end)
+		if only_planned:
+			planned = _planned_orders([o.name for o in window_orders])
+			window_orders = [o for o in window_orders if o.name in planned]
 		# the orders the planner confirmed take buckets of any cut stage; the rest only their own
 		was_type, frappe.flags.sa2_box_type = frappe.flags.sa2_box_type, box_type
 		try:
@@ -1164,7 +1175,7 @@ def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=
 				delivery_end,
 				farms,
 				plan_progress,
-				skip,
+				(),
 				window_orders,
 				taken=kept_taken,
 				bypass_orders=bypass_orders,
@@ -1490,24 +1501,9 @@ def _add_checked(location, sales_order, rows, farms=None):
 
 def _bypass_plan(location, delivery_start, delivery_end, farms, only=None):
 	"""After Allocate all is saved: what buckets of any cut stage add to the window's orders on top of their
-	proposal (`only`: just these orders). Orders holding picks are left alone."""
-	skip = set(
-		frappe.get_all(
-			PENDING,
-			filters={
-				"status": "Pending",
-				"location": location,
-				"source": "Picked",
-				"delivery_date": ("between", _window(delivery_start, delivery_end)),
-			},
-			pluck="sales_order",
-		)
-	)
-	orders = [
-		o
-		for o in _orders(location, delivery_start, delivery_end)
-		if o.name not in skip and (only is None or o.name in only)
-	]
+	proposal (`only`: just these orders). An order holding hand picks goes on from them: they count as
+	allocated (prior), never skipped."""
+	orders = [o for o in _orders(location, delivery_start, delivery_end) if only is None or o.name in only]
 	prior = defaultdict(float)
 	for o in orders:
 		for soi in frappe.get_all("Sales Order Item", filters={"parent": o.name}, pluck="name"):
@@ -1675,25 +1671,14 @@ def apply_cut_stage(
 
 def _window_lines(location, delivery_start, delivery_end, bypass=True, farms=None):
 	"""{sales_order: (order, its lines)} of the window with what is waiting release counted as allocated:
-	the state after Allocate all, for the steps that follow it, from the farms it took stock from."""
-	skip = set(
-		frappe.get_all(
-			PENDING,
-			filters={
-				"status": "Pending",
-				"location": location,
-				"source": "Picked",
-				"delivery_date": ("between", _window(delivery_start, delivery_end)),
-			},
-			pluck="sales_order",
-		)
-	)
+	the state after Allocate all, for the steps that follow it, from the farms it took stock from. An order
+	holding hand picks is read too: its picks count as allocated, so the steps go on from where they reached."""
 	out = {}
 	# shelf stock only, as Allocate all reads it: what is still arriving and downgrade conflicts are the
 	# page's own view, and no step reads them
 	was_planning, frappe.flags.sa2_planning = frappe.flags.sa2_planning, True
 	try:
-		orders = [o for o in _orders(location, delivery_start, delivery_end) if o.name not in skip]
+		orders = _orders(location, delivery_start, delivery_end)
 		read = {
 			o.name: sa.get_sales_order_items_with_buckets(
 				o.name, location, selected_farms=farms, bypass_cut_stage=1 if bypass else 0
@@ -2203,7 +2188,13 @@ def _plan_orders(location, farms, progress, skip, orders, bypass, prior, taken, 
 					group_picks += picks
 					picked[item["sales_order_item"]] += sum(flt(p["qty"]) for p in picks)
 					# no team is guessed: it is chosen when the order is released (the plan's, when it is enforced)
-					team = _team(item, planned, rules) if rules["enforce_plan"] else None
+					# every line carries its own planned team into the proposal, so the release splits the
+					# order per team; a line never planned gets one when it is released (_fill_teams)
+					team = (
+						_team(item, planned, rules)
+						if rules["enforce_plan"]
+						else item.get("planning_team") or planned.get(item["sales_order_item"]) or None
+					)
 					if team:
 						group_teams[item["sales_order_item"]] = team
 			if not group_picks:

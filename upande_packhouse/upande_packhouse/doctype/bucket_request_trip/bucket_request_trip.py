@@ -117,6 +117,12 @@ class BucketRequestTrip(Document):
 		]
 		by_opl = tc.opl_hubs(planned)
 		hubs = {h for h in by_opl.values() if h}
+		if int(self.get("combined_sales_farms") or 0):
+			# combined on purpose (Bucket Logistics, combineTrips): one collection, each sales farm's buckets
+			# dropped at that sales farm; the trip keeps its first sales farm as its own
+			if hubs and self.sales_farm not in hubs:
+				self.sales_farm = sorted(hubs)[0]
+			return
 		if len(hubs) > 1 and not self.is_new():
 			self.move_off_other_sales_farms(by_opl)
 			planned = [

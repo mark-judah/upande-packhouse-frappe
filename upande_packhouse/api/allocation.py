@@ -6,6 +6,7 @@
 
 import frappe
 from frappe import _
+from frappe.utils import flt
 
 
 @frappe.whitelist()
@@ -312,7 +313,9 @@ def confimSalesOrderItem():
 		  - stems: Float
 		"""
 		try:
-			sales_order_doc = frappe.get_doc("Sales Order", sales_order)
+			# locked: a second confirm of the same order (a double click) waits for this one and then finds its
+			# row, instead of reading the order before this save and adding a second row
+			sales_order_doc = frappe.get_doc("Sales Order", sales_order, for_update=True)
 			line_no_int = int(line_no)
 
 			# Find the specific item line by idx
@@ -336,7 +339,12 @@ def confimSalesOrderItem():
 				except (ValueError, TypeError):
 					stems_val = 0
 
-			stems_ordered = item_row.custom_ordered_quantity or 0
+			# the line's own stems: custom_ordered_quantity is not updated when an order is reduced
+			stems_ordered = (
+				flt(item_row.stock_qty)
+				or flt(item_row.custom_ordered_quantity)
+				or flt(item_row.qty) * (flt(item_row.conversion_factor) or 1)
+			)
 
 			# Get existing confirmed stems entries for THIS line from the parent-level child table
 			existing_entries = sales_order_doc.custom_confirmed_stems_table or []
@@ -356,12 +364,14 @@ def confimSalesOrderItem():
 						f"Maximum available: {int(stems_ordered - other_confirmed)}"
 					)
 
-				# Find existing entry for this farm + item
+				# Find existing entry for this farm + item; any copy of it (saved twice) goes
 				existing_entry = None
-				for entry in existing_entries:
+				for entry in list(existing_entries):
 					if entry.sales_order_item == item_row_name and entry.farm == processing_location:
-						existing_entry = entry
-						break
+						if existing_entry is None:
+							existing_entry = entry
+						else:
+							sales_order_doc.remove(entry)
 
 				if stems_val == 0:
 					# Remove the entry if stems is 0

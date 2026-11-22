@@ -353,6 +353,8 @@ scheduler_events = {
 		"*/10 * * * *": ["upande_packhouse.api.v2.rosenta_sync.sync_recent"],
 		"15 2 * * *": ["upande_packhouse.api.v2.rosenta_sync.sync_nightly"],
 		"*/5 * * * *": [
+			# Automatic Allocation's Run Times (Production Settings > Allocation Planning): no-op unless enabled.
+			"upande_packhouse.api.auto_allocation.tick",
 			"upande_packhouse.api.auto_transfer.run",
 			# A trip ends once what it carried is shelved at the hub — no End trip button.
 			"upande_packhouse.api.remote_transfer.transfer_scheduling.end_shelved_trips",

@@ -1,0 +1,193 @@
+{
+ "actions": [],
+ "autoname": "format:AAR-{run_date}-{sales_farm}-{#####}",
+ "creation": "2026-11-22 19:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "run_date",
+  "run_time",
+  "sales_farm",
+  "delivery_date",
+  "status",
+  "released",
+  "col1",
+  "orders",
+  "boxes",
+  "stems",
+  "released_orders",
+  "scheduled",
+  "started_at",
+  "finished_at",
+  "details_section",
+  "shortages",
+  "pick_lists",
+  "trips",
+  "errors"
+ ],
+ "fields": [
+  {
+   "fieldname": "run_date",
+   "fieldtype": "Date",
+   "label": "Run Date",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "run_time",
+   "fieldtype": "Time",
+   "label": "Run Time",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "sales_farm",
+   "fieldtype": "Link",
+   "label": "Sales Farm",
+   "read_only": 1,
+   "options": "Farm",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "delivery_date",
+   "fieldtype": "Date",
+   "label": "Delivery Date",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "read_only": 1,
+   "options": "Running\nDone\nFailed\nMissed\nBusy",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "released",
+   "fieldtype": "Check",
+   "label": "Released",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "col1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "orders",
+   "fieldtype": "Int",
+   "label": "Orders",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "boxes",
+   "fieldtype": "Int",
+   "label": "Boxes",
+   "read_only": 1
+  },
+  {
+   "fieldname": "stems",
+   "fieldtype": "Float",
+   "label": "Stems",
+   "read_only": 1
+  },
+  {
+   "fieldname": "released_orders",
+   "fieldtype": "Int",
+   "label": "Orders Released",
+   "read_only": 1
+  },
+  {
+   "fieldname": "scheduled",
+   "fieldtype": "Int",
+   "label": "Orders Scheduled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "finished_at",
+   "fieldtype": "Datetime",
+   "label": "Finished At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "details_section",
+   "fieldtype": "Section Break",
+   "label": "Details"
+  },
+  {
+   "fieldname": "shortages",
+   "fieldtype": "Long Text",
+   "label": "Still Short",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pick_lists",
+   "fieldtype": "Small Text",
+   "label": "Pick Lists",
+   "read_only": 1
+  },
+  {
+   "fieldname": "trips",
+   "fieldtype": "Small Text",
+   "label": "Trips",
+   "read_only": 1
+  },
+  {
+   "fieldname": "errors",
+   "fieldtype": "Long Text",
+   "label": "Errors",
+   "read_only": 1
+  }
+ ],
+ "in_create": 1,
+ "links": [],
+ "modified": "2026-11-22 19:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Auto Allocation Run",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "read": 1,
+   "export": 1,
+   "report": 1,
+   "role": "System Manager",
+   "delete": 1
+  },
+  {
+   "read": 1,
+   "export": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "delete": 0
+  },
+  {
+   "read": 1,
+   "export": 1,
+   "report": 1,
+   "role": "Sales Master Manager",
+   "delete": 0
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "sales_farm",
+ "track_changes": 0
+}

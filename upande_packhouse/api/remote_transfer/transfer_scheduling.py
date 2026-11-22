@@ -4745,7 +4745,7 @@ def farm_holders(
 	trips = {}
 	for r in frappe.db.sql(
 		"""SELECT t.name, t.vehicle, t.route, t.status, t.auto_planned, t.departed_stops, t.creation,
-			t.sales_farm, o.farm, o.buckets
+			t.sales_farm, IFNULL(t.combined_sales_farms, 0) AS combined, o.farm, o.buckets
 		FROM `tabBucket Request Trip` t
 		JOIN `tabBucket Request Trip Order` o ON o.parent = t.name AND o.parenttype = 'Bucket Request Trip'
 		WHERE t.trip_date = %(d)s AND t.status != 'Received' AND IFNULL(o.farm, '') != ''
@@ -4768,7 +4768,8 @@ def farm_holders(
 	for name, rows in live.items():
 		r = rows[0]
 		hub = hubs.get(name)
-		if want_hub and hub != want_hub:
+		# a combined trip collects at its farm for every sales farm (combineTrips)
+		if want_hub and hub != want_hub and not int(r.combined or 0):
 			continue
 		farms = _farms_of_rows(rows, hub)
 		if len(farms) != 1:
@@ -4873,9 +4874,12 @@ def _add_rows_to_trip(name, rows):
 	room = 10**9 if room is None else max(0, room)
 	have = trip_farms(doc)
 	hub = trip_hub(doc)
+	hubs_ok = {hub}
+	if int(doc.get("combined_sales_farms") or 0):
+		hubs_ok |= set(opl_hubs([o.order_pick_list for o in doc.orders if o.order_pick_list]).values())
 	added, left = [], []
 	for row in with_hubs(rows):
-		if (have and have != {row["farm"]}) or (hub and row["sales_farm"] != hub):
+		if (have and have != {row["farm"]}) or (hub and row["sales_farm"] not in hubs_ok):
 			left.append((row, int(row["buckets"])))
 			continue
 		take = max(0, min(int(row["buckets"]), room))
@@ -5065,7 +5069,8 @@ def _save_trip(
 	only = (route, int(run)) if route and run else None
 	if only and not any((r["route"], r["run"]) == only for r in runs):
 		return {"status": "error", "message": "{0} has no trip {1} on route {2}.".format(vehicle, run, route)}
-	busy = None if runs else _vehicle_on_road(vehicle)
+	# a trip that is already planned keeps taking buckets while it is at its farm, wherever its truck is now
+	busy = None if (runs or existing) else _vehicle_on_road(vehicle)
 	if busy and str(trip_date) == str(frappe.utils.today()):
 		return {
 			"status": "error",
@@ -5079,9 +5084,18 @@ def _save_trip(
 		}
 
 	if existing:
-		refusal = _loaded_trip_refusal(name, "re-planned")
-		if refusal:
-			return refusal
+		# a trip being loaded still takes buckets until the truck leaves the farm (in transit): what is on the
+		# truck already is kept (its loaded counts below), only the plan grows
+		left = frappe.db.get_value("Bucket Request Trip", name, "departed_stops") or ""
+		gone = [f for f in left.split(",") if f and f in {r.get("farm") for r in rows}]
+		if gone:
+			return {
+				"status": "error",
+				"reason": "left_farm",
+				"message": "Trip {0} has left {1}: its buckets go on the truck's next trip there.".format(
+					name, ", ".join(gone)
+				),
+			}
 		current = frappe.db.get_value("Bucket Request Trip", name, "status")
 		if current not in ACTIVE_TRIP_STATUSES:
 			return {
@@ -5310,9 +5324,38 @@ def _save_trip(
 		doc.total_buckets = sum(r["buckets"] for r in farm_rows)
 		doc.total_stems = sum(r["stems"] for r in farm_rows)
 		doc.capacity_buckets = cap
+		# what is loaded already stays on the trip: a row never plans fewer buckets than it has on the truck
+		loaded = {
+			(o.order_pick_list, o.farm or ""): (int(o.loaded_buckets or 0), int(o.loaded_stems or 0))
+			for o in (doc.get("orders") or [])
+			if int(o.loaded_buckets or 0)
+		}
 		doc.set("orders", [])
 		for r in farm_rows:
-			doc.append("orders", r)
+			lb, ls = loaded.pop((r.get("order_pick_list"), r.get("farm") or ""), (0, 0))
+			doc.append(
+				"orders",
+				{
+					**r,
+					"buckets": max(int(r.get("buckets") or 0), lb),
+					"loaded_buckets": max(int(r.get("loaded_buckets") or 0), lb),
+					"loaded_stems": max(int(r.get("loaded_stems") or 0), ls),
+				},
+			)
+		for (opl, farm_name), (lb, ls) in loaded.items():
+			# a loaded row the new plan left out comes back as it was on the truck
+			doc.append(
+				"orders",
+				{
+					"order_pick_list": opl,
+					"farm": farm_name,
+					"buckets": lb,
+					"loaded_buckets": lb,
+					"loaded_stems": ls,
+					"order_name": frappe.db.get_value("Order Pick List", opl, "order_name") or opl,
+				},
+			)
+		doc.total_buckets = sum(int(o.buckets or 0) for o in doc.orders)
 		doc.save(ignore_permissions=True)
 		docs.append(doc)
 	if commit:
@@ -5829,6 +5872,121 @@ def _join_truck_trip(doc, vehicle):
 		"previous": previous,
 		"route": target["route"],
 		"run": target["run"],
+	}
+
+
+def _fold_trips(keep, rest, cap, note):
+	"""Fold trips `rest` into `keep`: their order rows merged (same order and farm summed), their loaded buckets
+	and left farms carried over, `rest` deleted. Saves `keep`."""
+	group = [keep, *rest]
+	rows = {}
+	for d in group:
+		for o in d.orders:
+			key = (o.order_pick_list, o.farm or "")
+			r = rows.get(key)
+			if r is None:
+				rows[key] = r = o.as_dict()
+				for k in ("name", "parent", "idx", "creation", "modified"):
+					r.pop(k, None)
+				continue
+			for k in ("buckets", "stems", "loaded_buckets", "loaded_stems"):
+				r[k] = int(r.get(k) or 0) + int(o.get(k) or 0)
+			r["full_farm_buckets"] = max(int(r.get("full_farm_buckets") or 0), int(o.full_farm_buckets or 0))
+			r["varieties"] = ", ".join(
+				sorted(
+					{v for v in (r.get("varieties") or "").split(", ") if v}
+					| {v for v in (o.varieties or "").split(", ") if v}
+				)
+			)
+	for r in rows.values():
+		# Planned somewhere = no longer an unplanned load.
+		r["unscheduled"] = 0 if int(r.get("buckets") or 0) > 0 else int(r.get("unscheduled") or 0)
+		r["full_farm_buckets"] = max(int(r.get("full_farm_buckets") or 0), int(r.get("buckets") or 0))
+		r["is_partial"] = 1 if int(r.get("buckets") or 0) < int(r["full_farm_buckets"]) else 0
+	keep.set("orders", [])
+	for r in rows.values():
+		keep.append("orders", r)
+	for d in rest:
+		_add_trip_buckets(
+			keep,
+			[
+				{
+					"opl": b.order_pick_list,
+					"bucket": b.bucket,
+					"farm": b.farm,
+					"loaded_at": b.get("loaded_at"),
+					"loaded_by": b.get("loaded_by"),
+				}
+				for b in d.get("trip_buckets") or []
+			],
+			stamp=False,
+		)
+		departed = _departed(keep)
+		for f in _departed(d):
+			if f not in departed:
+				departed.append(f)
+		keep.departed_stops = ",".join(departed)
+		if d.notes and d.notes not in (keep.notes or ""):
+			keep.notes = ((keep.notes or "") + "\n" + d.notes).strip()
+	keep.unscheduled = 1 if all(int(o.unscheduled or 0) for o in keep.orders) else 0
+	keep.auto_planned = 1 if all(int(d.get("auto_planned") or 0) for d in group) else 0
+	keep.capacity_buckets = cap
+	keep.total_buckets = sum(int(o.buckets or 0) for o in keep.orders)
+	keep.total_stems = sum(int(o.stems or 0) for o in keep.orders)
+	keep.loaded_buckets = _trip_loaded_count(keep)
+	if rest:
+		keep.add_comment("Info", note.format(", ".join(d.name for d in rest)))
+	# Remove the folded trips first: while they exist their buckets and claims would
+	# make the merged trip look double-booked (Bucket Request Trip.validate).
+	for d in rest:
+		frappe.delete_doc("Bucket Request Trip", d.name, ignore_permissions=True, force=1)
+	keep.save(ignore_permissions=True)
+
+
+@frappe.whitelist(methods=["POST"])
+@guard(roles=STAFF)
+def combineTrips(trips: str | list):
+	"""Bucket Logistics: one trip for the same truck at the same farm on the same day, whichever sales farms its
+	orders go to. The truck collects at the farm once and drops each sales farm's buckets at that sales farm (each
+	bucket's own order decides where: opl_hubs). Only trips that have not left the farm, within the truck's room.
+	The earliest run is kept; the others fold into it."""
+	names = json.loads(trips) if isinstance(trips, str) else list(trips or [])
+	names = list(dict.fromkeys(n for n in names if n))
+	if len(names) < 2:
+		return {"status": "error", "message": _("Pick at least two trips to combine.")}
+	_plan_lock()
+	docs = [frappe.get_doc("Bucket Request Trip", n) for n in names]
+	vehicles = {d.vehicle for d in docs}
+	days = {str(d.trip_date) for d in docs}
+	farms = {f for d in docs for f in trip_farms(d)}
+	if len(vehicles) != 1 or len(days) != 1 or len(farms) != 1:
+		return {
+			"status": "error",
+			"message": _("Only trips of one truck, to one farm, on one day can be combined."),
+		}
+	gone = [d.name for d in docs if d.status not in ACTIVE_TRIP_STATUSES or _departed(d)]
+	if gone:
+		return {"status": "error", "message": _("{0} has left the farm already.").format(", ".join(gone))}
+	cap = _vehicle_capacity(docs[0].vehicle)
+	planned = sum(int(o.buckets or 0) for d in docs for o in d.orders)
+	if cap and planned > cap:
+		return {
+			"status": "error",
+			"message": _("{0} planned buckets don't fit one {1}-bucket load.").format(planned, cap),
+		}
+	docs.sort(key=lambda d: (int(d.get("run") or 99), str(d.creation)))
+	keep, rest = docs[0], docs[1:]
+	hubs = {trip_hub(d) for d in docs} - {None}
+	if len(hubs) > 1:
+		keep.combined_sales_farms = 1
+	_fold_trips(keep, rest, cap, "Combined {0} into this trip: one collection at %s" % next(iter(farms)))
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
+	return {
+		"status": "success",
+		"trip": keep.name,
+		"combined": [d.name for d in rest],
+		"sales_farms": sorted(hubs),
+		"buckets": keep.total_buckets,
 	}
 
 
@@ -6397,15 +6555,39 @@ def mark_bucket_not_found(pick_list_item, notes=None):
 			departed += gone
 	trip = trips[0] if trips else None
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
+	submitted = _submit_without_not_found(list(orders))
 	return {
 		"status": "success",
 		"message": "{0} marked not found.".format(row.bucket or "Bucket"),
+		"opl_submitted": submitted,
 		"bucket": row.bucket,
 		"orders": list(orders),
 		"trip": trip,
 		"trips": trips,
 		"departed": departed,
 	}
+
+
+def _submit_without_not_found(opls):
+	"""The rest of an order may already be shelved: submit the drafts the not-found bucket was
+	holding, when the submit check lets them go on without it. Never fails the mark."""
+	from upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2 import (
+		_try_submit_opl_if_complete,
+	)
+
+	submitted = []
+	for opl in opls:
+		if frappe.db.get_value("Order Pick List", opl, "docstatus") != 0:
+			continue
+		try:
+			if _try_submit_opl_if_complete(opl):
+				frappe.db.commit()  # nosemgrep: frappe-manual-commit -- the issuing list reads it next
+				submitted.append(opl)
+		except Exception:
+			frappe.db.rollback()
+			frappe.clear_last_message()
+			frappe.log_error(title="Not found: submit failed", message=f"opl={opl}\n{frappe.get_traceback()}")
+	return submitted
 
 
 def _plan_one_fewer(opl, farm, bucket):
@@ -6656,76 +6838,8 @@ def merge_truck_trips(vehicle, date=None):
 				)
 			)
 			continue
-		rows = {}
-		for d in group:
-			for o in d.orders:
-				key = (o.order_pick_list, o.farm or "")
-				r = rows.get(key)
-				if r is None:
-					rows[key] = r = o.as_dict()
-					for k in ("name", "parent", "idx", "creation", "modified"):
-						r.pop(k, None)
-					continue
-				for k in ("buckets", "stems", "loaded_buckets", "loaded_stems"):
-					r[k] = int(r.get(k) or 0) + int(o.get(k) or 0)
-				r["full_farm_buckets"] = max(
-					int(r.get("full_farm_buckets") or 0), int(o.full_farm_buckets or 0)
-				)
-				r["varieties"] = ", ".join(
-					sorted(
-						{v for v in (r.get("varieties") or "").split(", ") if v}
-						| {v for v in (o.varieties or "").split(", ") if v}
-					)
-				)
-		for r in rows.values():
-			# Planned somewhere = no longer an unplanned load.
-			r["unscheduled"] = 0 if int(r.get("buckets") or 0) > 0 else int(r.get("unscheduled") or 0)
-			r["full_farm_buckets"] = max(int(r.get("full_farm_buckets") or 0), int(r.get("buckets") or 0))
-			r["is_partial"] = 1 if int(r.get("buckets") or 0) < int(r["full_farm_buckets"]) else 0
-		keep.set("orders", [])
-		for r in rows.values():
-			keep.append("orders", r)
-		for d in rest:
-			_add_trip_buckets(
-				keep,
-				[
-					{
-						"opl": b.order_pick_list,
-						"bucket": b.bucket,
-						"farm": b.farm,
-						"loaded_at": b.get("loaded_at"),
-						"loaded_by": b.get("loaded_by"),
-					}
-					for b in d.get("trip_buckets") or []
-				],
-				stamp=False,
-			)
-			departed = _departed(keep)
-			for f in _departed(d):
-				if f not in departed:
-					departed.append(f)
-			keep.departed_stops = ",".join(departed)
-			if d.notes and d.notes not in (keep.notes or ""):
-				keep.notes = ((keep.notes or "") + "\n" + d.notes).strip()
-		keep.unscheduled = 1 if all(int(o.unscheduled or 0) for o in keep.orders) else 0
-		keep.auto_planned = 1 if all(int(d.get("auto_planned") or 0) for d in group) else 0
-		keep.capacity_buckets = cap
-		keep.total_buckets = sum(int(o.buckets or 0) for o in keep.orders)
-		keep.total_stems = sum(int(o.stems or 0) for o in keep.orders)
-		keep.loaded_buckets = _trip_loaded_count(keep)
-		if rest:
-			keep.add_comment(
-				"Info",
-				"Merged {0} into this trip (same truck, same trip number)".format(
-					", ".join(d.name for d in rest)
-				),
-			)
-		# Remove the folded trips first: while they exist their buckets and claims would
-		# make the merged trip look double-booked (Bucket Request Trip.validate).
-		for d in rest:
-			frappe.delete_doc("Bucket Request Trip", d.name, ignore_permissions=True, force=1)
-			removed.append(d.name)
-		keep.save(ignore_permissions=True)
+		_fold_trips(keep, rest, cap, "Merged {0} into this trip (same truck, same trip number)")
+		removed.extend(d.name for d in rest)
 		kept.append(keep.name)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	if refused and not kept:

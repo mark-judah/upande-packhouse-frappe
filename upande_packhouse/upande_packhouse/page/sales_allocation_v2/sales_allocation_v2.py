@@ -1440,6 +1440,11 @@ def get_sales_order_items_with_buckets(
 			item["incoming_exact_stems"] = 0
 
 	_attach_downgrade_conflicts(items, sales_order)
+	# the box each line is packed in: a spec's mixed bunches and its mixed box are one box (box_groups), so the
+	# page counts a mix's boxes over all of them, not per card
+	keys = box_keys(items)
+	for item in items:
+		item["box_key"] = "|".join(str(k) for k in keys.get(item["sales_order_item"], ()))
 	return items
 
 
@@ -2942,14 +2947,6 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 	# The plan: what was held for these lines is used up, and a fully allocated line lets go of the rest.
 	allocation_plan.after_allocation(allocations)
 
-	# Capture which lines already had an OPL BEFORE this allocation (custom_opl is set
-	# during creation below). The team stamp uses this to tell a freshly-created OPL
-	# from a pre-existing one for first-allocation-wins.
-	prior_opl_by_soi = {
-		a["sales_order_item"]: frappe.db.get_value("Sales Order Item", a["sales_order_item"], "custom_opl")
-		for a in allocations
-	}
-
 	# ── Create/update pick lists ──
 	for a in allocations:
 		shelf = shelf_map.get((a["bucket_id"], a["item_code"], a.get("stem_length") or ""), {})
@@ -2966,7 +2963,9 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 	if target_opl:
 		pick_results = _add_rows_to_opl(target_opl, allocations, so_doc, location, confirmed_by_item)
 	else:
-		pick_results = _create_pick_list(sales_order, allocations, so_doc, location, confirmed_by_item)
+		pick_results = _create_pick_list(
+			sales_order, allocations, so_doc, location, confirmed_by_item, teams=teams
+		)
 
 	# ── Move the stems. Allocation is a sale, so the ledger has to follow the
 	#    SO Warehouse Mapping all the way into a *Sold warehouse. Anything that
@@ -3008,11 +3007,9 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 		sales_order=sales_order,
 	)
 
-	# ── Stamp the per-line team onto each OPL this allocation created/updated.
-	#    The team is taken from the Sales Order Item the OPL covers (straight boxes are
-	#    one OPL per item, so each line keeps its own team). First allocation wins:
-	#    only set custom_team when not already set, so a later allocation to an existing
-	#    OPL never overwrites the team chosen on the first allocation. ──
+	# ── Each pick list is packed by one team: the team its lines are released (or planned) for, by stems. A
+	#    pick list is one box (a mix) or one straight line, and a straight line only goes back onto a pick list of
+	#    its own team (_line_opl), so an order planned for several teams gets a pick list per team. ──
 	teams = teams or {}
 	# The client's dropdown now sources this list from the Packing Teams
 	# doctype (it used to be a hardcoded ["Team A","Team B","Jamafa","Eldama",
@@ -3024,20 +3021,11 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 		opl_name = r.get("name")
 		if not opl_name:
 			continue
-		opl_soi = frappe.db.get_value("Pick List Item", {"parent": opl_name}, "sales_order_item")
-		opl_team = teams.get(opl_soi)
+		opl_team = opl_team_of(opl_name, teams)
 		if not opl_team or opl_team not in real_teams:
 			continue
-		# First-allocation-wins: if this line already had THIS OPL before the current
-		# allocation, keep its team. Otherwise it is a freshly-created OPL, so write the
-		# chosen team (overwriting the Select field's auto first-option value "Team A").
-		# An OPL that never got a team (e.g. a second mix group, before every group was returned)
-		# takes this one: first-allocation-wins only protects a team already chosen.
-		if opl_name == prior_opl_by_soi.get(opl_soi) and frappe.db.get_value(
-			"Order Pick List", opl_name, "team"
-		):
-			continue
-		frappe.db.set_value("Order Pick List", opl_name, "team", opl_team, update_modified=False)
+		if frappe.db.get_value("Order Pick List", opl_name, "team") != opl_team:
+			frappe.db.set_value("Order Pick List", opl_name, "team", opl_team, update_modified=False)
 
 	# The pick-list builders (server_scripts) release a pick list with the original Sales Allocation's
 	# rule, which knows no partial packing; v2's own rule decides here too.
@@ -3058,7 +3046,25 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 # ============================================================
 # PICK LIST CREATION
 # ============================================================
-def _create_pick_list(sales_order, allocations, so_doc, location, confirmed_by_item=None):
+def opl_team_of(opl_name, teams=None):
+	"""The team that packs a pick list: the team its lines are released for (`teams`, {line: team}), else the one
+	Allocation Planning gave them, weighed by stems. A mix is one box: a variety planned for another team still goes
+	with the team of most of the box."""
+	rows = frappe.db.sql(
+		"""SELECT sales_order_item, SUM(stock_qty) FROM `tabPick List Item`
+		WHERE parent = %s AND parenttype = 'Order Pick List' GROUP BY sales_order_item""",
+		opl_name,
+	)
+	planned = allocation_plan.planned_teams([soi for soi, _stems in rows if soi])
+	weight = {}
+	for soi, stems in rows:
+		team = (teams or {}).get(soi) or planned.get(soi)
+		if team:
+			weight[team] = weight.get(team, 0.0) + (flt(stems) or 1.0)
+	return max(sorted(weight), key=lambda t: weight[t]) if weight else None
+
+
+def _create_pick_list(sales_order, allocations, so_doc, location, confirmed_by_item=None, teams=None):
 	straight = []
 	mixed = []
 	mixed_bunch = []
@@ -3084,15 +3090,17 @@ def _create_pick_list(sales_order, allocations, so_doc, location, confirmed_by_i
 		for a in straight:
 			by_soi.setdefault(a["sales_order_item"], []).append(a)
 
+		planned = allocation_plan.planned_teams(list(by_soi))
 		for soi, allocs in by_soi.items():
 			so_item = next(i for i in so_doc.items if i.name == soi)
+			team = (teams or {}).get(soi) or planned.get(soi)
 			ready, waiting = _split_ready(so_item, allocs)
 			ready_opl = None
 			for group, wants_waiting in ((ready, False), (waiting, True)):
 				if not group:
 					continue
 				done = _route_straight(
-					soi, group, so_doc, location, confirmed_by_item, _line_opl(soi, wants_waiting)
+					soi, group, so_doc, location, confirmed_by_item, _line_opl(soi, wants_waiting, team)
 				)
 				results += done
 				if not wants_waiting and done:
@@ -3184,18 +3192,20 @@ def _split_ready(so_item, allocs):
 	return whole, rest + waiting
 
 
-def _line_opl(soi, waiting):
+def _line_opl(soi, waiting, team=None):
 	"""The line's live pick list for ready stems (one with nothing waiting for a truck), or for waiting ones
-	(a draft that has); None when there is none yet."""
+	(a draft that has); None when there is none yet. With `team`, only a pick list of that team (or of none):
+	stems released for another team go on a pick list of their own."""
 	rows = frappe.db.sql(
 		"""SELECT opl.name, opl.docstatus,
 			MAX(IFNULL(pli.awaiting_transfer, 0) = 1 AND IFNULL(pli.shelved, 0) = 0) AS waits
 		FROM `tabOrder Pick List` opl
 		INNER JOIN `tabPick List Item` pli ON pli.parent = opl.name
-		WHERE pli.sales_order_item = %s AND opl.docstatus < 2
+		WHERE pli.sales_order_item = %(soi)s AND opl.docstatus < 2
+		  AND (%(team)s = '' OR IFNULL(opl.team, '') IN ('', %(team)s))
 		GROUP BY opl.name, opl.docstatus
 		ORDER BY opl.creation DESC""",
-		soi,
+		{"soi": soi, "team": team or ""},
 		as_dict=True,
 	)
 	for r in rows:
@@ -3479,6 +3489,7 @@ def planned_stems(sois):
 		fields=[
 			"name",
 			"qty",
+			"stock_qty",
 			"conversion_factor",
 			"custom_ordered_quantity",
 			"custom_number_of_boxes",
@@ -3491,10 +3502,18 @@ def planned_stems(sois):
 	for it in lines:
 		boxes = cint(it.custom_number_of_boxes) or 1
 		per_box = _line_capacity(it) / boxes
-		ordered = flt(it.custom_ordered_quantity) or flt(it.qty) * (flt(it.conversion_factor) or 1)
+		# the line's own stems: custom_ordered_quantity is not updated when an order is reduced
+		ordered = (
+			flt(it.stock_qty)
+			or flt(it.custom_ordered_quantity)
+			or flt(it.qty) * (flt(it.conversion_factor) or 1)
+		)
 		if per_box > 0:
 			whole = min(boxes, math.ceil(raw[it.name] / per_box - 1e-9)) * per_box
-			raw[it.name] = min(max(raw[it.name], whole), max(ordered, raw[it.name]))
+			raw[it.name] = max(raw[it.name], whole)
+		# a plan above the order (a confirmation saved twice) never makes the line ask for more than was ordered
+		if ordered > 0:
+			raw[it.name] = min(raw[it.name], ordered)
 	return raw
 
 
@@ -3607,6 +3626,10 @@ def opl_submit_blockers(opl):
 	if opl.get("short_accepted"):
 		return blockers
 
+	blockers += not_found_blockers(opl)
+	if blockers:
+		return blockers
+
 	global_confirmed = _get_all_confirmed_stems(opl.sales_order)
 
 	# NOTE: Order Pick List's own fields are "mix_group"/"bunch_group" (no
@@ -3671,6 +3694,56 @@ def opl_submit_blockers(opl):
 		blockers.append("{0} line(s) not yet fully allocated: {1}".format(len(short), "; ".join(short)))
 
 	return blockers
+
+
+def not_found_blockers(opl):
+	"""A pick list with buckets marked not found (no replacement yet): a mixed box waits for the
+	replacement; a single straight box goes on without them; more than one straight box goes on
+	once the buckets still here fill at least one whole box."""
+	missing = [r for r in opl.table_ytkc if r.get("not_found") and not r.get("issued")]
+	if not missing:
+		return []
+	label = ", ".join(sorted({r.bucket for r in missing if r.bucket})) or opl.name
+	items = sorted({r.sales_order_item for r in opl.table_ytkc if r.sales_order_item})
+	lines = (
+		frappe.get_all(
+			"Sales Order Item",
+			filters={"name": ("in", items)},
+			fields=[
+				"name",
+				"stock_qty",
+				"custom_number_of_boxes",
+				"custom_packrate",
+				"custom_mixed_box",
+				"custom_mixed_bunch",
+			],
+		)
+		if items
+		else []
+	)
+	if (
+		opl.get("mix_group")
+		or opl.get("bunch_group")
+		or any(cint(x.custom_mixed_box) or cint(x.custom_mixed_bunch) for x in lines)
+	):
+		return [_("Bucket(s) {0} not found: a mixed box waits for a replacement").format(label)]
+	if sum(cint(x.custom_number_of_boxes) or 1 for x in lines) <= 1:
+		return []
+	gone = defaultdict(float)
+	for soi, stems in frappe.db.sql(
+		"""SELECT sales_order_item, SUM(IFNULL(stock_qty, 0)) FROM `tabPick List Item`
+		WHERE parenttype = 'Order Pick List' AND sales_order_item IN %(s)s
+		  AND IFNULL(not_found, 0) = 1 AND IFNULL(issued, 0) = 0
+		GROUP BY sales_order_item""",
+		{"s": tuple(items)},
+	):
+		gone[soi] = flt(stems)
+	for x in lines:
+		n = cint(x.custom_number_of_boxes) or 1
+		per_box = flt(x.custom_packrate) or flt(x.stock_qty) / n
+		if per_box > 0 and _cumulative_allocated_stems(x.name) - gone[x.name] >= per_box - 1e-9:
+			return []
+	return [_("Bucket(s) {0} not found: no whole box can be packed without them").format(label)]
 
 
 def _box_lines_of(opl):

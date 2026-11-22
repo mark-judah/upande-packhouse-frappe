@@ -3010,6 +3010,25 @@ frappe.pages["sales-allocation-v2"]._render_lines_rail = function (items) {
 				</div>`;
 			})
 			.join("");
+		// the other cards of the same box (a spec's mixed bunches and its mixed box): a box needs them all
+		const box_key = first.box_key;
+		if (box_key) {
+			(P.order_items || []).forEach((it) => {
+				if (it.box_key !== box_key || lines.includes(it)) return;
+				const per_box = P._per_box(it);
+				if (!(per_box > 0)) return;
+				const have =
+					(it.total_allocated_qty || 0) +
+					P._session_qty(it.sales_order_item) +
+					Math.round(P._proposed_line(it.sales_order_item));
+				const free_stems = (it.batches || []).reduce(
+					(t, b) => t + Math.max(0, b.available_qty || 0),
+					0
+				);
+				done = Math.min(done, Math.floor(have / per_box + 1e-9));
+				reach = Math.min(reach, Math.floor((have + free_stems) / per_box + 1e-9));
+			});
+		}
 		done = Math.max(0, Math.min(done, total_boxes));
 		reach = Math.max(done, Math.min(reach, total_boxes));
 		const mix_team = lines.find((it) => it.opl_team || it.planning_team) || {};
@@ -4512,27 +4531,24 @@ frappe.pages["sales-allocation-v2"].auto_allocate_day = function () {
 frappe.pages["sales-allocation-v2"]._run_allocate_day = function () {
 	const P = frappe.pages["sales-allocation-v2"];
 	P._listen_day_allocation();
-	// the open order's picks are held first, so Allocate all leaves them (and their buckets) alone
+	// Allocate is a fresh allocation: the open order's picks not confirmed yet are dropped, and the server
+	// replaces every proposal waiting release (hand picks included) with a new plan of every order
+	P.clear_allocations(true);
 	P._day_finished = false;
 	P._live_planned = {};
 	P._live_planned_key = "";
 	P._flow_area(false);
 	P._day_progress(0, 1, "", undefined, "prepare");
-	// a pick that cannot be held (already held elsewhere) must not stop Allocate all
-	P._hold_session()
-		.catch(() => {})
-		.then(() =>
-			frappe.call({
-				method: "upande_packhouse.upande_packhouse.page.sales_allocation_v2.day_allocation.auto_allocate_day",
-				args: { ...P._day_args(), box_type: P.filters.box_type || "" },
-				callback: (r) =>
-					r.message &&
-					(r.message.queued
-						? ((P._day_run = r.message.run || ""), P._resume_day_progress())
-						: r.message.done && P._day_done(r.message)),
-				error: () => P._resume_day_progress(),
-			})
-		);
+	frappe.call({
+		method: "upande_packhouse.upande_packhouse.page.sales_allocation_v2.day_allocation.auto_allocate_day",
+		args: { ...P._day_args(), box_type: P.filters.box_type || "" },
+		callback: (r) =>
+			r.message &&
+			(r.message.queued
+				? ((P._day_run = r.message.run || ""), P._resume_day_progress())
+				: r.message.done && P._day_done(r.message)),
+		error: () => P._resume_day_progress(),
+	});
 	P._follow_run("propose");
 };
 // While a run goes on in the request, the page also asks the server how it is going: realtime may not reach
