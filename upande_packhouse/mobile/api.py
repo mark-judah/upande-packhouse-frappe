@@ -6817,6 +6817,10 @@ def shelveBucket():
 	from upande_packhouse.api import transfer_control as _tc
 
 	_tc.return_to_farm(bucket_id, farm)
+	# Shelved at a third farm on its way to the sales farm (the truck dropped it there): it waits there now.
+	from upande_packhouse.api.remote_transfer.third_farm import wait_at_third_farm
+
+	wait_at_third_farm(bucket_id, farm, shelf_id)
 	# At the hub: a bucket whose truck load never reached the server goes on the trip
 	# that planned it first, so that trip records it and ends as it is shelved.
 	frappe.db.savepoint("shelve_planned_load")
