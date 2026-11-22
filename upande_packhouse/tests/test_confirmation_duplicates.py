@@ -130,39 +130,37 @@ class TestPickListTeam(unittest.TestCase):
 		self.assertIsNone(self._team([("L1", 100.0)], {}, {}))
 
 
-class TestAllocateAllPlansOnTopOfPicks(unittest.TestCase):
-	"""Allocate all with an order open on the page (its picks held first as a proposal) still allocates that
-	order: planned on top of the picks and added to them, as Auto-allocate order does (2026-11-22)."""
+class TestAllocateIsFresh(unittest.TestCase):
+	"""Allocate is a fresh allocation (2026-11-22): it replaces every proposal waiting release, hand picks
+	included, plans every order (none skipped) and carries each line's planned team."""
 
-	def test_picked_order_is_planned_and_added_to(self):
+	def test_fresh_run_replaces_hand_picks_and_plans_every_order(self):
 		from upande_packhouse.upande_packhouse.page.sales_allocation_v2 import day_allocation as da
 
-		picked = frappe._dict(name="SO-PICKED")
-		fresh = frappe._dict(name="SO-FRESH")
 		planned = [
 			{"sales_order": "SO-PICKED", "allocations": [{"qty": 60}], "teams": {}, "boxes": 3, "stems": 60},
 			{"sales_order": "SO-FRESH", "allocations": [{"qty": 20}], "teams": {}, "boxes": 1, "stems": 20},
 		]
-		calls = {}
+		calls = {"saved": [], "stale_filters": None, "deleted": []}
 
 		def get_all(doctype, filters=None, pluck=None, **kw):
-			if doctype == da.PENDING and filters.get("source") == "Allocate all":
-				return []  # no earlier Allocate all proposal
 			if doctype == da.PENDING:
-				return ["SO-PICKED"]  # the open order's picks, held first
-			return ["L1"] if (filters or {}).get("parent") == "SO-PICKED" else []
+				calls["stale_filters"] = dict(filters)
+				return ["PA-PICKED"]  # the open order's hand picks
+			return []
 
 		def plan_day(*args, **kw):
-			calls["skip"], calls["prior"] = args[5], dict(kw.get("prior") or {})
+			calls["skip"], calls["prior"] = args[5], kw.get("prior")
 			return planned, {}, {}, {}
 
 		with (
 			patch.object(da.frappe, "get_all", side_effect=get_all),
-			patch.object(da, "_orders", return_value=[picked, fresh]),
-			patch.object(da, "_pending_stems", return_value=60.0),
+			patch.object(da.frappe.db, "delete", side_effect=lambda dt, f: calls["deleted"].append(dt)),
+			patch.object(
+				da, "_orders", return_value=[frappe._dict(name="SO-PICKED"), frappe._dict(name="SO-FRESH")]
+			),
 			patch.object(da, "_plan_day", side_effect=plan_day),
-			patch.object(da, "_add_checked", side_effect=lambda *a, **k: calls.setdefault("added", a[1])),
-			patch.object(da, "_save_pending", side_effect=lambda *a, **k: calls.setdefault("saved", a[1])),
+			patch.object(da, "_save_pending", side_effect=lambda *a, **k: calls["saved"].append(a[1])),
 			patch.object(da, "_publish"),
 			patch.object(da, "_proposal", return_value=None),
 			patch.object(da, "_summary", return_value={}),
@@ -173,7 +171,17 @@ class TestAllocateAllPlansOnTopOfPicks(unittest.TestCase):
 			patch.object(da.frappe.db, "commit"),
 		):
 			da._run_day("Kapkolia", "2026-11-23", "2026-11-23", ["Kapkolia"], "x@y")
+		self.assertNotIn("source", calls["stale_filters"])  # hand picks are replaced too
+		self.assertEqual(calls["deleted"], ["Pending Allocation Row", da.PENDING])
 		self.assertEqual(calls["skip"], ())
-		self.assertEqual(calls["prior"], {"L1": 60.0})
-		self.assertEqual(calls["added"], "SO-PICKED")
-		self.assertEqual(calls["saved"], "SO-FRESH")
+		self.assertFalse(calls["prior"])
+		self.assertEqual(calls["saved"], ["SO-PICKED", "SO-FRESH"])
+
+	def test_planned_team_comes_before_an_old_pick_lists_team(self):
+		from upande_packhouse.upande_packhouse.page.sales_allocation_v2 import day_allocation as da
+
+		item = {"sales_order_item": "L1", "opl_team": "Team B", "planning_team": "Eldama A", "item_code": "X"}
+		self.assertEqual(da._team(item, {}, {"enforce_plan": 1}), "Eldama A")
+		item = {"sales_order_item": "L1", "opl_team": "Team B", "planning_team": None, "item_code": "X"}
+		self.assertEqual(da._team(item, {"L1": "Jamafa"}, {"enforce_plan": 1}), "Jamafa")
+		self.assertEqual(da._team(item, {}, {"enforce_plan": 1}), "Team B")

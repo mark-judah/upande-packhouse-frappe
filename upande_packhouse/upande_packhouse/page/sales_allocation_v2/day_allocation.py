@@ -142,7 +142,10 @@ def _planned(item):
 
 
 def _team(item, planned, rules):
-	team = item.get("opl_team") or item.get("planning_team") or planned.get(item["sales_order_item"])
+	# the team Allocation Planning gave the line comes first: a pick list made earlier for another team (a
+	# release that went to the wrong team) must not carry its team on, so an order planned for several teams
+	# stays split from allocation to release
+	team = item.get("planning_team") or planned.get(item["sales_order_item"]) or item.get("opl_team")
 	if team or rules["enforce_plan"]:
 		return team
 	groups = rules.setdefault("item_groups", {})
@@ -1086,13 +1089,11 @@ def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=
 	ran = {"saved": [], "committed": False}
 	try:
 		_publish(user, location, phase="propose", stage="prepare", progress=0, total=1, order="")
-		# a new run replaces the last Allocate all proposal; hand-picked orders keep their picks and get the rest of
-		# their boxes planned on top, as Auto-allocate order does (they used to be skipped whole: an order open on
-		# the page, its picks held first, got nothing from Allocate all)
+		# Allocate is a fresh allocation: it replaces every proposal of the window waiting release, hand picks
+		# included, and plans every order from what is saved (never skipping one that held picks)
 		stale_filters = {
 			"status": "Pending",
 			"location": location,
-			"source": "Allocate all",
 			"delivery_date": ("between", _window(delivery_start, delivery_end)),
 		}
 		if _group():
@@ -1144,24 +1145,7 @@ def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=
 			# nothing links to a proposal: its rows and itself go in two statements
 			frappe.db.delete("Pending Allocation Row", {"parent": ("in", stale), "parenttype": PENDING})
 			frappe.db.delete(PENDING, {"name": ("in", stale)})
-		# the orders still holding a proposal (picked by hand): planned on top of their picks, never skipped
-		picked = set(
-			frappe.get_all(
-				PENDING,
-				filters={
-					"status": "Pending",
-					"location": location,
-					"delivery_date": ("between", _window(delivery_start, delivery_end)),
-				},
-				pluck="sales_order",
-			)
-		)
 		window_orders = _orders(location, delivery_start, delivery_end)
-		prior = defaultdict(float)
-		for o in window_orders:
-			if o.name in picked:
-				for soi in frappe.get_all("Sales Order Item", filters={"parent": o.name}, pluck="name"):
-					prior[soi] = _pending_stems(soi)
 		# the orders the planner confirmed take buckets of any cut stage; the rest only their own
 		was_type, frappe.flags.sa2_box_type = frappe.flags.sa2_box_type, box_type
 		try:
@@ -1173,7 +1157,6 @@ def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=
 				plan_progress,
 				(),
 				window_orders,
-				prior=prior,
 				taken=kept_taken,
 				bypass_orders=bypass_orders,
 			)
@@ -1200,11 +1183,6 @@ def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=
 				order="{0}/{1} · {2}".format(k, len(orders), o.get("order_name") or o["sales_order"]),
 			)
 			other = kept.pop(o["sales_order"], [])
-			if o["sales_order"] in picked:
-				# added to the hand picks, each row cut to what its bucket still has free; the picks are the
-				# planner's own and are never undone by a cancel
-				_add_checked(location, o["sales_order"], o["allocations"] + other, farms)
-				continue
 			ran["saved"].append(
 				_save_pending(
 					location,
@@ -2190,7 +2168,13 @@ def _plan_orders(location, farms, progress, skip, orders, bypass, prior, taken, 
 					group_picks += picks
 					picked[item["sales_order_item"]] += sum(flt(p["qty"]) for p in picks)
 					# no team is guessed: it is chosen when the order is released (the plan's, when it is enforced)
-					team = _team(item, planned, rules) if rules["enforce_plan"] else None
+					# every line carries its own planned team into the proposal, so the release splits the
+					# order per team; a line never planned gets one when it is released (_fill_teams)
+					team = (
+						_team(item, planned, rules)
+						if rules["enforce_plan"]
+						else item.get("planning_team") or planned.get(item["sales_order_item"]) or None
+					)
 					if team:
 						group_teams[item["sales_order_item"]] = team
 			if not group_picks:
