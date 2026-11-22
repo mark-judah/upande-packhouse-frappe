@@ -5069,7 +5069,8 @@ def _save_trip(
 	only = (route, int(run)) if route and run else None
 	if only and not any((r["route"], r["run"]) == only for r in runs):
 		return {"status": "error", "message": "{0} has no trip {1} on route {2}.".format(vehicle, run, route)}
-	busy = None if runs else _vehicle_on_road(vehicle)
+	# a trip that is already planned keeps taking buckets while it is at its farm, wherever its truck is now
+	busy = None if (runs or existing) else _vehicle_on_road(vehicle)
 	if busy and str(trip_date) == str(frappe.utils.today()):
 		return {
 			"status": "error",
@@ -5083,9 +5084,18 @@ def _save_trip(
 		}
 
 	if existing:
-		refusal = _loaded_trip_refusal(name, "re-planned")
-		if refusal:
-			return refusal
+		# a trip being loaded still takes buckets until the truck leaves the farm (in transit): what is on the
+		# truck already is kept (its loaded counts below), only the plan grows
+		left = frappe.db.get_value("Bucket Request Trip", name, "departed_stops") or ""
+		gone = [f for f in left.split(",") if f and f in {r.get("farm") for r in rows}]
+		if gone:
+			return {
+				"status": "error",
+				"reason": "left_farm",
+				"message": "Trip {0} has left {1}: its buckets go on the truck's next trip there.".format(
+					name, ", ".join(gone)
+				),
+			}
 		current = frappe.db.get_value("Bucket Request Trip", name, "status")
 		if current not in ACTIVE_TRIP_STATUSES:
 			return {
@@ -5314,9 +5324,38 @@ def _save_trip(
 		doc.total_buckets = sum(r["buckets"] for r in farm_rows)
 		doc.total_stems = sum(r["stems"] for r in farm_rows)
 		doc.capacity_buckets = cap
+		# what is loaded already stays on the trip: a row never plans fewer buckets than it has on the truck
+		loaded = {
+			(o.order_pick_list, o.farm or ""): (int(o.loaded_buckets or 0), int(o.loaded_stems or 0))
+			for o in (doc.get("orders") or [])
+			if int(o.loaded_buckets or 0)
+		}
 		doc.set("orders", [])
 		for r in farm_rows:
-			doc.append("orders", r)
+			lb, ls = loaded.pop((r.get("order_pick_list"), r.get("farm") or ""), (0, 0))
+			doc.append(
+				"orders",
+				{
+					**r,
+					"buckets": max(int(r.get("buckets") or 0), lb),
+					"loaded_buckets": max(int(r.get("loaded_buckets") or 0), lb),
+					"loaded_stems": max(int(r.get("loaded_stems") or 0), ls),
+				},
+			)
+		for (opl, farm_name), (lb, ls) in loaded.items():
+			# a loaded row the new plan left out comes back as it was on the truck
+			doc.append(
+				"orders",
+				{
+					"order_pick_list": opl,
+					"farm": farm_name,
+					"buckets": lb,
+					"loaded_buckets": lb,
+					"loaded_stems": ls,
+					"order_name": frappe.db.get_value("Order Pick List", opl, "order_name") or opl,
+				},
+			)
+		doc.total_buckets = sum(int(o.buckets or 0) for o in doc.orders)
 		doc.save(ignore_permissions=True)
 		docs.append(doc)
 	if commit:
