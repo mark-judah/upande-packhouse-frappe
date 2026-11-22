@@ -709,7 +709,11 @@ def _sync_confirmed_stems(sales_order, soi, farm, stems):
 		"sales_order_item": soi,
 		"farm": farm,
 	}
-	name = frappe.db.get_value("Confirmed Stems", filters)
+	names = frappe.get_all("Confirmed Stems", filters=filters, pluck="name", order_by="creation asc")
+	name = names[0] if names else None
+	# one row per line and farm: copies left by a confirmation saved twice go
+	for extra in names[1:]:
+		frappe.db.delete("Confirmed Stems", {"name": extra})
 	if flt(stems) <= 0:
 		if name:
 			frappe.db.delete("Confirmed Stems", {"name": name})

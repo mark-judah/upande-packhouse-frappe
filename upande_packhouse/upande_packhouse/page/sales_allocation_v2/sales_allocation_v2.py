@@ -1440,6 +1440,11 @@ def get_sales_order_items_with_buckets(
 			item["incoming_exact_stems"] = 0
 
 	_attach_downgrade_conflicts(items, sales_order)
+	# the box each line is packed in: a spec's mixed bunches and its mixed box are one box (box_groups), so the
+	# page counts a mix's boxes over all of them, not per card
+	keys = box_keys(items)
+	for item in items:
+		item["box_key"] = "|".join(str(k) for k in keys.get(item["sales_order_item"], ()))
 	return items
 
 
@@ -3479,6 +3484,7 @@ def planned_stems(sois):
 		fields=[
 			"name",
 			"qty",
+			"stock_qty",
 			"conversion_factor",
 			"custom_ordered_quantity",
 			"custom_number_of_boxes",
@@ -3491,10 +3497,18 @@ def planned_stems(sois):
 	for it in lines:
 		boxes = cint(it.custom_number_of_boxes) or 1
 		per_box = _line_capacity(it) / boxes
-		ordered = flt(it.custom_ordered_quantity) or flt(it.qty) * (flt(it.conversion_factor) or 1)
+		# the line's own stems: custom_ordered_quantity is not updated when an order is reduced
+		ordered = (
+			flt(it.stock_qty)
+			or flt(it.custom_ordered_quantity)
+			or flt(it.qty) * (flt(it.conversion_factor) or 1)
+		)
 		if per_box > 0:
 			whole = min(boxes, math.ceil(raw[it.name] / per_box - 1e-9)) * per_box
-			raw[it.name] = min(max(raw[it.name], whole), max(ordered, raw[it.name]))
+			raw[it.name] = max(raw[it.name], whole)
+		# a plan above the order (a confirmation saved twice) never makes the line ask for more than was ordered
+		if ordered > 0:
+			raw[it.name] = min(raw[it.name], ordered)
 	return raw
 
 

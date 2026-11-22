@@ -3010,6 +3010,25 @@ frappe.pages["sales-allocation-v2"]._render_lines_rail = function (items) {
 				</div>`;
 			})
 			.join("");
+		// the other cards of the same box (a spec's mixed bunches and its mixed box): a box needs them all
+		const box_key = first.box_key;
+		if (box_key) {
+			(P.order_items || []).forEach((it) => {
+				if (it.box_key !== box_key || lines.includes(it)) return;
+				const per_box = P._per_box(it);
+				if (!(per_box > 0)) return;
+				const have =
+					(it.total_allocated_qty || 0) +
+					P._session_qty(it.sales_order_item) +
+					Math.round(P._proposed_line(it.sales_order_item));
+				const free_stems = (it.batches || []).reduce(
+					(t, b) => t + Math.max(0, b.available_qty || 0),
+					0
+				);
+				done = Math.min(done, Math.floor(have / per_box + 1e-9));
+				reach = Math.min(reach, Math.floor((have + free_stems) / per_box + 1e-9));
+			});
+		}
 		done = Math.max(0, Math.min(done, total_boxes));
 		reach = Math.max(done, Math.min(reach, total_boxes));
 		const mix_team = lines.find((it) => it.opl_team || it.planning_team) || {};
