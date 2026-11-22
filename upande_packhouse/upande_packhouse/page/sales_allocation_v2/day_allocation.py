@@ -1053,9 +1053,26 @@ def _release_parts(release):
 	return [part for part in (straight, mixed) if part]
 
 
-def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=(), box_type=None):
+def _planned_orders(sales_orders):
+	"""The orders among these that Allocation Planning confirmed (a live, fulfilled or allocated plan)."""
+	if not sales_orders:
+		return set()
+	return set(
+		frappe.db.sql_list(
+			"""SELECT DISTINCT sales_order FROM `tabAllocation Confirmation`
+			WHERE sales_order IN %(s)s
+			  AND (status IN %(kept)s OR (status = 'Released' AND release_reason = 'Allocated'))""",
+			{"s": tuple(sales_orders), "kept": (*allocation_plan.LIVE, "Fulfilled")},
+		)
+	)
+
+
+def _run_day(
+	location, delivery_start, delivery_end, farms, user, bypass_orders=(), box_type=None, only_planned=False
+):
 	"""`box_type` "straight" or "mixed": only those lines are allocated; the other type's rows of earlier
-	Allocate all proposals are kept as they were (their buckets stay theirs)."""
+	Allocate all proposals are kept as they were (their buckets stay theirs). `only_planned`: only orders
+	Allocation Planning confirmed (the automatic runs)."""
 	steps = {"total": 1}
 
 	# allocating is the first half of the bar, the shortages check the second
@@ -1146,6 +1163,9 @@ def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=
 			frappe.db.delete("Pending Allocation Row", {"parent": ("in", stale), "parenttype": PENDING})
 			frappe.db.delete(PENDING, {"name": ("in", stale)})
 		window_orders = _orders(location, delivery_start, delivery_end)
+		if only_planned:
+			planned = _planned_orders([o.name for o in window_orders])
+			window_orders = [o for o in window_orders if o.name in planned]
 		# the orders the planner confirmed take buckets of any cut stage; the rest only their own
 		was_type, frappe.flags.sa2_box_type = frappe.flags.sa2_box_type, box_type
 		try:
