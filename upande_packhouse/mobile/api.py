@@ -6639,38 +6639,21 @@ def shelveBucket():
 		shelf_doc.insert(ignore_permissions=True)
 	result["shelf_doc"] = shelf_doc
 
-	# duplicate on THIS shelf
+	# already on THIS shelf: refused, saying so (a bucket on ANOTHER shelf moves, below)
 	for item in shelf_doc.items or []:
 		if (item.bucket_id or "").lower() == bucket_id.lower():
-			_fail("duplicate_entry", "The bucket has already been shelved.")
+			_fail("duplicate_entry", "The bucket is already shelved on this shelf ({0}).".format(shelf_id))
 			return
 
-	# duplicate on ANOTHER shelf (transfer buckets self-heal, otherwise block)
+	# on ANOTHER shelf: the bucket has physically come here (its trolley / truck scan was skipped, or it is
+	# reshelved), so it moves -- taken off the old shelf once shelved here, never refused
 	other_shelves = frappe.db.sql(
 		"""SELECT name, parent FROM `tabShelf Item` WHERE bucket_id = %s AND parent != %s FOR UPDATE""",
 		(bucket_id, shelf_id),
 		as_dict=True,
 	)
 	if other_shelves:
-		transfer_rows = frappe.db.sql(
-			"""
-            SELECT pli.name FROM `tabPick List Item` pli
-            JOIN `tabOrder Pick List` opl ON opl.name = pli.parent AND opl.docstatus = 0
-            WHERE pli.parenttype = 'Order Pick List' AND pli.bucket = %s
-              AND (pli.awaiting_transfer = 1 OR pli.in_transit = 1
-                   OR pli.loaded_in_trolley = 1)
-              AND NOT (IFNULL(pli.custom_ready_for_packing, 0) = 1 OR IFNULL(pli.issued, 0) = 1) LIMIT 1""",
-			bucket_id,
-			as_dict=True,
-		)
-		if transfer_rows:
-			result["stale_transfer_shelves"] = other_shelves
-		else:
-			_fail(
-				"duplicate_entry",
-				"The bucket has already been shelved on shelf {0}.".format(other_shelves[0].parent),
-			)
-			return
+		result["stale_transfer_shelves"] = other_shelves
 
 	# capacity — count DISTINCT buckets on the shelf, not rows (a bucket spans
 	# several Shelf Item rows when it carries several varieties).
