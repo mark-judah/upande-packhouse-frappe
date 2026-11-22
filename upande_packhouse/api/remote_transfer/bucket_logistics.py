@@ -441,7 +441,14 @@ def getBucketLogistics():
 				t["lead_name"] = lead["lead_name"]
 		# A trip closed without ever leaving that took none of this order's buckets is
 		# not one of its trips.
-		r["trips"] = [t for t in mine if t["counted"] or t["dispatched_at"] or t["status"] != "Received"]
+		# Only trips running today: buckets requested today. An earlier day's trips (yesterday's, for today's
+		# deliveries) are done -- their buckets show on the order as shelved, issued...
+		r["trips"] = [
+			t
+			for t in mine
+			if str(t["trip_date"]) >= today
+			and (t["counted"] or t["dispatched_at"] or t["status"] != "Received")
+		]
 		# Buckets riding with another order on a trip still out.
 		r["riding"] = sum(t["riding"] for t in r["trips"] if t["status"] != "Received")
 	# Under a trip, each order's stages count only its buckets on that trip.
@@ -570,6 +577,8 @@ def getBucketLogistics():
 		run["trolley_buckets"] = n.get("trolley") or 0
 		run["shelved_buckets"] = n.get("shelved") or 0
 		runs.append(run)
+	# today's trips only: an earlier day's are hidden
+	runs = [r for r in runs if str(r.get("trip_date") or "") >= frappe.utils.today()]
 	runs.sort(key=lambda t: (t["vehicle"] or "", t["trip_date"], t["run"] or 99, t["name"]))
 	frappe.response["runs"] = runs
 
