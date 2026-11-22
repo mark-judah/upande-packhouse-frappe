@@ -64,7 +64,9 @@ class TestConfirmedStemsMirror(unittest.TestCase):
 		deleted, updated = [], []
 		with (
 			patch.object(allocation_plan.frappe, "get_all", return_value=["CS1", "CS2", "CS3"]),
-			patch.object(allocation_plan.frappe.db, "delete", side_effect=lambda dt, f: deleted.append(f["name"])),
+			patch.object(
+				allocation_plan.frappe.db, "delete", side_effect=lambda dt, f: deleted.append(f["name"])
+			),
 			patch.object(
 				allocation_plan.frappe.db, "set_value", side_effect=lambda *a, **k: updated.append(a[1])
 			),
@@ -99,3 +101,30 @@ class TestMixBoxKeys(unittest.TestCase):
 		keys = box_keys(lines)
 		self.assertEqual(keys["B6"], keys["MB"])
 		self.assertEqual(keys["B7"], keys["MB"])
+
+
+class TestPickListTeam(unittest.TestCase):
+	"""A pick list is packed by the team its lines are released or planned for (05208, 05254, 05262: 2026-11-22)."""
+
+	def _team(self, rows, planned, teams=None):
+		with (
+			patch.object(sa.frappe.db, "sql", return_value=rows),
+			patch.object(sa.allocation_plan, "planned_teams", return_value=planned),
+		):
+			return sa.opl_team_of("OPL-1", teams)
+
+	def test_mix_goes_to_the_team_of_most_of_the_box(self):
+		# 05208 mix 02721: Madam Red has a stray Team A plan, the box's other three lines are Jamafa
+		rows = [("MR", 1575.0), ("SN", 840.0), ("WH", 1050.0), ("YE", 1050.0)]
+		planned = {"MR": "Team A", "SN": "Jamafa", "WH": "Jamafa", "YE": "Jamafa"}
+		self.assertEqual(self._team(rows, planned), "Jamafa")
+
+	def test_release_team_wins_over_the_plan(self):
+		self.assertEqual(self._team([("L1", 200.0)], {"L1": "Eldama A"}, {"L1": "Team B"}), "Team B")
+
+	def test_planned_team_when_release_names_none(self):
+		# 05254 Giselle: planned Eldama A, stamped Team B by the order's first line
+		self.assertEqual(self._team([("GI", 1400.0)], {"GI": "Eldama A"}, {}), "Eldama A")
+
+	def test_no_team_known(self):
+		self.assertIsNone(self._team([("L1", 100.0)], {}, {}))
