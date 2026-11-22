@@ -128,3 +128,52 @@ class TestPickListTeam(unittest.TestCase):
 
 	def test_no_team_known(self):
 		self.assertIsNone(self._team([("L1", 100.0)], {}, {}))
+
+
+class TestAllocateAllPlansOnTopOfPicks(unittest.TestCase):
+	"""Allocate all with an order open on the page (its picks held first as a proposal) still allocates that
+	order: planned on top of the picks and added to them, as Auto-allocate order does (2026-11-22)."""
+
+	def test_picked_order_is_planned_and_added_to(self):
+		from upande_packhouse.upande_packhouse.page.sales_allocation_v2 import day_allocation as da
+
+		picked = frappe._dict(name="SO-PICKED")
+		fresh = frappe._dict(name="SO-FRESH")
+		planned = [
+			{"sales_order": "SO-PICKED", "allocations": [{"qty": 60}], "teams": {}, "boxes": 3, "stems": 60},
+			{"sales_order": "SO-FRESH", "allocations": [{"qty": 20}], "teams": {}, "boxes": 1, "stems": 20},
+		]
+		calls = {}
+
+		def get_all(doctype, filters=None, pluck=None, **kw):
+			if doctype == da.PENDING and filters.get("source") == "Allocate all":
+				return []  # no earlier Allocate all proposal
+			if doctype == da.PENDING:
+				return ["SO-PICKED"]  # the open order's picks, held first
+			return ["L1"] if (filters or {}).get("parent") == "SO-PICKED" else []
+
+		def plan_day(*args, **kw):
+			calls["skip"], calls["prior"] = args[5], dict(kw.get("prior") or {})
+			return planned, {}, {}, {}
+
+		with (
+			patch.object(da.frappe, "get_all", side_effect=get_all),
+			patch.object(da, "_orders", return_value=[picked, fresh]),
+			patch.object(da, "_pending_stems", return_value=60.0),
+			patch.object(da, "_plan_day", side_effect=plan_day),
+			patch.object(da, "_add_checked", side_effect=lambda *a, **k: calls.setdefault("added", a[1])),
+			patch.object(da, "_save_pending", side_effect=lambda *a, **k: calls.setdefault("saved", a[1])),
+			patch.object(da, "_publish"),
+			patch.object(da, "_proposal", return_value=None),
+			patch.object(da, "_summary", return_value={}),
+			patch.object(da, "_shortages", return_value=[]),
+			patch.object(da, "_pending", return_value=[]),
+			patch.object(da, "_keep_shortages"),
+			patch.object(da.frappe, "enqueue"),
+			patch.object(da.frappe.db, "commit"),
+		):
+			da._run_day("Kapkolia", "2026-11-23", "2026-11-23", ["Kapkolia"], "x@y")
+		self.assertEqual(calls["skip"], ())
+		self.assertEqual(calls["prior"], {"L1": 60.0})
+		self.assertEqual(calls["added"], "SO-PICKED")
+		self.assertEqual(calls["saved"], "SO-FRESH")

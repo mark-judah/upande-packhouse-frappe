@@ -1086,7 +1086,9 @@ def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=
 	ran = {"saved": [], "committed": False}
 	try:
 		_publish(user, location, phase="propose", stage="prepare", progress=0, total=1, order="")
-		# a new run replaces the last Allocate all proposal; hand-picked orders keep theirs and are skipped
+		# a new run replaces the last Allocate all proposal; hand-picked orders keep their picks and get the rest of
+		# their boxes planned on top, as Auto-allocate order does (they used to be skipped whole: an order open on
+		# the page, its picks held first, got nothing from Allocate all)
 		stale_filters = {
 			"status": "Pending",
 			"location": location,
@@ -1142,8 +1144,8 @@ def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=
 			# nothing links to a proposal: its rows and itself go in two statements
 			frappe.db.delete("Pending Allocation Row", {"parent": ("in", stale), "parenttype": PENDING})
 			frappe.db.delete(PENDING, {"name": ("in", stale)})
-		# the orders still holding a proposal (picked by hand) -- names only, no need to read them whole
-		skip = set(
+		# the orders still holding a proposal (picked by hand): planned on top of their picks, never skipped
+		picked = set(
 			frappe.get_all(
 				PENDING,
 				filters={
@@ -1155,6 +1157,11 @@ def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=
 			)
 		)
 		window_orders = _orders(location, delivery_start, delivery_end)
+		prior = defaultdict(float)
+		for o in window_orders:
+			if o.name in picked:
+				for soi in frappe.get_all("Sales Order Item", filters={"parent": o.name}, pluck="name"):
+					prior[soi] = _pending_stems(soi)
 		# the orders the planner confirmed take buckets of any cut stage; the rest only their own
 		was_type, frappe.flags.sa2_box_type = frappe.flags.sa2_box_type, box_type
 		try:
@@ -1164,8 +1171,9 @@ def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=
 				delivery_end,
 				farms,
 				plan_progress,
-				skip,
+				(),
 				window_orders,
+				prior=prior,
 				taken=kept_taken,
 				bypass_orders=bypass_orders,
 			)
@@ -1192,6 +1200,11 @@ def _run_day(location, delivery_start, delivery_end, farms, user, bypass_orders=
 				order="{0}/{1} · {2}".format(k, len(orders), o.get("order_name") or o["sales_order"]),
 			)
 			other = kept.pop(o["sales_order"], [])
+			if o["sales_order"] in picked:
+				# added to the hand picks, each row cut to what its bucket still has free; the picks are the
+				# planner's own and are never undone by a cancel
+				_add_checked(location, o["sales_order"], o["allocations"] + other, farms)
+				continue
 			ran["saved"].append(
 				_save_pending(
 					location,
@@ -1490,24 +1503,9 @@ def _add_checked(location, sales_order, rows, farms=None):
 
 def _bypass_plan(location, delivery_start, delivery_end, farms, only=None):
 	"""After Allocate all is saved: what buckets of any cut stage add to the window's orders on top of their
-	proposal (`only`: just these orders). Orders holding picks are left alone."""
-	skip = set(
-		frappe.get_all(
-			PENDING,
-			filters={
-				"status": "Pending",
-				"location": location,
-				"source": "Picked",
-				"delivery_date": ("between", _window(delivery_start, delivery_end)),
-			},
-			pluck="sales_order",
-		)
-	)
-	orders = [
-		o
-		for o in _orders(location, delivery_start, delivery_end)
-		if o.name not in skip and (only is None or o.name in only)
-	]
+	proposal (`only`: just these orders). An order holding hand picks goes on from them: they count as
+	allocated (prior), never skipped."""
+	orders = [o for o in _orders(location, delivery_start, delivery_end) if only is None or o.name in only]
 	prior = defaultdict(float)
 	for o in orders:
 		for soi in frappe.get_all("Sales Order Item", filters={"parent": o.name}, pluck="name"):
@@ -1675,25 +1673,14 @@ def apply_cut_stage(
 
 def _window_lines(location, delivery_start, delivery_end, bypass=True, farms=None):
 	"""{sales_order: (order, its lines)} of the window with what is waiting release counted as allocated:
-	the state after Allocate all, for the steps that follow it, from the farms it took stock from."""
-	skip = set(
-		frappe.get_all(
-			PENDING,
-			filters={
-				"status": "Pending",
-				"location": location,
-				"source": "Picked",
-				"delivery_date": ("between", _window(delivery_start, delivery_end)),
-			},
-			pluck="sales_order",
-		)
-	)
+	the state after Allocate all, for the steps that follow it, from the farms it took stock from. An order
+	holding hand picks is read too: its picks count as allocated, so the steps go on from where they reached."""
 	out = {}
 	# shelf stock only, as Allocate all reads it: what is still arriving and downgrade conflicts are the
 	# page's own view, and no step reads them
 	was_planning, frappe.flags.sa2_planning = frappe.flags.sa2_planning, True
 	try:
-		orders = [o for o in _orders(location, delivery_start, delivery_end) if o.name not in skip]
+		orders = _orders(location, delivery_start, delivery_end)
 		read = {
 			o.name: sa.get_sales_order_items_with_buckets(
 				o.name, location, selected_farms=farms, bypass_cut_stage=1 if bypass else 0
