@@ -58,6 +58,9 @@ frappe.ui.form.on("Sales Order", {
 	customer(frm) {
 		set_s_number_reqd(frm);
 	},
+	order_type(frm) {
+		set_s_number_reqd(frm);
+	},
 
 	business_unit(frm) {
 		set_s_number_reqd(frm);
@@ -176,8 +179,10 @@ function set_s_number_reqd(frm) {
 		floriday_customer_promise ||
 		frappe.xcall("upande_packhouse.sales_order_engine.floriday_customer").catch(() => null);
 	floriday_customer_promise.then((floriday_customer) => {
+		// a Quality B (Shopping Cart) order is a local sale: no S_Number, its delivery point is enough
 		const reqd =
 			frm.doc.business_unit === "Roses" &&
+			frm.doc.order_type !== "Shopping Cart" &&
 			!(floriday_customer && frm.doc.customer === floriday_customer);
 		frm.set_df_property("custom_s_number", "reqd", reqd ? 1 : 0);
 	});

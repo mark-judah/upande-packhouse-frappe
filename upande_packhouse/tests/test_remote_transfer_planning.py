@@ -770,6 +770,7 @@ class _Trips:
 		stack.enter_context(patch.object(tc.frappe.db, "sql", side_effect=self.sql))
 		stack.enter_context(patch.object(tc.frappe, "get_all", side_effect=self.get_all))
 		stack.enter_context(patch.object(tc, "_trip_loads", return_value=self.loads))
+		stack.enter_context(patch.object(tc, "_loaded_on_trip", return_value={}))
 		stack.enter_context(patch.object(tc, "shared_buckets", return_value={}))
 		stack.enter_context(
 			patch.object(

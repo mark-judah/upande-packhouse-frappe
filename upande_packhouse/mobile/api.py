@@ -2654,9 +2654,6 @@ def _submit_for_packing(opl_names):
 	from upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation import (
 		opl_submit_blockers,
 	)
-	from upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2 import (
-		not_found_blockers,
-	)
 
 	drafts = [o for o in opl_names or [] if frappe.db.get_value("Order Pick List", o, "docstatus") == 0]
 	if not drafts:
@@ -2673,7 +2670,7 @@ def _submit_for_packing(opl_names):
 			continue
 		try:
 			opl = frappe.get_doc("Order Pick List", name)
-			if opl_submit_blockers(opl) or not_found_blockers(opl):
+			if opl_submit_blockers(opl):
 				continue
 			opl.flags.ignore_permissions = True
 			# The rows are as allocated: a shelf emptied or removed since must not stop it.
@@ -6905,6 +6902,9 @@ def shelveBucket():
 			frappe.db.set_value("Shelf", shi.get("parent"), "modified", frappe.utils.now())
 		except Exception:
 			pass
+	_follow_moved_bucket(
+		bucket_id, {shi.get("parent") for shi in result.get("stale_transfer_shelves") or []}, shelf_id, farm
+	)
 
 	# clear BAS transit flags so the balance becomes allocatable
 	_shelve_update_bas(bucket_id, variety, farm, shelf_id, result)
@@ -7076,6 +7076,28 @@ def _take_over_truck(rows, mine):
 		frappe.log_error("Take over truck: removing stand-in from its trip failed", frappe.get_traceback())
 	for r in mine:
 		r.transit_truck = truck
+
+
+def _follow_moved_bucket(bucket_id, old_shelves, shelf_id, farm):
+	"""A bucket moved off `old_shelves` onto `shelf_id`: the pick rows still to pick it and its allocation
+	records point at the new shelf, so packers are sent where it is."""
+	old = tuple(s for s in old_shelves or () if s and s != shelf_id)
+	if not old:
+		return
+	try:
+		frappe.db.sql(
+			"""UPDATE `tabPick List Item` SET shelf = %(new)s
+			WHERE parenttype = 'Order Pick List' AND bucket = %(b)s AND shelf IN %(old)s
+			  AND IFNULL(issued, 0) = 0""",
+			{"new": shelf_id, "b": bucket_id, "old": old},
+		)
+		frappe.db.sql(
+			"""UPDATE `tabBucket Allocation Status` SET shelf_location = %(new)s, shelf_farm = %(farm)s
+			WHERE bucket_id = %(b)s AND shelf_location IN %(old)s""",
+			{"new": shelf_id, "farm": farm, "b": bucket_id, "old": old},
+		)
+	except Exception:
+		frappe.log_error("Moved bucket: pick rows / allocation not updated", frappe.get_traceback())
 
 
 def _shelve_update_bas(bucket_id, variety, farm, shelf_id, result):

@@ -2402,6 +2402,15 @@ def opl_submit_blockers(opl):
 	if opl.get("short_accepted"):
 		return blockers
 
+	# Buckets marked not found: a mixed box waits for a replacement (one rule, Sales Allocation v2's).
+	from upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2 import (
+		not_found_blockers,
+	)
+
+	blockers += not_found_blockers(opl)
+	if blockers:
+		return blockers
+
 	global_confirmed = _get_all_confirmed_stems(opl.sales_order)
 
 	# NOTE: Order Pick List's own fields are "mix_group"/"bunch_group" (no

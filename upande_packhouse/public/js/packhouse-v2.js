@@ -122,6 +122,8 @@
 				doctype,
 				fields: opts.fields || ["name"],
 				filters: opts.filters || {},
+				// any one of these must match (sent only when given)
+				...(opts.or_filters ? { or_filters: opts.or_filters } : {}),
 				order_by: opts.order_by,
 				limit_page_length: opts.limit == null ? 0 : opts.limit,
 			},

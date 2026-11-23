@@ -153,6 +153,18 @@ def _load_mapping(business_unit):
 			# working against a mapping that predates them.
 			if not entry.get(column) and row.get(column):
 				entry[column] = row.get(column)
+	# A farm's Grade B warehouse (Quality B stems, moved there by an approved discard) goes on the same route as
+	# the farm's own store, unless the mapping gives it a row of its own.
+	farms = _warehouse_farms(list(table))
+	for wh, farm in frappe.db.sql(
+		"SELECT name, custom_farm FROM `tabWarehouse` WHERE name LIKE %s AND IFNULL(custom_farm, '') != ''",
+		"% Grade B - %",
+	):
+		if wh in table:
+			continue
+		own = next((src for src in table if (farms.get(src) or "").lower() == farm.lower()), None)
+		if own:
+			table[wh] = dict(table[own])
 	return table
 
 
@@ -207,7 +219,13 @@ def resolve_route(source, business_unit, upto=SALE_STAGE, to_farm=None):
 		return []
 
 	home = _farm_home_source(table, to_farm) if to_farm else None
-	if home and home != source and home != row.get("transfer_to"):
+	# a farm's Grade B warehouse at the sales farm itself is already there: no arrival leg
+	same_farm_grade_b = (
+		" Grade B - " in source
+		and to_farm
+		and (_warehouse_farms([source]).get(source) or "").lower() == to_farm.lower()
+	)
+	if home and home != source and home != row.get("transfer_to") and not same_farm_grade_b:
 		hops = [
 			{
 				"from": source,

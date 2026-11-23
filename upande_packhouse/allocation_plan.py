@@ -616,7 +616,10 @@ def convert_virtual(delivery_date=None, farm=None):
 		real = max(0.0, flt(held_now.stems) - flt(held_now.fulfilled_stems)) if held_now else 0.0
 		cut = add_days(c.delivery_date, -HARVEST_LEAD_DAYS)
 		free = sum(b.free for b in free_for_line(c.farm, c.variety, c.length, soi, cut))
-		target = min(real + flt(c.stems), free)
+		# what this expected-harvest confirmation still has to cover: its stems already allocated (fulfilled)
+		# are the line's allocation, never held a second time
+		expected = max(0.0, flt(c.stems) - flt(c.fulfilled_stems))
+		target = min(real + expected, free)
 		if target <= real + 0.0001:
 			continue
 		# one line that cannot be held (a bucket record missing, a validation) must not stop the others, nor
@@ -632,19 +635,25 @@ def convert_virtual(delivery_date=None, farm=None):
 				"ordered_length": c.ordered_length,
 				"mix_key": c.mix_key,
 			}
-			_conf, held = reserve_real(
-				plan=plan,
-				line=line,
-				farm=c.farm,
-				variety=c.variety,
-				length=c.length,
-				stems=target,
-				team=c.team,
-				harvested_from=cut,
-				forecast_basis=c.forecast_basis,
-			)
+			# the hold replaces this expected-harvest confirmation (released right after): it is not counted
+			# beside it against the line's order (Allocation Confirmation.validate_not_above_order)
+			frappe.flags.ac_replacing = {c.name}
+			try:
+				_conf, held = reserve_real(
+					plan=plan,
+					line=line,
+					farm=c.farm,
+					variety=c.variety,
+					length=c.length,
+					stems=target,
+					team=c.team,
+					harvested_from=cut,
+					forecast_basis=c.forecast_basis,
+				)
+			finally:
+				frappe.flags.ac_replacing = None
 			release_confirmation(c.name, "Now on the shelf", keep_open=True)
-			rest = real + flt(c.stems) - held
+			rest = real + expected - held
 			if rest > 0.0001:
 				plan_virtual(
 					plan=plan,
