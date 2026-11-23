@@ -4603,7 +4603,9 @@ frappe.pages["sales-allocation-v2"]._release_report = function (m) {
 			title: __("Not released"),
 			message: held
 				.map(([so, why]) => `${name(so)}: ${esc(why)}`)
-				.concat(bare.map((so) => `${name(so)}: ${esc(__("still allocated, waiting release"))}`))
+				.concat(
+					bare.map((so) => `${name(so)}: ${esc(__("still allocated, waiting release"))}`)
+				)
 				.join("<br>"),
 			indicator: "orange",
 		});
