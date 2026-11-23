@@ -54,8 +54,7 @@ def _repeats(customer="", farms=None):
 		          ar.next_schedule_date, ar.disabled,
 		          ar.custom_delivery_days_after AS days_after, ar.notify_by_email AS send_reminder,
 		          ar.recipients AS recipients,
-		          so.customer, so.customer_name, so.po_no, so.custom_order_name AS order_name,
-		          so.docstatus AS source_docstatus,
+		          so.customer, so.customer_name, so.po_no, so.docstatus AS source_docstatus,
 		          {1} AS farm
 		   FROM `tabAuto Repeat` ar
 		   INNER JOIN `tabSales Order` so ON so.name = ar.reference_document
@@ -110,6 +109,14 @@ def get_standing_orders(**kwargs):
 		state = (_arg(args, "state") or "all").lower()
 		farms = region.farms_for(region=_arg(args, "region"), farm=_arg(args, "farm"))
 		rows = _repeats(_arg(args, "customer"), farms)
+		order_names = dict(
+			frappe.get_all(
+				"Sales Order",
+				filters={"name": ["in", list({r.source for r in rows}) or [""]]},
+				fields=["name", "custom_order_name"],
+				as_list=True,
+			)
+		)
 		for r in rows:
 			r["status"] = _status(r, today)
 		if state == "active":
@@ -179,7 +186,7 @@ def get_standing_orders(**kwargs):
 					"customer": r.customer,
 					"customer_name": r.customer_name,
 					"po_no": r.po_no,
-					"order_name": r.order_name or "",
+					"order_name": order_names.get(r.source) or "",
 					"farm": r.farm or "",
 					"status": r["status"],
 					"frequency": r.frequency,
