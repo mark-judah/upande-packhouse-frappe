@@ -640,3 +640,277 @@ class TestSpecs(IntegrationTestCase):
 		self.assertEqual(c["Karen Farm"], c["Karen"])
 		self.assertNotEqual(c["Karen"], c["Eldama Farm"])
 		self.assertEqual(ri._norm_gh("Simotwo GH 6"), ri._norm_gh("SIMOTWO GH6"))
+
+
+class TestPackingByOrder(IntegrationTestCase):
+	"""Per-order packing and the sequence each system followed."""
+
+	T1, T2, T3 = "2026-11-23 08:00:00", "2026-11-23 09:30:00", "2026-11-23 11:15:00"
+
+	def _need(self):
+		# order A: two boxes (box 1 of two varieties, box 2 of one); order B: one box
+		return [
+			{
+				"so": "SO-A",
+				"opl": "OPL-A",
+				"team": "Jamafa",
+				"box_number": "1",
+				"variety": "Odilia",
+				"stems": 300,
+			},
+			{
+				"so": "SO-A",
+				"opl": "OPL-A",
+				"team": "Jamafa",
+				"box_number": "1",
+				"variety": "Sweet Sara",
+				"stems": 100,
+			},
+			{
+				"so": "SO-A",
+				"opl": "OPL-A",
+				"team": "Jamafa",
+				"box_number": "2",
+				"variety": "Odilia",
+				"stems": 300,
+			},
+			{
+				"so": "SO-B",
+				"opl": "OPL-B",
+				"team": "Team A",
+				"box_number": "1",
+				"variety": "Red Calypso",
+				"stems": 144,
+			},
+		]
+
+	def test_a_box_is_packed_only_when_every_variety_meets_the_guide(self):
+		have = [
+			{
+				"so": "SO-A",
+				"opl": "OPL-A",
+				"box_id": "1",
+				"item_code": "Odilia",
+				"stems": 300,
+				"short": 0,
+				"first": self.T1,
+				"last": self.T1,
+			},
+			{
+				"so": "SO-A",
+				"opl": "OPL-A",
+				"box_id": "1",
+				"item_code": "Sweet Sara",
+				"stems": 60,
+				"short": 0,
+				"first": self.T2,
+				"last": self.T2,
+			},
+		]
+		out = rc._erp_box_state(self._need(), have)
+		self.assertEqual(
+			(out["SO-A"]["expected"], out["SO-A"]["started"], out["SO-A"]["packed"]), (2, 1, 0)
+		)  # Sweet Sara 60 of 100
+		self.assertEqual((out["SO-B"]["expected"], out["SO-B"]["started"], out["SO-B"]["packed"]), (1, 0, 0))
+
+	def test_a_box_closed_short_on_purpose_counts_as_packed(self):
+		have = [
+			{
+				"so": "SO-A",
+				"opl": "OPL-A",
+				"box_id": "1",
+				"item_code": "Odilia",
+				"stems": 150,
+				"short": 1,
+				"first": self.T1,
+				"last": self.T1,
+			},
+			{
+				"so": "SO-A",
+				"opl": "OPL-A",
+				"box_id": "2",
+				"item_code": "Odilia",
+				"stems": 300,
+				"short": 0,
+				"first": self.T3,
+				"last": self.T3,
+			},
+		]
+		out = rc._erp_box_state(self._need(), have)
+		self.assertEqual((out["SO-A"]["started"], out["SO-A"]["packed"]), (2, 2))
+
+	def test_first_and_last_are_the_first_and_last_pack_list_lines_as_times(self):
+		have = [
+			{
+				"so": "SO-A",
+				"opl": "OPL-A",
+				"box_id": "1",
+				"item_code": "Odilia",
+				"stems": 300,
+				"short": 0,
+				"first": self.T2,
+				"last": self.T3,
+			},
+			{
+				"so": "SO-A",
+				"opl": "OPL-A",
+				"box_id": "2",
+				"item_code": "Odilia",
+				"stems": 300,
+				"short": 0,
+				"first": self.T1,
+				"last": self.T1,
+			},
+		]
+		a = rc._erp_box_state(self._need(), have)["SO-A"]
+		self.assertEqual(a["first"], rc._epoch(self.T1))
+		self.assertEqual(a["last"], rc._epoch(self.T3))
+		self.assertEqual(a["team"], "Jamafa")
+
+	def test_rosenta_orders_are_summed_over_teams_and_lines(self):
+		ops = {
+			"Eldama": {
+				"o1": {
+					"s1": {
+						"boxes_assigned": 3,
+						"boxes_packed": 2,
+						"boxes_staged": 2,
+						"boxes_loaded": 0,
+						"last_box_packed": 500,
+					},
+					"s2": {"boxes_assigned": 1, "boxes_packed": 0, "last_box_packed": 900},
+				}
+			},
+			"JMF": {
+				"o1": {"s1": {"boxes_assigned": 2, "boxes_packed": 1, "last_box_packed": 700}},
+				"o2": {"s1": {"boxes_assigned": 0, "boxes_packed": 0}},
+			},
+		}
+		out = rc._rosenta_order_packing(ops)
+		self.assertEqual((out["o1"]["assigned"], out["o1"]["packed"], out["o1"]["staged"]), (6, 3, 2))
+		self.assertEqual(out["o1"]["last"], 700)  # an unpacked line never sets the time
+		self.assertEqual(out["o1"]["teams"], ["Eldama", "JMF"])
+		self.assertEqual(out["o2"]["teams"], [])
+
+	def test_the_sequence_lists_only_started_orders_by_first_box_then_last(self):
+		seq = rc._pack_sequence(
+			[
+				{"name": "late", "first": 300, "last": 400},
+				{"name": "early", "first": 100, "last": 900},
+				{"name": "untouched", "first": 0, "last": 0},
+				{"name": "last only", "first": 0, "last": 200},
+			]
+		)
+		self.assertEqual([(e["n"], e["name"]) for e in seq], [(1, "early"), (2, "last only"), (3, "late")])
+
+	def test_orders_only_in_one_system_keep_the_other_side_empty(self):
+		pairs = [
+			{"rosenta": {"id": "o1", "boxes": 4}, "erpnext": None},
+			{"rosenta": None, "erpnext": {"so": "SO-A", "boxes": 2}},
+		]
+		out = rc._attach_packing(
+			pairs,
+			{"o1": {"teams": ["JMF"], "assigned": 4, "packed": 3, "last": 700}},
+			{"SO-A": {"team": "Jamafa", "expected": 2, "packed": 1, "started": 2, "first": 5, "last": 9}},
+			{"o1": {"first": 600, "last": 650}},
+		)
+		self.assertEqual(
+			out[0]["rosenta"]["pack"],
+			{"teams": ["JMF"], "expected": 4, "packed": 3, "first": 600, "last": 700, "by_team": {}},
+		)
+		self.assertIsNone(out[0]["erpnext"])
+		self.assertEqual(out[1]["erpnext"]["pack"]["started"], 2)
+		self.assertIsNone(out[1]["rosenta"])
+
+	def test_whole_call_returns_the_sequence_and_pack_on_each_paired_order(self):
+		frappe.set_user("Administrator")
+		fake_ops = MagicMock()
+		fake_ops.operations.return_value = {}
+		fake_ops.fetch.return_value = {}
+		with (
+			patch.object(rc, "_settings", return_value={"token": "t", "email": "e", "password": "p"}),
+			patch.object(rc, "_orders_summary", return_value=[]),
+			patch.object(rc, "RosentaOps", return_value=fake_ops),
+			patch.object(rc, "_rosenta_invoices", return_value={}),
+			patch.object(rc, "_line_prices", return_value={}),
+		):
+			out = rc.get_rosenta_comparison("2026-11-18")
+		frappe.cache.delete_value("rosenta_compare:2026-11-18")
+		self.assertTrue(out["success"], out.get("error"))
+		self.assertEqual(set(out["sequence"]), {"rosenta", "erpnext"})
+		self.assertIn("pack_error", out)
+		for c in out["customers"]:
+			for p in c["pairs"]:
+				if p["erpnext"]:
+					self.assertIn("pack", p["erpnext"])
+
+
+class TestPackingByTeam(IntegrationTestCase):
+	"""Each order's packing split by the team that packed it, in both systems."""
+
+	def test_rosenta_order_packing_is_split_by_team(self):
+		ops = {
+			"Eldama": {"o1": {"s1": {"boxes_assigned": 3, "boxes_packed": 2, "last_box_packed": 500}}},
+			"JMF": {"o1": {"s1": {"boxes_assigned": 2, "boxes_packed": 1, "last_box_packed": 700}}},
+		}
+		by = rc._rosenta_order_packing(ops)["o1"]["by_team"]
+		self.assertEqual(by["Eldama"], {"assigned": 3, "packed": 2, "last": 500})
+		self.assertEqual(by["JMF"], {"assigned": 2, "packed": 1, "last": 700})
+
+	def test_erpnext_boxes_are_counted_for_the_team_of_their_pick_list(self):
+		need = [
+			{
+				"so": "SO-A",
+				"opl": "OPL-1",
+				"team": "Eldama A",
+				"box_number": "1",
+				"variety": "Odilia",
+				"stems": 100,
+			},
+			{
+				"so": "SO-A",
+				"opl": "OPL-1",
+				"team": "Eldama A",
+				"box_number": "2",
+				"variety": "Odilia",
+				"stems": 100,
+			},
+			{
+				"so": "SO-A",
+				"opl": "OPL-2",
+				"team": "Eldama B",
+				"box_number": "1",
+				"variety": "Odilia",
+				"stems": 100,
+			},
+		]
+		t1, t2, t3 = "2026-11-23 08:00:00", "2026-11-23 09:00:00", "2026-11-23 10:00:00"
+		have = [
+			{
+				"so": "SO-A",
+				"opl": "OPL-1",
+				"box_id": "1",
+				"item_code": "Odilia",
+				"stems": 100,
+				"short": 0,
+				"first": t1,
+				"last": t1,
+			},
+			{
+				"so": "SO-A",
+				"opl": "OPL-2",
+				"box_id": "1",
+				"item_code": "Odilia",
+				"stems": 40,
+				"short": 0,
+				"first": t2,
+				"last": t3,
+			},
+		]
+		a = rc._erp_box_state(need, have)["SO-A"]
+		self.assertEqual((a["expected"], a["started"], a["packed"]), (3, 2, 1))
+		ea, eb = a["by_team"]["Eldama A"], a["by_team"]["Eldama B"]
+		self.assertEqual((ea["expected"], ea["started"], ea["packed"]), (2, 1, 1))
+		self.assertEqual((eb["expected"], eb["started"], eb["packed"]), (1, 1, 0))  # 40 of 100 stems
+		self.assertEqual((ea["first"], ea["last"]), (rc._epoch(t1), rc._epoch(t1)))
+		self.assertEqual((eb["first"], eb["last"]), (rc._epoch(t2), rc._epoch(t3)))
