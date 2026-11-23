@@ -6,7 +6,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, cint, flt, now_datetime, nowdate
 
-from upande_packhouse import allocation_plan, availability, stock_movement
+from upande_packhouse import allocation_plan, availability, quality_b, stock_movement
 from upande_packhouse.box_groups import box_keys
 from upande_packhouse.packing_guide import resync_submitted_guide
 from upande_packhouse.permissions import ALLOCATORS, guard
@@ -445,7 +445,13 @@ def get_pending_sales_orders(
 	# straight off the request, and this endpoint is whitelisted. They used to be
 	# f-stringed into the WHERE clause inside quotes, so `start_date=" OR 1=1 --`
 	# rewrote the query for any logged-in user.
-	date_conditions = ["so.docstatus = 1", "so.status NOT IN ('Completed', 'Closed', 'Cancelled')"]
+	# Quality B (webstore, order type Shopping Cart) orders are never allocated here: their pick lists are made
+	# from Grade B buckets when they are submitted (upande_packhouse.quality_b)
+	date_conditions = [
+		"so.docstatus = 1",
+		"so.status NOT IN ('Completed', 'Closed', 'Cancelled')",
+		"IFNULL(so.order_type, '') != 'Shopping Cart'",
+	]
 	params: dict = {}
 
 	if start_date and end_date:
@@ -473,7 +479,7 @@ def get_pending_sales_orders(
 		date_conditions.append("so.delivery_date <= %(delivery_end)s")
 		params["delivery_end"] = delivery_end
 
-	status_conditions = date_conditions[:2]
+	status_conditions = date_conditions[:3]
 	window_clause = " AND ".join(date_conditions)
 	if sales_order:
 		params["sales_order"] = sales_order
@@ -2843,7 +2849,8 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 			bas.total_quantity = float(shelf["stem_qty"] or 0)
 			bas.stem_length = shelf["stem_length"] or ""
 			bas.warehouse = (
-				stock_movement.holding_warehouse(shelf["warehouse"], shelf["farm"], business_unit, to_hub)
+				quality_b.grade_b_source(bucket_id)
+				or stock_movement.holding_warehouse(shelf["warehouse"], shelf["farm"], business_unit, to_hub)
 				or ""
 			)
 			bas.harvest_date = shelf.get("harvest_date") or shelf["date_added"]
@@ -2955,7 +2962,8 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 		# The shelf row is the server-side truth for where the stems are and how
 		# long they are; the client sends both, so overwrite rather than default.
 		# A remote farm's bucket stays on its farm's store until shelved at the hub.
-		a["warehouse"] = stock_movement.holding_warehouse(
+		# a Quality B release takes the stems from the bucket's Grade B warehouse, where its discard moved them
+		a["warehouse"] = quality_b.grade_b_source(a["bucket_id"]) or stock_movement.holding_warehouse(
 			shelf.get("warehouse") or a.get("warehouse"), a["_shelf_farm"], business_unit, to_hub
 		)
 		a["stem_length"] = shelf.get("stem_length") or a.get("stem_length")
@@ -3699,27 +3707,31 @@ def opl_submit_blockers(opl):
 def not_found_blockers(opl):
 	"""A pick list with buckets marked not found (no replacement yet): a mixed box waits for the
 	replacement; a single straight box goes on without them; more than one straight box goes on
-	once the buckets still here fill at least one whole box."""
-	missing = [r for r in opl.table_ytkc if r.get("not_found") and not r.get("issued")]
+	once the buckets still on this pick list fill at least one whole box. Nothing left to pack
+	always waits."""
+	rows = [r for r in opl.table_ytkc if r.get("bucket")]
+	missing = [r for r in rows if r.get("not_found") and not r.get("issued")]
 	if not missing:
 		return []
-	label = ", ".join(sorted({r.bucket for r in missing if r.bucket})) or opl.name
-	items = sorted({r.sales_order_item for r in opl.table_ytkc if r.sales_order_item})
-	lines = (
-		frappe.get_all(
-			"Sales Order Item",
-			filters={"name": ("in", items)},
-			fields=[
-				"name",
-				"stock_qty",
-				"custom_number_of_boxes",
-				"custom_packrate",
-				"custom_mixed_box",
-				"custom_mixed_bunch",
-			],
-		)
-		if items
-		else []
+	label = ", ".join(sorted({r.bucket for r in missing})) or opl.name
+	here = defaultdict(float)  # this pick list's own stems per line, the not-found ones left out
+	for r in rows:
+		if not (r.get("not_found") and not r.get("issued")) and r.get("sales_order_item"):
+			here[r.sales_order_item] += flt(r.get("stock_qty"))
+	if not here:
+		return [_("Bucket(s) {0} not found: nothing left to pack without them").format(label)]
+	items = sorted({r.sales_order_item for r in rows if r.get("sales_order_item")})
+	lines = frappe.get_all(
+		"Sales Order Item",
+		filters={"name": ("in", items)},
+		fields=[
+			"name",
+			"stock_qty",
+			"custom_number_of_boxes",
+			"custom_packrate",
+			"custom_mixed_box",
+			"custom_mixed_bunch",
+		],
 	)
 	if (
 		opl.get("mix_group")
@@ -3729,19 +3741,10 @@ def not_found_blockers(opl):
 		return [_("Bucket(s) {0} not found: a mixed box waits for a replacement").format(label)]
 	if sum(cint(x.custom_number_of_boxes) or 1 for x in lines) <= 1:
 		return []
-	gone = defaultdict(float)
-	for soi, stems in frappe.db.sql(
-		"""SELECT sales_order_item, SUM(IFNULL(stock_qty, 0)) FROM `tabPick List Item`
-		WHERE parenttype = 'Order Pick List' AND sales_order_item IN %(s)s
-		  AND IFNULL(not_found, 0) = 1 AND IFNULL(issued, 0) = 0
-		GROUP BY sales_order_item""",
-		{"s": tuple(items)},
-	):
-		gone[soi] = flt(stems)
 	for x in lines:
 		n = cint(x.custom_number_of_boxes) or 1
 		per_box = flt(x.custom_packrate) or flt(x.stock_qty) / n
-		if per_box > 0 and _cumulative_allocated_stems(x.name) - gone[x.name] >= per_box - 1e-9:
+		if per_box > 0 and here[x.name] >= per_box - 1e-9:
 			return []
 	return [_("Bucket(s) {0} not found: no whole box can be packed without them").format(label)]
 

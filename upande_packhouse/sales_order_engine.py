@@ -62,6 +62,9 @@ def s_number_required(doc):
 	Floriday names no shipping booking for its orders."""
 	if (doc.get("business_unit") or "") != "Roses":
 		return False
+	# a Quality B (Shopping Cart) order is a local sale: its delivery point is enough
+	if (doc.get("order_type") or "") == "Shopping Cart":
+		return False
 	return not doc.customer or doc.customer != floriday_customer()
 
 
@@ -244,6 +247,11 @@ def sales_order_validate(doc, method=None):
 	"""Data-integrity gates for Roses orders — enforced on every SAVE (not just
 	submit), so an invalid draft can't be saved. Runs after sales_order_price."""
 	if (doc.get("business_unit") or "") != "Roses":
+		return
+	# a Quality B order (webstore, Shopping Cart) is a local sale of Grade B flowers: none of the export checks
+	from upande_packhouse.quality_b import is_quality_b
+
+	if is_quality_b(doc):
 		return
 
 	# 1. must have a price list configured (line-level or the customer's default)

@@ -283,6 +283,8 @@ doc_events = {
 		]
 	},
 	"Sales Order": {
+		# A Quality B (webstore, Shopping Cart) order gets its pick lists from Grade B buckets.
+		"on_submit": "upande_packhouse.quality_b.on_submit",
 		# A cancelled or changed line gives back what the allocation plan held for it.
 		"on_cancel": "upande_packhouse.allocation_plan.release_changed_lines",
 		"on_update_after_submit": [
@@ -290,7 +292,11 @@ doc_events = {
 			"upande_packhouse.upande_packhouse.doctype.order_pick_list.order_pick_list.sync_delivery_date",
 		],
 		"on_update": "upande_packhouse.upande_packhouse.doctype.order_pick_list.order_pick_list.sync_delivery_date",
-		"before_validate": "upande_packhouse.sales_order_engine.sales_order_before_validate",
+		"before_validate": [
+			"upande_packhouse.sales_order_engine.sales_order_before_validate",
+			# a Quality B (Shopping Cart) order: its own delivery point, named for its customer
+			"upande_packhouse.quality_b.before_validate",
+		],
 		"validate": [
 			# ecommerce_integration (Floriday/Biflorica) still owns custom_farm /
 			# custom_business_unit here — bridge into the real farm /

@@ -24,6 +24,7 @@
   "consumables_requested",
   "allocation_details_section",
   "team",
+  "quality_b",
   "order_name",
   "column_break_lnia",
   "mix_group",
@@ -123,6 +124,15 @@
    "fieldtype": "Link",
    "label": "Team",
    "options": "Packing Teams"
+  },
+  {
+   "default": "0",
+   "fieldname": "quality_b",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Quality B",
+   "read_only": 1
   },
   {
    "fieldname": "order_name",
@@ -242,7 +252,7 @@
    "link_fieldname": "order_pick_list"
   }
  ],
- "modified": "2026-11-14 10:00:00.000000",
+ "modified": "2026-11-22 01:30:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Order Pick List",

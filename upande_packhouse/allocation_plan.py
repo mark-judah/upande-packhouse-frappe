@@ -616,7 +616,10 @@ def convert_virtual(delivery_date=None, farm=None):
 		real = max(0.0, flt(held_now.stems) - flt(held_now.fulfilled_stems)) if held_now else 0.0
 		cut = add_days(c.delivery_date, -HARVEST_LEAD_DAYS)
 		free = sum(b.free for b in free_for_line(c.farm, c.variety, c.length, soi, cut))
-		target = min(real + flt(c.stems), free)
+		# what this expected-harvest confirmation still has to cover: its stems already allocated (fulfilled)
+		# are the line's allocation, never held a second time
+		expected = max(0.0, flt(c.stems) - flt(c.fulfilled_stems))
+		target = min(real + expected, free)
 		if target <= real + 0.0001:
 			continue
 		# one line that cannot be held (a bucket record missing, a validation) must not stop the others, nor
@@ -632,19 +635,25 @@ def convert_virtual(delivery_date=None, farm=None):
 				"ordered_length": c.ordered_length,
 				"mix_key": c.mix_key,
 			}
-			_conf, held = reserve_real(
-				plan=plan,
-				line=line,
-				farm=c.farm,
-				variety=c.variety,
-				length=c.length,
-				stems=target,
-				team=c.team,
-				harvested_from=cut,
-				forecast_basis=c.forecast_basis,
-			)
+			# the hold replaces this expected-harvest confirmation (released right after): it is not counted
+			# beside it against the line's order (Allocation Confirmation.validate_not_above_order)
+			frappe.flags.ac_replacing = {c.name}
+			try:
+				_conf, held = reserve_real(
+					plan=plan,
+					line=line,
+					farm=c.farm,
+					variety=c.variety,
+					length=c.length,
+					stems=target,
+					team=c.team,
+					harvested_from=cut,
+					forecast_basis=c.forecast_basis,
+				)
+			finally:
+				frappe.flags.ac_replacing = None
 			release_confirmation(c.name, "Now on the shelf", keep_open=True)
-			rest = real + flt(c.stems) - held
+			rest = real + expected - held
 			if rest > 0.0001:
 				plan_virtual(
 					plan=plan,
@@ -696,6 +705,21 @@ def refresh_mirror(sales_order, soi, farm):
 	_sync_confirmed_stems(sales_order, soi, farm, total)
 
 
+def _confirmed_row_details(soi):
+	"""What a line's Confirmed Stems row shows beside its stems: the line's variety, the team it is confirmed for
+	and the sales farm that packs it (the team's). Only the fields the table has."""
+	from upande_packhouse.api.v2.allocation_teams import team_sales_farms
+
+	meta = frappe.get_meta("Confirmed Stems")
+	team = team_for_line(soi)
+	details = {
+		"item_code": frappe.db.get_value("Sales Order Item", soi, "item_code"),
+		"team": team,
+		"processing_sales_farm": team_sales_farms().get(team) if team else None,
+	}
+	return {k: v for k, v in details.items() if meta.has_field(k)}
+
+
 def _sync_confirmed_stems(sales_order, soi, farm, stems):
 	"""Keep the v1 `Confirmed Stems` row (farm, stems, order line) in step with the plan (Real and Virtual entries).
 
@@ -711,6 +735,7 @@ def _sync_confirmed_stems(sales_order, soi, farm, stems):
 	}
 	names = frappe.get_all("Confirmed Stems", filters=filters, pluck="name", order_by="creation asc")
 	name = names[0] if names else None
+	shown = _confirmed_row_details(soi)
 	# one row per line and farm: copies left by a confirmation saved twice go
 	for extra in names[1:]:
 		frappe.db.delete("Confirmed Stems", {"name": extra})
@@ -719,7 +744,7 @@ def _sync_confirmed_stems(sales_order, soi, farm, stems):
 			frappe.db.delete("Confirmed Stems", {"name": name})
 		return
 	if name:
-		frappe.db.set_value("Confirmed Stems", name, "stems", flt(stems))
+		frappe.db.set_value("Confirmed Stems", name, {"stems": flt(stems), **shown})
 		return
 	idx = cint(
 		frappe.db.sql(
@@ -728,7 +753,9 @@ def _sync_confirmed_stems(sales_order, soi, farm, stems):
 			sales_order,
 		)[0][0]
 	)
-	row = frappe.get_doc({"doctype": "Confirmed Stems", **filters, "stems": flt(stems), "idx": idx + 1})
+	row = frappe.get_doc(
+		{"doctype": "Confirmed Stems", **filters, **shown, "stems": flt(stems), "idx": idx + 1}
+	)
 	row.name = frappe.generate_hash(length=10)
 	row.owner = row.modified_by = frappe.session.user
 	row.creation = row.modified = now_datetime()

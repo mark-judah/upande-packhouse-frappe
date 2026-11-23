@@ -79,6 +79,8 @@
   // Reads: v2 grid endpoint (KPIs computed server-side over the full filtered set).
   // Lists + writes: the v1 module, unchanged (shared with /price-lists).
   const V1 = "upande_packhouse.api.price_list_management.";
+  // Roses customers, and customers with no business unit set yet
+  const ROSES_OR_UNSET = [["custom_business_unit", "=", "Roses"], ["custom_business_unit", "is", "not set"]];
   const GRID = "upande_packhouse.api.v2.price_lists.get_price_grid";
   const TODAY = PH.date.today();
   const st = PH.state({ pl: "", asat: TODAY, line: "", cat: "", len: "", status: "", show: "all", q: "" });
@@ -127,7 +129,12 @@
       el.hidden = !msg;
       PH.set(el, msg ? PH.html`<div class="ph-notice ph-notice--bad ph-mb-0">${msg}</div>` : "");
     }
-    PH.autocomplete(custEl, { source: PH.linkSource("Customer", { filters: { custom_business_unit: "Roses" } }), onSelect: (it) => { customer = it.value; preview(); } });
+    PH.autocomplete(custEl, {
+      source: (q) =>
+        PH.getList("Customer", { filters: [["name", "like", "%" + (q || "") + "%"]], or_filters: ROSES_OR_UNSET, fields: ["name"], order_by: "name asc", limit: 20, silent: true })
+          .then((rows) => (rows || []).map((r) => ({ value: r.name, label: r.name }))),
+      onSelect: (it) => { customer = it.value; preview(); },
+    });
     custEl.addEventListener("input", () => { customer = null; preview(); });
     prefixEl.addEventListener("input", preview);
     curEl.addEventListener("change", preview);
@@ -200,7 +207,7 @@
   };
   let customers = [];
   PH.searchSelect(custSel, { placeholder: "Search customers" });
-  PH.getList("Customer", { filters: { custom_business_unit: "Roses" }, fields: ["name", "default_price_list"], order_by: "name asc", silent: true })
+  PH.getList("Customer", { or_filters: ROSES_OR_UNSET, fields: ["name", "default_price_list"], order_by: "name asc", silent: true })
     .then((rows) => {
       customers = rows || [];
       const saved = mem.get("pl_cust");

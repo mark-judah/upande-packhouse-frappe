@@ -456,6 +456,7 @@
   .pg-ptiles button{border:0;background:#F4F2EE;border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;align-items:flex-start;gap:2px;cursor:pointer;font-family:inherit;text-align:left;min-width:0}
   .pg-ptiles button:hover{box-shadow:inset 0 0 0 1px rgba(10,10,10,.15)}
   .pg-ptiles button.is-on{box-shadow:inset 0 0 0 2px #0A0A0A;background:#fff}
+  .pg-ptiles button.is-bad{background:#FBE9E7}.pg-ptiles button.is-bad span,.pg-ptiles button.is-bad b{color:#A1271F}
   .pg-ptiles span{font-size:12px;color:var(--ink-mute);white-space:nowrap}.pg-ptiles b{font-size:20px;font-weight:600;color:#0A0A0A}
   .apx .pg-sumorder td{background:#FAF8F4}
   .apx .pg-sumtable td small{display:block;font-size:12px;color:var(--ax-mute)}
@@ -1628,10 +1629,13 @@
     const t = d.totals;
     S.branch = d.branch;
     const seg = '<div class="apx-seg" id="pg-branch">' + d.branches.map((b) => '<button type="button" data-value="' + PH.esc(b) + '"' + (d.branch === b ? ' class="is-on"' : "") + ">" + PH.esc(b) + "</button>").join("") + "</div>";
-    const F = [["", "Post Harvest staff", t.headcount], ["expected", "Expected", t.expected], ["off", "Off day", t.off], ["sick", "Sick off", t.sick], ["leave", "On leave", t.leave], ...(d.started ? [["present", "Present", t.present]] : [])];
+    // absent: expected at work and not checked in
+    d.designations.forEach((r) => { r.absent = r.employees.filter(isAbsent).length; });
+    const absent = d.designations.reduce((a, r) => a + r.absent, 0);
+    const F = [["", "Post Harvest staff", t.headcount], ["expected", "Expected", t.expected], ["off", "Off day", t.off], ["sick", "Sick off", t.sick], ["leave", "On leave", t.leave], ...(d.started ? [["present", "Present", t.present], ["absent", "Absent", absent]] : [])];
     if (!F.some(([k]) => k === (S.peopleF || ""))) S.peopleF = "";
     const f = S.peopleF || "";
-    const tiles = '<div class="pg-tiles pg-ftiles">' + F.map(([k, label, v]) => '<button type="button" class="pg-tile' + (k === "sick" ? " pg-tile--warn" : "") + (f === k ? " is-on" : "") + '" data-f="' + k + '"><span>' + label + "</span><b>" + n(v) + "</b></button>").join("") + "</div>";
+    const tiles = '<div class="pg-tiles pg-ftiles">' + F.map(([k, label, v]) => '<button type="button" class="pg-tile' + (k === "sick" ? " pg-tile--warn" : "") + (k === "absent" && v > 0 ? " pg-tile--bad" : "") + (f === k ? " is-on" : "") + '" data-f="' + k + '"><span>' + label + "</span><b>" + n(v) + "</b></button>").join("") + "</div>";
     const rows = d.designations.map((r, i) => [r, i]).filter(([r]) => !f || r[f] > 0).map(([r, i]) => '<tr class="pg-prow" data-i="' + i + '"><td><b>' + PH.esc(r.designation) + '</b></td><td class="is-num">' + n(r.headcount) + '</td><td class="is-num">' + n(r.off) + '</td><td class="is-num">' + n(r.sick) + '</td><td class="is-num">' + n(r.leave) + '</td><td class="is-num"><b>' + n(r.expected) + "</b></td>" +
       (d.started ? '<td class="is-num">' + n(r.present) + "</td>" : "") +
       '<td><div class="pg-pbar"><i style="width:' + Math.round(100 * r.expected / (r.headcount || 1)) + '%"></i></div></td></tr>').join("");
@@ -1690,6 +1694,7 @@
     PH.frappeDate(el.querySelector("#pg-mfrom"));
     PH.frappeDate(el.querySelector("#pg-mto"));
   }
+  const isAbsent = (e) => e.status === "expected" && !e.present;
   // One designation's people, in a drawer from the right.
   function openPeople(d, r, start) {
     const ST = { off: ["Off day", "ink"], sick: ["Sick off", "warn"], leave: ["On leave", "tint"], expected: ["Expected", "good"] };
@@ -1697,13 +1702,14 @@
     let pick = start || "", tf = "";
     const draw = () => {
       const inTeam = r.employees.filter((e) => !tf || (tf === NO_TEAM ? !e.day_team : e.day_team === tf));
-      const count = (k) => inTeam.filter((e) => !k || (k === "present" ? e.present : e.status === k)).length;
-      const F = [["", "Staff"], ["expected", "Expected"], ["off", "Off day"], ["sick", "Sick off"], ["leave", "On leave"], ...(d.started ? [["present", "Present"]] : [])];
-      const shown = inTeam.filter((e) => !pick || (pick === "present" ? e.present : e.status === pick));
-      const tiles = '<div class="pg-ptiles">' + F.map(([k, label]) => '<button type="button" data-f="' + k + '"' + (pick === k ? ' class="is-on"' : "") + "><span>" + label + "</span><b>" + n(count(k)) + "</b></button>").join("") + "</div>";
+      const is = (e, k) => !k || (k === "present" ? e.present : k === "absent" ? isAbsent(e) : e.status === k);
+      const count = (k) => inTeam.filter((e) => is(e, k)).length;
+      const F = [["", "Staff"], ["expected", "Expected"], ["off", "Off day"], ["sick", "Sick off"], ["leave", "On leave"], ...(d.started ? [["present", "Present"], ["absent", "Absent"]] : [])];
+      const shown = inTeam.filter((e) => is(e, pick));
+      const tiles = '<div class="pg-ptiles">' + F.map(([k, label]) => { const c = count(k); const cls = [pick === k ? "is-on" : "", k === "absent" && c > 0 ? "is-bad" : ""].filter(Boolean).join(" "); return '<button type="button" data-f="' + k + '"' + (cls ? ' class="' + cls + '"' : "") + "><span>" + label + "</span><b>" + n(c) + "</b></button>"; }).join("") + "</div>";
       const moved = (e) => e.move ? '<small class="ph-warn">' + (e.move.from_team ? "From " + PH.esc(e.move.from_team) + " · " : "") + PH.fmt.date(e.move.from_date, true) + " – " + PH.fmt.date(e.move.to_date, true) + "</small>" : "";
       const list = shown.map((e) => '<tr><td><b>' + PH.esc(e.name) + "</b><small>" + PH.esc(e.employee) + (e.branch ? " · " + PH.esc(e.branch) : "") + "</small></td><td>" + (e.team ? PH.esc(e.team) : '<span class="ph-muted">—</span>') + moved(e) + '</td><td><span class="pg-chip pg-chip--' + ST[e.status][1] + '">' + ST[e.status][0] + "</span>" + (e.note && e.note !== ST[e.status][0] && e.note !== "Weekly Off" ? "<small>" + PH.esc(e.note) + "</small>" : "") + "</td>" +
-        (d.started ? "<td>" + (e.present ? '<span class="pg-chip pg-chip--good">Present</span>' : "") + "</td>" : "") +
+        (d.started ? "<td>" + (e.present ? '<span class="pg-chip pg-chip--good">Present</span>' : isAbsent(e) ? '<span class="pg-chip pg-chip--bad">Absent</span>' : "") + "</td>" : "") +
         '<td class="pg-act"><button type="button" class="ph-btn ph-btn--ghost ph-btn--sm" data-move="' + PH.esc(e.employee) + '">' + (e.move ? "Moved" : "Move") + "</button></td></tr>").join("");
       PH.set(m.body, '<div class="pg-pdrawer"><div class="pg-pfilter">' + teamSelect(d.packing_teams, "pg-pteam", tf) + "</div>" + tiles + (list ? '<div class="pg-pscroll"><table class="ph-table"><thead><tr><th>Employee</th><th>Team</th><th>Status</th>' + (d.started ? "<th></th>" : "") + "<th></th></tr></thead><tbody>" + list + "</tbody></table></div>" : '<div class="pg-empty">No one.</div>') + "</div>");
       m.body.querySelectorAll("[data-f]").forEach((b) => (b.onclick = () => { pick = pick === b.dataset.f ? "" : b.dataset.f; draw(); }));

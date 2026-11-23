@@ -389,7 +389,12 @@ def _lines(day, to=None):
 	"""The lines for a delivery day, or for every day from `day` to `to` (read once per request)."""
 
 	def read():
-		lines = pipeline.fetch_lines(delivery_from=day, delivery_to=to or day)
+		# Quality B (webstore, Shopping Cart) orders are not planned: their pick lists come from Grade B buckets
+		lines = pipeline.fetch_lines(
+			delivery_from=day,
+			delivery_to=to or day,
+			extra_where="AND IFNULL(so.order_type, '') != 'Shopping Cart'",
+		)
 		pipeline.attach_pipeline(lines)
 		return lines
 
