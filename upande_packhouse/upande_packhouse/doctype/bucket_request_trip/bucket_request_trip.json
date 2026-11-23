@@ -15,7 +15,6 @@
   "collection_order",
   "farm",
   "sales_farm",
-  "combined_sales_farms",
   "auto_planned",
   "section_totals",
   "total_buckets",
@@ -115,13 +114,6 @@
    "options": "Farm",
    "read_only": 1,
    "description": "Where the trip delivers: the sales farm of its orders."
-  },
-  {
-   "default": "0",
-   "fieldname": "combined_sales_farms",
-   "fieldtype": "Check",
-   "label": "Combined Sales Farms",
-   "read_only": 1
   },
   {
    "default": "0",
@@ -310,7 +302,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 0,
  "links": [],
- "modified": "2026-11-22 15:00:00.000000",
+ "modified": "2026-11-19 21:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Bucket Request Trip",
