@@ -1612,11 +1612,6 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 			sales_shelf_farm = farm
 			break
 
-	frappe.log_error(
-		title="Incoming Allocation Request",
-		message=f"SO: {sales_order}, Location: {location}\nSales Shelf Farm: {sales_shelf_farm}\nPayload: {json.dumps(allocations, indent=2)}",
-	)
-
 	so_doc = frappe.get_doc("Sales Order", sales_order)
 	# Never allocate more than a line's boxes hold: fit it here, before anything is
 	# written, instead of failing as "Overpacked" once the pick list is built.
@@ -1734,16 +1729,23 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 			shelf_map[map_key]["stem_qty"] = (shelf_map[map_key].get("stem_qty") or 0) + (
 				r.get("stem_qty") or 0
 			)
-			frappe.log_error(
-				title="Duplicate Shelf Item rows for one bucket",
-				message=(
-					f"bucket_id={r['bucket_id']} item_code={r['item_code']} "
-					f"stem_length={r['stem_length']}: more than one Shelf Item row exists for "
-					f"this bucket+variety+length on the same farm. Their stem_qty was summed "
-					f"for allocation, but the underlying rows should be reviewed/merged -- "
-					f"shelf_location={r.get('shelf_location')}."
-				),
-			)
+			# once a bucket a day: allocation reads it on every request, the rows need merging only once
+			if frappe.cache.set(
+				frappe.cache.make_key(f"dup_shelf_item:{r['bucket_id']}:{r['item_code']}"),
+				1,
+				ex=86400,
+				nx=True,
+			):
+				frappe.log_error(
+					title="Duplicate Shelf Item rows for one bucket",
+					message=(
+						f"bucket_id={r['bucket_id']} item_code={r['item_code']} "
+						f"stem_length={r['stem_length']}: more than one Shelf Item row exists for "
+						f"this bucket+variety+length on the same farm. Their stem_qty was summed "
+						f"for allocation, but the underlying rows should be reviewed/merged -- "
+						f"shelf_location={r.get('shelf_location')}."
+					),
+				)
 
 	for a in allocations:
 		key = (a.get("bucket_id"), a.get("item_code"), a.get("stem_length") or "")
@@ -1886,11 +1888,6 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 		# later allocation from the same bucket with "0 available".
 		if needs_transfer:
 			bas.in_transit = 1
-			frappe.log_error(
-				title="Bucket Marked In Transit",
-				message=f"Bucket: {bucket_id}, Farm: {shelf['farm']}, "
-				f"Destination: {sales_shelf_farm}, Allocated: {bas.allocated_quantity}",
-			)
 
 		bas.save(ignore_permissions=True)
 
@@ -3121,6 +3118,40 @@ def _no_replacement_message(anchor, farm, needed):
 	)
 
 
+def _stocked_candidates(candidates, item_code, needed, farm, business_unit, limit=5):
+	"""The replacement candidates whose stems are in stock somewhere on their route (their store, or where an
+	earlier move took them), in the candidates' order; at most `limit`. The shelf can list a bucket the stock
+	ledger has none of, and replacing with it fails."""
+	out = []
+	for c in candidates:
+		if len(out) >= limit:
+			break
+		home = stock_movement.holding_warehouse(c.warehouse, farm, business_unit)
+		if not home:
+			continue
+		route = stock_movement.resolve_route(home, business_unit)
+		positions = [home] + [hop["to"] for hop in route if not hop["terminal"]]
+		held, _sold = _bucket_ledger([c.bucket_id], item_code)
+		if any(held.get((c.bucket_id, wh), 0) + stock_movement.QTY_TOLERANCE >= needed for wh in positions):
+			out.append(c)
+	return out
+
+
+def _unstocked_message(bucket_id, needed, chosen, stocked):
+	msg = _("Bucket {0} is on shelf {1}, but its {2} stems are not in stock.").format(
+		bucket_id, chosen.get("shelf") or "", int(needed)
+	)
+	if stocked:
+		return (
+			msg
+			+ " "
+			+ _("Buckets with stock: {0}.").format(
+				", ".join(f"{c.bucket_id} ({c.get('shelf') or ''})" for c in stocked[:3])
+			)
+		)
+	return msg + " " + _("No other bucket of this variety and length has stock here.")
+
+
 def _bucket_ledger(bucket_ids, item_code):
 	"""Net stems of `item_code` per (bucket, warehouse), and per (bucket, SO item,
 	warehouse) for the order-stamped legs, from the buckets' own Stock Entries.
@@ -3408,19 +3439,27 @@ def _replace_requested_bucket(
 		opl_name = anchor.parent
 		needed = sum(flt(r.stock_qty) for r in rows)
 
-		candidates = _replacement_candidates(anchor, farm, needed, limit=500 if new_bucket_id else 1)
-		if new_bucket_id:
-			candidates = [c for c in candidates if c.bucket_id == new_bucket_id]
-		if not candidates:
-			frappe.throw(_no_replacement_message(anchor, farm, needed))
-		new = candidates[0]
-
 		qty_by_so_item = {}
 		for r in rows:
 			qty_by_so_item[r.sales_order_item] = qty_by_so_item.get(r.sales_order_item, 0) + flt(r.stock_qty)
 		sales_order = frappe.db.get_value("Order Pick List", opl_name, "sales_order")
 		so_doc = frappe.get_doc("Sales Order", sales_order)
 		business_unit = stock_movement.business_unit_of(so_doc)
+
+		# A bucket on a shelf is offered only when its stems are also in stock (the shelf and the stock ledger
+		# can disagree): the first such bucket replaces, and a chosen bucket without stock names the ones with.
+		candidates = _replacement_candidates(anchor, farm, needed, limit=500 if new_bucket_id else 50)
+		stocked = _stocked_candidates(candidates, anchor.item_code, needed, farm, business_unit)
+		if new_bucket_id:
+			chosen = [c for c in candidates if c.bucket_id == new_bucket_id]
+			if chosen and not [c for c in stocked if c.bucket_id == new_bucket_id]:
+				frappe.throw(_unstocked_message(new_bucket_id, needed, chosen[0], stocked))
+			candidates = chosen
+		else:
+			candidates = stocked
+		if not candidates:
+			frappe.throw(_no_replacement_message(anchor, farm, needed))
+		new = candidates[0]
 		# A replacement from a remote shelf waits in its farm's store, like any allocation.
 		new.warehouse = stock_movement.holding_warehouse(new.warehouse, farm, business_unit)
 

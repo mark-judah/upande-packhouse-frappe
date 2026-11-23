@@ -2601,11 +2601,6 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 	# a remote farm's bucket another order holds is requested whole for it: left out, the rest goes on
 	allocations, fit_notes = _drop_owned_remote(sales_order, allocations, sales_shelf_farm)
 
-	frappe.log_error(
-		title="Incoming Allocation Request",
-		message=f"SO: {sales_order}, Location: {location}\nSales Shelf Farm: {sales_shelf_farm}\nPayload: {json.dumps(allocations, indent=2)}",
-	)
-
 	so_doc = frappe.get_doc("Sales Order", sales_order)
 	# Never allocate more than a line's boxes hold: fit it here, before anything is
 	# written, instead of failing as "Overpacked" once the pick list is built.
@@ -2740,16 +2735,23 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 			shelf_map[map_key]["stem_qty"] = (shelf_map[map_key].get("stem_qty") or 0) + (
 				r.get("stem_qty") or 0
 			)
-			frappe.log_error(
-				title="Duplicate Shelf Item rows for one bucket",
-				message=(
-					f"bucket_id={r['bucket_id']} item_code={r['item_code']} "
-					f"stem_length={r['stem_length']}: more than one Shelf Item row exists for "
-					f"this bucket+variety+length on the same farm. Their stem_qty was summed "
-					f"for allocation, but the underlying rows should be reviewed/merged -- "
-					f"shelf_location={r.get('shelf_location')}."
-				),
-			)
+			# once a bucket a day: allocation reads it on every request, the rows need merging only once
+			if frappe.cache.set(
+				frappe.cache.make_key(f"dup_shelf_item:{r['bucket_id']}:{r['item_code']}"),
+				1,
+				ex=86400,
+				nx=True,
+			):
+				frappe.log_error(
+					title="Duplicate Shelf Item rows for one bucket",
+					message=(
+						f"bucket_id={r['bucket_id']} item_code={r['item_code']} "
+						f"stem_length={r['stem_length']}: more than one Shelf Item row exists for "
+						f"this bucket+variety+length on the same farm. Their stem_qty was summed "
+						f"for allocation, but the underlying rows should be reviewed/merged -- "
+						f"shelf_location={r.get('shelf_location')}."
+					),
+				)
 
 	for a in allocations:
 		key = (a.get("bucket_id"), a.get("item_code"), a.get("stem_length") or "")
@@ -2927,11 +2929,6 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 		# later allocation from the same bucket with "0 available".
 		if needs_transfer:
 			bas.in_transit = 1
-			frappe.log_error(
-				title="Bucket Marked In Transit",
-				message=f"Bucket: {bucket_id}, Farm: {shelf['farm']}, "
-				f"Destination: {sales_shelf_farm}, Allocated: {bas.allocated_quantity}",
-			)
 
 		# the bucket's earlier rows name other orders: one of those gone (deleted, or not on this site) must not
 		# stop this order's allocation
