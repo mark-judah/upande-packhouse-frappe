@@ -171,6 +171,39 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
 .rc-lenrow{display:block;font:400 11.5px 'Poppins',sans-serif;color:var(--ink-mute);margin-top:2px}
 
 @media (max-width:760px){.rc-top{padding:12px 16px}.rc-page{padding:24px 16px 60px}.rc-title{font-size:30px}.rc-panel__body{padding:18px 16px 32px}.rc-panel__head{padding:20px 16px 14px}}
+
+  .rc-seq { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 4px 0 8px; }
+  @media (max-width: 900px) { .rc-seq { grid-template-columns: 1fr; } }
+  .rc-seqcol h4 { margin: 0 0 8px; font: 600 12px var(--sans, inherit); letter-spacing: .4px; text-transform: uppercase; }
+  .rc-seqlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .rc-seqlist li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 12px; background: var(--ph-surface, #fff); box-shadow: 0 0 0 1px rgba(0, 0, 0, .06); }
+  .rc-seqn { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font: 600 11px var(--sans, inherit); background: #111; color: #fff; }
+  .rc-seqcol.e .rc-seqn { background: #3b5bdb; }
+  .rc-seqwho b, .rc-seqwhen b { font-weight: 600; }
+  .rc-seqwho small, .rc-seqwhen small { display: block; color: #6b6b66; font-size: 11px; }
+  .rc-seqwhen { text-align: right; white-space: nowrap; }
+  .rc-day { display: block; color: #9a6a0a; font-size: 10px; }
+
+  .rc-tt { padding: 0; overflow: hidden; }
+  .rc-tthead { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 14px 18px 8px; }
+  .rc-tthead b { font: 600 15px var(--sans, inherit); }
+  .rc-tthead small { flex-basis: 100%; color: #6b6b66; font-size: 12px; }
+  .rc-tttable { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .rc-tttable th { text-align: left; font: 600 10.5px var(--sans, inherit); letter-spacing: .4px; text-transform: uppercase; color: #6b6b66; padding: 8px 12px; border-bottom: 1px solid rgba(0,0,0,.08); white-space: nowrap; }
+  .rc-tttable td { padding: 9px 12px; border-bottom: 1px solid rgba(0,0,0,.05); vertical-align: top; }
+  .rc-tttable tr:nth-child(even) td { background: rgba(0,0,0,.018); }
+  .rc-tttable td small { display: block; color: #6b6b66; font-size: 11px; }
+  .rc-ttwho b { font-weight: 600; }
+  .rc-tttable i { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; font: 600 10.5px var(--sans, inherit); font-style: normal; color: #fff; background: #111; }
+  .rc-tttable i.e { background: #3b5bdb; }
+
+  .rc-split { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border-top: 1px solid rgba(0,0,0,.08); }
+  @media (max-width: 1000px) { .rc-split { grid-template-columns: 1fr; } }
+  .rc-splitcol { min-width: 0; padding: 12px 6px 6px; }
+  .rc-splitcol + .rc-splitcol { border-left: 1px solid rgba(0,0,0,.08); }
+  .rc-splitcol h4 { margin: 0 12px 4px; font: 600 11px var(--sans, inherit); letter-spacing: .5px; text-transform: uppercase; color: #111; }
+  .rc-splitcol h4.e { color: #3b5bdb; }
+  .rc-miss { color: #b3412b; }
 </style>
 <script>document.documentElement.classList.add('rc-root');</script>
 <div class="rc" id="rc">
@@ -197,6 +230,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
     <div class="rc-tabs" id="rc-tabs" role="tablist">
       <button class="rc-tab" type="button" data-tab="orders">Orders<i id="rc-n-orders" hidden></i></button>
       <button class="rc-tab" type="button" data-tab="packing">Packing<i id="rc-n-packing" hidden></i></button>
+      <button class="rc-tab" type="button" data-tab="sequence">Packing sequence</button>
       <button class="rc-tab" type="button" data-tab="allocations">Allocations<i id="rc-n-allocations" hidden></i></button>
       <button class="rc-tab" type="button" data-tab="specs">Specifications</button>
       <button class="rc-tab" type="button" data-tab="money">Sales &amp; payments</button>
@@ -439,6 +473,93 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
         card("Customers", list.length + " shown", rows.length ? grid({ first: "Customer", cols: cols, rows: rows, minw: 2100, statusLabel: "Difference" }) : empty("Nothing to show", "No differences for this date."));
     }
 
+
+    // ---- the packing sequence: the order each team worked through, in Rosenta and in ERPNext
+    // Both systems give times as epoch seconds here. Rosenta only knows the last box of an order (and the first when
+    // its Order Summary has one); ERPNext knows the first and the last pack-list line of the order.
+    function dayTag(d) { var now = (data && erpTs(data.fetched)) || new Date(); return iso(d) === iso(now) ? "" : '<small class="rc-day">' + dayLabel(d, now) + "</small>"; }
+    // ---- the order each team worked through, in Rosenta and in ERPNext, one table per team
+    function spanHtml(first, last, who) {
+      var a = ts(first), b = ts(last);
+      if (!a && !b) return '<span class="rc-none">—</span>';
+      var day = dayTag(a || b);
+      if (who === "r" && !a) return "by <b>" + clock(b) + "</b>" + day;
+      return (a ? "<b>" + clock(a) + "</b>" + (b && clock(b) !== clock(a) ? " → <b>" + clock(b) + "</b>" : "") : "<b>" + clock(b) + "</b>") + day;
+    }
+    function teamSequences() {
+      var erpToR = {}, order = [];
+      data.teams.forEach(function (t) {
+        if (t.team !== "(not mapped)") order.push(t.team);
+        String(t.erp_teams || "").split(", ").forEach(function (n) { if (n && n !== "(not mapped)") erpToR[n] = t.team; });
+      });
+      var teams = {};
+      data.customers.forEach(function (c) {
+        c.pairs.forEach(function (p) {
+          var rp = p.rosenta && p.rosenta.pack, ep = p.erpnext && p.erpnext.pack, rBy = (rp && rp.by_team) || {}, eBy = {};
+          Object.keys((ep && ep.by_team) || {}).forEach(function (n) {
+            var T = erpToR[n] || n, s2 = ep.by_team[n], x = eBy[T] || (eBy[T] = { expected: 0, started: 0, packed: 0, first: 0, last: 0 });
+            x.expected += s2.expected; x.started += s2.started; x.packed += s2.packed;
+            x.first = x.first && s2.first ? Math.min(x.first, s2.first) : (x.first || s2.first); x.last = Math.max(x.last, s2.last);
+          });
+          var names = {};
+          Object.keys(rBy).forEach(function (k) { names[k] = 1; }); Object.keys(eBy).forEach(function (k) { names[k] = 1; });
+          Object.keys(names).forEach(function (T) {
+            var r = rBy[T], e = eBy[T];
+            r = r && (r.packed || r.last) ? { assigned: r.assigned, packed: r.packed, first: rp.first || 0, last: r.last } : null;
+            e = e && (e.packed || e.started || e.last) ? e : null;
+            if (!r && !e) return;
+            (teams[T] = teams[T] || []).push({ customer: c.customer, rName: p.rosenta ? p.rosenta.name : "", eName: p.erpnext ? p.erpnext.name : "", r: r, e: e });
+          });
+        });
+      });
+      Object.keys(teams).forEach(function (T) {
+        var rows = teams[T], key = function (x) { return x ? (x.first || x.last || 0) : 0; };
+        function rank(side) {
+          var list = rows.filter(function (x) { return x[side]; }).sort(function (a, b) { return key(a[side]) - key(b[side]) || a.customer.localeCompare(b.customer); });
+          list.forEach(function (x, i) { x[side + "n"] = i + 1; });
+        }
+        rank("r"); rank("e");
+        // "same position" is judged among the orders both systems hold, so an order only one system has does not shift the others
+        var common = rows.filter(function (x) { return x.r && x.e; });
+        common.slice().sort(function (a, b) { return key(a.r) - key(b.r) || a.customer.localeCompare(b.customer); }).forEach(function (x, i) { x.cr = i + 1; });
+        common.slice().sort(function (a, b) { return key(a.e) - key(b.e) || a.customer.localeCompare(b.customer); }).forEach(function (x, i) { x.ce = i + 1; });
+        rows.sort(function (a, b) {
+          var ka = Math.min(key(a.r) || 1e12, key(a.e) || 1e12), kb = Math.min(key(b.r) || 1e12, key(b.e) || 1e12);
+          return ka - kb;
+        });
+      });
+      var names2 = order.filter(function (T) { return teams[T]; }).concat(Object.keys(teams).filter(function (T) { return order.indexOf(T) < 0; }));
+      return names2.map(function (T) { return { team: T, rows: teams[T] }; });
+    }
+    function teamTable(t) {
+      var both = t.rows.filter(function (x) { return x.r && x.e; }), onlyR = t.rows.filter(function (x) { return x.r && !x.e; }).length, onlyE = t.rows.filter(function (x) { return x.e && !x.r; }).length;
+      var samePos = both.filter(function (x) { return x.cr === x.ce; }).length, sameBoxes = both.filter(function (x) { return x.r.packed === x.e.packed; }).length;
+      var firstR = t.rows.filter(function (x) { return x.rn === 1; })[0], firstE = t.rows.filter(function (x) { return x.en === 1; })[0];
+      var sync = !onlyR && !onlyE && samePos === both.length && sameBoxes === both.length;
+      var head = '<div class="rc-tthead"><b>' + esc(t.team) + '</b><span class="rc-chip ' + (sync ? "good" : "warn") + '">' + (sync ? "In sync" : "Not in sync") + "</span>" +
+        "<small>" + t.rows.length + " orders · " + both.length + " in both (" + sameBoxes + " with the same boxes, " + samePos + " in the same position) · " + onlyR + " only Rosenta · " + onlyE + " only ERPNext</small>" +
+        "<small>Rosenta started with " + (firstR ? esc(firstR.customer) : "—") + " · ERPNext started with " + (firstE ? esc(firstE.customer) : "—") + "</small></div>";
+      // two lists, each in the order its own system saw the orders: Rosenta on the left, ERPNext on the right
+      function side(who) {
+        var list = t.rows.filter(function (x) { return x[who]; }).sort(function (a, b) { return a[who + "n"] - b[who + "n"]; });
+        if (!list.length) return '<div class="rc-empty"><b>Nothing packed</b>No order of this team has a packed box in ' + (who === "r" ? "Rosenta" : "ERPNext") + ".</div>";
+        var other = who === "r" ? "ERPNext" : "Rosenta";
+        return '<table class="rc-tttable"><thead><tr><th>#</th><th>Order</th><th>Packed</th><th>Time</th></tr></thead><tbody>' + list.map(function (x) {
+          var m = x[who], miss = who === "r" ? !x.e : !x.r;
+          var packed = who === "r" ? "<b>" + num(m.packed) + "</b> of " + num(m.assigned) + " boxes" : "<b>" + num(m.packed) + "</b> of " + num(m.expected) + " boxes" + (m.started > m.packed ? "<small>" + num(m.started - m.packed) + " started, not full</small>" : "");
+          return "<tr><td class='rc-ttn'><i class='" + who + "'>" + x[who + "n"] + "</i></td><td class='rc-ttwho'><b>" + esc(x.customer) + "</b><small>" + esc(who === "r" ? x.rName : x.eName) + (miss ? ' · <span class="rc-miss">not in ' + other + "</span>" : "") + "</small></td><td>" + packed + "</td><td>" + spanHtml(m.first, m.last, who) + "</td></tr>";
+        }).join("") + "</tbody></table>";
+      }
+      return '<section class="rc-card rc-tt">' + head + '<div class="rc-split"><div class="rc-splitcol"><h4 class="r">Rosenta</h4><div class="rc-scroll">' + side("r") + '</div></div><div class="rc-splitcol"><h4 class="e">ERPNext</h4><div class="rc-scroll">' + side("e") + "</div></div></div></section>";
+    }
+    function sequenceView() {
+      $("rc-content").innerHTML = (data.pack_error ? '<div class="rc-note bad">Packing could not be read in ERPNext: ' + esc(data.pack_error) + "</div>" : "") + (data.ops_error ? '<div class="rc-note bad">Rosenta Packhouse Operations could not be read: ' + esc(data.ops_error) + "</div>" : "") + sequenceCard();
+    }
+    function sequenceCard() {
+      var list = teamSequences();
+      var intro = '<div class="rc-note">One block per team. Rosenta is on the left and ERPNext on the right, each listing the orders in the order that system saw them. Rosenta shows the time of an order\'s last box (and its first when its summary has one); ERPNext shows the first and last pack-list line. A team is in sync when both lists hold the same orders, with the same boxes, in the same order.</div>';
+      return card("Packing sequence by team", list.length + " teams", intro) + (list.length ? list.map(teamTable).join("") : empty("No box packed yet", "Neither system has a packed box for this delivery date."));
+    }
     // ---- allocations by team
     var ALLOC_COLS = cat(pair("orders", "Orders"), pair("lines", "Lines"), pair("boxes", "Boxes"), pair("stems", "Stems"));
     function allocGap(a) { return Math.abs(((a.erpnext && a.erpnext.stems) || 0) - ((a.rosenta && a.rosenta.stems) || 0)); }
@@ -711,7 +832,7 @@ html.rc-root .scroll-to-top,html.rc-root .page-footer{display:none!important}
     new MutationObserver(fitKpis).observe($("rc-content"), { childList: true });
 
     // ---- tabs, drawing, loading
-    var VIEWS = { orders: ordersView, packing: packingView, allocations: allocView, specs: specsView, money: moneyView, greenhouse: greenhouseView, fill: fillView, teams: teamsView, cancel: cancelView };
+    var VIEWS = { orders: ordersView, packing: packingView, sequence: sequenceView, allocations: allocView, specs: specsView, money: moneyView, greenhouse: greenhouseView, fill: fillView, teams: teamsView, cancel: cancelView };
     function paintTabs() {
       Array.prototype.forEach.call(document.querySelectorAll("#rc-tabs .rc-tab"), function (b) { b.classList.toggle("on", b.getAttribute("data-tab") === st.tab); });
       Array.prototype.forEach.call(document.querySelectorAll("#rc-presets button"), function (b) { b.classList.toggle("on", presetDate(b.getAttribute("data-v")) === st.date); });

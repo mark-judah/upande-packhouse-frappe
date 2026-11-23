@@ -27,17 +27,19 @@ are submitted ones; drafts are returned separately; cancelled ones are listed.
 
 import re
 from concurrent.futures import ThreadPoolExecutor
+from zoneinfo import ZoneInfo
 
 import frappe
 import requests
 from frappe import _
-from frappe.utils import add_days, getdate, now_datetime, today
+from frappe.utils import add_days, get_datetime, getdate, now_datetime, today
 
 from upande_packhouse.api.v2 import orders_workflow, packing_insights, sales_order
 
 ROSENTA = "https://karen.rosenta.com"
 LOCATIONS = {"Ravine": "b183d745332a", "Karen": "7c45b7f280cf"}
 TIMEOUT = 90
+NAIROBI = ZoneInfo("Africa/Nairobi")
 OPERATIONS_PATH = "/api/operations/get_packhouse_operations"
 #: The Order Summary page's own call: per order and line, the stem price and its currency.
 SPEC_PATH = "/api/insights/get_allocations_summary_by_order_spec"
@@ -529,6 +531,7 @@ def _pair_orders(r_list, e_list, label, e_lines):
 
 	def ros(ro):
 		return {
+			"id": ro.get("order_id"),
 			"name": ro["name"],
 			"status": ro["status"],
 			"boxes": ro["boxes"],
@@ -585,10 +588,16 @@ def _rosenta_orders(rows, dmy, prices=None):
 				"loaded": 0,
 				"reason": r.get("cancellation_reason") or "",
 				"activity": False,
+				"first": 0,
+				"last": 0,
 				"lines": [],
 				"value": {},
 			},
 		)
+		first = _num(r.get("first_box_packed"))
+		if first > 0:
+			o["first"] = min(o["first"], first) if o["first"] else first
+		o["last"] = max(o["last"], _num(r.get("last_box_packed")))
 		stems = _num(r.get("stems_confirmed"))
 		boxes, teams = 0, []
 		try:
@@ -694,6 +703,237 @@ def _rosenta_customer_boxes(ops_day):
 	return out
 
 
+def _rosenta_order_packing(ops_day):
+	"""Per Rosenta order id, from Packhouse Operations (one row per team and line):
+	{order_id: {teams, assigned, packed, staged, loaded, last}}. `last` is the time (epoch seconds) of the last
+	box packed on any line that has a packed box."""
+	out = {}
+	for team, orders in (ops_day or {}).items():
+		for order_id, specs in orders.items():
+			o = out.setdefault(
+				order_id,
+				{"teams": [], "assigned": 0, "packed": 0, "staged": 0, "loaded": 0, "last": 0, "by_team": {}},
+			)
+			bt = o["by_team"].setdefault(team, {"assigned": 0, "packed": 0, "last": 0})
+			for line in specs.values():
+				bt["assigned"] += _num(line.get("boxes_assigned"))
+				bt["packed"] += _num(line.get("boxes_packed"))
+				if _num(line.get("boxes_packed")) > 0:
+					bt["last"] = max(bt["last"], _num(line.get("last_box_packed")))
+				o["assigned"] += _num(line.get("boxes_assigned"))
+				o["packed"] += _num(line.get("boxes_packed"))
+				o["staged"] += _num(line.get("boxes_staged"))
+				o["loaded"] += _num(line.get("boxes_loaded"))
+				if _num(line.get("boxes_packed")) > 0:
+					o["last"] = max(o["last"], _num(line.get("last_box_packed")))
+				if (_num(line.get("boxes_assigned")) or _num(line.get("boxes_packed"))) and team not in o[
+					"teams"
+				]:
+					o["teams"].append(team)
+	return out
+
+
+def _box_no(v):
+	try:
+		return int(float(v))
+	except (TypeError, ValueError):
+		return None
+
+
+def _epoch(dt):
+	"""Epoch seconds of a database time (Nairobi, the site's time zone), or 0."""
+	if not dt:
+		return 0
+	try:
+		d = get_datetime(dt)
+	except Exception:
+		return 0
+	return int(d.replace(tzinfo=NAIROBI).timestamp())
+
+
+def _erp_box_state(need_rows, have_rows):
+	"""Per Sales Order, how its packing stands in ERPNext, by the rule Packing Insights and Orders & Workflow use:
+	a box is packed when every (box, variety) of its Packing Guide has at least its stems in Farm Pack Lists,
+	or the box was closed short on purpose (an under-pack reason). Returns
+	{sales_order: {team, expected, started, packed, first, last}} with first/last the times (epoch seconds) of the
+	first and the last pack-list line.
+
+	need_rows: so, opl, team, box_number, variety, stems.  have_rows: so, opl, box_id, item_code, stems, short, first, last."""
+	need, boxes, team, opl_so = {}, {}, {}, {}
+	for r in need_rows:
+		b = _box_no(r.get("box_number"))
+		k = (r["opl"], b, r.get("variety"))
+		need[k] = need.get(k, 0.0) + _dec(r.get("stems"))
+		boxes.setdefault(r["so"], set()).add((r["opl"], b))
+		team.setdefault(r["so"], r.get("team"))
+		opl_so[r["opl"]] = r["so"]
+	opl_team = {}
+	for r in need_rows:
+		opl_team[r["opl"]] = r.get("team") or ""
+	have, started, under = {}, {}, {}
+	first, last = {}, {}
+	t_first, t_last = {}, {}
+	for r in have_rows:
+		b = _box_no(r.get("box_id")) or 1
+		opl_so.setdefault(r["opl"], r["so"])
+		started[(r["opl"], b)] = 1
+		k = (r["opl"], b, r.get("item_code"))
+		have[k] = have.get(k, 0.0) + _dec(r.get("stems"))
+		if r.get("short"):
+			under[(r["opl"], b)] = 1
+		f, la = _epoch(r.get("first")), _epoch(r.get("last"))
+		so = r["so"]
+		if f:
+			first[so] = min(first[so], f) if first.get(so) else f
+		last[so] = max(last.get(so, 0), la)
+		tk = (so, opl_team.get(r["opl"], ""))
+		if f:
+			t_first[tk] = min(t_first[tk], f) if t_first.get(tk) else f
+		t_last[tk] = max(t_last.get(tk, 0), la)
+	out = {}
+	for so in set(boxes) | set(first) | set(last):
+		out[so] = {
+			"team": team.get(so) or "",
+			"expected": len(boxes.get(so, ())),
+			"started": 0,
+			"packed": 0,
+			"first": first.get(so, 0),
+			"last": last.get(so, 0),
+			"by_team": {},
+		}
+
+	def team_row(so, team):
+		return out[so]["by_team"].setdefault(
+			team,
+			{
+				"expected": 0,
+				"started": 0,
+				"packed": 0,
+				"first": t_first.get((so, team), 0),
+				"last": t_last.get((so, team), 0),
+			},
+		)
+
+	for so, boxset in boxes.items():  # one order can sit on the pick lists of several teams
+		for opl, _b in boxset:
+			team_row(so, opl_team.get(opl, ""))["expected"] += 1
+	for opl, b in started:
+		so = opl_so.get(opl)
+		if so not in out:
+			continue
+		out[so]["started"] += 1
+		t = team_row(so, opl_team.get(opl, ""))
+		t["started"] += 1
+		keys = [k for k in need if k[0] == opl and k[1] == b]
+		if (opl, b) in under or (keys and all(have.get(k, 0.0) >= need[k] - 0.001 for k in keys)):
+			out[so]["packed"] += 1
+			t["packed"] += 1
+	return out
+
+
+def _erp_order_packing(so_names):
+	"""_erp_box_state for these Sales Orders, read from the Packing Guide and the Farm Pack Lists."""
+	if not so_names:
+		return {}
+	p = {"sos": tuple(so_names)}
+	need = frappe.db.sql(
+		"""SELECT o.sales_order AS so, o.name AS opl, IFNULL(NULLIF(o.team, ''), 'No team') AS team,
+		          g.box_number, g.variety, SUM(g.stems) AS stems
+		   FROM `tabPacking Guide` g JOIN `tabOrder Pick List` o ON o.name = g.parent
+		   WHERE g.parenttype = 'Order Pick List' AND o.docstatus < 2 AND o.sales_order IN %(sos)s
+		   GROUP BY o.name, team, g.box_number, g.variety""",
+		p,
+		as_dict=True,
+	)
+	have = frappe.db.sql(
+		"""SELECT o.sales_order AS so, o.name AS opl, fi.box_id, fi.item_code, SUM(fi.stock_qty) AS stems,
+		          MAX(IFNULL(fi.under_pack_reason, '') != '') AS short, MIN(fi.creation) AS first, MAX(fi.creation) AS last
+		   FROM `tabFarm Pack List` f JOIN `tabFarm Packlist Item` fi ON fi.parent = f.name
+		   JOIN `tabOrder Pick List` o ON o.name = f.order_pick_list
+		   WHERE f.docstatus < 2 AND o.docstatus < 2 AND o.sales_order IN %(sos)s
+		   GROUP BY o.name, fi.box_id, fi.item_code""",
+		p,
+		as_dict=True,
+	)
+	return _erp_box_state(need, have)
+
+
+def _attach_packing(pairs, r_pack, e_pack, orders):
+	"""Each paired order carries how its packing stands in its own system: `pack` on both sides."""
+	for p in pairs:
+		ro, eo = p.get("rosenta"), p.get("erpnext")
+		if ro:
+			o = orders.get(ro.get("id")) or {}
+			rp = r_pack.get(ro.get("id")) or {}
+			last = rp.get("last") or o.get("last") or 0
+			ro["pack"] = {
+				"teams": rp.get("teams") or [],
+				"expected": rp.get("assigned", ro.get("boxes")),
+				"packed": rp.get("packed", 0),
+				"first": o.get("first") or 0,
+				"last": last,
+				"by_team": rp.get("by_team") or {},
+			}
+		if eo:
+			ep = e_pack.get(eo.get("so")) or {}
+			eo["pack"] = {
+				"teams": [ep["team"]] if ep.get("team") else [],
+				"expected": ep.get("expected", eo.get("boxes")),
+				"packed": ep.get("packed", 0),
+				"started": ep.get("started", 0),
+				"first": ep.get("first", 0),
+				"last": ep.get("last", 0),
+				"by_team": ep.get("by_team") or {},
+			}
+	return pairs
+
+
+def _sequences(orders, r_pack, e_orders, e_pack, label, customers):
+	"""For each system the orders that have a packed box, in the order packing reached them."""
+	rosenta = []
+	for oid, o in orders.items():
+		if o["status"] == "Cancelled":
+			continue
+		rp = r_pack.get(oid) or {}
+		rosenta.append(
+			{
+				"customer": customers.map(o["customer"]) or o["customer"],
+				"name": o["name"],
+				"teams": rp.get("teams") or [],
+				"expected": rp.get("assigned", o["boxes"]),
+				"packed": rp.get("packed", 0),
+				"first": o.get("first") or 0,
+				"last": rp.get("last") or o.get("last") or 0,
+			}
+		)
+	erpnext = []
+	for s in e_orders:
+		ep = e_pack.get(s["name"]) or {}
+		erpnext.append(
+			{
+				"customer": s.get("customer_name") or s["customer"],
+				"name": label.get(s["name"]) or s["name"],
+				"so": s["name"],
+				"teams": [ep["team"]] if ep.get("team") else [],
+				"expected": ep.get("expected", _num(s.get("boxes"))),
+				"packed": ep.get("packed", 0),
+				"started": ep.get("started", 0),
+				"first": ep.get("first", 0),
+				"last": ep.get("last", 0),
+			}
+		)
+	return {"rosenta": _pack_sequence(rosenta), "erpnext": _pack_sequence(erpnext)}
+
+
+def _pack_sequence(entries):
+	"""The orders that have a packed box, in the order packing reached them: by their first box, else their last."""
+	started = [e for e in entries if e.get("first") or e.get("last")]
+	started.sort(key=lambda e: (e.get("first") or e["last"], e["last"], e["name"]))
+	for i, e in enumerate(started, 1):
+		e["n"] = i
+	return started
+
+
 def _price(value, stems):
 	return round(value / stems, 4) if stems else None
 
@@ -779,11 +1019,12 @@ def _compare(d):
 	# ---- Rosenta
 	summary = _orders_summary(cfg["token"], iso)
 	client = RosentaOps(cfg["email"], cfg["password"])
-	ops_error, price_error, teams_r, cust_boxes = None, None, {}, None
+	ops_error, price_error, teams_r, cust_boxes, r_pack = None, None, {}, None, {}
 	try:
 		ops = _operations(client, [dmy, next_dmy])
 		teams_r = _rosenta_teams(ops.get(dmy), ops.get(next_dmy))
 		cust_boxes = _rosenta_customer_boxes(ops.get(dmy))
+		r_pack = _rosenta_order_packing(ops.get(dmy))
 	except frappe.PermissionError:
 		raise
 	except Exception as e:
@@ -816,6 +1057,12 @@ def _compare(d):
 	ins = _v2(packing_insights.get_packing_insights(**args), "Packing Insights")
 	e_orders = so_sub.get("orders") or []
 	e_cancel = so_ca.get("orders") or []
+	pack_error = None
+	try:  # a failure here only leaves the per-order packing out
+		e_pack = _erp_order_packing([s["name"] for s in e_orders])
+	except Exception as e:
+		frappe.clear_messages()
+		e_pack, pack_error = {}, str(e)
 	wk = wf.get("kpis") or {}
 	soi = [it.get("soi") for sec in wf.get("sections") or [] for it in sec.get("rows") or [] if it.get("soi")]
 	amounts = (
@@ -1012,7 +1259,9 @@ def _compare(d):
 					er["orders_invoiced"],
 					0,
 				),
-				"pairs": _pair_orders(r["r_list"], r["e_list"], label, e_lines),
+				"pairs": _attach_packing(
+					_pair_orders(r["r_list"], r["e_list"], label, e_lines), r_pack, e_pack, orders
+				),
 			}
 		)
 	if cust_boxes is None:
@@ -1183,6 +1432,8 @@ def _compare(d):
 		},
 		"check": check,
 		"ops_error": ops_error,
+		"pack_error": pack_error,
+		"sequence": _sequences(orders, r_pack, e_orders, e_pack, label, customers),
 		"price_error": price_error,
 		"invoice_error": invoice_error,
 		"work_day": work_day,
