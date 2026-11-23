@@ -2654,6 +2654,9 @@ def _submit_for_packing(opl_names):
 	from upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation import (
 		opl_submit_blockers,
 	)
+	from upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2 import (
+		not_found_blockers,
+	)
 
 	drafts = [o for o in opl_names or [] if frappe.db.get_value("Order Pick List", o, "docstatus") == 0]
 	if not drafts:
@@ -2670,7 +2673,7 @@ def _submit_for_packing(opl_names):
 			continue
 		try:
 			opl = frappe.get_doc("Order Pick List", name)
-			if opl_submit_blockers(opl):
+			if opl_submit_blockers(opl) or not_found_blockers(opl):
 				continue
 			opl.flags.ignore_permissions = True
 			# The rows are as allocated: a shelf emptied or removed since must not stop it.
