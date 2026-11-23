@@ -696,6 +696,21 @@ def refresh_mirror(sales_order, soi, farm):
 	_sync_confirmed_stems(sales_order, soi, farm, total)
 
 
+def _confirmed_row_details(soi):
+	"""What a line's Confirmed Stems row shows beside its stems: the line's variety, the team it is confirmed for
+	and the sales farm that packs it (the team's). Only the fields the table has."""
+	from upande_packhouse.api.v2.allocation_teams import team_sales_farms
+
+	meta = frappe.get_meta("Confirmed Stems")
+	team = team_for_line(soi)
+	details = {
+		"item_code": frappe.db.get_value("Sales Order Item", soi, "item_code"),
+		"team": team,
+		"processing_sales_farm": team_sales_farms().get(team) if team else None,
+	}
+	return {k: v for k, v in details.items() if meta.has_field(k)}
+
+
 def _sync_confirmed_stems(sales_order, soi, farm, stems):
 	"""Keep the v1 `Confirmed Stems` row (farm, stems, order line) in step with the plan (Real and Virtual entries).
 
@@ -711,6 +726,7 @@ def _sync_confirmed_stems(sales_order, soi, farm, stems):
 	}
 	names = frappe.get_all("Confirmed Stems", filters=filters, pluck="name", order_by="creation asc")
 	name = names[0] if names else None
+	shown = _confirmed_row_details(soi)
 	# one row per line and farm: copies left by a confirmation saved twice go
 	for extra in names[1:]:
 		frappe.db.delete("Confirmed Stems", {"name": extra})
@@ -719,7 +735,7 @@ def _sync_confirmed_stems(sales_order, soi, farm, stems):
 			frappe.db.delete("Confirmed Stems", {"name": name})
 		return
 	if name:
-		frappe.db.set_value("Confirmed Stems", name, "stems", flt(stems))
+		frappe.db.set_value("Confirmed Stems", name, {"stems": flt(stems), **shown})
 		return
 	idx = cint(
 		frappe.db.sql(
@@ -728,7 +744,9 @@ def _sync_confirmed_stems(sales_order, soi, farm, stems):
 			sales_order,
 		)[0][0]
 	)
-	row = frappe.get_doc({"doctype": "Confirmed Stems", **filters, "stems": flt(stems), "idx": idx + 1})
+	row = frappe.get_doc(
+		{"doctype": "Confirmed Stems", **filters, **shown, "stems": flt(stems), "idx": idx + 1}
+	)
 	row.name = frappe.generate_hash(length=10)
 	row.owner = row.modified_by = frappe.session.user
 	row.creation = row.modified = now_datetime()
