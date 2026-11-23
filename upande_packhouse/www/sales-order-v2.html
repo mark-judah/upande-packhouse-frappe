@@ -486,6 +486,7 @@
   let standTable = null;
   const STAND_COLS = [
     { key: "customer_name", label: "Customer", html: (v, r) => `<span class="is-strong">${esc(v || r.customer || "")}</span><br><span class="ph-muted">${esc(r.source)}${r.po_no ? " · PO " + esc(r.po_no) : ""}</span>` },
+    { key: "order_name", label: "Order Name", html: (v) => (v ? `<span class="is-strong">${esc(v)}</span>` : '<span class="ph-muted">—</span>') },
     { key: "rule", label: "Repeats", html: (v, r) => `${esc(v)}<br><span class="ph-muted">${r.end_date ? "until " + esc(PH.fmt.date(r.end_date)) : "no end date"}</span>` },
     { key: "next_appears", label: "Next order appears", html: (v) => (v ? esc(dayLabel(v)) : '<span class="ph-muted">—</span>') },
     { key: "next_delivers", label: "Delivery", html: (v, r) => (v ? `<span class="ph-badge ph-badge--signal">${esc(dayLabel(v))}</span><br><span class="ph-muted">${r.days_after} day${r.days_after === 1 ? "" : "s"} later</span>` : '<span class="ph-muted">—</span>') },
@@ -507,7 +508,7 @@
     PH.text("#tab-standing-count", PH.fmt.num((k.active || 0) + (k.paused || 0)));
     PH.text("#stand-count", PH.fmt.num(STAND.standing.length));
     const q = (s.q || "").toLowerCase();
-    const rows = q ? STAND.standing.filter((r) => [r.name, r.source, r.customer_name, r.customer, r.po_no].some((x) => String(x || "").toLowerCase().includes(q))) : STAND.standing;
+    const rows = q ? STAND.standing.filter((r) => [r.name, r.source, r.order_name, r.customer_name, r.customer, r.po_no].some((x) => String(x || "").toLowerCase().includes(q))) : STAND.standing;
     const cfg = { columns: STAND_COLS, rows, pageSize: 25, emptyText: "", onRowClick: (r) => openStanding(r.name),
       empty: STAND.standing.length ? "No standing orders match these filters" : "No standing orders yet" };
     if (!STAND.standing.length) cfg.emptyText = "Choose “New standing order”, pick an order to repeat and set when it should appear.";

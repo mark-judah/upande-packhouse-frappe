@@ -352,6 +352,9 @@ scheduler_events = {
 		# The Rosenta comparison reads snapshots; this is the only thing that calls Rosenta (temporary).
 		"*/10 * * * *": ["upande_packhouse.api.v2.rosenta_sync.sync_recent"],
 		"15 2 * * *": ["upande_packhouse.api.v2.rosenta_sync.sync_nightly"],
+		# A new day starts clean: every trip of an earlier day is closed at midnight (dispatched ones received,
+		# ones that never left closed, buckets left on a truck kept as anomalies). New day, new trucks, new requests.
+		"0 0 * * *": ["upande_packhouse.api.remote_transfer.transfer_scheduling.close_previous_day_trips"],
 		"*/5 * * * *": [
 			# Automatic Allocation's Run Times (Production Settings > Allocation Planning): no-op unless enabled.
 			"upande_packhouse.api.auto_allocation.tick",
