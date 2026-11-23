@@ -5809,13 +5809,47 @@ def _bucket_held_elsewhere(bucket_id, variety, sale_order_item):
 	)
 
 
+#: A scan that met another scan's lock on the same rows: rolled back whole (nothing commits before the end),
+#: so it is simply run again.
+LOCK_ERRORS = (frappe.QueryTimeoutError, frappe.QueryDeadlockError)
+ISSUE_ATTEMPTS = 3
+
+
 # the apps send a JSON body: POST only
 @frappe.whitelist(methods=["POST"])
 def issueBucketToSaleOrderItem():
+	"""Issue a scanned bucket. A scan that waits too long on another scan's lock (the same bucket or pick list
+	saving at the same moment) is tried again; only if it keeps waiting does the scanner hear to scan again."""
+	import time
+
+	for attempt in range(ISSUE_ATTEMPTS):
+		try:
+			return _issue_bucket_once()
+		except LOCK_ERRORS as e:
+			frappe.db.rollback()
+			if attempt + 1 < ISSUE_ATTEMPTS:
+				time.sleep(0.5 * (attempt + 1))
+				continue
+			payload = frappe.request.json or {}
+			frappe.log_error(
+				title="Coldstore Issue Busy",
+				message=(
+					f"bucket={payload.get('bucket')} soi={payload.get('sale_order_item')} "
+					f"opl={payload.get('opl_name')}: still locked after {ISSUE_ATTEMPTS} tries\n\n"
+					f"{type(e).__name__}: {e!s}\n\n{frappe.get_traceback()}"
+				),
+			)
+			frappe.response.message = _(
+				"Bucket {0} was not issued: another scan was saving the same order. Scan it again."
+			).format(payload.get("bucket") or "")
+			frappe.response.http_status_code = 503
+			frappe.response.data = {"status": "busy", "error": "busy", "error_type": type(e).__name__}
+
+
+def _issue_bucket_once():
 	try:
 		# Get payload from request
 		payload = frappe.request.json
-		frappe.log_error("Issuing from coldstore payload", payload)
 
 		bucket_id = payload.get("bucket")
 		sale_order_item = payload.get("sale_order_item")
@@ -6034,6 +6068,8 @@ def issueBucketToSaleOrderItem():
 							bucket_id, "Roses", names=[i.name for i in pick_list_items if not i.issued]
 						)
 						stock_movement.post_sale_on_arrival(bucket_id, "Roses")
+					except LOCK_ERRORS:
+						raise
 					except Exception:
 						_undo_to("issue_arrival")
 						frappe.log_error(
@@ -6207,6 +6243,8 @@ def issueBucketToSaleOrderItem():
 								log.shelved_by = frappe.session.user
 								log.removed_on = frappe.utils.now_datetime()
 								log.insert(ignore_permissions=True)
+						except LOCK_ERRORS:
+							raise
 						except Exception:
 							frappe.log_error("Shelving Log on issue failed", str(bucket_id))
 						# Packhouse users may have no delete on Shelf; the bucket must still
@@ -6279,6 +6317,8 @@ def issueBucketToSaleOrderItem():
 								bas.flags.ignore_validate = True
 								bas.flags.ignore_mandatory = True
 								bas.save(ignore_permissions=True)
+						except LOCK_ERRORS:
+							raise
 						except Exception:
 							# the scan fails whole (the outer handler rolls it all back): a pick row marked issued
 							# and a shelf drawn down over allocation records left as they were never stays
@@ -6309,6 +6349,8 @@ def issueBucketToSaleOrderItem():
 					frappe.db.savepoint("issue_deferred_sale")
 					try:
 						stock_movement.post_sale_on_arrival(bucket_id, "Roses")
+					except LOCK_ERRORS:
+						raise
 					except Exception:
 						_undo_to("issue_deferred_sale")
 						frappe.log_error(
@@ -6354,6 +6396,8 @@ def issueBucketToSaleOrderItem():
 									title="Issue: bucket leftover not moved",
 									message=f"bucket={bucket_id} -- {res.get('reason')}",
 								)
+						except LOCK_ERRORS:
+							raise
 						except Exception:
 							frappe.log_error(
 								title="Issue: bucket leftover failed",
@@ -6371,6 +6415,8 @@ def issueBucketToSaleOrderItem():
 								", ".join(sorted(updated_opls)) or opl_name or "?"
 							),
 						)
+					except LOCK_ERRORS:
+						raise
 					except Exception:
 						frappe.log_error(
 							title="Issue: closing the bucket's replacement failed",
@@ -6408,6 +6454,9 @@ def issueBucketToSaleOrderItem():
 
 	except Exception as e:
 		frappe.db.rollback()
+		if isinstance(e, LOCK_ERRORS):
+			# another scan's lock: tried again by issueBucketToSaleOrderItem
+			raise
 		# Log the TRACEBACK, not the exception object. frappe.log_error treats a
 		# truthy `message` as the text to store, so passing `e` stored str(e) --
 		# and an exception raised with no message (a bare `raise SomeError`, an

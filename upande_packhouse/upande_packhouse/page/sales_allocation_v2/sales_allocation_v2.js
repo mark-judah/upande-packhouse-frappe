@@ -4591,6 +4591,35 @@ frappe.pages["sales-allocation-v2"]._listen_day_allocation = function () {
 		P._day_done(m);
 	});
 };
+// After a release: each order that did not go out, with why, and what went out short (left out of a box)
+frappe.pages["sales-allocation-v2"]._release_report = function (m) {
+	const esc = frappe.utils.escape_html;
+	const name = (so) => `<strong>${esc(so)}</strong>`;
+	const held = Object.entries(m.held_back || {});
+	// an older server sends only the orders, no reasons
+	const bare = (m.waiting || []).filter((so) => !(m.held_back || {})[so]);
+	if (held.length || bare.length)
+		frappe.msgprint({
+			title: __("Not released"),
+			message: held
+				.map(([so, why]) => `${name(so)}: ${esc(why)}`)
+				.concat(
+					bare.map((so) => `${name(so)}: ${esc(__("still allocated, waiting release"))}`)
+				)
+				.join("<br>"),
+			indicator: "orange",
+		});
+	const short = Object.entries(m.notes || {});
+	if (short.length)
+		frappe.msgprint({
+			title: __("Released, with lines left out"),
+			message: short
+				.map(([so, lines]) => `${name(so)}:<br>${lines.map((l) => esc(l)).join("<br>")}`)
+				.join("<br><br>"),
+			indicator: "blue",
+		});
+};
+
 // A finished Allocate all or Release: from realtime or from the request's own answer, whichever comes
 // first; the other is ignored.
 frappe.pages["sales-allocation-v2"]._day_done = function (m) {
@@ -4682,15 +4711,7 @@ frappe.pages["sales-allocation-v2"]._day_done = function (m) {
 								.join("<br>"),
 							indicator: "orange",
 						});
-					// what has no complete box yet stays allocated, waiting release
-					if ((m.waiting || []).length)
-						frappe.show_alert({
-							message: __(
-								"{0} orders have no complete box yet: they stay allocated",
-								[m.waiting.length]
-							),
-							indicator: "orange",
-						});
+					P._release_report(m);
 					P._after_day_change();
 				} else if (m.new_orders) {
 					frappe.show_alert({
@@ -4744,6 +4765,7 @@ frappe.pages["sales-allocation-v2"]._day_done = function (m) {
 						.join("<br>"),
 					indicator: "orange",
 				});
+			P._release_report(m);
 			P._set_proposal(m.proposal);
 			P._after_day_change();
 		} else {
@@ -5714,14 +5736,25 @@ frappe.pages["sales-allocation-v2"]._open_confirm_dialog = function () {
 	const P = frappe.pages["sales-allocation-v2"];
 	const all = P._releasable();
 	if (!all.length) {
-		const held = ((P.proposal && P.proposal.orders) || []).length;
+		const orders = (P.proposal && P.proposal.orders) || [];
+		const held = orders.length;
 		if (!held) return;
-		// allocated, but no complete box anywhere: nothing to release, only to discard
+		// allocated, but nothing can go out: each order says why (no complete box, or the release rule holds
+		// its complete boxes back), then the choice is only to discard
+		const esc = frappe.utils.escape_html;
+		const why = orders
+			.map(
+				(o) =>
+					`<strong>${esc(o.order_name || o.sales_order)}</strong>: ${esc(
+						o.held_reason || __("No complete box yet.")
+					)}`
+			)
+			.join("<br>");
 		frappe.confirm(
-			__(
-				"No order has a complete box to release. Discard what is allocated for {0} orders at {1}? Their buckets become free and the shortages are cleared.",
+			`${__("Nothing can be released yet:")}<br>${why}<br><br>${__(
+				"Discard what is allocated for {0} orders at {1}? Their buckets become free and the shortages are cleared.",
 				[held, P.selected_location]
-			),
+			)}`,
 			() =>
 				frappe.call({
 					method: "upande_packhouse.upande_packhouse.page.sales_allocation_v2.day_allocation.discard_day_proposal",

@@ -544,7 +544,30 @@ def save_pending(
 	boxes: int = 0,
 ):
 	"""Hold an order's hand-picked stems as a Pending Allocation (the buckets are held for it) until confirmed;
-	no stems cancels it."""
+	no stems cancels it. A save that deadlocks with another (two planners on the same buckets) is tried again:
+	it replaces the order's whole allocation waiting release, so running it twice holds nothing twice."""
+	for attempt in range(SAVE_ATTEMPTS):
+		try:
+			return _save_pending_once(location, sales_order, allocations, teams, boxes)
+		except (frappe.QueryDeadlockError, frappe.QueryTimeoutError):
+			frappe.db.rollback()
+			if attempt + 1 >= SAVE_ATTEMPTS:
+				frappe.log_error(
+					f"Sales Allocation v2: saving {sales_order} kept deadlocking", frappe.get_traceback()
+				)
+				frappe.throw(
+					_(
+						"{0} was not saved: another allocation was saving the same buckets. Save again."
+					).format(sales_order)
+				)
+			time.sleep(0.5 * (attempt + 1))
+
+
+#: tries of a save that meets another save's lock
+SAVE_ATTEMPTS = 3
+
+
+def _save_pending_once(location, sales_order, allocations, teams, boxes):
 	if isinstance(allocations, str):
 		allocations = json.loads(allocations or "[]")
 	if isinstance(teams, str):
@@ -602,6 +625,33 @@ def _release_ok(boxes, full_before, required):
 	if allow is not None and not cint(allow):
 		return after >= required
 	return after * 100.0 >= flt(ps.get("partial_allocation_release_percent")) * required - 1e-9
+
+
+def _hold_reason(split, full_before, required):
+	"""Why an order with this allocation sends nothing out: no complete box at all, or complete boxes the
+	release rule (Production Settings) holds back -- partial allocation off, or below the release percentage."""
+	release, _keep, boxes = split
+	complete = sum(boxes.values()) if release else 0
+	required = cint(required)
+	if complete <= 0:
+		return _("No complete box yet ({0} of {1} boxes complete).").format(
+			min(required, cint(full_before)), required
+		)
+	after = min(required, cint(full_before) + complete)
+	ps = frappe.get_cached_doc("Production Settings")
+	allow = ps.get("allow_partial_allocation")
+	if allow is not None and not cint(allow):
+		return _(
+			"{0} of {1} boxes would be complete; partial allocation is off, so it goes out only when all are."
+		).format(after, required)
+	return _(
+		"{0} of {1} boxes would be complete ({2}%); the release percentage is {3}%, so its mixed boxes wait."
+	).format(
+		after,
+		required,
+		cint(after * 100.0 / required) if required else 0,
+		flt(ps.get("partial_allocation_release_percent")),
+	)
 
 
 def _drop_gone_buckets(o, location):
@@ -701,9 +751,10 @@ def _summary(p):
 	rows = [frappe._dict(name=o["sales_order"]) for o in orders]
 	sa._attach_boxes(rows)
 	for o, r in zip(orders, rows, strict=True):
-		o["_release"], _keep, o["_box_groups"] = _gate_release(
-			*_split_release(o["sales_order"], o["allocations"]), r.boxes_full, r.boxes_required
-		)
+		split = _split_release(o["sales_order"], o["allocations"])
+		o["_release"], _keep, o["_box_groups"] = _gate_release(*split, r.boxes_full, r.boxes_required)
+		# why nothing goes out, for the page to say per order
+		o["held_reason"] = "" if o["_release"] else _hold_reason(split, r.boxes_full, r.boxes_required)
 		o["boxes"] = sum(o["_box_groups"].values())
 		o["order_boxes"] = cint(r.boxes_required)
 		o["full_before"] = min(cint(r.boxes_required), cint(r.boxes_full))
@@ -979,7 +1030,19 @@ def _pending(p):
 
 #: What the realtime "done" message carries: the counts. The proposal and the shortages (hundreds of
 #: kilobytes on a busy day) come back with the request, or the page reloads them.
-LIGHT = ("error", "errors", "saved", "boxes", "stems", "new_orders", "new_boxes", "new_stems", "waiting")
+LIGHT = (
+	"error",
+	"errors",
+	"saved",
+	"boxes",
+	"stems",
+	"new_orders",
+	"new_boxes",
+	"new_stems",
+	"waiting",
+	"held_back",
+	"notes",
+)
 
 
 def _light(result):
@@ -2334,6 +2397,17 @@ def _continue_release(args, chosen, n, offset, total, carried):
 	return {"queued": True, "run": job_id}
 
 
+def _why(e):
+	"""A failure as the planner reads it: the message, else the kind of error (never an empty line)."""
+	msg = frappe.utils.strip_html(str(e) or "").strip()
+	return msg or _("{0} (no message)").format(type(e).__name__)
+
+
+def _log_release_failure(sales_order):
+	"""The full error stays in the Error Log for whoever looks into it; the page gets its message."""
+	frappe.log_error(f"Sales Allocation v2: release of {sales_order} failed", frappe.get_traceback())
+
+
 def _run_confirm(
 	location,
 	delivery_start,
@@ -2380,6 +2454,8 @@ def _run_confirm(
 				"stems": flt(carried.get("stems")) + sum(x["stems"] for x in saved),
 				"errors": errors,
 				"waiting": waiting,
+				"held_back": held_back,
+				"notes": notes,
 				"taken_off": taken_off,
 				"freed": freed,
 			},
@@ -2400,6 +2476,14 @@ def _run_confirm(
 		saved, errors, waiting = [], dict(carried.get("errors") or {}), list(carried.get("waiting") or [])
 		taken_off = dict(carried.get("taken_off") or {})
 		freed = dict(carried.get("freed") or {})
+		# why an order did not go out (it stays allocated, or went back to the shelf), and what a release left
+		# out of an order that did: the page shows both, so nothing is skipped without a word
+		held_back = dict(carried.get("held_back") or {})
+		notes = dict(carried.get("notes") or {})
+
+		def hold(o, why):
+			waiting.append(o["sales_order"])
+			held_back[o["sales_order"]] = why
 
 		def clear(o, stems):
 			"""A release leaves nothing waiting: the order's allocation waiting release is closed whatever went
@@ -2412,7 +2496,8 @@ def _run_confirm(
 		for n, o in enumerate(chosen):
 			# cancelled: the orders already released stay; the rest wait for the next release
 			if _cancelled(location):
-				waiting += [x["sales_order"] for x in chosen[n:]]
+				for x in chosen[n:]:
+					hold(x, _("The release was stopped before this order."))
 				break
 			if budget and n and time.monotonic() - started > budget:
 				handed_on = hand_on(chosen, n)
@@ -2432,11 +2517,17 @@ def _run_confirm(
 				taken_off[o["sales_order"]] = gone
 				if not o["allocations"]:
 					clear(o, 0)
-					waiting.append(o["sales_order"])
+					hold(
+						o,
+						_("Every bucket allocated to it has left the shelf: {0}.").format(", ".join(gone)),
+					)
 					continue
 			held = sum(flt(a.get("qty")) for a in o["allocations"])
 			if frappe.db.get_value("Sales Order", o["sales_order"], "docstatus") != 1:
 				clear(o, held)
+				held_back[o["sales_order"]] = _(
+					"The sales order is no longer submitted (cancelled or amended): its stems went back to the shelf."
+				)
 				continue
 			frappe.db.savepoint("confirm_day_order")
 			try:
@@ -2449,20 +2540,19 @@ def _run_confirm(
 				if not o["teams"]:
 					frappe.db.rollback(save_point="confirm_day_order")
 					clear(o, held)
-					waiting.append(o["sales_order"])
+					hold(o, _("No packing team is chosen for it."))
 					continue
 				# only complete boxes go out; what does not complete a box goes back to the shelf
 				row = frappe._dict(name=o["sales_order"])
 				sa._attach_boxes([row])
 				# below the release percentage only the straight lines' complete boxes go out
-				release, keep, boxes = _gate_release(
-					*_split_release(o["sales_order"], o["allocations"]), row.boxes_full, row.boxes_required
-				)
+				split = _split_release(o["sales_order"], o["allocations"])
+				release, keep, boxes = _gate_release(*split, row.boxes_full, row.boxes_required)
 				o["boxes"] = sum(boxes.values())
 				if not release:
 					frappe.db.rollback(save_point="confirm_day_order")
 					clear(o, held)
-					waiting.append(o["sales_order"])
+					hold(o, _hold_reason(split, row.boxes_full, row.boxes_required))
 					continue
 				# straight lines first, then the mixed boxes and bunches, each on its own: a mix that cannot go
 				# out never holds back the straight lines that can
@@ -2471,18 +2561,25 @@ def _run_confirm(
 				for part in _release_parts(release):
 					frappe.db.savepoint("confirm_day_part")
 					try:
-						sa._allocate_stock_with_buckets_impl(o["sales_order"], part, location, o["teams"])
+						out = sa._allocate_stock_with_buckets_impl(
+							o["sales_order"], part, location, o["teams"]
+						)
 						gone_out += 1
+						left_out = (out or {}).get("fit_notes") or []
+						if left_out:
+							notes.setdefault(o["sales_order"], []).extend(left_out)
 					except Exception as e:
 						frappe.db.rollback(save_point="confirm_day_part")
 						frappe.clear_messages()
-						failed.append((part, str(e)))
+						failed.append((part, _why(e)))
+						_log_release_failure(o["sales_order"])
 				if not gone_out:
 					raise frappe.ValidationError(failed[0][1] if failed else _("Nothing was released."))
 			except Exception as e:
 				frappe.db.rollback(save_point="confirm_day_order")
 				frappe.clear_messages()
-				errors[o["sales_order"]] = str(e)
+				errors[o["sales_order"]] = _why(e)
+				_log_release_failure(o["sales_order"])
 				clear(o, held)
 				continue
 			if failed:
@@ -2506,6 +2603,8 @@ def _run_confirm(
 			"stems": flt(carried.get("stems")) + sum(o["stems"] for o in saved),
 			"errors": errors,
 			"waiting": waiting,
+			"held_back": held_back,
+			"notes": notes,
 			"taken_off": taken_off,
 			"freed": freed,
 			"proposal": _summary(p),
