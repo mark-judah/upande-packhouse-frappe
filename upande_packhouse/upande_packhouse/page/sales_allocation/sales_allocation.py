@@ -1730,12 +1730,9 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 				r.get("stem_qty") or 0
 			)
 			# once a bucket a day: allocation reads it on every request, the rows need merging only once
-			if frappe.cache.set(
-				frappe.cache.make_key(f"dup_shelf_item:{r['bucket_id']}:{r['item_code']}"),
-				1,
-				ex=86400,
-				nx=True,
-			):
+			dup_key = f"dup_shelf_item:{r['bucket_id']}:{r['item_code']}"
+			if not frappe.cache.get_value(dup_key):
+				frappe.cache.set_value(dup_key, 1, expires_in_sec=86400)
 				frappe.log_error(
 					title="Duplicate Shelf Item rows for one bucket",
 					message=(
