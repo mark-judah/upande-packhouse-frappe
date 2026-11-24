@@ -446,6 +446,7 @@ def get_order_lines(opls: str | None = None):
 		f" WHEN {v1.REACHED_TRANSIT} THEN 'transit' WHEN {v1.REACHED_TRUCK} THEN 'on_truck'"
 		f" WHEN {v1.REACHED_TROLLEY} THEN 'trolley' ELSE 'awaiting' END"
 	)
+	# nosemgrep: frappe-sql-format-injection -- the holes are v1's fixed SQL fragments; values are bound
 	buckets = frappe.db.sql(
 		f"""
 		SELECT pli.parent AS opl, {soi} AS soi, {v1.BKT} AS bucket, MAX(pli.bucket) AS bucket_id,

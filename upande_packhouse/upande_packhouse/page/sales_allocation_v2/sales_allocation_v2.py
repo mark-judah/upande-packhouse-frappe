@@ -4212,7 +4212,7 @@ def unallocate_bucket_from_opl(sales_order_item: str, bucket_id: str, stem_lengt
 			"Bucket {0} taken off the line ({1} still allocated){2}".format(
 				bucket_id,
 				int(flt(remaining_allocated)) if remaining_allocated is not None else 0,
-				"; pick list(s) " + ", ".join(map(str, removed_from_opls)) if removed_from_opls else "",
+				"; pick list(s) " + ", ".join(str(o) for o in removed_from_opls) if removed_from_opls else "",
 			),
 			sales_order_item=sales_order_item,
 			bucket_id=bucket_id,
