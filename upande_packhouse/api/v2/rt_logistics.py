@@ -397,8 +397,9 @@ def get_bucket_detail(opl: str | None = None, farm: str | None = None):
 @frappe.whitelist()
 def get_order_lines(opls: str | None = None):
 	"""The Bucket Logistics "by order" grouping: each pick list's order lines among the buckets being
-	transferred -- variety and length, specification, boxes, the buckets and stems, the origin farms, and how
-	many buckets reached each stage. The same rows, rules and stages as get_logistics_view's orders
+	transferred -- variety and length, specification, boxes, its mix (mix_key, none for a straight line), the
+	buckets and stems, the origin farms, how many buckets reached each stage, and the buckets themselves (farm,
+	shelf, stems for the line, the stage each is at, its truck). The same rows, rules and stages as get_logistics_view's orders
 	(v1 getBucketLogistics), split by order line. {opl: [line, ...]}, lines in the order's line order."""
 	import json
 
@@ -418,6 +419,10 @@ def get_order_lines(opls: str | None = None):
 		       MAX(soi_t.custom_line) AS spec, MAX(soi_t.custom_number_of_boxes) AS boxes,
 		       MAX(IFNULL(soi_t.custom_mixed_box, 0) OR IFNULL(soi_t.custom_mixed_bunch, 0)) AS mixed,
 		       MAX(soi_t.custom_mix_name) AS mix_name,
+		       MAX(CASE WHEN IFNULL(soi_t.custom_mixed_bunch, 0) = 1 AND IFNULL(soi_t.custom_bunch_group, '') != ''
+		                THEN CONCAT('bunch:', soi_t.custom_bunch_group)
+		                WHEN IFNULL(soi_t.custom_mixed_box, 0) = 1 AND IFNULL(soi_t.custom_mix_group, '') != ''
+		                THEN CONCAT('box:', soi_t.custom_mix_group) END) AS mix_key,
 		       GROUP_CONCAT(DISTINCT {v1.FARM_EXPR} ORDER BY 1 SEPARATOR ', ') AS farm,
 		       COUNT(DISTINCT {v1.BKT}) AS total, SUM(pli.stock_qty) AS stems,
 		       {stage(v1.REACHED_AWAITING, "awaiting")}, {stage(v1.REACHED_TROLLEY, "trolley")},
@@ -434,8 +439,34 @@ def get_order_lines(opls: str | None = None):
 		{"opls": tuple(opls)},
 		as_dict=True,
 	)
+	# each line's buckets: where it is from, its shelf, its stems for the line, how far it got, its truck
+	cur = (
+		f"CASE WHEN pli.not_found = 1 THEN 'not_found' WHEN pli.issued = 1 THEN 'issued'"
+		f" WHEN {v1.REACHED_READY} THEN 'ready' WHEN {v1.REACHED_SHELVED} THEN 'shelved'"
+		f" WHEN {v1.REACHED_TRANSIT} THEN 'transit' WHEN {v1.REACHED_TRUCK} THEN 'on_truck'"
+		f" WHEN {v1.REACHED_TROLLEY} THEN 'trolley' ELSE 'awaiting' END"
+	)
+	buckets = frappe.db.sql(
+		f"""
+		SELECT pli.parent AS opl, {soi} AS soi, {v1.BKT} AS bucket, MAX(pli.bucket) AS bucket_id,
+		       MAX({v1.FARM_EXPR}) AS farm, MAX(pli.shelf) AS shelf, SUM(pli.stock_qty) AS stems,
+		       MAX({cur}) AS stage, MAX(pli.transit_truck) AS truck, MAX(pli.trolley_id) AS trolley_id,
+		       MAX(IFNULL(pli.transfer_priority, '')) AS priority
+		FROM `tabPick List Item` pli
+		WHERE pli.parenttype = 'Order Pick List' AND pli.parent IN %(opls)s AND {v1.transfer_cond()}
+		  AND {not_at_hub_sql(v1.FARM_EXPR)}
+		GROUP BY pli.parent, {soi}, {v1.BKT}
+		ORDER BY MAX(pli.shelf), {v1.BKT}""",
+		{"opls": tuple(opls)},
+		as_dict=True,
+	)
+	by_line = {}
+	for b in buckets:
+		by_line.setdefault((b.pop("opl"), b.pop("soi")), []).append(b)
 	out = {}
 	for r in rows:
 		r["mixed"] = int(r.get("mixed") or 0)
-		out.setdefault(r.pop("opl"), []).append(r)
+		opl = r.pop("opl")
+		r["buckets"] = by_line.get((opl, r.get("soi")), [])
+		out.setdefault(opl, []).append(r)
 	return out

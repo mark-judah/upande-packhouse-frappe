@@ -167,6 +167,18 @@
     #tm-root .bl-line-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
     #tm-root .bl-mix { font-size: 11px; font-weight: 700; letter-spacing: .04em; padding: 0 6px; border-radius: 6px; background: #eef2f1; color: #3a3a34; }
     #tm-root .bl-trips { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+    #tm-root .bl-grp-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 10px 0 2px; padding: 6px 8px; background: #f4f3ef; border-radius: 6px; font-weight: 700; font-size: 13px; }
+    #tm-root .bl-grp-h .ov-count { margin-left: auto; }
+    #tm-root .bl-line-h { cursor: pointer; user-select: none; }
+    #tm-root .bl-to { font-weight: 700; color: #0e7490; }
+    #tm-root .bl-line--solo { background: #fff; border: 1px solid rgba(10,10,10,.08); border-radius: 8px; margin-bottom: 8px; padding: 10px 12px; }
+    #tm-root .bl-oname { font-weight: 800; }
+    #tm-root .bl-mix--str { background: #f4f3ef; }
+    #tm-root .bl-bkts { width: 100%; border-collapse: collapse; margin: 8px 0 2px; font-size: 13px; }
+    #tm-root .bl-bkts th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #8a8780; font-weight: 600; padding: 4px 8px; border-bottom: 1px solid rgba(10,10,10,.08); }
+    #tm-root .bl-bkts td { padding: 5px 8px; border-bottom: 1px solid rgba(10,10,10,.05); }
+    #tm-root .bl-bkts td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    #tm-root .bl-stage { display: inline-block; padding: 1px 8px; border-radius: 999px; color: #fff; font-size: 12px; font-weight: 600; white-space: nowrap; }
     #tm-root .tt-order { border-bottom: 1px solid #f2f2f2; }
     #tm-root .tt-order-h { display: flex; align-items: baseline; gap: 8px; cursor: pointer; padding: 7px 4px; user-select: none; }
     #tm-root .tt-status { padding: 2px 4px 10px 22px; }
@@ -1105,30 +1117,141 @@
     }).join('');
   }
 
-  // ---------- By order: order name -> its order lines (variety, spec, buckets, stems, stages, trips) ----------
+  // ---------- By order: order name -> its lines (straight together, each mix together) -> each line's buckets ----------
   function blLoadLines() {
     var opls = uniqSorted((OV.orders || []).map(function (o) { return o.opl; })).filter(function (o) { return o && !(o in BL_LINES); });
     if (!opls.length || BL_LINES_FOR === OV.orders) return;
     BL_LINES_FOR = OV.orders;
     ovApi('upande_packhouse.api.v2.rt_logistics.get_order_lines', { opls: JSON.stringify(opls) }).then(function (m) {
       opls.forEach(function (o) { BL_LINES[o] = (m && m[o]) || []; });
-      if (BL_GROUP === 'order') renderActive();
+      // Expand all was pressed before these lines arrived: they open too
+      if (BL_ALL_OPEN) blOrders().forEach(function (g) { blOrderKeys(g).forEach(function (k) { TRIPTREE_OPEN[k] = 1; }); });
+      if (BL_GROUP === 'order' || BL_GROUP === 'line') renderActive();
     }).catch(function () { opls.forEach(function (o) { BL_LINES[o] = []; }); });
   }
-  function renderOrderLines() {
+  // the orders on the page, each with its pick lists' rows
+  function blOrders() {
     var by = {}, keys = [];
     (OV.orders || []).forEach(function (o) {
       var k = o.sales_order || o.order_name || o.opl;
       if (!by[k]) { by[k] = { key: k, name: o.order_name || k, customer: o.customer, delivery: o.delivery_date, rows: [] }; keys.push(k); }
       by[k].rows.push(o);
     });
-    if (!keys.length) return '<div class="tm-empty">Nothing to show.</div>';
-    blLoadLines();
     keys.sort(function (a, b) {
       return String(by[a].delivery || '').localeCompare(String(by[b].delivery || '')) || String(by[a].name).localeCompare(String(by[b].name));
     });
-    return keys.map(function (k) {
-      var g = by[k], okey = 'O:' + k, shut = !TRIPTREE_OPEN[okey];
+    return keys.map(function (k) { return by[k]; });
+  }
+  // an order's open keys: the order and every one of its lines
+  function blOrderKeys(g) {
+    var keys = ['O:' + g.key];
+    uniqSorted(g.rows.map(function (o) { return o.opl; })).forEach(function (opl) {
+      (BL_LINES[opl] || []).forEach(function (x) { keys.push('L:' + opl + '|' + x.soi); });
+    });
+    return keys;
+  }
+  function blOrderAllOpen(g) { return blOrderKeys(g).every(function (k) { return TRIPTREE_OPEN[k]; }); }
+  function blSetOrder(key) {
+    var g = blOrders().filter(function (x) { return x.key === key; })[0];
+    if (!g) return;
+    var open = !blOrderAllOpen(g);
+    blOrderKeys(g).forEach(function (k) { if (open) TRIPTREE_OPEN[k] = 1; else delete TRIPTREE_OPEN[k]; });
+    renderActive();
+  }
+  function blAnyOpen() {
+    for (var k in TRIPTREE_OPEN) if (k.indexOf('O:') === 0) return true;
+    return false;
+  }
+  var BL_ALL_OPEN = false;
+  function blSetAll(shut) {
+    BL_ALL_OPEN = !shut;
+    Object.keys(TRIPTREE_OPEN).forEach(function (k) { if (k.indexOf('O:') === 0 || k.indexOf('L:') === 0) delete TRIPTREE_OPEN[k]; });
+    if (!shut) blOrders().forEach(function (g) { blOrderKeys(g).forEach(function (k) { TRIPTREE_OPEN[k] = 1; }); });
+    renderActive();
+  }
+  // A pick list's lines as the order reads: the straight lines together, then each mix (its varieties together)
+  function blGroups(items) {
+    var straight = { mix: false, lines: [] }, mixes = {}, order = [];
+    items.forEach(function (it) {
+      var x = it.x;
+      if (!x.mix_key) { straight.lines.push(it); return; }
+      // one mix by its name, as the order shows it, whatever bunch groups its varieties are in
+      var mk = x.mix_name || x.spec || x.mix_key;
+      if (!mixes[mk]) { mixes[mk] = { mix: true, name: x.mix_name || x.spec || 'Mix', boxes: 0, lines: [] }; order.push(mk); }
+      mixes[mk].lines.push(it);
+      mixes[mk].boxes = Math.max(mixes[mk].boxes, Number(x.boxes) || 0);
+    });
+    return (straight.lines.length ? [straight] : []).concat(order.map(function (k) { return mixes[k]; }));
+  }
+  var BL_STAGE = {};
+  OV_FLAGS.forEach(function (f) { BL_STAGE[f[0]] = { label: f[1], color: f[2] }; });
+  // the sales farm a pick list's buckets go to, where the order is processed
+  function blToLabel(hub) { return hub ? '<span class="bl-to">→ ' + esc(hub) + '</span>' : ''; }
+  // One order line: its spec, boxes, team, origin farms, where it goes, buckets and stems, its stages; open: its buckets
+  function blLine(o, opl, x, order) {
+    var lk = 'L:' + opl + '|' + x.soi, shut = !TRIPTREE_OPEN[lk];
+    var hub = o.hub || ovHubOf(o.opl);
+    var rows = '';
+    if (!shut) {
+      rows = '<table class="bl-bkts"><thead><tr><th>Bucket</th><th>From</th><th>Shelf</th><th>To</th><th style="text-align:right">Stems</th><th>Stage</th><th>Truck</th></tr></thead><tbody>' +
+        (x.buckets || []).map(function (b) {
+          var st = BL_STAGE[b.stage] || { label: b.stage, color: '#8a8780' };
+          return '<tr><td><b>' + esc(b.bucket_id || b.bucket) + '</b>' + (b.priority === 'ASAP' ? ' <span class="bl-mix">ASAP</span>' : '') + '</td>' +
+            '<td>' + esc(b.farm || '—') + '</td><td>' + esc(b.shelf || '—') + '</td><td>' + esc(hub || '—') + '</td>' +
+            '<td class="num">' + Math.round(Number(b.stems) || 0).toLocaleString() + '</td>' +
+            '<td><span class="bl-stage" style="background:' + st.color + '">' + esc(st.label) + '</span></td>' +
+            '<td>' + esc(b.truck || (b.trolley_id ? 'Trolley ' + b.trolley_id : '') || '—') + '</td></tr>';
+        }).join('') + '</tbody></table>';
+    }
+    return '<div class="bl-line' + (order ? ' bl-line--solo' : '') + '"><div class="bl-line-h" data-tt-toggle="' + esc(lk) + '"><span class="ov-caret">' + (shut ? '▸' : '▾') + '</span>' +
+      (order ? '<span class="bl-oname">' + esc(order.name) + '</span><span class="ov-sub">' + esc(order.customer || '') + ' · ' + ovFmtD(order.delivery) + '</span>' +
+        (x.mixed ? '<span class="bl-mix">MIX</span><span class="ov-sub">' + esc(x.mix_name || x.spec || '') + '</span>' : '<span class="bl-mix bl-mix--str">STRAIGHT</span>') : '') +
+      '<b>' + esc(x.variety) + ' ' + esc(x.length || '') + '</b>' +
+      (x.mixed ? '' : '<span class="ov-sub">' + esc(x.spec || '') + '</span>') +
+      (x.boxes && !x.mixed ? '<span class="ov-sub">· ' + Number(x.boxes) + ' box' + (Number(x.boxes) === 1 ? '' : 'es') + '</span>' : '') +
+      ovTeamTag(o) +
+      '<span class="ov-sub">· from ' + esc(x.farm || '—') + '</span>' + blToLabel(hub) +
+      '<span class="ov-count"><b>' + Number(x.total || 0).toLocaleString() + '</b> bucket' + (Number(x.total) === 1 ? '' : 's') + ' · <b>' + Math.round(Number(x.stems) || 0).toLocaleString() + '</b> stems</span>' +
+      '</div><div class="ov-pill-row" style="margin-top:6px">' + ovStagePills(x, hub) + '</div>' + rows +
+      (shut ? '' : '<button class="ov-more" style="margin-top:8px;" data-bp-opl="' + esc(o.opl) + '" data-bp-farm="" data-bp-name="' + esc(o.order_name) + '">Bucket status →</button>') +
+    '</div>';
+  }
+  // By order line: every order line on its own row (its order, straight or its mix, where it goes), each opening
+  // to its buckets; in delivery order, an order's straight lines first, then each mix
+  function blLineItems() {
+    var out = [];
+    blOrders().forEach(function (g) {
+      var items = [];
+      uniqSorted(g.rows.map(function (o) { return o.opl; })).forEach(function (opl) {
+        var o = g.rows.filter(function (r) { return r.opl === opl; })[0] || {};
+        (BL_LINES[opl] || []).forEach(function (x) { items.push({ o: o, opl: opl, x: x }); });
+      });
+      blGroups(items).forEach(function (grp) { grp.lines.forEach(function (it) { out.push({ g: g, it: it }); }); });
+    });
+    return out;
+  }
+  function blAnyLineOpen() {
+    for (var k in TRIPTREE_OPEN) if (k.indexOf('L:') === 0) return true;
+    return false;
+  }
+  function blSetAllLines(shut) {
+    Object.keys(TRIPTREE_OPEN).forEach(function (k) { if (k.indexOf('L:') === 0) delete TRIPTREE_OPEN[k]; });
+    if (!shut) blLineItems().forEach(function (r) { TRIPTREE_OPEN['L:' + r.it.opl + '|' + r.it.x.soi] = 1; });
+    renderActive();
+  }
+  function renderLines() {
+    if (!(OV.orders || []).length) return '<div class="tm-empty">Nothing to show.</div>';
+    blLoadLines();
+    var rows = blLineItems();
+    if (!rows.length) return '<div class="tm-empty">' + (BL_LINES_FOR ? 'Reading the order lines…' : 'Nothing to show.') + '</div>';
+    return rows.map(function (r) { return blLine(r.it.o, r.it.opl, r.it.x, r.g); }).join('');
+  }
+  function renderOrderLines() {
+    var list = blOrders();
+    if (!list.length) return '<div class="tm-empty">Nothing to show.</div>';
+    blLoadLines();
+    return list.map(function (g) {
+      var okey = 'O:' + g.key, shut = !TRIPTREE_OPEN[okey];
       var opls = uniqSorted(g.rows.map(function (o) { return o.opl; }));
       var sum = function (f) { var seen = {}; return g.rows.reduce(function (t, o) { var kk = o.opl + '||' + o.farm; if (seen[kk]) return t; seen[kk] = 1; return t + (Number(o[f]) || 0); }, 0); };
       var trips = uniqSorted([].concat.apply([], g.rows.map(function (o) {
@@ -1137,32 +1260,36 @@
         return ts.length ? ts : (o.truck ? [o.truck] : []);
       })));
       var scheduled = g.rows.some(function (o) { return Number(o.scheduled); });
+      var hubs = ovHubsOf(g.rows);
       var linesHtml = '';
       if (!shut) {
-        linesHtml = opls.map(function (opl) {
+        // every pick list's lines of the order together (one per team): each mix once, its lines from every team
+        var items = [], reading = false;
+        opls.forEach(function (opl) {
           var o = g.rows.filter(function (r) { return r.opl === opl; })[0] || {};
-          var ls = BL_LINES[opl];
-          if (!ls) return '<div class="bl-line ov-sub">Reading the order lines…</div>';
-          if (!ls.length) return '<div class="bl-line ov-sub">No order line of ' + esc(opl) + ' is being transferred.</div>';
-          return ls.map(function (x) {
-            return '<div class="bl-line"><div class="bl-line-h">' +
-              '<b>' + esc(x.variety) + ' ' + esc(x.length || '') + '</b>' +
-              (x.mixed ? '<span class="bl-mix">MIX</span><span class="ov-sub">' + esc(x.mix_name || x.spec || '') + '</span>' : '<span class="ov-sub">' + esc(x.spec || '') + '</span>') +
-              (x.boxes ? '<span class="ov-sub">· ' + Number(x.boxes) + ' box' + (Number(x.boxes) === 1 ? '' : 'es') + '</span>' : '') +
-              ovTeamTag(o) +
-              '<span class="ov-sub">· from ' + esc(x.farm || '—') + '</span>' +
-              '<span class="ov-count"><b>' + Number(x.total || 0).toLocaleString() + '</b> bucket' + (Number(x.total) === 1 ? '' : 's') + ' · <b>' + Math.round(Number(x.stems) || 0).toLocaleString() + '</b> stems</span>' +
-              '</div><div class="ov-pill-row" style="margin-top:6px">' + ovStagePills(x, o.hub || ovHubOf(o.opl)) + '</div>' +
-              '<button class="ov-more" style="margin-top:8px;" data-bp-opl="' + esc(o.opl) + '" data-bp-farm="" data-bp-name="' + esc(o.order_name) + '">Bucket status →</button>' +
-            '</div>';
+          if (!BL_LINES[opl]) { reading = true; return; }
+          BL_LINES[opl].forEach(function (x) { items.push({ o: o, opl: opl, x: x }); });
+        });
+        if (reading && !items.length) linesHtml = '<div class="bl-line ov-sub">Reading the order lines…</div>';
+        else if (!items.length) linesHtml = '<div class="bl-line ov-sub">No order line is being transferred.</div>';
+        else linesHtml = blGroups(items).map(function (grp) {
+            var bk = grp.lines.reduce(function (t, it) { return t + (Number(it.x.total) || 0); }, 0);
+            var stems = grp.lines.reduce(function (t, it) { return t + (Number(it.x.stems) || 0); }, 0);
+            var head = '<div class="bl-grp-h">' +
+              (grp.mix ? '<span class="bl-mix">MIX</span>' + esc(grp.name) + (grp.boxes ? ' <span class="ov-sub">· ' + grp.boxes + ' box' + (grp.boxes === 1 ? '' : 'es') + '</span>' : '')
+                       : 'Straight lines') +
+              ' <span class="ov-sub">· ' + grp.lines.length + ' line' + (grp.lines.length === 1 ? '' : 's') + '</span>' +
+              '<span class="ov-count"><b>' + bk.toLocaleString() + '</b> bucket' + (bk === 1 ? '' : 's') + ' · <b>' + Math.round(stems).toLocaleString() + '</b> stems</span></div>';
+            return head + grp.lines.map(function (it) { return blLine(it.o, it.opl, it.x); }).join('');
           }).join('');
-        }).join('');
       }
       return '<div class="tt-trip">' +
         '<div class="tt-trip-h" data-tt-toggle="' + esc(okey) + '"><span class="ov-caret">' + (shut ? '▸' : '▾') + '</span>' +
           '<span>' + esc(g.name) + ' <span class="ov-sub">· ' + esc(g.customer || '') + ' · delivery ' + ovFmtD(g.delivery) + (opls.length > 1 ? ' · ' + opls.length + ' pick lists' : '') + '</span></span>' +
+          (hubs ? '<span class="tt-trip-farm" title="The sales farm the buckets go to: the order is processed there">→ ' + esc(hubs) + '</span>' : '') +
           (trips.length ? '<span class="tt-trip-farms">' + trips.map(function (t) { return '<span class="tt-trip-farm">' + esc(t) + '</span>'; }).join('') + '</span>' : '<span class="ov-sub"><i>' + (scheduled ? 'No truck yet' : 'Not scheduled') + '</i></span>') +
           '<span class="ov-count">' + sum('total').toLocaleString() + ' bucket' + (sum('total') === 1 ? '' : 's') + '</span>' +
+          '<button type="button" class="tt-exp" data-bl-exp="' + esc(g.key) + '">' + (blOrderAllOpen(g) ? 'Collapse' : 'Expand') + '</button>' +
         '</div>' +
         (shut ? '' : '<div class="bl-lines">' + linesHtml + '</div>') +
       '</div>';
@@ -1710,17 +1837,30 @@
     else if (ACTIVE === 'heatmap') html = renderHeatmap(combos);
     else if (ACTIVE === 'tree') html = renderTree(combos);
     else if (ACTIVE === 'flat') html = renderFlat(combos);
-    else if (ACTIVE === 'triptree') html = BL_GROUP === 'order' ? renderOrderLines() : renderTripTree(combos);
+    else if (ACTIVE === 'triptree') html = BL_GROUP === 'order' ? renderOrderLines() : BL_GROUP === 'line' ? renderLines() : renderTripTree(combos);
     var grp = '<div class="bl-grp" role="group" aria-label="Group by">' +
-      '<button type="button" data-bl-group="trip" class="' + (BL_GROUP === 'order' ? '' : 'is-on') + '">By trip</button>' +
-      '<button type="button" data-bl-group="order" class="' + (BL_GROUP === 'order' ? 'is-on' : '') + '">By order</button></div>';
+      '<button type="button" data-bl-group="trip" class="' + (BL_GROUP === 'order' || BL_GROUP === 'line' ? '' : 'is-on') + '">By trip</button>' +
+      '<button type="button" data-bl-group="order" class="' + (BL_GROUP === 'order' ? 'is-on' : '') + '">By order</button>' +
+      '<button type="button" data-bl-group="line" class="' + (BL_GROUP === 'line' ? 'is-on' : '') + '">By order line</button></div>';
     var ttAll = ACTIVE === 'triptree'
       ? '<div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin:0 0 10px;">' + grp +
+        '<button type="button" data-tt-all="1" style="border:0;border-radius:10px;padding:9px 18px;background:#f1efea;color:#0a0a0a;font:600 13px var(--sans,\'Poppins\',system-ui,sans-serif);cursor:pointer">Expand all</button>' +
         (window.rtTrucks ? '<button type="button" data-tt-trucks="1" style="border:0;border-radius:10px;padding:9px 18px;background:#0a0a0a;color:#fff;font:600 13px var(--sans,\'Poppins\',system-ui,sans-serif);cursor:pointer">Add to truck</button>' : '') +
         '</div>' : '';
     body.innerHTML = controlsHtml() + (ACTIVE === 'triptree' ? ovOrigKpis(OV.orders || []) : '') + ttAll + html;
     var allBtn = body.querySelector('[data-tt-all]');
-    if (allBtn) { allBtn.textContent = ttAnyOpen() ? 'Collapse all' : 'Expand all'; allBtn.addEventListener('click', function () { ttSetAll(ttAnyOpen()); }); }
+    if (allBtn) {
+      var anyOpen = BL_GROUP === 'order' ? blAnyOpen : BL_GROUP === 'line' ? blAnyLineOpen : ttAnyOpen;
+      allBtn.textContent = anyOpen() ? 'Collapse all' : 'Expand all';
+      allBtn.addEventListener('click', function () {
+        if (BL_GROUP === 'order') blSetAll(blAnyOpen());
+        else if (BL_GROUP === 'line') blSetAllLines(blAnyLineOpen());
+        else ttSetAll(ttAnyOpen());
+      });
+    }
+    body.querySelectorAll('[data-bl-exp]').forEach(function (b) {
+      b.addEventListener('click', function (e) { e.stopPropagation(); blSetOrder(b.getAttribute('data-bl-exp')); });
+    });
     body.querySelectorAll('[data-bl-group]').forEach(function (b) {
       b.addEventListener('click', function () {
         BL_GROUP = b.getAttribute('data-bl-group');
