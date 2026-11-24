@@ -1042,11 +1042,16 @@ function open_spec_picker(frm, trigger_cdn, initial_specs) {
 	return d;
 }
 
+// The picker for other Sales Order screens (Update Items on a submitted order).
+window.upande_open_spec_picker = open_spec_picker;
+
 // ----------------------------- appending -----------------------------
 
 function next_group(frm, field, extra_rows) {
 	let max = 0;
-	(frm.doc.items || []).concat(extra_rows || []).forEach((r) => {
+	// lines already waiting in the Update Items dialog count too (their groups are taken)
+	const pending = frm.__spec_sink ? frm.__spec_sink.rows() : [];
+	(frm.doc.items || []).concat(pending, extra_rows || []).forEach((r) => {
 		max = Math.max(max, cint(r[field]));
 	});
 	return max + 1;
@@ -1108,6 +1113,11 @@ function append_spec_batch(frm, trigger_cdn, batch, source_warehouse) {
 	build(0).then(() => {
 		if (!acc.length) {
 			frappe.msgprint(__("Nothing to add."));
+			return;
+		}
+		// Update Items on a submitted order: the lines go into its dialog, not the (frozen) form
+		if (frm.__spec_sink) {
+			frm.__spec_sink.add(acc);
 			return;
 		}
 		// Drop the scratch row the Specification link was picked on, plus any

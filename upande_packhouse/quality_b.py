@@ -49,25 +49,34 @@ def before_validate(doc, method=None):
 		doc.custom_delivery_point = DELIVERY_POINT
 	if doc.meta.has_field("custom_order_name") and not doc.get("custom_order_name"):
 		doc.custom_order_name = "QB {0}".format(doc.customer_name or doc.customer or "")
-	# sold by the stem (the webstore's unit): every line in its stock unit, keeping its stems -- a line the
-	# webstore made has no unit yet, so its quantity is already stems
+	# picked and packed in bunches, like every export order: each line in its item's bunch unit (Bunch (10) =
+	# 10 stems), its stems rounded up to whole bunches, priced per bunch -- a line the webstore made has no
+	# unit yet, so its quantity is stems
 	for line in doc.items:
 		if not line.item_code:
 			continue
 		stock_uom = line.get("stock_uom") or frappe.db.get_value("Item", line.item_code, "stock_uom")
+		old_factor = flt(line.conversion_factor) or 1
 		if line.get("uom") and line.uom != stock_uom:
-			stems = flt(line.get("stock_qty")) or flt(line.qty) * flt(line.conversion_factor or 1)
+			stems = flt(line.get("stock_qty")) or flt(line.qty) * old_factor
 		else:
+			old_factor = 1
 			stems = flt(line.qty)
-		line.uom = line.stock_uom = stock_uom
-		line.conversion_factor = 1
-		line.qty = stems
-		line.stock_qty = stems
+		uom, factor = _bunch_uom(line.item_code, stock_uom)
+		bunches = -(-cint(stems) // cint(factor)) if factor > 1 else stems
+		for field in ("rate", "price_list_rate"):
+			if flt(line.get(field)):
+				setattr(line, field, flt(line.get(field)) / old_factor * factor)
+		line.stock_uom = stock_uom
+		line.uom = uom
+		line.conversion_factor = factor
+		line.qty = bunches
+		line.stock_qty = bunches * factor
 	# not boxed for export: a line with no packrate is one pack holding all its stems
 	for line in doc.items:
 		if line.get("custom_mixed_box"):
 			continue
-		stems = cint(flt(line.qty))
+		stems = cint(flt(line.stock_qty) or flt(line.qty) * flt(line.conversion_factor or 1))
 		if stems <= 0:
 			continue
 		if not frappe.db.exists("Packrate", str(stems)):
@@ -78,11 +87,104 @@ def before_validate(doc, method=None):
 		line.custom_number_of_boxes = 1
 
 
+def _bunch_uom(item_code, stock_uom):
+	"""(uom, stems per bunch) a Quality B line is sold in: the item's Sales UOM when it is a bunch, else its
+	first bunch conversion, else the bunch its export orders use most, else Bunch (10)."""
+	rows = frappe.get_all(
+		"UOM Conversion Detail",
+		filters={"parenttype": "Item", "parent": item_code},
+		fields=["uom", "conversion_factor"],
+		order_by="idx",
+	)
+	bunches = {r.uom: flt(r.conversion_factor) for r in rows if _named_bunch(r.uom, r.conversion_factor)}
+	sales_uom = frappe.db.get_value("Item", item_code, "sales_uom")
+	if sales_uom in bunches:
+		return sales_uom, bunches[sales_uom]
+	if bunches:
+		uom = next(iter(bunches))
+		return uom, bunches[uom]
+	# most varieties carry no bunch on the Item, yet sell as one: the bunch its orders use
+	used = frappe.db.sql(
+		"""SELECT uom, conversion_factor FROM `tabSales Order Item`
+		WHERE item_code = %s AND docstatus = 1 AND uom LIKE '%%unch%%' AND conversion_factor > 1
+		GROUP BY uom, conversion_factor ORDER BY COUNT(*) DESC""",
+		item_code,
+	)
+	for uom, factor in used:
+		if _named_bunch(uom, factor):
+			return uom, flt(factor)
+	if frappe.db.exists("UOM", "Bunch (10)"):
+		return "Bunch (10)", 10
+	return stock_uom, 1
+
+
+def stems_per_bunch(item_code):
+	"""Stems in one bunch of `item_code` as a Quality B order packs it -- the webstore's `webstore_stems_per_bunch`
+	hook, so the shop sells in the bunches the pick list will pick."""
+	stock_uom = frappe.db.get_value("Item", item_code, "stock_uom")
+	return cint(_bunch_uom(item_code, stock_uom)[1]) or 1
+
+
+def _named_bunch(uom, factor):
+	"""A bunch unit whose stems match its name -- "Bunch (10)" at 10: packing reads the bunch size off the
+	name, so a "Bunch (10)" set to 9 stems would never box evenly."""
+	import re
+
+	m = re.search(r"\((\d+)\)", uom or "")
+	return bool("bunch" in (uom or "").lower() and m and flt(factor) > 1 and cint(m.group(1)) == flt(factor))
+
+
 def on_submit(doc, method=None):
-	"""Sales Order on_submit: a Quality B order gets its pick lists from Grade B buckets."""
+	"""Sales Order on_submit: a Quality B order gets its sales farm, then its pick lists from Grade B buckets."""
 	if not is_quality_b(doc):
 		return
+	choose_sales_farm(doc)
 	make_pick_lists(doc)
+
+
+#: The location whose sales farms pack Quality B orders (Kapkolia and the farms trucking to it). Karen is left out
+#: for now.
+QUALITY_B_LOCATION = "Ravine"
+PROCESSING_FIELD = "custom_processing_sales_farm"
+
+
+def quality_b_sales_farms():
+	"""The Ravine sales farms that can pack a Quality B order -- those with a Quality B packing team -- in the
+	Remote Transfer Sales Farms order."""
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import sales_farms
+	from upande_packhouse.api.v2.allocation_teams import team_sales_farms
+	from upande_packhouse.mobile.api import _loading_location
+
+	ps = frappe.get_cached_doc("Production Settings")
+	home = team_sales_farms()
+	with_team = {home.get(r.team) for r in ps.get("quality_b_packing_teams") or [] if r.team}
+	return [f for f in sales_farms() if f in with_team and _loading_location(f)[0] == QUALITY_B_LOCATION]
+
+
+def choose_sales_farm(doc):
+	"""The sales farm that packs `doc`: the one the sales team set (when it can pack Quality B), else the Ravine
+	sales farm whose own Grade B covers most of the order's stems -- fewest buckets to truck in -- the first
+	one on a tie. Kept on the order's processing sales farm, which every hub lookup (teams, trips, the app's
+	station lists) reads first."""
+	if not frappe.db.has_column("Sales Order", PROCESSING_FIELD):
+		return None
+	farms = quality_b_sales_farms()
+	current = doc.get(PROCESSING_FIELD)
+	if current in farms or not farms:
+		return current
+	needs = defaultdict(float)
+	for line in doc.items:
+		if line.item_code:
+			needs[line.item_code] += flt(line.stock_qty) or flt(line.qty) * flt(line.conversion_factor or 1)
+
+	def covered(farm):
+		return sum(
+			min(need, sum(b["free"] for b in grade_b_buckets(item, [farm]))) for item, need in needs.items()
+		)
+
+	chosen = max(farms, key=lambda f: (covered(f), -farms.index(f)))
+	doc.db_set(PROCESSING_FIELD, chosen, update_modified=False)
+	return chosen
 
 
 def _sales_farm(doc):
@@ -179,6 +281,9 @@ def make_pick_lists(doc):
 			grade_b_buckets(line.item_code, farms),
 			key=lambda b: (b["farm"] != sales_farm, str(b["moved_on"] or "")),
 		)
+		# a remote farm's bucket another order has requested whole travels for that order: not this one's
+		taken = sa.remote_bucket_owners([b["bucket_id"] for b in buckets if b["farm"] != sales_farm])
+		buckets = [b for b in buckets if not (taken.get(b["bucket_id"], set()) - {doc.name})]
 		for b in buckets:
 			if need < bunch:
 				break
@@ -227,6 +332,21 @@ def make_pick_lists(doc):
 	for opl in opls:
 		frappe.db.set_value("Order Pick List", opl, "quality_b", 1, update_modified=False)
 	submit_pick_lists(opls)
+	from upande_packhouse.allocation_log import log
+
+	log(
+		"Quality B",
+		_("Quality B pick lists {0} for team {1} from Grade B buckets at {2}.{3}").format(
+			", ".join(sorted(opls)),
+			team,
+			", ".join(sorted({a["_farm"] for a in allocations})),
+			(" " + "; ".join(short)) if short else "",
+		),
+		sales_order=doc.name,
+		team=team,
+		farm=sales_farm,
+		stems_after=sum(flt(a["qty"]) for a in allocations),
+	)
 	doc.add_comment(
 		"Info",
 		_("Quality B pick lists {0} for team {1} from Grade B buckets at {2}.{3}").format(
@@ -323,59 +443,7 @@ def take_scanned_bucket(opl_name: str, bucket: str):
 			)
 		)
 	row, b = choice
-	qty = min(flt(row.stock_qty), flt(b["free"]))
-	old = row.bucket
-	business_unit = stock_movement.opl_business_unit(opl) or "Roses"
-	stock_movement.lock_bucket(b["bucket_id"])
-
-	# the suggested bucket gives back its allocation for this line, and its stems (if sold already) go back
-	_release_line(old, row.item_code, row.sales_order_item)
-	if old and not cint(row.awaiting_transfer):
-		stock_movement.reverse_allocation_movement(
-			row.sales_order_item, bucket_id=old, item_code=row.item_code, business_unit=business_unit
-		)
-	# the scanned bucket takes it: allocated to the line, its stems sold out of its own Grade B warehouse
-	_hold_line(opl, b, row.item_code, row.sales_order_item, qty)
-	stock_movement.move_allocation_to_sold(
-		[
-			{
-				"bucket_id": b["bucket_id"],
-				"item_code": row.item_code,
-				"qty": qty,
-				"sales_order_item": row.sales_order_item,
-				"warehouse": b["warehouse"],
-				"stem_length": b["stem_length"],
-				"_shelf_farm": b["farm"],
-				"_opl": opl_name,
-			}
-		],
-		business_unit,
-		sales_order=opl.sales_order,
-		opl=opl_name,
-	)
-	frappe.db.set_value(
-		"Pick List Item",
-		row.name,
-		{
-			"bucket": b["bucket_id"],
-			"shelf": b["shelf"],
-			"farm": b["farm"],
-			"source_warehouse": b["warehouse"],
-			"origin_warehouse": b["warehouse"],
-			"stem_length": b["stem_length"],
-			"qty": qty / flt(row.conversion_factor or 1),
-			"stock_qty": qty,
-			"awaiting_transfer": 0,
-			"custom_ready_for_packing": 1,
-			"not_found": 0,
-		},
-	)
-	opl.add_comment(
-		"Info",
-		_("Issuing took Grade B bucket {0} ({1} stems of {2}) instead of {3}.").format(
-			b["bucket_id"], int(qty), row.item_code, old or "-"
-		),
-	)
+	old, qty = _swap_row(opl, row, b)
 	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- the scan issues it next, in its own request
 	return {"status": "swapped", "row": row.name, "old_bucket": old, "new_bucket": b["bucket_id"], "qty": qty}
 
@@ -438,3 +506,164 @@ def _hold_line(opl, b, item_code, sales_order_item, qty):
 	bas.flags.ignore_links = True
 	bas.save()
 	_recompute(bas.name)
+
+
+def _swap_row(opl, row, b, why=None):
+	"""Put Grade B bucket `b` on pick list row `row` in place of its bucket: the old bucket gives back its
+	allocation for the line (its stems, if sold already, go back to its Grade B warehouse), the new one is
+	allocated to the line and its stems sold out of its own Grade B warehouse. Returns (old bucket, stems)."""
+	from upande_packhouse import stock_movement
+
+	qty = min(flt(row.stock_qty), flt(b["free"]))
+	old = row.bucket
+	business_unit = stock_movement.opl_business_unit(opl) or "Roses"
+	stock_movement.lock_bucket(b["bucket_id"])
+
+	# the suggested bucket gives back its allocation for this line, and its stems (if sold already) go back
+	_release_line(old, row.item_code, row.sales_order_item)
+	if old and not cint(row.awaiting_transfer):
+		stock_movement.reverse_allocation_movement(
+			row.sales_order_item, bucket_id=old, item_code=row.item_code, business_unit=business_unit
+		)
+	# the scanned bucket takes it: allocated to the line, its stems sold out of its own Grade B warehouse
+	_hold_line(opl, b, row.item_code, row.sales_order_item, qty)
+	stock_movement.move_allocation_to_sold(
+		[
+			{
+				"bucket_id": b["bucket_id"],
+				"item_code": row.item_code,
+				"qty": qty,
+				"sales_order_item": row.sales_order_item,
+				"warehouse": b["warehouse"],
+				"stem_length": b["stem_length"],
+				"_shelf_farm": b["farm"],
+				"_opl": opl.name,
+			}
+		],
+		business_unit,
+		sales_order=opl.sales_order,
+		opl=opl.name,
+	)
+	frappe.db.set_value(
+		"Pick List Item",
+		row.name,
+		{
+			"bucket": b["bucket_id"],
+			"shelf": b["shelf"],
+			"farm": b["farm"],
+			"source_warehouse": b["warehouse"],
+			"origin_warehouse": b["warehouse"],
+			"stem_length": b["stem_length"],
+			"qty": qty / flt(row.conversion_factor or 1),
+			"stock_qty": qty,
+			"awaiting_transfer": 0,
+			"custom_ready_for_packing": 1,
+			"not_found": 0,
+		},
+	)
+	note = (why or _("Issuing took Grade B bucket {0} ({1} stems of {2}) instead of {3}.")).format(
+		b["bucket_id"], int(qty), row.item_code, old or "-"
+	)
+	opl.add_comment("Info", note)
+	from upande_packhouse.allocation_log import log
+
+	log(
+		"Bucket replaced",
+		note,
+		sales_order=opl.sales_order,
+		sales_order_item=row.sales_order_item,
+		bucket_id=b["bucket_id"],
+		order_pick_list=opl.name,
+		farm=b["farm"],
+		stems_after=qty,
+		details={"old_bucket": old, "new_bucket": b["bucket_id"], "grade_b": 1},
+	)
+	return old, qty
+
+
+def is_quality_b_opl(opl_name):
+	return bool(opl_name) and bool(cint(frappe.db.get_value("Order Pick List", opl_name, "quality_b")))
+
+
+def _grade_b_options(anchor, farm, needed):
+	"""Grade B buckets that can stand in for `anchor`'s bucket on its Quality B pick list: the same variety,
+	free, shelved at `farm`, not already on the pick list, holding `needed` stems -- at the same stem length when
+	Production Settings asks for it. Oldest Grade B first."""
+	ps = frappe.get_cached_doc("Production Settings")
+	match_length = cint(ps.get("quality_b_match_stem_length"))
+	taken = {
+		str(b or "").upper()
+		for b in frappe.get_all(
+			"Pick List Item",
+			filters={"parent": anchor.parent, "parenttype": "Order Pick List"},
+			pluck="bucket",
+		)
+	}
+	out = []
+	for b in grade_b_buckets(anchor.item_code, [farm] if farm else []):
+		if str(b["bucket_id"]).upper() in taken:
+			continue
+		if match_length and (b["stem_length"] or "") != (anchor.get("stem_length") or ""):
+			continue
+		if flt(b["free"]) + 1e-6 < flt(needed):
+			continue
+		out.append(b)
+	return out
+
+
+def replacement_candidates(anchor, farm, needed, limit=1):
+	"""sales_allocation._replacement_candidates for a Quality B pick list: Grade B buckets only, in the shape
+	the replacement screens read."""
+	return [
+		frappe._dict(
+			shelf=b["shelf"],
+			bucket_id=b["bucket_id"],
+			variety=anchor.item_code,
+			stem_length=b["stem_length"],
+			stem_qty=b["free"],
+			available_qty=b["free"],
+			warehouse=b["warehouse"],
+			harvest_date=b["moved_on"],
+			grade_b=1,
+		)
+		for b in _grade_b_options(anchor, farm, needed)[: max(1, cint(limit))]
+	]
+
+
+def replace_row(pick_list_item, new_bucket_id=None, reason=None, notes=None, farm=None):
+	"""sales_allocation._replace_requested_bucket for a Quality B pick list: the replacement must be a free Grade
+	B bucket (the first one when none is named). Returns {success, message, old_bucket, new_bucket, qty}."""
+	row = frappe.get_doc("Pick List Item", pick_list_item)
+	opl = frappe.get_doc("Order Pick List", row.parent)
+	if cint(row.issued):
+		return {"success": False, "message": _("Bucket {0} is issued already.").format(row.bucket)}
+	farm = farm or row.farm or opl.get("farm")
+	options = _grade_b_options(row, farm, flt(row.stock_qty))
+	if new_bucket_id:
+		options = [b for b in options if str(b["bucket_id"]).upper() == str(new_bucket_id).strip().upper()]
+	if not options:
+		return {
+			"success": False,
+			"message": _(
+				"{0} is not a free Grade B bucket of {1} at {2} holding {3} stems: a Quality B pick list takes Grade B buckets only."
+			).format(new_bucket_id or _("No bucket"), row.item_code, farm, int(flt(row.stock_qty))),
+		}
+	b = options[0]
+	why = _("Replaced {3} with Grade B bucket {0} ({1} stems of {2}).")
+	if reason:
+		why += " " + str(reason).replace("{", "{{").replace("}", "}}")
+	old, qty = _swap_row(opl, row, b, why=why)
+	if old:
+		from upande_packhouse.api import bucket_replacement
+
+		bucket_replacement.record(
+			old, b["bucket_id"], row, [row], farm, opl.name, b["shelf"], qty, [], reason=reason, notes=notes
+		)
+	return {
+		"success": True,
+		"message": _("Bucket {0} replaced with Grade B bucket {1}.").format(old or "-", b["bucket_id"]),
+		"old_bucket": old,
+		"new_bucket": b["bucket_id"],
+		"shelf": b["shelf"],
+		"qty": qty,
+	}

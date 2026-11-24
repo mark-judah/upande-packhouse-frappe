@@ -1269,6 +1269,12 @@ def createOrUpdateFarmPackList():
 
 		if not items or not isinstance(items, list):
 			frappe.throw(_("Invalid or missing item list"))
+		# Progressive Issuing: a draft pick list packs only its complete boxes
+		from upande_packhouse import progressive
+
+		progressive.throw_if_box_not_ready(
+			order_pick_list_id, [i.get("box_id") for i in items if isinstance(i, dict)]
+		)
 
 		# One pack of a pick list at a time: a resend or a second packer waits here for the first to finish, and
 		# what is read below (packed so far, the pack list) is read after it, never from an older snapshot.
@@ -3452,7 +3458,9 @@ def _listed_opls(opl_names, sched):
 	"""The OPLs a station lists for issuing / packing: those on a Packhouse Schedule
 	(`sched`). A sales farm's own orders (Karen) are never on the Scheduler, so they
 	are always listed, and so are sea freight orders: their pick lists are made when
-	the packhouse receives the order (api/sea_freight.receive), not by scheduling."""
+	the packhouse receives the order (api/sea_freight.receive), not by scheduling.
+	Quality B (webstore) pick lists likewise: they get their team when the order is
+	submitted (quality_b.make_pick_lists) and never go on the Scheduler."""
 	opl_names = list(opl_names)
 	sea_freight = set()
 	if opl_names:
@@ -3460,7 +3468,7 @@ def _listed_opls(opl_names, sched):
 			frappe.db.sql_list(
 				"""SELECT o.name FROM `tabOrder Pick List` o
 				JOIN `tabSales Order` so ON so.name = o.sales_order
-				WHERE o.name IN %(o)s AND so.custom_mode_of_transport = 'Sea Freight'""",
+				WHERE o.name IN %(o)s AND (so.custom_mode_of_transport = 'Sea Freight' OR o.quality_b = 1)""",
 				{"o": tuple(opl_names)},
 			)
 		)
@@ -3495,19 +3503,34 @@ def fetchPicklists():
 		# Filter by the Sales Order's DELIVERY date (pack today for tomorrow's
 		# shipments), not the pick list creation date. `opl.sales_order` is the real
 		# link; `order_name` is only a display label.
+		from upande_packhouse import progressive
+
 		result = frappe.db.sql(
 			"""
                 SELECT opl.name AS opl_name, opl.order_name AS order_name,
                        opl.item_group AS item_group, opl.custom_total_stems AS planned_stems,
-                       opl.team AS team, opl.customer AS customer
+                       opl.team AS team, opl.customer AS customer, opl.quality_b AS quality_b,
+                       opl.docstatus AS docstatus
                 FROM `tabOrder Pick List` opl
                 INNER JOIN `tabSales Order` so ON so.name = opl.sales_order
-                WHERE opl.docstatus = 1 AND so.delivery_date = %s
+                WHERE (opl.docstatus = 1 OR (%s AND opl.docstatus = 0)) AND so.delivery_date = %s
                 ORDER BY opl.creation DESC LIMIT 500
             """,
-			(today,),
+			(1 if progressive.enabled() else 0, today),
 			as_list=True,
 		)
+		# Progressive Issuing: a draft still waiting for buckets is packed box by box once it is open and
+		# something of its complete boxes is issued
+		progress_of = progressive.readiness_many([r[0] for r in result if not cint(r[7])])
+		packing_draft = {
+			o
+			for o, st in progress_of.items()
+			if st["open"]
+			and frappe.db.exists(
+				"Pick List Item", {"parent": o, "parenttype": "Order Pick List", "issued": 1}
+			)
+		}
+		result = [r for r in result if cint(r[7]) or r[0] in packing_draft]
 		where = _stock_locations([r[0] for r in result])
 		if location:
 			here = _stock_here([r[0] for r in result], location)
@@ -3537,6 +3560,7 @@ def fetchPicklists():
 		min_pct = _pack_waiting_min_pct()
 		issued_now = _issued_stems(opl_names)
 		pack_now = {o for o, st in issued_now.items() if st["issued"] > 0 and st["pct"] >= min_pct}
+		pack_now |= packing_draft
 		if opl_names and frappe.db.has_column("Order Pick List", "pack_issued_now"):
 			pack_now |= set(
 				frappe.get_all(
@@ -3625,6 +3649,11 @@ def fetchPicklists():
 					item_group=r[2],
 					team=r[4],
 					customer=r[5],
+					quality_b=cint(r[6]),
+					# Progressive Issuing: a draft packed box by box -- its complete boxes of all of them
+					progressive=(
+						{k: progress_of[r[0]][k] for k in ("ready", "total")} if r[0] in progress_of else None
+					),
 					varieties=sorted(varieties_by_opl.get(r[0], set())),
 					stem_lengths=sorted(lengths_by_opl.get(r[0], set())),
 					variety_lengths=_variety_lengths(pairs_by_opl.get(r[0])),
@@ -4276,6 +4305,7 @@ def getReadySaleOrderItems():
 					"team",
 					"custom_total_stems",
 					"docstatus",
+					"quality_b",
 				],
 			)
 			if so_names
@@ -4286,6 +4316,31 @@ def getReadySaleOrderItems():
 		# farm (waiting on a replacement) -- never submits, yet its buckets already here
 		# must be issued: listed like a submitted order. One with a bucket still at a
 		# farm or on the road stays off the list until it arrives.
+		# Progressive Issuing: drafts still waiting for buckets that already have enough complete boxes
+		from upande_packhouse import progressive
+
+		progress_of = {}
+		if progressive.enabled() and so_names:
+			waiting = frappe.get_all(
+				"Order Pick List",
+				filters={"docstatus": 0, "sales_order": ["in", so_names]},
+				fields=[
+					"name",
+					"order_name",
+					"customer",
+					"item_group",
+					"team",
+					"custom_total_stems",
+					"docstatus",
+					"quality_b",
+				],
+			)
+			progress_of = {
+				o: st
+				for o, st in progressive.readiness_many([o.name for o in waiting]).items()
+				if st["open"] or progressive.waiting_transfer(st)
+			}
+			ready_orders += [o for o in waiting if o.name in progress_of]
 		drafts = [o.name for o in ready_orders if not o.docstatus]
 		if drafts:
 			moving = set(
@@ -4300,7 +4355,9 @@ def getReadySaleOrderItems():
 					pluck="parent",
 				)
 			)
-			ready_orders = [o for o in ready_orders if o.docstatus or o.name not in moving]
+			ready_orders = [
+				o for o in ready_orders if o.docstatus or o.name not in moving or o.name in progress_of
+			]
 
 		# a sales farm's station: its own orders only
 		mine = _for_station_farm([o.name for o in ready_orders])
@@ -4380,7 +4437,8 @@ def getReadySaleOrderItems():
 			finished = done["total"] and done["issued"] >= done["total"]
 			if stock_here is not None and finished and opl.name not in stock_here:
 				continue
-			if opl.name not in opls_with_unissued and not finished:
+			# a pick list waiting for a transfer is listed with nothing here yet: it shows what it waits for
+			if opl.name not in opls_with_unissued and not finished and opl.name not in progress_of:
 				continue
 			shown = all_buckets.get(opl.name) or done
 			orders.append(
@@ -4418,6 +4476,17 @@ def getReadySaleOrderItems():
 					# A draft listed here has buckets a farm marked not found: replace them, or
 					# complete the order short (completeOplShort).
 					"draft": 0 if opl.docstatus else 1,
+					# a webstore (Quality B) order: Grade B flowers, replaced from Grade B buckets only
+					"quality_b": cint(opl.get("quality_b")),
+					# Progressive Issuing: issued box by box while its other buckets are on their way
+					"progressive": (
+						{
+							**{k: progress_of[opl.name][k] for k in ("ready", "total", "start_from", "open")},
+							"waiting": progressive.closed_reason(progress_of[opl.name]),
+						}
+						if opl.name in progress_of
+						else None
+					),
 					**{
 						k: v
 						for k, v in (shorts.get(opl.name) or {}).items()
@@ -4513,8 +4582,14 @@ def getReadySaleOrderItemsData():
 			# Scope strictly to this ONE Order Pick List — a Sales Order can have
 			# several OPLs sharing the same order_name, and they must stay separate
 			# so issuing one never pulls in another OPL's buckets.
+			from upande_packhouse import progressive
+
 			matching_opls = (
-				[opl_name] if frappe.db.exists("Order Pick List", {"name": opl_name, "docstatus": 1}) else []
+				[opl_name]
+				if frappe.db.exists("Order Pick List", {"name": opl_name, "docstatus": 1})
+				# Progressive Issuing: a draft still waiting for buckets, issued box by box (listed while it waits)
+				or (progressive.enabled() and _waiting_or_open(opl_name))
+				else []
 			)
 		else:
 			# Legacy fallback: match by the free-text order_name field. Kept only for
@@ -4590,6 +4665,29 @@ def getReadySaleOrderItemsData():
 				)
 				st_farms = location_farms(st_loc) if st_loc else None
 
+				# Progressive Issuing: which buckets of a draft pick list sit only in boxes that are not complete
+				from upande_packhouse import progressive
+
+				drafts = [
+					o for o in matching_opls if frappe.db.get_value("Order Pick List", o, "docstatus") == 0
+				]
+				progress_of = progressive.readiness_many(drafts)
+				box_state = {}
+				for o, st in progress_of.items():
+					per_bucket = {}
+					for r in frappe.get_all(
+						"Pick List Item",
+						filters={"parent": o, "parenttype": "Order Pick List"},
+						fields=["name", "bucket", "custom_box_id"],
+					):
+						box = cint(r.custom_box_id) or r.name
+						why = st["boxes"].get(box, "")
+						# a bucket in one complete box can be issued: "" wins over a reason
+						per_bucket[r.bucket] = "" if (per_bucket.get(r.bucket) == "" or not why) else why
+					# not open yet: nothing of it is issued, every bucket waits
+					if not st["open"]:
+						per_bucket = {b: progressive.closed_reason(st) for b in per_bucket}
+					box_state[o] = per_bucket
 				for pli in pick_list_items:
 					# Another location's bucket (a Karen order picked from Kapkolia, seen at
 					# Karen): that station issues it, not this one.
@@ -4639,9 +4737,47 @@ def getReadySaleOrderItemsData():
 						packing_item["waiting_transfer"] = 1
 						packing_item["transfer_farm"] = _row_farm(pli)
 
+					# Progressive Issuing: on a draft, a bucket none of whose boxes is complete is greyed out
+					if box_state.get(pli.opl_name) and pli.bucket in box_state[pli.opl_name]:
+						why = box_state[pli.opl_name][pli.bucket]
+						if why:
+							packing_item["box_waiting"] = why
+							packing_item["is_ready"] = False
 					packing_list.append(packing_item)
 
+				# A bucket reported not found (at its farm, or here) -- or the one replacing it: the report, the
+				# shelf the QC scanned and its photo, who and when
+				from upande_packhouse.api import not_found_report
+
+				nf_reports = not_found_report.reports([(p["opl_name"], p["bucket"]) for p in packing_list])
+				for p in packing_list:
+					if (p["opl_name"], p["bucket"]) in nf_reports:
+						p["not_found_report"] = nf_reports[(p["opl_name"], p["bucket"])]
+
+				# The stems the bucket holds on its shelf: more than the order takes, and the issuer takes only
+				# the order's stems and puts the bucket back
+				waiting_buckets = list(
+					{p["bucket"] for p in packing_list if p["bucket"] and not p["is_issued"]}
+				)
+				if waiting_buckets:
+					# a bucket id is reused: only its shelf row of this variety counts (the latest one)
+					on_shelf = {}
+					for bucket_id, variety, stems in frappe.db.sql(
+						"""SELECT bucket_id, variety, stem_qty FROM `tabShelf Item`
+						   WHERE bucket_id IN %(b)s ORDER BY modified""",
+						{"b": tuple(waiting_buckets)},
+					):
+						on_shelf[(bucket_id.upper(), variety)] = flt(stems)
+					for p in packing_list:
+						key = ((p["bucket"] or "").upper(), p["variety"])
+						if not p["is_issued"] and key in on_shelf:
+							p["bucket_stems"] = on_shelf[key]
+
 				frappe.response["packing_list"] = packing_list
+				frappe.response["progressive"] = {
+					o: {k: st[k] for k in ("total", "ready", "start_from", "open")}
+					for o, st in progress_of.items()
+				}
 				frappe.response["message"] = f"Found {len(packing_list)} buckets"
 
 	except Exception as error:
@@ -5258,6 +5394,17 @@ def get_pick_list_with_farm_pack_list():
 			location["warehouse"] = location.get("source_warehouse")
 			location["custom_stem_length"] = location.get("stem_length")
 		order_pick_list["locations"] = order_pick_list["table_ytkc"]
+		# Progressive Issuing: a draft is packed box by box -- the boxes not complete yet, with why
+		if order_pick_list.get("docstatus") == 0:
+			from upande_packhouse import progressive
+
+			st = progressive.readiness(pick_list_id)
+			order_pick_list["progressive"] = {
+				"open": st["open"],
+				"ready": st["ready"],
+				"total": st["total"],
+				"box_waiting": {str(k): why for k, why in st["boxes"].items() if why},
+			}
 
 		# ================================
 		# Load ONLY the latest SUBMITTED Farm Pack List
@@ -5846,6 +5993,28 @@ def issueBucketToSaleOrderItem():
 			frappe.response.data = {"status": "busy", "error": "busy", "error_type": type(e).__name__}
 
 
+def _waiting_or_open(opl_name):
+	from upande_packhouse import progressive
+
+	if frappe.db.get_value("Order Pick List", opl_name, "docstatus") != 0:
+		return False
+	st = progressive.readiness(opl_name)
+	return st["open"] or progressive.waiting_transfer(st)
+
+
+def _progressive_ok(opl_name, bucket_id):
+	"""Progressive Issuing: a draft pick list's bucket in a complete box can be issued."""
+	from upande_packhouse import progressive
+
+	return progressive.enabled() and progressive.bucket_issuable(opl_name, bucket_id)[0]
+
+
+def _progressive_msg(opl_name, bucket_id):
+	from upande_packhouse import progressive
+
+	return progressive.bucket_issuable(opl_name, bucket_id)[1] if progressive.enabled() else ""
+
+
 def _issue_bucket_once():
 	try:
 		# Get payload from request
@@ -5888,8 +6057,12 @@ def _issue_bucket_once():
 		# -------------------------------
 		if schedule_blocked:
 			pass
-		elif opl_name and frappe.db.get_value("Order Pick List", opl_name, "docstatus") != 1:
-			frappe.response.message = (
+		elif (
+			opl_name
+			and frappe.db.get_value("Order Pick List", opl_name, "docstatus") != 1
+			and not (_progressive_ok(opl_name, bucket_id))
+		):
+			frappe.response.message = _progressive_msg(opl_name, bucket_id) or (
 				f"Pick list {opl_name} is not submitted yet: issue it once it is submitted."
 			)
 			frappe.response.http_status_code = 409
@@ -6316,6 +6489,9 @@ def _issue_bucket_once():
 								recompute_bas_quantities(bas, shelf_qty=shelf_left)
 								bas.flags.ignore_validate = True
 								bas.flags.ignore_mandatory = True
+								# an old allocation row can name a Sales Order since deleted: only this
+								# line's rows change here, so a dead link elsewhere must not stop the issue
+								bas.flags.ignore_links = True
 								bas.save(ignore_permissions=True)
 						except LOCK_ERRORS:
 							raise

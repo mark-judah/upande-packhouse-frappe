@@ -29,6 +29,16 @@
   .bl-allrow{display:flex;justify-content:flex-end;margin-bottom:var(--sp-3)}
   .bl-trip{margin-bottom:var(--sp-2)}
   .bl-tgl{cursor:pointer;user-select:none}
+  .bl-ord{margin-bottom:var(--sp-2)}
+  .bl-ord-h{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2) var(--sp-3);padding:var(--sp-3) var(--sp-4);background:var(--ink);color:var(--surface);border-radius:var(--r-md);font-weight:600}
+  .bl-ord-h .bl-sub{color:var(--ink-faint);font-weight:400}
+  .bl-ord-h .bl-qty{margin-left:auto;color:var(--surface)}
+  .bl-lines{padding:var(--sp-1) 0 var(--sp-2) var(--sp-5)}
+  .bl-line{padding:var(--sp-2) var(--sp-3);border-bottom:1px solid var(--line)}
+  .bl-line-h{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2) var(--sp-3)}
+  .bl-line-h .bl-qty{margin-left:auto}
+  .bl-line .bl-pills{margin-top:var(--sp-2)}
+  .bl-mix{font-size:11px;font-weight:600;letter-spacing:.04em;padding:0 6px;border-radius:6px;background:var(--tint);color:var(--ink-3)}
   .bl-caret{display:inline-block;width:16px;flex:0 0 auto}
   .bl-trip-h{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);background:var(--ink);color:var(--surface);border-radius:var(--r-md);font-weight:600}
   .bl-trip-h .bl-sub{color:var(--ink-faint);font-weight:400}
@@ -76,6 +86,7 @@
   <select class="ph-select" id="bl-farm" aria-label="Origin farm" title="Origin farm: where the bucket is trucked from"><option value="">All origin farms</option></select>
   <select class="ph-select" id="bl-team" aria-label="Team"><option value="">All teams</option></select>
   <label class="ph-search"><svg class="ph-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="bl-q" type="search" placeholder="Search order, customer, OPL, variety"></label>
+  <div class="ph-pills" id="bl-group" aria-label="Group by"><button data-value="trip">By trip</button><button data-value="order">By order</button></div>
   <div class="ph-filters__spacer"></div>
   <div class="ph-pills" id="bl-preset" aria-label="Delivery date presets">
     <button data-value="yesterday">Yesterday</button><button data-value="today">Today</button><button data-value="tomorrow">Tomorrow</button><button data-value="7d">7 days</button><button data-value="30d">30 days</button>
@@ -117,15 +128,18 @@
   const hubOf = (opl) => ((DATA && (DATA.orders || []).find((o) => o.opl === opl)) || {}).hub || "";
   const flagLabel = (k, hub) => (k === "arrived_hub" ? "Arrived at " + (hub || HUB) : LABEL[k]);
 
-  const st = PH.state({ from: RT.defaultDate, to: RT.defaultDate, region: "", farm: "", team: "", q: "" });
+  const st = PH.state({ from: RT.defaultDate, to: RT.defaultDate, region: "", farm: "", team: "", q: "", group: "trip" });
   // Old/shared ?date= link: a single delivery day.
   (function () { const p = new URLSearchParams(location.search), d = p.get("date"); if (d && !p.get("from")) st.set({ from: d, to: d }, { silent: true }); })();
   PH.regionPills("#f-region", st, "region");
   PH.bindSelect("#bl-farm", st, "farm");
   PH.bindSelect("#bl-team", st, "team");
   PH.bindSearch("#bl-q", st, "q");
+  PH.pills("#bl-group", st, "group");
   PH.dateRange({ pills: "#bl-preset", from: "#bl-from", to: "#bl-to", state: st, fromKey: "from", toKey: "to" });
   st.on((s, changed) => {
+    // the grouping only changes how the same orders are drawn
+    if (changed.every((k) => k === "group")) return render();
     if (changed.indexOf("region") >= 0 && s.farm && PH.regionOf(s.farm) !== s.region && s.region) st.set({ farm: "" }, { silent: true });
     // Every filter scopes the tiles, so every filter is a server read.
     load(!changed.every((k) => k === "q"));
@@ -169,6 +183,8 @@
         if (my !== seq) return;
         d = d || {};
         DATA = { orders: d.orders || [], farms: d.farms || [], runs: d.runs || [], totals: d.bucket_totals || null, note: d.note || "", repl: d.replacements || [], hub: d.hub || HUB };
+        // the order lines are read again with the orders (their stages move)
+        Object.keys(LINES).forEach((k) => delete LINES[k]);
         const rf = PH.regionFarms(s.region);
         PH.options("#bl-farm", PH.uniq(DATA.farms.concat([st.get("farm")])).filter((f) => !rf || rf.indexOf(f) >= 0).sort(), st.get("farm"));
         teamOptions();
@@ -364,6 +380,7 @@
   const anyOpen = () => Object.keys(OPEN).some((k) => k.indexOf("t:") === 0);
   const car = (open) => `<span class="bl-caret">${open ? "▾" : "▸"}</span>`;
   function renderTree() {
+    if (st.get("group") === "order") return renderOrders();
     const list = buildTrips(), el = document.getElementById("bl-rows"), bar = document.getElementById("bl-allrow");
     bar.hidden = !DATA.orders.length;
     document.getElementById("bl-fold").textContent = anyOpen() ? "Collapse all" : "Expand all";
@@ -373,6 +390,68 @@
     }
     PH.set(el, list.map(tripBlock).join(""));
   }
+  /* ── By order: order name -> its order lines (variety, spec, buckets, stems, stages, farms, trips) ── */
+  const LINES = {};  // opl -> its order lines (get_order_lines), read once per load
+  let linesFor = null;
+  function loadLines() {
+    const opls = PH.uniq(DATA.orders.map((o) => o.opl)).filter((o) => !(o in LINES));
+    if (!opls.length || linesFor === DATA) return;
+    linesFor = DATA;
+    PH.call(API + "get_order_lines", { opls: JSON.stringify(opls) }, { silent: true })
+      .then((m) => { opls.forEach((o) => (LINES[o] = (m && m[o]) || [])); if (st.get("group") === "order") render(); })
+      .catch((e) => PH.toast("Couldn’t read the order lines: " + e.message, "bad"));
+  }
+  function buildOrders() {
+    const by = {}, order = [];
+    DATA.orders.forEach((o) => {
+      const key = o.sales_order || o.order_name || o.opl;
+      if (!by[key]) { by[key] = { key, name: o.order_name || key, customer: o.customer, delivery: o.delivery_date, rows: [] }; order.push(key); }
+      by[key].rows.push(o);
+    });
+    return order.map((k) => by[k]).sort((a, b) => String(a.delivery || "").localeCompare(String(b.delivery || "")) || String(a.name).localeCompare(String(b.name)));
+  }
+  // the trips an order's buckets ride: truck · trip number
+  const orderTrips = (g) => PH.uniq(g.rows.flatMap((o) => (o.trips || []).map((t) => (t.vehicle || t.trip) + (t.run ? " · Trip " + t.run : ""))));
+  function renderOrders() {
+    const list = buildOrders(), el = document.getElementById("bl-rows"), bar = document.getElementById("bl-allrow");
+    bar.hidden = !DATA.orders.length;
+    document.getElementById("bl-fold").textContent = Object.keys(OPEN).some((k) => k.indexOf("O:") === 0) ? "Collapse all" : "Expand all";
+    if (!list.length) return PH.empty(el, "Nothing to show.", "No orders being transferred for " + rangeLabel() + ".");
+    loadLines();
+    PH.set(el, list.map(orderGroupBlock).join(""));
+  }
+  function orderGroupBlock(g) {
+    const ok = "O:" + g.key, open = !!OPEN[ok];
+    const opls = PH.uniq(g.rows.map((o) => o.opl));
+    const sum = (k) => g.rows.reduce((t, o) => t + (Number(o[k]) || 0), 0);
+    const trips = orderTrips(g);
+    let h = `<div class="bl-ord"><div class="bl-ord-h bl-tgl" data-tgl="${esc(ok)}">${car(open)}<span>${esc(g.name)}</span>` +
+      `<span class="bl-sub">${esc(g.customer || "")} · delivery ${esc(fmtD(g.delivery))}${opls.length > 1 ? " · " + opls.length + " pick lists" : ""}</span>` +
+      (trips.length ? `<span class="bl-trip-farms" style="justify-content:flex-start">${trips.map((t) => `<span class="bl-chip">${esc(t)}</span>`).join("")}</span>` : `<span class="bl-sub">Not scheduled</span>`) +
+      `<span class="bl-qty"><span><b>${n(sum("total"))}</b> bucket${ST(sum("total"))}</span><span><b>${n(sum("stems"))}</b> stems</span></span></div>`;
+    if (open) {
+      h += '<div class="bl-lines">' + opls.map((opl) => {
+        const o = g.rows.find((r) => r.opl === opl) || {};
+        const ls = LINES[opl];
+        if (!ls) return '<div class="bl-line ph-muted">Reading the order lines…</div>';
+        if (!ls.length) return '<div class="bl-line ph-muted">No order line of ' + esc(opl) + " is being transferred.</div>";
+        return ls.map((x) => lineBlock(o, x)).join("");
+      }).join("") + "</div>";
+    }
+    return h + "</div>";
+  }
+  function lineBlock(o, x) {
+    const hub = o.hub || hubOf(o.opl);
+    return `<div class="bl-line"><div class="bl-line-h">` +
+      `<b class="ph-strong">${esc(x.variety)} ${esc(x.length || "")}</b>` +
+      (x.mixed ? `<span class="bl-mix">MIX</span><span class="ph-muted">${esc(x.mix_name || x.spec || "")}</span>` : `<span class="ph-muted">${esc(x.spec || "")}</span>`) +
+      (x.boxes ? `<span class="ph-muted">· ${n(x.boxes)} box${x.boxes === 1 ? "" : "es"}</span>` : "") +
+      teamTag(o) + `<span class="ph-muted">· from ${esc(x.farm || "—")}</span>` +
+      `<span class="bl-qty"><span><b>${n(x.total)}</b> bucket${ST(Number(x.total))}</span><span><b>${n(x.stems)}</b> stems</span></span>` +
+      `<button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-bp-opl="${esc(o.opl)}" data-bp-farm="" data-bp-name="${esc(o.order_name)}">Bucket status →</button>` +
+      `</div><div class="bl-pills">${stagePills(x, hub)}</div></div>`;
+  }
+
   // A trip still being planned (nothing loaded or sent yet) can take another transfer truck.
   const TRUCK_CHANGEABLE = { Draft: 1, Requested: 1, Scheduled: 1 };
   const RT = "upande_packhouse.api.remote_transfer.transfer_scheduling.";
@@ -714,6 +793,12 @@
   });
   // One toggle for everything: collapses while any is open, else expands all.
   document.getElementById("bl-fold").addEventListener("click", () => {
+    if (st.get("group") === "order") {
+      const was = Object.keys(OPEN).some((k) => k.indexOf("O:") === 0);
+      Object.keys(OPEN).forEach((k) => delete OPEN[k]);
+      if (!was) buildOrders().forEach((g) => (OPEN["O:" + g.key] = 1));
+      return render();
+    }
     const was = anyOpen();
     Object.keys(OPEN).forEach((k) => delete OPEN[k]);
     if (!was) buildTrips().forEach((g) => setTripOpen(g, true));

@@ -449,6 +449,9 @@ def _save_pending(location, sales_order, allocations, teams, boxes, source, orde
 		}
 	)
 	doc = frappe.get_doc(PENDING, name) if name else frappe.new_doc(PENDING)
+	was = defaultdict(float)
+	for r in doc.get("allocations") or []:
+		was[r.sales_order_item] += flt(r.qty)
 	doc.update(
 		{
 			"sales_order": sales_order,
@@ -484,7 +487,42 @@ def _save_pending(location, sales_order, allocations, teams, boxes, source, orde
 		doc.flags.ignore_links = True
 	doc.flags.ignore_permissions = True
 	doc.save()
+	_log_proposal(sales_order, location, source, allocations, teams, was)
 	return doc.name
+
+
+def _log_proposal(sales_order, location, source, allocations, teams, was):
+	"""Allocation Log: what each line is proposed (Allocate / Allocate all), waiting for the release."""
+	from upande_packhouse.allocation_log import log
+
+	by_line = defaultdict(list)
+	for a in allocations:
+		by_line[a["sales_order_item"]].append(a)
+	for soi, rows in by_line.items():
+		stems = sum(flt(r.get("qty")) for r in rows)
+		if abs(stems - was.get(soi, 0.0)) < 0.5 and soi in was:
+			continue
+		buckets = sorted({str(r["bucket_id"]) for r in rows})
+		log(
+			"Proposed",
+			"{0} stems on {1} bucket(s) {2} ({3}){4}".format(
+				int(stems),
+				len(buckets),
+				", ".join(buckets[:12]) + (" ..." if len(buckets) > 12 else ""),
+				source or "allocation",
+				", was {0}".format(int(was[soi])) if soi in was else "",
+			),
+			sales_order=sales_order,
+			sales_order_item=soi,
+			item_code=rows[0].get("item_code"),
+			stem_length=rows[0].get("stem_length"),
+			team=(teams or {}).get(soi),
+			farm=location,
+			stems_before=was.get(soi, 0.0),
+			stems_after=stems,
+			bucket_id=buckets[0] if len(buckets) == 1 else None,
+			details={"buckets": {str(r["bucket_id"]): flt(r.get("qty")) for r in rows}},
+		)
 
 
 def _line_locations(sales_order):
@@ -2332,9 +2370,19 @@ def discard_day_proposal(
 			"in",
 			list(_orders_in_group(frappe.get_all(PENDING, filters=filters, pluck="sales_order"))) or [""],
 		)
-	names = frappe.get_all(PENDING, filters=filters, pluck="name")
-	for name in names:
-		frappe.delete_doc(PENDING, name, ignore_permissions=True, force=True)
+	names = frappe.get_all(PENDING, filters=filters, fields=["name", "sales_order", "stems"])
+	from upande_packhouse.allocation_log import log
+
+	for p in names:
+		frappe.delete_doc(PENDING, p.name, ignore_permissions=True, force=True)
+		log(
+			"Proposal discarded",
+			"{0} proposed stems discarded: the buckets are free again".format(int(flt(p.stems))),
+			sales_order=p.sales_order,
+			farm=location,
+			stems_before=p.stems,
+			stems_after=0,
+		)
 	return {"discarded": len(names)}
 
 
@@ -2403,9 +2451,14 @@ def _why(e):
 	return msg or _("{0} (no message)").format(type(e).__name__)
 
 
-def _log_release_failure(sales_order):
-	"""The full error stays in the Error Log for whoever looks into it; the page gets its message."""
+def _log_release_failure(sales_order, why=None, location=None):
+	"""The full error stays in the Error Log for whoever looks into it; the page gets its message, and the
+	order's Allocation Log the reason."""
 	frappe.log_error(f"Sales Allocation v2: release of {sales_order} failed", frappe.get_traceback())
+	if why:
+		from upande_packhouse.allocation_log import log
+
+		log("Release failed", why, sales_order=sales_order, farm=location)
 
 
 def _run_confirm(
@@ -2484,6 +2537,9 @@ def _run_confirm(
 		def hold(o, why):
 			waiting.append(o["sales_order"])
 			held_back[o["sales_order"]] = why
+			from upande_packhouse.allocation_log import log
+
+			log("Held back", "Not released: {0}".format(why), sales_order=o["sales_order"], farm=location)
 
 		def clear(o, stems):
 			"""A release leaves nothing waiting: the order's allocation waiting release is closed whatever went
@@ -2572,14 +2628,14 @@ def _run_confirm(
 						frappe.db.rollback(save_point="confirm_day_part")
 						frappe.clear_messages()
 						failed.append((part, _why(e)))
-						_log_release_failure(o["sales_order"])
+						_log_release_failure(o["sales_order"], failed[-1][1], location)
 				if not gone_out:
 					raise frappe.ValidationError(failed[0][1] if failed else _("Nothing was released."))
 			except Exception as e:
 				frappe.db.rollback(save_point="confirm_day_order")
 				frappe.clear_messages()
 				errors[o["sales_order"]] = _why(e)
-				_log_release_failure(o["sales_order"])
+				_log_release_failure(o["sales_order"], errors[o["sales_order"]], location)
 				clear(o, held)
 				continue
 			if failed:
@@ -3552,6 +3608,27 @@ def _group_family(item_code):
 	)
 
 
+def _next_group(sales_order, field, group):
+	"""The group a split's later boxes become: the next one in the group's own numbering -- "<spec>::5" after a
+	spec's "<spec>::1".."::4" (the spec import's names), else the next plain number on the order."""
+	values = [
+		str(v or "")
+		for v in frappe.get_all(
+			"Sales Order Item", filters={"parent": sales_order}, pluck=field, distinct=True
+		)
+	]
+	group = str(group or "")
+	if "::" in group:
+		prefix = group.rsplit("::", 1)[0]
+		used = [
+			cint(v.rsplit("::", 1)[1])
+			for v in values
+			if v.rsplit("::", 1)[0] == prefix and v.rsplit("::", 1)[-1].isdigit()
+		]
+		return "{0}::{1}".format(prefix, max(used or [0]) + 1)
+	return str(max([cint(v) for v in values if v.isdigit()] or [0]) + 1)
+
+
 def _mix_members(row):
 	"""The lines packed in the same mixed box or bunch as this one, in order, with the group's field."""
 	field = "custom_bunch_group" if cint(row.get("custom_mixed_bunch")) else "custom_mix_group"
@@ -3760,6 +3837,7 @@ def _share_split(sales_order_item, variety, give):
 		{**sets, "name": sales_order_item},
 	)
 	frappe.db.sql("UPDATE `tabSales Order` SET modified = NOW() WHERE name = %s", row.parent)
+	allocation_plan.replan_split([(sales_order_item, [new["name"]])])
 	_split_commit()
 	frappe.log_error(
 		title="Variety split",
@@ -3767,6 +3845,16 @@ def _share_split(sales_order_item, variety, give):
 			row.parent, sales_order_item, row.item_code, int(give), variety, boxes
 		),
 	)
+	from upande_packhouse.allocation_log import log
+
+	log(
+		"Variety added",
+		"{0} {1}: {2} gives {3} stems of each box's share to {4} ({5} boxes)".format(
+			row.parent, sales_order_item, row.item_code, int(give), variety, boxes
+		),
+		sales_order_item=sales_order_item,
+	)
+
 	return {
 		"kept": stems - give,
 		"parts": [{"variety": variety, "stems": give, "sales_order_item": new["name"]}],
@@ -3801,12 +3889,7 @@ def _split_mix(sales_order_item, location, variety, new_boxes=None, plain=False)
 			return sa.substitute_variety(so, sales_order_item, variety)
 	field, members = _mix_members(row)
 	cols = set(frappe.db.get_table_columns("Sales Order Item"))
-	used = [
-		cint(v)
-		for v in frappe.get_all("Sales Order Item", filters={"parent": so}, pluck=field, distinct=True)
-		if str(v or "").isdigit()
-	]
-	group = str(max(used or [0]) + 1)
+	group = _next_group(so, field, row[field])
 	last = max(cint(m.idx) for m in members)
 	later = len(members)
 	# the new mix's boxes come straight after the mix's own: every later box keeps its number
@@ -3868,6 +3951,10 @@ def _split_mix(sales_order_item, location, variety, new_boxes=None, plain=False)
 			}
 		)
 	frappe.db.sql("UPDATE `tabSales Order` SET modified = NOW() WHERE name = %s", so)
+	# the plan follows the lines: each part keeps its share of what was confirmed
+	allocation_plan.replan_split(
+		[(m.name, [p["sales_order_item"] for p in made if p["from"] == m.name]) for m in members]
+	)
 	_split_commit()
 	frappe.log_error(
 		title="Variety split",
@@ -3875,6 +3962,16 @@ def _split_mix(sales_order_item, location, variety, new_boxes=None, plain=False)
 			so, sales_order_item, row[field], keep, boxes, variety, row.item_code, group
 		),
 	)
+	from upande_packhouse.allocation_log import log
+
+	log(
+		"Variety added",
+		"{0} {1}: mix {2} keeps {3} of {4} boxes; boxes after take {5} for {6} as mix {7}".format(
+			so, sales_order_item, row[field], keep, boxes, variety, row.item_code, group
+		),
+		sales_order_item=sales_order_item,
+	)
+
 	return {"kept": flt(row.stock_qty) * keep / boxes, "boxes": keep, "parts": made}
 
 
@@ -3993,6 +4090,14 @@ def split_substitute(sales_order_item: str, location: str, parts: str | list):
 		{**sets, "name": sales_order_item},
 	)
 	frappe.db.sql("UPDATE `tabSales Order` SET modified = NOW() WHERE name = %s", row.parent)
+	allocation_plan.replan_split(
+		[
+			(
+				sales_order_item,
+				[m["sales_order_item"] for m in made if m["sales_order_item"] != sales_order_item],
+			)
+		]
+	)
 	_split_commit()
 	frappe.log_error(
 		title="Variety split",
@@ -4004,4 +4109,18 @@ def split_substitute(sales_order_item: str, location: str, parts: str | list):
 			", ".join("{0} {1}".format(m["variety"], int(m["stems"])) for m in made),
 		),
 	)
+	from upande_packhouse.allocation_log import log
+
+	log(
+		"Variety added",
+		"{0} {1}: {2} keeps {3} stems; {4}".format(
+			row.parent,
+			sales_order_item,
+			row.item_code,
+			int(keep),
+			", ".join("{0} {1}".format(m["variety"], int(m["stems"])) for m in made),
+		),
+		sales_order_item=sales_order_item,
+	)
+
 	return {"kept": keep, "parts": made}

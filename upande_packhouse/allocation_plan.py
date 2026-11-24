@@ -433,8 +433,34 @@ def release_confirmation(name, reason, user=None, keep_open=False):
 		{"now": now_datetime(), "c": name},
 	)
 	conf = frappe.db.get_value(
-		"Allocation Confirmation", name, ["source", "farm", "sales_order", "sales_order_item"], as_dict=True
+		"Allocation Confirmation",
+		name,
+		[
+			"source",
+			"farm",
+			"sales_order",
+			"sales_order_item",
+			"variety",
+			"length",
+			"stems",
+			"team",
+			"delivery_date",
+		],
+		as_dict=True,
 	)
+	if conf:
+		conf.name = name
+	# replacements ("Manual", "Revised", a hold replacing its expected harvest) are logged by the step doing them
+	if conf and not keep_open and reason not in ("Manual", "Revised"):
+		_log(
+			"Plan released",
+			"{0} {1}: {2} {3} stems released -- {4}".format(
+				conf.variety, conf.length or "", int(flt(conf.stems)), conf.source.lower(), reason
+			),
+			conf,
+			stems_before=conf.stems,
+			stems_after=0,
+		)
 	frappe.db.set_value(
 		"Allocation Confirmation",
 		name,
@@ -521,6 +547,213 @@ def after_allocation(allocations):
 	for soi in lines:
 		if cint(frappe.db.get_value("Sales Order Item", soi, "custom_fully_allocated")):
 			release_line(soi, "Allocated")
+
+
+def _log(stage, message, conf, **fields):
+	"""An Allocation Log line about a plan entry `conf` (its order, line, variety, length, team and farm)."""
+	from upande_packhouse.allocation_log import log
+
+	log(
+		stage,
+		message,
+		sales_order=conf.get("sales_order"),
+		sales_order_item=conf.get("sales_order_item"),
+		item_code=conf.get("variety"),
+		stem_length=conf.get("length"),
+		team=conf.get("team"),
+		farm=conf.get("farm"),
+		reference_doctype="Allocation Confirmation" if conf.get("name") else None,
+		reference_name=conf.get("name"),
+		**fields,
+	)
+
+
+def replan_split(splits):
+	"""Carry the plan along when Sales Allocation splits an order line (a variety split, a mix split by boxes, a
+	variety spread beside a line): those write the lines straight to the table, so release_changed_lines never
+	sees them, and the plan kept confirming the old line in full while the new lines had none.
+
+	`splits` = [(source line, [new lines made from it])], read after the split. Each confirmation of a source is
+	shared out in proportion to the stems: the source keeps its share; a new line of the same variety takes its
+	share of the same confirmation (a Real one with the same buckets held); a new line of another variety (a
+	substitute) is planned from the expected harvest for its share, and the old variety's share is given back.
+	Same plan, farm and team. A line that was never planned stays unplanned."""
+	from upande_packhouse.api.v2 import allocation_guards as guards
+
+	fields = [
+		"name",
+		"parent",
+		"item_code",
+		"stock_qty",
+		"custom_length",
+		"custom_mixed_box",
+		"custom_mixed_bunch",
+		"custom_mix_group",
+		"custom_bunch_group",
+	]
+	touched = set()
+	before_of = {}
+	for source, new_lines in splits:
+		live = live_confirmations(soi=source)
+		if not live:
+			continue
+		before_of[source] = (sum(flt(c.stems) for c in live), max(live, key=lambda c: flt(c.stems)).team)
+		src = frappe.db.get_value("Sales Order Item", source, fields, as_dict=True)
+		news = [frappe.db.get_value("Sales Order Item", n, fields, as_dict=True) for n in new_lines or []]
+		news = [n for n in news if n]
+		before = flt(src.stock_qty) + sum(flt(n.stock_qty) for n in news)
+		if before <= 0:
+			continue
+		planned = sum(flt(c.stems) for c in live)
+		main = max(live, key=lambda c: flt(c.stems))
+		for c in live:
+			touched.add((c.sales_order, source, c.farm))
+			# whole stems: the source's share, then each new line of the same variety; what is left (the old
+			# variety's share of a substituted line) is given back
+			keep, parts = _shares(c, src, news, before)
+			_share_out(c, keep, parts, guards._mix_key)
+			touched.update((c.sales_order, n.name, c.farm) for n, _st in parts)
+		# a line now holding another variety (a substitute, or the source itself replaced) is planned from the
+		# expected harvest for its share of what was planned
+		plan = frappe.get_doc("Allocation Plan", main.plan)
+		for ln in [src, *news]:
+			if any((c.variety or "") == (ln.item_code or "") for c in live):
+				continue
+			stems = flt(ln.stock_qty) * planned / before
+			conf = _confirmation(
+				plan,
+				{
+					"sales_order": ln.parent,
+					"sales_order_item": ln.name,
+					"customer": main.customer,
+					"mix_key": guards._mix_key(ln),
+					"ordered_variety": ln.item_code,
+					"ordered_length": ln.custom_length,
+				},
+				"Virtual",
+				stems,
+				main.farm,
+				ln.item_code,
+				ln.custom_length,
+				forecast_basis=main.forecast_basis or "",
+				team=main.team,
+			)
+			frappe.db.set_value("Allocation Confirmation", conf.name, "flag", "Other variety")
+			touched.add((ln.parent, ln.name, main.farm))
+	for sales_order, soi, farm in touched:
+		refresh_mirror(sales_order, soi, farm)
+	for source, new_lines in splits:
+		now = {
+			soi: sum(flt(c.stems) for c in live_confirmations(soi=soi))
+			for soi in [source, *(new_lines or [])]
+		}
+		if source in before_of:
+			from upande_packhouse.allocation_log import log
+
+			was, team = before_of[source]
+			log(
+				"Planned",
+				"Plan moved with the line: "
+				+ ", ".join(
+					"{0} {1}".format(frappe.db.get_value("Sales Order Item", soi, "item_code"), int(stems))
+					for soi, stems in now.items()
+				),
+				sales_order_item=source,
+				team=team,
+				stems_before=was,
+				stems_after=sum(now.values()),
+				details={"plan_after": now},
+			)
+
+
+def _shares(c, src, news, before):
+	"""Whole-stem shares of confirmation `c` for the source and each new line of its variety, in proportion to
+	their stems: rounded down, then the stems left go one by one to the largest remainders, so the shares never
+	add up to more than `c` (rounding each share up could confirm a stem more than was planned)."""
+	takers = ([src] if c.variety == src.item_code else []) + [n for n in news if n.item_code == c.variety]
+	exact = [flt(c.stems) * flt(t.stock_qty) / before for t in takers]
+	whole = [int(x) for x in exact]
+	left = round(sum(exact)) - sum(whole)
+	for i in sorted(range(len(exact)), key=lambda i: exact[i] - whole[i], reverse=True)[: max(0, left)]:
+		whole[i] += 1
+	shares = list(zip(takers, whole, strict=True))
+	keep = shares.pop(0)[1] if takers and takers[0] is src else 0
+	return keep, shares
+
+
+def _share_out(conf, keep, parts, mix_key):
+	"""Share a live confirmation out after a split: it keeps `keep` stems, each (new line, stems) in `parts` takes
+	a confirmation of its own for its stems, and the rest is given back. A Real one's held buckets go in order --
+	the confirmation keeps the first ones up to its stems, the next ones go to the first new line, and so on --
+	so a bucket is only ever split where one share ends, in whole stems."""
+	targets = [(None, flt(keep))]
+	for line, stems in parts:
+		if stems <= 0:
+			continue
+		doc = frappe.copy_doc(frappe.get_doc("Allocation Confirmation", conf.name))
+		doc.update(
+			{
+				"sales_order_item": line.name,
+				"mix_key": mix_key(line),
+				"stems": flt(stems),
+				"fulfilled_stems": 0,
+				"ordered_variety": line.item_code,
+				"ordered_length": line.custom_length,
+			}
+		)
+		doc.insert(ignore_permissions=True)
+		targets.append((doc, flt(stems)))
+	if conf.source == "Real":
+		t, left = 0, targets[0][1]
+		for r in sorted(held_buckets(conf.name), key=lambda r: (-flt(r.stems), r.name)):
+			rem, first = flt(r.stems), True
+			while rem > 1e-6:
+				while t < len(targets) and left <= 1e-6:
+					t += 1
+					left = targets[t][1] if t < len(targets) else 0
+				take = min(rem, left) if t < len(targets) else rem
+				if t < len(targets):
+					to = targets[t][0]
+					soi, confirmation, status = (
+						(conf.sales_order_item, conf.name, "Active")
+						if to is None
+						else (to.sales_order_item, to.name, "Active")
+					)
+					left -= take
+				else:
+					soi, confirmation, status = conf.sales_order_item, conf.name, "Released"
+				if first:
+					values = {
+						"stems": take,
+						"sales_order_item": soi,
+						"confirmation": confirmation,
+						"status": status,
+					}
+					if status == "Released":
+						values["released_on"] = now_datetime()
+					frappe.db.set_value("Bucket Reservation", r.name, values)
+					first = False
+				else:
+					res = frappe.get_doc("Bucket Reservation", r.name)
+					frappe.get_doc(
+						{
+							"doctype": "Bucket Reservation",
+							"bucket_id": res.bucket_id,
+							"status": status,
+							"sales_order_item": soi,
+							"stems": take,
+							"confirmation": confirmation,
+							"plan": res.plan,
+							"item_code": res.item_code,
+							"stem_length": res.stem_length,
+							**({"released_on": now_datetime()} if status == "Released" else {}),
+						}
+					).insert(ignore_permissions=True)
+				rem -= take
+	if keep <= 0:
+		release_confirmation(conf.name, "Line split", keep_open=True)
+	else:
+		frappe.db.set_value("Allocation Confirmation", conf.name, "stems", flt(keep))
 
 
 def release_changed_lines(doc, method=None):
@@ -667,6 +900,16 @@ def convert_virtual(delivery_date=None, farm=None):
 					harvest_stems=min(rest, flt(c.from_harvest)),
 				)
 			refresh_mirror(c.sales_order, soi, c.farm)
+			if held - real > 0.0001:
+				_log(
+					"Held from shelf",
+					"{0} {1}: {2} stems of the expected harvest reached the shelf and are held ({3} still expected)".format(
+						c.variety, c.length or "", int(held - real), int(max(0.0, rest))
+					),
+					c,
+					stems_before=real,
+					stems_after=held,
+				)
 		except Exception:
 			frappe.db.rollback(save_point="convert_virtual")
 			frappe.clear_messages()

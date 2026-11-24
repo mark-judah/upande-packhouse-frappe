@@ -2306,7 +2306,8 @@ def confirm_lines(
 		line_plan = plan_of[sales_farm]
 		held = 0.0
 		# a revision keeps what was confirmed before it (released as "Revised"), so the summary can show both
-		for c in plans.live_confirmations(soi=soi):
+		before = plans.live_confirmations(soi=soi)
+		for c in before:
 			plans.release_confirmation(c.name, "Revised" if item.get("revised") else "Manual")
 		rest = max(0.0, want - held)
 		hv = (
@@ -2328,12 +2329,48 @@ def confirm_lines(
 		)
 		if want > 0:
 			plans.apply_team_to_group(info["mix_key"], line_team)
+		_log_confirmed(ln, item, before, want, line_team, stock_farm, length)
 		done.append({"soi": soi, "held": held, "expected": rest, "team": line_team, "farm": stock_farm})
 	for so in {_line(x["soi"]).parent for x in done}:
 		set_processing_farm(so)
 	for p_ in plan_of.values():
 		plans.sequence_orders(p_.name)
 	return {"success": True, "plan": plan.name, "lines": done, "quiet": result["quiet"]}
+
+
+def _log_confirmed(ln, item, before, want, team, farm, length):
+	"""The Allocation Log line of one confirmation: planned, re-confirmed, revised or taken out of the plan."""
+	from upande_packhouse.allocation_log import log
+
+	was = sum(flt(c.stems) for c in before)
+	team_was = next((c.team for c in before if c.team), "")
+	if item.get("revised"):
+		stage = "Revised"
+	else:
+		stage = "Planned"
+	if want <= 0:
+		what = "taken out of the plan (was {0})".format(int(was))
+	elif before:
+		what = "{0} -> {1} stems".format(int(was), int(want))
+	else:
+		what = "{0} stems planned".format(int(want))
+	if team_was and team and team_was != team:
+		what += ", team {0} -> {1}".format(team_was, team)
+	elif team:
+		what += " for {0}".format(team)
+	log(
+		stage,
+		"{0} {1}: {2} (expected harvest at {3})".format(ln.item_code, length or "", what, farm),
+		sales_order=ln.parent,
+		sales_order_item=ln.name,
+		item_code=ln.item_code,
+		stem_length=length,
+		team=team,
+		farm=farm,
+		stems_before=was,
+		stems_after=want,
+		delivery_date=ln.delivery_date,
+	)
 
 
 def _confirmed_at(soi, variety, length):

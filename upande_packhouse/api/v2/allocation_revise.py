@@ -5,8 +5,8 @@
 The confirmed lines share the stock of their variety and length in sequence (on the shelf, received, in
 quarantine, harvested and not received yet): each is suggested what it still needs, as far as what the lines
 before it left goes. No forecast.
-Whole boxes (a line's last part box only when it completes the line). Teams stay as they are; a line the
-stock cannot reach at all leaves the plan.
+Whole boxes (a line's last part box only when it completes the line). The suggestion keeps the teams; the
+planner can move a line to another team when applying it. A line the stock cannot reach at all leaves the plan.
 """
 
 import json
@@ -19,7 +19,7 @@ from frappe.utils import add_days, cint, flt, getdate, today
 
 from upande_packhouse import allocation_plan as plans
 from upande_packhouse.api.v2 import allocation_playground as pg
-from upande_packhouse.api.v2.allocation_checks import per_box
+from upande_packhouse.api.v2.allocation_checks import mix_key, per_box
 from upande_packhouse.api.v2.cold_room import ONWARD_TYPES, RECEIPT_TYPES
 from upande_packhouse.api.v2.core import received, stock
 
@@ -192,6 +192,11 @@ def _changes(day, farm, keep=None, days=None, only=None):
 					{
 						"sales_order_item": ln.name,
 						"sales_order": ln.parent,
+						# grouped as the Sales Order shows them: the straight lines, then each mix by its name
+						"kind": "mix" if mix_key(ln) else "straight",
+						"mix_name": (ln.custom_mix_name or ln.custom_line or _("Mix")) if mix_key(ln) else "",
+						"boxes": cint(ln.custom_number_of_boxes),
+						"idx": cint(ln.idx),
 						"order_name": names.get(ln.parent) or "",
 						"customer": ln.customer_name or ln.customer,
 						"sequence": cint(seq.get(ln.parent)),
@@ -247,7 +252,7 @@ def revise_confirmations(
 	week: str | None = None,
 ):
 	"""Apply the revision (only these lines when given), then re-number the teams' sequence. `lines`
-	([{sales_order_item, stems}]) confirms the planner's own amounts instead of the suggestion. With `week`, every
+	([{sales_order_item, stems, team}]) confirms the planner's own amounts, and team, instead of the suggestion. With `week`, every
 	delivery day of it; each line stays in its own day's plan."""
 	frappe.only_for(pg.PLANNERS)
 	pg._changed()
@@ -267,10 +272,11 @@ def revise_confirmations(
 			now = min(max(0.0, flt(row.get("stems"))), want)
 			p = planned.get(soi, {"real": 0.0, "expected": 0.0})
 			was = flt(p["real"]) + flt(p["expected"])
-			if abs(now - was) > 0.5:
-				changes.append(
-					{"sales_order_item": soi, "was": was, "now": now, "team": plans.team_for_line(soi) or ""}
-				)
+			# the planner can move the line to another team as well (a mixed box moves whole: confirm_lines)
+			team_was = plans.team_for_line(soi) or ""
+			team = (row.get("team") or "").strip() or team_was
+			if abs(now - was) > 0.5 or (team != team_was and now > 0.5):
+				changes.append({"sales_order_item": soi, "was": was, "now": now, "team": team})
 	else:
 		changes = [
 			c
@@ -308,3 +314,32 @@ def revise_confirmations(
 		"up": sum(max(0.0, c["now"] - c["was"]) for c in changes),
 		"down": sum(max(0.0, c["was"] - c["now"]) for c in changes),
 	}
+
+
+@frappe.whitelist()
+def get_stock_stages(
+	delivery_date: str | None = None,
+	farm: str | None = None,
+	week: str | None = None,
+	pairs: str | list | None = None,
+):
+	"""The stock each variety and length has, by stage, for the Plan and Checks tabs: {"variety|length":
+	{harvested, received, quarantine, shelf, total}}. The same stock Revise counts -- as it will be on the
+	processing day (the last delivery day less the harvest lead), every farm of the sales farm's location."""
+	day, farm = pg._day(delivery_date), farm or pg._default_farm()
+	days = pg._week(week)[1] if week else [day]
+	if isinstance(pairs, str):
+		pairs = json.loads(pairs or "[]")
+	pairs = [p for p in pairs or [] if p.get("variety")]
+	if not pairs:
+		return {}
+	process_day = getdate(days[-1]) - timedelta(days=plans.HARVEST_LEAD_DAYS)
+	stages = stock_stages(farm, {p["variety"] for p in pairs}, process_day=process_day)
+	out = {}
+	for p in pairs:
+		key = (p["variety"], p.get("length") or "")
+		s = stages[key] if key in stages else {}
+		row = {k: flt(s.get(k)) for k in ("harvested", "received", "quarantine", "shelf")}
+		row["total"] = sum(row.values())
+		out["{0}|{1}".format(*key)] = row
+	return out

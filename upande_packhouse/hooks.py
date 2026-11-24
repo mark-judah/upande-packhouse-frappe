@@ -66,6 +66,8 @@ doctype_js = {
 	# ships with the app instead of living only on one site's database.
 	"Sales Order": [
 		"public/js/sales_order/accounting_dimension_sync.js",
+		# Update Items on a submitted order: its Specifications and every item field
+		"public/js/sales_order/update_items.js",
 		"public/js/sales_order/box_math.js",
 		"public/js/sales_order/mixed_box_wizard.js",
 		# mixed_box_uom_fix.js removed 2026-09-22: a superseded 2026-09-04
@@ -186,6 +188,9 @@ jinja = {
 # upande_agriculture owns that doctype but installs after this app (it Links at
 # our Bucket QR Code), so without this the sync dies on
 # WrongOptionsDoctypeLinkError. See install.ensure_cut_stage_doctype.
+# upande_webstore sells each variety in whole bunches of this many stems (the bunch a Quality B pick list uses)
+webstore_stems_per_bunch = "upande_packhouse.quality_b.stems_per_bunch"
+
 before_install = "upande_packhouse.install.before_install"
 before_migrate = "upande_packhouse.install.before_migrate"
 
@@ -344,6 +349,8 @@ scheduler_events = {
 		"upande_packhouse.spec.expire_temporary_specs",
 		# A plan for a delivery date that has passed holds nothing.
 		"upande_packhouse.allocation_plan.release_passed_days",
+		# Shelf photos of a bucket report that was cancelled, attached to nothing.
+		"upande_packhouse.api.not_found_report.clear_loose_photos",
 	],
 	# Safety net for not-found marks written by a path with no hook (Bucket Watchlist).
 	"hourly": [

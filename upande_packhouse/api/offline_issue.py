@@ -90,6 +90,32 @@ def _anchor_row(opl_name, bucket, sale_order_item=None):
 	return unissued[0].name
 
 
+def _remote_farms(farm):
+	"""The other farms of `farm`'s location: their cold stores can send a replacement by truck."""
+	for farms in (sa._get_production_config().get("farms_by_location") or {}).values():
+		if farm in farms:
+			return [f for f in farms if f and f != farm]
+	return []
+
+
+def _remote_candidates(anchor, farm, needed, limit):
+	"""Replacements in the remote cold stores of `farm`'s location, in stock, oldest harvest first, each with
+	its farm (it comes on a truck)."""
+	out = []
+	for remote in _remote_farms(farm):
+		try:
+			found = sa._replacement_candidates(anchor, remote, needed, limit=30)
+			found = sa._in_stock(anchor, remote, found, needed)
+		except frappe.ValidationError:
+			frappe.local.message_log = []
+			continue
+		for c in found:
+			c["farm"] = remote
+		out += found
+	out.sort(key=lambda c: (str(c.harvest_date or "9999-12-31")[:10], c.get("farm") or ""))
+	return out[:limit]
+
+
 def _describe(c):
 	return {
 		"new_bucket": c.bucket_id,
@@ -112,7 +138,10 @@ def _candidates(pick_list_item, limit, farm=None):
 		pick_list_item, allow_shelved=True, allow_left=bool(farm), farm=farm or None
 	)
 	needed = sum(flt(r.stock_qty) for r in rows)
-	return anchor, farm, needed, sa._replacement_candidates(anchor, farm, needed, limit=limit)
+	# Only buckets whose stems are in stock: the swap refuses the rest ("its stems are not in stock") after the
+	# issuer already picked one -- the shelf can list a bucket the stock ledger has none of.
+	found = sa._replacement_candidates(anchor, farm, needed, limit=100)
+	return anchor, farm, needed, sa._in_stock(anchor, farm, found, needed)[:limit]
 
 
 def _why_not(bucket, anchor, farm, needed):
@@ -647,18 +676,20 @@ def replacement_options(
 	opl_name: str, bucket: str, sale_order_item: str | None = None, limit: int = 20, farm: str | None = None
 ):
 	"""Buckets that can stand in for `bucket` on `opl_name` -- remote transfers'
-	rules (same variety, same or longer length, enough stems, unallocated, at the
-	farm the bucket is shelved at), best match first."""
+	rules (same variety, same or longer length, enough stems in stock, unallocated), oldest harvest first: the
+	station's own (the sales farm's) first, then the remote cold stores of its location, each with its farm -- a
+	remote one comes on a truck, first in line."""
 	history = _offline_history(bucket)
 	also_on = _also_on(bucket, opl_name)
+	limit = max(1, min(cint(limit) or 20, 100))
 	try:
 		pli = _anchor_row(opl_name, bucket, sale_order_item)
-		anchor, farm, needed, found = _candidates(pli, max(1, min(cint(limit) or 20, 100)), farm=farm)
+		anchor, farm, needed, found = _candidates(pli, limit, farm=farm)
 	except frappe.ValidationError as e:
 		return {"found": False, "message": str(e), "candidates": [], "history": history, "also_on": also_on}
-	# Only from the station issuing it (or, without one, the farm the bucket is
-	# shelved at) -- never another farm's bucket.
-	source = "local"
+	local = list(found)
+	found = local + _remote_candidates(anchor, farm, needed, limit)
+	source = "local" if local else "remote"
 	warning = None
 	if not found:
 		return {
@@ -672,7 +703,7 @@ def replacement_options(
 		"found": True,
 		"also_on": also_on,
 		"source": source,
-		"message": _("No matching bucket at {0}; available at remote farms.").format(farm)
+		"message": _("No matching bucket at {0}: these are in the remote cold stores.").format(farm)
 		if source == "remote"
 		else None,
 		"warning": warning,
@@ -696,6 +727,8 @@ def replace_for_issuing(
 	notes: str | None = None,
 	sale_order_item: str | None = None,
 	farm: str | None = None,
+	scanned_shelf: str | None = None,
+	shelf_photo: str | None = None,
 ):
 	"""Swap `bucket` on `opl_name` for `new_bucket_id` (one of
 	`replacement_options`). The replacement is then issued by scanning it.
@@ -709,19 +742,147 @@ def replace_for_issuing(
 	except frappe.ValidationError as e:
 		return _fail(e)
 	reason = reason if reason in ISSUING_REASONS else "Missing"
+	# Every reason: the shelf the system put it on, scanned, and a photo of it (not_found_report)
+	from upande_packhouse.api import not_found_report
+
+	farm_report = frappe.db.get_value(
+		"Pick List Item", pli, ["not_found", "report_shelf", "report_photo"], as_dict=True
+	)
+	if farm_report and cint(farm_report.not_found):
+		# already reported not found at its farm (it never came here): the farm's shelf and photo stand
+		report = {
+			"scanned_shelf": farm_report.report_shelf or "",
+			"shelf_photo": farm_report.report_photo or "",
+		}
+	else:
+		try:
+			report = not_found_report.evidence(pli, scanned_shelf, shelf_photo)
+		except frappe.ValidationError as e:
+			return _fail(e)
 	# Mislabelled, not gone: the old bucket stays on its shelf for its record to be corrected.
 	keep_old = reason == "Wrong variety"
-	# Where the replacement sits is the server's to decide, never the app's.
+	# Where the replacement sits is the server's to decide, never the app's (a bucket id is reused: its shelf
+	# row of this variety)
 	new_farm = frappe.db.sql(
 		"""SELECT s.farm FROM `tabShelf Item` si JOIN `tabShelf` s ON s.name = si.parent
-		WHERE si.bucket_id = %s LIMIT 1""",
-		new_bucket_id,
+		WHERE si.bucket_id = %s AND si.variety = %s ORDER BY si.modified DESC LIMIT 1""",
+		(new_bucket_id, _anchor.item_code),
 	)
 	new_farm = new_farm[0][0] if new_farm else None
-	# Replacements only come from the station issuing it, never from another farm.
-	if new_farm and new_farm != farm:
-		return _fail(_("Bucket {0} is at {1}, not at {2}.").format(new_bucket_id, new_farm, farm))
-	return _swap(pli, new_bucket_id, reason, notes, keep_old_on_shelf=keep_old, farm=station)
+	# The station's own, or a remote cold store of its location: that one comes on a truck, first in line
+	to_remote = bool(new_farm and new_farm != farm)
+	if to_remote and new_farm not in _remote_farms(farm):
+		return _fail(
+			_("Bucket {0} is at {1}, not at {2} or its remote cold stores.").format(
+				new_bucket_id, new_farm, farm
+			)
+		)
+	frappe.flags.not_found_evidence = report
+	try:
+		res = _swap(
+			pli,
+			new_bucket_id,
+			reason,
+			notes,
+			keep_old_on_shelf=keep_old,
+			farm=new_farm if to_remote else station,
+			to_remote=to_remote,
+		)
+	finally:
+		frappe.flags.not_found_evidence = None
+	if to_remote and res.get("success"):
+		from upande_packhouse.api.packing_quality import ASAP
+
+		frappe.db.sql(
+			"""UPDATE `tabPick List Item` SET transfer_priority = %s
+			   WHERE parent = %s AND parenttype = 'Order Pick List' AND bucket = %s""",
+			(ASAP, opl_name, new_bucket_id),
+		)
+		res["remote"] = True
+		res["farm"] = new_farm
+		res["message"] = _("{0} replaced with {1} from {2}: it comes on the next truck.").format(
+			bucket, new_bucket_id, new_farm
+		)
+	return res
+
+
+@frappe.whitelist(methods=["POST"])
+def mark_not_found_for_issuing(
+	opl_name: str,
+	bucket: str,
+	sale_order_item: str | None = None,
+	scanned_shelf: str | None = None,
+	shelf_photo: str | None = None,
+	notes: str | None = None,
+	farm: str | None = None,
+):
+	"""`bucket` is not on its shelf at issuing and nothing replaces it: once its shelf is scanned and photographed
+	(not_found_report), its rows on `opl_name` are marked not found -- the order can then be completed short, as
+	for a bucket its farm reported -- and a Bucket Replacement with no new bucket keeps the report and its photo
+	(Open until the bucket turns up; the Bucket Watchlist watches it)."""
+	from upande_packhouse.api import bucket_replacement, not_found_report
+
+	try:
+		pli = _anchor_row(opl_name, bucket, sale_order_item)
+	except frappe.ValidationError as e:
+		return _fail(e)
+	row = frappe.get_doc("Pick List Item", pli)
+	if cint(row.not_found):
+		return _fail(_("{0} is already marked not found: complete the order short.").format(bucket))
+	try:
+		report = not_found_report.evidence(pli, scanned_shelf, shelf_photo)
+	except frappe.ValidationError as e:
+		return _fail(e)
+	rows = frappe.get_all(
+		"Pick List Item",
+		filters={"parent": opl_name, "parenttype": "Order Pick List", "bucket": bucket, "issued": 0},
+		fields=["name", "stock_qty"],
+	)
+	now, user = frappe.utils.now(), frappe.session.user
+	for r in rows:
+		frappe.db.set_value(
+			"Pick List Item",
+			r.name,
+			{
+				"not_found": 1,
+				"not_found_at": now,
+				"not_found_by": user,
+				"report_shelf": report["scanned_shelf"],
+				"report_photo": report["shelf_photo"],
+				"awaiting_transfer": 0,
+				"loaded_in_trolley": 0,
+				"trolley_id": "",
+			},
+		)
+	frappe.flags.not_found_evidence = report
+	try:
+		bucket_replacement.record(
+			bucket,
+			"",
+			row,
+			rows,
+			farm or row.get("farm") or None,
+			opl_name,
+			"",
+			sum(flt(r.stock_qty) for r in rows),
+			[],
+			reason="Missing",
+			notes=notes,
+		)
+	finally:
+		frappe.flags.not_found_evidence = None
+	frappe.get_doc("Order Pick List", opl_name).add_comment(
+		"Info",
+		_("Bucket {0} not found on shelf {1} at issuing: no bucket to replace it.{2}").format(
+			bucket, report["scanned_shelf"], (" " + notes) if notes else ""
+		),
+	)
+	return {
+		"success": True,
+		"message": _("{0} marked not found. Complete the order short once the rest is issued.").format(
+			bucket
+		),
+	}
 
 
 def _issued_offline(opl_name, bucket, sale_order_item=None):
@@ -759,12 +920,21 @@ def issued_offline_info(opl_name: str, bucket: str, sale_order_item: str | None 
 
 
 @frappe.whitelist(methods=["POST"])
-def mark_issued_offline(opl_name: str, bucket: str, sale_order_item: str | None = None):
+def mark_issued_offline(
+	opl_name: str,
+	bucket: str,
+	sale_order_item: str | None = None,
+	scanned_shelf: str | None = None,
+	shelf_photo: str | None = None,
+):
 	"""`bucket` already went out to this OPL's own line without the issuing scan:
 	mark it issued here (the scan's own logic, so stock moves the same way), with
-	no replacement. Issued to another line, or nowhere: refused -- replace it."""
+	no replacement. Issued to another line, or nowhere: refused -- replace it.
+	Its shelf is scanned and photographed first (not_found_report)."""
+	from upande_packhouse.api import not_found_report
+
 	try:
-		_pli, line, issued = _issued_offline(opl_name, bucket, sale_order_item)
+		pli, line, issued = _issued_offline(opl_name, bucket, sale_order_item)
 	except frappe.ValidationError as e:
 		return _fail(e)
 	if not any(r["same_line"] for r in issued):
@@ -774,8 +944,13 @@ def mark_issued_offline(opl_name: str, bucket: str, sale_order_item: str | None 
 			if where
 			else _("{0} has not been issued to any line. Replace it instead.").format(bucket)
 		)
+	try:
+		report = not_found_report.evidence(pli, scanned_shelf, shelf_photo)
+	except frappe.ValidationError as e:
+		return _fail(e)
 	results, came_from = _issue_remote_aware(bucket, opl_name)
 	if came_from:
+		not_found_report.save_on_rows(opl_name, bucket, report)
 		return {
 			"success": True,
 			"in_transit": True,
@@ -793,6 +968,7 @@ def mark_issued_offline(opl_name: str, bucket: str, sale_order_item: str | None 
 		WHERE parent = %s AND parenttype = 'Order Pick List' AND bucket = %s AND issued = 1""",
 		(opl_name, bucket),
 	)
+	not_found_report.save_on_rows(opl_name, bucket, report)
 	return {"success": True, "message": _("{0} marked issued to {1}.").format(bucket, line or opl_name)}
 
 
