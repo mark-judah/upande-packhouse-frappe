@@ -392,3 +392,50 @@ def get_bucket_detail(opl: str | None = None, farm: str | None = None):
 		b["in_transit_now"] = 1 if left and not arrived and not b.get("shelved") else 0
 		b["transit_minutes"] = _minutes(left, arrived or (now_s if b["in_transit_now"] else None))
 	return {"success": True, "buckets": rows, "now": now_s}
+
+
+@frappe.whitelist()
+def get_order_lines(opls: str | None = None):
+	"""The Bucket Logistics "by order" grouping: each pick list's order lines among the buckets being
+	transferred -- variety and length, specification, boxes, the buckets and stems, the origin farms, and how
+	many buckets reached each stage. The same rows, rules and stages as get_logistics_view's orders
+	(v1 getBucketLogistics), split by order line. {opl: [line, ...]}, lines in the order's line order."""
+	import json
+
+	from upande_packhouse.api.remote_transfer import bucket_logistics as v1
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import not_at_hub_sql
+
+	opls = [o for o in (json.loads(opls) if isinstance(opls, str) else opls or []) if o]
+	if not opls:
+		return {}
+	stage = lambda cond, alias: "COUNT(DISTINCT CASE WHEN %s THEN %s END) AS %s" % (cond, v1.BKT, alias)  # noqa: E731
+	soi = "COALESCE(NULLIF(pli.sales_order_item, ''), pli.custom_sale_order_item)"
+	# nosemgrep: frappe-sql-format-injection -- the holes are v1's fixed SQL fragments; values are bound
+	rows = frappe.db.sql(
+		f"""
+		SELECT pli.parent AS opl, {soi} AS soi, MIN(soi_t.idx) AS idx,
+		       MAX(pli.item_code) AS variety, MAX(COALESCE(NULLIF(soi_t.custom_length, ''), pli.stem_length)) AS length,
+		       MAX(soi_t.custom_line) AS spec, MAX(soi_t.custom_number_of_boxes) AS boxes,
+		       MAX(IFNULL(soi_t.custom_mixed_box, 0) OR IFNULL(soi_t.custom_mixed_bunch, 0)) AS mixed,
+		       MAX(soi_t.custom_mix_name) AS mix_name,
+		       GROUP_CONCAT(DISTINCT {v1.FARM_EXPR} ORDER BY 1 SEPARATOR ', ') AS farm,
+		       COUNT(DISTINCT {v1.BKT}) AS total, SUM(pli.stock_qty) AS stems,
+		       {stage(v1.REACHED_AWAITING, "awaiting")}, {stage(v1.REACHED_TROLLEY, "trolley")},
+		       {stage(v1.REACHED_TRUCK, "on_truck")}, {stage(v1.REACHED_TRANSIT, "transit")},
+		       {stage(v1.REACHED_SHELVED, "shelved")}, {stage(v1.REACHED_READY, "ready")},
+		       {stage("pli.issued = 1", "issued")}, {stage("pli.issued_offline = 1", "issued_offline")},
+		       {stage("pli.not_found = 1", "not_found")}
+		FROM `tabPick List Item` pli
+		LEFT JOIN `tabSales Order Item` soi_t ON soi_t.name = {soi}
+		WHERE pli.parenttype = 'Order Pick List' AND pli.parent IN %(opls)s AND {v1.transfer_cond()}
+		  AND {not_at_hub_sql(v1.FARM_EXPR)}
+		GROUP BY pli.parent, {soi}
+		ORDER BY pli.parent, MIN(soi_t.idx)""",
+		{"opls": tuple(opls)},
+		as_dict=True,
+	)
+	out = {}
+	for r in rows:
+		r["mixed"] = int(r.get("mixed") or 0)
+		out.setdefault(r.pop("opl"), []).append(r)
+	return out

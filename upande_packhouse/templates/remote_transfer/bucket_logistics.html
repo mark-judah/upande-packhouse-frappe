@@ -159,6 +159,14 @@
     #tm-root .tt-farm-h { display: flex; align-items: baseline; gap: 8px; cursor: pointer; padding: 8px 6px; background: #f6f6f4; border-radius: 6px; font-size: 13px; font-weight: 700; user-select: none; }
     #tm-root .tt-farm-h .ov-count { margin-left: auto; font-weight: 400; }
     #tm-root .tt-orders { padding: 2px 0 6px 20px; }
+    #tm-root .bl-grp { display: inline-flex; gap: 4px; background: #f1efea; padding: 4px; border-radius: 999px; margin-right: auto; }
+    #tm-root .bl-grp button { border: 0; background: transparent; color: #6b6b6b; font: 600 13px var(--sans,'Poppins',system-ui,sans-serif); padding: 7px 16px; border-radius: 999px; cursor: pointer; }
+    #tm-root .bl-grp button.is-on { background: #0a0a0a; color: #fff; }
+    #tm-root .bl-lines { padding: 2px 0 8px 20px; }
+    #tm-root .bl-line { padding: 8px 4px; border-bottom: 1px solid rgba(10,10,10,.08); }
+    #tm-root .bl-line-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+    #tm-root .bl-mix { font-size: 11px; font-weight: 700; letter-spacing: .04em; padding: 0 6px; border-radius: 6px; background: #eef2f1; color: #3a3a34; }
+    #tm-root .bl-trips { display: inline-flex; flex-wrap: wrap; gap: 6px; }
     #tm-root .tt-order { border-bottom: 1px solid #f2f2f2; }
     #tm-root .tt-order-h { display: flex; align-items: baseline; gap: 8px; cursor: pointer; padding: 7px 4px; user-select: none; }
     #tm-root .tt-status { padding: 2px 4px 10px 22px; }
@@ -240,6 +248,9 @@
     { id: 'triptree', label: '6 · Trip Drill Down', sub: 'trip → farm → order → status', d: 'The truck\'s point of view, drilled all the way down: expand a trip to see which farms it touches, expand a farm to see its orders, expand an order to see its status — the trip-leg quantity and the full cumulative stage pill row.' },
   ];
   var ACTIVE = 'triptree';
+  // Group by trip (the Trip Drill Down, the default) or by order -> its order lines
+  var BL_GROUP = (function () { try { return localStorage.getItem('tm-bl-group') || 'trip'; } catch (e) { return 'trip'; } })();
+  var BL_LINES = {}, BL_LINES_FOR = null;
   TABS = TABS.filter(function (t) { return t.id === ACTIVE; });
 
   function esc(s) {
@@ -584,6 +595,7 @@
       if (sig !== OV.sig) {
         OV.sig = sig;
         OV.orders = (d && d.orders) || []; OV.runs = (d && d.runs) || []; OV.totals = (d && d.bucket_totals) || null;
+        BL_LINES = {}; BL_LINES_FOR = null;
         OV.details = {};
         renderActive();
       } else if (!OV.orders.length) renderActive();
@@ -1089,6 +1101,70 @@
           '<button type="button" class="tt-exp" data-tt-exp="' + esc(tkey) + '">' + (ttTripAllOpen(tkey) ? 'Collapse' : 'Expand') + '</button></div>' +
         (g.trip ? ttTripLoad(g) : '') +
         (tShut ? '' : '<div class="tt-farms">' + farmsHtml + '</div>') +
+      '</div>';
+    }).join('');
+  }
+
+  // ---------- By order: order name -> its order lines (variety, spec, buckets, stems, stages, trips) ----------
+  function blLoadLines() {
+    var opls = uniqSorted((OV.orders || []).map(function (o) { return o.opl; })).filter(function (o) { return o && !(o in BL_LINES); });
+    if (!opls.length || BL_LINES_FOR === OV.orders) return;
+    BL_LINES_FOR = OV.orders;
+    ovApi('upande_packhouse.api.v2.rt_logistics.get_order_lines', { opls: JSON.stringify(opls) }).then(function (m) {
+      opls.forEach(function (o) { BL_LINES[o] = (m && m[o]) || []; });
+      if (BL_GROUP === 'order') renderActive();
+    }).catch(function () { opls.forEach(function (o) { BL_LINES[o] = []; }); });
+  }
+  function renderOrderLines() {
+    var by = {}, keys = [];
+    (OV.orders || []).forEach(function (o) {
+      var k = o.sales_order || o.order_name || o.opl;
+      if (!by[k]) { by[k] = { key: k, name: o.order_name || k, customer: o.customer, delivery: o.delivery_date, rows: [] }; keys.push(k); }
+      by[k].rows.push(o);
+    });
+    if (!keys.length) return '<div class="tm-empty">Nothing to show.</div>';
+    blLoadLines();
+    keys.sort(function (a, b) {
+      return String(by[a].delivery || '').localeCompare(String(by[b].delivery || '')) || String(by[a].name).localeCompare(String(by[b].name));
+    });
+    return keys.map(function (k) {
+      var g = by[k], okey = 'O:' + k, shut = !TRIPTREE_OPEN[okey];
+      var opls = uniqSorted(g.rows.map(function (o) { return o.opl; }));
+      var sum = function (f) { var seen = {}; return g.rows.reduce(function (t, o) { var kk = o.opl + '||' + o.farm; if (seen[kk]) return t; seen[kk] = 1; return t + (Number(o[f]) || 0); }, 0); };
+      var trips = uniqSorted([].concat.apply([], g.rows.map(function (o) {
+        var ts = (o.trips || []).map(function (t) { return (t.vehicle || t.trip) + (t.run ? ' · Trip ' + t.run : ''); });
+        // on a truck with no planned trip (loaded straight on it): that truck
+        return ts.length ? ts : (o.truck ? [o.truck] : []);
+      })));
+      var scheduled = g.rows.some(function (o) { return Number(o.scheduled); });
+      var linesHtml = '';
+      if (!shut) {
+        linesHtml = opls.map(function (opl) {
+          var o = g.rows.filter(function (r) { return r.opl === opl; })[0] || {};
+          var ls = BL_LINES[opl];
+          if (!ls) return '<div class="bl-line ov-sub">Reading the order lines…</div>';
+          if (!ls.length) return '<div class="bl-line ov-sub">No order line of ' + esc(opl) + ' is being transferred.</div>';
+          return ls.map(function (x) {
+            return '<div class="bl-line"><div class="bl-line-h">' +
+              '<b>' + esc(x.variety) + ' ' + esc(x.length || '') + '</b>' +
+              (x.mixed ? '<span class="bl-mix">MIX</span><span class="ov-sub">' + esc(x.mix_name || x.spec || '') + '</span>' : '<span class="ov-sub">' + esc(x.spec || '') + '</span>') +
+              (x.boxes ? '<span class="ov-sub">· ' + Number(x.boxes) + ' box' + (Number(x.boxes) === 1 ? '' : 'es') + '</span>' : '') +
+              ovTeamTag(o) +
+              '<span class="ov-sub">· from ' + esc(x.farm || '—') + '</span>' +
+              '<span class="ov-count"><b>' + Number(x.total || 0).toLocaleString() + '</b> bucket' + (Number(x.total) === 1 ? '' : 's') + ' · <b>' + Math.round(Number(x.stems) || 0).toLocaleString() + '</b> stems</span>' +
+              '</div><div class="ov-pill-row" style="margin-top:6px">' + ovStagePills(x, o.hub || ovHubOf(o.opl)) + '</div>' +
+              '<button class="ov-more" style="margin-top:8px;" data-bp-opl="' + esc(o.opl) + '" data-bp-farm="" data-bp-name="' + esc(o.order_name) + '">Bucket status →</button>' +
+            '</div>';
+          }).join('');
+        }).join('');
+      }
+      return '<div class="tt-trip">' +
+        '<div class="tt-trip-h" data-tt-toggle="' + esc(okey) + '"><span class="ov-caret">' + (shut ? '▸' : '▾') + '</span>' +
+          '<span>' + esc(g.name) + ' <span class="ov-sub">· ' + esc(g.customer || '') + ' · delivery ' + ovFmtD(g.delivery) + (opls.length > 1 ? ' · ' + opls.length + ' pick lists' : '') + '</span></span>' +
+          (trips.length ? '<span class="tt-trip-farms">' + trips.map(function (t) { return '<span class="tt-trip-farm">' + esc(t) + '</span>'; }).join('') + '</span>' : '<span class="ov-sub"><i>' + (scheduled ? 'No truck yet' : 'Not scheduled') + '</i></span>') +
+          '<span class="ov-count">' + sum('total').toLocaleString() + ' bucket' + (sum('total') === 1 ? '' : 's') + '</span>' +
+        '</div>' +
+        (shut ? '' : '<div class="bl-lines">' + linesHtml + '</div>') +
       '</div>';
     }).join('');
   }
@@ -1634,14 +1710,24 @@
     else if (ACTIVE === 'heatmap') html = renderHeatmap(combos);
     else if (ACTIVE === 'tree') html = renderTree(combos);
     else if (ACTIVE === 'flat') html = renderFlat(combos);
-    else if (ACTIVE === 'triptree') html = renderTripTree(combos);
+    else if (ACTIVE === 'triptree') html = BL_GROUP === 'order' ? renderOrderLines() : renderTripTree(combos);
+    var grp = '<div class="bl-grp" role="group" aria-label="Group by">' +
+      '<button type="button" data-bl-group="trip" class="' + (BL_GROUP === 'order' ? '' : 'is-on') + '">By trip</button>' +
+      '<button type="button" data-bl-group="order" class="' + (BL_GROUP === 'order' ? 'is-on' : '') + '">By order</button></div>';
     var ttAll = ACTIVE === 'triptree'
-      ? '<div style="display:flex;justify-content:flex-end;gap:8px;margin:0 0 10px;">' +
+      ? '<div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin:0 0 10px;">' + grp +
         (window.rtTrucks ? '<button type="button" data-tt-trucks="1" style="border:0;border-radius:10px;padding:9px 18px;background:#0a0a0a;color:#fff;font:600 13px var(--sans,\'Poppins\',system-ui,sans-serif);cursor:pointer">Add to truck</button>' : '') +
         '</div>' : '';
     body.innerHTML = controlsHtml() + (ACTIVE === 'triptree' ? ovOrigKpis(OV.orders || []) : '') + ttAll + html;
     var allBtn = body.querySelector('[data-tt-all]');
     if (allBtn) { allBtn.textContent = ttAnyOpen() ? 'Collapse all' : 'Expand all'; allBtn.addEventListener('click', function () { ttSetAll(ttAnyOpen()); }); }
+    body.querySelectorAll('[data-bl-group]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        BL_GROUP = b.getAttribute('data-bl-group');
+        try { localStorage.setItem('tm-bl-group', BL_GROUP); } catch (e) {}
+        renderActive();
+      });
+    });
     var trkBtn = body.querySelector('[data-tt-trucks]');
     if (trkBtn) trkBtn.addEventListener('click', function () { window.rtTrucks(); });
     bindCommonEvents(body);

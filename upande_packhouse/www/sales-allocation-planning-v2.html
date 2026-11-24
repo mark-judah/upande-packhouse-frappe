@@ -918,6 +918,23 @@
     if (!x) return "";
     return '<span class="pg-stock" title="' + PH.esc(stockTip(x)) + '">' + n(x.total || 0) + (suffix || "") + "</span>";
   }
+  // a Total stock cell: filled now if the stock is read, else once it is (fillStockCells) -- in place, so nothing
+  // typed in the table is lost to a redraw
+  function stockCell(v, l) {
+    const key = stockKey(v, l);
+    return '<td class="is-num pg-stockcell" data-stock="' + PH.esc(key) + '">' + (S.stock[key] ? stockSpan(v, l, "") : "") + "</td>";
+  }
+  function fillStockCells(root) {
+    PH.$$(".pg-stockcell", root).forEach((td) => {
+      if (td.firstChild) return;
+      const [v, l] = td.dataset.stock.split("|");
+      if (S.stock[td.dataset.stock]) td.innerHTML = stockSpan(v, l, "");
+    });
+  }
+  function loadStockCells(root, pairs) {
+    const want = pairs.filter((p) => !S.stock[stockKey(p.variety, p.length)]);
+    if (want.length) loadStock(want, () => fillStockCells(root));
+  }
   let stockSeq = 0;
   function loadStock(pairs, then) {
     const want = [];
@@ -988,8 +1005,8 @@
     lines.filter((x) => x.mixed).forEach((x) => (mixes[x.group] = mixes[x.group] || []).push(x));
     const done = o.lines.filter((x) => !openLine(x)).length;
     const subBtn = (soi) => '<button type="button" class="ph-btn ph-btn--ghost ph-btn--sm" data-subadd="' + PH.esc(soi) + '">Substitute / add</button> ';
-    const head = '<thead><tr><th>Variety</th><th class="is-num">Ordered</th><th class="is-num">Rolling forecast</th><th class="is-num">Production forecast</th><th>Confirm</th><th>Team</th><th class="pg-act"></th></tr></thead>';
-    const fcCells = (x) => '<td class="is-num">' + n(x.ordered) + '</td><td class="is-num">' + n(fc(x.variety, x.length).rolling) + '</td><td class="is-num">' + n(fc(x.variety, x.length).production) + "</td>";
+    const head = '<thead><tr><th>Variety</th><th class="is-num">Ordered</th><th class="is-num">Rolling forecast</th><th class="is-num">Production forecast</th><th class="is-num">Total stock</th><th>Confirm</th><th>Team</th><th class="pg-act"></th></tr></thead>';
+    const fcCells = (x) => '<td class="is-num">' + n(x.ordered) + '</td><td class="is-num">' + n(fc(x.variety, x.length).rolling) + '</td><td class="is-num">' + n(fc(x.variety, x.length).production) + "</td>" + stockCell(x.variety, x.length);
     const sRows = straight.map((x) => '<tr data-soi="' + PH.esc(x.soi) + '"><td><b>' + PH.esc(x.variety) + "</b> " + PH.esc(x.length) + "<small>straight · " + x.boxes + (x.boxes === 1 ? " box" : " boxes") + "</small></td>" + fcCells(x) +
       '<td><input class="ph-input pg-in pg-o-stems" type="number" min="0" max="' + Math.round(x.left) + '" step="' + (Math.round(x.per_box) || 1) + '" value="' + Math.round(x.left) + '" aria-label="Stems to confirm for ' + PH.esc(x.variety) + '"><small>' + n(x.per_box || 0) + " a box</small></td>" +
       '<td><select class="ph-select pg-o-team" aria-label="Team for ' + PH.esc(x.variety) + '">' + teamOptions(x.team) + "</select></td>" +
@@ -1010,7 +1027,7 @@
         const got = Math.max(0, Math.min(best, boxes));
         return '<td class="is-num"><b>' + n(got) + "</b> of " + n(boxes) + " boxes" + (got < boxes ? "<small>Limited by " + PH.esc(scarce) + "</small>" : "") + "</td>";
       };
-      return '<tr class="pg-mixhead" data-group="' + PH.esc(k) + '"><td><b>' + PH.esc(m[0].group_name || "Mix") + "</b><small>mix · " + m.length + " varieties</small></td><td></td>" + fills("rolling") + fills("production") +
+      return '<tr class="pg-mixhead" data-group="' + PH.esc(k) + '"><td><b>' + PH.esc(m[0].group_name || "Mix") + "</b><small>mix · " + m.length + " varieties</small></td><td></td>" + fills("rolling") + fills("production") + "<td></td>" +
         '<td><input class="ph-input pg-in pg-o-boxes" type="number" min="0" max="' + boxes + '" step="1" value="' + boxes + '" aria-label="Boxes of the mix to confirm"><small>of ' + boxes + " boxes</small></td>" +
         '<td><select class="ph-select pg-o-team" aria-label="Team for the mix">' + teamOptions(m[0].team) + "</select></td>" +
         '<td class="pg-act"><button type="button" class="ph-btn ph-btn--primary ph-btn--sm" data-o-group="' + PH.esc(k) + '">Confirm the mix</button></td></tr>' +
@@ -1020,6 +1037,7 @@
       '<div class="pg-mixfoot" style="justify-content:flex-start;padding:4px 0 0"><label>Team for the whole order <select id="pg-o-allteam" class="ph-select">' + teamOptions("") + "</select></label>" +
       '<button type="button" class="ph-btn ph-btn--primary" id="pg-o-all">Confirm the order</button>' + (done ? '<span class="ph-muted">' + PH.fmt.plural(done, "line") + " already confirmed · on the Confirmation summary</span>" : "") + "</div></div>" +
       '<div class="apx-card apx-tablecard"><div class="ph-table-wrap"><table class="apx-table pg-ltable">' + head + "<tbody>" + sRows + mRows + "</tbody></table></div></div>");
+    loadStockCells($("pg-detail"), lines.map((x) => ({ variety: x.variety, length: x.length })));
     // a team for the whole order: every line and mix takes it
     $("pg-o-allteam").onchange = (e) => { if (e.target.value) PH.$$("#pg-detail .pg-o-team").forEach((sel) => (sel.value = e.target.value)); };
     const lineOf = (tr) => {
@@ -1063,14 +1081,15 @@
       [...new Set(others.map((t) => t.sales_farm))].sort().map((f) => '<optgroup label="Packed at ' + PH.esc(f) + '">' + others.filter((t) => t.sales_farm === f).map((t) => "<option" + (t.team === g.team ? " selected" : "") + ' value="' + PH.esc(t.team) + '" data-short="' + PH.esc(t.team) + '">' + PH.esc(t.team) + " · " + PH.esc(f) + "</option>").join("") + "</optgroup>").join("");
     const rows = g.lines.map((x) => {
       const f = fc(x.variety, x.length), b = boxesOf(x);
-      return "<tr><td><b>" + PH.esc(x.variety) + "</b> " + PH.esc(x.length) + '</td><td class="is-num">' + n(x.ordered) + '</td><td class="is-num">' + n(x.per_box) + '</td><td class="is-num">' + n(f.rolling) + '</td><td class="is-num">' + n(f.production) + '</td><td class="is-num' + (b < g.boxes ? " ph-bad" : "") + '">' + b + " of " + g.boxes + "</td></tr>";
+      return "<tr><td><b>" + PH.esc(x.variety) + "</b> " + PH.esc(x.length) + '</td><td class="is-num">' + n(x.ordered) + '</td><td class="is-num">' + n(x.per_box) + '</td><td class="is-num">' + n(f.rolling) + '</td><td class="is-num">' + n(f.production) + "</td>" + stockCell(x.variety, x.length) + '<td class="is-num' + (b < g.boxes ? " ph-bad" : "") + '">' + b + " of " + g.boxes + "</td></tr>";
     }).join("");
     PH.set($("pg-detail"), '<div class="apx-card apx-vhead"><div class="apx-vhead__top"><h2>' + PH.esc(g.mix_name || "Mix") + "</h2><span>" + PH.esc(g.customer || "") + " · " + PH.esc(g.order_name || g.sales_order) + " · delivery " + PH.fmt.date(g.delivery_date, true) + "</span></div>" +
       '<div class="pg-tiles pg-tiles--3"><div class="pg-tile"><span>Boxes</span><b>' + g.boxes + '</b></div><div class="pg-tile"><span>Varieties</span><b>' + g.lines.length + '</b></div><div class="pg-tile' + (covered < g.boxes ? " pg-tile--bad" : "") + '"><span>Boxes the ' + (basis() === "production" ? "production" : "rolling") + " forecast fills</span><b>" + covered + "</b></div></div></div>" +
-      '<div class="apx-card apx-tablecard"><div class="ph-table-wrap"><table class="apx-table pg-ltable"><thead><tr><th>Variety</th><th class="is-num">Ordered</th><th class="is-num">Per box</th><th class="is-num">Rolling forecast</th><th class="is-num">Production forecast</th><th class="is-num">Boxes it fills</th></tr></thead><tbody>' + rows + "</tbody></table></div>" +
+      '<div class="apx-card apx-tablecard"><div class="ph-table-wrap"><table class="apx-table pg-ltable"><thead><tr><th>Variety</th><th class="is-num">Ordered</th><th class="is-num">Per box</th><th class="is-num">Rolling forecast</th><th class="is-num">Production forecast</th><th class="is-num">Total stock</th><th class="is-num">Boxes it fills</th></tr></thead><tbody>' + rows + "</tbody></table></div>" +
       '<div class="pg-mixfoot"><label>Boxes to confirm <input id="pg-mix-boxes" class="ph-input pg-in" type="number" min="0" max="' + g.boxes + '" step="1" value="' + covered + '"></label>' +
       '<label>Team <select id="pg-mix-team" class="ph-select">' + teamOpts + "</select></label>" +
       '<button type="button" class="ph-btn ph-btn--primary" id="pg-mix-confirm">Confirm the mix</button></div></div>');
+    loadStockCells($("pg-detail"), g.lines.map((x) => ({ variety: x.variety, length: x.length })));
     $("pg-mix-confirm").onclick = () => {
       const team = $("pg-mix-team").value, boxes = Math.max(0, Math.min(g.boxes, Math.round(+$("pg-mix-boxes").value || 0)));
       if (!team) { $("pg-mix-team").focus(); return PH.toast("Choose a team for this mix first.", "bad"); }

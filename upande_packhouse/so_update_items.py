@@ -131,4 +131,8 @@ def update_items(sales_order: str, trans_items: str):
 	so.flags.ignore_validate_update_after_submit = True
 	so.flags.ignore_permissions = True
 	so.save()
+	# the planning page reads the new lines now, not after its minute of shared reads
+	from upande_packhouse.api.v2 import allocation_playground
+
+	allocation_playground._changed()
 	return {"updated": len(touched), "added": len(added)}
