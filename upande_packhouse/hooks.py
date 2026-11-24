@@ -66,6 +66,8 @@ doctype_js = {
 	# ships with the app instead of living only on one site's database.
 	"Sales Order": [
 		"public/js/sales_order/accounting_dimension_sync.js",
+		# Update Items on a submitted order: its Specifications and every item field
+		"public/js/sales_order/update_items.js",
 		"public/js/sales_order/box_math.js",
 		"public/js/sales_order/mixed_box_wizard.js",
 		# mixed_box_uom_fix.js removed 2026-09-22: a superseded 2026-09-04
