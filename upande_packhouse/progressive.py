@@ -136,7 +136,9 @@ def bucket_issuable(opl_name, bucket):
 	"""(ok, message): whether a progressive pick list's bucket can be issued now."""
 	st = readiness(opl_name)
 	if st.get("short"):
-		return False, _("Pick list {0} is not submitted yet: its lines are partially allocated.").format(opl_name)
+		return False, _("Pick list {0} is not submitted yet: its lines are partially allocated.").format(
+			opl_name
+		)
 	if not st["open"]:
 		return False, _(
 			"Pick list {0} is not submitted yet: {1} of {2} boxes are complete on the shelf, issuing starts at {3}."

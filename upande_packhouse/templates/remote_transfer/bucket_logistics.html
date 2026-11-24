@@ -261,7 +261,7 @@
   ];
   var ACTIVE = 'triptree';
   // Group by trip (the Trip Drill Down, the default) or by order -> its order lines
-  var BL_GROUP = (function () { try { return localStorage.getItem('tm-bl-group') || 'trip'; } catch (e) { return 'trip'; } })();
+  var BL_GROUP = (function () { try { var g = localStorage.getItem('tm-bl-group') || 'trip'; return g === 'line' ? 'opl' : g; } catch (e) { return 'trip'; } })();
   var BL_LINES = {}, BL_LINES_FOR = null;
   TABS = TABS.filter(function (t) { return t.id === ACTIVE; });
 
@@ -1126,7 +1126,8 @@
       opls.forEach(function (o) { BL_LINES[o] = (m && m[o]) || []; });
       // Expand all was pressed before these lines arrived: they open too
       if (BL_ALL_OPEN) blOrders().forEach(function (g) { blOrderKeys(g).forEach(function (k) { TRIPTREE_OPEN[k] = 1; }); });
-      if (BL_GROUP === 'order' || BL_GROUP === 'line') renderActive();
+      if (BL_ALL_OPLS) blOpls().forEach(function (p) { blOplKeys(p).forEach(function (k) { TRIPTREE_OPEN[k] = 1; }); });
+      if (BL_GROUP === 'order' || BL_GROUP === 'opl') renderActive();
     }).catch(function () { opls.forEach(function (o) { BL_LINES[o] = []; }); });
   }
   // the orders on the page, each with its pick lists' rows
@@ -1216,35 +1217,80 @@
       (shut ? '' : '<button class="ov-more" style="margin-top:8px;" data-bp-opl="' + esc(o.opl) + '" data-bp-farm="" data-bp-name="' + esc(o.order_name) + '">Bucket status →</button>') +
     '</div>';
   }
-  // By order line: every order line on its own row (its order, straight or its mix, where it goes), each opening
-  // to its buckets; in delivery order, an order's straight lines first, then each mix
-  function blLineItems() {
+  // By OPL: one card per pick list (its order, team, the sales farm it goes to, trucks), opening to its lines --
+  // straight together, each mix together -- and each line to its buckets
+  function blOpls() {
     var out = [];
     blOrders().forEach(function (g) {
-      var items = [];
       uniqSorted(g.rows.map(function (o) { return o.opl; })).forEach(function (opl) {
-        var o = g.rows.filter(function (r) { return r.opl === opl; })[0] || {};
-        (BL_LINES[opl] || []).forEach(function (x) { items.push({ o: o, opl: opl, x: x }); });
+        var rows = g.rows.filter(function (r) { return r.opl === opl; });
+        out.push({ opl: opl, g: g, o: rows[0] || {}, rows: rows });
       });
-      blGroups(items).forEach(function (grp) { grp.lines.forEach(function (it) { out.push({ g: g, it: it }); }); });
     });
     return out;
   }
-  function blAnyLineOpen() {
-    for (var k in TRIPTREE_OPEN) if (k.indexOf('L:') === 0) return true;
-    return false;
+  function blOplKeys(p) {
+    return ['P:' + p.opl].concat((BL_LINES[p.opl] || []).map(function (x) { return 'L:' + p.opl + '|' + x.soi; }));
   }
-  function blSetAllLines(shut) {
-    Object.keys(TRIPTREE_OPEN).forEach(function (k) { if (k.indexOf('L:') === 0) delete TRIPTREE_OPEN[k]; });
-    if (!shut) blLineItems().forEach(function (r) { TRIPTREE_OPEN['L:' + r.it.opl + '|' + r.it.x.soi] = 1; });
+  function blOplAllOpen(p) { return blOplKeys(p).every(function (k) { return TRIPTREE_OPEN[k]; }); }
+  function blSetOpl(opl) {
+    var p = blOpls().filter(function (x) { return x.opl === opl; })[0];
+    if (!p) return;
+    var open = !blOplAllOpen(p);
+    blOplKeys(p).forEach(function (k) { if (open) TRIPTREE_OPEN[k] = 1; else delete TRIPTREE_OPEN[k]; });
     renderActive();
   }
-  function renderLines() {
-    if (!(OV.orders || []).length) return '<div class="tm-empty">Nothing to show.</div>';
+  function blAnyOplOpen() {
+    for (var k in TRIPTREE_OPEN) if (k.indexOf('P:') === 0) return true;
+    return false;
+  }
+  var BL_ALL_OPLS = false;
+  function blSetAllOpls(shut) {
+    BL_ALL_OPLS = !shut;
+    Object.keys(TRIPTREE_OPEN).forEach(function (k) { if (k.indexOf('P:') === 0 || k.indexOf('L:') === 0) delete TRIPTREE_OPEN[k]; });
+    if (!shut) blOpls().forEach(function (p) { blOplKeys(p).forEach(function (k) { TRIPTREE_OPEN[k] = 1; }); });
+    renderActive();
+  }
+  function renderOpls() {
+    var list = blOpls();
+    if (!list.length) return '<div class="tm-empty">Nothing to show.</div>';
     blLoadLines();
-    var rows = blLineItems();
-    if (!rows.length) return '<div class="tm-empty">' + (BL_LINES_FOR ? 'Reading the order lines…' : 'Nothing to show.') + '</div>';
-    return rows.map(function (r) { return blLine(r.it.o, r.it.opl, r.it.x, r.g); }).join('');
+    return list.map(function (p) {
+      var pk = 'P:' + p.opl, shut = !TRIPTREE_OPEN[pk], o = p.o, g = p.g;
+      var hub = o.hub || ovHubOf(p.opl);
+      var seen = {}, total = p.rows.reduce(function (t, r) { var k = r.farm || ''; if (seen[k]) return t; seen[k] = 1; return t + (Number(r.total) || 0); }, 0);
+      var trips = uniqSorted([].concat.apply([], p.rows.map(function (r) {
+        var ts = (r.trips || []).map(function (t) { return (t.vehicle || t.trip) + (t.run ? ' · Trip ' + t.run : ''); });
+        return ts.length ? ts : (r.truck ? [r.truck] : []);
+      })));
+      var scheduled = p.rows.some(function (r) { return Number(r.scheduled); });
+      var body = '';
+      if (!shut) {
+        var ls = BL_LINES[p.opl];
+        if (!ls) body = '<div class="bl-line ov-sub">Reading the order lines…</div>';
+        else if (!ls.length) body = '<div class="bl-line ov-sub">No order line of this pick list is being transferred.</div>';
+        else body = blGroups(ls.map(function (x) { return { o: o, opl: p.opl, x: x }; })).map(function (grp) {
+          var bk = grp.lines.reduce(function (t, it) { return t + (Number(it.x.total) || 0); }, 0);
+          var stems = grp.lines.reduce(function (t, it) { return t + (Number(it.x.stems) || 0); }, 0);
+          return '<div class="bl-grp-h">' +
+            (grp.mix ? '<span class="bl-mix">MIX</span>' + esc(grp.name) + (grp.boxes ? ' <span class="ov-sub">· ' + grp.boxes + ' box' + (grp.boxes === 1 ? '' : 'es') + '</span>' : '') : 'Straight lines') +
+            ' <span class="ov-sub">· ' + grp.lines.length + ' line' + (grp.lines.length === 1 ? '' : 's') + '</span>' +
+            '<span class="ov-count"><b>' + bk.toLocaleString() + '</b> bucket' + (bk === 1 ? '' : 's') + ' · <b>' + Math.round(stems).toLocaleString() + '</b> stems</span></div>' +
+            grp.lines.map(function (it) { return blLine(it.o, it.opl, it.x); }).join('');
+        }).join('');
+      }
+      return '<div class="tt-trip">' +
+        '<div class="tt-trip-h" data-tt-toggle="' + esc(pk) + '"><span class="ov-caret">' + (shut ? '▸' : '▾') + '</span>' +
+          '<span>' + esc(p.opl) + ' <span class="ov-sub">· ' + esc(g.name) + ' · ' + esc(g.customer || '') + ' · delivery ' + ovFmtD(g.delivery) + '</span></span>' +
+          ovTeamTag(o) +
+          (hub ? '<span class="tt-trip-farm" title="The sales farm the buckets go to: the order is processed there">→ ' + esc(hub) + '</span>' : '') +
+          (trips.length ? '<span class="tt-trip-farms">' + trips.map(function (t) { return '<span class="tt-trip-farm">' + esc(t) + '</span>'; }).join('') + '</span>' : '<span class="ov-sub"><i>' + (scheduled ? 'No truck yet' : 'Not scheduled') + '</i></span>') +
+          '<span class="ov-count">' + total.toLocaleString() + ' bucket' + (total === 1 ? '' : 's') + '</span>' +
+          '<button type="button" class="tt-exp" data-bl-oplexp="' + esc(p.opl) + '">' + (blOplAllOpen(p) ? 'Collapse' : 'Expand') + '</button>' +
+        '</div>' +
+        (shut ? '' : '<div class="bl-lines">' + body + '</div>') +
+      '</div>';
+    }).join('');
   }
   function renderOrderLines() {
     var list = blOrders();
@@ -1837,11 +1883,11 @@
     else if (ACTIVE === 'heatmap') html = renderHeatmap(combos);
     else if (ACTIVE === 'tree') html = renderTree(combos);
     else if (ACTIVE === 'flat') html = renderFlat(combos);
-    else if (ACTIVE === 'triptree') html = BL_GROUP === 'order' ? renderOrderLines() : BL_GROUP === 'line' ? renderLines() : renderTripTree(combos);
+    else if (ACTIVE === 'triptree') html = BL_GROUP === 'order' ? renderOrderLines() : BL_GROUP === 'opl' ? renderOpls() : renderTripTree(combos);
     var grp = '<div class="bl-grp" role="group" aria-label="Group by">' +
-      '<button type="button" data-bl-group="trip" class="' + (BL_GROUP === 'order' || BL_GROUP === 'line' ? '' : 'is-on') + '">By trip</button>' +
+      '<button type="button" data-bl-group="trip" class="' + (BL_GROUP === 'order' || BL_GROUP === 'opl' ? '' : 'is-on') + '">By trip</button>' +
       '<button type="button" data-bl-group="order" class="' + (BL_GROUP === 'order' ? 'is-on' : '') + '">By order</button>' +
-      '<button type="button" data-bl-group="line" class="' + (BL_GROUP === 'line' ? 'is-on' : '') + '">By order line</button></div>';
+      '<button type="button" data-bl-group="opl" class="' + (BL_GROUP === 'opl' ? 'is-on' : '') + '">By OPL</button></div>';
     var ttAll = ACTIVE === 'triptree'
       ? '<div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin:0 0 10px;">' + grp +
         '<button type="button" data-tt-all="1" style="border:0;border-radius:10px;padding:9px 18px;background:#f1efea;color:#0a0a0a;font:600 13px var(--sans,\'Poppins\',system-ui,sans-serif);cursor:pointer">Expand all</button>' +
@@ -1850,14 +1896,17 @@
     body.innerHTML = controlsHtml() + (ACTIVE === 'triptree' ? ovOrigKpis(OV.orders || []) : '') + ttAll + html;
     var allBtn = body.querySelector('[data-tt-all]');
     if (allBtn) {
-      var anyOpen = BL_GROUP === 'order' ? blAnyOpen : BL_GROUP === 'line' ? blAnyLineOpen : ttAnyOpen;
+      var anyOpen = BL_GROUP === 'order' ? blAnyOpen : BL_GROUP === 'opl' ? blAnyOplOpen : ttAnyOpen;
       allBtn.textContent = anyOpen() ? 'Collapse all' : 'Expand all';
       allBtn.addEventListener('click', function () {
         if (BL_GROUP === 'order') blSetAll(blAnyOpen());
-        else if (BL_GROUP === 'line') blSetAllLines(blAnyLineOpen());
+        else if (BL_GROUP === 'opl') blSetAllOpls(blAnyOplOpen());
         else ttSetAll(ttAnyOpen());
       });
     }
+    body.querySelectorAll('[data-bl-oplexp]').forEach(function (b) {
+      b.addEventListener('click', function (e) { e.stopPropagation(); blSetOpl(b.getAttribute('data-bl-oplexp')); });
+    });
     body.querySelectorAll('[data-bl-exp]').forEach(function (b) {
       b.addEventListener('click', function (e) { e.stopPropagation(); blSetOrder(b.getAttribute('data-bl-exp')); });
     });

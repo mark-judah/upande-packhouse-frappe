@@ -17,7 +17,11 @@ frappe.ui.form.on("Sales Order", {
 
 		// every step of the order's allocation, from planning to its pick lists
 		if (!frm.is_new()) {
-			frm.add_custom_button(__("Allocation Log"), () => show_allocation_log(frm), __("Actions"));
+			frm.add_custom_button(
+				__("Allocation Log"),
+				() => show_allocation_log(frm),
+				__("Actions")
+			);
 		}
 
 		// Allocation only makes sense once the order is submitted — that's
@@ -69,7 +73,9 @@ frappe.ui.form.on("Sales Order", {
 // the pick list a step names opens from the log: its name in the text is the link
 function opl_links(text, opl) {
 	if (!opl) return text;
-	const link = `<a href="/app/order-pick-list/${encodeURIComponent(opl)}">${frappe.utils.escape_html(opl)}</a>`;
+	const link = `<a href="/app/order-pick-list/${encodeURIComponent(
+		opl
+	)}">${frappe.utils.escape_html(opl)}</a>`;
 	return text.includes(opl) ? text.split(opl).join(link) : `${text} ${link}`;
 }
 
@@ -80,14 +86,23 @@ function show_allocation_log(frm) {
 		callback: (r) => {
 			const rows = r.message || [];
 			const esc = frappe.utils.escape_html;
-			const n = (v) => (v === null || v === undefined || v === "" ? "" : format_number(v, null, 0));
+			const n = (v) =>
+				v === null || v === undefined || v === "" ? "" : format_number(v, null, 0);
 			const body = rows.length
 				? `<div style="max-height:65vh;overflow:auto"><table class="table table-sm table-bordered" style="font-size:12px">
-					<thead><tr><th>${__("When")}</th><th>${__("Stage")}</th><th>${__("Variety")}</th><th>${__("Team")}</th>
-					<th class="text-right">${__("Before")}</th><th class="text-right">${__("After")}</th><th>${__("What happened")}</th><th>${__("By")}</th></tr></thead>
+					<thead><tr><th>${__("When")}</th><th>${__("Stage")}</th><th>${__("Variety")}</th><th>${__(
+						"Team"
+				  )}</th>
+					<th class="text-right">${__("Before")}</th><th class="text-right">${__("After")}</th><th>${__(
+						"What happened"
+				  )}</th><th>${__("By")}</th></tr></thead>
 					<tbody>${rows
 						.map(
-							(x) => `<tr><td style="white-space:nowrap">${frappe.datetime.str_to_user(x.creation)}</td>
+							(
+								x
+							) => `<tr><td style="white-space:nowrap">${frappe.datetime.str_to_user(
+								x.creation
+							)}</td>
 							<td><b>${esc(x.stage || "")}</b></td>
 							<td>${esc(x.item_code || "")} ${esc(x.stem_length || "")}</td>
 							<td>${esc(x.team || "")}</td>
@@ -97,7 +112,10 @@ function show_allocation_log(frm) {
 						)
 						.join("")}</tbody></table></div>`
 				: `<p class="text-muted">${__("Nothing has been logged for this order yet.")}</p>`;
-			const d = new frappe.ui.Dialog({ title: __("Allocation Log: {0}", [frm.doc.name]), size: "extra-large" });
+			const d = new frappe.ui.Dialog({
+				title: __("Allocation Log: {0}", [frm.doc.name]),
+				size: "extra-large",
+			});
 			d.$body.html(body);
 			d.show();
 		},

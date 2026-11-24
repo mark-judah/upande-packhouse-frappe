@@ -11,14 +11,15 @@
 // Other doctypes (Quotation, Purchase Order ...) keep ERPNext's dialog.
 
 (function () {
-	if (!window.erpnext || !erpnext.utils || erpnext.utils.__upande_update_items) return;
-	const original = erpnext.utils.update_child_items;
-	erpnext.utils.update_child_items = function (opts) {
+	const utils = window.erpnext && window.erpnext.utils;
+	if (!utils || utils.__upande_update_items) return;
+	const original = utils.update_child_items;
+	utils.update_child_items = function (opts) {
 		if (opts && opts.frm && opts.frm.doc.doctype === "Sales Order")
 			return upande_so_update_items(opts);
 		return original.apply(this, arguments);
 	};
-	erpnext.utils.__upande_update_items = true;
+	utils.__upande_update_items = true;
 })();
 
 // the columns of the table, in order: [field, width in grid units (Frappe 16), width in px (later Frappe)]. More
@@ -83,7 +84,7 @@ function upande_so_update_items(opts) {
 			!SOUI_LAYOUT.has(f.fieldtype) &&
 			!f.read_only &&
 			!f.hidden &&
-			!SOUI_SKIP.has(f.fieldname),
+			!SOUI_SKIP.has(f.fieldname)
 	);
 	const column_names = new Set(SOUI_COLUMNS.map((c) => c[0]));
 	const field_names = [
@@ -160,7 +161,7 @@ function upande_so_update_items(opts) {
 			Promise.all(data.filter((r) => !r.docname && r.item_code && !r.rate).map(fill_item));
 			frappe.show_alert(
 				{ message: __("Added {0} line(s)", [built.length]), indicator: "green" },
-				4,
+				4
 			);
 		},
 	};
@@ -201,7 +202,7 @@ function upande_so_update_items(opts) {
 			df.get_query = () => ({
 				filters: Object.assign(
 					{ status: "Active" },
-					frm.doc.customer ? { customer: frm.doc.customer } : {},
+					frm.doc.customer ? { customer: frm.doc.customer } : {}
 				),
 			});
 			// picked on an empty row: the spec picker builds the lines
@@ -251,7 +252,9 @@ function upande_so_update_items(opts) {
 						label: __("Item Name"),
 						read_only: 1,
 					},
-					...SOUI_COLUMNS.filter((c) => by_name[c[0]]).map((c) => field(c[0], c[1], c[2])),
+					...SOUI_COLUMNS.filter((c) => by_name[c[0]]).map((c) =>
+						field(c[0], c[1], c[2])
+					),
 					...field_names.filter((n) => !column_names.has(n)).map((n) => field(n)),
 				],
 			},
@@ -275,9 +278,9 @@ function upande_so_update_items(opts) {
 			if (opts.has_reserved_stock) {
 				frappe.confirm(
 					__(
-						"The reserved stock will be released when you update items. Are you certain you wish to proceed?",
+						"The reserved stock will be released when you update items. Are you certain you wish to proceed?"
 					),
-					go,
+					go
 				);
 			} else {
 				go();
