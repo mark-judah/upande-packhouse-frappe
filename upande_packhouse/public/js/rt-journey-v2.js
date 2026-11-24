@@ -91,7 +91,13 @@
 		]
 			.filter(Boolean)
 			.join(" · ");
-		const det = facts(s.facts) + table(s.table) + docs(s.docs);
+		// the shelf photo of a bucket report (not found, damaged, wrong variety, issued offline)
+		const photo = s.photo
+			? `<a class="rtj-photo" href="${E(s.photo)}" target="_blank" rel="noopener"><img src="${E(
+					s.photo
+			  )}" alt="Shelf photo" loading="lazy"></a>`
+			: "";
+		const det = photo + facts(s.facts) + table(s.table) + docs(s.docs);
 		return `<li class="rtj-s rtj-s--${s.tone || "mute"}" data-ev="${E(s.ev || "")}">
       <div class="rtj-s__when"><b>${s.approx ? "~" : ""}${E(timeOf(s.t))}</b><span>${E(
 			dayOf(s.t)

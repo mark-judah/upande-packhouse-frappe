@@ -7,14 +7,16 @@ from frappe.tests import UnitTestCase
 from upande_packhouse import quality_b as qb
 
 # Quality B orders (order type Shopping Cart): a local sale of Grade B flowers. They get their own delivery point,
-# need none of the export fields, are sold by the stem, and their pick lists are shared out among the Quality B
-# teams. The database is mocked.
+# need none of the export fields, are sold in whole bunches of the variety's bunch, and their pick lists are shared out
+# among the Quality B teams. The database is mocked.
 
 
-def _line(item, qty, uom=None, stock_uom="Stems", factor=1, stock_qty=None):
+def _line(item, qty, uom=None, stock_uom="Stems", factor=1, stock_qty=None, rate=None):
 	line = frappe._dict(
 		item_code=item,
 		qty=qty,
+		rate=rate,
+		price_list_rate=rate,
 		uom=uom,
 		stock_uom=stock_uom,
 		conversion_factor=factor,
@@ -63,6 +65,7 @@ class UnitTestQualityBOrders(UnitTestCase):
 		with (
 			patch.object(qb.frappe.db, "exists", return_value=True),
 			patch.object(qb.frappe.db, "get_value", return_value=None),
+			patch.object(qb, "_bunch_uom", return_value=("Bunch (10)", 10.0)),
 		):
 			qb.before_validate(doc)
 
@@ -79,13 +82,21 @@ class UnitTestQualityBOrders(UnitTestCase):
 		self.assertIsNone(doc.data["custom_delivery_point"])
 		self.assertEqual(doc.items[0].uom, "Bunch (10)")
 
-	def test_lines_are_sold_by_the_stem_and_packed_whole(self):
-		webstore = _line("Moonwalk", 30)  # made by the webstore: no unit yet, the quantity is stems
+	def test_lines_are_sold_in_whole_bunches_and_packed_whole(self):
+		webstore = _line(
+			"Moonwalk", 30, rate=0.15
+		)  # made by the webstore: no unit yet, the quantity is stems
 		bunched = _line("Fuchsiana", 2, uom="Bunch (10)", factor=10, stock_qty=20)  # changed on the desk
-		doc = _order([webstore, bunched])
+		short = _line("Aqua", 25)  # not a whole bunch: rounded up
+		doc = _order([webstore, bunched, short])
 		self._validate(doc)
-		self.assertEqual((webstore.uom, webstore.qty, webstore.conversion_factor), ("Stems", 30, 1))
-		self.assertEqual((bunched.uom, bunched.qty, bunched.conversion_factor), ("Stems", 20, 1))
+		self.assertEqual(
+			(webstore.uom, webstore.qty, webstore.conversion_factor, webstore.stock_qty),
+			("Bunch (10)", 3, 10.0, 30),
+		)
+		self.assertAlmostEqual(webstore.rate, 1.5)  # priced per bunch now
+		self.assertEqual((bunched.uom, bunched.qty, bunched.conversion_factor), ("Bunch (10)", 2, 10.0))
+		self.assertEqual((short.qty, short.stock_qty), (3, 30))
 		self.assertEqual((webstore.custom_packrate, webstore.custom_number_of_boxes), ("30", 1))
 		self.assertEqual(bunched.custom_packrate, "20")
 

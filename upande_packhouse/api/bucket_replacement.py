@@ -65,7 +65,12 @@ def record(
 			**(extra or {}),
 		}
 	)
+	# reported from the app (missing, damaged, wrong variety, issued offline): the shelf scanned and its photo
+	from upande_packhouse.api import not_found_report
+
+	doc.update(not_found_report.for_replacement())
 	doc.insert(ignore_permissions=True)
+	not_found_report.attach_photo(doc.get("shelf_photo"), "Bucket Replacement", doc.name, "shelf_photo")
 	return doc.name
 
 
@@ -140,6 +145,11 @@ def for_bucket(bucket_id):
 			"reported_at",
 			"resolved_at",
 			"resolution",
+			"scanned_shelf",
+			"shelf_photo",
+			"replacement_source",
+			"transfer_priority",
+			"defect",
 		],
 		order_by="reported_at desc",
 	)

@@ -634,6 +634,7 @@ def _attach_boxes(rows):
 		SELECT soi.parent, soi.name, soi.stock_qty, soi.custom_number_of_boxes, soi.custom_packrate,
 			soi.custom_packrate_mixed_box, soi.custom_mixed_box, soi.custom_mix_group,
 			soi.custom_mixed_bunch, soi.custom_bunch_group, soi.custom_mix_name,
+			soi.custom_line, soi.custom_length,
 			(SELECT COALESCE(SUM(ba.quantity_allocated), 0) FROM `tabBucket Allocations` ba
 			 WHERE ba.sales_order_item = soi.name AND ba.cancelled = 0) AS allocated
 		FROM `tabSales Order Item` soi
@@ -642,11 +643,17 @@ def _attach_boxes(rows):
 		{"so": tuple(r.name for r in rows)},
 		as_dict=True,
 	)
-	# a spec's mono and mixed bunches are one box (box_groups)
+	# a spec's mono and mixed bunches are one box (box_groups); and a spec's mixed lines at one length are one
+	# set of boxes, as the order counts them (box_math / _set_order_summary): a mix split by boxes (a variety
+	# substituted in its later boxes) is the same boxes, not more of them
+	from upande_packhouse.box_groups import spec_of
+
 	keys = box_keys(lines)
 	groups = defaultdict(list)
 	for ln in lines:
-		groups[(ln.parent, keys[ln.name])].append(ln)
+		mixed = cint(ln.custom_mixed_box) or cint(ln.custom_mixed_bunch)
+		key = ("spec", spec_of(ln)) if mixed and spec_of(ln) else keys[ln.name]
+		groups[(ln.parent, key)].append(ln)
 	required, full = defaultdict(int), defaultdict(int)
 	for (so, _key), members in groups.items():
 		boxes = max(cint(m.custom_number_of_boxes) or 1 for m in members)
@@ -654,9 +661,11 @@ def _attach_boxes(rows):
 		for m in members:
 			mixed = cint(m.custom_mixed_box) or cint(m.custom_mixed_bunch)
 			rate = flt(m.custom_packrate_mixed_box if mixed else m.custom_packrate)
-			per_box = rate or flt(m.stock_qty) / (cint(m.custom_number_of_boxes) or 1)
+			own = cint(m.custom_number_of_boxes) or 1
+			per_box = rate or flt(m.stock_qty) / own
 			if per_box > 0:
-				filled = min(filled, int(flt(m.allocated) / per_box + 1e-9))
+				# a line in fewer of the boxes is complete once its own boxes are
+				filled = min(filled, int(boxes * min(1.0, flt(m.allocated) / per_box / own) + 1e-9))
 		required[so] += boxes
 		full[so] += filled
 	for r in rows:
@@ -3036,6 +3045,8 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 			if r.get("name") and frappe.db.get_value("Order Pick List", r["name"], "docstatus") == 0:
 				_try_submit_opl_if_complete(r["name"])
 
+	_log_release(sales_order, allocations, teams, fit_notes, location)
+
 	return {
 		"success": True,
 		"message": "Allocation completed successfully" + "".join("<br>" + n for n in fit_notes),
@@ -3043,6 +3054,39 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 		"pick_list_results": pick_results,
 		"stock_moves": stock_moves,
 	}
+
+
+def _log_release(sales_order, allocations, teams, fit_notes, location):
+	"""Allocation Log: what each line released to its pick list -- stems, buckets, pick list, team."""
+	from upande_packhouse.allocation_log import log
+
+	by_line = defaultdict(list)
+	for a in allocations:
+		by_line[a["sales_order_item"]].append(a)
+	for soi, rows in by_line.items():
+		stems = sum(flt(r.get("qty")) for r in rows)
+		buckets = sorted({str(r["bucket_id"]) for r in rows})
+		opls = sorted({r.get("_opl") for r in rows if r.get("_opl")})
+		log(
+			"Released to pick list",
+			"{0} stems from {1} bucket(s) {2} to {3}{4}".format(
+				int(stems),
+				len(buckets),
+				", ".join(buckets[:12]) + (" ..." if len(buckets) > 12 else ""),
+				", ".join(opls) or "a pick list",
+				"; " + "; ".join(fit_notes) if fit_notes else "",
+			),
+			sales_order=sales_order,
+			sales_order_item=soi,
+			item_code=rows[0].get("item_code"),
+			stem_length=rows[0].get("stem_length"),
+			team=(teams or {}).get(soi),
+			farm=location,
+			stems_after=stems,
+			bucket_id=buckets[0] if len(buckets) == 1 else None,
+			order_pick_list=opls[0] if opls else None,
+			details={"buckets": {str(r["bucket_id"]): flt(r.get("qty")) for r in rows}, "pick_lists": opls},
+		)
 
 
 # ============================================================
@@ -4161,6 +4205,19 @@ def unallocate_bucket_from_opl(sales_order_item: str, bucket_id: str, stem_lengt
 			except Exception:
 				frappe.log_error("Could not clear Sales Order.custom_stock_allocated", frappe.get_traceback())
 
+		from upande_packhouse.allocation_log import log
+
+		log(
+			"Bucket unallocated",
+			"Bucket {0} taken off the line ({1} still allocated){2}".format(
+				bucket_id,
+				int(flt(remaining_allocated)) if remaining_allocated is not None else 0,
+				"; pick list(s) " + ", ".join(map(str, removed_from_opls)) if removed_from_opls else "",
+			),
+			sales_order_item=sales_order_item,
+			bucket_id=bucket_id,
+			stems_after=remaining_allocated,
+		)
 		# one of several buckets a substitution releases together: saved with the others, not on its own
 		if not frappe.flags.get("sa2_one_commit"):
 			frappe.db.commit()
@@ -4382,6 +4439,11 @@ def _replacement_candidates(anchor, farm, needed, limit=1):
 	A bucket with ANY outstanding allocation (any variety or length) is never
 	offered: replacing must not take stems another order is counting on.
 	"""
+	from upande_packhouse import quality_b
+
+	# a Quality B pick list is replaced from Grade B buckets only
+	if quality_b.is_quality_b_opl(anchor.get("parent")):
+		return quality_b.replacement_candidates(anchor, farm, needed, limit=limit)
 	config = _get_production_config()
 	discard_age = flt(config.get("discard_age") or 5)
 	max_age = flt(config.get("farm_config", {}).get(farm, {}).get("max_allocation_age") or discard_age)
@@ -4742,6 +4804,11 @@ def _replace_requested_bucket(
 	  to its shelf warehouse -- the positions its earlier legs reached are reused
 	  instead of walking the route back and forward leg by leg.
 	"""
+	from upande_packhouse import quality_b
+
+	# a Quality B pick list takes a Grade B bucket, through its own Grade B warehouse
+	if quality_b.is_quality_b_opl(frappe.db.get_value("Pick List Item", pick_list_item, "parent")):
+		return quality_b.replace_row(pick_list_item, new_bucket_id, reason=reason, notes=notes, farm=farm)
 	try:
 		anchor, rows, farm = _requested_bucket_rows(
 			pick_list_item, allow_shelved=allow_shelved, allow_left=allow_left, farm=farm
@@ -5047,6 +5114,23 @@ def _replace_requested_bucket(
 			stock_entries=[m.get("entry") for m in stock_moves],
 			reason=reason,
 			notes=notes,
+		)
+		from upande_packhouse.allocation_log import log
+
+		log(
+			"Bucket replaced",
+			"Bucket {0} replaced with {1} ({2} stems, {3}){4}".format(
+				old_bucket,
+				new.bucket_id,
+				int(flt(needed)),
+				new.stem_length or "",
+				" -- " + reason if reason else "",
+			),
+			sales_order_item=rows[0].get("sales_order_item") if rows else None,
+			bucket_id=new.bucket_id,
+			order_pick_list=opl_name,
+			stems_after=needed,
+			details={"old_bucket": old_bucket, "new_bucket": new.bucket_id, "notes": notes},
 		)
 		frappe.db.commit()
 		return {
@@ -5442,6 +5526,20 @@ def substitute_variety(sales_order: str | None, sales_order_item: str | None, ne
             WHERE name = %s
         """,
 			[sales_order],
+		)
+
+		# the plan follows the line: the old variety's confirmations (and the buckets they hold) are given back
+		# and the new variety is planned for the same stems, team and farm
+		allocation_plan.replan_split([(sales_order_item, [])])
+		from upande_packhouse.allocation_log import log
+
+		log(
+			"Substituted",
+			"{0} replaced by {1} on the whole line".format(old_item_name, new_item.item_name),
+			sales_order=sales_order,
+			sales_order_item=sales_order_item,
+			item_code=new_item_code,
+			details={"from": old_item_code, "to": new_item_code},
 		)
 
 		frappe.db.commit()

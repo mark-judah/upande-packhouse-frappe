@@ -380,30 +380,48 @@ def _order_teams(plan):
 	return team_of, stems
 
 
+def _order_team_lines(plan):
+	"""{sales_order: {team: {"stems": planned stems, "lines": {order lines}}}}: the lines each team packs of each
+	order -- one order can have lines planned for several teams."""
+	out = defaultdict(lambda: defaultdict(lambda: {"stems": 0.0, "lines": set()}))
+	for so, team, soi, stems in frappe.db.sql(
+		"""SELECT sales_order, team, sales_order_item, SUM(stems) FROM `tabAllocation Confirmation`
+		   WHERE plan = %(p)s AND IFNULL(team, '') != ''
+		     AND (status IN %(k)s OR (status = 'Released' AND release_reason = 'Allocated'))
+		   GROUP BY sales_order, team, sales_order_item""",
+		{"p": plan, "k": KEPT},
+	):
+		out[so][team]["stems"] += flt(stems)
+		out[so][team]["lines"].add(soi)
+	return out
+
+
 def _queues(plan):
-	"""{team: [sales_order, ...]} in sequence order."""
-	team_of, _stems = _order_teams(plan)
+	"""{team: [sales_order, ...]} in sequence order: every team an order has lines planned for lists it, so an
+	order shared by two teams is in both their queues."""
+	split = _order_team_lines(plan)
 	seq = dict(
 		frappe.db.sql(
 			"SELECT name, custom_allocation_sequence FROM `tabSales Order` WHERE name IN %(s)s",
-			{"s": tuple(team_of) or ("",)},
+			{"s": tuple(split) or ("",)},
 		)
 	)
 	q = defaultdict(list)
-	for so in sorted(team_of, key=lambda s: (not cint(seq.get(s)), cint(seq.get(s)), s)):
-		q[team_of[so]].append(so)
+	for so in sorted(split, key=lambda s: (not cint(seq.get(s)), cint(seq.get(s)), s)):
+		for team in split[so]:
+			q[team].append(so)
 	return q
 
 
 def _write_rounds(plan, queues):
 	"""Number the plan in rounds: every team's #1 (teams by name), then every team's #2, ..."""
 	teams = sorted(queues)
-	order = [
-		queues[t][i]
-		for i in range(max((len(v) for v in queues.values()), default=0))
-		for t in teams
-		if i < len(queues[t])
-	]
+	order = []
+	# an order in two teams' queues takes the earlier of its two rounds
+	for i in range(max((len(v) for v in queues.values()), default=0)):
+		for t in teams:
+			if i < len(queues[t]) and queues[t][i] not in order:
+				order.append(queues[t][i])
 	plans.sequence_orders(plan, first=order)
 
 
@@ -414,7 +432,9 @@ def get_team_board(delivery_date: str | None = None, farm: str | None = None):
 	demand = _crop_demand(day, farm)
 	lines = {ln.name: ln for ln in pg._lines_for(day, farm)}
 	queues = _queues(plan) if plan else {}
-	team_of, stems = _order_teams(plan) if plan else ({}, {})
+	split = _order_team_lines(plan) if plan else {}
+	team_of = {so: next(iter(t)) for so, t in split.items() if t}
+	team_of_line = {soi: team for so, ts in split.items() for team, x in ts.items() for soi in x["lines"]}
 	info = {
 		r.name: r
 		for r in frappe.get_all(
@@ -428,26 +448,93 @@ def get_team_board(delivery_date: str | None = None, farm: str | None = None):
 	confirmed_of = defaultdict(float)
 	for c in confs:
 		confirmed_of[c.sales_order_item] += max(0.0, flt(c.stems) - flt(c.fulfilled_stems))
+	# everything per (order, team): the lines that team packs of the order
 	boxes_of = defaultdict(float)
-	crop_boxes = defaultdict(lambda: defaultdict(float))  # order -> crop -> boxes
+	crop_boxes = defaultdict(lambda: defaultdict(float))  # (order, team) -> crop -> boxes
+	varieties_of = defaultdict(list)
+	# what the team packs of the order, as the packhouse reads it: each straight line, each mix (by its name)
+	parts_of = defaultdict(dict)
 	groups = crop_of_groups()
 	for ln in lines.values():
-		if ln.parent in team_of:
-			left = max(0.0, flt(ln.ordered_stems) - flt(ln.allocated_stems) - confirmed_of.get(ln.name, 0.0))
-			short_of[ln.parent] += left
-			size = per_box(ln)
-			if size and not mix_key(ln):
-				boxes_of[ln.parent] += flt(ln.ordered_stems) / size
-				crop_boxes[ln.parent][groups.get(ln.item_group) or ""] += flt(ln.ordered_stems) / size
+		key = (ln.parent, team_of_line.get(ln.name))
+		if key[1] is None:
+			continue
+		if ln.item_code not in varieties_of[key]:
+			varieties_of[key].append(ln.item_code)
+		if mix_key(ln):
+			name = ln.custom_mix_name or ln.custom_line or _("Mix")
+			# one mix is one group, whatever lengths and bunch groups its varieties are in
+			part = parts_of[key].setdefault(
+				("mix", name),
+				{
+					"kind": "mix",
+					"mix_type": "bunch" if cint(ln.custom_mixed_bunch) else "box",
+					"name": name,
+					"boxes": 0,
+					"stems": 0.0,
+					"planned": 0.0,
+					"varieties": [],
+					"items": [],
+				},
+			)
+			if ln.item_code not in part["varieties"]:
+				part["varieties"].append(ln.item_code)
+			# each variety of the mix as the allocation page shows it: stems planned of ordered, bunch, box
+			planned = min(flt(ln.ordered_stems), flt(ln.allocated_stems) + confirmed_of.get(ln.name, 0.0))
+			part["planned"] += planned
+			item = next(
+				(
+					i
+					for i in part["items"]
+					if i["variety"] == ln.item_code and i["length"] == (ln.custom_length or "")
+				),
+				None,
+			)
+			if item:
+				item["stems"] += flt(ln.ordered_stems)
+				item["planned"] += planned
+			else:
+				part["items"].append(
+					{
+						"variety": ln.item_code,
+						"length": ln.custom_length or "",
+						"stems": flt(ln.ordered_stems),
+						"planned": planned,
+						"per_bunch": cint(ln.stems_per_bunch),
+						"per_box": cint(per_box(ln)),
+					}
+				)
+			# a mix's lines share its boxes: the mix is as many boxes as its biggest line
+			part["boxes"] = max(part["boxes"], cint(ln.custom_number_of_boxes))
+		else:
+			# the same variety and length on two lines is one straight line of the card
+			part = parts_of[key].setdefault(
+				("straight", ln.item_code, ln.custom_length or ""),
+				{
+					"kind": "straight",
+					"name": "{0} {1}".format(ln.item_code, ln.custom_length or "").strip(),
+					"boxes": 0,
+					"stems": 0.0,
+				},
+			)
+			part["boxes"] += cint(ln.custom_number_of_boxes)
+		part["stems"] += flt(ln.ordered_stems)
+		left = max(0.0, flt(ln.ordered_stems) - flt(ln.allocated_stems) - confirmed_of.get(ln.name, 0.0))
+		short_of[key] += left
+		size = per_box(ln)
+		if size and not mix_key(ln):
+			boxes_of[key] += flt(ln.ordered_stems) / size
+			crop_boxes[key][groups.get(ln.item_group) or ""] += flt(ln.ordered_stems) / size
 	mixes = defaultdict(set)
 	for ln in lines.values():
-		if mix_key(ln) and ln.parent in team_of:
-			mixes[ln.parent].add(mix_key(ln))
-	for so, keys in mixes.items():
+		key = (ln.parent, team_of_line.get(ln.name))
+		if mix_key(ln) and key[1] is not None:
+			mixes[key].add(mix_key(ln))
+	for key, keys in mixes.items():
 		for k in keys:
 			first = next(x for x in lines.values() if mix_key(x) == k)
-			boxes_of[so] += cint(first.custom_number_of_boxes) or 1
-			crop_boxes[so][groups.get(first.item_group) or ""] += cint(first.custom_number_of_boxes) or 1
+			boxes_of[key] += cint(first.custom_number_of_boxes) or 1
+			crop_boxes[key][groups.get(first.item_group) or ""] += cint(first.custom_number_of_boxes) or 1
 	# The teams working at this farm's location, and any other team that already has orders here.
 	location = location_of(farm)
 	tc = {t: c for t, c in team_crops().items() if works_at(c, location) or queues.get(t)}
@@ -458,15 +545,20 @@ def get_team_board(delivery_date: str | None = None, farm: str | None = None):
 		cards = []
 		for i, so in enumerate(q, 1):
 			o = info.get(so) or {}
-			flag = _("Short {0}").format(int(short_of[so])) if short_of[so] > 0.5 else ""
+			key = (so, team)
+			flag = _("Short {0}").format(int(short_of[key])) if short_of[key] > 0.5 else ""
 			cards.append(
 				{
 					"n": i,
 					"sales_order": so,
 					"customer": o.get("customer_name") or o.get("customer") or "",
 					"order_name": o.get("custom_order_name") or so,
-					"stems": stems.get(so, 0.0),
-					"boxes": round(boxes_of.get(so, 0.0)),
+					"stems": flt((split.get(so) or {}).get(team, {}).get("stems")),
+					"boxes": round(boxes_of.get(key, 0.0)),
+					"varieties": varieties_of.get(key, []),
+					"lines": list(parts_of.get(key, {}).values()),
+					# the order's other teams: the same order, its other lines
+					"shared_with": sorted(t for t in (split.get(so) or {}) if t != team),
 					"flag": flag,
 				}
 			)
@@ -482,7 +574,7 @@ def get_team_board(delivery_date: str | None = None, farm: str | None = None):
 				"boxes": sum(x["boxes"] for x in cards),
 			}
 		)
-	_add_workload(teams, day, {so: crop_boxes[so] for t in teams for so in queues.get(t["team"], [])}, queues)
+	_add_workload(teams, day, crop_boxes, queues)
 	heaviest = max((t["stems"] for t in teams), default=0.0) or 1.0
 	for t in teams:
 		t["load_pct"] = round(100.0 * t["stems"] / heaviest)
@@ -569,7 +661,7 @@ def _add_workload(teams, day, crop_boxes, queues):
 	for t in teams:
 		by_crop = defaultdict(float)
 		for so in queues.get(t["team"], []):
-			for crop, boxes in crop_boxes.get(so, {}).items():
+			for crop, boxes in crop_boxes.get((so, t["team"]), {}).items():
 				by_crop[crop] += boxes
 		n = len(people.get(t["team"], []))
 		rows, hours, missing = [], 0.0, []
@@ -640,9 +732,12 @@ def save_rates(rows: str | list):
 
 
 @frappe.whitelist()
-def move_order(delivery_date: str, farm: str, sales_order: str, team: str, position: int):
-	"""Drag on the team board: put an order at `position` (1-based) in `team`'s queue. Moving it to another team
-	gives every line of the order that team."""
+def move_order(
+	delivery_date: str, farm: str, sales_order: str, team: str, position: int, from_team: str | None = None
+):
+	"""Drag on the team board: put an order at `position` (1-based) in `team`'s queue. Moving it from another team
+	(`from_team`, the column it was dragged from) gives that team's lines of the order to `team` -- an order shared
+	by two teams keeps its other team's lines; without `from_team`, every line of the order."""
 	frappe.only_for(pg.PLANNERS)
 	pg._changed()
 	day = pg._day(delivery_date)
@@ -656,16 +751,18 @@ def move_order(delivery_date: str, farm: str, sales_order: str, team: str, posit
 		frappe.throw(_("{0} has no crop set. Set its crop first.").format(team))
 	if not works_at(tc, location_of(farm)):
 		frappe.throw(_("{0} does not work at {1}.").format(team, location_of(farm)))
-	frappe.db.sql(
-		"""UPDATE `tabAllocation Confirmation` SET team = %(t)s
-		   WHERE plan = %(p)s AND sales_order = %(so)s AND status IN %(k)s""",
-		{"t": team, "p": plan, "so": sales_order, "k": KEPT},
-	)
+	moved = (from_team or "").strip()
+	if moved != team:
+		frappe.db.sql(
+			"""UPDATE `tabAllocation Confirmation` SET team = %(t)s
+			   WHERE plan = %(p)s AND sales_order = %(so)s AND status IN %(k)s"""
+			+ (" AND team = %(from)s" if moved else ""),
+			{"t": team, "p": plan, "so": sales_order, "k": KEPT, "from": moved},
+		)
 	queues = _queues(plan)
-	for t in queues:
-		if sales_order in queues[t]:
-			queues[t].remove(sales_order)
 	q = queues.setdefault(team, [])
+	if sales_order in q:
+		q.remove(sales_order)
 	q.insert(max(0, min(len(q), cint(position) - 1)), sales_order)
 	_write_rounds(plan, queues)
 	return {"success": True}
@@ -810,7 +907,8 @@ def get_confirmation_summary(
 			by_line[soi] = [frappe._dict({**cs[0], "stems": 0.0, "source": "Virtual", "forecast_basis": ""})]
 	team_of, _stems = _order_teams(plan)
 	queues = _queues(plan)
-	pos = {so: i for q in queues.values() for i, so in enumerate(q, 1)}
+	# an order shared by teams: its place in the queue of the team with most of its stems
+	pos = {so: q.index(so) + 1 for so, t in team_of.items() for q in [queues.get(t, [])] if so in q}
 	orders = {}
 	totals = dict(empty)
 	teams = set()

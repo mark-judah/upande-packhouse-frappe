@@ -146,3 +146,4 @@
 .rtj-led{margin-top:var(--sp-4);padding-top:var(--sp-3);border-top:1px solid var(--hairline)}
 .rtj-led summary{cursor:pointer;font-size:12px;color:var(--ink-4)}
 .rtj-s--mute .rtj-s__dot{background:var(--ink-faint)}
+.rtj-photo{display:inline-block;margin:0 0 var(--sp-3)}.rtj-photo img{display:block;width:160px;max-width:100%;height:120px;object-fit:cover;border-radius:10px;border:1px solid var(--line,rgba(10,10,10,.12))}

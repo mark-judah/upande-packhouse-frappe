@@ -658,9 +658,17 @@ def _allocate_replacement(opl, rows, anchor, new, new_farm, qty, sale_order_item
 			"Pick List Item", filters={"parent": opl.name, "parenttype": "Order Pick List"}, pluck="name"
 		)
 	)
-	res = sa._allocate_stock_with_buckets_impl(
-		opl.sales_order, [allocation], _location_of(opl.farm or new_farm), teams={}, target_opl=opl.name
-	)
+	from upande_packhouse import quality_b
+
+	# a Quality B pick list's replacement is a Grade B bucket: its stems come out of its Grade B warehouse
+	if quality_b.is_quality_b_opl(opl.name) and new.get("grade_b"):
+		frappe.flags.quality_b_sources = {str(new.bucket_id).upper(): new.warehouse}
+	try:
+		res = sa._allocate_stock_with_buckets_impl(
+			opl.sales_order, [allocation], _location_of(opl.farm or new_farm), teams={}, target_opl=opl.name
+		)
+	finally:
+		frappe.flags.quality_b_sources = None
 	new_rows = [
 		n
 		for n in frappe.get_all(

@@ -1597,6 +1597,8 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 	"""`target_opl` (packing_quality's replacement): put the new rows on that
 	Order Pick List -- the one being packed -- whatever box type the line is,
 	instead of the per-type OPL creators (the mixed ones skip a submitted OPL)."""
+	from upande_packhouse import quality_b
+
 	config = _get_production_config()
 	farm_config = config["farm_config"]
 	farms_by_location = config["farms_by_location"]
@@ -1818,7 +1820,9 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 			bas.total_quantity = float(shelf["stem_qty"] or 0)
 			bas.stem_length = shelf["stem_length"] or ""
 			bas.warehouse = (
-				stock_movement.holding_warehouse(shelf["warehouse"], shelf["farm"], business_unit) or ""
+				quality_b.grade_b_source(bucket_id)
+				or stock_movement.holding_warehouse(shelf["warehouse"], shelf["farm"], business_unit)
+				or ""
 			)
 			bas.harvest_date = shelf.get("harvest_date") or shelf["date_added"]
 			bas.shelf_location = shelf["shelf_location"]
@@ -1920,7 +1924,8 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 		# The shelf row is the server-side truth for where the stems are and how
 		# long they are; the client sends both, so overwrite rather than default.
 		# A remote farm's bucket stays on its farm's store until shelved at the hub.
-		a["warehouse"] = stock_movement.holding_warehouse(
+		# a Quality B replacement takes the stems from the bucket's Grade B warehouse, where its discard moved them
+		a["warehouse"] = quality_b.grade_b_source(a["bucket_id"]) or stock_movement.holding_warehouse(
 			shelf.get("warehouse") or a.get("warehouse"), a["_shelf_farm"], business_unit
 		)
 		a["stem_length"] = shelf.get("stem_length") or a.get("stem_length")
@@ -2405,6 +2410,16 @@ def opl_submit_blockers(opl):
 	if blockers:
 		return blockers
 
+	short = opl_short_lines(opl)
+	if short:
+		blockers.append("{0} line(s) not yet fully allocated: {1}".format(len(short), "; ".join(short)))
+
+	return blockers
+
+
+def opl_short_lines(opl):
+	"""The lines this pick list packs that are not fully allocated yet, as "line (allocated/required stems)".
+	A mixed box or bunch counts every line of its group, not only the ones already on the pick list."""
 	global_confirmed = _get_all_confirmed_stems(opl.sales_order)
 
 	# NOTE: Order Pick List's own fields are "mix_group"/"bunch_group" (no
@@ -2453,10 +2468,7 @@ def opl_submit_blockers(opl):
 		required = _required_stems_for_so_item(so_item, confirmed_qty=confirmed)
 		if allocated < required - 0.001:
 			short.append("{0} ({1:g}/{2:g} stems)".format(so_item, allocated, required))
-	if short:
-		blockers.append("{0} line(s) not yet fully allocated: {1}".format(len(short), "; ".join(short)))
-
-	return blockers
+	return short
 
 
 def _try_submit_opl_if_complete(opl_name, confirmed_by_item=None):
@@ -3033,10 +3045,15 @@ def _replacement_candidates(anchor, farm, needed, limit=1):
 	"""Unallocated shelved buckets of the same variety at the same farm, at the
 	allocation's stem length or longer, holding at least `needed` stems.
 
-	Same length first, then the nearest longer length, oldest harvest first.
+	Oldest harvest first (FIFO); on the same harvest day the same length, then the nearest longer.
 	A bucket with ANY outstanding allocation (any variety or length) is never
 	offered: replacing must not take stems another order is counting on.
 	"""
+	from upande_packhouse import quality_b
+
+	# a Quality B pick list is replaced from Grade B buckets only
+	if quality_b.is_quality_b_opl(anchor.get("parent")):
+		return quality_b.replacement_candidates(anchor, farm, needed, limit=limit)
 	config = _get_production_config()
 	discard_age = flt(config.get("discard_age") or 5)
 	max_age = flt(config.get("farm_config", {}).get(farm, {}).get("max_allocation_age") or discard_age)
@@ -3104,8 +3121,15 @@ def _replacement_candidates(anchor, farm, needed, limit=1):
 		r["available_qty"] = flt(r.stem_qty)
 		r["length_cm"] = cm
 		out.append(r)
-	# Same length first, then the nearest longer; the SQL order keeps FIFO within a length.
-	out.sort(key=lambda r: (r.length_cm is None, (r.length_cm or 0) - (min_cm or 0)))
+	# FIFO: the oldest harvest first (the SQL order), whatever its length; the same length first only
+	# between buckets of the same harvest day
+	out.sort(
+		key=lambda r: (
+			str(r.harvest_date or "9999-12-31")[:10],
+			r.length_cm is None,
+			(r.length_cm or 0) - (min_cm or 0),
+		)
+	)
 	return out[:limit]
 
 
@@ -3428,6 +3452,11 @@ def _replace_requested_bucket(
 	  to its shelf warehouse -- the positions its earlier legs reached are reused
 	  instead of walking the route back and forward leg by leg.
 	"""
+	from upande_packhouse import quality_b
+
+	# a Quality B pick list takes a Grade B bucket, through its own Grade B warehouse
+	if quality_b.is_quality_b_opl(frappe.db.get_value("Pick List Item", pick_list_item, "parent")):
+		return quality_b.replace_row(pick_list_item, new_bucket_id, reason=reason, notes=notes, farm=farm)
 	try:
 		anchor, rows, farm = _requested_bucket_rows(
 			pick_list_item, allow_shelved=allow_shelved, allow_left=allow_left, farm=farm
@@ -3728,6 +3757,23 @@ def _replace_requested_bucket(
 			stock_entries=[m.get("entry") for m in stock_moves],
 			reason=reason,
 			notes=notes,
+		)
+		from upande_packhouse.allocation_log import log
+
+		log(
+			"Bucket replaced",
+			"Bucket {0} replaced with {1} ({2} stems, {3}){4}".format(
+				old_bucket,
+				new.bucket_id,
+				int(flt(needed)),
+				new.stem_length or "",
+				" -- " + reason if reason else "",
+			),
+			sales_order_item=rows[0].get("sales_order_item") if rows else None,
+			bucket_id=new.bucket_id,
+			order_pick_list=opl_name,
+			stems_after=needed,
+			details={"old_bucket": old_bucket, "new_bucket": new.bucket_id, "notes": notes},
 		)
 		frappe.db.commit()
 		return {

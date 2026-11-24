@@ -6526,12 +6526,25 @@ def markRequestedBucketNotFound():
 	# replace it with. It is left out of the transfer (not_found, no longer awaiting),
 	# the trip planned to collect it expects one bucket fewer at that farm — so the
 	# stop can be finished and the order loaded with the buckets that are there.
-	# Payload: pick_list_item (any row of the bucket), notes (optional).
+	# Payload: pick_list_item (any row of the bucket), notes (optional), scanned_shelf + shelf_photo (the
+	# shelf the system put it on, scanned, and a photo of it: not_found_report).
+	from upande_packhouse.api import not_found_report
+
 	fd = frappe.form_dict
-	frappe.response["message"] = mark_bucket_not_found(fd.get("pick_list_item"), fd.get("notes"))
+	try:
+		report = not_found_report.evidence(
+			fd.get("pick_list_item"), fd.get("scanned_shelf"), fd.get("shelf_photo")
+		)
+	except frappe.ValidationError as e:
+		frappe.local.message_log = []
+		frappe.response["message"] = {"status": "error", "message": str(e)}
+		return
+	frappe.response["message"] = mark_bucket_not_found(
+		fd.get("pick_list_item"), fd.get("notes"), report=report
+	)
 
 
-def mark_bucket_not_found(pick_list_item, notes=None):
+def mark_bucket_not_found(pick_list_item, notes=None, report=None):
 	row = (
 		frappe.db.sql(
 			"""SELECT pli.name, pli.parent AS opl, pli.parenttype, pli.bucket, pli.in_transit, pli.shelved,
@@ -6585,11 +6598,41 @@ def mark_bucket_not_found(pick_list_item, notes=None):
 				"not_found": 1,
 				"not_found_at": now,
 				"not_found_by": user,
+				"report_shelf": (report or {}).get("scanned_shelf") or "",
+				"report_photo": (report or {}).get("shelf_photo") or "",
 			},
 		)
 	orders = {}
 	for w in waiting:
 		orders.setdefault(w.opl, w.farm or "")
+	# the report on a Bucket Replacement with no new bucket (Open until the bucket turns up), its photo attached
+	if report and orders and row.bucket:
+		from upande_packhouse.api import bucket_replacement
+
+		frappe.flags.not_found_evidence = report
+		try:
+			bucket_replacement.record(
+				row.bucket,
+				"",
+				frappe.get_doc("Pick List Item", row.name),
+				waiting,
+				row.farm or None,
+				next(iter(orders)),
+				"",
+				sum(
+					flt(r.stock_qty)
+					for r in frappe.get_all(
+						"Pick List Item",
+						filters={"name": ("in", [w.name for w in waiting])},
+						fields=["stock_qty"],
+					)
+				),
+				[],
+				reason="Missing",
+				notes=notes,
+			)
+		finally:
+			frappe.flags.not_found_evidence = None
 	# Bucket Watchlist (Bucket Journey v2): watch the bucket until it turns up. Guarded: never raises.
 	try:
 		from upande_packhouse.api.v2 import rt_watchlist

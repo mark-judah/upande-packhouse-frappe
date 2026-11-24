@@ -333,6 +333,7 @@ def read_bucket(bucket_id, trace=True):
 		else []
 	)
 	opl_hdr = {
+		"delivery_date": "opl_delivery_date",
 		"customer": "opl_customer",
 		"order_name": "opl_order_name",
 		"team": "opl_team",
@@ -576,6 +577,22 @@ def _e(ev, t, title, where="", who="", line="", tone="", facts=None, docs=None, 
 	}
 	d.update(extra)
 	return d
+
+
+def _nf_facts(rows, order):
+	"""A not-found report: the order, the stems, the shelf the QC scanned (its photo rides on the step)."""
+	r0 = rows[0] if rows else {}
+	return [
+		["Order", order],
+		["Variety", r0.get("item_code")],
+		["Stem length", r0.get("stem_length")],
+		["Stems", _n(sum(_num(r.get("stock_qty")) for r in rows))],
+		["Farm", r0.get("farm")],
+		["Shelf the system had", r0.get("shelf")],
+		["Shelf scanned", r0.get("report_shelf")],
+		["Reported by", _who(r0.get("not_found_by"))],
+		["Reported at", _ts(r0.get("not_found_at"))],
+	]
 
 
 ORDER = {
@@ -1064,7 +1081,16 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 			who=_who(f["by"]),
 			line=" · ".join(x for x in (_stems(stems), ", ".join(vs), f["length"]) if x),
 			tone="ok",
-			facts=[["Shelf", f["shelf"]], ["Farm", f["farm"]], ["Greenhouse", f["gh"]], ["Rows", len(g)]],
+			facts=[
+				["Shelf", f["shelf"]],
+				["Farm", f["farm"]],
+				["Stems", _n(stems)],
+				["Varieties", ", ".join(vs)],
+				["Stem length", f["length"]],
+				["Greenhouse", f["gh"]],
+				["Shelved by", _who(f["by"])],
+				["Rows", len(g)],
+			],
 			docs=[rdoc(x) for x in g],
 			shelf=f["shelf"],
 			open=any(x["_live"] for x in g),
@@ -1105,6 +1131,12 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 				where=" · ".join(x for x in (shelf, f["farm"]) if x),
 				line=_stems(stems),
 				tone="ok",
+				facts=[
+					["Shelf", shelf],
+					["Stems taken off", _n(stems)],
+					["On the shelf since", on_since],
+					["On the shelf for", gap_label(_hours(on_since, f["off"]))],
+				],
 				docs=[rdoc(x) for x in g],
 				on_since=on_since,
 				stems=stems,
@@ -1192,6 +1224,20 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 				stems=stems,
 				shelf_empty=True,
 			)
+		# every step off a shelf: which shelf, how many stems, how long it stood there, why it left
+		have = {x[0] for x in ev["facts"]}
+		ev["facts"] = [
+			x
+			for x in (
+				["Shelf", shelf],
+				["Farm", f["farm"]],
+				["Stems taken off", _n(stems)],
+				["On the shelf since", on_since],
+				["On the shelf for", gap_label(_hours(on_since, f["off"]))],
+				["Why it left", reason],
+			)
+			if x[0] not in have
+		] + ev["facts"]
 		to_cycle(
 			on_since, ev, cycle=place_shelf(cycles, on_since, f.get("rdate"))
 		)  # a removal belongs to the journey of the shelving it closes
@@ -1323,6 +1369,12 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 			facts=[
 				["Customer", " · ".join(x for x in (p0.get("opl_customer"), p0.get("opl_consignee")) if x)],
 				["Sales order", p0.get("opl_sales_order")],
+				["Delivery", p0.get("opl_delivery_date")],
+				["Variety", ", ".join(sorted({r.get("item_code") for r in rs if r.get("item_code")}))],
+				[
+					"Stem length",
+					", ".join(sorted({r.get("stem_length") for r in rs if r.get("stem_length")})),
+				],
 				["Team", p0.get("opl_team")],
 				["Boxes", ", ".join(boxes[:12])],
 				["Stems allocated", _n(stems)],
@@ -1357,6 +1409,19 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 			approx = not ts_i
 			ts_i = ts_i or _ts(max(r.get("modified") or "" for r in iss))
 			offline = any(_num(r.get("issued_offline")) for r in iss)
+			# what the bucket held on its shelf when it was issued: more than the order took goes back
+			held = next(
+				(
+					_num(x.get("stem_qty"))
+					for x in sorted(R["shelf_log"], key=lambda x: _ts(x.get("shelved_on")), reverse=True)
+					if _ts(x.get("shelved_on"))
+					and _ts(x.get("shelved_on")) <= ts_i
+					and x.get("variety") in {r.get("item_code") for r in iss}
+				),
+				0,
+			)
+			back = held - iss_st if held > iss_st + 0.5 else 0
+			reported = next((r for r in iss if r.get("report_shelf")), None)
 			c["ev"].append(
 				_e(
 					"issue",
@@ -1364,13 +1429,37 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 					"Issued %s%s" % (_stems(iss_st), " (offline)" if offline else ""),
 					where=p0.get("shelf") or "",
 					who=_who(next((r.get("issued_by") for r in iss if r.get("issued_by")), "")),
-					line="%s · %d of %d rows" % (order, len(iss), len(rs)),
+					line="%s · %d of %d rows%s"
+					% (order, len(iss), len(rs), (" · %s back on the shelf" % _stems(back)) if back else ""),
 					tone="ok",
 					facts=[
+						["Order", order],
+						["Team", p0.get("opl_team")],
+						[
+							"Variety",
+							", ".join(sorted({r.get("item_code") for r in iss if r.get("item_code")})),
+						],
+						[
+							"Stem length",
+							", ".join(sorted({r.get("stem_length") for r in iss if r.get("stem_length")})),
+						],
+						[
+							"Boxes",
+							", ".join(
+								sorted({str(r.get("custom_box_id")) for r in iss if r.get("custom_box_id")})
+							),
+						],
+						["Bucket held", _n(held) if held else ""],
 						["Stems issued", _n(iss_st)],
+						[
+							"Put back on the shelf",
+							("%s on %s" % (_stems(back), p0.get("shelf") or "its shelf")) if back else "",
+						],
 						["Stems still open on this order", _n(stems - iss_st)],
+						["Shelf scanned (issued offline)", reported.get("report_shelf") if reported else ""],
 						["Time", "approximate: last change of the pick row" if approx else ""],
 					],
+					photo=reported.get("report_photo") if reported else "",
 					docs=[_doc("Order Pick List", opl)],
 					approx=approx,
 					issued_stems=iss_st,
@@ -1385,16 +1474,19 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 			for e in t.get("events") or []
 		)
 		if nf and not traced:
+			at_issuing = bool(hub) and _up(nf[0].get("farm")) == _up(hub)
 			c["ev"].append(
 				_e(
 					"not_found",
 					_ts(nf[0].get("not_found_at")) or ts,
-					"Marked not found",
+					"Marked not found" + (" at issuing" if at_issuing else " at the farm"),
 					where=nf[0].get("farm") or "",
 					who=_who(nf[0].get("not_found_by")),
 					line="%s · %s" % (order, _stems(sum(_num(r.get("stock_qty")) for r in nf))),
 					tone="bad",
+					facts=_nf_facts(nf, order),
 					docs=[_doc("Order Pick List", opl)],
+					photo=next((r.get("report_photo") for r in nf if r.get("report_photo")), ""),
 				)
 			)
 		ready = [r for r in rs if _num(r.get("custom_ready_for_packing"))]
@@ -1532,7 +1624,19 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 			else "while issuing"
 		)
 		order = x.get("order_name") or x.get("order_pick_list") or "an order"
-		if old:
+		if old and not x.get("new_bucket"):
+			title = "Reported not found %s: no replacement" % during
+			line = " · ".join(
+				y
+				for y in (
+					order,
+					"still missing"
+					if x.get("status") == "Open"
+					else x.get("status") + (" · " + x["resolution"] if x.get("resolution") else ""),
+				)
+				if y
+			)
+		elif old:
 			title = "Replaced by %s %s" % (x.get("new_bucket") or "?", during)
 			line = " · ".join(
 				y
@@ -1572,14 +1676,20 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 				["New bucket", x.get("new_bucket")],
 				["Status", x.get("status")],
 				["Reason", x.get("reason")],
+				["Defect", x.get("defect")],
 				["Notes", x.get("notes")],
 				["Expected shelf", x.get("expected_shelf")],
+				["Shelf scanned", x.get("scanned_shelf")],
 				["New shelf", x.get("new_shelf")],
+				["Replacement from", x.get("replacement_source")],
+				["Transfer priority", x.get("transfer_priority")],
 				["Trip", x.get("trip")],
 				["Vehicle", x.get("vehicle")],
 				["Stems", x.get("stems")],
 				["Resolved", x.get("resolved_at")],
+				["Resolution", x.get("resolution")],
 			],
+			photo=x.get("shelf_photo") or "",
 			docs=[_doc("Bucket Replacement", x["name"]), _doc("Order Pick List", x.get("order_pick_list"))],
 			replacement=x["name"],
 			old=old,
@@ -1688,6 +1798,11 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 						tr.get("to_farm") or hub or "packhouse",
 						tr.get("order_name") or tr.get("opl"),
 					)
+			nf_rows = (
+				[r for r in R["pli"] if r.get("opl") == tr.get("opl") and _num(r.get("not_found"))]
+				if st == "Not found at farm"
+				else []
+			)
 			ev = _e(
 				key,
 				at,
@@ -1696,10 +1811,24 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 				who=_who(e.get("user")),
 				line=line,
 				tone=tone,
+				facts=(
+					_nf_facts(nf_rows, tr.get("order_name") or tr.get("opl"))
+					if nf_rows
+					else [
+						["Order", tr.get("order_name") or tr.get("opl")],
+						["From", tr.get("from_farm")],
+						["To", tr.get("to_farm") or hub],
+						["Trip", e.get("trip")],
+						["Vehicle", e.get("vehicle")],
+						["Stage", st],
+						["Detail", e.get("detail")],
+					]
+				),
 				stage=st,
 				transfer=tr.get("opl"),
 				docs=[_doc("Bucket Request Trip", e.get("trip")), _doc("Order Pick List", tr.get("opl"))],
 				opl=tr.get("opl"),
+				photo=next((r.get("report_photo") for r in nf_rows if r.get("report_photo")), ""),
 			)
 			if c is None:
 				ev["reason"] = (
@@ -1728,6 +1857,15 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 			who=_who(e.get("user")),
 			line=e.get("details") or "",
 			tone=tone,
+			facts=[
+				["Stage", e.get("stage")],
+				["Farm", e.get("farm")],
+				["Shelf", e.get("shelf")],
+				["Vehicle", e.get("vehicle")],
+				["Order", e.get("order_pick_list")],
+				["Outcome", e.get("outcome")],
+				["Details", e.get("details")],
+			],
 			docs=[
 				_doc("Bucket Transfer Event", e["name"]),
 				_doc("Bucket Request Trip", e.get("trip")),
