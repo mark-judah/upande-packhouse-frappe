@@ -9,6 +9,13 @@ from frappe.model.document import Document
 class OrderPickList(Document):
 	def validate(self):
 		self.total_boxes = count_boxes(self)
+		# a Quality B order's pick list is Quality B from the start: it packs as it comes, no full-box gates
+		if (
+			not self.get("quality_b")
+			and self.sales_order
+			and frappe.db.get_value("Sales Order", self.sales_order, "order_type") == "Shopping Cart"
+		):
+			self.quality_b = 1
 
 	def before_submit(self):
 		# Doctype-level backstop: every programmatic path that submits an OPL

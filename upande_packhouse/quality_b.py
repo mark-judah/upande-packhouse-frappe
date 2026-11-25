@@ -72,6 +72,8 @@ def before_validate(doc, method=None):
 		line.conversion_factor = factor
 		line.qty = bunches
 		line.stock_qty = bunches * factor
+		# what allocation may take for the line: its whole bunches, not the stems before rounding
+		line.custom_ordered_quantity = bunches * factor
 	# not boxed for export: a line with no packrate is one pack holding all its stems
 	for line in doc.items:
 		if line.get("custom_mixed_box"):
@@ -100,6 +102,10 @@ def _bunch_uom(item_code, stock_uom):
 	sales_uom = frappe.db.get_value("Item", item_code, "sales_uom")
 	if sales_uom in bunches:
 		return sales_uom, bunches[sales_uom]
+	# the bunch the item is sold in, even with no conversion row on the Item: packing grades it at that size
+	size = _bunch_size(sales_uom)
+	if size > 1:
+		return sales_uom, size
 	if bunches:
 		uom = next(iter(bunches))
 		return uom, bunches[uom]
@@ -125,13 +131,18 @@ def stems_per_bunch(item_code):
 	return cint(_bunch_uom(item_code, stock_uom)[1]) or 1
 
 
-def _named_bunch(uom, factor):
-	"""A bunch unit whose stems match its name -- "Bunch (10)" at 10: packing reads the bunch size off the
-	name, so a "Bunch (10)" set to 9 stems would never box evenly."""
+def _bunch_size(uom):
+	"""Stems in a bunch unit by its name -- "Bunch (10)" is 10; 0 when `uom` is not a bunch."""
 	import re
 
 	m = re.search(r"\((\d+)\)", uom or "")
-	return bool("bunch" in (uom or "").lower() and m and flt(factor) > 1 and cint(m.group(1)) == flt(factor))
+	return cint(m.group(1)) if m and "bunch" in (uom or "").lower() else 0
+
+
+def _named_bunch(uom, factor):
+	"""A bunch unit whose stems match its name -- "Bunch (10)" at 10: packing reads the bunch size off the
+	name, so a "Bunch (10)" set to 9 stems would never box evenly."""
+	return flt(factor) > 1 and _bunch_size(uom) == flt(factor)
 
 
 def on_submit(doc, method=None):
