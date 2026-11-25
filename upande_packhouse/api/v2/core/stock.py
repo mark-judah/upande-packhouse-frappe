@@ -23,6 +23,14 @@ parts always add up to what is on the shelf (audit ST-2):
              allocatable by anyone else; the line it is held for gets it back through
              allocation_plan.free_for_line.
 
+  spare      part of `free` on a bucket that is allocated, in transit, to an order at ANOTHER farm. The
+             allocator sends such a bucket whole to the order that holds it, so its remaining stems are
+             not offered to anyone else until the bucket arrives (Sales Allocation: remote_bucket_owners).
+
+The free stems that are not allocatable are split by their one reason, so a page can show every
+withheld stem by reason: aged_stems (too old), cooling_stems (still cooling), spare, reserved.
+free = allocatable + aged_stems + cooling_stems + spare + reserved.
+
 Two more flags mirror the allocator (sales_allocation.get_sales_order_items_with_buckets)
 so "available" here is what allocation will actually accept (OR-A5):
   too_old    age (days since harvest, else since shelving) over the shelf farm's
@@ -122,6 +130,23 @@ def bucket_rows(*, farms=None, varieties=None, lengths=None, rose=None, company=
 	):
 		alloc[(r.bucket_id, r.item_code, r.stem_length)] = float(r.allocated or 0)
 
+	# Buckets allocated in transit to an order at another farm: {(bucket, variety, length): {order farms}}
+	remote_owner_farms = defaultdict(set)
+	for r in frappe.db.sql(
+		"""SELECT bas.bucket_id, bas.item_code, IFNULL(bas.stem_length, '') AS stem_length,
+		          COALESCE(NULLIF(so.farm, ''), NULLIF(so.custom_farm, '')) AS order_farm
+		   FROM `tabBucket Allocation Status` bas
+		   INNER JOIN `tabBucket Allocations` ba ON ba.parent = bas.name AND ba.parenttype = 'Bucket Allocation Status'
+		   INNER JOIN `tabSales Order Item` soi ON soi.name = ba.sales_order_item
+		   INNER JOIN `tabSales Order` so ON so.name = soi.parent
+		   WHERE bas.bucket_id IN %(b)s AND bas.in_transit = 1 AND bas.allocated_quantity > 0
+		     AND ba.cancelled = 0 AND IFNULL(ba.issued, 0) = 0""",
+		{"b": tuple({r.bucket_id for r in rows})},
+		as_dict=True,
+	):
+		if r.order_farm:
+			remote_owner_farms[(r.bucket_id, r.item_code, r.stem_length)].add(r.order_farm)
+
 	held_ids = reserved_bucket_ids()
 	# Stems the allocation plan holds for an order line. They are still free stems (shelved =
 	# held + allocated + free is unchanged) but are not allocatable by anyone else.
@@ -140,6 +165,7 @@ def bucket_rows(*, farms=None, varieties=None, lengths=None, rose=None, company=
 		if r.in_discard_request:
 			r.held, r.allocated, r.free = stems, 0.0, 0.0
 			r.reserved = 0.0
+			r.spare = r.aged_stems = r.cooling_stems = 0.0
 			r.allocated_in_held = min(a, stems)  # alert: an order is promised stock queued for discard
 			r.over_allocated = 0.0
 		else:
@@ -154,7 +180,16 @@ def bucket_rows(*, farms=None, varieties=None, lengths=None, rose=None, company=
 		r.too_old = age > farm_cfg.get("max_allocation_age", 5) or age >= discard_age
 		r.hours_cooled = cooled.get(r.bucket_id, r.hours_on_shelf or 0)
 		r.cooling = (r.hours_cooled or 0) < farm_cfg.get("cooling_hours", 0)
-		r.allocatable = 0.0 if (r.too_old or r.cooling) else r.free - r.reserved
+		# the free stems, each in one bucket: too old, cooling, spare on a bucket going to another farm,
+		# reserved by the plan, or allocatable
+		owners = remote_owner_farms.get((r.bucket_id, r.variety, r.stem_length or ""), set())
+		going_elsewhere = bool(owners - {r.shelf_farm})
+		r.aged_stems = r.free if r.too_old else 0.0
+		r.cooling_stems = r.free if (r.cooling and not r.too_old) else 0.0
+		r.spare = r.free if (going_elsewhere and not r.too_old and not r.cooling) else 0.0
+		if r.too_old or r.cooling or r.spare:
+			r.reserved = 0.0
+		r.allocatable = 0.0 if (r.too_old or r.cooling or r.spare) else r.free - r.reserved
 	return rows
 
 
@@ -193,6 +228,9 @@ SUM_FIELDS = (
 	"free",
 	"reserved",
 	"allocatable",
+	"aged_stems",
+	"cooling_stems",
+	"spare",
 	"allocated_in_held",
 	"over_allocated",
 )

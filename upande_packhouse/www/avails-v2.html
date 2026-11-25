@@ -53,7 +53,7 @@
   <div class="ph-flex ph-flex--wrap av-legend">
       <div class="ph-legend">
         <span><span class="ph-dot ph-dot--good"></span>Avail = Shelf − Held − Alloc − Demand</span>
-        <span><span class="ph-dot ph-dot--bad"></span>Held: whole bucket on an open discard request</span>
+        <span><span class="ph-dot ph-dot--bad"></span>Held: discard request, too old, still cooling, spare on a bucket going to another farm</span>
         <span><span class="ph-dot ph-dot--warn"></span>Negative avail = short (demand exceeds free stock)</span>
       </div>
   </div>
@@ -231,7 +231,7 @@
   });
 
   /* ── Load ── */
-  const KPI_LABELS = ["Demand", "On shelf", "Held for discard", "Allocated", "Unmet demand", "Available"];
+  const KPI_LABELS = ["Demand", "On shelf", "Held", "Allocated", "Unmet demand", "Available"];
   PH.kpiSkeleton("#kpis", KPI_LABELS);
   function args() {
     const s = st.get();
@@ -271,7 +271,7 @@
   }
 
   /* ── Shape server rows for the pivot (no arithmetic beyond indexing) ── */
-  const F = ["stems", "held", "allocated", "unmet", "avail"];
+  const F = ["stems", "held", "withheld", "allocated", "unmet", "avail"];
   function process() {
     lengths = data.lengths || [];
     const images = data.images || {}, colours = data.colours || {};
@@ -284,11 +284,11 @@
       }
       // Variety × length = the server's cells summed over farms (shown in the variety row).
       for (const c of r.cells) {
-        const t = (byLen[c.length] = byLen[c.length] || { stems: 0, held: 0, allocated: 0, unmet: 0, avail: 0 });
+        const t = (byLen[c.length] = byLen[c.length] || { stems: 0, held: 0, withheld: 0, allocated: 0, unmet: 0, avail: 0 });
         F.forEach((k) => (t[k] += c[k]));
       }
       const farms = Object.values(byFarm).sort((a, b) => a.farm.localeCompare(b.farm)).map((f) => {
-        const tot = { stems: 0, held: 0, allocated: 0, unmet: 0, avail: 0 };
+        const tot = { stems: 0, held: 0, withheld: 0, allocated: 0, unmet: 0, avail: 0 };
         Object.values(f.len).forEach((c) => F.forEach((k) => (tot[k] += c[k])));
         return { farm: f.farm, len: f.len, tot };
       });
@@ -321,9 +321,9 @@
         title: "Live Shelf Items at the shelf's farm. Stock has no history, so the date range does not apply.",
       },
       {
-        label: "Held for discard", value: Math.round(t.held || 0),
-        unit: "stems in buckets on an open discard request" + (t.allocated_in_held ? " · " + PH.fmt.num(Math.round(t.allocated_in_held)) + " promised to orders" : ""),
-        bar: t.stems ? (t.held / t.stems) * 100 : 0, barClass: "is-bad",
+        label: "Held", value: Math.round((t.held || 0) + (t.withheld || 0)),
+        unit: "stems nobody can allocate now · " + PH.fmt.num(Math.round(t.held || 0)) + " on a discard request · " + PH.fmt.num(Math.round(t.aged_stems || 0)) + " too old · " + PH.fmt.num(Math.round(t.cooling_stems || 0)) + " cooling · " + PH.fmt.num(Math.round(t.spare || 0)) + " spare on a bucket in transfer" + (t.allocated_in_held ? " · " + PH.fmt.num(Math.round(t.allocated_in_held)) + " promised to orders" : ""),
+        bar: t.stems ? (((t.held || 0) + (t.withheld || 0)) / t.stems) * 100 : 0, barClass: "is-bad",
       },
       {
         label: "Allocated", value: Math.round(t.allocated || 0),
@@ -338,7 +338,7 @@
         label: "Available", value: Math.round(t.avail || 0),
         unit: (t.avail < 0 ? "short · " : "stems · ") + "on shelf − held − allocated − unmet" +
           " · " + PH.fmt.plural(t.varieties_available || 0, "variety", "varieties") + " with stock to sell",
-        title: "Free stock (" + PH.fmt.num(Math.round(t.free || 0)) + ") − unmet demand (" + PH.fmt.num(Math.round(t.unmet || 0)) + "). " +
+        title: "Free stock (" + PH.fmt.num(Math.round(t.free || 0)) + ") − withheld (" + PH.fmt.num(Math.round(t.withheld || 0)) + ") − unmet demand (" + PH.fmt.num(Math.round(t.unmet || 0)) + "). " +
           PH.fmt.num(Math.round(t.allocatable || 0)) + " free stems are allocatable now (not too old, not cooling).",
         dark: true,
       },
@@ -347,6 +347,7 @@
 
   const zero = '<span class="av-z">—</span>';
   const n = (v) => (Math.round(v) ? PH.fmt.num(Math.round(v)) : zero);
+  const heldTip = (c) => ["on a discard request " + Math.round(c.held || 0), "too old " + Math.round(c.aged_stems || 0), "still cooling " + Math.round(c.cooling_stems || 0), "spare on a bucket going to another farm " + Math.round(c.spare || 0), "held by the allocation plan " + Math.round(c.reserved || 0)].join(" · ");
   const held = (v) => (Math.round(v) ? `<span class="ph-bad">${PH.fmt.num(Math.round(v))}</span>` : zero);
   function av(v, c) {
     if (!c || !(c.stems || c.unmet)) return zero;
@@ -357,8 +358,8 @@
   const chev = PH.icon("chevronDown", 14);
 
   function group(c, cls) {
-    c = c || { stems: 0, held: 0, allocated: 0, unmet: 0, avail: 0 };
-    return `<td class="is-num av-gs${cls}">${n(c.stems)}</td><td class="is-num${cls}">${held(c.held)}</td><td class="is-num${cls}">${n(c.allocated)}</td><td class="is-num${cls}">${n(c.unmet)}</td><td class="is-num${cls}">${av(c.avail, c)}</td>`;
+    c = c || { stems: 0, held: 0, withheld: 0, allocated: 0, unmet: 0, avail: 0 };
+    return `<td class="is-num av-gs${cls}">${n(c.stems)}</td><td class="is-num${cls}" title="${heldTip(c)}">${held(c.held + c.withheld)}</td><td class="is-num${cls}">${n(c.allocated)}</td><td class="is-num${cls}">${n(c.unmet)}</td><td class="is-num${cls}">${av(c.avail, c)}</td>`;
   }
   const cells = (tot, byLen) => group(tot, " av-tot") + lengths.map((l) => group(byLen[l], "")).join("");
 
@@ -410,7 +411,7 @@
     if (!out.length) return PH.toast("Nothing to export for the current filters", "warn");
     PH.csv("avails-" + st.get("from") + "_" + st.get("to") + ".csv", out, [
       { key: "variety", label: "Variety" }, { key: "farm", label: "Farm" }, { key: "length", label: "Length" },
-      { key: "stems", label: "On shelf (stems)" }, { key: "held", label: "Held for discard" }, { key: "allocated", label: "Allocated" },
+      { key: "stems", label: "On shelf (stems)" }, { key: "held", label: "Held for discard" }, { key: "withheld", label: "Withheld (too old, cooling, spare)" }, { key: "allocated", label: "Allocated" },
       { key: "free", label: "Free" }, { key: "ordered", label: "Ordered" }, { key: "covered", label: "Covered" },
       { key: "unmet", label: "Unmet demand" }, { key: "avail", label: "Available" },
     ]);

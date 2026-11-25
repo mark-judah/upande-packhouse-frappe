@@ -121,7 +121,7 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
 .sv-c-quarantine{background:var(--bad);opacity:.7}
 .sv-c-too_old{background:var(--warn);opacity:.55}
 .sv-c-unreceived{background:var(--bad);opacity:.45}
-.sv-c-farm_disabled{background:var(--ink-faint)}
+.sv-c-farm_disabled{background:var(--ink-faint)} .sv-c-spare_moving{background:var(--ink-3);opacity:.7}
 .sv-stack{display:flex;height:10px;border-radius:var(--r-pill);overflow:hidden;background:var(--tint);min-width:80px}
 .sv-stack>i{display:block;height:100%;box-shadow:inset -1px 0 0 var(--surface-2)}
 .sv-dot{display:inline-block;width:10px;height:10px;border-radius:var(--r-pill);margin-right:var(--sp-2);flex:none}
@@ -256,6 +256,12 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
 .sv-top .ph-tabs{margin:0}
 .sv-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-3)}
 .sv-fwrap{position:relative}
+.sv-fbar{display:flex;flex-wrap:wrap;align-items:flex-end;gap:var(--sp-4) var(--sp-6);padding:var(--sp-4) var(--sp-5);margin:0 0 var(--sp-5);background:var(--surface-2);border-radius:var(--r-lg);box-shadow:var(--shadow-card)}
+.sv-fgrp{display:flex;flex-direction:column;gap:var(--sp-2);min-width:0;max-width:100%}
+.sv-flab{color:var(--ink-mute);font-weight:600;text-transform:uppercase;letter-spacing:.1em;font-size:.78em}
+.sv-fend{margin-left:auto;display:flex;align-items:center;gap:var(--sp-3);padding-bottom:var(--sp-2)}
+.sv-fend .sv-fcount{margin-left:0}
+.sv-floading{color:var(--ink-mute);padding:0 var(--sp-4);line-height:32px}
 .sv-fcount{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 var(--sp-2);margin-left:var(--sp-2);border-radius:var(--r-pill);background:var(--ink);color:var(--surface);font-weight:600}
 .sv-pop{position:absolute;left:0;top:calc(100% + var(--sp-2));z-index:40;width:min(460px,92vw);background:var(--surface-2);border-radius:var(--r-lg);box-shadow:var(--shadow-pop);padding:var(--sp-5);display:flex;flex-direction:column;gap:var(--sp-4)}
 .sv-pop[hidden]{display:none}
@@ -389,8 +395,12 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
 @media (max-width:900px){.sv-bl{grid-template-columns:minmax(150px,1.5fr) 100px}.sv-bl>:nth-child(3){display:none}.sv-gcols{grid-template-columns:repeat(2,minmax(0,1fr))}.sv-gcols .sv-free{grid-column:1/-1}}
 
 /* varieties table: fits without clipping */
-.sv-vt{width:100%;table-layout:fixed;min-width:820px}
+.sv-vt{width:100%;table-layout:fixed;min-width:980px}
 .sv-vt th,.sv-vt td{white-space:nowrap}
+.sv-vt th,.sv-vt th.is-num{white-space:normal;line-height:1.25;vertical-align:bottom}
+.sv-vt td .sv-sub{white-space:normal;line-height:1.25;margin-top:2px}
+.sv-lt th,.sv-lt th.is-num{white-space:normal;line-height:1.25;vertical-align:bottom}
+.sv-lt td .sv-sub{white-space:normal;line-height:1.25;margin-top:2px}
 .sv-vt td.sv-name{white-space:normal}
 .sv-vt .sv-grp td{background:var(--surface);color:var(--ink);font-weight:600;padding-top:var(--sp-4);padding-bottom:var(--sp-2);white-space:nowrap}
 .sv-vt .sv-grp small{color:var(--ink-mute);font-weight:400;margin-left:var(--sp-2)}
@@ -465,21 +475,18 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
   <button class="ph-tab" data-tab="transfers">Stale transfers <span class="ph-tab__count" id="tab-transfers" hidden></span></button>
 </nav>
 <div class="sv-toolbar">
-  <div class="sv-fwrap">
-    <button class="ph-btn" id="f-toggle" type="button" aria-expanded="false" aria-controls="f-panel">Filters <span class="sv-fcount" id="f-count" hidden></span></button>
-    <div class="sv-pop" id="f-panel" role="dialog" aria-label="Filters" hidden>
-      <div class="sv-pop__row"><span class="sv-pop__k">Site</span><div class="ph-pills" id="f-region" role="group" aria-label="Site"></div></div>
-      <div class="sv-pop__row"><span class="sv-pop__k">Farm</span><select class="ph-select" id="f-farm" aria-label="Farm"><option value="">All farms</option></select></div>
-      <div class="sv-pop__row"><span class="sv-pop__k">Stem length</span><div id="f-len" aria-label="Stem length"></div></div>
-      <div class="sv-pop__row"><span class="sv-pop__k">Rose type</span><div class="ph-pills" id="f-rose" role="group" aria-label="Rose type"><button data-value="all">All roses</button><button data-value="spray">Sprays</button><button data-value="standard">Standards</button></div></div>
-      <div class="sv-pop__foot"><button type="button" class="ph-link" id="f-clear">Clear filters</button><button type="button" class="ph-btn ph-btn--sm ph-btn--primary" id="f-done">Done</button></div>
-    </div>
-  </div>
   <label class="ph-search" for="f-q"><span id="f-q-ic"></span><input id="f-q" type="search" placeholder="Search variety or bucket" autocomplete="off" aria-label="Search variety or bucket"></label>
   <label class="ph-switch" for="f-hide" title="Stock held against a bucket that was harvested again is gone: the bucket was emptied and refilled. Quarantine and allocations are the places it piles up."><input type="checkbox" id="f-hide" checked><i></i><span>Filter out reharvested</span></label>
   <span class="sv-hidnote ph-muted" id="f-hidden" aria-live="polite" hidden></span>
-  <div class="sv-fchips" id="f-chips" aria-label="Active filters"></div>
+  <div class="sv-fchips" id="f-chips" aria-label="Active filters" hidden></div>
 </div>
+</div>
+<div class="sv-fbar" id="f-bar" role="group" aria-label="Filters">
+  <div class="sv-fgrp"><span class="sv-flab">Site</span><div class="ph-pills" id="f-region" role="group" aria-label="Site"></div></div>
+  <div class="sv-fgrp"><span class="sv-flab">Farm</span><div class="ph-pills" id="f-farm" role="group" aria-label="Farm"><span class="sv-floading">Loading farms…</span></div></div>
+  <div class="sv-fgrp"><span class="sv-flab">Stem length</span><div class="ph-pills" id="f-len" role="group" aria-label="Stem length"><span class="sv-floading">Loading lengths…</span></div></div>
+  <div class="sv-fgrp"><span class="sv-flab">Rose type</span><div class="ph-pills" id="f-rose" role="group" aria-label="Rose type"><button data-value="all">All roses</button><button data-value="spray">Sprays</button><button data-value="standard">Standards</button></div></div>
+  <div class="sv-fend"><span class="sv-fcount" id="f-count" hidden></span><button type="button" class="ph-link" id="f-clear">Clear filters</button></div>
 </div>
 
 
@@ -534,7 +541,7 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
       <h2 class="ph-card__title">Varieties <span class="ph-badge" id="vt-count"></span></h2>
       <div class="ph-card__tools sv-tbl-tools">
         <div class="ph-pills" id="f-sort" role="group" aria-label="Sort">
-          <button data-value="attn">Needs attention</button><button data-value="az">A–Z</button><button data-value="sellable">Most sellable</button><button data-value="withheld">Most withheld</button>
+          <button data-value="attn">Needs attention</button><button data-value="az">A–Z</button><button data-value="sellable">Most available</button><button data-value="withheld">Most blocked</button>
         </div>
         <button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" id="b-all">Bucket list</button>
       </div>
@@ -577,15 +584,23 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
   const st = PH.state({ tab: "outlook", region: "", farm: "", length: "", rose: "all", q: "", through: PH.date.add(today, 1), sort: "attn", focus: "", reason: "", treason: "", ofrom: PH.date.add(today, 1), oto: PH.date.add(today, 1), ocust: "", osrc: "", os: "", ochg: false, oseg: "attn", oview: "order", vall: false, hide: "1" });
 
   const TABS = ["outlook", "board", "health", "transfers"];
-  const GROUPS = { sellable: "Sellable now", soon: "Ready soon", committed: "Committed", withheld: "Withheld" };
+  const GROUPS = { sellable: "Available to allocate", soon: "Received not shelved", committed: "Allocated to orders", withheld: "Blocked" };
+  /* what each heading counts: shown as a hover on every heading and summary card that uses the name */
+  const GROUP_HINT = {
+    sellable: "Counts stems on a shelf that are free (not allocated, not on a discard request), young enough and cooled: what Sales Allocation will accept at that exact length. Stems left on a bucket that is going to another farm are under Blocked.",
+    soon: "Counts stems that cannot be allocated yet but will be: received but not yet on a shelf (coldroom floor), still cooling on a shelf, and cut in the last 36 hours but not yet received.",
+    committed: "Counts stems promised to an order: allocated to a live order, on a trolley or truck to the packhouse, held by an order that is cancelled or past its delivery date (shown as stale).",
+    withheld: "Counts stems that exist but cannot be allocated: on a discard request, in quarantine, too old, harvested but never received, on a shelf at a farm not enabled for sales, or spare on a bucket in transfer (part of the bucket is allocated to an order at another farm, so the whole bucket is sent there). Every reason is listed under the number.",
+    ftp: "Counts Available to allocate minus the stems that orders due by the chosen date still need. Positive = spare stock, negative = short.",
+  };
   const GROUP_STATES = {
     sellable: ["sellable"],
     soon: ["cooling", "coldroom", "awaiting"],
     committed: ["committed_live", "committed_transit", "reclaimable"],
-    withheld: ["discard", "quarantine", "too_old", "unreceived", "farm_disabled"],
+    withheld: ["discard", "quarantine", "too_old", "unreceived", "farm_disabled", "spare_moving"],
   };
   const ORDER = [].concat(GROUP_STATES.sellable, GROUP_STATES.soon, GROUP_STATES.committed, GROUP_STATES.withheld);
-  const SHELF = ["sellable", "cooling", "committed_live", "reclaimable", "too_old", "discard", "farm_disabled"];
+  const SHELF = ["sellable", "cooling", "committed_live", "reclaimable", "spare_moving", "too_old", "discard", "farm_disabled"];
   const STALE = { no_order: "No order", order_cancelled: "Order cancelled", delivery_passed: "Delivery date has passed", bucket_reused: "Bucket was harvested again", discard_held: "Bucket is on a discard request", bucket_gone: "Bucket is on no shelf", not_found: "Bucket marked not found" };
   const RISK = ["bucket_reused", "discard_held", "bucket_gone", "not_found"];
   const TSTALE = { order_cancelled: "Order cancelled", delivery_passed: "Delivery date has passed", no_order: "No order" };
@@ -640,82 +655,65 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
   PH.pills("#f-sort", st, "sort");
   PH.pills("#o-view", st, "oview");
   function paintThrough() { const i = PH.$("#f-through"); if (i) i.value = st.get("through"); }
-  PH.$("#f-farm").addEventListener("change", (e) => st.set({ farm: e.target.value }));
+  /* farm pills: pick one or several; "All farms" clears */
+  const farmSel = () => st.get("farm").split(",").map((s) => s.trim()).filter(Boolean);
+  const farmSet = (list) => st.set({ farm: list.join(",") });
   function paintFarms() {
-    const sel = PH.$("#f-farm");
+    const box = PH.$("#f-farm");
     let farms = ((ov && ov.options && ov.options.farms) || []).slice();
     const reg = PH.regionFarms(st.get("region"));
     if (reg) farms = farms.filter((f) => reg.indexOf(f) >= 0);
-    const cur = st.get("farm");
-    if (cur && farms.indexOf(cur) < 0) farms.push(cur);
-    sel.innerHTML = '<option value="">All farms</option>' + farms.map((f) => `<option${f === cur ? " selected" : ""}>${esc(f)}</option>`).join("");
-    sel.classList.toggle("is-set", !!cur);
+    const cur = farmSel();
+    cur.forEach((f) => { if (farms.indexOf(f) < 0) farms.push(f); });
+    if (!farms.length) return;
+    box.innerHTML = `<button type="button" data-pick-farm=""${cur.length ? "" : ' class="is-on"'}>All farms</button>` + farms.map((f) => `<button type="button" data-pick-farm="${esc(f)}"${cur.indexOf(f) >= 0 ? ' class="is-on"' : ""} aria-pressed="${cur.indexOf(f) >= 0}">${esc(f)}</button>`).join("");
   }
-  /* the Filters popover and the chips that show what is on */
-  const fToggle = PH.$("#f-toggle"), fPanel = PH.$("#f-panel");
-  function fOpen(o) { fPanel.hidden = !o; fToggle.setAttribute("aria-expanded", String(o)); }
-  fToggle.addEventListener("click", (e) => { e.stopPropagation(); fOpen(fPanel.hidden); });
-  PH.$("#f-done").addEventListener("click", () => fOpen(false));
+  PH.$("#f-farm").addEventListener("click", (e) => {
+    const bt = e.target.closest("[data-pick-farm]"); if (!bt) return;
+    const v = bt.dataset.pickFarm;
+    if (!v) { farmSet([]); return; }
+    const cur = farmSel();
+    farmSet(cur.indexOf(v) >= 0 ? cur.filter((x) => x !== v) : cur.concat(v));
+  });
+  /* what is on: the pills show it; the count and Clear filters sit at the end of the bar */
   PH.$("#f-clear").addEventListener("click", () => st.set({ region: "", farm: "", length: "", rose: "all" }));
-  document.addEventListener("click", (e) => { if (!fPanel.hidden && !e.target.closest(".sv-fwrap")) fOpen(false); });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !fPanel.hidden) { fOpen(false); fToggle.focus(); } });
   function filterChips() {
     const out = [];
     if (st.get("region")) out.push(["region", "", "Site: " + st.get("region")]);
-    if (st.get("farm")) out.push(["farm", "", st.get("farm")]);
+    farmSel().forEach((v) => out.push(["farm", v, v]));
     lenSel().forEach((v) => out.push(["length", v, v]));
     if (st.get("rose") !== "all") out.push(["rose", "", st.get("rose") === "spray" ? "Sprays" : "Standards"]);
     return out;
   }
   function paintChips() {
     const chips = filterChips(), c = PH.$("#f-count");
-    c.hidden = !chips.length; c.textContent = chips.length;
+    c.hidden = !chips.length; c.textContent = chips.length + (chips.length === 1 ? " filter on" : " filters on");
     PH.$("#f-chips").innerHTML = chips.map((x) => `<span class="sv-fchip">${esc(x[2])}<button type="button" data-fclear="${esc(x[0])}" data-fval="${esc(x[1])}" aria-label="Remove ${esc(x[2])}">×</button></span>`).join("");
   }
   PH.$("#f-chips").addEventListener("click", (e) => {
     const b = e.target.closest("[data-fclear]"); if (!b) return;
     const k = b.dataset.fclear;
     if (k === "length") lenSet(lenSel().filter((v) => v !== b.dataset.fval));
+    else if (k === "farm") farmSet(farmSel().filter((v) => v !== b.dataset.fval));
     else st.set({ [k]: k === "rose" ? "all" : "" });
   });
 
-  /* length multiselect (type to search, × to remove) */
+  /* stem length pills: pick one or several; "All" clears */
   const lenSel = () => st.get("length").split(",").map((s) => s.trim()).filter(Boolean);
-  let lenOpen = false, lenAct = 0;
-  function paintLen(keepFocus) {
-    const box = PH.$("#f-len"), sel = lenSel();
-    const had = keepFocus || (document.activeElement && document.activeElement.id === "f-len-in");
-    const val = PH.$("#f-len-in") ? PH.$("#f-len-in").value : "";
-    box.innerHTML = `<div class="sv-ms" role="combobox" aria-expanded="${lenOpen}" aria-haspopup="listbox">${sel.map((v) => `<span class="sv-tok">${esc(v)}<button type="button" data-ldel="${esc(v)}" aria-label="Remove ${esc(v)}">×</button></span>`).join("")}<input id="f-len-in" type="text" autocomplete="off" spellcheck="false" aria-controls="f-len-list" placeholder="${sel.length ? "Add length…" : "All lengths"}" value="${esc(val)}"><ul class="sv-ms__list" id="f-len-list" role="listbox" hidden></ul></div>`;
-    paintLenList();
-    if (had) { const i = PH.$("#f-len-in"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
-  }
-  function lenSuggest() {
-    const inp = PH.$("#f-len-in"), q = inp ? inp.value.trim().toLowerCase() : "";
-    const all = sortLens(((ov && ov.options && ov.options.lengths) || []).filter(Boolean));
-    return all.filter((v) => lenSel().indexOf(v) < 0 && (!q || v.toLowerCase().includes(q)));
-  }
-  function paintLenList() {
-    const ul = PH.$("#f-len-list"); if (!ul) return;
-    ul.hidden = !lenOpen;
-    if (!lenOpen) return;
-    const items = lenSuggest(); lenAct = Math.max(0, Math.min(lenAct, items.length - 1));
-    ul.innerHTML = items.length ? items.slice(0, 60).map((v, i) => `<li role="option" data-lpick="${esc(v)}" class="${i === lenAct ? "is-on" : ""}" aria-selected="${i === lenAct}">${esc(v)}</li>`).join("") : '<li class="ph-muted">No more lengths</li>';
-  }
   function lenSet(list) { st.set({ length: list.join(",") }); }
-  const lenBox = PH.$("#f-len");
-  lenBox.addEventListener("input", (e) => { if (e.target.id === "f-len-in") { lenOpen = true; lenAct = 0; paintLenList(); } });
-  lenBox.addEventListener("focusin", (e) => { if (e.target.id === "f-len-in") { lenOpen = true; paintLenList(); } });
-  lenBox.addEventListener("focusout", (e) => { if (e.target.id === "f-len-in") setTimeout(() => { if (document.activeElement !== PH.$("#f-len-in")) { lenOpen = false; paintLenList(); } }, 150); });
-  lenBox.addEventListener("mousedown", (e) => { const li = e.target.closest("[data-lpick]"); if (li) { e.preventDefault(); lenSet(lenSel().concat(li.dataset.lpick)); PH.$("#f-len-in").value = ""; } });
-  lenBox.addEventListener("click", (e) => { const d = e.target.closest("[data-ldel]"); if (d) { lenSet(lenSel().filter((v) => v !== d.dataset.ldel)); PH.$("#f-len-in").focus(); } });
-  lenBox.addEventListener("keydown", (e) => {
-    if (e.target.id !== "f-len-in") return;
-    const items = lenSuggest();
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); lenOpen = true; lenAct = (lenAct + (e.key === "ArrowDown" ? 1 : -1) + Math.max(items.length, 1)) % Math.max(items.length, 1); paintLenList(); }
-    else if (e.key === "Enter") { e.preventDefault(); const v = items[lenAct]; if (v) { lenSet(lenSel().concat(v)); PH.$("#f-len-in").value = ""; } }
-    else if (e.key === "Escape") { lenOpen = false; paintLenList(); }
-    else if (e.key === "Backspace" && !e.target.value && lenSel().length) lenSet(lenSel().slice(0, -1));
+  function paintLen() {
+    const box = PH.$("#f-len"), sel = lenSel();
+    const all = sortLens(((ov && ov.options && ov.options.lengths) || []).filter(Boolean));
+    sel.forEach((v) => { if (all.indexOf(v) < 0) all.push(v); });
+    if (!all.length) return;
+    box.innerHTML = `<button type="button" data-pick-len=""${sel.length ? "" : ' class="is-on"'}>All</button>` + all.map((v) => `<button type="button" data-pick-len="${esc(v)}"${sel.indexOf(v) >= 0 ? ' class="is-on"' : ""} aria-pressed="${sel.indexOf(v) >= 0}">${esc(v)}</button>`).join("");
+  }
+  PH.$("#f-len").addEventListener("click", (e) => {
+    const bt = e.target.closest("[data-pick-len]"); if (!bt) return;
+    const v = bt.dataset.pickLen;
+    if (!v) { lenSet([]); return; }
+    const cur = lenSel();
+    lenSet(cur.indexOf(v) >= 0 ? cur.filter((x) => x !== v) : cur.concat(v));
   });
 
   /* ════════════ tabs ════════════ */
@@ -732,7 +730,7 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
   /* ════════════ overview ════════════ */
   function loadOverview(silent) {
     const my = ++ovSeq;
-    if (!silent) { PH.kpiSkeleton("#kpis", ["Sellable now", "Ready soon", "Committed", "Withheld", "Free to promise"]); PH.skeleton("#hero", "block", 2); PH.skeleton("#why", "rows", 4); PH.skeleton("#vt", "rows", 8); }
+    if (!silent) { PH.kpiSkeleton("#kpis", [GROUPS.sellable, GROUPS.soon, GROUPS.committed, GROUPS.withheld, "Balance after orders"]); PH.skeleton("#hero", "block", 2); PH.skeleton("#why", "rows", 4); PH.skeleton("#vt", "rows", 8); }
     return GET("overview", Object.assign({ through: st.get("through") }, filterParams())).then((r) => {
       if (my !== ovSeq) return;
       ov = r; paintFarms(); paintLen(); paintChips(); renderBoard(); paintHidden(); PH.markUpdated();
@@ -772,7 +770,7 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
       : `<span class="sv-fl is-static${n > 0 ? "" : " is-zero"}">${esc(label)} <b>${n == null ? "—" : N(n)}</b></span>`);
     const arrow = `<span class="sv-flow__arrow" aria-hidden="true">${PH.icon("arrowRight", 12)}</span>`;
     const gh = k.forecast_this_week || k.forecast_next_week
-      ? `<span class="sv-fl is-static" title="Still in the greenhouses: not cut, not committable, grade-level forecast">Greenhouse <b>${N(k.forecast_this_week)}</b> <small class="ph-muted">this week · ${N(k.forecast_next_week)} next</small></span>`
+      ? `<span class="sv-fl is-static" title="Forecast, not cut: still in the greenhouse, so it can't be promised yet. Grade-level forecast, no stem length.">Greenhouse <b>${N(k.forecast_this_week)}</b> <small class="ph-muted">this week · ${N(k.forecast_next_week)} next</small></span>`
       : '<span class="sv-fl is-static is-zero">Greenhouse <b>—</b></span>';
     return `<div class="sv-flow"><span class="sv-flow__k">Where it is</span>${gh}${arrow}${chip("Harvested, not received", harv, ["awaiting", "unreceived"])}${arrow}${chip("Coldroom floor", S.coldroom, ["coldroom"])}${arrow}${chip("On a shelf", shelf, SHELF, "On a shelf")}${arrow}${chip("On the move", move, ["committed_transit"])}<span class="sv-flow__side">${chip("In quarantine", S.quarantine, ["quarantine"])}</span></div>`;
   }
@@ -781,17 +779,17 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
     const free = k.free_to_promise, topW = GROUP_STATES.withheld.map((x) => [x, S[x]]).sort((a, b) => b[1] - a[1])[0];
     const soonBits = [["cooling", S.cooling], ["on the coldroom floor", S.coldroom], ["just harvested", S.awaiting]].filter((x) => x[1] > 0).map((x) => `${N(x[1])} ${x[0]}`);
     if (nextReady) soonBits.push(`next ready ${PH.fmt.time(nextReady)}`);
-    const item = (g, o) => Object.assign({ label: GROUPS[g], active: f === g, onClick: () => st.set({ focus: f === g ? "" : g }) }, o);
+    const item = (g, o) => Object.assign({ label: GROUPS[g], title: GROUP_HINT[g], active: f === g, onClick: () => st.set({ focus: f === g ? "" : g }) }, o);
     PH.kpis("#kpis", [
       item("sellable", { dark: true, value: k.sellable, unit: k.remote_sellable > 0 ? `stems · ${N(k.remote_sellable)} at remote farms` : "stems on a shelf" }),
       item("soon", { value: k.soon, unit: soonBits.join(" · ") || "stems on their way" }),
-      item("committed", { value: k.committed, unit: "stems promised to orders", trend: k.reclaimable > 0 ? { dir: "down", text: `${N(k.reclaimable)} stale` } : null }),
+      item("committed", { value: k.committed, unit: "stems allocated to orders", trend: k.reclaimable > 0 ? { dir: "down", text: `${N(k.reclaimable)} stale` } : null }),
       item("withheld", { value: k.withheld, unit: topW && topW[1] > 0 ? `mostly ${lbl(topW[0]).toLowerCase()}` : "stems" }),
-      { label: "Free to promise", value: free, unit: `${N(k.sellable)} sellable − ${N(k.to_allocate)} to allocate`, title: "Sellable now minus what orders due by the chosen date still need" },
+      { label: "Balance after orders", value: free, unit: `${N(k.sellable)} available − ${N(k.to_allocate)} orders need`, title: GROUP_HINT.ftp },
     ]);
     const ftp = PH.$$("#kpis .ph-kpi")[4];
     if (ftp) PH.$(".ph-kpi__value", ftp).classList.add(k.to_allocate <= 0 && free >= 0 ? "is-good" : free < 0 ? "is-bad" : free === 0 ? "is-warn" : "is-good");
-    PH.$("#hero").innerHTML = `<div class="sv-hero__top"><span></span><label class="sv-dueby"><span class="ph-muted">Free to promise counts orders due by</span><input class="ph-control" type="date" id="f-through" min="${today}" value="${esc(st.get("through"))}" aria-label="Orders due by"></label></div>${flowHtml()}`;
+    PH.$("#hero").innerHTML = `<div class="sv-hero__top"><span></span><label class="sv-dueby"><span class="ph-muted">Balance after orders counts orders due by</span><input class="ph-control" type="date" id="f-through" min="${today}" value="${esc(st.get("through"))}" aria-label="Orders due by"></label></div>${flowHtml()}`;
   }
   PH.$("#hero").addEventListener("change", (e) => { if (e.target.id === "f-through" && e.target.value) st.set({ through: e.target.value < today ? today : e.target.value }); });
   PH.$("#hero").addEventListener("click", (e) => { const g = e.target.closest("[data-focus]"); if (g) st.set({ focus: st.get("focus") === g.dataset.focus ? "" : g.dataset.focus }); });
@@ -802,7 +800,7 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
     const on = ov.kpis.on_hand || 1, held = rows.reduce((t, r) => t + r.stems, 0);
     PH.$("#why-meta").textContent = rows.length ? `${N(held)} stems` : "";
     if (!(ov.kpis.on_hand > 0)) { PH.empty("#why", "No stock on hand", "Nothing is on a shelf, on the coldroom floor or in quarantine for these filters.", "box"); return; }
-    if (!rows.length) { PH.empty("#why", "Nothing is being held back", "Every stem on hand is either sellable or promised to an order.", "check"); return; }
+    if (!rows.length) { PH.empty("#why", "Nothing is blocked", "Every stem on hand is either available to allocate or allocated to an order.", "check"); return; }
     PH.$("#why").innerHTML = rows.map((r) => {
       const pct = (r.stems / on) * 100;
       const age = r.oldest_days != null ? `up to ${N(r.oldest_days)} d old` : (r.since ? "since " + PH.fmt.date(String(r.since).slice(0, 10), true) : "");
@@ -821,7 +819,7 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
     if (v.groups.withheld > 0 || v.groups.committed > 0) return 4;
     return 5;
   }
-  const GROUP_TITLES = ["Short", "Tight", "Can cover its orders", "In stock, no orders", "Only withheld or committed stock - nothing to sell", "No stock and no orders"];
+  const GROUP_TITLES = ["Short", "Tight", "Can cover its orders", "In stock, no orders", "Only blocked or allocated stock - nothing to allocate", "No stock and no orders"];
   function visibleVarieties() {
     let rows = ov.rows.slice();
     const f = st.get("focus");
@@ -838,22 +836,26 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
   }
   const dim = '<span class="sv-dim">–</span>';
   function numBtn(n, states, v, len) { return n > 0 ? `<button type="button" class="sv-num" data-states="${states.join(",")}" data-v="${esc(v)}" data-len="${esc(len || "")}">${N(n)}</button>` : dim; }
-  function cells(states, toAlloc, atp, v, len) {
+  /* every withheld reason with stems, biggest first: one small line each, the reason's own explanation on hover */
+  function whyLines(states) {
+    return GROUP_STATES.withheld.map((x) => [x, states[x] || 0]).filter((x) => x[1] > 0).sort((a, b) => b[1] - a[1])
+      .map(([x, n]) => `<span class="sv-sub" title="${esc(meta(x).why)}">${N(n)} ${esc(lbl(x).toLowerCase())}</span>`).join("");
+  }
+  function cells(states, toAlloc, atp, v, len, longer) {
     const g = (k) => sumOf(states, GROUP_STATES[k]);
-    const topW = GROUP_STATES.withheld.map((x) => [x, states[x]]).sort((a, b) => b[1] - a[1])[0];
     const stale = states.reclaimable;
-    return `<td class="is-num" title="Cooling ${N(states.cooling)} · coldroom floor ${N(states.coldroom)} · just harvested ${N(states.awaiting)}">${numBtn(states.sellable, ["sellable"], v, len)}</td>
+    return `<td class="is-num" title="Cooling ${N(states.cooling)} · coldroom floor ${N(states.coldroom)} · just harvested ${N(states.awaiting)}">${numBtn(states.sellable, ["sellable"], v, len)}${longer > 0 ? `<span class="sv-sub" title="Counts stems of this variety at LONGER lengths that are available to allocate. They can only be offered if the customer accepts a longer stem.">+${N(longer)} longer</span>` : ""}</td>
       <td class="is-num">${numBtn(g("soon"), GROUP_STATES.soon, v, len)}</td>
       <td class="is-num">${numBtn(g("committed"), GROUP_STATES.committed, v, len)}${stale > 0 ? `<span class="sv-sub is-bad">${N(stale)} stale</span>` : ""}</td>
-      <td class="is-num">${numBtn(g("withheld"), GROUP_STATES.withheld, v, len)}${topW && topW[1] > 0 ? `<span class="sv-sub">mostly ${esc(lbl(topW[0]).toLowerCase())}</span>` : ""}</td>
+      <td class="is-num">${numBtn(g("withheld"), GROUP_STATES.withheld, v, len)}${whyLines(states)}</td>
       <td class="is-num">${toAlloc > 0 ? N(toAlloc) : dim}</td>
       <td class="is-num">${toAlloc <= 0 ? dim : `<span class="${atp < 0 ? "sv-neg" : "sv-pos"}">${atp > 0 ? "+" : ""}${N(atp)}</span>`}</td>`;
   }
   function varRow(v) {
     const open = openRows.has(v.variety);
     const chip = v.cover === "short" ? ' <span class="ph-badge ph-badge--bad">Short</span>' : v.cover === "tight" ? ' <span class="ph-badge ph-badge--warn">Tight</span>' : "";
-    const lens = open ? sortLens(Object.keys(v.by_len)).map((L) => { const c = v.by_len[L]; return `<tr class="sv-len"><td class="sv-name"><button type="button" class="sv-link" data-vopen="${esc(v.variety)}" data-len="${esc(L)}" style="font-weight:500">${esc(L)}</button></td>${cells(c.states, c.to_allocate, c.atp, v.variety, L)}</tr>`; }).join("") : "";
-    return `<tr data-v="${esc(v.variety)}"><td class="sv-name"><div class="sv-name__row"><button type="button" class="sv-x" data-xp="${esc(v.variety)}" aria-expanded="${open}" aria-label="Show lengths of ${esc(v.variety)}">${PH.icon("chevronRight", 14)}</button><button type="button" class="sv-link" data-vopen="${esc(v.variety)}">${esc(v.variety)}</button>${chip}</div></td>${cells(v.states, v.to_allocate, v.atp, v.variety, "")}</tr>${lens}`;
+    const lens = open ? sortLens(Object.keys(v.by_len)).map((L) => { const c = v.by_len[L]; return `<tr class="sv-len"><td class="sv-name"><button type="button" class="sv-link" data-vopen="${esc(v.variety)}" data-len="${esc(L)}" style="font-weight:500">${esc(L)}</button></td>${cells(c.states, c.to_allocate, c.atp, v.variety, L, c.longer)}</tr>`; }).join("") : "";
+    return `<tr data-v="${esc(v.variety)}"><td class="sv-name"><div class="sv-name__row"><button type="button" class="sv-x" data-xp="${esc(v.variety)}" aria-expanded="${open}" aria-label="Show lengths of ${esc(v.variety)}">${PH.icon("chevronRight", 14)}</button><button type="button" class="sv-link" data-vopen="${esc(v.variety)}">${esc(v.variety)}</button>${chip}</div></td>${cells(v.states, v.to_allocate, v.atp, v.variety, "", v.longer)}</tr>${lens}`;
   }
   function paintVarieties() {
     const all = visibleVarieties();
@@ -874,7 +876,7 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
       if (grouped) { const g = groupOf(v); if (g !== last) { last = g; body += `<tr class="sv-grp"><td colspan="7">${esc(GROUP_TITLES[g])}<small>${N(rows.filter((x) => groupOf(x) === g).length)}</small></td></tr>`; } }
       body += varRow(v);
     });
-    const head = `<colgroup><col style="width:28%"><col style="width:12%"><col style="width:12%"><col style="width:13%"><col style="width:15%"><col style="width:10%"><col style="width:10%"></colgroup><thead><tr><th>Variety</th><th class="is-num">Sellable</th><th class="is-num">Ready soon</th><th class="is-num">Committed</th><th class="is-num">Withheld</th><th class="is-num" title="Orders due up to the chosen date that still need stems allocated">Orders need</th><th class="is-num" title="Sellable now − orders need">Free to promise</th></tr></thead>`;
+    const head = `<colgroup><col style="width:21%"><col style="width:13%"><col style="width:13%"><col style="width:18%"><col style="width:14%"><col style="width:10%"><col style="width:11%"></colgroup><thead><tr><th>Variety</th><th class="is-num" title="${esc(GROUP_HINT.sellable)} The second line shows longer stems of the same variety that could be offered instead.">${esc(GROUPS.sellable)}</th><th class="is-num" title="${esc(GROUP_HINT.soon)}">${esc(GROUPS.soon)}</th><th class="is-num" title="${esc(GROUP_HINT.committed)}">${esc(GROUPS.committed)}</th><th class="is-num" title="${esc(GROUP_HINT.withheld)}">${esc(GROUPS.withheld)}</th><th class="is-num" title="Orders due up to the chosen date that still need stems allocated">Orders need</th><th class="is-num" title="${esc(GROUP_HINT.ftp)}">Balance after orders</th></tr></thead>`;
     PH.keepScroll(() => {
       PH.$("#vt").innerHTML = `<div class="ph-table-wrap sv-scroll"><table class="ph-table sv-tbl sv-vt">${head}<tbody>${body}</tbody></table></div>
       ${hiddenDead ? `<div class="sv-more2"><button type="button" class="ph-btn ph-btn--sm" data-showdead>Show ${N(hiddenDead)} varieties with no stock and no orders</button></div>` : st.get("vall") && grouped ? '<div class="sv-more2"><button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-hidedead>Hide varieties with no stock and no orders</button></div>' : ""}`;
@@ -906,7 +908,7 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
     if (st.get("tab") === "outlook") return exportOutlook();
     if (!ov) return;
     const rows = visibleVarieties().map((v) => Object.assign({ variety: v.variety, cover: v.cover, sellable: v.states.sellable, remote: v.remote, soon: v.groups.soon, cooling: v.states.cooling, coldroom: v.states.coldroom, awaiting: v.states.awaiting, committed: v.groups.committed, stale: v.states.reclaimable, withheld: v.groups.withheld, discard: v.states.discard, quarantine: v.states.quarantine, too_old: v.states.too_old, unreceived: v.states.unreceived, farm_disabled: v.states.farm_disabled, to_allocate: v.to_allocate, free_to_promise: v.atp }));
-    const cols = ["variety", "cover", "sellable", "remote", "soon", "cooling", "coldroom", "awaiting", "committed", "stale", "withheld", "discard", "quarantine", "too_old", "unreceived", "farm_disabled", "to_allocate", "free_to_promise"].map((k) => ({ key: k, label: k.replace(/_/g, " ") }));
+    const cols = ["variety", "cover", "sellable", "remote", "soon", "cooling", "coldroom", "awaiting", "committed", "stale", "withheld", "discard", "quarantine", "too_old", "unreceived", "farm_disabled", "to_allocate", "free_to_promise"].map((k) => ({ key: k, label: ({ sellable: "available to allocate", soon: "received not shelved", committed: "allocated to orders", withheld: "blocked", free_to_promise: "balance after orders" })[k] || k.replace(/_/g, " ") }));
     PH.csv(`stock-visibility-${today}.csv`, rows, cols);
   });
 
@@ -994,10 +996,10 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
         <div class="sv-part"><small>Ready by ${esc(dayLabel(date))} (not guaranteed)</small><b>${N(l.soon)}</b></div>
         <div class="sv-part"><small>As longer stems</small><b>${N(l.downgrade)}</b></div>
         <div class="sv-part${l.short > 0 ? " is-short" : ""}"><small>Short by</small><b>${N(l.short)}</b></div>
-        <div class="sv-part"><small>Sellable on shelf / owed to other orders</small><b>${N(l.sellable_now)} / ${N(l.owed_to_orders)}</b></div>
+        <div class="sv-part"><small>Available to allocate / owed to other orders</small><b>${N(l.sellable_now)} / ${N(l.owed_to_orders)}</b></div>
       </div>
       ${l.downgrades && l.downgrades.length ? `<div class="sv-sec">Longer stems you could offer</div><ul class="sv-list">${l.downgrades.map((d) => `<li><b>${N(d.stems)}</b> × ${esc(d.length)} · oldest ${N(d.oldest_days)} d${d.needs_approval ? ' <span class="ph-badge ph-badge--warn">needs approval</span>' : ""}</li>`).join("")}</ul>` : ""}
-      ${bad.length ? `<div class="sv-sec">Stock of this size that is not sellable</div><ul class="sv-list">${bad.map((b) => `<li><b>${N(b.stems)}</b> ${esc(b.label.toLowerCase())} - <span class="ph-muted">${esc(b.who === "-" ? "" : b.who)}</span></li>`).join("")}</ul>` : ""}
+      ${bad.length ? `<div class="sv-sec">Stock of this size that is blocked</div><ul class="sv-list">${bad.map((b) => `<li><b>${N(b.stems)}</b> ${esc(b.label.toLowerCase())} - <span class="ph-muted">${esc(b.who === "-" ? "" : b.who)}</span></li>`).join("")}</ul>` : ""}
       ${l.other_lengths && l.other_lengths.length ? `<div class="sv-sec">Other lengths on the shelf</div><div class="sv-chips">${l.other_lengths.map((o) => `<span class="ph-badge ph-badge--outline">${esc(o.length)} · ${N(o.stems)}</span>`).join("")}</div>` : ""}</details>`;
     return `<div class="sv-verdict v-${esc(l.code)}" data-vi="${idx}">
       <div class="sv-verdict__head"><span class="sv-verdict__title">${esc(l.item_name || l.variety)} · ${esc(l.length)} · asked ${N(l.qty)} for ${esc(dayLabel(date))}</span>${chip}</div>
@@ -1103,7 +1105,7 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
   /* ════════════ Variety drawer ════════════ */
   function openVariety(v, length) {
     const row = ov && ov.rows.find((x) => x.variety === v);
-    const m = PH.modal({ title: v, sub: row ? `${N(row.states.sellable)} sellable now · ${N(row.groups.withheld)} withheld · ${N(row.to_allocate)} still to allocate` : "Variety detail", drawer: true, size: "lg", body: "" });
+    const m = PH.modal({ title: v, sub: row ? `${N(row.states.sellable)} available to allocate · ${N(row.groups.withheld)} blocked · ${N(row.to_allocate)} still to allocate` : "Variety detail", drawer: true, size: "lg", body: "" });
     const b = m.body; PH.skeleton(b, "rows", 8);
     GET("variety", { variety: v, region: st.get("region"), farm: st.get("farm"), through: st.get("through") }).then((d) => {
       const lens = d.lengths;
@@ -1122,15 +1124,15 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
           <button type="button" class="ph-btn ph-btn--ghost" id="vq-more">Check several lines</button></div>
         <div class="sv-res" id="vq-res"></div>
         <div class="sv-sec">By length</div>
-        <div class="ph-table-wrap"><table class="ph-table ph-table--compact"><thead><tr><th>Length</th><th class="is-num">Sellable now</th><th class="is-num">Ready soon</th><th class="is-num">Committed</th><th class="is-num">Withheld</th><th class="is-num">Still to allocate</th><th class="is-num">Free to promise</th><th class="is-num">Oldest</th><th></th></tr></thead><tbody>${lens.map((l) => `<tr><td class="is-strong">${esc(l.length)}</td><td class="is-num">${numBtn(l.states.sellable, ["sellable"], v, l.length)}</td><td class="is-num">${numBtn(sumOf(l.states, GROUP_STATES.soon), GROUP_STATES.soon, v, l.length)}</td><td class="is-num">${numBtn(sumOf(l.states, GROUP_STATES.committed), GROUP_STATES.committed, v, l.length)}${l.states.reclaimable > 0 ? `<span class="sv-sub is-bad">${N(l.states.reclaimable)} stale</span>` : ""}</td><td class="is-num">${numBtn(sumOf(l.states, GROUP_STATES.withheld), GROUP_STATES.withheld, v, l.length)}</td><td class="is-num">${N(l.to_allocate)}</td><td class="is-num"><span class="${l.atp < 0 ? "sv-neg" : l.atp > 0 ? "sv-pos" : ""}">${l.to_allocate <= 0 && l.atp <= 0 ? "—" : (l.atp > 0 ? "+" : "") + N(l.atp)}</span></td><td class="is-num">${l.oldest_days != null ? N(l.oldest_days) + " d" : "—"}</td><td><button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-vq="${esc(l.length)}">Check</button></td></tr>`).join("")}</tbody></table></div>
-        ${wh.length ? `<div class="sv-sec">Why some of it is withheld</div><div class="sv-chips">${wh.map((s) => `<button type="button" class="sv-chip sv-chip-ledger" data-states="${s}" data-v="${esc(v)}" data-title="${esc(v + " · " + lbl(s))}">${dot(s)}${esc(lbl(s))} <b>${N(tot[s])}</b></button>`).join("")}</div>` : ""}
+        <div class="ph-table-wrap"><table class="ph-table ph-table--compact sv-lt"><thead><tr><th>Length</th><th class="is-num" title="${esc(GROUP_HINT.sellable)}">${esc(GROUPS.sellable)}</th><th class="is-num" title="Counts stems of this variety at longer lengths that are available to allocate. They can only be offered if the customer accepts a longer stem.">Longer stems</th><th class="is-num" title="${esc(GROUP_HINT.soon)}">${esc(GROUPS.soon)}</th><th class="is-num" title="${esc(GROUP_HINT.committed)}">${esc(GROUPS.committed)}</th><th class="is-num" title="${esc(GROUP_HINT.withheld)}">${esc(GROUPS.withheld)}</th><th class="is-num" title="Counts the stems that orders due by the chosen date still need.">Still to allocate</th><th class="is-num" title="${esc(GROUP_HINT.ftp)}">Balance after orders</th><th class="is-num">Oldest</th><th></th></tr></thead><tbody>${lens.map((l) => `<tr><td class="is-strong">${esc(l.length)}</td><td class="is-num">${numBtn(l.states.sellable, ["sellable"], v, l.length)}</td><td class="is-num">${l.longer > 0 ? N(l.longer) : "—"}</td><td class="is-num">${numBtn(sumOf(l.states, GROUP_STATES.soon), GROUP_STATES.soon, v, l.length)}</td><td class="is-num">${numBtn(sumOf(l.states, GROUP_STATES.committed), GROUP_STATES.committed, v, l.length)}${l.states.spare_moving > 0 ? `<span class="sv-sub" title="${esc(lbl('spare_moving'))}. ${esc(meta('spare_moving').why)}">${N(l.states.spare_moving)} spare on a bucket going to another farm</span>` : ""}${l.states.reclaimable > 0 ? `<span class="sv-sub is-bad">${N(l.states.reclaimable)} stale</span>` : ""}</td><td class="is-num">${numBtn(sumOf(l.states, GROUP_STATES.withheld), GROUP_STATES.withheld, v, l.length)}</td><td class="is-num">${N(l.to_allocate)}</td><td class="is-num"><span class="${l.atp < 0 ? "sv-neg" : l.atp > 0 ? "sv-pos" : ""}">${l.to_allocate <= 0 && l.atp <= 0 ? "—" : (l.atp > 0 ? "+" : "") + N(l.atp)}</span></td><td class="is-num">${l.oldest_days != null ? N(l.oldest_days) + " d" : "—"}</td><td><button type="button" class="ph-btn ph-btn--sm ph-btn--ghost" data-vq="${esc(l.length)}">Check</button></td></tr>`).join("")}</tbody></table></div>
+        ${wh.length ? `<div class="sv-sec">Why some of it is blocked</div><div class="sv-chips">${wh.map((s) => `<button type="button" class="sv-chip sv-chip-ledger" data-states="${s}" data-v="${esc(v)}" data-title="${esc(v + " · " + lbl(s))}">${dot(s)}${esc(lbl(s))} <b>${N(tot[s])}</b></button>`).join("")}</div>` : ""}
         <div class="sv-sec">Orders holding this variety</div>
         ${d.orders.length ? `<div class="ph-table-wrap"><table class="ph-table ph-table--compact"><thead><tr><th>Order</th><th>Customer</th><th>Delivery</th><th class="is-num">Stems</th><th class="is-num">Buckets</th><th>Status</th><th></th></tr></thead><tbody>${d.orders.map((o) => `<tr><td>${docBtn("Sales Order", o.sales_order)}</td><td>${esc(o.customer || "")}</td><td>${o.delivery_date ? esc(PH.fmt.date(o.delivery_date, true)) : "—"}</td><td class="is-num">${N(o.qty)}</td><td class="is-num">${N(o.buckets)}</td><td>${o.reasons.length ? o.reasons.map((r) => `<span class="ph-badge ph-badge--${RISK.indexOf(r.code) >= 0 ? "bad" : "warn"}">${esc(r.label)}</span>`).join(" ") : '<span class="ph-badge ph-badge--good">Live</span>'}</td><td><a class="ph-link" href="${soLink(o.sales_order)}" target="_blank" rel="noopener">Open in Sales Allocation ${PH.icon("external", 12)}</a></td></tr>`).join("")}</tbody></table></div>` : '<p class="ph-muted">No allocations hold this variety.</p>'}
         <div class="sv-sec">Orders still waiting for stems</div>
         ${d.demand.length ? `<div class="ph-table-wrap"><table class="ph-table ph-table--compact"><thead><tr><th>Order</th><th>Customer</th><th>Delivery</th><th>Length</th><th class="is-num">Ordered</th><th class="is-num">Still to allocate</th></tr></thead><tbody>${d.demand.map((o) => `<tr><td>${docBtn("Sales Order", o.sales_order)}</td><td>${esc(o.customer || "")}</td><td>${esc(PH.fmt.date(o.delivery_date, true))}</td><td>${esc(o.length)}</td><td class="is-num">${N(o.ordered)}</td><td class="is-num">${N(o.to_allocate)}</td></tr>`).join("")}</tbody></table></div>` : '<p class="ph-muted">No open orders need this variety up to the chosen date.</p>'}
-        ${d.forecast ? `<div class="sv-sec">Coming from the greenhouses</div><p>${N(d.forecast.this_week)} forecast this week, ${N(d.forecast.next_week)} next. Not cut yet and not committable; the forecast has no stem length.</p>` : ""}
+        ${d.forecast ? `<div class="sv-sec">Coming from the greenhouses</div><p>${N(d.forecast.this_week)} forecast this week, ${N(d.forecast.next_week)} next. Forecast, not cut: still in the greenhouse, so it can't be promised yet. The forecast has no stem length.</p>` : ""}
         <div class="sv-sec">Farms</div><div class="sv-chips">${d.farms.map((f) => `<span class="ph-badge ph-badge--outline">${esc(f)}</span>`).join("") || '<span class="ph-muted">None</span>'}</div>`;
-      PH.kpis("#vk", [{ label: "Sellable now", value: sell, dark: true }, { label: "Ready soon", value: sumOf(tot, GROUP_STATES.soon) }, { label: "Committed", value: sumOf(tot, GROUP_STATES.committed) }, { label: "Withheld", value: sumOf(tot, GROUP_STATES.withheld) }, { label: "Still to allocate", value: toAlloc }, { label: "Free to promise", value: atp }]);
+      PH.kpis("#vk", [{ label: GROUPS.sellable, title: GROUP_HINT.sellable, value: sell, dark: true }, { label: GROUPS.soon, title: GROUP_HINT.soon, value: sumOf(tot, GROUP_STATES.soon) }, { label: GROUPS.committed, title: GROUP_HINT.committed, value: sumOf(tot, GROUP_STATES.committed) }, { label: GROUPS.withheld, title: GROUP_HINT.withheld, value: sumOf(tot, GROUP_STATES.withheld) }, { label: "Still to allocate", title: "Counts the stems that orders due by the chosen date still need.", value: toAlloc }, { label: "Balance after orders", title: GROUP_HINT.ftp, value: atp }]);
       const res = PH.$("#vq-res", b);
       const quick = (len) => {
         const L = len || PH.$("#vq-len", b).value, q = +PH.$("#vq-qty", b).value, dt = PH.$("#vq-date", b).value || st.get("through");
@@ -1264,7 +1266,7 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
   /* ════════════ orders: what is allocated, and what is available ════════════ */
   const STATUS = {
     short: ["Short", "bad", "Even all the stock for this size would not cover it."],
-    greenhouse: ["Not cut yet", "signal", "Needs stems that are still in the greenhouse."],
+    greenhouse: ["Still in the greenhouse", "signal", "Needs stems that are still in the greenhouse (forecast, not cut)."],
     downgrade: ["Longer stems only", "warn", "Only longer stems of this variety are available."],
     action: ["Not on the shelf yet", "warn", "The stock exists but is not all on a sales shelf."],
     available: ["On the shelf", "good", "The stock is on a sales shelf."],
@@ -1273,7 +1275,7 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
   const STATUS_ORDER = ["short", "greenhouse", "downgrade", "action", "available", "allocated"];
   const SEG_STATUS = { attn: ["short", "greenhouse", "downgrade", "action"], ready: ["available"], allocated: ["allocated"] };
   const SRC_ORDER = ["shelf", "remote", "floor", "cooling", "arriving", "overdue", "stale"];
-  const SRC_LBL = { shelf: "on the shelf", remote: "at remote farms", floor: "on the coldroom floor", cooling: "still cooling", arriving: "harvested, not received", overdue: "harvested, overdue", stale: "held by stale allocations", downgrade: "as longer stems", greenhouse: "not cut yet (forecast)" };
+  const SRC_LBL = { shelf: "on the shelf", remote: "at remote farms", floor: "on the coldroom floor", cooling: "still cooling", arriving: "harvested, not received", overdue: "harvested, overdue", stale: "held by stale allocations", downgrade: "as longer stems", greenhouse: "still in the greenhouse (forecast, not cut)" };
   const CHANGE_MS = 120000, POLL_MS = 30000;
   let ol = null, olSeq = 0, olShown = 100, olKey = "", prevIdx = null, lineIndex = new Map(), olFail = null, olAt = 0, olLoading = false, olRetryT = null;
   const olOpen = new Set(), olPoolOpen = new Set(), changed = new Map(); // line id -> {reason, at, since}
@@ -1397,7 +1399,7 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
   }
 
   /* ── the grid: one row, every place the stock is ── */
-  const MX = [["alloc", "Allocated", "Already allocated to the line"], ["shelf", "Shelf", "On the shelf"], ["floor", "Floor", "On the coldroom floor, not shelved"], ["cooling", "Cooling", "On a shelf, still cooling"], ["harv", "Harvested", "Harvested, not received yet"], ["remote", "Remote", "At remote farms"], ["stale", "Stale-held", "Held by stale allocations (free once released)"], ["longer", "Longer", "Longer stems (downgrade)"], ["fc", "Not cut", "Not cut yet (greenhouse forecast)"]];
+  const MX = [["alloc", "Allocated", "Already allocated to the line"], ["shelf", "Shelf", "On the shelf"], ["floor", "Floor", "On the coldroom floor, not shelved"], ["cooling", "Cooling", "On a shelf, still cooling"], ["harv", "Harvested", "Harvested, not received yet"], ["remote", "Remote", "At remote farms"], ["stale", "Stale-held", "Held by stale allocations (free once released)"], ["longer", "Longer", "Longer stems (downgrade)"], ["fc", "Forecast", "Forecast, not cut: still in the greenhouse"]];
   const SRC_CLASS = { alloc: "alloc", shelf: "shelf", floor: "floor", cooling: "cooling", harv: "arriving", remote: "remote", stale: "stale", longer: "downgrade", fc: "greenhouse" };
   const mxVal = (l, k) => { const a = l.available || {}; return k === "alloc" ? l.allocated : k === "harv" ? (a.arriving || 0) + (a.overdue || 0) : k === "longer" ? l.longer : k === "fc" ? l.forecast : (a[k] || 0); };
   const mxCell = (n, k) => (n > 0 ? `<td class="is-num mx-c src-${SRC_CLASS[k]}"><b>${N(n)}</b></td>` : '<td class="is-num mx-c"><span class="sv-dim">–</span></td>');
