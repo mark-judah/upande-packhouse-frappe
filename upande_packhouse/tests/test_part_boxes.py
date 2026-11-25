@@ -52,7 +52,7 @@ class UnitTestReleaseParts(UnitTestCase):
 
 class UnitTestItemGroupFilter(UnitTestCase):
 	def tearDown(self):
-		da._use_group(None)
+		da._use_group(None, {})
 
 	def test_orders_follow_the_item_group(self):
 		rows = [frappe._dict(name="SO-1"), frappe._dict(name="SO-2")]
@@ -68,3 +68,46 @@ class UnitTestItemGroupFilter(UnitTestCase):
 		da._use_group("")
 		with patch.object(da.sa, "get_pending_sales_orders", return_value=rows):
 			self.assertEqual(len(da._orders("Kapkolia", "2026-11-19", None)), 2)
+
+
+class UnitTestAllocateFollowsTheOrderList(UnitTestCase):
+	"""Allocate plans only the orders still short, and only those the page's filters keep."""
+
+	def tearDown(self):
+		da._use_group(None, {})
+
+	def _rows(self):
+		return [
+			frappe._dict(name="SO-1", allocation_percentage=0),
+			frappe._dict(name="SO-2", allocation_percentage=40),
+			frappe._dict(name="SO-3", allocation_percentage=100),
+		]
+
+	def _orders(self):
+		with patch.object(da.sa, "get_pending_sales_orders", return_value=self._rows()):
+			return [r.name for r in da._orders("Kapkolia", "2026-11-19", None)]
+
+	def test_a_fully_allocated_order_is_never_planned(self):
+		da._use_group(None, {})
+		self.assertEqual(self._orders(), ["SO-1", "SO-2"])
+
+	def test_the_stage_toggles_are_followed(self):
+		da._use_group(None, {"stages": [1]})
+		self.assertEqual(self._orders(), ["SO-2"])
+		da._use_group(None, {"stages": [0, 1, 2]})
+		self.assertEqual(self._orders(), ["SO-1", "SO-2"])
+
+	def test_the_list_filters_are_followed(self):
+		da._use_group(None, {"priority": "High"})
+		self.assertTrue(da._scoped())
+		with patch.object(da.frappe.db, "sql_list", return_value=["SO-2"]) as q:
+			self.assertEqual(self._orders(), ["SO-2"])
+		self.assertIn("custom_priority", q.call_args[0][0])
+
+	def test_filters_ride_along_to_background_jobs(self):
+		da._use_group("Spray Roses", {"search": "abc", "box_type": "mixed"})
+		kw = da._scope_kw()
+		da._use_group(None, {})
+		da._use_group(kw["item_group"], kw["order_filters"])
+		self.assertEqual(da._order_filters(), {"search": "abc", "box_type": "mixed"})
+		self.assertEqual(da._group(), "Spray Roses")

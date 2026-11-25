@@ -743,7 +743,9 @@ frappe.pages["sales-allocation-v2"].add_styles = function () {
         .ufd-sa2 .mv-to.ss-table td:first-child, .ufd-sa2 .mv-to.ss-table th:first-child { width: auto; white-space: normal; min-width: 170px; }
         .ufd-sa2 .ss-table .ss-act { padding: 4px 10px; }
         .ufd-sa2 .ss-table .ds-why { white-space: normal; }
-        .ufd-sa2 .sa-step__body { overflow-x: hidden; }
+        /* a long row (an order, its variety, who it shorts) scrolls sideways instead of being cut off */
+        .ufd-sa2 .sa-step__body { overflow-x: auto; }
+        .ufd-sa2 .sa-step__body .ds-line { width: max-content; min-width: 100%; }
         .ufd-sa2 .sa-step__head h3 { margin: 0; font: 600 16px var(--sans); color: var(--ink); letter-spacing: -.3px; }
         .ufd-sa2 .sa-step__head .sa-step__n { font-size: 11px; color: var(--ink-mute); }
         .ufd-sa2 .sa-step__body { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding: 14px 20px; }
@@ -883,7 +885,11 @@ frappe.pages["sales-allocation-v2"].add_styles = function () {
         .ufd-sa2 tr.ca-group:not(.ca-var) td:nth-child(2):has(.ca-mexp) { padding-left:20px; }
         .ufd-sa2 .ca-kind { font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-mute); margin-right:4px; }
         .ufd-sa2 .ca-vars { display:flex; flex-wrap:wrap; gap:4px 12px; margin-top:4px; color:var(--ink-mute); }
-        .ufd-sa2.ca-release .mv-wrap { overflow-x: hidden; }
+        .ufd-sa2.ca-release .mv-wrap { overflow-x: auto; }
+        .ufd-sa2 .dg-filter { display: inline-flex; margin: 0 0 10px; }
+        .ufd-sa2 .ds-shorts { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; white-space: normal; min-width: 260px; max-width: 460px; line-height: 22px; cursor: pointer; }
+        .ufd-sa2 .ds-shorts.open { display: block; -webkit-line-clamp: unset; line-clamp: none; }
+        .ufd-sa2 .ds-shorts .ds-so { display: inline-block; white-space: nowrap; margin-right: 8px; }
         .ufd-sa2 .mv-to tr.ca-group td { white-space: normal; }
         .ufd-sa2 tr.ca-group.ca-var td { padding-top:4px; padding-bottom:4px; border-top:0; color:var(--ink-mute); }
         .ufd-sa2 tr.ca-group.ca-var td:nth-child(2) { padding-left:72px; }
@@ -1372,6 +1378,14 @@ frappe.pages["sales-allocation-v2"].make_date_filters = function () {
 					const value = control.get_value() || "";
 					if (value === (P.filters[key] || "")) return;
 					P.filters[key] = value;
+					// the window never runs backwards: a start after the end moves the end to it, an end before
+					// the start moves the start to it (dates are YYYY-MM-DD, so they compare as text)
+					const start = P.filters.delivery_start || "";
+					const end = P.filters.delivery_end || "";
+					if (value && start && end && start > end) {
+						if (key === "delivery_start") P.set_date_filter("delivery_end", value);
+						else P.set_date_filter("delivery_start", value);
+					}
 					if (P.selected_location) P.load_sales_orders();
 				},
 			},
@@ -1497,6 +1511,43 @@ frappe.pages["sales-allocation-v2"].select_location = function (location) {
 };
 // An Allocate all or Release still running here (the page was refreshed or opened meanwhile): show its bar
 // again and follow it to the end.
+// A release handed on past its time budget goes on from this page, in requests of its own, so its pick lists
+// are not left waiting for a free background worker. The server gives each hand-on to exactly one asker
+// (this page, another page or the worker): {claimed: false} means another has it and the bar only follows.
+frappe.pages["sales-allocation-v2"]._continue_release = function (run) {
+	const P = frappe.pages["sales-allocation-v2"];
+	const location = P.selected_location;
+	if (!run || !location || P._release_chain === run) return;
+	P._release_chain = run;
+	P._day_request_open = true;
+	let next = "";
+	frappe.call({
+		method: "upande_packhouse.upande_packhouse.page.sales_allocation_v2.day_allocation.continue_release",
+		args: { location, run },
+		callback: (r) => {
+			const m = r.message || {};
+			if (P.selected_location !== location) return;
+			if (m.queued && m.run) {
+				// handed on again: this page asks for the next part at once
+				P._day_run = m.run;
+				next = m.run;
+				return;
+			}
+			if (m.done) {
+				P._day_run = "";
+				P._day_done(m);
+			}
+		},
+		always: () => {
+			P._release_chain = "";
+			if (next) P._continue_release(next);
+			else {
+				P._day_request_open = false;
+				P._resume_day_progress();
+			}
+		},
+	});
+};
 frappe.pages["sales-allocation-v2"]._resume_day_progress = function () {
 	const P = frappe.pages["sales-allocation-v2"];
 	const location = P.selected_location;
@@ -1509,10 +1560,19 @@ frappe.pages["sales-allocation-v2"]._resume_day_progress = function () {
 		callback: (r) => {
 			const s = r.message;
 			if (P.selected_location !== location) return;
+			// a release waiting for a background worker: this page goes on with it (whoever asks first takes it)
+			if (s && s.phase === "confirm" && s.job_id && s.queued && !P._release_chain)
+				P._continue_release(s.job_id);
 			// finished: the run's own answer, so the page never waits on a realtime message
 			if (s && s.done) {
 				P._day_run = "";
 				P._day_done(s);
+				return;
+			}
+			if (!s && P._day_request_open && P._day_running && !P._day_finished) {
+				// the run's own request is still out (the open order's picks being saved first, or the request
+				// on its way): it has not started or is running -- wait for it, never take the bar down
+				P._day_poll = setTimeout(() => P._resume_day_progress(), 2500);
 				return;
 			}
 			if (!s) {
@@ -1565,13 +1625,38 @@ frappe.pages["sales-allocation-v2"]._resume_day_progress = function () {
 // Refresh: the same location, dates and order, read again -- the order list, the shortages, and the open
 // order's lines and buckets, keeping the line on screen. Picks not released yet are held first, so a refresh
 // loses none of them.
+// Refresh reads everything again: what the server keeps for the location (shortages, the Allocate all steps,
+// settings) is dropped first, then the orders, the proposal, the shortages and the open order are read anew.
 frappe.pages["sales-allocation-v2"].refresh = function () {
 	const P = frappe.pages["sales-allocation-v2"];
 	if (!P.selected_location) return Promise.resolve();
+	const location = P.selected_location;
 	const order = P.selected_order;
 	return Promise.resolve(P._hold_session())
 		.catch(() => {})
-		.then(() => P.load_sales_orders())
+		.then(() =>
+			frappe
+				.xcall(
+					"upande_packhouse.upande_packhouse.page.sales_allocation_v2.day_allocation.clear_page_cache",
+					{ location }
+				)
+				.catch(() => {})
+		)
+		.then(() => {
+			// this browser's copies go too: the next reads replace them, and the farms are back to the sales farm
+			P._day_farms = null;
+			P._render_day_farms();
+			P._shortages_key = null;
+			P._proposal_key = null;
+			P._short_inflight = null;
+			P._released = null;
+			try {
+				localStorage.removeItem(P._released_key());
+			} catch (e) {
+				// no storage: nothing kept here
+			}
+			return P.load_sales_orders();
+		})
 		.then(() => {
 			if (order && P.selected_order === order) P.select_order(order, { keep: 1, force: 1 });
 		});
@@ -2214,7 +2299,7 @@ frappe.pages["sales-allocation-v2"]._get_item_filter = function (so_item) {
 frappe.pages["sales-allocation-v2"]._render_per_item_filter = function (item) {
 	const P = frappe.pages["sales-allocation-v2"];
 	const so_item = item.sales_order_item;
-	const batches = item.batches || [];
+	const batches = (item.batches || []).filter((b) => !b.remnant);
 	// A line populated from a Specification is locked to that spec's cut
 	// stage — the server already only sends back matching buckets, so there's
 	// nothing to pick; show it as a fact, not a control.
@@ -2951,6 +3036,8 @@ frappe.pages["sales-allocation-v2"]._render_lines_rail = function (items) {
 		let done = total_boxes;
 		// complete boxes the mix reaches with what is allocated plus what is free on the shelves now
 		let reach = total_boxes;
+		// with the longer stems that still need a downgrade reason: Allocate leaves those to the Downgrades step
+		let reach_dg = total_boxes;
 		// the whole mix's stems: every variety's, allocated and needed
 		let mix_have = 0;
 		let mix_need = 0;
@@ -2968,12 +3055,24 @@ frappe.pages["sales-allocation-v2"]._render_lines_rail = function (items) {
 				if (per_box > 0) done = Math.min(done, Math.floor(have / per_box + 1e-9));
 				// a mixed bunch's line counts mixed bunches: its bunch size is this variety's stems in one bunch
 				const per_bunch = parseFloat(it.conversion_factor) || 1;
+				// what Allocate takes by itself, and the longer stems it leaves for a downgrade reason
+				const needs_reason = (b) =>
+					b.length_status === "downgrade" && b.downgrade_approval !== "amber_expired";
 				const free_stems = (it.batches || []).reduce(
-					(t, b) => t + Math.max(0, b.available_qty || 0),
+					(t, b) => t + (needs_reason(b) ? 0 : Math.max(0, b.available_qty || 0)),
 					0
 				);
-				if (per_box > 0)
+				const dg_stems = (it.batches || []).reduce(
+					(t, b) => t + (needs_reason(b) ? Math.max(0, b.available_qty || 0) : 0),
+					0
+				);
+				if (per_box > 0) {
 					reach = Math.min(reach, Math.floor((have + free_stems) / per_box + 1e-9));
+					reach_dg = Math.min(
+						reach_dg,
+						Math.floor((have + free_stems + dg_stems) / per_box + 1e-9)
+					);
+				}
 				const bunches_box = per_box > 0 ? per_box / per_bunch : 0;
 				const ratio = it.custom_mixed_bunch
 					? __("{0}/bunch · {1}/box", [fmt(per_bunch), fmt(per_box)])
@@ -3002,7 +3101,12 @@ frappe.pages["sales-allocation-v2"]._render_lines_rail = function (items) {
 					it.required_length || ""
 				)}</span><span class="lc-mix-num">${fmt(have)}/${fmt(required)}</span></div>
 					<div class="lc-mix-ratio"><span>${ratio}</span>${
-					state || (left > 0 ? `<span>${__("free")} ${fmt(free_stems)}</span>` : "")
+					state ||
+					(left > 0
+						? `<span>${__("free")} ${fmt(free_stems)}${
+								dg_stems > 0 ? ` · +${fmt(dg_stems)} ${__("downgrade")}` : ""
+						  }</span>`
+						: "")
 				}</div>
 					<div class="line-bar lc-mix-bar"><div style="width:${pct}%;height:100%;background:${
 					pct >= 100 ? "var(--good)" : pct > 0 ? "var(--warn-2)" : "var(--bad)"
@@ -3031,6 +3135,7 @@ frappe.pages["sales-allocation-v2"]._render_lines_rail = function (items) {
 		}
 		done = Math.max(0, Math.min(done, total_boxes));
 		reach = Math.max(done, Math.min(reach, total_boxes));
+		reach_dg = Math.max(reach, Math.min(reach_dg, total_boxes));
 		const mix_team = lines.find((it) => it.opl_team || it.planning_team) || {};
 		const not_planned =
 			mix_team.opl_team || mix_team.planning_team
@@ -3049,6 +3154,10 @@ frappe.pages["sales-allocation-v2"]._render_lines_rail = function (items) {
 			<div class="lc-mix-boxes"><span>${__("Boxes")}${
 			reach > done
 				? ` <small>· ${__("{0} more with free stock", [fmt(reach - done)])}</small>`
+				: ""
+		}${
+			reach_dg > reach
+				? ` <small>· ${__("{0} more with a downgrade", [fmt(reach_dg - reach)])}</small>`
 				: ""
 		}</span><b>${fmt(done)}/${fmt(total_boxes)}</b></div>
 			<div class="lc-mix-boxes"><span>${__("Stems")}</span><b>${fmt(mix_have)}/${fmt(mix_need)}</b></div>
@@ -3090,7 +3199,8 @@ frappe.pages["sales-allocation-v2"]._render_item_block = function (item) {
 	const grand_allocated = total_allocated + allocated_session;
 	const required = item.pending_stock_qty || 0;
 	const remaining = required - grand_allocated;
-	const batches = item.batches || [];
+	// a bucket with less than a bunch free is not listed; FIFO still takes it and the why panel shows it
+	const batches = (item.batches || []).filter((b) => !b.remnant);
 	const preferred_farm = item.preferred_farm || "";
 	const uom = item.stock_uom || "";
 	// ── Pills: length, colour, box type, mix name, so-item id
@@ -3516,14 +3626,11 @@ frappe.pages["sales-allocation-v2"].allocate_from_bucket = function (
 	const P = frappe.pages["sales-allocation-v2"];
 	const item = P.order_items.find((i) => i.sales_order_item === so_item);
 	if (!item) return;
-	// whole bunches only
-	const per_bunch = parseFloat(item.conversion_factor) || 1;
-	// a remote farm's bucket gives what the line needs: the truck carries the whole bucket to the sales farm
-	const qty = Math.floor(Math.min(max_from_bucket, remaining) / per_bunch + 1e-9) * per_bunch;
-	if (qty <= 0) {
-		frappe.msgprint(__("Less than one bunch of {0} left to allocate here.", [per_bunch]));
-		return;
-	}
+	// the whole bucket, up to what the line still needs: a bunch takes its stems from as many buckets as it
+	// needs, so the line's total, not each bucket, is whole bunches (FIFO empties the oldest bucket first).
+	// A remote farm's bucket gives what the line needs: the truck carries the whole bucket to the sales farm
+	const qty = Math.min(max_from_bucket, remaining);
+	if (qty <= 0) return;
 	if (length_status === "downgrade") {
 		const batch = (item.batches || []).find(
 			(b) => b.bucket_id === bucket_id && (b.stem_length || "") === (stem_length || "")
@@ -4172,14 +4279,15 @@ frappe.pages["sales-allocation-v2"]._order_downgrades = function () {
 				b.downgrade_approval === "amber_expired"
 			)
 				return;
-			const q =
-				Math.floor(Math.min(b.available_qty || 0, left) / per_bunch + 1e-9) * per_bunch;
+			const q = Math.min(b.available_qty || 0, left);
 			if (q <= 0) return;
 			left -= q;
 			const k = b.stem_length || "";
 			by_len[k] = (by_len[k] || 0) + q;
 		});
-		const stems = Object.values(by_len).reduce((s, v) => s + v, 0);
+		// whole bunches of the line over all its buckets, not per bucket
+		const stems =
+			Math.floor(Object.values(by_len).reduce((s, v) => s + v, 0) / per_bunch + 1e-9) * per_bunch;
 		if (!stems) return;
 		const shorts = Object.keys(by_len)
 			.map((k) => (it.downgrade_conflicts || {})[k])
@@ -4193,8 +4301,48 @@ frappe.pages["sales-allocation-v2"]._order_downgrades = function () {
 	});
 	return out;
 };
+// Downgrades: All, the ones that short nobody, the ones that short another order -- a filter on what is
+// shown (the ticks stay as they are; ticking all ticks only the rows shown).
+frappe.pages["sales-allocation-v2"]._dg_filter_bar = function (list) {
+	const shorts = list.filter((x) => x.shorts.length).length;
+	const ok = list.length - shorts;
+	const btn = (key, label, n, on) =>
+		`<button type="button" class="location-btn${on ? " active" : ""}" data-dg-f="${key}" aria-pressed="${on}">${label} · ${n}</button>`;
+	return `<div class="location-buttons dg-filter">${btn("all", __("All"), list.length, true)}${btn(
+		"ok",
+		__("Shorts nobody"),
+		ok
+	)}${btn("shorts", __("Shorts"), shorts)}</div>`;
+};
+frappe.pages["sales-allocation-v2"]._dg_filter_wire = function ($wrap) {
+	$wrap.find("[data-dg-f]").on("click", function () {
+		const key = $(this).data("dg-f");
+		$wrap.find("[data-dg-f]").each(function () {
+			const on = $(this).data("dg-f") === key;
+			$(this).toggleClass("active", on).attr("aria-pressed", on);
+		});
+		$wrap.find("tr[data-shorts]").each(function () {
+			const s = String($(this).data("shorts")) === "1";
+			$(this).toggle(key === "all" || (key === "shorts" ? s : !s));
+		});
+		$wrap.find(".dg-all").prop("checked", false);
+	});
+};
+// The orders a downgrade shorts, on at most three lines (an order never split over two); a longer list shows
+// whole on hover, and a click opens it out.
+frappe.pages["sales-allocation-v2"]._shorts_cell = function (entries) {
+	const esc = (v) => frappe.utils.escape_html(String(v == null ? "" : v));
+	return `<div class="ds-shorts" title="${esc(entries.join("\n"))}"><span class="ds-why">${__(
+		"Shorts"
+	)}</span> ${entries.map((e) => `<span class="ds-so">${esc(e)}</span>`).join(" ")}</div>`;
+};
+$(document).on("click", ".ufd-sa2 .ds-shorts", function () {
+	$(this).toggleClass("open");
+});
 frappe.pages["sales-allocation-v2"]._order_downgrade_dialog = function (list, normal) {
 	const P = frappe.pages["sales-allocation-v2"];
+	// the downgrades that short an order of that exact length go last (left unticked for a person to choose)
+	list.sort((a, b) => (a.shorts.length ? 1 : 0) - (b.shorts.length ? 1 : 0));
 	const esc = (v) => frappe.utils.escape_html(String(v == null ? "" : v));
 	const n = (v) => Math.round(v || 0).toLocaleString();
 	frappe
@@ -4207,22 +4355,17 @@ frappe.pages["sales-allocation-v2"]._order_downgrade_dialog = function (list, no
 				.join("")}`;
 			const rows = list
 				.map(
-					(x, i) => `<tr>
-				<td><input type="checkbox" data-d="${i}" checked></td>
+					(x, i) => `<tr data-shorts="${x.shorts.length ? 1 : 0}">
+				<td><input type="checkbox" data-d="${i}" ${x.shorts.length ? "" : "checked"}></td>
 				<td>${esc(x.item.item_name || x.item.item_code)}</td>
 				<td>${esc(x.item.required_length || "")} → <strong>${esc(x.lengths.join(", "))}</strong></td>
 				<td class="num">${n(x.stems)}</td>
 				<td><select class="dg-reason" data-r="${i}">${opts}</select></td>
 				<td>${
 					x.shorts.length
-						? `<span class="ds-why">${__("Shorts")}</span> ${x.shorts
-								.map(
-									(o) =>
-										`<span class="ds-so">${esc(
-											o.order_name || o.sales_order
-										)} · ${n(o.stems)}</span>`
-								)
-								.join(" ")}`
+						? P._shorts_cell(
+								x.shorts.map((o) => `${o.order_name || o.sales_order} · ${n(o.stems)}`)
+						  )
 						: `<span class="ds-why ds-why--ok">${__("Shorts nobody")}</span>`
 				}</td>
 			</tr>`
@@ -4235,7 +4378,7 @@ frappe.pages["sales-allocation-v2"]._order_downgrade_dialog = function (list, no
 					{
 						fieldtype: "HTML",
 						fieldname: "t",
-						options: `<div class="mv-wrap"><table class="ds-donors mv-to dg-table">
+						options: `${P._dg_filter_bar(list)}<div class="mv-wrap"><table class="ds-donors mv-to dg-table">
 					<thead><tr><th><input type="checkbox" class="dg-all"></th><th>${__("Variety")}</th><th>${__(
 							"Ordered → Downgrade"
 						)}</th><th class="num">${__("Stems")}</th><th>${__(
@@ -4276,8 +4419,9 @@ frappe.pages["sales-allocation-v2"]._order_downgrade_dialog = function (list, no
 			d.$wrapper.addClass("ufd-sa2");
 			d.$wrapper.find(".modal-dialog").addClass("ufd-sa2-modal");
 			d.$wrapper.find(".dg-all").on("change", function () {
-				d.$wrapper.find("input[data-d]").prop("checked", this.checked);
+				d.$wrapper.find("tr[data-shorts]:visible input[data-d]").prop("checked", this.checked);
 			});
+			P._dg_filter_wire(d.$wrapper);
 			d.$wrapper.find(".dg-all-r").on("change", function () {
 				d.$wrapper.find("select[data-r]").val(this.value);
 			});
@@ -4319,14 +4463,14 @@ frappe.pages["sales-allocation-v2"]._execute_fifo = function (so_item, downgrade
 	const required = item.pending_stock_qty || 0;
 	let remaining = required - grand_allocated;
 	let count = 0;
+	// oldest buckets first, each emptied before the next is touched; only the line's total is rounded down to
+	// whole bunches, off the youngest bucket (a bunch takes its stems from as many buckets as it needs)
+	const per_bunch = parseFloat(item.conversion_factor) || 1;
+	const picks = [];
 	for (const batch of item.batches || []) {
 		if (remaining <= 0) break;
 		const available = batch.available_qty || 0;
 		if (available <= 0) continue;
-		// whole bunches only; a remote farm's bucket gives what the line needs too (the truck carries it whole)
-		const per_bunch = parseFloat(item.conversion_factor) || 1;
-		const qty = Math.floor(Math.min(available, remaining) / per_bunch + 1e-9) * per_bunch;
-		if (qty <= 0) continue;
 		const is_downgrade = batch.length_status === "downgrade";
 		// a downgrade that needs approval is only taken with a reason (the order-wide fill gives none)
 		if (
@@ -4335,6 +4479,21 @@ frappe.pages["sales-allocation-v2"]._execute_fifo = function (so_item, downgrade
 			downgrade_reason == null
 		)
 			continue;
+		// a remote farm's bucket gives what the line needs too (the truck carries it whole)
+		const qty = Math.min(available, remaining);
+		picks.push({ batch, qty, is_downgrade });
+		remaining -= qty;
+	}
+	const taken = picks.reduce((s, p) => s + p.qty, 0);
+	const whole = Math.floor((grand_allocated + taken) / per_bunch + 1e-9) * per_bunch;
+	let over = grand_allocated + taken - whole;
+	for (let i = picks.length - 1; i >= 0 && over > 1e-9; i--) {
+		const cut = Math.min(over, picks[i].qty);
+		picks[i].qty -= cut;
+		over -= cut;
+	}
+	for (const { batch, qty, is_downgrade } of picks) {
+		if (qty <= 1e-9) continue;
 		const reason = is_downgrade
 			? batch.downgrade_approval === "amber_expired"
 				? "Amber time expired"
@@ -4372,7 +4531,6 @@ frappe.pages["sales-allocation-v2"]._execute_fifo = function (so_item, downgrade
 			});
 		}
 		P._take_from_bucket(item.item_code, batch.bucket_id, batch.stem_length || "", qty);
-		remaining -= qty;
 		count += qty;
 	}
 	if (count > 0 && !quiet) {
@@ -4457,13 +4615,22 @@ frappe.pages["sales-allocation-v2"]._day_args = function () {
 		),
 		// Allocate and Release follow the item-group filter: only orders with lines in that group
 		item_group: P.filters.item_group || "",
+		// and the order list's other filters; a fully allocated order is never planned again
+		order_filters: JSON.stringify({
+			search: P.filters.search || "",
+			priority: P.filters.priority || "",
+			box_type: P.filters.box_type || "",
+			stages: Object.keys(P.show_stages || P._default_stages())
+				.filter((k) => (P.show_stages || P._default_stages())[k])
+				.map(Number),
+		}),
 	};
 };
 // The farms Allocate all takes stock from: toggles in the toolbar, always shown, every farm of the location on
 // to start with. Allocate all runs on them, or marks them while none is picked.
 frappe.pages["sales-allocation-v2"]._init_day_farms = function () {
 	const P = frappe.pages["sales-allocation-v2"];
-	// null: every farm of the location, picked once they are known
+	// null: the location's sales farm, picked once the farms are known (more are toggled on by hand)
 	P._day_farms = null;
 	P._render_day_farms();
 };
@@ -4474,7 +4641,11 @@ frappe.pages["sales-allocation-v2"]._render_day_farms = function () {
 	// a location with one farm (Karen): that farm, nothing to pick
 	const single = farms.length === 1;
 	if (single) P._day_farms = [farms[0].farm];
-	else if (P._day_farms == null && farms.length) P._day_farms = farms.map((f) => f.farm);
+	else if (P._day_farms == null && farms.length) {
+		// on load and on Refresh only the sales farm is on: a remote farm is added by toggling it
+		const sales = farms.filter((f) => Number(f.sales_shelf) > 0).map((f) => f.farm);
+		P._day_farms = sales.length ? sales : farms.map((f) => f.farm);
+	}
 	const $group = $("#dayFarmsV2").closest(".sa-tb-group");
 	const shown = !single;
 	$group.toggle(shown).prev(".sa-tb-div").toggle(shown);
@@ -4539,6 +4710,8 @@ frappe.pages["sales-allocation-v2"]._run_allocate_day = function () {
 	P._live_planned_key = "";
 	P._flow_area(false);
 	P._day_progress(0, 1, "", undefined, "prepare");
+	// open until its answer comes back: the bar is never taken down while the run's own request is still out
+	P._day_request_open = true;
 	frappe.call({
 		method: "upande_packhouse.upande_packhouse.page.sales_allocation_v2.day_allocation.auto_allocate_day",
 		args: { ...P._day_args(), box_type: P.filters.box_type || "" },
@@ -4548,6 +4721,7 @@ frappe.pages["sales-allocation-v2"]._run_allocate_day = function () {
 				? ((P._day_run = r.message.run || ""), P._resume_day_progress())
 				: r.message.done && P._day_done(r.message)),
 		error: () => P._resume_day_progress(),
+		always: () => (P._day_request_open = false),
 	});
 	P._follow_run("propose");
 };
@@ -5058,7 +5232,8 @@ frappe.pages["sales-allocation-v2"]._group_team = function (g, i, gi) {
 	</span>`;
 };
 // Downgrades: every line still short that longer stems on the shelves could fill, and whether taking them
-// shorts an order that ordered that longer length. Every line is ticked: its downgrade fills it once a reason is chosen.
+// shorts an order that ordered that longer length. A line that shorts nobody is ticked; one that shorts another order is left
+// for a person to tick.
 // After Allocate all: 1. the orders the cut stage held back, confirmed by the planner; 2. the short lines
 // another variety can fill, substituted or added to; 3. the downgrades, each with its reason.
 // `scope` {sales_order, day}: the same steps for one order (Auto-allocate order), on its own delivery day.
@@ -5641,6 +5816,8 @@ frappe.pages["sales-allocation-v2"]._downgrade_dialog = function (
 	done
 ) {
 	const P = frappe.pages["sales-allocation-v2"];
+	// the downgrades that short an order of that exact length go last (left unticked for a person to choose)
+	list.sort((a, b) => (a.shorts.length ? 1 : 0) - (b.shorts.length ? 1 : 0));
 	const esc = (v) => frappe.utils.escape_html(String(v == null ? "" : v));
 	const n = (v) => Math.round(v || 0).toLocaleString();
 	const pick = (i) =>
@@ -5649,8 +5826,8 @@ frappe.pages["sales-allocation-v2"]._downgrade_dialog = function (
 			.join("")}</select>`;
 	const rows = list
 		.map(
-			(x, i) => `<tr>
-				<td><input type="checkbox" data-d="${i}" checked></td>
+			(x, i) => `<tr data-shorts="${x.shorts.length ? 1 : 0}">
+				<td><input type="checkbox" data-d="${i}" ${x.shorts.length ? "" : "checked"}></td>
 				<td><strong>${esc(P._order_label(x.order_name))}</strong><div class="ds-so">${esc(
 				x.customer
 			)}</div></td>
@@ -5660,14 +5837,14 @@ frappe.pages["sales-allocation-v2"]._downgrade_dialog = function (
 				<td>${pick(i)}</td>
 				<td>${
 					x.shorts.length
-						? `<span class="ds-why">${__("Shorts")}</span> ${x.shorts
-								.map(
+						? P._shorts_cell(
+								x.shorts.map(
 									(s) =>
-										`<span class="ds-so">${esc(
-											P._order_label(s.order_name)
-										)} · ${n(s.stems)}</span>`
+										`${P._order_label(s.order_name)} · ${n(s.stems)}${
+											s.length ? " " + __("at {0}", [s.length]) : ""
+										}`
 								)
-								.join(" ")}`
+						  )
 						: `<span class="ds-why ds-why--ok">${__("Shorts nobody")}</span>`
 				}</td>
 			</tr>`
@@ -5675,7 +5852,7 @@ frappe.pages["sales-allocation-v2"]._downgrade_dialog = function (
 		.join("");
 	const d = P._step_dialog(
 		__("Downgrades"),
-		`<div class="ds-line"><div class="mv-wrap"><table class="ds-donors mv-to dg-table">
+		`${P._dg_filter_bar(list)}<div class="ds-line"><div class="mv-wrap"><table class="ds-donors mv-to dg-table">
 			<thead><tr><th><input type="checkbox" class="dg-all"></th><th>${__("Order")}</th><th>${__(
 			"Variety"
 		)}</th><th>${__("Ordered → Downgrade")}</th><th class="num">${__("Stems")}</th><th>${__(
@@ -5722,8 +5899,9 @@ frappe.pages["sales-allocation-v2"]._downgrade_dialog = function (
 		done
 	);
 	d.$wrapper.find(".dg-all").on("change", function () {
-		d.$wrapper.find("input[data-d]").prop("checked", this.checked);
+		d.$wrapper.find("tr[data-shorts]:visible input[data-d]").prop("checked", this.checked);
 	});
+	P._dg_filter_wire(d.$wrapper);
 	// one reason for every line, or each its own
 	d.$wrapper.find(".dg-all-r").on("change", function () {
 		d.$wrapper.find("select[data-r]").val(this.value);
@@ -5821,6 +5999,7 @@ frappe.pages["sales-allocation-v2"]._open_confirm_dialog = function () {
 			P._day_finished = false;
 			P._day_progress(0, chosen.length, "", undefined, "release");
 			P._follow_run("confirm");
+			P._day_request_open = true;
 			// the open order's picks reach the server before anything is released
 			Promise.resolve(P._hold_pending).then(() =>
 				frappe.call({
@@ -5829,10 +6008,16 @@ frappe.pages["sales-allocation-v2"]._open_confirm_dialog = function () {
 					callback: (r) =>
 						r.message &&
 						(r.message.queued
-							? ((P._day_run = r.message.run || ""), P._resume_day_progress())
+							? ((P._day_run = r.message.run || ""),
+							  P._continue_release(P._day_run),
+							  P._resume_day_progress())
 							: r.message.done && P._day_done(r.message)),
 					error: () => P._resume_day_progress(),
-					always: () => (P._releasing = false),
+					always: () => {
+						P._releasing = false;
+						// the page goes on with the release in its own requests: still open
+						if (!P._release_chain) P._day_request_open = false;
+					},
 				})
 			);
 		},

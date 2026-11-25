@@ -748,6 +748,10 @@ def get_orders_workflow(
 	from upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2 import planned_stems
 
 	plan = planned_stems([ln.name for ln in lines])
+	# a line with no pick list yet carries the team Allocation Planning gave it: the team filter finds it too
+	from upande_packhouse.allocation_plan import planned_teams
+
+	plan_team = planned_teams([ln.name for ln in lines if not ln.opls])
 
 	# One item per (line, pick list); a line with none is one item of its own.
 	items = []
@@ -760,7 +764,11 @@ def get_orders_workflow(
 			and (packed_opls is None or o in packed_opls)
 		)
 		if not ln.opls:
-			if teams or packed_opls is not None or not farm_ok(ln.parent):
+			if (
+				(teams and plan_team.get(ln.name) not in teams)
+				or packed_opls is not None
+				or not farm_ok(ln.parent)
+			):
 				continue
 			in_scope = [None]
 		# Picked on every pick list of the line: below the ordered stems it is allocated partially.
@@ -775,7 +783,7 @@ def get_orders_workflow(
 				"soi": ln.name,
 				"opl": o,
 				"docstatus": opl.get("docstatus") if opl else None,
-				"team": (opl.get("team") if opl else None) or "",
+				"team": (opl.get("team") if opl else plan_team.get(ln.name)) or "",
 				"sales_order": ln.parent,
 				"order_name": oname,
 				"customer": ln.customer,
@@ -788,6 +796,9 @@ def get_orders_workflow(
 				"length": ln.custom_length,
 				"box_type": ln.custom_box_type,
 				"mix_name": ln.custom_mix_name,
+				# the physical boxes it shares with other lines of its order (core.boxes): what the page's
+				# Analysis counts boxes by, so its boxes are the Orders tile's
+				"box_key": "{0}|{1}".format(ln.parent, bx.box_key(ln)),
 				"farm": order_farm(ln.parent, o),
 				"origin_farm": ", ".join(sorted(opl_farm.get(o, set()))) if o else "",
 				"primary": primary,

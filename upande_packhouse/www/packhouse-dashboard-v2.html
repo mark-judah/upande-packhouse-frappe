@@ -191,7 +191,7 @@
   let autoOpen = true;
   const masters = { teams: [], team_farm: {}, farms: [], groups: [] };
 
-  const KPI_LABELS = ["Orders", "Allocated order lines", "Issued of picked", "Boxes packed", "Dispatched", "Analysis"];
+  const KPI_LABELS = ["Orders", "Issued of picked", "Boxes packed", "Dispatched", "Analysis"];
   const FILTER_KEYS = ["region", "team", "group"];
 
   /* ── Filters ── */
@@ -278,14 +278,6 @@
 
   function renderKpis(k) {
     const funnel = funnelOf(allRows());
-    // allocated: a line on a pick list; an order full when every line is, partly when some are
-    const alloc = (() => {
-      const lines = allRows().filter((r) => r.sales_order && r.primary !== false);
-      const per = {};
-      lines.forEach((r) => { const o = (per[r.sales_order] = per[r.sales_order] || { n: 0, on: 0 }); o.n += 1; if (r.opl) o.on += 1; });
-      const os = Object.values(per);
-      return { lines: lines.filter((r) => r.opl).length, allLines: lines.length, orders: os.length, full: os.filter((o) => o.on === o.n).length, part: os.filter((o) => o.on && o.on < o.n).length };
-    })();
     // orders per delivery date in the range shown
     const perDay = {};
     allRows().forEach((r) => { if (r.sales_order && r.delivery_date) (perDay[r.delivery_date] = perDay[r.delivery_date] || new Set()).add(r.sales_order); });
@@ -295,7 +287,6 @@
       : (days.length ? "delivery " + PH.fmt.date(days[0], true) : "no orders");
     PH.kpis("#kpis", [
       { label: "Orders", value: k.orders, unit: n(k.boxes) + " boxes (" + n(k.ordered_stems) + " stems)", title: "Orders delivering in these dates.", onClick: () => showOrders("orders") },
-      { label: "Allocated order lines", value: n(alloc.lines) + " / " + n(alloc.allLines), unit: "", title: "Order lines on a pick list.", onClick: () => showOrders("lines", true) },
       { label: "Issued of picked", value: k.issuing_pct == null ? "—" : Math.round(k.issuing_pct), suffix: k.issuing_pct == null ? "" : "%", unit: "", title: "Stems issued of those picked.", bar: k.issuing_pct || 0, barClass: k.issuing_pct >= 100 ? "good" : "", onClick: () => drill("issuing") },
       { label: "Boxes packed", value: n(k.complete_boxes) + " / " + n(k.planned_boxes), unit: "", title: "Boxes packed to 100% of those planned.", onClick: () => drill("boxes") },
       { label: "Dispatched", value: k.dispatched_pct == null ? "—" : PH.fmt.pct(k.dispatched_pct, 1), unit: "", title: "Stems dispatched of those ordered.", bar: k.dispatched_pct || 0, barClass: k.dispatched_pct >= 100 ? "good" : "", onClick: () => drill("dispatched") },
@@ -328,7 +319,9 @@
     const lines = {};
     (rows || []).forEach((r) => {
       if (!r.soi) return;
-      const l = (lines[r.soi] = lines[r.soi] || { so: r.sales_order, customer: r.customer, mix: r.mix_name ? r.sales_order + "|" + r.mix_name : null, boxes: 0, ordered: 0, demand: 0, planned: 0, allocated: 0, issued: 0, packed: 0, precooled: 0, staged: 0, loaded: 0, dispatched: 0 });
+      // box: the physical boxes the line shares with others of its order (a mix, a spec's bunches), as the
+      // server counts the Orders tile's boxes
+      const l = (lines[r.soi] = lines[r.soi] || { so: r.sales_order, customer: r.customer, box: r.box_key || null, boxes: 0, ordered: 0, demand: 0, planned: 0, allocated: 0, issued: 0, packed: 0, precooled: 0, staged: 0, loaded: 0, dispatched: 0 });
       if (r.primary !== false) { l.demand += r.ordered_stems || 0; l.ordered = r.ordered_stems || 0; l.boxes = r.line_boxes || 0; }
       ["planned", "allocated", "issued", "precooled", "staged", "loaded", "dispatched"].forEach((k) => (l[k] += r[STEM[k]] || 0));
       // packed: full boxes only -- a box still being packed counts once it is complete
@@ -339,12 +332,13 @@
     const out = {};
     STEPS.forEach(([k]) => {
       const reached = all.filter((l) => l[k] > 0);
-      // boxes: a straight line its own, a mix once (its scarcest variety)
+      // boxes: a straight line its own, a box shared by several lines once -- ordered: as many as the box
+      // group holds (its largest count, the Orders tile's rule); a stage: as many as its scarcest line fills
       const units = {};
       Object.entries(lines).forEach(([soi, l]) => {
         const full = k === "demand" ? l.boxes : l.ordered ? Math.floor(l.boxes * Math.min(1, l[k] / l.ordered) + 1e-9) : 0;
-        const key = l.mix || "line|" + soi;
-        units[key] = key in units ? Math.min(units[key], full) : full;
+        const key = l.box || "line|" + soi;
+        units[key] = key in units ? (k === "demand" ? Math.max(units[key], full) : Math.min(units[key], full)) : full;
       });
       out[k] = {
         stems: all.reduce((t, l) => t + l[k], 0),

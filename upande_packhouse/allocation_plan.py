@@ -4,14 +4,15 @@
 
 A planned order line is an Allocation Confirmation (docs/allocation-playground/spec.md):
 
-  Real     stock on the shelf. The buckets and the stems taken from each are held in Bucket
-           Reservation rows (status Active), oldest buckets first. Allocation to any OTHER order line
-           cannot use them (availability.reserved_by_bucket, read by core/stock.py and the allocator).
-  Virtual  expected from the farm. Stems only, no buckets.
+  Real     stems confirmed from stock on the shelf (or received, waiting for a shelf). Stems only: no
+           bucket is held, so Sales Allocation can take any free bucket, oldest first. Another line's
+           Real stems still to allocate are counted off what the plan offers the next line
+           (`_planned_elsewhere`), so the plan never promises the same stems twice.
+  Virtual  expected from the farm. Stems only.
 
-Allocation releases what it uses: `consume` after it writes a bucket allocation, `release_line` once the
+Allocation uses up what was confirmed: `consume` after it writes a bucket allocation, `release_line` once the
 line is fully allocated. The other release paths live here too: order cancelled or changed, delivery date
-passed, planner unplans, and a held bucket that is no longer on the shelf (Broken).
+passed, planner unplans.
 
 Age and cooling rules are never written here: free stems come from core/stock.bucket_rows, which reads
 Production Settings (amber time, discard age, max allocation age, cooling hours).
@@ -23,7 +24,6 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, cint, flt, getdate, now_datetime, today
 
-from upande_packhouse import availability
 from upande_packhouse.api.v2.core import received, stock
 
 LIVE = ("Planned", "Reserved", "Partly Fulfilled", "Broken")
@@ -82,21 +82,13 @@ def live_confirmations(soi=None, plan=None, source=None):
 	return frappe.get_all("Allocation Confirmation", filters=filters, fields=["*"])
 
 
-def held_buckets(conf_name):
-	return frappe.get_all(
-		"Bucket Reservation",
-		filters={"confirmation": conf_name, "status": "Active"},
-		fields=["name", "bucket_id", "stems"],
-	)
-
-
 def free_for_line(farm, variety, length, soi, harvested_from=None):
 	"""Buckets a line can be confirmed against now, oldest first, so ageing stock is used first:
 
-	  on the shelf            free stems, not too old, not cooling, not held for another line
+	  on the shelf            free stems, not too old, not cooling
 	  received, not shelved   buckets waiting for a shelf (within the discard age), with their cold room
 
-	Stems already held for THIS line count as free for it. A line with a cut stage only takes shelf buckets
+	A line with a cut stage only takes shelf buckets
 	at that stage: the ones Sales Allocation offers it. `harvested_from` keeps only buckets harvested on or
 	after that day."""
 	rows = stock.bucket_rows(farms=[farm], varieties=[variety], lengths=[length] if length else None)
@@ -117,21 +109,19 @@ def free_for_line(farm, variety, length, soi, harvested_from=None):
 		if (r.stem_length or "") == (length or "")
 		and (not harvested_from or getdate(r.harvest_date or r.received_on) >= getdate(harvested_from))
 	]
-	own = _own_held(soi, {r.bucket_id for r in rows} | {r.bucket_id for r in recv})
 	out = []
 	for r in rows:
 		if (r.stem_length or "") != (length or ""):
 			continue
-		avail = r.allocatable + min(own.get(r.bucket_id, 0.0), r.reserved)
+		avail = r.allocatable
 		if avail > 0:
 			out.append(
 				frappe._dict(
 					bucket_id=r.bucket_id, free=avail, age_days=r.age_days or 0, stems=r.stems, source="shelf"
 				)
 			)
-	others = availability.reserved_by_bucket(exclude_soi=soi, bucket_ids={r.bucket_id for r in recv})
 	for r in recv:
-		avail = r.stems - others.get(r.bucket_id, 0.0)
+		avail = flt(r.stems)
 		if avail > 0:
 			out.append(
 				frappe._dict(
@@ -147,24 +137,36 @@ def free_for_line(farm, variety, length, soi, harvested_from=None):
 	return out
 
 
-def _own_held(soi, bucket_ids):
-	if not bucket_ids:
-		return {}
-	rows = frappe.db.sql(
-		"""SELECT bucket_id, SUM(stems) FROM `tabBucket Reservation`
-		   WHERE status = 'Active' AND sales_order_item = %(soi)s AND bucket_id IN %(b)s GROUP BY bucket_id""",
-		{"soi": soi, "b": tuple(bucket_ids)},
-	)
-	return {r[0]: flt(r[1]) for r in rows}
-
-
-def _lock_buckets(bucket_ids):
-	"""Two planners reserving the same bucket at once must not both win: serialise on the bucket rows."""
-	if bucket_ids:
+def _planned_elsewhere(farm, variety, length, soi):
+	"""Stems other lines have confirmed from this farm's stock of `variety` at `length` and not allocated yet."""
+	return flt(
 		frappe.db.sql(
-			"SELECT name FROM `tabBucket QR Code` WHERE name IN %(b)s ORDER BY name FOR UPDATE",
-			{"b": tuple(sorted(bucket_ids))},
-		)
+			"""SELECT SUM(GREATEST(stems - IFNULL(fulfilled_stems, 0), 0)) FROM `tabAllocation Confirmation`
+			   WHERE source = 'Real' AND status IN %(live)s AND farm = %(farm)s AND variety = %(variety)s
+			     AND IFNULL(length, '') = %(length)s AND sales_order_item != %(soi)s""",
+			{"live": LIVE, "farm": farm, "variety": variety, "length": length or "", "soi": soi or ""},
+		)[0][0]
+	)
+
+
+def real_outstanding(farms=None):
+	"""{(farm, variety, length): stems} live Real confirmations still have to allocate."""
+	cond = "AND farm IN %(farms)s" if farms else ""
+	return {
+		(r[0], r[1], r[2] or ""): flt(r[3])
+		for r in frappe.db.sql(
+			f"""SELECT farm, variety, IFNULL(length, ''), SUM(GREATEST(stems - IFNULL(fulfilled_stems, 0), 0))
+			    FROM `tabAllocation Confirmation`
+			    WHERE source = 'Real' AND status IN %(live)s {cond}
+			    GROUP BY farm, variety, IFNULL(length, '')""",
+			{"live": LIVE, "farms": tuple(farms or ()) or ("",)},
+		)  # nosemgrep: the f-string hole is fixed SQL, values are bound
+	}
+
+
+def _lock_pool(variety):
+	"""Two planners confirming the same stock at once must not both win: serialise on the variety."""
+	frappe.db.sql("SELECT name FROM `tabItem` WHERE name = %s FOR UPDATE", variety)
 
 
 def _live_of_line(soi, source):
@@ -182,11 +184,11 @@ def _live_of_line(soi, source):
 def reserve_real(
 	*, plan, line, farm, variety, length, stems, user=None, team=None, harvested_from=None, forecast_basis=""
 ):
-	"""Plan up to `stems` of a line from shelf stock and hold the buckets. Returns (confirmation or None, held_stems).
+	"""Plan up to `stems` of a line from shelf stock. Returns (confirmation or None, confirmed stems).
 
 	`line` is a dict with sales_order, sales_order_item, customer, ordered_variety, ordered_length, mix_key.
-	Replaces any earlier Real plan of the same line. Holds only what is free, so held_stems can be less
-	than asked; the caller plans the rest as Virtual."""
+	Replaces any earlier Real plan of the same line. Confirms only what is free once other lines' Real stems
+	are counted off, so the confirmed stems can be less than asked; the caller plans the rest as Virtual."""
 	soi = line["sales_order_item"]
 	for existing in _live_of_line(soi, "Real"):
 		release_confirmation(existing.name, "Manual", user=user, keep_open=True)
@@ -195,18 +197,10 @@ def reserve_real(
 		):  # confirmed against another farm before: its mirror row must go
 			refresh_mirror(line["sales_order"], soi, existing.farm)
 
-	pool = free_for_line(farm, variety, length, soi, harvested_from)
-	_lock_buckets([b.bucket_id for b in pool])
-	pool = free_for_line(farm, variety, length, soi, harvested_from)  # re-read under the lock
-
-	remaining, picks = flt(stems), []
-	for b in pool:
-		if remaining <= 0:
-			break
-		take = min(b.free, remaining)
-		picks.append((b.bucket_id, take))
-		remaining -= take
-	held = flt(stems) - max(remaining, 0.0)
+	_lock_pool(variety)
+	free = sum(b.free for b in free_for_line(farm, variety, length, soi, harvested_from))
+	free -= _planned_elsewhere(farm, variety, length, soi)
+	held = max(0.0, min(flt(stems), free))
 	if held <= 0:
 		refresh_mirror(line["sales_order"], soi, farm)
 		return None, 0.0
@@ -214,20 +208,6 @@ def reserve_real(
 	conf = _confirmation(
 		plan, line, "Real", held, farm, variety, length, forecast_basis=forecast_basis, team=team
 	)
-	for bucket_id, take in picks:
-		frappe.get_doc(
-			{
-				"doctype": "Bucket Reservation",
-				"bucket_id": bucket_id,
-				"status": "Active",
-				"sales_order_item": soi,
-				"stems": take,
-				"confirmation": conf.name,
-				"plan": plan.name,
-				"item_code": variety,
-				"stem_length": length or "",
-			}
-		).insert(ignore_permissions=True)
 	refresh_mirror(line["sales_order"], soi, farm)
 	return conf, held
 
@@ -354,6 +334,20 @@ def group_team(mix_key):
 	)
 
 
+def teams_for_mixes(mix_keys):
+	"""{mix_key: team} already chosen for these mixed boxes (group_team for many at once)."""
+	keys = [k for k in mix_keys or () if k]
+	if not keys:
+		return {}
+	rows = frappe.get_all(
+		"Allocation Confirmation",
+		filters={"mix_key": ("in", keys), "status": ("in", LIVE), "team": ("!=", "")},
+		fields=["mix_key", "team"],
+		order_by="modified asc",
+	)
+	return {r.mix_key: r.team for r in rows}
+
+
 def apply_team_to_group(mix_key, team):
 	"""A mixed box has one team: the team chosen for one variety is saved on every line of the box."""
 	if mix_key and team:
@@ -426,12 +420,7 @@ def sequence_orders(plan, first=None):
 
 
 def release_confirmation(name, reason, user=None, keep_open=False):
-	"""Give the held buckets back and close the plan entry. `keep_open` is for callers about to replace it."""
-	frappe.db.sql(
-		"""UPDATE `tabBucket Reservation` SET status = 'Released', released_on = %(now)s
-		   WHERE confirmation = %(c)s AND status = 'Active'""",
-		{"now": now_datetime(), "c": name},
-	)
+	"""Close the plan entry. `keep_open` is for callers about to replace it."""
 	conf = frappe.db.get_value(
 		"Allocation Confirmation",
 		name,
@@ -477,38 +466,18 @@ def release_confirmation(name, reason, user=None, keep_open=False):
 
 
 def consume(bucket_id, soi, qty):
-	"""Allocation took `qty` stems of `bucket_id` for line `soi`: use up what was held for it."""
+	"""Allocation took `qty` stems of `bucket_id` for line `soi`: use up what was confirmed for it, the stems
+	confirmed from stock first, then the expected harvest."""
 	qty = flt(qty)
-	rows = frappe.get_all(
-		"Bucket Reservation",
-		filters={"bucket_id": bucket_id, "sales_order_item": soi, "status": "Active"},
-		fields=["name", "stems", "confirmation"],
-		order_by="creation asc",
-	)
 	taken_by = defaultdict(float)
-	for r in rows:
-		if qty <= 0:
+	confs = sorted(live_confirmations(soi=soi), key=lambda c: (c.source != "Real", str(c.creation), c.name))
+	for c in confs:
+		if qty <= 0.0001:
 			break
-		used = min(flt(r.stems), qty)
-		left = flt(r.stems) - used
-		frappe.db.set_value(
-			"Bucket Reservation",
-			r.name,
-			{
-				"stems": left,
-				"status": "Active" if left > 0 else "Consumed",
-				"released_on": None if left > 0 else now_datetime(),
-			},
-		)
-		taken_by[r.confirmation] += used
-		qty -= used
-	# stems from a bucket not held for the line use up what was confirmed on the forecast
-	if qty > 0.0001:
-		for c in live_confirmations(soi=soi, source="Virtual"):
-			used = min(max(0.0, flt(c.stems) - flt(c.fulfilled_stems)), qty)
-			if used > 0:
-				taken_by[c.name] += used
-				qty -= used
+		used = min(max(0.0, flt(c.stems) - flt(c.fulfilled_stems)), qty)
+		if used > 0:
+			taken_by[c.name] += used
+			qty -= used
 	for conf, used in taken_by.items():
 		done = flt(frappe.db.get_value("Allocation Confirmation", conf, "fulfilled_stems")) + used
 		frappe.db.set_value("Allocation Confirmation", conf, "fulfilled_stems", done)
@@ -528,8 +497,7 @@ def _set_fulfilment_status(conf):
 def release_line(soi, reason="Allocated"):
 	"""A line is fully allocated: whatever is still held or planned for it is no longer needed."""
 	for c in live_confirmations(soi=soi):
-		held = held_buckets(c.name)
-		if c.status in ("Partly Fulfilled", "Fulfilled") and not held:
+		if c.status in ("Partly Fulfilled", "Fulfilled"):
 			frappe.db.set_value("Allocation Confirmation", c.name, "status", "Fulfilled")
 			continue
 		release_confirmation(c.name, reason)
@@ -575,7 +543,7 @@ def replan_split(splits):
 
 	`splits` = [(source line, [new lines made from it])], read after the split. Each confirmation of a source is
 	shared out in proportion to the stems: the source keeps its share; a new line of the same variety takes its
-	share of the same confirmation (a Real one with the same buckets held); a new line of another variety (a
+	share of the same confirmation; a new line of another variety (a
 	substitute) is planned from the expected harvest for its share, and the old variety's share is given back.
 	Same plan, farm and team. A line that was never planned stays unplanned."""
 	from upande_packhouse.api.v2 import allocation_guards as guards
@@ -683,10 +651,7 @@ def _shares(c, src, news, before):
 
 def _share_out(conf, keep, parts, mix_key):
 	"""Share a live confirmation out after a split: it keeps `keep` stems, each (new line, stems) in `parts` takes
-	a confirmation of its own for its stems, and the rest is given back. A Real one's held buckets go in order --
-	the confirmation keeps the first ones up to its stems, the next ones go to the first new line, and so on --
-	so a bucket is only ever split where one share ends, in whole stems."""
-	targets = [(None, flt(keep))]
+	a confirmation of its own for its stems, and the rest is given back."""
 	for line, stems in parts:
 		if stems <= 0:
 			continue
@@ -702,54 +667,6 @@ def _share_out(conf, keep, parts, mix_key):
 			}
 		)
 		doc.insert(ignore_permissions=True)
-		targets.append((doc, flt(stems)))
-	if conf.source == "Real":
-		t, left = 0, targets[0][1]
-		for r in sorted(held_buckets(conf.name), key=lambda r: (-flt(r.stems), r.name)):
-			rem, first = flt(r.stems), True
-			while rem > 1e-6:
-				while t < len(targets) and left <= 1e-6:
-					t += 1
-					left = targets[t][1] if t < len(targets) else 0
-				take = min(rem, left) if t < len(targets) else rem
-				if t < len(targets):
-					to = targets[t][0]
-					soi, confirmation, status = (
-						(conf.sales_order_item, conf.name, "Active")
-						if to is None
-						else (to.sales_order_item, to.name, "Active")
-					)
-					left -= take
-				else:
-					soi, confirmation, status = conf.sales_order_item, conf.name, "Released"
-				if first:
-					values = {
-						"stems": take,
-						"sales_order_item": soi,
-						"confirmation": confirmation,
-						"status": status,
-					}
-					if status == "Released":
-						values["released_on"] = now_datetime()
-					frappe.db.set_value("Bucket Reservation", r.name, values)
-					first = False
-				else:
-					res = frappe.get_doc("Bucket Reservation", r.name)
-					frappe.get_doc(
-						{
-							"doctype": "Bucket Reservation",
-							"bucket_id": res.bucket_id,
-							"status": status,
-							"sales_order_item": soi,
-							"stems": take,
-							"confirmation": confirmation,
-							"plan": res.plan,
-							"item_code": res.item_code,
-							"stem_length": res.stem_length,
-							**({"released_on": now_datetime()} if status == "Released" else {}),
-						}
-					).insert(ignore_permissions=True)
-				rem -= take
 	if keep <= 0:
 		release_confirmation(conf.name, "Line split", keep_open=True)
 	else:
@@ -791,39 +708,13 @@ def release_passed_days():
 		frappe.db.set_value("Allocation Plan", p, "status", "Closed")
 
 
-def mark_missing_buckets():
-	"""Hourly job: a held bucket that is no longer on a shelf (taken, not found, discarded) is Broken."""
-	held = frappe.get_all(
-		"Bucket Reservation", filters={"status": "Active"}, fields=["name", "bucket_id", "confirmation"]
-	)
-	if not held:
-		return
-	on_shelf = {
-		r[0]
-		for r in frappe.db.sql(
-			"SELECT DISTINCT bucket_id FROM `tabShelf Item` WHERE stem_qty > 0 AND bucket_id IN %(b)s",
-			{"b": tuple({h.bucket_id for h in held})},
-		)
-	}
-	waiting = received.unshelved_bucket_ids(
-		{h.bucket_id for h in held} - on_shelf
-	)  # received, not shelved yet
-	discarding = availability.reserved_bucket_ids()
-	for h in held:
-		if (h.bucket_id not in on_shelf and h.bucket_id not in waiting) or h.bucket_id in discarding:
-			frappe.db.set_value(
-				"Bucket Reservation", h.name, {"status": "Broken", "released_on": now_datetime()}
-			)
-			frappe.db.set_value("Allocation Confirmation", h.confirmation, "status", "Broken")
-
-
 # ---------------------------------------------------------------- expected stock reaches the shelf
 
 
 def convert_virtual(delivery_date=None, farm=None):
-	"""Expected stems become real as the flowers reach the shelf: for every confirmation planned from the
-	forecast, hold buckets of its cutting day's harvest (or later) for as many stems as the shelf can now give
-	that line (oldest plans first), and keep only the rest as expected. Older stock is never held for a plan.
+	"""Expected stems become real as the flowers reach the shelf: every confirmation planned from the forecast is
+	confirmed from stock for as many stems of its cutting day's harvest (or later) as the shelf can now give that
+	line (oldest plans first), and keeps only the rest as expected. Older stock is never counted for a plan.
 	Returns the stems converted."""
 	filters = {"source": "Virtual", "status": "Planned"}
 	if delivery_date:
@@ -849,6 +740,7 @@ def convert_virtual(delivery_date=None, farm=None):
 		real = max(0.0, flt(held_now.stems) - flt(held_now.fulfilled_stems)) if held_now else 0.0
 		cut = add_days(c.delivery_date, -HARVEST_LEAD_DAYS)
 		free = sum(b.free for b in free_for_line(c.farm, c.variety, c.length, soi, cut))
+		free -= _planned_elsewhere(c.farm, c.variety, c.length, soi)
 		# what this expected-harvest confirmation still has to cover: its stems already allocated (fulfilled)
 		# are the line's allocation, never held a second time
 		expected = max(0.0, flt(c.stems) - flt(c.fulfilled_stems))
@@ -1026,10 +918,7 @@ def setup_settings():
 
 
 def ensure_indexes():
-	"""The allocator asks 'is this bucket held?' on every allocation; index it."""
-	if frappe.db.table_exists("Bucket Reservation"):
-		frappe.db.add_index("Bucket Reservation", ["status", "bucket_id"], "idx_status_bucket")
-		frappe.db.add_index("Bucket Reservation", ["status", "sales_order_item"], "idx_status_soi")
+	"""Indexes the allocation plan reads by."""
 	ensure_bucket_activity_index()
 
 

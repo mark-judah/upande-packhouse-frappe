@@ -159,7 +159,7 @@ def _place_scheduled(summary=None, add_runs=False):
 def _scheduled_portions(today):
 	"""(farm, sales farm) -> [trip row] of every scheduled order delivering tomorrow or the
 	day after with buckets at a remote farm that no trip claims (counted by physical bucket,
-	as _save_trip does) -- earliest delivery, then schedule step, then team first. The sales
+	as _save_trip does) -- earliest delivery, then the sales farm's packing sequence, then team first. The sales
 	farm is the order's own (where its buckets go)."""
 	default = tc.transfer_hub(required=False)
 	orders = [
@@ -169,9 +169,8 @@ def _scheduled_portions(today):
 	]
 	if not orders:
 		return {}
-	orders.sort(
-		key=lambda o: (o.get("delivery_date") or "", int(o.get("schedule") or 0), o.get("team") or "")
-	)
+	_attach_sequence(orders)
+	orders.sort(key=lambda o: (o.get("delivery_date") or "", _seq(o), o.get("team") or ""))
 	opls = [o["opl"] for o in orders]
 	open_counts, claims = tc._open_counts(opls), tc._bucket_claims(opls)
 	out = {}
@@ -803,13 +802,14 @@ def _plan(window=None):
 	all_trucks = _fleet(data, today)
 	# Only orders delivering in the window or later: one already due is never carried
 	# into a new day's trips.
+	_attach_sequence(data["orders"])
 	all_orders = _open_orders(data)
 	# The day after's orders only: its trips are today's, already in `data`. Never past the day after tomorrow:
 	# trips are only for orders delivering tomorrow or the day after.
 	day_after = frappe.utils.add_days(window, 1)
 	last_day = frappe.utils.add_days(today, 2)
 	all_later = (
-		_open_orders({**data, "orders": tc.schedule_orders(day_after, day_after)})
+		_open_orders({**data, "orders": _attach_sequence(tc.schedule_orders(day_after, day_after))})
 		if frappe.utils.getdate(day_after) <= frappe.utils.getdate(last_day)
 		else []
 	)
@@ -839,7 +839,12 @@ def _plan(window=None):
 		seen = {o["opl"] for o in orders}
 		topped += _top_up(
 			trucks,
-			part["waiting"] + part["held"] + [o for o in later if o["opl"] not in seen],
+			part["waiting"]
+			+ part["held"]
+			# the day after's orders in its sales farm's sequence too (numbered per delivery day)
+			+ sorted(
+				(o for o in later if o["opl"] not in seen), key=lambda o: (_seq(o), o.get("team") or "")
+			),
 			graph,
 		)
 		_consolidate(trucks, graph)
@@ -1085,7 +1090,7 @@ def _moving(data):
 	(buckets at a farm or on the road): its sequence step hasn't arrived yet."""
 	out = {}
 	for o in data.get("orders") or []:
-		k = int(o.get("schedule") or 0)
+		k = _seq(o)
 		at, road = int(o.get("total_buckets") or 0), int(o.get("on_road_buckets") or 0)
 		if k and (at > 0 or road > 0):
 			out[o["opl"]] = {"schedule": k, "at_farms": at, "on_road": road}
@@ -1094,8 +1099,8 @@ def _moving(data):
 
 def _distribute(orders, trucks, graph, moving=None):
 	"""Plan the scheduled orders onto the trucks, ONE SEQUENCE STEP AT A TIME: step k
-	is every team's schedule #k. The first step that hasn't fully arrived at the hub
-	is planned -- its whole orders not on a truck yet, each on one truck where one can
+	is the sales farm's packing sequence #k (_seq; orders it has not numbered after, by team
+	step). The first step that hasn't fully arrived at the hub is planned -- its whole orders not on a truck yet, each on one truck where one can
 	take it all -- and the next step waits until it has arrived, so the hub shelves
 	one step while the line issues the one before. ASAP replacements go first, then
 	left-behind buckets. `moving`: _moving(data)."""
@@ -1104,10 +1109,35 @@ def _distribute(orders, trucks, graph, moving=None):
 	return _distribute_steps(orders, trucks, graph, moving)
 
 
+#: Orders the sales farm has not numbered come after every numbered one, in their team's step order.
+SEQ_UNSET = 100000
+
+
+def _attach_sequence(orders):
+	"""Each order's place in its sales farm's packing sequence (Sales Order.custom_allocation_sequence, numbered
+	per sales farm and delivery day; read only): o["sales_seq"]. Trips are filled in that sequence (_seq), so
+	the buckets reach the sales farm in the order it packs them. Returns `orders`."""
+	from upande_packhouse.api.remote_transfer.bucket_logistics import _sales_farm_sequence
+
+	seq = _sales_farm_sequence({o.get("so") or o.get("sales_order") for o in orders or []})
+	for o in orders or []:
+		o["sales_seq"] = int(seq.get(o.get("so") or o.get("sales_order")) or 0)
+	return orders
+
+
+def _seq(o):
+	"""The order's place in the trip filling order: its sales farm's sequence, else after every sequenced order
+	by its team's step."""
+	n = int(o.get("sales_seq") or 0)
+	return n if n > 0 else SEQ_UNSET + int(o.get("schedule") or 0)
+
+
 def _distribute_steps(orders, trucks, graph, moving):
 	"""The sequence steps of _distribute, once the buckets that go first are placed."""
 	orders = [o for o in orders if o["open"] > 0 and int(o.get("schedule") or 0) > 0]
 	by_opl = {o["opl"]: o for o in orders}
+	for o in orders:
+		o["seq"] = _seq(o)
 	unreachable = [
 		o for o in orders if not any(_any_serves(trucks, f["farm"], graph) for f in o["open_farms"])
 	]
@@ -1123,7 +1153,7 @@ def _distribute_steps(orders, trucks, graph, moving):
 			steps.add(m["schedule"])
 	for o in orders:
 		if o["opl"] not in stuck:
-			steps.add(int(o["schedule"]))
+			steps.add(o["seq"])
 	if not steps:
 		return {"unreachable": unreachable, "held": [], "partial": [], "waiting": [], "step": None}
 	step = min(steps)
@@ -1139,14 +1169,16 @@ def _distribute_steps(orders, trucks, graph, moving):
 	def truck_room():
 		return sum(max(0, int(t.get("rem") or 0)) for t in trucks)
 
-	for k in sorted({int(o["schedule"]) for o in orders if int(o["schedule"]) >= step}):
+	for k in sorted({o["seq"] for o in orders if o["seq"] >= step}):
 		portions = [
 			{**o, "open_farms": [f], "open": f["buckets"], "farm": f["farm"]}
 			for o in orders
-			if int(o["schedule"]) == k and o["opl"] not in stuck
+			if o["seq"] == k and o["opl"] not in stuck
 			for f in o["open_farms"]
 		]
 		for o in sorted(portions, key=lambda o: o["open"]):
+			# Each team keeps its sequence per farm: once one of its portions fits on no trip, its later ones there
+			# wait; another team's are not held up.
 			key = (o.get("team") or "", o["farm"])
 			if key in blocked or truck_room() <= 0:
 				blocked.add(key)

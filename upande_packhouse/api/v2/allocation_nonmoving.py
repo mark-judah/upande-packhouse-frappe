@@ -70,6 +70,9 @@ def get_non_moving(delivery_date: str | None = None, farm: str | None = None, we
 	if days:
 		day = days[0]
 	model = full_model(day, farm, days)
+	# each line's team, read once for every line (one at a time it was most of this page's time)
+	line_team = plans.teams_for_lines([ln.name for ln in model.lines])
+	mix_team = plans.teams_for_mixes({guards._mix_key(ln) for ln in model.lines} - {None, ""})
 	amber = pg.amber_from_days()
 	primary = {
 		(r[0], r[1])
@@ -108,7 +111,7 @@ def get_non_moving(delivery_date: str | None = None, farm: str | None = None, we
 					"ordered_length": ln.custom_length or "",
 					"needs": model.left[ln.name],
 					"take": take,
-					"team": plans.team_for_line(ln.name) or plans.group_team(guards._mix_key(ln)) or "",
+					"team": line_team.get(ln.name) or mix_team.get(guards._mix_key(ln)) or "",
 					"mixed": bool(ln.custom_mixed_box or ln.custom_mixed_bunch),
 				}
 				if kind == "substitute":

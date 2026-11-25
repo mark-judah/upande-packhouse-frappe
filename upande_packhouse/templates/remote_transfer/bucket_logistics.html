@@ -125,6 +125,19 @@
     #tm-root .tt-trip-farms { flex: 1 1 auto; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; min-width: 0; }
     #tm-root .tt-trip-farm { background: #2b2b2b; border: 1px solid #555; color: #fff; border-radius: 12px; padding: 1px 9px; font-size: 12px; font-weight: 600; white-space: nowrap; }
     #tm-root .tt-trip-farm b { color: #fff; }
+    #tm-root .tt-seq { flex: none; background: #fff; color: #111; border-radius: 999px; padding: 1px 10px; font-size: 12px; font-weight: 600; white-space: nowrap; margin-right: 8px; }
+    #tm-root .tt-seq.tt-seq-bad { background: #c0392b; color: #fff; }
+    #tm-root .ts-hub { margin: 18px 0 8px; font-weight: 700; font-size: 15px; }
+    #tm-root .ts-team { background: #fff; border: 1px solid #e7e5e0; border-radius: 12px; margin: 0 0 12px; overflow: hidden; }
+    #tm-root .ts-team-h { display: flex; gap: 10px; align-items: center; padding: 10px 14px; background: #0a0a0a; color: #fff; font-weight: 600; }
+    #tm-root .ts-team-h .ts-ok { color: #86efac; font-weight: 500; }
+    #tm-root .ts-team-h .ts-bad { color: #fca5a5; font-weight: 600; }
+    #tm-root .ts-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+    #tm-root .ts-tbl th { text-align: left; font-weight: 600; color: #6b6b6b; padding: 8px 12px; border-bottom: 1px solid #eee; white-space: nowrap; }
+    #tm-root .ts-tbl td { padding: 8px 12px; border-bottom: 1px solid #f3f3f3; vertical-align: top; }
+    #tm-root .ts-tbl tr.ts-late td { background: #fdecea; }
+    #tm-root .ts-tbl .ts-why { color: #b42318; font-weight: 600; }
+    #tm-root .ts-tbl tr.ts-next td:first-child { box-shadow: inset 3px 0 0 #2563eb; }
     #tm-root .tt-earlier { flex: none; font-size: 11px; font-weight: 600; color: #f2b8b5; border: 1px solid #8a4b47; border-radius: 6px; padding: 2px 8px; margin-right: 6px; }
     #tm-root .tt-exp { flex: none; border: 1px solid #555; background: #2b2b2b; color: #fff; border-radius: 6px; padding: 3px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
     #tm-root .tt-exp:hover { background: #3a3a3a; border-color: #777; }
@@ -363,6 +376,8 @@
   }
   function ovTeamTag(o) {
     if (o.no_team) return ' <span class="ov-pill" style="background:#b42318" title="Set the team on the Order Pick List">no team</span>';
+    // Its place in its sales farm's packing sequence, then its team; the team's own # only without one.
+    if (Number(o.sequence)) return ' <span class="ov-team" title="Packing sequence at ' + esc(o.hub || 'the sales farm') + '">(' + esc((o.hub || '') + ' #' + o.sequence) + ' · ' + esc(o.team) + ')</span>';
     return ' <span class="ov-team">(' + esc(o.team) + (o.schedule ? ' #' + esc(o.schedule) : '') + ')</span>';
   }
   function ovAsapTag(o) {
@@ -764,7 +779,7 @@
         var trips = (o.trips || []).filter(function (t) { return !t.farm || !f.farm || t.farm === f.farm; });
         var base = {
           opl: o.opl, order_name: o.order_name || o.opl, customer: o.customer, sales_order: o.sales_order,
-          team: o.team, no_team: o.no_team, schedule: o.schedule, scheduled: o.scheduled, delivery_date: o.delivery_date,
+          team: o.team, no_team: o.no_team, schedule: o.schedule, sequence: o.sequence, scheduled: o.scheduled, delivery_date: o.delivery_date,
           initiated: o.initiated, arrived: o.arrived, hub: o.hub, asap: o.asap, truck: o.truck,
           farm: f.farm || '', varieties: f.varieties != null ? f.varieties : o.varieties,
         };
@@ -1033,6 +1048,131 @@
     return '<span class="tt-qty"><span><b>' + n(b) + '</b> bucket' + (Number(b) === 1 ? '' : 's') + '</span>' +
       '<span><b>' + n(st) + '</b> stems</span></span>';
   }
+  // The packing numbers a trip carries (its orders' place in their sales farm's sequence) and that sales farm.
+  function ttSeqOf(g) {
+    var nums = g.rows.map(function (r) { return Number(r.sequence) || 0; }).filter(function (x) { return x > 0; });
+    var ranks = g.rows.map(seqRank).filter(function (x) { return x > 0; });
+    g.rankFrom = ranks.length ? Math.min.apply(null, ranks) : Infinity;
+    var hubRow = g.rows.filter(function (r) { return r.hub; })[0];
+    g.hub = (hubRow && hubRow.hub) || (window.RT && RT.transferHub) || 'the sales farm';
+    g.seqFrom = nums.length ? Math.min.apply(null, nums) : Infinity;
+    g.seqTo = nums.length ? Math.max.apply(null, nums) : Infinity;
+  }
+  // 0 still at the farm, 1 on the road, 2 at the sales farm.
+  function ttMove(g) {
+    var t = g.trip;
+    if (!t) return 0;
+    if (t.status === 'Received' || t.arrived_at) return 2;
+    return t.status === 'Dispatched' || t.left_at ? 1 : 0;
+  }
+  function ttOrdinal(k) {
+    var m = k % 100;
+    return k + (m >= 11 && m <= 13 ? 'th' : (['th', 'st', 'nd', 'rd'][k % 10] || 'th'));
+  }
+  function ttSeqBadge(g) {
+    if (!g.trip || !g.arrival) return '';
+    var packs = g.seqFrom === Infinity ? '' : ' · packs #' + g.seqFrom + (g.seqTo !== g.seqFrom ? '–#' + g.seqTo : '');
+    var late = g.ahead && g.ahead.length;
+    var title = late ? 'Out of sequence: left before ' + g.ahead.join('; ')
+      : 'The order this trip is to reach ' + g.hub + ' in, by the packing numbers it carries';
+    return '<span class="tt-seq' + (late ? ' tt-seq-bad' : '') + '" title="' + esc(title) + '">' +
+      esc(ttOrdinal(g.arrival) + ' to ' + g.hub + packs) + (late ? ' · out of sequence' : '') + '</span>';
+  }
+  // ---------- By team: each team's orders in packing order, per farm, and whether their buckets come in that order ----------
+  // A team packs its orders in its sales farm's sequence (Sales Order.custom_allocation_sequence, the team's orders
+  // ranked by it). From each farm, a team's order is to reach the sales farm before its next one: a row is out of
+  // sequence when its buckets arrived while an earlier order of the same team from the same farm has not.
+  // Packing order across days: an earlier delivery day first, then the sales farm's sequence for that day (it is
+  // numbered per day, so a later day's #2 is not before an earlier day's #60). 0 when the order has no number.
+  function seqRank(r) {
+    var n = Number(r.sequence) || 0;
+    if (!n) return 0;
+    var d = Number(String(r.delivery_date || '').replace(/-/g, '').slice(0, 8)) || 0;
+    return d * 100000 + n;
+  }
+  function tsArrived(r) {
+    return Math.max(Number(r.arrived_hub) || 0, Number(r.shelved) || 0, Number(r.ready) || 0, Number(r.issued) || 0, Number(r.issued_offline) || 0);
+  }
+  function tsState(e) {
+    var need = Math.max(0, e.total - e.not_found);
+    if (need && e.arrived >= need) return 'Arrived';
+    if (e.arrived > 0) return 'Part arrived (' + e.arrived + '/' + need + ')';
+    if (e.moving > 0) return 'On the road';
+    if (e.loaded > 0) return 'On the truck';
+    if (e.trolley > 0) return 'In trolley';
+    return 'At the farm';
+  }
+  function renderTeamSeq(combos) {
+    // one row per order and farm: its pick lists added together (each pick list's counts once per farm)
+    var entries = {}, list = [], counted = {};
+    combos.forEach(function (r) {
+      if (!r.farm) return;
+      var k = (r.sales_order || r.opl) + '||' + r.farm;
+      var e = entries[k];
+      if (!e) {
+        e = entries[k] = {
+          opl: r.opl, so: r.sales_order || r.opl, order_name: r.order_name, customer: r.customer, team: r.team || 'No team', hub: r.hub || (window.RT && RT.transferHub) || '',
+          sequence: Number(r.sequence) || 0, rank: seqRank(r), delivery_date: r.delivery_date, schedule: Number(r.schedule) || 0, farm: r.farm,
+          total: 0, not_found: 0, arrived: 0, moving: 0, loaded: 0, trolley: 0, trips: [],
+        };
+        list.push(e);
+      }
+      if (!counted[r.opl + '||' + r.farm]) {
+        counted[r.opl + '||' + r.farm] = 1;
+        e.total += Number(r.total) || 0;
+        e.not_found += Number(r.not_found) || 0;
+        e.arrived += tsArrived(r);
+        e.moving += Number(r.transit) || 0;
+        e.loaded += Number(r.on_truck) || 0;
+        e.trolley += Number(r.trolley) || 0;
+      }
+      if (r.trip) {
+        var lbl = (r.trip.vehicle || r.trip.trip) + (r.trip.run ? ' Trip ' + r.trip.run : '') + ' · ' + tripStatus(r.trip);
+        if (e.trips.indexOf(lbl) < 0) e.trips.push(lbl);
+      } else if (r.section && e.trips.indexOf(r.section) < 0) e.trips.push(r.section);
+    });
+    if (!list.length) return '<div class="tm-empty">Nothing to show.</div>';
+    var hubs = {};
+    list.forEach(function (e) { ((hubs[e.hub] = hubs[e.hub] || {})[e.team] = hubs[e.hub][e.team] || []).push(e); });
+    var key = function (e) { return [e.rank || 9e15, e.schedule || 1e9]; };
+    return Object.keys(hubs).sort().map(function (hub) {
+      var teams = hubs[hub];
+      return '<div class="ts-hub">To ' + esc(hub || 'the sales farm') + '</div>' + Object.keys(teams).sort().map(function (team) {
+        var rows = teams[team];
+        // the team's packing order: its orders by the sales farm's sequence (an order's pick lists share its place)
+        var opls = [];
+        rows.slice().sort(function (a, b) { var ka = key(a), kb = key(b); return ka[0] - kb[0] || ka[1] - kb[1] || String(a.order_name).localeCompare(String(b.order_name)); })
+          .forEach(function (e) { if (opls.indexOf(e.so) < 0) opls.push(e.so); });
+        rows.forEach(function (e) { e.pos = opls.indexOf(e.so) + 1; });
+        rows.sort(function (a, b) { return a.pos - b.pos || String(a.farm).localeCompare(String(b.farm)); });
+        var late = 0, next = {};
+        rows.forEach(function (e) {
+          var need = Math.max(0, e.total - e.not_found);
+          e.done = need > 0 && e.arrived >= need;
+          if (!e.done && need > 0 && next[e.farm] == null) next[e.farm] = e.pos;
+          e.before = e.arrived > 0 ? rows.filter(function (d) {
+            return d.farm === e.farm && d.pos < e.pos && Math.max(0, d.total - d.not_found) > 0 && d.arrived < Math.max(0, d.total - d.not_found);
+          }) : [];
+          if (e.before.length) late++;
+        });
+        var head = '<div class="ts-team-h"><span>' + esc(team) + '</span><span style="font-weight:400;opacity:.8">' + opls.length + ' order' + (opls.length === 1 ? '' : 's') + '</span>' +
+          (late ? '<span class="ts-bad">' + late + ' out of sequence</span>' : '<span class="ts-ok">In sequence</span>') + '</div>';
+        var body = rows.map(function (e) {
+          var why = e.before.length ? 'Came before #' + e.before.map(function (d) { return d.pos + ' ' + d.order_name; }).join(', #') : '';
+          var cls = (e.before.length ? 'ts-late' : '') + (next[e.farm] === e.pos ? ' ts-next' : '');
+          return '<tr class="' + cls.trim() + '">' +
+            '<td><b>#' + e.pos + '</b></td>' +
+            '<td><b>' + esc(e.order_name) + '</b><div class="ov-sub">' + esc(e.customer || '') + '</div></td>' +
+            '<td>' + (e.sequence ? esc(e.hub) + ' #' + e.sequence : '<span class="ov-sub">not sequenced</span>') + '<div class="ov-sub">' + esc(e.delivery_date || '') + '</div></td>' +
+            '<td>' + esc(e.farm) + '</td>' +
+            '<td>' + e.arrived + ' / ' + Math.max(0, e.total - e.not_found) + (e.not_found ? '<div class="ov-sub">' + e.not_found + ' not found</div>' : '') + '</td>' +
+            '<td>' + (e.trips.length ? e.trips.map(esc).join('<br>') : '<span class="ov-sub">—</span>') + '</td>' +
+            '<td>' + esc(tsState(e)) + (why ? '<div class="ts-why">' + esc(why) + '</div>' : '') + '</td></tr>';
+        }).join('');
+        return '<div class="ts-team">' + head + '<table class="ts-tbl"><thead><tr><th>Team #</th><th>Order</th><th>Sales farm #</th><th>From</th><th>Arrived</th><th>Trip</th><th>Where</th></tr></thead><tbody>' + body + '</tbody></table></div>';
+      }).join('');
+    }).join('');
+  }
   function renderTripTree(combos) {
     var byTrip = {}, order = [];
     combos.forEach(function (r) {
@@ -1045,14 +1185,42 @@
     var picked = Object.keys(OV.trucks || {});
     if (picked.length) order = order.filter(function (k) { return byTrip[k].trip && picked.indexOf(byTrip[k].trip.vehicle) >= 0; });
     if (!order.length) return '<div class="tm-empty">Nothing to show.</div>';
+    // In the order the trips are to reach their sales farm, so the packing sequence is followed: per sales
+    // farm, the trip carrying the earliest order of the sales farm's sequence first; no truck yet / not scheduled last.
+    order.forEach(function (k) { ttSeqOf(byTrip[k]); });
     var keys = order.sort(function (a, b) {
       var ga = byTrip[a], gb = byTrip[b];
       if (!!ga.trip !== !!gb.trip) return ga.trip ? -1 : 1;
-      // A truck's trips one after the other: by truck, then day, then run.
-      if (ga.trip) return String(ga.trip.vehicle || '').localeCompare(String(gb.trip.vehicle || '')) ||
-        String(ga.trip.trip_date || '').localeCompare(String(gb.trip.trip_date || '')) ||
+      if (ga.trip) return String(ga.hub || '').localeCompare(String(gb.hub || '')) || ga.rankFrom - gb.rankFrom || ga.seqTo - gb.seqTo ||
+        String(ga.trip.vehicle || '').localeCompare(String(gb.trip.vehicle || '')) ||
         (ga.trip.run || 99) - (gb.trip.run || 99) || ga.trip.trip.localeCompare(gb.trip.trip);
       return 0;
+    });
+    // Each trip's place in its sales farm's arrival order, and whether it is out of it: it left (or arrived)
+    // carrying a team's order from a farm while an earlier order of the same team from that farm is still there
+    // (on a trip that has not left, or on none).
+    var place = {};
+    var waitingAt = function (g) { return !g.trip || ttMove(g) === 0; };
+    keys.forEach(function (k) {
+      var g = byTrip[k];
+      if (!g.trip) return;
+      g.arrival = place[g.hub] = (place[g.hub] || 0) + 1;
+      if (ttMove(g) === 0) { g.ahead = []; return; }
+      var seen = {};
+      g.ahead = [];
+      g.rows.forEach(function (r) {
+        if (!seqRank(r)) return;
+        keys.forEach(function (x) {
+          var h = byTrip[x];
+          if (h === g || !waitingAt(h)) return;
+          h.rows.forEach(function (d) {
+            if (d.team === r.team && d.farm === r.farm && seqRank(d) > 0 && seqRank(d) < seqRank(r)) {
+              var lbl = (d.team || '') + ': ' + d.order_name + ' (#' + d.sequence + ') still at ' + d.farm;
+              if (!seen[lbl]) { seen[lbl] = 1; g.ahead.push(lbl); }
+            }
+          });
+        });
+      });
     });
     return keys.map(function (tkey) {
       var g = byTrip[tkey];
@@ -1079,9 +1247,12 @@
           var byOrder = {}, oKeys = [];
           frows.forEach(function (r) { if (!byOrder[r.opl]) { byOrder[r.opl] = r; oKeys.push(r.opl); } });
           // Not scheduled (no trip) is sorted oldest-first by when it was
-          // initiated — the longest-waiting order surfaces at the top. A farm
-          // that's already on a real trip keeps the alphabetical order instead.
-          if (g.trip) oKeys.sort(function (a, b) { return (byOrder[a].order_name || '').localeCompare(byOrder[b].order_name || ''); });
+          // initiated — the longest-waiting order surfaces at the top. On a trip:
+          // in its sales farm's packing sequence.
+          if (g.trip) oKeys.sort(function (a, b) {
+            return (Number(byOrder[a].sequence) || Infinity) - (Number(byOrder[b].sequence) || Infinity) ||
+              (byOrder[a].order_name || '').localeCompare(byOrder[b].order_name || '');
+          });
           else oKeys.sort(function (a, b) { return ovInitiatedMs(byOrder[a]) - ovInitiatedMs(byOrder[b]); });
           var ordersHtml = '';
           if (!fShut) {
@@ -1107,7 +1278,7 @@
         }).join('');
       }
       return '<div class="tt-trip">' +
-        '<div class="tt-trip-h" data-tt-toggle="t:' + esc(tkey) + '"><span class="ov-caret">' + (tShut ? '▸' : '▾') + '</span><span>' + tLabel + '</span>' + farmsChips + '<span class="ov-count">' + (g.trip ? '' : bktLbl(bkts(g.rows))) + farmCount + ' farm' + (farmCount === 1 ? '' : 's') + ' · ' + orderCount + ' order' + (orderCount === 1 ? '' : 's') + '</span>' +
+        '<div class="tt-trip-h" data-tt-toggle="t:' + esc(tkey) + '"><span class="ov-caret">' + (tShut ? '▸' : '▾') + '</span>' + ttSeqBadge(g) + '<span>' + tLabel + '</span>' + farmsChips + '<span class="ov-count">' + (g.trip ? '' : bktLbl(bkts(g.rows))) + farmCount + ' farm' + (farmCount === 1 ? '' : 's') + ' · ' + orderCount + ' order' + (orderCount === 1 ? '' : 's') + '</span>' +
           (g.trip && ttEarlierDay(g.trip) ? '<span class="tt-earlier">Earlier day</span>' : '') +
           (g.trip && TRUCK_CHANGEABLE[g.trip.status] && !(g.trip.loaded_buckets > 0) && !ttEarlierDay(g.trip) ? '<button type="button" class="tt-exp" data-tt-truck="' + esc(g.trip.trip) + '" data-tt-truck-now="' + esc(g.trip.vehicle || '') + '">Change truck</button>' : '') +
           '<button type="button" class="tt-exp" data-tt-exp="' + esc(tkey) + '">' + (ttTripAllOpen(tkey) ? 'Collapse' : 'Expand') + '</button></div>' +
@@ -1883,14 +2054,15 @@
     else if (ACTIVE === 'heatmap') html = renderHeatmap(combos);
     else if (ACTIVE === 'tree') html = renderTree(combos);
     else if (ACTIVE === 'flat') html = renderFlat(combos);
-    else if (ACTIVE === 'triptree') html = BL_GROUP === 'order' ? renderOrderLines() : BL_GROUP === 'opl' ? renderOpls() : renderTripTree(combos);
+    else if (ACTIVE === 'triptree') html = BL_GROUP === 'order' ? renderOrderLines() : BL_GROUP === 'opl' ? renderOpls() : BL_GROUP === 'team' ? renderTeamSeq(combos) : renderTripTree(combos);
     var grp = '<div class="bl-grp" role="group" aria-label="Group by">' +
-      '<button type="button" data-bl-group="trip" class="' + (BL_GROUP === 'order' || BL_GROUP === 'opl' ? '' : 'is-on') + '">By trip</button>' +
+      '<button type="button" data-bl-group="trip" class="' + (BL_GROUP === 'order' || BL_GROUP === 'opl' || BL_GROUP === 'team' ? '' : 'is-on') + '">By trip</button>' +
       '<button type="button" data-bl-group="order" class="' + (BL_GROUP === 'order' ? 'is-on' : '') + '">By order</button>' +
-      '<button type="button" data-bl-group="opl" class="' + (BL_GROUP === 'opl' ? 'is-on' : '') + '">By OPL</button></div>';
+      '<button type="button" data-bl-group="opl" class="' + (BL_GROUP === 'opl' ? 'is-on' : '') + '">By OPL</button>' +
+      '<button type="button" data-bl-group="team" class="' + (BL_GROUP === 'team' ? 'is-on' : '') + '">By team</button></div>';
     var ttAll = ACTIVE === 'triptree'
       ? '<div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin:0 0 10px;">' + grp +
-        '<button type="button" data-tt-all="1" style="border:0;border-radius:10px;padding:9px 18px;background:#f1efea;color:#0a0a0a;font:600 13px var(--sans,\'Poppins\',system-ui,sans-serif);cursor:pointer">Expand all</button>' +
+        (BL_GROUP === 'team' ? '' : '<button type="button" data-tt-all="1" style="border:0;border-radius:10px;padding:9px 18px;background:#f1efea;color:#0a0a0a;font:600 13px var(--sans,\'Poppins\',system-ui,sans-serif);cursor:pointer">Expand all</button>') +
         (window.rtTrucks ? '<button type="button" data-tt-trucks="1" style="border:0;border-radius:10px;padding:9px 18px;background:#0a0a0a;color:#fff;font:600 13px var(--sans,\'Poppins\',system-ui,sans-serif);cursor:pointer">Add to truck</button>' : '') +
         '</div>' : '';
     body.innerHTML = controlsHtml() + (ACTIVE === 'triptree' ? ovOrigKpis(OV.orders || []) : '') + ttAll + html;

@@ -56,7 +56,7 @@ def stock_stages(farm, varieties, places=None, process_day=None):
 	age_of = pg._discard_ages() if process_day else None
 	for r in stock.bucket_rows(farms=farms, varieties=vs):
 		if ahead is None:
-			out[(r.variety, r.stem_length or "")]["shelf"] += flt(r.allocatable) + flt(r.reserved)
+			out[(r.variety, r.stem_length or "")]["shelf"] += flt(r.allocatable)
 		elif not r.in_discard_request and (r.age_days or 0) + ahead < age_of(r.variety):
 			out[(r.variety, r.stem_length or "")]["shelf"] += max(0.0, flt(r.free))
 	for r in received.received_unshelved(farms=farms, varieties=vs):

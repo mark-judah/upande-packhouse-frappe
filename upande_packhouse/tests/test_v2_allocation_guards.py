@@ -257,11 +257,9 @@ class TestWithRealData(unittest.TestCase):
 			moved = plans.convert_virtual(day, self.c.farm)
 			self.assertAlmostEqual(moved, min(10.0, free), places=3)
 			held = sum(
-				frappe.get_all(
-					"Bucket Reservation",
-					filters={"sales_order_item": a.soi, "status": "Active"},
-					pluck="stems",
-				)
+				max(0.0, c.stems - (c.fulfilled_stems or 0))
+				for c in plans.live_confirmations(soi=a.soi)
+				if c.source == "Real"
 			)
 			self.assertAlmostEqual(held, min(10.0, free), places=3)
 			rest = 10.0 - min(10.0, free)

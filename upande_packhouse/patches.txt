@@ -27,3 +27,5 @@ upande_packhouse.patches.packing_teams_sales_farm
 upande_packhouse.patches.settle_issued_bucket_holds
 upande_packhouse.patches.box_label_delivery_date
 upande_packhouse.patches.confirmed_stems_team_and_sales_farm
+upande_packhouse.patches.remove_bucket_reservation
+upande_packhouse.patches.allocation_confirmation_own_series

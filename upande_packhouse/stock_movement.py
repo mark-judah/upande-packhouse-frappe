@@ -366,6 +366,32 @@ def _bucket_lines(param="bucket"):
             WHERE {_bucket_expr()} = %({param})s"""
 
 
+def ensure_line_bucket_field():
+	"""Create `Stock Entry Detail.custom_bucket_id` on a site without it (it comes with upande_harvest's
+	fixtures elsewhere). Without it every bucket of a release is its own Stock Entry (post_plans): a 16-order
+	release posted 199 one-row entries, about three times the entries -- and the time -- grouping needs."""
+	if line_has_bucket():
+		return
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_field
+
+	linked = frappe.db.exists("DocType", "Bucket QR Code")
+	create_custom_field(
+		"Stock Entry Detail",
+		{
+			"fieldname": "custom_bucket_id",
+			"label": "Bucket",
+			"fieldtype": "Link" if linked else "Data",
+			"options": "Bucket QR Code" if linked else None,
+			"insert_after": "custom_stem_length"
+			if frappe.db.has_column("Stock Entry Detail", "custom_stem_length")
+			else "uom",
+			"in_list_view": 1,
+			"search_index": 1,
+			"module": "Upande Packhouse",
+		},
+	)
+
+
 def ensure_line_bucket_index():
 	"""Index `Stock Entry Detail.custom_bucket_id`, which `_bucket_lines` relies on.
 

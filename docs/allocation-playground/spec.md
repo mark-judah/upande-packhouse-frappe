@@ -106,19 +106,12 @@ Naming: `AP-{delivery_date}-{farm}`. Created on first confirmation. Closed autom
 
 One live confirmation per (line, source). Changing stems edits it; the history is the Version log.
 
-### 4.3 Bucket Reservation (one row per bucket per Real confirmation) -- the table allocation queries
-| Field | Type | Notes |
-|---|---|---|
-| bucket_id | Link Bucket QR Code | **indexed** |
-| confirmation | Link Allocation Confirmation | |
-| sales_order_item | Data | **indexed**; who the bucket is reserved for |
-| plan | Link | |
-| stems | Float | stems of this bucket reserved (<= the bucket's free stems when reserved) |
-| status | Select | Active, Consumed, Released, Broken |
-| released_on | Datetime | |
-
-Composite index (`status`, `bucket_id`). This is the only table the allocator needs:
-`SELECT bucket_id, sales_order_item, SUM(stems) FROM tabBucket Reservation WHERE status = 'Active' AND bucket_id IN (...) GROUP BY bucket_id, sales_order_item`.
+### 4.3 Bucket Reservation (removed 2026-11-25)
+Real confirmations no longer hold buckets. Holding them hid free buckets from Sales Allocation and broke FIFO, so
+the table is dropped (patch `remove_bucket_reservation`). A Real confirmation is stems only; what other lines
+have confirmed from stock and not allocated (`allocation_plan._planned_elsewhere`) is counted off what the plan
+offers the next line, so the plan never promises the same stems twice. Allocation takes any free bucket,
+oldest first.
 
 ### 4.4 Compatibility with `Confirmed Stems`
 The allocator today reads `Sales Order > custom_confirmed_stems_table` (farm, stems, sales_order_item) and
@@ -127,31 +120,12 @@ also writes its Confirmed Stems row, so the allocator keeps working unchanged. T
 Real and Virtual together (`allocation_plan.refresh_mirror`): the allocator shows a farm only the lines confirmed there and caps what it offers
 at that number, so stems still to arrive have to be in it.
 
-## 5. Reservations and allocation (the link, built in phase 1)
+## 5. Confirmations and allocation
 
-Single choke point: extend `upande_packhouse.availability` next to `reserved_bucket_ids()` (discard holds, which both
-the allocator and `core/stock.py` already use) with:
-
-- `reserved_by_bucket(exclude_soi=None)` -> `{bucket_id: reserved_stems}` for Active reservations, excluding those
-  held for the given line.
-
-Effects:
-1. `core/stock.py` treats reserved stems as a fourth split: shelved = held + allocated + **reserved** + free.
-   `allocatable` excludes reserved stems for everyone except the line they are reserved for.
-2. The allocator (`sales_allocation.py`), when allocating line X, calls `reserved_by_bucket(exclude_soi=X)`
-   and skips or reduces those buckets. For line X it prefers its own reserved buckets first.
-3. **Release by allocation.** After the allocator writes Bucket Allocations for line X from a reserved bucket,
-   it marks that reservation row Consumed and adds to the confirmation's `fulfilled_stems`. When the line is fully
-   allocated, or its OPL is submitted, every remaining Active reservation of that line is Released (reason: Allocated)
-   and the confirmation becomes Fulfilled.
-4. Other release triggers (doc events and a scheduler job): Sales Order cancelled or amended, line quantity or
-   variety changed, delivery date passed, manual unconfirm, conversion of a Virtual confirmation.
-5. **Broken**: if a reserved bucket disappears (marked not found, discarded, or removed from the shelf), its row
-   becomes Broken, the confirmation drops to "Needs cover", and the board shows it. No automatic replacement yet.
-
-Reserving buckets (the Real confirm): pick buckets oldest first (so aging stock is used first and discards fall
-naturally), whole buckets until the stems are met; the last bucket may be partly reserved. Reserve inside one
-transaction with a row lock on the Bucket Allocation Status rows to avoid two planners taking the same bucket.
+Allocation reads the plan only through `Confirmed Stems` (4.4) and the confirmations themselves: after the allocator
+writes Bucket Allocations for line X, `allocation_plan.consume` adds the stems to the line's confirmations'
+`fulfilled_stems` (stems confirmed from stock first, then the expected harvest). When the line is fully allocated,
+whatever is still confirmed for it is released (reason: Allocated). No bucket is held for a line.
 
 ## 6. Virtual stock
 
@@ -186,7 +160,7 @@ Existing fields reused as is: `amber_time`, `discard_age`, `max_shelving_age`, `
 ## 7. Conversion (virtual to real)
 
 On each shelving event and on a job every `allocation_conversion_minutes`: for every pool with Virtual confirmations and new free real buckets,
-convert oldest-plan-first: create Bucket Reservation rows, set source Real, status Reserved, release reason
+convert oldest-plan-first: confirm the stems from stock (source Real, status Reserved), release reason
 Converted on the virtual part. The planner sees a toast, not a task. Shortfalls stay Virtual.
 
 ## 8. Guards (computed on every confirm; warn, never silently block)

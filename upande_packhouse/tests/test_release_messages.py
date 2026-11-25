@@ -32,6 +32,7 @@ class UnitTestReleaseMessages(UnitTestCase):
 			p = s.enter_context
 			p(patch.object(day, "_proposal", return_value={"orders": orders}))
 			p(patch.object(day, "_cancelled", return_value=False))
+			p(patch.object(day, "_still_pending", return_value=True))
 			p(patch.object(day, "_publish"))
 			p(patch.object(day, "_drop_gone_buckets", side_effect=gone or (lambda o, loc: [])))
 			p(patch.object(day, "_check_location"))

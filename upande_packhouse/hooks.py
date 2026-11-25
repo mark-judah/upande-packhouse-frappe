@@ -355,8 +355,6 @@ scheduler_events = {
 	# Safety net for not-found marks written by a path with no hook (Bucket Watchlist).
 	"hourly": [
 		"upande_packhouse.api.v2.rt_watchlist.hourly_sync",
-		# A held bucket that has left the shelf is marked Broken so the plan shows it needs stock.
-		"upande_packhouse.allocation_plan.mark_missing_buckets",
 	],
 	"cron": {
 		# No-op unless Production Settings > Enable Automatic Remote Transfers Scheduling.
@@ -374,6 +372,8 @@ scheduler_events = {
 			"upande_packhouse.api.auto_transfer.run",
 			# A trip ends once what it carried is shelved at the hub — no End trip button.
 			"upande_packhouse.api.remote_transfer.transfer_scheduling.end_shelved_trips",
+			# A truck load whose trip write failed is put on the trip, or the trip never leaves Draft.
+			"upande_packhouse.api.remote_transfer.transfer_scheduling.record_missed_loads",
 			# Each team's schedule: fully issued, then at the hub, then waiting on a transfer.
 			"upande_packhouse.api.remote_transfer.scheduler.rank_schedules",
 			# Each transfer step's time and user on the pick rows, for steps set without an event.
