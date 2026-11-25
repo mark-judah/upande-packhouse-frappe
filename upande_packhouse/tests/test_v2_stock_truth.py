@@ -54,6 +54,15 @@ class TestClassify(UnitTestCase):
 	def test_disabled_farm_is_withheld(self):
 		self.assertEqual(self.c(farm_known=False)[0][0], "farm_disabled")
 
+	def test_spare_on_a_bucket_going_to_another_farm_is_withheld_not_sellable(self):
+		out = self.c(allocated=40.0, free=60.0, spare=60.0)
+		self.assertEqual({s: n for s, n, _ in out}, {"committed_live": 40.0, "spare_moving": 60.0})
+		self.assertEqual(st.STATE_META["spare_moving"][1], "withheld")
+
+	def test_too_old_and_cooling_come_before_spare(self):
+		self.assertEqual(self.c(spare=100.0, too_old=True)[0][0], "too_old")
+		self.assertEqual(self.c(spare=100.0, cooling=True, hours_on_shelf=3)[0][0], "cooling")
+
 	def test_too_old_and_cooling(self):
 		self.assertEqual(self.c(too_old=True)[0][0], "too_old")
 		out = self.c(cooling=True, hours_on_shelf=3)
@@ -74,6 +83,15 @@ class TestClassify(UnitTestCase):
 	def test_allocated_stems_stay_committed_even_when_old(self):
 		out = self.c(allocated=100.0, free=0.0, too_old=True)
 		self.assertEqual([(s, n) for s, n, _ in out], [("committed_live", 100.0)])
+
+
+class TestLonger(UnitTestCase):
+	def test_longer_counts_only_longer_lengths_of_the_variety(self):
+		by_len = {"42cm": 100.0, "52cm": 1520.0, "62cm": 1403.0, "--": 7.0}
+		self.assertEqual(st._longer_than(by_len, "42cm"), 2923.0)
+		self.assertEqual(st._longer_than(by_len, "52cm"), 1403.0)
+		self.assertEqual(st._longer_than(by_len, "62cm"), 0.0)
+		self.assertEqual(st._longer_than(by_len, "--"), 0.0)
 
 
 class TestVerdict(UnitTestCase):
@@ -196,6 +214,7 @@ class TestStockTruthSite(IntegrationTestCase):
 					item("ZZTB2", 200, 12),
 					item("ZZTB3", 50, 1),
 					item("ZZTB4", 80, 1),
+					item("ZZTB5", 100, 1),
 				],
 			}
 		).insert(ignore_permissions=True, ignore_links=True)
@@ -222,6 +241,29 @@ class TestStockTruthSite(IntegrationTestCase):
 			}
 		).insert(ignore_permissions=True, ignore_links=True, ignore_mandatory=True)
 
+		# ZZTB5: 40 of its 100 stems are allocated, in transit, to an order at ANOTHER farm
+		other = frappe.db.get_value("Farm", {"name": ["!=", "Kapkolia"]}, "name")
+		if other:
+			frappe.db.set_value("Sales Order", so[0], "farm", other, update_modified=False)
+			frappe.get_doc(
+				{
+					"doctype": "Bucket Allocation Status",
+					"bucket_id": "ZZTB5",
+					"item_code": "Marisa",
+					"stem_length": "62cm",
+					"shelf_farm": "Kapkolia",
+					"farm": "Kapkolia",
+					"total_quantity": 100,
+					"allocated_quantity": 40,
+					"available_quantity": 60,
+					"in_transit": 1,
+					"bucket_allocations": [
+						{"sales_order": so[0], "sales_order_item": soi, "quantity_allocated": 40, "cancelled": 0}
+					],
+				}
+			).insert(ignore_permissions=True, ignore_links=True, ignore_mandatory=True)
+		cls.has_spare = bool(other)
+
 	def _states(self, **kw):
 		with (
 			patch(
@@ -239,6 +281,19 @@ class TestStockTruthSite(IntegrationTestCase):
 		self.assertEqual(got["ZZTB2"], ("too_old", 200.0))
 		self.assertEqual(got["ZZTB3"], ("discard", 50.0))
 		self.assertEqual(got["ZZTB4"][0], "reclaimable")
+
+	def test_spare_stems_split_out_of_free_and_the_split_adds_up(self):
+		if not self.has_spare:
+			self.skipTest("no second farm to own the allocation")
+		rows = {r.bucket_id: r for r in st.stock.bucket_rows(farms=["Kapkolia"], varieties=["Marisa"]) if r.bucket_id.startswith("ZZT")}
+		b5 = rows["ZZTB5"]
+		self.assertEqual((b5.allocated, b5.spare, b5.allocatable), (40.0, 60.0, 0.0))
+		for r in rows.values():
+			self.assertAlmostEqual(
+				r.free, r.allocatable + r.aged_stems + r.cooling_stems + r.spare + r.reserved, places=3
+			)
+		spare = [r for r in st.ledger(variety="Marisa", farm="Kapkolia", state="spare_moving", limit=1000)["rows"] if r["bucket"] == "ZZTB5"]
+		self.assertEqual([r["stems"] for r in spare], [60.0])
 
 	def test_check_is_safe_up_to_what_is_free_and_short_beyond(self):
 		with patch("upande_packhouse.api.v2.stock_truth._discards", lambda: {}):

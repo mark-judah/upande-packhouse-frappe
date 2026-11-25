@@ -22,6 +22,8 @@ States (mutually exclusive, in the order a stem is tested)
   too_old             free stems past the farm's allocation age        -> Withheld
   unreceived          harvested > 36 h ago and never received          -> Withheld
   farm_disabled       shelf at a farm not enabled for sales            -> Withheld
+  spare_moving        free stems left on a bucket that is allocated, in transit, to an
+                      order at another farm: the bucket goes there whole    -> Withheld
 
 Rules mirror the allocator (sales_allocation.get_sales_order_items_with_buckets,
 catalogued in core/stock.py) so "sellable" is what allocation will accept:
@@ -132,6 +134,13 @@ STATE_META = {
 		"On a shelf at a farm that Production Settings does not enable.",
 		"Admin: enable the farm in Shelf Locations",
 	),
+	"spare_moving": (
+		"Spare on a bucket in transfer",
+		"withheld",
+		"Part of this bucket is allocated to an order at another farm, so the whole bucket is sent there. "
+		"The stems left on it are free once it arrives.",
+		"Nobody - it frees up when the bucket arrives",
+	),
 }
 STATE_ORDER = list(STATE_META)
 PHYSICAL = tuple(s for s in STATE_ORDER)  # every state is stems that exist
@@ -229,6 +238,8 @@ def classify_shelf_row(r, *, held_by, farm_cfg, farm_known, stale_qty, now=None)
 			if r.get("date_added") is not None and farm_cfg.get("cooling_hours"):
 				ready = get_datetime(r["date_added"]) + timedelta(hours=farm_cfg["cooling_hours"])
 			out.append(("cooling", free, {"ready_at": ready}))
+		elif r.get("spare"):
+			out.append(("spare_moving", free, {"remote": not farm_cfg.get("sales_shelf")}))
 		else:
 			out.append(("sellable", free, {"remote": not farm_cfg.get("sales_shelf")}))
 	return out
@@ -586,6 +597,8 @@ def collect(a):
 			elif state == "committed_live":
 				ords = sorted({x.sales_order for x in by_key.get(key, []) if x.sales_order})
 				detail = "Orders: " + ", ".join(ords[:4]) + ("..." if len(ords) > 4 else "")
+			elif state == "spare_moving":
+				detail = f"At {farm}: the bucket is going to another farm's order"
 			elif state == "sellable" and extra.get("remote"):
 				detail = f"At {farm}: moved to {_sales_farm_of(farm)} when allocated"
 			add(
@@ -744,6 +757,23 @@ def _group_totals(st):
 	return g
 
 
+def _sellable_by_len(items):
+	"""{variety: {length: sellable stems}} from a list of ledger items."""
+	out = defaultdict(lambda: defaultdict(float))
+	for it in items:
+		if it["state"] == "sellable":
+			out[it["variety"]][it["length"]] += it["stems"]
+	return out
+
+
+def _longer_than(sellable_by_length, length):
+	"""Sellable stems of one variety at lengths longer than `length`: what a downgrade could offer."""
+	n = _cm(length)
+	if n <= 0:
+		return 0.0
+	return sum(v for k, v in sellable_by_length.items() if _cm(k) > n)
+
+
 def _physical(st):
 	"""Stems that exist in a place (reclaimable phantom allocations are not stems)."""
 	return sum(st.values())
@@ -765,6 +795,13 @@ def overview(
 		c = collect(a)
 		lines = demand(a)
 		forecast = _forecast(a)
+		# a length filter hides the longer lengths: read the same scope once more without it
+		if a.lengths:
+			wide = frappe._dict(a)
+			wide.lengths = []
+			all_sellable = _sellable_by_len(collect(wide)["items"])
+		else:
+			all_sellable = _sellable_by_len(c["items"])
 
 		V = {}
 
@@ -866,6 +903,9 @@ def overview(
 			v["forecast"] = forecast.get(v["variety"])
 			for ln_, cl in v["by_len"].items():
 				cl["atp"] = cl["states"]["sellable"] - cl["to_allocate"]
+				cl["longer"] = _longer_than(all_sellable.get(v["variety"], {}), ln_)
+			if len(v["by_len"]) == 1:  # one length open: the variety row can say what is longer than it
+				v["longer"] = next(iter(v["by_len"].values()))["longer"]
 			rows.append(v)
 		rows.sort(key=lambda r: r["variety"])
 
@@ -1006,9 +1046,11 @@ def variety(variety: Any, region: Any = None, farm: Any = None, through: Any = N
 			cl["ordered"] += ln.ordered_stems
 			cl["to_allocate"] += ln.to_allocate
 		length_rows = []
+		sellable_len = {k: cl["states"]["sellable"] for k, cl in lens.items()}
 		for k, cl in lens.items():
 			cl["length"] = k
 			cl["atp"] = cl["states"]["sellable"] - cl["to_allocate"]
+			cl["longer"] = _longer_than(sellable_len, k)
 			cl["groups"] = _group_totals(cl["states"])
 			length_rows.append(cl)
 		length_rows.sort(key=lambda r: sv._len_key(r["length"]))
@@ -1825,7 +1867,7 @@ SOURCES = (
 	("downgrade", "Longer stems", "Longer stems of the same variety (a downgrade; needs approval)."),
 	(
 		"greenhouse",
-		"Not cut yet",
+		"Still in the greenhouse",
 		"Greenhouse forecast for the weeks before delivery (grade level; length not guaranteed).",
 	),
 )

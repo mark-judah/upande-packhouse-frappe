@@ -5,12 +5,16 @@
 One cell per (variety, stem length, farm), every number in stems:
 
     on shelf   = held + allocated + free                 (core/stock.py, live now)
+    withheld   = the free stems nobody can allocate now: too old, still cooling, spare on a
+                 bucket going to another farm, held by the allocation plan
+                 (the same reasons Stock Visibility lists, from the same core/stock.py rows)
     unmet      = demand not yet covered by an allocation  (core/pipeline.py)
-    available  = free - unmet                             (signed: < 0 is a shortfall)
+    available  = free - withheld - unmet = allocatable - unmet   (signed: < 0 is a shortfall)
 
-so for any filter set   on shelf - held - allocated - unmet = available,
+so for any filter set   on shelf - held - withheld - allocated - unmet = available,
 per cell, per variety, per length and for the KPIs (no flooring anywhere, so
-the parts always add up -- audit ST-1, ST-2, ST-3, ST-11).
+the parts always add up -- audit ST-1, ST-2, ST-3, ST-11). `held` is the discard hold only;
+the page shows held + withheld in its Held column.
 
 Stock (core.stock.bucket_rows): live Shelf Items, farm = the SHELF's farm,
 split per bucket into held (whole bucket on an open discard request), allocated
@@ -46,6 +50,11 @@ NO_LENGTH = "--"
 CELL = (
 	"stems",
 	"held",
+	"aged_stems",
+	"cooling_stems",
+	"spare",
+	"reserved",
+	"withheld",
 	"allocated",
 	"free",
 	"allocatable",
@@ -132,6 +141,9 @@ def get_avails(
 		c = cell(r.variety, ln, r.shelf_farm or UNKNOWN_FARM)
 		for f in ("stems", "held", "allocated", "free", "allocatable", "allocated_in_held"):
 			c[f] += r[f]
+		for f in ("aged_stems", "cooling_stems", "spare", "reserved"):
+			c[f] += r[f]
+			c["withheld"] += r[f]
 		c["buckets"].add(r.bucket_id)
 
 	# ---- demand (delivery date range) ---------------------------------
@@ -184,14 +196,14 @@ def get_avails(
 	out_cells = []
 	for c in cells.values():
 		c["buckets"] = len(c["buckets"])
-		c["avail"] = c["free"] - c["unmet"]
+		c["avail"] = c["free"] - c["withheld"] - c["unmet"]
 		out_cells.append(c)
 
 	def _sum(rows, f):
 		return sum(r[f] for r in rows)
 
 	totals = {f: _sum(out_cells, f) for f in CELL}
-	totals["avail"] = totals["free"] - totals["unmet"]
+	totals["avail"] = totals["free"] - totals["withheld"] - totals["unmet"]
 	totals["buckets"] = len({r.bucket_id for r in stock_rows if _keep(r, lengths, q, min_age)})
 	totals["lines"] = sum(c["lines"] for c in out_cells)
 	totals["orders"] = len(orders)
