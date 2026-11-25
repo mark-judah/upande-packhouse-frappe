@@ -89,7 +89,53 @@
 .ow-note,.ow-foot{font-size:12px;margin:0}
 .ow-lines .is-sub td{color:var(--ink-mute)}
 .ow-orders{padding:var(--sp-2) var(--sp-6) var(--sp-5)}
-.ow-ord{padding:var(--sp-5) 0;border-top:1px solid var(--hairline)}
+/* Order card: header (number, customer, order, pick list, stage, date, late, Details), then one row per line:
+   name, stage stepper whose circles are progress rings, takt chip and completion ring. */
+.ow-ord{container-type:inline-size;background:#fff;border:1px solid var(--hairline);border-radius:14px;padding:0;margin:0 0 12px;overflow:hidden}
+.ow-ord:first-child{border-top:1px solid var(--hairline)}
+.ow-ord .ow-ord__head{margin:0;padding:10px 16px;gap:var(--sp-3);border-bottom:1px solid var(--hairline)}
+.ow-ord__title{font:400 14px var(--sans);gap:10px;align-items:center;flex-wrap:wrap}
+.ow-ord__title .ow-num{width:24px;height:24px;font:600 12px var(--sans)}
+.ow-ord__cust{font-weight:600;font-size:15px;color:var(--ink)}
+.ow-ord__so{color:var(--ink-mute);font-size:14px}
+.ow-ord__opl{font:500 11.5px var(--mono,ui-monospace,monospace);color:var(--ink-mute)}
+.ow-ord__meta{gap:8px;font-size:13px}
+.ow-ord__meta .ph-badge{padding:3px 10px;font-size:12px;font-weight:600}
+.ow-ord__meta .ph-badge--signal{background:#e4edfb;color:#1f4fa3}
+.ow-ord__meta .ph-badge--warn{background:#fde9d6;color:#b4540a}
+.ow-ord__date{color:var(--ink-mute);font-size:13px}
+.ow-late{background:#fde9d6;color:#b4540a;border-radius:999px;padding:3px 10px;font:600 12px var(--sans)}
+.ow-ord__meta .ph-btn{background:#fff;border:1px solid var(--hairline-2,#d8d6cf);border-radius:8px;padding:6px 14px;font:600 13px var(--sans);color:var(--ink)}
+.ow-cls{display:flex;flex-direction:column}
+.ow-cl{display:grid;grid-template-columns:150px minmax(0,1fr) 190px 54px;align-items:center;column-gap:18px;row-gap:10px;padding:12px 16px;background:#fff;border:0;border-top:1px solid var(--hairline);border-radius:0}
+.ow-cls .ow-cl:first-child{border-top:0}
+.ow-cl__name{min-width:0}
+.ow-cl__name b{display:block;font:600 14.5px var(--sans);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ow-cl__name small{display:block;margin-top:3px;font-size:12px;color:var(--ink-mute);line-height:1.3}
+.ow-cl .ow-stepwrap{min-width:0;overflow:visible}
+.ow-s2row{display:grid;grid-template-rows:20px auto auto;min-width:0}
+.ow-s2{display:grid;grid-template-rows:subgrid;grid-row:span 3;min-width:0;padding-right:4px}
+.ow-s2__top{display:flex;align-items:center;height:20px}
+.ow-s2__dot{position:relative;flex:none;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:inset 0 0 0 2.5px #d6d6d0;display:grid;place-items:center;color:#fff;font-style:normal}
+.ow-s2__dot svg{width:11px;height:11px}
+.ow-s2__line{flex:1;height:3px;border-radius:2px;background:#e3e3dd;margin:0 5px}
+.ow-s2__line.is-done{background:#1d5c43}
+.ow-s2__name{margin-top:6px;font:500 12px var(--sans);color:var(--ink-mute);line-height:1.2;overflow-wrap:anywhere}
+.ow-s2__n{margin-top:2px;font:500 12px var(--sans);color:#8a8a84;white-space:nowrap;font-variant-numeric:tabular-nums}
+.ow-s2.is-part .ow-s2__dot{background:conic-gradient(#d9661a var(--p),#f3dcc8 0);box-shadow:none}
+.ow-s2.is-part .ow-s2__dot::after{content:"";position:absolute;inset:3px;border-radius:50%;background:#fff}
+.ow-s2.is-part .ow-s2__name{color:var(--ink);font-weight:600}.ow-s2.is-part .ow-s2__n{color:#b4540a;font-weight:600}
+.ow-s2.is-done .ow-s2__dot{background:#1d5c43;box-shadow:none}
+.ow-s2.is-done .ow-s2__name{color:var(--ink);font-weight:600}.ow-s2.is-done .ow-s2__n{color:#1d5c43;font-weight:600}
+.ow-cl .ow-takt{padding:8px 12px;border-radius:9px;font-size:11px;background:#f1f0ec;color:#8a8a84;white-space:normal}
+.ow-cl .ow-takt b{font:600 14px var(--sans);color:var(--ink-mute)}
+.ow-cl .ow-takt--running{background:#fdf0e3}.ow-cl .ow-takt--running b,.ow-cl .ow-takt--running span{color:#b4540a}
+.ow-cl .ow-takt--done{background:#e8f3ec}.ow-cl .ow-takt--done b{color:#1d5c43}.ow-cl .ow-takt--done span{color:#1d5c43}
+.ow-cl .ow-ring{--ring:#1d5c43;width:50px;height:50px;background:conic-gradient(#1d5c43 var(--p),#dbe8e0 0)}
+.ow-cl .ow-ring>div{width:40px;height:40px}.ow-cl .ow-ring b{font-size:12px}.ow-cl .ow-ring span{display:none}
+.ow-cl__none{color:var(--ink-mute);font-size:12.5px}
+@container (max-width:1180px){.ow-cl{grid-template-columns:minmax(0,1fr) 190px 54px}.ow-cl .ow-stepwrap{grid-column:1 / -1;grid-row:2}}
+@container (max-width:760px){.ow-cl{grid-template-columns:minmax(0,1fr) 54px}.ow-cl .ow-takt{display:none}.ow-s2row{overflow-x:auto}}
 .ow-ord:first-child{border-top:0}
 .ow-ord__head{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-4);flex-wrap:wrap;margin-bottom:var(--sp-3)}
 .ow-ord__title{order:1;font:500 16px var(--sans);margin:0;display:flex;align-items:center;gap:var(--sp-3);min-width:0}
@@ -695,10 +741,10 @@
     const head = part ? '<th>Variety</th><th class="is-num">Ordered</th><th class="is-num">On pick list</th><th class="is-num">Still to allocate</th><th>Team · pick list</th><th></th>' : un ? '<th>Variety</th><th class="is-num">Ordered</th><th></th>' : '<th></th><th>Line</th><th>Assigned</th><th title="Issued / picked on the pick list">Issuing (stems)</th><th title="Packed / planned in the Packing Guide">Packing (stems)</th><th>Packed</th><th>Staged</th><th>Loaded</th><th>Takt time</th><th>Stage</th><th>Attention</th>';
     const side = "";
     return `<div class="ow-ord${g.severity ? " is-" + g.severity : ""}">
-      <div class="ow-ord__head">${side}<h3 class="ow-ord__title"><span class="ow-num">${num}</span>${PH.esc(title)}</h3>
-        <div class="ow-ord__meta">${un ? `<span class="ph-muted">${PH.fmt.plural(g.rows.length, "variety", "varieties")} · ${n(g.ordered_stems)} stems · no pick list</span> <span class="ph-badge ph-badge--bad">${PH.esc(dueText(r))}</span>` : `<span class="ph-badge ph-badge--${stageCls(g.stage)}">${PH.esc(g.stage.stage_label)}</span> <span class="ph-muted">${PH.esc(dueText(r))}</span>`}
+      <div class="ow-ord__head">${side}<h3 class="ow-ord__title"><span class="ow-num">${num}</span><span class="ow-ord__cust">${PH.esc(r.customer_name || "")}</span><span class="ow-ord__so">Order ${PH.esc(r.order_name || r.sales_order)}</span>${g.opl ? `<span class="ow-ord__opl">${PH.esc(g.opl)}</span>` : ""}</h3>
+        <div class="ow-ord__meta">${un ? `<span class="ph-muted">${PH.fmt.plural(g.rows.length, "variety", "varieties")} · ${n(g.ordered_stems)} stems · no pick list</span> <span class="ph-badge ph-badge--bad">${PH.esc(dueText(r))}</span>` : `<span class="ph-badge ph-badge--${stageCls(g.stage)}">${PH.esc(g.stage.stage_label)}</span> <span class="ow-ord__date">${PH.esc(r.delivery_date ? PH.fmt.date(r.delivery_date, true) : "—")}</span>${(() => { const d = r.delivery_date ? PH.date.diff(data.today, r.delivery_date) : 0; return d < 0 && !["dispatched", "invoiced"].includes(r.stage) ? `<span class="ow-late">${-d}d late</span>` : ""; })()}`}
         <button class="ph-btn ph-btn--ghost ph-btn--sm" type="button" data-grp="${PH.esc(g.key)}">${open ? "Hide details" : "Details"}</button></div></div>
-      <div class="ow-ord__body"><div class="ph-table-wrap"><table class="ph-table ow-ord__tbl${un || part ? " is-plain" : " is-wide"}"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div></div>
+      <div class="ow-ord__body">${!un && !part ? `<div class="ow-cls">${g.rows.map(compactLine).join("")}</div>` : `<div class="ph-table-wrap"><table class="ph-table ow-ord__tbl${un || part ? " is-plain" : " is-wide"}"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`}</div>
       ${open ? orderDetailHtml(g) : ""}
     </div>`;
   }
@@ -752,20 +798,48 @@
     const t = r.takt || { state: "none" };
     if (t.state === "done") return `<div class="ow-takt ow-takt--done" title="Takt time: first stem issued (${tm(t.issued_at)}) to last box staged (${tm(t.staged_at)})"><b>Takt ${dur(t.secs)}</b><span>issue → staged</span></div>`;
     if (t.state === "running") return `<div class="ow-takt ow-takt--running" title="Takt is final once every box is staged. Shown: time since the first stem was issued (${tm(t.issued_at)}); ${stagedNote(r, t)}"><b>Takt ${dur(t.secs)}</b><span>in progress · issue → staged</span></div>`;
-    return `<div class="ow-takt ow-takt--none" title="${PH.esc(t.reason || "Not issued yet")}"><b>Takt —</b><span>issue → staged</span></div>`;
+    return `<div class="ow-takt ow-takt--none" title="${PH.esc(t.reason || "Not issued yet")}"><b>Takt —</b><span>not started · issue → staged</span></div>`;
   }
-  /* A line's own progress: stage stepper, takt and completion ring (the original row detail). */
-  function detailHtml(r) {
+  /* The stage stepper of a line, shared by the compact row and the expanded detail. */
+  function stepperOf(r) {
     const own = r.primary;
-    const flags = (r.flags || []).map((f) => `<span class="ow-flagline ow-flagline--${f.sev === "bad" ? "bad" : "warn"}">${PH.icon("alert", 14)}${PH.esc(f.label)}</span>`).join("");
     const prog = r.progress || [];
-    const stepper = prog.map((x, i) => {
+    return prog.map((x, i) => {
       const na = !["allocated", "ready_issue", "issued", "ready_pack", "packed"].includes(x.stage) && !own;   // later stages sit on the line's first pick list
       const f = na || !x.total ? 0 : Math.min(1, x.done / x.total);
       const done = !na && x.state === "done", part = !na && x.state === "partial";
       const label = x.state === "none" || na ? PH.esc(x.word.replace(/^Not /, "").replace(/^./, (c) => c.toUpperCase())) : PH.esc(x.word);
       return `<div class="ow-st${done ? " is-done" : part ? " is-part" : ""}"><i class="ow-st__dot" style="${part ? "--p:" + Math.round(f * 100) + "%" : ""}">${done ? PH.icon("check", 16) : ""}</i><span class="ow-st__name">${label}</span><span class="ow-st__n">${na ? "—" : n(x.done) + " / " + n(x.total)}</span></div>${i < prog.length - 1 ? '<span class="ow-st__line' + (done ? " is-done" : "") + '"></span>' : ""}`;
     }).join("");
+  }
+  /* The stage stepper of a compact line: each stage is a ring (progress arc, full green tick when done)
+     with a connector to the next one, its name and its stems below. */
+  function stepsHtml(r) {
+    const own = r.primary;
+    const prog = r.progress || [];
+    const cells = prog.map((x, i) => {
+      const na = !["allocated", "ready_issue", "issued", "ready_pack", "packed"].includes(x.stage) && !own;
+      const f = na || !x.total ? 0 : Math.min(1, x.done / x.total);
+      const done = !na && x.state === "done", part = !na && x.state === "partial";
+      const label = x.state === "none" || na ? PH.esc(x.word.replace(/^Not /, "").replace(/^./, (c) => c.toUpperCase())) : PH.esc(x.word);
+      return `<div class="ow-s2${done ? " is-done" : part ? " is-part" : ""}"><div class="ow-s2__top"><i class="ow-s2__dot" style="--p:${Math.round(f * 100)}%">${done ? PH.icon("check", 13) : ""}</i>${i < prog.length - 1 ? '<span class="ow-s2__line' + (done ? " is-done" : "") + '"></span>' : ""}</div><span class="ow-s2__name">${label}</span><span class="ow-s2__n">${na ? "—" : n(x.done) + " / " + n(x.total)}</span></div>`;
+    }).join("");
+    return `<div class="ow-s2row" style="grid-template-columns:repeat(${prog.length || 1},minmax(74px,1fr))">${cells}</div>`;
+  }
+  /* One line of an order: name and what is wrong with it, the stage rings, takt and the completion ring. */
+  function compactLine(x) {
+    const name = [x.variety, x.length].filter(Boolean).join(" ");
+    const lb = x.line_boxes, fl = x.flags || [];
+    const late = x.delivery_date && PH.date.diff(data.today, x.delivery_date) < 0 && !["dispatched", "invoiced"].includes(x.stage);
+    const sub = [lb ? lb + (lb === 1 ? " box" : " boxes") : "", late && !fl.some((f) => /past due/i.test(f.label)) ? "past due" : "", fl.length ? fl.map((f) => f.label).join("; ") : (x.opl && !(x.packed_stems > 0) ? "not packed" : "")].filter(Boolean).join(" · ");
+    const mid = x.opl ? `<div class="ow-stepwrap">${stepsHtml(x)}</div>` : '<div class="ow-cl__none">No pick list yet</div>';
+    return `<div class="ow-cl"><div class="ow-cl__name"><b title="${PH.esc(name)}">${PH.esc(name)}</b><small>${PH.esc(sub)}</small></div>${mid}${x.opl ? taktHtml(x) : "<span></span>"}${x.opl ? ringHtml(x) : "<span></span>"}</div>`;
+  }
+  /* A line's own progress: stage stepper, takt and completion ring (the original row detail). */
+  function detailHtml(r) {
+    const own = r.primary;
+    const flags = (r.flags || []).map((f) => `<span class="ow-flagline ow-flagline--${f.sev === "bad" ? "bad" : "warn"}">${PH.icon("alert", 14)}${PH.esc(f.label)}</span>`).join("");
+    const stepper = stepperOf(r);
     const note = r.opl && !own ? '<div class="ph-muted ow-foot">Several pick lists: precooling to dispatch show on the first</div>' : "";
     return `<div class="ow-detail" data-detail="${PH.esc(r.key)}">
       ${flags ? `<div class="ow-flaglines">${flags}</div>` : ""}
@@ -808,7 +882,7 @@
     if (ib) return showIssues(ib.dataset.issues);
     const sh = e.target.closest("[data-toggle-sec]");
     if (sh) {
-      // a section opens whole: every order in it and every line of each order, their details read once
+      // a section opens with its orders as compact rows; an order's details (per-box times, documents) are read when its Details button is pressed
       const k = sh.dataset.toggleSec;
       const sec = (data.sections || []).find((x) => x.key === k);
       const keys = sec ? groupRows(sec.rows).flatMap((g) => [g.key].concat(g.rows.map((x) => x.key))) : [];
@@ -820,9 +894,6 @@
         openSec.clear();
         openRow.clear();
         openSec.add(k);
-        keys.forEach((x) => openRow.add(x));
-        const opls = new Set((sec ? sec.rows : []).map((x) => x.opl).filter((o) => o && !detail[o]));
-        opls.forEach((o) => loadDetail(o));
       }
       return PH.keepScroll(render);
     }
@@ -840,8 +911,15 @@
       return PH.keepScroll(render);
     }
   });
+  /* several detail answers arriving together redraw the page once, not once each */
+  let renderQueued = false;
+  function scheduleRender() {
+    if (renderQueued) return;
+    renderQueued = true;
+    requestAnimationFrame(() => { renderQueued = false; PH.keepScroll(render); });
+  }
   function loadDetail(opl) {
-    return PH.call(API + "get_opl_detail", { opl }, { silent: true }).then((m) => { if (m && m.success) { detail[opl] = m; PH.keepScroll(render); } }).catch(() => {});
+    return PH.call(API + "get_opl_detail", { opl }, { silent: true }).then((m) => { if (m && m.success) { detail[opl] = m; scheduleRender(); } }).catch(() => {});
   }
   function showIssues(opl) {
     const open = (m) => {
