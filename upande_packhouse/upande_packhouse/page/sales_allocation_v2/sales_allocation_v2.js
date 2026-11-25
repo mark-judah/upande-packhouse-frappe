@@ -4287,7 +4287,8 @@ frappe.pages["sales-allocation-v2"]._order_downgrades = function () {
 		});
 		// whole bunches of the line over all its buckets, not per bucket
 		const stems =
-			Math.floor(Object.values(by_len).reduce((s, v) => s + v, 0) / per_bunch + 1e-9) * per_bunch;
+			Math.floor(Object.values(by_len).reduce((s, v) => s + v, 0) / per_bunch + 1e-9) *
+			per_bunch;
 		if (!stems) return;
 		const shorts = Object.keys(by_len)
 			.map((k) => (it.downgrade_conflicts || {})[k])
@@ -4307,12 +4308,15 @@ frappe.pages["sales-allocation-v2"]._dg_filter_bar = function (list) {
 	const shorts = list.filter((x) => x.shorts.length).length;
 	const ok = list.length - shorts;
 	const btn = (key, label, n, on) =>
-		`<button type="button" class="location-btn${on ? " active" : ""}" data-dg-f="${key}" aria-pressed="${on}">${label} · ${n}</button>`;
-	return `<div class="location-buttons dg-filter">${btn("all", __("All"), list.length, true)}${btn(
-		"ok",
-		__("Shorts nobody"),
-		ok
-	)}${btn("shorts", __("Shorts"), shorts)}</div>`;
+		`<button type="button" class="location-btn${
+			on ? " active" : ""
+		}" data-dg-f="${key}" aria-pressed="${on}">${label} · ${n}</button>`;
+	return `<div class="location-buttons dg-filter">${btn(
+		"all",
+		__("All"),
+		list.length,
+		true
+	)}${btn("ok", __("Shorts nobody"), ok)}${btn("shorts", __("Shorts"), shorts)}</div>`;
 };
 frappe.pages["sales-allocation-v2"]._dg_filter_wire = function ($wrap) {
 	$wrap.find("[data-dg-f]").on("click", function () {
@@ -4364,7 +4368,9 @@ frappe.pages["sales-allocation-v2"]._order_downgrade_dialog = function (list, no
 				<td>${
 					x.shorts.length
 						? P._shorts_cell(
-								x.shorts.map((o) => `${o.order_name || o.sales_order} · ${n(o.stems)}`)
+								x.shorts.map(
+									(o) => `${o.order_name || o.sales_order} · ${n(o.stems)}`
+								)
 						  )
 						: `<span class="ds-why ds-why--ok">${__("Shorts nobody")}</span>`
 				}</td>
@@ -4378,7 +4384,9 @@ frappe.pages["sales-allocation-v2"]._order_downgrade_dialog = function (list, no
 					{
 						fieldtype: "HTML",
 						fieldname: "t",
-						options: `${P._dg_filter_bar(list)}<div class="mv-wrap"><table class="ds-donors mv-to dg-table">
+						options: `${P._dg_filter_bar(
+							list
+						)}<div class="mv-wrap"><table class="ds-donors mv-to dg-table">
 					<thead><tr><th><input type="checkbox" class="dg-all"></th><th>${__("Variety")}</th><th>${__(
 							"Ordered → Downgrade"
 						)}</th><th class="num">${__("Stems")}</th><th>${__(
@@ -4419,7 +4427,9 @@ frappe.pages["sales-allocation-v2"]._order_downgrade_dialog = function (list, no
 			d.$wrapper.addClass("ufd-sa2");
 			d.$wrapper.find(".modal-dialog").addClass("ufd-sa2-modal");
 			d.$wrapper.find(".dg-all").on("change", function () {
-				d.$wrapper.find("tr[data-shorts]:visible input[data-d]").prop("checked", this.checked);
+				d.$wrapper
+					.find("tr[data-shorts]:visible input[data-d]")
+					.prop("checked", this.checked);
 			});
 			P._dg_filter_wire(d.$wrapper);
 			d.$wrapper.find(".dg-all-r").on("change", function () {
@@ -5852,7 +5862,9 @@ frappe.pages["sales-allocation-v2"]._downgrade_dialog = function (
 		.join("");
 	const d = P._step_dialog(
 		__("Downgrades"),
-		`${P._dg_filter_bar(list)}<div class="ds-line"><div class="mv-wrap"><table class="ds-donors mv-to dg-table">
+		`${P._dg_filter_bar(
+			list
+		)}<div class="ds-line"><div class="mv-wrap"><table class="ds-donors mv-to dg-table">
 			<thead><tr><th><input type="checkbox" class="dg-all"></th><th>${__("Order")}</th><th>${__(
 			"Variety"
 		)}</th><th>${__("Ordered → Downgrade")}</th><th class="num">${__("Stems")}</th><th>${__(
