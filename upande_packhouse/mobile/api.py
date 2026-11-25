@@ -7740,6 +7740,53 @@ def _full_boxes_packed(opl_name, fpl_names):
 	)
 
 
+#: An order line at one of these stages is packed: an order is done when all its lines are.
+_PACKED_STAGES = {
+	"packed",
+	"staging",
+	"staged",
+	"precooling",
+	"precooled",
+	"loading",
+	"loaded",
+	"dispatching",
+	"dispatched",
+	"invoiced",
+}
+
+
+def _workflow_totals(delivery_date, site):
+	"""The home tab's totals as Orders & Workflow counts them for the delivery date and site ("": every
+	site): ordered boxes and stems, complete boxes of those planned, stems packed, orders and orders packed.
+	{} when that cannot be read (the tab then keeps its own figures)."""
+	from upande_packhouse.api.v2 import orders_workflow
+
+	try:
+		m = orders_workflow.get_orders_workflow(
+			from_date=delivery_date, to_date=delivery_date, region=site or None, view="team"
+		)
+	except Exception:
+		frappe.log_error("getPackhouseDashboardData: Orders & Workflow totals", frappe.get_traceback())
+		return {}
+	if not m or m.get("success") is False:
+		return {}
+	k = m.get("kpis") or {}
+	stages = {}
+	for sec in m.get("sections") or []:
+		for row in sec.get("rows") or []:
+			if row.get("sales_order"):
+				stages.setdefault(row["sales_order"], set()).add(row.get("stage") or "")
+	return {
+		"boxes_required": int(k.get("boxes") or 0),
+		"boxes_planned": int(k.get("planned_boxes") or 0),
+		"boxes_packed": int(k.get("complete_boxes") or 0),
+		"stems_expected": int(k.get("ordered_stems") or 0),
+		"stems_packed": int(k.get("packed_stems") or 0),
+		"orders_total": int(k.get("orders") or 0),
+		"orders_done": sum(1 for st in stages.values() if st and st <= _PACKED_STAGES),
+	}
+
+
 @frappe.whitelist()
 def getPackhouseDashboardData():
 	"""Packhouse home-tab dashboard: boxes REQUIRED vs boxes PACKED for one
@@ -7966,6 +8013,17 @@ def getPackhouseDashboardData():
 		]
 		team_list.sort(key=lambda t: t["stems_packed"], reverse=True)
 
+		kpi = {
+			"boxes_required": total_required,
+			"boxes_planned": total_required,
+			"boxes_packed": total_packed,
+			"stems_expected": total_stems_expected,
+			"stems_packed": total_stems_packed,
+			"orders_total": len(orders_out),
+			"orders_done": orders_done,
+		}
+		# the totals are Orders & Workflow's for the same day and site, so the app and the page show the same
+		kpi.update(_workflow_totals(delivery_date, picked))
 		frappe.response["message"] = {
 			"delivery_date": str(delivery_date),
 			# the home screen's farm picker: every sales farm, and All farms ("")
@@ -7973,12 +8031,7 @@ def getPackhouseDashboardData():
 			"sales_farms": sales_farm_list,
 			"all_farms": True,
 			"kpi": {
-				"boxes_required": total_required,
-				"boxes_packed": total_packed,
-				"stems_expected": total_stems_expected,
-				"stems_packed": total_stems_packed,
-				"orders_total": len(orders_out),
-				"orders_done": orders_done,
+				**kpi,
 				"bypass_issues": bypass_count,
 				"underpack_issues": underpack_count,
 				"underpack_percentage": underpack_percentage,
