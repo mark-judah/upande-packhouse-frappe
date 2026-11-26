@@ -1409,6 +1409,8 @@ def get_sales_order_items_with_buckets(
 		frappe.throw(_("Sales Order is required"))
 
 	bypass_cut_stage = cint(bypass_cut_stage)
+	# set only by explain_available, which asks each rule what it took off
+	tr = getattr(frappe.local, "sa2_trace", None)
 
 	if isinstance(selected_farms, str):
 		selected_farms = json.loads(selected_farms)
@@ -1457,6 +1459,13 @@ def get_sales_order_items_with_buckets(
 		f: farm_config.get(f, {}).get("max_allocation_age", _get_production_config()["discard_age"])
 		for f in active_farms
 	}
+	if tr is not None:
+		tr.update(
+			location_farms=location_farms,
+			active_farms=active_farms,
+			discard_age=discard_age,
+			farm_max_age=farm_max_age,
+		)
 
 	# Where an in-transit bucket is heading: this location's sales-shelf farm,
 	# the same value _allocate_stock_with_buckets_impl decides `needs_transfer`
@@ -1573,6 +1582,8 @@ def get_sales_order_items_with_buckets(
 		for b in buckets
 		if b["age_days"] <= farm_max_age.get(b["shelf_farm"], _get_production_config()["discard_age"])
 	]
+	if tr is not None:
+		tr["st_age"] = _tsnap(buckets)
 
 	# ── Exclude buckets still cooling: fewer hours in the cold store than this farm's cooling_hours
 	# (Shelf Locations, Production Settings), counted from when the bucket was received into a cold store,
