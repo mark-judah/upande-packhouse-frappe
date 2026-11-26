@@ -3818,7 +3818,7 @@ frappe.pages["sales-allocation-v2"].allocate_from_bucket = function (
 			return;
 		}
 		const age_days = batch ? batch.age_days : 0;
-		const amber_time = item.amber_time || 3;
+		const amber_time = item.amber_time ?? 0;
 		const incoming = item.incoming_exact_stems || 0;
 		let incoming_html = "";
 		if (incoming > 0) {
