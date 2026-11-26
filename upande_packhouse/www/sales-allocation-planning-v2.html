@@ -1087,12 +1087,11 @@
       const gs = ((S.sfOpts || {})[x.soi] || {}).greenhouses || [];
       if (!gs.length) return '<td><span class="ph-muted">No greenhouse grows it</span></td><td></td>';
       const split = sfSplit(Math.round(x.left), gs);
-      return '<td>' + gs.map((g) => '<div class="pg-ghname">' + PH.esc(g.label) + (g.forecast ? "<small>" + n(g.forecast) + " forecast</small>" : "") + "</div>").join("") + "</td>" +
-        "<td>" + gs.map((g) => '<div class="pg-ghname"><input class="ph-input pg-o-gh" type="number" min="0" step="1" data-gh="' + PH.esc(g.name) + '" value="' + (split[g.name] || 0) + '" aria-label="Stems to confirm from ' + PH.esc(g.label) + '"></div>').join("") +
-        '<small class="pg-ghtot">' + n(Math.round(x.left)) + " to confirm · " + n(x.per_box || 0) + " a box</small></td>";
+      return '<td>' + gs.map((g) => '<div class="pg-ghname">' + PH.esc(g.label) + "</div>").join("") + "</td>" +
+        "<td>" + gs.map((g) => '<div class="pg-ghname"><input class="ph-input pg-o-gh" type="number" min="0" step="1" data-gh="' + PH.esc(g.name) + '" value="' + (split[g.name] || 0) + '" aria-label="Stems to confirm from ' + PH.esc(g.label) + '"></div>').join("") + "</td>";
     };
-    const head = '<thead><tr><th>Variety</th><th class="is-num">Ordered</th><th class="is-num">Rolling forecast</th><th class="is-num">Production forecast</th><th class="is-num">Total stock</th>' + (sfOrder ? "<th>Greenhouse</th>" : "") + '<th>Confirm</th><th>Team</th><th class="pg-act"></th></tr></thead>';
-    const fcCells = (x) => '<td class="is-num">' + n(x.ordered) + '</td><td class="is-num">' + n(fc(x.variety, x.length).rolling) + '</td><td class="is-num">' + n(fc(x.variety, x.length).production) + "</td>" + stockCell(x.variety, x.length);
+    const head = '<thead><tr><th>Variety</th><th class="is-num">Ordered</th><th class="is-num">Rolling forecast</th><th class="is-num">Production forecast</th>' + (sfOrder ? "<th>Greenhouse</th>" : '<th class="is-num">Total stock</th>') + '<th>Confirm</th><th>Team</th><th class="pg-act"></th></tr></thead>';
+    const fcCells = (x) => '<td class="is-num">' + n(x.ordered) + '</td><td class="is-num">' + n(fc(x.variety, x.length).rolling) + '</td><td class="is-num">' + n(fc(x.variety, x.length).production) + "</td>" + (sfOrder ? "" : stockCell(x.variety, x.length));
     const sRows = straight.map((x) => '<tr data-soi="' + PH.esc(x.soi) + '"><td><b>' + PH.esc(x.variety) + "</b> " + PH.esc(x.length) + "<small>straight · " + x.boxes + (x.boxes === 1 ? " box" : " boxes") + "</small></td>" + fcCells(x) +
       confirmCells(x) +
       '<td><select class="ph-select pg-o-team" aria-label="Team for ' + PH.esc(x.variety) + '">' + teamOptions(x.team) + "</select></td>" +
@@ -1113,7 +1112,7 @@
         const got = Math.max(0, Math.min(best, boxes));
         return '<td class="is-num"><b>' + n(got) + "</b> of " + n(boxes) + " boxes" + (got < boxes ? "<small>Limited by " + PH.esc(scarce) + "</small>" : "") + "</td>";
       };
-      return '<tr class="pg-mixhead" data-group="' + PH.esc(k) + '"><td><b>' + PH.esc(m[0].group_name || "Mix") + "</b><small>mix · " + m.length + " varieties</small></td><td></td>" + fills("rolling") + fills("production") + "<td></td>" + (sfOrder ? "<td></td>" : "") +
+      return '<tr class="pg-mixhead" data-group="' + PH.esc(k) + '"><td><b>' + PH.esc(m[0].group_name || "Mix") + "</b><small>mix · " + m.length + " varieties</small></td><td></td>" + fills("rolling") + fills("production") + "<td></td>" +
         '<td><input class="ph-input pg-in pg-o-boxes" type="number" min="0" max="' + boxes + '" step="1" value="' + boxes + '" aria-label="Boxes of the mix to confirm"><small>of ' + boxes + " boxes</small></td>" +
         '<td><select class="ph-select pg-o-team" aria-label="Team for the mix">' + teamOptions(m[0].team) + "</select></td>" +
         '<td class="pg-act"><button type="button" class="ph-btn ph-btn--primary ph-btn--sm" data-o-group="' + PH.esc(k) + '">Confirm the mix</button></td></tr>' +
