@@ -258,7 +258,12 @@ class TestStockTruthSite(IntegrationTestCase):
 					"available_quantity": 60,
 					"in_transit": 1,
 					"bucket_allocations": [
-						{"sales_order": so[0], "sales_order_item": soi, "quantity_allocated": 40, "cancelled": 0}
+						{
+							"sales_order": so[0],
+							"sales_order_item": soi,
+							"quantity_allocated": 40,
+							"cancelled": 0,
+						}
 					],
 				}
 			).insert(ignore_permissions=True, ignore_links=True, ignore_mandatory=True)
@@ -285,14 +290,22 @@ class TestStockTruthSite(IntegrationTestCase):
 	def test_spare_stems_split_out_of_free_and_the_split_adds_up(self):
 		if not self.has_spare:
 			self.skipTest("no second farm to own the allocation")
-		rows = {r.bucket_id: r for r in st.stock.bucket_rows(farms=["Kapkolia"], varieties=["Marisa"]) if r.bucket_id.startswith("ZZT")}
+		rows = {
+			r.bucket_id: r
+			for r in st.stock.bucket_rows(farms=["Kapkolia"], varieties=["Marisa"])
+			if r.bucket_id.startswith("ZZT")
+		}
 		b5 = rows["ZZTB5"]
 		self.assertEqual((b5.allocated, b5.spare, b5.allocatable), (40.0, 60.0, 0.0))
 		for r in rows.values():
 			self.assertAlmostEqual(
 				r.free, r.allocatable + r.aged_stems + r.cooling_stems + r.spare + r.reserved, places=3
 			)
-		spare = [r for r in st.ledger(variety="Marisa", farm="Kapkolia", state="spare_moving", limit=1000)["rows"] if r["bucket"] == "ZZTB5"]
+		spare = [
+			r
+			for r in st.ledger(variety="Marisa", farm="Kapkolia", state="spare_moving", limit=1000)["rows"]
+			if r["bucket"] == "ZZTB5"
+		]
 		self.assertEqual([r["stems"] for r in spare], [60.0])
 
 	def test_check_is_safe_up_to_what_is_free_and_short_beyond(self):

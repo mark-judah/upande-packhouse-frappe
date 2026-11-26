@@ -95,6 +95,15 @@ def _planning_switches():
 
 
 def _get_production_config():
+	"""Production Settings as allocation reads it, once per request: Allocate all's steps asked for it
+	hundreds of times, each reading the farms again."""
+	cached = getattr(frappe.local, "sa_production_config", None)
+	if cached is None:
+		cached = frappe.local.sa_production_config = _read_production_config()
+	return cached
+
+
+def _read_production_config():
 	ps = frappe.get_cached_doc("Production Settings")
 
 	discard_age = ps.discard_age or 5
@@ -356,49 +365,97 @@ def _get_confirmed_stems_for_farms(sales_order, farm_names):
 	"""
 	if not farm_names:
 		return {}, {}
-	from upande_packhouse.api.remote_transfer.transfer_scheduling import order_hub
-
-	if order_hub(sales_order) in set(farm_names):
-		farm_names = list(
-			{
-				*farm_names,
-				*frappe.db.sql_list(
-					"""SELECT DISTINCT farm FROM `tabConfirmed Stems` WHERE parent = %s AND parenttype = 'Sales Order'
-					AND parentfield = 'custom_confirmed_stems_table' AND IFNULL(farm, '') != ''""",
-					sales_order,
-				),
-			}
-		)
-
-	farm_placeholders = ", ".join(["%s"] * len(farm_names))
-
-	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
-	rows = frappe.db.sql(
-		f"""
-        SELECT
-            cs.sales_order_item,
-            cs.farm,
-            cs.stems
-        FROM `tabConfirmed Stems` cs
-        WHERE cs.parent = %s
-          AND cs.parenttype = 'Sales Order'
-          AND cs.parentfield = 'custom_confirmed_stems_table'
-          AND cs.farm IN ({farm_placeholders})
-          AND cs.stems > 0
-    """,
-		[sales_order] + list(farm_names),
-		as_dict=True,
-	)
+	rows = _confirmed_rows(sales_order)
+	if _order_hub(sales_order) in set(farm_names):
+		farm_names = list({*farm_names, *(farm for _soi, farm, _stems in rows if farm)})
+	farms = set(farm_names)
 
 	# Sum stems per SO item (multiple farms at the same location may have confirmed)
 	confirmed_by_item = {}
 	confirmed_detail = {}  # item -> [{farm, stems}]
-	for r in rows:
-		item_name = r["sales_order_item"]
-		confirmed_by_item[item_name] = confirmed_by_item.get(item_name, 0) + (r["stems"] or 0)
-		confirmed_detail.setdefault(item_name, []).append({"farm": r["farm"], "stems": r["stems"]})
+	for item_name, farm, stems in rows:
+		if farm not in farms or not stems > 0:
+			continue
+		confirmed_by_item[item_name] = confirmed_by_item.get(item_name, 0) + (stems or 0)
+		confirmed_detail.setdefault(item_name, []).append({"farm": farm, "stems": stems})
 
 	return confirmed_by_item, confirmed_detail
+
+
+def _read_confirmed_rows(sales_orders):
+	"""{sales order: [(line, farm, stems)]}: its Confirmed Stems rows."""
+	out = {so: [] for so in sales_orders}
+	for parent, soi, farm, stems in frappe.db.sql(
+		"""SELECT parent, sales_order_item, IFNULL(farm, ''), stems FROM `tabConfirmed Stems`
+		   WHERE parent IN %(so)s AND parenttype = 'Sales Order' AND parentfield = 'custom_confirmed_stems_table'""",
+		{"so": tuple(sales_orders)},
+	):
+		out[parent].append((soi, farm, flt(stems)))
+	return out
+
+
+def _confirmed_rows(sales_order):
+	memo = planning_memo("confirmed_rows")
+	if memo is None or sales_order not in memo:
+		rows = _read_confirmed_rows([sales_order])[sales_order]
+		if memo is not None:
+			memo[sales_order] = rows
+		return rows
+	return memo[sales_order]
+
+
+def _order_hub(sales_order):
+	"""The order's sales farm (transfer_scheduling.order_hub), once per order in a planning pass."""
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import order_hub
+
+	memo = planning_memo("order_hub")
+	if memo is None:
+		return order_hub(sales_order)
+	if sales_order not in memo:
+		memo[sales_order] = order_hub(sales_order)
+	return memo[sales_order]
+
+
+def _read_ac_rows(sois):
+	"""{line: [Allocation Confirmation rows]} oldest change first: variety, length, team, status, release_reason."""
+	out = {x: [] for x in sois}
+	for r in frappe.db.sql(
+		"""SELECT sales_order_item, variety, length, IFNULL(team, '') AS team, status, release_reason
+		   FROM `tabAllocation Confirmation` WHERE sales_order_item IN %(s)s ORDER BY modified ASC""",
+		{"s": tuple(sois)},
+		as_dict=True,
+	):
+		out[r.sales_order_item].append(r)
+	return out
+
+
+def _ac_rows(sois):
+	"""_read_ac_rows, in a planning pass from what prefetch_orders read for every line."""
+	memo = planning_memo("ac_rows")
+	if memo is None:
+		return _read_ac_rows(sois)
+	ask = [x for x in sois if x not in memo]
+	if ask:
+		memo.update(_read_ac_rows(ask))
+	return {x: memo[x] for x in sois}
+
+
+def _kept_confirmation(r):
+	return r.status in (*allocation_plan.LIVE, "Fulfilled") or (
+		r.status == "Released" and r.release_reason == "Allocated"
+	)
+
+
+def _planned_teams(sois):
+	"""allocation_plan.planned_teams, from _ac_rows: {line: the team the plan gave it} (the latest)."""
+	if planning_memo("ac_rows") is None:
+		return allocation_plan.planned_teams(sois)
+	out = {}
+	for soi, rows in _ac_rows(sois).items():
+		for r in rows:
+			if r.team and _kept_confirmation(r):
+				out[soi] = r.team
+	return out
 
 
 def _get_all_confirmed_stems(sales_order):
@@ -406,23 +463,11 @@ def _get_all_confirmed_stems(sales_order):
 	Get ALL confirmed stems for a Sales Order (across all farms).
 	Returns: { so_item_name: total_confirmed_stems_all_farms }
 	"""
-	rows = frappe.db.sql(
-		"""
-        SELECT
-            cs.sales_order_item,
-            SUM(cs.stems) AS total_stems
-        FROM `tabConfirmed Stems` cs
-        WHERE cs.parent = %s
-          AND cs.parenttype = 'Sales Order'
-          AND cs.parentfield = 'custom_confirmed_stems_table'
-          AND cs.stems > 0
-        GROUP BY cs.sales_order_item
-    """,
-		[sales_order],
-		as_dict=True,
-	)
-
-	return {r["sales_order_item"]: r["total_stems"] or 0 for r in rows}
+	out = {}
+	for soi, _farm, stems in _confirmed_rows(sales_order):
+		if stems > 0:
+			out[soi] = out.get(soi, 0) + stems
+	return out
 
 
 # ============================================================
@@ -568,14 +613,6 @@ def get_pending_sales_orders(
                 COUNT(soi.name) AS total_items,
                 COUNT(CASE WHEN opl.docstatus = 1 THEN 1 END) AS submitted_items,
                 SUM(soi.stock_qty) AS ordered_stems,
-                -- How far the order is allocated, by STEMS (allocated / ordered).
-                -- Stem-based (not submitted-OPL-count) so remote-farm allocations,
-                -- which sit in-transit before their OPL is submitted, still register.
-                ROUND(
-                    LEAST(100, COALESCE(MAX(alloc.allocated), 0) * 100.0
-                        / NULLIF(SUM(soi.stock_qty), 0)),
-                    1
-                ) AS allocation_percentage,
                 GROUP_CONCAT(soi.item_code ORDER BY soi.idx SEPARATOR ', ') AS item_codes,
                 GROUP_CONCAT(DISTINCT NULLIF(TRIM(soi.custom_length), '') ORDER BY soi.custom_length SEPARATOR ', ') AS lengths,
                 GROUP_CONCAT(DISTINCT NULLIF(TRIM(
@@ -589,13 +626,6 @@ def get_pending_sales_orders(
             LEFT JOIN `tabOrder Pick List` opl ON soi.custom_opl = opl.name
             LEFT JOIN `tabItem` it ON it.name = soi.item_code
             LEFT JOIN `tabItem Group` ig ON ig.name = it.item_group
-            LEFT JOIN (
-                SELECT soi2.parent AS so_name, SUM(ba.quantity_allocated) AS allocated
-                FROM `tabBucket Allocations` ba
-                INNER JOIN `tabSales Order Item` soi2 ON soi2.name = ba.sales_order_item
-                WHERE ba.cancelled = 0
-                GROUP BY soi2.parent
-            ) alloc ON alloc.so_name = so.name
             WHERE {where_clause}
             GROUP BY so.name
         )
@@ -603,7 +633,7 @@ def get_pending_sales_orders(
             so.name, so.customer, so.transaction_date, so.delivery_date,
             so.custom_order_name, so.grand_total AS total, so.currency,
             so.status, so.custom_priority,
-            ss.total_items, ss.submitted_items, ss.allocation_percentage, ss.ordered_stems, ss.item_codes,
+            ss.total_items, ss.submitted_items, ss.ordered_stems, ss.item_codes,
             ss.lengths, ss.item_groups, ss.has_mixed, ss.has_straight,
             {seq_col} AS planning_sequence, {team_col} AS planning_team
         FROM `tabSales Order` so
@@ -620,8 +650,32 @@ def get_pending_sales_orders(
 	except Exception as e:
 		frappe.log_error("Pending SOs Error", frappe.get_traceback())
 		frappe.throw(_("Error loading sales orders: {0}").format(str(e)))
+	_attach_allocation_percentage(rows)
 	_attach_boxes(rows)
 	return _first_of_every_team(rows) if planning["sequence"] else rows
+
+
+def _attach_allocation_percentage(rows):
+	"""How far each order is allocated, by STEMS (allocated / ordered) -- stem-based, not submitted pick lists, so
+	remote-farm allocations still in transit register. Read for these orders only: summed inside the order list's
+	query it went over every allocation ever made, for every order, each time the page loaded."""
+	if not rows:
+		return
+	allocated = dict(
+		frappe.db.sql(
+			"""SELECT soi.parent, SUM(ba.quantity_allocated)
+			   FROM `tabSales Order Item` soi
+			   JOIN `tabBucket Allocations` ba ON ba.sales_order_item = soi.name AND ba.cancelled = 0
+			   WHERE soi.parent IN %(so)s
+			   GROUP BY soi.parent""",
+			{"so": tuple(r.name for r in rows)},
+		)
+	)
+	for r in rows:
+		ordered = flt(r.get("ordered_stems"))
+		r.allocation_percentage = (
+			round(min(100.0, flt(allocated.get(r.name)) * 100.0 / ordered), 1) if ordered else None
+		)
 
 
 def _attach_boxes(rows):
@@ -853,12 +907,43 @@ def _settle_issued_rows(bas):
 			row.issued = 1
 
 
+def planning_memo(name):
+	"""A dict kept for the length of one planning pass (frappe.flags.sa2_planning: Allocate all, its steps), for
+	reads that do not change while it runs -- each order of the pass asks for the same buckets again. None outside
+	a pass: a release writes as it goes, so it always reads afresh."""
+	if not frappe.flags.sa2_planning:
+		return None
+	memo = getattr(frappe.local, "sa2_planning_memo", None)
+	if memo is None:
+		memo = frappe.local.sa2_planning_memo = {}
+	return memo.setdefault(name, {})
+
+
+def end_planning_memo():
+	frappe.local.sa2_planning_memo = None
+
+
 def released_holders(bucket_ids):
 	"""(bucket, variety, length) -> [{sales_order, order_name, customer, qty}]: the orders whose outstanding
 	allocation holds stems of the bucket."""
 	bucket_ids = [b for b in bucket_ids or [] if b]
 	if not bucket_ids:
 		return {}
+	memo = planning_memo("released_holders")
+	if memo is not None:
+		ask = [b for b in set(bucket_ids) if b not in memo]
+		if ask:
+			fresh = _released_holders(ask)
+			for b in ask:
+				memo[b] = {k: v for k, v in fresh.items() if k[0] == b}
+		out = {}
+		for b in set(bucket_ids):
+			out.update(memo[b])
+		return out
+	return _released_holders(bucket_ids)
+
+
+def _released_holders(bucket_ids):
 	out = {}
 	# nosemgrep: frappe-sql-format-injection -- LIVE_HOLD_SQL is a constant; every value is bound
 	for r in frappe.db.sql(
@@ -894,6 +979,10 @@ def released_holders(bucket_ids):
 
 
 def pending_hold_lines(bucket_ids):
+	return _per_bucket_memo("pending_hold_lines", _pending_hold_lines_read, bucket_ids, lambda k: k[0])
+
+
+def _pending_hold_lines_read(bucket_ids):
 	"""{(bucket, variety, length): [{sales_order, sales_order_item, order_name, customer, delivery_date,
 	variety, length, qty, kind}]}: the order lines whose allocation waiting release holds stems of the bucket."""
 	bucket_ids = [b for b in bucket_ids or [] if b]
@@ -928,6 +1017,348 @@ def pending_hold_lines(bucket_ids):
 				"kind": "pending",
 			}
 		)
+	return out
+
+
+# Stems an unissued pick row of a live pick list takes from a bucket while its line holds no outstanding
+# allocation there (cancelled, or the row lost): its release already moved them out of the receiving store, so
+# they are not free -- offered again, the next release failed "N needed in <store>, 0.0 on hand". A pick row from
+# before the bucket's latest harvest belongs to an earlier life of the bucket and holds nothing; nor does one older
+# than any stock a shelf still offers.
+ORPHAN_PICKS_SQL = """
+	SELECT p.bucket, p.item_code, IFNULL(p.stem_length, '') AS stem_length, SUM(p.stock_qty) AS qty
+	FROM `tabPick List Item` p
+	JOIN `tabOrder Pick List` o ON o.name = p.parent AND p.parenttype = 'Order Pick List' AND o.docstatus < 2
+	WHERE p.bucket IN %(buckets)s
+	  AND p.creation >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+	  AND IFNULL(p.issued, 0) = 0 AND IFNULL(p.issued_offline, 0) = 0
+	  AND NOT EXISTS (
+		SELECT 1 FROM `tabBucket Allocations` oba
+		JOIN `tabBucket Allocation Status` obas ON obas.name = oba.parent
+		WHERE obas.bucket_id = p.bucket AND obas.item_code = p.item_code
+		  AND oba.sales_order_item IN (p.sales_order_item, p.custom_sale_order_item)
+		  AND oba.cancelled = 0 AND IFNULL(oba.issued, 0) = 0
+	  )
+	  AND NOT EXISTS (
+		SELECT 1 FROM `tabStock Entry` ose
+		WHERE ose.custom_bucket_id = p.bucket AND ose.stock_entry_type = 'Harvesting'
+		  AND ose.docstatus != 2 AND ose.creation > p.creation
+	  )
+	GROUP BY p.bucket, p.item_code, IFNULL(p.stem_length, '')
+"""
+
+
+def _query_shelf_buckets(item_codes, active_farms, discard_age):
+	"""Shelf stock of these varieties at these farms, one row per (bucket, variety, length, shelf), with its
+	outstanding allocation and whether it is in transit; younger than the discard age, off discard requests."""
+	ic_placeholders = ", ".join(["%s"] * len(item_codes))
+	farm_placeholders = ", ".join(["%s"] * len(active_farms))
+	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
+	rows = frappe.db.sql(
+		f"""
+        SELECT
+            si.bucket_id,
+            si.variety AS item_code,
+            si.stem_length,
+            COALESCE(si.stem_qty, 0) AS total_qty,
+            si.warehouse,
+            COALESCE(si.harvest_date, si.date_added) AS harvest_date,
+            s.name AS shelf_location,
+            s.farm AS shelf_farm,
+            DATEDIFF(CURDATE(), COALESCE(si.harvest_date, si.date_added)) AS age_days,
+            TIMESTAMPDIFF(HOUR, si.date_added, %s) AS hours_since_shelved,
+            si.date_added AS date_added,
+            COALESCE(ba_out.qty, 0) AS allocated_qty,
+            GREATEST(0, COALESCE(si.stem_qty, 0) - COALESCE(ba_out.qty, 0)) AS available_qty,
+            COALESCE(si.cut_stage, '') AS cut_stage,
+            COALESCE(bas.in_transit, 0) AS in_transit
+        FROM (
+            -- One row per (bucket, variety, length, shelf). Shelving can write the
+            -- same bucket's stems as several rows (one per receiving row), and a
+            -- per-row LEFT JOIN to Bucket Allocation Status would subtract the
+            -- whole allocation from EACH row -- which is how the page showed
+            -- -40 / -30 for a 70-stem bucket fully allocated.
+            SELECT bucket_id, variety, stem_length, parent,
+                   SUM(COALESCE(stem_qty, 0)) AS stem_qty,
+                   MIN(date_added) AS date_added,
+                   MIN(harvest_date) AS harvest_date,
+                   MIN(warehouse) AS warehouse,
+                   MIN(cut_stage) AS cut_stage
+            FROM `tabShelf Item`
+            -- only this order's varieties at the farms in view: grouping the whole table for every
+            -- order was most of Allocate all's time
+            WHERE variety IN ({ic_placeholders})
+              AND parent IN (SELECT name FROM `tabShelf` WHERE farm IN ({farm_placeholders}))
+            GROUP BY bucket_id, variety, stem_length, parent
+        ) si
+        INNER JOIN `tabShelf` s ON s.name = si.parent
+        LEFT JOIN `tabBucket Allocation Status` bas
+            ON bas.bucket_id = si.bucket_id
+            AND bas.item_code = si.variety
+            AND COALESCE(bas.stem_length, '') = COALESCE(si.stem_length, '')
+        -- Allocated = the bucket's OUTSTANDING allocation rows (not cancelled, not issued),
+        -- counted here the way allocation counts them (recompute_bas_quantities), not the
+        -- stored allocated_quantity: a stale figure offered stems allocation then refused
+        -- ("Over-allocation on bucket ...: 0.0 available").
+        LEFT JOIN (
+            SELECT ba.parent, SUM(ba.quantity_allocated) AS qty
+            FROM `tabBucket Allocations` ba
+            JOIN `tabBucket Allocation Status` bas2 ON bas2.name = ba.parent
+            WHERE ba.parenttype = 'Bucket Allocation Status' AND ba.cancelled = 0 AND IFNULL(ba.issued, 0) = 0
+              AND bas2.item_code IN ({ic_placeholders})
+              AND {LIVE_HOLD_SQL}
+            GROUP BY ba.parent
+        ) ba_out ON ba_out.parent = bas.name
+        WHERE s.farm IN ({farm_placeholders})
+          AND si.variety IN ({ic_placeholders})
+          AND DATEDIFF(CURDATE(), COALESCE(si.harvest_date, si.date_added)) < %s
+          {DISCARD_EXCLUSION}
+    """,
+		[
+			now_datetime(),
+			*item_codes,
+			*active_farms,
+			*item_codes,
+			*active_farms,
+			*item_codes,
+			discard_age,
+		],
+		as_dict=True,
+	)
+	_hold_orphan_picks(rows)
+	return rows
+
+
+def _hold_orphan_picks(rows):
+	"""Count what unissued pick rows hold of these shelf rows' buckets with no allocation behind them
+	(ORPHAN_PICKS_SQL) as allocated: read once for the buckets listed, kept off each row's free stems."""
+	buckets = tuple({r.bucket_id for r in rows if r.bucket_id})
+	if not buckets:
+		return
+	held = defaultdict(float)
+	for bucket, item, length, qty in frappe.db.sql(ORPHAN_PICKS_SQL, {"buckets": buckets}):
+		held[(str(bucket).upper(), item, length or "")] += flt(qty)
+	if not held:
+		return
+	for r in rows:
+		key = (str(r.bucket_id).upper(), r.item_code, r.stem_length or "")
+		qty = held.pop(key, 0)
+		if qty:
+			r.allocated_qty = flt(r.allocated_qty) + qty
+			r.available_qty = max(0.0, flt(r.available_qty) - qty)
+
+
+def _shelf_buckets(item_codes, active_farms, discard_age):
+	"""_query_shelf_buckets; in a planning pass each variety is read once for every order (prefetch_orders reads
+	them all up front), with what is held of its buckets, and each order gets its own copy of the rows."""
+	memo = planning_memo("shelf")
+	if memo is None:
+		return _query_shelf_buckets(item_codes, active_farms, discard_age)
+	store = memo.setdefault((tuple(sorted(active_farms)), discard_age), {})
+	missing = [v for v in item_codes if v not in store]
+	if missing:
+		rows = _query_shelf_buckets(missing, active_farms, discard_age)
+		for v in missing:
+			store[v] = []
+		for r in rows:
+			store[r["item_code"]].append(r)
+		# what is held of these buckets, for every order of the pass, in one read each
+		ids = {r["bucket_id"] for r in rows}
+		farm_config = _config_for(None)["farm_config"]
+		_attach_hours_cooled(rows)
+		pending_holds(ids)
+		released_holders(ids)
+		pending_hold_lines(ids)
+		remote_bucket_owners(
+			{r["bucket_id"] for r in rows if not farm_config.get(r["shelf_farm"], {}).get("sales_shelf")}
+		)
+	return [dict(r) for v in item_codes for r in store.get(v, [])]
+
+
+def _active_farms(location, selected_farms, config):
+	"""The farms an order's buckets are read from: the selected ones of the location, else its sales shelves,
+	else all its farms (as get_sales_order_items_with_buckets picks them)."""
+	if isinstance(selected_farms, str):
+		selected_farms = json.loads(selected_farms or "[]")
+	location_farms = config["farms_by_location"].get(location, []) if location else []
+	if selected_farms:
+		active = [f for f in selected_farms if f in location_farms]
+	else:
+		active = [f for f in location_farms if config["farm_config"].get(f, {}).get("sales_shelf")]
+	return active or location_farms
+
+
+def prefetch_orders(sales_orders, location, selected_farms=None, stock=True):
+	"""In a planning pass: every variety these orders need read from the shelves at once (with what is held of
+	the buckets), so reading each order afterwards takes nothing more from the database for its stock."""
+	if planning_memo("shelf") is None or not sales_orders or not location:
+		return
+	config = _config_for(location)
+	farms = _active_farms(location, selected_farms, config)
+	codes = frappe.db.sql_list(
+		"SELECT DISTINCT item_code FROM `tabSales Order Item` WHERE parent IN %(s)s",
+		{"s": tuple(sales_orders)},
+	)
+	if stock and farms and codes:
+		_shelf_buckets(codes, farms, config["discard_age"])
+	lines = frappe.db.sql_list(
+		"SELECT name FROM `tabSales Order Item` WHERE parent IN %(s)s", {"s": tuple(sales_orders)}
+	)
+	planning_memo("line_allocations").update(_read_line_allocations(lines))
+	planning_memo("order_items").update(_read_order_items(list(sales_orders)))
+	if codes:
+		_item_metadata(codes)
+	planned_stems(lines)
+	from upande_packhouse.api.remote_transfer.transfer_scheduling import order_hubs
+
+	planning_memo("order_hub").update(order_hubs(list(sales_orders)))
+	planning_memo("confirmed_rows").update(_read_confirmed_rows(list(sales_orders)))
+	planning_memo("ac_rows").update(_read_ac_rows(lines or [""]))
+	# stems waiting release, per line (day_allocation._pending_stems)
+	waiting = planning_memo("pending_stems")
+	for x in lines:
+		waiting[x] = 0.0
+	for soi, qty in frappe.db.sql(
+		"""SELECT r.sales_order_item, SUM(r.qty) FROM `tabPending Allocation Row` r
+		   JOIN `tabPending Allocation` p ON p.name = r.parent AND r.parenttype = 'Pending Allocation'
+		   WHERE p.status = 'Pending' AND r.sales_order_item IN %(s)s GROUP BY r.sales_order_item""",
+		{"s": tuple(lines) or ("",)},
+	):
+		waiting[soi] = flt(qty)
+
+
+def _read_order_items(sales_orders):
+	"""{sales order: its lines, in order} as get_sales_order_items_with_buckets reads them."""
+	out = {so: [] for so in sales_orders}
+	for r in frappe.db.sql(
+		"""
+        SELECT
+            soi.parent AS _parent,
+            soi.name AS sales_order_item,
+            soi.item_code,
+            soi.item_name,
+            soi.qty,
+            soi.conversion_factor,
+            soi.uom,
+            soi.stock_uom,
+            soi.custom_length AS required_length,
+            soi.stock_qty AS original_stock_qty,
+            soi.custom_ordered_quantity AS original_ordered_qty,
+            soi.custom_mixed_box,
+            soi.custom_mix_group,
+            soi.custom_mix_name,
+            soi.custom_mixed_bunch,
+            soi.custom_bunch_group,
+            soi.custom_line AS specification,
+            soi.custom_cut_stage,
+            soi.custom_number_of_boxes,
+            soi.custom_packrate,
+            soi.custom_packrate_mixed_box,
+            opl.team AS opl_team,
+            soi.custom_opl AS opl_name,
+            IF(opl.docstatus = 1, 1, 0) AS opl_submitted
+        FROM `tabSales Order Item` soi
+        LEFT JOIN `tabOrder Pick List` opl ON opl.name = soi.custom_opl AND opl.docstatus < 2
+        WHERE soi.parent IN %(so)s
+        ORDER BY soi.parent, soi.idx
+    """,
+		{"so": tuple(sales_orders)},
+		as_dict=True,
+	):
+		out[r.pop("_parent")].append(r)
+	return out
+
+
+def _order_items(sales_order):
+	"""The order's lines; in a planning pass from what prefetch_orders read for every order at once (a copy:
+	the caller adds to its rows)."""
+	memo = planning_memo("order_items")
+	if memo is None or sales_order not in memo:
+		rows = _read_order_items([sales_order])[sales_order]
+		if memo is not None:
+			memo[sales_order] = rows
+	else:
+		rows = memo[sales_order]
+	return [frappe._dict(r) for r in rows]
+
+
+def _item_metadata(item_codes):
+	"""{item: {item_code, headsize, color}}, in a planning pass read once per item."""
+	memo = planning_memo("item_metadata")
+	ask = [c for c in item_codes if memo is None or c not in memo]
+	got = {}
+	if ask:
+		got = {
+			r["item_code"]: r
+			for r in frappe.db.sql(
+				"""SELECT name AS item_code, custom_headsize_cm AS headsize, custom_color AS color
+				   FROM `tabItem` WHERE name IN %(c)s""",
+				{"c": tuple(ask)},
+				as_dict=True,
+			)
+		}
+		if memo is not None:
+			for c in ask:
+				memo[c] = got.get(c)
+	if memo is None:
+		return got
+	return {c: memo[c] for c in item_codes if memo.get(c)}
+
+
+def _read_line_allocations(so_item_names):
+	"""{line: [(bucket, variety, length, stems)]}: each line's allocation (not cancelled), per bucket row."""
+	out = {soi: [] for soi in so_item_names}
+	if not so_item_names:
+		return out
+	for soi, bucket, variety, length, qty in frappe.db.sql(
+		"""SELECT ba.sales_order_item, bas.bucket_id, bas.item_code, COALESCE(bas.stem_length, ''),
+		          SUM(ba.quantity_allocated)
+		   FROM `tabBucket Allocations` ba
+		   INNER JOIN `tabBucket Allocation Status` bas ON bas.name = ba.parent
+		   WHERE ba.sales_order_item IN %(s)s AND ba.cancelled = 0
+		   GROUP BY ba.sales_order_item, bas.bucket_id, bas.item_code, COALESCE(bas.stem_length, '')""",
+		{"s": tuple(so_item_names)},
+	):
+		out[soi].append((bucket, variety, length, flt(qty)))
+	return out
+
+
+def _line_allocations(so_item_names, bucket_ids):
+	"""({line: stems allocated}, {(bucket, variety, length, line): stems}) for these lines on these buckets -- in
+	a planning pass from what prefetch_orders read for every line at once."""
+	memo = planning_memo("line_allocations")
+	if memo is None or any(soi not in memo for soi in so_item_names):
+		got = _read_line_allocations(so_item_names)
+		if memo is not None:
+			memo.update(got)
+	else:
+		got = {soi: memo[soi] for soi in so_item_names}
+	per_item, per_bucket = {}, {}
+	for soi, rows in got.items():
+		for bucket, variety, length, qty in rows:
+			per_item[soi] = per_item.get(soi, 0) + qty
+			if bucket in bucket_ids:
+				key = (bucket, variety, length, soi)
+				per_bucket[key] = per_bucket.get(key, 0) + qty
+	return per_item, per_bucket
+
+
+def _per_bucket_memo(name, fn, bucket_ids, bucket_of):
+	"""fn(bucket_ids) -> {key: value}, in a planning pass read once per bucket (bucket_of(key) is its bucket)."""
+	memo = planning_memo(name)
+	if memo is None:
+		return fn(bucket_ids)
+	bucket_ids = {b for b in bucket_ids or () if b}
+	ask = [b for b in bucket_ids if b not in memo]
+	if ask:
+		fresh = fn(ask)
+		for b in ask:
+			memo[b] = {}
+		for k, v in fresh.items():
+			memo.setdefault(bucket_of(k), {})[k] = v
+	out = {}
+	for b in bucket_ids:
+		out.update(memo.get(b) or {})
 	return out
 
 
@@ -999,40 +1430,7 @@ def get_sales_order_items_with_buckets(
 
 	confirmed_by_item, confirmed_detail = _get_confirmed_stems_for_farms(sales_order, location_farms)
 
-	items = frappe.db.sql(
-		"""
-        SELECT
-            soi.name AS sales_order_item,
-            soi.item_code,
-            soi.item_name,
-            soi.qty,
-            soi.conversion_factor,
-            soi.uom,
-            soi.stock_uom,
-            soi.custom_length AS required_length,
-            soi.stock_qty AS original_stock_qty,
-            soi.custom_ordered_quantity AS original_ordered_qty,
-            soi.custom_mixed_box,
-            soi.custom_mix_group,
-            soi.custom_mix_name,
-            soi.custom_mixed_bunch,
-            soi.custom_bunch_group,
-            soi.custom_line AS specification,
-            soi.custom_cut_stage,
-            soi.custom_number_of_boxes,
-            soi.custom_packrate,
-            soi.custom_packrate_mixed_box,
-            opl.team AS opl_team,
-            soi.custom_opl AS opl_name,
-            IF(opl.docstatus = 1, 1, 0) AS opl_submitted
-        FROM `tabSales Order Item` soi
-        LEFT JOIN `tabOrder Pick List` opl ON opl.name = soi.custom_opl AND opl.docstatus < 2
-        WHERE soi.parent = %s
-        ORDER BY soi.idx
-    """,
-		[sales_order],
-		as_dict=True,
-	)
+	items = _order_items(sales_order)
 
 	if not items:
 		return []
@@ -1092,28 +1490,13 @@ def get_sales_order_items_with_buckets(
 
 	# The team Allocation Planning confirmed each line for, for lines not on a pick list yet.
 	if _planning_switches()["team"]:
-		planned = allocation_plan.planned_teams([i["sales_order_item"] for i in items])
+		planned = _planned_teams([i["sales_order_item"] for i in items])
 		for item in items:
 			item["planning_team"] = planned.get(item["sales_order_item"])
 
 	item_codes = list({i["item_code"] for i in items})
 
-	ic_placeholders = ", ".join(["%s"] * len(item_codes))
-	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
-	item_metadata = frappe.db.sql(
-		f"""
-        SELECT
-            name AS item_code,
-            custom_headsize_cm AS headsize,
-            custom_color AS color
-        FROM `tabItem`
-        WHERE name IN ({ic_placeholders})
-    """,
-		item_codes,
-		as_dict=True,
-	)
-
-	metadata_map = {row["item_code"]: row for row in item_metadata}
+	metadata_map = _item_metadata(item_codes)
 
 	if headsize_list or color_list:
 		filtered = []
@@ -1135,9 +1518,6 @@ def get_sales_order_items_with_buckets(
 
 		item_codes = list({i["item_code"] for i in items})
 
-	ic_placeholders = ", ".join(["%s"] * len(item_codes))
-	farm_placeholders = ", ".join(["%s"] * len(active_farms))
-
 	# ── In-transit buckets STAY allocatable ──────────────────────────────────
 	# A bucket on its way to the sales shelf still physically holds its stems,
 	# and they will all be at the destination when it lands, so a second order
@@ -1148,69 +1528,7 @@ def get_sales_order_items_with_buckets(
 	# Submission is still gated: opl_submit_blockers holds the OPL until the
 	# bucket actually arrives.
 	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
-	buckets = frappe.db.sql(
-		f"""
-        SELECT
-            si.bucket_id,
-            si.variety AS item_code,
-            si.stem_length,
-            COALESCE(si.stem_qty, 0) AS total_qty,
-            si.warehouse,
-            COALESCE(si.harvest_date, si.date_added) AS harvest_date,
-            s.name AS shelf_location,
-            s.farm AS shelf_farm,
-            DATEDIFF(CURDATE(), COALESCE(si.harvest_date, si.date_added)) AS age_days,
-            TIMESTAMPDIFF(HOUR, si.date_added, %s) AS hours_since_shelved,
-            si.date_added AS date_added,
-            COALESCE(ba_out.qty, 0) AS allocated_qty,
-            GREATEST(0, COALESCE(si.stem_qty, 0) - COALESCE(ba_out.qty, 0)) AS available_qty,
-            COALESCE(si.cut_stage, '') AS cut_stage,
-            COALESCE(bas.in_transit, 0) AS in_transit
-        FROM (
-            -- One row per (bucket, variety, length, shelf). Shelving can write the
-            -- same bucket's stems as several rows (one per receiving row), and a
-            -- per-row LEFT JOIN to Bucket Allocation Status would subtract the
-            -- whole allocation from EACH row -- which is how the page showed
-            -- -40 / -30 for a 70-stem bucket fully allocated.
-            SELECT bucket_id, variety, stem_length, parent,
-                   SUM(COALESCE(stem_qty, 0)) AS stem_qty,
-                   MIN(date_added) AS date_added,
-                   MIN(harvest_date) AS harvest_date,
-                   MIN(warehouse) AS warehouse,
-                   MIN(cut_stage) AS cut_stage
-            FROM `tabShelf Item`
-            -- only this order's varieties at the farms in view: grouping the whole table for every
-            -- order was most of Allocate all's time
-            WHERE variety IN ({ic_placeholders})
-              AND parent IN (SELECT name FROM `tabShelf` WHERE farm IN ({farm_placeholders}))
-            GROUP BY bucket_id, variety, stem_length, parent
-        ) si
-        INNER JOIN `tabShelf` s ON s.name = si.parent
-        LEFT JOIN `tabBucket Allocation Status` bas
-            ON bas.bucket_id = si.bucket_id
-            AND bas.item_code = si.variety
-            AND COALESCE(bas.stem_length, '') = COALESCE(si.stem_length, '')
-        -- Allocated = the bucket's OUTSTANDING allocation rows (not cancelled, not issued),
-        -- counted here the way allocation counts them (recompute_bas_quantities), not the
-        -- stored allocated_quantity: a stale figure offered stems allocation then refused
-        -- ("Over-allocation on bucket ...: 0.0 available").
-        LEFT JOIN (
-            SELECT ba.parent, SUM(ba.quantity_allocated) AS qty
-            FROM `tabBucket Allocations` ba
-            JOIN `tabBucket Allocation Status` bas2 ON bas2.name = ba.parent
-            WHERE ba.parenttype = 'Bucket Allocation Status' AND ba.cancelled = 0 AND IFNULL(ba.issued, 0) = 0
-              AND bas2.item_code IN ({ic_placeholders})
-              AND {LIVE_HOLD_SQL}
-            GROUP BY ba.parent
-        ) ba_out ON ba_out.parent = bas.name
-        WHERE s.farm IN ({farm_placeholders})
-          AND si.variety IN ({ic_placeholders})
-          AND DATEDIFF(CURDATE(), COALESCE(si.harvest_date, si.date_added)) < %s
-          {DISCARD_EXCLUSION}
-    """,
-		[now_datetime(), *item_codes, *active_farms, *item_codes, *active_farms, *item_codes, discard_age],
-		as_dict=True,
-	)
+	buckets = _shelf_buckets(item_codes, active_farms, discard_age)
 
 	buckets = [b for b in buckets if b["age_days"] <= farm_max_age.get(b["shelf_farm"], 5)]
 
@@ -1218,7 +1536,9 @@ def get_sales_order_items_with_buckets(
 	# (Shelf Locations, Production Settings), counted from when the bucket was received into a cold store,
 	# at whichever farm -- not from its shelving, which for a remote bucket comes after the truck. 0 hours
 	# (the default) means this farm has no cooling requirement configured.
-	_attach_hours_cooled(buckets)
+	# a planning pass read the cooling with the stock (prefetch_orders): the rows carry it already
+	if any("hours_cooled" not in b for b in buckets):
+		_attach_hours_cooled(buckets)
 	buckets = [
 		b
 		for b in buckets
@@ -1231,63 +1551,13 @@ def get_sales_order_items_with_buckets(
 		buckets = [b for b in buckets if _norm_cut_stage(b.get("cut_stage")) in wanted_stages]
 
 	so_item_names = [i["sales_order_item"] for i in items]
-	si_placeholders = ", ".join(["%s"] * len(so_item_names))
 
-	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
-	allocated_per_item = frappe.db.sql(
-		f"""
-        SELECT
-            ba.sales_order_item,
-            SUM(ba.quantity_allocated) AS total_allocated
-        FROM `tabBucket Allocations` ba
-        INNER JOIN `tabBucket Allocation Status` bas ON bas.name = ba.parent
-        WHERE ba.sales_order_item IN ({si_placeholders})
-          AND ba.cancelled = 0
-        GROUP BY ba.sales_order_item
-    """,
-		so_item_names,
-		as_dict=True,
-	)
-
-	allocated_dict = {row["sales_order_item"]: row["total_allocated"] or 0 for row in allocated_per_item}
-
-	per_bucket_per_item = {}
-	if buckets:
-		bucket_ids = list({b["bucket_id"] for b in buckets})
-		bid_placeholders = ", ".join(["%s"] * len(bucket_ids))
-
-		# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
-		result = frappe.db.sql(
-			f"""
-            SELECT
-                bas.bucket_id,
-                bas.item_code,
-                COALESCE(bas.stem_length, '') AS stem_length,
-                ba.sales_order_item,
-                SUM(ba.quantity_allocated) AS allocated_to_this_item
-            FROM `tabBucket Allocations` ba
-            INNER JOIN `tabBucket Allocation Status` bas ON bas.name = ba.parent
-            WHERE ba.sales_order_item IN ({si_placeholders})
-              AND bas.bucket_id IN ({bid_placeholders})
-              AND ba.cancelled = 0
-            GROUP BY bas.bucket_id, bas.item_code, COALESCE(bas.stem_length, ''), ba.sales_order_item
-        """,
-			so_item_names + bucket_ids,
-			as_dict=True,
-		)
-
-		for row in result:
-			# Keyed like BAS itself -- (bucket, variety, length) -- so a bucket
-			# carrying several varieties/lengths reports each row's own share.
-			key = (row["bucket_id"], row["item_code"], row["stem_length"], row["sales_order_item"])
-			per_bucket_per_item[key] = row["allocated_to_this_item"] or 0
+	allocated_dict, per_bucket_per_item = _line_allocations(so_item_names, {b["bucket_id"] for b in buckets})
 
 	buckets_by_item = {}
 	for b in buckets:
 		buckets_by_item.setdefault(b["item_code"], []).append(b)
 
-	# Stems the allocation plan holds for a line are not available to any other line.
-	held_by_line = availability.reservations_by_bucket_line({b["bucket_id"] for b in buckets})
 	# Stems other orders have allocated and are waiting to confirm are not free here either.
 	pending = pending_holds({b["bucket_id"] for b in buckets})
 	# Stems released orders hold: shown with the order that holds them
@@ -1340,23 +1610,25 @@ def get_sales_order_items_with_buckets(
 				(b["bucket_id"], b["item_code"], b["stem_length"] or "", item["sales_order_item"]), 0
 			)
 
-			# Held in the plan for another line: not available here.
-			held_others = sum(
-				v for k, v in held_by_line.get(b["bucket_id"], {}).items() if k != item["sales_order_item"]
-			)
 			held_for = [
 				(so, q)
 				for so, q in pending.get((b["bucket_id"], b["item_code"], b["stem_length"] or ""), [])
 				if so != sales_order
 			]
-			held_others += sum(q for _so, q in held_for)
+			held_others = sum(q for _so, q in held_for)
 			available_here = max(0.0, (b["available_qty"] or 0) - held_others)
 			if not is_sales_shelf and owners.get(b["bucket_id"], set()) - {sales_order}:
 				available_here = 0.0
 
-			# Less free here than one bunch of the line and nothing of it on this line: kept off the list
-			if available_here < (flt(item.get("conversion_factor")) or 1) - 1e-9 and not allocated_here:
+			if available_here <= 1e-9 and not allocated_here:
 				continue
+			# less free than one bunch of the line: kept off the bucket list, but FIFO takes it first (a bunch takes
+			# its stems from as many buckets as it needs) and "Why aren't more buckets showing?" lists it
+			remnant = (
+				1
+				if available_here < (flt(item.get("conversion_factor")) or 1) - 1e-9 and not allocated_here
+				else 0
+			)
 
 			entry = {
 				"bucket_id": b["bucket_id"],
@@ -1364,6 +1636,7 @@ def get_sales_order_items_with_buckets(
 				"total_qty": b["total_qty"],
 				"allocated_qty": b["allocated_qty"],
 				"available_qty": available_here,
+				"remnant": remnant,
 				"held_for_others": held_others,
 				"allocated_to_this_item": allocated_here,
 				"age_days": b["age_days"],
@@ -1561,11 +1834,13 @@ def get_bucket_visibility_diagnostics(
 	soi = frappe.db.get_value(
 		"Sales Order Item",
 		sales_order_item,
-		["item_code", "custom_length", "custom_line", "custom_cut_stage"],
+		["item_code", "custom_length", "custom_line", "custom_cut_stage", "parent", "conversion_factor"],
 		as_dict=True,
 	)
 	if not soi:
 		frappe.throw(_("Sales Order Item not found: {0}").format(sales_order_item))
+	sales_order = soi.parent
+	per_bunch = flt(soi.conversion_factor) or 1
 
 	item_code = soi.item_code
 	required_length = soi.custom_length
@@ -1638,7 +1913,7 @@ def get_bucket_visibility_diagnostics(
             TIMESTAMPDIFF(HOUR, si.date_added, %s) AS hours_since_shelved,
             si.date_added AS date_added,
             COALESCE(si.cut_stage, '') AS cut_stage,
-            COALESCE(bas.allocated_quantity, 0) AS allocated_qty,
+            COALESCE(ba_out.qty, 0) AS allocated_qty,
             COALESCE(bas.in_transit, 0) AS in_transit,
             (
                 SELECT dr.name FROM `tabDiscard Request Bucket` drb
@@ -1667,11 +1942,21 @@ def get_bucket_visibility_diagnostics(
         LEFT JOIN `tabBucket Allocation Status` bas
             ON bas.bucket_id = si.bucket_id AND bas.item_code = si.variety
             AND COALESCE(bas.stem_length, '') = COALESCE(si.stem_length, '')
+        -- allocated as the bucket list counts it: outstanding rows that still hold stems (LIVE_HOLD_SQL)
+        LEFT JOIN (
+            SELECT ba.parent, SUM(ba.quantity_allocated) AS qty
+            FROM `tabBucket Allocations` ba
+            JOIN `tabBucket Allocation Status` bas2 ON bas2.name = ba.parent
+            WHERE ba.parenttype = 'Bucket Allocation Status' AND ba.cancelled = 0 AND IFNULL(ba.issued, 0) = 0
+              AND bas2.item_code = %s
+              AND {LIVE_HOLD_SQL}
+            GROUP BY ba.parent
+        ) ba_out ON ba_out.parent = bas.name
         WHERE si.variety = %s
           AND s.farm IN ({farm_ph})
           AND COALESCE(si.stem_qty, 0) > 0
     """,
-		[now_datetime(), item_code] + location_farms,
+		[now_datetime(), item_code, item_code] + location_farms,
 		as_dict=True,
 	)
 
@@ -1685,10 +1970,45 @@ def get_bucket_visibility_diagnostics(
 		("past_max_age", "Past this farm's allocation-age limit"),
 		("too_short", "Shorter than the order needs"),
 		("wrong_cut_stage", "Doesn't match the active cut-stage filter"),
+		("transfer_held", "Going to another order's sales farm"),
+		("old_harvest", "Held by an order from its last harvest"),
+		("waiting_release", "Allocated to another order, waiting release"),
 		("fully_allocated", "Already fully allocated"),
+		("remnant", "Less than a bunch free"),
 		("eligible", "Available to allocate"),
 	]
 	buckets_by_reason = {code: [] for code, _l in REASON_META}
+
+	# the bucket list's own rules: stems other orders hold waiting release are not free here, and a remote farm's
+	# bucket another order holds goes to that order's sales farm whole, its free stems with it
+	ids = {b["bucket_id"] for b in rows}
+	pending = pending_holds(ids)
+	owners = remote_bucket_owners(
+		{b["bucket_id"] for b in rows if not farm_config.get(b["shelf_farm"], {}).get("sales_shelf")}
+	)
+	from upande_packhouse.bucket_reuse import stale_allocations
+
+	old_harvest = defaultdict(lambda: {"qty": 0.0, "orders": set()})
+	for r in stale_allocations(bucket_ids=ids, item_code=item_code):
+		k = (r.bucket_id, r.length)
+		old_harvest[k]["qty"] += flt(r.qty)
+		old_harvest[k]["orders"].add(r.sales_order or "?")
+	names = dict(
+		frappe.db.sql(
+			"SELECT name, IFNULL(custom_order_name, name) FROM `tabSales Order` WHERE name IN %(s)s",
+			{
+				"s": tuple(
+					{so for v in pending.values() for so, _q in v}
+					| {so for v in owners.values() for so in v}
+					| {so for v in old_harvest.values() for so in v["orders"]}
+				)
+				or ("",)
+			},
+		)
+	)
+
+	def _orders(sos):
+		return ", ".join(sorted(names.get(so, so) for so in sos))
 
 	wanted_stages = {_norm_cut_stage(s) for s in cut_stage_list}
 	_attach_hours_cooled(rows)
@@ -1697,6 +2017,14 @@ def get_bucket_visibility_diagnostics(
 		is_sales_shelf = farm_config.get(b["shelf_farm"], {}).get("sales_shelf", 0)
 		farm_max_age = farm_config.get(b["shelf_farm"], {}).get("max_allocation_age", 5)
 		available_qty = max(0, (b["stems"] or 0) - (b["allocated_qty"] or 0))
+		waiting = [
+			(so, q)
+			for so, q in pending.get((b["bucket_id"], item_code, b["stem_length"] or ""), [])
+			if so != sales_order
+		]
+		free_here = max(0.0, available_qty - sum(q for _so, q in waiting))
+		taking_whole = (owners.get(b["bucket_id"]) or set()) - {sales_order} if not is_sales_shelf else set()
+		stale = old_harvest.get((b["bucket_id"], b["stem_length"] or ""))
 		age_days = b["age_days"] or 0
 
 		reason = None
@@ -1741,11 +2069,33 @@ def get_bucket_visibility_diagnostics(
 				)
 			else:
 				detail = _("Cut stage {0} isn't in the active cut-stage filter").format(b["cut_stage"] or "-")
+		elif taking_whole and available_qty > 0:
+			reason = "transfer_held"
+			detail = _(
+				"{0} takes the whole bucket from {1} to its sales farm; its {2} free stems go with it"
+			).format(_orders(taking_whole), b["shelf_farm"] or "?", int(available_qty))
+			available_qty = 0
+		elif stale and available_qty <= 0:
+			reason = "old_harvest"
+			detail = _("{0} stems held by {1} from before the bucket was harvested again").format(
+				int(stale["qty"]), _orders(stale["orders"])
+			)
+		elif waiting and free_here <= 0:
+			reason = "waiting_release"
+			detail = _("{0} stems allocated to {1}, waiting release").format(
+				int(sum(q for _so, q in waiting)), _orders({so for so, _q in waiting})
+			)
+			available_qty = 0
 		elif available_qty <= 0:
 			reason = "fully_allocated"
 			detail = _("All {0} stems on this bucket are already allocated").format(b["stems"] or 0)
+		elif free_here < per_bunch - 1e-9:
+			reason = "remnant"
+			available_qty = free_here
+			detail = _("{0} stems free, less than one bunch of {1}").format(int(free_here), int(per_bunch))
 		else:
 			reason = "eligible"
+			available_qty = free_here
 			detail = _("Available to allocate")
 
 		buckets_by_reason[reason].append(
@@ -2144,12 +2494,26 @@ def _attach_hours_cooled(buckets):
 			b["bucket_id"] not in shelved or b["date_added"] < shelved[b["bucket_id"]]
 		):
 			shelved[b["bucket_id"]] = b["date_added"]
-	got = hours_since_received(shelved)
+	memo = planning_memo("hours_cooled")
+	if memo is None:
+		got = hours_since_received(shelved)
+	else:
+		# a planning pass reads the same buckets for order after order: each bucket once
+		ask = {k: v for k, v in shelved.items() if (k, str(v)) not in memo}
+		if ask:
+			fresh = hours_since_received(ask)
+			for k, v in ask.items():
+				memo[(k, str(v))] = fresh.get(k)
+		got = {k: memo[(k, str(v))] for k, v in shelved.items() if memo.get((k, str(v))) is not None}
 	for b in buckets:
 		b["hours_cooled"] = got.get(b["bucket_id"], b.get("hours_since_shelved") or 0)
 
 
 def remote_bucket_owners(bucket_ids):
+	return _per_bucket_memo("remote_bucket_owners", _remote_bucket_owners_read, bucket_ids, lambda k: k)
+
+
+def _remote_bucket_owners_read(bucket_ids):
 	"""{bucket_id: {sales_order}} holding stems of each bucket's current harvest (since it was shelved):
 	outstanding allocations (not cancelled, not issued) and allocations waiting release. A bucket on a remote farm is requested whole, so while it is
 	there it belongs to the order holding it; the stems that order does not take arrive at the hub free."""
@@ -2183,6 +2547,10 @@ def remote_bucket_owners(bucket_ids):
 
 
 def pending_holds(bucket_ids):
+	return _per_bucket_memo("pending_holds", _pending_holds_read, bucket_ids, lambda k: k[0])
+
+
+def _pending_holds_read(bucket_ids):
 	"""{(bucket, variety, length): [(sales_order, stems)]} that Pending Allocations (allocated, waiting to be
 	confirmed) hold. Another order cannot take those stems."""
 	if not bucket_ids or not frappe.db.table_exists("Pending Allocation Row"):
@@ -2234,15 +2602,26 @@ def _v2_rules(location=None):
 
 
 def _check_whole_bunches(so_doc, allocations):
-	"""A bunch is never split: every bucket's stems for a line are whole bunches of the line's unit."""
-	per_bunch = {i.name: flt(i.conversion_factor) or 1 for i in so_doc.items}
+	"""A line is allocated in whole bunches of its unit. A bunch takes its stems from as many buckets as it
+	needs (oldest first, FIFO), so it is the line's total that is checked, not each bucket's share."""
+	lines = {i.name: i for i in so_doc.items}
+	asked = defaultdict(float)
 	for a in allocations:
-		size = per_bunch.get(a.get("sales_order_item")) or 1
-		qty = flt(a.get("qty"))
-		if size > 1 and abs(qty / size - round(qty / size)) > 1e-6:
+		asked[a.get("sales_order_item")] += flt(a.get("qty"))
+	for soi, qty in asked.items():
+		line = lines.get(soi)
+		size = (flt(line.conversion_factor) if line else 0) or 1
+		extra = qty - int(qty / size + 1e-9) * size
+		if size > 1 and extra > 1e-6 and size - extra > 1e-6:
 			frappe.throw(
-				_("{0}: {1} stems from bucket {2} is not whole bunches of {3}.").format(
-					a.get("item_code"), int(qty) if qty == int(qty) else qty, a.get("bucket_id"), int(size)
+				_(
+					"{0}: {1} stems is not whole bunches of {2}; take {3} more from the next bucket or {4} fewer."
+				).format(
+					line.item_code if line else soi,
+					int(qty) if qty == int(qty) else qty,
+					int(size),
+					int(size - extra) if size - extra == int(size - extra) else size - extra,
+					int(extra) if extra == int(extra) else extra,
 				),
 				title=_("Whole bunches only"),
 			)
@@ -2269,7 +2648,7 @@ def _check_whole_lines(sales_order, allocations):
 
 def _check_against_plan(allocations, teams):
 	"""Enforce the Allocation Plan: only planned lines, no more than their confirmed stems, at the
-	planned variety, length and team, and never stems the plan holds for another line."""
+	planned variety, length and team."""
 	by_line = {}
 	for a in allocations:
 		by_line.setdefault(a["sales_order_item"], []).append(a)
@@ -2309,33 +2688,6 @@ def _check_against_plan(allocations, teams):
 						a.get("stem_length") or "",
 					),
 					title=_("Not the planned variety or length"),
-				)
-		held_others = availability.reserved_by_bucket(
-			exclude_soi=soi, bucket_ids={a["bucket_id"] for a in rows}
-		)
-		for a in rows:
-			held = held_others.get(a["bucket_id"], 0.0)
-			if held <= 0:
-				continue
-			stems = flt(
-				frappe.db.sql(
-					"""SELECT SUM(stem_qty) FROM `tabShelf Item` WHERE bucket_id = %s AND variety = %s""",
-					(a["bucket_id"], a.get("item_code")),
-				)[0][0]
-			)
-			taken = flt(
-				frappe.db.sql(
-					"""SELECT SUM(allocated_quantity) FROM `tabBucket Allocation Status`
-					   WHERE bucket_id = %s AND item_code = %s""",
-					(a["bucket_id"], a.get("item_code")),
-				)[0][0]
-			)
-			if flt(a.get("qty")) > stems - taken - held + 0.001:
-				frappe.throw(
-					_("{0}: {1} stems of bucket {2} are held in the plan for another order.").format(
-						label, int(held), a["bucket_id"]
-					),
-					title=_("Held for another order"),
 				)
 
 
@@ -2438,7 +2790,7 @@ def _fit_allocations_to_boxes(so_doc, allocations):
 				FROM `tabPick List Item` pli
 				JOIN `tabOrder Pick List` opl ON opl.name = pli.parent
 				WHERE pli.parenttype = 'Order Pick List' AND opl.docstatus < 2
-				  AND %(soi)s IN (COALESCE(pli.custom_sale_order_item, ''), COALESCE(pli.sales_order_item, ''))
+				  AND (pli.sales_order_item = %(soi)s OR pli.custom_sale_order_item = %(soi)s)
 				""",
 				{"soi": soi},
 			)[0][0]
@@ -2499,7 +2851,7 @@ def _placed_stems(soi):
 			FROM `tabPick List Item` pli
 			JOIN `tabOrder Pick List` opl ON opl.name = pli.parent
 			WHERE pli.parenttype = 'Order Pick List' AND opl.docstatus < 2
-			  AND %(soi)s IN (COALESCE(pli.custom_sale_order_item, ''), COALESCE(pli.sales_order_item, ''))
+			  AND (pli.sales_order_item = %(soi)s OR pli.custom_sale_order_item = %(soi)s)
 			""",
 			{"soi": soi},
 		)[0][0]
@@ -2878,14 +3230,8 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 		current_available = float(bas.available_quantity or 0)
 		requested = sum(float(a.get("qty", 0)) for a in group)
 
-		# Stems the plan holds for other order lines are not ours to take.
+		# stems other orders have allocated, waiting to be confirmed, are not ours to take
 		held_others = sum(
-			v
-			for k, v in availability.reservations_by_bucket_line([bucket_id]).get(bucket_id, {}).items()
-			if k not in {a["sales_order_item"] for a in group}
-		)
-		# and stems other orders have allocated, waiting to be confirmed
-		held_others += sum(
 			q
 			for so, q in pending_holds([bucket_id]).get((bucket_id, item_code, stem_length or ""), [])
 			if so != sales_order
@@ -2895,7 +3241,7 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 			if held_others and requested <= current_available:
 				frappe.throw(
 					_(
-						"Bucket {0} is held for another order in the plan: only {1} stems are free. Please refresh."
+						"Bucket {0} is allocated to another order waiting release: only {1} stems are free. Please refresh."
 					).format(bucket_id, max(0, current_available - held_others))
 				)
 			frappe.throw(
@@ -3493,27 +3839,31 @@ def processing_farms(sales_order, sois, location=None):
 	from upande_packhouse.api.v2.allocation_teams import team_sales_farms
 
 	home = team_sales_farms()
-	own = order_hub(sales_order)
-	teams = {
-		soi: team
-		for soi, team in frappe.db.sql(
-			"""SELECT sales_order_item, team FROM `tabAllocation Confirmation`
-			WHERE sales_order_item IN %(s)s AND IFNULL(team, '') != ''
-			  AND (status IN %(kept)s OR (status = 'Released' AND release_reason = 'Allocated'))
-			ORDER BY modified ASC""",
-			{"s": tuple(sois) or ("",), "kept": (*allocation_plan.LIVE, "Fulfilled")},
-		)
-	}
+	own = _order_hub(sales_order) if planning_memo("order_hub") is not None else order_hub(sales_order)
+	teams = _planned_teams(list(sois)) if sois else {}
 	return {soi: home.get(teams.get(soi)) or own for soi in sois}
 
 
 def planned_stems(sois):
 	"""{sales_order_item: stems Allocation Planning confirmed for it}: its live confirmations and the ones
 	already allocated (fulfilled, or released as allocated) -- so a line allocated part of the way still aims at
-	what was planned, not at what was ordered. Lines never planned are left out."""
+	what was planned, not at what was ordered. Lines never planned are left out. In a planning pass each line is
+	read once."""
 	sois = [s for s in sois or [] if s]
 	if not sois:
 		return {}
+	memo = planning_memo("planned_stems")
+	if memo is not None:
+		ask = [x for x in sois if x not in memo]
+		if ask:
+			got = _planned_stems_read(ask)
+			for x in ask:
+				memo[x] = got.get(x, 0)
+		return {x: memo[x] for x in sois if memo[x] > 0}
+	return _planned_stems_read(sois)
+
+
+def _planned_stems_read(sois):
 	raw = {
 		soi: flt(stems)
 		for soi, stems in frappe.db.sql(
@@ -3595,7 +3945,11 @@ def _required_stems_for_so_item(so_item_name, confirmed_qty=None):
 
 
 def _cumulative_allocated_stems(so_item_name):
-	"""SUM of all non-cancelled Bucket Allocations across the system for this SO item."""
+	"""SUM of all non-cancelled Bucket Allocations across the system for this SO item (in a planning pass,
+	from the line allocations prefetch_orders read)."""
+	memo = planning_memo("line_allocations")
+	if memo is not None and so_item_name in memo:
+		return sum(q for *_k, q in memo[so_item_name])
 	return (
 		frappe.db.sql(
 			"""
@@ -5211,55 +5565,98 @@ def approved_varieties_for(spec, customer, item_code, color=None, crop_groups=No
 	  customer  -- with none there, those every active specification of the customer approves;
 	  approved  -- the customer has none either: every active specification's approved varieties.
 	The customer's and everyone's lists keep to the line's colour and crop when that leaves any, else to its
-	crop, else all of them. The line's own variety is never one of them."""
+	crop, else all of them. The line's own variety is never one of them. Read once per request for the same
+	line shape (the substitutes step asks it for every short line)."""
+	key = (spec or "", customer or "", item_code or "", color or "", tuple(sorted(crop_groups or [])))
+	memo = getattr(frappe.local, "sa_approved_varieties", None)
+	if memo is None:
+		memo = frappe.local.sa_approved_varieties = {}
+	if key not in memo:
+		memo[key] = _approved_varieties_read(spec, customer, item_code, color, crop_groups)
+	source, found = memo[key]
+	return source, [frappe._dict(r) for r in found]
 
-	def rows(where, params):
-		return frappe.db.sql(
-			"""SELECT sav.variety, MAX(IFNULL(sav.is_primary, 0)) AS is_primary, MIN(sav.idx) AS idx
-			FROM `tabSpec Approved Variety` sav
-			JOIN `tabSpecifications` sp ON sp.name = sav.parent
-			WHERE sav.parenttype = 'Specifications' AND IFNULL(sav.variety, '') != '' AND sav.variety != %(item)s
-			  AND """
-			+ where
-			+ """
-			GROUP BY sav.variety ORDER BY is_primary DESC, idx""",
-			{"item": item_code or "", **params},
-			as_dict=True,
+
+def _spec_variety_index():
+	"""Every spec's approved varieties, read once per request: (by spec, by customer of active specs, of all active
+	specs), each {key: [(variety, is_primary, idx)]}, plus {item: (group, colour, disabled)} of those varieties.
+	Reading them per line was most of the substitutes step."""
+	cache = getattr(frappe.local, "sa_spec_varieties", None)
+	if cache is not None:
+		return cache
+	by_spec, by_customer, active = defaultdict(list), defaultdict(list), []
+	for r in frappe.db.sql(
+		"""SELECT sav.parent AS spec, sp.customer, IFNULL(sp.status, 'Active') != 'Inactive' AS active,
+		          sav.variety, IFNULL(sav.is_primary, 0) AS is_primary, sav.idx
+		   FROM `tabSpec Approved Variety` sav
+		   JOIN `tabSpecifications` sp ON sp.name = sav.parent
+		   WHERE sav.parenttype = 'Specifications' AND IFNULL(sav.variety, '') != ''""",
+		as_dict=True,
+	):
+		row = (r.variety, cint(r.is_primary), cint(r.idx))
+		by_spec[r.spec].append(row)
+		if cint(r.active):
+			active.append(row)
+			if r.customer:
+				by_customer[r.customer].append(row)
+	names = {row[0] for row in active} | {row[0] for rows in by_spec.values() for row in rows}
+	items = {
+		i.name: (i.item_group, i.custom_color or "", cint(i.disabled))
+		for i in frappe.get_all(
+			"Item",
+			filters={"name": ("in", list(names) or [""])},
+			fields=["name", "item_group", "custom_color", "disabled"],
 		)
+	}
+	cache = frappe.local.sa_spec_varieties = (by_spec, by_customer, active, items)
+	return cache
+
+
+def _grouped(rows, item_code):
+	"""Spec rows as the approved list: one per variety (primary anywhere, its first position), primary first."""
+	best = {}
+	for variety, primary, idx in rows:
+		if variety == (item_code or ""):
+			continue
+		was = best.get(variety)
+		best[variety] = (max(primary, was[0]), min(idx, was[1])) if was else (primary, idx)
+	return [
+		frappe._dict(variety=v, is_primary=p, idx=i)
+		for v, (p, i) in sorted(best.items(), key=lambda kv: (-kv[1][0], kv[1][1]))
+	]
+
+
+def _approved_varieties_read(spec, customer, item_code, color=None, crop_groups=None):
+	by_spec, by_customer, active, items = _spec_variety_index()
 
 	def fit(found):
 		# the line's colour in its crop, else its crop, else all of them
 		if not found:
 			return found
-		names = [r.variety for r in found]
-		for filters in (
-			{"custom_color": color, "item_group": ("in", list(crop_groups or []))}
-			if color and crop_groups
-			else None,
-			{"item_group": ("in", list(crop_groups))} if crop_groups else None,
-			{},
+		groups = set(crop_groups or [])
+		for test in (
+			(lambda x: x[1] == color and x[0] in groups) if color and crop_groups else None,
+			(lambda x: x[0] in groups) if crop_groups else None,
+			lambda x: True,
 		):
-			if filters is None:
+			if test is None:
 				continue
-			keep = set(
-				frappe.get_all(
-					"Item", filters={"name": ("in", names), "disabled": 0, **filters}, pluck="name"
-				)
-			)
+			keep = [
+				r for r in found if r.variety in items and not items[r.variety][2] and test(items[r.variety])
+			]
 			if keep:
-				return [r for r in found if r.variety in keep]
+				return keep
 		return []
 
 	if spec:
-		found = rows("sp.name = %(spec)s", {"spec": spec})
+		found = _grouped(by_spec.get(spec, []), item_code)
 		if found:
 			return "spec", found
-	active = "IFNULL(sp.status, 'Active') != 'Inactive'"
 	if customer:
-		found = fit(rows(active + " AND sp.customer = %(customer)s", {"customer": customer}))
+		found = fit(_grouped(by_customer.get(customer, []), item_code))
 		if found:
 			return "customer", found
-	return "approved", fit(rows(active, {}))
+	return "approved", fit(_grouped(active, item_code))
 
 
 # ============================================================

@@ -100,6 +100,24 @@ class UnitTestQualityBOrders(UnitTestCase):
 		self.assertEqual((webstore.custom_packrate, webstore.custom_number_of_boxes), ("30", 1))
 		self.assertEqual(bunched.custom_packrate, "20")
 
+	def test_a_line_takes_the_bunch_its_item_is_sold_in(self):
+		# SAL-ORD-2026-05401: Yelloween sells in Bunch (10) but its Item lists Bunch (7) first
+		rows = [
+			SimpleNamespace(uom="Bunch (7)", conversion_factor=7),
+			SimpleNamespace(uom="Stems", conversion_factor=1),
+		]
+		with (
+			patch.object(qb.frappe, "get_all", return_value=rows),
+			patch.object(qb.frappe.db, "get_value", return_value="Bunch (10)"),
+		):
+			self.assertEqual(qb._bunch_uom("Yelloween", "Stems"), ("Bunch (10)", 10))
+		# no bunch to sell in: the item's own bunch
+		with (
+			patch.object(qb.frappe, "get_all", return_value=rows),
+			patch.object(qb.frappe.db, "get_value", return_value="Stems"),
+		):
+			self.assertEqual(qb._bunch_uom("Yelloween", "Stems"), ("Bunch (7)", 7.0))
+
 	def test_the_team_with_the_fewest_quality_b_stems_gets_the_order(self):
 		ps = SimpleNamespace(
 			get=lambda k, d=None: [SimpleNamespace(team="Team A"), SimpleNamespace(team="Team B")]

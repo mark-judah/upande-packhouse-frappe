@@ -217,12 +217,12 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-01 15:00:00.000000",
+ "modified": "2026-11-26 03:00:00.000000",
  "modified_by": "Administrator",
  "module": "Upande Packhouse",
  "name": "Allocation Confirmation",
- "naming_rule": "Expression",
- "autoname": "format:ALC-{#####}",
+ "naming_rule": "Expression (old style)",
+ "autoname": "AL-.#####",
  "owner": "Administrator",
  "permissions": [
   {

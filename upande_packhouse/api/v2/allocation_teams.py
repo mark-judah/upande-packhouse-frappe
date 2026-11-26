@@ -982,6 +982,8 @@ def get_confirmation_summary(
 			{
 				"soi": soi,
 				"variety": "{0} {1}".format(c0.variety, c0.length or "").strip(),
+				# what the page's search finds a line by besides its variety: the mix it is packed in
+				"mix_name": ln.custom_mix_name or "",
 				"note": _("ordered {0}").format(c0.ordered_variety)
 				if c0.ordered_variety and c0.ordered_variety != c0.variety
 				else _("ordered {0}").format(c0.ordered_length)
@@ -1022,6 +1024,7 @@ def get_confirmation_summary(
 			{
 				"soi": ln.name,
 				"variety": "{0} {1}".format(ln.item_code, ln.custom_length or "").strip(),
+				"mix_name": ln.custom_mix_name or "",
 				"pool_variety": ln.item_code,
 				"pool_length": ln.custom_length or "",
 				"note": ln.custom_mix_name if mix_key(ln) else "",

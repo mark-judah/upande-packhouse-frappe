@@ -4,8 +4,6 @@
 day's plan before anyone allocates. Nothing here writes.
 
   mix_incomplete  red    a mixed box or bunch that cannot be packed whole: a variety of it is not covered
-  cut_stage       red    held buckets at a cut stage the order does not take (Sales Allocation does not offer them)
-  missing_bucket  red    a held bucket is no longer on the shelf
   short           red    a variety and length the day's orders need more of than the rolling forecast covers
   downgrade       red /  a longer length confirmed while orders for that length are short (red), or on stock
                   amber  that is not past the amber time, so allocation asks for a downgrade reason (amber)
@@ -29,12 +27,6 @@ from upande_packhouse.api.v2 import allocation_playground as pg
 RANK = {"red": 0, "amber": 1}
 _n = guards._n
 _cm = guards._cm
-
-
-def _norm_stage(value):
-	from upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2 import _norm_cut_stage
-
-	return _norm_cut_stage(value)
 
 
 def per_box(ln):
@@ -119,8 +111,6 @@ def get_plan_checks(delivery_date: str | None = None, farm: str | None = None, w
 	checks += _mixes(model, covered)
 	checks += _partial_boxes(model, covered)
 	checks += _downgrades(model, confs)
-	checks += _cut_stages(model, confs)
-	checks += _missing(model, confs)
 	checks += _partly_planned(model, covered)
 	checks += _short_and_forecast(model)
 	checks += _squeezes(model, confs)
@@ -217,7 +207,7 @@ def _downgrades(model, confs):
 	"""Longer lengths confirmed: who they short, and whether allocation will ask for a reason."""
 	out = []
 	amber = pg.amber_from_days()
-	held_age = _held_ages([c.name for c in confs if c.source == "Real"])
+	held_age = _stock_ages([c for c in confs if c.source == "Real"])
 	mine = {x.name for x in model.lines}
 	for c in confs:
 		ln = model.by_soi.get(c.sales_order_item)
@@ -274,67 +264,37 @@ def _downgrades(model, confs):
 	return out
 
 
-def _held_ages(conf_names):
-	"""{confirmation: [age in days of each held bucket]}."""
+def _stock_ages(confs):
+	"""{confirmation: [age in days of each bucket its stems come from]}: the oldest free buckets of its farm,
+	variety and length first, as Sales Allocation takes them (FIFO), until its stems still to allocate are covered."""
+	from upande_packhouse.api.v2.core import stock
+
 	out = defaultdict(list)
-	if not conf_names:
-		return out
-	for conf, age in frappe.db.sql(
-		"""SELECT br.confirmation,
-		          DATEDIFF(CURDATE(), MIN(COALESCE(si.harvest_date, DATE(si.date_added))))
-		   FROM `tabBucket Reservation` br
-		   INNER JOIN `tabShelf Item` si ON si.bucket_id = br.bucket_id AND si.variety = br.item_code
-		   WHERE br.confirmation IN %(c)s AND br.status = 'Active'
-		   GROUP BY br.confirmation, br.bucket_id""",
-		{"c": tuple(conf_names)},
-	):
-		out[conf].append(cint(age))
-	return out
-
-
-def _cut_stages(model, confs):
-	"""Held buckets at a cut stage the order line does not take: Sales Allocation will not offer them."""
-	real = [c for c in confs if c.source == "Real"]
-	if not real:
-		return []
-	stage_of = dict(
-		frappe.db.sql(
-			"SELECT name, custom_cut_stage FROM `tabSales Order Item` WHERE name IN %(s)s",
-			{"s": tuple({c.sales_order_item for c in real})},
+	pools = defaultdict(list)
+	for c in confs:
+		pools[(c.farm, c.variety, c.length or "")].append(c)
+	for (farm, variety, length), cs in pools.items():
+		rows = sorted(
+			(
+				r
+				for r in stock.bucket_rows(
+					farms=[farm], varieties=[variety], lengths=[length] if length else None
+				)
+				if (r.stem_length or "") == length and flt(r.free) > 0
+			),
+			key=lambda r: (-(r.age_days or 0), r.bucket_id),
 		)
-	)
-	wrong = defaultdict(lambda: {"stems": 0.0, "stages": set()})
-	for soi, bucket, stems, stage in frappe.db.sql(
-		"""SELECT br.sales_order_item, br.bucket_id, br.stems, MIN(si.cut_stage)
-		   FROM `tabBucket Reservation` br
-		   INNER JOIN `tabShelf Item` si ON si.bucket_id = br.bucket_id AND si.variety = br.item_code
-		   WHERE br.confirmation IN %(c)s AND br.status = 'Active'
-		   GROUP BY br.name""",
-		{"c": tuple(c.name for c in real)},
-	):
-		want = stage_of.get(soi)
-		if want and stage and _norm_stage(stage) != _norm_stage(want):
-			wrong[soi]["stems"] += flt(stems)
-			wrong[soi]["stages"].add(stage)
-	out = []
-	for soi, w in wrong.items():
-		ln = model.by_soi.get(soi)
-		if not ln:
-			continue
-		out.append(
-			_check(
-				"cut_stage",
-				"red",
-				_("{0} {1} · {2}").format(
-					ln.item_code, ln.custom_length or "", ln.customer_name or ln.customer
-				),
-				_(
-					"{0} held stems are cut stage {1}; this order takes {2}, so Sales Allocation does not offer them."
-				).format(_n(w["stems"]), ", ".join(sorted(w["stages"])), stage_of[soi]),
-				ln,
-				[_pool(ln.item_code, ln.custom_length or "")],
-			)
-		)
+		i, left_in = 0, flt(rows[0].free) if rows else 0.0
+		for c in cs:
+			need = max(0.0, flt(c.stems) - flt(c.fulfilled_stems))
+			while need > 1e-6 and i < len(rows):
+				out[c.name].append(cint(rows[i].age_days))
+				take = min(need, left_in)
+				need -= take
+				left_in -= take
+				if left_in <= 1e-6:
+					i += 1
+					left_in = flt(rows[i].free) if i < len(rows) else 0.0
 	return out
 
 
@@ -365,24 +325,6 @@ def _partly_planned(model, covered):
 				[_pool(ln.item_code, ln.custom_length or "") for ln in left[:3]],
 			)
 		)
-	return out
-
-
-def _missing(model, confs):
-	out = []
-	for c in confs:
-		ln = model.by_soi.get(c.sales_order_item)
-		if c.status == "Broken" and ln:
-			out.append(
-				_check(
-					"missing_bucket",
-					"red",
-					_("{0} {1} · {2}").format(c.variety, c.length or "", ln.customer_name or ln.customer),
-					_("A bucket held for this line is no longer on the shelf."),
-					ln,
-					[_pool(c.variety, c.length or "")],
-				)
-			)
 	return out
 
 

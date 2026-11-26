@@ -85,6 +85,20 @@ def no_trip_section(order):
 	return None if order.get("scheduled") else NOT_SCHEDULED
 
 
+def _sales_farm_sequence(sales_orders):
+	"""{sales order: its number in its sales farm's packing sequence} (0 / missing: not sequenced)."""
+	sales_orders = tuple(so for so in sales_orders or () if so)
+	if not sales_orders or not frappe.db.has_column("Sales Order", "custom_allocation_sequence"):
+		return {}
+	return dict(
+		frappe.db.sql(
+			"""SELECT name, custom_allocation_sequence FROM `tabSales Order`
+			   WHERE name IN %(s)s AND IFNULL(custom_allocation_sequence, 0) > 0""",
+			{"s": sales_orders},
+		)
+	)
+
+
 @frappe.whitelist()
 def getBucketLogistics():
 	# Bucket Logistics — orders with buckets being transferred, for a delivery date.
@@ -247,6 +261,11 @@ def getBucketLogistics():
 		r["scheduled"] = 1 if sc else 0
 		r["no_trip_section"] = no_trip_section(r)
 		r["no_team"] = 0 if r["team"] else 1
+	# The order's place in its sales farm's packing sequence (Allocation Planning numbers every order of a
+	# delivery day per sales farm: Sales Order.custom_allocation_sequence); trips are to bring them in that order.
+	seq = _sales_farm_sequence({r.get("sales_order") for r in rows})
+	for r in rows:
+		r["sequence"] = seq.get(r.get("sales_order")) or 0
 	if team_filter:
 		rows = [r for r in rows if r["team"] == team_filter]
 

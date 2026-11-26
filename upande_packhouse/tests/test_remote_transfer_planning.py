@@ -736,6 +736,25 @@ class UnitTestMinimumTruckLoad(UnitTestCase):
 			"Arrived at Kapkolia with 12 of 144 (min 144) — sent without pressing Send", self._comments(doc)
 		)
 
+	def test_f_a_trip_settled_at_the_hub_left_at_its_last_load_not_when_it_arrived(self):
+		"""Dispatched and arrived used to be stamped at the same moment (the first hub shelving): every held trip
+		looked like it spent no time on the road."""
+		doc = self._trip(3)
+		for i, r in enumerate(doc.trip_buckets):
+			r.loaded_at = "2026-11-25 09:3{0}:00".format(i)
+		with (
+			patch.object(tc, "transfer_hub", return_value="Kapkolia"),
+			patch.object(tc, "_vehicle_capacity", return_value=self.CAP),
+			patch.object(tc, "_trip_stops", return_value=["Torongo"]),
+			patch.object(tc, "_held_loads_at_hub", return_value=doc.trip_buckets[:1]),
+			patch.object(tc, "_put_loads_in_transit"),
+			patch.object(tc, "_mark_arrived"),
+			patch.object(tc, "_end_trip_if_shelved", return_value=False),
+			patch.object(frappe.utils, "now", return_value="2026-11-25 10:14:26"),
+		):
+			self.assertTrue(tc._settle_held_trip(doc, "bucket B0 shelved there"))
+		self.assertEqual(str(doc.dispatched_at), "2026-11-25 09:32:00")
+
 
 class _Trips:
 	"""Planned trips (Bucket Request Trip + Order rows) and what is loaded for each
@@ -1548,3 +1567,72 @@ class UnitTestTripsBelongToTheirDay(UnitTestCase):
 			added, left = tc._add_rows_to_trip("BRT-OLD", [{"farm": "Ravine", "buckets": 3}])
 		self.assertEqual(added, [])
 		self.assertEqual(left[0][1], 3)
+
+
+class UnitTestTripsFollowTheSalesFarmSequence(UnitTestCase):
+	"""Trucks are filled in the sales farm's packing sequence (Sales Order.custom_allocation_sequence), not by
+	each team's own step, and each team keeps that order per farm, so its buckets reach the sales farm in the
+	order it packs them."""
+
+	HUB = "Kapkolia"
+
+	def _graph(self):
+		graph = at._RoadGraph(
+			self.HUB, [{"name": "FD-K-C", "a": self.HUB, "b": "Chepsito", "km": 10, "leg": 1}]
+		)
+		graph.holders = {}
+		return graph
+
+	def _order(self, opl, team, step, seq, n):
+		return {
+			"opl": opl,
+			"order_name": opl.replace("OPL", "ORD"),
+			"team": team,
+			"schedule": step,
+			"sales_seq": seq,
+			"open": n,
+			"open_farms": [
+				{
+					"farm": "Chepsito",
+					"buckets": n,
+					"left_behind": 0,
+					"asap": 0,
+					"per_bucket": 100,
+					"varieties": "Rose",
+				}
+			],
+		}
+
+	def _placed(self, trucks):
+		return [(t["run"], r["order_pick_list"]) for t in trucks for r in t["rows"]]
+
+	def test_the_first_trip_takes_the_sales_farms_first_order(self):
+		# team A's step 1 is the sales farm's #2; team B's step 2 is its #1
+		orders = [self._order("OPL-A", "A", 1, 2, 5), self._order("OPL-B", "B", 2, 1, 5)]
+		trucks = [
+			at._truck("KDP 283L", 5, {"Chepsito"}, route="R1", run=1),
+			at._truck("KDP 283L", 5, {"Chepsito"}, route="R1", run=2),
+		]
+		at._distribute(orders, trucks, self._graph(), moving={})
+		self.assertEqual(self._placed(trucks), [(1, "OPL-B"), (2, "OPL-A")])
+
+	def test_a_teams_later_order_never_overtakes_its_earlier_one_at_the_farm(self):
+		# team A's #1 does not fit; A's #3 would, but waits for it; team B's #2 is not held up
+		orders = [
+			self._order("OPL-A1", "A", 1, 1, 6),
+			self._order("OPL-B2", "B", 1, 2, 3),
+			self._order("OPL-A3", "A", 2, 3, 1),
+		]
+		trucks = [at._truck("KDP 283L", 5, {"Chepsito"}, route="R1", run=1)]
+		dist = at._distribute(orders, trucks, self._graph(), moving={})
+		self.assertEqual(self._placed(trucks), [(1, "OPL-B2")])
+		self.assertEqual(sorted(o["opl"] for o in dist["waiting"] + dist["held"]), ["OPL-A1", "OPL-A3"])
+
+	def test_an_order_the_sales_farm_has_not_numbered_goes_after_the_numbered_ones(self):
+		orders = [self._order("OPL-X", "A", 1, 0, 5), self._order("OPL-9", "B", 3, 9, 5)]
+		trucks = [
+			at._truck("KDP 283L", 5, {"Chepsito"}, route="R1", run=1),
+			at._truck("KDP 283L", 5, {"Chepsito"}, route="R1", run=2),
+		]
+		at._distribute(orders, trucks, self._graph(), moving={})
+		self.assertEqual(self._placed(trucks), [(1, "OPL-9"), (2, "OPL-X")])

@@ -58,6 +58,15 @@ def _norm_cut_stage(value) -> str:
 # before it counts as available -- 0 (the default) means no cooling gate.
 # ============================================================
 def _get_production_config():
+	"""Production Settings as allocation reads it, once per request: Allocate all's steps asked for it
+	hundreds of times, each reading the farms again."""
+	cached = getattr(frappe.local, "sa_production_config", None)
+	if cached is None:
+		cached = frappe.local.sa_production_config = _read_production_config()
+	return cached
+
+
+def _read_production_config():
 	ps = frappe.get_cached_doc("Production Settings")
 
 	discard_age = ps.discard_age or 5
@@ -818,9 +827,6 @@ def get_sales_order_items_with_buckets(
 	for b in buckets:
 		buckets_by_item.setdefault(b["item_code"], []).append(b)
 
-	# Stems the allocation plan holds for a line are not available to any other line.
-	held_by_line = availability.reservations_by_bucket_line({b["bucket_id"] for b in buckets})
-
 	for item in items:
 		meta = metadata_map.get(item["item_code"], {})
 		item["headsize"] = meta.get("headsize", "")
@@ -860,11 +866,8 @@ def get_sales_order_items_with_buckets(
 				(b["bucket_id"], b["item_code"], b["stem_length"] or "", item["sales_order_item"]), 0
 			)
 
-			# Held in the plan for another line: not available here.
-			held_others = sum(
-				v for k, v in held_by_line.get(b["bucket_id"], {}).items() if k != item["sales_order_item"]
-			)
-			available_here = max(0.0, (b["available_qty"] or 0) - held_others)
+			held_others = 0.0
+			available_here = max(0.0, b["available_qty"] or 0)
 
 			# Fully allocated elsewhere: nothing to allocate and nothing to
 			# unallocate from this line, so keep it off the list.
@@ -1541,7 +1544,7 @@ def _fit_allocations_to_boxes(so_doc, allocations):
 				FROM `tabPick List Item` pli
 				JOIN `tabOrder Pick List` opl ON opl.name = pli.parent
 				WHERE pli.parenttype = 'Order Pick List' AND opl.docstatus < 2
-				  AND %(soi)s IN (COALESCE(pli.custom_sale_order_item, ''), COALESCE(pli.sales_order_item, ''))
+				  AND (pli.sales_order_item = %(soi)s OR pli.custom_sale_order_item = %(soi)s)
 				""",
 				{"soi": soi},
 			)[0][0]
@@ -1838,20 +1841,7 @@ def _allocate_stock_with_buckets_impl(sales_order, allocations, location, teams=
 		current_available = float(bas.available_quantity or 0)
 		requested = sum(float(a.get("qty", 0)) for a in group)
 
-		# Stems the plan holds for other order lines are not ours to take.
-		held_others = sum(
-			v
-			for k, v in availability.reservations_by_bucket_line([bucket_id]).get(bucket_id, {}).items()
-			if k not in {a["sales_order_item"] for a in group}
-		)
-
-		if requested > current_available - held_others:
-			if held_others and requested <= current_available:
-				frappe.throw(
-					_(
-						"Bucket {0} is held for another order in the plan: only {1} stems are free. Please refresh."
-					).format(bucket_id, max(0, current_available - held_others))
-				)
+		if requested > current_available:
 			frappe.throw(
 				f"Over-allocation on bucket {bucket_id}: "
 				f"{current_available} available, {requested} requested. "
@@ -2655,9 +2645,14 @@ def unallocate_bucket_from_opl(sales_order_item: str, bucket_id: str, stem_lengt
 			item_code = held_variety[0][0]
 
 		# ── Put the stems back on the shelf ledger-wise: cancel the transfers
-		#    that moved them into the Sold warehouse for this line. ──
-		reversed_entries = stock_movement.reverse_allocation_movement(
-			sales_order_item, bucket_id=bucket_id, item_code=item_code
+		#    that moved them into the Sold warehouse for this line. A stale allocation released as an anomaly
+		#    (stale_release) keeps them where they are: those flowers never go back to the shelf. ──
+		reversed_entries = (
+			[]
+			if frappe.flags.get("unallocate_keep_ledger")
+			else stock_movement.reverse_allocation_movement(
+				sales_order_item, bucket_id=bucket_id, item_code=item_code
+			)
 		)
 
 		# A bucket can hold this SAME variety at more than one stem length (see

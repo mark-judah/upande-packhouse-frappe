@@ -63,6 +63,8 @@ class TestConfirmedStemsMirror(unittest.TestCase):
 	def test_mirror_keeps_one_row_per_line_and_farm(self):
 		deleted, updated = [], []
 		with (
+			# the row's shown fields read other doctypes (their meta through get_all): not what is tested here
+			patch.object(allocation_plan, "_confirmed_row_details", return_value={}),
 			patch.object(allocation_plan.frappe, "get_all", return_value=["CS1", "CS2", "CS3"]),
 			patch.object(
 				allocation_plan.frappe.db, "delete", side_effect=lambda dt, f: deleted.append(f["name"])

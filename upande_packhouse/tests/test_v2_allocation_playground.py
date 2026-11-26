@@ -1,5 +1,5 @@
-"""Allocation Playground (phase 1): planning an order line holds buckets and stems, allocation reads and
-releases the hold, and the board adds up.
+"""Allocation Playground (phase 1): planning an order line confirms stems (no bucket is held), allocation uses
+the confirmation up, and the board adds up.
 
 Reads the local site's real data. Everything that writes runs in a savepoint that is rolled back, with
 frappe.db.commit / rollback patched to no-ops; row counts are asserted unchanged afterwards. Tests skip when
@@ -14,18 +14,25 @@ from unittest.mock import patch
 import frappe
 
 from upande_packhouse import allocation_plan as plans
-from upande_packhouse import availability
 from upande_packhouse.api.v2 import allocation_playground as pg
 from upande_packhouse.api.v2.core import received, stock
 
 TABLES = (
 	"Allocation Plan",
 	"Allocation Confirmation",
-	"Bucket Reservation",
 	"Confirmed Stems",
 	"Bucket Allocations",
 	"Sales Order Item",
 )
+
+
+def _real(soi):
+	"""Stems a line has confirmed from stock and not allocated yet."""
+	return sum(
+		max(0.0, c.stems - (c.fulfilled_stems or 0))
+		for c in plans.live_confirmations(soi=soi)
+		if c.source == "Real"
+	)
 
 
 class _RelaxedConfig(dict):
@@ -124,31 +131,23 @@ class TestPlanning(unittest.TestCase):
 			team=team or _team(),
 		)
 
-	def test_planning_holds_buckets_and_hides_them_from_other_lines(self):
+	def test_planning_confirms_stems_and_holds_no_bucket(self):
 		a, b = self.c.lines[0], self.c.lines[1]
+		v, ln = self.c.bucket.variety, self.c.bucket.stem_length
 		with _Rollback():
+			free_before = {x.bucket_id: x.free for x in plans.free_for_line(self.c.farm, v, ln, b.soi)}
 			res = self._plan(a, 10)
 			held = res["lines"][0]["held"]
 			self.assertGreater(held, 0)
-			rows = frappe.get_all(
-				"Bucket Reservation",
-				filters={"sales_order_item": a.soi, "status": "Active"},
-				fields=["bucket_id", "stems"],
-			)
-			self.assertEqual(round(sum(r.stems for r in rows), 3), round(held, 3))
-			# held for A: hidden from B, visible to A
-			hidden = availability.reserved_by_bucket(exclude_soi=b.soi)
-			shown = availability.reserved_by_bucket(exclude_soi=a.soi)
-			for r in rows:
-				self.assertGreaterEqual(hidden.get(r.bucket_id, 0), r.stems)
-				self.assertEqual(shown.get(r.bucket_id, 0), 0)
-			# the shared stock read: the hold is part of free and is not allocatable
-			bucket_rows = {r.bucket_id: r for r in stock.bucket_rows(varieties=[self.c.bucket.variety])}
-			for r in rows:
-				self.assertGreaterEqual(bucket_rows[r.bucket_id].reserved, r.stems)
-				self.assertLessEqual(
-					bucket_rows[r.bucket_id].allocatable, bucket_rows[r.bucket_id].free - r.stems + 1e-6
-				)
+			self.assertAlmostEqual(_real(a.soi), held, places=3)
+			# no bucket is held: every bucket stays free for any line, Sales Allocation takes the oldest first
+			free_after = {x.bucket_id: x.free for x in plans.free_for_line(self.c.farm, v, ln, b.soi)}
+			self.assertEqual(free_after, free_before)
+			for r in stock.bucket_rows(varieties=[v]):
+				if not (r.too_old or r.cooling):
+					self.assertAlmostEqual(r.allocatable, r.free, places=6)
+			# but the plan does not promise A's stems to B again
+			self.assertGreaterEqual(plans._planned_elsewhere(self.c.farm, v, ln, b.soi), held - 1e-6)
 			# and mirrored to the v1 Confirmed Stems table the allocator reads
 			cs = frappe.db.get_value(
 				"Confirmed Stems",
@@ -167,8 +166,6 @@ class TestPlanning(unittest.TestCase):
 			self.assertEqual(len(mine), 1)
 			self.assertGreater(mine[0]["held"] + mine[0]["expected"], 0)
 			self.assertEqual(round(mine[0]["held"] + mine[0]["expected"], 3), 10.0)
-			if mine[0]["held"]:
-				self.assertGreaterEqual(mine[0]["buckets"], 1)
 			# the Confirmed view lists the variety even though nothing needs attention there
 			confirmed_view = pg.get_board(day, self.c.farm, "confirmed")["pools"]
 			self.assertIn((v, ln), {(p["variety"], p["length"]) for p in confirmed_view})
@@ -178,9 +175,7 @@ class TestPlanning(unittest.TestCase):
 			# take it out: the stock is free again and the mirror row is gone
 			res = pg.unconfirm_line(a.soi)
 			self.assertGreaterEqual(res["released"], 1)
-			self.assertFalse(
-				frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"})
-			)
+			self.assertEqual(_real(a.soi), 0)
 			self.assertFalse(plans.live_confirmations(soi=a.soi))
 			self.assertFalse(
 				frappe.db.exists(
@@ -198,9 +193,7 @@ class TestPlanning(unittest.TestCase):
 		row = {"parent": a.parent, "sales_order_item": a.soi, "farm": self.c.farm}
 		with _Rollback(), patch.object(stock, "bucket_rows", lambda **k: []):
 			self._plan(a, 10)  # nothing on the shelf: all expected
-			self.assertFalse(
-				frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"})
-			)
+			self.assertEqual(_real(a.soi), 0)
 			self.assertEqual(frappe.db.get_value("Confirmed Stems", row, "stems"), 10.0)
 			self._plan(a, 25)
 			self.assertEqual(frappe.db.get_value("Confirmed Stems", row, "stems"), 25.0)
@@ -250,14 +243,9 @@ class TestPlanning(unittest.TestCase):
 		with _Rollback():
 			self._plan(a, 10)
 			self._plan(a, 5)
-			live = frappe.get_all(
-				"Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"}, pluck="stems"
-			)
-			self.assertEqual(round(sum(live), 3), 5.0)
+			self.assertEqual(round(sum(c.stems for c in plans.live_confirmations(soi=a.soi)), 3), 5.0)
 			self._plan(a, 0)
-			self.assertFalse(
-				frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"})
-			)
+			self.assertEqual(_real(a.soi), 0)
 			self.assertFalse(
 				frappe.db.exists(
 					"Confirmed Stems", {"parent": a.parent, "sales_order_item": a.soi, "farm": self.c.farm}
@@ -265,32 +253,21 @@ class TestPlanning(unittest.TestCase):
 			)
 			self.assertFalse(plans.live_confirmations(soi=a.soi))
 
-	def test_allocation_consumes_the_hold_and_a_full_line_releases_the_rest(self):
+	def test_allocation_uses_the_confirmation_up_and_a_full_line_releases_the_rest(self):
 		a = self.c.lines[0]
 		with _Rollback():
 			held = self._plan(a, 10)["lines"][0]["held"]
-			res = frappe.get_all(
-				"Bucket Reservation",
-				filters={"sales_order_item": a.soi, "status": "Active"},
-				fields=["bucket_id", "stems"],
-				order_by="creation asc",
-			)
-			first = res[0]
-			take = min(first.stems, 4.0)
-			plans.consume(first.bucket_id, a.soi, take)
-			left = frappe.get_all(
-				"Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"}, pluck="stems"
-			)
-			self.assertEqual(round(sum(left), 3), round(held - take, 3))
-			conf = plans.live_confirmations(soi=a.soi)[0]
+			bucket = self.c.bucket.bucket_id
+			take = min(held, 4.0)
+			plans.consume(bucket, a.soi, take)
+			self.assertAlmostEqual(_real(a.soi), held - take, places=3)
+			conf = next(c for c in plans.live_confirmations(soi=a.soi) if c.source == "Real")
 			self.assertEqual(round(conf.fulfilled_stems, 3), round(take, 3))
 			self.assertEqual(conf.status, "Partly Fulfilled")
 			# the allocator marks the line fully allocated: the rest is released
 			frappe.db.set_value("Sales Order Item", a.soi, "custom_fully_allocated", 1, update_modified=False)
-			plans.after_allocation([{"bucket_id": first.bucket_id, "sales_order_item": a.soi, "qty": 0}])
-			self.assertFalse(
-				frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"})
-			)
+			plans.after_allocation([{"bucket_id": bucket, "sales_order_item": a.soi, "qty": 0}])
+			self.assertEqual(_real(a.soi), 0)
 
 	def test_cancelled_or_changed_line_releases(self):
 		a = self.c.lines[0]
@@ -299,27 +276,11 @@ class TestPlanning(unittest.TestCase):
 			doc = frappe.get_doc("Sales Order", a.parent)
 			doc.items = [r for r in doc.items if r.name != a.soi]  # the line is gone
 			plans.release_changed_lines(doc)
-			self.assertFalse(
-				frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"})
-			)
+			self.assertEqual(_real(a.soi), 0)
 			closed = frappe.db.get_value(
 				"Allocation Confirmation", {"sales_order_item": a.soi}, "release_reason"
 			)
 			self.assertEqual(closed, "Line changed")
-
-	def test_a_held_bucket_that_left_the_shelf_is_broken(self):
-		a = self.c.lines[0]
-		with _Rollback():
-			self._plan(a, 10)
-			name = frappe.get_all(
-				"Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"}, pluck="name"
-			)[0]
-			frappe.db.set_value(
-				"Bucket Reservation", name, "bucket_id", "NO-SUCH-BUCKET", update_modified=False
-			)
-			with patch.object(frappe.db, "set_value", wraps=frappe.db.set_value):
-				plans.mark_missing_buckets()
-			self.assertEqual(frappe.db.get_value("Bucket Reservation", name, "status"), "Broken")
 
 	def test_delivery_passed_releases(self):
 		a = self.c.lines[0]
@@ -328,55 +289,32 @@ class TestPlanning(unittest.TestCase):
 			plan = plans.get_plan(str(a.delivery_date), self.c.farm)
 			frappe.db.set_value("Allocation Confirmation", {"plan": plan.name}, "delivery_date", "2000-01-01")
 			plans.release_passed_days()
-			self.assertFalse(
-				frappe.get_all("Bucket Reservation", filters={"sales_order_item": a.soi, "status": "Active"})
-			)
+			self.assertEqual(_real(a.soi), 0)
 
 	def test_cannot_plan_more_than_is_left(self):
 		a = self.c.lines[0]
 		with _Rollback(), self.assertRaises(frappe.ValidationError):
 			self._plan(a, 10**9)
 
-	def test_allocator_refuses_a_bucket_held_for_another_line_and_reads_the_hold_as_its_own(self):
-		from upande_packhouse.upande_packhouse.page.sales_allocation import sales_allocation as sa
-
+	def test_a_second_line_is_confirmed_only_what_the_first_left(self):
 		a, b = self.c.lines[0], self.c.lines[1]
-		cfg = sa._get_production_config()
-		location = next(
-			(loc for loc, farms in cfg["farms_by_location"].items() if self.c.farm in farms), None
-		)
-		if not location:
-			self.skipTest("the farm has no location in Production Settings")
+		v, ln = self.c.bucket.variety, self.c.bucket.stem_length
 		with _Rollback():
-			held = self._plan(a, 10)["lines"][0]["held"]
-			if not held:
-				self.skipTest("nothing could be held")
-			res = frappe.get_all(
-				"Bucket Reservation",
-				filters={"sales_order_item": a.soi, "status": "Active"},
-				fields=["bucket_id", "stems", "item_code", "stem_length"],
-			)[0]
-			bucket_free = next(
-				r for r in stock.bucket_rows(varieties=[res.item_code]) if r.bucket_id == res.bucket_id
+			free = sum(x.free for x in plans.free_for_line(self.c.farm, v, ln, b.soi))
+			held_a = self._plan(a, 10)["lines"][0]["held"]
+			plan = plans.get_plan(str(b.delivery_date), self.c.farm)
+			line = {
+				"sales_order": b.parent,
+				"sales_order_item": b.soi,
+				"customer": None,
+				"ordered_variety": v,
+				"ordered_length": ln,
+				"mix_key": "",
+			}
+			_conf, held_b = plans.reserve_real(
+				plan=plan, line=line, farm=self.c.farm, variety=v, length=ln, stems=10**6
 			)
-			# take everything that is not held: leave only the held stems, so line B asking for 1 stem must be refused
-			spare = bucket_free.free - bucket_free.reserved
-			payload = [
-				{
-					"bucket_id": res.bucket_id,
-					"item_code": res.item_code,
-					"stem_length": res.stem_length,
-					"qty": spare + 1,
-					"sales_order_item": b.soi,
-				}
-			]
-			# the box fit would trim the quantity first; this test is about the hold, so let it through
-			with (
-				patch.object(sa, "_fit_allocations_to_boxes", lambda doc, allocs: (allocs, [])),
-				self.assertRaises(frappe.ValidationError) as ctx,
-			):
-				sa._allocate_stock_with_buckets_impl(b.parent, payload, location)
-			self.assertIn("held for another order", str(ctx.exception))
+			self.assertLessEqual(held_b, max(0.0, free - held_a) + 1e-6)
 
 
 def _needs_production_settings(case):
@@ -471,7 +409,7 @@ class TestWhatIsNotOnAShelfYet(unittest.TestCase):
 			d = pg.expected_detail("NO SUCH VARIETY", "52cm", "2026-10-30", "Kapkolia")
 		self.assertEqual((d["likely"], d["sure"]), (0.0, 0.0))
 
-	def test_a_received_bucket_can_be_held_for_a_line_and_is_not_offered_to_others(self):
+	def test_a_received_bucket_can_be_confirmed_and_is_not_promised_twice(self):
 		c = _case()
 		if not c:
 			self.skipTest("no case")
@@ -514,7 +452,7 @@ class TestWhatIsNotOnAShelfYet(unittest.TestCase):
 				"ordered_length": c.bucket.stem_length,
 				"mix_key": "",
 			}
-			conf, held = plans.reserve_real(
+			_conf, held = plans.reserve_real(
 				plan=plan,
 				line=line,
 				farm=c.farm,
@@ -523,16 +461,18 @@ class TestWhatIsNotOnAShelfYet(unittest.TestCase):
 				stems=20,
 			)
 			self.assertEqual(held, 20.0)
-			self.assertEqual(availability.reserved_by_bucket(exclude_soi=b.soi)[bucket], 20.0)
+			# the bucket is not held: both lines see all 50, but B is confirmed only the 30 A left
 			other = plans.free_for_line(c.farm, c.bucket.variety, c.bucket.stem_length, b.soi)
-			self.assertEqual(other[0].free, 30.0)  # 50 received, 20 held for the other line
-			own = plans.free_for_line(c.farm, c.bucket.variety, c.bucket.stem_length, a.soi)
-			self.assertEqual(own[0].free, 50.0)  # what is held for A is A's to use
-			plans.mark_missing_buckets()  # waiting for a shelf is not missing
-			self.assertEqual(
-				frappe.db.get_value("Bucket Reservation", {"bucket_id": bucket, "status": "Active"}, "stems"),
-				20.0,
+			self.assertEqual(other[0].free, 50.0)
+			_c, held_b = plans.reserve_real(
+				plan=plan,
+				line={**line, "sales_order": b.parent, "sales_order_item": b.soi},
+				farm=c.farm,
+				variety=c.bucket.variety,
+				length=c.bucket.stem_length,
+				stems=50,
 			)
+			self.assertEqual(held_b, 30.0)
 
 
 class TestTeam(unittest.TestCase):
@@ -647,11 +587,7 @@ class TestSwapAndSplit(unittest.TestCase):
 		self.day = str(self.a.delivery_date)
 
 	def _held(self, soi):
-		return sum(
-			frappe.get_all(
-				"Bucket Reservation", filters={"sales_order_item": soi, "status": "Active"}, pluck="stems"
-			)
-		)
+		return _real(soi)
 
 	def _total(self, soi):
 		return sum(c.stems - c.fulfilled_stems for c in plans.live_confirmations(soi=soi))

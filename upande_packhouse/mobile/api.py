@@ -5918,20 +5918,11 @@ def get_pick_list_with_farm_pack_list():
 QTY_TOLERANCE_ISSUE = 0.001
 
 
-def _smallest_open_bunch(variety, length, sale_order_item):
-	"""Stems in the smallest bunch an open order packs `variety` at `length` in (the issuing line's own when
-	none does)."""
-	own = flt(frappe.db.get_value("Sales Order Item", sale_order_item, "conversion_factor")) or 1
-	smallest = frappe.db.sql(
-		"""SELECT MIN(soi.conversion_factor) FROM `tabSales Order Item` soi
-		JOIN `tabSales Order` so ON so.name = soi.parent
-		WHERE so.docstatus = 1 AND so.status NOT IN ('Closed', 'Completed', 'On Hold')
-		  AND so.delivery_date >= CURDATE() AND soi.item_code = %(v)s
-		  AND (%(l)s = '' OR IFNULL(soi.custom_length, '') IN ('', %(l)s))
-		  AND soi.delivered_qty < soi.qty AND soi.conversion_factor > 0""",
-		{"v": variety, "l": length or ""},
-	)[0][0]
-	return min(own, flt(smallest)) if smallest else own
+def _issue_bunch(sale_order_item):
+	"""Stems in one bunch of the line being issued. A bucket's leftover smaller than that comes off the shelf
+	with the issue (it goes to the packhouse with the bucket): kept for the smallest bunch any open order packs
+	the variety in (a mix's 3 or 4 stems), it was left on the shelf as a few stems in many buckets nobody took."""
+	return flt(frappe.db.get_value("Sales Order Item", sale_order_item, "conversion_factor")) or 1
 
 
 def _bucket_held_elsewhere(bucket_id, variety, sale_order_item):
@@ -6076,7 +6067,7 @@ def _issue_bucket_once():
 			"""SELECT COALESCE(NULLIF(farm, ''), SUBSTRING_INDEX(source_warehouse, ' ', 1)) FROM `tabPick List Item`
 			WHERE bucket = %(bucket)s AND parenttype = 'Order Pick List'
 			  AND (%(opl)s IS NULL OR parent = %(opl)s)
-			  AND %(soi)s IN (COALESCE(custom_sale_order_item, ''), COALESCE(sales_order_item, ''))
+			  AND (sales_order_item = %(soi)s OR custom_sale_order_item = %(soi)s)
 			  AND (awaiting_transfer = 1 OR (%(hub)s IS NOT NULL
 			       AND COALESCE(NULLIF(farm, ''), SUBSTRING_INDEX(source_warehouse, ' ', 1)) NOT IN ('', %(hub)s)))
 			  AND IFNULL(shelved, 0) = 0
@@ -6168,7 +6159,7 @@ def _issue_bucket_once():
 					SELECT 1 FROM `tabPick List Item`
 					WHERE bucket = %(bucket)s
 					  AND parenttype = 'Order Pick List'
-					  AND %(soi)s IN (COALESCE(custom_sale_order_item, ''), COALESCE(sales_order_item, ''))
+					  AND (sales_order_item = %(soi)s OR custom_sale_order_item = %(soi)s)
 					LIMIT 1
 					""",
 					{"bucket": bucket_id, "soi": sale_order_item},
@@ -6346,18 +6337,16 @@ def _issue_bucket_once():
 							left -= take
 						left_to_take[(variety, length)] = left
 
-					# A bucket left with less than one bunch of what it holds -- the smallest bunch any open
-					# order packs that variety at that length in -- comes off the shelf whole: the leftover
-					# goes to the packhouse with this issue. Not while another line still holds stems of it.
+					# A bucket left with less than one bunch of the line being issued comes off the shelf whole:
+					# the leftover goes to the packhouse with this issue. Not while another line still holds
+					# stems of it.
 					leftovers = []
 					if pick_list_items:
 						for item in shelf_items:
 							rest = flt(item.get("stem_qty")) - taken_by_row.get(item.name, 0)
 							if taken_by_row.get(item.name, 0) <= 0 or rest <= QTY_TOLERANCE_ISSUE:
 								continue
-							if rest >= _smallest_open_bunch(
-								item.get("variety"), item.get("stem_length"), sale_order_item
-							):
+							if rest >= _issue_bunch(sale_order_item):
 								continue
 							if _bucket_held_elsewhere(bucket_id, item.get("variety"), sale_order_item):
 								continue
@@ -7332,7 +7321,8 @@ def _shelve_update_bas(bucket_id, variety, farm, shelf_id, result):
 		# so it is not subtracted from the new flowers (see bucket_reuse).
 		from upande_packhouse.bucket_reuse import release_reused_bucket
 
-		result["reuse_released"] = len(release_reused_bucket(bucket_id)["released"])
+		reuse = release_reused_bucket(bucket_id)
+		result["reuse_released"] = len(reuse["released"]) + reuse["cancelled"] + reuse["pending"]
 	except Exception:
 		frappe.log_error("Release of old allocation at shelving failed", frappe.get_traceback())
 	try:
@@ -7750,6 +7740,53 @@ def _full_boxes_packed(opl_name, fpl_names):
 	)
 
 
+#: An order line at one of these stages is packed: an order is done when all its lines are.
+_PACKED_STAGES = {
+	"packed",
+	"staging",
+	"staged",
+	"precooling",
+	"precooled",
+	"loading",
+	"loaded",
+	"dispatching",
+	"dispatched",
+	"invoiced",
+}
+
+
+def _workflow_totals(delivery_date, site):
+	"""The home tab's totals as Orders & Workflow counts them for the delivery date and site ("": every
+	site): ordered boxes and stems, complete boxes of those planned, stems packed, orders and orders packed.
+	{} when that cannot be read (the tab then keeps its own figures)."""
+	from upande_packhouse.api.v2 import orders_workflow
+
+	try:
+		m = orders_workflow.get_orders_workflow(
+			from_date=delivery_date, to_date=delivery_date, region=site or None, view="team"
+		)
+	except Exception:
+		frappe.log_error("getPackhouseDashboardData: Orders & Workflow totals", frappe.get_traceback())
+		return {}
+	if not m or m.get("success") is False:
+		return {}
+	k = m.get("kpis") or {}
+	stages = {}
+	for sec in m.get("sections") or []:
+		for row in sec.get("rows") or []:
+			if row.get("sales_order"):
+				stages.setdefault(row["sales_order"], set()).add(row.get("stage") or "")
+	return {
+		"boxes_required": int(k.get("boxes") or 0),
+		"boxes_planned": int(k.get("planned_boxes") or 0),
+		"boxes_packed": int(k.get("complete_boxes") or 0),
+		"stems_expected": int(k.get("ordered_stems") or 0),
+		"stems_packed": int(k.get("packed_stems") or 0),
+		"orders_total": int(k.get("orders") or 0),
+		"orders_done": sum(1 for st in stages.values() if st and st <= _PACKED_STAGES),
+	}
+
+
 @frappe.whitelist()
 def getPackhouseDashboardData():
 	"""Packhouse home-tab dashboard: boxes REQUIRED vs boxes PACKED for one
@@ -7976,6 +8013,17 @@ def getPackhouseDashboardData():
 		]
 		team_list.sort(key=lambda t: t["stems_packed"], reverse=True)
 
+		kpi = {
+			"boxes_required": total_required,
+			"boxes_planned": total_required,
+			"boxes_packed": total_packed,
+			"stems_expected": total_stems_expected,
+			"stems_packed": total_stems_packed,
+			"orders_total": len(orders_out),
+			"orders_done": orders_done,
+		}
+		# the totals are Orders & Workflow's for the same day and site, so the app and the page show the same
+		kpi.update(_workflow_totals(delivery_date, picked))
 		frappe.response["message"] = {
 			"delivery_date": str(delivery_date),
 			# the home screen's farm picker: every sales farm, and All farms ("")
@@ -7983,12 +8031,7 @@ def getPackhouseDashboardData():
 			"sales_farms": sales_farm_list,
 			"all_farms": True,
 			"kpi": {
-				"boxes_required": total_required,
-				"boxes_packed": total_packed,
-				"stems_expected": total_stems_expected,
-				"stems_packed": total_stems_packed,
-				"orders_total": len(orders_out),
-				"orders_done": orders_done,
+				**kpi,
 				"bypass_issues": bypass_count,
 				"underpack_issues": underpack_count,
 				"underpack_percentage": underpack_percentage,

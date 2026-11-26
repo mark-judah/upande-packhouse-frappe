@@ -11,7 +11,7 @@
   harvested, not received a bucket on a submitted Harvesting entry for the day with no Receiving entry since.
                           "Harvested" is core/harvest's definition (Stock Entry Detail transfer_qty).
 
-Both are real stock, so the first can be held bucket by bucket (Bucket Reservation) exactly like shelf stock.
+Both are real stock, so the plan confirms from the first exactly like shelf stock.
 """
 
 import math

@@ -15,6 +15,7 @@
     <label class="apx-pill" id="pg-date-wrap">Delivery<input type="date" id="pg-date" aria-label="Delivery date"></label>
     <label class="apx-pill" id="pg-week-wrap">Week<select id="pg-week" aria-label="Week"></select></label>
     <label class="apx-pill" id="pg-sumteam-wrap" hidden>Team<select id="pg-sumteam" aria-label="Team"><option value="">All teams</option></select></label>
+    <label class="apx-pill" id="pg-sumq-wrap" hidden><input type="search" id="pg-sumq" placeholder="Order, ID, variety, mix" aria-label="Search orders, order IDs, varieties and mixes" autocomplete="off"></label>
   </div>
 </div>
 <section class="pg-checktiles" id="pg-kpis" hidden></section>
@@ -332,6 +333,7 @@
   .apx-sel-opt svg{stroke:#276640;fill:none;stroke-width:2.5}
   .apx .pg-scard>div{min-width:0;flex:1}
   .apx-pill select,.apx-pill input{border:0;outline:0;background:transparent;font:500 13px Poppins,sans-serif;color:var(--ax-ink)}
+  #pg-sumq{width:220px}
   .apx-pill .ph-fdate input.form-control{font:500 13px Poppins,sans-serif;width:92px;min-width:92px;padding:0;border:0;background:transparent;box-shadow:none;height:auto}
   .apx-seg{display:flex;gap:4px;background:#fff;padding:4px;border-radius:999px}
   .apx-seg button{border:0;background:transparent;color:var(--ax-ink3);font:500 13px Poppins,sans-serif;padding:8px 16px;border-radius:999px;cursor:pointer}
@@ -634,6 +636,7 @@
     $("pg-week-wrap").hidden = !WEEK_MODES.includes(S.mode);
     $("pg-date-wrap").hidden = S.mode === "crops";
     $("pg-sumteam-wrap").hidden = S.mode !== "summary";
+    $("pg-sumq-wrap").hidden = S.mode !== "summary";
     paintWeek();
     paintDate();
     $("pg-farm").closest("label").hidden = ["people", "unconfirmed", "checks", "nonmoving"].includes(S.mode);
@@ -658,6 +661,7 @@
   }
   window.addEventListener("resize", fitGrid);
   $("pg-sumteam").addEventListener("change", (e) => { S.sumTeam = e.target.value; loadSum(); });
+  $("pg-sumq").addEventListener("input", (e) => { S.sumQ = e.target.value; findSum(); });
   function setMode() {
     paintMode();
     requestAnimationFrame(fitGrid);
@@ -1581,6 +1585,39 @@
       PH.modal({ title: "Short on real stock", sub: n(r.can_fill) + " of " + n(r.needed) + " stems can be filled · " + n(r.short) + " short", body, size: "lg", actions: [{ label: "Close" }] });
     };
   }
+  // One search for the summary: an order by its ID, name or customer shows with all its lines; by a variety or a
+  // mix it shows open on just the lines that match. Empty: every order, each open as it was left.
+  function findSum() {
+    const q = (S.sumQ || "").trim().toLowerCase();
+    const orders = PH.$$("#pg-sum tr.pg-sumorder[data-o]");
+    let shown = 0;
+    orders.forEach((tr) => {
+      const so = tr.dataset.o;
+      const subs = PH.$$('#pg-sum tr.pg-subrow[data-p="' + CSS.escape(so) + '"]');
+      if (!q) {
+        tr.hidden = false;
+        subs.forEach((r) => (r.hidden = !S.sumOpen.has(so)));
+        shown++;
+        return;
+      }
+      const whole = (tr.dataset.q || "").includes(q);
+      const hits = subs.filter((r) => (r.dataset.q || "").includes(q));
+      tr.hidden = !whole && !hits.length;
+      if (!tr.hidden) shown++;
+      subs.forEach((r) => (r.hidden = whole ? !S.sumOpen.has(so) : !hits.includes(r)));
+      tr.setAttribute("aria-expanded", whole ? S.sumOpen.has(so) : hits.length > 0);
+    });
+    let none = $("pg-sum-none");
+    if (q && orders.length && !shown) {
+      if (!none) {
+        none = document.createElement("div");
+        none.id = "pg-sum-none";
+        none.className = "pg-empty";
+        $("pg-sum").appendChild(none);
+      }
+      none.textContent = "No order, variety or mix matches “" + (S.sumQ || "").trim() + "”.";
+    } else if (none) none.remove();
+  }
   function drawSum(d) {
     const t = d.totals, K = { ok: "good", warn: "warn", blue: "tint", red: "bad" };
     const tiles = '<div class="pg-tiles">' +
@@ -1593,14 +1630,16 @@
     const rev = (x) => '<td class="is-num">' + (x.revised == null ? '<span class="ph-muted">–</span>' : '<b class="' + (x.revised < x.confirmed - 0.5 ? "ph-bad" : x.revised > x.confirmed + 0.5 ? "ph-good" : "") + '">' + n(x.revised) + "</b>") + "</td>";
     const bar = (x) => { const tot = x.rolling + x.production || 1; return '<div class="pg-bar"><i class="is-roll" style="width:' + Math.round(100 * x.rolling / tot) + '%"></i><i style="width:' + Math.round(100 * x.production / tot) + '%"></i></div><small>' + (x.rolling ? n(x.rolling) + " rolling" : "") + (x.rolling && x.production ? " · " : "") + (x.production ? n(x.production) + " production" : "") + "</small>"; };
     S.sumOpen = S.sumOpen || new Set();
-    const rows = d.orders.map((o) => '<tr class="pg-sumorder" data-o="' + PH.esc(o.sales_order) + '" aria-expanded="' + S.sumOpen.has(o.sales_order) + '"><td><span class="pg-sumcaret" aria-hidden="true"></span><b>' + PH.esc(o.customer) + "</b><small>" + PH.esc(o.order_name) + "</small></td><td>" + (o.seq ? '<span class="pg-chip pg-chip--ink">#' + o.seq + "</span> " : "") + PH.esc(o.team) + "</td><td>" + PH.fmt.date(o.delivery, true) + '</td><td class="is-num">' + n(o.ordered) + '</td><td class="is-num">' + n(o.confirmed) + "</td>" + rev(o) + '<td class="ph-muted">' + o.lines_done + " of " + PH.fmt.plural(o.lines_total, "line") + '</td><td></td><td><span class="pg-chip pg-chip--' + K[o.kind] + '">' + PH.esc(o.result) + '</span></td><td class="pg-act"><button type="button" class="ph-btn ph-btn--ghost ph-btn--sm" data-revise="' + PH.esc(o.sales_order) + '">Revise</button></td></tr>' +
-      o.items.map((x) => '<tr class="pg-subrow" data-p="' + PH.esc(o.sales_order) + '"' + (S.sumOpen.has(o.sales_order) ? "" : " hidden") + '><td>' + PH.esc(x.variety) + (x.note ? "<small>" + PH.esc(x.note) + "</small>" : "") + '</td><td></td><td></td><td class="is-num">' + n(x.ordered) + '</td><td class="is-num">' + n(x.confirmed) + "</td>" + rev(x) + "<td>" + bar(x) + "</td><td>" + x.done.map((y) => '<span class="pg-chip pg-chip--warn">' + PH.esc(y) + "</span>").join(" ") + '</td><td><span class="pg-chip pg-chip--' + K[x.kind] + '">' + PH.esc(x.result) + "</span></td><td class=\"pg-act\">" + (x.not_planned ? '<button type="button" class="ph-btn ph-btn--primary ph-btn--sm" data-plan-v="' + PH.esc(x.pool_variety) + '" data-plan-l="' + PH.esc(x.pool_length) + '">Plan</button>' : '<button type="button" class="ph-btn ph-btn--ghost ph-btn--sm" data-revise="' + PH.esc(o.sales_order) + '" data-soi="' + PH.esc(x.soi) + '" data-what="' + PH.esc(x.variety) + '">Revise</button>') + "</td></tr>").join("")).join("");
+    const low = (...v) => PH.esc(v.filter(Boolean).join(" ").toLowerCase());
+    const rows = d.orders.map((o) => '<tr class="pg-sumorder" data-o="' + PH.esc(o.sales_order) + '" data-q="' + low(o.sales_order, o.order_name, o.customer) + '" aria-expanded="' + S.sumOpen.has(o.sales_order) + '"><td><span class="pg-sumcaret" aria-hidden="true"></span><b>' + PH.esc(o.customer) + "</b><small>" + PH.esc(o.order_name) + "</small></td><td>" + (o.seq ? '<span class="pg-chip pg-chip--ink">#' + o.seq + "</span> " : "") + PH.esc(o.team) + "</td><td>" + PH.fmt.date(o.delivery, true) + '</td><td class="is-num">' + n(o.ordered) + '</td><td class="is-num">' + n(o.confirmed) + "</td>" + rev(o) + '<td class="ph-muted">' + o.lines_done + " of " + PH.fmt.plural(o.lines_total, "line") + '</td><td></td><td><span class="pg-chip pg-chip--' + K[o.kind] + '">' + PH.esc(o.result) + '</span></td><td class="pg-act"><button type="button" class="ph-btn ph-btn--ghost ph-btn--sm" data-revise="' + PH.esc(o.sales_order) + '">Revise</button></td></tr>' +
+      o.items.map((x) => '<tr class="pg-subrow" data-p="' + PH.esc(o.sales_order) + '" data-q="' + low(x.variety, x.mix_name, x.note) + '"' + (S.sumOpen.has(o.sales_order) ? "" : " hidden") + '><td>' + PH.esc(x.variety) + (x.note ? "<small>" + PH.esc(x.note) + "</small>" : "") + '</td><td></td><td></td><td class="is-num">' + n(x.ordered) + '</td><td class="is-num">' + n(x.confirmed) + "</td>" + rev(x) + "<td>" + bar(x) + "</td><td>" + x.done.map((y) => '<span class="pg-chip pg-chip--warn">' + PH.esc(y) + "</span>").join(" ") + '</td><td><span class="pg-chip pg-chip--' + K[x.kind] + '">' + PH.esc(x.result) + "</span></td><td class=\"pg-act\">" + (x.not_planned ? '<button type="button" class="ph-btn ph-btn--primary ph-btn--sm" data-plan-v="' + PH.esc(x.pool_variety) + '" data-plan-l="' + PH.esc(x.pool_length) + '">Plan</button>' : '<button type="button" class="ph-btn ph-btn--ghost ph-btn--sm" data-revise="' + PH.esc(o.sales_order) + '" data-soi="' + PH.esc(x.soi) + '" data-what="' + PH.esc(x.variety) + '">Revise</button>') + "</td></tr>").join("")).join("");
     setHead(PH.fmt.plural(t.orders || 0, "order") + " · " + (t.lines || 0) + " of " + PH.fmt.plural(t.all_lines || 0, "line") + " confirmed");
     // the team filter sits with the other filters in the header
     $("pg-sumteam").innerHTML = '<option value="">All teams</option>' + [...new Set([...(d.teams || []), ...(S.sumTeam ? [S.sumTeam] : [])])].map((x) => '<option value="' + PH.esc(x) + '"' + (x === S.sumTeam ? " selected" : "") + ">" + PH.esc(x) + "</option>").join("");
     PH.set($("pg-sum"), tiles +
       (d.orders.length ? '<section class="ph-card"><div class="ph-table-wrap"><table class="ph-table pg-sumtable"><thead><tr><th>Order · line</th><th>Team</th><th>Delivery</th><th class="is-num">Ordered</th><th class="is-num">Confirmed</th><th class="is-num">Revised</th><th>Counts on</th><th>Done by the system</th><th>Result</th><th></th></tr></thead><tbody>' + rows + "</tbody></table></div></section>" : '<div class="ph-card"><div class="pg-empty">Nothing is confirmed for this week yet.</div></div>'));
     PH.$$("#pg-sum [data-revise]").forEach((b) => (b.onclick = () => reviseDialog(b.dataset.revise, b.dataset.soi, b.dataset.what)));
+    findSum();
     // an order opens and closes on its row; its lines show only while it is open
     PH.$$("#pg-sum tr.pg-sumorder[data-o]").forEach((tr) => (tr.onclick = (e) => {
       if (e.target.closest("button, a, input, select")) return;

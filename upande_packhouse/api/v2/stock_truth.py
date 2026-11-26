@@ -1625,20 +1625,19 @@ def release_stale(
 	budget: Any = RELEASE_BUDGET_SECONDS,
 	kind: Any = None,
 ):
-	"""Release stale allocations: cancel them, put the stems back on the shelf and take the lines off their pick lists.
+	"""Release stale allocations: cancel them and take the lines off their pick lists.
 
-	It is the Sales Allocation page's own unallocate step (unallocate_bucket_from_opl), run for
-	allocations that are STILL stale at this moment - re-checked here, never trusted from the
-	browser - and only for cancelled or past-due orders whose stems have not been issued or
-	loaded. Works in chunks; call again while `remaining` is more than 0."""
+	Run for allocations that are STILL stale at this moment - re-checked here, never trusted from the browser -
+	and only for cancelled or past-due orders whose stems have not been issued or loaded. Their flowers never go
+	back to the shelf: the stock ledger is left as it is, the stems come off the bucket's shelf row and the bucket
+	is recorded as a Bucket Reuse Anomaly (stale_release). A stale transfer is released the same way.
+	Works in chunks; call again while `remaining` is more than 0."""
 	_guard()
 	if not _can_release():
 		frappe.throw(_("You need a sales role to release allocations."), frappe.PermissionError)
 	if not cint(confirm):
 		frappe.throw(_("Confirm the release first."))
-	from upande_packhouse.upande_packhouse.page.sales_allocation.sales_allocation import (
-		unallocate_bucket_from_opl,
-	)
+	from upande_packhouse.stale_release import release_to_anomaly
 
 	a = _args(dict(region=region, farm=farm, length=length, rose=rose, q=q))
 	groups, _skipped = _release_groups(
@@ -1666,7 +1665,14 @@ def release_stale(
 				# the allocator opens its own transaction, which refuses to start over unsaved writes
 				frappe.db.commit()  # nosemgrep: frappe-manual-commit
 			if g["sales_order_item"] and g["open"]:
-				res = unallocate_bucket_from_opl(g["sales_order_item"], g["bucket_id"], g["stem_length"])
+				res = release_to_anomaly(
+					g["sales_order_item"],
+					g["bucket_id"],
+					g["stem_length"],
+					None,
+					(TRANSFER_LABEL if kind == "transfers" else STALE_LABEL).get(g["reason"], g["reason"]),
+					transfer=kind == "transfers",
+				)
 		except Exception as e:  # the allocator rolls its own failures back; keep going with the next line
 			res = {"success": False, "message": str(e)}
 		if res.get("success"):
@@ -1689,7 +1695,7 @@ def release_stale(
 		try:
 			frappe.get_doc("Sales Order", so).add_comment(
 				"Info",
-				f"Stale allocation released from Stock Visibility by {frappe.session.user}: {int(qty):,} stems (order cancelled, delivery date passed or bucket harvested again).",
+				f"Stale allocation released from Stock Visibility by {frappe.session.user}: {int(qty):,} stems (order cancelled or delivery date passed).",
 			)
 		except Exception:
 			frappe.log_error(frappe.get_traceback(), "Stock Visibility release comment")
@@ -1858,7 +1864,6 @@ SOURCES = (
 	("cooling", "Still cooling", "On a shelf, ready before the delivery date."),
 	("arriving", "Harvested, not received", "Cut in the last 36 hours and not booked in yet."),
 	("overdue", "Harvested, overdue", "Cut more than 36 hours ago and still not received."),
-	("stale", "Held by stale allocations", "Promised to cancelled or past-due orders; free once released."),
 	("downgrade", "Longer stems", "Longer stems of the same variety (a downgrade; needs approval)."),
 	(
 		"greenhouse",
@@ -1867,10 +1872,9 @@ SOURCES = (
 	),
 )
 SOURCE_KEYS = [x[0] for x in SOURCES]
-EXACT_ORDER = ("shelf", "remote", "stale", "cooling", "floor", "arriving", "overdue")
+EXACT_ORDER = ("shelf", "remote", "cooling", "floor", "arriving", "overdue")
 SOON_KEYS = (
 	"remote",
-	"stale",
 	"floor",
 	"arriving",
 	"overdue",
@@ -1893,7 +1897,7 @@ def pool_totals(pool, when):
 	allocation does that - stock that is not allocated is available."""
 	t = {
 		k: sum(i["qty"] for i in (pool or {}).get(k, []))
-		for k in ("shelf", "remote", "stale", "floor", "arriving", "overdue")
+		for k in ("shelf", "remote", "floor", "arriving", "overdue")
 	}
 	t["cooling"] = sum(i["qty"] for i in (pool or {}).get("cooling", []) if i["ready_date"] <= when)
 	return t
@@ -2003,14 +2007,7 @@ def _build_pools(items):
 			pools[k]["arriving"].append(it)
 		elif s_ == "unreceived":
 			pools[k]["overdue"].append(it)
-		elif s_ == "reclaimable" and i["after"] == "sellable":
-			it["detail"] = (
-				"Held by "
-				+ ", ".join((i.get("from_orders") or [])[:3])
-				+ (" - " + i["detail"] if i["detail"] else "")
-			)
-			pools[k]["stale"].append(it)
-		elif (s_ == "cooling" or (s_ == "reclaimable" and i["after"] == "cooling")) and i["ready_at"]:
+		elif s_ == "cooling" and i["ready_at"]:
 			it["ready_date"] = getdate(i["ready_at"])
 			pools[k]["cooling"].append(it)
 	for p in pools.values():

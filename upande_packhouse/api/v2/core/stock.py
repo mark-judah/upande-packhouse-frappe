@@ -19,9 +19,6 @@ parts always add up to what is on the shelf (audit ST-2):
              at the stems present. Matched on bucket AND variety AND length, so a
              reused bucket's stale allocation never hits a different variety (ST-6).
   free       the rest.
-  reserved   part of `free` the allocation plan holds for one order line (Bucket Reservation). Not
-             allocatable by anyone else; the line it is held for gets it back through
-             allocation_plan.free_for_line.
 
   spare      part of `free` on a bucket that is allocated, in transit, to an order at ANOTHER farm. The
              allocator sends such a bucket whole to the order that holds it, so its remaining stems are
@@ -36,7 +33,7 @@ so "available" here is what allocation will actually accept (OR-A5):
   too_old    age (days since harvest, else since shelving) over the shelf farm's
              max allocation age, or at/over the discard age
   cooling    fewer hours since it was received into a cold store than the farm's cooling hours
-`allocatable` = free stems, less reserved, that are neither too old nor cooling.
+`allocatable` = free stems that are neither too old nor cooling.
 
 Location is the SHELF's farm (Shelf.farm) everywhere (ST-22). Age has one
 anchor: Shelf Item.harvest_date, else date_added -- the allocator's own (ST-8);
@@ -44,13 +41,13 @@ never the latest harvest of a reused bucket id (ST-19).
 """
 
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import frappe
 from frappe.utils import get_datetime, now_datetime
 
 from upande_packhouse.api.v2.core.rose import rose_sql, rose_type
-from upande_packhouse.availability import reserved_bucket_ids, reserved_by_bucket
+from upande_packhouse.availability import reserved_bucket_ids
 
 # The ONE sentence every page uses for "available stock" (tooltips, legends).
 AVAILABLE_DEFINITION = (
@@ -148,9 +145,6 @@ def bucket_rows(*, farms=None, varieties=None, lengths=None, rose=None, company=
 			remote_owner_farms[(r.bucket_id, r.item_code, r.stem_length)].add(r.order_farm)
 
 	held_ids = reserved_bucket_ids()
-	# Stems the allocation plan holds for an order line. They are still free stems (shelved =
-	# held + allocated + free is unchanged) but are not allocatable by anyone else.
-	planned = reserved_by_bucket(bucket_ids={r.bucket_id for r in rows})
 	cfg = _config()
 	discard_age = cfg["discard_age"]
 	fc = cfg["farm_config"]
@@ -174,23 +168,30 @@ def bucket_rows(*, farms=None, varieties=None, lengths=None, rose=None, company=
 			r.free = stems - r.allocated
 			r.allocated_in_held = 0.0
 			r.over_allocated = max(0.0, a - stems)
-			r.reserved = min(planned.get(r.bucket_id, 0.0), r.free)
 		farm_cfg = fc.get(r.shelf_farm, {})
 		age = r.age_days if r.age_days is not None else 0
 		r.too_old = age > farm_cfg.get("max_allocation_age", 5) or age >= discard_age
 		r.hours_cooled = cooled.get(r.bucket_id, r.hours_on_shelf or 0)
 		r.cooling = (r.hours_cooled or 0) < farm_cfg.get("cooling_hours", 0)
-		# the free stems, each in one bucket: too old, cooling, spare on a bucket going to another farm,
-		# reserved by the plan, or allocatable
+		# the free stems, each in one bucket: too old, cooling, spare on a bucket going to another farm, or
+		# allocatable. Nothing is reserved: the plan holds stems, not buckets (Bucket Reservation is gone)
 		owners = remote_owner_farms.get((r.bucket_id, r.variety, r.stem_length or ""), set())
 		going_elsewhere = bool(owners - {r.shelf_farm})
 		r.aged_stems = r.free if r.too_old else 0.0
 		r.cooling_stems = r.free if (r.cooling and not r.too_old) else 0.0
 		r.spare = r.free if (going_elsewhere and not r.too_old and not r.cooling) else 0.0
-		if r.too_old or r.cooling or r.spare:
-			r.reserved = 0.0
-		r.allocatable = 0.0 if (r.too_old or r.cooling or r.spare) else r.free - r.reserved
+		r.reserved = 0.0
+		r.allocatable = 0.0 if (r.too_old or r.cooling or r.spare) else r.free
 	return rows
+
+
+#: Buckets shelved longer ago than this are not looked up for cooling (hours_since_received).
+RECEIPT_LOOKBACK_DAYS = 14
+
+
+def _dt(value):
+	"""A datetime as is (most values already are: get_datetime's parsing is the cost over many rows)."""
+	return value if type(value) is datetime else get_datetime(value)
 
 
 def hours_since_received(shelved_at, now=None):
@@ -199,25 +200,45 @@ def hours_since_received(shelved_at, now=None):
 	received (a remote farm's bucket keeps cooling on the truck and at the hub). A receipt after the shelving
 	is a later harvest and does not count. A bucket with no such receipt is left out (the caller falls back to
 	its time on the shelf)."""
-	shelved_at = {b: t for b, t in (shelved_at or {}).items() if b}
+	now = _dt(now or now_datetime())
+	# cooling counts in a bucket's first hours: one shelved weeks ago is long cooled, and its time on the shelf
+	# (the caller's fallback) says as much -- looking its receipt up stretched the read back to the oldest shelf row
+	recent = now - timedelta(days=RECEIPT_LOOKBACK_DAYS)
+	shelved_at = {b: t for b, t in (shelved_at or {}).items() if b and (not t or _dt(t) >= recent)}
 	if not shelved_at:
 		return {}
-	now = get_datetime(now or now_datetime())
 	latest = {}
 	# the receipts of the last weeks only: a bucket on the shelf was received well within them
-	oldest = min((get_datetime(t) for t in shelved_at.values() if t), default=now)
+	oldest = min((_dt(t) for t in shelved_at.values() if t), default=now)
+	since = (oldest - timedelta(days=30)).date()
+	receipts = """SELECT custom_bucket_id, {0} FROM `tabStock Entry`
+		WHERE custom_bucket_id IN %(b)s AND docstatus = 1 AND stock_entry_type IN ('Receiving', 'Late Receipt')
+		  AND posting_date >= %(since)s {1}"""
+	# each bucket's latest receipt; only a bucket received again after its shelving (a later harvest) has its
+	# receipts read one by one, to find the one its shelf stems came from
+	later = []
+	# nosemgrep: frappe-sql-format-injection -- receipts' holes take fixed SQL fragments, values are bound
 	for b, at in frappe.db.sql(
-		"""SELECT custom_bucket_id, TIMESTAMP(posting_date, posting_time) FROM `tabStock Entry`
-		   WHERE custom_bucket_id IN %(b)s AND docstatus = 1 AND stock_entry_type IN ('Receiving', 'Late Receipt')
-		     AND posting_date >= %(since)s""",
-		{"b": tuple(shelved_at), "since": (oldest - timedelta(days=30)).date()},
+		receipts.format("MAX(TIMESTAMP(posting_date, posting_time))", "GROUP BY custom_bucket_id"),
+		{"b": tuple(shelved_at), "since": since},
 	):
-		at = get_datetime(at)
+		at = _dt(at)
 		limit = shelved_at.get(b)
-		if limit and at > get_datetime(limit):
-			continue
-		if b not in latest or at > latest[b]:
+		if limit and at > _dt(limit):
+			later.append(b)
+		else:
 			latest[b] = at
+	if later:
+		# nosemgrep: frappe-sql-format-injection -- receipts' holes take fixed SQL fragments, values are bound
+		for b, at in frappe.db.sql(
+			receipts.format("TIMESTAMP(posting_date, posting_time)", ""), {"b": tuple(later), "since": since}
+		):
+			at = _dt(at)
+			limit = shelved_at.get(b)
+			if limit and at > _dt(limit):
+				continue
+			if b not in latest or at > latest[b]:
+				latest[b] = at
 	return {b: max(0, int((now - at).total_seconds() // 3600)) for b, at in latest.items()}
 
 
@@ -226,7 +247,6 @@ SUM_FIELDS = (
 	"held",
 	"allocated",
 	"free",
-	"reserved",
 	"allocatable",
 	"aged_stems",
 	"cooling_stems",

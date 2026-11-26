@@ -1204,7 +1204,7 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
       const m = PH.modal({ title: kind === "transfers" ? "Release stale transfers" : "Release stale allocations", sub: label, body: "" });
       const b = m.body;
       b.innerHTML = `<p style="font-size:1.1em;margin:0 0 var(--sp-4)"><b>${N(plan.stems)} stems</b> on ${N(plan.lines)} line${plan.lines === 1 ? "" : "s"} from ${N(plan.orders)} order${plan.orders === 1 ? "" : "s"} will be released.</p>
-        <ul class="sv-list"><li>${kind === "transfers" ? "Each stale transfer is cancelled: the bucket stops waiting for a truck and its allocation is released." : "Each allocation is cancelled and its stems return to the shelf."}</li><li>The lines come off ${N(plan.opl_count)} pick list${plan.opl_count === 1 ? "" : "s"}; an empty pick list is deleted.</li><li><b>This cannot be undone.</b></li></ul>
+        <ul class="sv-list"><li>${kind === "transfers" ? "Each stale transfer is cancelled: the bucket stops waiting for a truck, its stems come off the shelf and the bucket is recorded as an anomaly." : "Each allocation is cancelled. Its stems come off the shelf and the bucket is recorded as an anomaly."}</li><li>The lines come off ${N(plan.opl_count)} pick list${plan.opl_count === 1 ? "" : "s"}; an empty pick list is deleted.</li><li><b>This cannot be undone.</b></li></ul>
         ${plan.index_building ? `<div class="ph-notice ph-notice--signal ph-mt">${PH.icon("info", 16)}<span>The database is building an index that makes releases much faster. It takes a minute or two; releasing now works but will be slow until then.</span></div>` : ""}
         ${skipped ? `<div class="ph-notice ph-notice--warn ph-mt">${PH.icon("alert", 16)}<span><b>Not included</b> - these stay as they are:<ul class="sv-list">${skipped}</ul></span></div>` : ""}
         <div class="sv-checkbar"><button type="button" class="ph-btn ph-btn--danger" id="rl-go">Release ${N(plan.stems)} stems</button><button type="button" class="ph-btn ph-btn--ghost" id="rl-no">Cancel</button></div>`;
@@ -1274,8 +1274,8 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
   };
   const STATUS_ORDER = ["short", "greenhouse", "downgrade", "action", "available", "allocated"];
   const SEG_STATUS = { attn: ["short", "greenhouse", "downgrade", "action"], ready: ["available"], allocated: ["allocated"] };
-  const SRC_ORDER = ["shelf", "remote", "floor", "cooling", "arriving", "overdue", "stale"];
-  const SRC_LBL = { shelf: "on the shelf", remote: "at remote farms", floor: "on the coldroom floor", cooling: "still cooling", arriving: "harvested, not received", overdue: "harvested, overdue", stale: "held by stale allocations", downgrade: "as longer stems", greenhouse: "still in the greenhouse (forecast, not cut)" };
+  const SRC_ORDER = ["shelf", "remote", "floor", "cooling", "arriving", "overdue"];
+  const SRC_LBL = { shelf: "on the shelf", remote: "at remote farms", floor: "on the coldroom floor", cooling: "still cooling", arriving: "harvested, not received", overdue: "harvested, overdue", downgrade: "as longer stems", greenhouse: "still in the greenhouse (forecast, not cut)" };
   const CHANGE_MS = 120000, POLL_MS = 30000;
   let ol = null, olSeq = 0, olShown = 100, olKey = "", prevIdx = null, lineIndex = new Map(), olFail = null, olAt = 0, olLoading = false, olRetryT = null;
   const olOpen = new Set(), olPoolOpen = new Set(), changed = new Map(); // line id -> {reason, at, since}
@@ -1381,7 +1381,7 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
     PH.$("#o-cust").classList.toggle("is-set", !!c0);
     PH.$("#o-q").value = st.get("os");
     PH.$$("#o-view button").forEach((b) => b.classList.toggle("is-on", b.dataset.value === st.get("oview")));
-    const [a_, b_] = oRange(), notShelf = ["floor", "cooling", "arriving", "overdue", "remote", "stale"].reduce((t, k) => t + (stk[k] || 0), 0);
+    const [a_, b_] = oRange(), notShelf = ["floor", "cooling", "arriving", "overdue", "remote"].reduce((t, k) => t + (stk[k] || 0), 0);
     if (!n) {
       PH.$("#o-kpis").innerHTML = ""; PH.$("#o-seg").innerHTML = ""; PH.$("#o-exp").disabled = true;
       PH.empty("#o-orders", `No orders due ${a_ === b_ ? "on " + dayLabel(a_) : "between " + dayLabel(a_) + " and " + dayLabel(b_)}`, "Pick another day.", "calendar"); return;
@@ -1399,8 +1399,8 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
   }
 
   /* ── the grid: one row, every place the stock is ── */
-  const MX = [["alloc", "Allocated", "Already allocated to the line"], ["shelf", "Shelf", "On the shelf"], ["floor", "Floor", "On the coldroom floor, not shelved"], ["cooling", "Cooling", "On a shelf, still cooling"], ["harv", "Harvested", "Harvested, not received yet"], ["remote", "Remote", "At remote farms"], ["stale", "Stale-held", "Held by stale allocations (free once released)"], ["longer", "Longer", "Longer stems (downgrade)"], ["fc", "Forecast", "Forecast, not cut: still in the greenhouse"]];
-  const SRC_CLASS = { alloc: "alloc", shelf: "shelf", floor: "floor", cooling: "cooling", harv: "arriving", remote: "remote", stale: "stale", longer: "downgrade", fc: "greenhouse" };
+  const MX = [["alloc", "Allocated", "Already allocated to the line"], ["shelf", "Shelf", "On the shelf"], ["floor", "Floor", "On the coldroom floor, not shelved"], ["cooling", "Cooling", "On a shelf, still cooling"], ["harv", "Harvested", "Harvested, not received yet"], ["remote", "Remote", "At remote farms"], ["longer", "Longer", "Longer stems (downgrade)"], ["fc", "Forecast", "Forecast, not cut: still in the greenhouse"]];
+  const SRC_CLASS = { alloc: "alloc", shelf: "shelf", floor: "floor", cooling: "cooling", harv: "arriving", remote: "remote", longer: "downgrade", fc: "greenhouse" };
   const mxVal = (l, k) => { const a = l.available || {}; return k === "alloc" ? l.allocated : k === "harv" ? (a.arriving || 0) + (a.overdue || 0) : k === "longer" ? l.longer : k === "fc" ? l.forecast : (a[k] || 0); };
   const mxCell = (n, k) => (n > 0 ? `<td class="is-num mx-c src-${SRC_CLASS[k]}"><b>${N(n)}</b></td>` : '<td class="is-num mx-c"><span class="sv-dim">–</span></td>');
   const mxHead = `<colgroup><col style="width:25%"><col style="width:6.5%"><col style="width:7%">${MX.map(() => '<col style="width:5.5%">').join("")}<col style="width:12%"></colgroup><thead><tr><th>Order · variety · length</th><th class="is-num">Ordered</th><th class="is-num">To allocate</th>${MX.map((m) => `<th class="is-num mx-h" title="${esc(m[2])}">${esc(m[1])}</th>`).join("")}<th>Status</th></tr></thead>`;

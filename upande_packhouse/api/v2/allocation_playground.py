@@ -3,9 +3,8 @@
 """Allocation Planning v2 (www/sales-allocation-planning-v2.html): confirm a delivery day before allocation.
 
 Spec: docs/allocation-playground/spec.md. This is phase 1: the board, the variety detail, confirming an order
-line on the cutting day's rolling or production forecast (Virtual; it becomes Real, holding buckets, as that
-harvest reaches the shelf) and releasing it. The holds
-are read and released by allocation (allocation_plan.py, availability.py, sales_allocation.py).
+line on the cutting day's rolling or production forecast (Virtual; it becomes Real as that harvest reaches the
+shelf) and releasing it. Allocation uses the confirmations up (allocation_plan.py, sales_allocation.py).
 
 The unit on the board is a variety and length for one delivery day (the "pool" in the spec; the page calls
 it "variety and length"). For each one:
@@ -19,9 +18,8 @@ it "variety and length"). For each one:
 What can be confirmed against, most certain first (all by variety and length):
 
     on the shelf            free stems that can still be confirmed (core/stock.bucket_rows: allocatable, so net of
-                            age, cooling and stems held for other lines)
-    received, not shelved   buckets received and waiting for a shelf, with their cold room (core/received.py); held
-                            bucket by bucket like shelf stock
+                            age and cooling), less what other lines confirmed from stock and have not allocated
+    received, not shelved   buckets received and waiting for a shelf, with their cold room (core/received.py)
     harvested, not received the day's production still on its way (core/received.harvested_day)
     still to be cut         the revised forecast for the cutting day less what has been harvested that day. "Safe"
                             takes off the forecast's average error for the variety this year (revised against actual)
@@ -497,7 +495,6 @@ def _stock_by_pool(farm, varieties, day=None, everything=False):
 	for r in every if wanted is None else (r for r in every if r.variety in wanted):
 		p = entry((r.variety, r.stem_length or ""))
 		p["free"] += r.allocatable
-		p["held"] += r.reserved
 		if r.allocatable > 0:
 			p["buckets"] += 1
 			p["oldest"] = max(p["oldest"], r.age_days or 0)
@@ -506,9 +503,8 @@ def _stock_by_pool(farm, varieties, day=None, everything=False):
 				p["old"] += r.allocatable
 				p["old_by_farm"][r.shelf_farm] = p["old_by_farm"].get(r.shelf_farm, 0.0) + r.allocatable
 	recv = received.received_unshelved(farms=farms, varieties=sorted(varieties) if varieties else None)
-	held_for_lines = availability.reserved_by_bucket(bucket_ids={r.bucket_id for r in recv})
 	for r in recv:
-		free = max(0.0, r.stems - held_for_lines.get(r.bucket_id, 0.0))
+		free = max(0.0, flt(r.stems))
 		if free <= 0:
 			continue
 		p = entry((r.variety, r.stem_length or ""))
@@ -520,6 +516,19 @@ def _stock_by_pool(farm, varieties, day=None, everything=False):
 		if r.age_days >= amber:
 			p["old"] += free
 			p["old_by_farm"][r.farm] = p["old_by_farm"].get(r.farm, 0.0) + free
+	# stems the plan confirmed from stock and not allocated yet are no longer free: off the shelf first, then off
+	# what is received and waiting for a shelf
+	for (f, variety, length), stems in plans.real_outstanding(farms).items():
+		p = out.get((variety, length))
+		if not p or stems <= 0:
+			continue
+		take = min(stems, p["free"])
+		p["free"] -= take
+		p["by_farm"][f] = max(0.0, p["by_farm"].get(f, 0.0) - take)
+		rest = min(stems - take, p["received"])
+		p["received"] -= rest
+		p["rec_by_farm"][f] = max(0.0, p["rec_by_farm"].get(f, 0.0) - rest)
+		p["held"] += take + rest
 	if day and varieties:
 		cut = getdate(day) - timedelta(days=plans.HARVEST_LEAD_DAYS)
 		for key, h in received.harvested_day(cut, _growing_farms(farm), varieties).items():
@@ -1170,13 +1179,16 @@ def _forecast_supply(days, farm, only=None):
 			continue
 		if (r.age_days or 0) + ahead >= age_of(r.variety):
 			continue
-		shelf[(r.variety, r.stem_length or "")] += max(0.0, flt(r.free) - flt(r.reserved))
+		shelf[(r.variety, r.stem_length or "")] += max(0.0, flt(r.free))
 	recv = received.received_unshelved(farms=shelf_farms, varieties=sorted(varieties) if varieties else None)
-	held_recv = availability.reserved_by_bucket(bucket_ids={r.bucket_id for r in recv})
 	for r in recv:
 		if (r.age_days or 0) + ahead >= age_of(r.variety):
 			continue
-		shelf[(r.variety, r.stem_length or "")] += max(0.0, flt(r.stems) - held_recv.get(r.bucket_id, 0.0))
+		shelf[(r.variety, r.stem_length or "")] += max(0.0, flt(r.stems))
+	# what the plan confirmed from stock and has not allocated yet
+	for (_f, v, ln), stems in plans.real_outstanding(shelf_farms).items():
+		if (v, ln) in shelf:
+			shelf[(v, ln)] = max(0.0, shelf[(v, ln)] - stems)
 	# allocated, waiting release: still on the shelf, but those orders have it
 	waiting = defaultdict(float)
 	if frappe.db.table_exists("Pending Allocation Row"):
@@ -1271,29 +1283,22 @@ def _group_of(ln):
 	return {"kind": "straight", "group_key": "line|%s" % ln.name, "group_label": _("Straight box")}
 
 
-def _held_sources(conf_names):
-	"""{confirmation: {"shelf": stems, "received": stems}} for what a Real confirmation holds: a held bucket that is on a shelf
-	counts as shelf, one still waiting for a shelf as received."""
-	if not conf_names:
-		return {}
-	rows = frappe.get_all(
-		"Bucket Reservation",
-		filters={"confirmation": ("in", list(conf_names)), "status": "Active"},
-		fields=["confirmation", "bucket_id", "stems"],
-	)
-	if not rows:
-		return {}
-	on_shelf = {
-		r[0]
-		for r in frappe.db.sql(
-			"SELECT DISTINCT bucket_id FROM `tabShelf Item` WHERE stem_qty > 0 AND bucket_id IN %(b)s",
-			{"b": tuple({r.bucket_id for r in rows})},
-		)
-	}
+def _held_sources(confs):
+	"""{confirmation: {"shelf": stems, "received": stems}} for what a Real confirmation still has to allocate: from the
+	shelf of its farm, variety and length first, the rest from what is received and waiting for a shelf."""
 	out = {}
-	for r in rows:
-		d = out.setdefault(r.confirmation, {"shelf": 0.0, "received": 0.0})
-		d["shelf" if r.bucket_id in on_shelf else "received"] += flt(r.stems)
+	pools = {}
+	for c in confs:
+		key = (c.farm, c.variety, c.length or "")
+		if key not in pools:
+			rows = stock.bucket_rows(
+				farms=[c.farm], varieties=[c.variety], lengths=[c.length] if c.length else None
+			)
+			pools[key] = [sum(flt(r.allocatable) for r in rows if (r.stem_length or "") == key[2])]
+		left = max(0.0, flt(c.stems) - flt(c.fulfilled_stems))
+		shelf = min(left, pools[key][0])
+		pools[key][0] -= shelf
+		out[c.name] = {"shelf": shelf, "received": left - shelf}
 	return out
 
 
@@ -1450,7 +1455,7 @@ def get_confirmed_orders(delivery_date: str | None = None, farm: str | None = No
 	lines = [ln for ln in _lines(day) if ln.parent in orders_in]
 	supply = _stock_by_pool(farm, {ln.item_code for ln in lines} | {c.variety for c in confs}, day)
 	ch = _confirmed_here(day, farm)
-	held = _held_sources([c.name for c in confs if c.source == "Real"])
+	held = _held_sources([c for c in confs if c.source == "Real"])
 	names = dict(
 		frappe.db.sql(
 			"SELECT name, custom_order_name FROM `tabSales Order` WHERE name IN %(s)s",
@@ -2132,7 +2137,6 @@ def _confirmed_lines(day, farm, variety, length):
 		left = max(0.0, flt(c.stems) - flt(c.fulfilled_stems))
 		if c.source == "Real":
 			d["held"] += left
-			d["buckets"] += len(plans.held_buckets(c.name))
 		else:
 			d["expected"] += left
 		d["missing"] = d["missing"] or c.status == "Broken"

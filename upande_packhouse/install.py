@@ -19,7 +19,7 @@ import frappe
 
 from upande_packhouse.dashboard_links import ensure_dashboard_links
 from upande_packhouse.patches.index_stock_entry_issued_to import execute as ensure_issued_to_index
-from upande_packhouse.stock_movement import ensure_line_bucket_index
+from upande_packhouse.stock_movement import ensure_line_bucket_field, ensure_line_bucket_index
 
 # Mirrors the definition upande_agriculture ships (autoname field:cutstage, one
 # unique Data field) so that app's JSON syncs cleanly over this stand-in and
@@ -114,14 +114,17 @@ def after_migrate():
 
 
 def _run():
+	from upande_packhouse.allocation_indexes import ensure_allocation_indexes
 	from upande_packhouse.allocation_plan import ensure_indexes, setup_settings
 
 	for step in (
 		ensure_dashboard_links,
+		ensure_line_bucket_field,
 		ensure_line_bucket_index,
 		ensure_issued_to_index,
 		setup_settings,
 		ensure_indexes,
+		ensure_allocation_indexes,
 	):
 		try:
 			step()

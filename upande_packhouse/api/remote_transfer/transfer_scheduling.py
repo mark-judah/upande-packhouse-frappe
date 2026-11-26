@@ -1866,25 +1866,30 @@ def _settle_held_trip(doc, how, estimate=False):
 	shelved (it ends once every bucket it carried is), as for a dispatched trip -- so the
 	hub's shelving, auto-arrive / auto-receive, End Trip and the truck's next run all
 	carry on instead of the trip staying "loading" for good (and its loads going back to
-	the farm when the day is closed). estimate: the trip is settled late (scheduler sweep), so it
-	left after its last load (or its last stop), not now. Returns True when settled."""
+	the farm when the day is closed). The trip left after its last load (or its last stop), so that
+	is when it is dispatched; it arrives now. `estimate` (the scheduler sweep) is kept for callers.
+	Returns True when settled."""
 	if doc.status not in ACTIVE_TRIP_STATUSES or not doc.vehicle:
 		return False
 	reached = _held_loads_at_hub(doc)
 	if not reached:
 		return False
-	now = frappe.utils.now()
-	at = now
-	if estimate:
-		times = [
-			str(r.loaded_at)
-			for r in doc.get("trip_buckets") or []
-			if r.loaded_at and not int(r.off_truck or 0)
-		]
-		times += [str(doc.last_departed_at)] if doc.get("last_departed_at") else []
-		at = max(times) if times else now
 	hub = trip_hub(doc) or ""
 	was = doc.status
+	# A farm none of whose loads reached the hub has not been left: the truck dropped the other farms first
+	# (KAS 866Q 2026-11-25: Simotwo shelved at 10:14 put Kaptumbo, still loading until 11:54, in transit and
+	# "arrived"). Its plan and loads go on the truck's next run; only the farms that reached the hub settle.
+	_split_unreached_stops(doc, reached)
+	# The truck left after its last load (or its last stop), not now that it has reached the hub: dispatched and
+	# arrived stamped at the same moment made every held trip look like it took no time on the road.
+	now = frappe.utils.now()
+	times = [
+		str(r.loaded_at)
+		for r in doc.get("trip_buckets") or []
+		if r.loaded_at and not int(r.off_truck or 0) and str(r.loaded_at) <= now
+	]
+	times += [str(doc.last_departed_at)] if doc.get("last_departed_at") else []
+	at = max(times) if times else now
 	departed = _departed(doc)
 	departed += [f for f in _trip_stops(doc) if f not in departed]
 	doc.departed_stops = ",".join(departed)
@@ -1914,6 +1919,82 @@ def _settle_held_trip(doc, how, estimate=False):
 	if _end_trip_if_shelved(doc):
 		carry_over_to_next_run(doc.name)
 	return True
+
+
+#: Trip order fields carried when a stop moves to the truck's next run.
+_ORDER_FIELDS = (
+	"order_pick_list",
+	"order_name",
+	"customer",
+	"farm",
+	"varieties",
+	"buckets",
+	"stems",
+	"full_farm_buckets",
+	"is_partial",
+	"loaded_buckets",
+	"loaded_stems",
+	"short_reason",
+	"unscheduled",
+)
+_LOAD_FIELDS = (
+	"bucket",
+	"order_pick_list",
+	"farm",
+	"loaded_at",
+	"loaded_by",
+	"shelved",
+	"shelved_at",
+	"off_truck",
+)
+
+
+def _split_unreached_stops(doc, reached):
+	"""Before a held trip is settled because some of its loads reached the hub (`reached`, trip bucket rows):
+	each stop not yet left whose loads did NOT reach the hub moves -- its plan rows and its loads -- to a new
+	run of the same truck, still at the farm. Returns the trips made."""
+	reached_farms = {(r.farm or "") for r in reached} - {""}
+	if not reached_farms:
+		return []
+	departed = set(_departed(doc))
+	stay = [f for f in _trip_stops(doc) if f not in departed and f not in reached_farms]
+	made = []
+	for farm in stay:
+		orders = [o for o in doc.orders if (o.farm or "") == farm]
+		loads = [b for b in doc.get("trip_buckets") or [] if (b.farm or "") == farm]
+		if not orders and not loads:
+			continue
+		new = _new_load_trip(doc.vehicle, frappe.utils.today(), farm)
+		new.unscheduled = 0
+		new.status = "Scheduled" if loads else "Draft"
+		for o in orders:
+			new.append("orders", {k: o.get(k) for k in _ORDER_FIELDS})
+		for b in loads:
+			new.append("trip_buckets", {k: b.get(k) for k in _LOAD_FIELDS})
+		new.capacity_buckets = _vehicle_capacity(doc.vehicle)
+		new.total_buckets = sum(int(o.buckets or 0) for o in new.orders)
+		new.total_stems = sum(int(o.stems or 0) for o in new.orders)
+		new.loaded_buckets = _trip_loaded_count(new)
+		new.insert(ignore_permissions=True)
+		doc.set("orders", [o for o in doc.orders if (o.farm or "") != farm])
+		doc.set("trip_buckets", [b for b in doc.get("trip_buckets") or [] if (b.farm or "") != farm])
+		doc.add_comment(
+			"Info",
+			"{0} not left yet when the other farms' buckets reached the hub: its {1} loaded and {2} planned "
+			"buckets moved to {3}".format(
+				farm, len(loads), sum(int(o.buckets or 0) for o in orders), new.name
+			),
+		)
+		made.append(new.name)
+	if made:
+		for i, r in enumerate(doc.orders, 1):
+			r.idx = i
+		for i, r in enumerate(doc.get("trip_buckets") or [], 1):
+			r.idx = i
+		doc.total_buckets = sum(int(o.buckets or 0) for o in doc.orders)
+		doc.total_stems = sum(int(o.stems or 0) for o in doc.orders)
+		doc.loaded_buckets = _trip_loaded_count(doc)
+	return made
 
 
 def _settle_held_trips(bucket_id):
@@ -2837,15 +2918,83 @@ def _stop_complete(doc, farm):
 	delivery date has passed with nothing of them loaded (the farm app no longer shows
 	them, so waiting for them would hold the truck at the stop for good)."""
 	rows = [o for o in doc.orders if (o.farm or "") == farm and int(o.buckets or 0) > 0]
-	past = _past_delivery_opls([o.order_pick_list for o in rows])
-	rows = [o for o in rows if o.order_pick_list not in past or int(o.loaded_buckets or 0) > 0]
-	# A row is done once it is fully loaded — or once nothing of that order is still
-	# waiting at this farm (planned higher than the farm really had: a bucket counted
-	# under the wrong farm, replaced, not found, or taken by another trip).
-	open_now = _open_counts([o.order_pick_list for o in rows])
-	return bool(rows) and all(
-		int(o.loaded_buckets or 0) >= int(o.buckets or 0) or not open_now.get((o.order_pick_list, farm), 0)
-		for o in rows
+	return bool(rows) and not _stop_missing(doc, farm)
+
+
+def _on_this_truck(doc, opls):
+	"""(opl, farm) -> buckets of these orders flagged on this trip's truck (loaded on it or in transit with it),
+	not at the sales farm yet: what is really on the truck, whether or not the load reached the trip record."""
+	out = {}
+	for b in _transfer_buckets(opls):
+		if b["shelved"] or (b["truck"] or "").strip().upper() != (doc.vehicle or "").strip().upper():
+			continue
+		if b["loaded"] or b["in_transit"]:
+			out[(b["opl"], b["farm"])] = out.get((b["opl"], b["farm"]), 0) + 1
+	return out
+
+
+def _stop_missing(doc, farm):
+	"""The buckets still to go on the truck at `farm` for this trip: [{opl, order_name, bucket}], per order the
+	ones it still needs (planned here less what is on the truck), from those waiting at the farm or on a trolley
+	not yet on this truck. A not-found bucket is not waited for, nor an order whose delivery date passed with
+	nothing of it loaded."""
+	rows = [o for o in doc.orders if (o.farm or "") == farm and int(o.buckets or 0) > 0]
+	if not rows:
+		return []
+	opls = list({o.order_pick_list for o in rows})
+	past = _past_delivery_opls(opls)
+	on_truck = _on_this_truck(doc, opls)
+	need = {}
+	for o in rows:
+		loaded = max(int(o.loaded_buckets or 0), on_truck.get((o.order_pick_list, farm), 0))
+		if o.order_pick_list in past and not loaded:
+			continue
+		need[o.order_pick_list] = need.get(o.order_pick_list, 0) + max(0, int(o.buckets or 0) - loaded)
+	need = {k: v for k, v in need.items() if v > 0}
+	if not need:
+		return []
+	names = dict(
+		frappe.db.sql(
+			"SELECT name, IFNULL(order_name, name) FROM `tabOrder Pick List` WHERE name IN %(o)s",
+			{"o": tuple(need)},
+		)
+	)
+	vehicle = (doc.vehicle or "").strip().upper()
+	out = []
+	for b in _transfer_buckets(list(need)):
+		left = need.get(b["opl"], 0)
+		if left <= 0 or b["farm"] != farm or b["shelved"]:
+			continue
+		if (b["loaded"] or b["in_transit"]) and (b["truck"] or "").strip().upper() == vehicle:
+			continue
+		if b["in_transit"]:
+			continue  # on another truck already
+		if _is_not_found(b):
+			continue
+		out.append({"opl": b["opl"], "order_name": names.get(b["opl"]) or b["opl"], "bucket": b["bucket"]})
+		need[b["opl"]] = left - 1
+	return out
+
+
+def _is_not_found(b):
+	return bool(
+		frappe.db.sql(
+			"SELECT 1 FROM `tabPick List Item` WHERE name IN %(n)s AND IFNULL(not_found, 0) = 1 LIMIT 1",
+			{"n": tuple(b["names"])},
+		)
+	)
+
+
+def _missing_message(missing, vehicle, farm=None):
+	shown = ", ".join("{0} ({1})".format((m["bucket"] or "").upper(), m["order_name"]) for m in missing[:8])
+	more = len(missing) - 8
+	return "{0} bucket{1}{2} not on {3}: {4}{5}.".format(
+		len(missing),
+		"" if len(missing) == 1 else "s",
+		" at {0}".format(farm) if farm else "",
+		vehicle,
+		shown,
+		" and {0} more".format(more) if more > 0 else "",
 	)
 
 
@@ -3335,9 +3484,69 @@ def record_truck_load(pli_names):
 			docs[doc.name or id(doc)] = doc
 			by_trip.setdefault(doc.name or id(doc), []).append(b)
 		for key, entries in by_trip.items():
-			doc = docs[key]
-			_record_loads(doc, truck, entries)
+			doc = _record_loads_retrying(docs[key], truck, entries)
 			touched.append(doc.name)
+	return touched
+
+
+#: A trip re-saved by the planner (or a page) between reading it and recording a load on it is read again
+#: this many times before the load is given up (the 5-minute sweep, record_missed_loads, tries again).
+LOAD_SAVE_ATTEMPTS = 4
+
+
+def _record_loads_retrying(doc, truck, entries):
+	"""_record_loads, read again when someone saved the trip in the meantime (TimestampMismatchError): the
+	loads were lost on those collisions, and the trip stayed Draft with nothing on it while its buckets rode
+	the truck (KTCB 443K, 2026-11-25)."""
+	for attempt in range(LOAD_SAVE_ATTEMPTS):
+		try:
+			_record_loads(doc, truck, entries)
+			return doc
+		except frappe.TimestampMismatchError:
+			if not doc.name or attempt == LOAD_SAVE_ATTEMPTS - 1:
+				raise
+			frappe.clear_messages()
+			doc = frappe.get_doc("Bucket Request Trip", doc.name)
+			recorded = {(r.order_pick_list, (r.bucket or "").upper()) for r in doc.get("trip_buckets") or []}
+			entries = [b for b in entries if (b["opl"], b["bucket"]) not in recorded]
+			if not entries:
+				return doc
+	return doc
+
+
+def record_missed_loads():
+	"""Every 5 minutes: buckets the farm loaded onto a transfer truck that no trip records (the load's trip
+	write failed) are put on the truck's trip now, so it is dispatched, arrives and ends like any other."""
+	names = frappe.db.sql_list(
+		"""
+		SELECT pli.name
+		FROM `tabPick List Item` pli
+		JOIN `tabOrder Pick List` opl ON opl.name = pli.parent AND opl.docstatus < 2
+		LEFT JOIN `tabSales Order` so ON so.name = opl.sales_order
+		WHERE pli.parenttype = 'Order Pick List' AND IFNULL(pli.bucket, '') != ''
+		  AND (pli.loaded_in_trolley = 1 OR pli.in_transit = 1)
+		  AND IFNULL(pli.shelved, 0) = 0 AND IFNULL(pli.issued, 0) = 0
+		  AND IFNULL(pli.custom_ready_for_packing, 0) = 0
+		  AND IFNULL(pli.transit_truck, '') != ''
+		  AND (so.delivery_date IS NULL OR so.delivery_date >= %(today)s)
+		  AND DATE(pli.modified) >= %(since)s
+		  AND NOT EXISTS (
+			SELECT 1 FROM `tabBucket Request Trip Bucket` tb
+			JOIN `tabBucket Request Trip` t ON t.name = tb.parent
+			WHERE tb.parenttype = 'Bucket Request Trip' AND UPPER(tb.bucket) = UPPER(pli.bucket)
+			  AND t.status != 'Received' AND IFNULL(tb.off_truck, 0) = 0
+		  )""",
+		{"today": frappe.utils.today(), "since": frappe.utils.add_days(frappe.utils.today(), -1)},
+	)
+	if not names:
+		return []
+	try:
+		touched = record_truck_load(names)
+	except Exception:
+		frappe.db.rollback()
+		frappe.log_error("Remote transfers: recording missed truck loads failed", frappe.get_traceback())
+		return []
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit -- scheduler job
 	return touched
 
 
@@ -6761,19 +6970,26 @@ def closeTripStop():
 		return
 	rows = [o for o in doc.orders if (o.farm or "") == farm]
 	planned = sum(int(o.buckets or 0) for o in rows)
-	loaded = sum(int(o.loaded_buckets or 0) for o in rows)
-	# complete: the farm app's send button -- only once every bucket planned here is on.
-	if cint(fd.get("complete")) and not _stop_complete(doc, farm):
-		frappe.response["message"] = {
-			"status": "error",
-			"reason": "incomplete",
-			"loaded": loaded,
-			"planned": planned,
-			"message": "{0} of {1} buckets are on {2} — load the rest or mark them not found.".format(
-				loaded, planned, doc.vehicle
-			),
-		}
-		return
+	on_truck = _on_this_truck(doc, [o.order_pick_list for o in rows])
+	loaded = sum(max(int(o.loaded_buckets or 0), on_truck.get((o.order_pick_list, farm), 0)) for o in rows)
+	# The truck leaves only once every bucket on the list for this stop is on it -- a reason no longer lets it
+	# leave short (a bucket that is not there is marked not found). Leaving the last farm for the sales farm, every
+	# farm of the trip is checked again: what each farm has on the list must be on the truck (a farm left earlier
+	# had its list cut to what it loaded, so it never waits for buckets that went to another run).
+	checks = [farm] if remaining else [farm] + [f for f in stops if f != farm]
+	for f in checks:
+		missing = _stop_missing(doc, f)
+		if missing:
+			frappe.response["message"] = {
+				"status": "error",
+				"reason": "incomplete",
+				"farm": f,
+				"loaded": loaded,
+				"planned": planned,
+				"missing": [{"bucket": m["bucket"], "order_name": m["order_name"]} for m in missing],
+				"message": _missing_message(missing, doc.vehicle, None if f == farm else f),
+			}
+			return
 	# Closing the last stop sends the truck to the hub. Under its minimum load it is
 	# refused until the farm confirms sending it anyway (send_short). An earlier stop
 	# just moves on.
