@@ -44,7 +44,7 @@ CACHE_TTL = 600  # seconds; demand/production aggregates per (range, farms)
 def default_discard_age():
 	"""Production Settings > Discard Age: what a variety without its own age uses."""
 	try:
-		return flt(frappe.db.get_single_value("Production Settings", "discard_age")) or 5.0
+		return flt(frappe.db.get_single_value("Production Settings", "discard_age"))
 	except Exception:
 		return 5.0
 

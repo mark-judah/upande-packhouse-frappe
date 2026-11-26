@@ -1093,7 +1093,7 @@ def _discard_ages():
 
 			return discard_age_resolver()
 		except ImportError:
-			default = flt(stock._config()["discard_age"]) or 5.0
+			default = flt(stock._config()["discard_age"])
 			return lambda _item=None: default
 
 	return _memo(("discard_ages",), build)

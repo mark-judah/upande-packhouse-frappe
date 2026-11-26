@@ -64,7 +64,7 @@ def stock_stages(farm, varieties, places=None, process_day=None):
 			continue
 		out[(r.variety, r.stem_length or "")]["received"] += flt(r.stems)
 		place((r.variety, r.stem_length or ""), "received", r.farm, r.cold_room, r.stems, r.bucket_id)
-	since = add_days(today(), -min(cint(stock._config()["discard_age"]) or 7, 14))
+	since = add_days(today(), -min(cint(stock._config()["discard_age"]), 14))
 	# the planning page's revise reads it for one order after another: a minute old is near enough there
 	rows = (
 		_cycle_rows(tuple(farms), since) if places is None else _cycle_rows(tuple(farms), since, fresh=True)

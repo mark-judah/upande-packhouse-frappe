@@ -584,9 +584,7 @@ def collect(a):
 			if state == "discard" and hb:
 				detail = f"On {hb['name']} ({hb['state']})"
 			elif state == "too_old":
-				detail = (
-					f"{r.age_days} days old; the limit at {farm} is {fc.get('max_allocation_age', 5)} days"
-				)
+				detail = f"{r.age_days} days old; the limit at {farm} is {fc.get('max_allocation_age', stock._config()['discard_age'])} days"
 			elif state == "farm_disabled":
 				detail = f"{farm} is not enabled in Production Settings"
 			elif state == "reclaimable":
@@ -1736,7 +1734,7 @@ def check(lines: Any = None, date: Any = None, region: Any = None, farm: Any = N
 		c = collect(a)
 		dem = demand(a)
 		cfgs = stock._config()
-		amber = cfgs.get("amber_time", 3)
+		amber = cfgs["amber_time"]
 		by_v = defaultdict(list)
 		for i in c["items"]:
 			by_v[i["variety"]].append(i)

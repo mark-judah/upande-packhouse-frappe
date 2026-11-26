@@ -3313,8 +3313,14 @@ frappe.pages["sales-allocation-v2"]._render_item_block = function (item) {
 	const grand_allocated = total_allocated + allocated_session;
 	const required = item.pending_stock_qty || 0;
 	const remaining = required - grand_allocated;
-	// a bucket with less than a bunch free is not listed; FIFO still takes it and the why panel shows it
-	const batches = (item.batches || []).filter((b) => !b.remnant);
+	// a bucket with less than a bunch free is not listed; FIFO still takes it and the why panel shows it.
+	// Listed oldest first; a tie keeps the server's order (exact before downgrade, own shelves before remote).
+	// Allocate still takes exact length first.
+	const batches = (item.batches || [])
+		.filter((b) => !b.remnant)
+		.map((b, i) => [b, i])
+		.sort((x, y) => (y[0].age_days || 0) - (x[0].age_days || 0) || x[1] - y[1])
+		.map((x) => x[0]);
 	const preferred_farm = item.preferred_farm || "";
 	const uom = item.stock_uom || "";
 	// ── Pills: length, colour, box type, mix name, so-item id

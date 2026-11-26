@@ -311,15 +311,10 @@ def fetchColdroomData():
 			capacity_data = []
 
 		# 8. Production settings
-		settings = {"amber_time": 24, "discard_age": 48}
-		try:
-			settings_rows = frappe.db.sql(
-				"SELECT amber_time, discard_age FROM `tabProduction Settings` LIMIT 1", as_dict=True
-			)
-			if settings_rows:
-				settings = settings_rows[0]
-		except Exception:
-			pass
+		settings = {
+			"amber_time": frappe.utils.flt(frappe.db.get_single_value("Production Settings", "amber_time")),
+			"discard_age": frappe.utils.flt(frappe.db.get_single_value("Production Settings", "discard_age")),
+		}
 
 		# 9. ALL Karen Roses farms
 		available_farms = frappe.db.sql(
