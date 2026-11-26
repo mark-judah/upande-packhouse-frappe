@@ -492,7 +492,7 @@
     return out;
   }
 
-  const STAGES = [["all", "All"], ["notalloc", "Not allocated"], ["partial", "Part allocated"], ["issue", "Issuing"], ["pack", "Packing"], ["packed", "Packed"], ["staged", "Staged"], ["precooling", "Precooling"], ["loaded", "Loaded"], ["dispatched", "Dispatched"], ["invoiced", "Invoiced"]];
+  const STAGES = [["all", "All"], ["notalloc", "Not allocated"], ["partial", "Part allocated"], ["qualityb", "Quality B"], ["issue", "Issuing"], ["pack", "Packing"], ["packed", "Packed"], ["staged", "Staged"], ["precooling", "Precooling"], ["loaded", "Loaded"], ["dispatched", "Dispatched"], ["invoiced", "Invoiced"]];
   function renderStages() {
     const el = document.getElementById("stages"), cur = st.get("stage"), c = data.stage_counts || {};
     el.hidden = false;

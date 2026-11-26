@@ -37,6 +37,7 @@ from typing import Any
 import frappe
 from frappe.utils import getdate, today
 
+from upande_packhouse import quality_b
 from upande_packhouse.api.v2.core import boxes as bx
 from upande_packhouse.api.v2.core import pipeline
 from upande_packhouse.api.v2.core import region as region_mod
@@ -818,6 +819,7 @@ def get_orders_workflow(
 				"item_name": ln.item_name,
 				"item_group": ln.item_group,
 				"rose_type": ln.rose_type,
+				"quality_b": (ln.order_type or "") == quality_b.ORDER_TYPE,
 				"length": ln.custom_length,
 				"box_type": ln.custom_box_type,
 				"mix_name": ln.custom_mix_name,
@@ -890,8 +892,12 @@ def get_orders_workflow(
 	for b, stages in BUCKETS.items():
 		counts[b] = sum(1 for i in items if i["stage"] in stages)
 	counts["partial"] = sum(1 for i in items if i["partial"])
+	# Quality B: counted in orders, not lines
+	counts["qualityb"] = len({i["sales_order"] for i in items if i["quality_b"]})
 	if stage == "partial":
 		items = [i for i in items if i["partial"]]
+	elif stage == "qualityb":
+		items = [i for i in items if i["quality_b"]]
 	elif stage != "all" and stage in BUCKETS:
 		items = [i for i in items if i["stage"] in BUCKETS[stage]]
 

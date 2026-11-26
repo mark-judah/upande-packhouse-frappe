@@ -22,6 +22,15 @@ from upande_packhouse.api.remote_transfer.transfer_scheduling import (
 
 #: The one section for orders without a trip: a scheduled order always has one.
 NOT_SCHEDULED = "Not scheduled"
+#: Quality B orders: never planned onto a trip; the farm loads them onto the truck that collects them.
+QUALITY_B = "Quality B"
+
+
+def _quality_b_opls(opls):
+	opls = [o for o in opls or () if o]
+	if not opls or not frappe.db.has_column("Order Pick List", "quality_b"):
+		return set()
+	return set(frappe.get_all("Order Pick List", filters={"name": ["in", opls], "quality_b": 1}, pluck="name"))
 
 # source-farm expression (reused in SELECT + WHERE)
 FARM_EXPR = "COALESCE(NULLIF(pli.farm, ''), NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''))"
@@ -237,6 +246,7 @@ def getBucketLogistics():
 	)
 
 	sched = _schedule_map()
+	quality_b = _quality_b_opls({r["opl"] for r in rows})
 	for r in rows:
 		for k in [
 			"total",
@@ -259,7 +269,8 @@ def getBucketLogistics():
 		# Why an order with buckets still out at a remote farm isn't moving: it has to
 		# be on a team's schedule before Transfer Scheduling will put it on a truck.
 		r["scheduled"] = 1 if sc else 0
-		r["no_trip_section"] = no_trip_section(r)
+		r["quality_b"] = 1 if r["opl"] in quality_b else 0
+		r["no_trip_section"] = QUALITY_B if r["quality_b"] else no_trip_section(r)
 		r["no_team"] = 0 if r["team"] else 1
 	# The order's place in its sales farm's packing sequence (Allocation Planning numbers every order of a
 	# delivery day per sales farm: Sales Order.custom_allocation_sequence); trips are to bring them in that order.
