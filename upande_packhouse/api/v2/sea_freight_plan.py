@@ -116,6 +116,117 @@ def suggest(variety, ordered, houses, forecast):
 	return _split(int(ordered), weights)
 
 
+def line_greenhouses(sois):
+	"""{so item: {"greenhouses": [{name, label, farm, forecast}], "greenhouse": the default}} for sea freight
+	lines: the greenhouses growing the line's variety, the default being the one its saved plan cuts most from,
+	else the one with the most forecast to delivery (then the most planted area)."""
+	sois = [s for s in dict.fromkeys(sois or ()) if s]
+	if not sois:
+		return {}
+	lines = frappe.db.sql(
+		"""SELECT soi.name, soi.item_code, so.delivery_date FROM `tabSales Order Item` soi
+		JOIN `tabSales Order` so ON so.name = soi.parent WHERE soi.name IN %(s)s""",
+		{"s": tuple(sois)},
+		as_dict=True,
+	)
+	if not lines:
+		return {}
+	growing = _growing({ln.item_code for ln in lines})
+	houses = {h["name"] for hs in growing.values() for h in hs}
+	forecast = _forecast(
+		{ln.item_code for ln in lines}, houses, add_days(max(ln.delivery_date for ln in lines), -1)
+	)
+	planned = {}
+	if frappe.db.table_exists(PLAN):
+		for r in frappe.db.sql(
+			"""SELECT p.sales_order_item AS soi, r.greenhouse FROM `tabSea Freight Greenhouse Plan` p
+			JOIN `tabSea Freight Greenhouse Plan Row` r ON r.parent = p.name
+			WHERE p.sales_order_item IN %(s)s ORDER BY r.stems DESC""",
+			{"s": tuple(sois)},
+			as_dict=True,
+		):
+			planned.setdefault(r.soi, r.greenhouse)
+	out = {}
+	for ln in lines:
+		hs = growing.get(ln.item_code, [])
+		opts = [
+			{
+				"name": h["name"],
+				"label": h["label"],
+				"farm": h["farm"],
+				"forecast": forecast.get((ln.item_code, h["name"]), 0.0),
+			}
+			for h in hs
+		]
+		best = max(
+			hs, key=lambda h: (forecast.get((ln.item_code, h["name"]), 0.0), flt(h.get("area"))), default=None
+		)
+		default = planned.get(ln.name) if planned.get(ln.name) in {h["name"] for h in hs} else None
+		out[ln.name] = {"greenhouses": opts, "greenhouse": default or (best["name"] if best else "")}
+	return out
+
+
+def with_greenhouses(fn):
+	"""Allocation Planning endpoints under the Orders filter's Sea freight: every line ("soi") they return
+	carries its greenhouses and the default one, for the greenhouse picker beside its team."""
+	import functools
+
+	@functools.wraps(fn)
+	def wrapper(*args, **kwargs):
+		out = fn(*args, **kwargs)
+		if (frappe.form_dict or {}).get("order_kind") != "seafreight":
+			return out
+		found = []
+
+		def walk(x):
+			if isinstance(x, dict):
+				if x.get("soi"):
+					found.append(x)
+				for v in x.values():
+					walk(v)
+			elif isinstance(x, list | tuple):
+				for v in x:
+					walk(v)
+
+		walk(out)
+		gh = line_greenhouses([x["soi"] for x in found])
+		for x in found:
+			x.update(gh.get(x["soi"]) or {"greenhouses": [], "greenhouse": ""})
+		return out
+
+	return wrapper
+
+
+def require_greenhouses(items):
+	"""Allocation Planning confirm: every sea freight line confirmed must name its greenhouse (one growing its
+	variety). Returns {so item: greenhouse} for the confirmation hook to plan the line to."""
+	items = [x for x in items or [] if x.get("sales_order_item") and flt(x.get("stems")) > 0]
+	if not items or not frappe.db.has_column("Sales Order", "custom_mode_of_transport"):
+		return {}
+	rows = frappe.db.sql(
+		"""SELECT soi.name, soi.item_code, soi.item_name FROM `tabSales Order Item` soi
+		JOIN `tabSales Order` so ON so.name = soi.parent
+		WHERE soi.name IN %(s)s AND so.custom_mode_of_transport = %(m)s""",
+		{"s": tuple(x["sales_order_item"] for x in items), "m": SEA_FREIGHT},
+		as_dict=True,
+	)
+	if not rows:
+		return {}
+	given = {x["sales_order_item"]: (x.get("greenhouse") or "").strip() for x in items}
+	growing = _growing({r.item_code for r in rows})
+	out = {}
+	for r in rows:
+		gh = given.get(r.name)
+		if not gh:
+			frappe.throw(
+				_("Choose the greenhouse that cuts {0} for this sea freight order.").format(r.item_name)
+			)
+		if gh not in {h["name"] for h in growing.get(r.item_code, [])}:
+			frappe.throw(_("{0} has no running crop cycle of {1}.").format(gh, r.item_name))
+		out[r.name] = gh
+	return out
+
+
 def confirmation_after_insert(doc, method=None):
 	"""Allocation Confirmation after_insert: a sea freight line confirmed on Allocation Planning gets its
 	greenhouse plan -- its confirmed stems split over the greenhouses growing the variety by their forecast to
@@ -141,7 +252,13 @@ def confirmation_after_insert(doc, method=None):
 	) or flt(doc.stems)
 	houses = _growing([variety]).get(variety, [])
 	forecast = _forecast({variety}, {h["name"] for h in houses}, add_days(so.delivery_date, -1))
-	split = suggest(variety, stems, houses, forecast)
+	chosen = (frappe.flags.get("sea_freight_greenhouses") or {}).get(doc.sales_order_item)
+	if chosen:
+		# the greenhouse picked beside the team on Allocation Planning cuts the whole line
+		split = {chosen: stems}
+		houses = [h for h in houses if h["name"] == chosen] or [{"name": chosen, "farm": "", "area": 0.0}]
+	else:
+		split = suggest(variety, stems, houses, forecast)
 	rows = [
 		{
 			"greenhouse": h["name"],

@@ -385,6 +385,20 @@ def _plan_name(day, farm):
 	return cache[key]
 
 
+def _with_greenhouses(fn):
+	"""Sea freight lines carry their greenhouses (sea_freight_plan.with_greenhouses); imported late, the module
+	imports this one."""
+	import functools
+
+	@functools.wraps(fn)
+	def wrapper(*args, **kwargs):
+		from upande_packhouse.api.v2.sea_freight_plan import with_greenhouses
+
+		return with_greenhouses(fn)(*args, **kwargs)
+
+	return wrapper
+
+
 def _order_kind():
 	"""Allocation Planning's Orders filter, sent by the page as `order_kind`: Quality B (webstore, Shopping Cart)
 	orders, sea freight orders (harvested for the order, planned by greenhouse: sea_freight_plan), else export --
@@ -858,6 +872,7 @@ def _week_pools(days, farm, only_variety):
 
 
 @frappe.whitelist()
+@_with_greenhouses
 def get_board(
 	delivery_date: str | None = None,
 	farm: str | None = None,
@@ -1629,6 +1644,7 @@ def get_confirmed_orders(delivery_date: str | None = None, farm: str | None = No
 
 
 @frappe.whitelist()
+@_with_greenhouses
 def get_pool(
 	delivery_date: str | None = None,
 	farm: str | None = None,
@@ -2280,6 +2296,16 @@ def confirm_lines(
 	frappe.only_for(PLANNERS)
 	_changed()
 	from upande_packhouse.api.v2 import allocation_guards as guards
+	from upande_packhouse.api.v2.sea_freight_plan import require_greenhouses
+
+	# a sea freight line is confirmed with the greenhouse that cuts it (the confirmation hook plans it there)
+	items = frappe.parse_json(lines) if isinstance(lines, str) else lines
+	chosen = require_greenhouses(items)
+	if chosen:
+		frappe.flags.sea_freight_greenhouses = {
+			**(frappe.flags.get("sea_freight_greenhouses") or {}),
+			**chosen,
+		}
 
 	if week:
 		# a week's lines go to the plan of their own delivery day

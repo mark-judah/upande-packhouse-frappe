@@ -256,6 +256,7 @@
   .pg-chip--tint{background:var(--tint);color:var(--ink-3)}
   .pg-in-hint{display:block;margin-top:2px;font-size:12px}
   .pg-team-row{display:block;margin-top:6px;max-width:150px;min-width:110px}
+  .pg-gh-row{display:block;margin-top:6px;max-width:170px;min-width:110px}
   .pg-tabs{margin:0 var(--sp-6) var(--sp-3)}
   .pg-supply{padding:0 var(--sp-6) var(--sp-3)}
   .pg-srow{display:flex;justify-content:space-between;align-items:baseline;gap:var(--sp-4);padding:var(--sp-2) 0;border-top:1px solid var(--hairline)}
@@ -539,7 +540,21 @@
   const GUARDS = "upande_packhouse.api.v2.allocation_guards.";
   const TEAMS = "upande_packhouse.api.v2.allocation_teams.";
   // Every planning call carries the Orders filter (export, or Quality B) on the screens that show it.
-  const pgCall = (method, args, opts) => PH.call(method, { ...(args || {}), order_kind: S.orderKind && WEEK_MODES.includes(S.mode) ? S.orderKind : "" }, opts);
+  const pgCallRaw = (method, args, opts) => PH.call(method, { ...(args || {}), order_kind: S.orderKind && WEEK_MODES.includes(S.mode) ? S.orderKind : "" }, opts);
+  // Sea freight lines come with their greenhouses (and the default one): kept per line for the picker beside the team
+  const sfKeep = (x) => {
+    if (Array.isArray(x)) return x.forEach(sfKeep);
+    if (!x || typeof x !== "object") return;
+    if (x.soi && Array.isArray(x.greenhouses)) S.sfOpts[x.soi] = { greenhouses: x.greenhouses, greenhouse: x.greenhouse || "" };
+    Object.values(x).forEach((v) => { if (v && typeof v === "object") sfKeep(v); });
+  };
+  const pgCall = (method, args, opts) => pgCallRaw(method, args, opts).then((r) => { if (S.orderKind === "seafreight" && r) sfKeep(r); return r; });
+  const sfGhOf = (soi) => (S.sfGh || {})[soi] || ((S.sfOpts || {})[soi] || {}).greenhouse || "";
+  const ghSelect = (soi) => {
+    const o = (S.sfOpts || {})[soi], cur = sfGhOf(soi);
+    return '<select class="ph-select pg-gh-row" data-soi="' + PH.esc(soi) + '" aria-label="Greenhouse"><option value="">Choose a greenhouse</option>' +
+      (o ? o.greenhouses : []).map((g) => '<option value="' + PH.esc(g.name) + '"' + (g.name === cur ? " selected" : "") + ">" + PH.esc(g.label) + (g.forecast ? " · " + n(g.forecast) : "") + "</option>").join("") + "</select>";
+  };
   const $ = (id) => document.getElementById(id);
   const n = (v) => PH.fmt.num(Math.round(v || 0));
   // The delivery date opens on tomorrow by the server's clock, is kept in the address (?date=), and is set the same way as on every v2 page.
@@ -574,7 +589,7 @@
   const oldDay = st.get("week") === "day";
   // the week always holds the delivery date shown beside it
   const firstWeek = realDate(st.get("date")) ? isoWeek(parseYmd(st.get("date"))) : /^\d{4}-W\d{2}$/.test(st.get("week") || "") ? st.get("week") : nextWeek;
-  const S = { mode: ["confirmed", "teams", "nonmoving", "checks", "sequence", "summary", "crops", "people", "workforce"].includes(st.get("tab")) ? st.get("tab") : "unconfirmed", date: st.get("date"), farm: document.getElementById("pg-farm").value || "", view: "all", group: "order", pick: null, tab: "pg-t-exact", teams: [], week: firstWeek, day: oldDay || st.get("day") === "1" };
+  const S = { mode: ["confirmed", "teams", "nonmoving", "checks", "sequence", "summary", "crops", "people", "workforce"].includes(st.get("tab")) ? st.get("tab") : "unconfirmed", date: st.get("date"), farm: document.getElementById("pg-farm").value || "", view: "all", group: "order", pick: null, tab: "pg-t-exact", teams: [], week: firstWeek, day: oldDay || st.get("day") === "1", sfOpts: {}, sfGh: {} };
   // Plan & checks and the summary plan the week chosen, or one delivery day of it once a date is picked.
   const weekScope = () => !S.day;
   const inWeek = () => WEEK_MODES.includes(S.mode) && weekScope();
@@ -675,6 +690,16 @@
   window.addEventListener("resize", fitGrid);
   $("pg-sumteam").addEventListener("change", (e) => { S.sumTeam = e.target.value; loadSum(); });
   $("pg-sumq").addEventListener("input", (e) => { S.sumQ = e.target.value; if (S.mode === "sequence") findSeq(); else findSum(); });
+  const sfPickers = () => {
+    if (S.orderKind !== "seafreight") return;
+    PH.$$("#pg-detail select.pg-team-row[data-soi], #pg-detail tr[data-soi] select.pg-o-team").forEach((sel) => {
+      const soi = sel.dataset.soi || sel.closest("tr").dataset.soi;
+      if (!soi || !S.sfOpts[soi] || (sel.nextElementSibling && sel.nextElementSibling.classList.contains("pg-gh-row"))) return;
+      sel.insertAdjacentHTML("afterend", ghSelect(soi));
+    });
+  };
+  new MutationObserver(sfPickers).observe(document.getElementById("pg-detail"), { childList: true, subtree: true });
+  document.addEventListener("change", (e) => { const g = e.target.closest && e.target.closest(".pg-gh-row"); if (g) S.sfGh[g.dataset.soi] = g.value; });
   $("pg-okind").addEventListener("change", (e) => { S.orderKind = e.target.value; S.pick = null; poolCache = {}; load(); });
   function setMode() {
     paintMode();
@@ -2119,6 +2144,15 @@
 
   function save(lines) {
     if (saving) return Promise.resolve(false);
+    if (S.orderKind === "seafreight") {
+      lines = lines.map((l) => (S.sfOpts[l.sales_order_item] ? { ...l, greenhouse: sfGhOf(l.sales_order_item) } : l));
+      const none = lines.find((l) => l.stems > 0 && S.sfOpts[l.sales_order_item] && !l.greenhouse);
+      if (none) {
+        const g = document.querySelector('.pg-gh-row[data-soi="' + none.sales_order_item + '"]');
+        if (g) g.focus();
+        return Promise.resolve(PH.toast("Choose the greenhouse for each sea freight line you confirm.", "bad")).then(() => false);
+      }
+    }
     saving = true;
     const btn = pressed && document.contains(pressed) ? pressed : null, label = btn ? btn.textContent : "";
     if (btn) { btn.disabled = true; btn.classList.add("is-saving"); btn.textContent = "Confirming…"; }
