@@ -387,22 +387,34 @@ def _plan_name(day, farm):
 
 def _order_kind():
 	"""Allocation Planning's Orders filter, sent by the page as `order_kind`: Quality B (webstore, Shopping Cart)
-	orders, else export -- every other order. Any other caller plans export."""
-	return "qualityb" if (frappe.form_dict or {}).get("order_kind") == "qualityb" else "export"
+	orders, sea freight orders (harvested for the order, planned by greenhouse: sea_freight_plan), else export --
+	every other order. Any other caller plans export."""
+	kind = (frappe.form_dict or {}).get("order_kind")
+	return kind if kind in ("qualityb", "seafreight") else "export"
+
+
+def _kind_sql():
+	"""The orders the Orders filter shows, as SQL on `so`."""
+	kind = _order_kind()
+	sea = (
+		"IFNULL(so.custom_mode_of_transport, '') = 'Sea Freight'"
+		if frappe.db.has_column("Sales Order", "custom_mode_of_transport")
+		else "0"
+	)
+	if kind == "qualityb":
+		return "AND IFNULL(so.order_type, '') = 'Shopping Cart'"
+	if kind == "seafreight":
+		return "AND " + sea
+	return "AND IFNULL(so.order_type, '') != 'Shopping Cart' AND NOT (" + sea + ")"
 
 
 def _lines(day, to=None):
 	"""The lines for a delivery day, or for every day from `day` to `to` (read once per request), of the orders
 	the Orders filter shows (_order_kind)."""
 	kind = _order_kind()
-	op = "=" if kind == "qualityb" else "!="
 
 	def read():
-		lines = pipeline.fetch_lines(
-			delivery_from=day,
-			delivery_to=to or day,
-			extra_where="AND IFNULL(so.order_type, '') " + op + " 'Shopping Cart'",
-		)
+		lines = pipeline.fetch_lines(delivery_from=day, delivery_to=to or day, extra_where=_kind_sql())
 		pipeline.attach_pipeline(lines)
 		return lines
 

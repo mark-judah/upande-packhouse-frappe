@@ -500,6 +500,10 @@ def get_pending_sales_orders(
 		"so.status NOT IN ('Completed', 'Closed', 'Cancelled')",
 		"IFNULL(so.order_type, '') != 'Shopping Cart'",
 	]
+	# Sea freight orders are harvested for the order and planned by greenhouse (api/v2/sea_freight_plan), never
+	# allocated from the shelf
+	if frappe.db.has_column("Sales Order", "custom_mode_of_transport"):
+		date_conditions.append("IFNULL(so.custom_mode_of_transport, '') != 'Sea Freight'")
 	params: dict = {}
 
 	if start_date and end_date:

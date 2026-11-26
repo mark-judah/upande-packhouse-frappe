@@ -1,0 +1,139 @@
+{
+ "actions": [],
+ "autoname": "field:sales_order_item",
+ "creation": "2026-11-26 22:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "sales_order",
+  "sales_order_item",
+  "delivery_date",
+  "variety",
+  "stem_length",
+  "ordered_stems",
+  "planned_stems",
+  "greenhouses"
+ ],
+ "fields": [
+  {
+   "fieldname": "sales_order",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Sales Order",
+   "options": "Sales Order",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sales_order_item",
+   "fieldtype": "Data",
+   "label": "Sales Order Item",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "delivery_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Delivery Date"
+  },
+  {
+   "fieldname": "variety",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Variety",
+   "options": "Item"
+  },
+  {
+   "fieldname": "stem_length",
+   "fieldtype": "Data",
+   "label": "Stem Length"
+  },
+  {
+   "fieldname": "ordered_stems",
+   "fieldtype": "Float",
+   "label": "Ordered Stems"
+  },
+  {
+   "fieldname": "planned_stems",
+   "fieldtype": "Float",
+   "label": "Planned Stems",
+   "read_only": 1
+  },
+  {
+   "fieldname": "greenhouses",
+   "fieldtype": "Table",
+   "label": "Greenhouses",
+   "options": "Sea Freight Greenhouse Plan Row"
+  }
+ ],
+ "links": [],
+ "modified": "2026-11-26 22:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Upande Packhouse",
+ "name": "Sea Freight Greenhouse Plan",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Master Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Assistant Packhouse Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Sales User"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "variety",
+ "track_changes": 1
+}

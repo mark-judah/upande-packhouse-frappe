@@ -14,7 +14,7 @@
     <label class="apx-pill">Sales farm<select id="pg-farm" aria-label="Sales farm">{% for f in sales_farms %}<option value="{{ f }}"{% if f == default_farm %} selected{% endif %}>{{ f }}</option>{% endfor %}</select></label>
     <label class="apx-pill" id="pg-date-wrap"><span id="pg-date-lbl">Delivery</span><input type="date" id="pg-date" aria-label="Delivery date"></label>
     <label class="apx-pill" id="pg-week-wrap">Week<select id="pg-week" aria-label="Week"></select></label>
-    <label class="apx-pill" id="pg-okind-wrap">Orders<select id="pg-okind" aria-label="Orders"><option value="">Export</option><option value="qualityb">Quality B</option></select></label>
+    <label class="apx-pill" id="pg-okind-wrap">Orders<select id="pg-okind" aria-label="Orders"><option value="">Export</option><option value="qualityb">Quality B</option><option value="seafreight">Sea freight</option></select></label>
     <label class="apx-pill" id="pg-sumteam-wrap" hidden>Team<select id="pg-sumteam" aria-label="Team"><option value="">All teams</option></select></label>
     <label class="apx-pill" id="pg-sumq-wrap" hidden><input type="search" id="pg-sumq" placeholder="Customer, order, variety, mix" aria-label="Search customers, orders, varieties and mixes" autocomplete="off"></label>
   </div>
@@ -39,6 +39,7 @@
 <section id="pg-old" hidden></section>
 <section id="pg-checks" hidden></section>
 <section id="pg-seq" hidden></section>
+<section id="pg-sf" hidden></section>
 <section id="pg-sum" hidden></section>
 <section id="pg-crops" hidden></section>
 <section id="pg-people" hidden></section>
@@ -401,6 +402,14 @@
   tr.pg-hasmix[aria-expanded="true"] > td:first-child b::before{transform:rotate(45deg)}
   .pg-ld-stems{display:flex;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-4)}
   .pg-ld-stems .ph-input{width:140px}
+  .pg-sfcard{margin-bottom:var(--sp-4)}
+  .pg-sfhead{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:baseline;padding:16px 16px 8px}
+  .pg-sfhead b{font-size:15px}.pg-sfhead small{color:var(--ax-mute);font-size:12px}
+  .pg-sfline{padding:8px 16px 16px;border-top:1px solid var(--ax-border)}
+  .pg-sfline__top{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:center;margin:8px 0}
+  .pg-sfline__top b{font-size:14px}
+  .pg-sfin{width:90px;height:34px;box-sizing:border-box;border:1px solid var(--ax-border);border-radius:8px;padding:0 8px;font:500 13px Poppins,sans-serif;text-align:right;background:#fff}
+  .pg-sffoot{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:flex-end;margin-top:8px;font-size:13px}
   .apx-table .pg-in{width:72px;height:34px;box-sizing:border-box;border:1px solid var(--ax-border);border-radius:8px;padding:0 8px;font:500 13px Poppins,sans-serif;text-align:right;background:#fff}
   .apx-table select.ph-select{height:34px;border:1px solid var(--ax-border);border-radius:8px;padding:0 6px;font:13px Poppins,sans-serif;background:#fff;box-shadow:none}
   .apx-table .pg-subrow td{background:#FAF8F4;font-size:13px;padding-top:8px;padding-bottom:8px}
@@ -539,6 +548,8 @@
   const GUARDS = "upande_packhouse.api.v2.allocation_guards.";
   const TEAMS = "upande_packhouse.api.v2.allocation_teams.";
   // Every planning call carries the Orders filter (export, or Quality B) on the screens that show it.
+  const SF_API = "upande_packhouse.api.v2.sea_freight_plan.";
+  const sfOn = () => S.orderKind === "seafreight" && WEEK_MODES.includes(S.mode);
   const pgCall = (method, args, opts) => PH.call(method, { ...(args || {}), order_kind: S.orderKind && WEEK_MODES.includes(S.mode) ? S.orderKind : "" }, opts);
   const $ = (id) => document.getElementById(id);
   const n = (v) => PH.fmt.num(Math.round(v || 0));
@@ -650,13 +661,18 @@
     $("pg-sumq-wrap").hidden = S.mode !== "summary" && S.mode !== "sequence";
     // Orders filter: the plan and the confirmations of export orders, or of Quality B orders
     $("pg-okind-wrap").hidden = !WEEK_MODES.includes(S.mode);
+    // Sea freight is planned by greenhouse, not from stock: its own view on Plan and the summary
+    const sf = sfOn();
+    if (sf) ["pg-unconf", "pg-conf", "pg-old", "pg-checks", "pg-sum"].forEach((id) => ($(id).hidden = true));
+    $("pg-sf").hidden = !sf;
+    if (sf) { $("pg-sumq-wrap").hidden = true; $("pg-sumteam-wrap").hidden = true; $("pg-crop-wrap").hidden = true; }
     paintWeek();
     paintDate();
     $("pg-farm").closest("label").hidden = ["people", "unconfirmed", "checks", "nonmoving"].includes(S.mode);
     PH.$$("#pg-modes button").forEach((x) => x.classList.toggle("is-on", x.dataset.value === (tabOf[S.mode] || S.mode)));
   }
   // the plan's two panes fill the window below the header, so only they scroll
-  const PANES = ["pg-conf", "pg-teams", "pg-old", "pg-checks", "pg-seq", "pg-sum", "pg-crops", "pg-people", "pg-work"];
+  const PANES = ["pg-conf", "pg-teams", "pg-old", "pg-checks", "pg-seq", "pg-sf", "pg-sum", "pg-crops", "pg-people", "pg-work"];
   function fitGrid() {
     // the plan's grid, or the open tab's section: it fills the window below the header and scrolls on its own
     const grid = document.querySelector(".apx .pg-grid");
@@ -675,10 +691,11 @@
   window.addEventListener("resize", fitGrid);
   $("pg-sumteam").addEventListener("change", (e) => { S.sumTeam = e.target.value; loadSum(); });
   $("pg-sumq").addEventListener("input", (e) => { S.sumQ = e.target.value; if (S.mode === "sequence") findSeq(); else findSum(); });
-  $("pg-okind").addEventListener("change", (e) => { S.orderKind = e.target.value; S.pick = null; poolCache = {}; load(); });
+  $("pg-okind").addEventListener("change", (e) => { S.orderKind = e.target.value; S.pick = null; poolCache = {}; paintMode(); if (sfOn()) loadSF(); else load(); });
   function setMode() {
     paintMode();
     requestAnimationFrame(fitGrid);
+    if (sfOn()) { loadSF(); return; }
     if (S.mode === "confirmed") loadOrders(); else if (S.mode === "teams") loadTeams(); else if (S.mode === "nonmoving") loadOld(); else if (S.mode === "checks") loadChecks();
     else if (S.mode === "sequence") loadSeq(); else if (S.mode === "summary") loadSum(); else if (S.mode === "crops") loadCrops(); else if (S.mode === "people") loadPeople(); else if (S.mode === "workforce") loadWork(); else if (board) { if (!S.pick && board.pools.length) S.pick = { variety: board.pools[0].variety, length: board.pools[0].length }; openPool(); }
   }
@@ -800,6 +817,7 @@
     if (S.mode === "crops") loadCrops();
     if (S.mode === "people") loadPeople();
     if (S.mode === "workforce") loadWork();
+    if (sfOn()) { loadSF(); return; }
     loadChecks();
     pgCall(TEAMS + "teams_by_crop", { farm: S.farm || "" }, { silent: true }).then((r) => { if (r) { S.teamsByCrop = r.teams || {}; S.customerTeams = r.customer_teams || {}; } }).catch(() => {});
     return pgCall(API + "get_board", { ...plan(), farm: S.farm, view: S.view }).then((m) => {
@@ -1464,6 +1482,61 @@
   function findSeq() {
     const q = (S.sumQ || "").trim().toLowerCase();
     PH.$$("#pg-seq .pg-scard").forEach((c) => (c.hidden = !!q && !(c.dataset.q || "").includes(q)));
+  }
+
+  /* ── Sea freight: each line planned to the greenhouses growing its variety (by forecast unless changed) ── */
+  let sfSeq = 0;
+  function loadSF() {
+    const my = ++sfSeq;
+    PH.set($("pg-sf"), '<div class="ph-card" style="padding:16px">' + skTable(6) + "</div>");
+    return PH.call(SF_API + "get_sea_freight_plan", plan(), { silent: true })
+      .then((d) => { if (my === sfSeq && d) drawSF(d); })
+      .catch(() => { if (my === sfSeq) PH.set($("pg-sf"), '<div class="apx-card"><div class="pg-empty">Could not load the sea freight orders.</div></div>'); });
+  }
+  function drawSF(d) {
+    const edit = S.mode === "unconfirmed" || S.mode === "checks" || S.mode === "nonmoving";
+    const os = d.orders || [];
+    $("pg-title").textContent = (edit ? "Plan · sea freight · " : "Confirmation summary · sea freight · ") + scopeLabel();
+    const lines = os.reduce((a, o) => a.concat(o.lines), []);
+    const sum = (k) => lines.reduce((a, l) => a + (l[k] || 0), 0);
+    $("pg-sub").textContent = PH.fmt.plural(os.length, "order") + " · " + PH.fmt.plural(lines.length, "line") + " · " + lines.filter((l) => l.saved).length + " planned";
+    const tiles = '<div class="pg-tiles pg-tiles--4" style="margin-bottom:var(--sp-4)">' +
+      '<div class="pg-tile"><span>Ordered</span><b>' + n(sum("ordered")) + "</b></div>" +
+      '<div class="pg-tile"><span>Planned</span><b>' + n(sum("planned")) + "</b></div>" +
+      '<div class="pg-tile"><span>Harvested</span><b>' + n(sum("harvested")) + "</b></div>" +
+      '<div class="pg-tile' + (sum("ordered") - sum("harvested") > 0 ? " pg-tile--warn" : "") + '"><span>Still to cut</span><b>' + n(Math.max(0, sum("ordered") - sum("harvested"))) + "</b></div></div>";
+    const lineHtml = (l) => {
+      const rows = l.rows.map((r) => "<tr><td><b>" + PH.esc(r.label) + "</b><small>" + PH.esc(r.farm) + '</small></td><td class="is-num">' + n(r.forecast) + '</td><td class="is-num">' + n(r.harvested) + '</td><td class="is-num">' +
+        (edit ? '<input class="pg-sfin" type="number" min="0" step="1" data-gh="' + PH.esc(r.greenhouse) + '" value="' + Math.round(r.stems) + '" aria-label="Stems from ' + PH.esc(r.label) + '">' : n(r.stems)) + "</td></tr>").join("");
+      const chip = l.saved ? '<span class="pg-chip pg-chip--good">Planned</span>' : '<span class="pg-chip pg-chip--warn">Suggested</span>';
+      return '<div class="pg-sfline" data-soi="' + PH.esc(l.sales_order_item) + '" data-ordered="' + l.ordered + '">' +
+        '<div class="pg-sfline__top"><b>' + PH.esc([l.item_name, l.stem_length].filter(Boolean).join(" · ")) + "</b>" + chip + "</div>" +
+        (l.rows.length ? '<div class="ph-table-wrap"><table class="ph-table"><thead><tr><th>Greenhouse</th><th class="is-num">Forecast</th><th class="is-num">Harvested</th><th class="is-num">Stems to cut</th></tr></thead><tbody>' + rows + "</tbody></table></div>"
+          : '<div class="pg-empty">No greenhouse has a running crop cycle of ' + PH.esc(l.item_name) + ".</div>") +
+        '<div class="pg-sffoot"><span class="pg-sftot">' + n(l.planned) + " of " + n(l.ordered) + " planned</span><span>" + n(l.harvested) + " harvested</span>" +
+        (edit && l.rows.length ? '<button type="button" class="ph-btn ph-btn--primary ph-btn--sm pg-sfsave">' + (l.saved ? "Save" : "Confirm") + "</button>" : "") + "</div></div>";
+    };
+    const cards = os.map((o) => '<section class="apx-card pg-sfcard"><div class="pg-sfhead"><div><b>' + PH.esc(o.customer) + "</b> <small>" + PH.esc(o.order_name || o.sales_order) + "</small></div><small>Delivery " + PH.fmt.date(o.delivery_date, true) + "</small></div>" + o.lines.map(lineHtml).join("") + "</section>").join("");
+    PH.set($("pg-sf"), tiles + (os.length ? cards : '<div class="apx-card"><div class="pg-empty">No sea freight orders for ' + PH.esc(scopeLabel()) + ".</div></div>"));
+    PH.$$("#pg-sf .pg-sfline").forEach((box) => {
+      const total = () => PH.$$(".pg-sfin", box).reduce((a, i) => a + Math.max(0, Math.round(+i.value || 0)), 0);
+      const paint = () => {
+        const t = total(), o = +box.dataset.ordered, el = box.querySelector(".pg-sftot");
+        el.textContent = n(t) + " of " + n(o) + " planned";
+        el.classList.toggle("ph-bad", t !== Math.round(o));
+      };
+      PH.$$(".pg-sfin", box).forEach((i) => (i.oninput = paint));
+      const btn = box.querySelector(".pg-sfsave");
+      if (!btn) return;
+      btn.onclick = () => {
+        const rows = PH.$$(".pg-sfin", box).map((i) => ({ greenhouse: i.dataset.gh, stems: Math.max(0, Math.round(+i.value || 0)) })).filter((r) => r.stems > 0);
+        btn.disabled = true;
+        PH.call(SF_API + "save_sea_freight_plan", { sales_order_item: box.dataset.soi, rows: JSON.stringify(rows) }, { type: "POST" })
+          .then((r) => { if (r && r.success) { PH.toast("Planned " + n(r.planned) + " stems in " + PH.fmt.plural(r.greenhouses, "greenhouse"), "good"); loadSF(); } else btn.disabled = false; })
+          .catch(() => (btn.disabled = false));
+      };
+    });
+    requestAnimationFrame(fitGrid);
   }
 
   /* ── Team sequence: one column per team, #1, #2 … per team; drag a card to reorder or move it to another team. ── */
