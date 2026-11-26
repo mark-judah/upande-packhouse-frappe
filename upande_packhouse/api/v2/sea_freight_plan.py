@@ -159,9 +159,13 @@ def get_sea_freight_plan(week: str | None = None, delivery_date: str | None = No
 	forecast = _forecast({ln.item_code for ln in lines}, houses, until)
 	harvested = _harvested([ln.name for ln in lines])
 	saved = {}
-	for p in frappe.get_all(
-		PLAN, filters={"sales_order_item": ["in", [ln.name for ln in lines]]}, pluck="name"
-	):
+	# before the site's migrate has made the plan table, every line shows its suggested split
+	names = (
+		frappe.get_all(PLAN, filters={"sales_order_item": ["in", [ln.name for ln in lines]]}, pluck="name")
+		if frappe.db.table_exists(PLAN)
+		else []
+	)
+	for p in names:
 		doc = frappe.get_doc(PLAN, p)
 		saved[doc.sales_order_item] = {r.greenhouse: flt(r.stems) for r in doc.greenhouses}
 	by_order = defaultdict(list)
@@ -214,6 +218,8 @@ def get_sea_freight_plan(week: str | None = None, delivery_date: str | None = No
 @frappe.whitelist(methods=["POST"])
 def save_sea_freight_plan(sales_order_item: str, rows: str | list):
 	"""Save a sea freight line's greenhouses: rows [{greenhouse, stems}]; greenhouses with no stems are dropped."""
+	if not frappe.db.table_exists(PLAN):
+		frappe.throw(_("Sea freight plans can be saved once this site has been migrated."))
 	rows = frappe.parse_json(rows) if isinstance(rows, str) else rows
 	line = frappe.db.get_value(
 		"Sales Order Item",
