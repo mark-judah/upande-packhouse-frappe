@@ -1586,6 +1586,23 @@ def _run_day(
 	return {"phase": "propose", "done": True, **result}
 
 
+def _own_pending_by_bucket(sales_orders):
+	"""{(sales order, bucket, variety, length): stems} its own proposal waiting release holds."""
+	if not sales_orders:
+		return {}
+	return {
+		(so, bucket, variety, length): flt(qty)
+		for so, bucket, variety, length, qty in frappe.db.sql(
+			"""SELECT p.sales_order, r.bucket_id, r.item_code, IFNULL(r.stem_length, ''), SUM(r.qty)
+			FROM `tabPending Allocation Row` r
+			JOIN `tabPending Allocation` p ON p.name = r.parent AND r.parenttype = 'Pending Allocation'
+			WHERE p.status = 'Pending' AND p.sales_order IN %(so)s
+			GROUP BY p.sales_order, r.bucket_id, r.item_code, IFNULL(r.stem_length, '')""",
+			{"so": tuple(sales_orders)},
+		)
+	}
+
+
 def _downgrade_options(lines, proposed, taken):
 	"""Every line still short after both passes that longer stems on the shelves could fill: [{sales_order,
 	order_name, customer, sales_order_item, variety, ordered_length, length, stems, buckets: [{bucket_id,
@@ -1593,15 +1610,19 @@ def _downgrade_options(lines, proposed, taken):
 	and would be left short if it went to this line (what the longer length has beyond their own need is
 	given first)."""
 	free, need_at = {}, defaultdict(float)
-	for _so, (order, items) in lines.items():
+	# each order's view of a bucket leaves out what the other orders' proposals hold, not its own: a bucket is
+	# only as free as its tightest view, each less its own order's proposal -- the view of the order holding it
+	# would offer it to another order, and apply_downgrades (reading that order's view) would find no room
+	own = _own_pending_by_bucket(list(lines))
+	for so, (order, items) in lines.items():
 		for item in items:
 			left = _left(item) - proposed.get(item["sales_order_item"], 0)
 			if left > 1e-9:
 				need_at[(item["item_code"], item.get("required_length") or "")] += left
 			for b in item.get("batches") or []:
 				key = (b["bucket_id"], item["item_code"], b.get("stem_length") or "")
-				if key not in free:
-					free[key] = max(0.0, flt(b.get("available_qty")) - taken.get(key, 0))
+				here = max(0.0, flt(b.get("available_qty")) - own.get((so, *key), 0) - taken.get(key, 0))
+				free[key] = min(free[key], here) if key in free else here
 	# what each longer length has left once the orders that ordered it are covered
 	stock_at = defaultdict(float)
 	for (_b, v, length), q in free.items():
