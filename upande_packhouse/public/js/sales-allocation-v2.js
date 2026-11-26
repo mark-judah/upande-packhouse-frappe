@@ -2957,15 +2957,19 @@ frappe.pages["sales-allocation-v2"]._show_substitute_dialog = function (so_item)
 							variety: o.variety,
 						},
 						freeze: true,
-						callback: () => {
-							frappe.show_alert({
-								message: __("{0} added for {1} stems of {2}", [
-									o.variety,
-									Math.round(o.adds),
-									s.variety,
-								]),
-								indicator: "green",
-							});
+						callback: (r) => {
+							const m = r.message || {};
+							if (m.summary)
+								frappe.msgprint({ message: m.summary, indicator: "green" });
+							else
+								frappe.show_alert({
+									message: __("{0} added for {1} stems of {2}", [
+										o.variety,
+										Math.round((r.message || {}).adds || o.adds),
+										s.variety,
+									]),
+									indicator: "green",
+								});
 							reload();
 						},
 					});
@@ -4455,7 +4459,7 @@ $(document).on("click", ".ufd-sa2 .ds-shorts", function () {
 });
 frappe.pages["sales-allocation-v2"]._order_downgrade_dialog = function (list, normal) {
 	const P = frappe.pages["sales-allocation-v2"];
-	// the downgrades that short an order of that exact length go last (left unticked for a person to choose)
+	// the downgrades that short an order of that exact length go last; every one is ticked and goes with its reason
 	list.sort((a, b) => (a.shorts.length ? 1 : 0) - (b.shorts.length ? 1 : 0));
 	const esc = (v) => frappe.utils.escape_html(String(v == null ? "" : v));
 	const n = (v) => Math.round(v || 0).toLocaleString();
@@ -4470,7 +4474,7 @@ frappe.pages["sales-allocation-v2"]._order_downgrade_dialog = function (list, no
 			const rows = list
 				.map(
 					(x, i) => `<tr data-shorts="${x.shorts.length ? 1 : 0}">
-				<td><input type="checkbox" data-d="${i}" ${x.shorts.length ? "" : "checked"}></td>
+				<td><input type="checkbox" data-d="${i}" checked></td>
 				<td>${esc(x.item.item_name || x.item.item_code)}</td>
 				<td>${esc(x.item.required_length || "")} → <strong>${esc(x.lengths.join(", "))}</strong></td>
 				<td class="num">${n(x.stems)}</td>
@@ -5372,8 +5376,7 @@ frappe.pages["sales-allocation-v2"]._group_team = function (g, i, gi) {
 	</span>`;
 };
 // Downgrades: every line still short that longer stems on the shelves could fill, and whether taking them
-// shorts an order that ordered that longer length. A line that shorts nobody is ticked; one that shorts another order is left
-// for a person to tick.
+// shorts an order that ordered that longer length. Every line opens ticked; each ticked line is allocated with its reason.
 // After Allocate all: 1. the orders the cut stage held back, confirmed by the planner; 2. the short lines
 // another variety can fill, substituted or added to; 3. the downgrades, each with its reason.
 // `scope` {sales_order, day}: the same steps for one order (Auto-allocate order), on its own delivery day.
@@ -5975,7 +5978,7 @@ frappe.pages["sales-allocation-v2"]._downgrade_dialog = function (
 	done
 ) {
 	const P = frappe.pages["sales-allocation-v2"];
-	// the downgrades that short an order of that exact length go last (left unticked for a person to choose)
+	// the downgrades that short an order of that exact length go last; every one is ticked and goes with its reason
 	list.sort((a, b) => (a.shorts.length ? 1 : 0) - (b.shorts.length ? 1 : 0));
 	const esc = (v) => frappe.utils.escape_html(String(v == null ? "" : v));
 	const n = (v) => Math.round(v || 0).toLocaleString();
@@ -5986,7 +5989,7 @@ frappe.pages["sales-allocation-v2"]._downgrade_dialog = function (
 	const rows = list
 		.map(
 			(x, i) => `<tr data-shorts="${x.shorts.length ? 1 : 0}">
-				<td><input type="checkbox" data-d="${i}" ${x.shorts.length ? "" : "checked"}></td>
+				<td><input type="checkbox" data-d="${i}" checked></td>
 				<td><strong>${esc(P._order_label(x.order_name))}</strong><div class="ds-so">${esc(
 				x.customer
 			)}</div></td>
@@ -7133,16 +7136,19 @@ frappe.pages["sales-allocation-v2"]._add_variety = function (d, line, s, o) {
 			variety: o.variety,
 		},
 		freeze: true,
-		callback: () => {
-			frappe.show_alert({
-				message: __("{0} added to {1} for {2} stems of {3}", [
-					o.variety,
-					line.order_name || line.sales_order,
-					Math.round(o.adds),
-					s.variety,
-				]),
-				indicator: "green",
-			});
+		callback: (r) => {
+			const m = r.message || {};
+			if (m.summary) frappe.msgprint({ message: m.summary, indicator: "green" });
+			else
+				frappe.show_alert({
+					message: __("{0} added to {1} for {2} stems of {3}", [
+						o.variety,
+						line.order_name || line.sales_order,
+						Math.round(m.adds || o.adds),
+						s.variety,
+					]),
+					indicator: "green",
+				});
 			P._after_day_change();
 			P._load_shortages();
 		},

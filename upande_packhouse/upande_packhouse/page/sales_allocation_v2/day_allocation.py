@@ -355,7 +355,7 @@ def _downgrade_reason(item, b):
 	return _("Amber time expired")
 
 
-def _fifo_pick(item, left, taken):
+def _fifo_pick(item, left, taken, whole_bunches=True):
 	"""Oldest compatible buckets first (the order the page lists them in), each emptied before the next is
 	touched; only the line's total is rounded down to whole bunches, off the youngest bucket. A longer bucket
 	is used only when its amber time is up; one that still needs a downgrade reason is left for a person."""
@@ -403,8 +403,9 @@ def _fifo_pick(item, left, taken):
 				"_remote": remote,
 			}
 		)
-	picks, off = _trim_to_bunches(picks)
-	left += sum(cut for _r, cut in off)
+	if whole_bunches:
+		picks, off = _trim_to_bunches(picks)
+		left += sum(cut for _r, cut in off)
 	for p in picks:
 		key = (p["bucket_id"], p["item_code"], p["stem_length"])
 		taken[key] = taken.get(key, 0) + flt(p["qty"])
@@ -1585,6 +1586,23 @@ def _run_day(
 	return {"phase": "propose", "done": True, **result}
 
 
+def _own_pending_by_bucket(sales_orders):
+	"""{(sales order, bucket, variety, length): stems} its own proposal waiting release holds."""
+	if not sales_orders:
+		return {}
+	return {
+		(so, bucket, variety, length): flt(qty)
+		for so, bucket, variety, length, qty in frappe.db.sql(
+			"""SELECT p.sales_order, r.bucket_id, r.item_code, IFNULL(r.stem_length, ''), SUM(r.qty)
+			FROM `tabPending Allocation Row` r
+			JOIN `tabPending Allocation` p ON p.name = r.parent AND r.parenttype = 'Pending Allocation'
+			WHERE p.status = 'Pending' AND p.sales_order IN %(so)s
+			GROUP BY p.sales_order, r.bucket_id, r.item_code, IFNULL(r.stem_length, '')""",
+			{"so": tuple(sales_orders)},
+		)
+	}
+
+
 def _downgrade_options(lines, proposed, taken):
 	"""Every line still short after both passes that longer stems on the shelves could fill: [{sales_order,
 	order_name, customer, sales_order_item, variety, ordered_length, length, stems, buckets: [{bucket_id,
@@ -1592,15 +1610,19 @@ def _downgrade_options(lines, proposed, taken):
 	and would be left short if it went to this line (what the longer length has beyond their own need is
 	given first)."""
 	free, need_at = {}, defaultdict(float)
-	for _so, (order, items) in lines.items():
+	# each order's view of a bucket leaves out what the other orders' proposals hold, not its own: a bucket is
+	# only as free as its tightest view, each less its own order's proposal -- the view of the order holding it
+	# would offer it to another order, and apply_downgrades (reading that order's view) would find no room
+	own = _own_pending_by_bucket(list(lines))
+	for so, (order, items) in lines.items():
 		for item in items:
 			left = _left(item) - proposed.get(item["sales_order_item"], 0)
 			if left > 1e-9:
 				need_at[(item["item_code"], item.get("required_length") or "")] += left
 			for b in item.get("batches") or []:
 				key = (b["bucket_id"], item["item_code"], b.get("stem_length") or "")
-				if key not in free:
-					free[key] = max(0.0, flt(b.get("available_qty")) - taken.get(key, 0))
+				here = max(0.0, flt(b.get("available_qty")) - own.get((so, *key), 0) - taken.get(key, 0))
+				free[key] = min(free[key], here) if key in free else here
 	# what each longer length has left once the orders that ordered it are covered
 	stock_at = defaultdict(float)
 	for (_b, v, length), q in free.items():
@@ -1783,7 +1805,7 @@ def _left_on_buckets(keys):
 	return {k: max(0.0, shelf.get(k, 0) - held.get(k, 0)) for k in keys}
 
 
-def _add_checked(location, sales_order, rows, farms=None):
+def _add_checked(location, sales_order, rows, farms=None, whole_bunches=True):
 	"""Add allocation rows to an order's Allocate all proposal, each cut to what its bucket still has free
 	(something taken since is not taken twice). Returns the stems added."""
 	# read from the same farms the rows were planned on: the sales farms alone left out every remote bucket
@@ -1797,7 +1819,8 @@ def _add_checked(location, sales_order, rows, farms=None):
 			continue
 		free[key] -= qty
 		keep.append({**r, "qty": qty})
-	keep, _off = _trim_to_bunches(keep)
+	if whole_bunches:
+		keep, _off = _trim_to_bunches(keep)
 	if keep:
 		_add_pending(location, sales_order, keep, {}, source="Allocate all")
 	return sum(flt(r["qty"]) for r in keep)
@@ -4226,13 +4249,15 @@ def _add_stems(sales_order_item, ln, allocated, own_free):
 @guard(roles=ALLOCATORS)
 def add_variety(sales_order_item: str, location: str, variety: str):
 	"""Fill what a short line cannot fill itself with another variety. A straight line: the variety takes the
-	line's remaining boxes as a line of its own. A line in a mix: the mix keeps the boxes its varieties
-	already hold or can fill as ordered, and its later boxes become a mix of their own with this variety in
-	the line's place."""
+	line's remaining boxes as a line of its own. A line in a mix: the variety takes what the line's own variety
+	cannot fill, beside it in the same boxes, whole bunches or not; the mix is never split."""
 	sub = get_shortage_substitutes(sales_order_item, location)
 	opt = next((o for o in sub["options"] + sub.get("color_options", []) if o["variety"] == variety), None)
 	if not opt:
 		frappe.throw(_("{0} is not a substitute for {1} here.").format(variety, sub["variety"]))
+	# a mix is never split: the variety takes the line's remainder beside it in the same boxes
+	if not sub["splittable"]:
+		return _add_remainder(sales_order_item, location, variety, sub, opt)
 	if sub["add_stems"] <= 1e-9:
 		frappe.throw(_("{0} can fill this line itself.").format(sub["variety"]))
 	# only what the variety has on the shelves, in whole boxes: the rest stays on the line's own variety
@@ -4243,11 +4268,70 @@ def add_variety(sales_order_item: str, location: str, variety: str):
 				variety, int(opt["free"]), int(sub.get("add_step") or sub["per_box"])
 			)
 		)
-	if opt.get("mode") == "share":
-		return _share_spread(sales_order_item, location, variety, give)
-	if sub["splittable"]:
-		return split_substitute(sales_order_item, location, [{"variety": variety, "stems": give}])
-	return _split_mix(sales_order_item, location, variety, round(give / (sub["per_box"] or 1)))
+	return split_substitute(sales_order_item, location, [{"variety": variety, "stems": give}])
+
+
+def _add_remainder(sales_order_item, location, variety, sub, opt):
+	"""A line of a mix: its own variety keeps what it holds and what is free for it, `variety` takes the rest
+	as a line of the same mix and boxes (A + B = the line's stems), and both are held at once."""
+	stems = flt(sub["needed"])
+	keep = min(stems, flt(sub["held"]) + flt(sub["own_free"]))
+	give = stems - keep
+	if give <= 1e-9:
+		frappe.throw(_("{0} can fill this line itself.").format(sub["variety"]))
+	if flt(opt["free"]) < give - 1e-9:
+		frappe.throw(
+			_("{0} has {1} stems free, less than the {2} it needs.").format(
+				variety, int(flt(opt["free"])), int(math.ceil(give - 1e-9))
+			)
+		)
+	so = frappe.db.get_value("Sales Order Item", sales_order_item, "parent")
+	was, frappe.flags.sa2_one_commit = frappe.flags.get("sa2_one_commit"), True
+	try:
+		summary = _(
+			"Added {0} {1} stems to {2}, which required {3}: {2} fills {4}, {0} fills the remaining {1}."
+		).format(variety, _num(give), sub["variety"], _num(stems), _num(stems - give))
+		out = _share_split(sales_order_item, variety, give, message=summary)
+		new = out["parts"][0]["sales_order_item"]
+		out["proposed"] = _hold_lines(location, so, [sales_order_item, new])
+	except Exception:
+		frappe.db.rollback()
+		raise
+	finally:
+		frappe.flags.sa2_one_commit = was
+	_split_commit()
+	out["adds"] = give
+	out["summary"] = summary
+	return out
+
+
+def _num(v):
+	return int(v) if abs(v - round(v)) < 1e-9 else round(v, 2)
+
+
+def _hold_lines(location, sales_order, sois):
+	"""Hold what these lines still need from the shelves, oldest buckets first, stems not rounded to bunches
+	(Allocate all proposal). Returns the stems held."""
+	want = set(sois)
+	items = [
+		i
+		for i in sa.get_sales_order_items_with_buckets(
+			sales_order, location, bypass_cut_stage=1 if sa.bypass_cut_stage_default() else 0
+		)
+		or []
+		if i["sales_order_item"] in want
+	]
+	for it in items:
+		it["sales_order"] = sales_order
+		it["total_allocated_qty"] = flt(it.get("total_allocated_qty")) + _pending_stems(
+			it["sales_order_item"]
+		)
+	_hold_to_plan(items)
+	taken, picks = {}, []
+	for it in items:
+		if _left(it) > 1e-9:
+			picks += _fifo_pick(it, _left(it), taken, whole_bunches=False)[0]
+	return _add_checked(location, sales_order, picks, whole_bunches=False) if picks else 0
 
 
 def _split_commit():
@@ -4316,7 +4400,7 @@ def _share_spread(sales_order_item, location, variety, give):
 	}
 
 
-def _share_split(sales_order_item, variety, give):
+def _share_split(sales_order_item, variety, give, message=None):
 	"""A line of a mix gives `give` stems of its share of every box to another variety: a new line of the
 	same mix, the same boxes, beside it in each box. The box still holds what it was ordered to."""
 	row = frappe.db.sql("SELECT * FROM `tabSales Order Item` WHERE name = %s", sales_order_item, as_dict=True)
@@ -4383,21 +4467,13 @@ def _share_split(sales_order_item, variety, give):
 	frappe.db.sql("UPDATE `tabSales Order` SET modified = NOW() WHERE name = %s", row.parent)
 	allocation_plan.replan_split([(sales_order_item, [new["name"]])])
 	_split_commit()
-	frappe.log_error(
-		title="Variety split",
-		message="{0} {1}: {2} gives {3} stems of each box's share to {4} ({5} boxes)".format(
-			row.parent, sales_order_item, row.item_code, int(give), variety, boxes
-		),
+	what = message or "{0} gives {1} stems of each box's share to {2} ({3} boxes)".format(
+		row.item_code, int(give), variety, boxes
 	)
+	frappe.log_error(title="Variety split", message="{0} {1}: {2}".format(row.parent, sales_order_item, what))
 	from upande_packhouse.allocation_log import log
 
-	log(
-		"Variety added",
-		"{0} {1}: {2} gives {3} stems of each box's share to {4} ({5} boxes)".format(
-			row.parent, sales_order_item, row.item_code, int(give), variety, boxes
-		),
-		sales_order_item=sales_order_item,
-	)
+	log("Variety added", what, sales_order_item=sales_order_item)
 
 	return {
 		"kept": stems - give,
