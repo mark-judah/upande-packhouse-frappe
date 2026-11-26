@@ -24,6 +24,7 @@ def ensure_allocation_indexes():
 	for doctype, columns, name in INDEXES:
 		if not frappe.db.table_exists(doctype) or not all(frappe.db.has_column(doctype, c) for c in columns):
 			continue
-		existing = {r[2] for r in frappe.db.sql(f"SHOW INDEX FROM `tab{doctype}`")}  # nosemgrep: fixed names
+		# nosemgrep: frappe-sql-format-injection -- the doctype is one of INDEXES' fixed names, never request data
+		existing = {r[2] for r in frappe.db.sql(f"SHOW INDEX FROM `tab{doctype}`")}
 		if name not in existing:
 			frappe.db.add_index(doctype, columns, name)

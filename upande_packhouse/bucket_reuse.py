@@ -38,6 +38,7 @@ def stale_allocations(bucket_id=None, bucket_ids=None, item_code=None):
 	if item_code:
 		cond += " AND bas.item_code = %(item)s"
 	harvested = _HARVESTED_SINCE.format(bucket="bas.bucket_id", since="ba.creation")
+	# nosemgrep: frappe-sql-format-injection -- the f-string holes are fixed SQL, values are bound
 	return frappe.db.sql(
 		f"""
 		SELECT ba.name AS ba, ba.parent AS bas, bas.bucket_id, bas.item_code AS variety,
@@ -52,7 +53,7 @@ def stale_allocations(bucket_id=None, bucket_ids=None, item_code=None):
 		LEFT JOIN `tabSales Order Item` soi ON soi.name = ba.sales_order_item
 		WHERE ba.cancelled = 0 AND IFNULL(ba.issued, 0) = 0 AND ba.quantity_allocated > 0 {cond}
 		  AND {harvested}
-		""",  # nosemgrep: the f-string holes are fixed SQL, values are bound
+		""",
 		{"b": bucket_id, "ids": tuple(bucket_ids or ()) or ("",), "item": item_code},
 		as_dict=True,
 	)
@@ -64,13 +65,14 @@ def stale_pending_rows(bucket_id=None):
 		return []
 	cond = "AND r.bucket_id = %(b)s" if bucket_id else ""
 	harvested = _HARVESTED_SINCE.format(bucket="r.bucket_id", since="r.creation")
+	# nosemgrep: frappe-sql-format-injection -- the f-string holes are fixed SQL, values are bound
 	return frappe.db.sql(
 		f"""
 		SELECT r.name, r.parent, r.bucket_id, r.qty, p.sales_order
 		FROM `tabPending Allocation Row` r
 		JOIN `tabPending Allocation` p ON p.name = r.parent AND r.parenttype = 'Pending Allocation'
 		WHERE p.status = 'Pending' {cond} AND {harvested}
-		""",  # nosemgrep: the f-string holes are fixed SQL, values are bound
+		""",
 		{"b": bucket_id},
 		as_dict=True,
 	)

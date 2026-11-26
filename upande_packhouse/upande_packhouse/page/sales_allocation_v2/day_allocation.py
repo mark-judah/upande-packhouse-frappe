@@ -2803,6 +2803,7 @@ def _claim_release(token, who):
 	"""Take a hand-on of a release: atomic (Redis SET NX), so of the page and the worker -- or two pages --
 	exactly one gets it. The rest leave it."""
 	key = frappe.cache.make_key(f"sa2_release_claim:{token}")
+	# nosemgrep: frappe-cache-breaks-multitenancy -- the key is built with make_key, so it carries the site's prefix
 	return bool(frappe.cache.set(key, who, nx=True, ex=RELEASE_HANDOFF_SEC))
 
 

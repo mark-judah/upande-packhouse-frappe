@@ -217,6 +217,7 @@ def hours_since_received(shelved_at, now=None):
 	# each bucket's latest receipt; only a bucket received again after its shelving (a later harvest) has its
 	# receipts read one by one, to find the one its shelf stems came from
 	later = []
+	# nosemgrep: frappe-sql-format-injection -- receipts' holes take fixed SQL fragments, values are bound
 	for b, at in frappe.db.sql(
 		receipts.format("MAX(TIMESTAMP(posting_date, posting_time))", "GROUP BY custom_bucket_id"),
 		{"b": tuple(shelved_at), "since": since},
@@ -228,6 +229,7 @@ def hours_since_received(shelved_at, now=None):
 		else:
 			latest[b] = at
 	if later:
+		# nosemgrep: frappe-sql-format-injection -- receipts' holes take fixed SQL fragments, values are bound
 		for b, at in frappe.db.sql(
 			receipts.format("TIMESTAMP(posting_date, posting_time)", ""), {"b": tuple(later), "since": since}
 		):

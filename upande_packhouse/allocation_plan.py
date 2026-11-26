@@ -154,13 +154,14 @@ def real_outstanding(farms=None):
 	cond = "AND farm IN %(farms)s" if farms else ""
 	return {
 		(r[0], r[1], r[2] or ""): flt(r[3])
+		# nosemgrep: frappe-sql-format-injection -- the f-string hole is fixed SQL, values are bound
 		for r in frappe.db.sql(
 			f"""SELECT farm, variety, IFNULL(length, ''), SUM(GREATEST(stems - IFNULL(fulfilled_stems, 0), 0))
 			    FROM `tabAllocation Confirmation`
 			    WHERE source = 'Real' AND status IN %(live)s {cond}
 			    GROUP BY farm, variety, IFNULL(length, '')""",
 			{"live": LIVE, "farms": tuple(farms or ()) or ("",)},
-		)  # nosemgrep: the f-string hole is fixed SQL, values are bound
+		)
 	}
 
 
