@@ -383,16 +383,25 @@ def read_bucket(bucket_id, trace=True):
 		if ropl
 		else {}
 	)
+	# the order and pick list a released hold was on: not on a site whose Bucket Reuse Anomaly predates them
+	extra = (
+		", ".join(
+			c if frappe.db.has_column("Bucket Reuse Anomaly", c) else f"NULL AS {c}"
+			for c in ("sales_order", "order_pick_list")
+		)
+		if _dt_exists("Bucket Reuse Anomaly")
+		else ""
+	)
 	R["anomalies"] = (
 		frappe.db.sql(
-			"""SELECT name, skipped_step, detected_on, farm, greenhouse, variety, stems, previous_shelf, discard_request, harvest_stock_entry
+			f"""SELECT name, skipped_step, detected_on, farm, greenhouse, variety, stems, previous_shelf, discard_request, harvest_stock_entry, {extra}
 		FROM `tabBucket Reuse Anomaly` WHERE bucket_id IN %(ids)s ORDER BY detected_on""",
 			{"ids": ids},
 			as_dict=True,
 		)
 		if _dt_exists("Bucket Reuse Anomaly")
 		else []
-	)
+	)  # nosemgrep: frappe-sql-format-injection -- the f-string hole is two fixed column names
 	R["tevents"] = (
 		frappe.db.sql(
 			"""SELECT name, stage, outcome, event_time, user, farm, shelf, order_pick_list, trip, vehicle, stock_entry, details
@@ -1894,6 +1903,7 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 			"Issuing Skipped": "Previous batch was never issued",
 			"Discarding Skipped": "Previous batch was on a discard request but never discarded",
 			"Skipped Transfer": "Transfer step was skipped: shelved here while still on the farm shelf",
+			"Transfer Incomplete": "Transfer never completed: the bucket was harvested again before it arrived",
 		}.get(step, step)
 		ev = _e(
 			"anomaly",
@@ -1917,11 +1927,14 @@ def build(R, now_ts=None, hub="", pseudo_start=None):
 				["Previous variety", a.get("variety")],
 				["Previous stems", a.get("stems")],
 				["Discard request", a.get("discard_request")],
+				["Order released", a.get("sales_order")],
+				["Pick list", a.get("order_pick_list")],
 				["Started by harvest", a.get("harvest_stock_entry")],
 			],
 			docs=[
 				_doc("Bucket Reuse Anomaly", a["name"]),
 				_doc("Discard Request", a.get("discard_request")),
+				_doc("Sales Order", a.get("sales_order")),
 				_doc("Stock Entry", a.get("harvest_stock_entry")),
 			],
 			anomaly=step,

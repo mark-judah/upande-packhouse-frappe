@@ -1151,8 +1151,10 @@ def _hold_orphan_picks(rows):
 		key = (str(r.bucket_id).upper(), r.item_code, r.stem_length or "")
 		qty = held.pop(key, 0)
 		if qty:
+			free_before = flt(r.available_qty)
 			r.allocated_qty = flt(r.allocated_qty) + qty
-			r.available_qty = max(0.0, flt(r.available_qty) - qty)
+			r.available_qty = max(0.0, free_before - qty)
+			r.orphan_removed = free_before - flt(r.available_qty)
 
 
 def _shelf_buckets(item_codes, active_farms, discard_age):
@@ -1369,6 +1371,30 @@ def _per_bucket_memo(name, fn, bucket_ids, bucket_of):
 	return out
 
 
+def _tsnap(buckets):
+	"""The shelf rows still in play at one step of the allocator, for explain_available."""
+	return {
+		(b["bucket_id"], b["stem_length"] or "", b["shelf_location"]): {
+			"item": b["item_code"],
+			"qty": flt(b["total_qty"]),
+			"farm": b["shelf_farm"],
+			"age": b["age_days"],
+			"hours_cooled": b.get("hours_cooled"),
+			"available": flt(b["available_qty"]),
+			"orphan_removed": flt(b.get("orphan_removed")),
+		}
+		for b in buckets
+	}
+
+
+def _tnote(tr, item, b, rule, **kw):
+	"""explain_available only: what became of one shelf row on the traced line."""
+	if tr is not None and tr.get("line") == item["sales_order_item"]:
+		tr["line_rows"].setdefault((b["bucket_id"], b["stem_length"] or "", b["shelf_location"]), {}).update(
+			rule=rule, **kw
+		)
+
+
 @frappe.whitelist()
 def get_sales_order_items_with_buckets(
 	sales_order: str | None,
@@ -1539,6 +1565,8 @@ def get_sales_order_items_with_buckets(
 	# bucket actually arrives.
 	# nosemgrep: frappe-sql-format-injection -- the only holes are `%s` placeholder lists sized from len(); every value is bound
 	buckets = _shelf_buckets(item_codes, active_farms, discard_age)
+	if tr is not None:
+		tr["st_shelf"] = _tsnap(buckets)
 
 	buckets = [
 		b
@@ -1558,11 +1586,15 @@ def get_sales_order_items_with_buckets(
 		for b in buckets
 		if (b["hours_cooled"] or 0) >= farm_config.get(b["shelf_farm"], {}).get("cooling_hours", 0)
 	]
+	if tr is not None:
+		tr["st_cool"] = _tsnap(buckets)
 
 	# ── Apply cut_stage filter to buckets ──
 	if cut_stage_list:
 		wanted_stages = {_norm_cut_stage(s) for s in cut_stage_list}
 		buckets = [b for b in buckets if _norm_cut_stage(b.get("cut_stage")) in wanted_stages]
+	if tr is not None:
+		tr["st_cutlist"] = _tsnap(buckets)
 
 	so_item_names = [i["sales_order_item"] for i in items]
 
@@ -1608,6 +1640,7 @@ def get_sales_order_items_with_buckets(
 				and item["spec_cut_stage"]
 				and _norm_cut_stage(b.get("cut_stage")) != _norm_cut_stage(item["spec_cut_stage"])
 			):
+				_tnote(tr, item, b, "spec_cut", cut=b.get("cut_stage"))
 				continue
 
 			b_cm = _parse_cm(b["stem_length"])
@@ -1618,6 +1651,7 @@ def get_sales_order_items_with_buckets(
 			elif b_cm > req_cm and b_cm > 0:
 				status = "downgrade"
 			else:
+				_tnote(tr, item, b, "length")
 				continue
 
 			allocated_here = per_bucket_per_item.get(
@@ -1631,8 +1665,22 @@ def get_sales_order_items_with_buckets(
 			]
 			held_others = sum(q for _so, q in held_for)
 			available_here = max(0.0, (b["available_qty"] or 0) - held_others)
+			pending_removed = (b["available_qty"] or 0) - available_here
+			remote_removed = 0.0
 			if not is_sales_shelf and owners.get(b["bucket_id"], set()) - {sales_order}:
+				remote_removed = available_here
 				available_here = 0.0
+			_tnote(
+				tr,
+				item,
+				b,
+				"offered",
+				status=status,
+				pending=pending_removed,
+				remote=remote_removed,
+				final=available_here,
+				mine=allocated_here,
+			)
 
 			if available_here <= 1e-9 and not allocated_here:
 				continue
@@ -1748,6 +1796,267 @@ def get_sales_order_items_with_buckets(
 	for item in items:
 		item["box_key"] = "|".join(str(k) for k in keys.get(item["sales_order_item"], ()))
 	return items
+
+
+AVAILABLE_RULES = [
+	(1, "Order's location", "Only the farms of the order's location are searched."),
+	(
+		2,
+		"Farms in view",
+		"Only the farms ticked on the page, or the location's sales-shelf farms when none are ticked.",
+	),
+	(3, "Same variety", "Only stems of this line's variety."),
+	(
+		4,
+		"Line filters",
+		"The headsize and colour filters on the page choose which lines are shown. They remove no stems of a line.",
+	),
+	(5, "Open discard request", "A bucket on an open discard request is excluded whole."),
+	(6, "Discard age", "A bucket older than the discard age in Production Settings is excluded."),
+	(7, "Farm max age", "A bucket older than its farm's max allocation age is excluded."),
+	(8, "Cooling", "A bucket that has not spent its farm's cooling hours in a cold store yet is excluded."),
+	(
+		9,
+		"Cut stage",
+		"Standard Roses lines only see buckets at their own cut stage (unless bypassed), and the page's cut stage filter applies.",
+	),
+	(
+		10,
+		"Stem length",
+		"Only the line's length (exact) or longer (downgrade). Shorter stems are never offered.",
+	),
+	(
+		11,
+		"Allocated to orders",
+		"Stems still allocated to orders (not cancelled, not issued) are taken off, this line's own included.",
+	),
+	(
+		12,
+		"Held by pick rows with no allocation",
+		"Stems an unissued pick row has taken from the bucket after its allocation was cancelled or lost are not free.",
+	),
+	(
+		13,
+		"Pending allocations",
+		"Stems other orders have allocated and are waiting to confirm are taken off.",
+	),
+	(
+		14,
+		"Released orders",
+		"Stems held by released orders are inside rule 11. Shown against the order that holds them.",
+	),
+	(
+		15,
+		"Remote bucket owned by another order",
+		"A bucket on a farm with no sales shelf is requested whole. While another order holds it, it counts as 0 here.",
+	),
+	(
+		16,
+		"Less than one bunch free",
+		"A bucket with under one bunch free stays listed, flagged as a remnant. Its stems still count.",
+	),
+	(17, "Available", "What is left, summed over every bucket offered, exact length plus downgrades."),
+	(
+		18,
+		"Order of the list",
+		"Sales-shelf farm first, then remote farms, oldest first. This changes the order only, not the total.",
+	),
+]
+
+
+def _funnel_step(n, before, removed, rows):
+	rule = next(r for r in AVAILABLE_RULES if r[0] == n)
+	rows = sorted(rows, key=lambda r: -r["stems"])
+	return {
+		"n": n,
+		"rule": rule[1],
+		"text": rule[2],
+		"before": before,
+		"removed": removed,
+		"after": before - removed,
+		"buckets": rows[:12],
+		"more": max(0, len(rows) - 12),
+	}
+
+
+@frappe.whitelist()
+def explain_available(
+	sales_order: str,
+	sales_order_item: str,
+	location: str,
+	selected_farms: str | list | None = None,
+	filter_headsize: str | list | dict | None = None,
+	filter_color: str | list | dict | None = None,
+	filter_cut_stage: str | list | dict | None = None,
+	bypass_cut_stage: str | int | float | None = None,
+):
+	"""How one line's Available figure is reached: from every stem of its variety on a shelf, down through
+	each allocation rule, one row per rule with the stems it took off. Built from the allocator's own pass
+	(get_sales_order_items_with_buckets writes what each rule did to frappe.local.sa2_trace), so it cannot
+	disagree with the page; `matches_page` says whether the funnel's last row equals the page's figure."""
+	frappe.has_permission("Sales Order", "read", sales_order, throw=True)
+	frappe.local.sa2_trace = tr = {"line": sales_order_item, "line_rows": {}}
+	try:
+		items = get_sales_order_items_with_buckets(
+			sales_order,
+			location,
+			selected_farms,
+			filter_headsize,
+			filter_color,
+			filter_cut_stage,
+			bypass_cut_stage,
+		)
+	finally:
+		frappe.local.sa2_trace = None
+	item = next((i for i in items or [] if i["sales_order_item"] == sales_order_item), None)
+	if not item:
+		frappe.throw(_("This line is not on the allocation page for {0}.").format(location))
+
+	variety = item["item_code"]
+	location_farms = set(tr.get("location_farms") or [])
+	active = set(tr.get("active_farms") or [])
+	discard_age = tr.get("discard_age") or 0
+	held_buckets = set(
+		frappe.db.sql_list(
+			"""SELECT DISTINCT drb.bucket_id FROM `tabDiscard Request Bucket` drb
+			   JOIN `tabDiscard Request` dr ON dr.name = drb.parent
+			   WHERE COALESCE(dr.workflow_state, '') != 'Rejected' AND COALESCE(drb.discarded, 0) = 0
+			     AND COALESCE(drb.bucket_id, '') != ''"""
+		)
+	)
+	everything = frappe.db.sql(
+		"""SELECT si.bucket_id, si.stem_length, s.name AS shelf, s.farm,
+		          SUM(COALESCE(si.stem_qty, 0)) AS qty,
+		          DATEDIFF(CURDATE(), MIN(COALESCE(si.harvest_date, si.date_added))) AS age
+		   FROM `tabShelf Item` si JOIN `tabShelf` s ON s.name = si.parent
+		   WHERE si.variety = %s GROUP BY si.bucket_id, si.stem_length, s.name, s.farm
+		   HAVING qty > 0""",
+		variety,
+		as_dict=True,
+	)
+
+	def key(r):
+		return (r.bucket_id, r.stem_length or "", r.shelf)
+
+	gone = {n: [] for n in range(1, 17)}
+	for r in everything:
+		row = {"bucket": r.bucket_id, "length": r.stem_length, "farm": r.farm, "stems": flt(r.qty)}
+		if r.farm not in location_farms:
+			gone[1].append(dict(row, note="not a farm of " + (location or "")))
+		elif r.farm not in active:
+			gone[2].append(dict(row, note="remote farm, not ticked" if r.farm else ""))
+		elif key(r) not in tr.get("st_shelf", {}):
+			if r.bucket_id in held_buckets:
+				gone[5].append(row)
+			elif (r.age or 0) >= discard_age:
+				gone[6].append(dict(row, note="%s days old" % r.age))
+			else:
+				gone[5].append(dict(row, note="not offered by the shelf read"))
+	# the passes read every variety of the order; this line's own stems only
+	st_shelf, st_age, st_cool, st_cut = (
+		{k: v for k, v in tr.get(name, {}).items() if v["item"] == variety}
+		for name in ("st_shelf", "st_age", "st_cool", "st_cutlist")
+	)
+	st_cut = st_cut or st_cool
+
+	def lost(a, b, rule, note):
+		for k, v in a.items():
+			if k not in b:
+				gone[rule].append(
+					{"bucket": k[0], "length": k[1], "farm": v["farm"], "stems": v["qty"], "note": note(v)}
+				)
+
+	lost(
+		st_shelf, st_age, 7, lambda v: "%s days old, limit %s" % (v["age"], tr["farm_max_age"].get(v["farm"]))
+	)
+	lost(st_age, st_cool, 8, lambda v: "%s h cooled" % v["hours_cooled"])
+	lost(st_cool, st_cut, 9, lambda v: "page cut stage filter")
+
+	removed_alloc = removed_orphan = removed_pending = removed_remote = 0.0
+	free_rows = []
+	remnant = 0.0
+	conversion = flt(item.get("conversion_factor")) or 1
+	for k, v in tr["line_rows"].items():
+		base = st_cut.get(k) or st_shelf.get(k)
+		if not base:
+			continue
+		row = {"bucket": k[0], "length": k[1], "farm": base["farm"], "stems": base["qty"]}
+		if v["rule"] == "spec_cut":
+			gone[9].append(
+				dict(row, note="cut stage %s, line wants %s" % (v.get("cut"), item.get("spec_cut_stage")))
+			)
+		elif v["rule"] == "length":
+			gone[10].append(dict(row, note="shorter than %s" % item["required_length"]))
+		else:
+			qty = base["qty"]
+			orphan = base["orphan_removed"]
+			alloc = max(0.0, qty - base["available"] - orphan)
+			if alloc:
+				gone[11].append(dict(row, stems=alloc, note="of %s on the bucket" % qty))
+			if orphan:
+				gone[12].append(dict(row, stems=orphan, note="pick row with no allocation"))
+			if v["pending"]:
+				gone[13].append(dict(row, stems=v["pending"], note="waiting confirmation"))
+			if v["remote"]:
+				gone[15].append(dict(row, stems=v["remote"], note="another order holds this remote bucket"))
+			removed_alloc += alloc
+			removed_orphan += orphan
+			removed_pending += v["pending"]
+			removed_remote += v["remote"]
+			if v["final"] > 0:
+				free_rows.append(
+					dict(
+						row,
+						stems=v["final"],
+						note=v["status"] + (", remnant" if v["final"] < conversion else ""),
+					)
+				)
+				if v["final"] < conversion:
+					remnant += v["final"]
+	steps = []
+	cur = sum(flt(r.qty) for r in everything)
+	start = cur
+	for n in range(1, 16):
+		if n in (3, 4, 14):
+			rows, amount = [], 0.0
+		else:
+			rows = gone[n]
+			amount = sum(r["stems"] for r in rows)
+		steps.append(_funnel_step(n, cur, amount, rows))
+		cur -= amount
+	steps.append(
+		dict(
+			_funnel_step(16, cur, 0.0, []), note="%s stems sit in remnant buckets (under one bunch)" % remnant
+		)
+	)
+	final = sum(r["stems"] for r in free_rows)
+	steps.append(
+		dict(_funnel_step(17, cur, cur - final, []), buckets=sorted(free_rows, key=lambda r: -r["stems"]))
+	)
+	steps[-1]["after"] = final
+	steps[-1]["removed"] = cur - final
+	steps.append(_funnel_step(18, final, 0.0, []))
+	return {
+		"start": start,
+		"final": final,
+		"page_total": flt(item["total_available_qty"]),
+		"matches_page": abs(final - flt(item["total_available_qty"])) < 1e-6,
+		"exact": sum(r["stems"] for r in free_rows if r["note"].startswith("exact")),
+		"downgrade": sum(r["stems"] for r in free_rows if r["note"].startswith("downgrade")),
+		"steps": steps,
+		"line": {
+			"variety": variety,
+			"length": item["required_length"],
+			"cut_stage": item.get("spec_cut_stage"),
+			"to_allocate": flt(item.get("pending_stock_qty")),
+		},
+		"scope": {
+			"location": location,
+			"farms": sorted(active),
+			"discard_age": discard_age,
+			"farm_max_age": tr.get("farm_max_age"),
+		},
+	}
 
 
 def _attach_downgrade_conflicts(items, sales_order):

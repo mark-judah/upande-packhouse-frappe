@@ -149,7 +149,12 @@ def bucket_rows(*, farms=None, varieties=None, lengths=None, rose=None, company=
 	discard_age = cfg["discard_age"]
 	fc = cfg["farm_config"]
 	# cooling counts from when the bucket reached a cold store, at whichever farm, not from its shelving
-	cooled = hours_since_received({r.bucket_id: r.shelved_at for r in rows}, params["now"])
+	# only a farm with cooling hours set can have a bucket still cooling: the receipts of every other farm's
+	# buckets are not read (the lookup was most of this function's time)
+	needs_cooling = {
+		r.bucket_id: r.shelved_at for r in rows if (fc.get(r.shelf_farm, {}).get("cooling_hours") or 0) > 0
+	}
+	cooled = hours_since_received(needs_cooling, params["now"]) if needs_cooling else {}
 	for r in rows:
 		stems = float(r.stems or 0)
 		a = alloc.get((r.bucket_id, r.variety, r.stem_length or ""), 0.0)

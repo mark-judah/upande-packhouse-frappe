@@ -234,21 +234,6 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
 .sv-led .ph-table td.sv-wrap{white-space:normal;min-width:220px}
 .sv-pillst{display:inline-flex;align-items:center;white-space:nowrap}
 
-/* allocation health */
-.sv-ord{border-radius:var(--r-md);background:var(--surface);margin-bottom:var(--sp-3);box-shadow:inset 0 0 0 1px var(--hairline)}
-.sv-ord>summary{display:grid;grid-template-columns:minmax(190px,1.2fr) minmax(150px,1.5fr) 110px 100px minmax(0,2fr) 170px;gap:var(--sp-4);align-items:center;padding:var(--sp-4) var(--sp-5);cursor:pointer;list-style:none}
-.sv-ord>summary::-webkit-details-marker{display:none}
-.sv-ord[open]>summary{border-bottom:1px solid var(--hairline)}
-.sv-ord__body{padding:var(--sp-2) var(--sp-5) var(--sp-4);overflow:auto}
-@media (max-width:1100px){.sv-ord>summary{grid-template-columns:minmax(130px,1fr) minmax(130px,1fr) 100px 90px}.sv-ord>summary>:nth-child(5),.sv-ord>summary>:nth-child(6){grid-column:span 2}}
-.sv-reasons{display:flex;flex-direction:column;gap:var(--sp-2)}
-.sv-reason{display:grid;grid-template-columns:minmax(180px,1.2fr) minmax(120px,2fr) 100px 120px;gap:var(--sp-4);align-items:center;border:0;background:transparent;font:inherit;color:inherit;text-align:left;padding:var(--sp-3);border-radius:var(--r-md);cursor:pointer}
-.sv-reason:hover{background:var(--tint)}
-.sv-reason.is-on{box-shadow:0 0 0 2px var(--ink)}
-.sv-reason:focus-visible{outline:2px solid var(--ink)}
-.sv-reason .sv-bar{height:8px;border-radius:var(--r-pill);background:var(--tint);overflow:hidden}
-.sv-reason .sv-bar i{display:block;height:100%;min-width:2px}
-.sv-note{display:flex;gap:var(--sp-3);align-items:flex-start}
 @media (max-width:820px){.ph-overlay--drawer .ph-modal--lg{width:100%}.sv-line{grid-template-columns:1fr 1fr 1fr 40px}.sv-line>:first-child{grid-column:span 3}.sv-reason{grid-template-columns:1fr 90px}.sv-reason>:nth-child(2),.sv-reason>:nth-child(4){display:none}}
 
 /* ───── redesign: toolbar, filters popover, tabs ───── */
@@ -408,26 +393,10 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
 .sv-more2{padding:var(--sp-3) 32px var(--sp-5)}
 .sv-gh{display:inline-block;width:8px;height:8px;border-radius:var(--r-pill);margin-right:var(--sp-2);flex:none}
 
-/* stale allocations */
-.sv-todo{display:flex;flex-wrap:wrap;gap:var(--sp-5);align-items:center;justify-content:space-between}
-.sv-todo__small{color:var(--ink-mute);margin-top:var(--sp-3)}
-.sv-todo .sv-chips{margin-top:var(--sp-4)}
-.sv-hdone{display:flex;align-items:center;gap:var(--sp-3);color:var(--ink)}
-.sv-headline__act{margin-left:auto}
-.sv-rel{display:inline-flex;align-items:center;gap:var(--sp-2);justify-content:flex-end}
-.sv-relcell{max-width:260px;white-space:normal}
-.sv-selbar{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-4);padding:var(--sp-3) var(--sp-4);margin:0 0 var(--sp-3);border-radius:var(--r-md);background:var(--surface);box-shadow:inset 0 0 0 1px var(--hairline);position:sticky;top:0;z-index:3}
-.sv-selall{display:inline-flex;align-items:center;gap:var(--sp-2);cursor:pointer;font-weight:600}
-.sv-selc{display:flex;align-items:center;gap:var(--sp-3)}
-.sv-selbox,.sv-selall input{width:18px;height:18px;accent-color:var(--ink);cursor:pointer;flex:none}
-.sv-selbox-gap{display:inline-block;width:18px;flex:none}
-.sv-fails{max-height:200px;overflow:auto;margin:var(--sp-3) 0 0;padding:0;list-style:none;color:var(--ink-3)}
-.sv-fails li{padding:var(--sp-1) 0;border-bottom:1px solid var(--hairline)}
 @media (max-width:640px){.sv-lr{grid-template-columns:1fr}.sv-lr>:nth-child(2){order:0}}
 
 /* ───── order outlook grid ───── */
 .sv-kpis{margin-bottom:var(--sp-5)}
-.sv-hbar2{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2) var(--sp-3);margin:0 0 var(--sp-5)}
 .sv-dueby{display:inline-flex;align-items:center;gap:var(--sp-3)}
 .sv-dueby .ph-control{width:auto}
 .sv-mx{width:100%;table-layout:fixed;min-width:1240px}
@@ -471,8 +440,6 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
 <nav class="ph-tabs" id="tabs" aria-label="Views">
   <button class="ph-tab" data-tab="outlook">Order outlook <span class="ph-tab__count" id="tab-orders" hidden></span></button>
   <button class="ph-tab" data-tab="board">Stock</button>
-  <button class="ph-tab" data-tab="health">Stale allocations <span class="ph-tab__count" id="tab-health" hidden></span></button>
-  <button class="ph-tab" data-tab="transfers">Stale transfers <span class="ph-tab__count" id="tab-transfers" hidden></span></button>
 </nav>
 <div class="sv-toolbar">
   <label class="ph-search" for="f-q"><span id="f-q-ic"></span><input id="f-q" type="search" placeholder="Search variety or bucket" autocomplete="off" aria-label="Search variety or bucket"></label>
@@ -551,26 +518,6 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
   </section>
 </div>
 
-<!-- ───── Stale allocations ───── -->
-<div id="v-health" hidden>
-  <section class="ph-kpis sv-kpis" id="h-kpis" aria-live="polite"></section>
-  <div class="sv-hbar2" id="h-head"></div>
-  <section class="ph-card">
-    <div class="ph-card__head"><h2 class="ph-card__title">Orders holding stock <span class="ph-badge" id="h-count"></span></h2><span class="ph-card__meta" id="h-filter"></span></div>
-    <div id="h-orders"></div>
-  </section>
-</div>
-
-<!-- ───── Buckets held by stale transfers ───── -->
-<div id="v-transfers" hidden>
-  <section class="ph-kpis sv-kpis" id="t-kpis" aria-live="polite"></section>
-  <div class="sv-hbar2" id="t-head"></div>
-  <section class="ph-card">
-    <div class="ph-card__head"><h2 class="ph-card__title">Buckets held by stale transfers <span class="ph-badge" id="t-count"></span></h2><span class="ph-card__meta" id="t-filter"></span></div>
-    <div id="t-orders"></div>
-  </section>
-</div>
-
 {% include "upande_packhouse/templates/includes/packhouse_v2/shell_end.html" %}
 {% raw %}
 <script>
@@ -581,9 +528,9 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
   const POST = (m, a) => PH.call(API + m, a || {}, { type: "POST", silent: true });
   const esc = PH.esc, N = PH.fmt.num;
   const today = PH.date.today();
-  const st = PH.state({ tab: "outlook", region: "", farm: "", length: "", rose: "all", q: "", through: PH.date.add(today, 1), sort: "attn", focus: "", reason: "", treason: "", ofrom: PH.date.add(today, 1), oto: PH.date.add(today, 1), ocust: "", osrc: "", os: "", ochg: false, oseg: "attn", oview: "order", vall: false, hide: "1" });
+  const st = PH.state({ tab: "outlook", region: "", farm: "", length: "", rose: "all", q: "", through: PH.date.add(today, 1), sort: "attn", focus: "", ofrom: PH.date.add(today, 1), oto: PH.date.add(today, 1), ocust: "", osrc: "", os: "", ochg: false, oseg: "attn", oview: "order", vall: false, hide: "1" });
 
-  const TABS = ["outlook", "board", "health", "transfers"];
+  const TABS = ["outlook", "board"];
   const GROUPS = { sellable: "Available to allocate", soon: "Received not shelved", committed: "Allocated to orders", withheld: "Blocked" };
   /* what each heading counts: shown as a hover on every heading and summary card that uses the name */
   const GROUP_HINT = {
@@ -601,14 +548,6 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
   };
   const ORDER = [].concat(GROUP_STATES.sellable, GROUP_STATES.soon, GROUP_STATES.committed, GROUP_STATES.withheld);
   const SHELF = ["sellable", "cooling", "committed_live", "reclaimable", "spare_moving", "too_old", "discard", "farm_disabled"];
-  const STALE = { no_order: "No order", order_cancelled: "Order cancelled", delivery_passed: "Delivery date has passed", bucket_reused: "Bucket was harvested again", discard_held: "Bucket is on a discard request", bucket_gone: "Bucket is on no shelf", not_found: "Bucket marked not found" };
-  const RISK = ["bucket_reused", "discard_held", "bucket_gone", "not_found"];
-  const TSTALE = { order_cancelled: "Order cancelled", delivery_passed: "Delivery date has passed", no_order: "No order" };
-  /* the two to-do lists: stale allocations, and buckets held by stale transfers. Same layout, search and release. */
-  const KIND = {
-    health: { p: "h", api: "allocations", arg: null, key: "reason", labels: STALE, data: null, seq: 0, sel: new Set(), what: "allocation", kpis: ["Stale stems", "Orders", "Allocated in total", "Also on a discard request"], rel: "Release stale allocations…", all: "Every stale allocation that can be released", none: "No allocations are held by missing, cancelled or past-due orders." },
-    transfers: { p: "t", api: "transfers", arg: "transfers", key: "treason", labels: TSTALE, data: null, seq: 0, sel: new Set(), what: "transfer", kpis: ["Stale stems", "Orders", "In transfers in total", ""], rel: "Release stale transfers…", all: "Every stale transfer that can be released", none: "No bucket is held by a transfer for a missing, cancelled or past-due order." },
-  };
   const REFDOC = { discard: "Discard Request", reclaimable: "Sales Order", committed_live: "Sales Order", committed_transit: "Order Pick List", coldroom: "Stock Entry", awaiting: "Stock Entry", unreceived: "Stock Entry" };
 
   let ov = null, ledgers = [], ovSeq = 0;
@@ -722,7 +661,6 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
     const t = TABS.indexOf(st.get("tab")) < 0 ? "outlook" : st.get("tab");
     PH.$$("#tabs .ph-tab").forEach((b) => b.classList.toggle("is-on", b.dataset.tab === t));
     TABS.forEach((k) => (PH.$("#v-" + k).hidden = k !== t));
-    PH.$("#export").hidden = t === "health" || t === "transfers";
     paintThrough();
     return t;
   }
@@ -1150,119 +1088,6 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
     return m;
   }
 
-  /* ════════════ stale allocations: a to-do list ════════════ */
-  function loadHealth(silent, kind = "health") {
-    const K = KIND[kind], my = ++K.seq;
-    if (!silent) { PH.kpiSkeleton("#" + K.p + "-kpis", K.kpis.filter(Boolean)); PH.skeleton("#" + K.p + "-orders", "rows", 6); }
-    return GET(K.api, filterParams()).then((r) => {
-      if (my !== K.seq) return;
-      K.data = r; paintHealth(kind); PH.markUpdated();
-    }).catch((e) => { if (my !== K.seq || (silent && K.data)) return; PH.error("#" + K.p + "-orders", e.message, () => loadHealth(false, kind)); PH.$("#" + K.p + "-head").innerHTML = ""; PH.$("#" + K.p + "-kpis").innerHTML = ""; });
-  }
-  function paintHealth(kind = "health") {
-    const K = KIND[kind], P = K.p, L = K.labels, relSel = K.sel, r = K.data, sel = st.get(K.key);
-    const tb = PH.$("#tab-" + kind); tb.hidden = !(r.reclaimable > 0); tb.textContent = N(r.order_count); tb.classList.remove("is-warn");
-    const orderCount = new Set(r.orders.filter((o) => o.lines.some((l) => RISK.indexOf(l.reason) < 0)).map((o) => o.sales_order)).size;
-    PH.kpis("#" + P + "-kpis", kind === "transfers" ? [
-      { label: "Stale stems", value: r.reclaimable, dark: true, unit: "in buckets held by stale transfers" },
-      { label: "Orders", value: orderCount, unit: "holding them" },
-      { label: "In transfers in total", value: r.total_open, unit: "stems waiting, loaded or on the road" },
-    ] : [
-      { label: "Stale stems", value: r.reclaimable, dark: true, unit: "held by cancelled or past-due orders" },
-      { label: "Orders", value: orderCount, unit: "holding them" },
-      { label: "Allocated in total", value: r.total_open, unit: "stems to live and stale orders" },
-      { label: "Also on a discard request", value: r.reclaimable_on_discard, unit: "stale stems in discard-held buckets" },
-    ]);
-    PH.$("#" + P + "-head").innerHTML = (r.reclaimable > 0 || r.at_risk > 0)
-      ? `${r.by_reason.map((x) => `<button type="button" class="sv-lg${sel === x.code ? " is-on" : ""}" data-reason="${esc(x.code)}" aria-pressed="${sel === x.code}"><span class="sv-dot ${x.kind === "reclaim" ? "sv-c-reclaimable" : "sv-c-discard"}" aria-hidden="true"></span>${esc(x.label)} <b>${N(x.qty)}</b> <small>${N(x.orders)} order${x.orders === 1 ? "" : "s"}</small></button>`).join("")}${sel ? '<button type="button" class="ph-link" data-reason="">Show all</button>' : ""}${r.can_release ? '<span class="sv-grow"></span><button type="button" class="ph-btn ph-btn--primary" data-rel-all>' + esc(K.rel) + '</button>' : ""}`
-      : `<div class="sv-hdone">${PH.icon("check", 22)}<div><b>${kind === "transfers" ? "Every transfer is healthy." : "Every open allocation is healthy."}</b></div></div>`;
-    const orders = r.orders.map((o) => { const ls = sel ? o.lines.filter((l) => l.reason === sel) : o.lines; return Object.assign({}, o, { lines: ls, qty: ls.reduce((t, l) => t + l.qty, 0) }); }).filter((o) => o.lines.length);
-    PH.$("#" + P + "-count").textContent = N(orders.length) + (r.order_count > r.orders.length ? "+" : "");
-    PH.$("#" + P + "-filter").innerHTML = sel ? `Showing: ${esc(L[sel] || sel)}` : "";
-    if (!orders.length) { PH.empty("#" + P + "-orders", "Nothing to release", K.none, "check"); return; }
-    const releasable = orders.filter((o) => o.lines.some((l) => l.releasable)).map((o) => o.sales_order);
-    [...relSel].forEach((x) => { if (releasable.indexOf(x) < 0) relSel.delete(x); });
-    const selStems = orders.filter((o) => relSel.has(o.sales_order)).reduce((t, o) => t + o.lines.filter((l) => l.releasable).reduce((u, l) => u + l.qty, 0), 0);
-    const bar = r.can_release && releasable.length ? `<div class="sv-selbar"><label class="sv-selall"><input type="checkbox" id="sel-all"${relSel.size && relSel.size === releasable.length ? " checked" : ""}> Select all ${N(releasable.length)} order${releasable.length === 1 ? "" : "s"}</label>${relSel.size ? `<span><b>${N(relSel.size)}</b> selected · <b>${N(selStems)}</b> stems</span><span class="sv-grow"></span><button type="button" class="ph-btn ph-btn--ghost ph-btn--sm" data-sel-clear>Clear</button><button type="button" class="ph-btn ph-btn--primary ph-btn--sm" data-rel-sel>Release ${N(relSel.size)} selected</button>` : '<span class="ph-muted">Tick orders to release them together.</span>'}</div>` : "";
-    PH.$("#" + P + "-orders").innerHTML = bar + orders.map((o) => `<details class="sv-ord"><summary>
-      <span class="sv-selc">${r.can_release && o.lines.some((l) => l.releasable) ? `<input type="checkbox" class="sv-selbox" data-sel="${esc(o.sales_order)}"${relSel.has(o.sales_order) ? " checked" : ""} aria-label="Select ${esc(o.sales_order)}">` : '<span class="sv-selbox-gap"></span>'}<span>${o.sales_order === "No order" ? "<b>No order</b>" : docBtn("Sales Order", o.sales_order)}<span class="sv-sub">${esc(o.so_status || "")}</span></span></span>
-      <span class="ph-strong">${esc(o.customer || "")}</span>
-      <span>${o.delivery_date ? esc(PH.fmt.date(o.delivery_date, true)) : "—"}</span>
-      <span class="sv-why__num">${N(o.qty)} stems</span>
-      <span class="sv-chips">${[...new Set(o.lines.map((l) => l.reason))].map((c) => `<span class="ph-badge ph-badge--${RISK.indexOf(c) >= 0 ? "bad" : "warn"}">${esc(L[c] || c)}</span>`).join("")}</span>
-      <span class="sv-rel">${r.can_release && o.lines.some((l) => l.releasable) ? `<button type="button" class="ph-btn ph-btn--sm ph-btn--primary" data-rel-order="${esc(o.sales_order)}">Release</button>` : ""}${o.sales_order === "No order" ? "" : `<a class="ph-iconbtn ph-iconbtn--flat ph-iconbtn--sm" href="${soLink(o.sales_order)}" target="_blank" rel="noopener" title="Open in Sales Allocation" aria-label="Open ${esc(o.sales_order)} in Sales Allocation">${PH.icon("external", 14)}</a>`}</span></summary>
-      <div class="sv-ord__body"><table class="ph-table ph-table--compact"><thead><tr><th>Variety</th><th>Length</th><th>Bucket</th><th>Farm</th><th class="is-num">Stems</th><th>Why</th><th>${kind === "transfers" ? "Since" : "Allocated"}</th><th></th></tr></thead><tbody>${o.lines.map((l) => `<tr><td class="is-strong">${esc(l.variety)}</td><td>${esc(l.length)}</td><td class="ph-mono">${esc(l.bucket)}</td><td>${esc(l.farm || "")}</td><td class="is-num">${N(l.qty)}</td><td><span class="ph-badge ph-badge--${RISK.indexOf(l.reason) >= 0 ? "bad" : "warn"}">${esc(l.reason_label)}</span>${l.on_discard && RISK.indexOf(l.reason) < 0 ? ' <span class="ph-badge ph-badge--bad">on discard request</span>' : ""}${kind === "transfers" ? ` <span class="ph-badge ph-badge--outline">${esc(l.state || "")}</span>` : l.in_transit ? ' <span class="ph-badge ph-badge--outline">in transit</span>' : ""}${l.issued ? ' <span class="ph-badge ph-badge--outline">issued</span>' : ""}</td><td>${l.allocated_days != null ? N(l.allocated_days) + " d ago" : "—"}</td><td class="sv-relcell">${l.releasable && r.can_release ? `<button type="button" class="ph-btn ph-btn--sm" data-rel-line="${esc(l.sales_order_item)}|${esc(l.bucket)}|${esc(l.stem_length)}|${esc(o.sales_order)}">Release</button>` : `<span class="ph-muted" title="${esc(l.release_block || "")}">${esc(l.release_block || "")}</span>`}</td></tr>`).join("")}</tbody></table></div></details>`).join("") + (r.order_count > r.orders.length ? `<p class="ph-muted">Showing the ${N(r.orders.length)} orders holding the most stems of ${N(r.order_count)}.</p>` : "");
-  }
-  /* ── release (the Sales Allocation unallocate step, run here) ── */
-  function releaseFlow(scope, label, kind = "health") {
-    const K = KIND[kind], params = Object.assign({}, scope);
-    const q = Object.assign({}, filterParams(), K.arg ? { kind: K.arg } : {}, params.sales_order ? { sales_order: params.sales_order } : {}, params.sales_orders ? { sales_orders: JSON.stringify(params.sales_orders) } : {}, params.items ? { items: JSON.stringify(params.items) } : {});
-    POST("release_plan", q).then((plan) => {
-      if (!plan.can_release) { PH.toast("You need a sales role to release allocations.", "bad"); return; }
-      if (!plan.lines) { PH.toast("Nothing here can be released any more.", "warn"); loadHealth(true, kind); return; }
-      const skipped = (plan.skipped || []).map((x) => `<li><b>${N(x.stems)}</b> stems on ${N(x.orders)} order${x.orders === 1 ? "" : "s"}: ${esc(x.why)}</li>`).join("");
-      const m = PH.modal({ title: kind === "transfers" ? "Release stale transfers" : "Release stale allocations", sub: label, body: "" });
-      const b = m.body;
-      b.innerHTML = `<p style="font-size:1.1em;margin:0 0 var(--sp-4)"><b>${N(plan.stems)} stems</b> on ${N(plan.lines)} line${plan.lines === 1 ? "" : "s"} from ${N(plan.orders)} order${plan.orders === 1 ? "" : "s"} will be released.</p>
-        <ul class="sv-list"><li>${kind === "transfers" ? "Each stale transfer is cancelled: the bucket stops waiting for a truck, its stems come off the shelf and the bucket is recorded as an anomaly." : "Each allocation is cancelled. Its stems come off the shelf and the bucket is recorded as an anomaly."}</li><li>The lines come off ${N(plan.opl_count)} pick list${plan.opl_count === 1 ? "" : "s"}; an empty pick list is deleted.</li><li><b>This cannot be undone.</b></li></ul>
-        ${plan.index_building ? `<div class="ph-notice ph-notice--signal ph-mt">${PH.icon("info", 16)}<span>The database is building an index that makes releases much faster. It takes a minute or two; releasing now works but will be slow until then.</span></div>` : ""}
-        ${skipped ? `<div class="ph-notice ph-notice--warn ph-mt">${PH.icon("alert", 16)}<span><b>Not included</b> - these stay as they are:<ul class="sv-list">${skipped}</ul></span></div>` : ""}
-        <div class="sv-checkbar"><button type="button" class="ph-btn ph-btn--danger" id="rl-go">Release ${N(plan.stems)} stems</button><button type="button" class="ph-btn ph-btn--ghost" id="rl-no">Cancel</button></div>`;
-      PH.$("#rl-no", b).addEventListener("click", () => m.close());
-      PH.$("#rl-go", b).addEventListener("click", () => runRelease(m, params, plan, kind));
-    }).catch((e) => PH.toast(e.message, "bad"));
-  }
-  async function runRelease(m, scope, plan, kind = "health") {
-    const K = KIND[kind];
-    const b = m.body; let lines = 0, stems = 0, cancelled = false, err = "", waiting = true, finished = false, batchStart = Date.now(); const failed = [], skip = [], t0 = Date.now();
-    const base = Object.assign({}, filterParams(), K.arg ? { kind: K.arg } : {}, scope.sales_order ? { sales_order: scope.sales_order } : {}, scope.sales_orders ? { sales_orders: JSON.stringify(scope.sales_orders) } : {}, scope.items ? { items: JSON.stringify(scope.items) } : {});
-    const secs = () => Math.round((Date.now() - t0) / 1000);
-    let timer = null;
-    function paint() {
-      const done = lines + failed.length, eta = done > 0 && plan.lines > done ? Math.round((secs() / done) * (plan.lines - done)) : 0;
-      const title = finished ? (err ? "Stopped" : cancelled ? `Stopped. Released ${N(stems)} stems.` : failed.length ? `Released ${N(lines)} line${lines === 1 ? "" : "s"}; ${N(failed.length)} could not be released.` : `Released ${N(stems)} stems.`) : "Releasing - keep this window open";
-      const slow = !finished && waiting && Date.now() - batchStart > 8000 ? `Still working on this batch (${Math.round((Date.now() - batchStart) / 1000)} s). Large releases can be slow until the database index is ready.` : "";
-      b.innerHTML = `<p style="margin:0;font-size:1.1em"><b>${esc(title)}</b></p>
-        <p class="ph-muted" role="status" aria-live="polite" style="margin:var(--sp-3) 0 0"><b class="ph-strong">${N(lines)}</b> of ${N(plan.lines)} lines released · <b class="ph-strong">${N(stems)}</b> stems · ${secs()} s${failed.length ? ` · <b class="sv-neg">${N(failed.length)} could not be released</b>` : ""}${!finished && eta > 5 ? ` · about ${eta} s left` : ""}</p>${slow ? `<p class="ph-muted" style="margin:var(--sp-2) 0 0">${esc(slow)}</p>` : ""}${err ? `<div class="ph-notice ph-notice--bad ph-mt">${esc(err)}<br>Nothing already released is lost. Continue to pick up where it stopped.</div>` : ""}
-        ${failed.length ? `<ul class="sv-fails">${failed.slice(0, 20).map((f) => `<li><b>${esc(f.sales_order)}</b> ${esc(f.variety)} · bucket ${esc(f.bucket_id)} - ${esc(f.error)}</li>`).join("")}${failed.length > 20 ? `<li class="ph-muted">+${N(failed.length - 20)} more</li>` : ""}</ul>` : ""}
-        <div class="sv-checkbar">${finished ? `${err ? '<button type="button" class="ph-btn ph-btn--primary" id="rl-resume">Continue</button>' : ""}<button type="button" class="ph-btn ${err ? "" : "ph-btn--primary"}" id="rl-close">${err ? "Close" : "Done"}</button>` : '<button type="button" class="ph-btn ph-btn--ghost" id="rl-stop">Stop after this batch</button>'}</div>`;
-      const c = PH.$("#rl-close", b); if (c) c.addEventListener("click", () => m.close());
-      const rz = PH.$("#rl-resume", b); if (rz) rz.addEventListener("click", () => { err = ""; finished = false; loop(); });
-      const x = PH.$("#rl-stop", b); if (x) x.addEventListener("click", () => { cancelled = true; x.disabled = true; x.textContent = "Stopping…"; });
-    }
-    async function loop() {
-      timer = setInterval(paint, 1000); paint();
-      try {
-        for (let guard = 0; guard < 2000 && !cancelled; guard++) {
-          waiting = true; batchStart = Date.now();
-          const r = await POST("release_stale", Object.assign({}, base, { confirm: 1, limit: 10, skip: JSON.stringify(skip) }));
-          waiting = false;
-          lines += r.released.length; stems += r.stems_released;
-          r.failed.forEach((f) => { failed.push(f); skip.push({ sales_order_item: f.sales_order_item, bucket_id: f.bucket_id, stem_length: f.stem_length }); });
-          paint();
-          if (!(r.remaining > 0) || !(r.released.length + r.failed.length)) break;
-        }
-      } catch (e) { err = e.message || "The request failed."; }
-      clearInterval(timer); finished = true; waiting = false; paint();
-      K.sel.clear(); tabLoaded.outlook = false; loadHealth(true, kind); loadHealth(true, kind === "health" ? "transfers" : "health"); loadOverview(true);
-    }
-    loop();
-  }
-  Object.keys(KIND).forEach((kind) => {
-    const K = KIND[kind], relSel = K.sel, repaint = () => PH.keepScroll(() => paintHealth(kind));
-    PH.$(kind === "health" ? "#v-health" : "#v-transfers").addEventListener("click", (e) => {
-      const sb = e.target.closest("[data-sel]"); if (sb) { e.stopPropagation(); sb.checked ? relSel.add(sb.dataset.sel) : relSel.delete(sb.dataset.sel); repaint(); return; }
-      if (e.target.closest("#sel-all")) { const all = e.target.closest("#sel-all"); PH.$$("[data-sel]", PH.$(kind === "health" ? "#v-health" : "#v-transfers")).forEach((c) => (all.checked ? relSel.add(c.dataset.sel) : relSel.delete(c.dataset.sel))); repaint(); return; }
-      if (e.target.closest("[data-sel-clear]")) { relSel.clear(); repaint(); return; }
-      const rs = e.target.closest("[data-rel-sel]"); if (rs) { releaseFlow({ sales_orders: [...relSel] }, `${N(relSel.size)} selected order${relSel.size === 1 ? "" : "s"}`, kind); return; }
-      const ra = e.target.closest("[data-rel-all]"); if (ra) { releaseFlow({}, K.all + (filterChips().length ? " (with the filters on)" : ""), kind); return; }
-      const ro = e.target.closest("[data-rel-order]"); if (ro) { releaseFlow({ sales_order: ro.dataset.relOrder }, ro.dataset.relOrder, kind); return; }
-      const rl = e.target.closest("[data-rel-line]");
-      if (rl) { const [soi, bucket, len, so] = rl.dataset.relLine.split("|"); releaseFlow({ items: [{ sales_order_item: soi, bucket_id: bucket, stem_length: len }] }, so + " · bucket " + bucket, kind); return; }
-      const rb = e.target.closest("[data-reason]"); if (rb) { const c = rb.dataset.reason; st.set({ [K.key]: st.get(K.key) === c ? "" : c }); }
-    });
-  });
-
   /* ════════════ orders: what is allocated, and what is available ════════════ */
   const STATUS = {
     short: ["Short", "bad", "Even all the stock for this size would not cover it."],
@@ -1559,12 +1384,10 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
   setInterval(() => { if (!ol || st.get("tab") !== "outlook") return; paintLive(); const before = changed.size; for (const [id, c] of changed) if (Date.now() - c.at >= CHANGE_MS) changed.delete(id); if (before !== changed.size) { paintOrders(); if (lineDrawer) renderLine(); } }, 5000);
 
   /* ════════════ wiring ════════════ */
-  let tabLoaded = { health: false, outlook: false, transfers: false };
+  let tabLoaded = { outlook: false };
   function applyTab(reload) {
     const t = paintTab();
     if (t === "outlook") { paintDatebar(); if (reload || !tabLoaded.outlook) { tabLoaded.outlook = true; loadOutlook(); } }
-    if (t === "health" && (reload || !tabLoaded.health)) { tabLoaded.health = true; loadHealth(); }
-    if (t === "transfers" && (reload || !tabLoaded.transfers)) { tabLoaded.transfers = true; loadHealth(false, "transfers"); }
   }
   st.on((s, changedKeys) => {
     const has = (ks) => changedKeys.some((k) => ks.indexOf(k) >= 0);
@@ -1572,21 +1395,18 @@ tr[data-lineopen]:hover td{background:var(--tint-2)}
     if (has(["hide"])) hideBox.checked = hideOn();
     if (has(["farm"]) && !srv) paintFarms();
     if (has(["length"])) paintLen();
-    if (srv) { paintChips(); tabLoaded.health = false; tabLoaded.transfers = false; tabLoaded.outlook = false; loadOverview(); applyTab(true); }
+    if (srv) { paintChips(); tabLoaded.outlook = false; loadOverview(); applyTab(true); }
     else if (has(["through"])) { paintThrough(); loadOverview(true); }
     else if (has(["ofrom", "oto", "ocust"])) { tabLoaded.outlook = false; paintDatebar(); if (s.tab === "outlook") applyTab(true); }
     else if (has(["osrc", "os", "ochg", "oseg", "oview"])) { if (ol) paintOutlook(); }
     else if (has(["tab"])) applyTab(false);
     else if (has(["sort", "focus", "vall"])) { if (ov) { paintHero(); paintVarieties(); } }
-    else if (has(["reason"]) && KIND.health.data) paintHealth("health");
-    else if (has(["treason"]) && KIND.transfers.data) paintHealth("transfers");
   });
   paintThrough(); paintTab(); paintLen(); paintChips();
   PH.$$("#f-sort button").forEach((b) => b.classList.toggle("is-on", b.dataset.value === st.get("sort")));
   loadOverview().then(() => applyTab(false));
-  loadHealth(true); tabLoaded.health = true; loadHealth(true, "transfers"); tabLoaded.transfers = true;
-  PH.onRefresh(() => { tabLoaded.health = false; tabLoaded.transfers = false; return Promise.all([loadOverview(), st.get("tab") === "outlook" ? loadOutlook(true, true) : null, loadHealth(true), loadHealth(true, "transfers")]); });
-  PH.poll((silent) => { PH.keepScroll(() => { loadOverview(true); if (st.get("tab") === "health") loadHealth(true); if (st.get("tab") === "transfers") loadHealth(true, "transfers"); }); }, 60000);
+  PH.onRefresh(() => Promise.all([loadOverview(), st.get("tab") === "outlook" ? loadOutlook(true, true) : null]));
+  PH.poll((silent) => { PH.keepScroll(() => { loadOverview(true); }); }, 60000);
 })();
 </script>
 {% endraw %}

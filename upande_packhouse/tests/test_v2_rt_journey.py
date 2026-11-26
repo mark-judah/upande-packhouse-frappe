@@ -269,6 +269,45 @@ class TestDiscardAndAnomaly(unittest.TestCase):
 		self.assertEqual(len(evs(c1, "anomaly")), 1)
 		self.assertEqual(len(evs(c2, "anomaly")), 0)
 
+	def test_transfer_incomplete_is_shown_on_the_cycle_its_harvest_started_with_its_order(self):
+		a = dict(
+			name="BRA3",
+			skipped_step="Transfer Incomplete",
+			detected_on="2026-10-01 14:00:01",
+			farm="Karen",
+			greenhouse="",
+			variety="Aqua",
+			stems=150,
+			previous_shelf=None,
+			discard_request=None,
+			harvest_stock_entry="H2",
+			sales_order="SAL-ORD-1",
+			order_pick_list="OPL-1",
+		)
+		c1, c2 = cyc(RJ.build_bucket(R(ses=two_cycles(), anomalies=[a])))
+		shown = [s for s in c2["steps"] if s.get("anomaly") == "Transfer Incomplete"]
+		self.assertEqual(len(shown), 1)
+		self.assertIn("never completed", shown[0]["title"])
+		facts = {f[0]: f[1] for f in shown[0]["facts"]}
+		self.assertEqual((facts["Order released"], facts["Pick list"]), ("SAL-ORD-1", "OPL-1"))
+		self.assertEqual(facts["Skipped step"], "Transfer Incomplete")
+
+	def test_an_anomaly_from_a_site_without_the_order_columns_still_shows(self):
+		a = dict(
+			name="BRA4",
+			skipped_step="Issuing Skipped",
+			detected_on="2026-10-01 14:00:01",
+			farm="Karen",
+			greenhouse="",
+			variety="Aqua",
+			stems=20,
+			previous_shelf="K-1",
+			discard_request=None,
+			harvest_stock_entry="H2",
+		)
+		c1, c2 = cyc(RJ.build_bucket(R(ses=two_cycles(), anomalies=[a])))
+		self.assertTrue([s for s in c2["steps"] if s.get("anomaly") and not s.get("leftover")])
+
 
 class TestAllocation(unittest.TestCase):
 	def test_every_pick_row_shows_with_totals_and_cancelled_opl(self):

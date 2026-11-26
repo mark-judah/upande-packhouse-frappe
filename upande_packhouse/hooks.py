@@ -285,7 +285,10 @@ doc_events = {
 			# custom_cost_center instead, same field the greenhouse flow above
 			# already relies on. See stock_entry_cost_center.py.
 			"upande_packhouse.stock_entry_cost_center.apply_post_harvest_cost_center",
-		]
+		],
+		# Stock Visibility keeps the quarantine totals (a long read) until a quarantine entry changes them.
+		"on_submit": "upande_packhouse.api.v2.stock_truth.forget_quarantine_cache",
+		"on_cancel": "upande_packhouse.api.v2.stock_truth.forget_quarantine_cache",
 	},
 	"Allocation Confirmation": {
 		# a Quality B line planned for a team: its pick list goes to that team
@@ -363,6 +366,9 @@ scheduler_events = {
 	# Safety net for not-found marks written by a path with no hook (Bucket Watchlist).
 	"hourly": [
 		"upande_packhouse.api.v2.rt_watchlist.hourly_sync",
+		# Stock Visibility and Avails read the bucket cycle index; a migrate empties it, and building it takes
+		# 10-20 seconds that a person would otherwise wait out on the page.
+		"upande_packhouse.api.v2.core.bucket_cycle.warm",
 	],
 	"cron": {
 		# No-op unless Production Settings > Enable Automatic Remote Transfers Scheduling.

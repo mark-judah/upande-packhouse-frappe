@@ -11,8 +11,14 @@ that were never its own. An allocation waiting release (Pending Allocation Row) 
 
 An allocation is from a previous life when a Harvesting stock entry for the same bucket was made after it. This
 cancels such allocations and takes them off their pick lists, but never gives their flowers back to the shelf or
-the stock ledger: the bucket is recorded as a Bucket Reuse Anomaly instead (stale_release). It runs when a bucket
-is shelved.
+the stock ledger: the bucket is recorded as a Bucket Reuse Anomaly instead (stale_release).
+
+`release_on_harvest` runs when the bucket is harvested again (Upande Agriculture's journey start, the first point
+of contact back at the greenhouse): every hold of the last life is released there, the allocation row (and the
+bucket's allocation status once nothing is left on it) and the line's pick row deleted, the pick list itself left
+as it is. A hold that was part of a transfer (waiting at the farm, on a trolley or truck, on the road) is recorded
+as Transfer Incomplete, the rest as Issuing Skipped. `release_reused_bucket` is the same at shelving, for a bucket
+that got there without it.
 """
 
 import frappe
@@ -78,6 +84,149 @@ def stale_pending_rows(bucket_id=None):
 	)
 
 
+def _transfer_flags(alias="p"):
+	"""SQL: the pick row is part of a transfer that has not completed (waiting at the farm, on a trolley or truck,
+	or on the road), is not shelved, issued or packed."""
+	truck = (
+		f" OR IFNULL({alias}.loaded_on_truck, 0) = 1"
+		if frappe.db.has_column("Pick List Item", "loaded_on_truck")
+		else ""
+	)
+	return (
+		f"(IFNULL({alias}.awaiting_transfer, 0) = 1 OR IFNULL({alias}.loaded_in_trolley, 0) = 1 "
+		f"OR IFNULL({alias}.in_transit, 0) = 1{truck}) AND IFNULL({alias}.shelved, 0) = 0 "
+		f"AND IFNULL({alias}.issued, 0) = 0 AND IFNULL({alias}.issued_offline, 0) = 0 "
+		f"AND IFNULL({alias}.custom_ready_for_packing, 0) = 0"
+	)
+
+
+def stale_transfers(bucket_id):
+	"""Pick rows of an unfinished transfer of this bucket made before it was last harvested: the bucket is back
+	in the greenhouse, so the transfer will never complete. One row each."""
+	harvested = _HARVESTED_SINCE.format(bucket="p.bucket", since="p.creation")
+	# nosemgrep: frappe-sql-format-injection -- the f-string holes are fixed SQL, values are bound
+	return frappe.db.sql(
+		f"""
+		SELECT p.name, p.parent AS opl, p.sales_order_item AS soi, p.item_code AS variety,
+		       IFNULL(p.stem_length, '') AS length, p.stock_qty AS qty, opl.sales_order
+		FROM `tabPick List Item` p
+		INNER JOIN `tabOrder Pick List` opl ON opl.name = p.parent AND opl.docstatus < 2
+		WHERE p.parenttype = 'Order Pick List' AND p.bucket = %(b)s AND {_transfer_flags("p")} AND {harvested}
+		""",
+		{"b": bucket_id},
+		as_dict=True,
+	)
+
+
+def release_on_harvest(bucket_id, harvest_stock_entry=None):
+	"""A bucket harvested again has left what it was held for: release every hold of its last life now, not when
+	it is shelved. Returns {allocations, transfers, pending, skipped}.
+
+	- A stale allocation: the allocation row is deleted (and the bucket's allocation status when nothing is left
+	  on it), the line's pick row is deleted, the order pick list is left as it is, and the bucket is recorded as a
+	  Bucket Reuse Anomaly: Issuing Skipped, or Transfer Incomplete when the line's pick row was part of a transfer.
+	- A pick row of an unfinished transfer with no allocation behind it: deleted the same way, Transfer Incomplete.
+	- Left alone, and counted in `skipped`: an allocation whose order line was already delivered (those stems went
+	  out the door; a person reviews it). Issued rows are not listed at all.
+	Its flowers were gone with the last harvest: nothing goes back to the shelf or the stock ledger."""
+	from upande_packhouse.stale_release import TRANSFER_INCOMPLETE, release_to_anomaly
+
+	allocations = stale_allocations(bucket_id)
+	transfers = stale_transfers(bucket_id)
+	moving = {(t.soi, str(bucket_id).upper()) for t in transfers}
+	groups, skipped = {}, 0
+	for r in allocations:
+		if not r.line_gone and (r.delivered or (r.per_delivered or 0) >= 100):
+			skipped += 1
+			continue
+		g = groups.setdefault(
+			(r.sales_order_item, r.length),
+			{
+				"soi": r.sales_order_item,
+				"length": r.length,
+				"qty": 0.0,
+				"step": TRANSFER_INCOMPLETE
+				if (r.sales_order_item, str(bucket_id).upper()) in moving
+				else None,
+			},
+		)
+		g["qty"] += r.qty or 0
+	covered = {g["soi"] for g in groups.values()}
+	for t in transfers:  # a transfer whose allocation is already gone
+		if t.soi in covered:
+			continue
+		covered.add(t.soi)
+		groups[(t.soi, t.length)] = {
+			"soi": t.soi,
+			"length": t.length,
+			"qty": sum(x.qty or 0 for x in transfers if x.soi == t.soi),
+			"step": TRANSFER_INCOMPLETE,
+			"transfer": True,
+		}
+	done_alloc = done_transfer = 0
+	for g in groups.values():
+		step = g["step"]
+		frappe.db.savepoint("release_on_harvest")
+		try:
+			res = release_to_anomaly(
+				g["soi"],
+				bucket_id,
+				g["length"],
+				g["qty"],
+				_("Bucket {0} was harvested again").format(bucket_id),
+				step=step,
+			)
+		except Exception:
+			try:
+				frappe.db.rollback(save_point="release_on_harvest")
+			except Exception:
+				pass  # the release had committed: nothing of it is left to undo
+			frappe.clear_messages()
+			frappe.log_error(title=f"Release on harvest {bucket_id}", message=frappe.get_traceback())
+			continue
+		if not (res or {}).get("success"):
+			frappe.log_error(
+				title=f"Release on harvest {bucket_id}",
+				message=f"{g['soi']}: {(res or {}).get('message') or res}",
+			)
+			continue
+		if step == TRANSFER_INCOMPLETE:
+			done_transfer += 1
+			_log_incomplete_transfer(bucket_id, g, harvest_stock_entry)
+		else:
+			done_alloc += 1
+	pending = stale_pending_rows(bucket_id)
+	if pending:
+		_drop_pending(pending)
+	if done_alloc or done_transfer or pending:
+		frappe.db.commit()
+	return {
+		"allocations": done_alloc,
+		"transfers": done_transfer,
+		"pending": len(pending),
+		"skipped": skipped,
+	}
+
+
+def _log_incomplete_transfer(bucket_id, g, harvest_stock_entry):
+	"""The bucket journey's transfer log gets a step of its own for it: never fails the release."""
+	try:
+		from upande_packhouse.api.remote_transfer.transfer_scheduling import log_transfer_event
+
+		line = frappe.db.get_value("Sales Order Item", g["soi"], "parent")
+		log_transfer_event(
+			bucket_id,
+			"Transfer incomplete",
+			outcome="Refused",
+			stock_entry=harvest_stock_entry,
+			details="Harvested again before the transfer finished{0}; the hold was released.".format(
+				f" (order {line})" if line else ""
+			),
+		)
+	except Exception:
+		frappe.log_error(title=f"Transfer Incomplete event for {bucket_id}", message=frappe.get_traceback())
+
+
 def _drop_pending(rows):
 	"""Take stale rows off their allocations waiting release; one left with no rows goes."""
 	for r in rows:
@@ -131,7 +280,6 @@ def release_reused_bucket(bucket_id=None):
 				g["length"],
 				g["qty"],
 				_("Bucket {0} was harvested again").format(g["bucket"]),
-				reused=True,
 			)
 		except Exception:
 			try:

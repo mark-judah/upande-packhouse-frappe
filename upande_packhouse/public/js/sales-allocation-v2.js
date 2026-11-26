@@ -516,34 +516,24 @@ frappe.pages["sales-allocation-v2"].add_styles = function () {
             cursor: pointer; transition: all 0.15s;
         }
         .ufd-sa2 .bd-trigger:hover { border-color: var(--signal); color: var(--signal); }
-        .ufd-sa2 .bd-trigger.has-issues { border-style: solid; border-color: var(--warn-2); color: var(--warn); background: var(--warn-soft); }
-        .ufd-sa2 .bucket-diag { margin-bottom: 12px; }
-        .ufd-sa2 .bd-loading { font-size: 11.5px; color: var(--ink-faint); padding: 6px 2px; }
-        .ufd-sa2 .bd-strip {
-            display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px 4px;
-            background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; margin-bottom: 6px;
-        }
-        .ufd-sa2 .bd-summary { flex: 0 0 100%; font: 600 10px var(--sans); text-transform: uppercase; letter-spacing: .6px; color: var(--ink-faint); margin-bottom: 4px; }
-        .ufd-sa2 .bd-chip {
-            display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px 5px 8px;
-            border-radius: 999px; font-size: 11px; font-weight: 600; cursor: pointer;
-            border: 1px solid transparent; transition: all 0.15s; background: var(--surface-2);
-            margin-bottom: 6px;
-        }
-        .ufd-sa2 .bd-chip .bd-count { opacity: 0.75; font-weight: 700; }
-        .ufd-sa2 .bd-chip .bd-stems { font-weight: 400; opacity: 0.6; font-size: 10px; }
-        .ufd-sa2 .bd-chip:hover { border-color: currentColor; }
-        .ufd-sa2 .bd-chip.reason-eligible { background: var(--good-soft); color: var(--good); }
-        .ufd-sa2 .bd-chip.reason-fully_allocated { background: var(--surface-2); color: var(--ink-mute); border-color: var(--hairline); }
-        .ufd-sa2 .bd-chip.reason-too_short, .ufd-sa2 .bd-chip.reason-wrong_cut_stage { background: var(--warn-soft); color: var(--warn); }
-        .ufd-sa2 .bd-chip.reason-past_discard_age, .ufd-sa2 .bd-chip.reason-past_max_age { background: var(--warn-soft); color: var(--warn); }
-        .ufd-sa2 .bd-chip.reason-pending_discard { background: var(--bad-soft); color: var(--bad); }
-        .ufd-sa2 .bd-chip.reason-in_transit { background: var(--signal-soft); color: var(--signal); }
-        .ufd-sa2 .bd-chip.reason-remote_farm { background: rgba(10,10,10,0.05); color: var(--ink-mute); }
-        .ufd-sa2 .bd-chip .bd-hint {
-            opacity: 0.6; font-weight: 600; font-size: 9px; text-transform: uppercase;
-            letter-spacing: .4px; margin-left: 2px; text-decoration: underline;
-        }
+        /* the rules drawer sits outside .ufd-sa2 (shared v2 drawer), so these carry their own scope */
+        .ax-load { padding: 24px 4px; color: var(--ink-mute); font: 400 13px var(--sans); }
+        .ax-sum { font: 600 14px var(--sans); color: var(--ink); }
+        .ax-scope { font: 400 12px var(--sans); color: var(--ink-mute); margin: 2px 0 12px; }
+        .ax-tbl { width: 100%; border-collapse: collapse; font: 400 13px var(--sans); color: var(--ink); }
+        .ax-tbl th { font: 600 10px var(--sans); text-transform: uppercase; letter-spacing: .6px; color: var(--ink-faint); text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--hairline-2); }
+        .ax-tbl td { padding: 9px 8px; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+        .ax-num { text-align: right !important; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .ax-n { width: 28px; color: var(--ink-faint); }
+        .ax-rem { color: var(--bad); font-weight: 600; }
+        .ax-zero { color: var(--ink-faint); }
+        .ax-zero .ax-rem { color: var(--ink-faint); font-weight: 400; }
+        .ax-final td { background: var(--good-soft); font-weight: 600; }
+        .ax-det { margin-top: 4px; font-size: 12px; color: var(--ink-4); }
+        .ax-det summary { cursor: pointer; color: var(--ink-mute); font-weight: 600; font-size: 11px; }
+        .ax-det > div { margin: 3px 0 0 4px; }
+        .ax-det span { color: var(--bad); font-weight: 600; margin-left: 4px; }
+        .ax-bad { margin-top: 10px; padding: 9px 12px; border-radius: 10px; background: var(--bad-soft); color: var(--bad); font: 600 12px var(--sans); }
 
         /* ─── Farm + mix filters (single row in detail toolbar) ─── */
         .ufd-sa2 .farm-filter-bar, .ufd-sa2 .mix-filter-bar {
@@ -2308,7 +2298,6 @@ frappe.pages["sales-allocation-v2"].toggle_bypass_cut_stage = function (on) {
 	P.bypass_cut_stage = on === undefined ? !P.bypass_cut_stage : !!on;
 	P.clear_allocations(true);
 	P.item_filters = {};
-	P._bucket_diag_cache = {};
 	P._scope().find("#sa2BypassCutStage").prop("checked", P.bypass_cut_stage);
 	frappe.call({
 		method: "upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2.get_sales_order_items_with_buckets",
@@ -2341,8 +2330,7 @@ frappe.pages["sales-allocation-v2"]._bind_cutstage_bypass = function () {
 			P.bypass_cut_stage = $(this).is(":checked");
 			P.clear_allocations(true);
 			P.item_filters = {};
-			P._bucket_diag_cache = {};
-			frappe.call({
+					frappe.call({
 				method: "upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2.get_sales_order_items_with_buckets",
 				args: {
 					sales_order: P.selected_order,
@@ -2466,162 +2454,71 @@ frappe.pages["sales-allocation-v2"]._bind_per_item_filters = function () {
 		P._show_substitute_dialog(so_item);
 	});
 };
-// ─── BUCKET VISIBILITY DIAGNOSTICS ───
-// "There are buckets on the coldstore but they're not showing up here" — this
-// answers *why*, instead of leaving the user staring at an empty table or a
-// grid that looks short a few buckets. Cached per line so re-toggling doesn't
-// re-hit the server; a farm-filter change busts the whole cache.
-frappe.pages["sales-allocation-v2"]._bucket_diag_cache = {};
-frappe.pages["sales-allocation-v2"]._bucket_diag_open = {};
+// ─── WHY AREN'T MORE BUCKETS SHOWING ───
+// Side popup (the shared v2 drawer) for a line: every stem of its variety on a shelf, taken down rule by rule
+// to the Available figure. The rows come from the allocator's own pass (explain_available), so they cannot
+// drift from it.
 frappe.pages["sales-allocation-v2"]._bind_bucket_diagnostics = function () {
 	const P = frappe.pages["sales-allocation-v2"];
-	const $w = P._scope();
-	$w.find(".bd-trigger[data-so-item]")
+	P._scope()
+		.find(".bd-trigger[data-so-item]")
 		.off("click")
 		.on("click", function () {
-			const so_item = $(this).data("so-item");
-			const item = (P.order_items || []).find((i) => i.sales_order_item === so_item);
-			if (!item) return;
-			const $panel = $w.find(`#bucket-diag-${so_item}`);
-			const is_open = $panel.is(":visible");
-			if (is_open) {
-				$panel.slideUp(120);
-				P._bucket_diag_open[so_item] = false;
-			} else {
-				P._bucket_diag_open[so_item] = true;
-				P._load_bucket_diagnostics(item, false);
-			}
+			P._show_bucket_rules($(this).data("so-item"));
 		});
 };
-frappe.pages["sales-allocation-v2"]._load_bucket_diagnostics = function (item, forceOpen) {
+frappe.pages["sales-allocation-v2"]._show_bucket_rules = function (so_item) {
 	const P = frappe.pages["sales-allocation-v2"];
-	const so_item = item.sales_order_item;
-	const $panel = P._scope().find(`#bucket-diag-${so_item}`);
-	if (!$panel.length) return;
-	const cache_key = [
-		so_item,
-		P.selected_location,
-		(P.selected_farms || []).slice().sort().join(","),
-		P.bypass_cut_stage ? 1 : 0,
-	].join("|");
-	const cached = P._bucket_diag_cache[cache_key];
-	if (cached) {
-		P._render_bucket_diag_strip(item, cached);
-		$panel.show();
-		return;
-	}
-	$panel.html('<div class="bd-loading">Checking shelf stock…</div>').show();
+	const esc = (v) => frappe.utils.escape_html(String(v == null ? "" : v));
+	const fmt = (v) => Number(v || 0).toLocaleString();
+	const line = (P.order_items || []).find((i) => i.sales_order_item === so_item) || {};
+	const m = PH.modal({
+		title: __("Why aren't more buckets showing?"),
+		sub: [line.item_name || line.item_code, line.required_length].filter(Boolean).join(" · "),
+		size: "lg",
+		drawer: true,
+		body: '<div class="ax-load">Working it out…</div>',
+	});
 	frappe.call({
-		method: "upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2.get_bucket_visibility_diagnostics",
+		method: "upande_packhouse.upande_packhouse.page.sales_allocation_v2.sales_allocation_v2.explain_available",
 		args: {
+			sales_order: P.selected_order,
 			sales_order_item: so_item,
 			location: P.selected_location,
 			selected_farms: JSON.stringify(P.selected_farms || []),
 			bypass_cut_stage: P.bypass_cut_stage ? 1 : 0,
 		},
-		callback: function (r) {
-			if (!r.message || !r.message.success) {
-				$panel.html('<div class="bd-loading">Couldn\'t load bucket diagnostics.</div>');
-				return;
-			}
-			P._bucket_diag_cache[cache_key] = r.message;
-			// Line may have switched while the call was in flight.
-			if (P.selected_item !== so_item && !forceOpen) return;
-			P._render_bucket_diag_strip(item, r.message);
+		error: () => (m.body.innerHTML = '<div class="ax-load">Could not work this out. Reload and try again.</div>'),
+		callback: (r) => {
+			const x = r.message || {};
+			const rows = (x.steps || [])
+				.map((s) => {
+					const buckets = s.buckets || [];
+					const detail = buckets.length
+						? `<details class="ax-det"><summary>${fmt(buckets.length + (s.more || 0))} bucket${
+								buckets.length + (s.more || 0) === 1 ? "" : "s"
+						  }</summary>${buckets
+								.map(
+									(b) =>
+										`<div><b>${esc(b.bucket)}</b> ${esc(b.length)} · ${esc(b.farm || "")} <span>${fmt(b.stems)}</span></div>`
+								)
+								.join("")}${s.more ? `<div class="ax-more">+ ${fmt(s.more)} more</div>` : ""}</details>`
+						: "";
+					const cls = (s.removed ? "" : "ax-zero") + (s.n === 17 ? " ax-final" : "");
+					return `<tr class="${cls}"><td class="ax-n">${s.n}</td><td>${esc(s.rule)}${detail}</td><td class="ax-num ax-rem">${
+						s.n >= 17 ? "" : s.removed ? "−" + fmt(s.removed) : "0"
+					}</td><td class="ax-num">${s.n === 18 ? "" : fmt(s.after)}</td></tr>`;
+				})
+				.join("");
+			const sc = x.scope || {};
+			m.body.innerHTML = `<div class="ax">
+				<div class="ax-sum">${fmt(x.start)} stems on a shelf, ${fmt(x.final)} available (${fmt(x.exact)} exact, ${fmt(x.downgrade)} downgrade)</div>
+				<div class="ax-scope">${esc((sc.farms || []).join(", "))}</div>
+				<table class="ax-tbl"><thead><tr><th></th><th>Rule</th><th class="ax-num">Taken off</th><th class="ax-num">Left</th></tr></thead><tbody>${rows}</tbody></table>
+				${x.matches_page ? "" : `<div class="ax-bad">Does not match the page (${fmt(x.page_total)}).</div>`}
+			</div>`;
 		},
 	});
-};
-frappe.pages["sales-allocation-v2"]._render_bucket_diag_strip = function (item, data) {
-	const P = frappe.pages["sales-allocation-v2"];
-	const so_item = item.sales_order_item;
-	const $panel = P._scope().find(`#bucket-diag-${so_item}`);
-	if (!$panel.length) return;
-	const $trigger = P._scope().find(`.bd-trigger[data-so-item="${so_item}"]`);
-	const reasons = data.reasons || [];
-	const blocking = reasons.filter((r) => r.code !== "eligible" && r.code !== "fully_allocated");
-	$trigger.toggleClass("has-issues", blocking.length > 0);
-	if (!data.total_buckets) {
-		$panel.html(
-			`<div class="bd-strip"><div class="bd-summary">No buckets on the shelf at all for this variety at ${
-				data.required_length || "this length"
-			} or otherwise, on the farms currently selected.</div></div>`
-		);
-		return;
-	}
-	const chips = reasons
-		.map(
-			(r) => `
-        <span class="bd-chip reason-${r.code}" data-reason="${
-				r.code
-			}" data-so-item="${so_item}" title="Click to see the exact buckets">
-            ${r.label}
-            <span class="bd-count">${r.count}</span>
-            <span class="bd-stems">(${r.stems.toLocaleString()} stems)</span>
-            <span class="bd-hint">Details</span>
-        </span>`
-		)
-		.join("");
-	$panel.html(`
-        <div class="bd-strip">
-            <div class="bd-summary">${data.total_buckets} bucket${
-		data.total_buckets === 1 ? "" : "s"
-	} on the shelf for this variety — here's what's happening with each</div>
-            ${chips}
-        </div>`);
-	$panel.find(".bd-chip").on("click", function () {
-		const reason = $(this).data("reason");
-		const group = (data.reasons || []).find((r) => r.code === reason);
-		if (!group) return;
-		P._show_bucket_diag_dialog(item, group);
-	});
-};
-// A proper popup with the exact bucket list behind a reason — bucket, where it
-// is, and the precise "why" sentence for that specific bucket (not just the
-// group label), so the user can go check the physical bucket if something
-// looks wrong.
-frappe.pages["sales-allocation-v2"]._show_bucket_diag_dialog = function (item, group) {
-	const rows = (group.buckets || [])
-		.map(
-			(b) => `
-        <tr>
-            <td><strong>${b.bucket_id || "-"}</strong></td>
-            <td>${b.farm || "-"}</td>
-            <td>${b.shelf || "-"}</td>
-            <td>${b.stem_length || "?"}</td>
-            <td>${b.stems || 0}</td>
-            <td>${b.available_qty || 0}</td>
-            <td>${b.age_days != null ? b.age_days + "d" : "-"}</td>
-            <td>${b.cut_stage || "-"}</td>
-            <td>${b.detail || ""}</td>
-        </tr>`
-		)
-		.join("");
-	const dialog = new frappe.ui.Dialog({
-		title: `${group.label} — ${group.count} bucket${group.count === 1 ? "" : "s"} (${(
-			group.stems || 0
-		).toLocaleString()} stems)`,
-		size: "extra-large",
-		fields: [
-			{
-				fieldname: "buckets_html",
-				fieldtype: "HTML",
-				options: `
-                <div class="bd-dialog-wrap" style="max-height:60vh;overflow:auto;">
-                    <table class="allocation-grid-table" style="width:100%;">
-                        <thead><tr>
-                            <th>Bucket</th><th>Farm</th><th>Shelf</th><th>Length</th>
-                            <th>Stems</th><th>Available</th><th>Age</th><th>Cut stage</th><th>Exact reason</th>
-                        </tr></thead>
-                        <tbody>${
-							rows ||
-							`<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--ink-mute);">No buckets in this group.</td></tr>`
-						}</tbody>
-                    </table>
-                </div>`,
-			},
-		],
-	});
-	dialog.show();
 };
 // ─── BATCH VISIBILITY ───
 frappe.pages["sales-allocation-v2"]._batch_passes_filter = function (batch, item) {
@@ -3452,7 +3349,6 @@ frappe.pages["sales-allocation-v2"]._render_item_block = function (item) {
         <button type="button" class="bd-trigger" data-so-item="${item.sales_order_item}">
             Why aren't more buckets showing?
         </button>
-        <div id="bucket-diag-${item.sales_order_item}" class="bucket-diag" style="display:none;"></div>
         <table class="allocation-grid-table" data-so-item="${item.sales_order_item}">
             <thead><tr>
                 <th>Age</th><th>Bucket</th><th>Farm</th><th>Shelf</th><th>Length</th>
@@ -3688,13 +3584,6 @@ frappe.pages["sales-allocation-v2"].render_allocation_grid = function () {
 	P._bind_per_item_filters();
 	P._bind_bucket_diagnostics();
 	if (item) P._apply_item_batch_visibility(item.sales_order_item);
-	if (item && (!(item.batches || []).length || P._bucket_diag_open[item.sales_order_item])) {
-		// No compatible buckets at all — the diagnostic is the whole story here,
-		// so surface it immediately. Also re-open it if the user had it open
-		// before this re-render (e.g. after an allocate/unallocate action).
-		P._bucket_diag_open[item.sales_order_item] = true;
-		P._load_bucket_diagnostics(item, true);
-	}
 	// Keep this order's card in the left list in sync with live allocation.
 	P._sync_order_card();
 };

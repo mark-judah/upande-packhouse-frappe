@@ -22,6 +22,14 @@ INDEXES = (
 	("Bucket Allocation Status", ["item_code", "bucket_id"], "idx_bas_item"),
 	("Notification Log", ["for_user", "read"], "idx_nl_user_read"),
 	("Stock Ledger Entry", ["posting_date"], "idx_sle_posting_date"),
+	# Stock Visibility's forecast reads the active weeks by year and week number, and its in-transit read looks
+	# for pick rows with one of three flags set: each scanned the whole table (the three flag indexes let the
+	# database take the matching rows of each and join them)
+	("Production Forecast Week", ["iso_year", "week_number"], "idx_pfw_week"),
+	("Pick List Item", ["loaded_in_trolley"], "idx_pli_in_trolley"),
+	("Pick List Item", ["loaded_on_truck"], "idx_pli_on_truck"),
+	("Pick List Item", ["in_transit"], "idx_pli_in_transit"),
+	("Pick List Item", ["not_found"], "idx_pli_not_found"),
 )
 
 

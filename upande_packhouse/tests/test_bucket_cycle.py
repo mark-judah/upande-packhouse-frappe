@@ -108,12 +108,26 @@ class TestIndexKeepsFresh(IntegrationTestCase):
 		for p in self.patches:
 			p.stop()
 
-	def test_first_use_builds_from_the_posting_date_index_once(self):
+	def test_first_use_builds_from_the_covering_index_once(self):
 		with patch.object(bc, "now_datetime", lambda: at(40)):
 			bc.index()
 			bc.index()
 		self.assertEqual(len(self.reads), 1)
-		self.assertIn("stock_entry_type_docstatus_posting_date_index", self.reads[0][0])
+		self.assertIn(bc.COVERING_INDEX, self.reads[0][0])
+
+	def test_without_the_covering_index_it_builds_from_the_posting_date_index(self):
+		calls = []
+
+		def read(where, params):
+			calls.append(where[0])
+			if bc.COVERING_INDEX in where[0]:
+				raise Exception("Key 'idx_bucket_activity' doesn't exist in table 'tabStock Entry'")
+			return [("NEW111", "Harvesting", at(40))]
+
+		with patch.object(bc, "_read", read), patch.object(bc, "now_datetime", lambda: at(40)):
+			data = bc.index()
+		self.assertIn("NEW111", data)
+		self.assertIn("stock_entry_type_docstatus_posting_date_index", calls[-1])
 
 	def test_later_use_only_reads_what_is_new(self):
 		with patch.object(bc, "now_datetime", lambda: at(40)):
@@ -257,7 +271,7 @@ class TestRowsUseTheIndex(IntegrationTestCase):
 	def test_the_slow_subquery_is_gone_from_the_source_queries(self):
 		import inspect
 
-		for fn in (st._coldroom_rows, st._harvest_rows, st._allocations, st._transfer_rows):
+		for fn in (st._coldroom_rows, st._harvest_rows, st._allocations):
 			src = inspect.getsource(fn)
 			self.assertNotIn("n.creation > se.creation", src, fn.__name__)
 			self.assertNotIn("se.creation > ba.creation", src, fn.__name__)
