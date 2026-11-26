@@ -240,7 +240,99 @@ def preview_revision(
 	elif sales_order:
 		mine = lambda ln: ln.parent == sales_order  # noqa: E731
 	changes = _changes(day, farm, mine, days, only=mine)
+	if sales_order or sales_order_item:
+		changes += _covered_lines(sales_order, sales_order_item, {c["sales_order_item"] for c in changes})
 	return {"success": True, "delivery_date": day, "farm": farm, "changes": changes}
+
+
+def _covered_lines(sales_order, sales_order_item, listed):
+	"""The order's confirmed lines the revision does not list because nothing is left to confirm (fully
+	covered or already allocated): shown so their team can still be changed. Their stems stay as they are."""
+	filters = {"status": ("in", TEAM_STATUSES)}
+	if sales_order_item:
+		filters["sales_order_item"] = sales_order_item
+	else:
+		filters["sales_order"] = sales_order
+	confs = frappe.get_all(
+		"Allocation Confirmation",
+		filters=filters,
+		fields=["sales_order_item", "stems", "team", "variety", "length", "mix_key", "modified"],
+		order_by="modified asc",
+	)
+	by = {}
+	for c in confs:
+		if c.sales_order_item in listed:
+			continue
+		row = by.setdefault(
+			c.sales_order_item, {"stems": 0.0, "team": "", "variety": c.variety, "length": c.length}
+		)
+		row["stems"] += flt(c.stems)
+		row["team"] = c.team or row["team"]
+	if not by:
+		return []
+	lines = {
+		r.name: r
+		for r in frappe.get_all(
+			"Sales Order Item",
+			filters={"name": ("in", list(by))},
+			fields=[
+				"name",
+				"parent",
+				"idx",
+				"item_code",
+				"custom_length",
+				"stock_qty",
+				"custom_number_of_boxes",
+				"custom_mixed_box",
+				"custom_mixed_bunch",
+				"custom_mix_group",
+				"custom_bunch_group",
+				"custom_mix_name",
+				"custom_line",
+				"delivery_date",
+			],
+		)
+	}
+	orders = {
+		r.name: r
+		for r in frappe.get_all(
+			"Sales Order",
+			filters={"name": ("in", list({ln.parent for ln in lines.values()}))},
+			fields=["name", "customer", "customer_name", "custom_order_name", "custom_allocation_sequence"],
+		)
+	}
+	out = []
+	for soi, c in by.items():
+		ln = lines.get(soi)
+		if not ln:
+			continue
+		so = orders.get(ln.parent) or frappe._dict()
+		mixed = cint(ln.custom_mixed_box) or cint(ln.custom_mixed_bunch)
+		out.append(
+			{
+				"sales_order_item": soi,
+				"sales_order": ln.parent,
+				"kind": "mix" if mixed else "straight",
+				"mix_name": (ln.custom_mix_name or ln.custom_line or _("Mix")) if mixed else "",
+				"boxes": cint(ln.custom_number_of_boxes),
+				"idx": cint(ln.idx),
+				"order_name": so.get("custom_order_name") or "",
+				"customer": so.get("customer_name") or so.get("customer") or "",
+				"sequence": cint(so.get("custom_allocation_sequence")),
+				"variety": c["variety"] or ln.item_code,
+				"length": c["length"] or ln.custom_length or "",
+				"ordered": flt(ln.stock_qty),
+				"was": c["stems"],
+				"now": c["stems"],
+				"max": c["stems"],
+				"team": c["team"],
+				"delivery_date": str(ln.delivery_date),
+				"stock": {},
+				"left_for_it": 0.0,
+				"covered": 1,
+			}
+		)
+	return out
 
 
 @frappe.whitelist(methods=["POST"])
@@ -262,6 +354,7 @@ def revise_confirmations(
 		sales_order_items = json.loads(sales_order_items or "[]")
 	if isinstance(lines, str):
 		lines = json.loads(lines or "[]")
+	team_only = []
 	if lines:
 		planned = pg._planned_week(days, farm)
 		changes = []
@@ -273,8 +366,17 @@ def revise_confirmations(
 			p = planned.get(soi, {"real": 0.0, "expected": 0.0})
 			was = flt(p["real"]) + flt(p["expected"])
 			# the planner can move the line to another team as well (a mixed box moves whole: confirm_lines)
-			team_was = plans.team_for_line(soi) or ""
+			team_was = plans.team_for_line(soi) or _any_team(soi)
 			team = (row.get("team") or "").strip() or team_was
+			# a new team on a line whose stems stay (fully confirmed, or nothing left to confirm because it
+			# is covered): the line moves to the team as it stands, its stems are not confirmed again
+			if (
+				team
+				and team != team_was
+				and (cint(row.get("team_only")) or abs(now - was) <= 0.5 or want <= 0.5)
+			):
+				team_only.append({"sales_order_item": soi, "team": team, "team_was": team_was})
+				continue
 			if abs(now - was) > 0.5 or (team != team_was and now > 0.5):
 				changes.append({"sales_order_item": soi, "was": was, "now": now, "team": team})
 	else:
@@ -283,25 +385,28 @@ def revise_confirmations(
 			for c in _changes(day, farm, days=days)
 			if not sales_order_items or c["sales_order_item"] in sales_order_items
 		]
-	if not changes:
+	for t in team_only:
+		_move_line_team(t["sales_order_item"], t["team"], t["team_was"])
+	if not changes and not team_only:
 		return {"success": True, "lines": 0}
-	pg.confirm_lines(
-		None if week else day,
-		farm,
-		json.dumps(
-			[
-				{
-					"sales_order_item": c["sales_order_item"],
-					"stems": c["now"],
-					"team": c["team"],
-					"basis": "rolling",
-					"revised": 1,
-				}
-				for c in changes
-			]
-		),
-		week=week,
-	)
+	if changes:
+		pg.confirm_lines(
+			None if week else day,
+			farm,
+			json.dumps(
+				[
+					{
+						"sales_order_item": c["sales_order_item"],
+						"stems": c["now"],
+						"team": c["team"],
+						"basis": "rolling",
+						"revised": 1,
+					}
+					for c in changes
+				]
+			),
+			week=week,
+		)
 	from upande_packhouse.api.v2.allocation_teams import _queues, _write_rounds
 
 	for d in days:
@@ -310,10 +415,93 @@ def revise_confirmations(
 			_write_rounds(plan, _queues(plan))
 	return {
 		"success": True,
-		"lines": len(changes),
+		"lines": len(changes) + len(team_only),
+		"teams": len(team_only),
 		"up": sum(max(0.0, c["now"] - c["was"]) for c in changes),
 		"down": sum(max(0.0, c["was"] - c["now"]) for c in changes),
 	}
+
+
+#: a line's confirmations a team move carries: the live ones and those already allocated
+TEAM_STATUSES = (*plans.LIVE, "Fulfilled")
+
+
+def _any_team(soi):
+	"""The team on any of a line's confirmations, allocated ones included ('' when none)."""
+	return (
+		frappe.db.get_value(
+			"Allocation Confirmation",
+			{"sales_order_item": soi, "status": ("in", TEAM_STATUSES), "team": ("!=", "")},
+			"team",
+			order_by="modified desc",
+		)
+		or ""
+	)
+
+
+def _move_line_team(soi, team, team_was):
+	"""Put a line on another team without confirming its stems again: its confirmations (allocated ones too),
+	its Confirmed Stems rows and its stems waiting release. A mixed box is packed by one team, so every line of
+	the box moves. The team must pack at the same sales farm: another sales farm's team takes the line to that
+	farm's plan, which re-confirming does."""
+	from upande_packhouse.allocation_log import log
+	from upande_packhouse.api.v2.allocation_teams import team_sales_farms
+
+	if not frappe.db.exists("Packing Teams", team):
+		frappe.throw(_("{0} is not a team we know.").format(team))
+	home = team_sales_farms()
+	if team_was and home.get(team) != home.get(team_was):
+		frappe.throw(
+			_(
+				"{0} packs at {1}, not {2}: change its stems too so the line is confirmed at that farm."
+			).format(team, home.get(team) or _("another farm"), home.get(team_was) or _("this farm"))
+		)
+	key = frappe.db.get_value(
+		"Allocation Confirmation",
+		{"sales_order_item": soi, "status": ("in", TEAM_STATUSES), "mix_key": ("!=", "")},
+		"mix_key",
+	)
+	sois = (
+		frappe.get_all(
+			"Allocation Confirmation",
+			filters={"mix_key": key, "status": ("in", TEAM_STATUSES)},
+			pluck="sales_order_item",
+			distinct=True,
+		)
+		if key
+		else []
+	) or [soi]
+	sois = sorted(set(sois) | {soi})
+	frappe.db.sql(
+		"""UPDATE `tabAllocation Confirmation` SET team = %(t)s
+		   WHERE sales_order_item IN %(s)s AND status IN %(st)s""",
+		{"t": team, "s": tuple(sois), "st": TEAM_STATUSES},
+	)
+	frappe.db.sql(
+		"""UPDATE `tabPending Allocation Row` r
+		   JOIN `tabPending Allocation` p ON p.name = r.parent AND r.parenttype = 'Pending Allocation'
+		   SET r.team = %(t)s
+		   WHERE p.status = 'Pending' AND r.sales_order_item IN %(s)s""",
+		{"t": team, "s": tuple(sois)},
+	)
+	meta = frappe.get_meta("Confirmed Stems")
+	sets = {"team": team} if meta.has_field("team") else {}
+	if meta.has_field("processing_sales_farm") and home.get(team):
+		sets["processing_sales_farm"] = home.get(team)
+	if sets:
+		for name in frappe.get_all(
+			"Confirmed Stems",
+			filters={"sales_order_item": ("in", sois), "parenttype": "Sales Order"},
+			pluck="name",
+		):
+			frappe.db.set_value("Confirmed Stems", name, sets, update_modified=False)
+	for s in sois:
+		log(
+			"Revised",
+			"team {0} -> {1}".format(team_was or "-", team),
+			sales_order_item=s,
+			team=team,
+		)
 
 
 @frappe.whitelist()

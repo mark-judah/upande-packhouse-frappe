@@ -1670,15 +1670,21 @@
     PH.modal({ title: soi ? "Revise " + (what || "the line") : "Revise the order", sub: so || "", size: "xl", body: el, actions: [
       { label: "Cancel" },
       { label: "Apply", primary: true, onClick: () => {
-        const picked = [...el.querySelectorAll("input[data-pick]:checked")].map((x) => ({
-          sales_order_item: x.dataset.soi,
-          stems: Math.max(0, +(el.querySelector('.pg-rev-in[data-soi="' + x.dataset.soi + '"]') || {}).value || 0),
-          team: (el.querySelector('.pg-rev-team[data-soi="' + x.dataset.soi + '"]') || {}).value || "",
-        }));
+        const picked = [...el.querySelectorAll("input[data-pick]:checked")].map((x) => {
+          const i = el.querySelector('.pg-rev-in[data-soi="' + x.dataset.soi + '"]') || {};
+          const t = el.querySelector('.pg-rev-team[data-soi="' + x.dataset.soi + '"]') || {};
+          return {
+            sales_order_item: x.dataset.soi,
+            stems: Math.max(0, +i.value || 0),
+            team: t.value || "",
+            // covered, or only the team changed: the line moves to the team and its stems stay as they are
+            team_only: i.dataset && (i.dataset.covered === "1" || (!i.dataset.touched && t.value !== t.dataset.was)) ? 1 : 0,
+          };
+        });
         if (!picked.length) { PH.toast("Tick a line to revise.", "bad"); return false; }
         return PH.call(REVISE + "revise_confirmations", { ...plan(), farm: S.farm, lines: JSON.stringify(picked) }, { type: "POST" }).then((r) => {
           if (!r || r.success === false) return false;
-          PH.toast("Revised " + PH.fmt.plural(r.lines || 0, "line") + " · " + n(r.down || 0) + " stems less, " + n(r.up || 0) + " more.", "good");
+          PH.toast("Revised " + PH.fmt.plural(r.lines || 0, "line") + (r.teams ? " · " + PH.fmt.plural(r.teams, "team change") : "") + " · " + n(r.down || 0) + " stems less, " + n(r.up || 0) + " more.", "good");
           load();
         });
       } },
@@ -1693,8 +1699,8 @@
         '<td><b>' + esc(c.variety) + "</b> " + esc(c.length) + "</td>" +
         "<td>" + (c.sequence ? '<span class="pg-chip pg-chip--ink">#' + c.sequence + "</span> " : "") + '<select class="ph-select pg-rev-team" data-soi="' + esc(c.sales_order_item) + '" data-was="' + esc(c.team || "") + '" aria-label="Team for ' + esc(c.variety) + '">' + teamOptions(c.team) + "</select></td>" +
         '<td class="is-num">' + n(c.ordered) + '</td><td class="is-num">' + n(c.was) + "</td>" + revStock(c.stock) +
-        '<td class="is-num"><input class="ph-input pg-in pg-rev-in" type="number" min="0" max="' + Math.round(c.max) + '" step="1" inputmode="numeric" data-soi="' + esc(c.sales_order_item) + '" data-was="' + Math.round(c.was) + '" value="' + Math.round(c.now) + '" aria-label="Revised stems for ' + esc(c.variety) + '">' +
-        '<small class="' + (c.now < c.was - 0.5 ? "ph-bad" : c.now > c.was + 0.5 ? "ph-good" : "ph-muted") + '">' + (Math.abs(c.now - c.was) > 0.5 ? n(c.now) + " suggested" : "matches the stock") + "</small></td></tr>";
+        '<td class="is-num"><input class="ph-input pg-in pg-rev-in" type="number" min="0" max="' + Math.round(c.max) + '" step="1" inputmode="numeric" data-soi="' + esc(c.sales_order_item) + '" data-was="' + Math.round(c.was) + '"' + (c.covered ? ' data-covered="1" disabled' : "") + ' value="' + Math.round(c.now) + '" aria-label="Revised stems for ' + esc(c.variety) + '">' +
+        '<small class="' + (c.now < c.was - 0.5 ? "ph-bad" : c.now > c.was + 0.5 ? "ph-good" : "ph-muted") + '">' + (c.covered ? "Covered" : Math.abs(c.now - c.was) > 0.5 ? n(c.now) + " suggested" : "matches the stock") + "</small></td></tr>";
       const tiles = () => {
         const picked = [...el.querySelectorAll("input[data-pick]")].map((x) => {
           const i = el.querySelector('.pg-rev-in[data-soi="' + x.dataset.soi + '"]');
@@ -1733,7 +1739,7 @@
         paint();
       }));
       el.querySelectorAll("input[data-pick]").forEach((x) => (x.onchange = paint));
-      el.querySelectorAll(".pg-rev-in").forEach((i) => (i.oninput = () => { const cb = el.querySelector('input[data-pick][data-soi="' + i.dataset.soi + '"]'); if (cb) cb.checked = true; paint(); }));
+      el.querySelectorAll(".pg-rev-in").forEach((i) => (i.oninput = () => { i.dataset.touched = "1"; const cb = el.querySelector('input[data-pick][data-soi="' + i.dataset.soi + '"]'); if (cb) cb.checked = true; paint(); }));
       // a new team ticks the line too: it is revised even when its stems stay
       el.querySelectorAll(".pg-rev-team").forEach((t) => (t.onchange = () => { const cb = el.querySelector('input[data-pick][data-soi="' + t.dataset.soi + '"]'); if (cb) cb.checked = t.value !== t.dataset.was || cb.checked; paint(); }));
       paint();
