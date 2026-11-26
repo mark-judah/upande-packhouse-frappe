@@ -128,7 +128,7 @@ html,body{overflow:clip!important}
     // The Scheduler has its own team buttons (same rtTeam filter).
     if(teamLbl) teamLbl.hidden = (tab!=='transfer');
     if(locLbl) locLbl.hidden = (tab!=='scheduler' && tab!=='transfer');
-    if(kindLbl) kindLbl.hidden = (tab!=='scheduler');
+    if(kindLbl) kindLbl.hidden = (tab!=='scheduler' && tab!=='logistics');
   }
   function show(tab, push){
     var g=GROUPS[tab], f=frames[g], kept=!!f;

@@ -549,7 +549,7 @@
     });
     // Bucket tiles once per physical bucket (a bucket split over two orders is one).
     var tt = OV.totals;
-    if (tt && tt.total != null && orders === OV.orders) {
+    if (tt && tt.total != null && orders === OV.orders && !ovKind()) {
       s.buckets = tt.total; s.shelved = tt.shelved; s.transit = tt.transit; s.trolley = tt.trolley;
       s.awaiting = tt.awaiting; s.issued = tt.issued; s.notFound = tt.not_found;
     }
@@ -613,6 +613,9 @@
   // it (a slow reply is never thrown away by the next tick). A reply is dropped only when
   // its day is no longer the day shown, or a newer reply for that day is already in.
   var OV_SEQ = 0, OV_PENDING = null;
+  // The page's Orders filter: Quality B (webstore) orders, or every other order (export).
+  function ovKind() { return (window.rtKind && window.rtKind.get()) || ''; }
+  function ovKindOk(o) { var k = ovKind(); return !k || (k === 'qualityb' ? !!Number(o.quality_b) : !Number(o.quality_b)); }
   function ovLoad() {
     // The page's global filters (date, farm, team) decide what is shown.
     var day = (window.rtDate && window.rtDate.get()) || OV.date;
@@ -632,7 +635,7 @@
       var sig = JSON.stringify([d && d.orders, d && d.runs, d && d.bucket_totals]);
       if (sig !== OV.sig) {
         OV.sig = sig;
-        OV.orders = (d && d.orders) || []; OV.runs = (d && d.runs) || []; OV.totals = (d && d.bucket_totals) || null;
+        OV.orders = ((d && d.orders) || []).filter(ovKindOk); OV.runs = (d && d.runs) || []; OV.totals = (d && d.bucket_totals) || null;
         BL_LINES = {}; BL_LINES_FOR = null;
         OV.details = {};
         renderActive();
@@ -2113,6 +2116,8 @@
     renderActive();
   };
   window.tmLoad = function () { return ovLoad(); };
+  // the Orders filter changed: the day is read again and only its orders are shown
+  if (window.rtKind) window.rtKind.on(function () { OV.sig = null; OV_PENDING = null; ovLoad(); });
 
   function renderTabs() {
     var bar = document.getElementById('tm-tabs');
