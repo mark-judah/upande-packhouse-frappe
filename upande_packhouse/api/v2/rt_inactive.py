@@ -48,8 +48,11 @@ RANK = {
 
 
 def inactive_days():
-	"""Production Settings > Inactive Bucket Days."""
-	return cint(frappe.db.get_single_value("Production Settings", "inactive_bucket_days"))
+	"""Production Settings > Inactive Bucket Days (0 on a site without Production Settings: not set)."""
+	try:
+		return cint(frappe.db.get_single_value("Production Settings", "inactive_bucket_days"))
+	except frappe.DoesNotExistError:
+		return 0
 
 
 def candidates(now=None, days=0):

@@ -30,7 +30,10 @@ def _quality_b_opls(opls):
 	opls = [o for o in opls or () if o]
 	if not opls or not frappe.db.has_column("Order Pick List", "quality_b"):
 		return set()
-	return set(frappe.get_all("Order Pick List", filters={"name": ["in", opls], "quality_b": 1}, pluck="name"))
+	return set(
+		frappe.get_all("Order Pick List", filters={"name": ["in", opls], "quality_b": 1}, pluck="name")
+	)
+
 
 # source-farm expression (reused in SELECT + WHERE)
 FARM_EXPR = "COALESCE(NULLIF(pli.farm, ''), NULLIF(SUBSTRING_INDEX(COALESCE(NULLIF(pli.source_warehouse,''), pli.warehouse), ' ', 1), ''))"
